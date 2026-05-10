@@ -12,7 +12,6 @@ jobs:
     # PR의 경우 실제로 머지된 경우에만 실행
     if: github.event_name == 'push' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-
 	defaults:
 		run:
 			working-directory: ./back
