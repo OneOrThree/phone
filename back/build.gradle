@@ -38,7 +38,8 @@ openApi {
 	apiDocsUrl.set("http://localhost:8080/v0/api-docs")      // 앱 구동 후 호출할 URL
 	outputDir.set(file("$buildDir/docs/api/"))               // 생성된 spec 저장 위치
 	outputFileName.set("openapi.json")
-	waitTimeInSeconds.set(60)                              // 앱 구동 대기 시간
+	waitTimeInSeconds.set(30)                              // 앱 구동 대기 시간
+	forkProperties.set("-Dspringdoc.api-docs.path=/v0/api-docs")
 }
 
 tasks.named('test') {
