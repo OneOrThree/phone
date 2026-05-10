@@ -1,0 +1,46 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.0.6'
+	id 'io.spring.dependency-management' version '1.1.7'
+
+	//API 문서화
+	id "org.springdoc.openapi-gradle-plugin" version "1.9.0"
+}
+
+group = 'com.oneorthree'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// API 문서화
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2'
+
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testCompileOnly 'org.projectlombok:lombok'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+openApi {
+	apiDocsUrl.set("http://localhost:8080/v0/api-docs")      // 앱 구동 후 호출할 URL
+	outputDir.set(file("$buildDir/docs/api/"))               // 생성된 spec 저장 위치
+	outputFileName.set("openapi.json")
+	waitTimeInSeconds.set(10)                              // 앱 구동 대기 시간
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
