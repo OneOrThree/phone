@@ -95,3 +95,22 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Sync to Apidog
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        run: |
+          curl -X POST "https://api.apidog.com/v1/projects/1255433/import-openapi" \
+            -H "Authorization: Bearer ${{ secrets.APIDOG_TOKEN }}" \
+            -H "X-Apidog-Api-Version: 2024-03-28" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "input": {
+                "url": "https://oneorthree.github.io/phone/openapi.json"
+              },
+              "options": {
+                "endpointOverwriteBehavior": "OVERWRITE_EXISTING",
+                "schemaOverwriteBehavior": "OVERWRITE_EXISTING",
+                "updateFolderOfChangedEndpoint": false,
+                "prependBasePath": false
+              }
+            }'
