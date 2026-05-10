@@ -48,7 +48,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: openapi-spec
-          path: back/build/openapi/openapi.json  # ← working-directory 반영
+          path: back/build/docs/api/openapi.json  # ← working-directory 반영
           retention-days: 30
 
       - name: Deploy to gh-pages
@@ -57,5 +57,5 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
-          publish_dir: back/build/openapi  # ← working-directory 반영
+          publish_dir: back/build/docs/api/  # ← working-directory 반영
           destination_dir: .
