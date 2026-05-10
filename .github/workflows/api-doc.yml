@@ -46,7 +46,7 @@ jobs:
 
       - name: Generate Swagger UI
         run: |
-          cat > ../build/docs/api/index.html << 'EOF'
+          cat > build/docs/api/index.html << 'EOF'
           <!DOCTYPE html>
           <html lang="ko">
             <head>
@@ -84,7 +84,6 @@ jobs:
           retention-days: 30
 
       - name: Deploy to gh-pages
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -93,7 +92,6 @@ jobs:
           destination_dir: .
 
       - name: Notify Slack
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         uses: slackapi/slack-github-action@v1.27.0
         with:
           payload: |
@@ -129,7 +127,6 @@ jobs:
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
 
       - name: Sync to Apidog
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         run: |
           curl -X POST "https://api.apidog.com/v1/projects/1255433/import-openapi" \
             -H "Authorization: Bearer ${{ secrets.APIDOG_TOKEN }}" \
