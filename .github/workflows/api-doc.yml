@@ -13,6 +13,10 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
 
+	defaults:
+		run:
+			working-directory: ./back
+
     steps:
       # ── 1. 코드 체크아웃 ──────────────────────────────
       - name: Checkout source
