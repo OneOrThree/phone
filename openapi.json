@@ -1,0 +1,45 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Phone API 명세서",
+    "description": "핸드폰 중복 방지 API 문서입니다.",
+    "version": "v0.0.1"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Generated server url"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "헬스 체크 API Test"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "서버 상태 확인",
+        "description": "서버 상태를 반환합니다.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {}
+}
