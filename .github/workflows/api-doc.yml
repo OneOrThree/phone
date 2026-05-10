@@ -9,7 +9,7 @@ on:
 
 jobs:
   generate-docs:
-    if: github.event_name == 'push' # || github.event.pull_request.merged == true
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
     defaults:          # ← runs-on과 같은 레벨
       run:
