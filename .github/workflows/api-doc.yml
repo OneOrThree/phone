@@ -1,0 +1,68 @@
+name: Generate OpenAPI Docs
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+    types: [ closed ]  # PR이 닫힐 때 (머지 포함)
+
+jobs:
+  generate-docs:
+    # PR의 경우 실제로 머지된 경우에만 실행
+    if: github.event_name == 'push' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. 코드 체크아웃 ──────────────────────────────
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # ── 2. Java 환경 세팅 ─────────────────────────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # ── 3. Gradle 캐시 (빌드 속도 향상) ──────────────
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # ── 4. Gradle 실행 권한 부여 ──────────────────────
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # ── 5. 빌드 ───────────────────────────────────────
+      - name: Build with Gradle
+        run: ./gradlew build -x test
+
+      # ── 6. OpenAPI 문서 생성 ──────────────────────────
+      - name: Generate OpenAPI Docs
+        run: ./gradlew generateOpenApiDocs
+
+      # ── 7. 결과물 아티팩트로 저장 ─────────────────────
+      - name: Upload openapi.json as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec
+          path: build/openapi/openapi.json
+          retention-days: 30  # 30일간 보관
+
+      # ── 8. gh-pages 브랜치로 푸시 ────────────────────
+      - name: Deploy to gh-pages
+        # main 브랜치에 실제 반영된 경우에만 배포
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: build/openapi   # openapi.json이 있는 폴더
+          destination_dir: .           # gh-pages 루트에 배포
