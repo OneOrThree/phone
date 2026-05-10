@@ -44,6 +44,38 @@ jobs:
       - name: Generate OpenAPI Docs
         run: ./gradlew generateOpenApiDocs
 
+      - name: Generate Swagger UI
+        run: |
+          cat > ../build/docs/api/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="ko">
+            <head>
+              <meta charset="UTF-8">
+              <title>Phone API 문서</title>
+              <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist/swagger-ui.css">
+            </head>
+            <body>
+              <div id="swagger-ui"></div>
+              <script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script>
+              <script>
+                SwaggerUIBundle({
+                  url: "./openapi.json",
+                  dom_id: '#swagger-ui',
+                  presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIBundle.SwaggerUIStandalonePreset
+                  ],
+                  layout: "BaseLayout",
+                  deepLinking: true,
+                  displayRequestDuration: true,
+                  operationsSorter: "alpha",
+                  docExpansion: "none",
+                })
+              </script>
+            </body>
+          </html>
+          EOF
+
       - name: Upload openapi.json as artifact
         uses: actions/upload-artifact@v4
         with:
@@ -86,7 +118,7 @@ jobs:
                     {
                       "type": "button",
                       "text": "문서 확인하기",
-                      "url": "https://oneorthree.github.io/phone/openapi.json"
+                      "url": "https://oneorthree.github.io/phone/"
                     }
                   ]
                 }
