@@ -11,7 +11,7 @@ jobs:
   generate-docs:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
-    defaults:          # ← runs-on과 같은 레벨
+    defaults:
       run:
         working-directory: ./back
 
@@ -48,7 +48,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: openapi-spec
-          path: back/build/docs/api/openapi.json  # ← working-directory 반영
+          path: back/build/docs/api/openapi.json
           retention-days: 30
 
       - name: Deploy to gh-pages
@@ -57,5 +57,41 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
-          publish_dir: back/build/docs/api/  # ← working-directory 반영
+          publish_dir: back/build/docs/api/
           destination_dir: .
+
+      - name: Notify Slack
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "✅ API 문서가 업데이트되었습니다.",
+              "attachments": [
+                {
+                  "color": "good",
+                  "fields": [
+                    {
+                      "title": "브랜치",
+                      "value": "${{ github.ref_name }}",
+                      "short": true
+                    },
+                    {
+                      "title": "커밋",
+                      "value": "${{ github.event.head_commit.message }}",
+                      "short": true
+                    }
+                  ],
+                  "actions": [
+                    {
+                      "type": "button",
+                      "text": "문서 확인하기",
+                      "url": "https://oneorthree.github.io/phone/openapi.json"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
