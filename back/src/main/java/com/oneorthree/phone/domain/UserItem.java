@@ -1,19 +1,22 @@
 package com.oneorthree.phone.domain;
 
 import jakarta.persistence.*;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "user_items")
+@Table(
+        name = "user_items",
+        uniqueConstraints = {
+                @UniqueConstraint(columnNames = {"user_id", "item_id"})
+        }
+)
 @Getter
 @Setter
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@NoArgsConstructor (access = AccessLevel.PROTECTED)
+@AllArgsConstructor
 public class UserItem {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
