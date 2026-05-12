@@ -1,10 +1,7 @@
 package com.oneorthree.phone.domain;
 
 import jakarta.persistence.*;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
@@ -13,11 +10,13 @@ import java.time.LocalDateTime;
 @Table(
         name = "character_equipment",
         uniqueConstraints = {
-                @UniqueConstraint(columnNames = {"user_id, slot_type"})
+                @UniqueConstraint(columnNames = {"user_id", "slot_type"})
         }
 )
 @Getter
 @Setter
+@Builder
+@AllArgsConstructor
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CharacterEquipment {
     @Id
@@ -36,6 +35,7 @@ public class CharacterEquipment {
     @Column(name = "slot_type", nullable = false)
     private SlotType slotType;
 
+    // todo 글로벌 시간 변경
     @CreationTimestamp
     @Column(name = "equipped_at", updatable = false)
     private LocalDateTime equippedAt;
