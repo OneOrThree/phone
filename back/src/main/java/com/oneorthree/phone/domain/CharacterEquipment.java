@@ -14,7 +14,6 @@ import java.time.LocalDateTime;
         }
 )
 @Getter
-@Setter
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -39,4 +38,11 @@ public class CharacterEquipment {
     @CreationTimestamp
     @Column(name = "equipped_at", updatable = false)
     private LocalDateTime equippedAt;
+
+    public void equip(Item item) {
+        this.item = item;
+    }
+    public void unequip() {
+        this.item = null;
+    }
 }

@@ -27,6 +27,9 @@ dependencies {
 	// JPA / Hibernate (ORM, 엔티티 ↔ DB 매핑)
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 
+	// DB 쿼리 실행 시간 측정
+	implementation 'com.github.gavlyukovskiy:p6spy-spring-boot-starter:1.9.0'
+
 	// Spring Web (REST API 기본, 내장 Tomcat 포함)
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 
