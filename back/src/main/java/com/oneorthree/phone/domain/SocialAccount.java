@@ -6,26 +6,20 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
-
 @Entity
+@Table(name = "sockal_accounts")
 @Getter
 @Setter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class User {
-
+public class SocialAccount {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private String nickName;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;
 
-    private String profileImageUrl;
-
-    private LocalDate createdAt;
-
-    @OneToMany(mappedBy = "user")
-    private List<SockalAccount> socialAccounts = new ArrayList<>();
+    private Provider provider;
+    private String provider_id;
 }
