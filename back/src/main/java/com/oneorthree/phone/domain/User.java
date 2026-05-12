@@ -5,8 +5,9 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.CreationTimestamp;
 
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -24,8 +25,9 @@ public class User {
 
     private String profileImageUrl;
 
-    private LocalDate createdAt;
+    @CreationTimestamp
+    private LocalDateTime createdAt;
 
     @OneToMany(mappedBy = "user")
-    private List<SockalAccount> socialAccounts = new ArrayList<>();
+    private List<SocialAccount> socialAccounts = new ArrayList<>();
 }
