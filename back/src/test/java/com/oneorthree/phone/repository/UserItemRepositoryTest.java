@@ -1,9 +1,6 @@
-package com.oneorthree.phone.Repository;
+package com.oneorthree.phone.repository;
 
 import com.oneorthree.phone.domain.*;
-import com.oneorthree.phone.repository.ItemRepository;
-import com.oneorthree.phone.repository.UserItemRepository;
-import com.oneorthree.phone.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

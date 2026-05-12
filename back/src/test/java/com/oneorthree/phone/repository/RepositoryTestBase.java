@@ -1,4 +1,4 @@
-package com.oneorthree.phone.Repository;
+package com.oneorthree.phone.repository;
 
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
