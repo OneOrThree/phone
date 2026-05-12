@@ -34,4 +34,7 @@ public class User {
 
     @OneToMany(mappedBy = "user")
     private List<UserItem> userItems = new ArrayList<>();
+
+    @OneToMany(mappedBy = "user")
+    private List<CharacterEquipment> characterEquipments = new ArrayList<>();
 }
