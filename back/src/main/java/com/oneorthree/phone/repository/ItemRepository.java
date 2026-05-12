@@ -8,5 +8,5 @@ import java.util.List;
 
 public interface ItemRepository extends JpaRepository<Item, Long> {
     //슬롯 별 아이템 목록 (상점)
-    List<Item> findbySlotType(SlotType slotType);
+    List<Item> findBySlotType(SlotType slotType);
 }

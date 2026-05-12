@@ -1,18 +1,19 @@
 package com.oneorthree.phone.repository;
 
 import com.oneorthree.phone.domain.Item;
+import com.oneorthree.phone.domain.User;
 import com.oneorthree.phone.domain.UserItem;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.security.core.userdetails.User;
+
 
 import java.util.List;
 
 public interface UserItemRepository extends JpaRepository<UserItem, Long> {
     // 인벤토리 조회
-    List<UserItem> findbyUser(User user);
+    List<UserItem> findByUser(User user);
 
     // 아이템 소유 여부 확인
     boolean existsByUserAndItem(User user, Item item);
