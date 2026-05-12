@@ -21,13 +21,32 @@ repositories {
 }
 
 dependencies {
-	// API 문서화
+	// API 문서화 (Swagger UI - /swagger-ui/index.html 에서 확인)
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2'
 
+	// JPA / Hibernate (ORM, 엔티티 ↔ DB 매핑)
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+	// Spring Web (REST API 기본, 내장 Tomcat 포함)
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+
+	// Spring MVC (REST 컨트롤러, DispatcherServlet)
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 
+	// WebSocket + STOMP (실시간 장착 브로드캐스트)
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
+	// Spring Security (인증/인가, JWT 필터, OAuth2)
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+
+	// PostgreSQL JDBC 드라이버 (런타임에만 필요)
+	runtimeOnly 'org.postgresql:postgresql'
+
+	// Lombok (boilerplate 제거 - @Getter, @Builder, @RequiredArgsConstructor 등)
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
+
+	// 테스트
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 	testCompileOnly 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
