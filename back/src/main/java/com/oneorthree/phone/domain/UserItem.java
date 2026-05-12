@@ -8,30 +8,26 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 
 @Entity
-@Table(name = "users")
+@Table(name = "user_items")
 @Getter
 @Setter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class User {
-
+public class UserItem {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private String nickName;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
 
-    private String profileImageUrl;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "item_id", nullable = false)
+    private Item item;
 
     @CreationTimestamp
-    private LocalDateTime createdAt;
+    private LocalDateTime acquiredAt;
 
-    @OneToMany(mappedBy = "user")
-    private List<SocialAccount> socialAccounts = new ArrayList<>();
-
-    @OneToMany(mappedBy = "user")
-    private List<UserItem> userItems = new ArrayList<>();
 }
