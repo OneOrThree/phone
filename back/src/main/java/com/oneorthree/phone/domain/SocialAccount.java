@@ -17,9 +17,13 @@ public class SocialAccount {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id")
+    @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private Provider provider;
-    private String provider_id;
+
+    @Column(name = "provider_id", nullable = false)
+    private String providerId;
 }
