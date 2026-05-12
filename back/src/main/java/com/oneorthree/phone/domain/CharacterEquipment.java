@@ -10,7 +10,12 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "character_equipment")
+@Table(
+        name = "character_equipment",
+        uniqueConstraints = {
+                @UniqueConstraint(columnNames = {"user_id, slot_type"})
+        }
+)
 @Getter
 @Setter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -27,8 +32,11 @@ public class CharacterEquipment {
     @JoinColumn(name = "item_id", nullable = false)
     private Item item;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "slot_type", nullable = false)
     private SlotType slotType;
 
     @CreationTimestamp
-    private LocalDateTime equipped_at;
+    @Column(name = "equipped_at", updatable = false)
+    private LocalDateTime equippedAt;
 }
