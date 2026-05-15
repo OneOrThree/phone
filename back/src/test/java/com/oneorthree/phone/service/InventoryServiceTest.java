@@ -1,5 +1,6 @@
 package com.oneorthree.phone.service;
 
+import com.oneorthree.phone.api.dto.response.UserItemResponse;
 import com.oneorthree.phone.domain.*;
 import com.oneorthree.phone.repository.ItemRepository;
 import com.oneorthree.phone.repository.UserItemRepository;
@@ -43,7 +44,7 @@ public class InventoryServiceTest {
         given(userItemRepository.findByUser(user)).willReturn(List.of());
 
         // when
-        List<UserItem> result = inventoryService.getInventory(1L);
+        List<UserItemResponse> result = inventoryService.getInventory(1L);
 
         // then
         assertThat(result).isEmpty();

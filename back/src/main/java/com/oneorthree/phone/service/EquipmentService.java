@@ -1,5 +1,6 @@
 package com.oneorthree.phone.service;
 
+import com.oneorthree.phone.api.dto.response.CharacterEquipmentResponse;
 import com.oneorthree.phone.domain.CharacterEquipment;
 import com.oneorthree.phone.domain.Item;
 import com.oneorthree.phone.domain.SlotType;
@@ -26,15 +27,18 @@ public class EquipmentService {
     private final CharacterEquipmentRepository characterEquipmentRepository;
 
     // 유저 캐릭터 전체 장착 상태 조회
-    public List<CharacterEquipment> getEquipment(Long userId) {
+    public List<CharacterEquipmentResponse> getEquipment(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException("유저를 찾을 수 없습니다."));
-        return characterEquipmentRepository.findByUser(user);
+        return characterEquipmentRepository.findByUser(user)
+                .stream()
+                .map(CharacterEquipmentResponse::from)
+                .toList();
     }
 
     // 아이템 장착
     @Transactional
-    public CharacterEquipment equip(Long userId, Long itemId) {
+    public CharacterEquipmentResponse equip(Long userId, Long itemId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException("유저를 찾을 수 없습니다."));
         Item item = itemRepository.findById(itemId)
@@ -53,7 +57,7 @@ public class EquipmentService {
                         .slotType(item.getSlotType())
                         .build());
         equipment.equip(item);
-        return characterEquipmentRepository.save(equipment);
+        return CharacterEquipmentResponse.from(characterEquipmentRepository.save(equipment));
     }
 
     // 아이템 벗기

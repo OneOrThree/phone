@@ -19,17 +19,14 @@ public class EquipmentController {
 
     @GetMapping("/{userId}")
     public ResponseEntity<List<CharacterEquipmentResponse>> getEquipment(@PathVariable Long userId) {
-        List<CharacterEquipmentResponse> response = equipmentService.getEquipment(userId)
-                .stream()
-                .map(CharacterEquipmentResponse::from)
-                .toList();
+        List<CharacterEquipmentResponse> response = equipmentService.getEquipment(userId);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping("/equip")
     public ResponseEntity<CharacterEquipmentResponse> equip(@RequestBody EquipRequest request) {
-        CharacterEquipment equipment = equipmentService.equip(request.getUserId(), request.getItemId());
-        return ResponseEntity.ok(CharacterEquipmentResponse.from(equipment));
+        CharacterEquipmentResponse respone = equipmentService.equip(request.getUserId(), request.getItemId());
+        return ResponseEntity.ok(respone);
     }
 
     @DeleteMapping("/{userId}/{slotType}")

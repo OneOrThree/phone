@@ -1,5 +1,6 @@
 package com.oneorthree.phone.service;
 
+import com.oneorthree.phone.api.dto.response.UserItemResponse;
 import com.oneorthree.phone.domain.User;
 import com.oneorthree.phone.domain.UserItem;
 import com.oneorthree.phone.repository.ItemRepository;
@@ -26,11 +27,14 @@ public class InventoryService {
      * 내 인벤토리 조회
      * todo 조회 성능 개선
      */
-    public List<UserItem> getInventory(Long userId) {
+    public List<UserItemResponse> getInventory(Long userId) {
         User user = userRepository.findById(userId)
                         .orElseThrow(() -> new EntityNotFoundException("유저를 찾을 수 없습니다."));
 
-        return userItemRepository.findByUser(user);
+        return userItemRepository.findByUser(user)
+                .stream()
+                .map(UserItemResponse::from)
+                .toList();
     }
 
     /**

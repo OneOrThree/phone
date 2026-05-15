@@ -1,5 +1,6 @@
 package com.oneorthree.phone.service;
 
+import com.oneorthree.phone.api.dto.response.CharacterEquipmentResponse;
 import com.oneorthree.phone.domain.*;
 import com.oneorthree.phone.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.repository.ItemRepository;
@@ -59,11 +60,11 @@ public class EquipmentServiceTest {
         given(characterEquipmentRepo.save(any())).willAnswer(i -> i.getArgument(0));
 
         //when
-        CharacterEquipment result = equipmentService.equip(1L, 1L);
+        CharacterEquipmentResponse result = equipmentService.equip(1L, 1L);
 
         //then
-        assertThat(result.getItem()).isEqualTo(item);
-        assertThat(result.getSlotType()).isEqualTo(SlotType.HAT);
+        assertThat(result.getItem().getName()).isEqualTo(item.getName());
+        assertThat(result.getSlotType()).isEqualTo(SlotType.HAT.name());
     }
 
     @Test

@@ -17,10 +17,7 @@ public class InventoryController {
 
     @GetMapping("/{userId}")
     public ResponseEntity<List<UserItemResponse>> getInventory(@PathVariable Long userId) {
-        List<UserItemResponse> response = inventoryService.getInventory(userId)
-                .stream()
-                .map(UserItemResponse::from)
-                .toList();
+        List<UserItemResponse> response = inventoryService.getInventory(userId);
         return ResponseEntity.ok(response);
     }
 
