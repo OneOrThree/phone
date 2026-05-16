@@ -1,0 +1,27 @@
+name: Cleanup Feature Docs
+
+on:
+  delete:
+
+jobs:
+  cleanup:
+    if: startsWith(github.event.ref, 'refs/heads/feat/')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+
+      - name: Remove feature branch docs
+        run: |
+          BRANCH="${{ github.event.ref }}"
+          BRANCH_NAME="${BRANCH#refs/heads/}"
+          if [ -d "$BRANCH_NAME" ]; then
+            git rm -rf "$BRANCH_NAME"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -m "chore: remove docs for deleted branch $BRANCH_NAME"
+            git push
+          fi
