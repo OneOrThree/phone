@@ -5,13 +5,20 @@ import React, {
   useEffect,
   useState,
 } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  Pressable,
+} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Canvas } from '@react-three/fiber/native';
 import { useGLTF, OrbitControls } from '@react-three/drei/native';
 import { Asset } from 'expo-asset';
 import * as THREE from 'three';
 import { useEquipment } from '../contexts/EquipmentContext';
+import { useFocus } from '../contexts/FocusContext';
 
 const CHARACTER_MODULE = require('../assets/character/character.glb');
 
@@ -194,8 +201,25 @@ function Loader() {
   );
 }
 
-export default function HomeScreen() {
+function formatFocusTime(totalSeconds) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}시간 ${minutes}분`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}분 ${seconds}초`;
+  }
+
+  return `${seconds}초`;
+}
+
+export default function HomeScreen({ navigation }) {
   const { equippedItem } = useEquipment();
+  const { todayFocusSeconds } = useFocus();
 
   const goalPhoneTime = '3시간';
   const currentPhoneTime = '1시간 20분';
@@ -265,14 +289,25 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.bottomArea}>
-        <Text style={styles.bottomTitle}>오늘의 집중</Text>
-        <Text style={styles.bottomText}>아직 표시할 데이터 없음</Text>
-
-        {equippedItem && (
-          <Text style={styles.equippedText}>
-            장착 아이템: {equippedItem.name}
+        <View>
+          <Text style={styles.bottomTitle}>오늘의 집중</Text>
+          <Text style={styles.focusTimeText}>
+            {formatFocusTime(todayFocusSeconds)}
           </Text>
-        )}
+
+          {equippedItem && (
+            <Text style={styles.equippedText}>
+              장착 아이템: {equippedItem.name}
+            </Text>
+          )}
+        </View>
+
+        <Pressable
+          style={styles.focusStartButton}
+          onPress={() => navigation.navigate('FocusMode')}
+        >
+          <Text style={styles.focusStartButtonText}>집중 시작하기</Text>
+        </Pressable>
       </View>
 
       <StatusBar style="light" />
@@ -349,10 +384,26 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  bottomText: {
-    color: '#aaaaaa',
-    fontSize: 14,
-    marginTop: 6,
+  focusTimeText: {
+    color: '#ffffff',
+    fontSize: 28,
+    fontWeight: '800',
+    marginTop: 8,
+  },
+
+  focusStartButton: {
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 18,
+  },
+
+  focusStartButtonText: {
+    color: '#111111',
+    fontSize: 15,
+    fontWeight: '700',
   },
 
   equippedText: {
