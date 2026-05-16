@@ -77,7 +77,7 @@ export default function ShopScreen() {
   const [selectedCategory, setSelectedCategory] = useState('item');
   const [selectedItem, setSelectedItem] = useState(null);
 
-  const { equippedItem, setEquippedItem } = useEquipment();
+  const { equippedItem, setEquippedItem, equippedFurniture, toggleFurniture } = useEquipment();
 
   const items = shopItems[selectedCategory];
 
@@ -152,7 +152,9 @@ export default function ShopScreen() {
       >
         {items.map((item) => {
           const isSelected = selectedItem?.id === item.id;
-          const isEquipped = equippedItem?.id === item.id;
+          const isEquipped = item.type === 'furniture'
+            ? equippedFurniture.some((f) => f.id === item.id)
+            : equippedItem?.id === item.id;
 
           return (
             <Pressable
@@ -188,17 +190,31 @@ export default function ShopScreen() {
           <>
             <Text style={styles.detailTitle}>{selectedItem.name}</Text>
             <Text style={styles.detailText}>
-              홈 화면에 배치할 수 있는 아이템입니다.
+              {selectedItem.type === 'furniture'
+                ? '홈 화면에 배치할 수 있는 아이템입니다.'
+                : '포커스 모드에서 사용할 수 있는 아이템입니다.'}
             </Text>
 
-            {equippedItem?.id === selectedItem.id ? (
-              <Pressable style={styles.unequipButton} onPress={handleUnequip}>
-                <Text style={styles.unequipButtonText}>장착 해제하기</Text>
-              </Pressable>
+            {selectedItem.type === 'furniture' ? (
+              equippedFurniture.some((f) => f.id === selectedItem.id) ? (
+                <Pressable style={styles.unequipButton} onPress={() => toggleFurniture(selectedItem)}>
+                  <Text style={styles.unequipButtonText}>장착 해제하기</Text>
+                </Pressable>
+              ) : (
+                <Pressable style={styles.equipButton} onPress={() => toggleFurniture(selectedItem)}>
+                  <Text style={styles.equipButtonText}>장착하기</Text>
+                </Pressable>
+              )
             ) : (
-              <Pressable style={styles.equipButton} onPress={handleEquip}>
-                <Text style={styles.equipButtonText}>장착하기</Text>
-              </Pressable>
+              equippedItem?.id === selectedItem.id ? (
+                <Pressable style={styles.unequipButton} onPress={handleUnequip}>
+                  <Text style={styles.unequipButtonText}>장착 해제하기</Text>
+                </Pressable>
+              ) : (
+                <Pressable style={styles.equipButton} onPress={handleEquip}>
+                  <Text style={styles.equipButtonText}>장착하기</Text>
+                </Pressable>
+              )
             )}
           </>
         ) : (

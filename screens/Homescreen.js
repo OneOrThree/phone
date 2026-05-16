@@ -218,7 +218,7 @@ function formatFocusTime(totalSeconds) {
 }
 
 export default function HomeScreen({ navigation }) {
-  const { equippedItem } = useEquipment();
+  const { equippedItem, equippedFurniture } = useEquipment();
   const { todayFocusSeconds } = useFocus();
 
   const goalPhoneTime = '3시간';
@@ -267,14 +267,15 @@ export default function HomeScreen({ navigation }) {
               position={[0, -0.5, 0]}
             />
 
-            {equippedItem?.type === 'furniture' && (
+            {equippedFurniture.map((furniture) => (
               <EquippedItem
-                item={equippedItem}
+                key={furniture.id}
+                item={furniture}
                 scale={0.45}
                 position={[0.9, -0.75, 0.4]}
                 rotation={[0, -0.6, 0]}
               />
-            )}
+            ))}
           </Suspense>
 
           <OrbitControls
