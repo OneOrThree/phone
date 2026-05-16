@@ -21,22 +21,24 @@ export default function App() {
         <NavigationContainer>
           <Tab.Navigator
             initialRouteName="홈"
-            screenOptions={{
+            screenOptions={({ route }) => ({
               headerShown: false,
               tabBarActiveTintColor: '#ffffff',
               tabBarInactiveTintColor: '#777777',
-              tabBarStyle: {
-                backgroundColor: '#111111',
-                borderTopColor: '#333333',
-                height: 64,
-                paddingBottom: 8,
-                paddingTop: 8,
-              },
+              tabBarStyle: route.name === 'FocusMode'
+                ? { display: 'none' }
+                : {
+                    backgroundColor: '#111111',
+                    borderTopColor: '#333333',
+                    height: 64,
+                    paddingBottom: 8,
+                    paddingTop: 8,
+                  },
               tabBarLabelStyle: {
                 fontSize: 12,
                 fontWeight: '600',
               },
-            }}
+            })}
           >
             <Tab.Screen name="홈" component={HomeScreen} />
             <Tab.Screen name="그룹" component={GroupScreen} />

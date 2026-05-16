@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { useFocusEffect } from '@react-navigation/native';
 import { useFocus } from '../contexts/FocusContext';
 
 function formatTime(totalSeconds) {
@@ -8,41 +9,34 @@ function formatTime(totalSeconds) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
-  const hh = String(hours).padStart(2, '0');
-  const mm = String(minutes).padStart(2, '0');
-  const ss = String(seconds).padStart(2, '0');
-
-  return `${hh}:${mm}:${ss}`;
+  return [
+    String(hours).padStart(2, '0'),
+    String(minutes).padStart(2, '0'),
+    String(seconds).padStart(2, '0'),
+  ].join(':');
 }
 
 export default function FocusModeScreen({ navigation }) {
   const { todayFocusSeconds, addFocusSeconds } = useFocus();
+  const [sessionSeconds, setSessionSeconds] = useState(0);
+  const startTimeRef = useRef(null);
 
-  const [displaySeconds, setDisplaySeconds] = useState(todayFocusSeconds);
-  const startTimeRef = useRef(Date.now());
+  useFocusEffect(
+    React.useCallback(() => {
+      startTimeRef.current = Date.now();
+      setSessionSeconds(0);
 
-  useEffect(() => {
-    startTimeRef.current = Date.now();
+      const timerId = setInterval(() => {
+        setSessionSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
+      }, 1000);
 
-    const timerId = setInterval(() => {
-      const currentSessionSeconds = Math.floor(
-        (Date.now() - startTimeRef.current) / 1000
-      );
-
-      setDisplaySeconds(todayFocusSeconds + currentSessionSeconds);
-    }, 1000);
-
-    return () => {
-      clearInterval(timerId);
-    };
-  }, [todayFocusSeconds]);
+      return () => clearInterval(timerId);
+    }, [])
+  );
 
   function handleStop() {
-    const currentSessionSeconds = Math.floor(
-      (Date.now() - startTimeRef.current) / 1000
-    );
-
-    addFocusSeconds(currentSessionSeconds);
+    const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+    addFocusSeconds(elapsed);
     navigation.navigate('홈');
   }
 
@@ -50,11 +44,13 @@ export default function FocusModeScreen({ navigation }) {
     <View style={styles.container}>
       <Text style={styles.title}>포커스 모드</Text>
 
-      <Text style={styles.timer}>{formatTime(displaySeconds)}</Text>
+      <Text style={styles.sessionTimer}>{formatTime(sessionSeconds)}</Text>
+      <Text style={styles.sessionLabel}>현재 세션</Text>
 
-      <Text style={styles.description}>
-        오늘 누적 집중 시간이 실시간으로 표시됩니다.
-      </Text>
+      <View style={styles.accumulatedBox}>
+        <Text style={styles.accumulatedLabel}>오늘 누적</Text>
+        <Text style={styles.accumulatedTime}>{formatTime(todayFocusSeconds + sessionSeconds)}</Text>
+      </View>
 
       <Pressable style={styles.stopButton} onPress={handleStop}>
         <Text style={styles.stopButtonText}>중지하기</Text>
@@ -74,34 +70,54 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   title: {
-    color: '#ffffff',
-    fontSize: 28,
-    fontWeight: '700',
-  },
-  timer: {
-    color: '#ffffff',
-    fontSize: 56,
-    fontWeight: '800',
-    marginTop: 32,
-  },
-  description: {
     color: '#aaaaaa',
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 20,
-    lineHeight: 20,
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
+  sessionTimer: {
+    color: '#ffffff',
+    fontSize: 64,
+    fontWeight: '800',
+    marginTop: 24,
+  },
+  sessionLabel: {
+    color: '#aaaaaa',
+    fontSize: 13,
+    marginTop: 8,
+  },
+  accumulatedBox: {
+    marginTop: 40,
+    alignItems: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 40,
+    borderRadius: 20,
+    backgroundColor: '#242424',
+    width: '100%',
+  },
+  accumulatedLabel: {
+    color: '#aaaaaa',
+    fontSize: 13,
+  },
+  accumulatedTime: {
+    color: '#ffffff',
+    fontSize: 32,
+    fontWeight: '700',
+    marginTop: 6,
   },
   stopButton: {
     width: '100%',
     height: 56,
     borderRadius: 16,
-    backgroundColor: '#ffffff',
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: '#ff6b6b',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 48,
   },
   stopButtonText: {
-    color: '#111111',
+    color: '#ff6b6b',
     fontSize: 16,
     fontWeight: '700',
   },
