@@ -39,8 +39,8 @@ dependencies {
 	// WebSocket + STOMP (실시간 장착 브로드캐스트)
 	implementation 'org.springframework.boot:spring-boot-starter-websocket'
 
-	// Spring Security (인증/인가, JWT 필터, OAuth2)
-	implementation 'org.springframework.boot:spring-boot-starter-security'
+//	// Spring Security (인증/인가, JWT 필터, OAuth2)
+//	implementation 'org.springframework.boot:spring-boot-starter-security'
 
 	// PostgreSQL JDBC 드라이버 (런타임에만 필요)
 	runtimeOnly 'org.postgresql:postgresql'

@@ -3,12 +3,14 @@ package com.oneorthree.phone.api;
 import com.oneorthree.phone.api.dto.request.GrantItemRequest;
 import com.oneorthree.phone.api.dto.response.UserItemResponse;
 import com.oneorthree.phone.service.InventoryService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Tag(name="inventory", description = "인벤토리 관련 API (조회, 수령)")
 @RestController
 @RequestMapping("/api/inventory")
 @RequiredArgsConstructor
