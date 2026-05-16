@@ -71,6 +71,8 @@ jobs:
         id: dest
         run: |
           BRANCH="${{ github.ref_name }}"
+          SAFE_BRANCH="${BRANCH//\//-}"
+          echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
           if [ "$BRANCH" = "main" ]; then
             echo "dir=." >> $GITHUB_OUTPUT
             echo "url=https://oneorthree.github.io/phone/" >> $GITHUB_OUTPUT
@@ -121,7 +123,7 @@ jobs:
         if: steps.check.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: openapi-spec-${{ github.ref_name }}
+          name: openapi-spec-${{ steps.dest.outputs.safe_branch }}
           path: back/build/docs/api/openapi.json
           retention-days: 30
 
