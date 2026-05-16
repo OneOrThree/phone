@@ -3,21 +3,14 @@ name: Generate OpenAPI Docs
 on:
   push:
     branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
-    types: [ closed ]
 
 jobs:
   generate-docs:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-
-      - name: Verify directory structure
-        run: ls -la
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -36,19 +29,26 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - name: Grant execute permission for gradlew
-        working-directory: back
         run: chmod +x gradlew
 
       - name: Build with Gradle
-        working-directory: back
         run: ./gradlew build -x test
 
       - name: Generate OpenAPI Docs
-        working-directory: back
         run: ./gradlew generateOpenApiDocs
 
+      - name: Set deploy destination
+        id: dest
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "dir=." >> $GITHUB_OUTPUT
+            echo "url=https://oneorthree.github.io/phone/" >> $GITHUB_OUTPUT
+          else
+            echo "dir=staging" >> $GITHUB_OUTPUT
+            echo "url=https://oneorthree.github.io/phone/staging/" >> $GITHUB_OUTPUT
+          fi
+
       - name: Generate Swagger UI
-        working-directory: back
         run: |
           mkdir -p build/docs/api
           cat > build/docs/api/index.html << 'EOF'
@@ -85,7 +85,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: openapi-spec
-          path: back/build/docs/api/openapi.json
+          path: build/docs/api/openapi.json
           retention-days: 30
 
       - name: Deploy to gh-pages
@@ -93,8 +93,9 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
-          publish_dir: back/build/docs/api/
-          destination_dir: .
+          publish_dir: build/docs/api/
+          destination_dir: ${{ steps.dest.outputs.dir }}
+          keep_files: true
 
       - name: Notify Slack
         uses: slackapi/slack-github-action@v1.27.0
@@ -121,7 +122,7 @@ jobs:
                     {
                       "type": "button",
                       "text": "문서 확인하기",
-                      "url": "https://oneorthree.github.io/phone/"
+                      "url": "${{ steps.dest.outputs.url }}"
                     }
                   ]
                 }
@@ -139,7 +140,7 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{
               "input": {
-                "url": "https://oneorthree.github.io/phone/openapi.json"
+                "url": "${{ steps.dest.outputs.url }}openapi.json"
               },
               "options": {
                 "endpointOverwriteBehavior": "OVERWRITE_EXISTING",
