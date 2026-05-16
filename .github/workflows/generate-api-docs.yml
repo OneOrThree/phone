@@ -193,7 +193,7 @@ jobs:
       - name: Sync to Apidog
         if: steps.check.outputs.exists == 'true'
         run: |
-          curl -X POST "https://api.apidog.com/v1/projects/1255433/import-openapi" \
+          curl -X POST "https://api.apidog.com/v1/projects/1283919/import-openapi" \
             -H "Authorization: Bearer ${{ secrets.APIDOG_TOKEN }}" \
             -H "X-Apidog-Api-Version: 2024-03-28" \
             -H "Content-Type: application/json" \
