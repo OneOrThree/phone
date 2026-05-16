@@ -8,6 +8,21 @@ jobs:
   generate-docs:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: tt_db
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -47,6 +62,8 @@ jobs:
       - name: Generate OpenAPI Docs
         if: steps.check.outputs.exists == 'true'
         working-directory: back
+        env:
+          SPRING_PROFILES_ACTIVE: ci
         run: ./gradlew generateOpenApiDocs
 
       - name: Set deploy destination
