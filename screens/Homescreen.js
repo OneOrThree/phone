@@ -267,12 +267,14 @@ export default function HomeScreen({ navigation }) {
               position={[0, -0.5, 0]}
             />
 
-            <EquippedItem
-              item={equippedItem}
-              scale={0.45}
-              position={[0.9, -0.75, 0.4]}
-              rotation={[0, -0.6, 0]}
-            />
+            {equippedItem?.type === 'furniture' && (
+              <EquippedItem
+                item={equippedItem}
+                scale={0.45}
+                position={[0.9, -0.75, 0.4]}
+                rotation={[0, -0.6, 0]}
+              />
+            )}
           </Suspense>
 
           <OrbitControls

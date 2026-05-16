@@ -13,11 +13,11 @@ import { useEquipment } from '../contexts/EquipmentContext';
 const shopItems = {
   item: [
     {
-      id: 'desk',
-      name: 'Desk',
+      id: 'desktop',
+      name: 'Desktop',
       type: 'item',
-      model: require('../assets/item/Desk.glb'),
-      thumbnail: require('../assets/itemThumbnail/Desk.png'),
+      model: require('../assets/item/Desktop.glb'),
+      thumbnail: require('../assets/itemThumbnail/Desktop.png'),
     },
     {
       id: 'item-empty-1',
@@ -41,25 +41,32 @@ const shopItems = {
       thumbnail: null,
     },
   ],
-  pet: [
+  furniture: [
     {
-      id: 'pet-empty-1',
+      id: 'desk',
+      name: 'Desk',
+      type: 'furniture',
+      model: require('../assets/furniture/Desk.glb'),
+      thumbnail: require('../assets/furnitureThumbnail/Desk.png'),
+    },
+    {
+      id: 'furniture-empty-1',
       name: '준비 중',
-      type: 'pet',
+      type: 'furniture',
       model: null,
       thumbnail: null,
     },
     {
-      id: 'pet-empty-2',
+      id: 'furniture-empty-2',
       name: '준비 중',
-      type: 'pet',
+      type: 'furniture',
       model: null,
       thumbnail: null,
     },
     {
-      id: 'pet-empty-3',
+      id: 'furniture-empty-3',
       name: '준비 중',
-      type: 'pet',
+      type: 'furniture',
       model: null,
       thumbnail: null,
     },
@@ -117,26 +124,26 @@ export default function ShopScreen() {
         <Pressable
           style={[
             styles.categoryButton,
-            selectedCategory === 'pet' && styles.categoryButtonActive,
+            selectedCategory === 'furniture' && styles.categoryButtonActive,
           ]}
           onPress={() => {
-            setSelectedCategory('pet');
+            setSelectedCategory('furniture');
             setSelectedItem(null);
           }}
         >
           <Text
             style={[
               styles.categoryText,
-              selectedCategory === 'pet' && styles.categoryTextActive,
+              selectedCategory === 'furniture' && styles.categoryTextActive,
             ]}
           >
-            펫
+            가구
           </Text>
         </Pressable>
       </View>
 
       <Text style={styles.sectionTitle}>
-        {selectedCategory === 'item' ? '아이템 목록' : '펫 목록'}
+        {selectedCategory === 'item' ? '아이템 목록' : '가구 목록'}
       </Text>
 
       <ScrollView
