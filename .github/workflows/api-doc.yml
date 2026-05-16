@@ -11,13 +11,13 @@ jobs:
   generate-docs:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: back
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Verify directory structure
+        run: ls -la
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -36,16 +36,21 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - name: Grant execute permission for gradlew
+        working-directory: back
         run: chmod +x gradlew
 
       - name: Build with Gradle
+        working-directory: back
         run: ./gradlew build -x test
 
       - name: Generate OpenAPI Docs
+        working-directory: back
         run: ./gradlew generateOpenApiDocs
 
       - name: Generate Swagger UI
+        working-directory: back
         run: |
+          mkdir -p build/docs/api
           cat > build/docs/api/index.html << 'EOF'
           <!DOCTYPE html>
           <html lang="ko">
