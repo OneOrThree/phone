@@ -1,12 +1,11 @@
-import React, { useRef, useState, useMemo, useEffect, Suspense } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import React, { useRef, useState, useMemo, Suspense } from 'react';
+import { View, Text, StyleSheet, Pressable, PixelRatio } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
 import { Canvas } from '@react-three/fiber/native';
-import { OrbitControls } from '@react-three/drei/native';
+import { useGLTF, OrbitControls } from '@react-three/drei/native';
 import { Asset } from 'expo-asset';
 import * as THREE from 'three';
-import { useGLTF } from '@react-three/drei/native';
 import { useFocus } from '../contexts/FocusContext';
 import { useEquipment } from '../contexts/EquipmentContext';
 
@@ -24,8 +23,14 @@ function formatTime(totalSeconds) {
   ].join(':');
 }
 
-function LoadedCharacter({ uri }) {
-  const { scene } = useGLTF(uri);
+function FocusCharacter({ characterModule }) {
+  const asset = Asset.fromModule(characterModule);
+
+  if (!asset.localUri && !asset.uri) {
+    throw asset.downloadAsync();
+  }
+
+  const { scene } = useGLTF(asset.localUri || asset.uri);
 
   const safeScene = useMemo(() => {
     const cloned = scene.clone(true);
@@ -33,36 +38,13 @@ function LoadedCharacter({ uri }) {
       if (obj.isMesh) {
         obj.castShadow = true;
         obj.receiveShadow = true;
-        obj.material = new THREE.MeshStandardMaterial({
-          color: '#ffffff',
-          roughness: 0.6,
-          metalness: 0.1,
-        });
-        obj.material.needsUpdate = true;
+        if (obj.material) obj.material.needsUpdate = true;
       }
     });
     return cloned;
   }, [scene]);
 
   return <primitive object={safeScene} scale={1.1} position={[0, -0.3, 0]} />;
-}
-
-function FocusCharacter({ characterModule }) {
-  const [uri, setUri] = useState(null);
-
-  useEffect(() => {
-    let mounted = true;
-    async function load() {
-      const asset = Asset.fromModule(characterModule);
-      await asset.downloadAsync();
-      if (mounted) setUri(asset.localUri || asset.uri);
-    }
-    load();
-    return () => { mounted = false; };
-  }, [characterModule]);
-
-  if (!uri) return null;
-  return <LoadedCharacter uri={uri} />;
 }
 
 export default function FocusModeScreen({ navigation }) {
@@ -102,13 +84,18 @@ export default function FocusModeScreen({ navigation }) {
       <View style={styles.characterArea}>
         <Canvas
           style={styles.canvas}
-          camera={{ position: [0, 1, 3], fov: 45 }}
+          camera={{ position: [0, 1, 2.2], fov: 45 }}
           gl={{ antialias: true }}
-          onCreated={({ gl }) => gl.setClearColor('#1a1a1a')}
+          shadows
+          onCreated={({ gl }) => {
+            gl.setClearColor('#1a1a1a');
+            gl.setPixelRatio(PixelRatio.get());
+          }}
         >
-          <ambientLight intensity={0.9} />
-          <directionalLight position={[5, 5, 5]} intensity={1.3} />
-          <directionalLight position={[-5, 3, -5]} intensity={0.6} />
+          <ambientLight intensity={0.5} />
+          <directionalLight position={[5, 8, 5]} intensity={1.5} castShadow />
+          <directionalLight position={[-4, 3, -3]} intensity={0.5} />
+          <pointLight position={[0, 5, 2]} intensity={0.4} />
 
           <Suspense fallback={null}>
             <FocusCharacter characterModule={characterModule} />
