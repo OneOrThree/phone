@@ -1,8 +1,16 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo, useEffect, Suspense } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
+import { Canvas } from '@react-three/fiber/native';
+import { OrbitControls } from '@react-three/drei/native';
+import { Asset } from 'expo-asset';
+import * as THREE from 'three';
+import { useGLTF } from '@react-three/drei/native';
 import { useFocus } from '../contexts/FocusContext';
+import { useEquipment } from '../contexts/EquipmentContext';
+
+const DEFAULT_CHARACTER = require('../assets/character/character.glb');
 
 function formatTime(totalSeconds) {
   const hours = Math.floor(totalSeconds / 3600);
@@ -16,10 +24,54 @@ function formatTime(totalSeconds) {
   ].join(':');
 }
 
+function LoadedCharacter({ uri }) {
+  const { scene } = useGLTF(uri);
+
+  const safeScene = useMemo(() => {
+    const cloned = scene.clone(true);
+    cloned.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.castShadow = true;
+        obj.receiveShadow = true;
+        obj.material = new THREE.MeshStandardMaterial({
+          color: '#ffffff',
+          roughness: 0.6,
+          metalness: 0.1,
+        });
+        obj.material.needsUpdate = true;
+      }
+    });
+    return cloned;
+  }, [scene]);
+
+  return <primitive object={safeScene} scale={1.1} position={[0, -0.3, 0]} />;
+}
+
+function FocusCharacter({ characterModule }) {
+  const [uri, setUri] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    async function load() {
+      const asset = Asset.fromModule(characterModule);
+      await asset.downloadAsync();
+      if (mounted) setUri(asset.localUri || asset.uri);
+    }
+    load();
+    return () => { mounted = false; };
+  }, [characterModule]);
+
+  if (!uri) return null;
+  return <LoadedCharacter uri={uri} />;
+}
+
 export default function FocusModeScreen({ navigation }) {
   const { todayFocusSeconds, addFocusSeconds } = useFocus();
+  const { equippedItem } = useEquipment();
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const startTimeRef = useRef(null);
+
+  const characterModule = equippedItem?.focusCharacterModel ?? DEFAULT_CHARACTER;
 
   useFocusEffect(
     React.useCallback(() => {
@@ -46,6 +98,25 @@ export default function FocusModeScreen({ navigation }) {
 
       <Text style={styles.sessionTimer}>{formatTime(sessionSeconds)}</Text>
       <Text style={styles.sessionLabel}>현재 세션</Text>
+
+      <View style={styles.characterArea}>
+        <Canvas
+          style={styles.canvas}
+          camera={{ position: [0, 1, 3], fov: 45 }}
+          gl={{ antialias: true }}
+          onCreated={({ gl }) => gl.setClearColor('#1a1a1a')}
+        >
+          <ambientLight intensity={0.9} />
+          <directionalLight position={[5, 5, 5]} intensity={1.3} />
+          <directionalLight position={[-5, 3, -5]} intensity={0.6} />
+
+          <Suspense fallback={null}>
+            <FocusCharacter characterModule={characterModule} />
+          </Suspense>
+
+          <OrbitControls enablePan={false} enableZoom={false} />
+        </Canvas>
+      </View>
 
       <View style={styles.accumulatedBox}>
         <Text style={styles.accumulatedLabel}>오늘 누적</Text>
@@ -86,8 +157,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 8,
   },
+  characterArea: {
+    width: '100%',
+    height: 220,
+    marginTop: 24,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+  },
+  canvas: {
+    flex: 1,
+  },
   accumulatedBox: {
-    marginTop: 40,
+    marginTop: 24,
     alignItems: 'center',
     paddingVertical: 20,
     paddingHorizontal: 40,
@@ -114,7 +196,7 @@ const styles = StyleSheet.create({
     borderColor: '#ff6b6b',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 48,
+    marginTop: 24,
   },
   stopButtonText: {
     color: '#ff6b6b',

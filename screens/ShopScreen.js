@@ -18,6 +18,7 @@ const shopItems = {
       type: 'item',
       model: require('../assets/item/Desktop.glb'),
       thumbnail: require('../assets/itemThumbnail/Desktop.png'),
+      focusCharacterModel: require('../assets/character/focus_character_desktop.glb'),
     },
     {
       id: 'item-empty-1',
