@@ -1,0 +1,110 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+    "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+    "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+  Google Java Style 기반, Spring Boot 프로젝트에 맞게 조정
+  - 들여쓰기: 4칸 (Google 원본 2칸 → Spring 관례에 맞게 변경)
+  - 줄 길이: 120자
+  - 위반 처리: checkstyle { ignoreFailures = false } 설정에 따라 빌드 실패
+
+  기존 코드에 위반이 많을 경우 build.gradle의 ignoreFailures = true로 변경 후
+  점진적으로 코드를 수정하면서 false로 되돌리는 방식 권장
+-->
+<module name="Checker">
+  <property name="charset" value="UTF-8"/>
+  <property name="severity" value="error"/>
+  <property name="fileExtensions" value="java"/>
+
+  <!-- 파일 끝 개행 필수 -->
+  <module name="NewlineAtEndOfFile"/>
+
+  <!-- 탭 문자 금지 (스페이스 사용) -->
+  <module name="FileTabCharacter">
+    <property name="eachLine" value="true"/>
+  </module>
+
+  <module name="TreeWalker">
+
+    <!-- ── 명명 규칙 ────────────────────────────────────────────── -->
+    <module name="TypeName"/>           <!-- 클래스: UpperCamelCase -->
+    <module name="MethodName"/>         <!-- 메서드: lowerCamelCase -->
+    <module name="ParameterName"/>      <!-- 파라미터: lowerCamelCase -->
+    <module name="LocalVariableName"/>  <!-- 지역변수: lowerCamelCase -->
+    <module name="MemberName"/>         <!-- 인스턴스 필드: lowerCamelCase -->
+    <module name="StaticVariableName"/> <!-- static 필드: lowerCamelCase -->
+    <module name="ConstantName"/>       <!-- 상수(static final): UPPER_SNAKE_CASE -->
+    <module name="PackageName">
+      <property name="format" value="^[a-z]+(\.[a-z][a-z0-9]*)*$"/>
+    </module>
+
+    <!-- ── Import ───────────────────────────────────────────────── -->
+    <module name="UnusedImports"/>
+    <module name="RedundantImport"/>
+    <module name="IllegalImport"/>      <!-- sun.* 패키지 금지 -->
+    <module name="AvoidStarImport"/>    <!-- import java.util.* 금지 -->
+
+    <!-- ── 줄 길이 ──────────────────────────────────────────────── -->
+    <module name="LineLength">
+      <property name="max" value="120"/>
+      <!-- URL이나 패키지 선언은 예외 -->
+      <property name="ignorePattern" value="^package.*|^import.*|a href|href|http://|https://|ftp://"/>
+    </module>
+
+    <!-- ── 공백 ─────────────────────────────────────────────────── -->
+    <module name="WhitespaceAround">
+      <!-- 제네릭 꺾쇠와 람다 화살표 주변 예외 -->
+      <property name="allowEmptyConstructors" value="true"/>
+      <property name="allowEmptyMethods" value="true"/>
+      <property name="allowEmptyTypes" value="true"/>
+      <property name="allowEmptyLoops" value="true"/>
+      <property name="allowEmptyLambdas" value="true"/>
+    </module>
+    <module name="WhitespaceAfter"/>
+    <module name="NoWhitespaceBefore"/>
+    <module name="GenericWhitespace"/>
+    <!-- 줄 끝 공백 금지 -->
+    <module name="Regexp">
+      <property name="format" value="[ \t]+$"/>
+      <property name="illegalPattern" value="true"/>
+      <property name="message" value="Trailing whitespace is not allowed"/>
+    </module>
+
+    <!-- ── 들여쓰기 ──────────────────────────────────────────────── -->
+    <module name="Indentation">
+      <property name="basicOffset" value="4"/>
+      <property name="braceAdjustment" value="0"/>
+      <property name="caseIndent" value="4"/>
+      <property name="throwsIndent" value="8"/>
+      <property name="lineWrappingIndentation" value="8"/>
+      <property name="arrayInitIndent" value="4"/>
+    </module>
+
+    <!-- ── 중괄호 ────────────────────────────────────────────────── -->
+    <module name="NeedBraces"/>        <!-- if/for/while에 중괄호 필수 -->
+    <module name="LeftCurly"/>         <!-- 여는 중괄호 위치 -->
+    <module name="RightCurly"/>        <!-- 닫는 중괄호 위치 -->
+
+    <!-- ── 코드 품질 ─────────────────────────────────────────────── -->
+    <module name="SimplifyBooleanExpression"/>
+    <module name="SimplifyBooleanReturn"/>
+    <module name="StringLiteralEquality"/>  <!-- == 대신 equals() -->
+    <module name="EqualsHashCode"/>         <!-- equals() 구현 시 hashCode() 필수 -->
+    <module name="EmptyBlock">
+      <property name="option" value="TEXT"/>
+      <property name="tokens" value="LITERAL_TRY, LITERAL_FINALLY, LITERAL_IF, LITERAL_ELSE, LITERAL_SWITCH"/>
+    </module>
+    <module name="FallThrough"/>       <!-- switch fallthrough 주석 필수 -->
+    <module name="MultipleVariableDeclarations"/>  <!-- 한 줄에 변수 여러 개 금지 -->
+
+    <!-- ── 어노테이션 ─────────────────────────────────────────────── -->
+    <module name="MissingOverride"/>   <!-- @Override 누락 감지 -->
+
+    <!-- ── 빈 줄 ─────────────────────────────────────────────────── -->
+    <module name="EmptyLineSeparator">
+      <property name="allowNoEmptyLineBetweenFields" value="true"/>
+    </module>
+
+  </module>
+</module>

@@ -1,0 +1,81 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+
+# 프로덕션 배포는 직렬화 필수: 동시 배포 시 이전 버전으로 덮어쓰는 사고 방지
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    # GitHub Environments: Reviewer 게이트 + DORA 메트릭(Deployment Frequency, Lead Time) 소스
+    # GitHub Settings > Environments > production에서 Required Reviewers 설정 필요
+    environment: production
+    timeout-minutes: 30
+    permissions:
+      id-token: write   # OIDC 사용 시 필요 (AWS_ACCESS_KEY 대신 단기 토큰 발급)
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── TODO: 인프라 담당자가 아래 OIDC + 배포 스텝 채울 것 ─────────────
+      #
+      # OIDC 예시 (AWS):
+      # - uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: arn:aws:iam::ACCOUNT_ID:role/github-actions-deploy
+      #     aws-region: ap-northeast-2
+      #
+      # OIDC 예시 (GCP):
+      # - uses: google-github-actions/auth@v2
+      #   with:
+      #     workload_identity_provider: projects/PROJECT/locations/global/workloadIdentityPools/POOL/providers/PROVIDER
+      #     service_account: github-actions@PROJECT.iam.gserviceaccount.com
+      #
+      # AWS_ACCESS_KEY / GCP SA JSON 등 장기 시크릿을 GitHub Secret에 넣지 말 것
+      # OIDC 미지원 클라우드는 인프라 담당자와 협의
+      # ─────────────────────────────────────────────────────────────────────
+
+      - name: Deploy placeholder
+        run: echo "TODO — 인프라 담당자가 배포 스텝 추가 예정"
+
+      # ── DORA 메트릭 연동 ─────────────────────────────────────────────────
+      # GitHub Environments 사용 시 deployment_status 이벤트가 자동 발행됨
+      # Insights > Delivery metrics에서 Deployment Frequency, Lead Time 확인 가능
+      #
+      # 세밀한 제어가 필요한 경우 아래 스켈레톤으로 수동 발행:
+
+      - name: Report deployment success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // state: 'success' → Deployment Frequency, Lead Time 집계에 반영
+            // deployment_id는 배포 스텝에서 생성 후 outputs으로 전달해야 함
+            // await github.rest.repos.createDeploymentStatus({
+            //   owner: context.repo.owner,
+            //   repo: context.repo.repo,
+            //   deployment_id: steps.deploy.outputs.deployment_id,
+            //   state: 'success',
+            //   environment_url: 'https://your-app.example.com',
+            // });
+            console.log('Deployment succeeded — deployment_id 연결 후 DORA 메트릭 활성화')
+
+      - name: Report deployment failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // state: 'failure' → Change Failure Rate, MTTR 집계 시작
+            // await github.rest.repos.createDeploymentStatus({
+            //   owner: context.repo.owner,
+            //   repo: context.repo.repo,
+            //   deployment_id: steps.deploy.outputs.deployment_id,
+            //   state: 'failure',
+            // });
+            console.log('Deployment failed — deployment_id 연결 후 DORA Change Failure Rate 집계')
