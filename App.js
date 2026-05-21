@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text } from 'react-native';
@@ -6,7 +6,8 @@ import { Text } from 'react-native';
 import { FocusProvider } from './contexts/FocusContext';
 import { EquipmentProvider } from './contexts/EquipmentContext';
 
-import HomeScreen from './screens/HomeScreen';
+import LoginScreen from './screens/LoginScreen';
+import HomeScreen from './screens/Homescreen';
 import GroupScreen from './screens/GroupScreen';
 import ShopScreen from './screens/ShopScreen';
 import MyPageScreen from './screens/MyPageScreen';
@@ -24,6 +25,12 @@ const TAB_ICONS = {
 };
 
 export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  if (!isLoggedIn) {
+    return <LoginScreen onLogin={() => setIsLoggedIn(true)} />;
+  }
+
   return (
     <EquipmentProvider>
       <FocusProvider>
