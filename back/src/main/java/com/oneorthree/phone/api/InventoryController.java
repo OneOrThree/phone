@@ -6,15 +6,21 @@ import com.oneorthree.phone.service.InventoryService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-@Tag(name="inventory", description = "인벤토리 관련 API (조회, 수령)")
+@Tag(name = "inventory", description = "인벤토리 관련 API (조회, 수령)")
 @RestController
 @RequestMapping("/api/inventory")
 @RequiredArgsConstructor
 public class InventoryController {
+
     private final InventoryService inventoryService;
 
     @GetMapping("/{userId}")
@@ -28,4 +34,5 @@ public class InventoryController {
         inventoryService.grantItem(request.getUserId(), request.getItemId());
         return ResponseEntity.ok().build();
     }
+
 }

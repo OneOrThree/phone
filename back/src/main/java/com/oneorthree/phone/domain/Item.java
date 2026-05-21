@@ -1,7 +1,19 @@
 package com.oneorthree.phone.domain;
 
-import jakarta.persistence.*;
-import lombok.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(name = "itmes")
@@ -11,23 +23,27 @@ import lombok.*;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 public class Item {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    private String name;            // 아이템 이름
-    private String description;     // 아이템 설명
+
+    private String name;
+
+    private String description;
 
     @Column(name = "asset_address")
-    private String assetAddress;    // 3D 에셋 경로 (URL)
+    private String assetAddress;
 
     @Column(name = "thumbnail_url")
-    private String thumbnailUrl;    // 인벤토리 썸네일 경
+    private String thumbnailUrl;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "slot_type", nullable = false)
-    private SlotType slotType;      // 모자, 머리, 상의, 하의, 엑세서리
+    private SlotType slotType;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private Rarity rarity;          // common, rare, epic, legendary
+    private Rarity rarity;
+
 }
