@@ -1,75 +1,98 @@
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-  ScrollView,
-  Image,
+  View, Text, StyleSheet, Pressable, ScrollView, Image,
 } from 'react-native';
-
 import { useEquipment } from '../contexts/EquipmentContext';
+import { T, inkBox } from '../components/theme';
 
 const shopItems = {
   item: [
     {
       id: 'desktop',
-      name: 'Desktop',
+      name: '데스크탑',
       type: 'item',
-      model: require('../assets/item/Desktop.glb'),
+      icon: '🖥',
       thumbnail: require('../assets/itemThumbnail/Desktop.png'),
-      focusCharacterModel: require('../assets/character/focus_character_desktop.glb'),
+      focusVariant: 'focus',
+      desc: '집중 모드에서 안경 쓰고 노트북 작업!',
     },
     {
-      id: 'item-empty-1',
-      name: '준비 중',
+      id: 'book',
+      name: '책',
       type: 'item',
-      model: null,
+      icon: '📚',
       thumbnail: null,
+      focusVariant: 'reading',
+      desc: '독서하면서 집중! 책 읽는 포즈로 변신.',
     },
     {
-      id: 'item-empty-2',
-      name: '준비 중',
+      id: 'yoga',
+      name: '요가매트',
       type: 'item',
-      model: null,
+      icon: '🧘',
       thumbnail: null,
+      focusVariant: 'yoga',
+      desc: '요가하면서 마음도 집중! 평온한 표정.',
     },
     {
-      id: 'item-empty-3',
-      name: '준비 중',
+      id: 'exercise',
+      name: '운동기구',
       type: 'item',
-      model: null,
+      icon: '💪',
       thumbnail: null,
+      focusVariant: 'exercise',
+      desc: '운동하면서 집중! 덤벨 들고 파이팅!',
+    },
+    {
+      id: 'study',
+      name: '문제집',
+      type: 'item',
+      icon: '✏',
+      thumbnail: null,
+      focusVariant: 'study',
+      desc: '문제집 풀면서 집중! 혀 내밀고 열심히.',
     },
   ],
   furniture: [
     {
       id: 'desk',
-      name: 'Desk',
+      name: '책상',
       type: 'furniture',
-      model: require('../assets/furniture/Desk.glb'),
+      icon: '🖥',
       thumbnail: require('../assets/furnitureThumbnail/Desk.png'),
+      desc: '방에 모니터 책상을 놓아요!',
     },
     {
-      id: 'furniture-empty-1',
-      name: '준비 중',
+      id: 'bed',
+      name: '침대',
       type: 'furniture',
-      model: null,
+      icon: '🛏',
       thumbnail: null,
+      desc: '푹신한 침대! 방이 아늑해져요.',
     },
     {
-      id: 'furniture-empty-2',
-      name: '준비 중',
+      id: 'window',
+      name: '창문',
       type: 'furniture',
-      model: null,
+      icon: '🪟',
       thumbnail: null,
+      desc: '햇살 들어오는 창문. 밝은 기분!',
     },
     {
-      id: 'furniture-empty-3',
-      name: '준비 중',
+      id: 'frame',
+      name: '액자',
       type: 'furniture',
-      model: null,
+      icon: '🖼',
       thumbnail: null,
+      desc: '벽에 예쁜 그림을 걸어요.',
+    },
+    {
+      id: 'carpet',
+      name: '카펫',
+      type: 'furniture',
+      icon: '🟥',
+      thumbnail: null,
+      desc: '바닥에 포근한 카펫을 깔아요!',
     },
   ],
 };
@@ -77,18 +100,15 @@ const shopItems = {
 export default function ShopScreen() {
   const [selectedCategory, setSelectedCategory] = useState('item');
   const [selectedItem, setSelectedItem] = useState(null);
-
   const { equippedItem, setEquippedItem, equippedFurniture, toggleFurniture } = useEquipment();
-
   const items = shopItems[selectedCategory];
 
   function handleSelectItem(item) {
-    if (!item.model) return;
     setSelectedItem(item);
   }
 
   function handleEquip() {
-    if (!selectedItem || !selectedItem.model) return;
+    if (!selectedItem) return;
     setEquippedItem(selectedItem);
   }
 
@@ -98,58 +118,31 @@ export default function ShopScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>상점</Text>
-
-      <View style={styles.categoryRow}>
-        <Pressable
-          style={[
-            styles.categoryButton,
-            selectedCategory === 'item' && styles.categoryButtonActive,
-          ]}
-          onPress={() => {
-            setSelectedCategory('item');
-            setSelectedItem(null);
-          }}
-        >
-          <Text
-            style={[
-              styles.categoryText,
-              selectedCategory === 'item' && styles.categoryTextActive,
-            ]}
-          >
-            아이템
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={[
-            styles.categoryButton,
-            selectedCategory === 'furniture' && styles.categoryButtonActive,
-          ]}
-          onPress={() => {
-            setSelectedCategory('furniture');
-            setSelectedItem(null);
-          }}
-        >
-          <Text
-            style={[
-              styles.categoryText,
-              selectedCategory === 'furniture' && styles.categoryTextActive,
-            ]}
-          >
-            가구
-          </Text>
-        </Pressable>
+    <View style={s.container}>
+      <View style={s.header}>
+        <Text style={s.title}>상점 🛍</Text>
+        <Text style={s.subtitle}>방을 꾸미고 캐릭터를 키워봐요</Text>
       </View>
 
-      <Text style={styles.sectionTitle}>
-        {selectedCategory === 'item' ? '아이템 목록' : '가구 목록'}
-      </Text>
+      {/* Category tabs */}
+      <View style={s.tabRow}>
+        {['item', 'furniture'].map((cat) => (
+          <Pressable
+            key={cat}
+            style={[s.tab, selectedCategory === cat && s.tabActive]}
+            onPress={() => { setSelectedCategory(cat); setSelectedItem(null); }}
+          >
+            <Text style={[s.tabText, selectedCategory === cat && s.tabTextActive]}>
+              {cat === 'item' ? '✦ 아이템' : '🪑 가구'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
 
+      {/* Item grid */}
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.itemScroll}
+        contentContainerStyle={s.grid}
       >
         {items.map((item) => {
           const isSelected = selectedItem?.id === item.id;
@@ -160,70 +153,58 @@ export default function ShopScreen() {
           return (
             <Pressable
               key={item.id}
-              style={[
-                styles.itemCard,
-                isSelected && styles.itemCardSelected,
-                !item.model && styles.itemCardDisabled,
-              ]}
+              style={[s.itemCard, isSelected && s.itemCardSelected]}
               onPress={() => handleSelectItem(item)}
             >
-              <View style={styles.itemPreview}>
+              <View style={s.itemThumb}>
                 {item.thumbnail ? (
-                  <Image source={item.thumbnail} style={styles.itemImage} />
+                  <Image source={item.thumbnail} style={s.itemImg} />
                 ) : (
-                  <Text style={styles.itemPreviewText}>
-                    {item.model ? 'GLB' : '+'}
-                  </Text>
+                  <Text style={s.itemIcon}>{item.icon}</Text>
                 )}
               </View>
-
-              <Text style={styles.itemName}>{item.name}</Text>
-              {isEquipped && (
-                <Text style={styles.equippedText}>장착 중</Text>
-              )}
+              <Text style={s.itemName}>{item.name}</Text>
+              {isEquipped && <Text style={s.equippedBadge}>✔ 장착중</Text>}
             </Pressable>
           );
         })}
       </ScrollView>
 
-      <View style={styles.detailBox}>
+      {/* Detail panel */}
+      <View style={[s.detailCard, inkBox(selectedItem ? T.yellow : T.paperDark)]}>
         {selectedItem ? (
           <>
-            <Text style={styles.detailTitle}>{selectedItem.name}</Text>
-            <Text style={styles.detailText}>
-              {selectedItem.type === 'furniture'
-                ? '홈 화면에 배치할 수 있는 아이템입니다.'
-                : '포커스 모드에서 사용할 수 있는 아이템입니다.'}
+            <Text style={s.detailTitle}>
+              {selectedItem.icon} {selectedItem.name}
             </Text>
+            <Text style={s.detailDesc}>{selectedItem.desc}</Text>
 
             {selectedItem.type === 'furniture' ? (
               equippedFurniture.some((f) => f.id === selectedItem.id) ? (
-                <Pressable style={styles.unequipButton} onPress={() => toggleFurniture(selectedItem)}>
-                  <Text style={styles.unequipButtonText}>장착 해제하기</Text>
+                <Pressable style={s.unequipBtn} onPress={() => toggleFurniture(selectedItem)}>
+                  <Text style={s.unequipBtnText}>장착 해제</Text>
                 </Pressable>
               ) : (
-                <Pressable style={styles.equipButton} onPress={() => toggleFurniture(selectedItem)}>
-                  <Text style={styles.equipButtonText}>장착하기</Text>
+                <Pressable style={s.equipBtn} onPress={() => toggleFurniture(selectedItem)}>
+                  <Text style={s.equipBtnText}>장착하기 ✓</Text>
                 </Pressable>
               )
             ) : (
               equippedItem?.id === selectedItem.id ? (
-                <Pressable style={styles.unequipButton} onPress={handleUnequip}>
-                  <Text style={styles.unequipButtonText}>장착 해제하기</Text>
+                <Pressable style={s.unequipBtn} onPress={handleUnequip}>
+                  <Text style={s.unequipBtnText}>장착 해제</Text>
                 </Pressable>
               ) : (
-                <Pressable style={styles.equipButton} onPress={handleEquip}>
-                  <Text style={styles.equipButtonText}>장착하기</Text>
+                <Pressable style={s.equipBtn} onPress={handleEquip}>
+                  <Text style={s.equipBtnText}>장착하기 ✓</Text>
                 </Pressable>
               )
             )}
           </>
         ) : (
           <>
-            <Text style={styles.detailTitle}>아이템을 선택하세요</Text>
-            <Text style={styles.detailText}>
-              아이템을 누르면 장착하기 버튼이 표시됩니다.
-            </Text>
+            <Text style={s.detailTitle}>아이템을 골라봐요 ☝</Text>
+            <Text style={s.detailDesc}>눌러서 자세히 보기</Text>
           </>
         )}
       </View>
@@ -231,138 +212,72 @@ export default function ShopScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: '#1a1a1a',
-    paddingTop: 64,
-    paddingHorizontal: 20,
+    flex: 1, backgroundColor: T.paper,
+    paddingTop: 56, paddingHorizontal: 18,
   },
-  title: {
-    color: '#ffffff',
-    fontSize: 28,
-    fontWeight: '700',
+  header: { marginBottom: 16 },
+  title: { fontSize: 28, fontWeight: '900', color: T.ink },
+  subtitle: { fontSize: 13, color: T.inkMed, marginTop: 2 },
+
+  tabRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
+  tab: {
+    paddingVertical: 10, paddingHorizontal: 20,
+    borderWidth: 2.5, borderColor: T.ink,
+    borderTopLeftRadius: 12, borderTopRightRadius: 10,
+    borderBottomLeftRadius: 10, borderBottomRightRadius: 12,
+    backgroundColor: T.paperDark,
   },
-  categoryRow: {
-    flexDirection: 'row',
-    marginTop: 24,
-    gap: 12,
-  },
-  categoryButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 999,
-    backgroundColor: '#2a2a2a',
-  },
-  categoryButtonActive: {
-    backgroundColor: '#ffffff',
-  },
-  categoryText: {
-    color: '#aaaaaa',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  categoryTextActive: {
-    color: '#111111',
-  },
-  sectionTitle: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: 28,
-  },
-  itemScroll: {
-    paddingVertical: 16,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
+  tabActive: { backgroundColor: T.ink },
+  tabText: { fontSize: 14, fontWeight: '700', color: T.inkMed },
+  tabTextActive: { color: T.paper },
+
+  grid: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingBottom: 12,
   },
   itemCard: {
-    width: '48%',
-    aspectRatio: 1,
-    borderRadius: 18,
-    backgroundColor: '#2a2a2a',
-    padding: 12,
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  itemCardSelected: {
-    borderColor: '#ffffff',
-  },
-  itemCardDisabled: {
-    opacity: 0.45,
-  },
-  itemPreview: {
-    flex: 1,
-    borderRadius: 14,
-    backgroundColor: '#3a3a3a',
+    width: '30%',
+    borderWidth: 2.5, borderColor: T.ink,
+    borderBottomWidth: 5, borderRightWidth: 5,
+    borderTopLeftRadius: 14, borderTopRightRadius: 12,
+    borderBottomLeftRadius: 12, borderBottomRightRadius: 14,
+    backgroundColor: T.paperDark, padding: 8,
     alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
   },
-  itemImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
+  itemCardSelected: { backgroundColor: T.lavender },
+  itemThumb: {
+    width: '100%', aspectRatio: 1,
+    borderRadius: 10, borderWidth: 1.5, borderColor: T.inkLight,
+    backgroundColor: T.paper, alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden', marginBottom: 6,
   },
-  itemPreviewText: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '700',
+  itemImg: { width: '100%', height: '100%', resizeMode: 'cover' },
+  itemIcon: { fontSize: 28 },
+  itemName: { fontSize: 12, fontWeight: '700', color: T.ink, textAlign: 'center' },
+  equippedBadge: { fontSize: 10, fontWeight: '700', color: T.mintDark, marginTop: 2 },
+
+  detailCard: { marginTop: 8, marginBottom: 10, padding: 16 },
+  detailTitle: { fontSize: 18, fontWeight: '900', color: T.ink },
+  detailDesc: { fontSize: 13, color: T.inkMed, marginTop: 6 },
+
+  equipBtn: {
+    marginTop: 12, backgroundColor: T.coral,
+    borderWidth: 2.5, borderColor: T.ink,
+    borderBottomWidth: 5, borderRightWidth: 5,
+    borderTopLeftRadius: 12, borderTopRightRadius: 10,
+    borderBottomLeftRadius: 10, borderBottomRightRadius: 12,
+    paddingVertical: 11, alignItems: 'center',
   },
-  itemName: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginTop: 10,
+  equipBtnText: { fontSize: 15, fontWeight: '900', color: T.ink },
+
+  unequipBtn: {
+    marginTop: 12, backgroundColor: T.paperDark,
+    borderWidth: 2.5, borderColor: T.coralDark,
+    borderBottomWidth: 5, borderRightWidth: 5,
+    borderTopLeftRadius: 12, borderTopRightRadius: 10,
+    borderBottomLeftRadius: 10, borderBottomRightRadius: 12,
+    paddingVertical: 11, alignItems: 'center',
   },
-  equippedText: {
-    color: '#7CFF8A',
-    fontSize: 12,
-    marginTop: 4,
-  },
-  detailBox: {
-    marginTop: 20,
-    padding: 18,
-    borderRadius: 20,
-    backgroundColor: '#242424',
-  },
-  detailTitle: {
-    color: '#ffffff',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  detailText: {
-    color: '#aaaaaa',
-    fontSize: 14,
-    marginTop: 8,
-  },
-  equipButton: {
-    marginTop: 18,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  equipButtonText: {
-    color: '#111111',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  unequipButton: {
-    marginTop: 18,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: '#ff6b6b',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  unequipButtonText: {
-    color: '#ff6b6b',
-    fontSize: 15,
-    fontWeight: '700',
-  },
+  unequipBtnText: { fontSize: 15, fontWeight: '900', color: T.coralDark },
 });

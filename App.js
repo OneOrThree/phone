@@ -1,7 +1,7 @@
 import React from 'react';
-
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Text } from 'react-native';
 
 import { FocusProvider } from './contexts/FocusContext';
 import { EquipmentProvider } from './contexts/EquipmentContext';
@@ -12,7 +12,16 @@ import ShopScreen from './screens/ShopScreen';
 import MyPageScreen from './screens/MyPageScreen';
 import FocusModeScreen from './screens/FocusModeScreen';
 
+import { T } from './components/theme';
+
 const Tab = createBottomTabNavigator();
+
+const TAB_ICONS = {
+  '홈': '🏠',
+  '그룹': '👥',
+  '상점': '🛍',
+  '마이페이지': '🐾',
+};
 
 export default function App() {
   return (
@@ -23,20 +32,26 @@ export default function App() {
             initialRouteName="홈"
             screenOptions={({ route }) => ({
               headerShown: false,
-              tabBarActiveTintColor: '#ffffff',
-              tabBarInactiveTintColor: '#777777',
+              tabBarIcon: ({ focused }) => (
+                <Text style={{ fontSize: focused ? 22 : 18 }}>
+                  {TAB_ICONS[route.name] ?? ''}
+                </Text>
+              ),
+              tabBarActiveTintColor: T.ink,
+              tabBarInactiveTintColor: T.inkLight,
               tabBarStyle: route.name === 'FocusMode'
                 ? { display: 'none' }
                 : {
-                    backgroundColor: '#111111',
-                    borderTopColor: '#333333',
-                    height: 64,
+                    backgroundColor: T.paper,
+                    borderTopColor: T.ink,
+                    borderTopWidth: 2.5,
+                    height: 68,
                     paddingBottom: 8,
-                    paddingTop: 8,
+                    paddingTop: 6,
                   },
               tabBarLabelStyle: {
-                fontSize: 12,
-                fontWeight: '600',
+                fontSize: 11,
+                fontWeight: '700',
               },
             })}
           >
@@ -44,16 +59,10 @@ export default function App() {
             <Tab.Screen name="그룹" component={GroupScreen} />
             <Tab.Screen name="상점" component={ShopScreen} />
             <Tab.Screen name="마이페이지" component={MyPageScreen} />
-
             <Tab.Screen
               name="FocusMode"
               component={FocusModeScreen}
-              options={{
-                tabBarButton: () => null,
-                tabBarStyle: {
-                  display: 'none',
-                },
-              }}
+              options={{ tabBarButton: () => null }}
             />
           </Tab.Navigator>
         </NavigationContainer>
