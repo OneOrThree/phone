@@ -34,7 +34,6 @@ public class CharacterEquipment {
     @Column(name = "slot_type", nullable = false)
     private SlotType slotType;
 
-    // todo 글로벌 시간 변경
     @CreationTimestamp
     @Column(name = "equipped_at", updatable = false)
     private Instant equippedAt;

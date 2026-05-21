@@ -2,7 +2,6 @@ package com.oneorthree.phone.api;
 
 import com.oneorthree.phone.api.dto.request.EquipRequest;
 import com.oneorthree.phone.api.dto.response.CharacterEquipmentResponse;
-import com.oneorthree.phone.domain.CharacterEquipment;
 import com.oneorthree.phone.domain.SlotType;
 import com.oneorthree.phone.service.EquipmentService;
 import io.swagger.v3.oas.annotations.Operation;

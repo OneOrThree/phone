@@ -25,11 +25,12 @@ public class EquipmentService {
     private final ItemRepository itemRepository;
     private final UserItemRepository userItemRepository;
     private final CharacterEquipmentRepository characterEquipmentRepository;
+    private String notFoundUser = "유저를 찾을 수 없습니다.";
 
     // 유저 캐릭터 전체 장착 상태 조회
     public List<CharacterEquipmentResponse> getEquipment(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new EntityNotFoundException("유저를 찾을 수 없습니다."));
+                .orElseThrow(() -> new EntityNotFoundException(notFoundUser));
         return characterEquipmentRepository.findByUser(user)
                 .stream()
                 .map(CharacterEquipmentResponse::from)
@@ -40,7 +41,7 @@ public class EquipmentService {
     @Transactional
     public CharacterEquipmentResponse equip(Long userId, Long itemId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new EntityNotFoundException("유저를 찾을 수 없습니다."));
+                .orElseThrow(() -> new EntityNotFoundException(notFoundUser));
         Item item = itemRepository.findById(itemId)
                 .orElseThrow(() -> new EntityNotFoundException("아이템을 찾을 수 없습니다."));
 

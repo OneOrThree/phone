@@ -2,7 +2,6 @@ package com.oneorthree.phone.domain;
 
 import jakarta.persistence.*;
 import lombok.*;
-import org.aspectj.weaver.patterns.ConcreteCflowPointcut;
 
 @Entity
 @Table(name = "itmes")

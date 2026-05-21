@@ -25,7 +25,6 @@ public class User {
 
     private String profileImageUrl;
 
-    // todo 글로벌 시간 변경
     @CreationTimestamp
     private LocalDateTime createdAt;
 
