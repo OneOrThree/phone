@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 @Entity
 @Table(
@@ -37,7 +37,7 @@ public class CharacterEquipment {
     // todo 글로벌 시간 변경
     @CreationTimestamp
     @Column(name = "equipped_at", updatable = false)
-    private LocalDateTime equippedAt;
+    private Instant equippedAt;
 
     public void equip(Item item) {
         this.item = item;
