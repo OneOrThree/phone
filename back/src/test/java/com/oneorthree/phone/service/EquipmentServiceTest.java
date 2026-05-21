@@ -1,7 +1,11 @@
 package com.oneorthree.phone.service;
 
 import com.oneorthree.phone.api.dto.response.CharacterEquipmentResponse;
-import com.oneorthree.phone.domain.*;
+import com.oneorthree.phone.domain.CharacterEquipment;
+import com.oneorthree.phone.domain.Item;
+import com.oneorthree.phone.domain.Rarity;
+import com.oneorthree.phone.domain.SlotType;
+import com.oneorthree.phone.domain.User;
 import com.oneorthree.phone.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.repository.ItemRepository;
 import com.oneorthree.phone.repository.UserItemRepository;
@@ -30,14 +34,18 @@ public class EquipmentServiceTest {
 
     @Mock
     private UserRepository userRepo;
+
     @Mock
     private ItemRepository itemRepo;
+
     @Mock
     private UserItemRepository userItemRepo;
+
     @Mock
     private CharacterEquipmentRepository characterEquipmentRepo;
 
     private User user;
+
     private Item item;
 
     @BeforeEach
@@ -52,17 +60,17 @@ public class EquipmentServiceTest {
     @Test
     @DisplayName("아이템 장착 성공")
     void equipSuccess() {
-        //given
+        // given
         given(userRepo.findById(1L)).willReturn(Optional.of(user));
         given(itemRepo.findById(1L)).willReturn(Optional.of(item));
         given(userItemRepo.existsByUserAndItem(user, item)).willReturn(true);
         given(characterEquipmentRepo.findByUserAndSlotType(user, SlotType.HAT)).willReturn(Optional.empty());
         given(characterEquipmentRepo.save(any())).willAnswer(i -> i.getArgument(0));
 
-        //when
+        // when
         CharacterEquipmentResponse result = equipmentService.equip(1L, 1L);
 
-        //then
+        // then
         assertThat(result.getItem().getName()).isEqualTo(item.getName());
         assertThat(result.getSlotType()).isEqualTo(SlotType.HAT.name());
     }
@@ -70,12 +78,12 @@ public class EquipmentServiceTest {
     @Test
     @DisplayName("보유하지 않은 아이템 장착 시 예외")
     void equipFailNotOwned() {
-        //given
+        // given
         given(userRepo.findById(1L)).willReturn(Optional.of(user));
         given(itemRepo.findById(1L)).willReturn(Optional.of(item));
         given(userItemRepo.existsByUserAndItem(user, item)).willReturn(false);
 
-        //when + then
+        // when + then
         assertThatThrownBy(() -> equipmentService.equip(1L, 1L))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("보유하지 않은 아이템입니다.");
@@ -84,10 +92,10 @@ public class EquipmentServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 장착 시 예외")
     void equipFailUserNotFound() {
-        //given
+        // given
         given(userRepo.findById(99L)).willReturn(Optional.empty());
 
-        //when + given
+        // when + then
         assertThatThrownBy(() -> equipmentService.equip(99L, 1L))
                 .isInstanceOf(EntityNotFoundException.class)
                 .hasMessage("유저를 찾을 수 없습니다.");
@@ -96,7 +104,7 @@ public class EquipmentServiceTest {
     @Test
     @DisplayName("아이템 해제 성공")
     void unequipSuccess() {
-        //given
+        // given
         CharacterEquipment equipment = CharacterEquipment.builder()
                 .user(user)
                 .slotType(SlotType.HAT)
@@ -106,10 +114,11 @@ public class EquipmentServiceTest {
         given(userRepo.findById(1L)).willReturn(Optional.of(user));
         given(characterEquipmentRepo.findByUserAndSlotType(user, SlotType.HAT)).willReturn(Optional.of(equipment));
 
-        //when
+        // when
         equipmentService.unequip(1L, SlotType.HAT);
 
-        //then
+        // then
         assertThat(equipment.getItem()).isNull();
     }
+
 }

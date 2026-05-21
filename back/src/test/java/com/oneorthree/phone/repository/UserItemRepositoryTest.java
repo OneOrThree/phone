@@ -1,6 +1,10 @@
 package com.oneorthree.phone.repository;
 
-import com.oneorthree.phone.domain.*;
+import com.oneorthree.phone.domain.Item;
+import com.oneorthree.phone.domain.Rarity;
+import com.oneorthree.phone.domain.SlotType;
+import com.oneorthree.phone.domain.User;
+import com.oneorthree.phone.domain.UserItem;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -10,8 +14,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-
 class UserItemRepositoryTest extends RepositoryTestBase {
+
     @Autowired
     private UserItemRepository userItemRepository;
 
@@ -22,6 +26,7 @@ class UserItemRepositoryTest extends RepositoryTestBase {
     private ItemRepository itemRepository;
 
     private User user;
+
     private Item item;
 
     @BeforeEach
@@ -56,7 +61,7 @@ class UserItemRepositoryTest extends RepositoryTestBase {
     void grantDuplicate() {
         // given
         userItemRepository.grantIfNotExists(user.getId(), item.getId());
-        userItemRepository.grantIfNotExists(user.getId(), item.getId());    //중복 지급
+        userItemRepository.grantIfNotExists(user.getId(), item.getId());
 
         // when
         List<UserItem> result = userItemRepository.findByUser(user);
@@ -64,4 +69,5 @@ class UserItemRepositoryTest extends RepositoryTestBase {
         // then
         assertThat(result).hasSize(1);
     }
+
 }

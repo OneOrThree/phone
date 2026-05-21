@@ -17,20 +17,22 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 
-import static org.mockito.BDDMockito.*;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willDoNothing;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
-
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
 @AutoConfigureMockMvc(addFilters = false)
 public class EquipmentControllerTest {
+
     @Autowired
     private MockMvc mockMvc;
+
     @MockitoBean
     private EquipmentService equipmentService;
 
@@ -39,7 +41,7 @@ public class EquipmentControllerTest {
     @Test
     @DisplayName("장착 상태 조회 성공")
     void getEqipmentSuccess() throws Exception {
-        //given
+        // given
         CharacterEquipmentResponse response = CharacterEquipmentResponse.builder()
                 .id(1L)
                 .slotType("HAT")
@@ -53,7 +55,7 @@ public class EquipmentControllerTest {
                 .build();
         given(equipmentService.getEquipment(1L)).willReturn(List.of(response));
 
-        //when + then
+        // when + then
         mockMvc.perform(get("/api/equipment/1"))
                 .andDo(print())
                 .andExpect(status().isOk())
@@ -115,6 +117,7 @@ public class EquipmentControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andDo(print())
-                .andExpect(status().isConflict());  // 409
+                .andExpect(status().isConflict());
     }
+
 }

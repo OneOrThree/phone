@@ -1,7 +1,10 @@
 package com.oneorthree.phone.service;
 
 import com.oneorthree.phone.api.dto.response.UserItemResponse;
-import com.oneorthree.phone.domain.*;
+import com.oneorthree.phone.domain.Item;
+import com.oneorthree.phone.domain.Rarity;
+import com.oneorthree.phone.domain.SlotType;
+import com.oneorthree.phone.domain.User;
 import com.oneorthree.phone.repository.ItemRepository;
 import com.oneorthree.phone.repository.UserItemRepository;
 import com.oneorthree.phone.repository.UserRepository;
@@ -30,8 +33,10 @@ public class InventoryServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
     @Mock
     private ItemRepository itemRepository;
+
     @Mock
     private UserItemRepository userItemRepository;
 
@@ -78,4 +83,5 @@ public class InventoryServiceTest {
         // then
         verify(userItemRepository, times(1)).grantIfNotExists(1L, 1L);
     }
+
 }

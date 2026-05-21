@@ -1,6 +1,10 @@
 package com.oneorthree.phone.repository;
 
-import com.oneorthree.phone.domain.*;
+import com.oneorthree.phone.domain.CharacterEquipment;
+import com.oneorthree.phone.domain.Item;
+import com.oneorthree.phone.domain.Rarity;
+import com.oneorthree.phone.domain.SlotType;
+import com.oneorthree.phone.domain.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -10,7 +14,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class CharacterEquipmentRepositoryTest extends RepositoryTestBase{
+public class CharacterEquipmentRepositoryTest extends RepositoryTestBase {
 
     @Autowired
     private CharacterEquipmentRepository repo;
@@ -22,6 +26,7 @@ public class CharacterEquipmentRepositoryTest extends RepositoryTestBase{
     private ItemRepository itemRepo;
 
     private User user;
+
     private Item item;
 
     @BeforeEach
@@ -55,4 +60,5 @@ public class CharacterEquipmentRepositoryTest extends RepositoryTestBase{
         assertThat(result).isPresent();
         assertThat(result.get().getItem().getName()).isEqualTo("테스트 모자");
     }
+
 }
