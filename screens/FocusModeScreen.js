@@ -33,38 +33,72 @@ const MOTION = {
   study:    { axis: 'x',      range: 3.5,  duration: 180,  easing: Easing.linear },
 };
 
+const REST_L = -30;
+const REST_R =  30;
+
+const ARM_CONFIGS = {
+  default:  null,
+  focus:    { l: [-40, REST_L], r: [40, REST_R], dur: 160, easing: Easing.linear, sync: false },
+  reading:  { l: null,           r: [60, REST_R], dur: 1100, easing: Easing.inOut(Easing.sin), sync: true },
+  yoga:     { l: [-145, REST_L], r: [145, REST_R], dur: 2600, easing: Easing.inOut(Easing.sin), sync: true },
+  exercise: { l: [-100, REST_L], r: [100, REST_R], dur: 480, easing: Easing.out(Easing.quad), sync: true },
+  study:    { l: null,           r: [45, 20],      dur: 170, easing: Easing.linear, sync: true },
+};
+
+function makeArmLoop(val, [to, from], dur, easing) {
+  return Animated.loop(Animated.sequence([
+    Animated.timing(val, { toValue: to,   duration: dur,       easing, useNativeDriver: true }),
+    Animated.timing(val, { toValue: from, duration: dur * 0.9, easing, useNativeDriver: true }),
+  ]));
+}
+
 function AnimatedCharacter({ variant, size }) {
-  const anim = useRef(new Animated.Value(0)).current;
+  const bodyAnim = useRef(new Animated.Value(0)).current;
+  const leftArm  = useRef(new Animated.Value(REST_L)).current;
+  const rightArm = useRef(new Animated.Value(REST_R)).current;
 
   useEffect(() => {
-    anim.setValue(0);
-    const cfg = MOTION[variant] ?? MOTION.default;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(anim, { toValue: 1,  duration: cfg.duration, easing: cfg.easing, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: -1, duration: cfg.duration, easing: cfg.easing, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
+    bodyAnim.setValue(0);
+    leftArm.setValue(REST_L);
+    rightArm.setValue(REST_R);
+
+    const bodyCfg = MOTION[variant] ?? MOTION.default;
+    const bodyLoop = Animated.loop(Animated.sequence([
+      Animated.timing(bodyAnim, { toValue:  1, duration: bodyCfg.duration, easing: bodyCfg.easing, useNativeDriver: true }),
+      Animated.timing(bodyAnim, { toValue: -1, duration: bodyCfg.duration, easing: bodyCfg.easing, useNativeDriver: true }),
+    ]));
+    bodyLoop.start();
+
+    const armCfg = ARM_CONFIGS[variant];
+    const armLoops = [];
+    if (armCfg) {
+      if (armCfg.l) { const lp = makeArmLoop(leftArm,  armCfg.l, armCfg.dur, armCfg.easing); armLoops.push(lp); lp.start(); }
+      if (armCfg.r) { const lp = makeArmLoop(rightArm, armCfg.r, armCfg.dur, armCfg.easing); armLoops.push(lp);
+        // focus: right arm starts half a cycle out of phase for alternating effect
+        if (!armCfg.sync) {
+          Animated.delay(armCfg.dur).start(() => lp.start());
+        } else {
+          lp.start();
+        }
+      }
+    }
+
+    return () => {
+      bodyLoop.stop();
+      armLoops.forEach(l => l.stop());
+    };
   }, [variant]);
 
-  const cfg = MOTION[variant] ?? MOTION.default;
-
-  let animStyle;
-  if (cfg.axis === 'y') {
-    animStyle = { transform: [{ translateY: anim.interpolate({ inputRange: [-1, 1], outputRange: [-cfg.range, cfg.range] }) }] };
-  } else if (cfg.axis === 'x') {
-    animStyle = { transform: [{ translateX: anim.interpolate({ inputRange: [-1, 1], outputRange: [-cfg.range, cfg.range] }) }] };
-  } else if (cfg.axis === 'rotate') {
-    animStyle = { transform: [{ rotate: anim.interpolate({ inputRange: [-1, 1], outputRange: [`-${cfg.range}deg`, `${cfg.range}deg`] }) }] };
-  } else {
-    animStyle = { transform: [{ scale: anim.interpolate({ inputRange: [-1, 1], outputRange: [1 - cfg.range, 1 + cfg.range] }) }] };
-  }
+  const bodyCfg = MOTION[variant] ?? MOTION.default;
+  let bodyStyle;
+  if (bodyCfg.axis === 'y')      bodyStyle = { transform: [{ translateY: bodyAnim.interpolate({ inputRange: [-1, 1], outputRange: [-bodyCfg.range, bodyCfg.range] }) }] };
+  else if (bodyCfg.axis === 'x') bodyStyle = { transform: [{ translateX: bodyAnim.interpolate({ inputRange: [-1, 1], outputRange: [-bodyCfg.range, bodyCfg.range] }) }] };
+  else if (bodyCfg.axis === 'rotate') bodyStyle = { transform: [{ rotate: bodyAnim.interpolate({ inputRange: [-1, 1], outputRange: [`-${bodyCfg.range}deg`, `${bodyCfg.range}deg`] }) }] };
+  else bodyStyle = { transform: [{ scale: bodyAnim.interpolate({ inputRange: [-1, 1], outputRange: [1 - bodyCfg.range, 1 + bodyCfg.range] }) }] };
 
   return (
-    <Animated.View style={animStyle}>
-      <Character2D size={size} variant={variant} />
+    <Animated.View style={bodyStyle}>
+      <Character2D size={size} variant={variant} leftArmAngle={leftArm} rightArmAngle={rightArm} />
     </Animated.View>
   );
 }

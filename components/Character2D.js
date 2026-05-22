@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Animated } from 'react-native';
 import { T } from './theme';
 
 const INK = T.ink;
@@ -101,30 +101,32 @@ const VARIANTS = {
   study:    { LeftEye: EyeSquint,   RightEye: EyeNormal,  Item: BodyPaper,     mouthType: 'tongue',   glasses: false, sweat: false, widePaws: false },
 };
 
-export function Character2D({ size = 120, variant = 'default', costumeSlots = [] }) {
+export function Character2D({ size = 120, variant = 'default', costumeSlots = [], leftArmAngle = null, rightArmAngle = null }) {
   const scale = size / 120;
   const cfg = VARIANTS[variant] ?? VARIANTS.default;
   const { LeftEye, RightEye, Item, mouthType, glasses, sweat, widePaws } = cfg;
   const has = (slot) => costumeSlots.includes(slot);
 
+  const leftRot  = leftArmAngle  ? leftArmAngle.interpolate({ inputRange: [-180, 0, 180], outputRange: ['-180deg', '0deg', '180deg'], extrapolate: 'clamp' }) : '-30deg';
+  const rightRot = rightArmAngle ? rightArmAngle.interpolate({ inputRange: [-180, 0, 180], outputRange: ['-180deg', '0deg', '180deg'], extrapolate: 'clamp' }) : '30deg';
+
   return (
     <View style={[s.wrapper, { transform: [{ scale }] }]}>
+      {/* Body — 맨 뒤 (가장 먼저 렌더) */}
+      <View style={[s.body, has('top') && c.bodyHoodie]}>
+        {has('top') && <View style={c.hoodieString} />}
+        {Item && <Item />}
+      </View>
+
+      {/* Bottom (jeans overlay) */}
+      {has('bottom') && <View style={c.jeans} />}
+
       {/* Ears */}
       <View style={s.earLeft}><View style={s.earInner} /></View>
       <View style={s.earRight}><View style={s.earInner} /></View>
 
-      {/* Hat */}
-      {has('hat') && (
-        <View style={c.beret}>
-          <View style={c.beretTop} />
-        </View>
-      )}
-
       {/* Hair */}
       {has('hair') && <View style={c.ponytail} />}
-
-      {/* Accessory */}
-      {has('accessory') && <Text style={c.earring}>★</Text>}
 
       {/* Head */}
       <View style={s.head}>
@@ -157,14 +159,23 @@ export function Character2D({ size = 120, variant = 'default', costumeSlots = []
         )}
       </View>
 
-      {/* Body */}
-      <View style={[s.body, has('top') && c.bodyHoodie]}>
-        {has('top') && <View style={c.hoodieString} />}
-        {Item && <Item />}
-      </View>
+      {/* Hat */}
+      {has('hat') && (
+        <View style={c.beret}>
+          <View style={c.beretTop} />
+        </View>
+      )}
 
-      {/* Bottom (jeans overlay) */}
-      {has('bottom') && <View style={c.jeans} />}
+      {/* Accessory */}
+      {has('accessory') && <Text style={c.earring}>★</Text>}
+
+      {/* Arms — translateY pivot: rotates around top of arm (shoulder) */}
+      <Animated.View style={[c.armLeft,  { transform: [{ translateY: 13 }, { rotate: leftRot  }, { translateY: -13 }] }]}>
+        <View style={c.arm} /><View style={c.hand} />
+      </Animated.View>
+      <Animated.View style={[c.armRight, { transform: [{ translateY: 13 }, { rotate: rightRot }, { translateY: -13 }] }]}>
+        <View style={c.arm} /><View style={c.hand} />
+      </Animated.View>
 
       {/* Paws */}
       <View style={[s.pawsRow, widePaws && s.pawsWide]}>
@@ -352,6 +363,25 @@ const s = StyleSheet.create({
 });
 
 const c = StyleSheet.create({
+  // 팔 — 어깨(top)가 몸 엣지에 붙고 translateY 피벗으로 어깨 기준 회전
+  armLeft:  { position: 'absolute', top: 105, left: 13,  width: 11, height: 26, zIndex: 4 },
+  armRight: { position: 'absolute', top: 105, left: 95,  width: 11, height: 26, zIndex: 4 },
+  arm: {
+    position: 'absolute',
+    bottom: 0, left: 0,
+    width: 11, height: 26,
+    backgroundColor: '#FFF8E7',
+    borderRadius: 6,
+    borderWidth: BW, borderColor: INK,
+  },
+  hand: {
+    position: 'absolute',
+    bottom: -5, left: 1,
+    width: 9, height: 9, borderRadius: 5,
+    backgroundColor: '#FFF8E7',
+    borderWidth: BW - 0.5, borderColor: INK,
+  },
+
   // 베레모
   beret: {
     position: 'absolute', top: -2, zIndex: 5,

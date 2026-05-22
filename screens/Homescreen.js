@@ -154,8 +154,8 @@ export default function HomeScreen({ navigation }) {
       <NotebookLines />
 
       <View style={s.header}>
-        <Text style={s.headerTitle}>오늘의 방 ✦</Text>
-        <Text style={s.headerSub}>집중하는 만큼 방이 채워져요</Text>
+        <Text style={s.headerTitle}>오늘의 수빈이 ✦</Text>
+        <Text style={s.headerSub}>오늘도 열심히 집중해요</Text>
       </View>
 
       <View style={s.statsRow}>

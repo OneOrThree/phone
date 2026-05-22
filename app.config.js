@@ -2,7 +2,7 @@ export default {
   expo: {
     name: 'otium',
     slug: 'otiun',
-    version: '1.0.0',
+    version: '0.0.1',
     orientation: 'portrait',
     userInterfaceStyle: 'light',
     newArchEnabled: false,
