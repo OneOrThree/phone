@@ -5,7 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useFocus } from '../contexts/FocusContext';
 import { useEquipment } from '../contexts/EquipmentContext';
 import { useCoins } from '../contexts/CoinContext';
-import { Character2D } from '../components/Character2D';
+import { Character2D } from '../components/character/Character2D';
 import { T, inkBox } from '../components/theme';
 
 function formatTime(totalSeconds) {

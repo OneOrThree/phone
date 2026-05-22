@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useEquipment } from '../contexts/EquipmentContext';
 import { useFocus } from '../contexts/FocusContext';
-import { Character2D } from '../components/Character2D';
+import { Character2D } from '../components/character/Character2D';
 import { T, inkBox } from '../components/theme';
 
 function formatFocusTime(totalSeconds) {

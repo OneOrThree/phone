@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { T, inkBox } from '../components/theme';
-import { Character2D } from '../components/Character2D';
+import { Character2D } from '../components/character/Character2D';
 
 const VARIANTS = ['default', 'focus', 'reading', 'yoga', 'exercise', 'study'];
 

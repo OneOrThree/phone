@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { T, inkBox } from '../components/theme';
-import { Character2D } from '../components/Character2D';
+import { Character2D } from '../components/character/Character2D';
 import { useFocus } from '../contexts/FocusContext';
 
 function formatFocusTime(totalSeconds) {
