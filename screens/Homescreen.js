@@ -110,7 +110,7 @@ function Carpet2D() {
 
 // ── Room scene ───────────────────────────────────────────────────────────────
 
-function Room({ equippedFurniture }) {
+function Room({ equippedFurniture, costumeSlots }) {
   const ids = equippedFurniture.map((i) => i.id);
   const has = (id) => ids.includes(id);
 
@@ -131,7 +131,7 @@ function Room({ equippedFurniture }) {
 
       {/* Character on top */}
       <View style={s.charPos}>
-        <Character2D size={128} />
+        <Character2D size={128} costumeSlots={costumeSlots} />
       </View>
 
       {/* Ambient deco */}
@@ -144,8 +144,9 @@ function Room({ equippedFurniture }) {
 // ── Screen ───────────────────────────────────────────────────────────────────
 
 export default function HomeScreen({ navigation }) {
-  const { equippedItem, equippedFurniture } = useEquipment();
+  const { equippedItem, equippedFurniture, equippedCostume } = useEquipment();
   const { todayFocusSeconds } = useFocus();
+  const costumeSlots = equippedCostume.map(c => c.slot);
 
   return (
     <View style={s.container}>
@@ -164,7 +165,7 @@ export default function HomeScreen({ navigation }) {
       </View>
 
       <View style={s.roomWrap}>
-        <Room equippedFurniture={equippedFurniture} />
+        <Room equippedFurniture={equippedFurniture} costumeSlots={costumeSlots} />
       </View>
 
       <View style={[s.bottomCard, inkBox(T.paper)]}>

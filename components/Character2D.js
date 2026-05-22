@@ -1,4 +1,3 @@
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { T } from './theme';
 
@@ -102,10 +101,11 @@ const VARIANTS = {
   study:    { LeftEye: EyeSquint,   RightEye: EyeNormal,  Item: BodyPaper,     mouthType: 'tongue',   glasses: false, sweat: false, widePaws: false },
 };
 
-export function Character2D({ size = 120, variant = 'default' }) {
+export function Character2D({ size = 120, variant = 'default', costumeSlots = [] }) {
   const scale = size / 120;
   const cfg = VARIANTS[variant] ?? VARIANTS.default;
   const { LeftEye, RightEye, Item, mouthType, glasses, sweat, widePaws } = cfg;
+  const has = (slot) => costumeSlots.includes(slot);
 
   return (
     <View style={[s.wrapper, { transform: [{ scale }] }]}>
@@ -113,15 +113,25 @@ export function Character2D({ size = 120, variant = 'default' }) {
       <View style={s.earLeft}><View style={s.earInner} /></View>
       <View style={s.earRight}><View style={s.earInner} /></View>
 
+      {/* Hat */}
+      {has('hat') && (
+        <View style={c.beret}>
+          <View style={c.beretTop} />
+        </View>
+      )}
+
+      {/* Hair */}
+      {has('hair') && <View style={c.ponytail} />}
+
+      {/* Accessory */}
+      {has('accessory') && <Text style={c.earring}>★</Text>}
+
       {/* Head */}
       <View style={s.head}>
-        {/* Eyes */}
         <View style={s.eyesRow}>
           <LeftEye />
           <RightEye />
         </View>
-
-        {/* Glasses overlay */}
         {glasses && (
           <View style={s.glassesRow}>
             <View style={s.glassesFrame} />
@@ -129,20 +139,12 @@ export function Character2D({ size = 120, variant = 'default' }) {
             <View style={s.glassesFrame} />
           </View>
         )}
-
-        {/* Sweat drop */}
         {sweat && <View style={s.sweat} />}
-
-        {/* Cheeks */}
         <View style={s.cheeksRow}>
           <View style={s.cheek} />
           <View style={s.cheek} />
         </View>
-
-        {/* Nose */}
         <View style={s.nose} />
-
-        {/* Mouth */}
         {mouthType === 'smile'    && <View style={s.mouth} />}
         {mouthType === 'bigSmile' && <View style={s.mouthBig} />}
         {mouthType === 'flat'     && <View style={s.mouthFlat} />}
@@ -156,9 +158,13 @@ export function Character2D({ size = 120, variant = 'default' }) {
       </View>
 
       {/* Body */}
-      <View style={s.body}>
+      <View style={[s.body, has('top') && c.bodyHoodie]}>
+        {has('top') && <View style={c.hoodieString} />}
         {Item && <Item />}
       </View>
+
+      {/* Bottom (jeans overlay) */}
+      {has('bottom') && <View style={c.jeans} />}
 
       {/* Paws */}
       <View style={[s.pawsRow, widePaws && s.pawsWide]}>
@@ -342,5 +348,50 @@ const s = StyleSheet.create({
     width: 22, height: 16, borderRadius: 11,
     backgroundColor: '#FFF8E7',
     borderWidth: BW, borderColor: INK,
+  },
+});
+
+const c = StyleSheet.create({
+  // 베레모
+  beret: {
+    position: 'absolute', top: -2, zIndex: 5,
+    alignItems: 'center',
+  },
+  beretTop: {
+    width: 64, height: 18, borderRadius: 32,
+    backgroundColor: '#8B3A3A',
+    borderWidth: BW, borderColor: INK,
+  },
+
+  // 포니테일
+  ponytail: {
+    position: 'absolute', top: 24, right: 6, zIndex: 1,
+    width: 10, height: 48, borderRadius: 5,
+    backgroundColor: '#7B4A1E',
+    borderWidth: 1.5, borderColor: INK,
+    transform: [{ rotate: '12deg' }],
+  },
+
+  // 별 귀걸이
+  earring: {
+    position: 'absolute', top: 46, left: 4, zIndex: 5,
+    fontSize: 10, color: T.yellowDark,
+  },
+
+  // 후드티
+  bodyHoodie: { backgroundColor: '#7EB8D4' },
+  hoodieString: {
+    position: 'absolute', top: 4,
+    width: 4, height: 14, borderRadius: 2,
+    backgroundColor: '#5A9AB8', borderWidth: 1, borderColor: INK,
+  },
+
+  // 청바지
+  jeans: {
+    position: 'absolute', bottom: 12, zIndex: 2,
+    width: 76, height: 18, borderRadius: 4,
+    backgroundColor: '#3A5A8C',
+    borderWidth: BW, borderColor: INK,
+    borderBottomWidth: 0,
   },
 });

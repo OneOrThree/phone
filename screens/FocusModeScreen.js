@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import React, { useRef, useState, useEffect } from 'react';
+import { View, Text, StyleSheet, Pressable, Animated, Easing } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
 import { useFocus } from '../contexts/FocusContext';
@@ -23,6 +23,51 @@ const VARIANT_MSG = {
   exercise: '운동하면서 집중 중... 💪',
   study:    '문제집 풀면서 집중 중... ✏',
 };
+
+const MOTION = {
+  default:  { axis: 'y',      range: 4,    duration: 1800, easing: Easing.inOut(Easing.sin) },
+  focus:    { axis: 'y',      range: 2.5,  duration: 250,  easing: Easing.linear },
+  reading:  { axis: 'rotate', range: 4,    duration: 2400, easing: Easing.inOut(Easing.sin) },
+  yoga:     { axis: 'scale',  range: 0.05, duration: 3200, easing: Easing.inOut(Easing.sin) },
+  exercise: { axis: 'y',      range: 14,   duration: 500,  easing: Easing.out(Easing.quad) },
+  study:    { axis: 'x',      range: 3.5,  duration: 180,  easing: Easing.linear },
+};
+
+function AnimatedCharacter({ variant, size }) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    anim.setValue(0);
+    const cfg = MOTION[variant] ?? MOTION.default;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1,  duration: cfg.duration, easing: cfg.easing, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: -1, duration: cfg.duration, easing: cfg.easing, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [variant]);
+
+  const cfg = MOTION[variant] ?? MOTION.default;
+
+  let animStyle;
+  if (cfg.axis === 'y') {
+    animStyle = { transform: [{ translateY: anim.interpolate({ inputRange: [-1, 1], outputRange: [-cfg.range, cfg.range] }) }] };
+  } else if (cfg.axis === 'x') {
+    animStyle = { transform: [{ translateX: anim.interpolate({ inputRange: [-1, 1], outputRange: [-cfg.range, cfg.range] }) }] };
+  } else if (cfg.axis === 'rotate') {
+    animStyle = { transform: [{ rotate: anim.interpolate({ inputRange: [-1, 1], outputRange: [`-${cfg.range}deg`, `${cfg.range}deg`] }) }] };
+  } else {
+    animStyle = { transform: [{ scale: anim.interpolate({ inputRange: [-1, 1], outputRange: [1 - cfg.range, 1 + cfg.range] }) }] };
+  }
+
+  return (
+    <Animated.View style={animStyle}>
+      <Character2D size={size} variant={variant} />
+    </Animated.View>
+  );
+}
 
 const VARIANT_CARD_COLOR = {
   default:  T.paperDark,
@@ -87,7 +132,7 @@ export default function FocusModeScreen({ navigation }) {
       <View style={[s.charCard, inkBox(cardColor, '-0.8deg')]}>
         <Text style={s.charMsg}>{msg}</Text>
         <View style={s.charInner}>
-          <Character2D size={200} variant={variant} />
+          <AnimatedCharacter size={200} variant={variant} />
         </View>
       </View>
 

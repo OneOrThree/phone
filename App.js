@@ -54,11 +54,10 @@ export default function App() {
                     backgroundColor: T.paper,
                     borderTopColor: T.ink,
                     borderTopWidth: 2.5,
-                    borderBottomColor: T.ink,
-                    borderBottomWidth: 2.5,
-                    height: 60,
-                    paddingBottom: 4,
-                    paddingTop: 4,
+
+                    height: 76,
+                    paddingBottom: 10,
+                    paddingTop: 6,
                     marginBottom: 8,
                   },
               tabBarLabelStyle: {

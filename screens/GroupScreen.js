@@ -39,28 +39,33 @@ function formatTime(seconds) {
   return `${seconds}초`;
 }
 
-function MemberCard({ member }) {
+const RANK_COLORS = [T.yellow, T.inkLight, T.coral];
+
+function MemberCard({ member, rank }) {
+  const rankColor = RANK_COLORS[rank - 1] ?? T.paperDark;
   return (
     <View style={[s.memberCard, inkBox(T.paperDark)]}>
+      <View style={[s.rankBadge, { backgroundColor: rankColor }]}>
+        <Text style={s.rankText}>{rank}</Text>
+      </View>
       <View style={s.memberCharWrap}>
         <Character2D size={80} variant={member.variant} />
       </View>
       <Text style={s.memberName}>{member.name}</Text>
-      <View style={s.memberStatRow}>
-        <View style={s.memberStat}>
-          <Text style={s.memberStatLabel}>오늘</Text>
-          <Text style={[s.memberStatValue, { color: T.coral }]}>{formatTime(member.todaySeconds)}</Text>
-        </View>
-        <View style={s.memberStat}>
-          <Text style={s.memberStatLabel}>누적</Text>
-          <Text style={[s.memberStatValue, { color: T.sky }]}>{formatTime(member.totalSeconds)}</Text>
-        </View>
+      <View style={s.memberStat}>
+        <Text style={s.memberStatLabel}>오늘</Text>
+        <Text style={[s.memberStatValue, { color: T.coral }]}>{formatTime(member.todaySeconds)}</Text>
+      </View>
+      <View style={s.memberStat}>
+        <Text style={s.memberStatLabel}>누적</Text>
+        <Text style={[s.memberStatValue, { color: T.sky }]}>{formatTime(member.totalSeconds)}</Text>
       </View>
     </View>
   );
 }
 
 function GroupDetailView({ group, onBack }) {
+  const sorted = [...group.members].sort((a, b) => b.totalSeconds - a.totalSeconds);
   return (
     <View style={s.container}>
       <TouchableOpacity onPress={onBack} style={s.backBtn}>
@@ -68,10 +73,8 @@ function GroupDetailView({ group, onBack }) {
       </TouchableOpacity>
       <Text style={s.title}>{group.name}</Text>
       <Text style={s.sub}>코드: {group.code} · 멤버 {group.members.length}명</Text>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <View style={s.memberGrid}>
-          {group.members.map(m => <MemberCard key={m.id} member={m} />)}
-        </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.memberRow} contentContainerStyle={s.memberRowContent}>
+        {sorted.map((m, i) => <MemberCard key={m.id} member={m} rank={i + 1} />)}
       </ScrollView>
     </View>
   );
@@ -303,13 +306,34 @@ const s = StyleSheet.create({
     marginTop: 20,
   },
 
+  // Member row (horizontal)
+  memberRow: { marginTop: 16 },
+  memberRowContent: { paddingHorizontal: 4, gap: 12, paddingBottom: 12 },
+
   // Member card
   memberCard: {
     alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-    width: '48%',
+    paddingTop: 24,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    width: 140,
+  },
+  rankBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: T.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rankText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: T.ink,
   },
   memberCharWrap: {
     width: 120,
@@ -318,17 +342,13 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   memberName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '900',
     color: T.ink,
     marginTop: 4,
     marginBottom: 8,
   },
-  memberStatRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  memberStat: { alignItems: 'center' },
+  memberStat: { alignItems: 'center', marginBottom: 4 },
   memberStatLabel: {
     fontSize: 11,
     fontWeight: '700',
@@ -338,14 +358,6 @@ const s = StyleSheet.create({
   memberStatValue: {
     fontSize: 12,
     fontWeight: '900',
-  },
-
-  memberGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 16,
-    justifyContent: 'space-between',
   },
 
   // Back
