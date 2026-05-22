@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { T, inkBox } from '../components/theme';
 import { Character2D } from '../components/Character2D';
@@ -22,7 +22,7 @@ function StatRow({ label, value, accent }) {
   );
 }
 
-export default function MyPageScreen() {
+export default function MyPageScreen({ onLogout }) {
   const { todayFocusSeconds } = useFocus();
 
   return (
@@ -62,6 +62,10 @@ export default function MyPageScreen() {
           짧게 끊을수록 더 오래 집중할 수 있어요!
         </Text>
       </View>
+
+      <TouchableOpacity style={[s.logoutBtn, inkBox(T.paperDark)]} onPress={onLogout} activeOpacity={0.8}>
+        <Text style={s.logoutText}>로그아웃</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -164,5 +168,15 @@ const s = StyleSheet.create({
     fontWeight: '600',
     color: T.inkMed,
     lineHeight: 20,
+  },
+  logoutBtn: {
+    marginTop: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  logoutText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: T.inkMed,
   },
 });

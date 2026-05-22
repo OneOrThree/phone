@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
 import { useFocus } from '../contexts/FocusContext';
 import { useEquipment } from '../contexts/EquipmentContext';
+import { useCoins } from '../contexts/CoinContext';
 import { Character2D } from '../components/Character2D';
 import { T, inkBox } from '../components/theme';
 
@@ -35,8 +36,10 @@ const VARIANT_CARD_COLOR = {
 export default function FocusModeScreen({ navigation }) {
   const { todayFocusSeconds, addFocusSeconds } = useFocus();
   const { equippedItem } = useEquipment();
+  const { addCoins } = useCoins();
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const startTimeRef = useRef(null);
+  const lastCoinRef = useRef(0);
 
   const variant = equippedItem?.focusVariant ?? 'default';
   const msg = VARIANT_MSG[variant] ?? VARIANT_MSG.default;
@@ -45,9 +48,16 @@ export default function FocusModeScreen({ navigation }) {
   useFocusEffect(
     React.useCallback(() => {
       startTimeRef.current = Date.now();
+      lastCoinRef.current = 0;
       setSessionSeconds(0);
       const id = setInterval(() => {
-        setSessionSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
+        const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        setSessionSeconds(elapsed);
+        const earned = Math.floor(elapsed / 10);
+        if (earned > lastCoinRef.current) {
+          addCoins(earned - lastCoinRef.current);
+          lastCoinRef.current = earned;
+        }
       }, 1000);
       return () => clearInterval(id);
     }, [])

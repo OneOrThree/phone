@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, Pressable, ScrollView, Image,
 } from 'react-native';
 import { useEquipment } from '../contexts/EquipmentContext';
+import { useCoins } from '../contexts/CoinContext';
 import { T, inkBox } from '../components/theme';
 
 const shopItems = {
@@ -97,14 +98,22 @@ const shopItems = {
   ],
 };
 
+const ITEM_PRICE = 10;
+
 export default function ShopScreen() {
   const [selectedCategory, setSelectedCategory] = useState('item');
   const [selectedItem, setSelectedItem] = useState(null);
   const { equippedItem, setEquippedItem, equippedFurniture, toggleFurniture } = useEquipment();
+  const { coins, isOwned, buyItem } = useCoins();
   const items = shopItems[selectedCategory];
 
   function handleSelectItem(item) {
     setSelectedItem(item);
+  }
+
+  function handleBuy() {
+    if (!selectedItem) return;
+    buyItem(selectedItem.id, ITEM_PRICE);
   }
 
   function handleEquip() {
@@ -120,8 +129,13 @@ export default function ShopScreen() {
   return (
     <View style={s.container}>
       <View style={s.header}>
-        <Text style={s.title}>상점 🛍</Text>
-        <Text style={s.subtitle}>방을 꾸미고 캐릭터를 키워봐요</Text>
+        <View>
+          <Text style={s.title}>상점 🛍</Text>
+          <Text style={s.subtitle}>방을 꾸미고 캐릭터를 키워봐요</Text>
+        </View>
+        <View style={[s.coinBadge, inkBox(T.yellow)]}>
+          <Text style={s.coinText}>💰 {coins}</Text>
+        </View>
       </View>
 
       {/* Category tabs */}
@@ -164,7 +178,12 @@ export default function ShopScreen() {
                 )}
               </View>
               <Text style={s.itemName}>{item.name}</Text>
-              {isEquipped && <Text style={s.equippedBadge}>✔ 장착중</Text>}
+              {isEquipped
+                ? <Text style={s.equippedBadge}>✔ 장착중</Text>
+                : isOwned(item.id)
+                  ? <Text style={s.ownedBadge}>보유중</Text>
+                  : <Text style={s.priceBadge}>💰 {ITEM_PRICE}</Text>
+              }
             </Pressable>
           );
         })}
@@ -179,7 +198,17 @@ export default function ShopScreen() {
             </Text>
             <Text style={s.detailDesc}>{selectedItem.desc}</Text>
 
-            {selectedItem.type === 'furniture' ? (
+            {!isOwned(selectedItem.id) ? (
+              <Pressable
+                style={[s.equipBtn, coins < ITEM_PRICE && s.disabledBtn]}
+                onPress={handleBuy}
+                disabled={coins < ITEM_PRICE}
+              >
+                <Text style={s.equipBtnText}>
+                  {coins < ITEM_PRICE ? `💰 부족 (${ITEM_PRICE - coins} 더 필요)` : `💰 ${ITEM_PRICE} 구매하기`}
+                </Text>
+              </Pressable>
+            ) : selectedItem.type === 'furniture' ? (
               equippedFurniture.some((f) => f.id === selectedItem.id) ? (
                 <Pressable style={s.unequipBtn} onPress={() => toggleFurniture(selectedItem)}>
                   <Text style={s.unequipBtnText}>장착 해제</Text>
@@ -217,9 +246,11 @@ const s = StyleSheet.create({
     flex: 1, backgroundColor: T.paper,
     paddingTop: 56, paddingHorizontal: 18,
   },
-  header: { marginBottom: 16 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   title: { fontSize: 28, fontWeight: '900', color: T.ink },
   subtitle: { fontSize: 13, color: T.inkMed, marginTop: 2 },
+  coinBadge: { paddingHorizontal: 14, paddingVertical: 8 },
+  coinText: { fontSize: 16, fontWeight: '900', color: T.ink },
 
   tabRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
   tab: {
@@ -256,6 +287,8 @@ const s = StyleSheet.create({
   itemIcon: { fontSize: 28 },
   itemName: { fontSize: 12, fontWeight: '700', color: T.ink, textAlign: 'center' },
   equippedBadge: { fontSize: 10, fontWeight: '700', color: T.mintDark, marginTop: 2 },
+  ownedBadge: { fontSize: 10, fontWeight: '700', color: T.skyDark, marginTop: 2 },
+  priceBadge: { fontSize: 10, fontWeight: '700', color: T.inkMed, marginTop: 2 },
 
   detailCard: { marginTop: 8, marginBottom: 10, padding: 16 },
   detailTitle: { fontSize: 18, fontWeight: '900', color: T.ink },
@@ -280,4 +313,5 @@ const s = StyleSheet.create({
     paddingVertical: 11, alignItems: 'center',
   },
   unequipBtnText: { fontSize: 15, fontWeight: '900', color: T.coralDark },
+  disabledBtn: { backgroundColor: T.paperLine, borderColor: T.inkLight },
 });

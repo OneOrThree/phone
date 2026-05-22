@@ -5,6 +5,7 @@ import { Text } from 'react-native';
 
 import { FocusProvider } from './contexts/FocusContext';
 import { EquipmentProvider } from './contexts/EquipmentContext';
+import { CoinProvider } from './contexts/CoinContext';
 
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/Homescreen';
@@ -32,6 +33,7 @@ export default function App() {
   }
 
   return (
+    <CoinProvider>
     <EquipmentProvider>
       <FocusProvider>
         <NavigationContainer>
@@ -52,9 +54,12 @@ export default function App() {
                     backgroundColor: T.paper,
                     borderTopColor: T.ink,
                     borderTopWidth: 2.5,
-                    height: 68,
-                    paddingBottom: 8,
-                    paddingTop: 6,
+                    borderBottomColor: T.ink,
+                    borderBottomWidth: 2.5,
+                    height: 60,
+                    paddingBottom: 4,
+                    paddingTop: 4,
+                    marginBottom: 8,
                   },
               tabBarLabelStyle: {
                 fontSize: 11,
@@ -65,7 +70,9 @@ export default function App() {
             <Tab.Screen name="홈" component={HomeScreen} />
             <Tab.Screen name="그룹" component={GroupScreen} />
             <Tab.Screen name="상점" component={ShopScreen} />
-            <Tab.Screen name="마이페이지" component={MyPageScreen} />
+            <Tab.Screen name="마이페이지">
+              {() => <MyPageScreen onLogout={() => setIsLoggedIn(false)} />}
+            </Tab.Screen>
             <Tab.Screen
               name="FocusMode"
               component={FocusModeScreen}
@@ -75,5 +82,6 @@ export default function App() {
         </NavigationContainer>
       </FocusProvider>
     </EquipmentProvider>
+    </CoinProvider>
   );
 }
