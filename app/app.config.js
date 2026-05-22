@@ -20,15 +20,6 @@ export default {
     web: {
       bundler: 'metro',
     },
-    plugins: [
-      'expo-dev-client',
-      [
-        '@react-native-kakao/core',
-        {
-          nativeAppKey: process.env.KAKAO_NATIVE_APP_KEY,
-        },
-      ],
-    ],
     extra: {
       eas: {
         projectId: '47a51573-952b-4b0a-a7aa-43d6961c1785',

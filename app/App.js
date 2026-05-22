@@ -26,10 +26,10 @@ const TAB_ICONS = {
 };
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [user, setUser] = useState(null);
 
-  if (!isLoggedIn) {
-    return <LoginScreen onLogin={() => setIsLoggedIn(true)} />;
+  if (!user) {
+    return <LoginScreen onLogin={(u) => setUser(u)} />;
   }
 
   return (
@@ -70,7 +70,7 @@ export default function App() {
             <Tab.Screen name="그룹" component={GroupScreen} />
             <Tab.Screen name="상점" component={ShopScreen} />
             <Tab.Screen name="마이페이지">
-              {() => <MyPageScreen onLogout={() => setIsLoggedIn(false)} />}
+              {() => <MyPageScreen onLogout={() => setUser(null)} />}
             </Tab.Screen>
             <Tab.Screen
               name="FocusMode"
