@@ -1,0 +1,14 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tt_db
+    username: ci
+    password: ci
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+
+decorator:
+  datasource:
+    p6spy:
+      enable-logging: false

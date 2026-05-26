@@ -35,6 +35,15 @@ out/
 
 ### yml ###
 application.yml
+application-local.yml
+application-prod.yml
+application-staging.yml
+
+### DB Query 성능 측정 ###
+spy.properties
+
+### Docker File ###
+docker-compose.yml
 
 ### VS Code ###
 .vscode/

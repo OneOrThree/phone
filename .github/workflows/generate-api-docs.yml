@@ -2,30 +2,44 @@ name: Generate OpenAPI Docs
 
 on:
   push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
-    types: [ closed ]
+    branches: [ main, develop, 'feat/**' ]
 
 jobs:
   generate-docs:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./back
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: tt_db
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Check if back directory exists
+        id: check
+        run: echo "exists=$([ -d back ] && echo true || echo false)" >> $GITHUB_OUTPUT
+
       - name: Set up JDK 17
+        if: steps.check.outputs.exists == 'true'
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
       - name: Cache Gradle packages
+        if: steps.check.outputs.exists == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -36,16 +50,45 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - name: Grant execute permission for gradlew
+        if: steps.check.outputs.exists == 'true'
+        working-directory: back
         run: chmod +x gradlew
 
       - name: Build with Gradle
+        if: steps.check.outputs.exists == 'true'
+        working-directory: back
         run: ./gradlew build -x test
 
       - name: Generate OpenAPI Docs
+        if: steps.check.outputs.exists == 'true'
+        working-directory: back
+        env:
+          SPRING_PROFILES_ACTIVE: ci
         run: ./gradlew generateOpenApiDocs
 
-      - name: Generate Swagger UI
+      - name: Set deploy destination
+        if: steps.check.outputs.exists == 'true'
+        id: dest
         run: |
+          BRANCH="${{ github.ref_name }}"
+          SAFE_BRANCH="${BRANCH//\//-}"
+          echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
+          if [ "$BRANCH" = "main" ]; then
+            echo "dir=." >> $GITHUB_OUTPUT
+            echo "url=https://oneorthree.github.io/phone/" >> $GITHUB_OUTPUT
+          elif [ "$BRANCH" = "develop" ]; then
+            echo "dir=staging" >> $GITHUB_OUTPUT
+            echo "url=https://oneorthree.github.io/phone/staging/" >> $GITHUB_OUTPUT
+          else
+            echo "dir=$BRANCH" >> $GITHUB_OUTPUT
+            echo "url=https://oneorthree.github.io/phone/$BRANCH/" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate Swagger UI
+        if: steps.check.outputs.exists == 'true'
+        working-directory: back
+        run: |
+          mkdir -p build/docs/api
           cat > build/docs/api/index.html << 'EOF'
           <!DOCTYPE html>
           <html lang="ko">
@@ -77,21 +120,27 @@ jobs:
           EOF
 
       - name: Upload openapi.json as artifact
+        if: steps.check.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: openapi-spec
+          name: openapi-spec-${{ steps.dest.outputs.safe_branch }}
           path: back/build/docs/api/openapi.json
           retention-days: 30
 
       - name: Deploy to gh-pages
+        if: steps.check.outputs.exists == 'true'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
           publish_dir: back/build/docs/api/
-          destination_dir: .
+          destination_dir: ${{ steps.dest.outputs.dir }}
+          keep_files: true
 
       - name: Notify Slack
+        if: |
+          steps.check.outputs.exists == 'true' &&
+          (github.ref_name == 'main' || github.ref_name == 'develop')
         uses: slackapi/slack-github-action@v1.27.0
         with:
           payload: |
@@ -116,7 +165,7 @@ jobs:
                     {
                       "type": "button",
                       "text": "문서 확인하기",
-                      "url": "https://oneorthree.github.io/phone/"
+                      "url": "${{ steps.dest.outputs.url }}"
                     }
                   ]
                 }
@@ -126,15 +175,31 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
 
-      - name: Sync to Apidog
+      - name: Patch openapi.json version for Apidog
+        if: steps.check.outputs.exists == 'true'
+        working-directory: back/build/docs/api
         run: |
-          curl -X POST "https://api.apidog.com/v1/projects/1255433/import-openapi" \
+          BRANCH="${{ github.ref_name }}"
+          BASE_VERSION=$(cat openapi.json | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['version'])")
+          python3 -c "
+          import json
+          with open('openapi.json', 'r') as f:
+              spec = json.load(f)
+          spec['info']['version'] = '${BASE_VERSION}-${BRANCH}'.replace('/', '-')
+          with open('openapi.json', 'w') as f:
+              json.dump(spec, f)
+          "
+
+      - name: Sync to Apidog
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          curl -X POST "https://api.apidog.com/v1/projects/1283919/import-openapi" \
             -H "Authorization: Bearer ${{ secrets.APIDOG_TOKEN }}" \
             -H "X-Apidog-Api-Version: 2024-03-28" \
             -H "Content-Type: application/json" \
             -d '{
               "input": {
-                "url": "https://oneorthree.github.io/phone/openapi.json"
+                "url": "${{ steps.dest.outputs.url }}openapi.json"
               },
               "options": {
                 "endpointOverwriteBehavior": "OVERWRITE_EXISTING",
