@@ -31,15 +31,15 @@ jobs:
           POSTGRES_USER: ${{ secrets.DEV_POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.DEV_POSTGRES_PASSWORD }}
         run: |
-          docker compose -f docker-compose.prod.yml up -d
-          docker compose -f docker-compose.prod.yml ps
+          docker compose -f docker-compose.dev.yml up -d
+          docker compose -f docker-compose.dev.yml ps
 
       - name: Health check
         run: |
           echo "앱 기동 대기 중..."
           sleep 15
           curl -f http://localhost:8080/health || \
-            (docker compose -f docker-compose.prod.yml logs app && exit 1)
+            (docker compose -f docker-compose.dev.yml logs app && exit 1)
 
       - name: Report deployment failure
         if: failure()
