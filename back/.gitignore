@@ -44,6 +44,7 @@ spy.properties
 
 ### Docker File ###
 docker-compose.yml
+.env.prod
 
 ### VS Code ###
 .vscode/

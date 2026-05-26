@@ -1,9 +1,4 @@
-# mac
 .DS_Store
 .idea/
 docs/
 .superpowers/
-
-# 스프링 환경변수 (절대 커밋 금지)
-application*.yml
-.env.prod
