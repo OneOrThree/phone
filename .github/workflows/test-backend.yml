@@ -5,7 +5,7 @@ on:
 
 jobs:
   test:
-    runs-on: [self-hosted, ci-spot-ci-runner-0j4x]
+    runs-on: [self-hosted, spot]
     timeout-minutes: 20
     services:
       postgres:
