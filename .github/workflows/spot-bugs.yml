@@ -1,0 +1,38 @@
+name: SpotBugs Backend
+
+on:
+  workflow_call:
+
+jobs:
+  spotbugs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: back
+    env:
+      GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('back/**/*.gradle*', 'back/**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      - run: chmod +x gradlew
+
+      - run: ./gradlew spotbugsMain
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spotbugs-report
+          path: back/build/reports/spotbugs/
+          retention-days: 7
