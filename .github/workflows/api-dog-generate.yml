@@ -157,7 +157,7 @@ jobs:
                     },
                     {
                       "title": "커밋",
-                      "value": "${{ github.event.head_commit.message }}",
+                      "value": ${{ toJSON(github.event.head_commit.message) }},
                       "short": true
                     }
                   ],
