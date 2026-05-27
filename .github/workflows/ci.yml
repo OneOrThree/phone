@@ -62,7 +62,7 @@ jobs:
 
   pr-report:
     needs: [checkstyle, spotbugs, test, build-image]
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
