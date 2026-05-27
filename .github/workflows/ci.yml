@@ -61,7 +61,7 @@ jobs:
         run: docker build -t phone-app:${{ github.sha }} -t phone-app:latest ./back
 
   pr-report:
-    needs: [checkstyle, spotbugs, test]
+    needs: [checkstyle, spotbugs, test, build-image]
     if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -85,6 +85,7 @@ jobs:
           CHECKSTYLE_RESULT: ${{ needs.checkstyle.result }}
           SPOTBUGS_RESULT: ${{ needs.spotbugs.result }}
           TEST_RESULT: ${{ needs.test.result }}
+          BUILD_RESULT: ${{ needs.build-image.result }}
         run: python3 .github/scripts/generate-pr-comment.py
 
       - name: Post or update PR comment

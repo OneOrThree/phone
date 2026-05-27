@@ -5,6 +5,7 @@ run_url = os.environ['RUN_URL']
 cs_result = os.environ['CHECKSTYLE_RESULT']
 sb_result = os.environ['SPOTBUGS_RESULT']
 ts_result = os.environ['TEST_RESULT']
+build_result = os.environ.get('BUILD_RESULT', 'skipped')
 
 passed = failed = skipped = 0
 for xml_file in glob.glob('test-results/**/*.xml', recursive=True):
@@ -95,7 +96,7 @@ if os.path.exists(owasp_path):
 def icon(result):
     return '✅' if result == 'success' else '❌'
 
-overall = '✅' if all(r == 'success' for r in [cs_result, sb_result, ts_result]) else '❌'
+overall = '✅' if all(r == 'success' for r in [cs_result, sb_result, ts_result, build_result]) else '❌'
 
 comment = f"""## CI Report {overall}
 
@@ -104,6 +105,7 @@ comment = f"""## CI Report {overall}
 | Checkstyle | {icon(cs_result)} |
 | SpotBugs | {icon(sb_result)} |
 | Test | {icon(ts_result)} |
+| Build | {icon(build_result)} |
 
 ### 테스트 결과
 | 상태 | 건수 |
