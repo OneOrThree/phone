@@ -17,9 +17,7 @@ import { s } from '../styles/characterStyles';
 // 노트북: 파란 직사각형으로 표현.
 // focus variant에서 사용.
 export function BodyLaptop() {
-  return (
-    <View style={s.laptop} /> // 단순 직사각형 (파란 배경)
-  );
+  return <View style={s.laptop} />;
 }
 
 // ── BodyBook ─────────────────────────────────────────────────
@@ -27,14 +25,14 @@ export function BodyLaptop() {
 // reading variant에서 사용.
 export function BodyBook() {
   return (
-    <View style={s.bookWrap}>        {/* 전체 책 컨테이너 (가로 배치) */}
-      <View style={s.bookPage}>      {/* 왼쪽 페이지 */}
-        <View style={s.bookLine} />  {/* 줄 1 */}
-        <View style={s.bookLine} />  {/* 줄 2 */}
-        <View style={s.bookLine} />  {/* 줄 3 */}
+    <View style={s.bookWrap}>
+      <View style={s.bookPage}>
+        <View style={s.bookLine} />
+        <View style={s.bookLine} />
+        <View style={s.bookLine} />
       </View>
-      <View style={s.bookSpine} />   {/* 책등 (빨간 세로 띠) */}
-      <View style={s.bookPage}>      {/* 오른쪽 페이지 */}
+      <View style={s.bookSpine} />
+      <View style={s.bookPage}>
         <View style={s.bookLine} />
         <View style={s.bookLine} />
         <View style={s.bookLine} />
@@ -48,10 +46,10 @@ export function BodyBook() {
 // exercise variant에서 사용.
 export function BodyDumbbell() {
   return (
-    <View style={s.dbWrap}>     {/* 가로 배치 컨테이너 */}
-      <View style={s.dbWeight} />{/* 왼쪽 원판 */}
-      <View style={s.dbBar} />   {/* 중간 손잡이 바 */}
-      <View style={s.dbWeight} />{/* 오른쪽 원판 */}
+    <View style={s.dbWrap}>
+      <View style={s.dbWeight} />
+      <View style={s.dbBar} />
+      <View style={s.dbWeight} />
     </View>
   );
 }
@@ -61,13 +59,13 @@ export function BodyDumbbell() {
 // study variant에서 사용.
 export function BodyPaper() {
   return (
-    <View style={s.paperWrap}>      {/* 가로 배치 컨테이너 */}
-      <View style={s.paper}>        {/* 종이 (흰 직사각형) */}
-        <View style={s.paperLine} />{/* 줄 1 (파란 선) */}
-        <View style={s.paperLine} />{/* 줄 2 */}
-        <View style={s.paperLine} />{/* 줄 3 */}
+    <View style={s.paperWrap}>
+      <View style={s.paper}>
+        <View style={s.paperLine} />
+        <View style={s.paperLine} />
+        <View style={s.paperLine} />
       </View>
-      <View style={s.pencil} />     {/* 연필 (노란 세로 막대) */}
+      <View style={s.pencil} />
     </View>
   );
 }
@@ -78,7 +76,7 @@ export function BodyPaper() {
 export function BodyYogaAura() {
   return (
     <View style={s.auraWrap}>
-      <Text style={s.auraText}>✦</Text>  {/* 민트색 별 장식 */}
+      <Text style={s.auraText}>✦</Text>
     </View>
   );
 }

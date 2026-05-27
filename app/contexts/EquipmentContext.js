@@ -1,11 +1,31 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const STORAGE_KEY = 'otium:equipment';
 const EquipmentContext = createContext(null);
 
 export function EquipmentProvider({ children }) {
   const [equippedItem, setEquippedItem] = useState(null);
   const [equippedFurniture, setEquippedFurniture] = useState([]);
   const [equippedCostume, setEquippedCostume] = useState([]);
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEY).then(raw => {
+      if (raw) {
+        const saved = JSON.parse(raw);
+        setEquippedItem(saved.equippedItem ?? null);
+        setEquippedFurniture(saved.equippedFurniture ?? []);
+        setEquippedCostume(saved.equippedCostume ?? []);
+      }
+      loaded.current = true;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!loaded.current) return;
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ equippedItem, equippedFurniture, equippedCostume }));
+  }, [equippedItem, equippedFurniture, equippedCostume]);
 
   function toggleFurniture(item) {
     setEquippedFurniture((prev) => {
@@ -34,10 +54,6 @@ export function EquipmentProvider({ children }) {
 
 export function useEquipment() {
   const context = useContext(EquipmentContext);
-
-  if (!context) {
-    throw new Error('useEquipment must be used inside EquipmentProvider');
-  }
-
+  if (!context) throw new Error('useEquipment must be used inside EquipmentProvider');
   return context;
 }

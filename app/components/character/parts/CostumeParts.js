@@ -22,8 +22,8 @@ import { c } from '../styles/costumeStyles';
 // 색상 변경: costumeStyles.js의 beretTop에서 backgroundColor 수정
 export function Hat() {
   return (
-    <View style={c.beret}>          {/* 베레모 위치 컨테이너 */}
-      <View style={c.beretTop} />   {/* 실제 베레모 모양 (가로 타원) */}
+    <View style={c.beret}>
+      <View style={c.beretTop} />
     </View>
   );
 }
@@ -71,28 +71,21 @@ export function Jeans() {
 //   rotate         → 어깨 기준으로 회전
 //   translateY(-13) → 다시 원위치
 //   (이렇게 하면 회전 중심이 팔 상단(어깨)이 됨)
-//
-// FocusModeScreen에서 팔 흔들기:
-//   Animated.Value로 leftArmAngle, rightArmAngle을 만들어서 전달하면 됨
 export function Arms({ leftArmAngle = null, rightArmAngle = null }) {
-  // Animated.Value면 interpolate로 degree 문자열 변환, 아니면 고정값 사용
-  const leftRot  = leftArmAngle
+  const leftRot = leftArmAngle
     ? leftArmAngle.interpolate({ inputRange: [-180, 0, 180], outputRange: ['-180deg', '0deg', '180deg'], extrapolate: 'clamp' })
-    : '-30deg'; // 기본 왼팔 각도 (약간 왼쪽으로 기울어짐)
+    : '-30deg';
 
   const rightRot = rightArmAngle
     ? rightArmAngle.interpolate({ inputRange: [-180, 0, 180], outputRange: ['-180deg', '0deg', '180deg'], extrapolate: 'clamp' })
-    : '30deg';  // 기본 오른팔 각도 (약간 오른쪽으로 기울어짐)
+    : '30deg';
 
   return (
     <>
-      {/* 왼팔: arm(막대) + hand(손끝 원형) */}
       <Animated.View style={[c.armLeft, { transform: [{ translateY: 13 }, { rotate: leftRot }, { translateY: -13 }] }]}>
-        <View style={c.arm} />   {/* 팔 막대 */}
-        <View style={c.hand} />  {/* 손 (동그란 끝부분) */}
+        <View style={c.arm} />
+        <View style={c.hand} />
       </Animated.View>
-
-      {/* 오른팔 */}
       <Animated.View style={[c.armRight, { transform: [{ translateY: 13 }, { rotate: rightRot }, { translateY: -13 }] }]}>
         <View style={c.arm} />
         <View style={c.hand} />
@@ -107,9 +100,9 @@ export function Arms({ leftArmAngle = null, rightArmAngle = null }) {
 // 크기/색상 변경: characterStyles.js의 paw에서 수정
 export function Paws({ widePaws = false }) {
   return (
-    <View style={[s.pawsRow, widePaws && s.pawsWide]}> {/* widePaws면 gap이 더 넓어짐 */}
-      <View style={s.paw} />  {/* 왼쪽 발 */}
-      <View style={s.paw} />  {/* 오른쪽 발 */}
+    <View style={[s.pawsRow, widePaws && s.pawsWide]}>
+      <View style={s.paw} />
+      <View style={s.paw} />
     </View>
   );
 }

@@ -1,10 +1,29 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const STORAGE_KEY = 'otium:coins';
 const CoinContext = createContext(null);
 
 export function CoinProvider({ children }) {
   const [coins, setCoins] = useState(0);
   const [ownedItemIds, setOwnedItemIds] = useState([]);
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEY).then(raw => {
+      if (raw) {
+        const saved = JSON.parse(raw);
+        setCoins(saved.coins ?? 0);
+        setOwnedItemIds(saved.ownedItemIds ?? []);
+      }
+      loaded.current = true;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!loaded.current) return;
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ coins, ownedItemIds }));
+  }, [coins, ownedItemIds]);
 
   function addCoins(amount) {
     setCoins(prev => prev + amount);

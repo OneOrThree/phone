@@ -49,16 +49,20 @@ function MemberCard({ member, rank }) {
         <Text style={s.rankText}>{rank}</Text>
       </View>
       <View style={s.memberCharWrap}>
-        <Character2D size={80} variant={member.variant} />
+        <Character2D size={64} variant={member.variant} />
       </View>
-      <Text style={s.memberName}>{member.name}</Text>
-      <View style={s.memberStat}>
-        <Text style={s.memberStatLabel}>오늘</Text>
-        <Text style={[s.memberStatValue, { color: T.coral }]}>{formatTime(member.todaySeconds)}</Text>
-      </View>
-      <View style={s.memberStat}>
-        <Text style={s.memberStatLabel}>누적</Text>
-        <Text style={[s.memberStatValue, { color: T.sky }]}>{formatTime(member.totalSeconds)}</Text>
+      <View style={s.memberInfo}>
+        <Text style={s.memberName}>{member.name}</Text>
+        <View style={s.memberStats}>
+          <View style={s.memberStat}>
+            <Text style={s.memberStatLabel}>오늘</Text>
+            <Text style={[s.memberStatValue, { color: T.coral }]}>{formatTime(member.todaySeconds)}</Text>
+          </View>
+          <View style={s.memberStat}>
+            <Text style={s.memberStatLabel}>누적</Text>
+            <Text style={[s.memberStatValue, { color: T.sky }]}>{formatTime(member.totalSeconds)}</Text>
+          </View>
+        </View>
       </View>
     </View>
   );
@@ -73,7 +77,7 @@ function GroupDetailView({ group, onBack }) {
       </TouchableOpacity>
       <Text style={s.title}>{group.name}</Text>
       <Text style={s.sub}>코드: {group.code} · 멤버 {group.members.length}명</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.memberRow} contentContainerStyle={s.memberRowContent}>
+      <ScrollView showsVerticalScrollIndicator={false} style={s.memberList}>
         {sorted.map((m, i) => <MemberCard key={m.id} member={m} rank={i + 1} />)}
       </ScrollView>
     </View>
@@ -306,25 +310,21 @@ const s = StyleSheet.create({
     marginTop: 20,
   },
 
-  // Member row (horizontal)
-  memberRow: { marginTop: 16 },
-  memberRowContent: { paddingHorizontal: 4, gap: 12, paddingBottom: 12 },
+  // Member list (vertical)
+  memberList: { marginTop: 16 },
 
   // Member card
   memberCard: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 24,
-    paddingBottom: 16,
-    paddingHorizontal: 16,
-    width: 140,
+    padding: 14,
+    marginBottom: 12,
+    gap: 14,
   },
   rankBadge: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     borderWidth: 2,
     borderColor: T.ink,
     alignItems: 'center',
@@ -336,19 +336,26 @@ const s = StyleSheet.create({
     color: T.ink,
   },
   memberCharWrap: {
-    width: 120,
-    height: 175,
+    width: 64,
+    height: 93,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  memberInfo: {
+    flex: 1,
   },
   memberName: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '900',
     color: T.ink,
-    marginTop: 4,
     marginBottom: 8,
   },
-  memberStat: { alignItems: 'center', marginBottom: 4 },
+  memberStats: {
+    flexDirection: 'row',
+    gap: 20,
+  },
+  memberStat: { alignItems: 'flex-start' },
   memberStatLabel: {
     fontSize: 11,
     fontWeight: '700',
@@ -356,7 +363,7 @@ const s = StyleSheet.create({
     marginBottom: 2,
   },
   memberStatValue: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '900',
   },
 

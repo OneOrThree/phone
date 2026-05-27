@@ -11,16 +11,16 @@
 // ============================================================
 
 import { View, Text } from 'react-native';
-import { s } from '../styles/characterStyles'; // 눈 관련 스타일: eye, pupil, shine 등
+import { s } from '../styles/characterStyles';
 
 // ── EyeNormal ────────────────────────────────────────────────
 // 기본 동그란 눈. 동공(pupil) 안에 하이라이트(shine)가 있음.
 // default / reading variant에서 사용.
 export function EyeNormal() {
   return (
-    <View style={s.eye}>           {/* 흰자 영역 */}
-      <View style={s.pupil}>       {/* 검은 동공 */}
-        <View style={s.shine} />   {/* 반짝이는 하이라이트 */}
+    <View style={s.eye}>
+      <View style={s.pupil}>
+        <View style={s.shine} />
       </View>
     </View>
   );
@@ -31,8 +31,8 @@ export function EyeNormal() {
 // focus variant(양쪽), study variant(왼쪽만)에서 사용.
 export function EyeSquint() {
   return (
-    <View style={[s.eye, s.eyeSquint]}>          {/* eyeSquint: 높이를 줄여 찡그린 효과 */}
-      <View style={[s.pupil, s.pupilFlat]} />     {/* pupilFlat: 동공을 납작하게 */}
+    <View style={[s.eye, s.eyeSquint]}>
+      <View style={[s.pupil, s.pupilFlat]} />
     </View>
   );
 }
@@ -42,9 +42,7 @@ export function EyeSquint() {
 // 눈 전체가 검은 가로 타원으로 표현됨.
 // yoga variant에서 사용.
 export function EyeCrescent() {
-  return (
-    <View style={s.eyeCrescent} /> // 가로로 긴 검은 둥근 사각형
-  );
+  return <View style={s.eyeCrescent} />;
 }
 
 // ── EyeStar ──────────────────────────────────────────────────
@@ -53,7 +51,7 @@ export function EyeCrescent() {
 export function EyeStar() {
   return (
     <View style={s.eye}>
-      <Text style={s.starEyeText}>★</Text>  {/* 노란색 별 아이콘 */}
+      <Text style={s.starEyeText}>★</Text>
     </View>
   );
 }

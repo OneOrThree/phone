@@ -20,10 +20,10 @@ import { s } from '../styles/characterStyles';
 // 안경 색상 변경: characterStyles.js의 glassesFrame, glassesBridge에서 borderColor/backgroundColor 수정
 export function Glasses() {
   return (
-    <View style={s.glassesRow}>          {/* 안경 전체 (가로 배치) */}
-      <View style={s.glassesFrame} />    {/* 왼쪽 렌즈 프레임 */}
-      <View style={s.glassesBridge} />   {/* 코받침 (가운데 연결 막대) */}
-      <View style={s.glassesFrame} />    {/* 오른쪽 렌즈 프레임 */}
+    <View style={s.glassesRow}>
+      <View style={s.glassesFrame} />
+      <View style={s.glassesBridge} />
+      <View style={s.glassesFrame} />
     </View>
   );
 }
@@ -42,9 +42,9 @@ export function Sweat() {
 // 색상/크기 변경: characterStyles.js의 cheek에서 수정
 export function Cheeks() {
   return (
-    <View style={s.cheeksRow}>    {/* 양쪽 볼 컨테이너 */}
-      <View style={s.cheek} />    {/* 왼쪽 볼 */}
-      <View style={s.cheek} />    {/* 오른쪽 볼 */}
+    <View style={s.cheeksRow}>
+      <View style={s.cheek} />
+      <View style={s.cheek} />
     </View>
   );
 }
@@ -77,10 +77,10 @@ export function Mouth({ type }) {
   if (type === 'flat')     return <View style={s.mouthFlat} />;
   if (type === 'open')     return <View style={s.mouthOpen} />;
   if (type === 'tongue')   return (
-    <View style={s.mouthTongueWrap}>  {/* 일자 입 + 혀를 세로로 겹침 */}
-      <View style={s.mouthFlat} />    {/* 일자 입 */}
-      <View style={s.tongue} />       {/* 그 아래 혀 */}
+    <View style={s.mouthTongueWrap}>
+      <View style={s.mouthFlat} />
+      <View style={s.tongue} />
     </View>
   );
-  return null; // 알 수 없는 type이면 아무것도 렌더하지 않음
+  return null;
 }
