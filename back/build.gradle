@@ -1,0 +1,137 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.0.6'
+	id 'io.spring.dependency-management' version '1.1.7'
+
+	//API 문서화
+	id "org.springdoc.openapi-gradle-plugin" version "1.9.0"
+
+	// CI: 코드 스타일 + 정적 분석 + 커버리지 + 보안 스캔
+	id 'checkstyle'
+	id 'com.github.spotbugs' version '6.0.18'
+	id 'jacoco'
+	id 'org.owasp.dependencycheck' version '10.0.4'
+}
+
+group = 'com.oneorthree'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// API 문서화 (Swagger UI - /swagger-ui/index.html 에서 확인)
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2'
+
+	// JPA / Hibernate (ORM, 엔티티 ↔ DB 매핑)
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+	// DB 쿼리 실행 시간 측정
+	implementation 'com.github.gavlyukovskiy:p6spy-spring-boot-starter:1.9.0'
+
+	// Spring Web (REST API 기본, 내장 Tomcat 포함)
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+
+	// Spring MVC (REST 컨트롤러, DispatcherServlet)
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+
+	// WebSocket + STOMP (실시간 장착 브로드캐스트)
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
+//	// Spring Security (인증/인가, JWT 필터, OAuth2)
+//	implementation 'org.springframework.boot:spring-boot-starter-security'
+
+	// PostgreSQL JDBC 드라이버 (런타임에만 필요)
+	runtimeOnly 'org.postgresql:postgresql'
+
+	// Lombok (boilerplate 제거 - @Getter, @Builder, @RequiredArgsConstructor 등)
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+
+	// 테스트
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'	//Testcontainers
+	testImplementation 'org.testcontainers:junit-jupiter:1.20.1'
+	testImplementation 'org.testcontainers:postgresql:1.20.1'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testCompileOnly 'org.projectlombok:lombok'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+openApi {
+	apiDocsUrl.set("http://localhost:8080/v0/api-docs")      // 앱 구동 후 호출할 URL
+	outputDir.set(file("$buildDir/docs/api/"))               // 생성된 spec 저장 위치
+	outputFileName.set("openapi.json")
+	waitTimeInSeconds.set(30)                              // 앱 구동 대기 시간
+	customBootRun {
+		jvmArgs = ["-Dspringdoc.api-docs.path=/v0/api-docs"]  // ← fork된 JVM에 직접 주입
+	}
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+	// 테스트 완료 후 JaCoCo 리포트 자동 생성
+	finalizedBy jacocoTestReport
+}
+
+// ── Checkstyle ────────────────────────────────────────────────────────────
+checkstyle {
+	toolVersion = '10.21.4'
+	configFile = file("config/checkstyle/checkstyle.xml")
+	// 기존 코드에 위반이 많을 경우 아래를 true로 바꿔 경고로만 처리 후 점진적으로 수정
+	ignoreFailures = false
+}
+
+// ── SpotBugs ─────────────────────────────────────────────────────────────
+spotbugs {
+	toolVersion = '4.8.6'
+	effort = 'max'
+	// HIGH 이상만 빌드 실패 (MEDIUM은 리포트에는 포함되지만 빌드는 통과)
+	reportLevel = 'high'
+	excludeFilter = file("config/spotbugs/exclude.xml")
+}
+
+tasks.withType(com.github.spotbugs.snom.SpotBugsTask).configureEach {
+	reports {
+		xml.required = true   // pr-report 파싱용
+		html.required = true  // 로컬 열람용
+	}
+}
+
+// ── JaCoCo ───────────────────────────────────────────────────────────────
+jacoco {
+	toolVersion = '0.8.12'
+}
+
+jacocoTestReport {
+	reports {
+		xml.required = true   // CI에서 커버리지 파싱용
+		html.required = true  // 로컬 열람용
+	}
+}
+
+// ── OWASP Dependency Check ───────────────────────────────────────────────
+dependencyCheck {
+	// JSON 포맷: pr-report 파싱용. HTML은 로컬 열람용으로 동시 생성
+	formats = ['JSON', 'HTML']
+	// CVSS 9.0+(Critical)만 빌드 실패. HIGH/MEDIUM은 pr-report에서 경고로 표시
+	failBuildOnCVSS = 9
+	// NVD DB 저장 경로: CI에서 actions/cache로 ~/.gradle/dependency-check-data 캐시
+	data {
+		directory = "${System.getProperty('user.home')}/.gradle/dependency-check-data"
+	}
+	nvd {
+		// NVD API 키 있으면 속도 향상 (없어도 동작)
+		// apiKey = System.getenv('NVD_API_KEY') ?: ''
+	}
+}

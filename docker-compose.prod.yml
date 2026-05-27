@@ -1,0 +1,49 @@
+# 프로덕션용 docker-compose
+# 실행 전 서버에 .env.prod 파일 생성 필요 (아래 .env.prod.example 참고)
+# 실행: docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+
+services:
+  app:
+    build:
+      context: back        # Dockerfile 위치
+      dockerfile: Dockerfile
+    container_name: phone-app
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      # application-prod.yml의 ${DB_URL}, ${DB_USERNAME}, ${DB_PASSWORD} 주입
+      DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
+      DB_USERNAME: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy  # DB 헬스체크 통과 후 앱 기동
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: phone-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_prod_data:  # 컨테이너 재시작해도 데이터 유지
+
+networks:
+  app-network:
+    driver: bridge
