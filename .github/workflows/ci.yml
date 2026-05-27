@@ -13,6 +13,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'back/**'
+      - '.github/workflows/**'
 
 concurrency:
   group: ci-${{ github.ref }}
