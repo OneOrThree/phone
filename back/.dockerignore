@@ -1,12 +1,3 @@
-# 빌드 결과물(JAR)만 이미지에 포함, 소스코드/캐시는 제외
-src/
-build/classes/
-build/generated/
-build/reports/
-build/tmp/
 .gradle/
-gradle/
-gradlew
-gradlew.bat
-*.gradle
+build/
 config/
