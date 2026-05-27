@@ -30,7 +30,7 @@ jobs:
 
   save-baseline:
     needs: [test]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -46,7 +46,7 @@ jobs:
 
   build-image:
     needs: [test]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     runs-on: [self-hosted, ci]
     timeout-minutes: 15
     env:
