@@ -1,7 +1,4 @@
-// mac
 .DS_Store
-.idea
-docs/*
-
-# 프로덕션 환경변수 (절대 커밋 금지)
-.env.prod
+.idea/
+docs/
+.superpowers/
