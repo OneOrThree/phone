@@ -28,22 +28,6 @@ jobs:
   test:
     uses: ./.github/workflows/test-backend.yml
 
-  save-baseline:
-    needs: [test]
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage/
-
-      - uses: actions/cache/save@v4
-        with:
-          path: coverage/jacocoTestReport.xml
-          key: coverage-baseline-main
-
   build-image:
     needs: [test]
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
@@ -94,24 +78,8 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: coverage-report
-          path: coverage/
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: owasp-report
-          path: owasp/
-
-      - uses: actions/download-artifact@v4
-        with:
           name: jar-size
           path: jar-size/
-
-      - name: Restore coverage baseline
-        uses: actions/cache/restore@v4
-        with:
-          path: coverage-baseline/jacocoTestReport.xml
-          key: coverage-baseline-main
 
       - name: Generate PR comment
         env:
