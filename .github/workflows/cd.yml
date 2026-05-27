@@ -37,11 +37,22 @@ jobs:
           docker compose -f docker-compose.dev.yml ps
 
       - name: Health check
+        env:
+          POSTGRES_DB: ${{ secrets.DEV_POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.DEV_POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.DEV_POSTGRES_PASSWORD }}
         run: |
           echo "앱 기동 대기 중..."
-          sleep 15
-          curl -f http://localhost:8080/health || \
-            (docker compose -f docker-compose.dev.yml logs app && exit 1)
+          for i in $(seq 1 12); do
+            sleep 5
+            if curl -sf http://localhost:8080/health; then
+              echo "헬스체크 통과"
+              exit 0
+            fi
+            echo "대기 중... ($((i*5))s)"
+          done
+          docker compose -f docker-compose.dev.yml logs app
+          exit 1
 
       - name: Report deployment failure
         if: failure()
