@@ -2,13 +2,10 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    branches: [develop]
     paths:
       - 'back/**'
-      - '.github/workflows/ci.yml'
-      - '.github/workflows/check-style-backend.yml'
-      - '.github/workflows/spot-bugs.yml'
-      - '.github/workflows/test-backend.yml'
+      - '.github/workflows/**'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
