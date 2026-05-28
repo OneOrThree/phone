@@ -3,6 +3,8 @@ name: Generate OpenAPI Docs
 on:
   push:
     branches: [ main, develop, 'feat/**' ]
+    paths:
+      - 'back/src/main/java/com/oneorthree/phone/api/**'
 
 jobs:
   generate-docs:
