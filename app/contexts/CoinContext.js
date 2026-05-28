@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const STORAGE_KEY = 'otium:coins';
+const STORAGE_KEY = 'gromo:coins';
 const CoinContext = createContext(null);
 
 export function CoinProvider({ children }) {

@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-               BuildableName = "otium.app"
-               BlueprintName = "otium"
-               ReferencedContainer = "container:otium.xcodeproj">
+               BuildableName = "gromo.app"
+               BlueprintName = "gromo"
+               ReferencedContainer = "container:gromo.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "00E356ED1AD99517003FC87E"
-               BuildableName = "otiumTests.xctest"
-               BlueprintName = "otiumTests"
-               ReferencedContainer = "container:otium.xcodeproj">
+               BuildableName = "gromoTests.xctest"
+               BlueprintName = "gromoTests"
+               ReferencedContainer = "container:gromo.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -55,9 +55,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "otium.app"
-            BlueprintName = "otium"
-            ReferencedContainer = "container:otium.xcodeproj">
+            BuildableName = "gromo.app"
+            BlueprintName = "gromo"
+            ReferencedContainer = "container:gromo.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,9 +72,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "otium.app"
-            BlueprintName = "otium"
-            ReferencedContainer = "container:otium.xcodeproj">
+            BuildableName = "gromo.app"
+            BlueprintName = "gromo"
+            ReferencedContainer = "container:gromo.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

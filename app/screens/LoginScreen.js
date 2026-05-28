@@ -1,16 +1,23 @@
 import { useState } from 'react';
 import { View, Text, Image, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { login } from '@react-native-kakao/user';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '../components/theme';
 
-// 목업 로그인 함수 — 실제 서버 연동 시 POST /api/auth/kakao 호출로 교체
-async function mockKakaoLogin() {
-  await new Promise(r => setTimeout(r, 600));
-  return {
-    id: 1,
-    nickname: '테스터',
-    profileImageUrl: null,
-    coins: 10,
-  };
+const API_URL = 'http://localhost:8080'; // 실제 서버 주소로 교체
+
+async function kakaoLogin() {
+  const kakaoToken = await login();
+
+  const res = await fetch(`${API_URL}/auth/kakao`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accessToken: kakaoToken.accessToken }),
+  });
+
+  const data = await res.json();
+  await AsyncStorage.setItem('jwt', data.jwt);
+  return data;
 }
 
 export default function LoginScreen({ onLogin }) {
@@ -20,7 +27,7 @@ export default function LoginScreen({ onLogin }) {
     if (loading) return;
     setLoading(true);
     try {
-      const user = await mockKakaoLogin();
+      const user = await kakaoLogin();
       onLogin(user);
     } finally {
       setLoading(false);
@@ -29,7 +36,7 @@ export default function LoginScreen({ onLogin }) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>otium</Text>
+      <Text style={styles.title}>gromo</Text>
       <TouchableOpacity onPress={handleLogin} style={styles.kakaoButton} activeOpacity={0.8} disabled={loading}>
         {loading
           ? <ActivityIndicator size="small" color={T.ink} style={styles.kakaoImage} />

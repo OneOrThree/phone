@@ -1,4 +1,4 @@
-package com.oneorthree.otium
+package com.oneorthree.gromo
 
 import android.app.Application
 import android.content.res.Configuration

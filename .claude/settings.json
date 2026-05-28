@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs cat)",
+      "Bash(ruby -e ' *)",
+      "Bash(chmod -R u+w /Users/Ahn/Desktop/otium/app/ios/Pods/fmt/)"
+    ]
+  }
+}

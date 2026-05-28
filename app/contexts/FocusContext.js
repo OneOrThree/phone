@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const STORAGE_KEY = 'otium:focus';
+const STORAGE_KEY = 'gromo:focus';
 const FocusContext = createContext(null);
 
 function todayDateString() {

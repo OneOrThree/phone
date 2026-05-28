@@ -1,7 +1,16 @@
 export default {
   expo: {
-    name: 'otium',
-    slug: 'otiun',
+    name: 'gromo',
+    plugins: [
+      [
+        '@react-native-kakao/core',
+        {
+          nativeAppKey: 'af3ff0c5b4fb9cd38b78428b88add65d',
+          ios: { handleKakaoOpenUrl: true },
+        },
+      ],
+    ],
+    slug: 'gromo',
     version: '0.0.1',
     orientation: 'portrait',
     userInterfaceStyle: 'light',
@@ -9,13 +18,13 @@ export default {
     assetBundlePatterns: ['**/*', 'assets/models/*'],
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.oneorthree.otium',
+      bundleIdentifier: 'com.oneorthree.gromo',
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
       },
     },
     android: {
-      package: 'com.oneorthree.otium',
+      package: 'com.oneorthree.gromo',
     },
     web: {
       bundler: 'metro',

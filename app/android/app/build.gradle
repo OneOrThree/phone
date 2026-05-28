@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.oneorthree.otium'
+    namespace 'com.oneorthree.gromo'
     defaultConfig {
-        applicationId 'com.oneorthree.otium'
+        applicationId 'com.oneorthree.gromo'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
