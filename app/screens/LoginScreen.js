@@ -8,16 +8,19 @@ const API_URL = 'http://localhost:8080'; // 실제 서버 주소로 교체
 
 async function kakaoLogin() {
   const kakaoToken = await login();
+  console.log('kakao accessToken:', kakaoToken.accessToken);
 
-  const res = await fetch(`${API_URL}/auth/kakao`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ accessToken: kakaoToken.accessToken }),
-  });
+  // TODO: 서버 완성되면 아래 주석 풀고 위 console.log 삭제
+  // const res = await fetch(`${API_URL}/auth/kakao`, {
+  //   method: 'POST',
+  //   headers: { 'Content-Type': 'application/json' },
+  //   body: JSON.stringify({ accessToken: kakaoToken.accessToken }),
+  // });
+  // const data = await res.json();
+  // await AsyncStorage.setItem('jwt', data.jwt);
+  // return data;
 
-  const data = await res.json();
-  await AsyncStorage.setItem('jwt', data.jwt);
-  return data;
+  return { id: 1, nickname: '테스트', profileImageUrl: null, coins: 10 };
 }
 
 export default function LoginScreen({ onLogin }) {
@@ -29,6 +32,8 @@ export default function LoginScreen({ onLogin }) {
     try {
       const user = await kakaoLogin();
       onLogin(user);
+    } catch (e) {
+      console.error('로그인 에러:', e);
     } finally {
       setLoading(false);
     }
