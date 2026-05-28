@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useEquipment } from '../contexts/EquipmentContext';
 import { useFocus } from '../contexts/FocusContext';
+import { useUser } from '../contexts/UserContext';
 import { Character2D } from '../components/character/Character2D';
 import { T, inkBox } from '../components/theme';
 
@@ -23,6 +24,13 @@ function NotebookLines() {
       ))}
     </View>
   );
+}
+
+function formatGoalTime(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (m === 0) return `${h}시간`;
+  return `${h}h ${m}m`;
 }
 
 function StatBox({ label, value, accent, rotate = '0deg' }) {
@@ -146,7 +154,9 @@ function Room({ equippedFurniture, costumeSlots }) {
 export default function HomeScreen({ navigation }) {
   const { equippedItem, equippedFurniture, equippedCostume } = useEquipment();
   const { todayFocusSeconds } = useFocus();
+  const { nickname, goalSeconds, phoneUsageSeconds } = useUser();
   const costumeSlots = equippedCostume.map(c => c.slot);
+  const remainingSeconds = Math.max(0, goalSeconds - phoneUsageSeconds);
 
   return (
     <View style={s.container}>
@@ -154,14 +164,14 @@ export default function HomeScreen({ navigation }) {
       <NotebookLines />
 
       <View style={s.header}>
-        <Text style={s.headerTitle}>오늘의 수빈이 ✦</Text>
+        <Text style={s.headerTitle}>오늘의 {nickname} ✦</Text>
         <Text style={s.headerSub}>오늘도 열심히 집중해요</Text>
       </View>
 
       <View style={s.statsRow}>
-        <StatBox label="목표" value="3시간"  accent={T.yellow} rotate="-1.2deg" />
-        <StatBox label="사용" value="1h 20m" accent={T.sky}    rotate="0.8deg"  />
-        <StatBox label="남은" value="1h 40m" accent={T.mint}   rotate="-0.5deg" />
+        <StatBox label="목표" value={formatGoalTime(goalSeconds)} accent={T.yellow} rotate="-1.2deg" />
+        <StatBox label="사용" value={formatFocusTime(phoneUsageSeconds)} accent={T.sky}  rotate="0.8deg"  />
+        <StatBox label="남은" value={formatFocusTime(remainingSeconds)}   accent={T.mint} rotate="-0.5deg" />
       </View>
 
       <View style={s.roomWrap}>

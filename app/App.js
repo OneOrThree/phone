@@ -6,6 +6,7 @@ import { Text } from 'react-native';
 import { FocusProvider } from './contexts/FocusContext';
 import { EquipmentProvider } from './contexts/EquipmentContext';
 import { CoinProvider } from './contexts/CoinContext';
+import { UserProvider } from './contexts/UserContext';
 
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/Homescreen';
@@ -33,6 +34,7 @@ export default function App() {
   }
 
   return (
+    <UserProvider initialNickname={user?.nickname}>
     <CoinProvider>
     <EquipmentProvider>
       <FocusProvider>
@@ -70,7 +72,7 @@ export default function App() {
             <Tab.Screen name="그룹" component={GroupScreen} />
             <Tab.Screen name="상점" component={ShopScreen} />
             <Tab.Screen name="마이페이지">
-              {() => <MyPageScreen onLogout={() => setUser(null)} />}
+              {() => <MyPageScreen user={user} onLogout={() => setUser(null)} />}
             </Tab.Screen>
             <Tab.Screen
               name="FocusMode"
@@ -82,5 +84,6 @@ export default function App() {
       </FocusProvider>
     </EquipmentProvider>
     </CoinProvider>
+    </UserProvider>
   );
 }
