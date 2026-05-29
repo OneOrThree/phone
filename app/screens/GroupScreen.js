@@ -16,7 +16,7 @@ const MOCK_GROUPS = [
     code: 'DAWN01',
     members: [
       { id: 'm1', name: '수빈', variant: 'focus', todaySeconds: 5400, totalSeconds: 86400 },
-      { id: 'm2', name: '지민', variant: 'reading', todaySeconds: 3600, totalSeconds: 54000 },
+      { id: 'm2', name: '예지', variant: 'reading', todaySeconds: 3600, totalSeconds: 54000 },
       { id: 'm3', name: '하은', variant: 'study', todaySeconds: 7200, totalSeconds: 120000 },
     ],
   },

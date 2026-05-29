@@ -29,9 +29,10 @@ export default {
     web: {
       bundler: 'metro',
     },
+    owner: 'oscarthegrouch',
     extra: {
       eas: {
-        projectId: '47a51573-952b-4b0a-a7aa-43d6961c1785',
+        projectId: 'd024fa23-5e52-4655-9705-2387d9289f19',
       },
     },
   },

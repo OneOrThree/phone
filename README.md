@@ -1,11 +1,11 @@
-# otium
+# gromo
 
 집중 시간 관리 + 캐릭터 커스터마이징 앱 (React Native + Expo)
 
 ## 프로젝트 구조
 
 ```
-otium/
+gromo/
   app/    # React Native 앱 (Expo)
   back/   # Spring Boot 백엔드
 ```
