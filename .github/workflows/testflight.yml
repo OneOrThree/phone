@@ -3,7 +3,7 @@ name: TestFlight 배포
 on:
   push:
     branches:
-      - main
+      - feat/pomodoro
 
 jobs:
   build:
