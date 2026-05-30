@@ -38,81 +38,81 @@ class AuthControllerTest {
 
     @Test
     @DisplayName("카카오 로그인 성공 - 신규 유저")
-    void kakaoLogin_newUser_returns200() throws Exception {
+    void kakaoLoginNewUserReturns200() throws Exception {
         given(authService.kakaoLogin("valid-kakao-token"))
-            .willReturn(new KakaoLoginResponse("at", "rt", true));
+                .willReturn(new KakaoLoginResponse("at", "rt", true));
 
         mockMvc.perform(post("/api/v1/auth/kakao")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(
                     Map.of("kakaoAccessToken", "valid-kakao-token")
                 )))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.accessToken").value("at"))
-            .andExpect(jsonPath("$.refreshToken").value("rt"))
-            .andExpect(jsonPath("$.isNewUser").value(true))
-            .andDo(print());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").value("at"))
+                .andExpect(jsonPath("$.refreshToken").value("rt"))
+                .andExpect(jsonPath("$.isNewUser").value(true))
+                .andDo(print());
     }
 
     @Test
     @DisplayName("카카오 로그인 성공 - 기존 유저")
-    void kakaoLogin_existingUser_returns200() throws Exception {
+    void kakaoLoginExistingUserReturns200() throws Exception {
         given(authService.kakaoLogin("valid-kakao-token"))
-            .willReturn(new KakaoLoginResponse("at", "rt", false));
+                .willReturn(new KakaoLoginResponse("at", "rt", false));
 
         mockMvc.perform(post("/api/v1/auth/kakao")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(
                     Map.of("kakaoAccessToken", "valid-kakao-token")
                 )))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.isNewUser").value(false))
-            .andDo(print());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isNewUser").value(false))
+                .andDo(print());
     }
 
     @Test
     @DisplayName("유효하지 않은 카카오 토큰 → 401")
-    void kakaoLogin_invalidToken_returns401() throws Exception {
+    void kakaoLoginInvalidTokenReturns401() throws Exception {
         given(authService.kakaoLogin("bad-token"))
-            .willThrow(new InvalidKakaoTokenException());
+                .willThrow(new InvalidKakaoTokenException());
 
         mockMvc.perform(post("/api/v1/auth/kakao")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(
                     Map.of("kakaoAccessToken", "bad-token")
                 )))
-            .andExpect(status().isUnauthorized())
-            .andDo(print());
+                .andExpect(status().isUnauthorized())
+                .andDo(print());
     }
 
     @Test
     @DisplayName("토큰 갱신 성공 → 새 Access Token 반환")
-    void refreshToken_success_returns200() throws Exception {
+    void refreshTokenSuccessReturns200() throws Exception {
         given(authService.refreshToken("valid-rt"))
-            .willReturn(new TokenRefreshResponse("new-at"));
+                .willReturn(new TokenRefreshResponse("new-at"));
 
         mockMvc.perform(post("/api/v1/auth/refresh")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(
                     Map.of("refreshToken", "valid-rt")
                 )))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.accessToken").value("new-at"))
-            .andDo(print());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").value("new-at"))
+                .andDo(print());
     }
 
     @Test
     @DisplayName("유효하지 않은 RT → 401")
-    void refreshToken_invalid_returns401() throws Exception {
+    void refreshTokenInvalidReturns401() throws Exception {
         given(authService.refreshToken("bad-rt"))
-            .willThrow(new InvalidRefreshTokenException());
+                .willThrow(new InvalidRefreshTokenException());
 
         mockMvc.perform(post("/api/v1/auth/refresh")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(
                     Map.of("refreshToken", "bad-rt")
                 )))
-            .andExpect(status().isUnauthorized())
-            .andDo(print());
+                .andExpect(status().isUnauthorized())
+                .andDo(print());
     }
 }

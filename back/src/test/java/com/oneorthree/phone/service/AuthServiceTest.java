@@ -46,11 +46,11 @@ class AuthServiceTest {
 
     @Test
     @DisplayName("신규 유저 카카오 로그인 → isNewUser=true, User+SocialAccount 생성")
-    void kakaoLogin_newUser() {
+    void kakaoLoginNewUser() {
         KakaoUserInfo kakaoInfo = new KakaoUserInfo("12345", "홍길동", "https://profile.img");
         given(kakaoApiClient.getUserInfo("kakao-token")).willReturn(kakaoInfo);
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
-            .willReturn(Optional.empty());
+                .willReturn(Optional.empty());
         User savedUser = User.builder().build();
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         given(jwtProvider.generateAccessToken(any())).willReturn("access-token");
@@ -67,17 +67,17 @@ class AuthServiceTest {
 
     @Test
     @DisplayName("기존 유저 카카오 로그인 → isNewUser=false, 기존 User 반환")
-    void kakaoLogin_existingUser() {
+    void kakaoLoginExistingUser() {
         KakaoUserInfo kakaoInfo = new KakaoUserInfo("12345", "홍길동", "https://profile.img");
         given(kakaoApiClient.getUserInfo("kakao-token")).willReturn(kakaoInfo);
         User existingUser = User.builder().build();
         SocialAccount existingAccount = SocialAccount.builder()
-            .user(existingUser)
-            .provider(Provider.KAKAO)
-            .providerId("12345")
-            .build();
+                .user(existingUser)
+                .provider(Provider.KAKAO)
+                .providerId("12345")
+                .build();
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
-            .willReturn(Optional.of(existingAccount));
+                .willReturn(Optional.of(existingAccount));
         given(jwtProvider.generateAccessToken(any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(any())).willReturn("refresh-token");
 
@@ -89,17 +89,17 @@ class AuthServiceTest {
 
     @Test
     @DisplayName("카카오 API 실패 시 InvalidKakaoTokenException 전파")
-    void kakaoLogin_invalidKakaoToken() {
+    void kakaoLoginInvalidKakaoToken() {
         given(kakaoApiClient.getUserInfo("bad-token"))
-            .willThrow(new InvalidKakaoTokenException());
+                .willThrow(new InvalidKakaoTokenException());
 
         assertThatThrownBy(() -> authService.kakaoLogin("bad-token"))
-            .isInstanceOf(InvalidKakaoTokenException.class);
+                .isInstanceOf(InvalidKakaoTokenException.class);
     }
 
     @Test
     @DisplayName("유효한 RT로 토큰 갱신 → 새 Access Token 반환")
-    void refreshToken_success() {
+    void refreshTokenSuccess() {
         User user = User.builder().build();
         given(jwtProvider.extractUserId("valid-rt")).willReturn(1L);
         given(userRepository.findByRefreshToken("valid-rt")).willReturn(Optional.of(user));
@@ -112,20 +112,20 @@ class AuthServiceTest {
 
     @Test
     @DisplayName("JWT 서명 오류 RT → InvalidRefreshTokenException")
-    void refreshToken_invalidSignature() {
+    void refreshTokenInvalidSignature() {
         given(jwtProvider.extractUserId("bad-rt")).willThrow(new JwtException("invalid"));
 
         assertThatThrownBy(() -> authService.refreshToken("bad-rt"))
-            .isInstanceOf(InvalidRefreshTokenException.class);
+                .isInstanceOf(InvalidRefreshTokenException.class);
     }
 
     @Test
     @DisplayName("DB에 없는 RT → InvalidRefreshTokenException")
-    void refreshToken_notFoundInDb() {
+    void refreshTokenNotFoundInDb() {
         given(jwtProvider.extractUserId("orphan-rt")).willReturn(1L);
         given(userRepository.findByRefreshToken("orphan-rt")).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.refreshToken("orphan-rt"))
-            .isInstanceOf(InvalidRefreshTokenException.class);
+                .isInstanceOf(InvalidRefreshTokenException.class);
     }
 }

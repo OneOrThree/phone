@@ -41,7 +41,7 @@ class JwtProviderTest {
     @DisplayName("유효하지 않은 토큰 검증 시 JwtException 발생")
     void invalidTokenThrowsJwtException() {
         assertThatThrownBy(() -> jwtProvider.extractUserId("invalid.token.value"))
-            .isInstanceOf(JwtException.class);
+                .isInstanceOf(JwtException.class);
     }
 
     @Test

@@ -18,20 +18,20 @@ public class KakaoApiClientImpl implements KakaoApiClient {
     @Override
     public KakaoUserInfo getUserInfo(String accessToken) {
         KakaoUserMeResponse response = restClient.get()
-            .uri("/v2/user/me")
-            .header("Authorization", "Bearer " + accessToken)
-            .retrieve()
-            .onStatus(HttpStatusCode::is4xxClientError, (req, res) -> {
-                throw new InvalidKakaoTokenException();
-            })
-            .body(KakaoUserMeResponse.class);
+                .uri("/v2/user/me")
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .onStatus(HttpStatusCode::is4xxClientError, (req, res) -> {
+                    throw new InvalidKakaoTokenException();
+                })
+                .body(KakaoUserMeResponse.class);
 
         String nickname = (response.kakaoAccount() != null && response.kakaoAccount().profile() != null)
-            ? response.kakaoAccount().profile().nickname()
-            : null;
+                ? response.kakaoAccount().profile().nickname()
+                : null;
         String profileImageUrl = (response.kakaoAccount() != null && response.kakaoAccount().profile() != null)
-            ? response.kakaoAccount().profile().profileImageUrl()
-            : null;
+                ? response.kakaoAccount().profile().profileImageUrl()
+                : null;
 
         return new KakaoUserInfo(String.valueOf(response.id()), nickname, profileImageUrl);
     }

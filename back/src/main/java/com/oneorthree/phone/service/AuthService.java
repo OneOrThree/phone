@@ -31,7 +31,7 @@ public class AuthService {
         String providerId = kakaoInfo.providerId();
 
         Optional<SocialAccount> existingAccount =
-            socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, providerId);
+                socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, providerId);
 
         boolean isNewUser = existingAccount.isEmpty();
         User user;
@@ -39,10 +39,10 @@ public class AuthService {
         if (isNewUser) {
             user = userRepository.save(User.builder().build());
             socialAccountRepository.save(SocialAccount.builder()
-                .user(user)
-                .provider(Provider.KAKAO)
-                .providerId(providerId)
-                .build());
+                    .user(user)
+                    .provider(Provider.KAKAO)
+                    .providerId(providerId)
+                    .build());
         } else {
             user = existingAccount.get().getUser();
         }
@@ -62,7 +62,7 @@ public class AuthService {
         }
 
         User user = userRepository.findByRefreshToken(refreshToken)
-            .orElseThrow(InvalidRefreshTokenException::new);
+                .orElseThrow(InvalidRefreshTokenException::new);
 
         String newAccessToken = jwtProvider.generateAccessToken(user.getId());
         return new TokenRefreshResponse(newAccessToken);
