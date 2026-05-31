@@ -11,6 +11,7 @@ on:
     paths:
       - 'back/**'
       - '.github/workflows/**'
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
