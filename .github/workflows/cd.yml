@@ -34,10 +34,15 @@ jobs:
           aws-region: ap-northeast-2
 
       - name: AWS Secrets Manager에서 시크릿 로드
-        uses: aws-actions/aws-secretsmanager-get-secret-value@v2
-        with:
-          secret-id: oneorthree/phone
-          parse-json-body: true
+        run: |
+          SECRET=$(aws secretsmanager get-secret-value \
+            --secret-id oneorthree/phone \
+            --region ap-northeast-2 \
+            --query SecretString --output text)
+          echo "POSTGRES_DB=$(echo $SECRET | jq -r '.POSTGRES_DB')" >> $GITHUB_ENV
+          echo "POSTGRES_USER=$(echo $SECRET | jq -r '.POSTGRES_USER')" >> $GITHUB_ENV
+          echo "POSTGRES_PASSWORD=$(echo $SECRET | jq -r '.POSTGRES_PASSWORD')" >> $GITHUB_ENV
+          echo "JWT_SECRET=$(echo $SECRET | jq -r '.JWT_SECRET')" >> $GITHUB_ENV
 
       - name: Docker Buildx 설정
         uses: docker/setup-buildx-action@v3
