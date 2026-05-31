@@ -23,9 +23,77 @@
     {
       "name": "inventory",
       "description": "인벤토리 관련 API (조회, 수령)"
+    },
+    {
+      "name": "auth",
+      "description": "인증 관련 API"
     }
   ],
   "paths": {
+    "/api/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "JWT 갱신",
+        "description": "JWT 갱신",
+        "operationId": "refreshToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenRefreshResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/kakao": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "JWT 발급",
+        "description": "카카오 Access Token -\u003e JWT",
+        "operationId": "kakaoLogin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KakaoLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/KakaoLoginResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/inventory/grant": {
       "post": {
         "tags": [
@@ -217,6 +285,44 @@
   },
   "components": {
     "schemas": {
+      "TokenRefreshRequest": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        }
+      },
+      "TokenRefreshResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          }
+        }
+      },
+      "KakaoLoginRequest": {
+        "type": "object",
+        "properties": {
+          "kakaoAccessToken": {
+            "type": "string"
+          }
+        }
+      },
+      "KakaoLoginResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "isNewUser": {
+            "type": "boolean"
+          }
+        }
+      },
       "GrantItemRequest": {
         "type": "object",
         "properties": {
