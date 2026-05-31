@@ -73,20 +73,38 @@ export function Jeans() {
 //   (이렇게 하면 회전 중심이 팔 상단(어깨)이 됨)
 export function Arms({ leftArmAngle = null, rightArmAngle = null }) {
   const leftRot = leftArmAngle
-    ? leftArmAngle.interpolate({ inputRange: [-180, 0, 180], outputRange: ['-180deg', '0deg', '180deg'], extrapolate: 'clamp' })
+    ? leftArmAngle.interpolate({
+        inputRange: [-180, 0, 180],
+        outputRange: ['-180deg', '0deg', '180deg'],
+        extrapolate: 'clamp',
+      })
     : '-30deg';
 
   const rightRot = rightArmAngle
-    ? rightArmAngle.interpolate({ inputRange: [-180, 0, 180], outputRange: ['-180deg', '0deg', '180deg'], extrapolate: 'clamp' })
+    ? rightArmAngle.interpolate({
+        inputRange: [-180, 0, 180],
+        outputRange: ['-180deg', '0deg', '180deg'],
+        extrapolate: 'clamp',
+      })
     : '30deg';
 
   return (
     <>
-      <Animated.View style={[c.armLeft, { transform: [{ translateY: 13 }, { rotate: leftRot }, { translateY: -13 }] }]}>
+      <Animated.View
+        style={[
+          c.armLeft,
+          { transform: [{ translateY: 13 }, { rotate: leftRot }, { translateY: -13 }] },
+        ]}
+      >
         <View style={c.arm} />
         <View style={c.hand} />
       </Animated.View>
-      <Animated.View style={[c.armRight, { transform: [{ translateY: 13 }, { rotate: rightRot }, { translateY: -13 }] }]}>
+      <Animated.View
+        style={[
+          c.armRight,
+          { transform: [{ translateY: 13 }, { rotate: rightRot }, { translateY: -13 }] },
+        ]}
+      >
         <View style={c.arm} />
         <View style={c.hand} />
       </Animated.View>

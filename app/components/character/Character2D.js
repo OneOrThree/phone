@@ -22,7 +22,13 @@ import { Hat, Ponytail, Earring, HoodieOverlay, Jeans, Arms, Paws } from './part
 //   costumeSlots  : ['hat', 'hair', 'top', 'bottom', 'accessory']
 //   leftArmAngle  : 왼팔 회전각 (Animated.Value, 없으면 기본 -30deg)
 //   rightArmAngle : 오른팔 회전각 (Animated.Value, 없으면 기본 30deg)
-export function Character2D({ size = 120, variant = 'default', costumeSlots = [], leftArmAngle = null, rightArmAngle = null }) {
+export function Character2D({
+  size = 120,
+  variant = 'default',
+  costumeSlots = [],
+  leftArmAngle = null,
+  rightArmAngle = null,
+}) {
   const scale = size / 120;
   const cfg = VARIANTS[variant] ?? VARIANTS.default;
   const { LeftEye, RightEye, Item, mouthType, glasses, sweat, widePaws } = cfg;
@@ -30,7 +36,6 @@ export function Character2D({ size = 120, variant = 'default', costumeSlots = []
 
   return (
     <View style={[s.wrapper, { transform: [{ scale }] }]}>
-
       {/* 몸통 — 렌더 순서상 가장 먼저 → 가장 뒤에 보임 */}
       <View style={[s.body, has('top') && c.bodyHoodie]}>
         {has('top') && <HoodieOverlay />}
@@ -41,8 +46,12 @@ export function Character2D({ size = 120, variant = 'default', costumeSlots = []
       {has('bottom') && <Jeans />}
 
       {/* 귀 */}
-      <View style={s.earLeft}><View style={s.earInner} /></View>
-      <View style={s.earRight}><View style={s.earInner} /></View>
+      <View style={s.earLeft}>
+        <View style={s.earInner} />
+      </View>
+      <View style={s.earRight}>
+        <View style={s.earInner} />
+      </View>
 
       {/* 포니테일 */}
       {has('hair') && <Ponytail />}
@@ -71,7 +80,6 @@ export function Character2D({ size = 120, variant = 'default', costumeSlots = []
 
       {/* 발 */}
       <Paws widePaws={widePaws} />
-
     </View>
   );
 }

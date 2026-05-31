@@ -13,7 +13,7 @@ export function FocusProvider({ children }) {
   const loaded = useRef(false);
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then(raw => {
+    AsyncStorage.getItem(STORAGE_KEY).then((raw) => {
       if (raw) {
         const saved = JSON.parse(raw);
         // 날짜가 바뀌면 오늘 집중 시간 초기화
@@ -27,10 +27,13 @@ export function FocusProvider({ children }) {
 
   useEffect(() => {
     if (!loaded.current) return;
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({
-      todayFocusSeconds,
-      date: todayDateString(),
-    }));
+    AsyncStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        todayFocusSeconds,
+        date: todayDateString(),
+      }),
+    );
   }, [todayFocusSeconds]);
 
   function addFocusSeconds(seconds) {

@@ -11,7 +11,7 @@ export function EquipmentProvider({ children }) {
   const loaded = useRef(false);
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then(raw => {
+    AsyncStorage.getItem(STORAGE_KEY).then((raw) => {
       if (raw) {
         const saved = JSON.parse(raw);
         setEquippedItem(saved.equippedItem ?? null);
@@ -24,7 +24,10 @@ export function EquipmentProvider({ children }) {
 
   useEffect(() => {
     if (!loaded.current) return;
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ equippedItem, equippedFurniture, equippedCostume }));
+    AsyncStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ equippedItem, equippedFurniture, equippedCostume }),
+    );
   }, [equippedItem, equippedFurniture, equippedCostume]);
 
   function toggleFurniture(item) {
@@ -42,11 +45,16 @@ export function EquipmentProvider({ children }) {
   }
 
   return (
-    <EquipmentContext.Provider value={{
-      equippedItem, setEquippedItem,
-      equippedFurniture, toggleFurniture,
-      equippedCostume, toggleCostume,
-    }}>
+    <EquipmentContext.Provider
+      value={{
+        equippedItem,
+        setEquippedItem,
+        equippedFurniture,
+        toggleFurniture,
+        equippedCostume,
+        toggleCostume,
+      }}
+    >
       {children}
     </EquipmentContext.Provider>
   );

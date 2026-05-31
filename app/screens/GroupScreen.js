@@ -1,7 +1,14 @@
 import { useState } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView,
-  TextInput, StyleSheet, Modal, KeyboardAvoidingView, Platform,
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+  StyleSheet,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { T, inkBox } from '../components/theme';
@@ -54,11 +61,15 @@ function MemberCard({ member, rank }) {
         <View style={s.memberStats}>
           <View style={s.memberStat}>
             <Text style={s.memberStatLabel}>오늘</Text>
-            <Text style={[s.memberStatValue, { color: T.coral }]}>{formatTime(member.todaySeconds)}</Text>
+            <Text style={[s.memberStatValue, { color: T.coral }]}>
+              {formatTime(member.todaySeconds)}
+            </Text>
           </View>
           <View style={s.memberStat}>
             <Text style={s.memberStatLabel}>누적</Text>
-            <Text style={[s.memberStatValue, { color: T.sky }]}>{formatTime(member.totalSeconds)}</Text>
+            <Text style={[s.memberStatValue, { color: T.sky }]}>
+              {formatTime(member.totalSeconds)}
+            </Text>
           </View>
         </View>
       </View>
@@ -74,9 +85,13 @@ function GroupDetailView({ group, onBack }) {
         <Text style={s.backText}>← 목록으로</Text>
       </TouchableOpacity>
       <Text style={s.title}>{group.name}</Text>
-      <Text style={s.sub}>코드: {group.code} · 멤버 {group.members.length}명</Text>
+      <Text style={s.sub}>
+        코드: {group.code} · 멤버 {group.members.length}명
+      </Text>
       <ScrollView showsVerticalScrollIndicator={false} style={s.memberList}>
-        {sorted.map((m, i) => <MemberCard key={m.id} member={m} rank={i + 1} />)}
+        {sorted.map((m, i) => (
+          <MemberCard key={m.id} member={m} rank={i + 1} />
+        ))}
       </ScrollView>
     </View>
   );
@@ -101,11 +116,9 @@ export default function GroupScreen() {
       id: Date.now().toString(),
       name: newGroupName.trim(),
       code: Math.random().toString(36).slice(2, 8).toUpperCase(),
-      members: [
-        { id: 'me', name: '나', variant: 'default', todaySeconds: 0, totalSeconds: 0 },
-      ],
+      members: [{ id: 'me', name: '나', variant: 'default', todaySeconds: 0, totalSeconds: 0 }],
     };
-    setMyGroups(prev => [...prev, newGroup]);
+    setMyGroups((prev) => [...prev, newGroup]);
     setNewGroupName('');
     setShowCreate(false);
   }
@@ -114,20 +127,20 @@ export default function GroupScreen() {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return;
     const results = MOCK_GROUPS.filter(
-      g => g.name.toLowerCase().includes(q) || g.code.toLowerCase().includes(q)
+      (g) => g.name.toLowerCase().includes(q) || g.code.toLowerCase().includes(q),
     );
     setSearchResults(results);
   }
 
   function handleJoin(group) {
-    if (myGroups.find(g => g.id === group.id)) return;
-    setMyGroups(prev => [...prev, group]);
+    if (myGroups.find((g) => g.id === group.id)) return;
+    setMyGroups((prev) => [...prev, group]);
     setShowSearch(false);
     setSearchQuery('');
     setSearchResults([]);
   }
 
-  const isJoined = (group) => !!myGroups.find(g => g.id === group.id);
+  const isJoined = (group) => !!myGroups.find((g) => g.id === group.id);
 
   return (
     <View style={s.container}>
@@ -136,20 +149,26 @@ export default function GroupScreen() {
       <Text style={s.sub}>같이 집중해요</Text>
 
       <View style={s.btnRow}>
-        <TouchableOpacity style={[s.actionBtn, inkBox(T.sky)]} onPress={() => setShowCreate(true)} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={[s.actionBtn, inkBox(T.sky)]}
+          onPress={() => setShowCreate(true)}
+          activeOpacity={0.8}
+        >
           <Text style={s.actionBtnText}>+ 그룹 만들기</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[s.actionBtn, inkBox(T.mint)]} onPress={() => setShowSearch(true)} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={[s.actionBtn, inkBox(T.mint)]}
+          onPress={() => setShowSearch(true)}
+          activeOpacity={0.8}
+        >
           <Text style={s.actionBtnText}>🔍 그룹 찾기</Text>
         </TouchableOpacity>
       </View>
 
       <Text style={s.sectionLabel}>내 그룹</Text>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {myGroups.length === 0 && (
-          <Text style={s.emptyText}>아직 참가한 그룹이 없어요</Text>
-        )}
-        {myGroups.map(group => (
+        {myGroups.length === 0 && <Text style={s.emptyText}>아직 참가한 그룹이 없어요</Text>}
+        {myGroups.map((group) => (
           <TouchableOpacity
             key={group.id}
             style={[s.groupCard, inkBox(T.paper)]}
@@ -167,7 +186,10 @@ export default function GroupScreen() {
 
       {/* 그룹 만들기 모달 */}
       <Modal visible={showCreate} transparent animationType="fade">
-        <KeyboardAvoidingView style={s.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView
+          style={s.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
           <View style={[s.modalBox, inkBox(T.paper)]}>
             <Text style={s.modalTitle}>그룹 만들기</Text>
             <TextInput
@@ -178,7 +200,10 @@ export default function GroupScreen() {
               onChangeText={setNewGroupName}
             />
             <View style={s.modalBtnRow}>
-              <TouchableOpacity style={[s.modalBtn, inkBox(T.paperDark)]} onPress={() => setShowCreate(false)}>
+              <TouchableOpacity
+                style={[s.modalBtn, inkBox(T.paperDark)]}
+                onPress={() => setShowCreate(false)}
+              >
                 <Text style={s.modalBtnText}>취소</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.modalBtn, inkBox(T.yellow)]} onPress={handleCreate}>
@@ -191,7 +216,10 @@ export default function GroupScreen() {
 
       {/* 그룹 찾기 모달 */}
       <Modal visible={showSearch} transparent animationType="fade">
-        <KeyboardAvoidingView style={s.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView
+          style={s.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
           <View style={[s.modalBox, inkBox(T.paper)]}>
             <Text style={s.modalTitle}>그룹 찾기</Text>
             <View style={s.searchRow}>
@@ -210,11 +238,13 @@ export default function GroupScreen() {
               {searchResults.length === 0 && searchQuery.length > 0 && (
                 <Text style={s.emptyText}>검색 결과가 없어요</Text>
               )}
-              {searchResults.map(group => (
+              {searchResults.map((group) => (
                 <View key={group.id} style={[s.searchResultItem, inkBox(T.paperDark)]}>
                   <View>
                     <Text style={s.groupName}>{group.name}</Text>
-                    <Text style={s.groupCode}>{group.code} · {group.members.length}명</Text>
+                    <Text style={s.groupCode}>
+                      {group.code} · {group.members.length}명
+                    </Text>
                   </View>
                   <TouchableOpacity
                     style={[s.joinBtn, inkBox(isJoined(group) ? T.paperLine : T.mint)]}
@@ -226,7 +256,14 @@ export default function GroupScreen() {
                 </View>
               ))}
             </ScrollView>
-            <TouchableOpacity style={[s.modalBtn, s.closeBtn, inkBox(T.paperDark)]} onPress={() => { setShowSearch(false); setSearchResults([]); setSearchQuery(''); }}>
+            <TouchableOpacity
+              style={[s.modalBtn, s.closeBtn, inkBox(T.paperDark)]}
+              onPress={() => {
+                setShowSearch(false);
+                setSearchResults([]);
+                setSearchQuery('');
+              }}
+            >
               <Text style={s.modalBtnText}>닫기</Text>
             </TouchableOpacity>
           </View>

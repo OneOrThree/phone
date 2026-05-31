@@ -58,11 +58,11 @@ npm start
 
 ## 자주 쓰는 명령어
 
-| 명령어 | 설명 |
-|--------|------|
-| `npm start` | Expo 개발 서버 시작 (Dev Client용) |
-| `npx expo run:android` | Android 네이티브 빌드 + 실행 |
-| `npx expo run:ios` | iOS 네이티브 빌드 + 실행 |
+| 명령어                 | 설명                               |
+| ---------------------- | ---------------------------------- |
+| `npm start`            | Expo 개발 서버 시작 (Dev Client용) |
+| `npx expo run:android` | Android 네이티브 빌드 + 실행       |
+| `npx expo run:ios`     | iOS 네이티브 빌드 + 실행           |
 
 ---
 

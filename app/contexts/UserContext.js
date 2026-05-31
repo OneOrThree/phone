@@ -15,11 +15,16 @@ export function UserProvider({ initialNickname, children }) {
   }, []);
 
   return (
-    <UserContext.Provider value={{
-      nickname, setNickname,
-      goalSeconds, setGoalSeconds, goalSecondsRef,
-      phoneUsageSeconds: PHONE_USAGE_SECONDS,
-    }}>
+    <UserContext.Provider
+      value={{
+        nickname,
+        setNickname,
+        goalSeconds,
+        setGoalSeconds,
+        goalSecondsRef,
+        phoneUsageSeconds: PHONE_USAGE_SECONDS,
+      }}
+    >
       {children}
     </UserContext.Provider>
   );

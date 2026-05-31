@@ -1,0 +1,10 @@
+node_modules/
+android/
+app/android/
+app/ios/
+app/build/
+back/
+.github/
+*.lock
+app/api_spec.json
+docker-compose*.yml

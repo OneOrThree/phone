@@ -41,15 +41,21 @@ export default function LoginScreen({ onLogin }) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>gromo</Text>
-      <TouchableOpacity onPress={handleLogin} style={styles.kakaoButton} activeOpacity={0.8} disabled={loading}>
-        {loading
-          ? <ActivityIndicator size="small" color={T.ink} style={styles.kakaoImage} />
-          : <Image
-              source={require('../assets/kakao_login_medium_narrow.png')}
-              style={styles.kakaoImage}
-              resizeMode="contain"
-            />
-        }
+      <TouchableOpacity
+        onPress={handleLogin}
+        style={styles.kakaoButton}
+        activeOpacity={0.8}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator size="small" color={T.ink} style={styles.kakaoImage} />
+        ) : (
+          <Image
+            source={require('../assets/kakao_login_medium_narrow.png')}
+            style={styles.kakaoImage}
+            resizeMode="contain"
+          />
+        )}
       </TouchableOpacity>
     </View>
   );

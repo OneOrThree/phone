@@ -10,7 +10,7 @@ export function CoinProvider({ children }) {
   const loaded = useRef(false);
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then(raw => {
+    AsyncStorage.getItem(STORAGE_KEY).then((raw) => {
       if (raw) {
         const saved = JSON.parse(raw);
         setCoins(saved.coins ?? 0);
@@ -26,7 +26,7 @@ export function CoinProvider({ children }) {
   }, [coins, ownedItemIds]);
 
   function addCoins(amount) {
-    setCoins(prev => prev + amount);
+    setCoins((prev) => prev + amount);
   }
 
   function isOwned(itemId) {
@@ -35,8 +35,8 @@ export function CoinProvider({ children }) {
 
   function buyItem(itemId, price) {
     if (coins < price) return false;
-    setCoins(prev => prev - price);
-    setOwnedItemIds(prev => [...prev, itemId]);
+    setCoins((prev) => prev - price);
+    setOwnedItemIds((prev) => [...prev, itemId]);
     return true;
   }
 

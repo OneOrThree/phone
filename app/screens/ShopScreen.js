@@ -1,46 +1,181 @@
 import React, { useState } from 'react';
-import {
-  View, Text, StyleSheet, Pressable, ScrollView, Image,
-} from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Image } from 'react-native';
 import { useEquipment } from '../contexts/EquipmentContext';
 import { useCoins } from '../contexts/CoinContext';
 import { T, inkBox } from '../components/theme';
 
 const RARITY = {
-  Common:    { label: 'Common',    price: 1,  color: '#A0A0A0' },
-  Rare:      { label: 'Rare',      price: 3,  color: T.sky },
-  Epic:      { label: 'Epic',      price: 5,  color: T.lavender },
+  Common: { label: 'Common', price: 1, color: '#A0A0A0' },
+  Rare: { label: 'Rare', price: 3, color: T.sky },
+  Epic: { label: 'Epic', price: 5, color: T.lavender },
   Legendary: { label: 'Legendary', price: 10, color: T.yellow },
 };
 
 const shopItems = {
   item: [
-    { id: 'desktop',  name: '데스크탑', type: 'item', icon: '🖥',  thumbnail: require('../assets/itemThumbnail/Desktop.png'), focusVariant: 'focus',    rarity: 'Rare',      desc: '집중 모드에서 안경 쓰고 노트북 작업!' },
-    { id: 'book',     name: '책',       type: 'item', icon: '📚', thumbnail: null,                                           focusVariant: 'reading',  rarity: 'Common',    desc: '독서하면서 집중! 책 읽는 포즈로 변신.' },
-    { id: 'yoga',     name: '요가매트', type: 'item', icon: '🧘', thumbnail: null,                                           focusVariant: 'yoga',     rarity: 'Epic',      desc: '요가하면서 마음도 집중! 평온한 표정.' },
-    { id: 'exercise', name: '운동기구', type: 'item', icon: '💪', thumbnail: null,                                           focusVariant: 'exercise', rarity: 'Rare',      desc: '운동하면서 집중! 덤벨 들고 파이팅!' },
-    { id: 'study',    name: '문제집',   type: 'item', icon: '✏',  thumbnail: null,                                           focusVariant: 'study',    rarity: 'Common',    desc: '문제집 풀면서 집중! 혀 내밀고 열심히.' },
+    {
+      id: 'desktop',
+      name: '데스크탑',
+      type: 'item',
+      icon: '🖥',
+      thumbnail: require('../assets/itemThumbnail/Desktop.png'),
+      focusVariant: 'focus',
+      rarity: 'Rare',
+      desc: '집중 모드에서 안경 쓰고 노트북 작업!',
+    },
+    {
+      id: 'book',
+      name: '책',
+      type: 'item',
+      icon: '📚',
+      thumbnail: null,
+      focusVariant: 'reading',
+      rarity: 'Common',
+      desc: '독서하면서 집중! 책 읽는 포즈로 변신.',
+    },
+    {
+      id: 'yoga',
+      name: '요가매트',
+      type: 'item',
+      icon: '🧘',
+      thumbnail: null,
+      focusVariant: 'yoga',
+      rarity: 'Epic',
+      desc: '요가하면서 마음도 집중! 평온한 표정.',
+    },
+    {
+      id: 'exercise',
+      name: '운동기구',
+      type: 'item',
+      icon: '💪',
+      thumbnail: null,
+      focusVariant: 'exercise',
+      rarity: 'Rare',
+      desc: '운동하면서 집중! 덤벨 들고 파이팅!',
+    },
+    {
+      id: 'study',
+      name: '문제집',
+      type: 'item',
+      icon: '✏',
+      thumbnail: null,
+      focusVariant: 'study',
+      rarity: 'Common',
+      desc: '문제집 풀면서 집중! 혀 내밀고 열심히.',
+    },
   ],
   costume: [
-    { id: 'hat',       name: '베레모',    type: 'costume', slot: 'hat',       icon: '🎩', thumbnail: null, rarity: 'Rare',      desc: '귀여운 베레모! 예술가 감성 물씬.' },
-    { id: 'hair',      name: '포니테일',  type: 'costume', slot: 'hair',      icon: '💇', thumbnail: null, rarity: 'Common',    desc: '활기찬 포니테일 헤어스타일.' },
-    { id: 'top',       name: '후드티',    type: 'costume', slot: 'top',       icon: '👕', thumbnail: null, rarity: 'Epic',      desc: '편안한 후드티. 집중할 땐 역시 편한 옷!' },
-    { id: 'bottom',    name: '청바지',    type: 'costume', slot: 'bottom',    icon: '👖', thumbnail: null, rarity: 'Common',    desc: '클래식한 청바지. 어디든 잘 어울려요.' },
-    { id: 'accessory', name: '별 귀걸이', type: 'costume', slot: 'accessory', icon: '⭐', thumbnail: null, rarity: 'Legendary', desc: '반짝이는 별 귀걸이. 특별한 날 딱!' },
+    {
+      id: 'hat',
+      name: '베레모',
+      type: 'costume',
+      slot: 'hat',
+      icon: '🎩',
+      thumbnail: null,
+      rarity: 'Rare',
+      desc: '귀여운 베레모! 예술가 감성 물씬.',
+    },
+    {
+      id: 'hair',
+      name: '포니테일',
+      type: 'costume',
+      slot: 'hair',
+      icon: '💇',
+      thumbnail: null,
+      rarity: 'Common',
+      desc: '활기찬 포니테일 헤어스타일.',
+    },
+    {
+      id: 'top',
+      name: '후드티',
+      type: 'costume',
+      slot: 'top',
+      icon: '👕',
+      thumbnail: null,
+      rarity: 'Epic',
+      desc: '편안한 후드티. 집중할 땐 역시 편한 옷!',
+    },
+    {
+      id: 'bottom',
+      name: '청바지',
+      type: 'costume',
+      slot: 'bottom',
+      icon: '👖',
+      thumbnail: null,
+      rarity: 'Common',
+      desc: '클래식한 청바지. 어디든 잘 어울려요.',
+    },
+    {
+      id: 'accessory',
+      name: '별 귀걸이',
+      type: 'costume',
+      slot: 'accessory',
+      icon: '⭐',
+      thumbnail: null,
+      rarity: 'Legendary',
+      desc: '반짝이는 별 귀걸이. 특별한 날 딱!',
+    },
   ],
   furniture: [
-    { id: 'desk',   name: '책상', type: 'furniture', icon: '🖥',  thumbnail: require('../assets/furnitureThumbnail/Desk.png'), rarity: 'Epic',      desc: '방에 모니터 책상을 놓아요!' },
-    { id: 'bed',    name: '침대', type: 'furniture', icon: '🛏',  thumbnail: null,                                             rarity: 'Rare',      desc: '푹신한 침대! 방이 아늑해져요.' },
-    { id: 'window', name: '창문', type: 'furniture', icon: '🪟',  thumbnail: null,                                             rarity: 'Common',    desc: '햇살 들어오는 창문. 밝은 기분!' },
-    { id: 'frame',  name: '액자', type: 'furniture', icon: '🖼',  thumbnail: null,                                             rarity: 'Legendary', desc: '벽에 예쁜 그림을 걸어요.' },
-    { id: 'carpet', name: '카펫', type: 'furniture', icon: '🟥',  thumbnail: null,                                             rarity: 'Common',    desc: '바닥에 포근한 카펫을 깔아요!' },
+    {
+      id: 'desk',
+      name: '책상',
+      type: 'furniture',
+      icon: '🖥',
+      thumbnail: require('../assets/furnitureThumbnail/Desk.png'),
+      rarity: 'Epic',
+      desc: '방에 모니터 책상을 놓아요!',
+    },
+    {
+      id: 'bed',
+      name: '침대',
+      type: 'furniture',
+      icon: '🛏',
+      thumbnail: null,
+      rarity: 'Rare',
+      desc: '푹신한 침대! 방이 아늑해져요.',
+    },
+    {
+      id: 'window',
+      name: '창문',
+      type: 'furniture',
+      icon: '🪟',
+      thumbnail: null,
+      rarity: 'Common',
+      desc: '햇살 들어오는 창문. 밝은 기분!',
+    },
+    {
+      id: 'frame',
+      name: '액자',
+      type: 'furniture',
+      icon: '🖼',
+      thumbnail: null,
+      rarity: 'Legendary',
+      desc: '벽에 예쁜 그림을 걸어요.',
+    },
+    {
+      id: 'carpet',
+      name: '카펫',
+      type: 'furniture',
+      icon: '🟥',
+      thumbnail: null,
+      rarity: 'Common',
+      desc: '바닥에 포근한 카펫을 깔아요!',
+    },
   ],
 };
 
 export default function ShopScreen() {
   const [selectedCategory, setSelectedCategory] = useState('item');
   const [selectedItem, setSelectedItem] = useState(null);
-  const { equippedItem, setEquippedItem, equippedFurniture, toggleFurniture, equippedCostume, toggleCostume } = useEquipment();
+  const {
+    equippedItem,
+    setEquippedItem,
+    equippedFurniture,
+    toggleFurniture,
+    equippedCostume,
+    toggleCostume,
+  } = useEquipment();
   const { coins, isOwned, buyItem } = useCoins();
   const items = shopItems[selectedCategory];
 
@@ -81,7 +216,10 @@ export default function ShopScreen() {
           <Pressable
             key={cat}
             style={[s.tab, selectedCategory === cat && s.tabActive]}
-            onPress={() => { setSelectedCategory(cat); setSelectedItem(null); }}
+            onPress={() => {
+              setSelectedCategory(cat);
+              setSelectedItem(null);
+            }}
           >
             <Text style={[s.tabText, selectedCategory === cat && s.tabTextActive]}>
               {cat === 'item' ? '✦ 아이템' : cat === 'furniture' ? '🪑 가구' : '👕 의상'}
@@ -91,17 +229,15 @@ export default function ShopScreen() {
       </View>
 
       {/* Item grid */}
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={s.grid}
-      >
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.grid}>
         {items.map((item) => {
           const isSelected = selectedItem?.id === item.id;
-          const isEquipped = item.type === 'furniture'
-            ? equippedFurniture.some((f) => f.id === item.id)
-            : item.type === 'costume'
-              ? equippedCostume.some((c) => c.id === item.id)
-              : equippedItem?.id === item.id;
+          const isEquipped =
+            item.type === 'furniture'
+              ? equippedFurniture.some((f) => f.id === item.id)
+              : item.type === 'costume'
+                ? equippedCostume.some((c) => c.id === item.id)
+                : equippedItem?.id === item.id;
 
           return (
             <Pressable
@@ -117,13 +253,16 @@ export default function ShopScreen() {
                 )}
               </View>
               <Text style={s.itemName}>{item.name}</Text>
-              <Text style={[s.rarityBadge, { color: RARITY[item.rarity].color }]}>{item.rarity}</Text>
-              {isEquipped
-                ? <Text style={s.equippedBadge}>✔ 장착중</Text>
-                : isOwned(item.id)
-                  ? <Text style={s.ownedBadge}>보유중</Text>
-                  : <Text style={s.priceBadge}>💰 {RARITY[item.rarity].price}</Text>
-              }
+              <Text style={[s.rarityBadge, { color: RARITY[item.rarity].color }]}>
+                {item.rarity}
+              </Text>
+              {isEquipped ? (
+                <Text style={s.equippedBadge}>✔ 장착중</Text>
+              ) : isOwned(item.id) ? (
+                <Text style={s.ownedBadge}>보유중</Text>
+              ) : (
+                <Text style={s.priceBadge}>💰 {RARITY[item.rarity].price}</Text>
+              )}
             </Pressable>
           );
         })}
@@ -151,7 +290,9 @@ export default function ShopScreen() {
                     disabled={coins < price}
                   >
                     <Text style={s.equipBtnText}>
-                      {coins < price ? `💰 부족 (${price - coins} 더 필요)` : `💰 ${price} 구매하기`}
+                      {coins < price
+                        ? `💰 부족 (${price - coins} 더 필요)`
+                        : `💰 ${price} 구매하기`}
                     </Text>
                   </Pressable>
                 );
@@ -176,16 +317,14 @@ export default function ShopScreen() {
                   <Text style={s.equipBtnText}>장착하기 ✓</Text>
                 </Pressable>
               )
+            ) : equippedItem?.id === selectedItem.id ? (
+              <Pressable style={s.unequipBtn} onPress={handleUnequip}>
+                <Text style={s.unequipBtnText}>장착 해제</Text>
+              </Pressable>
             ) : (
-              equippedItem?.id === selectedItem.id ? (
-                <Pressable style={s.unequipBtn} onPress={handleUnequip}>
-                  <Text style={s.unequipBtnText}>장착 해제</Text>
-                </Pressable>
-              ) : (
-                <Pressable style={s.equipBtn} onPress={handleEquip}>
-                  <Text style={s.equipBtnText}>장착하기 ✓</Text>
-                </Pressable>
-              )
+              <Pressable style={s.equipBtn} onPress={handleEquip}>
+                <Text style={s.equipBtnText}>장착하기 ✓</Text>
+              </Pressable>
             )}
           </>
         ) : (
@@ -201,10 +340,17 @@ export default function ShopScreen() {
 
 const s = StyleSheet.create({
   container: {
-    flex: 1, backgroundColor: T.paper,
-    paddingTop: 56, paddingHorizontal: 18,
+    flex: 1,
+    backgroundColor: T.paper,
+    paddingTop: 56,
+    paddingHorizontal: 18,
   },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   title: { fontSize: 28, fontWeight: '900', color: T.ink },
   subtitle: { fontSize: 13, color: T.inkMed, marginTop: 2 },
   coinBadge: { paddingHorizontal: 14, paddingVertical: 8 },
@@ -212,10 +358,14 @@ const s = StyleSheet.create({
 
   tabRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
   tab: {
-    paddingVertical: 10, paddingHorizontal: 20,
-    borderWidth: 2.5, borderColor: T.ink,
-    borderTopLeftRadius: 12, borderTopRightRadius: 10,
-    borderBottomLeftRadius: 10, borderBottomRightRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderWidth: 2.5,
+    borderColor: T.ink,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 10,
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 12,
     backgroundColor: T.paperDark,
   },
   tabActive: { backgroundColor: T.ink },
@@ -223,23 +373,37 @@ const s = StyleSheet.create({
   tabTextActive: { color: T.paper },
 
   grid: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingBottom: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    paddingBottom: 12,
   },
   itemCard: {
     width: '30%',
-    borderWidth: 2.5, borderColor: T.ink,
-    borderBottomWidth: 5, borderRightWidth: 5,
-    borderTopLeftRadius: 14, borderTopRightRadius: 12,
-    borderBottomLeftRadius: 12, borderBottomRightRadius: 14,
-    backgroundColor: T.paperDark, padding: 8,
+    borderWidth: 2.5,
+    borderColor: T.ink,
+    borderBottomWidth: 5,
+    borderRightWidth: 5,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 12,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 14,
+    backgroundColor: T.paperDark,
+    padding: 8,
     alignItems: 'center',
   },
   itemCardSelected: { backgroundColor: T.lavender },
   itemThumb: {
-    width: '100%', aspectRatio: 1,
-    borderRadius: 10, borderWidth: 1.5, borderColor: T.inkLight,
-    backgroundColor: T.paper, alignItems: 'center', justifyContent: 'center',
-    overflow: 'hidden', marginBottom: 6,
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: T.inkLight,
+    backgroundColor: T.paper,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginBottom: 6,
   },
   itemImg: { width: '100%', height: '100%', resizeMode: 'cover' },
   itemIcon: { fontSize: 28 },
@@ -255,22 +419,34 @@ const s = StyleSheet.create({
   detailDesc: { fontSize: 13, color: T.inkMed, marginTop: 4 },
 
   equipBtn: {
-    marginTop: 12, backgroundColor: T.coral,
-    borderWidth: 2.5, borderColor: T.ink,
-    borderBottomWidth: 5, borderRightWidth: 5,
-    borderTopLeftRadius: 12, borderTopRightRadius: 10,
-    borderBottomLeftRadius: 10, borderBottomRightRadius: 12,
-    paddingVertical: 11, alignItems: 'center',
+    marginTop: 12,
+    backgroundColor: T.coral,
+    borderWidth: 2.5,
+    borderColor: T.ink,
+    borderBottomWidth: 5,
+    borderRightWidth: 5,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 10,
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 12,
+    paddingVertical: 11,
+    alignItems: 'center',
   },
   equipBtnText: { fontSize: 15, fontWeight: '900', color: T.ink },
 
   unequipBtn: {
-    marginTop: 12, backgroundColor: T.paperDark,
-    borderWidth: 2.5, borderColor: T.coralDark,
-    borderBottomWidth: 5, borderRightWidth: 5,
-    borderTopLeftRadius: 12, borderTopRightRadius: 10,
-    borderBottomLeftRadius: 10, borderBottomRightRadius: 12,
-    paddingVertical: 11, alignItems: 'center',
+    marginTop: 12,
+    backgroundColor: T.paperDark,
+    borderWidth: 2.5,
+    borderColor: T.coralDark,
+    borderBottomWidth: 5,
+    borderRightWidth: 5,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 10,
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 12,
+    paddingVertical: 11,
+    alignItems: 'center',
   },
   unequipBtnText: { fontSize: 15, fontWeight: '900', color: T.coralDark },
   disabledBtn: { backgroundColor: T.paperLine, borderColor: T.inkLight },

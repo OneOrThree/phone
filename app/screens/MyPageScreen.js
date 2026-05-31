@@ -1,13 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, TextInput, PanResponder } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Modal,
+  TextInput,
+  PanResponder,
+} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { T, inkBox } from '../components/theme';
 import { Character2D } from '../components/character/Character2D';
 import { useFocus } from '../contexts/FocusContext';
 import { useUser } from '../contexts/UserContext';
 
-const GOAL_MAX = 86400;  // 24h in seconds
-const GOAL_STEP = 1800;  // 30min step
+const GOAL_MAX = 86400; // 24h in seconds
+const GOAL_STEP = 1800; // 30min step
 const THUMB_SIZE = 24;
 const TRACK_HEIGHT = 12;
 const SLIDER_HEIGHT = 44;
@@ -44,7 +52,9 @@ function GoalSlider({ value, onChange }) {
   const trackWidthRef = useRef(0);
   const pageXRef = useRef(0);
   const onChangeRef = useRef(onChange);
-  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   function measureTrack() {
     trackRef.current?.measure((x, y, w, h, pageX) => {
@@ -73,7 +83,7 @@ function GoalSlider({ value, onChange }) {
       onPanResponderMove: (e, gs) => {
         onChangeRef.current(snapValue(gs.moveX - pageXRef.current));
       },
-    })
+    }),
   ).current;
 
   const fillPercent = (value / GOAL_MAX) * 100;
@@ -90,13 +100,13 @@ function GoalSlider({ value, onChange }) {
         <View style={s.sliderTrack}>
           <View style={[s.sliderFill, { width: `${fillPercent}%` }]} />
         </View>
-        {trackWidth > 0 && (
-          <View style={[s.sliderThumb, { left: thumbLeft }]} />
-        )}
+        {trackWidth > 0 && <View style={[s.sliderThumb, { left: thumbLeft }]} />}
       </View>
       <View style={s.sliderTicks}>
-        {['0h', '6h', '12h', '18h', '24h'].map(label => (
-          <Text key={label} style={s.sliderTickText}>{label}</Text>
+        {['0h', '6h', '12h', '18h', '24h'].map((label) => (
+          <Text key={label} style={s.sliderTickText}>
+            {label}
+          </Text>
         ))}
       </View>
     </View>
@@ -150,7 +160,10 @@ export default function MyPageScreen({ onLogout }) {
               autoFocus
             />
             <View style={s.modalBtns}>
-              <TouchableOpacity style={[s.modalBtn, inkBox(T.paperDark)]} onPress={() => setEditing(false)}>
+              <TouchableOpacity
+                style={[s.modalBtn, inkBox(T.paperDark)]}
+                onPress={() => setEditing(false)}
+              >
                 <Text style={s.modalBtnText}>취소</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.modalBtn, inkBox(T.yellow)]} onPress={saveNickname}>
@@ -169,7 +182,10 @@ export default function MyPageScreen({ onLogout }) {
             <Text style={s.goalDraftTime}>{formatGoalTime(draftGoal)}</Text>
             <GoalSlider value={draftGoal} onChange={setDraftGoal} />
             <View style={[s.modalBtns, s.modalBtnsTop]}>
-              <TouchableOpacity style={[s.modalBtn, inkBox(T.paperDark)]} onPress={() => setGoalEditing(false)}>
+              <TouchableOpacity
+                style={[s.modalBtn, inkBox(T.paperDark)]}
+                onPress={() => setGoalEditing(false)}
+              >
                 <Text style={s.modalBtnText}>취소</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.modalBtn, inkBox(T.yellow)]} onPress={saveGoal}>
@@ -201,7 +217,11 @@ export default function MyPageScreen({ onLogout }) {
       {/* Stats card */}
       <View style={[s.statsCard, inkBox(T.paperDark)]}>
         <Text style={s.statsTitle}>나의 기록 ✦</Text>
-        <StatRow label="오늘 집중 시간" value={formatFocusTime(todayFocusSeconds)} accent={T.coral} />
+        <StatRow
+          label="오늘 집중 시간"
+          value={formatFocusTime(todayFocusSeconds)}
+          accent={T.coral}
+        />
         <StatRow label="연속 집중일" value="1일" accent={T.mint} />
         <StatRow label="이번 주 목표 달성" value="0 / 7일" accent={T.sky} />
 
@@ -242,7 +262,11 @@ export default function MyPageScreen({ onLogout }) {
         </Text>
       </View>
 
-      <TouchableOpacity style={[s.logoutBtn, inkBox(T.paperDark)]} onPress={onLogout} activeOpacity={0.8}>
+      <TouchableOpacity
+        style={[s.logoutBtn, inkBox(T.paperDark)]}
+        onPress={onLogout}
+        activeOpacity={0.8}
+      >
         <Text style={s.logoutText}>로그아웃</Text>
       </TouchableOpacity>
     </View>

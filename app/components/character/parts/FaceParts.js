@@ -72,15 +72,16 @@ export function Nose() {
 //   3. characterTypes.js의 MOUTH_TYPES에 추가
 //   4. characterVariants.js에서 해당 variant에 mouthType 연결
 export function Mouth({ type }) {
-  if (type === 'smile')    return <View style={s.mouth} />;
+  if (type === 'smile') return <View style={s.mouth} />;
   if (type === 'bigSmile') return <View style={s.mouthBig} />;
-  if (type === 'flat')     return <View style={s.mouthFlat} />;
-  if (type === 'open')     return <View style={s.mouthOpen} />;
-  if (type === 'tongue')   return (
-    <View style={s.mouthTongueWrap}>
-      <View style={s.mouthFlat} />
-      <View style={s.tongue} />
-    </View>
-  );
+  if (type === 'flat') return <View style={s.mouthFlat} />;
+  if (type === 'open') return <View style={s.mouthOpen} />;
+  if (type === 'tongue')
+    return (
+      <View style={s.mouthTongueWrap}>
+        <View style={s.mouthFlat} />
+        <View style={s.tongue} />
+      </View>
+    );
   return null;
 }
