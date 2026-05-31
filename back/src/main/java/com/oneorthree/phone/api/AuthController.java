@@ -5,6 +5,7 @@ import com.oneorthree.phone.api.dto.request.TokenRefreshRequest;
 import com.oneorthree.phone.api.dto.response.KakaoLoginResponse;
 import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
 import com.oneorthree.phone.service.AuthService;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -21,12 +22,14 @@ public class AuthController {
 
     private final AuthService authService;
 
+    @Operation(summary = "JWT 발급", description = "카카오 Access Token -> JWT")
     @PostMapping("/kakao")
     public ResponseEntity<KakaoLoginResponse> kakaoLogin(@RequestBody KakaoLoginRequest request) {
         KakaoLoginResponse response = authService.kakaoLogin(request.kakaoAccessToken());
         return ResponseEntity.ok(response);
     }
 
+    @Operation(summary = "JWT 갱신", description = "JWT 갱신")
     @PostMapping("/refresh")
     public ResponseEntity<TokenRefreshResponse> refreshToken(@RequestBody TokenRefreshRequest request) {
         TokenRefreshResponse response = authService.refreshToken(request.refreshToken());
