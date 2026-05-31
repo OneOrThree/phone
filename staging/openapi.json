@@ -35,6 +35,8 @@
         "tags": [
           "auth"
         ],
+        "summary": "JWT 갱신",
+        "description": "JWT 갱신",
         "operationId": "refreshToken",
         "requestBody": {
           "content": {
@@ -65,6 +67,8 @@
         "tags": [
           "auth"
         ],
+        "summary": "JWT 발급",
+        "description": "카카오 Access Token -\u003e JWT",
         "operationId": "kakaoLogin",
         "requestBody": {
           "content": {
