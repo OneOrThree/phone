@@ -1,4 +1,5 @@
 .DS_Store
+.vs_code
 .idea/
 .superpowers/
 docs/
