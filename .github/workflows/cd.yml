@@ -19,30 +19,47 @@ jobs:
     runs-on: [self-hosted, dev]
     environment: production
     timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Build Docker image
-        run: docker build -t phone-app:${{ github.sha }} -t phone-app:latest ./back
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-phone
+          aws-region: ap-northeast-2
 
-      - name: Deploy with docker compose
-        env:
-          POSTGRES_DB: ${{ secrets.DEV_POSTGRES_DB }}
-          POSTGRES_USER: ${{ secrets.DEV_POSTGRES_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.DEV_POSTGRES_PASSWORD }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      - name: AWS Secrets Manager에서 시크릿 로드
+        uses: aws-actions/aws-secretsmanager-get-secret-value@v2
+        with:
+          secret-id: oneorthree/phone
+          parse-json-body: true
+
+      - name: Docker Buildx 설정
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker 이미지 빌드
+        uses: docker/build-push-action@v6
+        with:
+          context: ./back
+          push: false
+          load: true
+          tags: |
+            phone-app:${{ github.sha }}
+            phone-app:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Docker Compose 배포
         run: |
           docker compose -f docker-compose.dev.yml up -d
           docker compose -f docker-compose.dev.yml ps
 
-      - name: Health check
-        env:
-          POSTGRES_DB: ${{ secrets.DEV_POSTGRES_DB }}
-          POSTGRES_USER: ${{ secrets.DEV_POSTGRES_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.DEV_POSTGRES_PASSWORD }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      - name: 헬스체크
         run: |
           echo "앱 기동 대기 중..."
           for i in $(seq 1 12); do
@@ -56,7 +73,7 @@ jobs:
           docker compose -f docker-compose.dev.yml logs app
           exit 1
 
-      - name: Report deployment failure
+      - name: 배포 실패 리포트
         if: failure()
         uses: actions/github-script@v7
         with:

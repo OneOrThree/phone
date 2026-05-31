@@ -31,13 +31,33 @@ jobs:
     if: github.event_name == 'pull_request' || (github.ref == 'refs/heads/develop' && github.event_name == 'push')
     runs-on: [self-hosted, ci]
     timeout-minutes: 15
+    permissions:
+      id-token: write
+      contents: read
     env:
       GRADLE_OPTS: "-Dorg.gradle.daemon=false"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t phone-app:${{ github.sha }} -t phone-app:latest ./back
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-phone
+          aws-region: ap-northeast-2
+
+      - name: Docker Buildx 설정
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker 이미지 빌드
+        uses: docker/build-push-action@v6
+        with:
+          context: ./back
+          push: false
+          tags: |
+            phone-app:${{ github.sha }}
+            phone-app:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   pr-report:
     needs: [checkstyle, spotbugs, test, build-image]
