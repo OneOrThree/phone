@@ -1,0 +1,29 @@
+name: TestFlight 배포
+
+on:
+  push:
+    branches:
+      - feat/pomodoro
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Expo 패키지 설치
+        run: npm install -g eas-cli
+
+      - name: 의존성 설치
+        working-directory: app
+        run: npm install
+
+      - name: EAS 빌드 & TestFlight 제출
+        working-directory: app
+        run: eas build --platform ios --profile production --auto-submit --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}

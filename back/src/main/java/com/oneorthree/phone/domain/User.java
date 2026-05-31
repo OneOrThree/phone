@@ -36,6 +36,8 @@ public class User {
 
     private String profileImageUrl;
 
+    private String refreshToken;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 
@@ -50,5 +52,4 @@ public class User {
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<CharacterEquipment> characterEquipments = new ArrayList<>();
-
 }

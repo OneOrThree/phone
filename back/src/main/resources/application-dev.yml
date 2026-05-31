@@ -8,6 +8,14 @@ spring:
     hibernate:
       ddl-auto: update
 
+jwt:
+  secret: ${JWT_SECRET}
+  access-expiration: 3600
+  refresh-expiration: 2592000
+
+kakao:
+  api-base-url: https://kapi.kakao.com
+
 decorator:
   datasource:
     p6spy:

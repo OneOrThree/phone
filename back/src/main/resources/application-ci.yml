@@ -12,3 +12,11 @@ decorator:
   datasource:
     p6spy:
       enable-logging: false
+
+kakao:
+  api-base-url: https://kapi.kakao.com
+
+jwt:
+  secret: ci-test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256
+  access-expiration: 3600
+  refresh-expiration: 2592000

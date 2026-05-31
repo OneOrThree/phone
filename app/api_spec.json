@@ -1,0 +1,464 @@
+{
+  "project": "otium",
+  "version": "0.2.0",
+  "note": "프론트엔드 기준 구현 명세. Swagger 구현 기준으로 정렬됨.",
+  "authNote": "MVP 단계에서는 userId를 path parameter 또는 request body로 직접 전달합니다. 추후 JWT 적용 시 userId path parameter 및 body 필드는 제거되고 토큰에서 추출합니다.",
+
+  "enums": {
+    "Provider": [
+      "KAKAO"
+    ],
+    "ItemType": [
+      "FOCUS_ITEM",
+      "FURNITURE",
+      "COSTUME"
+    ],
+    "SlotType": [
+      "HAT",
+      "HAIR",
+      "TOP",
+      "BOTTOM",
+      "SHOES",
+      "ACCESSORY"
+    ],
+    "SlotTypeNote": "Swagger(HAT/HEAD/BODY/SHOES/ACC) 기준에서 프론트 명확성을 위해 변경: HEAD→HAIR, BODY→TOP+BOTTOM 분리, ACC→ACCESSORY, SHOES 추가",
+    "FocusVariant": [
+      "DEFAULT",
+      "FOCUS",
+      "READING",
+      "YOGA",
+      "EXERCISE",
+      "STUDY"
+    ],
+    "Rarity": [
+      "COMMON",
+      "RARE",
+      "EPIC",
+      "LEGENDARY"
+    ]
+  },
+
+  "models": {
+    "User": {
+      "id": "Long",
+      "nickname": "String",
+      "profileImageUrl": "String | null",
+      "coins": "Long (default: 0)",
+      "createdAt": "Instant",
+      "updatedAt": "Instant"
+    },
+    "SocialAccount": {
+      "id": "Long",
+      "user": "User",
+      "provider": "Provider (KAKAO)",
+      "providerId": "String (카카오 고유 사용자 ID)",
+      "createdAt": "Instant"
+    },
+    "Item": {
+      "desc": "DB 엔티티 모델",
+      "id": "Long",
+      "name": "String",
+      "description": "String",
+      "assetAddress": "String",
+      "thumbnailUrl": "String",
+      "type": "ItemType",
+      "slotType": "SlotType | null (COSTUME 타입만 값 있음)",
+      "focusVariant": "FocusVariant | null (FOCUS_ITEM 타입만 값 있음)",
+      "rarity": "Rarity",
+      "price": "Long (COMMON:1, RARE:3, EPIC:5, LEGENDARY:10)",
+      "iconEmoji": "String | null (optional, 레거시 필드)"
+    },
+    "ItemResponse": {
+      "desc": "API 응답에서 item 객체가 포함될 때 사용하는 구조. 프론트에서 아이템 렌더링에 필요한 모든 필드 포함.",
+      "id": "Long",
+      "name": "String",
+      "description": "String",
+      "assetAddress": "String",
+      "thumbnailUrl": "String",
+      "type": "ItemType",
+      "slotType": "SlotType | null",
+      "focusVariant": "FocusVariant | null",
+      "rarity": "Rarity",
+      "price": "Long",
+      "iconEmoji": "String | null (optional)"
+    },
+    "UserItem": {
+      "id": "Long",
+      "user": "User",
+      "item": "ItemResponse",
+      "acquiredAt": "Instant"
+    },
+    "CharacterEquipment": {
+      "id": "Long",
+      "user": "User",
+      "slotType": "SlotType (HAT | HAIR | TOP | BOTTOM | SHOES | ACCESSORY)",
+      "item": "ItemResponse"
+    },
+    "FurnitureEquipment": {
+      "id": "Long",
+      "user": "User",
+      "item": "ItemResponse (type = FURNITURE)"
+    },
+    "FocusItemEquipment": {
+      "id": "Long",
+      "user": "User (UNIQUE — 유저당 1개)",
+      "item": "ItemResponse (type = FOCUS_ITEM) | null"
+    },
+    "FocusSession": {
+      "id": "Long",
+      "user": "User",
+      "startedAt": "Instant",
+      "endedAt": "Instant",
+      "durationSeconds": "Long",
+      "coinsEarned": "Long (floor(durationSeconds / 10))",
+      "equippedItem": "ItemResponse | null"
+    }
+  },
+
+  "itemSeedData": [
+    {
+      "name": "데스크탑",
+      "type": "FOCUS_ITEM",
+      "focusVariant": "FOCUS",
+      "rarity": "RARE",
+      "price": 3
+    },
+    {
+      "name": "책",
+      "type": "FOCUS_ITEM",
+      "focusVariant": "READING",
+      "rarity": "COMMON",
+      "price": 1
+    },
+    {
+      "name": "요가매트",
+      "type": "FOCUS_ITEM",
+      "focusVariant": "YOGA",
+      "rarity": "EPIC",
+      "price": 5
+    },
+    {
+      "name": "운동기구",
+      "type": "FOCUS_ITEM",
+      "focusVariant": "EXERCISE",
+      "rarity": "RARE",
+      "price": 3
+    },
+    {
+      "name": "문제집",
+      "type": "FOCUS_ITEM",
+      "focusVariant": "STUDY",
+      "rarity": "COMMON",
+      "price": 1
+    },
+    {
+      "name": "베레모",
+      "type": "COSTUME",
+      "slotType": "HAT",
+      "rarity": "RARE",
+      "price": 3
+    },
+    {
+      "name": "포니테일",
+      "type": "COSTUME",
+      "slotType": "HAIR",
+      "rarity": "COMMON",
+      "price": 1
+    },
+    {
+      "name": "후드티",
+      "type": "COSTUME",
+      "slotType": "TOP",
+      "rarity": "EPIC",
+      "price": 5
+    },
+    {
+      "name": "청바지",
+      "type": "COSTUME",
+      "slotType": "BOTTOM",
+      "rarity": "COMMON",
+      "price": 1
+    },
+    {
+      "name": "별 귀걸이",
+      "type": "COSTUME",
+      "slotType": "ACCESSORY",
+      "rarity": "LEGENDARY",
+      "price": 10
+    },
+    {
+      "name": "책상",
+      "type": "FURNITURE",
+      "rarity": "EPIC",
+      "price": 5
+    },
+    {
+      "name": "침대",
+      "type": "FURNITURE",
+      "rarity": "RARE",
+      "price": 3
+    },
+    {
+      "name": "창문",
+      "type": "FURNITURE",
+      "rarity": "COMMON",
+      "price": 1
+    },
+    {
+      "name": "액자",
+      "type": "FURNITURE",
+      "rarity": "LEGENDARY",
+      "price": 10
+    },
+    {
+      "name": "카펫",
+      "type": "FURNITURE",
+      "rarity": "COMMON",
+      "price": 1
+    }
+  ],
+
+  "api": {
+    "auth": {
+      "POST /api/auth/kakao": {
+        "desc": "카카오 액세스 토큰으로 로그인 또는 신규 가입",
+        "request": {
+          "accessToken": "String"
+        },
+        "response": {
+          "accessToken": "String (서버 발급 JWT)",
+          "user": "UserResponse"
+        }
+      },
+      "POST /api/auth/logout": {
+        "desc": "로그아웃 (토큰 무효화)",
+        "request": {},
+        "response": {
+          "ok": true
+        }
+      }
+    },
+
+    "user": {
+      "GET /api/users/me": {
+        "desc": "내 프로필 + 집중 통계",
+        "response": {
+          "id": "Long",
+          "nickname": "String",
+          "profileImageUrl": "String | null",
+          "coins": "Long",
+          "todayFocusSeconds": "Long",
+          "totalFocusSeconds": "Long",
+          "streakDays": "int",
+          "weeklyGoalAchieved": "int (0~7)"
+        }
+      }
+    },
+
+    "shop": {
+      "GET /api/shop/items": {
+        "desc": "전체 아이템 목록. 앱 시작 시 1회 fetch 후 캐싱",
+        "response": {
+          "items": "ItemResponse[]"
+        }
+      },
+      "POST /api/shop/purchase": {
+        "desc": "코인 차감 후 아이템 지급. 멱등성 보장 (중복 구매 409)",
+        "note": "추후 JWT 적용 시 request body의 userId 제거 예정",
+        "request": {
+          "userId": "Long",
+          "itemId": "Long"
+        },
+        "response": {
+          "userItemId": "Long",
+          "remainingCoins": "Long"
+        },
+        "errors": {
+          "400": "INSUFFICIENT_COINS",
+          "409": "ALREADY_OWNED"
+        }
+      }
+    },
+
+    "inventory": {
+      "GET /api/inventory/{userId}": {
+        "desc": "유저의 보유 아이템 목록. item 객체 포함하여 인벤토리 화면 바로 렌더링 가능",
+        "note": "추후 JWT 적용 시 {userId} path parameter 제거 예정",
+        "path": {
+          "userId": "Long"
+        },
+        "response": {
+          "userItems": [
+            {
+              "id": "Long",
+              "item": "ItemResponse",
+              "acquiredAt": "Instant"
+            }
+          ]
+        }
+      },
+      "POST /api/inventory/grant": {
+        "desc": "테스트 또는 관리자용 아이템 지급 API. 실제 구매 흐름(shop/purchase)과 무관하게 직접 지급",
+        "request": {
+          "userId": "Long",
+          "itemId": "Long"
+        },
+        "response": {
+          "id": "Long",
+          "item": "ItemResponse",
+          "acquiredAt": "Instant"
+        }
+      }
+    },
+
+    "equipment": {
+      "GET /api/equipment/{userId}": {
+        "desc": "현재 장착 상태 전체 조회",
+        "note": "추후 JWT 적용 시 {userId} path parameter 제거 예정. Swagger는 배열 직접 반환이지만 프론트 안정성을 위해 { equipments: [] } 래핑 권장. 백엔드가 이미 배열 직접 반환으로 구현되어 있다면 허용 가능.",
+        "path": {
+          "userId": "Long"
+        },
+        "response": {
+          "equipments": [
+            {
+              "id": "Long",
+              "slotType": "SlotType",
+              "item": "ItemResponse"
+            }
+          ]
+        }
+      },
+      "POST /api/equipment/equip": {
+        "desc": "단건 아이템 장착. item.type에 따라 슬롯 자동 결정",
+        "note": "추후 JWT 적용 시 request body의 userId 제거 예정",
+        "request": {
+          "userId": "Long",
+          "itemId": "Long"
+        },
+        "response": {
+          "id": "Long",
+          "slotType": "SlotType",
+          "item": "ItemResponse"
+        },
+        "rules": [
+          "item.type이 COSTUME이면 item.slotType에 해당하는 슬롯에 장착",
+          "같은 slotType에 기존 장착 아이템이 있으면 교체",
+          "item.type이 FOCUS_ITEM이면 기존 focus item을 교체 (유저당 1개 유지)",
+          "item.type이 FURNITURE이면 가구 장착 목록에 추가 (다중 허용)",
+          "보유하지 않은 아이템이면 400 또는 403 에러 반환"
+        ],
+        "errors": {
+          "400": "NOT_OWNED — 보유하지 않은 아이템 장착 시도",
+          "403": "FORBIDDEN — 타인 아이템 접근"
+        }
+      },
+      "DELETE /api/equipment/{userId}/{slotType}": {
+        "desc": "특정 슬롯에 장착된 장비를 해제합니다. COSTUME 슬롯 해제에 사용.",
+        "note": "추후 JWT 적용 시 {userId} path parameter 제거 예정. FURNITURE는 다중 장착 구조라 slotType 해제와 맞지 않으므로 아래 items/{itemId} API를 사용하세요.",
+        "path": {
+          "userId": "Long",
+          "slotType": "SlotType"
+        },
+        "response": {
+          "ok": true
+        }
+      },
+      "DELETE /api/equipment/{userId}/items/{itemId}": {
+        "desc": "특정 장착 아이템을 해제합니다. FURNITURE처럼 slotType으로 구분하기 어려운 아이템 해제에 사용.",
+        "note": "추후 JWT 적용 시 {userId} path parameter 제거 예정",
+        "path": {
+          "userId": "Long",
+          "itemId": "Long"
+        },
+        "response": {
+          "ok": true
+        }
+      }
+    },
+
+    "focus": {
+      "POST /api/focus/sessions": {
+        "desc": "집중 세션 종료 시 저장. 코인은 서버에서 재계산 (클라이언트 값 불신)",
+        "request": {
+          "startedAt": "ISO8601",
+          "endedAt": "ISO8601",
+          "durationSeconds": "Long",
+          "equippedItemId": "Long | null"
+        },
+        "response": {
+          "coinsEarned": "Long (floor(durationSeconds / 10))",
+          "totalCoins": "Long",
+          "todayFocusSeconds": "Long"
+        }
+      },
+      "GET /api/focus/stats": {
+        "desc": "마이페이지 통계",
+        "response": {
+          "todayFocusSeconds": "Long",
+          "totalFocusSeconds": "Long",
+          "streakDays": "int",
+          "weeklyGoalAchieved": "int"
+        }
+      }
+    },
+
+    "group": {
+      "POST /api/groups": {
+        "desc": "그룹 생성 (생성자 자동 참가)",
+        "request": {
+          "name": "String"
+        },
+        "response": "GroupResponse"
+      },
+      "GET /api/groups/search": {
+        "desc": "그룹 이름 또는 코드 검색",
+        "query": {
+          "q": "String"
+        },
+        "response": {
+          "groups": "GroupSummary[]"
+        }
+      },
+      "POST /api/groups/{groupId}/join": {
+        "desc": "그룹 참가",
+        "errors": {
+          "409": "ALREADY_JOINED"
+        }
+      },
+      "GET /api/groups/me": {
+        "desc": "내가 참가한 그룹 목록",
+        "response": {
+          "groups": "GroupSummary[]"
+        }
+      },
+      "GET /api/groups/{groupId}/members": {
+        "desc": "그룹 멤버 목록 (totalFocusSeconds 내림차순 정렬)",
+        "response": {
+          "members": [
+            {
+              "userId": "Long",
+              "nickname": "String",
+              "profileImageUrl": "String | null",
+              "focusItemId": "Long | null (프론트에서 focusVariant 매핑에 사용)",
+              "costumeItemIds": "Long[] (프론트에서 slotType 매핑에 사용)",
+              "todayFocusSeconds": "Long",
+              "totalFocusSeconds": "Long"
+            }
+          ]
+        }
+      }
+    }
+  },
+
+  "businessRules": [
+    "코인 적립: floor(durationSeconds / 10). 클라이언트 값은 참고용, 서버에서 endedAt - startedAt으로 재계산",
+    "아이템 구매: 코인 차감 + user_items INSERT ON CONFLICT DO NOTHING (멱등성 보장)",
+    "집중 아이템(FOCUS_ITEM) 장착: 유저당 1개 (FocusItemEquipment 단일 레코드)",
+    "가구(FURNITURE) 장착: 유저당 다중 허용 (FurnitureEquipment, user_id+item_id unique)",
+    "의상(COSTUME) 장착: 슬롯당 1개 (CharacterEquipment, user_id+slot_type unique)",
+    "장착 전 인벤토리 소유 여부 검증 필수",
+    "그룹 코드: 6자리 대문자 랜덤, unique",
+    "inventory/grant는 테스트 및 관리자 전용 지급 API. 실제 서비스 구매는 shop/purchase를 사용",
+    "추후 JWT 도입 시: userId path parameter 및 request body userId 필드를 제거하고 토큰에서 추출하는 방식으로 전환 예정"
+  ]
+}

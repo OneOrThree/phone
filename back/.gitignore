@@ -1,53 +1,47 @@
-HELP.md
-.gradle
+# Build
+.gradle/
 build/
-!gradle/wrapper/gradle-wrapper.jar
-!**/src/main/**/build/
-!**/src/test/**/build/
+bin/
+out/
 
-### STS ###
-.apt_generated
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
 .classpath
-.factorypath
 .project
-.settings
+.settings/
+.factorypath
+.apt_generated
 .springBeans
 .sts4-cache
-bin/
-!**/src/main/**/bin/
-!**/src/test/**/bin/
+.nb-gradle/
+nbproject/
 
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
-out/
-!**/src/main/**/out/
-!**/src/test/**/out/
+# OS
+.DS_Store
+.claude
 
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-
-### yml ###
-application.yml
+# Local configs (contains credentials)
 application-local.yml
 application-prod.yml
 application-staging.yml
-
-### DB Query 성능 측정 ###
+application.yml
 spy.properties
 
-### Docker File ###
+# Env files
+*.env
+.env*
+
+# Duplicate files with spaces (artifact of git issues)
+*\ 2
+*\ 2.*
+*\ 2/
+
+# Misplaced files
 docker-compose.yml
-.env.prod
 
-### VS Code ###
-.vscode/
-
-### Mac ###
-.DS_Store
+# Misc
+HELP.md
