@@ -7,9 +7,8 @@ import { T } from '../components/theme';
 
 async function kakaoLogin() {
   const kakaoToken = await login();
-  console.log('kakao accessToken:', kakaoToken.accessToken);
 
-  // TODO: 서버 완성되면 아래 주석 풀고 위 console.log 삭제
+  // TODO: 서버 완성되면 아래 주석 풀기
   // const res = await fetch(`${API_URL}/auth/kakao`, {
   //   method: 'POST',
   //   headers: { 'Content-Type': 'application/json' },
