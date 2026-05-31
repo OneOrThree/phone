@@ -1,0 +1,49 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: [self-hosted, dev]
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t phone-app:${{ github.sha }} -t phone-app:latest ./back
+
+      - name: Deploy with docker compose
+        env:
+          POSTGRES_DB: ${{ secrets.DEV_POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.DEV_POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.DEV_POSTGRES_PASSWORD }}
+        run: |
+          docker compose -f docker-compose.dev.yml up -d
+          docker compose -f docker-compose.dev.yml ps
+
+      - name: Health check
+        run: |
+          echo "앱 기동 대기 중..."
+          sleep 15
+          curl -f http://localhost:8080/health || \
+            (docker compose -f docker-compose.dev.yml logs app && exit 1)
+
+      - name: Report deployment failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            console.log('Deployment failed on', new Date().toISOString())
