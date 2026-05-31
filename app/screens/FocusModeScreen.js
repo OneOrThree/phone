@@ -87,7 +87,7 @@ function AnimatedCharacter({ variant, size }) {
       bodyLoop.stop();
       armLoops.forEach(l => l.stop());
     };
-  }, [variant]);
+  }, [variant, bodyAnim, leftArm, rightArm]);
 
   const bodyCfg = MOTION[variant] ?? MOTION.default;
   let bodyStyle;
@@ -139,7 +139,7 @@ export default function FocusModeScreen({ navigation }) {
         }
       }, 1000);
       return () => clearInterval(id);
-    }, [])
+    }, [addCoins])
   );
 
   function handleStop() {

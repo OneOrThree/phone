@@ -1,3 +1,5 @@
+.claude/
+.vscode/
 .DS_Store
 .vs_code
 .idea/
@@ -6,3 +8,17 @@ docs/
 *.env
 .env*
 *.log
+node_modules
+
+# Expo
+.expo/
+web-build/
+dist/
+
+# 서명 키
+*.keystore
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+

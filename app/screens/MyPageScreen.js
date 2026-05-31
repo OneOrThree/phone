@@ -29,8 +29,9 @@ function formatGoalTime(seconds) {
 }
 
 function StatRow({ label, value, accent }) {
+  const dynamicStyle = { borderLeftColor: accent };
   return (
-    <View style={[s.statRow, { borderLeftColor: accent, borderLeftWidth: 4 }]}>
+    <View style={[s.statRow, dynamicStyle]}>
       <Text style={s.statLabel}>{label}</Text>
       <Text style={s.statValue}>{value}</Text>
     </View>
@@ -167,7 +168,7 @@ export default function MyPageScreen({ onLogout }) {
             <Text style={s.modalTitle}>핸드폰 사용 목표</Text>
             <Text style={s.goalDraftTime}>{formatGoalTime(draftGoal)}</Text>
             <GoalSlider value={draftGoal} onChange={setDraftGoal} />
-            <View style={[s.modalBtns, { marginTop: 24 }]}>
+            <View style={[s.modalBtns, s.modalBtnsTop]}>
               <TouchableOpacity style={[s.modalBtn, inkBox(T.paperDark)]} onPress={() => setGoalEditing(false)}>
                 <Text style={s.modalBtnText}>취소</Text>
               </TouchableOpacity>
@@ -353,6 +354,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
   },
+  modalBtnsTop: { marginTop: 24 },
   modalBtn: {
     flex: 1,
     paddingVertical: 12,
@@ -383,6 +385,7 @@ const s = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: T.paper,
     borderRadius: 8,
+    borderLeftWidth: 4,
   },
   statLabel: {
     fontSize: 13,

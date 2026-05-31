@@ -86,10 +86,10 @@ function Window2D() {
       <View style={f.windowV} />
       <View style={f.windowH} />
       {/* Content panes */}
-      <View style={[f.pane, { top: 0, left: 0 }]}><Text style={f.paneText}>☁</Text></View>
-      <View style={[f.pane, { top: 0, right: 0 }]}><Text style={f.paneText}>✦</Text></View>
-      <View style={[f.pane, { bottom: 0, left: 0 }]}><Text style={f.paneText}>☀</Text></View>
-      <View style={[f.pane, { bottom: 0, right: 0 }]}><Text style={f.paneText}>·</Text></View>
+      <View style={[f.pane, f.paneTL]}><Text style={f.paneText}>☁</Text></View>
+      <View style={[f.pane, f.paneTR]}><Text style={f.paneText}>✦</Text></View>
+      <View style={[f.pane, f.paneBL]}><Text style={f.paneText}>☀</Text></View>
+      <View style={[f.pane, f.paneBR]}><Text style={f.paneText}>·</Text></View>
     </View>
   );
 }
@@ -143,8 +143,8 @@ function Room({ equippedFurniture, costumeSlots }) {
       </View>
 
       {/* Ambient deco */}
-      <Text style={[s.deco, { top: 10, left: 16 }]}>★</Text>
-      <Text style={[s.deco, { top: 18, right: 22 }]}>✦</Text>
+      <Text style={[s.deco, s.decoStar1]}>★</Text>
+      <Text style={[s.deco, s.decoStar2]}>✦</Text>
     </View>
   );
 }
@@ -232,6 +232,10 @@ const f = StyleSheet.create({
   windowV: { position: 'absolute', top: 0, bottom: 0, left: '50%', width: 2.5, backgroundColor: T.ink },
   windowH: { position: 'absolute', left: 0, right: 0, top: '50%', height: 2.5, backgroundColor: T.ink },
   pane: { position: 'absolute', width: 26, height: 24, alignItems: 'center', justifyContent: 'center' },
+  paneTL: { top: 0, left: 0 },
+  paneTR: { top: 0, right: 0 },
+  paneBL: { bottom: 0, left: 0 },
+  paneBR: { bottom: 0, right: 0 },
   paneText: { fontSize: 11, color: T.inkMed },
 
   // Picture frame
@@ -322,6 +326,8 @@ const s = StyleSheet.create({
   charPos:   { position: 'absolute', bottom: '26%', alignSelf: 'center' },
 
   deco: { position: 'absolute', fontSize: 16, color: T.inkLight },
+  decoStar1: { top: 10, left: 16 },
+  decoStar2: { top: 18, right: 22 },
 
   bottomCard: { padding: 18, marginBottom: 8 },
   bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

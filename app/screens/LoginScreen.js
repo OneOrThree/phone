@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { View, Text, Image, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { login } from '@react-native-kakao/user';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '../components/theme';
 
-const API_URL = 'http://localhost:8080'; // 실제 서버 주소로 교체
+// const API_URL = 'http://localhost:8080'; // TODO: 서버 완성되면 주석 풀기
 
 async function kakaoLogin() {
   const kakaoToken = await login();

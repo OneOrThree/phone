@@ -7,8 +7,6 @@ import { StatusBar } from 'expo-status-bar';
 import { T, inkBox } from '../components/theme';
 import { Character2D } from '../components/character/Character2D';
 
-const VARIANTS = ['default', 'focus', 'reading', 'yoga', 'exercise', 'study'];
-
 const MOCK_GROUPS = [
   {
     id: '1',
@@ -198,7 +196,7 @@ export default function GroupScreen() {
             <Text style={s.modalTitle}>그룹 찾기</Text>
             <View style={s.searchRow}>
               <TextInput
-                style={[s.input, inkBox(T.paperDark), { flex: 1 }]}
+                style={[s.input, s.searchInput, inkBox(T.paperDark)]}
                 placeholder="그룹 이름 또는 코드"
                 placeholderTextColor={T.inkLight}
                 value={searchQuery}
@@ -228,7 +226,7 @@ export default function GroupScreen() {
                 </View>
               ))}
             </ScrollView>
-            <TouchableOpacity style={[s.modalBtn, inkBox(T.paperDark), { alignSelf: 'center', marginTop: 12 }]} onPress={() => { setShowSearch(false); setSearchResults([]); setSearchQuery(''); }}>
+            <TouchableOpacity style={[s.modalBtn, s.closeBtn, inkBox(T.paperDark)]} onPress={() => { setShowSearch(false); setSearchResults([]); setSearchQuery(''); }}>
               <Text style={s.modalBtnText}>닫기</Text>
             </TouchableOpacity>
           </View>
@@ -441,4 +439,6 @@ const s = StyleSheet.create({
     fontWeight: '800',
     color: T.ink,
   },
+  searchInput: { flex: 1, marginBottom: 0 },
+  closeBtn: { flex: 0, alignSelf: 'center', marginTop: 12 },
 });

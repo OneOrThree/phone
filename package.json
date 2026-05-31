@@ -1,0 +1,15 @@
+{
+  "scripts": {
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@babel/plugin-syntax-jsx": "^7.29.7",
+    "@react-native/eslint-config": "^0.85.3",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.6",
+    "prettier": "^3.8.3"
+  }
+}

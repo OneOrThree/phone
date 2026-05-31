@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text } from 'react-native';
+import { Text, StyleSheet } from 'react-native';
 
 import { FocusProvider } from './contexts/FocusContext';
 import { EquipmentProvider } from './contexts/EquipmentContext';
@@ -44,7 +44,7 @@ export default function App() {
             screenOptions={({ route }) => ({
               headerShown: false,
               tabBarIcon: ({ focused }) => (
-                <Text style={{ fontSize: focused ? 22 : 18 }}>
+                <Text style={focused ? s.tabIconFocused : s.tabIcon}>
                   {TAB_ICONS[route.name] ?? ''}
                 </Text>
               ),
@@ -87,3 +87,8 @@ export default function App() {
     </UserProvider>
   );
 }
+
+const s = StyleSheet.create({
+  tabIcon: { fontSize: 18 },
+  tabIconFocused: { fontSize: 22 },
+});
