@@ -32,7 +32,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    AsyncStorage.getItem('gromo:user').then(raw => {
+    AsyncStorage.getItem('gromo:user').then((raw) => {
       if (raw) setUser(JSON.parse(raw));
       setLoading(false);
     });
