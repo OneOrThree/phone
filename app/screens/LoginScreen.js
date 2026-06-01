@@ -4,7 +4,7 @@ import { login } from '@react-native-kakao/user';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '../components/theme';
 
-const API_URL = 'http://34.50.60.48:8080';
+const API_URL = 'https://oneorthree.mooo.com';
 
 async function kakaoLogin() {
   const kakaoToken = await login();
@@ -15,8 +15,10 @@ async function kakaoLogin() {
     body: JSON.stringify({ kakaoAccessToken: kakaoToken.accessToken }),
   });
   const data = await res.json();
+  if (!res.ok) throw new Error(data.message ?? '로그인 실패');
   await AsyncStorage.setItem('gromo:accessToken', data.accessToken);
   await AsyncStorage.setItem('gromo:refreshToken', data.refreshToken);
+  await AsyncStorage.setItem('gromo:user', JSON.stringify(data));
   return data;
 }
 

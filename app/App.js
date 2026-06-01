@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, StyleSheet } from 'react-native';
+import { Text, StyleSheet, View, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { FocusProvider } from './contexts/FocusContext';
 import { EquipmentProvider } from './contexts/EquipmentContext';
@@ -28,6 +29,27 @@ const TAB_ICONS = {
 
 export default function App() {
   const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    AsyncStorage.getItem('gromo:user').then(raw => {
+      if (raw) setUser(JSON.parse(raw));
+      setLoading(false);
+    });
+  }, []);
+
+  async function handleLogout() {
+    await AsyncStorage.multiRemove(['gromo:accessToken', 'gromo:refreshToken', 'gromo:user']);
+    setUser(null);
+  }
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: T.paper }}>
+        <ActivityIndicator size="large" color={T.ink} />
+      </View>
+    );
+  }
 
   if (!user) {
     return <LoginScreen onLogin={(u) => setUser(u)} />;
@@ -73,7 +95,7 @@ export default function App() {
                 <Tab.Screen name="그룹" component={GroupScreen} />
                 <Tab.Screen name="상점" component={ShopScreen} />
                 <Tab.Screen name="마이페이지">
-                  {() => <MyPageScreen user={user} onLogout={() => setUser(null)} />}
+                  {() => <MyPageScreen user={user} onLogout={handleLogout} />}
                 </Tab.Screen>
                 <Tab.Screen
                   name="FocusMode"
