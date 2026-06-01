@@ -1,24 +1,23 @@
 import { useState } from 'react';
 import { View, Text, Image, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { login } from '@react-native-kakao/user';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '../components/theme';
 
-// const API_URL = 'http://localhost:8080'; // TODO: 서버 완성되면 주석 풀기
+const API_URL = 'http://34.50.60.48:8080';
 
 async function kakaoLogin() {
   const kakaoToken = await login();
 
-  // TODO: 서버 완성되면 아래 주석 풀기
-  // const res = await fetch(`${API_URL}/auth/kakao`, {
-  //   method: 'POST',
-  //   headers: { 'Content-Type': 'application/json' },
-  //   body: JSON.stringify({ accessToken: kakaoToken.accessToken }),
-  // });
-  // const data = await res.json();
-  // await AsyncStorage.setItem('jwt', data.jwt);
-  // return data;
-
-  return { id: 1, nickname: '테스트', profileImageUrl: null, coins: 10 };
+  const res = await fetch(`${API_URL}/api/v1/auth/kakao`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kakaoAccessToken: kakaoToken.accessToken }),
+  });
+  const data = await res.json();
+  await AsyncStorage.setItem('gromo:accessToken', data.accessToken);
+  await AsyncStorage.setItem('gromo:refreshToken', data.refreshToken);
+  return data;
 }
 
 export default function LoginScreen({ onLogin }) {
