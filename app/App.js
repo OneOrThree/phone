@@ -45,7 +45,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: T.paper }}>
+      <View style={s.loading}>
         <ActivityIndicator size="large" color={T.ink} />
       </View>
     );
@@ -114,4 +114,5 @@ export default function App() {
 const s = StyleSheet.create({
   tabIcon: { fontSize: 18 },
   tabIconFocused: { fontSize: 22 },
+  loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: T.paper },
 });
