@@ -13,45 +13,53 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
+import org.hibernate.annotations.CreationTimestamp;
+
+import java.time.Instant;
 
 @Entity
-@Table(name = "items")
+@Table(name = "rooms")
 @Getter
-@Setter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
-public class Item {
+public class Room {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private String name;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "mission_category", nullable = false)
+    private MissionCategory missionCategory;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "item_type", nullable = false)
-    private ItemType itemType;
+    @Column(name = "mission_type", nullable = false)
+    private MissionType missionType;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "slot_type")
-    private SlotType slotType;
+    private Instant windowStart;
+
+    private Instant windowEnd;
+
+    private Integer durationMinutes;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private Rarity rarity;
+    @Builder.Default
+    private BetType betType = BetType.NONE;
 
-    @Column(name = "asset_address")
-    private String assetAddress;
+    @Column(nullable = false)
+    private int maxMembers;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "price_type", nullable = false)
-    private PriceType priceType;
+    @Column(nullable = false)
+    @Builder.Default
+    private RoomStatus status = RoomStatus.WAITING;
 
-    @Column(name = "currency_price")
-    private Integer currencyPrice;
+    @CreationTimestamp
+    private Instant createdAt;
 
-    @Column(name = "premium_price")
-    private Integer premiumPrice;
+    private Instant startedAt;
+
+    private Instant endedAt;
 }

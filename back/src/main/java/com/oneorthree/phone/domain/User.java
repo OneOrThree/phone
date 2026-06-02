@@ -1,7 +1,10 @@
 package com.oneorthree.phone.domain;
 
 import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -15,7 +18,9 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,12 +39,26 @@ public class User {
 
     private String nickname;
 
+    private LocalDate birthDate;
+
     private String profileImageUrl;
 
     private String refreshToken;
 
+    @Builder.Default
+    private int currency = 0;
+
+    @Enumerated(EnumType.STRING)
+    private LeagueTier currentTier;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private int dailyScreenTimeGoalMinutes = 0;
+
+    private LocalTime dayResetTime;
+
     @CreationTimestamp
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
