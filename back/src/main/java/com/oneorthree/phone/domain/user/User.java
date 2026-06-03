@@ -43,6 +43,8 @@ public class User {
 
     private String nickname;
 
+    private Gender gender;
+
     private LocalDate birthDate;
 
     private String profileImageUrl;
