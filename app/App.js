@@ -17,7 +17,9 @@ async function syncOnboardingToServer(onboardingData) {
       birthDate: onboardingData.birthday,
       dailyScreenTimeGoalMinutes: Math.round((onboardingData.goalSeconds ?? 0) / 60),
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      dayResetTime: onboardingData.dayResetTime ?? '08:00',
+      dayStartTime: onboardingData.dayStartTime ?? '00:00',
+      dayEndTime: onboardingData.dayEndTime ?? '00:00',
+      reportTime: onboardingData.reportTime ?? '00:00',
     }),
   }).catch(() => {});
 }

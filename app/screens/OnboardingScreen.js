@@ -283,8 +283,9 @@ export default function OnboardingScreen({ onComplete }) {
         gender,
         birthday,
         goalSeconds,
-        dayResetTime: `${String(reportTime.hour).padStart(2, '0')}:${String(reportTime.minute).padStart(2, '0')}`,
-        sleepTime: `${String(sleepTime.hour).padStart(2, '0')}:${String(sleepTime.minute).padStart(2, '0')}`,
+        dayStartTime: `${String(wakeTime.hour).padStart(2, '0')}:${String(wakeTime.minute).padStart(2, '0')}`,
+        dayEndTime: `${String(sleepTime.hour).padStart(2, '0')}:${String(sleepTime.minute).padStart(2, '0')}`,
+        reportTime: `${String(reportTime.hour).padStart(2, '0')}:${String(reportTime.minute).padStart(2, '0')}`,
       }),
     );
     await AsyncStorage.setItem('gromo:onboardingDone', 'true');
