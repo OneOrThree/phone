@@ -42,9 +42,9 @@ function formatGoalTime(seconds) {
   return `${h}h ${m}m`;
 }
 
-function StatBox({ label, value, accent, rotate = '0deg' }) {
+function StatBox({ label, value }) {
   return (
-    <View style={[s.statBox, { backgroundColor: accent, transform: [{ rotate }] }]}>
+    <View style={s.statBox}>
       <Text style={s.statLabel}>{label}</Text>
       <Text style={s.statValue}>{value}</Text>
     </View>
@@ -249,24 +249,9 @@ export default function HomeScreen({ navigation }) {
       </View>
 
       <View style={s.statsRow}>
-        <StatBox
-          label="목표"
-          value={formatGoalTime(goalSeconds)}
-          accent={T.yellow}
-          rotate="-1.2deg"
-        />
-        <StatBox
-          label="사용"
-          value={formatFocusTime(phoneUsageSeconds)}
-          accent={T.sky}
-          rotate="0.8deg"
-        />
-        <StatBox
-          label="남은"
-          value={formatFocusTime(remainingSeconds)}
-          accent={T.mint}
-          rotate="-0.5deg"
-        />
+        <StatBox label="목표" value={formatGoalTime(goalSeconds)} />
+        <StatBox label="사용" value={formatFocusTime(phoneUsageSeconds)} />
+        <StatBox label="남은" value={formatFocusTime(remainingSeconds)} />
       </View>
 
       <View style={s.roomWrap}>
@@ -519,14 +504,9 @@ const s = StyleSheet.create({
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   statBox: {
     flex: 1,
-    borderWidth: 2.5,
-    borderColor: T.ink,
-    borderBottomWidth: 5,
-    borderRightWidth: 5,
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 10,
-    borderBottomLeftRadius: 11,
-    borderBottomRightRadius: 13,
+    borderWidth: 1.5,
+    borderColor: T.inkLight,
+    borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 8,
     alignItems: 'center',
@@ -575,7 +555,13 @@ const s = StyleSheet.create({
   decoStar1: { top: 10, left: 16 },
   decoStar2: { top: 18, right: 22 },
 
-  bottomCard: { padding: 18, marginBottom: 8 },
+  bottomCard: {
+    padding: 18,
+    marginBottom: 8,
+    borderWidth: 1.5,
+    borderColor: T.inkLight,
+    borderRadius: 12,
+  },
   bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   focusLabel: { fontSize: 13, fontWeight: '700', color: T.inkMed },
   focusTime: { fontSize: 28, fontWeight: '900', color: T.ink, marginTop: 2, letterSpacing: -1 },

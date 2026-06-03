@@ -250,18 +250,7 @@ export default function MyPageScreen({ onLogout }) {
           );
         })()}
       </View>
-
-      {/* Deco */}
-      <Text style={s.deco}>★ 꾸준히 하면 방이 커져요 ★</Text>
-
-      <View style={[s.tipCard, inkBox(T.mint, '0.6deg')]}>
-        <Text style={s.tipTitle}>🍅 포모도로 기법</Text>
-        <Text style={s.tipText}>
-          25분 집중 → 5분 휴식을 반복해봐요.{'\n'}
-          짧게 끊을수록 더 오래 집중할 수 있어요!
-        </Text>
-      </View>
-
+      
       <TouchableOpacity
         style={[s.logoutBtn, inkBox(T.paperDark)]}
         onPress={onLogout}
