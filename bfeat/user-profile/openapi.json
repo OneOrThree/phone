@@ -35,6 +35,26 @@
   ],
   "paths": {
     "/api/v1/user": {
+      "get": {
+        "tags": [
+          "user"
+        ],
+        "summary": "유저 정보 조회",
+        "description": "기존 유저 정보 조회",
+        "operationId": "getProfile",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "user"
