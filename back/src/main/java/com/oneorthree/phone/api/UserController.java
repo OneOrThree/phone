@@ -1,12 +1,14 @@
 package com.oneorthree.phone.api;
 
 import com.oneorthree.phone.api.dto.request.UserProfileSetupRequest;
+import com.oneorthree.phone.api.dto.request.UserProfileUpdateRequest;
 import com.oneorthree.phone.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,6 +29,16 @@ public class UserController {
             @RequestBody UserProfileSetupRequest body) {
         Long userId = (Long) request.getAttribute("userId");
         userService.setupProfile(userId, body);
+        return ResponseEntity.ok().build();
+    }
+
+    @Operation(summary = "유저 정보 부분 수정", description = "기존 유저 정보 부분 수정")
+    @PatchMapping("")
+    public ResponseEntity<?> updateProfile(
+            HttpServletRequest request,
+            @RequestBody UserProfileUpdateRequest body) {
+        Long userId = (Long) request.getAttribute("userId");
+        userService.updateProfile(userId, body);
         return ResponseEntity.ok().build();
     }
 }
