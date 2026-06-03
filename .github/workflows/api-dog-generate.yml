@@ -2,7 +2,7 @@ name: Generate OpenAPI Docs
 
 on:
   push:
-    branches: [ main, develop, 'feat/**' ]
+    branches: [ main, develop, 'bfeat/**' ]
     paths:
       - 'back/src/main/java/com/oneorthree/phone/api/**'
   workflow_dispatch:
