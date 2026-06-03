@@ -4,5 +4,8 @@
     "lint:fix": "cd app && npm run lint:fix",
     "format:check": "cd app && npm run format:check",
     "format:fix": "cd app && npm run format:fix"
+  },
+  "dependencies": {
+    "@react-native-community/datetimepicker": "^9.1.0"
   }
 }

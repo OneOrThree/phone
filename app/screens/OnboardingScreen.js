@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '../components/theme';
+import BirthdayPicker from '../components/BirthdayPicker';
 
 const GOAL_MAX = 86400;
 const GOAL_STEP = 900;
@@ -102,33 +103,47 @@ function GoalSlider({ value, onChange }) {
 }
 
 export default function OnboardingScreen({ onComplete }) {
+  const [nickname, setNickname] = useState('');
   const [gender, setGender] = useState(null);
-  const [birthYear, setBirthYear] = useState('');
-  const [birthMonth, setBirthMonth] = useState('');
-  const [birthDay, setBirthDay] = useState('');
+  const [birthDate, setBirthDate] = useState(null);
   const [goalSeconds, setGoalSeconds] = useState(10800);
 
-  const canProceed =
-    gender !== null && birthYear.length === 4 && birthMonth.length > 0 && birthDay.length > 0;
+  const canProceed = nickname.trim().length > 0 && gender !== null && birthDate !== null;
 
   async function handleComplete() {
-    const birthday = `${birthYear}-${birthMonth.padStart(2, '0')}-${birthDay.padStart(2, '0')}`;
+    const y = birthDate.getFullYear();
+    const m = String(birthDate.getMonth() + 1).padStart(2, '0');
+    const d = String(birthDate.getDate()).padStart(2, '0');
+    const birthday = `${y}-${m}-${d}`;
+    const trimmedNickname = nickname.trim();
     await AsyncStorage.setItem(
       'gromo:onboarding',
-      JSON.stringify({ gender, birthday, goalSeconds }),
+      JSON.stringify({ nickname: trimmedNickname, gender, birthday, goalSeconds }),
     );
     await AsyncStorage.setItem('gromo:onboardingDone', 'true');
-    onComplete({ goalSeconds });
+    onComplete({ nickname: trimmedNickname, goalSeconds });
   }
 
   return (
     <KeyboardAvoidingView
-      style={s.container}
+      style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <Text style={s.title}>gromo</Text>
+    <ScrollView style={s.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <Text style={s.title}>gromo</Text>
         <Text style={s.subtitle}>나에 대해 알려주세요</Text>
+
+        <View style={s.section}>
+          <Text style={s.label}>닉네임</Text>
+          <TextInput
+            style={s.textInput}
+            value={nickname}
+            onChangeText={(v) => setNickname(v.slice(0, 10))}
+            placeholder="닉네임 입력 (최대 10자)"
+            placeholderTextColor={T.inkLight}
+            maxLength={10}
+          />
+        </View>
 
         <View style={s.section}>
           <Text style={s.label}>성별</Text>
@@ -150,37 +165,7 @@ export default function OnboardingScreen({ onComplete }) {
 
         <View style={s.section}>
           <Text style={s.label}>생년월일</Text>
-          <View style={s.dateRow}>
-            <TextInput
-              style={[s.dateInput, s.dateInputYear]}
-              value={birthYear}
-              onChangeText={(v) => setBirthYear(v.replace(/[^0-9]/g, '').slice(0, 4))}
-              keyboardType="number-pad"
-              placeholder="YYYY"
-              placeholderTextColor={T.inkLight}
-              maxLength={4}
-            />
-            <Text style={s.dateSep}>/</Text>
-            <TextInput
-              style={s.dateInput}
-              value={birthMonth}
-              onChangeText={(v) => setBirthMonth(v.replace(/[^0-9]/g, '').slice(0, 2))}
-              keyboardType="number-pad"
-              placeholder="MM"
-              placeholderTextColor={T.inkLight}
-              maxLength={2}
-            />
-            <Text style={s.dateSep}>/</Text>
-            <TextInput
-              style={s.dateInput}
-              value={birthDay}
-              onChangeText={(v) => setBirthDay(v.replace(/[^0-9]/g, '').slice(0, 2))}
-              keyboardType="number-pad"
-              placeholder="DD"
-              placeholderTextColor={T.inkLight}
-              maxLength={2}
-            />
-          </View>
+          <BirthdayPicker value={birthDate} onChange={setBirthDate} />
         </View>
 
         <View style={s.section}>
@@ -198,7 +183,7 @@ export default function OnboardingScreen({ onComplete }) {
         >
           <Text style={s.primaryBtnText}>시작하기</Text>
         </TouchableOpacity>
-      </ScrollView>
+    </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -233,6 +218,16 @@ const s = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  textInput: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    fontWeight: '600',
+    color: T.ink,
+    borderWidth: 1.5,
+    borderColor: T.inkLight,
+    borderRadius: 6,
+  },
   row: {
     flexDirection: 'row',
     gap: 8,
@@ -255,31 +250,6 @@ const s = StyleSheet.create({
   },
   toggleTextActive: {
     color: '#FFFFFF',
-  },
-  dateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  dateInput: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    fontSize: 16,
-    fontWeight: '600',
-    color: T.ink,
-    textAlign: 'center',
-    borderWidth: 1.5,
-    borderColor: T.inkLight,
-    borderRadius: 6,
-  },
-  dateInputYear: {
-    flex: 2,
-  },
-  dateSep: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: T.inkMed,
   },
   sliderCard: {
     padding: 20,

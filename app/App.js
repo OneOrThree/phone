@@ -87,7 +87,7 @@ export default function App() {
         onComplete={(data) => {
           setOnboardingData(data);
           setShowGuestOnboarding(false);
-          setUser({ nickname: '게스트', userId: null, isNewUser: false });
+          setUser({ nickname: data.nickname, userId: null, isNewUser: false });
         }}
       />
     );
@@ -98,7 +98,7 @@ export default function App() {
       <LoginScreen
         onLogin={(u) => {
           const userId = getUserIdFromToken(u.accessToken);
-          setUser({ ...u, userId });
+          setUser({ ...u, userId, nickname: u.nickname || onboardingData?.nickname });
         }}
         onGuestStart={() => setShowGuestOnboarding(true)}
       />

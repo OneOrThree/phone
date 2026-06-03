@@ -14,7 +14,6 @@ async function kakaoLogin() {
     body: JSON.stringify({ kakaoAccessToken: kakaoToken.accessToken }),
   });
   const data = await res.json();
-  console.log('서버 응답:', res.status, JSON.stringify(data));
   if (!res.ok) throw new Error(data.message ?? '로그인 실패');
   await AsyncStorage.setItem('gromo:accessToken', data.accessToken);
   await AsyncStorage.setItem('gromo:refreshToken', data.refreshToken);

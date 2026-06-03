@@ -1,13 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Modal,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useEquipment } from '../contexts/EquipmentContext';
@@ -188,59 +184,17 @@ function Room({ equippedFurniture, costumeSlots }) {
 
 // ── Screen ───────────────────────────────────────────────────────────────────
 
-function NicknameModal({ visible, onConfirm }) {
-  const [input, setInput] = useState('');
-
-  return (
-    <Modal visible={visible} transparent animationType="fade">
-      <KeyboardAvoidingView
-        style={s.modalOverlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <View style={s.modalBox}>
-          <Text style={s.modalTitle}>닉네임을 정해요</Text>
-          <Text style={s.modalSub}>나중에 마이페이지에서 바꿀 수 있어요</Text>
-          <TextInput
-            style={s.modalInput}
-            value={input}
-            onChangeText={setInput}
-            placeholder="닉네임 입력"
-            placeholderTextColor={T.inkLight}
-            maxLength={10}
-            autoFocus
-          />
-          <TouchableOpacity
-            style={[s.modalBtn, !input.trim() && s.modalBtnDisabled]}
-            onPress={() => input.trim() && onConfirm(input.trim())}
-            disabled={!input.trim()}
-            activeOpacity={0.7}
-          >
-            <Text style={s.modalBtnText}>완료</Text>
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
-  );
-}
 
 export default function HomeScreen({ navigation }) {
   const { equippedItem, equippedFurniture, equippedCostume } = useEquipment();
   const { todayFocusSeconds } = useFocus();
-  const { nickname, setNickname, isNewUser, setIsNewUser, goalSeconds, phoneUsageSeconds } =
-    useUser();
+  const { nickname, goalSeconds, phoneUsageSeconds } = useUser();
   const costumeSlots = equippedCostume.map((c) => c.slot);
   const remainingSeconds = Math.max(0, goalSeconds - phoneUsageSeconds);
 
   return (
     <View style={s.container}>
       <StatusBar style="dark" />
-      <NicknameModal
-        visible={isNewUser}
-        onConfirm={(name) => {
-          setNickname(name);
-          setIsNewUser(false);
-        }}
-      />
       <NotebookLines />
 
       <View style={s.header}>
@@ -574,40 +528,4 @@ const s = StyleSheet.create({
     paddingHorizontal: 20,
   },
   startBtnText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
-
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  modalBox: {
-    backgroundColor: T.paper,
-    borderWidth: 1.5,
-    borderColor: T.inkLight,
-    borderRadius: 12,
-    padding: 24,
-    gap: 12,
-  },
-  modalTitle: { fontSize: 18, fontWeight: '800', color: T.ink },
-  modalSub: { fontSize: 13, color: T.inkMed },
-  modalInput: {
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    fontSize: 16,
-    fontWeight: '600',
-    color: T.ink,
-    borderWidth: 1.5,
-    borderColor: T.inkLight,
-    borderRadius: 8,
-  },
-  modalBtn: {
-    backgroundColor: T.ink,
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  modalBtnDisabled: { backgroundColor: T.inkLight },
-  modalBtnText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
 });
