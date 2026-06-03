@@ -1,4 +1,5 @@
 package com.oneorthree.phone.domain.user;
+
 import com.oneorthree.phone.domain.item.CharacterEquipment;
 import com.oneorthree.phone.domain.item.UserItem;
 import com.oneorthree.phone.domain.league.LeagueTier;

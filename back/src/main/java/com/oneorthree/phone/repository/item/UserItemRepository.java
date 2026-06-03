@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 
 public interface UserItemRepository extends JpaRepository<UserItem, Long> {
+
     // 인벤토리 조회
     List<UserItem> findByUser(User user);
 

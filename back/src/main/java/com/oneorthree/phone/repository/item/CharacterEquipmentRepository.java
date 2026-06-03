@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface CharacterEquipmentRepository extends JpaRepository<CharacterEquipment, Long> {
+
     // 유저의 전체 장착 상태 조회 (캐릭터 렌더링)
     List<CharacterEquipment> findByUser(User user);
 

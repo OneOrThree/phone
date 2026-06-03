@@ -1,4 +1,5 @@
 package com.oneorthree.phone.domain.social;
+
 import com.oneorthree.phone.domain.user.User;
 
 import jakarta.persistence.Column;

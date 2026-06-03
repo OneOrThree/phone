@@ -8,5 +8,6 @@ import java.time.Instant;
 import java.util.Optional;
 
 public interface WeeklyFeedbackRepository extends JpaRepository<WeeklyFeedback, Long> {
+
     Optional<WeeklyFeedback> findByUserAndWeekStart(User user, Instant weekStart);
 }

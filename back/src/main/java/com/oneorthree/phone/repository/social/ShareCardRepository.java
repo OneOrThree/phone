@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Optional;
 
 public interface ShareCardRepository extends JpaRepository<ShareCard, Long> {
+
     Optional<ShareCard> findByRoomAndUser(Room room, User user);
+
     List<ShareCard> findByUser(User user);
 }

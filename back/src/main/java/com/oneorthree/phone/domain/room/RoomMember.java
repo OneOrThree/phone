@@ -1,4 +1,5 @@
 package com.oneorthree.phone.domain.room;
+
 import com.oneorthree.phone.domain.user.User;
 
 import jakarta.persistence.Entity;

@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Optional;
 
 public interface LeagueGroupMemberRepository extends JpaRepository<LeagueGroupMember, Long> {
+
     List<LeagueGroupMember> findByLeagueGroupOrderByTotalFocusMinutesDesc(LeagueGroup leagueGroup);
+
     Optional<LeagueGroupMember> findByLeagueGroupAndUser(LeagueGroup leagueGroup, User user);
 }

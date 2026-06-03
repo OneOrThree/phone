@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Optional;
 
 public interface RoomInviteRepository extends JpaRepository<RoomInvite, Long> {
+
     List<RoomInvite> findByInviteeAndStatus(User invitee, RoomInviteStatus status);
+
     Optional<RoomInvite> findByRoomAndInvitee(Room room, User invitee);
 }

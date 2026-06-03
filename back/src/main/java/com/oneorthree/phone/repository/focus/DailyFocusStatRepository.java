@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Optional;
 
 public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, Long> {
+
     Optional<DailyFocusStat> findByUserAndDate(User user, LocalDate date);
+
     List<DailyFocusStat> findByUserAndDateBetweenOrderByDateAsc(User user, LocalDate from, LocalDate to);
 }

@@ -8,6 +8,8 @@ import java.time.Instant;
 import java.util.List;
 
 public interface FocusSessionRepository extends JpaRepository<FocusSession, Long> {
+
     List<FocusSession> findByUser(User user);
+
     List<FocusSession> findByUserAndStartedAtBetween(User user, Instant from, Instant to);
 }

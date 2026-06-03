@@ -31,7 +31,11 @@ public class AuthService {
 
         KakaoUserInfo userInfo = kakaoApiClient.getUserInfo(kakaoAccessToken);
 
-        Optional<SocialAccount> socialUser = socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, String.valueOf(userInfo.providerId()));
+        Optional<SocialAccount> socialUser =
+                socialAccountRepository.findByProviderAndProviderId(
+                        Provider.KAKAO,
+                        String.valueOf(userInfo.providerId())
+                );
 
         boolean isNewUser = socialUser.isEmpty();
 

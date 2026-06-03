@@ -9,7 +9,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface RoomMemberRepository extends JpaRepository<RoomMember, Long> {
+
     List<RoomMember> findByRoom(Room room);
+
     List<RoomMember> findByUser(User user);
+
     Optional<RoomMember> findByUserAndRoom(User user, Room room);
 }

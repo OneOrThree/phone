@@ -11,7 +11,7 @@ public class OpenApiConfig {
     public OpenAPI openApi() {
         Info info = new Info()
                 .title("Phone API 명세서")
-                .version("v0.0.1")
+                .version("v0.0.2")
                 .description("핸드폰 중복 방지 API 문서입니다.");
 
         return new OpenAPI()
