@@ -52,11 +52,18 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("존재하지 않는 유저"));
 
-        if (body.getNickname() != null) user.setNickname(body.getNickname());
-        if (body.getBirthDate() != null) user.setBirthDate(body.getBirthDate());
-        if (body.getGender() != null) user.setGender(body.getGender());
-        if (body.getDailyScreenTimeGoalMinutes() != null)
+        if (body.getNickname() != null) {
+            user.setNickname(body.getNickname());
+        }
+        if (body.getBirthDate() != null) {
+            user.setBirthDate(body.getBirthDate());
+        }
+        if (body.getGender() != null) {
+            user.setGender(body.getGender());
+        }
+        if (body.getDailyScreenTimeGoalMinutes() != null) {
             user.setDailyScreenTimeGoalMinutes(body.getDailyScreenTimeGoalMinutes());
+        }
 
         if (body.getDayResetTime() != null) {
             user.setDayResetTime(LocalTime.parse(body.getDayResetTime()));
