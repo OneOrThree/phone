@@ -210,3 +210,22 @@ jobs:
                 "prependBasePath": false
               }
             }'
+
+      - name: Sync to Apidog (Soobin)
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          curl -X POST "https://api.apidog.com/v1/projects/1305019/import-openapi" \
+            -H "Authorization: Bearer ${{ secrets.APIDOG_TOKEN_SOOBIN }}" \
+            -H "X-Apidog-Api-Version: 2024-03-28" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "input": {
+                "url": "${{ steps.dest.outputs.url }}openapi.json"
+              },
+              "options": {
+                "endpointOverwriteBehavior": "OVERWRITE_EXISTING",
+                "schemaOverwriteBehavior": "OVERWRITE_EXISTING",
+                "updateFolderOfChangedEndpoint": false,
+                "prependBasePath": false
+              }
+            }'
