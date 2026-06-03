@@ -3,7 +3,7 @@ import {
   View,
   Text,
   TextInput,
-  Pressable,
+  TouchableOpacity,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
@@ -11,10 +11,10 @@ import {
   ScrollView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { T, inkBox } from '../components/theme';
+import { T } from '../components/theme';
 
 const GOAL_MAX = 86400;
-const GOAL_STEP = 900; // 15분
+const GOAL_STEP = 900;
 const THUMB_SIZE = 24;
 const TRACK_HEIGHT = 12;
 const SLIDER_HEIGHT = 44;
@@ -128,34 +128,31 @@ export default function OnboardingScreen({ onComplete }) {
     >
       <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Text style={s.title}>gromo</Text>
-        <Text style={s.subtitle}>나에 대해 알려주세요 ✦</Text>
+        <Text style={s.subtitle}>나에 대해 알려주세요</Text>
 
-        {/* 성별 */}
         <View style={s.section}>
           <Text style={s.label}>성별</Text>
           <View style={s.row}>
             {GENDER_OPTIONS.map((opt) => (
-              <Pressable
+              <TouchableOpacity
                 key={opt.value}
-                style={({ pressed }) => [
-                  s.optionBtn,
-                  inkBox(gender === opt.value ? T.yellow : T.paper),
-                  pressed && s.pressed,
-                ]}
+                style={[s.toggleBtn, gender === opt.value && s.toggleBtnActive]}
                 onPress={() => setGender(opt.value)}
+                activeOpacity={0.7}
               >
-                <Text style={s.optionText}>{opt.label}</Text>
-              </Pressable>
+                <Text style={[s.toggleText, gender === opt.value && s.toggleTextActive]}>
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
             ))}
           </View>
         </View>
 
-        {/* 생년월일 */}
         <View style={s.section}>
           <Text style={s.label}>생년월일</Text>
           <View style={s.dateRow}>
             <TextInput
-              style={[s.dateInput, s.dateInputYear, inkBox(T.paper)]}
+              style={[s.dateInput, s.dateInputYear]}
               value={birthYear}
               onChangeText={(v) => setBirthYear(v.replace(/[^0-9]/g, '').slice(0, 4))}
               keyboardType="number-pad"
@@ -165,7 +162,7 @@ export default function OnboardingScreen({ onComplete }) {
             />
             <Text style={s.dateSep}>/</Text>
             <TextInput
-              style={[s.dateInput, inkBox(T.paper)]}
+              style={s.dateInput}
               value={birthMonth}
               onChangeText={(v) => setBirthMonth(v.replace(/[^0-9]/g, '').slice(0, 2))}
               keyboardType="number-pad"
@@ -175,7 +172,7 @@ export default function OnboardingScreen({ onComplete }) {
             />
             <Text style={s.dateSep}>/</Text>
             <TextInput
-              style={[s.dateInput, inkBox(T.paper)]}
+              style={s.dateInput}
               value={birthDay}
               onChangeText={(v) => setBirthDay(v.replace(/[^0-9]/g, '').slice(0, 2))}
               keyboardType="number-pad"
@@ -186,25 +183,21 @@ export default function OnboardingScreen({ onComplete }) {
           </View>
         </View>
 
-        {/* 목표 스크린타임 */}
         <View style={s.section}>
           <Text style={s.label}>목표 스크린타임</Text>
-          <View style={[s.sliderCard, inkBox(T.paperDark)]}>
+          <View style={s.sliderCard}>
             <GoalSlider value={goalSeconds} onChange={setGoalSeconds} />
           </View>
         </View>
 
-        <Pressable
-          style={({ pressed }) => [
-            s.startBtn,
-            inkBox(canProceed ? T.coral : T.paperDark),
-            pressed && canProceed && s.pressed,
-          ]}
+        <TouchableOpacity
+          style={[s.primaryBtn, !canProceed && s.primaryBtnDisabled]}
           onPress={handleComplete}
           disabled={!canProceed}
+          activeOpacity={0.7}
         >
-          <Text style={s.startBtnText}>시작하기 →</Text>
-        </Pressable>
+          <Text style={s.primaryBtnText}>시작하기</Text>
+        </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -214,45 +207,54 @@ const s = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: T.paper,
-    paddingHorizontal: 28,
+    paddingHorizontal: 24,
     paddingTop: 80,
   },
   title: {
-    fontSize: 40,
+    fontSize: 36,
     fontWeight: '900',
     color: T.ink,
-    letterSpacing: 4,
-    marginBottom: 6,
+    letterSpacing: 2,
+    marginBottom: 4,
   },
   subtitle: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
     color: T.inkMed,
-    marginBottom: 40,
+    marginBottom: 36,
   },
   section: {
-    marginBottom: 32,
+    marginBottom: 28,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: T.ink,
-    marginBottom: 12,
-    letterSpacing: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: T.inkMed,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   row: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
-  optionBtn: {
+  toggleBtn: {
     paddingVertical: 10,
-    paddingHorizontal: 22,
-    alignItems: 'center',
+    paddingHorizontal: 20,
+    borderWidth: 1.5,
+    borderColor: T.inkLight,
+    borderRadius: 6,
   },
-  optionText: {
+  toggleBtnActive: {
+    backgroundColor: T.ink,
+    borderColor: T.ink,
+  },
+  toggleText: {
     fontSize: 14,
-    fontWeight: '800',
-    color: T.ink,
+    fontWeight: '600',
+    color: T.inkMed,
+  },
+  toggleTextActive: {
+    color: '#FFFFFF',
   },
   dateRow: {
     flexDirection: 'row',
@@ -264,20 +266,26 @@ const s = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 10,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: T.ink,
     textAlign: 'center',
+    borderWidth: 1.5,
+    borderColor: T.inkLight,
+    borderRadius: 6,
   },
   dateInputYear: {
     flex: 2,
   },
   dateSep: {
-    fontSize: 20,
-    fontWeight: '900',
+    fontSize: 18,
+    fontWeight: '700',
     color: T.inkMed,
   },
   sliderCard: {
     padding: 20,
+    borderWidth: 1.5,
+    borderColor: T.inkLight,
+    borderRadius: 8,
   },
   sliderValue: {
     fontSize: 32,
@@ -300,21 +308,21 @@ const s = StyleSheet.create({
     top: (SLIDER_HEIGHT - TRACK_HEIGHT) / 2,
     borderRadius: TRACK_HEIGHT / 2,
     backgroundColor: T.paperLine,
-    borderWidth: 2,
-    borderColor: T.ink,
+    borderWidth: 1.5,
+    borderColor: T.inkLight,
     overflow: 'hidden',
   },
   sliderFill: {
     height: '100%',
-    backgroundColor: T.coral,
+    backgroundColor: T.ink,
   },
   sliderThumb: {
     position: 'absolute',
     width: THUMB_SIZE,
     height: THUMB_SIZE,
     borderRadius: THUMB_SIZE / 2,
-    backgroundColor: T.yellow,
-    borderWidth: 3,
+    backgroundColor: T.paper,
+    borderWidth: 2.5,
     borderColor: T.ink,
     top: (SLIDER_HEIGHT - THUMB_SIZE) / 2,
   },
@@ -325,23 +333,23 @@ const s = StyleSheet.create({
   },
   sliderTickText: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
     color: T.inkLight,
   },
-  startBtn: {
+  primaryBtn: {
     marginTop: 8,
     marginBottom: 48,
     paddingVertical: 16,
+    backgroundColor: T.ink,
+    borderRadius: 8,
     alignItems: 'center',
   },
-  startBtnText: {
-    fontSize: 17,
-    fontWeight: '900',
-    color: T.ink,
+  primaryBtnDisabled: {
+    backgroundColor: T.inkLight,
   },
-  pressed: {
-    transform: [{ translateX: 2 }, { translateY: 2 }],
-    borderBottomWidth: 2.5,
-    borderRightWidth: 2.5,
+  primaryBtnText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

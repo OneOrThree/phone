@@ -35,7 +35,7 @@ export const c = StyleSheet.create({
     left: 0,
     width: 11,
     height: 26,
-    backgroundColor: '#FFF8E7', // 피부색
+    backgroundColor: '#F0F0F0', // 피부색
     borderRadius: 6,
     borderWidth: BW,
     borderColor: INK,
@@ -49,7 +49,7 @@ export const c = StyleSheet.create({
     width: 9,
     height: 9,
     borderRadius: 5,
-    backgroundColor: '#FFF8E7', // 피부색
+    backgroundColor: '#F0F0F0', // 피부색
     borderWidth: BW - 0.5,
     borderColor: INK,
   },
@@ -69,7 +69,7 @@ export const c = StyleSheet.create({
     width: 64,
     height: 18,
     borderRadius: 32,
-    backgroundColor: '#8B3A3A', // 베레모 색 (갈색 빨강)
+    backgroundColor: '#888888',
     borderWidth: BW,
     borderColor: INK,
   },
@@ -86,7 +86,7 @@ export const c = StyleSheet.create({
     width: 10,
     height: 48,
     borderRadius: 5,
-    backgroundColor: '#7B4A1E', // 머리카락 색 (갈색)
+    backgroundColor: '#AAAAAA',
     borderWidth: 1.5,
     borderColor: INK,
     transform: [{ rotate: '12deg' }], // 약간 오른쪽으로 기울임
@@ -108,7 +108,7 @@ export const c = StyleSheet.create({
   // bodyHoodie: 몸통 배경색을 파란색으로 덮어씌움
   // Character2D에서 has('top')일 때 body 스타일에 추가됨
   // 색상 변경: backgroundColor 수정
-  bodyHoodie: { backgroundColor: '#7EB8D4' }, // 후드티 색 (파랑)
+  bodyHoodie: { backgroundColor: '#CCCCCC' },
 
   // 후드티 끈: 몸통 상단 중앙에 작은 세로 막대
   hoodieString: {
@@ -117,7 +117,7 @@ export const c = StyleSheet.create({
     width: 4,
     height: 14,
     borderRadius: 2,
-    backgroundColor: '#5A9AB8', // 끈 색 (후드티보다 어두운 파랑)
+    backgroundColor: '#AAAAAA',
     borderWidth: 1,
     borderColor: INK,
   },
@@ -133,7 +133,7 @@ export const c = StyleSheet.create({
     width: 76,
     height: 18,
     borderRadius: 4,
-    backgroundColor: '#3A5A8C', // 청바지 색 (짙은 파랑)
+    backgroundColor: '#888888',
     borderWidth: BW,
     borderColor: INK,
     borderBottomWidth: 0, // 아래쪽 테두리 없음 (발에 가려짐)

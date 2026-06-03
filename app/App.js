@@ -34,6 +34,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [onboardingData, setOnboardingData] = useState(null);
+  const [showGuestOnboarding, setShowGuestOnboarding] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -80,6 +81,18 @@ export default function App() {
     );
   }
 
+  if (showGuestOnboarding) {
+    return (
+      <OnboardingScreen
+        onComplete={(data) => {
+          setOnboardingData(data);
+          setShowGuestOnboarding(false);
+          setUser({ nickname: '게스트', userId: null, isNewUser: false });
+        }}
+      />
+    );
+  }
+
   if (!user) {
     return (
       <LoginScreen
@@ -87,6 +100,7 @@ export default function App() {
           const userId = getUserIdFromToken(u.accessToken);
           setUser({ ...u, userId });
         }}
+        onGuestStart={() => setShowGuestOnboarding(true)}
       />
     );
   }
