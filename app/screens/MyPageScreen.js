@@ -250,7 +250,7 @@ export default function MyPageScreen({ onLogout }) {
           );
         })()}
       </View>
-      
+
       <TouchableOpacity
         style={[s.logoutBtn, inkBox(T.paperDark)]}
         onPress={onLogout}

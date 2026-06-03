@@ -9,6 +9,8 @@ import {
   Platform,
   PanResponder,
   ScrollView,
+  FlatList,
+  Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '../components/theme';
@@ -19,6 +21,161 @@ const GOAL_STEP = 900;
 const THUMB_SIZE = 24;
 const TRACK_HEIGHT = 12;
 const SLIDER_HEIGHT = 44;
+
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5);
+const WHEEL_ITEM_H = 44;
+const WHEEL_VISIBLE = 3;
+
+function WheelList({ data, value, onChange }) {
+  const listRef = useRef(null);
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  useEffect(() => {
+    const idx = data.indexOf(value);
+    if (idx >= 0 && listRef.current) {
+      listRef.current.scrollToIndex({ index: idx, animated: false });
+    }
+  }, [data, value]);
+
+  function handleScrollEnd(e) {
+    const idx = Math.round(e.nativeEvent.contentOffset.y / WHEEL_ITEM_H);
+    onChangeRef.current(data[Math.min(data.length - 1, Math.max(0, idx))]);
+  }
+
+  return (
+    <View style={wl.wrap}>
+      <View style={wl.selector} pointerEvents="none" />
+      <FlatList
+        ref={listRef}
+        data={data}
+        keyExtractor={(v) => String(v)}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={WHEEL_ITEM_H}
+        decelerationRate="fast"
+        onMomentumScrollEnd={handleScrollEnd}
+        getItemLayout={(_, index) => ({
+          length: WHEEL_ITEM_H,
+          offset: WHEEL_ITEM_H * index,
+          index,
+        })}
+        contentContainerStyle={wl.listContent}
+        renderItem={({ item }) => (
+          <View style={wl.item}>
+            <Text style={[wl.text, value === item && wl.textActive]}>
+              {String(item).padStart(2, '0')}
+            </Text>
+          </View>
+        )}
+      />
+    </View>
+  );
+}
+
+const wl = StyleSheet.create({
+  wrap: {
+    width: 60,
+    height: WHEEL_ITEM_H * WHEEL_VISIBLE,
+    overflow: 'hidden',
+  },
+  selector: {
+    position: 'absolute',
+    top: WHEEL_ITEM_H,
+    left: 0,
+    right: 0,
+    height: WHEEL_ITEM_H,
+    borderTopWidth: 1.5,
+    borderBottomWidth: 1.5,
+    borderColor: T.ink,
+    zIndex: 1,
+  },
+  listContent: { paddingVertical: WHEEL_ITEM_H },
+  item: { height: WHEEL_ITEM_H, justifyContent: 'center', alignItems: 'center' },
+  text: { fontSize: 18, color: T.inkLight },
+  textActive: { fontSize: 22, fontWeight: '800', color: T.ink },
+});
+
+function TimePicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [tempHour, setTempHour] = useState(value.hour);
+  const [tempMinute, setTempMinute] = useState(value.minute);
+
+  function handleOpen() {
+    setTempHour(value.hour);
+    setTempMinute(value.minute);
+    setOpen(true);
+  }
+
+  function handleConfirm() {
+    onChange({ hour: tempHour, minute: tempMinute });
+    setOpen(false);
+  }
+
+  const display = `${String(value.hour).padStart(2, '0')}:${String(value.minute).padStart(2, '0')}`;
+
+  return (
+    <>
+      <TouchableOpacity onPress={handleOpen} style={tp.btn} activeOpacity={0.7}>
+        <Text style={tp.btnText}>{display}</Text>
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="fade">
+        <View style={tp.overlay}>
+          <View style={tp.sheet}>
+            <Text style={tp.title}>시간 선택</Text>
+            <View style={tp.wheels}>
+              <WheelList data={HOURS} value={tempHour} onChange={setTempHour} />
+              <Text style={tp.colon}>:</Text>
+              <WheelList data={MINUTES} value={tempMinute} onChange={setTempMinute} />
+            </View>
+            <TouchableOpacity onPress={handleConfirm} style={tp.confirm} activeOpacity={0.7}>
+              <Text style={tp.confirmText}>확인</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
+const tp = StyleSheet.create({
+  btn: {
+    borderWidth: 1.5,
+    borderColor: T.ink,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  btnText: { fontSize: 18, fontWeight: '800', color: T.ink },
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sheet: {
+    backgroundColor: T.paper,
+    borderRadius: 16,
+    padding: 24,
+    width: 260,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: T.inkLight,
+  },
+  title: { fontSize: 16, fontWeight: '700', color: T.ink, marginBottom: 16 },
+  wheels: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  colon: { fontSize: 28, fontWeight: '900', color: T.ink },
+  confirm: {
+    marginTop: 20,
+    backgroundColor: T.ink,
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 40,
+  },
+  confirmText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+});
 
 const GENDER_OPTIONS = [
   { value: 'male', label: '남성' },
@@ -107,6 +264,9 @@ export default function OnboardingScreen({ onComplete }) {
   const [gender, setGender] = useState(null);
   const [birthDate, setBirthDate] = useState(null);
   const [goalSeconds, setGoalSeconds] = useState(10800);
+  const [wakeTime, setWakeTime] = useState({ hour: 0, minute: 0 });
+  const [sleepTime, setSleepTime] = useState({ hour: 0, minute: 0 });
+  const [reportTime, setReportTime] = useState({ hour: 0, minute: 0 });
 
   const canProceed = nickname.trim().length > 0 && gender !== null && birthDate !== null;
 
@@ -118,19 +278,27 @@ export default function OnboardingScreen({ onComplete }) {
     const trimmedNickname = nickname.trim();
     await AsyncStorage.setItem(
       'gromo:onboarding',
-      JSON.stringify({ nickname: trimmedNickname, gender, birthday, goalSeconds }),
+      JSON.stringify({
+        nickname: trimmedNickname,
+        gender,
+        birthday,
+        goalSeconds,
+        dayResetTime: `${String(reportTime.hour).padStart(2, '0')}:${String(reportTime.minute).padStart(2, '0')}`,
+        sleepTime: `${String(sleepTime.hour).padStart(2, '0')}:${String(sleepTime.minute).padStart(2, '0')}`,
+      }),
     );
     await AsyncStorage.setItem('gromo:onboardingDone', 'true');
     onComplete({ nickname: trimmedNickname, goalSeconds });
   }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-    <ScrollView style={s.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-      <Text style={s.title}>gromo</Text>
+    <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        style={s.container}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={s.title}>gromo</Text>
         <Text style={s.subtitle}>나에 대해 알려주세요</Text>
 
         <View style={s.section}>
@@ -169,6 +337,28 @@ export default function OnboardingScreen({ onComplete }) {
         </View>
 
         <View style={s.section}>
+          <Text style={s.label}>GroMo가 추적할 당신의 시간</Text>
+          <View style={s.timeBlock}>
+            <View style={s.timeRow}>
+              <Text style={s.timePrefix}>저는 주로</Text>
+              <TimePicker value={wakeTime} onChange={setWakeTime} />
+              <Text style={s.timeText}>에 일어나서</Text>
+            </View>
+            <View style={[s.timeRow, s.timeRowSecond]}>
+              <View style={s.timePrefix} />
+              <TimePicker value={sleepTime} onChange={setSleepTime} />
+              <Text style={s.timeText}>에 자요</Text>
+            </View>
+            <View style={[s.timeRow, s.timeRowSecond]}>
+              <Text style={s.timePrefixLong}>분석 레포트는</Text>
+              <TimePicker value={reportTime} onChange={setReportTime} />
+              <Text style={s.timeText}>에 받고 싶어요</Text>
+            </View>
+            <Text style={s.timeCaption}>하루 핸드폰 사용과 몰입 결과를 알려드려요</Text>
+          </View>
+        </View>
+
+        <View style={s.section}>
           <Text style={s.label}>목표 스크린타임</Text>
           <View style={s.sliderCard}>
             <GoalSlider value={goalSeconds} onChange={setGoalSeconds} />
@@ -183,12 +373,13 @@ export default function OnboardingScreen({ onComplete }) {
         >
           <Text style={s.primaryBtnText}>시작하기</Text>
         </TouchableOpacity>
-    </ScrollView>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const s = StyleSheet.create({
+  flex: { flex: 1 },
   container: {
     flex: 1,
     backgroundColor: T.paper,
@@ -228,8 +419,43 @@ const s = StyleSheet.create({
     borderColor: T.inkLight,
     borderRadius: 6,
   },
+  timeBlock: {
+    alignSelf: 'center',
+  },
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  timeRowSecond: { marginTop: 12 },
+  timePrefix: {
+    width: 90,
+    fontSize: 16,
+    fontWeight: '600',
+    color: T.ink,
+    textAlign: 'right',
+  },
+  timePrefixLong: {
+    width: 90,
+    fontSize: 16,
+    fontWeight: '600',
+    color: T.ink,
+    textAlign: 'right',
+  },
+  timeText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: T.ink,
+  },
+  timeCaption: {
+    marginTop: 10,
+    fontSize: 12,
+    color: T.inkLight,
+    textAlign: 'center',
+  },
   row: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
   toggleBtn: {

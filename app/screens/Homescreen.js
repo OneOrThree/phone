@@ -1,10 +1,5 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useEquipment } from '../contexts/EquipmentContext';
 import { useFocus } from '../contexts/FocusContext';
@@ -183,7 +178,6 @@ function Room({ equippedFurniture, costumeSlots }) {
 }
 
 // ── Screen ───────────────────────────────────────────────────────────────────
-
 
 export default function HomeScreen({ navigation }) {
   const { equippedItem, equippedFurniture, equippedCostume } = useEquipment();

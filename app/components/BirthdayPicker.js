@@ -27,11 +27,7 @@ export default function BirthdayPicker({ value, onChange }) {
 
   return (
     <View>
-      <TouchableOpacity
-        style={s.btn}
-        onPress={() => setShowPicker((v) => !v)}
-        activeOpacity={0.7}
-      >
+      <TouchableOpacity style={s.btn} onPress={() => setShowPicker((v) => !v)} activeOpacity={0.7}>
         <Text style={[s.btnText, !value && s.placeholder]}>
           {value ? formatDate(value) : '날짜를 선택하세요'}
         </Text>

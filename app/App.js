@@ -3,7 +3,24 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, StyleSheet, View, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { setLogoutHandler, getUserIdFromToken } from './utils/api';
+import { setLogoutHandler, getUserIdFromToken, apiFetch } from './utils/api';
+
+const GENDER_MAP = { male: 'MALE', female: 'FEMALE', other: 'UNKNOWN' };
+
+async function syncOnboardingToServer(onboardingData) {
+  if (!onboardingData) return;
+  await apiFetch('/api/v1/user', {
+    method: 'POST',
+    body: JSON.stringify({
+      nickname: onboardingData.nickname,
+      gender: GENDER_MAP[onboardingData.gender] ?? 'UNKNOWN',
+      birthDate: onboardingData.birthday,
+      dailyScreenTimeGoalMinutes: Math.round((onboardingData.goalSeconds ?? 0) / 60),
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      dayResetTime: onboardingData.dayResetTime ?? '08:00',
+    }),
+  }).catch(() => {});
+}
 
 import { FocusProvider } from './contexts/FocusContext';
 import { EquipmentProvider } from './contexts/EquipmentContext';
@@ -99,6 +116,7 @@ export default function App() {
         onLogin={(u) => {
           const userId = getUserIdFromToken(u.accessToken);
           setUser({ ...u, userId, nickname: u.nickname || onboardingData?.nickname });
+          syncOnboardingToServer(onboardingData);
         }}
         onGuestStart={() => setShowGuestOnboarding(true)}
       />
