@@ -43,6 +43,9 @@ public class User {
 
     private String nickname;
 
+    @Enumerated(EnumType.STRING)
+    private Gender gender;
+
     private LocalDate birthDate;
 
     private String profileImageUrl;
@@ -59,7 +62,13 @@ public class User {
     @Builder.Default
     private int dailyScreenTimeGoalMinutes = 0;
 
-    private LocalTime dayResetTime;
+    private String timeZone;
+
+    private LocalTime dayStartTime;
+
+    private LocalTime dayEndTime;
+
+    private LocalTime reportTime;
 
     @CreationTimestamp
     private Instant createdAt;

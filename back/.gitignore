@@ -45,3 +45,4 @@ docker-compose.yml
 
 # Misc
 HELP.md
+norm.sh
