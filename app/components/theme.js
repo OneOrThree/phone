@@ -1,39 +1,32 @@
 export const T = {
   // paper
-  paper: '#FAF7F0',
-  paperDark: '#F0EAD8',
-  paperLine: '#E8DFC8',
+  paper: '#FFFFFF',
+  paperDark: '#F5F5F5',
+  paperLine: '#E0E0E0',
 
   // ink
-  ink: '#1C1208',
-  inkMed: '#6B4C2A',
-  inkLight: '#C4A882',
+  ink: '#111111',
+  inkMed: '#666666',
+  inkLight: '#AAAAAA',
 
-  // accents
-  yellow: '#FFE566',
-  yellowDark: '#D4AD00',
-  coral: '#FF7461',
-  coralDark: '#C04A38',
-  mint: '#5ECFA8',
-  mintDark: '#2EA880',
-  sky: '#6BBFEF',
-  skyDark: '#3A8FC0',
-  lavender: '#C5A9FF',
-  lavenderDark: '#8A6ADA',
+  // accents (monochrome)
+  yellow: '#E8E8E8',
+  yellowDark: '#CCCCCC',
+  coral: '#C0C0C0',
+  coralDark: '#999999',
+  mint: '#E0E0E0',
+  mintDark: '#AAAAAA',
+  sky: '#E4E4E4',
+  skyDark: '#BBBBBB',
+  lavender: '#E8E8E8',
+  lavenderDark: '#BBBBBB',
 };
 
-// Ink-shadow card style: thick bottom/right border = hand-drawn shadow
-export function inkBox(bg = T.paper, rotate = '0deg') {
+export function inkBox(bg = T.paper) {
   return {
     backgroundColor: bg,
-    borderWidth: 2.5,
+    borderWidth: 1.5,
     borderColor: T.ink,
-    borderBottomWidth: 5,
-    borderRightWidth: 5,
-    borderTopLeftRadius: 13,
-    borderTopRightRadius: 11,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 14,
-    transform: [{ rotate }],
+    borderRadius: 8,
   };
 }

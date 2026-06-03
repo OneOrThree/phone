@@ -4,9 +4,17 @@ const UserContext = createContext(null);
 
 const PHONE_USAGE_SECONDS = 3 * 3600 + 28 * 60; // TODO: ScreenTime API 연동
 
-export function UserProvider({ initialNickname, children }) {
+export function UserProvider({
+  initialNickname,
+  initialUserId,
+  initialGoalSeconds,
+  initialIsNewUser,
+  children,
+}) {
   const [nickname, setNickname] = useState(initialNickname ?? '익명');
-  const [goalSeconds, setGoalSecondsState] = useState(3 * 3600);
+  const [userId] = useState(initialUserId ?? null);
+  const [isNewUser, setIsNewUser] = useState(initialIsNewUser ?? false);
+  const [goalSeconds, setGoalSecondsState] = useState(initialGoalSeconds ?? 3 * 3600);
   const goalSecondsRef = useRef(3 * 3600);
 
   const setGoalSeconds = useCallback((v) => {
@@ -17,8 +25,11 @@ export function UserProvider({ initialNickname, children }) {
   return (
     <UserContext.Provider
       value={{
+        userId,
         nickname,
         setNickname,
+        isNewUser,
+        setIsNewUser,
         goalSeconds,
         setGoalSeconds,
         goalSecondsRef,

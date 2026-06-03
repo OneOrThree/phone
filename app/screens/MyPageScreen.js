@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { apiFetch } from '../utils/api';
 import {
   View,
   Text,
@@ -127,18 +128,27 @@ export default function MyPageScreen({ onLogout }) {
     setDraft(nickname);
     setEditing(true);
   }
-  function saveNickname() {
-    if (draft.trim()) setNickname(draft.trim());
+  async function saveNickname() {
+    if (!draft.trim()) return;
+    setNickname(draft.trim());
     setEditing(false);
+    await apiFetch('/api/v1/user', {
+      method: 'PATCH',
+      body: JSON.stringify({ nickname: draft.trim() }),
+    }).catch(() => {});
   }
 
   function openGoalEdit() {
     setDraftGoal(goalSeconds);
     setGoalEditing(true);
   }
-  function saveGoal() {
+  async function saveGoal() {
     setGoalSeconds(draftGoal);
     setGoalEditing(false);
+    await apiFetch('/api/v1/user', {
+      method: 'PATCH',
+      body: JSON.stringify({ dailyScreenTimeGoalMinutes: Math.round(draftGoal / 60) }),
+    }).catch(() => {});
   }
 
   return (
@@ -249,17 +259,6 @@ export default function MyPageScreen({ onLogout }) {
             </View>
           );
         })()}
-      </View>
-
-      {/* Deco */}
-      <Text style={s.deco}>★ 꾸준히 하면 방이 커져요 ★</Text>
-
-      <View style={[s.tipCard, inkBox(T.mint, '0.6deg')]}>
-        <Text style={s.tipTitle}>🍅 포모도로 기법</Text>
-        <Text style={s.tipText}>
-          25분 집중 → 5분 휴식을 반복해봐요.{'\n'}
-          짧게 끊을수록 더 오래 집중할 수 있어요!
-        </Text>
       </View>
 
       <TouchableOpacity

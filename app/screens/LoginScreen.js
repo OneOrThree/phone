@@ -3,8 +3,7 @@ import { View, Text, Image, TouchableOpacity, ActivityIndicator, StyleSheet } fr
 import { login } from '@react-native-kakao/user';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '../components/theme';
-
-const API_URL = 'https://oneorthree.mooo.com';
+import { API_URL } from '../utils/api';
 
 async function kakaoLogin() {
   const kakaoToken = await login();
@@ -22,7 +21,7 @@ async function kakaoLogin() {
   return data;
 }
 
-export default function LoginScreen({ onLogin }) {
+export default function LoginScreen({ onLogin, onGuestStart }) {
   const [loading, setLoading] = useState(false);
 
   async function handleLogin() {
@@ -41,22 +40,27 @@ export default function LoginScreen({ onLogin }) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>gromo</Text>
-      <TouchableOpacity
-        onPress={handleLogin}
-        style={styles.kakaoButton}
-        activeOpacity={0.8}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator size="small" color={T.ink} style={styles.kakaoImage} />
-        ) : (
-          <Image
-            source={require('../assets/kakao_login_medium_narrow.png')}
-            style={styles.kakaoImage}
-            resizeMode="contain"
-          />
-        )}
-      </TouchableOpacity>
+      <View style={styles.bottomArea}>
+        <TouchableOpacity
+          onPress={handleLogin}
+          style={styles.kakaoButton}
+          activeOpacity={0.8}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color={T.ink} style={styles.kakaoImage} />
+          ) : (
+            <Image
+              source={require('../assets/kakao_login_medium_narrow.png')}
+              style={styles.kakaoImage}
+              resizeMode="contain"
+            />
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onGuestStart} activeOpacity={0.7}>
+          <Text style={styles.guestText}>로그인 없이 시작하기</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -76,11 +80,20 @@ const styles = StyleSheet.create({
     color: T.ink,
     letterSpacing: 4,
   },
+  bottomArea: {
+    alignItems: 'center',
+    gap: 20,
+  },
   kakaoButton: {
     width: 280,
   },
   kakaoImage: {
     width: '100%',
     height: 54,
+  },
+  guestText: {
+    fontSize: 14,
+    color: T.inkLight,
+    textDecorationLine: 'underline',
   },
 });

@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
 import { useFocus } from '../contexts/FocusContext';
@@ -191,6 +191,10 @@ export default function FocusModeScreen({ navigation }) {
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const startTimeRef = useRef(null);
   const lastCoinRef = useRef(0);
+  const addCoinsRef = useRef(addCoins);
+  useEffect(() => {
+    addCoinsRef.current = addCoins;
+  }, [addCoins]);
 
   const variant = equippedItem?.focusVariant ?? 'default';
   const msg = VARIANT_MSG[variant] ?? VARIANT_MSG.default;
@@ -206,12 +210,12 @@ export default function FocusModeScreen({ navigation }) {
         setSessionSeconds(elapsed);
         const earned = Math.floor(elapsed / 10);
         if (earned > lastCoinRef.current) {
-          addCoins(earned - lastCoinRef.current);
+          addCoinsRef.current(earned - lastCoinRef.current);
           lastCoinRef.current = earned;
         }
       }, 1000);
       return () => clearInterval(id);
-    }, [addCoins]),
+    }, []),
   );
 
   function handleStop() {
@@ -249,12 +253,9 @@ export default function FocusModeScreen({ navigation }) {
       </View>
 
       {/* Stop */}
-      <Pressable
-        style={({ pressed }) => [s.stopBtn, pressed && s.stopBtnPressed]}
-        onPress={handleStop}
-      >
-        <Text style={s.stopBtnText}>⬛ 중지하기</Text>
-      </Pressable>
+      <TouchableOpacity style={s.stopBtn} onPress={handleStop} activeOpacity={0.7}>
+        <Text style={s.stopBtnText}>중지하기</Text>
+      </TouchableOpacity>
 
       <Text style={s.bottomDeco}>✦ · · · ✦ · · · ✦</Text>
     </View>
@@ -296,24 +297,12 @@ const s = StyleSheet.create({
   accumTime: { fontSize: 30, fontWeight: '900', color: T.ink, marginTop: 2, letterSpacing: -1 },
 
   stopBtn: {
-    backgroundColor: T.coral,
-    borderWidth: 2.5,
-    borderColor: T.ink,
-    borderBottomWidth: 5,
-    borderRightWidth: 5,
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 12,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 14,
+    backgroundColor: T.ink,
+    borderRadius: 8,
     paddingVertical: 16,
     alignItems: 'center',
   },
-  stopBtnPressed: {
-    transform: [{ translateX: 2 }, { translateY: 2 }],
-    borderBottomWidth: 2.5,
-    borderRightWidth: 2.5,
-  },
-  stopBtnText: { fontSize: 16, fontWeight: '900', color: T.ink },
+  stopBtnText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
 
   bottomDeco: {
     textAlign: 'center',

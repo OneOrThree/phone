@@ -2398,6 +2398,8 @@ PODS:
     - RNCKakaoCore
     - SocketRocket
     - Yoga
+  - RNDateTimePicker (9.1.0):
+    - React-Core
   - RNScreens (4.16.0):
     - boost
     - DoubleConversion
@@ -2513,6 +2515,7 @@ DEPENDENCIES:
   - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - "RNCKakaoCore (from `../node_modules/@react-native-kakao/core`)"
   - "RNCKakaoUser (from `../node_modules/@react-native-kakao/user`)"
+  - "RNDateTimePicker (from `../node_modules/@react-native-community/datetimepicker`)"
   - RNScreens (from `../node_modules/react-native-screens`)
   - SocketRocket (~> 0.7.1)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
@@ -2689,6 +2692,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@react-native-kakao/core"
   RNCKakaoUser:
     :path: "../node_modules/@react-native-kakao/user"
+  RNDateTimePicker:
+    :path: "../node_modules/@react-native-community/datetimepicker"
   RNScreens:
     :path: "../node_modules/react-native-screens"
   Yoga:
@@ -2780,6 +2785,7 @@ SPEC CHECKSUMS:
   RNCAsyncStorage: b44e8a4e798c3e1f56bffccd0f591f674fb9198f
   RNCKakaoCore: 1975017a2e73d2ba79f956bfc24e8436fd3f7694
   RNCKakaoUser: 63e557ef9f7be696d8f8e70873ca5fb895678f19
+  RNDateTimePicker: a4679e6488003e5fb68502b50ffb1b74b8b31ca0
   RNScreens: 35525ebfe219c8709da0d26aebbc9a5e02e1077b
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: 728df40394d49f3f471688747cf558158b3a3bd1

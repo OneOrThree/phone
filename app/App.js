@@ -3,12 +3,39 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, StyleSheet, View, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setLogoutHandler, getUserIdFromToken, apiFetch } from './utils/api';
+
+const GENDER_MAP = { male: 'MALE', female: 'FEMALE', other: 'UNKNOWN' };
+
+async function syncOnboardingToServer(onboardingData) {
+  if (!onboardingData) return;
+  const body = {
+    nickname: onboardingData.nickname,
+    gender: GENDER_MAP[onboardingData.gender] ?? 'UNKNOWN',
+    birthDate: onboardingData.birthday,
+    dailyScreenTimeGoalMinutes: Math.round((onboardingData.goalSeconds ?? 0) / 60),
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    dayStartTime: onboardingData.dayStartTime ?? '00:00',
+    dayEndTime: onboardingData.dayEndTime ?? '00:00',
+    reportTime: onboardingData.reportTime ?? '00:00',
+  };
+  console.log('[온보딩 전송]', JSON.stringify(body, null, 2));
+  try {
+    const res = await apiFetch('/api/v1/user', { method: 'POST', body: JSON.stringify(body) });
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : {};
+    console.log('[온보딩 응답]', res.status, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('[온보딩 실패]', e);
+  }
+}
 
 import { FocusProvider } from './contexts/FocusContext';
 import { EquipmentProvider } from './contexts/EquipmentContext';
 import { CoinProvider } from './contexts/CoinContext';
 import { UserProvider } from './contexts/UserContext';
 
+import OnboardingScreen from './screens/OnboardingScreen';
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/Homescreen';
 import GroupScreen from './screens/GroupScreen';
@@ -30,10 +57,17 @@ const TAB_ICONS = {
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [pendingOnboarding, setPendingOnboarding] = useState(false);
+  const [onboardingGoalSeconds, setOnboardingGoalSeconds] = useState(null);
+  const [showGuestOnboarding, setShowGuestOnboarding] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem('gromo:user').then((raw) => {
-      if (raw) setUser(JSON.parse(raw));
+      if (raw) {
+        const data = JSON.parse(raw);
+        const userId = getUserIdFromToken(data.accessToken);
+        setUser({ ...data, userId });
+      }
       setLoading(false);
     });
   }, []);
@@ -43,6 +77,10 @@ export default function App() {
     setUser(null);
   }
 
+  useEffect(() => {
+    setLogoutHandler(handleLogout);
+  }, []);
+
   if (loading) {
     return (
       <View style={s.loading}>
@@ -51,12 +89,51 @@ export default function App() {
     );
   }
 
+  if (pendingOnboarding) {
+    return (
+      <OnboardingScreen
+        onComplete={(data) => {
+          setOnboardingGoalSeconds(data.goalSeconds);
+          setUser((prev) => ({ ...prev, nickname: data.nickname }));
+          setPendingOnboarding(false);
+          syncOnboardingToServer(data);
+        }}
+      />
+    );
+  }
+
+  if (showGuestOnboarding) {
+    return (
+      <OnboardingScreen
+        onComplete={(data) => {
+          setOnboardingGoalSeconds(data.goalSeconds);
+          setShowGuestOnboarding(false);
+          setUser({ nickname: data.nickname, userId: null, isNewUser: false });
+        }}
+      />
+    );
+  }
+
   if (!user) {
-    return <LoginScreen onLogin={(u) => setUser(u)} />;
+    return (
+      <LoginScreen
+        onLogin={(u) => {
+          const userId = getUserIdFromToken(u.accessToken);
+          setUser({ ...u, userId });
+          if (u.isNewUser) setPendingOnboarding(true);
+        }}
+        onGuestStart={() => setShowGuestOnboarding(true)}
+      />
+    );
   }
 
   return (
-    <UserProvider initialNickname={user?.nickname}>
+    <UserProvider
+      initialNickname={user?.nickname}
+      initialUserId={user?.userId}
+      initialGoalSeconds={onboardingGoalSeconds}
+      initialIsNewUser={user?.isNewUser}
+    >
       <CoinProvider>
         <EquipmentProvider>
           <FocusProvider>
@@ -79,7 +156,6 @@ export default function App() {
                           backgroundColor: T.paper,
                           borderTopColor: T.ink,
                           borderTopWidth: 2.5,
-
                           height: 76,
                           paddingBottom: 10,
                           paddingTop: 6,

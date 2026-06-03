@@ -8,7 +8,7 @@
 // BW  : 기본 테두리 두께 (2.5px) — 굵기를 바꾸려면 이 값만 수정
 //
 // 자주 바꾸는 값:
-//   피부색    → '#FFF8E7' 검색해서 원하는 색으로 변경
+//   피부색    → '#F0F0F0' 검색해서 원하는 색으로 변경
 //   볼터치색  → cheek의 backgroundColor 수정
 //   코 색상   → nose의 backgroundColor 수정
 // ============================================================
@@ -40,7 +40,7 @@ export const s = StyleSheet.create({
     width: 28,
     height: 30,
     borderRadius: 14,
-    backgroundColor: '#FFF8E7', // 피부색
+    backgroundColor: '#F0F0F0', // 피부색
     borderWidth: BW,
     borderColor: INK,
     alignItems: 'center',
@@ -54,7 +54,7 @@ export const s = StyleSheet.create({
     width: 28,
     height: 30,
     borderRadius: 14,
-    backgroundColor: '#FFF8E7',
+    backgroundColor: '#F0F0F0',
     borderWidth: BW,
     borderColor: INK,
     alignItems: 'center',
@@ -66,7 +66,7 @@ export const s = StyleSheet.create({
     width: 14,
     height: 18,
     borderRadius: 7,
-    backgroundColor: '#FFB7C5', // 귀 안쪽 분홍색
+    backgroundColor: '#DDDDDD', // 귀 안쪽
     borderWidth: 1.5,
     borderColor: INK,
   },
@@ -81,7 +81,7 @@ export const s = StyleSheet.create({
     right: 0,
     height: 100,
     borderRadius: 50,
-    backgroundColor: '#FFF8E7', // 피부색
+    backgroundColor: '#F0F0F0', // 피부색
     borderWidth: BW,
     borderColor: INK,
     alignItems: 'center',
@@ -178,7 +178,7 @@ export const s = StyleSheet.create({
     width: 20,
     height: 12,
     borderRadius: 10,
-    backgroundColor: 'rgba(255, 120, 120, 0.25)', // 반투명 분홍 (투명도 조절 가능)
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
   },
 
   // ── 코 ────────────────────────────────────────────────────
@@ -186,7 +186,7 @@ export const s = StyleSheet.create({
     width: 9,
     height: 6,
     borderRadius: 4,
-    backgroundColor: '#FF8FAB', // 코 색상 (분홍)
+    backgroundColor: '#CCCCCC',
     borderWidth: 1.5,
     borderColor: INK,
     marginTop: 2,
@@ -238,7 +238,7 @@ export const s = StyleSheet.create({
     width: 12,
     height: 8,
     borderRadius: 6,
-    backgroundColor: '#FF8FAB', // 혀 색상 (분홍)
+    backgroundColor: '#CCCCCC',
     borderWidth: 1.5,
     borderColor: INK,
     marginTop: -2, // 일자 입과 살짝 겹치게
@@ -254,7 +254,7 @@ export const s = StyleSheet.create({
     right: 18,
     height: 62,
     borderRadius: 30,
-    backgroundColor: '#FFF8E7', // 기본 피부색 (후드티 착용 시 덮어씌워짐)
+    backgroundColor: '#F0F0F0', // 기본 피부색 (후드티 착용 시 덮어씌워짐)
     borderWidth: BW,
     borderColor: INK,
     zIndex: 1,
@@ -271,7 +271,7 @@ export const s = StyleSheet.create({
     borderRadius: 4,
     borderWidth: 2,
     borderColor: INK,
-    backgroundColor: '#C8E6FF', // 화면 색상
+    backgroundColor: '#E0E0E0',
   },
 
   // 책 관련
@@ -279,7 +279,7 @@ export const s = StyleSheet.create({
   bookPage: {
     width: 18,
     height: 26,
-    backgroundColor: '#FFFCF0', // 종이색
+    backgroundColor: '#F5F5F5', // 종이색
     borderWidth: 1.5,
     borderColor: INK,
     borderRadius: 2,
@@ -312,7 +312,7 @@ export const s = StyleSheet.create({
   paper: {
     width: 26,
     height: 30,
-    backgroundColor: '#FFFCF0', // 종이색
+    backgroundColor: '#F5F5F5', // 종이색
     borderWidth: 1.5,
     borderColor: INK,
     borderRadius: 2,
@@ -341,7 +341,7 @@ export const s = StyleSheet.create({
     width: 22,
     height: 16,
     borderRadius: 11,
-    backgroundColor: '#FFF8E7', // 피부색
+    backgroundColor: '#F0F0F0', // 피부색
     borderWidth: BW,
     borderColor: INK,
   },

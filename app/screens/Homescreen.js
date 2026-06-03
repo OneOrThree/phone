@@ -1,11 +1,11 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useEquipment } from '../contexts/EquipmentContext';
 import { useFocus } from '../contexts/FocusContext';
 import { useUser } from '../contexts/UserContext';
 import { Character2D } from '../components/character/Character2D';
-import { T, inkBox } from '../components/theme';
+import { T } from '../components/theme';
 
 function formatFocusTime(totalSeconds) {
   const h = Math.floor(totalSeconds / 3600);
@@ -33,9 +33,9 @@ function formatGoalTime(seconds) {
   return `${h}h ${m}m`;
 }
 
-function StatBox({ label, value, accent, rotate = '0deg' }) {
+function StatBox({ label, value }) {
   return (
-    <View style={[s.statBox, { backgroundColor: accent, transform: [{ rotate }] }]}>
+    <View style={s.statBox}>
       <Text style={s.statLabel}>{label}</Text>
       <Text style={s.statValue}>{value}</Text>
     </View>
@@ -197,43 +197,29 @@ export default function HomeScreen({ navigation }) {
       </View>
 
       <View style={s.statsRow}>
-        <StatBox
-          label="목표"
-          value={formatGoalTime(goalSeconds)}
-          accent={T.yellow}
-          rotate="-1.2deg"
-        />
-        <StatBox
-          label="사용"
-          value={formatFocusTime(phoneUsageSeconds)}
-          accent={T.sky}
-          rotate="0.8deg"
-        />
-        <StatBox
-          label="남은"
-          value={formatFocusTime(remainingSeconds)}
-          accent={T.mint}
-          rotate="-0.5deg"
-        />
+        <StatBox label="목표" value={formatGoalTime(goalSeconds)} />
+        <StatBox label="사용" value={formatFocusTime(phoneUsageSeconds)} />
+        <StatBox label="남은" value={formatFocusTime(remainingSeconds)} />
       </View>
 
       <View style={s.roomWrap}>
         <Room equippedFurniture={equippedFurniture} costumeSlots={costumeSlots} />
       </View>
 
-      <View style={[s.bottomCard, inkBox(T.paper)]}>
+      <View style={s.bottomCard}>
         <View style={s.bottomRow}>
           <View>
             <Text style={s.focusLabel}>오늘 집중 ⏱</Text>
             <Text style={s.focusTime}>{formatFocusTime(todayFocusSeconds)}</Text>
             {equippedItem && <Text style={s.equippedHint}>✔ {equippedItem.name} 장착중</Text>}
           </View>
-          <Pressable
-            style={({ pressed }) => [s.startBtn, pressed && s.startBtnPressed]}
+          <TouchableOpacity
+            style={s.startBtn}
             onPress={() => navigation.navigate('FocusMode')}
+            activeOpacity={0.7}
           >
             <Text style={s.startBtnText}>집중 시작!</Text>
-          </Pressable>
+          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -249,7 +235,7 @@ const f = StyleSheet.create({
     width: 44,
     height: 30,
     borderRadius: 3,
-    backgroundColor: '#B0D0F0',
+    backgroundColor: '#E0E0E0',
     borderWidth: 2.5,
     borderColor: T.ink,
   },
@@ -258,7 +244,7 @@ const f = StyleSheet.create({
     width: 78,
     height: 9,
     borderRadius: 3,
-    backgroundColor: '#A07850',
+    backgroundColor: '#AAAAAA',
     borderWidth: 2,
     borderColor: T.ink,
   },
@@ -267,7 +253,7 @@ const f = StyleSheet.create({
     width: 6,
     height: 24,
     borderRadius: 3,
-    backgroundColor: '#8B6540',
+    backgroundColor: '#888888',
     borderWidth: 1.5,
     borderColor: T.ink,
   },
@@ -278,7 +264,7 @@ const f = StyleSheet.create({
     width: 14,
     height: 52,
     borderRadius: 7,
-    backgroundColor: '#D4956A',
+    backgroundColor: '#BBBBBB',
     borderWidth: 2.5,
     borderColor: T.ink,
   },
@@ -286,7 +272,7 @@ const f = StyleSheet.create({
     width: 70,
     height: 38,
     borderRadius: 6,
-    backgroundColor: '#F5ECD7',
+    backgroundColor: '#F0F0F0',
     borderWidth: 2,
     borderColor: T.ink,
     flexDirection: 'row',
@@ -306,7 +292,7 @@ const f = StyleSheet.create({
     flex: 1,
     height: 24,
     borderRadius: 5,
-    backgroundColor: '#FF9B9B',
+    backgroundColor: '#CCCCCC',
     borderWidth: 1.5,
     borderColor: T.ink,
   },
@@ -323,7 +309,7 @@ const f = StyleSheet.create({
     width: 8,
     height: 12,
     borderRadius: 3,
-    backgroundColor: '#A07850',
+    backgroundColor: '#AAAAAA',
     borderWidth: 1.5,
     borderColor: T.ink,
   },
@@ -333,7 +319,7 @@ const f = StyleSheet.create({
     width: 62,
     height: 58,
     borderRadius: 4,
-    backgroundColor: '#D4EEFF',
+    backgroundColor: '#E8E8E8',
     borderWidth: 2.5,
     borderColor: T.ink,
     position: 'relative',
@@ -375,13 +361,13 @@ const f = StyleSheet.create({
     borderRadius: 4,
     borderWidth: 3,
     borderColor: T.inkMed,
-    backgroundColor: '#8B6540',
+    backgroundColor: '#888888',
     padding: 3,
   },
   frameInner: {
     flex: 1,
     borderRadius: 2,
-    backgroundColor: '#E8F4FF',
+    backgroundColor: '#F0F0F0',
     overflow: 'hidden',
     position: 'relative',
   },
@@ -396,7 +382,7 @@ const f = StyleSheet.create({
     borderBottomWidth: 28,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderBottomColor: '#6BA868',
+    borderBottomColor: '#AAAAAA',
   },
   mountain2: {
     position: 'absolute',
@@ -409,7 +395,7 @@ const f = StyleSheet.create({
     borderBottomWidth: 22,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderBottomColor: '#4A8A46',
+    borderBottomColor: '#888888',
   },
   frameSun: {
     position: 'absolute',
@@ -428,7 +414,7 @@ const f = StyleSheet.create({
     width: 140,
     height: 22,
     borderRadius: 11,
-    backgroundColor: '#C5637A',
+    backgroundColor: '#BBBBBB',
     borderWidth: 2.5,
     borderColor: T.ink,
     alignItems: 'center',
@@ -438,7 +424,7 @@ const f = StyleSheet.create({
     width: 120,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#E0849A',
+    backgroundColor: '#D0D0D0',
     borderWidth: 1.5,
     borderColor: T.ink,
   },
@@ -466,14 +452,9 @@ const s = StyleSheet.create({
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   statBox: {
     flex: 1,
-    borderWidth: 2.5,
-    borderColor: T.ink,
-    borderBottomWidth: 5,
-    borderRightWidth: 5,
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 10,
-    borderBottomLeftRadius: 11,
-    borderBottomRightRadius: 13,
+    borderWidth: 1.5,
+    borderColor: T.inkLight,
+    borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 8,
     alignItems: 'center',
@@ -496,7 +477,7 @@ const s = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: '38%',
-    backgroundColor: '#EDE0C4',
+    backgroundColor: '#F0F0F0',
   },
   roomFloor: {
     position: 'absolute',
@@ -504,7 +485,7 @@ const s = StyleSheet.create({
     left: 0,
     right: 0,
     height: '40%',
-    backgroundColor: '#C4935A',
+    backgroundColor: '#E0E0E0',
     borderTopWidth: 2.5,
     borderTopColor: T.ink,
   },
@@ -522,29 +503,23 @@ const s = StyleSheet.create({
   decoStar1: { top: 10, left: 16 },
   decoStar2: { top: 18, right: 22 },
 
-  bottomCard: { padding: 18, marginBottom: 8 },
+  bottomCard: {
+    padding: 18,
+    marginBottom: 8,
+    borderWidth: 1.5,
+    borderColor: T.inkLight,
+    borderRadius: 12,
+  },
   bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   focusLabel: { fontSize: 13, fontWeight: '700', color: T.inkMed },
   focusTime: { fontSize: 28, fontWeight: '900', color: T.ink, marginTop: 2, letterSpacing: -1 },
   equippedHint: { fontSize: 11, fontWeight: '700', color: T.mintDark, marginTop: 4 },
 
   startBtn: {
-    backgroundColor: T.coral,
-    borderWidth: 2.5,
-    borderColor: T.ink,
-    borderBottomWidth: 5,
-    borderRightWidth: 5,
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 12,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 14,
+    backgroundColor: T.ink,
+    borderRadius: 8,
     paddingVertical: 14,
     paddingHorizontal: 20,
   },
-  startBtnPressed: {
-    transform: [{ translateX: 2 }, { translateY: 2 }],
-    borderBottomWidth: 2.5,
-    borderRightWidth: 2.5,
-  },
-  startBtnText: { fontSize: 15, fontWeight: '900', color: T.ink },
+  startBtnText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
 });
