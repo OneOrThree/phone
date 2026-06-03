@@ -4,6 +4,7 @@ import com.oneorthree.phone.api.dto.request.UserProfileSetupRequest;
 import com.oneorthree.phone.api.dto.request.UserProfileUpdateRequest;
 import com.oneorthree.phone.domain.user.User;
 import com.oneorthree.phone.repository.user.UserRepository;
+import com.oneorthree.phone.service.dto.UserProfileResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -77,5 +78,23 @@ public class UserService {
             }
             user.setTimeZone(body.getTimeZone());
         }
+    }
+
+    public UserProfileResponse getProfile(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("존재하지 않는 유저"));
+
+        return new UserProfileResponse(
+                user.getId(),
+                user.getNickname(),
+                user.getGender() != null ? user.getGender().name() : null,
+                user.getBirthDate(),
+                user.getProfileImageUrl(),
+                user.getCurrency(),
+                user.getCurrentTier() != null ? user.getCurrentTier().name() : null,
+                user.getDailyScreenTimeGoalMinutes(),
+                user.getTimeZone(),
+                user.getDayResetTime() != null ? user.getDayResetTime().toString() : null
+        );
     }
 }
