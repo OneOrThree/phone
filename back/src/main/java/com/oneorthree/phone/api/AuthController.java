@@ -22,17 +22,15 @@ public class AuthController {
 
     private final AuthService authService;
 
-    @Operation(summary = "JWT 발급", description = "카카오 Access Token -> JWT")
+    @Operation(summary = "카카오 로그인", description = "카카오 Access Token → AT + RT 발급")
     @PostMapping("/kakao")
     public ResponseEntity<KakaoLoginResponse> kakaoLogin(@RequestBody KakaoLoginRequest request) {
-        KakaoLoginResponse response = authService.kakaoLogin(request.kakaoAccessToken());
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(authService.kakaoLogin(request.kakaoAccessToken()));
     }
 
-    @Operation(summary = "JWT 갱신", description = "JWT 갱신")
+    @Operation(summary = "토큰 갱신", description = "Refresh Token → 새 Access Token 발급")
     @PostMapping("/refresh")
     public ResponseEntity<TokenRefreshResponse> refreshToken(@RequestBody TokenRefreshRequest request) {
-        TokenRefreshResponse response = authService.refreshToken(request.refreshToken());
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(authService.refreshToken(request.refreshToken()));
     }
 }

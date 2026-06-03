@@ -1,6 +1,6 @@
 package com.oneorthree.phone.api.dto.response;
 
-import com.oneorthree.phone.domain.CharacterEquipment;
+import com.oneorthree.phone.domain.item.CharacterEquipment;
 import lombok.Builder;
 import lombok.Getter;
 
