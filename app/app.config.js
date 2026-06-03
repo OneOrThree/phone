@@ -9,6 +9,7 @@ export default {
           ios: { handleKakaoOpenUrl: true },
         },
       ],
+      '@react-native-community/datetimepicker',
     ],
     slug: 'gromo',
     version: '0.0.1',
