@@ -395,7 +395,13 @@
           "timeZone": {
             "type": "string"
           },
-          "dayResetTime": {
+          "dayStartTime": {
+            "type": "string"
+          },
+          "dayEndTime": {
+            "type": "string"
+          },
+          "reportTime": {
             "type": "string"
           }
         }
@@ -539,7 +545,13 @@
           "timeZone": {
             "type": "string"
           },
-          "dayResetTime": {
+          "dayStartTime": {
+            "type": "string"
+          },
+          "dayEndTime": {
+            "type": "string"
+          },
+          "reportTime": {
             "type": "string"
           }
         }
