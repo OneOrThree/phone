@@ -191,6 +191,10 @@ export default function FocusModeScreen({ navigation }) {
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const startTimeRef = useRef(null);
   const lastCoinRef = useRef(0);
+  const addCoinsRef = useRef(addCoins);
+  useEffect(() => {
+    addCoinsRef.current = addCoins;
+  }, [addCoins]);
 
   const variant = equippedItem?.focusVariant ?? 'default';
   const msg = VARIANT_MSG[variant] ?? VARIANT_MSG.default;
@@ -206,12 +210,12 @@ export default function FocusModeScreen({ navigation }) {
         setSessionSeconds(elapsed);
         const earned = Math.floor(elapsed / 10);
         if (earned > lastCoinRef.current) {
-          addCoins(earned - lastCoinRef.current);
+          addCoinsRef.current(earned - lastCoinRef.current);
           lastCoinRef.current = earned;
         }
       }, 1000);
       return () => clearInterval(id);
-    }, [addCoins]),
+    }, []),
   );
 
   function handleStop() {

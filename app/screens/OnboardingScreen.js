@@ -12,7 +12,6 @@ import {
   FlatList,
   Modal,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '../components/theme';
 import BirthdayPicker from '../components/BirthdayPicker';
 
@@ -270,26 +269,20 @@ export default function OnboardingScreen({ onComplete }) {
 
   const canProceed = nickname.trim().length > 0 && gender !== null && birthDate !== null;
 
-  async function handleComplete() {
+  function handleComplete() {
     const y = birthDate.getFullYear();
     const m = String(birthDate.getMonth() + 1).padStart(2, '0');
     const d = String(birthDate.getDate()).padStart(2, '0');
     const birthday = `${y}-${m}-${d}`;
-    const trimmedNickname = nickname.trim();
-    await AsyncStorage.setItem(
-      'gromo:onboarding',
-      JSON.stringify({
-        nickname: trimmedNickname,
-        gender,
-        birthday,
-        goalSeconds,
-        dayStartTime: `${String(wakeTime.hour).padStart(2, '0')}:${String(wakeTime.minute).padStart(2, '0')}`,
-        dayEndTime: `${String(sleepTime.hour).padStart(2, '0')}:${String(sleepTime.minute).padStart(2, '0')}`,
-        reportTime: `${String(reportTime.hour).padStart(2, '0')}:${String(reportTime.minute).padStart(2, '0')}`,
-      }),
-    );
-    await AsyncStorage.setItem('gromo:onboardingDone', 'true');
-    onComplete({ nickname: trimmedNickname, goalSeconds });
+    onComplete({
+      nickname: nickname.trim(),
+      gender,
+      birthday,
+      goalSeconds,
+      dayStartTime: `${String(wakeTime.hour).padStart(2, '0')}:${String(wakeTime.minute).padStart(2, '0')}`,
+      dayEndTime: `${String(sleepTime.hour).padStart(2, '0')}:${String(sleepTime.minute).padStart(2, '0')}`,
+      reportTime: `${String(reportTime.hour).padStart(2, '0')}:${String(reportTime.minute).padStart(2, '0')}`,
+    });
   }
 
   return (

@@ -13,7 +13,12 @@ async function syncOnboardingToServer(onboardingData) {
     nickname: onboardingData.nickname,
     gender: GENDER_MAP[onboardingData.gender] ?? 'UNKNOWN',
     birthDate: onboardingData.birthday,
-    dailyScreenTimeGoalMinutes: Math.round((onboardingData.goalSeconds ?? 0) / 60),
+    dailyScreenTimeGoalMinutes: (() => {
+      const total = Math.round((onboardingData.goalSeconds ?? 0) / 60);
+      const h = Math.floor(total / 60);
+      const m = total % 60;
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    })(),
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     dayStartTime: onboardingData.dayStartTime ?? '00:00',
     dayEndTime: onboardingData.dayEndTime ?? '00:00',
@@ -57,20 +62,14 @@ const TAB_ICONS = {
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [onboardingDone, setOnboardingDone] = useState(false);
-  const [onboardingData, setOnboardingData] = useState(null);
+  const [pendingOnboarding, setPendingOnboarding] = useState(false);
+  const [onboardingGoalSeconds, setOnboardingGoalSeconds] = useState(null);
   const [showGuestOnboarding, setShowGuestOnboarding] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      AsyncStorage.getItem('gromo:onboardingDone'),
-      AsyncStorage.getItem('gromo:onboarding'),
-      AsyncStorage.getItem('gromo:user'),
-    ]).then(([done, onboarding, userRaw]) => {
-      setOnboardingDone(done === 'true');
-      if (onboarding) setOnboardingData(JSON.parse(onboarding));
-      if (userRaw) {
-        const data = JSON.parse(userRaw);
+    AsyncStorage.getItem('gromo:user').then((raw) => {
+      if (raw) {
+        const data = JSON.parse(raw);
         const userId = getUserIdFromToken(data.accessToken);
         setUser({ ...data, userId });
       }
@@ -95,12 +94,14 @@ export default function App() {
     );
   }
 
-  if (!onboardingDone) {
+  if (pendingOnboarding) {
     return (
       <OnboardingScreen
         onComplete={(data) => {
-          setOnboardingData(data);
-          setOnboardingDone(true);
+          setOnboardingGoalSeconds(data.goalSeconds);
+          setUser((prev) => ({ ...prev, nickname: data.nickname }));
+          setPendingOnboarding(false);
+          syncOnboardingToServer(data);
         }}
       />
     );
@@ -110,7 +111,7 @@ export default function App() {
     return (
       <OnboardingScreen
         onComplete={(data) => {
-          setOnboardingData(data);
+          setOnboardingGoalSeconds(data.goalSeconds);
           setShowGuestOnboarding(false);
           setUser({ nickname: data.nickname, userId: null, isNewUser: false });
         }}
@@ -123,8 +124,8 @@ export default function App() {
       <LoginScreen
         onLogin={(u) => {
           const userId = getUserIdFromToken(u.accessToken);
-          setUser({ ...u, userId, nickname: u.nickname || onboardingData?.nickname });
-          syncOnboardingToServer(onboardingData);
+          setUser({ ...u, userId });
+          if (u.isNewUser) setPendingOnboarding(true);
         }}
         onGuestStart={() => setShowGuestOnboarding(true)}
       />
@@ -135,7 +136,7 @@ export default function App() {
     <UserProvider
       initialNickname={user?.nickname}
       initialUserId={user?.userId}
-      initialGoalSeconds={onboardingData?.goalSeconds}
+      initialGoalSeconds={onboardingGoalSeconds}
       initialIsNewUser={user?.isNewUser}
     >
       <CoinProvider>
@@ -160,7 +161,6 @@ export default function App() {
                           backgroundColor: T.paper,
                           borderTopColor: T.ink,
                           borderTopWidth: 2.5,
-
                           height: 76,
                           paddingBottom: 10,
                           paddingTop: 6,
