@@ -289,6 +289,7 @@ export default function OnboardingScreen({ onComplete }) {
     <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView
         style={s.container}
+        contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -379,6 +380,9 @@ const s = StyleSheet.create({
     backgroundColor: T.paper,
     paddingHorizontal: 24,
     paddingTop: 80,
+  },
+  scrollContent: {
+    paddingBottom: 60,
   },
   title: {
     fontSize: 36,
