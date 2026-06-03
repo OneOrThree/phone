@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { apiFetch } from '../utils/api';
 import {
   View,
   Text,
@@ -127,18 +128,27 @@ export default function MyPageScreen({ onLogout }) {
     setDraft(nickname);
     setEditing(true);
   }
-  function saveNickname() {
-    if (draft.trim()) setNickname(draft.trim());
+  async function saveNickname() {
+    if (!draft.trim()) return;
+    setNickname(draft.trim());
     setEditing(false);
+    await apiFetch('/api/v1/user', {
+      method: 'PATCH',
+      body: JSON.stringify({ nickname: draft.trim() }),
+    }).catch(() => {});
   }
 
   function openGoalEdit() {
     setDraftGoal(goalSeconds);
     setGoalEditing(true);
   }
-  function saveGoal() {
+  async function saveGoal() {
     setGoalSeconds(draftGoal);
     setGoalEditing(false);
+    await apiFetch('/api/v1/user', {
+      method: 'PATCH',
+      body: JSON.stringify({ dailyScreenTimeGoalMinutes: Math.round(draftGoal / 60) }),
+    }).catch(() => {});
   }
 
   return (

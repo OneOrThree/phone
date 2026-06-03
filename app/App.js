@@ -13,12 +13,7 @@ async function syncOnboardingToServer(onboardingData) {
     nickname: onboardingData.nickname,
     gender: GENDER_MAP[onboardingData.gender] ?? 'UNKNOWN',
     birthDate: onboardingData.birthday,
-    dailyScreenTimeGoalMinutes: (() => {
-      const total = Math.round((onboardingData.goalSeconds ?? 0) / 60);
-      const h = Math.floor(total / 60);
-      const m = total % 60;
-      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    })(),
+    dailyScreenTimeGoalMinutes: Math.round((onboardingData.goalSeconds ?? 0) / 60),
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     dayStartTime: onboardingData.dayStartTime ?? '00:00',
     dayEndTime: onboardingData.dayEndTime ?? '00:00',
