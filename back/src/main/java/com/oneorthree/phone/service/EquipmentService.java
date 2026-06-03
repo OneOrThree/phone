@@ -1,14 +1,14 @@
 package com.oneorthree.phone.service;
 
 import com.oneorthree.phone.api.dto.response.CharacterEquipmentResponse;
-import com.oneorthree.phone.domain.CharacterEquipment;
-import com.oneorthree.phone.domain.Item;
-import com.oneorthree.phone.domain.SlotType;
-import com.oneorthree.phone.domain.User;
-import com.oneorthree.phone.repository.CharacterEquipmentRepository;
-import com.oneorthree.phone.repository.ItemRepository;
-import com.oneorthree.phone.repository.UserItemRepository;
-import com.oneorthree.phone.repository.UserRepository;
+import com.oneorthree.phone.domain.item.CharacterEquipment;
+import com.oneorthree.phone.domain.item.Item;
+import com.oneorthree.phone.domain.item.SlotType;
+import com.oneorthree.phone.domain.user.User;
+import com.oneorthree.phone.repository.item.CharacterEquipmentRepository;
+import com.oneorthree.phone.repository.item.ItemRepository;
+import com.oneorthree.phone.repository.item.UserItemRepository;
+import com.oneorthree.phone.repository.user.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

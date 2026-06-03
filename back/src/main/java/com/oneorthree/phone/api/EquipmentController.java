@@ -2,7 +2,7 @@ package com.oneorthree.phone.api;
 
 import com.oneorthree.phone.api.dto.request.EquipRequest;
 import com.oneorthree.phone.api.dto.response.CharacterEquipmentResponse;
-import com.oneorthree.phone.domain.SlotType;
+import com.oneorthree.phone.domain.item.SlotType;
 import com.oneorthree.phone.service.EquipmentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -20,7 +20,7 @@ import java.util.List;
 
 @Tag(name = "equipment", description = "장비 관련 API")
 @RestController
-@RequestMapping("/api/equipment")
+@RequestMapping("/api/v1/equipment")
 @RequiredArgsConstructor
 public class EquipmentController {
 

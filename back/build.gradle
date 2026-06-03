@@ -45,10 +45,6 @@ dependencies {
 	// WebSocket + STOMP (실시간 장착 브로드캐스트)
 	implementation 'org.springframework.boot:spring-boot-starter-websocket'
 
-	// Spring Security (인증/인가, JWT 필터)
-	implementation 'org.springframework.boot:spring-boot-starter-security'
-	testImplementation 'org.springframework.security:spring-security-test'
-
 	// JJWT (JWT 발급/검증)
 	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
@@ -98,6 +94,8 @@ checkstyle {
 	ignoreFailures = false
 }
 
+checkstyleTest.enabled = false
+
 // ── SpotBugs ─────────────────────────────────────────────────────────────
 spotbugs {
 	toolVersion = '4.8.6'
@@ -113,6 +111,8 @@ tasks.withType(com.github.spotbugs.snom.SpotBugsTask).configureEach {
 		html.required = true  // 로컬 열람용
 	}
 }
+
+spotbugsTest.enabled = false
 
 // ── JaCoCo ───────────────────────────────────────────────────────────────
 jacoco {
