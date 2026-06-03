@@ -3,7 +3,13 @@ name: TestFlight 배포
 on:
   push:
     branches:
-      - feat/pomodoro
+      - main
+    # app/ 디렉터리 하위의 파일이 변경되었을 때만 자동 실행
+    paths:
+      - 'app/**'
+  
+  # 수동 실행 기능 유지
+  workflow_dispatch:
 
 jobs:
   build:
