@@ -64,7 +64,11 @@ public class User {
 
     private String timeZone;
 
-    private LocalTime dayResetTime;
+    private LocalTime dayStartTime;
+
+    private LocalTime dayEndTime;
+
+    private LocalTime reportTime;
 
     @CreationTimestamp
     private Instant createdAt;

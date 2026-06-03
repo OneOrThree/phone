@@ -16,5 +16,7 @@ public class UserProfileUpdateRequest {
     Gender gender;
     Integer dailyScreenTimeGoalMinutes;
     String timeZone;
-    String dayResetTime;
+    String dayStartTime;
+    String dayEndTime;
+    String reportTime;
 }

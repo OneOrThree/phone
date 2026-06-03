@@ -12,5 +12,7 @@ public record UserProfileResponse(
         String currentTier,
         int dailyScreenTimeGoalMinutes,
         String timeZone,
-        String dayResetTime
+        String dayStartTime,
+        String dayEndTime,
+        String reportTime
 ) {}

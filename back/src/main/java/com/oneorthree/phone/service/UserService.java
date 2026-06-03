@@ -30,14 +30,6 @@ public class UserService {
         user.setGender(body.getGender());
         user.setDailyScreenTimeGoalMinutes(body.getDailyScreenTimeGoalMinutes());
 
-        if ((body.getDayResetTime() == null) != (body.getTimeZone() == null)) {
-            throw new IllegalArgumentException("dayResetTime과 timeZone은 함께 설정해야 합니다");
-        }
-
-        if (body.getDayResetTime() != null) {
-            user.setDayResetTime(LocalTime.parse(body.getDayResetTime()));
-        }
-
         if (body.getTimeZone() != null) {
             try {
                 ZoneId.of(body.getTimeZone());
@@ -45,6 +37,16 @@ public class UserService {
                 throw new IllegalArgumentException("유효하지 않은 타임존: " + body.getTimeZone());
             }
             user.setTimeZone(body.getTimeZone());
+        }
+
+        if (body.getDayStartTime() != null) {
+            user.setDayStartTime(LocalTime.parse(body.getDayStartTime()));
+        }
+        if (body.getDayEndTime() != null) {
+            user.setDayEndTime(LocalTime.parse(body.getDayEndTime()));
+        }
+        if (body.getReportTime() != null) {
+            user.setReportTime(LocalTime.parse(body.getReportTime()));
         }
     }
 
@@ -66,10 +68,6 @@ public class UserService {
             user.setDailyScreenTimeGoalMinutes(body.getDailyScreenTimeGoalMinutes());
         }
 
-        if (body.getDayResetTime() != null) {
-            user.setDayResetTime(LocalTime.parse(body.getDayResetTime()));
-        }
-
         if (body.getTimeZone() != null) {
             try {
                 ZoneId.of(body.getTimeZone());
@@ -77,6 +75,16 @@ public class UserService {
                 throw new IllegalArgumentException("유효하지 않은 타임존: " + body.getTimeZone());
             }
             user.setTimeZone(body.getTimeZone());
+        }
+
+        if (body.getDayStartTime() != null) {
+            user.setDayStartTime(LocalTime.parse(body.getDayStartTime()));
+        }
+        if (body.getDayEndTime() != null) {
+            user.setDayEndTime(LocalTime.parse(body.getDayEndTime()));
+        }
+        if (body.getReportTime() != null) {
+            user.setReportTime(LocalTime.parse(body.getReportTime()));
         }
     }
 
@@ -94,7 +102,9 @@ public class UserService {
                 user.getCurrentTier() != null ? user.getCurrentTier().name() : null,
                 user.getDailyScreenTimeGoalMinutes(),
                 user.getTimeZone(),
-                user.getDayResetTime() != null ? user.getDayResetTime().toString() : null
+                user.getDayStartTime() != null ? user.getDayStartTime().toString() : null,
+                user.getDayEndTime() != null ? user.getDayEndTime().toString() : null,
+                user.getReportTime() != null ? user.getReportTime().toString() : null
         );
     }
 }
