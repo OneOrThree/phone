@@ -3,6 +3,7 @@ package com.oneorthree.phone.api;
 import com.oneorthree.phone.api.dto.request.UserProfileSetupRequest;
 import com.oneorthree.phone.api.dto.request.UserProfileUpdateRequest;
 import com.oneorthree.phone.service.UserService;
+import com.oneorthree.phone.service.dto.UserProfileResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,7 +26,7 @@ public class UserController {
 
     @Operation(summary = "유저 정보 등록", description = "신규 유저 정보 등록")
     @PostMapping("/user")
-    public ResponseEntity<?> setupProfile(
+    public ResponseEntity<Void> setupProfile(
             HttpServletRequest request,
             @RequestBody UserProfileSetupRequest body) {
         Long userId = (Long) request.getAttribute("userId");
@@ -35,7 +36,7 @@ public class UserController {
 
     @Operation(summary = "유저 정보 부분 수정", description = "기존 유저 정보 부분 수정")
     @PatchMapping("/user")
-    public ResponseEntity<?> updateProfile(
+    public ResponseEntity<Void> updateProfile(
             HttpServletRequest request,
             @RequestBody UserProfileUpdateRequest body) {
         Long userId = (Long) request.getAttribute("userId");
@@ -45,7 +46,7 @@ public class UserController {
 
     @Operation(summary = "유저 정보 조회", description = "기존 유저 정보 조회")
     @GetMapping("/user")
-    public ResponseEntity<?> getProfile(HttpServletRequest request) {
+    public ResponseEntity<UserProfileResponse> getProfile(HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
         return ResponseEntity.ok(userService.getProfile(userId));
     }

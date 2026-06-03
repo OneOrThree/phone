@@ -1,5 +1,10 @@
 package com.oneorthree.phone.service;
 
+import com.oneorthree.phone.domain.focus.FocusSession;
+import com.oneorthree.phone.repository.focus.FocusSessionRepository;
+import com.oneorthree.phone.service.dto.FocusSessionRequest;
+import com.oneorthree.phone.service.dto.FocusSessionResponse;
+import com.oneorthree.phone.service.dto.FocusTagResponse;
 import com.oneorthree.phone.service.dto.FocusTagSetupRequest;
 import com.oneorthree.phone.service.dto.FocusTagUpdateRequest;
 import com.oneorthree.phone.domain.focus.FocusTag;
@@ -13,6 +18,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -20,6 +27,17 @@ public class FocusService {
 
     private final FocusTagRepository focusTagRepository;
     private final UserRepository userRepository;
+    private final FocusSessionRepository focusSessionRepository;
+
+    public List<FocusTagResponse> getFocusTags(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        return focusTagRepository.findByUser(user)
+                .stream()
+                .map(tag -> new FocusTagResponse(tag.getId(), tag.getName()))
+                .toList();
+    }
 
     @Transactional
     public void setupFocusTag(Long userId, FocusTagSetupRequest body) {
@@ -54,5 +72,54 @@ public class FocusService {
         }
 
         focusTagRepository.delete(tag);
+    }
+
+    public List<FocusSessionResponse> getFocusSessions(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        return focusSessionRepository.findByUserWithTag(user)
+                .stream()
+                .map(session -> new FocusSessionResponse(
+                        session.getFocusTag() != null ? session.getFocusTag().getId() : null,
+                        session.getStartedAt(),
+                        session.getEndedAt(),
+                        session.getDistractionCount(),
+                        session.getTotalDistractionSeconds()
+                ))
+                .toList();
+    }
+
+    @Transactional
+    public void saveFocusSession(Long userId, FocusSessionRequest body) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        if (body.getStartedAt() == null || body.getEndedAt() == null) {
+            throw new IllegalArgumentException("시작/종료 시간은 필수입니다");
+        }
+
+        if (body.getEndedAt().isBefore(body.getStartedAt())) {
+            throw new IllegalArgumentException("종료 시간이 시작 시간보다 앞설 수 없습니다");
+        }
+
+        FocusTag tag = null;
+        if (body.getFocusTagId() != null) {
+            tag = focusTagRepository.findById(body.getFocusTagId())
+                    .orElseThrow(FocusTagNotFoundException::new);
+
+            if (!tag.getUser().getId().equals(userId)) {
+                throw new ForbiddenException();
+            }
+        }
+
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .focusTag(tag)
+                .startedAt(body.getStartedAt())
+                .endedAt(body.getEndedAt())
+                .distractionCount(body.getDistractionCount())
+                .totalDistractionSeconds(body.getTotalDistractionSeconds())
+                .build());
     }
 }
