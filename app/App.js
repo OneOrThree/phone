@@ -3,12 +3,14 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, StyleSheet, View, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setLogoutHandler, getUserIdFromToken } from './utils/api';
 
 import { FocusProvider } from './contexts/FocusContext';
 import { EquipmentProvider } from './contexts/EquipmentContext';
 import { CoinProvider } from './contexts/CoinContext';
 import { UserProvider } from './contexts/UserContext';
 
+import OnboardingScreen from './screens/OnboardingScreen';
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/Homescreen';
 import GroupScreen from './screens/GroupScreen';
@@ -30,10 +32,22 @@ const TAB_ICONS = {
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [onboardingDone, setOnboardingDone] = useState(false);
+  const [onboardingData, setOnboardingData] = useState(null);
 
   useEffect(() => {
-    AsyncStorage.getItem('gromo:user').then((raw) => {
-      if (raw) setUser(JSON.parse(raw));
+    Promise.all([
+      AsyncStorage.getItem('gromo:onboardingDone'),
+      AsyncStorage.getItem('gromo:onboarding'),
+      AsyncStorage.getItem('gromo:user'),
+    ]).then(([done, onboarding, userRaw]) => {
+      setOnboardingDone(done === 'true');
+      if (onboarding) setOnboardingData(JSON.parse(onboarding));
+      if (userRaw) {
+        const data = JSON.parse(userRaw);
+        const userId = getUserIdFromToken(data.accessToken);
+        setUser({ ...data, userId });
+      }
       setLoading(false);
     });
   }, []);
@@ -43,6 +57,10 @@ export default function App() {
     setUser(null);
   }
 
+  useEffect(() => {
+    setLogoutHandler(handleLogout);
+  }, []);
+
   if (loading) {
     return (
       <View style={s.loading}>
@@ -51,12 +69,35 @@ export default function App() {
     );
   }
 
+  if (!onboardingDone) {
+    return (
+      <OnboardingScreen
+        onComplete={(data) => {
+          setOnboardingData(data);
+          setOnboardingDone(true);
+        }}
+      />
+    );
+  }
+
   if (!user) {
-    return <LoginScreen onLogin={(u) => setUser(u)} />;
+    return (
+      <LoginScreen
+        onLogin={(u) => {
+          const userId = getUserIdFromToken(u.accessToken);
+          setUser({ ...u, userId });
+        }}
+      />
+    );
   }
 
   return (
-    <UserProvider initialNickname={user?.nickname}>
+    <UserProvider
+      initialNickname={user?.nickname}
+      initialUserId={user?.userId}
+      initialGoalSeconds={onboardingData?.goalSeconds}
+      initialIsNewUser={user?.isNewUser}
+    >
       <CoinProvider>
         <EquipmentProvider>
           <FocusProvider>

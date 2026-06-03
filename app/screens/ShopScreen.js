@@ -14,7 +14,7 @@ const RARITY = {
 const shopItems = {
   item: [
     {
-      id: 'desktop',
+      id: 1,
       name: '데스크탑',
       type: 'item',
       icon: '🖥',
@@ -24,7 +24,7 @@ const shopItems = {
       desc: '집중 모드에서 안경 쓰고 노트북 작업!',
     },
     {
-      id: 'book',
+      id: 2,
       name: '책',
       type: 'item',
       icon: '📚',
@@ -34,7 +34,7 @@ const shopItems = {
       desc: '독서하면서 집중! 책 읽는 포즈로 변신.',
     },
     {
-      id: 'yoga',
+      id: 3,
       name: '요가매트',
       type: 'item',
       icon: '🧘',
@@ -44,7 +44,7 @@ const shopItems = {
       desc: '요가하면서 마음도 집중! 평온한 표정.',
     },
     {
-      id: 'exercise',
+      id: 4,
       name: '운동기구',
       type: 'item',
       icon: '💪',
@@ -54,7 +54,7 @@ const shopItems = {
       desc: '운동하면서 집중! 덤벨 들고 파이팅!',
     },
     {
-      id: 'study',
+      id: 5,
       name: '문제집',
       type: 'item',
       icon: '✏',
@@ -66,7 +66,7 @@ const shopItems = {
   ],
   costume: [
     {
-      id: 'hat',
+      id: 6,
       name: '베레모',
       type: 'costume',
       slot: 'hat',
@@ -76,7 +76,7 @@ const shopItems = {
       desc: '귀여운 베레모! 예술가 감성 물씬.',
     },
     {
-      id: 'hair',
+      id: 7,
       name: '포니테일',
       type: 'costume',
       slot: 'hair',
@@ -86,7 +86,7 @@ const shopItems = {
       desc: '활기찬 포니테일 헤어스타일.',
     },
     {
-      id: 'top',
+      id: 8,
       name: '후드티',
       type: 'costume',
       slot: 'top',
@@ -96,7 +96,7 @@ const shopItems = {
       desc: '편안한 후드티. 집중할 땐 역시 편한 옷!',
     },
     {
-      id: 'bottom',
+      id: 9,
       name: '청바지',
       type: 'costume',
       slot: 'bottom',
@@ -106,7 +106,7 @@ const shopItems = {
       desc: '클래식한 청바지. 어디든 잘 어울려요.',
     },
     {
-      id: 'accessory',
+      id: 10,
       name: '별 귀걸이',
       type: 'costume',
       slot: 'accessory',
@@ -118,7 +118,7 @@ const shopItems = {
   ],
   furniture: [
     {
-      id: 'desk',
+      id: 11,
       name: '책상',
       type: 'furniture',
       icon: '🖥',
@@ -127,7 +127,7 @@ const shopItems = {
       desc: '방에 모니터 책상을 놓아요!',
     },
     {
-      id: 'bed',
+      id: 12,
       name: '침대',
       type: 'furniture',
       icon: '🛏',
@@ -136,7 +136,7 @@ const shopItems = {
       desc: '푹신한 침대! 방이 아늑해져요.',
     },
     {
-      id: 'window',
+      id: 13,
       name: '창문',
       type: 'furniture',
       icon: '🪟',
@@ -145,7 +145,7 @@ const shopItems = {
       desc: '햇살 들어오는 창문. 밝은 기분!',
     },
     {
-      id: 'frame',
+      id: 14,
       name: '액자',
       type: 'furniture',
       icon: '🖼',
@@ -154,7 +154,7 @@ const shopItems = {
       desc: '벽에 예쁜 그림을 걸어요.',
     },
     {
-      id: 'carpet',
+      id: 15,
       name: '카펫',
       type: 'furniture',
       icon: '🟥',

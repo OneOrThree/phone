@@ -10,6 +10,9 @@ module.exports = {
       plugins: ['@babel/plugin-syntax-jsx'],
     },
   },
+  globals: {
+    atob: 'readonly',
+  },
   rules: {
     'react/no-unstable-nested-components': ['warn', { allowAsProps: true }],
   },

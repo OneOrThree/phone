@@ -3,8 +3,7 @@ import { View, Text, Image, TouchableOpacity, ActivityIndicator, StyleSheet } fr
 import { login } from '@react-native-kakao/user';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '../components/theme';
-
-const API_URL = 'https://oneorthree.mooo.com';
+import { API_URL } from '../utils/api';
 
 async function kakaoLogin() {
   const kakaoToken = await login();
