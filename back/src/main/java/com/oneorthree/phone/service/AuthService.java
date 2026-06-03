@@ -2,12 +2,13 @@ package com.oneorthree.phone.service;
 
 import com.oneorthree.phone.api.dto.response.KakaoLoginResponse;
 import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
-import com.oneorthree.phone.domain.Provider;
-import com.oneorthree.phone.domain.SocialAccount;
-import com.oneorthree.phone.domain.User;
+import com.oneorthree.phone.domain.user.Provider;
+import com.oneorthree.phone.domain.user.SocialAccount;
+import com.oneorthree.phone.domain.user.User;
 import com.oneorthree.phone.exception.InvalidRefreshTokenException;
-import com.oneorthree.phone.repository.SocialAccountRepository;
-import com.oneorthree.phone.repository.UserRepository;
+import com.oneorthree.phone.repository.user.SocialAccountRepository;
+import com.oneorthree.phone.repository.user.UserRepository;
+import com.oneorthree.phone.service.dto.KakaoUserInfo;
 import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -27,30 +28,29 @@ public class AuthService {
 
     @Transactional
     public KakaoLoginResponse kakaoLogin(String kakaoAccessToken) {
-        KakaoUserInfo kakaoInfo = kakaoApiClient.getUserInfo(kakaoAccessToken);
-        String providerId = kakaoInfo.providerId();
 
-        Optional<SocialAccount> existingAccount =
-                socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, providerId);
+        KakaoUserInfo userInfo = kakaoApiClient.getUserInfo(kakaoAccessToken);
 
-        boolean isNewUser = existingAccount.isEmpty();
-        User user;
+        Optional<SocialAccount> socialUser = socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, String.valueOf(userInfo.providerId()));
 
-        if (isNewUser) {
-            user = userRepository.save(User.builder().build());
-            socialAccountRepository.save(SocialAccount.builder()
-                    .user(user)
-                    .provider(Provider.KAKAO)
-                    .providerId(providerId)
-                    .build());
-        } else {
-            user = existingAccount.get().getUser();
-        }
+        boolean isNewUser = socialUser.isEmpty();
+
+        User user = socialUser
+                .map(SocialAccount::getUser)
+                .orElseGet(() -> {
+                    User newUser = userRepository.save(User.builder().build());
+                    socialAccountRepository.save(SocialAccount.builder()
+                                    .user(newUser)
+                                    .provider(Provider.KAKAO)
+                                    .providerId(String.valueOf(userInfo.providerId()))
+                                    .build());
+                    return newUser;
+                });
 
         String accessToken = jwtProvider.generateAccessToken(user.getId());
         String refreshToken = jwtProvider.generateRefreshToken(user.getId());
-        user.setRefreshToken(refreshToken);
 
+        user.setRefreshToken(refreshToken);
         return new KakaoLoginResponse(accessToken, refreshToken, isNewUser);
     }
 

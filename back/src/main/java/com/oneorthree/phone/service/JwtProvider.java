@@ -1,7 +1,6 @@
 package com.oneorthree.phone.service;
 
-import io.jsonwebtoken.JwtException;
-import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -36,18 +35,23 @@ public class JwtProvider {
     }
 
     public Long extractUserId(String token) {
+
         String subject = Jwts.parser()
                 .verifyWith(secretKey)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload()
                 .getSubject();
+
         return Long.parseLong(subject);
     }
 
     public boolean isTokenValid(String token) {
         try {
-            Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(token);
+            Jwts.parser()
+                    .verifyWith(secretKey)
+                    .build()
+                    .parseSignedClaims(token);
             return true;
         } catch (JwtException | IllegalArgumentException e) {
             return false;
@@ -56,12 +60,11 @@ public class JwtProvider {
 
     private String buildToken(Long userId, long expirationSeconds) {
         Date now = new Date();
-        Date expiry = new Date(now.getTime() + expirationSeconds * 1000);
         return Jwts.builder()
-            .subject(userId.toString())
-            .issuedAt(now)
-            .expiration(expiry)
-            .signWith(secretKey)
-            .compact();
+                .subject(userId.toString())
+                .issuedAt(now)
+                .expiration(new Date(now.getTime() + expirationSeconds * 1000))
+                .signWith(secretKey)
+                .compact();
     }
 }
