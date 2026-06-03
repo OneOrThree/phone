@@ -5,6 +5,7 @@ on:
     branches: [ main, develop, 'feat/**' ]
     paths:
       - 'back/src/main/java/com/oneorthree/phone/api/**'
+  workflow_dispatch:
 
 jobs:
   generate-docs:
