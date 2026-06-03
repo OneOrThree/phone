@@ -219,8 +219,15 @@ export default function FocusModeScreen({ navigation }) {
   );
 
   function handleStop() {
-    addFocusSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
-    navigation.navigate('홈');
+    const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+    addFocusSeconds(elapsed);
+    navigation.navigate('홈', {
+      focusResult: {
+        sessionSeconds: elapsed,
+        totalSeconds: todayFocusSeconds + elapsed,
+        coinsEarned: Math.floor(elapsed / 10),
+      },
+    });
   }
 
   return (
