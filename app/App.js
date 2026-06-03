@@ -9,19 +9,25 @@ const GENDER_MAP = { male: 'MALE', female: 'FEMALE', other: 'UNKNOWN' };
 
 async function syncOnboardingToServer(onboardingData) {
   if (!onboardingData) return;
-  await apiFetch('/api/v1/user', {
-    method: 'POST',
-    body: JSON.stringify({
-      nickname: onboardingData.nickname,
-      gender: GENDER_MAP[onboardingData.gender] ?? 'UNKNOWN',
-      birthDate: onboardingData.birthday,
-      dailyScreenTimeGoalMinutes: Math.round((onboardingData.goalSeconds ?? 0) / 60),
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      dayStartTime: onboardingData.dayStartTime ?? '00:00',
-      dayEndTime: onboardingData.dayEndTime ?? '00:00',
-      reportTime: onboardingData.reportTime ?? '00:00',
-    }),
-  }).catch(() => {});
+  const body = {
+    nickname: onboardingData.nickname,
+    gender: GENDER_MAP[onboardingData.gender] ?? 'UNKNOWN',
+    birthDate: onboardingData.birthday,
+    dailyScreenTimeGoalMinutes: Math.round((onboardingData.goalSeconds ?? 0) / 60),
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    dayStartTime: onboardingData.dayStartTime ?? '00:00',
+    dayEndTime: onboardingData.dayEndTime ?? '00:00',
+    reportTime: onboardingData.reportTime ?? '00:00',
+  };
+  console.log('[온보딩 전송]', JSON.stringify(body, null, 2));
+  try {
+    const res = await apiFetch('/api/v1/user', { method: 'POST', body: JSON.stringify(body) });
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : {};
+    console.log('[온보딩 응답]', res.status, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('[온보딩 실패]', e);
+  }
 }
 
 import { FocusProvider } from './contexts/FocusContext';
