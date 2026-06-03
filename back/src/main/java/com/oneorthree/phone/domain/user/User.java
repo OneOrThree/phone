@@ -43,6 +43,7 @@ public class User {
 
     private String nickname;
 
+    @Enumerated(EnumType.STRING)
     private Gender gender;
 
     private LocalDate birthDate;
@@ -60,6 +61,8 @@ public class User {
     @Column(nullable = false)
     @Builder.Default
     private int dailyScreenTimeGoalMinutes = 0;
+
+    private String timeZone;
 
     private LocalTime dayResetTime;
 

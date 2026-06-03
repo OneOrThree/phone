@@ -1,4 +1,48 @@
 package com.oneorthree.phone.service;
 
+import com.oneorthree.phone.api.dto.request.UserProfileSetupRequest;
+import com.oneorthree.phone.domain.user.User;
+import com.oneorthree.phone.repository.user.UserRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.DateTimeException;
+import java.time.LocalTime;
+import java.time.ZoneId;
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class UserService {
+
+    private final UserRepository userRepository;
+
+    @Transactional
+    public void setupProfile(Long userId, UserProfileSetupRequest body) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("존재하지 않는 유저"));
+
+        user.setNickname(body.getNickname());
+        user.setBirthDate(body.getBirthDate());
+        user.setGender(body.getGender());
+        user.setDailyScreenTimeGoalMinutes(body.getDailyScreenTimeGoalMinutes());
+
+        if ((body.getDayResetTime() == null) != (body.getTimeZone() == null)) {
+            throw new IllegalArgumentException("dayResetTime과 timeZone은 함께 설정해야 합니다");
+        }
+
+        if (body.getDayResetTime() != null) {
+            user.setDayResetTime(LocalTime.parse(body.getDayResetTime()));
+        }
+
+        if (body.getTimeZone() != null) {
+            try {
+                ZoneId.of(body.getTimeZone());
+            } catch (DateTimeException e) {
+                throw new IllegalArgumentException("유효하지 않은 타임존: " + body.getTimeZone());
+            }
+            user.setTimeZone(body.getTimeZone());
+        }
+    }
 }
