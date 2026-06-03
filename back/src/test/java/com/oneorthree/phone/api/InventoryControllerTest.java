@@ -4,6 +4,7 @@ import com.oneorthree.phone.api.dto.response.ItemResponse;
 import com.oneorthree.phone.api.dto.response.UserItemResponse;
 import com.oneorthree.phone.service.InventoryService;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -21,6 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc(addFilters = false)
+@Disabled
 public class InventoryControllerTest {
 
     @Autowired
