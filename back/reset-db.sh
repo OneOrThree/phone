@@ -12,7 +12,6 @@ echo "테이블 전체 초기화를 시작합니다..."
 
 docker exec -i "$CONTAINER" psql -U "$USER" -d "$DB" <<'EOF'
 
--- 외래키 제약으로 인해 의존성 역순으로 DROP
 DROP TABLE IF EXISTS room_invites             CASCADE;
 DROP TABLE IF EXISTS friendships              CASCADE;
 DROP TABLE IF EXISTS weekly_feedbacks         CASCADE;
@@ -33,7 +32,6 @@ DROP TABLE IF EXISTS items                    CASCADE;
 DROP TABLE IF EXISTS social_accounts          CASCADE;
 DROP TABLE IF EXISTS users                    CASCADE;
 
--- 재생성
 CREATE TABLE users (
     id                             BIGSERIAL    PRIMARY KEY,
     nickname                       VARCHAR(255),
@@ -45,7 +43,9 @@ CREATE TABLE users (
     current_tier                   VARCHAR(20),
     daily_screen_time_goal_minutes INTEGER      NOT NULL DEFAULT 0,
     time_zone                      VARCHAR(100),
-    day_reset_time                 TIME,
+    day_start_time                 TIME,
+    day_end_time                   TIME,
+    report_time                    TIME,
     created_at                     TIMESTAMPTZ
 );
 

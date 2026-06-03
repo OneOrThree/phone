@@ -3,6 +3,7 @@ package com.oneorthree.phone.service;
 import com.oneorthree.phone.api.dto.request.UserProfileSetupRequest;
 import com.oneorthree.phone.api.dto.request.UserProfileUpdateRequest;
 import com.oneorthree.phone.domain.user.User;
+import com.oneorthree.phone.exception.UserNotFoundException;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.UserProfileResponse;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +24,7 @@ public class UserService {
     @Transactional
     public void setupProfile(Long userId, UserProfileSetupRequest body) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("존재하지 않는 유저"));
+                .orElseThrow(UserNotFoundException::new);
 
         user.setNickname(body.getNickname());
         user.setBirthDate(body.getBirthDate());
@@ -53,7 +54,7 @@ public class UserService {
     @Transactional
     public void updateProfile(Long userId, UserProfileUpdateRequest body) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("존재하지 않는 유저"));
+                .orElseThrow(UserNotFoundException::new);
 
         if (body.getNickname() != null) {
             user.setNickname(body.getNickname());
@@ -90,7 +91,7 @@ public class UserService {
 
     public UserProfileResponse getProfile(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("존재하지 않는 유저"));
+                .orElseThrow(UserNotFoundException::new);
 
         return new UserProfileResponse(
                 user.getId(),
