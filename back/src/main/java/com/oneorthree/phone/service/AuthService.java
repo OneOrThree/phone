@@ -8,7 +8,7 @@ import com.oneorthree.phone.domain.user.User;
 import com.oneorthree.phone.exception.InvalidRefreshTokenException;
 import com.oneorthree.phone.repository.user.SocialAccountRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
-import com.oneorthree.phone.service.dto.KakaoUserInfo;
+import com.oneorthree.phone.service.dto.user.KakaoUserInfo;
 import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

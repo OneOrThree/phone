@@ -2,11 +2,11 @@ package com.oneorthree.phone.service;
 
 import com.oneorthree.phone.domain.focus.FocusSession;
 import com.oneorthree.phone.repository.focus.FocusSessionRepository;
-import com.oneorthree.phone.service.dto.FocusSessionRequest;
-import com.oneorthree.phone.service.dto.FocusSessionResponse;
-import com.oneorthree.phone.service.dto.FocusTagResponse;
-import com.oneorthree.phone.service.dto.FocusTagSetupRequest;
-import com.oneorthree.phone.service.dto.FocusTagUpdateRequest;
+import com.oneorthree.phone.service.dto.focusmode.FocusSessionRequest;
+import com.oneorthree.phone.service.dto.focusmode.FocusSessionResponse;
+import com.oneorthree.phone.service.dto.focusmode.FocusTagResponse;
+import com.oneorthree.phone.service.dto.focusmode.FocusTagSetupRequest;
+import com.oneorthree.phone.service.dto.focusmode.FocusTagUpdateRequest;
 import com.oneorthree.phone.domain.focus.FocusTag;
 import com.oneorthree.phone.domain.user.User;
 import com.oneorthree.phone.exception.FocusTagNotFoundException;
