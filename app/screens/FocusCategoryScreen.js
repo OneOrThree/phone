@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -188,8 +188,6 @@ export default function FocusCategoryScreen({ navigation }) {
       subject: subject.trim(),
     });
   }
-
-  const selectedTag = tags.find((t) => t.tagId === selectedTagId);
 
   return (
     <KeyboardAvoidingView
