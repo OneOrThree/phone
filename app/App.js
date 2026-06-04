@@ -42,6 +42,7 @@ import GroupScreen from './screens/GroupScreen';
 import ShopScreen from './screens/ShopScreen';
 import MyPageScreen from './screens/MyPageScreen';
 import FocusModeScreen from './screens/FocusModeScreen';
+import FocusCategoryScreen from './screens/FocusCategoryScreen';
 
 import { T } from './components/theme';
 
@@ -131,7 +132,10 @@ export default function App() {
     <UserProvider
       initialNickname={user?.nickname}
       initialUserId={user?.userId}
-      initialGoalSeconds={onboardingGoalSeconds}
+      initialGoalSeconds={
+        onboardingGoalSeconds ??
+        (user?.dailyScreenTimeGoalMinutes ? user.dailyScreenTimeGoalMinutes * 60 : null)
+      }
       initialIsNewUser={user?.isNewUser}
     >
       <CoinProvider>
@@ -149,18 +153,17 @@ export default function App() {
                   ),
                   tabBarActiveTintColor: T.ink,
                   tabBarInactiveTintColor: T.inkLight,
-                  tabBarStyle:
-                    route.name === 'FocusMode'
-                      ? { display: 'none' }
-                      : {
-                          backgroundColor: T.paper,
-                          borderTopColor: T.ink,
-                          borderTopWidth: 2.5,
-                          height: 76,
-                          paddingBottom: 10,
-                          paddingTop: 6,
-                          marginBottom: 8,
-                        },
+                  tabBarStyle: ['FocusMode', 'FocusCategoryScreen'].includes(route.name)
+                    ? { display: 'none' }
+                    : {
+                        backgroundColor: T.paper,
+                        borderTopColor: T.ink,
+                        borderTopWidth: 2.5,
+                        height: 76,
+                        paddingBottom: 10,
+                        paddingTop: 6,
+                        marginBottom: 8,
+                      },
                   tabBarLabelStyle: {
                     fontSize: 11,
                     fontWeight: '700',
@@ -173,6 +176,11 @@ export default function App() {
                 <Tab.Screen name="마이페이지">
                   {() => <MyPageScreen user={user} onLogout={handleLogout} />}
                 </Tab.Screen>
+                <Tab.Screen
+                  name="FocusCategoryScreen"
+                  component={FocusCategoryScreen}
+                  options={{ tabBarButton: () => null }}
+                />
                 <Tab.Screen
                   name="FocusMode"
                   component={FocusModeScreen}

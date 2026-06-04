@@ -8,7 +8,11 @@ import {
   Modal,
   TextInput,
   PanResponder,
+  NativeModules,
+  Alert,
 } from 'react-native';
+
+const { ScreenTimeModule } = NativeModules;
 import { StatusBar } from 'expo-status-bar';
 import { T, inkBox } from '../components/theme';
 import { Character2D } from '../components/character/Character2D';
@@ -120,6 +124,21 @@ export default function MyPageScreen({ onLogout }) {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(nickname);
+
+  async function handleCheckScreenTime() {
+    try {
+      const status = await ScreenTimeModule.checkAuthorizationStatus();
+      const msg = {
+        approved: '✅ 스크린타임 권한이 허용되어 있어요.',
+        denied:
+          '❌ 스크린타임 권한이 거부되어 있어요.\n설정 > 스크린 타임에서 gromo를 허용해주세요.',
+        notDetermined: '⚠️ 스크린타임 권한을 아직 요청하지 않았어요.',
+      };
+      Alert.alert('스크린타임 권한', msg[status] ?? '알 수 없는 상태예요.');
+    } catch (e) {
+      Alert.alert('오류', '권한 상태를 확인하지 못했어요.');
+    }
+  }
 
   const [goalEditing, setGoalEditing] = useState(false);
   const [draftGoal, setDraftGoal] = useState(goalSeconds);
@@ -260,6 +279,14 @@ export default function MyPageScreen({ onLogout }) {
           );
         })()}
       </View>
+
+      <TouchableOpacity
+        style={[s.screenTimeBtn, inkBox(T.paperDark)]}
+        onPress={handleCheckScreenTime}
+        activeOpacity={0.8}
+      >
+        <Text style={s.screenTimeBtnText}>스크린타임 권한 확인</Text>
+      </TouchableOpacity>
 
       <TouchableOpacity
         style={[s.logoutBtn, inkBox(T.paperDark)]}
@@ -540,8 +567,18 @@ const s = StyleSheet.create({
     color: T.inkMed,
     lineHeight: 20,
   },
-  logoutBtn: {
+  screenTimeBtn: {
     marginTop: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  screenTimeBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: T.inkMed,
+  },
+  logoutBtn: {
+    marginTop: 8,
     paddingVertical: 14,
     alignItems: 'center',
   },

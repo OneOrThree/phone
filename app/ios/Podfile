@@ -59,17 +59,15 @@ target 'gromo' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
-    fmt_base_h = "#{installer.sandbox.root}/fmt/include/fmt/base.h"
+    # Xcode 26 + fmt 라이브러리 consteval 호환성 패치 (Apple clang consteval 버그 우회)
+    fmt_base_h = File.join(installer.sandbox.root, 'fmt/include/fmt/base.h')
     if File.exist?(fmt_base_h)
       content = File.read(fmt_base_h)
-      unless content.include?('FMT_USE_CONSTEVAL 0  // patched')
-        content.sub!(
-          "#if FMT_USE_CONSTEVAL\n",
-          "#undef FMT_USE_CONSTEVAL\n#define FMT_USE_CONSTEVAL 0  // patched\n#if FMT_USE_CONSTEVAL\n"
-        )
-        FileUtils.chmod('u+w', fmt_base_h)
-        File.write(fmt_base_h, content)
-      end
+      patched = content.sub(
+        "defined(__apple_build_version__) && __apple_build_version__ < 14000029L",
+        "defined(__apple_build_version__)"
+      )
+      File.write(fmt_base_h, patched) unless content == patched
     end
   end
 end

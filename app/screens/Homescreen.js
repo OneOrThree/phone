@@ -1,5 +1,6 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useEquipment } from '../contexts/EquipmentContext';
 import { useFocus } from '../contexts/FocusContext';
@@ -10,10 +11,9 @@ import { T } from '../components/theme';
 function formatFocusTime(totalSeconds) {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
-  const sec = totalSeconds % 60;
   if (h > 0) return `${h}시간 ${m}분`;
-  if (m > 0) return `${m}분 ${sec}초`;
-  return `${sec}초`;
+  if (m > 0) return `${m}분`;
+  return '0분';
 }
 
 function NotebookLines() {
@@ -29,8 +29,9 @@ function NotebookLines() {
 function formatGoalTime(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
+  if (h === 0) return `${m}분`;
   if (m === 0) return `${h}시간`;
-  return `${h}h ${m}m`;
+  return `${h}시간 ${m}분`;
 }
 
 function StatBox({ label, value }) {
@@ -179,16 +180,66 @@ function Room({ equippedFurniture, costumeSlots }) {
 
 // ── Screen ───────────────────────────────────────────────────────────────────
 
-export default function HomeScreen({ navigation }) {
+function formatTime(totalSeconds) {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const sec = totalSeconds % 60;
+  return [h, m, sec].map((v) => String(v).padStart(2, '0')).join(':');
+}
+
+export default function HomeScreen({ navigation, route }) {
   const { equippedItem, equippedFurniture, equippedCostume } = useEquipment();
   const { todayFocusSeconds } = useFocus();
   const { nickname, goalSeconds, phoneUsageSeconds } = useUser();
   const costumeSlots = equippedCostume.map((c) => c.slot);
   const remainingSeconds = Math.max(0, goalSeconds - phoneUsageSeconds);
+  const [focusResult, setFocusResult] = useState(null);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (route.params?.focusResult) {
+        setFocusResult(route.params.focusResult);
+        navigation.setParams({ focusResult: undefined });
+      }
+    }, [route.params?.focusResult, navigation]),
+  );
 
   return (
     <View style={s.container}>
       <StatusBar style="dark" />
+      <Modal visible={!!focusResult} transparent animationType="fade">
+        <View style={s.resultOverlay}>
+          <View style={s.resultBox}>
+            <Text style={s.resultTitle}>집중 완료!</Text>
+            {(focusResult?.tagName || focusResult?.subject) && (
+              <Text style={s.resultSession}>
+                {focusResult.tagName}
+                {focusResult.tagName && focusResult.subject ? '  ·  ' : ''}
+                {focusResult.subject}
+              </Text>
+            )}
+            <View style={s.resultRow}>
+              <Text style={s.resultLabel}>이번 세션</Text>
+              <Text style={s.resultValue}>{formatTime(focusResult?.sessionSeconds ?? 0)}</Text>
+            </View>
+            <View style={s.resultRow}>
+              <Text style={s.resultLabel}>오늘 전체</Text>
+              <Text style={s.resultValue}>{formatTime(focusResult?.totalSeconds ?? 0)}</Text>
+            </View>
+            <View style={s.resultRow}>
+              <Text style={s.resultLabel}>획득 코인</Text>
+              <Text style={s.resultValue}>💰 {focusResult?.coinsEarned ?? 0}</Text>
+            </View>
+            <TouchableOpacity
+              style={s.resultBtn}
+              onPress={() => setFocusResult(null)}
+              activeOpacity={0.7}
+            >
+              <Text style={s.resultBtnText}>확인</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       <NotebookLines />
 
       <View style={s.header}>
@@ -215,7 +266,7 @@ export default function HomeScreen({ navigation }) {
           </View>
           <TouchableOpacity
             style={s.startBtn}
-            onPress={() => navigation.navigate('FocusMode')}
+            onPress={() => navigation.navigate('FocusCategoryScreen')}
             activeOpacity={0.7}
           >
             <Text style={s.startBtnText}>집중 시작!</Text>
@@ -522,4 +573,48 @@ const s = StyleSheet.create({
     paddingHorizontal: 20,
   },
   startBtnText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+
+  resultOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  resultBox: {
+    width: '100%',
+    backgroundColor: T.paper,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: T.inkLight,
+    padding: 28,
+    gap: 16,
+  },
+  resultTitle: { fontSize: 22, fontWeight: '900', color: T.ink, textAlign: 'center' },
+  resultSession: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: T.inkMed,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  resultRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: T.paperLine,
+  },
+  resultLabel: { fontSize: 14, fontWeight: '600', color: T.inkMed },
+  resultValue: { fontSize: 18, fontWeight: '800', color: T.ink },
+  resultBtn: {
+    marginTop: 4,
+    backgroundColor: T.ink,
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  resultBtnText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
 });

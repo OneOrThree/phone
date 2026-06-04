@@ -7,6 +7,7 @@ import { useEquipment } from '../contexts/EquipmentContext';
 import { useCoins } from '../contexts/CoinContext';
 import { Character2D } from '../components/character/Character2D';
 import { T, inkBox } from '../components/theme';
+import { apiFetch } from '../utils/api';
 
 function formatTime(totalSeconds) {
   const h = Math.floor(totalSeconds / 3600);
@@ -184,12 +185,14 @@ const VARIANT_CARD_COLOR = {
   study: T.lavender,
 };
 
-export default function FocusModeScreen({ navigation }) {
+export default function FocusModeScreen({ navigation, route }) {
+  const { tagId, tagName, subject } = route.params ?? {};
   const { todayFocusSeconds, addFocusSeconds } = useFocus();
   const { equippedItem } = useEquipment();
   const { addCoins } = useCoins();
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const startTimeRef = useRef(null);
+  const startedAtRef = useRef(null);
   const lastCoinRef = useRef(0);
   const addCoinsRef = useRef(addCoins);
   useEffect(() => {
@@ -203,6 +206,7 @@ export default function FocusModeScreen({ navigation }) {
   useFocusEffect(
     React.useCallback(() => {
       startTimeRef.current = Date.now();
+      startedAtRef.current = new Date().toISOString();
       lastCoinRef.current = 0;
       setSessionSeconds(0);
       const id = setInterval(() => {
@@ -218,27 +222,65 @@ export default function FocusModeScreen({ navigation }) {
     }, []),
   );
 
-  function handleStop() {
-    addFocusSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
-    navigation.navigate('홈');
+  async function handleStop() {
+    const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+    const endedAt = new Date().toISOString();
+
+    addFocusSeconds(elapsed);
+
+    try {
+      await apiFetch('/api/v1/focus-session', {
+        method: 'POST',
+        body: JSON.stringify({
+          focusTagId: tagId ?? null,
+          subject: subject ?? null,
+          startedAt: startedAtRef.current,
+          endedAt,
+          distractionCount: 0,
+          totalDistractionSeconds: 0,
+        }),
+      });
+    } catch (e) {
+      console.error('[세션 저장 실패]', e);
+    }
+
+    navigation.navigate('홈', {
+      focusResult: {
+        sessionSeconds: elapsed,
+        totalSeconds: todayFocusSeconds + elapsed,
+        coinsEarned: Math.floor(elapsed / 10),
+        tagName: tagName ?? null,
+        subject: subject ?? null,
+      },
+    });
   }
 
   return (
     <View style={s.container}>
       <StatusBar style="dark" />
 
+      {/* 헤더 */}
       <View style={s.headerRow}>
-        <Text style={s.pageLabel}>✏ 집중 중이에요</Text>
+        <View>
+          <Text style={s.pageLabel}>✏ 집중 중이에요</Text>
+          {(tagName || subject) && (
+            <Text style={s.sessionInfo}>
+              {tagName}
+              {tagName && subject ? '  ·  ' : ''}
+              {subject}
+            </Text>
+          )}
+        </View>
         <Text style={s.decoStar}>★ ★</Text>
       </View>
 
-      {/* Timer */}
+      {/* 현재 세션 타이머 */}
       <View style={[s.timerCard, inkBox(T.yellow)]}>
         <Text style={s.timerSmall}>현재 세션</Text>
         <Text style={s.timerText}>{formatTime(sessionSeconds)}</Text>
       </View>
 
-      {/* Character */}
+      {/* 캐릭터 */}
       <View style={[s.charCard, inkBox(cardColor, '-0.8deg')]}>
         <Text style={s.charMsg}>{msg}</Text>
         <View style={s.charInner}>
@@ -246,18 +288,16 @@ export default function FocusModeScreen({ navigation }) {
         </View>
       </View>
 
-      {/* Accumulated */}
-      <View style={[s.accumCard, inkBox(T.mint)]}>
+      {/* 오늘 누적 — compact 한 줄 */}
+      <View style={s.accumRow}>
         <Text style={s.accumLabel}>오늘 누적 ⏱</Text>
         <Text style={s.accumTime}>{formatTime(todayFocusSeconds + sessionSeconds)}</Text>
       </View>
 
-      {/* Stop */}
+      {/* 중지 */}
       <TouchableOpacity style={s.stopBtn} onPress={handleStop} activeOpacity={0.7}>
         <Text style={s.stopBtnText}>중지하기</Text>
       </TouchableOpacity>
-
-      <Text style={s.bottomDeco}>✦ · · · ✦ · · · ✦</Text>
     </View>
   );
 }
@@ -276,11 +316,17 @@ const s = StyleSheet.create({
     marginBottom: 16,
   },
   pageLabel: { fontSize: 20, fontWeight: '900', color: T.ink },
+  sessionInfo: { fontSize: 13, fontWeight: '600', color: T.inkMed, marginTop: 2 },
   decoStar: { fontSize: 14, color: T.inkLight, letterSpacing: 4 },
 
-  timerCard: { alignItems: 'center', paddingVertical: 12, paddingHorizontal: 24, marginBottom: 12 },
+  timerCard: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    marginBottom: 12,
+  },
   timerSmall: { fontSize: 13, fontWeight: '700', color: T.inkMed, marginBottom: 2 },
-  timerText: { fontSize: 52, fontWeight: '900', color: T.ink, letterSpacing: -2 },
+  timerText: { fontSize: 56, fontWeight: '900', color: T.ink, letterSpacing: -2 },
 
   charCard: {
     flex: 1,
@@ -292,23 +338,22 @@ const s = StyleSheet.create({
   charMsg: { fontSize: 13, fontWeight: '700', color: T.inkMed, marginBottom: 6 },
   charInner: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  accumCard: { alignItems: 'center', paddingVertical: 14, marginBottom: 18 },
+  accumRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    marginBottom: 16,
+  },
   accumLabel: { fontSize: 13, fontWeight: '700', color: T.inkMed },
-  accumTime: { fontSize: 30, fontWeight: '900', color: T.ink, marginTop: 2, letterSpacing: -1 },
+  accumTime: { fontSize: 18, fontWeight: '900', color: T.ink, letterSpacing: -0.5 },
 
   stopBtn: {
     backgroundColor: T.ink,
     borderRadius: 8,
     paddingVertical: 16,
     alignItems: 'center',
+    marginBottom: 16,
   },
   stopBtnText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
-
-  bottomDeco: {
-    textAlign: 'center',
-    marginTop: 14,
-    fontSize: 13,
-    color: T.inkLight,
-    letterSpacing: 4,
-  },
 });
