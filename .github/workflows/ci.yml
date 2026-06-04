@@ -1,13 +1,7 @@
 name: CI
 
 on:
-  push:
-    branches: [develop]
-    paths:
-      - 'back/**'
-      - '.github/workflows/**'
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'back/**'
       - '.github/workflows/**'
