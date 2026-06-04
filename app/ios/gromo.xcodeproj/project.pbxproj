@@ -13,8 +13,6 @@
 		8B8792C0DAAF303A08360EC1 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB42D6F1E39342F74D28ED89 /* ExpoModulesProvider.swift */; };
 		A4BAEF0EA4985163CC549E97 /* libPods-gromo.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 357F8A1A249D50B70A99CAC4 /* libPods-gromo.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
-		D463E6512FD15CD10049F07A /* ScreenTimeModule.m in Sources */ = {isa = PBXBuildFile; fileRef = D463E6502FD15CD10049F07A /* ScreenTimeModule.m */; };
-		D463E6532FD15CE80049F07A /* ScreenTimeModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = D463E6522FD15CE80049F07A /* ScreenTimeModule.swift */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
@@ -29,8 +27,6 @@
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = gromo/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		BB42D6F1E39342F74D28ED89 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-gromo/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
-		D463E6502FD15CD10049F07A /* ScreenTimeModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ScreenTimeModule.m; path = gromo/ScreenTimeModule.m; sourceTree = "<group>"; };
-		D463E6522FD15CE80049F07A /* ScreenTimeModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScreenTimeModule.swift; path = gromo/ScreenTimeModule.swift; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = gromo/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* gromo-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "gromo-Bridging-Header.h"; path = "gromo/gromo-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -51,8 +47,6 @@
 		13B07FAE1A68108700A75B9A /* gromo */ = {
 			isa = PBXGroup;
 			children = (
-				D463E6522FD15CE80049F07A /* ScreenTimeModule.swift */,
-				D463E6502FD15CD10049F07A /* ScreenTimeModule.m */,
 				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
 				F11748442D0722820044C1D9 /* gromo-Bridging-Header.h */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
@@ -337,8 +331,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				D463E6512FD15CD10049F07A /* ScreenTimeModule.m in Sources */,
-				D463E6532FD15CE80049F07A /* ScreenTimeModule.swift in Sources */,
 				8B8792C0DAAF303A08360EC1 /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
