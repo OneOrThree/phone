@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../utils/api';
 import { T, inkBox } from '../components/theme';
 
@@ -70,18 +69,15 @@ export default function FocusCategoryScreen({ navigation }) {
         setTagStats(stats);
       }
 
-      const alreadyInit = await AsyncStorage.getItem('gromo:tagsInitialized');
-      if (list.length === 0 && initial && !alreadyInit) {
+      if (list.length === 0 && initial) {
         await apiFetch('/api/v1/tag', {
           method: 'POST',
           body: JSON.stringify({ name: '공부' }),
         });
-        await AsyncStorage.setItem('gromo:tagsInitialized', 'true');
         const res2 = await apiFetch('/api/v1/tag');
         const data2 = await res2.json();
         setTags(Array.isArray(data2) ? data2 : []);
       } else {
-        if (!alreadyInit) await AsyncStorage.setItem('gromo:tagsInitialized', 'true');
         setTags(list);
       }
     } catch (e) {
