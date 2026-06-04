@@ -43,6 +43,10 @@ public class CurrencyTransaction {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    private TransactionType type;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private CurrencyReason reason;
 
     @CreationTimestamp

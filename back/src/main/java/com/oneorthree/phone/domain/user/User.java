@@ -4,6 +4,8 @@ import com.oneorthree.phone.domain.item.CharacterEquipment;
 import com.oneorthree.phone.domain.item.UserItem;
 import com.oneorthree.phone.domain.league.LeagueTier;
 
+import com.oneorthree.phone.exception.CurrencyErrorCode;
+import com.oneorthree.phone.exception.CurrencyException;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -84,4 +86,19 @@ public class User {
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<CharacterEquipment> characterEquipments = new ArrayList<>();
+
+    public void earnCurrency(int amount) {
+        if (amount <= 0) throw new IllegalArgumentException("잔액 증가는 양수 단위로만 되어야 합니다.");
+        this.currency += amount;
+    }
+
+    public void spendCurrency(int amount) {
+        if (amount <= 0)
+            throw new IllegalArgumentException("잔액 감소는 양수 단위로만 되어야 합니다.");
+
+        if (this.currency < amount)
+            throw new CurrencyException(CurrencyErrorCode.INSUFFICIENT_CURRENCY);
+
+        this.currency -= amount;
+    }
 }
