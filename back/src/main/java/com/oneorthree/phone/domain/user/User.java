@@ -92,17 +92,19 @@ public class User {
     private List<CharacterEquipment> characterEquipments = new ArrayList<>();
 
     public void earnCurrency(int amount) {
-        if (amount <= 0) throw new IllegalArgumentException("잔액 증가는 양수 단위로만 되어야 합니다.");
+        if (amount <= 0) {
+            throw new IllegalArgumentException("잔액 증가는 양수 단위로만 되어야 합니다.");
+        }
         this.currency += amount;
     }
 
     public void spendCurrency(int amount) {
-        if (amount <= 0)
+        if (amount <= 0) {
             throw new IllegalArgumentException("잔액 감소는 양수 단위로만 되어야 합니다.");
-
-        if (this.currency < amount)
+        }
+        if (this.currency < amount) {
             throw new CurrencyException(CurrencyErrorCode.INSUFFICIENT_CURRENCY);
-
+        }
         this.currency -= amount;
     }
 }

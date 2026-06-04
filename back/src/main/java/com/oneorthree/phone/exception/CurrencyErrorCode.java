@@ -8,8 +8,9 @@ public enum CurrencyErrorCode {
     ILLEGAL_EARN_REASON("적립에 사용할 수 없는 사유입니다."),
     ILLEGAL_SPEND_REASON("사용에 사용할 수 없는 사유입니다.");
 
-
     private final String message;
 
-    CurrencyErrorCode(String message) { this.message = message; }
+    CurrencyErrorCode(String message) {
+        this.message = message;
+    }
 }

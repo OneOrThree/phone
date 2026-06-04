@@ -50,8 +50,9 @@ public class InGameCurrencyService {
         User user = userRepository.findById(userId)
                 .orElseThrow(UserNotFoundException::new);
 
-        if (reason == CurrencyReason.PURCHASE)
+        if (reason == CurrencyReason.PURCHASE) {
             throw new CurrencyException(CurrencyErrorCode.ILLEGAL_EARN_REASON);
+        }
 
         user.earnCurrency(amount);
         currencyTransactionRepository.save(CurrencyTransaction.builder()
@@ -67,8 +68,9 @@ public class InGameCurrencyService {
         User user = userRepository.findById(userId)
                 .orElseThrow(UserNotFoundException::new);
 
-        if (reason != CurrencyReason.PURCHASE)
+        if (reason != CurrencyReason.PURCHASE) {
             throw new CurrencyException(CurrencyErrorCode.ILLEGAL_SPEND_REASON);
+        }
 
         user.spendCurrency(amount);
         currencyTransactionRepository.save(CurrencyTransaction.builder()
