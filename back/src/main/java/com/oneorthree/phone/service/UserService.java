@@ -5,7 +5,7 @@ import com.oneorthree.phone.api.dto.request.UserProfileUpdateRequest;
 import com.oneorthree.phone.domain.user.User;
 import com.oneorthree.phone.exception.UserNotFoundException;
 import com.oneorthree.phone.repository.user.UserRepository;
-import com.oneorthree.phone.service.dto.UserProfileResponse;
+import com.oneorthree.phone.service.dto.user.UserProfileResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

@@ -1,8 +1,8 @@
 package com.oneorthree.phone.service;
 
 import com.oneorthree.phone.exception.InvalidKakaoTokenException;
-import com.oneorthree.phone.service.dto.KakaoUserInfo;
-import com.oneorthree.phone.service.dto.KakaoUserMeResponse;
+import com.oneorthree.phone.service.dto.user.KakaoUserInfo;
+import com.oneorthree.phone.service.dto.user.KakaoUserMeResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
