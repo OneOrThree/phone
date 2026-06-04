@@ -21,6 +21,10 @@
       "description": "헬스 체크 API Test"
     },
     {
+      "name": "currency",
+      "description": "인게임 재화 관련 API"
+    },
+    {
       "name": "inventory",
       "description": "인벤토리 관련 API (조회, 수령)"
     },
@@ -280,6 +284,56 @@
         }
       }
     },
+    "/api/v1/currency/spend": {
+      "post": {
+        "tags": [
+          "currency"
+        ],
+        "summary": "사용",
+        "description": "인게임 재화 감소",
+        "operationId": "spendCurrency",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CurrencyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/currency/earn": {
+      "post": {
+        "tags": [
+          "currency"
+        ],
+        "summary": "적립",
+        "description": "인게임 재화 증가",
+        "operationId": "earnCurrency",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CurrencyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/auth/refresh": {
       "post": {
         "tags": [
@@ -428,6 +482,54 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/CharacterEquipmentResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/currency": {
+      "get": {
+        "tags": [
+          "currency"
+        ],
+        "summary": "잔액 조회",
+        "description": "유저의 현재 인게임 잔액 조회",
+        "operationId": "getCurrencyBalance",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/currency/transactions": {
+      "get": {
+        "tags": [
+          "currency"
+        ],
+        "summary": "거래 내역 조회",
+        "description": "유저의 거래 내역 조회",
+        "operationId": "getCurrencyTransactions",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TransactionsResponse"
                   }
                 }
               }
@@ -650,6 +752,23 @@
           }
         }
       },
+      "CurrencyRequest": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "SESSION_COMPLETE",
+              "STREAK_BONUS",
+              "PURCHASE"
+            ]
+          }
+        }
+      },
       "TokenRefreshRequest": {
         "type": "object",
         "properties": {
@@ -831,6 +950,34 @@
           "totalDistractionSeconds": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "TransactionsResponse": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "EARN",
+              "SPEND"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "SESSION_COMPLETE",
+              "STREAK_BONUS",
+              "PURCHASE"
+            ]
+          },
+          "transactedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       }
