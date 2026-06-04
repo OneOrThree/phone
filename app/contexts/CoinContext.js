@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiFetch } from '../utils/api';
 
-const STORAGE_KEY = 'gromo:coins';
+const OWNED_ITEMS_KEY = 'gromo:ownedItems';
 const CoinContext = createContext(null);
 
 export function CoinProvider({ children }) {
@@ -9,35 +10,53 @@ export function CoinProvider({ children }) {
   const [ownedItemIds, setOwnedItemIds] = useState([]);
   const loaded = useRef(false);
 
+  // 서버에서 잔액 로드
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then((raw) => {
-      if (raw) {
-        const saved = JSON.parse(raw);
-        setCoins(saved.coins ?? 0);
-        setOwnedItemIds(saved.ownedItemIds ?? []);
-      }
+    apiFetch('/api/v1/currency')
+      .then((res) => res.json())
+      .then((balance) => setCoins(balance))
+      .catch(() => {});
+  }, []);
+
+  // 보유 아이템은 AsyncStorage 유지 (아이템 API 미구현)
+  useEffect(() => {
+    AsyncStorage.getItem(OWNED_ITEMS_KEY).then((raw) => {
+      if (raw) setOwnedItemIds(JSON.parse(raw));
       loaded.current = true;
     });
   }, []);
 
   useEffect(() => {
     if (!loaded.current) return;
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ coins, ownedItemIds }));
-  }, [coins, ownedItemIds]);
+    AsyncStorage.setItem(OWNED_ITEMS_KEY, JSON.stringify(ownedItemIds));
+  }, [ownedItemIds]);
 
-  function addCoins(amount) {
+  async function addCoins(amount) {
     setCoins((prev) => prev + amount);
+    apiFetch('/api/v1/currency/earn', {
+      method: 'POST',
+      body: JSON.stringify({ amount, reason: 'SESSION_COMPLETE' }),
+    }).catch(() => {});
   }
 
   function isOwned(itemId) {
     return ownedItemIds.includes(itemId);
   }
 
-  function buyItem(itemId, price) {
+  async function buyItem(itemId, price) {
     if (coins < price) return false;
-    setCoins((prev) => prev - price);
-    setOwnedItemIds((prev) => [...prev, itemId]);
-    return true;
+    try {
+      const res = await apiFetch('/api/v1/currency/spend', {
+        method: 'POST',
+        body: JSON.stringify({ amount: price, reason: 'PURCHASE' }),
+      });
+      if (!res.ok) return false;
+      setCoins((prev) => prev - price);
+      setOwnedItemIds((prev) => [...prev, itemId]);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   return (
