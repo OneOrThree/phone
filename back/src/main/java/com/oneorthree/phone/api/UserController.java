@@ -3,7 +3,7 @@ package com.oneorthree.phone.api;
 import com.oneorthree.phone.api.dto.request.UserProfileSetupRequest;
 import com.oneorthree.phone.api.dto.request.UserProfileUpdateRequest;
 import com.oneorthree.phone.service.UserService;
-import com.oneorthree.phone.service.dto.UserProfileResponse;
+import com.oneorthree.phone.service.dto.user.UserProfileResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;

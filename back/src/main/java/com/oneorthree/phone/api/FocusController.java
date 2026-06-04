@@ -1,10 +1,10 @@
 package com.oneorthree.phone.api;
 
-import com.oneorthree.phone.service.dto.FocusSessionRequest;
-import com.oneorthree.phone.service.dto.FocusSessionResponse;
-import com.oneorthree.phone.service.dto.FocusTagResponse;
-import com.oneorthree.phone.service.dto.FocusTagSetupRequest;
-import com.oneorthree.phone.service.dto.FocusTagUpdateRequest;
+import com.oneorthree.phone.service.dto.focusmode.FocusSessionRequest;
+import com.oneorthree.phone.service.dto.focusmode.FocusSessionResponse;
+import com.oneorthree.phone.service.dto.focusmode.FocusTagResponse;
+import com.oneorthree.phone.service.dto.focusmode.FocusTagSetupRequest;
+import com.oneorthree.phone.service.dto.focusmode.FocusTagUpdateRequest;
 import com.oneorthree.phone.service.FocusService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
