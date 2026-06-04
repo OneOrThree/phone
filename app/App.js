@@ -42,6 +42,8 @@ import GroupScreen from './screens/GroupScreen';
 import ShopScreen from './screens/ShopScreen';
 import MyPageScreen from './screens/MyPageScreen';
 import FocusModeScreen from './screens/FocusModeScreen';
+import FocusCategoryScreen from './screens/FocusCategoryScreen';
+import FocusSubjectScreen from './screens/FocusSubjectScreen';
 
 import { T } from './components/theme';
 
@@ -131,7 +133,10 @@ export default function App() {
     <UserProvider
       initialNickname={user?.nickname}
       initialUserId={user?.userId}
-      initialGoalSeconds={onboardingGoalSeconds}
+      initialGoalSeconds={
+        onboardingGoalSeconds ??
+        (user?.dailyScreenTimeGoalMinutes ? user.dailyScreenTimeGoalMinutes * 60 : null)
+      }
       initialIsNewUser={user?.isNewUser}
     >
       <CoinProvider>
@@ -150,7 +155,7 @@ export default function App() {
                   tabBarActiveTintColor: T.ink,
                   tabBarInactiveTintColor: T.inkLight,
                   tabBarStyle:
-                    route.name === 'FocusMode'
+                    ['FocusMode', 'FocusCategoryScreen', 'FocusSubjectScreen'].includes(route.name)
                       ? { display: 'none' }
                       : {
                           backgroundColor: T.paper,
@@ -173,6 +178,16 @@ export default function App() {
                 <Tab.Screen name="마이페이지">
                   {() => <MyPageScreen user={user} onLogout={handleLogout} />}
                 </Tab.Screen>
+                <Tab.Screen
+                  name="FocusCategoryScreen"
+                  component={FocusCategoryScreen}
+                  options={{ tabBarButton: () => null }}
+                />
+                <Tab.Screen
+                  name="FocusSubjectScreen"
+                  component={FocusSubjectScreen}
+                  options={{ tabBarButton: () => null }}
+                />
                 <Tab.Screen
                   name="FocusMode"
                   component={FocusModeScreen}

@@ -11,6 +11,7 @@ import {
   ScrollView,
   FlatList,
   Modal,
+  NativeModules,
 } from 'react-native';
 import { T } from '../components/theme';
 import BirthdayPicker from '../components/BirthdayPicker';
@@ -266,6 +267,12 @@ export default function OnboardingScreen({ onComplete }) {
   const [wakeTime, setWakeTime] = useState({ hour: 0, minute: 0 });
   const [sleepTime, setSleepTime] = useState({ hour: 0, minute: 0 });
   const [reportTime, setReportTime] = useState({ hour: 0, minute: 0 });
+
+  useEffect(() => {
+    if (Platform.OS === 'ios') {
+      NativeModules.ScreenTimeModule?.requestAuthorization().catch(() => {});
+    }
+  }, []);
 
   const canProceed = nickname.trim().length > 0 && gender !== null && birthDate !== null;
 

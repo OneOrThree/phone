@@ -211,6 +211,11 @@ export default function HomeScreen({ navigation, route }) {
         <View style={s.resultOverlay}>
           <View style={s.resultBox}>
             <Text style={s.resultTitle}>집중 완료!</Text>
+            {(focusResult?.tagName || focusResult?.subject) && (
+              <Text style={s.resultSession}>
+                {focusResult.tagName}{focusResult.tagName && focusResult.subject ? '  ·  ' : ''}{focusResult.subject}
+              </Text>
+            )}
             <View style={s.resultRow}>
               <Text style={s.resultLabel}>이번 세션</Text>
               <Text style={s.resultValue}>{formatTime(focusResult?.sessionSeconds ?? 0)}</Text>
@@ -259,7 +264,7 @@ export default function HomeScreen({ navigation, route }) {
           </View>
           <TouchableOpacity
             style={s.startBtn}
-            onPress={() => navigation.navigate('FocusMode')}
+            onPress={() => navigation.navigate('FocusCategoryScreen')}
             activeOpacity={0.7}
           >
             <Text style={s.startBtnText}>집중 시작!</Text>
@@ -584,6 +589,7 @@ const s = StyleSheet.create({
     gap: 16,
   },
   resultTitle: { fontSize: 22, fontWeight: '900', color: T.ink, textAlign: 'center' },
+  resultSession: { fontSize: 13, fontWeight: '600', color: T.inkMed, textAlign: 'center', marginTop: 4, marginBottom: 4 },
   resultRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

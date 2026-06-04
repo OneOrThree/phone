@@ -3,7 +3,7 @@ import { View, Text, Image, TouchableOpacity, ActivityIndicator, StyleSheet } fr
 import { login } from '@react-native-kakao/user';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '../components/theme';
-import { API_URL } from '../utils/api';
+import { API_URL, apiFetch } from '../utils/api';
 
 async function kakaoLogin() {
   const kakaoToken = await login();
@@ -17,6 +17,15 @@ async function kakaoLogin() {
   if (!res.ok) throw new Error(data.message ?? '로그인 실패');
   await AsyncStorage.setItem('gromo:accessToken', data.accessToken);
   await AsyncStorage.setItem('gromo:refreshToken', data.refreshToken);
+
+  if (!data.isNewUser) {
+    const profileRes = await apiFetch('/api/v1/user');
+    const profile = await profileRes.json().catch(() => ({}));
+    const merged = { ...data, ...profile };
+    await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
+    return merged;
+  }
+
   await AsyncStorage.setItem('gromo:user', JSON.stringify(data));
   return data;
 }
