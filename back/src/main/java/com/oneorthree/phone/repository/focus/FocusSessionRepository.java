@@ -3,13 +3,16 @@ package com.oneorthree.phone.repository.focus;
 import com.oneorthree.phone.domain.focus.FocusSession;
 import com.oneorthree.phone.domain.user.User;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
 
 public interface FocusSessionRepository extends JpaRepository<FocusSession, Long> {
 
-    List<FocusSession> findByUser(User user);
+    @Query("SELECT s FROM FocusSession s LEFT JOIN FETCH s.focusTag WHERE s.user = :user ORDER BY s.startedAt DESC")
+    List<FocusSession> findByUserWithTag(@Param("user") User user);
 
     List<FocusSession> findByUserAndStartedAtBetween(User user, Instant from, Instant to);
 }

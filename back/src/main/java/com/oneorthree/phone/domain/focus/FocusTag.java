@@ -35,4 +35,8 @@ public class FocusTag {
 
     @Column(nullable = false)
     private String name;
+
+    public void updateName(String name) {
+        this.name = name;
+    }
 }
