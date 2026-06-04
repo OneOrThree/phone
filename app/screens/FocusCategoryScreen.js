@@ -17,11 +17,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../utils/api';
 import { T, inkBox } from '../components/theme';
 
+function formatStat(seconds) {
+  const h = String(Math.floor(seconds / 3600)).padStart(2, '0');
+  const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
+  const s = String(seconds % 60).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
 export default function FocusCategoryScreen({ navigation }) {
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTagId, setSelectedTagId] = useState(null);
   const [subject, setSubject] = useState('');
+
+  const [tagStats, setTagStats] = useState({});
 
   const [showCreate, setShowCreate] = useState(false);
   const [newTagName, setNewTagName] = useState('');
@@ -43,9 +52,23 @@ export default function FocusCategoryScreen({ navigation }) {
   async function loadTags({ initial = false } = {}) {
     if (initial) setLoading(true);
     try {
-      const res = await apiFetch('/api/v1/tag');
-      const data = await res.json();
+      const [tagRes, sessionRes] = await Promise.all([
+        apiFetch('/api/v1/tag'),
+        apiFetch('/api/v1/focus-session'),
+      ]);
+      const data = await tagRes.json();
+      const sessions = await sessionRes.json();
       const list = Array.isArray(data) ? data : [];
+
+      if (Array.isArray(sessions)) {
+        const stats = {};
+        sessions.forEach(({ focusTagId, startedAt, endedAt }) => {
+          if (!focusTagId || !startedAt || !endedAt) return;
+          const secs = Math.floor((new Date(endedAt) - new Date(startedAt)) / 1000);
+          stats[focusTagId] = (stats[focusTagId] ?? 0) + secs;
+        });
+        setTagStats(stats);
+      }
 
       const alreadyInit = await AsyncStorage.getItem('gromo:tagsInitialized');
       if (list.length === 0 && initial && !alreadyInit) {
@@ -256,6 +279,9 @@ export default function FocusCategoryScreen({ navigation }) {
                     activeOpacity={0.7}
                   >
                     <Text style={s.tagName}>{tag.name}</Text>
+                    {tagStats[tag.tagId] > 0 && (
+                      <Text style={s.tagStat}>{formatStat(tagStats[tag.tagId])}</Text>
+                    )}
                     {editMode && (
                       <View style={s.iconGroup}>
                         <TouchableOpacity
@@ -405,6 +431,12 @@ const s = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: T.ink,
+  },
+  tagStat: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: T.inkMed,
+    marginRight: 8,
   },
   tagInput: {
     flex: 1,
