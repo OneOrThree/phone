@@ -130,7 +130,8 @@ export default function MyPageScreen({ onLogout }) {
       const status = await ScreenTimeModule.checkAuthorizationStatus();
       const msg = {
         approved: '✅ 스크린타임 권한이 허용되어 있어요.',
-        denied: '❌ 스크린타임 권한이 거부되어 있어요.\n설정 > 스크린 타임에서 gromo를 허용해주세요.',
+        denied:
+          '❌ 스크린타임 권한이 거부되어 있어요.\n설정 > 스크린 타임에서 gromo를 허용해주세요.',
         notDetermined: '⚠️ 스크린타임 권한을 아직 요청하지 않았어요.',
       };
       Alert.alert('스크린타임 권한', msg[status] ?? '알 수 없는 상태예요.');

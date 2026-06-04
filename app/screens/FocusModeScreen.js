@@ -265,7 +265,9 @@ export default function FocusModeScreen({ navigation, route }) {
           <Text style={s.pageLabel}>✏ 집중 중이에요</Text>
           {(tagName || subject) && (
             <Text style={s.sessionInfo}>
-              {tagName}{tagName && subject ? '  ·  ' : ''}{subject}
+              {tagName}
+              {tagName && subject ? '  ·  ' : ''}
+              {subject}
             </Text>
           )}
         </View>
@@ -354,5 +356,4 @@ const s = StyleSheet.create({
     marginBottom: 16,
   },
   stopBtnText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
-
 });

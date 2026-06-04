@@ -213,7 +213,9 @@ export default function HomeScreen({ navigation, route }) {
             <Text style={s.resultTitle}>집중 완료!</Text>
             {(focusResult?.tagName || focusResult?.subject) && (
               <Text style={s.resultSession}>
-                {focusResult.tagName}{focusResult.tagName && focusResult.subject ? '  ·  ' : ''}{focusResult.subject}
+                {focusResult.tagName}
+                {focusResult.tagName && focusResult.subject ? '  ·  ' : ''}
+                {focusResult.subject}
               </Text>
             )}
             <View style={s.resultRow}>
@@ -589,7 +591,14 @@ const s = StyleSheet.create({
     gap: 16,
   },
   resultTitle: { fontSize: 22, fontWeight: '900', color: T.ink, textAlign: 'center' },
-  resultSession: { fontSize: 13, fontWeight: '600', color: T.inkMed, textAlign: 'center', marginTop: 4, marginBottom: 4 },
+  resultSession: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: T.inkMed,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 4,
+  },
   resultRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

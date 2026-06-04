@@ -153,18 +153,17 @@ export default function App() {
                   ),
                   tabBarActiveTintColor: T.ink,
                   tabBarInactiveTintColor: T.inkLight,
-                  tabBarStyle:
-                    ['FocusMode', 'FocusCategoryScreen'].includes(route.name)
-                      ? { display: 'none' }
-                      : {
-                          backgroundColor: T.paper,
-                          borderTopColor: T.ink,
-                          borderTopWidth: 2.5,
-                          height: 76,
-                          paddingBottom: 10,
-                          paddingTop: 6,
-                          marginBottom: 8,
-                        },
+                  tabBarStyle: ['FocusMode', 'FocusCategoryScreen'].includes(route.name)
+                    ? { display: 'none' }
+                    : {
+                        backgroundColor: T.paper,
+                        borderTopColor: T.ink,
+                        borderTopWidth: 2.5,
+                        height: 76,
+                        paddingBottom: 10,
+                        paddingTop: 6,
+                        marginBottom: 8,
+                      },
                   tabBarLabelStyle: {
                     fontSize: 11,
                     fontWeight: '700',
