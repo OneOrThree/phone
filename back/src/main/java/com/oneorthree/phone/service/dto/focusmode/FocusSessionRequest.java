@@ -11,6 +11,7 @@ import java.time.Instant;
 @AllArgsConstructor
 public class FocusSessionRequest {
     Long focusTagId;
+    String subject;
     Instant startedAt;
     Instant endedAt;
     int distractionCount;

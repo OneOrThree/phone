@@ -82,6 +82,7 @@ public class FocusService {
                 .stream()
                 .map(session -> new FocusSessionResponse(
                         session.getFocusTag() != null ? session.getFocusTag().getId() : null,
+                        session.getSubject(),
                         session.getStartedAt(),
                         session.getEndedAt(),
                         session.getDistractionCount(),
@@ -116,6 +117,7 @@ public class FocusService {
         focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .focusTag(tag)
+                .subject(body.getSubject())
                 .startedAt(body.getStartedAt())
                 .endedAt(body.getEndedAt())
                 .distractionCount(body.getDistractionCount())
