@@ -27,6 +27,7 @@ export default function FocusCategoryScreen({ navigation }) {
   const [newTagName, setNewTagName] = useState('');
   const [savingCreate, setSavingCreate] = useState(false);
 
+  const [editMode, setEditMode] = useState(false);
   const [editingTagId, setEditingTagId] = useState(null);
   const [editingName, setEditingName] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
@@ -140,6 +141,7 @@ export default function FocusCategoryScreen({ navigation }) {
     setShowCreate(true);
     setNewTagName('');
     setEditingTagId(null);
+    setEditMode(false);
   }
 
   function cancelCreate() {
@@ -192,7 +194,20 @@ export default function FocusCategoryScreen({ navigation }) {
         contentContainerStyle={s.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={s.sectionLabel}>카테고리</Text>
+        <View style={s.sectionRow}>
+          <Text style={s.sectionLabel}>카테고리</Text>
+          {!loading && tags.length > 0 && (
+            <TouchableOpacity
+              onPress={() => {
+                setEditMode((v) => !v);
+                setEditingTagId(null);
+                setEditingName('');
+              }}
+            >
+              <Text style={s.editModeText}>{editMode ? '완료' : '편집'}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
         {loading ? (
           <ActivityIndicator color={T.ink} style={s.loader} />
@@ -241,20 +256,22 @@ export default function FocusCategoryScreen({ navigation }) {
                     activeOpacity={0.7}
                   >
                     <Text style={s.tagName}>{tag.name}</Text>
-                    <View style={s.iconGroup}>
-                      <TouchableOpacity
-                        onPress={() => startEditing(tag)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
-                      >
-                        <Text style={s.iconText}>수정</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => handleDeleteConfirm(tag)}
-                        hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
-                      >
-                        <Text style={s.iconText}>삭제</Text>
-                      </TouchableOpacity>
-                    </View>
+                    {editMode && (
+                      <View style={s.iconGroup}>
+                        <TouchableOpacity
+                          onPress={() => startEditing(tag)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
+                        >
+                          <Text style={s.iconText}>수정</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => handleDeleteConfirm(tag)}
+                          hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+                        >
+                          <Text style={s.iconText}>삭제</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </TouchableOpacity>
 
                   {/* 선택된 경우 subject 입력칸 펼쳐짐 */}
@@ -354,11 +371,21 @@ const s = StyleSheet.create({
     paddingBottom: 40,
   },
 
+  sectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
   sectionLabel: {
     fontSize: 13,
     fontWeight: '700',
     color: T.inkMed,
-    marginBottom: 10,
+  },
+  editModeText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: T.ink,
   },
 
   loader: { marginTop: 40 },

@@ -233,6 +233,7 @@ export default function FocusModeScreen({ navigation, route }) {
         method: 'POST',
         body: JSON.stringify({
           focusTagId: tagId ?? null,
+          subject: subject ?? null,
           startedAt: startedAtRef.current,
           endedAt,
           distractionCount: 0,

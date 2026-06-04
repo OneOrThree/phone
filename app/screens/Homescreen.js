@@ -11,10 +11,9 @@ import { T } from '../components/theme';
 function formatFocusTime(totalSeconds) {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
-  const sec = totalSeconds % 60;
   if (h > 0) return `${h}시간 ${m}분`;
-  if (m > 0) return `${m}분 ${sec}초`;
-  return `${sec}초`;
+  if (m > 0) return `${m}분`;
+  return '0분';
 }
 
 function NotebookLines() {
@@ -30,8 +29,9 @@ function NotebookLines() {
 function formatGoalTime(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
+  if (h === 0) return `${m}분`;
   if (m === 0) return `${h}시간`;
-  return `${h}h ${m}m`;
+  return `${h}시간 ${m}분`;
 }
 
 function StatBox({ label, value }) {
