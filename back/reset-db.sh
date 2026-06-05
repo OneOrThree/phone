@@ -39,6 +39,7 @@ CREATE TABLE users (
     birth_date                     DATE,
     profile_image_url              VARCHAR(255),
     refresh_token                  VARCHAR(512),
+    version                        BIGINT,
     currency                       INTEGER      NOT NULL DEFAULT 0,
     current_tier                   VARCHAR(20),
     daily_screen_time_goal_minutes INTEGER      NOT NULL DEFAULT 0,
@@ -166,6 +167,7 @@ CREATE TABLE currency_transactions (
     id            BIGSERIAL   PRIMARY KEY,
     user_id       BIGINT      NOT NULL REFERENCES users(id),
     amount        INTEGER     NOT NULL,
+    type          VARCHAR(10) NOT NULL,
     reason        VARCHAR(30) NOT NULL,
     transacted_at TIMESTAMPTZ
 );
