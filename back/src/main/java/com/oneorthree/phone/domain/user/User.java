@@ -56,7 +56,8 @@ public class User {
     private String refreshToken;
 
     @Version
-    private Long version;
+    @Builder.Default
+    private Long version = 0L;
 
     @Builder.Default
     private int currency = 0;
