@@ -1,4 +1,3 @@
-// ShopScreen
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, Image } from 'react-native';
 import { useEquipment } from '../contexts/EquipmentContext';
