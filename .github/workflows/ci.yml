@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - 'back/**'
-      - '.github/workflows/**'
   workflow_dispatch:
 
 concurrency:
