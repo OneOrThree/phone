@@ -11,6 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { useNavigation } from '@react-navigation/native';
 import { T, inkBox } from '../components/theme';
 import { Character2D } from '../components/character/Character2D';
 import { useFocus } from '../contexts/FocusContext';
@@ -116,6 +117,7 @@ function GoalSlider({ value, onChange }) {
 }
 
 export default function MyPageScreen({ onLogout }) {
+  const navigation = useNavigation();
   const { todayFocusSeconds } = useFocus();
   const { nickname, setNickname, goalSeconds, setGoalSeconds, phoneUsageSeconds } = useUser();
 
@@ -261,6 +263,14 @@ export default function MyPageScreen({ onLogout }) {
           );
         })()}
       </View>
+
+      <TouchableOpacity
+        style={[s.screenTimeBtn, inkBox(T.mint)]}
+        onPress={() => navigation.navigate('ScreenTime')}
+        activeOpacity={0.8}
+      >
+        <Text style={s.screenTimeBtnText}>내 스크린 타임 보기</Text>
+      </TouchableOpacity>
 
       <TouchableOpacity
         style={[s.logoutBtn, inkBox(T.paperDark)]}
@@ -540,6 +550,21 @@ const s = StyleSheet.create({
     fontWeight: '600',
     color: T.inkMed,
     lineHeight: 20,
+  },
+  screenTimeBtn: {
+    marginTop: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  screenTimeBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: T.ink,
+  },
+  btnPressed: {
+    transform: [{ translateX: 2 }, { translateY: 2 }],
+    borderBottomWidth: 2.5,
+    borderRightWidth: 2.5,
   },
   logoutBtn: {
     marginTop: 8,
