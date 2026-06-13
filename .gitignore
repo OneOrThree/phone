@@ -1,4 +1,6 @@
-.claude/
+.claude/*
+!.claude/commands/
+!.claude/agents/
 .vscode/
 .DS_Store
 .vs_code
