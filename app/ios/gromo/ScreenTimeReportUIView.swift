@@ -39,10 +39,15 @@ class ScreenTimeReportUIView: UIView {
         guard window != nil else { return }
         guard hostingController == nil else { return }
 
-        setupHostingController()
+        // UIHostingController에 parent VC가 없으면
+        // DeviceActivityReportService가 scene을 hosting할 곳을 못 찾고
+        // 즉시 invalidate해버림 (parent scene invalidated)
+        guard let parentVC = containerViewController else { return }
+
+        setupHostingController(parentVC: parentVC)
     }
 
-    private func setupHostingController() {
+    private func setupHostingController(parentVC: UIViewController) {
         let calendar = Calendar.current
         let now = Date()
         let startOfDay = calendar.startOfDay(for: now)
@@ -56,6 +61,9 @@ class ScreenTimeReportUIView: UIView {
         let reportView = DeviceActivityReport(.init("Total Activity"), filter: filter)
         let hostingVC = UIHostingController(rootView: AnyView(reportView))
 
+        // addSubview 전에 addChild로 VC 계층에 먼저 편입
+        parentVC.addChild(hostingVC)
+
         hostingVC.view.translatesAutoresizingMaskIntoConstraints = false
         hostingVC.view.backgroundColor = .clear
         addSubview(hostingVC.view)
@@ -67,6 +75,23 @@ class ScreenTimeReportUIView: UIView {
             hostingVC.view.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
+        hostingVC.didMove(toParent: parentVC)
         self.hostingController = hostingVC
+    }
+
+    // 이 뷰를 실제로 그리고 있는 UIViewController를 responder chain에서 탐색
+    // (React Navigation의 RNSScreenViewController처럼, 이 뷰가 속한
+    //  "진짜" 화면 VC를 찾아야 VC 계층/scene hosting이 모두 정상 동작함.
+    //  window.rootViewController는 RN 최상위 VC라서 실제 화면 VC와
+    //  계층이 안 맞아 addChild 시 NSException이 발생했음)
+    private var containerViewController: UIViewController? {
+        var responder: UIResponder? = self
+        while let r = responder {
+            if let vc = r as? UIViewController {
+                return vc
+            }
+            responder = r.next
+        }
+        return nil
     }
 }
