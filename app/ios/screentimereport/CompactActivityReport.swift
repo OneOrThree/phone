@@ -7,6 +7,7 @@
 // 화면에 그리는 뷰(CompactActivityView)만 다름
 
 import DeviceActivity
+import ExtensionKit
 import SwiftUI
 
 // 메인 앱에서 DeviceActivityReport(.init("Compact Activity"), ...)로 요청하면

@@ -36,11 +36,11 @@ function formatGoalTime(seconds) {
   return `${h}시간 ${m}분`;
 }
 
-function StatBox({ label, value }) {
+function StatBox({ label, value, valueComponent }) {
   return (
     <View style={s.statBox}>
       <Text style={s.statLabel}>{label}</Text>
-      <Text style={s.statValue}>{value}</Text>
+      {valueComponent ?? <Text style={s.statValue}>{value}</Text>}
     </View>
   );
 }
@@ -226,13 +226,6 @@ export default function HomeScreen({ navigation, route }) {
   return (
     <View style={s.container}>
       <StatusBar style="dark" />
-      {/* 숨겨진 DeviceActivityReport 뷰 — 익스텐션 트리거 역할 */}
-      {/* opacity:0 / 1x1 크기는 iOS가 렌더링을 스킵해 익스텐션이 안 깨어남 → 화면 밖으로 배치 */}
-      {Platform.OS === 'ios' && (
-        <ScreenTimeReportView
-          style={{ width: 100, height: 100, opacity: 1, position: 'absolute', top: -1000, left: 0 }}
-        />
-      )}
       <Modal visible={!!focusResult} transparent animationType="fade">
         <View style={s.resultOverlay}>
           <View style={s.resultBox}>
@@ -275,7 +268,16 @@ export default function HomeScreen({ navigation, route }) {
 
       <View style={s.statsRow}>
         <StatBox label="목표" value={formatGoalTime(goalSeconds)} />
-        <StatBox label="사용" value={formatFocusTime(screenTimeSeconds)} />
+        <StatBox
+          label="사용"
+          valueComponent={
+            Platform.OS === 'ios' ? (
+              <ScreenTimeReportView reportContext="Compact Activity" style={s.statValueReport} />
+            ) : (
+              <Text style={s.statValue}>{formatFocusTime(screenTimeSeconds)}</Text>
+            )
+          }
+        />
         <StatBox label="남은" value={formatFocusTime(Math.max(0, goalSeconds - screenTimeSeconds))} />
       </View>
 
@@ -538,6 +540,7 @@ const s = StyleSheet.create({
   },
   statLabel: { fontSize: 10, fontWeight: '700', color: T.ink, opacity: 0.7 },
   statValue: { fontSize: 15, fontWeight: '900', color: T.ink, marginTop: 4 },
+  statValueReport: { width: '100%', height: 20, marginTop: 4 },
 
   roomWrap: {
     flex: 1,
