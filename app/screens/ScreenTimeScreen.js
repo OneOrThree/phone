@@ -10,7 +10,7 @@ import { T, inkBox } from '../components/theme';
 import ScreenTimeModule from '../utils/ScreenTimeModule';
 import ScreenTimeReportView from '../components/ScreenTimeReportView';
 
-export default function ScreenTimeScreen() {
+export default function ScreenTimeScreen({ navigation }) {
   // "notDetermined" | "approved" | "denied"
   const [authStatus, setAuthStatus] = useState('notDetermined');
   const [loading, setLoading] = useState(true);
@@ -40,6 +40,13 @@ export default function ScreenTimeScreen() {
 
   return (
     <View style={s.container}>
+      <TouchableOpacity
+        onPress={() => navigation.goBack()}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 16 }}
+        style={s.backBtn}
+      >
+        <Text style={s.backText}>← 뒤로</Text>
+      </TouchableOpacity>
       <Text style={s.title}>스크린 타임</Text>
 
       {authStatus === 'approved' ? (
@@ -80,6 +87,15 @@ const s = StyleSheet.create({
     fontWeight: '900',
     color: T.ink,
     marginBottom: 20,
+  },
+  backBtn: {
+    alignSelf: 'flex-start',
+    marginBottom: 12,
+  },
+  backText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: T.inkMed,
   },
   reportView: {
     flex: 1,
