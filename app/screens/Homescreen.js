@@ -278,7 +278,16 @@ export default function HomeScreen({ navigation, route }) {
             )
           }
         />
-        <StatBox label="남은" value={formatFocusTime(Math.max(0, goalSeconds - screenTimeSeconds))} />
+        <StatBox
+          label="남은"
+          valueComponent={
+            goalSeconds - screenTimeSeconds < 0 ? (
+              <Text style={[s.statValue, s.statValueFail]}>실패</Text>
+            ) : (
+              <Text style={s.statValue}>{formatFocusTime(goalSeconds - screenTimeSeconds)}</Text>
+            )
+          }
+        />
       </View>
 
       <View style={s.roomWrap}>
@@ -540,6 +549,7 @@ const s = StyleSheet.create({
   },
   statLabel: { fontSize: 10, fontWeight: '700', color: T.ink, opacity: 0.7 },
   statValue: { fontSize: 15, fontWeight: '900', color: T.ink, marginTop: 4 },
+  statValueFail: { color: T.danger },
   statValueReport: { width: '100%', height: 20, marginTop: 4 },
 
   roomWrap: {
