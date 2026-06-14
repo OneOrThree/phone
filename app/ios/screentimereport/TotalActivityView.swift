@@ -41,17 +41,6 @@ struct TotalActivityView: View {
             }
         }
     }
-
-    // TimeInterval(초)을 "X시간 Y분" 형태로 변환
-    private func formatDuration(_ duration: TimeInterval) -> String {
-        let hours = Int(duration) / 3600
-        let minutes = Int(duration) / 60 % 60
-        if hours > 0 {
-            return "\(hours)시간 \(minutes)분"
-        } else {
-            return "\(minutes)분"
-        }
-    }
 }
 
 #Preview {

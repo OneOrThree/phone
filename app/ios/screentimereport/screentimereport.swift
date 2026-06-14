@@ -16,6 +16,9 @@ struct screentimereport: DeviceActivityReportExtension {
         TotalActivityReport { totalActivity in
             TotalActivityView(totalActivity: totalActivity)
         }
-        // Add more reports here...
+        // HomeScreen "사용" StatBox용 컴팩트 리포트 (총 사용 시간 숫자만)
+        CompactActivityReport { totalActivity in
+            CompactActivityView(totalActivity: totalActivity)
+        }
     }
 }
