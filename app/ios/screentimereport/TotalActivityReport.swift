@@ -50,7 +50,6 @@ struct TotalActivityReport: DeviceActivityReportScene {
     // Apple DeviceActivity 프레임워크에서 스크린 타임 원시 데이터를 받아
     // 우리 앱에서 쓸 수 있는 형태(ActivityReport)로 가공하는 파일
     func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
-        print("[TotalActivityReport] makeConfiguration called")
         return await buildActivityReport(from: data)
     }
 }

@@ -23,7 +23,6 @@ struct CompactActivityReport: DeviceActivityReportScene {
     let content: (ActivityReport) -> CompactActivityView
 
     func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
-        print("[CompactActivityReport] makeConfiguration called")
         return await buildActivityReport(from: data)
     }
 }
