@@ -227,8 +227,11 @@ export default function HomeScreen({ navigation, route }) {
     <View style={s.container}>
       <StatusBar style="dark" />
       {/* 숨겨진 DeviceActivityReport 뷰 — 익스텐션 트리거 역할 */}
+      {/* opacity:0 / 1x1 크기는 iOS가 렌더링을 스킵해 익스텐션이 안 깨어남 → 화면 밖으로 배치 */}
       {Platform.OS === 'ios' && (
-        <ScreenTimeReportView style={{ width: 1, height: 1, opacity: 0, position: 'absolute' }} />
+        <ScreenTimeReportView
+          style={{ width: 100, height: 100, opacity: 1, position: 'absolute', top: -1000, left: 0 }}
+        />
       )}
       <Modal visible={!!focusResult} transparent animationType="fade">
         <View style={s.resultOverlay}>
