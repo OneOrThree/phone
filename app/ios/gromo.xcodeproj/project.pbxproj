@@ -9,11 +9,16 @@
 /* Begin PBXBuildFile section */
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		1E7A3EDE7EA827BCAA610C2A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 8D0276BF8624FFD03388406F /* PrivacyInfo.xcprivacy */; };
+		28581D623B98485ABA3501EB /* ScreenTimeReportUIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF94279A31C9493794286431 /* ScreenTimeReportUIView.swift */; };
+		38FB0014542C42768110D912 /* ScreenTimeModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 69E0590C76FD4C3C982B4D57 /* ScreenTimeModule.m */; };
+		3A8B86FDE1FB42A2A3F613B1 /* ScreenTimeReportViewManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16EB51137CA4BDA8E61FA65 /* ScreenTimeReportViewManager.swift */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
+		41B4D6C1B3554C6DA6C7F986 /* ScreenTimeModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5608395EE50C46F989410865 /* ScreenTimeModule.swift */; };
 		8B8792C0DAAF303A08360EC1 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB42D6F1E39342F74D28ED89 /* ExpoModulesProvider.swift */; };
 		A4BAEF0EA4985163CC549E97 /* libPods-gromo.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 357F8A1A249D50B70A99CAC4 /* libPods-gromo.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		D463E7C02FD664D20049F07A /* screentimereport.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = D463E7B42FD664D20049F07A /* screentimereport.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		E2EB2AA55F504C63A003D90E /* ScreenTimeReportViewManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 098DA73360544CDE82D4B8D1 /* ScreenTimeReportViewManager.m */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
@@ -42,24 +47,29 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		098DA73360544CDE82D4B8D1 /* ScreenTimeReportViewManager.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ScreenTimeReportViewManager.m; path = gromo/ScreenTimeReportViewManager.m; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* gromo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = gromo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = gromo/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = gromo/Info.plist; sourceTree = "<group>"; };
 		172B27B5DBB1749D7C851B9B /* Pods-gromo.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-gromo.release.xcconfig"; path = "Target Support Files/Pods-gromo/Pods-gromo.release.xcconfig"; sourceTree = "<group>"; };
 		357F8A1A249D50B70A99CAC4 /* libPods-gromo.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-gromo.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		473DAEDB5D1460154AB816C1 /* Pods-gromo.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-gromo.debug.xcconfig"; path = "Target Support Files/Pods-gromo/Pods-gromo.debug.xcconfig"; sourceTree = "<group>"; };
+		5608395EE50C46F989410865 /* ScreenTimeModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScreenTimeModule.swift; path = gromo/ScreenTimeModule.swift; sourceTree = "<group>"; };
+		69E0590C76FD4C3C982B4D57 /* ScreenTimeModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ScreenTimeModule.m; path = gromo/ScreenTimeModule.m; sourceTree = "<group>"; };
 		8D0276BF8624FFD03388406F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = gromo/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = gromo/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		BB42D6F1E39342F74D28ED89 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-gromo/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		C16EB51137CA4BDA8E61FA65 /* ScreenTimeReportViewManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScreenTimeReportViewManager.swift; path = gromo/ScreenTimeReportViewManager.swift; sourceTree = "<group>"; };
 		D463E7B42FD664D20049F07A /* screentimereport.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = screentimereport.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		EF94279A31C9493794286431 /* ScreenTimeReportUIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScreenTimeReportUIView.swift; path = gromo/ScreenTimeReportUIView.swift; sourceTree = "<group>"; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = gromo/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* gromo-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "gromo-Bridging-Header.h"; path = "gromo/gromo-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		D463E7C12FD664D20049F07A /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		D463E7C12FD664D20049F07A /* Exceptions for "screentimereport" folder in "screentimereport" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -69,7 +79,18 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		D463E7B52FD664D20049F07A /* screentimereport */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (D463E7C12FD664D20049F07A /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = screentimereport; sourceTree = "<group>"; };
+		D463E7B52FD664D20049F07A /* screentimereport */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D463E7C12FD664D20049F07A /* Exceptions for "screentimereport" folder in "screentimereport" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = screentimereport;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -96,6 +117,11 @@
 			children = (
 				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
 				F11748442D0722820044C1D9 /* gromo-Bridging-Header.h */,
+				5608395EE50C46F989410865 /* ScreenTimeModule.swift */,
+				69E0590C76FD4C3C982B4D57 /* ScreenTimeModule.m */,
+				EF94279A31C9493794286431 /* ScreenTimeReportUIView.swift */,
+				C16EB51137CA4BDA8E61FA65 /* ScreenTimeReportViewManager.swift */,
+				098DA73360544CDE82D4B8D1 /* ScreenTimeReportViewManager.m */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
@@ -413,6 +439,11 @@
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
 				8B8792C0DAAF303A08360EC1 /* ExpoModulesProvider.swift in Sources */,
+				41B4D6C1B3554C6DA6C7F986 /* ScreenTimeModule.swift in Sources */,
+				38FB0014542C42768110D912 /* ScreenTimeModule.m in Sources */,
+				28581D623B98485ABA3501EB /* ScreenTimeReportUIView.swift in Sources */,
+				3A8B86FDE1FB42A2A3F613B1 /* ScreenTimeReportViewManager.swift in Sources */,
+				E2EB2AA55F504C63A003D90E /* ScreenTimeReportViewManager.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

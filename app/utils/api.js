@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export const API_URL = __DEV__ ? 'http://localhost:8080' : 'https://oneorthree.mooo.com';
+export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://oneorthree.mooo.com';
 
 export function getUserIdFromToken(token) {
   try {

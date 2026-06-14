@@ -1,39 +1,82 @@
+// TotalActivityReport.swift
+// screentimereport 익스텐션
 //
-//  TotalActivityReport.swift
-//  screentimereport
+// 역할: Apple DeviceActivity 프레임워크에서 스크린 타임 원시 데이터를 받아
+//       우리 앱에서 쓸 수 있는 형태(ActivityReport)로 가공하는 파일
 //
-//  Created by 안수빈 on 6/8/26.
-//
+// 동작 흐름:
+//   메인 앱에서 DeviceActivityReport(.init("Total Activity"), ...)를 렌더링하면
+//   → iOS가 이 익스텐션을 호출
+//   → makeConfiguration()이 raw 데이터를 ActivityReport로 변환
+//   → TotalActivityView에 전달해서 화면에 표시
 
-import DeviceActivity
-import ExtensionKit
+import DeviceActivity   // Apple 스크린 타임 데이터 접근 프레임워크
+import ExtensionKit     // 익스텐션 앱 개발용 프레임워크
+import ManagedSettings  // 앱 제한/설정 관련 프레임워크
 import SwiftUI
 
+// DeviceActivityReport.Context는 리포트의 "이름표"
+// 메인 앱에서 DeviceActivityReport(.init("Total Activity"), ...)를 호출하면
+// iOS가 이 context와 일치하는 익스텐션을 찾아서 실행함
 extension DeviceActivityReport.Context {
-    // If your app initializes a DeviceActivityReport with this context, then the system will use
-    // your extension's corresponding DeviceActivityReportScene to render the contents of the
-    // report.
     static let totalActivity = Self("Total Activity")
 }
 
+// 앱 하나의 사용 정보를 담는 구조체
+struct AppUsage: Identifiable {
+    let id = UUID()             // SwiftUI 리스트 렌더링용 고유 ID
+    let name: String            // 앱 이름 (예: "카카오톡")
+    let duration: TimeInterval  // 사용 시간 (초 단위)
+}
+
+// 전체 리포트 데이터를 담는 구조체
+// makeConfiguration()이 만들고, TotalActivityView가 받아서 화면에 표시
+struct ActivityReport {
+    let totalDuration: TimeInterval  // 오늘 총 사용 시간 (초 단위)
+    let apps: [AppUsage]             // 앱별 사용 시간 목록 (사용 시간 내림차순)
+}
+
+// DeviceActivityReportScene: Apple이 제공하는 프로토콜
+// "어떤 context 요청에 어떤 뷰를 응답할지" 정의하는 핵심 구조체
 struct TotalActivityReport: DeviceActivityReportScene {
-    // Define which context your scene will represent.
+
+    // 이 리포트가 응답할 context 지정
+    // 메인 앱의 DeviceActivityReport(.init("Total Activity"), ...)와 매칭됨
     let context: DeviceActivityReport.Context = .totalActivity
-    
-    // Define the custom configuration and the resulting view for this report.
-    let content: (String) -> TotalActivityView
-    
-    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> String {
-        // Reformat the data into a configuration that can be used to create
-        // the report's view.
-        let formatter = DateComponentsFormatter()
-        formatter.allowedUnits = [.day, .hour, .minute, .second]
-        formatter.unitsStyle = .abbreviated
-        formatter.zeroFormattingBehavior = .dropAll
-        
-        let totalActivityDuration = await data.flatMap { $0.activitySegments }.reduce(0, {
-            $0 + $1.totalActivityDuration
-        })
-        return formatter.string(from: totalActivityDuration) ?? "No activity data"
+
+    // 가공된 ActivityReport를 받아 TotalActivityView를 만드는 클로저
+    let content: (ActivityReport) -> TotalActivityView
+
+    // Apple DeviceActivity 프레임워크에서 스크린 타임 원시 데이터를 받아
+    // 우리 앱에서 쓸 수 있는 형태(ActivityReport)로 가공하는 파일
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+        var apps: [AppUsage] = []
+        var totalDuration: TimeInterval = 0
+
+        // 데이터 구조: data → activitySegments → categories → applications 순으로 중첩
+        for await d in data {
+            for await segment in d.activitySegments {
+                totalDuration += segment.totalActivityDuration  // 세그먼트 총 시간 누적
+
+                for await category in segment.categories {
+                    for await app in category.applications {
+                        // 앱 표시 이름 (시스템에서 제공, 없으면 "알 수 없음")
+                        let name = app.application.localizedDisplayName ?? "알 수 없음"
+                        apps.append(AppUsage(name: name, duration: app.totalActivityDuration))
+                    }
+                }
+            }
+        }
+
+        // 많이 쓴 앱이 위에 오도록 내림차순 정렬
+        apps.sort { $0.duration > $1.duration }
+
+        // App Group UserDefaults에 총 사용 시간 저장 (메인 앱에서 읽을 수 있도록)
+        if let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo") {
+            sharedDefaults.set(totalDuration, forKey: "gromo:screentime:totalDuration")
+            sharedDefaults.set(Date(), forKey: "gromo:screentime:lastUpdated")
+        }
+
+        return ActivityReport(totalDuration: totalDuration, apps: apps)
     }
 }

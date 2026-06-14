@@ -1,23 +1,66 @@
+// TotalActivityView.swift
+// screentimereport 익스텐션
 //
-//  TotalActivityView.swift
-//  screentimereport
+// 역할: TotalActivityReport.swift에서 가공한 ActivityReport 데이터를
+//       실제 화면 UI로 그려주는 SwiftUI 뷰
 //
-//  Created by 안수빈 on 6/8/26.
-//
+// 표시 내용:
+//   - 오늘 총 사용 시간
+//   - 앱별 사용 시간 목록 (많이 쓴 순서)
 
 import SwiftUI
 
 struct TotalActivityView: View {
-    let totalActivity: String
-    
+    // TotalActivityReport의 makeConfiguration()이 만든 데이터를 받음
+    let totalActivity: ActivityReport
+
     var body: some View {
-        Text(totalActivity)
+        List {
+            // 상단: 오늘 총 사용 시간
+            Section {
+                HStack {
+                    Text("총 사용 시간")
+                        .fontWeight(.medium)
+                    Spacer()
+                    Text(formatDuration(totalActivity.totalDuration))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.blue)
+                }
+            }
+
+            // 하단: 앱별 사용 시간 목록
+            Section("앱별 사용 시간") {
+                ForEach(totalActivity.apps) { app in
+                    HStack {
+                        Text(app.name)
+                        Spacer()
+                        Text(formatDuration(app.duration))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    // TimeInterval(초)을 "X시간 Y분" 형태로 변환
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let hours = Int(duration) / 3600
+        let minutes = Int(duration) / 60 % 60
+        if hours > 0 {
+            return "\(hours)시간 \(minutes)분"
+        } else {
+            return "\(minutes)분"
+        }
     }
 }
 
-// In order to support previews for your extension's custom views, make sure its source files are
-// members of your app's Xcode target as well as members of your extension's target. You can use
-// Xcode's File Inspector to modify a file's Target Membership.
 #Preview {
-    TotalActivityView(totalActivity: "1h 23m")
+    TotalActivityView(totalActivity: ActivityReport(
+        totalDuration: 5040,
+        apps: [
+            AppUsage(name: "카카오톡", duration: 3600),
+            AppUsage(name: "유튜브", duration: 1200),
+            AppUsage(name: "인스타그램", duration: 240)
+        ]
+    ))
 }

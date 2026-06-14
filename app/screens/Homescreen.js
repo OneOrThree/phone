@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Platform, useEffect } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useEquipment } from '../contexts/EquipmentContext';
@@ -7,6 +7,8 @@ import { useFocus } from '../contexts/FocusContext';
 import { useUser } from '../contexts/UserContext';
 import { Character2D } from '../components/character/Character2D';
 import { T } from '../components/theme';
+import ScreenTimeModule from '../utils/ScreenTimeModule';
+import ScreenTimeReportView from '../components/ScreenTimeReportView';
 
 function formatFocusTime(totalSeconds) {
   const h = Math.floor(totalSeconds / 3600);
@@ -194,6 +196,23 @@ export default function HomeScreen({ navigation, route }) {
   const costumeSlots = equippedCostume.map((c) => c.slot);
   const remainingSeconds = Math.max(0, goalSeconds - phoneUsageSeconds);
   const [focusResult, setFocusResult] = useState(null);
+  const [screenTimeSeconds, setScreenTimeSeconds] = useState(0);
+
+  // 앱 홈에 진입할 때마다 실시간 스크린 타임 조회
+  useEffect(() => {
+    const fetchScreenTime = async () => {
+      try {
+        const seconds = await ScreenTimeModule.getTotalScreenTime();
+        setScreenTimeSeconds(seconds);
+      } catch (error) {
+        console.log('스크린 타임 조회 실패:', error);
+      }
+    };
+    fetchScreenTime();
+    // 30초마다 갱신
+    const interval = setInterval(fetchScreenTime, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -207,6 +226,10 @@ export default function HomeScreen({ navigation, route }) {
   return (
     <View style={s.container}>
       <StatusBar style="dark" />
+      {/* 숨겨진 DeviceActivityReport 뷰 — 익스텐션 트리거 역할 */}
+      {Platform.OS === 'ios' && (
+        <ScreenTimeReportView style={{ width: 1, height: 1, opacity: 0, position: 'absolute' }} />
+      )}
       <Modal visible={!!focusResult} transparent animationType="fade">
         <View style={s.resultOverlay}>
           <View style={s.resultBox}>
@@ -249,8 +272,8 @@ export default function HomeScreen({ navigation, route }) {
 
       <View style={s.statsRow}>
         <StatBox label="목표" value={formatGoalTime(goalSeconds)} />
-        <StatBox label="사용" value={formatFocusTime(phoneUsageSeconds)} />
-        <StatBox label="남은" value={formatFocusTime(remainingSeconds)} />
+        <StatBox label="사용" value={formatFocusTime(screenTimeSeconds)} />
+        <StatBox label="남은" value={formatFocusTime(Math.max(0, goalSeconds - screenTimeSeconds))} />
       </View>
 
       <View style={s.roomWrap}>
