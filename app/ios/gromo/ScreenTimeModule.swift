@@ -86,6 +86,8 @@ class ScreenTimeModule: NSObject {
     ) {
         let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
         let totalDuration = sharedDefaults?.double(forKey: "gromo:screentime:totalDuration") ?? 0
+        let lastUpdated = sharedDefaults?.object(forKey: "gromo:screentime:lastUpdated")
+        print("[ScreenTimeModule] getTotalScreenTime - duration: \(totalDuration), lastUpdated: \(lastUpdated ?? "nil")")
         resolve(totalDuration)
     }
 }
