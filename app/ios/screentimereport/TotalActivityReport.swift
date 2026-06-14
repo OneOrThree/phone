@@ -51,33 +51,51 @@ struct TotalActivityReport: DeviceActivityReportScene {
     // 우리 앱에서 쓸 수 있는 형태(ActivityReport)로 가공하는 파일
     func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
         print("[TotalActivityReport] makeConfiguration called")
-        var apps: [AppUsage] = []
-        var totalDuration: TimeInterval = 0
+        return await buildActivityReport(from: data)
+    }
+}
 
-        // 데이터 구조: data → activitySegments → categories → applications 순으로 중첩
-        for await d in data {
-            for await segment in d.activitySegments {
-                totalDuration += segment.totalActivityDuration  // 세그먼트 총 시간 누적
+// 원시 DeviceActivity 데이터를 ActivityReport로 가공
+// TotalActivityReport / CompactActivityReport에서 공통으로 사용
+func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+    var apps: [AppUsage] = []
+    var totalDuration: TimeInterval = 0
 
-                for await category in segment.categories {
-                    for await app in category.applications {
-                        // 앱 표시 이름 (시스템에서 제공, 없으면 "알 수 없음")
-                        let name = app.application.localizedDisplayName ?? "알 수 없음"
-                        apps.append(AppUsage(name: name, duration: app.totalActivityDuration))
-                    }
+    // 데이터 구조: data → activitySegments → categories → applications 순으로 중첩
+    for await d in data {
+        for await segment in d.activitySegments {
+            totalDuration += segment.totalActivityDuration  // 세그먼트 총 시간 누적
+
+            for await category in segment.categories {
+                for await app in category.applications {
+                    // 앱 표시 이름 (시스템에서 제공, 없으면 "알 수 없음")
+                    let name = app.application.localizedDisplayName ?? "알 수 없음"
+                    apps.append(AppUsage(name: name, duration: app.totalActivityDuration))
                 }
             }
         }
+    }
 
-        // 많이 쓴 앱이 위에 오도록 내림차순 정렬
-        apps.sort { $0.duration > $1.duration }
+    // 많이 쓴 앱이 위에 오도록 내림차순 정렬
+    apps.sort { $0.duration > $1.duration }
 
-        // App Group UserDefaults에 총 사용 시간 저장 (메인 앱에서 읽을 수 있도록)
-        if let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo") {
-            sharedDefaults.set(totalDuration, forKey: "gromo:screentime:totalDuration")
-            sharedDefaults.set(Date(), forKey: "gromo:screentime:lastUpdated")
-        }
+    // App Group UserDefaults에 총 사용 시간 저장 (메인 앱에서 읽을 수 있도록)
+    if let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo") {
+        sharedDefaults.set(totalDuration, forKey: "gromo:screentime:totalDuration")
+        sharedDefaults.set(Date(), forKey: "gromo:screentime:lastUpdated")
+    }
 
-        return ActivityReport(totalDuration: totalDuration, apps: apps)
+    return ActivityReport(totalDuration: totalDuration, apps: apps)
+}
+
+// TimeInterval(초)을 "X시간 Y분" 형태로 변환
+// TotalActivityView / CompactActivityView에서 공통으로 사용
+func formatDuration(_ duration: TimeInterval) -> String {
+    let hours = Int(duration) / 3600
+    let minutes = Int(duration) / 60 % 60
+    if hours > 0 {
+        return "\(hours)시간 \(minutes)분"
+    } else {
+        return "\(minutes)분"
     }
 }
