@@ -5,4 +5,8 @@
 
 // RCT_EXTERN_MODULE은 @interface 블록 안에서 사용해야 함
 @interface RCT_EXTERN_MODULE(ScreenTimeReportViewManager, RCTViewManager)
+
+// DeviceActivityReport.Context 이름 ("Total Activity" | "Compact Activity")
+RCT_EXPORT_VIEW_PROPERTY(reportContext, NSString)
+
 @end

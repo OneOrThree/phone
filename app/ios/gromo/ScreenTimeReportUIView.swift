@@ -23,6 +23,10 @@ class ScreenTimeReportUIView: UIView {
 
     private var hostingController: UIHostingController<AnyView>?
 
+    // RN에서 prop으로 전달하는 DeviceActivityReport.Context 이름
+    // 예: "Total Activity"(기본, ScreenTimeScreen), "Compact Activity"(HomeScreen "사용" StatBox)
+    @objc var reportContext: String = "Total Activity"
+
     // init에서는 아직 window/부모 VC가 없으므로 설정하지 않음
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -58,7 +62,7 @@ class ScreenTimeReportUIView: UIView {
             devices: .init([.iPhone])
         )
 
-        let reportView = DeviceActivityReport(.init("Total Activity"), filter: filter)
+        let reportView = DeviceActivityReport(.init(reportContext), filter: filter)
         let hostingVC = UIHostingController(rootView: AnyView(reportView))
 
         // addSubview 전에 addChild로 VC 계층에 먼저 편입

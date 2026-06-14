@@ -7,6 +7,11 @@
 // 사용 방법:
 //   import ScreenTimeReportView from '../components/ScreenTimeReportView';
 //   <ScreenTimeReportView style={{ flex: 1 }} />
+//
+// props:
+//   reportContext (string, 기본값 "Total Activity")
+//     - "Total Activity": 총 사용 시간 + 앱별 목록 (ScreenTimeScreen)
+//     - "Compact Activity": 총 사용 시간 숫자만 (HomeScreen "사용" StatBox)
 
 import { requireNativeComponent, Platform } from 'react-native';
 
