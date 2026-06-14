@@ -39,14 +39,10 @@ class ScreenTimeReportUIView: UIView {
         guard window != nil else { return }
         guard hostingController == nil else { return }
 
-        // React Native 뷰 계층에서는 responder chain에 VC가 없을 수 있으므로
-        // window의 rootViewController를 직접 사용
-        guard let parentVC = containerViewController else { return }
-
-        setupHostingController(parentVC: parentVC)
+        setupHostingController()
     }
 
-    private func setupHostingController(parentVC: UIViewController) {
+    private func setupHostingController() {
         let calendar = Calendar.current
         let now = Date()
         let startOfDay = calendar.startOfDay(for: now)
@@ -60,9 +56,6 @@ class ScreenTimeReportUIView: UIView {
         let reportView = DeviceActivityReport(.init("Total Activity"), filter: filter)
         let hostingVC = UIHostingController(rootView: AnyView(reportView))
 
-        // 뷰를 추가하기 전에 반드시 addChild 먼저 호출
-        parentVC.addChild(hostingVC)
-
         hostingVC.view.translatesAutoresizingMaskIntoConstraints = false
         hostingVC.view.backgroundColor = .clear
         addSubview(hostingVC.view)
@@ -74,18 +67,6 @@ class ScreenTimeReportUIView: UIView {
             hostingVC.view.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
-        hostingVC.didMove(toParent: parentVC)
         self.hostingController = hostingVC
-    }
-
-    // React Native: window.rootViewController 기반으로 최상위 VC 탐색
-    // (RN 뷰 계층에서 responder chain에는 VC가 없는 경우가 많음)
-    private var containerViewController: UIViewController? {
-        guard let root = window?.rootViewController else { return nil }
-        var top = root
-        while let presented = top.presentedViewController {
-            top = presented
-        }
-        return top
     }
 }
