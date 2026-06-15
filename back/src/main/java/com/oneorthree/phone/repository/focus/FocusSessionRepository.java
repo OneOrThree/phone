@@ -3,6 +3,7 @@ package com.oneorthree.phone.repository.focus;
 import com.oneorthree.phone.domain.focus.FocusSession;
 import com.oneorthree.phone.domain.user.User;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -15,4 +16,8 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, Long
     List<FocusSession> findByUserWithTag(@Param("user") User user);
 
     List<FocusSession> findByUserAndStartedAtBetween(User user, Instant from, Instant to);
+
+    @Modifying
+    @Query("UPDATE FocusSession f SET f.user = null WHERE f.user.id = :userId")
+    void nullifyUser(@Param("userId") Long userId);
 }

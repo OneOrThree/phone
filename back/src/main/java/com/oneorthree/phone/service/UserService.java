@@ -2,8 +2,13 @@ package com.oneorthree.phone.service;
 
 import com.oneorthree.phone.api.dto.request.UserProfileSetupRequest;
 import com.oneorthree.phone.api.dto.request.UserProfileUpdateRequest;
+import com.oneorthree.phone.domain.room.Room;
 import com.oneorthree.phone.domain.user.User;
+import com.oneorthree.phone.exception.RoomHostCannotWithdrawException;
 import com.oneorthree.phone.exception.UserNotFoundException;
+import com.oneorthree.phone.repository.focus.DailyFocusStatRepository;
+import com.oneorthree.phone.repository.focus.FocusSessionRepository;
+import com.oneorthree.phone.repository.room.RoomRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.user.UserProfileResponse;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +25,9 @@ import java.time.ZoneId;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final RoomRepository roomRepository;
+    private final FocusSessionRepository focusSessionRepository;
+    private final DailyFocusStatRepository dailyFocusStatRepository;
 
     @Transactional
     public void setupProfile(Long userId, UserProfileSetupRequest body) {
@@ -87,6 +95,20 @@ public class UserService {
         if (body.getReportTime() != null) {
             user.setReportTime(LocalTime.parse(body.getReportTime()));
         }
+    }
+
+    @Transactional
+    public void withdraw(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        if (roomRepository.existsByHostId(userId)) {
+            throw new RoomHostCannotWithdrawException();
+        }
+
+        focusSessionRepository.nullifyUser(userId);
+        dailyFocusStatRepository.nullifyUser(userId);
+        userRepository.delete(user);
     }
 
     public UserProfileResponse getProfile(Long userId) {

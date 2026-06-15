@@ -56,6 +56,8 @@ public class Room {
     @Builder.Default
     private RoomStatus status = RoomStatus.WAITING;
 
+    private Long hostId;
+
     @CreationTimestamp
     private Instant createdAt;
 

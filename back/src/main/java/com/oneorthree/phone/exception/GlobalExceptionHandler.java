@@ -42,4 +42,9 @@ public class GlobalExceptionHandler {
     public ResponseEntity<String> handleCurrency(CurrencyException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
     }
+
+    @ExceptionHandler(RoomHostCannotWithdrawException.class)
+    public ResponseEntity<String> handleRoomHostCannotWithdraw(RoomHostCannotWithdrawException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+    }
 }

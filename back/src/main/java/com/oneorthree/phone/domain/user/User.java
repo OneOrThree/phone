@@ -80,6 +80,8 @@ public class User {
     @CreationTimestamp
     private Instant createdAt;
 
+    private Instant deletedAt;
+
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<SocialAccount> socialAccounts = new ArrayList<>();
