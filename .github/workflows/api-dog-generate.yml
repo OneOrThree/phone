@@ -201,17 +201,9 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.APIDOG_TOKEN }}" \
             -H "X-Apidog-Api-Version: 2024-03-28" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"input\": {
-                \"content\": $(cat openapi.json)
-              },
-              \"options\": {
-                \"endpointOverwriteBehavior\": \"OVERWRITE_EXISTING\",
-                \"schemaOverwriteBehavior\": \"OVERWRITE_EXISTING\",
-                \"updateFolderOfChangedEndpoint\": false,
-                \"prependBasePath\": false
-              }
-            }"
+            --data "$(jq -n \
+              --argjson spec "$(cat openapi.json)" \
+              '{input: {content: ($spec | tojson)}, options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}')"
 
       - name: Sync to Apidog (Soobin)
         if: steps.check.outputs.exists == 'true'
@@ -221,14 +213,6 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.APIDOG_TOKEN_SOOBIN }}" \
             -H "X-Apidog-Api-Version: 2024-03-28" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"input\": {
-                \"content\": $(cat openapi.json)
-              },
-              \"options\": {
-                \"endpointOverwriteBehavior\": \"OVERWRITE_EXISTING\",
-                \"schemaOverwriteBehavior\": \"OVERWRITE_EXISTING\",
-                \"updateFolderOfChangedEndpoint\": false,
-                \"prependBasePath\": false
-              }
-            }"
+            --data "$(jq -n \
+              --argjson spec "$(cat openapi.json)" \
+              '{input: {content: ($spec | tojson)}, options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}')"
