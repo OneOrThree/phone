@@ -1,5 +1,6 @@
 package com.oneorthree.phone.service;
 
+import com.oneorthree.phone.api.dto.response.GuestLoginResponse;
 import com.oneorthree.phone.api.dto.response.KakaoLoginResponse;
 import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
 import com.oneorthree.phone.domain.user.Provider;
@@ -56,6 +57,17 @@ public class AuthService {
 
         user.setRefreshToken(refreshToken);
         return new KakaoLoginResponse(accessToken, refreshToken, isNewUser);
+    }
+
+    @Transactional
+    public GuestLoginResponse guestLogin() {
+        User newUser = userRepository.save(User.builder().isGuest(true).build());
+
+        String accessToken = jwtProvider.generateAccessToken(newUser.getId());
+        String refreshToken = jwtProvider.generateRefreshToken(newUser.getId());
+        newUser.setRefreshToken(refreshToken);
+
+        return new GuestLoginResponse(accessToken, refreshToken, newUser.isGuest());
     }
 
     public TokenRefreshResponse refreshToken(String refreshToken) {

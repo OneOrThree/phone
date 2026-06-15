@@ -82,6 +82,10 @@ public class User {
 
     private Instant deletedAt;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean isGuest = false;
+
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<SocialAccount> socialAccounts = new ArrayList<>();
