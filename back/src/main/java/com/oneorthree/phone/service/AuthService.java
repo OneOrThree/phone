@@ -71,4 +71,18 @@ public class AuthService {
         String newAccessToken = jwtProvider.generateAccessToken(user.getId());
         return new TokenRefreshResponse(newAccessToken);
     }
+
+    @Transactional
+    public void logout(String refreshToken) {
+        try {
+            jwtProvider.extractUserId(refreshToken);
+        } catch (JwtException e) {
+            throw new InvalidRefreshTokenException();
+        }
+
+        User user = userRepository.findByRefreshToken(refreshToken)
+                .orElseThrow(InvalidRefreshTokenException::new);
+
+        user.setRefreshToken(null);
+    }
 }

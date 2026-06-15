@@ -1,4 +1,4 @@
 package com.oneorthree.phone.api.dto.request;
 
-public class LogoutRequest {
+public record LogoutRequest(String refreshToken) {
 }

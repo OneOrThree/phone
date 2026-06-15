@@ -1,11 +1,14 @@
 package com.oneorthree.phone.api;
 
 import com.oneorthree.phone.api.dto.request.KakaoLoginRequest;
+import com.oneorthree.phone.api.dto.request.LogoutRequest;
 import com.oneorthree.phone.api.dto.request.TokenRefreshRequest;
 import com.oneorthree.phone.api.dto.response.KakaoLoginResponse;
 import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
 import com.oneorthree.phone.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -32,5 +35,16 @@ public class AuthController {
     @PostMapping("/refresh")
     public ResponseEntity<TokenRefreshResponse> refreshToken(@RequestBody TokenRefreshRequest request) {
         return ResponseEntity.ok(authService.refreshToken(request.refreshToken()));
+    }
+
+    @Operation(summary = "로그아웃", description = "Refresh Token 무효화. 클라이언트는 로컬 토큰도 삭제해야 함.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "로그아웃 성공"),
+        @ApiResponse(responseCode = "400", description = "유효하지 않은 Refresh Token")
+    })
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@RequestBody LogoutRequest request) {
+        authService.logout(request.refreshToken());
+        return ResponseEntity.noContent().build();
     }
 }
