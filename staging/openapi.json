@@ -3,7 +3,7 @@
   "info": {
     "title": "Phone API 명세서",
     "description": "핸드폰 중복 방지 API 문서입니다.",
-    "version": "v0.0.1"
+    "version": "v0.0.2"
   },
   "servers": [
     {
@@ -21,28 +21,60 @@
       "description": "헬스 체크 API Test"
     },
     {
+      "name": "currency",
+      "description": "인게임 재화 관련 API"
+    },
+    {
       "name": "inventory",
       "description": "인벤토리 관련 API (조회, 수령)"
     },
     {
       "name": "auth",
       "description": "인증 관련 API"
+    },
+    {
+      "name": "focus",
+      "description": "focus 세션 관련 API (태그, 포커스 타임 등)"
+    },
+    {
+      "name": "user",
+      "description": "user 관련 API (생성, 조회, 변경)"
     }
   ],
   "paths": {
-    "/api/v1/auth/refresh": {
+    "/api/v1/user": {
+      "get": {
+        "tags": [
+          "user"
+        ],
+        "summary": "유저 정보 조회",
+        "description": "기존 유저 정보 조회",
+        "operationId": "getProfile",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfileResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
-          "auth"
+          "user"
         ],
-        "summary": "JWT 갱신",
-        "description": "JWT 갱신",
-        "operationId": "refreshToken",
+        "summary": "유저 정보 등록",
+        "description": "신규 유저 정보 등록",
+        "operationId": "setupProfile",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TokenRefreshRequest"
+                "$ref": "#/components/schemas/UserProfileSetupRequest"
               }
             }
           },
@@ -50,31 +82,41 @@
         },
         "responses": {
           "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/TokenRefreshResponse"
-                }
-              }
-            }
+            "description": "OK"
           }
         }
-      }
-    },
-    "/api/v1/auth/kakao": {
-      "post": {
+      },
+      "delete": {
         "tags": [
-          "auth"
+          "user"
         ],
-        "summary": "JWT 발급",
-        "description": "카카오 Access Token -\u003e JWT",
-        "operationId": "kakaoLogin",
+        "summary": "회원 탈퇴",
+        "description": "개인정보 파기 후 계정 삭제. 방장인 그룹은 위임 후 탈퇴 가능.",
+        "operationId": "withdraw",
+        "responses": {
+          "204": {
+            "description": "탈퇴 완료"
+          },
+          "400": {
+            "description": "방장 위임 후 탈퇴 가능"
+          },
+          "404": {
+            "description": "유저 없음"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "user"
+        ],
+        "summary": "유저 정보 부분 수정",
+        "description": "기존 유저 정보 부분 수정",
+        "operationId": "updateProfile",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/KakaoLoginRequest"
+                "$ref": "#/components/schemas/UserProfileUpdateRequest"
               }
             }
           },
@@ -82,19 +124,83 @@
         },
         "responses": {
           "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/tag": {
+      "get": {
+        "tags": [
+          "focus"
+        ],
+        "summary": "TAG 조회",
+        "description": "유저별 TAG 조회",
+        "operationId": "getTag",
+        "responses": {
+          "200": {
             "description": "OK",
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/KakaoLoginResponse"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FocusTagResponse"
+                  }
                 }
               }
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "focus"
+        ],
+        "summary": "TAG 초기 등록",
+        "description": "TAG, 설명 등록",
+        "operationId": "setupTag",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FocusTagSetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "focus"
+        ],
+        "summary": "TAG 수정",
+        "description": "TAG, 설명 수정",
+        "operationId": "updateTag",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FocusTagUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
       }
     },
-    "/api/inventory/grant": {
+    "/api/v1/inventory/grant": {
       "post": {
         "tags": [
           "inventory"
@@ -117,7 +223,55 @@
         }
       }
     },
-    "/api/equipment/equip": {
+    "/api/v1/focus-session": {
+      "get": {
+        "tags": [
+          "focus"
+        ],
+        "summary": "Focus Session 조회",
+        "description": "Focus Session 정보 조회",
+        "operationId": "getFocusSessions",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FocusSessionResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "focus"
+        ],
+        "summary": "Focus Session 저장",
+        "description": "Focus Session 정보 저장",
+        "operationId": "saveFocusSession",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FocusSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/equipment/equip": {
       "post": {
         "tags": [
           "equipment"
@@ -149,6 +303,232 @@
         }
       }
     },
+    "/api/v1/currency/spend": {
+      "post": {
+        "tags": [
+          "currency"
+        ],
+        "summary": "사용",
+        "description": "인게임 재화 감소",
+        "operationId": "spendCurrency",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CurrencyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/currency/earn": {
+      "post": {
+        "tags": [
+          "currency"
+        ],
+        "summary": "적립",
+        "description": "인게임 재화 증가",
+        "operationId": "earnCurrency",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CurrencyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "토큰 갱신",
+        "description": "Refresh Token → 새 Access Token 발급. RT는 갱신되지 않음.",
+        "operationId": "refreshToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "토큰 갱신 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenRefreshResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "유효하지 않은 Refresh Token",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenRefreshResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "로그아웃",
+        "description": "Refresh Token 무효화. 클라이언트는 로컬 토큰도 삭제해야 함.",
+        "operationId": "logout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "로그아웃 성공"
+          },
+          "400": {
+            "description": "유효하지 않은 Refresh Token"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/kakao": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "카카오 로그인",
+        "description": "카카오 Access Token → AT + RT 발급. 최초 로그인 시 isNewUser\u003dtrue.",
+        "operationId": "kakaoLogin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KakaoLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "로그인 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/KakaoLoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "유효하지 않은 카카오 토큰",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/KakaoLoginResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/guest": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "게스트 로그인",
+        "description": "소셜 계정 없이 임시 사용자 생성. 일부 기능(그룹 생성·챌린지 참여 등) 제한 적용.",
+        "operationId": "guestLogin",
+        "responses": {
+          "200": {
+            "description": "게스트 로그인 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestLoginResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/apple": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "애플 로그인",
+        "description": "Apple Identity Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser\u003dtrue.",
+        "operationId": "appleLogin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppleLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "로그인 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppleLoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Identity Token 검증 실패",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppleLoginResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -171,7 +551,7 @@
         }
       }
     },
-    "/api/inventory/{userId}": {
+    "/api/v1/inventory/{userId}": {
       "get": {
         "tags": [
           "inventory"
@@ -205,7 +585,7 @@
         }
       }
     },
-    "/api/equipment/{userId}": {
+    "/api/v1/equipment/{userId}": {
       "get": {
         "tags": [
           "equipment"
@@ -241,7 +621,81 @@
         }
       }
     },
-    "/api/equipment/{userId}/{slotType}": {
+    "/api/v1/currency": {
+      "get": {
+        "tags": [
+          "currency"
+        ],
+        "summary": "잔액 조회",
+        "description": "유저의 현재 인게임 잔액 조회",
+        "operationId": "getCurrencyBalance",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/currency/transactions": {
+      "get": {
+        "tags": [
+          "currency"
+        ],
+        "summary": "거래 내역 조회",
+        "description": "유저의 거래 내역 조회",
+        "operationId": "getCurrencyTransactions",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TransactionsResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tag/{tagId}": {
+      "delete": {
+        "tags": [
+          "focus"
+        ],
+        "summary": "TAG 삭제",
+        "description": "TAG 삭제",
+        "operationId": "deleteTag",
+        "parameters": [
+          {
+            "name": "tagId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/equipment/{userId}/{slotType}": {
       "delete": {
         "tags": [
           "equipment"
@@ -266,11 +720,10 @@
             "schema": {
               "type": "string",
               "enum": [
-                "HAT",
-                "HEAD",
-                "BODY",
-                "SHOES",
-                "ACC"
+                "HAIR",
+                "TOP",
+                "BOTTOM",
+                "SHOES"
               ]
             }
           }
@@ -285,41 +738,47 @@
   },
   "components": {
     "schemas": {
-      "TokenRefreshRequest": {
+      "UserProfileSetupRequest": {
         "type": "object",
         "properties": {
-          "refreshToken": {
-            "type": "string"
-          }
-        }
-      },
-      "TokenRefreshResponse": {
-        "type": "object",
-        "properties": {
-          "accessToken": {
-            "type": "string"
-          }
-        }
-      },
-      "KakaoLoginRequest": {
-        "type": "object",
-        "properties": {
-          "kakaoAccessToken": {
-            "type": "string"
-          }
-        }
-      },
-      "KakaoLoginResponse": {
-        "type": "object",
-        "properties": {
-          "accessToken": {
+          "nickname": {
             "type": "string"
           },
-          "refreshToken": {
+          "birthDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "MALE",
+              "FEMALE",
+              "UNKNOWN"
+            ]
+          },
+          "dailyScreenTimeGoalMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "timeZone": {
             "type": "string"
           },
-          "isNewUser": {
-            "type": "boolean"
+          "dayStartTime": {
+            "type": "string"
+          },
+          "dayEndTime": {
+            "type": "string"
+          },
+          "reportTime": {
+            "type": "string"
+          }
+        }
+      },
+      "FocusTagSetupRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
           }
         }
       },
@@ -333,6 +792,34 @@
           "itemId": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "FocusSessionRequest": {
+        "type": "object",
+        "properties": {
+          "focusTagId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "distractionCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalDistractionSeconds": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -374,19 +861,237 @@
           "name": {
             "type": "string"
           },
-          "description": {
-            "type": "string"
-          },
-          "assetAddress": {
-            "type": "string"
-          },
-          "thumbnailUrl": {
+          "itemType": {
             "type": "string"
           },
           "slotType": {
             "type": "string"
           },
           "rarity": {
+            "type": "string"
+          },
+          "assetAddress": {
+            "type": "string"
+          },
+          "priceType": {
+            "type": "string"
+          },
+          "currencyPrice": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "premiumPrice": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "CurrencyRequest": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "SESSION_COMPLETE",
+              "STREAK_BONUS",
+              "PURCHASE"
+            ]
+          }
+        }
+      },
+      "TokenRefreshRequest": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        }
+      },
+      "TokenRefreshResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          }
+        }
+      },
+      "LogoutRequest": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        }
+      },
+      "KakaoLoginRequest": {
+        "type": "object",
+        "properties": {
+          "kakaoAccessToken": {
+            "type": "string"
+          }
+        }
+      },
+      "KakaoLoginResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "isNewUser": {
+            "type": "boolean"
+          }
+        }
+      },
+      "GuestLoginResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "isNewUser": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AppleLoginRequest": {
+        "type": "object",
+        "properties": {
+          "identityToken": {
+            "type": "string"
+          },
+          "authorizationCode": {
+            "type": "string"
+          },
+          "fullName": {
+            "type": "string"
+          }
+        }
+      },
+      "AppleLoginResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "isNewUser": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UserProfileUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "nickname": {
+            "type": "string"
+          },
+          "birthDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "MALE",
+              "FEMALE",
+              "UNKNOWN"
+            ]
+          },
+          "dailyScreenTimeGoalMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "dayStartTime": {
+            "type": "string"
+          },
+          "dayEndTime": {
+            "type": "string"
+          },
+          "reportTime": {
+            "type": "string"
+          }
+        }
+      },
+      "FocusTagUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "tagId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "UserProfileResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "gender": {
+            "type": "string"
+          },
+          "birthDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "profileImageUrl": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currentTier": {
+            "type": "string"
+          },
+          "dailyScreenTimeGoalMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "dayStartTime": {
+            "type": "string"
+          },
+          "dayEndTime": {
+            "type": "string"
+          },
+          "reportTime": {
+            "type": "string"
+          }
+        }
+      },
+      "FocusTagResponse": {
+        "type": "object",
+        "properties": {
+          "tagId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
             "type": "string"
           }
         }
@@ -402,6 +1107,62 @@
             "$ref": "#/components/schemas/ItemResponse"
           },
           "acquiredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FocusSessionResponse": {
+        "type": "object",
+        "properties": {
+          "focusTagId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "distractionCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalDistractionSeconds": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "TransactionsResponse": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "EARN",
+              "SPEND"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "SESSION_COMPLETE",
+              "STREAK_BONUS",
+              "PURCHASE"
+            ]
+          },
+          "transactedAt": {
             "type": "string",
             "format": "date-time"
           }
