@@ -359,7 +359,7 @@
           "auth"
         ],
         "summary": "토큰 갱신",
-        "description": "Refresh Token → 새 Access Token 발급",
+        "description": "Refresh Token → 새 Access Token 발급. RT는 갱신되지 않음.",
         "operationId": "refreshToken",
         "requestBody": {
           "content": {
@@ -373,7 +373,17 @@
         },
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "토큰 갱신 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenRefreshResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "유효하지 않은 Refresh Token",
             "content": {
               "*/*": {
                 "schema": {
@@ -419,7 +429,7 @@
           "auth"
         ],
         "summary": "카카오 로그인",
-        "description": "카카오 Access Token → AT + RT 발급",
+        "description": "카카오 Access Token → AT + RT 발급. 최초 로그인 시 isNewUser\u003dtrue.",
         "operationId": "kakaoLogin",
         "requestBody": {
           "content": {
@@ -433,7 +443,17 @@
         },
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "로그인 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/KakaoLoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "유효하지 않은 카카오 토큰",
             "content": {
               "*/*": {
                 "schema": {
@@ -460,6 +480,48 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/GuestLoginResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/apple": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "애플 로그인",
+        "description": "Apple Identity Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser\u003dtrue.",
+        "operationId": "appleLogin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppleLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "로그인 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppleLoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Identity Token 검증 실패",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppleLoginResponse"
                 }
               }
             }
@@ -888,6 +950,34 @@
         }
       },
       "GuestLoginResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "isNewUser": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AppleLoginRequest": {
+        "type": "object",
+        "properties": {
+          "identityToken": {
+            "type": "string"
+          },
+          "authorizationCode": {
+            "type": "string"
+          },
+          "fullName": {
+            "type": "string"
+          }
+        }
+      },
+      "AppleLoginResponse": {
         "type": "object",
         "properties": {
           "accessToken": {
