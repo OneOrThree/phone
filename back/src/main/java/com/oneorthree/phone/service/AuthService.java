@@ -6,7 +6,8 @@ import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
 import com.oneorthree.phone.domain.user.Provider;
 import com.oneorthree.phone.domain.user.SocialAccount;
 import com.oneorthree.phone.domain.user.User;
-import com.oneorthree.phone.exception.InvalidRefreshTokenException;
+import com.oneorthree.phone.exception.InvalidTokenException;
+import com.oneorthree.phone.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.repository.user.SocialAccountRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.user.KakaoUserInfo;
@@ -74,11 +75,11 @@ public class AuthService {
         try {
             jwtProvider.extractUserId(refreshToken);
         } catch (JwtException e) {
-            throw new InvalidRefreshTokenException();
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
         }
 
         User user = userRepository.findByRefreshToken(refreshToken)
-                .orElseThrow(InvalidRefreshTokenException::new);
+                .orElseThrow(() -> new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN));
 
         String newAccessToken = jwtProvider.generateAccessToken(user.getId());
         return new TokenRefreshResponse(newAccessToken);
@@ -89,11 +90,11 @@ public class AuthService {
         try {
             jwtProvider.extractUserId(refreshToken);
         } catch (JwtException e) {
-            throw new InvalidRefreshTokenException();
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
         }
 
         User user = userRepository.findByRefreshToken(refreshToken)
-                .orElseThrow(InvalidRefreshTokenException::new);
+                .orElseThrow(() -> new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN));
 
         user.setRefreshToken(null);
     }

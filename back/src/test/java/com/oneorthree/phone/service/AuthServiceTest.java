@@ -1,15 +1,7 @@
 package com.oneorthree.phone.service;
 
-import com.oneorthree.phone.api.dto.response.KakaoLoginResponse;
-import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
-import com.oneorthree.phone.domain.user.Provider;
-import com.oneorthree.phone.domain.user.SocialAccount;
-import com.oneorthree.phone.domain.user.User;
-import com.oneorthree.phone.exception.InvalidKakaoTokenException;
-import com.oneorthree.phone.exception.InvalidRefreshTokenException;
 import com.oneorthree.phone.repository.user.SocialAccountRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
-import io.jsonwebtoken.JwtException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
