@@ -28,7 +28,11 @@ public class AuthController {
 
     private final AuthService authService;
 
-    @Operation(summary = "카카오 로그인", description = "카카오 Access Token → AT + RT 발급")
+    @Operation(summary = "카카오 로그인", description = "카카오 Access Token → AT + RT 발급. 최초 로그인 시 isNewUser=true.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "로그인 성공"),
+        @ApiResponse(responseCode = "401", description = "유효하지 않은 카카오 토큰")
+    })
     @PostMapping("/kakao")
     public ResponseEntity<KakaoLoginResponse> kakaoLogin(@RequestBody KakaoLoginRequest request) {
         return ResponseEntity.ok(authService.kakaoLogin(request.kakaoAccessToken()));
@@ -53,7 +57,11 @@ public class AuthController {
         return ResponseEntity.ok(authService.guestLogin());
     }
 
-    @Operation(summary = "토큰 갱신", description = "Refresh Token → 새 Access Token 발급")
+    @Operation(summary = "토큰 갱신", description = "Refresh Token → 새 Access Token 발급. RT는 갱신되지 않음.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "토큰 갱신 성공"),
+        @ApiResponse(responseCode = "401", description = "유효하지 않은 Refresh Token")
+    })
     @PostMapping("/refresh")
     public ResponseEntity<TokenRefreshResponse> refreshToken(@RequestBody TokenRefreshRequest request) {
         return ResponseEntity.ok(authService.refreshToken(request.refreshToken()));
