@@ -1,8 +1,10 @@
 package com.oneorthree.phone.api;
 
+import com.oneorthree.phone.api.dto.request.AppleLoginRequest;
 import com.oneorthree.phone.api.dto.request.KakaoLoginRequest;
 import com.oneorthree.phone.api.dto.request.LogoutRequest;
 import com.oneorthree.phone.api.dto.request.TokenRefreshRequest;
+import com.oneorthree.phone.api.dto.response.AppleLoginResponse;
 import com.oneorthree.phone.api.dto.response.GuestLoginResponse;
 import com.oneorthree.phone.api.dto.response.KakaoLoginResponse;
 import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
@@ -30,6 +32,16 @@ public class AuthController {
     @PostMapping("/kakao")
     public ResponseEntity<KakaoLoginResponse> kakaoLogin(@RequestBody KakaoLoginRequest request) {
         return ResponseEntity.ok(authService.kakaoLogin(request.kakaoAccessToken()));
+    }
+
+    @Operation(summary = "애플 로그인", description = "Apple Identity Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "로그인 성공"),
+        @ApiResponse(responseCode = "401", description = "Identity Token 검증 실패")
+    })
+    @PostMapping("/apple")
+    public ResponseEntity<AppleLoginResponse> appleLogin(@RequestBody AppleLoginRequest request) {
+        return ResponseEntity.ok(authService.appleLogin(request.identityToken(), request.fullName()));
     }
 
     @Operation(summary = "게스트 로그인", description = "소셜 계정 없이 임시 사용자 생성. 일부 기능(그룹 생성·챌린지 참여 등) 제한 적용.")
