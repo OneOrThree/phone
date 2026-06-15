@@ -34,6 +34,7 @@ struct AppUsage: Identifiable {
 struct ActivityReport {
     let totalDuration: TimeInterval  // 오늘 총 사용 시간 (초 단위)
     let apps: [AppUsage]             // 앱별 사용 시간 목록 (사용 시간 내림차순)
+    let goalSeconds: TimeInterval  // [테스트] App Group에서 읽은 목표 시간 (없으면 -1)
 }
 
 // DeviceActivityReportScene: Apple이 제공하는 프로토콜
@@ -87,11 +88,9 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
     }
 
     // [테스트] 메인 앱이 App Group에 쓴 goalSeconds를 익스텐션이 읽을 수 있는지 확인
-    let goalSecondsExists = sharedDefaults?.object(forKey: "gromo:user:goalSeconds") != nil
     let goalSeconds = sharedDefaults?.double(forKey: "gromo:user:goalSeconds") ?? -1
-    print("[buildActivityReport] goalSeconds exists?: \(goalSecondsExists), value: \(goalSeconds)")
 
-    return ActivityReport(totalDuration: totalDuration, apps: apps)
+    return ActivityReport(totalDuration: totalDuration, apps: apps, goalSeconds: goalSeconds)
 }
 
 // TimeInterval(초)을 "X시간 Y분" 형태로 변환

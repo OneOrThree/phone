@@ -50,6 +50,7 @@ struct TotalActivityView: View {
             AppUsage(name: "카카오톡", duration: 3600),
             AppUsage(name: "유튜브", duration: 1200),
             AppUsage(name: "인스타그램", duration: 240)
-        ]
+        ],
+        goalSeconds: 10800
     ))
 }

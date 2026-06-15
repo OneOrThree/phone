@@ -23,6 +23,7 @@ struct CompactActivityView: View {
 #Preview {
     CompactActivityView(totalActivity: ActivityReport(
         totalDuration: 5040,
-        apps: []
+        apps: [],
+        goalSeconds: 10800
     ))
 }

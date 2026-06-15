@@ -306,7 +306,9 @@ export default function HomeScreen({ navigation, route }) {
         <StatBox
           label="남은"
           valueComponent={
-            goalSeconds - screenTimeSeconds < 0 ? (
+            Platform.OS === 'ios' && authStatus === 'approved' ? (
+              <ScreenTimeReportView reportContext="Remaining Activity" style={s.statValueReport} />
+            ) : goalSeconds - screenTimeSeconds < 0 ? (
               <Text style={[s.statValue, s.statValueFail]}>실패</Text>
             ) : (
               <Text style={s.statValue}>{formatFocusTime(goalSeconds - screenTimeSeconds)}</Text>
