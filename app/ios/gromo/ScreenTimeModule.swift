@@ -93,4 +93,16 @@ class ScreenTimeModule: NSObject {
         print("[ScreenTimeModule] totalDuration: \(totalDuration)")
         resolve(totalDuration)
     }
+
+    // 목표 시간을 App Group에 저장 (익스텐션에서 읽어서 "남은 시간" 계산에 사용)
+    // JS에서 await ScreenTimeModule.setGoalSeconds(goalSeconds) 로 호출
+    @objc func setGoalSeconds(
+        _ seconds: Double,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        sharedDefaults?.set(seconds, forKey: "gromo:user:goalSeconds")
+        resolve(nil)
+    }
 }

@@ -205,6 +205,12 @@ export default function HomeScreen({ navigation, route }) {
     ScreenTimeModule.getAuthorizationStatus().then(setAuthStatus);
   }, []);
 
+  // 목표 시간을 App Group에 저장 (익스텐션에서 읽어서 "남은 시간" 계산 가능한지 테스트)
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    ScreenTimeModule.setGoalSeconds(goalSeconds);
+  }, [goalSeconds]);
+
   async function handleRequestAuth() {
     const approved = await ScreenTimeModule.requestAuthorization();
     setAuthStatus(approved ? 'approved' : 'denied');

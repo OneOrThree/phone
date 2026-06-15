@@ -86,6 +86,11 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
         sharedDefaults.set(Date(), forKey: "gromo:screentime:lastUpdated")
     }
 
+    // [테스트] 메인 앱이 App Group에 쓴 goalSeconds를 익스텐션이 읽을 수 있는지 확인
+    let goalSecondsExists = sharedDefaults?.object(forKey: "gromo:user:goalSeconds") != nil
+    let goalSeconds = sharedDefaults?.double(forKey: "gromo:user:goalSeconds") ?? -1
+    print("[buildActivityReport] goalSeconds exists?: \(goalSecondsExists), value: \(goalSeconds)")
+
     return ActivityReport(totalDuration: totalDuration, apps: apps)
 }
 

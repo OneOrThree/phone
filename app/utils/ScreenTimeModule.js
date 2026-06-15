@@ -30,6 +30,12 @@ const ScreenTimeModule = {
     if (Platform.OS !== 'ios') return 0;
     return NativeScreenTimeModule.getTotalScreenTime();
   },
+
+  // 목표 시간을 App Group에 저장 (익스텐션에서 "남은 시간" 계산에 사용)
+  setGoalSeconds: async (seconds) => {
+    if (Platform.OS !== 'ios') return;
+    return NativeScreenTimeModule.setGoalSeconds(seconds);
+  },
 };
 
 export default ScreenTimeModule;
