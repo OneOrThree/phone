@@ -74,6 +74,15 @@ export default function App() {
   }, []);
 
   async function handleLogout() {
+    try {
+      const refreshToken = await AsyncStorage.getItem('gromo:refreshToken');
+      if (refreshToken) {
+        await apiFetch('/api/v1/auth/logout', {
+          method: 'POST',
+          body: JSON.stringify({ refreshToken }),
+        });
+      }
+    } catch {}
     await AsyncStorage.multiRemove(['gromo:accessToken', 'gromo:refreshToken', 'gromo:user']);
     setUser(null);
   }
