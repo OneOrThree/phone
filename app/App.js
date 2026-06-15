@@ -87,6 +87,18 @@ export default function App() {
     setUser(null);
   }
 
+  async function handleWithdraw() {
+    const res = await apiFetch('/api/v1/user', { method: 'DELETE' });
+    if (res.status === 400) {
+      throw new Error('400');
+    }
+    if (!res.ok) {
+      throw new Error('error');
+    }
+    await AsyncStorage.multiRemove(['gromo:accessToken', 'gromo:refreshToken', 'gromo:user']);
+    setUser(null);
+  }
+
   useEffect(() => {
     setLogoutHandler(handleLogout);
   }, []);
@@ -183,7 +195,7 @@ export default function App() {
                 <Tab.Screen name="그룹" component={GroupScreen} />
                 <Tab.Screen name="상점" component={ShopScreen} />
                 <Tab.Screen name="마이페이지">
-                  {() => <MyPageScreen user={user} onLogout={handleLogout} />}
+                  {() => <MyPageScreen user={user} onLogout={handleLogout} onWithdraw={handleWithdraw} />}
                 </Tab.Screen>
                 <Tab.Screen
                   name="FocusCategoryScreen"
