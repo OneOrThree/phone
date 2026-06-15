@@ -2,7 +2,6 @@ package com.oneorthree.phone.service;
 
 import com.oneorthree.phone.api.dto.request.UserProfileSetupRequest;
 import com.oneorthree.phone.api.dto.request.UserProfileUpdateRequest;
-import com.oneorthree.phone.domain.room.Room;
 import com.oneorthree.phone.domain.user.User;
 import com.oneorthree.phone.exception.RoomHostCannotWithdrawException;
 import com.oneorthree.phone.exception.UserNotFoundException;
