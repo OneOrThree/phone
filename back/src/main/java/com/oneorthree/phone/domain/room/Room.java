@@ -29,6 +29,20 @@ public class Room {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(nullable = false, length = 50)
+    @Builder.Default
+    private String name = "";
+
+    @Column(nullable = false, unique = true, length = 8)
+    @Builder.Default
+    private String code = "";
+
+    @Column(length = 100)
+    private String password;
+
+    @Column(length = 200)
+    private String description;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "mission_category", nullable = false)
     private MissionCategory missionCategory;

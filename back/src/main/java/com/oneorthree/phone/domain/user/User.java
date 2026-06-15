@@ -86,6 +86,9 @@ public class User {
     @Builder.Default
     private boolean isGuest = false;
 
+    @Column(length = 255)
+    private String deviceToken;
+
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<SocialAccount> socialAccounts = new ArrayList<>();

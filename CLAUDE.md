@@ -51,6 +51,6 @@ different jobs.
 
 ## Key docs
 
-- `docs/schema.dbml`, `docs/schema.sql` — database schema. `docs/migration-v*.sql` — migrations.
+- `back/docs/db/schema.dbml` — canonical DB schema (DBML, reflects current state). Local-only migration scripts in `back/docs/db/` (`run-migration-v*.sh`, gitignored) apply each delta.
 - `docs/design.md` — design spec. `docs/project-feature.md` — feature spec.
 - `back/HELP.md` — Spring Boot reference notes.
