@@ -195,7 +195,9 @@ export default function App() {
                 <Tab.Screen name="그룹" component={GroupScreen} />
                 <Tab.Screen name="상점" component={ShopScreen} />
                 <Tab.Screen name="마이페이지">
-                  {() => <MyPageScreen user={user} onLogout={handleLogout} onWithdraw={handleWithdraw} />}
+                  {() => (
+                    <MyPageScreen user={user} onLogout={handleLogout} onWithdraw={handleWithdraw} />
+                  )}
                 </Tab.Screen>
                 <Tab.Screen
                   name="FocusCategoryScreen"

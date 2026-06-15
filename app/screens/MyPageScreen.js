@@ -284,7 +284,10 @@ export default function MyPageScreen({ onLogout, onWithdraw }) {
                 } catch (e) {
                   const msg = e?.message ?? '';
                   if (msg.includes('400') || msg.includes('방장')) {
-                    Alert.alert('탈퇴 불가', '방장인 그룹이 있어요. 방장을 위임한 후 탈퇴해 주세요.');
+                    Alert.alert(
+                      '탈퇴 불가',
+                      '방장인 그룹이 있어요. 방장을 위임한 후 탈퇴해 주세요.',
+                    );
                   } else {
                     Alert.alert('오류', '탈퇴 처리 중 문제가 발생했어요. 다시 시도해 주세요.');
                   }
