@@ -1,11 +1,14 @@
 package com.oneorthree.phone.service;
 
+import com.oneorthree.phone.api.dto.response.AppleLoginResponse;
+import com.oneorthree.phone.api.dto.response.GuestLoginResponse;
 import com.oneorthree.phone.api.dto.response.KakaoLoginResponse;
 import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
 import com.oneorthree.phone.domain.user.Provider;
 import com.oneorthree.phone.domain.user.SocialAccount;
 import com.oneorthree.phone.domain.user.User;
-import com.oneorthree.phone.exception.InvalidRefreshTokenException;
+import com.oneorthree.phone.exception.InvalidTokenException;
+import com.oneorthree.phone.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.repository.user.SocialAccountRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.user.KakaoUserInfo;
@@ -25,6 +28,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final SocialAccountRepository socialAccountRepository;
     private final JwtProvider jwtProvider;
+    private final AppleJwksClient appleJwksClient;
 
     @Transactional
     public KakaoLoginResponse kakaoLogin(String kakaoAccessToken) {
@@ -58,17 +62,74 @@ public class AuthService {
         return new KakaoLoginResponse(accessToken, refreshToken, isNewUser);
     }
 
+    @Transactional
+    public AppleLoginResponse appleLogin(String identityToken, String fullName) {
+
+        String sub = appleJwksClient.extractSubject(identityToken);
+
+        Optional<SocialAccount> socialUser =
+                socialAccountRepository.findByProviderAndProviderId(Provider.APPLE, sub);
+
+        boolean isNewUser = socialUser.isEmpty();
+
+        User user = socialUser
+                .map(SocialAccount::getUser)
+                .orElseGet(() -> {
+                    User newUser = userRepository.save(User.builder().build());
+                    if (fullName != null) {
+                        newUser.setNickname(fullName);
+                    }
+                    socialAccountRepository.save(SocialAccount.builder()
+                            .user(newUser)
+                            .provider(Provider.APPLE)
+                            .providerId(sub)
+                            .build());
+                    return newUser;
+                });
+
+        String accessToken = jwtProvider.generateAccessToken(user.getId());
+        String refreshToken = jwtProvider.generateRefreshToken(user.getId());
+
+        user.setRefreshToken(refreshToken);
+        return new AppleLoginResponse(accessToken, refreshToken, isNewUser);
+    }
+
+    @Transactional
+    public GuestLoginResponse guestLogin() {
+        User newUser = userRepository.save(User.builder().isGuest(true).build());
+
+        String accessToken = jwtProvider.generateAccessToken(newUser.getId());
+        String refreshToken = jwtProvider.generateRefreshToken(newUser.getId());
+        newUser.setRefreshToken(refreshToken);
+
+        return new GuestLoginResponse(accessToken, refreshToken, newUser.isGuest());
+    }
+
     public TokenRefreshResponse refreshToken(String refreshToken) {
         try {
             jwtProvider.extractUserId(refreshToken);
         } catch (JwtException e) {
-            throw new InvalidRefreshTokenException();
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
         }
 
         User user = userRepository.findByRefreshToken(refreshToken)
-                .orElseThrow(InvalidRefreshTokenException::new);
+                .orElseThrow(() -> new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN));
 
         String newAccessToken = jwtProvider.generateAccessToken(user.getId());
         return new TokenRefreshResponse(newAccessToken);
+    }
+
+    @Transactional
+    public void logout(String refreshToken) {
+        try {
+            jwtProvider.extractUserId(refreshToken);
+        } catch (JwtException e) {
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+        }
+
+        User user = userRepository.findByRefreshToken(refreshToken)
+                .orElseThrow(() -> new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN));
+
+        user.setRefreshToken(null);
     }
 }

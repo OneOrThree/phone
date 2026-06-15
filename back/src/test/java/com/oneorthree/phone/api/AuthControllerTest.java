@@ -1,10 +1,6 @@
 package com.oneorthree.phone.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.oneorthree.phone.api.dto.response.KakaoLoginResponse;
-import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
-import com.oneorthree.phone.exception.InvalidKakaoTokenException;
-import com.oneorthree.phone.exception.InvalidRefreshTokenException;
 import com.oneorthree.phone.service.AuthService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Disabled;
@@ -12,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 

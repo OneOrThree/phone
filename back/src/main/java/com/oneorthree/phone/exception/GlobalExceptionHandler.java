@@ -13,16 +13,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
     }
 
-    @ExceptionHandler(InvalidKakaoTokenException.class)
-    public ResponseEntity<String> handleInvalidKakaoToken(InvalidKakaoTokenException e) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(e.getMessage());
-    }
-
-    @ExceptionHandler(InvalidRefreshTokenException.class)
-    public ResponseEntity<String> handleInvalidRefreshToken(InvalidRefreshTokenException e) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(e.getMessage());
-    }
-
     @ExceptionHandler(UserNotFoundException.class)
     public ResponseEntity<String> handleUserNotFound(UserNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage());
@@ -40,6 +30,16 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(CurrencyException.class)
     public ResponseEntity<String> handleCurrency(CurrencyException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+    }
+
+    @ExceptionHandler(InvalidTokenException.class)
+    public ResponseEntity<String> handleToken(InvalidTokenException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(e.getMessage());
+    }
+
+    @ExceptionHandler(RoomHostCannotWithdrawException.class)
+    public ResponseEntity<String> handleRoomHostCannotWithdraw(RoomHostCannotWithdrawException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
     }
 }

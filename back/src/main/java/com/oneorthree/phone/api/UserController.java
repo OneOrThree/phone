@@ -5,10 +5,13 @@ import com.oneorthree.phone.api.dto.request.UserProfileUpdateRequest;
 import com.oneorthree.phone.service.UserService;
 import com.oneorthree.phone.service.dto.user.UserProfileResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -49,5 +52,18 @@ public class UserController {
     public ResponseEntity<UserProfileResponse> getProfile(HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
         return ResponseEntity.ok(userService.getProfile(userId));
+    }
+
+    @Operation(summary = "회원 탈퇴", description = "개인정보 파기 후 계정 삭제. 방장인 그룹은 위임 후 탈퇴 가능.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "탈퇴 완료"),
+        @ApiResponse(responseCode = "400", description = "방장 위임 후 탈퇴 가능"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
+    @DeleteMapping("/user")
+    public ResponseEntity<Void> withdraw(HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+        userService.withdraw(userId);
+        return ResponseEntity.noContent().build();
     }
 }

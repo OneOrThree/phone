@@ -1,6 +1,7 @@
 package com.oneorthree.phone.service;
 
-import com.oneorthree.phone.exception.InvalidKakaoTokenException;
+import com.oneorthree.phone.exception.InvalidTokenException;
+import com.oneorthree.phone.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.service.dto.user.KakaoUserInfo;
 import com.oneorthree.phone.service.dto.user.KakaoUserMeResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,7 +29,7 @@ public class KakaoApiClientImpl implements KakaoApiClient {
                 .header("Authorization", "Bearer " + accessToken)
                 .retrieve()
                 .onStatus(HttpStatusCode::is4xxClientError, (req, res) -> {
-                    throw new InvalidKakaoTokenException();
+                    throw new InvalidTokenException(InvalidTokenErrorCode.KAKAO_TOKEN);
                 })
                 .body(KakaoUserMeResponse.class);
 
