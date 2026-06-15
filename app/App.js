@@ -43,7 +43,6 @@ import ShopScreen from './screens/ShopScreen';
 import MyPageScreen from './screens/MyPageScreen';
 import FocusModeScreen from './screens/FocusModeScreen';
 import FocusCategoryScreen from './screens/FocusCategoryScreen';
-import ScreenTimeScreen from './screens/ScreenTimeScreen';
 
 import { T } from './components/theme';
 
@@ -154,7 +153,7 @@ export default function App() {
                   ),
                   tabBarActiveTintColor: T.ink,
                   tabBarInactiveTintColor: T.inkLight,
-                  tabBarStyle: ['FocusMode', 'FocusCategoryScreen', 'ScreenTime'].includes(route.name)
+                  tabBarStyle: ['FocusMode', 'FocusCategoryScreen'].includes(route.name)
                     ? { display: 'none' }
                     : {
                         backgroundColor: T.paper,
@@ -185,11 +184,6 @@ export default function App() {
                 <Tab.Screen
                   name="FocusMode"
                   component={FocusModeScreen}
-                  options={{ tabBarButton: () => null }}
-                />
-                <Tab.Screen
-                  name="ScreenTime"
-                  component={ScreenTimeScreen}
                   options={{ tabBarButton: () => null }}
                 />
               </Tab.Navigator>

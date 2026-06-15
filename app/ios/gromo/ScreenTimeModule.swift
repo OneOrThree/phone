@@ -85,7 +85,12 @@ class ScreenTimeModule: NSObject {
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        print("[ScreenTimeModule] sharedDefaults nil?: \(sharedDefaults == nil)")
+        if let sd = sharedDefaults {
+            print("[ScreenTimeModule] keys: \(sd.dictionaryRepresentation().keys.filter { $0.hasPrefix("gromo:") })")
+        }
         let totalDuration = sharedDefaults?.double(forKey: "gromo:screentime:totalDuration") ?? 0
+        print("[ScreenTimeModule] totalDuration: \(totalDuration)")
         resolve(totalDuration)
     }
 }

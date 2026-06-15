@@ -79,7 +79,9 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
     apps.sort { $0.duration > $1.duration }
 
     // App Group UserDefaults에 총 사용 시간 저장 (메인 앱에서 읽을 수 있도록)
-    if let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo") {
+    let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+    print("[buildActivityReport] sharedDefaults nil?: \(sharedDefaults == nil), totalDuration: \(totalDuration)")
+    if let sharedDefaults = sharedDefaults {
         sharedDefaults.set(totalDuration, forKey: "gromo:screentime:totalDuration")
         sharedDefaults.set(Date(), forKey: "gromo:screentime:lastUpdated")
     }

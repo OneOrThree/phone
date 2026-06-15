@@ -197,12 +197,25 @@ export default function HomeScreen({ navigation, route }) {
   const remainingSeconds = Math.max(0, goalSeconds - phoneUsageSeconds);
   const [focusResult, setFocusResult] = useState(null);
   const [screenTimeSeconds, setScreenTimeSeconds] = useState(0);
+  const [authStatus, setAuthStatus] = useState('notDetermined');
+
+  // 스크린 타임 접근 권한 상태 확인
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    ScreenTimeModule.getAuthorizationStatus().then(setAuthStatus);
+  }, []);
+
+  async function handleRequestAuth() {
+    const approved = await ScreenTimeModule.requestAuthorization();
+    setAuthStatus(approved ? 'approved' : 'denied');
+  }
 
   // 앱 홈에 진입할 때마다 실시간 스크린 타임 조회
   useEffect(() => {
     const fetchScreenTime = async () => {
       try {
         const seconds = await ScreenTimeModule.getTotalScreenTime();
+        console.log('[Homescreen] getTotalScreenTime:', seconds);
         setScreenTimeSeconds(seconds);
       } catch (error) {
         console.log('스크린 타임 조회 실패:', error);
@@ -272,7 +285,13 @@ export default function HomeScreen({ navigation, route }) {
           label="사용"
           valueComponent={
             Platform.OS === 'ios' ? (
-              <ScreenTimeReportView reportContext="Compact Activity" style={s.statValueReport} />
+              authStatus === 'approved' ? (
+                <ScreenTimeReportView reportContext="Compact Activity" style={s.statValueReport} />
+              ) : (
+                <TouchableOpacity onPress={handleRequestAuth}>
+                  <Text style={s.statValue}>권한 허용</Text>
+                </TouchableOpacity>
+              )
             ) : (
               <Text style={s.statValue}>{formatFocusTime(screenTimeSeconds)}</Text>
             )
