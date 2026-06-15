@@ -203,7 +203,7 @@ jobs:
             -H "Content-Type: application/json" \
             --data "$(jq -n \
               --argjson spec "$(cat openapi.json)" \
-              '{input: {content: ($spec | tojson)}, options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}')"
+              '{input: ($spec | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}')"
 
       - name: Sync to Apidog (Soobin)
         if: steps.check.outputs.exists == 'true'
@@ -215,4 +215,4 @@ jobs:
             -H "Content-Type: application/json" \
             --data "$(jq -n \
               --argjson spec "$(cat openapi.json)" \
-              '{input: {content: ($spec | tojson)}, options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}')"
+              '{input: ($spec | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}')"
