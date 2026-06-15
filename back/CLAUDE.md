@@ -41,12 +41,15 @@ Enforced by `config/checkstyle/checkstyle.xml` (Google Java Style, modified):
 - `./gradlew checkstyleMain checkstyleTest` — style checks.
 - `./gradlew spotbugsMain` — static analysis.
 - `./gradlew jacocoTestReport` — coverage report.
-- Local helpers: `./reset-db.sh`, `./test-local.sh`. Local DB via `docker-compose.local.yml`.
+- Local helper: `./test-local.sh` spins up a throwaway `postgres:16-alpine` container, runs the tests, then tears it down.
 
 ## Database changes
 
-Schema lives in `docs/schema.dbml` and `docs/schema.sql`; migrations are
-`docs/migration-v*.sql`. **Flag any DB schema change in the PR** (per the PR template).
+The canonical DB schema is `docs/db/schema.dbml` (DBML — keep it in sync with the
+current state). Apply local schema changes with the migration scripts in `docs/db/`
+(`run-migration-v<N>.sh` — a `docker exec … psql` heredoc, gitignored/local-only); add a
+new `run-migration-v<N+1>.sh` for the next change and update `schema.dbml` to match.
+**Flag any DB schema change in the PR** (per the PR template).
 
 ## Deploy
 
@@ -62,7 +65,7 @@ The fast path for working in `back/`:
 - `superpowers:systematic-debugging` — for test failures / unexpected behavior.
 - `/back-check` — local CI gate (Checkstyle + SpotBugs + tests) before pushing.
 - `/back-endpoint <설명>` — scaffold a Controller→Service→Repository→DTO + test slice.
-- `/back-migration <설명>` — create the next migration SQL and sync `schema.dbml`/`schema.sql`.
+- `/back-migration <설명>` — scaffold the next `run-migration-v<N+1>.sh` script in `docs/db/`.
 - `spring-reviewer` (subagent) — focused Java/JPA/security/convention review of the diff.
 - `/code-review` — repo-wide correctness + cleanup pass on the diff before a PR.
 - `/security-review` — run when touching auth / `JwtFilter` / endpoints / secrets.
