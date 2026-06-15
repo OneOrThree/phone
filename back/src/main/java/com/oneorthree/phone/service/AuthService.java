@@ -1,5 +1,6 @@
 package com.oneorthree.phone.service;
 
+import com.oneorthree.phone.api.dto.response.AppleLoginResponse;
 import com.oneorthree.phone.api.dto.response.GuestLoginResponse;
 import com.oneorthree.phone.api.dto.response.KakaoLoginResponse;
 import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
@@ -27,6 +28,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final SocialAccountRepository socialAccountRepository;
     private final JwtProvider jwtProvider;
+    private final AppleJwksClient appleJwksClient;
 
     @Transactional
     public KakaoLoginResponse kakaoLogin(String kakaoAccessToken) {
@@ -58,6 +60,38 @@ public class AuthService {
 
         user.setRefreshToken(refreshToken);
         return new KakaoLoginResponse(accessToken, refreshToken, isNewUser);
+    }
+
+    @Transactional
+    public AppleLoginResponse appleLogin(String identityToken, String fullName) {
+
+        String sub = appleJwksClient.extractSubject(identityToken);
+
+        Optional<SocialAccount> socialUser =
+                socialAccountRepository.findByProviderAndProviderId(Provider.APPLE, sub);
+
+        boolean isNewUser = socialUser.isEmpty();
+
+        User user = socialUser
+                .map(SocialAccount::getUser)
+                .orElseGet(() -> {
+                    User newUser = userRepository.save(User.builder().build());
+                    if (fullName != null) {
+                        newUser.setNickname(fullName);
+                    }
+                    socialAccountRepository.save(SocialAccount.builder()
+                            .user(newUser)
+                            .provider(Provider.APPLE)
+                            .providerId(sub)
+                            .build());
+                    return newUser;
+                });
+
+        String accessToken = jwtProvider.generateAccessToken(user.getId());
+        String refreshToken = jwtProvider.generateRefreshToken(user.getId());
+
+        user.setRefreshToken(refreshToken);
+        return new AppleLoginResponse(accessToken, refreshToken, isNewUser);
     }
 
     @Transactional

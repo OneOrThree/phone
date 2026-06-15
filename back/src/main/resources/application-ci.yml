@@ -16,6 +16,9 @@ decorator:
 kakao:
   api-base-url: https://kapi.kakao.com
 
+apple:
+  jwks-url: https://appleid.apple.com/auth/keys
+
 jwt:
   secret: ci-test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256
   access-expiration: 3600
