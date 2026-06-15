@@ -69,7 +69,7 @@ async function appleLogin() {
   return data;
 }
 
-export default function LoginScreen({ onLogin }) {
+export default function LoginScreen({ onLogin, onGuestStart }) {
   const [loadingKakao, setLoadingKakao] = useState(false);
   const [loadingApple, setLoadingApple] = useState(false);
 
@@ -145,6 +145,16 @@ export default function LoginScreen({ onLogin }) {
           onPress={loading ? undefined : handleAppleLogin}
         />
 
+        {/* 게스트 로그인 */}
+        <TouchableOpacity
+          style={styles.guestButton}
+          onPress={onGuestStart}
+          activeOpacity={0.8}
+          disabled={loading}
+        >
+          <Text style={styles.guestButtonText}>게스트로 시작하기</Text>
+        </TouchableOpacity>
+
         {/* 구분선 */}
         <View style={styles.divider} />
 
@@ -206,6 +216,19 @@ const styles = StyleSheet.create({
   appleButton: {
     width: '100%',
     height: 54,
+  },
+  guestButton: {
+    width: '100%',
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: T.inkMed,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guestButtonText: {
+    fontSize: 16,
+    color: T.inkMed,
   },
   divider: {
     width: '100%',
