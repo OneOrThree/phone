@@ -13,6 +13,7 @@ import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
+import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
 import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import lombok.RequiredArgsConstructor;
@@ -154,6 +155,34 @@ public class GroupService {
                 group.getStatus(),
                 group.getPassword() != null
         );
+    }
+
+    public GroupOverviewResponse getGroupOverview(Long groupId, Long userId) {
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        boolean isMember = groupMemberRepository.findByUserAndGroup(user, group).isPresent();
+
+        int memberCount = groupMemberRepository.findByGroup(group).size();
+
+        return GroupOverviewResponse.builder()
+                .id(group.getId())
+                .name(group.getName())
+                .description(group.getDescription())
+                .missionCategory(group.getMissionCategory())
+                .missionType(group.getMissionType())
+                .durationMinutes(group.getDurationMinutes())
+                .windowStart(group.getWindowStart())
+                .windowEnd(group.getWindowEnd())
+                .maxMembers(group.getMaxMembers())
+                .memberCount(memberCount)
+                .status(group.getStatus())
+                .hasPassword(group.getPassword() != null)
+                .isMember(isMember)
+                .build();
     }
 
     private String generateUniqueCode() {

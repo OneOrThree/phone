@@ -3,6 +3,7 @@ package com.oneorthree.phone.api;
 import com.oneorthree.phone.service.GroupService;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
+import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
 import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -15,6 +16,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -30,7 +32,7 @@ import java.util.List;
 public class GroupController {
     private final GroupService groupService;
 
-    @Operation(summary = "그룹 생성", description = "그룹 생성 및 참가 코드(24시간 유효) 발급. 생성자는 OWNER로 자동 등록.")
+    @Operation(summary = "그룹 생성", description = "그룹 생성 및 참가 코드(3시간 유효) 발급. 생성자는 OWNER로 자동 등록.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "그룹 생성 성공"),
             @ApiResponse(responseCode = "400", description = "미션 파라미터 누락"),
@@ -52,6 +54,19 @@ public class GroupController {
     public ResponseEntity<List<GroupSummaryResponse>> getMyGroups(HttpServletRequest httpServletRequest) {
         Long userId = (Long) httpServletRequest.getAttribute("userId");
         return ResponseEntity.ok(groupService.getMyGroups(userId));
+    }
+
+    @Operation(summary = "그룹 개요 조회", description = "참여 여부 무관하게 그룹 공개 정보 반환. isMember 플래그 포함.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "조회 성공"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @GetMapping("/groups/{groupId}/overview")
+    public ResponseEntity<GroupOverviewResponse> getGroupOverview(
+            @PathVariable Long groupId,
+            HttpServletRequest httpServletRequest) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        return ResponseEntity.ok(groupService.getGroupOverview(groupId, userId));
     }
 
     @Operation(summary = "그룹 검색", description = "8자 영숫자면 코드 정확 매칭, 아니면 이름 LIKE 검색. 만료 코드 그룹 제외.")
