@@ -158,22 +158,23 @@ export default function MyPageScreen({ onLogout }) {
     setDraftGoal(pendingGoalSeconds ?? goalSeconds);
     setGoalEditing(true);
   }
-  async function saveGoal() {
+  function saveGoal() {
     const newGoal = draftGoal; // 클로저 캡처 안정성을 위해 즉시 로컬로 고정
     setGoalEditing(false);
-    await apiFetch('/api/v1/user', {
+    setPendingGoalSeconds(newGoal);
+    Alert.alert('목표 저장 완료', '변경된 목표는 다음날부터 적용됩니다!');
+
+    // API 및 AsyncStorage 업데이트는 백그라운드에서 처리
+    apiFetch('/api/v1/user', {
       method: 'PATCH',
       body: JSON.stringify({ dailyScreenTimeGoalMinutes: Math.round(newGoal / 60) }),
     }).catch(() => {});
-    // 다음 앱 실행 시 새 목표 로드되도록 AsyncStorage 업데이트
-    const raw = await AsyncStorage.getItem('gromo:user');
-    if (raw) {
+    AsyncStorage.getItem('gromo:user').then((raw) => {
+      if (!raw) return;
       const data = JSON.parse(raw);
       data.dailyScreenTimeGoalMinutes = Math.round(newGoal / 60);
-      await AsyncStorage.setItem('gromo:user', JSON.stringify(data));
-    }
-    setPendingGoalSeconds(newGoal);
-    Alert.alert('목표 저장 완료', '변경된 목표는 다음날부터 적용됩니다!');
+      AsyncStorage.setItem('gromo:user', JSON.stringify(data));
+    });
   }
 
   return (
