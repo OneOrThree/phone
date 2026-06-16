@@ -199,7 +199,8 @@ export default function HomeScreen({ navigation, route }) {
   const costumeSlots = equippedCostume.map((c) => c.slot);
   const remainingSeconds = Math.max(0, goalSeconds - phoneUsageSeconds);
   const [focusResult, setFocusResult] = useState(null);
-  const [showRewardModal, setShowRewardModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showFailModal, setShowFailModal] = useState(false);
   const [screenTimeSeconds, setScreenTimeSeconds] = useState(0);
   const [authStatus, setAuthStatus] = useState('notDetermined');
 
@@ -216,20 +217,24 @@ export default function HomeScreen({ navigation, route }) {
     ScreenTimeModule.startGoalMonitoring(goalSeconds);
   }, [goalSeconds]);
 
-  // 앱 진입 시 어제 목표 달성 여부 확인 → 미수령 보상이면 코인 지급
+  // 앱 진입 시 어제 목표 달성 여부 확인 → 미처리 결과면 성공/실패 모달 표시
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
     (async () => {
       const result = await ScreenTimeModule.getYesterdayResult();
-      if (result !== 'success') return;
+      if (!result) return;
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
       const yesterdayStr = yesterday.toISOString().split('T')[0];
       const lastRewardedDate = await AsyncStorage.getItem('gromo:screentime:lastRewardedDate');
       if (lastRewardedDate === yesterdayStr) return;
-      await addCoins(100);
       await AsyncStorage.setItem('gromo:screentime:lastRewardedDate', yesterdayStr);
-      setShowRewardModal(true);
+      if (result === 'success') {
+        await addCoins(100);
+        setShowSuccessModal(true);
+      } else {
+        setShowFailModal(true);
+      }
     })();
   }, []);
 
@@ -266,7 +271,7 @@ export default function HomeScreen({ navigation, route }) {
   return (
     <View style={s.container}>
       <StatusBar style="dark" />
-      <Modal visible={showRewardModal} transparent animationType="fade">
+      <Modal visible={showSuccessModal} transparent animationType="fade">
         <View style={s.resultOverlay}>
           <View style={s.resultBox}>
             <Text style={s.resultTitle}>스크린 타임 목표 달성!</Text>
@@ -276,7 +281,23 @@ export default function HomeScreen({ navigation, route }) {
             </View>
             <TouchableOpacity
               style={s.resultBtn}
-              onPress={() => setShowRewardModal(false)}
+              onPress={() => setShowSuccessModal(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={s.resultBtnText}>확인</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showFailModal} transparent animationType="fade">
+        <View style={s.resultOverlay}>
+          <View style={s.resultBox}>
+            <Text style={s.resultTitle}>어제 스크린 타임 목표 달성에 실패했어요!</Text>
+            <Text style={s.resultFailSub}>오늘은 조금 더 핸드폰을 적게 써봐요!</Text>
+            <TouchableOpacity
+              style={s.resultBtn}
+              onPress={() => setShowFailModal(false)}
               activeOpacity={0.7}
             >
               <Text style={s.resultBtnText}>확인</Text>
@@ -323,10 +344,6 @@ export default function HomeScreen({ navigation, route }) {
       <View style={s.header}>
         <Text style={s.headerTitle}>오늘의 {nickname} ✦</Text>
         <Text style={s.headerSub}>오늘도 열심히 집중해요</Text>
-        {/* 임시 테스트 버튼 — 확인 후 삭제 */}
-        <TouchableOpacity onPress={() => setShowRewardModal(true)} style={s.devBtn}>
-          <Text style={s.devBtnText}>스크린타임 결과 확인하기</Text>
-        </TouchableOpacity>
       </View>
 
       <View style={s.statsRow}>
@@ -676,16 +693,6 @@ const s = StyleSheet.create({
   focusTime: { fontSize: 28, fontWeight: '900', color: T.ink, marginTop: 2, letterSpacing: -1 },
   equippedHint: { fontSize: 11, fontWeight: '700', color: T.mintDark, marginTop: 4 },
 
-  devBtn: {
-    marginTop: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    backgroundColor: T.coral,
-    borderRadius: 6,
-    alignSelf: 'flex-start',
-  },
-  devBtnText: { fontSize: 12, fontWeight: '700', color: T.ink },
-
   startBtn: {
     backgroundColor: T.ink,
     borderRadius: 8,
@@ -710,7 +717,8 @@ const s = StyleSheet.create({
     padding: 28,
     gap: 16,
   },
-  resultTitle: { fontSize: 22, fontWeight: '900', color: T.ink, textAlign: 'center' },
+  resultTitle: { fontSize: 20, fontWeight: '900', color: T.ink, textAlign: 'center' },
+  resultFailSub: { fontSize: 14, fontWeight: '600', color: T.inkMed, textAlign: 'center', marginTop: 8 },
   resultSession: {
     fontSize: 13,
     fontWeight: '600',
