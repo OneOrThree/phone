@@ -4,6 +4,7 @@ import com.oneorthree.phone.service.GroupService;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
 import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
+import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
 import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -54,6 +55,24 @@ public class GroupController {
     public ResponseEntity<List<GroupSummaryResponse>> getMyGroups(HttpServletRequest httpServletRequest) {
         Long userId = (Long) httpServletRequest.getAttribute("userId");
         return ResponseEntity.ok(groupService.getMyGroups(userId));
+    }
+
+    @Operation(summary = "그룹 참가", description = "비밀번호 그룹은 password 필드 포함. 성공 시 204 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "참가 성공"),
+            @ApiResponse(responseCode = "401", description = "비밀번호 불일치"),
+            @ApiResponse(responseCode = "403", description = "게스트 접근 불가"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음"),
+            @ApiResponse(responseCode = "409", description = "정원 초과 / 이미 참여")
+    })
+    @PostMapping("/groups/{groupId}/join")
+    public ResponseEntity<Void> joinGroup(
+            @PathVariable Long groupId,
+            @RequestBody JoinGroupRequest request,
+            HttpServletRequest httpServletRequest) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        groupService.joinGroup(groupId, userId, request);
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(summary = "그룹 개요 조회", description = "참여 여부 무관하게 그룹 공개 정보 반환. isMember 플래그 포함.")
