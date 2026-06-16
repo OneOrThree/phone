@@ -1,3 +1,4 @@
+import Foundation
 import DeviceActivity
 
 class DeviceActivityMonitorExtension: DeviceActivityMonitor {

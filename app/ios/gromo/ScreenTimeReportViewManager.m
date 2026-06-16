@@ -8,5 +8,6 @@
 
 // DeviceActivityReport.Context 이름 ("Total Activity" | "Compact Activity")
 RCT_EXPORT_VIEW_PROPERTY(reportContext, NSString)
+RCT_EXPORT_VIEW_PROPERTY(goalSeconds, double)
 
 @end

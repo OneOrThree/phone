@@ -27,6 +27,17 @@ class ScreenTimeReportUIView: UIView {
     // 예: "Total Activity"(기본, ScreenTimeScreen), "Compact Activity"(HomeScreen "사용" StatBox)
     @objc var reportContext: String = "Total Activity"
 
+    // "남은" 칸 전용: JS에서 goalSeconds를 prop으로 받아 App Group에 동기 기록
+    // RN은 props를 didMoveToWindow보다 먼저 설정하므로, 익스텐션이 항상 최신 값을 읽음
+    @objc var goalSeconds: Double = 0 {
+        didSet {
+            guard goalSeconds > 0 else { return }
+            let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+            defaults?.set(goalSeconds, forKey: "gromo:user:goalSeconds")
+            defaults?.synchronize()  // 익스텐션 프로세스에 즉시 반영
+        }
+    }
+
     // init에서는 아직 window/부모 VC가 없으므로 설정하지 않음
     override init(frame: CGRect) {
         super.init(frame: frame)

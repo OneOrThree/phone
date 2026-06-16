@@ -209,10 +209,10 @@ export default function HomeScreen({ navigation, route }) {
     ScreenTimeModule.getAuthorizationStatus().then(setAuthStatus);
   }, []);
 
-  // 목표 시간 변경 시 App Group 저장 + 자정 모니터링 재등록
+  // 목표 시간 변경 시 자정 모니터링 재등록
+  // (App Group 기록은 ScreenTimeReportUIView의 goalSeconds prop didSet에서 동기 처리)
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
-    ScreenTimeModule.setGoalSeconds(goalSeconds);
     ScreenTimeModule.startGoalMonitoring(goalSeconds);
   }, [goalSeconds]);
 
@@ -323,6 +323,10 @@ export default function HomeScreen({ navigation, route }) {
       <View style={s.header}>
         <Text style={s.headerTitle}>오늘의 {nickname} ✦</Text>
         <Text style={s.headerSub}>오늘도 열심히 집중해요</Text>
+        {/* 임시 테스트 버튼 — 확인 후 삭제 */}
+        <TouchableOpacity onPress={() => setShowRewardModal(true)} style={s.devBtn}>
+          <Text style={s.devBtnText}>스크린타임 결과 확인하기</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={s.statsRow}>
@@ -347,7 +351,7 @@ export default function HomeScreen({ navigation, route }) {
           label="남은"
           valueComponent={
             Platform.OS === 'ios' && authStatus === 'approved' ? (
-              <ScreenTimeReportView reportContext="Remaining Activity" style={s.statValueReport} />
+              <ScreenTimeReportView key={goalSeconds} reportContext="Remaining Activity" goalSeconds={goalSeconds} style={s.statValueReport} />
             ) : goalSeconds - screenTimeSeconds < 0 ? (
               <Text style={[s.statValue, s.statValueFail]}>달성 실패</Text>
             ) : (
@@ -671,6 +675,16 @@ const s = StyleSheet.create({
   focusLabel: { fontSize: 13, fontWeight: '700', color: T.inkMed },
   focusTime: { fontSize: 28, fontWeight: '900', color: T.ink, marginTop: 2, letterSpacing: -1 },
   equippedHint: { fontSize: 11, fontWeight: '700', color: T.mintDark, marginTop: 4 },
+
+  devBtn: {
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: T.coral,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  devBtnText: { fontSize: 12, fontWeight: '700', color: T.ink },
 
   startBtn: {
     backgroundColor: T.ink,

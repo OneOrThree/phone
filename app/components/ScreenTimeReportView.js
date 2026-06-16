@@ -12,6 +12,9 @@
 //   reportContext (string, 기본값 "Total Activity")
 //     - "Total Activity": 총 사용 시간 + 앱별 목록 (ScreenTimeScreen)
 //     - "Compact Activity": 총 사용 시간 숫자만 (HomeScreen "사용" StatBox)
+//     - "Remaining Activity": 남은 시간 (HomeScreen "남은" StatBox)
+//   goalSeconds (number, Remaining Activity 전용)
+//     - didSet에서 App Group에 동기 기록 → 익스텐션이 항상 최신 목표 시간을 읽음
 
 import { requireNativeComponent, Platform } from 'react-native';
 
