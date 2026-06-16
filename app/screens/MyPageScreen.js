@@ -150,6 +150,7 @@ export default function MyPageScreen({ onLogout }) {
       method: 'PATCH',
       body: JSON.stringify({ dailyScreenTimeGoalMinutes: Math.round(draftGoal / 60) }),
     }).catch(() => {});
+    Alert.alert('목표 저장 완료', '변경된 목표는 다음날부터 적용됩니다!');
   }
 
   return (

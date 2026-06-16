@@ -351,7 +351,7 @@ export default function HomeScreen({ navigation, route }) {
           label="남은"
           valueComponent={
             Platform.OS === 'ios' && authStatus === 'approved' ? (
-              <ScreenTimeReportView key={goalSeconds} reportContext="Remaining Activity" goalSeconds={goalSeconds} style={s.statValueReport} />
+              <ScreenTimeReportView reportContext="Remaining Activity" goalSeconds={goalSeconds} style={s.statValueReport} />
             ) : goalSeconds - screenTimeSeconds < 0 ? (
               <Text style={[s.statValue, s.statValueFail]}>달성 실패</Text>
             ) : (
