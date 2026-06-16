@@ -664,6 +664,41 @@
         }
       }
     },
+    "/api/v1/groups/search": {
+      "get": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 검색",
+        "description": "8자 영숫자면 코드 정확 매칭, 아니면 이름 LIKE 검색. 만료 코드 그룹 제외.",
+        "operationId": "searchGroups",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "검색 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GroupSearchResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/equipment/{userId}": {
       "get": {
         "tags": [
@@ -1293,6 +1328,37 @@
               "ACTIVE",
               "ENDED"
             ]
+          }
+        }
+      },
+      "GroupSearchResponse": {
+        "type": "object",
+        "properties": {
+          "groupId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "currentMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "WAITING",
+              "ACTIVE",
+              "ENDED"
+            ]
+          },
+          "hasPassword": {
+            "type": "boolean"
           }
         }
       },
