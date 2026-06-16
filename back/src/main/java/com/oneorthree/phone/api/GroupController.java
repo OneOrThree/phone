@@ -3,6 +3,7 @@ package com.oneorthree.phone.api;
 import com.oneorthree.phone.service.GroupService;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
+import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -14,6 +15,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -50,5 +52,14 @@ public class GroupController {
     public ResponseEntity<List<GroupSummaryResponse>> getMyGroups(HttpServletRequest httpServletRequest) {
         Long userId = (Long) httpServletRequest.getAttribute("userId");
         return ResponseEntity.ok(groupService.getMyGroups(userId));
+    }
+
+    @Operation(summary = "그룹 검색", description = "8자 영숫자면 코드 정확 매칭, 아니면 이름 LIKE 검색. 만료 코드 그룹 제외.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "검색 성공")
+    })
+    @GetMapping("/groups/search")
+    public ResponseEntity<List<GroupSearchResponse>> searchGroups(@RequestParam String query) {
+        return ResponseEntity.ok(groupService.searchGroups(query));
     }
 }

@@ -13,6 +13,7 @@ import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
+import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -22,7 +23,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -77,7 +80,7 @@ public class GroupService {
                 .windowEnd(request.getWindowEnd())
                 .hostId(userId)
                 .code(uniqueCode)
-                .codeExpiresAt(Instant.now().plus(24, ChronoUnit.HOURS))
+                .codeExpiresAt(Instant.now().plus(3, ChronoUnit.HOURS))
                 .build());
 
         // GroupMember(OWNER) 저장
@@ -112,6 +115,45 @@ public class GroupService {
                     );
                 })
                 .toList();
+    }
+
+    /*
+    @todo 페이지네이션 필요함 나중에
+    */
+    public List<GroupSearchResponse> searchGroups(String query) {
+        if (query == null || query.isEmpty()) {
+            return List.of();
+        }
+
+        List<GroupSearchResponse> result = new ArrayList<>();
+
+        Optional<Group> groupByCode = groupRepository.findByCode(query.toUpperCase());
+        if (groupByCode.isPresent()) {
+            Group group = groupByCode.get();
+            if (group.getCodeExpiresAt() != null &&
+                    group.getCodeExpiresAt().isAfter(Instant.now())) {
+                result.add(toSearchResponse(group));
+            }
+        }
+
+        groupRepository.findByNameContainingIgnoreCase(query)
+                .stream()
+                .filter(g -> result.isEmpty() || !g.getId().equals(result.get(0).getGroupId()))
+                .map(this::toSearchResponse)
+                .forEach(result::add);
+        return result;
+    }
+
+    private GroupSearchResponse toSearchResponse(Group group) {
+        int currentMembers = groupMemberRepository.findByGroup(group).size();
+        return new GroupSearchResponse(
+                group.getId(),
+                group.getName(),
+                currentMembers,
+                group.getMaxMembers(),
+                group.getStatus(),
+                group.getPassword() != null
+        );
     }
 
     private String generateUniqueCode() {
