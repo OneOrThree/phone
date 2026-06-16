@@ -10,8 +10,11 @@ import com.oneorthree.phone.exception.GroupException;
 import com.oneorthree.phone.repository.group.GroupMemberRepository;
 import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
+import com.oneorthree.phone.domain.group.GroupStatus;
+import com.oneorthree.phone.exception.UserNotFoundException;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
+import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -229,5 +233,70 @@ class GroupServiceTest {
                 .isInstanceOf(GroupException.class);
         verify(groupRepository, times(10)).existsByCode(anyString());
         verify(groupRepository, never()).save(any());
+    }
+
+    // ── getMyGroups ───────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("내 그룹 목록 조회 성공 → 참여 그룹 수만큼 반환")
+    void getMyGroupsSuccess() {
+        // given
+        User user = normalUser();
+        Group group1 = Group.builder().id(1L).name("그룹A").code("AAAA1111")
+                .maxMembers(5).status(GroupStatus.WAITING).build();
+        Group group2 = Group.builder().id(2L).name("그룹B").code("BBBB2222")
+                .maxMembers(10).status(GroupStatus.ACTIVE).build();
+
+        GroupMember member1 = GroupMember.builder().user(user).group(group1).role(GroupMemberRole.OWNER).build();
+        GroupMember member2 = GroupMember.builder().user(user).group(group2).role(GroupMemberRole.MEMBER).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupMemberRepository.findByUser(user)).willReturn(List.of(member1, member2));
+        given(groupMemberRepository.findByGroup(group1)).willReturn(List.of(member1));
+        given(groupMemberRepository.findByGroup(group2)).willReturn(List.of(member2));
+
+        // when
+        List<GroupSummaryResponse> result = groupService.getMyGroups(USER_ID);
+
+        // then
+        assertThat(result).hasSize(2);
+
+        GroupSummaryResponse first = result.get(0);
+        assertThat(first.getGroupId()).isEqualTo(1L);
+        assertThat(first.getName()).isEqualTo("그룹A");
+        assertThat(first.getRole()).isEqualTo(GroupMemberRole.OWNER);
+        assertThat(first.getCurrentMembers()).isEqualTo(1);
+        assertThat(first.getStatus()).isEqualTo(GroupStatus.WAITING);
+
+        GroupSummaryResponse second = result.get(1);
+        assertThat(second.getGroupId()).isEqualTo(2L);
+        assertThat(second.getRole()).isEqualTo(GroupMemberRole.MEMBER);
+        assertThat(second.getStatus()).isEqualTo(GroupStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("참여 그룹 없으면 빈 리스트 반환")
+    void getMyGroupsEmpty() {
+        // given
+        User user = normalUser();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupMemberRepository.findByUser(user)).willReturn(List.of());
+
+        // when
+        List<GroupSummaryResponse> result = groupService.getMyGroups(USER_ID);
+
+        // then
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 유저 → UserNotFoundException")
+    void getMyGroupsUserNotFound() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.getMyGroups(USER_ID))
+                .isInstanceOf(UserNotFoundException.class);
     }
 }
