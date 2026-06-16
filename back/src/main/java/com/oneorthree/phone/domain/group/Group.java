@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -73,6 +74,9 @@ public class Group {
     private GroupStatus status = GroupStatus.WAITING;
 
     private Long hostId;
+
+    @Version
+    private Long version;
 
     @CreationTimestamp
     private Instant createdAt;

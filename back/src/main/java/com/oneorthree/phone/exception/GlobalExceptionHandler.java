@@ -1,5 +1,6 @@
 package com.oneorthree.phone.exception;
 
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -48,5 +49,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ZoneRulesException.class)
     public ResponseEntity<String> handleZoneRulesException(ZoneRulesException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+    }
+
+    /*
+    @todo 낙관적락 exception 추후 분기 필요
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<String> handleOptimisticLock(OptimisticLockingFailureException e) {
+        return ResponseEntity.status(GroupErrorCode.ROOM_FULL.getStatus())
+                .body(GroupErrorCode.ROOM_FULL.getMessage());
     }
 }

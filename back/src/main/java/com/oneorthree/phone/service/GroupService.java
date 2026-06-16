@@ -12,6 +12,7 @@ import com.oneorthree.phone.repository.group.GroupMemberRepository;
 import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
+import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
 import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
 import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
@@ -155,6 +156,43 @@ public class GroupService {
                 group.getStatus(),
                 group.getPassword() != null
         );
+    }
+
+    @Transactional
+    public void joinGroup(Long groupId, Long userId, JoinGroupRequest request) {
+        // 1. 게스트 검증
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        // 2. 그룹 조회 → NOT_FOUND
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        // 3. 이미 멤버 확인 → ALREADY_MEMBER
+        if (groupMemberRepository.findByUserAndGroup(user, group).isPresent()) {
+            throw new GroupException(GroupErrorCode.ALREADY_MEMBER);
+        }
+
+        // 4. 정원 확인 → ROOM_FULL
+        if (group.getMaxMembers() <= groupMemberRepository.findByGroup(group).size()) {
+            throw new GroupException(GroupErrorCode.ROOM_FULL);
+        }
+
+        // 5. 비밀번호 검증 → WRONG_PASSWORD (password 있는 그룹만)
+        if (group.getPassword() != null &&
+                !passwordEncoder.matches(request.getPassword(), group.getPassword())) {
+            throw new GroupException(GroupErrorCode.WRONG_PASSWORD);
+        }
+
+        // 6. GroupMember 저장 (role = MEMBER)
+        groupMemberRepository.save(GroupMember.builder()
+                .user(user)
+                .group(group)
+                .role(GroupMemberRole.MEMBER)
+                .build());
     }
 
     public GroupOverviewResponse getGroupOverview(Long groupId, Long userId) {
