@@ -291,7 +291,7 @@
           "Group"
         ],
         "summary": "그룹 생성",
-        "description": "그룹 생성 및 참가 코드(24시간 유효) 발급. 생성자는 OWNER로 자동 등록.",
+        "description": "그룹 생성 및 참가 코드(3시간 유효) 발급. 생성자는 OWNER로 자동 등록.",
         "operationId": "createGroup",
         "requestBody": {
           "content": {
@@ -692,6 +692,49 @@
                   "items": {
                     "$ref": "#/components/schemas/UserItemResponse"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{groupId}/overview": {
+      "get": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 개요 조회",
+        "description": "참여 여부 무관하게 그룹 공개 정보 반환. isMember 플래그 포함.",
+        "operationId": "getGroupOverview",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupOverviewResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupOverviewResponse"
                 }
               }
             }
@@ -1388,6 +1431,69 @@
               "ACTIVE",
               "ENDED"
             ]
+          }
+        }
+      },
+      "GroupOverviewResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "missionCategory": {
+            "type": "string",
+            "enum": [
+              "FOCUS",
+              "SCREEN_TIME"
+            ]
+          },
+          "missionType": {
+            "type": "string",
+            "enum": [
+              "TIME_WINDOW",
+              "DURATION"
+            ]
+          },
+          "durationMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "windowStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "windowEnd": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "WAITING",
+              "ACTIVE",
+              "ENDED"
+            ]
+          },
+          "hasPassword": {
+            "type": "boolean"
+          },
+          "member": {
+            "type": "boolean"
           }
         }
       },
