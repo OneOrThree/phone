@@ -7,11 +7,13 @@ import com.oneorthree.phone.domain.group.MissionType;
 import com.oneorthree.phone.domain.user.User;
 import com.oneorthree.phone.exception.GroupErrorCode;
 import com.oneorthree.phone.exception.GroupException;
+import com.oneorthree.phone.exception.UserNotFoundException;
 import com.oneorthree.phone.repository.group.GroupMemberRepository;
 import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
+import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -86,6 +89,29 @@ public class GroupService {
 
         // 6) 응답 반환
         return new CreateGroupResponse(group.getId(), uniqueCode);
+    }
+
+    public List<GroupSummaryResponse> getMyGroups(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        List<GroupMember> groupMembers = groupMemberRepository.findByUser(user);
+
+        return groupMembers.stream()
+                .map(member -> {
+                    Group group = member.getGroup();
+                    int currentMembers = groupMemberRepository.findByGroup(group).size();
+                    return new GroupSummaryResponse(
+                            group.getId(),
+                            group.getName(),
+                            group.getCode(),
+                            currentMembers,
+                            group.getMaxMembers(),
+                            member.getRole(),
+                            group.getStatus()
+                    );
+                })
+                .toList();
     }
 
     private String generateUniqueCode() {
