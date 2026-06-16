@@ -17,6 +17,10 @@
       "description": "장비 관련 API"
     },
     {
+      "name": "ScreenTime",
+      "description": "스크린 타임 목표 달성 저장 API"
+    },
+    {
       "name": "Group",
       "description": "Group 세션 관련 API (생성, 조회 등)"
     },
@@ -200,6 +204,37 @@
         "responses": {
           "200": {
             "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/screen-time": {
+      "post": {
+        "tags": [
+          "ScreenTime"
+        ],
+        "summary": "스크린 타임 저장",
+        "description": "매일 23:59 iOS 앱이 당일 스크린타임 달성 여부를 전송. 달성 여부는 iOS에서 계산.",
+        "operationId": "saveScreenTime",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScreenTimeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "저장 성공"
+          },
+          "400": {
+            "description": "유효성 검사 실패 또는 잘못된 타임존"
+          },
+          "404": {
+            "description": "유저 없음"
           }
         }
       }
@@ -895,6 +930,31 @@
             "type": "string"
           }
         }
+      },
+      "ScreenTimeRequest": {
+        "type": "object",
+        "properties": {
+          "screenTimeGoalAchieved": {
+            "type": "boolean"
+          },
+          "actualScreenTimeMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reportedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timeZone": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "reportedAt",
+          "screenTimeGoalAchieved",
+          "timeZone"
+        ]
       },
       "GrantItemRequest": {
         "type": "object",
