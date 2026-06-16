@@ -115,7 +115,7 @@ function GoalSlider({ value, onChange }) {
   );
 }
 
-export default function MyPageScreen({ onLogout }) {
+export default function MyPageScreen({ onLogout, onWithdraw }) {
   const { todayFocusSeconds } = useFocus();
   const { nickname, setNickname, goalSeconds, setGoalSeconds, phoneUsageSeconds } = useUser();
 
@@ -268,6 +268,37 @@ export default function MyPageScreen({ onLogout }) {
         activeOpacity={0.8}
       >
         <Text style={s.logoutText}>로그아웃</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={s.withdrawBtn}
+        onPress={() =>
+          Alert.alert('회원 탈퇴', '탈퇴하면 모든 데이터가 삭제되며 복구할 수 없어요.', [
+            { text: '취소', style: 'cancel' },
+            {
+              text: '탈퇴하기',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await onWithdraw();
+                } catch (e) {
+                  const msg = e?.message ?? '';
+                  if (msg.includes('400') || msg.includes('방장')) {
+                    Alert.alert(
+                      '탈퇴 불가',
+                      '방장인 그룹이 있어요. 방장을 위임한 후 탈퇴해 주세요.',
+                    );
+                  } else {
+                    Alert.alert('오류', '탈퇴 처리 중 문제가 발생했어요. 다시 시도해 주세요.');
+                  }
+                }
+              },
+            },
+          ])
+        }
+        activeOpacity={0.8}
+      >
+        <Text style={s.withdrawText}>회원 탈퇴</Text>
       </TouchableOpacity>
     </View>
   );
@@ -550,5 +581,15 @@ const s = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: T.inkMed,
+  },
+  withdrawBtn: {
+    marginTop: 4,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  withdrawText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: T.coral,
   },
 });
