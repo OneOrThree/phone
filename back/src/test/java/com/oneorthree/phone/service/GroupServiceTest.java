@@ -14,6 +14,7 @@ import com.oneorthree.phone.domain.group.GroupStatus;
 import com.oneorthree.phone.exception.UserNotFoundException;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
+import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 
@@ -71,6 +73,12 @@ class GroupServiceTest {
 
     private User normalUser() {
         return User.builder().isGuest(false).build();
+    }
+
+    private Group groupWithCode(long id, String code, Instant codeExpiresAt) {
+        return Group.builder().id(id).name("그룹" + id).code(code)
+                .maxMembers(10).status(GroupStatus.WAITING)
+                .codeExpiresAt(codeExpiresAt).build();
     }
 
     /** save()가 id가 채워진 엔티티를 반환하도록 흉내낸다 (서비스가 group.getId()를 사용). */
@@ -298,5 +306,148 @@ class GroupServiceTest {
         // when & then
         assertThatThrownBy(() -> groupService.getMyGroups(USER_ID))
                 .isInstanceOf(UserNotFoundException.class);
+    }
+
+    // ── searchGroups ──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("null 쿼리 → 빈 리스트 반환, 레포지토리 호출 없음")
+    void searchGroupsNullQuery() {
+        List<GroupSearchResponse> result = groupService.searchGroups(null);
+
+        assertThat(result).isEmpty();
+        verify(groupRepository, never()).findByCode(anyString());
+        verify(groupRepository, never()).findByNameContainingIgnoreCase(anyString());
+    }
+
+    @Test
+    @DisplayName("빈 문자열 쿼리 → 빈 리스트 반환, 레포지토리 호출 없음")
+    void searchGroupsEmptyQuery() {
+        List<GroupSearchResponse> result = groupService.searchGroups("");
+
+        assertThat(result).isEmpty();
+        verify(groupRepository, never()).findByCode(anyString());
+        verify(groupRepository, never()).findByNameContainingIgnoreCase(anyString());
+    }
+
+    @Test
+    @DisplayName("유효한 코드 정확 매칭 → 결과 첫 번째로 반환")
+    void searchGroupsByValidCode() {
+        // given
+        String code = "ABCD1234";
+        Group group = groupWithCode(1L, code, Instant.now().plus(1, ChronoUnit.HOURS));
+
+        given(groupRepository.findByCode(code)).willReturn(Optional.of(group));
+        given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of());
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+
+        // when
+        List<GroupSearchResponse> result = groupService.searchGroups(code);
+
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getGroupId()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("만료된 코드 → 코드 매칭 제외")
+    void searchGroupsByExpiredCode() {
+        // given
+        String code = "ABCD1234";
+        Group group = groupWithCode(1L, code, Instant.now().minus(1, ChronoUnit.HOURS));
+
+        given(groupRepository.findByCode(code)).willReturn(Optional.of(group));
+        given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of());
+
+        // when
+        List<GroupSearchResponse> result = groupService.searchGroups(code);
+
+        // then
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("코드 만료 시각 null → 코드 매칭 제외 (lazy null 패턴)")
+    void searchGroupsByNullExpiryCode() {
+        // given
+        String code = "ABCD1234";
+        Group group = groupWithCode(1L, code, null);
+
+        given(groupRepository.findByCode(code)).willReturn(Optional.of(group));
+        given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of());
+
+        // when
+        List<GroupSearchResponse> result = groupService.searchGroups(code);
+
+        // then
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("이름 검색 성공 → 매칭 그룹 반환, hasPassword 필드 정확")
+    void searchGroupsByName() {
+        // given
+        String query = "스터디";
+        Group groupA = Group.builder().id(1L).name("스터디A").maxMembers(5)
+                .status(GroupStatus.WAITING).build();
+        Group groupB = Group.builder().id(2L).name("스터디B").maxMembers(10)
+                .status(GroupStatus.ACTIVE).password("hashed").build();
+
+        given(groupRepository.findByCode(query.toUpperCase())).willReturn(Optional.empty());
+        given(groupRepository.findByNameContainingIgnoreCase(query)).willReturn(List.of(groupA, groupB));
+        given(groupMemberRepository.findByGroup(groupA)).willReturn(List.of());
+        given(groupMemberRepository.findByGroup(groupB)).willReturn(List.of());
+
+        // when
+        List<GroupSearchResponse> result = groupService.searchGroups(query);
+
+        // then
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getGroupId()).isEqualTo(1L);
+        assertThat(result.get(0).isHasPassword()).isFalse();
+        assertThat(result.get(1).getGroupId()).isEqualTo(2L);
+        assertThat(result.get(1).isHasPassword()).isTrue();
+    }
+
+    @Test
+    @DisplayName("유효 코드 매칭이 이름 검색에도 포함되면 중복 제거")
+    void searchGroupsDeduplicatesCodeAndNameMatch() {
+        // given
+        String code = "ABCD1234";
+        Group group = groupWithCode(1L, code, Instant.now().plus(1, ChronoUnit.HOURS));
+
+        given(groupRepository.findByCode(code)).willReturn(Optional.of(group));
+        given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of(group));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+
+        // when
+        List<GroupSearchResponse> result = groupService.searchGroups(code);
+
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getGroupId()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("코드 매칭 첫 번째, 이름 매칭 뒤에 추가")
+    void searchGroupsCodeFirstThenName() {
+        // given
+        String code = "ABCD1234";
+        Group codeGroup = groupWithCode(1L, code, Instant.now().plus(1, ChronoUnit.HOURS));
+        Group nameGroup = Group.builder().id(2L).name("ABCD스터디").maxMembers(5)
+                .status(GroupStatus.WAITING).build();
+
+        given(groupRepository.findByCode(code)).willReturn(Optional.of(codeGroup));
+        given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of(nameGroup));
+        given(groupMemberRepository.findByGroup(codeGroup)).willReturn(List.of());
+        given(groupMemberRepository.findByGroup(nameGroup)).willReturn(List.of());
+
+        // when
+        List<GroupSearchResponse> result = groupService.searchGroups(code);
+
+        // then
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getGroupId()).isEqualTo(1L);
+        assertThat(result.get(1).getGroupId()).isEqualTo(2L);
     }
 }
