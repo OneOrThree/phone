@@ -46,7 +46,8 @@ Enforced by `config/checkstyle/checkstyle.xml` (Google Java Style, modified):
 ## Database changes
 
 The canonical DB schema is `docs/db/schema.dbml` (DBML — keep it in sync with the
-current state). Apply local schema changes with the migration scripts in `docs/db/`
+current state), rendered at <https://dbdiagram.io/d/GroMo-6a1e2ece2eeb2f46cd390435>.
+Apply local schema changes with the migration scripts in `docs/db/`
 (`run-migration-v<N>.sh` — a `docker exec … psql` heredoc, gitignored/local-only); add a
 new `run-migration-v<N+1>.sh` for the next change and update `schema.dbml` to match.
 **Flag any DB schema change in the PR** (per the PR template).
