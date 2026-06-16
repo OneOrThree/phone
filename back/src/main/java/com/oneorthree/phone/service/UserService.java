@@ -3,7 +3,8 @@ package com.oneorthree.phone.service;
 import com.oneorthree.phone.api.dto.request.UserProfileSetupRequest;
 import com.oneorthree.phone.api.dto.request.UserProfileUpdateRequest;
 import com.oneorthree.phone.domain.user.User;
-import com.oneorthree.phone.exception.GroupHostCannotWithdrawException;
+import com.oneorthree.phone.exception.GroupErrorCode;
+import com.oneorthree.phone.exception.GroupException;
 import com.oneorthree.phone.exception.UserNotFoundException;
 import com.oneorthree.phone.repository.focus.DailyFocusStatRepository;
 import com.oneorthree.phone.repository.focus.FocusSessionRepository;
@@ -102,7 +103,7 @@ public class UserService {
                 .orElseThrow(UserNotFoundException::new);
 
         if (groupRepository.existsByHostId(userId)) {
-            throw new GroupHostCannotWithdrawException();
+            throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
         }
 
         focusSessionRepository.nullifyUser(userId);

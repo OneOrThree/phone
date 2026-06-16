@@ -33,9 +33,11 @@ public class Group {
     @Builder.Default
     private String name = "";
 
-    @Column(nullable = false, unique = true, length = 8)
-    @Builder.Default
-    private String code = "";
+    @Column(unique = true, length = 8)
+    private String code;
+
+    @Column(name = "code_expires_at")
+    private Instant codeExpiresAt;
 
     @Column(length = 100)
     private String password;
@@ -78,4 +80,9 @@ public class Group {
     private Instant startedAt;
 
     private Instant endedAt;
+
+    public void expireCode() {
+        this.code = null;
+        this.codeExpiresAt = null;
+    }
 }
