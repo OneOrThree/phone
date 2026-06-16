@@ -5,6 +5,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.time.zone.ZoneRulesException;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -41,5 +43,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(GroupException.class)
     public ResponseEntity<String> handleGroup(GroupException e) {
         return ResponseEntity.status(e.getErrorCode().getStatus()).body(e.getMessage());
+    }
+
+    @ExceptionHandler(ZoneRulesException.class)
+    public ResponseEntity<String> handleZoneRulesException(ZoneRulesException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
     }
 }
