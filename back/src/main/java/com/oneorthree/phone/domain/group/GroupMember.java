@@ -1,4 +1,4 @@
-package com.oneorthree.phone.domain.room;
+package com.oneorthree.phone.domain.group;
 
 import com.oneorthree.phone.domain.user.User;
 
@@ -25,14 +25,14 @@ import java.time.Instant;
 
 @Entity
 @Table(
-        name = "room_members",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "room_id"})
+        name = "group_members",
+        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "group_id"})
 )
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
-public class RoomMember {
+public class GroupMember {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -43,13 +43,13 @@ public class RoomMember {
     private User user;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "room_id", nullable = false)
-    private Room room;
+    @JoinColumn(name = "group_id", nullable = false)
+    private Group group;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     @Builder.Default
-    private RoomMemberRole role = RoomMemberRole.MEMBER;
+    private GroupMemberRole role = GroupMemberRole.MEMBER;
 
     @Column(nullable = false)
     @Builder.Default

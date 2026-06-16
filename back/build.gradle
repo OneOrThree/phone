@@ -45,6 +45,9 @@ dependencies {
 	// WebSocket + STOMP (실시간 장착 브로드캐스트)
 	implementation 'org.springframework.boot:spring-boot-starter-websocket'
 
+	// BCrypt 비밀번호 해시 (spring-boot-starter-security 없이 crypto만)
+	implementation 'org.springframework.security:spring-security-crypto'
+
 	// JJWT (JWT 발급/검증)
 	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'

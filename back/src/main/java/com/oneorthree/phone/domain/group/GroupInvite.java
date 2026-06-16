@@ -1,4 +1,4 @@
-package com.oneorthree.phone.domain.room;
+package com.oneorthree.phone.domain.group;
 
 import com.oneorthree.phone.domain.user.User;
 
@@ -24,21 +24,21 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.Instant;
 
 @Entity
-@Table(name = "room_invites")
+@Table(name = "group_invites")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
-public class RoomInvite {
+public class GroupInvite {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "room_id", nullable = false)
-    private Room room;
+    @JoinColumn(name = "group_id", nullable = false)
+    private Group group;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "inviter_id", nullable = false)
@@ -51,7 +51,7 @@ public class RoomInvite {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default
-    private RoomInviteStatus status = RoomInviteStatus.PENDING;
+    private GroupInviteStatus status = GroupInviteStatus.PENDING;
 
     @CreationTimestamp
     private Instant invitedAt;
