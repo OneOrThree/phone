@@ -87,6 +87,8 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
     }
 
     // 메인 앱이 App Group에 쓴 목표 시간을 읽어서 "남은 시간" 계산에 사용
+    // synchronize(): 프로세스 간 공유 UserDefaults 캐시를 디스크에서 강제 재로드
+    sharedDefaults?.synchronize()
     let goalSeconds = sharedDefaults?.double(forKey: "gromo:user:goalSeconds") ?? -1
 
     return ActivityReport(totalDuration: totalDuration, apps: apps, goalSeconds: goalSeconds)
