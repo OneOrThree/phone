@@ -17,6 +17,10 @@
       "description": "장비 관련 API"
     },
     {
+      "name": "Group",
+      "description": "Group 세션 관련 API (생성, 조회 등)"
+    },
+    {
       "name": "Health",
       "description": "헬스 체크 API Test"
     },
@@ -219,6 +223,58 @@
         "responses": {
           "200": {
             "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/groups": {
+      "post": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 생성",
+        "description": "그룹 생성 및 참가 코드(24시간 유효) 발급. 생성자는 OWNER로 자동 등록.",
+        "operationId": "createGroup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGroupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "그룹 생성 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateGroupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "미션 파라미터 누락",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateGroupResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "게스트 계정 생성 불가",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateGroupResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -792,6 +848,73 @@
           "itemId": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "CreateGroupRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 0
+          },
+          "password": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 0
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 10,
+            "minimum": 1
+          },
+          "missionType": {
+            "type": "string",
+            "enum": [
+              "TIME_WINDOW",
+              "DURATION"
+            ]
+          },
+          "missionCategory": {
+            "type": "string",
+            "enum": [
+              "FOCUS",
+              "SCREEN_TIME"
+            ]
+          },
+          "durationMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "windowStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "windowEnd": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "missionCategory",
+          "missionType",
+          "name"
+        ]
+      },
+      "CreateGroupResponse": {
+        "type": "object",
+        "properties": {
+          "groupId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "code": {
+            "type": "string"
           }
         }
       },
