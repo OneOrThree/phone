@@ -21,7 +21,7 @@ struct RemainingActivityView: View {
             if totalActivity.goalSeconds < 0 {
                 return "-"
             } else if isFailed {
-                return "실패"
+                return "달성 실패"
             } else {
                 return formatDuration(totalActivity.goalSeconds - totalActivity.totalDuration)
             }

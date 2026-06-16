@@ -35,4 +35,15 @@ RCT_EXTERN_METHOD(
     rejecter:(RCTPromiseRejectBlock)reject
 )
 
+RCT_EXTERN_METHOD(
+    startGoalMonitoring:(double)goalSecondsValue
+    resolver:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
+RCT_EXTERN_METHOD(
+    getYesterdayResult:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
 @end

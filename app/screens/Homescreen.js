@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useEquipment } from '../contexts/EquipmentContext';
 import { useFocus } from '../contexts/FocusContext';
 import { useUser } from '../contexts/UserContext';
+import { useCoins } from '../contexts/CoinContext';
 import { Character2D } from '../components/character/Character2D';
 import { T } from '../components/theme';
 import ScreenTimeModule from '../utils/ScreenTimeModule';
@@ -193,9 +195,11 @@ export default function HomeScreen({ navigation, route }) {
   const { equippedItem, equippedFurniture, equippedCostume } = useEquipment();
   const { todayFocusSeconds } = useFocus();
   const { nickname, goalSeconds, phoneUsageSeconds } = useUser();
+  const { addCoins } = useCoins();
   const costumeSlots = equippedCostume.map((c) => c.slot);
   const remainingSeconds = Math.max(0, goalSeconds - phoneUsageSeconds);
   const [focusResult, setFocusResult] = useState(null);
+  const [showRewardModal, setShowRewardModal] = useState(false);
   const [screenTimeSeconds, setScreenTimeSeconds] = useState(0);
   const [authStatus, setAuthStatus] = useState('notDetermined');
 
@@ -205,11 +209,29 @@ export default function HomeScreen({ navigation, route }) {
     ScreenTimeModule.getAuthorizationStatus().then(setAuthStatus);
   }, []);
 
-  // 목표 시간을 App Group에 저장 (익스텐션에서 읽어서 "남은 시간" 계산 가능한지 테스트)
+  // 목표 시간 변경 시 App Group 저장 + 자정 모니터링 재등록
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
     ScreenTimeModule.setGoalSeconds(goalSeconds);
+    ScreenTimeModule.startGoalMonitoring(goalSeconds);
   }, [goalSeconds]);
+
+  // 앱 진입 시 어제 목표 달성 여부 확인 → 미수령 보상이면 코인 지급
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    (async () => {
+      const result = await ScreenTimeModule.getYesterdayResult();
+      if (result !== 'success') return;
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      const lastRewardedDate = await AsyncStorage.getItem('gromo:screentime:lastRewardedDate');
+      if (lastRewardedDate === yesterdayStr) return;
+      await addCoins(100);
+      await AsyncStorage.setItem('gromo:screentime:lastRewardedDate', yesterdayStr);
+      setShowRewardModal(true);
+    })();
+  }, []);
 
   async function handleRequestAuth() {
     const approved = await ScreenTimeModule.requestAuthorization();
@@ -221,7 +243,6 @@ export default function HomeScreen({ navigation, route }) {
     const fetchScreenTime = async () => {
       try {
         const seconds = await ScreenTimeModule.getTotalScreenTime();
-        console.log('[Homescreen] getTotalScreenTime:', seconds);
         setScreenTimeSeconds(seconds);
       } catch (error) {
         console.log('스크린 타임 조회 실패:', error);
@@ -245,6 +266,25 @@ export default function HomeScreen({ navigation, route }) {
   return (
     <View style={s.container}>
       <StatusBar style="dark" />
+      <Modal visible={showRewardModal} transparent animationType="fade">
+        <View style={s.resultOverlay}>
+          <View style={s.resultBox}>
+            <Text style={s.resultTitle}>스크린 타임 목표 달성!</Text>
+            <View style={s.resultRow}>
+              <Text style={s.resultLabel}>획득 코인</Text>
+              <Text style={s.resultValue}>+100</Text>
+            </View>
+            <TouchableOpacity
+              style={s.resultBtn}
+              onPress={() => setShowRewardModal(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={s.resultBtnText}>확인</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={!!focusResult} transparent animationType="fade">
         <View style={s.resultOverlay}>
           <View style={s.resultBox}>
@@ -309,7 +349,7 @@ export default function HomeScreen({ navigation, route }) {
             Platform.OS === 'ios' && authStatus === 'approved' ? (
               <ScreenTimeReportView reportContext="Remaining Activity" style={s.statValueReport} />
             ) : goalSeconds - screenTimeSeconds < 0 ? (
-              <Text style={[s.statValue, s.statValueFail]}>실패</Text>
+              <Text style={[s.statValue, s.statValueFail]}>달성 실패</Text>
             ) : (
               <Text style={s.statValue}>{formatFocusTime(goalSeconds - screenTimeSeconds)}</Text>
             )

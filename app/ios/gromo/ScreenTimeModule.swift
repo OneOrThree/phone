@@ -11,6 +11,7 @@
 
 import Foundation
 import FamilyControls  // 스크린 타임 권한 요청에 필요한 Apple 프레임워크
+import DeviceActivity  // DeviceActivityCenter, DeviceActivitySchedule, DeviceActivityEvent
 
 // @objc: Objective-C 런타임에 노출 (React Native 브릿지가 ObjC 기반이라 필요)
 @objc(ScreenTimeModule)
@@ -85,12 +86,7 @@ class ScreenTimeModule: NSObject {
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
-        print("[ScreenTimeModule] sharedDefaults nil?: \(sharedDefaults == nil)")
-        if let sd = sharedDefaults {
-            print("[ScreenTimeModule] keys: \(sd.dictionaryRepresentation().keys.filter { $0.hasPrefix("gromo:") })")
-        }
         let totalDuration = sharedDefaults?.double(forKey: "gromo:screentime:totalDuration") ?? 0
-        print("[ScreenTimeModule] totalDuration: \(totalDuration)")
         resolve(totalDuration)
     }
 
@@ -104,5 +100,89 @@ class ScreenTimeModule: NSObject {
         let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
         sharedDefaults?.set(seconds, forKey: "gromo:user:goalSeconds")
         resolve(nil)
+    }
+
+    // 매일 자정 기준으로 스크린 타임 목표 달성 여부를 모니터링 시작
+    // goalSeconds를 threshold로 설정 — 초과하면 Monitor 익스텐션의 eventDidReachThreshold가 호출됨
+    // goalSeconds 변경 시 재호출하면 이전 모니터링을 교체함
+    @objc func startGoalMonitoring(
+        _ goalSecondsValue: Double,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard #available(iOS 16.0, *) else {
+            resolve(nil)
+            return
+        }
+
+        let center = DeviceActivityCenter()
+        let activityName = DeviceActivityName("gromo.daily")
+
+        var startComponents = DateComponents()
+        startComponents.hour = 0
+        startComponents.minute = 0
+
+        var endComponents = DateComponents()
+        endComponents.hour = 23
+        endComponents.minute = 59
+
+        let schedule = DeviceActivitySchedule(
+            intervalStart: startComponents,
+            intervalEnd: endComponents,
+            repeats: true
+        )
+
+        let totalSeconds = Int(goalSecondsValue)
+        var threshold = DateComponents()
+        threshold.hour = totalSeconds / 3600
+        threshold.minute = (totalSeconds % 3600) / 60
+        threshold.second = totalSeconds % 60
+
+        let event = DeviceActivityEvent(
+            applications: [],
+            categories: [],
+            webDomains: [],
+            threshold: threshold
+        )
+
+        do {
+            center.stopMonitoring([activityName])
+            try center.startMonitoring(
+                activityName,
+                during: schedule,
+                events: [DeviceActivityEvent.Name("gromo.goal.threshold"): event]
+            )
+            resolve(nil)
+        } catch {
+            reject("MONITOR_ERROR", "모니터링 시작 실패: \(error.localizedDescription)", error)
+        }
+    }
+
+    // 어제 날짜의 스크린 타임 목표 달성 결과를 App Group에서 읽어 반환
+    // 반환값: "success" | "fail" | nil (어제 결과 없음 — 첫 설치 또는 모니터링 미실행)
+    @objc func getYesterdayResult(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+
+        let calendar = Calendar.current
+        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: Date()) else {
+            resolve(nil)
+            return
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let yesterdayStr = formatter.string(from: yesterday)
+
+        let lastResultDate = sharedDefaults?.string(forKey: "gromo:screentime:lastResultDate") ?? ""
+        let lastResult = sharedDefaults?.string(forKey: "gromo:screentime:lastResult") ?? ""
+
+        if lastResultDate == yesterdayStr {
+            resolve(lastResult)
+        } else {
+            resolve(nil)
+        }
     }
 }

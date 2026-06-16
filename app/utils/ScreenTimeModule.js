@@ -36,6 +36,20 @@ const ScreenTimeModule = {
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.setGoalSeconds(seconds);
   },
+
+  // 매일 자정 기준 스크린 타임 목표 달성 모니터링 등록
+  // goalSeconds가 변경될 때마다 재호출하면 threshold 갱신됨
+  startGoalMonitoring: async (goalSeconds) => {
+    if (Platform.OS !== 'ios') return;
+    return NativeScreenTimeModule.startGoalMonitoring(goalSeconds);
+  },
+
+  // 어제 목표 달성 결과 조회
+  // 반환값: "success" | "fail" | null (어제 결과 없음)
+  getYesterdayResult: async () => {
+    if (Platform.OS !== 'ios') return null;
+    return NativeScreenTimeModule.getYesterdayResult();
+  },
 };
 
 export default ScreenTimeModule;

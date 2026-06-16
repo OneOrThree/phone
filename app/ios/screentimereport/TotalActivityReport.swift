@@ -34,7 +34,7 @@ struct AppUsage: Identifiable {
 struct ActivityReport {
     let totalDuration: TimeInterval  // 오늘 총 사용 시간 (초 단위)
     let apps: [AppUsage]             // 앱별 사용 시간 목록 (사용 시간 내림차순)
-    let goalSeconds: TimeInterval  // [테스트] App Group에서 읽은 목표 시간 (없으면 -1)
+    let goalSeconds: TimeInterval  // 메인 앱이 App Group에 저장한 목표 시간 (없으면 -1)
 }
 
 // DeviceActivityReportScene: Apple이 제공하는 프로토콜
@@ -81,13 +81,12 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
 
     // App Group UserDefaults에 총 사용 시간 저장 (메인 앱에서 읽을 수 있도록)
     let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
-    print("[buildActivityReport] sharedDefaults nil?: \(sharedDefaults == nil), totalDuration: \(totalDuration)")
     if let sharedDefaults = sharedDefaults {
         sharedDefaults.set(totalDuration, forKey: "gromo:screentime:totalDuration")
         sharedDefaults.set(Date(), forKey: "gromo:screentime:lastUpdated")
     }
 
-    // [테스트] 메인 앱이 App Group에 쓴 goalSeconds를 익스텐션이 읽을 수 있는지 확인
+    // 메인 앱이 App Group에 쓴 목표 시간을 읽어서 "남은 시간" 계산에 사용
     let goalSeconds = sharedDefaults?.double(forKey: "gromo:user:goalSeconds") ?? -1
 
     return ActivityReport(totalDuration: totalDuration, apps: apps, goalSeconds: goalSeconds)

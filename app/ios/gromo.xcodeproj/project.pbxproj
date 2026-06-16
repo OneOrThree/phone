@@ -17,12 +17,21 @@
 		8B8792C0DAAF303A08360EC1 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB42D6F1E39342F74D28ED89 /* ExpoModulesProvider.swift */; };
 		A4BAEF0EA4985163CC549E97 /* libPods-gromo.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 357F8A1A249D50B70A99CAC4 /* libPods-gromo.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		D40D48312FE111100058301C /* DeviceActivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D40D48302FE111100058301C /* DeviceActivity.framework */; };
+		D40D48392FE111110058301C /* GromoScreenTimeMonitor.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D40D482F2FE111100058301C /* GromoScreenTimeMonitor.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D463E7C02FD664D20049F07A /* screentimereport.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = D463E7B42FD664D20049F07A /* screentimereport.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E2EB2AA55F504C63A003D90E /* ScreenTimeReportViewManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 098DA73360544CDE82D4B8D1 /* ScreenTimeReportViewManager.m */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		D40D48372FE111110058301C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D40D482E2FE111100058301C;
+			remoteInfo = GromoScreenTimeMonitor;
+		};
 		D463E7BE2FD664D20049F07A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
@@ -33,6 +42,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		D40D483E2FE111110058301C /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D40D48392FE111110058301C /* GromoScreenTimeMonitor.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D463E7C52FD664D20049F07A /* Embed ExtensionKit Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -61,6 +81,8 @@
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		BB42D6F1E39342F74D28ED89 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-gromo/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		C16EB51137CA4BDA8E61FA65 /* ScreenTimeReportViewManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScreenTimeReportViewManager.swift; path = gromo/ScreenTimeReportViewManager.swift; sourceTree = "<group>"; };
+		D40D482F2FE111100058301C /* GromoScreenTimeMonitor.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = GromoScreenTimeMonitor.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D40D48302FE111100058301C /* DeviceActivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DeviceActivity.framework; path = System/Library/Frameworks/DeviceActivity.framework; sourceTree = SDKROOT; };
 		D463E7B42FD664D20049F07A /* screentimereport.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = screentimereport.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		EF94279A31C9493794286431 /* ScreenTimeReportUIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScreenTimeReportUIView.swift; path = gromo/ScreenTimeReportUIView.swift; sourceTree = "<group>"; };
@@ -69,6 +91,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		D40D483A2FE111110058301C /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = D40D482E2FE111100058301C /* GromoScreenTimeMonitor */;
+		};
 		D463E7C12FD664D20049F07A /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -79,6 +108,7 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		D40D48322FE111100058301C /* GromoScreenTimeMonitor */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (D40D483A2FE111110058301C /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = GromoScreenTimeMonitor; sourceTree = "<group>"; };
 		D463E7B52FD664D20049F07A /* screentimereport */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (D463E7C12FD664D20049F07A /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = screentimereport; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
@@ -88,6 +118,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				A4BAEF0EA4985163CC549E97 /* libPods-gromo.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D40D482C2FE111100058301C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D40D48312FE111100058301C /* DeviceActivity.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -125,6 +163,7 @@
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
 				357F8A1A249D50B70A99CAC4 /* libPods-gromo.a */,
+				D40D48302FE111100058301C /* DeviceActivity.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -142,6 +181,7 @@
 				13B07FAE1A68108700A75B9A /* gromo */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				D463E7B52FD664D20049F07A /* screentimereport */,
+				D40D48322FE111100058301C /* GromoScreenTimeMonitor */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				D841E8922A4931B49C1A0BD1 /* Pods */,
@@ -157,6 +197,7 @@
 			children = (
 				13B07F961A680F5B00A75B9A /* gromo.app */,
 				D463E7B42FD664D20049F07A /* screentimereport.appex */,
+				D40D482F2FE111100058301C /* GromoScreenTimeMonitor.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -211,16 +252,40 @@
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
 				BC5B6D6E90DD80DA74999583 /* [CP] Embed Pods Frameworks */,
 				D463E7C52FD664D20049F07A /* Embed ExtensionKit Extensions */,
+				D40D483E2FE111110058301C /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				D463E7BF2FD664D20049F07A /* PBXTargetDependency */,
+				D40D48382FE111110058301C /* PBXTargetDependency */,
 			);
 			name = gromo;
 			productName = gromo;
 			productReference = 13B07F961A680F5B00A75B9A /* gromo.app */;
 			productType = "com.apple.product-type.application";
+		};
+		D40D482E2FE111100058301C /* GromoScreenTimeMonitor */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D40D483B2FE111110058301C /* Build configuration list for PBXNativeTarget "GromoScreenTimeMonitor" */;
+			buildPhases = (
+				D40D482B2FE111100058301C /* Sources */,
+				D40D482C2FE111100058301C /* Frameworks */,
+				D40D482D2FE111100058301C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				D40D48322FE111100058301C /* GromoScreenTimeMonitor */,
+			);
+			name = GromoScreenTimeMonitor;
+			packageProductDependencies = (
+			);
+			productName = GromoScreenTimeMonitor;
+			productReference = D40D482F2FE111100058301C /* GromoScreenTimeMonitor.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		D463E7B32FD664D20049F07A /* screentimereport */ = {
 			isa = PBXNativeTarget;
@@ -254,6 +319,9 @@
 					13B07F861A680F5B00A75B9A = {
 						LastSwiftMigration = 1250;
 					};
+					D40D482E2FE111100058301C = {
+						CreatedOnToolsVersion = 26.5;
+					};
 					D463E7B32FD664D20049F07A = {
 						CreatedOnToolsVersion = 26.5;
 					};
@@ -274,6 +342,7 @@
 			targets = (
 				13B07F861A680F5B00A75B9A /* gromo */,
 				D463E7B32FD664D20049F07A /* screentimereport */,
+				D40D482E2FE111100058301C /* GromoScreenTimeMonitor */,
 			);
 		};
 /* End PBXProject section */
@@ -287,6 +356,13 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				1E7A3EDE7EA827BCAA610C2A /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D40D482D2FE111100058301C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -436,6 +512,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D40D482B2FE111100058301C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D463E7B02FD664D20049F07A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -446,6 +529,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		D40D48382FE111110058301C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D40D482E2FE111100058301C /* GromoScreenTimeMonitor */;
+			targetProxy = D40D48372FE111110058301C /* PBXContainerItemProxy */;
+		};
 		D463E7BF2FD664D20049F07A /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = D463E7B32FD664D20049F07A /* screentimereport */;
@@ -650,6 +738,107 @@
 			};
 			name = Release;
 		};
+		D40D483C2FE111110058301C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CODE_SIGN_ENTITLEMENTS = GromoScreenTimeMonitor/GromoScreenTimeMonitor.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = P6Z68QUK9M;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = GromoScreenTimeMonitor/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = GromoScreenTimeMonitor;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.gromo.screentimemonitor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "Gromo-ScreenTimeMonitor";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D40D483D2FE111110058301C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CODE_SIGN_ENTITLEMENTS = GromoScreenTimeMonitor/GromoScreenTimeMonitor.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = P6Z68QUK9M;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = GromoScreenTimeMonitor/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = GromoScreenTimeMonitor;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.gromo.screentimemonitor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "Gromo-ScreenTimeMonitor";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		D463E7C32FD664D20049F07A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -770,6 +959,15 @@
 			buildConfigurations = (
 				83CBBA201A601CBA00E9B192 /* Debug */,
 				83CBBA211A601CBA00E9B192 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D40D483B2FE111110058301C /* Build configuration list for PBXNativeTarget "GromoScreenTimeMonitor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D40D483C2FE111110058301C /* Debug */,
+				D40D483D2FE111110058301C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
