@@ -1,4 +1,4 @@
-package com.oneorthree.phone.domain.room;
+package com.oneorthree.phone.domain.group;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -18,12 +18,12 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.Instant;
 
 @Entity
-@Table(name = "rooms")
+@Table(name = "groups")
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
-public class Room {
+public class Group {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -68,7 +68,7 @@ public class Room {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default
-    private RoomStatus status = RoomStatus.WAITING;
+    private GroupStatus status = GroupStatus.WAITING;
 
     private Long hostId;
 

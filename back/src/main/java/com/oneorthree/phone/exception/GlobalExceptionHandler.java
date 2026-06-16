@@ -38,8 +38,8 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(e.getMessage());
     }
 
-    @ExceptionHandler(RoomHostCannotWithdrawException.class)
-    public ResponseEntity<String> handleRoomHostCannotWithdraw(RoomHostCannotWithdrawException e) {
+    @ExceptionHandler(GroupHostCannotWithdrawException.class)
+    public ResponseEntity<String> handleGroupHostCannotWithdraw(GroupHostCannotWithdrawException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
     }
 }
