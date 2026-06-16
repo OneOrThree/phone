@@ -337,6 +337,54 @@
         }
       }
     },
+    "/api/v1/groups/{groupId}/join": {
+      "post": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 참가",
+        "description": "비밀번호 그룹은 password 필드 포함. 성공 시 204 반환.",
+        "operationId": "joinGroup",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinGroupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "참가 성공"
+          },
+          "401": {
+            "description": "비밀번호 불일치"
+          },
+          "403": {
+            "description": "게스트 접근 불가"
+          },
+          "404": {
+            "description": "그룹 없음"
+          },
+          "409": {
+            "description": "정원 초과 / 이미 참여"
+          }
+        }
+      }
+    },
     "/api/v1/focus-session": {
       "get": {
         "tags": [
@@ -1075,6 +1123,14 @@
             "format": "int64"
           },
           "code": {
+            "type": "string"
+          }
+        }
+      },
+      "JoinGroupRequest": {
+        "type": "object",
+        "properties": {
+          "password": {
             "type": "string"
           }
         }
