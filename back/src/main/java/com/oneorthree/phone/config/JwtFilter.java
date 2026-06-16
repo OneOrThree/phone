@@ -19,6 +19,8 @@ public class JwtFilter extends OncePerRequestFilter {
 
     private static final List<String> WHITELIST = List.of(
             "/api/v1/auth/kakao",
+            "/api/v1/auth/guest",
+            "/api/v1/auth/apple",
             "/api/v1/auth/refresh"
     );
 
