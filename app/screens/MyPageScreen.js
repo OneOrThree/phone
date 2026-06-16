@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../utils/api';
 import {
   View,
@@ -124,6 +125,19 @@ export default function MyPageScreen({ onLogout }) {
 
   const [goalEditing, setGoalEditing] = useState(false);
   const [draftGoal, setDraftGoal] = useState(goalSeconds);
+  const [pendingGoalSeconds, setPendingGoalSeconds] = useState(null);
+
+  // 저장된 pending 목표 로드 (앱 재실행 후에도 "내일부터 적용" 표시 유지)
+  useEffect(() => {
+    AsyncStorage.getItem('gromo:user').then((raw) => {
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      const savedGoal = (data.dailyScreenTimeGoalMinutes ?? 0) * 60;
+      if (savedGoal > 0 && savedGoal !== goalSeconds) {
+        setPendingGoalSeconds(savedGoal);
+      }
+    });
+  }, []);
 
   function openEdit() {
     setDraft(nickname);
@@ -140,16 +154,25 @@ export default function MyPageScreen({ onLogout }) {
   }
 
   function openGoalEdit() {
-    setDraftGoal(goalSeconds);
+    // pending이 있으면 pending 기준으로, 없으면 오늘 목표 기준으로 슬라이더 시작
+    setDraftGoal(pendingGoalSeconds ?? goalSeconds);
     setGoalEditing(true);
   }
   async function saveGoal() {
-    setGoalSeconds(draftGoal);
+    const newGoal = draftGoal; // 클로저 캡처 안정성을 위해 즉시 로컬로 고정
     setGoalEditing(false);
     await apiFetch('/api/v1/user', {
       method: 'PATCH',
-      body: JSON.stringify({ dailyScreenTimeGoalMinutes: Math.round(draftGoal / 60) }),
+      body: JSON.stringify({ dailyScreenTimeGoalMinutes: Math.round(newGoal / 60) }),
     }).catch(() => {});
+    // 다음 앱 실행 시 새 목표 로드되도록 AsyncStorage 업데이트
+    const raw = await AsyncStorage.getItem('gromo:user');
+    if (raw) {
+      const data = JSON.parse(raw);
+      data.dailyScreenTimeGoalMinutes = Math.round(newGoal / 60);
+      await AsyncStorage.setItem('gromo:user', JSON.stringify(data));
+    }
+    setPendingGoalSeconds(newGoal);
     Alert.alert('목표 저장 완료', '변경된 목표는 다음날부터 적용됩니다!');
   }
 
@@ -237,30 +260,25 @@ export default function MyPageScreen({ onLogout }) {
         <StatRow label="연속 집중일" value="1일" accent={T.mint} />
         <StatRow label="이번 주 목표 달성" value="0 / 7일" accent={T.sky} />
 
-        {/* 목표 시간 진행 바 */}
-        {(() => {
-          const ratio = Math.min(1, phoneUsageSeconds / goalSeconds);
-          return (
-            <View style={s.goalSection}>
-              <View style={s.goalHeader}>
-                <Text style={s.goalLabel}>핸드폰 사용 목표</Text>
-                <View style={s.goalRight}>
-                  <Text style={s.goalTime}>{formatGoalTime(goalSeconds)}</Text>
-                  <TouchableOpacity onPress={openGoalEdit} style={s.editBtn}>
-                    <Text style={s.editBtnText}>수정하기</Text>
-                  </TouchableOpacity>
-                </View>
+        {/* 목표 시간 */}
+        <View style={s.goalSection}>
+          <View style={s.goalRow}>
+            <View style={s.goalLeft}>
+              <View style={s.goalTodayRow}>
+                <Text style={s.goalLabel}>오늘 스크린 타임 목표</Text>
+                <Text style={s.goalTime}>{formatGoalTime(goalSeconds)}</Text>
               </View>
-              <View style={s.barBg}>
-                <View style={[s.barFill, { width: `${ratio * 100}%` }]} />
-              </View>
-              <View style={s.barLabels}>
-                <Text style={s.barLabelText}>0</Text>
-                <Text style={s.barLabelText}>3시간 28분 / {formatGoalTime(goalSeconds)}</Text>
-              </View>
+              {pendingGoalSeconds !== null && (
+                <Text style={s.pendingGoalText}>
+                  내일부터 적용되는 목표: {formatGoalTime(pendingGoalSeconds)}
+                </Text>
+              )}
             </View>
-          );
-        })()}
+            <TouchableOpacity onPress={openGoalEdit} style={[s.goalEditBtn, inkBox(T.paperDark)]} activeOpacity={0.8}>
+              <Text style={s.goalEditBtnText}>수정하기</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
 
       <TouchableOpacity
@@ -428,6 +446,36 @@ const s = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1.5,
     borderTopColor: T.paperLine,
+  },
+  goalRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 10,
+  },
+  goalLeft: {
+    flex: 1,
+    gap: 6,
+    justifyContent: 'center',
+  },
+  goalTodayRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  goalEditBtn: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  goalEditBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: T.ink,
+  },
+  pendingGoalText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: T.inkLight,
   },
   goalHeader: {
     flexDirection: 'row',
