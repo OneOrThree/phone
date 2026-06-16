@@ -15,6 +15,7 @@ import com.oneorthree.phone.exception.UserNotFoundException;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
 import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
+import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -426,6 +427,105 @@ class GroupServiceTest {
         // then
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getGroupId()).isEqualTo(1L);
+    }
+
+    // ── getGroupOverview ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("멤버인 유저 → isMember=true, 전체 필드 정상 반환")
+    void getGroupOverviewMember() {
+        // given
+        User user = normalUser();
+        Group group = Group.builder()
+                .id(1L).name("스터디룸").description("열심히 공부")
+                .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
+                .durationMinutes(60).maxMembers(10).status(GroupStatus.WAITING).build();
+        GroupMember member = GroupMember.builder().user(user).group(group).build();
+
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member));
+
+        // when
+        GroupOverviewResponse result = groupService.getGroupOverview(1L, USER_ID);
+
+        // then
+        assertThat(result.getId()).isEqualTo(1L);
+        assertThat(result.getName()).isEqualTo("스터디룸");
+        assertThat(result.getMemberCount()).isEqualTo(1);
+        assertThat(result.isMember()).isTrue();
+        assertThat(result.isHasPassword()).isFalse();
+    }
+
+    @Test
+    @DisplayName("멤버 아닌 유저 → isMember=false")
+    void getGroupOverviewNotMember() {
+        // given
+        User user = normalUser();
+        Group group = Group.builder().id(1L).name("그룹")
+                .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
+                .maxMembers(10).status(GroupStatus.WAITING).build();
+
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+
+        // when
+        GroupOverviewResponse result = groupService.getGroupOverview(1L, USER_ID);
+
+        // then
+        assertThat(result.isMember()).isFalse();
+        assertThat(result.getMemberCount()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("비밀번호 그룹 → hasPassword=true")
+    void getGroupOverviewHasPassword() {
+        // given
+        User user = normalUser();
+        Group group = Group.builder().id(1L).name("비밀방").password("hashed-pw")
+                .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
+                .maxMembers(5).status(GroupStatus.WAITING).build();
+
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+
+        // when
+        GroupOverviewResponse result = groupService.getGroupOverview(1L, USER_ID);
+
+        // then
+        assertThat(result.isHasPassword()).isTrue();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 groupId → GroupException")
+    void getGroupOverviewGroupNotFound() {
+        // given
+        given(groupRepository.findById(99L)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.getGroupOverview(99L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 userId → UserNotFoundException")
+    void getGroupOverviewUserNotFound() {
+        // given
+        Group group = Group.builder().id(1L).name("그룹")
+                .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
+                .maxMembers(10).status(GroupStatus.WAITING).build();
+
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.getGroupOverview(1L, USER_ID))
+                .isInstanceOf(UserNotFoundException.class);
     }
 
     @Test
