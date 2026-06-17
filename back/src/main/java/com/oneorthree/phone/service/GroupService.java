@@ -6,6 +6,7 @@ import com.oneorthree.phone.domain.group.GroupChallenge;
 import com.oneorthree.phone.domain.group.GroupChallengeStatus;
 import com.oneorthree.phone.domain.group.GroupMember;
 import com.oneorthree.phone.domain.group.GroupMemberRole;
+import com.oneorthree.phone.domain.group.MissionCategory;
 import com.oneorthree.phone.domain.group.MissionType;
 import com.oneorthree.phone.domain.user.User;
 import com.oneorthree.phone.exception.GroupErrorCode;
@@ -37,7 +38,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -377,13 +380,14 @@ public class GroupService {
                 .map(c -> GroupChallengeResponse.builder()
                         .id(c.getId())
                         .missionType(c.getMissionType())
+                        .missionCategory(c.getMissionCategory())
                         .durationMinutes(c.getDurationMinutes())
                         .windowStart(c.getWindowStart())
                         .windowEnd(c.getWindowEnd())
+                        .canParticipate(c.getMissionCategory() == MissionCategory.FOCUS
+                                || user.isScreenTimePermissionGranted())
                         .status(c.getStatus())
                         .createdAt(c.getCreatedAt())
-                        // TODO GROMO-358: .missionCategory(c.getMissionCategory())
-                        // TODO GROMO-358: .canParticipate(c.getMissionCategory() == MissionCategory.FOCUS || user.isScreenTimePermissionGranted())
                         .build())
                 .toList();
     }
@@ -508,8 +512,8 @@ public class GroupService {
                 throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
             }
             try {
-                java.time.ZoneId.of(request.getTimeZone());
-            } catch (java.time.DateTimeException e) {
+                ZoneId.of(request.getTimeZone());
+            } catch (DateTimeException e) {
                 throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
             }
         } else {
@@ -538,9 +542,23 @@ public class GroupService {
                 .timeZone(request.getTimeZone())
                 .build());
 
-        // TODO GROMO-357: SCREEN_TIME이면 권한 없는 그룹원 목록 조회 후 nonParticipants에 포함
+        List<CreateChallengeResponse.NonParticipantDto> nonParticipants;
+        if (request.getMissionCategory() == MissionCategory.SCREEN_TIME) {
+            nonParticipants = groupMemberRepository.findByGroup(group).stream()
+                    .map(GroupMember::getUser)
+                    .filter(u -> !u.isScreenTimePermissionGranted())
+                    .map(u -> CreateChallengeResponse.NonParticipantDto.builder()
+                            .userId(u.getId())
+                            .nickname(u.getNickname())
+                            .build())
+                    .toList();
+        } else {
+            nonParticipants = List.of();
+        }
+
         return CreateChallengeResponse.builder()
                 .id(savedChallenge.getId())
+                .nonParticipants(nonParticipants)
                 .build();
     }
 }
