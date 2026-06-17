@@ -11,7 +11,8 @@ import { Character2D } from '../components/character/Character2D';
 import { T } from '../components/theme';
 import ScreenTimeModule from '../utils/ScreenTimeModule';
 import ScreenTimeReportView from '../components/ScreenTimeReportView';
-import { todayStr } from '../utils/localDate';
+import { todayStr, localDateStr } from '../utils/localDate';
+import { apiFetch } from '../utils/api';
 
 function formatFocusTime(totalSeconds) {
   const h = Math.floor(totalSeconds / 3600);
@@ -259,9 +260,31 @@ export default function HomeScreen({ navigation, route }) {
       if (!result) return;
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      // toISOString()은 UTC 기준이라 KST(UTC+9)에서 날짜가 어긋날 수 있어 로컬 날짜 직접 포맷
-      const y = yesterday;
-      const yesterdayStr = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
+      const yesterdayStr = localDateStr(yesterday);
+
+      // 1) 서버에 어제 달성 결과 저장 (보상 가드와 별개 → 전송 실패 시 다음 진입에 재시도)
+      const lastSyncedDate = await AsyncStorage.getItem('gromo:screentime:lastSyncedDate');
+      if (lastSyncedDate !== yesterdayStr) {
+        try {
+          // reportedAt: 어제 정오(로컬) → 타임존 환산 시 날짜가 어제로 안전하게 떨어짐
+          const reportedAt = new Date(yesterday);
+          reportedAt.setHours(12, 0, 0, 0);
+          await apiFetch('/api/v1/screen-time', {
+            method: 'POST',
+            body: JSON.stringify({
+              screenTimeGoalAchieved: result === 'success',
+              actualScreenTimeMinutes: null, // 실제 사용시간(분)은 현재 미지원 → 서버가 0으로 저장
+              reportedAt: reportedAt.toISOString(),
+              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            }),
+          });
+          await AsyncStorage.setItem('gromo:screentime:lastSyncedDate', yesterdayStr);
+        } catch (e) {
+          console.log('스크린타임 결과 서버 저장 실패:', e);
+        }
+      }
+
+      // 2) 보상 모달 (하루 1회)
       const lastRewardedDate = await AsyncStorage.getItem('gromo:screentime:lastRewardedDate');
       if (lastRewardedDate === yesterdayStr) return;
       await AsyncStorage.setItem('gromo:screentime:lastRewardedDate', yesterdayStr);
