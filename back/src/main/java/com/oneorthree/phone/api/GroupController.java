@@ -1,8 +1,8 @@
 package com.oneorthree.phone.api;
 
 import com.oneorthree.phone.service.GroupService;
+import com.oneorthree.phone.service.dto.group.CreateAnnouncementRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
-import com.oneorthree.phone.service.dto.group.UpdateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
 import com.oneorthree.phone.service.dto.group.GroupAnnouncementResponse;
 import com.oneorthree.phone.service.dto.group.GroupChallengeResponse;
@@ -12,6 +12,7 @@ import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
 import com.oneorthree.phone.service.dto.group.RenewGroupCodeResponse;
+import com.oneorthree.phone.service.dto.group.UpdateGroupRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -131,6 +132,24 @@ public class GroupController {
     ) {
         Long userId = (Long) httpServletRequest.getAttribute("userId");
         return ResponseEntity.ok(groupService.getGroupDetail(groupId, userId));
+    }
+
+    @Operation(summary = "그룹 공지 작성", description = "OWNER만 작성 가능. 성공 시 204 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "작성 성공"),
+            @ApiResponse(responseCode = "400", description = "필수 필드 누락"),
+            @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트 / 그룹원 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @PostMapping("/groups/{groupId}/announcements")
+    public ResponseEntity<Void> createGroupAnnouncement(
+            @PathVariable Long groupId,
+            @Valid @RequestBody CreateAnnouncementRequest request,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        groupService.createAnnouncement(groupId, userId, request);
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(summary = "그룹 공지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환.")

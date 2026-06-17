@@ -1,6 +1,7 @@
 package com.oneorthree.phone.service;
 
 import com.oneorthree.phone.domain.group.Group;
+import com.oneorthree.phone.domain.group.GroupAnnouncement;
 import com.oneorthree.phone.domain.group.GroupMember;
 import com.oneorthree.phone.domain.group.GroupMemberRole;
 import com.oneorthree.phone.domain.group.MissionType;
@@ -13,8 +14,8 @@ import com.oneorthree.phone.repository.group.GroupChallengeRepository;
 import com.oneorthree.phone.repository.group.GroupMemberRepository;
 import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
+import com.oneorthree.phone.service.dto.group.CreateAnnouncementRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
-import com.oneorthree.phone.service.dto.group.UpdateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
 import com.oneorthree.phone.service.dto.group.GroupAnnouncementResponse;
 import com.oneorthree.phone.service.dto.group.GroupChallengeResponse;
@@ -25,6 +26,7 @@ import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
 import com.oneorthree.phone.service.dto.group.RenewGroupCodeResponse;
+import com.oneorthree.phone.service.dto.group.UpdateGroupRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -295,6 +297,36 @@ public class GroupService {
                 .codeExpiresAt(groupMember.getRole() == GroupMemberRole.OWNER ?
                         group.getCodeExpiresAt() : null)
                 .build();
+    }
+
+    @Transactional
+    public void createAnnouncement(Long groupId, Long userId, CreateAnnouncementRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        Optional<GroupMember> groupMember = groupMemberRepository.findByUserAndGroup(user, group);
+        if (groupMember.isEmpty()) {
+            throw new GroupException(GroupErrorCode.MEMBER_ONLY);
+        }
+
+        if (groupMember.get().getRole() != GroupMemberRole.OWNER) {
+            throw new GroupException(GroupErrorCode.NOT_OWNER);
+        }
+
+        groupAnnouncementRepository.save(
+                GroupAnnouncement.builder()
+                        .group(group)
+                        .author(user)
+                        .title(request.getTitle())
+                        .content(request.getContent())
+                        .build()
+        );
     }
 
     public List<GroupAnnouncementResponse> getAnnouncements(Long groupId, Long userId) {
