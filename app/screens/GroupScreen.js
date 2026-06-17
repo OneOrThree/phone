@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,476 +6,868 @@ import {
   ScrollView,
   TextInput,
   StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
+  Switch,
   Modal,
-  KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { T, inkBox } from '../components/theme';
-import { Character2D } from '../components/character/Character2D';
+import { DrumPicker } from '../components/DrumPicker';
+import { apiFetch } from '../utils/api';
 
-const MOCK_GROUPS = [
-  {
-    id: '1',
-    name: '새벽 집중반',
-    code: 'DAWN01',
-    members: [
-      { id: 'm1', name: '수빈', variant: 'focus', todaySeconds: 5400, totalSeconds: 86400 },
-      { id: 'm2', name: '예지', variant: 'reading', todaySeconds: 3600, totalSeconds: 54000 },
-      { id: 'm3', name: '하은', variant: 'study', todaySeconds: 7200, totalSeconds: 120000 },
-    ],
-  },
-  {
-    id: '2',
-    name: '운동하며 공부',
-    code: 'FIT002',
-    members: [
-      { id: 'm4', name: '준호', variant: 'exercise', todaySeconds: 1800, totalSeconds: 36000 },
-      { id: 'm5', name: '유나', variant: 'yoga', todaySeconds: 4500, totalSeconds: 72000 },
-    ],
-  },
-];
+const STATUS_LABEL = { WAITING: '대기중', ACTIVE: '활성', ENDED: '종료' };
+const ROLE_LABEL = { OWNER: '호스트', MEMBER: '멤버' };
 
-function formatTime(seconds) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h}시간 ${m}분`;
-  if (m > 0) return `${m}분`;
-  return `${seconds}초`;
+const MEMBER_OPTIONS = Array.from({ length: 10 }, (_, i) => ({
+  label: `${i + 1}명`,
+  value: i + 1,
+}));
+const DURATION_OPTIONS = [15, 30, 45, 60, 90, 120].map((n) => ({ label: `${n}분`, value: n }));
+const PICKER_TITLE = {
+  maxMembers: '정원',
+  duration: '지속 시간',
+  windowStart: '시작 시간',
+  windowEnd: '종료 시간',
+};
+
+function makeTime(hour, minute) {
+  const d = new Date();
+  d.setHours(hour, minute, 0, 0);
+  return d;
+}
+function formatTime(date) {
+  const h = String(date.getHours()).padStart(2, '0');
+  const m = String(date.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
 }
 
-const RANK_COLORS = [T.yellow, T.inkLight, T.coral];
+// ───────────────────────────── G1: 그룹 목록 ─────────────────────────────
 
-function MemberCard({ member, rank }) {
-  const rankColor = RANK_COLORS[rank - 1] ?? T.paperDark;
-  return (
-    <View style={[s.memberCard, inkBox(T.paperDark)]}>
-      <View style={[s.rankBadge, { backgroundColor: rankColor }]}>
-        <Text style={s.rankText}>{rank}</Text>
-      </View>
-      <View style={s.memberCharWrap}>
-        <Character2D size={64} variant={member.variant} />
-      </View>
-      <View style={s.memberInfo}>
-        <Text style={s.memberName}>{member.name}</Text>
-        <View style={s.memberStats}>
-          <View style={s.memberStat}>
-            <Text style={s.memberStatLabel}>오늘</Text>
-            <Text style={[s.memberStatValue, { color: T.coral }]}>
-              {formatTime(member.todaySeconds)}
-            </Text>
-          </View>
-          <View style={s.memberStat}>
-            <Text style={s.memberStatLabel}>누적</Text>
-            <Text style={[s.memberStatValue, { color: T.sky }]}>
-              {formatTime(member.totalSeconds)}
-            </Text>
-          </View>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function GroupDetailView({ group, onBack }) {
-  const sorted = [...group.members].sort((a, b) => b.totalSeconds - a.totalSeconds);
-  return (
-    <View style={s.container}>
-      <TouchableOpacity onPress={onBack} style={s.backBtn}>
-        <Text style={s.backText}>← 목록으로</Text>
-      </TouchableOpacity>
-      <Text style={s.title}>{group.name}</Text>
-      <Text style={s.sub}>
-        코드: {group.code} · 멤버 {group.members.length}명
-      </Text>
-      <ScrollView showsVerticalScrollIndicator={false} style={s.memberList}>
-        {sorted.map((m, i) => (
-          <MemberCard key={m.id} member={m} rank={i + 1} />
-        ))}
-      </ScrollView>
-    </View>
-  );
-}
-
-export default function GroupScreen() {
-  const [myGroups, setMyGroups] = useState([MOCK_GROUPS[0]]);
-  const [selectedGroup, setSelectedGroup] = useState(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
-  const [newGroupName, setNewGroupName] = useState('');
+function GroupListView({ groups, loading, refreshing, onRefresh, onCreatePress, onSearchSubmit }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
 
-  if (selectedGroup) {
-    return <GroupDetailView group={selectedGroup} onBack={() => setSelectedGroup(null)} />;
-  }
+  const filtered = searchQuery.trim()
+    ? groups.filter(
+        (g) =>
+          g.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (g.code ?? '').toUpperCase().includes(searchQuery.toUpperCase()),
+      )
+    : groups;
 
-  function handleCreate() {
-    if (!newGroupName.trim()) return;
-    const newGroup = {
-      id: Date.now().toString(),
-      name: newGroupName.trim(),
-      code: Math.random().toString(36).slice(2, 8).toUpperCase(),
-      members: [{ id: 'me', name: '나', variant: 'default', todaySeconds: 0, totalSeconds: 0 }],
-    };
-    setMyGroups((prev) => [...prev, newGroup]);
-    setNewGroupName('');
-    setShowCreate(false);
-  }
-
-  function handleSearch() {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return;
-    const results = MOCK_GROUPS.filter(
-      (g) => g.name.toLowerCase().includes(q) || g.code.toLowerCase().includes(q),
+  if (loading) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator size="large" color={T.ink} />
+      </View>
     );
-    setSearchResults(results);
   }
-
-  function handleJoin(group) {
-    if (myGroups.find((g) => g.id === group.id)) return;
-    setMyGroups((prev) => [...prev, group]);
-    setShowSearch(false);
-    setSearchQuery('');
-    setSearchResults([]);
-  }
-
-  const isJoined = (group) => !!myGroups.find((g) => g.id === group.id);
 
   return (
     <View style={s.container}>
       <StatusBar style="dark" />
-      <Text style={s.title}>그룹 👥</Text>
-      <Text style={s.sub}>같이 집중해요</Text>
-
-      <View style={s.btnRow}>
-        <TouchableOpacity
-          style={[s.actionBtn, inkBox(T.sky)]}
-          onPress={() => setShowCreate(true)}
-          activeOpacity={0.8}
-        >
-          <Text style={s.actionBtnText}>+ 그룹 만들기</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[s.actionBtn, inkBox(T.mint)]}
-          onPress={() => setShowSearch(true)}
-          activeOpacity={0.8}
-        >
-          <Text style={s.actionBtnText}>🔍 그룹 찾기</Text>
-        </TouchableOpacity>
+      <View style={s.header}>
+        <Text style={s.headerTitle}>그룹 목록</Text>
+        <View style={s.headerSpacer} />
       </View>
 
-      <Text style={s.sectionLabel}>내 그룹</Text>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {myGroups.length === 0 && <Text style={s.emptyText}>아직 참가한 그룹이 없어요</Text>}
-        {myGroups.map((group) => (
-          <TouchableOpacity
-            key={group.id}
-            style={[s.groupCard, inkBox(T.paper)]}
-            onPress={() => setSelectedGroup(group)}
-            activeOpacity={0.8}
-          >
+      {/* 내 그룹 로컬 검색창 */}
+      <View style={[s.listSearchBar, inkBox(T.paperDark)]}>
+        <TextInput
+          style={s.listSearchInput}
+          placeholder="내 그룹 검색 (이름 또는 코드)"
+          placeholderTextColor={T.inkLight}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          onSubmitEditing={() => searchQuery.trim() && onSearchSubmit(searchQuery.trim())}
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+          autoCapitalize="none"
+        />
+      </View>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        keyboardShouldPersistTaps="handled"
+      >
+        {filtered.length === 0 && (
+          <View style={s.emptyWrap}>
+            {searchQuery.trim() ? (
+              <>
+                <Text style={s.emptyTitle}>검색 결과가 없어요</Text>
+                <Text style={s.emptyBody}>엔터를 눌러 전체 그룹을 검색해보세요</Text>
+              </>
+            ) : (
+              <>
+                <Text style={s.emptyTitle}>아직 참가한 그룹이 없어요</Text>
+                <Text style={s.emptyBody}>+ 버튼으로 그룹을 만들거나 검색해보세요</Text>
+              </>
+            )}
+          </View>
+        )}
+        {filtered.map((group) => (
+          <View key={group.groupId} style={[s.groupCard, inkBox(T.paperDark)]}>
             <View style={s.groupCardTop}>
-              <Text style={s.groupName}>{group.name}</Text>
-              <Text style={s.groupCode}>{group.code}</Text>
+              <Text style={s.groupName} numberOfLines={1}>
+                {group.name}
+              </Text>
+              <View style={s.badgeRow}>
+                <View style={[s.badge, group.role === 'OWNER' ? s.badgeOwner : s.badgeMember]}>
+                  <Text style={[s.badgeText, group.role === 'OWNER' && s.badgeTextOwner]}>
+                    {ROLE_LABEL[group.role] ?? group.role}
+                  </Text>
+                </View>
+                <View style={s.badge}>
+                  <Text style={s.badgeText}>{STATUS_LABEL[group.status] ?? group.status}</Text>
+                </View>
+              </View>
             </View>
-            <Text style={s.groupMemberCount}>멤버 {group.members.length}명 →</Text>
-          </TouchableOpacity>
+            <View style={s.groupCardBottom}>
+              <Text style={s.groupCode}>코드 {group.code}</Text>
+              <Text style={s.groupMembers}>
+                👥 {group.currentMembers}/{group.maxMembers}명
+              </Text>
+            </View>
+          </View>
         ))}
+        <View style={s.scrollBottom} />
       </ScrollView>
 
-      {/* 그룹 만들기 모달 */}
-      <Modal visible={showCreate} transparent animationType="fade">
-        <KeyboardAvoidingView
-          style={s.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={[s.modalBox, inkBox(T.paper)]}>
-            <Text style={s.modalTitle}>그룹 만들기</Text>
+      <TouchableOpacity style={s.fab} onPress={onCreatePress} activeOpacity={0.8}>
+        <Text style={s.fabText}>+</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ───────────────────────────── G2: 그룹 생성 ─────────────────────────────
+
+function CreateGroupView({ onBack, onCreated }) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [isPublic, setIsPublic] = useState(true);
+  const [password, setPassword] = useState('');
+  const [maxMembers, setMaxMembers] = useState(10);
+  const [missionType, setMissionType] = useState('DURATION');
+  const [missionCategory, setMissionCategory] = useState('FOCUS');
+  const [durationMinutes, setDurationMinutes] = useState(60);
+  const [windowStart, setWindowStart] = useState(() => makeTime(9, 0));
+  const [windowEnd, setWindowEnd] = useState(() => makeTime(22, 0));
+  const [loading, setLoading] = useState(false);
+
+  // 드럼 피커 모달 상태
+  const [pickerOpen, setPickerOpen] = useState(null);
+  const [draftIdx, setDraftIdx] = useState(0);
+  const [draftTime, setDraftTime] = useState(new Date());
+
+  function openPicker(type) {
+    if (type === 'maxMembers') {
+      setDraftIdx(MEMBER_OPTIONS.findIndex((o) => o.value === maxMembers));
+    } else if (type === 'duration') {
+      const idx = DURATION_OPTIONS.findIndex((o) => o.value === durationMinutes);
+      setDraftIdx(idx < 0 ? 3 : idx);
+    } else if (type === 'windowStart') {
+      setDraftTime(windowStart);
+    } else if (type === 'windowEnd') {
+      setDraftTime(windowEnd);
+    }
+    setPickerOpen(type);
+  }
+
+  function confirmPicker() {
+    if (pickerOpen === 'maxMembers') {
+      setMaxMembers(MEMBER_OPTIONS[draftIdx].value);
+    } else if (pickerOpen === 'duration') {
+      setDurationMinutes(DURATION_OPTIONS[draftIdx].value);
+    } else if (pickerOpen === 'windowStart') {
+      setWindowStart(draftTime);
+    } else if (pickerOpen === 'windowEnd') {
+      setWindowEnd(draftTime);
+    }
+    setPickerOpen(null);
+  }
+
+  async function handleCreate() {
+    if (!name.trim()) {
+      Alert.alert('입력 오류', '그룹 이름을 입력해주세요');
+      return;
+    }
+    if (!isPublic && !password.trim()) {
+      Alert.alert('입력 오류', '비밀번호를 입력해주세요');
+      return;
+    }
+
+    const body = {
+      name: name.trim(),
+      description: description.trim() || undefined,
+      password: isPublic ? undefined : password.trim(),
+      maxMembers,
+      missionType,
+      missionCategory,
+    };
+
+    if (missionType === 'DURATION') {
+      body.durationMinutes = durationMinutes;
+    } else {
+      body.windowStart = windowStart.toISOString();
+      body.windowEnd = windowEnd.toISOString();
+    }
+
+    setLoading(true);
+    try {
+      const res = await apiFetch('/api/v1/groups', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        Alert.alert('생성 실패', err.message ?? '다시 시도해주세요');
+        return;
+      }
+      const data = await res.json();
+      Alert.alert('그룹 생성 완료 🎉', `참가 코드: ${data.code}\n(유효 시간 3시간)`, [
+        { text: '확인', onPress: onCreated },
+      ]);
+    } catch (e) {
+      Alert.alert('오류', e.message ?? '네트워크 오류가 발생했습니다');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <View style={s.container}>
+      <StatusBar style="dark" />
+      <View style={s.header}>
+        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+          <Text style={s.backText}>‹ 뒤로</Text>
+        </TouchableOpacity>
+        <Text style={s.headerTitle}>그룹 생성</Text>
+        <View style={s.headerSpacer} />
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <Field label="그룹명 *">
+          <TextInput
+            style={[s.input, inkBox(T.paperDark)]}
+            placeholder="그룹 이름 (최대 50자)"
+            placeholderTextColor={T.inkLight}
+            value={name}
+            onChangeText={setName}
+            maxLength={50}
+          />
+        </Field>
+
+        <Field label="설명">
+          <TextInput
+            style={[s.input, s.textArea, inkBox(T.paperDark)]}
+            placeholder="그룹 설명 (선택)"
+            placeholderTextColor={T.inkLight}
+            value={description}
+            onChangeText={setDescription}
+            maxLength={200}
+            multiline
+          />
+        </Field>
+
+        <Field label="공개 여부">
+          <View style={s.switchRow}>
+            <Text style={s.switchLabel}>{isPublic ? '공개' : '비공개'}</Text>
+            <Switch
+              value={isPublic}
+              onValueChange={setIsPublic}
+              trackColor={{ true: T.ink, false: T.paperLine }}
+              thumbColor={T.paper}
+            />
+          </View>
+        </Field>
+
+        {!isPublic && (
+          <Field label="비밀번호">
             <TextInput
               style={[s.input, inkBox(T.paperDark)]}
-              placeholder="그룹 이름"
+              placeholder="비밀번호 입력 (영숫자)"
               placeholderTextColor={T.inkLight}
-              value={newGroupName}
-              onChangeText={setNewGroupName}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
             />
-            <View style={s.modalBtnRow}>
-              <TouchableOpacity
-                style={[s.modalBtn, inkBox(T.paperDark)]}
-                onPress={() => setShowCreate(false)}
-              >
-                <Text style={s.modalBtnText}>취소</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[s.modalBtn, inkBox(T.yellow)]} onPress={handleCreate}>
-                <Text style={s.modalBtnText}>만들기</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+          </Field>
+        )}
 
-      {/* 그룹 찾기 모달 */}
-      <Modal visible={showSearch} transparent animationType="fade">
-        <KeyboardAvoidingView
-          style={s.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={[s.modalBox, inkBox(T.paper)]}>
-            <Text style={s.modalTitle}>그룹 찾기</Text>
-            <View style={s.searchRow}>
-              <TextInput
-                style={[s.input, s.searchInput, inkBox(T.paperDark)]}
-                placeholder="그룹 이름 또는 코드"
-                placeholderTextColor={T.inkLight}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-              />
-              <TouchableOpacity style={[s.searchBtn, inkBox(T.sky)]} onPress={handleSearch}>
-                <Text style={s.modalBtnText}>검색</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={s.searchResults} showsVerticalScrollIndicator={false}>
-              {searchResults.length === 0 && searchQuery.length > 0 && (
-                <Text style={s.emptyText}>검색 결과가 없어요</Text>
-              )}
-              {searchResults.map((group) => (
-                <View key={group.id} style={[s.searchResultItem, inkBox(T.paperDark)]}>
-                  <View>
-                    <Text style={s.groupName}>{group.name}</Text>
-                    <Text style={s.groupCode}>
-                      {group.code} · {group.members.length}명
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={[s.joinBtn, inkBox(isJoined(group) ? T.paperLine : T.mint)]}
-                    onPress={() => handleJoin(group)}
-                    disabled={isJoined(group)}
-                  >
-                    <Text style={s.joinBtnText}>{isJoined(group) ? '참가됨' : '참가'}</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </ScrollView>
+        <Field label="정원">
+          <TouchableOpacity
+            style={[s.pickerTrigger, inkBox(T.paperDark)]}
+            onPress={() => openPicker('maxMembers')}
+            activeOpacity={0.7}
+          >
+            <Text style={s.pickerTriggerText}>{maxMembers}명</Text>
+            <Text style={s.pickerChevron}>›</Text>
+          </TouchableOpacity>
+        </Field>
+
+        <Field label="미션 유형">
+          <Segment
+            options={[
+              { value: 'DURATION', label: '지속 시간' },
+              { value: 'TIME_WINDOW', label: '시간대' },
+            ]}
+            value={missionType}
+            onChange={setMissionType}
+          />
+        </Field>
+
+        <Field label="미션 카테고리">
+          <Segment
+            options={[
+              { value: 'FOCUS', label: '집중' },
+              { value: 'SCREEN_TIME', label: '스크린타임' },
+            ]}
+            value={missionCategory}
+            onChange={setMissionCategory}
+          />
+        </Field>
+
+        {missionType === 'DURATION' && (
+          <Field label="지속 시간">
             <TouchableOpacity
-              style={[s.modalBtn, s.closeBtn, inkBox(T.paperDark)]}
-              onPress={() => {
-                setShowSearch(false);
-                setSearchResults([]);
-                setSearchQuery('');
-              }}
+              style={[s.pickerTrigger, inkBox(T.paperDark)]}
+              onPress={() => openPicker('duration')}
+              activeOpacity={0.7}
             >
-              <Text style={s.modalBtnText}>닫기</Text>
+              <Text style={s.pickerTriggerText}>{durationMinutes}분</Text>
+              <Text style={s.pickerChevron}>›</Text>
+            </TouchableOpacity>
+          </Field>
+        )}
+
+        {missionType === 'TIME_WINDOW' && (
+          <>
+            <Field label="시작 시간">
+              <TouchableOpacity
+                style={[s.pickerTrigger, inkBox(T.paperDark)]}
+                onPress={() => openPicker('windowStart')}
+                activeOpacity={0.7}
+              >
+                <Text style={s.pickerTriggerText}>{formatTime(windowStart)}</Text>
+                <Text style={s.pickerChevron}>›</Text>
+              </TouchableOpacity>
+            </Field>
+            <Field label="종료 시간">
+              <TouchableOpacity
+                style={[s.pickerTrigger, inkBox(T.paperDark)]}
+                onPress={() => openPicker('windowEnd')}
+                activeOpacity={0.7}
+              >
+                <Text style={s.pickerTriggerText}>{formatTime(windowEnd)}</Text>
+                <Text style={s.pickerChevron}>›</Text>
+              </TouchableOpacity>
+            </Field>
+          </>
+        )}
+
+        <Text style={s.codeHint}>
+          ✦ 그룹 생성 시 8자리 참가 코드가 자동 발급됩니다 (유효 시간 3시간)
+        </Text>
+
+        <TouchableOpacity
+          style={[s.primaryBtn, inkBox(T.ink), loading && s.btnDisabled]}
+          onPress={handleCreate}
+          disabled={loading}
+          activeOpacity={0.8}
+        >
+          {loading ? (
+            <ActivityIndicator color={T.paper} />
+          ) : (
+            <Text style={s.primaryBtnText}>그룹 만들기</Text>
+          )}
+        </TouchableOpacity>
+
+        <View style={s.scrollBottom} />
+      </ScrollView>
+
+      {/* 드럼 피커 바텀 모달 */}
+      <Modal
+        visible={pickerOpen !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPickerOpen(null)}
+      >
+        <TouchableOpacity
+          style={s.pickerOverlay}
+          activeOpacity={1}
+          onPress={() => setPickerOpen(null)}
+        />
+        <View style={s.pickerSheet}>
+          <View style={s.pickerToolbar}>
+            <TouchableOpacity onPress={() => setPickerOpen(null)}>
+              <Text style={s.pickerCancel}>취소</Text>
+            </TouchableOpacity>
+            <Text style={s.pickerTitle}>{PICKER_TITLE[pickerOpen] ?? ''}</Text>
+            <TouchableOpacity onPress={confirmPicker}>
+              <Text style={s.pickerDone}>완료</Text>
             </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
+
+          {(pickerOpen === 'maxMembers' || pickerOpen === 'duration') && (
+            <DrumPicker
+              items={pickerOpen === 'maxMembers' ? MEMBER_OPTIONS : DURATION_OPTIONS}
+              selectedIndex={draftIdx}
+              onChange={setDraftIdx}
+            />
+          )}
+
+          {(pickerOpen === 'windowStart' || pickerOpen === 'windowEnd') && (
+            <DateTimePicker
+              value={draftTime}
+              mode="time"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              onChange={(_, date) => {
+                if (date) setDraftTime(date);
+              }}
+              style={s.dateTimePicker}
+              locale="ko-KR"
+            />
+          )}
+        </View>
       </Modal>
     </View>
   );
 }
 
+// ───────────────────────────── G3: 그룹 검색·참가 ─────────────────────────────
+
+function SearchGroupView({ onBack, initialQuery = '' }) {
+  const [query, setQuery] = useState(initialQuery);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+
+  useEffect(() => {
+    console.log('[G3] mount — initialQuery:', JSON.stringify(initialQuery));
+    if (initialQuery.trim()) doSearch(initialQuery.trim());
+  }, [initialQuery]);
+
+  async function doSearch(q) {
+    if (!q) {
+      console.log('[G3] doSearch 중단 — 쿼리 없음');
+      return;
+    }
+    console.log('[G3] doSearch 시작 —', JSON.stringify(q));
+    setLoading(true);
+    try {
+      const url = `/api/v1/groups/search?query=${encodeURIComponent(q)}`;
+      console.log('[G3] 요청 URL:', url);
+      const res = await apiFetch(url);
+      console.log('[G3] 응답 status:', res.status);
+      const text = await res.text();
+      console.log('[G3] 응답 body:', text);
+      if (!res.ok) throw new Error(`검색 실패 (${res.status})`);
+      const data = JSON.parse(text);
+      console.log('[G3] 파싱 결과 count:', data.length);
+      setResults(data);
+      setSearched(true);
+    } catch (e) {
+      console.log('[G3] 오류:', e.message);
+      Alert.alert('오류', e.message ?? '검색에 실패했습니다');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleSearch() {
+    console.log('[G3] handleSearch 호출 — query state:', JSON.stringify(query));
+    doSearch(query.trim());
+  }
+
+  function getJoinLabel(group) {
+    if (group.status === 'ENDED') return '종료됨';
+    if (group.currentMembers >= group.maxMembers) return '인원 초과';
+    if (group.hasPassword) return '코드 입력';
+    return '참가하기';
+  }
+
+  function isDisabled(group) {
+    return group.status === 'ENDED' || group.currentMembers >= group.maxMembers;
+  }
+
+  function handleJoin(group) {
+    if (group.hasPassword) {
+      Alert.alert('비공개 그룹', '코드 입력 기능이 곧 지원됩니다');
+    } else {
+      Alert.alert('참가 기능 준비 중', '곧 지원될 예정입니다');
+    }
+  }
+
+  const isCodeSearch = query.trim().length === 8;
+
+  return (
+    <View style={s.container}>
+      <StatusBar style="dark" />
+      <View style={s.header}>
+        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+          <Text style={s.backText}>‹ 뒤로</Text>
+        </TouchableOpacity>
+        <Text style={s.headerTitle}>그룹 검색</Text>
+        <View style={s.headerSpacer} />
+      </View>
+
+      <View style={[s.searchBar, inkBox(T.paperDark)]}>
+        <TextInput
+          style={s.searchInput}
+          placeholder="그룹명 또는 8자리 코드"
+          placeholderTextColor={T.inkLight}
+          value={query}
+          onChangeText={setQuery}
+          onSubmitEditing={handleSearch}
+          returnKeyType="search"
+          autoCapitalize="none"
+        />
+        <TouchableOpacity onPress={handleSearch} style={s.searchBtn}>
+          <Text style={s.searchBtnText}>검색</Text>
+        </TouchableOpacity>
+      </View>
+
+      {loading ? (
+        <View style={s.center}>
+          <ActivityIndicator color={T.ink} />
+        </View>
+      ) : (
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {searched && results.length === 0 && (
+            <Text style={s.searchEmptyText}>검색 결과가 없어요</Text>
+          )}
+          {results.map((group, idx) => {
+            const codeMatch = isCodeSearch && idx === 0;
+            const disabled = isDisabled(group);
+            const label = getJoinLabel(group);
+
+            return (
+              <View key={group.groupId} style={[s.searchCard, inkBox(T.paperDark)]}>
+                <View style={s.searchCardBody}>
+                  <View style={s.searchCardNameRow}>
+                    <Text style={s.groupName} numberOfLines={1}>
+                      {group.name}
+                      {group.hasPassword ? ' 🔒' : ''}
+                    </Text>
+                    {codeMatch && (
+                      <View style={s.codeMatchBadge}>
+                        <Text style={s.codeMatchText}>코드 일치</Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={s.searchCardMeta}>
+                    <Text style={s.groupMembers}>
+                      {`👥 ${group.currentMembers}/${group.maxMembers}명`}
+                    </Text>
+                    <View style={s.searchBadge}>
+                      <Text style={s.badgeText}>{STATUS_LABEL[group.status]}</Text>
+                    </View>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[s.joinBtn, disabled && s.joinBtnDisabled]}
+                  onPress={() => !disabled && handleJoin(group)}
+                  disabled={disabled}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[s.joinBtnText, disabled && s.joinBtnTextDisabled]}>{label}</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+          <View style={s.scrollBottom} />
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+// ───────────────────────────── 공통 컴포넌트 ─────────────────────────────
+
+function Field({ label, children }) {
+  return (
+    <View style={s.field}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      {children}
+    </View>
+  );
+}
+
+function Segment({ options, value, onChange }) {
+  return (
+    <View style={s.segmentRow}>
+      {options.map((opt) => (
+        <TouchableOpacity
+          key={opt.value}
+          style={[s.segmentBtn, value === opt.value && s.segmentBtnActive]}
+          onPress={() => onChange(opt.value)}
+          activeOpacity={0.8}
+        >
+          <Text style={[s.segmentBtnText, value === opt.value && s.segmentBtnTextActive]}>
+            {opt.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+// ───────────────────────────── 메인 스크린 ─────────────────────────────
+
+export default function GroupScreen() {
+  const [view, setView] = useState('list');
+  const [searchInitialQuery, setSearchInitialQuery] = useState('');
+  const [groups, setGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchGroups = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const res = await apiFetch('/api/v1/groups');
+      if (!res.ok) throw new Error('목록 조회 실패');
+      const data = await res.json();
+      setGroups(data);
+    } catch (e) {
+      Alert.alert('오류', e.message ?? '그룹 목록을 불러오지 못했습니다');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (view === 'list') fetchGroups();
+  }, [view, fetchGroups]);
+
+  if (view === 'create') {
+    return <CreateGroupView onBack={() => setView('list')} onCreated={() => setView('list')} />;
+  }
+
+  if (view === 'search') {
+    return <SearchGroupView onBack={() => setView('list')} initialQuery={searchInitialQuery} />;
+  }
+
+  return (
+    <GroupListView
+      groups={groups}
+      loading={loading}
+      refreshing={refreshing}
+      onRefresh={() => fetchGroups(true)}
+      onCreatePress={() => setView('create')}
+      onSearchSubmit={(q) => {
+        setSearchInitialQuery(q);
+        setView('search');
+      }}
+    />
+  );
+}
+
+// ───────────────────────────── 스타일 ─────────────────────────────
+
 const s = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: T.paper,
-    paddingTop: 64,
-    paddingHorizontal: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: T.ink,
-  },
-  sub: {
-    fontSize: 13,
-    color: T.inkMed,
-    marginTop: 4,
+  container: { flex: 1, backgroundColor: T.paper, paddingTop: 56, paddingHorizontal: 20 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 20,
   },
-  btnRow: {
+  headerTitle: { fontSize: 18, fontWeight: '900', color: T.ink },
+  headerSpacer: { width: 56 },
+  backText: { fontSize: 16, fontWeight: '700', color: T.inkMed, width: 56 },
+  scrollBottom: { height: 100 },
+
+  // G1 - 인라인 검색창
+  listSearchBar: {
     flexDirection: 'row',
-    gap: 10,
-    marginBottom: 24,
-  },
-  actionBtn: {
-    flex: 1,
-    paddingVertical: 12,
     alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+    marginBottom: 16,
   },
-  actionBtnText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: T.ink,
-  },
-  sectionLabel: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: T.inkMed,
-    marginBottom: 10,
-    letterSpacing: 1,
-  },
-  groupCard: {
-    padding: 18,
-    marginBottom: 12,
-  },
+  listSearchInput: { flex: 1, paddingVertical: 10, fontSize: 14, fontWeight: '600', color: T.ink },
+
+  // G1 - 그룹 카드
+  groupCard: { padding: 16, marginBottom: 12 },
   groupCardTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
+    alignItems: 'flex-start',
+    marginBottom: 10,
   },
-  groupName: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: T.ink,
+  groupCardBottom: { flexDirection: 'row', justifyContent: 'space-between' },
+  groupName: { fontSize: 16, fontWeight: '900', color: T.ink, flex: 1, marginRight: 8 },
+  groupCode: { fontSize: 12, fontWeight: '600', color: T.inkLight },
+  groupMembers: { fontSize: 12, fontWeight: '700', color: T.inkMed },
+  badgeRow: { flexDirection: 'row', gap: 6 },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    backgroundColor: T.paperDark,
+    borderWidth: 1,
+    borderColor: T.paperLine,
   },
-  groupCode: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: T.inkLight,
-  },
-  groupMemberCount: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: T.inkMed,
-  },
-  emptyText: {
-    textAlign: 'center',
-    color: T.inkLight,
-    fontSize: 13,
-    marginTop: 20,
-  },
+  badgeText: { fontSize: 11, fontWeight: '700', color: T.inkMed },
+  badgeOwner: { backgroundColor: T.ink },
+  badgeMember: { backgroundColor: T.paperDark },
+  badgeTextOwner: { color: T.paper },
 
-  // Member list (vertical)
-  memberList: { marginTop: 16 },
+  // Empty state
+  emptyWrap: { alignItems: 'center', paddingTop: 60 },
+  emptyTitle: { fontSize: 15, fontWeight: '700', color: T.inkMed },
+  emptyBody: { fontSize: 12, color: T.inkLight, marginTop: 6 },
 
-  // Member card
-  memberCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
-    marginBottom: 12,
-    gap: 14,
-  },
-  rankBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: T.ink,
+  // FAB
+  fab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 20,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: T.ink,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: T.ink,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
-  rankText: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: T.ink,
-  },
-  memberCharWrap: {
-    width: 64,
-    height: 93,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  memberInfo: {
-    flex: 1,
-  },
-  memberName: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: T.ink,
-    marginBottom: 8,
-  },
-  memberStats: {
-    flexDirection: 'row',
-    gap: 20,
-  },
-  memberStat: { alignItems: 'flex-start' },
-  memberStatLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: T.inkLight,
-    marginBottom: 2,
-  },
-  memberStatValue: {
-    fontSize: 13,
-    fontWeight: '900',
-  },
+  fabText: { color: T.paper, fontSize: 30, fontWeight: '300', lineHeight: 36 },
 
-  // Back
-  backBtn: { marginBottom: 12 },
-  backText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: T.inkMed,
-  },
-
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(28,18,8,0.4)',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  modalBox: {
-    padding: 24,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: T.ink,
-    marginBottom: 16,
-  },
-  input: {
-    padding: 12,
-    fontSize: 14,
-    fontWeight: '600',
-    color: T.ink,
-    marginBottom: 16,
-  },
-  modalBtnRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  modalBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  modalBtnText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: T.ink,
-  },
-
-  // Search
-  searchRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
-  searchBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    justifyContent: 'center',
-  },
-  searchResults: { maxHeight: 240 },
-  searchResultItem: {
+  // G2 - 폼
+  field: { marginBottom: 16 },
+  fieldLabel: { fontSize: 13, fontWeight: '800', color: T.inkMed, marginBottom: 8 },
+  input: { padding: 12, fontSize: 14, fontWeight: '600', color: T.ink },
+  textArea: { height: 80, textAlignVertical: 'top' },
+  switchRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 12,
+    paddingVertical: 6,
+  },
+  switchLabel: { fontSize: 14, fontWeight: '700', color: T.ink },
+  segmentRow: { flexDirection: 'row', gap: 8 },
+  segmentBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: T.paperLine,
+    backgroundColor: T.paperDark,
+  },
+  segmentBtnActive: { backgroundColor: T.ink, borderColor: T.ink },
+  segmentBtnText: { fontSize: 13, fontWeight: '700', color: T.inkMed },
+  segmentBtnTextActive: { color: T.paper },
+  codeHint: {
+    fontSize: 12,
+    color: T.inkLight,
+    textAlign: 'center',
+    marginVertical: 16,
+    lineHeight: 18,
+  },
+  primaryBtn: {
+    padding: 14,
+    alignItems: 'center',
+    backgroundColor: T.ink,
+    marginTop: 4,
+  },
+  btnDisabled: { opacity: 0.4 },
+  primaryBtnText: { color: T.paper, fontSize: 16, fontWeight: '800' },
+
+  // 드럼 피커 트리거
+  pickerTrigger: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+  },
+  pickerTriggerText: { fontSize: 14, fontWeight: '700', color: T.ink },
+  pickerChevron: { fontSize: 20, color: T.inkLight, fontWeight: '300' },
+
+  // 피커 모달
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  pickerSheet: {
+    backgroundColor: T.paper,
+    borderTopWidth: 1.5,
+    borderTopColor: T.ink,
+    paddingBottom: 24,
+  },
+  pickerToolbar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: T.paperLine,
+  },
+  pickerCancel: { fontSize: 15, fontWeight: '600', color: T.inkMed },
+  pickerTitle: { fontSize: 15, fontWeight: '800', color: T.ink },
+  pickerDone: { fontSize: 15, fontWeight: '800', color: T.ink },
+  dateTimePicker: { height: 240, backgroundColor: T.paper },
+
+  // G3 - 검색
+  searchBar: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  searchInput: { flex: 1, padding: 12, fontSize: 14, fontWeight: '600', color: T.ink },
+  searchBtn: { paddingHorizontal: 14, paddingVertical: 12 },
+  searchBtnText: { fontSize: 14, fontWeight: '800', color: T.ink },
+  searchEmptyText: {
+    textAlign: 'center',
+    marginTop: 40,
+    fontSize: 15,
+    fontWeight: '700',
+    color: T.inkMed,
+  },
+  searchCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
     marginBottom: 10,
+    gap: 12,
   },
+  searchCardBody: { flex: 1 },
+  searchCardNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  searchCardMeta: { flexDirection: 'row', alignItems: 'center' },
+  searchBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    backgroundColor: T.paperDark,
+    borderWidth: 1,
+    borderColor: T.paperLine,
+    marginLeft: 8,
+  },
+  codeMatchBadge: {
+    backgroundColor: T.ink,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  codeMatchText: { fontSize: 10, fontWeight: '700', color: T.paper },
   joinBtn: {
-    paddingHorizontal: 14,
+    backgroundColor: T.ink,
+    paddingHorizontal: 12,
     paddingVertical: 8,
+    borderRadius: 8,
   },
-  joinBtnText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: T.ink,
-  },
-  searchInput: { flex: 1, marginBottom: 0 },
-  closeBtn: { flex: 0, alignSelf: 'center', marginTop: 12 },
+  joinBtnDisabled: { backgroundColor: T.paperDark, borderWidth: 1, borderColor: T.paperLine },
+  joinBtnText: { fontSize: 12, fontWeight: '700', color: T.paper },
+  joinBtnTextDisabled: { color: T.inkLight },
 });
