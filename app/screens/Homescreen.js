@@ -203,6 +203,7 @@ export default function HomeScreen({ navigation, route }) {
   const [focusResult, setFocusResult] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showFailModal, setShowFailModal] = useState(false);
+  const [showUsageModal, setShowUsageModal] = useState(false);
   const [screenTimeSeconds, setScreenTimeSeconds] = useState(0);
   const [authStatus, setAuthStatus] = useState(null); // null = 확인 중
 
@@ -421,6 +422,32 @@ export default function HomeScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+
+      {/* 측정 중인 앱별 사용시간 모달 ("사용" 칸 탭 시) */}
+      <Modal
+        visible={showUsageModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowUsageModal(false)}
+      >
+        <View style={s.resultOverlay}>
+          <View style={s.usageBox}>
+            <Text style={s.resultTitle}>측정 중인 앱 사용시간</Text>
+            {Platform.OS === 'ios' && authStatus === 'approved' ? (
+              <ScreenTimeReportView reportContext="Total Activity" style={s.usageReport} />
+            ) : (
+              <Text style={s.usageEmpty}>스크린 타임 권한이 필요합니다</Text>
+            )}
+            <TouchableOpacity
+              style={s.resultBtn}
+              onPress={() => setShowUsageModal(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={s.resultBtnText}>닫기</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       <NotebookLines />
 
       <View style={s.header}>
@@ -435,7 +462,14 @@ export default function HomeScreen({ navigation, route }) {
           valueComponent={
             Platform.OS === 'ios' ? (
               authStatus === 'approved' ? (
-                <ScreenTimeReportView reportContext="Compact Activity" style={s.statValueReport} />
+                <TouchableOpacity onPress={() => setShowUsageModal(true)} activeOpacity={0.6}>
+                  <View pointerEvents="none">
+                    <ScreenTimeReportView
+                      reportContext="Compact Activity"
+                      style={s.statValueReport}
+                    />
+                  </View>
+                </TouchableOpacity>
               ) : authStatus === null ? (
                 <Text style={s.statValue}>—</Text>
               ) : (
@@ -831,4 +865,23 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   resultBtnText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+
+  usageBox: {
+    width: '100%',
+    height: '70%',
+    backgroundColor: T.paper,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: T.inkLight,
+    padding: 20,
+    gap: 12,
+  },
+  usageReport: { flex: 1, width: '100%' },
+  usageEmpty: {
+    flex: 1,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    color: T.inkMed,
+    fontWeight: '600',
+  },
 });
