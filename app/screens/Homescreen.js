@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Modal,
+  Platform,
+  ActivityIndicator,
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
@@ -437,7 +445,14 @@ export default function HomeScreen({ navigation, route }) {
           <View style={s.usageBox}>
             <Text style={s.resultTitle}>측정 중인 앱 사용시간</Text>
             {Platform.OS === 'ios' && authStatus === 'approved' ? (
-              <ScreenTimeReportView reportContext="Total Activity" style={s.usageReport} />
+              <View style={s.usageReportWrap}>
+                {/* 뒤에 깔린 로딩 스피너 — 리포트가 다 뜨면 그 위를 덮음 */}
+                <View style={s.usageLoading}>
+                  <ActivityIndicator color={T.ink} />
+                  <Text style={s.usageLoadingText}>불러오는 중...</Text>
+                </View>
+                <ScreenTimeReportView reportContext="Total Activity" style={s.usageReport} />
+              </View>
             ) : (
               <Text style={s.usageEmpty}>스크린 타임 권한이 필요합니다</Text>
             )}
@@ -897,7 +912,19 @@ const s = StyleSheet.create({
     padding: 20,
     gap: 12,
   },
+  usageReportWrap: { flex: 1, width: '100%' },
   usageReport: { flex: 1, width: '100%' },
+  usageLoading: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  usageLoadingText: { fontSize: 13, fontWeight: '600', color: T.inkMed },
   usageEmpty: {
     flex: 1,
     textAlign: 'center',
