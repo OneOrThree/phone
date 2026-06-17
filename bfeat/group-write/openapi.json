@@ -744,6 +744,102 @@
         }
       }
     },
+    "/api/v1/groups/{groupId}": {
+      "get": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 상세 조회",
+        "description": "그룹원만 조회 가능. OWNER에게만 code, codeExpiresAt 반환.",
+        "operationId": "getGroupDetail",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupDetailResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "게스트 / 그룹원 아님",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupDetailResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 설정 수정",
+        "description": "OWNER만 가능. name/maxMembers/password 부분 수정.",
+        "operationId": "updateGroup",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateGroupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "수정 성공"
+          },
+          "400": {
+            "description": "maxMembers \u003c 현재 멤버 수"
+          },
+          "403": {
+            "description": "OWNER 아님 / 게스트"
+          },
+          "404": {
+            "description": "그룹 없음"
+          }
+        }
+      }
+    },
     "/api/v1/groups/{groupId}/members/{targetUserId}/owner": {
       "patch": {
         "tags": [
@@ -834,59 +930,6 @@
                   "items": {
                     "$ref": "#/components/schemas/UserItemResponse"
                   }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/groups/{groupId}": {
-      "get": {
-        "tags": [
-          "Group"
-        ],
-        "summary": "그룹 상세 조회",
-        "description": "그룹원만 조회 가능. OWNER에게만 code, codeExpiresAt 반환.",
-        "operationId": "getGroupDetail",
-        "parameters": [
-          {
-            "name": "groupId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "조회 성공",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/GroupDetailResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "게스트 / 그룹원 아님",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/GroupDetailResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "그룹 없음",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/GroupDetailResponse"
                 }
               }
             }
@@ -1658,6 +1701,28 @@
             "format": "int64"
           },
           "name": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateGroupRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "passwordAction": {
+            "type": "string",
+            "enum": [
+              "SET",
+              "REMOVE"
+            ]
+          },
+          "password": {
             "type": "string"
           }
         }
