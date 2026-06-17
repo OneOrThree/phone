@@ -204,12 +204,30 @@ export default function HomeScreen({ navigation, route }) {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showFailModal, setShowFailModal] = useState(false);
   const [screenTimeSeconds, setScreenTimeSeconds] = useState(0);
-  const [authStatus, setAuthStatus] = useState('notDetermined');
+  const [authStatus, setAuthStatus] = useState(null); // null = 확인 중
 
   // 스크린 타임 접근 권한 상태 확인
+  // 콜드 런치 직후 getAuthorizationStatus()가 notDetermined를 잘못 주는 quirk가 있어,
+  // 이전 승인 이력(authGranted)을 캐시해 낙관적으로 표시하고 확정 답만 신뢰
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
-    ScreenTimeModule.getAuthorizationStatus().then(setAuthStatus);
+    (async () => {
+      const cached = await AsyncStorage.getItem('gromo:screentime:authGranted');
+      if (cached === '1') setAuthStatus('approved'); // 이전 승인 → 일단 승인으로 표시
+
+      const live = await ScreenTimeModule.getAuthorizationStatus();
+      if (live === 'approved') {
+        setAuthStatus('approved');
+        await AsyncStorage.setItem('gromo:screentime:authGranted', '1');
+      } else if (live === 'denied') {
+        // 사용자가 설정에서 실제로 권한을 끈 경우 → 캐시 무효화
+        setAuthStatus('denied');
+        await AsyncStorage.removeItem('gromo:screentime:authGranted');
+      } else if (cached !== '1') {
+        // notDetermined인데 승인 이력도 없으면 미설정 (이력 있으면 quirk로 보고 승인 유지)
+        setAuthStatus('notDetermined');
+      }
+    })();
   }, []);
 
   // 앱 실행 시: 다음날 적용 예정인 목표/측정대상을 승격한 뒤 자정 모니터링 등록
@@ -300,6 +318,11 @@ export default function HomeScreen({ navigation, route }) {
   async function handleRequestAuth() {
     const approved = await ScreenTimeModule.requestAuthorization();
     setAuthStatus(approved ? 'approved' : 'denied');
+    if (approved) {
+      await AsyncStorage.setItem('gromo:screentime:authGranted', '1');
+    } else {
+      await AsyncStorage.removeItem('gromo:screentime:authGranted');
+    }
   }
 
   // 앱 홈에 진입할 때마다 실시간 스크린 타임 조회
@@ -413,6 +436,8 @@ export default function HomeScreen({ navigation, route }) {
             Platform.OS === 'ios' ? (
               authStatus === 'approved' ? (
                 <ScreenTimeReportView reportContext="Compact Activity" style={s.statValueReport} />
+              ) : authStatus === null ? (
+                <Text style={s.statValue}>—</Text>
               ) : (
                 <TouchableOpacity onPress={handleRequestAuth}>
                   <Text style={s.statValue}>권한 허용</Text>
@@ -428,6 +453,8 @@ export default function HomeScreen({ navigation, route }) {
           valueComponent={
             Platform.OS === 'ios' && authStatus === 'approved' ? (
               <ScreenTimeReportView reportContext="Remaining Activity" goalSeconds={goalSeconds} style={s.statValueReport} />
+            ) : Platform.OS === 'ios' && authStatus === null ? (
+              <Text style={s.statValue}>—</Text>
             ) : goalSeconds - screenTimeSeconds < 0 ? (
               <Text style={[s.statValue, s.statValueFail]}>달성 실패</Text>
             ) : (
