@@ -131,8 +131,8 @@ export default function MyPageScreen({ onLogout }) {
   const [pendingGoalSeconds, setPendingGoalSeconds] = useState(null);
 
   // 측정 대상(앱/카테고리) 상태
-  const [selectionCounts, setSelectionCounts] = useState(null); // { applications, categories, webDomains }
-  const [selectionPending, setSelectionPending] = useState(false); // 내일부터 적용 대기 여부
+  const [selectionCounts, setSelectionCounts] = useState(null); // 오늘(활성) 선택 개수
+  const [pendingSelectionCounts, setPendingSelectionCounts] = useState(null); // 내일(대기) 선택 개수
 
   // 저장된 pending 목표 로드 (앱 재실행 후에도 "내일부터 적용" 표시 유지)
   useEffect(() => {
@@ -143,12 +143,12 @@ export default function MyPageScreen({ onLogout }) {
     });
   }, []);
 
-  // 측정 대상 표시 정보 로드 (선택 개수 + 대기 여부)
+  // 측정 대상 표시 정보 로드 (오늘 활성 + 내일 대기 선택 개수)
   useEffect(() => {
-    AsyncStorage.multiGet(['gromo:selection:counts', 'gromo:selection:applyDate']).then(
-      ([[, countsRaw], [, applyDate]]) => {
+    AsyncStorage.multiGet(['gromo:selection:counts', 'gromo:selection:pendingCounts']).then(
+      ([[, countsRaw], [, pendingRaw]]) => {
         if (countsRaw) setSelectionCounts(JSON.parse(countsRaw));
-        setSelectionPending(!!applyDate);
+        if (pendingRaw) setPendingSelectionCounts(JSON.parse(pendingRaw));
       },
     );
   }, []);
@@ -209,21 +209,23 @@ export default function MyPageScreen({ onLogout }) {
       const result = await ScreenTimeModule.presentAppPicker();
       if (!result) return; // 취소
 
-      setSelectionCounts(result);
-      await AsyncStorage.setItem('gromo:selection:counts', JSON.stringify(result));
-
       const configured = await AsyncStorage.getItem('gromo:selection:configured');
       if (!configured) {
-        // 첫 설정 → 즉시 활성화 (오늘부터 측정)
+        // 첫 설정 → 즉시 활성화 (오늘부터 측정) → 오늘(active) 개수에 저장
         await ScreenTimeModule.promoteSelection();
         await AsyncStorage.setItem('gromo:selection:configured', '1');
+        await AsyncStorage.setItem('gromo:selection:counts', JSON.stringify(result));
         await ScreenTimeModule.startGoalMonitoring(goalSeconds);
-        setSelectionPending(false);
+        setSelectionCounts(result);
+        setPendingSelectionCounts(null);
         Alert.alert('측정 대상 설정 완료', '선택한 앱 기준으로 오늘부터 측정합니다.');
       } else {
-        // 변경 → 내일부터 적용
-        await AsyncStorage.setItem('gromo:selection:applyDate', tomorrowStr());
-        setSelectionPending(true);
+        // 변경 → 내일부터 적용 → 내일(pending) 개수에만 저장 (오늘 것은 유지)
+        await AsyncStorage.multiSet([
+          ['gromo:selection:applyDate', tomorrowStr()],
+          ['gromo:selection:pendingCounts', JSON.stringify(result)],
+        ]);
+        setPendingSelectionCounts(result);
         Alert.alert('측정 대상 변경됨', '변경된 측정 대상은 내일부터 적용됩니다!');
       }
     } catch (e) {
@@ -232,9 +234,9 @@ export default function MyPageScreen({ onLogout }) {
   }
 
   // 측정 대상 표시 문구 (예: "카테고리 13개", "미설정")
-  function selectionLabel() {
-    if (!selectionCounts) return '미설정';
-    const { applications = 0, categories = 0, webDomains = 0 } = selectionCounts;
+  function selectionLabel(counts) {
+    if (!counts) return '미설정';
+    const { applications = 0, categories = 0, webDomains = 0 } = counts;
     const parts = [];
     if (categories > 0) parts.push(`카테고리 ${categories}개`);
     if (applications > 0) parts.push(`앱 ${applications}개`);
@@ -352,11 +354,13 @@ export default function MyPageScreen({ onLogout }) {
             <View style={s.goalRow}>
               <View style={s.goalLeft}>
                 <View style={s.goalTodayRow}>
-                  <Text style={s.goalLabel}>측정 대상 앱</Text>
-                  <Text style={s.goalTime}>{selectionLabel()}</Text>
+                  <Text style={s.goalLabel}>오늘 측정 대상</Text>
+                  <Text style={s.goalTime}>{selectionLabel(selectionCounts)}</Text>
                 </View>
-                {selectionPending && (
-                  <Text style={s.pendingGoalText}>변경된 측정 대상은 내일부터 적용됩니다</Text>
+                {pendingSelectionCounts && (
+                  <Text style={s.pendingGoalText}>
+                    내일부터 측정: {selectionLabel(pendingSelectionCounts)}
+                  </Text>
                 )}
               </View>
               <TouchableOpacity onPress={openPicker} style={[s.goalEditBtn, inkBox(T.paperDark)]} activeOpacity={0.8}>

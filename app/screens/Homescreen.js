@@ -242,6 +242,12 @@ export default function HomeScreen({ navigation, route }) {
       const selApply = await AsyncStorage.getItem('gromo:selection:applyDate');
       if (selApply && today >= selApply) {
         await ScreenTimeModule.promoteSelection();
+        // 표시용 개수도 내일(pending) → 오늘(active)로 이동
+        const pendingCounts = await AsyncStorage.getItem('gromo:selection:pendingCounts');
+        if (pendingCounts) {
+          await AsyncStorage.setItem('gromo:selection:counts', pendingCounts);
+          await AsyncStorage.removeItem('gromo:selection:pendingCounts');
+        }
         await AsyncStorage.removeItem('gromo:selection:applyDate');
       }
 
@@ -462,14 +468,18 @@ export default function HomeScreen({ navigation, route }) {
           valueComponent={
             Platform.OS === 'ios' ? (
               authStatus === 'approved' ? (
-                <TouchableOpacity onPress={() => setShowUsageModal(true)} activeOpacity={0.6}>
-                  <View pointerEvents="none">
-                    <ScreenTimeReportView
-                      reportContext="Compact Activity"
-                      style={s.statValueReport}
-                    />
-                  </View>
-                </TouchableOpacity>
+                <View style={s.statValueReport}>
+                  <ScreenTimeReportView
+                    reportContext="Compact Activity"
+                    style={s.statReportFill}
+                  />
+                  {/* 리포트 뷰 위에 투명 터치 레이어 → 탭 시 앱별 사용시간 모달 */}
+                  <TouchableOpacity
+                    style={s.statReportFill}
+                    onPress={() => setShowUsageModal(true)}
+                    activeOpacity={0.6}
+                  />
+                </View>
               ) : authStatus === null ? (
                 <Text style={s.statValue}>—</Text>
               ) : (
@@ -759,6 +769,7 @@ const s = StyleSheet.create({
   statValue: { fontSize: 15, fontWeight: '900', color: T.ink, marginTop: 4 },
   statValueFail: { color: T.danger },
   statValueReport: { width: '100%', height: 20, marginTop: 4 },
+  statReportFill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
 
   roomWrap: {
     flex: 1,
