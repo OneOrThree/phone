@@ -1,23 +1,22 @@
 package com.oneorthree.phone.service.dto.group;
 
-import com.oneorthree.phone.domain.group.GroupChallengeStatus;
 import com.oneorthree.phone.domain.group.MissionCategory;
 import com.oneorthree.phone.domain.group.MissionType;
-import lombok.Builder;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
 @Getter
-@Builder
-public class GroupChallengeResponse {
-    private Long id;
-    private MissionType missionType;
+@NoArgsConstructor
+public class CreateChallengeRequest {
+    @NotNull
     private MissionCategory missionCategory;
+    @NotNull
+    private MissionType missionType;
     private Integer durationMinutes;
     private Instant windowStart;
     private Instant windowEnd;
-    private GroupChallengeStatus status;
-    private Instant createdAt;
-    private boolean canParticipate;
+    private String timeZone;
 }

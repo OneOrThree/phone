@@ -54,6 +54,13 @@ public class GroupChallenge {
     @Builder.Default
     private GroupChallengeStatus status = GroupChallengeStatus.ACTIVE;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "mission_category", nullable = false)
+    private MissionCategory missionCategory;
+
+    @Column(name = "time_zone")
+    private String timeZone;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private Instant createdAt;

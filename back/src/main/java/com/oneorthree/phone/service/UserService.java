@@ -10,6 +10,7 @@ import com.oneorthree.phone.repository.focus.DailyFocusStatRepository;
 import com.oneorthree.phone.repository.focus.FocusSessionRepository;
 import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
+import com.oneorthree.phone.service.dto.user.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.service.dto.user.UserProfileResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -129,5 +130,12 @@ public class UserService {
                 user.getDayEndTime() != null ? user.getDayEndTime().toString() : null,
                 user.getReportTime() != null ? user.getReportTime().toString() : null
         );
+    }
+
+    @Transactional
+    public void updateScreenTimePermission(Long userId, UpdateScreenTimePermissionRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        user.setScreenTimePermissionGranted(request.getGranted());
     }
 }
