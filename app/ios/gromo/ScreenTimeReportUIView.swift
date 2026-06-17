@@ -17,6 +17,7 @@
 import UIKit
 import SwiftUI
 import DeviceActivity  // DeviceActivityReport, DeviceActivityFilter 사용
+import FamilyControls  // FamilyActivitySelection (측정 대상 토큰)
 
 @available(iOS 16.0, *)
 class ScreenTimeReportUIView: UIView {
@@ -66,12 +67,38 @@ class ScreenTimeReportUIView: UIView {
         let calendar = Calendar.current
         let now = Date()
         let startOfDay = calendar.startOfDay(for: now)
+        let interval = DateInterval(start: startOfDay, end: now)
 
-        let filter = DeviceActivityFilter(
-            segment: .daily(during: DateInterval(start: startOfDay, end: now)),
-            users: .all,
-            devices: .init([.iPhone])
-        )
+        // App Group에 저장된 활성 측정 대상(picker로 고른 앱/카테고리)을 읽어
+        // 그 토큰들만 집계하도록 필터에 적용 → 판정(threshold)과 동일 기준
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        var selection: FamilyActivitySelection?
+        if let data = defaults?.data(forKey: "gromo:goal:selection") {
+            selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data)
+        }
+
+        let filter: DeviceActivityFilter
+        if let sel = selection,
+           !(sel.applicationTokens.isEmpty
+                && sel.categoryTokens.isEmpty
+                && sel.webDomainTokens.isEmpty) {
+            // 선택한 앱/카테고리만 집계
+            filter = DeviceActivityFilter(
+                segment: .daily(during: interval),
+                users: .all,
+                devices: .init([.iPhone]),
+                applications: sel.applicationTokens,
+                categories: sel.categoryTokens,
+                webDomains: sel.webDomainTokens
+            )
+        } else {
+            // 측정 대상 미설정 → 전체 앱 (기존 동작)
+            filter = DeviceActivityFilter(
+                segment: .daily(during: interval),
+                users: .all,
+                devices: .init([.iPhone])
+            )
+        }
 
         let reportView = DeviceActivityReport(.init(reportContext), filter: filter)
         let hostingVC = UIHostingController(rootView: AnyView(reportView))

@@ -50,6 +50,21 @@ const ScreenTimeModule = {
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.getYesterdayResult();
   },
+
+  // 측정 대상(앱/카테고리) 선택 picker 표시
+  // 선택 결과는 App Group "대기(pending)" 키에 저장됨 (다음날 승격)
+  // 반환값: { applications, categories, webDomains } (선택 개수) | null (취소)
+  presentAppPicker: async () => {
+    if (Platform.OS !== 'ios') return null;
+    return NativeScreenTimeModule.presentAppPicker();
+  },
+
+  // 대기 중인 측정 대상을 활성으로 승격 (다음날 적용 시점에 호출)
+  // 반환값: true(승격함) | false(대기 없음)
+  promoteSelection: async () => {
+    if (Platform.OS !== 'ios') return false;
+    return NativeScreenTimeModule.promoteSelection();
+  },
 };
 
 export default ScreenTimeModule;

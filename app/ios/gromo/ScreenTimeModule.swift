@@ -12,6 +12,7 @@
 import Foundation
 import FamilyControls  // 스크린 타임 권한 요청에 필요한 Apple 프레임워크
 import DeviceActivity  // DeviceActivityCenter, DeviceActivitySchedule, DeviceActivityEvent
+import SwiftUI         // FamilyActivityPicker 표시용
 
 // @objc: Objective-C 런타임에 노출 (React Native 브릿지가 ObjC 기반이라 필요)
 @objc(ScreenTimeModule)
@@ -132,16 +133,33 @@ class ScreenTimeModule: NSObject {
             repeats: true
         )
 
+        // App Group에 저장된 "측정 대상"(picker로 선택한 앱/카테고리) 로드
+        // 이게 있어야 threshold 이벤트가 실제로 발화함 (빈 배열이면 발화 안 함)
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        guard
+            let data = defaults?.data(forKey: "gromo:goal:selection"),
+            let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data),
+            !(selection.applicationTokens.isEmpty
+                && selection.categoryTokens.isEmpty
+                && selection.webDomainTokens.isEmpty)
+        else {
+            // 아직 측정 대상 미선택 → 모니터링 시작 불가 (picker 먼저 띄워야 함)
+            resolve(false)
+            return
+        }
+
         let totalSeconds = Int(goalSecondsValue)
         var threshold = DateComponents()
         threshold.hour = totalSeconds / 3600
         threshold.minute = (totalSeconds % 3600) / 60
         threshold.second = totalSeconds % 60
 
+        // 선택한 앱/카테고리의 누적 사용시간이 threshold(목표시간)에 도달하면
+        // Monitor 익스텐션의 eventDidReachThreshold가 호출됨
         let event = DeviceActivityEvent(
-            applications: [],
-            categories: [],
-            webDomains: [],
+            applications: selection.applicationTokens,
+            categories: selection.categoryTokens,
+            webDomains: selection.webDomainTokens,
             threshold: threshold
         )
 
@@ -152,7 +170,7 @@ class ScreenTimeModule: NSObject {
                 during: schedule,
                 events: [DeviceActivityEvent.Name("gromo.goal.threshold"): event]
             )
-            resolve(nil)
+            resolve(true)
         } catch {
             reject("MONITOR_ERROR", "모니터링 시작 실패: \(error.localizedDescription)", error)
         }
@@ -183,6 +201,105 @@ class ScreenTimeModule: NSObject {
             resolve(lastResult)
         } else {
             resolve(nil)
+        }
+    }
+
+    // [테스트] FamilyActivityPicker를 띄워 "측정에 포함할 앱/카테고리"를 선택받음
+    // 목적: picker 동선 확인 + 선택 결과를 App Group에 저장
+    // 반환값: { applications, categories, webDomains } (각 선택 개수) | nil(취소)
+    @objc func presentAppPicker(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard #available(iOS 16.0, *) else {
+            reject("UNAVAILABLE", "iOS 16.0 이상에서만 사용 가능합니다.", nil)
+            return
+        }
+        // UI 표시는 반드시 메인 스레드에서
+        DispatchQueue.main.async {
+            guard let top = ScreenTimeModule.topViewController() else {
+                reject("NO_VC", "표시할 화면을 찾을 수 없습니다.", nil)
+                return
+            }
+
+            let pickerView = GoalAppPickerView(
+                onDone: { selection in
+                    // 선택 결과를 App Group "대기(pending)" 키에 저장 (FamilyActivitySelection은 Codable)
+                    // 활성 적용은 promoteSelection()에서 다음날 승격 시 처리
+                    let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+                    if let data = try? JSONEncoder().encode(selection) {
+                        defaults?.set(data, forKey: "gromo:goal:selectionPending")
+                    }
+                    top.dismiss(animated: true)
+                    resolve([
+                        "applications": selection.applicationTokens.count,
+                        "categories": selection.categoryTokens.count,
+                        "webDomains": selection.webDomainTokens.count
+                    ])
+                },
+                onCancel: {
+                    top.dismiss(animated: true)
+                    resolve(nil)
+                }
+            )
+
+            let host = UIHostingController(rootView: pickerView)
+            top.present(host, animated: true)
+        }
+    }
+
+    // 대기(pending) 측정 대상을 활성(active)으로 승격
+    // 다음날 적용 시점(앱 실행 시 날짜 비교 후)에 JS에서 호출
+    // 반환값: true(승격함) | false(대기 없음)
+    @objc func promoteSelection(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        if let data = defaults?.data(forKey: "gromo:goal:selectionPending") {
+            defaults?.set(data, forKey: "gromo:goal:selection")
+            defaults?.removeObject(forKey: "gromo:goal:selectionPending")
+            resolve(true)
+        } else {
+            resolve(false)
+        }
+    }
+
+    // 현재 화면 최상단 ViewController 찾기 (picker를 그 위에 present)
+    private static func topViewController() -> UIViewController? {
+        let keyWindow = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }
+        var top = keyWindow?.rootViewController
+        while let presented = top?.presentedViewController {
+            top = presented
+        }
+        return top
+    }
+}
+
+// FamilyActivityPicker를 감싸는 SwiftUI 뷰
+// 상단에 "취소 / 완료" 버튼을 달아 시트로 표시
+@available(iOS 16.0, *)
+struct GoalAppPickerView: View {
+    @State private var selection = FamilyActivitySelection()
+    let onDone: (FamilyActivitySelection) -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        NavigationView {
+            FamilyActivityPicker(selection: $selection)
+                .navigationTitle("측정 대상 선택")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("취소") { onCancel() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("완료") { onDone(selection) }
+                    }
+                }
         }
     }
 }

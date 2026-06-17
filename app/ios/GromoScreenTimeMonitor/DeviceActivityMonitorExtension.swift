@@ -21,7 +21,12 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     // 메인 앱에서 getYesterdayResult()로 읽어 보상 지급 여부 결정
     override func intervalDidEnd(for activity: DeviceActivityName) {
         super.intervalDidEnd(for: activity)
+
+        // 오늘 사용량이 목표시간을 넘겼는지 판정
+        // (선택한 앱 누적 사용시간이 threshold 도달 시 eventDidReachThreshold가 플래그를 세움)
         let exceeded = sharedDefaults?.bool(forKey: "gromo:screentime:goalExceededToday") ?? false
+
+        // 넘겼으면 "fail"(달성 실패), 안 넘겼으면 "success"(달성)
         sharedDefaults?.set(exceeded ? "fail" : "success", forKey: "gromo:screentime:lastResult")
         sharedDefaults?.set(todayString, forKey: "gromo:screentime:lastResultDate")
         sharedDefaults?.set(false, forKey: "gromo:screentime:goalExceededToday")

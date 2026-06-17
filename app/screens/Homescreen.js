@@ -11,6 +11,7 @@ import { Character2D } from '../components/character/Character2D';
 import { T } from '../components/theme';
 import ScreenTimeModule from '../utils/ScreenTimeModule';
 import ScreenTimeReportView from '../components/ScreenTimeReportView';
+import { todayStr } from '../utils/localDate';
 
 function formatFocusTime(totalSeconds) {
   const h = Math.floor(totalSeconds / 3600);
@@ -194,7 +195,7 @@ function formatTime(totalSeconds) {
 export default function HomeScreen({ navigation, route }) {
   const { equippedItem, equippedFurniture, equippedCostume } = useEquipment();
   const { todayFocusSeconds } = useFocus();
-  const { nickname, goalSeconds, phoneUsageSeconds } = useUser();
+  const { nickname, goalSeconds, setGoalSeconds, phoneUsageSeconds } = useUser();
   const { addCoins } = useCoins();
   const costumeSlots = equippedCostume.map((c) => c.slot);
   const remainingSeconds = Math.max(0, goalSeconds - phoneUsageSeconds);
@@ -210,12 +211,45 @@ export default function HomeScreen({ navigation, route }) {
     ScreenTimeModule.getAuthorizationStatus().then(setAuthStatus);
   }, []);
 
-  // 목표 시간 변경 시 자정 모니터링 재등록
-  // (App Group 기록은 ScreenTimeReportUIView의 goalSeconds prop didSet에서 동기 처리)
+  // 앱 실행 시: 다음날 적용 예정인 목표/측정대상을 승격한 뒤 자정 모니터링 등록
+  // (목표·측정대상 변경은 당일엔 반영 안 되고, 적용 예정일이 지난 다음 실행 때 여기서 승격됨)
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
-    ScreenTimeModule.startGoalMonitoring(goalSeconds);
-  }, [goalSeconds]);
+    (async () => {
+      const today = todayStr();
+
+      // 1) 측정 대상: 적용 예정일이 지났으면 대기 → 활성 승격
+      const selApply = await AsyncStorage.getItem('gromo:selection:applyDate');
+      if (selApply && today >= selApply) {
+        await ScreenTimeModule.promoteSelection();
+        await AsyncStorage.removeItem('gromo:selection:applyDate');
+      }
+
+      // 2) 목표 시간: 적용 예정일이 지났으면 대기 → 활성 승격
+      let effectiveGoal = goalSeconds;
+      const pendingRaw = await AsyncStorage.getItem('gromo:goal:pending');
+      if (pendingRaw) {
+        const { minutes, applyDate } = JSON.parse(pendingRaw);
+        if (today >= applyDate) {
+          effectiveGoal = minutes * 60;
+          setGoalSeconds(effectiveGoal);
+          // gromo:user에도 반영 → 다음 실행부터 이 값이 활성으로 로드됨
+          const raw = await AsyncStorage.getItem('gromo:user');
+          if (raw) {
+            const data = JSON.parse(raw);
+            data.dailyScreenTimeGoalMinutes = minutes;
+            await AsyncStorage.setItem('gromo:user', JSON.stringify(data));
+          }
+          await AsyncStorage.removeItem('gromo:goal:pending');
+        }
+      }
+
+      // 3) 활성 목표 + 활성 측정대상으로 자정 모니터링 등록
+      await ScreenTimeModule.startGoalMonitoring(effectiveGoal);
+    })();
+    // 마운트(앱 실행) 시 1회만 실행
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 앱 진입 시 어제 목표 달성 여부 확인 → 미처리 결과면 성공/실패 모달 표시
   useEffect(() => {
@@ -225,7 +259,9 @@ export default function HomeScreen({ navigation, route }) {
       if (!result) return;
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      // toISOString()은 UTC 기준이라 KST(UTC+9)에서 날짜가 어긋날 수 있어 로컬 날짜 직접 포맷
+      const y = yesterday;
+      const yesterdayStr = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
       const lastRewardedDate = await AsyncStorage.getItem('gromo:screentime:lastRewardedDate');
       if (lastRewardedDate === yesterdayStr) return;
       await AsyncStorage.setItem('gromo:screentime:lastRewardedDate', yesterdayStr);

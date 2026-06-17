@@ -10,12 +10,15 @@ import {
   TextInput,
   PanResponder,
   Alert,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { T, inkBox } from '../components/theme';
 import { Character2D } from '../components/character/Character2D';
 import { useFocus } from '../contexts/FocusContext';
 import { useUser } from '../contexts/UserContext';
+import ScreenTimeModule from '../utils/ScreenTimeModule';
+import { tomorrowStr } from '../utils/localDate';
 
 const GOAL_MAX = 86400; // 24h in seconds
 const GOAL_STEP = 1800; // 30min step
@@ -127,16 +130,27 @@ export default function MyPageScreen({ onLogout }) {
   const [draftGoal, setDraftGoal] = useState(goalSeconds);
   const [pendingGoalSeconds, setPendingGoalSeconds] = useState(null);
 
+  // 측정 대상(앱/카테고리) 상태
+  const [selectionCounts, setSelectionCounts] = useState(null); // { applications, categories, webDomains }
+  const [selectionPending, setSelectionPending] = useState(false); // 내일부터 적용 대기 여부
+
   // 저장된 pending 목표 로드 (앱 재실행 후에도 "내일부터 적용" 표시 유지)
   useEffect(() => {
-    AsyncStorage.getItem('gromo:user').then((raw) => {
+    AsyncStorage.getItem('gromo:goal:pending').then((raw) => {
       if (!raw) return;
-      const data = JSON.parse(raw);
-      const savedGoal = (data.dailyScreenTimeGoalMinutes ?? 0) * 60;
-      if (savedGoal > 0 && savedGoal !== goalSeconds) {
-        setPendingGoalSeconds(savedGoal);
-      }
+      const { minutes } = JSON.parse(raw);
+      if (minutes > 0) setPendingGoalSeconds(minutes * 60);
     });
+  }, []);
+
+  // 측정 대상 표시 정보 로드 (선택 개수 + 대기 여부)
+  useEffect(() => {
+    AsyncStorage.multiGet(['gromo:selection:counts', 'gromo:selection:applyDate']).then(
+      ([[, countsRaw], [, applyDate]]) => {
+        if (countsRaw) setSelectionCounts(JSON.parse(countsRaw));
+        setSelectionPending(!!applyDate);
+      },
+    );
   }, []);
 
   function openEdit() {
@@ -162,19 +176,70 @@ export default function MyPageScreen({ onLogout }) {
     const newGoal = draftGoal; // 클로저 캡처 안정성을 위해 즉시 로컬로 고정
     setGoalEditing(false);
     setPendingGoalSeconds(newGoal);
-    Alert.alert('목표 저장 완료', '변경된 목표는 다음날부터 적용됩니다!');
+    Alert.alert('목표 저장 완료', '변경된 목표는 내일부터 적용됩니다!');
 
-    // API 및 AsyncStorage 업데이트는 백그라운드에서 처리
+    // 대기(pending)로 저장 — 당일엔 반영 안 되고, 다음 실행 시 Homescreen에서 승격
+    // (활성 목표 gromo:user.dailyScreenTimeGoalMinutes는 승격 시점에 갱신됨)
+    const minutes = Math.round(newGoal / 60);
+    AsyncStorage.setItem(
+      'gromo:goal:pending',
+      JSON.stringify({ minutes, applyDate: tomorrowStr() }),
+    );
+
+    // 서버에는 사용자가 정한 목표값을 즉시 기록
     apiFetch('/api/v1/user', {
       method: 'PATCH',
-      body: JSON.stringify({ dailyScreenTimeGoalMinutes: Math.round(newGoal / 60) }),
+      body: JSON.stringify({ dailyScreenTimeGoalMinutes: minutes }),
     }).catch(() => {});
-    AsyncStorage.getItem('gromo:user').then((raw) => {
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      data.dailyScreenTimeGoalMinutes = Math.round(newGoal / 60);
-      AsyncStorage.setItem('gromo:user', JSON.stringify(data));
-    });
+  }
+
+  // 측정 대상(앱/카테고리) 선택 picker 표시
+  async function openPicker() {
+    try {
+      // picker는 스크린타임 권한이 있어야 정상 동작 → 없으면 먼저 요청
+      const status = await ScreenTimeModule.getAuthorizationStatus();
+      if (status !== 'approved') {
+        const approved = await ScreenTimeModule.requestAuthorization();
+        if (!approved) {
+          Alert.alert('권한 필요', '측정 대상을 설정하려면 스크린 타임 권한이 필요합니다.');
+          return;
+        }
+      }
+
+      const result = await ScreenTimeModule.presentAppPicker();
+      if (!result) return; // 취소
+
+      setSelectionCounts(result);
+      await AsyncStorage.setItem('gromo:selection:counts', JSON.stringify(result));
+
+      const configured = await AsyncStorage.getItem('gromo:selection:configured');
+      if (!configured) {
+        // 첫 설정 → 즉시 활성화 (오늘부터 측정)
+        await ScreenTimeModule.promoteSelection();
+        await AsyncStorage.setItem('gromo:selection:configured', '1');
+        await ScreenTimeModule.startGoalMonitoring(goalSeconds);
+        setSelectionPending(false);
+        Alert.alert('측정 대상 설정 완료', '선택한 앱 기준으로 오늘부터 측정합니다.');
+      } else {
+        // 변경 → 내일부터 적용
+        await AsyncStorage.setItem('gromo:selection:applyDate', tomorrowStr());
+        setSelectionPending(true);
+        Alert.alert('측정 대상 변경됨', '변경된 측정 대상은 내일부터 적용됩니다!');
+      }
+    } catch (e) {
+      Alert.alert('오류', String(e));
+    }
+  }
+
+  // 측정 대상 표시 문구 (예: "카테고리 13개", "미설정")
+  function selectionLabel() {
+    if (!selectionCounts) return '미설정';
+    const { applications = 0, categories = 0, webDomains = 0 } = selectionCounts;
+    const parts = [];
+    if (categories > 0) parts.push(`카테고리 ${categories}개`);
+    if (applications > 0) parts.push(`앱 ${applications}개`);
+    if (webDomains > 0) parts.push(`웹 ${webDomains}개`);
+    return parts.length > 0 ? parts.join(' · ') : '미설정';
   }
 
   return (
@@ -280,6 +345,26 @@ export default function MyPageScreen({ onLogout }) {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* 측정 대상 (iOS 전용) */}
+        {Platform.OS === 'ios' && (
+          <View style={s.goalSection}>
+            <View style={s.goalRow}>
+              <View style={s.goalLeft}>
+                <View style={s.goalTodayRow}>
+                  <Text style={s.goalLabel}>측정 대상 앱</Text>
+                  <Text style={s.goalTime}>{selectionLabel()}</Text>
+                </View>
+                {selectionPending && (
+                  <Text style={s.pendingGoalText}>변경된 측정 대상은 내일부터 적용됩니다</Text>
+                )}
+              </View>
+              <TouchableOpacity onPress={openPicker} style={[s.goalEditBtn, inkBox(T.paperDark)]} activeOpacity={0.8}>
+                <Text style={s.goalEditBtnText}>수정하기</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </View>
 
       <TouchableOpacity
