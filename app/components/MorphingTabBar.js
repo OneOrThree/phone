@@ -12,7 +12,7 @@ const TABS = [
   { name: '마이페이지', icon: '🐾' },
 ];
 
-const HIDDEN = new Set(['FocusMode', 'FocusCategoryScreen']);
+const HIDDEN = new Set(['FocusMode', 'FocusCategoryScreen', 'GroupDetail']);
 const N = TABS.length;
 const TAB_W = SCREEN_W / N;
 const BAR_H = 62;

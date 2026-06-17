@@ -47,7 +47,7 @@ function formatTime(date) {
 
 // ───────────────────────────── G1: 그룹 목록 ─────────────────────────────
 
-function GroupListView({ groups, loading, refreshing, onRefresh, onCreatePress, onSearchSubmit }) {
+function GroupListView({ groups, loading, refreshing, onRefresh, onCreatePress, onSearchSubmit, onGroupPress }) {
   const [searchQuery, setSearchQuery] = useState('');
 
   const filtered = searchQuery.trim()
@@ -110,7 +110,12 @@ function GroupListView({ groups, loading, refreshing, onRefresh, onCreatePress, 
           </View>
         )}
         {filtered.map((group) => (
-          <View key={group.groupId} style={[s.groupCard, inkBox(T.paperDark)]}>
+          <TouchableOpacity
+            key={group.groupId}
+            style={[s.groupCard, inkBox(T.paperDark)]}
+            onPress={() => onGroupPress(group.groupId)}
+            activeOpacity={0.85}
+          >
             <View style={s.groupCardTop}>
               <Text style={s.groupName} numberOfLines={1}>
                 {group.name}
@@ -132,7 +137,7 @@ function GroupListView({ groups, loading, refreshing, onRefresh, onCreatePress, 
                 👥 {group.currentMembers}/{group.maxMembers}명
               </Text>
             </View>
-          </View>
+          </TouchableOpacity>
         ))}
         <View style={s.scrollBottom} />
       </ScrollView>
@@ -441,7 +446,7 @@ function CreateGroupView({ onBack, onCreated }) {
 
 // ───────────────────────────── G3: 그룹 검색·참가 ─────────────────────────────
 
-function SearchGroupView({ onBack, initialQuery = '' }) {
+function SearchGroupView({ onBack, initialQuery = '', onGroupPress }) {
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -496,11 +501,7 @@ function SearchGroupView({ onBack, initialQuery = '' }) {
   }
 
   function handleJoin(group) {
-    if (group.hasPassword) {
-      Alert.alert('비공개 그룹', '코드 입력 기능이 곧 지원됩니다');
-    } else {
-      Alert.alert('참가 기능 준비 중', '곧 지원될 예정입니다');
-    }
+    onGroupPress(group.groupId);
   }
 
   const isCodeSearch = query.trim().length === 8;
@@ -547,7 +548,12 @@ function SearchGroupView({ onBack, initialQuery = '' }) {
             const label = getJoinLabel(group);
 
             return (
-              <View key={group.groupId} style={[s.searchCard, inkBox(T.paperDark)]}>
+              <TouchableOpacity
+                key={group.groupId}
+                style={[s.searchCard, inkBox(T.paperDark)]}
+                onPress={() => handleJoin(group)}
+                activeOpacity={0.85}
+              >
                 <View style={s.searchCardBody}>
                   <View style={s.searchCardNameRow}>
                     <Text style={s.groupName} numberOfLines={1}>
@@ -569,15 +575,10 @@ function SearchGroupView({ onBack, initialQuery = '' }) {
                     </View>
                   </View>
                 </View>
-                <TouchableOpacity
-                  style={[s.joinBtn, disabled && s.joinBtnDisabled]}
-                  onPress={() => !disabled && handleJoin(group)}
-                  disabled={disabled}
-                  activeOpacity={0.8}
-                >
+                <View style={[s.joinBtn, disabled && s.joinBtnDisabled]}>
                   <Text style={[s.joinBtnText, disabled && s.joinBtnTextDisabled]}>{label}</Text>
-                </TouchableOpacity>
-              </View>
+                </View>
+              </TouchableOpacity>
             );
           })}
           <View style={s.scrollBottom} />
@@ -617,14 +618,146 @@ function Segment({ options, value, onChange }) {
   );
 }
 
+// ───────────────────────────── 그룹 개요 모달 ─────────────────────────────
+
+function formatWindowTime(instant) {
+  if (!instant) return '';
+  const d = new Date(instant);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function InfoRow({ label, value }) {
+  return (
+    <View style={s.ovInfoRow}>
+      <Text style={s.ovInfoLabel}>{label}</Text>
+      <Text style={s.ovInfoValue}>{value}</Text>
+    </View>
+  );
+}
+
+function GroupOverviewModal({ visible, data, groupId, onClose, onJoined }) {
+  const [password, setPassword] = useState('');
+  const [joining, setJoining] = useState(false);
+
+  useEffect(() => {
+    if (!visible) {
+      setPassword('');
+      setJoining(false);
+    }
+  }, [visible]);
+
+  async function handleJoin() {
+    setJoining(true);
+    try {
+      const body = data.hasPassword ? { password: password.trim() } : {};
+      const res = await apiFetch(`/api/v1/groups/${groupId}/join`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      if (res.status === 401) {
+        Alert.alert('오류', '비밀번호가 틀렸습니다');
+        return;
+      }
+      if (res.status === 409) {
+        Alert.alert('오류', '이미 참가 중이거나 정원이 초과되었습니다');
+        return;
+      }
+      if (!res.ok) {
+        Alert.alert('오류', '참가에 실패했습니다');
+        return;
+      }
+      onJoined();
+    } catch {
+      Alert.alert('오류', '네트워크 오류가 발생했습니다');
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  const canJoin = data && data.status !== 'ENDED' && data.memberCount < data.maxMembers;
+  const missionText =
+    !data
+      ? ''
+      : data.missionType === 'DURATION'
+        ? `${data.missionCategory === 'FOCUS' ? '집중' : '스크린타임'} · ${data.durationMinutes}분`
+        : `${data.missionCategory === 'FOCUS' ? '집중' : '스크린타임'} · ${formatWindowTime(data.windowStart)} ~ ${formatWindowTime(data.windowEnd)}`;
+
+  const joinLabel =
+    !data
+      ? ''
+      : data.status === 'ENDED'
+        ? '종료된 그룹'
+        : data.memberCount >= data.maxMembers
+          ? '정원 초과'
+          : '참가하기';
+
+  const joinDisabled = !canJoin || joining || (data?.hasPassword && !password.trim());
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={s.ovOverlay} activeOpacity={1} onPress={onClose} />
+      <View style={s.ovSheet}>
+        <View style={s.ovHandle} />
+
+        {!data ? (
+          <ActivityIndicator size="large" color={T.ink} style={s.ovLoader} />
+        ) : (
+          <>
+            <Text style={s.ovName}>{data.name}</Text>
+            {!!data.description && <Text style={s.ovDesc}>{data.description}</Text>}
+
+            <View style={s.ovDivider} />
+
+            <InfoRow label="미션" value={missionText} />
+            <InfoRow label="인원" value={`${data.memberCount}/${data.maxMembers}명`} />
+            <InfoRow label="상태" value={STATUS_LABEL[data.status] ?? data.status} />
+            {data.hasPassword && <InfoRow label="비공개" value="비밀번호 필요 🔒" />}
+
+            {data.hasPassword && canJoin && (
+              <TextInput
+                style={[s.ovInput, inkBox(T.paperDark)]}
+                placeholder="비밀번호 입력"
+                placeholderTextColor={T.inkLight}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+              />
+            )}
+
+            <TouchableOpacity
+              style={[s.ovJoinBtn, canJoin ? s.ovJoinBtnActive : s.ovJoinBtnInactive, joinDisabled && s.btnDisabled]}
+              onPress={handleJoin}
+              disabled={joinDisabled}
+              activeOpacity={0.8}
+            >
+              {joining ? (
+                <ActivityIndicator color={T.paper} />
+              ) : (
+                <Text style={[s.ovJoinBtnText, !canJoin && s.ovJoinBtnTextDisabled]}>
+                  {joinLabel}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
 // ───────────────────────────── 메인 스크린 ─────────────────────────────
 
-export default function GroupScreen() {
+export default function GroupScreen({ navigation }) {
   const [view, setView] = useState('list');
   const [searchInitialQuery, setSearchInitialQuery] = useState('');
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // 개요 모달 상태
+  const [overviewVisible, setOverviewVisible] = useState(false);
+  const [overviewGroupId, setOverviewGroupId] = useState(null);
+  const [overviewData, setOverviewData] = useState(null);
 
   const fetchGroups = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -646,26 +779,63 @@ export default function GroupScreen() {
     if (view === 'list') fetchGroups();
   }, [view, fetchGroups]);
 
-  if (view === 'create') {
-    return <CreateGroupView onBack={() => setView('list')} onCreated={() => setView('list')} />;
-  }
-
-  if (view === 'search') {
-    return <SearchGroupView onBack={() => setView('list')} initialQuery={searchInitialQuery} />;
+  // 비멤버 그룹 탭 시: overview API 호출 → isMember면 바로 진입, 아니면 모달 표시
+  async function openOverview(groupId) {
+    setOverviewGroupId(groupId);
+    setOverviewData(null);
+    setOverviewVisible(true);
+    try {
+      const res = await apiFetch(`/api/v1/groups/${groupId}/overview`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (data.isMember) {
+        setOverviewVisible(false);
+        navigation.navigate('GroupDetail', { groupId });
+      } else {
+        setOverviewData(data);
+      }
+    } catch {
+      setOverviewVisible(false);
+      Alert.alert('오류', '그룹 정보를 불러오지 못했습니다');
+    }
   }
 
   return (
-    <GroupListView
-      groups={groups}
-      loading={loading}
-      refreshing={refreshing}
-      onRefresh={() => fetchGroups(true)}
-      onCreatePress={() => setView('create')}
-      onSearchSubmit={(q) => {
-        setSearchInitialQuery(q);
-        setView('search');
-      }}
-    />
+    <View style={{ flex: 1 }}>
+      {view === 'create' ? (
+        <CreateGroupView onBack={() => setView('list')} onCreated={() => setView('list')} />
+      ) : view === 'search' ? (
+        <SearchGroupView
+          onBack={() => setView('list')}
+          initialQuery={searchInitialQuery}
+          onGroupPress={openOverview}
+        />
+      ) : (
+        <GroupListView
+          groups={groups}
+          loading={loading}
+          refreshing={refreshing}
+          onRefresh={() => fetchGroups(true)}
+          onCreatePress={() => setView('create')}
+          onSearchSubmit={(q) => {
+            setSearchInitialQuery(q);
+            setView('search');
+          }}
+          onGroupPress={(groupId) => navigation.navigate('GroupDetail', { groupId })}
+        />
+      )}
+
+      <GroupOverviewModal
+        visible={overviewVisible}
+        data={overviewData}
+        groupId={overviewGroupId}
+        onClose={() => setOverviewVisible(false)}
+        onJoined={() => {
+          setOverviewVisible(false);
+          navigation.navigate('GroupDetail', { groupId: overviewGroupId });
+        }}
+      />
+    </View>
   );
 }
 
@@ -870,4 +1040,36 @@ const s = StyleSheet.create({
   joinBtnDisabled: { backgroundColor: T.paperDark, borderWidth: 1, borderColor: T.paperLine },
   joinBtnText: { fontSize: 12, fontWeight: '700', color: T.paper },
   joinBtnTextDisabled: { color: T.inkLight },
+
+  // 개요 모달
+  ovOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
+  ovSheet: {
+    backgroundColor: T.paper,
+    borderTopWidth: 1.5,
+    borderTopColor: T.ink,
+    paddingHorizontal: 24,
+    paddingBottom: 48,
+  },
+  ovHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: T.paperLine,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  ovLoader: { paddingVertical: 40 },
+  ovName: { fontSize: 20, fontWeight: '900', color: T.ink, marginBottom: 6 },
+  ovDesc: { fontSize: 13, color: T.inkMed, lineHeight: 18, marginBottom: 4 },
+  ovDivider: { height: 1, backgroundColor: T.paperLine, marginVertical: 12 },
+  ovInfoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
+  ovInfoLabel: { fontSize: 13, fontWeight: '700', color: T.inkMed },
+  ovInfoValue: { fontSize: 13, fontWeight: '700', color: T.ink },
+  ovInput: { marginTop: 16, padding: 12, fontSize: 14, fontWeight: '600', color: T.ink },
+  ovJoinBtn: { marginTop: 20, padding: 14, alignItems: 'center', borderRadius: 8 },
+  ovJoinBtnActive: { backgroundColor: T.ink },
+  ovJoinBtnInactive: { backgroundColor: T.paperDark, borderWidth: 1, borderColor: T.paperLine },
+  ovJoinBtnText: { fontSize: 16, fontWeight: '800', color: T.paper },
+  ovJoinBtnTextDisabled: { color: T.inkLight },
 });

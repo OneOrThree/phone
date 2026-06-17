@@ -43,6 +43,7 @@ import ShopScreen from './screens/ShopScreen';
 import MyPageScreen from './screens/MyPageScreen';
 import FocusModeScreen from './screens/FocusModeScreen';
 import FocusCategoryScreen from './screens/FocusCategoryScreen';
+import GroupDetailScreen from './screens/GroupDetailScreen';
 
 import { T } from './components/theme';
 import { MorphingTabBar } from './components/MorphingTabBar';
@@ -194,6 +195,11 @@ export default function App() {
                 <Tab.Screen
                   name="FocusMode"
                   component={FocusModeScreen}
+                  options={{ tabBarButton: () => null }}
+                />
+                <Tab.Screen
+                  name="GroupDetail"
+                  component={GroupDetailScreen}
                   options={{ tabBarButton: () => null }}
                 />
               </Tab.Navigator>
