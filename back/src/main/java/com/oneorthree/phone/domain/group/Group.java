@@ -95,4 +95,24 @@ public class Group {
         this.code = newCode;
         this.codeExpiresAt = Instant.now().plus(3, ChronoUnit.HOURS);
     }
+
+    public void transferOwner(Long newOwnerId) {
+        hostId = newOwnerId;
+    }
+
+    public void updateName(String newName) {
+        this.name = newName;
+    }
+
+    public void updateMaxMembers(int newMaxMembers) {
+        this.maxMembers = newMaxMembers;
+    }
+
+    public void updatePassword(String newPassword) {
+        this.password = newPassword;
+    }
+
+    public void removePassword() {
+        this.password = null;
+    }
 }

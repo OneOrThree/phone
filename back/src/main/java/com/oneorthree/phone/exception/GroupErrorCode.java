@@ -19,9 +19,10 @@ public enum GroupErrorCode {
     ALREADY_MEMBER(HttpStatus.CONFLICT, "이미 참여 중인 그룹입니다."),
     ROOM_FULL(HttpStatus.CONFLICT, "그룹 정원이 가득 찼습니다."),
     HOST_WITHDRAW(HttpStatus.BAD_REQUEST, "방장 위임 후 탈퇴할 수 있습니다."),
+    MAX_MEMBERS_TOO_SMALL(HttpStatus.BAD_REQUEST, "그룹에 참여중인 인원이 더 많습니다."),
 
     // 서버 에러
-    CODE_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "방 코드 생성에 실패했습니다.");
+    CODE_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "현재 참여 인원보다 적게 정원을 설정할 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;

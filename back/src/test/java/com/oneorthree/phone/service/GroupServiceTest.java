@@ -12,12 +12,21 @@ import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.domain.group.GroupStatus;
 import com.oneorthree.phone.exception.UserNotFoundException;
+import com.oneorthree.phone.domain.group.GroupAnnouncement;
+import com.oneorthree.phone.domain.group.GroupChallenge;
+import com.oneorthree.phone.domain.group.GroupChallengeStatus;
+import com.oneorthree.phone.repository.group.GroupAnnouncementRepository;
+import com.oneorthree.phone.repository.group.GroupChallengeRepository;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
+import com.oneorthree.phone.service.dto.group.GroupAnnouncementResponse;
+import com.oneorthree.phone.service.dto.group.GroupChallengeResponse;
+import com.oneorthree.phone.service.dto.group.GroupDetailResponse;
 import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
+import com.oneorthree.phone.service.dto.group.RenewGroupCodeResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,6 +67,12 @@ class GroupServiceTest {
 
     @Mock
     private PasswordEncoder passwordEncoder;
+
+    @Mock
+    private GroupAnnouncementRepository groupAnnouncementRepository;
+
+    @Mock
+    private GroupChallengeRepository groupChallengeRepository;
 
     private static final Long USER_ID = 1L;
 
@@ -552,6 +567,310 @@ class GroupServiceTest {
         assertThat(result.get(1).getGroupId()).isEqualTo(2L);
     }
 
+    // ── renewGroupCode (GROMO-347) ────────────────────────────────────────
+
+    @Test
+    @DisplayName("OWNER가 호출 → 새 코드 + 3시간 후 만료시각 반환")
+    void renewGroupCodeOwnerSuccess() {
+        // given
+        User user = normalUser();
+        Group group = groupWithCode(1L, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember owner = GroupMember.builder().user(user).group(group).role(GroupMemberRole.OWNER).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(owner));
+        given(groupRepository.existsByCode(anyString())).willReturn(false);
+
+        // when
+        RenewGroupCodeResponse response = groupService.renewGroupCode(1L, USER_ID);
+
+        // then
+        assertThat(response.getCode()).hasSize(8);
+        assertThat(response.getCodeExpiresAt()).isAfter(Instant.now());
+    }
+
+    @Test
+    @DisplayName("MEMBER가 호출 → NOT_OWNER")
+    void renewGroupCodeMemberForbidden() {
+        // given
+        User user = normalUser();
+        Group group = groupWithCode(1L, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+
+        // when & then
+        assertThatThrownBy(() -> groupService.renewGroupCode(1L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("그룹 멤버 아님 → NOT_OWNER")
+    void renewGroupCodeNotMember() {
+        // given
+        User user = normalUser();
+        Group group = groupWithCode(1L, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.renewGroupCode(1L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("게스트 → GUEST_FORBIDDEN")
+    void renewGroupCodeGuestForbidden() {
+        // given
+        User guest = User.builder().isGuest(true).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(guest));
+
+        // when & then
+        assertThatThrownBy(() -> groupService.renewGroupCode(1L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
+    void renewGroupCodeGroupNotFound() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(groupRepository.findById(99L)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.renewGroupCode(99L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    // ── getGroupDetail (GROMO-285) ────────────────────────────────────────
+
+    private User userWithNickname(Long id, String nickname) {
+        return User.builder().id(id).isGuest(false).nickname(nickname).build();
+    }
+
+    @Test
+    @DisplayName("OWNER 조회 → code, codeExpiresAt 포함")
+    void getGroupDetailOwnerSeesCode() {
+        // given
+        User owner = userWithNickname(USER_ID, "방장");
+        Instant expiry = Instant.now().plus(3, ChronoUnit.HOURS);
+        Group group = groupWithCode(1L, "INVITE01", expiry);
+        GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember));
+
+        // when
+        GroupDetailResponse response = groupService.getGroupDetail(1L, USER_ID);
+
+        // then
+        assertThat(response.getCode()).isEqualTo("INVITE01");
+        assertThat(response.getCodeExpiresAt()).isEqualTo(expiry);
+        assertThat(response.getMembers()).hasSize(1);
+        assertThat(response.getMembers().get(0).getNickname()).isEqualTo("방장");
+    }
+
+    @Test
+    @DisplayName("MEMBER 조회 → code=null, codeExpiresAt=null")
+    void getGroupDetailMemberNoCode() {
+        // given
+        User member = userWithNickname(USER_ID, "멤버");
+        Group group = groupWithCode(1L, "INVITE01", Instant.now().plus(3, ChronoUnit.HOURS));
+        GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(member));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(memberRole));
+
+        // when
+        GroupDetailResponse response = groupService.getGroupDetail(1L, USER_ID);
+
+        // then
+        assertThat(response.getCode()).isNull();
+        assertThat(response.getCodeExpiresAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("그룹 멤버 아님 → MEMBER_ONLY")
+    void getGroupDetailNotMember() {
+        // given
+        User user = normalUser();
+        Group group = groupWithCode(1L, "INVITE01", Instant.now().plus(3, ChronoUnit.HOURS));
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.getGroupDetail(1L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("게스트 → GUEST_FORBIDDEN")
+    void getGroupDetailGuestForbidden() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
+
+        // when & then
+        assertThatThrownBy(() -> groupService.getGroupDetail(1L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
+    void getGroupDetailGroupNotFound() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(groupRepository.findById(99L)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.getGroupDetail(99L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    // ── getAnnouncements (GROMO-287) ──────────────────────────────────────
+
+    @Test
+    @DisplayName("공지 목록 정상 조회 → 공지 수만큼 반환")
+    void getAnnouncementsSuccess() {
+        // given
+        User user = normalUser();
+        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
+        GroupAnnouncement ann = GroupAnnouncement.builder()
+                .id(10L).group(group).title("공지1").content("내용1")
+                .createdAt(Instant.now()).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupAnnouncementRepository.findByGroupOrderByCreatedAtDesc(group)).willReturn(List.of(ann));
+
+        // when
+        List<GroupAnnouncementResponse> result = groupService.getAnnouncements(1L, USER_ID);
+
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getTitle()).isEqualTo("공지1");
+        assertThat(result.get(0).getContent()).isEqualTo("내용1");
+    }
+
+    @Test
+    @DisplayName("그룹 멤버 아님 → MEMBER_ONLY")
+    void getAnnouncementsNotMember() {
+        // given
+        User user = normalUser();
+        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.getAnnouncements(1L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("게스트 → GUEST_FORBIDDEN")
+    void getAnnouncementsGuestForbidden() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
+
+        // when & then
+        assertThatThrownBy(() -> groupService.getAnnouncements(1L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
+    void getAnnouncementsGroupNotFound() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(groupRepository.findById(99L)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.getAnnouncements(99L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    // ── getChallenges (GROMO-289) ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("챌린지 목록 정상 조회 → 챌린지 수만큼 반환")
+    void getChallengesSuccess() {
+        // given
+        User user = normalUser();
+        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(20L).group(group).missionType(MissionType.DURATION)
+                .durationMinutes(60).status(GroupChallengeStatus.ACTIVE)
+                .createdAt(Instant.now()).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupChallengeRepository.findByGroupOrderByCreatedAtDesc(group)).willReturn(List.of(challenge));
+
+        // when
+        List<GroupChallengeResponse> result = groupService.getChallenges(1L, USER_ID);
+
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getMissionType()).isEqualTo(MissionType.DURATION);
+        assertThat(result.get(0).getDurationMinutes()).isEqualTo(60);
+        assertThat(result.get(0).getStatus()).isEqualTo(GroupChallengeStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("그룹 멤버 아님 → MEMBER_ONLY")
+    void getChallengesNotMember() {
+        // given
+        User user = normalUser();
+        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.getChallenges(1L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("게스트 → GUEST_FORBIDDEN")
+    void getChallengesGuestForbidden() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
+
+        // when & then
+        assertThatThrownBy(() -> groupService.getChallenges(1L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
+    void getChallengesGroupNotFound() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(groupRepository.findById(99L)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.getChallenges(99L, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
     // ── joinGroup ─────────────────────────────────────────────────────────
 
     private Group openGroup() {
@@ -702,5 +1021,113 @@ class GroupServiceTest {
         // when & then
         assertThatThrownBy(() -> groupService.joinGroup(1L, USER_ID, new JoinGroupRequest()))
                 .isInstanceOf(UserNotFoundException.class);
+    }
+
+    // ── transferOwner (GROMO-355) ─────────────────────────────────────────
+
+    private static final Long TARGET_USER_ID = 2L;
+
+    @Test
+    @DisplayName("OWNER가 MEMBER에게 위임 → 역할 교체 + hostId 갱신")
+    void transferOwnerSuccess() {
+        // given
+        User owner = userWithNickname(USER_ID, "방장");
+        User target = userWithNickname(TARGET_USER_ID, "멤버");
+        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
+        GroupMember targetMember = GroupMember.builder().user(target).group(group).role(GroupMemberRole.MEMBER).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(target));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.of(targetMember));
+
+        // when
+        groupService.transferOwner(1L, TARGET_USER_ID, USER_ID);
+
+        // then
+        assertThat(ownerMember.getRole()).isEqualTo(GroupMemberRole.MEMBER);
+        assertThat(targetMember.getRole()).isEqualTo(GroupMemberRole.OWNER);
+        assertThat(group.getHostId()).isEqualTo(TARGET_USER_ID);
+    }
+
+    @Test
+    @DisplayName("게스트 → GUEST_FORBIDDEN")
+    void transferOwnerGuestForbidden() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
+
+        // when & then
+        assertThatThrownBy(() -> groupService.transferOwner(1L, TARGET_USER_ID, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("MEMBER가 위임 시도 → NOT_OWNER")
+    void transferOwnerNotOwner() {
+        // given
+        User user = userWithNickname(USER_ID, "일반멤버");
+        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+
+        // when & then
+        assertThatThrownBy(() -> groupService.transferOwner(1L, TARGET_USER_ID, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("그룹원 아닌 유저가 위임 시도 → NOT_OWNER")
+    void transferOwnerCallerNotMember() {
+        // given
+        User user = userWithNickname(USER_ID, "비멤버");
+        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.transferOwner(1L, TARGET_USER_ID, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
+    void transferOwnerGroupNotFound() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
+        given(groupRepository.findById(99L)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.transferOwner(99L, TARGET_USER_ID, USER_ID))
+                .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("대상 유저가 그룹원 아님 → NOT_FOUND")
+    void transferOwnerTargetNotMember() {
+        // given
+        User owner = userWithNickname(USER_ID, "방장");
+        User target = userWithNickname(TARGET_USER_ID, "비멤버");
+        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(target));
+        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupService.transferOwner(1L, TARGET_USER_ID, USER_ID))
+                .isInstanceOf(GroupException.class);
     }
 }
