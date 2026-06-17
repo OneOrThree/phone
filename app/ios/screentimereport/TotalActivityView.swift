@@ -28,6 +28,20 @@ struct TotalActivityView: View {
                 }
             }
 
+            // 중단: 카테고리별 사용 시간 목록
+            if !totalActivity.categories.isEmpty {
+                Section("카테고리별 사용 시간") {
+                    ForEach(totalActivity.categories) { category in
+                        HStack {
+                            Text(category.name)
+                            Spacer()
+                            Text(formatDuration(category.duration))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+
             // 하단: 앱별 사용 시간 목록
             Section("앱별 사용 시간") {
                 ForEach(totalActivity.apps) { app in
@@ -50,6 +64,10 @@ struct TotalActivityView: View {
             AppUsage(name: "카카오톡", duration: 3600),
             AppUsage(name: "유튜브", duration: 1200),
             AppUsage(name: "인스타그램", duration: 240)
+        ],
+        categories: [
+            CategoryUsage(name: "소셜", duration: 3840),
+            CategoryUsage(name: "엔터테인먼트", duration: 1200)
         ],
         goalSeconds: 10800
     ))

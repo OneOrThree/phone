@@ -24,6 +24,7 @@ struct CompactActivityView: View {
     CompactActivityView(totalActivity: ActivityReport(
         totalDuration: 5040,
         apps: [],
+        categories: [],
         goalSeconds: 10800
     ))
 }

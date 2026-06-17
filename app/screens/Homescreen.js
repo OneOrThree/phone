@@ -429,14 +429,11 @@ export default function HomeScreen({ navigation, route }) {
         </View>
       </Modal>
 
-      {/* 측정 중인 앱별 사용시간 모달 ("사용" 칸 탭 시) */}
-      <Modal
-        visible={showUsageModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowUsageModal(false)}
-      >
-        <View style={s.resultOverlay}>
+      {/* 측정 중인 앱별 사용시간 오버레이 ("사용" 칸 탭 시)
+          RN Modal은 별도 윈도우에 렌더돼 DeviceActivityReport scene이 활성화 안 됨
+          → 같은 화면 계층에 absolute 오버레이로 띄워야 리포트가 정상 호스팅됨 */}
+      {showUsageModal && (
+        <View style={s.usageOverlay}>
           <View style={s.usageBox}>
             <Text style={s.resultTitle}>측정 중인 앱 사용시간</Text>
             {Platform.OS === 'ios' && authStatus === 'approved' ? (
@@ -453,7 +450,7 @@ export default function HomeScreen({ navigation, route }) {
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+      )}
       <NotebookLines />
 
       <View style={s.header}>
@@ -877,6 +874,19 @@ const s = StyleSheet.create({
   },
   resultBtnText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
 
+  usageOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    zIndex: 1000,
+    elevation: 1000,
+  },
   usageBox: {
     width: '100%',
     height: '70%',

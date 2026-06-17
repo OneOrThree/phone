@@ -42,6 +42,7 @@ struct RemainingActivityView: View {
     RemainingActivityView(totalActivity: ActivityReport(
         totalDuration: 5040,
         apps: [],
+        categories: [],
         goalSeconds: 10800
     ))
 }

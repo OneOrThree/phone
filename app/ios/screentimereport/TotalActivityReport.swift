@@ -29,11 +29,19 @@ struct AppUsage: Identifiable {
     let duration: TimeInterval  // 사용 시간 (초 단위)
 }
 
+// 카테고리 하나의 사용 정보를 담는 구조체
+struct CategoryUsage: Identifiable {
+    let id = UUID()
+    let name: String            // 카테고리 이름 (예: "소셜")
+    let duration: TimeInterval  // 사용 시간 (초 단위, 소속 앱 합산)
+}
+
 // 전체 리포트 데이터를 담는 구조체
 // makeConfiguration()이 만들고, TotalActivityView가 받아서 화면에 표시
 struct ActivityReport {
     let totalDuration: TimeInterval  // 오늘 총 사용 시간 (초 단위)
     let apps: [AppUsage]             // 앱별 사용 시간 목록 (사용 시간 내림차순)
+    let categories: [CategoryUsage]  // 카테고리별 사용 시간 목록 (내림차순)
     let goalSeconds: TimeInterval  // 메인 앱이 App Group에 저장한 목표 시간 (없으면 -1)
 }
 
@@ -59,6 +67,7 @@ struct TotalActivityReport: DeviceActivityReportScene {
 // TotalActivityReport / CompactActivityReport에서 공통으로 사용
 func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
     var apps: [AppUsage] = []
+    var categoryDurations: [String: TimeInterval] = [:]
     var totalDuration: TimeInterval = 0
 
     // 데이터 구조: data → activitySegments → categories → applications 순으로 중첩
@@ -67,14 +76,17 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
 
     for await d in data {
         for await segment in d.activitySegments {
-            for await category in segment.categories {
-                for await app in category.applications {
+            for await categoryActivity in segment.categories {
+                let catName = categoryActivity.category.localizedDisplayName ?? "기타"
+                for await app in categoryActivity.applications {
                     // gromo 앱은 제외
                     if app.application.bundleIdentifier == gromoBundle { continue }
                     let name = app.application.localizedDisplayName ?? "알 수 없음"
                     let duration = app.totalActivityDuration
                     totalDuration += duration
                     apps.append(AppUsage(name: name, duration: duration))
+                    // 카테고리 합산 (gromo 제외된 앱 기준이라 총합과 일관됨)
+                    categoryDurations[catName, default: 0] += duration
                 }
             }
         }
@@ -82,6 +94,11 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
 
     // 많이 쓴 앱이 위에 오도록 내림차순 정렬
     apps.sort { $0.duration > $1.duration }
+
+    // 카테고리별 사용 시간 목록 (내림차순)
+    let categories = categoryDurations
+        .map { CategoryUsage(name: $0.key, duration: $0.value) }
+        .sorted { $0.duration > $1.duration }
 
     // App Group UserDefaults에 총 사용 시간 저장 (메인 앱에서 읽을 수 있도록)
     let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
@@ -95,7 +112,12 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
     sharedDefaults?.synchronize()
     let goalSeconds = sharedDefaults?.double(forKey: "gromo:user:goalSeconds") ?? -1
 
-    return ActivityReport(totalDuration: totalDuration, apps: apps, goalSeconds: goalSeconds)
+    return ActivityReport(
+        totalDuration: totalDuration,
+        apps: apps,
+        categories: categories,
+        goalSeconds: goalSeconds
+    )
 }
 
 // TimeInterval(초)을 "X시간 Y분" 형태로 변환
