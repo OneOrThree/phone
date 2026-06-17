@@ -438,6 +438,111 @@
         }
       }
     },
+    "/api/v1/groups/{groupId}/announcements": {
+      "get": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 공지 목록 조회",
+        "description": "그룹원만 조회 가능. 최신순 반환.",
+        "operationId": "getGroupAnnouncements",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GroupAnnouncementResponse"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "게스트 / 그룹원 아님",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GroupAnnouncementResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GroupAnnouncementResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 공지 작성",
+        "description": "OWNER만 작성 가능. 성공 시 204 반환.",
+        "operationId": "createGroupAnnouncement",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAnnouncementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "작성 성공"
+          },
+          "400": {
+            "description": "필수 필드 누락"
+          },
+          "403": {
+            "description": "OWNER 아님 / 게스트 / 그룹원 아님"
+          },
+          "404": {
+            "description": "그룹 없음"
+          }
+        }
+      }
+    },
     "/api/v1/focus-session": {
       "get": {
         "tags": [
@@ -744,6 +849,143 @@
         }
       }
     },
+    "/api/v1/groups/{groupId}": {
+      "get": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 상세 조회",
+        "description": "그룹원만 조회 가능. OWNER에게만 code, codeExpiresAt 반환.",
+        "operationId": "getGroupDetail",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupDetailResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "게스트 / 그룹원 아님",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupDetailResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 설정 수정",
+        "description": "OWNER만 가능. name/maxMembers/password 부분 수정.",
+        "operationId": "updateGroup",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateGroupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "수정 성공"
+          },
+          "400": {
+            "description": "maxMembers \u003c 현재 멤버 수"
+          },
+          "403": {
+            "description": "OWNER 아님 / 게스트"
+          },
+          "404": {
+            "description": "그룹 없음"
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{groupId}/members/{targetUserId}/owner": {
+      "patch": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹장 위임",
+        "description": "현재 OWNER만 호출 가능. 대상 MEMBER에게 OWNER 위임 후 본인은 MEMBER로 강등.",
+        "operationId": "transferOwner",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "targetUserId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "위임 성공"
+          },
+          "403": {
+            "description": "OWNER 아님 / 게스트"
+          },
+          "404": {
+            "description": "그룹 없음 / 대상 멤버 없음"
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -793,59 +1035,6 @@
                   "items": {
                     "$ref": "#/components/schemas/UserItemResponse"
                   }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/groups/{groupId}": {
-      "get": {
-        "tags": [
-          "Group"
-        ],
-        "summary": "그룹 상세 조회",
-        "description": "그룹원만 조회 가능. OWNER에게만 code, codeExpiresAt 반환.",
-        "operationId": "getGroupDetail",
-        "parameters": [
-          {
-            "name": "groupId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "조회 성공",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/GroupDetailResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "게스트 / 그룹원 아님",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/GroupDetailResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "그룹 없음",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/GroupDetailResponse"
                 }
               }
             }
@@ -950,68 +1139,6 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/GroupChallengeResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/groups/{groupId}/announcements": {
-      "get": {
-        "tags": [
-          "Group"
-        ],
-        "summary": "그룹 공지 목록 조회",
-        "description": "그룹원만 조회 가능. 최신순 반환.",
-        "operationId": "getGroupAnnouncements",
-        "parameters": [
-          {
-            "name": "groupId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "조회 성공",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/GroupAnnouncementResponse"
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "게스트 / 그룹원 아님",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/GroupAnnouncementResponse"
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "그룹 없음",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/GroupAnnouncementResponse"
                   }
                 }
               }
@@ -1377,6 +1504,24 @@
           }
         }
       },
+      "CreateAnnouncementRequest": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 0
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "content",
+          "title"
+        ]
+      },
       "FocusSessionRequest": {
         "type": "object",
         "properties": {
@@ -1617,6 +1762,28 @@
             "format": "int64"
           },
           "name": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateGroupRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "passwordAction": {
+            "type": "string",
+            "enum": [
+              "SET",
+              "REMOVE"
+            ]
+          },
+          "password": {
             "type": "string"
           }
         }
