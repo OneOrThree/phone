@@ -342,7 +342,11 @@ export default function MyPageScreen({ onLogout, onWithdraw }) {
                 </Text>
               )}
             </View>
-            <TouchableOpacity onPress={openGoalEdit} style={[s.goalEditBtn, inkBox(T.paperDark)]} activeOpacity={0.8}>
+            <TouchableOpacity
+              onPress={openGoalEdit}
+              style={[s.goalEditBtn, inkBox(T.paperDark)]}
+              activeOpacity={0.8}
+            >
               <Text style={s.goalEditBtnText}>수정하기</Text>
             </TouchableOpacity>
           </View>
@@ -363,7 +367,11 @@ export default function MyPageScreen({ onLogout, onWithdraw }) {
                   </Text>
                 )}
               </View>
-              <TouchableOpacity onPress={openPicker} style={[s.goalEditBtn, inkBox(T.paperDark)]} activeOpacity={0.8}>
+              <TouchableOpacity
+                onPress={openPicker}
+                style={[s.goalEditBtn, inkBox(T.paperDark)]}
+                activeOpacity={0.8}
+              >
                 <Text style={s.goalEditBtnText}>수정하기</Text>
               </TouchableOpacity>
             </View>

@@ -481,10 +481,7 @@ export default function HomeScreen({ navigation, route }) {
             Platform.OS === 'ios' ? (
               authStatus === 'approved' ? (
                 <View style={s.statValueReport}>
-                  <ScreenTimeReportView
-                    reportContext="Compact Activity"
-                    style={s.statReportFill}
-                  />
+                  <ScreenTimeReportView reportContext="Compact Activity" style={s.statReportFill} />
                   {/* 리포트 뷰 위에 투명 터치 레이어 → 탭 시 앱별 사용시간 모달 */}
                   <TouchableOpacity
                     style={s.statReportFill}
@@ -508,7 +505,11 @@ export default function HomeScreen({ navigation, route }) {
           label="남은"
           valueComponent={
             Platform.OS === 'ios' && authStatus === 'approved' ? (
-              <ScreenTimeReportView reportContext="Remaining Activity" goalSeconds={goalSeconds} style={s.statValueReport} />
+              <ScreenTimeReportView
+                reportContext="Remaining Activity"
+                goalSeconds={goalSeconds}
+                style={s.statValueReport}
+              />
             ) : Platform.OS === 'ios' && authStatus === null ? (
               <Text style={s.statValue}>—</Text>
             ) : goalSeconds - screenTimeSeconds < 0 ? (
@@ -861,7 +862,13 @@ const s = StyleSheet.create({
     gap: 16,
   },
   resultTitle: { fontSize: 20, fontWeight: '900', color: T.ink, textAlign: 'center' },
-  resultFailSub: { fontSize: 14, fontWeight: '600', color: T.inkMed, textAlign: 'center', marginTop: 8 },
+  resultFailSub: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: T.inkMed,
+    textAlign: 'center',
+    marginTop: 8,
+  },
   resultSession: {
     fontSize: 13,
     fontWeight: '600',
