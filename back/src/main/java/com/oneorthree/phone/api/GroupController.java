@@ -3,10 +3,14 @@ package com.oneorthree.phone.api;
 import com.oneorthree.phone.service.GroupService;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
+import com.oneorthree.phone.service.dto.group.GroupAnnouncementResponse;
+import com.oneorthree.phone.service.dto.group.GroupChallengeResponse;
+import com.oneorthree.phone.service.dto.group.GroupDetailResponse;
 import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
-import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
 import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
+import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
+import com.oneorthree.phone.service.dto.group.RenewGroupCodeResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -95,5 +99,65 @@ public class GroupController {
     @GetMapping("/groups/search")
     public ResponseEntity<List<GroupSearchResponse>> searchGroups(@RequestParam String query) {
         return ResponseEntity.ok(groupService.searchGroups(query));
+    }
+
+    @Operation(summary = "초대 코드 갱신", description = "그룹장만 호출 가능. 새 8자 코드 발급 + 유효기간 3시간 갱신.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "갱신 성공"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹장 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @PostMapping("/groups/{groupId}/code")
+    public ResponseEntity<RenewGroupCodeResponse> renewGroupCode(
+            @PathVariable Long groupId,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        return ResponseEntity.ok(groupService.renewGroupCode(groupId, userId));
+    }
+
+    @Operation(summary = "그룹 상세 조회", description = "그룹원만 조회 가능. OWNER에게만 code, codeExpiresAt 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "조회 성공"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @GetMapping("/groups/{groupId}")
+    public ResponseEntity<GroupDetailResponse> getGroupDetail(
+            @PathVariable Long groupId,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        return ResponseEntity.ok(groupService.getGroupDetail(groupId, userId));
+    }
+
+    @Operation(summary = "그룹 공지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "조회 성공"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @GetMapping("/groups/{groupId}/announcements")
+    public ResponseEntity<List<GroupAnnouncementResponse>> getGroupAnnouncements(
+            @PathVariable Long groupId,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        return ResponseEntity.ok(groupService.getAnnouncements(groupId, userId));
+    }
+
+    @Operation(summary = "그룹 챌린지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "조회 성공"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @GetMapping("/groups/{groupId}/challenges")
+    public ResponseEntity<List<GroupChallengeResponse>> getGroupChallenges(
+            @PathVariable Long groupId,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        return ResponseEntity.ok(groupService.getChallenges(groupId, userId));
     }
 }

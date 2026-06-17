@@ -8,15 +8,22 @@ import com.oneorthree.phone.domain.user.User;
 import com.oneorthree.phone.exception.GroupErrorCode;
 import com.oneorthree.phone.exception.GroupException;
 import com.oneorthree.phone.exception.UserNotFoundException;
+import com.oneorthree.phone.repository.group.GroupAnnouncementRepository;
+import com.oneorthree.phone.repository.group.GroupChallengeRepository;
 import com.oneorthree.phone.repository.group.GroupMemberRepository;
 import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
-import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
+import com.oneorthree.phone.service.dto.group.GroupAnnouncementResponse;
+import com.oneorthree.phone.service.dto.group.GroupChallengeResponse;
+import com.oneorthree.phone.service.dto.group.GroupDetailMemberResponse;
+import com.oneorthree.phone.service.dto.group.GroupDetailResponse;
 import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
 import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
+import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
+import com.oneorthree.phone.service.dto.group.RenewGroupCodeResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -38,6 +45,8 @@ public class GroupService {
     private final GroupMemberRepository groupMemberRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final GroupAnnouncementRepository groupAnnouncementRepository;
+    private final GroupChallengeRepository groupChallengeRepository;
 
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -221,6 +230,123 @@ public class GroupService {
                 .hasPassword(group.getPassword() != null)
                 .isMember(isMember)
                 .build();
+    }
+
+    @Transactional
+    public RenewGroupCodeResponse renewGroupCode(Long groupId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        Optional<GroupMember> groupMember = groupMemberRepository.findByUserAndGroup(user, group);
+
+        if (!(groupMember.isPresent() && groupMember.get().getRole() == GroupMemberRole.OWNER)) {
+            throw new GroupException(GroupErrorCode.NOT_OWNER);
+        }
+
+        group.renewCode(generateUniqueCode());
+        return new RenewGroupCodeResponse(group.getCode(), group.getCodeExpiresAt());
+    }
+
+    public GroupDetailResponse getGroupDetail(Long groupId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        List<GroupDetailMemberResponse> list = groupMemberRepository.findByGroup(group)
+                .stream()
+                .map(m -> GroupDetailMemberResponse.builder()
+                        .userId(m.getUser().getId())
+                        .nickname(m.getUser().getNickname())
+                        .role(m.getRole())
+                        .build())
+                .toList();
+
+        return GroupDetailResponse.builder()
+                .id(group.getId())
+                .name(group.getName())
+                .description(group.getDescription())
+                .missionCategory(group.getMissionCategory())
+                .missionType(group.getMissionType())
+                .durationMinutes(group.getDurationMinutes())
+                .windowStart(group.getWindowStart())
+                .windowEnd(group.getWindowEnd())
+                .maxMembers(group.getMaxMembers())
+                .status(group.getStatus())
+                .members(list)
+                .code(groupMember.getRole() == GroupMemberRole.OWNER ?
+                        group.getCode() : null)
+                .codeExpiresAt(groupMember.getRole() == GroupMemberRole.OWNER ?
+                        group.getCodeExpiresAt() : null)
+                .build();
+    }
+
+    public List<GroupAnnouncementResponse> getAnnouncements(Long groupId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        return groupAnnouncementRepository.findByGroupOrderByCreatedAtDesc(group)
+                .stream()
+                .map(a -> GroupAnnouncementResponse.builder()
+                        .id(a.getId())
+                        .title(a.getTitle())
+                        .content(a.getContent())
+                        .createdAt(a.getCreatedAt())
+                        .build())
+                .toList();
+    }
+
+    public List<GroupChallengeResponse> getChallenges(Long groupId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        return groupChallengeRepository.findByGroupOrderByCreatedAtDesc(group)
+                .stream()
+                .map(c -> GroupChallengeResponse.builder()
+                        .id(c.getId())
+                        .missionType(c.getMissionType())
+                        .durationMinutes(c.getDurationMinutes())
+                        .windowStart(c.getWindowStart())
+                        .windowEnd(c.getWindowEnd())
+                        .status(c.getStatus())
+                        .createdAt(c.getCreatedAt())
+                        .build())
+                .toList();
     }
 
     private String generateUniqueCode() {
