@@ -20,6 +20,9 @@ export const T = {
   skyDark: '#BBBBBB',
   lavender: '#E8E8E8',
   lavenderDark: '#BBBBBB',
+
+  // 실패/경고 표시용 (모노크롬 팔레트와 별도)
+  danger: '#D9362F',
 };
 
 export function inkBox(bg = T.paper) {
