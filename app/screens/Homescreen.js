@@ -328,7 +328,7 @@ export default function HomeScreen({ navigation, route }) {
         setShowFailModal(true);
       }
     })();
-  }, []);
+  }, [addCoins]);
 
   async function handleRequestAuth() {
     const approved = await ScreenTimeModule.requestAuthorization();
