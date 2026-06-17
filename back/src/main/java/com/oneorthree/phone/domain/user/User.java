@@ -89,6 +89,9 @@ public class User {
     @Column(length = 255)
     private String deviceToken;
 
+    // TODO GROMO-356: boolean screenTimePermissionGranted — @Column(nullable = false) @Builder.Default = false
+    //   iOS Screen Time 권한 동의 상태. SCREEN_TIME 챌린지 canParticipate / nonParticipants 판단에 사용
+
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<SocialAccount> socialAccounts = new ArrayList<>();

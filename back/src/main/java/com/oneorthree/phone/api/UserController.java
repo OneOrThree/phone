@@ -66,4 +66,12 @@ public class UserController {
         userService.withdraw(userId);
         return ResponseEntity.noContent().build();
     }
+
+    // TODO GROMO-356: import 추가 — UpdateScreenTimePermissionRequest, @Valid
+    // TODO GROMO-356: @Operation(summary = "스크린타임 권한 동의 상태 업데이트", description = "iOS Screen Time 권한 부여/취소 시 호출. 성공 시 204 반환.")
+    //   @ApiResponses: 204 업데이트 성공, 404 유저 없음
+    //   @PatchMapping("/users/me/screen-time-permission")
+    //   public ResponseEntity<Void> updateScreenTimePermission(
+    //       @Valid @RequestBody UpdateScreenTimePermissionRequest body, HttpServletRequest request)
+    //   → userService.updateScreenTimePermission(userId, body); return ResponseEntity.noContent().build();
 }

@@ -2,6 +2,8 @@ package com.oneorthree.phone.service;
 
 import com.oneorthree.phone.domain.group.Group;
 import com.oneorthree.phone.domain.group.GroupAnnouncement;
+import com.oneorthree.phone.domain.group.GroupChallenge;
+import com.oneorthree.phone.domain.group.GroupChallengeStatus;
 import com.oneorthree.phone.domain.group.GroupMember;
 import com.oneorthree.phone.domain.group.GroupMemberRole;
 import com.oneorthree.phone.domain.group.MissionType;
@@ -15,6 +17,8 @@ import com.oneorthree.phone.repository.group.GroupMemberRepository;
 import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.group.CreateAnnouncementRequest;
+import com.oneorthree.phone.service.dto.group.CreateChallengeRequest;
+import com.oneorthree.phone.service.dto.group.CreateChallengeResponse;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
 import com.oneorthree.phone.service.dto.group.GroupAnnouncementResponse;
@@ -378,6 +382,8 @@ public class GroupService {
                         .windowEnd(c.getWindowEnd())
                         .status(c.getStatus())
                         .createdAt(c.getCreatedAt())
+                        // TODO GROMO-358: .missionCategory(c.getMissionCategory())
+                        // TODO GROMO-358: .canParticipate(c.getMissionCategory() == MissionCategory.FOCUS || user.isScreenTimePermissionGranted())
                         .build())
                 .toList();
     }
@@ -469,5 +475,72 @@ public class GroupService {
             });
         }
         throw new GroupException(GroupErrorCode.CODE_GENERATION_FAILED);
+    }
+
+    @Transactional
+    public CreateChallengeResponse createChallenge(Long groupId, Long userId, CreateChallengeRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        Optional<GroupMember> groupMember = groupMemberRepository.findByUserAndGroup(user, group);
+        if (groupMember.isEmpty()) {
+            throw new GroupException(GroupErrorCode.MEMBER_ONLY);
+        }
+        if (groupMember.get().getRole() != GroupMemberRole.OWNER) {
+            throw new GroupException(GroupErrorCode.NOT_OWNER);
+        }
+
+        if (request.getMissionType() == MissionType.DURATION) {
+            if (request.getDurationMinutes() == null || request.getDurationMinutes() <= 0) {
+                throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
+            }
+        } else if (request.getMissionType() == MissionType.TIME_WINDOW) {
+            if (request.getWindowStart() == null || request.getWindowEnd() == null || request.getTimeZone() == null) {
+                throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
+            }
+            if (!request.getWindowEnd().isAfter(request.getWindowStart())) {
+                throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
+            }
+            try {
+                java.time.ZoneId.of(request.getTimeZone());
+            } catch (java.time.DateTimeException e) {
+                throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
+            }
+        } else {
+            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
+        }
+
+        if (request.getMissionType() == MissionType.DURATION) {
+            if (groupChallengeRepository.existsByGroupAndMissionCategoryAndMissionTypeAndStatus(
+                    group, request.getMissionCategory(), MissionType.DURATION, GroupChallengeStatus.ACTIVE)) {
+                throw new GroupException(GroupErrorCode.ACTIVE_CHALLENGE_EXISTS);
+            }
+        } else {
+            if (groupChallengeRepository.existsOverlappingTimeWindow(
+                    group, request.getMissionCategory(), request.getWindowStart(), request.getWindowEnd())) {
+                throw new GroupException(GroupErrorCode.ACTIVE_CHALLENGE_EXISTS);
+            }
+        }
+
+        GroupChallenge savedChallenge = groupChallengeRepository.save(GroupChallenge.builder()
+                .group(group)
+                .missionType(request.getMissionType())
+                .missionCategory(request.getMissionCategory())
+                .durationMinutes(request.getDurationMinutes())
+                .windowStart(request.getWindowStart())
+                .windowEnd(request.getWindowEnd())
+                .timeZone(request.getTimeZone())
+                .build());
+
+        // TODO GROMO-357: SCREEN_TIME이면 권한 없는 그룹원 목록 조회 후 nonParticipants에 포함
+        return CreateChallengeResponse.builder()
+                .id(savedChallenge.getId())
+                .build();
     }
 }

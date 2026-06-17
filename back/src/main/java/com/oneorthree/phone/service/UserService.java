@@ -130,4 +130,10 @@ public class UserService {
                 user.getReportTime() != null ? user.getReportTime().toString() : null
         );
     }
+
+    // TODO GROMO-356: import 추가 — UpdateScreenTimePermissionRequest
+    // TODO GROMO-356: @Transactional
+    //   public void updateScreenTimePermission(Long userId, UpdateScreenTimePermissionRequest request)
+    //   1) userRepository.findById(userId) → UserNotFoundException
+    //   2) user.setScreenTimePermissionGranted(request.isGranted()) — User에 @Setter 있으므로 직접 호출 가능
 }

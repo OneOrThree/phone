@@ -2,6 +2,8 @@ package com.oneorthree.phone.api;
 
 import com.oneorthree.phone.service.GroupService;
 import com.oneorthree.phone.service.dto.group.CreateAnnouncementRequest;
+import com.oneorthree.phone.service.dto.group.CreateChallengeRequest;
+import com.oneorthree.phone.service.dto.group.CreateChallengeResponse;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
 import com.oneorthree.phone.service.dto.group.GroupAnnouncementResponse;
@@ -217,4 +219,21 @@ public class GroupController {
         return ResponseEntity.ok(groupService.getChallenges(groupId, userId));
     }
 
+    @Operation(summary = "그룹 챌린지 생성", description = "OWNER만 생성 가능. 성공 시 201 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "챌린지 생성 성공"),
+            @ApiResponse(responseCode = "400", description = "파라미터 누락 / 유효하지 않은 타임존 / windowStart >= windowEnd"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음"),
+            @ApiResponse(responseCode = "409", description = "같은 카테고리에 활성 챌린지 이미 존재")
+    })
+    @PostMapping("/groups/{groupId}/challenges")
+    public ResponseEntity<CreateChallengeResponse> createGroupChallenge(
+            @PathVariable Long groupId,
+            @Valid @RequestBody CreateChallengeRequest request,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        return ResponseEntity.status(HttpStatus.CREATED).body(groupService.createChallenge(groupId, userId, request));
+    }
 }
