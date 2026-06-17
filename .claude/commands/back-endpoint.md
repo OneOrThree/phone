@@ -1,41 +1,65 @@
 ---
-description: Scaffold a new Spring REST endpoint (Controller→Service→Repository→DTO + test) following project conventions, TDD-first
-argument-hint: "<what the endpoint should do, e.g. 유저 친구 목록 조회 GET /api/v1/friends>"
+description: Scaffold a new Spring REST endpoint as study skeletons — every layer is empty bodies + `// TODO` guideline comments the user implements themselves
+argument-hint: "<ticket number or endpoint description, e.g. GROMO-286>"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write
 ---
 
-Build a new backend endpoint for: **$ARGUMENTS**
+Scaffold the endpoint for: **$ARGUMENTS**
 
-First invoke the `superpowers:test-driven-development` skill and drive the work
-test-first. If the feature is non-trivial or its shape is unclear, invoke
-`superpowers:brainstorming` before writing code.
+## Purpose
 
-Follow the existing conventions exactly — read a real controller as the template
-before writing anything:
-- `back/src/main/java/com/oneorthree/phone/api/InGameCurrencyController.java`
-- `back/src/main/java/com/oneorthree/phone/api/UserController.java`
+The user implements EVERYTHING themselves, as a learning exercise. Your job is only to
+create the skeleton files/methods and write **brief `// TODO` guideline comments inside
+them** describing, step by step, what the user needs to write. The TODO comments ARE the
+deliverable — study notes written into the real source files.
 
-Conventions to match (base package `com.oneorthree.phone`):
-- **Layering**: `api/` controller → `service/` service → `repository/<feature>/` repository
-  → `domain/<feature>/` entity. Keep each layer's responsibility clean; never expose
-  entities from controllers.
-- **Controller**: `@RestController`, `@RequestMapping("/api/v1")`, `@RequiredArgsConstructor`
-  (constructor injection via Lombok — no field `@Autowired`). Swagger `@Tag` on the class
-  and `@Operation(summary, description)` per method, **descriptions in Korean**. Return
-  `ResponseEntity<...>`. The authenticated user id comes from
-  `(Long) request.getAttribute("userId")` (set by `JwtFilter`) — use that, don't add a
-  custom auth param.
-- **DTOs**: request/response DTOs go under the closest existing feature package — either
-  `service/dto/<feature>/` (e.g. `service/dto/currency/CurrencyRequest`) or
-  `api/dto/request` / `api/dto/response`. Match whichever the nearest sibling feature uses.
-  Add Bean Validation (`@Valid`, `@NotNull`, etc.) on request bodies.
-- **Service**: `@Service`, `@RequiredArgsConstructor`, `@Transactional` (use
-  `@Transactional(readOnly = true)` for queries).
-- **Style**: obey `back/config/checkstyle/checkstyle.xml` — 4-space indent, 120-col lines,
-  UpperCamelCase types / lowerCamelCase members / UPPER_SNAKE_CASE constants, no unused imports.
-- **Test**: write a JUnit 5 test (Testcontainers PostgreSQL is available — see existing
-  tests under `back/src/test/`). Cover the new service logic and the controller contract.
+## The Iron Rule — applies to EVERY layer
 
-After implementing, run `/back-check` (or `cd back && SPRING_PROFILES_ACTIVE=ci ./gradlew checkstyleMain spotbugsMain test`)
-and fix any failures. If the change touches the DB schema, tell me to also run
-`/back-migration`. Do not commit or push.
+**NEVER write implementation. NEVER complete a method body, a field list, a query method,
+a mapping, or routing wiring.** Controller, Service, Repository, Domain, DTO — all of them
+are skeleton + `// TODO` only. There is NO layer that you are allowed to "complete because
+it's just wiring." Routing, validation annotations, field declarations, Swagger
+annotations — the user writes all of it.
+
+You only write:
+1. The minimal declaration needed for the file to exist (package, class/interface/enum
+   declaration, method signature).
+2. `// TODO:` comments explaining what goes inside.
+
+If you catch yourself typing a field, an annotation, an `if`, a `.stream()`, a repository
+call, a `return ResponseEntity...`, or a query method name — STOP. That is a violation.
+
+## What each layer gets
+
+| Layer | You write | TODO comments describe |
+|-------|-----------|------------------------|
+| **DTO** | class declaration + empty body | which fields, which validation annotations, which inner enums are needed |
+| **Domain** | (usually nothing new) | which mutation methods to add and what they do |
+| **Repository** | interface declaration if new | which query methods (by signature intent) to add |
+| **Service** | method signature + `@Transactional` + empty/`return null` body | numbered steps: what to look up, what to check, what error to throw, which mutation/repo method will be needed |
+| **Controller** | method signature + empty body | which HTTP mapping + Swagger annotations to add, how to extract userId, which service method to call, what to return |
+
+## TODO comment style (brief — study hints, not a spec)
+
+```java
+// GROMO-XXX: 그룹 설정 수정
+// TODO: @PatchMapping("/groups/{groupId}") 매핑 + @Operation/@ApiResponses(204/400/403/404) 추가
+// TODO: @PathVariable groupId, @RequestBody UpdateGroupRequest, HttpServletRequest 파라미터
+// TODO: httpServletRequest.getAttribute("userId")로 userId 추출 → groupService.updateGroup 호출 → 204 반환
+public void updateGroup(...) {
+}
+```
+
+One line per step. Point at the method/annotation/error to use; flag any error code, enum
+value, domain mutation, or repository method the user must add elsewhere. Do not paste real
+implementation into the comments.
+
+## Style
+- 4-space indent, 120-col lines
+- No star imports — explicit imports only; no unused imports
+
+## After scaffolding
+- List all created/modified files
+- List the TODO items + cross-cutting additions the user must make (error codes, enum
+  values, domain mutations, repository methods)
+- Do NOT run `/back-check` or any tests unless explicitly asked
