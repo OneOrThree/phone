@@ -13,6 +13,8 @@ import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
+import com.oneorthree.phone.service.dto.group.GroupDetailMemberResponse;
+import com.oneorthree.phone.service.dto.group.GroupDetailResponse;
 import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
 import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
@@ -205,8 +207,6 @@ public class GroupService {
                 .orElseThrow(UserNotFoundException::new);
 
         boolean isMember = groupMemberRepository.findByUserAndGroup(user, group).isPresent();
-        // TODO GROMO-348: findByUserAndGroup 결과를 Optional로 받아 role == OWNER 여부 확인
-        //   OWNER면 GroupOverviewResponse에 code, codeExpiresAt 포함해서 반환
 
         int memberCount = groupMemberRepository.findByGroup(group).size();
 
@@ -249,9 +249,47 @@ public class GroupService {
         return new RenewGroupCodeResponse(group.getCode(), group.getCodeExpiresAt());
     }
 
-    // TODO GROMO-285: getGroupDetail(Long groupId, Long userId) → GroupDetailResponse
-    //   순서: 유저조회 → 게스트차단 → 그룹조회 → 멤버여부(MEMBER_ONLY) → 멤버목록 → GroupDetailResponse
-    //   멤버 목록: groupMemberRepository.findByGroup(group) → GroupDetailMemberResponse 변환
+    public GroupDetailResponse getGroupDetail(Long groupId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        List<GroupDetailMemberResponse> list = groupMemberRepository.findByGroup(group)
+                .stream()
+                .map(m -> GroupDetailMemberResponse.builder()
+                        .userId(m.getUser().getId())
+                        .nickname(m.getUser().getNickname())
+                        .role(m.getRole())
+                        .build())
+                .toList();
+
+        return GroupDetailResponse.builder()
+                .id(group.getId())
+                .name(group.getName())
+                .description(group.getDescription())
+                .missionCategory(group.getMissionCategory())
+                .missionType(group.getMissionType())
+                .durationMinutes(group.getDurationMinutes())
+                .windowStart(group.getWindowStart())
+                .windowEnd(group.getWindowEnd())
+                .maxMembers(group.getMaxMembers())
+                .status(group.getStatus())
+                .members(list)
+                .code(groupMember.getRole() == GroupMemberRole.OWNER ?
+                        group.getCode() : null)
+                .codeExpiresAt(groupMember.getRole() == GroupMemberRole.OWNER ?
+                        group.getCodeExpiresAt() : null)
+                .build();
+    }
 
     // TODO GROMO-287: getAnnouncements(Long groupId, Long userId) → List<GroupAnnouncementResponse>
     //   순서: 유저조회 → 게스트차단 → 그룹조회 → 멤버여부(MEMBER_ONLY) → 공지 목록 최신순

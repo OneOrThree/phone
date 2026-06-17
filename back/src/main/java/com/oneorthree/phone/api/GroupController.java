@@ -3,6 +3,7 @@ package com.oneorthree.phone.api;
 import com.oneorthree.phone.service.GroupService;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
+import com.oneorthree.phone.service.dto.group.GroupDetailResponse;
 import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
 import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
@@ -113,8 +114,20 @@ public class GroupController {
         return ResponseEntity.ok(groupService.renewGroupCode(groupId, userId));
     }
 
-    // TODO GROMO-285: GET /groups/{groupId} → 200 GroupDetailResponse
-    //   groupService.getGroupDetail(groupId, userId) 호출
+    @Operation(summary = "그룹 상세 조회", description = "그룹원만 조회 가능. OWNER에게만 code, codeExpiresAt 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "조회 성공"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @GetMapping("/groups/{groupId}")
+    public ResponseEntity<GroupDetailResponse> getGroupDetail(
+            @PathVariable Long groupId,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        return ResponseEntity.ok(groupService.getGroupDetail(groupId, userId));
+    }
 
     // TODO GROMO-287: GET /groups/{groupId}/announcements → 200 List<GroupAnnouncementResponse>
     //   groupService.getAnnouncements(groupId, userId) 호출
