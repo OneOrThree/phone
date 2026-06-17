@@ -17,6 +17,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 @Entity
 @Table(name = "groups")
@@ -88,5 +89,10 @@ public class Group {
     public void expireCode() {
         this.code = null;
         this.codeExpiresAt = null;
+    }
+
+    public void renewCode(String newCode) {
+        this.code = newCode;
+        this.codeExpiresAt = Instant.now().plus(3, ChronoUnit.HOURS);
     }
 }

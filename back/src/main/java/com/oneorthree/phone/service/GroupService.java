@@ -12,11 +12,12 @@ import com.oneorthree.phone.repository.group.GroupMemberRepository;
 import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
-import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
 import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
 import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
+import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
+import com.oneorthree.phone.service.dto.group.RenewGroupCodeResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,7 @@ public class GroupService {
     private final GroupMemberRepository groupMemberRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    // TODO GROMO-287/289: GroupAnnouncementRepository, GroupChallengeRepository 필드 추가 필요
 
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -203,6 +205,8 @@ public class GroupService {
                 .orElseThrow(UserNotFoundException::new);
 
         boolean isMember = groupMemberRepository.findByUserAndGroup(user, group).isPresent();
+        // TODO GROMO-348: findByUserAndGroup 결과를 Optional로 받아 role == OWNER 여부 확인
+        //   OWNER면 GroupOverviewResponse에 code, codeExpiresAt 포함해서 반환
 
         int memberCount = groupMemberRepository.findByGroup(group).size();
 
@@ -222,6 +226,38 @@ public class GroupService {
                 .isMember(isMember)
                 .build();
     }
+
+    @Transactional
+    public RenewGroupCodeResponse renewGroupCode(Long groupId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        Optional<GroupMember> groupMember = groupMemberRepository.findByUserAndGroup(user, group);
+
+        if (!(groupMember.isPresent() && groupMember.get().getRole() == GroupMemberRole.OWNER)) {
+            throw new GroupException(GroupErrorCode.NOT_OWNER);
+        }
+
+        group.renewCode(generateUniqueCode());
+        return new RenewGroupCodeResponse(group.getCode(), group.getCodeExpiresAt());
+    }
+
+    // TODO GROMO-285: getGroupDetail(Long groupId, Long userId) → GroupDetailResponse
+    //   순서: 유저조회 → 게스트차단 → 그룹조회 → 멤버여부(MEMBER_ONLY) → 멤버목록 → GroupDetailResponse
+    //   멤버 목록: groupMemberRepository.findByGroup(group) → GroupDetailMemberResponse 변환
+
+    // TODO GROMO-287: getAnnouncements(Long groupId, Long userId) → List<GroupAnnouncementResponse>
+    //   순서: 유저조회 → 게스트차단 → 그룹조회 → 멤버여부(MEMBER_ONLY) → 공지 목록 최신순
+
+    // TODO GROMO-289: getChallenges(Long groupId, Long userId) → List<GroupChallengeResponse>
+    //   순서: 유저조회 → 게스트차단 → 그룹조회 → 멤버여부(MEMBER_ONLY) → 챌린지 목록 최신순
 
     private String generateUniqueCode() {
         StringBuilder sb = new StringBuilder(8);

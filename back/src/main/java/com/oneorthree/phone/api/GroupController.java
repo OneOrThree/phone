@@ -4,9 +4,10 @@ import com.oneorthree.phone.service.GroupService;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
 import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
-import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
 import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
+import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
+import com.oneorthree.phone.service.dto.group.RenewGroupCodeResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -96,4 +97,28 @@ public class GroupController {
     public ResponseEntity<List<GroupSearchResponse>> searchGroups(@RequestParam String query) {
         return ResponseEntity.ok(groupService.searchGroups(query));
     }
+
+    @Operation(summary = "초대 코드 갱신", description = "그룹장만 호출 가능. 새 8자 코드 발급 + 유효기간 3시간 갱신.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "갱신 성공"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹장 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @PostMapping("/groups/{groupId}/code")
+    public ResponseEntity<RenewGroupCodeResponse> renewGroupCode(
+            @PathVariable Long groupId,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        return ResponseEntity.ok(groupService.renewGroupCode(groupId, userId));
+    }
+
+    // TODO GROMO-285: GET /groups/{groupId} → 200 GroupDetailResponse
+    //   groupService.getGroupDetail(groupId, userId) 호출
+
+    // TODO GROMO-287: GET /groups/{groupId}/announcements → 200 List<GroupAnnouncementResponse>
+    //   groupService.getAnnouncements(groupId, userId) 호출
+
+    // TODO GROMO-289: GET /groups/{groupId}/challenges → 200 List<GroupChallengeResponse>
+    //   groupService.getChallenges(groupId, userId) 호출
 }
