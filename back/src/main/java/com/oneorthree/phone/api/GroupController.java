@@ -21,6 +21,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -146,6 +147,23 @@ public class GroupController {
         return ResponseEntity.ok(groupService.getAnnouncements(groupId, userId));
     }
 
+    @Operation(summary = "그룹장 위임", description = "현재 OWNER만 호출 가능. 대상 MEMBER에게 OWNER 위임 후 본인은 MEMBER로 강등.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "위임 성공"),
+            @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음 / 대상 멤버 없음")
+    })
+    @PatchMapping("/groups/{groupId}/members/{targetUserId}/owner")
+    public ResponseEntity<Void> transferOwner(
+            @PathVariable Long groupId,
+            @PathVariable Long targetUserId,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        groupService.transferOwner(groupId, targetUserId, userId);
+        return ResponseEntity.noContent().build();
+    }
+
     @Operation(summary = "그룹 챌린지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
@@ -160,4 +178,5 @@ public class GroupController {
         Long userId = (Long) httpServletRequest.getAttribute("userId");
         return ResponseEntity.ok(groupService.getChallenges(groupId, userId));
     }
+
 }

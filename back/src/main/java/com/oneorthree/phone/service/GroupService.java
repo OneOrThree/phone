@@ -349,6 +349,32 @@ public class GroupService {
                 .toList();
     }
 
+    @Transactional
+    public void transferOwner(Long groupId, Long targetUserId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        User targetUser = userRepository.findById(targetUserId)
+                .orElseThrow(UserNotFoundException::new);
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember hostGroupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .filter(m -> m.getRole() == GroupMemberRole.OWNER)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_OWNER));
+
+        GroupMember targetGroupMember = groupMemberRepository.findByUserAndGroup(targetUser, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        hostGroupMember.demoteToMember();
+        targetGroupMember.promoteToOwner();
+        group.transferOwner(targetUserId);
+    }
+
     private String generateUniqueCode() {
         StringBuilder sb = new StringBuilder(8);
         for (int i = 0; i < 10; i++) {

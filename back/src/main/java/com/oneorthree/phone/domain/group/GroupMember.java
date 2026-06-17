@@ -59,4 +59,12 @@ public class GroupMember {
     private Instant joinedAt;
 
     private Instant completedAt;
+
+    public void demoteToMember() {
+        this.role = GroupMemberRole.MEMBER;
+    }
+
+    public void promoteToOwner() {
+        this.role = GroupMemberRole.OWNER;
+    }
 }
