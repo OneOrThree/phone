@@ -10,6 +10,7 @@ import com.oneorthree.phone.repository.focus.DailyFocusStatRepository;
 import com.oneorthree.phone.repository.focus.FocusSessionRepository;
 import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
+import com.oneorthree.phone.service.dto.user.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.service.dto.user.UserProfileResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -131,9 +132,10 @@ public class UserService {
         );
     }
 
-    // TODO GROMO-356: import 추가 — UpdateScreenTimePermissionRequest
-    // TODO GROMO-356: @Transactional
-    //   public void updateScreenTimePermission(Long userId, UpdateScreenTimePermissionRequest request)
-    //   1) userRepository.findById(userId) → UserNotFoundException
-    //   2) user.setScreenTimePermissionGranted(request.isGranted()) — User에 @Setter 있으므로 직접 호출 가능
+    @Transactional
+    public void updateScreenTimePermission(Long userId, UpdateScreenTimePermissionRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        user.setScreenTimePermissionGranted(request.getGranted());
+    }
 }
