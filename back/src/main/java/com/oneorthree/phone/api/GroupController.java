@@ -4,6 +4,7 @@ import com.oneorthree.phone.service.GroupService;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
 import com.oneorthree.phone.service.dto.group.GroupAnnouncementResponse;
+import com.oneorthree.phone.service.dto.group.GroupChallengeResponse;
 import com.oneorthree.phone.service.dto.group.GroupDetailResponse;
 import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
 import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
@@ -145,6 +146,18 @@ public class GroupController {
         return ResponseEntity.ok(groupService.getAnnouncements(groupId, userId));
     }
 
-    // TODO GROMO-289: GET /groups/{groupId}/challenges → 200 List<GroupChallengeResponse>
-    //   groupService.getChallenges(groupId, userId) 호출
+    @Operation(summary = "그룹 챌린지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "조회 성공"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @GetMapping("/groups/{groupId}/challenges")
+    public ResponseEntity<List<GroupChallengeResponse>> getGroupChallenges(
+            @PathVariable Long groupId,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        return ResponseEntity.ok(groupService.getChallenges(groupId, userId));
+    }
 }
