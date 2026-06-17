@@ -99,4 +99,20 @@ public class Group {
     public void transferOwner(Long newOwnerId) {
         hostId = newOwnerId;
     }
+
+    public void updateName(String newName) {
+        this.name = newName;
+    }
+
+    public void updateMaxMembers(int newMaxMembers) {
+        this.maxMembers = newMaxMembers;
+    }
+
+    public void updatePassword(String newPassword) {
+        this.password = newPassword;
+    }
+
+    public void removePassword() {
+        this.password = null;
+    }
 }

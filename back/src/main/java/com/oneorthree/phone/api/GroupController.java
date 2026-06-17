@@ -2,6 +2,7 @@ package com.oneorthree.phone.api;
 
 import com.oneorthree.phone.service.GroupService;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
+import com.oneorthree.phone.service.dto.group.UpdateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
 import com.oneorthree.phone.service.dto.group.GroupAnnouncementResponse;
 import com.oneorthree.phone.service.dto.group.GroupChallengeResponse;
@@ -145,6 +146,24 @@ public class GroupController {
     ) {
         Long userId = (Long) httpServletRequest.getAttribute("userId");
         return ResponseEntity.ok(groupService.getAnnouncements(groupId, userId));
+    }
+
+    @Operation(summary = "그룹 설정 수정", description = "OWNER만 가능. name/maxMembers/password 부분 수정.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "수정 성공"),
+            @ApiResponse(responseCode = "400", description = "maxMembers < 현재 멤버 수"),
+            @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @PatchMapping("/groups/{groupId}")
+    public ResponseEntity<Void> updateGroup(
+            @PathVariable Long groupId,
+            @RequestBody UpdateGroupRequest request,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        groupService.updateGroup(groupId, userId, request);
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(summary = "그룹장 위임", description = "현재 OWNER만 호출 가능. 대상 MEMBER에게 OWNER 위임 후 본인은 MEMBER로 강등.")
