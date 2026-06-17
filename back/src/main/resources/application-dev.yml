@@ -13,6 +13,9 @@ jwt:
   access-expiration: 3600
   refresh-expiration: 2592000
 
+apple:
+  jwks-url: https://appleid.apple.com/auth/keys
+
 kakao:
   api-base-url: https://kapi.kakao.com
 
@@ -25,3 +28,5 @@ logging:
   level:
     org.hibernate.SQL: WARN
     org.hibernate.orm.jdbc.bind: WARN
+    org.springframework.web.servlet.DispatcherServlet: WARN
+    org.springframework.web.filter: WARN

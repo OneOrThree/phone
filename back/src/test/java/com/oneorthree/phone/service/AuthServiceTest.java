@@ -5,13 +5,12 @@ import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
 import com.oneorthree.phone.domain.user.Provider;
 import com.oneorthree.phone.domain.user.SocialAccount;
 import com.oneorthree.phone.domain.user.User;
-import com.oneorthree.phone.exception.InvalidKakaoTokenException;
-import com.oneorthree.phone.exception.InvalidRefreshTokenException;
+import com.oneorthree.phone.exception.InvalidTokenException;
 import com.oneorthree.phone.repository.user.SocialAccountRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
+import com.oneorthree.phone.service.dto.user.KakaoUserInfo;
 import io.jsonwebtoken.JwtException;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -28,7 +27,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
-@Disabled
 class AuthServiceTest {
 
     @InjectMocks
@@ -46,95 +44,94 @@ class AuthServiceTest {
     @Mock
     private JwtProvider jwtProvider;
 
+    @Mock
+    private AppleJwksClient appleJwksClient;
+
+    // ── kakaoLogin ────────────────────────────────────────────────────────
+
     @Test
     @DisplayName("신규 유저 카카오 로그인 → isNewUser=true, User+SocialAccount 생성")
     void kakaoLoginNewUser() {
-        // TODO: 구현 후 주석 해제
         // given
-        // KakaoUserInfo kakaoInfo = new KakaoUserInfo("12345", "홍길동", "https://profile.img");
-        // given(kakaoApiClient.getUserInfo("kakao-token")).willReturn(kakaoInfo);
-        // given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
-        //         .willReturn(Optional.empty());
-        // User savedUser = User.builder().build();
-        // given(userRepository.save(any(User.class))).willReturn(savedUser);
-        // given(jwtProvider.generateAccessToken(any())).willReturn("access-token");
-        // given(jwtProvider.generateRefreshToken(any())).willReturn("refresh-token");
-        //
+        KakaoUserInfo userInfo = new KakaoUserInfo(12345L);
+        User savedUser = User.builder().id(1L).build();
+
+        given(kakaoApiClient.getUserInfo("kakao-token")).willReturn(userInfo);
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.empty());
+        given(userRepository.save(any(User.class))).willReturn(savedUser);
+        given(jwtProvider.generateAccessToken(1L)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(1L)).willReturn("refresh-token");
+
         // when
-        // KakaoLoginResponse response = authService.kakaoLogin("kakao-token");
-        //
+        KakaoLoginResponse response = authService.kakaoLogin("kakao-token");
+
         // then
-        // assertThat(response.isNewUser()).isTrue();
-        // assertThat(response.accessToken()).isEqualTo("access-token");
-        // assertThat(response.refreshToken()).isEqualTo("refresh-token");
-        // verify(userRepository).save(any(User.class));
-        // verify(socialAccountRepository).save(any(SocialAccount.class));
+        assertThat(response.isNewUser()).isTrue();
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        verify(userRepository).save(any(User.class));
+        verify(socialAccountRepository).save(any(SocialAccount.class));
     }
 
     @Test
     @DisplayName("기존 유저 카카오 로그인 → isNewUser=false, DB 저장 없음")
     void kakaoLoginExistingUser() {
-        // TODO: 구현 후 주석 해제
         // given
-        // KakaoUserInfo kakaoInfo = new KakaoUserInfo("12345", "홍길동", "https://profile.img");
-        // given(kakaoApiClient.getUserInfo("kakao-token")).willReturn(kakaoInfo);
-        // User existingUser = User.builder().build();
-        // SocialAccount existingAccount = SocialAccount.builder()
-        //         .user(existingUser).provider(Provider.KAKAO).providerId("12345").build();
-        // given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
-        //         .willReturn(Optional.of(existingAccount));
-        // given(jwtProvider.generateAccessToken(any())).willReturn("access-token");
-        // given(jwtProvider.generateRefreshToken(any())).willReturn("refresh-token");
-        //
+        KakaoUserInfo userInfo = new KakaoUserInfo(12345L);
+        User existingUser = User.builder().id(1L).build();
+        SocialAccount existingAccount = SocialAccount.builder()
+                .user(existingUser).provider(Provider.KAKAO).providerId("12345").build();
+
+        given(kakaoApiClient.getUserInfo("kakao-token")).willReturn(userInfo);
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.of(existingAccount));
+        given(jwtProvider.generateAccessToken(1L)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(1L)).willReturn("refresh-token");
+
         // when
-        // KakaoLoginResponse response = authService.kakaoLogin("kakao-token");
-        //
+        KakaoLoginResponse response = authService.kakaoLogin("kakao-token");
+
         // then
-        // assertThat(response.isNewUser()).isFalse();
-        // verify(userRepository, never()).save(any(User.class));
+        assertThat(response.isNewUser()).isFalse();
+        verify(userRepository, never()).save(any(User.class));
     }
 
-    @Test
-    @DisplayName("카카오 API 실패 → InvalidKakaoTokenException 전파")
-    void kakaoLoginInvalidKakaoToken() {
-        // TODO: 구현 후 주석 해제
-        // given(kakaoApiClient.getUserInfo("bad-token")).willThrow(new InvalidKakaoTokenException());
-        //
-        // assertThatThrownBy(() -> authService.kakaoLogin("bad-token"))
-        //         .isInstanceOf(InvalidKakaoTokenException.class);
-    }
+    // ── refreshToken ──────────────────────────────────────────────────────
 
     @Test
     @DisplayName("유효한 RT로 토큰 갱신 → 새 AT 반환")
     void refreshTokenSuccess() {
-        // TODO: 구현 후 주석 해제
-        // given(jwtProvider.extractUserId("valid-rt")).willReturn(1L);
-        // given(userRepository.findByRefreshToken("valid-rt")).willReturn(Optional.of(User.builder().build()));
-        // given(jwtProvider.generateAccessToken(any())).willReturn("new-access-token");
-        //
-        // TokenRefreshResponse response = authService.refreshToken("valid-rt");
-        //
-        // assertThat(response.accessToken()).isEqualTo("new-access-token");
+        // given
+        User user = User.builder().id(1L).build();
+        given(userRepository.findByRefreshToken("valid-rt")).willReturn(Optional.of(user));
+        given(jwtProvider.generateAccessToken(1L)).willReturn("new-access-token");
+
+        // when
+        TokenRefreshResponse response = authService.refreshToken("valid-rt");
+
+        // then
+        assertThat(response.accessToken()).isEqualTo("new-access-token");
     }
 
     @Test
-    @DisplayName("유효하지 않은 RT → InvalidRefreshTokenException")
+    @DisplayName("유효하지 않은 RT → InvalidTokenException")
     void refreshTokenInvalid() {
-        // TODO: 구현 후 주석 해제
-        // given(jwtProvider.extractUserId("bad-rt")).willThrow(new JwtException("invalid"));
-        //
-        // assertThatThrownBy(() -> authService.refreshToken("bad-rt"))
-        //         .isInstanceOf(InvalidRefreshTokenException.class);
+        // given
+        given(jwtProvider.extractUserId("bad-rt")).willThrow(new JwtException("invalid"));
+
+        // when & then
+        assertThatThrownBy(() -> authService.refreshToken("bad-rt"))
+                .isInstanceOf(InvalidTokenException.class);
     }
 
     @Test
-    @DisplayName("DB에 없는 RT → InvalidRefreshTokenException")
+    @DisplayName("DB에 없는 RT → InvalidTokenException")
     void refreshTokenNotFoundInDb() {
-        // TODO: 구현 후 주석 해제
-        // given(jwtProvider.extractUserId("orphan-rt")).willReturn(1L);
-        // given(userRepository.findByRefreshToken("orphan-rt")).willReturn(Optional.empty());
-        //
-        // assertThatThrownBy(() -> authService.refreshToken("orphan-rt"))
-        //         .isInstanceOf(InvalidRefreshTokenException.class);
+        // given
+        given(userRepository.findByRefreshToken("orphan-rt")).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> authService.refreshToken("orphan-rt"))
+                .isInstanceOf(InvalidTokenException.class);
     }
 }

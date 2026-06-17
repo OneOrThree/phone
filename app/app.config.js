@@ -10,6 +10,7 @@ export default {
         },
       ],
       '@react-native-community/datetimepicker',
+      'expo-apple-authentication',
     ],
     slug: 'gromo',
     version: '0.0.1',

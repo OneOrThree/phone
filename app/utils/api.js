@@ -55,6 +55,8 @@ export async function apiFetch(path, options = {}) {
 
   if (res.status !== 401) return res;
 
+  if (!token) throw new Error('인증이 필요합니다.');
+
   try {
     const newToken = await refreshAccessToken();
     return makeRequest(newToken);

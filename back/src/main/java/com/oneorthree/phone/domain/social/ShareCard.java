@@ -1,6 +1,6 @@
 package com.oneorthree.phone.domain.social;
 
-import com.oneorthree.phone.domain.room.Room;
+import com.oneorthree.phone.domain.group.Group;
 import com.oneorthree.phone.domain.user.User;
 
 import jakarta.persistence.Column;
@@ -36,8 +36,8 @@ public class ShareCard {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "room_id", nullable = false)
-    private Room room;
+    @JoinColumn(name = "group_id", nullable = false)
+    private Group group;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)

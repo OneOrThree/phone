@@ -46,3 +46,8 @@ docker-compose.yml
 # Misc
 HELP.md
 norm.sh
+
+# DB
+norm.sh
+reset-db.sh
+run-migration-v8.sh
