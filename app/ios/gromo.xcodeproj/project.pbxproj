@@ -98,30 +98,8 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		A4475AF02FE155E9007EF4CE /* GromoScreenTimeMoniter */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				A4475AFB2FE155E9007EF4CE /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = GromoScreenTimeMoniter;
-			sourceTree = "<group>";
-		};
-		D463E7B52FD664D20049F07A /* screentimereport */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				D463E7C12FD664D20049F07A /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = screentimereport;
-			sourceTree = "<group>";
-		};
+		A4475AF02FE155E9007EF4CE /* GromoScreenTimeMoniter */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (A4475AFB2FE155E9007EF4CE /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = GromoScreenTimeMoniter; sourceTree = "<group>"; };
+		D463E7B52FD664D20049F07A /* screentimereport */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (D463E7C12FD664D20049F07A /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = screentimereport; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -325,13 +303,9 @@
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
 						LastSwiftMigration = 1250;
-						DevelopmentTeam = "P6Z68QUK9M";
-						ProvisioningStyle = Automatic;
 					};
 					A4475AEC2FE155E9007EF4CE = {
 						CreatedOnToolsVersion = 26.5;
-						DevelopmentTeam = "P6Z68QUK9M";
-						ProvisioningStyle = Automatic;
 					};
 					D463E7B32FD664D20049F07A = {
 						CreatedOnToolsVersion = 26.5;
@@ -557,9 +531,9 @@
 				CODE_SIGN_ENTITLEMENTS = gromo/gromo.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "P6Z68QUK9M";
+				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = P6Z68QUK9M;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -600,9 +574,9 @@
 				CODE_SIGN_ENTITLEMENTS = gromo/gromo.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "P6Z68QUK9M";
+				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = P6Z68QUK9M;
 				INFOPLIST_FILE = gromo/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -758,10 +732,10 @@
 				CODE_SIGN_ENTITLEMENTS = GromoScreenTimeMoniter/GromoScreenTimeMoniter.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "P6Z68QUK9M";
+				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = P6Z68QUK9M;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -809,11 +783,11 @@
 				CODE_SIGN_ENTITLEMENTS = GromoScreenTimeMoniter/GromoScreenTimeMoniter.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "P6Z68QUK9M";
+				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = P6Z68QUK9M;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
