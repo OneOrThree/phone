@@ -57,14 +57,30 @@ export default function App() {
   const [showGuestOnboarding, setShowGuestOnboarding] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem('gromo:user').then((raw) => {
-      if (raw) {
-        const data = JSON.parse(raw);
-        const userId = getUserIdFromToken(data.accessToken);
+    (async () => {
+      const raw = await AsyncStorage.getItem('gromo:user');
+      if (!raw) {
+        setLoading(false);
+        return;
+      }
+      const data = JSON.parse(raw);
+      const userId = getUserIdFromToken(data.accessToken);
+      try {
+        const profileRes = await apiFetch('/api/v1/user');
+        if (profileRes.ok) {
+          const profile = await profileRes.json();
+          const merged = { ...data, ...profile };
+          await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
+          setUser({ ...merged, userId });
+        } else {
+          setUser({ ...data, userId });
+        }
+      } catch {
+        // 오프라인 등 실패 시 캐시 사용
         setUser({ ...data, userId });
       }
       setLoading(false);
-    });
+    })();
   }, []);
 
   async function handleLogout() {
