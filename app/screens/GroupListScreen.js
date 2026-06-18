@@ -747,7 +747,7 @@ function GroupOverviewModal({ visible, data, groupId, onClose, onJoined }) {
 
 // ───────────────────────────── 메인 스크린 ─────────────────────────────
 
-export default function GroupScreen({ navigation }) {
+export default function GroupListScreen({ navigation }) {
   const [view, setView] = useState('list');
   const [searchInitialQuery, setSearchInitialQuery] = useState('');
   const [groups, setGroups] = useState([]);

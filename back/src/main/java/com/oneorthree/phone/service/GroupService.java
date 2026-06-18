@@ -271,8 +271,9 @@ public class GroupService {
         GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
 
-        List<GroupDetailMemberResponse> list = groupMemberRepository.findByGroup(group)
-                .stream()
+        List<GroupMember> groupMembers = groupMemberRepository.findByGroup(group);
+
+        List<GroupDetailMemberResponse> list = groupMembers.stream()
                 .map(m -> GroupDetailMemberResponse.builder()
                         .userId(m.getUser().getId())
                         .nickname(m.getUser().getNickname())
