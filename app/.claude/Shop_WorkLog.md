@@ -10,29 +10,32 @@
 
 ## 🗂️ 관련 파일
 
-| 파일 | 역할 |
-|------|------|
-| `screens/ShopScreen.js` | 상점 화면 (코드 보존, 미노출) |
-| `components/MorphingTabBar.js` | 탭바 항목 정의 |
-| `App.js` | 네비게이터 등록 |
-| `contexts/CoinContext.js` | 코인/보유 아이템 상태 (상점과 연동) |
-| `contexts/EquipmentContext.js` | 장착 아이템 상태 |
+| 파일                           | 역할                                |
+| ------------------------------ | ----------------------------------- |
+| `screens/ShopScreen.js`        | 상점 화면 (코드 보존, 미노출)       |
+| `components/MorphingTabBar.js` | 탭바 항목 정의                      |
+| `App.js`                       | 네비게이터 등록                     |
+| `contexts/CoinContext.js`      | 코인/보유 아이템 상태 (상점과 연동) |
+| `contexts/EquipmentContext.js` | 장착 아이템 상태                    |
 
 ---
 
 ## ✅ 적용한 변경사항 (2026-06-18)
 
 ### 목적
+
 MVP 범위에 상점이 포함되지 않아 앱에서 보이지 않게 처리.
 삭제하지 않고 숨겨서 나중에 쉽게 복원 가능하도록 함.
 
 ### 변경 내용
 
 **`components/MorphingTabBar.js`**
+
 - `TABS` 배열에서 `{ name: '상점', icon: '🛍' }` 제거
 - 탭이 홈 / 그룹 / 마이페이지 3개로 재배치됨 (N, TAB_W 자동 반영)
 
 **`App.js`**
+
 - `ShopScreen` import 및 `<Tab.Screen name="상점" />` 등록 유지
 - `options={{ tabBarButton: () => null }}` 추가하여 탭 버튼 비노출
 
