@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "350b667d-bb8c-4422-8ff1-2e4390ecf1eb"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.oneorthree.gromo",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}

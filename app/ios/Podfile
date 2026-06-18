@@ -1,3 +1,16 @@
+# xcodeproj 1.27.0이 Xcode 26의 objectVersion 70을 모르는 문제 패치
+begin
+  require 'xcodeproj'
+  unless Xcodeproj::Constants::COMPATIBILITY_VERSION_BY_OBJECT_VERSION.key?(70)
+    compat = Xcodeproj::Constants::COMPATIBILITY_VERSION_BY_OBJECT_VERSION.dup
+    compat[70] = 'Xcode 26.0'
+    Xcodeproj::Constants.send(:remove_const, :COMPATIBILITY_VERSION_BY_OBJECT_VERSION)
+    Xcodeproj::Constants.const_set(:COMPATIBILITY_VERSION_BY_OBJECT_VERSION, compat)
+  end
+rescue => e
+  puts "xcodeproj 패치 실패: #{e.message}"
+end
+
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), "scripts/autolinking")
 require File.join(File.dirname(`node --print "require.resolve('react-native/package.json')"`), "scripts/react_native_pods")
 
