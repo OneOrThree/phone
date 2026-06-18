@@ -126,7 +126,7 @@ const s = StyleSheet.create({
   headerTitle: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: '900',
     color: T.ink,
   },
