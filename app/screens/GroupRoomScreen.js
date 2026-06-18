@@ -136,7 +136,13 @@ const s = StyleSheet.create({
   content: { flex: 1 },
   loader: { marginTop: 80 },
 
-  errorWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 32 },
+  errorWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingHorizontal: 32,
+  },
   errorIcon: { fontSize: 40 },
   errorTitle: { fontSize: 16, fontWeight: '900', color: T.ink },
   errorText: { fontSize: 13, fontWeight: '600', color: T.inkMed, textAlign: 'center' },

@@ -47,7 +47,15 @@ function formatTime(date) {
 
 // ───────────────────────────── G1: 그룹 목록 ─────────────────────────────
 
-function GroupListView({ groups, loading, refreshing, onRefresh, onCreatePress, onSearchSubmit, onGroupPress }) {
+function GroupListView({
+  groups,
+  loading,
+  refreshing,
+  onRefresh,
+  onCreatePress,
+  onSearchSubmit,
+  onGroupPress,
+}) {
   const [searchQuery, setSearchQuery] = useState('');
 
   const filtered = searchQuery.trim()
@@ -675,21 +683,19 @@ function GroupOverviewModal({ visible, data, groupId, onClose, onJoined }) {
   }
 
   const canJoin = data && data.status !== 'ENDED' && data.memberCount < data.maxMembers;
-  const missionText =
-    !data
-      ? ''
-      : data.missionType === 'DURATION'
-        ? `${data.missionCategory === 'FOCUS' ? '집중' : '스크린타임'} · ${data.durationMinutes}분`
-        : `${data.missionCategory === 'FOCUS' ? '집중' : '스크린타임'} · ${formatWindowTime(data.windowStart)} ~ ${formatWindowTime(data.windowEnd)}`;
+  const missionText = !data
+    ? ''
+    : data.missionType === 'DURATION'
+      ? `${data.missionCategory === 'FOCUS' ? '집중' : '스크린타임'} · ${data.durationMinutes}분`
+      : `${data.missionCategory === 'FOCUS' ? '집중' : '스크린타임'} · ${formatWindowTime(data.windowStart)} ~ ${formatWindowTime(data.windowEnd)}`;
 
-  const joinLabel =
-    !data
-      ? ''
-      : data.status === 'ENDED'
-        ? '종료된 그룹'
-        : data.memberCount >= data.maxMembers
-          ? '정원 초과'
-          : '참가하기';
+  const joinLabel = !data
+    ? ''
+    : data.status === 'ENDED'
+      ? '종료된 그룹'
+      : data.memberCount >= data.maxMembers
+        ? '정원 초과'
+        : '참가하기';
 
   const joinDisabled = !canJoin || joining || (data?.hasPassword && !password.trim());
 
@@ -725,7 +731,11 @@ function GroupOverviewModal({ visible, data, groupId, onClose, onJoined }) {
             )}
 
             <TouchableOpacity
-              style={[s.ovJoinBtn, canJoin ? s.ovJoinBtnActive : s.ovJoinBtnInactive, joinDisabled && s.btnDisabled]}
+              style={[
+                s.ovJoinBtn,
+                canJoin ? s.ovJoinBtnActive : s.ovJoinBtnInactive,
+                joinDisabled && s.btnDisabled,
+              ]}
               onPress={handleJoin}
               disabled={joinDisabled}
               activeOpacity={0.8}

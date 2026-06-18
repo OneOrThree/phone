@@ -15,9 +15,7 @@ const MISSION_CATEGORY = { FOCUS: '집중', SCREEN_TIME: '스크린타임' };
 const STATUS_LABEL = { WAITING: '대기 중', ACTIVE: '활성', ENDED: '종료' };
 const ROLE_LABEL = { OWNER: '호스트', MEMBER: '멤버' };
 
-const SORT_OPTIONS = [
-  { key: 'focusTime', label: '⏱ 집중', field: 'focusTimeMinutes' },
-];
+const SORT_OPTIONS = [{ key: 'focusTime', label: '⏱ 집중', field: 'focusTimeMinutes' }];
 
 function formatWindowTime(instant) {
   if (!instant) return '';
