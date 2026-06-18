@@ -5,121 +5,240 @@ import { T } from './theme';
 
 const SCREEN_W = Dimensions.get('window').width;
 
-const TABS = [
+const MAIN_TABS = [
   { name: '홈', icon: '🏠' },
   { name: '그룹', icon: '👥' },
-  { name: '상점', icon: '🛍' },
   { name: '마이페이지', icon: '🐾' },
 ];
 
+const GROUP_DETAIL_TABS = [
+  { key: 'group', name: '그룹', icon: '👥' },
+  { key: 'ranking', name: '랭킹', icon: '🏆' },
+  { key: 'challenge', name: '챌린지', icon: '🎯' },
+  { key: 'chat', name: '채팅', icon: '💬' },
+  { key: 'notice', name: '공지', icon: '📢' },
+];
+
 const HIDDEN = new Set(['FocusMode', 'FocusCategoryScreen']);
-const N = TABS.length;
-const TAB_W = SCREEN_W / N;
-const BAR_H = 62;
-const PILL_H = 44;
-const PILL_W = TAB_W - 16;
-const PILL_TOP = (BAR_H - PILL_H) / 2; // 수직 중앙 정렬
+
+const MAIN_N = 3;
+const GROUP_N = 5;
+
+// 플로팅 바 여백
+const BAR_MARGIN_H = 12;
+const BAR_MARGIN_V = 8;
+const BAR_PADDING = 4;
+const BAR_H = 54;
+const PILL_H = BAR_H - BAR_PADDING * 2;
+const BAR_RADIUS = 20;
+const PILL_RADIUS = 16;
+
+// 그룹 탭의 뒤로가기 버튼
+const BACK_BTN_W = 44;
+const BACK_GAP = 8;
+
+// 각 탭 너비 (pill 위치 계산용)
+const MAIN_TAB_W = (SCREEN_W - BAR_MARGIN_H * 2 - BAR_PADDING * 2) / MAIN_N;
+const GROUP_BAR_W = SCREEN_W - BAR_MARGIN_H * 2 - BACK_BTN_W - BACK_GAP;
+const GROUP_TAB_W = (GROUP_BAR_W - BAR_PADDING * 2) / GROUP_N;
 
 export function MorphingTabBar({ state, navigation }) {
   const insets = useSafeAreaInsets();
 
   const activeRouteName = state.routes[state.index]?.name;
-  const activeIdx = TABS.findIndex((t) => t.name === activeRouteName);
-  const displayIdx = activeIdx < 0 ? 0 : activeIdx;
+  const isGroupDetail = activeRouteName === 'GroupDetail';
+  const currentRoute = state.routes[state.index];
 
-  const pillAnim = useRef(new Animated.Value(displayIdx)).current;
+  const mainActiveIdx = MAIN_TABS.findIndex((t) => t.name === activeRouteName);
+  const mainDisplayIdx = mainActiveIdx < 0 ? 0 : mainActiveIdx;
+
+  const groupActiveTab = currentRoute?.params?.activeTab ?? 'group';
+  const groupActiveIdx = GROUP_DETAIL_TABS.findIndex((t) => t.key === groupActiveTab);
+  const groupDisplayIdx = groupActiveIdx < 0 ? 0 : groupActiveIdx;
+
+  const mainPillAnim = useRef(new Animated.Value(mainDisplayIdx)).current;
+  const groupPillAnim = useRef(new Animated.Value(groupDisplayIdx)).current;
 
   useEffect(() => {
-    if (activeIdx < 0) return;
-    Animated.spring(pillAnim, {
-      toValue: displayIdx,
+    if (isGroupDetail) return;
+    Animated.spring(mainPillAnim, {
+      toValue: mainDisplayIdx,
       useNativeDriver: true,
       tension: 220,
       friction: 22,
     }).start();
-  }, [displayIdx, activeIdx, pillAnim]);
+  }, [mainDisplayIdx, isGroupDetail, mainPillAnim]);
+
+  useEffect(() => {
+    if (!isGroupDetail) return;
+    Animated.spring(groupPillAnim, {
+      toValue: groupDisplayIdx,
+      useNativeDriver: true,
+      tension: 220,
+      friction: 22,
+    }).start();
+  }, [groupDisplayIdx, isGroupDetail, groupPillAnim]);
 
   if (HIDDEN.has(activeRouteName)) return null;
 
-  const pillTranslateX = pillAnim.interpolate({
-    inputRange: TABS.map((_, i) => i),
-    outputRange: TABS.map((_, i) => TAB_W * i + (TAB_W - PILL_W) / 2),
+  const pb = insets.bottom + BAR_MARGIN_V;
+
+  // 그룹 상세 탭바
+  if (isGroupDetail) {
+    const groupPillX = groupPillAnim.interpolate({
+      inputRange: [0, 1, 2, 3, 4],
+      outputRange: [0, 1, 2, 3, 4].map((i) => BAR_PADDING + i * GROUP_TAB_W),
+    });
+
+    return (
+      <View style={[s.outerContainer, { paddingBottom: pb }]}>
+        <View style={s.groupRow}>
+          {/* 뒤로가기 */}
+          <TouchableOpacity
+            style={s.backBtn}
+            onPress={() => navigation.navigate('그룹')}
+            activeOpacity={0.7}
+          >
+            <Text style={s.backBtnText}>‹</Text>
+          </TouchableOpacity>
+
+          {/* 그룹 서브 탭 */}
+          <View style={s.floatBarGroup}>
+            <Animated.View
+              pointerEvents="none"
+              style={[s.pill, { width: GROUP_TAB_W, transform: [{ translateX: groupPillX }] }]}
+            />
+            {GROUP_DETAIL_TABS.map(({ key, name, icon }, idx) => {
+              const isFocused = idx === groupDisplayIdx;
+              return (
+                <TouchableOpacity
+                  key={key}
+                  style={s.tabItem}
+                  onPress={() =>
+                    navigation.navigate('GroupDetail', {
+                      groupId: currentRoute?.params?.groupId,
+                      activeTab: key,
+                    })
+                  }
+                  activeOpacity={0.8}
+                >
+                  <Text style={isFocused ? s.iconActive : s.icon}>{icon}</Text>
+                  {isFocused && <Text style={s.label}>{name}</Text>}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  // 메인 탭바
+  const mainPillX = mainPillAnim.interpolate({
+    inputRange: [0, 1, 2],
+    outputRange: [0, 1, 2].map((i) => BAR_PADDING + i * MAIN_TAB_W),
   });
 
   return (
-    // 총 높이 = 탭 콘텐츠 영역(BAR_H) + 홈 인디케이터 여백(insets.bottom)
-    <View style={[s.bar, { height: BAR_H + insets.bottom }]}>
-      {/* 슬라이딩 pill — BAR_H 영역 안에서 수직 중앙 정렬 */}
-      <Animated.View
-        pointerEvents="none"
-        style={[s.pill, { transform: [{ translateX: pillTranslateX }] }]}
-      />
+    <View style={[s.outerContainer, { paddingBottom: pb }]}>
+      <View style={s.floatBarMain}>
+        <Animated.View
+          pointerEvents="none"
+          style={[s.pill, { width: MAIN_TAB_W, transform: [{ translateX: mainPillX }] }]}
+        />
+        {MAIN_TABS.map(({ name, icon }, idx) => {
+          const isFocused = idx === mainDisplayIdx;
 
-      {/* 탭 버튼 — height: BAR_H로 고정해 safe area 영역 침범 방지 */}
-      {TABS.map(({ name, icon }, idx) => {
-        const isFocused = idx === displayIdx;
-        const route = state.routes.find((r) => r.name === name);
-        if (!route) return null;
-
-        function onPress() {
-          const event = navigation.emit({
-            type: 'tabPress',
-            target: route.key,
-            canPreventDefault: true,
-          });
-          if (!isFocused && !event.defaultPrevented) {
-            navigation.navigate(name);
+          function onPress() {
+            const route = state.routes.find((r) => r.name === name);
+            if (!route) return;
+            const event = navigation.emit({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            });
+            if (!isFocused && !event.defaultPrevented) navigation.navigate(name);
           }
-        }
 
-        function onLongPress() {
-          navigation.emit({ type: 'tabLongPress', target: route.key });
-        }
+          function onLongPress() {
+            const route = state.routes.find((r) => r.name === name);
+            if (route) navigation.emit({ type: 'tabLongPress', target: route.key });
+          }
 
-        return (
-          <TouchableOpacity
-            key={name}
-            style={s.tab}
-            onPress={onPress}
-            onLongPress={onLongPress}
-            activeOpacity={0.8}
-          >
-            <Text style={isFocused ? s.iconActive : s.icon}>{icon}</Text>
-            {isFocused && <Text style={s.label}>{name}</Text>}
-          </TouchableOpacity>
-        );
-      })}
+          return (
+            <TouchableOpacity
+              key={name}
+              style={s.tabItem}
+              onPress={onPress}
+              onLongPress={onLongPress}
+              activeOpacity={0.8}
+            >
+              <Text style={isFocused ? s.iconActive : s.icon}>{icon}</Text>
+              {isFocused && <Text style={s.label}>{name}</Text>}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
+const floatBar = {
+  flexDirection: 'row',
+  backgroundColor: T.paperDark,
+  borderRadius: BAR_RADIUS,
+  height: BAR_H,
+  padding: BAR_PADDING,
+  overflow: 'hidden',
+};
+
 const s = StyleSheet.create({
-  bar: {
-    flexDirection: 'row',
+  outerContainer: {
     backgroundColor: T.paper,
-    borderTopWidth: 1.5,
-    borderTopColor: T.ink,
-    alignItems: 'flex-start', // 탭이 상단 BAR_H 영역에 고정되도록
+    paddingHorizontal: BAR_MARGIN_H,
+    paddingTop: BAR_MARGIN_V,
   },
+  groupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: BACK_GAP,
+  },
+
+  floatBarMain: { ...floatBar },
+  floatBarGroup: { ...floatBar, flex: 1 },
+
+  // 뒤로가기 버튼 (그룹 상세)
+  backBtn: {
+    width: BACK_BTN_W,
+    height: BAR_H,
+    backgroundColor: T.paperDark,
+    borderRadius: BAR_RADIUS,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backBtnText: { fontSize: 24, fontWeight: '700', color: T.inkMed },
+
+  // 슬라이딩 pill
   pill: {
     position: 'absolute',
-    top: PILL_TOP,
-    width: PILL_W,
+    top: BAR_PADDING,
     height: PILL_H,
-    borderRadius: PILL_H / 2,
-    backgroundColor: T.paperDark,
+    borderRadius: PILL_RADIUS,
+    backgroundColor: T.paper,
     borderWidth: 1,
     borderColor: T.paperLine,
   },
-  tab: {
+
+  // 탭 아이템 (메인/그룹 공통)
+  tabItem: {
     flex: 1,
-    height: BAR_H, // '100%' 대신 고정값으로 safe area 영역 제외
+    height: PILL_H,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
   },
-  icon: { fontSize: 18, color: T.inkLight },
-  iconActive: { fontSize: 20, color: T.ink },
+  icon: { fontSize: 17, color: T.inkLight },
+  iconActive: { fontSize: 19, color: T.ink },
   label: { fontSize: 11, fontWeight: '800', color: T.ink },
 });

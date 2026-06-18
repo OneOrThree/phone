@@ -38,11 +38,12 @@ import { UserProvider } from './contexts/UserContext';
 import OnboardingScreen from './screens/OnboardingScreen';
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/Homescreen';
-import GroupScreen from './screens/GroupScreen';
+import GroupListScreen from './screens/GroupListScreen';
 import ShopScreen from './screens/ShopScreen';
 import MyPageScreen from './screens/MyPageScreen';
 import FocusModeScreen from './screens/FocusModeScreen';
 import FocusCategoryScreen from './screens/FocusCategoryScreen';
+import GroupRoomScreen from './screens/GroupRoomScreen';
 
 import { T } from './components/theme';
 import { MorphingTabBar } from './components/MorphingTabBar';
@@ -57,14 +58,30 @@ export default function App() {
   const [showGuestOnboarding, setShowGuestOnboarding] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem('gromo:user').then((raw) => {
-      if (raw) {
-        const data = JSON.parse(raw);
-        const userId = getUserIdFromToken(data.accessToken);
+    (async () => {
+      const raw = await AsyncStorage.getItem('gromo:user');
+      if (!raw) {
+        setLoading(false);
+        return;
+      }
+      const data = JSON.parse(raw);
+      const userId = getUserIdFromToken(data.accessToken);
+      try {
+        const profileRes = await apiFetch('/api/v1/user');
+        if (profileRes.ok) {
+          const profile = await profileRes.json();
+          const merged = { ...data, ...profile };
+          await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
+          setUser({ ...merged, userId });
+        } else {
+          setUser({ ...data, userId });
+        }
+      } catch {
+        // 오프라인 등 실패 시 캐시 사용
         setUser({ ...data, userId });
       }
       setLoading(false);
-    });
+    })();
   }, []);
 
   async function handleLogout() {
@@ -163,8 +180,12 @@ export default function App() {
                 screenOptions={{ headerShown: false }}
               >
                 <Tab.Screen name="홈" component={HomeScreen} />
-                <Tab.Screen name="그룹" component={GroupScreen} />
-                <Tab.Screen name="상점" component={ShopScreen} />
+                <Tab.Screen name="그룹" component={GroupListScreen} />
+                <Tab.Screen
+                  name="상점"
+                  component={ShopScreen}
+                  options={{ tabBarButton: () => null }}
+                />
                 <Tab.Screen name="마이페이지">
                   {() => (
                     <MyPageScreen user={user} onLogout={handleLogout} onWithdraw={handleWithdraw} />
@@ -178,6 +199,11 @@ export default function App() {
                 <Tab.Screen
                   name="FocusMode"
                   component={FocusModeScreen}
+                  options={{ tabBarButton: () => null }}
+                />
+                <Tab.Screen
+                  name="GroupDetail"
+                  component={GroupRoomScreen}
                   options={{ tabBarButton: () => null }}
                 />
               </Tab.Navigator>
