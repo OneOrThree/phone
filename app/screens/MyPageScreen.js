@@ -121,7 +121,7 @@ function GoalSlider({ value, onChange }) {
 
 export default function MyPageScreen({ onLogout, onWithdraw }) {
   const { todayFocusSeconds } = useFocus();
-  const { nickname, setNickname, goalSeconds, setGoalSeconds, phoneUsageSeconds } = useUser();
+  const { nickname, setNickname, goalSeconds } = useUser();
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(nickname);

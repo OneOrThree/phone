@@ -811,7 +811,7 @@ export default function GroupListScreen({ navigation }) {
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={s.root}>
       {view === 'create' ? (
         <CreateGroupView onBack={() => setView('list')} onCreated={() => setView('list')} />
       ) : view === 'search' ? (
@@ -852,6 +852,7 @@ export default function GroupListScreen({ navigation }) {
 // ───────────────────────────── 스타일 ─────────────────────────────
 
 const s = StyleSheet.create({
+  root: { flex: 1 },
   container: { flex: 1, backgroundColor: T.paper, paddingTop: 56, paddingHorizontal: 20 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 

@@ -204,10 +204,9 @@ function formatTime(totalSeconds) {
 export default function HomeScreen({ navigation, route }) {
   const { equippedItem, equippedFurniture, equippedCostume } = useEquipment();
   const { todayFocusSeconds } = useFocus();
-  const { nickname, goalSeconds, setGoalSeconds, phoneUsageSeconds } = useUser();
+  const { nickname, goalSeconds, setGoalSeconds } = useUser();
   const { addCoins } = useCoins();
   const costumeSlots = equippedCostume.map((c) => c.slot);
-  const remainingSeconds = Math.max(0, goalSeconds - phoneUsageSeconds);
   const [focusResult, setFocusResult] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showFailModal, setShowFailModal] = useState(false);
