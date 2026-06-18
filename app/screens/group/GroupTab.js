@@ -26,10 +26,10 @@ function formatMinutes(min) {
 function InviteCard() {
   return (
     <View style={s.card}>
-      <Text style={s.inviteLabel}>초대하기</Text>
       <View style={s.inviteCircle}>
         <Text style={s.invitePlus}>+</Text>
       </View>
+      <Text style={s.inviteLabel}>초대하기</Text>
     </View>
   );
 }
@@ -153,7 +153,9 @@ const s = StyleSheet.create({
 
   card: {
     width: CARD_W,
+    minHeight: 130,
     alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 14,
     paddingHorizontal: 4,
     gap: 6,
