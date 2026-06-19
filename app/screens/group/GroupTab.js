@@ -39,18 +39,18 @@ function MemberCard({ member }) {
   const isOwner = member.role === 'OWNER';
   return (
     <View style={s.card}>
-      <View style={[s.avatar, isOwner && s.avatarOwner]}>
-        <Text style={[s.avatarText, isOwner && s.avatarTextOwner]}>{initial}</Text>
-      </View>
-      <Text style={s.cardName} numberOfLines={1}>
-        {member.nickname}
-      </Text>
-      <Text style={s.cardFocus}>⏱ {formatMinutes(member.focusTimeMinutes)}</Text>
       {isOwner && (
         <View style={s.ownerBadge}>
           <Text style={s.ownerBadgeText}>호스트</Text>
         </View>
       )}
+      <View style={[s.avatar, isOwner && s.avatarOwner]}>
+        <Text style={[s.avatarText, isOwner && s.avatarTextOwner]}>{initial}</Text>
+      </View>
+      <View style={s.cardBottom}>
+        <Text style={s.cardName} numberOfLines={1}>{member.nickname}</Text>
+        <Text style={s.cardFocus}>⏱ {formatMinutes(member.focusTimeMinutes)}</Text>
+      </View>
     </View>
   );
 }
@@ -88,8 +88,8 @@ export default function GroupTab({ group, groupId }) {
   let missionText = '오늘 예정된 목표 없음';
 
   if (group.missionType === 'DURATION') {
-    const c = active[0];
-    if (c) missionText = `포커스타임 ${c.durationMinutes}분 이상`;
+    const mins = active[0]?.durationMinutes ?? group.durationMinutes;
+    if (mins) missionText = `포커스타임 ${mins}분 이상`;
   } else {
     const ongoing = active.find(
       (c) => new Date(c.windowStart) <= now && now <= new Date(c.windowEnd),
@@ -159,17 +159,17 @@ const s = StyleSheet.create({
 
   // 미션 카드
   missionCard: { padding: 14, marginTop: 20, marginBottom: 14 },
-  missionLabel: { fontSize: 13, fontWeight: '900', color: T.ink },
-  missionText: { fontSize: 13, fontWeight: '700', color: T.ink, textAlign: 'center' },
-  description: { fontSize: 12, color: T.inkMed, marginTop: 8 },
+  missionLabel: { fontSize: 15, fontWeight: '900', color: T.ink },
+  missionText: { fontSize: 15, fontWeight: '700', color: T.ink, textAlign: 'center' },
+  description: { fontSize: 14, color: T.inkMed, marginTop: 8 },
 
   // 인원
-  memberCount: { fontSize: 13, fontWeight: '700', color: T.inkMed, marginBottom: 14 },
+  memberCount: { fontSize: 15, fontWeight: '700', color: T.inkMed, marginBottom: 14 },
   memberCountNum: { color: T.ink, fontWeight: '900' },
 
   // 그리드 섹션 제목
   gridTitle: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '800',
     color: T.inkMed,
     marginBottom: 10,
@@ -185,10 +185,11 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 14,
     paddingHorizontal: 4,
-    gap: 6,
+    gap: 8,
     borderWidth: 1.5,
     borderColor: T.paperLine,
     borderRadius: 12,
+    position: 'relative',
   },
   avatar: {
     width: 52,
@@ -201,19 +202,23 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarOwner: { backgroundColor: T.ink, borderColor: T.ink },
-  avatarText: { fontSize: 22, fontWeight: '900', color: T.inkMed },
+  avatarText: { fontSize: 26, fontWeight: '900', color: T.inkMed },
   avatarTextOwner: { color: T.paper },
-  cardName: { fontSize: 12, fontWeight: '700', color: T.ink, textAlign: 'center' },
-  cardFocus: { fontSize: 11, fontWeight: '600', color: T.inkLight },
+  cardBottom: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  cardName: { fontSize: 14, fontWeight: '700', color: T.ink },
+  cardFocus: { fontSize: 13, fontWeight: '600', color: T.inkLight },
   ownerBadge: {
-    paddingHorizontal: 6,
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    paddingHorizontal: 5,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: 5,
     backgroundColor: T.ink,
   },
-  ownerBadgeText: { fontSize: 9, fontWeight: '800', color: T.paper },
+  ownerBadgeText: { fontSize: 10, fontWeight: '800', color: T.paper },
 
-  inviteLabel: { fontSize: 12, fontWeight: '700', color: T.inkMed },
+  inviteLabel: { fontSize: 14, fontWeight: '700', color: T.inkMed },
   inviteCircle: {
     width: 52,
     height: 52,
