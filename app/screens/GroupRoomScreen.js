@@ -100,7 +100,12 @@ export default function GroupDetailScreen({ navigation, route }) {
             </TouchableOpacity>
           </View>
         ) : showSettings ? (
-          <SettingsScreen groupId={groupId} onBack={() => setShowSettings(false)} />
+          <SettingsScreen
+            groupId={groupId}
+            group={group}
+            isOwner={!!group?.code}
+            onLeaveSuccess={() => navigation.navigate('그룹')}
+          />
         ) : (
           <ActiveTab group={group} groupId={groupId} />
         )}

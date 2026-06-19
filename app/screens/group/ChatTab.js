@@ -69,9 +69,13 @@ function OtherBubble({ message }) {
 }
 
 function MyBubble({ message }) {
+  const unread = message.unreadCount ?? 0;
   return (
     <View style={s.myRow}>
-      <Text style={s.timeStamp}>{formatHHMM(message.sentAt)}</Text>
+      <View style={s.myMeta}>
+        {unread > 0 && <Text style={s.unreadCount}>{unread}</Text>}
+        <Text style={s.timeStamp}>{formatHHMM(message.sentAt)}</Text>
+      </View>
       <View style={[s.bubble, s.myBubble]}>
         <Text style={s.myBubbleText}>{message.content}</Text>
       </View>
@@ -230,6 +234,19 @@ const s = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'flex-end',
     marginBottom: 14,
+  },
+  myMeta: {
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
+    marginRight: 4,
+    marginBottom: 2,
+  },
+  unreadCount: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: T.ink,
+    lineHeight: 14,
+    marginBottom: 2,
   },
 
   // 공통 말풍선

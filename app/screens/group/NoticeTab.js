@@ -31,7 +31,6 @@ export default function NoticeTab({ group, groupId }) {
   const [writeVisible, setWriteVisible] = useState(false);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const insets = useSafeAreaInsets();
 
   const isOwner = !!group?.code;
@@ -61,25 +60,12 @@ export default function NoticeTab({ group, groupId }) {
     setWriteVisible(true);
   }
 
-  async function handleSubmit() {
+  function handleSubmit() {
     if (!title.trim() || !content.trim()) {
       Alert.alert('입력 오류', '제목과 내용을 모두 입력해주세요');
       return;
     }
-    setSubmitting(true);
-    try {
-      const res = await apiFetch(`/api/v1/groups/${groupId}/announcements`, {
-        method: 'POST',
-        body: JSON.stringify({ title: title.trim(), content: content.trim() }),
-      });
-      if (!res.ok) throw new Error();
-      setWriteVisible(false);
-      fetchNotices();
-    } catch {
-      Alert.alert('오류', '공지 등록에 실패했습니다');
-    } finally {
-      setSubmitting(false);
-    }
+    Alert.alert('준비 중', '공지 등록 기능은 아직 준비 중이에요 😅');
   }
 
   return (
@@ -174,12 +160,11 @@ export default function NoticeTab({ group, groupId }) {
 
           {/* 등록 버튼 */}
           <TouchableOpacity
-            style={[s.submitBtn, submitting && s.btnDisabled, { marginBottom: insets.bottom + 16 }]}
+            style={[s.submitBtn, { marginBottom: insets.bottom + 16 }]}
             onPress={handleSubmit}
-            disabled={submitting}
             activeOpacity={0.8}
           >
-            <Text style={s.submitBtnText}>{submitting ? '등록 중...' : '등록하기'}</Text>
+            <Text style={s.submitBtnText}>등록하기</Text>
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>

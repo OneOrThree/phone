@@ -4,6 +4,7 @@ import {
   Text,
   ScrollView,
   FlatList,
+  TextInput,
   TouchableOpacity,
   Modal,
   KeyboardAvoidingView,
@@ -16,21 +17,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, inkBox } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
 
-const DEVICE_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
 const CHALLENGE_TYPES = [
   { label: 'A-B 포커스', value: 'TIME_WINDOW' },
   { label: 'N 스크린타임', value: 'DURATION' },
 ];
 
-// 휠 피커 데이터
+// 휠 피커 데이터 (TIME_WINDOW 시간 선택용)
 const WHEEL_HOURS = Array.from({ length: 24 }, (_, i) => i);
 const WHEEL_MINS = Array.from({ length: 12 }, (_, i) => i * 5);
-const WHEEL_DUR_HOURS = Array.from({ length: 9 }, (_, i) => i); // 0~8시간 (DURATION용)
 const WHEEL_ITEM_H = 44;
 const WHEEL_VISIBLE = 3;
 
-// OnboardingScreen과 동일한 WheelList 컴포넌트
 function WheelList({ data, value, onChange }) {
   const listRef = useRef(null);
   const onChangeRef = useRef(onChange);
@@ -116,13 +113,6 @@ function formatTimeVal({ hour, minute }) {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
-function formatDurationVal({ hour, minute }) {
-  if (hour === 0 && minute === 0) return '0분';
-  if (hour === 0) return `${minute}분`;
-  if (minute === 0) return `${hour}시간`;
-  return `${hour}시간 ${minute}분`;
-}
-
 function getChallengeIcon(c) {
   if (c.missionCategory === 'SCREEN_TIME') return '📱';
   if (c.missionType === 'TIME_WINDOW') return '⏰';
@@ -163,15 +153,14 @@ export default function ChallengeTab({ group, groupId }) {
   const [category, setCategory] = useState('FOCUS');
   const [startTime, setStartTime] = useState({ hour: 9, minute: 0 });
   const [endTime, setEndTime] = useState({ hour: 11, minute: 0 });
-  const [duration, setDuration] = useState({ hour: 1, minute: 0 });
-  // 시간 피커 팝업: 'start' | 'end' | 'duration' | null
+  const [durationText, setDurationText] = useState('60');
   const [pickerTarget, setPickerTarget] = useState(null);
   const [tempHour, setTempHour] = useState(0);
   const [tempMinute, setTempMinute] = useState(0);
-  const [submitting, setSubmitting] = useState(false);
   const insets = useSafeAreaInsets();
 
   const isOwner = !!group?.code;
+  const totalMembers = group?.members?.length ?? 0;
 
   async function fetchChallenges() {
     setLoading(true);
@@ -197,13 +186,13 @@ export default function ChallengeTab({ group, groupId }) {
     setCategory('FOCUS');
     setStartTime({ hour: 9, minute: 0 });
     setEndTime({ hour: 11, minute: 0 });
-    setDuration({ hour: 1, minute: 0 });
+    setDurationText('60');
     setPickerTarget(null);
     setCreateVisible(true);
   }
 
   function openTimePicker(target) {
-    const val = target === 'start' ? startTime : target === 'end' ? endTime : duration;
+    const val = target === 'start' ? startTime : endTime;
     setTempHour(val.hour);
     setTempMinute(val.minute);
     setPickerTarget(target);
@@ -212,13 +201,10 @@ export default function ChallengeTab({ group, groupId }) {
   function confirmTimePicker() {
     if (pickerTarget === 'start') setStartTime({ hour: tempHour, minute: tempMinute });
     else if (pickerTarget === 'end') setEndTime({ hour: tempHour, minute: tempMinute });
-    else if (pickerTarget === 'duration') setDuration({ hour: tempHour, minute: tempMinute });
     setPickerTarget(null);
   }
 
-  async function handleSave() {
-    let body = { missionCategory: category, missionType: challengeType };
-
+  function handleSave() {
     if (challengeType === 'TIME_WINDOW') {
       const ws = timeToInstant(startTime.hour, startTime.minute);
       const we = timeToInstant(endTime.hour, endTime.minute);
@@ -226,35 +212,20 @@ export default function ChallengeTab({ group, groupId }) {
         Alert.alert('입력 오류', '종료 시각이 시작 시각보다 늦어야 해요');
         return;
       }
-      body = { ...body, windowStart: ws, windowEnd: we, timeZone: DEVICE_TZ };
     } else {
-      const mins = duration.hour * 60 + duration.minute;
-      if (mins <= 0) {
+      const mins = parseInt(durationText, 10);
+      if (isNaN(mins) || mins <= 0) {
         Alert.alert('입력 오류', '1분 이상으로 설정해주세요');
         return;
       }
-      body = { ...body, durationMinutes: mins };
     }
-
-    setSubmitting(true);
-    try {
-      const res = await apiFetch(`/api/v1/groups/${groupId}/challenges`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      if (res.status === 409) {
-        Alert.alert('중복 챌린지', '같은 카테고리의 활성 챌린지가 이미 있어요');
-        return;
-      }
-      if (!res.ok) throw new Error();
-      setCreateVisible(false);
-      fetchChallenges();
-    } catch {
-      Alert.alert('오류', '챌린지 생성에 실패했습니다');
-    } finally {
-      setSubmitting(false);
-    }
+    Alert.alert('준비 중', '챌린지 생성 기능은 아직 준비 중이에요 😅');
   }
+
+  const formTitle =
+    challengeType === 'TIME_WINDOW'
+      ? 'A-B 포커스 설정'
+      : `${CHALLENGE_TYPES.find((t) => t.value === challengeType)?.label ?? 'N'} 설정`;
 
   return (
     <View style={s.root}>
@@ -267,27 +238,34 @@ export default function ChallengeTab({ group, groupId }) {
               <Text style={s.emptyText}>등록된 챌린지가 없어요</Text>
             </View>
           ) : (
-            challenges.map((c) => (
-              <View key={c.id} style={[s.card, inkBox(T.paper)]}>
-                <View style={s.cardHeader}>
-                  <Text style={s.cardIcon}>{getChallengeIcon(c)}</Text>
-                  <View style={s.cardHeaderText}>
-                    <Text style={s.cardName}>{getChallengeName(c)}</Text>
-                    {!c.canParticipate && (
-                      <View style={s.noBadge}>
-                        <Text style={s.noBadgeText}>참여 불가</Text>
-                      </View>
-                    )}
+            challenges.map((c) => {
+              const completed = c.completedCount ?? 0;
+              const progressRatio = totalMembers > 0 ? Math.min(completed / totalMembers, 1) : 0;
+              return (
+                <View key={c.id} style={[s.card, inkBox(T.paper)]}>
+                  <View style={s.cardHeader}>
+                    <Text style={s.cardIcon}>{getChallengeIcon(c)}</Text>
+                    <View style={s.cardHeaderText}>
+                      <Text style={s.cardName}>{getChallengeName(c)}</Text>
+                      {!c.canParticipate && (
+                        <View style={s.noBadge}>
+                          <Text style={s.noBadgeText}>참여 불가</Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
-                  <View style={[s.statusBadge, c.status === 'ENDED' && s.statusBadgeEnded]}>
-                    <Text style={[s.statusText, c.status === 'ENDED' && s.statusTextEnded]}>
-                      {c.status === 'ACTIVE' ? '활성' : '종료'}
+                  <Text style={s.cardDesc}>{getChallengeDesc(c)}</Text>
+                  <View style={s.progressRow}>
+                    <View style={s.progressTrack}>
+                      <View style={[s.progressFill, { width: `${progressRatio * 100}%` }]} />
+                    </View>
+                    <Text style={s.progressLabel}>
+                      달성: {completed} / {totalMembers}명
                     </Text>
                   </View>
                 </View>
-                <Text style={s.cardDesc}>{getChallengeDesc(c)}</Text>
-              </View>
-            ))
+              );
+            })
           )}
           <View style={s.listBottom} />
         </ScrollView>
@@ -329,31 +307,8 @@ export default function ChallengeTab({ group, groupId }) {
               <Text style={s.ownerBadgeText}>⭐ 방장 전용</Text>
             </View>
 
-            {/* 미션 카테고리 (G13에서 챌린지 유형과 위치 교체) */}
-            <Text style={s.fieldLabel}>미션 카테고리</Text>
-            <View style={s.segmentRow}>
-              <TouchableOpacity
-                style={[s.segBtn, category === 'FOCUS' && s.segBtnActive]}
-                onPress={() => setCategory('FOCUS')}
-                activeOpacity={0.8}
-              >
-                <Text style={[s.segBtnText, category === 'FOCUS' && s.segBtnTextActive]}>
-                  포커스
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.segBtn, category === 'SCREEN_TIME' && s.segBtnActive]}
-                onPress={() => setCategory('SCREEN_TIME')}
-                activeOpacity={0.8}
-              >
-                <Text style={[s.segBtnText, category === 'SCREEN_TIME' && s.segBtnTextActive]}>
-                  스크린타임
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* 챌린지 유형 (G13에서 미션 카테고리와 위치 교체) */}
-            <Text style={[s.fieldLabel, { marginTop: 8 }]}>챌린지 유형</Text>
+            {/* 챌린지 유형 */}
+            <Text style={s.fieldLabel}>챌린지 유형</Text>
             <View style={s.segmentRow}>
               {CHALLENGE_TYPES.map((ct) => (
                 <TouchableOpacity
@@ -369,10 +324,10 @@ export default function ChallengeTab({ group, groupId }) {
               ))}
             </View>
 
-            {/* 조건부 폼 — 시간 버튼 터치 시 피커 팝업 오픈 */}
+            {/* 조건부 폼 */}
             {challengeType === 'TIME_WINDOW' ? (
               <View style={[s.formBox, inkBox(T.paperDark)]}>
-                <Text style={s.formBoxTitle}>A-B 포커스 설정</Text>
+                <Text style={s.formBoxTitle}>{formTitle}</Text>
                 <View style={s.timeLabels}>
                   <Text style={s.timeFieldLabel}>시작 시각</Text>
                   <View style={{ flex: 1 }} />
@@ -398,29 +353,56 @@ export default function ChallengeTab({ group, groupId }) {
               </View>
             ) : (
               <View style={[s.formBox, inkBox(T.paperDark)]}>
-                <Text style={s.formBoxTitle}>시간 설정</Text>
-                <TouchableOpacity
-                  style={[s.durationBtn, inkBox(T.paper)]}
-                  onPress={() => openTimePicker('duration')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={s.timeBtnText}>{formatDurationVal(duration)}</Text>
-                </TouchableOpacity>
+                <Text style={s.formBoxTitle}>{formTitle}</Text>
+                <Text style={s.timeFieldLabel}>목표 시간 (분)</Text>
+                <View style={s.durationRow}>
+                  <TextInput
+                    style={[s.durationInput, inkBox(T.paper)]}
+                    value={durationText}
+                    onChangeText={setDurationText}
+                    keyboardType="numeric"
+                    maxLength={4}
+                    returnKeyType="done"
+                  />
+                  <Text style={s.durationSuffix}>분 이하</Text>
+                </View>
               </View>
             )}
+
+            {/* 미션 카테고리 */}
+            <Text style={[s.fieldLabel, { marginTop: 8 }]}>미션 카테고리</Text>
+            <View style={s.segmentRow}>
+              <TouchableOpacity
+                style={[s.segBtn, category === 'FOCUS' && s.segBtnActive]}
+                onPress={() => setCategory('FOCUS')}
+                activeOpacity={0.8}
+              >
+                <Text style={[s.segBtnText, category === 'FOCUS' && s.segBtnTextActive]}>
+                  포커스
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.segBtn, category === 'SCREEN_TIME' && s.segBtnActive]}
+                onPress={() => setCategory('SCREEN_TIME')}
+                activeOpacity={0.8}
+              >
+                <Text style={[s.segBtnText, category === 'SCREEN_TIME' && s.segBtnTextActive]}>
+                  스크린타임
+                </Text>
+              </TouchableOpacity>
+            </View>
           </ScrollView>
 
           {/* 저장 버튼 */}
           <TouchableOpacity
-            style={[s.submitBtn, submitting && s.btnDisabled, { marginBottom: insets.bottom + 16 }]}
+            style={[s.submitBtn, { marginBottom: insets.bottom + 16 }]}
             onPress={handleSave}
-            disabled={submitting}
             activeOpacity={0.8}
           >
-            <Text style={s.submitBtnText}>{submitting ? '저장 중...' : '저장하기'}</Text>
+            <Text style={s.submitBtnText}>저장하기</Text>
           </TouchableOpacity>
 
-          {/* 시간 피커 오버레이 (모달 내부 절대좌표) */}
+          {/* 시간 피커 오버레이 (TIME_WINDOW 시작/종료 시각 선택) */}
           {pickerTarget !== null && (
             <View style={s.pickerOverlay}>
               <TouchableOpacity
@@ -429,15 +411,9 @@ export default function ChallengeTab({ group, groupId }) {
                 activeOpacity={1}
               />
               <View style={s.pickerSheet}>
-                <Text style={s.pickerTitle}>
-                  {pickerTarget === 'duration' ? '시간 설정' : '시각 선택'}
-                </Text>
+                <Text style={s.pickerTitle}>시각 선택</Text>
                 <View style={s.pickerWheels}>
-                  <WheelList
-                    data={pickerTarget === 'duration' ? WHEEL_DUR_HOURS : WHEEL_HOURS}
-                    value={tempHour}
-                    onChange={setTempHour}
-                  />
+                  <WheelList data={WHEEL_HOURS} value={tempHour} onChange={setTempHour} />
                   <Text style={s.pickerColon}>:</Text>
                   <WheelList data={WHEEL_MINS} value={tempMinute} onChange={setTempMinute} />
                 </View>
@@ -468,11 +444,11 @@ const s = StyleSheet.create({
   emptyText: { fontSize: 14, fontWeight: '700', color: T.inkLight },
 
   card: { padding: 16, marginBottom: 12 },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 8 },
   cardIcon: { fontSize: 20 },
   cardHeaderText: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   cardName: { fontSize: 15, fontWeight: '800', color: T.ink },
-  cardDesc: { fontSize: 13, fontWeight: '500', color: T.inkMed },
+  cardDesc: { fontSize: 13, fontWeight: '500', color: T.inkMed, marginBottom: 10 },
 
   noBadge: {
     paddingHorizontal: 8,
@@ -484,15 +460,22 @@ const s = StyleSheet.create({
   },
   noBadgeText: { fontSize: 11, fontWeight: '700', color: T.inkLight },
 
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 12,
-    backgroundColor: T.ink,
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  progressTrack: {
+    flex: 1,
+    height: 14,
+    borderRadius: 4,
+    backgroundColor: T.paperDark,
+    overflow: 'hidden',
   },
-  statusBadgeEnded: { backgroundColor: T.paperDark, borderWidth: 1, borderColor: T.paperLine },
-  statusText: { fontSize: 11, fontWeight: '700', color: T.paper },
-  statusTextEnded: { color: T.inkLight },
+  progressFill: { height: '100%', backgroundColor: T.ink, borderRadius: 4 },
+  progressLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: T.inkMed,
+    minWidth: 72,
+    textAlign: 'right',
+  },
 
   fab: {
     position: 'absolute',
@@ -564,21 +547,24 @@ const s = StyleSheet.create({
 
   // TIME_WINDOW 폼
   timeLabels: { flexDirection: 'row', marginBottom: 6 },
-  timeFieldLabel: { fontSize: 12, fontWeight: '700', color: T.inkMed },
+  timeFieldLabel: { fontSize: 12, fontWeight: '700', color: T.inkMed, marginBottom: 8 },
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  timeBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
+  timeBtn: { flex: 1, paddingVertical: 12, alignItems: 'center' },
   timeBtnText: { fontSize: 18, fontWeight: '800', color: T.ink },
   timeSep: { fontSize: 18, fontWeight: '700', color: T.inkMed },
 
   // DURATION 폼
-  durationBtn: {
-    paddingVertical: 12,
-    alignItems: 'center',
+  durationRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  durationInput: {
+    width: 100,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    fontSize: 18,
+    fontWeight: '800',
+    color: T.ink,
+    textAlign: 'center',
   },
+  durationSuffix: { fontSize: 14, fontWeight: '600', color: T.inkMed },
 
   submitBtn: {
     marginHorizontal: 20,
@@ -588,7 +574,6 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   submitBtnText: { fontSize: 15, fontWeight: '800', color: T.paper },
-  btnDisabled: { opacity: 0.4 },
 
   // ── 시간 피커 오버레이 ──────────────────────────────────────────────────────
   pickerOverlay: {
@@ -602,13 +587,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     zIndex: 100,
   },
-  pickerBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
+  pickerBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   pickerSheet: {
     backgroundColor: T.paper,
     borderRadius: 16,
