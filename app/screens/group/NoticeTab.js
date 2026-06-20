@@ -103,7 +103,11 @@ export default function NoticeTab({ group, groupId }) {
       )}
 
       {/* 공지 작성 모달 */}
-      <Modal visible={writeVisible} animationType="slide" onRequestClose={() => setWriteVisible(false)}>
+      <Modal
+        visible={writeVisible}
+        animationType="slide"
+        onRequestClose={() => setWriteVisible(false)}
+      >
         <KeyboardAvoidingView
           style={s.modalRoot}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}

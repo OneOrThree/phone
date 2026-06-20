@@ -253,7 +253,6 @@ export default function FocusModeScreen({ navigation, route }) {
       })
       .catch(() => setGroups([]))
       .finally(() => setLoadingGroups(false));
-     
   }, []);
 
   function goPage(nextIdx) {
