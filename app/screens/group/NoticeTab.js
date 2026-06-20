@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, inkBox } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
+import { useUser } from '../../contexts/UserContext';
 
 function formatDate(instant) {
   if (!instant) return '';
@@ -26,14 +27,16 @@ function formatDate(instant) {
 }
 
 export default function NoticeTab({ group, groupId }) {
+  const { userId: myUserId } = useUser();
   const [notices, setNotices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [writeVisible, setWriteVisible] = useState(false);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const insets = useSafeAreaInsets();
 
-  const isOwner = !!group?.code;
+  const isOwner = group?.members?.some((m) => m.userId === myUserId && m.role === 'OWNER') ?? false;
 
   async function fetchNotices() {
     setLoading(true);
@@ -60,12 +63,25 @@ export default function NoticeTab({ group, groupId }) {
     setWriteVisible(true);
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!title.trim() || !content.trim()) {
       Alert.alert('입력 오류', '제목과 내용을 모두 입력해주세요');
       return;
     }
-    Alert.alert('준비 중', '공지 등록 기능은 아직 준비 중이에요 😅');
+    setSubmitting(true);
+    try {
+      const res = await apiFetch(`/api/v1/groups/${groupId}/announcements`, {
+        method: 'POST',
+        body: JSON.stringify({ title: title.trim(), content: content.trim() }),
+      });
+      if (!res.ok) throw new Error();
+      setWriteVisible(false);
+      fetchNotices();
+    } catch {
+      Alert.alert('오류', '공지 등록에 실패했어요. 다시 시도해주세요.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -136,13 +152,13 @@ export default function NoticeTab({ group, groupId }) {
             <View style={[s.inputBox, inkBox(T.paper)]}>
               <TextInput
                 style={s.titleInput}
-                placeholder="제목 입력 (최대 50자)"
+                placeholder="제목 입력 (최대 100자)"
                 placeholderTextColor={T.inkLight}
                 value={title}
-                onChangeText={(t) => setTitle(t.slice(0, 50))}
-                maxLength={50}
+                onChangeText={(t) => setTitle(t.slice(0, 100))}
+                maxLength={100}
               />
-              <Text style={s.counter}>{title.length}/50</Text>
+              <Text style={s.counter}>{title.length}/100</Text>
             </View>
 
             {/* 내용 */}
@@ -164,11 +180,12 @@ export default function NoticeTab({ group, groupId }) {
 
           {/* 등록 버튼 */}
           <TouchableOpacity
-            style={[s.submitBtn, { marginBottom: insets.bottom + 16 }]}
+            style={[s.submitBtn, { marginBottom: insets.bottom + 16 }, submitting && s.btnDisabled]}
             onPress={handleSubmit}
             activeOpacity={0.8}
+            disabled={submitting}
           >
-            <Text style={s.submitBtnText}>등록하기</Text>
+            <Text style={s.submitBtnText}>{submitting ? '등록 중...' : '등록하기'}</Text>
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>

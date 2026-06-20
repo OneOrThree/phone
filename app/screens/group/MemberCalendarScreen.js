@@ -14,7 +14,8 @@ import { apiFetch } from '../../utils/api';
 const SCREEN_W = Dimensions.get('window').width;
 const H_PAD = 24;
 const CELL_GAP = 4;
-const CELL_SIZE = Math.floor((SCREEN_W - H_PAD * 2 - CELL_GAP * 6) / 7);
+const CELL_W = Math.floor((SCREEN_W - H_PAD * 2 - CELL_GAP * 6) / 7);
+const CELL_H = CELL_W + 10;
 
 const DAYS_KR = ['일', '월', '화', '수', '목', '금', '토'];
 const MONTHS_KR = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
@@ -25,6 +26,35 @@ function formatMin(min) {
   const m = min % 60;
   if (h > 0) return m > 0 ? `${h}시간 ${m}분` : `${h}시간`;
   return `${m}분`;
+}
+
+function compactMin(min) {
+  if (!min || min === 0) return '';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h > 0 && m > 0) return `${h}h${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${min}m`;
+}
+
+// 달성한 챌린지 수 / 전체 챌린지 수 비율로 초록색 농도 결정
+// API가 achievedChallengeCount/totalChallengeCount를 내려주면 그걸 쓰고,
+// 없으면 challengeAchieved boolean을 0/1로 fallback
+function getChallengeRatio(stat) {
+  if (!stat) return { achieved: 0, total: 0 };
+  if (stat.totalChallengeCount != null) {
+    return { achieved: stat.achievedChallengeCount ?? 0, total: stat.totalChallengeCount };
+  }
+  if (stat.challengeAchieved != null) {
+    return { achieved: stat.challengeAchieved ? 1 : 0, total: 1 };
+  }
+  return { achieved: 0, total: 0 };
+}
+
+function challengeBg(achieved, total) {
+  if (!total || !achieved) return 'transparent';
+  const opacity = 0.18 + (achieved / total) * 0.67; // 0.18(연) ~ 0.85(진)
+  return `rgba(22, 163, 74, ${opacity.toFixed(2)})`;
 }
 
 export default function MemberCalendarScreen({ navigation, route }) {
@@ -75,7 +105,10 @@ export default function MemberCalendarScreen({ navigation, route }) {
 
   const totalMin = stats.reduce((sum, s) => sum + (s.focusMinutes ?? 0), 0);
   const goalDays = stats.filter((s) => s.focusGoalAchieved).length;
-  const challengeDays = stats.filter((s) => s.challengeAchieved).length;
+  const challengeDays = stats.filter((s) => {
+    const { achieved } = getChallengeRatio(s);
+    return achieved > 0;
+  }).length;
 
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
   const isOwner = member.role === 'OWNER';
@@ -143,7 +176,7 @@ export default function MemberCalendarScreen({ navigation, route }) {
         {/* 요일 헤더 */}
         <View style={s.weekRow}>
           {DAYS_KR.map((d, i) => (
-            <Text key={d} style={[s.weekDay, { width: CELL_SIZE }, i === 0 && s.sunTxt, i === 6 && s.satTxt]}>
+            <Text key={d} style={[s.weekDay, { width: CELL_W }, i === 0 && s.sunTxt, i === 6 && s.satTxt]}>
               {d}
             </Text>
           ))}
@@ -157,26 +190,38 @@ export default function MemberCalendarScreen({ navigation, route }) {
             {rows.map((row, ri) => (
               <View key={ri} style={[s.gridRow, { gap: CELL_GAP }]}>
                 {row.map((day, di) => {
-                  if (!day) return <View key={di} style={{ width: CELL_SIZE, height: CELL_SIZE }} />;
+                  if (!day) return <View key={di} style={{ width: CELL_W, height: CELL_H }} />;
+
                   const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                   const stat = statsMap[dateStr];
-                  const hasFocus = (stat?.focusMinutes ?? 0) > 0;
-                  const goalMet = !!stat?.focusGoalAchieved;
-                  const challengeMet = !!stat?.challengeAchieved;
+                  const focusMin = stat?.focusMinutes ?? 0;
                   const isToday = isCurrentMonth && now.getDate() === day;
+                  const { achieved, total } = getChallengeRatio(stat);
+                  const bg = challengeBg(achieved, total);
 
                   return (
                     <View
                       key={di}
-                      style={[s.cell, { width: CELL_SIZE, height: CELL_SIZE }, isToday && s.cellToday]}
+                      style={[
+                        s.cell,
+                        { width: CELL_W, height: CELL_H, backgroundColor: bg },
+                        isToday && s.cellToday,
+                      ]}
                     >
-                      <Text style={[s.dayNum, isToday && s.dayNumToday, di === 0 && s.sunTxt, di === 6 && s.satTxt]}>
+                      <Text style={[
+                        s.dayNum,
+                        achieved > 0 && s.dayNumAchieved,
+                        isToday && s.dayNumToday,
+                        di === 0 && s.sunTxt,
+                        di === 6 && s.satTxt,
+                      ]}>
                         {day}
                       </Text>
-                      <View style={s.indicators}>
-                        {hasFocus && <View style={[s.dot, goalMet ? s.dotGoal : s.dotFocus]} />}
-                        {challengeMet && <Text style={s.check}>✓</Text>}
-                      </View>
+                      {focusMin > 0 && (
+                        <Text style={[s.cellTime, achieved > 0 && s.cellTimeAchieved]}>
+                          {compactMin(focusMin)}
+                        </Text>
+                      )}
                     </View>
                   );
                 })}
@@ -188,16 +233,16 @@ export default function MemberCalendarScreen({ navigation, route }) {
         {/* 범례 */}
         <View style={s.legend}>
           <View style={s.legendItem}>
-            <View style={[s.dot, s.dotGoal]} />
-            <Text style={s.legendTxt}>목표 달성</Text>
+            <View style={[s.legendBox, { backgroundColor: challengeBg(1, 4) }]} />
+            <Text style={s.legendTxt}>일부 달성</Text>
           </View>
           <View style={s.legendItem}>
-            <View style={[s.dot, s.dotFocus]} />
-            <Text style={s.legendTxt}>집중 있음</Text>
+            <View style={[s.legendBox, { backgroundColor: challengeBg(3, 4) }]} />
+            <Text style={s.legendTxt}>대부분 달성</Text>
           </View>
           <View style={s.legendItem}>
-            <Text style={[s.check, { fontSize: 11 }]}>✓</Text>
-            <Text style={s.legendTxt}>챌린지</Text>
+            <View style={[s.legendBox, { backgroundColor: challengeBg(1, 1) }]} />
+            <Text style={s.legendTxt}>전체 달성</Text>
           </View>
         </View>
       </View>
@@ -238,7 +283,7 @@ const s = StyleSheet.create({
   closeBtn: { fontSize: 17, color: T.inkMed, fontWeight: '700' },
 
   summary: {
-    flexDirection: 'row', backgroundColor: T.paperDark,
+    flexDirection: 'row', backgroundColor: T.paper,
     borderRadius: 12, paddingVertical: 12, marginBottom: 16,
   },
   summaryItem: { flex: 1, alignItems: 'center', gap: 3 },
@@ -260,23 +305,31 @@ const s = StyleSheet.create({
   satTxt: { color: '#3b82f6' },
 
   gridRow: { flexDirection: 'row' },
-  cell: { alignItems: 'center', justifyContent: 'center', borderRadius: 6, gap: 1 },
-  cellToday: { backgroundColor: T.paperDark },
+  cell: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 6,
+    gap: 2,
+    borderWidth: 1,
+    borderColor: T.paperLine,
+  },
+  // 오늘 날짜: 테두리를 강조(배경색과 겹치지 않도록 fill 대신 border만)
+  cellToday: { borderWidth: 2, borderColor: T.ink },
+
   dayNum: { fontSize: 13, fontWeight: '600', color: T.ink },
   dayNumToday: { fontWeight: '900' },
+  dayNumAchieved: { fontWeight: '800' },
 
-  indicators: { flexDirection: 'row', alignItems: 'center', gap: 2, height: 8 },
-  dot: { width: 5, height: 5, borderRadius: 3 },
-  dotGoal: { backgroundColor: '#16a34a' },
-  dotFocus: { backgroundColor: T.paperLine },
-  check: { fontSize: 8, fontWeight: '900', color: '#f59e0b' },
+  cellTime: { fontSize: 9, fontWeight: '600', color: T.inkMed },
+  cellTimeAchieved: { color: '#14532d', fontWeight: '700' },
 
   legend: {
-    flexDirection: 'row', justifyContent: 'center', gap: 16,
+    flexDirection: 'row', justifyContent: 'center', gap: 14,
     marginTop: 14, paddingTop: 12,
     borderTopWidth: 1, borderTopColor: T.paperLine,
     backgroundColor: T.paper,
   },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendBox: { width: 12, height: 12, borderRadius: 3, borderWidth: 1, borderColor: T.paperLine },
   legendTxt: { fontSize: 11, fontWeight: '600', color: T.inkMed },
 });
