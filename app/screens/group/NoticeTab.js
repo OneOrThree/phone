@@ -38,6 +38,7 @@ export default function NoticeTab({ group, groupId }) {
   const insets = useSafeAreaInsets();
 
   const isOwner = group?.members?.some((m) => m.userId === myUserId && m.role === 'OWNER') ?? false;
+  const canWrite = isOwner || (group?.noticeGrantedUserIds ?? []).includes(myUserId);
 
   async function fetchNotices() {
     setLoading(true);
@@ -138,7 +139,7 @@ export default function NoticeTab({ group, groupId }) {
                   <Text style={s.cardMeta}>
                     공지 #{index + 1} · {formatDate(notice.createdAt)}
                   </Text>
-                  {isOwner && (
+                  {canWrite && (
                     <View style={s.cardActions}>
                       <TouchableOpacity onPress={() => openEdit(notice)} hitSlop={{ top: 8, right: 4, bottom: 8, left: 4 }}>
                         <Text style={s.actionEdit}>수정</Text>
@@ -160,8 +161,8 @@ export default function NoticeTab({ group, groupId }) {
         </ScrollView>
       )}
 
-      {/* FAB — 방장에게만 노출 */}
-      {isOwner && (
+      {/* FAB — 방장 및 권한 부여된 멤버에게 노출 */}
+      {canWrite && (
         <TouchableOpacity style={s.fab} onPress={openWrite} activeOpacity={0.8}>
           <Text style={s.fabText}>+</Text>
         </TouchableOpacity>

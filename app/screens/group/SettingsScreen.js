@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { View, Text, Switch, ScrollView, TouchableOpacity, Alert, StyleSheet } from 'react-native';
+import { View, Text, Switch, ScrollView, TouchableOpacity, Alert, StyleSheet, Modal } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
 
@@ -27,11 +28,16 @@ function ToggleRow({ label, sub, value, onValueChange }) {
   );
 }
 
-function NavRow({ label, onPress, danger, indent }) {
+function NavRow({ label, onPress, danger, indent, value }) {
   return (
     <TouchableOpacity style={[s.row, indent && s.rowIndent]} onPress={onPress} activeOpacity={0.7}>
       <Text style={[s.label, danger && s.dangerLabel, indent && s.labelIndent]}>{label}</Text>
-      {!danger && <Text style={s.chevron}>›</Text>}
+      {!danger && (
+        <View style={s.navRight}>
+          {value != null && <Text style={s.navValue}>{value}</Text>}
+          <Text style={s.chevron}>›</Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -59,6 +65,8 @@ function SelectorRow({ label, value, options, onChange }) {
 }
 
 export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess, onChatEnabledChange, onGroupUpdated }) {
+  const insets = useSafeAreaInsets();
+
   // 알림 설정 (로컬 저장)
   const [chatNotif, setChatNotif] = useState(true);
   const [chatNightNotif, setChatNightNotif] = useState(false);
@@ -70,6 +78,11 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
   const [chatEnabled, setChatEnabled] = useState(true);
   const [noticePermission, setNoticePermission] = useState('U');
   const [invitePermission, setInvitePermission] = useState('R');
+  const [noticeGrantedIds, setNoticeGrantedIds] = useState([]);
+
+  // 공지 권한 멤버 선택 모달
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [pickerSelected, setPickerSelected] = useState([]);
 
   useEffect(() => {
     async function loadNotifSettings() {
@@ -95,6 +108,7 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
     setChatEnabled(group.chatEnabled ?? true);
     setNoticePermission(group.noticePermission ?? 'U');
     setInvitePermission(group.invitePermission ?? 'R');
+    setNoticeGrantedIds(group.noticeGrantedUserIds ?? []);
   }, [group]);
 
   function saveNotif(key, value) {
@@ -187,6 +201,28 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
     if (!ok) setNoticePermission(prev);
   }
 
+  function openNoticePicker() {
+    setPickerSelected([...noticeGrantedIds]);
+    setPickerVisible(true);
+  }
+
+  function togglePickMember(userId) {
+    setPickerSelected((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
+    );
+  }
+
+  async function saveNoticePicker() {
+    const prev = [...noticeGrantedIds];
+    setNoticeGrantedIds(pickerSelected);
+    setPickerVisible(false);
+    const ok = await patchSettings({ noticeGrantedUserIds: pickerSelected });
+    if (!ok) {
+      setNoticeGrantedIds(prev);
+      Alert.alert('오류', '설정 변경에 실패했어요');
+    }
+  }
+
   async function handleInvitePermission(val) {
     const prev = invitePermission;
     setInvitePermission(val);
@@ -211,10 +247,9 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
     ]);
   }
 
-  const PERM_OPTIONS = [
-    { label: '모두', value: 'R' },
-    { label: '방장만', value: 'U' },
-  ];
+  const nonOwnerMembers = (group?.members ?? []).filter((m) => m.role !== 'OWNER');
+  const grantedCount = noticeGrantedIds.length;
+  const noticeGrantedLabel = grantedCount === 0 ? '없음' : `${grantedCount}명`;
 
   return (
     <ScrollView
@@ -257,17 +292,16 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
           {/* 권한 설정 */}
           <SectionHeader title="권한 설정" />
           <View style={s.card}>
-            <SelectorRow
-              label="공지 작성 권한"
-              value={noticePermission}
-              options={PERM_OPTIONS}
-              onChange={handleNoticePermission}
+            <NavRow
+              label="공지 작성 권한 부여"
+              value={noticeGrantedLabel}
+              onPress={openNoticePicker}
             />
             <Divider />
             <SelectorRow
               label="초대 링크 공유"
               value={invitePermission}
-              options={PERM_OPTIONS}
+              options={[{ label: '모두', value: 'R' }, { label: '방장만', value: 'U' }]}
               onChange={handleInvitePermission}
             />
           </View>
@@ -341,6 +375,58 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
 
       <View style={s.bottomPad} />
     </ScrollView>
+
+    {/* 공지 작성 권한 멤버 선택 모달 */}
+    <Modal visible={pickerVisible} animationType="slide" onRequestClose={() => setPickerVisible(false)}>
+      <View style={[s.pickerRoot, { paddingTop: insets.top }]}>
+        {/* 헤더 */}
+        <View style={s.pickerHeader}>
+          <TouchableOpacity
+            onPress={() => setPickerVisible(false)}
+            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+            style={s.pickerHeaderSide}
+          >
+            <Text style={s.pickerCancel}>취소</Text>
+          </TouchableOpacity>
+          <Text style={s.pickerTitle}>공지 작성 권한 부여</Text>
+          <TouchableOpacity
+            onPress={saveNoticePicker}
+            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+            style={s.pickerHeaderSide}
+          >
+            <Text style={s.pickerSave}>저장</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={s.pickerSub}>선택한 멤버는 공지를 직접 작성할 수 있어요. 방장은 항상 가능해요.</Text>
+
+        <ScrollView style={s.pickerList} showsVerticalScrollIndicator={false}>
+          {nonOwnerMembers.length === 0 ? (
+            <Text style={s.pickerEmpty}>방장 외 멤버가 없어요</Text>
+          ) : (
+            nonOwnerMembers.map((member, i) => {
+              const checked = pickerSelected.includes(member.userId);
+              return (
+                <TouchableOpacity
+                  key={member.userId}
+                  style={[s.pickerRow, i > 0 && s.pickerRowBorder]}
+                  onPress={() => togglePickMember(member.userId)}
+                  activeOpacity={0.7}
+                >
+                  <View style={s.pickerAvatar}>
+                    <Text style={s.pickerAvatarTxt}>{member.nickname?.[0] ?? '?'}</Text>
+                  </View>
+                  <Text style={s.pickerName}>{member.nickname}</Text>
+                  <View style={[s.checkbox, checked && s.checkboxChecked]}>
+                    {checked && <Text style={s.checkmark}>✓</Text>}
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -406,6 +492,51 @@ const s = StyleSheet.create({
     color: T.inkLight,
     marginLeft: 8,
   },
+
+  navRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  navValue: { fontSize: 13, fontWeight: '600', color: T.inkLight },
+
+  // 공지 권한 멤버 선택 모달
+  pickerRoot: { flex: 1, backgroundColor: T.paper },
+  pickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1.5,
+    borderBottomColor: T.ink,
+  },
+  pickerHeaderSide: { width: 48 },
+  pickerCancel: { fontSize: 15, fontWeight: '700', color: T.inkMed },
+  pickerSave: { fontSize: 15, fontWeight: '800', color: T.ink, textAlign: 'right' },
+  pickerTitle: { fontSize: 16, fontWeight: '900', color: T.ink, textAlign: 'center' },
+  pickerSub: {
+    fontSize: 13, fontWeight: '500', color: T.inkMed,
+    paddingHorizontal: 20, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: T.paperLine,
+  },
+  pickerList: { flex: 1 },
+  pickerEmpty: { fontSize: 14, fontWeight: '600', color: T.inkLight, textAlign: 'center', marginTop: 60 },
+  pickerRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 20, paddingVertical: 14, gap: 12,
+  },
+  pickerRowBorder: { borderTopWidth: 1, borderTopColor: T.paperLine },
+  pickerAvatar: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: T.paperDark, borderWidth: 1.5, borderColor: T.paperLine,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  pickerAvatarTxt: { fontSize: 18, fontWeight: '900', color: T.inkMed },
+  pickerName: { flex: 1, fontSize: 15, fontWeight: '700', color: T.ink },
+  checkbox: {
+    width: 24, height: 24, borderRadius: 12,
+    borderWidth: 1.5, borderColor: T.paperLine,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  checkboxChecked: { backgroundColor: T.ink, borderColor: T.ink },
+  checkmark: { fontSize: 13, fontWeight: '900', color: T.paper },
 
   selectorGroup: {
     flexDirection: 'row',
