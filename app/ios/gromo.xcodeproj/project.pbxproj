@@ -91,14 +91,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		D40D483A2FE111110058301C /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		D40D483A2FE111110058301C /* Exceptions for "GromoScreenTimeMonitor" folder in "GromoScreenTimeMonitor" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
 			target = D40D482E2FE111100058301C /* GromoScreenTimeMonitor */;
 		};
-		D463E7C12FD664D20049F07A /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		D463E7C12FD664D20049F07A /* Exceptions for "screentimereport" folder in "screentimereport" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -108,8 +108,30 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		D40D48322FE111100058301C /* GromoScreenTimeMonitor */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (D40D483A2FE111110058301C /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = GromoScreenTimeMonitor; sourceTree = "<group>"; };
-		D463E7B52FD664D20049F07A /* screentimereport */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (D463E7C12FD664D20049F07A /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = screentimereport; sourceTree = "<group>"; };
+		D40D48322FE111100058301C /* GromoScreenTimeMonitor */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D40D483A2FE111110058301C /* Exceptions for "GromoScreenTimeMonitor" folder in "GromoScreenTimeMonitor" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = GromoScreenTimeMonitor;
+			sourceTree = "<group>";
+		};
+		D463E7B52FD664D20049F07A /* screentimereport */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D463E7C12FD664D20049F07A /* Exceptions for "screentimereport" folder in "screentimereport" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = screentimereport;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -281,8 +303,6 @@
 				D40D48322FE111100058301C /* GromoScreenTimeMonitor */,
 			);
 			name = GromoScreenTimeMonitor;
-			packageProductDependencies = (
-			);
 			productName = GromoScreenTimeMonitor;
 			productReference = D40D482F2FE111100058301C /* GromoScreenTimeMonitor.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -773,6 +793,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.gromo.screentimemonitor;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -824,6 +845,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.gromo.screentimemonitor;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, FlatList, StyleSheet, Dimensions, TouchableOpacity, Alert } from 'react-native';
 import { T, inkBox } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
+import { useUser } from '../../contexts/UserContext';
 
 const SCREEN_W = Dimensions.get('window').width;
 const H_PAD = 20;
@@ -34,9 +35,26 @@ function InviteCard() {
   );
 }
 
-function MemberCard({ member }) {
+function MemberCard({ member, groupId, myUserId }) {
   const initial = member.nickname?.[0] ?? '?';
   const isOwner = member.role === 'OWNER';
+  const isMe = member.userId === myUserId;
+
+  async function handlePoke() {
+    try {
+      const res = await apiFetch(`/api/v1/groups/${groupId}/members/${member.userId}/poke`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        Alert.alert('콕!', `${member.nickname}님을 콕 찔렀어요 👆`);
+      } else {
+        Alert.alert('실패', '콕 찌르기에 실패했어요.');
+      }
+    } catch {
+      Alert.alert('오류', '네트워크 오류가 발생했어요.');
+    }
+  }
+
   return (
     <View style={s.card}>
       {isOwner && (
@@ -51,6 +69,11 @@ function MemberCard({ member }) {
         <Text style={s.cardName} numberOfLines={1}>{member.nickname}</Text>
         <Text style={s.cardFocus}>⏱ {formatMinutes(member.focusTimeMinutes)}</Text>
       </View>
+      {!isMe && (
+        <TouchableOpacity style={s.pokeBtn} onPress={handlePoke} activeOpacity={0.7}>
+          <Text style={s.pokeBtnText}>👆 콕 찌르기</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -66,6 +89,7 @@ function formatUntil(ms) {
 }
 
 export default function GroupTab({ group, groupId }) {
+  const { userId: myUserId } = useUser();
   const [challenges, setChallenges] = useState([]);
   const [now, setNow] = useState(Date.now());
 
@@ -139,7 +163,7 @@ export default function GroupTab({ group, groupId }) {
       keyExtractor={(item) => (item.__invite ? '__invite' : String(item.userId))}
       numColumns={NUM_COLS}
       renderItem={({ item }) =>
-        item.__invite ? <InviteCard /> : <MemberCard member={item} />
+        item.__invite ? <InviteCard /> : <MemberCard member={item} groupId={groupId} myUserId={myUserId} />
       }
       ListHeaderComponent={ListHeader}
       columnWrapperStyle={s.columnWrapper}
@@ -217,6 +241,16 @@ const s = StyleSheet.create({
     backgroundColor: T.ink,
   },
   ownerBadgeText: { fontSize: 10, fontWeight: '800', color: T.paper },
+
+  pokeBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: T.paperLine,
+    backgroundColor: T.paperDark,
+  },
+  pokeBtnText: { fontSize: 12, fontWeight: '700', color: T.ink },
 
   inviteLabel: { fontSize: 14, fontWeight: '700', color: T.inkMed },
   inviteCircle: {
