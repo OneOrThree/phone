@@ -11,8 +11,11 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, Long> {
+
+    Optional<GroupChallenge> findByIdAndGroup(Long id, Group group);
 
     List<GroupChallenge> findByGroupOrderByCreatedAtDesc(Group group);
 

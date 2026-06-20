@@ -40,7 +40,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,6 +63,7 @@ public class GroupService {
 
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     @Transactional
     public CreateGroupResponse createGroup(Long userId, CreateGroupRequest request) {
@@ -383,14 +387,25 @@ public class GroupService {
                         .missionType(c.getMissionType())
                         .missionCategory(c.getMissionCategory())
                         .durationMinutes(c.getDurationMinutes())
-                        .windowStart(c.getWindowStart())
-                        .windowEnd(c.getWindowEnd())
+                        .windowStart(toLocalTimeString(c.getWindowStart(), c.getTimeZone()))
+                        .windowEnd(toLocalTimeString(c.getWindowEnd(), c.getTimeZone()))
+                        .timeZone(c.getTimeZone())
                         .canParticipate(c.getMissionCategory() == MissionCategory.FOCUS
                                 || user.isScreenTimePermissionGranted())
                         .status(c.getStatus())
                         .createdAt(c.getCreatedAt())
                         .build())
                 .toList();
+    }
+
+    // TIME_WINDOW 챌린지의 Instant를 timeZone 기준 "HH:mm:ss" 문자열로 변환.
+    // DURATION 챌린지는 instant가 null → null 그대로 반환. timeZone이 null이면 UTC 기준.
+    private String toLocalTimeString(Instant instant, String timeZone) {
+        if (instant == null) {
+            return null;
+        }
+        ZoneId zone = timeZone != null ? ZoneId.of(timeZone) : ZoneOffset.UTC;
+        return LocalTime.ofInstant(instant, zone).format(TIME_FORMATTER);
     }
 
     @Transactional
@@ -457,6 +472,31 @@ public class GroupService {
         targetGroupMember.promoteToOwner();
         group.transferOwner(targetUserId);
     }
+
+    @Transactional
+    public void deleteChallenge(Long groupId, Long challengeId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        if (groupMember.getRole() != GroupMemberRole.OWNER) {
+            throw new GroupException(GroupErrorCode.NOT_OWNER);
+        }
+
+        GroupChallenge groupChallenge = groupChallengeRepository.findByIdAndGroup(challengeId, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        groupChallengeRepository.delete(groupChallenge);
+    }
+
 
     private String generateUniqueCode() {
         StringBuilder sb = new StringBuilder(8);
