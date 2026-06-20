@@ -3,12 +3,14 @@ package com.oneorthree.phone.api;
 import com.oneorthree.phone.api.dto.request.UserProfileSetupRequest;
 import com.oneorthree.phone.api.dto.request.UserProfileUpdateRequest;
 import com.oneorthree.phone.service.UserService;
+import com.oneorthree.phone.service.dto.user.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.service.dto.user.UserProfileResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -64,6 +66,21 @@ public class UserController {
     public ResponseEntity<Void> withdraw(HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
         userService.withdraw(userId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "스크린타임 권한 동의 상태 업데이트", description = "iOS Screen Time 권한 부여/취소 시 호출. 성공 시 204 반환.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "업데이트 성공"),
+        @ApiResponse(responseCode = "400", description = "granted 필드 누락"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
+    @PatchMapping("/users/me/screen-time-permission")
+    public ResponseEntity<?> updateScreenTimePermission(
+            @Valid @RequestBody UpdateScreenTimePermissionRequest body,
+            HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+        userService.updateScreenTimePermission(userId, body);
         return ResponseEntity.noContent().build();
     }
 }

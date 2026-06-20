@@ -12,7 +12,7 @@ export default {
       '@react-native-community/datetimepicker',
       'expo-apple-authentication',
     ],
-    slug: 'gromo',
+    slug: 'gromo-kr',
     version: '0.0.1',
     orientation: 'portrait',
     userInterfaceStyle: 'light',
@@ -31,10 +31,10 @@ export default {
     web: {
       bundler: 'metro',
     },
-    owner: 'oscarthegrouch',
+    owner: 'oneorthree',
     extra: {
       eas: {
-        projectId: 'd024fa23-5e52-4655-9705-2387d9289f19',
+        projectId: '4958d398-2a53-42fb-978a-bdfc30a5f3c0',
       },
     },
   },

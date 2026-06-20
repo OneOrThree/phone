@@ -11,7 +11,6 @@ const NUM_COLS = 2;
 const COL_GAP = 10;
 const CARD_W = (SCREEN_W - H_PAD * 2 - COL_GAP * (NUM_COLS - 1)) / NUM_COLS;
 
-
 function formatWindowTime(instant) {
   if (!instant) return '';
   const d = new Date(instant);

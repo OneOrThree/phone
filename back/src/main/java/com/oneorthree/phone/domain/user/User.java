@@ -89,6 +89,10 @@ public class User {
     @Column(length = 255)
     private String deviceToken;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean screenTimePermissionGranted = false;
+
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<SocialAccount> socialAccounts = new ArrayList<>();
