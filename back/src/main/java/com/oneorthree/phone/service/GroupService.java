@@ -284,11 +284,15 @@ public class GroupService {
 
         List<GroupMember> groupMembers = groupMemberRepository.findByGroup(group);
 
+        // TODO GROMO-369: DailyFocusStatRepository.findByUserInAndDate() 배치 조회
+        //  - N+1 방지: 멤버별 개별 쿼리 금지 → userId→focusMinutes Map 생성 후 builder에서 사용
+        //  - DailyFocusStatRepository 필드 주입 필요
         List<GroupDetailMemberResponse> list = groupMembers.stream()
                 .map(m -> GroupDetailMemberResponse.builder()
                         .userId(m.getUser().getId())
                         .nickname(m.getUser().getNickname())
                         .role(m.getRole())
+                        // TODO GROMO-369: .focusTimeMinutes(focusMap.getOrDefault(m.getUser().getId(), 0))
                         .build())
                 .toList();
 
@@ -308,6 +312,9 @@ public class GroupService {
                         group.getCode() : null)
                 .codeExpiresAt(groupMember.getRole() == GroupMemberRole.OWNER ?
                         group.getCodeExpiresAt() : null)
+                // TODO GROMO-378: .noticeGrantedUserIds(...)
+                //  - GroupNoticeGrantRepository.findByGroup(group) → userId List 변환
+                //  - GroupNoticeGrantRepository 필드 주입 필요
                 .build();
     }
 
@@ -327,6 +334,10 @@ public class GroupService {
             throw new GroupException(GroupErrorCode.MEMBER_ONLY);
         }
 
+        // TODO GROMO-378: OWNER 단독 → OWNER ∪ noticeGrantedUserIds 권한 확장
+        //  - canManageNotice(group, userId) private helper 추출 권장
+        //  - groupNoticeGrantRepository.existsByGroupAndUserId(group, userId) 추가 체크
+        //  - 권한 없으면 NOTICE_FORBIDDEN(또는 NOT_OWNER) throw
         if (groupMember.get().getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
@@ -365,6 +376,18 @@ public class GroupService {
                         .build())
                 .toList();
     }
+
+    // TODO GROMO-378: updateAnnouncement 메서드 추가
+    //  - 시그니처: @Transactional public void updateAnnouncement(
+    //    Long groupId, Long announcementId, Long userId, CreateAnnouncementRequest request)
+    //  - 권한: canManageNotice(group, userId) — OWNER 또는 noticeGrantedUserIds
+    //  - 소속 검증: groupAnnouncementRepository.findByIdAndGroup(announcementId, group) 없으면 NOT_FOUND
+    //  - 수정: announcement.updateContent(request.getTitle(), request.getContent())
+
+    // TODO GROMO-378: deleteAnnouncement 메서드 추가
+    //  - 시그니처: @Transactional public void deleteAnnouncement(
+    //    Long groupId, Long announcementId, Long userId)
+    //  - 권한/소속 검증 동일, groupAnnouncementRepository.delete(announcement)
 
     public List<GroupChallengeResponse> getChallenges(Long groupId, Long userId) {
         User user = userRepository.findById(userId)
@@ -445,7 +468,16 @@ public class GroupService {
         } else if (request.getPasswordAction() == UpdateGroupRequest.PasswordAction.REMOVE) {
             group.removePassword();
         }
+        // TODO GROMO-377: description 수정 처리 추가
+        //  - if (request.getDescription() != null) group.updateDescription(request.getDescription())
     }
+
+    // TODO GROMO-377: updateGroupSettings 메서드 추가
+    //  - 시그니처: @Transactional public void updateGroupSettings(
+    //    Long groupId, Long userId, UpdateGroupSettingsRequest request)
+    //  - 권한 순서: 유저 조회 → 게스트(GUEST_FORBIDDEN) → 그룹(NOT_FOUND) → OWNER(NOT_OWNER)
+    //  - null 아닌 필드만 group.updateSettings(...)에 반영 (PATCH)
+    //  - GROMO-378: noticeGrantedUserIds 처리도 여기에 추가
 
     @Transactional
     public void transferOwner(Long groupId, Long targetUserId, Long userId) {
@@ -497,6 +529,15 @@ public class GroupService {
         groupChallengeRepository.delete(groupChallenge);
     }
 
+    // TODO GROMO-284: withdrawGroup 메서드 추가
+    //  - 시그니처: @Transactional public void withdrawGroup(Long groupId, Long userId)
+    //  - 순서:
+    //    1) 그룹 존재(NOT_FOUND)
+    //    2) 멤버십 조회(없으면 MEMBER_ONLY)
+    //    3) 전체 멤버 수 확인:
+    //       a. 본인이 마지막 1인 → groupMemberRepository.delete(membership) + group.close()
+    //       b. 본인이 OWNER + 다른 멤버 존재 → HOST_WITHDRAW (수동 위임 요구, 자동 위임 없음)
+    //       c. 본인이 MEMBER → groupMemberRepository.delete(membership)
 
     private String generateUniqueCode() {
         StringBuilder sb = new StringBuilder(8);

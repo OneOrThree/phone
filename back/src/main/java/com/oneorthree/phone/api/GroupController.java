@@ -254,4 +254,25 @@ public class GroupController {
         groupService.deleteChallenge(groupId, challengeId, userId);
         return ResponseEntity.noContent().build();
     }
+
+    // TODO GROMO-377: 그룹 설정 수정 엔드포인트 추가
+    //  - @PatchMapping("/groups/{groupId}/settings"), public ResponseEntity<Void> (204)
+    //  - 시그니처: updateGroupSettings(@PathVariable Long groupId,
+    //    @RequestBody UpdateGroupSettingsRequest request, HttpServletRequest httpServletRequest)
+    //  - @Operation/@ApiResponses(204/403/404) 추가
+    //  - import: UpdateGroupSettingsRequest
+
+    // TODO GROMO-378: 공지 수정/삭제 엔드포인트 추가
+    //  - @PutMapping("/groups/{groupId}/announcements/{announcementId}"), public ResponseEntity<Void> (204)
+    //    시그니처: updateGroupAnnouncement(@PathVariable Long groupId, @PathVariable Long announcementId,
+    //    @Valid @RequestBody CreateAnnouncementRequest request, HttpServletRequest httpServletRequest)
+    //  - @DeleteMapping("/groups/{groupId}/announcements/{announcementId}"), public ResponseEntity<Void> (204)
+    //    시그니처: deleteGroupAnnouncement(@PathVariable Long groupId, @PathVariable Long announcementId,
+    //    HttpServletRequest httpServletRequest)
+    //  - import: PutMapping 추가
+
+    // TODO GROMO-284: 그룹 탈퇴 엔드포인트 추가
+    //  - @DeleteMapping("/groups/{groupId}/members/me"), public ResponseEntity<Void> (204)
+    //  - 시그니처: withdrawGroup(@PathVariable Long groupId, HttpServletRequest httpServletRequest)
+    //  - @Operation/@ApiResponses(204/400/403/404) 추가
 }

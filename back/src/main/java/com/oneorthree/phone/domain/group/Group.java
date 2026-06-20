@@ -115,4 +115,19 @@ public class Group {
     public void removePassword() {
         this.password = null;
     }
+
+    // TODO GROMO-377: 설정 컬럼 필드 추가
+    //  - boolean chatEnabled (@Column NOT NULL, @Builder.Default true)
+    //  - Integer chatLimitPerPerson (@Column nullable, null=무제한)
+    //  - GroupPermissionScope noticePermission (@Enumerated STRING, @Column NOT NULL, default OWNER_ONLY)
+    //  - GroupPermissionScope invitePermission (@Enumerated STRING, @Column NOT NULL, default OWNER_ONLY)
+    //  도메인 메서드:
+    //  - updateDescription(String description)
+    //  - updateSettings(Boolean chatEnabled, Integer chatLimitPerPerson,
+    //    GroupPermissionScope noticePermission, GroupPermissionScope invitePermission)
+    //    (null인 파라미터는 기존값 유지)
+
+    // TODO GROMO-284: close() 메서드 추가
+    //  - this.status = GroupStatus.CLOSED; this.endedAt = Instant.now();
+    //  - 마지막 멤버 탈퇴 시 호출
 }
