@@ -140,7 +140,7 @@ function GroupListView({
               </View>
             </View>
             <View style={s.groupCardBottom}>
-              <Text style={s.groupCode}>코드 {group.code}</Text>
+              <Text style={s.groupCode} numberOfLines={1}>{group.description ?? ''}</Text>
               <Text style={s.groupMembers}>
                 👥 {group.currentMembers}/{group.maxMembers}명
               </Text>

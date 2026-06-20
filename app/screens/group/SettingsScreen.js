@@ -27,10 +27,10 @@ function ToggleRow({ label, sub, value, onValueChange }) {
   );
 }
 
-function NavRow({ label, onPress, danger }) {
+function NavRow({ label, onPress, danger, indent }) {
   return (
-    <TouchableOpacity style={s.row} onPress={onPress} activeOpacity={0.7}>
-      <Text style={[s.label, danger && s.dangerLabel]}>{label}</Text>
+    <TouchableOpacity style={[s.row, indent && s.rowIndent]} onPress={onPress} activeOpacity={0.7}>
+      <Text style={[s.label, danger && s.dangerLabel, indent && s.labelIndent]}>{label}</Text>
       {!danger && <Text style={s.chevron}>›</Text>}
     </TouchableOpacity>
   );
@@ -295,13 +295,18 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
               value={chatEnabled}
               onValueChange={handleToggleChatEnabled}
             />
-            <Divider />
-            <NavRow label="1인당 채팅 횟수 제한" onPress={handleChatLimit} />
-            <Divider />
-            <NavRow
-              label="멤버별 채팅 허용/비허용"
-              onPress={() => Alert.alert('준비 중', '멤버별 설정은 곧 추가돼요 😊')}
-            />
+            {chatEnabled && (
+              <>
+                <Divider />
+                <NavRow label="1인당 채팅 횟수 제한" onPress={handleChatLimit} indent />
+                <Divider />
+                <NavRow
+                  label="멤버별 채팅 허용/비허용"
+                  onPress={() => Alert.alert('준비 중', '멤버별 설정은 곧 추가돼요 😊')}
+                  indent
+                />
+              </>
+            )}
           </View>
 
           <SectionHeader title="권한 설정" />
@@ -369,6 +374,8 @@ const s = StyleSheet.create({
     paddingVertical: 14,
     minHeight: 52,
   },
+  rowIndent: { paddingLeft: 32, backgroundColor: 'rgba(0,0,0,0.02)' },
+  labelIndent: { color: '#555', fontSize: 14 },
   subRow: {
     paddingLeft: 32,
     backgroundColor: T.paperDark,
