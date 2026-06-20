@@ -1425,6 +1425,68 @@
         }
       }
     },
+    "/api/v1/groups/{groupId}/challenges/{challengeId}": {
+      "delete": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 챌린지 삭제",
+        "description": "OWNER만 삭제 가능. 성공 시 204 반환.",
+        "operationId": "deleteGroupChallenge",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "challengeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "삭제 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "게스트 / 그룹원 아님 / OWNER 아님",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음 / 챌린지 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/equipment/{userId}/{slotType}": {
       "delete": {
         "tags": [
@@ -2282,12 +2344,13 @@
             "format": "int32"
           },
           "windowStart": {
-            "type": "string",
-            "format": "date-time"
+            "type": "string"
           },
           "windowEnd": {
-            "type": "string",
-            "format": "date-time"
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
           },
           "status": {
             "type": "string",
