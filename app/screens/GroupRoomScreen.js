@@ -66,17 +66,36 @@ export default function GroupDetailScreen({ navigation, route }) {
     <View style={s.root}>
       {/* 상단 헤더 */}
       <View style={[s.header, { paddingTop: insets.top + 8 }]}>
-        <View style={s.headerSide} />
+        {showSettings ? (
+          <TouchableOpacity
+            onPress={() => {
+              setShowSettings(false);
+              navigation.setParams({ showSettings: false });
+            }}
+            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+            style={s.headerSide}
+          >
+            <Text style={s.backText}>‹ 뒤로</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={s.headerSide} />
+        )}
         <Text style={s.headerTitle} numberOfLines={1}>
           {showSettings ? '그룹 설정' : (group?.name ?? '')}
         </Text>
-        <TouchableOpacity
-          onPress={() => setShowSettings((v) => !v)}
-          hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-          style={[s.headerSide, s.headerSideRight]}
-        >
-          <Text style={[s.gearText, showSettings && s.gearTextActive]}>⚙</Text>
-        </TouchableOpacity>
+        {!showSettings && (
+          <TouchableOpacity
+            onPress={() => {
+              setShowSettings(true);
+              navigation.setParams({ showSettings: true });
+            }}
+            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+            style={[s.headerSide, s.headerSideRight]}
+          >
+            <Text style={s.gearText}>⚙</Text>
+          </TouchableOpacity>
+        )}
+        {showSettings && <View style={s.headerSide} />}
       </View>
 
       {/* 본문 */}
@@ -137,6 +156,7 @@ const s = StyleSheet.create({
   },
   gearText: { fontSize: 22, color: T.inkMed },
   gearTextActive: { color: T.ink },
+  backText: { fontSize: 16, fontWeight: '700', color: T.ink },
 
   content: { flex: 1 },
   loader: { marginTop: 80 },

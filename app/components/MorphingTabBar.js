@@ -79,7 +79,8 @@ export function MorphingTabBar({ state, navigation }) {
     }).start();
   }, [groupDisplayIdx, isGroupDetail, groupPillAnim]);
 
-  if (HIDDEN.has(activeRouteName)) return null;
+  const isSettingsOpen = isGroupDetail && (currentRoute?.params?.showSettings ?? false);
+  if (HIDDEN.has(activeRouteName) || isSettingsOpen) return null;
 
   const pb = insets.bottom + BAR_MARGIN_V;
 
