@@ -1,5 +1,14 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Animated,
+  Easing,
+  FlatList,
+  ActivityIndicator,
+} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
 import { useFocus } from '../contexts/FocusContext';
@@ -107,7 +116,6 @@ function AnimatedCharacter({ variant, size }) {
       if (armCfg.r) {
         const lp = makeArmLoop(rightArm, armCfg.r, armCfg.dur, armCfg.easing);
         armLoops.push(lp);
-        // focus: right arm starts half a cycle out of phase for alternating effect
         if (!armCfg.sync) {
           Animated.delay(armCfg.dur).start(() => lp.start());
         } else {
@@ -176,6 +184,20 @@ function AnimatedCharacter({ variant, size }) {
   );
 }
 
+function SeatSlot({ member }) {
+  return (
+    <View style={s.seat}>
+      <View style={s.seatCharWrap}>
+        <Character2D size={60} variant="focus" costumeSlots={[]} />
+      </View>
+      <View style={s.deskSurface} />
+      <Text style={s.seatName} numberOfLines={1}>
+        {member.nickname ?? member.name ?? '?'}
+      </Text>
+    </View>
+  );
+}
+
 const VARIANT_CARD_COLOR = {
   default: T.paperDark,
   focus: T.sky,
@@ -199,9 +221,56 @@ export default function FocusModeScreen({ navigation, route }) {
     addCoinsRef.current = addCoins;
   }, [addCoins]);
 
+  // ── 페이지 네비게이션: 0 = 개인, 1..N = 그룹 ──
+  const [pageIdx, setPageIdx] = useState(0);
+  const [groups, setGroups] = useState([]);
+  const [membersMap, setMembersMap] = useState({});
+  const [loadingGroups, setLoadingGroups] = useState(false);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+
+  async function fetchGroupMembers(groupId) {
+    if (membersMap[groupId]) return;
+    setLoadingMembers(true);
+    try {
+      const res = await apiFetch(`/api/v1/groups/${groupId}`);
+      const data = res.ok ? await res.json() : null;
+      const members = data?.members ?? [];
+      setMembersMap((prev) => ({ ...prev, [groupId]: members }));
+    } catch {
+      setMembersMap((prev) => ({ ...prev, [groupId]: [] }));
+    } finally {
+      setLoadingMembers(false);
+    }
+  }
+
+  useEffect(() => {
+    setLoadingGroups(true);
+    apiFetch('/api/v1/groups')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        setGroups(list);
+      })
+      .catch(() => setGroups([]))
+      .finally(() => setLoadingGroups(false));
+  }, []);
+
+  function goPage(nextIdx) {
+    if (nextIdx < 0 || nextIdx > groups.length) return;
+    setPageIdx(nextIdx);
+    if (nextIdx > 0) {
+      const g = groups[nextIdx - 1];
+      if (g) fetchGroupMembers(g.id ?? g.groupId);
+    }
+  }
+
   const variant = equippedItem?.focusVariant ?? 'default';
   const msg = VARIANT_MSG[variant] ?? VARIANT_MSG.default;
   const cardColor = VARIANT_CARD_COLOR[variant] ?? T.paperDark;
+
+  const currentGroup = pageIdx > 0 ? groups[pageIdx - 1] : null;
+  const currentGroupId = currentGroup?.id ?? currentGroup?.groupId;
+  const currentMembers = currentGroupId ? (membersMap[currentGroupId] ?? []) : [];
 
   useFocusEffect(
     React.useCallback(() => {
@@ -280,15 +349,83 @@ export default function FocusModeScreen({ navigation, route }) {
         <Text style={s.timerText}>{formatTime(sessionSeconds)}</Text>
       </View>
 
-      {/* 캐릭터 */}
+      {/* 카드: 개인 뷰 or 그룹 뷰 */}
       <View style={[s.charCard, inkBox(cardColor, '-0.8deg')]}>
-        <Text style={s.charMsg}>{msg}</Text>
-        <View style={s.charInner}>
-          <AnimatedCharacter size={200} variant={variant} />
+        {pageIdx === 0 ? (
+          /* 개인 뷰 — 캐릭터 애니메이션 */
+          <>
+            <Text style={s.charMsg}>{msg}</Text>
+            <View style={s.charInner}>
+              <AnimatedCharacter size={200} variant={variant} />
+            </View>
+          </>
+        ) : (
+          /* 그룹 뷰 — 도서관 룸 */
+          <>
+            <Text style={s.groupViewTitle} numberOfLines={1}>
+              {currentGroup?.name ?? ''}
+            </Text>
+            <View style={s.room}>
+              <View style={s.roomWall} />
+              <View style={s.roomFloor} />
+              <View style={s.seatsWrap}>
+                {loadingMembers ? (
+                  <ActivityIndicator color={T.ink} />
+                ) : currentMembers.length === 0 ? (
+                  <Text style={s.emptyText}>멤버가 없어요</Text>
+                ) : (
+                  <FlatList
+                    data={currentMembers}
+                    keyExtractor={(item) => String(item.id ?? item.userId)}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={s.seatList}
+                    renderItem={({ item }) => <SeatSlot member={item} />}
+                  />
+                )}
+              </View>
+            </View>
+          </>
+        )}
+
+        {/* 페이지 네비게이션 바 */}
+        <View style={s.pageNav}>
+          <TouchableOpacity
+            onPress={() => goPage(pageIdx - 1)}
+            disabled={pageIdx === 0}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={[s.pageNavArrow, pageIdx === 0 && s.pageNavArrowDisabled]}>←</Text>
+          </TouchableOpacity>
+          <View style={s.pageNavCenter}>
+            {loadingGroups ? (
+              <ActivityIndicator size="small" color={T.ink} />
+            ) : pageIdx === 0 ? (
+              <Text style={s.pageNavLabel}>개인</Text>
+            ) : (
+              <>
+                <Text style={s.pageNavLabel} numberOfLines={1}>
+                  {currentGroup?.name ?? ''}
+                </Text>
+                <Text style={s.pageNavPager}>
+                  {pageIdx} / {groups.length}
+                </Text>
+              </>
+            )}
+          </View>
+          <TouchableOpacity
+            onPress={() => goPage(pageIdx + 1)}
+            disabled={pageIdx >= groups.length}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={[s.pageNavArrow, pageIdx >= groups.length && s.pageNavArrowDisabled]}>
+              →
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
-      {/* 오늘 누적 — compact 한 줄 */}
+      {/* 오늘 누적 */}
       <View style={s.accumRow}>
         <Text style={s.accumLabel}>오늘 누적 ⏱</Text>
         <Text style={s.accumTime}>{formatTime(todayFocusSeconds + sessionSeconds)}</Text>
@@ -330,13 +467,94 @@ const s = StyleSheet.create({
 
   charCard: {
     flex: 1,
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
     marginBottom: 12,
+    overflow: 'hidden',
   },
-  charMsg: { fontSize: 13, fontWeight: '700', color: T.inkMed, marginBottom: 6 },
+  charMsg: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: T.inkMed,
+    textAlign: 'center',
+    paddingTop: 12,
+    marginBottom: 4,
+  },
   charInner: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  // 그룹 뷰 제목
+  groupViewTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: T.ink,
+    textAlign: 'center',
+    paddingVertical: 10,
+  },
+
+  // 도서관 룸
+  room: { flex: 1, position: 'relative' },
+  roomWall: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '57%',
+    backgroundColor: '#F0F0F0',
+  },
+  roomFloor: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '45%',
+    backgroundColor: '#E0E0E0',
+    borderTopWidth: 2,
+    borderTopColor: T.ink,
+  },
+
+  // 멤버 자리
+  seatsWrap: {
+    position: 'absolute',
+    bottom: '10%',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  seatList: { paddingHorizontal: 16, gap: 10 },
+  seat: { width: 64, alignItems: 'center' },
+  seatCharWrap: { alignItems: 'center' },
+  deskSurface: {
+    width: 56,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#BBBBBB',
+    borderWidth: 1.5,
+    borderColor: T.ink,
+    marginTop: 2,
+  },
+  seatName: {
+    marginTop: 3,
+    fontSize: 9,
+    fontWeight: '700',
+    color: T.ink,
+    textAlign: 'center',
+    maxWidth: 60,
+  },
+  emptyText: { fontSize: 12, fontWeight: '600', color: T.inkLight },
+
+  // 페이지 네비게이션 바
+  pageNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderTopWidth: 1.5,
+    borderTopColor: T.ink,
+  },
+  pageNavCenter: { flex: 1, alignItems: 'center' },
+  pageNavLabel: { fontSize: 12, fontWeight: '800', color: T.ink },
+  pageNavPager: { fontSize: 10, fontWeight: '600', color: T.inkMed, marginTop: 1 },
+  pageNavArrow: { fontSize: 16, fontWeight: '700', color: T.ink, paddingHorizontal: 4 },
+  pageNavArrowDisabled: { color: T.inkLight },
 
   accumRow: {
     flexDirection: 'row',
