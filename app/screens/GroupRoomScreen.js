@@ -126,6 +126,7 @@ export default function GroupDetailScreen({ navigation, route }) {
             isOwner={!!group?.code}
             onLeaveSuccess={() => navigation.navigate('그룹')}
             onChatEnabledChange={(val) => navigation.setParams({ chatEnabled: val })}
+            onGroupUpdated={(patch) => setGroup((prev) => ({ ...prev, ...patch }))}
           />
         ) : (
           <ActiveTab group={group} groupId={groupId} />

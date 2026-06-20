@@ -58,7 +58,7 @@ function SelectorRow({ label, value, options, onChange }) {
   );
 }
 
-export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess, onChatEnabledChange }) {
+export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess, onChatEnabledChange, onGroupUpdated }) {
   // 알림 설정 (로컬 저장)
   const [chatNotif, setChatNotif] = useState(true);
   const [chatNightNotif, setChatNightNotif] = useState(false);
@@ -125,8 +125,10 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: newName.trim() }),
         });
-        if (res.ok) Alert.alert('완료', '그룹 이름이 변경됐어요');
-        else Alert.alert('오류', '변경에 실패했어요');
+        if (res.ok) {
+          Alert.alert('완료', '그룹 이름이 변경됐어요');
+          onGroupUpdated?.({ name: newName.trim() });
+        } else Alert.alert('오류', '변경에 실패했어요');
       },
       'plain-text',
       group?.name ?? '',
@@ -144,7 +146,8 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ description: desc.trim() }),
         });
-        if (!res.ok) Alert.alert('오류', '변경에 실패했어요');
+        if (res.ok) onGroupUpdated?.({ description: desc.trim() });
+        else Alert.alert('오류', '변경에 실패했어요');
       },
       'plain-text',
       group?.description ?? '',
