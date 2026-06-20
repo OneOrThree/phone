@@ -1,5 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, FlatList, StyleSheet, Dimensions, TouchableOpacity, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  Dimensions,
+  TouchableOpacity,
+  Alert,
+} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T, inkBox } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
@@ -56,7 +64,10 @@ function MemberCard({ member, groupId, myUserId }) {
   const intervalRef = useRef(null);
 
   useEffect(() => {
-    if (!isFocusing) { setElapsed(0); return; }
+    if (!isFocusing) {
+      setElapsed(0);
+      return;
+    }
     setElapsed(0);
     intervalRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
     return () => clearInterval(intervalRef.current);
@@ -77,7 +88,9 @@ function MemberCard({ member, groupId, myUserId }) {
         <Text style={[s.avatarText, isOwner && s.avatarTextOwner]}>{initial}</Text>
       </View>
       <View style={s.cardBottom}>
-        <Text style={s.cardName} numberOfLines={1}>{member.nickname}</Text>
+        <Text style={s.cardName} numberOfLines={1}>
+          {member.nickname}
+        </Text>
         {isFocusing ? (
           <Text style={s.cardFocusLive}>⏱ {formatLiveTime(baseSeconds + elapsed)}</Text>
         ) : (
@@ -105,11 +118,7 @@ function MemberCard({ member, groupId, myUserId }) {
     );
   }
 
-  return (
-    <View style={[s.card, isMe && s.cardMe]}>
-      {cardContent}
-    </View>
-  );
+  return <View style={[s.card, isMe && s.cardMe]}>{cardContent}</View>;
 }
 
 function formatUntil(ms) {
@@ -184,7 +193,8 @@ export default function GroupTab({ group, groupId }) {
 
       {/* 인원 */}
       <Text style={s.memberCount}>
-        멤버 <Text style={s.memberCountNum}>{group.members?.length ?? 0}</Text> / {group.maxMembers}명
+        멤버 <Text style={s.memberCountNum}>{group.members?.length ?? 0}</Text> / {group.maxMembers}
+        명
       </Text>
 
       <Text style={s.gridTitle}>멤버</Text>
@@ -197,7 +207,11 @@ export default function GroupTab({ group, groupId }) {
       keyExtractor={(item) => (item.__invite ? '__invite' : String(item.userId))}
       numColumns={NUM_COLS}
       renderItem={({ item }) =>
-        item.__invite ? <InviteCard /> : <MemberCard member={item} groupId={groupId} myUserId={myUserId} />
+        item.__invite ? (
+          <InviteCard />
+        ) : (
+          <MemberCard member={item} groupId={groupId} myUserId={myUserId} />
+        )
       }
       ListHeaderComponent={ListHeader}
       columnWrapperStyle={s.columnWrapper}
