@@ -310,8 +310,7 @@ export default function FocusModeScreen({ navigation, route }) {
         }),
       });
     } catch (e) {
-      console.error('[세션 저장 실패]', e);
-    }
+}
 
     navigation.navigate('홈', {
       focusResult: {

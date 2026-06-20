@@ -20,15 +20,12 @@ async function syncOnboardingToServer(onboardingData) {
     dayEndTime: onboardingData.dayEndTime ?? '00:00',
     reportTime: onboardingData.reportTime ?? '00:00',
   };
-  console.log('[온보딩 전송]', JSON.stringify(body, null, 2));
-  try {
+try {
     const res = await apiFetch('/api/v1/user', { method: 'POST', body: JSON.stringify(body) });
     const text = await res.text();
     const data = text ? JSON.parse(text) : {};
-    console.log('[온보딩 응답]', res.status, JSON.stringify(data, null, 2));
-  } catch (e) {
-    console.error('[온보딩 실패]', e);
-  }
+} catch (e) {
+}
 }
 
 import { FocusProvider } from './contexts/FocusContext';

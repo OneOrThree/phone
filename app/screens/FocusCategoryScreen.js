@@ -81,8 +81,7 @@ export default function FocusCategoryScreen({ navigation }) {
         setTags(list);
       }
     } catch (e) {
-      console.error('[태그 로드 실패]', e);
-    } finally {
+} finally {
       if (initial) setLoading(false);
     }
   }
