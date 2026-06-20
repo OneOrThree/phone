@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setLogoutHandler, getUserIdFromToken, apiFetch } from './utils/api';
@@ -44,11 +45,13 @@ import MyPageScreen from './screens/MyPageScreen';
 import FocusModeScreen from './screens/FocusModeScreen';
 import FocusCategoryScreen from './screens/FocusCategoryScreen';
 import GroupRoomScreen from './screens/GroupRoomScreen';
+import MemberCalendarScreen from './screens/group/MemberCalendarScreen';
 
 import { T } from './components/theme';
 import { MorphingTabBar } from './components/MorphingTabBar';
 
 const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -174,39 +177,50 @@ export default function App() {
         <EquipmentProvider>
           <FocusProvider>
             <NavigationContainer>
-              <Tab.Navigator
-                initialRouteName="홈"
-                tabBar={(props) => <MorphingTabBar {...props} />}
-                screenOptions={{ headerShown: false }}
-              >
-                <Tab.Screen name="홈" component={HomeScreen} />
-                <Tab.Screen name="그룹" component={GroupListScreen} />
-                <Tab.Screen
-                  name="상점"
-                  component={ShopScreen}
-                  options={{ tabBarButton: () => null }}
-                />
-                <Tab.Screen name="마이페이지">
+              <Stack.Navigator screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="Tabs">
                   {() => (
-                    <MyPageScreen user={user} onLogout={handleLogout} onWithdraw={handleWithdraw} />
+                    <Tab.Navigator
+                      initialRouteName="홈"
+                      tabBar={(props) => <MorphingTabBar {...props} />}
+                      screenOptions={{ headerShown: false }}
+                    >
+                      <Tab.Screen name="홈" component={HomeScreen} />
+                      <Tab.Screen name="그룹" component={GroupListScreen} />
+                      <Tab.Screen
+                        name="상점"
+                        component={ShopScreen}
+                        options={{ tabBarButton: () => null }}
+                      />
+                      <Tab.Screen name="마이페이지">
+                        {() => (
+                          <MyPageScreen user={user} onLogout={handleLogout} onWithdraw={handleWithdraw} />
+                        )}
+                      </Tab.Screen>
+                      <Tab.Screen
+                        name="FocusCategoryScreen"
+                        component={FocusCategoryScreen}
+                        options={{ tabBarButton: () => null }}
+                      />
+                      <Tab.Screen
+                        name="FocusMode"
+                        component={FocusModeScreen}
+                        options={{ tabBarButton: () => null }}
+                      />
+                      <Tab.Screen
+                        name="GroupDetail"
+                        component={GroupRoomScreen}
+                        options={{ tabBarButton: () => null }}
+                      />
+                    </Tab.Navigator>
                   )}
-                </Tab.Screen>
-                <Tab.Screen
-                  name="FocusCategoryScreen"
-                  component={FocusCategoryScreen}
-                  options={{ tabBarButton: () => null }}
+                </Stack.Screen>
+                <Stack.Screen
+                  name="MemberCalendar"
+                  component={MemberCalendarScreen}
+                  options={{ presentation: 'transparentModal', animation: 'fade' }}
                 />
-                <Tab.Screen
-                  name="FocusMode"
-                  component={FocusModeScreen}
-                  options={{ tabBarButton: () => null }}
-                />
-                <Tab.Screen
-                  name="GroupDetail"
-                  component={GroupRoomScreen}
-                  options={{ tabBarButton: () => null }}
-                />
-              </Tab.Navigator>
+              </Stack.Navigator>
             </NavigationContainer>
           </FocusProvider>
         </EquipmentProvider>

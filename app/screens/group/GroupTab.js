@@ -9,7 +9,9 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation } from '@react-navigation/native';
 import { T, inkBox } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
 import { useUser } from '../../contexts/UserContext';
@@ -53,7 +55,26 @@ function InviteCard() {
   );
 }
 
-function MemberCard({ member, groupId, myUserId }) {
+function SpeechBubble({ bio, isMe, onPress }) {
+  const hasBio = bio && bio.trim().length > 0;
+  if (!hasBio && !isMe) return null;
+  return (
+    <TouchableOpacity
+      style={s.bubbleWrap}
+      onPress={isMe ? onPress : undefined}
+      activeOpacity={isMe ? 0.7 : 1}
+    >
+      <View style={s.bubble}>
+        <Text style={[s.bubbleText, !hasBio && s.bubblePlaceholder]} numberOfLines={2}>
+          {hasBio ? bio : '소개 추가'}
+        </Text>
+      </View>
+      <View style={s.bubbleTail} />
+    </TouchableOpacity>
+  );
+}
+
+function MemberCard({ member, groupId, myUserId, bio, onEditBio, onPress }) {
   const initial = member.nickname?.[0] ?? '?';
   const isOwner = member.role === 'OWNER';
   const isMe = member.userId === myUserId;
@@ -85,6 +106,7 @@ function MemberCard({ member, groupId, myUserId }) {
           <Text style={s.ownerBadgeText}>호스트</Text>
         </View>
       )}
+      <SpeechBubble bio={bio} isMe={isMe} onPress={onEditBio} />
       <View style={[s.avatar, isOwner && s.avatarOwner]}>
         <Text style={[s.avatarText, isOwner && s.avatarTextOwner]}>{initial}</Text>
       </View>
@@ -108,18 +130,24 @@ function MemberCard({ member, groupId, myUserId }) {
 
   if (isFocusing) {
     return (
-      <LinearGradient
-        colors={['rgba(134,239,172,0.25)', 'rgba(255,255,255,0)', 'rgba(134,239,172,0.25)']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={[s.card, s.cardFocusing, isMe && s.cardMe]}
-      >
-        {cardContent}
-      </LinearGradient>
+      <TouchableOpacity onPress={onPress} activeOpacity={0.85}>
+        <LinearGradient
+          colors={['rgba(134,239,172,0.25)', 'rgba(255,255,255,0)', 'rgba(134,239,172,0.25)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[s.card, s.cardFocusing, isMe && s.cardMe]}
+        >
+          {cardContent}
+        </LinearGradient>
+      </TouchableOpacity>
     );
   }
 
-  return <View style={[s.card, isMe && s.cardMe]}>{cardContent}</View>;
+  return (
+    <TouchableOpacity style={[s.card, isMe && s.cardMe]} onPress={onPress} activeOpacity={0.85}>
+      {cardContent}
+    </TouchableOpacity>
+  );
 }
 
 function formatUntil(ms) {
@@ -134,8 +162,10 @@ function formatUntil(ms) {
 
 export default function GroupTab({ group, groupId, refreshing, onRefresh }) {
   const { userId: myUserId } = useUser();
+  const navigation = useNavigation();
   const [challenges, setChallenges] = useState([]);
   const [now, setNow] = useState(Date.now());
+  const [myBio, setMyBio] = useState('');
 
   useEffect(() => {
     if (!groupId) return;
@@ -149,6 +179,28 @@ export default function GroupTab({ group, groupId, refreshing, onRefresh }) {
     const timer = setInterval(() => setNow(Date.now()), 60000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!groupId) return;
+    AsyncStorage.getItem(`gromo:group:${groupId}:bio`)
+      .then((val) => setMyBio(val ?? ''))
+      .catch(() => {});
+  }, [groupId]);
+
+  function handleEditBio() {
+    Alert.prompt(
+      '한줄 소개',
+      '그룹에서 보여질 나만의 한줄 소개',
+      (text) => {
+        if (text === null) return;
+        const trimmed = text.trim();
+        setMyBio(trimmed);
+        AsyncStorage.setItem(`gromo:group:${groupId}:bio`, trimmed).catch(() => {});
+      },
+      'plain-text',
+      myBio,
+    );
+  }
 
   if (!group) return null;
 
@@ -189,7 +241,6 @@ export default function GroupTab({ group, groupId, refreshing, onRefresh }) {
           <Text style={s.missionLabel}>오늘의 미션: </Text>
           {missionText}
         </Text>
-        {!!group.description && <Text style={s.description}>{group.description}</Text>}
       </View>
 
       {/* 인원 */}
@@ -211,7 +262,14 @@ export default function GroupTab({ group, groupId, refreshing, onRefresh }) {
         item.__invite ? (
           <InviteCard />
         ) : (
-          <MemberCard member={item} groupId={groupId} myUserId={myUserId} />
+          <MemberCard
+            member={item}
+            groupId={groupId}
+            myUserId={myUserId}
+            bio={item.userId === myUserId ? myBio : (item.bio ?? '')}
+            onEditBio={handleEditBio}
+            onPress={() => navigation.navigate('MemberCalendar', { member: item, groupId })}
+          />
         )
       }
       ListHeaderComponent={
@@ -238,16 +296,15 @@ export default function GroupTab({ group, groupId, refreshing, onRefresh }) {
 const s = StyleSheet.create({
   container: { paddingHorizontal: H_PAD },
   scrollBottom: { height: 20 },
+  refreshIndicator: { marginTop: 10 },
 
   // 헤더
   headerWrap: { marginBottom: 12 },
 
   // 미션 카드
-  missionCard: { padding: 14, marginTop: 20, marginBottom: 14 },
+  missionCard: { padding: 14, marginTop: 14, marginBottom: 14 },
   missionLabel: { fontSize: 15, fontWeight: '900', color: T.ink },
   missionText: { fontSize: 15, fontWeight: '700', color: T.ink, textAlign: 'center' },
-  description: { fontSize: 14, color: T.inkMed, marginTop: 8 },
-
   // 인원
   memberCount: { fontSize: 15, fontWeight: '700', color: T.inkMed, marginBottom: 14 },
   memberCountNum: { color: T.ink, fontWeight: '900' },
@@ -258,6 +315,30 @@ const s = StyleSheet.create({
     fontWeight: '800',
     color: T.inkMed,
     marginBottom: 10,
+  },
+
+  // 말풍선
+  bubbleWrap: { alignItems: 'center', marginBottom: 4 },
+  bubble: {
+    backgroundColor: T.paperDark,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: T.paperLine,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    maxWidth: CARD_W - 24,
+  },
+  bubbleText: { fontSize: 11, fontWeight: '500', color: T.ink, textAlign: 'center' },
+  bubblePlaceholder: { color: T.inkLight },
+  bubbleTail: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: T.paperDark,
   },
 
   // 앨범 그리드
