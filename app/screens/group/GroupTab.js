@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, FlatList, StyleSheet, Dimensions, TouchableOpacity, Alert } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { T, inkBox } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
 import { useUser } from '../../contexts/UserContext';
@@ -24,6 +25,15 @@ function formatMinutes(min) {
   return h > 0 ? `${h}시간 ${m}분` : `${m}분`;
 }
 
+function formatLiveTime(totalSeconds) {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
 function InviteCard() {
   return (
     <View style={s.card}>
@@ -39,24 +49,26 @@ function MemberCard({ member, groupId, myUserId }) {
   const initial = member.nickname?.[0] ?? '?';
   const isOwner = member.role === 'OWNER';
   const isMe = member.userId === myUserId;
+  const isFocusing = member.isFocusing ?? false;
 
-  async function handlePoke() {
-    try {
-      const res = await apiFetch(`/api/v1/groups/${groupId}/members/${member.userId}/poke`, {
-        method: 'POST',
-      });
-      if (res.ok) {
-        Alert.alert('콕!', `${member.nickname}님을 콕 찔렀어요 👆`);
-      } else {
-        Alert.alert('실패', '콕 찌르기에 실패했어요.');
-      }
-    } catch {
-      Alert.alert('오류', '네트워크 오류가 발생했어요.');
-    }
+  // 집중 중일 때 초 단위 카운트업
+  const baseSeconds = (member.focusTimeMinutes ?? 0) * 60;
+  const [elapsed, setElapsed] = useState(0);
+  const intervalRef = useRef(null);
+
+  useEffect(() => {
+    if (!isFocusing) { setElapsed(0); return; }
+    setElapsed(0);
+    intervalRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(intervalRef.current);
+  }, [isFocusing]);
+
+  function handlePoke() {
+    Alert.alert('준비 중', '콕 찌르기 기능은 곧 출시돼요!');
   }
 
-  return (
-    <View style={[s.card, isMe && s.cardMe]}>
+  const cardContent = (
+    <>
       {isOwner && (
         <View style={s.ownerBadge}>
           <Text style={s.ownerBadgeText}>호스트</Text>
@@ -67,13 +79,36 @@ function MemberCard({ member, groupId, myUserId }) {
       </View>
       <View style={s.cardBottom}>
         <Text style={s.cardName} numberOfLines={1}>{member.nickname}</Text>
-        <Text style={s.cardFocus}>⏱ {formatMinutes(member.focusTimeMinutes)}</Text>
+        {isFocusing ? (
+          <Text style={s.cardFocusLive}>⏱ {formatLiveTime(baseSeconds + elapsed)}</Text>
+        ) : (
+          <Text style={s.cardFocus}>⏱ {formatMinutes(member.focusTimeMinutes)}</Text>
+        )}
       </View>
       {!isMe && (
         <TouchableOpacity style={s.pokeBtn} onPress={handlePoke} activeOpacity={0.7}>
           <Text style={s.pokeBtnText}>👆 콕 찌르기</Text>
         </TouchableOpacity>
       )}
+    </>
+  );
+
+  if (isFocusing) {
+    return (
+      <LinearGradient
+        colors={['rgba(134,239,172,0.25)', 'rgba(255,255,255,0)', 'rgba(134,239,172,0.25)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={[s.card, s.cardFocusing, isMe && s.cardMe]}
+      >
+        {cardContent}
+      </LinearGradient>
+    );
+  }
+
+  return (
+    <View style={[s.card, isMe && s.cardMe]}>
+      {cardContent}
     </View>
   );
 }
@@ -218,6 +253,15 @@ const s = StyleSheet.create({
   cardMe: {
     borderWidth: 2.5,
     borderColor: T.ink,
+  },
+  cardFocusing: {
+    borderWidth: 1.5,
+    borderColor: 'rgba(74,222,128,0.6)',
+  },
+  cardFocusLive: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#16a34a',
   },
   avatar: {
     width: 52,
