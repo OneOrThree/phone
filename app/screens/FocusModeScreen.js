@@ -253,7 +253,7 @@ export default function FocusModeScreen({ navigation, route }) {
       })
       .catch(() => setGroups([]))
       .finally(() => setLoadingGroups(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   function goPage(nextIdx) {
