@@ -56,7 +56,7 @@ function MemberCard({ member, groupId, myUserId }) {
   }
 
   return (
-    <View style={s.card}>
+    <View style={[s.card, isMe && s.cardMe]}>
       {isOwner && (
         <View style={s.ownerBadge}>
           <Text style={s.ownerBadgeText}>호스트</Text>
@@ -214,6 +214,10 @@ const s = StyleSheet.create({
     borderColor: T.paperLine,
     borderRadius: 12,
     position: 'relative',
+  },
+  cardMe: {
+    borderWidth: 2.5,
+    borderColor: T.ink,
   },
   avatar: {
     width: 52,
