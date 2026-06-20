@@ -15,8 +15,9 @@ public class GroupChallengeResponse {
     private MissionType missionType;
     private MissionCategory missionCategory;
     private Integer durationMinutes;
-    private Instant windowStart;
-    private Instant windowEnd;
+    private String windowStart;
+    private String windowEnd;
+    private String timeZone;
     private GroupChallengeStatus status;
     private Instant createdAt;
     private boolean canParticipate;

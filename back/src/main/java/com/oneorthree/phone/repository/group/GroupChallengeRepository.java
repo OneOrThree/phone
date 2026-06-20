@@ -14,6 +14,10 @@ import java.util.List;
 
 public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, Long> {
 
+    // TODO GROMO-375: 그룹 소속 검증용 조회 메서드 추가
+    //  - Optional<GroupChallenge> findByIdAndGroup(Long id, Group group)
+    //  - challengeId가 다른 그룹 챌린지면 비어있게 반환 → 서비스에서 NOT_FOUND 처리
+
     List<GroupChallenge> findByGroupOrderByCreatedAtDesc(Group group);
 
     boolean existsByGroupAndMissionCategoryAndMissionTypeAndStatus(

@@ -236,4 +236,13 @@ public class GroupController {
         Long userId = (Long) httpServletRequest.getAttribute("userId");
         return ResponseEntity.status(HttpStatus.CREATED).body(groupService.createChallenge(groupId, userId, request));
     }
+
+    // TODO GROMO-375: 챌린지 삭제 엔드포인트 추가
+    //  - @DeleteMapping("/groups/{groupId}/challenges/{challengeId}"), 반환 ResponseEntity<Void> (204)
+    //  - 시그니처: deleteGroupChallenge(@PathVariable Long groupId, @PathVariable Long challengeId,
+    //    HttpServletRequest httpServletRequest)
+    //  - userId = (Long) httpServletRequest.getAttribute("userId") 패턴 유지
+    //    → groupService.deleteChallenge(groupId, challengeId, userId)
+    //  - @Operation/@ApiResponses(204/403/404) 추가
+    //  - import: org.springframework.web.bind.annotation.DeleteMapping
 }

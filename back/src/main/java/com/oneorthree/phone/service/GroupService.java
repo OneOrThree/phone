@@ -40,7 +40,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,6 +63,7 @@ public class GroupService {
 
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     @Transactional
     public CreateGroupResponse createGroup(Long userId, CreateGroupRequest request) {
@@ -382,14 +386,25 @@ public class GroupService {
                         .missionType(c.getMissionType())
                         .missionCategory(c.getMissionCategory())
                         .durationMinutes(c.getDurationMinutes())
-                        .windowStart(c.getWindowStart())
-                        .windowEnd(c.getWindowEnd())
+                        .windowStart(toLocalTimeString(c.getWindowStart(), c.getTimeZone()))
+                        .windowEnd(toLocalTimeString(c.getWindowEnd(), c.getTimeZone()))
+                        .timeZone(c.getTimeZone())
                         .canParticipate(c.getMissionCategory() == MissionCategory.FOCUS
                                 || user.isScreenTimePermissionGranted())
                         .status(c.getStatus())
                         .createdAt(c.getCreatedAt())
                         .build())
                 .toList();
+    }
+
+    // TIME_WINDOW 챌린지의 Instant를 timeZone 기준 "HH:mm:ss" 문자열로 변환.
+    // DURATION 챌린지는 instant가 null → null 그대로 반환. timeZone이 null이면 UTC 기준.
+    private String toLocalTimeString(Instant instant, String timeZone) {
+        if (instant == null) {
+            return null;
+        }
+        ZoneId zone = timeZone != null ? ZoneId.of(timeZone) : ZoneOffset.UTC;
+        return LocalTime.ofInstant(instant, zone).format(TIME_FORMATTER);
     }
 
     @Transactional
@@ -456,6 +471,15 @@ public class GroupService {
         targetGroupMember.promoteToOwner();
         group.transferOwner(targetUserId);
     }
+
+    // TODO GROMO-375: 챌린지 삭제 메서드 추가
+    //  - 시그니처: @Transactional public void deleteChallenge(Long groupId, Long challengeId, Long userId)
+    //  - 권한 체크 순서:
+    //    1) 유저 조회 + 게스트 검증(GUEST_FORBIDDEN)
+    //    2) 그룹 조회(NOT_FOUND)
+    //    3) 멤버십 조회(MEMBER_ONLY) → role != OWNER 면 NOT_OWNER
+    //    4) groupChallengeRepository.findByIdAndGroup(challengeId, group)로 해당 그룹 소속 챌린지 확인(없으면 NOT_FOUND)
+    //    5) groupChallengeRepository.delete(challenge)
 
     private String generateUniqueCode() {
         StringBuilder sb = new StringBuilder(8);
