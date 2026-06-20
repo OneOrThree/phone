@@ -94,6 +94,10 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerSelected, setPickerSelected] = useState([]);
 
+  // 방장 위임 모달
+  const [delegateVisible, setDelegateVisible] = useState(false);
+  const [delegateTarget, setDelegateTarget] = useState(null);
+
   useEffect(() => {
     async function loadNotifSettings() {
       try {
@@ -244,35 +248,50 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
     const memberCount = group?.members?.length ?? 0;
     const isLastMember = memberCount <= 1;
 
-    let message = '정말 이 그룹에서 나갈까요?';
-    if (isOwner) {
-      message = isLastMember
-        ? '마지막 멤버입니다. 탈퇴하면 그룹이 영구적으로 닫혀요.'
-        : '방장 권한이 다음 멤버에게 자동으로 위임돼요.';
+    if (isOwner && !isLastMember) {
+      // 위임할 멤버 선택 모달 열기
+      setDelegateTarget(null);
+      setDelegateVisible(true);
+      return;
     }
+
+    const message = isOwner
+      ? '마지막 멤버입니다. 탈퇴하면 그룹이 영구적으로 닫혀요.'
+      : '정말 이 그룹에서 나갈까요?';
 
     Alert.alert(`"${group?.name ?? '그룹'}" 탈퇴`, message, [
       { text: '취소', style: 'cancel' },
       {
-        text: isOwner && isLastMember ? '그룹 닫기' : '탈퇴하기',
+        text: isOwner ? '그룹 닫기' : '탈퇴하기',
         style: 'destructive',
-        onPress: async () => {
-          try {
-            const res = await apiFetch(`/api/v1/groups/${groupId}/members/me`, {
-              method: 'DELETE',
-            });
-            if (res.ok) {
-              onLeaveSuccess?.();
-            } else {
-              const body = await res.json().catch(() => ({}));
-              Alert.alert('오류', body.message ?? '탈퇴에 실패했어요');
-            }
-          } catch {
-            Alert.alert('오류', '네트워크 오류가 발생했어요');
-          }
-        },
+        onPress: doLeave,
       },
     ]);
+  }
+
+  async function doLeave(delegateMemberId) {
+    try {
+      if (delegateMemberId) {
+        const delegateRes = await apiFetch(
+          `/api/v1/groups/${groupId}/members/${delegateMemberId}/owner`,
+          { method: 'PATCH' },
+        );
+        if (!delegateRes.ok) {
+          const body = await delegateRes.json().catch(() => ({}));
+          Alert.alert('오류', body.message ?? '권한 위임에 실패했어요');
+          return;
+        }
+      }
+      const res = await apiFetch(`/api/v1/groups/${groupId}/members/me`, { method: 'DELETE' });
+      if (res.ok) {
+        onLeaveSuccess?.();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        Alert.alert('오류', body.message ?? '탈퇴에 실패했어요');
+      }
+    } catch {
+      Alert.alert('오류', '네트워크 오류가 발생했어요');
+    }
   }
 
   function handleShareCode() {
@@ -446,6 +465,67 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
 
       <View style={s.bottomPad} />
     </ScrollView>
+
+    {/* 방장 위임 모달 */}
+    <Modal visible={delegateVisible} animationType="slide" onRequestClose={() => setDelegateVisible(false)}>
+      <View style={[s.pickerRoot, { paddingTop: insets.top }]}>
+        <View style={s.pickerHeader}>
+          <TouchableOpacity
+            onPress={() => setDelegateVisible(false)}
+            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+            style={s.pickerHeaderSide}
+          >
+            <Text style={s.pickerCancel}>취소</Text>
+          </TouchableOpacity>
+          <Text style={s.pickerTitle}>방장 위임</Text>
+          <View style={s.pickerHeaderSide} />
+        </View>
+
+        <Text style={s.pickerSub}>탈퇴 전 방장 권한을 넘길 멤버를 선택해주세요.</Text>
+
+        <ScrollView style={s.pickerList} showsVerticalScrollIndicator={false}>
+          {nonOwnerMembers.map((member, i) => {
+            const selected = delegateTarget === member.userId;
+            return (
+              <TouchableOpacity
+                key={member.userId}
+                style={[s.pickerRow, i > 0 && s.pickerRowBorder]}
+                onPress={() => setDelegateTarget(member.userId)}
+                activeOpacity={0.7}
+              >
+                <View style={s.pickerAvatar}>
+                  <Text style={s.pickerAvatarTxt}>{member.nickname?.[0] ?? '?'}</Text>
+                </View>
+                <Text style={s.pickerName}>{member.nickname}</Text>
+                <View style={[s.checkbox, selected && s.checkboxChecked]}>
+                  {selected && <Text style={s.checkmark}>✓</Text>}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        <View style={[s.delegateFooter, { paddingBottom: insets.bottom + 16 }]}>
+          <TouchableOpacity
+            style={[s.delegateBtn, !delegateTarget && s.delegateBtnDisabled]}
+            disabled={!delegateTarget}
+            onPress={() => {
+              setDelegateVisible(false);
+              Alert.alert(
+                '위임하고 탈퇴',
+                `방장 권한을 위임하고 그룹에서 나갈까요?`,
+                [
+                  { text: '취소', style: 'cancel' },
+                  { text: '탈퇴하기', style: 'destructive', onPress: () => doLeave(delegateTarget) },
+                ],
+              );
+            }}
+          >
+            <Text style={s.delegateBtnTxt}>위임하고 탈퇴</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
 
     {/* 공지 작성 권한 멤버 선택 모달 */}
     <Modal visible={pickerVisible} animationType="slide" onRequestClose={() => setPickerVisible(false)}>
@@ -622,6 +702,27 @@ const s = StyleSheet.create({
   },
   checkboxChecked: { backgroundColor: T.ink, borderColor: T.ink },
   checkmark: { fontSize: 13, fontWeight: '900', color: T.paper },
+
+  // 방장 위임 모달 하단 버튼
+  delegateFooter: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: T.paperLine,
+  },
+  delegateBtn: {
+    backgroundColor: T.danger,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  delegateBtnDisabled: {
+    opacity: 0.35,
+  },
+  delegateBtnTxt: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: T.paper,
+  },
 
   selectorGroup: {
     flexDirection: 'row',

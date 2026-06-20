@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'rea
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T } from '../components/theme';
 import { apiFetch } from '../utils/api';
+import { useUser } from '../contexts/UserContext';
 import GroupTab from './group/GroupTab';
 import RankingTab from './group/RankingTab';
 import ChatTab from './group/ChatTab';
@@ -20,6 +21,7 @@ const TAB_COMPONENTS = {
 
 export default function GroupDetailScreen({ navigation, route }) {
   const { groupId, activeTab = 'group' } = route.params ?? {};
+  const { userId: myUserId } = useUser();
   const [group, setGroup] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -138,7 +140,7 @@ setError('네트워크 오류');
           <SettingsScreen
             groupId={groupId}
             group={group}
-            isOwner={!!group?.code}
+            isOwner={group?.members?.find((m) => m.userId === myUserId)?.role === 'OWNER'}
             onLeaveSuccess={() => navigation.navigate('그룹')}
             onChatEnabledChange={(val) => navigation.setParams({ chatEnabled: val })}
             onGroupUpdated={(patch) => setGroup((prev) => ({ ...prev, ...patch }))}
