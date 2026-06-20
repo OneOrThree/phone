@@ -74,7 +74,7 @@ function SelectorRow({ label, value, options, onChange }) {
   );
 }
 
-export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess, onChatEnabledChange, onGroupUpdated }) {
+export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess, onChatEnabledChange, onGroupUpdated, onRefresh }) {
   const insets = useSafeAreaInsets();
 
   // 알림 설정 (로컬 저장)
@@ -94,9 +94,10 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerSelected, setPickerSelected] = useState([]);
 
-  // 방장 위임 모달
+  // 방장 위임 모달 ('only' | 'leave')
   const [delegateVisible, setDelegateVisible] = useState(false);
   const [delegateTarget, setDelegateTarget] = useState(null);
+  const [delegateMode, setDelegateMode] = useState('only');
 
   useEffect(() => {
     async function loadNotifSettings() {
@@ -244,13 +245,19 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
     if (!ok) setInvitePermission(prev);
   }
 
+  function handleDelegateOnly() {
+    setDelegateTarget(null);
+    setDelegateMode('only');
+    setDelegateVisible(true);
+  }
+
   function handleLeaveGroup() {
     const memberCount = group?.members?.length ?? 0;
     const isLastMember = memberCount <= 1;
 
     if (isOwner && !isLastMember) {
-      // 위임할 멤버 선택 모달 열기
       setDelegateTarget(null);
+      setDelegateMode('leave');
       setDelegateVisible(true);
       return;
     }
@@ -294,6 +301,24 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
     }
   }
 
+  async function doDelegate(memberId) {
+    try {
+      const res = await apiFetch(
+        `/api/v1/groups/${groupId}/members/${memberId}/owner`,
+        { method: 'PATCH' },
+      );
+      if (res.ok) {
+        Alert.alert('완료', '방장 권한이 위임됐어요');
+        onRefresh?.();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        Alert.alert('오류', body.message ?? '권한 위임에 실패했어요');
+      }
+    } catch {
+      Alert.alert('오류', '네트워크 오류가 발생했어요');
+    }
+  }
+
   function handleShareCode() {
     Share.share({ message: `그룹 "${group?.name}" 초대 코드: ${group?.code}` });
   }
@@ -303,6 +328,7 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
   const noticeGrantedLabel = grantedCount === 0 ? '없음' : `${grantedCount}명`;
 
   return (
+    <>
     <ScrollView
       style={s.root}
       contentContainerStyle={s.content}
@@ -371,6 +397,12 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
                     <Text style={s.shareBtnTxt}>공유</Text>
                   </TouchableOpacity>
                 </View>
+              </>
+            )}
+            {nonOwnerMembers.length > 0 && (
+              <>
+                <Divider />
+                <NavRow label="방장 위임하기" onPress={handleDelegateOnly} />
               </>
             )}
           </View>
@@ -511,17 +543,28 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
             disabled={!delegateTarget}
             onPress={() => {
               setDelegateVisible(false);
-              Alert.alert(
-                '위임하고 탈퇴',
-                `방장 권한을 위임하고 그룹에서 나갈까요?`,
-                [
-                  { text: '취소', style: 'cancel' },
-                  { text: '탈퇴하기', style: 'destructive', onPress: () => doLeave(delegateTarget) },
-                ],
-              );
+              if (delegateMode === 'leave') {
+                Alert.alert(
+                  '위임하고 탈퇴',
+                  '방장 권한을 위임하고 그룹에서 나갈까요?',
+                  [
+                    { text: '취소', style: 'cancel' },
+                    { text: '탈퇴하기', style: 'destructive', onPress: () => doLeave(delegateTarget) },
+                  ],
+                );
+              } else {
+                Alert.alert(
+                  '방장 위임',
+                  '정말 방장 권한을 위임할까요?',
+                  [
+                    { text: '취소', style: 'cancel' },
+                    { text: '위임하기', style: 'destructive', onPress: () => doDelegate(delegateTarget) },
+                  ],
+                );
+              }
             }}
           >
-            <Text style={s.delegateBtnTxt}>위임하고 탈퇴</Text>
+            <Text style={s.delegateBtnTxt}>{delegateMode === 'leave' ? '위임하고 탈퇴' : '위임하기'}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -578,6 +621,7 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
         </ScrollView>
       </View>
     </Modal>
+    </>
   );
 }
 

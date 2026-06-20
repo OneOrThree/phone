@@ -144,6 +144,7 @@ setError('네트워크 오류');
             onLeaveSuccess={() => navigation.navigate('그룹')}
             onChatEnabledChange={(val) => navigation.setParams({ chatEnabled: val })}
             onGroupUpdated={(patch) => setGroup((prev) => ({ ...prev, ...patch }))}
+            onRefresh={fetchGroup}
           />
         ) : (
           <ActiveTab group={group} groupId={groupId} refreshing={refreshing} onRefresh={handleRefresh} />
