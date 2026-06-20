@@ -1,9 +1,19 @@
 import { useState, useEffect } from 'react';
-import { View, Text, Switch, ScrollView, TouchableOpacity, Alert, StyleSheet, Modal } from 'react-native';
+import { View, Text, Switch, ScrollView, TouchableOpacity, Alert, StyleSheet, Modal, Share } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
+
+function formatExpiry(instant) {
+  if (!instant) return '';
+  const d = new Date(instant);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${mm}/${dd} ${hh}:${min} 만료`;
+}
 
 function SectionHeader({ title }) {
   return <Text style={s.sectionHeader}>{title}</Text>;
@@ -231,20 +241,42 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
   }
 
   function handleLeaveGroup() {
-    Alert.alert(`"${group?.name ?? '그룹'}" 탈퇴`, '정말 이 그룹에서 나갈까요?', [
+    const memberCount = group?.members?.length ?? 0;
+    const isLastMember = memberCount <= 1;
+
+    let message = '정말 이 그룹에서 나갈까요?';
+    if (isOwner) {
+      message = isLastMember
+        ? '마지막 멤버입니다. 탈퇴하면 그룹이 영구적으로 닫혀요.'
+        : '방장 권한이 다음 멤버에게 자동으로 위임돼요.';
+    }
+
+    Alert.alert(`"${group?.name ?? '그룹'}" 탈퇴`, message, [
       { text: '취소', style: 'cancel' },
       {
-        text: '탈퇴하기',
+        text: isOwner && isLastMember ? '그룹 닫기' : '탈퇴하기',
         style: 'destructive',
         onPress: async () => {
-          const res = await apiFetch(`/api/v1/groups/${groupId}/members/me`, {
-            method: 'DELETE',
-          });
-          if (res.ok) onLeaveSuccess?.();
-          else Alert.alert('오류', '탈퇴에 실패했어요');
+          try {
+            const res = await apiFetch(`/api/v1/groups/${groupId}/members/me`, {
+              method: 'DELETE',
+            });
+            if (res.ok) {
+              onLeaveSuccess?.();
+            } else {
+              const body = await res.json().catch(() => ({}));
+              Alert.alert('오류', body.message ?? '탈퇴에 실패했어요');
+            }
+          } catch {
+            Alert.alert('오류', '네트워크 오류가 발생했어요');
+          }
         },
       },
     ]);
+  }
+
+  function handleShareCode() {
+    Share.share({ message: `그룹 "${group?.name}" 초대 코드: ${group?.code}` });
   }
 
   const nonOwnerMembers = (group?.members ?? []).filter((m) => m.role !== 'OWNER');
@@ -304,6 +336,45 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
               options={[{ label: '모두', value: 'R' }, { label: '방장만', value: 'U' }]}
               onChange={handleInvitePermission}
             />
+            {/* 초대 코드 — 방장에게는 항상 표시 */}
+            {group?.code && (
+              <>
+                <Divider />
+                <View style={s.codeRow}>
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <Text style={s.codeLabel}>초대 코드</Text>
+                    <Text style={s.codeValue}>{group.code}</Text>
+                    {group.codeExpiresAt && (
+                      <Text style={s.codeExpiry}>{formatExpiry(group.codeExpiresAt)}</Text>
+                    )}
+                  </View>
+                  <TouchableOpacity onPress={handleShareCode} style={s.shareBtn}>
+                    <Text style={s.shareBtnTxt}>공유</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </>
+      )}
+
+      {/* 초대 코드 — 비방장에게는 모두 권한일 때만 표시 */}
+      {!isOwner && invitePermission === 'R' && group?.code && (
+        <>
+          <SectionHeader title="초대 코드" />
+          <View style={s.card}>
+            <View style={s.codeRow}>
+              <View style={{ flex: 1, gap: 3 }}>
+                <Text style={s.codeLabel}>초대 코드</Text>
+                <Text style={s.codeValue}>{group.code}</Text>
+                {group.codeExpiresAt && (
+                  <Text style={s.codeExpiry}>{formatExpiry(group.codeExpiresAt)}</Text>
+                )}
+              </View>
+              <TouchableOpacity onPress={handleShareCode} style={s.shareBtn}>
+                <Text style={s.shareBtnTxt}>공유</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </>
       )}
@@ -495,6 +566,20 @@ const s = StyleSheet.create({
 
   navRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   navValue: { fontSize: 13, fontWeight: '600', color: T.inkLight },
+
+  // 초대 코드
+  codeRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 14, gap: 12,
+  },
+  codeLabel: { fontSize: 12, fontWeight: '600', color: T.inkLight },
+  codeValue: { fontSize: 20, fontWeight: '900', color: T.ink, letterSpacing: 2 },
+  codeExpiry: { fontSize: 11, fontWeight: '500', color: T.inkLight },
+  shareBtn: {
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 8, borderWidth: 1.5, borderColor: T.ink,
+  },
+  shareBtnTxt: { fontSize: 13, fontWeight: '800', color: T.ink },
 
   // 공지 권한 멤버 선택 모달
   pickerRoot: { flex: 1, backgroundColor: T.paper },
