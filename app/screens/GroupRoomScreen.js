@@ -47,6 +47,7 @@ export default function GroupDetailScreen({ navigation, route }) {
         const data = await res.json();
         console.log('[GroupDetail] 멤버 수:', data.members?.length);
         setGroup(data);
+        navigation.setParams({ chatEnabled: data.chatEnabled ?? true });
       })
       .catch((e) => {
         console.log('[GroupDetail] 네트워크 오류', e);
@@ -124,6 +125,7 @@ export default function GroupDetailScreen({ navigation, route }) {
             group={group}
             isOwner={!!group?.code}
             onLeaveSuccess={() => navigation.navigate('그룹')}
+            onChatEnabledChange={(val) => navigation.setParams({ chatEnabled: val })}
           />
         ) : (
           <ActiveTab group={group} groupId={groupId} />

@@ -58,7 +58,7 @@ function SelectorRow({ label, value, options, onChange }) {
   );
 }
 
-export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess }) {
+export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess, onChatEnabledChange }) {
   // 알림 설정 (로컬 저장)
   const [chatNotif, setChatNotif] = useState(true);
   const [chatNightNotif, setChatNightNotif] = useState(false);
@@ -172,6 +172,8 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
     if (!ok) {
       setChatEnabled(!val);
       Alert.alert('오류', '설정 변경에 실패했어요');
+    } else {
+      onChatEnabledChange?.(val);
     }
   }
 
@@ -267,7 +269,7 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
         )}
         <Divider />
         <ToggleRow
-          label="곡찌르기 받기"
+          label="콕찌르기 받기"
           value={pokeNotif}
           onValueChange={(v) => {
             setPokeNotif(v);
