@@ -222,6 +222,58 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
       contentContainerStyle={s.content}
       showsVerticalScrollIndicator={false}
     >
+      {/* 그룹 정보 — 방장 전용 */}
+      {isOwner && (
+        <>
+          <SectionHeader title="그룹 정보" />
+          <View style={s.card}>
+            <NavRow label="그룹 이름 변경" onPress={handleRenameGroup} />
+            <Divider />
+            <NavRow label="한줄소개 설정" onPress={handleEditDescription} />
+          </View>
+
+          {/* 채팅 설정 */}
+          <SectionHeader title="채팅 설정" />
+          <View style={s.card}>
+            <ToggleRow
+              label="그룹 채팅"
+              value={chatEnabled}
+              onValueChange={handleToggleChatEnabled}
+            />
+            {chatEnabled && (
+              <>
+                <Divider />
+                <NavRow label="1인당 채팅 횟수 제한" onPress={handleChatLimit} indent />
+                <Divider />
+                <NavRow
+                  label="멤버별 채팅 허용/비허용"
+                  onPress={() => Alert.alert('준비 중', '멤버별 설정은 곧 추가돼요 😊')}
+                  indent
+                />
+              </>
+            )}
+          </View>
+
+          {/* 권한 설정 */}
+          <SectionHeader title="권한 설정" />
+          <View style={s.card}>
+            <SelectorRow
+              label="공지 작성 권한"
+              value={noticePermission}
+              options={PERM_OPTIONS}
+              onChange={handleNoticePermission}
+            />
+            <Divider />
+            <SelectorRow
+              label="초대 링크 공유"
+              value={invitePermission}
+              options={PERM_OPTIONS}
+              onChange={handleInvitePermission}
+            />
+          </View>
+        </>
+      )}
+
       {/* 알림 설정 */}
       <SectionHeader title="알림 설정" />
       <View style={s.card}>
@@ -281,55 +333,8 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
         />
       </View>
 
-      {/* 그룹 관리 — 방장 전용 */}
-      {isOwner && (
-        <>
-          <SectionHeader title="그룹 관리" />
-          <View style={s.card}>
-            <NavRow label="그룹 이름 변경" onPress={handleRenameGroup} />
-            <Divider />
-            <NavRow label="그룹 한줄소개 설정" onPress={handleEditDescription} />
-            <Divider />
-            <ToggleRow
-              label="그룹 채팅"
-              value={chatEnabled}
-              onValueChange={handleToggleChatEnabled}
-            />
-            {chatEnabled && (
-              <>
-                <Divider />
-                <NavRow label="1인당 채팅 횟수 제한" onPress={handleChatLimit} indent />
-                <Divider />
-                <NavRow
-                  label="멤버별 채팅 허용/비허용"
-                  onPress={() => Alert.alert('준비 중', '멤버별 설정은 곧 추가돼요 😊')}
-                  indent
-                />
-              </>
-            )}
-          </View>
-
-          <SectionHeader title="권한 설정" />
-          <View style={s.card}>
-            <SelectorRow
-              label="공지 작성 권한"
-              value={noticePermission}
-              options={PERM_OPTIONS}
-              onChange={handleNoticePermission}
-            />
-            <Divider />
-            <SelectorRow
-              label="초대 링크 공유"
-              value={invitePermission}
-              options={PERM_OPTIONS}
-              onChange={handleInvitePermission}
-            />
-          </View>
-        </>
-      )}
-
-      {/* 기타 */}
-      <SectionHeader title="기타" />
+      {/* 위험 구역 */}
+      <SectionHeader title="위험 구역" />
       <View style={s.card}>
         <NavRow label="그룹 탈퇴" onPress={handleLeaveGroup} danger />
       </View>
