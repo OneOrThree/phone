@@ -22,6 +22,7 @@ export default function GroupDetailScreen({ navigation, route }) {
   const { groupId, activeTab = 'group' } = route.params ?? {};
   const [group, setGroup] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const insets = useSafeAreaInsets();
@@ -53,7 +54,15 @@ export default function GroupDetailScreen({ navigation, route }) {
         console.log('[GroupDetail] 네트워크 오류', e);
         setError('네트워크 오류');
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
+  }
+
+  function handleRefresh() {
+    setRefreshing(true);
+    fetchGroup();
   }
 
   useEffect(() => {
@@ -129,7 +138,7 @@ export default function GroupDetailScreen({ navigation, route }) {
             onGroupUpdated={(patch) => setGroup((prev) => ({ ...prev, ...patch }))}
           />
         ) : (
-          <ActiveTab group={group} groupId={groupId} />
+          <ActiveTab group={group} groupId={groupId} refreshing={refreshing} onRefresh={handleRefresh} />
         )}
       </View>
     </View>

@@ -7,6 +7,7 @@ import {
   Dimensions,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T, inkBox } from '../../components/theme';
@@ -131,7 +132,7 @@ function formatUntil(ms) {
   return `${mins}분 후`;
 }
 
-export default function GroupTab({ group, groupId }) {
+export default function GroupTab({ group, groupId, refreshing, onRefresh }) {
   const { userId: myUserId } = useUser();
   const [challenges, setChallenges] = useState([]);
   const [now, setNow] = useState(Date.now());
@@ -213,11 +214,23 @@ export default function GroupTab({ group, groupId }) {
           <MemberCard member={item} groupId={groupId} myUserId={myUserId} />
         )
       }
-      ListHeaderComponent={ListHeader}
+      ListHeaderComponent={
+        <>
+          {refreshing && (
+            <ActivityIndicator size="small" color={T.inkMed} style={s.refreshIndicator} />
+          )}
+          {ListHeader}
+        </>
+      }
       columnWrapperStyle={s.columnWrapper}
       contentContainerStyle={s.container}
       showsVerticalScrollIndicator={false}
       ListFooterComponent={<View style={s.scrollBottom} />}
+      onScrollEndDrag={({ nativeEvent }) => {
+        if (nativeEvent.contentOffset.y < -60 && !refreshing) {
+          onRefresh?.();
+        }
+      }}
     />
   );
 }
