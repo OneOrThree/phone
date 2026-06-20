@@ -472,14 +472,30 @@ public class GroupService {
         group.transferOwner(targetUserId);
     }
 
-    // TODO GROMO-375: 챌린지 삭제 메서드 추가
-    //  - 시그니처: @Transactional public void deleteChallenge(Long groupId, Long challengeId, Long userId)
-    //  - 권한 체크 순서:
-    //    1) 유저 조회 + 게스트 검증(GUEST_FORBIDDEN)
-    //    2) 그룹 조회(NOT_FOUND)
-    //    3) 멤버십 조회(MEMBER_ONLY) → role != OWNER 면 NOT_OWNER
-    //    4) groupChallengeRepository.findByIdAndGroup(challengeId, group)로 해당 그룹 소속 챌린지 확인(없으면 NOT_FOUND)
-    //    5) groupChallengeRepository.delete(challenge)
+    @Transactional
+    public void deleteChallenge(Long groupId, Long challengeId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        if (groupMember.getRole() != GroupMemberRole.OWNER) {
+            throw new GroupException(GroupErrorCode.NOT_OWNER);
+        }
+
+        GroupChallenge groupChallenge = groupChallengeRepository.findByIdAndGroup(challengeId, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        groupChallengeRepository.delete(groupChallenge);
+    }
+
 
     private String generateUniqueCode() {
         StringBuilder sb = new StringBuilder(8);

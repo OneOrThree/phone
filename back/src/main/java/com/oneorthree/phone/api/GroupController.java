@@ -24,6 +24,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -237,12 +238,20 @@ public class GroupController {
         return ResponseEntity.status(HttpStatus.CREATED).body(groupService.createChallenge(groupId, userId, request));
     }
 
-    // TODO GROMO-375: 챌린지 삭제 엔드포인트 추가
-    //  - @DeleteMapping("/groups/{groupId}/challenges/{challengeId}"), 반환 ResponseEntity<Void> (204)
-    //  - 시그니처: deleteGroupChallenge(@PathVariable Long groupId, @PathVariable Long challengeId,
-    //    HttpServletRequest httpServletRequest)
-    //  - userId = (Long) httpServletRequest.getAttribute("userId") 패턴 유지
-    //    → groupService.deleteChallenge(groupId, challengeId, userId)
-    //  - @Operation/@ApiResponses(204/403/404) 추가
-    //  - import: org.springframework.web.bind.annotation.DeleteMapping
+    @Operation(summary = "그룹 챌린지 삭제", description = "OWNER만 삭제 가능. 성공 시 204 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "삭제 성공"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음")
+    })
+    @DeleteMapping("/groups/{groupId}/challenges/{challengeId}")
+    public ResponseEntity<?> deleteGroupChallenge(
+            @PathVariable Long groupId,
+            @PathVariable Long challengeId,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        groupService.deleteChallenge(groupId, challengeId, userId);
+        return ResponseEntity.noContent().build();
+    }
 }
