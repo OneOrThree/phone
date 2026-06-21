@@ -50,6 +50,138 @@
     }
   ],
   "paths": {
+    "/api/v1/groups/{groupId}/announcements/{announcementId}": {
+      "put": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 공지 수정",
+        "description": "OWNER 또는 공지 권한 부여된 멤버만 수정 가능. 성공 시 204 반환.",
+        "operationId": "updateGroupAnnouncement",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "announcementId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAnnouncementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "수정 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "권한 없음 / 게스트",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음 / 공지 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 공지 삭제",
+        "description": "OWNER 또는 공지 권한 부여된 멤버만 삭제 가능. 성공 시 204 반환.",
+        "operationId": "deleteGroupAnnouncement",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "announcementId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "삭제 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "권한 없음 / 게스트",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음 / 공지 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/user": {
       "get": {
         "tags": [
@@ -1140,6 +1272,120 @@
         }
       }
     },
+    "/api/v1/groups/{groupId}/settings": {
+      "get": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 채팅·권한 설정 조회",
+        "description": "OWNER만 조회 가능.",
+        "operationId": "getGroupSettings",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupSettingsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "OWNER 아님 / 게스트 / 그룹원 아님",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupSettingsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 채팅·권한 설정 수정",
+        "description": "OWNER만 가능. null 필드는 미변경(PATCH). 성공 시 204 반환.",
+        "operationId": "updateGroupSettings",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateGroupSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "수정 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "OWNER 아님 / 게스트 / 그룹원 아님",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/groups/{groupId}/members/{targetUserId}/owner": {
       "patch": {
         "tags": [
@@ -1425,6 +1671,69 @@
         }
       }
     },
+    "/api/v1/groups/{groupId}/members/me": {
+      "delete": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "그룹 탈퇴",
+        "description": "MEMBER는 즉시 탈퇴. OWNER는 위임 후 탈퇴 가능. 마지막 1인 탈퇴 시 그룹 CLOSED. 성공 시 204 반환.",
+        "operationId": "withdrawGroup",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "탈퇴 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "방장 위임 필요",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "게스트 / 그룹원 아님",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/groups/{groupId}/challenges/{challengeId}": {
       "delete": {
         "tags": [
@@ -1530,6 +1839,24 @@
   },
   "components": {
     "schemas": {
+      "CreateAnnouncementRequest": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 0
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "content",
+          "title"
+        ]
+      },
       "UserProfileSetupRequest": {
         "type": "object",
         "properties": {
@@ -1763,24 +2090,6 @@
             "type": "string"
           }
         }
-      },
-      "CreateAnnouncementRequest": {
-        "type": "object",
-        "properties": {
-          "title": {
-            "type": "string",
-            "maxLength": 100,
-            "minLength": 0
-          },
-          "content": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "required": [
-          "content",
-          "title"
-        ]
       },
       "FocusSessionRequest": {
         "type": "object",
@@ -2043,6 +2352,9 @@
           "name": {
             "type": "string"
           },
+          "description": {
+            "type": "string"
+          },
           "maxMembers": {
             "type": "integer",
             "format": "int32"
@@ -2056,6 +2368,39 @@
           },
           "password": {
             "type": "string"
+          }
+        }
+      },
+      "UpdateGroupSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "chatEnabled": {
+            "type": "boolean"
+          },
+          "chatLimitPerPerson": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "noticePermission": {
+            "type": "string",
+            "enum": [
+              "OWNER_ONLY",
+              "ALL_MEMBERS"
+            ]
+          },
+          "invitePermission": {
+            "type": "string",
+            "enum": [
+              "OWNER_ONLY",
+              "ALL_MEMBERS"
+            ]
+          },
+          "noticeGrantedUserIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
           }
         }
       },
@@ -2165,7 +2510,8 @@
             "enum": [
               "WAITING",
               "ACTIVE",
-              "ENDED"
+              "ENDED",
+              "CLOSED"
             ]
           }
         }
@@ -2186,6 +2532,10 @@
               "OWNER",
               "MEMBER"
             ]
+          },
+          "focusTimeMinutes": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -2237,7 +2587,8 @@
             "enum": [
               "WAITING",
               "ACTIVE",
-              "ENDED"
+              "ENDED",
+              "CLOSED"
             ]
           },
           "members": {
@@ -2252,6 +2603,46 @@
           "codeExpiresAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "noticeGrantedUserIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        }
+      },
+      "GroupSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "chatEnabled": {
+            "type": "boolean"
+          },
+          "chatLimitPerPerson": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "noticePermission": {
+            "type": "string",
+            "enum": [
+              "OWNER_ONLY",
+              "ALL_MEMBERS"
+            ]
+          },
+          "invitePermission": {
+            "type": "string",
+            "enum": [
+              "OWNER_ONLY",
+              "ALL_MEMBERS"
+            ]
+          },
+          "noticeGrantedUserIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
           }
         }
       },
@@ -2307,7 +2698,8 @@
             "enum": [
               "WAITING",
               "ACTIVE",
-              "ENDED"
+              "ENDED",
+              "CLOSED"
             ]
           },
           "hasPassword": {
@@ -2410,7 +2802,8 @@
             "enum": [
               "WAITING",
               "ACTIVE",
-              "ENDED"
+              "ENDED",
+              "CLOSED"
             ]
           },
           "hasPassword": {
