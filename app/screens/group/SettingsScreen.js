@@ -104,6 +104,7 @@ export default function SettingsScreen({
 
   // 방장 전용 그룹 설정
   const [chatEnabled, setChatEnabled] = useState(true);
+  const [chatLimit, setChatLimit] = useState(0);
   const [noticePermission, setNoticePermission] = useState('U');
   const [invitePermission, setInvitePermission] = useState('R');
   const [noticeGrantedIds, setNoticeGrantedIds] = useState([]);
@@ -136,13 +137,40 @@ export default function SettingsScreen({
     loadNotifSettings();
   }, [groupId]);
 
+  // 비방장 폴백: group 상세에 포함된 값으로 초기화 (초대코드 노출 판단 등)
   useEffect(() => {
     if (!group) return;
     setChatEnabled(group.chatEnabled ?? true);
+    setChatLimit(group.chatLimitPerPerson ?? 0);
     setNoticePermission(group.noticePermission ?? 'U');
     setInvitePermission(group.invitePermission ?? 'R');
     setNoticeGrantedIds(group.noticeGrantedUserIds ?? []);
   }, [group]);
+
+  // OWNER 전용: 설정 전용 엔드포인트에서 권위값 로드
+  useEffect(() => {
+    if (!isOwner) return;
+    let cancelled = false;
+    async function loadSettings() {
+      try {
+        const res = await apiFetch(`/api/v1/groups/${groupId}/settings`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setChatEnabled(data.chatEnabled ?? true);
+        setChatLimit(data.chatLimitPerPerson ?? 0);
+        setNoticePermission(data.noticePermission ?? 'U');
+        setInvitePermission(data.invitePermission ?? 'R');
+        setNoticeGrantedIds(data.noticeGrantedUserIds ?? []);
+      } catch {
+        // 무시
+      }
+    }
+    loadSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId, isOwner]);
 
   function saveNotif(key, value) {
     AsyncStorage.setItem(`gromo:notif:${key}:${groupId}`, String(value)).catch(() => {});
@@ -208,11 +236,16 @@ export default function SettingsScreen({
       async (val) => {
         const num = parseInt(val, 10);
         if (isNaN(num) || num < 0) return;
+        const prev = chatLimit;
+        setChatLimit(num);
         const ok = await patchSettings({ chatLimitPerPerson: num });
-        if (!ok) Alert.alert('오류', '설정 변경에 실패했어요');
+        if (!ok) {
+          setChatLimit(prev);
+          Alert.alert('오류', '설정 변경에 실패했어요');
+        }
       },
       'plain-text',
-      String(group?.chatLimitPerPerson ?? 0),
+      String(chatLimit),
     );
   }
 
