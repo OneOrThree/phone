@@ -451,7 +451,8 @@ export default function SettingsScreen({
               {/* 초대 코드 — 방장에게는 항상 표시 */}
               {(() => {
                 const expired =
-                  !group?.code || (group.codeExpiresAt && new Date(group.codeExpiresAt) < new Date());
+                  !group?.code ||
+                  (group.codeExpiresAt && new Date(group.codeExpiresAt) < new Date());
                 return (
                   <>
                     <Divider />

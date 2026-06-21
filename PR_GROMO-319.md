@@ -27,6 +27,7 @@ FEAT
 - 설정값을 OWNER 전용 `GET /api/v1/groups/{groupId}/settings`에서 로드하도록 연결 (비방장은 group 상세 폴백 유지)
 - `PATCH /settings`로 chatEnabled·chatLimitPerPerson·noticePermission·invitePermission·noticeGrantedUserIds 변경
 - 초대 코드 권한(invitePermission)별 노출 및 공유 기능 구현
+- 초대 코드 만료 시 "만료됨" 표시 및 재발급 버튼 추가 (`POST /api/v1/groups/{groupId}/code`)
 
 ### 공지 권한·수정/삭제 (GROMO-379)
 - 공지 등록 API 연동
