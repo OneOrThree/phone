@@ -22,10 +22,20 @@ const NUM_COLS = 2;
 const COL_GAP = 10;
 const CARD_W = (SCREEN_W - H_PAD * 2 - COL_GAP * (NUM_COLS - 1)) / NUM_COLS;
 
-function formatWindowTime(instant) {
-  if (!instant) return '';
-  const d = new Date(instant);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+function formatWindowTime(timeStr) {
+  if (!timeStr) return '';
+  // 백엔드가 "HH:mm:ss" 형식으로 반환 → "HH:mm"으로 표시
+  const [h, m] = timeStr.split(':');
+  return `${h}:${m}`;
+}
+
+// "HH:mm:ss" 문자열을 오늘 날짜 기준 타임스탬프(ms)로 변환
+function timeStrToTodayMs(timeStr) {
+  if (!timeStr) return NaN;
+  const [h, m, sec] = timeStr.split(':').map(Number);
+  const d = new Date();
+  d.setHours(h, m, sec || 0, 0);
+  return d.getTime();
 }
 
 function formatMinutes(min) {
@@ -212,16 +222,16 @@ export default function GroupTab({ group, groupId, refreshing, onRefresh }) {
     if (mins) missionText = `포커스타임 ${mins}분 이상`;
   } else {
     const ongoing = active.find(
-      (c) => new Date(c.windowStart) <= now && now <= new Date(c.windowEnd),
+      (c) => timeStrToTodayMs(c.windowStart) <= now && now <= timeStrToTodayMs(c.windowEnd),
     );
     const upcoming = active
-      .filter((c) => new Date(c.windowStart) > now)
-      .sort((a, b) => new Date(a.windowStart) - new Date(b.windowStart))[0];
+      .filter((c) => timeStrToTodayMs(c.windowStart) > now)
+      .sort((a, b) => timeStrToTodayMs(a.windowStart) - timeStrToTodayMs(b.windowStart))[0];
 
     if (ongoing) {
       missionText = `${formatWindowTime(ongoing.windowStart)} ~ ${formatWindowTime(ongoing.windowEnd)} 포커스 진행 중`;
     } else if (upcoming) {
-      const until = formatUntil(new Date(upcoming.windowStart) - now);
+      const until = formatUntil(timeStrToTodayMs(upcoming.windowStart) - now);
       missionText = `${formatWindowTime(upcoming.windowStart)} ~ ${formatWindowTime(upcoming.windowEnd)} 포커스 · ${until} 시작`;
     }
   }

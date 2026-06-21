@@ -103,10 +103,11 @@ function timeToInstant(hour, minute) {
   return d.toISOString();
 }
 
-function formatTime(instant) {
-  if (!instant) return '--:--';
-  const d = new Date(instant);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+function formatTime(timeStr) {
+  if (!timeStr) return '--:--';
+  // 백엔드가 "HH:mm:ss" 형식으로 반환 → "HH:mm"으로 표시
+  const [h, m] = timeStr.split(':');
+  return `${h}:${m}`;
 }
 
 function formatTimeVal({ hour, minute }) {
