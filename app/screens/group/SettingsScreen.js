@@ -373,6 +373,20 @@ export default function SettingsScreen({
     Share.share({ message: `그룹 "${group?.name}" 초대 코드: ${group?.code}` });
   }
 
+  async function handleRenewCode() {
+    try {
+      const res = await apiFetch(`/api/v1/groups/${groupId}/code`, { method: 'POST' });
+      if (res.ok) {
+        onRefresh?.();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        Alert.alert('오류', body.message ?? '초대 코드 재발급에 실패했어요');
+      }
+    } catch {
+      Alert.alert('오류', '네트워크 오류가 발생했어요');
+    }
+  }
+
   const nonOwnerMembers = (group?.members ?? []).filter((m) => m.role !== 'OWNER');
   const grantedCount = noticeGrantedIds.length;
   const noticeGrantedLabel = grantedCount === 0 ? '없음' : `${grantedCount}명`;
@@ -435,23 +449,40 @@ export default function SettingsScreen({
                 onChange={handleInvitePermission}
               />
               {/* 초대 코드 — 방장에게는 항상 표시 */}
-              {group?.code && (
-                <>
-                  <Divider />
-                  <View style={s.codeRow}>
-                    <View style={{ flex: 1, gap: 3 }}>
-                      <Text style={s.codeLabel}>초대 코드</Text>
-                      <Text style={s.codeValue}>{group.code}</Text>
-                      {group.codeExpiresAt && (
-                        <Text style={s.codeExpiry}>{formatExpiry(group.codeExpiresAt)}</Text>
-                      )}
+              {(() => {
+                const expired =
+                  !group?.code || (group.codeExpiresAt && new Date(group.codeExpiresAt) < new Date());
+                return (
+                  <>
+                    <Divider />
+                    <View style={s.codeRow}>
+                      <View style={{ flex: 1, gap: 3 }}>
+                        <Text style={s.codeLabel}>초대 코드</Text>
+                        {expired ? (
+                          <Text style={s.codeExpired}>만료됨</Text>
+                        ) : (
+                          <>
+                            <Text style={s.codeValue}>{group.code}</Text>
+                            {group.codeExpiresAt && (
+                              <Text style={s.codeExpiry}>{formatExpiry(group.codeExpiresAt)}</Text>
+                            )}
+                          </>
+                        )}
+                      </View>
+                      <View style={{ gap: 8 }}>
+                        {!expired && (
+                          <TouchableOpacity onPress={handleShareCode} style={s.shareBtn}>
+                            <Text style={s.shareBtnTxt}>공유</Text>
+                          </TouchableOpacity>
+                        )}
+                        <TouchableOpacity onPress={handleRenewCode} style={s.renewBtn}>
+                          <Text style={s.renewBtnTxt}>재발급</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                    <TouchableOpacity onPress={handleShareCode} style={s.shareBtn}>
-                      <Text style={s.shareBtnTxt}>공유</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              )}
+                  </>
+                );
+              })()}
               {nonOwnerMembers.length > 0 && (
                 <>
                   <Divider />
@@ -767,6 +798,7 @@ const s = StyleSheet.create({
   codeLabel: { fontSize: 12, fontWeight: '600', color: T.inkLight },
   codeValue: { fontSize: 20, fontWeight: '900', color: T.ink, letterSpacing: 2 },
   codeExpiry: { fontSize: 11, fontWeight: '500', color: T.inkLight },
+  codeExpired: { fontSize: 16, fontWeight: '700', color: T.inkLight },
   shareBtn: {
     paddingHorizontal: 14,
     paddingVertical: 8,
@@ -775,6 +807,14 @@ const s = StyleSheet.create({
     borderColor: T.ink,
   },
   shareBtnTxt: { fontSize: 13, fontWeight: '800', color: T.ink },
+  renewBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: T.mint,
+  },
+  renewBtnTxt: { fontSize: 13, fontWeight: '800', color: T.mint },
 
   // 공지 권한 멤버 선택 모달
   pickerRoot: { flex: 1, backgroundColor: T.paper },

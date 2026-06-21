@@ -241,10 +241,7 @@ export default function MemberCalendarScreen({ navigation, route }) {
               </View>
             )}
           </View>
-          <TouchableOpacity
-            onPress={closeSheet}
-            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-          >
+          <TouchableOpacity onPress={closeSheet} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
             <Text style={s.closeBtn}>✕</Text>
           </TouchableOpacity>
         </View>
@@ -354,7 +351,9 @@ export default function MemberCalendarScreen({ navigation, route }) {
                 return `${Number(m)}월 ${Number(d)}일`;
               })()}
             </Text>
-            <Text style={s.selectedTimeTxt}>{formatMin(statsMap[selectedDate]?.focusMinutes ?? 0)} 집중</Text>
+            <Text style={s.selectedTimeTxt}>
+              {formatMin(statsMap[selectedDate]?.focusMinutes ?? 0)} 집중
+            </Text>
           </View>
         )}
 
