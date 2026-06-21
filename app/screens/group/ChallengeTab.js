@@ -16,6 +16,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, inkBox } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
+import { useUser } from '../../contexts/UserContext';
 
 const CHALLENGE_TYPES = [
   { label: 'A-B 포커스', value: 'TIME_WINDOW' },
@@ -160,7 +161,8 @@ export default function ChallengeTab({ group, groupId }) {
   const [tempMinute, setTempMinute] = useState(0);
   const insets = useSafeAreaInsets();
 
-  const isOwner = !!group?.code;
+  const { userId: myUserId } = useUser();
+  const isOwner = group?.members?.find((m) => m.userId === myUserId)?.role === 'OWNER';
   const totalMembers = group?.members?.length ?? 0;
 
   async function fetchChallenges() {
@@ -181,6 +183,32 @@ export default function ChallengeTab({ group, groupId }) {
     fetchChallenges();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId]);
+
+  function handleDeleteChallenge(challenge) {
+    Alert.alert('챌린지 삭제', `"${getChallengeName(challenge)}" 챌린지를 삭제할까요?`, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const res = await apiFetch(
+              `/api/v1/groups/${groupId}/challenges/${challenge.id}`,
+              { method: 'DELETE' },
+            );
+            if (res.ok) {
+              setChallenges((prev) => prev.filter((c) => c.id !== challenge.id));
+            } else {
+              const body = await res.json().catch(() => ({}));
+              Alert.alert('오류', body.message ?? '삭제에 실패했어요');
+            }
+          } catch {
+            Alert.alert('오류', '네트워크 오류가 발생했어요');
+          }
+        },
+      },
+    ]);
+  }
 
   function openCreate() {
     setChallengeType('TIME_WINDOW');
@@ -254,6 +282,15 @@ export default function ChallengeTab({ group, groupId }) {
                         </View>
                       )}
                     </View>
+                    {isOwner && (
+                      <TouchableOpacity
+                        onPress={() => handleDeleteChallenge(c)}
+                        hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                        style={s.deleteBtn}
+                      >
+                        <Text style={s.deleteBtnText}>✕</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                   <Text style={s.cardDesc}>{getChallengeDesc(c)}</Text>
                   <View style={s.progressRow}>
@@ -450,6 +487,14 @@ const s = StyleSheet.create({
   cardHeaderText: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   cardName: { fontSize: 15, fontWeight: '800', color: T.ink },
   cardDesc: { fontSize: 13, fontWeight: '500', color: T.inkMed, marginBottom: 10 },
+
+  deleteBtn: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteBtnText: { fontSize: 15, fontWeight: '800', color: T.inkLight },
 
   noBadge: {
     paddingHorizontal: 8,
