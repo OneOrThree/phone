@@ -1,12 +1,13 @@
 package com.oneorthree.phone.service;
 
-import com.oneorthree.phone.domain.focus.DailyFocusStat;
-import com.oneorthree.phone.domain.user.User;
-import com.oneorthree.phone.exception.UserNotFoundException;
-import com.oneorthree.phone.port.ScreenTimeNotificationPort;
-import com.oneorthree.phone.repository.focus.DailyFocusStatRepository;
-import com.oneorthree.phone.repository.user.UserRepository;
-import com.oneorthree.phone.service.dto.screentime.ScreenTimeRequest;
+import com.oneorthree.phone.focus.domain.DailyFocusStat;
+import com.oneorthree.phone.screentime.service.ScreenTimeService;
+import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.exception.UserNotFoundException;
+import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

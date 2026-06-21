@@ -1,8 +1,8 @@
 package com.oneorthree.phone.api;
 
-import com.oneorthree.phone.api.dto.response.ItemResponse;
-import com.oneorthree.phone.api.dto.response.UserItemResponse;
-import com.oneorthree.phone.service.InventoryService;
+import com.oneorthree.phone.item.dto.ItemResponse;
+import com.oneorthree.phone.item.dto.UserItemResponse;
+import com.oneorthree.phone.item.service.InventoryService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;

@@ -1,11 +1,12 @@
 package com.oneorthree.phone.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.oneorthree.phone.api.dto.response.KakaoLoginResponse;
-import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
-import com.oneorthree.phone.exception.InvalidTokenErrorCode;
-import com.oneorthree.phone.exception.InvalidTokenException;
-import com.oneorthree.phone.service.AuthService;
+import com.oneorthree.phone.auth.dto.KakaoLoginResponse;
+import com.oneorthree.phone.auth.dto.TokenRefreshResponse;
+import com.oneorthree.phone.auth.api.AuthController;
+import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
+import com.oneorthree.phone.auth.exception.InvalidTokenException;
+import com.oneorthree.phone.auth.service.AuthService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
