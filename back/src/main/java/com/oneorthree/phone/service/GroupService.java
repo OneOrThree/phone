@@ -7,6 +7,8 @@ import com.oneorthree.phone.domain.group.GroupChallenge;
 import com.oneorthree.phone.domain.group.GroupChallengeStatus;
 import com.oneorthree.phone.domain.group.GroupMember;
 import com.oneorthree.phone.domain.group.GroupMemberRole;
+import com.oneorthree.phone.domain.group.GroupNoticeGrant;
+import com.oneorthree.phone.domain.group.GroupPermissionScope;
 import com.oneorthree.phone.domain.group.MissionCategory;
 import com.oneorthree.phone.domain.group.MissionType;
 import com.oneorthree.phone.domain.user.User;
@@ -17,6 +19,7 @@ import com.oneorthree.phone.repository.focus.DailyFocusStatRepository;
 import com.oneorthree.phone.repository.group.GroupAnnouncementRepository;
 import com.oneorthree.phone.repository.group.GroupChallengeRepository;
 import com.oneorthree.phone.repository.group.GroupMemberRepository;
+import com.oneorthree.phone.repository.group.GroupNoticeGrantRepository;
 import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.group.CreateAnnouncementRequest;
@@ -33,6 +36,7 @@ import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
 import com.oneorthree.phone.service.dto.group.RenewGroupCodeResponse;
+import com.oneorthree.phone.service.dto.group.GroupSettingsResponse;
 import com.oneorthree.phone.service.dto.group.UpdateGroupRequest;
 import com.oneorthree.phone.service.dto.group.UpdateGroupSettingsRequest;
 import lombok.RequiredArgsConstructor;
@@ -66,11 +70,12 @@ public class GroupService {
     private final PasswordEncoder passwordEncoder;
     private final GroupAnnouncementRepository groupAnnouncementRepository;
     private final GroupChallengeRepository groupChallengeRepository;
+    private final DailyFocusStatRepository dailyFocusStatRepository;
 
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
-    private final DailyFocusStatRepository dailyFocusStatRepository;
+    private final GroupNoticeGrantRepository groupNoticeGrantRepository;
 
     @Transactional
     public CreateGroupResponse createGroup(Long userId, CreateGroupRequest request) {
@@ -308,6 +313,10 @@ public class GroupService {
                         .build())
                 .toList();
 
+        List<Long> granteUsers = groupNoticeGrantRepository.findByGroup(group).stream()
+                .map(u -> u.getUserId())
+                .toList();
+
         return GroupDetailResponse.builder()
                 .id(group.getId())
                 .name(group.getName())
@@ -324,9 +333,7 @@ public class GroupService {
                         group.getCode() : null)
                 .codeExpiresAt(groupMember.getRole() == GroupMemberRole.OWNER ?
                         group.getCodeExpiresAt() : null)
-                // TODO GROMO-378: .noticeGrantedUserIds(...)
-                //  - GroupNoticeGrantRepository.findByGroup(group) → userId List 변환
-                //  - GroupNoticeGrantRepository 필드 주입 필요
+                .noticeGrantedUserIds(granteUsers)
                 .build();
     }
 
@@ -341,17 +348,11 @@ public class GroupService {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
-        Optional<GroupMember> groupMember = groupMemberRepository.findByUserAndGroup(user, group);
-        if (groupMember.isEmpty()) {
-            throw new GroupException(GroupErrorCode.MEMBER_ONLY);
-        }
+        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
 
-        // TODO GROMO-378: OWNER 단독 → OWNER ∪ noticeGrantedUserIds 권한 확장
-        //  - canManageNotice(group, userId) private helper 추출 권장
-        //  - groupNoticeGrantRepository.existsByGroupAndUserId(group, userId) 추가 체크
-        //  - 권한 없으면 NOTICE_FORBIDDEN(또는 NOT_OWNER) throw
-        if (groupMember.get().getRole() != GroupMemberRole.OWNER) {
-            throw new GroupException(GroupErrorCode.NOT_OWNER);
+        if (!canManageNotice(group, groupMember.getRole(), userId)) {
+            throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
         }
 
         groupAnnouncementRepository.save(
@@ -362,6 +363,16 @@ public class GroupService {
                         .content(request.getContent())
                         .build()
         );
+    }
+
+    private boolean canManageNotice(Group group, GroupMemberRole role, Long userId) {
+        if (role == GroupMemberRole.OWNER) {
+            return true;
+        }
+        if (group.getNoticePermission() == GroupPermissionScope.ALL_MEMBERS) {
+            return true;
+        }
+        return groupNoticeGrantRepository.existsByGroupAndUserId(group, userId);
     }
 
     public List<GroupAnnouncementResponse> getAnnouncements(Long groupId, Long userId) {
@@ -389,17 +400,51 @@ public class GroupService {
                 .toList();
     }
 
-    // TODO GROMO-378: updateAnnouncement 메서드 추가
-    //  - 시그니처: @Transactional public void updateAnnouncement(
-    //    Long groupId, Long announcementId, Long userId, CreateAnnouncementRequest request)
-    //  - 권한: canManageNotice(group, userId) — OWNER 또는 noticeGrantedUserIds
-    //  - 소속 검증: groupAnnouncementRepository.findByIdAndGroup(announcementId, group) 없으면 NOT_FOUND
-    //  - 수정: announcement.updateContent(request.getTitle(), request.getContent())
+    @Transactional
+    public void updateAnnouncement(Long groupId, Long announcementId, Long userId, CreateAnnouncementRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
 
-    // TODO GROMO-378: deleteAnnouncement 메서드 추가
-    //  - 시그니처: @Transactional public void deleteAnnouncement(
-    //    Long groupId, Long announcementId, Long userId)
-    //  - 권한/소속 검증 동일, groupAnnouncementRepository.delete(announcement)
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember member = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        if (!canManageNotice(group, member.getRole(), userId)) {
+            throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
+        }
+
+        GroupAnnouncement announcement = groupAnnouncementRepository.findByIdAndGroup(announcementId, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        announcement.updateContent(request.getTitle(), request.getContent());
+    }
+
+    @Transactional
+    public void deleteAnnouncement(Long groupId, Long announcementId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember member = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        if (!canManageNotice(group, member.getRole(), userId)) {
+            throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
+        }
+
+        GroupAnnouncement announcement = groupAnnouncementRepository.findByIdAndGroup(announcementId, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        groupAnnouncementRepository.delete(announcement);
+    }
 
     public List<GroupChallengeResponse> getChallenges(Long groupId, Long userId) {
         User user = userRepository.findById(userId)
@@ -486,6 +531,35 @@ public class GroupService {
         }
     }
 
+    public GroupSettingsResponse getGroupSettings(Long groupId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        if (groupMember.getRole() != GroupMemberRole.OWNER) {
+            throw new GroupException(GroupErrorCode.NOT_OWNER);
+        }
+
+        List<Long> grantedUserIds = groupNoticeGrantRepository.findByGroup(group).stream()
+                .map(GroupNoticeGrant::getUserId)
+                .toList();
+
+        return GroupSettingsResponse.builder()
+                .chatEnabled(group.isChatEnabled())
+                .chatLimitPerPerson(group.getChatLimitPerPerson())
+                .noticePermission(group.getNoticePermission())
+                .invitePermission(group.getInvitePermission())
+                .noticeGrantedUserIds(grantedUserIds)
+                .build();
+    }
+
     @Transactional
     public void updateGroupSettings(Long groupId, Long userId, UpdateGroupSettingsRequest request) {
         User user = userRepository.findById(userId)
@@ -511,6 +585,20 @@ public class GroupService {
                 request.getNoticePermission(),
                 request.getInvitePermission()
         );
+
+        if (request.getNoticeGrantedUserIds() != null) {
+            groupNoticeGrantRepository.deleteByGroup(group);
+            if (!request.getNoticeGrantedUserIds().isEmpty()) {
+                List<GroupNoticeGrant> grants = request.getNoticeGrantedUserIds().stream()
+                        .filter(granteeId -> groupMemberRepository.existsByUserIdAndGroup(granteeId, group))
+                        .map(granteeId -> GroupNoticeGrant.builder()
+                                .group(group)
+                                .userId(granteeId)
+                                .build())
+                        .toList();
+                groupNoticeGrantRepository.saveAll(grants);
+            }
+        }
     }
 
     @Transactional

@@ -25,8 +25,5 @@ public class GroupDetailResponse {
     private List<GroupDetailMemberResponse> members;
     private String code;           // nullable — OWNER에게만 반환
     private Instant codeExpiresAt; // nullable — OWNER에게만 반환
-    // TODO GROMO-378: List<Long> noticeGrantedUserIds 필드 추가
-    //  - 공지 작성 권한 부여된 유저 ID 목록 (OWNER 제외)
-    //  - 프론트가 공지 작성/수정/삭제 버튼 노출 판단에 사용
-    //  - import: java.util.List
+    private List<Long> noticeGrantedUserIds;    //OWNER 제외
 }

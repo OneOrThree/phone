@@ -1,19 +1,38 @@
 package com.oneorthree.phone.domain.group;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Entity
 @Table(name = "group_notice_grants",
         uniqueConstraints = @UniqueConstraint(columnNames = {"group_id", "user_id"}))
 @Getter
+@Builder
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor
 public class GroupNoticeGrant {
-    // TODO GROMO-378: 필드 + Lombok 추가 (@Builder @NoArgsConstructor(PROTECTED) @AllArgsConstructor)
-    //  - Long id (@Id @GeneratedValue IDENTITY)
-    //  - Group group (@ManyToOne LAZY, @JoinColumn(name="group_id") NOT NULL)
-    //  - Long userId (@Column(name="user_id") NOT NULL)
-    //    User FK 대신 Long 보관 — 조인 비용 절감, List<Long> 계약과 매칭
-    //  import 추가 필요: Id, GeneratedValue, GenerationType, ManyToOne, JoinColumn, FetchType
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "group_id", nullable = false)
+    private Group group;
+
+    @Column(name = "user_id", nullable = false)
+    private Long userId;
 }

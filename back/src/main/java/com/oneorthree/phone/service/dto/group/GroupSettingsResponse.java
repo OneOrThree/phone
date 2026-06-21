@@ -1,16 +1,17 @@
 package com.oneorthree.phone.service.dto.group;
 
 import com.oneorthree.phone.domain.group.GroupPermissionScope;
+import lombok.Builder;
 import lombok.Getter;
 
 import java.util.List;
 
 @Getter
-public class UpdateGroupSettingsRequest {
-    private Boolean chatEnabled;
+@Builder
+public class GroupSettingsResponse {
+    private boolean chatEnabled;
     private Integer chatLimitPerPerson;
     private GroupPermissionScope noticePermission;
     private GroupPermissionScope invitePermission;
-    private List<Long> noticeGrantedUserIds;    //  - 빈 리스트 = 권한 초기화(방장만), null = 미변경
-
+    private List<Long> noticeGrantedUserIds;
 }

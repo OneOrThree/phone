@@ -5,7 +5,6 @@ import lombok.Getter;
 @Getter
 public class UpdateGroupRequest {
 
-    // TODO GROMO-377: String description 필드 추가 (null=미변경)
     private String name;
     private String description;
     private Integer maxMembers;

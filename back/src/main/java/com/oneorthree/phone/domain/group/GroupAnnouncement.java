@@ -16,6 +16,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 
@@ -49,7 +50,15 @@ public class GroupAnnouncement {
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
-    // TODO GROMO-378: updateContent(String title, String content) 메서드 추가
-    //  - this.title = title; this.content = content;
-    //  - (선택) updatedAt 컬럼/필드 추가 검토 — 공지 수정 시각 audit
+    @UpdateTimestamp
+    private Instant updatedAt;
+
+    public void updateContent(String title, String content) {
+        if (title != null) {
+            this.title = title;
+        }
+        if (content != null) {
+            this.content = content;
+        }
+    }
 }
