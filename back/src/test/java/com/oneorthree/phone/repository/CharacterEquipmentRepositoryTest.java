@@ -1,13 +1,13 @@
 package com.oneorthree.phone.repository;
 
-import com.oneorthree.phone.domain.item.CharacterEquipment;
-import com.oneorthree.phone.domain.item.Item;
-import com.oneorthree.phone.domain.item.Rarity;
-import com.oneorthree.phone.domain.item.SlotType;
-import com.oneorthree.phone.domain.user.User;
-import com.oneorthree.phone.repository.item.CharacterEquipmentRepository;
-import com.oneorthree.phone.repository.item.ItemRepository;
-import com.oneorthree.phone.repository.user.UserRepository;
+import com.oneorthree.phone.item.domain.CharacterEquipment;
+import com.oneorthree.phone.item.domain.Item;
+import com.oneorthree.phone.item.domain.Rarity;
+import com.oneorthree.phone.item.domain.SlotType;
+import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
+import com.oneorthree.phone.item.repository.ItemRepository;
+import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Disabled;

@@ -1,14 +1,18 @@
 package com.oneorthree.phone.service;
 
-import com.oneorthree.phone.api.dto.response.KakaoLoginResponse;
-import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
-import com.oneorthree.phone.domain.user.Provider;
-import com.oneorthree.phone.domain.user.SocialAccount;
-import com.oneorthree.phone.domain.user.User;
-import com.oneorthree.phone.exception.InvalidTokenException;
-import com.oneorthree.phone.repository.user.SocialAccountRepository;
-import com.oneorthree.phone.repository.user.UserRepository;
-import com.oneorthree.phone.service.dto.user.KakaoUserInfo;
+import com.oneorthree.phone.auth.client.KakaoApiClient;
+import com.oneorthree.phone.auth.dto.KakaoLoginResponse;
+import com.oneorthree.phone.auth.dto.TokenRefreshResponse;
+import com.oneorthree.phone.auth.client.AppleJwksClient;
+import com.oneorthree.phone.auth.service.AuthService;
+import com.oneorthree.phone.auth.service.JwtProvider;
+import com.oneorthree.phone.user.domain.Provider;
+import com.oneorthree.phone.user.domain.SocialAccount;
+import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.auth.exception.InvalidTokenException;
+import com.oneorthree.phone.user.repository.SocialAccountRepository;
+import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.dto.KakaoUserInfo;
 import io.jsonwebtoken.JwtException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

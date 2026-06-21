@@ -1,0 +1,70 @@
+package com.oneorthree.phone.common.exception;
+
+import com.oneorthree.phone.auth.exception.InvalidTokenException;
+import com.oneorthree.phone.currency.exception.CurrencyException;
+import com.oneorthree.phone.focus.exception.FocusException;
+import com.oneorthree.phone.group.exception.GroupErrorCode;
+import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.user.exception.UserException;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.time.zone.ZoneRulesException;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(UserException.class)
+    public ResponseEntity<ErrorResponse> handleUser(UserException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(FocusException.class)
+    public ResponseEntity<ErrorResponse> handleFocus(FocusException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(CurrencyException.class)
+    public ResponseEntity<ErrorResponse> handleCurrency(CurrencyException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidTokenException.class)
+    public ResponseEntity<ErrorResponse> handleToken(InvalidTokenException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(GroupException.class)
+    public ResponseEntity<ErrorResponse> handleGroup(GroupException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse("ILLEGAL_ARGUMENT", e.getMessage()));
+    }
+
+    @ExceptionHandler(ZoneRulesException.class)
+    public ResponseEntity<ErrorResponse> handleZoneRulesException(ZoneRulesException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse("INVALID_TIMEZONE", e.getMessage()));
+    }
+
+    /*
+    @todo 낙관적락 exception 추후 분기 필요
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLock(OptimisticLockingFailureException e) {
+        return ResponseEntity.status(GroupErrorCode.ROOM_FULL.getStatus())
+                .body(new ErrorResponse(GroupErrorCode.ROOM_FULL.name(), GroupErrorCode.ROOM_FULL.getMessage()));
+    }
+}

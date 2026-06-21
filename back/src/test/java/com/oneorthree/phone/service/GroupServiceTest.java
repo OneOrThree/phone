@@ -1,34 +1,38 @@
 package com.oneorthree.phone.service;
 
-import com.oneorthree.phone.domain.group.Group;
-import com.oneorthree.phone.domain.group.GroupMember;
-import com.oneorthree.phone.domain.group.GroupMemberRole;
-import com.oneorthree.phone.domain.group.MissionCategory;
-import com.oneorthree.phone.domain.group.MissionType;
-import com.oneorthree.phone.domain.user.User;
-import com.oneorthree.phone.exception.GroupException;
-import com.oneorthree.phone.repository.group.GroupMemberRepository;
-import com.oneorthree.phone.repository.group.GroupRepository;
-import com.oneorthree.phone.repository.user.UserRepository;
-import com.oneorthree.phone.domain.group.GroupStatus;
-import com.oneorthree.phone.exception.UserNotFoundException;
-import com.oneorthree.phone.domain.group.GroupAnnouncement;
-import com.oneorthree.phone.domain.group.GroupChallenge;
-import com.oneorthree.phone.domain.group.GroupChallengeStatus;
-import com.oneorthree.phone.repository.focus.DailyFocusStatRepository;
-import com.oneorthree.phone.repository.group.GroupAnnouncementRepository;
-import com.oneorthree.phone.repository.group.GroupChallengeRepository;
-import com.oneorthree.phone.repository.group.GroupNoticeGrantRepository;
-import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
-import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
-import com.oneorthree.phone.service.dto.group.GroupAnnouncementResponse;
-import com.oneorthree.phone.service.dto.group.GroupChallengeResponse;
-import com.oneorthree.phone.service.dto.group.GroupDetailResponse;
-import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
-import com.oneorthree.phone.service.dto.group.GroupOverviewResponse;
-import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
-import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
-import com.oneorthree.phone.service.dto.group.RenewGroupCodeResponse;
+import com.oneorthree.phone.group.domain.Group;
+import com.oneorthree.phone.group.domain.GroupMember;
+import com.oneorthree.phone.group.domain.GroupMemberRole;
+import com.oneorthree.phone.group.domain.MissionCategory;
+import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.service.GroupAnnouncementService;
+import com.oneorthree.phone.group.service.GroupChallengeService;
+import com.oneorthree.phone.group.service.GroupMemberService;
+import com.oneorthree.phone.group.service.GroupService;
+import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.group.domain.GroupStatus;
+import com.oneorthree.phone.user.exception.UserException;
+import com.oneorthree.phone.group.domain.GroupAnnouncement;
+import com.oneorthree.phone.group.domain.GroupChallenge;
+import com.oneorthree.phone.group.domain.GroupChallengeStatus;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.repository.GroupNoticeGrantRepository;
+import com.oneorthree.phone.group.dto.CreateGroupRequest;
+import com.oneorthree.phone.group.dto.CreateGroupResponse;
+import com.oneorthree.phone.group.dto.GroupAnnouncementResponse;
+import com.oneorthree.phone.group.dto.GroupChallengeResponse;
+import com.oneorthree.phone.group.dto.GroupDetailResponse;
+import com.oneorthree.phone.group.dto.GroupSearchResponse;
+import com.oneorthree.phone.group.dto.GroupOverviewResponse;
+import com.oneorthree.phone.group.dto.GroupSummaryResponse;
+import com.oneorthree.phone.group.dto.JoinGroupRequest;
+import com.oneorthree.phone.group.dto.RenewGroupCodeResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -57,6 +61,15 @@ class GroupServiceTest {
 
     @InjectMocks
     private GroupService groupService;
+
+    @InjectMocks
+    private GroupAnnouncementService groupAnnouncementService;
+
+    @InjectMocks
+    private GroupChallengeService groupChallengeService;
+
+    @InjectMocks
+    private GroupMemberService groupMemberService;
 
     @Mock
     private GroupRepository groupRepository;
@@ -323,14 +336,14 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 유저 → UserNotFoundException")
+    @DisplayName("존재하지 않는 유저 → UserException")
     void getMyGroupsUserNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupService.getMyGroups(USER_ID))
-                .isInstanceOf(UserNotFoundException.class);
+                .isInstanceOf(UserException.class);
     }
 
     // ── searchGroups ──────────────────────────────────────────────────────
@@ -537,7 +550,7 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 userId → UserNotFoundException")
+    @DisplayName("존재하지 않는 userId → UserException")
     void getGroupOverviewUserNotFound() {
         // given
         Group group = Group.builder().id(1L).name("그룹")
@@ -549,7 +562,7 @@ class GroupServiceTest {
 
         // when & then
         assertThatThrownBy(() -> groupService.getGroupOverview(1L, USER_ID))
-                .isInstanceOf(UserNotFoundException.class);
+                .isInstanceOf(UserException.class);
     }
 
     @Test
@@ -764,7 +777,7 @@ class GroupServiceTest {
         given(groupAnnouncementRepository.findByGroupOrderByCreatedAtDesc(group)).willReturn(List.of(ann));
 
         // when
-        List<GroupAnnouncementResponse> result = groupService.getAnnouncements(1L, USER_ID);
+        List<GroupAnnouncementResponse> result = groupAnnouncementService.getAnnouncements(1L, USER_ID);
 
         // then
         assertThat(result).hasSize(1);
@@ -784,7 +797,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.getAnnouncements(1L, USER_ID))
+        assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(1L, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -795,7 +808,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
-        assertThatThrownBy(() -> groupService.getAnnouncements(1L, USER_ID))
+        assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(1L, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -807,7 +820,7 @@ class GroupServiceTest {
         given(groupRepository.findById(99L)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.getAnnouncements(99L, USER_ID))
+        assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(99L, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -831,7 +844,7 @@ class GroupServiceTest {
         given(groupChallengeRepository.findByGroupOrderByCreatedAtDesc(group)).willReturn(List.of(challenge));
 
         // when
-        List<GroupChallengeResponse> result = groupService.getChallenges(1L, USER_ID);
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(1L, USER_ID);
 
         // then
         assertThat(result).hasSize(1);
@@ -852,7 +865,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.getChallenges(1L, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(1L, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -863,7 +876,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
-        assertThatThrownBy(() -> groupService.getChallenges(1L, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(1L, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -875,7 +888,7 @@ class GroupServiceTest {
         given(groupRepository.findById(99L)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.getChallenges(99L, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(99L, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1021,14 +1034,14 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 userId → UserNotFoundException")
+    @DisplayName("존재하지 않는 userId → UserException")
     void joinGroupUserNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupService.joinGroup(1L, USER_ID, new JoinGroupRequest()))
-                .isInstanceOf(UserNotFoundException.class);
+                .isInstanceOf(UserException.class);
     }
 
     // ── transferOwner (GROMO-355) ─────────────────────────────────────────
@@ -1052,7 +1065,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.of(targetMember));
 
         // when
-        groupService.transferOwner(1L, TARGET_USER_ID, USER_ID);
+        groupMemberService.transferOwner(1L, TARGET_USER_ID, USER_ID);
 
         // then
         assertThat(ownerMember.getRole()).isEqualTo(GroupMemberRole.MEMBER);
@@ -1067,7 +1080,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
-        assertThatThrownBy(() -> groupService.transferOwner(1L, TARGET_USER_ID, USER_ID))
+        assertThatThrownBy(() -> groupMemberService.transferOwner(1L, TARGET_USER_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1085,7 +1098,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
 
         // when & then
-        assertThatThrownBy(() -> groupService.transferOwner(1L, TARGET_USER_ID, USER_ID))
+        assertThatThrownBy(() -> groupMemberService.transferOwner(1L, TARGET_USER_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1102,7 +1115,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.transferOwner(1L, TARGET_USER_ID, USER_ID))
+        assertThatThrownBy(() -> groupMemberService.transferOwner(1L, TARGET_USER_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1115,7 +1128,7 @@ class GroupServiceTest {
         given(groupRepository.findById(99L)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.transferOwner(99L, TARGET_USER_ID, USER_ID))
+        assertThatThrownBy(() -> groupMemberService.transferOwner(99L, TARGET_USER_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1135,7 +1148,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.transferOwner(1L, TARGET_USER_ID, USER_ID))
+        assertThatThrownBy(() -> groupMemberService.transferOwner(1L, TARGET_USER_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 }

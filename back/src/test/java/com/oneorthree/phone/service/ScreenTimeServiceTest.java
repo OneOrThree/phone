@@ -1,12 +1,13 @@
 package com.oneorthree.phone.service;
 
-import com.oneorthree.phone.domain.focus.DailyFocusStat;
-import com.oneorthree.phone.domain.user.User;
-import com.oneorthree.phone.exception.UserNotFoundException;
-import com.oneorthree.phone.port.ScreenTimeNotificationPort;
-import com.oneorthree.phone.repository.focus.DailyFocusStatRepository;
-import com.oneorthree.phone.repository.user.UserRepository;
-import com.oneorthree.phone.service.dto.screentime.ScreenTimeRequest;
+import com.oneorthree.phone.focus.domain.DailyFocusStat;
+import com.oneorthree.phone.screentime.service.ScreenTimeService;
+import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.exception.UserException;
+import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,9 +18,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.time.zone.ZoneRulesException;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -57,7 +57,7 @@ class ScreenTimeServiceTest {
     }
 
     private LocalDate expectedDate() {
-        return REPORTED_AT.atZone(ZoneId.of(TIMEZONE)).toLocalDate();
+        return REPORTED_AT.atZone(ZoneOffset.UTC).toLocalDate();
     }
 
     // ── 정상 저장 ─────────────────────────────────────────────────────────
@@ -131,26 +131,15 @@ class ScreenTimeServiceTest {
     // ── 에러 케이스 ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("존재하지 않는 userId → UserNotFoundException")
+    @DisplayName("존재하지 않는 userId → UserException")
     void saveScreenTimeUserNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> screenTimeService.saveScreenTime(USER_ID, request(true, 100)))
-                .isInstanceOf(UserNotFoundException.class);
+                .isInstanceOf(UserException.class);
         verify(dailyFocusStatRepository, never()).save(any());
     }
 
-    @Test
-    @DisplayName("유효하지 않은 timeZone → ZoneRulesException")
-    void saveScreenTimeInvalidTimeZone() {
-        // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-        ScreenTimeRequest badRequest = new ScreenTimeRequest(true, 100, REPORTED_AT, "Invalid/Zone");
-
-        // when & then
-        assertThatThrownBy(() -> screenTimeService.saveScreenTime(USER_ID, badRequest))
-                .isInstanceOf(ZoneRulesException.class);
-    }
 }

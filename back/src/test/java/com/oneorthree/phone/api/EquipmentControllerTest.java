@@ -1,11 +1,11 @@
 package com.oneorthree.phone.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.oneorthree.phone.api.dto.request.EquipRequest;
-import com.oneorthree.phone.api.dto.response.CharacterEquipmentResponse;
-import com.oneorthree.phone.api.dto.response.ItemResponse;
-import com.oneorthree.phone.domain.item.SlotType;
-import com.oneorthree.phone.service.EquipmentService;
+import com.oneorthree.phone.item.dto.EquipRequest;
+import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
+import com.oneorthree.phone.item.dto.ItemResponse;
+import com.oneorthree.phone.item.domain.SlotType;
+import com.oneorthree.phone.item.service.EquipmentService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;

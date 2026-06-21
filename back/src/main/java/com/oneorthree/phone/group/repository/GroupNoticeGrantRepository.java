@@ -1,0 +1,18 @@
+package com.oneorthree.phone.group.repository;
+
+import com.oneorthree.phone.group.domain.Group;
+import com.oneorthree.phone.group.domain.GroupNoticeGrant;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+
+import java.util.List;
+
+public interface GroupNoticeGrantRepository extends JpaRepository<GroupNoticeGrant, Long> {
+
+    List<GroupNoticeGrant> findByGroup(Group group);
+
+    @Modifying
+    void deleteByGroup(Group group);
+
+    boolean existsByGroupAndUserId(Group group, Long userId);
+}

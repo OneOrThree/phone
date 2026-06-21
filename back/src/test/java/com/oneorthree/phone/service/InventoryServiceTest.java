@@ -1,13 +1,14 @@
 package com.oneorthree.phone.service;
 
-import com.oneorthree.phone.api.dto.response.UserItemResponse;
-import com.oneorthree.phone.domain.item.Item;
-import com.oneorthree.phone.domain.item.Rarity;
-import com.oneorthree.phone.domain.item.SlotType;
-import com.oneorthree.phone.domain.user.User;
-import com.oneorthree.phone.repository.item.ItemRepository;
-import com.oneorthree.phone.repository.item.UserItemRepository;
-import com.oneorthree.phone.repository.user.UserRepository;
+import com.oneorthree.phone.item.dto.UserItemResponse;
+import com.oneorthree.phone.item.domain.Item;
+import com.oneorthree.phone.item.domain.Rarity;
+import com.oneorthree.phone.item.domain.SlotType;
+import com.oneorthree.phone.item.service.InventoryService;
+import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.item.repository.ItemRepository;
+import com.oneorthree.phone.item.repository.UserItemRepository;
+import com.oneorthree.phone.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Disabled;

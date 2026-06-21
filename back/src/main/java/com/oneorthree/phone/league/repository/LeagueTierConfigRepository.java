@@ -1,0 +1,8 @@
+package com.oneorthree.phone.league.repository;
+
+import com.oneorthree.phone.league.domain.LeagueTier;
+import com.oneorthree.phone.league.domain.LeagueTierConfig;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface LeagueTierConfigRepository extends JpaRepository<LeagueTierConfig, LeagueTier> {
+}
