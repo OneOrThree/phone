@@ -309,8 +309,7 @@ export default function FocusModeScreen({ navigation, route }) {
           totalDistractionSeconds: 0,
         }),
       });
-    } catch (e) {
-}
+    } catch (e) {}
 
     navigation.navigate('홈', {
       focusResult: {

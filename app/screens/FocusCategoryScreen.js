@@ -81,7 +81,7 @@ export default function FocusCategoryScreen({ navigation }) {
         setTags(list);
       }
     } catch (e) {
-} finally {
+    } finally {
       if (initial) setLoading(false);
     }
   }

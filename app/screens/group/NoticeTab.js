@@ -94,7 +94,10 @@ export default function NoticeTab({ group, groupId }) {
       setWriteVisible(false);
       fetchNotices();
     } catch {
-      Alert.alert('오류', `공지 ${editingId !== null ? '수정' : '등록'}에 실패했어요. 다시 시도해주세요.`);
+      Alert.alert(
+        '오류',
+        `공지 ${editingId !== null ? '수정' : '등록'}에 실패했어요. 다시 시도해주세요.`,
+      );
     } finally {
       setSubmitting(false);
     }
@@ -108,10 +111,9 @@ export default function NoticeTab({ group, groupId }) {
         style: 'destructive',
         onPress: async () => {
           try {
-            const res = await apiFetch(
-              `/api/v1/groups/${groupId}/announcements/${notice.id}`,
-              { method: 'DELETE' },
-            );
+            const res = await apiFetch(`/api/v1/groups/${groupId}/announcements/${notice.id}`, {
+              method: 'DELETE',
+            });
             if (!res.ok) throw new Error();
             fetchNotices();
           } catch {
@@ -141,10 +143,16 @@ export default function NoticeTab({ group, groupId }) {
                   </Text>
                   {canWrite && (
                     <View style={s.cardActions}>
-                      <TouchableOpacity onPress={() => openEdit(notice)} hitSlop={{ top: 8, right: 4, bottom: 8, left: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => openEdit(notice)}
+                        hitSlop={{ top: 8, right: 4, bottom: 8, left: 4 }}
+                      >
                         <Text style={s.actionEdit}>수정</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={() => handleDelete(notice)} hitSlop={{ top: 8, right: 4, bottom: 8, left: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => handleDelete(notice)}
+                        hitSlop={{ top: 8, right: 4, bottom: 8, left: 4 }}
+                      >
                         <Text style={s.actionDelete}>삭제</Text>
                       </TouchableOpacity>
                     </View>
@@ -237,8 +245,12 @@ export default function NoticeTab({ group, groupId }) {
           >
             <Text style={s.submitBtnText}>
               {submitting
-                ? editingId !== null ? '수정 중...' : '등록 중...'
-                : editingId !== null ? '수정하기' : '등록하기'}
+                ? editingId !== null
+                  ? '수정 중...'
+                  : '등록 중...'
+                : editingId !== null
+                  ? '수정하기'
+                  : '등록하기'}
             </Text>
           </TouchableOpacity>
         </KeyboardAvoidingView>

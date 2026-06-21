@@ -140,7 +140,9 @@ function GroupListView({
               </View>
             </View>
             <View style={s.groupCardBottom}>
-              <Text style={s.groupCode} numberOfLines={1}>{group.description ?? ''}</Text>
+              <Text style={s.groupCode} numberOfLines={1}>
+                {group.description ?? ''}
+              </Text>
               <Text style={s.groupMembers}>
                 👥 {group.currentMembers}/{group.maxMembers}명
               </Text>
@@ -461,31 +463,31 @@ function SearchGroupView({ onBack, initialQuery = '', onGroupPress }) {
   const [searched, setSearched] = useState(false);
 
   useEffect(() => {
-if (initialQuery.trim()) doSearch(initialQuery.trim());
+    if (initialQuery.trim()) doSearch(initialQuery.trim());
   }, [initialQuery]);
 
   async function doSearch(q) {
     if (!q) {
-return;
+      return;
     }
-setLoading(true);
+    setLoading(true);
     try {
       const url = `/api/v1/groups/search?query=${encodeURIComponent(q)}`;
-const res = await apiFetch(url);
-const text = await res.text();
-if (!res.ok) throw new Error(`검색 실패 (${res.status})`);
+      const res = await apiFetch(url);
+      const text = await res.text();
+      if (!res.ok) throw new Error(`검색 실패 (${res.status})`);
       const data = JSON.parse(text);
-setResults(data);
+      setResults(data);
       setSearched(true);
     } catch (e) {
-Alert.alert('오류', e.message ?? '검색에 실패했습니다');
+      Alert.alert('오류', e.message ?? '검색에 실패했습니다');
     } finally {
       setLoading(false);
     }
   }
 
   function handleSearch() {
-doSearch(query.trim());
+    doSearch(query.trim());
   }
 
   function getJoinLabel(group) {

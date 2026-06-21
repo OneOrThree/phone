@@ -18,7 +18,20 @@ const CELL_W = Math.floor((SCREEN_W - H_PAD * 2 - CELL_GAP * 6) / 7);
 const CELL_H = CELL_W + 10;
 
 const DAYS_KR = ['일', '월', '화', '수', '목', '금', '토'];
-const MONTHS_KR = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+const MONTHS_KR = [
+  '1월',
+  '2월',
+  '3월',
+  '4월',
+  '5월',
+  '6월',
+  '7월',
+  '8월',
+  '9월',
+  '10월',
+  '11월',
+  '12월',
+];
 
 function formatMin(min) {
   if (!min) return '0분';
@@ -80,18 +93,24 @@ export default function MemberCalendarScreen({ navigation, route }) {
   }, [member, groupId, year, month]);
 
   function prevMonth() {
-    if (month === 0) { setYear((y) => y - 1); setMonth(11); }
-    else setMonth((m) => m - 1);
+    if (month === 0) {
+      setYear((y) => y - 1);
+      setMonth(11);
+    } else setMonth((m) => m - 1);
   }
 
   function nextMonth() {
     if (year > now.getFullYear() || (year === now.getFullYear() && month >= now.getMonth())) return;
-    if (month === 11) { setYear((y) => y + 1); setMonth(0); }
-    else setMonth((m) => m + 1);
+    if (month === 11) {
+      setYear((y) => y + 1);
+      setMonth(0);
+    } else setMonth((m) => m + 1);
   }
 
   const statsMap = {};
-  stats.forEach((stat) => { statsMap[stat.date] = stat; });
+  stats.forEach((stat) => {
+    statsMap[stat.date] = stat;
+  });
 
   const firstDow = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -115,7 +134,11 @@ export default function MemberCalendarScreen({ navigation, route }) {
 
   return (
     <View style={s.overlay}>
-      <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => navigation.goBack()} />
+      <TouchableOpacity
+        style={StyleSheet.absoluteFillObject}
+        activeOpacity={1}
+        onPress={() => navigation.goBack()}
+      />
       <View
         style={[s.sheet, { paddingBottom: Math.max(bottomInset, 16) + 16 }]}
         onStartShouldSetResponder={() => true}
@@ -135,7 +158,10 @@ export default function MemberCalendarScreen({ navigation, route }) {
               </View>
             )}
           </View>
-          <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+          >
             <Text style={s.closeBtn}>✕</Text>
           </TouchableOpacity>
         </View>
@@ -163,7 +189,9 @@ export default function MemberCalendarScreen({ navigation, route }) {
           <TouchableOpacity onPress={prevMonth} hitSlop={{ top: 8, right: 12, bottom: 8, left: 8 }}>
             <Text style={s.navArrow}>‹</Text>
           </TouchableOpacity>
-          <Text style={s.monthTitle}>{year}년 {MONTHS_KR[month]}</Text>
+          <Text style={s.monthTitle}>
+            {year}년 {MONTHS_KR[month]}
+          </Text>
           <TouchableOpacity
             onPress={nextMonth}
             disabled={isCurrentMonth}
@@ -176,7 +204,10 @@ export default function MemberCalendarScreen({ navigation, route }) {
         {/* 요일 헤더 */}
         <View style={s.weekRow}>
           {DAYS_KR.map((d, i) => (
-            <Text key={d} style={[s.weekDay, { width: CELL_W }, i === 0 && s.sunTxt, i === 6 && s.satTxt]}>
+            <Text
+              key={d}
+              style={[s.weekDay, { width: CELL_W }, i === 0 && s.sunTxt, i === 6 && s.satTxt]}
+            >
               {d}
             </Text>
           ))}
@@ -208,13 +239,15 @@ export default function MemberCalendarScreen({ navigation, route }) {
                         isToday && s.cellToday,
                       ]}
                     >
-                      <Text style={[
-                        s.dayNum,
-                        achieved > 0 && s.dayNumAchieved,
-                        isToday && s.dayNumToday,
-                        di === 0 && s.sunTxt,
-                        di === 6 && s.satTxt,
-                      ]}>
+                      <Text
+                        style={[
+                          s.dayNum,
+                          achieved > 0 && s.dayNumAchieved,
+                          isToday && s.dayNumToday,
+                          di === 0 && s.sunTxt,
+                          di === 6 && s.satTxt,
+                        ]}
+                      >
                         {day}
                       </Text>
                       {focusMin > 0 && (
@@ -269,9 +302,14 @@ const s = StyleSheet.create({
 
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
   avatar: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: T.paperDark, borderWidth: 1.5, borderColor: T.paperLine,
-    alignItems: 'center', justifyContent: 'center',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: T.paperDark,
+    borderWidth: 1.5,
+    borderColor: T.paperLine,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarOwner: { backgroundColor: T.ink, borderColor: T.ink },
   avatarTxt: { fontSize: 20, fontWeight: '900', color: T.inkMed },
@@ -283,8 +321,11 @@ const s = StyleSheet.create({
   closeBtn: { fontSize: 17, color: T.inkMed, fontWeight: '700' },
 
   summary: {
-    flexDirection: 'row', backgroundColor: T.paper,
-    borderRadius: 12, paddingVertical: 12, marginBottom: 16,
+    flexDirection: 'row',
+    backgroundColor: T.paper,
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginBottom: 16,
   },
   summaryItem: { flex: 1, alignItems: 'center', gap: 3 },
   summaryVal: { fontSize: 16, fontWeight: '900', color: T.ink },
@@ -292,8 +333,10 @@ const s = StyleSheet.create({
   summaryDivider: { width: 1, backgroundColor: T.paperLine, marginVertical: 4 },
 
   monthNav: {
-    flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between', marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
   },
   monthTitle: { fontSize: 15, fontWeight: '800', color: T.ink },
   navArrow: { fontSize: 26, fontWeight: '700', color: T.ink },
@@ -324,9 +367,13 @@ const s = StyleSheet.create({
   cellTimeAchieved: { color: '#14532d', fontWeight: '700' },
 
   legend: {
-    flexDirection: 'row', justifyContent: 'center', gap: 14,
-    marginTop: 14, paddingTop: 12,
-    borderTopWidth: 1, borderTopColor: T.paperLine,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 14,
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: T.paperLine,
     backgroundColor: T.paper,
   },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },

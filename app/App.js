@@ -20,12 +20,11 @@ async function syncOnboardingToServer(onboardingData) {
     dayEndTime: onboardingData.dayEndTime ?? '00:00',
     reportTime: onboardingData.reportTime ?? '00:00',
   };
-try {
+  try {
     const res = await apiFetch('/api/v1/user', { method: 'POST', body: JSON.stringify(body) });
     const text = await res.text();
     const data = text ? JSON.parse(text) : {};
-} catch (e) {
-}
+  } catch (e) {}
 }
 
 import { FocusProvider } from './contexts/FocusContext';
@@ -191,7 +190,11 @@ export default function App() {
                       />
                       <Tab.Screen name="마이페이지">
                         {() => (
-                          <MyPageScreen user={user} onLogout={handleLogout} onWithdraw={handleWithdraw} />
+                          <MyPageScreen
+                            user={user}
+                            onLogout={handleLogout}
+                            onWithdraw={handleWithdraw}
+                          />
                         )}
                       </Tab.Screen>
                       <Tab.Screen

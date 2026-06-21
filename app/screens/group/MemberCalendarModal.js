@@ -18,7 +18,20 @@ const CELL_GAP = 4;
 const CELL_SIZE = Math.floor((SCREEN_W - H_PAD * 2 - CELL_GAP * 6) / 7);
 
 const DAYS_KR = ['일', '월', '화', '수', '목', '금', '토'];
-const MONTHS_KR = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+const MONTHS_KR = [
+  '1월',
+  '2월',
+  '3월',
+  '4월',
+  '5월',
+  '6월',
+  '7월',
+  '8월',
+  '9월',
+  '10월',
+  '11월',
+  '12월',
+];
 
 function formatMin(min) {
   if (!min) return '0분';
@@ -49,21 +62,27 @@ export default function MemberCalendarModal({ visible, member, groupId, onClose 
   }, [visible, member, groupId, year, month]);
 
   function prevMonth() {
-    if (month === 0) { setYear((y) => y - 1); setMonth(11); }
-    else setMonth((m) => m - 1);
+    if (month === 0) {
+      setYear((y) => y - 1);
+      setMonth(11);
+    } else setMonth((m) => m - 1);
   }
 
   function nextMonth() {
     if (year > now.getFullYear() || (year === now.getFullYear() && month >= now.getMonth())) return;
-    if (month === 11) { setYear((y) => y + 1); setMonth(0); }
-    else setMonth((m) => m + 1);
+    if (month === 11) {
+      setYear((y) => y + 1);
+      setMonth(0);
+    } else setMonth((m) => m + 1);
   }
 
   // 훅 이후에 조기 반환
   if (!visible || !member) return null;
 
   const statsMap = {};
-  stats.forEach((stat) => { statsMap[stat.date] = stat; });
+  stats.forEach((stat) => {
+    statsMap[stat.date] = stat;
+  });
 
   const firstDow = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -134,10 +153,15 @@ export default function MemberCalendarModal({ visible, member, groupId, onClose 
 
           {/* 월 이동 */}
           <View style={s.monthNav}>
-            <TouchableOpacity onPress={prevMonth} hitSlop={{ top: 8, right: 12, bottom: 8, left: 8 }}>
+            <TouchableOpacity
+              onPress={prevMonth}
+              hitSlop={{ top: 8, right: 12, bottom: 8, left: 8 }}
+            >
               <Text style={s.navArrow}>‹</Text>
             </TouchableOpacity>
-            <Text style={s.monthTitle}>{year}년 {MONTHS_KR[month]}</Text>
+            <Text style={s.monthTitle}>
+              {year}년 {MONTHS_KR[month]}
+            </Text>
             <TouchableOpacity
               onPress={nextMonth}
               disabled={isCurrentMonth}
@@ -180,7 +204,11 @@ export default function MemberCalendarModal({ visible, member, groupId, onClose 
                     return (
                       <View
                         key={di}
-                        style={[s.cell, { width: CELL_SIZE, height: CELL_SIZE }, isToday && s.cellToday]}
+                        style={[
+                          s.cell,
+                          { width: CELL_SIZE, height: CELL_SIZE },
+                          isToday && s.cellToday,
+                        ]}
                       >
                         <Text
                           style={[
@@ -224,8 +252,6 @@ export default function MemberCalendarModal({ visible, member, groupId, onClose 
     </Modal>
   );
 }
-
-
 
 const s = StyleSheet.create({
   container: {

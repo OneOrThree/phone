@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, inkBox } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
 import { useUser } from '../../contexts/UserContext';
+import { zoneSuffix, deviceTimeZone } from '../../utils/challengeTime';
 
 const CHALLENGE_TYPES = [
   { label: 'A-B 포커스', value: 'TIME_WINDOW' },
@@ -133,7 +134,7 @@ function getChallengeDesc(c) {
     const start = formatTime(c.windowStart);
     const end = formatTime(c.windowEnd);
     const label = c.missionCategory === 'SCREEN_TIME' ? '스크린타임' : '집중';
-    return `${start} ~ ${end} ${label}`;
+    return `${start} ~ ${end}${zoneSuffix(c.timeZone)} ${label}`;
   }
   const min = c.durationMinutes ?? 0;
   if (c.missionCategory === 'SCREEN_TIME') {
@@ -159,6 +160,7 @@ export default function ChallengeTab({ group, groupId }) {
   const [pickerTarget, setPickerTarget] = useState(null);
   const [tempHour, setTempHour] = useState(0);
   const [tempMinute, setTempMinute] = useState(0);
+  const [saving, setSaving] = useState(false);
   const insets = useSafeAreaInsets();
 
   const { userId: myUserId } = useUser();
@@ -192,10 +194,9 @@ export default function ChallengeTab({ group, groupId }) {
         style: 'destructive',
         onPress: async () => {
           try {
-            const res = await apiFetch(
-              `/api/v1/groups/${groupId}/challenges/${challenge.id}`,
-              { method: 'DELETE' },
-            );
+            const res = await apiFetch(`/api/v1/groups/${groupId}/challenges/${challenge.id}`, {
+              method: 'DELETE',
+            });
             if (res.ok) {
               setChallenges((prev) => prev.filter((c) => c.id !== challenge.id));
             } else {
@@ -233,7 +234,8 @@ export default function ChallengeTab({ group, groupId }) {
     setPickerTarget(null);
   }
 
-  function handleSave() {
+  async function handleSave() {
+    let payload;
     if (challengeType === 'TIME_WINDOW') {
       const ws = timeToInstant(startTime.hour, startTime.minute);
       const we = timeToInstant(endTime.hour, endTime.minute);
@@ -241,14 +243,49 @@ export default function ChallengeTab({ group, groupId }) {
         Alert.alert('입력 오류', '종료 시각이 시작 시각보다 늦어야 해요');
         return;
       }
+      payload = {
+        missionCategory: category,
+        missionType: 'TIME_WINDOW',
+        durationMinutes: 0,
+        windowStart: ws,
+        windowEnd: we,
+        timeZone: deviceTimeZone(),
+      };
     } else {
       const mins = parseInt(durationText, 10);
       if (isNaN(mins) || mins <= 0) {
         Alert.alert('입력 오류', '1분 이상으로 설정해주세요');
         return;
       }
+      payload = {
+        missionCategory: category,
+        missionType: 'DURATION',
+        durationMinutes: mins,
+        windowStart: null,
+        windowEnd: null,
+        timeZone: deviceTimeZone(),
+      };
     }
-    Alert.alert('준비 중', '챌린지 생성 기능은 아직 준비 중이에요 😅');
+
+    setSaving(true);
+    try {
+      const res = await apiFetch(`/api/v1/groups/${groupId}/challenges`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        setCreateVisible(false);
+        fetchChallenges();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        Alert.alert('오류', body.message ?? '챌린지 생성에 실패했어요');
+      }
+    } catch {
+      Alert.alert('오류', '네트워크 오류가 발생했어요');
+    } finally {
+      setSaving(false);
+    }
   }
 
   const formTitle =
@@ -433,11 +470,12 @@ export default function ChallengeTab({ group, groupId }) {
 
           {/* 저장 버튼 */}
           <TouchableOpacity
-            style={[s.submitBtn, { marginBottom: insets.bottom + 16 }]}
+            style={[s.submitBtn, saving && s.submitBtnDisabled, { marginBottom: insets.bottom + 16 }]}
             onPress={handleSave}
             activeOpacity={0.8}
+            disabled={saving}
           >
-            <Text style={s.submitBtnText}>저장하기</Text>
+            <Text style={s.submitBtnText}>{saving ? '저장 중…' : '저장하기'}</Text>
           </TouchableOpacity>
 
           {/* 시간 피커 오버레이 (TIME_WINDOW 시작/종료 시각 선택) */}
@@ -619,6 +657,7 @@ const s = StyleSheet.create({
     backgroundColor: T.ink,
     alignItems: 'center',
   },
+  submitBtnDisabled: { opacity: 0.5 },
   submitBtnText: { fontSize: 15, fontWeight: '800', color: T.paper },
 
   // ── 시간 피커 오버레이 ──────────────────────────────────────────────────────

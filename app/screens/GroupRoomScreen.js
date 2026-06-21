@@ -30,13 +30,13 @@ export default function GroupDetailScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
 
   function fetchGroup() {
-setLoading(true);
+    setLoading(true);
     setError(null);
     apiFetch(`/api/v1/groups/${groupId}`)
       .then(async (res) => {
         if (!res.ok) {
           const body = await res.text().catch(() => '');
-const msg =
+          const msg =
             res.status === 404
               ? '존재하지 않거나 삭제된 그룹이에요'
               : res.status === 403
@@ -46,11 +46,11 @@ const msg =
           return;
         }
         const data = await res.json();
-setGroup(data);
+        setGroup(data);
         navigation.setParams({ chatEnabled: data.chatEnabled ?? true });
       })
       .catch((e) => {
-setError('네트워크 오류');
+        setError('네트워크 오류');
       })
       .finally(() => {
         setLoading(false);
@@ -147,7 +147,12 @@ setError('네트워크 오류');
             onRefresh={fetchGroup}
           />
         ) : (
-          <ActiveTab group={group} groupId={groupId} refreshing={refreshing} onRefresh={handleRefresh} />
+          <ActiveTab
+            group={group}
+            groupId={groupId}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+          />
         )}
       </View>
     </View>

@@ -15,6 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import { T, inkBox } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
 import { useUser } from '../../contexts/UserContext';
+import { timeStrToSeconds, nowSecondsInZone, zoneSuffix } from '../../utils/challengeTime';
 
 const SCREEN_W = Dimensions.get('window').width;
 const H_PAD = 20;
@@ -27,15 +28,6 @@ function formatWindowTime(timeStr) {
   // 백엔드가 "HH:mm:ss" 형식으로 반환 → "HH:mm"으로 표시
   const [h, m] = timeStr.split(':');
   return `${h}:${m}`;
-}
-
-// "HH:mm:ss" 문자열을 오늘 날짜 기준 타임스탬프(ms)로 변환
-function timeStrToTodayMs(timeStr) {
-  if (!timeStr) return NaN;
-  const [h, m, sec] = timeStr.split(':').map(Number);
-  const d = new Date();
-  d.setHours(h, m, sec || 0, 0);
-  return d.getTime();
 }
 
 function formatMinutes(min) {
@@ -221,18 +213,22 @@ export default function GroupTab({ group, groupId, refreshing, onRefresh }) {
     const mins = active[0]?.durationMinutes ?? group.durationMinutes;
     if (mins) missionText = `포커스타임 ${mins}분 이상`;
   } else {
-    const ongoing = active.find(
-      (c) => timeStrToTodayMs(c.windowStart) <= now && now <= timeStrToTodayMs(c.windowEnd),
-    );
+    // 그룹 타임존 벽시계의 '하루 중 초' 기준으로 비교
+    const nowDate = new Date(now);
+    const ongoing = active.find((c) => {
+      const nowSec = nowSecondsInZone(c.timeZone, nowDate);
+      return timeStrToSeconds(c.windowStart) <= nowSec && nowSec <= timeStrToSeconds(c.windowEnd);
+    });
     const upcoming = active
-      .filter((c) => timeStrToTodayMs(c.windowStart) > now)
-      .sort((a, b) => timeStrToTodayMs(a.windowStart) - timeStrToTodayMs(b.windowStart))[0];
+      .filter((c) => timeStrToSeconds(c.windowStart) > nowSecondsInZone(c.timeZone, nowDate))
+      .sort((a, b) => timeStrToSeconds(a.windowStart) - timeStrToSeconds(b.windowStart))[0];
 
     if (ongoing) {
-      missionText = `${formatWindowTime(ongoing.windowStart)} ~ ${formatWindowTime(ongoing.windowEnd)} 포커스 진행 중`;
+      missionText = `${formatWindowTime(ongoing.windowStart)} ~ ${formatWindowTime(ongoing.windowEnd)}${zoneSuffix(ongoing.timeZone)} 포커스 진행 중`;
     } else if (upcoming) {
-      const until = formatUntil(timeStrToTodayMs(upcoming.windowStart) - now);
-      missionText = `${formatWindowTime(upcoming.windowStart)} ~ ${formatWindowTime(upcoming.windowEnd)} 포커스 · ${until} 시작`;
+      const diffSec = timeStrToSeconds(upcoming.windowStart) - nowSecondsInZone(upcoming.timeZone, nowDate);
+      const until = formatUntil(diffSec * 1000);
+      missionText = `${formatWindowTime(upcoming.windowStart)} ~ ${formatWindowTime(upcoming.windowEnd)}${zoneSuffix(upcoming.timeZone)} 포커스 · ${until} 시작`;
     }
   }
 

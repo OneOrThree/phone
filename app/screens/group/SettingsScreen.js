@@ -1,5 +1,15 @@
 import { useState, useEffect } from 'react';
-import { View, Text, Switch, ScrollView, TouchableOpacity, Alert, StyleSheet, Modal, Share } from 'react-native';
+import {
+  View,
+  Text,
+  Switch,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  StyleSheet,
+  Modal,
+  Share,
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T } from '../../components/theme';
@@ -74,7 +84,15 @@ function SelectorRow({ label, value, options, onChange }) {
   );
 }
 
-export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess, onChatEnabledChange, onGroupUpdated, onRefresh }) {
+export default function SettingsScreen({
+  groupId,
+  group,
+  isOwner,
+  onLeaveSuccess,
+  onChatEnabledChange,
+  onGroupUpdated,
+  onRefresh,
+}) {
   const insets = useSafeAreaInsets();
 
   // 알림 설정 (로컬 저장)
@@ -303,10 +321,9 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
 
   async function doDelegate(memberId) {
     try {
-      const res = await apiFetch(
-        `/api/v1/groups/${groupId}/members/${memberId}/owner`,
-        { method: 'PATCH' },
-      );
+      const res = await apiFetch(`/api/v1/groups/${groupId}/members/${memberId}/owner`, {
+        method: 'PATCH',
+      });
       if (res.ok) {
         Alert.alert('완료', '방장 권한이 위임됐어요');
         onRefresh?.();
@@ -329,298 +346,313 @@ export default function SettingsScreen({ groupId, group, isOwner, onLeaveSuccess
 
   return (
     <>
-    <ScrollView
-      style={s.root}
-      contentContainerStyle={s.content}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* 그룹 정보 — 방장 전용 */}
-      {isOwner && (
-        <>
-          <SectionHeader title="그룹 정보" />
-          <View style={s.card}>
-            <NavRow label="그룹 이름 변경" onPress={handleRenameGroup} />
-            <Divider />
-            <NavRow label="한줄소개 설정" onPress={handleEditDescription} />
-          </View>
-
-          {/* 채팅 설정 */}
-          <SectionHeader title="채팅 설정" />
-          <View style={s.card}>
-            <ToggleRow
-              label="그룹 채팅"
-              value={chatEnabled}
-              onValueChange={handleToggleChatEnabled}
-            />
-            {chatEnabled && (
-              <>
-                <Divider />
-                <NavRow label="1인당 채팅 횟수 제한" onPress={handleChatLimit} indent />
-                <Divider />
-                <NavRow
-                  label="멤버별 채팅 허용/비허용"
-                  onPress={() => Alert.alert('준비 중', '멤버별 설정은 곧 추가돼요 😊')}
-                  indent
-                />
-              </>
-            )}
-          </View>
-
-          {/* 권한 설정 */}
-          <SectionHeader title="권한 설정" />
-          <View style={s.card}>
-            <NavRow
-              label="공지 작성 권한 부여"
-              value={noticeGrantedLabel}
-              onPress={openNoticePicker}
-            />
-            <Divider />
-            <SelectorRow
-              label="초대 링크 공유"
-              value={invitePermission}
-              options={[{ label: '모두', value: 'R' }, { label: '방장만', value: 'U' }]}
-              onChange={handleInvitePermission}
-            />
-            {/* 초대 코드 — 방장에게는 항상 표시 */}
-            {group?.code && (
-              <>
-                <Divider />
-                <View style={s.codeRow}>
-                  <View style={{ flex: 1, gap: 3 }}>
-                    <Text style={s.codeLabel}>초대 코드</Text>
-                    <Text style={s.codeValue}>{group.code}</Text>
-                    {group.codeExpiresAt && (
-                      <Text style={s.codeExpiry}>{formatExpiry(group.codeExpiresAt)}</Text>
-                    )}
-                  </View>
-                  <TouchableOpacity onPress={handleShareCode} style={s.shareBtn}>
-                    <Text style={s.shareBtnTxt}>공유</Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
-            {nonOwnerMembers.length > 0 && (
-              <>
-                <Divider />
-                <NavRow label="방장 위임하기" onPress={handleDelegateOnly} />
-              </>
-            )}
-          </View>
-        </>
-      )}
-
-      {/* 초대 코드 — 비방장에게는 모두 권한일 때만 표시 */}
-      {!isOwner && invitePermission === 'R' && group?.code && (
-        <>
-          <SectionHeader title="초대 코드" />
-          <View style={s.card}>
-            <View style={s.codeRow}>
-              <View style={{ flex: 1, gap: 3 }}>
-                <Text style={s.codeLabel}>초대 코드</Text>
-                <Text style={s.codeValue}>{group.code}</Text>
-                {group.codeExpiresAt && (
-                  <Text style={s.codeExpiry}>{formatExpiry(group.codeExpiresAt)}</Text>
-                )}
-              </View>
-              <TouchableOpacity onPress={handleShareCode} style={s.shareBtn}>
-                <Text style={s.shareBtnTxt}>공유</Text>
-              </TouchableOpacity>
+      <ScrollView
+        style={s.root}
+        contentContainerStyle={s.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 그룹 정보 — 방장 전용 */}
+        {isOwner && (
+          <>
+            <SectionHeader title="그룹 정보" />
+            <View style={s.card}>
+              <NavRow label="그룹 이름 변경" onPress={handleRenameGroup} />
+              <Divider />
+              <NavRow label="한줄소개 설정" onPress={handleEditDescription} />
             </View>
-          </View>
-        </>
-      )}
 
-      {/* 알림 설정 */}
-      <SectionHeader title="알림 설정" />
-      <View style={s.card}>
-        <ToggleRow
-          label="채팅방 알림"
-          value={chatNotif}
-          onValueChange={(v) => {
-            setChatNotif(v);
-            saveNotif('chat', v);
-          }}
-        />
-        {chatNotif && (
-          <>
-            <Divider />
-            <ToggleRow
-              label="심야 알림 (22:00–07:00)"
-              sub
-              value={chatNightNotif}
-              onValueChange={(v) => {
-                setChatNightNotif(v);
-                saveNotif('chat:night', v);
-              }}
-            />
+            {/* 채팅 설정 */}
+            <SectionHeader title="채팅 설정" />
+            <View style={s.card}>
+              <ToggleRow
+                label="그룹 채팅"
+                value={chatEnabled}
+                onValueChange={handleToggleChatEnabled}
+              />
+              {chatEnabled && (
+                <>
+                  <Divider />
+                  <NavRow label="1인당 채팅 횟수 제한" onPress={handleChatLimit} indent />
+                  <Divider />
+                  <NavRow
+                    label="멤버별 채팅 허용/비허용"
+                    onPress={() => Alert.alert('준비 중', '멤버별 설정은 곧 추가돼요 😊')}
+                    indent
+                  />
+                </>
+              )}
+            </View>
+
+            {/* 권한 설정 */}
+            <SectionHeader title="권한 설정" />
+            <View style={s.card}>
+              <NavRow
+                label="공지 작성 권한 부여"
+                value={noticeGrantedLabel}
+                onPress={openNoticePicker}
+              />
+              <Divider />
+              <SelectorRow
+                label="초대 링크 공유"
+                value={invitePermission}
+                options={[
+                  { label: '모두', value: 'R' },
+                  { label: '방장만', value: 'U' },
+                ]}
+                onChange={handleInvitePermission}
+              />
+              {/* 초대 코드 — 방장에게는 항상 표시 */}
+              {group?.code && (
+                <>
+                  <Divider />
+                  <View style={s.codeRow}>
+                    <View style={{ flex: 1, gap: 3 }}>
+                      <Text style={s.codeLabel}>초대 코드</Text>
+                      <Text style={s.codeValue}>{group.code}</Text>
+                      {group.codeExpiresAt && (
+                        <Text style={s.codeExpiry}>{formatExpiry(group.codeExpiresAt)}</Text>
+                      )}
+                    </View>
+                    <TouchableOpacity onPress={handleShareCode} style={s.shareBtn}>
+                      <Text style={s.shareBtnTxt}>공유</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+              {nonOwnerMembers.length > 0 && (
+                <>
+                  <Divider />
+                  <NavRow label="방장 위임하기" onPress={handleDelegateOnly} />
+                </>
+              )}
+            </View>
           </>
         )}
-        <Divider />
-        <ToggleRow
-          label="챌린지 알림"
-          value={challengeNotif}
-          onValueChange={(v) => {
-            setChallengeNotif(v);
-            saveNotif('challenge', v);
-          }}
-        />
-        {challengeNotif && (
+
+        {/* 초대 코드 — 비방장에게는 모두 권한일 때만 표시 */}
+        {!isOwner && invitePermission === 'R' && group?.code && (
           <>
-            <Divider />
-            <ToggleRow
-              label="심야 알림 (22:00–07:00)"
-              sub
-              value={challengeNightNotif}
-              onValueChange={(v) => {
-                setChallengeNightNotif(v);
-                saveNotif('challenge:night', v);
-              }}
-            />
+            <SectionHeader title="초대 코드" />
+            <View style={s.card}>
+              <View style={s.codeRow}>
+                <View style={{ flex: 1, gap: 3 }}>
+                  <Text style={s.codeLabel}>초대 코드</Text>
+                  <Text style={s.codeValue}>{group.code}</Text>
+                  {group.codeExpiresAt && (
+                    <Text style={s.codeExpiry}>{formatExpiry(group.codeExpiresAt)}</Text>
+                  )}
+                </View>
+                <TouchableOpacity onPress={handleShareCode} style={s.shareBtn}>
+                  <Text style={s.shareBtnTxt}>공유</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </>
         )}
-        <Divider />
-        <ToggleRow
-          label="콕찌르기 받기"
-          value={pokeNotif}
-          onValueChange={(v) => {
-            setPokeNotif(v);
-            saveNotif('poke', v);
-          }}
-        />
-      </View>
 
-      {/* 위험 구역 */}
-      <SectionHeader title="위험 구역" />
-      <View style={s.card}>
-        <NavRow label="그룹 탈퇴" onPress={handleLeaveGroup} danger />
-      </View>
-
-      <View style={s.bottomPad} />
-    </ScrollView>
-
-    {/* 방장 위임 모달 */}
-    <Modal visible={delegateVisible} animationType="slide" onRequestClose={() => setDelegateVisible(false)}>
-      <View style={[s.pickerRoot, { paddingTop: insets.top }]}>
-        <View style={s.pickerHeader}>
-          <TouchableOpacity
-            onPress={() => setDelegateVisible(false)}
-            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-            style={s.pickerHeaderSide}
-          >
-            <Text style={s.pickerCancel}>취소</Text>
-          </TouchableOpacity>
-          <Text style={s.pickerTitle}>방장 위임</Text>
-          <View style={s.pickerHeaderSide} />
-        </View>
-
-        <Text style={s.pickerSub}>탈퇴 전 방장 권한을 넘길 멤버를 선택해주세요.</Text>
-
-        <ScrollView style={s.pickerList} showsVerticalScrollIndicator={false}>
-          {nonOwnerMembers.map((member, i) => {
-            const selected = delegateTarget === member.userId;
-            return (
-              <TouchableOpacity
-                key={member.userId}
-                style={[s.pickerRow, i > 0 && s.pickerRowBorder]}
-                onPress={() => setDelegateTarget(member.userId)}
-                activeOpacity={0.7}
-              >
-                <View style={s.pickerAvatar}>
-                  <Text style={s.pickerAvatarTxt}>{member.nickname?.[0] ?? '?'}</Text>
-                </View>
-                <Text style={s.pickerName}>{member.nickname}</Text>
-                <View style={[s.checkbox, selected && s.checkboxChecked]}>
-                  {selected && <Text style={s.checkmark}>✓</Text>}
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        <View style={[s.delegateFooter, { paddingBottom: insets.bottom + 16 }]}>
-          <TouchableOpacity
-            style={[s.delegateBtn, !delegateTarget && s.delegateBtnDisabled]}
-            disabled={!delegateTarget}
-            onPress={() => {
-              setDelegateVisible(false);
-              if (delegateMode === 'leave') {
-                Alert.alert(
-                  '위임하고 탈퇴',
-                  '방장 권한을 위임하고 그룹에서 나갈까요?',
-                  [
-                    { text: '취소', style: 'cancel' },
-                    { text: '탈퇴하기', style: 'destructive', onPress: () => doLeave(delegateTarget) },
-                  ],
-                );
-              } else {
-                Alert.alert(
-                  '방장 위임',
-                  '정말 방장 권한을 위임할까요?',
-                  [
-                    { text: '취소', style: 'cancel' },
-                    { text: '위임하기', style: 'destructive', onPress: () => doDelegate(delegateTarget) },
-                  ],
-                );
-              }
+        {/* 알림 설정 */}
+        <SectionHeader title="알림 설정" />
+        <View style={s.card}>
+          <ToggleRow
+            label="채팅방 알림"
+            value={chatNotif}
+            onValueChange={(v) => {
+              setChatNotif(v);
+              saveNotif('chat', v);
             }}
-          >
-            <Text style={s.delegateBtnTxt}>{delegateMode === 'leave' ? '위임하고 탈퇴' : '위임하기'}</Text>
-          </TouchableOpacity>
+          />
+          {chatNotif && (
+            <>
+              <Divider />
+              <ToggleRow
+                label="심야 알림 (22:00–07:00)"
+                sub
+                value={chatNightNotif}
+                onValueChange={(v) => {
+                  setChatNightNotif(v);
+                  saveNotif('chat:night', v);
+                }}
+              />
+            </>
+          )}
+          <Divider />
+          <ToggleRow
+            label="챌린지 알림"
+            value={challengeNotif}
+            onValueChange={(v) => {
+              setChallengeNotif(v);
+              saveNotif('challenge', v);
+            }}
+          />
+          {challengeNotif && (
+            <>
+              <Divider />
+              <ToggleRow
+                label="심야 알림 (22:00–07:00)"
+                sub
+                value={challengeNightNotif}
+                onValueChange={(v) => {
+                  setChallengeNightNotif(v);
+                  saveNotif('challenge:night', v);
+                }}
+              />
+            </>
+          )}
+          <Divider />
+          <ToggleRow
+            label="콕찌르기 받기"
+            value={pokeNotif}
+            onValueChange={(v) => {
+              setPokeNotif(v);
+              saveNotif('poke', v);
+            }}
+          />
         </View>
-      </View>
-    </Modal>
 
-    {/* 공지 작성 권한 멤버 선택 모달 */}
-    <Modal visible={pickerVisible} animationType="slide" onRequestClose={() => setPickerVisible(false)}>
-      <View style={[s.pickerRoot, { paddingTop: insets.top }]}>
-        {/* 헤더 */}
-        <View style={s.pickerHeader}>
-          <TouchableOpacity
-            onPress={() => setPickerVisible(false)}
-            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-            style={s.pickerHeaderSide}
-          >
-            <Text style={s.pickerCancel}>취소</Text>
-          </TouchableOpacity>
-          <Text style={s.pickerTitle}>공지 작성 권한 부여</Text>
-          <TouchableOpacity
-            onPress={saveNoticePicker}
-            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-            style={s.pickerHeaderSide}
-          >
-            <Text style={s.pickerSave}>저장</Text>
-          </TouchableOpacity>
+        {/* 위험 구역 */}
+        <SectionHeader title="위험 구역" />
+        <View style={s.card}>
+          <NavRow label="그룹 탈퇴" onPress={handleLeaveGroup} danger />
         </View>
 
-        <Text style={s.pickerSub}>선택한 멤버는 공지를 직접 작성할 수 있어요. 방장은 항상 가능해요.</Text>
+        <View style={s.bottomPad} />
+      </ScrollView>
 
-        <ScrollView style={s.pickerList} showsVerticalScrollIndicator={false}>
-          {nonOwnerMembers.length === 0 ? (
-            <Text style={s.pickerEmpty}>방장 외 멤버가 없어요</Text>
-          ) : (
-            nonOwnerMembers.map((member, i) => {
-              const checked = pickerSelected.includes(member.userId);
+      {/* 방장 위임 모달 */}
+      <Modal
+        visible={delegateVisible}
+        animationType="slide"
+        onRequestClose={() => setDelegateVisible(false)}
+      >
+        <View style={[s.pickerRoot, { paddingTop: insets.top }]}>
+          <View style={s.pickerHeader}>
+            <TouchableOpacity
+              onPress={() => setDelegateVisible(false)}
+              hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+              style={s.pickerHeaderSide}
+            >
+              <Text style={s.pickerCancel}>취소</Text>
+            </TouchableOpacity>
+            <Text style={s.pickerTitle}>방장 위임</Text>
+            <View style={s.pickerHeaderSide} />
+          </View>
+
+          <Text style={s.pickerSub}>탈퇴 전 방장 권한을 넘길 멤버를 선택해주세요.</Text>
+
+          <ScrollView style={s.pickerList} showsVerticalScrollIndicator={false}>
+            {nonOwnerMembers.map((member, i) => {
+              const selected = delegateTarget === member.userId;
               return (
                 <TouchableOpacity
                   key={member.userId}
                   style={[s.pickerRow, i > 0 && s.pickerRowBorder]}
-                  onPress={() => togglePickMember(member.userId)}
+                  onPress={() => setDelegateTarget(member.userId)}
                   activeOpacity={0.7}
                 >
                   <View style={s.pickerAvatar}>
                     <Text style={s.pickerAvatarTxt}>{member.nickname?.[0] ?? '?'}</Text>
                   </View>
                   <Text style={s.pickerName}>{member.nickname}</Text>
-                  <View style={[s.checkbox, checked && s.checkboxChecked]}>
-                    {checked && <Text style={s.checkmark}>✓</Text>}
+                  <View style={[s.checkbox, selected && s.checkboxChecked]}>
+                    {selected && <Text style={s.checkmark}>✓</Text>}
                   </View>
                 </TouchableOpacity>
               );
-            })
-          )}
-        </ScrollView>
-      </View>
-    </Modal>
+            })}
+          </ScrollView>
+
+          <View style={[s.delegateFooter, { paddingBottom: insets.bottom + 16 }]}>
+            <TouchableOpacity
+              style={[s.delegateBtn, !delegateTarget && s.delegateBtnDisabled]}
+              disabled={!delegateTarget}
+              onPress={() => {
+                setDelegateVisible(false);
+                if (delegateMode === 'leave') {
+                  Alert.alert('위임하고 탈퇴', '방장 권한을 위임하고 그룹에서 나갈까요?', [
+                    { text: '취소', style: 'cancel' },
+                    {
+                      text: '탈퇴하기',
+                      style: 'destructive',
+                      onPress: () => doLeave(delegateTarget),
+                    },
+                  ]);
+                } else {
+                  Alert.alert('방장 위임', '정말 방장 권한을 위임할까요?', [
+                    { text: '취소', style: 'cancel' },
+                    {
+                      text: '위임하기',
+                      style: 'destructive',
+                      onPress: () => doDelegate(delegateTarget),
+                    },
+                  ]);
+                }
+              }}
+            >
+              <Text style={s.delegateBtnTxt}>
+                {delegateMode === 'leave' ? '위임하고 탈퇴' : '위임하기'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 공지 작성 권한 멤버 선택 모달 */}
+      <Modal
+        visible={pickerVisible}
+        animationType="slide"
+        onRequestClose={() => setPickerVisible(false)}
+      >
+        <View style={[s.pickerRoot, { paddingTop: insets.top }]}>
+          {/* 헤더 */}
+          <View style={s.pickerHeader}>
+            <TouchableOpacity
+              onPress={() => setPickerVisible(false)}
+              hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+              style={s.pickerHeaderSide}
+            >
+              <Text style={s.pickerCancel}>취소</Text>
+            </TouchableOpacity>
+            <Text style={s.pickerTitle}>공지 작성 권한 부여</Text>
+            <TouchableOpacity
+              onPress={saveNoticePicker}
+              hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+              style={s.pickerHeaderSide}
+            >
+              <Text style={s.pickerSave}>저장</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={s.pickerSub}>
+            선택한 멤버는 공지를 직접 작성할 수 있어요. 방장은 항상 가능해요.
+          </Text>
+
+          <ScrollView style={s.pickerList} showsVerticalScrollIndicator={false}>
+            {nonOwnerMembers.length === 0 ? (
+              <Text style={s.pickerEmpty}>방장 외 멤버가 없어요</Text>
+            ) : (
+              nonOwnerMembers.map((member, i) => {
+                const checked = pickerSelected.includes(member.userId);
+                return (
+                  <TouchableOpacity
+                    key={member.userId}
+                    style={[s.pickerRow, i > 0 && s.pickerRowBorder]}
+                    onPress={() => togglePickMember(member.userId)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={s.pickerAvatar}>
+                      <Text style={s.pickerAvatarTxt}>{member.nickname?.[0] ?? '?'}</Text>
+                    </View>
+                    <Text style={s.pickerName}>{member.nickname}</Text>
+                    <View style={[s.checkbox, checked && s.checkboxChecked]}>
+                      {checked && <Text style={s.checkmark}>✓</Text>}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </ScrollView>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -693,15 +725,21 @@ const s = StyleSheet.create({
 
   // 초대 코드
   codeRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingVertical: 14, gap: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
   },
   codeLabel: { fontSize: 12, fontWeight: '600', color: T.inkLight },
   codeValue: { fontSize: 20, fontWeight: '900', color: T.ink, letterSpacing: 2 },
   codeExpiry: { fontSize: 11, fontWeight: '500', color: T.inkLight },
   shareBtn: {
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 8, borderWidth: 1.5, borderColor: T.ink,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: T.ink,
   },
   shareBtnTxt: { fontSize: 13, fontWeight: '800', color: T.ink },
 
@@ -721,28 +759,50 @@ const s = StyleSheet.create({
   pickerSave: { fontSize: 15, fontWeight: '800', color: T.ink, textAlign: 'right' },
   pickerTitle: { fontSize: 16, fontWeight: '900', color: T.ink, textAlign: 'center' },
   pickerSub: {
-    fontSize: 13, fontWeight: '500', color: T.inkMed,
-    paddingHorizontal: 20, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: T.paperLine,
+    fontSize: 13,
+    fontWeight: '500',
+    color: T.inkMed,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: T.paperLine,
   },
   pickerList: { flex: 1 },
-  pickerEmpty: { fontSize: 14, fontWeight: '600', color: T.inkLight, textAlign: 'center', marginTop: 60 },
+  pickerEmpty: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: T.inkLight,
+    textAlign: 'center',
+    marginTop: 60,
+  },
   pickerRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 20, paddingVertical: 14, gap: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    gap: 12,
   },
   pickerRowBorder: { borderTopWidth: 1, borderTopColor: T.paperLine },
   pickerAvatar: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: T.paperDark, borderWidth: 1.5, borderColor: T.paperLine,
-    alignItems: 'center', justifyContent: 'center',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: T.paperDark,
+    borderWidth: 1.5,
+    borderColor: T.paperLine,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pickerAvatarTxt: { fontSize: 18, fontWeight: '900', color: T.inkMed },
   pickerName: { flex: 1, fontSize: 15, fontWeight: '700', color: T.ink },
   checkbox: {
-    width: 24, height: 24, borderRadius: 12,
-    borderWidth: 1.5, borderColor: T.paperLine,
-    alignItems: 'center', justifyContent: 'center',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: T.paperLine,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   checkboxChecked: { backgroundColor: T.ink, borderColor: T.ink },
   checkmark: { fontSize: 13, fontWeight: '900', color: T.paper },
