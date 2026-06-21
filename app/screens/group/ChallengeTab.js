@@ -470,7 +470,11 @@ export default function ChallengeTab({ group, groupId }) {
 
           {/* 저장 버튼 */}
           <TouchableOpacity
-            style={[s.submitBtn, saving && s.submitBtnDisabled, { marginBottom: insets.bottom + 16 }]}
+            style={[
+              s.submitBtn,
+              saving && s.submitBtnDisabled,
+              { marginBottom: insets.bottom + 16 },
+            ]}
             onPress={handleSave}
             activeOpacity={0.8}
             disabled={saving}

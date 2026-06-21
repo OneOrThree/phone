@@ -226,7 +226,8 @@ export default function GroupTab({ group, groupId, refreshing, onRefresh }) {
     if (ongoing) {
       missionText = `${formatWindowTime(ongoing.windowStart)} ~ ${formatWindowTime(ongoing.windowEnd)}${zoneSuffix(ongoing.timeZone)} 포커스 진행 중`;
     } else if (upcoming) {
-      const diffSec = timeStrToSeconds(upcoming.windowStart) - nowSecondsInZone(upcoming.timeZone, nowDate);
+      const diffSec =
+        timeStrToSeconds(upcoming.windowStart) - nowSecondsInZone(upcoming.timeZone, nowDate);
       const until = formatUntil(diffSec * 1000);
       missionText = `${formatWindowTime(upcoming.windowStart)} ~ ${formatWindowTime(upcoming.windowEnd)}${zoneSuffix(upcoming.timeZone)} 포커스 · ${until} 시작`;
     }

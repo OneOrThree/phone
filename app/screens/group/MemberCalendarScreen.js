@@ -83,15 +83,19 @@ export default function MemberCalendarScreen({ navigation, route }) {
   const FULL = 0;
   const translateY = useRef(new Animated.Value(SCREEN_H)).current;
   const lastSnap = useRef(COLLAPSED);
+  const closing = useRef(false);
 
   function snapTo(target, close) {
     lastSnap.current = target;
     Animated.spring(translateY, {
       toValue: target,
       useNativeDriver: false,
-      bounciness: 4,
-    }).start(() => {
-      if (close) navigation.goBack();
+      bounciness: close ? 0 : 4,
+    }).start(({ finished }) => {
+      if (close && finished && !closing.current) {
+        closing.current = true;
+        navigation.goBack();
+      }
     });
   }
 
@@ -113,7 +117,11 @@ export default function MemberCalendarScreen({ navigation, route }) {
 
   const pan = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (e, g) => Math.abs(g.dy) > 6,
+      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
+      onPanResponderTerminationRequest: () => false,
       onPanResponderMove: (e, g) => {
         let next = lastSnap.current + g.dy;
         if (next < FULL) next = FULL;
@@ -138,11 +146,13 @@ export default function MemberCalendarScreen({ navigation, route }) {
   const [month, setMonth] = useState(now.getMonth());
   const [stats, setStats] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(null);
 
   useEffect(() => {
     if (!member?.userId || !groupId) return;
     setLoading(true);
     setStats([]);
+    setSelectedDate(null);
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     apiFetch(`/api/v1/groups/${groupId}/members/${member.userId}/calendar?month=${monthStr}`)
       .then((res) => (res.ok ? res.json() : []))
@@ -200,16 +210,16 @@ export default function MemberCalendarScreen({ navigation, route }) {
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
   const isOwner = member.role === 'OWNER';
 
+  function closeSheet() {
+    if (closing.current) return;
+    snapTo(SCREEN_H, true);
+  }
+
   return (
-    <Modal visible transparent animationType="none" onRequestClose={() => navigation.goBack()}>
-      <TouchableOpacity
-        style={s.overlay}
-        activeOpacity={1}
-        onPress={() => navigation.goBack()}
-      />
+    <Modal visible transparent animationType="none" onRequestClose={closeSheet}>
+      <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={closeSheet} />
       <Animated.View
         style={[s.sheet, { paddingTop: contentPaddingTop, transform: [{ translateY }] }]}
-        onStartShouldSetResponder={() => true}
       >
         {/* 드래그 핸들 */}
         <View style={s.handleArea} {...pan.panHandlers}>
@@ -232,7 +242,7 @@ export default function MemberCalendarScreen({ navigation, route }) {
             )}
           </View>
           <TouchableOpacity
-            onPress={() => navigation.goBack()}
+            onPress={closeSheet}
             hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
           >
             <Text style={s.closeBtn}>✕</Text>
@@ -295,16 +305,20 @@ export default function MemberCalendarScreen({ navigation, route }) {
                   const stat = statsMap[dateStr];
                   const focusMin = stat?.focusMinutes ?? 0;
                   const isToday = isCurrentMonth && now.getDate() === day;
+                  const isSelected = selectedDate === dateStr;
                   const { achieved, total } = getChallengeRatio(stat);
                   const bg = challengeBg(achieved, total);
 
                   return (
-                    <View
+                    <TouchableOpacity
                       key={di}
+                      activeOpacity={0.7}
+                      onPress={() => setSelectedDate((prev) => (prev === dateStr ? null : dateStr))}
                       style={[
                         s.cell,
                         { width: CELL_W, height: CELL_H, backgroundColor: bg },
                         isToday && s.cellToday,
+                        isSelected && s.cellSelected,
                       ]}
                     >
                       <Text
@@ -323,11 +337,24 @@ export default function MemberCalendarScreen({ navigation, route }) {
                           {compactMin(focusMin)}
                         </Text>
                       )}
-                    </View>
+                    </TouchableOpacity>
                   );
                 })}
               </View>
             ))}
+          </View>
+        )}
+
+        {/* 선택한 날짜 집중 시간 */}
+        {selectedDate && (
+          <View style={s.selectedBox}>
+            <Text style={s.selectedDateTxt}>
+              {(() => {
+                const [, m, d] = selectedDate.split('-');
+                return `${Number(m)}월 ${Number(d)}일`;
+              })()}
+            </Text>
+            <Text style={s.selectedTimeTxt}>{formatMin(statsMap[selectedDate]?.focusMinutes ?? 0)} 집중</Text>
           </View>
         )}
 
@@ -362,7 +389,7 @@ const s = StyleSheet.create({
     left: 0,
     right: 0,
     top: 0,
-    height: SCREEN_H,
+    height: SCREEN_H + 400, // 화면보다 크게 — 위로 올려도 바닥이 항상 흰색
     backgroundColor: T.paper,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -371,8 +398,8 @@ const s = StyleSheet.create({
     borderBottomWidth: 0,
     borderColor: T.ink,
   },
-  handleArea: { alignItems: 'center', paddingTop: 8, paddingBottom: 10 },
-  handleBar: { width: 40, height: 5, borderRadius: 3, backgroundColor: T.paperLine },
+  handleArea: { alignItems: 'center', paddingTop: 6, paddingBottom: 16 },
+  handleBar: { width: 44, height: 5, borderRadius: 3, backgroundColor: T.paperLine },
 
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
   avatar: {
@@ -432,6 +459,7 @@ const s = StyleSheet.create({
   },
   // 오늘 날짜: 테두리를 강조(배경색과 겹치지 않도록 fill 대신 border만)
   cellToday: { borderWidth: 2, borderColor: T.ink },
+  cellSelected: { borderWidth: 2.5, borderColor: '#16a34a' },
 
   dayNum: { fontSize: 13, fontWeight: '600', color: T.ink },
   dayNumToday: { fontWeight: '900' },
@@ -439,6 +467,21 @@ const s = StyleSheet.create({
 
   cellTime: { fontSize: 9, fontWeight: '600', color: T.inkMed },
   cellTimeAchieved: { color: '#14532d', fontWeight: '700' },
+
+  selectedBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: T.paperDark,
+    borderWidth: 1.5,
+    borderColor: '#16a34a',
+  },
+  selectedDateTxt: { fontSize: 14, fontWeight: '800', color: T.ink },
+  selectedTimeTxt: { fontSize: 14, fontWeight: '800', color: '#16a34a' },
 
   legend: {
     flexDirection: 'row',
