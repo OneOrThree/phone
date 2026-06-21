@@ -1,4 +1,4 @@
-package com.oneorthree.phone.domain.focus;
+package com.oneorthree.phone.focus.domain;
 
 import com.oneorthree.phone.user.domain.User;
 

@@ -1,6 +1,6 @@
-package com.oneorthree.phone.repository.reward;
+package com.oneorthree.phone.currency.repository;
 
-import com.oneorthree.phone.domain.reward.CurrencyTransaction;
+import com.oneorthree.phone.currency.domain.CurrencyTransaction;
 import com.oneorthree.phone.user.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 

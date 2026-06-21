@@ -1,7 +1,7 @@
-package com.oneorthree.phone.service;
+package com.oneorthree.phone.auth.client;
 
-import com.oneorthree.phone.exception.InvalidTokenException;
-import com.oneorthree.phone.exception.InvalidTokenErrorCode;
+import com.oneorthree.phone.auth.exception.InvalidTokenException;
+import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.user.dto.KakaoUserInfo;
 import com.oneorthree.phone.user.dto.KakaoUserMeResponse;
 import org.springframework.beans.factory.annotation.Value;

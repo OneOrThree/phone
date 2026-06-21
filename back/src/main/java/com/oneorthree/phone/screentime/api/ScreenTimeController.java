@@ -1,7 +1,7 @@
-package com.oneorthree.phone.api;
+package com.oneorthree.phone.screentime.api;
 
-import com.oneorthree.phone.service.ScreenTimeService;
-import com.oneorthree.phone.service.dto.screentime.ScreenTimeRequest;
+import com.oneorthree.phone.screentime.service.ScreenTimeService;
+import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;

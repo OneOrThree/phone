@@ -1,11 +1,11 @@
-package com.oneorthree.phone.domain.user;
+package com.oneorthree.phone.user.domain;
 
-import com.oneorthree.phone.domain.item.CharacterEquipment;
-import com.oneorthree.phone.domain.item.UserItem;
-import com.oneorthree.phone.domain.league.LeagueTier;
+import com.oneorthree.phone.item.domain.CharacterEquipment;
+import com.oneorthree.phone.item.domain.UserItem;
+import com.oneorthree.phone.league.domain.LeagueTier;
 
-import com.oneorthree.phone.exception.CurrencyErrorCode;
-import com.oneorthree.phone.exception.CurrencyException;
+import com.oneorthree.phone.currency.exception.CurrencyErrorCode;
+import com.oneorthree.phone.currency.exception.CurrencyException;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

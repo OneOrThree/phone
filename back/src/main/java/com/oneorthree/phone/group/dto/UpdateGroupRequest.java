@@ -1,4 +1,4 @@
-package com.oneorthree.phone.service.dto.group;
+package com.oneorthree.phone.group.dto;
 
 import lombok.Getter;
 

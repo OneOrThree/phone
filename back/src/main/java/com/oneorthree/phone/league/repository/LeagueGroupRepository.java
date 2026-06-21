@@ -1,8 +1,8 @@
-package com.oneorthree.phone.repository.league;
+package com.oneorthree.phone.league.repository;
 
-import com.oneorthree.phone.domain.league.LeagueGroup;
-import com.oneorthree.phone.domain.league.LeagueGroupStatus;
-import com.oneorthree.phone.domain.league.LeagueTierConfig;
+import com.oneorthree.phone.league.domain.LeagueGroup;
+import com.oneorthree.phone.league.domain.LeagueGroupStatus;
+import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

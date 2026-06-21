@@ -1,10 +1,10 @@
-package com.oneorthree.phone.repository.group;
+package com.oneorthree.phone.group.repository;
 
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
-import com.oneorthree.phone.domain.group.MissionCategory;
-import com.oneorthree.phone.domain.group.MissionType;
+import com.oneorthree.phone.group.domain.MissionCategory;
+import com.oneorthree.phone.group.domain.MissionType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;

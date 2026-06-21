@@ -1,8 +1,8 @@
-package com.oneorthree.phone.repository.item;
+package com.oneorthree.phone.item.repository;
 
-import com.oneorthree.phone.domain.item.Item;
+import com.oneorthree.phone.item.domain.Item;
 import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.domain.item.UserItem;
+import com.oneorthree.phone.item.domain.UserItem;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;

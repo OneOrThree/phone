@@ -1,4 +1,4 @@
-package com.oneorthree.phone.domain.reward;
+package com.oneorthree.phone.currency.domain;
 
 public enum CurrencyReason {
     SESSION_COMPLETE, STREAK_BONUS, PURCHASE

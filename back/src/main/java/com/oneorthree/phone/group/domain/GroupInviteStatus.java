@@ -1,4 +1,4 @@
-package com.oneorthree.phone.domain.group;
+package com.oneorthree.phone.group.domain;
 
 public enum GroupInviteStatus {
     PENDING, ACCEPTED, DECLINED

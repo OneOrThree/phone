@@ -1,4 +1,4 @@
-package com.oneorthree.phone.service.dto.group;
+package com.oneorthree.phone.group.dto;
 
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;

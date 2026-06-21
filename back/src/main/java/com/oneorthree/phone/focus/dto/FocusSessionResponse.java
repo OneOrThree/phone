@@ -1,4 +1,4 @@
-package com.oneorthree.phone.service.dto.focusmode;
+package com.oneorthree.phone.focus.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;

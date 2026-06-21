@@ -1,7 +1,7 @@
-package com.oneorthree.phone.repository.social;
+package com.oneorthree.phone.social.repository;
 
 import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.domain.social.ShareCard;
+import com.oneorthree.phone.social.domain.ShareCard;
 import com.oneorthree.phone.user.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 

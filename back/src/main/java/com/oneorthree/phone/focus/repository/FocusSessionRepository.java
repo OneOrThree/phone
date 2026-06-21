@@ -1,6 +1,6 @@
-package com.oneorthree.phone.repository.focus;
+package com.oneorthree.phone.focus.repository;
 
-import com.oneorthree.phone.domain.focus.FocusSession;
+import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.user.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;

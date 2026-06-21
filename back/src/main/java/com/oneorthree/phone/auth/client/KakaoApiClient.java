@@ -1,4 +1,4 @@
-package com.oneorthree.phone.service;
+package com.oneorthree.phone.auth.client;
 
 import com.oneorthree.phone.user.dto.KakaoUserInfo;
 

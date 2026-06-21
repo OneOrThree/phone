@@ -1,4 +1,4 @@
-package com.oneorthree.phone.domain.league;
+package com.oneorthree.phone.league.domain;
 
 public enum LeagueGroupStatus {
     ACTIVE, CLOSED

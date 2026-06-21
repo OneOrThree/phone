@@ -1,7 +1,7 @@
-package com.oneorthree.phone.repository.group;
+package com.oneorthree.phone.group.repository;
 
 import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.domain.group.GroupStatus;
+import com.oneorthree.phone.group.domain.GroupStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

@@ -1,7 +1,7 @@
-package com.oneorthree.phone.repository.social;
+package com.oneorthree.phone.social.repository;
 
-import com.oneorthree.phone.domain.social.Friendship;
-import com.oneorthree.phone.domain.social.FriendshipStatus;
+import com.oneorthree.phone.social.domain.Friendship;
+import com.oneorthree.phone.social.domain.FriendshipStatus;
 import com.oneorthree.phone.user.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 

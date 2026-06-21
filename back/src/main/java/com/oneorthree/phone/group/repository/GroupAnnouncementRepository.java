@@ -1,4 +1,4 @@
-package com.oneorthree.phone.repository.group;
+package com.oneorthree.phone.group.repository;
 
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupAnnouncement;

@@ -1,4 +1,4 @@
-package com.oneorthree.phone.api.dto.response;
+package com.oneorthree.phone.auth.dto;
 
 public record TokenRefreshResponse(String accessToken) {
 }

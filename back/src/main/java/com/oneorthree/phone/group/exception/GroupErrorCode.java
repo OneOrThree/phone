@@ -1,4 +1,4 @@
-package com.oneorthree.phone.exception;
+package com.oneorthree.phone.group.exception;
 
 import lombok.Getter;
 import org.springframework.http.HttpStatus;

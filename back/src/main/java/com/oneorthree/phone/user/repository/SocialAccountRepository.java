@@ -1,7 +1,7 @@
-package com.oneorthree.phone.repository.user;
+package com.oneorthree.phone.user.repository;
 
-import com.oneorthree.phone.domain.user.Provider;
-import com.oneorthree.phone.domain.user.SocialAccount;
+import com.oneorthree.phone.user.domain.Provider;
+import com.oneorthree.phone.user.domain.SocialAccount;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;

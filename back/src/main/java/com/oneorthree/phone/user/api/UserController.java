@@ -1,10 +1,10 @@
-package com.oneorthree.phone.api;
+package com.oneorthree.phone.user.api;
 
-import com.oneorthree.phone.api.dto.request.UserProfileSetupRequest;
-import com.oneorthree.phone.api.dto.request.UserProfileUpdateRequest;
-import com.oneorthree.phone.service.UserService;
-import com.oneorthree.phone.service.dto.user.UpdateScreenTimePermissionRequest;
-import com.oneorthree.phone.service.dto.user.UserProfileResponse;
+import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
+import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
+import com.oneorthree.phone.user.service.UserService;
+import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
+import com.oneorthree.phone.user.dto.UserProfileResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -30,26 +30,40 @@ public class UserController {
     private final UserService userService;
 
     @Operation(summary = "유저 정보 등록", description = "신규 유저 정보 등록")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "등록 성공"),
+        @ApiResponse(responseCode = "400", description = "유효성 검사 실패"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
     @PostMapping("/user")
     public ResponseEntity<Void> setupProfile(
             HttpServletRequest request,
             @RequestBody UserProfileSetupRequest body) {
         Long userId = (Long) request.getAttribute("userId");
         userService.setupProfile(userId, body);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(summary = "유저 정보 부분 수정", description = "기존 유저 정보 부분 수정")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "수정 성공"),
+        @ApiResponse(responseCode = "400", description = "유효성 검사 실패"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
     @PatchMapping("/user")
     public ResponseEntity<Void> updateProfile(
             HttpServletRequest request,
             @RequestBody UserProfileUpdateRequest body) {
         Long userId = (Long) request.getAttribute("userId");
         userService.updateProfile(userId, body);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(summary = "유저 정보 조회", description = "기존 유저 정보 조회")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
     @GetMapping("/user")
     public ResponseEntity<UserProfileResponse> getProfile(HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
@@ -76,7 +90,7 @@ public class UserController {
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
     @PatchMapping("/users/me/screen-time-permission")
-    public ResponseEntity<?> updateScreenTimePermission(
+    public ResponseEntity<Void> updateScreenTimePermission(
             @Valid @RequestBody UpdateScreenTimePermissionRequest body,
             HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");

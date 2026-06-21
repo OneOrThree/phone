@@ -1,4 +1,4 @@
-package com.oneorthree.phone.domain.item;
+package com.oneorthree.phone.item.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

@@ -255,7 +255,7 @@ public class GroupController {
             @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음")
     })
     @DeleteMapping("/groups/{groupId}/challenges/{challengeId}")
-    public ResponseEntity<?> deleteGroupChallenge(
+    public ResponseEntity<Void> deleteGroupChallenge(
             @PathVariable Long groupId,
             @PathVariable Long challengeId,
             HttpServletRequest httpServletRequest
@@ -287,7 +287,7 @@ public class GroupController {
             @ApiResponse(responseCode = "404", description = "그룹 없음")
     })
     @PatchMapping("/groups/{groupId}/settings")
-    public ResponseEntity<?> updateGroupSettings(
+    public ResponseEntity<Void> updateGroupSettings(
             @PathVariable Long groupId,
             @RequestBody UpdateGroupSettingsRequest request,
             HttpServletRequest httpServletRequest
@@ -304,7 +304,7 @@ public class GroupController {
             @ApiResponse(responseCode = "404", description = "그룹 없음 / 공지 없음")
     })
     @PutMapping("/groups/{groupId}/announcements/{announcementId}")
-    public ResponseEntity<?> updateGroupAnnouncement(
+    public ResponseEntity<Void> updateGroupAnnouncement(
             @PathVariable Long groupId,
             @PathVariable Long announcementId,
             @Valid @RequestBody CreateAnnouncementRequest request,
@@ -322,7 +322,7 @@ public class GroupController {
             @ApiResponse(responseCode = "404", description = "그룹 없음 / 공지 없음")
     })
     @DeleteMapping("/groups/{groupId}/announcements/{announcementId}")
-    public ResponseEntity<?> deleteGroupAnnouncement(
+    public ResponseEntity<Void> deleteGroupAnnouncement(
             @PathVariable Long groupId,
             @PathVariable Long announcementId,
             HttpServletRequest httpServletRequest
@@ -340,7 +340,7 @@ public class GroupController {
             @ApiResponse(responseCode = "404", description = "그룹 없음")
     })
     @DeleteMapping("/groups/{groupId}/members/me")
-    public ResponseEntity<?> withdrawGroup(
+    public ResponseEntity<Void> withdrawGroup(
             @PathVariable Long groupId,
             HttpServletRequest httpServletRequest
     ) {

@@ -1,6 +1,6 @@
-package com.oneorthree.phone.domain.group;
+package com.oneorthree.phone.group.domain;
 
-import com.oneorthree.phone.domain.user.User;
+import com.oneorthree.phone.user.domain.User;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

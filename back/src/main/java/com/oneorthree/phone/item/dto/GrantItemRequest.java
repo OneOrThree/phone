@@ -1,4 +1,4 @@
-package com.oneorthree.phone.api.dto.request;
+package com.oneorthree.phone.item.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;

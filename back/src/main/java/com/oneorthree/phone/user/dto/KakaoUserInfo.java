@@ -1,4 +1,4 @@
-package com.oneorthree.phone.service.dto.user;
+package com.oneorthree.phone.user.dto;
 
 public record KakaoUserInfo(Long providerId) {
 }

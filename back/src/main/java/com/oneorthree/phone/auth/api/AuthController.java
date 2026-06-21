@@ -1,14 +1,14 @@
-package com.oneorthree.phone.api;
+package com.oneorthree.phone.auth.api;
 
-import com.oneorthree.phone.api.dto.request.AppleLoginRequest;
-import com.oneorthree.phone.api.dto.request.KakaoLoginRequest;
-import com.oneorthree.phone.api.dto.request.LogoutRequest;
-import com.oneorthree.phone.api.dto.request.TokenRefreshRequest;
-import com.oneorthree.phone.api.dto.response.AppleLoginResponse;
-import com.oneorthree.phone.api.dto.response.GuestLoginResponse;
-import com.oneorthree.phone.api.dto.response.KakaoLoginResponse;
-import com.oneorthree.phone.api.dto.response.TokenRefreshResponse;
-import com.oneorthree.phone.service.AuthService;
+import com.oneorthree.phone.auth.dto.AppleLoginRequest;
+import com.oneorthree.phone.auth.dto.KakaoLoginRequest;
+import com.oneorthree.phone.auth.dto.LogoutRequest;
+import com.oneorthree.phone.auth.dto.TokenRefreshRequest;
+import com.oneorthree.phone.auth.dto.AppleLoginResponse;
+import com.oneorthree.phone.auth.dto.GuestLoginResponse;
+import com.oneorthree.phone.auth.dto.KakaoLoginResponse;
+import com.oneorthree.phone.auth.dto.TokenRefreshResponse;
+import com.oneorthree.phone.auth.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;

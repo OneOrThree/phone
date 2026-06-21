@@ -1,7 +1,7 @@
-package com.oneorthree.phone.service.dto.currency;
+package com.oneorthree.phone.currency.dto;
 
-import com.oneorthree.phone.domain.reward.CurrencyReason;
-import com.oneorthree.phone.domain.reward.TransactionType;
+import com.oneorthree.phone.currency.domain.CurrencyReason;
+import com.oneorthree.phone.currency.domain.TransactionType;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;

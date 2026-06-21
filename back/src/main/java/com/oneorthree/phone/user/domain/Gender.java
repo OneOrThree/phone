@@ -1,4 +1,4 @@
-package com.oneorthree.phone.domain.user;
+package com.oneorthree.phone.user.domain;
 
 import lombok.Getter;
 

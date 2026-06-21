@@ -1,4 +1,4 @@
-package com.oneorthree.phone.service.dto.group;
+package com.oneorthree.phone.group.dto;
 
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.GroupStatus;

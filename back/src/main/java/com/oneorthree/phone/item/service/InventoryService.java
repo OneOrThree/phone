@@ -1,9 +1,9 @@
-package com.oneorthree.phone.service;
+package com.oneorthree.phone.item.service;
 
-import com.oneorthree.phone.api.dto.response.UserItemResponse;
+import com.oneorthree.phone.item.dto.UserItemResponse;
 import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.repository.item.ItemRepository;
-import com.oneorthree.phone.repository.item.UserItemRepository;
+import com.oneorthree.phone.item.repository.ItemRepository;
+import com.oneorthree.phone.item.repository.UserItemRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;

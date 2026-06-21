@@ -1,6 +1,6 @@
-package com.oneorthree.phone.api.dto.request;
+package com.oneorthree.phone.user.dto;
 
-import com.oneorthree.phone.domain.user.Gender;
+import com.oneorthree.phone.user.domain.Gender;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;

@@ -1,4 +1,4 @@
-package com.oneorthree.phone.exception;
+package com.oneorthree.phone.group.exception;
 
 public class GroupException extends RuntimeException {
     private final GroupErrorCode errorCode;

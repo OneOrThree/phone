@@ -1,4 +1,4 @@
-package com.oneorthree.phone.service.dto.user;
+package com.oneorthree.phone.user.dto;
 
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;

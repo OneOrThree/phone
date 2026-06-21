@@ -1,4 +1,4 @@
-package com.oneorthree.phone.domain.reward;
+package com.oneorthree.phone.currency.domain;
 
 public enum TransactionType {
     EARN, SPEND

@@ -1,4 +1,4 @@
-package com.oneorthree.phone.domain.social;
+package com.oneorthree.phone.social.domain;
 
 import com.oneorthree.phone.user.domain.User;
 
