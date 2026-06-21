@@ -1,18 +1,19 @@
-package com.oneorthree.phone.service;
+package com.oneorthree.phone.focus.service;
 
-import com.oneorthree.phone.domain.focus.FocusSession;
-import com.oneorthree.phone.repository.focus.FocusSessionRepository;
-import com.oneorthree.phone.service.dto.focusmode.FocusSessionRequest;
-import com.oneorthree.phone.service.dto.focusmode.FocusSessionResponse;
-import com.oneorthree.phone.service.dto.focusmode.FocusTagResponse;
-import com.oneorthree.phone.service.dto.focusmode.FocusTagSetupRequest;
-import com.oneorthree.phone.service.dto.focusmode.FocusTagUpdateRequest;
-import com.oneorthree.phone.domain.focus.FocusTag;
+import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.focus.dto.FocusSessionRequest;
+import com.oneorthree.phone.focus.dto.FocusSessionResponse;
+import com.oneorthree.phone.focus.dto.FocusTagResponse;
+import com.oneorthree.phone.focus.dto.FocusTagSetupRequest;
+import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
+import com.oneorthree.phone.focus.domain.FocusTag;
 import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.exception.FocusTagNotFoundException;
-import com.oneorthree.phone.exception.ForbiddenException;
-import com.oneorthree.phone.exception.UserNotFoundException;
-import com.oneorthree.phone.repository.focus.FocusTagRepository;
+import com.oneorthree.phone.focus.exception.FocusErrorCode;
+import com.oneorthree.phone.focus.exception.FocusException;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
+import com.oneorthree.phone.focus.repository.FocusTagRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -31,7 +32,7 @@ public class FocusService {
 
     public List<FocusTagResponse> getFocusTags(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         return focusTagRepository.findByUser(user)
                 .stream()
@@ -42,7 +43,7 @@ public class FocusService {
     @Transactional
     public void setupFocusTag(Long userId, FocusTagSetupRequest body) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         focusTagRepository.save(FocusTag.builder()
                 .user(user)
@@ -53,10 +54,10 @@ public class FocusService {
     @Transactional
     public void updateFocusTag(Long userId, FocusTagUpdateRequest body) {
         FocusTag tag = focusTagRepository.findById(body.tagId())
-                .orElseThrow(FocusTagNotFoundException::new);
+                .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
 
         if (!tag.getUser().getId().equals(userId)) {
-            throw new ForbiddenException();
+            throw new FocusException(FocusErrorCode.FORBIDDEN);
         }
 
         tag.updateName(body.name());
@@ -65,10 +66,10 @@ public class FocusService {
     @Transactional
     public void deleteFocusTag(Long userId, Long tagId) {
         FocusTag tag = focusTagRepository.findById(tagId)
-                .orElseThrow(FocusTagNotFoundException::new);
+                .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
 
         if (!tag.getUser().getId().equals(userId)) {
-            throw new ForbiddenException();
+            throw new FocusException(FocusErrorCode.FORBIDDEN);
         }
 
         focusTagRepository.delete(tag);
@@ -76,7 +77,7 @@ public class FocusService {
 
     public List<FocusSessionResponse> getFocusSessions(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         return focusSessionRepository.findByUserWithTag(user)
                 .stream()
@@ -94,7 +95,7 @@ public class FocusService {
     @Transactional
     public void saveFocusSession(Long userId, FocusSessionRequest body) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (body.getStartedAt() == null || body.getEndedAt() == null) {
             throw new IllegalArgumentException("시작/종료 시간은 필수입니다");
@@ -107,10 +108,10 @@ public class FocusService {
         FocusTag tag = null;
         if (body.getFocusTagId() != null) {
             tag = focusTagRepository.findById(body.getFocusTagId())
-                    .orElseThrow(FocusTagNotFoundException::new);
+                    .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
 
             if (!tag.getUser().getId().equals(userId)) {
-                throw new ForbiddenException();
+                throw new FocusException(FocusErrorCode.FORBIDDEN);
             }
         }
 

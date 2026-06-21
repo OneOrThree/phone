@@ -16,7 +16,8 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.exception.UserNotFoundException;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -45,7 +46,7 @@ public class GroupChallengeService {
 
     public List<GroupChallengeResponse> getChallenges(Long groupId, Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
@@ -78,7 +79,7 @@ public class GroupChallengeService {
     @Transactional
     public CreateChallengeResponse createChallenge(Long groupId, Long userId, CreateChallengeRequest request) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }
@@ -159,7 +160,7 @@ public class GroupChallengeService {
     @Transactional
     public void deleteChallenge(Long groupId, Long challengeId, Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }

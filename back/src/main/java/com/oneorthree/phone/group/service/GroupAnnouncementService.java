@@ -14,7 +14,8 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupNoticeGrantRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.exception.UserNotFoundException;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -36,7 +37,7 @@ public class GroupAnnouncementService {
     @Transactional
     public void createAnnouncement(Long groupId, Long userId, CreateAnnouncementRequest request) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }
@@ -63,7 +64,7 @@ public class GroupAnnouncementService {
 
     public List<GroupAnnouncementResponse> getAnnouncements(Long groupId, Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
@@ -89,7 +90,7 @@ public class GroupAnnouncementService {
     @Transactional
     public void updateAnnouncement(Long groupId, Long announcementId, Long userId, CreateAnnouncementRequest request) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }
@@ -112,7 +113,7 @@ public class GroupAnnouncementService {
     @Transactional
     public void deleteAnnouncement(Long groupId, Long announcementId, Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }

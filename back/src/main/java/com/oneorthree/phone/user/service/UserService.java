@@ -1,17 +1,18 @@
-package com.oneorthree.phone.service;
+package com.oneorthree.phone.user.service;
 
-import com.oneorthree.phone.api.dto.request.UserProfileSetupRequest;
-import com.oneorthree.phone.api.dto.request.UserProfileUpdateRequest;
-import com.oneorthree.phone.domain.user.User;
-import com.oneorthree.phone.exception.GroupErrorCode;
-import com.oneorthree.phone.exception.GroupException;
-import com.oneorthree.phone.exception.UserNotFoundException;
-import com.oneorthree.phone.repository.focus.DailyFocusStatRepository;
-import com.oneorthree.phone.repository.focus.FocusSessionRepository;
-import com.oneorthree.phone.repository.group.GroupRepository;
-import com.oneorthree.phone.repository.user.UserRepository;
-import com.oneorthree.phone.service.dto.user.UpdateScreenTimePermissionRequest;
-import com.oneorthree.phone.service.dto.user.UserProfileResponse;
+import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
+import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
+import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.group.exception.GroupErrorCode;
+import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
+import com.oneorthree.phone.user.dto.UserProfileResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,7 +34,7 @@ public class UserService {
     @Transactional
     public void setupProfile(Long userId, UserProfileSetupRequest body) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         user.setNickname(body.getNickname());
         user.setBirthDate(body.getBirthDate());
@@ -63,7 +64,7 @@ public class UserService {
     @Transactional
     public void updateProfile(Long userId, UserProfileUpdateRequest body) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (body.getNickname() != null) {
             user.setNickname(body.getNickname());
@@ -101,7 +102,7 @@ public class UserService {
     @Transactional
     public void withdraw(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (groupRepository.existsByHostId(userId)) {
             throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
@@ -114,7 +115,7 @@ public class UserService {
 
     public UserProfileResponse getProfile(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         return new UserProfileResponse(
                 user.getId(),
@@ -135,7 +136,7 @@ public class UserService {
     @Transactional
     public void updateScreenTimePermission(Long userId, UpdateScreenTimePermissionRequest request) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setScreenTimePermissionGranted(request.getGranted());
     }
 }

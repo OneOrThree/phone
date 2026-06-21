@@ -15,7 +15,7 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.group.domain.GroupStatus;
-import com.oneorthree.phone.user.exception.UserNotFoundException;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.group.domain.GroupAnnouncement;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
@@ -336,14 +336,14 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 유저 → UserNotFoundException")
+    @DisplayName("존재하지 않는 유저 → UserException")
     void getMyGroupsUserNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupService.getMyGroups(USER_ID))
-                .isInstanceOf(UserNotFoundException.class);
+                .isInstanceOf(UserException.class);
     }
 
     // ── searchGroups ──────────────────────────────────────────────────────
@@ -550,7 +550,7 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 userId → UserNotFoundException")
+    @DisplayName("존재하지 않는 userId → UserException")
     void getGroupOverviewUserNotFound() {
         // given
         Group group = Group.builder().id(1L).name("그룹")
@@ -562,7 +562,7 @@ class GroupServiceTest {
 
         // when & then
         assertThatThrownBy(() -> groupService.getGroupOverview(1L, USER_ID))
-                .isInstanceOf(UserNotFoundException.class);
+                .isInstanceOf(UserException.class);
     }
 
     @Test
@@ -1034,14 +1034,14 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 userId → UserNotFoundException")
+    @DisplayName("존재하지 않는 userId → UserException")
     void joinGroupUserNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupService.joinGroup(1L, USER_ID, new JoinGroupRequest()))
-                .isInstanceOf(UserNotFoundException.class);
+                .isInstanceOf(UserException.class);
     }
 
     // ── transferOwner (GROMO-355) ─────────────────────────────────────────

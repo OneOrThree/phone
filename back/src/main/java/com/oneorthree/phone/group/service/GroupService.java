@@ -25,7 +25,8 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupNoticeGrantRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.exception.UserNotFoundException;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -114,7 +115,7 @@ public class GroupService {
 
     public List<GroupSummaryResponse> getMyGroups(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         List<GroupMember> groupMembers = groupMemberRepository.findByUser(user);
 
@@ -178,7 +179,7 @@ public class GroupService {
     public void joinGroup(Long groupId, Long userId, JoinGroupRequest request) {
         // 1. 게스트 검증
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }
@@ -216,7 +217,7 @@ public class GroupService {
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         boolean isMember = groupMemberRepository.findByUserAndGroup(user, group).isPresent();
 
@@ -242,7 +243,7 @@ public class GroupService {
     @Transactional
     public RenewGroupCodeResponse renewGroupCode(Long groupId, Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
@@ -263,7 +264,7 @@ public class GroupService {
 
     public GroupDetailResponse getGroupDetail(Long groupId, Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
@@ -321,7 +322,7 @@ public class GroupService {
     @Transactional
     public void updateGroup(Long groupId, Long userId, UpdateGroupRequest request) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }
@@ -363,7 +364,7 @@ public class GroupService {
 
     public GroupSettingsResponse getGroupSettings(Long groupId, Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }
@@ -393,7 +394,7 @@ public class GroupService {
     @Transactional
     public void updateGroupSettings(Long groupId, Long userId, UpdateGroupSettingsRequest request) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);

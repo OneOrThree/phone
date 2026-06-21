@@ -1,15 +1,16 @@
-package com.oneorthree.phone.service;
+package com.oneorthree.phone.currency.service;
 
-import com.oneorthree.phone.domain.reward.CurrencyReason;
-import com.oneorthree.phone.domain.reward.CurrencyTransaction;
-import com.oneorthree.phone.domain.reward.TransactionType;
+import com.oneorthree.phone.currency.domain.CurrencyReason;
+import com.oneorthree.phone.currency.domain.CurrencyTransaction;
+import com.oneorthree.phone.currency.domain.TransactionType;
 import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.exception.CurrencyErrorCode;
-import com.oneorthree.phone.exception.CurrencyException;
-import com.oneorthree.phone.exception.UserNotFoundException;
-import com.oneorthree.phone.repository.reward.CurrencyTransactionRepository;
+import com.oneorthree.phone.currency.exception.CurrencyErrorCode;
+import com.oneorthree.phone.currency.exception.CurrencyException;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
+import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
-import com.oneorthree.phone.service.dto.currency.TransactionsResponse;
+import com.oneorthree.phone.currency.dto.TransactionsResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,7 +27,7 @@ public class InGameCurrencyService {
 
     public int getCurrencyBalance(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         return user.getCurrency();
     }
@@ -36,7 +37,7 @@ public class InGameCurrencyService {
      */
     public List<TransactionsResponse> getCurrencyTransactions(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         return currencyTransactionRepository.findByUserOrderByTransactedAtDesc(user)
                 .stream()
@@ -48,7 +49,7 @@ public class InGameCurrencyService {
     @Transactional
     public void earnCurrency(Long userId, CurrencyReason reason, int amount) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (reason == CurrencyReason.PURCHASE) {
             throw new CurrencyException(CurrencyErrorCode.ILLEGAL_EARN_REASON);
@@ -66,7 +67,7 @@ public class InGameCurrencyService {
     @Transactional
     public void spendCurrency(Long userId, CurrencyReason reason, int amount) {
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (reason != CurrencyReason.PURCHASE) {
             throw new CurrencyException(CurrencyErrorCode.ILLEGAL_SPEND_REASON);

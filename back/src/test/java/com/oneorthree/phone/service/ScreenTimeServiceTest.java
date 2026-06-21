@@ -3,7 +3,7 @@ package com.oneorthree.phone.service;
 import com.oneorthree.phone.focus.domain.DailyFocusStat;
 import com.oneorthree.phone.screentime.service.ScreenTimeService;
 import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.exception.UserNotFoundException;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -132,14 +132,14 @@ class ScreenTimeServiceTest {
     // ── 에러 케이스 ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("존재하지 않는 userId → UserNotFoundException")
+    @DisplayName("존재하지 않는 userId → UserException")
     void saveScreenTimeUserNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> screenTimeService.saveScreenTime(USER_ID, request(true, 100)))
-                .isInstanceOf(UserNotFoundException.class);
+                .isInstanceOf(UserException.class);
         verify(dailyFocusStatRepository, never()).save(any());
     }
 

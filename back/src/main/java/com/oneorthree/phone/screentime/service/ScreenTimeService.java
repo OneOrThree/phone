@@ -1,12 +1,13 @@
-package com.oneorthree.phone.service;
+package com.oneorthree.phone.screentime.service;
 
 import com.oneorthree.phone.focus.domain.DailyFocusStat;
 import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.exception.UserNotFoundException;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
-import com.oneorthree.phone.service.dto.screentime.ScreenTimeRequest;
+import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,7 +28,7 @@ public class ScreenTimeService {
     public void saveScreenTime(Long userId, ScreenTimeRequest request) {
         // 1. 유저 조회
         User user = userRepository.findById(userId)
-                .orElseThrow(UserNotFoundException::new);
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
 
         // 2. reportedAt + timeZone → LocalDate 환산
