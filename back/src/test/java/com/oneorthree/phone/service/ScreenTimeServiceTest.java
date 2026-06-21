@@ -18,9 +18,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.time.zone.ZoneRulesException;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,7 +57,7 @@ class ScreenTimeServiceTest {
     }
 
     private LocalDate expectedDate() {
-        return REPORTED_AT.atZone(ZoneId.of(TIMEZONE)).toLocalDate();
+        return REPORTED_AT.atZone(ZoneOffset.UTC).toLocalDate();
     }
 
     // ── 정상 저장 ─────────────────────────────────────────────────────────
@@ -143,15 +142,4 @@ class ScreenTimeServiceTest {
         verify(dailyFocusStatRepository, never()).save(any());
     }
 
-    @Test
-    @DisplayName("유효하지 않은 timeZone → ZoneRulesException")
-    void saveScreenTimeInvalidTimeZone() {
-        // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-        ScreenTimeRequest badRequest = new ScreenTimeRequest(true, 100, REPORTED_AT, "Invalid/Zone");
-
-        // when & then
-        assertThatThrownBy(() -> screenTimeService.saveScreenTime(USER_ID, badRequest))
-                .isInstanceOf(ZoneRulesException.class);
-    }
 }

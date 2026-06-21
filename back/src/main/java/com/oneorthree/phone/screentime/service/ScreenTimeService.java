@@ -13,7 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 @Service
@@ -31,9 +31,9 @@ public class ScreenTimeService {
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
 
-        // 2. reportedAt + timeZone → LocalDate 환산
+        // 2. reportedAt → UTC 기준 LocalDate 환산 (GroupService 조회와 일관성 유지)
         LocalDate date = request.getReportedAt()
-                .atZone(ZoneId.of(request.getTimeZone()))
+                .atZone(ZoneOffset.UTC)
                 .toLocalDate();
 
         // 3. daily_focus_stats upsert (user, date) 기준
