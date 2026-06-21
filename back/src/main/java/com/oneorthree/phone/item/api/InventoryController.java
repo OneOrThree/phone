@@ -20,7 +20,7 @@ import java.util.List;
 
 @Tag(name = "inventory", description = "인벤토리 관련 API (조회, 수령)")
 @RestController
-@RequestMapping("/api/v1/inventory")
+@RequestMapping("/api/v1")
 @RequiredArgsConstructor
 public class InventoryController {
 
@@ -31,7 +31,7 @@ public class InventoryController {
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
-    @GetMapping("/{userId}")
+    @GetMapping("/inventory/{userId}")
     public ResponseEntity<List<UserItemResponse>> getInventory(@PathVariable Long userId) {
         List<UserItemResponse> response = inventoryService.getInventory(userId);
         return ResponseEntity.ok(response);
@@ -43,7 +43,7 @@ public class InventoryController {
         @ApiResponse(responseCode = "400", description = "유효하지 않은 요청"),
         @ApiResponse(responseCode = "404", description = "유저 또는 아이템 없음")
     })
-    @PostMapping("/grant")
+    @PostMapping("/inventory/grant")
     public ResponseEntity<Void> grantItem(@RequestBody GrantItemRequest request) {
         inventoryService.grantItem(request.getUserId(), request.getItemId());
         return ResponseEntity.noContent().build();

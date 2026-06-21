@@ -22,7 +22,7 @@ import java.util.List;
 
 @Tag(name = "equipment", description = "장비 관련 API")
 @RestController
-@RequestMapping("/api/v1/equipment")
+@RequestMapping("/api/v1")
 @RequiredArgsConstructor
 public class EquipmentController {
 
@@ -33,7 +33,7 @@ public class EquipmentController {
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
-    @GetMapping("/{userId}")
+    @GetMapping("/equipment/{userId}")
     public ResponseEntity<List<CharacterEquipmentResponse>> getEquipment(@PathVariable Long userId) {
         List<CharacterEquipmentResponse> response = equipmentService.getEquipment(userId);
         return ResponseEntity.ok(response);
@@ -45,7 +45,7 @@ public class EquipmentController {
         @ApiResponse(responseCode = "400", description = "유효하지 않은 요청"),
         @ApiResponse(responseCode = "404", description = "유저 또는 아이템 없음")
     })
-    @PostMapping("/equip")
+    @PostMapping("/equipment/equip")
     public ResponseEntity<CharacterEquipmentResponse> equip(@RequestBody EquipRequest request) {
         CharacterEquipmentResponse response = equipmentService.equip(request.getUserId(), request.getItemId());
         return ResponseEntity.ok(response);
@@ -56,7 +56,7 @@ public class EquipmentController {
         @ApiResponse(responseCode = "204", description = "해제 성공"),
         @ApiResponse(responseCode = "404", description = "유저 또는 장비 없음")
     })
-    @DeleteMapping("/{userId}/{slotType}")
+    @DeleteMapping("/equipment/{userId}/{slotType}")
     public ResponseEntity<Void> unequip(@PathVariable Long userId,
                                         @PathVariable SlotType slotType) {
         equipmentService.unequip(userId, slotType);

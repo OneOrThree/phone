@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "auth", description = "인증 관련 API")
 @RestController
-@RequestMapping("/api/v1/auth")
+@RequestMapping("/api/v1")
 @RequiredArgsConstructor
 public class AuthController {
 
@@ -33,7 +33,7 @@ public class AuthController {
         @ApiResponse(responseCode = "200", description = "로그인 성공"),
         @ApiResponse(responseCode = "401", description = "유효하지 않은 카카오 토큰")
     })
-    @PostMapping("/kakao")
+    @PostMapping("/auth/kakao")
     public ResponseEntity<KakaoLoginResponse> kakaoLogin(@RequestBody KakaoLoginRequest request) {
         return ResponseEntity.ok(authService.kakaoLogin(request.kakaoAccessToken()));
     }
@@ -43,7 +43,7 @@ public class AuthController {
         @ApiResponse(responseCode = "200", description = "로그인 성공"),
         @ApiResponse(responseCode = "401", description = "Identity Token 검증 실패")
     })
-    @PostMapping("/apple")
+    @PostMapping("/auth/apple")
     public ResponseEntity<AppleLoginResponse> appleLogin(@RequestBody AppleLoginRequest request) {
         return ResponseEntity.ok(authService.appleLogin(request.identityToken(), request.fullName()));
     }
@@ -52,7 +52,7 @@ public class AuthController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "게스트 로그인 성공")
     })
-    @PostMapping("/guest")
+    @PostMapping("/auth/guest")
     public ResponseEntity<GuestLoginResponse> guestLogin() {
         return ResponseEntity.ok(authService.guestLogin());
     }
@@ -62,7 +62,7 @@ public class AuthController {
         @ApiResponse(responseCode = "200", description = "토큰 갱신 성공"),
         @ApiResponse(responseCode = "401", description = "유효하지 않은 Refresh Token")
     })
-    @PostMapping("/refresh")
+    @PostMapping("/auth/refresh")
     public ResponseEntity<TokenRefreshResponse> refreshToken(@RequestBody TokenRefreshRequest request) {
         return ResponseEntity.ok(authService.refreshToken(request.refreshToken()));
     }
@@ -72,7 +72,7 @@ public class AuthController {
         @ApiResponse(responseCode = "204", description = "로그아웃 성공"),
         @ApiResponse(responseCode = "400", description = "유효하지 않은 Refresh Token")
     })
-    @PostMapping("/logout")
+    @PostMapping("/auth/logout")
     public ResponseEntity<Void> logout(@RequestBody LogoutRequest request) {
         authService.logout(request.refreshToken());
         return ResponseEntity.noContent().build();
