@@ -10,4 +10,5 @@ public class GroupDetailMemberResponse {
     private Long userId;
     private String nickname;
     private GroupMemberRole role;
+    private Integer focusTimeMinutes;
 }

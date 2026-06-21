@@ -15,8 +15,10 @@ import com.oneorthree.phone.exception.UserNotFoundException;
 import com.oneorthree.phone.domain.group.GroupAnnouncement;
 import com.oneorthree.phone.domain.group.GroupChallenge;
 import com.oneorthree.phone.domain.group.GroupChallengeStatus;
+import com.oneorthree.phone.repository.focus.DailyFocusStatRepository;
 import com.oneorthree.phone.repository.group.GroupAnnouncementRepository;
 import com.oneorthree.phone.repository.group.GroupChallengeRepository;
+import com.oneorthree.phone.repository.group.GroupNoticeGrantRepository;
 import com.oneorthree.phone.service.dto.group.CreateGroupRequest;
 import com.oneorthree.phone.service.dto.group.CreateGroupResponse;
 import com.oneorthree.phone.service.dto.group.GroupAnnouncementResponse;
@@ -73,6 +75,12 @@ class GroupServiceTest {
 
     @Mock
     private GroupChallengeRepository groupChallengeRepository;
+
+    @Mock
+    private DailyFocusStatRepository dailyFocusStatRepository;
+
+    @Mock
+    private GroupNoticeGrantRepository groupNoticeGrantRepository;
 
     private static final Long USER_ID = 1L;
 

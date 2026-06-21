@@ -115,4 +115,46 @@ public class Group {
     public void removePassword() {
         this.password = null;
     }
+
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean chatEnabled = true;
+
+    @Column
+    private Integer chatLimitPerPerson;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private GroupPermissionScope noticePermission = GroupPermissionScope.OWNER_ONLY;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private GroupPermissionScope invitePermission = GroupPermissionScope.OWNER_ONLY;
+
+    public void updateDescription(String description) {
+        this.description = description;
+    }
+
+    public void updateSettings(Boolean chatEnabled, Integer chatLimitPerPerson,
+            GroupPermissionScope noticePermission, GroupPermissionScope invitePermission) {
+        if (chatEnabled != null) {
+            this.chatEnabled = chatEnabled;
+        }
+        if (chatLimitPerPerson != null) {
+            this.chatLimitPerPerson = chatLimitPerPerson;
+        }
+        if (noticePermission != null) {
+            this.noticePermission = noticePermission;
+        }
+        if (invitePermission != null) {
+            this.invitePermission = invitePermission;
+        }
+    }
+
+    public void close() {
+        this.status = GroupStatus.CLOSED;
+        this.endedAt = Instant.now();
+    }
 }

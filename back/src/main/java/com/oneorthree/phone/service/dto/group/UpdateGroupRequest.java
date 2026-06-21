@@ -6,6 +6,7 @@ import lombok.Getter;
 public class UpdateGroupRequest {
 
     private String name;
+    private String description;
     private Integer maxMembers;
     private PasswordAction passwordAction;
     private String password;

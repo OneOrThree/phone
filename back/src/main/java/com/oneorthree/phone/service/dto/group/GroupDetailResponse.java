@@ -25,4 +25,5 @@ public class GroupDetailResponse {
     private List<GroupDetailMemberResponse> members;
     private String code;           // nullable — OWNER에게만 반환
     private Instant codeExpiresAt; // nullable — OWNER에게만 반환
+    private List<Long> noticeGrantedUserIds;    //OWNER 제외
 }

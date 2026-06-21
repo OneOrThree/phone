@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,4 +21,6 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
     @Modifying
     @Query("UPDATE DailyFocusStat d SET d.user = null WHERE d.user.id = :userId")
     void nullifyUser(@Param("userId") Long userId);
+
+    List<DailyFocusStat> findByUserInAndDate(Collection<User> users, LocalDate date);
 }

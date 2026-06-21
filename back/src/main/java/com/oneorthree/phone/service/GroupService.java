@@ -1,20 +1,25 @@
 package com.oneorthree.phone.service;
 
+import com.oneorthree.phone.domain.focus.DailyFocusStat;
 import com.oneorthree.phone.domain.group.Group;
 import com.oneorthree.phone.domain.group.GroupAnnouncement;
 import com.oneorthree.phone.domain.group.GroupChallenge;
 import com.oneorthree.phone.domain.group.GroupChallengeStatus;
 import com.oneorthree.phone.domain.group.GroupMember;
 import com.oneorthree.phone.domain.group.GroupMemberRole;
+import com.oneorthree.phone.domain.group.GroupNoticeGrant;
+import com.oneorthree.phone.domain.group.GroupPermissionScope;
 import com.oneorthree.phone.domain.group.MissionCategory;
 import com.oneorthree.phone.domain.group.MissionType;
 import com.oneorthree.phone.domain.user.User;
 import com.oneorthree.phone.exception.GroupErrorCode;
 import com.oneorthree.phone.exception.GroupException;
 import com.oneorthree.phone.exception.UserNotFoundException;
+import com.oneorthree.phone.repository.focus.DailyFocusStatRepository;
 import com.oneorthree.phone.repository.group.GroupAnnouncementRepository;
 import com.oneorthree.phone.repository.group.GroupChallengeRepository;
 import com.oneorthree.phone.repository.group.GroupMemberRepository;
+import com.oneorthree.phone.repository.group.GroupNoticeGrantRepository;
 import com.oneorthree.phone.repository.group.GroupRepository;
 import com.oneorthree.phone.repository.user.UserRepository;
 import com.oneorthree.phone.service.dto.group.CreateAnnouncementRequest;
@@ -31,7 +36,9 @@ import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
 import com.oneorthree.phone.service.dto.group.RenewGroupCodeResponse;
+import com.oneorthree.phone.service.dto.group.GroupSettingsResponse;
 import com.oneorthree.phone.service.dto.group.UpdateGroupRequest;
+import com.oneorthree.phone.service.dto.group.UpdateGroupSettingsRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -40,6 +47,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -47,7 +55,9 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -60,10 +70,12 @@ public class GroupService {
     private final PasswordEncoder passwordEncoder;
     private final GroupAnnouncementRepository groupAnnouncementRepository;
     private final GroupChallengeRepository groupChallengeRepository;
+    private final DailyFocusStatRepository dailyFocusStatRepository;
 
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private final GroupNoticeGrantRepository groupNoticeGrantRepository;
 
     @Transactional
     public CreateGroupResponse createGroup(Long userId, CreateGroupRequest request) {
@@ -284,12 +296,25 @@ public class GroupService {
 
         List<GroupMember> groupMembers = groupMemberRepository.findByGroup(group);
 
+        List<User> users = groupMembers.stream().map(GroupMember::getUser).toList();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<DailyFocusStat> focusStats = dailyFocusStatRepository.findByUserInAndDate(users, today);
+        Map<Long, Integer> focusMap = focusStats.stream()
+                .collect((Collectors.toMap(
+                        s -> s.getUser().getId(),
+                        DailyFocusStat::getTotalFocusMinutes
+                )));
         List<GroupDetailMemberResponse> list = groupMembers.stream()
                 .map(m -> GroupDetailMemberResponse.builder()
                         .userId(m.getUser().getId())
                         .nickname(m.getUser().getNickname())
                         .role(m.getRole())
+                        .focusTimeMinutes(focusMap.getOrDefault(m.getUser().getId(), 0))
                         .build())
+                .toList();
+
+        List<Long> granteUsers = groupNoticeGrantRepository.findByGroup(group).stream()
+                .map(u -> u.getUserId())
                 .toList();
 
         return GroupDetailResponse.builder()
@@ -308,6 +333,7 @@ public class GroupService {
                         group.getCode() : null)
                 .codeExpiresAt(groupMember.getRole() == GroupMemberRole.OWNER ?
                         group.getCodeExpiresAt() : null)
+                .noticeGrantedUserIds(granteUsers)
                 .build();
     }
 
@@ -322,13 +348,11 @@ public class GroupService {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
-        Optional<GroupMember> groupMember = groupMemberRepository.findByUserAndGroup(user, group);
-        if (groupMember.isEmpty()) {
-            throw new GroupException(GroupErrorCode.MEMBER_ONLY);
-        }
+        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
 
-        if (groupMember.get().getRole() != GroupMemberRole.OWNER) {
-            throw new GroupException(GroupErrorCode.NOT_OWNER);
+        if (!canManageNotice(group, groupMember.getRole(), userId)) {
+            throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
         }
 
         groupAnnouncementRepository.save(
@@ -339,6 +363,16 @@ public class GroupService {
                         .content(request.getContent())
                         .build()
         );
+    }
+
+    private boolean canManageNotice(Group group, GroupMemberRole role, Long userId) {
+        if (role == GroupMemberRole.OWNER) {
+            return true;
+        }
+        if (group.getNoticePermission() == GroupPermissionScope.ALL_MEMBERS) {
+            return true;
+        }
+        return groupNoticeGrantRepository.existsByGroupAndUserId(group, userId);
     }
 
     public List<GroupAnnouncementResponse> getAnnouncements(Long groupId, Long userId) {
@@ -364,6 +398,52 @@ public class GroupService {
                         .createdAt(a.getCreatedAt())
                         .build())
                 .toList();
+    }
+
+    @Transactional
+    public void updateAnnouncement(Long groupId, Long announcementId, Long userId, CreateAnnouncementRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember member = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        if (!canManageNotice(group, member.getRole(), userId)) {
+            throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
+        }
+
+        GroupAnnouncement announcement = groupAnnouncementRepository.findByIdAndGroup(announcementId, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        announcement.updateContent(request.getTitle(), request.getContent());
+    }
+
+    @Transactional
+    public void deleteAnnouncement(Long groupId, Long announcementId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember member = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        if (!canManageNotice(group, member.getRole(), userId)) {
+            throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
+        }
+
+        GroupAnnouncement announcement = groupAnnouncementRepository.findByIdAndGroup(announcementId, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        groupAnnouncementRepository.delete(announcement);
     }
 
     public List<GroupChallengeResponse> getChallenges(Long groupId, Long userId) {
@@ -445,6 +525,80 @@ public class GroupService {
         } else if (request.getPasswordAction() == UpdateGroupRequest.PasswordAction.REMOVE) {
             group.removePassword();
         }
+
+        if (request.getDescription() != null) {
+            group.updateDescription(request.getDescription());
+        }
+    }
+
+    public GroupSettingsResponse getGroupSettings(Long groupId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        if (groupMember.getRole() != GroupMemberRole.OWNER) {
+            throw new GroupException(GroupErrorCode.NOT_OWNER);
+        }
+
+        List<Long> grantedUserIds = groupNoticeGrantRepository.findByGroup(group).stream()
+                .map(GroupNoticeGrant::getUserId)
+                .toList();
+
+        return GroupSettingsResponse.builder()
+                .chatEnabled(group.isChatEnabled())
+                .chatLimitPerPerson(group.getChatLimitPerPerson())
+                .noticePermission(group.getNoticePermission())
+                .invitePermission(group.getInvitePermission())
+                .noticeGrantedUserIds(grantedUserIds)
+                .build();
+    }
+
+    @Transactional
+    public void updateGroupSettings(Long groupId, Long userId, UpdateGroupSettingsRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        if (groupMember.getRole() != GroupMemberRole.OWNER) {
+            throw new GroupException(GroupErrorCode.NOT_OWNER);
+        }
+
+        group.updateSettings(
+                request.getChatEnabled(),
+                request.getChatLimitPerPerson(),
+                request.getNoticePermission(),
+                request.getInvitePermission()
+        );
+
+        if (request.getNoticeGrantedUserIds() != null) {
+            groupNoticeGrantRepository.deleteByGroup(group);
+            if (!request.getNoticeGrantedUserIds().isEmpty()) {
+                List<GroupNoticeGrant> grants = request.getNoticeGrantedUserIds().stream()
+                        .filter(granteeId -> groupMemberRepository.existsByUserIdAndGroup(granteeId, group))
+                        .map(granteeId -> GroupNoticeGrant.builder()
+                                .group(group)
+                                .userId(granteeId)
+                                .build())
+                        .toList();
+                groupNoticeGrantRepository.saveAll(grants);
+            }
+        }
     }
 
     @Transactional
@@ -497,6 +651,28 @@ public class GroupService {
         groupChallengeRepository.delete(groupChallenge);
     }
 
+    @Transactional
+    public void withdrawGroup(Long groupId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        List<GroupMember> groupMembers = groupMemberRepository.findByGroup(group);
+        if (groupMembers.size() == 1) {
+            groupMemberRepository.delete(groupMember);
+            group.close();
+        } else if (groupMembers.size() > 1 && groupMember.getRole() == GroupMemberRole.OWNER) {
+            throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
+        } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
+            groupMemberRepository.delete(groupMember);
+        }
+    }
 
     private String generateUniqueCode() {
         StringBuilder sb = new StringBuilder(8);

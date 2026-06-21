@@ -14,7 +14,9 @@ import com.oneorthree.phone.service.dto.group.GroupSearchResponse;
 import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
 import com.oneorthree.phone.service.dto.group.RenewGroupCodeResponse;
+import com.oneorthree.phone.service.dto.group.GroupSettingsResponse;
 import com.oneorthree.phone.service.dto.group.UpdateGroupRequest;
+import com.oneorthree.phone.service.dto.group.UpdateGroupSettingsRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -28,6 +30,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -252,6 +255,90 @@ public class GroupController {
     ) {
         Long userId = (Long) httpServletRequest.getAttribute("userId");
         groupService.deleteChallenge(groupId, challengeId, userId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "그룹 채팅·권한 설정 조회", description = "OWNER만 조회 가능.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "조회 성공"),
+            @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트 / 그룹원 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @GetMapping("/groups/{groupId}/settings")
+    public ResponseEntity<GroupSettingsResponse> getGroupSettings(
+            @PathVariable Long groupId,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        return ResponseEntity.ok(groupService.getGroupSettings(groupId, userId));
+    }
+
+    @Operation(summary = "그룹 채팅·권한 설정 수정", description = "OWNER만 가능. null 필드는 미변경(PATCH). 성공 시 204 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "수정 성공"),
+            @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트 / 그룹원 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @PatchMapping("/groups/{groupId}/settings")
+    public ResponseEntity<?> updateGroupSettings(
+            @PathVariable Long groupId,
+            @RequestBody UpdateGroupSettingsRequest request,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        groupService.updateGroupSettings(groupId, userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "그룹 공지 수정", description = "OWNER 또는 공지 권한 부여된 멤버만 수정 가능. 성공 시 204 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "수정 성공"),
+            @ApiResponse(responseCode = "403", description = "권한 없음 / 게스트"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음 / 공지 없음")
+    })
+    @PutMapping("/groups/{groupId}/announcements/{announcementId}")
+    public ResponseEntity<?> updateGroupAnnouncement(
+            @PathVariable Long groupId,
+            @PathVariable Long announcementId,
+            @Valid @RequestBody CreateAnnouncementRequest request,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        groupService.updateAnnouncement(groupId, announcementId, userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "그룹 공지 삭제", description = "OWNER 또는 공지 권한 부여된 멤버만 삭제 가능. 성공 시 204 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "삭제 성공"),
+            @ApiResponse(responseCode = "403", description = "권한 없음 / 게스트"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음 / 공지 없음")
+    })
+    @DeleteMapping("/groups/{groupId}/announcements/{announcementId}")
+    public ResponseEntity<?> deleteGroupAnnouncement(
+            @PathVariable Long groupId,
+            @PathVariable Long announcementId,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        groupService.deleteAnnouncement(groupId, announcementId, userId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "그룹 탈퇴", description = "MEMBER는 즉시 탈퇴. OWNER는 위임 후 탈퇴 가능. 마지막 1인 탈퇴 시 그룹 CLOSED. 성공 시 204 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "탈퇴 성공"),
+            @ApiResponse(responseCode = "400", description = "방장 위임 필요"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @DeleteMapping("/groups/{groupId}/members/me")
+    public ResponseEntity<?> withdrawGroup(
+            @PathVariable Long groupId,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        groupService.withdrawGroup(groupId, userId);
         return ResponseEntity.noContent().build();
     }
 }
