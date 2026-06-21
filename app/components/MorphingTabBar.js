@@ -52,8 +52,13 @@ export function MorphingTabBar({ state, navigation }) {
   const mainActiveIdx = MAIN_TABS.findIndex((t) => t.name === activeRouteName);
   const mainDisplayIdx = mainActiveIdx < 0 ? 0 : mainActiveIdx;
 
+  const chatEnabled = currentRoute?.params?.chatEnabled ?? true;
+  const visibleGroupTabs = chatEnabled
+    ? GROUP_DETAIL_TABS
+    : GROUP_DETAIL_TABS.filter((t) => t.key !== 'chat');
+
   const groupActiveTab = currentRoute?.params?.activeTab ?? 'group';
-  const groupActiveIdx = GROUP_DETAIL_TABS.findIndex((t) => t.key === groupActiveTab);
+  const groupActiveIdx = visibleGroupTabs.findIndex((t) => t.key === groupActiveTab);
   const groupDisplayIdx = groupActiveIdx < 0 ? 0 : groupActiveIdx;
 
   const mainPillAnim = useRef(new Animated.Value(mainDisplayIdx)).current;
@@ -79,16 +84,18 @@ export function MorphingTabBar({ state, navigation }) {
     }).start();
   }, [groupDisplayIdx, isGroupDetail, groupPillAnim]);
 
-  if (HIDDEN.has(activeRouteName)) return null;
+  const isSettingsOpen = isGroupDetail && (currentRoute?.params?.showSettings ?? false);
+  if (HIDDEN.has(activeRouteName) || isSettingsOpen) return null;
 
   const pb = insets.bottom + BAR_MARGIN_V;
 
   // 그룹 상세 탭바
   if (isGroupDetail) {
-    const groupPillX = groupPillAnim.interpolate({
-      inputRange: [0, 1, 2, 3, 4],
-      outputRange: [0, 1, 2, 3, 4].map((i) => BAR_PADDING + i * GROUP_TAB_W),
-    });
+    const visibleN = visibleGroupTabs.length;
+    const visibleTabW = (GROUP_BAR_W - BAR_PADDING * 2) / visibleN;
+    const inputRange = visibleGroupTabs.map((_, i) => i);
+    const outputRange = inputRange.map((i) => BAR_PADDING + i * visibleTabW);
+    const groupPillX = groupPillAnim.interpolate({ inputRange, outputRange });
 
     return (
       <View style={[s.outerContainer, { paddingBottom: pb }]}>
@@ -106,9 +113,9 @@ export function MorphingTabBar({ state, navigation }) {
           <View style={s.floatBarGroup}>
             <Animated.View
               pointerEvents="none"
-              style={[s.pill, { width: GROUP_TAB_W, transform: [{ translateX: groupPillX }] }]}
+              style={[s.pill, { width: visibleTabW, transform: [{ translateX: groupPillX }] }]}
             />
-            {GROUP_DETAIL_TABS.map(({ key, name, icon }, idx) => {
+            {visibleGroupTabs.map(({ key, name, icon }, idx) => {
               const isFocused = idx === groupDisplayIdx;
               return (
                 <TouchableOpacity

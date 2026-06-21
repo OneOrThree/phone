@@ -7,11 +7,15 @@ import {
   Dimensions,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation } from '@react-navigation/native';
 import { T, inkBox } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
 import { useUser } from '../../contexts/UserContext';
+import { timeStrToSeconds, nowSecondsInZone, zoneSuffix } from '../../utils/challengeTime';
 
 const SCREEN_W = Dimensions.get('window').width;
 const H_PAD = 20;
@@ -19,10 +23,11 @@ const NUM_COLS = 2;
 const COL_GAP = 10;
 const CARD_W = (SCREEN_W - H_PAD * 2 - COL_GAP * (NUM_COLS - 1)) / NUM_COLS;
 
-function formatWindowTime(instant) {
-  if (!instant) return '';
-  const d = new Date(instant);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+function formatWindowTime(timeStr) {
+  if (!timeStr) return '';
+  // 백엔드가 "HH:mm:ss" 형식으로 반환 → "HH:mm"으로 표시
+  const [h, m] = timeStr.split(':');
+  return `${h}:${m}`;
 }
 
 function formatMinutes(min) {
@@ -52,7 +57,26 @@ function InviteCard() {
   );
 }
 
-function MemberCard({ member, groupId, myUserId }) {
+function SpeechBubble({ bio, isMe, onPress }) {
+  const hasBio = bio && bio.trim().length > 0;
+  if (!hasBio && !isMe) return null;
+  return (
+    <TouchableOpacity
+      style={s.bubbleWrap}
+      onPress={isMe ? onPress : undefined}
+      activeOpacity={isMe ? 0.7 : 1}
+    >
+      <View style={s.bubble}>
+        <Text style={[s.bubbleText, !hasBio && s.bubblePlaceholder]} numberOfLines={2}>
+          {hasBio ? bio : '소개 추가'}
+        </Text>
+      </View>
+      <View style={s.bubbleTail} />
+    </TouchableOpacity>
+  );
+}
+
+function MemberCard({ member, groupId, myUserId, bio, onEditBio, onPress }) {
   const initial = member.nickname?.[0] ?? '?';
   const isOwner = member.role === 'OWNER';
   const isMe = member.userId === myUserId;
@@ -84,6 +108,7 @@ function MemberCard({ member, groupId, myUserId }) {
           <Text style={s.ownerBadgeText}>호스트</Text>
         </View>
       )}
+      <SpeechBubble bio={bio} isMe={isMe} onPress={onEditBio} />
       <View style={[s.avatar, isOwner && s.avatarOwner]}>
         <Text style={[s.avatarText, isOwner && s.avatarTextOwner]}>{initial}</Text>
       </View>
@@ -107,18 +132,24 @@ function MemberCard({ member, groupId, myUserId }) {
 
   if (isFocusing) {
     return (
-      <LinearGradient
-        colors={['rgba(134,239,172,0.25)', 'rgba(255,255,255,0)', 'rgba(134,239,172,0.25)']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={[s.card, s.cardFocusing, isMe && s.cardMe]}
-      >
-        {cardContent}
-      </LinearGradient>
+      <TouchableOpacity onPress={onPress} activeOpacity={0.85}>
+        <LinearGradient
+          colors={['rgba(134,239,172,0.25)', 'rgba(255,255,255,0)', 'rgba(134,239,172,0.25)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[s.card, s.cardFocusing, isMe && s.cardMe]}
+        >
+          {cardContent}
+        </LinearGradient>
+      </TouchableOpacity>
     );
   }
 
-  return <View style={[s.card, isMe && s.cardMe]}>{cardContent}</View>;
+  return (
+    <TouchableOpacity style={[s.card, isMe && s.cardMe]} onPress={onPress} activeOpacity={0.85}>
+      {cardContent}
+    </TouchableOpacity>
+  );
 }
 
 function formatUntil(ms) {
@@ -131,10 +162,12 @@ function formatUntil(ms) {
   return `${mins}분 후`;
 }
 
-export default function GroupTab({ group, groupId }) {
+export default function GroupTab({ group, groupId, refreshing, onRefresh }) {
   const { userId: myUserId } = useUser();
+  const navigation = useNavigation();
   const [challenges, setChallenges] = useState([]);
   const [now, setNow] = useState(Date.now());
+  const [myBio, setMyBio] = useState('');
 
   useEffect(() => {
     if (!groupId) return;
@@ -149,6 +182,28 @@ export default function GroupTab({ group, groupId }) {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (!groupId) return;
+    AsyncStorage.getItem(`gromo:group:${groupId}:bio`)
+      .then((val) => setMyBio(val ?? ''))
+      .catch(() => {});
+  }, [groupId]);
+
+  function handleEditBio() {
+    Alert.prompt(
+      '한줄 소개',
+      '그룹에서 보여질 나만의 한줄 소개',
+      (text) => {
+        if (text === null) return;
+        const trimmed = text.trim();
+        setMyBio(trimmed);
+        AsyncStorage.setItem(`gromo:group:${groupId}:bio`, trimmed).catch(() => {});
+      },
+      'plain-text',
+      myBio,
+    );
+  }
+
   if (!group) return null;
 
   const active = challenges.filter((c) => c.status === 'ACTIVE');
@@ -158,18 +213,23 @@ export default function GroupTab({ group, groupId }) {
     const mins = active[0]?.durationMinutes ?? group.durationMinutes;
     if (mins) missionText = `포커스타임 ${mins}분 이상`;
   } else {
-    const ongoing = active.find(
-      (c) => new Date(c.windowStart) <= now && now <= new Date(c.windowEnd),
-    );
+    // 그룹 타임존 벽시계의 '하루 중 초' 기준으로 비교
+    const nowDate = new Date(now);
+    const ongoing = active.find((c) => {
+      const nowSec = nowSecondsInZone(c.timeZone, nowDate);
+      return timeStrToSeconds(c.windowStart) <= nowSec && nowSec <= timeStrToSeconds(c.windowEnd);
+    });
     const upcoming = active
-      .filter((c) => new Date(c.windowStart) > now)
-      .sort((a, b) => new Date(a.windowStart) - new Date(b.windowStart))[0];
+      .filter((c) => timeStrToSeconds(c.windowStart) > nowSecondsInZone(c.timeZone, nowDate))
+      .sort((a, b) => timeStrToSeconds(a.windowStart) - timeStrToSeconds(b.windowStart))[0];
 
     if (ongoing) {
-      missionText = `${formatWindowTime(ongoing.windowStart)} ~ ${formatWindowTime(ongoing.windowEnd)} 포커스 진행 중`;
+      missionText = `${formatWindowTime(ongoing.windowStart)} ~ ${formatWindowTime(ongoing.windowEnd)}${zoneSuffix(ongoing.timeZone)} 포커스 진행 중`;
     } else if (upcoming) {
-      const until = formatUntil(new Date(upcoming.windowStart) - now);
-      missionText = `${formatWindowTime(upcoming.windowStart)} ~ ${formatWindowTime(upcoming.windowEnd)} 포커스 · ${until} 시작`;
+      const diffSec =
+        timeStrToSeconds(upcoming.windowStart) - nowSecondsInZone(upcoming.timeZone, nowDate);
+      const until = formatUntil(diffSec * 1000);
+      missionText = `${formatWindowTime(upcoming.windowStart)} ~ ${formatWindowTime(upcoming.windowEnd)}${zoneSuffix(upcoming.timeZone)} 포커스 · ${until} 시작`;
     }
   }
 
@@ -188,7 +248,6 @@ export default function GroupTab({ group, groupId }) {
           <Text style={s.missionLabel}>오늘의 미션: </Text>
           {missionText}
         </Text>
-        {!!group.description && <Text style={s.description}>{group.description}</Text>}
       </View>
 
       {/* 인원 */}
@@ -210,14 +269,33 @@ export default function GroupTab({ group, groupId }) {
         item.__invite ? (
           <InviteCard />
         ) : (
-          <MemberCard member={item} groupId={groupId} myUserId={myUserId} />
+          <MemberCard
+            member={item}
+            groupId={groupId}
+            myUserId={myUserId}
+            bio={item.userId === myUserId ? myBio : (item.bio ?? '')}
+            onEditBio={handleEditBio}
+            onPress={() => navigation.navigate('MemberCalendar', { member: item, groupId })}
+          />
         )
       }
-      ListHeaderComponent={ListHeader}
+      ListHeaderComponent={
+        <>
+          {refreshing && (
+            <ActivityIndicator size="small" color={T.inkMed} style={s.refreshIndicator} />
+          )}
+          {ListHeader}
+        </>
+      }
       columnWrapperStyle={s.columnWrapper}
       contentContainerStyle={s.container}
       showsVerticalScrollIndicator={false}
       ListFooterComponent={<View style={s.scrollBottom} />}
+      onScrollEndDrag={({ nativeEvent }) => {
+        if (nativeEvent.contentOffset.y < -60 && !refreshing) {
+          onRefresh?.();
+        }
+      }}
     />
   );
 }
@@ -225,16 +303,15 @@ export default function GroupTab({ group, groupId }) {
 const s = StyleSheet.create({
   container: { paddingHorizontal: H_PAD },
   scrollBottom: { height: 20 },
+  refreshIndicator: { marginTop: 10 },
 
   // 헤더
   headerWrap: { marginBottom: 12 },
 
   // 미션 카드
-  missionCard: { padding: 14, marginTop: 20, marginBottom: 14 },
+  missionCard: { padding: 14, marginTop: 14, marginBottom: 14 },
   missionLabel: { fontSize: 15, fontWeight: '900', color: T.ink },
   missionText: { fontSize: 15, fontWeight: '700', color: T.ink, textAlign: 'center' },
-  description: { fontSize: 14, color: T.inkMed, marginTop: 8 },
-
   // 인원
   memberCount: { fontSize: 15, fontWeight: '700', color: T.inkMed, marginBottom: 14 },
   memberCountNum: { color: T.ink, fontWeight: '900' },
@@ -245,6 +322,30 @@ const s = StyleSheet.create({
     fontWeight: '800',
     color: T.inkMed,
     marginBottom: 10,
+  },
+
+  // 말풍선
+  bubbleWrap: { alignItems: 'center', marginBottom: 4 },
+  bubble: {
+    backgroundColor: T.paperDark,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: T.paperLine,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    maxWidth: CARD_W - 24,
+  },
+  bubbleText: { fontSize: 11, fontWeight: '500', color: T.ink, textAlign: 'center' },
+  bubblePlaceholder: { color: T.inkLight },
+  bubbleTail: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: T.paperDark,
   },
 
   // 앨범 그리드

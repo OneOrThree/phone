@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'rea
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T } from '../components/theme';
 import { apiFetch } from '../utils/api';
+import { useUser } from '../contexts/UserContext';
 import GroupTab from './group/GroupTab';
 import RankingTab from './group/RankingTab';
 import ChatTab from './group/ChatTab';
@@ -20,21 +21,21 @@ const TAB_COMPONENTS = {
 
 export default function GroupDetailScreen({ navigation, route }) {
   const { groupId, activeTab = 'group' } = route.params ?? {};
+  const { userId: myUserId } = useUser();
   const [group, setGroup] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const insets = useSafeAreaInsets();
 
   function fetchGroup() {
-    console.log('[GroupDetail] groupId:', groupId, '타입:', typeof groupId);
     setLoading(true);
     setError(null);
     apiFetch(`/api/v1/groups/${groupId}`)
       .then(async (res) => {
         if (!res.ok) {
           const body = await res.text().catch(() => '');
-          console.log('[GroupDetail] API 실패', res.status, body);
           const msg =
             res.status === 404
               ? '존재하지 않거나 삭제된 그룹이에요'
@@ -45,14 +46,21 @@ export default function GroupDetailScreen({ navigation, route }) {
           return;
         }
         const data = await res.json();
-        console.log('[GroupDetail] 멤버 수:', data.members?.length);
         setGroup(data);
+        navigation.setParams({ chatEnabled: data.chatEnabled ?? true });
       })
       .catch((e) => {
-        console.log('[GroupDetail] 네트워크 오류', e);
         setError('네트워크 오류');
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
+  }
+
+  function handleRefresh() {
+    setRefreshing(true);
+    fetchGroup();
   }
 
   useEffect(() => {
@@ -64,19 +72,48 @@ export default function GroupDetailScreen({ navigation, route }) {
 
   return (
     <View style={s.root}>
-      {/* 상단 헤더 */}
-      <View style={[s.header, { paddingTop: insets.top + 8 }]}>
-        <View style={s.headerSide} />
-        <Text style={s.headerTitle} numberOfLines={1}>
-          {showSettings ? '그룹 설정' : (group?.name ?? '')}
-        </Text>
-        <TouchableOpacity
-          onPress={() => setShowSettings((v) => !v)}
-          hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-          style={[s.headerSide, s.headerSideRight]}
-        >
-          <Text style={[s.gearText, showSettings && s.gearTextActive]}>⚙</Text>
-        </TouchableOpacity>
+      {/* 상단 헤더 + 한줄소개 */}
+      <View style={s.headerWrap}>
+        <View style={[s.header, { paddingTop: insets.top + 8 }]}>
+          {showSettings ? (
+            <TouchableOpacity
+              onPress={() => {
+                setShowSettings(false);
+                navigation.setParams({ showSettings: false });
+              }}
+              hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+              style={s.headerSide}
+            >
+              <Text style={s.backText}>‹ 뒤로</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={s.headerSide} />
+          )}
+          <Text style={s.headerTitle} numberOfLines={1}>
+            {showSettings ? '그룹 설정' : (group?.name ?? '')}
+          </Text>
+          {!showSettings && (
+            <TouchableOpacity
+              onPress={() => {
+                setShowSettings(true);
+                navigation.setParams({ showSettings: true });
+              }}
+              hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+              style={[s.headerSide, s.headerSideRight]}
+            >
+              <Text style={s.gearText}>⚙</Text>
+            </TouchableOpacity>
+          )}
+          {showSettings && <View style={s.headerSide} />}
+        </View>
+        {/* 그룹 한줄소개 */}
+        {!showSettings && !!group?.description && (
+          <View style={s.descriptionBar}>
+            <Text style={s.descriptionText} numberOfLines={2}>
+              {group.description}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* 본문 */}
@@ -103,11 +140,19 @@ export default function GroupDetailScreen({ navigation, route }) {
           <SettingsScreen
             groupId={groupId}
             group={group}
-            isOwner={!!group?.code}
+            isOwner={group?.members?.find((m) => m.userId === myUserId)?.role === 'OWNER'}
             onLeaveSuccess={() => navigation.navigate('그룹')}
+            onChatEnabledChange={(val) => navigation.setParams({ chatEnabled: val })}
+            onGroupUpdated={(patch) => setGroup((prev) => ({ ...prev, ...patch }))}
+            onRefresh={fetchGroup}
           />
         ) : (
-          <ActiveTab group={group} groupId={groupId} />
+          <ActiveTab
+            group={group}
+            groupId={groupId}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+          />
         )}
       </View>
     </View>
@@ -117,14 +162,16 @@ export default function GroupDetailScreen({ navigation, route }) {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paper },
 
+  headerWrap: {
+    borderBottomWidth: 1.5,
+    borderBottomColor: T.ink,
+    backgroundColor: T.paper,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingBottom: 12,
-    borderBottomWidth: 1.5,
-    borderBottomColor: T.ink,
-    backgroundColor: T.paper,
   },
   headerSide: { width: 56 },
   headerSideRight: { alignItems: 'flex-end' },
@@ -137,6 +184,19 @@ const s = StyleSheet.create({
   },
   gearText: { fontSize: 22, color: T.inkMed },
   gearTextActive: { color: T.ink },
+  backText: { fontSize: 16, fontWeight: '700', color: T.ink },
+
+  descriptionBar: {
+    backgroundColor: T.paperDark,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+  },
+  descriptionText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: T.inkMed,
+    textAlign: 'center',
+  },
 
   content: { flex: 1 },
   loader: { marginTop: 80 },

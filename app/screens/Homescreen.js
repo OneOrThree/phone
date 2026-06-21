@@ -311,9 +311,7 @@ export default function HomeScreen({ navigation, route }) {
             }),
           });
           await AsyncStorage.setItem('gromo:screentime:lastSyncedDate', yesterdayStr);
-        } catch (e) {
-          console.log('스크린타임 결과 서버 저장 실패:', e);
-        }
+        } catch (e) {}
       }
 
       // 2) 보상 모달 (하루 1회)
@@ -345,9 +343,7 @@ export default function HomeScreen({ navigation, route }) {
       try {
         const seconds = await ScreenTimeModule.getTotalScreenTime();
         setScreenTimeSeconds(seconds);
-      } catch (error) {
-        console.log('스크린 타임 조회 실패:', error);
-      }
+      } catch (error) {}
     };
     fetchScreenTime();
     // 30초마다 갱신

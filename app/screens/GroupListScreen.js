@@ -140,7 +140,9 @@ function GroupListView({
               </View>
             </View>
             <View style={s.groupCardBottom}>
-              <Text style={s.groupCode}>코드 {group.code}</Text>
+              <Text style={s.groupCode} numberOfLines={1}>
+                {group.description ?? ''}
+              </Text>
               <Text style={s.groupMembers}>
                 👥 {group.currentMembers}/{group.maxMembers}명
               </Text>
@@ -461,31 +463,23 @@ function SearchGroupView({ onBack, initialQuery = '', onGroupPress }) {
   const [searched, setSearched] = useState(false);
 
   useEffect(() => {
-    console.log('[G3] mount — initialQuery:', JSON.stringify(initialQuery));
     if (initialQuery.trim()) doSearch(initialQuery.trim());
   }, [initialQuery]);
 
   async function doSearch(q) {
     if (!q) {
-      console.log('[G3] doSearch 중단 — 쿼리 없음');
       return;
     }
-    console.log('[G3] doSearch 시작 —', JSON.stringify(q));
     setLoading(true);
     try {
       const url = `/api/v1/groups/search?query=${encodeURIComponent(q)}`;
-      console.log('[G3] 요청 URL:', url);
       const res = await apiFetch(url);
-      console.log('[G3] 응답 status:', res.status);
       const text = await res.text();
-      console.log('[G3] 응답 body:', text);
       if (!res.ok) throw new Error(`검색 실패 (${res.status})`);
       const data = JSON.parse(text);
-      console.log('[G3] 파싱 결과 count:', data.length);
       setResults(data);
       setSearched(true);
     } catch (e) {
-      console.log('[G3] 오류:', e.message);
       Alert.alert('오류', e.message ?? '검색에 실패했습니다');
     } finally {
       setLoading(false);
@@ -493,7 +487,6 @@ function SearchGroupView({ onBack, initialQuery = '', onGroupPress }) {
   }
 
   function handleSearch() {
-    console.log('[G3] handleSearch 호출 — query state:', JSON.stringify(query));
     doSearch(query.trim());
   }
 

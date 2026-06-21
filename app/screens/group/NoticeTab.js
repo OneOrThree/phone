@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, inkBox } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
+import { useUser } from '../../contexts/UserContext';
 
 function formatDate(instant) {
   if (!instant) return '';
@@ -26,14 +27,18 @@ function formatDate(instant) {
 }
 
 export default function NoticeTab({ group, groupId }) {
+  const { userId: myUserId } = useUser();
   const [notices, setNotices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [writeVisible, setWriteVisible] = useState(false);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [editingId, setEditingId] = useState(null); // null = 신규, number = 수정 중
+  const [submitting, setSubmitting] = useState(false);
   const insets = useSafeAreaInsets();
 
-  const isOwner = !!group?.code;
+  const isOwner = group?.members?.some((m) => m.userId === myUserId && m.role === 'OWNER') ?? false;
+  const canWrite = isOwner || (group?.noticeGrantedUserIds ?? []).includes(myUserId);
 
   async function fetchNotices() {
     setLoading(true);
@@ -55,17 +60,68 @@ export default function NoticeTab({ group, groupId }) {
   }, [groupId]);
 
   function openWrite() {
+    setEditingId(null);
     setTitle('');
     setContent('');
     setWriteVisible(true);
   }
 
-  function handleSubmit() {
+  function openEdit(notice) {
+    setEditingId(notice.id);
+    setTitle(notice.title);
+    setContent(notice.content);
+    setWriteVisible(true);
+  }
+
+  async function handleSubmit() {
     if (!title.trim() || !content.trim()) {
       Alert.alert('입력 오류', '제목과 내용을 모두 입력해주세요');
       return;
     }
-    Alert.alert('준비 중', '공지 등록 기능은 아직 준비 중이에요 😅');
+    setSubmitting(true);
+    try {
+      const isEdit = editingId !== null;
+      const res = await apiFetch(
+        isEdit
+          ? `/api/v1/groups/${groupId}/announcements/${editingId}`
+          : `/api/v1/groups/${groupId}/announcements`,
+        {
+          method: isEdit ? 'PUT' : 'POST',
+          body: JSON.stringify({ title: title.trim(), content: content.trim() }),
+        },
+      );
+      if (!res.ok) throw new Error();
+      setWriteVisible(false);
+      fetchNotices();
+    } catch {
+      Alert.alert(
+        '오류',
+        `공지 ${editingId !== null ? '수정' : '등록'}에 실패했어요. 다시 시도해주세요.`,
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handleDelete(notice) {
+    Alert.alert('공지 삭제', `"${notice.title}" 공지를 삭제할까요?`, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const res = await apiFetch(`/api/v1/groups/${groupId}/announcements/${notice.id}`, {
+              method: 'DELETE',
+            });
+            if (!res.ok) throw new Error();
+            fetchNotices();
+          } catch {
+            Alert.alert('오류', '공지 삭제에 실패했어요. 다시 시도해주세요.');
+          }
+        },
+      },
+    ]);
   }
 
   return (
@@ -81,9 +137,27 @@ export default function NoticeTab({ group, groupId }) {
           ) : (
             notices.map((notice, index) => (
               <View key={notice.id} style={[s.card, inkBox(T.paper)]}>
-                <Text style={s.cardMeta}>
-                  공지 #{index + 1} · {formatDate(notice.createdAt)}
-                </Text>
+                <View style={s.cardHeader}>
+                  <Text style={s.cardMeta}>
+                    공지 #{index + 1} · {formatDate(notice.createdAt)}
+                  </Text>
+                  {canWrite && (
+                    <View style={s.cardActions}>
+                      <TouchableOpacity
+                        onPress={() => openEdit(notice)}
+                        hitSlop={{ top: 8, right: 4, bottom: 8, left: 4 }}
+                      >
+                        <Text style={s.actionEdit}>수정</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => handleDelete(notice)}
+                        hitSlop={{ top: 8, right: 4, bottom: 8, left: 4 }}
+                      >
+                        <Text style={s.actionDelete}>삭제</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
                 <Text style={s.cardTitle}>{notice.title}</Text>
                 <Text style={s.cardContent} numberOfLines={2}>
                   {notice.content}
@@ -95,14 +169,14 @@ export default function NoticeTab({ group, groupId }) {
         </ScrollView>
       )}
 
-      {/* FAB — 방장에게만 노출 */}
-      {isOwner && (
+      {/* FAB — 방장 및 권한 부여된 멤버에게 노출 */}
+      {canWrite && (
         <TouchableOpacity style={s.fab} onPress={openWrite} activeOpacity={0.8}>
           <Text style={s.fabText}>+</Text>
         </TouchableOpacity>
       )}
 
-      {/* 공지 작성 모달 */}
+      {/* 공지 작성/수정 모달 */}
       <Modal
         visible={writeVisible}
         animationType="slide"
@@ -121,7 +195,7 @@ export default function NoticeTab({ group, groupId }) {
             >
               <Text style={s.cancelText}>취소</Text>
             </TouchableOpacity>
-            <Text style={s.modalTitle}>공지 작성</Text>
+            <Text style={s.modalTitle}>{editingId !== null ? '공지 수정' : '공지 작성'}</Text>
             <View style={s.headerSide} />
           </View>
 
@@ -136,13 +210,13 @@ export default function NoticeTab({ group, groupId }) {
             <View style={[s.inputBox, inkBox(T.paper)]}>
               <TextInput
                 style={s.titleInput}
-                placeholder="제목 입력 (최대 50자)"
+                placeholder="제목 입력 (최대 100자)"
                 placeholderTextColor={T.inkLight}
                 value={title}
-                onChangeText={(t) => setTitle(t.slice(0, 50))}
-                maxLength={50}
+                onChangeText={(t) => setTitle(t.slice(0, 100))}
+                maxLength={100}
               />
-              <Text style={s.counter}>{title.length}/50</Text>
+              <Text style={s.counter}>{title.length}/100</Text>
             </View>
 
             {/* 내용 */}
@@ -162,13 +236,22 @@ export default function NoticeTab({ group, groupId }) {
             </View>
           </ScrollView>
 
-          {/* 등록 버튼 */}
+          {/* 등록/수정 버튼 */}
           <TouchableOpacity
-            style={[s.submitBtn, { marginBottom: insets.bottom + 16 }]}
+            style={[s.submitBtn, { marginBottom: insets.bottom + 16 }, submitting && s.btnDisabled]}
             onPress={handleSubmit}
             activeOpacity={0.8}
+            disabled={submitting}
           >
-            <Text style={s.submitBtnText}>등록하기</Text>
+            <Text style={s.submitBtnText}>
+              {submitting
+                ? editingId !== null
+                  ? '수정 중...'
+                  : '등록 중...'
+                : editingId !== null
+                  ? '수정하기'
+                  : '등록하기'}
+            </Text>
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
@@ -191,7 +274,15 @@ const s = StyleSheet.create({
     marginBottom: 12,
     gap: 6,
   },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   cardMeta: { fontSize: 12, fontWeight: '600', color: T.inkLight },
+  cardActions: { flexDirection: 'row', gap: 12 },
+  actionEdit: { fontSize: 12, fontWeight: '700', color: T.inkMed },
+  actionDelete: { fontSize: 12, fontWeight: '700', color: '#ef4444' },
   cardTitle: { fontSize: 15, fontWeight: '800', color: T.ink },
   cardContent: { fontSize: 13, fontWeight: '500', color: T.inkMed, lineHeight: 18 },
 

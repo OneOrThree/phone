@@ -82,7 +82,6 @@ export default function LoginScreen({ onLogin, onGuestStart }) {
       const user = await kakaoLogin();
       onLogin(user);
     } catch (e) {
-      console.error('카카오 로그인 에러:', e);
     } finally {
       setLoadingKakao(false);
     }
@@ -97,7 +96,6 @@ export default function LoginScreen({ onLogin, onGuestStart }) {
     } catch (e) {
       // 사용자가 직접 취소한 경우는 에러 알림 생략
       if (e.code !== 'ERR_REQUEST_CANCELED') {
-        console.error('Apple 로그인 에러:', e);
         Alert.alert('로그인 실패', 'Apple 로그인 중 오류가 발생했습니다.');
       }
     } finally {

@@ -309,9 +309,7 @@ export default function FocusModeScreen({ navigation, route }) {
           totalDistractionSeconds: 0,
         }),
       });
-    } catch (e) {
-      console.error('[세션 저장 실패]', e);
-    }
+    } catch (e) {}
 
     navigation.navigate('홈', {
       focusResult: {
