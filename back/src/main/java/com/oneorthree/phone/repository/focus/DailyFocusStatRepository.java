@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,7 +22,5 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
     @Query("UPDATE DailyFocusStat d SET d.user = null WHERE d.user.id = :userId")
     void nullifyUser(@Param("userId") Long userId);
 
-    // TODO GROMO-369: 멤버 배치 조회 메서드 추가 (N+1 방지)
-    //  - List<DailyFocusStat> findByUserInAndDate(Collection<User> users, LocalDate date)
-    //  - import: java.util.Collection
+    List<DailyFocusStat> findByUserInAndDate(Collection<User> users, LocalDate date);
 }

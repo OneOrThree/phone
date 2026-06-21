@@ -1,5 +1,6 @@
 package com.oneorthree.phone.service;
 
+import com.oneorthree.phone.domain.focus.DailyFocusStat;
 import com.oneorthree.phone.domain.group.Group;
 import com.oneorthree.phone.domain.group.GroupAnnouncement;
 import com.oneorthree.phone.domain.group.GroupChallenge;
@@ -12,6 +13,7 @@ import com.oneorthree.phone.domain.user.User;
 import com.oneorthree.phone.exception.GroupErrorCode;
 import com.oneorthree.phone.exception.GroupException;
 import com.oneorthree.phone.exception.UserNotFoundException;
+import com.oneorthree.phone.repository.focus.DailyFocusStatRepository;
 import com.oneorthree.phone.repository.group.GroupAnnouncementRepository;
 import com.oneorthree.phone.repository.group.GroupChallengeRepository;
 import com.oneorthree.phone.repository.group.GroupMemberRepository;
@@ -40,6 +42,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -47,7 +50,9 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -64,6 +69,7 @@ public class GroupService {
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private final DailyFocusStatRepository dailyFocusStatRepository;
 
     @Transactional
     public CreateGroupResponse createGroup(Long userId, CreateGroupRequest request) {
@@ -284,15 +290,20 @@ public class GroupService {
 
         List<GroupMember> groupMembers = groupMemberRepository.findByGroup(group);
 
-        // TODO GROMO-369: DailyFocusStatRepository.findByUserInAndDate() 배치 조회
-        //  - N+1 방지: 멤버별 개별 쿼리 금지 → userId→focusMinutes Map 생성 후 builder에서 사용
-        //  - DailyFocusStatRepository 필드 주입 필요
+        List<User> users = groupMembers.stream().map(GroupMember::getUser).toList();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<DailyFocusStat> focusStats = dailyFocusStatRepository.findByUserInAndDate(users, today);
+        Map<Long, Integer> focusMap = focusStats.stream()
+                .collect((Collectors.toMap(
+                        s -> s.getUser().getId(),
+                        DailyFocusStat::getTotalFocusMinutes
+                )));
         List<GroupDetailMemberResponse> list = groupMembers.stream()
                 .map(m -> GroupDetailMemberResponse.builder()
                         .userId(m.getUser().getId())
                         .nickname(m.getUser().getNickname())
                         .role(m.getRole())
-                        // TODO GROMO-369: .focusTimeMinutes(focusMap.getOrDefault(m.getUser().getId(), 0))
+                        .focusTimeMinutes(focusMap.getOrDefault(m.getUser().getId(), 0))
                         .build())
                 .toList();
 
