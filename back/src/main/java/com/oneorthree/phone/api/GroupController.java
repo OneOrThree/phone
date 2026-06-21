@@ -280,7 +280,7 @@ public class GroupController {
             @ApiResponse(responseCode = "404", description = "그룹 없음")
     })
     @PatchMapping("/groups/{groupId}/settings")
-    public ResponseEntity<Void> updateGroupSettings(
+    public ResponseEntity<?> updateGroupSettings(
             @PathVariable Long groupId,
             @RequestBody UpdateGroupSettingsRequest request,
             HttpServletRequest httpServletRequest
@@ -297,7 +297,7 @@ public class GroupController {
             @ApiResponse(responseCode = "404", description = "그룹 없음 / 공지 없음")
     })
     @PutMapping("/groups/{groupId}/announcements/{announcementId}")
-    public ResponseEntity<Void> updateGroupAnnouncement(
+    public ResponseEntity<?> updateGroupAnnouncement(
             @PathVariable Long groupId,
             @PathVariable Long announcementId,
             @Valid @RequestBody CreateAnnouncementRequest request,
@@ -315,7 +315,7 @@ public class GroupController {
             @ApiResponse(responseCode = "404", description = "그룹 없음 / 공지 없음")
     })
     @DeleteMapping("/groups/{groupId}/announcements/{announcementId}")
-    public ResponseEntity<Void> deleteGroupAnnouncement(
+    public ResponseEntity<?> deleteGroupAnnouncement(
             @PathVariable Long groupId,
             @PathVariable Long announcementId,
             HttpServletRequest httpServletRequest
@@ -325,8 +325,20 @@ public class GroupController {
         return ResponseEntity.noContent().build();
     }
 
-    // TODO GROMO-284: 그룹 탈퇴 엔드포인트 추가
-    //  - @DeleteMapping("/groups/{groupId}/members/me"), public ResponseEntity<Void> (204)
-    //  - 시그니처: withdrawGroup(@PathVariable Long groupId, HttpServletRequest httpServletRequest)
-    //  - @Operation/@ApiResponses(204/400/403/404) 추가
+    @Operation(summary = "그룹 탈퇴", description = "MEMBER는 즉시 탈퇴. OWNER는 위임 후 탈퇴 가능. 마지막 1인 탈퇴 시 그룹 CLOSED. 성공 시 204 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "탈퇴 성공"),
+            @ApiResponse(responseCode = "400", description = "방장 위임 필요"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @DeleteMapping("/groups/{groupId}/members/me")
+    public ResponseEntity<?> withdrawGroup(
+            @PathVariable Long groupId,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        groupService.withdrawGroup(groupId, userId);
+        return ResponseEntity.noContent().build();
+    }
 }

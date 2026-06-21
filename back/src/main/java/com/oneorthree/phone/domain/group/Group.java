@@ -153,7 +153,8 @@ public class Group {
         }
     }
 
-    // TODO GROMO-284: close() 메서드 추가
-    //  - this.status = GroupStatus.CLOSED; this.endedAt = Instant.now();
-    //  - 마지막 멤버 탈퇴 시 호출
+    public void close() {
+        this.status = GroupStatus.CLOSED;
+        this.endedAt = Instant.now();
+    }
 }

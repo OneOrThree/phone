@@ -651,15 +651,28 @@ public class GroupService {
         groupChallengeRepository.delete(groupChallenge);
     }
 
-    // TODO GROMO-284: withdrawGroup 메서드 추가
-    //  - 시그니처: @Transactional public void withdrawGroup(Long groupId, Long userId)
-    //  - 순서:
-    //    1) 그룹 존재(NOT_FOUND)
-    //    2) 멤버십 조회(없으면 MEMBER_ONLY)
-    //    3) 전체 멤버 수 확인:
-    //       a. 본인이 마지막 1인 → groupMemberRepository.delete(membership) + group.close()
-    //       b. 본인이 OWNER + 다른 멤버 존재 → HOST_WITHDRAW (수동 위임 요구, 자동 위임 없음)
-    //       c. 본인이 MEMBER → groupMemberRepository.delete(membership)
+    @Transactional
+    public void withdrawGroup(Long groupId, Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        List<GroupMember> groupMembers = groupMemberRepository.findByGroup(group);
+        if (groupMembers.size() == 1) {
+            groupMemberRepository.delete(groupMember);
+            group.close();
+        } else if (groupMembers.size() > 1 && groupMember.getRole() == GroupMemberRole.OWNER) {
+            throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
+        } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
+            groupMemberRepository.delete(groupMember);
+        }
+    }
 
     private String generateUniqueCode() {
         StringBuilder sb = new StringBuilder(8);
