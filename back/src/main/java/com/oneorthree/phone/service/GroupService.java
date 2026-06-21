@@ -34,6 +34,7 @@ import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
 import com.oneorthree.phone.service.dto.group.RenewGroupCodeResponse;
 import com.oneorthree.phone.service.dto.group.UpdateGroupRequest;
+import com.oneorthree.phone.service.dto.group.UpdateGroupSettingsRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -479,16 +480,38 @@ public class GroupService {
         } else if (request.getPasswordAction() == UpdateGroupRequest.PasswordAction.REMOVE) {
             group.removePassword();
         }
-        // TODO GROMO-377: description 수정 처리 추가
-        //  - if (request.getDescription() != null) group.updateDescription(request.getDescription())
+
+        if (request.getDescription() != null) {
+            group.updateDescription(request.getDescription());
+        }
     }
 
-    // TODO GROMO-377: updateGroupSettings 메서드 추가
-    //  - 시그니처: @Transactional public void updateGroupSettings(
-    //    Long groupId, Long userId, UpdateGroupSettingsRequest request)
-    //  - 권한 순서: 유저 조회 → 게스트(GUEST_FORBIDDEN) → 그룹(NOT_FOUND) → OWNER(NOT_OWNER)
-    //  - null 아닌 필드만 group.updateSettings(...)에 반영 (PATCH)
-    //  - GROMO-378: noticeGrantedUserIds 처리도 여기에 추가
+    @Transactional
+    public void updateGroupSettings(Long groupId, Long userId, UpdateGroupSettingsRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
+
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        if (groupMember.getRole() != GroupMemberRole.OWNER) {
+            throw new GroupException(GroupErrorCode.NOT_OWNER);
+        }
+
+        group.updateSettings(
+                request.getChatEnabled(),
+                request.getChatLimitPerPerson(),
+                request.getNoticePermission(),
+                request.getInvitePermission()
+        );
+    }
 
     @Transactional
     public void transferOwner(Long groupId, Long targetUserId, Long userId) {

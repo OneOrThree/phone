@@ -15,6 +15,7 @@ import com.oneorthree.phone.service.dto.group.GroupSummaryResponse;
 import com.oneorthree.phone.service.dto.group.JoinGroupRequest;
 import com.oneorthree.phone.service.dto.group.RenewGroupCodeResponse;
 import com.oneorthree.phone.service.dto.group.UpdateGroupRequest;
+import com.oneorthree.phone.service.dto.group.UpdateGroupSettingsRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -255,12 +256,22 @@ public class GroupController {
         return ResponseEntity.noContent().build();
     }
 
-    // TODO GROMO-377: 그룹 설정 수정 엔드포인트 추가
-    //  - @PatchMapping("/groups/{groupId}/settings"), public ResponseEntity<Void> (204)
-    //  - 시그니처: updateGroupSettings(@PathVariable Long groupId,
-    //    @RequestBody UpdateGroupSettingsRequest request, HttpServletRequest httpServletRequest)
-    //  - @Operation/@ApiResponses(204/403/404) 추가
-    //  - import: UpdateGroupSettingsRequest
+    @Operation(summary = "그룹 채팅·권한 설정 수정", description = "OWNER만 가능. null 필드는 미변경(PATCH). 성공 시 204 반환.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "수정 성공"),
+            @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트 / 그룹원 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음")
+    })
+    @PatchMapping("/groups/{groupId}/settings")
+    public ResponseEntity<Void> updateGroupSettings(
+            @PathVariable Long groupId,
+            @RequestBody UpdateGroupSettingsRequest request,
+            HttpServletRequest httpServletRequest
+    ) {
+        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        groupService.updateGroupSettings(groupId, userId, request);
+        return ResponseEntity.noContent().build();
+    }
 
     // TODO GROMO-378: 공지 수정/삭제 엔드포인트 추가
     //  - @PutMapping("/groups/{groupId}/announcements/{announcementId}"), public ResponseEntity<Void> (204)

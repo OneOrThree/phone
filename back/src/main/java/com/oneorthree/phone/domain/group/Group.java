@@ -116,16 +116,42 @@ public class Group {
         this.password = null;
     }
 
-    // TODO GROMO-377: 설정 컬럼 필드 추가
-    //  - boolean chatEnabled (@Column NOT NULL, @Builder.Default true)
-    //  - Integer chatLimitPerPerson (@Column nullable, null=무제한)
-    //  - GroupPermissionScope noticePermission (@Enumerated STRING, @Column NOT NULL, default OWNER_ONLY)
-    //  - GroupPermissionScope invitePermission (@Enumerated STRING, @Column NOT NULL, default OWNER_ONLY)
-    //  도메인 메서드:
-    //  - updateDescription(String description)
-    //  - updateSettings(Boolean chatEnabled, Integer chatLimitPerPerson,
-    //    GroupPermissionScope noticePermission, GroupPermissionScope invitePermission)
-    //    (null인 파라미터는 기존값 유지)
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean chatEnabled = true;
+
+    @Column
+    private Integer chatLimitPerPerson;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private GroupPermissionScope noticePermission = GroupPermissionScope.OWNER_ONLY;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private GroupPermissionScope invitePermission = GroupPermissionScope.OWNER_ONLY;
+
+    public void updateDescription(String description) {
+        this.description = description;
+    }
+
+    public void updateSettings(Boolean chatEnabled, Integer chatLimitPerPerson,
+            GroupPermissionScope noticePermission, GroupPermissionScope invitePermission) {
+        if (chatEnabled != null) {
+            this.chatEnabled = chatEnabled;
+        }
+        if (chatLimitPerPerson != null) {
+            this.chatLimitPerPerson = chatLimitPerPerson;
+        }
+        if (noticePermission != null) {
+            this.noticePermission = noticePermission;
+        }
+        if (invitePermission != null) {
+            this.invitePermission = invitePermission;
+        }
+    }
 
     // TODO GROMO-284: close() 메서드 추가
     //  - this.status = GroupStatus.CLOSED; this.endedAt = Instant.now();
