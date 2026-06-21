@@ -4,6 +4,7 @@ import com.oneorthree.phone.group.domain.GroupPermissionScope;
 import lombok.Getter;
 
 import java.util.List;
+import java.util.UUID;
 
 @Getter
 public class UpdateGroupSettingsRequest {
@@ -11,6 +12,6 @@ public class UpdateGroupSettingsRequest {
     private Integer chatLimitPerPerson;
     private GroupPermissionScope noticePermission;
     private GroupPermissionScope invitePermission;
-    private List<Long> noticeGrantedUserIds;    //  - 빈 리스트 = 권한 초기화(방장만), null = 미변경
+    private List<UUID> noticeGrantedUserIds;    //  - 빈 리스트 = 권한 초기화(방장만), null = 미변경
 
 }

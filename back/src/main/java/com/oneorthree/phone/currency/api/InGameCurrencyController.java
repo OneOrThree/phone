@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.UUID;
 
 @Tag(name = "currency", description = "인게임 재화 관련 API")
 @RestController
@@ -33,7 +34,7 @@ public class InGameCurrencyController {
     })
     @GetMapping("/currency")
     public ResponseEntity<Integer> getCurrencyBalance(HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(inGameCurrencyService.getCurrencyBalance(userId));
     }
 
@@ -45,7 +46,7 @@ public class InGameCurrencyController {
     @GetMapping("/currency/transactions")
     public ResponseEntity<List<TransactionsResponse>> getCurrencyTransactions(
             HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(inGameCurrencyService.getCurrencyTransactions(userId));
     }
 
@@ -59,7 +60,7 @@ public class InGameCurrencyController {
     public ResponseEntity<Void> earnCurrency(
             HttpServletRequest request,
             @RequestBody CurrencyRequest body) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         inGameCurrencyService.earnCurrency(userId, body.getReason(), body.getAmount());
         return ResponseEntity.noContent().build();
     }
@@ -74,7 +75,7 @@ public class InGameCurrencyController {
     public ResponseEntity<Void> spendCurrency(
             HttpServletRequest request,
             @RequestBody CurrencyRequest body) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         inGameCurrencyService.spendCurrency(userId, body.getReason(), body.getAmount());
         return ResponseEntity.noContent().build();
     }

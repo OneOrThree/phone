@@ -12,10 +12,11 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
-public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, Long> {
+public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, UUID> {
 
-    Optional<GroupChallenge> findByIdAndGroup(Long id, Group group);
+    Optional<GroupChallenge> findByIdAndGroup(UUID id, Group group);
 
     List<GroupChallenge> findByGroupOrderByCreatedAtDesc(Group group);
 

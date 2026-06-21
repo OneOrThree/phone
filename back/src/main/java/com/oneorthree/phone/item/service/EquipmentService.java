@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -28,7 +29,7 @@ public class EquipmentService {
     private String notFoundUser = "유저를 찾을 수 없습니다.";
 
     // 유저 캐릭터 전체 장착 상태 조회
-    public List<CharacterEquipmentResponse> getEquipment(Long userId) {
+    public List<CharacterEquipmentResponse> getEquipment(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException(notFoundUser));
         return characterEquipmentRepository.findByUser(user)
@@ -39,7 +40,7 @@ public class EquipmentService {
 
     // 아이템 장착
     @Transactional
-    public CharacterEquipmentResponse equip(Long userId, Long itemId) {
+    public CharacterEquipmentResponse equip(UUID userId, UUID itemId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException(notFoundUser));
         Item item = itemRepository.findById(itemId)
@@ -63,7 +64,7 @@ public class EquipmentService {
 
     // 아이템 벗기
     @Transactional
-    public void unequip(Long userId, SlotType slotType) {
+    public void unequip(UUID userId, SlotType slotType) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException("유저를 찾을 수 없습니다."));
         characterEquipmentRepository

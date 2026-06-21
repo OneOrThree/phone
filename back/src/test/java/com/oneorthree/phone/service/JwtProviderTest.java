@@ -6,6 +6,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -25,17 +27,19 @@ class JwtProviderTest {
     @Test
     @DisplayName("Access Token 발급 후 userId 추출 성공")
     void generateAndExtractAccessToken() {
-        String token = jwtProvider.generateAccessToken(42L);
-        Long userId = jwtProvider.extractUserId(token);
-        assertThat(userId).isEqualTo(42L);
+        UUID id = UUID.fromString("00000000-0000-0000-0000-000000000042");
+        String token = jwtProvider.generateAccessToken(id);
+        UUID userId = jwtProvider.extractUserId(token);
+        assertThat(userId).isEqualTo(id);
     }
 
     @Test
     @DisplayName("Refresh Token 발급 후 userId 추출 성공")
     void generateAndExtractRefreshToken() {
-        String token = jwtProvider.generateRefreshToken(7L);
-        Long userId = jwtProvider.extractUserId(token);
-        assertThat(userId).isEqualTo(7L);
+        UUID id = UUID.fromString("00000000-0000-0000-0000-000000000007");
+        String token = jwtProvider.generateRefreshToken(id);
+        UUID userId = jwtProvider.extractUserId(token);
+        assertThat(userId).isEqualTo(id);
     }
 
     @Test
@@ -48,7 +52,7 @@ class JwtProviderTest {
     @Test
     @DisplayName("isTokenValid: 유효한 토큰 → true")
     void validTokenReturnsTrue() {
-        String token = jwtProvider.generateAccessToken(1L);
+        String token = jwtProvider.generateAccessToken(UUID.fromString("00000000-0000-0000-0000-000000000001"));
         assertThat(jwtProvider.isTokenValid(token)).isTrue();
     }
 

@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.UUID;
 
 @Tag(name = "inventory", description = "인벤토리 관련 API (조회, 수령)")
 @RestController
@@ -32,7 +33,7 @@ public class InventoryController {
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
     @GetMapping("/inventory/{userId}")
-    public ResponseEntity<List<UserItemResponse>> getInventory(@PathVariable Long userId) {
+    public ResponseEntity<List<UserItemResponse>> getInventory(@PathVariable UUID userId) {
         List<UserItemResponse> response = inventoryService.getInventory(userId);
         return ResponseEntity.ok(response);
     }

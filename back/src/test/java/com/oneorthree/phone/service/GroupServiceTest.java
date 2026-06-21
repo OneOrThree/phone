@@ -46,6 +46,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -95,7 +96,13 @@ class GroupServiceTest {
     @Mock
     private GroupNoticeGrantRepository groupNoticeGrantRepository;
 
-    private static final Long USER_ID = 1L;
+    private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID GROUP_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
+    private static final UUID GROUP_ID_99 = UUID.fromString("00000000-0000-0000-0000-000000000099");
+    private static final UUID GROUP_SAVE_ID = UUID.fromString("00000000-0000-0000-0000-000000000010");
+    private static final UUID ANNOUNCEMENT_ID = UUID.fromString("00000000-0000-0000-0000-000000000010");
+    private static final UUID CHALLENGE_ID = UUID.fromString("00000000-0000-0000-0000-000000000020");
 
     // ── 헬퍼 ──────────────────────────────────────────────────────────────
 
@@ -113,14 +120,14 @@ class GroupServiceTest {
         return User.builder().isGuest(false).build();
     }
 
-    private Group groupWithCode(long id, String code, Instant codeExpiresAt) {
-        return Group.builder().id(id).name("그룹" + id).code(code)
+    private Group groupWithCode(UUID id, String code, Instant codeExpiresAt) {
+        return Group.builder().id(id).name("그룹").code(code)
                 .maxMembers(10).status(GroupStatus.WAITING)
                 .codeExpiresAt(codeExpiresAt).build();
     }
 
     /** save()가 id가 채워진 엔티티를 반환하도록 흉내낸다 (서비스가 group.getId()를 사용). */
-    private void givenSaveReturnsGroupWithId(long id) {
+    private void givenSaveReturnsGroupWithId(UUID id) {
         given(groupRepository.save(any(Group.class)))
                 .willReturn(Group.builder().id(id).build());
     }
@@ -135,13 +142,13 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupRepository.existsByCode(anyString())).willReturn(false);
         given(passwordEncoder.encode("1234")).willReturn("hashed-pw");
-        givenSaveReturnsGroupWithId(10L);
+        givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
         // when
         CreateGroupResponse response = groupService.createGroup(USER_ID, request);
 
         // then
-        assertThat(response.groupId()).isEqualTo(10L);
+        assertThat(response.groupId()).isEqualTo(GROUP_SAVE_ID);
         assertThat(response.code()).hasSize(8);
 
         ArgumentCaptor<Group> groupCaptor = ArgumentCaptor.forClass(Group.class);
@@ -163,7 +170,7 @@ class GroupServiceTest {
         CreateGroupRequest request = durationRequest(null, null, 60);
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupRepository.existsByCode(anyString())).willReturn(false);
-        givenSaveReturnsGroupWithId(1L);
+        givenSaveReturnsGroupWithId(GROUP_ID);
 
         // when
         groupService.createGroup(USER_ID, request);
@@ -181,7 +188,7 @@ class GroupServiceTest {
         CreateGroupRequest request = durationRequest(null, 5, 60);
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupRepository.existsByCode(anyString())).willReturn(false);
-        givenSaveReturnsGroupWithId(1L);
+        givenSaveReturnsGroupWithId(GROUP_ID);
 
         // when
         groupService.createGroup(USER_ID, request);
@@ -255,7 +262,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupRepository.existsByCode(anyString())).willReturn(true, false);
         given(groupRepository.findByCode(anyString())).willReturn(Optional.empty());
-        givenSaveReturnsGroupWithId(1L);
+        givenSaveReturnsGroupWithId(GROUP_ID);
 
         // when
         groupService.createGroup(USER_ID, request);
@@ -288,9 +295,9 @@ class GroupServiceTest {
     void getMyGroupsSuccess() {
         // given
         User user = normalUser();
-        Group group1 = Group.builder().id(1L).name("그룹A").code("AAAA1111")
+        Group group1 = Group.builder().id(GROUP_ID).name("그룹A").code("AAAA1111")
                 .maxMembers(5).status(GroupStatus.WAITING).build();
-        Group group2 = Group.builder().id(2L).name("그룹B").code("BBBB2222")
+        Group group2 = Group.builder().id(GROUP_ID_2).name("그룹B").code("BBBB2222")
                 .maxMembers(10).status(GroupStatus.ACTIVE).build();
 
         GroupMember member1 = GroupMember.builder().user(user).group(group1).role(GroupMemberRole.OWNER).build();
@@ -308,14 +315,14 @@ class GroupServiceTest {
         assertThat(result).hasSize(2);
 
         GroupSummaryResponse first = result.get(0);
-        assertThat(first.getGroupId()).isEqualTo(1L);
+        assertThat(first.getGroupId()).isEqualTo(GROUP_ID);
         assertThat(first.getName()).isEqualTo("그룹A");
         assertThat(first.getRole()).isEqualTo(GroupMemberRole.OWNER);
         assertThat(first.getCurrentMembers()).isEqualTo(1);
         assertThat(first.getStatus()).isEqualTo(GroupStatus.WAITING);
 
         GroupSummaryResponse second = result.get(1);
-        assertThat(second.getGroupId()).isEqualTo(2L);
+        assertThat(second.getGroupId()).isEqualTo(GROUP_ID_2);
         assertThat(second.getRole()).isEqualTo(GroupMemberRole.MEMBER);
         assertThat(second.getStatus()).isEqualTo(GroupStatus.ACTIVE);
     }
@@ -373,7 +380,7 @@ class GroupServiceTest {
     void searchGroupsByValidCode() {
         // given
         String code = "ABCD1234";
-        Group group = groupWithCode(1L, code, Instant.now().plus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, code, Instant.now().plus(1, ChronoUnit.HOURS));
 
         given(groupRepository.findByCode(code)).willReturn(Optional.of(group));
         given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of());
@@ -384,7 +391,7 @@ class GroupServiceTest {
 
         // then
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).getGroupId()).isEqualTo(1L);
+        assertThat(result.get(0).getGroupId()).isEqualTo(GROUP_ID);
     }
 
     @Test
@@ -392,7 +399,7 @@ class GroupServiceTest {
     void searchGroupsByExpiredCode() {
         // given
         String code = "ABCD1234";
-        Group group = groupWithCode(1L, code, Instant.now().minus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, code, Instant.now().minus(1, ChronoUnit.HOURS));
 
         given(groupRepository.findByCode(code)).willReturn(Optional.of(group));
         given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of());
@@ -409,7 +416,7 @@ class GroupServiceTest {
     void searchGroupsByNullExpiryCode() {
         // given
         String code = "ABCD1234";
-        Group group = groupWithCode(1L, code, null);
+        Group group = groupWithCode(GROUP_ID, code, null);
 
         given(groupRepository.findByCode(code)).willReturn(Optional.of(group));
         given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of());
@@ -426,9 +433,9 @@ class GroupServiceTest {
     void searchGroupsByName() {
         // given
         String query = "스터디";
-        Group groupA = Group.builder().id(1L).name("스터디A").maxMembers(5)
+        Group groupA = Group.builder().id(GROUP_ID).name("스터디A").maxMembers(5)
                 .status(GroupStatus.WAITING).build();
-        Group groupB = Group.builder().id(2L).name("스터디B").maxMembers(10)
+        Group groupB = Group.builder().id(GROUP_ID_2).name("스터디B").maxMembers(10)
                 .status(GroupStatus.ACTIVE).password("hashed").build();
 
         given(groupRepository.findByCode(query.toUpperCase())).willReturn(Optional.empty());
@@ -441,9 +448,9 @@ class GroupServiceTest {
 
         // then
         assertThat(result).hasSize(2);
-        assertThat(result.get(0).getGroupId()).isEqualTo(1L);
+        assertThat(result.get(0).getGroupId()).isEqualTo(GROUP_ID);
         assertThat(result.get(0).isHasPassword()).isFalse();
-        assertThat(result.get(1).getGroupId()).isEqualTo(2L);
+        assertThat(result.get(1).getGroupId()).isEqualTo(GROUP_ID_2);
         assertThat(result.get(1).isHasPassword()).isTrue();
     }
 
@@ -452,7 +459,7 @@ class GroupServiceTest {
     void searchGroupsDeduplicatesCodeAndNameMatch() {
         // given
         String code = "ABCD1234";
-        Group group = groupWithCode(1L, code, Instant.now().plus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, code, Instant.now().plus(1, ChronoUnit.HOURS));
 
         given(groupRepository.findByCode(code)).willReturn(Optional.of(group));
         given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of(group));
@@ -463,7 +470,7 @@ class GroupServiceTest {
 
         // then
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).getGroupId()).isEqualTo(1L);
+        assertThat(result.get(0).getGroupId()).isEqualTo(GROUP_ID);
     }
 
     // ── getGroupOverview ──────────────────────────────────────────────────
@@ -474,21 +481,21 @@ class GroupServiceTest {
         // given
         User user = normalUser();
         Group group = Group.builder()
-                .id(1L).name("스터디룸").description("열심히 공부")
+                .id(GROUP_ID).name("스터디룸").description("열심히 공부")
                 .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
                 .durationMinutes(60).maxMembers(10).status(GroupStatus.WAITING).build();
         GroupMember member = GroupMember.builder().user(user).group(group).build();
 
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member));
 
         // when
-        GroupOverviewResponse result = groupService.getGroupOverview(1L, USER_ID);
+        GroupOverviewResponse result = groupService.getGroupOverview(GROUP_ID, USER_ID);
 
         // then
-        assertThat(result.getId()).isEqualTo(1L);
+        assertThat(result.getId()).isEqualTo(GROUP_ID);
         assertThat(result.getName()).isEqualTo("스터디룸");
         assertThat(result.getMemberCount()).isEqualTo(1);
         assertThat(result.isMember()).isTrue();
@@ -500,17 +507,17 @@ class GroupServiceTest {
     void getGroupOverviewNotMember() {
         // given
         User user = normalUser();
-        Group group = Group.builder().id(1L).name("그룹")
+        Group group = Group.builder().id(GROUP_ID).name("그룹")
                 .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
                 .maxMembers(10).status(GroupStatus.WAITING).build();
 
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
         // when
-        GroupOverviewResponse result = groupService.getGroupOverview(1L, USER_ID);
+        GroupOverviewResponse result = groupService.getGroupOverview(GROUP_ID, USER_ID);
 
         // then
         assertThat(result.isMember()).isFalse();
@@ -522,17 +529,17 @@ class GroupServiceTest {
     void getGroupOverviewHasPassword() {
         // given
         User user = normalUser();
-        Group group = Group.builder().id(1L).name("비밀방").password("hashed-pw")
+        Group group = Group.builder().id(GROUP_ID).name("비밀방").password("hashed-pw")
                 .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
                 .maxMembers(5).status(GroupStatus.WAITING).build();
 
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
         // when
-        GroupOverviewResponse result = groupService.getGroupOverview(1L, USER_ID);
+        GroupOverviewResponse result = groupService.getGroupOverview(GROUP_ID, USER_ID);
 
         // then
         assertThat(result.isHasPassword()).isTrue();
@@ -542,10 +549,10 @@ class GroupServiceTest {
     @DisplayName("존재하지 않는 groupId → GroupException")
     void getGroupOverviewGroupNotFound() {
         // given
-        given(groupRepository.findById(99L)).willReturn(Optional.empty());
+        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.getGroupOverview(99L, USER_ID))
+        assertThatThrownBy(() -> groupService.getGroupOverview(GROUP_ID_99, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -553,15 +560,15 @@ class GroupServiceTest {
     @DisplayName("존재하지 않는 userId → UserException")
     void getGroupOverviewUserNotFound() {
         // given
-        Group group = Group.builder().id(1L).name("그룹")
+        Group group = Group.builder().id(GROUP_ID).name("그룹")
                 .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
                 .maxMembers(10).status(GroupStatus.WAITING).build();
 
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.getGroupOverview(1L, USER_ID))
+        assertThatThrownBy(() -> groupService.getGroupOverview(GROUP_ID, USER_ID))
                 .isInstanceOf(UserException.class);
     }
 
@@ -570,8 +577,8 @@ class GroupServiceTest {
     void searchGroupsCodeFirstThenName() {
         // given
         String code = "ABCD1234";
-        Group codeGroup = groupWithCode(1L, code, Instant.now().plus(1, ChronoUnit.HOURS));
-        Group nameGroup = Group.builder().id(2L).name("ABCD스터디").maxMembers(5)
+        Group codeGroup = groupWithCode(GROUP_ID, code, Instant.now().plus(1, ChronoUnit.HOURS));
+        Group nameGroup = Group.builder().id(GROUP_ID_2).name("ABCD스터디").maxMembers(5)
                 .status(GroupStatus.WAITING).build();
 
         given(groupRepository.findByCode(code)).willReturn(Optional.of(codeGroup));
@@ -584,8 +591,8 @@ class GroupServiceTest {
 
         // then
         assertThat(result).hasSize(2);
-        assertThat(result.get(0).getGroupId()).isEqualTo(1L);
-        assertThat(result.get(1).getGroupId()).isEqualTo(2L);
+        assertThat(result.get(0).getGroupId()).isEqualTo(GROUP_ID);
+        assertThat(result.get(1).getGroupId()).isEqualTo(GROUP_ID_2);
     }
 
     // ── renewGroupCode (GROMO-347) ────────────────────────────────────────
@@ -595,16 +602,16 @@ class GroupServiceTest {
     void renewGroupCodeOwnerSuccess() {
         // given
         User user = normalUser();
-        Group group = groupWithCode(1L, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember owner = GroupMember.builder().user(user).group(group).role(GroupMemberRole.OWNER).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(owner));
         given(groupRepository.existsByCode(anyString())).willReturn(false);
 
         // when
-        RenewGroupCodeResponse response = groupService.renewGroupCode(1L, USER_ID);
+        RenewGroupCodeResponse response = groupService.renewGroupCode(GROUP_ID, USER_ID);
 
         // then
         assertThat(response.getCode()).hasSize(8);
@@ -616,15 +623,15 @@ class GroupServiceTest {
     void renewGroupCodeMemberForbidden() {
         // given
         User user = normalUser();
-        Group group = groupWithCode(1L, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
 
         // when & then
-        assertThatThrownBy(() -> groupService.renewGroupCode(1L, USER_ID))
+        assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -633,14 +640,14 @@ class GroupServiceTest {
     void renewGroupCodeNotMember() {
         // given
         User user = normalUser();
-        Group group = groupWithCode(1L, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.renewGroupCode(1L, USER_ID))
+        assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -652,7 +659,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(guest));
 
         // when & then
-        assertThatThrownBy(() -> groupService.renewGroupCode(1L, USER_ID))
+        assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -661,16 +668,16 @@ class GroupServiceTest {
     void renewGroupCodeGroupNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-        given(groupRepository.findById(99L)).willReturn(Optional.empty());
+        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.renewGroupCode(99L, USER_ID))
+        assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID_99, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
     // ── getGroupDetail (GROMO-285) ────────────────────────────────────────
 
-    private User userWithNickname(Long id, String nickname) {
+    private User userWithNickname(UUID id, String nickname) {
         return User.builder().id(id).isGuest(false).nickname(nickname).build();
     }
 
@@ -680,16 +687,16 @@ class GroupServiceTest {
         // given
         User owner = userWithNickname(USER_ID, "방장");
         Instant expiry = Instant.now().plus(3, ChronoUnit.HOURS);
-        Group group = groupWithCode(1L, "INVITE01", expiry);
+        Group group = groupWithCode(GROUP_ID, "INVITE01", expiry);
         GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember));
 
         // when
-        GroupDetailResponse response = groupService.getGroupDetail(1L, USER_ID);
+        GroupDetailResponse response = groupService.getGroupDetail(GROUP_ID, USER_ID);
 
         // then
         assertThat(response.getCode()).isEqualTo("INVITE01");
@@ -703,16 +710,16 @@ class GroupServiceTest {
     void getGroupDetailMemberNoCode() {
         // given
         User member = userWithNickname(USER_ID, "멤버");
-        Group group = groupWithCode(1L, "INVITE01", Instant.now().plus(3, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, "INVITE01", Instant.now().plus(3, ChronoUnit.HOURS));
         GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(member));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(memberRole));
 
         // when
-        GroupDetailResponse response = groupService.getGroupDetail(1L, USER_ID);
+        GroupDetailResponse response = groupService.getGroupDetail(GROUP_ID, USER_ID);
 
         // then
         assertThat(response.getCode()).isNull();
@@ -724,14 +731,14 @@ class GroupServiceTest {
     void getGroupDetailNotMember() {
         // given
         User user = normalUser();
-        Group group = groupWithCode(1L, "INVITE01", Instant.now().plus(3, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, "INVITE01", Instant.now().plus(3, ChronoUnit.HOURS));
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.getGroupDetail(1L, USER_ID))
+        assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -742,7 +749,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
-        assertThatThrownBy(() -> groupService.getGroupDetail(1L, USER_ID))
+        assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -751,10 +758,10 @@ class GroupServiceTest {
     void getGroupDetailGroupNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-        given(groupRepository.findById(99L)).willReturn(Optional.empty());
+        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.getGroupDetail(99L, USER_ID))
+        assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID_99, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -765,19 +772,19 @@ class GroupServiceTest {
     void getAnnouncementsSuccess() {
         // given
         User user = normalUser();
-        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
         GroupAnnouncement ann = GroupAnnouncement.builder()
-                .id(10L).group(group).title("공지1").content("내용1")
+                .id(ANNOUNCEMENT_ID).group(group).title("공지1").content("내용1")
                 .createdAt(Instant.now()).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
         given(groupAnnouncementRepository.findByGroupOrderByCreatedAtDesc(group)).willReturn(List.of(ann));
 
         // when
-        List<GroupAnnouncementResponse> result = groupAnnouncementService.getAnnouncements(1L, USER_ID);
+        List<GroupAnnouncementResponse> result = groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID);
 
         // then
         assertThat(result).hasSize(1);
@@ -790,14 +797,14 @@ class GroupServiceTest {
     void getAnnouncementsNotMember() {
         // given
         User user = normalUser();
-        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(1L, USER_ID))
+        assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -808,7 +815,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
-        assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(1L, USER_ID))
+        assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -817,10 +824,10 @@ class GroupServiceTest {
     void getAnnouncementsGroupNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-        given(groupRepository.findById(99L)).willReturn(Optional.empty());
+        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(99L, USER_ID))
+        assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID_99, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -831,20 +838,20 @@ class GroupServiceTest {
     void getChallengesSuccess() {
         // given
         User user = normalUser();
-        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
         GroupChallenge challenge = GroupChallenge.builder()
-                .id(20L).group(group).missionType(MissionType.DURATION)
+                .id(CHALLENGE_ID).group(group).missionType(MissionType.DURATION)
                 .durationMinutes(60).status(GroupChallengeStatus.ACTIVE)
                 .createdAt(Instant.now()).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
         given(groupChallengeRepository.findByGroupOrderByCreatedAtDesc(group)).willReturn(List.of(challenge));
 
         // when
-        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(1L, USER_ID);
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID);
 
         // then
         assertThat(result).hasSize(1);
@@ -858,14 +865,14 @@ class GroupServiceTest {
     void getChallengesNotMember() {
         // given
         User user = normalUser();
-        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupChallengeService.getChallenges(1L, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -876,7 +883,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
-        assertThatThrownBy(() -> groupChallengeService.getChallenges(1L, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -885,23 +892,23 @@ class GroupServiceTest {
     void getChallengesGroupNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-        given(groupRepository.findById(99L)).willReturn(Optional.empty());
+        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupChallengeService.getChallenges(99L, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID_99, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
     // ── joinGroup ─────────────────────────────────────────────────────────
 
     private Group openGroup() {
-        return Group.builder().id(1L).name("스터디룸")
+        return Group.builder().id(GROUP_ID).name("스터디룸")
                 .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
                 .maxMembers(10).status(GroupStatus.WAITING).build();
     }
 
     private Group passwordGroup() {
-        return Group.builder().id(1L).name("비밀방").password("hashed-pw")
+        return Group.builder().id(GROUP_ID).name("비밀방").password("hashed-pw")
                 .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
                 .maxMembers(10).status(GroupStatus.WAITING).build();
     }
@@ -914,12 +921,12 @@ class GroupServiceTest {
         Group group = openGroup();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
         // when
-        groupService.joinGroup(1L, USER_ID, new JoinGroupRequest());
+        groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest());
 
         // then
         ArgumentCaptor<GroupMember> captor = ArgumentCaptor.forClass(GroupMember.class);
@@ -935,13 +942,13 @@ class GroupServiceTest {
         Group group = passwordGroup();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
         given(passwordEncoder.matches("1234", "hashed-pw")).willReturn(true);
 
         // when
-        groupService.joinGroup(1L, USER_ID, new JoinGroupRequest("1234"));
+        groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest("1234"));
 
         // then
         verify(groupMemberRepository).save(any(GroupMember.class));
@@ -955,7 +962,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(guest));
 
         // when & then
-        assertThatThrownBy(() -> groupService.joinGroup(1L, USER_ID, new JoinGroupRequest()))
+        assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
                 .isInstanceOf(GroupException.class);
         verify(groupMemberRepository, never()).save(any());
     }
@@ -965,10 +972,10 @@ class GroupServiceTest {
     void joinGroupNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-        given(groupRepository.findById(99L)).willReturn(Optional.empty());
+        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.joinGroup(99L, USER_ID, new JoinGroupRequest()))
+        assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID_99, USER_ID, new JoinGroupRequest()))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -981,11 +988,11 @@ class GroupServiceTest {
         GroupMember existing = GroupMember.builder().user(user).group(group).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(existing));
 
         // when & then
-        assertThatThrownBy(() -> groupService.joinGroup(1L, USER_ID, new JoinGroupRequest()))
+        assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
                 .isInstanceOf(GroupException.class);
         verify(groupMemberRepository, never()).save(any());
     }
@@ -995,7 +1002,7 @@ class GroupServiceTest {
     void joinGroupRoomFull() {
         // given
         User user = normalUser();
-        Group group = Group.builder().id(1L).name("꽉찬방")
+        Group group = Group.builder().id(GROUP_ID).name("꽉찬방")
                 .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
                 .maxMembers(2).status(GroupStatus.WAITING).build();
         List<GroupMember> members = List.of(
@@ -1004,12 +1011,12 @@ class GroupServiceTest {
         );
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(members);
 
         // when & then
-        assertThatThrownBy(() -> groupService.joinGroup(1L, USER_ID, new JoinGroupRequest()))
+        assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
                 .isInstanceOf(GroupException.class);
         verify(groupMemberRepository, never()).save(any());
     }
@@ -1022,13 +1029,13 @@ class GroupServiceTest {
         Group group = passwordGroup();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
         given(passwordEncoder.matches(any(), anyString())).willReturn(false);
 
         // when & then
-        assertThatThrownBy(() -> groupService.joinGroup(1L, USER_ID, new JoinGroupRequest()))
+        assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
                 .isInstanceOf(GroupException.class);
         verify(groupMemberRepository, never()).save(any());
     }
@@ -1040,13 +1047,13 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.joinGroup(1L, USER_ID, new JoinGroupRequest()))
+        assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
                 .isInstanceOf(UserException.class);
     }
 
     // ── transferOwner (GROMO-355) ─────────────────────────────────────────
 
-    private static final Long TARGET_USER_ID = 2L;
+    private static final UUID TARGET_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
     @Test
     @DisplayName("OWNER가 MEMBER에게 위임 → 역할 교체 + hostId 갱신")
@@ -1054,18 +1061,18 @@ class GroupServiceTest {
         // given
         User owner = userWithNickname(USER_ID, "방장");
         User target = userWithNickname(TARGET_USER_ID, "멤버");
-        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
         GroupMember targetMember = GroupMember.builder().user(target).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
         given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(target));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.of(targetMember));
 
         // when
-        groupMemberService.transferOwner(1L, TARGET_USER_ID, USER_ID);
+        groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID);
 
         // then
         assertThat(ownerMember.getRole()).isEqualTo(GroupMemberRole.MEMBER);
@@ -1080,7 +1087,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
-        assertThatThrownBy(() -> groupMemberService.transferOwner(1L, TARGET_USER_ID, USER_ID))
+        assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1089,16 +1096,16 @@ class GroupServiceTest {
     void transferOwnerNotOwner() {
         // given
         User user = userWithNickname(USER_ID, "일반멤버");
-        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
 
         // when & then
-        assertThatThrownBy(() -> groupMemberService.transferOwner(1L, TARGET_USER_ID, USER_ID))
+        assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1107,15 +1114,15 @@ class GroupServiceTest {
     void transferOwnerCallerNotMember() {
         // given
         User user = userWithNickname(USER_ID, "비멤버");
-        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupMemberService.transferOwner(1L, TARGET_USER_ID, USER_ID))
+        assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1125,10 +1132,10 @@ class GroupServiceTest {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
         given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
-        given(groupRepository.findById(99L)).willReturn(Optional.empty());
+        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupMemberService.transferOwner(99L, TARGET_USER_ID, USER_ID))
+        assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID_99, TARGET_USER_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1138,17 +1145,17 @@ class GroupServiceTest {
         // given
         User owner = userWithNickname(USER_ID, "방장");
         User target = userWithNickname(TARGET_USER_ID, "비멤버");
-        Group group = groupWithCode(1L, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
         given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(target));
-        given(groupRepository.findById(1L)).willReturn(Optional.of(group));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupMemberService.transferOwner(1L, TARGET_USER_ID, USER_ID))
+        assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
     }
 }

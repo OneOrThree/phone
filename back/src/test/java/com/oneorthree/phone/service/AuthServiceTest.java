@@ -22,6 +22,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,6 +52,8 @@ class AuthServiceTest {
     @Mock
     private AppleJwksClient appleJwksClient;
 
+    private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
     // ── kakaoLogin ────────────────────────────────────────────────────────
 
     @Test
@@ -58,14 +61,14 @@ class AuthServiceTest {
     void kakaoLoginNewUser() {
         // given
         KakaoUserInfo userInfo = new KakaoUserInfo(12345L);
-        User savedUser = User.builder().id(1L).build();
+        User savedUser = User.builder().id(USER_ID).build();
 
         given(kakaoApiClient.getUserInfo("kakao-token")).willReturn(userInfo);
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(1L)).willReturn("access-token");
-        given(jwtProvider.generateRefreshToken(1L)).willReturn("refresh-token");
+        given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
         KakaoLoginResponse response = authService.kakaoLogin("kakao-token");
@@ -82,15 +85,15 @@ class AuthServiceTest {
     void kakaoLoginExistingUser() {
         // given
         KakaoUserInfo userInfo = new KakaoUserInfo(12345L);
-        User existingUser = User.builder().id(1L).build();
+        User existingUser = User.builder().id(USER_ID).build();
         SocialAccount existingAccount = SocialAccount.builder()
                 .user(existingUser).provider(Provider.KAKAO).providerId("12345").build();
 
         given(kakaoApiClient.getUserInfo("kakao-token")).willReturn(userInfo);
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.of(existingAccount));
-        given(jwtProvider.generateAccessToken(1L)).willReturn("access-token");
-        given(jwtProvider.generateRefreshToken(1L)).willReturn("refresh-token");
+        given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
         KakaoLoginResponse response = authService.kakaoLogin("kakao-token");
@@ -106,9 +109,9 @@ class AuthServiceTest {
     @DisplayName("유효한 RT로 토큰 갱신 → 새 AT 반환")
     void refreshTokenSuccess() {
         // given
-        User user = User.builder().id(1L).build();
+        User user = User.builder().id(USER_ID).build();
         given(userRepository.findByRefreshToken("valid-rt")).willReturn(Optional.of(user));
-        given(jwtProvider.generateAccessToken(1L)).willReturn("new-access-token");
+        given(jwtProvider.generateAccessToken(USER_ID)).willReturn("new-access-token");
 
         // when
         TokenRefreshResponse response = authService.refreshToken("valid-rt");

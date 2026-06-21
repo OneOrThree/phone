@@ -17,6 +17,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.UUID;
 
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willDoNothing;
@@ -40,25 +41,30 @@ public class EquipmentControllerTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID ITEM_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID CE_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID ITEM_ID_99 = UUID.fromString("00000000-0000-0000-0000-000000000099");
+
     @Test
     @DisplayName("장착 상태 조회 성공")
     void getEqipmentSuccess() throws Exception {
         // given
         CharacterEquipmentResponse response = CharacterEquipmentResponse.builder()
-                .id(1L)
+                .id(CE_ID)
                 .slotType("HAT")
                 .item(ItemResponse.builder()
-                        .id(1L)
+                        .id(ITEM_ID)
                         .name("테스트 모자")
                         .slotType("HAT")
                         .rarity("COMMON")
                         .assetAddress("https://asset.example.com/hat.glb")
                         .build())
                 .build();
-        given(equipmentService.getEquipment(1L)).willReturn(List.of(response));
+        given(equipmentService.getEquipment(USER_ID)).willReturn(List.of(response));
 
         // when + then
-        mockMvc.perform(get("/api/equipment/1"))
+        mockMvc.perform(get("/api/equipment/" + USER_ID))
                 .andDo(print())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].slotType").value("HAT"))
@@ -69,20 +75,20 @@ public class EquipmentControllerTest {
     @DisplayName("아이템 장착 성공")
     void equipSuccess() throws Exception {
         // given
-        EquipRequest request = new EquipRequest(1L, 1L);
+        EquipRequest request = new EquipRequest(USER_ID, ITEM_ID);
 
         CharacterEquipmentResponse response = CharacterEquipmentResponse.builder()
-                .id(1L)
+                .id(CE_ID)
                 .slotType("HAT")
                 .item(ItemResponse.builder()
-                        .id(1L)
+                        .id(ITEM_ID)
                         .name("테스트 모자")
                         .slotType("HAT")
                         .rarity("COMMON")
                         .build())
                 .build();
 
-        given(equipmentService.equip(1L, 1L)).willReturn(response);
+        given(equipmentService.equip(USER_ID, ITEM_ID)).willReturn(response);
 
         // when & then
         mockMvc.perform(post("/api/equipment/equip")
@@ -98,10 +104,10 @@ public class EquipmentControllerTest {
     @DisplayName("아이템 해제 성공")
     void unequipSuccess() throws Exception {
         // given
-        willDoNothing().given(equipmentService).unequip(1L, SlotType.HAIR);
+        willDoNothing().given(equipmentService).unequip(USER_ID, SlotType.HAIR);
 
         // when & then
-        mockMvc.perform(delete("/api/equipment/1/HAT"))
+        mockMvc.perform(delete("/api/equipment/" + USER_ID + "/HAT"))
                 .andDo(print())
                 .andExpect(status().isOk());
     }
@@ -110,8 +116,8 @@ public class EquipmentControllerTest {
     @DisplayName("보유하지 않은 아이템 장착 시 409 반환")
     void equipFailNotOwned() throws Exception {
         // given
-        EquipRequest request = new EquipRequest(1L, 99L);
-        given(equipmentService.equip(1L, 99L))
+        EquipRequest request = new EquipRequest(USER_ID, ITEM_ID_99);
+        given(equipmentService.equip(USER_ID, ITEM_ID_99))
                 .willThrow(new IllegalArgumentException("보유하지 않은 아이템입니다."));
 
         // when & then

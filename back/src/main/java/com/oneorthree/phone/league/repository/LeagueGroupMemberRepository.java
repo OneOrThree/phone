@@ -7,8 +7,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
-public interface LeagueGroupMemberRepository extends JpaRepository<LeagueGroupMember, Long> {
+public interface LeagueGroupMemberRepository extends JpaRepository<LeagueGroupMember, UUID> {
 
     List<LeagueGroupMember> findByLeagueGroupOrderByTotalFocusMinutesDesc(LeagueGroup leagueGroup);
 

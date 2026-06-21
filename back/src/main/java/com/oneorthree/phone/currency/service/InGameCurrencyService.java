@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -25,7 +26,7 @@ public class InGameCurrencyService {
     private final UserRepository userRepository;
     private final CurrencyTransactionRepository currencyTransactionRepository;
 
-    public int getCurrencyBalance(Long userId) {
+    public int getCurrencyBalance(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -35,7 +36,7 @@ public class InGameCurrencyService {
     /*
     @todo 페이지네이션 필요함 나중에
      */
-    public List<TransactionsResponse> getCurrencyTransactions(Long userId) {
+    public List<TransactionsResponse> getCurrencyTransactions(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -47,7 +48,7 @@ public class InGameCurrencyService {
     }
 
     @Transactional
-    public void earnCurrency(Long userId, CurrencyReason reason, int amount) {
+    public void earnCurrency(UUID userId, CurrencyReason reason, int amount) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -65,7 +66,7 @@ public class InGameCurrencyService {
     }
 
     @Transactional
-    public void spendCurrency(Long userId, CurrencyReason reason, int amount) {
+    public void spendCurrency(UUID userId, CurrencyReason reason, int amount) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 

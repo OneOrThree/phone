@@ -6,14 +6,15 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
-public interface GroupRepository extends JpaRepository<Group, Long> {
+public interface GroupRepository extends JpaRepository<Group, UUID> {
 
     List<Group> findByStatus(GroupStatus status);
 
     Optional<Group> findByCode(String code);
 
-    boolean existsByHostId(Long hostId);
+    boolean existsByHostId(UUID hostId);
 
     boolean existsByCode(String code);
 

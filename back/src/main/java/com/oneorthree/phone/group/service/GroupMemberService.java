@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -27,7 +28,7 @@ public class GroupMemberService {
     private final UserRepository userRepository;
 
     @Transactional
-    public void transferOwner(Long groupId, Long targetUserId, Long userId) {
+    public void transferOwner(UUID groupId, UUID targetUserId, UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
@@ -53,7 +54,7 @@ public class GroupMemberService {
     }
 
     @Transactional
-    public void withdrawGroup(Long groupId, Long userId) {
+    public void withdrawGroup(UUID groupId, UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {

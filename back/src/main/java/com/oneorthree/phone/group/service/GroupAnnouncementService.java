@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -35,7 +36,7 @@ public class GroupAnnouncementService {
     private final GroupNoticeGrantRepository groupNoticeGrantRepository;
 
     @Transactional
-    public void createAnnouncement(Long groupId, Long userId, CreateAnnouncementRequest request) {
+    public void createAnnouncement(UUID groupId, UUID userId, CreateAnnouncementRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
@@ -62,7 +63,7 @@ public class GroupAnnouncementService {
         );
     }
 
-    public List<GroupAnnouncementResponse> getAnnouncements(Long groupId, Long userId) {
+    public List<GroupAnnouncementResponse> getAnnouncements(UUID groupId, UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -88,7 +89,7 @@ public class GroupAnnouncementService {
     }
 
     @Transactional
-    public void updateAnnouncement(Long groupId, Long announcementId, Long userId, CreateAnnouncementRequest request) {
+    public void updateAnnouncement(UUID groupId, UUID announcementId, UUID userId, CreateAnnouncementRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
@@ -111,7 +112,7 @@ public class GroupAnnouncementService {
     }
 
     @Transactional
-    public void deleteAnnouncement(Long groupId, Long announcementId, Long userId) {
+    public void deleteAnnouncement(UUID groupId, UUID announcementId, UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
@@ -133,7 +134,7 @@ public class GroupAnnouncementService {
         groupAnnouncementRepository.delete(announcement);
     }
 
-    private boolean canManageNotice(Group group, GroupMemberRole role, Long userId) {
+    private boolean canManageNotice(Group group, GroupMemberRole role, UUID userId) {
         if (role == GroupMemberRole.OWNER) {
             return true;
         }

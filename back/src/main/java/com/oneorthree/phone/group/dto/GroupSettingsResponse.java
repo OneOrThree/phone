@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.util.List;
+import java.util.UUID;
 
 @Getter
 @Builder
@@ -13,5 +14,5 @@ public class GroupSettingsResponse {
     private Integer chatLimitPerPerson;
     private GroupPermissionScope noticePermission;
     private GroupPermissionScope invitePermission;
-    private List<Long> noticeGrantedUserIds;
+    private List<UUID> noticeGrantedUserIds;
 }

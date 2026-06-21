@@ -7,11 +7,12 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Getter
 @Builder
 public class GroupOverviewResponse {
-    private Long id;
+    private UUID id;
     private String name;
     private String description;
     private MissionCategory missionCategory;

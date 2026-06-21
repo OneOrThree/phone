@@ -8,8 +8,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
-public interface GroupMemberRepository extends JpaRepository<GroupMember, Long> {
+public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> {
 
     @EntityGraph(attributePaths = "user")
     List<GroupMember> findByGroup(Group group);
@@ -18,6 +19,6 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, Long> 
 
     Optional<GroupMember> findByUserAndGroup(User user, Group group);
 
-    boolean existsByUserIdAndGroup(Long userId, Group group);
+    boolean existsByUserIdAndGroup(UUID userId, Group group);
 
 }
