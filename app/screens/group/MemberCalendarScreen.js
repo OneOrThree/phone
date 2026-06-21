@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,16 +6,20 @@ import {
   StyleSheet,
   ActivityIndicator,
   Dimensions,
+  Modal,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T } from '../../components/theme';
 import { apiFetch } from '../../utils/api';
 
 const SCREEN_W = Dimensions.get('window').width;
+const SCREEN_H = Dimensions.get('window').height;
 const H_PAD = 24;
 const CELL_GAP = 4;
 const CELL_W = Math.floor((SCREEN_W - H_PAD * 2 - CELL_GAP * 6) / 7);
-const CELL_H = CELL_W + 10;
+const CELL_H = CELL_W; // 정사각형 칸
 
 const DAYS_KR = ['일', '월', '화', '수', '목', '금', '토'];
 const MONTHS_KR = [
@@ -72,7 +76,62 @@ function challengeBg(achieved, total) {
 
 export default function MemberCalendarScreen({ navigation, route }) {
   const { member, groupId } = route.params;
-  const { bottom: bottomInset } = useSafeAreaInsets();
+  const { top: topInset } = useSafeAreaInsets();
+
+  // 드래그 바텀시트: 펼침(COLLAPSED) ↔ 전체화면(FULL), 아래로 끝까지 → 닫기
+  const COLLAPSED = Math.round(SCREEN_H * 0.28); // 시트 상단이 화면 28% 지점
+  const FULL = 0;
+  const translateY = useRef(new Animated.Value(SCREEN_H)).current;
+  const lastSnap = useRef(COLLAPSED);
+
+  function snapTo(target, close) {
+    lastSnap.current = target;
+    Animated.spring(translateY, {
+      toValue: target,
+      useNativeDriver: false,
+      bounciness: 4,
+    }).start(() => {
+      if (close) navigation.goBack();
+    });
+  }
+
+  useEffect(() => {
+    Animated.spring(translateY, {
+      toValue: COLLAPSED,
+      useNativeDriver: false,
+      bounciness: 4,
+    }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 전체화면(FULL)일 때만 상태바 안전영역만큼 상단 패딩, 펼침 상태에선 최소
+  const contentPaddingTop = translateY.interpolate({
+    inputRange: [FULL, COLLAPSED],
+    outputRange: [topInset + 8, 8],
+    extrapolate: 'clamp',
+  });
+
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (e, g) => Math.abs(g.dy) > 6,
+      onPanResponderMove: (e, g) => {
+        let next = lastSnap.current + g.dy;
+        if (next < FULL) next = FULL;
+        if (next > SCREEN_H) next = SCREEN_H;
+        translateY.setValue(next);
+      },
+      onPanResponderRelease: (e, g) => {
+        const currentY = lastSnap.current + g.dy;
+        if (g.vy < -0.5 || currentY < (FULL + COLLAPSED) / 2) {
+          snapTo(FULL, false); // 위로 → 전체화면
+        } else if (g.vy > 0.8 || currentY > COLLAPSED + (SCREEN_H - COLLAPSED) * 0.4) {
+          snapTo(SCREEN_H, true); // 아래로 → 닫기
+        } else {
+          snapTo(COLLAPSED, false); // 원위치
+        }
+      },
+    }),
+  ).current;
 
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -123,26 +182,40 @@ export default function MemberCalendarScreen({ navigation, route }) {
   for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
 
   const totalMin = stats.reduce((sum, s) => sum + (s.focusMinutes ?? 0), 0);
-  const goalDays = stats.filter((s) => s.focusGoalAchieved).length;
-  const challengeDays = stats.filter((s) => {
-    const { achieved } = getChallengeRatio(s);
-    return achieved > 0;
-  }).length;
+
+  // 이달 내 챌린지 달성 최장 연속 일수
+  let challengeStreak = 0;
+  let runLen = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const { achieved } = getChallengeRatio(statsMap[ds]);
+    if (achieved > 0) {
+      runLen += 1;
+      if (runLen > challengeStreak) challengeStreak = runLen;
+    } else {
+      runLen = 0;
+    }
+  }
 
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
   const isOwner = member.role === 'OWNER';
 
   return (
-    <View style={s.overlay}>
+    <Modal visible transparent animationType="none" onRequestClose={() => navigation.goBack()}>
       <TouchableOpacity
-        style={StyleSheet.absoluteFillObject}
+        style={s.overlay}
         activeOpacity={1}
         onPress={() => navigation.goBack()}
       />
-      <View
-        style={[s.sheet, { paddingBottom: Math.max(bottomInset, 16) + 16 }]}
+      <Animated.View
+        style={[s.sheet, { paddingTop: contentPaddingTop, transform: [{ translateY }] }]}
         onStartShouldSetResponder={() => true}
       >
+        {/* 드래그 핸들 */}
+        <View style={s.handleArea} {...pan.panHandlers}>
+          <View style={s.handleBar} />
+        </View>
+
         {/* 헤더 */}
         <View style={s.header}>
           <View style={[s.avatar, isOwner && s.avatarOwner]}>
@@ -174,13 +247,8 @@ export default function MemberCalendarScreen({ navigation, route }) {
           </View>
           <View style={s.summaryDivider} />
           <View style={s.summaryItem}>
-            <Text style={s.summaryVal}>{goalDays}일</Text>
-            <Text style={s.summaryLabel}>목표 달성</Text>
-          </View>
-          <View style={s.summaryDivider} />
-          <View style={s.summaryItem}>
-            <Text style={s.summaryVal}>{challengeDays}일</Text>
-            <Text style={s.summaryLabel}>챌린지</Text>
+            <Text style={s.summaryVal}>{challengeStreak}일</Text>
+            <Text style={s.summaryLabel}>연속 챌린지 달성</Text>
           </View>
         </View>
 
@@ -278,8 +346,8 @@ export default function MemberCalendarScreen({ navigation, route }) {
             <Text style={s.legendTxt}>전체 달성</Text>
           </View>
         </View>
-      </View>
-    </View>
+      </Animated.View>
+    </Modal>
   );
 }
 
@@ -290,15 +358,21 @@ const s = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: SCREEN_H,
     backgroundColor: T.paper,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: H_PAD,
-    paddingTop: 20,
     borderWidth: 1.5,
     borderBottomWidth: 0,
     borderColor: T.ink,
   },
+  handleArea: { alignItems: 'center', paddingTop: 8, paddingBottom: 10 },
+  handleBar: { width: 40, height: 5, borderRadius: 3, backgroundColor: T.paperLine },
 
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
   avatar: {
@@ -372,9 +446,6 @@ const s = StyleSheet.create({
     gap: 14,
     marginTop: 14,
     paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: T.paperLine,
-    backgroundColor: T.paper,
   },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   legendBox: { width: 12, height: 12, borderRadius: 3, borderWidth: 1, borderColor: T.paperLine },

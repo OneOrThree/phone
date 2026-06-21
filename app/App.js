@@ -218,7 +218,7 @@ export default function App() {
                 <Stack.Screen
                   name="MemberCalendar"
                   component={MemberCalendarScreen}
-                  options={{ presentation: 'transparentModal', animation: 'fade' }}
+                  options={{ presentation: 'transparentModal', animation: 'none' }}
                 />
               </Stack.Navigator>
             </NavigationContainer>
