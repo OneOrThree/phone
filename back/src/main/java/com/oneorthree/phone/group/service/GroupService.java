@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -60,7 +61,7 @@ public class GroupService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     @Transactional
-    public CreateGroupResponse createGroup(Long userId, CreateGroupRequest request) {
+    public CreateGroupResponse createGroup(UUID userId, CreateGroupRequest request) {
         // 1) 게스트 검증
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.GUEST_FORBIDDEN));
@@ -113,7 +114,7 @@ public class GroupService {
         return new CreateGroupResponse(group.getId(), uniqueCode);
     }
 
-    public List<GroupSummaryResponse> getMyGroups(Long userId) {
+    public List<GroupSummaryResponse> getMyGroups(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -176,7 +177,7 @@ public class GroupService {
     }
 
     @Transactional
-    public void joinGroup(Long groupId, Long userId, JoinGroupRequest request) {
+    public void joinGroup(UUID groupId, UUID userId, JoinGroupRequest request) {
         // 1. 게스트 검증
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
@@ -212,7 +213,7 @@ public class GroupService {
                 .build());
     }
 
-    public GroupOverviewResponse getGroupOverview(Long groupId, Long userId) {
+    public GroupOverviewResponse getGroupOverview(UUID groupId, UUID userId) {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
@@ -241,7 +242,7 @@ public class GroupService {
     }
 
     @Transactional
-    public RenewGroupCodeResponse renewGroupCode(Long groupId, Long userId) {
+    public RenewGroupCodeResponse renewGroupCode(UUID groupId, UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -262,7 +263,7 @@ public class GroupService {
         return new RenewGroupCodeResponse(group.getCode(), group.getCodeExpiresAt());
     }
 
-    public GroupDetailResponse getGroupDetail(Long groupId, Long userId) {
+    public GroupDetailResponse getGroupDetail(UUID groupId, UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -281,7 +282,7 @@ public class GroupService {
         List<User> users = groupMembers.stream().map(GroupMember::getUser).toList();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<DailyFocusStat> focusStats = dailyFocusStatRepository.findByUserInAndDate(users, today);
-        Map<Long, Integer> focusMap = focusStats.stream()
+        Map<UUID, Integer> focusMap = focusStats.stream()
                 .collect((Collectors.toMap(
                         s -> s.getUser().getId(),
                         DailyFocusStat::getTotalFocusMinutes
@@ -295,7 +296,7 @@ public class GroupService {
                         .build())
                 .toList();
 
-        List<Long> granteUsers = groupNoticeGrantRepository.findByGroup(group).stream()
+        List<UUID> granteUsers = groupNoticeGrantRepository.findByGroup(group).stream()
                 .map(u -> u.getUserId())
                 .toList();
 
@@ -320,7 +321,7 @@ public class GroupService {
     }
 
     @Transactional
-    public void updateGroup(Long groupId, Long userId, UpdateGroupRequest request) {
+    public void updateGroup(UUID groupId, UUID userId, UpdateGroupRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
@@ -362,7 +363,7 @@ public class GroupService {
         }
     }
 
-    public GroupSettingsResponse getGroupSettings(Long groupId, Long userId) {
+    public GroupSettingsResponse getGroupSettings(UUID groupId, UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
@@ -378,7 +379,7 @@ public class GroupService {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
 
-        List<Long> grantedUserIds = groupNoticeGrantRepository.findByGroup(group).stream()
+        List<UUID> grantedUserIds = groupNoticeGrantRepository.findByGroup(group).stream()
                 .map(GroupNoticeGrant::getUserId)
                 .toList();
 
@@ -392,7 +393,7 @@ public class GroupService {
     }
 
     @Transactional
-    public void updateGroupSettings(Long groupId, Long userId, UpdateGroupSettingsRequest request) {
+    public void updateGroupSettings(UUID groupId, UUID userId, UpdateGroupSettingsRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 

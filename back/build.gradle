@@ -56,6 +56,9 @@ dependencies {
 	// PostgreSQL JDBC 드라이버 (런타임에만 필요)
 	runtimeOnly 'org.postgresql:postgresql'
 
+	// UUID v7 생성 (시간 정렬, B-tree 인덱스 지역성 최적화)
+	implementation 'com.fasterxml.uuid:java-uuid-generator:5.1.0'
+
 	// Lombok (boilerplate 제거 - @Getter, @Builder, @RequiredArgsConstructor 등)
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'

@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -43,16 +44,20 @@ public class InventoryServiceTest {
     @Mock
     private UserItemRepository userItemRepository;
 
+    private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID USER_ID_99 = UUID.fromString("00000000-0000-0000-0000-000000000099");
+    private static final UUID ITEM_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
     @Test
     @DisplayName("인벤토리 조회 성공")
     void getInventorySuccess() {
         // given
         User user = User.builder().nickname("테스터").build();
-        given(userRepository.findById(1L)).willReturn(Optional.of(user));
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(userItemRepository.findByUser(user)).willReturn(List.of());
 
         // when
-        List<UserItemResponse> result = inventoryService.getInventory(1L);
+        List<UserItemResponse> result = inventoryService.getInventory(USER_ID);
 
         // then
         assertThat(result).isEmpty();
@@ -63,10 +68,10 @@ public class InventoryServiceTest {
     @DisplayName("존재하지 않는 유저 인벤토리 조회 시 예외")
     void getInventoryFailUserNotFound() {
         // given
-        given(userRepository.findById(99L)).willReturn(Optional.empty());
+        given(userRepository.findById(USER_ID_99)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> inventoryService.getInventory(99L))
+        assertThatThrownBy(() -> inventoryService.getInventory(USER_ID_99))
                 .isInstanceOf(EntityNotFoundException.class)
                 .hasMessage("유저를 찾을 수 없습니다.");
     }
@@ -77,14 +82,14 @@ public class InventoryServiceTest {
         // given
         User user = User.builder().nickname("테스터").build();
         Item item = Item.builder().name("모자").slotType(SlotType.HAIR).rarity(Rarity.COMMON).build();
-        given(userRepository.findById(1L)).willReturn(Optional.of(user));
-        given(itemRepository.findById(1L)).willReturn(Optional.of(item));
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(itemRepository.findById(ITEM_ID)).willReturn(Optional.of(item));
 
         // when
-        inventoryService.grantItem(1L, 1L);
+        inventoryService.grantItem(USER_ID, ITEM_ID);
 
         // then
-        verify(userItemRepository, times(1)).grantIfNotExists(1L, 1L);
+        verify(userItemRepository, times(1)).grantIfNotExists(USER_ID, ITEM_ID);
     }
 
 }

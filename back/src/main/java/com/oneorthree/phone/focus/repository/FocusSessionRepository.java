@@ -9,8 +9,9 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
-public interface FocusSessionRepository extends JpaRepository<FocusSession, Long> {
+public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID> {
 
     @Query("SELECT s FROM FocusSession s LEFT JOIN FETCH s.focusTag WHERE s.user = :user ORDER BY s.startedAt DESC")
     List<FocusSession> findByUserWithTag(@Param("user") User user);
@@ -19,5 +20,5 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, Long
 
     @Modifying
     @Query("UPDATE FocusSession f SET f.user = null WHERE f.user.id = :userId")
-    void nullifyUser(@Param("userId") Long userId);
+    void nullifyUser(@Param("userId") UUID userId);
 }

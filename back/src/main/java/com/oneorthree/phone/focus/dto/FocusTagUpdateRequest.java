@@ -1,4 +1,6 @@
 package com.oneorthree.phone.focus.dto;
 
-public record FocusTagUpdateRequest(Long tagId, String name) {
+import java.util.UUID;
+
+public record FocusTagUpdateRequest(UUID tagId, String name) {
 }

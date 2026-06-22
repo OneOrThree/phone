@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.UUID;
 
 @Tag(name = "equipment", description = "장비 관련 API")
 @RestController
@@ -34,7 +35,7 @@ public class EquipmentController {
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
     @GetMapping("/equipment/{userId}")
-    public ResponseEntity<List<CharacterEquipmentResponse>> getEquipment(@PathVariable Long userId) {
+    public ResponseEntity<List<CharacterEquipmentResponse>> getEquipment(@PathVariable UUID userId) {
         List<CharacterEquipmentResponse> response = equipmentService.getEquipment(userId);
         return ResponseEntity.ok(response);
     }
@@ -57,7 +58,7 @@ public class EquipmentController {
         @ApiResponse(responseCode = "404", description = "유저 또는 장비 없음")
     })
     @DeleteMapping("/equipment/{userId}/{slotType}")
-    public ResponseEntity<Void> unequip(@PathVariable Long userId,
+    public ResponseEntity<Void> unequip(@PathVariable UUID userId,
                                         @PathVariable SlotType slotType) {
         equipmentService.unequip(userId, slotType);
         return ResponseEntity.noContent().build();

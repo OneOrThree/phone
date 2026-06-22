@@ -5,11 +5,13 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.UUID;
+
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
 public class GroupSearchResponse {
-    private Long groupId;
+    private UUID groupId;
     private String name;
     private int currentMembers;
     private int maxMembers;

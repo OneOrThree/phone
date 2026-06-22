@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -25,7 +26,7 @@ public class ScreenTimeService {
     private final ScreenTimeNotificationPort notificationPort;
 
     @Transactional
-    public void saveScreenTime(Long userId, ScreenTimeRequest request) {
+    public void saveScreenTime(UUID userId, ScreenTimeRequest request) {
         // 1. 유저 조회
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));

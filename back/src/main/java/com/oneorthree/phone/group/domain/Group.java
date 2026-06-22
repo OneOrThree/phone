@@ -1,11 +1,10 @@
 package com.oneorthree.phone.group.domain;
 
+import com.oneorthree.phone.common.id.GeneratedUuidV7;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
@@ -18,6 +17,7 @@ import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.UUID;
 
 @Entity
 @Table(name = "groups")
@@ -28,8 +28,8 @@ import java.time.temporal.ChronoUnit;
 public class Group {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedUuidV7
+    private UUID id;
 
     @Column(nullable = false, length = 50)
     @Builder.Default
@@ -74,7 +74,7 @@ public class Group {
     @Builder.Default
     private GroupStatus status = GroupStatus.WAITING;
 
-    private Long hostId;
+    private UUID hostId;
 
     @Version
     private Long version;
@@ -96,7 +96,7 @@ public class Group {
         this.codeExpiresAt = Instant.now().plus(3, ChronoUnit.HOURS);
     }
 
-    public void transferOwner(Long newOwnerId) {
+    public void transferOwner(UUID newOwnerId) {
         hostId = newOwnerId;
     }
 

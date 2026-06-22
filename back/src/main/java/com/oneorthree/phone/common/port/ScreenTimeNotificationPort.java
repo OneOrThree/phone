@@ -1,5 +1,7 @@
 package com.oneorthree.phone.common.port;
 
+import java.util.UUID;
+
 public interface ScreenTimeNotificationPort {
-    void notify(Long userId, boolean goalAchieved);
+    void notify(UUID userId, boolean goalAchieved);
 }

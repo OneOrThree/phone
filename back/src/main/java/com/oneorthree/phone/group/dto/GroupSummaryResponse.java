@@ -6,11 +6,13 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.UUID;
+
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
 public class GroupSummaryResponse {
-    Long groupId;
+    UUID groupId;
     String name;
     String code;
     int currentMembers;

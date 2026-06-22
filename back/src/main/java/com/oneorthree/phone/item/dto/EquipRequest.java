@@ -4,10 +4,12 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.UUID;
+
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
 public class EquipRequest {
-    private Long userId;
-    private Long itemId;
+    private UUID userId;
+    private UUID itemId;
 }

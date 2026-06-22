@@ -22,6 +22,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -47,6 +48,10 @@ public class EquipmentServiceTest {
     @Mock
     private CharacterEquipmentRepository characterEquipmentRepo;
 
+    private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID USER_ID_99 = UUID.fromString("00000000-0000-0000-0000-000000000099");
+    private static final UUID ITEM_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
     private User user;
 
     private Item item;
@@ -64,14 +69,14 @@ public class EquipmentServiceTest {
     @DisplayName("아이템 장착 성공")
     void equipSuccess() {
         // given
-        given(userRepo.findById(1L)).willReturn(Optional.of(user));
-        given(itemRepo.findById(1L)).willReturn(Optional.of(item));
+        given(userRepo.findById(USER_ID)).willReturn(Optional.of(user));
+        given(itemRepo.findById(ITEM_ID)).willReturn(Optional.of(item));
         given(userItemRepo.existsByUserAndItem(user, item)).willReturn(true);
         given(characterEquipmentRepo.findByUserAndSlotType(user, SlotType.HAIR)).willReturn(Optional.empty());
         given(characterEquipmentRepo.save(any())).willAnswer(i -> i.getArgument(0));
 
         // when
-        CharacterEquipmentResponse result = equipmentService.equip(1L, 1L);
+        CharacterEquipmentResponse result = equipmentService.equip(USER_ID, ITEM_ID);
 
         // then
         assertThat(result.getItem().getName()).isEqualTo(item.getName());
@@ -82,12 +87,12 @@ public class EquipmentServiceTest {
     @DisplayName("보유하지 않은 아이템 장착 시 예외")
     void equipFailNotOwned() {
         // given
-        given(userRepo.findById(1L)).willReturn(Optional.of(user));
-        given(itemRepo.findById(1L)).willReturn(Optional.of(item));
+        given(userRepo.findById(USER_ID)).willReturn(Optional.of(user));
+        given(itemRepo.findById(ITEM_ID)).willReturn(Optional.of(item));
         given(userItemRepo.existsByUserAndItem(user, item)).willReturn(false);
 
         // when + then
-        assertThatThrownBy(() -> equipmentService.equip(1L, 1L))
+        assertThatThrownBy(() -> equipmentService.equip(USER_ID, ITEM_ID))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("보유하지 않은 아이템입니다.");
     }
@@ -96,10 +101,10 @@ public class EquipmentServiceTest {
     @DisplayName("존재하지 않는 유저 장착 시 예외")
     void equipFailUserNotFound() {
         // given
-        given(userRepo.findById(99L)).willReturn(Optional.empty());
+        given(userRepo.findById(USER_ID_99)).willReturn(Optional.empty());
 
         // when + then
-        assertThatThrownBy(() -> equipmentService.equip(99L, 1L))
+        assertThatThrownBy(() -> equipmentService.equip(USER_ID_99, ITEM_ID))
                 .isInstanceOf(EntityNotFoundException.class)
                 .hasMessage("유저를 찾을 수 없습니다.");
     }
@@ -114,11 +119,11 @@ public class EquipmentServiceTest {
                 .build();
         equipment.equip(item);
 
-        given(userRepo.findById(1L)).willReturn(Optional.of(user));
+        given(userRepo.findById(USER_ID)).willReturn(Optional.of(user));
         given(characterEquipmentRepo.findByUserAndSlotType(user, SlotType.HAIR)).willReturn(Optional.of(equipment));
 
         // when
-        equipmentService.unequip(1L, SlotType.HAIR);
+        equipmentService.unequip(USER_ID, SlotType.HAIR);
 
         // then
         assertThat(equipment.getItem()).isNull();

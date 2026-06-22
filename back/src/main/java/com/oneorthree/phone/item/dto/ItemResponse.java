@@ -4,10 +4,12 @@ import com.oneorthree.phone.item.domain.Item;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.util.UUID;
+
 @Getter
 @Builder
 public class ItemResponse {
-    private Long id;
+    private UUID id;
     private String name;
     private String itemType;
     private String slotType;

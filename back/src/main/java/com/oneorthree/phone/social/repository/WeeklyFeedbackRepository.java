@@ -6,8 +6,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
-public interface WeeklyFeedbackRepository extends JpaRepository<WeeklyFeedback, Long> {
+public interface WeeklyFeedbackRepository extends JpaRepository<WeeklyFeedback, UUID> {
 
     Optional<WeeklyFeedback> findByUserAndWeekStart(User user, Instant weekStart);
 }

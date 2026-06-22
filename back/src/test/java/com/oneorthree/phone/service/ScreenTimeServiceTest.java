@@ -21,6 +21,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -44,7 +45,7 @@ class ScreenTimeServiceTest {
     @Mock
     private ScreenTimeNotificationPort notificationPort;
 
-    private static final Long USER_ID = 1L;
+    private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final String TIMEZONE = "Asia/Seoul";
     private static final Instant REPORTED_AT = Instant.now().truncatedTo(ChronoUnit.SECONDS);
 

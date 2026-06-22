@@ -11,8 +11,9 @@ import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
-public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, Long> {
+public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, UUID> {
 
     Optional<DailyFocusStat> findByUserAndDate(User user, LocalDate date);
 
@@ -20,7 +21,7 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
 
     @Modifying
     @Query("UPDATE DailyFocusStat d SET d.user = null WHERE d.user.id = :userId")
-    void nullifyUser(@Param("userId") Long userId);
+    void nullifyUser(@Param("userId") UUID userId);
 
     List<DailyFocusStat> findByUserInAndDate(Collection<User> users, LocalDate date);
 }

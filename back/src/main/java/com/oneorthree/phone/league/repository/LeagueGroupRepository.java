@@ -6,8 +6,9 @@ import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.UUID;
 
-public interface LeagueGroupRepository extends JpaRepository<LeagueGroup, Long> {
+public interface LeagueGroupRepository extends JpaRepository<LeagueGroup, UUID> {
 
     List<LeagueGroup> findByTierConfigAndStatus(LeagueTierConfig tierConfig, LeagueGroupStatus status);
 }

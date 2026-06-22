@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.DateTimeException;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -32,7 +33,7 @@ public class UserService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
 
     @Transactional
-    public void setupProfile(Long userId, UserProfileSetupRequest body) {
+    public void setupProfile(UUID userId, UserProfileSetupRequest body) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -62,7 +63,7 @@ public class UserService {
     }
 
     @Transactional
-    public void updateProfile(Long userId, UserProfileUpdateRequest body) {
+    public void updateProfile(UUID userId, UserProfileUpdateRequest body) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -100,7 +101,7 @@ public class UserService {
     }
 
     @Transactional
-    public void withdraw(Long userId) {
+    public void withdraw(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -113,7 +114,7 @@ public class UserService {
         userRepository.delete(user);
     }
 
-    public UserProfileResponse getProfile(Long userId) {
+    public UserProfileResponse getProfile(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -134,7 +135,7 @@ public class UserService {
     }
 
     @Transactional
-    public void updateScreenTimePermission(Long userId, UpdateScreenTimePermissionRequest request) {
+    public void updateScreenTimePermission(UUID userId, UpdateScreenTimePermissionRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setScreenTimePermissionGranted(request.getGranted());

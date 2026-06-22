@@ -11,6 +11,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 
 @RequiredArgsConstructor
 public class JwtFilter extends OncePerRequestFilter {
@@ -43,7 +44,7 @@ public class JwtFilter extends OncePerRequestFilter {
             return;
         }
 
-        Long userId = jwtProvider.extractUserId(token);
+        UUID userId = jwtProvider.extractUserId(token);
         request.setAttribute("userId", userId);
         filterChain.doFilter(request, response);
     }

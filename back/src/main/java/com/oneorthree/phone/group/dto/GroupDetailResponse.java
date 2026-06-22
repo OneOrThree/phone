@@ -8,11 +8,12 @@ import lombok.Getter;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 @Getter
 @Builder
 public class GroupDetailResponse {
-    private Long id;
+    private UUID id;
     private String name;
     private String description;
     private MissionCategory missionCategory;
@@ -25,5 +26,5 @@ public class GroupDetailResponse {
     private List<GroupDetailMemberResponse> members;
     private String code;           // nullable — OWNER에게만 반환
     private Instant codeExpiresAt; // nullable — OWNER에게만 반환
-    private List<Long> noticeGrantedUserIds;    //OWNER 제외
+    private List<UUID> noticeGrantedUserIds;    //OWNER 제외
 }

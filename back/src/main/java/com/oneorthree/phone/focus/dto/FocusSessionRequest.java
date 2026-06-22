@@ -5,12 +5,13 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
 public class FocusSessionRequest {
-    Long focusTagId;
+    UUID focusTagId;
     String subject;
     Instant startedAt;
     Instant endedAt;

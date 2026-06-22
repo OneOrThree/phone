@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.UUID;
+
 @Tag(name = "ScreenTime", description = "스크린 타임 목표 달성 저장 API")
 @RestController
 @RequestMapping("/api/v1")
@@ -33,7 +35,7 @@ public class ScreenTimeController {
     public ResponseEntity<Void> saveScreenTime(
             @Valid @RequestBody ScreenTimeRequest request,
             HttpServletRequest httpServletRequest) {
-        Long userId = (Long) httpServletRequest.getAttribute("userId");
+        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         screenTimeService.saveScreenTime(userId, request);
         return ResponseEntity.noContent().build();
     }

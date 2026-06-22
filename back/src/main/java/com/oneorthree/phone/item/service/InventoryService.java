@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -26,7 +27,7 @@ public class InventoryService {
      * 내 인벤토리 조회
      * todo 조회 성능 개선
      */
-    public List<UserItemResponse> getInventory(Long userId) {
+    public List<UserItemResponse> getInventory(UUID userId) {
         User user = userRepository.findById(userId)
                         .orElseThrow(() -> new EntityNotFoundException("유저를 찾을 수 없습니다."));
 
@@ -41,7 +42,7 @@ public class InventoryService {
      * todo 쓰기 성능 개선 및 로직 개선
      */
     @Transactional
-    public void grantItem(Long userId, Long itemId) {
+    public void grantItem(UUID userId, UUID itemId) {
         userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException("유저를 찾을 수 없습니다."));
         itemRepository.findById(itemId)

@@ -10,8 +10,9 @@ import org.springframework.data.repository.query.Param;
 
 
 import java.util.List;
+import java.util.UUID;
 
-public interface UserItemRepository extends JpaRepository<UserItem, Long> {
+public interface UserItemRepository extends JpaRepository<UserItem, UUID> {
 
     // 인벤토리 조회
     List<UserItem> findByUser(User user);
@@ -26,5 +27,5 @@ public interface UserItemRepository extends JpaRepository<UserItem, Long> {
                 VALUES (:userId, :itemId, now())
                 ON CONFLICT (user_id, item_id) DO NOTHING
                 """, nativeQuery = true)
-    void grantIfNotExists(@Param("userId") Long userId, @Param("itemId") Long itemId);
+    void grantIfNotExists(@Param("userId") UUID userId, @Param("itemId") UUID itemId);
 }

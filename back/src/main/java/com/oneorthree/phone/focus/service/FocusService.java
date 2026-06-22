@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -30,7 +31,7 @@ public class FocusService {
     private final UserRepository userRepository;
     private final FocusSessionRepository focusSessionRepository;
 
-    public List<FocusTagResponse> getFocusTags(Long userId) {
+    public List<FocusTagResponse> getFocusTags(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -41,7 +42,7 @@ public class FocusService {
     }
 
     @Transactional
-    public void setupFocusTag(Long userId, FocusTagSetupRequest body) {
+    public void setupFocusTag(UUID userId, FocusTagSetupRequest body) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -52,7 +53,7 @@ public class FocusService {
     }
 
     @Transactional
-    public void updateFocusTag(Long userId, FocusTagUpdateRequest body) {
+    public void updateFocusTag(UUID userId, FocusTagUpdateRequest body) {
         FocusTag tag = focusTagRepository.findById(body.tagId())
                 .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
 
@@ -64,7 +65,7 @@ public class FocusService {
     }
 
     @Transactional
-    public void deleteFocusTag(Long userId, Long tagId) {
+    public void deleteFocusTag(UUID userId, UUID tagId) {
         FocusTag tag = focusTagRepository.findById(tagId)
                 .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
 
@@ -75,7 +76,7 @@ public class FocusService {
         focusTagRepository.delete(tag);
     }
 
-    public List<FocusSessionResponse> getFocusSessions(Long userId) {
+    public List<FocusSessionResponse> getFocusSessions(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -93,7 +94,7 @@ public class FocusService {
     }
 
     @Transactional
-    public void saveFocusSession(Long userId, FocusSessionRequest body) {
+    public void saveFocusSession(UUID userId, FocusSessionRequest body) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 

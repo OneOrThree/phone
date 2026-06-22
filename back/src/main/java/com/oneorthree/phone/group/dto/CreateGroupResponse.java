@@ -1,4 +1,6 @@
 package com.oneorthree.phone.group.dto;
 
-public record CreateGroupResponse(Long groupId, String code) {
+import java.util.UUID;
+
+public record CreateGroupResponse(UUID groupId, String code) {
 }

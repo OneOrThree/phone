@@ -21,6 +21,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.UUID;
+
 @Tag(name = "user", description = "user 관련 API (생성, 조회, 변경)")
 @RestController
 @RequestMapping("/api/v1")
@@ -39,7 +41,7 @@ public class UserController {
     public ResponseEntity<Void> setupProfile(
             HttpServletRequest request,
             @RequestBody UserProfileSetupRequest body) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         userService.setupProfile(userId, body);
         return ResponseEntity.noContent().build();
     }
@@ -54,7 +56,7 @@ public class UserController {
     public ResponseEntity<Void> updateProfile(
             HttpServletRequest request,
             @RequestBody UserProfileUpdateRequest body) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         userService.updateProfile(userId, body);
         return ResponseEntity.noContent().build();
     }
@@ -66,7 +68,7 @@ public class UserController {
     })
     @GetMapping("/user")
     public ResponseEntity<UserProfileResponse> getProfile(HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(userService.getProfile(userId));
     }
 
@@ -78,7 +80,7 @@ public class UserController {
     })
     @DeleteMapping("/user")
     public ResponseEntity<Void> withdraw(HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         userService.withdraw(userId);
         return ResponseEntity.noContent().build();
     }
@@ -93,7 +95,7 @@ public class UserController {
     public ResponseEntity<Void> updateScreenTimePermission(
             @Valid @RequestBody UpdateScreenTimePermissionRequest body,
             HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         userService.updateScreenTimePermission(userId, body);
         return ResponseEntity.noContent().build();
     }

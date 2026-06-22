@@ -7,8 +7,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
-public interface CharacterEquipmentRepository extends JpaRepository<CharacterEquipment, Long> {
+public interface CharacterEquipmentRepository extends JpaRepository<CharacterEquipment, UUID> {
 
     // 유저의 전체 장착 상태 조회 (캐릭터 렌더링)
     List<CharacterEquipment> findByUser(User user);

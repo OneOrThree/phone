@@ -6,11 +6,12 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.UUID;
 
 @Getter
 @Builder
 public class CreateChallengeResponse {
-    private Long id;
+    private UUID id;
     private List<NonParticipantDto> nonParticipants;
 
     @Getter
@@ -18,7 +19,7 @@ public class CreateChallengeResponse {
     @AllArgsConstructor
     @NoArgsConstructor
     public static class NonParticipantDto {
-        private Long userId;
+        private UUID userId;
         private String nickname;
     }
 }

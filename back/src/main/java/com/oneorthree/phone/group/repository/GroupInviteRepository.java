@@ -8,8 +8,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
-public interface GroupInviteRepository extends JpaRepository<GroupInvite, Long> {
+public interface GroupInviteRepository extends JpaRepository<GroupInvite, UUID> {
 
     List<GroupInvite> findByInviteeAndStatus(User invitee, GroupInviteStatus status);
 

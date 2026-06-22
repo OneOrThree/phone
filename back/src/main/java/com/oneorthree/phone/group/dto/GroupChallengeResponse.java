@@ -7,11 +7,12 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Getter
 @Builder
 public class GroupChallengeResponse {
-    private Long id;
+    private UUID id;
     private MissionType missionType;
     private MissionCategory missionCategory;
     private Integer durationMinutes;

@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.UUID;
 
 @Tag(name = "focus", description = "focus 세션 관련 API (태그, 포커스 타임 등)")
 @RestController
@@ -40,7 +41,7 @@ public class FocusController {
     })
     @GetMapping("/tag")
     public ResponseEntity<List<FocusTagResponse>> getTag(HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(focusService.getFocusTags(userId));
     }
 
@@ -54,7 +55,7 @@ public class FocusController {
     public ResponseEntity<Void> setupTag(
             HttpServletRequest request,
             @RequestBody FocusTagSetupRequest body) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         focusService.setupFocusTag(userId, body);
         return ResponseEntity.noContent().build();
     }
@@ -69,7 +70,7 @@ public class FocusController {
     public ResponseEntity<Void> updateTag(
             HttpServletRequest request,
             @RequestBody FocusTagUpdateRequest body) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         focusService.updateFocusTag(userId, body);
         return ResponseEntity.noContent().build();
     }
@@ -83,8 +84,8 @@ public class FocusController {
     @DeleteMapping("/tag/{tagId}")
     public ResponseEntity<Void> deleteTag(
             HttpServletRequest request,
-            @PathVariable Long tagId) {
-        Long userId = (Long) request.getAttribute("userId");
+            @PathVariable UUID tagId) {
+        UUID userId = (UUID) request.getAttribute("userId");
         focusService.deleteFocusTag(userId, tagId);
         return ResponseEntity.noContent().build();
     }
@@ -99,7 +100,7 @@ public class FocusController {
     public ResponseEntity<Void> saveFocusSession(
             HttpServletRequest request,
             @RequestBody FocusSessionRequest body) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         focusService.saveFocusSession(userId, body);
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
@@ -112,7 +113,7 @@ public class FocusController {
     @GetMapping("/focus-session")
     public ResponseEntity<List<FocusSessionResponse>> getFocusSessions(
             HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
+        UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(focusService.getFocusSessions(userId));
     }
 }

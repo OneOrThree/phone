@@ -31,6 +31,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -44,7 +45,7 @@ public class GroupChallengeService {
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
-    public List<GroupChallengeResponse> getChallenges(Long groupId, Long userId) {
+    public List<GroupChallengeResponse> getChallenges(UUID groupId, UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -77,7 +78,7 @@ public class GroupChallengeService {
     }
 
     @Transactional
-    public CreateChallengeResponse createChallenge(Long groupId, Long userId, CreateChallengeRequest request) {
+    public CreateChallengeResponse createChallenge(UUID groupId, UUID userId, CreateChallengeRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
@@ -158,7 +159,7 @@ public class GroupChallengeService {
     }
 
     @Transactional
-    public void deleteChallenge(Long groupId, Long challengeId, Long userId) {
+    public void deleteChallenge(UUID groupId, UUID challengeId, UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
