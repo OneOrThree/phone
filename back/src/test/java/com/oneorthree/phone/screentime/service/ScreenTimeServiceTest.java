@@ -1,4 +1,4 @@
-package com.oneorthree.phone.service;
+package com.oneorthree.phone.screentime.service;
 
 import com.oneorthree.phone.focus.domain.DailyFocusStat;
 import com.oneorthree.phone.screentime.service.ScreenTimeService;

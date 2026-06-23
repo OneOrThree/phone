@@ -1,4 +1,4 @@
-package com.oneorthree.phone.api;
+package com.oneorthree.phone.auth.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.auth.dto.KakaoLoginResponse;

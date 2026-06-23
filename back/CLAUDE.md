@@ -15,10 +15,21 @@ Run all commands below from inside `back/`.
 ## Layout & domains
 
 - Entry point: `PhoneApplication.java`.
+- **Package layout is domain-based**: each domain owns its own
+  `api/`·`service/`·`domain/`·`repository/`·`dto/`·`exception/` under
+  `com.oneorthree.phone.<domain>` (e.g. `group/api/GroupController`). Cross-cutting
+  code lives in `common/` (`common/config`, `common/port`, `common/id` for the UUID v7
+  generator). Do **not** introduce a parallel layer-first layout
+  (`phone/api/`, `phone/service/`, …) — keep new files inside their domain package.
 - Controllers: `AuthController`, `UserController`, `FocusController`,
-  `EquipmentController`, `InventoryController`, `InGameCurrencyController`, `HealthController`.
-- Domains: `User`/`UserStreak`, `Room`/`RoomMember`, `DailyFocusStat`/`FocusSession`,
-  `CharacterEquipment`/`UserItem`, `LeagueGroup`/`LeagueTierConfig`, `SocialAccount`.
+  `EquipmentController`, `InventoryController`, `InGameCurrencyController`,
+  `GroupController`, `ScreenTimeController`, `HealthController`.
+- Domains: `User`/`UserStreak`/`SocialAccount`, `Group`/`GroupMember` (+`GroupAnnouncement`/`GroupChallenge`/`GroupInvite`),
+  `DailyFocusStat`/`FocusSession`/`FocusTag`, `CharacterEquipment`/`Item`/`UserItem`,
+  `LeagueGroup`/`LeagueGroupMember`/`LeagueTierConfig`, `CurrencyTransaction`,
+  `Friendship`/`ShareCard`/`WeeklyFeedback`.
+- **Entity PKs are UUID v7** — annotate the `@Id UUID id` field with `@GeneratedUuidV7`
+  (`common/id`); repositories are `JpaRepository<Entity, UUID>`.
 
 ## Conventions
 

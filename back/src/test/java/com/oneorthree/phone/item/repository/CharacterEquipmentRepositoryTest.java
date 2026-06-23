@@ -1,5 +1,6 @@
-package com.oneorthree.phone.repository;
+package com.oneorthree.phone.item.repository;
 
+import com.oneorthree.phone.common.support.RepositoryTestBase;
 import com.oneorthree.phone.item.domain.CharacterEquipment;
 import com.oneorthree.phone.item.domain.Item;
 import com.oneorthree.phone.item.domain.Rarity;

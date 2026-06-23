@@ -17,6 +17,7 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -362,6 +363,39 @@ class GroupChallengeServiceTest {
         given(groupChallengeRepository.existsByGroupAndMissionCategoryAndMissionTypeAndStatus(
                 group, MissionCategory.FOCUS, MissionType.DURATION, GroupChallengeStatus.ACTIVE))
                 .willReturn(true);
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.ACTIVE_CHALLENGE_EXISTS);
+        verify(groupChallengeRepository, never()).save(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("TIME_WINDOW 겹치는 챌린지 존재 → GroupException(ACTIVE_CHALLENGE_EXISTS), 저장 안 함")
+    void createChallengeOverlappingTimeWindow() {
+        // given: OWNER + 유효한 새 윈도우 [10:00~11:00]
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        Instant newStart = Instant.parse("2026-01-01T01:00:00Z"); // KST 10:00
+        Instant newEnd = Instant.parse("2026-01-01T02:00:00Z");   // KST 11:00
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
+        given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
+        given(request.getWindowStart()).willReturn(newStart);
+        given(request.getWindowEnd()).willReturn(newEnd);
+        given(request.getTimeZone()).willReturn("Asia/Seoul");
+
+        // 핵심: "겹치는 기존 챌린지가 있다"를 repository 스텁으로 표현 (실제 챌린지 객체 불필요).
+        // 맞닿음(끝==시작) 같은 경계 판정 자체는 SQL 책임 → GroupChallengeRepository 통합 테스트에서 검증.
+        given(groupChallengeRepository.existsOverlappingTimeWindow(
+                group, MissionCategory.FOCUS, newStart, newEnd)).willReturn(true);
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))

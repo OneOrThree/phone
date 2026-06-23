@@ -1,4 +1,4 @@
-package com.oneorthree.phone.api;
+package com.oneorthree.phone.item.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.item.dto.EquipRequest;

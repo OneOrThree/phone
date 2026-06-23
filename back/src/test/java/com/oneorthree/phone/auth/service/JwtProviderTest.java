@@ -1,4 +1,4 @@
-package com.oneorthree.phone.service;
+package com.oneorthree.phone.auth.service;
 
 import com.oneorthree.phone.auth.service.JwtProvider;
 import io.jsonwebtoken.JwtException;

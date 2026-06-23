@@ -1,4 +1,4 @@
-package com.oneorthree.phone.service;
+package com.oneorthree.phone.item.service;
 
 import com.oneorthree.phone.item.dto.UserItemResponse;
 import com.oneorthree.phone.item.domain.Item;
