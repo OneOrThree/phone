@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working in this repository. This root file applies
 everywhere. **Nested `CLAUDE.md` files load automatically** when you work inside a
-subtree — see `app/CLAUDE.md` (frontend) and `back/CLAUDE.md` (backend) for the
+subtree — see `app/.claude/CLAUDE.md` (frontend) and `back/CLAUDE.md` (backend) for the
 details of each half. Keep this root file limited to shared, repo-wide concerns.
 
 ## Project overview
@@ -15,7 +15,7 @@ shop items. Company `oneorthree`; iOS bundle id `com.oneorthree.gromo`.
 
 | Path                 | What it is |
 | -------------------- | ---------- |
-| `app/`               | React Native + Expo frontend (TypeScript). Includes `app/ios/` native project and the `screentimereport` Screen Time extension. See `app/CLAUDE.md`. |
+| `app/`               | React Native + Expo frontend (TypeScript). Includes `app/ios/` native project and the `screentimereport` Screen Time extension. See `app/.claude/CLAUDE.md`. |
 | `back/`              | Spring Boot 4 + Java 17 + PostgreSQL REST API. See `back/CLAUDE.md`. |
 | `docs/`              | DB schema, design, and feature docs (see pointers below). |
 | `.github/workflows/` | CI/CD pipelines (see below). |

@@ -10,7 +10,7 @@
 
 | 항목          | 버전        | 확인 명령어              |
 | ------------- | ----------- | ------------------------ |
-| **Node.js**   | `22.x` 이상 | `node --version`         |
+| **Node.js**   | `24.x` 이상 | `node --version`         |
 | **npm**       | `10.x` 이상 | `npm --version`          |
 | **Xcode**     | `15.0` 이상 | `xcode-select --version` |
 | **CocoaPods** | `1.14` 이상 | `pod --version`          |
@@ -51,18 +51,18 @@ ruby --version  # 2.7.0 이상
 
 ```bash
 # Homebrew 사용
-brew install node@22
+brew install node@24
 
 # 또는 nvm 사용
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
-nvm install 22
-nvm use 22
+nvm install 24
+nvm use 24
 ```
 
 **버전 확인**:
 
 ```bash
-node --version  # v22.22.3 이상
+node --version  # v24.x 이상
 npm --version   # 10.9.8 이상
 ```
 
@@ -244,7 +244,7 @@ Gromo/
 
 ### 필수 설치
 
-- [ ] Node.js v22+: `node --version`
+- [ ] Node.js v24+: `node --version`
 - [ ] npm 10+: `npm --version`
 - [ ] Xcode 명령어 도구: `xcode-select --install`
 - [ ] CocoaPods: `pod --version`
