@@ -5,7 +5,7 @@ Run all commands below from inside `app/`.
 
 ## Stack
 
-- React Native 0.81 / Expo SDK 54 / React 19.
+- React Native 0.81 / Expo SDK 54 / React 19, written in **TypeScript** (`strict` 모드).
 - React Navigation — bottom tab navigator (`홈` / `그룹` / `상점` / `마이페이지`),
   with `FocusCategory` / `FocusMode` as hidden stack screens.
 - AsyncStorage for local persistence; Kakao login (`@react-native-kakao`); JWT auth.
@@ -13,7 +13,7 @@ Run all commands below from inside `app/`.
 ## Architecture
 
 State is managed with the **Context API + hooks** (no Redux/MobX). Providers are
-nested in `App.js`: `UserProvider › CoinProvider › EquipmentProvider › FocusProvider`.
+nested in `App.tsx`: `UserProvider › CoinProvider › EquipmentProvider › FocusProvider`.
 Consume them via the hooks `useUser()` / `useCoins()` / `useEquipment()` / `useFocus()`.
 State is persisted to AsyncStorage and synced to the backend through the API client.
 
@@ -32,6 +32,10 @@ State is persisted to AsyncStorage and synced to the backend through the API cli
 ## Conventions
 
 - Functional components + hooks throughout.
+- **TypeScript**: components/screens/contexts are `.tsx`, utils/types are `.ts`. 컴포넌트
+  props·context 값·API 응답에는 명시적 타입을 단다. 공용 타입은 `types/`
+  (`api.ts`/`navigation.ts`/`storage.ts`)에 모으고, 화면 전용 응답 형태는 해당 파일에
+  로컬 `interface`로 선언한다. 설정 파일(`babel.config.js` 등)은 `.js`로 유지.
 - Files: PascalCase for components/screens/contexts, camelCase for utils.
 - Styling: `StyleSheet.create()` using `theme.js` tokens.
 
@@ -42,6 +46,7 @@ State is persisted to AsyncStorage and synced to the backend through the API cli
 - `npm run lint` / `npm run lint:fix` — ESLint (print-width 100, single quotes,
   trailing-comma `all`). ESLint ignores `android/` and `ios/`.
 - `npm run format:check` / `npm run format:fix` — Prettier.
+- `npm run typecheck` — `tsc --noEmit` 타입 검사 (CI lint 파이프라인에 포함).
 
 ## iOS native (`app/ios/`)
 

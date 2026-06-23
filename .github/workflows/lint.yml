@@ -35,3 +35,7 @@ jobs:
       - name: Check Prettier formatting
         run: npm run format:check
         working-directory: app
+
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: app
