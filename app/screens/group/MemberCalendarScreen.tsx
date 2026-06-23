@@ -13,7 +13,7 @@ import {
 import type { GestureResponderEvent, PanResponderGestureState } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T } from '../../components/theme';
-import { apiFetch } from '../../utils/api';
+import { api } from '../../utils/api';
 import type { RootStackScreenProps } from '../../types/navigation';
 
 // 멤버 캘린더 일별 통계
@@ -168,9 +168,14 @@ export default function MemberCalendarScreen({
     setStats([]);
     setSelectedDate(null);
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
-    apiFetch(`/api/v1/groups/${groupId}/members/${member.userId}/calendar?month=${monthStr}`)
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => setStats(Array.isArray(data) ? (data as DailyStat[]) : []))
+    api
+      .get<DailyStat[]>(
+        `/api/v1/groups/${groupId}/members/${member.userId}/calendar?month=${monthStr}`,
+      )
+      .then((res) => {
+        const data = res.data;
+        setStats(Array.isArray(data) ? (data as DailyStat[]) : []);
+      })
       .catch(() => setStats([]))
       .finally(() => setLoading(false));
   }, [member, groupId, year, month]);

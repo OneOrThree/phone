@@ -20,20 +20,26 @@
    - 실기기 테스트
    - 트러블슈팅
 
-3. **[ScreenTime2_WorkLog.md](./ScreenTime2_WorkLog.md)** ← 보상 모듈
-   - 목표 달성 판정 아키텍처
-   - 구조적 제약 분석 (Report 익스텐션 read-only)
-   - 미해결 이슈 및 다음 할 일
 
-4. **[Shop_WorkLog.md](./Shop_WorkLog.md)** ← 상점 기능
-   - MVP 제외로 탭에서 숨김 처리 (코드 보존)
-   - 복원 방법 및 구현 현황
-
-5. **[CLAUDE.md](./CLAUDE.md)** ← 지금 이 문서 (코드 규칙)
+3. **[CLAUDE.md](./CLAUDE.md)** ← 지금 이 문서 (코드 규칙)
    - 폴더 구조
    - 코딩 규칙
    - 커밋 컨벤션
    - 주의사항
+
+---
+
+## 📄 기획·설계 참고 문서 (`app/.docs/`)
+
+기획·디자인 참고용 원본 문서는 `app/.docs/`에 모아둡니다. **이 폴더는 `.gitignore`에 등록되어 git 추적 대상이 아닙니다(로컬 전용)** — 외부 공유용이 아니라 개발/디자인 작업 시 참고하는 소스 문서이기 때문입니다.
+
+| 문서                                | 용도                                                   |
+| ----------------------------------- | ------------------------------------------------------ |
+| `MVP_화면설계_브리프.md`            | 디자인 AI용 화면 설계 브리프 (콘셉트·타겟·화면 흐름)    |
+| `기능명세.md`                       | 기능 명세서 (화면·기능 정의, 구 `app/.claude/기능명세.md`) |
+| `01-information-architecture.drawio.xml` | 정보 구조(IA) 다이어그램 (draw.io)                 |
+
+> 새 기획/설계 원본 문서를 받으면 `app/.docs/`에 넣고 위 표에 한 줄 추가하세요.
 
 ---
 
@@ -55,11 +61,15 @@ app/
 │   ├── DevRunbook.md         ← 환경 구축 가이드
 │   ├── ScreenTime_WorkLog.md ← 개발 가이드 & 트러블슈팅
 │   └── CLAUDE.md             ← 이 파일 (코드 규칙)
+├── .docs/                    # 기획·설계 참고 문서 (git ignore, 로컬 전용)
+│   ├── MVP_화면설계_브리프.md
+│   ├── 기능명세.md
+│   └── 01-information-architecture.drawio.xml
 ├── screens/                  # 화면 단위 컴포넌트
 ├── components/               # 재사용 UI 컴포넌트
 ├── contexts/                 # 전역 상태 (Context API)
 ├── utils/                    # 유틸리티 모듈
-│   ├── api.js                # HTTP 클라이언트
+│   ├── api.ts                # HTTP 클라이언트 (axios 인스턴스 `api`)
 │   └── ScreenTimeModule.js   # iOS 스크린 타임 브릿지
 ├── assets/                   # 이미지, 폰트 등
 ├── ios/                      # iOS 네이티브 코드
@@ -134,7 +144,7 @@ npx expo run:ios --device #이거는 재영님만 실행가능함ㅋㅋㅋㅋ �
 | `components/`           | 재사용 가능한 UI 컴포넌트 | `Button.js`, `Card.js`                     |
 | `components/character/` | 캐릭터 파츠/스타일        | `CharacterHead.js`, `characterVariants.js` |
 | `contexts/`             | 전역 상태 관리            | `UserContext.js`, `CoinContext.js`         |
-| `utils/`                | 유틸리티 함수 & API       | `api.js`, `ScreenTimeModule.js`            |
+| `utils/`                | 유틸리티 함수 & API       | `api.ts`, `ScreenTimeModule.ts`            |
 | `assets/`               | 정적 리소스               | 이미지, 폰트, SVG                          |
 
 ### 스타일 규칙
@@ -168,11 +178,14 @@ npx expo run:ios --device #이거는 재영님만 실행가능함ㅋㅋㅋㅋ �
 
 ### API 통신 규칙
 
-- **fetch 직접 사용 금지** → `apiFetch()` 함수 사용
-  ```js
-  const res = await apiFetch('/api/v1/user', { method: 'GET' });
+- **fetch 직접 사용 금지** → `utils/api.ts`의 axios 인스턴스 `api` 사용
+  ```ts
+  const { data } = await api.get('/api/v1/user');
+  await api.post('/api/v1/user', body); // body는 객체 그대로 (axios가 직렬화)
   ```
-- 기능: JWT 자동 주입, 토큰 갱신, 자동 로그아웃 처리 포함
+- 인스턴스 기능: JWT 자동 주입(요청 인터셉터), 401 시 토큰 갱신 후 1회 재시도·실패 시 자동 로그아웃(응답 인터셉터)
+- **axios는 비-2xx에서 throw** → 에러 분기는 `try/catch`로. 상태코드는 `axios.isAxiosError(e) ? e.response?.status : undefined`
+- 로그인 전(토큰 없는) 인증 호출은 인터셉터 없는 **bare `axios`** 사용
 
 ### AsyncStorage 규칙
 
@@ -289,6 +302,26 @@ npm run format:check
 
 ---
 
+## 📤 PR 작성 워크플로우
+
+**Claude는 PR을 직접 올리지 않습니다.** 대신 PR 제목+본문을 `.md` 초안 파일로 만들어 두면, 사용자가 그걸 보고 GitHub에서 직접 PR을 올립니다.
+
+1. **초안 위치**: `app/.docs/PR_GROMO-####.md` (`.docs`는 git ignore라 초안이 커밋되지 않음)
+2. **제목**: `[TYPE] GROMO-#### 한 줄 요약` — TYPE ∈ `FEAT` / `FIX` / `CHORE` / `REFACTOR`
+   - 예) `[FEAT] GROMO-206 인게임 재화 관리 기능 구현`
+3. **본문**: 루트 [`.github/pull_request_template.md`](../../.github/pull_request_template.md) 양식을 그대로 따름
+   - `## Jira` — `[GROMO-####]()` 링크
+   - `## 변경 유형` — FEAT / FIX / CHORE / REFACTOR 중 선택
+   - `## Summary` — 무엇을 왜 바꿨는지 2~3줄
+   - `## Changes` — 변경 내용 (본인 업무에 맞춰 조금 더 자세히)
+   - `## DB 변경` — 스키마 변경 있을 때만, 없으면 섹션 삭제
+   - `## 주의사항` — 마이그레이션·사이드이펙트·리뷰어 참고사항, 없으면 섹션 삭제
+4. 초안 작성 후 파일 경로를 알려주면, 사용자가 내용을 확인하고 직접 PR 생성
+
+> 초안 `.md`의 맨 위에 제목 한 줄, `---` 아래에 템플릿 본문을 두면 복붙하기 편합니다.
+
+---
+
 ## ⚠️ 하지 말아야 할 것
 
 - ❌ 색상 하드코딩 (`'#FFE566'` 대신 `T.yellow`)
@@ -348,4 +381,4 @@ npm run format:fix           # 자동 정렬
 
 ---
 
-**최종 업데이트**: 2026-06-16
+**최종 업데이트**: 2026-06-23

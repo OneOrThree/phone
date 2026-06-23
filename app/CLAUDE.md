@@ -24,8 +24,11 @@ State is persisted to AsyncStorage and synced to the backend through the API cli
 - `components/` — PascalCase. The character system under `components/character/` is
   composition-based: `Character2D.js` assembles `parts/` using `characterVariants.js`
   configs and `styles/`.
-- `utils/api.js` — the `apiFetch()` wrapper (JWT injection + 401 auto-refresh).
-  **All backend calls go through this** — don't call `fetch` directly.
+- `utils/api.ts` — the **axios instance `api`** (baseURL + JWT request interceptor +
+  401 refresh-retry response interceptor). **All backend calls go through `api`**
+  (`api.get`/`api.post`/…) — don't call `fetch` directly. axios throws on non-2xx,
+  so handle errors with `try/catch` (use `axios.isAxiosError(e)` + `e.response?.status`).
+  Pre-login auth calls use bare `axios` (no interceptors).
 - `components/theme.js` — the `T` design tokens + `inkBox()` helper. **Reuse these;
   don't hardcode colors or border styles.**
 

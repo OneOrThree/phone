@@ -8,11 +8,12 @@ import {
   StyleSheet,
   Alert,
 } from 'react-native';
+import axios from 'axios';
 import { login } from '@react-native-kakao/user';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '../components/theme';
-import { API_URL, apiFetch } from '../utils/api';
+import { API_URL, api } from '../utils/api';
 import type { LoginResult } from '../types/api';
 
 interface LoginScreenProps {
@@ -32,19 +33,27 @@ interface AuthResponse {
 async function kakaoLogin(): Promise<LoginResult> {
   const kakaoToken = await login();
 
-  const res = await fetch(`${API_URL}/api/v1/auth/kakao`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ kakaoAccessToken: kakaoToken.accessToken }),
-  });
-  const data = (await res.json()) as AuthResponse;
-  if (!res.ok) throw new Error(data.message ?? '로그인 실패');
+  // 로그인 전 호출이므로 인터셉터(토큰 주입·401 로그아웃) 없는 bare axios 사용
+  let data: AuthResponse;
+  try {
+    const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/kakao`, {
+      kakaoAccessToken: kakaoToken.accessToken,
+    });
+    data = res.data;
+  } catch (e) {
+    const msg = axios.isAxiosError(e)
+      ? ((e.response?.data as AuthResponse | undefined)?.message ?? '로그인 실패')
+      : '로그인 실패';
+    throw new Error(msg);
+  }
   await AsyncStorage.setItem('gromo:accessToken', data.accessToken);
   await AsyncStorage.setItem('gromo:refreshToken', data.refreshToken);
 
   if (!data.isNewUser) {
-    const profileRes = await apiFetch('/api/v1/user');
-    const profile = (await profileRes.json().catch(() => ({}))) as Record<string, unknown>;
+    const profile = await api
+      .get<Record<string, unknown>>('/api/v1/user')
+      .then((profileRes) => profileRes.data)
+      .catch(() => ({}) as Record<string, unknown>);
     const merged: LoginResult = { ...data, ...profile };
     await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
     return merged;
@@ -62,19 +71,27 @@ async function appleLogin(): Promise<LoginResult> {
     ],
   });
 
-  const res = await fetch(`${API_URL}/api/v1/auth/apple`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ identityToken: credential.identityToken }),
-  });
-  const data = (await res.json()) as AuthResponse;
-  if (!res.ok) throw new Error(data.message ?? 'Apple 로그인 실패');
+  // 로그인 전 호출이므로 인터셉터(토큰 주입·401 로그아웃) 없는 bare axios 사용
+  let data: AuthResponse;
+  try {
+    const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/apple`, {
+      identityToken: credential.identityToken,
+    });
+    data = res.data;
+  } catch (e) {
+    const msg = axios.isAxiosError(e)
+      ? ((e.response?.data as AuthResponse | undefined)?.message ?? 'Apple 로그인 실패')
+      : 'Apple 로그인 실패';
+    throw new Error(msg);
+  }
   await AsyncStorage.setItem('gromo:accessToken', data.accessToken);
   await AsyncStorage.setItem('gromo:refreshToken', data.refreshToken);
 
   if (!data.isNewUser) {
-    const profileRes = await apiFetch('/api/v1/user');
-    const profile = (await profileRes.json().catch(() => ({}))) as Record<string, unknown>;
+    const profile = await api
+      .get<Record<string, unknown>>('/api/v1/user')
+      .then((profileRes) => profileRes.data)
+      .catch(() => ({}) as Record<string, unknown>);
     const merged: LoginResult = { ...data, ...profile };
     await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
     return merged;

@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
-import { apiFetch } from '../utils/api';
+import { api } from '../utils/api';
 import { T, inkBox } from '../components/theme';
 import type { TabScreenProps } from '../types/navigation';
 
@@ -69,11 +69,11 @@ export default function FocusCategoryScreen({ navigation }: TabScreenProps<'Focu
     if (initial) setLoading(true);
     try {
       const [tagRes, sessionRes] = await Promise.all([
-        apiFetch('/api/v1/tag'),
-        apiFetch('/api/v1/focus-session'),
+        api.get<unknown>('/api/v1/tag'),
+        api.get<unknown>('/api/v1/focus-session'),
       ]);
-      const data = (await tagRes.json()) as unknown;
-      const sessions = (await sessionRes.json()) as unknown;
+      const data = tagRes.data;
+      const sessions = sessionRes.data;
       const list: Tag[] = Array.isArray(data) ? (data as Tag[]) : [];
 
       if (Array.isArray(sessions)) {
@@ -89,12 +89,9 @@ export default function FocusCategoryScreen({ navigation }: TabScreenProps<'Focu
       }
 
       if (list.length === 0 && initial) {
-        await apiFetch('/api/v1/tag', {
-          method: 'POST',
-          body: JSON.stringify({ name: '공부' }),
-        });
-        const res2 = await apiFetch('/api/v1/tag');
-        const data2 = (await res2.json()) as unknown;
+        await api.post('/api/v1/tag', { name: '공부' });
+        const res2 = await api.get<unknown>('/api/v1/tag');
+        const data2 = res2.data;
         setTags(Array.isArray(data2) ? (data2 as Tag[]) : []);
       } else {
         setTags(list);
@@ -109,11 +106,7 @@ export default function FocusCategoryScreen({ navigation }: TabScreenProps<'Focu
     if (!newTagName.trim()) return;
     setSavingCreate(true);
     try {
-      const res = await apiFetch('/api/v1/tag', {
-        method: 'POST',
-        body: JSON.stringify({ name: newTagName.trim() }),
-      });
-      if (!res.ok) throw new Error(`${res.status}`);
+      await api.post('/api/v1/tag', { name: newTagName.trim() });
       setNewTagName('');
       setShowCreate(false);
       await loadTags();
@@ -128,11 +121,7 @@ export default function FocusCategoryScreen({ navigation }: TabScreenProps<'Focu
     if (!editingName.trim()) return;
     setSavingEdit(true);
     try {
-      const res = await apiFetch('/api/v1/tag', {
-        method: 'PATCH',
-        body: JSON.stringify({ tagId, name: editingName.trim() }),
-      });
-      if (!res.ok) throw new Error(`${res.status}`);
+      await api.patch('/api/v1/tag', { tagId, name: editingName.trim() });
       setEditingTagId(null);
       setEditingName('');
       await loadTags();
@@ -151,8 +140,7 @@ export default function FocusCategoryScreen({ navigation }: TabScreenProps<'Focu
         style: 'destructive',
         onPress: async () => {
           try {
-            const res = await apiFetch(`/api/v1/tag/${tag.tagId}`, { method: 'DELETE' });
-            if (!res.ok) throw new Error(`${res.status}`);
+            await api.delete(`/api/v1/tag/${tag.tagId}`);
             if (selectedTagId === tag.tagId) setSelectedTagId(null);
             await loadTags();
           } catch {

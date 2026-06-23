@@ -14,7 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T, inkBox } from '../../components/theme';
-import { apiFetch } from '../../utils/api';
+import { api } from '../../utils/api';
 import { useUser } from '../../contexts/UserContext';
 import { timeStrToSeconds, nowSecondsInZone, zoneSuffix } from '../../utils/challengeTime';
 import type { Group, GroupMember } from '../../types/api';
@@ -222,9 +222,12 @@ export default function GroupTab({ group, groupId, refreshing, onRefresh }: Grou
 
   useEffect(() => {
     if (!groupId) return;
-    apiFetch(`/api/v1/groups/${groupId}/challenges`)
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => setChallenges(Array.isArray(data) ? (data as Challenge[]) : []))
+    api
+      .get<Challenge[]>(`/api/v1/groups/${groupId}/challenges`)
+      .then((res) => {
+        const data = res.data;
+        setChallenges(Array.isArray(data) ? (data as Challenge[]) : []);
+      })
       .catch(() => {});
   }, [groupId]);
 

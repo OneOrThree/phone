@@ -20,7 +20,7 @@ import { T } from '../components/theme';
 import ScreenTimeModule, { type AuthorizationStatus } from '../utils/ScreenTimeModule';
 import ScreenTimeReportViewRaw from '../components/ScreenTimeReportView';
 import { todayStr, localDateStr } from '../utils/localDate';
-import { apiFetch } from '../utils/api';
+import { api } from '../utils/api';
 import type { ComponentType, ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import type { TabScreenProps } from '../types/navigation';
@@ -327,14 +327,11 @@ export default function HomeScreen({ navigation, route }: TabScreenProps<'홈'>)
           // reportedAt: 어제 정오(로컬) → 타임존 환산 시 날짜가 어제로 안전하게 떨어짐
           const reportedAt = new Date(yesterday);
           reportedAt.setHours(12, 0, 0, 0);
-          await apiFetch('/api/v1/screen-time', {
-            method: 'POST',
-            body: JSON.stringify({
-              screenTimeGoalAchieved: result === 'success',
-              actualScreenTimeMinutes: null, // 실제 사용시간(분)은 현재 미지원 → 서버가 0으로 저장
-              reportedAt: reportedAt.toISOString(),
-              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            }),
+          await api.post('/api/v1/screen-time', {
+            screenTimeGoalAchieved: result === 'success',
+            actualScreenTimeMinutes: null, // 실제 사용시간(분)은 현재 미지원 → 서버가 0으로 저장
+            reportedAt: reportedAt.toISOString(),
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           });
           await AsyncStorage.setItem('gromo:screentime:lastSyncedDate', yesterdayStr);
         } catch {}

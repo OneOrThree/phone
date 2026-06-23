@@ -14,7 +14,7 @@ import {
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import type { ListRenderItemInfo } from 'react-native';
 import { T, inkBox } from '../../components/theme';
-import { apiFetch } from '../../utils/api';
+import { api } from '../../utils/api';
 import { useUser } from '../../contexts/UserContext';
 
 // 채팅 메시지
@@ -109,9 +109,8 @@ export default function ChatTab({ groupId }: ChatTabProps) {
 
   async function fetchMessages() {
     try {
-      const res = await apiFetch(`/api/v1/groups/${groupId}/messages`);
-      if (!res.ok) return;
-      const data = (await res.json()) as ChatMessage[];
+      const res = await api.get<ChatMessage[]>(`/api/v1/groups/${groupId}/messages`);
+      const data = res.data;
       setMessages(data);
     } catch {
       // 조용히 실패 처리

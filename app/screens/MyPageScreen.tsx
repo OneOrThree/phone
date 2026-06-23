@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { apiFetch } from '../utils/api';
+import { api } from '../utils/api';
 import {
   View,
   Text,
@@ -181,10 +181,7 @@ export default function MyPageScreen({ onLogout, onWithdraw }: MyPageScreenProps
     if (!draft.trim()) return;
     setNickname(draft.trim());
     setEditing(false);
-    await apiFetch('/api/v1/user', {
-      method: 'PATCH',
-      body: JSON.stringify({ nickname: draft.trim() }),
-    }).catch(() => {});
+    await api.patch('/api/v1/user', { nickname: draft.trim() }).catch(() => {});
   }
 
   function openGoalEdit() {
@@ -207,10 +204,7 @@ export default function MyPageScreen({ onLogout, onWithdraw }: MyPageScreenProps
     );
 
     // 서버에는 사용자가 정한 목표값을 즉시 기록
-    apiFetch('/api/v1/user', {
-      method: 'PATCH',
-      body: JSON.stringify({ dailyScreenTimeGoalMinutes: minutes }),
-    }).catch(() => {});
+    api.patch('/api/v1/user', { dailyScreenTimeGoalMinutes: minutes }).catch(() => {});
   }
 
   // 측정 대상(앱/카테고리) 선택 picker 표시

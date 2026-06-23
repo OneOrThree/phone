@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { apiFetch } from '../utils/api';
+import { api } from '../utils/api';
 import { STORAGE_KEYS } from '../types/storage';
 
 interface CoinContextValue {
@@ -19,9 +19,9 @@ export function CoinProvider({ children }: { children: ReactNode }) {
 
   // 서버에서 잔액 로드
   useEffect(() => {
-    apiFetch('/api/v1/currency')
-      .then((res) => res.json())
-      .then((balance: number) => setCoins(balance))
+    api
+      .get<number>('/api/v1/currency')
+      .then((res) => setCoins(res.data))
       .catch(() => {});
   }, []);
 
@@ -40,10 +40,7 @@ export function CoinProvider({ children }: { children: ReactNode }) {
 
   async function addCoins(amount: number) {
     setCoins((prev) => prev + amount);
-    apiFetch('/api/v1/currency/earn', {
-      method: 'POST',
-      body: JSON.stringify({ amount, reason: 'SESSION_COMPLETE' }),
-    }).catch(() => {});
+    api.post('/api/v1/currency/earn', { amount, reason: 'SESSION_COMPLETE' }).catch(() => {});
   }
 
   function isOwned(itemId: number) {
@@ -53,11 +50,7 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   async function buyItem(itemId: number, price: number) {
     if (coins < price) return false;
     try {
-      const res = await apiFetch('/api/v1/currency/spend', {
-        method: 'POST',
-        body: JSON.stringify({ amount: price, reason: 'PURCHASE' }),
-      });
-      if (!res.ok) return false;
+      await api.post('/api/v1/currency/spend', { amount: price, reason: 'PURCHASE' });
       setCoins((prev) => prev - price);
       setOwnedItemIds((prev) => [...prev, itemId]);
       return true;

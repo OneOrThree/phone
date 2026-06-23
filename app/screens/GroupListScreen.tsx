@@ -14,10 +14,11 @@ import {
   Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import axios from 'axios';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { T, inkBox } from '../components/theme';
 import { DrumPicker } from '../components/DrumPicker';
-import { apiFetch } from '../utils/api';
+import { api } from '../utils/api';
 import type { TabScreenProps } from '../types/navigation';
 
 // 내 그룹 목록 아이템 (/api/v1/groups)
@@ -302,20 +303,18 @@ function CreateGroupView({ onBack, onCreated }: CreateGroupViewProps) {
 
     setLoading(true);
     try {
-      const res = await apiFetch('/api/v1/groups', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { message?: string };
-        Alert.alert('생성 실패', err.message ?? '다시 시도해주세요');
-        return;
-      }
-      const data = (await res.json()) as { code?: string };
+      const res = await api.post<{ code?: string }>('/api/v1/groups', body);
+      const data = res.data;
       Alert.alert('그룹 생성 완료 🎉', `참가 코드: ${data.code}\n(유효 시간 3시간)`, [
         { text: '확인', onPress: onCreated },
       ]);
     } catch (e) {
+      // HTTP 응답이 온 경우(=서버가 실패 상태 반환)는 '생성 실패', 그 외(네트워크 오류)는 '오류'
+      if (axios.isAxiosError(e) && e.response) {
+        const err = (e.response.data ?? {}) as { message?: string };
+        Alert.alert('생성 실패', err.message ?? '다시 시도해주세요');
+        return;
+      }
       Alert.alert('오류', (e as { message?: string }).message ?? '네트워크 오류가 발생했습니다');
     } finally {
       setLoading(false);
@@ -547,10 +546,8 @@ function SearchGroupView({ onBack, initialQuery = '', onGroupPress }: SearchGrou
     setLoading(true);
     try {
       const url = `/api/v1/groups/search?query=${encodeURIComponent(q)}`;
-      const res = await apiFetch(url);
-      const text = await res.text();
-      if (!res.ok) throw new Error(`검색 실패 (${res.status})`);
-      const data = JSON.parse(text) as GroupSearchItem[];
+      const res = await api.get<GroupSearchItem[]>(url);
+      const data = res.data;
       setResults(data);
       setSearched(true);
     } catch (e) {
@@ -761,24 +758,22 @@ function GroupOverviewModal({
     setJoining(true);
     try {
       const body = data.hasPassword ? { password: password.trim() } : {};
-      const res = await apiFetch(`/api/v1/groups/${groupId}/join`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      if (res.status === 401) {
+      await api.post(`/api/v1/groups/${groupId}/join`, body);
+      onJoined();
+    } catch (e) {
+      const status = axios.isAxiosError(e) ? e.response?.status : undefined;
+      if (status === 401) {
         Alert.alert('오류', '비밀번호가 틀렸습니다');
         return;
       }
-      if (res.status === 409) {
+      if (status === 409) {
         Alert.alert('오류', '이미 참가 중이거나 정원이 초과되었습니다');
         return;
       }
-      if (!res.ok) {
+      if (status !== undefined) {
         Alert.alert('오류', '참가에 실패했습니다');
         return;
       }
-      onJoined();
-    } catch {
       Alert.alert('오류', '네트워크 오류가 발생했습니다');
     } finally {
       setJoining(false);
@@ -880,9 +875,8 @@ export default function GroupListScreen({ navigation }: GroupListScreenProps) {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-      const res = await apiFetch('/api/v1/groups');
-      if (!res.ok) throw new Error('목록 조회 실패');
-      const data = (await res.json()) as GroupListItem[];
+      const res = await api.get<GroupListItem[]>('/api/v1/groups');
+      const data = res.data;
       setGroups(data);
     } catch (e) {
       Alert.alert('오류', (e as { message?: string }).message ?? '그룹 목록을 불러오지 못했습니다');
@@ -902,9 +896,8 @@ export default function GroupListScreen({ navigation }: GroupListScreenProps) {
     setOverviewData(null);
     setOverviewVisible(true);
     try {
-      const res = await apiFetch(`/api/v1/groups/${groupId}/overview`);
-      if (!res.ok) throw new Error();
-      const data = (await res.json()) as GroupOverview;
+      const res = await api.get<GroupOverview>(`/api/v1/groups/${groupId}/overview`);
+      const data = res.data;
       if (data.isMember) {
         setOverviewVisible(false);
         navigation.navigate('GroupDetail', { groupId });

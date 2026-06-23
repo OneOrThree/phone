@@ -1,3 +1,4 @@
+import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../types/storage';
 
@@ -26,19 +27,15 @@ interface RefreshResponse {
   refreshToken?: string;
 }
 
+// 토큰 갱신. 인터셉터 루프를 피하기 위해 인스턴스(api)가 아닌 bare axios 사용.
 async function refreshAccessToken(): Promise<string> {
   const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
   if (!refreshToken) throw new Error('no refresh token');
 
-  const res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken }),
+  const { data } = await axios.post<RefreshResponse>(`${API_URL}/api/v1/auth/refresh`, {
+    refreshToken,
   });
 
-  if (!res.ok) throw new Error('refresh failed');
-
-  const data = (await res.json()) as RefreshResponse;
   await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
   if (data.refreshToken) {
     await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
@@ -46,31 +43,43 @@ async function refreshAccessToken(): Promise<string> {
   return data.accessToken;
 }
 
-// JWT 자동 주입 + 401 시 토큰 갱신 후 1회 재시도하는 fetch 래퍼.
-export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+// 모든 백엔드 호출은 이 인스턴스를 통한다 (fetch 직접 사용 금지).
+// - 요청 인터셉터: JWT 자동 주입
+// - 응답 인터셉터: 401 시 토큰 갱신 후 1회 재시도, 실패하면 로그아웃
+export const api: AxiosInstance = axios.create({
+  baseURL: API_URL,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+api.interceptors.request.use(async (config) => {
   const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
-
-  const makeRequest = (t: string | null): Promise<Response> =>
-    fetch(`${API_URL}${path}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${t}`,
-        ...options.headers,
-      },
-    });
-
-  const res = await makeRequest(token);
-
-  if (res.status !== 401) return res;
-
-  if (!token) throw new Error('인증이 필요합니다.');
-
-  try {
-    const newToken = await refreshAccessToken();
-    return makeRequest(newToken);
-  } catch {
-    onLogout?.();
-    throw new Error('세션이 만료됐습니다. 다시 로그인해주세요.');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
+  return config;
+});
+
+interface RetriableConfig extends InternalAxiosRequestConfig {
+  _retry?: boolean;
 }
+
+api.interceptors.response.use(
+  (res) => res,
+  async (error: AxiosError) => {
+    const original = error.config as RetriableConfig | undefined;
+
+    if (error.response?.status === 401 && original && !original._retry) {
+      original._retry = true;
+      try {
+        const newToken = await refreshAccessToken();
+        original.headers.Authorization = `Bearer ${newToken}`;
+        return api(original);
+      } catch {
+        onLogout?.();
+        throw new Error('세션이 만료됐습니다. 다시 로그인해주세요.');
+      }
+    }
+
+    return Promise.reject(error);
+  },
+);

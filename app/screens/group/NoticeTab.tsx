@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, inkBox } from '../../components/theme';
-import { apiFetch } from '../../utils/api';
+import { api } from '../../utils/api';
 import { useUser } from '../../contexts/UserContext';
 import type { Group } from '../../types/api';
 
@@ -64,9 +64,8 @@ export default function NoticeTab({ group, groupId }: NoticeTabProps) {
   async function fetchNotices() {
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/v1/groups/${groupId}/announcements`);
-      if (!res.ok) throw new Error();
-      const data = (await res.json()) as Notice[];
+      const res = await api.get<Notice[]>(`/api/v1/groups/${groupId}/announcements`);
+      const data = res.data;
       setNotices(data);
     } catch {
       // 조용히 실패 처리
@@ -102,16 +101,15 @@ export default function NoticeTab({ group, groupId }: NoticeTabProps) {
     setSubmitting(true);
     try {
       const isEdit = editingId !== null;
-      const res = await apiFetch(
-        isEdit
-          ? `/api/v1/groups/${groupId}/announcements/${editingId}`
-          : `/api/v1/groups/${groupId}/announcements`,
-        {
-          method: isEdit ? 'PUT' : 'POST',
-          body: JSON.stringify({ title: title.trim(), content: content.trim() }),
-        },
-      );
-      if (!res.ok) throw new Error();
+      const url = isEdit
+        ? `/api/v1/groups/${groupId}/announcements/${editingId}`
+        : `/api/v1/groups/${groupId}/announcements`;
+      const body = { title: title.trim(), content: content.trim() };
+      if (isEdit) {
+        await api.put(url, body);
+      } else {
+        await api.post(url, body);
+      }
       setWriteVisible(false);
       fetchNotices();
     } catch {
@@ -132,10 +130,7 @@ export default function NoticeTab({ group, groupId }: NoticeTabProps) {
         style: 'destructive',
         onPress: async () => {
           try {
-            const res = await apiFetch(`/api/v1/groups/${groupId}/announcements/${notice.id}`, {
-              method: 'DELETE',
-            });
-            if (!res.ok) throw new Error();
+            await api.delete(`/api/v1/groups/${groupId}/announcements/${notice.id}`);
             fetchNotices();
           } catch {
             Alert.alert('오류', '공지 삭제에 실패했어요. 다시 시도해주세요.');

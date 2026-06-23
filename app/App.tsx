@@ -4,7 +4,8 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { setLogoutHandler, getUserIdFromToken, apiFetch } from './utils/api';
+import axios from 'axios';
+import { setLogoutHandler, getUserIdFromToken, api } from './utils/api';
 import type { LoginResult, OnboardingData, UserProfile } from './types/api';
 import type { TabParamList, RootStackParamList } from './types/navigation';
 
@@ -23,7 +24,7 @@ async function syncOnboardingToServer(onboardingData: OnboardingData | null) {
     reportTime: onboardingData.reportTime ?? '00:00',
   };
   try {
-    await apiFetch('/api/v1/user', { method: 'POST', body: JSON.stringify(body) });
+    await api.post('/api/v1/user', body);
   } catch {}
 }
 
@@ -66,17 +67,13 @@ export default function App() {
       const data = JSON.parse(raw) as UserProfile;
       const userId = getUserIdFromToken(data.accessToken ?? '');
       try {
-        const profileRes = await apiFetch('/api/v1/user');
-        if (profileRes.ok) {
-          const profile = await profileRes.json();
-          const merged = { ...data, ...profile };
-          await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
-          setUser({ ...merged, userId });
-        } else {
-          setUser({ ...data, userId });
-        }
+        const profileRes = await api.get('/api/v1/user');
+        const profile = profileRes.data;
+        const merged = { ...data, ...profile };
+        await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
+        setUser({ ...merged, userId });
       } catch {
-        // 오프라인 등 실패 시 캐시 사용
+        // 비-2xx·오프라인 등 실패 시 캐시 사용
         setUser({ ...data, userId });
       }
       setLoading(false);
@@ -87,10 +84,7 @@ export default function App() {
     try {
       const refreshToken = await AsyncStorage.getItem('gromo:refreshToken');
       if (refreshToken) {
-        await apiFetch('/api/v1/auth/logout', {
-          method: 'POST',
-          body: JSON.stringify({ refreshToken }),
-        });
+        await api.post('/api/v1/auth/logout', { refreshToken });
       }
     } catch {}
     await AsyncStorage.multiRemove(['gromo:accessToken', 'gromo:refreshToken', 'gromo:user']);
@@ -98,11 +92,12 @@ export default function App() {
   }
 
   async function handleWithdraw() {
-    const res = await apiFetch('/api/v1/user', { method: 'DELETE' });
-    if (res.status === 400) {
-      throw new Error('400');
-    }
-    if (!res.ok) {
+    try {
+      await api.delete('/api/v1/user');
+    } catch (e) {
+      if (axios.isAxiosError(e) && e.response?.status === 400) {
+        throw new Error('400');
+      }
       throw new Error('error');
     }
     await AsyncStorage.multiRemove(['gromo:accessToken', 'gromo:refreshToken', 'gromo:user']);

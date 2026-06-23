@@ -15,8 +15,9 @@ import {
 } from 'react-native';
 import type { NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import axios from 'axios';
 import { T, inkBox } from '../../components/theme';
-import { apiFetch } from '../../utils/api';
+import { api } from '../../utils/api';
 import { useUser } from '../../contexts/UserContext';
 import { zoneSuffix, deviceTimeZone } from '../../utils/challengeTime';
 import type { Group } from '../../types/api';
@@ -207,9 +208,8 @@ export default function ChallengeTab({ group, groupId }: ChallengeTabProps) {
   async function fetchChallenges() {
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/v1/groups/${groupId}/challenges`);
-      if (!res.ok) throw new Error();
-      const data = (await res.json()) as Challenge[];
+      const res = await api.get<Challenge[]>(`/api/v1/groups/${groupId}/challenges`);
+      const data = res.data;
       setChallenges(data);
     } catch {
       // 조용히 실패 처리
@@ -231,17 +231,15 @@ export default function ChallengeTab({ group, groupId }: ChallengeTabProps) {
         style: 'destructive',
         onPress: async () => {
           try {
-            const res = await apiFetch(`/api/v1/groups/${groupId}/challenges/${challenge.id}`, {
-              method: 'DELETE',
-            });
-            if (res.ok) {
-              setChallenges((prev) => prev.filter((c) => c.id !== challenge.id));
-            } else {
-              const body = (await res.json().catch(() => ({}))) as { message?: string };
+            await api.delete(`/api/v1/groups/${groupId}/challenges/${challenge.id}`);
+            setChallenges((prev) => prev.filter((c) => c.id !== challenge.id));
+          } catch (e) {
+            if (axios.isAxiosError(e) && e.response) {
+              const body = (e.response.data ?? {}) as { message?: string };
               Alert.alert('오류', body.message ?? '삭제에 실패했어요');
+            } else {
+              Alert.alert('오류', '네트워크 오류가 발생했어요');
             }
-          } catch {
-            Alert.alert('오류', '네트워크 오류가 발생했어요');
           }
         },
       },
@@ -306,20 +304,16 @@ export default function ChallengeTab({ group, groupId }: ChallengeTabProps) {
 
     setSaving(true);
     try {
-      const res = await apiFetch(`/api/v1/groups/${groupId}/challenges`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        setCreateVisible(false);
-        fetchChallenges();
-      } else {
-        const body = (await res.json().catch(() => ({}))) as { message?: string };
+      await api.post(`/api/v1/groups/${groupId}/challenges`, payload);
+      setCreateVisible(false);
+      fetchChallenges();
+    } catch (e) {
+      if (axios.isAxiosError(e) && e.response) {
+        const body = (e.response.data ?? {}) as { message?: string };
         Alert.alert('오류', body.message ?? '챌린지 생성에 실패했어요');
+      } else {
+        Alert.alert('오류', '네트워크 오류가 발생했어요');
       }
-    } catch {
-      Alert.alert('오류', '네트워크 오류가 발생했어요');
     } finally {
       setSaving(false);
     }

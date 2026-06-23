@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import axios from 'axios';
 import { T } from '../components/theme';
-import { apiFetch } from '../utils/api';
+import { api } from '../utils/api';
 import { useUser } from '../contexts/UserContext';
 import GroupTab from './group/GroupTab';
 import RankingTab from './group/RankingTab';
@@ -40,25 +41,26 @@ export default function GroupDetailScreen({ navigation, route }: TabScreenProps<
   function fetchGroup() {
     setLoading(true);
     setError(null);
-    apiFetch(`/api/v1/groups/${groupId}`)
-      .then(async (res) => {
-        if (!res.ok) {
-          await res.text().catch(() => '');
-          const msg =
-            res.status === 404
-              ? '존재하지 않거나 삭제된 그룹이에요'
-              : res.status === 403
-                ? '접근 권한이 없어요'
-                : `서버 오류 (${res.status})`;
-          setError(msg);
-          return;
-        }
-        const data = (await res.json()) as GroupDetail;
+    api
+      .get<GroupDetail>(`/api/v1/groups/${groupId}`)
+      .then((res) => {
+        const data = res.data;
         setGroup(data);
         navigation.setParams({ chatEnabled: data.chatEnabled ?? true } as never);
       })
-      .catch(() => {
-        setError('네트워크 오류');
+      .catch((e) => {
+        const status = axios.isAxiosError(e) ? e.response?.status : undefined;
+        if (status != null) {
+          const msg =
+            status === 404
+              ? '존재하지 않거나 삭제된 그룹이에요'
+              : status === 403
+                ? '접근 권한이 없어요'
+                : `서버 오류 (${status})`;
+          setError(msg);
+        } else {
+          setError('네트워크 오류');
+        }
       })
       .finally(() => {
         setLoading(false);

@@ -9,7 +9,7 @@ import {
   type SetStateAction,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { apiFetch } from '../utils/api';
+import { api } from '../utils/api';
 import { useUser } from './UserContext';
 import { STORAGE_KEYS } from '../types/storage';
 import type { CostumeItem, ItemType } from '../types/api';
@@ -79,10 +79,10 @@ export function EquipmentProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    apiFetch(`/api/equipment/${userId}`)
-      .then((res) => res.json())
-      .then((slots: ServerEquipmentSlot[]) => {
-        const costumes: CostumeItem[] = slots
+    api
+      .get<ServerEquipmentSlot[]>(`/api/equipment/${userId}`)
+      .then((res) => {
+        const costumes: CostumeItem[] = res.data
           .filter((s) => s.item !== null)
           .map((s) => ({
             ...s.item!,
@@ -136,17 +136,12 @@ export function EquipmentProvider({ children }: { children: ReactNode }) {
     if (already) {
       setEquippedCostume((prev) => prev.filter((c) => c.id !== item.id));
       if (userId && serverSlot) {
-        await apiFetch(`/api/equipment/${userId}/${serverSlot}`, { method: 'DELETE' }).catch(
-          () => {},
-        );
+        await api.delete(`/api/equipment/${userId}/${serverSlot}`).catch(() => {});
       }
     } else {
       setEquippedCostume((prev) => [...prev, item]);
       if (userId && item.id) {
-        await apiFetch('/api/equipment/equip', {
-          method: 'POST',
-          body: JSON.stringify({ userId, itemId: item.id }),
-        }).catch(() => {});
+        await api.post('/api/equipment/equip', { userId, itemId: item.id }).catch(() => {});
       }
     }
   }

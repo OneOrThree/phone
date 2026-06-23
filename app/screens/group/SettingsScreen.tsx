@@ -12,8 +12,9 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import axios from 'axios';
 import { T } from '../../components/theme';
-import { apiFetch } from '../../utils/api';
+import { api } from '../../utils/api';
 import type { Group } from '../../types/api';
 
 // 그룹 상세 — 설정 화면에서 쓰는 추가 필드
@@ -213,9 +214,8 @@ export default function SettingsScreen({
     let cancelled = false;
     async function loadSettings() {
       try {
-        const res = await apiFetch(`/api/v1/groups/${groupId}/settings`);
-        if (!res.ok) return;
-        const data = (await res.json()) as GroupDetail;
+        const res = await api.get<GroupDetail>(`/api/v1/groups/${groupId}/settings`);
+        const data = res.data;
         if (cancelled) return;
         setChatEnabled(data.chatEnabled ?? true);
         setChatLimit(data.chatLimitPerPerson ?? 0);
@@ -238,12 +238,8 @@ export default function SettingsScreen({
 
   async function patchSettings(payload: SettingsPatch) {
     try {
-      const res = await apiFetch(`/api/v1/groups/${groupId}/settings`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      return res.ok;
+      await api.patch(`/api/v1/groups/${groupId}/settings`, payload);
+      return true;
     } catch {
       return false;
     }
@@ -255,15 +251,13 @@ export default function SettingsScreen({
       '새 그룹 이름을 입력하세요',
       async (newName) => {
         if (!newName?.trim()) return;
-        const res = await apiFetch(`/api/v1/groups/${groupId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newName.trim() }),
-        });
-        if (res.ok) {
+        try {
+          await api.patch(`/api/v1/groups/${groupId}`, { name: newName.trim() });
           Alert.alert('완료', '그룹 이름이 변경됐어요');
           onGroupUpdated?.({ name: newName.trim() });
-        } else Alert.alert('오류', '변경에 실패했어요');
+        } catch {
+          Alert.alert('오류', '변경에 실패했어요');
+        }
       },
       'plain-text',
       group?.name ?? '',
@@ -276,13 +270,12 @@ export default function SettingsScreen({
       '그룹을 한 줄로 소개해주세요',
       async (desc) => {
         if (desc === null) return;
-        const res = await apiFetch(`/api/v1/groups/${groupId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ description: desc.trim() }),
-        });
-        if (res.ok) onGroupUpdated?.({ description: desc.trim() });
-        else Alert.alert('오류', '변경에 실패했어요');
+        try {
+          await api.patch(`/api/v1/groups/${groupId}`, { description: desc.trim() });
+          onGroupUpdated?.({ description: desc.trim() });
+        } catch {
+          Alert.alert('오류', '변경에 실패했어요');
+        }
       },
       'plain-text',
       group?.description ?? '',
@@ -383,22 +376,27 @@ export default function SettingsScreen({
   async function doLeave(delegateMemberId?: number | null) {
     try {
       if (delegateMemberId) {
-        const delegateRes = await apiFetch(
-          `/api/v1/groups/${groupId}/members/${delegateMemberId}/owner`,
-          { method: 'PATCH' },
-        );
-        if (!delegateRes.ok) {
-          const body = (await delegateRes.json().catch(() => ({}))) as { message?: string };
-          Alert.alert('오류', body.message ?? '권한 위임에 실패했어요');
-          return;
+        try {
+          await api.patch(`/api/v1/groups/${groupId}/members/${delegateMemberId}/owner`);
+        } catch (e) {
+          if (axios.isAxiosError(e) && e.response) {
+            const body = (e.response.data ?? {}) as { message?: string };
+            Alert.alert('오류', body.message ?? '권한 위임에 실패했어요');
+            return;
+          }
+          throw e;
         }
       }
-      const res = await apiFetch(`/api/v1/groups/${groupId}/members/me`, { method: 'DELETE' });
-      if (res.ok) {
+      try {
+        await api.delete(`/api/v1/groups/${groupId}/members/me`);
         onLeaveSuccess?.();
-      } else {
-        const body = (await res.json().catch(() => ({}))) as { message?: string };
-        Alert.alert('오류', body.message ?? '탈퇴에 실패했어요');
+      } catch (e) {
+        if (axios.isAxiosError(e) && e.response) {
+          const body = (e.response.data ?? {}) as { message?: string };
+          Alert.alert('오류', body.message ?? '탈퇴에 실패했어요');
+          return;
+        }
+        throw e;
       }
     } catch {
       Alert.alert('오류', '네트워크 오류가 발생했어요');
@@ -407,18 +405,16 @@ export default function SettingsScreen({
 
   async function doDelegate(memberId: number) {
     try {
-      const res = await apiFetch(`/api/v1/groups/${groupId}/members/${memberId}/owner`, {
-        method: 'PATCH',
-      });
-      if (res.ok) {
-        Alert.alert('완료', '방장 권한이 위임됐어요');
-        onRefresh?.();
-      } else {
-        const body = (await res.json().catch(() => ({}))) as { message?: string };
+      await api.patch(`/api/v1/groups/${groupId}/members/${memberId}/owner`);
+      Alert.alert('완료', '방장 권한이 위임됐어요');
+      onRefresh?.();
+    } catch (e) {
+      if (axios.isAxiosError(e) && e.response) {
+        const body = (e.response.data ?? {}) as { message?: string };
         Alert.alert('오류', body.message ?? '권한 위임에 실패했어요');
+      } else {
+        Alert.alert('오류', '네트워크 오류가 발생했어요');
       }
-    } catch {
-      Alert.alert('오류', '네트워크 오류가 발생했어요');
     }
   }
 
@@ -428,15 +424,15 @@ export default function SettingsScreen({
 
   async function handleRenewCode() {
     try {
-      const res = await apiFetch(`/api/v1/groups/${groupId}/code`, { method: 'POST' });
-      if (res.ok) {
-        onRefresh?.();
-      } else {
-        const body = (await res.json().catch(() => ({}))) as { message?: string };
+      await api.post(`/api/v1/groups/${groupId}/code`);
+      onRefresh?.();
+    } catch (e) {
+      if (axios.isAxiosError(e) && e.response) {
+        const body = (e.response.data ?? {}) as { message?: string };
         Alert.alert('오류', body.message ?? '초대 코드 재발급에 실패했어요');
+      } else {
+        Alert.alert('오류', '네트워크 오류가 발생했어요');
       }
-    } catch {
-      Alert.alert('오류', '네트워크 오류가 발생했어요');
     }
   }
 

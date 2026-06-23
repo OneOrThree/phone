@@ -16,7 +16,7 @@ import { useEquipment } from '../contexts/EquipmentContext';
 import { useCoins } from '../contexts/CoinContext';
 import { Character2D } from '../components/character/Character2D';
 import { T, inkBox } from '../components/theme';
-import { apiFetch } from '../utils/api';
+import { api } from '../utils/api';
 import type { EasingFunction } from 'react-native';
 import type { TabScreenProps } from '../types/navigation';
 import type { Variant } from '../components/character/characterTypes';
@@ -280,9 +280,8 @@ export default function FocusModeScreen({ navigation, route }: TabScreenProps<'F
     if (membersMap[groupId]) return;
     setLoadingMembers(true);
     try {
-      const res = await apiFetch(`/api/v1/groups/${groupId}`);
-      const data = res.ok ? ((await res.json()) as GroupDetail) : null;
-      const members = data?.members ?? [];
+      const res = await api.get<GroupDetail>(`/api/v1/groups/${groupId}`);
+      const members = res.data?.members ?? [];
       setMembersMap((prev) => ({ ...prev, [groupId]: members }));
     } catch {
       setMembersMap((prev) => ({ ...prev, [groupId]: [] }));
@@ -293,9 +292,10 @@ export default function FocusModeScreen({ navigation, route }: TabScreenProps<'F
 
   useEffect(() => {
     setLoadingGroups(true);
-    apiFetch('/api/v1/groups')
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => {
+    api
+      .get<unknown>('/api/v1/groups')
+      .then((res) => {
+        const data = res.data;
         const list: GroupSummary[] = Array.isArray(data) ? (data as GroupSummary[]) : [];
         setGroups(list);
       })
@@ -347,16 +347,13 @@ export default function FocusModeScreen({ navigation, route }: TabScreenProps<'F
     addFocusSeconds(elapsed);
 
     try {
-      await apiFetch('/api/v1/focus-session', {
-        method: 'POST',
-        body: JSON.stringify({
-          focusTagId: tagId ?? null,
-          subject: subject ?? null,
-          startedAt: startedAtRef.current,
-          endedAt,
-          distractionCount: 0,
-          totalDistractionSeconds: 0,
-        }),
+      await api.post('/api/v1/focus-session', {
+        focusTagId: tagId ?? null,
+        subject: subject ?? null,
+        startedAt: startedAtRef.current,
+        endedAt,
+        distractionCount: 0,
+        totalDistractionSeconds: 0,
       });
     } catch {}
 
