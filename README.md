@@ -20,7 +20,7 @@ gromo/
 
 ### 사전 준비
 
-- [Node.js 20+](https://nodejs.org) (CI는 Node 22 사용)
+- [Node.js 24+](https://nodejs.org)
 - Android Studio 또는 Xcode (에뮬레이터/시뮬레이터)
 - 또는 실기기 + [Expo Dev Client](https://docs.expo.dev/develop/development-builds/introduction/)
 

@@ -91,14 +91,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		D40D483A2FE111110058301C /* Exceptions for "GromoScreenTimeMonitor" folder in "GromoScreenTimeMonitor" target */ = {
+		D40D483A2FE111110058301C /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
 			target = D40D482E2FE111100058301C /* GromoScreenTimeMonitor */;
 		};
-		D463E7C12FD664D20049F07A /* Exceptions for "screentimereport" folder in "screentimereport" target */ = {
+		D463E7C12FD664D20049F07A /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -108,30 +108,8 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		D40D48322FE111100058301C /* GromoScreenTimeMonitor */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				D40D483A2FE111110058301C /* Exceptions for "GromoScreenTimeMonitor" folder in "GromoScreenTimeMonitor" target */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = GromoScreenTimeMonitor;
-			sourceTree = "<group>";
-		};
-		D463E7B52FD664D20049F07A /* screentimereport */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				D463E7C12FD664D20049F07A /* Exceptions for "screentimereport" folder in "screentimereport" target */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = screentimereport;
-			sourceTree = "<group>";
-		};
+		D40D48322FE111100058301C /* GromoScreenTimeMonitor */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (D40D483A2FE111110058301C /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = GromoScreenTimeMonitor; sourceTree = "<group>"; };
+		D463E7B52FD664D20049F07A /* screentimereport */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (D463E7C12FD664D20049F07A /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = screentimereport; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -570,7 +548,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = gromo/gromo.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -596,7 +574,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.gromo;
 				PRODUCT_NAME = gromo;
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "gromo-main";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "oneorthree-dev";
 				SWIFT_OBJC_BRIDGING_HEADER = "gromo/gromo-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -613,7 +591,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = gromo/gromo.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -634,7 +612,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.gromo;
 				PRODUCT_NAME = gromo;
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "gromo-main";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "oneorthree-dev";
 				SWIFT_OBJC_BRIDGING_HEADER = "gromo/gromo-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -771,7 +749,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_ENTITLEMENTS = GromoScreenTimeMonitor/GromoScreenTimeMonitor.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
@@ -797,7 +775,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.gromo.screentimemonitor;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "distribution-gromo-screentimemonitor";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "Gromo-ScreenTimeMonitor";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -823,7 +801,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_ENTITLEMENTS = GromoScreenTimeMonitor/GromoScreenTimeMonitor.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
@@ -849,7 +827,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.gromo.screentimemonitor;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "distribution-gromo-screentimemonitor";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "Gromo-ScreenTimeMonitor";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -874,7 +852,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_ENTITLEMENTS = screentimereport/screentimereport.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
@@ -900,7 +878,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.gromo.screentimereport;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "distribution-gromo-screentimereport";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "gromo-screentimereport";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -926,7 +904,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_ENTITLEMENTS = screentimereport/screentimereport.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
@@ -952,7 +930,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.gromo.screentimereport;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "distribution-gromo-screentimereport";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "gromo-screentimereport";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;

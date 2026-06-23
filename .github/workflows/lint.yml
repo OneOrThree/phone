@@ -20,7 +20,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: app/package-lock.json
 
@@ -34,4 +34,8 @@ jobs:
 
       - name: Check Prettier formatting
         run: npm run format:check
+        working-directory: app
+
+      - name: Typecheck
+        run: npm run typecheck
         working-directory: app

@@ -1,222 +1,236 @@
-# 🐾 Gromo App 프로젝트 가이드
+# 🐾 Gromo App — Frontend Guide
+
+React Native + Expo frontend for **gromo**. This file is the single source of truth for
+frontend code rules; it loads in addition to the repo-root `CLAUDE.md`.
+Run all commands from inside `app/`.
+
+> 한국어 번역본: [`docs/app-guide.ko.md`](../../docs/app-guide.ko.md) (repo root).
 
 ---
 
-## 📚 문서 네비게이션
+## 📚 Doc navigation
 
-**처음 이 프로젝트를 받았다면 이 순서대로 읽으세요:**
+Read in this order when you first pick up the project:
 
-1. **[DevRunbook.md](./DevRunbook.md)** ← 먼저 읽기 (환경 구축)
-   - Node.js, npm, Xcode, CocoaPods 설치
-   - 프로젝트 의존성 설치
-   - 개발 환경 설정 (백엔드 연결 모드 포함)
-   - 처음 빌드 & 실행
+1. **[DevRunbook.md](./DevRunbook.md)** — environment setup (Node, Xcode, CocoaPods, deps, backend connection mode, first build & run).
+2. **[ScreenTime_WorkLog.md](./ScreenTime_WorkLog.md)** — Screen Time feature (integration architecture, Apple Developer setup, native module dev, Metro wiring, on-device testing, troubleshooting).
+3. **CLAUDE.md** — this file (code rules: structure, conventions, commit/PR workflow, gotchas).
 
-2. **[ScreenTime_WorkLog.md](./ScreenTime_WorkLog.md)** ← 스크린타임 표시 기능
-   - 스크린 타임 통합 아키텍처
-   - Apple Developer 설정
-   - 네이티브 모듈 개발
-   - Metro 번들러 연결
-   - 실기기 테스트
-   - 트러블슈팅
+Other work logs: `ScreenTime2_WorkLog.md`, `Shop_WorkLog.md`.
 
-3. **[ScreenTime2_WorkLog.md](./ScreenTime2_WorkLog.md)** ← 보상 모듈
-   - 목표 달성 판정 아키텍처
-   - 구조적 제약 분석 (Report 익스텐션 read-only)
-   - 미해결 이슈 및 다음 할 일
+### Planning/design reference docs (`app/.docs/`)
 
-4. **[Shop_WorkLog.md](./Shop_WorkLog.md)** ← 상점 기능
-   - MVP 제외로 탭에서 숨김 처리 (코드 보존)
-   - 복원 방법 및 구현 현황
+Original planning/design source docs live in `app/.docs/`. **This folder is in `.gitignore`
+(local-only)** — they're working references, not for external sharing.
 
-5. **[CLAUDE.md](./CLAUDE.md)** ← 지금 이 문서 (코드 규칙)
-   - 폴더 구조
-   - 코딩 규칙
-   - 커밋 컨벤션
-   - 주의사항
+| Doc                                      | Purpose                                                                  |
+| ---------------------------------------- | ------------------------------------------------------------------------ |
+| `MVP_화면설계_브리프.md`                 | Screen-design brief for the design AI (concept, target, screen flow)     |
+| `기능명세.md`                            | Feature spec (screen/feature definitions; was `app/.claude/기능명세.md`) |
+| `01-information-architecture.drawio.xml` | Information architecture (IA) diagram (draw.io)                          |
+
+> When you receive a new planning/design source doc, put it in `app/.docs/` and add a row above.
+
+### Feature work logs
+
+When building a new feature, create a dedicated `<feature>_WorkLog.md` in `.claude/` and keep it
+current as you go (architecture decisions + why, code changes, troubleshooting history
+problem→cause→fix, build/deploy notes, checklist). Promote it into "Doc navigation" once stable.
 
 ---
 
-## 📓 기능 개발 Work Log
+## Stack
 
-새 기능을 개발할 때는 `.claude/` 폴더에 전용 `<기능명>_WorkLog.md` 파일을 만들고, 개발 진행 중 계속 참고/작성합니다. (예: [ScreenTime_WorkLog.md](./ScreenTime_WorkLog.md))
+- React Native 0.81 / Expo SDK 54 / React 19, written in **TypeScript** (`strict` mode).
+- React Navigation — bottom tab navigator (`홈` / `그룹` / `상점` / `마이페이지`), with
+  `FocusCategory` / `FocusMode` / `GroupDetail` as hidden (no tab button) screens and
+  `MemberCalendar` as a root-stack transparent modal.
+- AsyncStorage for local persistence; Kakao + Apple login; JWT auth.
+- HTTP via **axios** (`@/services/api`).
 
-- **기록 내용**: 아키텍처/설계 결정과 이유, 코드 변경 사항, 트러블슈팅 히스토리(문제 → 원인 → 해결), 빌드/배포 주의사항, 체크리스트
-- 작업 중간에 끊겨도 이 파일만 보면 진행 상황과 맥락을 이어갈 수 있도록 최신 상태로 유지
-- 기능이 안정화되면 "📚 문서 네비게이션"에 추가
+### Tool versions
 
----
-
-## 📁 폴더 구조
-
-```
-app/
-├── .claude/
-│   ├── DevRunbook.md         ← 환경 구축 가이드
-│   ├── ScreenTime_WorkLog.md ← 개발 가이드 & 트러블슈팅
-│   └── CLAUDE.md             ← 이 파일 (코드 규칙)
-├── screens/                  # 화면 단위 컴포넌트
-├── components/               # 재사용 UI 컴포넌트
-├── contexts/                 # 전역 상태 (Context API)
-├── utils/                    # 유틸리티 모듈
-│   ├── api.js                # HTTP 클라이언트
-│   └── ScreenTimeModule.js   # iOS 스크린 타임 브릿지
-├── assets/                   # 이미지, 폰트 등
-├── ios/                      # iOS 네이티브 코드
-│   ├── gromo/                # 메인 앱 타겟
-│   ├── screentimereport/     # 스크린 타임 리포트 익스텐션
-│   └── Pods/                 # CocoaPods 의존성
-├── .env                      # 환경 변수 (개인 설정, git ignore)
-├── package.json              # JavaScript 의존성
-├── App.js                    # 앱 진입점
-└── README.md                 # 프로젝트 개요
-```
-
----
-
-## 💻 주요 개발 도구 버전
-
-| 도구         | 버전      | 명령어                   |
+| Tool         | Version   | Check                    |
 | ------------ | --------- | ------------------------ |
-| Node.js      | `22.x`    | `node --version`         |
+| Node.js      | `24.x`    | `node --version`         |
 | npm          | `10.x`    | `npm --version`          |
-| Expo         | `~54.0.0` | (package.json 참고)      |
-| React Native | `^0.81.5` | (package.json 참고)      |
+| Expo         | `~54.0.0` | (see package.json)       |
+| React Native | `^0.81.5` | (see package.json)       |
 | Xcode        | `15.0+`   | `xcode-select --version` |
 | CocoaPods    | `1.14+`   | `pod --version`          |
 
 ---
 
-## 🚀 빠른 시작
+## Architecture
+
+State is managed with the **Context API + hooks** (no Redux/MobX/Zustand). Providers are
+nested in `src/App.tsx`: `UserProvider › CoinProvider › EquipmentProvider › FocusProvider`,
+consumed via `useUser()` / `useCoins()` / `useEquipment()` / `useFocus()`. State is persisted
+to AsyncStorage and synced to the backend through the axios client.
+
+`App.tsx` only does auth/onboarding gating + provider nesting; the navigators live in
+`src/navigation/RootNavigator.tsx`.
+
+---
+
+## Project structure
+
+All source lives under **`src/`**, and imports use the **`@/` alias** (`@` = `src`) — e.g.
+`@/services/api`. (tsconfig `paths` + `babel-plugin-module-resolver`. Keep `./` only for
+same-folder imports.) Entry point: root `index.ts` → `./src/App`.
+
+```
+app/
+├── index.ts                 # Expo entry → ./src/App
+├── app.config.js            # Expo config (assets, plugins, EAS projectId)
+├── babel.config.js          # babel-preset-expo + module-resolver (@/ alias)
+├── tsconfig.json            # extends expo/tsconfig.base, strict, paths @/*
+├── eas.json                 # EAS build profiles
+├── .env                     # local env (gitignored)
+├── .docs/                   # planning/design docs (gitignored)
+├── .claude/                 # this guide + DevRunbook + WorkLogs
+├── ios/                     # native iOS (gromo app + screentimereport extension + Pods)
+└── src/
+    ├── App.tsx              # auth gating + providers + <RootNavigator/>
+    ├── assets/              # images, fonts
+    ├── components/          # reusable UI (character/ = composition-based 2D character)
+    ├── constants/           # design tokens — theme.ts (T, inkBox)
+    ├── hooks/               # custom hooks (currently empty)
+    ├── navigation/          # RootNavigator.tsx (NavigationContainer + Tab/Stack)
+    ├── screens/             # one file per screen (group/ = group-detail tabs)
+    ├── services/            # external integrations — api.ts (axios), ScreenTimeModule.ts
+    ├── store/               # global state (Context API): User/Coin/Equipment/Focus
+    ├── types/               # shared TS types — api.ts, navigation.ts, storage.ts
+    └── utils/               # pure helpers — localDate.ts, challengeTime.ts
+```
+
+### Key modules
+
+- `src/services/api.ts` — the **axios instance `api`** (baseURL + JWT request interceptor +
+  401 refresh-retry response interceptor). **All backend calls go through `api`** — never call
+  `fetch` directly. axios **throws on non-2xx**, so handle errors with `try/catch`
+  (`axios.isAxiosError(e)` + `e.response?.status`). Pre-login auth calls use bare `axios`
+  (no interceptors).
+- `src/services/ScreenTimeModule.ts` — typed JS wrapper over the native Screen Time bridge.
+- `src/constants/theme.ts` — the `T` design tokens + `inkBox()` helper. **Reuse these**;
+  don't hardcode colors or border styles.
+- `src/components/character/` — composition-based: `Character2D.tsx` assembles `parts/` using
+  `characterVariants.ts` configs and `styles/`.
+- `src/types/` — `api.ts` (DTOs), `navigation.ts` (param lists + screen-prop helpers + global
+  `ReactNavigation.RootParamList` augmentation), `storage.ts` (`STORAGE_KEYS`).
+
+---
+
+## Quick start
 
 ```bash
-# 환경 구축 (DevRunbook.md 참고)
 cd app
 npm install
 cd ios && pod install && cd ..
 
-# 개발 서버 시작
-npm start
-
-# iOS 시뮬레이터 실행
-npm run ios
-
-# 또는 실기기
-npx expo run:ios --device #이거는 재영님만 실행가능함ㅋㅋㅋㅋ 하
+npm start                     # Metro dev server
+npm run ios                   # iOS simulator
+npx expo run:ios --device     # on-device (needs p12; Jaeyoung's machine only)
 ```
 
+### Backend connection (`.env`)
+
+`app/.env` is a personal, untracked file. Copy from the example (`cp app/.env.example app/.env`).
+`EXPO_PUBLIC_API_URL` selects the target:
+
+- **Team server (default, recommended)**: `EXPO_PUBLIC_API_URL=https://oneorthree.mooo.com` — no backend setup needed.
+- **Local backend**: bring up `back/` (Spring Boot) with `docker compose -f docker-compose.dev.yml up -d`, then `EXPO_PUBLIC_API_URL=http://localhost:8080` (use your Mac's LAN IP for a real device).
+
+See DevRunbook.md "3.2 backend connection mode" for details.
+
 ---
 
-## 🔌 백엔드 연결 (.env)
+## Code conventions
 
-`app/.env`는 git에 없는 개인 설정 파일입니다. `app/.env.example`을 복사해서 만드세요 (`cp app/.env.example app/.env`). `EXPO_PUBLIC_API_URL`로 연결 대상을 선택합니다.
+### Language
 
-- **팀 서버 (기본, 추천)**: `EXPO_PUBLIC_API_URL=https://oneorthree.mooo.com` — 백엔드 설치 불필요
-- **로컬 백엔드**: `back/`(Spring Boot)을 `docker compose -f docker-compose.dev.yml up -d`로 띄운 뒤 `EXPO_PUBLIC_API_URL=http://localhost:8080` (실기기는 맥북 로컬 IP 사용)
+- All comments and commit messages in **Korean**. Keep identifiers (vars/functions/types) in **English**.
 
-자세한 내용은 [DevRunbook.md](./DevRunbook.md)의 "3.2 백엔드 연결 모드 선택" 참고.
+### TypeScript
 
----
+- Functional components + hooks throughout.
+- Components/screens/store are `.tsx`; utils/types/services/constants are `.ts`. Config files
+  (`babel.config.js`, `metro.config.js`, `app.config.js`, `.eslintrc.js`, `.prettierrc.js`) stay `.js`.
+- Add explicit types to component props, context values, and API responses. Put shared types in
+  `src/types/`; declare screen-only response shapes as local `interface`s in that screen.
 
-## 📝 코드 규칙
+### Folders
 
-### 언어 및 커뮤니케이션
+| Folder                      | Purpose                             | Examples                                  |
+| --------------------------- | ----------------------------------- | ----------------------------------------- |
+| `src/screens/`              | tab/navigation-level screens        | `Homescreen.tsx`, `MyPageScreen.tsx`      |
+| `src/components/`           | reusable UI components              | `DrumPicker.tsx`, `MorphingTabBar.tsx`    |
+| `src/components/character/` | character parts/styles              | `Character2D.tsx`, `characterVariants.ts` |
+| `src/store/`                | global state (Context API)          | `UserContext.tsx`, `CoinContext.tsx`      |
+| `src/services/`             | API / native integrations           | `api.ts`, `ScreenTimeModule.ts`           |
+| `src/constants/`            | design tokens / shared style values | `theme.ts`                                |
+| `src/utils/`                | pure utility functions              | `localDate.ts`, `challengeTime.ts`        |
+| `src/types/`                | shared TypeScript types             | `api.ts`, `navigation.ts`, `storage.ts`   |
+| `src/assets/`               | static resources                    | images, fonts, SVG                        |
 
-- 모든 주석과 커밋 메시지는 **한국어**
-- 변수명/함수명은 **영어 유지**
-- 코드 예제는 명확하게
+### Styling
 
-### 폴더 규칙
-
-| 폴더                    | 용도                      | 예시                                       |
-| ----------------------- | ------------------------- | ------------------------------------------ |
-| `screens/`              | 탭/네비게이션 단위 화면   | `HomeScreen.js`, `MyPageScreen.js`         |
-| `components/`           | 재사용 가능한 UI 컴포넌트 | `Button.js`, `Card.js`                     |
-| `components/character/` | 캐릭터 파츠/스타일        | `CharacterHead.js`, `characterVariants.js` |
-| `contexts/`             | 전역 상태 관리            | `UserContext.js`, `CoinContext.js`         |
-| `utils/`                | 유틸리티 함수 & API       | `api.js`, `ScreenTimeModule.js`            |
-| `assets/`               | 정적 리소스               | 이미지, 폰트, SVG                          |
-
-### 스타일 규칙
-
-- **색상**: 반드시 `T.xxx` 사용 (하드코딩 금지)
-
-  ```js
-  backgroundColor: T.paper,  // ✅
+- **Colors**: always use `T.xxx` (no hardcoding).
+  ```ts
+  backgroundColor: T.paper,   // ✅
   backgroundColor: '#FFFFFF', // ❌
   ```
+- **Box style**: use the `inkBox()` helper — `style={[s.btn, inkBox(T.mint)]}`.
+- **StyleSheet**: pin a `const s = StyleSheet.create({ … })` at the bottom of the file.
 
-- **버튼 스타일**: `inkBox()` 함수 사용
+### Navigation
 
-  ```js
-  style={[s.btn, inkBox(T.mint)]}
+- Visible bottom tabs (via the custom `MorphingTabBar`): `홈` | `그룹` | `마이페이지`.
+- Registered but hidden (`tabBarButton: () => null`, reached via navigation): `상점`,
+  `FocusCategoryScreen`, `FocusMode`, `GroupDetail`. Root stack also has `MemberCalendar`
+  (transparent modal).
+- All navigator setup is in `src/navigation/RootNavigator.tsx`. Route names + params are typed in
+  `src/types/navigation.ts`.
+
+### API
+
+- **No direct `fetch`** → use the axios instance `api` from `@/services/api`.
+  ```ts
+  const { data } = await api.get('/api/v1/user');
+  await api.post('/api/v1/user', body); // pass the object directly; axios serializes it
   ```
+- Instance behavior: JWT auto-injection (request interceptor); on 401, refresh the token and
+  retry once, and log out on failure (response interceptor).
+- **axios throws on non-2xx** → branch errors in `try/catch`; read the status via
+  `axios.isAxiosError(e) ? e.response?.status : undefined`.
+- Pre-login (token-less) auth calls use bare `axios` (no interceptors).
 
-- **StyleSheet**: 파일 하단에 `const s =` 로 고정
-  ```js
-  const s = StyleSheet.create({
-    /* ... */
-  });
-  ```
+### AsyncStorage
 
-### 네비게이션 규칙
+- Keys are centralized in `@/types/storage.ts` (`STORAGE_KEYS`) — import them, don't re-type strings.
+- Naming is unified under `gromo:…` (e.g. `gromo:accessToken`, `gromo:user`, `gromo:equipment`,
+  `gromo:ownedItems`, `gromo:focus`, `gromo:screentime:*`, `gromo:selection:*`).
 
-- 탭 네비게이터: `홈` | `그룹` | `상점` | `마이페이지`
-- 탭바 숨김 화면: `FocusCategoryScreen`, `FocusMode`, `ScreenTime`
-  - 등록 위치: `App.js`의 `Tab.Navigator`
-  - 탭바 숨김 코드: `tabBarStyle` 배열에 화면 이름 추가
+### Context / global state
 
-### API 통신 규칙
-
-- **fetch 직접 사용 금지** → `apiFetch()` 함수 사용
-  ```js
-  const res = await apiFetch('/api/v1/user', { method: 'GET' });
-  ```
-- 기능: JWT 자동 주입, 토큰 갱신, 자동 로그아웃 처리 포함
-
-### AsyncStorage 규칙
-
-- **키 네이밍**: `gromo:xxx` 통일
-  ```js
-  gromo:accessToken      // JWT 토큰
-  gromo:user             // 사용자 정보
-  gromo:coins            // 코인 수
-  gromo:equipment        // 장착 아이템
-  gromo:screentime:*     // 스크린 타임 관련
-  ```
-
-### Context / 전역 상태 규칙
-
-- **위치**: `contexts/` 폴더
-- **패턴**: Context API + Provider
-- **Provider 순서** (App.js, 위 → 아래):
-  ```
-  UserProvider (최상위)
-  └─ CoinProvider
-     └─ EquipmentProvider
-        └─ FocusProvider
-           └─ NavigationContainer
-  ```
+- **Location**: `src/store/`. **Pattern**: Context API + Provider; each file exports a provider and a `use…()` hook.
+- **Provider order** (in `src/App.tsx`, top → bottom): `UserProvider` → `CoinProvider` →
+  `EquipmentProvider` → `FocusProvider` → `<RootNavigator/>`.
 
 ---
 
-## 🧭 네이티브 모듈 (iOS)
+## Native modules (iOS)
 
-### 스크린 타임 통합
+### Screen Time integration
 
-- **메인 앱 모듈**: `ios/gromo/ScreenTimeModule.swift`
-  - 권한 요청: `requestAuthorization()`
-  - 권한 상태 확인: `getAuthorizationStatus()`
-  - 총 사용 시간 조회: `getTotalScreenTime()` (App Group 경유)
+- **Main-app module**: `ios/gromo/ScreenTimeModule.swift` — `requestAuthorization()`,
+  `getAuthorizationStatus()`, `getTotalScreenTime()` (via App Group).
+- **Extension**: `ios/screentimereport/` — `TotalActivityReport.swift` (data) +
+  `TotalActivityView.swift` (UI); writes to App Group `UserDefaults`.
 
-- **익스텐션**: `ios/screentimereport/`
-  - `TotalActivityReport.swift` — 데이터 처리
-  - `TotalActivityView.swift` — UI 렌더링
-  - App Group UserDefaults에 데이터 저장
+### App Groups
 
-### App Groups 설정
-
-**Entitlements 파일 (두 개)**:
+Both entitlements files declare:
 
 ```xml
 <key>com.apple.security.application-groups</key>
@@ -225,127 +239,114 @@ npx expo run:ios --device #이거는 재영님만 실행가능함ㅋㅋㅋㅋ �
 </array>
 ```
 
-### 실기기 서명 / 프로비저닝
+### On-device signing / provisioning
 
-- **Apple Developer 계정은 재영님 개인 계정** (팀 계정 아님)
-- 안수빈은 재영님에게 받은 **p12 인증서로 실기기 서명** — Xcode Settings → Accounts에 팀 멤버로 등록되어 있지 않음
-  - 따라서 "Xcode에서 팀 계정/멤버 권한 확인" 같은 트러블슈팅은 해당 사항 없음
-- App Groups 등 capability를 새로 추가/변경해야 하면:
-  1. 재영님이 Apple Developer 포털에서 App ID / App Group 설정 변경
-  2. 재영님이 새 Provisioning Profile(`.mobileprovision`) 발급해서 전달
-  3. 안수빈은 받은 프로파일을 Xcode에 설치(더블클릭) 후 Signing & Capabilities에서 선택
+- The Apple Developer account is **Jaeyoung's personal account** (not a team account).
+- Soobin signs on-device with a **p12 cert received from Jaeyoung** — not registered as an Xcode team
+  member, so "check team membership in Xcode" troubleshooting does not apply.
+- To add/change a capability (e.g. App Groups):
+  1. Jaeyoung changes the App ID / App Group in the Apple Developer portal.
+  2. Jaeyoung issues and shares a new Provisioning Profile (`.mobileprovision`).
+  3. Soobin installs it (double-click) and selects it under Signing & Capabilities.
 
 ---
 
-## 🔐 권한 및 보안
+## Permissions & security
 
-### 필수 권한
+- Required: **FamilyControls** (read Screen Time), **App Groups** (main app ↔ extension sharing).
+- `Info.plist`:
+  ```xml
+  <key>NSFamilyControlsUsageDescription</key>
+  <string>앱별 사용 시간을 확인하기 위해 필요합니다.</string>
+  ```
 
-- **FamilyControls** (스크린 타임 읽기)
-- **App Groups** (메인 앱 ↔ 익스텐션 데이터 공유)
+---
 
-### Info.plist 설정
+## Commands
 
-```xml
-<!-- 스크린 타임 권한 설명 -->
-<key>NSFamilyControlsUsageDescription</key>
-<string>앱별 사용 시간을 확인하기 위해 필요합니다.</string>
+```bash
+npm start            # Metro dev server
+npm run ios          # simulator
+npx expo run:ios --device   # device (p12 required)
+
+npm run typecheck    # tsc --noEmit (also in CI lint pipeline)
+npm run lint         # ESLint (print-width 100, single quotes, trailing-comma all; ignores android/, ios/)
+npm run lint:fix
+npm run format:check # Prettier
+npm run format:fix
 ```
 
 ---
 
-## 📋 커밋 컨벤션
+## Commit / PR workflow
 
-```
-<태그>: <한국어 설명>
+### Commit convention
 
-feat: 로그인 화면 UI 추가
-fix: 안드로이드 크래시 수정
-chore: 의존성 업데이트
-refactor: API 통신 로직 정리
-docs: README 작성
-```
+`<tag>: <Korean summary>` — e.g. `feat: 로그인 화면 UI 추가`, `fix: 안드로이드 크래시 수정`,
+`chore: 의존성 업데이트`, `refactor: API 통신 로직 정리`, `docs: README 작성`.
 
----
+### Before committing
 
-## ✅ 커밋 전 체크리스트
-
-커밋을 제안하기 전에 아래 검사를 먼저 실행합니다.
+Run and **show results first** — don't auto-fix; let the user decide on `lint:fix`/`format:fix`:
 
 ```bash
 npm run lint
 npm run format:check
+npm run typecheck
 ```
 
-- 에러/경고가 있으면 **자동으로 수정하지 않고** 결과를 먼저 보여주고 사용자에게 확인받기
-- `lint:fix` / `format:fix`로 수정할지는 사용자가 결정
+### Commit / push rule
+
+- When a unit of work is done, propose committing and suggest the message.
+- **Always show the exact commit message (and staged scope) and get approval BEFORE running
+  `git commit`** — even when asked to commit.
+- Never run `git push` without an explicit request.
+
+### PR workflow
+
+Claude does not open PRs. Instead, write a `.md` draft the user copies into GitHub.
+
+1. **Draft location**: `app/.docs/PR_GROMO-####.md` (`.docs` is gitignored, so drafts aren't committed).
+2. **Title**: `[TYPE] GROMO-#### 한 줄 요약` — TYPE ∈ `FEAT`/`FIX`/`CHORE`/`REFACTOR` (e.g. `[FEAT] GROMO-206 인게임 재화 관리 기능 구현`).
+3. **Body**: follow the root [`.github/pull_request_template.md`](../../.github/pull_request_template.md) — `## Jira` (`[GROMO-####]()`), `## 변경 유형`, `## Summary` (what/why, 2–3 lines), `## Changes`, `## DB 변경` (only if schema changed), `## 주의사항` (migrations/side-effects, drop if none).
+4. Share the draft path; the user reviews and opens the PR.
 
 ---
 
-## 💾 커밋 / 푸시 규칙
+## Don'ts
 
-- 커밋할만한 작업 단위가 끝나면 먼저 "커밋하면 좋겠다"고 제안하고, 커밋 메시지(`태그: 한국어 설명`)도 함께 추천
-- Claude는 **절대 `git commit` / `git push`를 직접 실행하지 않음** — 항상 사용자가 직접 실행하거나 명시적으로 요청해야 함
-
----
-
-## ⚠️ 하지 말아야 할 것
-
-- ❌ 색상 하드코딩 (`'#FFE566'` 대신 `T.yellow`)
-- ❌ Context 없이 props drilling 3단계 이상
-- ❌ AsyncStorage 키 임의 생성 (문서의 키 목록 참고)
-- ❌ Character2D.js에 직접 파츠 스타일 추가
-- ❌ 승인 없이 대규모 리팩토링
-- ❌ `npx expo run:ios`로 빌드 후 `git push` 임의로 하기
+- ❌ Hardcoding colors (`'#FFE566'` → use `T.yellow`).
+- ❌ Calling `fetch` directly (use `@/services/api`).
+- ❌ Props drilling 3+ levels instead of Context.
+- ❌ Inventing AsyncStorage keys (use `STORAGE_KEYS` in `@/types/storage`).
+- ❌ Adding part styles directly in `Character2D.tsx`.
+- ❌ Large refactors without approval.
+- ❌ `git push` after a local `npx expo run:ios` build without a request.
 
 ---
 
-## 🛠️ 개발/빌드 명령어
+## Testing
 
-```bash
-# 개발 서버
-npm start                    # Metro 번들러
-
-# 빌드 & 실행
-npm run ios                  # 시뮬레이터
-npx expo run:ios --device   # 실기기 (p12 필요)
-
-# 코드 검사
-npm run lint                 # ESLint
-npm run lint:fix             # 자동 수정
-npm run format:check         # Prettier 검사
-npm run format:fix           # 자동 정렬
-```
+There are **no automated frontend tests**. Don't assume or claim coverage — verify changes by
+running the app (simulator/device) or an `npx expo export` bundle check.
 
 ---
 
-## 📖 참고 문서
+## Troubleshooting
 
-- [DevRunbook.md](./DevRunbook.md) — 환경 구축
-- [ScreenTime_WorkLog.md](./ScreenTime_WorkLog.md) — 개발 & 트러블슈팅
+- **App won't start** → see DevRunbook.md "Troubleshooting".
+- **Native module won't load** → `pod install --repo-update`, then rebuild.
+- **"No script URL" on device** → see ScreenTime_WorkLog.md "Troubleshooting".
+- **Screen Time feature missing** → check Apple Developer setup + App Groups permission.
+- **`Command PhaseScriptExecution failed` on native build** → usually `ios/.xcode.env.local`'s
+  `NODE_BINARY` points to a node path that no longer exists; set it to an installed node.
+
+### References
+
+- [DevRunbook.md](./DevRunbook.md), [ScreenTime_WorkLog.md](./ScreenTime_WorkLog.md)
 - [Apple DeviceActivityReport](https://developer.apple.com/documentation/deviceactivity)
 - [React Native Native Modules](https://reactnative.dev/docs/native-modules-ios)
 
 ---
 
-## 💬 문제 해결
-
-**Q: 앱이 안 켜져요**
-
-- A: DevRunbook.md의 "문제 해결" 섹션 참고
-
-**Q: 네이티브 모듈이 안 로드돼요**
-
-- A: `pod install --repo-update` 후 재빌드
-
-**Q: 실기기에서 "No script URL" 에러**
-
-- A: ScreenTime_WorkLog.md의 "트러블슈팅" 섹션 참고
-
-**Q: 스크린 타임 기능이 안 나와요**
-
-- A: Apple Developer 설정 및 App Groups 권한 확인
-
----
-
-**최종 업데이트**: 2026-06-16
+**Last updated**: 2026-06-23
