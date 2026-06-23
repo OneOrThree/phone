@@ -23,11 +23,11 @@ Other work logs: `ScreenTime2_WorkLog.md`, `Shop_WorkLog.md`.
 Original planning/design source docs live in `app/.docs/`. **This folder is in `.gitignore`
 (local-only)** — they're working references, not for external sharing.
 
-| Doc | Purpose |
-| --- | --- |
-| `MVP_화면설계_브리프.md` | Screen-design brief for the design AI (concept, target, screen flow) |
-| `기능명세.md` | Feature spec (screen/feature definitions; was `app/.claude/기능명세.md`) |
-| `01-information-architecture.drawio.xml` | Information architecture (IA) diagram (draw.io) |
+| Doc                                      | Purpose                                                                  |
+| ---------------------------------------- | ------------------------------------------------------------------------ |
+| `MVP_화면설계_브리프.md`                 | Screen-design brief for the design AI (concept, target, screen flow)     |
+| `기능명세.md`                            | Feature spec (screen/feature definitions; was `app/.claude/기능명세.md`) |
+| `01-information-architecture.drawio.xml` | Information architecture (IA) diagram (draw.io)                          |
 
 > When you receive a new planning/design source doc, put it in `app/.docs/` and add a row above.
 
@@ -50,14 +50,14 @@ problem→cause→fix, build/deploy notes, checklist). Promote it into "Doc navi
 
 ### Tool versions
 
-| Tool | Version | Check |
-| --- | --- | --- |
-| Node.js | `24.x` | `node --version` |
-| npm | `10.x` | `npm --version` |
-| Expo | `~54.0.0` | (see package.json) |
-| React Native | `^0.81.5` | (see package.json) |
-| Xcode | `15.0+` | `xcode-select --version` |
-| CocoaPods | `1.14+` | `pod --version` |
+| Tool         | Version   | Check                    |
+| ------------ | --------- | ------------------------ |
+| Node.js      | `24.x`    | `node --version`         |
+| npm          | `10.x`    | `npm --version`          |
+| Expo         | `~54.0.0` | (see package.json)       |
+| React Native | `^0.81.5` | (see package.json)       |
+| Xcode        | `15.0+`   | `xcode-select --version` |
+| CocoaPods    | `1.14+`   | `pod --version`          |
 
 ---
 
@@ -161,17 +161,17 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 
 ### Folders
 
-| Folder | Purpose | Examples |
-| --- | --- | --- |
-| `src/screens/` | tab/navigation-level screens | `Homescreen.tsx`, `MyPageScreen.tsx` |
-| `src/components/` | reusable UI components | `DrumPicker.tsx`, `MorphingTabBar.tsx` |
-| `src/components/character/` | character parts/styles | `Character2D.tsx`, `characterVariants.ts` |
-| `src/store/` | global state (Context API) | `UserContext.tsx`, `CoinContext.tsx` |
-| `src/services/` | API / native integrations | `api.ts`, `ScreenTimeModule.ts` |
-| `src/constants/` | design tokens / shared style values | `theme.ts` |
-| `src/utils/` | pure utility functions | `localDate.ts`, `challengeTime.ts` |
-| `src/types/` | shared TypeScript types | `api.ts`, `navigation.ts`, `storage.ts` |
-| `src/assets/` | static resources | images, fonts, SVG |
+| Folder                      | Purpose                             | Examples                                  |
+| --------------------------- | ----------------------------------- | ----------------------------------------- |
+| `src/screens/`              | tab/navigation-level screens        | `Homescreen.tsx`, `MyPageScreen.tsx`      |
+| `src/components/`           | reusable UI components              | `DrumPicker.tsx`, `MorphingTabBar.tsx`    |
+| `src/components/character/` | character parts/styles              | `Character2D.tsx`, `characterVariants.ts` |
+| `src/store/`                | global state (Context API)          | `UserContext.tsx`, `CoinContext.tsx`      |
+| `src/services/`             | API / native integrations           | `api.ts`, `ScreenTimeModule.ts`           |
+| `src/constants/`            | design tokens / shared style values | `theme.ts`                                |
+| `src/utils/`                | pure utility functions              | `localDate.ts`, `challengeTime.ts`        |
+| `src/types/`                | shared TypeScript types             | `api.ts`, `navigation.ts`, `storage.ts`   |
+| `src/assets/`               | static resources                    | images, fonts, SVG                        |
 
 ### Styling
 
@@ -231,6 +231,7 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 ### App Groups
 
 Both entitlements files declare:
+
 ```xml
 <key>com.apple.security.application-groups</key>
 <array>
@@ -287,6 +288,7 @@ npm run format:fix
 ### Before committing
 
 Run and **show results first** — don't auto-fix; let the user decide on `lint:fix`/`format:fix`:
+
 ```bash
 npm run lint
 npm run format:check
@@ -303,6 +305,7 @@ npm run typecheck
 ### PR workflow
 
 Claude does not open PRs. Instead, write a `.md` draft the user copies into GitHub.
+
 1. **Draft location**: `app/.docs/PR_GROMO-####.md` (`.docs` is gitignored, so drafts aren't committed).
 2. **Title**: `[TYPE] GROMO-#### 한 줄 요약` — TYPE ∈ `FEAT`/`FIX`/`CHORE`/`REFACTOR` (e.g. `[FEAT] GROMO-206 인게임 재화 관리 기능 구현`).
 3. **Body**: follow the root [`.github/pull_request_template.md`](../../.github/pull_request_template.md) — `## Jira` (`[GROMO-####]()`), `## 변경 유형`, `## Summary` (what/why, 2–3 lines), `## Changes`, `## DB 변경` (only if schema changed), `## 주의사항` (migrations/side-effects, drop if none).
