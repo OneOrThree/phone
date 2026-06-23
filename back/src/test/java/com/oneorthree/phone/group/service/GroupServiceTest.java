@@ -1,4 +1,4 @@
-package com.oneorthree.phone.service;
+package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupMember;
