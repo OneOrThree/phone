@@ -4,7 +4,10 @@
     "strict": true,
     "allowJs": false,
     "jsx": "react-jsx",
-    "baseUrl": "."
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
   },
   "include": ["**/*.ts", "**/*.tsx", "expo-env.d.ts"],
   "exclude": ["node_modules", "ios", "android", ".expo", "build"]

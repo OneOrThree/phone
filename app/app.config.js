@@ -17,7 +17,7 @@ export default {
     orientation: 'portrait',
     userInterfaceStyle: 'light',
     newArchEnabled: false,
-    assetBundlePatterns: ['**/*', 'assets/models/*'],
+    assetBundlePatterns: ['**/*', 'src/assets/models/*'],
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.oneorthree.gromo',

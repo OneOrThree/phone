@@ -19,18 +19,17 @@ State is persisted to AsyncStorage and synced to the backend through the API cli
 
 ## Layout & key modules
 
-- `screens/` — one file per screen, PascalCase + `Screen` suffix (e.g. `HomeScreen.js`).
-- `contexts/` — PascalCase + `Context` suffix; each exports a provider and a `use…()` hook.
-- `components/` — PascalCase. The character system under `components/character/` is
-  composition-based: `Character2D.js` assembles `parts/` using `characterVariants.js`
-  configs and `styles/`.
-- `utils/api.ts` — the **axios instance `api`** (baseURL + JWT request interceptor +
-  401 refresh-retry response interceptor). **All backend calls go through `api`**
-  (`api.get`/`api.post`/…) — don't call `fetch` directly. axios throws on non-2xx,
-  so handle errors with `try/catch` (use `axios.isAxiosError(e)` + `e.response?.status`).
-  Pre-login auth calls use bare `axios` (no interceptors).
-- `components/theme.js` — the `T` design tokens + `inkBox()` helper. **Reuse these;
-  don't hardcode colors or border styles.**
+모든 소스는 **`src/`** 아래에 있고, import는 **`@/` 별칭**(`@` = `src`)을 씁니다 — 예: `@/services/api`.
+(tsconfig `paths` + `babel-plugin-module-resolver`. 같은 폴더 import만 `./` 상대경로 유지.)
+진입점은 루트 `index.ts` → `./src/App`.
+
+- `src/screens/` — one file per screen, PascalCase + `Screen` suffix (`group/`에 그룹 상세 탭들).
+- `src/store/` — 전역 상태(**Context API**). PascalCase + `Context` suffix; 각 파일이 provider와 `use…()` 훅을 export.
+- `src/navigation/` — `RootNavigator.tsx`가 `NavigationContainer` + Tab/Stack 네비게이터를 담당. `App.tsx`는 인증/온보딩 게이팅 + Provider 중첩만.
+- `src/services/` — 외부 연동. `api.ts` = **axios 인스턴스 `api`**(JWT 요청 인터셉터 + 401 refresh-retry). **모든 백엔드 호출은 `api`로** (`api.get`/`api.post`/…), `fetch` 직접 금지. axios는 비-2xx에서 throw → `try/catch` + `axios.isAxiosError(e)`/`e.response?.status`. 로그인 전 호출은 bare `axios`. `ScreenTimeModule.ts` = 네이티브 브릿지.
+- `src/components/` — 재사용 UI. `components/character/`는 조합형: `Character2D.tsx`가 `parts/`를 `characterVariants.ts`·`styles/`로 조립.
+- `src/constants/theme.ts` — `T` 디자인 토큰 + `inkBox()` 헬퍼. **반드시 재사용**(색·테두리 하드코딩 금지).
+- `src/utils/` — 순수 헬퍼(날짜/시간). `src/types/` — 공용 타입(`api`/`navigation`/`storage`). `src/hooks/` — 커스텀 훅(현재 비어 있음).
 
 ## Conventions
 
