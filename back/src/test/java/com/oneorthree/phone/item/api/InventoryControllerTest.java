@@ -1,4 +1,4 @@
-package com.oneorthree.phone.api;
+package com.oneorthree.phone.item.api;
 
 import com.oneorthree.phone.item.dto.ItemResponse;
 import com.oneorthree.phone.item.dto.UserItemResponse;

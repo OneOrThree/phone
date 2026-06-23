@@ -1,0 +1,391 @@
+package com.oneorthree.phone.group.service;
+
+import com.oneorthree.phone.group.domain.Group;
+import com.oneorthree.phone.group.domain.GroupAnnouncement;
+import com.oneorthree.phone.group.domain.GroupMember;
+import com.oneorthree.phone.group.domain.GroupMemberRole;
+import com.oneorthree.phone.group.domain.GroupPermissionScope;
+import com.oneorthree.phone.group.dto.CreateAnnouncementRequest;
+import com.oneorthree.phone.group.dto.GroupAnnouncementResponse;
+import com.oneorthree.phone.group.exception.GroupErrorCode;
+import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.repository.GroupNoticeGrantRepository;
+import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.UserRepository;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
+/**
+ * GroupAnnouncementService 단위 테스트 골격.
+ *
+ * <p>대상: 공지 생성/조회/수정/삭제.
+ * 핵심 검증 포인트는 게스트 차단, 멤버십 존재, 그리고 공지 관리 권한
+ * (canManageNotice: OWNER ∨ noticePermission=ALL_MEMBERS ∨ NoticeGrant 보유).
+ */
+@ExtendWith(MockitoExtension.class)
+class GroupAnnouncementServiceTest {
+
+    @InjectMocks
+    private GroupAnnouncementService groupAnnouncementService;
+
+    @Mock
+    private GroupRepository groupRepository;
+
+    @Mock
+    private GroupMemberRepository groupMemberRepository;
+
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private GroupAnnouncementRepository groupAnnouncementRepository;
+
+    @Mock
+    private GroupNoticeGrantRepository groupNoticeGrantRepository;
+
+    private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
+    private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID ANNOUNCEMENT_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b1");
+
+    private User user(boolean guest) {
+        return User.builder().id(USER_ID).isGuest(guest).build();
+    }
+
+    private Group group(GroupPermissionScope noticePermission) {
+        return Group.builder().id(GROUP_ID).noticePermission(noticePermission).build();
+    }
+
+    private GroupMember member(User user, Group group, GroupMemberRole role) {
+        return GroupMember.builder().user(user).group(group).role(role).build();
+    }
+
+    // ── createAnnouncement ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("OWNER 가 공지 생성 → GroupAnnouncement 저장")
+    void createAnnouncementByOwner() {
+        // given: 요청자 OWNER, 그룹/멤버 존재
+        User user = user(false);
+        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
+
+        CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
+
+        // when
+        groupAnnouncementService.createAnnouncement(GROUP_ID, USER_ID, request);
+
+        // then: 저장된 공지의 group/author/title/content 검증
+        ArgumentCaptor<GroupAnnouncement> captor = ArgumentCaptor.forClass(GroupAnnouncement.class);
+        verify(groupAnnouncementRepository).save(captor.capture());
+        GroupAnnouncement saved = captor.getValue();
+        assertThat(saved.getGroup()).isEqualTo(group);
+        assertThat(saved.getAuthor()).isEqualTo(user);
+        assertThat(saved.getTitle()).isEqualTo("제목");
+        assertThat(saved.getContent()).isEqualTo("내용");
+    }
+
+    @Test
+    @DisplayName("권한 부여(NoticeGrant) 받은 멤버가 공지 생성 → 저장 성공")
+    void createAnnouncementByGrantedMember() {
+        // given: 일반 멤버 + noticePermission=OWNER_ONLY 지만 grant 보유
+        User user = user(false);
+        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
+        given(groupNoticeGrantRepository.existsByGroupAndUserId(group, USER_ID)).willReturn(true);
+
+        CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
+
+        // when
+        groupAnnouncementService.createAnnouncement(GROUP_ID, USER_ID, request);
+
+        // then
+        verify(groupAnnouncementRepository).save(org.mockito.ArgumentMatchers.any(GroupAnnouncement.class));
+    }
+
+    @Test
+    @DisplayName("게스트 유저 → GroupException(GUEST_FORBIDDEN)")
+    void createAnnouncementGuestForbidden() {
+        // given: 게스트 유저
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(true)));
+
+        CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
+
+        // when & then
+        assertThatThrownBy(() -> groupAnnouncementService.createAnnouncement(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.GUEST_FORBIDDEN);
+        verify(groupAnnouncementRepository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("멤버가 아님 → GroupException(MEMBER_ONLY)")
+    void createAnnouncementNotMember() {
+        // given: 그룹은 있으나 멤버가 아님
+        User user = user(false);
+        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+
+        CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
+
+        // when & then
+        assertThatThrownBy(() -> groupAnnouncementService.createAnnouncement(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.MEMBER_ONLY);
+    }
+
+    @Test
+    @DisplayName("권한 없는 일반 멤버 → GroupException(NOTICE_FORBIDDEN)")
+    void createAnnouncementNoticeForbidden() {
+        // given: 일반 멤버 + noticePermission!=ALL_MEMBERS + grant 없음
+        User user = user(false);
+        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
+        given(groupNoticeGrantRepository.existsByGroupAndUserId(group, USER_ID)).willReturn(false);
+
+        CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
+
+        // when & then: 예외 발생 + 저장 미호출
+        assertThatThrownBy(() -> groupAnnouncementService.createAnnouncement(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.NOTICE_FORBIDDEN);
+        verify(groupAnnouncementRepository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    // ── getAnnouncements ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("공지 목록 조회 성공 → 최신순 응답 매핑")
+    void getAnnouncementsSuccess() {
+        // given: 멤버 + 공지 2개(최신순)
+        User user = user(false);
+        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
+
+        GroupAnnouncement newer = GroupAnnouncement.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-0000000000b2"))
+                .group(group).author(user).title("새 공지").content("새 내용")
+                .createdAt(Instant.parse("2026-06-20T00:00:00Z"))
+                .build();
+        GroupAnnouncement older = GroupAnnouncement.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-0000000000b3"))
+                .group(group).author(user).title("옛 공지").content("옛 내용")
+                .createdAt(Instant.parse("2026-06-10T00:00:00Z"))
+                .build();
+        given(groupAnnouncementRepository.findByGroupOrderByCreatedAtDesc(group))
+                .willReturn(List.of(newer, older));
+
+        // when
+        List<GroupAnnouncementResponse> result = groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID);
+
+        // then: 순서 유지 + 필드 매핑
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getTitle()).isEqualTo("새 공지");
+        assertThat(result.get(0).getContent()).isEqualTo("새 내용");
+        assertThat(result.get(0).getCreatedAt()).isEqualTo(Instant.parse("2026-06-20T00:00:00Z"));
+        assertThat(result.get(1).getTitle()).isEqualTo("옛 공지");
+    }
+
+    @Test
+    @DisplayName("게스트 유저 → GroupException(GUEST_FORBIDDEN)")
+    void getAnnouncementsGuestForbidden() {
+        // given: 게스트 유저
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(true)));
+
+        // when & then
+        assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.GUEST_FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("멤버가 아님 → GroupException(MEMBER_ONLY)")
+    void getAnnouncementsNotMember() {
+        // given: 그룹은 있으나 멤버가 아님
+        User user = user(false);
+        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.MEMBER_ONLY);
+    }
+
+    // ── updateAnnouncement ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("공지 수정 성공 → 제목/내용 변경")
+    void updateAnnouncementSuccess() {
+        // given: OWNER + 해당 그룹의 공지 존재
+        User user = user(false);
+        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
+
+        GroupAnnouncement announcement = GroupAnnouncement.builder()
+                .id(ANNOUNCEMENT_ID).group(group).author(user)
+                .title("옛 제목").content("옛 내용").build();
+        given(groupAnnouncementRepository.findByIdAndGroup(ANNOUNCEMENT_ID, group))
+                .willReturn(Optional.of(announcement));
+
+        CreateAnnouncementRequest request = new CreateAnnouncementRequest("새 제목", "새 내용");
+
+        // when
+        groupAnnouncementService.updateAnnouncement(GROUP_ID, ANNOUNCEMENT_ID, USER_ID, request);
+
+        // then: 도메인 객체에 반영
+        assertThat(announcement.getTitle()).isEqualTo("새 제목");
+        assertThat(announcement.getContent()).isEqualTo("새 내용");
+    }
+
+    @Test
+    @DisplayName("권한 없음 → GroupException(NOTICE_FORBIDDEN)")
+    void updateAnnouncementForbidden() {
+        // given: 일반 멤버 + OWNER_ONLY + grant 없음 (공지 조회 전에 권한에서 막힘)
+        User user = user(false);
+        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
+        given(groupNoticeGrantRepository.existsByGroupAndUserId(group, USER_ID)).willReturn(false);
+
+        CreateAnnouncementRequest request = new CreateAnnouncementRequest("새 제목", "새 내용");
+
+        // when & then
+        assertThatThrownBy(() -> groupAnnouncementService.updateAnnouncement(GROUP_ID, ANNOUNCEMENT_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.NOTICE_FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("공지 없음 → GroupException(NOT_FOUND)")
+    void updateAnnouncementNotFound() {
+        // given: 권한 있으나 공지 미존재
+        User user = user(false);
+        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
+        given(groupAnnouncementRepository.findByIdAndGroup(ANNOUNCEMENT_ID, group))
+                .willReturn(Optional.empty());
+
+        CreateAnnouncementRequest request = new CreateAnnouncementRequest("새 제목", "새 내용");
+
+        // when & then
+        assertThatThrownBy(() -> groupAnnouncementService.updateAnnouncement(GROUP_ID, ANNOUNCEMENT_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.NOT_FOUND);
+    }
+
+    // ── deleteAnnouncement ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("공지 삭제 성공 → delete 호출")
+    void deleteAnnouncementSuccess() {
+        // given: OWNER + 공지 존재
+        User user = user(false);
+        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
+
+        GroupAnnouncement announcement = GroupAnnouncement.builder()
+                .id(ANNOUNCEMENT_ID).group(group).author(user)
+                .title("제목").content("내용").build();
+        given(groupAnnouncementRepository.findByIdAndGroup(ANNOUNCEMENT_ID, group))
+                .willReturn(Optional.of(announcement));
+
+        // when
+        groupAnnouncementService.deleteAnnouncement(GROUP_ID, ANNOUNCEMENT_ID, USER_ID);
+
+        // then
+        verify(groupAnnouncementRepository).delete(announcement);
+    }
+
+    @Test
+    @DisplayName("권한 없음 → GroupException(NOTICE_FORBIDDEN)")
+    void deleteAnnouncementForbidden() {
+        // given: 일반 멤버 + OWNER_ONLY + grant 없음
+        User user = user(false);
+        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
+        given(groupNoticeGrantRepository.existsByGroupAndUserId(group, USER_ID)).willReturn(false);
+
+        // when & then: 예외 발생 + 삭제 미호출
+        assertThatThrownBy(() -> groupAnnouncementService.deleteAnnouncement(GROUP_ID, ANNOUNCEMENT_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.NOTICE_FORBIDDEN);
+        verify(groupAnnouncementRepository, never()).delete(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("공지 없음 → GroupException(NOT_FOUND)")
+    void deleteAnnouncementNotFound() {
+        // given: 권한 있으나 공지 미존재
+        User user = user(false);
+        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
+        given(groupAnnouncementRepository.findByIdAndGroup(ANNOUNCEMENT_ID, group))
+                .willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupAnnouncementService.deleteAnnouncement(GROUP_ID, ANNOUNCEMENT_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.NOT_FOUND);
+    }
+}
