@@ -14,7 +14,7 @@ import static net.logstash.logback.argument.StructuredArguments.keyValue;
 @Component
 public class UserActivityEventLogger {
 
-    private static final Logger BIZ = LoggerFactory.getLogger("user-activity");
+    private static final Logger USER_ACTIVITY = LoggerFactory.getLogger("user-activity");
     private static final String SOURCE = "server";
     @Value("${spring.profiles.active:local}")
     private String env;
@@ -33,7 +33,7 @@ public class UserActivityEventLogger {
      */
     public void log(String userId, UserActivityEvent event, Map<String, Object> payload) {
         try {
-            BIZ.info("biz_event",
+            USER_ACTIVITY.info("user_activity",
                     keyValue("event", event.event()),
                     keyValue("category", event.category()),
                     keyValue("user_id", userId),
@@ -41,7 +41,7 @@ public class UserActivityEventLogger {
                     keyValue("env", env),
                     keyValue("payload", mask(payload)));
         } catch (Exception e) {
-            BIZ.warn("user-activity 발행 실패 event={}", event, e);
+            USER_ACTIVITY.warn("user-activity 발행 실패 event={}", event, e);
         }
     }
 
