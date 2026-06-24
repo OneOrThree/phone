@@ -66,7 +66,7 @@ class MaskingConverterTest {
     @Test
     @DisplayName("정상 숫자·UUID는 마스킹되지 않는다 (오탐 회귀 방지)")
     void 정상값은_훼손되지_않는다() {
-        // bizevent payload의 일반 수치
+        // user-activity payload의 일반 수치
         assertThat(MaskingConverter.mask("duration_seconds=1500 goal_minutes=25"))
                 .isEqualTo("duration_seconds=1500 goal_minutes=25");
         // user_id(UUID v7)

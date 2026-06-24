@@ -27,7 +27,7 @@ public class UserActivityEventLogger {
 
     /**
      * 인증 전 이벤트(로그인 직후·게스트 등)용 — userId 직접 전달.
-     * event·category(=BizEvent에서)·user_id·source·env·payload 를 StructuredArguments 로 실어
+     * event·category(=UserActivityEvent에서)·user_id·source·env·payload 를 StructuredArguments 로 실어
      * logstash JSON 인코더가 "필드"로 출력하게 한다. payload 는 발행 전 2차 마스킹.
      * 로깅 실패가 비즈니스 흐름을 막지 않도록 예외를 삼킨다.
      */
@@ -45,7 +45,7 @@ public class UserActivityEventLogger {
         }
     }
 
-    /** payload 의 String 값만 PII 마스킹(2차 방어). BIZEVENT 는 %mask 텍스트 패턴을 거치지 않으므로 수동. */
+    /** payload 의 String 값만 PII 마스킹(2차 방어). USER-ACTIVITY 로그는 %mask 텍스트 패턴을 거치지 않으므로 수동. */
     private Map<String, Object> mask(Map<String, Object> payload) {
         if (payload == null || payload.isEmpty()) {
             return Map.of();

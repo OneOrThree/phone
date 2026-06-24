@@ -2,9 +2,7 @@
 <!--
   GROMO-384 로그 스트림 분리.
   - APP: 시스템 로그 (텍스트, 콘솔 + 롤링 파일)
-  - BIZEVENT: 유저/비즈 이벤트 로그 (구조화 JSON, 별도 파일, additivity=false)
-  설계: docs/superpowers/specs/2026-06-24-gromo-384-bizevent-logger-design.md §4.2
-  레퍼런스: 멘토링/raw/박순영 멘토님_AI 로그/swm-secure-logger-starter/.../logback-spring.xml
+  - USER-ACTIVITY: 유저 행동 이벤트 로그 (구조화 JSON, 별도 파일, additivity=false)
 -->
 <configuration>
 
@@ -60,7 +58,7 @@
                 <logLevel>
                     <fieldName>level</fieldName>
                 </logLevel>
-                <!-- trace_id만 MDC에서 (user_id는 BizEventLogger가 kv로 넣어 중복 방지) -->
+                <!-- trace_id만 MDC에서 (user_id는 UserActivityEventLogger가 kv로 넣어 중복 방지) -->
                 <mdc>
                     <includeMdcKeyName>trace_id</includeMdcKeyName>
                 </mdc>
@@ -99,7 +97,7 @@
     </springProfile>
 
     <!-- ===================== 후속 (예정, 384 범위 밖) — 레퍼런스 swm-secure-logger-starter 참고 ===================== -->
-    <!-- TODO GROMO-385+: BIZEVENT/APP 롤링 파일 → S3 아카이브
+    <!-- TODO GROMO-385+: USER-ACTIVITY/APP 롤링 파일 → S3 아카이브
          - 자정 롤링된 전날 파일(app.YYYY-MM-DD.log / user-activity.YYYY-MM-DD.log)을 S3에 업로드
          - 레퍼런스: S3LogArchiveService + S3LogConfig -->
     <!-- TODO GROMO-385+: cloud 프로파일 — CloudWatch Logs 연동
