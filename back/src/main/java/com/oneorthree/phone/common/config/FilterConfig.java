@@ -15,13 +15,18 @@ public class FilterConfig {
     @Bean
     public FilterRegistrationBean<JwtFilter> jwtFilter() {
         FilterRegistrationBean<JwtFilter> bean = new FilterRegistrationBean<>();
-
         bean.setFilter(new JwtFilter(jwtProvider));
-
         bean.addUrlPatterns("/api/*");
-
         bean.setOrder(1);
+        return bean;
+    }
 
+    @Bean
+    public FilterRegistrationBean<TraceIdFilter> traceIdFilter() {
+        FilterRegistrationBean<TraceIdFilter> bean = new FilterRegistrationBean<>();
+        bean.setFilter(new TraceIdFilter());
+        bean.addUrlPatterns("/api/*");
+        bean.setOrder(2);
         return bean;
     }
 }
