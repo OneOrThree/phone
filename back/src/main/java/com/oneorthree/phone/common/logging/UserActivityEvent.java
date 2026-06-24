@@ -5,7 +5,7 @@ package com.oneorthree.phone.common.logging;
  * 문자열을 흩뿌리지 않고 여기서 한 곳에 관리해 오타·event↔category 불일치를 막는다.
  * 네이밍 컨벤션: object_action 과거형 (event-logging-design.md §2.1, Track 1 GA4와 동일).
  */
-public enum BizEvent {
+public enum UserActivityEvent {
 
     LOGIN_SUCCEEDED("login_succeeded", "auth"),
     LOGOUT("logout", "auth"),
@@ -16,7 +16,7 @@ public enum BizEvent {
     private final String event;
     private final String category;
 
-    BizEvent(String event, String category) {
+    UserActivityEvent(String event, String category) {
         this.event = event;
         this.category = category;
     }

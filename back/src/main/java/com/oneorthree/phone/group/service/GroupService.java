@@ -1,7 +1,7 @@
 package com.oneorthree.phone.group.service;
 
-import com.oneorthree.phone.common.logging.BizEvent;
-import com.oneorthree.phone.common.logging.BizEventLogger;
+import com.oneorthree.phone.common.logging.UserActivityEvent;
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.focus.domain.DailyFocusStat;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.domain.Group;
@@ -58,7 +58,7 @@ public class GroupService {
     private final PasswordEncoder passwordEncoder;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final GroupNoticeGrantRepository groupNoticeGrantRepository;
-    private final BizEventLogger bizEventLogger;
+    private final UserActivityEventLogger userActivityEventLogger;
 
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -216,7 +216,7 @@ public class GroupService {
                 .build());
 
         // todo: 그룹 들어온 방식 (code, search) 나중에 추가하기
-        bizEventLogger.log(BizEvent.GROUP_JOINED, Map.of("group_id", group.getId().toString()));
+        userActivityEventLogger.log(UserActivityEvent.GROUP_JOINED, Map.of("group_id", group.getId().toString()));
     }
 
     public GroupOverviewResponse getGroupOverview(UUID groupId, UUID userId) {

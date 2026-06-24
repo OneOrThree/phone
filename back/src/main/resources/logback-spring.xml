@@ -43,11 +43,11 @@
         <neverBlock>true</neverBlock>
     </appender>
 
-    <!-- ===================== BIZEVENT (유저/비즈 이벤트, JSON) ===================== -->
-    <appender name="BIZ_FILE_RAW" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>logs/bizevent.log</file>
+    <!-- ===================== USER-ACTIVITY (유저 행동 이벤트, JSON) ===================== -->
+    <appender name="UA_FILE_RAW" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/user-activity.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>logs/bizevent.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <fileNamePattern>logs/user-activity.%d{yyyy-MM-dd}.log</fileNamePattern>
             <maxHistory>30</maxHistory>
             <totalSizeCap>1GB</totalSizeCap>
         </rollingPolicy>
@@ -70,16 +70,16 @@
             </providers>
         </encoder>
     </appender>
-    <appender name="BIZ_FILE" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="BIZ_FILE_RAW"/>
+    <appender name="UA_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="UA_FILE_RAW"/>
         <queueSize>512</queueSize>
         <discardingThreshold>0</discardingThreshold>
         <neverBlock>true</neverBlock>
     </appender>
 
-    <!-- bizevent 전용 로거: APP에 섞이지 않게 additivity=false -->
-    <logger name="bizevent" level="INFO" additivity="false">
-        <appender-ref ref="BIZ_FILE"/>
+    <!-- user-activity 전용 로거: APP에 섞이지 않게 additivity=false -->
+    <logger name="user-activity" level="INFO" additivity="false">
+        <appender-ref ref="UA_FILE"/>
         <springProfile name="local | default | ci">
             <appender-ref ref="CONSOLE"/>
         </springProfile>
@@ -100,7 +100,7 @@
 
     <!-- ===================== 후속 (예정, 384 범위 밖) — 레퍼런스 swm-secure-logger-starter 참고 ===================== -->
     <!-- TODO GROMO-385+: BIZEVENT/APP 롤링 파일 → S3 아카이브
-         - 자정 롤링된 전날 파일(app.YYYY-MM-DD.log / bizevent.YYYY-MM-DD.log)을 S3에 업로드
+         - 자정 롤링된 전날 파일(app.YYYY-MM-DD.log / user-activity.YYYY-MM-DD.log)을 S3에 업로드
          - 레퍼런스: S3LogArchiveService + S3LogConfig -->
     <!-- TODO GROMO-385+: cloud 프로파일 — CloudWatch Logs 연동
          - <springProfile name="cloud"> 에 AwsLogsAppender(ca.pjer:logback-awslogs-appender)
