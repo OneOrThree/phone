@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  GROMO-384 로그 스트림 분리.
+  - APP: 시스템 로그 (텍스트, 콘솔 + 롤링 파일)
+  - BIZEVENT: 유저/비즈 이벤트 로그 (구조화 JSON, 별도 파일, additivity=false)
+  설계: docs/superpowers/specs/2026-06-24-gromo-384-bizevent-logger-design.md §4.2
+  레퍼런스: 멘토링/raw/박순영 멘토님_AI 로그/swm-secure-logger-starter/.../logback-spring.xml
+-->
+<configuration>
+
+    <!-- PII 마스킹: %mask 컨버전 워드 등록 -->
+    <conversionRule conversionWord="mask"
+                    converterClass="com.oneorthree.phone.common.logging.MaskingConverter"/>
+
+    <!-- APP 텍스트 패턴 (MDC trace_id/user_id + 마스킹된 메시지) -->
+    <property name="APP_PATTERN"
+              value="[%d{yyyy-MM-dd HH:mm:ss.SSS}] [%thread] %-5level %logger{36} [%X{trace_id}] [%X{user_id}] - %mask%n"/>
+
+    <!-- ===================== APP (시스템 로그, 텍스트) ===================== -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${APP_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="APP_FILE_RAW" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/app.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/app.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${APP_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+    <appender name="APP_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="APP_FILE_RAW"/>
+        <queueSize>512</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <neverBlock>true</neverBlock>
+    </appender>
+
+    <!-- ===================== BIZEVENT (유저/비즈 이벤트, JSON) ===================== -->
+    <appender name="BIZ_FILE_RAW" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/bizevent.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/bizevent.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp>
+                    <fieldName>timestamp</fieldName>
+                    <timeZone>UTC</timeZone>
+                </timestamp>
+                <logLevel>
+                    <fieldName>level</fieldName>
+                </logLevel>
+                <!-- trace_id만 MDC에서 (user_id는 BizEventLogger가 kv로 넣어 중복 방지) -->
+                <mdc>
+                    <includeMdcKeyName>trace_id</includeMdcKeyName>
+                </mdc>
+                <!-- event, category, user_id, source, env, payload = StructuredArguments kv -->
+                <arguments/>
+                <stackTrace/>
+            </providers>
+        </encoder>
+    </appender>
+    <appender name="BIZ_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="BIZ_FILE_RAW"/>
+        <queueSize>512</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <neverBlock>true</neverBlock>
+    </appender>
+
+    <!-- bizevent 전용 로거: APP에 섞이지 않게 additivity=false -->
+    <logger name="bizevent" level="INFO" additivity="false">
+        <appender-ref ref="BIZ_FILE"/>
+        <springProfile name="local | default | ci">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+    </logger>
+
+    <!-- ===================== 프로파일별 root ===================== -->
+    <springProfile name="local | default | ci">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+    <springProfile name="dev | staging | prod">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="APP_FILE"/>
+        </root>
+    </springProfile>
+
+    <!-- ===================== 후속 (예정, 384 범위 밖) — 레퍼런스 swm-secure-logger-starter 참고 ===================== -->
+    <!-- TODO GROMO-385+: BIZEVENT/APP 롤링 파일 → S3 아카이브
+         - 자정 롤링된 전날 파일(app.YYYY-MM-DD.log / bizevent.YYYY-MM-DD.log)을 S3에 업로드
+         - 레퍼런스: S3LogArchiveService + S3LogConfig -->
+    <!-- TODO GROMO-385+: cloud 프로파일 — CloudWatch Logs 연동
+         - <springProfile name="cloud"> 에 AwsLogsAppender(ca.pjer:logback-awslogs-appender)
+         - logGroup/stream/region/retention, 키 주입은 환경변수/Secrets Manager -->
+    <!-- TODO GROMO-운영관측: Slack ERROR 알림 appender
+         - ERROR 레벨을 Slack webhook으로 비동기 발송 (AsyncAppender, neverBlock)
+         - 레퍼런스: SlackErrorAppender. T3(Sentry)와 역할 중복 주의 — 둘 중 하나로 -->
+
+    <logger name="org.springframework" level="INFO"/>
+
+</configuration>

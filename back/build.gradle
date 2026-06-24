@@ -59,6 +59,9 @@ dependencies {
 	// UUID v7 생성 (시간 정렬, B-tree 인덱스 지역성 최적화)
 	implementation 'com.fasterxml.uuid:java-uuid-generator:5.1.0'
 
+	// BIZEVENT 구조화 JSON 로그 인코더 (GROMO-384)
+	implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
+
 	// Lombok (boilerplate 제거 - @Getter, @Builder, @RequiredArgsConstructor 등)
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
