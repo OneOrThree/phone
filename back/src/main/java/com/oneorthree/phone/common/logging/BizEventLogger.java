@@ -29,30 +29,27 @@ public class BizEventLogger {
     private String env;
 
 
-    // TODO GROMO-384: log(String event, String category, Map<String,Object> payload)
-    //   - 인증된 요청용. user_id 는 MDC("user_id") 에서 읽어 아래 4-인자 오버로드에 위임
-    public void log(String event, String category, Map<String, Object> payload) {
-        log(MDC.get("user_id"), event, category, payload);
+    /** 인증된 요청용. user_id 는 MDC("user_id") 에서 자동으로 읽어 아래 오버로드에 위임. */
+    public void log(BizEvent event, Map<String, Object> payload) {
+        log(MDC.get("user_id"), event, payload);
     }
 
-
-    // TODO GROMO-384: log(String userId, String event, String category, Map<String,Object> payload)
-    //   - 인증 전 이벤트(로그인 직후·게스트 등)용. userId 직접 전달
-    //   - bizevent 로거에 INFO 로 발행하되, event·category·user_id·source·env·payload 를
-    //     StructuredArguments(keyValue) 로 실어 logstash JSON 인코더가 "필드"로 출력하게 한다
-    //   - payload 는 발행 전 마스킹(아래 mask) — BIZEVENT 는 %mask(텍스트 패턴)를 거치지 않으므로 수동 2차 방어
-    //   - 전체를 try-catch 로 감싸 로깅 실패가 비즈니스 흐름을 막지 않게 (예외 삼킴)
-    public void log (String userId, String event, String category, Map<String, Object> payload) {
+    /**
+     * 인증 전 이벤트(로그인 직후·게스트 등)용 — userId 직접 전달.
+     * event·category(=BizEvent에서)·user_id·source·env·payload 를 StructuredArguments 로 실어
+     * logstash JSON 인코더가 "필드"로 출력하게 한다. payload 는 발행 전 2차 마스킹.
+     * 로깅 실패가 비즈니스 흐름을 막지 않도록 예외를 삼킨다.
+     */
+    public void log(String userId, BizEvent event, Map<String, Object> payload) {
         try {
             BIZ.info("biz_event",
-                    keyValue("event", event),
-                    keyValue("category", category),
+                    keyValue("event", event.event()),
+                    keyValue("category", event.category()),
                     keyValue("user_id", userId),
                     keyValue("source", SOURCE),
                     keyValue("env", env),
                     keyValue("payload", mask(payload)));
         } catch (Exception e) {
-            // 로깅 실패가 비즈니스 흐름을 막지 않게 삼킨다
             BIZ.warn("bizevent 발행 실패 event={}", event, e);
         }
     }
