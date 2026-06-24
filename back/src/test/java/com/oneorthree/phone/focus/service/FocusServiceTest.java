@@ -1,5 +1,6 @@
 package com.oneorthree.phone.focus.service;
 
+import com.oneorthree.phone.common.logging.BizEventLogger;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusTag;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
@@ -49,6 +50,9 @@ class FocusServiceTest {
 
     @InjectMocks
     private FocusService focusService;
+
+    @Mock
+    private BizEventLogger bizEventLogger;
 
     @Mock
     private FocusTagRepository focusTagRepository;

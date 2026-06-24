@@ -1,5 +1,6 @@
 package com.oneorthree.phone.group.service;
 
+import com.oneorthree.phone.common.logging.BizEventLogger;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
@@ -41,6 +42,9 @@ class GroupMemberServiceTest {
 
     @InjectMocks
     private GroupMemberService groupMemberService;
+
+    @Mock
+    private BizEventLogger bizEventLogger;
 
     @Mock
     private GroupRepository groupRepository;

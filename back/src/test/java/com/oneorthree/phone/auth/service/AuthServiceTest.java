@@ -1,6 +1,7 @@
 package com.oneorthree.phone.auth.service;
 
 import com.oneorthree.phone.auth.client.KakaoApiClient;
+import com.oneorthree.phone.common.logging.BizEventLogger;
 import com.oneorthree.phone.auth.dto.KakaoLoginResponse;
 import com.oneorthree.phone.auth.dto.TokenRefreshResponse;
 import com.oneorthree.phone.auth.client.AppleJwksClient;
@@ -36,6 +37,9 @@ class AuthServiceTest {
 
     @InjectMocks
     private AuthService authService;
+
+    @Mock
+    private BizEventLogger bizEventLogger;
 
     @Mock
     private KakaoApiClient kakaoApiClient;

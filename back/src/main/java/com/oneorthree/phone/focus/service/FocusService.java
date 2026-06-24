@@ -1,5 +1,7 @@
 package com.oneorthree.phone.focus.service;
 
+import com.oneorthree.phone.common.logging.BizEvent;
+import com.oneorthree.phone.common.logging.BizEventLogger;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
@@ -19,7 +21,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -30,6 +34,7 @@ public class FocusService {
     private final FocusTagRepository focusTagRepository;
     private final UserRepository userRepository;
     private final FocusSessionRepository focusSessionRepository;
+    private final BizEventLogger bizEventLogger;
 
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         User user = userRepository.findById(userId)
@@ -125,5 +130,10 @@ public class FocusService {
                 .distractionCount(body.getDistractionCount())
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
                 .build());
+        long durationSeconds = Duration.between(body.getStartedAt(), body.getEndedAt()).getSeconds();
+        bizEventLogger.log(BizEvent.FOCUS_SESSION_COMPLETED,
+                Map.of("duration_seconds", durationSeconds,
+                        "distraction_count", body.getDistractionCount(),
+                        "has_tag", tag != null));
     }
 }

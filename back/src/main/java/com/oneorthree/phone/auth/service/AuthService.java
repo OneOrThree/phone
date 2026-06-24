@@ -5,6 +5,8 @@ import com.oneorthree.phone.auth.dto.GuestLoginResponse;
 import com.oneorthree.phone.auth.dto.KakaoLoginResponse;
 import com.oneorthree.phone.auth.dto.TokenRefreshResponse;
 import com.oneorthree.phone.auth.client.AppleJwksClient;
+import com.oneorthree.phone.common.logging.BizEvent;
+import com.oneorthree.phone.common.logging.BizEventLogger;
 import com.oneorthree.phone.user.domain.Provider;
 import com.oneorthree.phone.user.domain.SocialAccount;
 import com.oneorthree.phone.user.domain.User;
@@ -19,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -31,6 +34,7 @@ public class AuthService {
     private final SocialAccountRepository socialAccountRepository;
     private final JwtProvider jwtProvider;
     private final AppleJwksClient appleJwksClient;
+    private final BizEventLogger bizEventLogger;
 
     @Transactional
     public KakaoLoginResponse kakaoLogin(String kakaoAccessToken) {
@@ -61,6 +65,8 @@ public class AuthService {
         String refreshToken = jwtProvider.generateRefreshToken(user.getId());
 
         user.setRefreshToken(refreshToken);
+        bizEventLogger.log(user.getId().toString(), BizEvent.LOGIN_SUCCEEDED,
+                Map.of("is_new_user", isNewUser, "method", "kakao"));
         return new KakaoLoginResponse(accessToken, refreshToken, isNewUser);
     }
 
@@ -93,6 +99,8 @@ public class AuthService {
         String refreshToken = jwtProvider.generateRefreshToken(user.getId());
 
         user.setRefreshToken(refreshToken);
+        bizEventLogger.log(user.getId().toString(), BizEvent.LOGIN_SUCCEEDED,
+                Map.of("is_new_user", isNewUser, "method", "apple"));
         return new AppleLoginResponse(accessToken, refreshToken, isNewUser);
     }
 
@@ -104,6 +112,8 @@ public class AuthService {
         String refreshToken = jwtProvider.generateRefreshToken(newUser.getId());
         newUser.setRefreshToken(refreshToken);
 
+        bizEventLogger.log(newUser.getId().toString(), BizEvent.LOGIN_SUCCEEDED,
+                Map.of("is_new_user", true, "method", "guest"));
         return new GuestLoginResponse(accessToken, refreshToken, newUser.isGuest());
     }
 
@@ -133,5 +143,7 @@ public class AuthService {
                 .orElseThrow(() -> new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN));
 
         user.setRefreshToken(null);
+
+        bizEventLogger.log(BizEvent.LOGOUT, Map.of());
     }
 }
