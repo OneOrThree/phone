@@ -30,7 +30,7 @@ interface GroupDetail extends Group {
 
 // 그룹 챌린지
 interface Challenge {
-  id: number;
+  id: string;
   status?: string;
   missionType?: string;
   missionCategory?: string;
@@ -46,7 +46,7 @@ type MemberListItem = GroupMember | { __invite: true };
 
 interface GroupTabProps {
   group: GroupDetail | null;
-  groupId: number;
+  groupId: string;
   refreshing?: boolean;
   onRefresh?: () => void;
 }
@@ -118,8 +118,8 @@ function SpeechBubble({ bio, isMe, onPress }: SpeechBubbleProps) {
 
 interface MemberCardProps {
   member: GroupMember;
-  groupId: number;
-  myUserId: number | null;
+  groupId: string;
+  myUserId: string | null;
   bio?: string;
   onEditBio?: () => void;
   onPress?: () => void;

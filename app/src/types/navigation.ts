@@ -15,14 +15,14 @@ export type TabParamList = {
   상점: undefined;
   마이페이지: undefined;
   FocusCategoryScreen: undefined;
-  FocusMode: { tagId?: number | null; tagName?: string; subject?: string };
-  GroupDetail: { groupId: number; activeTab?: GroupTabKey };
+  FocusMode: { tagId?: string | null; tagName?: string; subject?: string };
+  GroupDetail: { groupId: string; activeTab?: GroupTabKey };
 };
 
 // 루트 스택 네비게이터 파라미터
 export type RootStackParamList = {
   Tabs: undefined;
-  MemberCalendar: { member: GroupMember; groupId: number };
+  MemberCalendar: { member: GroupMember; groupId: string };
 };
 
 // 두 네비게이터를 합친 전역 파라미터 목록

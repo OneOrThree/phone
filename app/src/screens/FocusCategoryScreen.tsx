@@ -19,19 +19,19 @@ import type { TabScreenProps } from '@/types/navigation';
 
 // 카테고리(태그) — 서버 /api/v1/tag 응답
 interface Tag {
-  tagId: number;
+  tagId: string;
   name: string;
 }
 
 // 집중 세션 — 서버 /api/v1/focus-session 응답 (통계 계산에 쓰는 필드만)
 interface FocusSession {
-  focusTagId?: number | null;
+  focusTagId?: string | null;
   startedAt?: string | null;
   endedAt?: string | null;
 }
 
 // 태그별 누적 집중 시간(초) 맵
-type TagStats = Record<number, number>;
+type TagStats = Record<string, number>;
 
 function formatStat(seconds: number) {
   const h = String(Math.floor(seconds / 3600)).padStart(2, '0');
@@ -43,7 +43,7 @@ function formatStat(seconds: number) {
 export default function FocusCategoryScreen({ navigation }: TabScreenProps<'FocusCategoryScreen'>) {
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedTagId, setSelectedTagId] = useState<number | null>(null);
+  const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
   const [subject, setSubject] = useState('');
 
   const [tagStats, setTagStats] = useState<TagStats>({});
@@ -53,7 +53,7 @@ export default function FocusCategoryScreen({ navigation }: TabScreenProps<'Focu
   const [savingCreate, setSavingCreate] = useState(false);
 
   const [editMode, setEditMode] = useState(false);
-  const [editingTagId, setEditingTagId] = useState<number | null>(null);
+  const [editingTagId, setEditingTagId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
@@ -117,7 +117,7 @@ export default function FocusCategoryScreen({ navigation }: TabScreenProps<'Focu
     }
   }
 
-  async function handleUpdate(tagId: number) {
+  async function handleUpdate(tagId: string) {
     if (!editingName.trim()) return;
     setSavingEdit(true);
     try {

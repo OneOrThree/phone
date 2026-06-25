@@ -11,7 +11,7 @@ import {
 } from 'react';
 
 interface UserContextValue {
-  userId: number | null;
+  userId: string | null;
   nickname: string;
   setNickname: Dispatch<SetStateAction<string>>;
   isNewUser: boolean;
@@ -24,7 +24,7 @@ interface UserContextValue {
 
 interface UserProviderProps {
   initialNickname?: string;
-  initialUserId?: number | null;
+  initialUserId?: string | null;
   initialGoalSeconds?: number | null;
   initialIsNewUser?: boolean;
   children: ReactNode;
@@ -42,7 +42,7 @@ export function UserProvider({
   children,
 }: UserProviderProps) {
   const [nickname, setNickname] = useState(initialNickname ?? '익명');
-  const [userId] = useState<number | null>(initialUserId ?? null);
+  const [userId] = useState<string | null>(initialUserId ?? null);
   const [isNewUser, setIsNewUser] = useState(initialIsNewUser ?? false);
   const [goalSeconds, setGoalSecondsState] = useState(initialGoalSeconds ?? 3 * 3600);
   const goalSecondsRef = useRef(3 * 3600);

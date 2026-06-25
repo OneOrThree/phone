@@ -23,7 +23,7 @@ import type { TabScreenProps } from '@/types/navigation';
 
 // 내 그룹 목록 아이템 (/api/v1/groups)
 interface GroupListItem {
-  groupId: number;
+  groupId: string;
   name: string;
   role?: string;
   status?: string;
@@ -35,7 +35,7 @@ interface GroupListItem {
 
 // 그룹 검색 결과 (/api/v1/groups/search)
 interface GroupSearchItem {
-  groupId: number;
+  groupId: string;
   name: string;
   status?: string;
   currentMembers?: number;
@@ -96,7 +96,7 @@ interface GroupListViewProps {
   onRefresh: () => void;
   onCreatePress: () => void;
   onSearchSubmit: (query: string) => void;
-  onGroupPress: (groupId: number) => void;
+  onGroupPress: (groupId: string) => void;
 }
 
 function GroupListView({
@@ -526,7 +526,7 @@ function CreateGroupView({ onBack, onCreated }: CreateGroupViewProps) {
 interface SearchGroupViewProps {
   onBack: () => void;
   initialQuery?: string;
-  onGroupPress: (groupId: number) => void;
+  onGroupPress: (groupId: string) => void;
 }
 
 function SearchGroupView({ onBack, initialQuery = '', onGroupPress }: SearchGroupViewProps) {
@@ -731,7 +731,7 @@ function InfoRow({ label, value }: InfoRowProps) {
 interface GroupOverviewModalProps {
   visible: boolean;
   data: GroupOverview | null;
-  groupId: number | null;
+  groupId: string | null;
   onClose: () => void;
   onJoined: () => void;
 }
@@ -868,7 +868,7 @@ export default function GroupListScreen({ navigation }: GroupListScreenProps) {
 
   // 개요 모달 상태
   const [overviewVisible, setOverviewVisible] = useState(false);
-  const [overviewGroupId, setOverviewGroupId] = useState<number | null>(null);
+  const [overviewGroupId, setOverviewGroupId] = useState<string | null>(null);
   const [overviewData, setOverviewData] = useState<GroupOverview | null>(null);
 
   const fetchGroups = useCallback(async (isRefresh = false) => {
@@ -891,7 +891,7 @@ export default function GroupListScreen({ navigation }: GroupListScreenProps) {
   }, [view, fetchGroups]);
 
   // 비멤버 그룹 탭 시: overview API 호출 → isMember면 바로 진입, 아니면 모달 표시
-  async function openOverview(groupId: number) {
+  async function openOverview(groupId: string) {
     setOverviewGroupId(groupId);
     setOverviewData(null);
     setOverviewVisible(true);

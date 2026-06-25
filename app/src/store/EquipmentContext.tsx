@@ -54,7 +54,7 @@ interface SavedEquipment {
 // 서버 장비 슬롯 응답
 interface ServerEquipmentSlot {
   slotType: string;
-  item: (ItemType & { id: number }) | null;
+  item: (ItemType & { id: string }) | null;
 }
 
 export function EquipmentProvider({ children }: { children: ReactNode }) {

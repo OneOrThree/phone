@@ -6,7 +6,7 @@ import type { CostumeSlot, Variant } from '@/components/character/characterTypes
 // 장착형 아이템(가구/소품 — EquipmentContext의 equippedItem/equippedFurniture).
 // 서버/로컬에서 다양한 필드가 섞여 들어오므로 index signature를 둔다.
 export interface ItemType {
-  id: number;
+  id: string;
   name?: string;
   focusVariant?: Variant;
   [key: string]: unknown;
@@ -14,7 +14,7 @@ export interface ItemType {
 
 // 코스튬 아이템 (서버 item 필드 + 프론트 슬롯 키)
 export interface CostumeItem {
-  id: number;
+  id: string;
   slot: CostumeSlot;
   name?: string;
   [key: string]: unknown;
@@ -31,7 +31,7 @@ export interface FocusResult {
 
 // 그룹 멤버 (서버 역할 문자열은 'OWNER' 등 — 값이 늘 수 있어 string 유지)
 export interface GroupMember {
-  userId: number;
+  userId: string;
   nickname: string;
   role: string;
   focusTimeMinutes?: number;
@@ -41,7 +41,7 @@ export interface GroupMember {
 
 // 그룹 상세
 export interface Group {
-  groupId: number;
+  groupId: string;
   name: string;
   description?: string;
   members?: GroupMember[];
@@ -49,7 +49,7 @@ export interface Group {
 
 // 사용자 프로필 (서버 /api/v1/user 응답 + 로컬 캐시 병합 결과)
 export interface UserProfile {
-  userId?: number | null;
+  userId?: string | null;
   nickname?: string;
   accessToken?: string;
   refreshToken?: string;
