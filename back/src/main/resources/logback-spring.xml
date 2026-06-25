@@ -103,6 +103,8 @@
     <!-- TODO GROMO-385+: cloud 프로파일 — CloudWatch Logs 연동
          - <springProfile name="cloud"> 에 AwsLogsAppender(ca.pjer:logback-awslogs-appender)
          - logGroup/stream/region/retention, 키 주입은 환경변수/Secrets Manager -->
+    <!-- TODO GROMO-후속: API 요청/응답(access log) — RequestLoggingFilter 추가 시 @Slf4j→root→app.log로 자동 포함
+         (현재 시스템 로그는 dev/staging/prod root에서 app.log로 파일 출력됨, local/ci는 콘솔만). 레퍼런스: RequestLoggingFilter -->
     <!-- TODO GROMO-운영관측: Slack ERROR 알림 appender
          - ERROR 레벨을 Slack webhook으로 비동기 발송 (AsyncAppender, neverBlock)
          - 레퍼런스: SlackErrorAppender. T3(Sentry)와 역할 중복 주의 — 둘 중 하나로 -->
