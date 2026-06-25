@@ -4,12 +4,12 @@ import { STORAGE_KEYS } from '@/types/storage';
 
 export const API_URL: string = process.env.EXPO_PUBLIC_API_URL ?? 'https://oneorthree.mooo.com';
 
-// JWT access token의 sub(사용자 id)를 디코드. 실패 시 null.
-export function getUserIdFromToken(token: string): number | null {
+// JWT access token의 sub(사용자 id = UUID)를 디코드. 실패 시 null.
+export function getUserIdFromToken(token: string): string | null {
   try {
     const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const decoded = JSON.parse(atob(payload)) as { sub?: string | number };
-    return Number(decoded.sub);
+    const decoded = JSON.parse(atob(payload)) as { sub?: string };
+    return decoded.sub ?? null;
   } catch {
     return null;
   }

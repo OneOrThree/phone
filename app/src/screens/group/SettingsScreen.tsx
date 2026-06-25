@@ -23,14 +23,14 @@ interface GroupDetail extends Group {
   chatLimitPerPerson?: number;
   noticePermission?: string;
   invitePermission?: string;
-  noticeGrantedUserIds?: number[];
+  noticeGrantedUserIds?: string[];
   code?: string;
   codeExpiresAt?: string;
   [key: string]: unknown;
 }
 
 interface SettingsScreenProps {
-  groupId: number;
+  groupId: string;
   group: GroupDetail | null;
   isOwner: boolean;
   onLeaveSuccess?: () => void;
@@ -45,7 +45,7 @@ interface SettingsPatch {
   chatLimitPerPerson?: number;
   noticePermission?: string;
   invitePermission?: string;
-  noticeGrantedUserIds?: number[];
+  noticeGrantedUserIds?: string[];
 }
 
 // 선택형 옵션
@@ -168,15 +168,15 @@ export default function SettingsScreen({
   const [chatLimit, setChatLimit] = useState(0);
   const [, setNoticePermission] = useState('U');
   const [invitePermission, setInvitePermission] = useState('R');
-  const [noticeGrantedIds, setNoticeGrantedIds] = useState<number[]>([]);
+  const [noticeGrantedIds, setNoticeGrantedIds] = useState<string[]>([]);
 
   // 공지 권한 멤버 선택 모달
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [pickerSelected, setPickerSelected] = useState<number[]>([]);
+  const [pickerSelected, setPickerSelected] = useState<string[]>([]);
 
   // 방장 위임 모달 ('only' | 'leave')
   const [delegateVisible, setDelegateVisible] = useState(false);
-  const [delegateTarget, setDelegateTarget] = useState<number | null>(null);
+  const [delegateTarget, setDelegateTarget] = useState<string | null>(null);
   const [delegateMode, setDelegateMode] = useState<'only' | 'leave'>('only');
 
   useEffect(() => {
@@ -318,7 +318,7 @@ export default function SettingsScreen({
     setPickerVisible(true);
   }
 
-  function togglePickMember(userId: number) {
+  function togglePickMember(userId: string) {
     setPickerSelected((prev) =>
       prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
     );
@@ -373,7 +373,7 @@ export default function SettingsScreen({
     ]);
   }
 
-  async function doLeave(delegateMemberId?: number | null) {
+  async function doLeave(delegateMemberId?: string | null) {
     try {
       if (delegateMemberId) {
         try {
@@ -403,7 +403,7 @@ export default function SettingsScreen({
     }
   }
 
-  async function doDelegate(memberId: number) {
+  async function doDelegate(memberId: string) {
     try {
       await api.patch(`/api/v1/groups/${groupId}/members/${memberId}/owner`);
       Alert.alert('완료', '방장 권한이 위임됐어요');

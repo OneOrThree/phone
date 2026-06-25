@@ -3,6 +3,7 @@ import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { setLogoutHandler, getUserIdFromToken, api } from '@/services/api';
+import { runStorageMigrations } from '@/utils/storageMigration';
 import type { LoginResult, OnboardingData, UserProfile } from '@/types/api';
 
 const GENDER_MAP: Record<string, string> = { male: 'MALE', female: 'FEMALE', other: 'UNKNOWN' };
@@ -44,6 +45,8 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
+      // 숫자 id 캐시 무효화(PK Long→UUID 전환). 부트스트랩 캐시 로드보다 먼저 실행.
+      await runStorageMigrations();
       const raw = await AsyncStorage.getItem('gromo:user');
       if (!raw) {
         setLoading(false);

@@ -24,7 +24,7 @@ interface DailyStat {
 interface MemberCalendarModalProps {
   visible: boolean;
   member: GroupMember | null;
-  groupId: number;
+  groupId: string;
   onClose: () => void;
 }
 

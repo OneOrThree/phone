@@ -27,7 +27,7 @@ type GroupDetail = Group;
 
 // 챌린지
 interface Challenge {
-  id: number;
+  id: string;
   status?: string;
   missionType?: string;
   missionCategory?: string;
@@ -48,7 +48,7 @@ interface TimeValue {
 
 interface ChallengeTabProps {
   group: GroupDetail | null;
-  groupId: number;
+  groupId: string;
 }
 
 const CHALLENGE_TYPES = [

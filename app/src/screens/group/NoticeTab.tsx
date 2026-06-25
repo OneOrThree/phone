@@ -20,13 +20,13 @@ import type { Group } from '@/types/api';
 
 // 그룹 상세 — 화면에서 쓰는 공지 권한 필드 추가
 interface GroupDetail extends Group {
-  noticeGrantedUserIds?: number[];
+  noticeGrantedUserIds?: string[];
   [key: string]: unknown;
 }
 
 // 공지
 interface Notice {
-  id: number;
+  id: string;
   title: string;
   content: string;
   createdAt?: string;
@@ -34,7 +34,7 @@ interface Notice {
 
 interface NoticeTabProps {
   group: GroupDetail | null;
-  groupId: number;
+  groupId: string;
 }
 
 function formatDate(instant: string | null | undefined) {
@@ -53,7 +53,7 @@ export default function NoticeTab({ group, groupId }: NoticeTabProps) {
   const [writeVisible, setWriteVisible] = useState(false);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [editingId, setEditingId] = useState<number | null>(null); // null = 신규, number = 수정 중
+  const [editingId, setEditingId] = useState<string | null>(null); // null = 신규, id = 수정 중
   const [submitting, setSubmitting] = useState(false);
   const insets = useSafeAreaInsets();
 

@@ -16,7 +16,7 @@ import { T } from '@/constants/theme';
 interface TabBarRouteParams {
   chatEnabled?: boolean;
   activeTab?: string;
-  groupId?: number;
+  groupId?: string;
   showSettings?: boolean;
 }
 

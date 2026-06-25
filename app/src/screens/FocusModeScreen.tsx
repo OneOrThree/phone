@@ -215,15 +215,15 @@ function AnimatedCharacter({ variant, size }: AnimatedCharacterProps) {
 
 // 그룹 — 서버 응답에 id/groupId가 섞여 들어와 둘 다 옵셔널로 둔다
 interface GroupSummary {
-  id?: number;
-  groupId?: number;
+  id?: string;
+  groupId?: string;
   name?: string;
 }
 
 // 그룹 멤버 — 좌석 표시에 쓰는 필드만
 interface GroupMemberSummary {
-  id?: number;
-  userId?: number;
+  id?: string;
+  userId?: string;
   nickname?: string;
   name?: string;
 }
@@ -272,11 +272,11 @@ export default function FocusModeScreen({ navigation, route }: TabScreenProps<'F
   // ── 페이지 네비게이션: 0 = 개인, 1..N = 그룹 ──
   const [pageIdx, setPageIdx] = useState(0);
   const [groups, setGroups] = useState<GroupSummary[]>([]);
-  const [membersMap, setMembersMap] = useState<Record<number, GroupMemberSummary[]>>({});
+  const [membersMap, setMembersMap] = useState<Record<string, GroupMemberSummary[]>>({});
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [loadingMembers, setLoadingMembers] = useState(false);
 
-  async function fetchGroupMembers(groupId: number) {
+  async function fetchGroupMembers(groupId: string) {
     if (membersMap[groupId]) return;
     setLoadingMembers(true);
     try {

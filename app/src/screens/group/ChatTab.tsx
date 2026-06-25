@@ -19,8 +19,8 @@ import { useUser } from '@/store/UserContext';
 
 // 채팅 메시지
 interface ChatMessage {
-  id: number;
-  senderId: number;
+  id: string;
+  senderId: string;
   senderName?: string;
   content: string;
   sentAt: string | number;
@@ -28,7 +28,7 @@ interface ChatMessage {
 }
 
 interface ChatTabProps {
-  groupId: number;
+  groupId: string;
 }
 
 function isSameDay(a: string | number, b: string | number) {
