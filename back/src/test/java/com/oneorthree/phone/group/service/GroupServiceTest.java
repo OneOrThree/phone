@@ -1,14 +1,11 @@
 package com.oneorthree.phone.group.service;
 
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
-import com.oneorthree.phone.group.service.GroupAnnouncementService;
-import com.oneorthree.phone.group.service.GroupChallengeService;
-import com.oneorthree.phone.group.service.GroupMemberService;
-import com.oneorthree.phone.group.service.GroupService;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -71,6 +68,9 @@ class GroupServiceTest {
 
     @InjectMocks
     private GroupMemberService groupMemberService;
+
+    @Mock
+    private UserActivityEventLogger userActivityEventLogger;
 
     @Mock
     private GroupRepository groupRepository;

@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.service;
 
+import com.oneorthree.phone.common.logging.UserActivityEvent;
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
@@ -16,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -26,6 +29,7 @@ public class GroupMemberService {
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final UserRepository userRepository;
+    private final UserActivityEventLogger userActivityEventLogger;
 
     @Transactional
     public void transferOwner(UUID groupId, UUID targetUserId, UUID userId) {
@@ -74,5 +78,6 @@ public class GroupMemberService {
         } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
             groupMemberRepository.delete(groupMember);
         }
+        userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
     }
 }

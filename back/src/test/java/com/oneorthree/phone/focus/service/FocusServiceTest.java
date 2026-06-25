@@ -1,5 +1,6 @@
 package com.oneorthree.phone.focus.service;
 
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusTag;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
@@ -11,7 +12,6 @@ import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.FocusTagRepository;
-import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -49,6 +49,9 @@ class FocusServiceTest {
 
     @InjectMocks
     private FocusService focusService;
+
+    @Mock
+    private UserActivityEventLogger userActivityEventLogger;
 
     @Mock
     private FocusTagRepository focusTagRepository;
