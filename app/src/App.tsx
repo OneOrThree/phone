@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { setLogoutHandler, getUserIdFromToken, api } from '@/services/api';
 import { runStorageMigrations } from '@/utils/storageMigration';
+import { logLogin } from '@/services/analyticsEvents';
 import type { LoginResult, OnboardingData, UserProfile } from '@/types/api';
 
 const GENDER_MAP: Record<string, string> = { male: 'MALE', female: 'FEMALE', other: 'UNKNOWN' };
@@ -137,7 +138,10 @@ export default function App() {
           setUser({ ...u, userId });
           if (u.isNewUser) setPendingOnboarding(true);
         }}
-        onGuestStart={() => setShowGuestOnboarding(true)}
+        onGuestStart={() => {
+          logLogin('guest');
+          setShowGuestOnboarding(true);
+        }}
       />
     );
   }

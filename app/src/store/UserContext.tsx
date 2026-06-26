@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useState,
   type Dispatch,
@@ -9,6 +10,8 @@ import {
   type RefObject,
   type SetStateAction,
 } from 'react';
+import { setUserId } from '@/services/analytics';
+import { setIdentityProps } from '@/services/analyticsEvents';
 
 interface UserContextValue {
   userId: string | null;
@@ -51,6 +54,13 @@ export function UserProvider({
     goalSecondsRef.current = v;
     setGoalSecondsState(v);
   }, []);
+
+  // GA4 User-ID / 게스트 여부 연결 (분석 식별의 단일 지점).
+  // userId는 로그인/게스트 진입 시 1회 정해지고, 로그아웃 시 트리가 리마운트된다.
+  useEffect(() => {
+    setUserId(userId); // UUID(로그인) 또는 null(게스트)
+    setIdentityProps({ is_guest: userId === null });
+  }, [userId]);
 
   return (
     <UserContext.Provider

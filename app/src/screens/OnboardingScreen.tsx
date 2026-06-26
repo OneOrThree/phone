@@ -16,6 +16,13 @@ import {
 } from 'react-native';
 import { T } from '@/constants/theme';
 import BirthdayPicker from '@/components/BirthdayPicker';
+import {
+  logOnboardingStarted,
+  logOnboardingProfileSubmitted,
+  logOnboardingGoalSubmitted,
+  logOnboardingCompleted,
+  type GenderCode,
+} from '@/services/analyticsEvents';
 import type { OnboardingData } from '@/types/api';
 
 // 시·분 단위 시각 값
@@ -202,6 +209,23 @@ const GENDER_OPTIONS = [
   { value: 'other', label: '기타' },
 ];
 
+// 분석용 비식별 매핑 (PII 금지 — 원본 성별/생년월일 대신 코드/연령대만 전송)
+const GENDER_CODE: Record<string, GenderCode> = {
+  male: 'MALE',
+  female: 'FEMALE',
+  other: 'UNKNOWN',
+};
+
+function ageBandOf(birth: Date): string {
+  const age = new Date().getFullYear() - birth.getFullYear();
+  if (age < 10) return 'under_10';
+  if (age < 20) return '10s';
+  if (age < 30) return '20s';
+  if (age < 40) return '30s';
+  if (age < 50) return '40s';
+  return '50s+';
+}
+
 function formatGoalTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -298,12 +322,26 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
 
   const canProceed = nickname.trim().length > 0 && gender !== null && birthDate !== null;
 
+  // 온보딩 퍼널 진입(최초 1회).
+  useEffect(() => {
+    logOnboardingStarted();
+  }, []);
+
   function handleComplete() {
     if (gender === null || birthDate === null) return;
     const y = birthDate.getFullYear();
     const m = String(birthDate.getMonth() + 1).padStart(2, '0');
     const d = String(birthDate.getDate()).padStart(2, '0');
     const birthday = `${y}-${m}-${d}`;
+
+    // 단일 화면 폼이므로 완료 시점에 프로필·목표 submit과 완료를 함께 기록(비식별값만).
+    logOnboardingProfileSubmitted({
+      gender: GENDER_CODE[gender] ?? 'UNKNOWN',
+      age_band: ageBandOf(birthDate),
+    });
+    logOnboardingGoalSubmitted({ goal_minutes: Math.round(goalSeconds / 60) });
+    logOnboardingCompleted();
+
     onComplete({
       nickname: nickname.trim(),
       gender,
