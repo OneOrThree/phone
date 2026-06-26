@@ -17,6 +17,7 @@ import { useCoins } from '@/store/CoinContext';
 import { Character2D } from '@/components/character/Character2D';
 import { T, inkBox } from '@/constants/theme';
 import { api } from '@/services/api';
+import { logFocusSessionStarted } from '@/services/analyticsEvents';
 import type { EasingFunction } from 'react-native';
 import type { TabScreenProps } from '@/types/navigation';
 import type { Variant } from '@/components/character/characterTypes';
@@ -327,6 +328,7 @@ export default function FocusModeScreen({ navigation, route }: TabScreenProps<'F
       startedAtRef.current = new Date().toISOString();
       lastCoinRef.current = 0;
       setSessionSeconds(0);
+      logFocusSessionStarted({ has_tag: tagId != null });
       const id = setInterval(() => {
         const elapsed = Math.floor((Date.now() - (startTimeRef.current ?? Date.now())) / 1000);
         setSessionSeconds(elapsed);
@@ -337,9 +339,11 @@ export default function FocusModeScreen({ navigation, route }: TabScreenProps<'F
         }
       }, 1000);
       return () => clearInterval(id);
-    }, []),
+    }, [tagId]),
   );
 
+  // 세션 종료. focus_session_completed는 서버 검증 이벤트([S], 백엔드 MP 소유)이므로
+  // 여기서 GA4로 발행하지 않는다 — 클라가 함께 보내면 이중 집계된다(설계서 §1·§5.C).
   async function handleStop() {
     const elapsed = Math.floor((Date.now() - (startTimeRef.current ?? Date.now())) / 1000);
     const endedAt = new Date().toISOString();

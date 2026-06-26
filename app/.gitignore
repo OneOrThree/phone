@@ -16,3 +16,7 @@ build/
 
 # Expo가 자동 생성하는 타입 선언 (process.env.EXPO_PUBLIC_*, 에셋 모듈 등)
 expo-env.d.ts
+
+# Firebase 설정 파일 (프로젝트별 키 — 커밋 금지, 로컬/EAS secret으로 관리)
+GoogleService-Info.plist
+google-services.json

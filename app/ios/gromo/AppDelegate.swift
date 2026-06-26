@@ -1,4 +1,5 @@
 import Expo
+import FirebaseCore
 import RNCKakaoUser
 import React
 import ReactAppDependencyProvider
@@ -14,6 +15,9 @@ public class AppDelegate: ExpoAppDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
+    // Firebase 초기화 (GoogleService-Info.plist 기반). RN 시작 전에 먼저 설정.
+    FirebaseApp.configure()
+
     let delegate = ReactNativeDelegate()
     let factory = ExpoReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()

@@ -14,6 +14,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import { API_URL, api } from '@/services/api';
+import { logLogin, logSignUp, setIdentityProps, type AuthMethod } from '@/services/analyticsEvents';
 import type { LoginResult } from '@/types/api';
 
 interface LoginScreenProps {
@@ -37,7 +38,7 @@ async function kakaoLogin(): Promise<LoginResult> {
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/kakao`, {
-      kakaoAccessToken: kakaoToken.accessToken,
+      token: kakaoToken.accessToken,
     });
     data = res.data;
   } catch (e) {
@@ -101,6 +102,14 @@ async function appleLogin(): Promise<LoginResult> {
   return data;
 }
 
+// 인증 성공 시 GA4 이벤트 + signup_method 유저속성 기록.
+// 신규 가입은 sign_up, 기존 사용자는 login (GA4 표준 이벤트).
+function trackAuthSuccess(method: AuthMethod, isNewUser?: boolean): void {
+  if (isNewUser) logSignUp(method);
+  else logLogin(method);
+  setIdentityProps({ is_guest: false, signup_method: method });
+}
+
 export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps) {
   const [loadingKakao, setLoadingKakao] = useState(false);
   const [loadingApple, setLoadingApple] = useState(false);
@@ -112,6 +121,7 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
     setLoadingKakao(true);
     try {
       const user = await kakaoLogin();
+      trackAuthSuccess('kakao', user.isNewUser);
       onLogin(user);
     } catch {
     } finally {
@@ -124,6 +134,7 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
     setLoadingApple(true);
     try {
       const user = await appleLogin();
+      trackAuthSuccess('apple', user.isNewUser);
       onLogin(user);
     } catch (e) {
       // 사용자가 직접 취소한 경우는 에러 알림 생략
