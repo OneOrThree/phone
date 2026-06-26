@@ -45,8 +45,11 @@ jobs:
           # 비어있지 않고 유효한 plist인지 검증(키 존재 확인)
           test -s ios/GoogleService-Info.plist
           grep -q "GOOGLE_APP_ID" ios/GoogleService-Info.plist
-          # .gitignore 대상이지만 EAS 빌드 업로드(아카이브)에 포함되도록 강제 추적
+          # EAS는 .gitignore된 파일을 빌드 업로드에서 제외한다(staged여도 제외).
+          # 따라서 CI 워크스페이스에서 임시 커밋으로 포함시킨다 (원격에 push하지 않음).
           git add -f ios/GoogleService-Info.plist
+          git -c user.email=ci@oneorthree.local -c user.name=ci \
+            commit -q -m "ci: inject GoogleService-Info.plist (ephemeral, not pushed)"
 
       - name: 의존성 설치
         working-directory: app
