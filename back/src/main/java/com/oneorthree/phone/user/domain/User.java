@@ -2,7 +2,6 @@ package com.oneorthree.phone.user.domain;
 
 import com.oneorthree.phone.item.domain.CharacterEquipment;
 import com.oneorthree.phone.item.domain.UserItem;
-import com.oneorthree.phone.league.domain.LeagueTier;
 
 import com.oneorthree.phone.currency.exception.CurrencyErrorCode;
 import com.oneorthree.phone.currency.exception.CurrencyException;
@@ -62,8 +61,8 @@ public class User {
     @Builder.Default
     private int currency = 0;
 
-    @Enumerated(EnumType.STRING)
-    private LeagueTier currentTier;
+    @Column(name = "current_tier")
+    private Integer currentTier;
 
     @Column(nullable = false)
     @Builder.Default

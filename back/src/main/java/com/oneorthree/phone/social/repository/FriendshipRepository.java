@@ -11,11 +11,11 @@ import java.util.UUID;
 
 public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
 
-    List<Friendship> findByRequesterAndStatus(User requester, FriendshipStatus status);
+    List<Friendship> findByFromUserAndStatus(User fromUser, FriendshipStatus status);
 
-    List<Friendship> findByReceiverAndStatus(User receiver, FriendshipStatus status);
+    List<Friendship> findByToUserAndStatus(User toUser, FriendshipStatus status);
 
-    Optional<Friendship> findByRequesterAndReceiver(User requester, User receiver);
+    Optional<Friendship> findByFromUserAndToUser(User fromUser, User toUser);
 
-    boolean existsByRequesterAndReceiver(User requester, User receiver);
+    boolean existsByFromUserAndToUser(User fromUser, User toUser);
 }

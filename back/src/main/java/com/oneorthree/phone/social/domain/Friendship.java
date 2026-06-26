@@ -19,6 +19,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -26,7 +27,7 @@ import java.util.UUID;
 @Entity
 @Table(
         name = "friendships",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"requester_id", "receiver_id"})
+        uniqueConstraints = @UniqueConstraint(columnNames = {"from_user_id", "to_user_id"})
 )
 @Getter
 @Builder
@@ -39,12 +40,12 @@ public class Friendship {
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "requester_id", nullable = false)
-    private User requester;
+    @JoinColumn(name = "from_user_id", nullable = false)
+    private User fromUser;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "receiver_id", nullable = false)
-    private User receiver;
+    @JoinColumn(name = "to_user_id", nullable = false)
+    private User toUser;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -52,7 +53,13 @@ public class Friendship {
     private FriendshipStatus status = FriendshipStatus.PENDING;
 
     @CreationTimestamp
-    private Instant requestedAt;
+    @Column(name = "created_at")
+    private Instant createdAt;
 
-    private Instant acceptedAt;
+    @UpdateTimestamp
+    @Column(name = "updated_at")
+    private Instant updatedAt;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
 }

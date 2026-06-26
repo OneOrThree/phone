@@ -10,7 +10,7 @@ public record UserProfileResponse(
         LocalDate birthDate,
         String profileImageUrl,
         int currency,
-        String currentTier,
+        Integer currentTier,
         int dailyScreenTimeGoalMinutes,
         String timeZone,
         String dayStartTime,

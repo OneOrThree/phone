@@ -5,7 +5,6 @@ import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.league.domain.LeagueTier;
 import com.oneorthree.phone.user.domain.Gender;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
@@ -238,7 +237,7 @@ class UserServiceTest {
                 .birthDate(LocalDate.of(2001, 3, 3))
                 .profileImageUrl("http://img/profile.png")
                 .currency(500)
-                .currentTier(LeagueTier.BRONZE)
+                .currentTier(3)
                 .dailyScreenTimeGoalMinutes(120)
                 .timeZone("Asia/Seoul")
                 .dayStartTime(LocalTime.of(9, 0))
@@ -257,7 +256,7 @@ class UserServiceTest {
         assertThat(response.birthDate()).isEqualTo(LocalDate.of(2001, 3, 3));
         assertThat(response.profileImageUrl()).isEqualTo("http://img/profile.png");
         assertThat(response.currency()).isEqualTo(500);
-        assertThat(response.currentTier()).isEqualTo("BRONZE");
+        assertThat(response.currentTier()).isEqualTo(3);
         assertThat(response.dailyScreenTimeGoalMinutes()).isEqualTo(120);
         assertThat(response.timeZone()).isEqualTo("Asia/Seoul");
         assertThat(response.dayStartTime()).isEqualTo("09:00");

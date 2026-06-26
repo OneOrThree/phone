@@ -125,7 +125,7 @@ public class UserService {
                 user.getBirthDate(),
                 user.getProfileImageUrl(),
                 user.getCurrency(),
-                user.getCurrentTier() != null ? user.getCurrentTier().name() : null,
+                user.getCurrentTier(),
                 user.getDailyScreenTimeGoalMinutes(),
                 user.getTimeZone(),
                 user.getDayStartTime() != null ? user.getDayStartTime().toString() : null,
