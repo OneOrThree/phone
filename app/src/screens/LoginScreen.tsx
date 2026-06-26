@@ -38,7 +38,7 @@ async function kakaoLogin(): Promise<LoginResult> {
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/kakao`, {
-      kakaoAccessToken: kakaoToken.accessToken,
+      token: kakaoToken.accessToken,
     });
     data = res.data;
   } catch (e) {

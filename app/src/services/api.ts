@@ -4,6 +4,11 @@ import { STORAGE_KEYS } from '@/types/storage';
 
 export const API_URL: string = process.env.EXPO_PUBLIC_API_URL ?? 'https://oneorthree.mooo.com';
 
+// 백엔드 무응답 시 무한 로딩 방지(예: 로그인 스피너가 멈추지 않는 문제).
+// 로그인 등 인터셉터 없는 bare axios 호출에도 적용되도록 전역 기본값으로 둔다.
+const REQUEST_TIMEOUT_MS = 15000;
+axios.defaults.timeout = REQUEST_TIMEOUT_MS;
+
 // JWT access token의 sub(사용자 id = UUID)를 디코드. 실패 시 null.
 export function getUserIdFromToken(token: string): string | null {
   try {
@@ -48,6 +53,7 @@ async function refreshAccessToken(): Promise<string> {
 // - 응답 인터셉터: 401 시 토큰 갱신 후 1회 재시도, 실패하면 로그아웃
 export const api: AxiosInstance = axios.create({
   baseURL: API_URL,
+  timeout: REQUEST_TIMEOUT_MS,
   headers: { 'Content-Type': 'application/json' },
 });
 
