@@ -18,6 +18,17 @@ kakao:
 
 apple:
   jwks-url: https://appleid.apple.com/auth/keys
+  client-id: com.oneorthree.gromo
+
+google:
+  jwks-url: https://www.googleapis.com/oauth2/v3/certs
+  client-id: ci-test-google-client-id
+
+line:
+  api-base-url: https://api.line.me
+
+instagram:
+  api-base-url: https://graph.instagram.com
 
 jwt:
   secret: ci-test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256

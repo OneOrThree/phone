@@ -15,9 +15,20 @@ jwt:
 
 apple:
   jwks-url: https://appleid.apple.com/auth/keys
+  client-id: com.oneorthree.gromo
 
 kakao:
   api-base-url: https://kapi.kakao.com
+
+google:
+  jwks-url: https://www.googleapis.com/oauth2/v3/certs
+  client-id: ${GOOGLE_CLIENT_ID}
+
+line:
+  api-base-url: https://api.line.me
+
+instagram:
+  api-base-url: https://graph.instagram.com
 
 decorator:
   datasource:
