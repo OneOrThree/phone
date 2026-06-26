@@ -28,7 +28,7 @@ public class AuthController {
 
     private final AuthService authService;
 
-    @Operation(summary = "구글 로그인", description = "Google id_token(JWKS 서명·aud·iss 검증) → AT/RT 발급. 최초 로그인 시 isNewUser=true.")
+    @Operation(summary = "구글 로그인", description = "Google id_token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "로그인 성공"),
         @ApiResponse(responseCode = "401", description = "유효하지 않은 Google 토큰")
@@ -68,7 +68,7 @@ public class AuthController {
         return ResponseEntity.ok(authService.socialLogin(Provider.KAKAO, request.token(), null));
     }
 
-    @Operation(summary = "애플 로그인", description = "Apple Identity Token 검증(서명·aud·iss) 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
+    @Operation(summary = "애플 로그인", description = "Apple Identity Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "로그인 성공"),
         @ApiResponse(responseCode = "401", description = "Identity Token 검증 실패")
