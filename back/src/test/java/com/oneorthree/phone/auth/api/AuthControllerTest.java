@@ -1,12 +1,12 @@
 package com.oneorthree.phone.auth.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.oneorthree.phone.auth.dto.KakaoLoginResponse;
-import com.oneorthree.phone.auth.dto.TokenRefreshResponse;
-import com.oneorthree.phone.auth.api.AuthController;
+import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
+import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;
 import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.auth.service.AuthService;
+import com.oneorthree.phone.user.domain.Provider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,40 +37,70 @@ class AuthControllerTest {
     @Test
     @DisplayName("카카오 로그인 성공 - 신규 유저")
     void kakaoLoginNewUserReturns200() throws Exception {
-        given(authService.kakaoLogin("valid-kakao-token"))
-                .willReturn(new KakaoLoginResponse("at", "rt", true));
+        given(authService.socialLogin(Provider.KAKAO, "valid-kakao-token", null))
+                .willReturn(new SocialLoginResponse("at", "rt", true));
 
         mockMvc.perform(post("/api/v1/auth/kakao")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("kakaoAccessToken", "valid-kakao-token"))))
+                        .content(objectMapper.writeValueAsString(Map.of("token", "valid-kakao-token"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isNewUser").value(true))
+                .andExpect(jsonPath("$.accessToken").value("at"))
                 .andDo(print());
     }
 
     @Test
     @DisplayName("카카오 로그인 성공 - 기존 유저")
     void kakaoLoginExistingUserReturns200() throws Exception {
-        given(authService.kakaoLogin("valid-kakao-token"))
-                .willReturn(new KakaoLoginResponse("at", "rt", false));
+        given(authService.socialLogin(Provider.KAKAO, "valid-kakao-token", null))
+                .willReturn(new SocialLoginResponse("at", "rt", false));
 
         mockMvc.perform(post("/api/v1/auth/kakao")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("kakaoAccessToken", "valid-kakao-token"))))
+                        .content(objectMapper.writeValueAsString(Map.of("token", "valid-kakao-token"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isNewUser").value(false))
                 .andDo(print());
     }
 
     @Test
-    @DisplayName("유효하지 않은 카카오 토큰 → 401")
-    void kakaoLoginInvalidTokenReturns401() throws Exception {
-        given(authService.kakaoLogin("bad-token"))
-                .willThrow(new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN));
+    @DisplayName("구글 로그인 성공 - SocialLoginRequest(token) 라우팅")
+    void googleLoginReturns200() throws Exception {
+        given(authService.socialLogin(Provider.GOOGLE, "valid-google-token", null))
+                .willReturn(new SocialLoginResponse("at", "rt", true));
+
+        mockMvc.perform(post("/api/v1/auth/google")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("token", "valid-google-token"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isNewUser").value(true))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("애플 로그인 성공 - identityToken + fullName 전달")
+    void appleLoginReturns200() throws Exception {
+        given(authService.socialLogin(Provider.APPLE, "valid-apple-token", "홍길동"))
+                .willReturn(new SocialLoginResponse("at", "rt", true));
+
+        mockMvc.perform(post("/api/v1/auth/apple")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("identityToken", "valid-apple-token", "fullName", "홍길동"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isNewUser").value(true))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("유효하지 않은 소셜 토큰 → 401")
+    void socialLoginInvalidTokenReturns401() throws Exception {
+        given(authService.socialLogin(Provider.KAKAO, "bad-token", null))
+                .willThrow(new InvalidTokenException(InvalidTokenErrorCode.KAKAO_TOKEN));
 
         mockMvc.perform(post("/api/v1/auth/kakao")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("kakaoAccessToken", "bad-token"))))
+                        .content(objectMapper.writeValueAsString(Map.of("token", "bad-token"))))
                 .andExpect(status().isUnauthorized())
                 .andDo(print());
     }
