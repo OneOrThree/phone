@@ -14,6 +14,9 @@ on:
 jobs:
   build:
     runs-on: [self-hosted, spot]
+    permissions:
+      id-token: write # AWS OIDC 역할 assume용
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -23,6 +26,27 @@ jobs:
 
       - name: Expo 패키지 설치
         run: npm install -g eas-cli
+
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-phone
+          aws-region: ap-northeast-2
+
+      - name: GoogleService-Info.plist 주입 (AWS Secrets Manager)
+        working-directory: app
+        run: |
+          # oneorthree/phone 시크릿의 GoogleService-Info.plist 키 → ios/ 에 기록
+          aws secretsmanager get-secret-value \
+            --secret-id oneorthree/phone \
+            --region ap-northeast-2 \
+            --query SecretString --output text \
+            | jq -r '."GoogleService-Info.plist"' > ios/GoogleService-Info.plist
+          # 비어있지 않고 유효한 plist인지 검증(키 존재 확인)
+          test -s ios/GoogleService-Info.plist
+          grep -q "GOOGLE_APP_ID" ios/GoogleService-Info.plist
+          # .gitignore 대상이지만 EAS 빌드 업로드(아카이브)에 포함되도록 강제 추적
+          git add -f ios/GoogleService-Info.plist
 
       - name: 의존성 설치
         working-directory: app
