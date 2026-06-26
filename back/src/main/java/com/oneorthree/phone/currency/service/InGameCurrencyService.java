@@ -4,12 +4,14 @@ import com.oneorthree.phone.currency.domain.CurrencyReason;
 import com.oneorthree.phone.currency.domain.CurrencyTransaction;
 import com.oneorthree.phone.currency.domain.TransactionType;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.currency.exception.CurrencyErrorCode;
 import com.oneorthree.phone.currency.exception.CurrencyException;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserWalletRepository;
 import com.oneorthree.phone.currency.dto.TransactionsResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,13 +26,13 @@ import java.util.UUID;
 public class InGameCurrencyService {
 
     private final UserRepository userRepository;
+    private final UserWalletRepository userWalletRepository;
     private final CurrencyTransactionRepository currencyTransactionRepository;
 
     public int getCurrencyBalance(UUID userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-
-        return user.getCurrency();
+        return userWalletRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND))
+                .getBalance();
     }
 
     /*
@@ -56,7 +58,9 @@ public class InGameCurrencyService {
             throw new CurrencyException(CurrencyErrorCode.ILLEGAL_EARN_REASON);
         }
 
-        user.earnCurrency(amount);
+        UserWallet wallet = userWalletRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        wallet.earn(amount);
         currencyTransactionRepository.save(CurrencyTransaction.builder()
                 .user(user)
                 .amount(amount)
@@ -74,7 +78,9 @@ public class InGameCurrencyService {
             throw new CurrencyException(CurrencyErrorCode.ILLEGAL_SPEND_REASON);
         }
 
-        user.spendCurrency(amount);
+        UserWallet wallet = userWalletRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        wallet.spend(amount);
         currencyTransactionRepository.save(CurrencyTransaction.builder()
                 .user(user)
                 .amount(amount)

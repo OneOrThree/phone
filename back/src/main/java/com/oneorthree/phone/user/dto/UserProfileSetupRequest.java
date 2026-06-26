@@ -1,6 +1,7 @@
 package com.oneorthree.phone.user.dto;
 
 import com.oneorthree.phone.user.domain.Gender;
+import com.oneorthree.phone.user.domain.Occupation;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -14,6 +15,7 @@ public class UserProfileSetupRequest {
     String nickname;
     LocalDate birthDate;
     Gender gender;
+    Occupation occupation;
     int dailyScreenTimeGoalMinutes;
     String timeZone;
     String dayStartTime;

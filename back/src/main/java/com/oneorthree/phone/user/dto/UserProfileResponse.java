@@ -8,7 +8,6 @@ public record UserProfileResponse(
         String nickname,
         String gender,
         LocalDate birthDate,
-        String profileImageUrl,
         int currency,
         Integer currentTier,
         int dailyScreenTimeGoalMinutes,

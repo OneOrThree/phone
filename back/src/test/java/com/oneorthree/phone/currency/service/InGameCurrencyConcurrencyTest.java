@@ -3,7 +3,9 @@ package com.oneorthree.phone.currency.service;
 import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.currency.domain.CurrencyReason;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserWalletRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -44,6 +46,8 @@ class InGameCurrencyConcurrencyTest extends IntegrationTestBase {
      @Autowired
      UserRepository userRepo;
      @Autowired
+     UserWalletRepository userWalletRepo;
+     @Autowired
      InGameCurrencyService inGameCurrencyService;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -55,10 +59,10 @@ class InGameCurrencyConcurrencyTest extends IntegrationTestBase {
     void setUp() {
         user = userRepo.save(
                 User.builder()
-                        .currency(100)
                         .isGuest(false)
                         .build()
         );
+        userWalletRepo.save(UserWallet.builder().userId(user.getId()).balance(100).build());
     }
 
     @Test
@@ -101,7 +105,7 @@ class InGameCurrencyConcurrencyTest extends IntegrationTestBase {
         assertThat(successCount.get()).isEqualTo(1);   // 정확히 1건만 성공
         assertThat(failures).hasSize(1);               // 1건은 막힘(동시 차감 차단)
 
-        User reloaded = userRepo.findById(user.getId()).orElseThrow();
-        assertThat(reloaded.getCurrency()).isEqualTo(20);   // 이중 차감/음수 없음 (100-80, 두 번째는 미반영)
+        UserWallet reloaded = userWalletRepo.findById(user.getId()).orElseThrow();
+        assertThat(reloaded.getBalance()).isEqualTo(20);   // 이중 차감/음수 없음 (100-80, 두 번째는 미반영)
     }
 }
