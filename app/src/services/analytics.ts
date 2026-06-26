@@ -5,13 +5,12 @@
 // - track(name, params): 공통 파라미터 자동 부착 + GA4 한도 sanitize 후 logEvent
 // - 항상 fire-and-forget: 실패를 삼키고 UX를 막지 않는다 (호출부는 `void track(...)`)
 //
-// ── Phase 구분 ──
-// 현재(Phase 1, JS 레이어): 네이티브 firebase 모듈을 붙이지 않으므로 getAnalytics()가 null →
-//   모든 호출은 no-op이고 dev 빌드에서는 `[analytics]` 콘솔 로그만 남는다.
-// Phase 2(네이티브 wiring): @react-native-firebase/{app,analytics} 설치 + config plugin 적용 후
-//   getAnalytics()의 한 줄만 활성화하면 실제 GA4로 전송된다. (아래 getAnalytics 주석 참고)
+// ── 동작 ──
+// 네이티브 모듈(@react-native-firebase/analytics)이 링크돼 있으면 GA4로 전송하고,
+// 링크 전(또는 호출 실패) 상태에서는 안전하게 no-op + dev 콘솔 로그로 폴백한다.
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import analytics from '@react-native-firebase/analytics';
 
 // ── 공통 파라미터 (모든 이벤트에 자동 부착, 프론트/백 조인 시 출처 구분용) ──
 const ENV: 'prod' | 'dev' =
@@ -29,24 +28,22 @@ const COMMON_PARAMS: Record<string, string> = {
 const DEBUG: boolean = __DEV__ || process.env.EXPO_PUBLIC_ANALYTICS_DEBUG === 'true';
 
 // 우리가 사용하는 @react-native-firebase/analytics 표면만 추린 인터페이스.
-// (Phase 1에서는 패키지를 설치하지 않으므로 모듈을 직접 import하지 않는다.)
 interface FirebaseAnalytics {
   logEvent(name: string, params?: Record<string, string | number>): Promise<void>;
   logScreenView(params: { screen_name: string; screen_class?: string }): Promise<void>;
   setUserId(id: string | null): Promise<void>;
   setUserProperty(name: string, value: string | null): Promise<void>;
   setDefaultEventParameters(params: Record<string, string | number> | null): Promise<void>;
+  setAnalyticsCollectionEnabled(enabled: boolean): Promise<void>;
 }
 
-let cached: FirebaseAnalytics | null | undefined;
-
-// 네이티브 Firebase Analytics 인스턴스(최초 1회 해석 후 캐시). Phase 1에서는 항상 null(no-op).
-// Phase 2 활성화: 아래 한 줄의 주석을 해제하고 패키지를 설치하면 GA4로 전송된다.
+// 네이티브 Firebase Analytics 인스턴스. 모듈이 링크 안 됐으면 null로 폴백(no-op).
 function getAnalytics(): FirebaseAnalytics | null {
-  if (cached !== undefined) return cached;
-  cached = null;
-  // cached = require('@react-native-firebase/analytics').default() as FirebaseAnalytics;
-  return cached;
+  try {
+    return analytics() as unknown as FirebaseAnalytics;
+  } catch {
+    return null;
+  }
 }
 
 // ── GA4 한도에 맞춘 sanitize ──
@@ -75,12 +72,14 @@ function sanitizeParams(params?: Record<string, unknown>): Record<string, string
   return out;
 }
 
-// 앱 시작 시 1회 호출 권장: GA4 표준 이벤트(screen_view 등 전용 메서드)에도 공통 파라미터를 부착한다.
-// Phase 1에서는 no-op.
+// 앱 시작 시 1회 호출 권장: 수집 활성화 + GA4 표준 이벤트(screen_view 등 전용 메서드)에도 공통 파라미터를 부착.
+// 모듈 미링크 시 no-op.
 export function initAnalytics(): void {
   const a = getAnalytics();
   if (DEBUG) console.log('[analytics] init', COMMON_PARAMS);
   if (!a) return;
+  // GoogleService-Info.plist의 IS_ANALYTICS_ENABLED=false 대비, 런타임에서 수집을 명시적으로 켠다.
+  a.setAnalyticsCollectionEnabled(true).catch(() => {});
   a.setDefaultEventParameters(COMMON_PARAMS).catch(() => {});
 }
 
