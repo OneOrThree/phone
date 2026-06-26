@@ -1,14 +1,14 @@
 package com.oneorthree.phone.auth.api;
 
-import com.oneorthree.phone.auth.dto.AppleLoginRequest;
-import com.oneorthree.phone.auth.dto.KakaoLoginRequest;
-import com.oneorthree.phone.auth.dto.LogoutRequest;
-import com.oneorthree.phone.auth.dto.TokenRefreshRequest;
-import com.oneorthree.phone.auth.dto.AppleLoginResponse;
-import com.oneorthree.phone.auth.dto.GuestLoginResponse;
-import com.oneorthree.phone.auth.dto.KakaoLoginResponse;
-import com.oneorthree.phone.auth.dto.TokenRefreshResponse;
+import com.oneorthree.phone.auth.dto.rep.AppleLoginRequest;
+import com.oneorthree.phone.auth.dto.rep.LogoutRequest;
+import com.oneorthree.phone.auth.dto.rep.SocialLoginRequest;
+import com.oneorthree.phone.auth.dto.rep.TokenRefreshRequest;
+import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
+import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
+import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;
 import com.oneorthree.phone.auth.service.AuthService;
+import com.oneorthree.phone.user.domain.Provider;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -28,24 +28,54 @@ public class AuthController {
 
     private final AuthService authService;
 
+    @Operation(summary = "구글 로그인", description = "Google id_token(JWKS 서명·aud·iss 검증) → AT/RT 발급. 최초 로그인 시 isNewUser=true.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "로그인 성공"),
+        @ApiResponse(responseCode = "401", description = "유효하지 않은 Google 토큰")
+    })
+    @PostMapping("/auth/google")
+    public ResponseEntity<SocialLoginResponse> googleLogin(@RequestBody SocialLoginRequest request) {
+        return ResponseEntity.ok(authService.socialLogin(Provider.GOOGLE, request.token(), null));
+    }
+
+    @Operation(summary = "라인 로그인", description = "LINE Access Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "로그인 성공"),
+        @ApiResponse(responseCode = "401", description = "유효하지 않은 LINE 토큰")
+    })
+    @PostMapping("/auth/line")
+    public ResponseEntity<SocialLoginResponse> lineLogin(@RequestBody SocialLoginRequest request) {
+        return ResponseEntity.ok(authService.socialLogin(Provider.LINE, request.token(), null));
+    }
+
+    @Operation(summary = "인스타그램 로그인", description = "Instagram Access Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "로그인 성공"),
+        @ApiResponse(responseCode = "401", description = "유효하지 않은 Instagram 토큰")
+    })
+    @PostMapping("/auth/instagram")
+    public ResponseEntity<SocialLoginResponse> instagramLogin(@RequestBody SocialLoginRequest request) {
+        return ResponseEntity.ok(authService.socialLogin(Provider.INSTAGRAM, request.token(), null));
+    }
+
     @Operation(summary = "카카오 로그인", description = "카카오 Access Token → AT + RT 발급. 최초 로그인 시 isNewUser=true.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "로그인 성공"),
         @ApiResponse(responseCode = "401", description = "유효하지 않은 카카오 토큰")
     })
     @PostMapping("/auth/kakao")
-    public ResponseEntity<KakaoLoginResponse> kakaoLogin(@RequestBody KakaoLoginRequest request) {
-        return ResponseEntity.ok(authService.kakaoLogin(request.kakaoAccessToken()));
+    public ResponseEntity<SocialLoginResponse> kakaoLogin(@RequestBody SocialLoginRequest request) {
+        return ResponseEntity.ok(authService.socialLogin(Provider.KAKAO, request.token(), null));
     }
 
-    @Operation(summary = "애플 로그인", description = "Apple Identity Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
+    @Operation(summary = "애플 로그인", description = "Apple Identity Token 검증(서명·aud·iss) 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "로그인 성공"),
         @ApiResponse(responseCode = "401", description = "Identity Token 검증 실패")
     })
     @PostMapping("/auth/apple")
-    public ResponseEntity<AppleLoginResponse> appleLogin(@RequestBody AppleLoginRequest request) {
-        return ResponseEntity.ok(authService.appleLogin(request.identityToken(), request.fullName()));
+    public ResponseEntity<SocialLoginResponse> appleLogin(@RequestBody AppleLoginRequest request) {
+        return ResponseEntity.ok(authService.socialLogin(Provider.APPLE, request.identityToken(), request.fullName()));
     }
 
     @Operation(summary = "게스트 로그인", description = "소셜 계정 없이 임시 사용자 생성. 일부 기능(그룹 생성·챌린지 참여 등) 제한 적용.")
