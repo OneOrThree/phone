@@ -17,7 +17,7 @@ import {
   statusCodes,
 } from '@react-native-google-signin/google-signin';
 import LineLogin, { LoginPermission } from '@xmartlabs/react-native-line';
-import { LoginManager, AccessToken, Settings } from 'react-native-fbsdk-next';
+import { LoginManager, AccessToken, AuthenticationToken, Settings } from 'react-native-fbsdk-next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import { API_URL, api } from '@/services/api';
@@ -224,21 +224,34 @@ async function lineLogin(): Promise<LoginResult> {
 Settings.initializeSDK();
 
 async function facebookLogin(): Promise<LoginResult> {
-  const result = await LoginManager.logInWithPermissions(['public_profile', 'email']);
+  // iOS는 Limited Login(개인정보 친화, ATT 팝업 없음) — access token이 아니라 OIDC id_token을 받는다.
+  const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  const result = await LoginManager.logInWithPermissions(
+    ['public_profile', 'email'],
+    'limited',
+    nonce,
+  );
   if (result.isCancelled) {
     // 사용자 취소 — 호출부에서 알림 생략하도록 코드 부여
     throw Object.assign(new Error('Facebook 로그인 취소'), { code: 'CANCELLED' });
   }
-  const tokenData = await AccessToken.getCurrentAccessToken();
-  if (!tokenData) {
-    throw new Error('Facebook accessToken을 가져오지 못했습니다.');
+
+  // Limited Login(iOS) → id_token. 미지원(Android/클래식) 환경은 access token 으로 폴백.
+  const authToken = await AuthenticationToken.getAuthenticationTokenIOS();
+  let token: string | undefined = authToken?.authenticationToken;
+  if (!token) {
+    const accessToken = await AccessToken.getCurrentAccessToken();
+    token = accessToken?.accessToken;
+  }
+  if (!token) {
+    throw new Error('Facebook 토큰을 가져오지 못했습니다.');
   }
 
   // 로그인 전 호출이므로 인터셉터(토큰 주입·401 로그아웃) 없는 bare axios 사용
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/facebook`, {
-      token: tokenData.accessToken,
+      token,
     });
     data = res.data;
   } catch (e) {
