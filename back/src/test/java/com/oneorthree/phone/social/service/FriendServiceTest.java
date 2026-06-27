@@ -6,9 +6,17 @@ import com.oneorthree.phone.social.dto.FriendRelation;
 import com.oneorthree.phone.social.dto.FriendRequestResponse;
 import com.oneorthree.phone.social.dto.FriendResponse;
 import com.oneorthree.phone.social.dto.FriendSearchResultResponse;
+import com.oneorthree.phone.focus.domain.DailyFocusStat;
+import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
+import com.oneorthree.phone.social.domain.PinnedFriend;
+import com.oneorthree.phone.social.dto.PinnedFriendResponse;
 import com.oneorthree.phone.social.exception.FriendErrorCode;
 import com.oneorthree.phone.social.exception.FriendException;
 import com.oneorthree.phone.social.repository.FriendshipRepository;
+import com.oneorthree.phone.social.repository.PinnedFriendRepository;
 import com.oneorthree.phone.social.search.FriendSearchResult;
 import com.oneorthree.phone.social.search.FriendSearchStrategy;
 import com.oneorthree.phone.social.search.SearchType;
@@ -30,7 +38,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -42,6 +52,18 @@ class FriendServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private PinnedFriendRepository pinnedFriendRepository;
+
+    @Mock
+    private DailyFocusStatRepository dailyFocusStatRepository;
+
+    @Mock
+    private FocusSessionRepository focusSessionRepository;
+
+    @Mock
+    private CharacterEquipmentRepository characterEquipmentRepository;
 
     @Mock
     private FriendSearchStrategy nicknameStrategy;
@@ -56,7 +78,9 @@ class FriendServiceTest {
     @BeforeEach
     void setUp() {
         given(nicknameStrategy.type()).willReturn(SearchType.NICKNAME);
-        friendService = new FriendService(friendshipRepository, userRepository, List.of(nicknameStrategy));
+        friendService = new FriendService(friendshipRepository, userRepository, pinnedFriendRepository,
+                dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
+                List.of(nicknameStrategy));
 
         meId = UUID.randomUUID();
         targetId = UUID.randomUUID();
@@ -336,5 +360,113 @@ class FriendServiceTest {
 
     private FriendSearchResult result(UUID userId, String nickname) {
         return FriendSearchResult.builder().userId(userId).nickname(nickname).tierLevel(1).build();
+    }
+
+    // ── pin / unpin / getPinned ────────────────────────────
+
+    @Test
+    @DisplayName("핀 설정 — ACCEPTED 친구면 ON CONFLICT insert 호출(멱등은 DB가 보장)")
+    void pinFriend_success_inserts() {
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(userRepository.findById(targetId)).willReturn(Optional.of(target));
+        given(friendshipRepository.findAcceptedBetween(me, target))
+                .willReturn(Optional.of(friendship(me, target, FriendshipStatus.ACCEPTED)));
+
+        friendService.pinFriend(meId, targetId);
+
+        verify(pinnedFriendRepository).insertIgnoreConflict(any(), eq(meId), eq(targetId));
+    }
+
+    @Test
+    @DisplayName("핀 설정 — 친구 관계 아니면 FriendException(NOT_FRIEND), insert 미호출")
+    void pinFriend_notFriend_throws() {
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(userRepository.findById(targetId)).willReturn(Optional.of(target));
+        given(friendshipRepository.findAcceptedBetween(me, target)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> friendService.pinFriend(meId, targetId))
+                .isInstanceOf(FriendException.class)
+                .extracting("errorCode")
+                .isEqualTo(FriendErrorCode.NOT_FRIEND);
+        verify(pinnedFriendRepository, never()).insertIgnoreConflict(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("핀 설정 — 대상 유저 없으면 UserException, insert 미호출")
+    void pinFriend_userNotFound_throws() {
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(userRepository.findById(targetId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> friendService.pinFriend(meId, targetId))
+                .isInstanceOf(UserException.class);
+        verify(pinnedFriendRepository, never()).insertIgnoreConflict(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("핀 해제 — 핀 없으면 멱등(delete 미호출)")
+    void unpinFriend_noPin_idempotent() {
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(userRepository.findById(targetId)).willReturn(Optional.of(target));
+        given(pinnedFriendRepository.findByUserAndFriendUser(me, target)).willReturn(Optional.empty());
+
+        friendService.unpinFriend(meId, targetId);
+
+        verify(pinnedFriendRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("친구 목록 — 핀한 친구는 isPinned=true 매핑")
+    void getFriends_pinnedFriend_isPinnedTrue() {
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(friendshipRepository.findAcceptedByUser(me))
+                .willReturn(List.of(friendship(me, target, FriendshipStatus.ACCEPTED)));
+        given(pinnedFriendRepository.findByUser(me))
+                .willReturn(List.of(PinnedFriend.builder().user(me).friendUser(target).build()));
+
+        List<FriendResponse> friends = friendService.getFriends(meId);
+
+        assertThat(friends).hasSize(1);
+        assertThat(friends.get(0).getUserId()).isEqualTo(targetId);
+        assertThat(friends.get(0).isPinned()).isTrue();
+    }
+
+    @Test
+    @DisplayName("핀 해제 — 핀 있으면 delete")
+    void unpinFriend_deletesWhenPresent() {
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(userRepository.findById(targetId)).willReturn(Optional.of(target));
+        PinnedFriend pin = PinnedFriend.builder().user(me).friendUser(target).build();
+        given(pinnedFriendRepository.findByUserAndFriendUser(me, target)).willReturn(Optional.of(pin));
+
+        friendService.unpinFriend(meId, targetId);
+
+        verify(pinnedFriendRepository).delete(pin);
+    }
+
+    @Test
+    @DisplayName("핀 친구 조회 — 오늘 집중분/진행중 매핑")
+    void getPinnedFriends_mapsFocusInfo() {
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(pinnedFriendRepository.findByUser(me))
+                .willReturn(List.of(PinnedFriend.builder().user(me).friendUser(target).build()));
+
+        DailyFocusStat stat = mock(DailyFocusStat.class);
+        given(stat.getUser()).willReturn(target);
+        given(stat.getTotalFocusMinutes()).willReturn(42);
+        given(dailyFocusStatRepository.findByUserInAndDate(any(), any())).willReturn(List.of(stat));
+
+        FocusSession session = mock(FocusSession.class);
+        given(session.getUser()).willReturn(target);
+        given(focusSessionRepository.findByUserInAndEndedAtIsNull(any())).willReturn(List.of(session));
+
+        given(characterEquipmentRepository.findByUserIn(any())).willReturn(List.of());
+
+        List<PinnedFriendResponse> result = friendService.getPinnedFriends(meId);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getUserId()).isEqualTo(targetId);
+        assertThat(result.get(0).getFocusTimeMinutes()).isEqualTo(42);
+        assertThat(result.get(0).isFocusing()).isTrue();
+        assertThat(result.get(0).getCharacter()).isEmpty();
     }
 }
