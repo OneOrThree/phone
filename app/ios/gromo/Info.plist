@@ -40,6 +40,14 @@
 				<string>kakaoaf3ff0c5b4fb9cd38b78428b88add65d</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>GoogleSignIn</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>

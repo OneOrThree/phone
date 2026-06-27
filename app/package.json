@@ -20,6 +20,7 @@
     "@react-native-community/datetimepicker": "^9.1.0",
     "@react-native-firebase/analytics": "^25.1.0",
     "@react-native-firebase/app": "^25.1.0",
+    "@react-native-google-signin/google-signin": "^16.1.2",
     "@react-native-kakao/core": "^2.4.5",
     "@react-native-kakao/user": "^2.4.5",
     "@react-navigation/bottom-tabs": "^6.6.1",
