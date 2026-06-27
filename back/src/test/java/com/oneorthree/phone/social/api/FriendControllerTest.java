@@ -70,6 +70,7 @@ class FriendControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].userId").value(friendUserId.toString()))
                 .andExpect(jsonPath("$[0].focusTimeMinutes").value(42))
+                .andExpect(jsonPath("$[0].isFocusing").value(true))  // @JsonProperty로 isFocusing 키 고정 검증
                 .andDo(print());
     }
 }
