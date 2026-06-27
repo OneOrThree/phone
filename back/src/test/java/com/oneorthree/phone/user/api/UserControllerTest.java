@@ -11,6 +11,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -59,6 +60,39 @@ class UserControllerTest {
         mockMvc.perform(put("/api/v1/users/me/device-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"deviceToken\": null}"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("알림 설정 저장 성공 → 204")
+    void updateNotificationSettingsReturns204() throws Exception {
+        Map<String, Object> body = new HashMap<>();
+        body.put("notificationEnabled", true);
+        body.put("soundEnabled", false);
+        body.put("nightModeEnabled", true);
+        body.put("nightStartTime", "22:00");
+        body.put("nightEndTime", "07:00");
+
+        mockMvc.perform(put("/api/v1/users/me/notification-settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNoContent())
+                .andDo(print());
+
+        verify(userService).updateNotificationSettings(any(), any());
+    }
+
+    @Test
+    @DisplayName("알림 설정 - 필수 boolean 필드 누락 → 400")
+    void updateNotificationSettingsMissingFieldReturns400() throws Exception {
+        Map<String, Object> body = new HashMap<>();
+        body.put("notificationEnabled", true);
+        // soundEnabled, nightModeEnabled 누락
+
+        mockMvc.perform(put("/api/v1/users/me/notification-settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }

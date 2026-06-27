@@ -15,6 +15,7 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
+import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
 import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.user.dto.UserProfileResponse;
 import lombok.RequiredArgsConstructor;
@@ -153,5 +154,20 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setDeviceToken(deviceToken);
+    }
+
+    @Transactional
+    public void updateNotificationSettings(UUID userId, NotificationSettingsRequest request) {
+        UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        settings.setNotificationEnabled(request.getNotificationEnabled());
+        settings.setSoundEnabled(request.getSoundEnabled());
+        settings.setNightModeEnabled(request.getNightModeEnabled());
+        if (request.getNightStartTime() != null) {
+            settings.setNightStartTime(LocalTime.parse(request.getNightStartTime()));
+        }
+        if (request.getNightEndTime() != null) {
+            settings.setNightEndTime(LocalTime.parse(request.getNightEndTime()));
+        }
     }
 }

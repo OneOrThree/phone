@@ -9,6 +9,7 @@ import com.oneorthree.phone.user.domain.Gender;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.domain.UserWallet;
+import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
 import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.user.dto.UserProfileResponse;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
@@ -309,6 +310,42 @@ class UserServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.registerDeviceToken(USER_ID, "apns-device-token"))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    // ── updateNotificationSettings ────────────────────────────────────────
+
+    @Test
+    @DisplayName("알림·심야·소리 설정 저장 → settings 필드 반영")
+    void updateNotificationSettings() {
+        UserScreenTimeSettings settings = UserScreenTimeSettings.builder().userId(USER_ID).build();
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        NotificationSettingsRequest request = mock(NotificationSettingsRequest.class);
+        given(request.getNotificationEnabled()).willReturn(true);
+        given(request.getSoundEnabled()).willReturn(false);
+        given(request.getNightModeEnabled()).willReturn(true);
+        given(request.getNightStartTime()).willReturn("22:00");
+        given(request.getNightEndTime()).willReturn("07:00");
+
+        userService.updateNotificationSettings(USER_ID, request);
+
+        assertThat(settings.isNotificationEnabled()).isTrue();
+        assertThat(settings.isSoundEnabled()).isFalse();
+        assertThat(settings.isNightModeEnabled()).isTrue();
+        assertThat(settings.getNightStartTime()).isEqualTo(LocalTime.of(22, 0));
+        assertThat(settings.getNightEndTime()).isEqualTo(LocalTime.of(7, 0));
+    }
+
+    @Test
+    @DisplayName("알림 설정 저장 - 설정 없음 → UserException(NOT_FOUND)")
+    void updateNotificationSettingsNotFound() {
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                userService.updateNotificationSettings(USER_ID, mock(NotificationSettingsRequest.class)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);

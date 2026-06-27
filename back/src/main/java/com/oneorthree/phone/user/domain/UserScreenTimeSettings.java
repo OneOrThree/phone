@@ -42,6 +42,22 @@ public class UserScreenTimeSettings {
 
     private LocalTime reportTime;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean notificationEnabled = true;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean soundEnabled = true;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean nightModeEnabled = false;
+
+    private LocalTime nightStartTime;
+
+    private LocalTime nightEndTime;
+
     @CreationTimestamp
     private Instant createdAt;
 

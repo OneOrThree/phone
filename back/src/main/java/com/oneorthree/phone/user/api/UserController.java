@@ -1,6 +1,7 @@
 package com.oneorthree.phone.user.api;
 
 import com.oneorthree.phone.user.dto.DeviceTokenRegisterRequest;
+import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.service.UserService;
@@ -114,6 +115,22 @@ public class UserController {
             HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         userService.registerDeviceToken(userId, body.getDeviceToken());
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "알림·심야·소리 설정 저장",
+            description = "유저 전역 알림/심야 모드/소리 설정 저장. 성공 시 204 반환.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "저장 성공"),
+        @ApiResponse(responseCode = "400", description = "필수 필드 누락"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
+    @PutMapping("/users/me/notification-settings")
+    public ResponseEntity<Void> updateNotificationSettings(
+            @Valid @RequestBody NotificationSettingsRequest body,
+            HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        userService.updateNotificationSettings(userId, body);
         return ResponseEntity.noContent().build();
     }
 }
