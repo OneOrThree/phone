@@ -96,4 +96,20 @@ class UserControllerTest {
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
+
+    @Test
+    @DisplayName("알림 설정 - night 시각 포맷 오류 → 400")
+    void updateNotificationSettingsInvalidTimeReturns400() throws Exception {
+        Map<String, Object> body = new HashMap<>();
+        body.put("notificationEnabled", true);
+        body.put("soundEnabled", true);
+        body.put("nightModeEnabled", true);
+        body.put("nightStartTime", "abc");
+
+        mockMvc.perform(put("/api/v1/users/me/notification-settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
 }
