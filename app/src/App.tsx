@@ -6,6 +6,10 @@ import { setLogoutHandler, getUserIdFromToken, api } from '@/services/api';
 import { runStorageMigrations } from '@/utils/storageMigration';
 import { logLogin } from '@/services/analyticsEvents';
 import type { LoginResult, OnboardingData, UserProfile } from '@/types/api';
+import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
+
+// Facebook SDK 초기화 — 앱 시작 시 1회 (FacebookAppID/ClientToken 은 Info.plist 에서 로드).
+FacebookSettings.initializeSDK();
 
 const GENDER_MAP: Record<string, string> = { male: 'MALE', female: 'FEMALE', other: 'UNKNOWN' };
 

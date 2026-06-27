@@ -17,7 +17,7 @@ import {
   statusCodes,
 } from '@react-native-google-signin/google-signin';
 import LineLogin, { LoginPermission } from '@xmartlabs/react-native-line';
-import { LoginManager, AccessToken, AuthenticationToken, Settings } from 'react-native-fbsdk-next';
+import { LoginManager, AccessToken, AuthenticationToken } from 'react-native-fbsdk-next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import { API_URL, api } from '@/services/api';
@@ -183,9 +183,6 @@ async function lineLogin(): Promise<LoginResult> {
   }
   return postAuthSave(data);
 }
-
-// Facebook 로그인 설정 — 모듈 로드 시 SDK 1회 초기화 (FacebookAppID/ClientToken 은 Info.plist 에서 읽음).
-Settings.initializeSDK();
 
 async function facebookLogin(): Promise<LoginResult> {
   // iOS는 Limited Login(개인정보 친화, ATT 팝업 없음) — access token이 아니라 OIDC id_token을 받는다.
