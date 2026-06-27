@@ -23,6 +23,7 @@ import { T } from '@/constants/theme';
 import { API_URL, api } from '@/services/api';
 import { logLogin, logSignUp, setIdentityProps, type AuthMethod } from '@/services/analyticsEvents';
 import type { LoginResult } from '@/types/api';
+import { STORAGE_KEYS } from '@/types/storage';
 
 interface LoginScreenProps {
   onLogin: (u: LoginResult) => void;
@@ -54,8 +55,8 @@ async function kakaoLogin(): Promise<LoginResult> {
       : '로그인 실패';
     throw new Error(msg);
   }
-  await AsyncStorage.setItem('gromo:accessToken', data.accessToken);
-  await AsyncStorage.setItem('gromo:refreshToken', data.refreshToken);
+  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
+  await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
 
   if (!data.isNewUser) {
     const profile = await api
@@ -63,11 +64,11 @@ async function kakaoLogin(): Promise<LoginResult> {
       .then((profileRes) => profileRes.data)
       .catch(() => ({}) as Record<string, unknown>);
     const merged: LoginResult = { ...data, ...profile };
-    await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
+    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
     return merged;
   }
 
-  await AsyncStorage.setItem('gromo:user', JSON.stringify(data));
+  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data));
   return data;
 }
 
@@ -92,8 +93,8 @@ async function appleLogin(): Promise<LoginResult> {
       : 'Apple 로그인 실패';
     throw new Error(msg);
   }
-  await AsyncStorage.setItem('gromo:accessToken', data.accessToken);
-  await AsyncStorage.setItem('gromo:refreshToken', data.refreshToken);
+  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
+  await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
 
   if (!data.isNewUser) {
     const profile = await api
@@ -101,11 +102,11 @@ async function appleLogin(): Promise<LoginResult> {
       .then((profileRes) => profileRes.data)
       .catch(() => ({}) as Record<string, unknown>);
     const merged: LoginResult = { ...data, ...profile };
-    await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
+    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
     return merged;
   }
 
-  await AsyncStorage.setItem('gromo:user', JSON.stringify(data));
+  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data));
   return data;
 }
 
@@ -144,8 +145,8 @@ async function googleLogin(): Promise<LoginResult> {
       : 'Google 로그인 실패';
     throw new Error(msg);
   }
-  await AsyncStorage.setItem('gromo:accessToken', data.accessToken);
-  await AsyncStorage.setItem('gromo:refreshToken', data.refreshToken);
+  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
+  await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
 
   if (!data.isNewUser) {
     const profile = await api
@@ -153,11 +154,11 @@ async function googleLogin(): Promise<LoginResult> {
       .then((profileRes) => profileRes.data)
       .catch(() => ({}) as Record<string, unknown>);
     const merged: LoginResult = { ...data, ...profile };
-    await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
+    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
     return merged;
   }
 
-  await AsyncStorage.setItem('gromo:user', JSON.stringify(data));
+  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data));
   return data;
 }
 
@@ -203,8 +204,8 @@ async function lineLogin(): Promise<LoginResult> {
       : 'LINE 로그인 실패';
     throw new Error(msg);
   }
-  await AsyncStorage.setItem('gromo:accessToken', data.accessToken);
-  await AsyncStorage.setItem('gromo:refreshToken', data.refreshToken);
+  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
+  await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
 
   if (!data.isNewUser) {
     const profile = await api
@@ -212,11 +213,11 @@ async function lineLogin(): Promise<LoginResult> {
       .then((profileRes) => profileRes.data)
       .catch(() => ({}) as Record<string, unknown>);
     const merged: LoginResult = { ...data, ...profile };
-    await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
+    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
     return merged;
   }
 
-  await AsyncStorage.setItem('gromo:user', JSON.stringify(data));
+  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data));
   return data;
 }
 
@@ -260,8 +261,8 @@ async function facebookLogin(): Promise<LoginResult> {
       : 'Facebook 로그인 실패';
     throw new Error(msg);
   }
-  await AsyncStorage.setItem('gromo:accessToken', data.accessToken);
-  await AsyncStorage.setItem('gromo:refreshToken', data.refreshToken);
+  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
+  await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
 
   if (!data.isNewUser) {
     const profile = await api
@@ -269,11 +270,11 @@ async function facebookLogin(): Promise<LoginResult> {
       .then((profileRes) => profileRes.data)
       .catch(() => ({}) as Record<string, unknown>);
     const merged: LoginResult = { ...data, ...profile };
-    await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
+    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
     return merged;
   }
 
-  await AsyncStorage.setItem('gromo:user', JSON.stringify(data));
+  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data));
   return data;
 }
 
