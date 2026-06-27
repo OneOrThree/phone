@@ -16,6 +16,7 @@ import {
   isSuccessResponse,
   statusCodes,
 } from '@react-native-google-signin/google-signin';
+import LineLogin, { LoginPermission } from '@xmartlabs/react-native-line';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import { API_URL, api } from '@/services/api';
@@ -159,6 +160,49 @@ async function googleLogin(): Promise<LoginResult> {
   return data;
 }
 
+// LINE 로그인 설정 — setup()은 login() 전에 1회 호출돼야 한다(채널 시크릿 불필요, 네이티브 SDK가 처리).
+let lineConfigured = false;
+async function ensureLineSetup(): Promise<void> {
+  if (lineConfigured) return;
+  await LineLogin.setup({ channelId: process.env.EXPO_PUBLIC_LINE_CHANNEL_ID ?? '' });
+  lineConfigured = true;
+}
+
+async function lineLogin(): Promise<LoginResult> {
+  await ensureLineSetup();
+  const result = await LineLogin.login({ scopes: [LoginPermission.Profile] });
+  const accessToken = result.accessToken.accessToken;
+
+  // 로그인 전 호출이므로 인터셉터(토큰 주입·401 로그아웃) 없는 bare axios 사용
+  let data: AuthResponse;
+  try {
+    const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/line`, {
+      token: accessToken,
+    });
+    data = res.data;
+  } catch (e) {
+    const msg = axios.isAxiosError(e)
+      ? ((e.response?.data as AuthResponse | undefined)?.message ?? 'LINE 로그인 실패')
+      : 'LINE 로그인 실패';
+    throw new Error(msg);
+  }
+  await AsyncStorage.setItem('gromo:accessToken', data.accessToken);
+  await AsyncStorage.setItem('gromo:refreshToken', data.refreshToken);
+
+  if (!data.isNewUser) {
+    const profile = await api
+      .get<Record<string, unknown>>('/api/v1/user')
+      .then((profileRes) => profileRes.data)
+      .catch(() => ({}) as Record<string, unknown>);
+    const merged: LoginResult = { ...data, ...profile };
+    await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
+    return merged;
+  }
+
+  await AsyncStorage.setItem('gromo:user', JSON.stringify(data));
+  return data;
+}
+
 // 인증 성공 시 GA4 이벤트 + signup_method 유저속성 기록.
 // 신규 가입은 sign_up, 기존 사용자는 login (GA4 표준 이벤트).
 function trackAuthSuccess(method: AuthMethod, isNewUser?: boolean): void {
@@ -171,8 +215,9 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
   const [loadingKakao, setLoadingKakao] = useState(false);
   const [loadingApple, setLoadingApple] = useState(false);
   const [loadingGoogle, setLoadingGoogle] = useState(false);
+  const [loadingLine, setLoadingLine] = useState(false);
 
-  const loading = loadingKakao || loadingApple || loadingGoogle;
+  const loading = loadingKakao || loadingApple || loadingGoogle || loadingLine;
 
   async function handleKakaoLogin() {
     if (loading) return;
@@ -218,6 +263,26 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
       }
     } finally {
       setLoadingGoogle(false);
+    }
+  }
+
+  async function handleLineLogin() {
+    if (loading) return;
+    setLoadingLine(true);
+    try {
+      const user = await lineLogin();
+      trackAuthSuccess('line', user.isNewUser);
+      onLogin(user);
+    } catch (e) {
+      // 사용자가 취소한 경우는 알림 생략
+      const reason = String(
+        (e as { code?: string; message?: string }).code ?? (e as Error).message ?? '',
+      ).toLowerCase();
+      if (!reason.includes('cancel')) {
+        Alert.alert('로그인 실패', 'LINE 로그인 중 오류가 발생했습니다.');
+      }
+    } finally {
+      setLoadingLine(false);
     }
   }
 
@@ -274,6 +339,20 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
             <ActivityIndicator size="small" color={T.ink} />
           ) : (
             <Text style={styles.googleButtonText}>Google로 계속하기</Text>
+          )}
+        </TouchableOpacity>
+
+        {/* LINE 로그인 */}
+        <TouchableOpacity
+          style={styles.lineButton}
+          onPress={handleLineLogin}
+          activeOpacity={0.8}
+          disabled={loading}
+        >
+          {loadingLine ? (
+            <ActivityIndicator size="small" color={T.ink} />
+          ) : (
+            <Text style={styles.lineButtonText}>LINE으로 계속하기</Text>
           )}
         </TouchableOpacity>
 
@@ -360,6 +439,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   googleButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: T.ink,
+  },
+  lineButton: {
+    width: '100%',
+    height: 54,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: T.paperLine,
+    backgroundColor: T.paper,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lineButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: T.ink,

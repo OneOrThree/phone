@@ -19,6 +19,7 @@ export default {
       '@react-native-community/datetimepicker',
       'expo-apple-authentication',
       ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
+      '@xmartlabs/react-native-line',
     ],
     slug: 'gromo-kr',
     version: '0.0.1',

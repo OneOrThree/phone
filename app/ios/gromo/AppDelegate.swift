@@ -1,5 +1,6 @@
 import Expo
 import FirebaseCore
+import RNLine
 import RNCKakaoUser
 import React
 import ReactAppDependencyProvider
@@ -44,6 +45,9 @@ public class AppDelegate: ExpoAppDelegate {
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
   if(RNCKakaoUserUtil.isKakaoTalkLoginUrl(url)) { return RNCKakaoUserUtil.handleOpen(url) }
+    if LineLogin.application(app, open: url, options: options) {
+      return true
+    }
     return super.application(app, open: url, options: options) || RCTLinkingManager.application(app, open: url, options: options)
   }
 
