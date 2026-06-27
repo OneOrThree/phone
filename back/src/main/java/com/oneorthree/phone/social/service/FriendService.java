@@ -1,14 +1,22 @@
 package com.oneorthree.phone.social.service;
 
+import com.oneorthree.phone.focus.domain.DailyFocusStat;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
+import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.social.domain.Friendship;
 import com.oneorthree.phone.social.domain.FriendshipStatus;
+import com.oneorthree.phone.social.domain.PinnedFriend;
 import com.oneorthree.phone.social.dto.FriendRelation;
 import com.oneorthree.phone.social.dto.FriendRequestResponse;
 import com.oneorthree.phone.social.dto.FriendResponse;
 import com.oneorthree.phone.social.dto.FriendSearchResultResponse;
+import com.oneorthree.phone.social.dto.PinnedFriendResponse;
 import com.oneorthree.phone.social.exception.FriendErrorCode;
 import com.oneorthree.phone.social.exception.FriendException;
 import com.oneorthree.phone.social.repository.FriendshipRepository;
+import com.oneorthree.phone.social.repository.PinnedFriendRepository;
 import com.oneorthree.phone.social.search.FriendSearchStrategy;
 import com.oneorthree.phone.social.search.SearchType;
 import com.oneorthree.phone.user.domain.User;
@@ -19,6 +27,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -32,15 +42,27 @@ public class FriendService {
 
     private final FriendshipRepository friendshipRepository;
     private final UserRepository userRepository;
+    private final PinnedFriendRepository pinnedFriendRepository;
+    private final DailyFocusStatRepository dailyFocusStatRepository;
+    private final FocusSessionRepository focusSessionRepository;
+    private final CharacterEquipmentRepository characterEquipmentRepository;
     private final Map<SearchType, FriendSearchStrategy> searchStrategies;
 
     // 검색 전략은 AuthService의 Map<Provider, SocialLoginClient>와 동일하게
     // 모든 빈을 모아 type() 기준 Map으로 구성한다. (검색 수단 추가 = 구현체 1개 추가)
     public FriendService(FriendshipRepository friendshipRepository,
                          UserRepository userRepository,
+                         PinnedFriendRepository pinnedFriendRepository,
+                         DailyFocusStatRepository dailyFocusStatRepository,
+                         FocusSessionRepository focusSessionRepository,
+                         CharacterEquipmentRepository characterEquipmentRepository,
                          List<FriendSearchStrategy> searchStrategies) {
         this.friendshipRepository = friendshipRepository;
         this.userRepository = userRepository;
+        this.pinnedFriendRepository = pinnedFriendRepository;
+        this.dailyFocusStatRepository = dailyFocusStatRepository;
+        this.focusSessionRepository = focusSessionRepository;
+        this.characterEquipmentRepository = characterEquipmentRepository;
         this.searchStrategies = searchStrategies.stream()
                 .collect(Collectors.toMap(FriendSearchStrategy::type, strategy -> strategy));
     }
@@ -105,11 +127,79 @@ public class FriendService {
         friendship.softDelete(Instant.now());
     }
 
-    // 친구 목록 — ACCEPTED·미삭제 관계를 상대 유저로 매핑. isPinned는 GROMO-454 전까지 false.
+    // 친구 목록 — ACCEPTED·미삭제 관계를 상대 유저로 매핑. isPinned는 내 핀 친구 집합으로 결정.
     public List<FriendResponse> getFriends(UUID me) {
         User meUser = getUser(me);
+        Set<UUID> pinnedIds = pinnedFriendRepository.findByUser(meUser).stream()
+                .map(p -> p.getFriendUser().getId())
+                .collect(Collectors.toSet());
         return friendshipRepository.findAcceptedByUser(meUser).stream()
-                .map(f -> toFriendResponse(counterpart(f, me)))
+                .map(f -> {
+                    User other = counterpart(f, me);
+                    return FriendResponse.builder()
+                            .userId(other.getId())
+                            .nickname(other.getNickname())
+                            .tierLevel(other.getCurrentTier())
+                            .isPinned(pinnedIds.contains(other.getId()))
+                            .build();
+                })
+                .toList();
+    }
+
+    // 친구 핀 설정 — ACCEPTED 검증 후 멱등 insert. 이미 핀돼 있으면 no-op(204).
+    @Transactional
+    public void pinFriend(UUID me, UUID friendUserId) {
+        User meUser = getUser(me);
+        User friendUser = getUser(friendUserId);
+        friendshipRepository.findAcceptedBetween(meUser, friendUser)
+                .orElseThrow(() -> new FriendException(FriendErrorCode.NOT_FRIEND));
+        if (pinnedFriendRepository.existsByUserAndFriendUser(meUser, friendUser)) {
+            return;
+        }
+        pinnedFriendRepository.save(PinnedFriend.builder()
+                .user(meUser)
+                .friendUser(friendUser)
+                .build());
+    }
+
+    // 친구 핀 해제 — 있으면 삭제, 없으면 멱등(204).
+    @Transactional
+    public void unpinFriend(UUID me, UUID friendUserId) {
+        User meUser = getUser(me);
+        User friendUser = getUser(friendUserId);
+        pinnedFriendRepository.findByUserAndFriendUser(meUser, friendUser)
+                .ifPresent(pinnedFriendRepository::delete);
+    }
+
+    // 내가 핀한 친구 조회 — 각 친구의 캐릭터 표시정보 + 오늘 집중분 + 진행중 여부 매핑(GROMO-369 재사용).
+    public List<PinnedFriendResponse> getPinnedFriends(UUID me) {
+        User meUser = getUser(me);
+        List<User> friends = pinnedFriendRepository.findByUser(meUser).stream()
+                .map(PinnedFriend::getFriendUser)
+                .toList();
+        if (friends.isEmpty()) {
+            return List.of();
+        }
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Map<UUID, Integer> focusMap = dailyFocusStatRepository.findByUserInAndDate(friends, today).stream()
+                .collect(Collectors.toMap(s -> s.getUser().getId(), DailyFocusStat::getTotalFocusMinutes));
+        Set<UUID> focusingIds = focusSessionRepository.findByUserInAndEndedAtIsNull(friends).stream()
+                .map(s -> s.getUser().getId())
+                .collect(Collectors.toSet());
+        Map<UUID, List<CharacterEquipmentResponse>> equipMap =
+                characterEquipmentRepository.findByUserIn(friends).stream()
+                        .collect(Collectors.groupingBy(e -> e.getUser().getId(),
+                                Collectors.mapping(CharacterEquipmentResponse::from, Collectors.toList())));
+
+        return friends.stream()
+                .map(f -> PinnedFriendResponse.builder()
+                        .userId(f.getId())
+                        .nickname(f.getNickname())
+                        .character(equipMap.getOrDefault(f.getId(), List.of()))
+                        .focusTimeMinutes(focusMap.getOrDefault(f.getId(), 0))
+                        .isFocusing(focusingIds.contains(f.getId()))
+                        .build())
                 .toList();
     }
 
@@ -178,15 +268,6 @@ public class FriendService {
         return friendship.getFromUser().getId().equals(me)
                 ? friendship.getToUser()
                 : friendship.getFromUser();
-    }
-
-    private FriendResponse toFriendResponse(User other) {
-        return FriendResponse.builder()
-                .userId(other.getId())
-                .nickname(other.getNickname())
-                .tierLevel(other.getCurrentTier())
-                .isPinned(false)
-                .build();
     }
 
     private Set<UUID> collectFriendIds(User meUser) {
