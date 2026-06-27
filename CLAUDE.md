@@ -35,6 +35,10 @@ Korean. Keep code identifiers (types, functions, variables) in English.
 - **Commit / PR title**: `[TYPE] GROMO-#### 한 줄 요약` — TYPE ∈ `FEAT` / `FIX` / `CHORE` / `REFACTOR`, `GROMO-####` is the Jira ticket.
 - **PR body** follows `.github/pull_request_template.md`: Jira link, change type,
   summary, change details, and **DB schema changes** if any.
+- **Referencing tickets**: only the ticket the PR **directly implements** gets the full
+  key (`GROMO-####`) — the full key makes the Jira integration attach this PR's history to
+  that ticket. For **related/reference tickets** the PR does not implement, write the
+  **number only** so no PR history is attached (e.g. `GROMO-455` → "ticket 455").
 - `main` is the integration branch. **Never commit or push without an explicit
   request from the user.**
 
