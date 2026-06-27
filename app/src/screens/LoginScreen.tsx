@@ -164,7 +164,12 @@ async function googleLogin(): Promise<LoginResult> {
 let lineConfigured = false;
 async function ensureLineSetup(): Promise<void> {
   if (lineConfigured) return;
-  await LineLogin.setup({ channelId: process.env.EXPO_PUBLIC_LINE_CHANNEL_ID ?? '' });
+  const channelId = process.env.EXPO_PUBLIC_LINE_CHANNEL_ID;
+  // Channel ID 미설정 시 setup/login 이 끝나지 않아 무한로딩이 되므로 즉시 실패시킨다.
+  if (!channelId) {
+    throw new Error('LINE Channel ID 미설정 (EXPO_PUBLIC_LINE_CHANNEL_ID)');
+  }
+  await LineLogin.setup({ channelId });
   lineConfigured = true;
 }
 
