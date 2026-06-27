@@ -15,7 +15,7 @@ jwt:
 
 apple:
   jwks-url: https://appleid.apple.com/auth/keys
-  client-id: com.oneorthree.gromo
+  client-id: ${APPLE_CLIENT_ID}
 
 kakao:
   api-base-url: https://kapi.kakao.com
