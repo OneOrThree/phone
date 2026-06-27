@@ -2,20 +2,16 @@ package com.oneorthree.phone.user.domain;
 
 import com.oneorthree.phone.item.domain.CharacterEquipment;
 import com.oneorthree.phone.item.domain.UserItem;
-import com.oneorthree.phone.league.domain.LeagueTier;
 
-import com.oneorthree.phone.currency.exception.CurrencyErrorCode;
-import com.oneorthree.phone.currency.exception.CurrencyException;
+import com.oneorthree.phone.common.id.GeneratedUuidV7;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import com.oneorthree.phone.common.id.GeneratedUuidV7;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
-import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -23,10 +19,10 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -44,6 +40,10 @@ public class User {
     @GeneratedUuidV7
     private UUID id;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean isGuest = false;
+
     private String nickname;
 
     @Enumerated(EnumType.STRING)
@@ -51,47 +51,31 @@ public class User {
 
     private LocalDate birthDate;
 
-    private String profileImageUrl;
-
-    private String refreshToken;
-
-    @Version
-    @Builder.Default
-    private Long version = 0L;
-
-    @Builder.Default
-    private int currency = 0;
+    @Column(name = "country_code")
+    private String countryCode;
 
     @Enumerated(EnumType.STRING)
-    private LeagueTier currentTier;
+    private Occupation occupation;
 
-    @Column(nullable = false)
-    @Builder.Default
-    private int dailyScreenTimeGoalMinutes = 0;
-
-    private String timeZone;
-
-    private LocalTime dayStartTime;
-
-    private LocalTime dayEndTime;
-
-    private LocalTime reportTime;
-
-    @CreationTimestamp
-    private Instant createdAt;
-
-    private Instant deletedAt;
-
-    @Column(nullable = false)
-    @Builder.Default
-    private boolean isGuest = false;
+    @Column(name = "current_tier")
+    private Integer currentTier;
 
     @Column(length = 255)
     private String deviceToken;
 
-    @Column(nullable = false)
+    @Column(name = "is_screen_time_permission_granted", nullable = false)
     @Builder.Default
     private boolean screenTimePermissionGranted = false;
+
+    private String refreshToken;
+
+    @CreationTimestamp
+    private Instant createdAt;
+
+    @UpdateTimestamp
+    private Instant updatedAt;
+
+    private Instant deletedAt;
 
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -104,21 +88,4 @@ public class User {
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<CharacterEquipment> characterEquipments = new ArrayList<>();
-
-    public void earnCurrency(int amount) {
-        if (amount <= 0) {
-            throw new IllegalArgumentException("잔액 증가는 양수 단위로만 되어야 합니다.");
-        }
-        this.currency += amount;
-    }
-
-    public void spendCurrency(int amount) {
-        if (amount <= 0) {
-            throw new IllegalArgumentException("잔액 감소는 양수 단위로만 되어야 합니다.");
-        }
-        if (this.currency < amount) {
-            throw new CurrencyException(CurrencyErrorCode.INSUFFICIENT_CURRENCY);
-        }
-        this.currency -= amount;
-    }
 }

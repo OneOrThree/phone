@@ -20,28 +20,29 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "league_groups")
+@Table(name = "league_arenas")
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
-public class LeagueGroup {
+public class LeagueArena {
 
     @Id
     @GeneratedUuidV7
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "tier", nullable = false)
+    @JoinColumn(name = "tier_level", nullable = false)
     private LeagueTierConfig tierConfig;
 
-    @Column(nullable = false)
-    private Instant weekStart;
+    @Column(name = "week_start_at", nullable = false)
+    private Instant weekStartAt;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default
-    private LeagueGroupStatus status = LeagueGroupStatus.ACTIVE;
+    private LeagueArenaStatus status = LeagueArenaStatus.ACTIVE;
 
-    private Instant closedAt;
+    @Column(name = "ended_at")
+    private Instant endedAt;
 }

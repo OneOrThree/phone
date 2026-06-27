@@ -5,6 +5,8 @@ import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.common.id.GeneratedUuidV7;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -22,42 +24,36 @@ import java.util.UUID;
 
 @Entity
 @Table(
-        name = "league_group_members",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"league_group_id", "user_id"})
+        name = "league_arena_members",
+        uniqueConstraints = @UniqueConstraint(columnNames = {"league_arena_id", "user_id"})
 )
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
-public class LeagueGroupMember {
+public class LeagueArenaMember {
 
     @Id
     @GeneratedUuidV7
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "league_group_id", nullable = false)
-    private LeagueGroup leagueGroup;
+    @JoinColumn(name = "league_arena_id", nullable = false)
+    private LeagueArena leagueArena;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
+
+    @Column(name = "tier_level", nullable = false)
+    private int tierLevel;
 
     @Builder.Default
     private int totalFocusMinutes = 0;
 
     private Integer rank;
 
-    @Builder.Default
-    @Column(nullable = false)
-    private boolean promoted = false;
-
-    @Builder.Default
-    @Column(nullable = false)
-    private boolean relegated = false;
-
-    @Builder.Default
-    @Column(nullable = false)
-    private boolean relegateWarning = false;
+    @Enumerated(EnumType.STRING)
+    private LeagueMemberResult result;
 }

@@ -3,6 +3,8 @@ package com.oneorthree.phone.user.service;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
+import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.user.exception.UserErrorCode;
@@ -11,6 +13,8 @@ import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
+import com.oneorthree.phone.user.repository.UserWalletRepository;
 import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.user.dto.UserProfileResponse;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +32,8 @@ import java.util.UUID;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final UserWalletRepository userWalletRepository;
+    private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final GroupRepository groupRepository;
     private final FocusSessionRepository focusSessionRepository;
     private final DailyFocusStatRepository dailyFocusStatRepository;
@@ -40,26 +46,15 @@ public class UserService {
         user.setNickname(body.getNickname());
         user.setBirthDate(body.getBirthDate());
         user.setGender(body.getGender());
-        user.setDailyScreenTimeGoalMinutes(body.getDailyScreenTimeGoalMinutes());
-
-        if (body.getTimeZone() != null) {
-            try {
-                ZoneId.of(body.getTimeZone());
-            } catch (DateTimeException e) {
-                throw new IllegalArgumentException("유효하지 않은 타임존: " + body.getTimeZone());
-            }
-            user.setTimeZone(body.getTimeZone());
+        if (body.getOccupation() != null) {
+            user.setOccupation(body.getOccupation());
         }
 
-        if (body.getDayStartTime() != null) {
-            user.setDayStartTime(LocalTime.parse(body.getDayStartTime()));
-        }
-        if (body.getDayEndTime() != null) {
-            user.setDayEndTime(LocalTime.parse(body.getDayEndTime()));
-        }
-        if (body.getReportTime() != null) {
-            user.setReportTime(LocalTime.parse(body.getReportTime()));
-        }
+        UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        settings.setDailyScreenTimeGoalMinutes(body.getDailyScreenTimeGoalMinutes());
+        applyScreenTimeFields(settings, body.getTimeZone(),
+                body.getDayStartTime(), body.getDayEndTime(), body.getReportTime());
     }
 
     @Transactional
@@ -76,27 +71,34 @@ public class UserService {
         if (body.getGender() != null) {
             user.setGender(body.getGender());
         }
+
+        UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (body.getDailyScreenTimeGoalMinutes() != null) {
-            user.setDailyScreenTimeGoalMinutes(body.getDailyScreenTimeGoalMinutes());
+            settings.setDailyScreenTimeGoalMinutes(body.getDailyScreenTimeGoalMinutes());
         }
+        applyScreenTimeFields(settings, body.getTimeZone(),
+                body.getDayStartTime(), body.getDayEndTime(), body.getReportTime());
+    }
 
-        if (body.getTimeZone() != null) {
+    private void applyScreenTimeFields(UserScreenTimeSettings settings, String timeZone,
+                                       String dayStartTime, String dayEndTime, String reportTime) {
+        if (timeZone != null) {
             try {
-                ZoneId.of(body.getTimeZone());
+                ZoneId.of(timeZone);
             } catch (DateTimeException e) {
-                throw new IllegalArgumentException("유효하지 않은 타임존: " + body.getTimeZone());
+                throw new IllegalArgumentException("유효하지 않은 타임존: " + timeZone);
             }
-            user.setTimeZone(body.getTimeZone());
+            settings.setTimeZone(timeZone);
         }
-
-        if (body.getDayStartTime() != null) {
-            user.setDayStartTime(LocalTime.parse(body.getDayStartTime()));
+        if (dayStartTime != null) {
+            settings.setDayStartTime(LocalTime.parse(dayStartTime));
         }
-        if (body.getDayEndTime() != null) {
-            user.setDayEndTime(LocalTime.parse(body.getDayEndTime()));
+        if (dayEndTime != null) {
+            settings.setDayEndTime(LocalTime.parse(dayEndTime));
         }
-        if (body.getReportTime() != null) {
-            user.setReportTime(LocalTime.parse(body.getReportTime()));
+        if (reportTime != null) {
+            settings.setReportTime(LocalTime.parse(reportTime));
         }
     }
 
@@ -111,11 +113,17 @@ public class UserService {
 
         focusSessionRepository.nullifyUser(userId);
         dailyFocusStatRepository.nullifyUser(userId);
+        userWalletRepository.deleteById(userId);
+        userScreenTimeSettingsRepository.deleteById(userId);
         userRepository.delete(user);
     }
 
     public UserProfileResponse getProfile(UUID userId) {
         User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        UserWallet wallet = userWalletRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         return new UserProfileResponse(
@@ -123,14 +131,13 @@ public class UserService {
                 user.getNickname(),
                 user.getGender() != null ? user.getGender().name() : null,
                 user.getBirthDate(),
-                user.getProfileImageUrl(),
-                user.getCurrency(),
-                user.getCurrentTier() != null ? user.getCurrentTier().name() : null,
-                user.getDailyScreenTimeGoalMinutes(),
-                user.getTimeZone(),
-                user.getDayStartTime() != null ? user.getDayStartTime().toString() : null,
-                user.getDayEndTime() != null ? user.getDayEndTime().toString() : null,
-                user.getReportTime() != null ? user.getReportTime().toString() : null
+                wallet.getBalance(),
+                user.getCurrentTier(),
+                settings.getDailyScreenTimeGoalMinutes(),
+                settings.getTimeZone(),
+                settings.getDayStartTime() != null ? settings.getDayStartTime().toString() : null,
+                settings.getDayEndTime() != null ? settings.getDayEndTime().toString() : null,
+                settings.getReportTime() != null ? settings.getReportTime().toString() : null
         );
     }
 

@@ -11,6 +11,8 @@ import com.oneorthree.phone.user.domain.SocialAccount;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.SocialAccountRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
+import com.oneorthree.phone.user.repository.UserWalletRepository;
 import io.jsonwebtoken.JwtException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -38,6 +40,10 @@ class AuthServiceTest {
     @Mock
     private UserRepository userRepository;
     @Mock
+    private UserWalletRepository userWalletRepository;
+    @Mock
+    private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
+    @Mock
     private SocialAccountRepository socialAccountRepository;
     @Mock
     private JwtProvider jwtProvider;
@@ -59,7 +65,8 @@ class AuthServiceTest {
         given(kakaoClient.provider()).willReturn(Provider.KAKAO);
         given(appleClient.provider()).willReturn(Provider.APPLE);
         authService = new AuthService(
-                userRepository, socialAccountRepository, jwtProvider, userActivityEventLogger,
+                userRepository, userWalletRepository, userScreenTimeSettingsRepository,
+                socialAccountRepository, jwtProvider, userActivityEventLogger,
                 List.of(kakaoClient, appleClient));
     }
 
