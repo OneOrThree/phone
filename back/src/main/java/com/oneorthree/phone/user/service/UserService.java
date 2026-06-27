@@ -147,4 +147,11 @@ public class UserService {
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setScreenTimePermissionGranted(request.getGranted());
     }
+
+    @Transactional
+    public void registerDeviceToken(UUID userId, String deviceToken) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        user.setDeviceToken(deviceToken);
+    }
 }

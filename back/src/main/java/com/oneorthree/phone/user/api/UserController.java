@@ -1,5 +1,6 @@
 package com.oneorthree.phone.user.api;
 
+import com.oneorthree.phone.user.dto.DeviceTokenRegisterRequest;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.service.UserService;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -97,6 +99,21 @@ public class UserController {
             HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         userService.updateScreenTimePermission(userId, body);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "디바이스 토큰 등록", description = "앱 시작 시 APNs 디바이스 토큰을 등록/갱신. 성공 시 204 반환.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "등록 성공"),
+        @ApiResponse(responseCode = "400", description = "deviceToken 누락"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
+    @PutMapping("/users/me/device-token")
+    public ResponseEntity<Void> registerDeviceToken(
+            @Valid @RequestBody DeviceTokenRegisterRequest body,
+            HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        userService.registerDeviceToken(userId, body.getDeviceToken());
         return ResponseEntity.noContent().build();
     }
 }
