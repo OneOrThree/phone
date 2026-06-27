@@ -302,7 +302,14 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
       const user = await kakaoLogin();
       trackAuthSuccess('kakao', user.isNewUser);
       onLogin(user);
-    } catch {
+    } catch (e) {
+      // 사용자가 취소한 경우는 알림 생략
+      const reason = String(
+        (e as { code?: string; message?: string }).code ?? (e as Error).message ?? '',
+      ).toLowerCase();
+      if (!reason.includes('cancel')) {
+        Alert.alert('로그인 실패', '카카오 로그인 중 오류가 발생했습니다.');
+      }
     } finally {
       setLoadingKakao(false);
     }
