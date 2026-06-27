@@ -39,6 +39,25 @@ interface AuthResponse {
   [key: string]: unknown;
 }
 
+// 토큰 저장 + (기존 유저면) 프로필 병합 — 모든 소셜 로그인 공통 후처리.
+async function postAuthSave(data: AuthResponse): Promise<LoginResult> {
+  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
+  await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
+
+  if (!data.isNewUser) {
+    const profile = await api
+      .get<Record<string, unknown>>('/api/v1/user')
+      .then((profileRes) => profileRes.data)
+      .catch(() => ({}) as Record<string, unknown>);
+    const merged: LoginResult = { ...data, ...profile };
+    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
+    return merged;
+  }
+
+  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data));
+  return data;
+}
+
 async function kakaoLogin(): Promise<LoginResult> {
   const kakaoToken = await login();
 
@@ -55,21 +74,7 @@ async function kakaoLogin(): Promise<LoginResult> {
       : '로그인 실패';
     throw new Error(msg);
   }
-  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
-  await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
-
-  if (!data.isNewUser) {
-    const profile = await api
-      .get<Record<string, unknown>>('/api/v1/user')
-      .then((profileRes) => profileRes.data)
-      .catch(() => ({}) as Record<string, unknown>);
-    const merged: LoginResult = { ...data, ...profile };
-    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
-    return merged;
-  }
-
-  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data));
-  return data;
+  return postAuthSave(data);
 }
 
 async function appleLogin(): Promise<LoginResult> {
@@ -93,21 +98,7 @@ async function appleLogin(): Promise<LoginResult> {
       : 'Apple 로그인 실패';
     throw new Error(msg);
   }
-  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
-  await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
-
-  if (!data.isNewUser) {
-    const profile = await api
-      .get<Record<string, unknown>>('/api/v1/user')
-      .then((profileRes) => profileRes.data)
-      .catch(() => ({}) as Record<string, unknown>);
-    const merged: LoginResult = { ...data, ...profile };
-    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
-    return merged;
-  }
-
-  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data));
-  return data;
+  return postAuthSave(data);
 }
 
 // Google 로그인 설정 — 모듈 로드 시 1회 실행.
@@ -145,21 +136,7 @@ async function googleLogin(): Promise<LoginResult> {
       : 'Google 로그인 실패';
     throw new Error(msg);
   }
-  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
-  await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
-
-  if (!data.isNewUser) {
-    const profile = await api
-      .get<Record<string, unknown>>('/api/v1/user')
-      .then((profileRes) => profileRes.data)
-      .catch(() => ({}) as Record<string, unknown>);
-    const merged: LoginResult = { ...data, ...profile };
-    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
-    return merged;
-  }
-
-  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data));
-  return data;
+  return postAuthSave(data);
 }
 
 // LINE 로그인 설정 — setup()은 login() 전에 1회 호출돼야 한다(채널 시크릿 불필요, 네이티브 SDK가 처리).
@@ -204,21 +181,7 @@ async function lineLogin(): Promise<LoginResult> {
       : 'LINE 로그인 실패';
     throw new Error(msg);
   }
-  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
-  await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
-
-  if (!data.isNewUser) {
-    const profile = await api
-      .get<Record<string, unknown>>('/api/v1/user')
-      .then((profileRes) => profileRes.data)
-      .catch(() => ({}) as Record<string, unknown>);
-    const merged: LoginResult = { ...data, ...profile };
-    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
-    return merged;
-  }
-
-  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data));
-  return data;
+  return postAuthSave(data);
 }
 
 // Facebook 로그인 설정 — 모듈 로드 시 SDK 1회 초기화 (FacebookAppID/ClientToken 은 Info.plist 에서 읽음).
@@ -261,21 +224,7 @@ async function facebookLogin(): Promise<LoginResult> {
       : 'Facebook 로그인 실패';
     throw new Error(msg);
   }
-  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
-  await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
-
-  if (!data.isNewUser) {
-    const profile = await api
-      .get<Record<string, unknown>>('/api/v1/user')
-      .then((profileRes) => profileRes.data)
-      .catch(() => ({}) as Record<string, unknown>);
-    const merged: LoginResult = { ...data, ...profile };
-    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
-    return merged;
-  }
-
-  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data));
-  return data;
+  return postAuthSave(data);
 }
 
 // 인증 성공 시 GA4 이벤트 + signup_method 유저속성 기록.
