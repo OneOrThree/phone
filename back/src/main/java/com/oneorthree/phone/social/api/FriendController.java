@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.UUID;
 
-@Tag(name = "Friend", description = "친구 요청·수락·거절·삭제·목록·검색 API")
+@Tag(name = "Friend", description = "친구 요청·수락·거절·삭제·목록·검색·핀 API")
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
@@ -96,7 +96,7 @@ public class FriendController {
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(summary = "친구 목록 조회", description = "ACCEPTED·미삭제 친구 목록. isPinned는 GROMO-454 전까지 항상 false.")
+    @Operation(summary = "친구 목록 조회", description = "ACCEPTED·미삭제 친구 목록. isPinned는 내가 핀한 친구면 true.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공")
     })

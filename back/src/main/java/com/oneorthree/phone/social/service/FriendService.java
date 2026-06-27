@@ -1,5 +1,7 @@
 package com.oneorthree.phone.social.service;
 
+import com.fasterxml.uuid.Generators;
+import com.fasterxml.uuid.NoArgGenerator;
 import com.oneorthree.phone.focus.domain.DailyFocusStat;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -39,6 +41,9 @@ import java.util.stream.Collectors;
 @Service
 @Transactional(readOnly = true)
 public class FriendService {
+
+    // pinned_friend.id 직접 생성용 (네이티브 INSERT는 @GeneratedUuidV7를 안 타므로 직접 발급)
+    private static final NoArgGenerator UUID_V7 = Generators.timeBasedEpochRandomGenerator();
 
     private final FriendshipRepository friendshipRepository;
     private final UserRepository userRepository;
@@ -153,13 +158,8 @@ public class FriendService {
         User friendUser = getUser(friendUserId);
         friendshipRepository.findAcceptedBetween(meUser, friendUser)
                 .orElseThrow(() -> new FriendException(FriendErrorCode.NOT_FRIEND));
-        if (pinnedFriendRepository.existsByUserAndFriendUser(meUser, friendUser)) {
-            return;
-        }
-        pinnedFriendRepository.save(PinnedFriend.builder()
-                .user(meUser)
-                .friendUser(friendUser)
-                .build());
+        // ON CONFLICT DO NOTHING — 동시 핀 요청에도 멱등(중복은 무시), 500 없음.
+        pinnedFriendRepository.insertIgnoreConflict(UUID_V7.generate(), me, friendUserId);
     }
 
     // 친구 핀 해제 — 있으면 삭제, 없으면 멱등(204).
