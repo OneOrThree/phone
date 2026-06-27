@@ -5,6 +5,10 @@ const googleIosUrlScheme = googleIosClientId
   ? `com.googleusercontent.apps.${googleIosClientId.replace('.apps.googleusercontent.com', '')}`
   : 'com.googleusercontent.apps.PLACEHOLDER_IOS_CLIENT_ID';
 
+// Meta(Facebook) — App ID/Client Token 은 env 에서 주입(미설정 시 prebuild 시 skip).
+const facebookAppId = process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || '';
+const facebookClientToken = process.env.EXPO_PUBLIC_FACEBOOK_CLIENT_TOKEN || '';
+
 export default {
   expo: {
     name: 'gromo',
@@ -20,6 +24,15 @@ export default {
       'expo-apple-authentication',
       ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
       '@xmartlabs/react-native-line',
+      [
+        'react-native-fbsdk-next',
+        {
+          appID: facebookAppId,
+          clientToken: facebookClientToken,
+          displayName: 'gromo',
+          scheme: facebookAppId ? `fb${facebookAppId}` : undefined,
+        },
+      ],
     ],
     slug: 'gromo-kr',
     version: '0.0.1',

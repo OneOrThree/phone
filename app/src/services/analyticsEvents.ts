@@ -8,7 +8,7 @@
 import { track, setUserProperty } from '@/services/analytics';
 
 // 로그인/가입 수단
-export type AuthMethod = 'kakao' | 'apple' | 'google' | 'line' | 'guest';
+export type AuthMethod = 'kakao' | 'apple' | 'google' | 'line' | 'facebook' | 'guest';
 
 // 비식별 성별 코드 (PII 아님)
 export type GenderCode = 'MALE' | 'FEMALE' | 'UNKNOWN';

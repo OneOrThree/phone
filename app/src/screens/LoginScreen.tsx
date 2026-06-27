@@ -17,6 +17,7 @@ import {
   statusCodes,
 } from '@react-native-google-signin/google-signin';
 import LineLogin, { LoginPermission } from '@xmartlabs/react-native-line';
+import { LoginManager, AccessToken, Settings } from 'react-native-fbsdk-next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import { API_URL, api } from '@/services/api';
@@ -208,6 +209,50 @@ async function lineLogin(): Promise<LoginResult> {
   return data;
 }
 
+// Facebook 로그인 설정 — 모듈 로드 시 SDK 1회 초기화 (FacebookAppID/ClientToken 은 Info.plist 에서 읽음).
+Settings.initializeSDK();
+
+async function facebookLogin(): Promise<LoginResult> {
+  const result = await LoginManager.logInWithPermissions(['public_profile', 'email']);
+  if (result.isCancelled) {
+    // 사용자 취소 — 호출부에서 알림 생략하도록 코드 부여
+    throw Object.assign(new Error('Facebook 로그인 취소'), { code: 'CANCELLED' });
+  }
+  const tokenData = await AccessToken.getCurrentAccessToken();
+  if (!tokenData) {
+    throw new Error('Facebook accessToken을 가져오지 못했습니다.');
+  }
+
+  // 로그인 전 호출이므로 인터셉터(토큰 주입·401 로그아웃) 없는 bare axios 사용
+  let data: AuthResponse;
+  try {
+    const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/facebook`, {
+      token: tokenData.accessToken,
+    });
+    data = res.data;
+  } catch (e) {
+    const msg = axios.isAxiosError(e)
+      ? ((e.response?.data as AuthResponse | undefined)?.message ?? 'Facebook 로그인 실패')
+      : 'Facebook 로그인 실패';
+    throw new Error(msg);
+  }
+  await AsyncStorage.setItem('gromo:accessToken', data.accessToken);
+  await AsyncStorage.setItem('gromo:refreshToken', data.refreshToken);
+
+  if (!data.isNewUser) {
+    const profile = await api
+      .get<Record<string, unknown>>('/api/v1/user')
+      .then((profileRes) => profileRes.data)
+      .catch(() => ({}) as Record<string, unknown>);
+    const merged: LoginResult = { ...data, ...profile };
+    await AsyncStorage.setItem('gromo:user', JSON.stringify(merged));
+    return merged;
+  }
+
+  await AsyncStorage.setItem('gromo:user', JSON.stringify(data));
+  return data;
+}
+
 // 인증 성공 시 GA4 이벤트 + signup_method 유저속성 기록.
 // 신규 가입은 sign_up, 기존 사용자는 login (GA4 표준 이벤트).
 function trackAuthSuccess(method: AuthMethod, isNewUser?: boolean): void {
@@ -221,8 +266,9 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
   const [loadingApple, setLoadingApple] = useState(false);
   const [loadingGoogle, setLoadingGoogle] = useState(false);
   const [loadingLine, setLoadingLine] = useState(false);
+  const [loadingFacebook, setLoadingFacebook] = useState(false);
 
-  const loading = loadingKakao || loadingApple || loadingGoogle || loadingLine;
+  const loading = loadingKakao || loadingApple || loadingGoogle || loadingLine || loadingFacebook;
 
   async function handleKakaoLogin() {
     if (loading) return;
@@ -288,6 +334,23 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
       }
     } finally {
       setLoadingLine(false);
+    }
+  }
+
+  async function handleFacebookLogin() {
+    if (loading) return;
+    setLoadingFacebook(true);
+    try {
+      const user = await facebookLogin();
+      trackAuthSuccess('facebook', user.isNewUser);
+      onLogin(user);
+    } catch (e) {
+      // 사용자가 직접 취소한 경우는 알림 생략
+      if ((e as { code?: string }).code !== 'CANCELLED') {
+        Alert.alert('로그인 실패', 'Facebook 로그인 중 오류가 발생했습니다.');
+      }
+    } finally {
+      setLoadingFacebook(false);
     }
   }
 
@@ -358,6 +421,20 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
             <ActivityIndicator size="small" color={T.ink} />
           ) : (
             <Text style={styles.lineButtonText}>LINE으로 계속하기</Text>
+          )}
+        </TouchableOpacity>
+
+        {/* Facebook 로그인 */}
+        <TouchableOpacity
+          style={styles.facebookButton}
+          onPress={handleFacebookLogin}
+          activeOpacity={0.8}
+          disabled={loading}
+        >
+          {loadingFacebook ? (
+            <ActivityIndicator size="small" color={T.ink} />
+          ) : (
+            <Text style={styles.facebookButtonText}>Facebook으로 계속하기</Text>
           )}
         </TouchableOpacity>
 
@@ -459,6 +536,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   lineButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: T.ink,
+  },
+  facebookButton: {
+    width: '100%',
+    height: 54,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: T.paperLine,
+    backgroundColor: T.paper,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  facebookButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: T.ink,
