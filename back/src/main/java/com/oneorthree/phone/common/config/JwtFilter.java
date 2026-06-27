@@ -22,6 +22,9 @@ public class JwtFilter extends OncePerRequestFilter {
             "/api/v1/auth/kakao",
             "/api/v1/auth/guest",
             "/api/v1/auth/apple",
+            "/api/v1/auth/google",
+            "/api/v1/auth/line",
+            "/api/v1/auth/instagram",
             "/api/v1/auth/refresh"
     );
 
