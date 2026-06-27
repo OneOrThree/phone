@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -17,6 +18,9 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     List<FocusSession> findByUserWithTag(@Param("user") User user);
 
     List<FocusSession> findByUserAndStartedAtBetween(User user, Instant from, Instant to);
+
+    // 진행 중(미종료) 세션 — 핀 친구 isFocusing 판정용. endedAt IS NULL.
+    List<FocusSession> findByUserInAndEndedAtIsNull(Collection<User> users);
 
     @Modifying
     @Query("UPDATE FocusSession f SET f.user = null WHERE f.user.id = :userId")
