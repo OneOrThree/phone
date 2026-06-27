@@ -62,4 +62,24 @@ public class Friendship {
 
     @Column(name = "deleted_at")
     private Instant deletedAt;
+
+    // 수신자가 요청 수락 (PENDING → ACCEPTED)
+    public void accept() {
+        this.status = FriendshipStatus.ACCEPTED;
+    }
+
+    // 수신자가 요청 거절 (PENDING → REJECTED)
+    public void reject() {
+        this.status = FriendshipStatus.REJECTED;
+    }
+
+    // REJECTED 상태의 기존 요청을 재요청으로 되살림 (REJECTED → PENDING)
+    public void reopen() {
+        this.status = FriendshipStatus.PENDING;
+    }
+
+    // 친구 관계 소프트 삭제 (deletedAt 기록)
+    public void softDelete(Instant now) {
+        this.deletedAt = now;
+    }
 }

@@ -5,6 +5,7 @@ import com.oneorthree.phone.currency.exception.CurrencyException;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.social.exception.FriendException;
 import com.oneorthree.phone.user.exception.UserException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
@@ -43,6 +44,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(GroupException.class)
     public ResponseEntity<ErrorResponse> handleGroup(GroupException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(FriendException.class)
+    public ResponseEntity<ErrorResponse> handleFriend(FriendException e) {
         return ResponseEntity.status(e.getErrorCode().getStatus())
                 .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
     }
