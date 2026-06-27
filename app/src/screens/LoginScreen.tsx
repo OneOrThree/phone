@@ -166,17 +166,28 @@ let lineConfigured = false;
 async function ensureLineSetup(): Promise<void> {
   if (lineConfigured) return;
   const channelId = process.env.EXPO_PUBLIC_LINE_CHANNEL_ID;
-  // Channel ID 미설정 시 setup/login 이 끝나지 않아 무한로딩이 되므로 즉시 실패시킨다.
+  // Channel ID 미설정 시 즉시 실패시킨다.
   if (!channelId) {
     throw new Error('LINE Channel ID 미설정 (EXPO_PUBLIC_LINE_CHANNEL_ID)');
   }
-  await LineLogin.setup({ channelId });
+  // ⚠️ react-native-line v4 버그: 네이티브 setup()이 resolve()를 호출하지 않아 await 하면 영영 멈춤(무한로딩).
+  // LoginManager.shared.setup()은 동기로 채널을 설정하므로, await 없이 호출만 하고 진행한다.
+  LineLogin.setup({ channelId }).catch(() => {});
   lineConfigured = true;
 }
 
 async function lineLogin(): Promise<LoginResult> {
   await ensureLineSetup();
-  const result = await LineLogin.login({ scopes: [LoginPermission.Profile] });
+  // login()이 콜백을 못 받아 영영 안 끝나는 경우(주로 LINE 채널 iOS 설정 누락) 무한로딩 방지.
+  const result = await Promise.race([
+    LineLogin.login({ scopes: [LoginPermission.Profile] }),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error('LINE 로그인 응답 없음 — 채널 iOS 설정(번들 ID) 확인 필요')),
+        30000,
+      ),
+    ),
+  ]);
   const accessToken = result.accessToken.accessToken;
 
   // 로그인 전 호출이므로 인터셉터(토큰 주입·401 로그아웃) 없는 bare axios 사용
