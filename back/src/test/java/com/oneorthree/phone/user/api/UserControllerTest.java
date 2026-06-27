@@ -52,4 +52,14 @@ class UserControllerTest {
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
+
+    @Test
+    @DisplayName("deviceToken null → 400")
+    void registerDeviceTokenNullReturns400() throws Exception {
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deviceToken\": null}"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
 }
