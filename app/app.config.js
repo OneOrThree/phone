@@ -1,3 +1,14 @@
+// Google 로그인 iOS URL scheme = iOS client ID 역방향.
+// 값은 env(EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID)에서 파생하며, 미설정 시 placeholder로 둔다(빌드는 통과, 실제 로그인은 값 주입 후 동작).
+const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '';
+const googleIosUrlScheme = googleIosClientId
+  ? `com.googleusercontent.apps.${googleIosClientId.replace('.apps.googleusercontent.com', '')}`
+  : 'com.googleusercontent.apps.PLACEHOLDER_IOS_CLIENT_ID';
+
+// Meta(Facebook) — App ID/Client Token 은 env 에서 주입(미설정 시 prebuild 시 skip).
+const facebookAppId = process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || '';
+const facebookClientToken = process.env.EXPO_PUBLIC_FACEBOOK_CLIENT_TOKEN || '';
+
 export default {
   expo: {
     name: 'gromo',
@@ -11,6 +22,17 @@ export default {
       ],
       '@react-native-community/datetimepicker',
       'expo-apple-authentication',
+      ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
+      '@xmartlabs/react-native-line',
+      [
+        'react-native-fbsdk-next',
+        {
+          appID: facebookAppId,
+          clientToken: facebookClientToken,
+          displayName: 'gromo',
+          scheme: facebookAppId ? `fb${facebookAppId}` : undefined,
+        },
+      ],
     ],
     slug: 'gromo-kr',
     version: '0.0.1',
