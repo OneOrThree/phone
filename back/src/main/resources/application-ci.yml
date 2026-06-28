@@ -30,6 +30,10 @@ line:
 instagram:
   api-base-url: https://graph.instagram.com
 
+facebook:
+  jwks-url: https://www.facebook.com/.well-known/oauth/openid/jwks/
+  client-id: "990121817063522"
+
 jwt:
   secret: ci-test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256
   access-expiration: 3600

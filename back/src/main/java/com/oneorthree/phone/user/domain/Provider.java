@@ -4,5 +4,5 @@ import lombok.Getter;
 
 @Getter
 public enum Provider {
-    APPLE, GOOGLE, KAKAO, LINE, INSTAGRAM;
+    APPLE, GOOGLE, KAKAO, LINE, INSTAGRAM, FACEBOOK;
 }
