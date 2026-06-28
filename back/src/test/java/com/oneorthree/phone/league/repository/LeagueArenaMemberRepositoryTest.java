@@ -14,6 +14,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -94,14 +96,17 @@ class LeagueArenaMemberRepositoryTest extends RepositoryTestBase {
     void findRankedByArena_tieBreakById() {
         LeagueTierConfig cfg = saveTierConfig(3);
         LeagueArena arena = saveArena(cfg, LeagueArenaStatus.ACTIVE);
-        // 동일 focusMinutes — 먼저 저장된 멤버가 id(uuid v7) 작아 상위
-        LeagueArenaMember first = saveMember(arena, saveUser("first"), 150);
-        LeagueArenaMember second = saveMember(arena, saveUser("second"), 150);
+        // 동일 focusMinutes 면 id 오름차순으로 결정적 정렬돼야 한다.
+        // (UUID v7 는 같은 밀리초 내 생성 시 랜덤 꼬리로 순서가 갈려 저장 순서 != id 순서일 수 있으므로
+        //  저장 순서를 가정하지 않고, 실제 id 를 정렬한 기대값과 비교한다.)
+        LeagueArenaMember a = saveMember(arena, saveUser("a"), 150);
+        LeagueArenaMember b = saveMember(arena, saveUser("b"), 150);
         leagueArenaMemberRepository.flush();
+        List<UUID> expectedOrder = Stream.of(a.getId(), b.getId()).sorted().toList();
 
         List<LeagueArenaMember> ranked = leagueArenaMemberRepository.findRankedByArena(arena);
 
         assertThat(ranked).extracting(LeagueArenaMember::getId)
-                .containsExactly(first.getId(), second.getId());
+                .containsExactlyElementsOf(expectedOrder);
     }
 }

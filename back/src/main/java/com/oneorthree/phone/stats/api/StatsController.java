@@ -1,0 +1,58 @@
+package com.oneorthree.phone.stats.api;
+
+import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
+import com.oneorthree.phone.stats.dto.StreakResponse;
+import com.oneorthree.phone.stats.service.StatsService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+
+@Tag(name = "stats", description = "홈 화면 통계 조회 API (스트릭·일별 집중 집계)")
+@RestController
+@RequestMapping("/api/v1")
+@RequiredArgsConstructor
+public class StatsController {
+
+    private final StatsService statsService;
+
+    @Operation(summary = "일별 집중 집계(히트맵) 조회",
+            description = "[from,to] 범위의 모든 날짜를 반환(데이터 없는 날은 0). 범위 상한 366일.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "400", description = "from/to 누락·역순·범위 초과"),
+        @ApiResponse(responseCode = "401", description = "인증 필요")
+    })
+    @GetMapping("/stats/heatmap")
+    public ResponseEntity<List<HeatmapCellResponse>> getHeatmap(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(statsService.getHeatmap(userId, from, to));
+    }
+
+    @Operation(summary = "스트릭(연속일) 조회",
+            description = "현재 연속일·최장 연속일·마지막 집중일. 기록 없으면 0/0/null.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "401", description = "인증 필요")
+    })
+    @GetMapping("/stats/streak")
+    public ResponseEntity<StreakResponse> getStreak(HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(statsService.getStreak(userId));
+    }
+}
