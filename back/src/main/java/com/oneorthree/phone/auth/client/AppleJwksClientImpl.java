@@ -25,6 +25,7 @@ import java.util.Map;
 public class AppleJwksClientImpl implements SocialLoginClient {
 
     private static final String ISS = "https://appleid.apple.com";
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final RestClient restClient;
     private final String clientId;
@@ -51,14 +52,20 @@ public class AppleJwksClientImpl implements SocialLoginClient {
             String header = token.split("\\.")[0];
             byte[] decodedHeader = Base64.getUrlDecoder().decode(header);
             String headerJson = new String(decodedHeader, StandardCharsets.UTF_8);
-            Map<String, String> headerMap = new ObjectMapper().readValue(headerJson, Map.class);
+            Map<String, String> headerMap = OBJECT_MAPPER.readValue(headerJson, Map.class);
             kid = headerMap.get("kid");
         } catch (Exception e) {
+            throw new InvalidTokenException(InvalidTokenErrorCode.APPLE_TOKEN);
+        }
+        if (kid == null) {
             throw new InvalidTokenException(InvalidTokenErrorCode.APPLE_TOKEN);
         }
 
         // Step 2 — JWKS 호출해서 kid 일치하는 키 찾기
         Map<String, Object> jwks = restClient.get().uri("").retrieve().body(Map.class);
+        if (jwks == null || jwks.get("keys") == null) {
+            throw new InvalidTokenException(InvalidTokenErrorCode.APPLE_TOKEN);
+        }
         List<Map<String, String>> keys = (List<Map<String, String>>) jwks.get("keys");
         Map<String, String> matchedKey = keys.stream()
                 .filter(k -> kid.equals(k.get("kid")))
