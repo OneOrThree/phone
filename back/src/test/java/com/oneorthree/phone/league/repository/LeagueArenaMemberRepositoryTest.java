@@ -32,7 +32,8 @@ class LeagueArenaMemberRepositoryTest extends RepositoryTestBase {
 
     private LeagueTierConfig saveTierConfig(int level) {
         return leagueTierConfigRepository.save(LeagueTierConfig.builder()
-                .tierLevel(level).arenaSize(30).promoteCount(10).relegateCount(5).relegateWarningCount(3).build());
+                .tierLevel(level).arenaSize(30).promoteCount(10).relegateCount(5).relegateWarningCount(3)
+                .badgeId("tier-" + level).build());
     }
 
     private LeagueArena saveArena(LeagueTierConfig cfg, LeagueArenaStatus status) {

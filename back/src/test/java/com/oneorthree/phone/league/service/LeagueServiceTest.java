@@ -4,10 +4,12 @@ import com.oneorthree.phone.league.domain.LeagueArena;
 import com.oneorthree.phone.league.domain.LeagueArenaMember;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueMemberResult;
+import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.repository.LeagueArenaMemberRepository;
+import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.user.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,6 +35,16 @@ class LeagueServiceTest {
 
     @Mock
     private LeagueArenaMemberRepository leagueArenaMemberRepository;
+
+    @Mock
+    private LeagueTierConfigRepository leagueTierConfigRepository;
+
+    private LeagueTierConfig tierConfig(int tierLevel, String badgeId) {
+        return LeagueTierConfig.builder()
+                .tierLevel(tierLevel)
+                .badgeId(badgeId)
+                .build();
+    }
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID U2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
@@ -68,6 +80,8 @@ class LeagueServiceTest {
         LeagueArenaMember me = member(USER_ID, "me", arena, 300);
         given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
                 .willReturn(Optional.of(me));
+        given(leagueTierConfigRepository.findById(3))
+                .willReturn(Optional.of(tierConfig(3, "hyperfocus")));
 
         LeagueTierResponse response = leagueService.getMyTier(USER_ID);
 
@@ -76,6 +90,23 @@ class LeagueServiceTest {
         assertThat(response.arenaId()).isEqualTo(ARENA_ID);
         assertThat(response.weekStartAt()).isEqualTo(WEEK_START);
         assertThat(response.status()).isEqualTo("ACTIVE");
+        assertThat(response.badgeId()).isEqualTo("hyperfocus");
+    }
+
+    @Test
+    @DisplayName("내 티어 조회 - 티어 설정 누락 → badgeId=null 로 방어")
+    void getMyTierBadgeConfigMissing() {
+        LeagueArena arena = activeArena();
+        LeagueArenaMember me = member(USER_ID, "me", arena, 300);
+        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+                .willReturn(Optional.of(me));
+        given(leagueTierConfigRepository.findById(3))
+                .willReturn(Optional.empty());
+
+        LeagueTierResponse response = leagueService.getMyTier(USER_ID);
+
+        assertThat(response.assigned()).isTrue();
+        assertThat(response.badgeId()).isNull();
     }
 
     @Test
@@ -89,6 +120,7 @@ class LeagueServiceTest {
         assertThat(response.assigned()).isFalse();
         assertThat(response.tierLevel()).isNull();
         assertThat(response.arenaId()).isNull();
+        assertThat(response.badgeId()).isNull();
     }
 
     // ── getMyRanking ──────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ public record LeagueTierResponse(
         Integer tierLevel,
         UUID arenaId,
         Instant weekStartAt,
-        String status
+        String status,
+        String badgeId
 ) {
 }
