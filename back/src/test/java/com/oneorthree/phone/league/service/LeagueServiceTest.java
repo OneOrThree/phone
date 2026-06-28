@@ -1,0 +1,180 @@
+package com.oneorthree.phone.league.service;
+
+import com.oneorthree.phone.league.domain.LeagueArena;
+import com.oneorthree.phone.league.domain.LeagueArenaMember;
+import com.oneorthree.phone.league.domain.LeagueArenaStatus;
+import com.oneorthree.phone.league.domain.LeagueMemberResult;
+import com.oneorthree.phone.league.dto.LeagueMemberResponse;
+import com.oneorthree.phone.league.dto.LeagueRankResponse;
+import com.oneorthree.phone.league.dto.LeagueTierResponse;
+import com.oneorthree.phone.league.repository.LeagueArenaMemberRepository;
+import com.oneorthree.phone.user.domain.User;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
+
+@ExtendWith(MockitoExtension.class)
+class LeagueServiceTest {
+
+    @InjectMocks
+    private LeagueService leagueService;
+
+    @Mock
+    private LeagueArenaMemberRepository leagueArenaMemberRepository;
+
+    private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID U2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
+    private static final UUID U3 = UUID.fromString("00000000-0000-0000-0000-000000000003");
+    private static final UUID ARENA_ID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
+    private static final Instant WEEK_START = Instant.parse("2026-06-22T00:00:00Z");
+
+    private LeagueArena activeArena() {
+        return LeagueArena.builder()
+                .id(ARENA_ID)
+                .weekStartAt(WEEK_START)
+                .status(LeagueArenaStatus.ACTIVE)
+                .build();
+    }
+
+    private LeagueArenaMember member(UUID userId, String nickname, LeagueArena arena, int focusMinutes) {
+        User user = User.builder().id(userId).nickname(nickname).build();
+        return LeagueArenaMember.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .leagueArena(arena)
+                .tierLevel(3)
+                .totalFocusMinutes(focusMinutes)
+                .build();
+    }
+
+    // ── getMyTier ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("내 티어 조회 성공 → ACTIVE 아레나 정보 매핑")
+    void getMyTierAssigned() {
+        LeagueArena arena = activeArena();
+        LeagueArenaMember me = member(USER_ID, "me", arena, 300);
+        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+                .willReturn(Optional.of(me));
+
+        LeagueTierResponse response = leagueService.getMyTier(USER_ID);
+
+        assertThat(response.assigned()).isTrue();
+        assertThat(response.tierLevel()).isEqualTo(3);
+        assertThat(response.arenaId()).isEqualTo(ARENA_ID);
+        assertThat(response.weekStartAt()).isEqualTo(WEEK_START);
+        assertThat(response.status()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    @DisplayName("내 티어 조회 - 미배정 → assigned=false")
+    void getMyTierUnassigned() {
+        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+                .willReturn(Optional.empty());
+
+        LeagueTierResponse response = leagueService.getMyTier(USER_ID);
+
+        assertThat(response.assigned()).isFalse();
+        assertThat(response.tierLevel()).isNull();
+        assertThat(response.arenaId()).isNull();
+    }
+
+    // ── getMyRanking ──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("랭킹 조회 → 정렬 순서대로 rank 1..N 부여")
+    void getMyRankingAssigned() {
+        LeagueArena arena = activeArena();
+        LeagueArenaMember me = member(USER_ID, "me", arena, 200);
+        LeagueArenaMember top = member(U2, "top", arena, 300);
+        LeagueArenaMember last = member(U3, "last", arena, 100);
+        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+                .willReturn(Optional.of(me));
+        // findRankedByArena 가 이미 정렬된 리스트를 반환한다고 가정 (top > me > last)
+        given(leagueArenaMemberRepository.findRankedByArena(arena))
+                .willReturn(List.of(top, me, last));
+
+        List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID);
+
+        assertThat(ranking).hasSize(3);
+        assertThat(ranking.get(0).rank()).isEqualTo(1);
+        assertThat(ranking.get(0).nickname()).isEqualTo("top");
+        assertThat(ranking.get(0).totalFocusMinutes()).isEqualTo(300);
+        assertThat(ranking.get(1).rank()).isEqualTo(2);
+        assertThat(ranking.get(1).userId()).isEqualTo(USER_ID);
+        assertThat(ranking.get(2).rank()).isEqualTo(3);
+        assertThat(ranking.get(0).result()).isNull();
+    }
+
+    @Test
+    @DisplayName("랭킹 조회 - 미배정 → 빈 리스트")
+    void getMyRankingUnassigned() {
+        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+                .willReturn(Optional.empty());
+
+        assertThat(leagueService.getMyRanking(USER_ID)).isEmpty();
+    }
+
+    // ── getMyRank ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("내 순위 조회 → 정렬 리스트에서 내 위치 = myRank, 진행 중 result=null")
+    void getMyRankAssigned() {
+        LeagueArena arena = activeArena();
+        LeagueArenaMember me = member(USER_ID, "me", arena, 200);
+        LeagueArenaMember top = member(U2, "top", arena, 300);
+        LeagueArenaMember last = member(U3, "last", arena, 100);
+        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+                .willReturn(Optional.of(me));
+        given(leagueArenaMemberRepository.findRankedByArena(arena))
+                .willReturn(List.of(top, me, last));
+
+        LeagueRankResponse response = leagueService.getMyRank(USER_ID);
+
+        assertThat(response.assigned()).isTrue();
+        assertThat(response.myRank()).isEqualTo(2);
+        assertThat(response.totalFocusMinutes()).isEqualTo(200);
+        assertThat(response.result()).isNull();
+    }
+
+    @Test
+    @DisplayName("내 순위 조회 - 확정된 result 매핑")
+    void getMyRankWithResult() {
+        LeagueArena arena = activeArena();
+        LeagueArenaMember me = member(USER_ID, "me", arena, 300);
+        me.setRank(1);
+        me.setResult(LeagueMemberResult.PROMOTED);
+        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+                .willReturn(Optional.of(me));
+        given(leagueArenaMemberRepository.findRankedByArena(arena))
+                .willReturn(List.of(me));
+
+        LeagueRankResponse response = leagueService.getMyRank(USER_ID);
+
+        assertThat(response.myRank()).isEqualTo(1);
+        assertThat(response.result()).isEqualTo("PROMOTED");
+    }
+
+    @Test
+    @DisplayName("내 순위 조회 - 미배정 → assigned=false")
+    void getMyRankUnassigned() {
+        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+                .willReturn(Optional.empty());
+
+        LeagueRankResponse response = leagueService.getMyRank(USER_ID);
+
+        assertThat(response.assigned()).isFalse();
+        assertThat(response.myRank()).isNull();
+    }
+}
