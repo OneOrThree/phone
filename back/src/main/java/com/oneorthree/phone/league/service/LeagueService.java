@@ -62,12 +62,15 @@ public class LeagueService {
                 .map(member -> {
                     List<LeagueArenaMember> ranked =
                             leagueArenaMemberRepository.findRankedByArena(member.getLeagueArena());
-                    int myRank = 0;
+                    Integer myRank = null;
                     for (int i = 0; i < ranked.size(); i++) {
                         if (ranked.get(i).getUser().getId().equals(userId)) {
                             myRank = i + 1;
                             break;
                         }
+                    }
+                    if (myRank == null) {
+                        throw new IllegalStateException("Active member not in ranked list: userId=" + userId);
                     }
                     return new LeagueRankResponse(
                             true,
@@ -75,7 +78,7 @@ public class LeagueService {
                             member.getTotalFocusMinutes(),
                             resultName(member));
                 })
-                .orElseGet(() -> new LeagueRankResponse(false, null, 0, null));
+                .orElseGet(() -> new LeagueRankResponse(false, null, null, null));
     }
 
     private Optional<LeagueArenaMember> findActiveMembership(UUID userId) {

@@ -19,8 +19,8 @@ public interface LeagueArenaMemberRepository extends JpaRepository<LeagueArenaMe
     Optional<LeagueArenaMember> findByLeagueArenaAndUser(LeagueArena leagueArena, User user);
 
     // 내 현재 ACTIVE 아레나 멤버십 (유저당 활성 아레나는 최대 1개)
-    @Query("SELECT m FROM LeagueArenaMember m "
-            + "WHERE m.user.id = :userId AND m.leagueArena.status = :status")
+    @Query("SELECT m FROM LeagueArenaMember m JOIN FETCH m.leagueArena la "
+            + "WHERE m.user.id = :userId AND la.status = :status")
     Optional<LeagueArenaMember> findByUserAndArenaStatus(
             @Param("userId") UUID userId, @Param("status") LeagueArenaStatus status);
 

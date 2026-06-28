@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -55,7 +56,7 @@ class LeagueControllerTest {
         mockMvc.perform(get("/api/v1/league/me/tier"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.assigned").value(false))
-                .andExpect(jsonPath("$.tierLevel").doesNotExist())
+                .andExpect(jsonPath("$.tierLevel").value(nullValue()))
                 .andDo(print());
     }
 

@@ -22,6 +22,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 
 @ExtendWith(MockitoExtension.class)
@@ -164,6 +165,21 @@ class LeagueServiceTest {
 
         assertThat(response.myRank()).isEqualTo(1);
         assertThat(response.result()).isEqualTo("PROMOTED");
+    }
+
+    @Test
+    @DisplayName("내 순위 조회 - 정합성 깨짐(랭킹 목록에 내가 없음) → IllegalStateException")
+    void getMyRankMemberNotInRanked() {
+        LeagueArena arena = activeArena();
+        LeagueArenaMember me = member(USER_ID, "me", arena, 200);
+        LeagueArenaMember other = member(U2, "other", arena, 300);
+        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+                .willReturn(Optional.of(me));
+        given(leagueArenaMemberRepository.findRankedByArena(arena))
+                .willReturn(List.of(other)); // 내 멤버가 랭킹 목록에 없음
+
+        assertThatThrownBy(() -> leagueService.getMyRank(USER_ID))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
