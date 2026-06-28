@@ -24,15 +24,21 @@ export default {
       'expo-apple-authentication',
       ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
       '@xmartlabs/react-native-line',
-      [
-        'react-native-fbsdk-next',
-        {
-          appID: facebookAppId,
-          clientToken: facebookClientToken,
-          displayName: 'gromo',
-          scheme: facebookAppId ? `fb${facebookAppId}` : undefined,
-        },
-      ],
+      // Facebook SDK 플러그인은 appID 가 있을 때만 추가한다.
+      // (appID 가 비어 있으면 플러그인이 'missing appID' 로 throw 하므로 미설정 시 skip)
+      ...(facebookAppId
+        ? [
+            [
+              'react-native-fbsdk-next',
+              {
+                appID: facebookAppId,
+                clientToken: facebookClientToken,
+                displayName: 'gromo',
+                scheme: `fb${facebookAppId}`,
+              },
+            ],
+          ]
+        : []),
     ],
     slug: 'gromo-kr',
     version: '0.0.1',
@@ -43,6 +49,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.oneorthree.gromo',
+      buildNumber: '21',
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
       },
@@ -54,10 +61,5 @@ export default {
       bundler: 'metro',
     },
     owner: 'oneorthree',
-    extra: {
-      eas: {
-        projectId: '4958d398-2a53-42fb-978a-bdfc30a5f3c0',
-      },
-    },
   },
 };
