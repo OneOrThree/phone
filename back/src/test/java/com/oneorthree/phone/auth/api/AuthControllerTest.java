@@ -78,6 +78,21 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("페이스북 로그인 성공 - SocialLoginRequest(token) 라우팅")
+    void facebookLoginReturns200() throws Exception {
+        given(authService.socialLogin(Provider.FACEBOOK, "valid-facebook-token", null))
+                .willReturn(new SocialLoginResponse("at", "rt", true));
+
+        mockMvc.perform(post("/api/v1/auth/facebook")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("token", "valid-facebook-token"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isNewUser").value(true))
+                .andExpect(jsonPath("$.accessToken").value("at"))
+                .andDo(print());
+    }
+
+    @Test
     @DisplayName("애플 로그인 성공 - identityToken + fullName 전달")
     void appleLoginReturns200() throws Exception {
         given(authService.socialLogin(Provider.APPLE, "valid-apple-token", "홍길동"))

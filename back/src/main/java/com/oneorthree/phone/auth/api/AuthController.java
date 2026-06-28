@@ -58,6 +58,17 @@ public class AuthController {
         return ResponseEntity.ok(authService.socialLogin(Provider.INSTAGRAM, request.token(), null));
     }
 
+    @Operation(summary = "페이스북 로그인",
+            description = "Facebook(Meta) Limited Login id_token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "로그인 성공"),
+        @ApiResponse(responseCode = "401", description = "유효하지 않은 Facebook 토큰")
+    })
+    @PostMapping("/auth/facebook")
+    public ResponseEntity<SocialLoginResponse> facebookLogin(@RequestBody SocialLoginRequest request) {
+        return ResponseEntity.ok(authService.socialLogin(Provider.FACEBOOK, request.token(), null));
+    }
+
     @Operation(summary = "카카오 로그인", description = "카카오 Access Token → AT + RT 발급. 최초 로그인 시 isNewUser=true.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "로그인 성공"),

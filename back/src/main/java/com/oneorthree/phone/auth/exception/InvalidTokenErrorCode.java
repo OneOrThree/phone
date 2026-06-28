@@ -11,7 +11,8 @@ public enum InvalidTokenErrorCode {
     APPLE_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Apple Token"),
     GOOGLE_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Google Token"),
     LINE_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Line Token"),
-    INSTAGRAM_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Instagram Token");
+    INSTAGRAM_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Instagram Token"),
+    FACEBOOK_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Facebook Token");
 
     private final HttpStatus status;
     private final String message;
