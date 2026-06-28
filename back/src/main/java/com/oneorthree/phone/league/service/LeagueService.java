@@ -6,7 +6,9 @@ import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
+import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.repository.LeagueArenaMemberRepository;
+import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +24,7 @@ import java.util.UUID;
 public class LeagueService {
 
     private final LeagueArenaMemberRepository leagueArenaMemberRepository;
+    private final LeagueTierConfigRepository leagueTierConfigRepository;
 
     public LeagueTierResponse getMyTier(UUID userId) {
         return findActiveMembership(userId)
@@ -32,9 +35,10 @@ public class LeagueService {
                             member.getTierLevel(),
                             arena.getId(),
                             arena.getWeekStartAt(),
-                            arena.getStatus().name());
+                            arena.getStatus().name(),
+                            badgeId(member.getTierLevel()));
                 })
-                .orElseGet(() -> new LeagueTierResponse(false, null, null, null, null));
+                .orElseGet(() -> new LeagueTierResponse(false, null, null, null, null, null));
     }
 
     public List<LeagueMemberResponse> getMyRanking(UUID userId) {
@@ -87,5 +91,12 @@ public class LeagueService {
 
     private String resultName(LeagueArenaMember member) {
         return member.getResult() != null ? member.getResult().name() : null;
+    }
+
+    // 티어 레벨 → 배지 식별자 (시드 보장 1~5; 누락 시 null 로 방어)
+    private String badgeId(Integer tierLevel) {
+        return leagueTierConfigRepository.findById(tierLevel)
+                .map(LeagueTierConfig::getBadgeId)
+                .orElse(null);
     }
 }

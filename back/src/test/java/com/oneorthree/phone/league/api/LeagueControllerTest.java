@@ -37,13 +37,14 @@ class LeagueControllerTest {
     void getMyTierReturns200() throws Exception {
         given(leagueService.getMyTier(any()))
                 .willReturn(new LeagueTierResponse(true, 3, UUID.randomUUID(),
-                        Instant.parse("2026-06-22T00:00:00Z"), "ACTIVE"));
+                        Instant.parse("2026-06-22T00:00:00Z"), "ACTIVE", "hyperfocus"));
 
         mockMvc.perform(get("/api/v1/league/me/tier"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.assigned").value(true))
                 .andExpect(jsonPath("$.tierLevel").value(3))
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.badgeId").value("hyperfocus"))
                 .andDo(print());
     }
 
@@ -51,7 +52,7 @@ class LeagueControllerTest {
     @DisplayName("내 티어 조회 - 미배정 → 200 assigned=false")
     void getMyTierUnassignedReturns200() throws Exception {
         given(leagueService.getMyTier(any()))
-                .willReturn(new LeagueTierResponse(false, null, null, null, null));
+                .willReturn(new LeagueTierResponse(false, null, null, null, null, null));
 
         mockMvc.perform(get("/api/v1/league/me/tier"))
                 .andExpect(status().isOk())
