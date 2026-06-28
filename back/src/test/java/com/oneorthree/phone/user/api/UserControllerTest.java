@@ -1,6 +1,7 @@
 package com.oneorthree.phone.user.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.service.UserService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,6 +18,7 @@ import java.util.Map;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -93,6 +95,38 @@ class UserControllerTest {
         mockMvc.perform(put("/api/v1/users/me/notification-settings")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("occupation 저장 성공 → 204")
+    void updateOccupationReturns204() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me/occupation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("occupation", "UNIVERSITY"))))
+                .andExpect(status().isNoContent())
+                .andDo(print());
+
+        verify(userService).updateOccupation(any(), eq(Occupation.UNIVERSITY));
+    }
+
+    @Test
+    @DisplayName("occupation null → 400")
+    void updateOccupationNullReturns400() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me/occupation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"occupation\": null}"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("occupation 정의되지 않은 값 → 400")
+    void updateOccupationInvalidValueReturns400() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me/occupation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"occupation\": \"DOCTOR\"}"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
