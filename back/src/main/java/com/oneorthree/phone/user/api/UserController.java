@@ -2,6 +2,7 @@ package com.oneorthree.phone.user.api;
 
 import com.oneorthree.phone.user.dto.DeviceTokenRegisterRequest;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
+import com.oneorthree.phone.user.dto.OccupationUpdateRequest;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.service.UserService;
@@ -131,6 +132,22 @@ public class UserController {
             HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         userService.updateNotificationSettings(userId, body);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "준비 시험 카테고리(occupation) 저장",
+            description = "온보딩에서 선택한 시험 카테고리를 users.occupation 에 저장. 성공 시 204 반환.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "저장 성공"),
+        @ApiResponse(responseCode = "400", description = "occupation 누락/유효하지 않은 값"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
+    @PatchMapping("/users/me/occupation")
+    public ResponseEntity<Void> updateOccupation(
+            @Valid @RequestBody OccupationUpdateRequest body,
+            HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        userService.updateOccupation(userId, body.getOccupation());
         return ResponseEntity.noContent().build();
     }
 }

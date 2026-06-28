@@ -6,6 +6,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.Gender;
+import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.domain.UserWallet;
@@ -310,6 +311,30 @@ class UserServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.registerDeviceToken(USER_ID, "apns-device-token"))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    // ── updateOccupation ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("occupation 저장 → user.occupation 반영")
+    void updateOccupationSuccess() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        userService.updateOccupation(USER_ID, Occupation.UNIVERSITY);
+
+        assertThat(user.getOccupation()).isEqualTo(Occupation.UNIVERSITY);
+    }
+
+    @Test
+    @DisplayName("occupation 저장 - 존재하지 않는 유저 → UserException(NOT_FOUND)")
+    void updateOccupationUserNotFound() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.updateOccupation(USER_ID, Occupation.UNIVERSITY))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);

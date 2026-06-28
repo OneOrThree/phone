@@ -2,6 +2,7 @@ package com.oneorthree.phone.user.service;
 
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
+import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.domain.UserWallet;
@@ -147,6 +148,13 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setScreenTimePermissionGranted(request.getGranted());
+    }
+
+    @Transactional
+    public void updateOccupation(UUID userId, Occupation occupation) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        user.setOccupation(occupation);
     }
 
     @Transactional
