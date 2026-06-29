@@ -82,5 +82,15 @@ target 'gromo' do
       )
       File.write(fmt_base_h, patched) unless content == patched
     end
+    # 모든 Pod 배포 타깃을 15.1로 통일 — ExpoModulesCore(최소 15.1)와 불일치 방지.
+    # (google-signin 어댑터 등 일부 pod이 13.4로 빌드돼 Swift 모듈 충돌하는 문제 해결)
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        current = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+        if current.nil? || current.to_f < 15.1
+          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.1'
+        end
+      end
+    end
   end
 end
