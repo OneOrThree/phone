@@ -26,6 +26,11 @@ export function setLogoutHandler(fn: (() => void) | null): void {
   onLogout = fn;
 }
 
+// 등록된 로그아웃 핸들러를 외부에서 호출(전체 화면의 로그아웃 버튼 등).
+export function triggerLogout(): void {
+  onLogout?.();
+}
+
 // /api/v1/auth/refresh 응답 형태
 interface RefreshResponse {
   accessToken: string;

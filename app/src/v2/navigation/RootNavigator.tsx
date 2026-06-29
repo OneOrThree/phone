@@ -5,6 +5,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import HomeScreen from '@/v2/screens/HomeScreen';
 import StatsScreen from '@/v2/screens/StatsScreen';
+import MenuScreen from '@/v2/screens/MenuScreen';
 import { V2TabBar } from '@/v2/components/V2TabBar';
 import { T } from '@/v2/constants/theme';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
@@ -43,7 +44,7 @@ function MainTabs() {
       <Tab.Screen name="홈" component={HomeScreen} />
       <Tab.Screen name="리그">{() => <Placeholder title="리그 & 랭킹" />}</Tab.Screen>
       <Tab.Screen name="그룹">{() => <Placeholder title="그룹" />}</Tab.Screen>
-      <Tab.Screen name="전체">{() => <Placeholder title="전체" />}</Tab.Screen>
+      <Tab.Screen name="전체" component={MenuScreen} />
     </Tab.Navigator>
   );
 }

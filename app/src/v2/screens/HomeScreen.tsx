@@ -1,11 +1,9 @@
-import { View, Text, StyleSheet, TouchableOpacity, DevSettings } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/v2/constants/theme';
-import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import { useUser } from '@/store/UserContext';
 import { Character2D } from '@/components/character/Character2D';
@@ -79,16 +77,6 @@ export default function HomeScreen() {
   const phoneGoalSeconds = 4 * 3600 + 30 * 60;
   const hasNotifications = false; // TODO: 실제 안 읽은 알림 여부로 교체
 
-  // 임시 로그아웃 — 정식 설정 화면 전까지 (설정 버튼에 연결)
-  async function devLogout() {
-    await AsyncStorage.multiRemove([
-      STORAGE_KEYS.accessToken,
-      STORAGE_KEYS.refreshToken,
-      STORAGE_KEYS.user,
-    ]);
-    DevSettings.reload();
-  }
-
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       <View style={s.body}>
@@ -114,7 +102,13 @@ export default function HomeScreen() {
               </View>
             </View>
           </View>
-          <TouchableOpacity style={s.settingsBtn} onPress={devLogout} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={s.settingsBtn}
+            onPress={() => {
+              // TODO: 알림 화면으로 이동
+            }}
+            activeOpacity={0.8}
+          >
             <Ionicons name="notifications-outline" size={19} color={T.ink} />
             {hasNotifications && <View style={s.notifDot} />}
           </TouchableOpacity>
