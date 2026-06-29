@@ -49,7 +49,7 @@ export default function StepScaffold({
         contentContainerStyle={[s.body, center ? s.bodyCenter : null]}
         showsVerticalScrollIndicator={false}
       >
-        {header ? <View style={s.header}>{header}</View> : null}
+        {header ? <View style={[s.header, center ? s.headerCenter : null]}>{header}</View> : null}
         <Text style={[T.text.title, s.title, center ? s.centerText : null]}>{title}</Text>
         {subtitle ? (
           <Text style={[T.text.body, s.subtitle, center ? s.centerText : null]}>{subtitle}</Text>
@@ -82,7 +82,8 @@ const s = StyleSheet.create({
   backText: { fontSize: 30, lineHeight: 30, color: T.ink },
   body: { flexGrow: 1, paddingHorizontal: 26, paddingTop: 28 },
   bodyCenter: { justifyContent: 'center', alignItems: 'center', paddingBottom: 28 },
-  header: { alignItems: 'center', marginBottom: 22 },
+  header: { alignSelf: 'stretch', alignItems: 'flex-start', marginBottom: 18 },
+  headerCenter: { alignItems: 'center', marginBottom: 22 },
   title: { color: T.ink },
   centerText: { textAlign: 'center' },
   subtitle: { color: T.inkSub, marginTop: 8 },

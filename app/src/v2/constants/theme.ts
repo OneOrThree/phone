@@ -18,6 +18,9 @@ export const T = {
   border: '#E4DBCB', // 카드 테두리
   accent: '#C8893F', // 메인 포인트(브라운)
   accentAlt: '#C2705A', // 보조 포인트(레드)
+  accentDeep: '#A86B2C', // 더 진한 브라운(아이콘·강조 수치)
+  green: '#7FA06A', // 성공/허용 표시(체크·점)
+  sand: '#EBD7B5', // 밝은 모래색(아이콘 배경 등)
 
   // 기타
   white: '#FFFFFF',
