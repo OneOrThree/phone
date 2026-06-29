@@ -2,6 +2,7 @@ package com.oneorthree.phone.screentime.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -17,7 +18,7 @@ public class ScreenTimeRequest {
     private Boolean screenTimeGoalAchieved;
 
     // nullable — iOS 개발 완료 후 채워짐
-    // TODO GROMO-551: @PositiveOrZero 추가 (음수 → 400). import jakarta.validation.constraints.PositiveOrZero
+    @PositiveOrZero
     private Integer actualScreenTimeMinutes;
 
     @NotNull

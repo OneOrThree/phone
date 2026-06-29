@@ -56,15 +56,8 @@ public class DailyFocusStat {
     private int distractionCount = 0;
 
     @Builder.Default
-    private int actualScreenTimeMinutes = 0;
-
-    @Builder.Default
     @Column(nullable = false)
     private boolean focusGoalAchieved = false;
-
-    @Builder.Default
-    @Column(nullable = false)
-    private boolean screenTimeGoalAchieved = false;
 
     @UpdateTimestamp
     private Instant updatedAt;
