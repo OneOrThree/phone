@@ -54,7 +54,7 @@ allowed-tools: Bash, Read, Grep, Glob, Write, AskUserQuestion, mcp__atlassian__g
 
 ### 6. 스펙 md 작성
 승인되면 `back/docs/skeleton/<type>-<slug>.md` 에 아래 형식으로 저장한다.
-- `<type>`: 브랜치 prefix 규칙(`bfeat`/`bfix`/`bchore`/`refactor`)에서 티켓 성격에 맞게.
+- `<type>`: 백엔드 작업이므로 b- prefix 규칙(`bfeat`/`bfix`/`brefactor`/`bchore`)에서 티켓 성격에 맞게.
 - `<slug>`: 기능을 나타내는 케밥케이스 (예: `device-token`).
 
 ```markdown
