@@ -79,7 +79,17 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
     } catch (e) {
       const code = (e as { code?: unknown })?.code;
       // 사용자 취소는 조용히 무시
-      if (code === statusCodes.SIGN_IN_CANCELLED || code === 'CANCELLED') return;
+      // - google: statusCodes.SIGN_IN_CANCELLED
+      // - facebook: 'CANCELLED'
+      // - apple(expo-apple-authentication): 'ERR_REQUEST_CANCELED' (구버전 'ERR_CANCELED')
+      if (
+        code === statusCodes.SIGN_IN_CANCELLED ||
+        code === 'CANCELLED' ||
+        code === 'ERR_REQUEST_CANCELED' ||
+        code === 'ERR_CANCELED'
+      ) {
+        return;
+      }
       Alert.alert('로그인 실패', e instanceof Error ? e.message : '다시 시도해 주세요.');
     } finally {
       setBusy(null);
