@@ -11,6 +11,7 @@ import {
   type AuthMethod,
 } from '@/services/auth';
 import type { LoginResult } from '@/types/api';
+import { T } from '@/v2/constants/theme';
 
 // v2 로그인 화면 — Claude Design 온보딩 O7 시안 그대로.
 // 로직은 데이터 층(@/services/auth) 재사용, UI만 새로 구성.
@@ -157,14 +158,12 @@ const s = StyleSheet.create({
     marginBottom: 18,
   },
   mascotEmoji: { fontSize: 72 },
-  title: { fontSize: 26, fontWeight: '800', letterSpacing: -1, color: C.ink },
+  title: { ...T.text.display, color: C.ink },
   subtitle: {
-    fontSize: 14,
-    lineHeight: 22,
+    ...T.text.body,
     color: C.sub,
     textAlign: 'center',
     marginTop: 10,
-    fontWeight: '500',
   },
   bottom: { paddingHorizontal: 26, paddingBottom: 26 },
   btn: {
@@ -174,14 +173,13 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 9,
   },
-  btnText: { fontSize: 15, fontWeight: '700' },
+  btnText: { ...T.text.subtitle },
   guest: { alignItems: 'center', marginTop: 4, marginBottom: 16 },
   guestText: {
-    fontSize: 14,
-    fontWeight: '600',
+    ...T.text.label,
     color: C.link,
     textDecorationLine: 'underline',
   },
-  terms: { fontSize: 11, lineHeight: 16, color: C.muted, textAlign: 'center', fontWeight: '500' },
+  terms: { ...T.text.caption, lineHeight: 17, color: C.muted, textAlign: 'center' },
   termsLink: { color: C.link, textDecorationLine: 'underline' },
 });
