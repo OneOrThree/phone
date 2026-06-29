@@ -2,6 +2,8 @@ package com.oneorthree.phone.stats.service;
 
 import com.oneorthree.phone.focus.domain.DailyFocusStat;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
+import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.exception.StatsException;
@@ -34,6 +36,8 @@ class StatsServiceTest {
     @Mock
     private DailyFocusStatRepository dailyFocusStatRepository;
     @Mock
+    private DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
+    @Mock
     private UserStreakRepository userStreakRepository;
     @Mock
     private UserRepository userRepository;
@@ -48,14 +52,20 @@ class StatsServiceTest {
         LocalDate from = LocalDate.of(2026, 6, 1);
         LocalDate to = LocalDate.of(2026, 6, 3);
         User user = User.builder().id(USER_ID).build();
-        DailyFocusStat mid = DailyFocusStat.builder()
+        DailyFocusStat focusMid = DailyFocusStat.builder()
                 .user(user).date(LocalDate.of(2026, 6, 2))
                 .totalFocusMinutes(120).sessionCount(2)
-                .focusGoalAchieved(true).actualScreenTimeMinutes(30).screenTimeGoalAchieved(false)
+                .focusGoalAchieved(true)
+                .build();
+        DailyScreenTimeStat screenMid = DailyScreenTimeStat.builder()
+                .user(user).date(LocalDate.of(2026, 6, 2))
+                .actualScreenTimeMinutes(30).screenTimeGoalAchieved(false)
                 .build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
         given(dailyFocusStatRepository.findByUserAndDateBetweenOrderByDateAsc(user, from, to))
-                .willReturn(List.of(mid));
+                .willReturn(List.of(focusMid));
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(user, from, to))
+                .willReturn(List.of(screenMid));
 
         List<HeatmapCellResponse> cells = statsService.getHeatmap(USER_ID, from, to);
 
@@ -63,11 +73,13 @@ class StatsServiceTest {
         assertThat(cells.get(0).date()).isEqualTo(from);
         assertThat(cells.get(0).totalFocusMinutes()).isZero();
         assertThat(cells.get(0).focusGoalAchieved()).isFalse();
+        assertThat(cells.get(0).actualScreenTimeMinutes()).isZero();
         assertThat(cells.get(1).date()).isEqualTo(LocalDate.of(2026, 6, 2));
         assertThat(cells.get(1).totalFocusMinutes()).isEqualTo(120);
         assertThat(cells.get(1).sessionCount()).isEqualTo(2);
         assertThat(cells.get(1).focusGoalAchieved()).isTrue();
         assertThat(cells.get(1).actualScreenTimeMinutes()).isEqualTo(30);
+        assertThat(cells.get(1).screenTimeGoalAchieved()).isFalse();
         assertThat(cells.get(2).date()).isEqualTo(to);
         assertThat(cells.get(2).totalFocusMinutes()).isZero();
     }

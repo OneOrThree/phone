@@ -5,6 +5,7 @@ import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.domain.Gender;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
@@ -65,6 +66,9 @@ class UserServiceTest {
 
     @Mock
     private DailyFocusStatRepository dailyFocusStatRepository;
+
+    @Mock
+    private DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
@@ -184,6 +188,7 @@ class UserServiceTest {
 
         verify(focusSessionRepository).nullifyUser(USER_ID);
         verify(dailyFocusStatRepository).nullifyUser(USER_ID);
+        verify(dailyScreenTimeStatRepository).nullifyUser(USER_ID);
         verify(userWalletRepository).deleteById(USER_ID);
         verify(userScreenTimeSettingsRepository).deleteById(USER_ID);
         verify(userRepository).delete(user);
