@@ -151,6 +151,13 @@ public class UserService {
     }
 
     @Transactional
+    public void updateScreenTimeGoal(UUID userId, int dailyScreenTimeGoalMinutes) {
+        UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        settings.setDailyScreenTimeGoalMinutes(dailyScreenTimeGoalMinutes);
+    }
+
+    @Transactional
     public void updateOccupation(UUID userId, Occupation occupation) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
