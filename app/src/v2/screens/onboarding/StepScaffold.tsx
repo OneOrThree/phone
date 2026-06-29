@@ -11,6 +11,7 @@ interface StepScaffoldProps {
   subtitle?: string;
   header?: ReactNode;
   center?: boolean;
+  titleCenter?: boolean; // 제목/부제만 가운데 정렬(세로 중앙 정렬 없이)
   children?: ReactNode;
   ctaLabel: string;
   onCta: () => void;
@@ -25,6 +26,7 @@ export default function StepScaffold({
   subtitle,
   header,
   center,
+  titleCenter,
   children,
   ctaLabel,
   onCta,
@@ -50,9 +52,13 @@ export default function StepScaffold({
         showsVerticalScrollIndicator={false}
       >
         {header ? <View style={[s.header, center ? s.headerCenter : null]}>{header}</View> : null}
-        <Text style={[T.text.title, s.title, center ? s.centerText : null]}>{title}</Text>
+        <Text style={[T.text.title, s.title, center || titleCenter ? s.centerText : null]}>
+          {title}
+        </Text>
         {subtitle ? (
-          <Text style={[T.text.body, s.subtitle, center ? s.centerText : null]}>{subtitle}</Text>
+          <Text style={[T.text.body, s.subtitle, center || titleCenter ? s.centerText : null]}>
+            {subtitle}
+          </Text>
         ) : null}
         {children ? <View style={center ? s.contentCenter : s.content}>{children}</View> : null}
       </ScrollView>
