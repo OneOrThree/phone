@@ -40,6 +40,11 @@ public class StatsService {
         }
 
         User user = userRepository.getReferenceById(userId);
+        // TODO GROMO-551: 스크린타임 분리로 인해 screentime 집계를 별도 조회 후 날짜로 머지
+        //   - DailyScreenTimeStatRepository 주입 (필드 추가)
+        //   - Map<LocalDate, DailyScreenTimeStat> screenByDate = ...findByUserAndDateBetweenOrderByDateAsc(user, from, to)
+        //   - 아래 셀 빌드에서 actualScreenTimeMinutes/screenTimeGoalAchieved 는 screenByDate 에서 가져오고
+        //     (해당 날짜 없으면 0/false), focus 필드는 기존 byDate 에서 가져온다. HeatmapCellResponse 시그니처는 불변.
         Map<LocalDate, DailyFocusStat> byDate = dailyFocusStatRepository
                 .findByUserAndDateBetweenOrderByDateAsc(user, from, to).stream()
                 .collect(Collectors.toMap(DailyFocusStat::getDate, Function.identity()));

@@ -115,6 +115,8 @@ public class UserService {
 
         focusSessionRepository.nullifyUser(userId);
         dailyFocusStatRepository.nullifyUser(userId);
+        // TODO GROMO-551: dailyScreenTimeStatRepository.nullifyUser(userId) 추가
+        //   (스크린타임 분리 테이블도 동일하게 탈퇴 익명화. 리포지토리 필드 주입 필요.)
         userWalletRepository.deleteById(userId);
         userScreenTimeSettingsRepository.deleteById(userId);
         userRepository.delete(user);
