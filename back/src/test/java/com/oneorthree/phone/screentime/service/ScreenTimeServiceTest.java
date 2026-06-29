@@ -1,13 +1,12 @@
 package com.oneorthree.phone.screentime.service;
 
-import com.oneorthree.phone.focus.domain.DailyFocusStat;
-import com.oneorthree.phone.screentime.service.ScreenTimeService;
+import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
+import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
+import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
+import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
-import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
-import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,8 +17,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.time.zone.ZoneRulesException;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -40,7 +40,7 @@ class ScreenTimeServiceTest {
     private UserRepository userRepository;
 
     @Mock
-    private DailyFocusStatRepository dailyFocusStatRepository;
+    private DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
 
     @Mock
     private ScreenTimeNotificationPort notificationPort;
@@ -58,51 +58,45 @@ class ScreenTimeServiceTest {
     }
 
     private LocalDate expectedDate() {
-        return REPORTED_AT.atZone(ZoneOffset.UTC).toLocalDate();
+        return REPORTED_AT.atZone(ZoneId.of(TIMEZONE)).toLocalDate();
     }
 
     // ── 정상 저장 ─────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("daily_focus_stats 있을 때 → 필드 업데이트, 알림 호출")
+    @DisplayName("daily_screen_time_stats 있을 때 → 필드 업데이트, 알림 호출")
     void saveScreenTimeUpdatesExistingRecord() {
-        // given
         User user = normalUser();
-        DailyFocusStat existing = DailyFocusStat.builder()
+        DailyScreenTimeStat existing = DailyScreenTimeStat.builder()
                 .user(user).date(expectedDate()).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(dailyFocusStatRepository.findByUserAndDate(user, expectedDate()))
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, expectedDate()))
                 .willReturn(Optional.of(existing));
 
-        // when
         screenTimeService.saveScreenTime(USER_ID, request(true, 120));
 
-        // then
         assertThat(existing.isScreenTimeGoalAchieved()).isTrue();
         assertThat(existing.getActualScreenTimeMinutes()).isEqualTo(120);
-        verify(dailyFocusStatRepository, never()).save(any());
+        verify(dailyScreenTimeStatRepository, never()).save(any());
         verify(notificationPort).notify(USER_ID, true);
     }
 
     @Test
-    @DisplayName("daily_focus_stats 없을 때 → 신규 생성, 알림 호출")
+    @DisplayName("daily_screen_time_stats 없을 때 → 신규 생성, 알림 호출")
     void saveScreenTimeCreatesNewRecord() {
-        // given
         User user = normalUser();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(dailyFocusStatRepository.findByUserAndDate(user, expectedDate()))
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, expectedDate()))
                 .willReturn(Optional.empty());
-        given(dailyFocusStatRepository.save(any(DailyFocusStat.class)))
+        given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
                 .willAnswer(i -> i.getArgument(0));
 
-        // when
         screenTimeService.saveScreenTime(USER_ID, request(false, 200));
 
-        // then
-        ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
-        verify(dailyFocusStatRepository).save(captor.capture());
+        ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
+        verify(dailyScreenTimeStatRepository).save(captor.capture());
         assertThat(captor.getValue().isScreenTimeGoalAchieved()).isFalse();
         assertThat(captor.getValue().getActualScreenTimeMinutes()).isEqualTo(200);
         verify(notificationPort).notify(USER_ID, false);
@@ -111,22 +105,55 @@ class ScreenTimeServiceTest {
     @Test
     @DisplayName("actualScreenTimeMinutes null → 0으로 저장")
     void saveScreenTimeNullActualMinutesDefaultsToZero() {
-        // given
         User user = normalUser();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(dailyFocusStatRepository.findByUserAndDate(user, expectedDate()))
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, expectedDate()))
                 .willReturn(Optional.empty());
-        given(dailyFocusStatRepository.save(any(DailyFocusStat.class)))
+        given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
                 .willAnswer(i -> i.getArgument(0));
 
-        // when
         screenTimeService.saveScreenTime(USER_ID, request(true, null));
 
-        // then
-        ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
-        verify(dailyFocusStatRepository).save(captor.capture());
+        ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
+        verify(dailyScreenTimeStatRepository).save(captor.capture());
         assertThat(captor.getValue().getActualScreenTimeMinutes()).isEqualTo(0);
+    }
+
+    // ── timeZone 환산 ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("KST 자정 경계 → 요청 timeZone 기준 로컬 날짜로 귀속")
+    void saveScreenTimeUsesRequestTimeZoneForLocalDate() {
+        User user = normalUser();
+        // 2026-06-29T15:30:00Z == 2026-06-30 00:30 KST → 로컬 날짜 06-30 (UTC 였다면 06-29 로 오귀속)
+        Instant reportedAt = Instant.parse("2026-06-29T15:30:00Z");
+        LocalDate kstDate = LocalDate.of(2026, 6, 30);
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, kstDate))
+                .willReturn(Optional.empty());
+        given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
+                .willAnswer(i -> i.getArgument(0));
+
+        screenTimeService.saveScreenTime(USER_ID,
+                new ScreenTimeRequest(true, 60, reportedAt, TIMEZONE));
+
+        ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
+        verify(dailyScreenTimeStatRepository).save(captor.capture());
+        assertThat(captor.getValue().getDate()).isEqualTo(kstDate);
+    }
+
+    @Test
+    @DisplayName("무효 timeZone → ZoneRulesException (400 매핑)")
+    void saveScreenTimeInvalidTimeZoneThrows() {
+        User user = normalUser();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> screenTimeService.saveScreenTime(USER_ID,
+                new ScreenTimeRequest(true, 60, REPORTED_AT, "Not/AZone")))
+                .isInstanceOf(ZoneRulesException.class);
+        verify(dailyScreenTimeStatRepository, never()).save(any());
     }
 
     // ── 에러 케이스 ────────────────────────────────────────────────────────
@@ -134,13 +161,10 @@ class ScreenTimeServiceTest {
     @Test
     @DisplayName("존재하지 않는 userId → UserException")
     void saveScreenTimeUserNotFound() {
-        // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
-        // when & then
         assertThatThrownBy(() -> screenTimeService.saveScreenTime(USER_ID, request(true, 100)))
                 .isInstanceOf(UserException.class);
-        verify(dailyFocusStatRepository, never()).save(any());
+        verify(dailyScreenTimeStatRepository, never()).save(any());
     }
-
 }

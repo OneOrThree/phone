@@ -1,8 +1,7 @@
-package com.oneorthree.phone.focus.domain;
-
-import com.oneorthree.phone.user.domain.User;
+package com.oneorthree.phone.screentime.domain;
 
 import com.oneorthree.phone.common.id.GeneratedUuidV7;
+import com.oneorthree.phone.user.domain.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -17,6 +16,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
@@ -25,7 +25,7 @@ import java.util.UUID;
 
 @Entity
 @Table(
-        name = "daily_focus_stats",
+        name = "daily_screen_time_stats",
         uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "date"})
 )
 @Getter
@@ -33,7 +33,7 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
-public class DailyFocusStat {
+public class DailyScreenTimeStat {
 
     @Id
     @GeneratedUuidV7
@@ -47,17 +47,14 @@ public class DailyFocusStat {
     private LocalDate date;
 
     @Builder.Default
-    private int totalFocusMinutes = 0;
-
-    @Builder.Default
-    private int sessionCount = 0;
-
-    @Builder.Default
-    private int distractionCount = 0;
+    private int actualScreenTimeMinutes = 0;
 
     @Builder.Default
     @Column(nullable = false)
-    private boolean focusGoalAchieved = false;
+    private boolean screenTimeGoalAchieved = false;
+
+    @CreationTimestamp
+    private Instant createdAt;
 
     @UpdateTimestamp
     private Instant updatedAt;

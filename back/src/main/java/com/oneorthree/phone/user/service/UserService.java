@@ -13,6 +13,7 @@ import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
@@ -39,6 +40,7 @@ public class UserService {
     private final GroupRepository groupRepository;
     private final FocusSessionRepository focusSessionRepository;
     private final DailyFocusStatRepository dailyFocusStatRepository;
+    private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
 
     @Transactional
     public void setupProfile(UUID userId, UserProfileSetupRequest body) {
@@ -115,6 +117,7 @@ public class UserService {
 
         focusSessionRepository.nullifyUser(userId);
         dailyFocusStatRepository.nullifyUser(userId);
+        dailyScreenTimeStatRepository.nullifyUser(userId);
         userWalletRepository.deleteById(userId);
         userScreenTimeSettingsRepository.deleteById(userId);
         userRepository.delete(user);

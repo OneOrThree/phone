@@ -2,6 +2,8 @@ package com.oneorthree.phone.stats.service;
 
 import com.oneorthree.phone.focus.domain.DailyFocusStat;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
+import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.exception.StatsErrorCode;
@@ -30,6 +32,7 @@ public class StatsService {
     private static final long MAX_RANGE_DAYS = 366;
 
     private final DailyFocusStatRepository dailyFocusStatRepository;
+    private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final UserStreakRepository userStreakRepository;
     private final UserRepository userRepository;
 
@@ -40,24 +43,25 @@ public class StatsService {
         }
 
         User user = userRepository.getReferenceById(userId);
-        Map<LocalDate, DailyFocusStat> byDate = dailyFocusStatRepository
+        // 집중 집계와 스크린타임 집계는 별도 테이블 → 각각 조회 후 날짜로 머지 (HeatmapCellResponse 시그니처는 불변)
+        Map<LocalDate, DailyFocusStat> focusByDate = dailyFocusStatRepository
                 .findByUserAndDateBetweenOrderByDateAsc(user, from, to).stream()
                 .collect(Collectors.toMap(DailyFocusStat::getDate, Function.identity()));
+        Map<LocalDate, DailyScreenTimeStat> screenByDate = dailyScreenTimeStatRepository
+                .findByUserAndDateBetweenOrderByDateAsc(user, from, to).stream()
+                .collect(Collectors.toMap(DailyScreenTimeStat::getDate, Function.identity()));
 
         List<HeatmapCellResponse> cells = new ArrayList<>();
         for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
-            DailyFocusStat s = byDate.get(d);
-            if (s == null) {
-                cells.add(new HeatmapCellResponse(d, 0, 0, false, 0, false));
-            } else {
-                cells.add(new HeatmapCellResponse(
-                        d,
-                        s.getTotalFocusMinutes(),
-                        s.getSessionCount(),
-                        s.isFocusGoalAchieved(),
-                        s.getActualScreenTimeMinutes(),
-                        s.isScreenTimeGoalAchieved()));
-            }
+            DailyFocusStat f = focusByDate.get(d);
+            DailyScreenTimeStat s = screenByDate.get(d);
+            cells.add(new HeatmapCellResponse(
+                    d,
+                    f != null ? f.getTotalFocusMinutes() : 0,
+                    f != null ? f.getSessionCount() : 0,
+                    f != null && f.isFocusGoalAchieved(),
+                    s != null ? s.getActualScreenTimeMinutes() : 0,
+                    s != null && s.isScreenTimeGoalAchieved()));
         }
         return cells;
     }
