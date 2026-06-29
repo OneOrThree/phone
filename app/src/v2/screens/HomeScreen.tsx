@@ -1,9 +1,12 @@
 import { View, Text, StyleSheet, TouchableOpacity, DevSettings } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/v2/constants/theme';
 import { STORAGE_KEYS } from '@/types/storage';
+import type { V2RootStackParamList } from '@/v2/navigation/types';
 import { useUser } from '@/store/UserContext';
 import { Character2D } from '@/components/character/Character2D';
 
@@ -66,6 +69,7 @@ function MetricRow({
 export default function HomeScreen() {
   const { nickname, goalSeconds } = useUser();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
   // TODO: 실제 데이터로 교체 (지금은 시안 값 placeholder)
   const rank = 8;
@@ -128,8 +132,11 @@ export default function HomeScreen() {
             <Text style={s.cardTitle}>
               오늘 <Text style={s.cardTitleSub}>Today</Text>
             </Text>
-            <TouchableOpacity style={s.moreBtn} activeOpacity={0.7}>
-              {/* TODO: 통계 화면으로 이동 */}
+            <TouchableOpacity
+              style={s.moreBtn}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('Stats')}
+            >
               <Text style={s.more}>자세히</Text>
               <Ionicons name="chevron-forward" size={11} color={T.accent} />
             </TouchableOpacity>
@@ -264,7 +271,7 @@ const s = StyleSheet.create({
   cardTitleSub: { color: '#B3A695', fontWeight: '500' },
   moreBtn: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   more: { ...T.text.label, color: T.accent },
-  metricRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 11, paddingVertical: 8 },
+  metricRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8 },
   metricDivider: { borderBottomWidth: 1, borderBottomColor: '#F0E9DC', paddingBottom: 14 },
   metricIcon: {
     width: 34,
@@ -272,7 +279,6 @@ const s = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 2,
   },
   flex1: { flex: 1 },
   metricLabel: { ...T.text.label, color: T.inkMuted },
