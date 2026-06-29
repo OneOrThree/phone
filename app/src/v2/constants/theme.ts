@@ -26,11 +26,11 @@ export const T = {
   // 타이포 스케일 (중요도별 고정) — body 16 기준(모바일 국룰). 색은 따로 준다.
   // 사용: <Text style={[T.text.title, { color: T.ink }]}>
   text: {
-    display: { fontSize: 34, fontWeight: '800', letterSpacing: -0.5 }, // 큰 숫자/타이틀
-    title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 }, // 화면 제목/큰 지표값
-    heading: { fontSize: 22, fontWeight: '700' }, // 섹션/카드 헤더
-    subtitle: { fontSize: 20, fontWeight: '700' }, // 닉네임·버튼·강조
-    body: { fontSize: 18, fontWeight: '500', lineHeight: 26 }, // 본문
+    display: { fontSize: 32, fontWeight: '800', letterSpacing: -0.5 }, // 큰 숫자/타이틀
+    title: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5 }, // 화면 제목/큰 지표값
+    heading: { fontSize: 21, fontWeight: '700' }, // 섹션/카드 헤더
+    subtitle: { fontSize: 19, fontWeight: '700' }, // 닉네임·버튼·강조
+    body: { fontSize: 17, fontWeight: '500', lineHeight: 25 }, // 본문
     label: { fontSize: 15, fontWeight: '600' }, // 라벨·소제목
     caption: { fontSize: 13, fontWeight: '600' }, // 배지·캡션·보조 (최소 가독선)
   },

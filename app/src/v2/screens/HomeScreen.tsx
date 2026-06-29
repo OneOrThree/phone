@@ -21,6 +21,48 @@ function hm(totalSeconds: number): string {
   return `${m}분`;
 }
 
+// 오늘 카드 한 줄: 아이콘 + 라벨 + 큰 값 + 목표 진행 바.
+// 목표 대비 진행률만큼 바를 채운다. 목표 초과 시 overColor로 경고 표시.
+function MetricRow({
+  icon,
+  iconColor,
+  iconBg,
+  label,
+  value,
+  goal,
+  overColor,
+  divider,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  iconBg: string;
+  label: string;
+  value: number;
+  goal: number;
+  overColor?: string;
+  divider?: boolean;
+}) {
+  const pct = goal > 0 ? Math.min(value / goal, 1) : 0;
+  const fillColor = overColor && value > goal ? overColor : iconColor;
+  return (
+    <View style={[s.metricRow, divider ? s.metricDivider : null]}>
+      <View style={[s.metricIcon, { backgroundColor: iconBg }]}>
+        <Ionicons name={icon} size={17} color={iconColor} />
+      </View>
+      <View style={s.flex1}>
+        <Text style={s.metricLabel}>{label}</Text>
+        <Text style={s.metricValue}>{hm(value)}</Text>
+        <View style={s.progressRow}>
+          <View style={s.track}>
+            <View style={[s.fill, { width: `${pct * 100}%`, backgroundColor: fillColor }]} />
+          </View>
+          <Text style={s.goalText}>목표 {hm(goal)}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export default function HomeScreen() {
   const { nickname, goalSeconds } = useUser();
   const insets = useSafeAreaInsets();
@@ -31,6 +73,7 @@ export default function HomeScreen() {
   const focusSeconds = 3 * 3600 + 12 * 60;
   const phoneSeconds = 2 * 3600 + 40 * 60;
   const phoneGoalSeconds = 4 * 3600 + 30 * 60;
+  const hasNotifications = false; // TODO: 실제 안 읽은 알림 여부로 교체
 
   // 임시 로그아웃 — 정식 설정 화면 전까지 (설정 버튼에 연결)
   async function devLogout() {
@@ -69,7 +112,7 @@ export default function HomeScreen() {
           </View>
           <TouchableOpacity style={s.settingsBtn} onPress={devLogout} activeOpacity={0.8}>
             <Ionicons name="notifications-outline" size={19} color={T.ink} />
-            <View style={s.notifDot} />
+            {hasNotifications && <View style={s.notifDot} />}
           </TouchableOpacity>
         </View>
 
@@ -92,31 +135,24 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          <View style={[s.metricRow, s.metricDivider]}>
-            <View style={[s.metricIcon, { backgroundColor: '#EEF4E9' }]}>
-              <Ionicons name="book" size={17} color="#6FA15A" />
-            </View>
-            <View style={s.flex1}>
-              <Text style={s.metricLabel}>공부 집중</Text>
-              <View style={s.metricValueRow}>
-                <Text style={s.metricValue}>{hm(focusSeconds)}</Text>
-                <Text style={s.metricGoal}>/ 목표 {hm(goalSeconds)}</Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={s.metricRow}>
-            <View style={[s.metricIcon, { backgroundColor: '#F6ECE0' }]}>
-              <Ionicons name="phone-portrait-outline" size={17} color={T.accent} />
-            </View>
-            <View style={s.flex1}>
-              <Text style={s.metricLabel}>핸드폰 사용</Text>
-              <View style={s.metricValueRow}>
-                <Text style={s.metricValue}>{hm(phoneSeconds)}</Text>
-                <Text style={s.metricGoal}>/ 목표 {hm(phoneGoalSeconds)}</Text>
-              </View>
-            </View>
-          </View>
+          <MetricRow
+            divider
+            icon="book"
+            iconColor="#6FA15A"
+            iconBg="#EEF4E9"
+            label="공부 집중"
+            value={focusSeconds}
+            goal={goalSeconds}
+          />
+          <MetricRow
+            icon="phone-portrait-outline"
+            iconColor={T.accent}
+            iconBg="#F6ECE0"
+            label="핸드폰 사용"
+            value={phoneSeconds}
+            goal={phoneGoalSeconds}
+            overColor={T.accentAlt}
+          />
         </View>
       </View>
     </SafeAreaView>
@@ -157,7 +193,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
-  rankText: { ...T.text.caption, color: '#4C5DE6' },
+  rankText: { ...T.text.label, color: '#4C5DE6' },
   tierRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   tierDot: {
     width: 14,
@@ -167,7 +203,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tierText: { ...T.text.caption, color: T.inkSub },
+  tierText: { ...T.text.label, color: T.inkSub },
   settingsBtn: {
     width: 40,
     height: 40,
@@ -224,22 +260,25 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 11,
   },
-  cardTitle: { ...T.text.label, color: T.ink },
+  cardTitle: { ...T.text.subtitle, color: T.ink },
   cardTitleSub: { color: '#B3A695', fontWeight: '500' },
   moreBtn: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  more: { ...T.text.caption, color: T.accent },
-  metricRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 6 },
-  metricDivider: { borderBottomWidth: 1, borderBottomColor: '#F0E9DC', paddingBottom: 13 },
+  more: { ...T.text.label, color: T.accent },
+  metricRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 11, paddingVertical: 8 },
+  metricDivider: { borderBottomWidth: 1, borderBottomColor: '#F0E9DC', paddingBottom: 14 },
   metricIcon: {
     width: 34,
     height: 34,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 2,
   },
   flex1: { flex: 1 },
-  metricLabel: { ...T.text.caption, color: T.inkMuted },
-  metricValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
-  metricValue: { ...T.text.title, color: T.ink },
-  metricGoal: { ...T.text.caption, color: T.inkMuted },
+  metricLabel: { ...T.text.label, color: T.inkMuted },
+  metricValue: { ...T.text.title, color: T.ink, marginTop: 1 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 7 },
+  track: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#EFE7DA', overflow: 'hidden' },
+  fill: { height: '100%', borderRadius: 3 },
+  goalText: { ...T.text.caption, color: T.inkMuted },
 });
