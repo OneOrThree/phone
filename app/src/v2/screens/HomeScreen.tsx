@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import { useUser } from '@/store/UserContext';
-import { useScreenTimeUsage } from '@/hooks/useScreenTimeUsage';
+import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { Character2D } from '@/components/character/Character2D';
 
 // v2 홈 화면 (GROMO-552) — Claude Design "01 홈" 시안 기반.
@@ -33,7 +33,6 @@ function MetricRow({
   value,
   goal,
   overColor,
-  approx,
   divider,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
@@ -43,7 +42,6 @@ function MetricRow({
   value: number;
   goal: number;
   overColor?: string;
-  approx?: boolean; // 30분 버킷 근사치면 "+" 표기
   divider?: boolean;
 }) {
   const pct = goal > 0 ? Math.min(value / goal, 1) : 0;
@@ -55,10 +53,7 @@ function MetricRow({
       </View>
       <View style={s.flex1}>
         <Text style={s.metricLabel}>{label}</Text>
-        <Text style={s.metricValue}>
-          {hm(value)}
-          {approx && value > 0 ? '+' : ''}
-        </Text>
+        <Text style={s.metricValue}>{hm(value)}</Text>
         <View style={s.progressRow}>
           <View style={s.track}>
             <View style={[s.fill, { width: `${pct * 100}%`, backgroundColor: fillColor }]} />
@@ -70,15 +65,37 @@ function MetricRow({
   );
 }
 
+// 핸드폰 사용 행 — 값+진행 바를 네이티브 Home Usage 리포트 뷰가 그린다.
+// (실사용시간은 원인 3으로 JS에 못 넘어와, 익스텐션 뷰를 임베드해야만 자정~현재 정확값 표시)
+// goalSeconds prop → App Group에 기록 → 익스텐션이 목표 대비 바를 그림.
+// iOS 외/네이티브 뷰 없음 → placeholder.
+function PhoneUsageRow({ goalSeconds }: { goalSeconds: number }) {
+  return (
+    <View style={s.metricRow}>
+      <View style={[s.metricIcon, { backgroundColor: '#F6ECE0' }]}>
+        <Ionicons name="phone-portrait-outline" size={17} color={T.accent} />
+      </View>
+      <View style={s.flex1}>
+        <Text style={s.metricLabel}>핸드폰 사용</Text>
+        {ScreenTimeReportView ? (
+          <ScreenTimeReportView
+            reportContext="Home Usage"
+            goalSeconds={goalSeconds}
+            style={s.usageReport}
+          />
+        ) : (
+          <Text style={s.metricValue}>–</Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
 export default function HomeScreen() {
   // 목표는 온보딩값(집중=goalSeconds, 사용시간=screenTimeGoalSeconds).
   const { nickname, goalSeconds, screenTimeGoalSeconds } = useUser();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-
-  // 핸드폰 실사용시간 — 30분 버킷 근사치(실기기 iOS16+ + 측정대상 선택 시).
-  const phoneUsageMinutes = useScreenTimeUsage(Math.round(screenTimeGoalSeconds / 60));
-  const phoneSeconds = phoneUsageMinutes * 60;
 
   // TODO: 순위·티어(리그 API), 집중시간 값(통계 API)은 아직 placeholder
   const rank = 8;
@@ -154,16 +171,7 @@ export default function HomeScreen() {
             value={focusSeconds}
             goal={goalSeconds}
           />
-          <MetricRow
-            icon="phone-portrait-outline"
-            iconColor={T.accent}
-            iconBg="#F6ECE0"
-            label="핸드폰 사용"
-            value={phoneSeconds}
-            goal={screenTimeGoalSeconds}
-            overColor={T.accentAlt}
-            approx
-          />
+          <PhoneUsageRow goalSeconds={screenTimeGoalSeconds} />
         </View>
       </View>
     </SafeAreaView>
@@ -287,6 +295,7 @@ const s = StyleSheet.create({
   flex1: { flex: 1 },
   metricLabel: { ...T.text.label, color: T.inkMuted },
   metricValue: { ...T.text.title, color: T.ink, marginTop: 1 },
+  usageReport: { width: '100%', height: 48, marginTop: 1 },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 7 },
   track: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#EFE7DA', overflow: 'hidden' },
   fill: { height: '100%', borderRadius: 3 },
