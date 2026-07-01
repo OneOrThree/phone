@@ -1,13 +1,5 @@
 import { useCallback, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  RefreshControl,
-  ActivityIndicator,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -143,33 +135,6 @@ function PhoneUsageRow({
   );
 }
 
-// 앱별/카테고리별 사용시간 상세 — Total Activity 리포트를 absolute 오버레이로 띄운다.
-// (RN Modal은 별도 윈도우라 DeviceActivityReport scene이 활성화 안 됨 → 같은 계층 오버레이 필수)
-function UsageDetailOverlay({ onClose }: { onClose: () => void }) {
-  return (
-    <View style={s.detailOverlay}>
-      <SafeAreaView style={s.detailSafe} edges={['top']}>
-        <View style={s.detailHeader}>
-          <TouchableOpacity style={s.detailClose} onPress={onClose} activeOpacity={0.7}>
-            <Ionicons name="close" size={24} color={T.ink} />
-          </TouchableOpacity>
-          <Text style={s.detailTitle}>핸드폰 사용</Text>
-          <View style={s.detailClose} />
-        </View>
-        <View style={s.detailBody}>
-          {/* 리포트 콜드스타트가 느려 뒤에 스피너 → 뜨면 리포트가 덮음 */}
-          <ActivityIndicator style={s.detailLoading} size="large" color={T.accent} />
-          {ScreenTimeReportView ? (
-            <ScreenTimeReportView reportContext="Total Activity" style={s.detailReport} />
-          ) : (
-            <Text style={s.detailEmpty}>iOS 기기에서만 볼 수 있어요</Text>
-          )}
-        </View>
-      </SafeAreaView>
-    </View>
-  );
-}
-
 export default function HomeScreen() {
   // 목표는 온보딩값(집중=goalSeconds, 사용시간=screenTimeGoalSeconds).
   const { nickname, goalSeconds, screenTimeGoalSeconds } = useUser();
@@ -193,9 +158,6 @@ export default function HomeScreen() {
     setReportRefresh((r) => r + 1);
     setTimeout(() => setRefreshing(false), 800);
   }, []);
-
-  // 앱별 사용시간 상세 오버레이
-  const [showUsageDetail, setShowUsageDetail] = useState(false);
 
   // TODO: 순위·티어(리그 API)는 아직 placeholder
   const rank = 8;
@@ -285,11 +247,10 @@ export default function HomeScreen() {
           <PhoneUsageRow
             goalSeconds={screenTimeGoalSeconds}
             refresh={reportRefresh}
-            onPress={() => setShowUsageDetail(true)}
+            onPress={() => navigation.navigate('UsageDetail')}
           />
         </View>
       </View>
-      {showUsageDetail ? <UsageDetailOverlay onClose={() => setShowUsageDetail(false)} /> : null}
     </SafeAreaView>
   );
 }
@@ -421,22 +382,4 @@ const s = StyleSheet.create({
   goalBlock: { alignItems: 'center' },
   goalLabel: { fontSize: 11, fontWeight: '600', color: T.inkMuted },
   goalValue: { ...T.text.caption, color: T.inkMuted, marginTop: 1 },
-
-  // 앱별 사용시간 상세 오버레이
-  detailOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: T.paperLight, zIndex: 10 },
-  detailSafe: { flex: 1 },
-  detailHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingTop: 4,
-    paddingBottom: 8,
-  },
-  detailClose: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  detailTitle: { ...T.text.subtitle, color: T.ink },
-  detailBody: { flex: 1 },
-  detailLoading: { position: 'absolute', top: 44, left: 0, right: 0 },
-  detailReport: { flex: 1 },
-  detailEmpty: { ...T.text.body, color: T.inkMuted, textAlign: 'center', marginTop: 44 },
 });

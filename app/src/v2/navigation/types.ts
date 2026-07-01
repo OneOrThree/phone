@@ -5,6 +5,7 @@ import type { FocusTimerMode, PomodoroConfig } from '@/v2/screens/focus/types';
 export type V2RootStackParamList = {
   Main: undefined; // 4탭 + FAB
   Stats: undefined; // 통계 상세 (홈 '자세히'에서 진입)
+  UsageDetail: undefined; // 앱별 사용시간 상세 (홈 '핸드폰 사용' 탭에서 진입)
   FocusCategory: undefined; // 02 과목 선택 (홈 ● 집중 FAB에서 진입)
   FocusSession: {
     subjectId: string;

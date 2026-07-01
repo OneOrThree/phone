@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import HomeScreen from '@/v2/screens/HomeScreen';
 import StatsScreen from '@/v2/screens/StatsScreen';
 import MenuScreen from '@/v2/screens/MenuScreen';
+import UsageDetailScreen from '@/v2/screens/UsageDetailScreen';
 import FocusCategoryScreen from '@/v2/screens/focus/FocusCategoryScreen';
 import FocusSessionScreen from '@/v2/screens/focus/FocusSessionScreen';
 import { V2TabBar } from '@/v2/components/V2TabBar';
@@ -57,6 +58,7 @@ export function RootNavigator() {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Main" component={MainTabs} />
         <Stack.Screen name="Stats" component={StatsScreen} />
+        <Stack.Screen name="UsageDetail" component={UsageDetailScreen} />
         {/* 집중 플로우 — FAB → 과목선택 → 세션 (탭 위 push) */}
         <Stack.Screen name="FocusCategory" component={FocusCategoryScreen} />
         <Stack.Screen
