@@ -1,6 +1,6 @@
-package com.oneorthree.phone.focus.repository;
+package com.oneorthree.phone.stats.repository;
 
-import com.oneorthree.phone.focus.domain.DailyFocusStat;
+import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.user.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;

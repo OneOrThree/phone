@@ -1,6 +1,6 @@
 package com.oneorthree.phone.user.service;
 
-import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;

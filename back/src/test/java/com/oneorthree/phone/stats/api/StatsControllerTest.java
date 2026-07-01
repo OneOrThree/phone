@@ -2,6 +2,7 @@ package com.oneorthree.phone.stats.api;
 
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
+import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.service.StatsService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -67,6 +68,23 @@ class StatsControllerTest {
                 .andExpect(jsonPath("$.currentStreak").value(5))
                 .andExpect(jsonPath("$.longestStreak").value(10))
                 .andExpect(jsonPath("$.lastSessionDate").value("2026-06-28"))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("오늘 요약 조회 → 200, focus/screenTime 블록")
+    void getTodayStatsReturns200() throws Exception {
+        given(statsService.getTodayStats(any()))
+                .willReturn(new TodayStatsResponse(
+                        new TodayStatsResponse.FocusStat(45, 60, false, 75),
+                        new TodayStatsResponse.ScreenTimeStat(80, 120, true, 67)));
+
+        mockMvc.perform(get("/api/v1/stats/today"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.focus.todayMinutes").value(45))
+                .andExpect(jsonPath("$.focus.progressPercent").value(75))
+                .andExpect(jsonPath("$.screenTime.goalAchieved").value(true))
+                .andExpect(jsonPath("$.screenTime.progressPercent").value(67))
                 .andDo(print());
     }
 }

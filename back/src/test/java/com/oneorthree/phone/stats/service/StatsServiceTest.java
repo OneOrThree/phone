@@ -1,31 +1,42 @@
 package com.oneorthree.phone.stats.service;
 
-import com.oneorthree.phone.focus.domain.DailyFocusStat;
-import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.stats.domain.DailyFocusStat;
+import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
+import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.exception.StatsException;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
+import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.domain.UserStreak;
+import com.oneorthree.phone.user.exception.UserException;
+import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserStreakRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class StatsServiceTest {
@@ -39,6 +50,10 @@ class StatsServiceTest {
     private DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     @Mock
     private UserStreakRepository userStreakRepository;
+    @Mock
+    private UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
+    @Mock
+    private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     @Mock
     private UserRepository userRepository;
 
@@ -133,5 +148,107 @@ class StatsServiceTest {
         assertThat(response.currentStreak()).isZero();
         assertThat(response.longestStreak()).isZero();
         assertThat(response.lastSessionDate()).isNull();
+    }
+
+    // ── getTodayStats ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("오늘 요약 — 집계·목표 모두 존재 → 분/달성/진행도 계산")
+    void getTodayStatsFull() {
+        User user = User.builder().id(USER_ID).countryCode("KR").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
+                .willReturn(Optional.of(DailyFocusStat.builder()
+                        .totalFocusMinutes(45).focusGoalAchieved(false).build()));
+        given(dailyScreenTimeStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
+                .willReturn(Optional.of(DailyScreenTimeStat.builder()
+                        .actualScreenTimeMinutes(80).screenTimeGoalAchieved(true).build()));
+        given(userFocusTimeSettingsRepository.findById(USER_ID))
+                .willReturn(Optional.of(UserFocusTimeSettings.builder()
+                        .userId(USER_ID).dailyFocusTimeGoalMinutes(60).build()));
+        given(userScreenTimeSettingsRepository.findById(USER_ID))
+                .willReturn(Optional.of(UserScreenTimeSettings.builder()
+                        .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build()));
+
+        TodayStatsResponse response = statsService.getTodayStats(USER_ID);
+
+        assertThat(response.focus().todayMinutes()).isEqualTo(45);
+        assertThat(response.focus().goalMinutes()).isEqualTo(60);
+        assertThat(response.focus().goalAchieved()).isFalse();
+        assertThat(response.focus().progressPercent()).isEqualTo(75);
+        assertThat(response.screenTime().todayMinutes()).isEqualTo(80);
+        assertThat(response.screenTime().goalMinutes()).isEqualTo(120);
+        assertThat(response.screenTime().goalAchieved()).isTrue();
+        assertThat(response.screenTime().progressPercent()).isEqualTo(67); // round(80/120*100)=67
+    }
+
+    @Test
+    @DisplayName("오늘 요약 — 집계·목표 row 없음 → 0/미달성/진행도 0")
+    void getTodayStatsEmpty() {
+        User user = User.builder().id(USER_ID).countryCode("KR").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
+                .willReturn(Optional.empty());
+        given(dailyScreenTimeStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
+                .willReturn(Optional.empty());
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        TodayStatsResponse response = statsService.getTodayStats(USER_ID);
+
+        assertThat(response.focus().todayMinutes()).isZero();
+        assertThat(response.focus().goalMinutes()).isZero();
+        assertThat(response.focus().goalAchieved()).isFalse();
+        assertThat(response.focus().progressPercent()).isZero();
+        assertThat(response.screenTime().todayMinutes()).isZero();
+        assertThat(response.screenTime().progressPercent()).isZero();
+    }
+
+    @Test
+    @DisplayName("오늘 요약 — 스크린타임 사용량 > 목표 → 진행도 100 초과(클램프 없음)")
+    void getTodayStatsOverLimitNotClamped() {
+        User user = User.builder().id(USER_ID).countryCode("KR").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
+                .willReturn(Optional.empty());
+        given(dailyScreenTimeStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
+                .willReturn(Optional.of(DailyScreenTimeStat.builder()
+                        .actualScreenTimeMinutes(150).screenTimeGoalAchieved(false).build()));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userScreenTimeSettingsRepository.findById(USER_ID))
+                .willReturn(Optional.of(UserScreenTimeSettings.builder()
+                        .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build()));
+
+        TodayStatsResponse response = statsService.getTodayStats(USER_ID);
+
+        assertThat(response.screenTime().progressPercent()).isEqualTo(125); // round(150/120*100)
+    }
+
+    @Test
+    @DisplayName("오늘 요약 — country_code 기준 로컬 날짜로 집계 조회(KR → Asia/Seoul)")
+    void getTodayStatsResolvesDateByCountry() {
+        User user = User.builder().id(USER_ID).countryCode("KR").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
+                .willReturn(Optional.empty());
+        given(dailyScreenTimeStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
+                .willReturn(Optional.empty());
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        statsService.getTodayStats(USER_ID);
+
+        ArgumentCaptor<LocalDate> dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        verify(dailyFocusStatRepository).findByUserAndDate(eq(user), dateCaptor.capture());
+        assertThat(dateCaptor.getValue()).isEqualTo(LocalDate.now(ZoneId.of("Asia/Seoul")));
+    }
+
+    @Test
+    @DisplayName("오늘 요약 — 유저 없음 → UserException")
+    void getTodayStatsUserNotFound() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> statsService.getTodayStats(USER_ID))
+                .isInstanceOf(UserException.class);
     }
 }
