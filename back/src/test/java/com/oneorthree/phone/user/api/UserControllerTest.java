@@ -164,6 +164,38 @@ class UserControllerTest {
     }
 
     @Test
+    @DisplayName("집중 목표 수정 성공 → 204")
+    void updateFocusTimeGoalReturns204() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me/focus-time-goal")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("dailyFocusTimeGoalMinutes", 90))))
+                .andExpect(status().isNoContent())
+                .andDo(print());
+
+        verify(userService).updateFocusTimeGoal(any(), eq(90));
+    }
+
+    @Test
+    @DisplayName("집중 목표 null → 400")
+    void updateFocusTimeGoalNullReturns400() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me/focus-time-goal")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dailyFocusTimeGoalMinutes\": null}"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("집중 목표 음수 → 400")
+    void updateFocusTimeGoalNegativeReturns400() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me/focus-time-goal")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Collections.singletonMap("dailyFocusTimeGoalMinutes", -1))))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
     @DisplayName("알림 설정 - night 시각 포맷 오류 → 400")
     void updateNotificationSettingsInvalidTimeReturns400() throws Exception {
         Map<String, Object> body = new HashMap<>();

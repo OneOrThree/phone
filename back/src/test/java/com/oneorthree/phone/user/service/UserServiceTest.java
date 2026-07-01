@@ -337,6 +337,30 @@ class UserServiceTest {
                 .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
+    // ── updateFocusTimeGoal ───────────────────────────────────────────────
+
+    @Test
+    @DisplayName("집중 목표 수정 성공 → focus settings 에 반영")
+    void updateFocusTimeGoalSuccess() {
+        UserFocusTimeSettings settings = UserFocusTimeSettings.builder().userId(USER_ID).build();
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        userService.updateFocusTimeGoal(USER_ID, 90);
+
+        assertThat(settings.getDailyFocusTimeGoalMinutes()).isEqualTo(90);
+    }
+
+    @Test
+    @DisplayName("집중 목표 수정 - 설정 없음 → UserException(NOT_FOUND)")
+    void updateFocusTimeGoalNotFound() {
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.updateFocusTimeGoal(USER_ID, 90))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
     // ── updateNotificationSettings ────────────────────────────────────────
 
     @Test

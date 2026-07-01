@@ -164,6 +164,13 @@ public class UserService {
     }
 
     @Transactional
+    public void updateFocusTimeGoal(UUID userId, int dailyFocusTimeGoalMinutes) {
+        UserFocusTimeSettings settings = userFocusTimeSettingsRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        settings.setDailyFocusTimeGoalMinutes(dailyFocusTimeGoalMinutes);
+    }
+
+    @Transactional
     public void updateOccupation(UUID userId, Occupation occupation) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
