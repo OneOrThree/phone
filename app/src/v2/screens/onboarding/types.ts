@@ -8,6 +8,7 @@ import type { LoginResult } from '@/types/api';
 //  - 성별/생일(시안 06)은 이번 플로우 범위 밖이라 미수집.
 export interface V2OnboardingData {
   screenTimeGranted: boolean | null; // 09 스크린타임 권한 결과 (null=아직 안 물어봄)
+  manualYesterdayMinutes: number | null; // 09b 권한거부 시 직접 입력한 어제 사용시간 → 12 기준값
   usageGoalMinutes: number | null; // 12 하루 목표 사용시간 (60~600분)
   nickname: string; // 15 닉네임
   focusCategory: string | null; // 16 목표 선택(리그 매칭용)
@@ -16,6 +17,7 @@ export interface V2OnboardingData {
 
 export const INITIAL_ONBOARDING_DATA: V2OnboardingData = {
   screenTimeGranted: null,
+  manualYesterdayMinutes: null,
   usageGoalMinutes: null,
   nickname: '',
   focusCategory: null,

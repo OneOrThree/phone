@@ -11,8 +11,10 @@ const MIN = 60;
 const MAX = 600;
 const STEP = 10;
 const DEFAULT = 240;
-const BASELINE_MIN = 492; // 시안: 어제 사용 8시간 12분
-const BASELINE_YEARS = 9.4; // 시안: 현재 사용 기준 폰에 쓸 시간
+// 시안 앵커: 492분/일 사용 → 남은 인생에서 폰에 9.4년. 이 비율로 환산.
+const REF_MIN = 492;
+const REF_YEARS = 9.4;
+const RATE = REF_YEARS / REF_MIN; // 년 per (분/일)
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 function fmtH(min: number) {
@@ -23,9 +25,12 @@ function fmtH(min: number) {
 
 export default function UsageGoalStep({ data, update, onNext, onBack }: StepProps) {
   const value = data.usageGoalMinutes ?? DEFAULT;
-  const goalYears = round1((value / BASELINE_MIN) * BASELINE_YEARS);
-  const reclaimed = round1(Math.max(0, BASELINE_YEARS - goalYears));
-  const progress = reclaimed / BASELINE_YEARS;
+  // 기준(어제 사용): 09b 수동 입력값 있으면 사용, 없으면 시안 기본(492분). TODO: 권한 허용 시 실제 스크린타임 연동.
+  const baselineMin = data.manualYesterdayMinutes ?? REF_MIN;
+  const baselineYears = round1(baselineMin * RATE);
+  const goalYears = round1(value * RATE);
+  const reclaimed = round1(Math.max(0, baselineYears - goalYears));
+  const progress = baselineYears > 0 ? reclaimed / baselineYears : 0;
 
   return (
     <StepScaffold
@@ -71,7 +76,7 @@ export default function UsageGoalStep({ data, update, onNext, onBack }: StepProp
         <View style={s.cards}>
           <View style={[s.card, s.cardRed]}>
             <Text style={s.cardCap}>지금이라면</Text>
-            <Text style={[s.cardVal, { color: T.accentAlt }]}>{BASELINE_YEARS}년</Text>
+            <Text style={[s.cardVal, { color: T.accentAlt }]}>{baselineYears}년</Text>
           </View>
           <Text style={s.arrow}>→</Text>
           <View style={[s.card, s.cardGreen]}>
