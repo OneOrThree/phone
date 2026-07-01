@@ -49,8 +49,10 @@ struct HomeUsageView: View {
                     Text(hasGoal ? formatDuration(goal) : "-")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(muted)
+                        .lineLimit(1)
                 }
-                .fixedSize()
+                // 고정폭 — 목표 글자 길이와 무관하게 진행바 길이 유지(JS goalBlock과 동일)
+                .frame(width: 72)
                 .layoutPriority(1)
             }
         }

@@ -76,7 +76,7 @@ function MetricRow({
             <Text style={s.goalLabel} allowFontScaling={false}>
               목표
             </Text>
-            <Text style={s.goalValue} allowFontScaling={false}>
+            <Text style={s.goalValue} allowFontScaling={false} numberOfLines={1}>
               {hm(goal)}
             </Text>
           </View>
@@ -379,7 +379,8 @@ const s = StyleSheet.create({
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 7 },
   track: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#EFE7DA', overflow: 'hidden' },
   fill: { height: '100%', borderRadius: 3 },
-  goalBlock: { alignItems: 'center' },
+  // 고정폭 — 목표 글자 길이('4시간' vs '4시간 30분')와 무관하게 진행바 길이 유지.
+  goalBlock: { width: 72, alignItems: 'center' },
   goalLabel: { fontSize: 11, fontWeight: '600', color: T.inkMuted },
   goalValue: { ...T.text.caption, color: T.inkMuted, marginTop: 1 },
 });
