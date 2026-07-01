@@ -79,11 +79,15 @@ export default function App() {
       const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
       if (refreshToken) await api.post('/api/v1/auth/logout', { refreshToken });
     } catch {}
+    // 온보딩 완료 플래그까지 지워 로그아웃 시 온보딩 첫 페이지로 돌아가게 한다.
     await AsyncStorage.multiRemove([
       STORAGE_KEYS.accessToken,
       STORAGE_KEYS.refreshToken,
       STORAGE_KEYS.user,
+      STORAGE_KEYS.onboardingComplete,
     ]);
+    setOnboardingGoalSeconds(null);
+    setOnboarded(false);
     setUser(null);
   }
 
