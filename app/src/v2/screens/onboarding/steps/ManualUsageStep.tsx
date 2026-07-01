@@ -1,21 +1,16 @@
 import { View, Text, StyleSheet } from 'react-native';
-import StepScaffold from '@/v2/screens/onboarding/StepScaffold';
-import Slider from '@/v2/screens/onboarding/Slider';
+import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
+import Slider from '@/v2/screens/onboarding/components/Slider';
+import InfoNote, { NoteStrong } from '@/v2/screens/onboarding/components/InfoNote';
 import { T } from '@/v2/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
+import { formatDuration } from '@/v2/screens/onboarding/format';
 
 // 09b · 권한 거부 → 어제 사용시간 직접 입력. 결과(manualYesterdayMinutes)는 12의 기준값이 됨.
 const MIN = 0;
 const MAX = 720; // 12시간
 const STEP = 10;
 const DEFAULT = 300;
-
-function fmtH(min: number) {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  if (h === 0) return `${m}분`;
-  return m ? `${h}시간 ${m}분` : `${h}시간`;
-}
 
 export default function ManualUsageStep({ data, update, onNext, onBack }: StepProps) {
   const value = data.manualYesterdayMinutes ?? DEFAULT;
@@ -31,7 +26,7 @@ export default function ManualUsageStep({ data, update, onNext, onBack }: StepPr
       onBack={onBack}
     >
       <View style={s.center}>
-        <Text style={s.big}>{fmtH(value)}</Text>
+        <Text style={s.big}>{formatDuration(value)}</Text>
         <Text style={s.cap}>어제 하루 동안</Text>
 
         <View style={s.sliderArea}>
@@ -48,13 +43,9 @@ export default function ManualUsageStep({ data, update, onNext, onBack }: StepPr
           </View>
         </View>
 
-        <View style={s.note}>
-          <View style={s.dot} />
-          <Text style={s.noteText}>
-            나중에 <Text style={s.noteStrong}>설정 › 스크린 타임 권한</Text>을 켜면 자동으로 정확히
-            기록돼요.
-          </Text>
-        </View>
+        <InfoNote>
+          나중에 <NoteStrong>설정 › 스크린 타임 권한</NoteStrong>을 켜면 자동으로 정확히 기록돼요.
+        </InfoNote>
       </View>
     </StepScaffold>
   );
@@ -67,18 +58,4 @@ const s = StyleSheet.create({
   sliderArea: { alignSelf: 'stretch', marginTop: 24, marginBottom: 16 },
   labels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 7 },
   minor: { ...T.text.caption, fontWeight: '500', color: T.inkMuted },
-  note: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-start',
-    backgroundColor: '#FBF3E8',
-    borderWidth: 1,
-    borderColor: '#EBDCC2',
-    borderRadius: 14,
-    padding: 14,
-    alignSelf: 'stretch',
-  },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.accent, marginTop: 6 },
-  noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, flex: 1, lineHeight: 19 },
-  noteStrong: { color: T.ink, fontWeight: '700' },
 });

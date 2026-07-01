@@ -1,6 +1,6 @@
-import { View, Text, StyleSheet, Linking } from 'react-native';
-import StepScaffold from '@/v2/screens/onboarding/StepScaffold';
-import { T } from '@/v2/constants/theme';
+import { Text, StyleSheet, Linking } from 'react-native';
+import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
+import InfoNote, { NoteStrong } from '@/v2/screens/onboarding/components/InfoNote';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // 09a · 권한 거부 분기 (제한 상태 안내). 권한 없이 계속할 수 있음을 안내.
@@ -20,31 +20,13 @@ export default function ScreenTimeDeniedStep({ onNext, onBack }: StepProps) {
       onSecondary={onNext}
       onBack={onBack}
     >
-      <View style={s.note}>
-        <View style={s.dot} />
-        <Text style={s.noteText}>
-          언제든 <Text style={s.noteStrong}>설정 › 스크린 타임 권한</Text>에서 켤 수 있어요.
-        </Text>
-      </View>
+      <InfoNote>
+        언제든 <NoteStrong>설정 › 스크린 타임 권한</NoteStrong>에서 켤 수 있어요.
+      </InfoNote>
     </StepScaffold>
   );
 }
 
 const s = StyleSheet.create({
   mascot: { fontSize: 96 },
-  note: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-start',
-    backgroundColor: '#FBF3E8',
-    borderWidth: 1,
-    borderColor: '#EBDCC2',
-    borderRadius: 14,
-    padding: 14,
-    marginTop: 20,
-    alignSelf: 'stretch',
-  },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.accent, marginTop: 6 },
-  noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, flex: 1, lineHeight: 19 },
-  noteStrong: { color: T.ink, fontWeight: '700' },
 });

@@ -1,6 +1,6 @@
 import { View, Text, TextInput, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import StepScaffold from '@/v2/screens/onboarding/StepScaffold';
+import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import { T } from '@/v2/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 

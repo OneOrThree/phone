@@ -1,9 +1,10 @@
 import { View, Text, StyleSheet } from 'react-native';
-import StepScaffold from '@/v2/screens/onboarding/StepScaffold';
-import CircularGauge from '@/v2/screens/onboarding/CircularGauge';
-import Slider from '@/v2/screens/onboarding/Slider';
+import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
+import CircularGauge from '@/v2/screens/onboarding/components/CircularGauge';
+import Slider from '@/v2/screens/onboarding/components/Slider';
 import { T } from '@/v2/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
+import { formatDuration } from '@/v2/screens/onboarding/format';
 
 // 17 · 하루 목표 집중시간 — dailyFocusMinutes(30~600분, 기본 240=4시간). 서버 계약 미정(신규 필드).
 const MIN = 30;
@@ -13,11 +14,6 @@ const DEFAULT = 240;
 const PEER_AVG = '3.2시간'; // 시안 샘플. TODO: 실제 또래 평균 연동.
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
-function fmtH(min: number) {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m ? `${h}시간 ${m}분` : `${h}시간`;
-}
 
 export default function FocusGoalStep({ data, update, onNext, onBack }: StepProps) {
   const value = data.dailyFocusMinutes ?? DEFAULT;
@@ -43,7 +39,7 @@ export default function FocusGoalStep({ data, update, onNext, onBack }: StepProp
           progressColor={T.accent}
         >
           <Text style={s.gaugeCap}>하루 목표</Text>
-          <Text style={s.gaugeVal}>{fmtH(value)}</Text>
+          <Text style={s.gaugeVal}>{formatDuration(value)}</Text>
         </CircularGauge>
 
         <View style={s.sliderArea}>

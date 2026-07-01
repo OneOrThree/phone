@@ -1,9 +1,10 @@
 import { View, Text, StyleSheet } from 'react-native';
-import StepScaffold from '@/v2/screens/onboarding/StepScaffold';
-import CircularGauge from '@/v2/screens/onboarding/CircularGauge';
-import Slider from '@/v2/screens/onboarding/Slider';
+import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
+import CircularGauge from '@/v2/screens/onboarding/components/CircularGauge';
+import Slider from '@/v2/screens/onboarding/components/Slider';
 import { T } from '@/v2/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
+import { formatDuration } from '@/v2/screens/onboarding/format';
 
 // 12 · 하루 목표 사용시간 — usageGoalMinutes(60~600분). 서버: dailyScreenTimeGoalMinutes 로 매핑.
 // '되찾는 시간'은 시안 샘플 기준(어제 8h12m=492분 → 9.4년)으로 환산. TODO: 실제 사용량 데이터 연동.
@@ -17,11 +18,6 @@ const REF_YEARS = 9.4;
 const RATE = REF_YEARS / REF_MIN; // 년 per (분/일)
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
-function fmtH(min: number) {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m ? `${h}시간 ${m}분` : `${h}시간`;
-}
 
 export default function UsageGoalStep({ data, update, onNext, onBack }: StepProps) {
   const value = data.usageGoalMinutes ?? DEFAULT;
@@ -57,7 +53,7 @@ export default function UsageGoalStep({ data, update, onNext, onBack }: StepProp
           </Text>
         </CircularGauge>
 
-        <Text style={s.goal}>{fmtH(value)}</Text>
+        <Text style={s.goal}>{formatDuration(value)}</Text>
 
         <View style={s.sliderArea}>
           <Slider

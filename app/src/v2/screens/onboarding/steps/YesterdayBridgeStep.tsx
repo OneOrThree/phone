@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle, Path } from 'react-native-svg';
-import StepScaffold from '@/v2/screens/onboarding/StepScaffold';
+import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // 08 · 어제 사용 환기 (브릿지) — 입력 없음. 어두운 폰 일러스트로 '어제 얼마나 썼나' 환기 후 다음.
