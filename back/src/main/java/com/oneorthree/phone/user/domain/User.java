@@ -23,6 +23,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -60,12 +61,11 @@ public class User {
     @Column(name = "current_tier")
     private Integer currentTier;
 
+    @Column(name = "report_time")
+    private LocalTime reportTime;
+
     @Column(length = 255)
     private String deviceToken;
-
-    @Column(name = "is_screen_time_permission_granted", nullable = false)
-    @Builder.Default
-    private boolean screenTimePermissionGranted = false;
 
     private String refreshToken;
 

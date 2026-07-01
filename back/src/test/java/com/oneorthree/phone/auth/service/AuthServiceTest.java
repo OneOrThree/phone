@@ -11,6 +11,8 @@ import com.oneorthree.phone.user.domain.SocialAccount;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.SocialAccountRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
+import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
 import io.jsonwebtoken.JwtException;
@@ -44,6 +46,10 @@ class AuthServiceTest {
     @Mock
     private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     @Mock
+    private UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
+    @Mock
+    private UserNotificationSettingsRepository userNotificationSettingsRepository;
+    @Mock
     private SocialAccountRepository socialAccountRepository;
     @Mock
     private JwtProvider jwtProvider;
@@ -66,6 +72,7 @@ class AuthServiceTest {
         given(appleClient.provider()).willReturn(Provider.APPLE);
         authService = new AuthService(
                 userRepository, userWalletRepository, userScreenTimeSettingsRepository,
+                userFocusTimeSettingsRepository, userNotificationSettingsRepository,
                 socialAccountRepository, jwtProvider, userActivityEventLogger,
                 List.of(kakaoClient, appleClient));
     }

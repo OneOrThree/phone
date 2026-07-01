@@ -19,7 +19,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
-import java.time.zone.ZoneRulesException;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -46,19 +45,20 @@ class ScreenTimeServiceTest {
     private ScreenTimeNotificationPort notificationPort;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
-    private static final String TIMEZONE = "Asia/Seoul";
+    private static final String COUNTRY_CODE = "KR";
+    private static final ZoneId ZONE = ZoneId.of("Asia/Seoul"); // KR 파생 ZoneId
     private static final Instant REPORTED_AT = Instant.now().truncatedTo(ChronoUnit.SECONDS);
 
     private User normalUser() {
-        return User.builder().id(USER_ID).isGuest(false).build();
+        return User.builder().id(USER_ID).isGuest(false).countryCode(COUNTRY_CODE).build();
     }
 
     private ScreenTimeRequest request(Boolean goalAchieved, Integer actualMinutes) {
-        return new ScreenTimeRequest(goalAchieved, actualMinutes, REPORTED_AT, TIMEZONE);
+        return new ScreenTimeRequest(goalAchieved, actualMinutes, REPORTED_AT);
     }
 
     private LocalDate expectedDate() {
-        return REPORTED_AT.atZone(ZoneId.of(TIMEZONE)).toLocalDate();
+        return REPORTED_AT.atZone(ZONE).toLocalDate();
     }
 
     // ── 정상 저장 ─────────────────────────────────────────────────────────
@@ -120,12 +120,12 @@ class ScreenTimeServiceTest {
         assertThat(captor.getValue().getActualScreenTimeMinutes()).isEqualTo(0);
     }
 
-    // ── timeZone 환산 ─────────────────────────────────────────────────────
+    // ── country_code 파생 ZoneId 환산 ─────────────────────────────────────
 
     @Test
-    @DisplayName("KST 자정 경계 → 요청 timeZone 기준 로컬 날짜로 귀속")
-    void saveScreenTimeUsesRequestTimeZoneForLocalDate() {
-        User user = normalUser();
+    @DisplayName("KST 자정 경계 → 유저 country_code(KR) 파생 ZoneId 기준 로컬 날짜로 귀속")
+    void saveScreenTimeUsesCountryZoneForLocalDate() {
+        User user = normalUser(); // KR
         // 2026-06-29T15:30:00Z == 2026-06-30 00:30 KST → 로컬 날짜 06-30 (UTC 였다면 06-29 로 오귀속)
         Instant reportedAt = Instant.parse("2026-06-29T15:30:00Z");
         LocalDate kstDate = LocalDate.of(2026, 6, 30);
@@ -137,7 +137,7 @@ class ScreenTimeServiceTest {
                 .willAnswer(i -> i.getArgument(0));
 
         screenTimeService.saveScreenTime(USER_ID,
-                new ScreenTimeRequest(true, 60, reportedAt, TIMEZONE));
+                new ScreenTimeRequest(true, 60, reportedAt));
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
@@ -145,15 +145,24 @@ class ScreenTimeServiceTest {
     }
 
     @Test
-    @DisplayName("무효 timeZone → ZoneRulesException (400 매핑)")
-    void saveScreenTimeInvalidTimeZoneThrows() {
-        User user = normalUser();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+    @DisplayName("country_code null → UTC 폴백 기준 로컬 날짜")
+    void saveScreenTimeNullCountryFallsBackToUtc() {
+        User user = User.builder().id(USER_ID).isGuest(false).build(); // countryCode null
+        Instant reportedAt = Instant.parse("2026-06-29T15:30:00Z"); // UTC 로컬 날짜 06-29
+        LocalDate utcDate = LocalDate.of(2026, 6, 29);
 
-        assertThatThrownBy(() -> screenTimeService.saveScreenTime(USER_ID,
-                new ScreenTimeRequest(true, 60, REPORTED_AT, "Not/AZone")))
-                .isInstanceOf(ZoneRulesException.class);
-        verify(dailyScreenTimeStatRepository, never()).save(any());
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, utcDate))
+                .willReturn(Optional.empty());
+        given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
+                .willAnswer(i -> i.getArgument(0));
+
+        screenTimeService.saveScreenTime(USER_ID,
+                new ScreenTimeRequest(true, 60, reportedAt));
+
+        ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
+        verify(dailyScreenTimeStatRepository).save(captor.capture());
+        assertThat(captor.getValue().getDate()).isEqualTo(utcDate);
     }
 
     // ── 에러 케이스 ────────────────────────────────────────────────────────

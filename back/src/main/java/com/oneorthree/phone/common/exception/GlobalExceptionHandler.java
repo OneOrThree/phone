@@ -5,7 +5,7 @@ import com.oneorthree.phone.currency.exception.CurrencyException;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
-import com.oneorthree.phone.social.exception.FriendException;
+import com.oneorthree.phone.friend.exception.FriendException;
 import com.oneorthree.phone.stats.exception.StatsException;
 import com.oneorthree.phone.user.exception.UserException;
 import org.springframework.dao.OptimisticLockingFailureException;

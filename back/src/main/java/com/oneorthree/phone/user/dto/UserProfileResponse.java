@@ -11,8 +11,7 @@ public record UserProfileResponse(
         int currency,
         Integer currentTier,
         int dailyScreenTimeGoalMinutes,
-        String timeZone,
-        String dayStartTime,
-        String dayEndTime,
+        int dailyFocusTimeGoalMinutes,
+        String countryCode,
         String reportTime
 ) {}

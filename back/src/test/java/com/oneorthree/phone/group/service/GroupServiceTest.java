@@ -11,6 +11,7 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.group.domain.GroupStatus;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.group.domain.GroupAnnouncement;
@@ -95,6 +96,9 @@ class GroupServiceTest {
 
     @Mock
     private GroupNoticeGrantRepository groupNoticeGrantRepository;
+
+    @Mock
+    private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");

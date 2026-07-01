@@ -1,13 +1,13 @@
 package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.league.domain.LeagueArena;
-import com.oneorthree.phone.league.domain.LeagueArenaMember;
+import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
-import com.oneorthree.phone.league.repository.LeagueArenaMemberRepository;
+import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -23,7 +23,7 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class LeagueService {
 
-    private final LeagueArenaMemberRepository leagueArenaMemberRepository;
+    private final LeagueArenaUserRepository leagueArenaUserRepository;
     private final LeagueTierConfigRepository leagueTierConfigRepository;
 
     public LeagueTierResponse getMyTier(UUID userId) {
@@ -44,11 +44,11 @@ public class LeagueService {
     public List<LeagueMemberResponse> getMyRanking(UUID userId) {
         return findActiveMembership(userId)
                 .map(member -> {
-                    List<LeagueArenaMember> ranked =
-                            leagueArenaMemberRepository.findRankedByArena(member.getLeagueArena());
+                    List<LeagueArenaUser> ranked =
+                            leagueArenaUserRepository.findRankedByArena(member.getLeagueArena());
                     List<LeagueMemberResponse> responses = new ArrayList<>();
                     for (int i = 0; i < ranked.size(); i++) {
-                        LeagueArenaMember m = ranked.get(i);
+                        LeagueArenaUser m = ranked.get(i);
                         responses.add(new LeagueMemberResponse(
                                 i + 1,
                                 m.getUser().getId(),
@@ -64,8 +64,8 @@ public class LeagueService {
     public LeagueRankResponse getMyRank(UUID userId) {
         return findActiveMembership(userId)
                 .map(member -> {
-                    List<LeagueArenaMember> ranked =
-                            leagueArenaMemberRepository.findRankedByArena(member.getLeagueArena());
+                    List<LeagueArenaUser> ranked =
+                            leagueArenaUserRepository.findRankedByArena(member.getLeagueArena());
                     Integer myRank = null;
                     for (int i = 0; i < ranked.size(); i++) {
                         if (ranked.get(i).getUser().getId().equals(userId)) {
@@ -85,11 +85,11 @@ public class LeagueService {
                 .orElseGet(() -> new LeagueRankResponse(false, null, null, null));
     }
 
-    private Optional<LeagueArenaMember> findActiveMembership(UUID userId) {
-        return leagueArenaMemberRepository.findByUserAndArenaStatus(userId, LeagueArenaStatus.ACTIVE);
+    private Optional<LeagueArenaUser> findActiveMembership(UUID userId) {
+        return leagueArenaUserRepository.findByUserAndArenaStatus(userId, LeagueArenaStatus.ACTIVE);
     }
 
-    private String resultName(LeagueArenaMember member) {
+    private String resultName(LeagueArenaUser member) {
         return member.getResult() != null ? member.getResult().name() : null;
     }
 
