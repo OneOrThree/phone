@@ -11,9 +11,13 @@ import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.user.domain.Provider;
 import com.oneorthree.phone.user.domain.SocialAccount;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
+import com.oneorthree.phone.user.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.user.repository.SocialAccountRepository;
+import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
+import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
@@ -34,6 +38,8 @@ public class AuthService {
     private final UserRepository userRepository;
     private final UserWalletRepository userWalletRepository;
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
+    private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
+    private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final SocialAccountRepository socialAccountRepository;
     private final JwtProvider jwtProvider;
     private final UserActivityEventLogger userActivityEventLogger;
@@ -42,6 +48,8 @@ public class AuthService {
     public AuthService(UserRepository userRepository,
                        UserWalletRepository userWalletRepository,
                        UserScreenTimeSettingsRepository userScreenTimeSettingsRepository,
+                       UserFocusTimeSettingsRepository userFocusTimeSettingsRepository,
+                       UserNotificationSettingsRepository userNotificationSettingsRepository,
                        SocialAccountRepository socialAccountRepository,
                        JwtProvider jwtProvider,
                        UserActivityEventLogger userActivityEventLogger,
@@ -49,6 +57,8 @@ public class AuthService {
         this.userRepository = userRepository;
         this.userWalletRepository = userWalletRepository;
         this.userScreenTimeSettingsRepository = userScreenTimeSettingsRepository;
+        this.userFocusTimeSettingsRepository = userFocusTimeSettingsRepository;
+        this.userNotificationSettingsRepository = userNotificationSettingsRepository;
         this.socialAccountRepository = socialAccountRepository;
         this.jwtProvider = jwtProvider;
         this.userActivityEventLogger = userActivityEventLogger;
@@ -56,10 +66,12 @@ public class AuthService {
                 .collect(Collectors.toMap(SocialLoginClient::provider, client -> client));
     }
 
-    // 회원 생성 시 1:1 부속 테이블(지갑·스크린타임 설정) row를 함께 만든다.
+    // 회원 생성 시 1:1 부속 테이블(지갑·스크린타임·포커스·알림 설정) row를 함께 만든다.
     private void createUserSideRows(UUID userId) {
         userWalletRepository.save(UserWallet.builder().userId(userId).build());
         userScreenTimeSettingsRepository.save(UserScreenTimeSettings.builder().userId(userId).build());
+        userFocusTimeSettingsRepository.save(UserFocusTimeSettings.builder().userId(userId).build());
+        userNotificationSettingsRepository.save(UserNotificationSettings.builder().userId(userId).build());
     }
 
     /**

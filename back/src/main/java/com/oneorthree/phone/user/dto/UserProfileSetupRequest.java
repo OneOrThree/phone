@@ -2,6 +2,7 @@ package com.oneorthree.phone.user.dto;
 
 import com.oneorthree.phone.user.domain.Gender;
 import com.oneorthree.phone.user.domain.Occupation;
+import jakarta.validation.constraints.Pattern;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -17,8 +18,10 @@ public class UserProfileSetupRequest {
     Gender gender;
     Occupation occupation;
     int dailyScreenTimeGoalMinutes;
-    String timeZone;
-    String dayStartTime;
-    String dayEndTime;
+    int dailyFocusTimeGoalMinutes;
+
+    @Pattern(regexp = "^[A-Z]{2}$", message = "ISO 3166-1 alpha-2 형식이어야 합니다")
+    String countryCode;
+
     String reportTime;
 }

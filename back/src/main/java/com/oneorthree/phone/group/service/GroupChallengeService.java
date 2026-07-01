@@ -16,9 +16,11 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,7 +33,9 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -42,6 +46,7 @@ public class GroupChallengeService {
     private final GroupMemberRepository groupMemberRepository;
     private final UserRepository userRepository;
     private final GroupChallengeRepository groupChallengeRepository;
+    private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
@@ -59,6 +64,10 @@ public class GroupChallengeService {
         groupMemberRepository.findByUserAndGroup(user, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
 
+        boolean screenTimePermissionGranted = userScreenTimeSettingsRepository.findById(userId)
+                .map(UserScreenTimeSettings::isScreenTimePermissionGranted)
+                .orElse(false);
+
         return groupChallengeRepository.findByGroupOrderByCreatedAtDesc(group)
                 .stream()
                 .map(c -> GroupChallengeResponse.builder()
@@ -70,7 +79,7 @@ public class GroupChallengeService {
                         .windowEnd(toLocalTimeString(c.getWindowEnd(), c.getTimeZone()))
                         .timeZone(c.getTimeZone())
                         .canParticipate(c.getMissionCategory() == MissionCategory.FOCUS
-                                || user.isScreenTimePermissionGranted())
+                                || screenTimePermissionGranted)
                         .status(c.getStatus())
                         .createdAt(c.getCreatedAt())
                         .build())
@@ -140,9 +149,16 @@ public class GroupChallengeService {
 
         List<CreateChallengeResponse.NonParticipantDto> nonParticipants;
         if (request.getMissionCategory() == MissionCategory.SCREEN_TIME) {
-            nonParticipants = groupMemberRepository.findByGroup(group).stream()
+            List<User> members = groupMemberRepository.findByGroup(group).stream()
                     .map(GroupMember::getUser)
-                    .filter(u -> !u.isScreenTimePermissionGranted())
+                    .toList();
+            Set<UUID> grantedUserIds = userScreenTimeSettingsRepository.findAllById(
+                            members.stream().map(User::getId).toList()).stream()
+                    .filter(UserScreenTimeSettings::isScreenTimePermissionGranted)
+                    .map(UserScreenTimeSettings::getUserId)
+                    .collect(Collectors.toSet());
+            nonParticipants = members.stream()
+                    .filter(u -> !grantedUserIds.contains(u.getId()))
                     .map(u -> CreateChallengeResponse.NonParticipantDto.builder()
                             .userId(u.getId())
                             .nickname(u.getNickname())

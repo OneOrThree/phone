@@ -10,40 +10,44 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
+import java.time.LocalTime;
 import java.util.UUID;
 
 /**
- * 유저별 스크린타임 권한·목표 설정 (users 1:1).
- * GROMO-561 로 슬림화 — 스크린타임 권한/목표만 남기고 타임존·알림·리포트 필드는
- * users / user_notification_settings 로 분리.
+ * 유저별 알림 설정 (users 1:1).
+ * GROMO-561 로 user_screen_time_settings 에서 분리 신설.
  */
 @Entity
-@Table(name = "user_screen_time_settings")
+@Table(name = "user_notification_settings")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
-public class UserScreenTimeSettings {
+public class UserNotificationSettings {
 
     @Id
     @Column(name = "user_id")
     private UUID userId;
 
-    @Column(name = "is_screen_time_permission_granted", nullable = false)
+    @Column(nullable = false)
     @Builder.Default
-    private boolean screenTimePermissionGranted = false;
+    private boolean notificationEnabled = true;
 
     @Column(nullable = false)
     @Builder.Default
-    private int dailyScreenTimeGoalMinutes = 0;
+    private boolean soundEnabled = true;
 
-    @CreationTimestamp
-    private Instant createdAt;
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean nightModeEnabled = false;
+
+    private LocalTime nightStartTime;
+
+    private LocalTime nightEndTime;
 
     @UpdateTimestamp
     private Instant updatedAt;

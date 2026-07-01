@@ -45,7 +45,7 @@ public class UserController {
     @PostMapping("/user")
     public ResponseEntity<Void> setupProfile(
             HttpServletRequest request,
-            @RequestBody UserProfileSetupRequest body) {
+            @Valid @RequestBody UserProfileSetupRequest body) {
         UUID userId = (UUID) request.getAttribute("userId");
         userService.setupProfile(userId, body);
         return ResponseEntity.noContent().build();
@@ -60,7 +60,7 @@ public class UserController {
     @PatchMapping("/user")
     public ResponseEntity<Void> updateProfile(
             HttpServletRequest request,
-            @RequestBody UserProfileUpdateRequest body) {
+            @Valid @RequestBody UserProfileUpdateRequest body) {
         UUID userId = (UUID) request.getAttribute("userId");
         userService.updateProfile(userId, body);
         return ResponseEntity.noContent().build();
