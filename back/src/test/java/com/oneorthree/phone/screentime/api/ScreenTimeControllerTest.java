@@ -26,7 +26,7 @@ class ScreenTimeControllerTest {
 
     private static final String VALID = """
             {"screenTimeGoalAchieved": true, "actualScreenTimeMinutes": 120,
-             "reportedAt": "2026-06-29T12:00:00Z", "timeZone": "Asia/Seoul"}
+             "reportedAt": "2026-06-29T12:00:00Z"}
             """;
 
     @Test
@@ -48,7 +48,7 @@ class ScreenTimeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"screenTimeGoalAchieved": true, "actualScreenTimeMinutes": -1,
-                                 "reportedAt": "2026-06-29T12:00:00Z", "timeZone": "Asia/Seoul"}
+                                 "reportedAt": "2026-06-29T12:00:00Z"}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
@@ -61,7 +61,7 @@ class ScreenTimeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"screenTimeGoalAchieved": null, "actualScreenTimeMinutes": 120,
-                                 "reportedAt": "2026-06-29T12:00:00Z", "timeZone": "Asia/Seoul"}
+                                 "reportedAt": "2026-06-29T12:00:00Z"}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
@@ -74,20 +74,7 @@ class ScreenTimeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"screenTimeGoalAchieved": true, "actualScreenTimeMinutes": 120,
-                                 "reportedAt": null, "timeZone": "Asia/Seoul"}
-                                """))
-                .andExpect(status().isBadRequest())
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("timeZone 누락(blank) → 400")
-    void saveScreenTimeBlankTimeZoneReturns400() throws Exception {
-        mockMvc.perform(post("/api/v1/screen-time")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"screenTimeGoalAchieved": true, "actualScreenTimeMinutes": 120,
-                                 "reportedAt": "2026-06-29T12:00:00Z", "timeZone": ""}
+                                 "reportedAt": null}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
