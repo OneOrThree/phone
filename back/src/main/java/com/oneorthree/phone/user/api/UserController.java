@@ -1,6 +1,7 @@
 package com.oneorthree.phone.user.api;
 
 import com.oneorthree.phone.user.dto.DeviceTokenRegisterRequest;
+import com.oneorthree.phone.user.dto.FocusTimeGoalUpdateRequest;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
 import com.oneorthree.phone.user.dto.OccupationUpdateRequest;
 import com.oneorthree.phone.user.dto.ScreenTimeGoalUpdateRequest;
@@ -45,7 +46,7 @@ public class UserController {
     @PostMapping("/user")
     public ResponseEntity<Void> setupProfile(
             HttpServletRequest request,
-            @RequestBody UserProfileSetupRequest body) {
+            @Valid @RequestBody UserProfileSetupRequest body) {
         UUID userId = (UUID) request.getAttribute("userId");
         userService.setupProfile(userId, body);
         return ResponseEntity.noContent().build();
@@ -60,7 +61,7 @@ public class UserController {
     @PatchMapping("/user")
     public ResponseEntity<Void> updateProfile(
             HttpServletRequest request,
-            @RequestBody UserProfileUpdateRequest body) {
+            @Valid @RequestBody UserProfileUpdateRequest body) {
         UUID userId = (UUID) request.getAttribute("userId");
         userService.updateProfile(userId, body);
         return ResponseEntity.noContent().build();
@@ -149,6 +150,22 @@ public class UserController {
             HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         userService.updateScreenTimeGoal(userId, body.getDailyScreenTimeGoalMinutes());
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "집중 시간 목표 수정",
+            description = "일일 집중 시간 목표(분)를 수정. 음수는 400. 성공 시 204 반환.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "수정 성공"),
+        @ApiResponse(responseCode = "400", description = "목표값 누락/음수"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
+    @PatchMapping("/users/me/focus-time-goal")
+    public ResponseEntity<Void> updateFocusTimeGoal(
+            @Valid @RequestBody FocusTimeGoalUpdateRequest body,
+            HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        userService.updateFocusTimeGoal(userId, body.getDailyFocusTimeGoalMinutes());
         return ResponseEntity.noContent().build();
     }
 

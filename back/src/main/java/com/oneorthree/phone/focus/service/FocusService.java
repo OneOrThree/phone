@@ -40,7 +40,7 @@ public class FocusService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        return focusTagRepository.findByUser(user)
+        return focusTagRepository.findByUserAndDeletedAtIsNull(user)
                 .stream()
                 .map(tag -> new FocusTagResponse(tag.getId(), tag.getName()))
                 .toList();
@@ -59,7 +59,7 @@ public class FocusService {
 
     @Transactional
     public void updateFocusTag(UUID userId, FocusTagUpdateRequest body) {
-        FocusTag tag = focusTagRepository.findById(body.tagId())
+        FocusTag tag = focusTagRepository.findByIdAndDeletedAtIsNull(body.tagId())
                 .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
 
         if (!tag.getUser().getId().equals(userId)) {
@@ -71,14 +71,14 @@ public class FocusService {
 
     @Transactional
     public void deleteFocusTag(UUID userId, UUID tagId) {
-        FocusTag tag = focusTagRepository.findById(tagId)
+        FocusTag tag = focusTagRepository.findByIdAndDeletedAtIsNull(tagId)
                 .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
 
         if (!tag.getUser().getId().equals(userId)) {
             throw new FocusException(FocusErrorCode.FORBIDDEN);
         }
 
-        focusTagRepository.delete(tag);
+        tag.softDelete();
     }
 
     public List<FocusSessionResponse> getFocusSessions(UUID userId) {
@@ -113,7 +113,7 @@ public class FocusService {
 
         FocusTag tag = null;
         if (body.getFocusTagId() != null) {
-            tag = focusTagRepository.findById(body.getFocusTagId())
+            tag = focusTagRepository.findByIdAndDeletedAtIsNull(body.getFocusTagId())
                     .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
 
             if (!tag.getUser().getId().equals(userId)) {

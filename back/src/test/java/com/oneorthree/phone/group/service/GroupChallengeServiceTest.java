@@ -16,7 +16,9 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -65,13 +67,19 @@ class GroupChallengeServiceTest {
     @Mock
     private GroupChallengeRepository groupChallengeRepository;
 
+    @Mock
+    private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
+
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID CHALLENGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
 
     private User member() {
-        return User.builder().id(USER_ID).nickname("재영").isGuest(false)
-                .screenTimePermissionGranted(false).build();
+        return User.builder().id(USER_ID).nickname("재영").isGuest(false).build();
+    }
+
+    private UserScreenTimeSettings settings(UUID userId, boolean granted) {
+        return UserScreenTimeSettings.builder().userId(userId).screenTimePermissionGranted(granted).build();
     }
 
     private User guest() {
@@ -115,6 +123,8 @@ class GroupChallengeServiceTest {
                 .build();
         given(groupChallengeRepository.findByGroupOrderByCreatedAtDesc(group))
                 .willReturn(List.of(focus, screenTime));
+        given(userScreenTimeSettingsRepository.findById(USER_ID))
+                .willReturn(Optional.of(settings(USER_ID, false))); // 권한 미동의
 
         // when
         List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID);
@@ -255,11 +265,13 @@ class GroupChallengeServiceTest {
 
         UUID grantedId = UUID.fromString("00000000-0000-0000-0000-0000000000d1");
         UUID deniedId = UUID.fromString("00000000-0000-0000-0000-0000000000d2");
-        User granted = User.builder().id(grantedId).nickname("동의함").screenTimePermissionGranted(true).build();
-        User denied = User.builder().id(deniedId).nickname("미동의").screenTimePermissionGranted(false).build();
+        User granted = User.builder().id(grantedId).nickname("동의함").build();
+        User denied = User.builder().id(deniedId).nickname("미동의").build();
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(
                 groupMemberOf(granted, group, GroupMemberRole.MEMBER),
                 groupMemberOf(denied, group, GroupMemberRole.MEMBER)));
+        given(userScreenTimeSettingsRepository.findAllById(any())).willReturn(List.of(
+                settings(grantedId, true), settings(deniedId, false)));
 
         // when
         CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);

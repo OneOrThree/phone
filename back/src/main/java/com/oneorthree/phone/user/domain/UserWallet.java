@@ -18,7 +18,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "user_wallet")
+@Table(name = "user_wallets")
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -39,6 +39,10 @@ public class UserWallet {
 
     @UpdateTimestamp
     private Instant updatedAt;
+
+    // 소프트 딜리트 컬럼 — 스키마 정합용(GROMO-561). 현재 withdraw()는 하드 삭제(deleteById)이며,
+    // 재화 이력 보존을 위한 소프트 딜리트 전환·조회 필터는 후속 티켓 범위. 아직 세팅/필터 배선 없음.
+    private Instant deletedAt;
 
     public void earn(int amount) {
         if (amount <= 0) {

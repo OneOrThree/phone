@@ -42,7 +42,7 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class FriendService {
 
-    // pinned_friend.id 직접 생성용 (네이티브 INSERT는 @GeneratedUuidV7를 안 타므로 직접 발급)
+    // pinned_friends.id 직접 생성용 (네이티브 INSERT는 @GeneratedUuidV7를 안 타므로 직접 발급)
     private static final NoArgGenerator UUID_V7 = Generators.timeBasedEpochRandomGenerator();
 
     private final FriendshipRepository friendshipRepository;

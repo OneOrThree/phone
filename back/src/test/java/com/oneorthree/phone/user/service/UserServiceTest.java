@@ -9,6 +9,8 @@ import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.domain.Gender;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
+import com.oneorthree.phone.user.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
@@ -18,6 +20,8 @@ import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
+import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
+import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
@@ -41,7 +45,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * UserService 단위 테스트. currency·스크린타임은 UserWallet·UserScreenTimeSettings로 분리됨.
+ * UserService 단위 테스트. GROMO-561 로 설정이 스크린타임·포커스·알림 3테이블로 분리됨.
  */
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -57,6 +61,12 @@ class UserServiceTest {
 
     @Mock
     private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
+
+    @Mock
+    private UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
+
+    @Mock
+    private UserNotificationSettingsRepository userNotificationSettingsRepository;
 
     @Mock
     private GroupRepository groupRepository;
@@ -75,27 +85,27 @@ class UserServiceTest {
     // ── setupProfile ──────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("프로필 셋업 성공 → user 기본정보 + screen-time settings 반영")
+    @DisplayName("프로필 셋업 성공 → user 기본정보 + countryCode·reportTime + screen/focus goal 반영")
     void setupProfileSuccess() {
         User user = User.builder().id(USER_ID).build();
-        UserScreenTimeSettings settings = UserScreenTimeSettings.builder().userId(USER_ID).build();
+        UserScreenTimeSettings screen = UserScreenTimeSettings.builder().userId(USER_ID).build();
+        UserFocusTimeSettings focus = UserFocusTimeSettings.builder().userId(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
 
         UserProfileSetupRequest body = new UserProfileSetupRequest(
-                "조재영", LocalDate.of(2001, 3, 3), Gender.MALE, null, 120,
-                "Asia/Seoul", "09:00", "23:00", "21:00");
+                "조재영", LocalDate.of(2001, 3, 3), Gender.MALE, null, 120, 90, "KR", "21:00");
 
         userService.setupProfile(USER_ID, body);
 
         assertThat(user.getNickname()).isEqualTo("조재영");
         assertThat(user.getBirthDate()).isEqualTo(LocalDate.of(2001, 3, 3));
         assertThat(user.getGender()).isEqualTo(Gender.MALE);
-        assertThat(settings.getDailyScreenTimeGoalMinutes()).isEqualTo(120);
-        assertThat(settings.getTimeZone()).isEqualTo("Asia/Seoul");
-        assertThat(settings.getDayStartTime()).isEqualTo(LocalTime.of(9, 0));
-        assertThat(settings.getDayEndTime()).isEqualTo(LocalTime.of(23, 0));
-        assertThat(settings.getReportTime()).isEqualTo(LocalTime.of(21, 0));
+        assertThat(user.getCountryCode()).isEqualTo("KR");
+        assertThat(user.getReportTime()).isEqualTo(LocalTime.of(21, 0));
+        assertThat(screen.getDailyScreenTimeGoalMinutes()).isEqualTo(120);
+        assertThat(focus.getDailyFocusTimeGoalMinutes()).isEqualTo(90);
     }
 
     @Test
@@ -109,43 +119,41 @@ class UserServiceTest {
                 .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
-    @Test
-    @DisplayName("유효하지 않은 타임존 → IllegalArgumentException, settings.timeZone 미반영")
-    void setupProfileInvalidTimeZone() {
-        User user = User.builder().id(USER_ID).build();
-        UserScreenTimeSettings settings = UserScreenTimeSettings.builder().userId(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
-
-        UserProfileSetupRequest body = new UserProfileSetupRequest(
-                "조재영", LocalDate.of(2001, 3, 3), Gender.MALE, null, 120,
-                "Invalid/Zone", "09:00", "23:00", "21:00");
-
-        assertThatThrownBy(() -> userService.setupProfile(USER_ID, body))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThat(settings.getTimeZone()).isNull();
-    }
-
     // ── updateProfile ─────────────────────────────────────────────────────
 
     @Test
     @DisplayName("부분 수정 → null 필드는 무시하고 전달된 필드만 갱신")
     void updateProfilePartial() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").gender(Gender.FEMALE).build();
-        UserScreenTimeSettings settings = UserScreenTimeSettings.builder()
-                .userId(USER_ID).dailyScreenTimeGoalMinutes(60).timeZone("Asia/Seoul").build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
 
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
-                "새닉네임", null, null, null, null, null, null, null);
+                "새닉네임", null, null, null, null, "US", null);
 
         userService.updateProfile(USER_ID, body);
 
         assertThat(user.getNickname()).isEqualTo("새닉네임");
         assertThat(user.getGender()).isEqualTo(Gender.FEMALE);
-        assertThat(settings.getDailyScreenTimeGoalMinutes()).isEqualTo(60);
-        assertThat(settings.getTimeZone()).isEqualTo("Asia/Seoul");
+        assertThat(user.getCountryCode()).isEqualTo("US");
+    }
+
+    @Test
+    @DisplayName("목표 수정 → 전달된 screen/focus goal 만 해당 settings 에 반영")
+    void updateProfileGoals() {
+        User user = User.builder().id(USER_ID).build();
+        UserScreenTimeSettings screen = UserScreenTimeSettings.builder().userId(USER_ID).build();
+        UserFocusTimeSettings focus = UserFocusTimeSettings.builder().userId(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
+
+        UserProfileUpdateRequest body = new UserProfileUpdateRequest(
+                null, null, null, 150, 60, null, null);
+
+        userService.updateProfile(USER_ID, body);
+
+        assertThat(screen.getDailyScreenTimeGoalMinutes()).isEqualTo(150);
+        assertThat(focus.getDailyFocusTimeGoalMinutes()).isEqualTo(60);
     }
 
     @Test
@@ -159,26 +167,10 @@ class UserServiceTest {
                 .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
-    @Test
-    @DisplayName("유효하지 않은 타임존 → IllegalArgumentException")
-    void updateProfileInvalidTimeZone() {
-        User user = User.builder().id(USER_ID).build();
-        UserScreenTimeSettings settings = UserScreenTimeSettings.builder().userId(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
-
-        UserProfileUpdateRequest body = new UserProfileUpdateRequest(
-                null, null, null, null, "Invalid/Zone", null, null, null);
-
-        assertThatThrownBy(() -> userService.updateProfile(USER_ID, body))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThat(settings.getTimeZone()).isNull();
-    }
-
     // ── withdraw ──────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("탈퇴 성공 → focus·wallet·settings 정리 후 유저 삭제")
+    @DisplayName("탈퇴 성공 → focus·wallet·3 settings 정리 후 유저 삭제")
     void withdrawSuccess() {
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
@@ -191,6 +183,8 @@ class UserServiceTest {
         verify(dailyScreenTimeStatRepository).nullifyUser(USER_ID);
         verify(userWalletRepository).deleteById(USER_ID);
         verify(userScreenTimeSettingsRepository).deleteById(USER_ID);
+        verify(userFocusTimeSettingsRepository).deleteById(USER_ID);
+        verify(userNotificationSettingsRepository).deleteById(USER_ID);
         verify(userRepository).delete(user);
     }
 
@@ -222,7 +216,7 @@ class UserServiceTest {
     // ── getProfile ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("프로필 조회 성공 → user·wallet·settings가 UserProfileResponse로 매핑")
+    @DisplayName("프로필 조회 성공 → user·wallet·screen/focus settings 가 UserProfileResponse 로 매핑")
     void getProfileSuccess() {
         User user = User.builder()
                 .id(USER_ID)
@@ -230,19 +224,18 @@ class UserServiceTest {
                 .gender(Gender.MALE)
                 .birthDate(LocalDate.of(2001, 3, 3))
                 .currentTier(3)
-                .build();
-        UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(500).build();
-        UserScreenTimeSettings settings = UserScreenTimeSettings.builder()
-                .userId(USER_ID)
-                .dailyScreenTimeGoalMinutes(120)
-                .timeZone("Asia/Seoul")
-                .dayStartTime(LocalTime.of(9, 0))
-                .dayEndTime(LocalTime.of(23, 0))
+                .countryCode("KR")
                 .reportTime(LocalTime.of(21, 0))
                 .build();
+        UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(500).build();
+        UserScreenTimeSettings screen = UserScreenTimeSettings.builder()
+                .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build();
+        UserFocusTimeSettings focus = UserFocusTimeSettings.builder()
+                .userId(USER_ID).dailyFocusTimeGoalMinutes(90).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
 
         UserProfileResponse response = userService.getProfile(USER_ID);
 
@@ -253,9 +246,8 @@ class UserServiceTest {
         assertThat(response.currency()).isEqualTo(500);
         assertThat(response.currentTier()).isEqualTo(3);
         assertThat(response.dailyScreenTimeGoalMinutes()).isEqualTo(120);
-        assertThat(response.timeZone()).isEqualTo("Asia/Seoul");
-        assertThat(response.dayStartTime()).isEqualTo("09:00");
-        assertThat(response.dayEndTime()).isEqualTo("23:00");
+        assertThat(response.dailyFocusTimeGoalMinutes()).isEqualTo(90);
+        assertThat(response.countryCode()).isEqualTo("KR");
         assertThat(response.reportTime()).isEqualTo("21:00");
     }
 
@@ -273,23 +265,23 @@ class UserServiceTest {
     // ── updateScreenTimePermission ────────────────────────────────────────
 
     @Test
-    @DisplayName("스크린타임 권한 변경 성공 → granted 값 반영")
+    @DisplayName("스크린타임 권한 변경 성공 → screen settings 에 granted 값 반영")
     void updateScreenTimePermissionSuccess() {
-        User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        UserScreenTimeSettings settings = UserScreenTimeSettings.builder().userId(USER_ID).build();
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
 
         UpdateScreenTimePermissionRequest request = mock(UpdateScreenTimePermissionRequest.class);
         given(request.getGranted()).willReturn(true);
 
         userService.updateScreenTimePermission(USER_ID, request);
 
-        assertThat(user.isScreenTimePermissionGranted()).isTrue();
+        assertThat(settings.isScreenTimePermissionGranted()).isTrue();
     }
 
     @Test
-    @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
-    void updateScreenTimePermissionUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+    @DisplayName("스크린타임 권한 변경 - 설정 없음 → UserException(NOT_FOUND)")
+    void updateScreenTimePermissionNotFound() {
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.updateScreenTimePermission(USER_ID, null))
                 .isInstanceOf(UserException.class)
@@ -345,13 +337,37 @@ class UserServiceTest {
                 .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
+    // ── updateFocusTimeGoal ───────────────────────────────────────────────
+
+    @Test
+    @DisplayName("집중 목표 수정 성공 → focus settings 에 반영")
+    void updateFocusTimeGoalSuccess() {
+        UserFocusTimeSettings settings = UserFocusTimeSettings.builder().userId(USER_ID).build();
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        userService.updateFocusTimeGoal(USER_ID, 90);
+
+        assertThat(settings.getDailyFocusTimeGoalMinutes()).isEqualTo(90);
+    }
+
+    @Test
+    @DisplayName("집중 목표 수정 - 설정 없음 → UserException(NOT_FOUND)")
+    void updateFocusTimeGoalNotFound() {
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.updateFocusTimeGoal(USER_ID, 90))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
     // ── updateNotificationSettings ────────────────────────────────────────
 
     @Test
-    @DisplayName("알림·심야·소리 설정 저장 → settings 필드 반영")
+    @DisplayName("알림·심야·소리 설정 저장 → notification settings 필드 반영")
     void updateNotificationSettings() {
-        UserScreenTimeSettings settings = UserScreenTimeSettings.builder().userId(USER_ID).build();
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+        UserNotificationSettings settings = UserNotificationSettings.builder().userId(USER_ID).build();
+        given(userNotificationSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
 
         NotificationSettingsRequest request = mock(NotificationSettingsRequest.class);
         given(request.getNotificationEnabled()).willReturn(true);
@@ -372,7 +388,7 @@ class UserServiceTest {
     @Test
     @DisplayName("알림 설정 저장 - 설정 없음 → UserException(NOT_FOUND)")
     void updateNotificationSettingsNotFound() {
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userNotificationSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() ->
                 userService.updateNotificationSettings(USER_ID, mock(NotificationSettingsRequest.class)))

@@ -17,7 +17,7 @@ public interface PinnedFriendRepository extends JpaRepository<PinnedFriend, UUID
     // 멱등 핀 설정 — DB 차원 upsert. check-then-insert 경합(동시 요청) 시에도 500 없이 무시.
     // (JPA save는 commit 시점 flush라 try-catch로 못 잡고, 잡아도 트랜잭션이 rollback-only가 됨)
     @Modifying
-    @Query(value = "INSERT INTO pinned_friend (id, user_id, friend_user_id, created_at) "
+    @Query(value = "INSERT INTO pinned_friends (id, user_id, friend_user_id, created_at) "
             + "VALUES (:id, :userId, :friendUserId, now()) ON CONFLICT DO NOTHING", nativeQuery = true)
     void insertIgnoreConflict(@Param("id") UUID id,
                               @Param("userId") UUID userId,

@@ -1,14 +1,14 @@
 package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.league.domain.LeagueArena;
-import com.oneorthree.phone.league.domain.LeagueArenaMember;
+import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueMemberResult;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
-import com.oneorthree.phone.league.repository.LeagueArenaMemberRepository;
+import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.user.domain.User;
 import org.junit.jupiter.api.DisplayName;
@@ -34,7 +34,7 @@ class LeagueServiceTest {
     private LeagueService leagueService;
 
     @Mock
-    private LeagueArenaMemberRepository leagueArenaMemberRepository;
+    private LeagueArenaUserRepository leagueArenaUserRepository;
 
     @Mock
     private LeagueTierConfigRepository leagueTierConfigRepository;
@@ -60,9 +60,9 @@ class LeagueServiceTest {
                 .build();
     }
 
-    private LeagueArenaMember member(UUID userId, String nickname, LeagueArena arena, int focusMinutes) {
+    private LeagueArenaUser member(UUID userId, String nickname, LeagueArena arena, int focusMinutes) {
         User user = User.builder().id(userId).nickname(nickname).build();
-        return LeagueArenaMember.builder()
+        return LeagueArenaUser.builder()
                 .id(UUID.randomUUID())
                 .user(user)
                 .leagueArena(arena)
@@ -77,8 +77,8 @@ class LeagueServiceTest {
     @DisplayName("내 티어 조회 성공 → ACTIVE 아레나 정보 매핑")
     void getMyTierAssigned() {
         LeagueArena arena = activeArena();
-        LeagueArenaMember me = member(USER_ID, "me", arena, 300);
-        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+        LeagueArenaUser me = member(USER_ID, "me", arena, 300);
+        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
                 .willReturn(Optional.of(me));
         given(leagueTierConfigRepository.findById(3))
                 .willReturn(Optional.of(tierConfig(3, "hyperfocus")));
@@ -97,8 +97,8 @@ class LeagueServiceTest {
     @DisplayName("내 티어 조회 - 티어 설정 누락 → badgeId=null 로 방어")
     void getMyTierBadgeConfigMissing() {
         LeagueArena arena = activeArena();
-        LeagueArenaMember me = member(USER_ID, "me", arena, 300);
-        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+        LeagueArenaUser me = member(USER_ID, "me", arena, 300);
+        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
                 .willReturn(Optional.of(me));
         given(leagueTierConfigRepository.findById(3))
                 .willReturn(Optional.empty());
@@ -112,7 +112,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("내 티어 조회 - 미배정 → assigned=false")
     void getMyTierUnassigned() {
-        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
                 .willReturn(Optional.empty());
 
         LeagueTierResponse response = leagueService.getMyTier(USER_ID);
@@ -129,13 +129,13 @@ class LeagueServiceTest {
     @DisplayName("랭킹 조회 → 정렬 순서대로 rank 1..N 부여")
     void getMyRankingAssigned() {
         LeagueArena arena = activeArena();
-        LeagueArenaMember me = member(USER_ID, "me", arena, 200);
-        LeagueArenaMember top = member(U2, "top", arena, 300);
-        LeagueArenaMember last = member(U3, "last", arena, 100);
-        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+        LeagueArenaUser me = member(USER_ID, "me", arena, 200);
+        LeagueArenaUser top = member(U2, "top", arena, 300);
+        LeagueArenaUser last = member(U3, "last", arena, 100);
+        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
                 .willReturn(Optional.of(me));
         // findRankedByArena 가 이미 정렬된 리스트를 반환한다고 가정 (top > me > last)
-        given(leagueArenaMemberRepository.findRankedByArena(arena))
+        given(leagueArenaUserRepository.findRankedByArena(arena))
                 .willReturn(List.of(top, me, last));
 
         List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID);
@@ -153,7 +153,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("랭킹 조회 - 미배정 → 빈 리스트")
     void getMyRankingUnassigned() {
-        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
                 .willReturn(Optional.empty());
 
         assertThat(leagueService.getMyRanking(USER_ID)).isEmpty();
@@ -165,12 +165,12 @@ class LeagueServiceTest {
     @DisplayName("내 순위 조회 → 정렬 리스트에서 내 위치 = myRank, 진행 중 result=null")
     void getMyRankAssigned() {
         LeagueArena arena = activeArena();
-        LeagueArenaMember me = member(USER_ID, "me", arena, 200);
-        LeagueArenaMember top = member(U2, "top", arena, 300);
-        LeagueArenaMember last = member(U3, "last", arena, 100);
-        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+        LeagueArenaUser me = member(USER_ID, "me", arena, 200);
+        LeagueArenaUser top = member(U2, "top", arena, 300);
+        LeagueArenaUser last = member(U3, "last", arena, 100);
+        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
                 .willReturn(Optional.of(me));
-        given(leagueArenaMemberRepository.findRankedByArena(arena))
+        given(leagueArenaUserRepository.findRankedByArena(arena))
                 .willReturn(List.of(top, me, last));
 
         LeagueRankResponse response = leagueService.getMyRank(USER_ID);
@@ -185,12 +185,12 @@ class LeagueServiceTest {
     @DisplayName("내 순위 조회 - 확정된 result 매핑")
     void getMyRankWithResult() {
         LeagueArena arena = activeArena();
-        LeagueArenaMember me = member(USER_ID, "me", arena, 300);
+        LeagueArenaUser me = member(USER_ID, "me", arena, 300);
         me.setRank(1);
         me.setResult(LeagueMemberResult.PROMOTED);
-        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
                 .willReturn(Optional.of(me));
-        given(leagueArenaMemberRepository.findRankedByArena(arena))
+        given(leagueArenaUserRepository.findRankedByArena(arena))
                 .willReturn(List.of(me));
 
         LeagueRankResponse response = leagueService.getMyRank(USER_ID);
@@ -203,11 +203,11 @@ class LeagueServiceTest {
     @DisplayName("내 순위 조회 - 정합성 깨짐(랭킹 목록에 내가 없음) → IllegalStateException")
     void getMyRankMemberNotInRanked() {
         LeagueArena arena = activeArena();
-        LeagueArenaMember me = member(USER_ID, "me", arena, 200);
-        LeagueArenaMember other = member(U2, "other", arena, 300);
-        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+        LeagueArenaUser me = member(USER_ID, "me", arena, 200);
+        LeagueArenaUser other = member(U2, "other", arena, 300);
+        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
                 .willReturn(Optional.of(me));
-        given(leagueArenaMemberRepository.findRankedByArena(arena))
+        given(leagueArenaUserRepository.findRankedByArena(arena))
                 .willReturn(List.of(other)); // 내 멤버가 랭킹 목록에 없음
 
         assertThatThrownBy(() -> leagueService.getMyRank(USER_ID))
@@ -217,7 +217,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("내 순위 조회 - 미배정 → assigned=false")
     void getMyRankUnassigned() {
-        given(leagueArenaMemberRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
                 .willReturn(Optional.empty());
 
         LeagueRankResponse response = leagueService.getMyRank(USER_ID);

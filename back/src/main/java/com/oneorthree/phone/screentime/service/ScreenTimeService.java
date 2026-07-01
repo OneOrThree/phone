@@ -1,6 +1,7 @@
 package com.oneorthree.phone.screentime.service;
 
 import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
+import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
@@ -12,10 +13,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.zone.ZoneRulesException;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -33,8 +32,8 @@ public class ScreenTimeService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        // 2. reportedAt → 요청 timeZone 기준 로컬 날짜 환산 (자정 경계 오귀속 방지)
-        LocalDate date = resolveLocalDate(request);
+        // 2. reportedAt → 유저 country_code 파생 ZoneId 기준 로컬 날짜 환산 (자정 경계 오귀속 방지)
+        LocalDate date = resolveLocalDate(user, request);
 
         // 3. daily_screen_time_stats upsert (user, date) 기준 — 멱등
         int actualMinutes = request.getActualScreenTimeMinutes() != null
@@ -60,16 +59,11 @@ public class ScreenTimeService {
     }
 
     /**
-     * reportedAt(Instant)을 요청 timeZone 기준 로컬 날짜로 환산한다.
-     * 무효 timeZone(포맷 오류·미지원 region)은 400(INVALID_TIMEZONE)으로 매핑된다.
+     * reportedAt(Instant)을 유저 country_code 파생 ZoneId 기준 로컬 날짜로 환산한다.
+     * country_code 가 null·미지원이면 UTC 로 폴백한다(CountryZoneResolver).
      */
-    private LocalDate resolveLocalDate(ScreenTimeRequest request) {
-        try {
-            return request.getReportedAt()
-                    .atZone(ZoneId.of(request.getTimeZone()))
-                    .toLocalDate();
-        } catch (DateTimeException e) {
-            throw new ZoneRulesException("유효하지 않은 타임존: " + request.getTimeZone());
-        }
+    private LocalDate resolveLocalDate(User user, ScreenTimeRequest request) {
+        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        return request.getReportedAt().atZone(zone).toLocalDate();
     }
 }

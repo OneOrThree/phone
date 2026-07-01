@@ -24,7 +24,7 @@ import java.util.UUID;
 
 @Entity
 @Table(
-        name = "league_arena_members",
+        name = "league_arena_users",
         uniqueConstraints = @UniqueConstraint(columnNames = {"league_arena_id", "user_id"})
 )
 @Getter
@@ -32,7 +32,7 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
-public class LeagueArenaMember {
+public class LeagueArenaUser {
 
     @Id
     @GeneratedUuidV7
