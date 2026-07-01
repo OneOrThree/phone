@@ -71,21 +71,16 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
     var totalDuration: TimeInterval = 0
 
     // 데이터 구조: data → activitySegments → categories → applications 순으로 중첩
-    // gromo 앱 자체 사용 시간은 총합 및 목록에서 제외
-    let gromoBundle = "com.oneorthree.gromo"
-
+    // 설정 스크린타임 총합과 최대한 맞추기 위해 gromo 포함 전체 앱을 합산한다.
     for await d in data {
         for await segment in d.activitySegments {
             for await categoryActivity in segment.categories {
                 let catName = categoryActivity.category.localizedDisplayName ?? "기타"
                 for await app in categoryActivity.applications {
-                    // gromo 앱은 제외
-                    if app.application.bundleIdentifier == gromoBundle { continue }
                     let name = app.application.localizedDisplayName ?? "알 수 없음"
                     let duration = app.totalActivityDuration
                     totalDuration += duration
                     apps.append(AppUsage(name: name, duration: duration))
-                    // 카테고리 합산 (gromo 제외된 앱 기준이라 총합과 일관됨)
                     categoryDurations[catName, default: 0] += duration
                 }
             }

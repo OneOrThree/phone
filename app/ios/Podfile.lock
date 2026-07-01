@@ -2640,6 +2640,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
+  - RNSVG (15.12.1):
+    - React-Core
   - SocketRocket (0.7.1)
   - Yoga (0.0.0)
 
@@ -2737,6 +2739,7 @@ DEPENDENCIES:
   - "RNGoogleSignin (from `../node_modules/@react-native-google-signin/google-signin`)"
   - "RNLine (from `../node_modules/@xmartlabs/react-native-line`)"
   - RNScreens (from `../node_modules/react-native-screens`)
+  - RNSVG (from `../node_modules/react-native-svg`)
   - SocketRocket (~> 0.7.1)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
@@ -2957,6 +2960,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@xmartlabs/react-native-line"
   RNScreens:
     :path: "../node_modules/react-native-screens"
+  RNSVG:
+    :path: "../node_modules/react-native-svg"
   Yoga:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
@@ -3080,9 +3085,10 @@ SPEC CHECKSUMS:
   RNGoogleSignin: b11289afb825c32c250272e4d92446f71091814e
   RNLine: bf24eeb6a45cb341b764ead2243d5888f4e26940
   RNScreens: 5dc1a3d8a8720d4a2ba1fc26f912ae47f5a84dc6
+  RNSVG: d3f55b1e5f680744764389119f1cb7512058672b
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: cc4a6600d61e4e9276e860d4d68eebb834a050ba
 
-PODFILE CHECKSUM: abd513aa4034d6008998366faefadaa47b521b59
+PODFILE CHECKSUM: f18e7c6be5fdc5f7f069bc6d08afd3ec834131ee
 
 COCOAPODS: 1.16.2

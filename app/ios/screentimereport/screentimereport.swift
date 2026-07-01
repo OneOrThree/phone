@@ -24,5 +24,9 @@ struct screentimereport: DeviceActivityReportExtension {
         RemainingActivityReport { totalActivity in
             RemainingActivityView(totalActivity: totalActivity)
         }
+        // v2 홈 "핸드폰 사용" 리포트 (총 사용시간 + 목표 대비 진행 바)
+        HomeUsageReport { totalActivity in
+            HomeUsageView(totalActivity: totalActivity)
+        }
     }
 }

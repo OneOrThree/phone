@@ -42,6 +42,17 @@ RCT_EXTERN_METHOD(
 )
 
 RCT_EXTERN_METHOD(
+    startUsageBucketMonitoring:(double)maxMinutesValue
+    resolver:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
+RCT_EXTERN_METHOD(
+    getTodayUsageBucketMinutes:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
+RCT_EXTERN_METHOD(
     getYesterdayResult:(RCTPromiseResolveBlock)resolve
     rejecter:(RCTPromiseRejectBlock)reject
 )
