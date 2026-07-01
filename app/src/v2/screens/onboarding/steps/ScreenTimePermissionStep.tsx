@@ -6,8 +6,11 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 
 // 09 · 스크린타임 권한 — Apple 스크린타임 권한 요청. 결과를 screenTimeGranted 에 저장.
-// 거부 시 시안상 09a(제한 상태)·09b(수동 입력)로 분기 — 이번 범위 미포함(TODO).
-// iOS 시스템 권한 시트는 OS가 띄움(여기선 안 그림).
+// 권한 허용 직후 측정 대상(앱) picker를 띄워 selection을 활성으로 저장(최초 설정 → 즉시 승격).
+//   → 이 selection이 홈 '핸드폰 사용' 표시와 목표 판정(threshold)의 기준이 된다.
+//   → 폰 전체 사용시간을 보려면 picker에서 '전체 선택' 권장. 선택 없으면 전체 앱으로 fallback.
+// 거부 시 시안상 09a(제한 상태)·09b(수동 입력)로 분기(OnboardingFlow가 삽입).
+// iOS 시스템 권한 시트·picker 시트는 OS/네이티브가 띄움(여기선 안 그림).
 
 const PERKS = ['앱별 사용 시간', '카테고리별 분류', '기기에서만 처리 · 서버 미전송'];
 
@@ -33,12 +36,6 @@ export default function ScreenTimePermissionStep({ update, onNext, onBack }: Ste
   async function allow() {
     try {
       const status = await ScreenTimeModule.getAuthorizationStatus();
-      if (status === 'approved') {
-        // 이미 허용됨 — iOS는 재요청 창을 안 띄움. 그대로 진행.
-        update({ screenTimeGranted: true });
-        onNext();
-        return;
-      }
       if (status === 'denied') {
         // 이미 거부됨 — 시스템 재요청 불가. 설정으로 안내.
         Alert.alert('권한이 꺼져 있어요', '설정 > 스크린 타임에서 권한을 켜주세요.', [
@@ -47,13 +44,33 @@ export default function ScreenTimePermissionStep({ update, onNext, onBack }: Ste
         ]);
         return;
       }
-      // notDetermined → 실제 iOS 스크린타임(FamilyControls) 권한창 표시.
-      const granted = await ScreenTimeModule.requestAuthorization();
+      // approved면 재요청 창 안 뜸(그대로 통과), notDetermined면 실제 권한창 표시.
+      const granted = status === 'approved' ? true : await ScreenTimeModule.requestAuthorization();
       update({ screenTimeGranted: granted });
-      onNext(); // TODO: granted=false → 09a(제한)/09b(수동입력) 분기
+      if (!granted) {
+        onNext(); // 거부 → OnboardingFlow가 09a(제한)/09b(수동입력) 삽입
+        return;
+      }
+      // 권한 허용 → 곧바로 측정 대상(앱) 선택 picker.
+      await pickTargets();
+      onNext();
     } catch (e) {
       // 조용히 삼키지 않고 노출 (엔타이틀먼트/프로파일 문제 진단용).
       Alert.alert('권한 요청 실패', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // 측정 대상 앱/카테고리 선택 → 최초 설정이라 즉시 활성(selection) 승격.
+  // 취소(null)하면 미설정으로 진행 — 홈 사용시간 표시가 제한될 수 있음(추후 설정에서 가능).
+  async function pickTargets() {
+    try {
+      const counts = await ScreenTimeModule.presentAppPicker();
+      if (counts) {
+        await ScreenTimeModule.promoteSelection();
+        update({ screenTimeSelectionConfigured: true });
+      }
+    } catch {
+      // picker 미지원 환경(시뮬레이터 등)은 조용히 무시 — 온보딩은 계속 진행.
     }
   }
   function later() {
