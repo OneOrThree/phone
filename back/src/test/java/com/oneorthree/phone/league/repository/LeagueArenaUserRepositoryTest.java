@@ -2,7 +2,7 @@ package com.oneorthree.phone.league.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
 import com.oneorthree.phone.league.domain.LeagueArena;
-import com.oneorthree.phone.league.domain.LeagueArenaMember;
+import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.user.domain.User;
@@ -19,10 +19,10 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class LeagueArenaMemberRepositoryTest extends RepositoryTestBase {
+class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
 
     @Autowired
-    LeagueArenaMemberRepository leagueArenaMemberRepository;
+    LeagueArenaUserRepository leagueArenaUserRepository;
     @Autowired
     LeagueArenaRepository leagueArenaRepository;
     @Autowired
@@ -45,8 +45,8 @@ class LeagueArenaMemberRepositoryTest extends RepositoryTestBase {
         return userRepository.save(User.builder().nickname(nickname).currentTier(1).build());
     }
 
-    private LeagueArenaMember saveMember(LeagueArena arena, User user, int focusMinutes) {
-        return leagueArenaMemberRepository.save(LeagueArenaMember.builder()
+    private LeagueArenaUser saveMember(LeagueArena arena, User user, int focusMinutes) {
+        return leagueArenaUserRepository.save(LeagueArenaUser.builder()
                 .user(user).leagueArena(arena).tierLevel(arena.getTierConfig().getTierLevel())
                 .totalFocusMinutes(focusMinutes).build());
     }
@@ -61,15 +61,15 @@ class LeagueArenaMemberRepositoryTest extends RepositoryTestBase {
         User u2 = saveUser("u2");
         saveMember(active, u1, 100);
         saveMember(ended, u2, 100);
-        leagueArenaMemberRepository.flush();
+        leagueArenaUserRepository.flush();
 
-        Optional<LeagueArenaMember> mine =
-                leagueArenaMemberRepository.findByUserAndArenaStatus(u1.getId(), LeagueArenaStatus.ACTIVE);
+        Optional<LeagueArenaUser> mine =
+                leagueArenaUserRepository.findByUserAndArenaStatus(u1.getId(), LeagueArenaStatus.ACTIVE);
         assertThat(mine).isPresent();
         assertThat(mine.get().getLeagueArena().getId()).isEqualTo(active.getId());
 
         // ENDED 아레나에만 있는 유저는 ACTIVE 조회 시 없음
-        assertThat(leagueArenaMemberRepository.findByUserAndArenaStatus(u2.getId(), LeagueArenaStatus.ACTIVE))
+        assertThat(leagueArenaUserRepository.findByUserAndArenaStatus(u2.getId(), LeagueArenaStatus.ACTIVE))
                 .isEmpty();
     }
 
@@ -83,9 +83,9 @@ class LeagueArenaMemberRepositoryTest extends RepositoryTestBase {
         saveMember(arena, saveUser("top"), 300);
         saveMember(arena, saveUser("low"), 100);
         saveMember(other, saveUser("other"), 999);
-        leagueArenaMemberRepository.flush();
+        leagueArenaUserRepository.flush();
 
-        List<LeagueArenaMember> ranked = leagueArenaMemberRepository.findRankedByArena(arena);
+        List<LeagueArenaUser> ranked = leagueArenaUserRepository.findRankedByArena(arena);
 
         assertThat(ranked).hasSize(3);
         assertThat(ranked).extracting(m -> m.getUser().getNickname())
@@ -100,14 +100,14 @@ class LeagueArenaMemberRepositoryTest extends RepositoryTestBase {
         // 동일 focusMinutes 면 id 오름차순으로 결정적 정렬돼야 한다.
         // (UUID v7 는 같은 밀리초 내 생성 시 랜덤 꼬리로 순서가 갈려 저장 순서 != id 순서일 수 있으므로
         //  저장 순서를 가정하지 않고, 실제 id 를 정렬한 기대값과 비교한다.)
-        LeagueArenaMember a = saveMember(arena, saveUser("a"), 150);
-        LeagueArenaMember b = saveMember(arena, saveUser("b"), 150);
-        leagueArenaMemberRepository.flush();
+        LeagueArenaUser a = saveMember(arena, saveUser("a"), 150);
+        LeagueArenaUser b = saveMember(arena, saveUser("b"), 150);
+        leagueArenaUserRepository.flush();
         List<UUID> expectedOrder = Stream.of(a.getId(), b.getId()).sorted().toList();
 
-        List<LeagueArenaMember> ranked = leagueArenaMemberRepository.findRankedByArena(arena);
+        List<LeagueArenaUser> ranked = leagueArenaUserRepository.findRankedByArena(arena);
 
-        assertThat(ranked).extracting(LeagueArenaMember::getId)
+        assertThat(ranked).extracting(LeagueArenaUser::getId)
                 .containsExactlyElementsOf(expectedOrder);
     }
 }
