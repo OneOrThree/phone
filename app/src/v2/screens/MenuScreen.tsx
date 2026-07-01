@@ -1,12 +1,31 @@
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { triggerLogout } from '@/services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { triggerLogout, api } from '@/services/api';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
+import { STORAGE_KEYS } from '@/types/storage';
+import { useUser } from '@/store/UserContext';
 import { T } from '@/v2/constants/theme';
 
-// v2 전체 탭 — 측정 대상(스크린타임 picker) 재설정 + 로그아웃.
-// TODO: 프로필·목표 변경·고객센터 등 메뉴 항목 추가.
+// v2 전체 탭 — 목표(스크린타임·집중) 변경 + 측정 대상 picker + 로그아웃.
+
+// 초 → "N시간 M분"
+function hm(totalSeconds: number): string {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  if (h && m) return `${h}시간 ${m}분`;
+  if (h) return `${h}시간`;
+  return `${m}분`;
+}
+
+const STEP = 10 * 60; // 10분 단위 조정
+type GoalKey = 'screen' | 'focus';
+const GOAL_META: Record<GoalKey, { title: string; min: number; max: number }> = {
+  screen: { title: '스크린타임 목표', min: 30 * 60, max: 12 * 3600 },
+  focus: { title: '집중 목표', min: 30 * 60, max: 8 * 3600 },
+};
 
 // 설정 리스트 한 줄 (렌더 중 컴포넌트 정의 방지 위해 모듈 스코프)
 function Row({
@@ -47,6 +66,51 @@ function Row({
 }
 
 export default function MenuScreen() {
+  const { goalSeconds, setGoalSeconds, screenTimeGoalSeconds, setScreenTimeGoalSeconds } =
+    useUser();
+  const [editing, setEditing] = useState<{ key: GoalKey; seconds: number } | null>(null);
+
+  function openEdit(key: GoalKey) {
+    setEditing({ key, seconds: key === 'screen' ? screenTimeGoalSeconds : goalSeconds });
+  }
+
+  function adjust(delta: number) {
+    setEditing((e) => {
+      if (!e) return e;
+      const meta = GOAL_META[e.key];
+      return { ...e, seconds: Math.min(meta.max, Math.max(meta.min, e.seconds + delta)) };
+    });
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    const { key, seconds } = editing;
+    setEditing(null);
+    if (key === 'focus') {
+      // 집중 목표는 로컬(세션) 반영 — 서버 필드 미정. TODO: 백엔드 필드 생기면 동기화.
+      setGoalSeconds(seconds);
+      return;
+    }
+    // 스크린타임 목표 — 컨텍스트 + 서버 + 로컬 유저 캐시 반영.
+    setScreenTimeGoalSeconds(seconds);
+    const minutes = Math.round(seconds / 60);
+    try {
+      await api.post('/api/v1/user', { dailyScreenTimeGoalMinutes: minutes });
+    } catch {
+      /* 실패해도 로컬은 반영, 다음 진입에 재시도 여지 */
+    }
+    try {
+      const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
+      if (raw) {
+        const u = JSON.parse(raw);
+        u.dailyScreenTimeGoalMinutes = minutes;
+        await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(u));
+      }
+    } catch {
+      /* noop */
+    }
+  }
+
   // 스크린타임 측정 대상(앱/카테고리) 재선택 → 즉시 활성 selection으로 반영.
   async function editScreenTimeTargets() {
     try {
@@ -59,7 +123,7 @@ export default function MenuScreen() {
         return;
       }
       const counts = await ScreenTimeModule.presentAppPicker();
-      if (!counts) return; // 취소
+      if (!counts) return;
       await ScreenTimeModule.promoteSelection();
       const total = counts.applications + counts.categories + counts.webDomains;
       Alert.alert(
@@ -88,9 +152,27 @@ export default function MenuScreen() {
         <View style={s.card}>
           <Row
             divider
-            icon="apps-outline"
+            icon="phone-portrait-outline"
             iconColor={T.accent}
             iconBg="#F6ECE0"
+            label="스크린타임 목표"
+            sub={hm(screenTimeGoalSeconds)}
+            onPress={() => openEdit('screen')}
+          />
+          <Row
+            divider
+            icon="book-outline"
+            iconColor="#6FA15A"
+            iconBg="#EEF4E9"
+            label="집중 목표"
+            sub={hm(goalSeconds)}
+            onPress={() => openEdit('focus')}
+          />
+          <Row
+            divider
+            icon="apps-outline"
+            iconColor={T.accentDeep}
+            iconBg="#F1E9DA"
             label="측정 대상 앱 설정"
             sub="핸드폰 사용시간을 잴 앱·카테고리 선택"
             onPress={editScreenTimeTargets}
@@ -105,6 +187,45 @@ export default function MenuScreen() {
           />
         </View>
       </View>
+
+      {/* 목표 편집 모달 */}
+      <Modal
+        visible={editing !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditing(null)}
+      >
+        <View style={s.modalOverlay}>
+          <View style={s.modalCard}>
+            <Text style={s.modalTitle}>{editing ? GOAL_META[editing.key].title : ''}</Text>
+            <View style={s.stepper}>
+              <TouchableOpacity style={s.stepBtn} onPress={() => adjust(-STEP)} activeOpacity={0.7}>
+                <Ionicons name="remove" size={22} color={T.ink} />
+              </TouchableOpacity>
+              <Text style={s.stepValue}>{editing ? hm(editing.seconds) : ''}</Text>
+              <TouchableOpacity style={s.stepBtn} onPress={() => adjust(STEP)} activeOpacity={0.7}>
+                <Ionicons name="add" size={22} color={T.ink} />
+              </TouchableOpacity>
+            </View>
+            <View style={s.modalBtns}>
+              <TouchableOpacity
+                style={[s.modalBtn, s.modalCancel]}
+                onPress={() => setEditing(null)}
+                activeOpacity={0.8}
+              >
+                <Text style={s.modalCancelText}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.modalBtn, s.modalSave]}
+                onPress={saveEdit}
+                activeOpacity={0.8}
+              >
+                <Text style={s.modalSaveText}>저장</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -133,4 +254,52 @@ const s = StyleSheet.create({
   flex1: { flex: 1 },
   rowLabel: { ...T.text.label, color: T.ink },
   rowSub: { ...T.text.caption, color: T.inkMuted, marginTop: 2 },
+
+  // 목표 편집 모달
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(27,22,19,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: T.white,
+    borderRadius: 22,
+    paddingHorizontal: 22,
+    paddingTop: 22,
+    paddingBottom: 18,
+  },
+  modalTitle: { ...T.text.subtitle, color: T.ink, textAlign: 'center' },
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    marginBottom: 22,
+  },
+  stepBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: T.paperLight,
+    borderWidth: 1,
+    borderColor: T.paperAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepValue: { ...T.text.heading, color: T.ink },
+  modalBtns: { flexDirection: 'row', gap: 10 },
+  modalBtn: {
+    flex: 1,
+    height: 50,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCancel: { backgroundColor: T.paperLight, borderWidth: 1, borderColor: T.paperAlt },
+  modalCancelText: { ...T.text.label, color: T.inkSub },
+  modalSave: { backgroundColor: T.accent },
+  modalSaveText: { ...T.text.label, color: T.white },
 });

@@ -23,6 +23,7 @@ interface UserContextValue {
   setGoalSeconds: (v: number) => void;
   goalSecondsRef: RefObject<number>;
   screenTimeGoalSeconds: number; // 하루 목표 사용시간(핸드폰)
+  setScreenTimeGoalSeconds: (v: number) => void;
   phoneUsageSeconds: number;
 }
 
@@ -51,7 +52,9 @@ export function UserProvider({
   const [userId] = useState<string | null>(initialUserId ?? null);
   const [isNewUser, setIsNewUser] = useState(initialIsNewUser ?? false);
   const [goalSeconds, setGoalSecondsState] = useState(initialGoalSeconds ?? 3 * 3600);
-  const [screenTimeGoalSeconds] = useState(initialScreenTimeGoalSeconds ?? 4 * 3600);
+  const [screenTimeGoalSeconds, setScreenTimeGoalSeconds] = useState(
+    initialScreenTimeGoalSeconds ?? 4 * 3600,
+  );
   const goalSecondsRef = useRef(3 * 3600);
 
   const setGoalSeconds = useCallback((v: number) => {
@@ -78,6 +81,7 @@ export function UserProvider({
         setGoalSeconds,
         goalSecondsRef,
         screenTimeGoalSeconds,
+        setScreenTimeGoalSeconds,
         phoneUsageSeconds: PHONE_USAGE_SECONDS,
       }}
     >
