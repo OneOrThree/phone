@@ -1,9 +1,12 @@
 import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/v2/constants/theme';
+import type { V2RootStackParamList } from '@/v2/navigation/types';
 
 // v2 커스텀 탭바 — Claude Design "01 홈" 시안: 프로스티드 바 + 4탭 + 중앙 FAB(집중 시작).
 type IconPair = [keyof typeof Ionicons.glyphMap, keyof typeof Ionicons.glyphMap];
@@ -16,6 +19,7 @@ const ICONS: Record<string, IconPair> = {
 
 export function V2TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const rootNav = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const routes = state.routes;
 
   function Tab({ index }: { index: number }) {
@@ -50,9 +54,7 @@ export function V2TabBar({ state, navigation }: BottomTabBarProps) {
       <TouchableOpacity
         style={s.fab}
         activeOpacity={0.85}
-        onPress={() => {
-          // TODO: 집중 시작 플로우(F0 카테고리 선택)로 이동
-        }}
+        onPress={() => rootNav.navigate('FocusCategory')}
       >
         <LinearGradient colors={['#E0AA5A', '#C8893F']} style={s.fabGrad}>
           <Ionicons name="flash" size={24} color="#fff" />
