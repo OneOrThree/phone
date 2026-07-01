@@ -89,9 +89,16 @@ export default function FocusCategoryScreen() {
   }
 
   function handleAddSubject() {
-    // 이름만 예시 — 누적시간은 0에서 시작해 실제 세션으로 쌓인다.
-    const n = subjects.filter((x) => x.name.startsWith('새 과목')).length + 1;
-    addSubject(`새 과목 ${n}`);
+    // 이름을 먼저 입력받고 추가. 누적시간은 0에서 시작해 실제 세션으로 쌓인다.
+    Alert.prompt(
+      '새 과목 추가',
+      '집중할 과목 이름을 입력하세요.',
+      (text) => {
+        const name = text?.trim();
+        if (name) addSubject(name);
+      },
+      'plain-text',
+    );
   }
 
   function startSession(

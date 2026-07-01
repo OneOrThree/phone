@@ -24,13 +24,20 @@ import { Character2D } from '@/components/character/Character2D';
 // 데이터 층은 @/store 훅 재사용. 엔드포인트 미확정 값은 placeholder + TODO.
 // TODO: 순위·티어(리그 API), 집중시간·핸드폰사용(통계/스크린타임), 룸 일러스트, 통계 이동.
 
-// 초 → "N시간 M분"
+// 초 → "N시간 M분" (목표 표시용)
 function hm(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   if (h && m) return `${h}시간 ${m}분`;
   if (h) return `${h}시간`;
   return `${m}분`;
+}
+
+// 초 → "HH:MM:SS" (집중시간 값 표시용)
+function hms(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
 
 // 오늘 카드 한 줄: 아이콘 + 라벨 + 큰 값 + 목표 진행 바.
@@ -67,7 +74,7 @@ function MetricRow({
           {label}
         </Text>
         <Text style={s.metricValue} allowFontScaling={false}>
-          {hm(value)}
+          {hms(value)}
         </Text>
         <View style={s.progressRow}>
           <View style={s.track}>
