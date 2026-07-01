@@ -46,7 +46,8 @@ public class FocusTag {
     @CreationTimestamp
     private Instant createdAt;
 
-    // 소프트 딜리트 — focus_sessions.focus_tag_id 가 NOT NULL 로 참조하므로 하드 삭제 금지
+    // 소프트 딜리트 — focus_sessions.focus_tag_id 는 nullable 이나(태그 없는 세션 허용),
+    // 이 태그를 참조 중인 세션이 있으면 하드 삭제 시 참조 무결성이 파손되므로 소프트 딜리트로 처리한다.
     private Instant deletedAt;
 
     @Builder.Default

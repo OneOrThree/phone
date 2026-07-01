@@ -13,6 +13,10 @@ public final class CountryZoneResolver {
 
     private static final ZoneId FALLBACK = ZoneId.of("UTC");
 
+    // ⚠️ 한계: countryCode 검증(@Pattern)은 임의의 ISO 2자리(US 등)를 허용하지만 매핑은 아래 국가뿐이다.
+    // 미지원 국가는 UTC 폴백 → 해당 유저는 자정 경계에서 스크린타임 날짜가 오귀속될 수 있다.
+    // 현재 서비스는 KR 중심이라 YAGNI 로 최소 매핑만 두며, 지원국 확대가 필요하면 여기 추가한다.
+    // (US 처럼 다중 타임존 국가는 단일 ZoneId 매핑이 부정확하므로 별도 정책 필요.)
     private static final Map<String, ZoneId> COUNTRY_ZONES = Map.of(
             "KR", ZoneId.of("Asia/Seoul"),
             "JP", ZoneId.of("Asia/Tokyo"),

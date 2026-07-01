@@ -19,6 +19,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -159,6 +160,32 @@ class UserControllerTest {
         mockMvc.perform(patch("/api/v1/users/me/screen-time-goal")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Collections.singletonMap("dailyScreenTimeGoalMinutes", -1))))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("프로필 수정(PATCH /user) - 집중/스크린 목표 음수 → 400")
+    void updateProfileNegativeGoalReturns400() throws Exception {
+        mockMvc.perform(patch("/api/v1/user")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dailyFocusTimeGoalMinutes\": -1}"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+
+        mockMvc.perform(patch("/api/v1/user")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dailyScreenTimeGoalMinutes\": -5}"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("프로필 등록(POST /user) - 집중 목표 음수 → 400")
+    void setupProfileNegativeGoalReturns400() throws Exception {
+        mockMvc.perform(post("/api/v1/user")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dailyFocusTimeGoalMinutes\": -1}"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }

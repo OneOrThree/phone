@@ -46,6 +46,7 @@ public class UserStreak {
 
     private LocalDate lastSessionDate;
 
-    // 소프트 딜리트 (탈퇴 시각)
+    // 소프트 딜리트 컬럼(탈퇴 시각) — 스키마 정합용(GROMO-561). 현재 withdraw()는 하드 삭제.
+    // 세팅/필터 배선은 후속 티켓.
     private Instant deletedAt;
 }
