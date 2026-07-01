@@ -1,6 +1,5 @@
 package com.oneorthree.phone.stats.service;
 
-import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
@@ -24,11 +23,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -90,31 +89,30 @@ public class StatsService {
      * 집계·목표 row 가 없으면 각 값은 0/false, 진행도 0.
      */
     public TodayStatsResponse getTodayStats(UUID userId) {
-        // countryCode 로 "오늘"을 산정해야 하므로 프록시(getReferenceById)가 아니라 실제 로드 + 404 매핑
+        // 서버 데이터는 UTC 기준 저장 → "오늘"도 UTC로 산정(friend/group 조회와 동일 기준). 로컬 변환은 클라 담당.
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        LocalDate today = LocalDate.now(CountryZoneResolver.resolve(user.getCountryCode()));
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
 
-        Optional<DailyFocusStat> focusStat = dailyFocusStatRepository.findByUserAndDate(user, today);
-        Optional<DailyScreenTimeStat> screenStat = dailyScreenTimeStatRepository.findByUserAndDate(user, today);
+        int focusMinutes = dailyFocusStatRepository.findByUserAndDate(user, today)
+                .map(DailyFocusStat::getTotalFocusMinutes).orElse(0);
+        int screenMinutes = dailyScreenTimeStatRepository.findByUserAndDate(user, today)
+                .map(DailyScreenTimeStat::getActualScreenTimeMinutes).orElse(0);
         int focusGoal = userFocusTimeSettingsRepository.findById(userId)
                 .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
         int screenGoal = userScreenTimeSettingsRepository.findById(userId)
                 .map(UserScreenTimeSettings::getDailyScreenTimeGoalMinutes).orElse(0);
 
-        int focusMinutes = focusStat.map(DailyFocusStat::getTotalFocusMinutes).orElse(0);
-        int screenMinutes = screenStat.map(DailyScreenTimeStat::getActualScreenTimeMinutes).orElse(0);
-
         return new TodayStatsResponse(
                 new TodayStatsResponse.FocusStat(
                         focusMinutes,
                         focusGoal,
-                        focusStat.map(DailyFocusStat::isFocusGoalAchieved).orElse(false),
+                        focusGoal > 0 && focusMinutes >= focusGoal,     // 집중: 분 이상 — 현재 목표로 재계산
                         progressPercent(focusMinutes, focusGoal)),
                 new TodayStatsResponse.ScreenTimeStat(
                         screenMinutes,
                         screenGoal,
-                        screenStat.map(DailyScreenTimeStat::isScreenTimeGoalAchieved).orElse(false),
+                        screenGoal > 0 && screenMinutes <= screenGoal,  // 스크린타임: 분 이내 — 현재 목표로 재계산
                         progressPercent(screenMinutes, screenGoal)));
     }
 

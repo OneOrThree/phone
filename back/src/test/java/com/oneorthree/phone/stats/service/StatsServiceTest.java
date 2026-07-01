@@ -26,7 +26,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -153,16 +153,17 @@ class StatsServiceTest {
     // ── getTodayStats ─────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("오늘 요약 — 집계·목표 모두 존재 → 분/달성/진행도 계산")
+    @DisplayName("오늘 요약 — 달성 여부는 저장 플래그가 아니라 현재 목표로 재계산")
     void getTodayStatsFull() {
-        User user = User.builder().id(USER_ID).countryCode("KR").build();
+        User user = User.builder().id(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        // 저장 플래그는 일부러 반대로 세팅 → 재계산이 이를 덮어쓰는지 검증
         given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.of(DailyFocusStat.builder()
-                        .totalFocusMinutes(45).focusGoalAchieved(false).build()));
+                        .totalFocusMinutes(45).focusGoalAchieved(true).build()));
         given(dailyScreenTimeStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.of(DailyScreenTimeStat.builder()
-                        .actualScreenTimeMinutes(80).screenTimeGoalAchieved(true).build()));
+                        .actualScreenTimeMinutes(80).screenTimeGoalAchieved(false).build()));
         given(userFocusTimeSettingsRepository.findById(USER_ID))
                 .willReturn(Optional.of(UserFocusTimeSettings.builder()
                         .userId(USER_ID).dailyFocusTimeGoalMinutes(60).build()));
@@ -222,12 +223,13 @@ class StatsServiceTest {
         TodayStatsResponse response = statsService.getTodayStats(USER_ID);
 
         assertThat(response.screenTime().progressPercent()).isEqualTo(125); // round(150/120*100)
+        assertThat(response.screenTime().goalAchieved()).isFalse();         // 150 > 120 → 미달성
     }
 
     @Test
-    @DisplayName("오늘 요약 — country_code 기준 로컬 날짜로 집계 조회(KR → Asia/Seoul)")
-    void getTodayStatsResolvesDateByCountry() {
-        User user = User.builder().id(USER_ID).countryCode("KR").build();
+    @DisplayName("오늘 요약 — 서버 UTC 기준 날짜로 집계 조회")
+    void getTodayStatsResolvesDateByUtc() {
+        User user = User.builder().id(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.empty());
@@ -240,7 +242,7 @@ class StatsServiceTest {
 
         ArgumentCaptor<LocalDate> dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(dailyFocusStatRepository).findByUserAndDate(eq(user), dateCaptor.capture());
-        assertThat(dateCaptor.getValue()).isEqualTo(LocalDate.now(ZoneId.of("Asia/Seoul")));
+        assertThat(dateCaptor.getValue()).isEqualTo(LocalDate.now(ZoneOffset.UTC));
     }
 
     @Test
