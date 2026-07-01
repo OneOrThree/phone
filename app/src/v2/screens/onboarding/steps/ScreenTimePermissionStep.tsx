@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Alert, Linking } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import StepScaffold from '@/v2/screens/onboarding/StepScaffold';
 import { T } from '@/v2/constants/theme';
@@ -31,15 +31,30 @@ function ClockIcon() {
 
 export default function ScreenTimePermissionStep({ update, onNext, onBack }: StepProps) {
   async function allow() {
-    // 실제 iOS 스크린타임(FamilyControls) 권한 요청. 시뮬레이터에선 미동작 가능 → 실기기에서 확인.
-    let granted = false;
     try {
-      granted = await ScreenTimeModule.requestAuthorization();
-    } catch {
-      granted = false;
+      const status = await ScreenTimeModule.getAuthorizationStatus();
+      if (status === 'approved') {
+        // 이미 허용됨 — iOS는 재요청 창을 안 띄움. 그대로 진행.
+        update({ screenTimeGranted: true });
+        onNext();
+        return;
+      }
+      if (status === 'denied') {
+        // 이미 거부됨 — 시스템 재요청 불가. 설정으로 안내.
+        Alert.alert('권한이 꺼져 있어요', '설정 > 스크린 타임에서 권한을 켜주세요.', [
+          { text: '취소', style: 'cancel' },
+          { text: '설정 열기', onPress: () => Linking.openSettings() },
+        ]);
+        return;
+      }
+      // notDetermined → 실제 iOS 스크린타임(FamilyControls) 권한창 표시.
+      const granted = await ScreenTimeModule.requestAuthorization();
+      update({ screenTimeGranted: granted });
+      onNext(); // TODO: granted=false → 09a(제한)/09b(수동입력) 분기
+    } catch (e) {
+      // 조용히 삼키지 않고 노출 (엔타이틀먼트/프로파일 문제 진단용).
+      Alert.alert('권한 요청 실패', e instanceof Error ? e.message : String(e));
     }
-    update({ screenTimeGranted: granted });
-    onNext(); // TODO: granted=false → 09a(제한)/09b(수동입력) 분기
   }
   function later() {
     update({ screenTimeGranted: false });
