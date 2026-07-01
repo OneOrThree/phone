@@ -26,7 +26,7 @@ struct HomeUsageView: View {
 
         VStack(alignment: .leading, spacing: 7) {
             Text(formatDuration(totalActivity.totalDuration))
-                .font(.system(size: 26, weight: .heavy))
+                .font(.system(size: 22, weight: .heavy))
                 .foregroundColor(ink)
 
             // 진행 바(flex) + 오른쪽 고정폭 목표 블록("목표"/"n시간" 2줄)

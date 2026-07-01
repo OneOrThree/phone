@@ -1,5 +1,13 @@
 import { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  RefreshControl,
+  ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -82,16 +90,27 @@ function MetricRow({
 // (실사용시간은 원인 3으로 JS에 못 넘어와, 익스텐션 뷰를 임베드해야만 자정~현재 정확값 표시)
 // goalSeconds prop → App Group에 기록 → 익스텐션이 목표 대비 바를 그림.
 // iOS 외/네이티브 뷰 없음 → placeholder.
-function PhoneUsageRow({ goalSeconds, refresh }: { goalSeconds: number; refresh: number }) {
+function PhoneUsageRow({
+  goalSeconds,
+  refresh,
+  onPress,
+}: {
+  goalSeconds: number;
+  refresh: number;
+  onPress: () => void;
+}) {
   return (
     <View style={s.metricRow}>
       <View style={[s.metricIcon, { backgroundColor: '#F6ECE0' }]}>
         <Ionicons name="phone-portrait-outline" size={17} color={T.accent} />
       </View>
       <View style={s.flex1}>
-        <Text style={s.metricLabel} allowFontScaling={false}>
-          핸드폰 사용
-        </Text>
+        <View style={s.usageLabelRow}>
+          <Text style={s.metricLabel} allowFontScaling={false}>
+            핸드폰 사용
+          </Text>
+          <Ionicons name="chevron-forward" size={12} color={T.inkMuted} />
+        </View>
         {ScreenTimeReportView ? (
           // key에 goalSeconds+refresh → 목표 변경/홈 포커스 시 리마운트되어 최신값으로 재계산됨
           // (DeviceActivityReport는 prop 변경만으로는 재계산 안 하고, 실시간 갱신도 아니라서)
@@ -105,6 +124,40 @@ function PhoneUsageRow({ goalSeconds, refresh }: { goalSeconds: number; refresh:
           <Text style={s.metricValue}>–</Text>
         )}
       </View>
+      {/* 투명 터치 레이어 — 네이티브 뷰 위에서도 탭 감지 → 앱별 상세 오버레이 */}
+      <TouchableOpacity
+        style={StyleSheet.absoluteFill}
+        activeOpacity={0.6}
+        onPress={onPress}
+        accessibilityLabel="핸드폰 앱별 사용시간 보기"
+      />
+    </View>
+  );
+}
+
+// 앱별/카테고리별 사용시간 상세 — Total Activity 리포트를 absolute 오버레이로 띄운다.
+// (RN Modal은 별도 윈도우라 DeviceActivityReport scene이 활성화 안 됨 → 같은 계층 오버레이 필수)
+function UsageDetailOverlay({ onClose }: { onClose: () => void }) {
+  return (
+    <View style={s.detailOverlay}>
+      <SafeAreaView style={s.detailSafe} edges={['top']}>
+        <View style={s.detailHeader}>
+          <TouchableOpacity style={s.detailClose} onPress={onClose} activeOpacity={0.7}>
+            <Ionicons name="close" size={24} color={T.ink} />
+          </TouchableOpacity>
+          <Text style={s.detailTitle}>핸드폰 사용</Text>
+          <View style={s.detailClose} />
+        </View>
+        <View style={s.detailBody}>
+          {/* 리포트 콜드스타트가 느려 뒤에 스피너 → 뜨면 리포트가 덮음 */}
+          <ActivityIndicator style={s.detailLoading} size="large" color={T.accent} />
+          {ScreenTimeReportView ? (
+            <ScreenTimeReportView reportContext="Total Activity" style={s.detailReport} />
+          ) : (
+            <Text style={s.detailEmpty}>iOS 기기에서만 볼 수 있어요</Text>
+          )}
+        </View>
+      </SafeAreaView>
     </View>
   );
 }
@@ -130,6 +183,9 @@ export default function HomeScreen() {
     setReportRefresh((r) => r + 1);
     setTimeout(() => setRefreshing(false), 800);
   }, []);
+
+  // 앱별 사용시간 상세 오버레이
+  const [showUsageDetail, setShowUsageDetail] = useState(false);
 
   // TODO: 순위·티어(리그 API), 집중시간 값(통계 API)은 아직 placeholder
   const rank = 8;
@@ -217,9 +273,14 @@ export default function HomeScreen() {
             value={focusSeconds}
             goal={goalSeconds}
           />
-          <PhoneUsageRow goalSeconds={screenTimeGoalSeconds} refresh={reportRefresh} />
+          <PhoneUsageRow
+            goalSeconds={screenTimeGoalSeconds}
+            refresh={reportRefresh}
+            onPress={() => setShowUsageDetail(true)}
+          />
         </View>
       </View>
+      {showUsageDetail ? <UsageDetailOverlay onClose={() => setShowUsageDetail(false)} /> : null}
     </SafeAreaView>
   );
 }
@@ -341,8 +402,9 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   flex1: { flex: 1 },
-  metricLabel: { ...T.text.label, color: T.inkMuted },
-  metricValue: { ...T.text.title, color: T.ink, marginTop: 1 },
+  usageLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  metricLabel: { ...T.text.label, fontSize: 14, color: T.inkMuted },
+  metricValue: { ...T.text.title, fontSize: 22, color: T.ink, marginTop: 1 },
   usageReport: { width: '100%', height: 70, marginTop: 1 },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 7 },
   track: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#EFE7DA', overflow: 'hidden' },
@@ -350,4 +412,22 @@ const s = StyleSheet.create({
   goalBlock: { alignItems: 'center' },
   goalLabel: { fontSize: 11, fontWeight: '600', color: T.inkMuted },
   goalValue: { ...T.text.caption, color: T.inkMuted, marginTop: 1 },
+
+  // 앱별 사용시간 상세 오버레이
+  detailOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: T.paperLight, zIndex: 10 },
+  detailSafe: { flex: 1 },
+  detailHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  detailClose: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  detailTitle: { ...T.text.subtitle, color: T.ink },
+  detailBody: { flex: 1 },
+  detailLoading: { position: 'absolute', top: 44, left: 0, right: 0 },
+  detailReport: { flex: 1 },
+  detailEmpty: { ...T.text.body, color: T.inkMuted, textAlign: 'center', marginTop: 44 },
 });
