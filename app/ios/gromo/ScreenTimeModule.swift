@@ -176,6 +176,92 @@ class ScreenTimeModule: NSObject {
         }
     }
 
+    // 30분 버킷 사용량 모니터링 시작 — 보상 판정(gromo.daily)과 분리된 별도 스케줄.
+    // 하루 스케줄(00:00~23:59)에 30·60·90…분 threshold 이벤트를 촘촘히 박아,
+    // Monitor 익스텐션이 "도달한 최고 눈금(분)"을 App Group에 기록 → 메인 앱이 읽어 사용량 근사치로 표시.
+    // (Report 익스텐션의 App Group 쓰기 차단(원인 3)을 우회하는 정석 경로)
+    @objc func startUsageBucketMonitoring(
+        _ maxMinutesValue: Double,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard #available(iOS 16.0, *) else {
+            resolve(false)
+            return
+        }
+
+        let center = DeviceActivityCenter()
+        let activityName = DeviceActivityName("gromo.usage.buckets")
+
+        var startComponents = DateComponents()
+        startComponents.hour = 0
+        startComponents.minute = 0
+
+        var endComponents = DateComponents()
+        endComponents.hour = 23
+        endComponents.minute = 59
+
+        let schedule = DeviceActivitySchedule(
+            intervalStart: startComponents,
+            intervalEnd: endComponents,
+            repeats: true
+        )
+
+        // 측정 대상(picker selection) 로드 — 토큰이 있어야 threshold가 발화함.
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        guard
+            let data = defaults?.data(forKey: "gromo:goal:selection"),
+            let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data),
+            !(selection.applicationTokens.isEmpty
+                && selection.categoryTokens.isEmpty
+                && selection.webDomainTokens.isEmpty)
+        else {
+            resolve(false)
+            return
+        }
+
+        // 30분 간격 눈금(30,60,…). 이벤트 과다(RAM 6MB)·경계 뭉갬 방지로 720분(12h·24개)로 상한.
+        let step = 30
+        let maxMinutes = min(max(Int(maxMinutesValue), step), 720)
+        var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+        var m = step
+        while m <= maxMinutes {
+            var threshold = DateComponents()
+            threshold.hour = m / 60
+            threshold.minute = m % 60
+            events[DeviceActivityEvent.Name("gromo.usage.bucket.\(m)")] = DeviceActivityEvent(
+                applications: selection.applicationTokens,
+                categories: selection.categoryTokens,
+                webDomains: selection.webDomainTokens,
+                threshold: threshold
+            )
+            m += step
+        }
+
+        do {
+            center.stopMonitoring([activityName])
+            try center.startMonitoring(activityName, during: schedule, events: events)
+            resolve(true)
+        } catch {
+            reject("MONITOR_ERROR", "버킷 모니터링 시작 실패: \(error.localizedDescription)", error)
+        }
+    }
+
+    // 오늘의 사용량 버킷(분) 조회 — Monitor가 기록한 "도달 최고 눈금".
+    // 날짜가 오늘이 아니면(자정 넘어 아직 리셋 전 등) 0으로 취급.
+    @objc func getTodayUsageBucketMinutes(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        let mins = defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0
+        let date = defaults?.string(forKey: "gromo:screentime:usageBucketDate")
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let today = formatter.string(from: Date())
+        resolve(date == today ? mins : 0)
+    }
+
     // 어제 날짜의 스크린 타임 목표 달성 결과를 App Group에서 읽어 반환
     // 반환값: "success" | "fail" | nil (어제 결과 없음 — 첫 설치 또는 모니터링 미실행)
     @objc func getYesterdayResult(
