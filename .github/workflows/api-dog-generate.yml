@@ -203,7 +203,7 @@ jobs:
             -H "Content-Type: application/json" \
             --data "$(jq -n \
               --argjson spec "$(cat openapi.json)" \
-              '{input: ($spec | tojson), options: {targetEndpointFolderId: 9367273, endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: true, prependBasePath: false, deleteUnmatchedResources: true}}')"
+              '{input: ($spec | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: true, prependBasePath: false, deleteUnmatchedResources: true}}')"
 
       - name: Sync to Apidog (Soobin)
         if: steps.check.outputs.exists == 'true'
