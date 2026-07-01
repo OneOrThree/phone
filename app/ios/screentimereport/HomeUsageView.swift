@@ -29,7 +29,9 @@ struct HomeUsageView: View {
                 .font(.system(size: 26, weight: .heavy))
                 .foregroundColor(ink)
 
-            HStack(spacing: 9) {
+            // 진행 바(flex) + 오른쪽 고정폭 목표 블록("목표"/"n시간" 2줄)
+            // → 목표 블록 폭이 고정이라 공부 집중 행과 바 길이가 동일해짐.
+            HStack(alignment: .center, spacing: 9) {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 3).fill(track)
@@ -40,13 +42,16 @@ struct HomeUsageView: View {
                 }
                 .frame(height: 6)
 
-                if hasGoal {
-                    Text("목표 \(formatDuration(goal))")
+                VStack(alignment: .center, spacing: 1) {
+                    Text("목표")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(muted)
+                    Text(hasGoal ? formatDuration(goal) : "-")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(muted)
-                        .fixedSize()
-                        .layoutPriority(1)
                 }
+                .fixedSize()
+                .layoutPriority(1)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

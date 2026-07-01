@@ -58,7 +58,10 @@ function MetricRow({
           <View style={s.track}>
             <View style={[s.fill, { width: `${pct * 100}%`, backgroundColor: fillColor }]} />
           </View>
-          <Text style={s.goalText}>목표 {hm(goal)}</Text>
+          <View style={s.goalBlock}>
+            <Text style={s.goalLabel}>목표</Text>
+            <Text style={s.goalValue}>{hm(goal)}</Text>
+          </View>
         </View>
       </View>
     </View>
@@ -78,7 +81,10 @@ function PhoneUsageRow({ goalSeconds }: { goalSeconds: number }) {
       <View style={s.flex1}>
         <Text style={s.metricLabel}>핸드폰 사용</Text>
         {ScreenTimeReportView ? (
+          // key에 goalSeconds → 목표 변경 시 리마운트되어 리포트가 새 목표로 재계산됨
+          // (DeviceActivityReport는 prop 변경만으로는 재계산 안 함)
           <ScreenTimeReportView
+            key={`goal-${goalSeconds}`}
             reportContext="Home Usage"
             goalSeconds={goalSeconds}
             style={s.usageReport}
@@ -295,9 +301,11 @@ const s = StyleSheet.create({
   flex1: { flex: 1 },
   metricLabel: { ...T.text.label, color: T.inkMuted },
   metricValue: { ...T.text.title, color: T.ink, marginTop: 1 },
-  usageReport: { width: '100%', height: 48, marginTop: 1 },
+  usageReport: { width: '100%', height: 70, marginTop: 1 },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 7 },
   track: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#EFE7DA', overflow: 'hidden' },
   fill: { height: '100%', borderRadius: 3 },
-  goalText: { ...T.text.caption, color: T.inkMuted },
+  goalBlock: { alignItems: 'center' },
+  goalLabel: { fontSize: 11, fontWeight: '600', color: T.inkMuted },
+  goalValue: { ...T.text.caption, color: T.inkMuted, marginTop: 1 },
 });
