@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import { useUser } from '@/store/UserContext';
+import { useScreenTimeUsage } from '@/hooks/useScreenTimeUsage';
 import { Character2D } from '@/components/character/Character2D';
 
 // v2 홈 화면 (GROMO-552) — Claude Design "01 홈" 시안 기반.
@@ -32,6 +33,7 @@ function MetricRow({
   value,
   goal,
   overColor,
+  approx,
   divider,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
@@ -41,6 +43,7 @@ function MetricRow({
   value: number;
   goal: number;
   overColor?: string;
+  approx?: boolean; // 30분 버킷 근사치면 "+" 표기
   divider?: boolean;
 }) {
   const pct = goal > 0 ? Math.min(value / goal, 1) : 0;
@@ -52,7 +55,10 @@ function MetricRow({
       </View>
       <View style={s.flex1}>
         <Text style={s.metricLabel}>{label}</Text>
-        <Text style={s.metricValue}>{hm(value)}</Text>
+        <Text style={s.metricValue}>
+          {hm(value)}
+          {approx && value > 0 ? '+' : ''}
+        </Text>
         <View style={s.progressRow}>
           <View style={s.track}>
             <View style={[s.fill, { width: `${pct * 100}%`, backgroundColor: fillColor }]} />
@@ -65,16 +71,19 @@ function MetricRow({
 }
 
 export default function HomeScreen() {
-  // 목표는 온보딩값(집중=goalSeconds, 사용시간=screenTimeGoalSeconds). 사용/집중 '값'은 아직 placeholder.
+  // 목표는 온보딩값(집중=goalSeconds, 사용시간=screenTimeGoalSeconds).
   const { nickname, goalSeconds, screenTimeGoalSeconds } = useUser();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
-  // TODO: 실제 사용/집중 시간 값은 통계·스크린타임 API 연동 (지금은 placeholder)
+  // 핸드폰 실사용시간 — 30분 버킷 근사치(실기기 iOS16+ + 측정대상 선택 시).
+  const phoneUsageMinutes = useScreenTimeUsage(Math.round(screenTimeGoalSeconds / 60));
+  const phoneSeconds = phoneUsageMinutes * 60;
+
+  // TODO: 순위·티어(리그 API), 집중시간 값(통계 API)은 아직 placeholder
   const rank = 8;
   const tierName = '초집중 모드';
   const focusSeconds = 3 * 3600 + 12 * 60;
-  const phoneSeconds = 2 * 3600 + 40 * 60;
   const hasNotifications = false; // TODO: 실제 안 읽은 알림 여부로 교체
 
   return (
@@ -153,6 +162,7 @@ export default function HomeScreen() {
             value={phoneSeconds}
             goal={screenTimeGoalSeconds}
             overColor={T.accentAlt}
+            approx
           />
         </View>
       </View>
