@@ -65,16 +65,16 @@ function MetricRow({
 }
 
 export default function HomeScreen() {
-  const { nickname, goalSeconds } = useUser();
+  // 목표는 온보딩값(집중=goalSeconds, 사용시간=screenTimeGoalSeconds). 사용/집중 '값'은 아직 placeholder.
+  const { nickname, goalSeconds, screenTimeGoalSeconds } = useUser();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
-  // TODO: 실제 데이터로 교체 (지금은 시안 값 placeholder)
+  // TODO: 실제 사용/집중 시간 값은 통계·스크린타임 API 연동 (지금은 placeholder)
   const rank = 8;
   const tierName = '초집중 모드';
   const focusSeconds = 3 * 3600 + 12 * 60;
   const phoneSeconds = 2 * 3600 + 40 * 60;
-  const phoneGoalSeconds = 4 * 3600 + 30 * 60;
   const hasNotifications = false; // TODO: 실제 안 읽은 알림 여부로 교체
 
   return (
@@ -151,7 +151,7 @@ export default function HomeScreen() {
             iconBg="#F6ECE0"
             label="핸드폰 사용"
             value={phoneSeconds}
-            goal={phoneGoalSeconds}
+            goal={screenTimeGoalSeconds}
             overColor={T.accentAlt}
           />
         </View>

@@ -47,7 +47,11 @@ export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [onboarded, setOnboarded] = useState(false);
-  const [onboardingGoalSeconds, setOnboardingGoalSeconds] = useState<number | null>(null);
+  // 온보딩에서 받은 두 목표 — 집중(17단계)·사용시간(12단계)을 각각 보관.
+  const [onboardingFocusGoalSeconds, setOnboardingFocusGoalSeconds] = useState<number | null>(null);
+  const [onboardingScreenTimeGoalSeconds, setOnboardingScreenTimeGoalSeconds] = useState<
+    number | null
+  >(null);
 
   useEffect(() => {
     (async () => {
@@ -86,7 +90,8 @@ export default function App() {
       STORAGE_KEYS.user,
       STORAGE_KEYS.onboardingComplete,
     ]);
-    setOnboardingGoalSeconds(null);
+    setOnboardingFocusGoalSeconds(null);
+    setOnboardingScreenTimeGoalSeconds(null);
     setOnboarded(false);
     setUser(null);
   }
@@ -95,7 +100,9 @@ export default function App() {
   async function handleOnboardingComplete({ data, login }: OnboardingResult) {
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
     setOnboarded(true);
-    setOnboardingGoalSeconds(data.usageGoalMinutes ? data.usageGoalMinutes * 60 : null);
+    // 집중 목표=17단계 dailyFocusMinutes, 사용시간 목표=12단계 usageGoalMinutes.
+    setOnboardingFocusGoalSeconds(data.dailyFocusMinutes ? data.dailyFocusMinutes * 60 : null);
+    setOnboardingScreenTimeGoalSeconds(data.usageGoalMinutes ? data.usageGoalMinutes * 60 : null);
     if (login) {
       // 소셜 로그인으로 마무리 — 세션(토큰/유저)은 auth.ts가 이미 저장.
       const userId = getUserIdFromToken(login.accessToken);
@@ -137,8 +144,9 @@ export default function App() {
       <UserProvider
         initialNickname={user?.nickname}
         initialUserId={user?.userId}
-        initialGoalSeconds={
-          onboardingGoalSeconds ??
+        initialGoalSeconds={onboardingFocusGoalSeconds}
+        initialScreenTimeGoalSeconds={
+          onboardingScreenTimeGoalSeconds ??
           (user?.dailyScreenTimeGoalMinutes ? user.dailyScreenTimeGoalMinutes * 60 : null)
         }
         initialIsNewUser={user?.isNewUser}

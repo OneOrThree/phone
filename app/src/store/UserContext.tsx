@@ -19,16 +19,18 @@ interface UserContextValue {
   setNickname: Dispatch<SetStateAction<string>>;
   isNewUser: boolean;
   setIsNewUser: Dispatch<SetStateAction<boolean>>;
-  goalSeconds: number;
+  goalSeconds: number; // 하루 목표 집중시간(공부)
   setGoalSeconds: (v: number) => void;
   goalSecondsRef: RefObject<number>;
+  screenTimeGoalSeconds: number; // 하루 목표 사용시간(핸드폰)
   phoneUsageSeconds: number;
 }
 
 interface UserProviderProps {
   initialNickname?: string;
   initialUserId?: string | null;
-  initialGoalSeconds?: number | null;
+  initialGoalSeconds?: number | null; // 집중 목표(온보딩 17단계 dailyFocusMinutes)
+  initialScreenTimeGoalSeconds?: number | null; // 사용시간 목표(온보딩 12단계 usageGoalMinutes)
   initialIsNewUser?: boolean;
   children: ReactNode;
 }
@@ -41,6 +43,7 @@ export function UserProvider({
   initialNickname,
   initialUserId,
   initialGoalSeconds,
+  initialScreenTimeGoalSeconds,
   initialIsNewUser,
   children,
 }: UserProviderProps) {
@@ -48,6 +51,7 @@ export function UserProvider({
   const [userId] = useState<string | null>(initialUserId ?? null);
   const [isNewUser, setIsNewUser] = useState(initialIsNewUser ?? false);
   const [goalSeconds, setGoalSecondsState] = useState(initialGoalSeconds ?? 3 * 3600);
+  const [screenTimeGoalSeconds] = useState(initialScreenTimeGoalSeconds ?? 4 * 3600);
   const goalSecondsRef = useRef(3 * 3600);
 
   const setGoalSeconds = useCallback((v: number) => {
@@ -73,6 +77,7 @@ export function UserProvider({
         goalSeconds,
         setGoalSeconds,
         goalSecondsRef,
+        screenTimeGoalSeconds,
         phoneUsageSeconds: PHONE_USAGE_SECONDS,
       }}
     >
