@@ -15,6 +15,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
@@ -44,4 +45,7 @@ public class UserStreak {
     private int longestStreak = 0;
 
     private LocalDate lastSessionDate;
+
+    // 소프트 딜리트 (탈퇴 시각)
+    private Instant deletedAt;
 }

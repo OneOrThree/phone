@@ -52,4 +52,7 @@ public class FocusSession {
 
     @Builder.Default
     private int totalDistractionSeconds = 0;
+
+    // 소프트 딜리트 (삭제 시각)
+    private Instant deletedAt;
 }

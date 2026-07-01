@@ -22,7 +22,7 @@ import java.util.UUID;
 
 @Entity
 @Table(
-        name = "pinned_friend",
+        name = "pinned_friends",
         uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "friend_user_id"})
 )
 @Getter

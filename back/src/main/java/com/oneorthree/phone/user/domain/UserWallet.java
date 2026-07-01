@@ -18,7 +18,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "user_wallet")
+@Table(name = "user_wallets")
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -39,6 +39,9 @@ public class UserWallet {
 
     @UpdateTimestamp
     private Instant updatedAt;
+
+    // 소프트 딜리트 — 재화 이력 보존, 하드 삭제 금지
+    private Instant deletedAt;
 
     public void earn(int amount) {
         if (amount <= 0) {
