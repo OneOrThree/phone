@@ -1,6 +1,7 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
@@ -52,15 +53,24 @@ function MetricRow({
         <Ionicons name={icon} size={17} color={iconColor} />
       </View>
       <View style={s.flex1}>
-        <Text style={s.metricLabel}>{label}</Text>
-        <Text style={s.metricValue}>{hm(value)}</Text>
+        {/* allowFontScaling=false: 네이티브 리포트 뷰(고정 크기)와 글씨 크기를 맞춤 */}
+        <Text style={s.metricLabel} allowFontScaling={false}>
+          {label}
+        </Text>
+        <Text style={s.metricValue} allowFontScaling={false}>
+          {hm(value)}
+        </Text>
         <View style={s.progressRow}>
           <View style={s.track}>
             <View style={[s.fill, { width: `${pct * 100}%`, backgroundColor: fillColor }]} />
           </View>
           <View style={s.goalBlock}>
-            <Text style={s.goalLabel}>목표</Text>
-            <Text style={s.goalValue}>{hm(goal)}</Text>
+            <Text style={s.goalLabel} allowFontScaling={false}>
+              목표
+            </Text>
+            <Text style={s.goalValue} allowFontScaling={false}>
+              {hm(goal)}
+            </Text>
           </View>
         </View>
       </View>
@@ -72,19 +82,21 @@ function MetricRow({
 // (실사용시간은 원인 3으로 JS에 못 넘어와, 익스텐션 뷰를 임베드해야만 자정~현재 정확값 표시)
 // goalSeconds prop → App Group에 기록 → 익스텐션이 목표 대비 바를 그림.
 // iOS 외/네이티브 뷰 없음 → placeholder.
-function PhoneUsageRow({ goalSeconds }: { goalSeconds: number }) {
+function PhoneUsageRow({ goalSeconds, refresh }: { goalSeconds: number; refresh: number }) {
   return (
     <View style={s.metricRow}>
       <View style={[s.metricIcon, { backgroundColor: '#F6ECE0' }]}>
         <Ionicons name="phone-portrait-outline" size={17} color={T.accent} />
       </View>
       <View style={s.flex1}>
-        <Text style={s.metricLabel}>핸드폰 사용</Text>
+        <Text style={s.metricLabel} allowFontScaling={false}>
+          핸드폰 사용
+        </Text>
         {ScreenTimeReportView ? (
-          // key에 goalSeconds → 목표 변경 시 리마운트되어 리포트가 새 목표로 재계산됨
-          // (DeviceActivityReport는 prop 변경만으로는 재계산 안 함)
+          // key에 goalSeconds+refresh → 목표 변경/홈 포커스 시 리마운트되어 최신값으로 재계산됨
+          // (DeviceActivityReport는 prop 변경만으로는 재계산 안 하고, 실시간 갱신도 아니라서)
           <ScreenTimeReportView
-            key={`goal-${goalSeconds}`}
+            key={`goal-${goalSeconds}-r${refresh}`}
             reportContext="Home Usage"
             goalSeconds={goalSeconds}
             style={s.usageReport}
@@ -103,6 +115,22 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
+  // 홈이 포커스될 때마다 사용량 리포트를 리마운트 → 최신값으로 재계산(묵은 값 방지).
+  const [reportRefresh, setReportRefresh] = useState(0);
+  useFocusEffect(
+    useCallback(() => {
+      setReportRefresh((r) => r + 1);
+    }, []),
+  );
+
+  // 당겨서 새로고침 — 리포트 리마운트로 재계산. 네이티브 재계산이 async라 스피너는 잠깐만.
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    setReportRefresh((r) => r + 1);
+    setTimeout(() => setRefreshing(false), 800);
+  }, []);
+
   // TODO: 순위·티어(리그 API), 집중시간 값(통계 API)은 아직 placeholder
   const rank = 8;
   const tierName = '초집중 모드';
@@ -112,47 +140,59 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       <View style={s.body}>
-        {/* ── 상단바 ── */}
-        <View style={s.topBar}>
-          <View style={s.profileRow}>
-            <View style={s.avatar}>
-              <Character2D size={30} />
-            </View>
-            <View>
-              <View style={s.nameRow}>
-                <Text style={s.nickname}>{nickname}</Text>
-                <View style={s.rankBadge}>
-                  <Ionicons name="trophy" size={9} color="#4C5DE6" />
-                  <Text style={s.rankText}>{rank}위</Text>
+        {/* 상단바+캐릭터만 스크롤/당김 영역. 오늘 카드(네이티브 리포트)는 스크롤 밖에 고정 —
+            바운스에 네이티브 DeviceActivityReport scene이 깨지는 문제 회피. 당기면 리포트는 재계산됨. */}
+        <ScrollView
+          style={s.scroll}
+          contentContainerStyle={s.scrollContent}
+          showsVerticalScrollIndicator={false}
+          alwaysBounceVertical
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={T.accent} />
+          }
+        >
+          {/* ── 상단바 ── */}
+          <View style={s.topBar}>
+            <View style={s.profileRow}>
+              <View style={s.avatar}>
+                <Character2D size={30} />
+              </View>
+              <View>
+                <View style={s.nameRow}>
+                  <Text style={s.nickname}>{nickname}</Text>
+                  <View style={s.rankBadge}>
+                    <Ionicons name="trophy" size={9} color="#4C5DE6" />
+                    <Text style={s.rankText}>{rank}위</Text>
+                  </View>
+                </View>
+                <View style={s.tierRow}>
+                  <View style={s.tierDot}>
+                    <Ionicons name="flame" size={8} color="#fff" />
+                  </View>
+                  <Text style={s.tierText}>{tierName}</Text>
                 </View>
               </View>
-              <View style={s.tierRow}>
-                <View style={s.tierDot}>
-                  <Ionicons name="flame" size={8} color="#fff" />
-                </View>
-                <Text style={s.tierText}>{tierName}</Text>
-              </View>
             </View>
+            <TouchableOpacity
+              style={s.settingsBtn}
+              onPress={() => {
+                // TODO: 알림 화면으로 이동
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="notifications-outline" size={19} color={T.ink} />
+              {hasNotifications && <View style={s.notifDot} />}
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            style={s.settingsBtn}
-            onPress={() => {
-              // TODO: 알림 화면으로 이동
-            }}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="notifications-outline" size={19} color={T.ink} />
-            {hasNotifications && <View style={s.notifDot} />}
-          </TouchableOpacity>
-        </View>
 
-        {/* ── 방 + 캐릭터 ── */}
-        <View style={s.room}>
-          <View style={s.floor} />
-          <Character2D size={188} />
-        </View>
+          {/* ── 방 + 캐릭터 ── */}
+          <View style={s.room}>
+            <View style={s.floor} />
+            <Character2D size={188} />
+          </View>
+        </ScrollView>
 
-        {/* ── 오늘 요약 카드 (하단 탭바 바로 위 고정) ── */}
+        {/* ── 오늘 요약 카드 (하단 탭바 바로 위 고정, 스크롤 밖) ── */}
         <View style={[s.card, { marginBottom: insets.bottom + 74 }]}>
           <View style={s.cardHeader}>
             <Text style={s.cardTitle}>
@@ -177,7 +217,7 @@ export default function HomeScreen() {
             value={focusSeconds}
             goal={goalSeconds}
           />
-          <PhoneUsageRow goalSeconds={screenTimeGoalSeconds} />
+          <PhoneUsageRow goalSeconds={screenTimeGoalSeconds} refresh={reportRefresh} />
         </View>
       </View>
     </SafeAreaView>
@@ -187,6 +227,8 @@ export default function HomeScreen() {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperLight },
   body: { flex: 1 },
+  scroll: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
 
   // 상단바
   topBar: {
