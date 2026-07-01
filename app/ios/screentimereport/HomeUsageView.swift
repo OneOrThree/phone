@@ -25,7 +25,7 @@ struct HomeUsageView: View {
         let fill = isOver ? over : accent
 
         VStack(alignment: .leading, spacing: 7) {
-            Text(formatDuration(totalActivity.totalDuration))
+            Text(formatClock(totalActivity.totalDuration))
                 .font(.system(size: 22, weight: .heavy))
                 .foregroundColor(ink)
 

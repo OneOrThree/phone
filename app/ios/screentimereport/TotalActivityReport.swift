@@ -126,3 +126,10 @@ func formatDuration(_ duration: TimeInterval) -> String {
         return "\(minutes)분"
     }
 }
+
+// TimeInterval(초)을 "HH:MM:SS" 형태로 변환 — 홈 "핸드폰 사용" 값 전용
+// (JS 홈 "공부 집중" 값과 포맷을 맞춤)
+func formatClock(_ duration: TimeInterval) -> String {
+    let total = max(0, Int(duration))
+    return String(format: "%02d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
+}
