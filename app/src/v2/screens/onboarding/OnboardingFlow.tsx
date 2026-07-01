@@ -14,7 +14,7 @@ import { INITIAL_ONBOARDING_DATA, type StepProps, type V2OnboardingData } from '
 import type { OnboardingResult } from './types';
 
 // v2 신규 유저 온보딩 플로우 컨트롤러.
-// 순서: 08 → 09 →(권한 거부 시 09a·09b)→ 12 → 15 → 16 → 17 → 14 로그인(마지막)
+// 순서: 08 → 09 →(권한 거부 시 09a·09b)→ 12 → 16 → 17 → 15 → 14 로그인(마지막)
 // 스텝 목록은 screenTimeGranted에 따라 동적 구성 — 09에서 거부하면 09a·09b가 끼어든다.
 // 서버 전송·게이팅은 호출부(App)가 담당 — 이 컴포넌트는 '수집'만 한다.
 interface OnboardingFlowProps {
@@ -37,9 +37,9 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       ScreenTimePermissionStep, // 09
       ...(denied ? [ScreenTimeDeniedStep, ManualUsageStep] : []), // 09a · 09b
       UsageGoalStep, // 12
-      NicknameStep, // 15
       FocusCategoryStep, // 16
       FocusGoalStep, // 17
+      NicknameStep, // 15 (닉네임을 목표 집중시간 뒤로 이동)
     ];
   }, [data.screenTimeGranted]);
 
