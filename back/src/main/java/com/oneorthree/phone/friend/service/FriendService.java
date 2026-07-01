@@ -2,8 +2,8 @@ package com.oneorthree.phone.friend.service;
 
 import com.fasterxml.uuid.Generators;
 import com.fasterxml.uuid.NoArgGenerator;
-import com.oneorthree.phone.focus.domain.DailyFocusStat;
-import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.stats.domain.DailyFocusStat;
+import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;

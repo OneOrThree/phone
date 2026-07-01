@@ -2,6 +2,7 @@ package com.oneorthree.phone.stats.api;
 
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
+import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.service.StatsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -54,5 +55,18 @@ public class StatsController {
     public ResponseEntity<StreakResponse> getStreak(HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(statsService.getStreak(userId));
+    }
+
+    @Operation(summary = "오늘 요약 조회",
+            description = "오늘의 집중·스크린타임 사용량·목표·목표 달성 진행도(%)를 통합 반환. 데이터 없으면 0/미달성.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "401", description = "인증 필요"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
+    @GetMapping("/stats/today")
+    public ResponseEntity<TodayStatsResponse> getTodayStats(HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(statsService.getTodayStats(userId));
     }
 }

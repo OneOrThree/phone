@@ -1,4 +1,4 @@
-package com.oneorthree.phone.focus.domain;
+package com.oneorthree.phone.stats.domain;
 
 import com.oneorthree.phone.user.domain.User;
 
