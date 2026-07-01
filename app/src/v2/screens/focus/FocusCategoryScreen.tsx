@@ -73,18 +73,21 @@ export default function FocusCategoryScreen() {
     );
   }
 
+  function doDelete(sub: Subject) {
+    deleteSubject(sub.id);
+    if (selectedId === sub.id) setSelectedId('');
+  }
+
   function confirmDelete(sub: Subject) {
     setMenu(null);
+    // 누적 집중시간이 없으면(00:00:00) 경고 없이 바로 삭제.
+    if (sub.accumulatedSeconds <= 0) {
+      doDelete(sub);
+      return;
+    }
     Alert.alert('과목 삭제', '해당 과목에 기록된 집중 시간이 사라집니다!', [
       { text: '취소', style: 'cancel' },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: () => {
-          deleteSubject(sub.id);
-          if (selectedId === sub.id) setSelectedId('');
-        },
-      },
+      { text: '삭제', style: 'destructive', onPress: () => doDelete(sub) },
     ]);
   }
 
