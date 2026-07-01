@@ -17,7 +17,9 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -41,11 +43,21 @@ public class FocusTag {
     @Column(nullable = false)
     private String name;
 
+    @CreationTimestamp
+    private Instant createdAt;
+
+    // 소프트 딜리트 — focus_sessions.focus_tag_id 가 NOT NULL 로 참조하므로 하드 삭제 금지
+    private Instant deletedAt;
+
     @Builder.Default
     @OneToMany(mappedBy = "focusTag", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<FocusSession> focusSessions = new ArrayList<>();
 
     public void updateName(String name) {
         this.name = name;
+    }
+
+    public void softDelete() {
+        this.deletedAt = Instant.now();
     }
 }
