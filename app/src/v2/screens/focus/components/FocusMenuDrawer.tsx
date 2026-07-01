@@ -3,12 +3,10 @@ import { View, Text, TouchableOpacity, Pressable, Animated, StyleSheet } from 'r
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
+import { useFocus } from '@/store/FocusContext';
+import { useSubjects } from '@/store/SubjectContext';
 import { hms } from '../format';
-import {
-  EXAMPLE_ALLOWED_APPS,
-  EXAMPLE_SUBJECT_PROGRESS,
-  EXAMPLE_TODAY_TOTAL_SECONDS,
-} from '../data';
+import { EXAMPLE_ALLOWED_APPS } from '../data';
 
 // 10 집중 · 메뉴 열림 / 11 메뉴 → 허용앱 — 세션 위 우측 슬라이드 드로어.
 // level 'menu'(허용앱 진입·오늘 전체·과목별 현황) ↔ 'apps'(허용앱 리스트).
@@ -16,6 +14,9 @@ const PANEL_W = 270;
 
 export function FocusMenuDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const insets = useSafeAreaInsets();
+  const { todayFocusSeconds } = useFocus();
+  const { subjects } = useSubjects();
+  const maxSeconds = Math.max(1, ...subjects.map((x) => x.accumulatedSeconds));
   const [level, setLevel] = useState<'menu' | 'apps'>('menu');
   const tx = useRef(new Animated.Value(PANEL_W)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
@@ -60,21 +61,23 @@ export function FocusMenuDrawer({ open, onClose }: { open: boolean; onClose: () 
             <View style={s.card}>
               <View style={s.flex1}>
                 <Text style={s.statLabel}>오늘 전체 집중 현황</Text>
-                <Text style={s.statValue}>{hms(EXAMPLE_TODAY_TOTAL_SECONDS)}</Text>
+                <Text style={s.statValue}>{hms(todayFocusSeconds)}</Text>
               </View>
             </View>
 
             <View style={s.cardBlock}>
               <Text style={s.statLabel}>과목별 집중 현황</Text>
               <View style={s.progressList}>
-                {EXAMPLE_SUBJECT_PROGRESS.map((p) => (
-                  <View key={p.name}>
+                {subjects.map((p) => (
+                  <View key={p.id}>
                     <View style={s.progressTop}>
                       <Text style={s.progressName}>{p.name}</Text>
-                      <Text style={s.progressTime}>{hms(p.seconds)}</Text>
+                      <Text style={s.progressTime}>{hms(p.accumulatedSeconds)}</Text>
                     </View>
                     <View style={s.track}>
-                      <View style={[s.fill, { width: `${p.pct * 100}%` }]} />
+                      <View
+                        style={[s.fill, { width: `${(p.accumulatedSeconds / maxSeconds) * 100}%` }]}
+                      />
                     </View>
                   </View>
                 ))}

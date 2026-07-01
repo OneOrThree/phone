@@ -18,6 +18,7 @@ import { Character2D } from '@/components/character/Character2D';
 import { api } from '@/services/api';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
+import { useSubjects } from '@/store/SubjectContext';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import type { FocusTimerMode } from './types';
 import { hms } from './format';
@@ -46,13 +47,14 @@ interface SessionState {
 export default function FocusSessionScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { params } = useRoute<RouteProp<V2RootStackParamList, 'FocusSession'>>();
-  const { subjectName, mode } = params;
+  const { subjectId, subjectName, mode } = params;
   const goal = params.goalSeconds ?? 25 * 60;
   const pomo = params.pomodoro ?? { focusMin: 25, breakMin: 5, sets: 4 };
 
   const { width } = useWindowDimensions();
   const { addFocusSeconds } = useFocus();
   const { addCoins } = useCoins();
+  const { addFocusToSubject } = useSubjects();
 
   const [page, setPage] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -126,6 +128,7 @@ export default function FocusSessionScreen() {
     const focused = Math.floor(sessionRef.current.elapsed);
     if (focused > 0) {
       addFocusSeconds(focused);
+      addFocusToSubject(subjectId, focused);
       const coins = Math.floor(focused / 10);
       if (coins > 0) addCoins(coins);
       api
@@ -140,7 +143,7 @@ export default function FocusSessionScreen() {
         .catch(() => {});
     }
     navigation.popToTop();
-  }, [addFocusSeconds, addCoins, subjectName, navigation]);
+  }, [addFocusSeconds, addCoins, addFocusToSubject, subjectId, subjectName, navigation]);
 
   // 카운트다운/뽀모도로 완료 시 자동 종료
   useEffect(() => {

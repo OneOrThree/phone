@@ -12,6 +12,7 @@ import { UserProvider } from '@/store/UserContext';
 import { CoinProvider } from '@/store/CoinContext';
 import { EquipmentProvider } from '@/store/EquipmentContext';
 import { FocusProvider } from '@/store/FocusContext';
+import { SubjectProvider } from '@/store/SubjectContext';
 import { RootNavigator } from '@/v2/navigation/RootNavigator';
 import LoginScreen from '@/v2/screens/LoginScreen';
 import OnboardingFlow, {
@@ -154,7 +155,9 @@ export default function App() {
         <CoinProvider>
           <EquipmentProvider>
             <FocusProvider>
-              <RootNavigator />
+              <SubjectProvider>
+                <RootNavigator />
+              </SubjectProvider>
             </FocusProvider>
           </EquipmentProvider>
         </CoinProvider>

@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import { useUser } from '@/store/UserContext';
+import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { Character2D } from '@/components/character/Character2D';
 
@@ -165,6 +166,8 @@ function UsageDetailOverlay({ onClose }: { onClose: () => void }) {
 export default function HomeScreen() {
   // 목표는 온보딩값(집중=goalSeconds, 사용시간=screenTimeGoalSeconds).
   const { nickname, goalSeconds, screenTimeGoalSeconds } = useUser();
+  // 오늘 공부 집중 = 실제 세션 누적(FocusContext). 집중 세션 정지 시 반영됨.
+  const { todayFocusSeconds } = useFocus();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
@@ -187,10 +190,9 @@ export default function HomeScreen() {
   // 앱별 사용시간 상세 오버레이
   const [showUsageDetail, setShowUsageDetail] = useState(false);
 
-  // TODO: 순위·티어(리그 API), 집중시간 값(통계 API)은 아직 placeholder
+  // TODO: 순위·티어(리그 API)는 아직 placeholder
   const rank = 8;
   const tierName = '초집중 모드';
-  const focusSeconds = 3 * 3600 + 12 * 60;
   const hasNotifications = false; // TODO: 실제 안 읽은 알림 여부로 교체
 
   return (
@@ -270,7 +272,7 @@ export default function HomeScreen() {
             iconColor="#6FA15A"
             iconBg="#EEF4E9"
             label="공부 집중"
-            value={focusSeconds}
+            value={todayFocusSeconds}
             goal={goalSeconds}
           />
           <PhoneUsageRow

@@ -14,9 +14,9 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
+import { useSubjects } from '@/store/SubjectContext';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import type { FocusTimerMode, PomodoroConfig, Subject } from './types';
-import { EXAMPLE_SUBJECTS } from './data';
 import { hmsCompact } from './format';
 import { TimerMethodSheet } from './components/TimerMethodSheet';
 import { CountdownSetupSheet } from './components/CountdownSetupSheet';
@@ -35,13 +35,14 @@ type MenuAnchor = { id: string; x: number; y: number; w: number; h: number } | n
 export default function FocusCategoryScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { width: winW } = useWindowDimensions();
-  const [subjects, setSubjects] = useState<Subject[]>(EXAMPLE_SUBJECTS);
-  const [selectedId, setSelectedId] = useState<string>(EXAMPLE_SUBJECTS[0]?.id ?? '');
+  const { subjects, addSubject, renameSubject, deleteSubject } = useSubjects();
+  const [selectedId, setSelectedId] = useState<string>('');
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [menu, setMenu] = useState<MenuAnchor>(null);
   const dotRefs = useRef<Record<string, ElementRef<typeof View> | null>>({});
 
-  const active = subjects.find((x) => x.id === selectedId);
+  // 선택 과목 — 미선택/삭제 시 첫 과목으로 폴백.
+  const active = subjects.find((x) => x.id === selectedId) ?? subjects[0];
   const menuSubject = menu ? subjects.find((x) => x.id === menu.id) : undefined;
 
   function openMethod(sub: Subject) {
@@ -65,16 +66,14 @@ export default function FocusCategoryScreen() {
       undefined,
       (text) => {
         const name = text?.trim();
-        if (name) {
-          setSubjects((prev) => prev.map((x) => (x.id === sub.id ? { ...x, name } : x)));
-        }
+        if (name) renameSubject(sub.id, name);
       },
       'plain-text',
       sub.name,
     );
   }
 
-  function deleteSubject(sub: Subject) {
+  function confirmDelete(sub: Subject) {
     setMenu(null);
     Alert.alert('과목 삭제', '해당 과목에 기록된 집중 시간이 사라집니다!', [
       { text: '취소', style: 'cancel' },
@@ -82,21 +81,17 @@ export default function FocusCategoryScreen() {
         text: '삭제',
         style: 'destructive',
         onPress: () => {
-          const remaining = subjects.filter((x) => x.id !== sub.id);
-          setSubjects(remaining);
-          if (selectedId === sub.id) setSelectedId(remaining[0]?.id ?? '');
+          deleteSubject(sub.id);
+          if (selectedId === sub.id) setSelectedId('');
         },
       },
     ]);
   }
 
-  function addSubject() {
-    // 스텁: 실제 과목 CRUD는 후속 티켓. 로컬로 빈 과목만 추가.
+  function handleAddSubject() {
+    // 이름만 예시 — 누적시간은 0에서 시작해 실제 세션으로 쌓인다.
     const n = subjects.filter((x) => x.name.startsWith('새 과목')).length + 1;
-    setSubjects((prev) => [
-      ...prev,
-      { id: `new-${n}`, name: `새 과목 ${n}`, accumulatedSeconds: 0 },
-    ]);
+    addSubject(`새 과목 ${n}`);
   }
 
   function startSession(
@@ -106,6 +101,7 @@ export default function FocusCategoryScreen() {
     if (!active) return;
     setSheet(null);
     navigation.navigate('FocusSession', {
+      subjectId: active.id,
       subjectName: active.name,
       mode,
       goalSeconds: extra?.goalSeconds,
@@ -129,7 +125,7 @@ export default function FocusCategoryScreen() {
         showsVerticalScrollIndicator={false}
       >
         {subjects.map((sub) => {
-          const selected = sub.id === selectedId;
+          const selected = sub.id === active?.id;
           return (
             <TouchableOpacity
               key={sub.id}
@@ -162,7 +158,7 @@ export default function FocusCategoryScreen() {
           );
         })}
 
-        <TouchableOpacity style={s.addBtn} activeOpacity={0.8} onPress={addSubject}>
+        <TouchableOpacity style={s.addBtn} activeOpacity={0.8} onPress={handleAddSubject}>
           <Ionicons name="add" size={16} color={T.inkMuted} />
           <Text style={s.addText}>새 과목 추가</Text>
         </TouchableOpacity>
@@ -193,7 +189,7 @@ export default function FocusCategoryScreen() {
             <TouchableOpacity
               style={s.menuItem}
               activeOpacity={0.7}
-              onPress={() => deleteSubject(menuSubject)}
+              onPress={() => confirmDelete(menuSubject)}
             >
               <Ionicons name="trash" size={14} color={DANGER} />
               <Text style={[s.menuText, s.menuTextDanger]}>과목 삭제</Text>

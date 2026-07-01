@@ -7,6 +7,7 @@ export type V2RootStackParamList = {
   Stats: undefined; // 통계 상세 (홈 '자세히'에서 진입)
   FocusCategory: undefined; // 02 과목 선택 (홈 ● 집중 FAB에서 진입)
   FocusSession: {
+    subjectId: string;
     subjectName: string;
     mode: FocusTimerMode;
     goalSeconds?: number; // 카운트다운 목표
