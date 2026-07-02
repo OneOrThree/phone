@@ -172,24 +172,28 @@ public class FocusService {
         // 세션 분 계산: floor (Duration.toMinutes() = 초/60 내림, 별도 반올림 정책 없음)
         int addedMinutes = (int) Duration.between(body.getStartedAt(), body.getEndedAt()).toMinutes();
 
-        // focusGoalAchieved 판정: INSERT 경로는 save() 전에 미리 계산해 INSERT 쿼리 1회로 줄임
-        // UserFocusTimeSettings row 없거나 goal=0이면 플래그 세팅 스킵
-        int goal = userFocusTimeSettingsRepository.findById(userId)
-                .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
-
-        Optional<DailyFocusStat> existingStat = dailyFocusStatRepository.findByUserAndDate(user, statDate);
+        // UPDATE-UPDATE lost update 방지(누적 연산): 비관적 쓰기 잠금으로 동시 세션 저장 시 += 누락 차단
+        // INSERT-INSERT 동시 삽입은 unique(user_id, date) 제약이 정합성 보장(오염 없음, 실패 건은 클라 재시도)
+        Optional<DailyFocusStat> existingStat = dailyFocusStatRepository.findByUserAndDateForUpdate(user, statDate);
         if (existingStat.isPresent()) {
             // 기존 row 누적 (+= 방식) — 더티 체킹으로 반영됨, 별도 save() 불필요
             DailyFocusStat stat = existingStat.get();
             stat.setTotalFocusMinutes(stat.getTotalFocusMinutes() + addedMinutes);
             stat.setSessionCount(stat.getSessionCount() + 1);
             stat.setDistractionCount(stat.getDistractionCount() + body.getDistractionCount());
-            // focusGoalAchieved: 누적 분이 목표 이상이면 true (달성 후 false 복원 없음)
-            if (goal > 0 && stat.getTotalFocusMinutes() >= goal) {
-                stat.setFocusGoalAchieved(true);
+            // focusGoalAchieved: 이미 달성(true)이면 재판정 불필요 — 플래그 단방향이므로 조기 스킵
+            if (!stat.isFocusGoalAchieved()) {
+                int goal = userFocusTimeSettingsRepository.findById(userId)
+                        .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
+                if (goal > 0 && stat.getTotalFocusMinutes() >= goal) {
+                    stat.setFocusGoalAchieved(true);
+                }
             }
         } else {
-            // INSERT 경로: goal 판정을 builder에 포함시켜 INSERT 쿼리 1회
+            // INSERT 경로: focusGoalAchieved 판정을 builder에 포함시켜 INSERT 쿼리 1회로 줄임
+            // UserFocusTimeSettings row 없거나 goal=0이면 플래그 false 유지
+            int goal = userFocusTimeSettingsRepository.findById(userId)
+                    .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
             dailyFocusStatRepository.save(DailyFocusStat.builder()
                     .user(user)
                     .date(statDate)
