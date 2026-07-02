@@ -19,8 +19,6 @@ import type { ComponentType } from 'react';
 // ViewManager 클래스명에서 "Manager"를 뗀 이름으로 등록됨:
 // AllowedAppsListViewManager → 'AllowedAppsListView'
 const AllowedAppsListView: ComponentType<ViewProps> | null =
-  Platform.OS === 'ios'
-    ? requireNativeComponent<ViewProps>('AllowedAppsListView')
-    : null;
+  Platform.OS === 'ios' ? requireNativeComponent<ViewProps>('AllowedAppsListView') : null;
 
 export default AllowedAppsListView;
