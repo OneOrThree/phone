@@ -26,7 +26,7 @@ const s = StyleSheet.create({
     borderTopRightRadius: 24,
     paddingHorizontal: 18,
     paddingTop: 16,
-    shadowColor: '#141428',
+    shadowColor: T.shadow,
     shadowOpacity: 0.22,
     shadowRadius: 40,
     shadowOffset: { width: 0, height: -14 },

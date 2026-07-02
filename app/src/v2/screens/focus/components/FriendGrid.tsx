@@ -1,12 +1,10 @@
 import { View, Text, StyleSheet } from 'react-native';
+import { T } from '@/v2/constants/theme';
 import type { Friend } from '../types';
 import { hourMin } from '../format';
 import { StarAvatar } from './StarAvatar';
 
 // 09 집중 · 친구 그리드 — 세션에서 좌로 스와이프한 페이지. 함께 집중 중인 친구 3열 그리드.
-const GREEN = '#7FCB8E';
-const TEXT_LIGHT = '#F6F1E9';
-const MUTED = '#9A8472';
 
 export function FriendGrid({ friends }: { friends: Friend[] }) {
   const focusing = friends.filter((f) => f.status === 'focus').length;
@@ -56,8 +54,8 @@ const s = StyleSheet.create({
     paddingHorizontal: 12,
     marginBottom: 18,
   },
-  bannerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: GREEN },
-  bannerText: { fontSize: 12, fontWeight: '700', color: '#9FE0AC' },
+  bannerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.night.green },
+  bannerText: { ...T.text.caption, fontWeight: '700', color: T.night.greenSoft },
 
   grid: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around' },
   cell: { width: '31%', alignItems: 'center', gap: 5, marginVertical: 10 },
@@ -71,9 +69,14 @@ const s = StyleSheet.create({
     justifyContent: 'flex-end',
     overflow: 'hidden',
   },
-  avatarActive: { borderWidth: 2.5, borderColor: GREEN },
+  avatarActive: { borderWidth: 2.5, borderColor: T.night.green },
   avatarIdle: { borderWidth: 2.5, borderColor: 'rgba(246,241,233,0.15)' },
-  name: { fontSize: 11, fontWeight: '600', color: TEXT_LIGHT, maxWidth: 74 },
-  timeActive: { fontSize: 10, fontWeight: '700', color: GREEN, fontVariant: ['tabular-nums'] },
-  timeIdle: { fontSize: 10, fontWeight: '700', color: MUTED },
+  name: { ...T.text.caption, color: T.paperLight, maxWidth: 74 },
+  timeActive: {
+    ...T.text.caption,
+    fontWeight: '700',
+    color: T.night.green,
+    fontVariant: ['tabular-nums'],
+  },
+  timeIdle: { ...T.text.caption, fontWeight: '700', color: T.night.muted },
 });

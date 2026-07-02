@@ -15,6 +15,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Character2D } from '@/components/character/Character2D';
+import { T } from '@/v2/constants/theme';
 import { api } from '@/services/api';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
@@ -28,13 +29,7 @@ import { FocusMenuDrawer } from './components/FocusMenuDrawer';
 
 // 06/07/08 집중 세션(세로) + 09 친구 그리드(좌우 페이저) + 10/11 메뉴 드로어.
 // 타이머는 실제로 tick하고, 정지 시 집중시간·코인·세션 POST를 반영한다(구 FocusMode 로직 이식).
-const TOP = '#3A2C22';
-const BOTTOM = '#241A14';
-const TEXT_LIGHT = '#F6F1E9';
-const CREAM = '#E6D3B4';
-const MUTED = '#9A8472';
-const GOLD = '#F0C76A';
-const STOP = '#C2705A';
+// 다크 화면 색은 T.night 팔레트 사용.
 
 interface SessionState {
   elapsed: number; // 실제 집중 초(적립 기준) — 뽀모도로는 집중 블록만 누적
@@ -156,7 +151,7 @@ export default function FocusSessionScreen() {
 
   return (
     <View style={s.root}>
-      <LinearGradient colors={[TOP, BOTTOM]} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={[T.night.top, T.night.bottom]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={s.flex1} edges={['top', 'bottom']}>
         {/* 상단바 — 과목 + 햄버거 */}
         <View style={s.topBar}>
@@ -166,7 +161,7 @@ export default function FocusSessionScreen() {
             activeOpacity={0.8}
             onPress={() => setDrawerOpen(true)}
           >
-            <Ionicons name="menu" size={18} color={TEXT_LIGHT} />
+            <Ionicons name="menu" size={18} color={T.paperLight} />
           </TouchableOpacity>
         </View>
 
@@ -204,10 +199,10 @@ export default function FocusSessionScreen() {
             activeOpacity={0.8}
             onPress={() => setPaused((p) => !p)}
           >
-            <Ionicons name={paused ? 'play' : 'pause'} size={22} color={TEXT_LIGHT} />
+            <Ionicons name={paused ? 'play' : 'pause'} size={22} color={T.paperLight} />
           </TouchableOpacity>
           <TouchableOpacity style={[s.ctrlBtn, s.stopBtn]} activeOpacity={0.8} onPress={finish}>
-            <Ionicons name="square" size={19} color={TEXT_LIGHT} />
+            <Ionicons name="square" size={19} color={T.paperLight} />
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -259,7 +254,7 @@ function renderReadout(mode: FocusTimerMode, session: SessionState, goal: number
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: BOTTOM },
+  root: { flex: 1, backgroundColor: T.night.bottom },
   flex1: { flex: 1 },
 
   topBar: {
@@ -270,7 +265,7 @@ const s = StyleSheet.create({
     paddingVertical: 6,
     minHeight: 40,
   },
-  topSubject: { fontSize: 15, fontWeight: '700', color: CREAM },
+  topSubject: { ...T.text.label, fontWeight: '700', color: T.night.cream },
   hamburger: {
     width: 36,
     height: 36,
@@ -285,19 +280,23 @@ const s = StyleSheet.create({
 
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 7, paddingVertical: 6 },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: 'rgba(246,241,233,0.3)' },
-  dotActive: { width: 18, backgroundColor: GOLD },
+  dotActive: { width: 18, backgroundColor: T.night.gold },
 
   readout: { alignItems: 'center', paddingBottom: 18, minHeight: 118, justifyContent: 'flex-end' },
-  roLabel: { fontSize: 12, fontWeight: '500', letterSpacing: 1, color: MUTED, marginBottom: 6 },
-  bigTime: {
-    fontSize: 56,
-    fontWeight: '800',
-    letterSpacing: -2,
-    color: TEXT_LIGHT,
-    fontVariant: ['tabular-nums'],
-    lineHeight: 60,
+  roLabel: {
+    ...T.text.caption,
+    fontWeight: '500',
+    letterSpacing: 1,
+    color: T.night.muted,
+    marginBottom: 6,
   },
-  roGoal: { fontSize: 11, fontWeight: '500', color: MUTED, marginTop: 5 },
+  bigTime: {
+    ...T.text.timer,
+    color: T.paperLight,
+    fontVariant: ['tabular-nums'],
+    lineHeight: 56,
+  },
+  roGoal: { ...T.text.caption, fontWeight: '500', color: T.night.muted, marginTop: 5 },
 
   setBadgeRow: { marginBottom: 6 },
   setBadge: {
@@ -311,11 +310,11 @@ const s = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 11,
   },
-  setBadgeDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: GOLD },
-  setBadgeText: { fontSize: 11, fontWeight: '700', color: GOLD },
+  setBadgeDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: T.night.gold },
+  setBadgeText: { ...T.text.caption, fontWeight: '700', color: T.night.gold },
   setDots: { flexDirection: 'row', gap: 7, marginTop: 10 },
   setDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: 'rgba(246,241,233,0.22)' },
-  setDotOn: { backgroundColor: GOLD },
+  setDotOn: { backgroundColor: T.night.gold },
 
   controls: { flexDirection: 'row', justifyContent: 'center', gap: 18, paddingBottom: 30 },
   ctrlBtn: {
@@ -326,5 +325,5 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stopBtn: { backgroundColor: STOP },
+  stopBtn: { backgroundColor: T.accentAlt },
 });

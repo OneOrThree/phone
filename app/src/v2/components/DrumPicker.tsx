@@ -90,7 +90,7 @@ const s = StyleSheet.create({
   wrap: { height: PICKER_H, overflow: 'hidden' },
   item: { height: ITEM_H, alignItems: 'center', justifyContent: 'center' },
   itemText: {
-    fontSize: 20,
+    ...T.text.subtitle,
     fontWeight: '600',
     color: T.ink,
     fontVariant: ['tabular-nums'],
@@ -101,7 +101,7 @@ const s = StyleSheet.create({
     left: 24,
     right: 24,
     height: 1.5,
-    backgroundColor: '#E2D7C4',
+    backgroundColor: T.chipBorder,
   },
   lineBottom: {
     position: 'absolute',
@@ -109,7 +109,7 @@ const s = StyleSheet.create({
     left: 24,
     right: 24,
     height: 1.5,
-    backgroundColor: '#E2D7C4',
+    backgroundColor: T.chipBorder,
   },
   maskTop: {
     position: 'absolute',

@@ -154,7 +154,7 @@ export default function MenuScreen() {
             divider
             icon="phone-portrait-outline"
             iconColor={T.accent}
-            iconBg="#F6ECE0"
+            iconBg={T.accentBg}
             label="스크린타임 목표"
             sub={hm(screenTimeGoalSeconds)}
             onPress={() => openEdit('screen')}
@@ -162,8 +162,8 @@ export default function MenuScreen() {
           <Row
             divider
             icon="book-outline"
-            iconColor="#6FA15A"
-            iconBg="#EEF4E9"
+            iconColor={T.greenDeep}
+            iconBg={T.greenBg}
             label="집중 목표"
             sub={hm(goalSeconds)}
             onPress={() => openEdit('focus')}
@@ -172,7 +172,7 @@ export default function MenuScreen() {
             divider
             icon="apps-outline"
             iconColor={T.accentDeep}
-            iconBg="#F1E9DA"
+            iconBg={T.sandLight}
             label="측정 대상 앱 설정"
             sub="핸드폰 사용시간을 잴 앱·카테고리 선택"
             onPress={editScreenTimeTargets}
@@ -180,7 +180,7 @@ export default function MenuScreen() {
           <Row
             icon="log-out-outline"
             iconColor={T.accentAlt}
-            iconBg="#F6E7E2"
+            iconBg={T.accentAltBg}
             label="로그아웃"
             onPress={onLogout}
             danger
@@ -243,7 +243,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 14,
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 },
-  rowDivider: { borderBottomWidth: 1, borderBottomColor: '#F0E9DC' },
+  rowDivider: { borderBottomWidth: 1, borderBottomColor: T.divider },
   rowIcon: {
     width: 36,
     height: 36,

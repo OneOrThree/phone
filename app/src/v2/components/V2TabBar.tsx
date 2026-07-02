@@ -35,7 +35,7 @@ export function V2TabBar({ state, navigation }: BottomTabBarProps) {
           if (!focused) navigation.navigate(route.name);
         }}
       >
-        <Ionicons name={focused ? on : off} size={26} color={focused ? T.accent : '#A99B86'} />
+        <Ionicons name={focused ? on : off} size={26} color={focused ? T.accent : T.inkMuted} />
       </TouchableOpacity>
     );
   }
@@ -56,8 +56,8 @@ export function V2TabBar({ state, navigation }: BottomTabBarProps) {
         activeOpacity={0.85}
         onPress={() => rootNav.navigate('FocusCategory')}
       >
-        <LinearGradient colors={['#E0AA5A', '#C8893F']} style={s.fabGrad}>
-          <Ionicons name="flash" size={24} color="#fff" />
+        <LinearGradient colors={[T.accentLight, T.accent]} style={s.fabGrad}>
+          <Ionicons name="flash" size={24} color={T.white} />
         </LinearGradient>
       </TouchableOpacity>
     </View>
@@ -84,7 +84,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
-    shadowColor: '#50371E',
+    shadowColor: T.shadow,
     shadowOpacity: 0.22,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
@@ -104,7 +104,7 @@ const s = StyleSheet.create({
     borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#C8893F',
+    shadowColor: T.accent,
     shadowOpacity: 0.6,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },

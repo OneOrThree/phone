@@ -1,4 +1,5 @@
 import Svg, { Polygon, Circle, Path } from 'react-native-svg';
+import { T } from '@/v2/constants/theme';
 
 // 09 친구 그리드 별사탕 아바타 — 시안 SVG를 react-native-svg로 옮김.
 const POINTS =
@@ -9,11 +10,11 @@ export function StarAvatar({ color, size = 50 }: { color: string; size?: number 
   return (
     <Svg width={size} height={size} viewBox="0 0 100 100">
       <Polygon points={POINTS} fill={color} stroke={color} strokeWidth={9} strokeLinejoin="round" />
-      <Circle cx={40} cy={48} r={3} fill="#3A2A1E" />
-      <Circle cx={60} cy={48} r={3} fill="#3A2A1E" />
+      <Circle cx={40} cy={48} r={3} fill={T.night.face} />
+      <Circle cx={60} cy={48} r={3} fill={T.night.face} />
       <Path
         d="M43 58 Q50 64 57 58"
-        stroke="#3A2A1E"
+        stroke={T.night.face}
         strokeWidth={3}
         fill="none"
         strokeLinecap="round"

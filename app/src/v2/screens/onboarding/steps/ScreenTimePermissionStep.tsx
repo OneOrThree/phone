@@ -118,7 +118,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 13 },
-  rowDivider: { borderBottomWidth: 1, borderBottomColor: '#F0E9DC' },
+  rowDivider: { borderBottomWidth: 1, borderBottomColor: T.divider },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: T.green },
-  rowText: { ...T.text.body, fontSize: 14, color: T.ink },
+  rowText: { ...T.text.label, fontWeight: '500', color: T.ink },
 });

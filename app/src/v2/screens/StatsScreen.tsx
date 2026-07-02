@@ -36,8 +36,8 @@ const META: Record<
   Metric,
   { label: string; color: string; bg: string; icon: keyof typeof Ionicons.glyphMap }
 > = {
-  focus: { label: '공부 집중', color: '#6FA15A', bg: '#EEF4E9', icon: 'book' },
-  phone: { label: '핸드폰 사용', color: T.accent, bg: '#F6ECE0', icon: 'phone-portrait-outline' },
+  focus: { label: '공부 집중', color: T.greenDeep, bg: T.greenBg, icon: 'book' },
+  phone: { label: '핸드폰 사용', color: T.accent, bg: T.accentBg, icon: 'phone-portrait-outline' },
 };
 
 const CHART_HEIGHT = 132;
@@ -192,7 +192,7 @@ const s = StyleSheet.create({
   },
   segment: {
     flexDirection: 'row',
-    backgroundColor: '#F1E9DA',
+    backgroundColor: T.sandLight,
     borderRadius: 12,
     padding: 3,
     marginBottom: 18,
@@ -200,7 +200,7 @@ const s = StyleSheet.create({
   segBtn: { flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: 'center' },
   segBtnOn: {
     backgroundColor: T.white,
-    shadowColor: '#50371E',
+    shadowColor: T.shadow,
     shadowOpacity: 0.1,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
@@ -221,10 +221,10 @@ const s = StyleSheet.create({
     marginTop: 18,
     paddingTop: 14,
     borderTopWidth: 1,
-    borderTopColor: '#F0E9DC',
+    borderTopColor: T.divider,
   },
   summaryItem: { flex: 1, alignItems: 'center', gap: 4 },
-  summaryDivider: { width: 1, height: 28, backgroundColor: '#F0E9DC' },
+  summaryDivider: { width: 1, height: 28, backgroundColor: T.divider },
   summaryLabel: { ...T.text.caption, color: T.inkMuted },
   summaryValue: { ...T.text.subtitle, color: T.ink },
 });

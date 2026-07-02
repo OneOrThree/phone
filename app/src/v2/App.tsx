@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TextInput, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
@@ -13,6 +13,7 @@ import { CoinProvider } from '@/store/CoinContext';
 import { EquipmentProvider } from '@/store/EquipmentContext';
 import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
+import { T } from '@/v2/constants/theme';
 import { RootNavigator } from '@/v2/navigation/RootNavigator';
 import LoginScreen from '@/v2/screens/LoginScreen';
 import OnboardingFlow, {
@@ -22,6 +23,18 @@ import OnboardingFlow, {
 
 // Facebook SDK 초기화 — 앱 시작 시 1회.
 FacebookSettings.initializeSDK();
+
+// 앱 전체 글씨를 디자인 크기로 고정(기기 '텍스트 크기' 설정 무시) → 화면 간 크기 일관.
+// 홈은 네이티브 리포트 뷰와 맞추려 이미 고정이었는데, 나머지 화면도 같은 기준으로 통일한다.
+type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
+(Text as unknown as FontScalable).defaultProps = {
+  ...(Text as unknown as FontScalable).defaultProps,
+  allowFontScaling: false,
+};
+(TextInput as unknown as FontScalable).defaultProps = {
+  ...(TextInput as unknown as FontScalable).defaultProps,
+  allowFontScaling: false,
+};
 
 // v2 새 앱의 뿌리 — 데이터/로직 층(@/store, @/services, @/utils)은 기존 것을 그대로 공유한다.
 // 게이트: 로딩 → (미온보딩 신규유저)온보딩 → 홈 / (온보딩 완료·로그아웃)로그인 → 홈.
@@ -123,7 +136,7 @@ export default function App() {
   if (loading) {
     content = (
       <View style={s.loading}>
-        <ActivityIndicator size="large" color="#2C2421" />
+        <ActivityIndicator size="large" color={T.ink} />
       </View>
     );
   } else if (!user) {
@@ -170,5 +183,5 @@ export default function App() {
 }
 
 const s = StyleSheet.create({
-  loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#EFE3CE' },
+  loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: T.paper },
 });

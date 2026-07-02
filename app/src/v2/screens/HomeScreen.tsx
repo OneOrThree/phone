@@ -98,7 +98,7 @@ function PhoneUsageRow({
 }) {
   return (
     <View style={s.metricRow}>
-      <View style={[s.metricIcon, { backgroundColor: '#F6ECE0' }]}>
+      <View style={[s.metricIcon, { backgroundColor: T.accentBg }]}>
         <Ionicons name="phone-portrait-outline" size={17} color={T.accent} />
       </View>
       <View style={s.flex1}>
@@ -185,13 +185,13 @@ export default function HomeScreen() {
                 <View style={s.nameRow}>
                   <Text style={s.nickname}>{nickname}</Text>
                   <View style={s.rankBadge}>
-                    <Ionicons name="trophy" size={9} color="#4C5DE6" />
+                    <Ionicons name="trophy" size={9} color={T.blue} />
                     <Text style={s.rankText}>{rank}위</Text>
                   </View>
                 </View>
                 <View style={s.tierRow}>
                   <View style={s.tierDot}>
-                    <Ionicons name="flame" size={8} color="#fff" />
+                    <Ionicons name="flame" size={8} color={T.white} />
                   </View>
                   <Text style={s.tierText}>{tierName}</Text>
                 </View>
@@ -235,8 +235,8 @@ export default function HomeScreen() {
           <MetricRow
             divider
             icon="book"
-            iconColor="#6FA15A"
-            iconBg="#EEF4E9"
+            iconColor={T.greenDeep}
+            iconBg={T.greenBg}
             label="공부 집중"
             value={todayFocusSeconds}
             goal={goalSeconds}
@@ -272,7 +272,7 @@ const s = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#EBD7B5',
+    backgroundColor: T.sand,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -283,12 +283,12 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: '#ECEEFD',
+    backgroundColor: T.blueBg,
     borderRadius: 7,
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
-  rankText: { ...T.text.label, color: '#4C5DE6' },
+  rankText: { ...T.text.label, color: T.blue },
   tierRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   tierDot: {
     width: 14,
@@ -305,7 +305,7 @@ const s = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: T.white,
     borderWidth: 1,
-    borderColor: '#EADEC9',
+    borderColor: T.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -318,7 +318,7 @@ const s = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: T.accentAlt,
     borderWidth: 1.5,
-    borderColor: '#F1EADD',
+    borderColor: T.chipBg,
   },
 
   // 방 + 캐릭터 — 가운데를 채우고, 카드를 하단으로 밀어냄
@@ -343,7 +343,7 @@ const s = StyleSheet.create({
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 13,
-    shadowColor: '#50371E',
+    shadowColor: T.shadow,
     shadowOpacity: 0.16,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 10 },
@@ -356,11 +356,11 @@ const s = StyleSheet.create({
     marginBottom: 11,
   },
   cardTitle: { ...T.text.subtitle, color: T.ink },
-  cardTitleSub: { color: '#B3A695', fontWeight: '500' },
+  cardTitleSub: { color: T.inkFaint, fontWeight: '500' },
   moreBtn: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   more: { ...T.text.label, color: T.accent },
   metricRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8 },
-  metricDivider: { borderBottomWidth: 1, borderBottomColor: '#F0E9DC', paddingBottom: 14 },
+  metricDivider: { borderBottomWidth: 1, borderBottomColor: T.divider, paddingBottom: 14 },
   metricIcon: {
     width: 34,
     height: 34,
@@ -370,7 +370,7 @@ const s = StyleSheet.create({
   },
   flex1: { flex: 1 },
   usageLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  metricLabel: { ...T.text.label, fontSize: 14, color: T.inkMuted },
+  metricLabel: { ...T.text.label, color: T.inkMuted },
   valueRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -378,13 +378,13 @@ const s = StyleSheet.create({
     gap: 8,
     marginTop: 1,
   },
-  metricValue: { ...T.text.title, fontSize: 22, color: T.ink },
+  metricValue: { ...T.text.stat, color: T.ink },
   goalText: { ...T.text.caption, color: T.inkMuted },
   usageReport: { width: '100%', height: 50, marginTop: 1 },
   track: {
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#EFE7DA',
+    backgroundColor: T.caramel,
     overflow: 'hidden',
     marginTop: 7,
   },

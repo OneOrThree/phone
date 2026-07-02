@@ -5,8 +5,6 @@ import type { FocusTimerMode } from '../types';
 import { SheetShell } from './SheetShell';
 
 // 03 타이머 방식 — 카운트업/카운트다운/뽀모도로 중 선택.
-const ICON_BG = '#F0E7D7'; // 시안 아이콘 배경(밝은 카라멜)
-
 const OPTIONS: {
   mode: FocusTimerMode;
   icon: keyof typeof Ionicons.glyphMap;
@@ -55,8 +53,8 @@ export function TimerMethodSheet({
 }
 
 const s = StyleSheet.create({
-  title: { fontSize: 16, fontWeight: '800', color: T.ink },
-  sub: { fontSize: 11, fontWeight: '500', color: T.inkMuted, marginTop: 2, marginBottom: 13 },
+  title: { ...T.text.body, fontWeight: '800', color: T.ink },
+  sub: { ...T.text.label, fontWeight: '500', color: T.inkMuted, marginTop: 2, marginBottom: 13 },
   list: { gap: 9 },
   row: {
     flexDirection: 'row',
@@ -64,7 +62,7 @@ const s = StyleSheet.create({
     gap: 12,
     backgroundColor: T.white,
     borderWidth: 1,
-    borderColor: '#ECE2D1',
+    borderColor: T.paperAlt,
     borderRadius: 15,
     paddingVertical: 13,
     paddingHorizontal: 14,
@@ -73,11 +71,11 @@ const s = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: ICON_BG,
+    backgroundColor: T.caramel,
     alignItems: 'center',
     justifyContent: 'center',
   },
   flex1: { flex: 1 },
-  rowTitle: { fontSize: 14, fontWeight: '700', color: T.ink },
-  rowDesc: { fontSize: 11, fontWeight: '500', color: T.inkMuted, marginTop: 1 },
+  rowTitle: { ...T.text.label, fontWeight: '700', color: T.ink },
+  rowDesc: { ...T.text.caption, fontWeight: '500', color: T.inkMuted, marginTop: 1 },
 });

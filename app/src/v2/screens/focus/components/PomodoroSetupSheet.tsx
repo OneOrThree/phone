@@ -72,8 +72,8 @@ export function PomodoroSetupSheet({
 }
 
 const s = StyleSheet.create({
-  title: { fontSize: 16, fontWeight: '800', color: T.ink },
-  sub: { fontSize: 11, fontWeight: '500', color: T.inkMuted, marginTop: 2, marginBottom: 13 },
+  title: { ...T.text.body, fontWeight: '800', color: T.ink },
+  sub: { ...T.text.label, fontWeight: '500', color: T.inkMuted, marginTop: 2, marginBottom: 13 },
   list: { gap: 9, marginBottom: 16 },
   row: {
     flexDirection: 'row',
@@ -81,25 +81,25 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: T.white,
     borderWidth: 1,
-    borderColor: '#ECE2D1',
+    borderColor: T.paperAlt,
     borderRadius: 15,
     paddingVertical: 11,
     paddingHorizontal: 16,
   },
-  rowLabel: { fontSize: 14, fontWeight: '700', color: T.ink },
+  rowLabel: { ...T.text.label, fontWeight: '700', color: T.ink },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   stepBtn: {
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: '#F1EADD',
+    backgroundColor: T.chipBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
   stepValue: {
+    ...T.text.label,
     minWidth: 52,
     textAlign: 'center',
-    fontSize: 15,
     fontWeight: '700',
     color: T.ink,
     fontVariant: ['tabular-nums'],
@@ -111,5 +111,5 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  startText: { fontSize: 16, fontWeight: '700', color: T.white },
+  startText: { ...T.text.subtitle, color: T.white },
 });

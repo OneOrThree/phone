@@ -63,8 +63,8 @@ export function CountdownSetupSheet({
 }
 
 const s = StyleSheet.create({
-  title: { fontSize: 16, fontWeight: '800', color: T.ink },
-  sub: { fontSize: 11, fontWeight: '500', color: T.inkMuted, marginTop: 2, marginBottom: 6 },
+  title: { ...T.text.body, fontWeight: '800', color: T.ink },
+  sub: { ...T.text.label, fontWeight: '500', color: T.inkMuted, marginTop: 2, marginBottom: 6 },
   pickerRow: { flexDirection: 'row', marginTop: 8, marginBottom: 16 },
   pickerCol: { flex: 1 },
   startBtn: {
@@ -75,5 +75,5 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   startBtnDisabled: { opacity: 0.4 },
-  startText: { fontSize: 16, fontWeight: '700', color: T.white },
+  startText: { ...T.text.subtitle, color: T.white },
 });
