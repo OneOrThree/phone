@@ -22,8 +22,8 @@ export async function scheduleLeaveNotifications(
   await cancelLeaveNotifications();
   const warnId = await Notifications.scheduleNotificationAsync({
     content: {
-      title: '집중이 멈췄어! 😢',
-      body: `${endSeconds}초 안에 돌아오면 ${subjectName} 집중을 이어갈 수 있어.`,
+      title: '집중이 멈췄어요!',
+      body: `${endSeconds}초 안에 돌아오면 ${subjectName} 집중을 이어갈 수 있어요.`,
       sound: true,
     },
     // null(즉시)은 백그라운드 전환 직후 포그라운드 발송으로 취급돼 배너가 안 뜨는 경우가 있어
@@ -36,8 +36,8 @@ export async function scheduleLeaveNotifications(
   });
   const endId = await Notifications.scheduleNotificationAsync({
     content: {
-      title: '집중 세션이 끝났어',
-      body: '여기까지 집중한 시간은 저장해뒀어. 준비되면 다시 시작하자!',
+      title: '집중 세션이 끝났어요',
+      body: '여기까지 집중한 시간은 저장해뒀어요. 준비되면 다시 시작해요!',
       sound: true,
     },
     trigger: {

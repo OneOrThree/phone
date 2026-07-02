@@ -9,7 +9,7 @@ import type { V2RootStackParamList } from '@/v2/navigation/types';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
-import { Character2D } from '@/components/character/Character2D';
+import { CharacterImage } from '@/components/character/CharacterImage';
 
 // v2 홈 화면 (GROMO-552) — Claude Design "01 홈" 시안 기반.
 // 상단바(닉/순위/티어) + 방+캐릭터 + 오늘 요약 카드. 탭바/FAB는 RootNavigator.
@@ -179,7 +179,7 @@ export default function HomeScreen() {
           <View style={s.topBar}>
             <View style={s.profileRow}>
               <View style={s.avatar}>
-                <Character2D size={30} />
+                <CharacterImage size={30} />
               </View>
               <View>
                 <View style={s.nameRow}>
@@ -212,7 +212,7 @@ export default function HomeScreen() {
           {/* ── 방 + 캐릭터 ── */}
           <View style={s.room}>
             <View style={s.floor} />
-            <Character2D size={188} />
+            <CharacterImage size={188} />
           </View>
         </ScrollView>
 

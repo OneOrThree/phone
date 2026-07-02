@@ -45,9 +45,9 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
             backgroundBlurStyle: .dark,
             backgroundColor: shieldBg,
             icon: icon,
-            title: ShieldConfiguration.Label(text: "지금은 집중 시간이야!", color: shieldCream),
+            title: ShieldConfiguration.Label(text: "지금은 집중 시간이에요!", color: shieldCream),
             subtitle: ShieldConfiguration.Label(
-                text: "\(subject) 집중이 끝날 때까지\n이 앱은 잠깐 잠가뒀어. 얼른 돌아와!",
+                text: "\(subject) 집중이 끝날 때까지\n이 앱은 잠깐 잠갔어요. 얼른 돌아오세요!",
                 color: shieldMuted
             ),
             primaryButtonLabel: ShieldConfiguration.Label(text: "닫기", color: .white),
