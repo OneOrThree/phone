@@ -9,6 +9,8 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
+// 미사용 템플릿 — ControlWidget API가 iOS 18+라 배포 타깃(17.0) 컴파일을 위해 @available 부착.
+@available(iOS 18.0, *)
 struct WidgetControl: ControlWidget {
     static let kind: String = "com.oneorthree.gromo.Widget"
 
@@ -30,6 +32,7 @@ struct WidgetControl: ControlWidget {
     }
 }
 
+@available(iOS 18.0, *)
 extension WidgetControl {
     struct Value {
         var isRunning: Bool
@@ -48,6 +51,7 @@ extension WidgetControl {
     }
 }
 
+@available(iOS 18.0, *)
 struct TimerConfiguration: ControlConfigurationIntent {
     static let title: LocalizedStringResource = "Timer Name Configuration"
 
@@ -55,6 +59,7 @@ struct TimerConfiguration: ControlConfigurationIntent {
     var timerName: String
 }
 
+@available(iOS 18.0, *)
 struct StartTimerIntent: SetValueIntent {
     static let title: LocalizedStringResource = "Start a timer"
 

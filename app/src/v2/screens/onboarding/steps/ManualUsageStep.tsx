@@ -53,7 +53,7 @@ export default function ManualUsageStep({ data, update, onNext, onBack }: StepPr
 
 const s = StyleSheet.create({
   center: { alignItems: 'center', paddingTop: 8 },
-  big: { ...T.text.display, fontSize: 52, color: T.ink },
+  big: { ...T.text.timer, color: T.ink },
   cap: { ...T.text.caption, fontWeight: '600', color: T.inkMuted, marginTop: 6 },
   sliderArea: { alignSelf: 'stretch', marginTop: 24, marginBottom: 16 },
   labels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 7 },

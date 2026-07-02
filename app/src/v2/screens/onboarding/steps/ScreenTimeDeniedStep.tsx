@@ -28,5 +28,5 @@ export default function ScreenTimeDeniedStep({ onNext, onBack }: StepProps) {
 }
 
 const s = StyleSheet.create({
-  mascot: { fontSize: 96 },
+  mascot: { fontSize: 96 }, // 임시 마스코트(이모지) 크기 — Character2D 교체 예정
 });

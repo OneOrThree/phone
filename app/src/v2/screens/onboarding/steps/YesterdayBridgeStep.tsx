@@ -2,6 +2,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle, Path } from 'react-native-svg';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
+import { T } from '@/v2/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // 08 · 어제 사용 환기 (브릿지) — 입력 없음. 어두운 폰 일러스트로 '어제 얼마나 썼나' 환기 후 다음.
@@ -96,5 +97,5 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  qtime: { fontSize: 17, fontWeight: '800', color: '#E6D3B4' },
+  qtime: { ...T.text.body, fontWeight: '800', color: '#E6D3B4' },
 });

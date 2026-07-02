@@ -92,7 +92,7 @@ const s = StyleSheet.create({
     borderTopRightRadius: 6,
     backgroundColor: '#C7A87E',
   },
-  mascot: { fontSize: 96, marginBottom: 30 },
+  mascot: { fontSize: 96, marginBottom: 30 }, // 임시 마스코트(이모지) 크기 — Character2D 교체 예정
   label: { ...T.text.caption, color: T.ink, marginBottom: 9 },
   labelEn: { color: T.inkMuted, fontWeight: '500' },
   inputRow: { position: 'relative', justifyContent: 'center' },

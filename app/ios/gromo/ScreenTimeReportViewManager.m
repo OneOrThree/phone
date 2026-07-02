@@ -11,3 +11,8 @@ RCT_EXPORT_VIEW_PROPERTY(reportContext, NSString)
 RCT_EXPORT_VIEW_PROPERTY(goalSeconds, double)
 
 @end
+
+// 집중 세션 허용앱 목록 네이티브 뷰 — RN 컴포넌트명 'AllowedAppsListView'
+@interface RCT_EXTERN_MODULE(AllowedAppsListViewManager, RCTViewManager)
+
+@end

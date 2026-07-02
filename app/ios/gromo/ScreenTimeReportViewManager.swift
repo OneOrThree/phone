@@ -19,3 +19,20 @@ class ScreenTimeReportViewManager: RCTViewManager {
         return UIView()
     }
 }
+
+// 집중 세션 허용앱 목록 네이티브 뷰(AllowedAppsListUIView)를 RN에 등록하는 ViewManager.
+// 클래스명에서 "Manager"를 뗀 'AllowedAppsListView'로 requireNativeComponent에서 참조.
+@objc(AllowedAppsListViewManager)
+class AllowedAppsListViewManager: RCTViewManager {
+
+    override static func requiresMainQueueSetup() -> Bool {
+        return true
+    }
+
+    override func view() -> UIView! {
+        if #available(iOS 16.0, *) {
+            return AllowedAppsListUIView()
+        }
+        return UIView()
+    }
+}

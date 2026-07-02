@@ -25,34 +25,28 @@ struct HomeUsageView: View {
         let fill = isOver ? over : accent
 
         VStack(alignment: .leading, spacing: 7) {
-            Text(formatDuration(totalActivity.totalDuration))
-                .font(.system(size: 22, weight: .heavy))
-                .foregroundColor(ink)
-
-            // 진행 바(flex) + 오른쪽 고정폭 목표 블록("목표"/"n시간" 2줄)
-            // → 목표 블록 폭이 고정이라 공부 집중 행과 바 길이가 동일해짐.
-            HStack(alignment: .center, spacing: 9) {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 3).fill(track)
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(fill)
-                            .frame(width: max(geo.size.width * pct, pct > 0 ? 6 : 0))
-                    }
-                }
-                .frame(height: 6)
-
-                VStack(alignment: .center, spacing: 1) {
-                    Text("목표")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(muted)
-                    Text(hasGoal ? formatDuration(goal) : "-")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(muted)
-                }
-                .fixedSize()
-                .layoutPriority(1)
+            // 값 줄 — 왼쪽 큰 값 + 오른쪽 목표(바 옆이 아니라 값 줄로 올림, JS MetricRow와 동일)
+            HStack(alignment: .lastTextBaseline, spacing: 8) {
+                Text(formatClock(totalActivity.totalDuration))
+                    .font(.system(size: 22, weight: .heavy))
+                    .foregroundColor(ink)
+                Spacer(minLength: 0)
+                Text(hasGoal ? "목표 \(formatDuration(goal))" : "목표 -")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(muted)
+                    .lineLimit(1)
             }
+
+            // 진행 바 — 카드 끝까지 전체 폭(공부 집중 행과 동일)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 3).fill(track)
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(fill)
+                        .frame(width: max(geo.size.width * pct, pct > 0 ? 6 : 0))
+                }
+            }
+            .frame(height: 6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
