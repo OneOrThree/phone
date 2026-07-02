@@ -107,6 +107,26 @@ class FriendshipRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
+    @DisplayName("countAcceptedByUser — 양방향 ACCEPTED 합산, PENDING·소프트딜리트 제외")
+    void countAcceptedByUser_bidirectionalAccepted_excludesPendingAndDeleted() {
+        User me = saveUser("me");
+        User a = saveUser("a");
+        User b = saveUser("b");
+        User c = saveUser("c");
+        User d = saveUser("d");
+        save(me, a, FriendshipStatus.ACCEPTED);   // ① me가 fromUser → 카운트 대상
+        save(b, me, FriendshipStatus.ACCEPTED);   // ② me가 toUser → 카운트 대상
+        save(me, c, FriendshipStatus.PENDING);    // ③ PENDING → 제외
+        Friendship deleted = save(me, d, FriendshipStatus.ACCEPTED);
+        deleted.softDelete(Instant.now());        // ④ soft delete → 제외
+        friendshipRepository.flush();
+
+        long count = friendshipRepository.countAcceptedByUser(me);
+
+        assertThat(count).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("searchByNicknameTrgm — 실제 trgm 유사 매칭, 다른 닉네임·삭제 유저 제외")
     void searchByNicknameTrgm_matchesSimilar_excludesDeleted() {
         User alice = saveUser("alice");
