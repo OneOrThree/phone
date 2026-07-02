@@ -376,10 +376,19 @@ class ScreenTimeModule: NSObject {
                 return
             }
 
+            // 저장된 허용앱 선택을 미리 불러와 피커에 채운다(재선택 시 기존 선택 유지)
+            let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+            var initialSelection = FamilyActivitySelection()
+            if let data = defaults?.data(forKey: "gromo:focus:allowedSelection"),
+               let saved = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
+                initialSelection = saved
+            }
+
             let pickerView = GoalAppPickerView(
                 title: "집중 중 허용 앱",
+                initialSelection: initialSelection,
+                maxApplications: 40,
                 onDone: { selection in
-                    let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
                     if let data = try? JSONEncoder().encode(selection) {
                         defaults?.set(data, forKey: "gromo:focus:allowedSelection")
                     }
@@ -397,6 +406,52 @@ class ScreenTimeModule: NSObject {
             )
 
             let host = UIHostingController(rootView: pickerView)
+            top.present(host, animated: true)
+        }
+    }
+
+    // 허용앱 관리 화면 — 현재 허용앱 목록(아이콘+이름)을 보여주고, "앱 추가/삭제"로 피커를 띄운다.
+    // 완료 시 gromo:focus:allowedSelection에 저장하고 선택 개수를 반환. 취소(스와이프)는 막는다.
+    @objc func presentAllowedAppManager(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard #available(iOS 16.0, *) else {
+            reject("UNAVAILABLE", "iOS 16.0 이상에서만 사용 가능합니다.", nil)
+            return
+        }
+        DispatchQueue.main.async {
+            guard let top = ScreenTimeModule.topViewController() else {
+                reject("NO_VC", "표시할 화면을 찾을 수 없습니다.", nil)
+                return
+            }
+
+            // 저장된 허용앱 선택을 미리 불러와 목록·피커에 채운다
+            let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+            var initialSelection = FamilyActivitySelection()
+            if let data = defaults?.data(forKey: "gromo:focus:allowedSelection"),
+               let saved = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
+                initialSelection = saved
+            }
+
+            let managerView = AllowedAppManagerView(
+                initialSelection: initialSelection,
+                maxApplications: 40,
+                onClose: { selection in
+                    if let data = try? JSONEncoder().encode(selection) {
+                        defaults?.set(data, forKey: "gromo:focus:allowedSelection")
+                    }
+                    top.dismiss(animated: true)
+                    resolve([
+                        "applications": selection.applicationTokens.count,
+                        "categories": selection.categoryTokens.count,
+                        "webDomains": selection.webDomainTokens.count
+                    ])
+                }
+            )
+
+            let host = UIHostingController(rootView: managerView)
+            host.isModalInPresentation = true // 스와이프로 닫으면 promise가 안 풀리므로 완료만 허용
             top.present(host, animated: true)
         }
     }
@@ -582,24 +637,152 @@ struct GromoFocusAttributes: ActivityAttributes {
 // 상단에 "취소 / 완료" 버튼을 달아 시트로 표시. title로 용도(측정 대상/허용앱) 구분.
 @available(iOS 16.0, *)
 struct GoalAppPickerView: View {
-    @State private var selection = FamilyActivitySelection()
-    var title: String = "측정 대상 선택"
-    let onDone: (FamilyActivitySelection) -> Void
-    let onCancel: () -> Void
+    @State private var selection: FamilyActivitySelection
+    @State private var showLimitAlert = false
+    @State private var lastAppCount: Int
+    private let title: String
+    private let maxApplications: Int?  // nil = 개수 제한 없음(측정 대상 선택). 허용앱은 40.
+    private let onDone: (FamilyActivitySelection) -> Void
+    private let onCancel: () -> Void
+
+    // initialSelection으로 기존 선택을 미리 채운다(허용앱 재선택 시 유지). 기본값은 빈 선택.
+    init(
+        title: String = "측정 대상 선택",
+        initialSelection: FamilyActivitySelection = FamilyActivitySelection(),
+        maxApplications: Int? = nil,
+        onDone: @escaping (FamilyActivitySelection) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.title = title
+        self.maxApplications = maxApplications
+        self._selection = State(initialValue: initialSelection)
+        self._lastAppCount = State(initialValue: initialSelection.applicationTokens.count)
+        self.onDone = onDone
+        self.onCancel = onCancel
+    }
+
+    private var appCount: Int { selection.applicationTokens.count }
+
+    // 초과 판정 — 개별 앱이 상한 초과이거나, 카테고리(전체 선택)를 골랐을 때.
+    // 카테고리는 실드 예외(.all(except:))로도 무시되고 개수도 폭증하므로 허용 안 함.
+    private var isOverLimit: Bool {
+        guard let max = maxApplications else { return false }
+        return appCount > max || !selection.categoryTokens.isEmpty
+    }
 
     var body: some View {
         NavigationView {
             FamilyActivityPicker(selection: $selection)
-                .navigationTitle(title)
+                .navigationTitle(maxApplications == nil ? title : "")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("취소") { onCancel() }
                     }
+                    // 제한이 있는 허용앱 피커만 제목 아래 n/40 카운터 표시(초과 시 빨강)
+                    if let max = maxApplications {
+                        ToolbarItem(placement: .principal) {
+                            VStack(spacing: 1) {
+                                Text(title).font(.headline)
+                                Text("\(appCount)/\(max)")
+                                    .font(.caption)
+                                    .foregroundColor(appCount > max ? .red : .secondary)
+                            }
+                        }
+                    }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("완료") { onDone(selection) }
+                        Button("완료") {
+                            if isOverLimit { showLimitAlert = true } else { onDone(selection) }
+                        }
                     }
                 }
+                // 개별 앱이 늘어나 상한을 넘는 순간 경고(줄이는 중엔 안 띄움)
+                .onChange(of: selection.applicationTokens) { apps in
+                    if let max = maxApplications, apps.count > max, apps.count > lastAppCount {
+                        showLimitAlert = true
+                    }
+                    lastAppCount = apps.count
+                }
+                // 전체 선택(카테고리) 잡히면 즉시 경고
+                .onChange(of: selection.categoryTokens) { cats in
+                    if maxApplications != nil, !cats.isEmpty { showLimitAlert = true }
+                }
+                .alert("\(maxApplications ?? 40)개까지만 고를 수 있어", isPresented: $showLimitAlert) {
+                    Button("확인", role: .cancel) {}
+                } message: {
+                    Text("허용앱은 개별 앱으로 최대 \(maxApplications ?? 40)개까지야. 전체 선택은 안 돼!")
+                }
+        }
+    }
+}
+
+// 허용앱 관리 화면 — 현재 허용앱을 아이콘+이름으로 나열하고(Label(token), opaque 토큰이라
+// 네이티브로만 그릴 수 있음), "앱 추가/삭제"로 캡 피커(GoalAppPickerView)를 시트로 띄운다.
+// 완료 시 최종 선택을 onClose로 넘긴다(추가/삭제 모두 피커에서 처리).
+@available(iOS 16.0, *)
+struct AllowedAppManagerView: View {
+    @State private var selection: FamilyActivitySelection
+    @State private var showPicker = false
+    private let maxApplications: Int
+    private let onClose: (FamilyActivitySelection) -> Void
+
+    init(
+        initialSelection: FamilyActivitySelection,
+        maxApplications: Int = 40,
+        onClose: @escaping (FamilyActivitySelection) -> Void
+    ) {
+        self._selection = State(initialValue: initialSelection)
+        self.maxApplications = maxApplications
+        self.onClose = onClose
+    }
+
+    private var apps: [ApplicationToken] { Array(selection.applicationTokens) }
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section {
+                    if apps.isEmpty {
+                        Text("아직 허용한 앱이 없어. 아래에서 추가해줘!")
+                            .foregroundColor(.secondary)
+                    } else {
+                        // Label(token) — OS가 아이콘+이름을 프라이버시 보호 형태로 렌더(값은 못 읽음)
+                        ForEach(apps, id: \.self) { token in
+                            Label(token)
+                        }
+                    }
+                } header: {
+                    Text("허용앱 \(selection.applicationTokens.count)/\(maxApplications)")
+                } footer: {
+                    Text("집중 중에도 이 앱들은 쓸 수 있어. 최대 \(maxApplications)개까지야.")
+                }
+            }
+            .navigationTitle("집중 중 허용 앱")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showPicker = true
+                    } label: {
+                        Label("앱 추가/삭제", systemImage: "plus.circle")
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("완료") { onClose(selection) }
+                }
+            }
+            .sheet(isPresented: $showPicker) {
+                GoalAppPickerView(
+                    title: "허용앱 추가/삭제",
+                    initialSelection: selection,
+                    maxApplications: maxApplications,
+                    onDone: { newSel in
+                        selection = newSel
+                        showPicker = false
+                    },
+                    onCancel: { showPicker = false }
+                )
+            }
         }
     }
 }

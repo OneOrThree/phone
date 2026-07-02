@@ -29,6 +29,7 @@ interface NativeScreenTime {
   presentAppPicker(): Promise<AppSelectionCounts | null>;
   promoteSelection(): Promise<boolean>;
   presentAllowedAppPicker(): Promise<AppSelectionCounts | null>;
+  presentAllowedAppManager(): Promise<AppSelectionCounts | null>;
   getAllowedSelectionCounts(): Promise<AppSelectionCounts | null>;
   startFocusShield(subjectName: string): Promise<boolean>;
   stopFocusShield(): Promise<void>;
@@ -109,6 +110,12 @@ const ScreenTimeModule = {
   presentAllowedAppPicker: async (): Promise<AppSelectionCounts | null> => {
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.presentAllowedAppPicker();
+  },
+
+  // 허용앱 관리 화면(현재 목록 + 추가/삭제 피커). 완료 시 저장·적용. 스와이프 취소 불가.
+  presentAllowedAppManager: async (): Promise<AppSelectionCounts | null> => {
+    if (Platform.OS !== 'ios') return null;
+    return NativeScreenTimeModule.presentAllowedAppManager();
   },
 
   // 저장된 허용앱 선택 개수. 미설정이면 null.

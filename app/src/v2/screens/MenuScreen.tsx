@@ -154,7 +154,7 @@ export default function MenuScreen() {
         );
         return;
       }
-      const counts = await ScreenTimeModule.presentAllowedAppPicker();
+      const counts = await ScreenTimeModule.presentAllowedAppManager();
       if (!counts) return;
       setAllowedApps(counts.applications);
       // 실드 예외는 개별 앱 토큰만 지원 — 카테고리로 골랐으면 안내
