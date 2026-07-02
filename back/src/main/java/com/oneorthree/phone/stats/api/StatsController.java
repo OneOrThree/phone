@@ -2,6 +2,7 @@ package com.oneorthree.phone.stats.api;
 
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
+import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.StatsPeriod;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
@@ -85,5 +86,22 @@ public class StatsController {
             HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(statsService.getFocusStatsByPeriod(userId, period));
+    }
+
+    @Operation(summary = "기간별 스크린타임 통계 조회",
+            description = "day·week·month 기간별 스크린타임 합계, 직전 기간 대비 delta, 목표 달성 정보 반환."
+                    + " day 단위에서 오늘 사용 기록이 없으면(0분) 목표 설정 시 달성으로 간주.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "400", description = "잘못된 period 값"),
+        @ApiResponse(responseCode = "401", description = "인증 필요"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
+    @GetMapping("/stats/screen-time")
+    public ResponseEntity<ScreenTimePeriodStatsResponse> getScreenTimePeriodStats(
+            @RequestParam StatsPeriod period,
+            HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(statsService.getScreenTimePeriodStats(userId, period));
     }
 }

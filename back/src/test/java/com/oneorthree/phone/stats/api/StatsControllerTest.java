@@ -2,6 +2,7 @@ package com.oneorthree.phone.stats.api;
 
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
+import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.StatsPeriod;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
@@ -167,6 +168,94 @@ class StatsControllerTest {
     @DisplayName("기간별 통계 period 파라미터 누락 → 400")
     void getFocusStatsByPeriodMissingParamReturns400() throws Exception {
         mockMvc.perform(get("/api/v1/stats/focus"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    // ── getScreenTimePeriodStats ──────────────────────────────────────────
+
+    @Test
+    @DisplayName("스크린타임 기간별 통계 ?period=day → 200, day 전용 필드(goalAchieved) + achievedDays/totalDays=null")
+    void getScreenTimePeriodStatsDayReturns200() throws Exception {
+        given(statsService.getScreenTimePeriodStats(any(), any()))
+                .willReturn(new ScreenTimePeriodStatsResponse(
+                        StatsPeriod.DAY,
+                        LocalDate.of(2026, 7, 3),
+                        LocalDate.of(2026, 7, 3),
+                        80, 100, -20, 120, true, null, null));
+
+        mockMvc.perform(get("/api/v1/stats/screen-time").param("period", "day"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period").value("DAY"))
+                .andExpect(jsonPath("$.from").value("2026-07-03"))
+                .andExpect(jsonPath("$.to").value("2026-07-03"))
+                .andExpect(jsonPath("$.currentMinutes").value(80))
+                .andExpect(jsonPath("$.previousMinutes").value(100))
+                .andExpect(jsonPath("$.deltaMinutes").value(-20))
+                .andExpect(jsonPath("$.goalMinutes").value(120))
+                .andExpect(jsonPath("$.goalAchieved").value(true))
+                .andExpect(jsonPath("$.achievedDays").doesNotExist())
+                .andExpect(jsonPath("$.totalDays").doesNotExist())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("스크린타임 기간별 통계 ?period=week → 200, achievedDays·totalDays 존재, goalAchieved=null")
+    void getScreenTimePeriodStatsWeekReturns200() throws Exception {
+        given(statsService.getScreenTimePeriodStats(any(), any()))
+                .willReturn(new ScreenTimePeriodStatsResponse(
+                        StatsPeriod.WEEK,
+                        LocalDate.of(2026, 6, 29),
+                        LocalDate.of(2026, 7, 3),
+                        270, 160, 110, 100, null, 2, 5));
+
+        mockMvc.perform(get("/api/v1/stats/screen-time").param("period", "week"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period").value("WEEK"))
+                .andExpect(jsonPath("$.from").value("2026-06-29"))
+                .andExpect(jsonPath("$.to").value("2026-07-03"))
+                .andExpect(jsonPath("$.currentMinutes").value(270))
+                .andExpect(jsonPath("$.previousMinutes").value(160))
+                .andExpect(jsonPath("$.deltaMinutes").value(110))
+                .andExpect(jsonPath("$.goalAchieved").doesNotExist())
+                .andExpect(jsonPath("$.achievedDays").value(2))
+                .andExpect(jsonPath("$.totalDays").value(5))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("스크린타임 기간별 통계 ?period=month → 200")
+    void getScreenTimePeriodStatsMonthReturns200() throws Exception {
+        given(statsService.getScreenTimePeriodStats(any(), any()))
+                .willReturn(new ScreenTimePeriodStatsResponse(
+                        StatsPeriod.MONTH,
+                        LocalDate.of(2026, 7, 1),
+                        LocalDate.of(2026, 7, 3),
+                        200, 0, 200, 0, null, 1, 3));
+
+        mockMvc.perform(get("/api/v1/stats/screen-time").param("period", "month"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period").value("MONTH"))
+                .andExpect(jsonPath("$.from").value("2026-07-01"))
+                .andExpect(jsonPath("$.to").value("2026-07-03"))
+                .andExpect(jsonPath("$.currentMinutes").value(200))
+                .andExpect(jsonPath("$.achievedDays").value(1))
+                .andExpect(jsonPath("$.totalDays").value(3))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("스크린타임 기간별 통계 ?period=INVALID → 400")
+    void getScreenTimePeriodStatsInvalidValueReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/stats/screen-time").param("period", "INVALID"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("스크린타임 기간별 통계 period 누락 → 400")
+    void getScreenTimePeriodStatsMissingParamReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/stats/screen-time"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
