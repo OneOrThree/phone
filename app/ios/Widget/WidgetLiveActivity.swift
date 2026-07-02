@@ -53,7 +53,8 @@ private struct CharacterView: View {
                 .scaledToFit()
                 .frame(width: size, height: size)
         } else {
-            Text("🐹").font(.system(size: size * 0.8))
+            // 스냅샷 없으면 표시 생략(이모지 폴백 금지)
+            EmptyView()
         }
     }
 }
@@ -71,17 +72,18 @@ private struct ElapsedTimerText: View {
     }
 }
 
+// TODO(진단): Live Activity 미표시 원인 테스트 — 캐릭터 이미지(App Group 파일 IO) 로드가
+// 위젯 렌더를 죽이는지 확인하려고 이미지 없이 타이머/텍스트만 그린다. 원인 확정 후 복구.
 struct WidgetLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: GromoFocusAttributes.self) { context in
             // 잠금화면/배너 UI
             HStack(spacing: 12) {
-                CharacterView(size: 44)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(context.attributes.subjectName)
                         .font(.headline.weight(.bold))
                         .foregroundStyle(laCream)
-                    Text("집중하는 중이야!")
+                    Text("집중하는 중이에요!")
                         .font(.caption)
                         .foregroundStyle(laMuted)
                 }
@@ -94,46 +96,25 @@ struct WidgetLiveActivity: Widget {
             .activitySystemActionForegroundColor(laCream)
 
         } dynamicIsland: { context in
+            // 다이나믹 아일랜드 — 글자 없이 숫자(경과 타이머)만 표시
             DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) {
-                    CharacterView(size: 48)
-                }
-                DynamicIslandExpandedRegion(.trailing) {
-                    ElapsedTimerText(startedAt: context.state.startedAt)
-                        .frame(maxWidth: 100)
-                }
-                DynamicIslandExpandedRegion(.bottom) {
-                    Text("\(context.attributes.subjectName) 집중하는 중이야!")
-                        .font(.caption)
-                        .foregroundStyle(laMuted)
+                DynamicIslandExpandedRegion(.center) {
+                    ElapsedTimerText(startedAt: context.state.startedAt, font: .title)
+                        .frame(maxWidth: 140)
                 }
             } compactLeading: {
-                CharacterView(size: 22)
+                EmptyView()
             } compactTrailing: {
                 ElapsedTimerText(startedAt: context.state.startedAt, font: .caption2)
                     .frame(maxWidth: 60)
             } minimal: {
-                CharacterView(size: 22)
+                // 미니멀 원형엔 숫자가 안 들어가 아이콘만(글자 아님)
+                Image(systemName: "timer")
+                    .foregroundStyle(laGold)
             }
             .keylineTint(laGold)
         }
     }
 }
 
-extension GromoFocusAttributes {
-    fileprivate static var preview: GromoFocusAttributes {
-        GromoFocusAttributes(subjectName: "노동법")
-    }
-}
-
-extension GromoFocusAttributes.ContentState {
-    fileprivate static var running: GromoFocusAttributes.ContentState {
-        GromoFocusAttributes.ContentState(startedAt: .now)
-    }
-}
-
-#Preview("Notification", as: .content, using: GromoFocusAttributes.preview) {
-    WidgetLiveActivity()
-} contentStates: {
-    GromoFocusAttributes.ContentState.running
-}
+// #Preview(활동 프리뷰 매크로)는 iOS 18 SDK 전용이라 배포 타깃(17.0) 컴파일을 위해 제거.
