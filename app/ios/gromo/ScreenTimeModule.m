@@ -67,4 +67,46 @@ RCT_EXTERN_METHOD(
     rejecter:(RCTPromiseRejectBlock)reject
 )
 
+// ── 집중 세션 허용앱 / 실드 (GROMO-553) ──
+
+RCT_EXTERN_METHOD(
+    presentAllowedAppPicker:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
+RCT_EXTERN_METHOD(
+    getAllowedSelectionCounts:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
+RCT_EXTERN_METHOD(
+    startFocusShield:(NSString *)subjectName
+    resolver:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
+RCT_EXTERN_METHOD(
+    stopFocusShield:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
+// ── 집중 세션 Live Activity (GROMO-553) ──
+
+RCT_EXTERN_METHOD(
+    saveCharacterSnapshot:(NSString *)base64
+    resolver:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
+RCT_EXTERN_METHOD(
+    startFocusActivity:(NSString *)subjectName
+    resolver:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
+RCT_EXTERN_METHOD(
+    endFocusActivity:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
 @end

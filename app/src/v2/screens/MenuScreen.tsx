@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -69,6 +69,14 @@ export default function MenuScreen() {
   const { goalSeconds, setGoalSeconds, screenTimeGoalSeconds, setScreenTimeGoalSeconds } =
     useUser();
   const [editing, setEditing] = useState<{ key: GoalKey; seconds: number } | null>(null);
+  // 집중 중 허용앱 개수 — 행 sub 표시용. null = 아직 로드 전.
+  const [allowedApps, setAllowedApps] = useState<number | null>(null);
+
+  useEffect(() => {
+    ScreenTimeModule.getAllowedSelectionCounts()
+      .then((c) => setAllowedApps(c?.applications ?? 0))
+      .catch(() => setAllowedApps(0));
+  }, []);
 
   function openEdit(key: GoalKey) {
     setEditing({ key, seconds: key === 'screen' ? screenTimeGoalSeconds : goalSeconds });
@@ -135,6 +143,34 @@ export default function MenuScreen() {
     }
   }
 
+  // 집중 중 허용앱 선택 — 세션 실드에서 예외로 열어줄 앱들.
+  async function editAllowedApps() {
+    try {
+      const status = await ScreenTimeModule.getAuthorizationStatus();
+      if (status !== 'approved') {
+        Alert.alert(
+          '스크린타임 권한 필요',
+          '허용앱을 고르려면 먼저 스크린타임 권한을 허용해야 해요.',
+        );
+        return;
+      }
+      const counts = await ScreenTimeModule.presentAllowedAppPicker();
+      if (!counts) return;
+      setAllowedApps(counts.applications);
+      // 실드 예외는 개별 앱 토큰만 지원 — 카테고리로 골랐으면 안내
+      const categoryNote =
+        counts.categories > 0 ? '\n(카테고리 선택은 적용되지 않아요 — 개별 앱으로 골라주세요)' : '';
+      Alert.alert(
+        '허용앱 변경됨',
+        counts.applications > 0
+          ? `집중 중에도 앱 ${counts.applications}개를 쓸 수 있어요.${categoryNote}`
+          : `허용앱을 비웠어요 — 집중 중엔 모든 앱이 잠겨요.${categoryNote}`,
+      );
+    } catch (e) {
+      Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
+    }
+  }
+
   function onLogout() {
     Alert.alert('로그아웃', '로그아웃 하시겠어요?', [
       { text: '취소', style: 'cancel' },
@@ -176,6 +212,21 @@ export default function MenuScreen() {
             label="측정 대상 앱 설정"
             sub="핸드폰 사용시간을 잴 앱·카테고리 선택"
             onPress={editScreenTimeTargets}
+          />
+          <Row
+            divider
+            icon="lock-open-outline"
+            iconColor={T.greenDeep}
+            iconBg={T.greenBg}
+            label="집중 중 허용 앱"
+            sub={
+              allowedApps === null
+                ? '집중 중에도 쓸 수 있는 앱 선택'
+                : allowedApps > 0
+                  ? `앱 ${allowedApps}개 허용 중`
+                  : '허용앱 없음 — 집중 중 모든 앱 잠금'
+            }
+            onPress={editAllowedApps}
           />
           <Row
             icon="log-out-outline"

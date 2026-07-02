@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { api } from '@/services/api';
+import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
@@ -19,6 +20,8 @@ export function OrphanFocusSettler() {
   useEffect(() => {
     if (ran.current) return;
     ran.current = true;
+    // 세션 중 죽었으면 실드가 켜진 채 남는다 — 레코드 유무와 무관하게 앱 시작 시 해제(멱등).
+    ScreenTimeModule.stopFocusShield().catch(() => {});
     (async () => {
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
       if (!raw) return;

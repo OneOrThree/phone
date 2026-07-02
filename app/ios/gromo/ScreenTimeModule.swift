@@ -10,8 +10,10 @@
 //   await ScreenTimeModule.requestAuthorization();
 
 import Foundation
+import ActivityKit     // 집중 세션 Live Activity(다이나믹 아일랜드)
 import FamilyControls  // 스크린 타임 권한 요청에 필요한 Apple 프레임워크
 import DeviceActivity  // DeviceActivityCenter, DeviceActivitySchedule, DeviceActivityEvent
+import ManagedSettings // 집중 세션 중 앱 차단(shield)
 import SwiftUI         // FamilyActivityPicker 표시용
 
 // @objc: Objective-C 런타임에 노출 (React Native 브릿지가 ObjC 기반이라 필요)
@@ -351,6 +353,205 @@ class ScreenTimeModule: NSObject {
         }
     }
 
+    // MARK: - 집중 세션 허용앱 / 실드 (GROMO-553)
+    //
+    // "허용앱" = 집중 세션 중에도 쓸 수 있는 앱. 세션 시작 시 허용앱을 제외한
+    // 모든 앱에 shield를 걸고(OS가 가림막 표시), 정지 시 해제한다.
+    // 측정 대상(gromo:goal:selection)과 별개 키로 관리하며 pending 승격 없이 즉시 적용.
+
+    // 허용앱 선택 picker — 선택 결과를 gromo:focus:allowedSelection에 바로 저장.
+    // 반환값: { applications, categories, webDomains } (각 선택 개수) | nil(취소)
+    // ⚠️ shield의 예외(.all(except:))는 개별 앱 토큰만 지원 — 카테고리 선택은 개수만 저장되고 차단 예외론 무시됨.
+    @objc func presentAllowedAppPicker(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard #available(iOS 16.0, *) else {
+            reject("UNAVAILABLE", "iOS 16.0 이상에서만 사용 가능합니다.", nil)
+            return
+        }
+        DispatchQueue.main.async {
+            guard let top = ScreenTimeModule.topViewController() else {
+                reject("NO_VC", "표시할 화면을 찾을 수 없습니다.", nil)
+                return
+            }
+
+            let pickerView = GoalAppPickerView(
+                title: "집중 중 허용 앱",
+                onDone: { selection in
+                    let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+                    if let data = try? JSONEncoder().encode(selection) {
+                        defaults?.set(data, forKey: "gromo:focus:allowedSelection")
+                    }
+                    top.dismiss(animated: true)
+                    resolve([
+                        "applications": selection.applicationTokens.count,
+                        "categories": selection.categoryTokens.count,
+                        "webDomains": selection.webDomainTokens.count
+                    ])
+                },
+                onCancel: {
+                    top.dismiss(animated: true)
+                    resolve(nil)
+                }
+            )
+
+            let host = UIHostingController(rootView: pickerView)
+            top.present(host, animated: true)
+        }
+    }
+
+    // 저장된 허용앱 선택 개수 조회 — 메뉴/드로어 표시용.
+    // 반환값: { applications, categories, webDomains } | nil(미설정)
+    @objc func getAllowedSelectionCounts(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard #available(iOS 16.0, *) else {
+            resolve(nil)
+            return
+        }
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        guard
+            let data = defaults?.data(forKey: "gromo:focus:allowedSelection"),
+            let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data)
+        else {
+            resolve(nil)
+            return
+        }
+        resolve([
+            "applications": selection.applicationTokens.count,
+            "categories": selection.categoryTokens.count,
+            "webDomains": selection.webDomainTokens.count
+        ])
+    }
+
+    // 집중 세션 실드 켜기 — 허용앱(개별 앱 토큰)을 제외한 모든 앱/웹을 차단.
+    // 허용앱 미설정이면 예외 없이 전부 차단(집중의 기본 동작).
+    // subjectName은 커스텀 가림막(ShieldConfiguration 익스텐션)이 문구에 쓰도록 App Group에 기록.
+    @objc func startFocusShield(
+        _ subjectName: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard #available(iOS 16.0, *) else {
+            resolve(false)
+            return
+        }
+        guard AuthorizationCenter.shared.authorizationStatus == .approved else {
+            resolve(false)
+            return
+        }
+
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        defaults?.set(subjectName, forKey: "gromo:focus:shieldSubject")
+
+        var allowedApps = Set<ApplicationToken>()
+        var allowedWebDomains = Set<WebDomainToken>()
+        if let data = defaults?.data(forKey: "gromo:focus:allowedSelection"),
+           let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
+            allowedApps = selection.applicationTokens
+            allowedWebDomains = selection.webDomainTokens
+        }
+
+        let store = ManagedSettingsStore(named: ManagedSettingsStore.Name("gromoFocus"))
+        store.shield.applicationCategories = .all(except: allowedApps)
+        store.shield.webDomainCategories = .all(except: allowedWebDomains)
+        resolve(true)
+    }
+
+    // 집중 세션 실드 끄기 — 세션 정지/앱 재실행(고아 세션 정리) 시 호출.
+    @objc func stopFocusShield(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard #available(iOS 16.0, *) else {
+            resolve(nil)
+            return
+        }
+        let store = ManagedSettingsStore(named: ManagedSettingsStore.Name("gromoFocus"))
+        store.clearAllSettings()
+        resolve(nil)
+    }
+
+    // MARK: - 집중 세션 Live Activity (GROMO-553)
+
+    // 캐릭터 스냅샷(base64 PNG)을 App Group 컨테이너에 저장.
+    // Live Activity(Widget)와 가림막(ShieldConfiguration)이 이 파일을 읽어 표시한다.
+    @objc func saveCharacterSnapshot(
+        _ base64: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard
+            let data = Data(base64Encoded: base64),
+            let container = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: "group.com.oneorthree.gromo"
+            )
+        else {
+            resolve(false)
+            return
+        }
+        do {
+            try data.write(to: container.appendingPathComponent("focusCharacter.png"))
+            resolve(true)
+        } catch {
+            resolve(false)
+        }
+    }
+
+    // 집중 Live Activity 시작 — 타이머는 위젯의 Text(timerInterval:)가 자체 갱신하므로
+    // 시작 시각만 넘기면 업데이트가 필요 없다. 실패해도 세션 진행엔 영향 없음(false 반환).
+    @objc func startFocusActivity(
+        _ subjectName: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard #available(iOS 16.2, *) else {
+            resolve(false)
+            return
+        }
+        Task { @MainActor in
+            // 잔여 액티비티 정리 후 시작(중복 방지)
+            for activity in Activity<GromoFocusAttributes>.activities {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+            guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+                resolve(false)
+                return
+            }
+            do {
+                _ = try Activity.request(
+                    attributes: GromoFocusAttributes(subjectName: subjectName),
+                    content: .init(
+                        state: GromoFocusAttributes.ContentState(startedAt: Date()),
+                        staleDate: nil
+                    )
+                )
+                resolve(true)
+            } catch {
+                resolve(false)
+            }
+        }
+    }
+
+    // 집중 Live Activity 종료 — 세션 정지/화면 이탈 시 호출(멱등).
+    @objc func endFocusActivity(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard #available(iOS 16.2, *) else {
+            resolve(nil)
+            return
+        }
+        Task {
+            for activity in Activity<GromoFocusAttributes>.activities {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+            resolve(nil)
+        }
+    }
+
     // 현재 화면 최상단 ViewController 찾기 (picker를 그 위에 present)
     private static func topViewController() -> UIViewController? {
         let keyWindow = UIApplication.shared.connectedScenes
@@ -365,18 +566,31 @@ class ScreenTimeModule: NSObject {
     }
 }
 
+// 집중 세션 Live Activity 속성 — ⚠️ ios/Widget/WidgetLiveActivity.swift 정의와
+// 반드시 동일하게 유지할 것(타입명·필드 인코딩으로 매칭됨).
+struct GromoFocusAttributes: ActivityAttributes {
+    public struct ContentState: Codable, Hashable {
+        // 타이머 기준 시각 — 위젯의 Text(timerInterval:)가 OS에서 자체 갱신
+        var startedAt: Date
+    }
+
+    // 세션 과목명
+    var subjectName: String
+}
+
 // FamilyActivityPicker를 감싸는 SwiftUI 뷰
-// 상단에 "취소 / 완료" 버튼을 달아 시트로 표시
+// 상단에 "취소 / 완료" 버튼을 달아 시트로 표시. title로 용도(측정 대상/허용앱) 구분.
 @available(iOS 16.0, *)
 struct GoalAppPickerView: View {
     @State private var selection = FamilyActivitySelection()
+    var title: String = "측정 대상 선택"
     let onDone: (FamilyActivitySelection) -> Void
     let onCancel: () -> Void
 
     var body: some View {
         NavigationView {
             FamilyActivityPicker(selection: $selection)
-                .navigationTitle("측정 대상 선택")
+                .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {

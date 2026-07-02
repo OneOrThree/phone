@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { captureRef } from 'react-native-view-shot';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -19,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Character2D } from '@/components/character/Character2D';
 import { T } from '@/v2/constants/theme';
 import { api } from '@/services/api';
+import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
@@ -39,12 +41,14 @@ import { FocusMenuDrawer } from './components/FocusMenuDrawer';
 // 타이머는 실제로 tick하고, 정지 시 집중시간·코인·세션 POST를 반영한다(구 FocusMode 로직 이식).
 // 다크 화면 색은 T.night 팔레트 사용.
 //
-// 이탈 감지 — 집중 페이즈에서 앱을 벗어나면(background) 그 순간부터 일시정지(미적립):
-//   15초 안에 복귀: 자리 비운 시간만 빠지고 세션은 이어감
-//   15초 초과: 세션 자동 종료·저장 (백그라운드에선 JS가 멈추므로 복귀 시점에 판정)
-// 알림은 나가는 즉시 경고 1회 + +15초에 종료 안내를 예약하고, 복귀 시 취소.
+// 세션 실드(GROMO-553) — 세션 동안 허용앱 외 모든 앱을 차단(ManagedSettings).
+// 실드가 켜진 세션은 앱 밖에 있어도 딴짓이 차단되므로 자리 비운 시간을 '집중으로 인정':
+//   복귀 시 away 초만큼 타이머를 전진(fast-forward, 상한 8시간). 이탈 알림·자동 종료 없음.
+// 실드 불가(스크린타임 권한 거부) 세션만 기존 이탈 정책 폴백:
+//   나가면 일시정지(미적립), 15초 안에 복귀하면 이어감, 초과 시 자동 종료. 알림 즉시+15초.
 // 수동 일시정지 중 이탈은 무시, 뽀모도로 휴식 중 이탈은 벽시계만큼 휴식만 소진.
 const LEAVE_END_S = 15;
+const AWAY_CREDIT_CAP_S = 8 * 3600; // 실드 세션 복귀 시 집중 인정 상한
 
 interface SessionState {
   elapsed: number; // 실제 집중 초(적립 기준) — 뽀모도로는 집중 블록만 누적
@@ -157,12 +161,55 @@ export default function FocusSessionScreen() {
     ensureNotificationPermission().catch(() => {});
   }, []);
 
+  // 세션 실드 — 시작 시 허용앱 외 전부 차단, 화면을 떠날 때 해제(멱등, finish에서도 해제).
+  // 적용 성공 여부(shielded)로 이탈 정책이 갈린다: 실드 O = 집중 인정 / 실드 X = 15초 정책.
+  const shieldedRef = useRef(false);
+  useEffect(() => {
+    ScreenTimeModule.startFocusShield(subjectName)
+      .then((ok) => {
+        shieldedRef.current = ok;
+      })
+      .catch(() => {});
+    return () => {
+      shieldedRef.current = false;
+      ScreenTimeModule.stopFocusShield().catch(() => {});
+    };
+  }, [subjectName]);
+
+  // Live Activity(다이나믹 아일랜드) — 캐릭터 스냅샷을 App Group에 저장한 뒤 시작.
+  // 화면을 떠나면 종료. 스냅샷 실패 시 위젯이 기본 마스코트로 폴백한다.
+  const charShotRef = useRef<View>(null);
+  useEffect(() => {
+    let cancelled = false;
+    // 캐릭터가 실제로 그려진 뒤 캡처(마운트 직후엔 빈 프레임일 수 있음)
+    const t = setTimeout(async () => {
+      try {
+        const base64 = await captureRef(charShotRef, {
+          format: 'png',
+          quality: 1,
+          result: 'base64',
+        });
+        if (!cancelled) await ScreenTimeModule.saveCharacterSnapshot(base64);
+      } catch {
+        /* noop */
+      }
+      if (!cancelled) ScreenTimeModule.startFocusActivity(subjectName).catch(() => {});
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+      ScreenTimeModule.endFocusActivity().catch(() => {});
+    };
+  }, [subjectName]);
+
   // 정지/완료 — 집중시간·코인 적립 + 세션 저장 후 홈으로. 한 번만 실행.
   const finish = useCallback(() => {
     if (finishedRef.current) return;
     finishedRef.current = true;
-    // 정상 종료 — 라이브 레코드 제거(고아 세션 정산 대상에서 제외)
+    // 정상 종료 — 라이브 레코드 제거(고아 세션 정산 대상에서 제외) + 실드·Live Activity 해제
     AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+    ScreenTimeModule.stopFocusShield().catch(() => {});
+    ScreenTimeModule.endFocusActivity().catch(() => {});
     const focused = Math.floor(sessionRef.current.elapsed);
     if (focused > 0) {
       addFocusSeconds(focused);
@@ -200,7 +247,8 @@ export default function FocusSessionScreen() {
         leftAtRef.current = Date.now();
         leftPhaseRef.current = sessionRef.current.phase;
         saveLive(sessionRef.current.elapsed); // 여기서 꺼져도 이 시점까지는 정산되게
-        if (sessionRef.current.phase === 'focus') {
+        // 실드 세션은 나가 있어도 집중 인정이라 이탈 알림 없음(폴백 세션만 경고)
+        if (sessionRef.current.phase === 'focus' && !shieldedRef.current) {
           scheduleLeaveNotifications(subjectName, LEAVE_END_S).catch(() => {});
         }
         return;
@@ -211,12 +259,23 @@ export default function FocusSessionScreen() {
       const away = Math.round((Date.now() - leftAtRef.current) / 1000);
       leftAtRef.current = null;
       cancelLeaveNotifications().catch(() => {});
-      if (__DEV__) console.log(`[이탈감지] ${away}초 만에 복귀 (기준 ${LEAVE_END_S}초)`);
+      if (__DEV__)
+        console.log(`[이탈감지] ${away}초 만에 복귀 (실드 ${shieldedRef.current ? 'ON' : 'OFF'})`);
       if (sessionRef.current.done || finishedRef.current) return;
 
       if (leftPhaseRef.current === 'focus') {
-        // 15초 초과 → 자동 종료(나가기 직전까지만 저장). 이내 복귀 → 멈춰 있던 그대로 이어감.
-        if (away > LEAVE_END_S) finish();
+        if (shieldedRef.current) {
+          // 실드 세션 — 딴짓이 차단된 상태였으므로 자리 비운 시간을 집중으로 인정(전진)
+          const credit = Math.min(away, AWAY_CREDIT_CAP_S);
+          setSession((prev) => {
+            let cur = prev;
+            for (let i = 0; i < credit && !cur.done; i++) cur = nextTick(cur);
+            return cur;
+          });
+        } else if (away > LEAVE_END_S) {
+          // 폴백(실드 없음) — 15초 초과 시 자동 종료(나가기 직전까지만 저장)
+          finish();
+        }
       } else {
         // 휴식 중 이탈 — 벽시계만큼 휴식만 소진. 휴식이 끝나 있으면 다음 집중을 일시정지로 대기.
         const cur = sessionRef.current;
@@ -238,7 +297,7 @@ export default function FocusSessionScreen() {
       sub.remove();
       cancelLeaveNotifications().catch(() => {});
     };
-  }, [subjectName, finish, pomo.focusMin, saveLive]);
+  }, [subjectName, finish, pomo.focusMin, saveLive, nextTick]);
 
   function onScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
     setPage(Math.round(e.nativeEvent.contentOffset.x / width));
@@ -270,7 +329,10 @@ export default function FocusSessionScreen() {
         >
           <View style={[s.page, { width }]}>
             <View style={s.characterWrap}>
-              <Character2D size={200} variant="focus" />
+              {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터 */}
+              <View ref={charShotRef} collapsable={false}>
+                <Character2D size={200} variant="focus" />
+              </View>
             </View>
           </View>
           <View style={[s.page, { width }]}>
