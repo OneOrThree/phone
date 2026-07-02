@@ -45,4 +45,14 @@ public class LeagueArena {
 
     @Column(name = "ended_at")
     private Instant endedAt;
+
+    // 주간 마감 — 아레나를 ENDED 로 전환하고 마감 시각을 기록한다
+    public void end(Instant endedAt) {
+        // 이미 ENDED 상태이면 배치 멱등성 재실행 경로를 위해 조용히 무시한다
+        if (this.status == LeagueArenaStatus.ENDED) {
+            return;
+        }
+        this.status = LeagueArenaStatus.ENDED;
+        this.endedAt = endedAt;
+    }
 }

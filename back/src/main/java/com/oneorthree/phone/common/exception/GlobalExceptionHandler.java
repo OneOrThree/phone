@@ -6,6 +6,7 @@ import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.friend.exception.FriendException;
+import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.stats.exception.StatsException;
 import com.oneorthree.phone.user.exception.UserException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -58,6 +59,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(StatsException.class)
     public ResponseEntity<ErrorResponse> handleStats(StatsException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(LeagueException.class)
+    public ResponseEntity<ErrorResponse> handleLeague(LeagueException e) {
         return ResponseEntity.status(e.getErrorCode().getStatus())
                 .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
     }
