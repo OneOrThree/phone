@@ -17,6 +17,7 @@ interface SubjectContextValue {
   addSubject: (name: string) => void;
   renameSubject: (id: string, name: string) => void;
   deleteSubject: (id: string) => void;
+  reorderSubjects: (next: Subject[]) => void;
   addFocusToSubject: (id: string, seconds: number) => void;
 }
 
@@ -51,6 +52,11 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
     setSubjects((prev) => prev.filter((x) => x.id !== id));
   }
 
+  // 드래그로 재정렬된 목록을 그대로 반영 (저장은 subjects effect가 자동 처리).
+  function reorderSubjects(next: Subject[]) {
+    setSubjects(next);
+  }
+
   function addFocusToSubject(id: string, seconds: number) {
     if (seconds <= 0) return;
     setSubjects((prev) =>
@@ -62,7 +68,14 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
 
   return (
     <SubjectContext.Provider
-      value={{ subjects, addSubject, renameSubject, deleteSubject, addFocusToSubject }}
+      value={{
+        subjects,
+        addSubject,
+        renameSubject,
+        deleteSubject,
+        reorderSubjects,
+        addFocusToSubject,
+      }}
     >
       {children}
     </SubjectContext.Provider>
