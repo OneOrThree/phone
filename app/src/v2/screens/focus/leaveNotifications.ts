@@ -26,7 +26,13 @@ export async function scheduleLeaveNotifications(
       body: `${endSeconds}초 안에 돌아오면 ${subjectName} 집중을 이어갈 수 있어.`,
       sound: true,
     },
-    trigger: null, // 즉시 발송
+    // null(즉시)은 백그라운드 전환 직후 포그라운드 발송으로 취급돼 배너가 안 뜨는 경우가 있어
+    // 1초 지연으로 발송한다(체감상 즉시).
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+      seconds: 1,
+      repeats: false,
+    },
   });
   const endId = await Notifications.scheduleNotificationAsync({
     content: {
