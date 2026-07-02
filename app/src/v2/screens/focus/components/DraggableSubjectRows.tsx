@@ -206,6 +206,13 @@ export function DraggableSubjectRows({
                 style={[s.row, selected && s.rowSelected, isDrag && s.rowActive]}
                 activeOpacity={0.85}
                 onPress={() => onPressRow(sub)}
+                // 행 길게 누르기 — ⋮ 위치를 앵커로 이름편집/삭제 팝오버
+                onLongPress={() =>
+                  dotRefs.current[sub.id]?.measureInWindow((x, y, w, h) =>
+                    onOpenMenu(sub.id, { x, y, w, h }),
+                  )
+                }
+                delayLongPress={350}
               >
                 <View style={[s.iconBox, selected ? s.iconBoxSelected : s.iconBoxIdle]}>
                   <Ionicons name="play" size={13} color={selected ? T.white : T.accent} />
@@ -298,6 +305,6 @@ const s = StyleSheet.create({
   iconBoxSelected: { backgroundColor: T.accent },
   rowName: { flex: 1, ...T.text.label, fontWeight: '700', color: T.ink },
   rowTime: { ...T.text.caption, color: T.inkMuted, fontVariant: ['tabular-nums'] },
-  colorChip: { width: 16, height: 16, borderRadius: 5 },
+  colorChip: { width: 19, height: 19, borderRadius: 6 },
   moreBtn: { width: 30, height: '100%', alignItems: 'center', justifyContent: 'center' },
 });
