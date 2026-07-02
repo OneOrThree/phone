@@ -1,5 +1,7 @@
 package com.oneorthree.phone.user.service;
 
+import com.oneorthree.phone.friend.domain.Friendship;
+import com.oneorthree.phone.friend.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.item.domain.CharacterEquipment;
 import com.oneorthree.phone.item.domain.SlotType;
@@ -8,8 +10,13 @@ import com.oneorthree.phone.league.domain.LeagueArena;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
+import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
+import com.oneorthree.phone.stats.dto.StreakResponse;
+import com.oneorthree.phone.stats.dto.TodayStatsResponse;
+import com.oneorthree.phone.stats.service.StatsService;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.dto.PublicProfileResponse;
+import com.oneorthree.phone.user.dto.UserStatsResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -21,13 +28,17 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 /**
  * ProfileService 단위 테스트 (GROMO-520).
@@ -49,6 +60,9 @@ class ProfileServiceTest {
 
     @Mock
     private LeagueArenaUserRepository leagueArenaUserRepository;
+
+    @Mock
+    private StatsService statsService;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID OTHER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
@@ -272,5 +286,145 @@ class ProfileServiceTest {
 
         assertThat(response.rank()).isEqualTo(1);
         assertThat(response.currentTier()).isEqualTo(5);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // getUserStats 테스트 (GROMO-521)
+    // ──────────────────────────────────────────────────────────────────────
+
+    /** 공통 스텁: OTHER_ID(호출자) → target(USER_ID) 순서로 findById 스텁을 등록한다. */
+    private void givenBothUsers(User target, User caller) {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(target));
+        given(userRepository.findById(OTHER_ID)).willReturn(Optional.of(caller));
+    }
+
+    private StreakResponse sampleStreak() {
+        return new StreakResponse(5, 10, LocalDate.of(2026, 7, 1));
+    }
+
+    private TodayStatsResponse sampleToday() {
+        return new TodayStatsResponse(
+                new TodayStatsResponse.FocusStat(60, 90, false, 67),
+                new TodayStatsResponse.ScreenTimeStat(30, 120, true, 25));
+    }
+
+    private Friendship acceptedFriendship(User from, User to) {
+        return Friendship.builder()
+                .id(UUID.randomUUID())
+                .fromUser(from)
+                .toUser(to)
+                .status(FriendshipStatus.ACCEPTED)
+                .build();
+    }
+
+    @Test
+    @DisplayName("친구O → 세부 통계(today+streak+heatmap) 반환, isFriend=true")
+    void getUserStats_friend_returnsDetailedStats() {
+        User target = activeUser("대상유저");
+        User caller = User.builder().id(OTHER_ID).nickname("호출자").build();
+        Friendship friendship = acceptedFriendship(caller, target);
+
+        givenBothUsers(target, caller);
+        given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.of(friendship));
+        given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
+        given(statsService.getTodayStats(USER_ID)).willReturn(sampleToday());
+        given(statsService.getHeatmap(any(), any(), any())).willReturn(List.of());
+
+        UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID);
+
+        assertThat(response.isFriend()).isTrue();
+        assertThat(response.streak()).isNotNull();
+        assertThat(response.today()).isNotNull();
+        assertThat(response.heatmap()).isNotNull();
+        verify(statsService).getTodayStats(USER_ID);
+        verify(statsService).getHeatmap(any(UUID.class), any(LocalDate.class), any(LocalDate.class));
+    }
+
+    @Test
+    @DisplayName("친구X → streak 만 반환, isFriend=false, today/heatmap null")
+    void getUserStats_notFriend_returnsStreakOnly() {
+        User target = activeUser("대상유저");
+        User caller = User.builder().id(OTHER_ID).nickname("호출자").build();
+
+        givenBothUsers(target, caller);
+        given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.empty());
+        given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
+
+        UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID);
+
+        assertThat(response.isFriend()).isFalse();
+        assertThat(response.streak()).isNotNull();
+        assertThat(response.today()).isNull();
+        assertThat(response.heatmap()).isNull();
+        // 친구X 일 때 세부 통계 메서드는 호출되지 않아야 한다
+        verify(statsService, never()).getTodayStats(any());
+        verify(statsService, never()).getHeatmap(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("PENDING 관계 → 친구X 취급, streak 만 반환")
+    void getUserStats_pendingRelation_treatedAsNotFriend() {
+        // findAcceptedBetween 은 ACCEPTED 조건이므로 PENDING 관계는 Optional.empty() 반환
+        User target = activeUser("대상유저");
+        User caller = User.builder().id(OTHER_ID).nickname("호출자").build();
+
+        givenBothUsers(target, caller);
+        given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.empty());
+        given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
+
+        UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID);
+
+        assertThat(response.isFriend()).isFalse();
+        assertThat(response.today()).isNull();
+        assertThat(response.heatmap()).isNull();
+    }
+
+    @Test
+    @DisplayName("본인 조회(caller==target) → 세부 통계 반환, 친구 판정 없이 처리")
+    void getUserStats_self_returnsDetailedStats() {
+        User self = activeUser("본인");
+
+        // 본인 조회이므로 target 만 조회 (caller 조회 불필요)
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(self));
+        given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
+        given(statsService.getTodayStats(USER_ID)).willReturn(sampleToday());
+        given(statsService.getHeatmap(any(), any(), any())).willReturn(List.of());
+
+        UserStatsResponse response = profileService.getUserStats(USER_ID, USER_ID);
+
+        // 본인은 isFriend=false 이지만 세부 통계를 받는다
+        assertThat(response.isFriend()).isFalse();
+        assertThat(response.streak()).isNotNull();
+        assertThat(response.today()).isNotNull();
+        assertThat(response.heatmap()).isNotNull();
+        // 친구 판정 메서드 미호출 확인
+        verify(friendshipRepository, never()).findAcceptedBetween(any(), any());
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 targetUserId → UserException(NOT_FOUND)")
+    void getUserStats_targetNotFound_throws404() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> profileService.getUserStats(OTHER_ID, USER_ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("소프트딜리트(탈퇴) 대상 유저 → UserException(NOT_FOUND)")
+    void getUserStats_deletedTarget_throws404() {
+        User deleted = User.builder()
+                .id(USER_ID)
+                .nickname("탈퇴유저")
+                .deletedAt(Instant.now())
+                .build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(deleted));
+
+        assertThatThrownBy(() -> profileService.getUserStats(OTHER_ID, USER_ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 }
