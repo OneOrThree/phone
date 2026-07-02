@@ -43,7 +43,7 @@ public class UserController {
         @ApiResponse(responseCode = "400", description = "유효성 검사 실패"),
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
-    @PostMapping("/user")
+    @PostMapping("/users/me")
     public ResponseEntity<Void> setupProfile(
             HttpServletRequest request,
             @Valid @RequestBody UserProfileSetupRequest body) {
@@ -58,7 +58,7 @@ public class UserController {
         @ApiResponse(responseCode = "400", description = "유효성 검사 실패"),
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
-    @PatchMapping("/user")
+    @PatchMapping("/users/me")
     public ResponseEntity<Void> updateProfile(
             HttpServletRequest request,
             @Valid @RequestBody UserProfileUpdateRequest body) {
@@ -72,7 +72,7 @@ public class UserController {
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
-    @GetMapping("/user")
+    @GetMapping("/users/me")
     public ResponseEntity<UserProfileResponse> getProfile(HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(userService.getProfile(userId));
@@ -84,7 +84,7 @@ public class UserController {
         @ApiResponse(responseCode = "400", description = "방장 위임 후 탈퇴 가능"),
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
-    @DeleteMapping("/user")
+    @DeleteMapping("/users/me")
     public ResponseEntity<Void> withdraw(HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         userService.withdraw(userId);

@@ -165,15 +165,15 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("프로필 수정(PATCH /user) - 집중/스크린 목표 음수 → 400")
+    @DisplayName("프로필 수정(PATCH /users/me) - 집중/스크린 목표 음수 → 400")
     void updateProfileNegativeGoalReturns400() throws Exception {
-        mockMvc.perform(patch("/api/v1/user")
+        mockMvc.perform(patch("/api/v1/users/me")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dailyFocusTimeGoalMinutes\": -1}"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
 
-        mockMvc.perform(patch("/api/v1/user")
+        mockMvc.perform(patch("/api/v1/users/me")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dailyScreenTimeGoalMinutes\": -5}"))
                 .andExpect(status().isBadRequest())
@@ -181,9 +181,9 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("프로필 등록(POST /user) - 집중 목표 음수 → 400")
+    @DisplayName("프로필 등록(POST /users/me) - 집중 목표 음수 → 400")
     void setupProfileNegativeGoalReturns400() throws Exception {
-        mockMvc.perform(post("/api/v1/user")
+        mockMvc.perform(post("/api/v1/users/me")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dailyFocusTimeGoalMinutes\": -1}"))
                 .andExpect(status().isBadRequest())
