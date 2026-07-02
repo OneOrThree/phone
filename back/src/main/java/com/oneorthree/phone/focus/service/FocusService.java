@@ -6,6 +6,7 @@ import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionResponse;
+import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
 import com.oneorthree.phone.focus.dto.FocusTagResponse;
 import com.oneorthree.phone.focus.dto.FocusTagSetupRequest;
 import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
@@ -18,10 +19,13 @@ import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.focus.repository.FocusTagRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -30,6 +34,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class FocusService {
+
+    private static final int MAX_PAGE_SIZE = 100;
 
     private final FocusTagRepository focusTagRepository;
     private final UserRepository userRepository;
@@ -81,12 +87,21 @@ public class FocusService {
         tag.softDelete();
     }
 
-    public List<FocusSessionResponse> getFocusSessions(UUID userId) {
+    public FocusSessionSliceResponse getFocusSessions(UUID userId, Instant from, Instant to, UUID cursor, int size) {
+        if (from == null || to == null || from.isAfter(to)) {
+            throw new FocusException(FocusErrorCode.INVALID_DATE_RANGE);
+        }
+        if (size < 1 || size > MAX_PAGE_SIZE) {
+            throw new FocusException(FocusErrorCode.INVALID_PAGE_REQUEST);
+        }
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        return focusSessionRepository.findByUserWithTag(user)
-                .stream()
+        Slice<FocusSession> slice = focusSessionRepository
+                .findSessionsByCursor(user, from, to, cursor, PageRequest.of(0, size));
+
+        List<FocusSessionResponse> content = slice.getContent().stream()
                 .map(session -> new FocusSessionResponse(
                         session.getFocusTag() != null ? session.getFocusTag().getId() : null,
                         session.getSubject(),
@@ -96,6 +111,13 @@ public class FocusService {
                         session.getTotalDistractionSeconds()
                 ))
                 .toList();
+
+        // 다음 커서 = 마지막 항목 id(hasNext 일 때만). content 는 id DESC 정렬이라 마지막이 최소 id.
+        UUID nextCursor = slice.hasNext() && !slice.getContent().isEmpty()
+                ? slice.getContent().get(slice.getContent().size() - 1).getId()
+                : null;
+
+        return new FocusSessionSliceResponse(content, size, slice.hasNext(), nextCursor);
     }
 
     @Transactional

@@ -1,0 +1,76 @@
+package com.oneorthree.phone.focus.api;
+
+import com.oneorthree.phone.focus.dto.FocusSessionResponse;
+import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
+import com.oneorthree.phone.focus.service.FocusService;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.BDDMockito.given;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@WebMvcTest(controllers = FocusController.class)
+class FocusControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockitoBean
+    private FocusService focusService;
+
+    @Test
+    @DisplayName("세션 커서 조회 → 200, content/hasNext/nextCursor")
+    void getFocusSessionsReturns200() throws Exception {
+        UUID nextCursor = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
+        given(focusService.getFocusSessions(any(), any(), any(), any(), anyInt()))
+                .willReturn(new FocusSessionSliceResponse(
+                        List.of(new FocusSessionResponse(null, "영어",
+                                Instant.parse("2026-06-10T01:00:00Z"),
+                                Instant.parse("2026-06-10T02:00:00Z"), 0, 0)),
+                        20, true, nextCursor));
+
+        mockMvc.perform(get("/api/v1/focus-session")
+                        .param("from", "2026-06-01T00:00:00Z")
+                        .param("to", "2026-06-30T23:59:59Z")
+                        .param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].subject").value("영어"))
+                .andExpect(jsonPath("$.hasNext").value(true))
+                .andExpect(jsonPath("$.nextCursor").value(nextCursor.toString()))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("필수 파라미터(size) 누락 → 400")
+    void getFocusSessionsMissingSizeReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/focus-session")
+                        .param("from", "2026-06-01T00:00:00Z")
+                        .param("to", "2026-06-30T23:59:59Z"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("from 형식 오류 → 400")
+    void getFocusSessionsBadInstantReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/focus-session")
+                        .param("from", "not-an-instant")
+                        .param("to", "2026-06-30T23:59:59Z")
+                        .param("size", "20"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+}

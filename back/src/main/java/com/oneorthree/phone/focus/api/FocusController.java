@@ -1,7 +1,7 @@
 package com.oneorthree.phone.focus.api;
 
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
-import com.oneorthree.phone.focus.dto.FocusSessionResponse;
+import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
 import com.oneorthree.phone.focus.dto.FocusTagResponse;
 import com.oneorthree.phone.focus.dto.FocusTagSetupRequest;
 import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -21,8 +22,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -105,15 +108,23 @@ public class FocusController {
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
-    @Operation(summary = "Focus Session 조회", description = "Focus Session 정보 조회")
+    @Operation(summary = "Focus Session 조회",
+            description = "기간(from~to, UTC Instant) 필터 + 커서(keyset) 페이지네이션. "
+                    + "cursor 생략 시 첫 페이지. 정렬은 id(UUID v7) 내림차순=최신순.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "400", description = "파라미터 누락·형식 오류·기간 역전·size 범위 밖"),
+        @ApiResponse(responseCode = "401", description = "인증 필요"),
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
     @GetMapping("/focus-session")
-    public ResponseEntity<List<FocusSessionResponse>> getFocusSessions(
-            HttpServletRequest request) {
+    public ResponseEntity<FocusSessionSliceResponse> getFocusSessions(
+            HttpServletRequest request,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(required = false) UUID cursor,
+            @RequestParam int size) {
         UUID userId = (UUID) request.getAttribute("userId");
-        return ResponseEntity.ok(focusService.getFocusSessions(userId));
+        return ResponseEntity.ok(focusService.getFocusSessions(userId, from, to, cursor, size));
     }
 }
