@@ -207,6 +207,9 @@ public class LeagueBatchService {
                                 .build())
                         .toList();
                 leagueArenaUserRepository.saveAll(newMembers);
+                // 재배정 완료 후 각 유저의 currentTier를 새 티어로 갱신
+                // (배치 후 프로필·친구 목록·닉네임 검색에서 최신 티어가 노출되도록)
+                chunk.forEach(user -> user.setCurrentTier(config.getTierLevel()));
                 createdArenaCount++;
             }
         }

@@ -408,4 +408,42 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
                 .extracting(e -> ((LeagueException) e).getErrorCode())
                 .isEqualTo(LeagueErrorCode.TIER_CONFIG_NOT_FOUND);
     }
+
+    // ── (10) User.currentTier 갱신 ───────────────────────────────────────
+
+    @Test
+    @DisplayName("User.currentTier 갱신 — 재배정 후 승격·유지·강등 유저의 currentTier 가 새 티어로 각각 갱신됨")
+    void reassignNextWeek_updatesUserCurrentTier() {
+        // 티어 1·2·3 설정 (2티어: promote=1, relegate=1)
+        saveTierConfig(1, 30, 0, 0, 0);
+        LeagueTierConfig cfg2 = saveTierConfig(2, 30, 1, 1, 0);
+        saveTierConfig(3, 30, 0, 0, 0);
+        LeagueArena arena = saveActiveArena(cfg2);
+
+        // 세 유저 모두 currentTier=2 로 시작
+        User promotedUser = userRepository.save(User.builder().nickname("promoted").currentTier(2).build());
+        User stayUser = userRepository.save(User.builder().nickname("stay").currentTier(2).build());
+        User relegatedUser = userRepository.save(User.builder().nickname("relegated").currentTier(2).build());
+        saveMember(arena, promotedUser, 300);  // 1위 → 승격 → 3티어
+        saveMember(arena, stayUser, 200);      // 2위 → 유지 → 2티어
+        saveMember(arena, relegatedUser, 100); // 3위 → 강등 → 1티어
+
+        leagueBatchService.runWeeklyBatch(BATCH_NOW);
+
+        // 재배정된 티어가 User.currentTier 에 반영돼야 한다
+        assertThat(userRepository.findById(promotedUser.getId()).orElseThrow().getCurrentTier()).isEqualTo(3);
+        assertThat(userRepository.findById(stayUser.getId()).orElseThrow().getCurrentTier()).isEqualTo(2);
+        assertThat(userRepository.findById(relegatedUser.getId()).orElseThrow().getCurrentTier()).isEqualTo(1);
+    }
+
+    // ── [SKIP] (11) 트랜잭션 원자성 — 부분 커밋 없음 ─────────────────────
+    // RepositoryTestBase 가 @Transactional 을 클래스 레벨에 선언하므로, 서비스의
+    // @Transactional(REQUIRED)는 테스트 트랜잭션에 참여한다.
+    // 서비스가 예외를 던지면 공유 트랜잭션이 rollback-only 로 마킹되고,
+    // 예외 포착 후 조회(findById)는 1차 캐시의 in-memory 상태를 반환하므로
+    // "롤백 후 DB 에서 ACTIVE 임을 읽는" 검증이 구조적으로 불가능하다.
+    // 진정한 검증을 위해서는 setup 데이터를 별도 트랜잭션으로 커밋(TestTransaction commit)한 뒤
+    // 서비스를 REQUIRES_NEW 로 실행해야 하며, 이는 RepositoryTestBase 또는 서비스 전파 속성
+    // 변경을 수반해 현재 scope 밖이다. 서비스 자체는 단일 @Transactional 로 묶여 있으므로
+    // 부분 커밋은 발생하지 않음을 코드 리뷰로 보증한다.
 }
