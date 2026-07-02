@@ -2,6 +2,10 @@ package com.oneorthree.phone.user.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.user.domain.Occupation;
+import com.oneorthree.phone.user.domain.Provider;
+import com.oneorthree.phone.user.dto.SocialLinkResponse;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.service.UserService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,17 +15,24 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = UserController.class)
@@ -165,15 +176,15 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("프로필 수정(PATCH /user) - 집중/스크린 목표 음수 → 400")
+    @DisplayName("프로필 수정(PATCH /users/me) - 집중/스크린 목표 음수 → 400")
     void updateProfileNegativeGoalReturns400() throws Exception {
-        mockMvc.perform(patch("/api/v1/user")
+        mockMvc.perform(patch("/api/v1/users/me")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dailyFocusTimeGoalMinutes\": -1}"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
 
-        mockMvc.perform(patch("/api/v1/user")
+        mockMvc.perform(patch("/api/v1/users/me")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dailyScreenTimeGoalMinutes\": -5}"))
                 .andExpect(status().isBadRequest())
@@ -181,9 +192,9 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("프로필 등록(POST /user) - 집중 목표 음수 → 400")
+    @DisplayName("프로필 등록(POST /users/me) - 집중 목표 음수 → 400")
     void setupProfileNegativeGoalReturns400() throws Exception {
-        mockMvc.perform(post("/api/v1/user")
+        mockMvc.perform(post("/api/v1/users/me")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dailyFocusTimeGoalMinutes\": -1}"))
                 .andExpect(status().isBadRequest())
@@ -235,6 +246,93 @@ class UserControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("알림 설정 - nightStartTime null 허용(@Pattern 은 null 통과) → 204")
+    void updateNotificationSettingsNullNightTimeReturns204() throws Exception {
+        Map<String, Object> body = new HashMap<>();
+        body.put("notificationEnabled", true);
+        body.put("soundEnabled", true);
+        body.put("nightModeEnabled", false);
+        body.put("nightStartTime", null);
+        body.put("nightEndTime", null);
+
+        mockMvc.perform(put("/api/v1/users/me/notification-settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNoContent())
+                .andDo(print());
+
+        verify(userService).updateNotificationSettings(any(), any());
+    }
+
+    // ── GET /users/me/social-links ────────────────────────────────────────
+
+    @Test
+    @DisplayName("게스트/무연동 유저 → GET /users/me/social-links → 200 빈 배열")
+    void getSocialLinksReturnsEmptyArrayForUnlinkedUser() throws Exception {
+        given(userService.getSocialLinks(any())).willReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/users/me/social-links"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(0))
+                .andDo(print());
+
+        verify(userService).getSocialLinks(any());
+    }
+
+    @Test
+    @DisplayName("소셜 연동 목록 조회 → 200 + JSON 배열")
+    void getSocialLinksReturns200() throws Exception {
+        given(userService.getSocialLinks(any())).willReturn(List.of(
+                new SocialLinkResponse("APPLE", Instant.parse("2025-03-01T12:00:00Z")),
+                new SocialLinkResponse("GOOGLE", Instant.parse("2025-04-10T09:30:00Z"))
+        ));
+
+        mockMvc.perform(get("/api/v1/users/me/social-links"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].provider").value("APPLE"))
+                .andDo(print());
+
+        verify(userService).getSocialLinks(any());
+    }
+
+    // ── DELETE /users/me/social-links/{provider} ──────────────────────────
+
+    @Test
+    @DisplayName("소셜 연동 해제 성공 → 204")
+    void unlinkSocialAccountReturns204() throws Exception {
+        mockMvc.perform(delete("/api/v1/users/me/social-links/APPLE"))
+                .andExpect(status().isNoContent())
+                .andDo(print());
+
+        verify(userService).unlinkSocialAccount(any(), eq(Provider.APPLE));
+    }
+
+    @Test
+    @DisplayName("미연동 provider 해제 시도 → 404")
+    void unlinkSocialAccountNotLinkedReturns404() throws Exception {
+        willThrow(new UserException(UserErrorCode.SOCIAL_ACCOUNT_NOT_FOUND))
+                .given(userService).unlinkSocialAccount(any(), eq(Provider.KAKAO));
+
+        mockMvc.perform(delete("/api/v1/users/me/social-links/KAKAO"))
+                .andExpect(status().isNotFound())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("마지막 연동 해제 시도 → 409")
+    void unlinkSocialAccountLastOneReturns409() throws Exception {
+        willThrow(new UserException(UserErrorCode.LAST_SOCIAL_ACCOUNT))
+                .given(userService).unlinkSocialAccount(any(), eq(Provider.GOOGLE));
+
+        mockMvc.perform(delete("/api/v1/users/me/social-links/GOOGLE"))
+                .andExpect(status().isConflict())
                 .andDo(print());
     }
 }

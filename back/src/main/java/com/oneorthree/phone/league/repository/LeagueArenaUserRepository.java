@@ -3,7 +3,9 @@ package com.oneorthree.phone.league.repository;
 import com.oneorthree.phone.league.domain.LeagueArena;
 import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
+import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -28,4 +30,11 @@ public interface LeagueArenaUserRepository extends JpaRepository<LeagueArenaUser
     @Query("SELECT m FROM LeagueArenaUser m JOIN FETCH m.user "
             + "WHERE m.leagueArena = :arena ORDER BY m.totalFocusMinutes DESC, m.id ASC")
     List<LeagueArenaUser> findRankedByArena(@Param("arena") LeagueArena arena);
+
+    // 전역 카테고리 랭킹 — 이번 주 ACTIVE 아레나 전체 × occupation 필터, 상위 N 제한
+    @Query("SELECT m FROM LeagueArenaUser m JOIN FETCH m.user u "
+            + "WHERE m.leagueArena.status = 'ACTIVE' AND u.occupation = :occupation "
+            + "ORDER BY m.totalFocusMinutes DESC, m.id ASC")
+    List<LeagueArenaUser> findRankedByActiveArenasAndOccupation(
+            @Param("occupation") Occupation occupation, Pageable pageable);
 }
