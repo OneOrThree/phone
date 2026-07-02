@@ -11,6 +11,7 @@ import {
   type NativeScrollEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -21,8 +22,9 @@ import { api } from '@/services/api';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
+import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
-import type { FocusTimerMode } from './types';
+import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
 import {
   ensureNotificationPermission,
@@ -129,6 +131,27 @@ export default function FocusSessionScreen() {
     return () => clearInterval(id);
   }, [nextTick]);
 
+  // 라이브 세션 레코드 — 강제 종료돼도 다음 실행 때 OrphanFocusSettler가 정산할 수 있게 남긴다.
+  const saveLive = useCallback(
+    (elapsed: number) => {
+      if (elapsed <= 0) return;
+      const record: LiveFocusSession = {
+        subjectId,
+        subjectName,
+        elapsed,
+        startedAt: startedAtRef.current,
+        updatedAt: new Date().toISOString(),
+      };
+      AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, JSON.stringify(record)).catch(() => {});
+    },
+    [subjectId, subjectName],
+  );
+
+  // 매초 쓰기는 과해서 5초마다 갱신. 백그라운드 진입 시엔 그 순간 값으로 즉시 저장.
+  useEffect(() => {
+    if (session.elapsed > 0 && session.elapsed % 5 === 0) saveLive(session.elapsed);
+  }, [session.elapsed, saveLive]);
+
   // 세션 시작 시 알림 권한 확보(거부돼도 이탈 감지는 동작).
   useEffect(() => {
     ensureNotificationPermission().catch(() => {});
@@ -138,6 +161,8 @@ export default function FocusSessionScreen() {
   const finish = useCallback(() => {
     if (finishedRef.current) return;
     finishedRef.current = true;
+    // 정상 종료 — 라이브 레코드 제거(고아 세션 정산 대상에서 제외)
+    AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
     const focused = Math.floor(sessionRef.current.elapsed);
     if (focused > 0) {
       addFocusSeconds(focused);
@@ -174,6 +199,7 @@ export default function FocusSessionScreen() {
         if (sessionRef.current.done || finishedRef.current || pausedRef.current) return;
         leftAtRef.current = Date.now();
         leftPhaseRef.current = sessionRef.current.phase;
+        saveLive(sessionRef.current.elapsed); // 여기서 꺼져도 이 시점까지는 정산되게
         if (sessionRef.current.phase === 'focus') {
           scheduleLeaveNotifications(subjectName, LEAVE_END_S).catch(() => {});
         }
@@ -185,6 +211,7 @@ export default function FocusSessionScreen() {
       const away = Math.round((Date.now() - leftAtRef.current) / 1000);
       leftAtRef.current = null;
       cancelLeaveNotifications().catch(() => {});
+      if (__DEV__) console.log(`[이탈감지] ${away}초 만에 복귀 (기준 ${LEAVE_END_S}초)`);
       if (sessionRef.current.done || finishedRef.current) return;
 
       if (leftPhaseRef.current === 'focus') {
@@ -211,7 +238,7 @@ export default function FocusSessionScreen() {
       sub.remove();
       cancelLeaveNotifications().catch(() => {});
     };
-  }, [subjectName, finish, pomo.focusMin]);
+  }, [subjectName, finish, pomo.focusMin, saveLive]);
 
   function onScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
     setPage(Math.round(e.nativeEvent.contentOffset.x / width));

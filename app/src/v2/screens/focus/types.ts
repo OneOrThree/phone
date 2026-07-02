@@ -18,6 +18,16 @@ export interface Subject {
   color: string; // 대표색 — T.subjectPalette 중 하나(드로어 비율 바·행 아이콘에 사용)
 }
 
+// 진행 중 세션의 라이브 레코드 — 강제 종료 대비로 AsyncStorage에 주기 저장.
+// 정상 종료(finish) 시 삭제되고, 앱 시작 시 남아 있으면 죽은 세션으로 보고 정산한다.
+export interface LiveFocusSession {
+  subjectId: string;
+  subjectName: string;
+  elapsed: number; // 마지막 저장 시점까지의 집중 초
+  startedAt: string; // ISO
+  updatedAt: string; // ISO — 마지막 저장 시각
+}
+
 // 함께 집중 중인 친구(09) — 예시.
 export type FriendStatus = 'focus' | 'rest' | 'off';
 export interface Friend {

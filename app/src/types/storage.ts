@@ -9,6 +9,7 @@ export const STORAGE_KEYS = {
   equipment: 'gromo:equipment',
   ownedItems: 'gromo:ownedItems',
   focus: 'gromo:focus',
+  focusLiveSession: 'gromo:focus:liveSession',
   subjects: 'gromo:subjects',
   goalPending: 'gromo:goal:pending',
   screentimeAuthGranted: 'gromo:screentime:authGranted',

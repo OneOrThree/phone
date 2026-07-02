@@ -15,6 +15,7 @@ import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
 import { T } from '@/v2/constants/theme';
 import { RootNavigator } from '@/v2/navigation/RootNavigator';
+import { OrphanFocusSettler } from '@/v2/screens/focus/OrphanFocusSettler';
 import LoginScreen from '@/v2/screens/LoginScreen';
 import OnboardingFlow, {
   type OnboardingResult,
@@ -169,6 +170,8 @@ export default function App() {
           <EquipmentProvider>
             <FocusProvider>
               <SubjectProvider>
+                {/* 강제 종료된 세션 정산 — 라이브 레코드가 있으면 적립 후 삭제 */}
+                <OrphanFocusSettler />
                 <RootNavigator />
               </SubjectProvider>
             </FocusProvider>
