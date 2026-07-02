@@ -563,7 +563,7 @@ class ScreenTimeModule: NSObject {
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         guard #available(iOS 16.2, *) else {
-            resolve(false)
+            reject("OLD_OS", "iOS 16.2 이상에서만 Live Activity를 쓸 수 있어요.", nil)
             return
         }
         Task { @MainActor in
@@ -572,7 +572,11 @@ class ScreenTimeModule: NSObject {
                 await activity.end(nil, dismissalPolicy: .immediate)
             }
             guard ActivityAuthorizationInfo().areActivitiesEnabled else {
-                resolve(false)
+                reject(
+                    "ACTIVITIES_DISABLED",
+                    "실시간 활동이 꺼져 있어요. 설정 > gromo > 실시간 활동을 켜주세요.",
+                    nil
+                )
                 return
             }
             do {
@@ -585,7 +589,7 @@ class ScreenTimeModule: NSObject {
                 )
                 resolve(true)
             } catch {
-                resolve(false)
+                reject("REQUEST_FAILED", "Live Activity 시작 실패: \(error.localizedDescription)", error)
             }
         }
     }
@@ -707,10 +711,10 @@ struct GoalAppPickerView: View {
                 .onChange(of: selection.categoryTokens) { cats in
                     if maxApplications != nil, !cats.isEmpty { showLimitAlert = true }
                 }
-                .alert("\(maxApplications ?? 40)개까지만 고를 수 있어", isPresented: $showLimitAlert) {
+                .alert("\(maxApplications ?? 40)개까지만 고를 수 있어요", isPresented: $showLimitAlert) {
                     Button("확인", role: .cancel) {}
                 } message: {
-                    Text("허용앱은 개별 앱으로 최대 \(maxApplications ?? 40)개까지야. 전체 선택은 안 돼!")
+                    Text("허용앱은 개별 앱으로 최대 \(maxApplications ?? 40)개까지예요. 전체 선택은 할 수 없어요.")
                 }
         }
     }
@@ -743,7 +747,7 @@ struct AllowedAppManagerView: View {
             List {
                 Section {
                     if apps.isEmpty {
-                        Text("아직 허용한 앱이 없어. 아래에서 추가해줘!")
+                        Text("아직 허용한 앱이 없어요. 오른쪽 위 + 버튼으로 추가하세요.")
                             .foregroundColor(.secondary)
                     } else {
                         // Label(token) — OS가 아이콘+이름을 프라이버시 보호 형태로 렌더(값은 못 읽음)
@@ -754,21 +758,22 @@ struct AllowedAppManagerView: View {
                 } header: {
                     Text("허용앱 \(selection.applicationTokens.count)/\(maxApplications)")
                 } footer: {
-                    Text("집중 중에도 이 앱들은 쓸 수 있어. 최대 \(maxApplications)개까지야.")
+                    Text("집중 중에도 이 앱들은 쓸 수 있어요. 최대 \(maxApplications)개까지 추가할 수 있어요.")
                 }
             }
             .navigationTitle("집중 중 허용 앱")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
+                    Button("완료") { onClose(selection) }
+                }
+                // 우상단 + — 앱 추가/삭제 피커 열기
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showPicker = true
                     } label: {
-                        Label("앱 추가/삭제", systemImage: "plus.circle")
+                        Image(systemName: "plus")
                     }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("완료") { onClose(selection) }
                 }
             }
             .sheet(isPresented: $showPicker) {

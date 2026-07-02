@@ -18,6 +18,7 @@ import UIKit
 import SwiftUI
 import DeviceActivity  // DeviceActivityReport, DeviceActivityFilter 사용
 import FamilyControls  // FamilyActivitySelection (측정 대상 토큰)
+import ManagedSettings // ApplicationToken (허용앱 목록 Label 렌더)
 
 @available(iOS 16.0, *)
 class ScreenTimeReportUIView: UIView {
@@ -126,6 +127,85 @@ class ScreenTimeReportUIView: UIView {
     //  "진짜" 화면 VC를 찾아야 VC 계층/scene hosting이 모두 정상 동작함.
     //  window.rootViewController는 RN 최상위 VC라서 실제 화면 VC와
     //  계층이 안 맞아 addChild 시 NSException이 발생했음)
+    private var containerViewController: UIViewController? {
+        var responder: UIResponder? = self
+        while let r = responder {
+            if let vc = r as? UIViewController {
+                return vc
+            }
+            responder = r.next
+        }
+        return nil
+    }
+}
+
+// ── 집중 세션 허용앱 목록 (드로어 인라인 표시) ──
+// 허용앱 토큰은 opaque라 JS에서 아이콘/이름을 못 그린다 → Label(token)으로 네이티브 렌더.
+// App Group의 gromo:focus:allowedSelection을 읽어 개별 앱 토큰만 나열한다.
+
+@available(iOS 16.0, *)
+struct AllowedAppsListSwiftUIView: View {
+    let tokens: [ApplicationToken]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(tokens, id: \.self) { token in
+                    Label(token)
+                        .labelStyle(.titleAndIcon)
+                        .font(.subheadline)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 2)
+        }
+    }
+}
+
+@available(iOS 16.0, *)
+class AllowedAppsListUIView: UIView {
+
+    private var hostingController: UIHostingController<AnyView>?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, hostingController == nil else { return }
+        guard let parentVC = containerViewController else { return }
+
+        // 저장된 허용앱(개별 앱 토큰) 로드
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        var tokens: [ApplicationToken] = []
+        if let data = defaults?.data(forKey: "gromo:focus:allowedSelection"),
+           let sel = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
+            tokens = Array(sel.applicationTokens)
+        }
+
+        let hostingVC = UIHostingController(
+            rootView: AnyView(AllowedAppsListSwiftUIView(tokens: tokens))
+        )
+        parentVC.addChild(hostingVC)
+        hostingVC.view.translatesAutoresizingMaskIntoConstraints = false
+        hostingVC.view.backgroundColor = .clear
+        addSubview(hostingVC.view)
+        NSLayoutConstraint.activate([
+            hostingVC.view.topAnchor.constraint(equalTo: topAnchor),
+            hostingVC.view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hostingVC.view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hostingVC.view.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        hostingVC.didMove(toParent: parentVC)
+        self.hostingController = hostingVC
+    }
+
     private var containerViewController: UIViewController? {
         var responder: UIResponder? = self
         while let r = responder {

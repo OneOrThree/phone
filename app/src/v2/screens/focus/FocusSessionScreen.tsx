@@ -17,7 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { Character2D } from '@/components/character/Character2D';
+import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/v2/constants/theme';
 import { api } from '@/services/api';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
@@ -184,14 +184,14 @@ export default function FocusSessionScreen() {
     // 캐릭터가 실제로 그려진 뒤 캡처(마운트 직후엔 빈 프레임일 수 있음)
     const t = setTimeout(async () => {
       try {
-        const base64 = await captureRef(charShotRef, {
-          format: 'png',
-          quality: 1,
-          result: 'base64',
-        });
+        // 캡처가 멈추면(드물지만) Live Activity 시작까지 막히므로 1.5초 타임아웃으로 가드
+        const base64 = await Promise.race([
+          captureRef(charShotRef, { format: 'png', quality: 1, result: 'base64' }),
+          new Promise<never>((_, rej) => setTimeout(() => rej(new Error('capture timeout')), 1500)),
+        ]);
         if (!cancelled) await ScreenTimeModule.saveCharacterSnapshot(base64);
       } catch {
-        /* noop */
+        /* 스냅샷 실패/지연 — 위젯은 기본 마스코트로 폴백 */
       }
       if (!cancelled) ScreenTimeModule.startFocusActivity(subjectName).catch(() => {});
     }, 600);
@@ -331,7 +331,7 @@ export default function FocusSessionScreen() {
             <View style={s.characterWrap}>
               {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터 */}
               <View ref={charShotRef} collapsable={false}>
-                <Character2D size={200} variant="focus" />
+                <CharacterImage size={200} />
               </View>
             </View>
           </View>

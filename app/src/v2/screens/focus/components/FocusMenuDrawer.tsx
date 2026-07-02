@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
+import AllowedAppsListView from '@/components/AllowedAppsListView';
 import { useFocus } from '@/store/FocusContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { hms } from '../format';
@@ -128,7 +129,7 @@ export function FocusMenuDrawer({
             </View>
             <Text style={s.appsSub}>허용앱을 쓰는 시간도 집중으로 인정돼요.</Text>
 
-            {/* 허용앱 토큰은 opaque(이름/아이콘 열람 불가) → 개수 + 사용법 안내 */}
+            {/* 개수 + 허용앱 목록(opaque 토큰이라 네이티브 뷰로 아이콘·이름 렌더) + 사용법 안내 */}
             <View style={s.allowedCard}>
               <View style={s.allowedIcon}>
                 <Ionicons name="lock-open-outline" size={19} color={T.greenDeep} />
@@ -140,6 +141,11 @@ export function FocusMenuDrawer({
                     ? `앱 ${allowedApps}개 허용 중`
                     : '허용앱이 없어요'}
               </Text>
+              {allowedApps !== null && allowedApps > 0 && AllowedAppsListView && (
+                <AllowedAppsListView
+                  style={[s.allowedList, { height: Math.min(allowedApps, 6) * 34 }]}
+                />
+              )}
               <Text style={s.allowedHint}>
                 홈 화면으로 나가서 허용앱을 직접 열면 돼요.{'\n'}허용앱은 전체 탭 → 집중 중 허용
                 앱에서 바꿀 수 있어요.
@@ -272,6 +278,7 @@ const s = StyleSheet.create({
     marginBottom: 2,
   },
   allowedCount: { ...T.text.label, fontWeight: '700', color: T.ink },
+  allowedList: { alignSelf: 'stretch', marginTop: 8, marginBottom: 2 },
   allowedHint: {
     ...T.text.caption,
     fontWeight: '500',
