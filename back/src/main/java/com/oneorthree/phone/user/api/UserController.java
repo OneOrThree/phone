@@ -1,10 +1,12 @@
 package com.oneorthree.phone.user.api;
 
+import com.oneorthree.phone.user.domain.Provider;
 import com.oneorthree.phone.user.dto.DeviceTokenRegisterRequest;
 import com.oneorthree.phone.user.dto.FocusTimeGoalUpdateRequest;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
 import com.oneorthree.phone.user.dto.OccupationUpdateRequest;
 import com.oneorthree.phone.user.dto.ScreenTimeGoalUpdateRequest;
+import com.oneorthree.phone.user.dto.SocialLinkResponse;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.service.UserService;
@@ -21,12 +23,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @Tag(name = "user", description = "user 관련 API (생성, 조회, 변경)")
@@ -182,6 +186,36 @@ public class UserController {
             HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         userService.updateOccupation(userId, body.getOccupation());
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "소셜 연동 목록 조회",
+            description = "연동된 소셜 계정 목록 반환. 게스트(연동 0개)는 빈 배열. 인증 없으면 401.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "401", description = "인증 없음")
+    })
+    @GetMapping("/users/me/social-links")
+    public ResponseEntity<List<SocialLinkResponse>> getSocialLinks(HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(userService.getSocialLinks(userId));
+    }
+
+    @Operation(summary = "소셜 연동 해제",
+            description = "소셜 연동을 소프트딜리트로 해제. 마지막 활성 연동 해제 시도 시 409.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "해제 성공"),
+        @ApiResponse(responseCode = "400", description = "유효하지 않은 provider 값"),
+        @ApiResponse(responseCode = "404", description = "연동 없음"),
+        @ApiResponse(responseCode = "409", description = "마지막 소셜 연동"),
+        @ApiResponse(responseCode = "401", description = "인증 없음")
+    })
+    @DeleteMapping("/users/me/social-links/{provider}")
+    public ResponseEntity<Void> unlinkSocialAccount(
+            @PathVariable Provider provider,
+            HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        userService.unlinkSocialAccount(userId, provider);
         return ResponseEntity.noContent().build();
     }
 }

@@ -23,6 +23,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -157,6 +158,30 @@ class AuthServiceTest {
         // GOOGLE client는 주입되지 않았으므로 Map에 없다
         assertThatThrownBy(() -> authService.socialLogin(Provider.GOOGLE, "token", null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("소프트딜리트된 소셜 계정으로 재로그인 → deletedAt null 복원(재활성화), isNewUser=false, 신규 row 없음")
+    void socialLoginReactivatesDeletedAccount() {
+        // given — deletedAt 이 세팅된(해제된) 계정
+        User existingUser = User.builder().id(USER_ID).build();
+        SocialAccount deletedAccount = SocialAccount.builder()
+                .user(existingUser).provider(Provider.KAKAO).providerId("12345")
+                .deletedAt(Instant.now()).build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.of(deletedAccount));
+        given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
+
+        // when
+        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token", null);
+
+        // then — 재활성화: deletedAt 이 null, 신규 유저 아님, 신규 row 없음
+        assertThat(response.isNewUser()).isFalse();
+        assertThat(deletedAccount.getDeletedAt()).isNull();
+        verify(userRepository, never()).save(any(User.class));
+        verify(socialAccountRepository, never()).save(any(SocialAccount.class));
     }
 
     // ── refreshToken ──────────────────────────────────────────────────────

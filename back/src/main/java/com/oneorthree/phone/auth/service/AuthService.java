@@ -91,6 +91,12 @@ public class AuthService {
 
         Optional<SocialAccount> socialAccount =
                 socialAccountRepository.findByProviderAndProviderId(provider, providerId);
+
+        // 소프트딜리트된 연동 → deletedAt = null 로 복원(재활성화). unique 제약 충돌 방지.
+        if (socialAccount.isPresent() && socialAccount.get().getDeletedAt() != null) {
+            socialAccount.get().setDeletedAt(null);
+        }
+
         boolean isNewUser = socialAccount.isEmpty();
 
         User user = socialAccount
