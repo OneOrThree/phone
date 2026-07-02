@@ -65,21 +65,18 @@ function MetricRow({
         <Text style={s.metricLabel} allowFontScaling={false}>
           {label}
         </Text>
-        <Text style={s.metricValue} allowFontScaling={false}>
-          {hms(value)}
-        </Text>
-        <View style={s.progressRow}>
-          <View style={s.track}>
-            <View style={[s.fill, { width: `${pct * 100}%`, backgroundColor: fillColor }]} />
-          </View>
-          <View style={s.goalBlock}>
-            <Text style={s.goalLabel} allowFontScaling={false}>
-              목표
-            </Text>
-            <Text style={s.goalValue} allowFontScaling={false} numberOfLines={1}>
-              {hm(goal)}
-            </Text>
-          </View>
+        {/* 값 줄 — 왼쪽 큰 값 + 오른쪽 목표(바 옆이 아니라 값 줄로 올림) */}
+        <View style={s.valueRow}>
+          <Text style={s.metricValue} allowFontScaling={false}>
+            {hms(value)}
+          </Text>
+          <Text style={s.goalText} allowFontScaling={false} numberOfLines={1}>
+            목표 {hm(goal)}
+          </Text>
+        </View>
+        {/* 진행 바 — 카드 끝까지 전체 폭 (두 행 모두 전체 폭이라 바 길이도 자연히 동일) */}
+        <View style={s.track}>
+          <View style={[s.fill, { width: `${pct * 100}%`, backgroundColor: fillColor }]} />
         </View>
       </View>
     </View>
@@ -374,13 +371,22 @@ const s = StyleSheet.create({
   flex1: { flex: 1 },
   usageLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   metricLabel: { ...T.text.label, fontSize: 14, color: T.inkMuted },
-  metricValue: { ...T.text.title, fontSize: 22, color: T.ink, marginTop: 1 },
-  usageReport: { width: '100%', height: 70, marginTop: 1 },
-  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 7 },
-  track: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#EFE7DA', overflow: 'hidden' },
+  valueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 1,
+  },
+  metricValue: { ...T.text.title, fontSize: 22, color: T.ink },
+  goalText: { ...T.text.caption, color: T.inkMuted },
+  usageReport: { width: '100%', height: 50, marginTop: 1 },
+  track: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#EFE7DA',
+    overflow: 'hidden',
+    marginTop: 7,
+  },
   fill: { height: '100%', borderRadius: 3 },
-  // 고정폭 — 목표 글자 길이('4시간' vs '4시간 30분')와 무관하게 진행바 길이 유지.
-  goalBlock: { width: 72, alignItems: 'center' },
-  goalLabel: { fontSize: 11, fontWeight: '600', color: T.inkMuted },
-  goalValue: { ...T.text.caption, color: T.inkMuted, marginTop: 1 },
 });
