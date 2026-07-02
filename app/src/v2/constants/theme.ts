@@ -47,6 +47,16 @@ export const T = {
   noteBg: '#FBF3E8', // 안내(인포) 박스 배경
   noteBorder: '#EBDCC2',
 
+  // 과목 대표색 팔레트 — 과목 팝오버에서 선택. 6색: 비율 바에서 구분 가능한 상한 + 웜톤 유지.
+  subjectPalette: [
+    '#C8893F', // 브라운(accent)
+    '#C2705A', // 코랄(accentAlt)
+    '#6FA15A', // 올리브 그린(greenDeep)
+    '#5E9C8D', // 틸
+    '#6C86B3', // 더스티 블루
+    '#9A7FAE', // 라벤더
+  ],
+
   // 브랜드(소셜 로그인)
   kakao: '#FEE500',
   kakaoInk: '#3C1E1E',

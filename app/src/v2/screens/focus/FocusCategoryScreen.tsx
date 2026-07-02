@@ -30,14 +30,17 @@ type MenuAnchor = { id: string; x: number; y: number; w: number; h: number } | n
 export default function FocusCategoryScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { width: winW } = useWindowDimensions();
-  const { subjects, addSubject, renameSubject, deleteSubject, reorderSubjects } = useSubjects();
+  const { subjects, addSubject, renameSubject, deleteSubject, reorderSubjects, setSubjectColor } =
+    useSubjects();
   const [selectedId, setSelectedId] = useState<string>('');
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [menu, setMenu] = useState<MenuAnchor>(null);
+  const [colorMenu, setColorMenu] = useState<MenuAnchor>(null); // 색 선택 팝오버(네모 탭)
 
   // 선택 과목 — 미선택/삭제 시 첫 과목으로 폴백.
   const active = subjects.find((x) => x.id === selectedId) ?? subjects[0];
   const menuSubject = menu ? subjects.find((x) => x.id === menu.id) : undefined;
+  const colorSubject = colorMenu ? subjects.find((x) => x.id === colorMenu.id) : undefined;
 
   function openMethod(sub: Subject) {
     setSelectedId(sub.id);
@@ -119,7 +122,14 @@ export default function FocusCategoryScreen() {
         activeId={active?.id}
         onReorder={reorderSubjects}
         onPressRow={openMethod}
-        onOpenMenu={(id, a) => setMenu((m) => (m?.id === id ? null : { id, ...a }))}
+        onOpenColor={(id, a) => {
+          setMenu(null);
+          setColorMenu((m) => (m?.id === id ? null : { id, ...a }));
+        }}
+        onOpenMenu={(id, a) => {
+          setColorMenu(null);
+          setMenu((m) => (m?.id === id ? null : { id, ...a }));
+        }}
         footer={
           <TouchableOpacity style={s.addBtn} activeOpacity={0.8} onPress={handleAddSubject}>
             <Ionicons name="add" size={16} color={T.inkMuted} />
@@ -158,6 +168,37 @@ export default function FocusCategoryScreen() {
               <Ionicons name="trash" size={14} color={T.accentAlt} />
               <Text style={[s.menuText, s.menuTextDanger]}>과목 삭제</Text>
             </TouchableOpacity>
+          </View>
+        </>
+      )}
+
+      {/* 색 선택 팝오버 — 색 네모 바로 아래, 우측 정렬 */}
+      {colorMenu && colorSubject && (
+        <>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setColorMenu(null)} />
+          <View
+            style={[
+              s.menu,
+              { top: colorMenu.y + colorMenu.h + 6, right: winW - (colorMenu.x + colorMenu.w) },
+            ]}
+          >
+            <View style={s.colorRow}>
+              {T.subjectPalette.map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  style={[
+                    s.colorDot,
+                    { backgroundColor: c },
+                    colorSubject.color === c && s.colorDotOn,
+                  ]}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    setSubjectColor(colorSubject.id, c);
+                    setColorMenu(null);
+                  }}
+                />
+              ))}
+            </View>
           </View>
         </>
       )}
@@ -228,6 +269,11 @@ const s = StyleSheet.create({
   menuText: { ...T.text.caption, color: T.ink },
   menuTextDanger: { color: T.accentAlt },
   menuDivider: { height: 1, backgroundColor: T.divider, marginHorizontal: 6 },
+
+  // 색 선택 팝오버
+  colorRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  colorDot: { width: 22, height: 22, borderRadius: 11 },
+  colorDotOn: { borderWidth: 2, borderColor: T.ink },
 
   addBtn: {
     flexDirection: 'row',

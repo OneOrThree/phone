@@ -29,6 +29,7 @@ interface Props {
   activeId?: string;
   onReorder: (next: Subject[]) => void;
   onPressRow: (sub: Subject) => void;
+  onOpenColor: (id: string, anchor: MenuAnchor) => void; // 색 네모 탭 — 색 선택 팝오버 열기
   onOpenMenu: (id: string, anchor: MenuAnchor) => void;
   footer?: ReactNode;
 }
@@ -38,6 +39,7 @@ export function DraggableSubjectRows({
   activeId,
   onReorder,
   onPressRow,
+  onOpenColor,
   onOpenMenu,
   footer,
 }: Props) {
@@ -55,6 +57,7 @@ export function DraggableSubjectRows({
 
   const tops = useRef<Record<string, Animated.Value>>({});
   const dotRefs = useRef<Record<string, View | null>>({});
+  const chipRefs = useRef<Record<string, View | null>>({});
   const panders = useRef<Record<string, ReturnType<typeof PanResponder.create>>>({});
   const grabOffset = useRef(0); // 잡은 지점의 행 내부 오프셋
   const fingerY = useRef(0); // 뷰포트 기준 손가락 y
@@ -211,6 +214,24 @@ export function DraggableSubjectRows({
                   {sub.name}
                 </Text>
                 <Text style={s.rowTime}>{hmsCompact(sub.accumulatedSeconds)}</Text>
+                {/* 대표색 네모 — 탭하면 색 선택 팝오버(위치는 측정해서 올림) */}
+                <View
+                  collapsable={false}
+                  ref={(r) => {
+                    chipRefs.current[sub.id] = r;
+                  }}
+                >
+                  <TouchableOpacity
+                    hitSlop={6}
+                    activeOpacity={0.7}
+                    onPress={() =>
+                      chipRefs.current[sub.id]?.measureInWindow((x, y, w, h) =>
+                        onOpenColor(sub.id, { x, y, w, h }),
+                      )
+                    }
+                    style={[s.colorChip, { backgroundColor: sub.color }]}
+                  />
+                </View>
                 {/* ⋮ 영역: PanResponder(드래그) + 내부 TouchableOpacity(탭=메뉴) */}
                 <View
                   style={s.moreBtn}
@@ -277,5 +298,6 @@ const s = StyleSheet.create({
   iconBoxSelected: { backgroundColor: T.accent },
   rowName: { flex: 1, ...T.text.label, fontWeight: '700', color: T.ink },
   rowTime: { ...T.text.caption, color: T.inkMuted, fontVariant: ['tabular-nums'] },
+  colorChip: { width: 16, height: 16, borderRadius: 5 },
   moreBtn: { width: 30, height: '100%', alignItems: 'center', justifyContent: 'center' },
 });

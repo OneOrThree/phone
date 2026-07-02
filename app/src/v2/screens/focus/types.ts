@@ -15,6 +15,7 @@ export interface Subject {
   id: string;
   name: string;
   accumulatedSeconds: number;
+  color: string; // 대표색 — T.subjectPalette 중 하나(드로어 비율 바·행 아이콘에 사용)
 }
 
 // 함께 집중 중인 친구(09) — 예시.

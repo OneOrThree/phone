@@ -207,7 +207,12 @@ export default function FocusSessionScreen() {
         </View>
       </SafeAreaView>
 
-      <FocusMenuDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <FocusMenuDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        liveSubjectId={subjectId}
+        liveSeconds={session.elapsed}
+      />
     </View>
   );
 }
