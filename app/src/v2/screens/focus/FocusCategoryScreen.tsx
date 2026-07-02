@@ -138,14 +138,6 @@ export default function FocusCategoryScreen() {
         }
       />
 
-      <View style={s.infoBox}>
-        <Ionicons name="information-circle-outline" size={16} color={T.accent} style={s.infoIcon} />
-        <Text style={s.infoText}>
-          허용 앱은 <Text style={s.infoStrong}>전체 → 집중 중 허용 앱 관리</Text>에서 바꿀 수
-          있어요.
-        </Text>
-      </View>
-
       {/* ⋮ 팝오버 — 측정한 버튼 바로 아래, 우측 정렬 */}
       {menu && menuSubject && (
         <>
@@ -288,22 +280,4 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
   addText: { ...T.text.label, color: T.inkMuted },
-
-  infoBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    backgroundColor: T.noteBg,
-    borderWidth: 1,
-    borderColor: T.noteBorder,
-    borderRadius: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 13,
-    marginHorizontal: 22,
-    marginTop: 8,
-    marginBottom: 12,
-  },
-  infoIcon: { marginTop: 1 },
-  infoText: { flex: 1, ...T.text.caption, fontWeight: '500', color: T.link, lineHeight: 18 },
-  infoStrong: { fontWeight: '700', color: T.inkSub },
 });
