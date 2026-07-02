@@ -237,4 +237,23 @@ class UserControllerTest {
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
+
+    @Test
+    @DisplayName("알림 설정 - nightStartTime null 허용(@Pattern 은 null 통과) → 204")
+    void updateNotificationSettingsNullNightTimeReturns204() throws Exception {
+        Map<String, Object> body = new HashMap<>();
+        body.put("notificationEnabled", true);
+        body.put("soundEnabled", true);
+        body.put("nightModeEnabled", false);
+        body.put("nightStartTime", null);
+        body.put("nightEndTime", null);
+
+        mockMvc.perform(put("/api/v1/users/me/notification-settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNoContent())
+                .andDo(print());
+
+        verify(userService).updateNotificationSettings(any(), any());
+    }
 }

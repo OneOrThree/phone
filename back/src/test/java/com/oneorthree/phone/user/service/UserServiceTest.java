@@ -396,4 +396,29 @@ class UserServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
     }
+
+    @Test
+    @DisplayName("알림 설정 저장 - nightStartTime·nightEndTime null 입력 → 기존 값 null 로 초기화")
+    void updateNotificationSettingsNullNightTimesInitializeToNull() {
+        // 기존에 시각이 설정된 settings
+        UserNotificationSettings settings = UserNotificationSettings.builder()
+                .userId(USER_ID)
+                .nightStartTime(LocalTime.of(22, 0))
+                .nightEndTime(LocalTime.of(7, 0))
+                .build();
+        given(userNotificationSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        NotificationSettingsRequest request = mock(NotificationSettingsRequest.class);
+        given(request.getNotificationEnabled()).willReturn(true);
+        given(request.getSoundEnabled()).willReturn(true);
+        given(request.getNightModeEnabled()).willReturn(false);
+        given(request.getNightStartTime()).willReturn(null);
+        given(request.getNightEndTime()).willReturn(null);
+
+        userService.updateNotificationSettings(USER_ID, request);
+
+        // null 입력 시 기존 값이 null 로 초기화되어야 함
+        assertThat(settings.getNightStartTime()).isNull();
+        assertThat(settings.getNightEndTime()).isNull();
+    }
 }
