@@ -4,7 +4,7 @@ import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusTag;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
-import com.oneorthree.phone.focus.dto.FocusSessionResponse;
+import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
 import com.oneorthree.phone.focus.dto.FocusTagResponse;
 import com.oneorthree.phone.focus.dto.FocusTagSetupRequest;
 import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
@@ -24,6 +24,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.SliceImpl;
 
 import java.time.Instant;
 import java.util.List;
@@ -33,6 +36,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -234,45 +239,108 @@ class FocusServiceTest {
         verify(focusTagRepository, never()).delete(any(FocusTag.class));
     }
 
-    // ── getFocusSessions ──────────────────────────────────────────────────
+    // ── getFocusSessions (커서 페이지네이션) ────────────────────────────────
+
+    private static final Instant FROM = Instant.parse("2026-06-01T00:00:00Z");
+    private static final Instant TO = Instant.parse("2026-06-30T23:59:59Z");
+    private static final UUID LAST_ID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
 
     @Test
-    @DisplayName("세션 목록 조회 성공 → 태그 null 케이스 포함 매핑")
+    @DisplayName("커서 조회 성공 → 태그 null 포함 매핑 + hasNext/nextCursor(마지막 id)")
     void getFocusSessionsSuccess() {
-        // given: 태그 있는 세션 + 태그 null 세션 혼합
         User user = User.builder().id(USER_ID).build();
         FocusTag tag = FocusTag.builder().id(TAG_ID).user(user).name("공부").build();
         FocusSession withTag = FocusSession.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-0000000000bb"))
                 .user(user).focusTag(tag).subject("수학")
                 .startedAt(START).endedAt(END)
                 .distractionCount(2).totalDistractionSeconds(30).build();
         FocusSession withoutTag = FocusSession.builder()
+                .id(LAST_ID)
                 .user(user).focusTag(null).subject("영어")
                 .startedAt(START).endedAt(END)
                 .distractionCount(0).totalDistractionSeconds(0).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(focusSessionRepository.findByUserWithTag(user)).willReturn(List.of(withTag, withoutTag));
+        // 첫 페이지(cursor=null) — id DESC 정렬 결과 2건, 다음 페이지 있음
+        given(focusSessionRepository.findSessionsByCursor(
+                eq(user), any(Instant.class), any(Instant.class), isNull(), any(Pageable.class)))
+                .willReturn(new SliceImpl<>(List.of(withTag, withoutTag), PageRequest.of(0, 20), true));
 
-        // when
-        List<FocusSessionResponse> result = focusService.getFocusSessions(USER_ID);
+        FocusSessionSliceResponse result = focusService.getFocusSessions(USER_ID, FROM, TO, null, 20);
 
-        // then: 태그 있는 세션은 tagId 매핑, 태그 없는 세션은 null
-        assertThat(result).hasSize(2);
-        assertThat(result.get(0).getFocusTagId()).isEqualTo(TAG_ID);
-        assertThat(result.get(0).getSubject()).isEqualTo("수학");
-        assertThat(result.get(0).getDistractionCount()).isEqualTo(2);
-        assertThat(result.get(1).getFocusTagId()).isNull();
-        assertThat(result.get(1).getSubject()).isEqualTo("영어");
+        assertThat(result.content()).hasSize(2);
+        assertThat(result.content().get(0).getFocusTagId()).isEqualTo(TAG_ID);
+        assertThat(result.content().get(0).getSubject()).isEqualTo("수학");
+        assertThat(result.content().get(1).getFocusTagId()).isNull();
+        assertThat(result.size()).isEqualTo(20);
+        assertThat(result.hasNext()).isTrue();
+        assertThat(result.nextCursor()).isEqualTo(LAST_ID); // 마지막(최소 id) 항목
+    }
+
+    @Test
+    @DisplayName("마지막 페이지 → hasNext=false, nextCursor=null")
+    void getFocusSessionsLastPage() {
+        User user = User.builder().id(USER_ID).build();
+        FocusSession only = FocusSession.builder()
+                .id(LAST_ID).user(user).subject("영어")
+                .startedAt(START).endedAt(END).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findSessionsByCursor(
+                eq(user), any(Instant.class), any(Instant.class), isNull(), any(Pageable.class)))
+                .willReturn(new SliceImpl<>(List.of(only), PageRequest.of(0, 20), false));
+
+        FocusSessionSliceResponse result = focusService.getFocusSessions(USER_ID, FROM, TO, null, 20);
+
+        assertThat(result.hasNext()).isFalse();
+        assertThat(result.nextCursor()).isNull();
+    }
+
+    @Test
+    @DisplayName("cursor 지정 시 리포지토리에 그대로 전달")
+    void getFocusSessionsPassesCursor() {
+        User user = User.builder().id(USER_ID).build();
+        UUID cursor = UUID.fromString("00000000-0000-0000-0000-0000000000cc");
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findSessionsByCursor(
+                eq(user), any(Instant.class), any(Instant.class), eq(cursor), any(Pageable.class)))
+                .willReturn(new SliceImpl<>(List.of(), PageRequest.of(0, 20), false));
+
+        focusService.getFocusSessions(USER_ID, FROM, TO, cursor, 20);
+
+        verify(focusSessionRepository)
+                .findSessionsByCursor(eq(user), any(Instant.class), any(Instant.class), eq(cursor), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("from > to → FocusException(INVALID_DATE_RANGE), 리포지토리 미조회")
+    void getFocusSessionsInvalidDateRange() {
+        assertThatThrownBy(() -> focusService.getFocusSessions(USER_ID, TO, FROM, null, 20))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.INVALID_DATE_RANGE);
+        verify(focusSessionRepository, never())
+                .findSessionsByCursor(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("size 범위 밖(0, 101) → FocusException(INVALID_PAGE_REQUEST)")
+    void getFocusSessionsInvalidSize() {
+        assertThatThrownBy(() -> focusService.getFocusSessions(USER_ID, FROM, TO, null, 0))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.INVALID_PAGE_REQUEST);
+        assertThatThrownBy(() -> focusService.getFocusSessions(USER_ID, FROM, TO, null, 101))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.INVALID_PAGE_REQUEST);
     }
 
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void getFocusSessionsUserNotFound() {
-        // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
-        // when & then
-        assertThatThrownBy(() -> focusService.getFocusSessions(USER_ID))
+        assertThatThrownBy(() -> focusService.getFocusSessions(USER_ID, FROM, TO, null, 20))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
