@@ -12,7 +12,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -120,8 +119,8 @@ public class FocusController {
     @GetMapping("/focus-session")
     public ResponseEntity<FocusSessionSliceResponse> getFocusSessions(
             HttpServletRequest request,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam Instant from,
+            @RequestParam Instant to,
             @RequestParam(required = false) UUID cursor,
             @RequestParam int size) {
         UUID userId = (UUID) request.getAttribute("userId");
