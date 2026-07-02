@@ -78,3 +78,78 @@ export interface OnboardingData {
   dayEndTime: string;
   reportTime: string;
 }
+
+// ─────────────────────────────────────────────────────────────
+// 리그 (백엔드 league/dto record 대응 — GET /api/v1/league/*)
+// v2 리그 화면은 우선 mock을 이 타입으로 채우고, API 연동 시 스왑만 한다.
+// ─────────────────────────────────────────────────────────────
+
+// GET /league/me/tier — 내 티어/아레나 배정 상태
+export interface LeagueTierResponse {
+  assigned: boolean;
+  tierLevel: number | null;
+  arenaId: string | null;
+  weekStartAt: string | null; // Instant ISO 문자열
+  status: string | null;
+  badgeId: string | null;
+}
+
+// GET /league/me/ranking — 아레나 랭킹 한 행
+export interface LeagueMemberResponse {
+  rank: number;
+  userId: string;
+  nickname: string;
+  totalFocusMinutes: number;
+  // 주간 정산 결과 ('PROMOTED'/'DEMOTED' 등) — 정산 전엔 null. 서버 enum 확장 대비 string 유지
+  result: string | null;
+}
+
+// GET /league/me/rank — 내 순위 요약
+export interface LeagueRankResponse {
+  assigned: boolean;
+  myRank: number | null;
+  totalFocusMinutes: number | null;
+  result: string | null;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 친구 (백엔드 friend/dto 대응 — /api/v1/friends*)
+// ─────────────────────────────────────────────────────────────
+
+// 검색 결과에서 나와 해당 유저의 기존 관계 (friend/dto/FriendRelation)
+export type FriendRelation = 'NONE' | 'PENDING' | 'FRIEND';
+
+// GET /friends — 친구 한 명
+export interface FriendResponse {
+  userId: string;
+  nickname: string;
+  tierLevel: number | null;
+  isPinned: boolean;
+}
+
+// GET /friends/requests — 받은/보낸 요청
+export interface FriendRequestResponse {
+  requestId: string;
+  userId: string;
+  nickname: string;
+  tierLevel: number | null;
+  createdAt: string; // Instant ISO 문자열
+}
+
+// GET /friends/search — 검색 결과 한 행
+export interface FriendSearchResultResponse {
+  userId: string;
+  nickname: string;
+  tierLevel: number | null;
+  relation: FriendRelation;
+}
+
+// GET /friends/pinned — 나만의 랭킹(핀 친구) 한 명
+export interface PinnedFriendResponse {
+  userId: string;
+  nickname: string;
+  // 장착 슬롯/아이템 표시정보 (item/dto/CharacterEquipmentResponse) — 캐릭터 렌더 연동 전이라 형태만
+  character: { id: string; slotType: string; item: unknown | null }[];
+  focusTimeMinutes: number; // 오늘 누적 집중 분
+  isFocusing: boolean; // 현재 집중 세션 진행 중 여부
+}
