@@ -10,6 +10,7 @@ import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
+import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.util.List;
@@ -25,6 +27,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 
 @ExtendWith(MockitoExtension.class)
@@ -126,7 +130,7 @@ class LeagueServiceTest {
     // ── getMyRanking ──────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("랭킹 조회 → 정렬 순서대로 rank 1..N 부여")
+    @DisplayName("랭킹 조회(category=null) → 정렬 순서대로 rank 1..N 부여 (기존 아레나 동작)")
     void getMyRankingAssigned() {
         LeagueArena arena = activeArena();
         LeagueArenaUser me = member(USER_ID, "me", arena, 200);
@@ -138,7 +142,7 @@ class LeagueServiceTest {
         given(leagueArenaUserRepository.findRankedByArena(arena))
                 .willReturn(List.of(top, me, last));
 
-        List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID);
+        List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, null);
 
         assertThat(ranking).hasSize(3);
         assertThat(ranking.get(0).rank()).isEqualTo(1);
@@ -151,12 +155,49 @@ class LeagueServiceTest {
     }
 
     @Test
-    @DisplayName("랭킹 조회 - 미배정 → 빈 리스트")
+    @DisplayName("랭킹 조회(category=null) - 미배정 → 빈 리스트")
     void getMyRankingUnassigned() {
         given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
                 .willReturn(Optional.empty());
 
-        assertThat(leagueService.getMyRanking(USER_ID)).isEmpty();
+        assertThat(leagueService.getMyRanking(USER_ID, null)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("랭킹 조회(category 지정) → 전역 같은 과목 랭킹, 다른 아레나 유저도 포함, rank 1부터 재부여")
+    void getMyRankingWithCategory_returnsGlobalRanking() {
+        LeagueArena arena = activeArena();
+        LeagueArenaUser top = member(U2, "top", arena, 300);
+        LeagueArenaUser me = member(USER_ID, "me", arena, 200);
+        // findRankedByActiveArenasAndOccupation 이 이미 정렬된 전역 목록을 반환한다고 가정
+        given(leagueArenaUserRepository.findRankedByActiveArenasAndOccupation(
+                eq(Occupation.LABOR_ATTORNEY), any(Pageable.class)))
+                .willReturn(List.of(top, me));
+
+        List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, Occupation.LABOR_ATTORNEY);
+
+        assertThat(ranking).hasSize(2);
+        assertThat(ranking.get(0).rank()).isEqualTo(1);
+        assertThat(ranking.get(0).nickname()).isEqualTo("top");
+        assertThat(ranking.get(1).rank()).isEqualTo(2);
+        assertThat(ranking.get(1).userId()).isEqualTo(USER_ID);
+    }
+
+    @Test
+    @DisplayName("랭킹 조회(category 지정) - 미배정 유저도 전역 랭킹은 정상 반환(본인 목록에 없음)")
+    void getMyRankingUnassignedWithCategory_returnsGlobalRanking() {
+        LeagueArena arena = activeArena();
+        LeagueArenaUser other = member(U2, "other", arena, 500);
+        given(leagueArenaUserRepository.findRankedByActiveArenasAndOccupation(
+                eq(Occupation.UNIVERSITY), any(Pageable.class)))
+                .willReturn(List.of(other));
+
+        // 미배정 유저가 category 지정으로 호출해도 전역 랭킹 반환
+        List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, Occupation.UNIVERSITY);
+
+        assertThat(ranking).hasSize(1);
+        assertThat(ranking.get(0).rank()).isEqualTo(1);
+        assertThat(ranking.get(0).nickname()).isEqualTo("other");
     }
 
     // ── getMyRank ─────────────────────────────────────────────────────────

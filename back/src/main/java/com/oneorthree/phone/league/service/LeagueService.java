@@ -9,7 +9,9 @@ import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
+import com.oneorthree.phone.user.domain.Occupation;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,24 +43,35 @@ public class LeagueService {
                 .orElseGet(() -> new LeagueTierResponse(false, null, null, null, null, null));
     }
 
-    public List<LeagueMemberResponse> getMyRanking(UUID userId) {
+    /**
+     * 랭킹 조회.
+     * category 지정 시: 전역 ACTIVE 아레나 전체에서 같은 occupation 유저 상위 100명.
+     * category 미지정 시: 내 ACTIVE 아레나 멤버 랭킹(기존 동작).
+     */
+    public List<LeagueMemberResponse> getMyRanking(UUID userId, Occupation category) {
+        if (category != null) {
+            List<LeagueArenaUser> ranked = leagueArenaUserRepository
+                    .findRankedByActiveArenasAndOccupation(category, PageRequest.of(0, 100));
+            return toResponses(ranked);
+        }
         return findActiveMembership(userId)
-                .map(member -> {
-                    List<LeagueArenaUser> ranked =
-                            leagueArenaUserRepository.findRankedByArena(member.getLeagueArena());
-                    List<LeagueMemberResponse> responses = new ArrayList<>();
-                    for (int i = 0; i < ranked.size(); i++) {
-                        LeagueArenaUser m = ranked.get(i);
-                        responses.add(new LeagueMemberResponse(
-                                i + 1,
-                                m.getUser().getId(),
-                                m.getUser().getNickname(),
-                                m.getTotalFocusMinutes(),
-                                resultName(m)));
-                    }
-                    return responses;
-                })
+                .map(member -> toResponses(
+                        leagueArenaUserRepository.findRankedByArena(member.getLeagueArena())))
                 .orElseGet(List::of);
+    }
+
+    private List<LeagueMemberResponse> toResponses(List<LeagueArenaUser> ranked) {
+        List<LeagueMemberResponse> responses = new ArrayList<>();
+        for (int i = 0; i < ranked.size(); i++) {
+            LeagueArenaUser m = ranked.get(i);
+            responses.add(new LeagueMemberResponse(
+                    i + 1,
+                    m.getUser().getId(),
+                    m.getUser().getNickname(),
+                    m.getTotalFocusMinutes(),
+                    resultName(m)));
+        }
+        return responses;
     }
 
     public LeagueRankResponse getMyRank(UUID userId) {
