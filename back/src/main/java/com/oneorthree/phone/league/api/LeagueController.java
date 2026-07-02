@@ -2,6 +2,7 @@ package com.oneorthree.phone.league.api;
 
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
+import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.service.LeagueService;
 import com.oneorthree.phone.user.domain.Occupation;
@@ -64,5 +65,17 @@ public class LeagueController {
     public ResponseEntity<LeagueRankResponse> getMyRank(HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(leagueService.getMyRank(userId));
+    }
+
+    @Operation(summary = "리그 마감 스케줄 조회",
+            description = "다음 리그 마감(다음 월요일 00:00 KST) 시각과 그때까지 남은 시간(초)을 반환한다. "
+                    + "미배정 유저도 항상 200. 클라이언트 홈·리그 화면의 마감 카운트다운용.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공")
+    })
+    @GetMapping("/league/me/schedule")
+    public ResponseEntity<LeagueScheduleResponse> getMySchedule(HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(leagueService.getMySchedule(userId));
     }
 }

@@ -2,6 +2,7 @@ package com.oneorthree.phone.league.api;
 
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
+import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.service.LeagueService;
 import com.oneorthree.phone.user.domain.Occupation;
@@ -112,6 +113,20 @@ class LeagueControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.assigned").value(true))
                 .andExpect(jsonPath("$.myRank").value(2))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("리그 마감 스케줄 조회 → 200, nextResetAt·remainingSeconds 포함")
+    void getMyScheduleReturns200() throws Exception {
+        Instant nextReset = Instant.parse("2026-06-28T15:00:00Z");
+        given(leagueService.getMySchedule(any()))
+                .willReturn(new LeagueScheduleResponse(nextReset, 388800L));
+
+        mockMvc.perform(get("/api/v1/league/me/schedule"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextResetAt").value("2026-06-28T15:00:00Z"))
+                .andExpect(jsonPath("$.remainingSeconds").value(388800))
                 .andDo(print());
     }
 }
