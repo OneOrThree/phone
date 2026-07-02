@@ -526,10 +526,24 @@ class ScreenTimeModule: NSObject {
         }
         let store = ManagedSettingsStore(named: ManagedSettingsStore.Name("gromoFocus"))
         store.clearAllSettings()
+        // 캐릭터 스냅샷도 제거 — 남겨두면 다음 세션 시작 후 새 스냅샷 저장 전(~2초)까지
+        // 가림막에 직전 세션의 캐릭터가 노출된다. 파일이 없으면 가림막은 아이콘 없이 뜬다.
+        if let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.com.oneorthree.gromo"
+        ) {
+            try? FileManager.default.removeItem(
+                at: container.appendingPathComponent("focusCharacter.png")
+            )
+        }
         resolve(nil)
     }
 
     // MARK: - 집중 세션 Live Activity (GROMO-553)
+
+    // Live Activity 시작/종료 직렬화 체인 — 연속 호출(빠른 과목 재전환 등)이 '기존 종료 await'
+    // 지점에서 겹치면 Activity가 두 개 생기므로, 항상 앞 작업이 끝난 뒤 실행한다.
+    // 읽기/쓰기는 RN 모듈의 직렬 메서드 큐에서만 일어나 동시 접근이 없다.
+    private static var liveActivityChain: Task<Void, Never>?
 
     // 캐릭터 스냅샷(base64 PNG)을 App Group 컨테이너에 저장.
     // Live Activity(Widget)와 가림막(ShieldConfiguration)이 이 파일을 읽어 표시한다.
@@ -594,7 +608,9 @@ class ScreenTimeModule: NSObject {
            let parsed = try? JSONDecoder().decode([GromoFocusAttributes.OtherSubject].self, from: data) {
             others = parsed
         }
-        Task { @MainActor in
+        let prior = ScreenTimeModule.liveActivityChain
+        ScreenTimeModule.liveActivityChain = Task { @MainActor in
+            await prior?.value // 앞선 시작/종료 완료 대기 — await 교차로 인한 중복 생성 방지
             // 잔여 액티비티 정리 후 시작(중복 방지)
             for activity in Activity<GromoFocusAttributes>.activities {
                 await activity.end(nil, dismissalPolicy: .immediate)
@@ -631,7 +647,9 @@ class ScreenTimeModule: NSObject {
             resolve(nil)
             return
         }
-        Task {
+        let prior = ScreenTimeModule.liveActivityChain
+        ScreenTimeModule.liveActivityChain = Task { @MainActor in
+            await prior?.value // 진행 중인 시작 완료 대기 — 시작 전에 종료가 스치면 Activity가 남는다
             for activity in Activity<GromoFocusAttributes>.activities {
                 await activity.end(nil, dismissalPolicy: .immediate)
             }

@@ -139,9 +139,10 @@ export default function FocusSessionScreen() {
   }, [nextTick]);
 
   // 라이브 세션 레코드 — 강제 종료돼도 다음 실행 때 OrphanFocusSettler가 정산할 수 있게 남긴다.
+  // finish 후엔 저장 금지 — 종료 시 제거한 레코드가 되살아나면 다음 실행에서 이중 정산된다.
   const saveLive = useCallback(
     (elapsed: number) => {
-      if (elapsed <= 0) return;
+      if (finishedRef.current || elapsed <= 0) return;
       const record: LiveFocusSession = {
         subjectId,
         subjectName,
@@ -154,7 +155,7 @@ export default function FocusSessionScreen() {
     [subjectId, subjectName],
   );
 
-  // 매초 쓰기는 과해서 5초마다 갱신. 백그라운드 진입 시엔 그 순간 값으로 즉시 저장.
+  // 매초 쓰기는 과해서 5초마다 갱신. 백그라운드 진입·실드 복귀 전진 시엔 그 순간 값으로 즉시 저장.
   useEffect(() => {
     if (session.elapsed > 0 && session.elapsed % 5 === 0) saveLive(session.elapsed);
   }, [session.elapsed, saveLive]);
@@ -166,6 +167,8 @@ export default function FocusSessionScreen() {
 
   // 세션 실드 — 시작 시 허용앱 외 전부 차단, 화면을 떠날 때 해제(멱등, finish에서도 해제).
   // 적용 성공 여부(shielded)로 이탈 정책이 갈린다: 실드 O = 집중 인정 / 실드 X = 15초 정책.
+  // 과목 변경 시엔 stop 없이 start만 다시 호출한다(같은 스토어를 덮어씀) — 중간에 stop을
+  // 끼우면 다음 start까지 모든 차단이 풀리는 무방비 구간이 생긴다.
   const shieldedRef = useRef(false);
   useEffect(() => {
     ScreenTimeModule.startFocusShield(subjectName)
@@ -173,11 +176,15 @@ export default function FocusSessionScreen() {
         shieldedRef.current = ok;
       })
       .catch(() => {});
-    return () => {
+  }, [subjectName]);
+  // 해제는 화면을 떠날 때 한 번만
+  useEffect(
+    () => () => {
       shieldedRef.current = false;
       ScreenTimeModule.stopFocusShield().catch(() => {});
-    };
-  }, [subjectName]);
+    },
+    [],
+  );
 
   // Live Activity(다이나믹 아일랜드) — 캐릭터 스냅샷을 App Group에 저장한 뒤 시작.
   // 화면을 떠나면 종료. 스냅샷 실패 시 위젯이 기본 마스코트로 폴백한다.
@@ -212,29 +219,36 @@ export default function FocusSessionScreen() {
   }, [subjectName, subjectId]);
 
   // 정지/완료 — 집중시간·코인 적립 + 세션 저장 후 홈으로. 한 번만 실행.
-  const finish = useCallback(() => {
+  const finish = useCallback(async () => {
     if (finishedRef.current) return;
     finishedRef.current = true;
-    // 정상 종료 — 라이브 레코드 제거(고아 세션 정산 대상에서 제외) + 실드·Live Activity 해제
-    AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+    // 정상 종료 — 실드·Live Activity 해제
     ScreenTimeModule.stopFocusShield().catch(() => {});
     ScreenTimeModule.endFocusActivity().catch(() => {});
-    const focused = Math.floor(sessionRef.current.elapsed);
-    if (focused > 0) {
-      addFocusSeconds(focused);
-      addFocusToSubject(subjectId, focused);
-      const coins = Math.floor(focused / 10);
-      if (coins > 0) addCoins(coins);
-      api
-        .post('/api/v1/focus-session', {
-          focusTagId: null,
-          subject: subjectName,
-          startedAt: startedAtRef.current,
-          endedAt: new Date().toISOString(),
-          distractionCount: 0,
-          totalDistractionSeconds: 0,
-        })
-        .catch(() => {});
+    try {
+      // 라이브 레코드 '제거 완료' 후에만 적립(OrphanFocusSettler와 같은 순서) — 적립을 먼저 하면
+      // 제거가 디스크에 닿기 전에 죽었을 때 다음 실행의 고아 정산이 같은 세션을 또 적립한다.
+      await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
+      const focused = Math.floor(sessionRef.current.elapsed);
+      if (focused > 0) {
+        addFocusSeconds(focused);
+        addFocusToSubject(subjectId, focused);
+        const coins = Math.floor(focused / 10);
+        if (coins > 0) addCoins(coins);
+        api
+          .post('/api/v1/focus-session', {
+            focusTagId: null,
+            subject: subjectName,
+            startedAt: startedAtRef.current,
+            endedAt: new Date().toISOString(),
+            distractionCount: 0,
+            totalDistractionSeconds: 0,
+          })
+          .catch(() => {});
+      }
+    } catch {
+      // 제거 실패 — 여기서 적립하면 남은 레코드로 이중 적립될 수 있으니 건너뛰고,
+      // 레코드는 다음 실행의 고아 정산이 한 번만 적립한다.
     }
     navigation.popToTop();
   }, [addFocusSeconds, addCoins, addFocusToSubject, subjectId, subjectName, navigation]);
@@ -274,13 +288,14 @@ export default function FocusSessionScreen() {
 
       if (leftPhaseRef.current === 'focus') {
         if (shieldedRef.current) {
-          // 실드 세션 — 딴짓이 차단된 상태였으므로 자리 비운 시간을 집중으로 인정(전진)
+          // 실드 세션 — 딴짓이 차단된 상태였으므로 자리 비운 시간을 집중으로 인정(전진).
+          // 전진분은 즉시 저장 — 다음 5초 주기 저장 전에 강제 종료되면
+          // 방금 인정한 시간이 고아 정산 대상에서 통째로 빠진다.
           const credit = Math.min(away, AWAY_CREDIT_CAP_S);
-          setSession((prev) => {
-            let cur = prev;
-            for (let i = 0; i < credit && !cur.done; i++) cur = nextTick(cur);
-            return cur;
-          });
+          let cur = sessionRef.current;
+          for (let i = 0; i < credit && !cur.done; i++) cur = nextTick(cur);
+          setSession(cur);
+          saveLive(cur.elapsed);
         } else if (away > LEAVE_END_S) {
           // 폴백(실드 없음) — 15초 초과 시 자동 종료(나가기 직전까지만 저장)
           finish();
