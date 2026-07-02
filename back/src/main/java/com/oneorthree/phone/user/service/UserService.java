@@ -191,11 +191,10 @@ public class UserService {
         settings.setNotificationEnabled(request.getNotificationEnabled());
         settings.setSoundEnabled(request.getSoundEnabled());
         settings.setNightModeEnabled(request.getNightModeEnabled());
-        if (request.getNightStartTime() != null) {
-            settings.setNightStartTime(LocalTime.parse(request.getNightStartTime()));
-        }
-        if (request.getNightEndTime() != null) {
-            settings.setNightEndTime(LocalTime.parse(request.getNightEndTime()));
-        }
+        // null 입력 시 기존 값을 null 로 명시적 초기화; non-null 일 때만 parse 호출
+        settings.setNightStartTime(
+                request.getNightStartTime() == null ? null : LocalTime.parse(request.getNightStartTime()));
+        settings.setNightEndTime(
+                request.getNightEndTime() == null ? null : LocalTime.parse(request.getNightEndTime()));
     }
 }
