@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   useWindowDimensions,
+  AppState,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
@@ -23,6 +24,11 @@ import { useSubjects } from '@/store/SubjectContext';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import type { FocusTimerMode } from './types';
 import { hms } from './format';
+import {
+  ensureNotificationPermission,
+  scheduleLeaveNotifications,
+  cancelLeaveNotifications,
+} from './leaveNotifications';
 import { EXAMPLE_FRIENDS } from './data';
 import { FriendGrid } from './components/FriendGrid';
 import { FocusMenuDrawer } from './components/FocusMenuDrawer';
@@ -30,6 +36,13 @@ import { FocusMenuDrawer } from './components/FocusMenuDrawer';
 // 06/07/08 집중 세션(세로) + 09 친구 그리드(좌우 페이저) + 10/11 메뉴 드로어.
 // 타이머는 실제로 tick하고, 정지 시 집중시간·코인·세션 POST를 반영한다(구 FocusMode 로직 이식).
 // 다크 화면 색은 T.night 팔레트 사용.
+//
+// 이탈 감지 — 집중 페이즈에서 앱을 벗어나면(background) 그 순간부터 일시정지(미적립):
+//   15초 안에 복귀: 자리 비운 시간만 빠지고 세션은 이어감
+//   15초 초과: 세션 자동 종료·저장 (백그라운드에선 JS가 멈추므로 복귀 시점에 판정)
+// 알림은 나가는 즉시 경고 1회 + +15초에 종료 안내를 예약하고, 복귀 시 취소.
+// 수동 일시정지 중 이탈은 무시, 뽀모도로 휴식 중 이탈은 벽시계만큼 휴식만 소진.
+const LEAVE_END_S = 15;
 
 interface SessionState {
   elapsed: number; // 실제 집중 초(적립 기준) — 뽀모도로는 집중 블록만 누적
@@ -116,6 +129,11 @@ export default function FocusSessionScreen() {
     return () => clearInterval(id);
   }, [nextTick]);
 
+  // 세션 시작 시 알림 권한 확보(거부돼도 이탈 감지는 동작).
+  useEffect(() => {
+    ensureNotificationPermission().catch(() => {});
+  }, []);
+
   // 정지/완료 — 집중시간·코인 적립 + 세션 저장 후 홈으로. 한 번만 실행.
   const finish = useCallback(() => {
     if (finishedRef.current) return;
@@ -144,6 +162,56 @@ export default function FocusSessionScreen() {
   useEffect(() => {
     if (session.done) finish();
   }, [session.done, finish]);
+
+  // 이탈 감지 — background 진입 시각을 기록해두고, 복귀 시 자리 비운 시간으로 판정한다.
+  const leftAtRef = useRef<number | null>(null);
+  const leftPhaseRef = useRef<'focus' | 'break'>('focus');
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      // 나감 — 타이머가 실제 돌고 있을 때만 이탈로 취급(일시정지·완료 중은 무시)
+      if (state === 'background') {
+        if (sessionRef.current.done || finishedRef.current || pausedRef.current) return;
+        leftAtRef.current = Date.now();
+        leftPhaseRef.current = sessionRef.current.phase;
+        if (sessionRef.current.phase === 'focus') {
+          scheduleLeaveNotifications(subjectName, LEAVE_END_S).catch(() => {});
+        }
+        return;
+      }
+      if (state !== 'active' || leftAtRef.current == null) return;
+
+      // 복귀 — 자리 비운 시간 계산 + 예약 알림 취소
+      const away = Math.round((Date.now() - leftAtRef.current) / 1000);
+      leftAtRef.current = null;
+      cancelLeaveNotifications().catch(() => {});
+      if (sessionRef.current.done || finishedRef.current) return;
+
+      if (leftPhaseRef.current === 'focus') {
+        // 15초 초과 → 자동 종료(나가기 직전까지만 저장). 이내 복귀 → 멈춰 있던 그대로 이어감.
+        if (away > LEAVE_END_S) finish();
+      } else {
+        // 휴식 중 이탈 — 벽시계만큼 휴식만 소진. 휴식이 끝나 있으면 다음 집중을 일시정지로 대기.
+        const cur = sessionRef.current;
+        if (cur.phase !== 'break') return;
+        if (away < cur.display) {
+          setSession({ ...cur, display: cur.display - away });
+        } else {
+          setPaused(true);
+          setSession({
+            ...cur,
+            display: pomo.focusMin * 60,
+            phase: 'focus',
+            setIndex: cur.setIndex + 1,
+          });
+        }
+      }
+    });
+    return () => {
+      sub.remove();
+      cancelLeaveNotifications().catch(() => {});
+    };
+  }, [subjectName, finish, pomo.focusMin]);
 
   function onScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
     setPage(Math.round(e.nativeEvent.contentOffset.x / width));
