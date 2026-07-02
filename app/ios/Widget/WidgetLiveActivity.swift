@@ -103,17 +103,11 @@ struct WidgetLiveActivity: Widget {
                         .frame(maxWidth: 100)
                 }
                 // 다른 과목 누적 시간 — 세션 중 불변이라 정적 표시로도 정확.
-                // 과목별로 칸(칩)을 나눠 한 줄 2과목, 높이 제약상 4개까지.
+                // 한국어 과목명이 길어 반폭 칩에선 시간이 줄바꿈됨 → 한 줄 1과목 풀폭 칩,
+                // 시간은 오른쪽 정렬 + 줄바꿈 금지. 높이 제약상 3개까지.
                 if !context.attributes.otherSubjects.isEmpty {
-                    LazyVGrid(
-                        columns: [
-                            GridItem(.flexible(), spacing: 8),
-                            GridItem(.flexible()),
-                        ],
-                        alignment: .leading,
-                        spacing: 8
-                    ) {
-                        ForEach(Array(context.attributes.otherSubjects.prefix(4)), id: \.self) { sub in
+                    VStack(spacing: 6) {
+                        ForEach(Array(context.attributes.otherSubjects.prefix(3)), id: \.self) { sub in
                             HStack(spacing: 7) {
                                 Circle()
                                     .fill(colorFromHex(sub.color))
@@ -122,13 +116,15 @@ struct WidgetLiveActivity: Widget {
                                     .font(.subheadline)
                                     .foregroundStyle(laMuted)
                                     .lineLimit(1)
-                                Spacer(minLength: 4)
+                                Spacer(minLength: 8)
                                 Text(hmsString(sub.seconds))
                                     .font(.subheadline.weight(.semibold).monospacedDigit())
                                     .foregroundStyle(laCream)
+                                    .lineLimit(1)
+                                    .fixedSize()
                             }
                             .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
+                            .padding(.vertical, 6)
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
                                     .fill(Color.white.opacity(0.08))
