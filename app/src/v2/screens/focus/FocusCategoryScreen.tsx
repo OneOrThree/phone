@@ -13,6 +13,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
+import { useFocus } from '@/store/FocusContext';
 import { useSubjects } from '@/store/SubjectContext';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import type { FocusTimerMode, PomodoroConfig, Subject } from './types';
@@ -32,6 +33,7 @@ export default function FocusCategoryScreen() {
   const { width: winW } = useWindowDimensions();
   const { subjects, addSubject, renameSubject, deleteSubject, reorderSubjects, setSubjectColor } =
     useSubjects();
+  const { removeFocusSeconds } = useFocus();
   const [selectedId, setSelectedId] = useState<string>('');
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [menu, setMenu] = useState<MenuAnchor>(null);
@@ -63,6 +65,8 @@ export default function FocusCategoryScreen() {
 
   function doDelete(sub: Subject) {
     deleteSubject(sub.id);
+    // 삭제된 과목의 기록은 홈 '오늘 집중'에서도 차감 (오늘치 초과분은 0으로 클램프)
+    if (sub.accumulatedSeconds > 0) removeFocusSeconds(sub.accumulatedSeconds);
     if (selectedId === sub.id) setSelectedId('');
   }
 

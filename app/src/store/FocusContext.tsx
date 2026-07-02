@@ -5,6 +5,7 @@ import { STORAGE_KEYS } from '@/types/storage';
 interface FocusContextValue {
   todayFocusSeconds: number;
   addFocusSeconds: (seconds: number) => void;
+  removeFocusSeconds: (seconds: number) => void;
 }
 
 const FocusContext = createContext<FocusContextValue | null>(null);
@@ -50,8 +51,14 @@ export function FocusProvider({ children }: { children: ReactNode }) {
     setTodayFocusSeconds((prev) => prev + seconds);
   }
 
+  // 과목 삭제 등으로 기록을 되돌릴 때 — 오늘치보다 크면 0으로 클램프.
+  function removeFocusSeconds(seconds: number) {
+    if (seconds <= 0) return;
+    setTodayFocusSeconds((prev) => Math.max(0, prev - seconds));
+  }
+
   return (
-    <FocusContext.Provider value={{ todayFocusSeconds, addFocusSeconds }}>
+    <FocusContext.Provider value={{ todayFocusSeconds, addFocusSeconds, removeFocusSeconds }}>
       {children}
     </FocusContext.Provider>
   );
