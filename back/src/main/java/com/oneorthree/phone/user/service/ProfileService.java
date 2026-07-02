@@ -6,8 +6,13 @@ import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
+import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
+import com.oneorthree.phone.stats.dto.StreakResponse;
+import com.oneorthree.phone.stats.dto.TodayStatsResponse;
+import com.oneorthree.phone.stats.service.StatsService;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.dto.PublicProfileResponse;
+import com.oneorthree.phone.user.dto.UserStatsResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -15,6 +20,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -33,6 +40,7 @@ public class ProfileService {
     private final CharacterEquipmentRepository characterEquipmentRepository;
     private final FriendshipRepository friendshipRepository;
     private final LeagueArenaUserRepository leagueArenaUserRepository;
+    private final StatsService statsService;
 
     /**
      * 대상 유저의 공개 프로필을 조회한다.
@@ -89,5 +97,52 @@ public class ProfileService {
         }
 
         return new PublicProfileResponse(userId, user.getNickname(), equipments, friendCount, currentTier, rank);
+    }
+
+    /**
+     * 타 유저 통계를 친구 여부에 따라 분기 조회한다 (GROMO-521).
+     * 본인 조회(callerId == targetUserId)는 친구 판정 없이 세부 통계를 반환한다.
+     * 이때 응답의 isFriend 는 false — isFriend=false 여도 본인 조회면 today/heatmap 이 채워진다.
+     * 친구X(PENDING 포함): streak 만 반환. 친구O: today·streak·heatmap 전체 반환.
+     *
+     * @param callerId     호출자 유저 ID
+     * @param targetUserId 조회 대상 유저 ID
+     * @return 유저 통계 응답
+     * @throws UserException 대상 유저가 없거나 탈퇴된 경우 NOT_FOUND
+     */
+    public UserStatsResponse getUserStats(UUID callerId, UUID targetUserId) {
+        User target = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+
+        // 소프트딜리트된 유저(탈퇴) → 404
+        if (target.getDeletedAt() != null) {
+            throw new UserException(UserErrorCode.NOT_FOUND);
+        }
+
+        // 본인 조회(callerId == targetUserId) → 세부 취급, 친구 판정 생략
+        boolean isOwn = callerId.equals(targetUserId);
+        boolean isFriend = false;
+
+        if (!isOwn) {
+            User caller = userRepository.findById(callerId)
+                    .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+            // ACCEPTED 양방향 단건 조회 — PENDING 은 친구X 취급
+            isFriend = friendshipRepository.findAcceptedBetween(caller, target).isPresent();
+        }
+
+        // 스트릭은 친구 여부와 무관하게 항상 반환
+        StreakResponse streak = statsService.getStreak(targetUserId);
+
+        if (isOwn || isFriend) {
+            // 세부 통계: today + streak + 최근 7일 heatmap
+            TodayStatsResponse today = statsService.getTodayStats(targetUserId);
+            LocalDate to = LocalDate.now(ZoneOffset.UTC);
+            LocalDate from = to.minusDays(6);
+            List<HeatmapCellResponse> heatmap = statsService.getHeatmap(targetUserId, from, to);
+            return new UserStatsResponse(isFriend, streak, today, heatmap);
+        }
+
+        // 간단 통계: streak 만 반환, today/heatmap null
+        return new UserStatsResponse(false, streak, null, null);
     }
 }
