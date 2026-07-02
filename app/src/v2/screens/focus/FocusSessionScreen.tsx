@@ -68,7 +68,10 @@ export default function FocusSessionScreen() {
   const { width } = useWindowDimensions();
   const { addFocusSeconds } = useFocus();
   const { addCoins } = useCoins();
-  const { addFocusToSubject } = useSubjects();
+  const { subjects, addFocusToSubject } = useSubjects();
+  // Live Activity 시작 시점에 읽을 과목 목록 — effect 재실행 없이 최신값 참조용
+  const subjectsRef = useRef(subjects);
+  subjectsRef.current = subjects;
 
   const [page, setPage] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -193,14 +196,20 @@ export default function FocusSessionScreen() {
       } catch {
         /* 스냅샷 실패/지연 — 위젯은 기본 마스코트로 폴백 */
       }
-      if (!cancelled) ScreenTimeModule.startFocusActivity(subjectName).catch(() => {});
+      if (!cancelled) {
+        // 잠금화면에 보여줄 다른 과목들의 누적 집중 시간(세션 중 불변이라 시작 시점 값으로 고정)
+        const others = subjectsRef.current
+          .filter((x) => x.id !== subjectId)
+          .map((x) => ({ name: x.name, seconds: x.accumulatedSeconds, color: x.color }));
+        ScreenTimeModule.startFocusActivity(subjectName, others).catch(() => {});
+      }
     }, 600);
     return () => {
       cancelled = true;
       clearTimeout(t);
       ScreenTimeModule.endFocusActivity().catch(() => {});
     };
-  }, [subjectName]);
+  }, [subjectName, subjectId]);
 
   // 정지/완료 — 집중시간·코인 적립 + 세션 저장 후 홈으로. 한 번만 실행.
   const finish = useCallback(() => {
@@ -331,7 +340,7 @@ export default function FocusSessionScreen() {
             <View style={s.characterWrap}>
               {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터 */}
               <View ref={charShotRef} collapsable={false}>
-                <CharacterImage size={200} />
+                <CharacterImage size={230} />
               </View>
             </View>
           </View>

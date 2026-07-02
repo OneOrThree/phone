@@ -105,6 +105,7 @@ RCT_EXTERN_METHOD(
 
 RCT_EXTERN_METHOD(
     startFocusActivity:(NSString *)subjectName
+    otherSubjectsJson:(NSString *)otherSubjectsJson
     resolver:(RCTPromiseResolveBlock)resolve
     rejecter:(RCTPromiseRejectBlock)reject
 )

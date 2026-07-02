@@ -34,7 +34,7 @@ interface NativeScreenTime {
   startFocusShield(subjectName: string): Promise<boolean>;
   stopFocusShield(): Promise<void>;
   saveCharacterSnapshot(base64: string): Promise<boolean>;
-  startFocusActivity(subjectName: string): Promise<boolean>;
+  startFocusActivity(subjectName: string, otherSubjectsJson: string): Promise<boolean>;
   endFocusActivity(): Promise<void>;
 }
 
@@ -143,9 +143,13 @@ const ScreenTimeModule = {
   },
 
   // 집중 Live Activity(다이나믹 아일랜드/잠금화면) 시작. 실패해도 세션엔 영향 없음.
-  startFocusActivity: async (subjectName: string): Promise<boolean> => {
+  // otherSubjects: 현재 과목 외 과목들의 누적 집중 시간 — 잠금화면에 정적 표시.
+  startFocusActivity: async (
+    subjectName: string,
+    otherSubjects: { name: string; seconds: number; color: string }[] = [],
+  ): Promise<boolean> => {
     if (Platform.OS !== 'ios') return false;
-    return NativeScreenTimeModule.startFocusActivity(subjectName);
+    return NativeScreenTimeModule.startFocusActivity(subjectName, JSON.stringify(otherSubjects));
   },
 
   // 집중 Live Activity 종료(멱등).

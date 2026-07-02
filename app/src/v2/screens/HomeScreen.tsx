@@ -179,7 +179,7 @@ export default function HomeScreen() {
           <View style={s.topBar}>
             <View style={s.profileRow}>
               <View style={s.avatar}>
-                <CharacterImage size={30} />
+                <CharacterImage size={38} />
               </View>
               <View>
                 <View style={s.nameRow}>
@@ -211,8 +211,7 @@ export default function HomeScreen() {
 
           {/* ── 방 + 캐릭터 ── */}
           <View style={s.room}>
-            <View style={s.floor} />
-            <CharacterImage size={188} />
+            <CharacterImage size={216} />
           </View>
         </ScrollView>
 
@@ -323,15 +322,6 @@ const s = StyleSheet.create({
 
   // 방 + 캐릭터 — 가운데를 채우고, 카드를 하단으로 밀어냄
   room: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
-  floor: {
-    position: 'absolute',
-    bottom: 26,
-    width: 210,
-    height: 54,
-    borderRadius: 105,
-    backgroundColor: T.paperAlt,
-    opacity: 0.6,
-  },
 
   // 오늘 카드
   card: {

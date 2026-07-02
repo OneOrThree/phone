@@ -533,6 +533,7 @@ class ScreenTimeModule: NSObject {
 
     // 캐릭터 스냅샷(base64 PNG)을 App Group 컨테이너에 저장.
     // Live Activity(Widget)와 가림막(ShieldConfiguration)이 이 파일을 읽어 표시한다.
+    // 익스텐션 메모리 예산이 빡빡하므로 저장 전에 최대 256px로 다운스케일한다.
     @objc func saveCharacterSnapshot(
         _ base64: String,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -540,6 +541,7 @@ class ScreenTimeModule: NSObject {
     ) {
         guard
             let data = Data(base64Encoded: base64),
+            let image = UIImage(data: data),
             let container = FileManager.default.containerURL(
                 forSecurityApplicationGroupIdentifier: "group.com.oneorthree.gromo"
             )
@@ -547,8 +549,27 @@ class ScreenTimeModule: NSObject {
             resolve(false)
             return
         }
+
+        // 긴 변 256px 초과 시 축소(스케일 1로 렌더해 @3x 부풀림 방지)
+        let maxSide: CGFloat = 256
+        let longest = max(image.size.width, image.size.height)
+        var output = image
+        if longest > maxSide, longest > 0 {
+            let ratio = maxSide / longest
+            let newSize = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            output = UIGraphicsImageRenderer(size: newSize, format: format).image { _ in
+                image.draw(in: CGRect(origin: .zero, size: newSize))
+            }
+        }
+
+        guard let png = output.pngData() else {
+            resolve(false)
+            return
+        }
         do {
-            try data.write(to: container.appendingPathComponent("focusCharacter.png"))
+            try png.write(to: container.appendingPathComponent("focusCharacter.png"))
             resolve(true)
         } catch {
             resolve(false)
@@ -557,14 +578,21 @@ class ScreenTimeModule: NSObject {
 
     // 집중 Live Activity 시작 — 타이머는 위젯의 Text(timerInterval:)가 자체 갱신하므로
     // 시작 시각만 넘기면 업데이트가 필요 없다. 실패해도 세션 진행엔 영향 없음(false 반환).
+    // otherSubjectsJson: [{"name","seconds","color"}] — 잠금화면의 다른 과목 집중 시간 표시용.
     @objc func startFocusActivity(
         _ subjectName: String,
+        otherSubjectsJson: String,
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         guard #available(iOS 16.2, *) else {
             reject("OLD_OS", "iOS 16.2 이상에서만 Live Activity를 쓸 수 있어요.", nil)
             return
+        }
+        var others: [GromoFocusAttributes.OtherSubject] = []
+        if let data = otherSubjectsJson.data(using: .utf8),
+           let parsed = try? JSONDecoder().decode([GromoFocusAttributes.OtherSubject].self, from: data) {
+            others = parsed
         }
         Task { @MainActor in
             // 잔여 액티비티 정리 후 시작(중복 방지)
@@ -581,7 +609,7 @@ class ScreenTimeModule: NSObject {
             }
             do {
                 _ = try Activity.request(
-                    attributes: GromoFocusAttributes(subjectName: subjectName),
+                    attributes: GromoFocusAttributes(subjectName: subjectName, otherSubjects: others),
                     content: .init(
                         state: GromoFocusAttributes.ContentState(startedAt: Date()),
                         staleDate: nil
@@ -633,8 +661,18 @@ struct GromoFocusAttributes: ActivityAttributes {
         var startedAt: Date
     }
 
+    // 다른 과목의 누적 집중 시간(잠금화면 표시용) — 세션 중엔 현재 과목만 증가하므로
+    // 시작 시점 스냅샷으로 고정해도 항상 정확하다.
+    struct OtherSubject: Codable, Hashable {
+        var name: String
+        var seconds: Int
+        var color: String // hex 문자열(#RRGGBB)
+    }
+
     // 세션 과목명
     var subjectName: String
+    // 현재 과목을 제외한 나머지 과목들의 누적 집중 시간
+    var otherSubjects: [OtherSubject]
 }
 
 // FamilyActivityPicker를 감싸는 SwiftUI 뷰
