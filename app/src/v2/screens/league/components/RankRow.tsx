@@ -6,16 +6,16 @@ import { fmtMinutes } from '../format';
 import { MemberAvatar } from './MemberAvatar';
 
 // 랭킹 한 행 — 순위·아바타·이름/티어명·주간 집중 시간·핀 토글.
-// 내 행/핀 행은 시안대로 하이라이트(bg #FBF3E8 + 브라운 테두리).
+// 시안: 하이라이트(bg #FBF3E8 + 2px #C8893F)는 내 행만, 핀은 별 채움으로만 표시.
 interface Props {
-  rank?: number | null; // null이면 순위 컬럼 생략(친구 목록 등)
+  rank?: number | null; // null이면 순위 컬럼 생략
   nickname: string;
   tierLevel: number;
   minutes: number;
   isMe?: boolean;
   pinned?: boolean;
   onPress?: () => void;
-  /** 없으면 핀 버튼 생략(내 행 등) */
+  /** 없으면 핀 버튼 생략 */
   onPin?: () => void;
 }
 
@@ -29,10 +29,9 @@ export function RankRow({
   onPress,
   onPin,
 }: Props) {
-  const highlight = isMe || pinned;
   return (
     <TouchableOpacity
-      style={[s.row, highlight ? s.rowHl : null]}
+      style={[s.row, isMe ? s.rowMe : null]}
       activeOpacity={0.8}
       onPress={onPress}
       disabled={!onPress}
@@ -42,18 +41,11 @@ export function RankRow({
           {rank}
         </Text>
       )}
-      <MemberAvatar size={46} tierLevel={tierLevel} />
+      <MemberAvatar size={36} tierLevel={tierLevel} />
       <View style={s.nameCol}>
-        <View style={s.nameRow}>
-          <Text style={s.name} numberOfLines={1}>
-            {nickname}
-          </Text>
-          {isMe && (
-            <View style={s.meBadge}>
-              <Text style={s.meBadgeText}>나</Text>
-            </View>
-          )}
-        </View>
+        <Text style={s.name} numberOfLines={1}>
+          {nickname}
+        </Text>
         <Text style={s.tierName}>{tierByLevel(tierLevel).name}</Text>
       </View>
       <Text style={s.time} allowFontScaling={false}>
@@ -64,7 +56,7 @@ export function RankRow({
           <Ionicons
             name={pinned ? 'star' : 'star-outline'}
             size={19}
-            color={pinned ? '#E8B93C' : T.inkMuted}
+            color={pinned ? T.accent : '#C9BCA8'}
           />
         </TouchableOpacity>
       )}
@@ -76,29 +68,21 @@ const s = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 11,
+    gap: 12,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
-    borderRadius: 16,
+    borderRadius: 14,
     paddingHorizontal: 13,
     paddingVertical: 10,
-    marginBottom: 8,
+    marginBottom: 7,
   },
-  rowHl: { backgroundColor: '#FBF3E8', borderWidth: 2, borderColor: '#C8893F' },
-  rank: { width: 24, textAlign: 'center', ...T.text.label, color: T.inkSub },
-  rankTop: { color: T.accentDeep, fontWeight: '800' },
-  nameCol: { flex: 1, gap: 1 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  name: { ...T.text.label, fontSize: 16, color: T.ink, flexShrink: 1 },
-  meBadge: {
-    backgroundColor: T.accent,
-    borderRadius: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
-  meBadgeText: { fontSize: 11, fontWeight: '800', color: T.white },
-  tierName: { ...T.text.caption, color: T.inkMuted },
-  time: { ...T.text.label, fontSize: 15, fontWeight: '700', color: T.ink },
-  pinBtn: { padding: 2 },
+  rowMe: { backgroundColor: '#FBF3E8', borderWidth: 2, borderColor: '#C8893F' },
+  rank: { width: 22, textAlign: 'center', fontSize: 15, fontWeight: '800', color: '#9A8C7C' },
+  rankTop: { color: T.accent },
+  nameCol: { flex: 1, gap: 1, minWidth: 0 },
+  name: { ...T.text.label, fontSize: 15, fontWeight: '700', color: T.ink },
+  tierName: { fontSize: 11, fontWeight: '600', color: T.inkSub },
+  time: { fontSize: 15, fontWeight: '800', color: T.ink, fontVariant: ['tabular-nums'] },
+  pinBtn: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
 });

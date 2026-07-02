@@ -6,10 +6,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
 import { tierByLevel } from '@/v2/constants/tiers';
 import type { FriendRelation } from '@/types/api';
-import { EXAM_BY_USER, RECEIVED_REQUESTS, SEARCH_POOL } from './mock';
+import { RECEIVED_REQUESTS, SEARCH_POOL } from './mock';
 import { MemberAvatar } from './components/MemberAvatar';
 
-// 친구 추가 화면 (root stack) — 닉네임 검색 + 검색 결과(친구 신청/요청됨) + 받은 요청(수락/거절).
+// 친구 추가 화면 (root stack) — 시안 "친구 추가 · 검색 + 받은 요청".
+// 검색 결과(친구 신청/요청됨 pill) + 받은 요청(거절/수락 사각 버튼) + 안내 카드.
 // 버튼은 로컬 상태 토글 — TODO: /friends/search·/friends/requests(accept·reject) API 연동.
 
 export default function FriendAddScreen() {
@@ -36,18 +37,17 @@ export default function FriendAddScreen() {
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
-      {/* ── 헤더 ── */}
+      {/* ── 헤더 (시안: 원형 백버튼 + 좌측 정렬 제목) ── */}
       <View style={s.header}>
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
-          <Ionicons name="chevron-back" size={22} color={T.ink} />
+          <Ionicons name="chevron-back" size={18} color="#5C5246" />
         </TouchableOpacity>
         <Text style={s.headerTitle}>친구 추가</Text>
-        <View style={s.backBtn} />
       </View>
 
       {/* ── 검색 인풋 ── */}
       <View style={s.searchBox}>
-        <Ionicons name="search" size={16} color={T.inkMuted} />
+        <Ionicons name="search" size={16} color={T.accent} />
         <TextInput
           style={s.searchInput}
           value={query}
@@ -58,8 +58,8 @@ export default function FriendAddScreen() {
           returnKeyType="search"
         />
         {query.length > 0 && (
-          <TouchableOpacity onPress={() => setQuery('')} hitSlop={8}>
-            <Ionicons name="close-circle" size={17} color={T.inkMuted} />
+          <TouchableOpacity style={s.clearBtn} onPress={() => setQuery('')} hitSlop={8}>
+            <Ionicons name="close" size={11} color="#9A8C7C" />
           </TouchableOpacity>
         )}
       </View>
@@ -73,35 +73,37 @@ export default function FriendAddScreen() {
         {/* ── 검색 결과 ── */}
         {q.length > 0 && (
           <>
-            <Text style={s.sectionTitle}>검색 결과 {results.length}</Text>
+            <Text style={s.resultTitle}>
+              검색 결과 <Text style={s.resultCount}>{results.length}</Text>
+            </Text>
             {results.map((r) => {
               const relation = relations[r.userId] ?? 'NONE';
               return (
                 <View key={r.userId} style={s.card}>
-                  <MemberAvatar size={44} tierLevel={r.tierLevel} />
+                  <MemberAvatar size={34} tierLevel={r.tierLevel} />
                   <View style={s.cardName}>
                     <Text style={s.name} numberOfLines={1}>
                       {r.nickname}
                     </Text>
-                    <Text style={s.sub}>{tierByLevel(r.tierLevel ?? 1).name}</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={[s.reqBtn, relation !== 'NONE' ? s.reqBtnMuted : null]}
-                    disabled={relation !== 'NONE'}
-                    onPress={() => sendRequest(r.userId)}
-                    activeOpacity={0.85}
-                  >
-                    {relation === 'FRIEND' && (
-                      <Ionicons name="checkmark" size={13} color={T.inkSub} />
-                    )}
-                    <Text style={[s.reqBtnText, relation !== 'NONE' ? s.reqBtnTextMuted : null]}>
-                      {relation === 'NONE'
-                        ? '친구 신청'
-                        : relation === 'PENDING'
-                          ? '요청됨'
-                          : '친구'}
+                    <Text style={s.sub}>
+                      {tierByLevel(r.tierLevel ?? 1).name} · {r.exam}
                     </Text>
-                  </TouchableOpacity>
+                  </View>
+                  {relation === 'NONE' ? (
+                    <TouchableOpacity
+                      style={s.reqBtn}
+                      onPress={() => sendRequest(r.userId)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={s.reqBtnText}>친구 신청</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={s.reqBtnMuted}>
+                      <Text style={s.reqBtnTextMuted}>
+                        {relation === 'PENDING' ? '요청됨' : '친구 ✓'}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               );
             })}
@@ -111,42 +113,51 @@ export default function FriendAddScreen() {
         )}
 
         {/* ── 받은 요청 ── */}
-        <Text style={s.sectionTitle}>받은 요청 {requests.length}</Text>
+        <View style={s.reqTitleRow}>
+          <Text style={s.reqTitle}>받은 요청</Text>
+          {requests.length > 0 && (
+            <View style={s.reqCountBadge}>
+              <Text style={s.reqCountText} allowFontScaling={false}>
+                {requests.length}
+              </Text>
+            </View>
+          )}
+        </View>
         {requests.map((r) => (
           <View key={r.requestId} style={s.card}>
-            <MemberAvatar size={44} tierLevel={r.tierLevel} />
+            <MemberAvatar size={34} tierLevel={r.tierLevel} />
             <View style={s.cardName}>
               <Text style={s.name} numberOfLines={1}>
                 {r.nickname}
               </Text>
               <Text style={s.sub}>
-                {tierByLevel(r.tierLevel ?? 1).name} · {EXAM_BY_USER[r.userId] ?? '시험 준비 중'}
+                {tierByLevel(r.tierLevel ?? 1).name} · {r.exam}
               </Text>
             </View>
-            <TouchableOpacity
-              style={s.rejectBtn}
-              onPress={() => resolveRequest(r.requestId)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="close" size={17} color={T.inkSub} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={s.acceptBtn}
-              onPress={() => resolveRequest(r.requestId)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="checkmark" size={17} color={T.white} />
-            </TouchableOpacity>
+            <View style={s.reqActions}>
+              <TouchableOpacity
+                style={s.rejectBtn}
+                onPress={() => resolveRequest(r.requestId)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="close" size={14} color="#9A8C7C" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.acceptBtn}
+                onPress={() => resolveRequest(r.requestId)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="checkmark" size={15} color={T.white} />
+              </TouchableOpacity>
+            </View>
           </View>
         ))}
         {requests.length === 0 && <Text style={s.empty}>받은 요청이 없어요</Text>}
 
-        {/* ── 안내 문구 ── */}
+        {/* ── 안내 카드 ── */}
         <View style={s.notice}>
-          <Ionicons name="information-circle" size={15} color={T.inkMuted} />
-          <Text style={s.noticeText}>
-            닉네임으로 검색해 친구를 추가해 보세요. 친구는 나만의 랭킹에서 함께 볼 수 있어요.
-          </Text>
+          <Ionicons name="star" size={15} color={T.accent} />
+          <Text style={s.noticeText}>닉네임을 정확히 입력하면 더 빨리 찾을 수 있어요.</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -154,92 +165,145 @@ export default function FriendAddScreen() {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: T.paperLight },
+  root: { flex: 1, backgroundColor: '#F1EADD' },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingTop: 4,
-    paddingBottom: 8,
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    paddingBottom: 12,
   },
-  backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { ...T.text.subtitle, color: T.ink },
+  backBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: { fontSize: 20, fontWeight: '800', color: T.ink },
 
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 18,
+    gap: 9,
+    marginHorizontal: 16,
+    marginBottom: 12,
     backgroundColor: T.white,
-    borderWidth: 1,
-    borderColor: T.paperAlt,
-    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: T.accent,
+    borderRadius: 13,
     paddingHorizontal: 13,
-    paddingVertical: 11,
+    height: 46,
   },
-  searchInput: { flex: 1, ...T.text.label, fontSize: 16, color: T.ink, padding: 0 },
+  searchInput: { flex: 1, fontSize: 15, fontWeight: '600', color: T.ink, padding: 0 },
+  clearBtn: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#EFE7D8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 18, paddingBottom: 40 },
-  sectionTitle: { ...T.text.label, color: T.inkSub, marginTop: 18, marginBottom: 9 },
+  scrollContent: { paddingHorizontal: 16, paddingBottom: 40 },
+
+  resultTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: T.inkSub,
+    marginTop: 2,
+    marginBottom: 10,
+    marginHorizontal: 4,
+  },
+  resultCount: { color: T.accent },
 
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 11,
+    gap: 10,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
-    borderRadius: 16,
-    paddingHorizontal: 13,
+    borderRadius: 14,
+    paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 8,
   },
-  cardName: { flex: 1, gap: 1 },
-  name: { ...T.text.label, fontSize: 16, color: T.ink },
-  sub: { ...T.text.caption, color: T.inkMuted },
+  cardName: { flex: 1, gap: 1, minWidth: 0 },
+  name: { fontSize: 14, fontWeight: '700', color: T.ink },
+  sub: { fontSize: 11, fontWeight: '600', color: T.inkSub },
 
   reqBtn: {
+    backgroundColor: T.accent,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  reqBtnText: { fontSize: 12, fontWeight: '700', color: T.white },
+  reqBtnMuted: {
+    backgroundColor: '#F1EADD',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  reqBtnTextMuted: { fontSize: 12, fontWeight: '700', color: T.inkSub },
+
+  divider: { height: 1, backgroundColor: '#E2D7C4', marginVertical: 14, marginHorizontal: 2 },
+
+  reqTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    backgroundColor: T.accent,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    gap: 7,
+    marginBottom: 10,
+    marginHorizontal: 4,
   },
-  reqBtnMuted: { backgroundColor: '#F1E9DA' },
-  reqBtnText: { ...T.text.caption, color: T.white },
-  reqBtnTextMuted: { color: T.inkSub },
-
+  reqTitle: { fontSize: 14, fontWeight: '700', color: T.ink },
+  reqCountBadge: {
+    backgroundColor: T.accentAlt,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  reqCountText: { fontSize: 10, fontWeight: '700', color: T.white },
+  reqActions: { flexDirection: 'row', gap: 6 },
   rejectBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#F1E9DA',
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    backgroundColor: '#F1EADD',
+    borderWidth: 1,
+    borderColor: '#E2D7C4',
     alignItems: 'center',
     justifyContent: 'center',
   },
   acceptBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 32,
+    height: 32,
+    borderRadius: 9,
     backgroundColor: T.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  empty: { ...T.text.caption, color: T.inkMuted, textAlign: 'center', paddingVertical: 14 },
-  divider: { height: 1, backgroundColor: '#EDE5D6', marginTop: 10 },
+  empty: { fontSize: 12, fontWeight: '600', color: T.inkMuted, textAlign: 'center', padding: 14 },
 
   notice: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 6,
-    marginTop: 22,
-    paddingHorizontal: 4,
+    gap: 9,
+    backgroundColor: '#FBF3E8',
+    borderWidth: 1,
+    borderColor: '#EBDCC2',
+    borderRadius: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: 6,
   },
-  noticeText: { flex: 1, ...T.text.caption, fontWeight: '500', color: T.inkMuted, lineHeight: 18 },
+  noticeText: { flex: 1, fontSize: 12, fontWeight: '500', color: T.link, lineHeight: 18 },
 });

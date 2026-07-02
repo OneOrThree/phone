@@ -1,31 +1,68 @@
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Animated, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { T } from '@/v2/constants/theme';
 import { tierByLevel } from '@/v2/constants/tiers';
 import { Character2D } from '@/components/character/Character2D';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import { TierBadge } from './components/TierBadge';
 
-// 승격/강등 연출 (root stack, 풀스크린 다크) — route.params.type으로 분기.
-// 실제 트리거는 주간 정산의 result(TODO) — 지금은 TierGuide 롱프레스 임시 진입점으로 미리보기.
-// TODO: 정산 result 기반 실데이터(이전/새 티어, 보너스) 연결 + 등장 애니메이션 연출.
+// 승격/강등 연출 (root stack, 풀스크린 다크 radial) — 시안 "승격/강등 연출".
+// 실제 트리거는 주간 정산 result(TODO) — 지금은 TierGuide 롱프레스 임시 진입점으로 미리보기.
+// TODO: 정산 result 기반 실데이터(이전/새 티어, 시간, 보너스) 연결.
+// 승격 큰 뱃지는 시안의 별 사각형 대신 tier 일러스트(tiers.ts image) — 계획서에서 확정.
 
-const GOLD = '#F2CE73';
+// mock: 승격 3→4 / 강등 4→3 (시안 연출 기준)
+const PROMOTE_TO = 4;
+const DEMOTE_FROM = 4;
 
 export default function LeagueResultScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<V2RootStackParamList, 'LeagueResult'>>();
   const promote = route.params.type === 'promote';
 
-  // mock: 현재 3단계 기준 — 승격이면 4단계로, 강등이면 2단계로
-  const from = tierByLevel(3);
-  const to = tierByLevel(promote ? 4 : 2);
+  // 강등 화면 마스코트 둥실 애니메이션 (시안 gmFloat 4s)
+  const float = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(float, { toValue: -7, duration: 2000, useNativeDriver: true }),
+        Animated.timing(float, { toValue: 0, duration: 2000, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [float]);
+
+  const to = tierByLevel(promote ? PROMOTE_TO : DEMOTE_FROM - 1);
+  const from = tierByLevel(DEMOTE_FROM);
 
   return (
-    <LinearGradient colors={['#3B2E20', '#241B12', '#1B1613']} style={s.bg}>
+    <View style={s.root}>
+      {/* 시안 radial 배경 — expo-linear-gradient엔 radial이 없어 svg로 */}
+      <Svg style={StyleSheet.absoluteFill}>
+        <Defs>
+          <RadialGradient id="bg" cx="50%" cy={promote ? '28%' : '32%'} rx="80%" ry="55%">
+            <Stop offset="0" stopColor={promote ? '#4A3320' : '#463529'} />
+            <Stop offset="1" stopColor={promote ? '#28190F' : '#231A12'} />
+          </RadialGradient>
+        </Defs>
+        <Rect width="100%" height="100%" fill="url(#bg)" />
+      </Svg>
+
+      {/* 승격 화면 반짝이 */}
+      {promote && (
+        <>
+          <View style={[s.spark, s.spark1]} />
+          <View style={[s.spark, s.sparkMilk, s.spark2]} />
+          <View style={[s.spark, s.spark3]} />
+          <View style={[s.spark, s.sparkMilk, s.spark4]} />
+        </>
+      )}
+
       <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
         <View style={s.body}>
           {promote ? (
@@ -34,59 +71,53 @@ export default function LeagueResultScreen() {
               <Text style={s.title}>승격했어요!</Text>
 
               {/* 큰 티어 뱃지 + 글로우 */}
-              <View style={s.glowOuter}>
-                <View style={s.glowInner}>
-                  <Image source={to.image} style={s.badgeImg} />
-                </View>
+              <View style={s.glow}>
+                <Image source={to.image} style={s.badgeImg} />
               </View>
 
-              <View style={s.tierPill}>
-                <TierBadge level={to.level} size={18} />
-                <Text style={s.tierPillText}>{to.name}</Text>
-              </View>
-
+              <Text style={s.tierName}>{to.name}</Text>
               <Text style={s.desc}>
-                한 주 동안 쌓아 올린 집중의 결과예요.{'\n'}새 리그에서도 같이 달려요!
+                이번 주 <Text style={s.descStrong}>26시간</Text> 집중!{'\n'}
+                {to.name} 기준(주 {to.minHours}시간)을 넘겨 한 단계 올라갔어요.
               </Text>
 
-              <View style={s.bonusPill}>
-                <Ionicons name="sparkles" size={14} color={GOLD} />
-                <Text style={s.bonusText} allowFontScaling={false}>
+              <View style={s.pill}>
+                <View style={s.coin} />
+                <Text style={s.pillText} allowFontScaling={false}>
                   승격 보너스 +150
                 </Text>
               </View>
             </>
           ) : (
             <>
-              <Text style={[s.caption, s.captionMuted]}>WEEK CLOSED</Text>
-              <Text style={s.title}>한 주 수고했어요</Text>
+              <Text style={[s.caption, s.captionMuted]}>한 주 마감 · WEEK CLOSED</Text>
+              <Text style={[s.title, s.titleDemote]}>한 주 수고했어요</Text>
 
-              {/* 마스코트 — TODO: 둥실 떠다니는 애니메이션 연출 */}
-              <View style={s.mascotCircle}>
-                <Character2D size={104} />
-              </View>
+              {/* 둥실 떠다니는 마스코트 */}
+              <Animated.View style={{ transform: [{ translateY: float }] }}>
+                <Character2D size={108} />
+              </Animated.View>
 
-              {/* 티어 전환 (이전 → 현재) */}
+              {/* 티어 전환 (이전 → 지금) */}
               <View style={s.transRow}>
-                <View style={s.transCol}>
-                  <Image source={from.image} style={[s.transImgSmall, s.transDim]} />
-                  <Text style={[s.transName, s.transDim]}>{from.name}</Text>
+                <View style={[s.transCol, s.transDim]}>
+                  <TierBadge level={from.level} size={40} outlined={false} />
+                  <Text style={s.transFromName}>{from.name}</Text>
                 </View>
-                <Ionicons name="arrow-forward" size={20} color="#8A7B68" />
+                <Ionicons name="chevron-down" size={20} color="#B79A78" />
                 <View style={s.transCol}>
-                  <Image source={to.image} style={s.transImg} />
-                  <Text style={s.transName}>{to.name}</Text>
+                  <TierBadge level={to.level} size={56} outlined={false} />
+                  <Text style={s.transToName}>{to.name} · 지금</Text>
                 </View>
               </View>
 
-              <Text style={s.desc}>
-                괜찮아요, 기록은 사라지지 않아요.{'\n'}다음 주에 같이 다시 올라가요!
-              </Text>
+              <Text style={s.tierLeague}>{to.name} 리그</Text>
+              <Text style={s.desc}>{to.name} 리그에서 더 힘내봐요!</Text>
 
-              <View style={s.bonusPill}>
-                <Ionicons name="trending-up" size={14} color={GOLD} />
-                <Text style={s.bonusText} allowFontScaling={false}>
-                  다음 주 {from.minHours}h 집중하면 다시 {from.name}
+              <View style={[s.pill, s.pillDemote]}>
+                <Ionicons name="checkmark" size={14} color="#E0BF82" />
+                <Text style={[s.pillText, s.pillTextDemote]} allowFontScaling={false}>
+                  다음 주 +8시간이면 다시 {from.name}
                 </Text>
               </View>
             </>
@@ -94,107 +125,91 @@ export default function LeagueResultScreen() {
         </View>
 
         {/* ── 하단 CTA ── */}
-        <TouchableOpacity
-          style={[s.cta, promote ? s.ctaGold : s.ctaDim]}
-          activeOpacity={0.85}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={[s.ctaText, promote ? s.ctaTextGold : null]}>
-            {promote ? '새 리그 보러가기' : '확인'}
-          </Text>
+        <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={() => navigation.goBack()}>
+          <Text style={s.ctaText}>{promote ? '새 리그 보러가기' : '이번 주 다시 시작'}</Text>
         </TouchableOpacity>
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
-  bg: { flex: 1 },
-  safe: { flex: 1, paddingHorizontal: 24 },
-  body: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14 },
+  root: { flex: 1, backgroundColor: '#28190F' },
+  safe: { flex: 1, paddingHorizontal: 22 },
+  body: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
 
-  caption: { ...T.text.caption, color: GOLD, letterSpacing: 4 },
-  captionMuted: { color: '#C9B99B' },
-  title: { fontSize: 30, fontWeight: '800', letterSpacing: -0.5, color: '#FFF7E8' },
+  spark: { position: 'absolute', borderRadius: 99, backgroundColor: '#F0C76A' },
+  sparkMilk: { backgroundColor: '#E7D2A9', opacity: 0.7 },
+  spark1: { left: 50, top: 120, width: 6, height: 6, opacity: 0.8 },
+  spark2: { right: 60, top: 160, width: 8, height: 8 },
+  spark3: { left: 80, top: 230, width: 5, height: 5, opacity: 0.6 },
+  spark4: { right: 48, top: 280, width: 6, height: 6 },
 
-  glowOuter: {
-    width: 208,
-    height: 208,
-    borderRadius: 104,
-    backgroundColor: 'rgba(242,206,115,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
+  caption: { fontSize: 14, fontWeight: '700', color: '#E6C58A', letterSpacing: 2, marginBottom: 8 },
+  captionMuted: { fontSize: 13, color: '#B79A78' },
+  title: {
+    fontSize: 30,
+    fontWeight: '800',
+    letterSpacing: -1,
+    color: '#F6F1E9',
+    marginBottom: 24,
   },
-  glowInner: {
-    width: 164,
-    height: 164,
-    borderRadius: 82,
-    backgroundColor: 'rgba(242,206,115,0.14)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badgeImg: { width: 128, height: 128, resizeMode: 'contain' },
+  titleDemote: { fontSize: 28, marginBottom: 22 },
 
-  tierPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+  glow: {
+    padding: 18,
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    backgroundColor: 'rgba(240,199,106,0.16)',
+    marginBottom: 24,
+    shadowColor: '#F0C76A',
+    shadowOpacity: 0.55,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 0 },
   },
-  tierPillText: { ...T.text.label, fontSize: 16, color: '#FFF7E8' },
+  badgeImg: { width: 120, height: 120, resizeMode: 'contain' },
+  tierName: { fontSize: 24, fontWeight: '800', color: '#F6F1E9' },
 
   desc: {
-    ...T.text.body,
-    fontSize: 15,
+    fontSize: 14,
+    fontWeight: '500',
     lineHeight: 23,
-    color: '#C9B99B',
+    color: '#C8A36A',
     textAlign: 'center',
+    marginTop: 10,
   },
+  descStrong: { fontWeight: '800', color: '#F0C76A' },
 
-  bonusPill: {
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(242,206,115,0.14)',
+    gap: 8,
+    backgroundColor: 'rgba(200,137,63,0.2)',
     borderWidth: 1,
-    borderColor: 'rgba(242,206,115,0.45)',
+    borderColor: 'rgba(200,137,63,0.45)',
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    marginTop: 22,
   },
-  bonusText: { ...T.text.caption, color: GOLD },
+  pillDemote: { backgroundColor: 'rgba(200,137,63,0.16)', borderColor: 'rgba(200,137,63,0.4)' },
+  pillText: { fontSize: 14, fontWeight: '700', color: '#F0C76A' },
+  pillTextDemote: { fontSize: 13, color: '#E0BF82' },
+  coin: { width: 17, height: 17, borderRadius: 9, backgroundColor: '#F0C76A' },
 
-  mascotCircle: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 6,
-    overflow: 'hidden',
-  },
-
-  transRow: { flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 4 },
+  transRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 18 },
   transCol: { alignItems: 'center', gap: 5 },
-  transImg: { width: 84, height: 84, resizeMode: 'contain' },
-  transImgSmall: { width: 60, height: 60, resizeMode: 'contain' },
   transDim: { opacity: 0.45 },
-  transName: { ...T.text.caption, color: '#E9DCC3' },
+  transFromName: { fontSize: 11, fontWeight: '600', color: '#9A8472' },
+  transToName: { fontSize: 12, fontWeight: '700', color: '#E0BF82' },
+  tierLeague: { fontSize: 22, fontWeight: '800', color: '#F6F1E9', marginTop: 12 },
 
   cta: {
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: T.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 16,
-    paddingVertical: 15,
-    marginBottom: 10,
+    marginBottom: 24,
   },
-  ctaGold: { backgroundColor: GOLD },
-  ctaDim: { backgroundColor: 'rgba(255,255,255,0.12)' },
-  ctaText: { ...T.text.label, fontSize: 17, color: '#FFF7E8' },
-  ctaTextGold: { color: '#3A2A12' },
+  ctaText: { fontSize: 17, fontWeight: '700', color: T.white },
 });

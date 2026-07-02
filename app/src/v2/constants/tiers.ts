@@ -23,7 +23,7 @@ export const TIERS: TierMeta[] = [
   {
     level: 1,
     name: '뽀시래기',
-    rangeLabel: '주간 0–5시간',
+    rangeLabel: '주간 집중 0–5시간',
     minHours: 0,
     maxHours: 5,
     gradient: ['#E3DAC9', '#E3DAC9'],
@@ -33,7 +33,7 @@ export const TIERS: TierMeta[] = [
   {
     level: 2,
     name: '예열 모드',
-    rangeLabel: '주간 5–12시간',
+    rangeLabel: '주간 집중 5–12시간',
     minHours: 5,
     maxHours: 12,
     gradient: ['#E8C188', '#DDA45A'],
@@ -43,7 +43,7 @@ export const TIERS: TierMeta[] = [
   {
     level: 3,
     name: '초집중 모드',
-    rangeLabel: '주간 12–22시간',
+    rangeLabel: '주간 집중 12–22시간',
     minHours: 12,
     maxHours: 22,
     gradient: ['#D49A4E', '#C8893F'],
@@ -53,7 +53,7 @@ export const TIERS: TierMeta[] = [
   {
     level: 4,
     name: '갓생러',
-    rangeLabel: '주간 22–35시간',
+    rangeLabel: '주간 집중 22–35시간',
     minHours: 22,
     maxHours: 35,
     gradient: ['#A4682F', '#7E4A1C'],
@@ -63,7 +63,7 @@ export const TIERS: TierMeta[] = [
   {
     level: 5,
     name: '집중 정복자',
-    rangeLabel: '주간 35시간+',
+    rangeLabel: '주간 집중 35시간 이상',
     minHours: 35,
     maxHours: null,
     gradient: ['#F2CE73', '#D29A3C'],
