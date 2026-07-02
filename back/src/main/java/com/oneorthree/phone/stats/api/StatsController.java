@@ -1,6 +1,8 @@
 package com.oneorthree.phone.stats.api;
 
+import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
+import com.oneorthree.phone.stats.dto.StatsPeriod;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.service.StatsService;
@@ -68,5 +70,20 @@ public class StatsController {
     public ResponseEntity<TodayStatsResponse> getTodayStats(HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(statsService.getTodayStats(userId));
+    }
+
+    @Operation(summary = "기간별 집중시간 통계 조회",
+            description = "day(오늘)/week(이번 주 월~오늘)/month(이번 달 1일~오늘) 집중 시간 합계 + 직전 동일 기간 대비 delta 반환.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "400", description = "period 값 오류 (day|week|month 외)"),
+        @ApiResponse(responseCode = "401", description = "인증 필요")
+    })
+    @GetMapping("/stats/focus")
+    public ResponseEntity<FocusPeriodStatsResponse> getFocusStatsByPeriod(
+            @RequestParam StatsPeriod period,
+            HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(statsService.getFocusStatsByPeriod(userId, period));
     }
 }

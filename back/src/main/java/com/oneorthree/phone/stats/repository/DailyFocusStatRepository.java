@@ -32,4 +32,15 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
     void nullifyUser(@Param("userId") UUID userId);
 
     List<DailyFocusStat> findByUserInAndDate(Collection<User> users, LocalDate date);
+
+    /**
+     * [from, to] 구간의 totalFocusMinutes 합계를 반환한다.
+     * 데이터 없는 구간은 COALESCE → 0 반환(null 처리 불필요).
+     */
+    @Query("SELECT COALESCE(SUM(d.totalFocusMinutes), 0) "
+            + "FROM DailyFocusStat d WHERE d.user = :user AND d.date BETWEEN :from AND :to")
+    int sumTotalFocusMinutesByUserAndDateBetween(
+            @Param("user") User user,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
 }
