@@ -7,6 +7,7 @@ import com.oneorthree.phone.league.domain.LeagueMemberResult;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
+import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
@@ -265,5 +266,62 @@ class LeagueServiceTest {
 
         assertThat(response.assigned()).isFalse();
         assertThat(response.myRank()).isNull();
+    }
+
+    // ── getMySchedule ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("스케줄 조회 - 수요일 12:00 KST → 다음 월요일 00:00 KST / remainingSeconds 정확")
+    void getMyScheduleWednesdayNoon() {
+        // 2026-06-24 12:00:00 KST = 2026-06-24T03:00:00Z (수요일)
+        Instant now = Instant.parse("2026-06-24T03:00:00Z");
+        // 다음 월요일 00:00 KST = 2026-06-29T00:00:00+09:00 = 2026-06-28T15:00:00Z
+        Instant expectedReset = Instant.parse("2026-06-28T15:00:00Z");
+        // 4일 12시간 = 4*86400 + 12*3600 = 388800초
+        long expectedSeconds = 388800L;
+
+        LeagueScheduleResponse response = leagueService.getMySchedule(USER_ID, now);
+
+        assertThat(response.nextResetAt()).isEqualTo(expectedReset);
+        assertThat(response.remainingSeconds()).isEqualTo(expectedSeconds);
+    }
+
+    @Test
+    @DisplayName("스케줄 조회 - 월요일 00:00:00 정각 KST → 다음 주 월요일(remainingSeconds=604800)")
+    void getMyScheduleMondayMidnight() {
+        // 2026-06-22 00:00:00 KST = 2026-06-21T15:00:00Z (월요일 정각)
+        Instant now = Instant.parse("2026-06-21T15:00:00Z");
+        // 다음 월요일 00:00 KST = 2026-06-29T00:00:00+09:00 = 2026-06-28T15:00:00Z
+        Instant expectedReset = Instant.parse("2026-06-28T15:00:00Z");
+
+        LeagueScheduleResponse response = leagueService.getMySchedule(USER_ID, now);
+
+        assertThat(response.nextResetAt()).isEqualTo(expectedReset);
+        assertThat(response.remainingSeconds()).isEqualTo(604800L);
+    }
+
+    @Test
+    @DisplayName("스케줄 조회 - 일요일 23:59:59 KST → 1초 남음")
+    void getMyScheduleSundayLastSecond() {
+        // 2026-06-28 23:59:59 KST = 2026-06-28T14:59:59Z (일요일)
+        Instant now = Instant.parse("2026-06-28T14:59:59Z");
+        // 다음 월요일 00:00 KST = 2026-06-29T00:00:00+09:00 = 2026-06-28T15:00:00Z
+        Instant expectedReset = Instant.parse("2026-06-28T15:00:00Z");
+
+        LeagueScheduleResponse response = leagueService.getMySchedule(USER_ID, now);
+
+        assertThat(response.nextResetAt()).isEqualTo(expectedReset);
+        assertThat(response.remainingSeconds()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("스케줄 조회 - remainingSeconds 항상 ≥ 0")
+    void getMyScheduleRemainingSecondsNonNegative() {
+        // 임의 시각에 대해 항상 ≥ 0 검증
+        Instant now = Instant.parse("2026-06-25T09:30:00Z");
+
+        LeagueScheduleResponse response = leagueService.getMySchedule(USER_ID, now);
+
+        assertThat(response.remainingSeconds()).isGreaterThanOrEqualTo(0L);
     }
 }

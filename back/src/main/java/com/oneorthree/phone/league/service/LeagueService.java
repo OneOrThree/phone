@@ -6,6 +6,7 @@ import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
+import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
@@ -15,6 +16,12 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DayOfWeek;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -24,6 +31,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class LeagueService {
+
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final LeagueArenaUserRepository leagueArenaUserRepository;
     private final LeagueTierConfigRepository leagueTierConfigRepository;
@@ -96,6 +105,33 @@ public class LeagueService {
                             resultName(member));
                 })
                 .orElseGet(() -> new LeagueRankResponse(false, null, null, null));
+    }
+
+    /**
+     * 다음 리그 마감 스케줄을 반환한다.
+     * 다음 리셋 시각(다음 월요일 00:00 KST)과 남은 시간(초)을 계산한다.
+     * 인증만 통과하면 항상 성공(미배정 유저도 계산 가능).
+     */
+    public LeagueScheduleResponse getMySchedule(UUID userId) {
+        return getMySchedule(userId, Instant.now());
+    }
+
+    /**
+     * 테스트에서 고정 시각을 주입하기 위한 package-private 오버로드.
+     *
+     * @param userId 인증된 유저 ID (향후 유저별 타임존 반영 여지)
+     * @param now    현재 시각
+     */
+    LeagueScheduleResponse getMySchedule(UUID userId, Instant now) {
+        ZonedDateTime nowKst = now.atZone(KST);
+        // 정확히 월요일 00:00:00이면 next(MONDAY) = 다음 주 월요일(remainingSeconds=604800)
+        ZonedDateTime nextMondayKst = nowKst
+                .with(TemporalAdjusters.next(DayOfWeek.MONDAY))
+                .toLocalDate()
+                .atStartOfDay(KST);
+        Instant nextResetAt = nextMondayKst.toInstant();
+        long remainingSeconds = Duration.between(now, nextResetAt).getSeconds();
+        return new LeagueScheduleResponse(nextResetAt, remainingSeconds);
     }
 
     private Optional<LeagueArenaUser> findActiveMembership(UUID userId) {
