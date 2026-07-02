@@ -1,17 +1,14 @@
 import { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { T } from '@/v2/constants/theme';
-import { hms } from '../format';
+import { DrumPicker } from '@/v2/components/DrumPicker';
 import { SheetShell } from './SheetShell';
 
-// 04 카운트다운 설정 — 목표 시간 지정 + 빠른추가 후 집중 시작.
-const DEFAULT_GOAL = 90 * 60; // 01:30:00
-const MAX_GOAL = 12 * 3600; // 상한 12시간
-const QUICK = [
-  { min: 10, label: '+00:10' },
-  { min: 30, label: '+00:30' },
-  { min: 60, label: '+01:00' },
-];
+// 04 카운트다운 설정 — 시/분 휠로 목표 시간을 정하고 집중 시작.
+const MAX_HOURS = 12; // 상한 12시간 — 12시간 선택 시 분은 0 고정
+const MINUTE_STEP = 5;
+const HOUR_ITEMS = Array.from({ length: MAX_HOURS + 1 }, (_, h) => `${h}시간`);
+const MINUTE_ITEMS = Array.from({ length: 60 / MINUTE_STEP }, (_, i) => `${i * MINUTE_STEP}분`);
 
 export function CountdownSetupSheet({
   subjectName,
@@ -22,26 +19,35 @@ export function CountdownSetupSheet({
   onStart: (goalSeconds: number) => void;
   onClose: () => void;
 }) {
-  const [goalSeconds, setGoalSeconds] = useState(DEFAULT_GOAL);
+  // 기본 01:30
+  const [hours, setHours] = useState(1);
+  const [minutes, setMinutes] = useState(30);
+  const goalSeconds = hours * 3600 + minutes * 60;
 
   return (
     <SheetShell onClose={onClose}>
       <Text style={s.title}>{subjectName} · 카운트다운</Text>
       <Text style={s.sub}>목표 시간을 정하면 0으로 줄어들어요.</Text>
 
-      <Text style={s.bigTime}>{hms(goalSeconds)}</Text>
-
-      <View style={s.quickRow}>
-        {QUICK.map((q) => (
-          <TouchableOpacity
-            key={q.min}
-            style={s.chip}
-            activeOpacity={0.8}
-            onPress={() => setGoalSeconds((prev) => Math.min(prev + q.min * 60, MAX_GOAL))}
-          >
-            <Text style={s.chipText}>{q.label}</Text>
-          </TouchableOpacity>
-        ))}
+      <View style={s.pickerRow}>
+        <View style={s.pickerCol}>
+          <DrumPicker
+            items={HOUR_ITEMS}
+            selectedIndex={hours}
+            onChange={(i) => {
+              setHours(i);
+              if (i === MAX_HOURS) setMinutes(0);
+            }}
+          />
+        </View>
+        <View style={s.pickerCol}>
+          <DrumPicker
+            items={MINUTE_ITEMS}
+            selectedIndex={minutes / MINUTE_STEP}
+            // 12시간에서 분을 올리면 거부 → 휠이 0분으로 되돌아감
+            onChange={(i) => setMinutes(hours === MAX_HOURS ? 0 : i * MINUTE_STEP)}
+          />
+        </View>
       </View>
 
       <TouchableOpacity
@@ -59,26 +65,8 @@ export function CountdownSetupSheet({
 const s = StyleSheet.create({
   title: { fontSize: 16, fontWeight: '800', color: T.ink },
   sub: { fontSize: 11, fontWeight: '500', color: T.inkMuted, marginTop: 2, marginBottom: 6 },
-  bigTime: {
-    fontSize: 50,
-    fontWeight: '800',
-    letterSpacing: -2,
-    color: T.ink,
-    textAlign: 'center',
-    fontVariant: ['tabular-nums'],
-    marginVertical: 12,
-  },
-  quickRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  chip: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderRadius: 11,
-    backgroundColor: '#F1EADD',
-    borderWidth: 1,
-    borderColor: '#E2D7C4',
-  },
-  chipText: { fontSize: 13, fontWeight: '700', color: T.inkSub },
+  pickerRow: { flexDirection: 'row', marginTop: 8, marginBottom: 16 },
+  pickerCol: { flex: 1 },
   startBtn: {
     height: 54,
     borderRadius: 16,
