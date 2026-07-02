@@ -57,7 +57,8 @@ export function V2TabBar({ state, navigation }: BottomTabBarProps) {
         onPress={() => rootNav.navigate('FocusCategory')}
       >
         <LinearGradient colors={[T.accentLight, T.accent]} style={s.fabGrad}>
-          <Ionicons name="flash" size={24} color={T.white} />
+          {/* ▶ 재생(시작) 아이콘 — 삼각형이 왼쪽으로 치우쳐 보여서 살짝 오른쪽 보정 */}
+          <Ionicons name="play" size={26} color={T.white} style={s.playIcon} />
         </LinearGradient>
       </TouchableOpacity>
     </View>
@@ -98,6 +99,7 @@ const s = StyleSheet.create({
     alignSelf: 'center',
     ...Platform.select({ ios: {}, android: {} }),
   },
+  playIcon: { marginLeft: 3 },
   fabGrad: {
     width: 56,
     height: 56,
