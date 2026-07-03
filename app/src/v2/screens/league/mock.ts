@@ -67,9 +67,6 @@ export const RANKING: RankedMember[] = [
   { rank: 10, userId: 'u-10', nickname: '민서', totalFocusMinutes: 725, result: null, tierLevel: 1, exam: '노무사', achievedRate: 0.4, friendCount: 7, streakDays: 0, bestRank: 9, bestWeekMinutes: 980 },
 ];
 
-// 시안 초기 핀 — 민지노트·준비된자·서연 (친구 여부와 무관하게 핀 가능)
-export const INITIAL_PINS = ['u-01', 'u-03', 'u-05'];
-
 // ── 프로필 상세(FriendProfile) 비교 통계 — 시안 "프로필 · 친구/비친구" 3분기용 ──
 // subjects는 나와 겹치는 과목만 담는다(이번 주 분값) — 빈 배열이면 "겹치는 과목 없음" 분기.
 // byDay는 월~일 분값. TODO: GET /api/v1/friends/{userId}/compare 백엔드 협의 후 교체
@@ -127,6 +124,3 @@ export const COMPARE_FALLBACK: ProfileCompare = {
 
 // 비친구 프로필의 블러 티저 아래 깔리는 고정 과목 데이터 (시안 · 비친구 — 잠금 미리보기)
 export const TEASER_SUBJECTS: SubjectCompare[] = SUBJECTS_NOMUSA;
-
-// 주간 정산 마감 카운트다운 — TODO: MY_TIER.weekStartAt 기준 실계산으로 교체
-export const DEADLINE_LABEL = '마감 3일 12:40';

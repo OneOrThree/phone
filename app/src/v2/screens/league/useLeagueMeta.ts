@@ -2,7 +2,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { getMyTier, getMySchedule } from '@/services/leagueApi';
 import type { LeagueTierResponse } from '@/types/api';
-import { MY_TIER } from './mock';
+
+// 미배정/로딩 전 중립 티어 — 서버 응답 전까지 이 값(화면은 tierLevel ?? 1로 기본 배지).
+const UNASSIGNED_TIER: LeagueTierResponse = {
+  assigned: false,
+  tierLevel: null,
+  arenaId: null,
+  weekStartAt: null,
+  status: null,
+  badgeId: null,
+};
 
 // 초 → "마감 N일 HH:MM" (주간 정산 마감 카운트다운 라벨).
 function fmtDeadline(sec: number): string {
@@ -16,10 +25,9 @@ function fmtDeadline(sec: number): string {
 // 리그 메타(내 티어 + 마감 스케줄) 실 API 조회 — GROMO-538.
 //   티어 : GET /api/v1/league/me/tier
 //   마감 : GET /api/v1/league/me/schedule (remainingSeconds → 1초 로컬 카운트다운)
-// 실패/게스트/미배정 시 mock 티어·null 마감으로 폴백(화면은 mock 라벨 유지).
-// 랭킹 리스트는 별도(useLeagueRanking) — 백엔드 응답 필드 확정 전까지 mock.
+// 실패/게스트/미배정 시 중립 티어·null 마감 유지(mock 폴백 없음).
 export function useLeagueMeta() {
-  const [tier, setTier] = useState<LeagueTierResponse>(MY_TIER);
+  const [tier, setTier] = useState<LeagueTierResponse>(UNASSIGNED_TIER);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
 
   // 화면 포커스마다 서버에서 티어·마감 재조회.
@@ -33,7 +41,7 @@ export function useLeagueMeta() {
           if (t.assigned) setTier(t);
           setRemainingSeconds(sch.remainingSeconds);
         } catch {
-          // 네트워크/인증 실패·미배정 → mock 티어·null 마감 유지
+          // 네트워크/인증 실패·미배정 → 중립 티어·null 마감 유지
         }
       })();
       return () => {
