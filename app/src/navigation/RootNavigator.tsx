@@ -16,20 +16,20 @@ import {
   TierGuideScreen,
   LeagueResultScreen,
 } from '@/v2/screens/league';
-import { V2TabBar } from '@/components/V2TabBar';
+import { TabBar } from '@/components/TabBar';
 import { T } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
 
-// v2 새 UI 네비게이터 — 시안 "메인 4탭 + 중앙 FAB" 구조.
-// 홈만 실제 구현, 나머지 탭은 placeholder(각자 티켓). 데이터 층은 @/store 공유.
-type V2TabParamList = {
+// 메인 네비게이터 — 시안 "메인 4탭 + 중앙 FAB" 구조.
+// 그룹 탭만 placeholder(별도 티켓), 나머지는 구현 완료. 데이터 층은 @/store 공유.
+type TabParamList = {
   홈: undefined;
   리그: undefined;
   그룹: undefined;
   전체: undefined;
 };
 
-const Tab = createBottomTabNavigator<V2TabParamList>();
+const Tab = createBottomTabNavigator<TabParamList>();
 const Stack = createNativeStackNavigator<V2RootStackParamList>();
 
 // 미구현 탭 placeholder
@@ -47,10 +47,7 @@ function Placeholder({ title }: { title: string }) {
 // 4탭 + 중앙 FAB
 function MainTabs() {
   return (
-    <Tab.Navigator
-      screenOptions={{ headerShown: false }}
-      tabBar={(props) => <V2TabBar {...props} />}
-    >
+    <Tab.Navigator screenOptions={{ headerShown: false }} tabBar={(props) => <TabBar {...props} />}>
       <Tab.Screen name="홈" component={HomeScreen} />
       <Tab.Screen name="리그" component={LeagueScreen} />
       <Tab.Screen name="그룹">{() => <Placeholder title="그룹" />}</Tab.Screen>
