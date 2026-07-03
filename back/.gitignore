@@ -26,10 +26,10 @@ nbproject/
 
 # Local configs (contains credentials)
 application-local.yml
-application-prod.yml
 application-staging.yml
 application.yml
 spy.properties
+# application-prod.yml은 env 주입식(시크릿 없음, ${...} 플레이스홀더뿐)이라 커밋함 — dev/ci와 동일
 
 # Env files
 *.env

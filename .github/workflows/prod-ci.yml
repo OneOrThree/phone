@@ -1,0 +1,70 @@
+# GROMO prod 서버 — CI (이미지 빌드, prod 머지 시 ECR push)
+#
+# main→prod PR: 빌드 "검증"만 (ECR push 안 함)
+# prod 머지(push)/수동: 빌드 + ECR push (commit SHA + latest)
+
+name: prod-ci
+
+on:
+  pull_request:
+    branches: [prod] # base가 prod인 PR만 (= main→prod 릴리즈 PR). 검증만
+    paths:
+      - 'back/**'
+  push:
+    branches: [prod] # prod 머지 → 빌드 + ECR push
+    paths:
+      - 'back/**'
+  workflow_dispatch:
+
+concurrency:
+  group: prod-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPO: 808715036056.dkr.ecr.ap-northeast-2.amazonaws.com/gromo-prod/backend
+  ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-github-actions
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AWS 자격증명 (OIDC, keyless)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: ECR 로그인
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 빌드 (push는 prod 머지/수동일 때만)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./back
+          file: ./back/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }} # PR(검증)이면 build만
+          provenance: false # attestation 매니페스트(태그 없는 이미지) 생성 방지
+          tags: |
+            ${{ env.ECR_REPO }}:${{ github.sha }}
+            ${{ env.ECR_REPO }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 결과 요약
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "### prod-ci: 빌드 검증 완료 (ECR push 안 함)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### prod-ci: ECR push :rocket:" >> $GITHUB_STEP_SUMMARY
+            echo "- \`:${{ github.sha }}\` + \`:latest\`" >> $GITHUB_STEP_SUMMARY
+          fi
