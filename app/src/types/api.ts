@@ -116,6 +116,12 @@ export interface LeagueRankResponse {
   result: string | null;
 }
 
+// GET /league/me/schedule — 다음 리그 마감(다음 월요일 00:00 KST) 스케줄
+export interface LeagueScheduleResponse {
+  nextResetAt: string; // Instant ISO 문자열
+  remainingSeconds: number; // 지금부터 nextResetAt까지 남은 초(항상 ≥ 0)
+}
+
 // ─────────────────────────────────────────────────────────────
 // 친구 (백엔드 friend/dto 대응 — /api/v1/friends*)
 // ─────────────────────────────────────────────────────────────
