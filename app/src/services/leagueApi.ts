@@ -1,6 +1,6 @@
-// league 도메인 API 래퍼 (LeagueController + LeagueBatchController, base /api/v1).
+// league 도메인 API 래퍼 (LeagueController, base /api/v1).
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
-// batch/run 은 local/dev/staging 프로파일에서만 노출되는 수동 트리거.
+// 타입은 기존 공용 타입(@/types/api)을 재사용한다(중복 DTO 방지 — 리뷰 반영).
 import { api } from '@/services/api';
 import type {
   LeagueTierResponse,

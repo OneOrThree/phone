@@ -10,19 +10,57 @@
 // 링크 전(또는 호출 실패) 상태에서는 안전하게 no-op + dev 콘솔 로그로 폴백한다.
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import analytics from '@react-native-firebase/analytics';
+import { STORAGE_KEYS } from '@/types/storage';
 
 // ── 공통 파라미터 (모든 이벤트에 자동 부착, 프론트/백 조인 시 출처 구분용) ──
 const ENV: 'prod' | 'dev' =
   (process.env.EXPO_PUBLIC_ENV as 'prod' | 'dev' | undefined) ?? (__DEV__ ? 'dev' : 'prod');
 const APP_VERSION: string = Constants.expoConfig?.version ?? '0.0.0';
+// Expo SDK 버전(예: '54.0.0'). 빌드/호환성 세그먼트 분석용.
+const SDK_VERSION: string = Constants.expoConfig?.sdkVersion ?? 'unknown';
 
 const COMMON_PARAMS: Record<string, string> = {
   platform: Platform.OS, // 'ios' | 'android'
   source: 'client',
   app_version: APP_VERSION,
+  sdk_version: SDK_VERSION,
   env: ENV,
+  // device_id는 비동기 로드라 initAnalytics()에서 주입한다(아래 resolveDeviceId).
 };
+
+// ── 디바이스 ID (설치 단위, PII 아님) ──
+// 최초 1회 랜덤 UUID를 생성해 AsyncStorage에 영속한다. 기기 재설치 시 갱신.
+// (expo-application/device 미설치 환경 대응 — 네이티브 식별자 대신 자체 발급)
+let deviceId: string | null = null;
+
+function randomUuid(): string {
+  // RN에 crypto.randomUUID 보장이 없어 간이 UUIDv4 생성(디바이스 식별 용도로 충분).
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.floor(Math.random() * 16);
+    // y 자리는 8·9·a·b 중 하나여야 함(UUIDv4 variant) → 8 + (0~3)
+    const v = c === 'x' ? r : 8 + (r % 4);
+    return v.toString(16);
+  });
+}
+
+async function resolveDeviceId(): Promise<string> {
+  if (deviceId) return deviceId;
+  try {
+    const saved = await AsyncStorage.getItem(STORAGE_KEYS.deviceId);
+    if (saved) {
+      deviceId = saved;
+    } else {
+      deviceId = randomUuid();
+      await AsyncStorage.setItem(STORAGE_KEYS.deviceId, deviceId);
+    }
+  } catch {
+    // 저장 실패 시에도 최소한 세션 한정 id는 부여(전송 자체는 막지 않는다).
+    deviceId = deviceId ?? randomUuid();
+  }
+  return deviceId;
+}
 
 // dev 빌드이거나 명시 토글이 켜져 있으면 콘솔에 이벤트를 출력한다.
 const DEBUG: boolean = __DEV__ || process.env.EXPO_PUBLIC_ANALYTICS_DEBUG === 'true';
@@ -30,7 +68,6 @@ const DEBUG: boolean = __DEV__ || process.env.EXPO_PUBLIC_ANALYTICS_DEBUG === 't
 // 우리가 사용하는 @react-native-firebase/analytics 표면만 추린 인터페이스.
 interface FirebaseAnalytics {
   logEvent(name: string, params?: Record<string, string | number>): Promise<void>;
-  logScreenView(params: { screen_name: string; screen_class?: string }): Promise<void>;
   setUserId(id: string | null): Promise<void>;
   setUserProperty(name: string, value: string | null): Promise<void>;
   setDefaultEventParameters(params: Record<string, string | number> | null): Promise<void>;
@@ -72,9 +109,10 @@ function sanitizeParams(params?: Record<string, unknown>): Record<string, string
   return out;
 }
 
-// 앱 시작 시 1회 호출 권장: 수집 활성화 + GA4 표준 이벤트(screen_view 등 전용 메서드)에도 공통 파라미터를 부착.
-// 모듈 미링크 시 no-op.
-export function initAnalytics(): void {
+// 앱 시작 시 1회 호출 권장: 디바이스 ID 확보 → 공통 파라미터 확정 → 수집 활성화 + 기본 파라미터 부착.
+// device_id를 먼저 주입해야 이후 모든 이벤트(SDK 기본 파라미터 포함)에 함께 실린다. 모듈 미링크 시 no-op.
+export async function initAnalytics(): Promise<void> {
+  COMMON_PARAMS.device_id = await resolveDeviceId();
   const a = getAnalytics();
   if (DEBUG) console.log('[analytics] init', COMMON_PARAMS);
   if (!a) return;
@@ -91,14 +129,6 @@ export function track(name: string, params?: Record<string, unknown>): void {
   const a = getAnalytics();
   if (!a) return;
   a.logEvent(eventName, payload).catch(() => {});
-}
-
-// GA4 표준 screen_view. (라우트 변경 시 RootNavigator에서 호출)
-export function logScreenView(screenName: string): void {
-  if (DEBUG) console.log('[analytics] screen_view', screenName);
-  const a = getAnalytics();
-  if (!a) return;
-  a.logScreenView({ screen_name: screenName, screen_class: screenName }).catch(() => {});
 }
 
 // User-ID 설정/해제. opaque UUID만 허용(PII 금지). null이면 게스트.

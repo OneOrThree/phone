@@ -1,0 +1,50 @@
+// focus 도메인 API 래퍼 (FocusController, base /api/v1).
+// 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
+import { api } from '@/services/api';
+import type {
+  FocusTagResponse,
+  FocusTagSetupRequest,
+  FocusTagUpdateRequest,
+  FocusSessionRequest,
+  FocusSessionSliceResponse,
+} from '@/types/dto/focus';
+
+// GET /api/v1/tag — 유저별 집중 태그 목록 조회.
+export async function getFocusTags(): Promise<FocusTagResponse[]> {
+  const { data } = await api.get<FocusTagResponse[]>('/api/v1/tag');
+  return data;
+}
+
+// POST /api/v1/tag — 태그 초기 등록.
+export async function setupFocusTag(body: FocusTagSetupRequest): Promise<void> {
+  await api.post('/api/v1/tag', body);
+}
+
+// PATCH /api/v1/tag — 태그 수정.
+export async function updateFocusTag(body: FocusTagUpdateRequest): Promise<void> {
+  await api.patch('/api/v1/tag', body);
+}
+
+// DELETE /api/v1/tag/{tagId} — 태그 삭제.
+export async function deleteFocusTag(tagId: string): Promise<void> {
+  await api.delete(`/api/v1/tag/${tagId}`);
+}
+
+// POST /api/v1/focus-session — 집중 세션 저장.
+export async function saveFocusSession(body: FocusSessionRequest): Promise<void> {
+  await api.post('/api/v1/focus-session', body);
+}
+
+// GET /api/v1/focus-session?from&to&cursor?&size — 기간 필터 + 커서(keyset) 페이지네이션 조회.
+// from/to는 UTC Instant(ISO 문자열, 필수), cursor 생략 시 첫 페이지, size 필수.
+export async function getFocusSessions(
+  from: string,
+  to: string,
+  size: number,
+  cursor?: string,
+): Promise<FocusSessionSliceResponse> {
+  const { data } = await api.get<FocusSessionSliceResponse>('/api/v1/focus-session', {
+    params: { from, to, cursor, size },
+  });
+  return data;
+}
