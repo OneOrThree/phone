@@ -1,41 +1,110 @@
-import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
 import { tierByLevel } from '@/v2/constants/tiers';
-import type { FriendRelation } from '@/types/api';
+import type { FriendRequestResponse, FriendSearchResultResponse } from '@/types/api';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
-import { RECEIVED_REQUESTS, SEARCH_POOL } from './mock';
+import {
+  acceptFriendRequest,
+  fetchReceivedRequests,
+  rejectFriendRequest,
+  searchFriends,
+  sendFriendRequest,
+} from './friendsApi';
 import { MemberAvatar } from './components/MemberAvatar';
 
 // 친구 추가 화면 (root stack) — 시안 "친구 추가 · 검색 + 받은 요청".
-// 검색 결과(친구 신청/요청됨 pill) + 받은 요청(거절/수락 사각 버튼) + 안내 카드.
-// 행 탭 시 프로필 상세(FriendProfile — 비친구 분기)로 진입.
-// 버튼은 로컬 상태 토글 — TODO: /friends/search·/friends/requests(accept·reject) API 연동.
+// 검색(닉네임 trgm, 350ms 디바운스)·신청·받은 요청·수락/거절 모두 실API(./friendsApi).
+// 행 탭 시 프로필 상세(FriendProfile — relation 기반 친구/비친구 분기)로 진입.
+
+// 검색 입력 디바운스(ms) — 타이핑 중 과호출 방지
+const SEARCH_DEBOUNCE_MS = 350;
 
 export default function FriendAddScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const [query, setQuery] = useState('');
-  // 검색 결과별 관계 상태 — 신청 시 NONE → PENDING 로컬 토글
-  const [relations, setRelations] = useState<Record<string, FriendRelation>>(() =>
-    Object.fromEntries(SEARCH_POOL.map((r) => [r.userId, r.relation])),
-  );
-  const [requests, setRequests] = useState(RECEIVED_REQUESTS);
+  const [results, setResults] = useState<FriendSearchResultResponse[]>([]);
+  const [searching, setSearching] = useState(false);
+  // 신청 직후 pill 즉시 전환용 — 응답 relation 위에 덮는 로컬 오버라이드
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+  const [requests, setRequests] = useState<FriendRequestResponse[]>([]);
 
   const q = query.trim();
-  const results = q ? SEARCH_POOL.filter((r) => r.nickname.includes(q)) : [];
 
-  function sendRequest(userId: string) {
-    // TODO: POST /friends/requests 연동
-    setRelations((prev) => ({ ...prev, [userId]: 'PENDING' }));
+  // 받은 요청 — 진입 시 1회 조회 (수락/거절은 목록에서 즉시 제거)
+  useEffect(() => {
+    (async () => {
+      try {
+        setRequests(await fetchReceivedRequests());
+      } catch {
+        // 실패 시 빈 목록 유지 — 재진입 시 재시도
+      }
+    })();
+  }, []);
+
+  // 닉네임 검색 — 디바운스 + 언마운트/재입력 시 이전 응답 무시
+  useEffect(() => {
+    if (!q) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+    let stale = false;
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const rows = await searchFriends(q);
+        if (!stale) setResults(rows);
+      } catch {
+        if (!stale) setResults([]);
+      } finally {
+        if (!stale) setSearching(false);
+      }
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [q]);
+
+  async function sendRequest(userId: string) {
+    try {
+      await sendFriendRequest(userId);
+      setSentIds((prev) => new Set(prev).add(userId));
+    } catch (e) {
+      // 409 = 이미 친구/이미 보낸 요청 — 요청됨으로 간주
+      if (axios.isAxiosError(e) && e.response?.status === 409) {
+        setSentIds((prev) => new Set(prev).add(userId));
+      } else {
+        Alert.alert('친구 신청 실패', '잠시 후 다시 시도해주세요.');
+      }
+    }
   }
 
-  function resolveRequest(requestId: string) {
-    // TODO: POST /friends/requests/{id}/accept·reject 연동 — 지금은 목록에서 제거만
-    setRequests((prev) => prev.filter((r) => r.requestId !== requestId));
+  async function resolveRequest(requestId: string, accept: boolean) {
+    try {
+      if (accept) {
+        await acceptFriendRequest(requestId);
+      } else {
+        await rejectFriendRequest(requestId);
+      }
+      setRequests((prev) => prev.filter((r) => r.requestId !== requestId));
+    } catch {
+      Alert.alert(accept ? '수락 실패' : '거절 실패', '잠시 후 다시 시도해주세요.');
+    }
   }
 
   return (
@@ -80,7 +149,7 @@ export default function FriendAddScreen() {
               검색 결과 <Text style={s.resultCount}>{results.length}</Text>
             </Text>
             {results.map((r) => {
-              const relation = relations[r.userId] ?? 'NONE';
+              const relation = sentIds.has(r.userId) ? 'PENDING' : r.relation;
               return (
                 <TouchableOpacity
                   key={r.userId}
@@ -91,7 +160,7 @@ export default function FriendAddScreen() {
                       userId: r.userId,
                       nickname: r.nickname,
                       tierLevel: r.tierLevel ?? 1,
-                      exam: r.exam,
+                      isFriend: relation === 'FRIEND',
                     })
                   }
                 >
@@ -100,9 +169,7 @@ export default function FriendAddScreen() {
                     <Text style={s.name} numberOfLines={1}>
                       {r.nickname}
                     </Text>
-                    <Text style={s.sub}>
-                      {tierByLevel(r.tierLevel ?? 1).name} · {r.exam}
-                    </Text>
+                    <Text style={s.sub}>{tierByLevel(r.tierLevel ?? 1).name}</Text>
                   </View>
                   {relation === 'NONE' ? (
                     <TouchableOpacity
@@ -122,7 +189,9 @@ export default function FriendAddScreen() {
                 </TouchableOpacity>
               );
             })}
-            {results.length === 0 && <Text style={s.empty}>검색 결과가 없어요</Text>}
+            {results.length === 0 && (
+              <Text style={s.empty}>{searching ? '검색 중…' : '검색 결과가 없어요'}</Text>
+            )}
             <View style={s.divider} />
           </>
         )}
@@ -148,7 +217,7 @@ export default function FriendAddScreen() {
                 userId: r.userId,
                 nickname: r.nickname,
                 tierLevel: r.tierLevel ?? 1,
-                exam: r.exam,
+                isFriend: false,
               })
             }
           >
@@ -157,21 +226,19 @@ export default function FriendAddScreen() {
               <Text style={s.name} numberOfLines={1}>
                 {r.nickname}
               </Text>
-              <Text style={s.sub}>
-                {tierByLevel(r.tierLevel ?? 1).name} · {r.exam}
-              </Text>
+              <Text style={s.sub}>{tierByLevel(r.tierLevel ?? 1).name}</Text>
             </View>
             <View style={s.reqActions}>
               <TouchableOpacity
                 style={s.rejectBtn}
-                onPress={() => resolveRequest(r.requestId)}
+                onPress={() => resolveRequest(r.requestId, false)}
                 activeOpacity={0.8}
               >
                 <Ionicons name="close" size={14} color="#9A8C7C" />
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.acceptBtn}
-                onPress={() => resolveRequest(r.requestId)}
+                onPress={() => resolveRequest(r.requestId, true)}
                 activeOpacity={0.8}
               >
                 <Ionicons name="checkmark" size={15} color={T.white} />

@@ -1,23 +1,14 @@
-import type {
-  FriendRequestResponse,
-  FriendResponse,
-  FriendSearchResultResponse,
-  LeagueMemberResponse,
-  LeagueRankResponse,
-  LeagueTierResponse,
-} from '@/types/api';
+import type { LeagueMemberResponse, LeagueRankResponse, LeagueTierResponse } from '@/types/api';
 
 // 리그 화면 placeholder 데이터 — Claude Design 시안(Gromo_league.dc.html)의 base 데이터 그대로.
 // 타입은 백엔드 DTO(@/types/api)에 맞춰 두어 API 연동 시 fetch 결과로 스왑만 하면 된다.
+// ※ 친구 목록·검색·받은 요청·신청/수락/거절·끊기는 실API 연동 완료(./friendsApi·./useFriends).
 //
 // TODO(API 연동): 화면 데이터 ↔ 엔드포인트 매핑
 //   내 티어/뱃지        → GET /api/v1/league/me/tier      (MY_TIER)
 //   전체 랭킹 목록       → GET /api/v1/league/me/ranking   (RANKING) ※ 시안은 혼합 티어 전체 랭킹
 //   내 순위·승격/강등    → GET /api/v1/league/me/rank      (MY_RANK, result → 연출 트리거)
-//   친구 목록(핀 포함)   → GET /api/v1/friends             (FRIENDS)
-//   나만의 랭킹(핀)      → GET /api/v1/friends/pinned
-//   친구 검색           → GET /api/v1/friends/search?type=NICKNAME&q=
-//   받은 요청           → GET /api/v1/friends/requests?type=received (+ accept/reject)
+//   나만의 랭킹(핀)      → GET /api/v1/friends/pinned — 랭킹이 mock인 동안 핀 토글은 로컬 유지
 
 export const MY_USER_ID = 'u-07';
 
@@ -79,15 +70,6 @@ export const RANKING: RankedMember[] = [
 // 시안 초기 핀 — 민지노트·준비된자·서연 (친구 여부와 무관하게 핀 가능)
 export const INITIAL_PINS = ['u-01', 'u-03', 'u-05'];
 
-// 친구 목록 — 시안 초기 friends(현생사는중·태강·도윤) + 민지노트.
-// 민지노트는 나와 같은 시험(노무사) 친구 — 프로필 상세의 과목 겹침 분기 데모용.
-export const FRIENDS: FriendResponse[] = [
-  { userId: 'u-01', nickname: '민지노트', tierLevel: 5, isPinned: false },
-  { userId: 'u-02', nickname: '현생사는중', tierLevel: 5, isPinned: false },
-  { userId: 'u-06', nickname: '태강', tierLevel: 3, isPinned: false },
-  { userId: 'u-09', nickname: '도윤', tierLevel: 2, isPinned: false },
-];
-
 // ── 프로필 상세(FriendProfile) 비교 통계 — 시안 "프로필 · 친구/비친구" 3분기용 ──
 // subjects는 나와 겹치는 과목만 담는다(이번 주 분값) — 빈 배열이면 "겹치는 과목 없음" 분기.
 // byDay는 월~일 분값. TODO: GET /api/v1/friends/{userId}/compare 백엔드 협의 후 교체
@@ -126,8 +108,9 @@ const BASE_PHONE_BY_DAY: CompareByDay = {
   theirs: [108, 198, 126, 162, 144, 216, 180],
 };
 
+// 과목 겹침 분기(시안 "비교 통계 공개") 표본 — 민지노트(mock 랭킹 u-01, 같은 시험 노무사).
+// 실친구는 비교 API가 없어 아직 전원 COMPARE_FALLBACK — 통계 API 연동 시 이 형태로 교체.
 export const PROFILE_COMPARE: Record<string, ProfileCompare> = {
-  // 민지노트 — 같은 시험(노무사) → 과목 겹침(시안 "비교 통계 공개")
   'u-01': {
     subjects: SUBJECTS_NOMUSA,
     focusByDay: BASE_FOCUS_BY_DAY,
@@ -144,29 +127,6 @@ export const COMPARE_FALLBACK: ProfileCompare = {
 
 // 비친구 프로필의 블러 티저 아래 깔리는 고정 과목 데이터 (시안 · 비친구 — 잠금 미리보기)
 export const TEASER_SUBJECTS: SubjectCompare[] = SUBJECTS_NOMUSA;
-
-// 받은 친구 요청 — exam은 응답에 없는 표기용 확장 (시안 "티어 · 시험")
-export interface ReceivedRequest extends FriendRequestResponse {
-  exam: string;
-}
-
-export const RECEIVED_REQUESTS: ReceivedRequest[] = [
-  // prettier-ignore
-  { requestId: 'req-01', userId: 'r-01', nickname: '열공러', tierLevel: 2, createdAt: '2026-07-01T09:12:00Z', exam: '노무사' },
-  // prettier-ignore
-  { requestId: 'req-02', userId: 'r-02', nickname: '갓생도전', tierLevel: 4, createdAt: '2026-07-02T01:40:00Z', exam: '노무사' },
-];
-
-// 검색 풀 — 시안 검색어 '합격' 기준 3건. exam은 표기용 확장
-export interface SearchResult extends FriendSearchResultResponse {
-  exam: string;
-}
-
-export const SEARCH_POOL: SearchResult[] = [
-  { userId: 's-01', nickname: '합격기원생', tierLevel: 3, relation: 'NONE', exam: '노무사' },
-  { userId: 's-02', nickname: '합격가자', tierLevel: 2, relation: 'PENDING', exam: '노무사' },
-  { userId: 's-03', nickname: '합격의신', tierLevel: 4, relation: 'NONE', exam: '노무사' },
-];
 
 // 주간 정산 마감 카운트다운 — TODO: MY_TIER.weekStartAt 기준 실계산으로 교체
 export const DEADLINE_LABEL = '마감 3일 12:40';

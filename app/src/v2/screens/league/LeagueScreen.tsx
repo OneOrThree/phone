@@ -18,16 +18,9 @@ import { tierByLevel } from '@/v2/constants/tiers';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import { useLeagueRanking } from './useLeagueRanking';
+import { useFriends } from './useFriends';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
-import {
-  DEADLINE_LABEL,
-  FRIENDS,
-  INITIAL_PINS,
-  MY_TIER,
-  MY_USER_ID,
-  RECEIVED_REQUESTS,
-  type RankedMember,
-} from './mock';
+import { DEADLINE_LABEL, INITIAL_PINS, MY_TIER, MY_USER_ID, type RankedMember } from './mock';
 import { fmtMinutes } from './format';
 import { RankRow } from './components/RankRow';
 import { MemberAvatar } from './components/MemberAvatar';
@@ -41,7 +34,7 @@ import { ProfileSheet, type ProfileTarget } from './components/ProfileSheet';
 //   - 시안의 시험 칩은 카테고리(온보딩 16)가 많아 폐기 — 제목 드롭다운으로 전체/내 시험/다른 시험 전환.
 //   - 내 순위는 리스트와 같은 파생값 하나만 쓴다(순위 기준 이원화 방지).
 // 친구 탭: 친구 검색·추가 엔트리 + 친구 2열 그리드(카드 탭 → 프로필 상세 FriendProfile).
-// 데이터는 UI-first mock(./mock).
+// 랭킹은 아직 mock(./mock), 친구 목록·받은 요청 수는 실데이터(./useFriends).
 
 // 탭바가 차지하는 높이(홈 '오늘' 카드 marginBottom 선례와 동일 기준)
 const TAB_BAR_SPACE = 74;
@@ -82,7 +75,9 @@ export default function LeagueScreen() {
   const { goalSeconds } = useUser();
   const { todayFocusSeconds } = useFocus();
 
-  const friendIds = new Set(FRIENDS.map((f) => f.userId));
+  // 친구 목록·받은 요청 수 — 실데이터(포커스마다 재조회)
+  const { friends, receivedCount } = useFriends();
+  const friendIds = new Set(friends.map((f) => f.userId));
 
   // 현재 리그 — 기본은 내 시험, 드롭다운 선택이 있으면 그 리그
   const filter = leagueFilter ?? myLeagueLabel ?? LEAGUE_ALL;
@@ -153,6 +148,7 @@ export default function LeagueScreen() {
         nickname: member.nickname,
         tierLevel: member.tierLevel,
         exam: member.exam,
+        isFriend: friendIds.has(member.userId),
       });
       return;
     }
@@ -178,11 +174,6 @@ export default function LeagueScreen() {
       isFriend: friendIds.has(member.userId),
     });
   }
-
-  // 친구 탭 그리드 카드용 — 친구의 티어/시간은 랭킹에서 조회
-  const friendMembers = FRIENDS.map((f) => ranking.find((m) => m.userId === f.userId)).filter(
-    (m): m is RankedMember => m != null,
-  );
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
@@ -414,44 +405,45 @@ export default function LeagueScreen() {
             </View>
             <View style={s.addTextCol}>
               <Text style={s.addTitle}>친구 검색·추가</Text>
-              <Text style={s.addSub}>받은 요청 {RECEIVED_REQUESTS.length}건</Text>
+              <Text style={s.addSub}>받은 요청 {receivedCount}건</Text>
             </View>
             <Ionicons name="chevron-forward" size={15} color="#C8A06A" />
           </TouchableOpacity>
 
           <Text style={s.friendCount}>
-            내 친구 <Text style={s.friendCountNum}>{friendMembers.length}</Text>명
+            내 친구 <Text style={s.friendCountNum}>{friends.length}</Text>명
           </Text>
+          {/* 실친구 목록 — 주간 집중시간은 응답에 없어 미표기(TODO: 백엔드 협의 후 복원) */}
           <View style={s.friendGrid}>
-            {friendMembers.map((m) => (
+            {friends.map((f) => (
               <TouchableOpacity
-                key={m.userId}
+                key={f.userId}
                 style={s.friendCard}
                 activeOpacity={0.85}
                 onPress={() =>
                   navigation.navigate('FriendProfile', {
-                    userId: m.userId,
-                    nickname: m.nickname,
-                    tierLevel: m.tierLevel,
-                    exam: m.exam,
+                    userId: f.userId,
+                    nickname: f.nickname,
+                    tierLevel: f.tierLevel ?? 1,
+                    isFriend: true,
                   })
                 }
               >
                 <MemberAvatar size={48} />
                 <Text style={s.friendName} numberOfLines={1}>
-                  {m.nickname}
+                  {f.nickname}
                 </Text>
                 <View style={s.friendTierRow}>
-                  <TierBadge level={m.tierLevel} size={18} />
-                  <Text style={s.friendTier}>{tierByLevel(m.tierLevel).name}</Text>
+                  <TierBadge level={f.tierLevel ?? 1} size={18} />
+                  <Text style={s.friendTier}>{tierByLevel(f.tierLevel ?? 1).name}</Text>
                 </View>
-                <Text style={s.friendTime} allowFontScaling={false}>
-                  {fmtMinutes(m.totalFocusMinutes)}
-                </Text>
               </TouchableOpacity>
             ))}
-            {friendMembers.length % 2 === 1 && <View style={s.friendCardGhost} />}
+            {friends.length % 2 === 1 && <View style={s.friendCardGhost} />}
           </View>
+          {friends.length === 0 && (
+            <Text style={s.emptyLeague}>아직 친구가 없어요. 검색해서 추가해보세요!</Text>
+          )}
         </ScrollView>
       )}
 
@@ -721,11 +713,4 @@ const s = StyleSheet.create({
   friendName: { ...T.text.label, fontWeight: '700', color: T.ink, marginTop: 8 },
   friendTierRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   friendTier: { ...T.text.caption, color: T.inkSub },
-  friendTime: {
-    ...T.text.label,
-    fontWeight: '800',
-    color: T.accent,
-    marginTop: 6,
-    fontVariant: ['tabular-nums'],
-  },
 });

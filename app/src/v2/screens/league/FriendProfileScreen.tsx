@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,7 +10,8 @@ import { T } from '@/v2/constants/theme';
 import { tierByLevel } from '@/v2/constants/tiers';
 import CircularGauge from '@/v2/components/CircularGauge';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
-import { COMPARE_FALLBACK, FRIENDS, PROFILE_COMPARE, RANKING, TEASER_SUBJECTS } from './mock';
+import { COMPARE_FALLBACK, PROFILE_COMPARE, RANKING, TEASER_SUBJECTS } from './mock';
+import { deleteFriend, sendFriendRequest } from './friendsApi';
 import { fmtHourMin } from './format';
 import { MemberAvatar } from './components/MemberAvatar';
 import { SubjectCompareCard } from './components/SubjectCompareCard';
@@ -20,8 +22,8 @@ import { DuoDayChart } from './components/DuoDayChart';
 // 분기: 비친구        = 과목 비교 카드를 블러 티저로 잠금 + [친구 신청] CTA
 //       친구·과목 겹침 = 과목별 비교 + 요일별 집중·폰 사용 비교 + [친구 끊기]
 //       친구·겹침 없음 = 안내 배너 + 요일별 비교 2종 + [친구 끊기]
-// 친구 신청/끊기는 로컬 상태 토글 — TODO: 프로필·비교 API(GET /friends/{id})와
-// POST /friends/requests · DELETE /friends/{id} 연동 시 교체.
+// 친구 신청(POST /friends/requests)·끊기(DELETE /friends/{id})는 실API(./friendsApi).
+// 요약·비교 통계는 아직 mock — TODO: 프로필 통계/비교 API 백엔드 협의 후 교체.
 
 // 시안 비교 색 — 상대(보라) / 폰 사용 상대(연보라). 나(폰 사용)는 T.accentAlt
 const THEIRS_FOCUS = '#9A6FB0';
@@ -35,21 +37,51 @@ export default function FriendProfileScreen() {
   const route = useRoute<RouteProp<V2RootStackParamList, 'FriendProfile'>>();
   const { userId, nickname, tierLevel, exam } = route.params;
 
-  // 랭킹에 있는 유저면 요약 실값(달성률·연속 등), 검색/요청 유저면 0 기본값
+  // 랭킹(mock)에 있는 유저면 요약 표시값, 실유저는 0 기본값 — TODO: 프로필 통계 API
   const member = RANKING.find((m) => m.userId === userId);
   const tier = tierByLevel(tierLevel);
 
-  // 친구 여부·신청 상태는 로컬 토글 — 끊으면 즉시 비친구(잠금) 분기로 전환된다
-  const [isFriend, setIsFriend] = useState(() => FRIENDS.some((f) => f.userId === userId));
+  // 친구 여부는 진입점(그리드/검색 relation/랭킹)이 전달 — 끊으면 즉시 비친구(잠금) 분기 전환
+  const [isFriend, setIsFriend] = useState(route.params.isFriend);
   const [requested, setRequested] = useState(false);
 
   const compare = PROFILE_COMPARE[userId] ?? COMPARE_FALLBACK;
   const hasOverlap = compare.subjects.length > 0;
 
+  async function requestFriend() {
+    try {
+      await sendFriendRequest(userId);
+      setRequested(true);
+    } catch (e) {
+      // 409 = 이미 친구/이미 보낸 요청 — 요청됨으로 간주 (mock 랭킹 유저는 404가 나 실패 안내)
+      if (axios.isAxiosError(e) && e.response?.status === 409) {
+        setRequested(true);
+      } else {
+        Alert.alert('친구 신청 실패', '잠시 후 다시 시도해주세요.');
+      }
+    }
+  }
+
   function unfriend() {
     Alert.alert('친구 끊기', `${nickname}님과 친구를 끊을까요?`, [
       { text: '취소', style: 'cancel' },
-      { text: '끊기', style: 'destructive', onPress: () => setIsFriend(false) },
+      {
+        text: '끊기',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteFriend(userId);
+            setIsFriend(false);
+          } catch (e) {
+            // 404 = 이미 친구 아님 — 화면도 비친구로 전환
+            if (axios.isAxiosError(e) && e.response?.status === 404) {
+              setIsFriend(false);
+            } else {
+              Alert.alert('친구 끊기 실패', '잠시 후 다시 시도해주세요.');
+            }
+          }
+        },
+      },
     ]);
   }
 
@@ -124,16 +156,18 @@ export default function FriendProfileScreen() {
           </View>
         </View>
 
-        {/* ── 준비 시험 ── */}
-        <View style={s.examCard}>
-          <View style={s.examIcon}>
-            <Ionicons name="calendar-outline" size={16} color={T.accentDeep} />
+        {/* ── 준비 시험 — 실유저 응답엔 아직 없어 값이 있을 때만 표시(TODO: 백엔드 협의) ── */}
+        {exam != null && (
+          <View style={s.examCard}>
+            <View style={s.examIcon}>
+              <Ionicons name="calendar-outline" size={16} color={T.accentDeep} />
+            </View>
+            <View style={s.examCol}>
+              <Text style={s.examLabel}>준비 시험</Text>
+              <Text style={s.examValue}>{exam}</Text>
+            </View>
           </View>
-          <View style={s.examCol}>
-            <Text style={s.examLabel}>준비 시험</Text>
-            <Text style={s.examValue}>{exam}</Text>
-          </View>
-        </View>
+        )}
 
         {isFriend ? (
           <>
@@ -197,11 +231,7 @@ export default function FriendProfileScreen() {
             <Text style={s.requestedText}>요청됨</Text>
           </View>
         ) : (
-          <TouchableOpacity
-            style={s.requestBtn}
-            activeOpacity={0.85}
-            onPress={() => setRequested(true)}
-          >
+          <TouchableOpacity style={s.requestBtn} activeOpacity={0.85} onPress={requestFriend}>
             <Ionicons name="person-add" size={17} color={T.white} />
             <Text style={s.requestText}>친구 신청</Text>
           </TouchableOpacity>
