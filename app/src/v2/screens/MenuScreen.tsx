@@ -95,15 +95,24 @@ export default function MenuScreen() {
     const { key, seconds } = editing;
     setEditing(null);
     if (key === 'focus') {
-      // 집중 목표는 로컬(세션) 반영 — 서버 필드 미정. TODO: 백엔드 필드 생기면 동기화.
+      // 집중 목표 — 컨텍스트 + 서버(PATCH /users/me/focus-time-goal) 반영.
       setGoalSeconds(seconds);
+      try {
+        await api.patch('/api/v1/users/me/focus-time-goal', {
+          dailyFocusTimeGoalMinutes: Math.round(seconds / 60),
+        });
+      } catch {
+        /* 실패해도 로컬은 반영, 다음 진입에 재시도 여지 */
+      }
       return;
     }
     // 스크린타임 목표 — 컨텍스트 + 서버 + 로컬 유저 캐시 반영.
     setScreenTimeGoalSeconds(seconds);
     const minutes = Math.round(seconds / 60);
     try {
-      await api.post('/api/v1/user', { dailyScreenTimeGoalMinutes: minutes });
+      await api.patch('/api/v1/users/me/screen-time-goal', {
+        dailyScreenTimeGoalMinutes: minutes,
+      });
     } catch {
       /* 실패해도 로컬은 반영, 다음 진입에 재시도 여지 */
     }

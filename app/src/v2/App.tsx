@@ -42,18 +42,19 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 // 온보딩은 로그인이 '마지막' 단계(OnboardingFlow가 내부에서 처리) — 게스트로 수집 후 로그인.
 // TODO: 로그아웃/탈퇴 UI를 v2 화면으로 재구현. 09 권한거부 분기(09a/09b)·06 성별/생일 화면.
 
-// v2 온보딩 수집 데이터를 서버로 전송. 로그인 상태에서만 호출(토큰 필요).
-// 매핑: usageGoalMinutes → dailyScreenTimeGoalMinutes, nickname → nickname.
-// focusCategory(16)·dailyFocusMinutes(17)는 서버 필드 미정 → 미전송(TODO: 백엔드 협의).
-// focusCategory는 대신 로컬 보관(handleOnboardingComplete) — 리그 기본 시험 리그로 쓰인다.
+// v2 온보딩 수집 데이터를 서버로 전송(POST /users/me 프로필 설정). 로그인 상태에서만 호출.
+// 매핑: nickname → nickname, usageGoalMinutes(12) → dailyScreenTimeGoalMinutes,
+//       dailyFocusMinutes(17) → dailyFocusTimeGoalMinutes.
+// focusCategory(16)는 서버 Occupation enum(5종)과 항목이 안 맞아 로컬 보관 유지
+// (handleOnboardingComplete — 리그 기본 시험 리그로 쓰인다. TODO: 백엔드 협의).
 async function syncOnboardingToServer(data: V2OnboardingData) {
   const body = {
     nickname: data.nickname,
     dailyScreenTimeGoalMinutes: data.usageGoalMinutes ?? undefined,
-    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    dailyFocusTimeGoalMinutes: data.dailyFocusMinutes ?? undefined,
   };
   try {
-    await api.post('/api/v1/user', body);
+    await api.post('/api/v1/users/me', body);
   } catch {
     // 실패해도 진행 — 추후 재동기화(TODO)
   }
@@ -83,7 +84,7 @@ export default function App() {
       const data = JSON.parse(raw) as UserProfile;
       const userId = getUserIdFromToken(data.accessToken ?? '');
       try {
-        const profileRes = await api.get('/api/v1/user');
+        const profileRes = await api.get('/api/v1/users/me');
         const merged = { ...data, ...profileRes.data };
         await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
         setUser({ ...merged, userId });
@@ -165,7 +166,10 @@ export default function App() {
       <UserProvider
         initialNickname={user?.nickname}
         initialUserId={user?.userId}
-        initialGoalSeconds={onboardingFocusGoalSeconds}
+        initialGoalSeconds={
+          onboardingFocusGoalSeconds ??
+          (user?.dailyFocusTimeGoalMinutes ? user.dailyFocusTimeGoalMinutes * 60 : null)
+        }
         initialScreenTimeGoalSeconds={
           onboardingScreenTimeGoalSeconds ??
           (user?.dailyScreenTimeGoalMinutes ? user.dailyScreenTimeGoalMinutes * 60 : null)
