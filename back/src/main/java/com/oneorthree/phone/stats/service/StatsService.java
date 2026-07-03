@@ -8,6 +8,7 @@ import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
+import com.oneorthree.phone.stats.dto.ComparisonStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
@@ -278,6 +279,24 @@ public class StatsService {
         items.sort(Comparator.comparingInt(CategoryFocusStatsResponse.CategoryItem::totalFocusMinutes).reversed());
 
         return new CategoryFocusStatsResponse(period, from, to, (int) totalMinutes, items);
+    }
+
+    /**
+     * 비교 통계 조회 스텁.
+     * 스키마 확정·클라 연동 목적 — 실 집계는 후속 스프린트.
+     * 리포지토리 호출 없음.
+     *
+     * @param userId 사용자 UUID (인증 필터 통과 후 전달)
+     * @return comparisonAvailable=false 고정, mine 빈 응답, average/examPassers=null
+     */
+    public ComparisonStatsResponse getComparisonStats(UUID userId) {
+        // 스텁: 실 집계는 후속 스프린트. 스키마 확정·클라 연동용 고정 응답.
+        return new ComparisonStatsResponse(
+                false,                                                    // comparisonAvailable
+                new ComparisonStatsResponse.MyStats(0, List.of()),        // mine: 빈 응답
+                null,                                                     // average: 미제공
+                null                                                      // examPassers: 미제공
+        );
     }
 
     /**

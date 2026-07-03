@@ -1,6 +1,7 @@
 package com.oneorthree.phone.stats.api;
 
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
+import com.oneorthree.phone.stats.dto.ComparisonStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
@@ -343,4 +344,29 @@ class StatsControllerTest {
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
+
+    // ── getComparisonStats ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("비교 통계 조회 [스텁] → 200, comparisonAvailable=false, mine.subjects=[], average/examPassers=null")
+    void getComparisonStatsReturns200() throws Exception {
+        given(statsService.getComparisonStats(any()))
+                .willReturn(new ComparisonStatsResponse(
+                        false,
+                        new ComparisonStatsResponse.MyStats(0, List.of()),
+                        null,
+                        null));
+
+        mockMvc.perform(get("/api/v1/stats/comparison"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.comparisonAvailable").value(false))
+                .andExpect(jsonPath("$.mine.totalMinutes").value(0))
+                .andExpect(jsonPath("$.mine.subjects").isArray())
+                .andExpect(jsonPath("$.mine.subjects").isEmpty())
+                .andExpect(jsonPath("$.average").doesNotExist())
+                .andExpect(jsonPath("$.examPassers").doesNotExist())
+                .andDo(print());
+    }
+
+    // 인증 누락 401은 MockMvc 슬라이스에서 JwtFilter가 미적용이라 검증 불가 — JwtFilterTest에서 필터 단위로 커버 (프로젝트 관례).
 }

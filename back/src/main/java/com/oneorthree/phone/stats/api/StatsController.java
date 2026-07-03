@@ -1,6 +1,7 @@
 package com.oneorthree.phone.stats.api;
 
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
+import com.oneorthree.phone.stats.dto.ComparisonStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
@@ -121,5 +122,18 @@ public class StatsController {
             HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(statsService.getScreenTimePeriodStats(userId, period));
+    }
+
+    @Operation(summary = "비교 통계 조회 [스텁]",
+            description = "[스텁] 내 과목별·총 공부량 vs 비교군(평균·시험 합격자). "
+                    + "실 데이터는 후속 스프린트. comparisonAvailable=false 고정.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "401", description = "인증 필요")
+    })
+    @GetMapping("/stats/comparison")
+    public ResponseEntity<ComparisonStatsResponse> getComparisonStats(HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(statsService.getComparisonStats(userId));
     }
 }

@@ -8,6 +8,7 @@ import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
+import com.oneorthree.phone.stats.dto.ComparisonStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
@@ -944,5 +945,33 @@ class StatsServiceTest {
 
         LocalDate expectedFirstDay = LocalDate.of(2026, 7, 1);
         assertThat(fromCaptor.getValue()).isEqualTo(expectedFirstDay.atStartOfDay(ZoneOffset.UTC).toInstant());
+    }
+
+    // ── getComparisonStats ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("비교 통계 — 스텁: comparisonAvailable=false, mine.totalMinutes=0, mine.subjects=[], average=null, examPassers=null")
+    void getComparisonStatsReturnsStub() {
+        // 스텁이므로 Mock 주입 불필요 — statsService 직접 호출
+        ComparisonStatsResponse response = statsService.getComparisonStats(USER_ID);
+
+        assertThat(response.comparisonAvailable()).isFalse();
+        assertThat(response.mine().totalMinutes()).isZero();
+        assertThat(response.mine().subjects()).isEmpty();
+        assertThat(response.average()).isNull();
+        assertThat(response.examPassers()).isNull();
+    }
+
+    @Test
+    @DisplayName("비교 통계 — 스텁: 리포지토리 호출 없음(DB 접근 없음)")
+    void getComparisonStatsNoRepositoryCalls() {
+        statsService.getComparisonStats(USER_ID);
+
+        // 어떤 repository도 호출되면 안 됨 (순수 스텁)
+        org.mockito.Mockito.verifyNoInteractions(
+                dailyFocusStatRepository, dailyScreenTimeStatRepository,
+                focusSessionRepository, userRepository,
+                userStreakRepository, userFocusTimeSettingsRepository,
+                userScreenTimeSettingsRepository);
     }
 }
