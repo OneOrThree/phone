@@ -18,13 +18,16 @@ React Native New Architecture(Fabric/TurboModules) 전환 작업 기록.
 
 ## 2. 변경 내용
 
-### 직접 수정 (3파일)
+### 직접 수정
 
-| 파일 | 변경 |
-| --- | --- |
-| `app.config.js` | `newArchEnabled: false → true` |
-| `ios/Podfile.properties.json` | `"newArchEnabled": "false" → "true"` + `"ios.buildReactNativeFromSource": "true"` 추가(firebase × 프리빌트 코어 충돌 회피 — §8 참고) |
-| `android/gradle.properties` | `newArchEnabled=false → true` (app.config.js와 드리프트 방지용 — 안드로이드는 현재 빌드 대상 아님) |
+| 파일                               | 변경                                                                                                                                                                                                                                                                       |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app.config.js`                    | `newArchEnabled: false → true`                                                                                                                                                                                                                                             |
+| `ios/Podfile.properties.json`      | `"newArchEnabled": "false" → "true"` + `"ios.buildReactNativeFromSource": "true"` 추가(firebase × 프리빌트 코어 충돌 회피 — §8 참고)                                                                                                                                       |
+| `android/gradle.properties`        | `newArchEnabled=false → true` (app.config.js와 드리프트 방지용 — 안드로이드는 현재 빌드 대상 아님)                                                                                                                                                                         |
+| `ios/Podfile`                      | post_install에 Pod 타겟 경고 억제(`GCC_WARN_INHIBIT_ALL_WARNINGS`+`SWIFT_SUPPRESS_WARNINGS`, 앱 타겟 경고는 유지) + 출력 미지정 스크립트 페이즈 `always_out_of_date` 표시. 앱 프로젝트 쪽 페이즈([RNFB] 등)는 integrate 단계에 재생성되므로 **post_integrate** 훅에서 처리 |
+| `ios/gromo.xcodeproj`              | gromo 타겟 `OTHER_LDFLAGS`의 `-lc++` 제거 — Pods 상속 플래그와 중복돼 ld 경고 발생하던 것                                                                                                                                                                                  |
+| `ios/gromo/ScreenTimeModule.swift` | iOS 26 SDK 신규 `AuthorizationStatus.approvedWithDataAccess` 케이스 → JS 계약상 "approved"로 매핑 (exhaustive 경고 해소)                                                                                                                                                   |
 
 ### pod install 부수효과 (자동 생성)
 
@@ -40,13 +43,13 @@ React Native New Architecture(Fabric/TurboModules) 전환 작업 기록.
 **코드 수정 없이 인터롭 레이어로 전부 커버** — RN 0.74+는 레거시 NativeModule/ViewManager를
 자동으로 TurboModule/Fabric 인터롭에 등록한다.
 
-| 대상 | 패턴 | 판정 |
-| --- | --- | --- |
-| `ScreenTimeModule.swift/.m` | `RCT_EXTERN_MODULE` + Promise 메서드만. 이벤트 이미터·bridge 접근·constantsToExport 없음. UI 표시는 `DispatchQueue.main.async` + scene 기반 top VC 탐색(브릿지 무관) | ✅ TurboModule 인터롭 |
-| `ScreenTimeReportViewManager` / `AllowedAppsListViewManager` | 레거시 `RCTViewManager` + `RCT_EXPORT_VIEW_PROPERTY`, JS는 `requireNativeComponent` | ✅ Fabric 레거시 뷰 인터롭(자동 등록) |
-| `AppDelegate.swift` | 이미 SDK 54 `ExpoReactNativeFactory` 패턴 → 플래그만 읽어 자동 전환 | ✅ 수정 불필요 |
-| 익스텐션 6종 (screentimereport·GromoScreenTimeMonitor·Shield*·Widget·NotificationService) | RN 링크 안 함(순수 Swift/SwiftUI) | ✅ 영향 없음 |
-| JS (`src/`) | `findNodeHandle`·`UIManager`·`setNativeProps` 등 Fabric 비호환 패턴 **없음** | ✅ |
+| 대상                                                                                       | 패턴                                                                                                                                                                 | 판정                                  |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `ScreenTimeModule.swift/.m`                                                                | `RCT_EXTERN_MODULE` + Promise 메서드만. 이벤트 이미터·bridge 접근·constantsToExport 없음. UI 표시는 `DispatchQueue.main.async` + scene 기반 top VC 탐색(브릿지 무관) | ✅ TurboModule 인터롭                 |
+| `ScreenTimeReportViewManager` / `AllowedAppsListViewManager`                               | 레거시 `RCTViewManager` + `RCT_EXPORT_VIEW_PROPERTY`, JS는 `requireNativeComponent`                                                                                  | ✅ Fabric 레거시 뷰 인터롭(자동 등록) |
+| `AppDelegate.swift`                                                                        | 이미 SDK 54 `ExpoReactNativeFactory` 패턴 → 플래그만 읽어 자동 전환                                                                                                  | ✅ 수정 불필요                        |
+| 익스텐션 6종 (screentimereport·GromoScreenTimeMonitor·Shield\*·Widget·NotificationService) | RN 링크 안 함(순수 Swift/SwiftUI)                                                                                                                                    | ✅ 영향 없음                          |
+| JS (`src/`)                                                                                | `findNodeHandle`·`UIManager`·`setNativeProps` 등 Fabric 비호환 패턴 **없음**                                                                                         | ✅                                    |
 
 ### 서드파티 네이티브 모듈
 
@@ -59,6 +62,7 @@ screens 4.16(Fabric 네이티브), safe-area-context 5.6, svg 15.12, view-shot 4
 - `pod install` ✅ (소스 빌드 전환 후 100 deps / 126 pods)
 - 시뮬레이터 Debug 빌드 (iPhone 17 Pro): ✅ **BUILD SUCCEEDED, 에러 0** (2026-07-03)
 - 실기기 회귀 테스트: ✅ **전 항목 통과** (2026-07-03, 오스카 — §5 체크리스트 기준 "다 잘된다" 확인)
+- Xcode 경고 정리: 로그 기준 **1008줄 → 21줄** (잔여 = libtool 'no symbols' 13건·appintents 등 로그 전용 노이즈 + 익스텐션 버전 불일치 1건 — 후자는 0.1.0 버전 범프 stash가 해결 예정). Xcode 이슈 내비게이터 기준 사실상 0
 
 ## 5. 실기기 회귀 테스트 체크리스트 (오스카 수행)
 
@@ -113,4 +117,8 @@ New Arch는 렌더러(Fabric)·네이티브 모듈 경로(TurboModule) 전면 �
 
 - `pod install --project-directory=...`는 실패 — Podfile의 `require.resolve('expo/package.json')`가
   CWD 기준이라 **반드시 `app/ios`에서 실행**해야 함. (`cd app/ios && pod install`)
+- Podfile 훅에서 `phase.input_paths`/`output_paths`는 **nil일 수 있음** — `(x || []).empty?`로 가드
+  안 하면 post-install 훅이 `undefined method 'empty?' for nil`로 터짐.
+- 앱 프로젝트의 `[CP-User]` 스크립트 페이즈(RNFB 등)는 **integrate 단계에서 매번 재생성** →
+  post_install에서 속성을 바꿔도 사라짐. 앱 프로젝트 조작은 `post_integrate` 훅에서.
 - FirebaseCore CocoaPods 배포는 2026-10 이후 신규 버전 중단 예고(SPM 전환 권고) — 당장 영향 없음, 추후 별도 티켓 감.

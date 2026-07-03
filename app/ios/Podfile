@@ -90,7 +90,35 @@ target 'gromo' do
         if current.nil? || current.to_f < 15.1
           config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.1'
         end
+        # 서드파티 Pod 경고 억제 — RN 코어 소스 빌드 전환으로 급증한 nullability 등
+        # 외부 라이브러리 경고 소음 제거. 앱 타겟(gromo·익스텐션) 경고는 그대로 유지.
+        config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = 'YES'
+        config.build_settings['SWIFT_SUPPRESS_WARNINGS'] = 'YES'
       end
+      # 출력 미지정 Pods 스크립트 페이즈의 '매 빌드 실행' 경고 억제 —
+      # 어차피 매 빌드 실행되는 페이즈를 명시적으로 표시만 하는 것이라 빌드 동작 변화 없음.
+      target.shell_script_build_phases.each do |phase|
+        if (phase.output_paths || []).empty? && (phase.output_file_list_paths || []).empty?
+          phase.always_out_of_date = '1'
+        end
+      end
+    end
+  end
+
+  # 앱 프로젝트(gromo.xcodeproj)의 출력 미지정 스크립트 페이즈도 동일 처리
+  # ([CP] Check Pods Manifest.lock, RN 번들 페이즈, [RNFB] Core Configuration 등).
+  # post_install이 아닌 post_integrate인 이유: [CP-User] 페이즈는 integrate 단계에서
+  # 재생성되므로 post_install에서 표시하면 다시 사라짐.
+  post_integrate do |installer|
+    installer.aggregate_targets.map(&:user_project).uniq.each do |project|
+      project.native_targets.each do |native_target|
+        native_target.shell_script_build_phases.each do |phase|
+          if (phase.output_paths || []).empty? && (phase.output_file_list_paths || []).empty?
+            phase.always_out_of_date = '1'
+          end
+        end
+      end
+      project.save
     end
   end
 end
