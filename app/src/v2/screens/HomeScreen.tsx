@@ -10,7 +10,8 @@ import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { CharacterImage } from '@/components/character/CharacterImage';
-import { api } from '@/services/api';
+import { getTodayStats } from '@/services/statsApi';
+import type { TodayStatsResponse } from '@/types/dto/stats';
 import {
   logHomeViewed,
   logTodaySummaryViewed,
@@ -37,19 +38,6 @@ function hms(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
-}
-
-// 화면 전용 응답 타입 — 서버 TodayStatsResponse(/api/v1/stats/today)에 대응.
-// 값은 분(minute) 단위. 데이터 없으면 서버가 0/false로 채워 반환한다.
-interface TodayStatMetric {
-  todayMinutes: number;
-  goalMinutes: number;
-  goalAchieved: boolean;
-  progressPercent: number;
-}
-interface TodayStats {
-  focus: TodayStatMetric;
-  screenTime: TodayStatMetric;
 }
 
 // 오늘 카드 한 줄: 아이콘 + 라벨 + 큰 값 + 목표 진행 바.
@@ -163,7 +151,7 @@ export default function HomeScreen() {
   // 홈이 포커스될 때마다 사용량 리포트를 리마운트 → 최신값으로 재계산(묵은 값 방지).
   const [reportRefresh, setReportRefresh] = useState(0);
   // 오늘 요약(서버 stats/today). null이면 미조회/게스트/실패 → 로컬 FocusContext 값으로 폴백.
-  const [todayStats, setTodayStats] = useState<TodayStats | null>(null);
+  const [todayStats, setTodayStats] = useState<TodayStatsResponse | null>(null);
   // 오늘 집중 누적(로컬)을 effect 재실행 없이 최신값으로 읽기 위한 ref(폴백/계측용).
   const todayFocusSecondsRef = useRef(todayFocusSeconds);
   todayFocusSecondsRef.current = todayFocusSeconds;
@@ -173,7 +161,7 @@ export default function HomeScreen() {
   const refetchTodayStats = useCallback(async (): Promise<number> => {
     if (userId) {
       try {
-        const { data } = await api.get<TodayStats>('/api/v1/stats/today');
+        const data = await getTodayStats();
         setTodayStats(data);
         return data.focus.todayMinutes;
       } catch {
