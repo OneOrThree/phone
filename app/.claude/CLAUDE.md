@@ -93,7 +93,7 @@ app/
 └── src/
     ├── App.tsx              # auth gating + providers + <RootNavigator/>
     ├── assets/              # images, fonts
-    ├── components/          # reusable UI (character/ = composition-based 2D character)
+    ├── components/          # reusable UI (character/ = static character image)
     ├── constants/           # design tokens — theme.ts (T, inkBox)
     ├── hooks/               # custom hooks (currently empty)
     ├── navigation/          # RootNavigator.tsx (NavigationContainer + Tab/Stack)
@@ -114,8 +114,8 @@ app/
 - `src/services/ScreenTimeModule.ts` — typed JS wrapper over the native Screen Time bridge.
 - `src/constants/theme.ts` — the `T` design tokens + `inkBox()` helper. **Reuse these**;
   don't hardcode colors or border styles.
-- `src/components/character/` — composition-based: `Character2D.tsx` assembles `parts/` using
-  `characterVariants.ts` configs and `styles/`.
+- `src/components/character/` — `CharacterImage.tsx` renders the single static character
+  image (`assets/character.png`).
 - `src/types/` — `api.ts` (DTOs), `navigation.ts` (param lists + screen-prop helpers + global
   `ReactNavigation.RootParamList` augmentation), `storage.ts` (`STORAGE_KEYS`).
 
@@ -161,17 +161,17 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 
 ### Folders
 
-| Folder                      | Purpose                             | Examples                                  |
-| --------------------------- | ----------------------------------- | ----------------------------------------- |
-| `src/screens/`              | tab/navigation-level screens        | `Homescreen.tsx`, `MyPageScreen.tsx`      |
-| `src/components/`           | reusable UI components              | `DrumPicker.tsx`, `MorphingTabBar.tsx`    |
-| `src/components/character/` | character parts/styles              | `Character2D.tsx`, `characterVariants.ts` |
-| `src/store/`                | global state (Context API)          | `UserContext.tsx`, `CoinContext.tsx`      |
-| `src/services/`             | API / native integrations           | `api.ts`, `ScreenTimeModule.ts`           |
-| `src/constants/`            | design tokens / shared style values | `theme.ts`                                |
-| `src/utils/`                | pure utility functions              | `localDate.ts`, `challengeTime.ts`        |
-| `src/types/`                | shared TypeScript types             | `api.ts`, `navigation.ts`, `storage.ts`   |
-| `src/assets/`               | static resources                    | images, fonts, SVG                        |
+| Folder                      | Purpose                             | Examples                                |
+| --------------------------- | ----------------------------------- | --------------------------------------- |
+| `src/screens/`              | tab/navigation-level screens        | `Homescreen.tsx`, `MyPageScreen.tsx`    |
+| `src/components/`           | reusable UI components              | `DrumPicker.tsx`, `MorphingTabBar.tsx`  |
+| `src/components/character/` | static character image              | `CharacterImage.tsx`                    |
+| `src/store/`                | global state (Context API)          | `UserContext.tsx`, `CoinContext.tsx`    |
+| `src/services/`             | API / native integrations           | `api.ts`, `ScreenTimeModule.ts`         |
+| `src/constants/`            | design tokens / shared style values | `theme.ts`                              |
+| `src/utils/`                | pure utility functions              | `localDate.ts`, `challengeTime.ts`      |
+| `src/types/`                | shared TypeScript types             | `api.ts`, `navigation.ts`, `storage.ts` |
+| `src/assets/`               | static resources                    | images, fonts, SVG                      |
 
 ### Styling
 
@@ -319,7 +319,6 @@ Claude does not open PRs. Instead, write a `.md` draft the user copies into GitH
 - ❌ Calling `fetch` directly (use `@/services/api`).
 - ❌ Props drilling 3+ levels instead of Context.
 - ❌ Inventing AsyncStorage keys (use `STORAGE_KEYS` in `@/types/storage`).
-- ❌ Adding part styles directly in `Character2D.tsx`.
 - ❌ Large refactors without approval.
 - ❌ `git push` after a local `npx expo run:ios` build without a request.
 

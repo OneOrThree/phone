@@ -15,7 +15,7 @@ import { T } from '@/v2/constants/theme';
 
 // v2 로그인 화면 — Claude Design 온보딩 O7 시안 그대로.
 // 로직은 데이터 층(@/services/auth) 재사용, UI만 새로 구성. 색은 T 토큰만 사용.
-// TODO: 버튼 아이콘(카카오/애플/구글/메타) · 마스코트(Character2D) 연결.
+// TODO: 버튼 아이콘(카카오/애플/구글/메타) · 마스코트(CharacterImage) 연결.
 
 type Method = Extract<AuthMethod, 'kakao' | 'apple' | 'google' | 'facebook'>;
 
@@ -142,7 +142,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 18,
   },
-  mascotEmoji: { fontSize: 72 }, // 임시 마스코트(이모지) 크기 — Character2D 교체 예정
+  mascotEmoji: { fontSize: 72 }, // 임시 마스코트(이모지) 크기 — CharacterImage 교체 예정
   title: { ...T.text.display, color: T.ink },
   subtitle: {
     ...T.text.body,

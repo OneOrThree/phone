@@ -45,6 +45,7 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 // v2 온보딩 수집 데이터를 서버로 전송. 로그인 상태에서만 호출(토큰 필요).
 // 매핑: usageGoalMinutes → dailyScreenTimeGoalMinutes, nickname → nickname.
 // focusCategory(16)·dailyFocusMinutes(17)는 서버 필드 미정 → 미전송(TODO: 백엔드 협의).
+// focusCategory는 대신 로컬 보관(handleOnboardingComplete) — 리그 기본 시험 리그로 쓰인다.
 async function syncOnboardingToServer(data: V2OnboardingData) {
   const body = {
     nickname: data.nickname,
@@ -104,6 +105,7 @@ export default function App() {
       STORAGE_KEYS.refreshToken,
       STORAGE_KEYS.user,
       STORAGE_KEYS.onboardingComplete,
+      STORAGE_KEYS.focusCategory,
     ]);
     setOnboardingFocusGoalSeconds(null);
     setOnboardingScreenTimeGoalSeconds(null);
@@ -114,6 +116,10 @@ export default function App() {
   // 온보딩 완료(마지막 로그인/게스트) → 플래그 저장 + 유저 설정 → 홈 진입.
   async function handleOnboardingComplete({ data, login }: OnboardingResult) {
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
+    // 목표 선택(16) — 리그 화면이 기본 시험 리그로 읽는다. 서버 필드 협의 전까지 로컬 보관.
+    if (data.focusCategory) {
+      await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategory);
+    }
     setOnboarded(true);
     // 집중 목표=17단계 dailyFocusMinutes, 사용시간 목표=12단계 usageGoalMinutes.
     setOnboardingFocusGoalSeconds(data.dailyFocusMinutes ? data.dailyFocusMinutes * 60 : null);

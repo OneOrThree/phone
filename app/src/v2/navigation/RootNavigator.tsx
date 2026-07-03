@@ -9,6 +9,12 @@ import MenuScreen from '@/v2/screens/MenuScreen';
 import UsageDetailScreen from '@/v2/screens/UsageDetailScreen';
 import FocusCategoryScreen from '@/v2/screens/focus/FocusCategoryScreen';
 import FocusSessionScreen from '@/v2/screens/focus/FocusSessionScreen';
+import {
+  LeagueScreen,
+  FriendAddScreen,
+  TierGuideScreen,
+  LeagueResultScreen,
+} from '@/v2/screens/league';
 import { V2TabBar } from '@/v2/components/V2TabBar';
 import { T } from '@/v2/constants/theme';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
@@ -45,7 +51,7 @@ function MainTabs() {
       tabBar={(props) => <V2TabBar {...props} />}
     >
       <Tab.Screen name="홈" component={HomeScreen} />
-      <Tab.Screen name="리그">{() => <Placeholder title="리그 & 랭킹" />}</Tab.Screen>
+      <Tab.Screen name="리그" component={LeagueScreen} />
       <Tab.Screen name="그룹">{() => <Placeholder title="그룹" />}</Tab.Screen>
       <Tab.Screen name="전체" component={MenuScreen} />
     </Tab.Navigator>
@@ -65,6 +71,14 @@ export function RootNavigator() {
           name="FocusSession"
           component={FocusSessionScreen}
           options={{ gestureEnabled: false }}
+        />
+        <Stack.Screen name="FriendAdd" component={FriendAddScreen} />
+        <Stack.Screen name="TierGuide" component={TierGuideScreen} />
+        {/* 승격/강등 연출 — 풀스크린 다크라 페이드 전환 */}
+        <Stack.Screen
+          name="LeagueResult"
+          component={LeagueResultScreen}
+          options={{ animation: 'fade' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

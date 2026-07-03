@@ -12,8 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/services/api';
 import { useUser } from './UserContext';
 import { STORAGE_KEYS } from '@/types/storage';
-import type { CostumeItem, ItemType } from '@/types/api';
-import type { CostumeSlot } from '@/components/character/characterTypes';
+import type { CostumeItem, CostumeSlot, ItemType } from '@/types/api';
 
 interface EquipmentContextValue {
   equippedItem: ItemType | null;

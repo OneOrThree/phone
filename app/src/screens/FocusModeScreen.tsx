@@ -14,13 +14,13 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useFocus } from '@/store/FocusContext';
 import { useEquipment } from '@/store/EquipmentContext';
 import { useCoins } from '@/store/CoinContext';
-import { Character2D } from '@/components/character/Character2D';
+import { CharacterImage } from '@/components/character/CharacterImage';
 import { T, inkBox } from '@/constants/theme';
 import { api } from '@/services/api';
 import { logFocusSessionStarted } from '@/services/analyticsEvents';
 import type { EasingFunction } from 'react-native';
 import type { TabScreenProps } from '@/types/navigation';
-import type { Variant } from '@/components/character/characterTypes';
+import type { Variant } from '@/types/api';
 
 function formatTime(totalSeconds: number) {
   const h = Math.floor(totalSeconds / 3600);
@@ -209,7 +209,7 @@ function AnimatedCharacter({ variant, size }: AnimatedCharacterProps) {
 
   return (
     <Animated.View style={bodyStyle}>
-      <Character2D size={size} variant={variant} leftArmAngle={leftArm} rightArmAngle={rightArm} />
+      <CharacterImage size={size} />
     </Animated.View>
   );
 }
@@ -237,7 +237,7 @@ function SeatSlot({ member }: { member: GroupMemberSummary }) {
   return (
     <View style={s.seat}>
       <View style={s.seatCharWrap}>
-        <Character2D size={60} variant="focus" costumeSlots={[]} />
+        <CharacterImage size={60} />
       </View>
       <View style={s.deskSurface} />
       <Text style={s.seatName} numberOfLines={1}>
