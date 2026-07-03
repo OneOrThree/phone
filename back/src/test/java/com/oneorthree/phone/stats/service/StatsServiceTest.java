@@ -47,6 +47,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class StatsServiceTest {
@@ -968,7 +969,7 @@ class StatsServiceTest {
         statsService.getComparisonStats(USER_ID);
 
         // 어떤 repository도 호출되면 안 됨 (순수 스텁)
-        org.mockito.Mockito.verifyNoInteractions(
+        verifyNoInteractions(
                 dailyFocusStatRepository, dailyScreenTimeStatRepository,
                 focusSessionRepository, userRepository,
                 userStreakRepository, userFocusTimeSettingsRepository,
