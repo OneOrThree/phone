@@ -161,17 +161,17 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 
 ### Folders
 
-| Folder                      | Purpose                             | Examples                                  |
-| --------------------------- | ----------------------------------- | ----------------------------------------- |
-| `src/screens/`              | tab/navigation-level screens        | `Homescreen.tsx`, `MyPageScreen.tsx`      |
-| `src/components/`           | reusable UI components              | `DrumPicker.tsx`, `MorphingTabBar.tsx`    |
-| `src/components/character/` | static character image              | `CharacterImage.tsx`                      |
-| `src/store/`                | global state (Context API)          | `UserContext.tsx`, `CoinContext.tsx`      |
-| `src/services/`             | API / native integrations           | `api.ts`, `ScreenTimeModule.ts`           |
-| `src/constants/`            | design tokens / shared style values | `theme.ts`                                |
-| `src/utils/`                | pure utility functions              | `localDate.ts`, `challengeTime.ts`        |
-| `src/types/`                | shared TypeScript types             | `api.ts`, `navigation.ts`, `storage.ts`   |
-| `src/assets/`               | static resources                    | images, fonts, SVG                        |
+| Folder                      | Purpose                             | Examples                                |
+| --------------------------- | ----------------------------------- | --------------------------------------- |
+| `src/screens/`              | tab/navigation-level screens        | `Homescreen.tsx`, `MyPageScreen.tsx`    |
+| `src/components/`           | reusable UI components              | `DrumPicker.tsx`, `MorphingTabBar.tsx`  |
+| `src/components/character/` | static character image              | `CharacterImage.tsx`                    |
+| `src/store/`                | global state (Context API)          | `UserContext.tsx`, `CoinContext.tsx`    |
+| `src/services/`             | API / native integrations           | `api.ts`, `ScreenTimeModule.ts`         |
+| `src/constants/`            | design tokens / shared style values | `theme.ts`                              |
+| `src/utils/`                | pure utility functions              | `localDate.ts`, `challengeTime.ts`      |
+| `src/types/`                | shared TypeScript types             | `api.ts`, `navigation.ts`, `storage.ts` |
+| `src/assets/`               | static resources                    | images, fonts, SVG                      |
 
 ### Styling
 
