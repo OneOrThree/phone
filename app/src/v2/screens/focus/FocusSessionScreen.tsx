@@ -97,6 +97,11 @@ export default function FocusSessionScreen() {
   pausedRef.current = paused;
   const finishedRef = useRef(false);
   const startedAtRef = useRef(new Date().toISOString());
+  // 서버 업로드 정산 마커 — 이미 정산(로컬·코인·서버 업로드)된 집중초/코인, 미정산 구간 시작 시각.
+  // 뽀모도로는 집중 블록마다, 그 외 모드는 종료 시 한 번 정산한다.
+  const settledSecondsRef = useRef(0);
+  const settledCoinsRef = useRef(0);
+  const settleAtRef = useRef(startedAtRef.current);
 
   // 집중 세션 시작 계측(GROMO-537) — 실제 세션 화면 진입 시 1회.
   // has_tag: 과목 부착 여부(현재 v2는 과목 선택이 필수라 항상 true지만, 계약상 명시). mode: 타이머 모드.
@@ -153,15 +158,19 @@ export default function FocusSessionScreen() {
   }, [nextTick]);
 
   // 라이브 세션 레코드 — 강제 종료돼도 다음 실행 때 OrphanFocusSettler가 정산할 수 있게 남긴다.
+  // 저장값은 '미정산 구간'만: elapsed=아직 서버/로컬에 안 올린 집중초, startedAt=그 구간 시작 시각.
+  // (집중 블록을 증분 정산하므로 이미 올린 블록은 레코드에서 빠져 고아 정산이 이중 적립하지 않는다.)
   // finish 후엔 저장 금지 — 종료 시 제거한 레코드가 되살아나면 다음 실행에서 이중 정산된다.
   const saveLive = useCallback(
     (elapsed: number) => {
-      if (finishedRef.current || elapsed <= 0) return;
+      if (finishedRef.current) return;
+      const remaining = Math.floor(elapsed) - settledSecondsRef.current;
+      if (remaining <= 0) return;
       const record: LiveFocusSession = {
         subjectId,
         subjectName,
-        elapsed,
-        startedAt: startedAtRef.current,
+        elapsed: remaining,
+        startedAt: settleAtRef.current,
         updatedAt: new Date().toISOString(),
       };
       AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, JSON.stringify(record)).catch(() => {});
@@ -232,7 +241,40 @@ export default function FocusSessionScreen() {
     };
   }, [subjectName, subjectId]);
 
-  // 정지/완료 — 집중시간·코인 적립 + 세션 저장 후 홈으로. 한 번만 실행.
+  // 집중 블록 증분 정산 — 마지막 정산 이후 쌓인 집중초(delta)를 로컬·과목·코인에 적립하고
+  // 그 구간[settleAt, now]을 서버에 세션으로 업로드한다. 뽀모도로는 집중 블록 끝마다,
+  // 그 외 모드는 finish에서 1회 호출된다. 정산 완료분은 라이브 레코드에서 제거(고아 이중정산 방지).
+  const settleFocusBlock = useCallback(() => {
+    const elapsed = Math.floor(sessionRef.current.elapsed);
+    const delta = elapsed - settledSecondsRef.current;
+    if (delta <= 0) return;
+    const endedAt = new Date().toISOString();
+    const startedAt = settleAtRef.current;
+    // 마커·레코드를 적립보다 먼저 갱신 — 적립 후 제거 전에 죽으면 고아 정산이 또 적립한다(원 finish와 동일 순서).
+    settledSecondsRef.current = elapsed;
+    const totalCoins = Math.floor(elapsed / 10);
+    const newCoins = totalCoins - settledCoinsRef.current;
+    settledCoinsRef.current = totalCoins;
+    settleAtRef.current = endedAt;
+    AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+    // 로컬/과목/코인 적립
+    addFocusSeconds(delta);
+    addFocusToSubject(subjectId, delta);
+    if (newCoins > 0) addCoins(newCoins);
+    // 서버 업로드 — 이번 집중 블록 구간만
+    api
+      .post('/api/v1/focus-session', {
+        focusTagId: null,
+        subject: subjectName,
+        startedAt,
+        endedAt,
+        distractionCount: 0,
+        totalDistractionSeconds: 0,
+      })
+      .catch(() => {});
+  }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName]);
+
+  // 정지/완료 — 남은 집중 블록 정산(적립+서버 업로드) 후 홈으로. 한 번만 실행.
   const finish = useCallback(async () => {
     if (finishedRef.current) return;
     finishedRef.current = true;
@@ -240,37 +282,35 @@ export default function FocusSessionScreen() {
     ScreenTimeModule.stopFocusShield().catch(() => {});
     ScreenTimeModule.endFocusActivity().catch(() => {});
     try {
-      // 라이브 레코드 '제거 완료' 후에만 적립(OrphanFocusSettler와 같은 순서) — 적립을 먼저 하면
-      // 제거가 디스크에 닿기 전에 죽었을 때 다음 실행의 고아 정산이 같은 세션을 또 적립한다.
+      // 라이브 레코드 '제거 완료' 후에만 정산(OrphanFocusSettler와 같은 순서).
       await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
-      const focused = Math.floor(sessionRef.current.elapsed);
-      if (focused > 0) {
-        addFocusSeconds(focused);
-        addFocusToSubject(subjectId, focused);
-        const coins = Math.floor(focused / 10);
-        if (coins > 0) addCoins(coins);
-        api
-          .post('/api/v1/focus-session', {
-            focusTagId: null,
-            subject: subjectName,
-            startedAt: startedAtRef.current,
-            endedAt: new Date().toISOString(),
-            distractionCount: 0,
-            totalDistractionSeconds: 0,
-          })
-          .catch(() => {});
-      }
+      settleFocusBlock();
     } catch {
-      // 제거 실패 — 여기서 적립하면 남은 레코드로 이중 적립될 수 있으니 건너뛰고,
+      // 제거 실패 — 여기서 정산하면 남은 레코드로 이중 적립될 수 있으니 건너뛰고,
       // 레코드는 다음 실행의 고아 정산이 한 번만 적립한다.
     }
     navigation.popToTop();
-  }, [addFocusSeconds, addCoins, addFocusToSubject, subjectId, subjectName, navigation]);
+  }, [settleFocusBlock, navigation]);
 
   // 카운트다운/뽀모도로 완료 시 자동 종료
   useEffect(() => {
     if (session.done) finish();
   }, [session.done, finish]);
+
+  // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
+  // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
+  const prevPhaseRef = useRef(session.phase);
+  useEffect(() => {
+    const prev = prevPhaseRef.current;
+    const cur = session.phase;
+    if (prev === cur) return;
+    prevPhaseRef.current = cur;
+    if (prev === 'focus' && cur === 'break') {
+      settleFocusBlock();
+    } else if (prev === 'break' && cur === 'focus') {
+      settleAtRef.current = new Date().toISOString();
+    }
+  }, [session.phase, settleFocusBlock]);
 
   // 이탈 감지 — background 진입 시각을 기록해두고, 복귀 시 자리 비운 시간으로 판정한다.
   const leftAtRef = useRef<number | null>(null);
