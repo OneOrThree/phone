@@ -1,15 +1,16 @@
-// league 도메인 API 래퍼 (LeagueController + LeagueBatchController, base /api/v1).
+// league 도메인 API 래퍼 (LeagueController, base /api/v1).
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
-// batch/run 은 local/dev/staging 프로파일에서만 노출되는 수동 트리거.
+// 타입은 기존 공용 타입(@/types/api)을 재사용한다(중복 DTO 방지 — 리뷰 반영).
 import { api } from '@/services/api';
 import type {
   LeagueTierResponse,
   LeagueMemberResponse,
   LeagueRankResponse,
   LeagueScheduleResponse,
-  LeagueBatchSummaryResponse,
-} from '@/types/dto/league';
-import type { Occupation } from '@/types/dto/user';
+} from '@/types/api';
+
+// 카테고리 랭킹의 category 값은 서버 Occupation enum 이름(예: 'LABOR_ATTORNEY').
+type OccupationCategory = string;
 
 // GET /api/v1/league/me/tier — 내 현재 리그·티어 조회.
 export async function getMyTier(): Promise<LeagueTierResponse> {
@@ -18,7 +19,7 @@ export async function getMyTier(): Promise<LeagueTierResponse> {
 }
 
 // GET /api/v1/league/me/ranking?category — 티어 멤버 랭킹. category 미지정: 내 아레나 멤버, 지정: 같은 직군 전역 상위 100명.
-export async function getMyRanking(category?: Occupation): Promise<LeagueMemberResponse[]> {
+export async function getMyRanking(category?: OccupationCategory): Promise<LeagueMemberResponse[]> {
   const { data } = await api.get<LeagueMemberResponse[]>('/api/v1/league/me/ranking', {
     params: { category },
   });
@@ -34,11 +35,5 @@ export async function getMyRank(): Promise<LeagueRankResponse> {
 // GET /api/v1/league/me/schedule — 다음 리그 마감 스케줄(카운트다운용).
 export async function getMySchedule(): Promise<LeagueScheduleResponse> {
   const { data } = await api.get<LeagueScheduleResponse>('/api/v1/league/me/schedule');
-  return data;
-}
-
-// POST /api/v1/league/batch/run — 리그 주간 배치 수동 실행(운영/테스트용). 이미 실행됐으면 409.
-export async function runWeeklyBatch(): Promise<LeagueBatchSummaryResponse> {
-  const { data } = await api.post<LeagueBatchSummaryResponse>('/api/v1/league/batch/run');
   return data;
 }
