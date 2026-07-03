@@ -13,8 +13,8 @@ import { CoinProvider } from '@/store/CoinContext';
 import { EquipmentProvider } from '@/store/EquipmentContext';
 import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
-import { T } from '@/v2/constants/theme';
-import { RootNavigator } from '@/v2/navigation/RootNavigator';
+import { T } from '@/constants/theme';
+import { RootNavigator } from '@/navigation/RootNavigator';
 import { OrphanFocusSettler } from '@/v2/screens/focus/OrphanFocusSettler';
 import LoginScreen from '@/v2/screens/LoginScreen';
 import OnboardingFlow, {

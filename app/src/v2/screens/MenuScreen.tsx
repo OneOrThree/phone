@@ -7,7 +7,7 @@ import { triggerLogout, api } from '@/services/api';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { STORAGE_KEYS } from '@/types/storage';
 import { useUser } from '@/store/UserContext';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 
 // v2 전체 탭 — 목표(스크린타임·집중) 변경 + 측정 대상 picker + 로그아웃.
 

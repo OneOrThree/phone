@@ -1,5 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 import type { CompareByDay } from '../mock';
 
 // 요일별 나/상대 이중 막대 카드 — 프로필 상세의 집중시간·폰 사용시간 비교 공용(색만 교체).

@@ -1,7 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
-import { T } from '@/v2/constants/theme';
-import { FOCUS_CATEGORY_GROUPS } from '@/v2/constants/focusCategories';
+import { T } from '@/constants/theme';
+import { FOCUS_CATEGORY_GROUPS } from '@/constants/focusCategories';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // 16 · 목표 선택 — focusCategory(집중 목표 1개, 리그 매칭용). 서버 계약 미정(신규 필드).

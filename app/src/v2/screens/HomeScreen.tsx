@@ -12,10 +12,10 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { T } from '@/v2/constants/theme';
-import { tierByLevel } from '@/v2/constants/tiers';
+import { T } from '@/constants/theme';
+import { tierByLevel } from '@/constants/tiers';
 import { useLeagueRanking } from '@/v2/screens/league/useLeagueRanking';
-import type { V2RootStackParamList } from '@/v2/navigation/types';
+import type { V2RootStackParamList } from '@/navigation/types';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';

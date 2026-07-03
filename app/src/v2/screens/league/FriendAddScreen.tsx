@@ -13,10 +13,10 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
-import { T } from '@/v2/constants/theme';
-import { tierByLevel } from '@/v2/constants/tiers';
+import { T } from '@/constants/theme';
+import { tierByLevel } from '@/constants/tiers';
 import type { FriendRequestResponse, FriendSearchResultResponse } from '@/types/api';
-import type { V2RootStackParamList } from '@/v2/navigation/types';
+import type { V2RootStackParamList } from '@/navigation/types';
 import {
   acceptFriendRequest,
   fetchReceivedRequests,

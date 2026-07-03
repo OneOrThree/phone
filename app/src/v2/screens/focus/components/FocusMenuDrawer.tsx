@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Pressable, Animated, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import AllowedAppsListView from '@/components/AllowedAppsListView';
 import { useFocus } from '@/store/FocusContext';

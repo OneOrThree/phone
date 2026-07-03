@@ -4,10 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
-import { T } from '@/v2/constants/theme';
-import { tierByLevel } from '@/v2/constants/tiers';
+import { T } from '@/constants/theme';
+import { tierByLevel } from '@/constants/tiers';
 import { CharacterImage } from '@/components/character/CharacterImage';
-import type { V2RootStackParamList } from '@/v2/navigation/types';
+import type { V2RootStackParamList } from '@/navigation/types';
 import { TierBadge } from './components/TierBadge';
 
 // 승격/강등 연출 (root stack, 풀스크린 다크 radial) — 시안 "승격/강등 연출".

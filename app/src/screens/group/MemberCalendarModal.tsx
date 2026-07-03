@@ -9,7 +9,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { T } from '@/constants/theme';
+import { T } from '@/constants/legacyTheme';
 import { api } from '@/services/api';
 import type { GroupMember } from '@/types/api';
 

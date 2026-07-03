@@ -5,8 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { T } from '@/v2/constants/theme';
-import type { V2RootStackParamList } from '@/v2/navigation/types';
+import { T } from '@/constants/theme';
+import type { V2RootStackParamList } from '@/navigation/types';
 
 // v2 커스텀 탭바 — Claude Design "01 홈" 시안: 프로스티드 바 + 4탭 + 중앙 FAB(집중 시작).
 type IconPair = [keyof typeof Ionicons.glyphMap, keyof typeof Ionicons.glyphMap];

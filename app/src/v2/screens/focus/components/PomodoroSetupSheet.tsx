@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 import type { PomodoroConfig } from '../types';
 import { SheetShell } from './SheetShell';
 

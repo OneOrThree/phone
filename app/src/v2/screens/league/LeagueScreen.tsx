@@ -13,13 +13,13 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { T } from '@/v2/constants/theme';
-import { tierByLevel } from '@/v2/constants/tiers';
+import { T } from '@/constants/theme';
+import { tierByLevel } from '@/constants/tiers';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import { useLeagueRanking } from './useLeagueRanking';
 import { useFriends } from './useFriends';
-import type { V2RootStackParamList } from '@/v2/navigation/types';
+import type { V2RootStackParamList } from '@/navigation/types';
 import { DEADLINE_LABEL, INITIAL_PINS, MY_TIER, MY_USER_ID, type RankedMember } from './mock';
 import { fmtMinutes } from './format';
 import { RankRow } from './components/RankRow';

@@ -16,9 +16,9 @@ import {
   TierGuideScreen,
   LeagueResultScreen,
 } from '@/v2/screens/league';
-import { V2TabBar } from '@/v2/components/V2TabBar';
-import { T } from '@/v2/constants/theme';
-import type { V2RootStackParamList } from '@/v2/navigation/types';
+import { V2TabBar } from '@/components/V2TabBar';
+import { T } from '@/constants/theme';
+import type { V2RootStackParamList } from '@/navigation/types';
 
 // v2 새 UI 네비게이터 — 시안 "메인 4탭 + 중앙 FAB" 구조.
 // 홈만 실제 구현, 나머지 탭은 placeholder(각자 티켓). 데이터 층은 @/store 공유.

@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { T, inkBox } from '@/constants/theme';
+import { T, inkBox } from '@/constants/legacyTheme';
 import { api } from '@/services/api';
 import { useUser } from '@/store/UserContext';
 import { timeStrToSeconds, nowSecondsInZone, zoneSuffix } from '@/utils/challengeTime';

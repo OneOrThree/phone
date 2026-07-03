@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet } from 'react-native';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 import type { SessionFriend } from '@/v2/screens/league/useFocusFriends';
 import { hourMin } from '../format';
 import { StarAvatar } from './StarAvatar';

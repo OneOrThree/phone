@@ -11,7 +11,7 @@ import {
   type AuthMethod,
 } from '@/services/auth';
 import type { LoginResult } from '@/types/api';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 
 // v2 로그인 화면 — Claude Design 온보딩 O7 시안 그대로.
 // 로직은 데이터 층(@/services/auth) 재사용, UI만 새로 구성. 색은 T 토큰만 사용.

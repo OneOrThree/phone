@@ -1,6 +1,6 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 import type { FocusTimerMode } from '../types';
 import { SheetShell } from './SheetShell';
 

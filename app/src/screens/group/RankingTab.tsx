@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet } from 'react-native';
-import { T } from '@/constants/theme';
+import { T } from '@/constants/legacyTheme';
 
 export default function RankingTab() {
   return (

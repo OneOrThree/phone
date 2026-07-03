@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import axios from 'axios';
-import { T } from '@/constants/theme';
+import { T } from '@/constants/legacyTheme';
 import { api } from '@/services/api';
 import { useUser } from '@/store/UserContext';
 import GroupTab from './group/GroupTab';

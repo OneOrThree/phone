@@ -1,7 +1,7 @@
 import { View, Text, TextInput, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // 15 · 캐릭터·닉네임 — nickname 입력. 캐릭터는 '표시'만(이 화면에 커스터마이즈 없음).

@@ -6,10 +6,10 @@ import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { T } from '@/v2/constants/theme';
-import { tierByLevel } from '@/v2/constants/tiers';
-import CircularGauge from '@/v2/components/CircularGauge';
-import type { V2RootStackParamList } from '@/v2/navigation/types';
+import { T } from '@/constants/theme';
+import { tierByLevel } from '@/constants/tiers';
+import CircularGauge from '@/components/CircularGauge';
+import type { V2RootStackParamList } from '@/navigation/types';
 import { COMPARE_FALLBACK, PROFILE_COMPARE, RANKING, TEASER_SUBJECTS } from './mock';
 import {
   deleteFriend,

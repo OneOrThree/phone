@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 import type { SubjectCompare } from '../mock';
 import { fmtHourMin } from '../format';
 
