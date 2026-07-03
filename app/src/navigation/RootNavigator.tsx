@@ -20,6 +20,7 @@ import { TabBar } from '@/components/TabBar';
 import { T } from '@/constants/theme';
 import { initAnalytics } from '@/services/analytics';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { navigationRef, flushPendingDeepLink } from '@/navigation/navigationRef';
 
 // 메인 네비게이터 — 시안 "메인 4탭 + 중앙 FAB" 구조.
 // 그룹 탭만 placeholder(별도 티켓), 나머지는 구현 완료. 데이터 층은 @/store 공유.
@@ -60,9 +61,12 @@ function MainTabs() {
 export function RootNavigator() {
   return (
     <NavigationContainer
+      ref={navigationRef}
       onReady={() => {
         // GA4 초기화 — 디바이스 ID 확보 + 공통 파라미터 부착(1회). 모듈 미링크 시 no-op.
         initAnalytics();
+        // 앱 종료 상태에서 알림으로 실행된 경우 — 버퍼된 딥링크를 컨테이너 준비 후 처리.
+        flushPendingDeepLink();
       }}
     >
       <Stack.Navigator screenOptions={{ headerShown: false }}>
