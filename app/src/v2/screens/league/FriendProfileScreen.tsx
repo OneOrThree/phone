@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -11,7 +11,13 @@ import { tierByLevel } from '@/v2/constants/tiers';
 import CircularGauge from '@/v2/components/CircularGauge';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import { COMPARE_FALLBACK, PROFILE_COMPARE, RANKING, TEASER_SUBJECTS } from './mock';
-import { deleteFriend, sendFriendRequest } from './friendsApi';
+import {
+  deleteFriend,
+  fetchFriends,
+  pinFriend,
+  sendFriendRequest,
+  unpinFriend,
+} from './friendsApi';
 import { fmtHourMin } from './format';
 import { MemberAvatar } from './components/MemberAvatar';
 import { SubjectCompareCard } from './components/SubjectCompareCard';
@@ -43,7 +49,43 @@ export default function FriendProfileScreen() {
 
   // 친구 여부는 진입점(그리드/검색 relation/랭킹)이 전달 — 끊으면 즉시 비친구(잠금) 분기 전환
   const [isFriend, setIsFriend] = useState(route.params.isFriend);
+  const [isPinned, setIsPinned] = useState(route.params.isPinned ?? false);
   const [requested, setRequested] = useState(false);
+
+  // 서버 친구 목록으로 친구/핀 상태 재동기화 — 검색·랭킹 진입은 isPinned를 모른 채 들어온다
+  useEffect(() => {
+    let stale = false;
+    (async () => {
+      try {
+        const list = await fetchFriends();
+        if (stale) return;
+        const mine = list.find((f) => f.userId === userId);
+        setIsFriend(mine != null);
+        setIsPinned(mine?.isPinned ?? false);
+      } catch {
+        // 실패 시 진입 파라미터 초기값 유지
+      }
+    })();
+    return () => {
+      stale = true;
+    };
+  }, [userId]);
+
+  // 핀 토글 — 낙관적 갱신, 실패 시 롤백 (서버는 멱등이라 중복 탭 안전)
+  async function togglePin() {
+    const next = !isPinned;
+    setIsPinned(next);
+    try {
+      if (next) {
+        await pinFriend(userId);
+      } else {
+        await unpinFriend(userId);
+      }
+    } catch {
+      setIsPinned(!next);
+      Alert.alert('핀 변경 실패', '잠시 후 다시 시도해주세요.');
+    }
+  }
 
   const compare = PROFILE_COMPARE[userId] ?? COMPARE_FALLBACK;
   const hasOverlap = compare.subjects.length > 0;
@@ -87,12 +129,26 @@ export default function FriendProfileScreen() {
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
-      {/* ── 헤더 (친구 추가 화면과 동일 패턴: 원형 백버튼 + 좌측 제목) ── */}
+      {/* ── 헤더 (원형 백버튼 + 좌측 제목 + 우측 핀 토글 — 핀은 나만의 랭킹 고정용) ── */}
       <View style={s.header}>
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Ionicons name="chevron-back" size={18} color="#5C5246" />
         </TouchableOpacity>
         <Text style={s.headerTitle}>프로필</Text>
+        {isFriend && (
+          <TouchableOpacity
+            style={[s.pinBtn, isPinned && s.pinBtnOn]}
+            onPress={togglePin}
+            activeOpacity={0.7}
+            hitSlop={6}
+          >
+            <Ionicons
+              name={isPinned ? 'pin' : 'pin-outline'}
+              size={16}
+              color={isPinned ? T.white : T.inkSub}
+            />
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView
@@ -262,7 +318,18 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: { ...T.text.heading, fontWeight: '800', color: T.ink },
+  headerTitle: { ...T.text.heading, fontWeight: '800', color: T.ink, flex: 1 },
+  pinBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinBtnOn: { backgroundColor: T.accent, borderColor: T.accent },
 
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 18, paddingBottom: 16 },

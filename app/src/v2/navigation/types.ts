@@ -21,6 +21,7 @@ export type V2RootStackParamList = {
     tierLevel: number;
     exam?: string; // 준비 시험 — 백엔드 응답에 아직 없어 mock 진입(랭킹)에서만 전달
     isFriend: boolean;
+    isPinned?: boolean; // 핀 초기값 — 진입 후 서버 친구 목록으로 재동기화
   }; // 유저 프로필 상세 — 친구/비친구·과목 겹침 여부로 3분기 (친구 그리드·랭킹·친구 추가에서 진입)
   TierGuide: undefined; // 티어 5단계 안내 (리그 내 티어 스트립에서 진입)
   LeagueResult: { type: 'promote' | 'demote' }; // 승격/강등 연출 (주간 정산 트리거 — 현재는 미리보기)

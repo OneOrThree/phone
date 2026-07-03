@@ -3,6 +3,7 @@ import type {
   FriendRequestResponse,
   FriendResponse,
   FriendSearchResultResponse,
+  PinnedFriendResponse,
 } from '@/types/api';
 
 // 친구 API 래퍼 — 백엔드 FriendController(/api/v1/friends*) 대응.
@@ -41,4 +42,19 @@ export async function rejectFriendRequest(requestId: string): Promise<void> {
 
 export async function deleteFriend(friendUserId: string): Promise<void> {
   await api.delete(`/api/v1/friends/${friendUserId}`);
+}
+
+// 핀한 친구 — 오늘 집중분·집중중 여부 포함. 세션 그리드의 라이브 값 임시 보강에도 사용
+export async function fetchPinnedFriends(): Promise<PinnedFriendResponse[]> {
+  const { data } = await api.get<PinnedFriendResponse[]>('/api/v1/friends/pinned');
+  return data;
+}
+
+// 핀 설정/해제 — 서버가 멱등 처리(이미 핀/핀 없음이어도 204)
+export async function pinFriend(friendUserId: string): Promise<void> {
+  await api.post(`/api/v1/friends/${friendUserId}/pin`);
+}
+
+export async function unpinFriend(friendUserId: string): Promise<void> {
+  await api.delete(`/api/v1/friends/${friendUserId}/pin`);
 }

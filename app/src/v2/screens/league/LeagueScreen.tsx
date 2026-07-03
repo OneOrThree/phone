@@ -426,9 +426,15 @@ export default function LeagueScreen() {
                     nickname: f.nickname,
                     tierLevel: f.tierLevel ?? 1,
                     isFriend: true,
+                    isPinned: f.isPinned,
                   })
                 }
               >
+                {f.isPinned && (
+                  <View style={s.friendPinBadge}>
+                    <Ionicons name="pin" size={11} color={T.white} />
+                  </View>
+                )}
                 <MemberAvatar size={48} />
                 <Text style={s.friendName} numberOfLines={1}>
                   {f.nickname}
@@ -710,6 +716,18 @@ const s = StyleSheet.create({
   },
   // 홀수 명일 때 마지막 줄을 채우는 투명 칸 — 혼자 남은 카드가 전체 폭으로 늘어나지 않게 2열 폭 고정
   friendCardGhost: { width: '48%', flexGrow: 1 },
+  // 핀한 친구 표시 — 나만의 랭킹(핀 경쟁자)에 고정된 친구
+  friendPinBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: T.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   friendName: { ...T.text.label, fontWeight: '700', color: T.ink, marginTop: 8 },
   friendTierRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   friendTier: { ...T.text.caption, color: T.inkSub },
