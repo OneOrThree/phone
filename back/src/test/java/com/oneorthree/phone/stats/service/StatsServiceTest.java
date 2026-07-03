@@ -4,7 +4,9 @@ import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
+import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
+import com.oneorthree.phone.stats.dto.StatsPeriod;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.exception.StatsException;
@@ -36,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -252,5 +255,161 @@ class StatsServiceTest {
 
         assertThatThrownBy(() -> statsService.getTodayStats(USER_ID))
                 .isInstanceOf(UserException.class);
+    }
+
+    // ── getFocusStatsByPeriod ─────────────────────────────────────────────
+
+    // 고정 기준 날짜: 2026-07-03 (금요일, 이번 주 월요일 = 2026-06-29)
+    private static final LocalDate FIXED_TODAY = LocalDate.of(2026, 7, 3);
+
+    @Test
+    @DisplayName("기간별 통계 DAY — 오늘·어제 데이터 있음 → totalFocusMinutes·prev·delta 정확")
+    void getFocusStatsByPeriodDayNormal() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        // 오늘(current): 90분, 어제(previous): 60분
+        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+                user, FIXED_TODAY, FIXED_TODAY)).willReturn(90);
+        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+                user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(60);
+
+        FocusPeriodStatsResponse response = statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.period()).isEqualTo(StatsPeriod.DAY);
+        assertThat(response.from()).isEqualTo(FIXED_TODAY);
+        assertThat(response.to()).isEqualTo(FIXED_TODAY);
+        assertThat(response.totalFocusMinutes()).isEqualTo(90);
+        assertThat(response.previousTotalFocusMinutes()).isEqualTo(60);
+        assertThat(response.deltaMinutes()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("기간별 통계 WEEK — 이번 주 월~오늘, 전주 동일 기간 경계 정확")
+    void getFocusStatsByPeriodWeekNormal() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        // 2026-07-03 은 금요일 → 이번 주 월요일 = 2026-06-29, 전주 동일 구간 = 2026-06-22 ~ 2026-06-26
+        LocalDate thisMonday = LocalDate.of(2026, 6, 29);
+        LocalDate prevMonday = LocalDate.of(2026, 6, 22);
+        LocalDate prevFriday = LocalDate.of(2026, 6, 26);
+
+        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+                user, thisMonday, FIXED_TODAY)).willReturn(200);
+        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+                user, prevMonday, prevFriday)).willReturn(150);
+
+        FocusPeriodStatsResponse response = statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        assertThat(response.period()).isEqualTo(StatsPeriod.WEEK);
+        assertThat(response.from()).isEqualTo(thisMonday);
+        assertThat(response.to()).isEqualTo(FIXED_TODAY);
+        assertThat(response.totalFocusMinutes()).isEqualTo(200);
+        assertThat(response.previousTotalFocusMinutes()).isEqualTo(150);
+        assertThat(response.deltaMinutes()).isEqualTo(50);
+    }
+
+    @Test
+    @DisplayName("기간별 통계 MONTH — 이번 달 1일~오늘, 전월 동일 기간 경계 정확")
+    void getFocusStatsByPeriodMonthNormal() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        LocalDate thisMonthStart = LocalDate.of(2026, 7, 1);
+        LocalDate prevMonthStart = LocalDate.of(2026, 6, 1);
+        LocalDate prevMonthSameDay = LocalDate.of(2026, 6, 3);
+
+        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+                user, thisMonthStart, FIXED_TODAY)).willReturn(120);
+        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+                user, prevMonthStart, prevMonthSameDay)).willReturn(100);
+
+        FocusPeriodStatsResponse response = statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
+
+        assertThat(response.period()).isEqualTo(StatsPeriod.MONTH);
+        assertThat(response.from()).isEqualTo(thisMonthStart);
+        assertThat(response.to()).isEqualTo(FIXED_TODAY);
+        assertThat(response.totalFocusMinutes()).isEqualTo(120);
+        assertThat(response.previousTotalFocusMinutes()).isEqualTo(100);
+        assertThat(response.deltaMinutes()).isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("기간별 통계 DAY — 오늘 데이터 없음 → totalFocusMinutes=0, deltaMinutes=0-prev")
+    void getFocusStatsByPeriodDayNoTodayData() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+                user, FIXED_TODAY, FIXED_TODAY)).willReturn(0);
+        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+                user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(45);
+
+        FocusPeriodStatsResponse response = statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.totalFocusMinutes()).isZero();
+        assertThat(response.previousTotalFocusMinutes()).isEqualTo(45);
+        assertThat(response.deltaMinutes()).isEqualTo(-45);
+    }
+
+    @Test
+    @DisplayName("기간별 통계 WEEK — 구간 데이터 전혀 없음(신규 유저) → 모두 0")
+    void getFocusStatsByPeriodWeekNoData() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+                any(), any(), any())).willReturn(0);
+
+        FocusPeriodStatsResponse response = statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        assertThat(response.totalFocusMinutes()).isZero();
+        assertThat(response.previousTotalFocusMinutes()).isZero();
+        assertThat(response.deltaMinutes()).isZero();
+    }
+
+    @Test
+    @DisplayName("기간별 통계 MONTH — 전월 말일 처리: 3월 31일 → 전월 previousTo = 2월 28일")
+    void getFocusStatsByPeriodMonthEndOfMonthHandling() {
+        // 3월 31일 기준으로 조회 → 전월 구간 previousTo = 2월 28일 (Java LocalDate 자동 처리)
+        LocalDate march31 = LocalDate.of(2026, 3, 31);
+        LocalDate marchStart = LocalDate.of(2026, 3, 1);
+        LocalDate febStart = LocalDate.of(2026, 2, 1);
+        LocalDate feb28 = LocalDate.of(2026, 2, 28); // 2026년은 평년
+
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+                user, marchStart, march31)).willReturn(300);
+        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+                user, febStart, feb28)).willReturn(200);
+
+        FocusPeriodStatsResponse response = statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.MONTH, march31);
+
+        assertThat(response.from()).isEqualTo(marchStart);
+        assertThat(response.to()).isEqualTo(march31);
+        assertThat(response.totalFocusMinutes()).isEqualTo(300);
+        assertThat(response.previousTotalFocusMinutes()).isEqualTo(200);
+        assertThat(response.deltaMinutes()).isEqualTo(100);
+    }
+
+    @Test
+    @DisplayName("기간별 통계 WEEK — sumTotalFocusMinutesByUserAndDateBetween 2회 호출 시 from/to 구간 정확")
+    void getFocusStatsByPeriodWeekCallsRepositoryWithCorrectBounds() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+                any(), any(), any())).willReturn(0);
+
+        statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        ArgumentCaptor<LocalDate> fromCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> toCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        // 2회 호출 검증
+        verify(dailyFocusStatRepository, times(2))
+                .sumTotalFocusMinutesByUserAndDateBetween(eq(user), fromCaptor.capture(), toCaptor.capture());
+
+        // 첫 번째 호출: current 구간 (이번 주 월요일~오늘). 2026-07-03은 금요일 → 월요일=2026-06-29
+        assertThat(fromCaptor.getAllValues().get(0)).isEqualTo(LocalDate.of(2026, 6, 29));
+        assertThat(toCaptor.getAllValues().get(0)).isEqualTo(FIXED_TODAY);
+        // 두 번째 호출: previous 구간 (전주 월요일~전주 동일 요일)
+        assertThat(fromCaptor.getAllValues().get(1)).isEqualTo(LocalDate.of(2026, 6, 22));
+        assertThat(toCaptor.getAllValues().get(1)).isEqualTo(LocalDate.of(2026, 6, 26));
     }
 }

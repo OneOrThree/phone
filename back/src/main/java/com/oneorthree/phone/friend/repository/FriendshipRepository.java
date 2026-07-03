@@ -46,4 +46,11 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
             + " AND f.deletedAt IS NULL"
             + " AND (f.fromUser = :me OR f.toUser = :me)")
     List<Friendship> findAcceptedByUser(@Param("me") User me);
+
+    // 친구 수 카운트 — ACCEPTED, 미삭제, from·to 양방향 (공개 프로필 집계용).
+    @Query("SELECT COUNT(f) FROM Friendship f"
+            + " WHERE f.status = 'ACCEPTED'"
+            + " AND f.deletedAt IS NULL"
+            + " AND (f.fromUser = :me OR f.toUser = :me)")
+    long countAcceptedByUser(@Param("me") User me);
 }

@@ -28,6 +28,14 @@ interface NativeScreenTime {
   getYesterdayResult(): Promise<YesterdayResult>;
   presentAppPicker(): Promise<AppSelectionCounts | null>;
   promoteSelection(): Promise<boolean>;
+  presentAllowedAppPicker(): Promise<AppSelectionCounts | null>;
+  presentAllowedAppManager(): Promise<AppSelectionCounts | null>;
+  getAllowedSelectionCounts(): Promise<AppSelectionCounts | null>;
+  startFocusShield(subjectName: string): Promise<boolean>;
+  stopFocusShield(): Promise<void>;
+  saveCharacterSnapshot(base64: string): Promise<boolean>;
+  startFocusActivity(subjectName: string, otherSubjectsJson: string): Promise<boolean>;
+  endFocusActivity(): Promise<void>;
 }
 
 const NativeScreenTimeModule = NativeModules.ScreenTimeModule as NativeScreenTime;
@@ -93,6 +101,61 @@ const ScreenTimeModule = {
   promoteSelection: async (): Promise<boolean> => {
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.promoteSelection();
+  },
+
+  // ── 집중 세션 허용앱 / 실드 (GROMO-553) ──
+
+  // 집중 중 허용앱 선택 picker. 즉시 저장·적용. 취소 시 null.
+  // ⚠️ 실드 예외는 개별 앱 토큰만 지원 — 카테고리 선택은 차단 예외로 무시됨.
+  presentAllowedAppPicker: async (): Promise<AppSelectionCounts | null> => {
+    if (Platform.OS !== 'ios') return null;
+    return NativeScreenTimeModule.presentAllowedAppPicker();
+  },
+
+  // 허용앱 관리 화면(현재 목록 + 추가/삭제 피커). 완료 시 저장·적용. 스와이프 취소 불가.
+  presentAllowedAppManager: async (): Promise<AppSelectionCounts | null> => {
+    if (Platform.OS !== 'ios') return null;
+    return NativeScreenTimeModule.presentAllowedAppManager();
+  },
+
+  // 저장된 허용앱 선택 개수. 미설정이면 null.
+  getAllowedSelectionCounts: async (): Promise<AppSelectionCounts | null> => {
+    if (Platform.OS !== 'ios') return null;
+    return NativeScreenTimeModule.getAllowedSelectionCounts();
+  },
+
+  // 집중 세션 실드 켜기 — 허용앱 외 전부 차단. 반환값: 적용 여부(권한 없으면 false).
+  startFocusShield: async (subjectName: string): Promise<boolean> => {
+    if (Platform.OS !== 'ios') return false;
+    return NativeScreenTimeModule.startFocusShield(subjectName);
+  },
+
+  // 집중 세션 실드 끄기 — 세션 정지·고아 세션 정리 시 호출(멱등).
+  stopFocusShield: async (): Promise<void> => {
+    if (Platform.OS !== 'ios') return;
+    return NativeScreenTimeModule.stopFocusShield();
+  },
+
+  // 캐릭터 스냅샷(base64 PNG)을 App Group에 저장 — Live Activity·가림막이 읽어 표시.
+  saveCharacterSnapshot: async (base64: string): Promise<boolean> => {
+    if (Platform.OS !== 'ios') return false;
+    return NativeScreenTimeModule.saveCharacterSnapshot(base64);
+  },
+
+  // 집중 Live Activity(다이나믹 아일랜드/잠금화면) 시작. 실패해도 세션엔 영향 없음.
+  // otherSubjects: 현재 과목 외 과목들의 누적 집중 시간 — 잠금화면에 정적 표시.
+  startFocusActivity: async (
+    subjectName: string,
+    otherSubjects: { name: string; seconds: number; color: string }[] = [],
+  ): Promise<boolean> => {
+    if (Platform.OS !== 'ios') return false;
+    return NativeScreenTimeModule.startFocusActivity(subjectName, JSON.stringify(otherSubjects));
+  },
+
+  // 집중 Live Activity 종료(멱등).
+  endFocusActivity: async (): Promise<void> => {
+    if (Platform.OS !== 'ios') return;
+    return NativeScreenTimeModule.endFocusActivity();
   },
 };
 

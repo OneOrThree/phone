@@ -5,11 +5,13 @@ import com.oneorthree.phone.league.domain.LeagueArena;
 import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
+import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.Instant;
 import java.util.List;
@@ -43,6 +45,11 @@ class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
 
     private User saveUser(String nickname) {
         return userRepository.save(User.builder().nickname(nickname).currentTier(1).build());
+    }
+
+    private User saveUserWithOccupation(String nickname, Occupation occupation) {
+        return userRepository.save(User.builder().nickname(nickname).currentTier(1)
+                .occupation(occupation).build());
     }
 
     private LeagueArenaUser saveMember(LeagueArena arena, User user, int focusMinutes) {
@@ -90,6 +97,67 @@ class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
         assertThat(ranked).hasSize(3);
         assertThat(ranked).extracting(m -> m.getUser().getNickname())
                 .containsExactly("top", "mid", "low");
+    }
+
+    @Test
+    @DisplayName("findRankedByActiveArenasAndOccupation — 같은 occupation 전역 집계, 다른 아레나 포함, ENDED 제외")
+    void findRankedByActiveArenasAndOccupation_crossArenaAndExcludesEnded() {
+        LeagueTierConfig cfg = saveTierConfig(3);
+        LeagueArena activeA = saveArena(cfg, LeagueArenaStatus.ACTIVE);
+        LeagueArena activeB = saveArena(cfg, LeagueArenaStatus.ACTIVE);
+        LeagueArena ended = saveArena(cfg, LeagueArenaStatus.ENDED);
+
+        // ACTIVE 아레나 A — 노무사 2명, 다른 occupation 1명
+        User lawyerA1 = saveUserWithOccupation("lawyerA1", Occupation.LABOR_ATTORNEY);
+        User lawyerA2 = saveUserWithOccupation("lawyerA2", Occupation.LABOR_ATTORNEY);
+        User university = saveUserWithOccupation("university", Occupation.UNIVERSITY);
+        saveMember(activeA, lawyerA1, 300);
+        saveMember(activeA, lawyerA2, 100);
+        saveMember(activeA, university, 999);
+
+        // ACTIVE 아레나 B — 다른 아레나에 있는 노무사 1명 (전역 집계에 포함돼야 함)
+        User lawyerB = saveUserWithOccupation("lawyerB", Occupation.LABOR_ATTORNEY);
+        saveMember(activeB, lawyerB, 200);
+
+        // ENDED 아레나 — 노무사 (집계에서 제외돼야 함)
+        User lawyerEnded = saveUserWithOccupation("lawyerEnded", Occupation.LABOR_ATTORNEY);
+        saveMember(ended, lawyerEnded, 9999);
+
+        leagueArenaUserRepository.flush();
+
+        List<LeagueArenaUser> ranked = leagueArenaUserRepository
+                .findRankedByActiveArenasAndOccupation(Occupation.LABOR_ATTORNEY, PageRequest.of(0, 100));
+
+        // 노무사만 3명(ACTIVE 아레나 전체), ENDED 제외, totalFocusMinutes 내림차순
+        assertThat(ranked).hasSize(3);
+        assertThat(ranked).extracting(m -> m.getUser().getNickname())
+                .containsExactly("lawyerA1", "lawyerB", "lawyerA2");
+        // UNIVERSITY 유저 미포함
+        assertThat(ranked).noneMatch(m -> m.getUser().getNickname().equals("university"));
+        // ENDED 아레나 유저 미포함
+        assertThat(ranked).noneMatch(m -> m.getUser().getNickname().equals("lawyerEnded"));
+    }
+
+    @Test
+    @DisplayName("findRankedByActiveArenasAndOccupation — Pageable 제한 적용")
+    void findRankedByActiveArenasAndOccupation_pageLimitApplied() {
+        LeagueTierConfig cfg = saveTierConfig(3);
+        LeagueArena arena = saveArena(cfg, LeagueArenaStatus.ACTIVE);
+        User u1 = saveUserWithOccupation("u1", Occupation.UNIVERSITY);
+        User u2 = saveUserWithOccupation("u2", Occupation.UNIVERSITY);
+        User u3 = saveUserWithOccupation("u3", Occupation.UNIVERSITY);
+        saveMember(arena, u1, 300);
+        saveMember(arena, u2, 200);
+        saveMember(arena, u3, 100);
+        leagueArenaUserRepository.flush();
+
+        // 상위 2명만 요청
+        List<LeagueArenaUser> ranked = leagueArenaUserRepository
+                .findRankedByActiveArenasAndOccupation(Occupation.UNIVERSITY, PageRequest.of(0, 2));
+
+        assertThat(ranked).hasSize(2);
+        assertThat(ranked.get(0).getUser().getNickname()).isEqualTo("u1");
+        assertThat(ranked.get(1).getUser().getNickname()).isEqualTo("u2");
     }
 
     @Test

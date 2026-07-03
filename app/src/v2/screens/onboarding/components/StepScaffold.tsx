@@ -85,7 +85,7 @@ export default function StepScaffold({
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paper },
   back: { position: 'absolute', top: 6, left: 10, zIndex: 10, padding: 8 },
-  backText: { fontSize: 30, lineHeight: 30, color: T.ink },
+  backText: { fontSize: 30, lineHeight: 30, color: T.ink }, // ‹ 글리프 — 아이콘 대용(타이포 스케일 밖)
   body: { flexGrow: 1, paddingHorizontal: 26, paddingTop: 28 },
   bodyCenter: { justifyContent: 'center', alignItems: 'center', paddingBottom: 28 },
   header: { alignSelf: 'stretch', alignItems: 'flex-start', marginBottom: 18 },

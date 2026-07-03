@@ -33,15 +33,15 @@ public class UserNotificationSettings {
     @Column(name = "user_id")
     private UUID userId;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "boolean not null default true")
     @Builder.Default
     private boolean notificationEnabled = true;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "boolean not null default true")
     @Builder.Default
     private boolean soundEnabled = true;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "boolean not null default false")
     @Builder.Default
     private boolean nightModeEnabled = false;
 

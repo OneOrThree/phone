@@ -84,7 +84,7 @@ const s = StyleSheet.create({
     backgroundColor: T.white,
     borderWidth: 3,
     borderColor: 'rgba(0,0,0,0.12)',
-    shadowColor: '#000',
+    shadowColor: T.black,
     shadowOpacity: 0.28,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 6,

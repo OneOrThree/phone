@@ -8,18 +8,22 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.domain.Gender;
 import com.oneorthree.phone.user.domain.Occupation;
+import com.oneorthree.phone.user.domain.Provider;
+import com.oneorthree.phone.user.domain.SocialAccount;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
+import com.oneorthree.phone.user.dto.SocialLinkResponse;
 import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.user.dto.UserProfileResponse;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
+import com.oneorthree.phone.user.repository.SocialAccountRepository;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -32,8 +36,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -79,6 +85,9 @@ class UserServiceTest {
 
     @Mock
     private DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
+
+    @Mock
+    private SocialAccountRepository socialAccountRepository;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
@@ -392,6 +401,148 @@ class UserServiceTest {
 
         assertThatThrownBy(() ->
                 userService.updateNotificationSettings(USER_ID, mock(NotificationSettingsRequest.class)))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("알림 설정 저장 - nightStartTime·nightEndTime null 입력 → 기존 값 null 로 초기화")
+    void updateNotificationSettingsNullNightTimesInitializeToNull() {
+        // 기존에 시각이 설정된 settings
+        UserNotificationSettings settings = UserNotificationSettings.builder()
+                .userId(USER_ID)
+                .nightStartTime(LocalTime.of(22, 0))
+                .nightEndTime(LocalTime.of(7, 0))
+                .build();
+        given(userNotificationSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        NotificationSettingsRequest request = mock(NotificationSettingsRequest.class);
+        given(request.getNotificationEnabled()).willReturn(true);
+        given(request.getSoundEnabled()).willReturn(true);
+        given(request.getNightModeEnabled()).willReturn(false);
+        given(request.getNightStartTime()).willReturn(null);
+        given(request.getNightEndTime()).willReturn(null);
+
+        userService.updateNotificationSettings(USER_ID, request);
+
+        // null 입력 시 기존 값이 null 로 초기화되어야 함
+        assertThat(settings.getNightStartTime()).isNull();
+        assertThat(settings.getNightEndTime()).isNull();
+    }
+
+    // ── getSocialLinks ────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("활성 연동 2개 유저 → getSocialLinks → 리스트 2개 반환, provider·linkedAt 필드 매핑")
+    void getSocialLinksReturnsTwoAccounts() {
+        User user = User.builder().id(USER_ID).build();
+        Instant appleTime = Instant.parse("2025-03-01T12:00:00Z");
+        Instant googleTime = Instant.parse("2025-04-10T09:30:00Z");
+        SocialAccount appleAccount = SocialAccount.builder()
+                .user(user).provider(Provider.APPLE).providerId("apple-sub")
+                .createdAt(appleTime).build();
+        SocialAccount googleAccount = SocialAccount.builder()
+                .user(user).provider(Provider.GOOGLE).providerId("google-sub")
+                .createdAt(googleTime).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(socialAccountRepository.findAllByUserAndDeletedAtIsNull(user))
+                .willReturn(List.of(appleAccount, googleAccount));
+
+        List<SocialLinkResponse> result = userService.getSocialLinks(USER_ID);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).provider()).isEqualTo("APPLE");
+        assertThat(result.get(0).linkedAt()).isEqualTo(appleTime);
+        assertThat(result.get(1).provider()).isEqualTo("GOOGLE");
+        assertThat(result.get(1).linkedAt()).isEqualTo(googleTime);
+    }
+
+    @Test
+    @DisplayName("게스트 유저(소셜 연동 0개) → getSocialLinks → 빈 리스트 반환")
+    void getSocialLinksReturnsEmptyForGuest() {
+        User user = User.builder().id(USER_ID).isGuest(true).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(socialAccountRepository.findAllByUserAndDeletedAtIsNull(user)).willReturn(List.of());
+
+        List<SocialLinkResponse> result = userService.getSocialLinks(USER_ID);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getSocialLinks - 존재하지 않는 유저 → UserException(NOT_FOUND)")
+    void getSocialLinksUserNotFound() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.getSocialLinks(USER_ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    // ── unlinkSocialAccount ───────────────────────────────────────────────
+
+    @Test
+    @DisplayName("활성 연동 2개 중 1개 해제 → 잠금 쿼리 호출, deletedAt 세팅, 나머지 유지")
+    void unlinkSocialAccountSetsDeletedAt() {
+        User user = User.builder().id(USER_ID).build();
+        SocialAccount appleAccount = SocialAccount.builder()
+                .user(user).provider(Provider.APPLE).providerId("apple-sub").build();
+        SocialAccount googleAccount = SocialAccount.builder()
+                .user(user).provider(Provider.GOOGLE).providerId("google-sub").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        // 비관적 잠금 쿼리가 활성 연동 전체를 반환 — count·대상 계정 확보를 원자적으로 수행
+        given(socialAccountRepository.findAllByUserAndDeletedAtIsNullForUpdate(user))
+                .willReturn(List.of(appleAccount, googleAccount));
+
+        userService.unlinkSocialAccount(USER_ID, Provider.APPLE);
+
+        // 잠금 쿼리가 실제로 호출되었는지 검증
+        verify(socialAccountRepository).findAllByUserAndDeletedAtIsNullForUpdate(user);
+        assertThat(appleAccount.getDeletedAt()).isNotNull();
+        assertThat(googleAccount.getDeletedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("마지막 활성 연동 1개 해제 시도 → UserException(LAST_SOCIAL_ACCOUNT) 409")
+    void unlinkSocialAccountLastOneThrows409() {
+        User user = User.builder().id(USER_ID).build();
+        SocialAccount googleAccount = SocialAccount.builder()
+                .user(user).provider(Provider.GOOGLE).providerId("google-sub").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(socialAccountRepository.findAllByUserAndDeletedAtIsNullForUpdate(user))
+                .willReturn(List.of(googleAccount));
+
+        assertThatThrownBy(() -> userService.unlinkSocialAccount(USER_ID, Provider.GOOGLE))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.LAST_SOCIAL_ACCOUNT);
+        // deletedAt 이 세팅되지 않아야 함
+        assertThat(googleAccount.getDeletedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("미연동 provider 해제 시도 → UserException(SOCIAL_ACCOUNT_NOT_FOUND) 404")
+    void unlinkSocialAccountNotLinkedThrows404() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        // KAKAO 연동 없음 — 빈 리스트 반환
+        given(socialAccountRepository.findAllByUserAndDeletedAtIsNullForUpdate(user))
+                .willReturn(List.of());
+
+        assertThatThrownBy(() -> userService.unlinkSocialAccount(USER_ID, Provider.KAKAO))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.SOCIAL_ACCOUNT_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("unlinkSocialAccount - 존재하지 않는 유저 → UserException(NOT_FOUND)")
+    void unlinkSocialAccountUserNotFound() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.unlinkSocialAccount(USER_ID, Provider.APPLE))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);

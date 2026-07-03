@@ -14,23 +14,8 @@ import type { LoginResult } from '@/types/api';
 import { T } from '@/v2/constants/theme';
 
 // v2 로그인 화면 — Claude Design 온보딩 O7 시안 그대로.
-// 로직은 데이터 층(@/services/auth) 재사용, UI만 새로 구성.
+// 로직은 데이터 층(@/services/auth) 재사용, UI만 새로 구성. 색은 T 토큰만 사용.
 // TODO: 버튼 아이콘(카카오/애플/구글/메타) · 마스코트(Character2D) 연결.
-
-// v2 온보딩 팔레트 (시안 기준). 추후 @/constants/theme 로 승격.
-const C = {
-  bg: '#EFE3CE',
-  ink: '#2C2421',
-  sub: '#8A7B68',
-  muted: '#A89B89',
-  link: '#7A6B58',
-  border: '#E4DBCB',
-  kakao: '#FEE500',
-  kakaoInk: '#3C1E1E',
-  apple: '#000000',
-  white: '#FFFFFF',
-  buttonInk: '#3C3C3C',
-};
 
 type Method = Extract<AuthMethod, 'kakao' | 'apple' | 'google' | 'facebook'>;
 
@@ -47,23 +32,23 @@ const PROVIDERS: {
   fg: string;
   border?: string;
 }[] = [
-  { method: 'kakao', label: '카카오로 계속하기', fn: kakaoLogin, bg: C.kakao, fg: C.kakaoInk },
-  { method: 'apple', label: 'Apple로 계속하기', fn: appleLogin, bg: C.apple, fg: C.white },
+  { method: 'kakao', label: '카카오로 계속하기', fn: kakaoLogin, bg: T.kakao, fg: T.kakaoInk },
+  { method: 'apple', label: 'Apple로 계속하기', fn: appleLogin, bg: T.black, fg: T.white },
   {
     method: 'google',
     label: 'Google로 계속하기',
     fn: googleLogin,
-    bg: C.white,
-    fg: C.buttonInk,
-    border: C.border,
+    bg: T.white,
+    fg: T.grayInk,
+    border: T.border,
   },
   {
     method: 'facebook',
     label: 'Meta로 계속하기',
     fn: facebookLogin,
-    bg: C.white,
-    fg: C.buttonInk,
-    border: C.border,
+    bg: T.white,
+    fg: T.grayInk,
+    border: T.border,
   },
 ];
 
@@ -147,7 +132,7 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.bg },
+  root: { flex: 1, backgroundColor: T.paper },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 30 },
   mascot: {
     width: 104,
@@ -157,11 +142,11 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 18,
   },
-  mascotEmoji: { fontSize: 72 },
-  title: { ...T.text.display, color: C.ink },
+  mascotEmoji: { fontSize: 72 }, // 임시 마스코트(이모지) 크기 — Character2D 교체 예정
+  title: { ...T.text.display, color: T.ink },
   subtitle: {
     ...T.text.body,
-    color: C.sub,
+    color: T.inkSub,
     textAlign: 'center',
     marginTop: 10,
   },
@@ -177,9 +162,9 @@ const s = StyleSheet.create({
   guest: { alignItems: 'center', marginTop: 4, marginBottom: 16 },
   guestText: {
     ...T.text.label,
-    color: C.link,
+    color: T.link,
     textDecorationLine: 'underline',
   },
-  terms: { ...T.text.caption, lineHeight: 17, color: C.muted, textAlign: 'center' },
-  termsLink: { color: C.link, textDecorationLine: 'underline' },
+  terms: { ...T.text.caption, lineHeight: 17, color: T.inkMuted, textAlign: 'center' },
+  termsLink: { color: T.link, textDecorationLine: 'underline' },
 });

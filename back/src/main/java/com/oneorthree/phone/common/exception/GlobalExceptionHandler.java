@@ -6,6 +6,7 @@ import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.friend.exception.FriendException;
+import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.stats.exception.StatsException;
 import com.oneorthree.phone.user.exception.UserException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -13,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.zone.ZoneRulesException;
 
@@ -59,6 +61,21 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleStats(StatsException e) {
         return ResponseEntity.status(e.getErrorCode().getStatus())
                 .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(LeagueException.class)
+    public ResponseEntity<ErrorResponse> handleLeague(LeagueException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    // 쿼리/경로 파라미터 타입 변환 실패(잘못된 Instant·UUID·숫자 등) → 400.
+    // (원인 체인에 IllegalArgumentException 이 있어 아래 핸들러로 새면 409 가 되므로 명시적으로 우선 처리)
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse("INVALID_PARAMETER",
+                        "요청 파라미터 '" + e.getName() + "' 형식이 올바르지 않습니다."));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

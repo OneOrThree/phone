@@ -1,13 +1,5 @@
 import { useCallback, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  RefreshControl,
-  ActivityIndicator,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -15,21 +7,29 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import { useUser } from '@/store/UserContext';
+import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
-import { Character2D } from '@/components/character/Character2D';
+import { CharacterImage } from '@/components/character/CharacterImage';
 
 // v2 홈 화면 (GROMO-552) — Claude Design "01 홈" 시안 기반.
 // 상단바(닉/순위/티어) + 방+캐릭터 + 오늘 요약 카드. 탭바/FAB는 RootNavigator.
 // 데이터 층은 @/store 훅 재사용. 엔드포인트 미확정 값은 placeholder + TODO.
 // TODO: 순위·티어(리그 API), 집중시간·핸드폰사용(통계/스크린타임), 룸 일러스트, 통계 이동.
 
-// 초 → "N시간 M분"
+// 초 → "N시간 M분" (목표 표시용)
 function hm(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   if (h && m) return `${h}시간 ${m}분`;
   if (h) return `${h}시간`;
   return `${m}분`;
+}
+
+// 초 → "HH:MM:SS" (집중시간 값 표시용)
+function hms(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
 
 // 오늘 카드 한 줄: 아이콘 + 라벨 + 큰 값 + 목표 진행 바.
@@ -65,21 +65,18 @@ function MetricRow({
         <Text style={s.metricLabel} allowFontScaling={false}>
           {label}
         </Text>
-        <Text style={s.metricValue} allowFontScaling={false}>
-          {hm(value)}
-        </Text>
-        <View style={s.progressRow}>
-          <View style={s.track}>
-            <View style={[s.fill, { width: `${pct * 100}%`, backgroundColor: fillColor }]} />
-          </View>
-          <View style={s.goalBlock}>
-            <Text style={s.goalLabel} allowFontScaling={false}>
-              목표
-            </Text>
-            <Text style={s.goalValue} allowFontScaling={false}>
-              {hm(goal)}
-            </Text>
-          </View>
+        {/* 값 줄 — 왼쪽 큰 값 + 오른쪽 목표(바 옆이 아니라 값 줄로 올림) */}
+        <View style={s.valueRow}>
+          <Text style={s.metricValue} allowFontScaling={false}>
+            {hms(value)}
+          </Text>
+          <Text style={s.goalText} allowFontScaling={false} numberOfLines={1}>
+            목표 {hm(goal)}
+          </Text>
+        </View>
+        {/* 진행 바 — 카드 끝까지 전체 폭 (두 행 모두 전체 폭이라 바 길이도 자연히 동일) */}
+        <View style={s.track}>
+          <View style={[s.fill, { width: `${pct * 100}%`, backgroundColor: fillColor }]} />
         </View>
       </View>
     </View>
@@ -101,7 +98,7 @@ function PhoneUsageRow({
 }) {
   return (
     <View style={s.metricRow}>
-      <View style={[s.metricIcon, { backgroundColor: '#F6ECE0' }]}>
+      <View style={[s.metricIcon, { backgroundColor: T.accentBg }]}>
         <Ionicons name="phone-portrait-outline" size={17} color={T.accent} />
       </View>
       <View style={s.flex1}>
@@ -135,36 +132,11 @@ function PhoneUsageRow({
   );
 }
 
-// 앱별/카테고리별 사용시간 상세 — Total Activity 리포트를 absolute 오버레이로 띄운다.
-// (RN Modal은 별도 윈도우라 DeviceActivityReport scene이 활성화 안 됨 → 같은 계층 오버레이 필수)
-function UsageDetailOverlay({ onClose }: { onClose: () => void }) {
-  return (
-    <View style={s.detailOverlay}>
-      <SafeAreaView style={s.detailSafe} edges={['top']}>
-        <View style={s.detailHeader}>
-          <TouchableOpacity style={s.detailClose} onPress={onClose} activeOpacity={0.7}>
-            <Ionicons name="close" size={24} color={T.ink} />
-          </TouchableOpacity>
-          <Text style={s.detailTitle}>핸드폰 사용</Text>
-          <View style={s.detailClose} />
-        </View>
-        <View style={s.detailBody}>
-          {/* 리포트 콜드스타트가 느려 뒤에 스피너 → 뜨면 리포트가 덮음 */}
-          <ActivityIndicator style={s.detailLoading} size="large" color={T.accent} />
-          {ScreenTimeReportView ? (
-            <ScreenTimeReportView reportContext="Total Activity" style={s.detailReport} />
-          ) : (
-            <Text style={s.detailEmpty}>iOS 기기에서만 볼 수 있어요</Text>
-          )}
-        </View>
-      </SafeAreaView>
-    </View>
-  );
-}
-
 export default function HomeScreen() {
   // 목표는 온보딩값(집중=goalSeconds, 사용시간=screenTimeGoalSeconds).
   const { nickname, goalSeconds, screenTimeGoalSeconds } = useUser();
+  // 오늘 공부 집중 = 실제 세션 누적(FocusContext). 집중 세션 정지 시 반영됨.
+  const { todayFocusSeconds } = useFocus();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
@@ -184,13 +156,9 @@ export default function HomeScreen() {
     setTimeout(() => setRefreshing(false), 800);
   }, []);
 
-  // 앱별 사용시간 상세 오버레이
-  const [showUsageDetail, setShowUsageDetail] = useState(false);
-
-  // TODO: 순위·티어(리그 API), 집중시간 값(통계 API)은 아직 placeholder
+  // TODO: 순위·티어(리그 API)는 아직 placeholder
   const rank = 8;
   const tierName = '초집중 모드';
-  const focusSeconds = 3 * 3600 + 12 * 60;
   const hasNotifications = false; // TODO: 실제 안 읽은 알림 여부로 교체
 
   return (
@@ -211,19 +179,19 @@ export default function HomeScreen() {
           <View style={s.topBar}>
             <View style={s.profileRow}>
               <View style={s.avatar}>
-                <Character2D size={30} />
+                <CharacterImage size={38} />
               </View>
               <View>
                 <View style={s.nameRow}>
                   <Text style={s.nickname}>{nickname}</Text>
                   <View style={s.rankBadge}>
-                    <Ionicons name="trophy" size={9} color="#4C5DE6" />
+                    <Ionicons name="trophy" size={9} color={T.blue} />
                     <Text style={s.rankText}>{rank}위</Text>
                   </View>
                 </View>
                 <View style={s.tierRow}>
                   <View style={s.tierDot}>
-                    <Ionicons name="flame" size={8} color="#fff" />
+                    <Ionicons name="flame" size={8} color={T.white} />
                   </View>
                   <Text style={s.tierText}>{tierName}</Text>
                 </View>
@@ -243,8 +211,7 @@ export default function HomeScreen() {
 
           {/* ── 방 + 캐릭터 ── */}
           <View style={s.room}>
-            <View style={s.floor} />
-            <Character2D size={188} />
+            <CharacterImage size={216} />
           </View>
         </ScrollView>
 
@@ -267,20 +234,19 @@ export default function HomeScreen() {
           <MetricRow
             divider
             icon="book"
-            iconColor="#6FA15A"
-            iconBg="#EEF4E9"
+            iconColor={T.greenDeep}
+            iconBg={T.greenBg}
             label="공부 집중"
-            value={focusSeconds}
+            value={todayFocusSeconds}
             goal={goalSeconds}
           />
           <PhoneUsageRow
             goalSeconds={screenTimeGoalSeconds}
             refresh={reportRefresh}
-            onPress={() => setShowUsageDetail(true)}
+            onPress={() => navigation.navigate('UsageDetail')}
           />
         </View>
       </View>
-      {showUsageDetail ? <UsageDetailOverlay onClose={() => setShowUsageDetail(false)} /> : null}
     </SafeAreaView>
   );
 }
@@ -305,7 +271,7 @@ const s = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#EBD7B5',
+    backgroundColor: T.sand,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -316,12 +282,12 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: '#ECEEFD',
+    backgroundColor: T.blueBg,
     borderRadius: 7,
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
-  rankText: { ...T.text.label, color: '#4C5DE6' },
+  rankText: { ...T.text.label, color: T.blue },
   tierRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   tierDot: {
     width: 14,
@@ -338,7 +304,7 @@ const s = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: T.white,
     borderWidth: 1,
-    borderColor: '#EADEC9',
+    borderColor: T.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -351,20 +317,11 @@ const s = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: T.accentAlt,
     borderWidth: 1.5,
-    borderColor: '#F1EADD',
+    borderColor: T.chipBg,
   },
 
   // 방 + 캐릭터 — 가운데를 채우고, 카드를 하단으로 밀어냄
   room: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
-  floor: {
-    position: 'absolute',
-    bottom: 26,
-    width: 210,
-    height: 54,
-    borderRadius: 105,
-    backgroundColor: T.paperAlt,
-    opacity: 0.6,
-  },
 
   // 오늘 카드
   card: {
@@ -376,7 +333,7 @@ const s = StyleSheet.create({
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 13,
-    shadowColor: '#50371E',
+    shadowColor: T.shadow,
     shadowOpacity: 0.16,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 10 },
@@ -389,11 +346,11 @@ const s = StyleSheet.create({
     marginBottom: 11,
   },
   cardTitle: { ...T.text.subtitle, color: T.ink },
-  cardTitleSub: { color: '#B3A695', fontWeight: '500' },
+  cardTitleSub: { color: T.inkFaint, fontWeight: '500' },
   moreBtn: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   more: { ...T.text.label, color: T.accent },
   metricRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8 },
-  metricDivider: { borderBottomWidth: 1, borderBottomColor: '#F0E9DC', paddingBottom: 14 },
+  metricDivider: { borderBottomWidth: 1, borderBottomColor: T.divider, paddingBottom: 14 },
   metricIcon: {
     width: 34,
     height: 34,
@@ -403,31 +360,23 @@ const s = StyleSheet.create({
   },
   flex1: { flex: 1 },
   usageLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  metricLabel: { ...T.text.label, fontSize: 14, color: T.inkMuted },
-  metricValue: { ...T.text.title, fontSize: 22, color: T.ink, marginTop: 1 },
-  usageReport: { width: '100%', height: 70, marginTop: 1 },
-  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 7 },
-  track: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#EFE7DA', overflow: 'hidden' },
-  fill: { height: '100%', borderRadius: 3 },
-  goalBlock: { alignItems: 'center' },
-  goalLabel: { fontSize: 11, fontWeight: '600', color: T.inkMuted },
-  goalValue: { ...T.text.caption, color: T.inkMuted, marginTop: 1 },
-
-  // 앱별 사용시간 상세 오버레이
-  detailOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: T.paperLight, zIndex: 10 },
-  detailSafe: { flex: 1 },
-  detailHeader: {
+  metricLabel: { ...T.text.label, color: T.inkMuted },
+  valueRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'baseline',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingTop: 4,
-    paddingBottom: 8,
+    gap: 8,
+    marginTop: 1,
   },
-  detailClose: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  detailTitle: { ...T.text.subtitle, color: T.ink },
-  detailBody: { flex: 1 },
-  detailLoading: { position: 'absolute', top: 44, left: 0, right: 0 },
-  detailReport: { flex: 1 },
-  detailEmpty: { ...T.text.body, color: T.inkMuted, textAlign: 'center', marginTop: 44 },
+  metricValue: { ...T.text.stat, color: T.ink },
+  goalText: { ...T.text.caption, color: T.inkMuted },
+  usageReport: { width: '100%', height: 50, marginTop: 1 },
+  track: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: T.caramel,
+    overflow: 'hidden',
+    marginTop: 7,
+  },
+  fill: { height: '100%', borderRadius: 3 },
 });

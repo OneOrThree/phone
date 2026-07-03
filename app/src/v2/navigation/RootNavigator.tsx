@@ -6,6 +6,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import HomeScreen from '@/v2/screens/HomeScreen';
 import StatsScreen from '@/v2/screens/StatsScreen';
 import MenuScreen from '@/v2/screens/MenuScreen';
+import UsageDetailScreen from '@/v2/screens/UsageDetailScreen';
+import FocusCategoryScreen from '@/v2/screens/focus/FocusCategoryScreen';
+import FocusSessionScreen from '@/v2/screens/focus/FocusSessionScreen';
 import {
   LeagueScreen,
   FriendAddScreen,
@@ -61,6 +64,14 @@ export function RootNavigator() {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Main" component={MainTabs} />
         <Stack.Screen name="Stats" component={StatsScreen} />
+        <Stack.Screen name="UsageDetail" component={UsageDetailScreen} />
+        {/* 집중 플로우 — FAB → 과목선택 → 세션 (탭 위 push) */}
+        <Stack.Screen name="FocusCategory" component={FocusCategoryScreen} />
+        <Stack.Screen
+          name="FocusSession"
+          component={FocusSessionScreen}
+          options={{ gestureEnabled: false }}
+        />
         <Stack.Screen name="FriendAdd" component={FriendAddScreen} />
         <Stack.Screen name="TierGuide" component={TierGuideScreen} />
         {/* 승격/강등 연출 — 풀스크린 다크라 페이드 전환 */}
