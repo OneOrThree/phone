@@ -21,6 +21,11 @@ import { DraggableSubjectRows } from './components/DraggableSubjectRows';
 import { TimerMethodSheet } from './components/TimerMethodSheet';
 import { CountdownSetupSheet } from './components/CountdownSetupSheet';
 import { PomodoroSetupSheet } from './components/PomodoroSetupSheet';
+import {
+  logFocusTagCreated,
+  logFocusTagUpdated,
+  logFocusTagDeleted,
+} from '@/services/analyticsEvents';
 
 // 02 과목 선택 — 홈 ● 집중 FAB → 이 화면. 행 탭 → 타이머 방식 시트(03) → 설정(04/05) → 세션.
 // 각 행: 과목명 + 누적 집중시간 + ⋮(탭=이름편집/삭제 팝오버, 잡고 위아래=순서 변경).
@@ -56,7 +61,10 @@ export default function FocusCategoryScreen() {
       undefined,
       (text) => {
         const name = text?.trim();
-        if (name) renameSubject(sub.id, name);
+        if (name) {
+          renameSubject(sub.id, name);
+          logFocusTagUpdated();
+        }
       },
       'plain-text',
       sub.name,
@@ -65,6 +73,7 @@ export default function FocusCategoryScreen() {
 
   function doDelete(sub: Subject) {
     deleteSubject(sub.id);
+    logFocusTagDeleted();
     // 삭제된 과목의 기록은 홈 '오늘 집중'에서도 차감 (오늘치 초과분은 0으로 클램프)
     if (sub.accumulatedSeconds > 0) removeFocusSeconds(sub.accumulatedSeconds);
     if (selectedId === sub.id) setSelectedId('');
@@ -90,7 +99,10 @@ export default function FocusCategoryScreen() {
       '집중할 과목 이름을 입력하세요.',
       (text) => {
         const name = text?.trim();
-        if (name) addSubject(name);
+        if (name) {
+          addSubject(name);
+          logFocusTagCreated();
+        }
       },
       'plain-text',
     );

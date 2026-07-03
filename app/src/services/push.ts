@@ -5,6 +5,11 @@ import messaging from '@react-native-firebase/messaging';
 import * as Notifications from 'expo-notifications';
 import { api } from '@/services/api';
 import { navigateToDeepLink } from '@/navigation/navigationRef';
+import {
+  logNotificationOpened,
+  logNotificationPermissionResult,
+  type NotificationType,
+} from '@/services/analyticsEvents';
 
 // 포그라운드에서도 배너를 띄운다(iOS는 기본적으로 포그라운드 알림을 표시하지 않음).
 // SDK 54: shouldShowAlert가 shouldShowBanner/shouldShowList로 분리됨.
@@ -34,6 +39,12 @@ function linkFromData(data?: Record<string, unknown>): string | null {
   return typeof link === 'string' ? link : null;
 }
 
+// payload의 type/category에서 알림 유형을 뽑는다. 알 수 없으면 null(이벤트 생략).
+function notificationTypeFromData(data?: Record<string, unknown>): NotificationType | null {
+  const raw = data?.type ?? data?.category;
+  return raw === 'poke' || raw === 'report' || raw === 'challenge' ? raw : null;
+}
+
 // getInitialNotification은 앱 실행당 1회만 소비 — PushGate가 재로그인(userId 변경)마다 재호출해도
 // 캐시된 콜드스타트 딥링크로 재이동하지 않도록 가드한다.
 let initialNotificationHandled = false;
@@ -45,6 +56,7 @@ export async function registerPushToken(): Promise<string | null> {
     const granted =
       status === messaging.AuthorizationStatus.AUTHORIZED ||
       status === messaging.AuthorizationStatus.PROVISIONAL;
+    logNotificationPermissionResult({ granted });
     if (!granted) return null; // 거부 시 서버 푸시 스킵(스펙 §2 사전조건)
 
     const token = await messaging().getToken();
@@ -85,6 +97,8 @@ export function setupPushListeners(): () => void {
   // 백그라운드 상태에서 OS 배너 탭 → 딥링크
   unsubscribers.push(
     messaging().onNotificationOpenedApp((msg) => {
+      const type = notificationTypeFromData(msg?.data);
+      if (type) logNotificationOpened({ type }); // 백그라운드 탭으로 앱 복귀
       const link = linkFromData(msg?.data);
       if (link) navigateToDeepLink(link);
     }),
@@ -106,6 +120,8 @@ export async function handleInitialNotification(): Promise<void> {
   initialNotificationHandled = true;
   try {
     const msg = await messaging().getInitialNotification();
+    const type = notificationTypeFromData(msg?.data);
+    if (type) logNotificationOpened({ type }); // 종료 상태에서 탭으로 콜드스타트
     const link = linkFromData(msg?.data);
     if (link) navigateToDeepLink(link);
   } catch {
