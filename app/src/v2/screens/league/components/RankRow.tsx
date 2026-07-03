@@ -4,8 +4,11 @@ import { T } from '@/v2/constants/theme';
 import { tierByLevel } from '@/v2/constants/tiers';
 import { fmtMinutes } from '../format';
 import { MemberAvatar } from './MemberAvatar';
+import { TierBadge } from './TierBadge';
 
-// 랭킹 한 행 — 순위·아바타·이름/티어명·주간 집중 시간·핀 토글.
+// 랭킹 한 행 — 순위 · 티어 뱃지 · 아바타 · 이름/티어명 · 주간 집중 시간 · 핀 토글.
+// 티어 뱃지(tier_image)는 아바타 코너가 아니라 순위-아바타 사이에 크게 둔다.
+// 글씨는 공통 스케일(T.text) — caption(13)이 최소 가독선.
 // 시안: 하이라이트(bg #FBF3E8 + 2px #C8893F)는 내 행만, 핀은 별 채움으로만 표시.
 interface Props {
   rank?: number | null; // null이면 순위 컬럼 생략
@@ -41,7 +44,8 @@ export function RankRow({
           {rank}
         </Text>
       )}
-      <MemberAvatar size={36} tierLevel={tierLevel} />
+      <TierBadge level={tierLevel} size={30} />
+      <MemberAvatar size={36} me={isMe} />
       <View style={s.nameCol}>
         <Text style={s.name} numberOfLines={1}>
           {nickname}
@@ -68,7 +72,7 @@ const s = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
@@ -78,11 +82,17 @@ const s = StyleSheet.create({
     marginBottom: 7,
   },
   rowMe: { backgroundColor: '#FBF3E8', borderWidth: 2, borderColor: '#C8893F' },
-  rank: { width: 22, textAlign: 'center', fontSize: 15, fontWeight: '800', color: '#9A8C7C' },
+  rank: {
+    ...T.text.label,
+    fontWeight: '800',
+    width: 22,
+    textAlign: 'center',
+    color: '#9A8C7C',
+  },
   rankTop: { color: T.accent },
   nameCol: { flex: 1, gap: 1, minWidth: 0 },
-  name: { ...T.text.label, fontSize: 15, fontWeight: '700', color: T.ink },
-  tierName: { fontSize: 11, fontWeight: '600', color: T.inkSub },
-  time: { fontSize: 15, fontWeight: '800', color: T.ink, fontVariant: ['tabular-nums'] },
+  name: { ...T.text.label, fontWeight: '700', color: T.ink },
+  tierName: { ...T.text.caption, color: T.inkSub },
+  time: { ...T.text.label, fontWeight: '800', color: T.ink, fontVariant: ['tabular-nums'] },
   pinBtn: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
 });

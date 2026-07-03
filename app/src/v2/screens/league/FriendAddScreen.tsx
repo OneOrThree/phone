@@ -80,7 +80,7 @@ export default function FriendAddScreen() {
               const relation = relations[r.userId] ?? 'NONE';
               return (
                 <View key={r.userId} style={s.card}>
-                  <MemberAvatar size={34} tierLevel={r.tierLevel} />
+                  <MemberAvatar size={34} />
                   <View style={s.cardName}>
                     <Text style={s.name} numberOfLines={1}>
                       {r.nickname}
@@ -125,7 +125,7 @@ export default function FriendAddScreen() {
         </View>
         {requests.map((r) => (
           <View key={r.requestId} style={s.card}>
-            <MemberAvatar size={34} tierLevel={r.tierLevel} />
+            <MemberAvatar size={34} />
             <View style={s.cardName}>
               <Text style={s.name} numberOfLines={1}>
                 {r.nickname}
@@ -185,7 +185,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: T.ink },
+  headerTitle: { ...T.text.heading, fontWeight: '800', color: T.ink },
 
   searchBox: {
     flexDirection: 'row',
@@ -200,7 +200,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 13,
     height: 46,
   },
-  searchInput: { flex: 1, fontSize: 15, fontWeight: '600', color: T.ink, padding: 0 },
+  searchInput: { ...T.text.label, flex: 1, color: T.ink, padding: 0 },
   clearBtn: {
     width: 18,
     height: 18,
@@ -214,7 +214,7 @@ const s = StyleSheet.create({
   scrollContent: { paddingHorizontal: 16, paddingBottom: 40 },
 
   resultTitle: {
-    fontSize: 13,
+    ...T.text.caption,
     fontWeight: '700',
     color: T.inkSub,
     marginTop: 2,
@@ -236,8 +236,8 @@ const s = StyleSheet.create({
     marginBottom: 8,
   },
   cardName: { flex: 1, gap: 1, minWidth: 0 },
-  name: { fontSize: 14, fontWeight: '700', color: T.ink },
-  sub: { fontSize: 11, fontWeight: '600', color: T.inkSub },
+  name: { ...T.text.label, fontWeight: '700', color: T.ink },
+  sub: { ...T.text.caption, color: T.inkSub },
 
   reqBtn: {
     backgroundColor: T.accent,
@@ -245,14 +245,14 @@ const s = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
   },
-  reqBtnText: { fontSize: 12, fontWeight: '700', color: T.white },
+  reqBtnText: { ...T.text.caption, fontWeight: '700', color: T.white },
   reqBtnMuted: {
     backgroundColor: '#F1EADD',
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 7,
   },
-  reqBtnTextMuted: { fontSize: 12, fontWeight: '700', color: T.inkSub },
+  reqBtnTextMuted: { ...T.text.caption, fontWeight: '700', color: T.inkSub },
 
   divider: { height: 1, backgroundColor: '#E2D7C4', marginVertical: 14, marginHorizontal: 2 },
 
@@ -263,14 +263,14 @@ const s = StyleSheet.create({
     marginBottom: 10,
     marginHorizontal: 4,
   },
-  reqTitle: { fontSize: 14, fontWeight: '700', color: T.ink },
+  reqTitle: { ...T.text.label, fontWeight: '700', color: T.ink },
   reqCountBadge: {
     backgroundColor: T.accentAlt,
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
-  reqCountText: { fontSize: 10, fontWeight: '700', color: T.white },
+  reqCountText: { ...T.text.caption, fontWeight: '700', color: T.white },
   reqActions: { flexDirection: 'row', gap: 6 },
   rejectBtn: {
     width: 32,
@@ -291,7 +291,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  empty: { fontSize: 12, fontWeight: '600', color: T.inkMuted, textAlign: 'center', padding: 14 },
+  empty: { ...T.text.caption, color: T.inkMuted, textAlign: 'center', padding: 14 },
 
   notice: {
     flexDirection: 'row',
@@ -305,5 +305,5 @@ const s = StyleSheet.create({
     paddingVertical: 12,
     marginTop: 6,
   },
-  noticeText: { flex: 1, fontSize: 12, fontWeight: '500', color: T.link, lineHeight: 18 },
+  noticeText: { ...T.text.caption, flex: 1, fontWeight: '500', color: T.link, lineHeight: 19 },
 });

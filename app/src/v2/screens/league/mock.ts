@@ -106,8 +106,5 @@ export const SEARCH_POOL: SearchResult[] = [
   { userId: 's-03', nickname: '합격의신', tierLevel: 4, relation: 'NONE', exam: '노무사' },
 ];
 
-// 시험 칩 — 시안 exams. 필터는 mock 로컬 동작 (TODO: 시험별 리그 백엔드 지원 시 API 연동)
-export const EXAM_CHIPS = ['전체', '노무사', '변리사', '공무원', '세무사'];
-
 // 주간 정산 마감 카운트다운 — TODO: MY_TIER.weekStartAt 기준 실계산으로 교체
 export const DEADLINE_LABEL = '마감 3일 12:40';

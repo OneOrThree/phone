@@ -14,7 +14,7 @@ import { TierBadge } from './components/TierBadge';
 // 티어 단계 안내 (root stack) — 시안 "티어 · 5단계 뱃지".
 // 현재 티어 히어로 카드(진행바) + 5단계 카드 리스트(N단계) + 정산 안내.
 // 데이터는 mock — TODO: GET /league/me/tier·rank 연동.
-// 히어로의 큰 뱃지는 시안의 별 사각형 대신 tier 일러스트(tiers.ts image) 사용 — 계획서에서 확정.
+// 히어로·리스트 뱃지 모두 시안의 별 사각형 대신 tier 일러스트(tiers.ts image) 사용.
 
 export default function TierGuideScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
@@ -69,7 +69,7 @@ export default function TierGuideScreen() {
             const isCur = t.level === level;
             return (
               <View key={t.level} style={[s.tierRow, isCur ? s.tierRowCur : null]}>
-                <TierBadge level={t.level} size={40} outlined={false} />
+                <TierBadge level={t.level} size={40} />
                 <View style={s.tierNameCol}>
                   <View style={s.tierNameRow}>
                     <Text style={s.tierName}>{t.name}</Text>
@@ -125,7 +125,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: T.ink },
+  headerTitle: { ...T.text.heading, fontWeight: '800', color: T.ink },
 
   scroll: { paddingHorizontal: 18, paddingBottom: 40 },
 
@@ -139,8 +139,8 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
   heroImg: { width: 84, height: 84, resizeMode: 'contain' },
-  heroName: { fontSize: 19, fontWeight: '800', color: T.ink, marginTop: 9 },
-  heroSub: { fontSize: 13, fontWeight: '500', color: T.inkSub, marginTop: 3 },
+  heroName: { ...T.text.subtitle, fontWeight: '800', color: T.ink, marginTop: 9 },
+  heroSub: { ...T.text.caption, fontWeight: '500', color: T.inkSub, marginTop: 3 },
   heroTrack: {
     alignSelf: 'stretch',
     height: 8,
@@ -166,16 +166,16 @@ const s = StyleSheet.create({
   tierRowCur: { backgroundColor: '#FBF3E8', borderWidth: 2, borderColor: '#C8893F' },
   tierNameCol: { flex: 1 },
   tierNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  tierName: { fontSize: 15, fontWeight: '700', color: T.ink },
-  tierRange: { fontSize: 12, fontWeight: '500', color: T.inkSub, marginTop: 2 },
+  tierName: { ...T.text.label, fontWeight: '700', color: T.ink },
+  tierRange: { ...T.text.caption, fontWeight: '500', color: T.inkSub, marginTop: 2 },
   curBadge: {
     backgroundColor: T.accent,
     borderRadius: 999,
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
-  curBadgeText: { fontSize: 10, fontWeight: '700', color: T.white },
-  tierLevel: { fontSize: 12, fontWeight: '700', color: '#B3A695' },
+  curBadgeText: { ...T.text.caption, fontWeight: '700', color: T.white },
+  tierLevel: { ...T.text.caption, fontWeight: '700', color: T.inkFaint },
   tierLevelCur: { color: T.accent },
 
   notice: {
@@ -187,6 +187,6 @@ const s = StyleSheet.create({
     paddingVertical: 11,
     marginTop: 11,
   },
-  noticeText: { fontSize: 12, fontWeight: '500', color: T.link, lineHeight: 18.5 },
+  noticeText: { ...T.text.caption, fontWeight: '500', color: T.link, lineHeight: 20 },
   noticeStrong: { fontWeight: '700', color: '#5C5246' },
 });

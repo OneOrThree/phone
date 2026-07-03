@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
 import { tierByLevel } from '@/v2/constants/tiers';
@@ -11,7 +10,8 @@ import { MY_USER_ID } from '../mock';
 import { MemberAvatar } from './MemberAvatar';
 
 // 프로필 오버레이 — 랭킹 행 탭 시 뜨는 바텀시트 모달 (시안 "리그 메인 · 프로필").
-// 캐릭터 / 그라디언트 티어 pill / 전체·{시험} 리그 순위 / 친구 pill / 목표달성 링 + 주간 집중 / 친구 버튼.
+// 캐릭터 / 티어 일러스트 pill / 전체·{시험} 리그 순위 / 친구 pill / 목표달성 링 + 주간 집중 / 친구 버튼.
+// 내 프로필이면 캐릭터도 내 캐릭터(CharacterImage)로. 글씨는 공통 스케일(T.text).
 export interface ProfileTarget {
   userId: string;
   nickname: string;
@@ -60,18 +60,13 @@ export function ProfileSheet({ target, onClose }: Props) {
             <Ionicons name="close" size={15} color={T.link} />
           </TouchableOpacity>
 
-          {/* 캐릭터 + 이름 + 티어 pill */}
-          <MemberAvatar size={92} />
+          {/* 캐릭터 + 이름 + 티어 pill(tier_image) */}
+          <MemberAvatar size={92} me={isMe} />
           <Text style={s.name}>{target.nickname}</Text>
-          <LinearGradient
-            colors={tier.gradient}
-            start={{ x: 0.1, y: 0 }}
-            end={{ x: 0.9, y: 1 }}
-            style={s.tierPill}
-          >
-            <Ionicons name="star" size={13} color={tier.starColor} />
-            <Text style={[s.tierPillText, { color: tier.starColor }]}>{tier.name}</Text>
-          </LinearGradient>
+          <View style={s.tierPill}>
+            <Image source={tier.image} style={s.tierPillImg} />
+            <Text style={s.tierPillText}>{tier.name}</Text>
+          </View>
 
           {/* 순위 카드 2개 + 친구 수 */}
           <View style={s.statRow}>
@@ -178,18 +173,22 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  name: { fontSize: 22, fontWeight: '800', color: T.ink, marginTop: 4 },
+  name: { ...T.text.stat, color: T.ink, marginTop: 4 },
   tierPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    backgroundColor: T.noteBg,
+    borderWidth: 1,
+    borderColor: T.noteBorder,
     borderRadius: 999,
-    paddingLeft: 10,
+    paddingLeft: 8,
     paddingRight: 13,
-    paddingVertical: 5,
+    paddingVertical: 4,
     marginTop: 9,
   },
-  tierPillText: { fontSize: 13, fontWeight: '700' },
+  tierPillImg: { width: 24, height: 24, resizeMode: 'contain' },
+  tierPillText: { ...T.text.caption, fontWeight: '700', color: '#9C6B43' },
 
   statRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
   statCard: {
@@ -202,8 +201,8 @@ const s = StyleSheet.create({
     paddingVertical: 7,
     gap: 1,
   },
-  statLabel: { fontSize: 11, fontWeight: '500', color: T.inkSub },
-  statValue: { fontSize: 17, fontWeight: '800', color: T.ink },
+  statLabel: { ...T.text.caption, fontWeight: '500', color: T.inkSub },
+  statValue: { ...T.text.subtitle, fontWeight: '800', color: T.ink },
   statValueAccent: { color: T.accent },
   friendPill: {
     flexDirection: 'row',
@@ -218,13 +217,12 @@ const s = StyleSheet.create({
     paddingRight: 14,
     paddingVertical: 6,
   },
-  friendPillText: { fontSize: 13, fontWeight: '600', color: '#4A6B3A' },
+  friendPillText: { ...T.text.caption, color: '#4A6B3A' },
   friendPillCount: { fontWeight: '800' },
 
   sectionLabel: {
+    ...T.text.caption,
     alignSelf: 'flex-start',
-    fontSize: 12,
-    fontWeight: '600',
     color: T.inkSub,
     marginTop: 18,
     marginBottom: 9,
@@ -240,8 +238,8 @@ const s = StyleSheet.create({
     padding: 14,
     gap: 8,
   },
-  ringValue: { fontSize: 19, fontWeight: '800', color: T.ink },
-  ringLabel: { fontSize: 11, fontWeight: '600', color: T.inkSub },
+  ringValue: { ...T.text.subtitle, fontWeight: '800', color: T.ink },
+  ringLabel: { ...T.text.caption, color: T.inkSub },
   sparkCard: {
     flex: 1,
     backgroundColor: T.white,
@@ -250,8 +248,14 @@ const s = StyleSheet.create({
     borderRadius: 16,
     padding: 14,
   },
-  sparkLabel: { fontSize: 11, fontWeight: '500', color: T.inkSub },
-  sparkValue: { fontSize: 21, fontWeight: '800', color: T.accent, marginTop: 2, marginBottom: 12 },
+  sparkLabel: { ...T.text.caption, fontWeight: '500', color: T.inkSub },
+  sparkValue: {
+    ...T.text.heading,
+    fontWeight: '800',
+    color: T.accent,
+    marginTop: 2,
+    marginBottom: 12,
+  },
   sparkRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 5, height: BAR_AREA_H },
   sparkBar: {
     flex: 1,
@@ -276,6 +280,6 @@ const s = StyleSheet.create({
     elevation: 4,
   },
   actionBtnFriend: { backgroundColor: '#EEF4E9', shadowOpacity: 0 },
-  actionText: { fontSize: 16, fontWeight: '700', color: T.white },
+  actionText: { ...T.text.body, fontWeight: '700', color: T.white },
   actionTextFriend: { color: '#5B7A48' },
 });

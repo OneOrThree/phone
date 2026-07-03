@@ -101,12 +101,12 @@ export default function LeagueResultScreen() {
               {/* 티어 전환 (이전 → 지금) */}
               <View style={s.transRow}>
                 <View style={[s.transCol, s.transDim]}>
-                  <TierBadge level={from.level} size={40} outlined={false} />
+                  <TierBadge level={from.level} size={40} />
                   <Text style={s.transFromName}>{from.name}</Text>
                 </View>
                 <Ionicons name="chevron-down" size={20} color="#B79A78" />
                 <View style={s.transCol}>
-                  <TierBadge level={to.level} size={56} outlined={false} />
+                  <TierBadge level={to.level} size={56} />
                   <Text style={s.transToName}>{to.name} · 지금</Text>
                 </View>
               </View>
@@ -145,16 +145,16 @@ const s = StyleSheet.create({
   spark3: { left: 80, top: 230, width: 5, height: 5, opacity: 0.6 },
   spark4: { right: 48, top: 280, width: 6, height: 6 },
 
-  caption: { fontSize: 14, fontWeight: '700', color: '#E6C58A', letterSpacing: 2, marginBottom: 8 },
-  captionMuted: { fontSize: 13, color: '#B79A78' },
-  title: {
-    fontSize: 30,
-    fontWeight: '800',
-    letterSpacing: -1,
-    color: '#F6F1E9',
-    marginBottom: 24,
+  caption: {
+    ...T.text.label,
+    fontWeight: '700',
+    color: '#E6C58A',
+    letterSpacing: 2,
+    marginBottom: 8,
   },
-  titleDemote: { fontSize: 28, marginBottom: 22 },
+  captionMuted: { ...T.text.caption, fontWeight: '700', color: '#B79A78' },
+  title: { ...T.text.display, color: '#F6F1E9', marginBottom: 24 },
+  titleDemote: { ...T.text.title, marginBottom: 22 },
 
   glow: {
     padding: 18,
@@ -167,12 +167,12 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
   },
   badgeImg: { width: 120, height: 120, resizeMode: 'contain' },
-  tierName: { fontSize: 24, fontWeight: '800', color: '#F6F1E9' },
+  tierName: { ...T.text.title, color: '#F6F1E9' },
 
   desc: {
-    fontSize: 14,
+    ...T.text.label,
     fontWeight: '500',
-    lineHeight: 23,
+    lineHeight: 24,
     color: '#C8A36A',
     textAlign: 'center',
     marginTop: 10,
@@ -192,16 +192,16 @@ const s = StyleSheet.create({
     marginTop: 22,
   },
   pillDemote: { backgroundColor: 'rgba(200,137,63,0.16)', borderColor: 'rgba(200,137,63,0.4)' },
-  pillText: { fontSize: 14, fontWeight: '700', color: '#F0C76A' },
-  pillTextDemote: { fontSize: 13, color: '#E0BF82' },
+  pillText: { ...T.text.label, fontWeight: '700', color: '#F0C76A' },
+  pillTextDemote: { ...T.text.caption, fontWeight: '700', color: '#E0BF82' },
   coin: { width: 17, height: 17, borderRadius: 9, backgroundColor: '#F0C76A' },
 
   transRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 18 },
   transCol: { alignItems: 'center', gap: 5 },
   transDim: { opacity: 0.45 },
-  transFromName: { fontSize: 11, fontWeight: '600', color: '#9A8472' },
-  transToName: { fontSize: 12, fontWeight: '700', color: '#E0BF82' },
-  tierLeague: { fontSize: 22, fontWeight: '800', color: '#F6F1E9', marginTop: 12 },
+  transFromName: { ...T.text.caption, color: '#9A8472' },
+  transToName: { ...T.text.caption, fontWeight: '700', color: '#E0BF82' },
+  tierLeague: { ...T.text.stat, color: '#F6F1E9', marginTop: 12 },
 
   cta: {
     height: 56,
@@ -211,5 +211,5 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 24,
   },
-  ctaText: { fontSize: 17, fontWeight: '700', color: T.white },
+  ctaText: { ...T.text.body, fontWeight: '700', color: T.white },
 });
