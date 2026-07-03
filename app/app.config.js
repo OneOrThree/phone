@@ -44,7 +44,7 @@ export default {
     version: '0.0.5',
     orientation: 'portrait',
     userInterfaceStyle: 'light',
-    newArchEnabled: false,
+    newArchEnabled: true,
     assetBundlePatterns: ['**/*', 'src/assets/models/*'],
     ios: {
       supportsTablet: true,

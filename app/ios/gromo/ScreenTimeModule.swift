@@ -72,6 +72,9 @@ class ScreenTimeModule: NSObject {
         switch status {
         case .approved:
             resolve("approved")
+        case .approvedWithDataAccess:
+            // iOS 26+ 신규 케이스 — 데이터 접근까지 승인된 상태. JS 계약(3종)상 "approved"로 매핑
+            resolve("approved")
         case .denied:
             resolve("denied")
         case .notDetermined:

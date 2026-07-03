@@ -15,7 +15,7 @@ command -v node >/dev/null 2>&1 || export PATH="/opt/homebrew/Cellar/node@24/24.
 
 # 릴리즈(TestFlight)는 항상 팀/프로덕션 서버로 — 로컬 .env(개발용 로컬 백엔드)를 덮어쓴다.
 # (Expo 는 셸에 export 된 EXPO_PUBLIC_* 가 .env 보다 우선 적용됨)
-export EXPO_PUBLIC_API_URL="${TESTFLIGHT_API_URL:-https://oneorthree.mooo.com}"
+export EXPO_PUBLIC_API_URL="${TESTFLIGHT_API_URL:-https://oneorthree.dev.mooo.com}"
 echo "🌐 API 서버: $EXPO_PUBLIC_API_URL"
 
 # Pods 동기화: lock 이 어긋날 때만 pod install
