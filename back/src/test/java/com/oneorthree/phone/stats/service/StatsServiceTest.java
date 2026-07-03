@@ -1,9 +1,13 @@
 package com.oneorthree.phone.stats.service;
 
+import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.domain.FocusTag;
+import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
+import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
@@ -28,6 +32,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -52,6 +57,8 @@ class StatsServiceTest {
     private DailyFocusStatRepository dailyFocusStatRepository;
     @Mock
     private DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
+    @Mock
+    private FocusSessionRepository focusSessionRepository;
     @Mock
     private UserStreakRepository userStreakRepository;
     @Mock
@@ -703,5 +710,239 @@ class StatsServiceTest {
         assertThatThrownBy(() ->
                 statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY))
                 .isInstanceOf(UserException.class);
+    }
+
+    // ── getFocusStatsByCategory ───────────────────────────────────────────
+
+    // 고정 UUID — 카테고리 테스트 전용
+    private static final UUID TAG_A = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
+    private static final UUID TAG_B = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000001");
+
+    /** FocusSession 빌더 헬퍼 — startedAt·endedAt·focusTag·deletedAt 지정. */
+    private FocusSession session(Instant start, Instant end, FocusTag tag, Instant deletedAt) {
+        return FocusSession.builder()
+                .startedAt(start)
+                .endedAt(end)
+                .focusTag(tag)
+                .deletedAt(deletedAt)
+                .build();
+    }
+
+    @Test
+    @DisplayName("카테고리별 — 복수 태그 정상 케이스: 태그별 totalFocusMinutes 정확, 전체 합계 일치")
+    void getFocusStatsByCategoryMultipleTags() {
+        // given: tagA=60분(30+30), tagB=90분
+        User user = User.builder().id(USER_ID).build();
+        FocusTag tagA = FocusTag.builder().id(TAG_A).name("공부").user(user).build();
+        FocusTag tagB = FocusTag.builder().id(TAG_B).name("운동").user(user).build();
+
+        Instant base = Instant.parse("2026-07-03T01:00:00Z");
+        List<FocusSession> sessions = List.of(
+                session(base, base.plusSeconds(1800), tagA, null),  // 30분
+                session(base.plusSeconds(3600), base.plusSeconds(5400), tagA, null), // 30분
+                session(base.plusSeconds(7200), base.plusSeconds(12600), tagB, null) // 90분
+        );
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(sessions);
+
+        // when
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        // then
+        assertThat(response.period()).isEqualTo(StatsPeriod.DAY);
+        assertThat(response.totalFocusMinutes()).isEqualTo(150); // 60 + 90
+        assertThat(response.items()).hasSize(2);
+        // 내림차순 정렬: tagB(90) > tagA(60)
+        assertThat(response.items().get(0).tagId()).isEqualTo(TAG_B);
+        assertThat(response.items().get(0).tagName()).isEqualTo("운동");
+        assertThat(response.items().get(0).totalFocusMinutes()).isEqualTo(90);
+        assertThat(response.items().get(1).tagId()).isEqualTo(TAG_A);
+        assertThat(response.items().get(1).tagName()).isEqualTo("공부");
+        assertThat(response.items().get(1).totalFocusMinutes()).isEqualTo(60);
+    }
+
+    @Test
+    @DisplayName("카테고리별 — 태그 없는 세션(미분류) 포함: tagId=null 항목 존재, 분 합산 정확")
+    void getFocusStatsByCategoryUntaggedSession() {
+        User user = User.builder().id(USER_ID).build();
+        FocusTag tagA = FocusTag.builder().id(TAG_A).name("공부").user(user).build();
+
+        Instant base = Instant.parse("2026-07-03T02:00:00Z");
+        List<FocusSession> sessions = List.of(
+                session(base, base.plusSeconds(3600), tagA, null),   // tagA 60분
+                session(base.plusSeconds(7200), base.plusSeconds(9000), null, null) // 미분류 30분
+        );
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(sessions);
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.totalFocusMinutes()).isEqualTo(90);
+        assertThat(response.items()).hasSize(2);
+        // 내림차순: tagA(60) > 미분류(30)
+        assertThat(response.items().get(0).tagId()).isEqualTo(TAG_A);
+        assertThat(response.items().get(1).tagId()).isNull();
+        assertThat(response.items().get(1).tagName()).isNull();
+        assertThat(response.items().get(1).totalFocusMinutes()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("카테고리별 — 소프트딜리트 태그 세션 → 미분류 버킷 합류")
+    void getFocusStatsByCategorySoftDeletedTagGoesToUntagged() {
+        User user = User.builder().id(USER_ID).build();
+        // deletedAt 설정된 소프트딜리트 태그
+        FocusTag deletedTag = FocusTag.builder()
+                .id(TAG_A).name("삭제된태그").user(user)
+                .deletedAt(Instant.parse("2026-06-01T00:00:00Z"))
+                .build();
+        FocusTag activeTag = FocusTag.builder().id(TAG_B).name("활성태그").user(user).build();
+
+        Instant base = Instant.parse("2026-07-03T03:00:00Z");
+        List<FocusSession> sessions = List.of(
+                session(base, base.plusSeconds(3600), deletedTag, null),  // 60분 → 미분류
+                session(base.plusSeconds(7200), base.plusSeconds(9000), activeTag, null) // 30분 → tagB
+        );
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(sessions);
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.totalFocusMinutes()).isEqualTo(90);
+        assertThat(response.items()).hasSize(2);
+        // 내림차순: 미분류(60) > tagB(30)
+        assertThat(response.items().get(0).tagId()).isNull();
+        assertThat(response.items().get(0).totalFocusMinutes()).isEqualTo(60);
+        assertThat(response.items().get(1).tagId()).isEqualTo(TAG_B);
+        assertThat(response.items().get(1).totalFocusMinutes()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("카테고리별 — 빈 기간(세션 없음): items=[], totalFocusMinutes=0")
+    void getFocusStatsByCategoryEmptyPeriod() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(List.of());
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        assertThat(response.totalFocusMinutes()).isZero();
+        assertThat(response.items()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("카테고리별 — 미분류 0분이면 items에서 제외")
+    void getFocusStatsByCategoryUntaggedZeroMinutesExcluded() {
+        User user = User.builder().id(USER_ID).build();
+        FocusTag tagA = FocusTag.builder().id(TAG_A).name("공부").user(user).build();
+        Instant base = Instant.parse("2026-07-03T04:00:00Z");
+        List<FocusSession> sessions = List.of(
+                session(base, base.plusSeconds(1800), tagA, null) // 태그 있는 세션만
+        );
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(sessions);
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        // 미분류 항목 없음
+        assertThat(response.items()).hasSize(1);
+        assertThat(response.items().get(0).tagId()).isEqualTo(TAG_A);
+    }
+
+    @Test
+    @DisplayName("카테고리별 items — totalFocusMinutes 내림차순 정렬 검증")
+    void getFocusStatsByCategoryItemsSortedDesc() {
+        User user = User.builder().id(USER_ID).build();
+        FocusTag tagA = FocusTag.builder().id(TAG_A).name("공부").user(user).build();
+        FocusTag tagB = FocusTag.builder().id(TAG_B).name("운동").user(user).build();
+
+        Instant base = Instant.parse("2026-07-03T05:00:00Z");
+        // tagA=20분, tagB=120분, 미분류=45분 → 정렬: tagB(120) > 미분류(45) > tagA(20)
+        List<FocusSession> sessions = List.of(
+                session(base, base.plusSeconds(1200), tagA, null),          // 20분
+                session(base.plusSeconds(3600), base.plusSeconds(10800), tagB, null), // 120분
+                session(base.plusSeconds(14400), base.plusSeconds(17100), null, null) // 45분
+        );
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(sessions);
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.items()).hasSize(3);
+        assertThat(response.items().get(0).totalFocusMinutes()).isEqualTo(120); // tagB
+        assertThat(response.items().get(1).totalFocusMinutes()).isEqualTo(45);  // 미분류
+        assertThat(response.items().get(2).totalFocusMinutes()).isEqualTo(20);  // tagA
+    }
+
+    @Test
+    @DisplayName("카테고리별 DAY — fromInstant=today 00:00 UTC, toInstant=today+1 00:00 UTC (ArgumentCaptor)")
+    void getFocusStatsByCategoryDayBounds() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(List.of());
+
+        statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
+        ArgumentCaptor<Instant> toCaptor = ArgumentCaptor.forClass(Instant.class);
+        verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), toCaptor.capture());
+
+        Instant expectedFrom = FIXED_TODAY.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant expectedTo = FIXED_TODAY.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        assertThat(fromCaptor.getValue()).isEqualTo(expectedFrom);
+        assertThat(toCaptor.getValue()).isEqualTo(expectedTo);
+    }
+
+    @Test
+    @DisplayName("카테고리별 WEEK — fromInstant=이번 주 월요일 00:00 UTC (ArgumentCaptor)")
+    void getFocusStatsByCategoryWeekBounds() {
+        // FIXED_TODAY=2026-07-03(금요일) → 이번 주 월요일=2026-06-29
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(List.of());
+
+        statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
+        verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), any());
+
+        LocalDate expectedMonday = LocalDate.of(2026, 6, 29);
+        assertThat(fromCaptor.getValue()).isEqualTo(expectedMonday.atStartOfDay(ZoneOffset.UTC).toInstant());
+    }
+
+    @Test
+    @DisplayName("카테고리별 MONTH — fromInstant=이번 달 1일 00:00 UTC (ArgumentCaptor)")
+    void getFocusStatsByCategoryMonthBounds() {
+        // FIXED_TODAY=2026-07-03 → 이번 달 1일=2026-07-01
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(List.of());
+
+        statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
+
+        ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
+        verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), any());
+
+        LocalDate expectedFirstDay = LocalDate.of(2026, 7, 1);
+        assertThat(fromCaptor.getValue()).isEqualTo(expectedFirstDay.atStartOfDay(ZoneOffset.UTC).toInstant());
     }
 }
