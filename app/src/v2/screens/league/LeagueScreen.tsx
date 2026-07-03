@@ -18,6 +18,7 @@ import { tierByLevel } from '@/v2/constants/tiers';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { useUser } from '@/store/UserContext';
 import { useSubjects } from '@/store/SubjectContext';
+import { useFocus } from '@/store/FocusContext';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import {
   DEADLINE_LABEL,
@@ -80,7 +81,8 @@ export default function LeagueScreen() {
   // 내 행은 실데이터로 보정 — 닉네임(홈과 같은 UserContext)·온보딩 카테고리·과목 누적 공부시간 합.
   // 타 유저·주간 집계는 mock — TODO: 리그 API 연동 시 응답 값으로 대체
   const myCategory = useFocusCategory();
-  const { nickname: myNickname } = useUser();
+  const { nickname: myNickname, goalSeconds } = useUser();
+  const { todayFocusSeconds } = useFocus();
   const { subjects } = useSubjects();
   const myTotalMinutes = Math.round(
     subjects.reduce((acc, sub) => acc + sub.accumulatedSeconds, 0) / 60,
@@ -158,18 +160,29 @@ export default function LeagueScreen() {
     setPinnedOnly((v) => !v);
   }
 
-  // 프로필 오버레이 열기 — 시안 prof 파생값(전체 순위·시험 리그 순위) 그대로
+  // 프로필 오버레이 열기 — 순위 대신 개인 기록(최고 순위·주간 최고)을 보여준다.
+  // 내 통계는 실데이터(오늘 목표 달성률·오늘 요일 스파크). 일별 기록이 아직 없어
+  // 과거 6일은 0, 스트릭·기록은 mock — TODO: 일별 집중 기록/리그 히스토리 도입 시 실계산.
   function openProfile(member: RankedMember) {
-    const examList = ranking.filter((m) => m.exam === member.exam);
+    const isMe = member.userId === MY_USER_ID;
+    const goal = goalSeconds ?? 0;
+    const todayRate = goal > 0 ? Math.min(todayFocusSeconds / goal, 1) : 0;
+    const weekdayIdx = (new Date().getDay() + 6) % 7; // 월요일 시작
     setSelected({
       userId: member.userId,
       nickname: member.nickname,
       tierLevel: member.tierLevel,
       minutes: member.totalFocusMinutes,
-      globalRank: ranking.indexOf(member) + 1, // 정렬된 전체 랭킹 기준
-      examName: member.exam,
-      examRank: examList.findIndex((m) => m.userId === member.userId) + 1,
-      achievedRate: member.achievedRate,
+      bestRank: member.bestRank,
+      bestWeekMinutes: member.bestWeekMinutes,
+      achievedRate: isMe ? todayRate : member.achievedRate,
+      // 스트릭은 일별 기록 저장소가 생기기 전까지 mock 유지 — TODO: 일별 기록 도입 시 실계산
+      streakDays: member.streakDays,
+      weekSpark: isMe
+        ? Array.from({ length: 7 }, (_, i) =>
+            i === weekdayIdx ? Math.round(todayFocusSeconds / 60) : 0,
+          )
+        : undefined,
       friendCount: member.friendCount,
       isFriend: friendIds.has(member.userId),
     });
