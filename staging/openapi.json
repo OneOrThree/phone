@@ -45,6 +45,10 @@
       "description": "타 유저 공개 프로필 API"
     },
     {
+      "name": "analytics",
+      "description": "클라 이벤트 수집 API (Track 2 로그 합류)"
+    },
+    {
       "name": "ScreenTime",
       "description": "스크린 타임 목표 달성 저장 API"
     },
@@ -1666,6 +1670,68 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/analytics/events": {
+      "post": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "클라 이벤트 수신",
+        "description": "FE 계측 이벤트를 화이트리스트 검증 후 user-activity 로그에 source\u003dclient 로 발행. 성공 시 204 반환.",
+        "operationId": "recordEvent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsEventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "수신 성공"
+          },
+          "400": {
+            "description": "event 누락/화이트리스트 외 이벤트/payload 형식 오류"
+          },
+          "401": {
+            "description": "인증 없음"
+          }
+        }
+      }
+    },
+    "/api/v1/users/me/stat-visibility": {
+      "patch": {
+        "tags": [
+          "user"
+        ],
+        "summary": "통계 공개 범위 수정",
+        "description": "개인 통계 공개 범위(FRIENDS/PUBLIC)를 수정. 성공 시 204 반환.",
+        "operationId": "updateStatVisibility",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatVisibilityUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "수정 성공"
+          },
+          "400": {
+            "description": "statVisibility 누락/유효하지 않은 값"
+          },
+          "404": {
+            "description": "유저 없음"
           }
         }
       }
@@ -3703,6 +3769,22 @@
           }
         }
       },
+      "AnalyticsEventRequest": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "string",
+            "minLength": 1
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
       "UserProfileUpdateRequest": {
         "type": "object",
         "properties": {
@@ -3737,6 +3819,21 @@
             "type": "string"
           }
         }
+      },
+      "StatVisibilityUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "statVisibility": {
+            "type": "string",
+            "enum": [
+              "FRIENDS",
+              "PUBLIC"
+            ]
+          }
+        },
+        "required": [
+          "statVisibility"
+        ]
       },
       "UpdateScreenTimePermissionRequest": {
         "type": "object",
@@ -4043,6 +4140,9 @@
             "type": "string"
           },
           "reportTime": {
+            "type": "string"
+          },
+          "statVisibility": {
             "type": "string"
           }
         }
