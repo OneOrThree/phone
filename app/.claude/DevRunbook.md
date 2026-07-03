@@ -108,7 +108,7 @@ cd ..
 cp app/.env.example app/.env
 ```
 
-> `app/.env.example`의 기본값은 팀 서버(`https://oneorthree.mooo.com`)를 가리키며 `app/utils/api.js`의 기본값과 동일합니다. 백엔드를 직접 띄우지 않아도 바로 개발을 시작할 수 있습니다 (아래 3.2의 (A) 방식).
+> `app/.env.example`의 기본값은 팀 서버(`https://oneorthree.dev.mooo.com`)를 가리키며 `app/utils/api.js`의 기본값과 동일합니다. 백엔드를 직접 띄우지 않아도 바로 개발을 시작할 수 있습니다 (아래 3.2의 (A) 방식).
 
 ### 3.2 백엔드 연결 모드 선택
 
@@ -119,7 +119,7 @@ cp app/.env.example app/.env
 `app/.env`의 `EXPO_PUBLIC_API_URL`을 팀 서버로 설정 (3.1 참고):
 
 ```
-EXPO_PUBLIC_API_URL=https://oneorthree.mooo.com
+EXPO_PUBLIC_API_URL=https://oneorthree.dev.mooo.com
 ```
 
 백엔드를 따로 설치/실행할 필요가 없습니다. 화면/UI 작업은 대부분 이 방식으로 충분합니다.

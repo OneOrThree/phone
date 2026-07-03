@@ -138,7 +138,7 @@ npx expo run:ios --device     # on-device (needs p12; Jaeyoung's machine only)
 `app/.env` is a personal, untracked file. Copy from the example (`cp app/.env.example app/.env`).
 `EXPO_PUBLIC_API_URL` selects the target:
 
-- **Team server (default, recommended)**: `EXPO_PUBLIC_API_URL=https://oneorthree.mooo.com` — no backend setup needed.
+- **Team server (default, recommended)**: `EXPO_PUBLIC_API_URL=https://oneorthree.dev.mooo.com` — no backend setup needed.
 - **Local backend**: bring up `back/` (Spring Boot) with `docker compose -f docker-compose.dev.yml up -d`, then `EXPO_PUBLIC_API_URL=http://localhost:8080` (use your Mac's LAN IP for a real device).
 
 See DevRunbook.md "3.2 backend connection mode" for details.
