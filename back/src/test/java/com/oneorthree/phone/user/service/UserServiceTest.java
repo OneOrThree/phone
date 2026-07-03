@@ -1,5 +1,7 @@
 package com.oneorthree.phone.user.service;
 
+import com.oneorthree.phone.common.logging.UserActivityEvent;
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
@@ -40,6 +42,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -88,6 +91,9 @@ class UserServiceTest {
 
     @Mock
     private SocialAccountRepository socialAccountRepository;
+
+    @Mock
+    private UserActivityEventLogger userActivityEventLogger;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
@@ -368,6 +374,33 @@ class UserServiceTest {
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("집중 목표 수정 → GOAL_SET(goal_type=focus_time, goal_minutes) 발행")
+    void updateFocusTimeGoalEmitsGoalSet() {
+        UserFocusTimeSettings settings = UserFocusTimeSettings.builder().userId(USER_ID).build();
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        userService.updateFocusTimeGoal(USER_ID, 90);
+
+        verify(userActivityEventLogger).log(UserActivityEvent.GOAL_SET,
+                Map.of("goal_type", "focus_time", "goal_minutes", 90));
+    }
+
+    // ── updateScreenTimeGoal ──────────────────────────────────────────────
+
+    @Test
+    @DisplayName("스크린타임 목표 수정 → 값 반영 + GOAL_SET(goal_type=screen_time, goal_minutes) 발행")
+    void updateScreenTimeGoalEmitsGoalSet() {
+        UserScreenTimeSettings settings = UserScreenTimeSettings.builder().userId(USER_ID).build();
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        userService.updateScreenTimeGoal(USER_ID, 120);
+
+        assertThat(settings.getDailyScreenTimeGoalMinutes()).isEqualTo(120);
+        verify(userActivityEventLogger).log(UserActivityEvent.GOAL_SET,
+                Map.of("goal_type", "screen_time", "goal_minutes", 120));
     }
 
     // ── updateNotificationSettings ────────────────────────────────────────

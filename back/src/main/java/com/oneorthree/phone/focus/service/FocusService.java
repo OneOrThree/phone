@@ -22,6 +22,7 @@ import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.service.UserStreakService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
@@ -32,6 +33,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,6 +52,7 @@ public class FocusService {
     private final UserActivityEventLogger userActivityEventLogger;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
+    private final UserStreakService userStreakService;
 
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         User user = userRepository.findById(userId)
@@ -66,10 +69,14 @@ public class FocusService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        focusTagRepository.save(FocusTag.builder()
+        FocusTag savedTag = focusTagRepository.save(FocusTag.builder()
                 .user(user)
                 .name(body.name())
                 .build());
+
+        // 태그 이름은 유저 입력(PII 금지) — tag_id 만 기록
+        userActivityEventLogger.log(UserActivityEvent.FOCUS_TAG_CREATED,
+                Map.of("tag_id", savedTag.getId().toString()));
     }
 
     @Transactional
@@ -162,10 +169,15 @@ public class FocusService {
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
                 .build());
         long durationSeconds = Duration.between(body.getStartedAt(), body.getEndedAt()).getSeconds();
-        userActivityEventLogger.log(UserActivityEvent.FOCUS_SESSION_COMPLETED,
-                Map.of("duration_seconds", durationSeconds,
-                        "distraction_count", body.getDistractionCount(),
-                        "has_tag", tag != null));
+        // payload 에 null 값 금지 — nullable 인 focus_tag_id 는 태그 있을 때만 키 포함
+        Map<String, Object> sessionPayload = new LinkedHashMap<>();
+        sessionPayload.put("duration_seconds", durationSeconds);
+        sessionPayload.put("distraction_count", body.getDistractionCount());
+        sessionPayload.put("has_tag", tag != null);
+        if (tag != null) {
+            sessionPayload.put("focus_tag_id", tag.getId().toString());
+        }
+        userActivityEventLogger.log(UserActivityEvent.FOCUS_SESSION_COMPLETED, sessionPayload);
 
         // ── DailyFocusStat upsert: endedAt UTC date 기준 (user, date) 멱등 누적 ──
         LocalDate statDate = body.getEndedAt().atOffset(ZoneOffset.UTC).toLocalDate();
@@ -203,5 +215,8 @@ public class FocusService {
                     .focusGoalAchieved(goal > 0 && addedMinutes >= goal)
                     .build());
         }
+
+        // 스트릭 갱신 — 세션 저장·일별 집계와 같은 트랜잭션(원자적), 날짜 기준도 동일(endedAt UTC)
+        userStreakService.updateOnSessionComplete(user, statDate);
     }
 }

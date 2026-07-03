@@ -1,5 +1,6 @@
 package com.oneorthree.phone.focus.service;
 
+import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusTag;
@@ -20,6 +21,7 @@ import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.service.UserStreakService;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,6 +37,7 @@ import org.springframework.data.domain.SliceImpl;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -77,6 +80,9 @@ class FocusServiceTest {
 
     @Mock
     private UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
+
+    @Mock
+    private UserStreakService userStreakService;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID OTHER_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
@@ -128,6 +134,8 @@ class FocusServiceTest {
         // given
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusTagRepository.save(any(FocusTag.class)))
+                .willReturn(FocusTag.builder().id(TAG_ID).user(user).name("공부").build());
         FocusTagSetupRequest body = new FocusTagSetupRequest("공부");
 
         // when
@@ -138,6 +146,23 @@ class FocusServiceTest {
         verify(focusTagRepository).save(captor.capture());
         assertThat(captor.getValue().getUser()).isEqualTo(user);
         assertThat(captor.getValue().getName()).isEqualTo("공부");
+    }
+
+    @Test
+    @DisplayName("태그 생성 → FOCUS_TAG_CREATED(tag_id) 발행, 태그 이름은 PII 로 payload 제외")
+    void setupFocusTagEmitsTagCreated() {
+        // given: save 가 id 채워진 엔티티를 반환
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusTagRepository.save(any(FocusTag.class)))
+                .willReturn(FocusTag.builder().id(TAG_ID).user(user).name("공부").build());
+
+        // when
+        focusService.setupFocusTag(USER_ID, new FocusTagSetupRequest("공부"));
+
+        // then: tag_id 만 payload 에 포함(이름 미포함)
+        verify(userActivityEventLogger).log(UserActivityEvent.FOCUS_TAG_CREATED,
+                Map.of("tag_id", TAG_ID.toString()));
     }
 
     @Test
@@ -470,6 +495,90 @@ class FocusServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(FocusErrorCode.FORBIDDEN);
         verify(focusSessionRepository, never()).save(any(FocusSession.class));
+    }
+
+    // ── saveFocusSession — 이벤트 payload·스트릭 연동 (GROMO-395) ──────────
+
+    @Test
+    @DisplayName("태그 있는 세션 저장 → FOCUS_SESSION_COMPLETED payload 에 focus_tag_id 포함")
+    void saveFocusSessionLogsWithFocusTagId() {
+        // given: START~END = 3600초, 본인 소유 태그
+        User user = User.builder().id(USER_ID).build();
+        FocusTag tag = FocusTag.builder().id(TAG_ID).user(user).name("공부").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(TAG_ID, "수학", START, END, 2, 30);
+
+        // when
+        focusService.saveFocusSession(USER_ID, body);
+
+        // then
+        verify(userActivityEventLogger).log(UserActivityEvent.FOCUS_SESSION_COMPLETED,
+                Map.of("duration_seconds", 3600L,
+                        "distraction_count", 2,
+                        "has_tag", true,
+                        "focus_tag_id", TAG_ID.toString()));
+    }
+
+    @Test
+    @DisplayName("태그 없는 세션 저장 → payload 에 focus_tag_id 키 생략(null 값 금지)")
+    void saveFocusSessionLogsWithoutFocusTagId() {
+        // given
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(null, "영어", START, END, 0, 0);
+
+        // when
+        focusService.saveFocusSession(USER_ID, body);
+
+        // then: focus_tag_id 키 자체가 없음
+        verify(userActivityEventLogger).log(UserActivityEvent.FOCUS_SESSION_COMPLETED,
+                Map.of("duration_seconds", 3600L,
+                        "distraction_count", 0,
+                        "has_tag", false));
+    }
+
+    @Test
+    @DisplayName("세션 저장 → 스트릭 갱신을 endedAt 기준 UTC 날짜로 호출(같은 트랜잭션)")
+    void saveFocusSessionUpdatesStreakWithUtcDate() {
+        // given: 2026-06-22 23:55Z 시작 → 2026-06-23 00:05Z 종료 — endedAt 의 UTC 날짜(23일)로 호출돼야 함
+        Instant startedAt = Instant.parse("2026-06-22T23:55:00Z");
+        Instant endedAt = Instant.parse("2026-06-23T00:05:00Z");
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(null, "운동", startedAt, endedAt, 0, 0);
+
+        // when
+        focusService.saveFocusSession(USER_ID, body);
+
+        // then
+        verify(userStreakService).updateOnSessionComplete(user, LocalDate.of(2026, 6, 23));
+    }
+
+    @Test
+    @DisplayName("세션 저장 실패(태그 FORBIDDEN) → 스트릭 갱신 미호출")
+    void saveFocusSessionFailureDoesNotUpdateStreak() {
+        // given: 다른 유저 소유 태그
+        User user = User.builder().id(USER_ID).build();
+        User other = User.builder().id(OTHER_USER_ID).build();
+        FocusTag tag = FocusTag.builder().id(TAG_ID).user(other).name("공부").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        FocusSessionRequest body = new FocusSessionRequest(TAG_ID, "수학", START, END, 2, 30);
+
+        // when & then
+        assertThatThrownBy(() -> focusService.saveFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class);
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
     }
 
     // ── DailyFocusStat upsert (T1-T7) ────────────────────────────────────

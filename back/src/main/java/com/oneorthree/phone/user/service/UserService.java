@@ -1,5 +1,7 @@
 package com.oneorthree.phone.user.service;
 
+import com.oneorthree.phone.common.logging.UserActivityEvent;
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.domain.Occupation;
@@ -35,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -52,6 +55,7 @@ public class UserService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final SocialAccountRepository socialAccountRepository;
+    private final UserActivityEventLogger userActivityEventLogger;
 
     @Transactional
     public void setupProfile(UUID userId, UserProfileSetupRequest body) {
@@ -168,6 +172,8 @@ public class UserService {
         UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         settings.setDailyScreenTimeGoalMinutes(dailyScreenTimeGoalMinutes);
+        userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
+                Map.of("goal_type", "screen_time", "goal_minutes", dailyScreenTimeGoalMinutes));
     }
 
     @Transactional
@@ -175,6 +181,8 @@ public class UserService {
         UserFocusTimeSettings settings = userFocusTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         settings.setDailyFocusTimeGoalMinutes(dailyFocusTimeGoalMinutes);
+        userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
+                Map.of("goal_type", "focus_time", "goal_minutes", dailyFocusTimeGoalMinutes));
     }
 
     @Transactional

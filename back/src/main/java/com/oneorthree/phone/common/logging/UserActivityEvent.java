@@ -9,9 +9,17 @@ public enum UserActivityEvent {
 
     LOGIN_SUCCEEDED("login_succeeded", "auth"),
     LOGOUT("logout", "auth"),
+    USER_SIGNED_UP("user_signed_up", "auth"),
     FOCUS_SESSION_COMPLETED("focus_session_completed", "focus"),
+    FOCUS_TAG_CREATED("focus_tag_created", "focus"),
+    STREAK_UPDATED("streak_updated", "focus"),
     GROUP_JOINED("group_joined", "group"),
-    GROUP_LEFT("group_left", "group");
+    GROUP_LEFT("group_left", "group"),
+    LEAGUE_RANK_VIEWED("league_rank_viewed", "league"),
+    FRIEND_REQUEST_SENT("friend_request_sent", "friend"),
+    FRIEND_ADDED("friend_added", "friend"),
+    ITEM_EQUIPPED("item_equipped", "character"),
+    GOAL_SET("goal_set", "user");
 
     private final String event;
     private final String category;
