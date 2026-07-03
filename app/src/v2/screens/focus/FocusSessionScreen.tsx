@@ -26,16 +26,17 @@ import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
-import type { FocusTimerMode, LiveFocusSession } from './types';
+import type { FocusTimerMode, LiveFocusSession, Friend } from './types';
 import { hms } from './format';
 import {
   ensureNotificationPermission,
   scheduleLeaveNotifications,
   cancelLeaveNotifications,
 } from './leaveNotifications';
-import { EXAMPLE_FRIENDS } from './data';
 import { FriendGrid } from './components/FriendGrid';
 import { FocusMenuDrawer } from './components/FocusMenuDrawer';
+import { getPinnedFriends } from '@/services/friendApi';
+import type { PinnedFriendResponse } from '@/types/dto/friend';
 import {
   logFocusSessionStarted,
   logFocusSessionPaused,
@@ -65,6 +66,25 @@ interface SessionState {
   done: boolean;
 }
 
+// 핀 친구 아바타 색 — 서버 미제공이라 userId 해시로 팔레트에서 결정(같은 유저=항상 같은 색).
+function colorForUser(userId: string): string {
+  let h = 0;
+  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) % 997;
+  return T.subjectPalette[h % T.subjectPalette.length];
+}
+
+// GET /friends/pinned 응답 → FriendGrid용 Friend. 서버는 오늘 누적 집중분/집중여부만 주므로
+// elapsedSeconds는 '오늘 누적'(분→초), status는 focus(집중 중)/off(그 외)로 매핑(rest는 미구분).
+function toGridFriend(p: PinnedFriendResponse): Friend {
+  return {
+    id: p.userId,
+    name: p.nickname,
+    color: colorForUser(p.userId),
+    status: p.isFocusing ? 'focus' : 'off',
+    elapsedSeconds: p.focusTimeMinutes * 60,
+  };
+}
+
 export default function FocusSessionScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { params } = useRoute<RouteProp<V2RootStackParamList, 'FocusSession'>>();
@@ -83,6 +103,8 @@ export default function FocusSessionScreen() {
   const [page, setPage] = useState(0);
   const [paused, setPaused] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // 함께 집중 중인 핀 친구 — 서버(GET /friends/pinned)에서 로드. 게스트/실패 시 빈 목록.
+  const [friends, setFriends] = useState<Friend[]>([]);
   const [session, setSession] = useState<SessionState>(() => ({
     elapsed: 0,
     display: mode === 'countdown' ? goal : mode === 'pomodoro' ? pomo.focusMin * 60 : 0,
@@ -109,6 +131,19 @@ export default function FocusSessionScreen() {
   useEffect(() => {
     logFocusSessionStarted({ has_tag: Boolean(subjectId), mode });
   }, [subjectId, mode]);
+
+  // 핀 친구 로드 — 진입 시 1회, 이후 친구 페이지로 넘어올 때마다 최신 집중 상태로 갱신.
+  const loadFriends = useCallback(async () => {
+    try {
+      const pinned = await getPinnedFriends();
+      setFriends(pinned.map(toGridFriend));
+    } catch {
+      // 게스트(토큰 없음)·네트워크/인증 실패 → 빈 목록 유지
+    }
+  }, []);
+  useEffect(() => {
+    loadFriends();
+  }, [loadFriends]);
 
   // 한 tick 진행 — 모드별 다음 상태 계산.
   const nextTick = useCallback(
@@ -387,8 +422,11 @@ export default function FocusSessionScreen() {
 
   function onScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
     const next = Math.round(e.nativeEvent.contentOffset.x / width);
-    // 친구 그리드(page 1)로 처음 넘어올 때만 노출 계측(왕복 스팸 방지).
-    if (next === 1 && page !== 1) logFocusFriendsViewed();
+    // 친구 그리드(page 1)로 처음 넘어올 때만 노출 계측(왕복 스팸 방지) + 최신 상태 갱신.
+    if (next === 1 && page !== 1) {
+      logFocusFriendsViewed();
+      loadFriends();
+    }
     setPage(next);
   }
 
@@ -428,7 +466,7 @@ export default function FocusSessionScreen() {
             </View>
           </View>
           <View style={[s.page, { width }]}>
-            <FriendGrid friends={EXAMPLE_FRIENDS} />
+            <FriendGrid friends={friends} />
           </View>
         </ScrollView>
 
