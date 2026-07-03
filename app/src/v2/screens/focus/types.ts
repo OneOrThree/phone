@@ -28,16 +28,6 @@ export interface LiveFocusSession {
   updatedAt: string; // ISO — 마지막 저장 시각
 }
 
-// 함께 집중 중인 친구(09) — 예시.
-export type FriendStatus = 'focus' | 'rest' | 'off';
-export interface Friend {
-  id: string;
-  name: string;
-  color: string; // 별 아바타 색
-  status: FriendStatus;
-  elapsedSeconds: number; // 현재 세션 경과(focus일 때만 표시)
-}
-
 // 집중 중 허용앱(11) — 예시. initial = 아이콘 사각에 넣는 한 글자.
 export interface AllowedApp {
   id: string;

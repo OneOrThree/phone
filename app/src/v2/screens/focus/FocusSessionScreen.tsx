@@ -18,14 +18,14 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 import { api } from '@/services/api';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { STORAGE_KEYS } from '@/types/storage';
-import type { V2RootStackParamList } from '@/v2/navigation/types';
+import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
 import {
@@ -33,7 +33,7 @@ import {
   scheduleLeaveNotifications,
   cancelLeaveNotifications,
 } from './leaveNotifications';
-import { EXAMPLE_FRIENDS } from './data';
+import { useFocusFriends } from '@/v2/screens/league/useFocusFriends';
 import { FriendGrid } from './components/FriendGrid';
 import { FocusMenuDrawer } from './components/FocusMenuDrawer';
 
@@ -76,6 +76,8 @@ export default function FocusSessionScreen() {
   const [page, setPage] = useState(0);
   const [paused, setPaused] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // 친구 전체 라이브 상태 — 60초 폴링·포그라운드 복귀 갱신 (09 친구 그리드 실데이터)
+  const { friends: sessionFriends } = useFocusFriends();
   const [session, setSession] = useState<SessionState>(() => ({
     elapsed: 0,
     display: mode === 'countdown' ? goal : mode === 'pomodoro' ? pomo.focusMin * 60 : 0,
@@ -360,7 +362,7 @@ export default function FocusSessionScreen() {
             </View>
           </View>
           <View style={[s.page, { width }]}>
-            <FriendGrid friends={EXAMPLE_FRIENDS} />
+            <FriendGrid friends={sessionFriends} />
           </View>
         </ScrollView>
 

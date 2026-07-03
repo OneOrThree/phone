@@ -2,5 +2,6 @@
 //   import { LeagueScreen, FriendAddScreen, ... } from '@/v2/screens/league';
 export { default as LeagueScreen } from './LeagueScreen';
 export { default as FriendAddScreen } from './FriendAddScreen';
+export { default as FriendProfileScreen } from './FriendProfileScreen';
 export { default as TierGuideScreen } from './TierGuideScreen';
 export { default as LeagueResultScreen } from './LeagueResultScreen';

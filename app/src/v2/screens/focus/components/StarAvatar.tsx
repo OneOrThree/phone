@@ -1,5 +1,5 @@
 import Svg, { Polygon, Circle, Path } from 'react-native-svg';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 
 // 09 친구 그리드 별사탕 아바타 — 시안 SVG를 react-native-svg로 옮김.
 const POINTS =

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 import type { Subject } from '@/v2/screens/focus/types';
 
 // 과목 목록 + 과목별 누적 집중시간(all-time)을 로컬에 저장·관리하는 store.

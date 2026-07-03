@@ -13,7 +13,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import axios from 'axios';
-import { T } from '@/constants/theme';
+import { T } from '@/constants/legacyTheme';
 import { api } from '@/services/api';
 import type { Group } from '@/types/api';
 

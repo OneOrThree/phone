@@ -9,7 +9,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 import { hmsCompact } from '../format';
 import type { Subject } from '../types';
 

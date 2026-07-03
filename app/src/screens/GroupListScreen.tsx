@@ -16,8 +16,8 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import axios from 'axios';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { T, inkBox } from '@/constants/theme';
-import { DrumPicker } from '@/components/DrumPicker';
+import { T, inkBox } from '@/constants/legacyTheme';
+import { DrumPicker } from '@/components/LegacyDrumPicker';
 import { api } from '@/services/api';
 import type { TabScreenProps } from '@/types/navigation';
 

@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import type { GestureResponderEvent, PanResponderGestureState } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { T } from '@/constants/theme';
+import { T } from '@/constants/legacyTheme';
 import { api } from '@/services/api';
 import type { RootStackScreenProps } from '@/types/navigation';
 

@@ -35,7 +35,7 @@ async function postAuthSave(data: AuthResponse): Promise<LoginResult> {
 
   if (!data.isNewUser) {
     const profile = await api
-      .get<Record<string, unknown>>('/api/v1/user')
+      .get<Record<string, unknown>>('/api/v1/users/me')
       .then((profileRes) => profileRes.data)
       .catch(() => ({}) as Record<string, unknown>);
     const merged: LoginResult = { ...data, ...profile };

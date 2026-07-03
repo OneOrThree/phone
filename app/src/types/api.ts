@@ -58,6 +58,7 @@ export interface UserProfile {
   refreshToken?: string;
   isNewUser?: boolean;
   dailyScreenTimeGoalMinutes?: number;
+  dailyFocusTimeGoalMinutes?: number;
   // 서버 응답에 추가 필드가 섞여 들어올 수 있음
   [key: string]: unknown;
 }

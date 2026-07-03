@@ -3,7 +3,7 @@ import type { ImageSourcePropType } from 'react-native';
 // 티어 5단계 메타 — Claude Design 리그 시안 기준.
 // 백엔드는 tierLevel(1~5)만 주고, 이름·주간 시간 기준은 프론트 표시값.
 // image = 방패형 일러스트 뱃지 — 히어로·연출 큰 뱃지와 랭킹 행 코너의 작은 뱃지(TierBadge)까지
-// 모든 티어 표시가 이 일러스트를 공용으로 쓴다(별 칩 표기는 폐기).
+// 모든 티어 표시가 이 일러스트를 공용으로 쓴다.
 export interface TierMeta {
   level: number;
   name: string;

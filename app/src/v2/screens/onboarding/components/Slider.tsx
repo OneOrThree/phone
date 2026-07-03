@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { View, PanResponder, StyleSheet } from 'react-native';
 import type { GestureResponderEvent } from 'react-native';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 
 // 커스텀 가로 슬라이더 — core RN PanResponder.
 // (@react-native-community/slider가 이 RN/New Arch 셋업에서 미빌드라 직접 구현)

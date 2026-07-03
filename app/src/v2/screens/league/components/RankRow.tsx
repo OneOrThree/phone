@@ -1,7 +1,7 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { T } from '@/v2/constants/theme';
-import { tierByLevel } from '@/v2/constants/tiers';
+import { T } from '@/constants/theme';
+import { tierByLevel } from '@/constants/tiers';
 import { fmtDelta, fmtMinutes } from '../format';
 import { MemberAvatar } from './MemberAvatar';
 import { TierBadge } from './TierBadge';
