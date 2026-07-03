@@ -432,6 +432,7 @@ export default function LeagueScreen() {
                 </Text>
               </TouchableOpacity>
             ))}
+            {friendMembers.length % 2 === 1 && <View style={s.friendCardGhost} />}
           </View>
         </ScrollView>
       )}
@@ -697,6 +698,8 @@ const s = StyleSheet.create({
     paddingBottom: 12,
     paddingHorizontal: 10,
   },
+  // 홀수 명일 때 마지막 줄을 채우는 투명 칸 — 혼자 남은 카드가 전체 폭으로 늘어나지 않게 2열 폭 고정
+  friendCardGhost: { width: '48%', flexGrow: 1 },
   friendName: { ...T.text.label, fontWeight: '700', color: T.ink, marginTop: 8 },
   friendTierRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   friendTier: { ...T.text.caption, color: T.inkSub },
