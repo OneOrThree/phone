@@ -449,7 +449,7 @@ class StatsServiceTest {
         assertThat(response.goalMinutes()).isEqualTo(120);
         assertThat(response.goalAchieved()).isTrue();   // 80 <= 120 → 달성
         assertThat(response.achievedDays()).isNull();
-        assertThat(response.totalDays()).isNull();
+        assertThat(response.elapsedDays()).isNull();
     }
 
     @Test
@@ -572,7 +572,7 @@ class StatsServiceTest {
         assertThat(response.deltaMinutes()).isEqualTo(110);
         assertThat(response.goalAchieved()).isNull();           // week → null
         assertThat(response.achievedDays()).isEqualTo(2);       // 월·금 달성, 수 미달성
-        assertThat(response.totalDays()).isEqualTo(5);          // 월~금 5일 (DAYS.between(Mon,Fri)+1)
+        assertThat(response.elapsedDays()).isEqualTo(5);        // 월~금 5일 (DAYS.between(Mon,Fri)+1)
     }
 
     @Test
@@ -636,7 +636,7 @@ class StatsServiceTest {
         assertThat(response.to()).isEqualTo(FIXED_TODAY);
         assertThat(response.currentMinutes()).isEqualTo(200);   // 90+110
         assertThat(response.previousMinutes()).isZero();
-        assertThat(response.totalDays()).isEqualTo(3);          // 1일~3일
+        assertThat(response.elapsedDays()).isEqualTo(3);         // 1일~3일
         assertThat(response.achievedDays()).isEqualTo(1);       // row1만 달성
         assertThat(response.goalAchieved()).isNull();
     }

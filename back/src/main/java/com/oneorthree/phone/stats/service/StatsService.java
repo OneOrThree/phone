@@ -185,25 +185,25 @@ public class StatsService {
 
         Boolean goalAchieved;
         Integer achievedDays;
-        Integer totalDays;
+        Integer elapsedDays;
 
         if (period == StatsPeriod.DAY) {
             // day: 서버가 현재 목표로 재계산. 목표 미설정(goalMinutes=0)은 false.
             goalAchieved = goalMinutes > 0 && currentMinutes <= goalMinutes;
             achievedDays = null;
-            totalDays = null;
+            elapsedDays = null;
         } else {
             // week/month: 저장된 달성 플래그(일 단위) 기반 집계
             goalAchieved = null;
             achievedDays = (int) currentStats.stream()
                     .filter(DailyScreenTimeStat::isScreenTimeGoalAchieved).count();
-            totalDays = (int) (ChronoUnit.DAYS.between(range.currentFrom(), range.currentTo()) + 1);
+            elapsedDays = (int) (ChronoUnit.DAYS.between(range.currentFrom(), range.currentTo()) + 1);
         }
 
         return new ScreenTimePeriodStatsResponse(
                 period, range.currentFrom(), range.currentTo(),
                 currentMinutes, previousMinutes, currentMinutes - previousMinutes,
-                goalMinutes, goalAchieved, achievedDays, totalDays);
+                goalMinutes, goalAchieved, achievedDays, elapsedDays);
     }
 
     /**

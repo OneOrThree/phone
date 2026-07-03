@@ -90,7 +90,8 @@ public class StatsController {
 
     @Operation(summary = "기간별 스크린타임 통계 조회",
             description = "day·week·month 기간별 스크린타임 합계, 직전 기간 대비 delta, 목표 달성 정보 반환."
-                    + " day 단위에서 오늘 사용 기록이 없으면(0분) 목표 설정 시 달성으로 간주.")
+                    + " day 단위 goalAchieved: 목표가 설정된 경우(goalMinutes > 0)에만 유효하며,"
+                    + " 사용량이 목표 이내(0분 포함)이면 달성. 목표 미설정 시 false.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "400", description = "잘못된 period 값"),

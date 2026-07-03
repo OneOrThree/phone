@@ -195,7 +195,7 @@ class StatsControllerTest {
                 .andExpect(jsonPath("$.goalMinutes").value(120))
                 .andExpect(jsonPath("$.goalAchieved").value(true))
                 .andExpect(jsonPath("$.achievedDays").doesNotExist())
-                .andExpect(jsonPath("$.totalDays").doesNotExist())
+                .andExpect(jsonPath("$.elapsedDays").doesNotExist())
                 .andDo(print());
     }
 
@@ -219,7 +219,7 @@ class StatsControllerTest {
                 .andExpect(jsonPath("$.deltaMinutes").value(110))
                 .andExpect(jsonPath("$.goalAchieved").doesNotExist())
                 .andExpect(jsonPath("$.achievedDays").value(2))
-                .andExpect(jsonPath("$.totalDays").value(5))
+                .andExpect(jsonPath("$.elapsedDays").value(5))
                 .andDo(print());
     }
 
@@ -240,7 +240,7 @@ class StatsControllerTest {
                 .andExpect(jsonPath("$.to").value("2026-07-03"))
                 .andExpect(jsonPath("$.currentMinutes").value(200))
                 .andExpect(jsonPath("$.achievedDays").value(1))
-                .andExpect(jsonPath("$.totalDays").value(3))
+                .andExpect(jsonPath("$.elapsedDays").value(3))
                 .andDo(print());
     }
 
