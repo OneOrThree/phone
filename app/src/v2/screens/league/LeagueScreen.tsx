@@ -141,11 +141,21 @@ export default function LeagueScreen() {
     setPinnedOnly((v) => !v);
   }
 
-  // 프로필 오버레이 열기 — 순위 대신 개인 기록(최고 순위·주간 최고)을 보여준다.
+  // 프로필 진입 — 타인은 프로필 상세(FriendProfile, 친구/비친구 3분기)로 이동하고,
+  // 내 행만 기존 오버레이(개인 기록·실데이터 요약)를 띄운다.
   // 내 통계는 실데이터(오늘 목표 달성률·오늘 요일 스파크). 일별 기록이 아직 없어
   // 과거 6일은 0, 스트릭·기록은 mock — TODO: 일별 집중 기록/리그 히스토리 도입 시 실계산.
   function openProfile(member: RankedMember) {
     const isMe = member.userId === MY_USER_ID;
+    if (!isMe) {
+      navigation.navigate('FriendProfile', {
+        userId: member.userId,
+        nickname: member.nickname,
+        tierLevel: member.tierLevel,
+        exam: member.exam,
+      });
+      return;
+    }
     const goal = goalSeconds ?? 0;
     const todayRate = goal > 0 ? Math.min(todayFocusSeconds / goal, 1) : 0;
     const weekdayIdx = (new Date().getDay() + 6) % 7; // 월요일 시작
