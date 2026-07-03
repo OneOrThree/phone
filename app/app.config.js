@@ -41,7 +41,7 @@ export default {
         : []),
     ],
     slug: 'gromo-kr',
-    version: '0.0.5',
+    version: '0.1.0',
     orientation: 'portrait',
     userInterfaceStyle: 'light',
     newArchEnabled: true,
@@ -49,7 +49,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.oneorthree.gromo',
-      buildNumber: '21',
+      buildNumber: '1',
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
       },
