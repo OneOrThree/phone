@@ -221,7 +221,7 @@ jobs:
         if: steps.check.outputs.exists == 'true'
         working-directory: back/build/docs/api
         run: |
-          curl --fail -X POST "https://api.apidog.com/v1/projects/1305019/import-openapi" \
+          curl --fail -X POST "https://api.apidog.com/v1/projects/1328838/import-openapi" \
             -H "Authorization: Bearer ${{ secrets.APIDOG_TOKEN_KTH }}" \
             -H "X-Apidog-Api-Version: 2024-03-28" \
             -H "Content-Type: application/json" \
