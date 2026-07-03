@@ -56,10 +56,34 @@ export function logOnboardingCompleted(): void {
 }
 
 // ── 집중(Focus) [C] ──
-// focus_session_started만 클라가 발행한다. 완료(focus_session_completed)는 서버 검증 이벤트([S])이므로
-// 백엔드 MP가 소유 — 클라에서 발행하지 않는다(FocusModeScreen.handleStop 주석 참고).
-export function logFocusSessionStarted(p: { has_tag: boolean }): void {
+// 시작·일시정지·재개·메뉴·친구뷰만 클라가 발행한다(순수 클라 인터랙션).
+// 완료(focus_session_completed)는 서버 검증 이벤트([S])이므로 백엔드 MP가 소유 —
+// 클라에서 발행하지 않는다(FocusSessionScreen.finish 주석 참고).
+export type FocusMode = 'countup' | 'countdown' | 'pomodoro';
+
+// 세션 시작 — 실제 세션 화면 진입 시 1회. has_tag: 과목 부착 여부, mode: 타이머 모드.
+export function logFocusSessionStarted(p: { has_tag: boolean; mode: FocusMode }): void {
   track('focus_session_started', p);
+}
+
+// 세션 일시정지 — 유저가 정지 버튼으로 타이머를 멈춤. elapsed_seconds는 멈춘 시점의 적립 집중초.
+export function logFocusSessionPaused(p: { elapsed_seconds: number }): void {
+  track('focus_session_paused', p);
+}
+
+// 세션 재개 — 일시정지 상태에서 다시 시작.
+export function logFocusSessionResumed(): void {
+  track('focus_session_resumed');
+}
+
+// 집중 메뉴(햄버거 드로어) 열림.
+export function logFocusMenuOpened(): void {
+  track('focus_menu_opened');
+}
+
+// 집중 화면에서 친구 그리드 페이지로 스와이프해 노출.
+export function logFocusFriendsViewed(): void {
+  track('focus_friends_viewed');
 }
 
 // ── 홈(Home) 인터랙션 [C] ──
@@ -73,6 +97,17 @@ export function logHomeViewed(): void {
 // (핸드폰 사용시간은 네이티브 리포트 뷰가 그려 JS로 넘어오지 않음). sessions_count도 아직 미확보.
 export function logTodaySummaryViewed(p: { focus_minutes: number }): void {
   track('today_summary_viewed', p);
+}
+
+// 홈 버튼 탭 — 어떤 버튼(button)을 눌러 어디로(destination 라우트) 이동했는지 기록.
+export type HomeButton = 'today_summary_detail' | 'phone_usage';
+export function logHomeButtonTapped(p: { button: HomeButton; destination: string }): void {
+  track('home_button_tapped', p);
+}
+
+// 홈 당겨서 새로고침 — 오늘 요약 재조회 트리거.
+export function logHomeRefreshed(): void {
+  track('home_refreshed');
 }
 
 // ── User Properties (PII 금지) ──

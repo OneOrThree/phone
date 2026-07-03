@@ -36,6 +36,13 @@ import {
 import { EXAMPLE_FRIENDS } from './data';
 import { FriendGrid } from './components/FriendGrid';
 import { FocusMenuDrawer } from './components/FocusMenuDrawer';
+import {
+  logFocusSessionStarted,
+  logFocusSessionPaused,
+  logFocusSessionResumed,
+  logFocusMenuOpened,
+  logFocusFriendsViewed,
+} from '@/services/analyticsEvents';
 
 // 06/07/08 집중 세션(세로) + 09 친구 그리드(좌우 페이저) + 10/11 메뉴 드로어.
 // 타이머는 실제로 tick하고, 정지 시 집중시간·코인·세션 POST를 반영한다(구 FocusMode 로직 이식).
@@ -90,6 +97,13 @@ export default function FocusSessionScreen() {
   pausedRef.current = paused;
   const finishedRef = useRef(false);
   const startedAtRef = useRef(new Date().toISOString());
+
+  // 집중 세션 시작 계측(GROMO-537) — 실제 세션 화면 진입 시 1회.
+  // has_tag: 과목 부착 여부(현재 v2는 과목 선택이 필수라 항상 true지만, 계약상 명시). mode: 타이머 모드.
+  // 완료(focus_session_completed)는 서버 검증 이벤트[S]라 클라에서 발행하지 않는다.
+  useEffect(() => {
+    logFocusSessionStarted({ has_tag: Boolean(subjectId), mode });
+  }, [subjectId, mode]);
 
   // 한 tick 진행 — 모드별 다음 상태 계산.
   const nextTick = useCallback(
@@ -323,8 +337,19 @@ export default function FocusSessionScreen() {
     };
   }, [subjectName, finish, pomo.focusMin, saveLive, nextTick]);
 
+  // 일시정지/재개 토글 — 새 상태에 맞춰 계측. 상태 업데이터 안이 아니라 여기서 발행(중복 방지).
+  const togglePause = useCallback(() => {
+    const next = !pausedRef.current;
+    setPaused(next);
+    if (next) logFocusSessionPaused({ elapsed_seconds: Math.floor(sessionRef.current.elapsed) });
+    else logFocusSessionResumed();
+  }, []);
+
   function onScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
-    setPage(Math.round(e.nativeEvent.contentOffset.x / width));
+    const next = Math.round(e.nativeEvent.contentOffset.x / width);
+    // 친구 그리드(page 1)로 처음 넘어올 때만 노출 계측(왕복 스팸 방지).
+    if (next === 1 && page !== 1) logFocusFriendsViewed();
+    setPage(next);
   }
 
   return (
@@ -337,7 +362,10 @@ export default function FocusSessionScreen() {
           <TouchableOpacity
             style={s.hamburger}
             activeOpacity={0.8}
-            onPress={() => setDrawerOpen(true)}
+            onPress={() => {
+              logFocusMenuOpened();
+              setDrawerOpen(true);
+            }}
           >
             <Ionicons name="menu" size={18} color={T.paperLight} />
           </TouchableOpacity>
@@ -375,11 +403,7 @@ export default function FocusSessionScreen() {
 
         {/* 컨트롤 — 일시정지 / 정지 */}
         <View style={s.controls}>
-          <TouchableOpacity
-            style={s.ctrlBtn}
-            activeOpacity={0.8}
-            onPress={() => setPaused((p) => !p)}
-          >
+          <TouchableOpacity style={s.ctrlBtn} activeOpacity={0.8} onPress={togglePause}>
             <Ionicons name={paused ? 'play' : 'pause'} size={22} color={T.paperLight} />
           </TouchableOpacity>
           <TouchableOpacity style={[s.ctrlBtn, s.stopBtn]} activeOpacity={0.8} onPress={finish}>

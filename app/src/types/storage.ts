@@ -2,6 +2,7 @@
 // 키 네이밍 규칙은 'gromo:xxx' (CLAUDE.md 참고).
 export const STORAGE_KEYS = {
   storageVersion: 'gromo:storageVersion',
+  deviceId: 'gromo:deviceId',
   accessToken: 'gromo:accessToken',
   refreshToken: 'gromo:refreshToken',
   user: 'gromo:user',

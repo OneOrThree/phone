@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -10,6 +10,13 @@ import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { CharacterImage } from '@/components/character/CharacterImage';
+import { api } from '@/services/api';
+import {
+  logHomeViewed,
+  logTodaySummaryViewed,
+  logHomeButtonTapped,
+  logHomeRefreshed,
+} from '@/services/analyticsEvents';
 
 // v2 홈 화면 (GROMO-552) — Claude Design "01 홈" 시안 기반.
 // 상단바(닉/순위/티어) + 방+캐릭터 + 오늘 요약 카드. 탭바/FAB는 RootNavigator.
@@ -30,6 +37,19 @@ function hms(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
+}
+
+// 화면 전용 응답 타입 — 서버 TodayStatsResponse(/api/v1/stats/today)에 대응.
+// 값은 분(minute) 단위. 데이터 없으면 서버가 0/false로 채워 반환한다.
+interface TodayStatMetric {
+  todayMinutes: number;
+  goalMinutes: number;
+  goalAchieved: boolean;
+  progressPercent: number;
+}
+interface TodayStats {
+  focus: TodayStatMetric;
+  screenTime: TodayStatMetric;
 }
 
 // 오늘 카드 한 줄: 아이콘 + 라벨 + 큰 값 + 목표 진행 바.
@@ -134,7 +154,7 @@ function PhoneUsageRow({
 
 export default function HomeScreen() {
   // 목표는 온보딩값(집중=goalSeconds, 사용시간=screenTimeGoalSeconds).
-  const { nickname, goalSeconds, screenTimeGoalSeconds } = useUser();
+  const { nickname, userId, goalSeconds, screenTimeGoalSeconds } = useUser();
   // 오늘 공부 집중 = 실제 세션 누적(FocusContext). 집중 세션 정지 시 반영됨.
   const { todayFocusSeconds } = useFocus();
   const insets = useSafeAreaInsets();
@@ -142,24 +162,61 @@ export default function HomeScreen() {
 
   // 홈이 포커스될 때마다 사용량 리포트를 리마운트 → 최신값으로 재계산(묵은 값 방지).
   const [reportRefresh, setReportRefresh] = useState(0);
+  // 오늘 요약(서버 stats/today). null이면 미조회/게스트/실패 → 로컬 FocusContext 값으로 폴백.
+  const [todayStats, setTodayStats] = useState<TodayStats | null>(null);
+  // 오늘 집중 누적(로컬)을 effect 재실행 없이 최신값으로 읽기 위한 ref(폴백/계측용).
+  const todayFocusSecondsRef = useRef(todayFocusSeconds);
+  todayFocusSecondsRef.current = todayFocusSeconds;
+
+  // 오늘 요약을 서버(/api/v1/stats/today)에서 조회해 반영. 반환값은 계측용 focus_minutes.
+  // 게스트(userId 없음)나 조회 실패 시 서버값 대신 로컬 집중값으로 폴백한다.
+  const refetchTodayStats = useCallback(async (): Promise<number> => {
+    if (userId) {
+      try {
+        const { data } = await api.get<TodayStats>('/api/v1/stats/today');
+        setTodayStats(data);
+        return data.focus.todayMinutes;
+      } catch {
+        // 네트워크/인증 실패 → 아래 로컬 폴백
+      }
+    }
+    setTodayStats(null);
+    return Math.round(todayFocusSecondsRef.current / 60);
+  }, [userId]);
+
   useFocusEffect(
     useCallback(() => {
       setReportRefresh((r) => r + 1);
-    }, []),
+      // 홈 진입 계측(GROMO-537) — 홈 포커스마다 1회.
+      logHomeViewed();
+      let cancelled = false;
+      // 오늘 요약 조회 후 실제 표시값 기준으로 노출 계측.
+      refetchTodayStats().then((focusMinutes) => {
+        if (!cancelled) logTodaySummaryViewed({ focus_minutes: focusMinutes });
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [refetchTodayStats]),
   );
 
-  // 당겨서 새로고침 — 리포트 리마운트로 재계산. 네이티브 재계산이 async라 스피너는 잠깐만.
+  // 당겨서 새로고침 — 오늘 요약 재조회 + 네이티브 사용량 리포트 리마운트.
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(() => {
+    logHomeRefreshed();
     setRefreshing(true);
     setReportRefresh((r) => r + 1);
-    setTimeout(() => setRefreshing(false), 800);
-  }, []);
+    refetchTodayStats().finally(() => setTimeout(() => setRefreshing(false), 600));
+  }, [refetchTodayStats]);
 
   // TODO: 순위·티어(리그 API)는 아직 placeholder
   const rank = 8;
   const tierName = '초집중 모드';
   const hasNotifications = false; // TODO: 실제 안 읽은 알림 여부로 교체
+
+  // 공부 집중 값·목표: 서버 오늘요약(분→초) 우선, 없으면 로컬 FocusContext/온보딩 목표로 폴백.
+  const focusValueSeconds = todayStats ? todayStats.focus.todayMinutes * 60 : todayFocusSeconds;
+  const focusGoalSeconds = todayStats ? todayStats.focus.goalMinutes * 60 : goalSeconds;
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
@@ -224,7 +281,10 @@ export default function HomeScreen() {
             <TouchableOpacity
               style={s.moreBtn}
               activeOpacity={0.7}
-              onPress={() => navigation.navigate('Stats')}
+              onPress={() => {
+                logHomeButtonTapped({ button: 'today_summary_detail', destination: 'Stats' });
+                navigation.navigate('Stats');
+              }}
             >
               <Text style={s.more}>자세히</Text>
               <Ionicons name="chevron-forward" size={11} color={T.accent} />
@@ -237,13 +297,16 @@ export default function HomeScreen() {
             iconColor={T.greenDeep}
             iconBg={T.greenBg}
             label="공부 집중"
-            value={todayFocusSeconds}
-            goal={goalSeconds}
+            value={focusValueSeconds}
+            goal={focusGoalSeconds}
           />
           <PhoneUsageRow
             goalSeconds={screenTimeGoalSeconds}
             refresh={reportRefresh}
-            onPress={() => navigation.navigate('UsageDetail')}
+            onPress={() => {
+              logHomeButtonTapped({ button: 'phone_usage', destination: 'UsageDetail' });
+              navigation.navigate('UsageDetail');
+            }}
           />
         </View>
       </View>

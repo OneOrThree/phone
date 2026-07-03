@@ -328,7 +328,7 @@ export default function FocusModeScreen({ navigation, route }: TabScreenProps<'F
       startedAtRef.current = new Date().toISOString();
       lastCoinRef.current = 0;
       setSessionSeconds(0);
-      logFocusSessionStarted({ has_tag: tagId != null });
+      logFocusSessionStarted({ has_tag: tagId != null, mode: 'countup' });
       const id = setInterval(() => {
         const elapsed = Math.floor((Date.now() - (startTimeRef.current ?? Date.now())) / 1000);
         setSessionSeconds(elapsed);
