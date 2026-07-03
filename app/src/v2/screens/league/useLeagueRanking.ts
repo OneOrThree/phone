@@ -1,31 +1,68 @@
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { useUser } from '@/store/UserContext';
-import { useSubjects } from '@/store/SubjectContext';
-import { MY_USER_ID, RANKING, type RankedMember } from './mock';
+import { getMyRanking } from '@/services/leagueApi';
+import { MY_USER_ID, type RankedMember } from './mock';
 
-// 리그 랭킹(mock) + 내 행 실데이터 보정·시간순 정렬 — 리그 화면과 홈 상단바가 공유.
-// 내 행: 닉네임(UserContext)·시험(온보딩 focusCategory)·총 공부시간(과목 누적 합).
-// TODO: 리그 API 연동 시 fetch 결과로 대체
-export function useLeagueRanking() {
+// 리그 랭킹 — 리그 화면·홈 상단바가 공유. 서버(GET /league/me/ranking) 실데이터 전용(GROMO-538).
+// 게스트/미배정/실패 시 빈 배열(mock 폴백 없음) — 화면은 빈 상태로 처리한다.
+// - 멤버 tierLevel은 아레나가 동일 티어 집단이라 호출부가 넘긴 tierLevel(내 티어)을 부여한다
+//   (랭킹 응답엔 멤버별 티어가 없음). 티어 조회는 useLeagueMeta 한 곳에서만 하고 여기로 내려받는다.
+// - 내 행은 화면 로직(=== MY_USER_ID)을 그대로 쓰도록 userId를 MY_USER_ID 센티널로 치환.
+// - 프로필 상세 필드(달성률·스트릭·기록)는 랭킹 응답에 없어 0 — 프로필 조회(GROMO-539/557)에서 채운다.
+export function useLeagueRanking(tierLevel = 1) {
   const myCategory = useFocusCategory();
-  const { nickname: myNickname } = useUser();
-  const { subjects } = useSubjects();
+  const { nickname: myNickname, userId } = useUser();
 
-  const myMinutes = Math.round(subjects.reduce((acc, sub) => acc + sub.accumulatedSeconds, 0) / 60);
+  // 서버 멤버 원본(tierLevel 제외 — 렌더 시 파라미터로 주입). null이면 미조회/게스트/실패/미배정.
+  const [members, setMembers] = useState<Omit<RankedMember, 'tierLevel'>[] | null>(null);
 
-  const ranking: RankedMember[] = RANKING.map((m) =>
-    m.userId === MY_USER_ID
-      ? {
-          ...m,
-          nickname: myNickname || m.nickname,
-          exam: myCategory ?? m.exam,
-          totalFocusMinutes: myMinutes,
+  useFocusEffect(
+    useCallback(() => {
+      if (!userId) {
+        setMembers(null);
+        return;
+      }
+      let cancelled = false;
+      (async () => {
+        try {
+          const res = await getMyRanking();
+          if (cancelled) return;
+          setMembers(
+            res.map((m) => {
+              const isMe = m.userId === userId;
+              return {
+                rank: m.rank,
+                userId: isMe ? MY_USER_ID : m.userId,
+                nickname: isMe ? myNickname || m.nickname : m.nickname,
+                totalFocusMinutes: m.totalFocusMinutes,
+                result: m.result,
+                exam: myCategory ?? '',
+                achievedRate: 0,
+                friendCount: 0,
+                streakDays: 0,
+                bestRank: m.rank,
+                bestWeekMinutes: m.totalFocusMinutes,
+              };
+            }),
+          );
+        } catch {
+          if (!cancelled) setMembers(null); // 네트워크/인증 실패 → 빈 상태
         }
-      : m,
-  ).sort((a, b) => b.totalFocusMinutes - a.totalFocusMinutes);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [userId, myCategory, myNickname]),
+  );
+
+  // 멤버별 tierLevel 주입(아레나 동일 티어). 데이터 없으면 빈 배열.
+  const ranking: RankedMember[] = members ? members.map((m) => ({ ...m, tierLevel })) : [];
 
   const me = ranking.find((m) => m.userId === MY_USER_ID);
-  const myLeagueLabel = me?.exam ?? null;
+  const myLeagueLabel = me?.exam ?? myCategory ?? null;
+  const myMinutes = me?.totalFocusMinutes ?? 0;
 
   // 내 시험 리그 내 순위 (1-base) — 내 정보가 없으면 null
   const myLeagueRank =

@@ -40,6 +40,7 @@ import {
   logFocusSessionStarted,
   logFocusSessionPaused,
   logFocusSessionResumed,
+  logFocusSessionAbandoned,
   logFocusMenuOpened,
   logFocusFriendsViewed,
 } from '@/services/analyticsEvents';
@@ -109,8 +110,19 @@ export default function FocusSessionScreen() {
   // has_tag: 과목 부착 여부(현재 v2는 과목 선택이 필수라 항상 true지만, 계약상 명시). mode: 타이머 모드.
   // 완료(focus_session_completed)는 서버 검증 이벤트[S]라 클라에서 발행하지 않는다.
   useEffect(() => {
-    logFocusSessionStarted({ has_tag: Boolean(subjectId), mode });
-  }, [subjectId, mode]);
+    // 목표 시간(초→분): 카운트다운=목표, 뽀모도로=집중블록×세트 총 집중분. 카운트업은 목표 없음.
+    const goalSecondsForLog =
+      mode === 'countdown'
+        ? goal
+        : mode === 'pomodoro'
+          ? pomo.focusMin * pomo.sets * 60
+          : undefined;
+    logFocusSessionStarted({
+      has_tag: Boolean(subjectId),
+      mode,
+      goal_minutes: goalSecondsForLog != null ? Math.round(goalSecondsForLog / 60) : undefined,
+    });
+  }, [subjectId, mode, goal, pomo.focusMin, pomo.sets]);
 
   // 한 tick 진행 — 모드별 다음 상태 계산.
   const nextTick = useCallback(
@@ -352,6 +364,11 @@ export default function FocusSessionScreen() {
           saveLive(cur.elapsed);
         } else if (away > LEAVE_END_S) {
           // 폴백(실드 없음) — 15초 초과 시 자동 종료(나가기 직전까지만 저장)
+          // 정상 완료가 아닌 중도 이탈 종료이므로 abandoned 계측(reason: leave_timeout).
+          logFocusSessionAbandoned({
+            elapsed_seconds: Math.floor(sessionRef.current.elapsed),
+            reason: 'leave_timeout',
+          });
           finish();
         }
       } else {
@@ -384,6 +401,18 @@ export default function FocusSessionScreen() {
     if (next) logFocusSessionPaused({ elapsed_seconds: Math.floor(sessionRef.current.elapsed) });
     else logFocusSessionResumed();
   }, []);
+
+  // 정지 버튼(사용자 수동 종료) — 아직 완료되지 않은 세션을 끝내는 것이므로 abandoned 계측 후 종료.
+  // 카운트다운/뽀모도로 정상 완료는 done 이펙트가 finish를 부르므로 이 경로를 타지 않는다.
+  const stopByUser = useCallback(() => {
+    if (!finishedRef.current && !sessionRef.current.done) {
+      logFocusSessionAbandoned({
+        elapsed_seconds: Math.floor(sessionRef.current.elapsed),
+        reason: 'user_exit',
+      });
+    }
+    finish();
+  }, [finish]);
 
   function onScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
     const next = Math.round(e.nativeEvent.contentOffset.x / width);
@@ -446,7 +475,7 @@ export default function FocusSessionScreen() {
           <TouchableOpacity style={s.ctrlBtn} activeOpacity={0.8} onPress={togglePause}>
             <Ionicons name={paused ? 'play' : 'pause'} size={22} color={T.paperLight} />
           </TouchableOpacity>
-          <TouchableOpacity style={[s.ctrlBtn, s.stopBtn]} activeOpacity={0.8} onPress={finish}>
+          <TouchableOpacity style={[s.ctrlBtn, s.stopBtn]} activeOpacity={0.8} onPress={stopByUser}>
             <Ionicons name="square" size={19} color={T.paperLight} />
           </TouchableOpacity>
         </View>

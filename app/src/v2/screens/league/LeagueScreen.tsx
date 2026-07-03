@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   Image,
   LayoutAnimation,
@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
@@ -18,14 +18,21 @@ import { tierByLevel } from '@/constants/tiers';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import { useLeagueRanking } from './useLeagueRanking';
+import { useLeagueMeta } from './useLeagueMeta';
 import { useFriends } from './useFriends';
 import type { V2RootStackParamList } from '@/navigation/types';
-import { DEADLINE_LABEL, INITIAL_PINS, MY_TIER, MY_USER_ID, type RankedMember } from './mock';
+import { MY_USER_ID, type RankedMember } from './mock';
 import { fmtMinutes } from './format';
 import { RankRow } from './components/RankRow';
 import { MemberAvatar } from './components/MemberAvatar';
 import { TierBadge } from './components/TierBadge';
 import { ProfileSheet, type ProfileTarget } from './components/ProfileSheet';
+import {
+  logLeagueViewed,
+  logLeagueTabChanged,
+  logLeagueFilterSelected,
+  logLeagueProfileOpened,
+} from '@/services/analyticsEvents';
 
 // 리그 메인 (탭 2번째) — 포디움형 레이아웃.
 // 리그 탭: 최상단 세그먼트 + 좌 마감/우 제목(탭=리그 선택 드롭다운)
@@ -60,7 +67,7 @@ export default function LeagueScreen() {
   // 핀한 사람만 보기 — 리스트를 나+핀으로 좁히고 나 대비 차이를 붙인다
   const [pinnedOnly, setPinnedOnly] = useState(false);
   // 핀 토글은 로컬 상태 — TODO: POST·DELETE /friends/{id}/pin 연동
-  const [pinned, setPinned] = useState<Set<string>>(() => new Set(INITIAL_PINS));
+  const [pinned, setPinned] = useState<Set<string>>(() => new Set<string>());
 
   const listRef = useRef<ScrollView>(null);
   // 랭킹 리스트 안 내 행의 y — 스트립 탭/진입 자동 스크롤 목적지
@@ -70,8 +77,17 @@ export default function LeagueScreen() {
   // 진입·리그 전환 직후 1회 내 행으로 자동 스크롤
   const pendingScrollToMe = useRef(true);
 
-  // 랭킹(mock)+내 행 실데이터 보정 — 홈 상단바와 공유하는 훅(./useLeagueRanking)
-  const { ranking, myLeagueLabel, myMinutes } = useLeagueRanking();
+  // 내 티어·마감 스케줄 실데이터 (GROMO-538) — 티어 조회는 여기 한 곳에서만.
+  const { tier, deadlineLabel } = useLeagueMeta();
+  // 리그 랭킹 실데이터 — 홈 상단바와 공유. 멤버 티어는 위 내 티어를 내려받는다(중복 조회 방지).
+  const { ranking, myLeagueLabel, myMinutes } = useLeagueRanking(tier.tierLevel ?? 1);
+
+  // 리그 화면 진입 계측 (GROMO-538) — 포커스마다 1회.
+  useFocusEffect(
+    useCallback(() => {
+      logLeagueViewed();
+    }, []),
+  );
   const { goalSeconds } = useUser();
   const { todayFocusSeconds } = useFocus();
 
@@ -91,7 +107,7 @@ export default function LeagueScreen() {
     ...new Set([...(myLeagueLabel ? [myLeagueLabel] : []), ...ranking.map((m) => m.exam)]),
   ];
 
-  const myTier = tierByLevel(MY_TIER.tierLevel ?? 1);
+  const myTier = tierByLevel(tier.tierLevel ?? 1);
 
   // 내 순위 — 위 리스트와 같은 파생값에서만 계산
   const myIdx = visibleRanking.findIndex((m) => m.userId === MY_USER_ID);
@@ -124,6 +140,8 @@ export default function LeagueScreen() {
 
   // 드롭다운에서 리그 선택 — 최상단(포디움)부터 보여주고, 내 행이 화면 밖이면 자동 스크롤 예약
   function selectLeague(league: string) {
+    // 이미 선택된 리그를 다시 누르면 계측 생략(탭 전환 가드와 동일 — 중복 발화 방지).
+    if (league !== filter) logLeagueFilterSelected({ is_all: league === LEAGUE_ALL });
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setLeagueFilter(league);
     setLeagueMenuOpen(false);
@@ -142,6 +160,7 @@ export default function LeagueScreen() {
   // 과거 6일은 0, 스트릭·기록은 mock — TODO: 일별 집중 기록/리그 히스토리 도입 시 실계산.
   function openProfile(member: RankedMember) {
     const isMe = member.userId === MY_USER_ID;
+    logLeagueProfileOpened({ is_me: isMe });
     if (!isMe) {
       navigation.navigate('FriendProfile', {
         userId: member.userId,
@@ -186,7 +205,10 @@ export default function LeagueScreen() {
               <TouchableOpacity
                 key={k}
                 style={[s.segBtn, on ? s.segBtnOn : null]}
-                onPress={() => setTab(k)}
+                onPress={() => {
+                  if (tab !== k) logLeagueTabChanged({ tab: k });
+                  setTab(k);
+                }}
                 activeOpacity={0.8}
               >
                 <Text style={[s.segText, on ? s.segTextOn : null]}>{TAB_LABEL[k]}</Text>
@@ -200,7 +222,7 @@ export default function LeagueScreen() {
       {tab === 'league' && (
         <View style={s.header}>
           <Text style={s.deadline} allowFontScaling={false}>
-            {DEADLINE_LABEL}
+            {deadlineLabel ?? ''}
           </Text>
           <TouchableOpacity
             style={s.headerToggle}
