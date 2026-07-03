@@ -1,15 +1,14 @@
 // 리그 화면 공용 포맷터
 
-// 분 → 시안 표기 "38h 20m" / "12h 05m" / "45m" (시간이 있으면 분은 2자리 패딩)
+// 분 → 디지털 표기 "21:35:00" (시:분:초 — 분 단위 데이터라 초는 00 고정)
 export function fmtMinutes(totalMinutes: number): string {
   const h = Math.floor(totalMinutes / 60);
   const m = Math.round(totalMinutes % 60);
-  if (h) return `${h}h ${String(m).padStart(2, '0')}m`;
-  return `${m}m`;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
 }
 
-// 나 대비 차이 표기 — "+2h 12m"(나보다 앞섬) / "-40m"(뒤짐) / "±0m"
+// 나 대비 차이 표기 — "+02:12:00"(나보다 앞섬) / "-00:40:00"(뒤짐)
 export function fmtDelta(deltaMinutes: number): string {
-  if (deltaMinutes === 0) return '±0m';
+  if (deltaMinutes === 0) return '00:00:00';
   return (deltaMinutes > 0 ? '+' : '-') + fmtMinutes(Math.abs(deltaMinutes));
 }

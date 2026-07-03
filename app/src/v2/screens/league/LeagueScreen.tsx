@@ -1,5 +1,14 @@
 import { useRef, useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Image,
+  LayoutAnimation,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -26,13 +35,15 @@ import { MyRankingSheet, type MyRankStatus, type RivalEntry } from './components
 import { ProfileSheet, type ProfileTarget } from './components/ProfileSheet';
 
 // 리그 메인 (탭 2번째) — 시안 "리그 메인 · 전체 랭킹 · 핀/모달/프로필" + "친구 탭".
-// 리그 탭: 제목/마감 + 세그먼트 + 리그 범위 토글(내 시험 ↔ 전체) + 혼합 티어 랭킹 + 하단 '내 순위' 시트.
-//   - 시안의 시험 칩은 카테고리(온보딩 16)가 많아 토글 2개로 축소.
+// 리그 탭: 최상단 세그먼트 + 좌상단 마감/우측 제목(탭=리그 선택 드롭다운) + 혼합 티어 랭킹 + 하단 '내 순위' 시트.
+//   - 시안의 시험 칩은 카테고리(온보딩 16)가 많아 폐기 — 제목 드롭다운으로 전체/내 시험/다른 시험 전환.
 //   - 내 순위는 리스트와 같은 파생값 하나만 쓴다(시트와 순위 기준 이원화 방지).
 // 친구 탭: 친구 검색·추가 엔트리 + 친구 2열 그리드. 데이터는 UI-first mock(./mock).
 
 // 탭바가 차지하는 높이(홈 '오늘' 카드 marginBottom 선례와 동일 기준)
 const TAB_BAR_SPACE = 74;
+// 리그 드롭다운의 '전체' 항목 라벨
+const LEAGUE_ALL = '전체';
 // 접힌 "내 순위" 시트가 가리는 높이 — 리스트 하단 패딩에 반영
 const SHEET_COLLAPSED_SPACE = 150;
 
@@ -46,8 +57,9 @@ export default function LeagueScreen() {
   const [tab, setTab] = useState<TabKey>('league');
   const [sheetOpen, setSheetOpen] = useState(false);
   const [selected, setSelected] = useState<ProfileTarget | null>(null);
-  // 리그 범위 — 기본은 내 시험 리그, '전체'로 전환 가능
-  const [showAll, setShowAll] = useState(false);
+  // 현재 선택한 리그 — null이면 기본(내 시험). 제목 드롭다운에서 전체/다른 시험으로 전환
+  const [leagueFilter, setLeagueFilter] = useState<string | null>(null);
+  const [leagueMenuOpen, setLeagueMenuOpen] = useState(false);
   // 핀 토글은 로컬 상태 — TODO: POST·DELETE /friends/{id}/pin 연동
   const [pinned, setPinned] = useState<Set<string>>(() => new Set(INITIAL_PINS));
 
@@ -66,10 +78,17 @@ export default function LeagueScreen() {
 
   const friendIds = new Set(FRIENDS.map((f) => f.userId));
 
-  // 리그 범위 적용 — 내 시험 정보가 없으면 전체만
-  const viewAll = showAll || !myLeagueLabel;
-  const visibleRanking = viewAll ? ranking : ranking.filter((m) => m.exam === myLeagueLabel);
-  const title = viewAll ? '전체 리그' : `${myLeagueLabel} 리그`;
+  // 현재 리그 — 기본은 내 시험, 드롭다운 선택이 있으면 그 리그
+  const filter = leagueFilter ?? myLeagueLabel ?? LEAGUE_ALL;
+  const isAll = filter === LEAGUE_ALL;
+  const visibleRanking = isAll ? ranking : ranking.filter((m) => m.exam === filter);
+  const title = isAll ? '전체 리그' : `${filter} 리그`;
+
+  // 전환 가능한 리그 — 전체 + 내 시험 + 랭킹 데이터에 있는 시험들
+  const leagues = [
+    LEAGUE_ALL,
+    ...new Set([...(myLeagueLabel ? [myLeagueLabel] : []), ...ranking.map((m) => m.exam)]),
+  ];
 
   const myTier = tierByLevel(MY_TIER.tierLevel ?? 1);
 
@@ -120,6 +139,13 @@ export default function LeagueScreen() {
     listRef.current?.scrollTo({ y: Math.max(myRowY.current - 90, 0), animated: true });
   }
 
+  // 드롭다운에서 리그 선택 — 리스트 전환에 레이아웃 애니메이션
+  function selectLeague(league: string) {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setLeagueFilter(league);
+    setLeagueMenuOpen(false);
+  }
+
   // 프로필 오버레이 열기 — 시안 prof 파생값(전체 순위·시험 리그 순위) 그대로
   function openProfile(member: RankedMember) {
     const examList = ranking.filter((m) => m.exam === member.exam);
@@ -149,17 +175,7 @@ export default function LeagueScreen() {
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
-      {/* ── 헤더: 제목 + 마감 카운트다운 (시안: 리그 탭에서만) ── */}
-      {tab === 'league' && (
-        <View style={s.header}>
-          <Text style={s.headerTitle}>{title}</Text>
-          <Text style={s.deadline} allowFontScaling={false}>
-            {DEADLINE_LABEL}
-          </Text>
-        </View>
-      )}
-
-      {/* ── 리그/친구 세그먼트 ── */}
+      {/* ── 최상단: 리그/친구 세그먼트 ── */}
       <View style={[s.segmentWrap, tab === 'friend' ? s.segmentWrapFriend : null]}>
         <View style={s.segment}>
           {(['league', 'friend'] as TabKey[]).map((k) => {
@@ -178,28 +194,25 @@ export default function LeagueScreen() {
         </View>
       </View>
 
+      {/* ── 헤더: 좌상단 마감 카운트다운 + 우측 제목(탭=리그 선택 드롭다운) ── */}
+      {tab === 'league' && (
+        <View style={s.header}>
+          <Text style={s.deadline} allowFontScaling={false}>
+            {DEADLINE_LABEL}
+          </Text>
+          <TouchableOpacity
+            style={s.headerToggle}
+            activeOpacity={0.7}
+            onPress={() => setLeagueMenuOpen(true)}
+          >
+            <Text style={s.headerTitle}>{title}</Text>
+            <Ionicons name="chevron-down" size={17} color={T.inkSub} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {tab === 'league' ? (
         <>
-          {/* ── 리그 범위 토글 — 내 시험 리그 ↔ 전체 ── */}
-          <View style={s.scopeRow}>
-            {myLeagueLabel != null && (
-              <TouchableOpacity
-                style={[s.scopeBtn, !viewAll ? s.scopeBtnOn : null]}
-                activeOpacity={0.8}
-                onPress={() => setShowAll(false)}
-              >
-                <Text style={[s.scopeText, !viewAll ? s.scopeTextOn : null]}>{myLeagueLabel}</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={[s.scopeBtn, viewAll ? s.scopeBtnOn : null]}
-              activeOpacity={0.8}
-              onPress={() => setShowAll(true)}
-            >
-              <Text style={[s.scopeText, viewAll ? s.scopeTextOn : null]}>전체</Text>
-            </TouchableOpacity>
-          </View>
-
           {/* ── 내 티어 스트립 → 티어 안내 (시안에 진입점이 없어 둔 임시 진입점) ── */}
           <TouchableOpacity
             style={s.tierStrip}
@@ -315,6 +328,42 @@ export default function LeagueScreen() {
         />
       )}
 
+      {/* ── 리그 선택 드롭다운 — 헤더 제목 탭 시 (전체/내 시험/다른 시험) ── */}
+      <Modal
+        visible={leagueMenuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLeagueMenuOpen(false)}
+      >
+        <TouchableOpacity
+          style={s.menuBackdrop}
+          activeOpacity={1}
+          onPress={() => setLeagueMenuOpen(false)}
+        >
+          <View style={[s.menuCard, { top: insets.top + 48 }]}>
+            <ScrollView bounces={false}>
+              {leagues.map((l) => {
+                const on = l === filter;
+                return (
+                  <TouchableOpacity
+                    key={l}
+                    style={s.menuRow}
+                    activeOpacity={0.8}
+                    onPress={() => selectLeague(l)}
+                  >
+                    <Text style={[s.menuText, on ? s.menuTextOn : null]}>
+                      {l === LEAGUE_ALL ? '전체 리그' : `${l} 리그`}
+                    </Text>
+                    {l === myLeagueLabel && <Text style={s.menuMine}>내 시험</Text>}
+                    {on && <Ionicons name="checkmark" size={15} color={T.accent} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* ── 프로필 오버레이 ── */}
       <ProfileSheet target={selected} onClose={() => setSelected(null)} />
     </SafeAreaView>
@@ -326,17 +375,47 @@ const s = StyleSheet.create({
 
   header: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 12,
     paddingBottom: 10,
   },
+  headerToggle: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   headerTitle: { ...T.text.title, color: T.ink },
   deadline: { ...T.text.caption, color: '#9C6B43' },
 
-  segmentWrap: { paddingHorizontal: 18 },
-  segmentWrapFriend: { paddingTop: 10, paddingBottom: 2 },
+  // 리그 선택 드롭다운
+  menuBackdrop: { flex: 1, backgroundColor: 'rgba(20,14,9,0.25)' },
+  menuCard: {
+    position: 'absolute',
+    right: 20,
+    minWidth: 172,
+    maxHeight: 330,
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.border,
+    borderRadius: 14,
+    paddingVertical: 6,
+    shadowColor: '#50371E',
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+  },
+  menuText: { ...T.text.label, flex: 1, color: T.ink },
+  menuTextOn: { color: T.accent, fontWeight: '800' },
+  menuMine: { ...T.text.caption, color: T.inkSub },
+
+  segmentWrap: { paddingHorizontal: 18, paddingTop: 8 },
+  segmentWrapFriend: { paddingBottom: 2 },
   segment: {
     flexDirection: 'row',
     backgroundColor: '#EAE0CF',
@@ -356,25 +435,12 @@ const s = StyleSheet.create({
   segText: { ...T.text.label, color: T.inkSub },
   segTextOn: { color: T.ink, fontWeight: '700' },
 
-  scopeRow: { flexDirection: 'row', gap: 7, paddingHorizontal: 18, marginTop: 12 },
-  scopeBtn: {
-    backgroundColor: T.white,
-    borderWidth: 1,
-    borderColor: T.border,
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  scopeBtnOn: { backgroundColor: T.accent, borderColor: T.accent },
-  scopeText: { ...T.text.caption, color: '#5C5246' },
-  scopeTextOn: { color: T.white, fontWeight: '700' },
-
   tierStrip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     marginHorizontal: 18,
-    marginTop: 10,
+    marginTop: 12,
     marginBottom: 7,
     alignSelf: 'flex-start',
   },
