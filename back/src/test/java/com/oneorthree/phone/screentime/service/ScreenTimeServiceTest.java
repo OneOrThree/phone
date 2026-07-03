@@ -1,5 +1,7 @@
 package com.oneorthree.phone.screentime.service;
 
+import com.oneorthree.phone.common.logging.UserActivityEvent;
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
@@ -19,12 +21,14 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -43,6 +47,9 @@ class ScreenTimeServiceTest {
 
     @Mock
     private ScreenTimeNotificationPort notificationPort;
+
+    @Mock
+    private UserActivityEventLogger userActivityEventLogger;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final String COUNTRY_CODE = "KR";
@@ -163,6 +170,70 @@ class ScreenTimeServiceTest {
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
         assertThat(captor.getValue().getDate()).isEqualTo(utcDate);
+    }
+
+    // ── DAILY_SCREEN_TIME_GOAL_ACHIEVED 이벤트 (GROMO-395 커밋 4) ───────────
+
+    @Test
+    @DisplayName("기존 row false → 요청 true 전이 → DAILY_SCREEN_TIME_GOAL_ACHIEVED 발행")
+    void saveScreenTimeFalseToTrueEmitsEvent() {
+        User user = normalUser();
+        DailyScreenTimeStat existing = DailyScreenTimeStat.builder()
+                .user(user).date(expectedDate()).screenTimeGoalAchieved(false).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, expectedDate()))
+                .willReturn(Optional.of(existing));
+
+        screenTimeService.saveScreenTime(USER_ID, request(true, 120));
+
+        verify(userActivityEventLogger).log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED,
+                Map.of("date", expectedDate().toString(), "actual_screen_time_minutes", 120));
+    }
+
+    @Test
+    @DisplayName("기존 row true → 요청 true 재전송 → 이벤트 미발행")
+    void saveScreenTimeTrueToTrueDoesNotEmit() {
+        User user = normalUser();
+        DailyScreenTimeStat existing = DailyScreenTimeStat.builder()
+                .user(user).date(expectedDate()).screenTimeGoalAchieved(true).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, expectedDate()))
+                .willReturn(Optional.of(existing));
+
+        screenTimeService.saveScreenTime(USER_ID, request(true, 150));
+
+        verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), anyMap());
+    }
+
+    @Test
+    @DisplayName("신규 row 가 곧바로 true → DAILY_SCREEN_TIME_GOAL_ACHIEVED 발행")
+    void saveScreenTimeNewRowTrueEmitsEvent() {
+        User user = normalUser();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, expectedDate()))
+                .willReturn(Optional.empty());
+        given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
+                .willAnswer(i -> i.getArgument(0));
+
+        screenTimeService.saveScreenTime(USER_ID, request(true, 90));
+
+        verify(userActivityEventLogger).log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED,
+                Map.of("date", expectedDate().toString(), "actual_screen_time_minutes", 90));
+    }
+
+    @Test
+    @DisplayName("요청 false(신규 row) → 이벤트 미발행")
+    void saveScreenTimeFalseDoesNotEmit() {
+        User user = normalUser();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, expectedDate()))
+                .willReturn(Optional.empty());
+        given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
+                .willAnswer(i -> i.getArgument(0));
+
+        screenTimeService.saveScreenTime(USER_ID, request(false, 200));
+
+        verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), anyMap());
     }
 
     // ── 에러 케이스 ────────────────────────────────────────────────────────

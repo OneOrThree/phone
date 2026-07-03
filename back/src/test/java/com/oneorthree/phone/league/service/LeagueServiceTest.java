@@ -1,5 +1,7 @@
 package com.oneorthree.phone.league.service;
 
+import com.oneorthree.phone.common.logging.UserActivityEvent;
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.league.domain.LeagueArena;
 import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
@@ -23,6 +25,7 @@ import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -31,6 +34,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class LeagueServiceTest {
@@ -43,6 +48,9 @@ class LeagueServiceTest {
 
     @Mock
     private LeagueTierConfigRepository leagueTierConfigRepository;
+
+    @Mock
+    private UserActivityEventLogger userActivityEventLogger;
 
     private LeagueTierConfig tierConfig(int tierLevel, String badgeId) {
         return LeagueTierConfig.builder()
@@ -266,6 +274,37 @@ class LeagueServiceTest {
 
         assertThat(response.assigned()).isFalse();
         assertThat(response.myRank()).isNull();
+    }
+
+    @Test
+    @DisplayName("내 순위 조회(소속) → LEAGUE_RANK_VIEWED(my_rank·league_id·tier_level·total_focus_minutes) 발행")
+    void getMyRankEmitsRankViewed() {
+        LeagueArena arena = activeArena();
+        LeagueArenaUser me = member(USER_ID, "me", arena, 200);
+        LeagueArenaUser top = member(U2, "top", arena, 300);
+        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+                .willReturn(Optional.of(me));
+        given(leagueArenaUserRepository.findRankedByArena(arena))
+                .willReturn(List.of(top, me));
+
+        leagueService.getMyRank(USER_ID);
+
+        verify(userActivityEventLogger).log(UserActivityEvent.LEAGUE_RANK_VIEWED,
+                Map.of("my_rank", 2,
+                        "league_id", ARENA_ID.toString(),
+                        "tier_level", 3,
+                        "total_focus_minutes", 200));
+    }
+
+    @Test
+    @DisplayName("내 순위 조회(미소속) → LEAGUE_RANK_VIEWED 미발행")
+    void getMyRankUnassignedDoesNotEmit() {
+        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+                .willReturn(Optional.empty());
+
+        leagueService.getMyRank(USER_ID);
+
+        verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), any());
     }
 
     // ── getMySchedule ─────────────────────────────────────────────────────

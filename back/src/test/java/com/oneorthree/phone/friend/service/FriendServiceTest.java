@@ -1,5 +1,7 @@
 package com.oneorthree.phone.friend.service;
 
+import com.oneorthree.phone.common.logging.UserActivityEvent;
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.friend.domain.Friendship;
 import com.oneorthree.phone.friend.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.dto.FriendRelation;
@@ -32,6 +34,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -68,6 +71,9 @@ class FriendServiceTest {
     @Mock
     private FriendSearchStrategy nicknameStrategy;
 
+    @Mock
+    private UserActivityEventLogger userActivityEventLogger;
+
     private FriendService friendService;
 
     private UUID meId;
@@ -80,7 +86,7 @@ class FriendServiceTest {
         given(nicknameStrategy.type()).willReturn(SearchType.NICKNAME);
         friendService = new FriendService(friendshipRepository, userRepository, pinnedFriendRepository,
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
-                List.of(nicknameStrategy));
+                userActivityEventLogger, List.of(nicknameStrategy));
 
         meId = UUID.randomUUID();
         targetId = UUID.randomUUID();
@@ -176,6 +182,46 @@ class FriendServiceTest {
     }
 
     @Test
+    @DisplayName("친구 요청 생성 — 신규 요청이면 FRIEND_REQUEST_SENT(reopened=false) 발행")
+    void createRequest_new_emitsRequestSent() {
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(userRepository.findById(targetId)).willReturn(Optional.of(target));
+        given(friendshipRepository.findPair(me, target)).willReturn(List.of());
+
+        friendService.createRequest(meId, targetId);
+
+        verify(userActivityEventLogger).log(UserActivityEvent.FRIEND_REQUEST_SENT,
+                Map.of("to_user_id", targetId.toString(), "reopened", false));
+    }
+
+    @Test
+    @DisplayName("친구 요청 생성 — REJECTED 재전환이면 FRIEND_REQUEST_SENT(reopened=true) 발행")
+    void createRequest_reopened_emitsRequestSentWithReopenedTrue() {
+        Friendship rejected = friendship(me, target, FriendshipStatus.REJECTED);
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(userRepository.findById(targetId)).willReturn(Optional.of(target));
+        given(friendshipRepository.findPair(me, target)).willReturn(List.of(rejected));
+
+        friendService.createRequest(meId, targetId);
+
+        verify(userActivityEventLogger).log(UserActivityEvent.FRIEND_REQUEST_SENT,
+                Map.of("to_user_id", targetId.toString(), "reopened", true));
+    }
+
+    @Test
+    @DisplayName("친구 요청 생성 — 검증 실패(이미 PENDING)면 이벤트 미발행")
+    void createRequest_pendingExists_doesNotEmit() {
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(userRepository.findById(targetId)).willReturn(Optional.of(target));
+        given(friendshipRepository.findPair(me, target))
+                .willReturn(List.of(friendship(me, target, FriendshipStatus.PENDING)));
+
+        assertThatThrownBy(() -> friendService.createRequest(meId, targetId))
+                .isInstanceOf(FriendException.class);
+        verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), any());
+    }
+
+    @Test
     @DisplayName("친구 요청 생성 — 양방향 중복: (target→me) PENDING 있으면 거부")
     void createRequest_reverseDirectionPending_throws() {
         Friendship reverse = friendship(target, me, FriendshipStatus.PENDING);
@@ -200,6 +246,31 @@ class FriendServiceTest {
         friendService.acceptRequest(meId, requestId);
 
         assertThat(request.getStatus()).isEqualTo(FriendshipStatus.ACCEPTED);
+    }
+
+    @Test
+    @DisplayName("요청 수락 — FRIEND_ADDED(request_id·from_user_id) 발행")
+    void acceptRequest_emitsFriendAdded() {
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(target, me, FriendshipStatus.PENDING);
+        given(friendshipRepository.findById(requestId)).willReturn(Optional.of(request));
+
+        friendService.acceptRequest(meId, requestId);
+
+        verify(userActivityEventLogger).log(UserActivityEvent.FRIEND_ADDED,
+                Map.of("request_id", requestId.toString(), "from_user_id", targetId.toString()));
+    }
+
+    @Test
+    @DisplayName("요청 수락 — 발신자 시도(NOT_REQUEST_RECEIVER)면 FRIEND_ADDED 미발행")
+    void acceptRequest_sender_doesNotEmit() {
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(me, target, FriendshipStatus.PENDING);
+        given(friendshipRepository.findById(requestId)).willReturn(Optional.of(request));
+
+        assertThatThrownBy(() -> friendService.acceptRequest(meId, requestId))
+                .isInstanceOf(FriendException.class);
+        verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), any());
     }
 
     @Test

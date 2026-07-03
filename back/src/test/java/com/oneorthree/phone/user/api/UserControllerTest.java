@@ -3,6 +3,7 @@ package com.oneorthree.phone.user.api;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.Provider;
+import com.oneorthree.phone.user.domain.StatVisibility;
 import com.oneorthree.phone.user.dto.SocialLinkResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -266,6 +267,40 @@ class UserControllerTest {
                 .andDo(print());
 
         verify(userService).updateNotificationSettings(any(), any());
+    }
+
+    // ── PATCH /users/me/stat-visibility ───────────────────────────────────
+
+    @Test
+    @DisplayName("통계 공개 범위 수정 성공 → 204")
+    void updateStatVisibilityReturns204() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me/stat-visibility")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("statVisibility", "PUBLIC"))))
+                .andExpect(status().isNoContent())
+                .andDo(print());
+
+        verify(userService).updateStatVisibility(any(), eq(StatVisibility.PUBLIC));
+    }
+
+    @Test
+    @DisplayName("statVisibility null → 400")
+    void updateStatVisibilityNullReturns400() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me/stat-visibility")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"statVisibility\": null}"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("statVisibility 정의되지 않은 값 → 400")
+    void updateStatVisibilityInvalidValueReturns400() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me/stat-visibility")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"statVisibility\": \"EVERYONE\"}"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
     }
 
     // ── GET /users/me/social-links ────────────────────────────────────────

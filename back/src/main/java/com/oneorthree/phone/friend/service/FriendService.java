@@ -2,6 +2,8 @@ package com.oneorthree.phone.friend.service;
 
 import com.fasterxml.uuid.Generators;
 import com.fasterxml.uuid.NoArgGenerator;
+import com.oneorthree.phone.common.logging.UserActivityEvent;
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -51,6 +53,7 @@ public class FriendService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final FocusSessionRepository focusSessionRepository;
     private final CharacterEquipmentRepository characterEquipmentRepository;
+    private final UserActivityEventLogger userActivityEventLogger;
     private final Map<SearchType, FriendSearchStrategy> searchStrategies;
 
     // 검색 전략은 AuthService의 Map<Provider, SocialLoginClient>와 동일하게
@@ -61,6 +64,7 @@ public class FriendService {
                          DailyFocusStatRepository dailyFocusStatRepository,
                          FocusSessionRepository focusSessionRepository,
                          CharacterEquipmentRepository characterEquipmentRepository,
+                         UserActivityEventLogger userActivityEventLogger,
                          List<FriendSearchStrategy> searchStrategies) {
         this.friendshipRepository = friendshipRepository;
         this.userRepository = userRepository;
@@ -68,6 +72,7 @@ public class FriendService {
         this.dailyFocusStatRepository = dailyFocusStatRepository;
         this.focusSessionRepository = focusSessionRepository;
         this.characterEquipmentRepository = characterEquipmentRepository;
+        this.userActivityEventLogger = userActivityEventLogger;
         this.searchStrategies = searchStrategies.stream()
                 .collect(Collectors.toMap(FriendSearchStrategy::type, strategy -> strategy));
     }
@@ -100,6 +105,7 @@ public class FriendService {
                 .orElse(null);
         if (myRejected != null) {
             myRejected.reopen();
+            logRequestSent(targetUserId, true);
             return;
         }
 
@@ -108,12 +114,23 @@ public class FriendService {
                 .toUser(toUser)
                 .status(FriendshipStatus.PENDING)
                 .build());
+        logRequestSent(targetUserId, false);
+    }
+
+    // 요청 생성 이벤트 — 신규 insert·REJECTED 재전환 두 경로 모두 1회씩, reopened 로 구분
+    private void logRequestSent(UUID targetUserId, boolean reopened) {
+        userActivityEventLogger.log(UserActivityEvent.FRIEND_REQUEST_SENT,
+                Map.of("to_user_id", targetUserId.toString(), "reopened", reopened));
     }
 
     // 요청 수락 — 수신자(toUser)만 가능. PENDING → ACCEPTED.
     @Transactional
     public void acceptRequest(UUID me, UUID requestId) {
-        getReceivedRequest(me, requestId).accept();
+        Friendship friendship = getReceivedRequest(me, requestId);
+        friendship.accept();
+        userActivityEventLogger.log(UserActivityEvent.FRIEND_ADDED,
+                Map.of("request_id", requestId.toString(),
+                        "from_user_id", friendship.getFromUser().getId().toString()));
     }
 
     // 요청 거절 — 수신자(toUser)만 가능. PENDING → REJECTED.
