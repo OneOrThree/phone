@@ -12,6 +12,7 @@ import FocusSessionScreen from '@/v2/screens/focus/FocusSessionScreen';
 import {
   LeagueScreen,
   FriendAddScreen,
+  FriendProfileScreen,
   TierGuideScreen,
   LeagueResultScreen,
 } from '@/v2/screens/league';
@@ -73,6 +74,7 @@ export function RootNavigator() {
           options={{ gestureEnabled: false }}
         />
         <Stack.Screen name="FriendAdd" component={FriendAddScreen} />
+        <Stack.Screen name="FriendProfile" component={FriendProfileScreen} />
         <Stack.Screen name="TierGuide" component={TierGuideScreen} />
         {/* 승격/강등 연출 — 풀스크린 다크라 페이드 전환 */}
         <Stack.Screen

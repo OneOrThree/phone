@@ -2,19 +2,22 @@ import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
 import { tierByLevel } from '@/v2/constants/tiers';
 import type { FriendRelation } from '@/types/api';
+import type { V2RootStackParamList } from '@/v2/navigation/types';
 import { RECEIVED_REQUESTS, SEARCH_POOL } from './mock';
 import { MemberAvatar } from './components/MemberAvatar';
 
 // 친구 추가 화면 (root stack) — 시안 "친구 추가 · 검색 + 받은 요청".
 // 검색 결과(친구 신청/요청됨 pill) + 받은 요청(거절/수락 사각 버튼) + 안내 카드.
+// 행 탭 시 프로필 상세(FriendProfile — 비친구 분기)로 진입.
 // 버튼은 로컬 상태 토글 — TODO: /friends/search·/friends/requests(accept·reject) API 연동.
 
 export default function FriendAddScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const [query, setQuery] = useState('');
   // 검색 결과별 관계 상태 — 신청 시 NONE → PENDING 로컬 토글
   const [relations, setRelations] = useState<Record<string, FriendRelation>>(() =>
@@ -79,7 +82,19 @@ export default function FriendAddScreen() {
             {results.map((r) => {
               const relation = relations[r.userId] ?? 'NONE';
               return (
-                <View key={r.userId} style={s.card}>
+                <TouchableOpacity
+                  key={r.userId}
+                  style={s.card}
+                  activeOpacity={0.85}
+                  onPress={() =>
+                    navigation.navigate('FriendProfile', {
+                      userId: r.userId,
+                      nickname: r.nickname,
+                      tierLevel: r.tierLevel ?? 1,
+                      exam: r.exam,
+                    })
+                  }
+                >
                   <MemberAvatar size={34} />
                   <View style={s.cardName}>
                     <Text style={s.name} numberOfLines={1}>
@@ -104,7 +119,7 @@ export default function FriendAddScreen() {
                       </Text>
                     </View>
                   )}
-                </View>
+                </TouchableOpacity>
               );
             })}
             {results.length === 0 && <Text style={s.empty}>검색 결과가 없어요</Text>}
@@ -124,7 +139,19 @@ export default function FriendAddScreen() {
           )}
         </View>
         {requests.map((r) => (
-          <View key={r.requestId} style={s.card}>
+          <TouchableOpacity
+            key={r.requestId}
+            style={s.card}
+            activeOpacity={0.85}
+            onPress={() =>
+              navigation.navigate('FriendProfile', {
+                userId: r.userId,
+                nickname: r.nickname,
+                tierLevel: r.tierLevel ?? 1,
+                exam: r.exam,
+              })
+            }
+          >
             <MemberAvatar size={34} />
             <View style={s.cardName}>
               <Text style={s.name} numberOfLines={1}>
@@ -150,7 +177,7 @@ export default function FriendAddScreen() {
                 <Ionicons name="checkmark" size={15} color={T.white} />
               </TouchableOpacity>
             </View>
-          </View>
+          </TouchableOpacity>
         ))}
         {requests.length === 0 && <Text style={s.empty}>받은 요청이 없어요</Text>}
 

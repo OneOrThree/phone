@@ -79,12 +79,71 @@ export const RANKING: RankedMember[] = [
 // 시안 초기 핀 — 민지노트·준비된자·서연 (친구 여부와 무관하게 핀 가능)
 export const INITIAL_PINS = ['u-01', 'u-03', 'u-05'];
 
-// 친구 목록 — 시안 초기 friends: 현생사는중·태강·도윤
+// 친구 목록 — 시안 초기 friends(현생사는중·태강·도윤) + 민지노트.
+// 민지노트는 나와 같은 시험(노무사) 친구 — 프로필 상세의 과목 겹침 분기 데모용.
 export const FRIENDS: FriendResponse[] = [
+  { userId: 'u-01', nickname: '민지노트', tierLevel: 5, isPinned: false },
   { userId: 'u-02', nickname: '현생사는중', tierLevel: 5, isPinned: false },
   { userId: 'u-06', nickname: '태강', tierLevel: 3, isPinned: false },
   { userId: 'u-09', nickname: '도윤', tierLevel: 2, isPinned: false },
 ];
+
+// ── 프로필 상세(FriendProfile) 비교 통계 — 시안 "프로필 · 친구/비친구" 3분기용 ──
+// subjects는 나와 겹치는 과목만 담는다(이번 주 분값) — 빈 배열이면 "겹치는 과목 없음" 분기.
+// byDay는 월~일 분값. TODO: GET /api/v1/friends/{userId}/compare 백엔드 협의 후 교체
+
+export interface SubjectCompare {
+  name: string;
+  myMinutes: number;
+  theirMinutes: number;
+}
+
+export interface CompareByDay {
+  mine: number[]; // 월~일(분)
+  theirs: number[];
+}
+
+export interface ProfileCompare {
+  subjects: SubjectCompare[];
+  focusByDay: CompareByDay;
+  phoneByDay: CompareByDay;
+}
+
+// 시안 "과목별 공부량 비교" 그대로 — 노무사 과목 3종
+const SUBJECTS_NOMUSA: SubjectCompare[] = [
+  { name: '노동법', myMinutes: 750, theirMinutes: 910 },
+  { name: '행정쟁송법', myMinutes: 490, theirMinutes: 400 },
+  { name: '사회보험법', myMinutes: 340, theirMinutes: 560 },
+];
+
+// 시안 요일별 이중 막대 비율 기반 분값 (집중 max 8h · 폰 사용 max 6h 스케일)
+const BASE_FOCUS_BY_DAY: CompareByDay = {
+  mine: [288, 360, 216, 408, 336, 144, 264],
+  theirs: [384, 264, 432, 336, 288, 192, 360],
+};
+const BASE_PHONE_BY_DAY: CompareByDay = {
+  mine: [180, 144, 234, 108, 198, 288, 162],
+  theirs: [108, 198, 126, 162, 144, 216, 180],
+};
+
+export const PROFILE_COMPARE: Record<string, ProfileCompare> = {
+  // 민지노트 — 같은 시험(노무사) → 과목 겹침(시안 "비교 통계 공개")
+  'u-01': {
+    subjects: SUBJECTS_NOMUSA,
+    focusByDay: BASE_FOCUS_BY_DAY,
+    phoneByDay: BASE_PHONE_BY_DAY,
+  },
+};
+
+// PROFILE_COMPARE에 없는 친구(다른 시험) 기본값 — 시안 "겹치는 과목 없음"
+export const COMPARE_FALLBACK: ProfileCompare = {
+  subjects: [],
+  focusByDay: BASE_FOCUS_BY_DAY,
+  phoneByDay: BASE_PHONE_BY_DAY,
+};
+
+// 비친구 프로필의 블러 티저 아래 깔리는 고정 과목 데이터 (시안 · 비친구 — 잠금 미리보기)
+export const TEASER_SUBJECTS: SubjectCompare[] = SUBJECTS_NOMUSA;
 
 // 받은 친구 요청 — exam은 응답에 없는 표기용 확장 (시안 "티어 · 시험")
 export interface ReceivedRequest extends FriendRequestResponse {

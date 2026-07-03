@@ -40,7 +40,8 @@ import { ProfileSheet, type ProfileTarget } from './components/ProfileSheet';
 //   + '핀한 사람만' 필터(나+핀만, 나 대비 시간 차 표시). 하단 시트는 폐기.
 //   - 시안의 시험 칩은 카테고리(온보딩 16)가 많아 폐기 — 제목 드롭다운으로 전체/내 시험/다른 시험 전환.
 //   - 내 순위는 리스트와 같은 파생값 하나만 쓴다(순위 기준 이원화 방지).
-// 친구 탭: 친구 검색·추가 엔트리 + 친구 2열 그리드. 데이터는 UI-first mock(./mock).
+// 친구 탭: 친구 검색·추가 엔트리 + 친구 2열 그리드(카드 탭 → 프로필 상세 FriendProfile).
+// 데이터는 UI-first mock(./mock).
 
 // 탭바가 차지하는 높이(홈 '오늘' 카드 marginBottom 선례와 동일 기준)
 const TAB_BAR_SPACE = 74;
@@ -417,7 +418,14 @@ export default function LeagueScreen() {
                 key={m.userId}
                 style={s.friendCard}
                 activeOpacity={0.85}
-                onPress={() => openProfile(m)}
+                onPress={() =>
+                  navigation.navigate('FriendProfile', {
+                    userId: m.userId,
+                    nickname: m.nickname,
+                    tierLevel: m.tierLevel,
+                    exam: m.exam,
+                  })
+                }
               >
                 <MemberAvatar size={48} />
                 <Text style={s.friendName} numberOfLines={1}>
