@@ -1,9 +1,13 @@
 package com.oneorthree.phone.stats.service;
 
+import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.domain.FocusTag;
+import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
+import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
@@ -26,11 +30,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -46,6 +54,7 @@ public class StatsService {
 
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
+    private final FocusSessionRepository focusSessionRepository;
     private final UserStreakRepository userStreakRepository;
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
@@ -204,6 +213,71 @@ public class StatsService {
                 period, range.currentFrom(), range.currentTo(),
                 currentMinutes, previousMinutes, currentMinutes - previousMinutes,
                 goalMinutes, goalAchieved, achievedDays, elapsedDays);
+    }
+
+    /**
+     * 카테고리(태그)별 집중 통계 조회 (실제 오늘 기준).
+     * 기간 내 완료된 세션을 태그별로 그룹핑하여 누적 집중 시간(분)과 전체 합계를 반환한다.
+     * 태그 없는 세션 및 소프트딜리트된 태그의 세션은 '미분류(untagged)' 버킷으로 집계.
+     */
+    public CategoryFocusStatsResponse getFocusStatsByCategory(UUID userId, StatsPeriod period) {
+        return getFocusStatsByCategory(userId, period, LocalDate.now(ZoneOffset.UTC));
+    }
+
+    /**
+     * 카테고리(태그)별 집중 통계 조회 — 고정 시각 주입 오버로드 (테스트용, package-private).
+     *
+     * @param userId 사용자 UUID
+     * @param period 조회 기간 단위 (DAY | WEEK | MONTH)
+     * @param today  기준 날짜 (UTC)
+     */
+    CategoryFocusStatsResponse getFocusStatsByCategory(UUID userId, StatsPeriod period, LocalDate today) {
+        User user = userRepository.getReferenceById(userId);
+
+        // 기간 경계 계산 — resolvePeriodRange 공통 헬퍼 재사용 (DRY: 인라인 switch 중복 제거)
+        PeriodRange range = resolvePeriodRange(period, today);
+        LocalDate from = range.currentFrom();
+        LocalDate to = range.currentTo();
+
+        Instant fromInstant = from.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant toInstant = to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant(); // exclusive 상한
+
+        List<FocusSession> sessions =
+                focusSessionRepository.findCompletedSessionsInPeriod(user, fromInstant, toInstant);
+
+        // 태그별 집계 — Collectors.groupingBy 는 null 키 불가이므로 직접 누적
+        Map<UUID, Long> taggedMinutes = new LinkedHashMap<>();
+        Map<UUID, String> tagNames = new LinkedHashMap<>();
+        long untaggedMinutes = 0L;
+
+        for (FocusSession s : sessions) {
+            long mins = Duration.between(s.getStartedAt(), s.getEndedAt()).toMinutes();
+            FocusTag tag = s.getFocusTag();
+            if (tag == null || tag.getDeletedAt() != null) {
+                // 미분류: 태그 없는 세션 + 소프트딜리트된 태그를 참조하는 세션
+                untaggedMinutes += mins;
+            } else {
+                UUID tagId = tag.getId();
+                taggedMinutes.merge(tagId, mins, Long::sum);
+                tagNames.putIfAbsent(tagId, tag.getName());
+            }
+        }
+
+        // 전체 합계
+        long totalMinutes = taggedMinutes.values().stream().mapToLong(Long::longValue).sum() + untaggedMinutes;
+
+        // items 조립 — 태그별 항목 + 미분류 항목(0분이면 제외) → totalFocusMinutes 내림차순 정렬
+        List<CategoryFocusStatsResponse.CategoryItem> items = new ArrayList<>();
+        for (Map.Entry<UUID, Long> entry : taggedMinutes.entrySet()) {
+            items.add(new CategoryFocusStatsResponse.CategoryItem(
+                    entry.getKey(), tagNames.get(entry.getKey()), (int) (long) entry.getValue()));
+        }
+        if (untaggedMinutes > 0) {
+            items.add(new CategoryFocusStatsResponse.CategoryItem(null, null, (int) untaggedMinutes));
+        }
+        items.sort(Comparator.comparingInt(CategoryFocusStatsResponse.CategoryItem::totalFocusMinutes).reversed());
+
+        return new CategoryFocusStatsResponse(period, from, to, (int) totalMinutes, items);
     }
 
     /**

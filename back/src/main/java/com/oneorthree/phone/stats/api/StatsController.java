@@ -1,5 +1,6 @@
 package com.oneorthree.phone.stats.api;
 
+import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
@@ -86,6 +87,22 @@ public class StatsController {
             HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(statsService.getFocusStatsByPeriod(userId, period));
+    }
+
+    @Operation(summary = "카테고리별 집중 통계 조회",
+            description = "day(오늘)/week(이번 주 월~오늘)/month(이번 달 1일~오늘) 기간의 "
+                    + "완료된 세션을 태그별로 집계. 비율(%)은 클라이언트가 totalFocusMinutes 합계로 계산.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공 (데이터 없으면 items=[], totalFocusMinutes=0)"),
+        @ApiResponse(responseCode = "400", description = "period 값 오류 (day|week|month 외)"),
+        @ApiResponse(responseCode = "401", description = "인증 필요")
+    })
+    @GetMapping("/stats/by-category")
+    public ResponseEntity<CategoryFocusStatsResponse> getFocusStatsByCategory(
+            @RequestParam StatsPeriod period,
+            HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(statsService.getFocusStatsByCategory(userId, period));
     }
 
     @Operation(summary = "기간별 스크린타임 통계 조회",

@@ -1,5 +1,6 @@
 package com.oneorthree.phone.stats.api;
 
+import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
@@ -256,6 +257,89 @@ class StatsControllerTest {
     @DisplayName("스크린타임 기간별 통계 period 누락 → 400")
     void getScreenTimePeriodStatsMissingParamReturns400() throws Exception {
         mockMvc.perform(get("/api/v1/stats/screen-time"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    // ── getFocusStatsByCategory ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("카테고리별 통계 ?period=day → 200, 응답 필드 존재")
+    void getFocusStatsByCategoryDayReturns200() throws Exception {
+        given(statsService.getFocusStatsByCategory(any(), any()))
+                .willReturn(new CategoryFocusStatsResponse(
+                        StatsPeriod.DAY,
+                        LocalDate.of(2026, 7, 3),
+                        LocalDate.of(2026, 7, 3),
+                        90,
+                        List.of(new CategoryFocusStatsResponse.CategoryItem(
+                                java.util.UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001"),
+                                "공부", 90))));
+
+        mockMvc.perform(get("/api/v1/stats/by-category").param("period", "day"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period").value("DAY"))
+                .andExpect(jsonPath("$.from").value("2026-07-03"))
+                .andExpect(jsonPath("$.to").value("2026-07-03"))
+                .andExpect(jsonPath("$.totalFocusMinutes").value(90))
+                .andExpect(jsonPath("$.items").isArray())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("카테고리별 통계 ?period=week → 200")
+    void getFocusStatsByCategoryWeekReturns200() throws Exception {
+        given(statsService.getFocusStatsByCategory(any(), any()))
+                .willReturn(new CategoryFocusStatsResponse(
+                        StatsPeriod.WEEK,
+                        LocalDate.of(2026, 6, 29),
+                        LocalDate.of(2026, 7, 3),
+                        200,
+                        List.of()));
+
+        mockMvc.perform(get("/api/v1/stats/by-category").param("period", "week"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period").value("WEEK"))
+                .andExpect(jsonPath("$.from").value("2026-06-29"))
+                .andExpect(jsonPath("$.to").value("2026-07-03"))
+                .andExpect(jsonPath("$.totalFocusMinutes").value(200))
+                .andExpect(jsonPath("$.items").isArray())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("카테고리별 통계 ?period=month → 200")
+    void getFocusStatsByCategoryMonthReturns200() throws Exception {
+        given(statsService.getFocusStatsByCategory(any(), any()))
+                .willReturn(new CategoryFocusStatsResponse(
+                        StatsPeriod.MONTH,
+                        LocalDate.of(2026, 7, 1),
+                        LocalDate.of(2026, 7, 3),
+                        300,
+                        List.of()));
+
+        mockMvc.perform(get("/api/v1/stats/by-category").param("period", "month"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period").value("MONTH"))
+                .andExpect(jsonPath("$.from").value("2026-07-01"))
+                .andExpect(jsonPath("$.to").value("2026-07-03"))
+                .andExpect(jsonPath("$.totalFocusMinutes").value(300))
+                .andExpect(jsonPath("$.items").isArray())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("카테고리별 통계 ?period=invalid → 400")
+    void getFocusStatsByCategoryInvalidValueReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/stats/by-category").param("period", "invalid"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("카테고리별 통계 period 파라미터 누락 → 400")
+    void getFocusStatsByCategoryMissingParamReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/stats/by-category"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
