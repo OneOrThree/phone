@@ -14,6 +14,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
 import { tierByLevel } from '@/v2/constants/tiers';
+import { useLeagueRanking } from '@/v2/screens/league/useLeagueRanking';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
@@ -165,8 +166,8 @@ export default function HomeScreen() {
     setTimeout(() => setRefreshing(false), 800);
   }, []);
 
-  // TODO: 순위·티어(리그 API)는 아직 placeholder — 티어 단계는 리그 mock과 동일(3)
-  const rank = 8;
+  // 순위 = 내 시험 리그 기준(리그 탭과 같은 훅 — mock+내 실데이터). 티어는 placeholder(TODO: 리그 API)
+  const { myLeagueRank } = useLeagueRanking();
   const tier = tierByLevel(3);
   const hasNotifications = false; // TODO: 실제 안 읽은 알림 여부로 교체
 
@@ -193,10 +194,12 @@ export default function HomeScreen() {
               <View>
                 <View style={s.nameRow}>
                   <Text style={s.nickname}>{nickname}</Text>
-                  <View style={s.rankBadge}>
-                    <Ionicons name="trophy" size={9} color={T.blue} />
-                    <Text style={s.rankText}>{rank}위</Text>
-                  </View>
+                  {myLeagueRank != null && (
+                    <View style={s.rankBadge}>
+                      <Ionicons name="trophy" size={9} color={T.blue} />
+                      <Text style={s.rankText}>{myLeagueRank}위</Text>
+                    </View>
+                  )}
                 </View>
                 <View style={s.tierRow}>
                   <Image source={tier.image} style={s.tierImg} />

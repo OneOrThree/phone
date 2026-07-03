@@ -15,10 +15,9 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
 import { tierByLevel } from '@/v2/constants/tiers';
-import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { useUser } from '@/store/UserContext';
-import { useSubjects } from '@/store/SubjectContext';
 import { useFocus } from '@/store/FocusContext';
+import { useLeagueRanking } from './useLeagueRanking';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import {
   DEADLINE_LABEL,
@@ -26,7 +25,6 @@ import {
   INITIAL_PINS,
   MY_TIER,
   MY_USER_ID,
-  RANKING,
   RECEIVED_REQUESTS,
   type RankedMember,
 } from './mock';
@@ -78,28 +76,10 @@ export default function LeagueScreen() {
   // 진입·리그 전환 직후 1회 내 행으로 자동 스크롤
   const pendingScrollToMe = useRef(true);
 
-  // 내 행은 실데이터로 보정 — 닉네임(홈과 같은 UserContext)·온보딩 카테고리·과목 누적 공부시간 합.
-  // 타 유저·주간 집계는 mock — TODO: 리그 API 연동 시 응답 값으로 대체
-  const myCategory = useFocusCategory();
-  const { nickname: myNickname, goalSeconds } = useUser();
+  // 랭킹(mock)+내 행 실데이터 보정 — 홈 상단바와 공유하는 훅(./useLeagueRanking)
+  const { ranking, myLeagueLabel, myMinutes } = useLeagueRanking();
+  const { goalSeconds } = useUser();
   const { todayFocusSeconds } = useFocus();
-  const { subjects } = useSubjects();
-  const myTotalMinutes = Math.round(
-    subjects.reduce((acc, sub) => acc + sub.accumulatedSeconds, 0) / 60,
-  );
-  const ranking: RankedMember[] = RANKING.map((m) =>
-    m.userId === MY_USER_ID
-      ? {
-          ...m,
-          nickname: myNickname || m.nickname,
-          exam: myCategory ?? m.exam,
-          totalFocusMinutes: myTotalMinutes,
-        }
-      : m,
-  ).sort((a, b) => b.totalFocusMinutes - a.totalFocusMinutes);
-  const me = ranking.find((m) => m.userId === MY_USER_ID);
-  const myLeagueLabel = me?.exam ?? null;
-  const myMinutes = me?.totalFocusMinutes ?? 0;
 
   const friendIds = new Set(FRIENDS.map((f) => f.userId));
 
@@ -298,13 +278,13 @@ export default function LeagueScreen() {
             </View>
           )}
 
-          {/* ── 내 순위 스트립 — 스크롤해도 상단 고정(sticky). 탭=내 행으로 ── */}
+          {/* ── 내 순위 스트립 — 스크롤해도 상단 고정(sticky).
+               탭=내 행으로 / 내가 없는 리그에선 핀 안내 + 전체 리그 이동 ── */}
           <View style={s.myStripWrap}>
             <TouchableOpacity
               style={s.myStrip}
               activeOpacity={0.85}
-              disabled={myIdx < 0}
-              onPress={scrollToMyRow}
+              onPress={myIdx >= 0 ? scrollToMyRow : () => selectLeague(LEAGUE_ALL)}
             >
               {myIdx >= 0 ? (
                 <>
@@ -313,13 +293,19 @@ export default function LeagueScreen() {
                   </Text>
                   <Text style={s.myStripGap} numberOfLines={1} allowFontScaling={false}>
                     {above
-                      ? `▲ ${above.nickname}까지 ${fmtMinutes(above.totalFocusMinutes - myMinutes)}`
+                      ? `▲ ${myIdx}위까지 ${fmtMinutes(above.totalFocusMinutes - myMinutes)}`
                       : '지금 1위예요'}
                   </Text>
                   <Ionicons name="chevron-down" size={13} color={T.accentDeep} />
                 </>
               ) : (
-                <Text style={s.myStripEmpty}>이 리그에는 내 순위가 없어요</Text>
+                <>
+                  <MaterialCommunityIcons name="pin-outline" size={14} color={T.accentDeep} />
+                  <Text style={s.myStripEmpty}>
+                    다른 리그 구경 중 — 핀하면 전체 리그에서 모아볼 수 있어요
+                  </Text>
+                  <Ionicons name="chevron-forward" size={13} color={T.accentDeep} />
+                </>
               )}
             </TouchableOpacity>
           </View>
@@ -618,7 +604,7 @@ const s = StyleSheet.create({
     color: T.inkSub,
     fontVariant: ['tabular-nums'],
   },
-  myStripEmpty: { ...T.text.caption, flex: 1, textAlign: 'center', color: T.inkSub },
+  myStripEmpty: { ...T.text.caption, flex: 1, color: T.inkSub },
 
   // 섹션 헤더 (랭킹 + 핀 필터)
   sectionRow: {
