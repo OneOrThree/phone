@@ -62,6 +62,19 @@ export function logFocusSessionStarted(p: { has_tag: boolean }): void {
   track('focus_session_started', p);
 }
 
+// ── 홈(Home) 인터랙션 [C] ──
+// 홈 화면 진입 + 오늘 요약 조회. focus_session_completed([S])는 여기서 발행하지 않는다.
+// 집중 세션 리스트·PIN 친구 UI는 v2 홈(GROMO-552)에 아직 없어, 관련 이벤트는 해당 UI 도입 시 추가한다(GROMO-537).
+export function logHomeViewed(): void {
+  track('home_viewed');
+}
+
+// 오늘 요약 카드 노출. 552 홈은 공부 집중 누적(초→분)만 JS에서 확보 가능
+// (핸드폰 사용시간은 네이티브 리포트 뷰가 그려 JS로 넘어오지 않음). sessions_count도 아직 미확보.
+export function logTodaySummaryViewed(p: { focus_minutes: number }): void {
+  track('today_summary_viewed', p);
+}
+
 // ── User Properties (PII 금지) ──
 // 알려진 값만 설정한다(undefined는 건너뜀). 자세한 목록은 설계서 §2.3.
 export function setIdentityProps(p: {
