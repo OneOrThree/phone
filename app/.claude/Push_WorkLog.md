@@ -13,11 +13,11 @@ iOS 서버 주도 푸시 알림 수신·표시·딥링크 구현 기록. 발송�
 
 릴리즈 0.0.5 **서버 주도 리텐션·성취 푸시**의 iOS 수신 측.
 
-| 트리거 | 채널 | 본 티켓(393) |
-| --- | --- | --- |
-| ① 리그 승격 / ② 강등 | 서버 푸시(주간 배치) | 수신·표시 |
-| ④ 미접속 복귀(3/7/14일) | 서버 푸시(일간 배치) | 수신·표시 |
-| ③ 목표 사용시간 초과 | iOS 로컬 알림(DeviceActivityMonitor) | **범위 외**(별도 트랙) |
+| 트리거                  | 채널                                 | 본 티켓(393)           |
+| ----------------------- | ------------------------------------ | ---------------------- |
+| ① 리그 승격 / ② 강등    | 서버 푸시(주간 배치)                 | 수신·표시              |
+| ④ 미접속 복귀(3/7/14일) | 서버 푸시(일간 배치)                 | 수신·표시              |
+| ③ 목표 사용시간 초과    | iOS 로컬 알림(DeviceActivityMonitor) | **범위 외**(별도 트랙) |
 
 - **393(iOS, 본 작업)**: 권한 요청(M3), FCM 토큰 발급·서버 등록, 포그라운드/백그라운드/종료 수신·표시, 알림 탭 딥링크.
 - **392(BE, 별개)**: 발송 파이프라인·배치·Quiet hours(21–09)·Dedup. 디바이스 토큰 저장 컬럼/엔드포인트는 **이미 존재**.
@@ -26,12 +26,12 @@ iOS 서버 주도 푸시 알림 수신·표시·딥링크 구현 기록. 발송�
 
 ### 전송 방식: FCM 채택 (vs APNs 직접)
 
-| | A. FCM (채택) | B. APNs 직접 |
-| --- | --- | --- |
-| 앱 라이브러리 | `@react-native-firebase/messaging` | expo-notifications만 |
-| 저장 토큰 | FCM 토큰 | APNs device token |
-| 백엔드(392) | firebase-admin 발송(간단) | APNs HTTP/2 직접 구현 |
-| 크로스플랫폼 | Android 재사용 ✅ | iOS 전용 |
+|               | A. FCM (채택)                      | B. APNs 직접          |
+| ------------- | ---------------------------------- | --------------------- |
+| 앱 라이브러리 | `@react-native-firebase/messaging` | expo-notifications만  |
+| 저장 토큰     | FCM 토큰                           | APNs device token     |
+| 백엔드(392)   | firebase-admin 발송(간단)          | APNs HTTP/2 직접 구현 |
+| 크로스플랫폼  | Android 재사용 ✅                  | iOS 전용              |
 
 **왜 A**: ① 이미 `@react-native-firebase/app`+`analytics` 설치·동작 중(절반 구축됨), ② `android.package` 설정돼 크로스플랫폼 로드맵 존재, ③ 백엔드 발송이 firebase-admin으로 단순. 리스크였던 `useFrameworks: static` 충돌은 **이미 static이 켜져 kakao/line/google/fbsdk와 공존 중**이라 신규 리스크 아님.
 
@@ -46,23 +46,23 @@ iOS 서버 주도 푸시 알림 수신·표시·딥링크 구현 기록. 발송�
 
 ### 신규
 
-| 파일 | 역할 |
-| --- | --- |
-| `src/services/push.ts` | 권한 요청 → `getToken()` → `PUT /api/v1/users/me/device-token`, `onTokenRefresh` 재등록, `onMessage`(포그라운드 로컬 표시), `onNotificationOpenedApp`/`getInitialNotification`(탭 딥링크) |
-| `src/navigation/navigationRef.ts` | `gromo://` 딥링크 매핑(league→리그 탭, focus→FocusCategory, home→홈 탭) + 준비 전 버퍼링·`flushPendingDeepLink` |
-| `src/v2/PushGate.tsx` | 로그인(`userId`) 상태에서만 등록·리스너 배선, 게스트 스킵. 무렌더 컴포넌트 |
+| 파일                              | 역할                                                                                                                                                                                      |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/services/push.ts`            | 권한 요청 → `getToken()` → `PUT /api/v1/users/me/device-token`, `onTokenRefresh` 재등록, `onMessage`(포그라운드 로컬 표시), `onNotificationOpenedApp`/`getInitialNotification`(탭 딥링크) |
+| `src/navigation/navigationRef.ts` | `gromo://` 딥링크 매핑(league→리그 탭, focus→FocusCategory, home→홈 탭) + 준비 전 버퍼링·`flushPendingDeepLink`                                                                           |
+| `src/v2/PushGate.tsx`             | 로그인(`userId`) 상태에서만 등록·리스너 배선, 게스트 스킵. 무렌더 컴포넌트                                                                                                                |
 
 ### 수정
 
-| 파일 | 변경 |
-| --- | --- |
-| `index.ts` | `setBackgroundMessageHandler` 최상위 등록(앱 생명주기 밖) |
-| `src/navigation/RootNavigator.tsx` | `NavigationContainer`에 `ref`·`onReady` 연결 |
-| `src/v2/App.tsx` | 인증 브랜치에 `<PushGate/>` 마운트 |
-| `app.config.js` | `scheme: 'gromo'` |
-| `ios/gromo/gromo.entitlements` | `aps-environment` = `development` |
-| `ios/gromo/Info.plist` | `UIBackgroundModes: [remote-notification]` + `gromo` URL scheme |
-| `package.json` | `@react-native-firebase/messaging@25.1.0` (app/analytics와 버전 통일 — RNFirebase는 계열 버전 일치 필수) |
+| 파일                               | 변경                                                                                                     |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `index.ts`                         | `setBackgroundMessageHandler` 최상위 등록(앱 생명주기 밖)                                                |
+| `src/navigation/RootNavigator.tsx` | `NavigationContainer`에 `ref`·`onReady` 연결                                                             |
+| `src/v2/App.tsx`                   | 인증 브랜치에 `<PushGate/>` 마운트                                                                       |
+| `app.config.js`                    | `scheme: 'gromo'`                                                                                        |
+| `ios/gromo/gromo.entitlements`     | `aps-environment` = `development`                                                                        |
+| `ios/gromo/Info.plist`             | `UIBackgroundModes: [remote-notification]` + `gromo` URL scheme                                          |
+| `package.json`                     | `@react-native-firebase/messaging@25.1.0` (app/analytics와 버전 통일 — RNFirebase는 계열 버전 일치 필수) |
 
 ### pod install 부수효과
 
@@ -71,12 +71,12 @@ iOS 서버 주도 푸시 알림 수신·표시·딥링크 구현 기록. 발송�
 
 ## 4. 동작 매핑
 
-| 상태 | 처리 | 탭 → 딥링크 |
-| --- | --- | --- |
-| 포그라운드 수신 | `onMessage` → expo-notifications 로컬 표시 | expo response 리스너 |
-| 백그라운드 배너 | OS 자동 표시 | `onNotificationOpenedApp` |
-| 종료→알림 실행 | — | `getInitialNotification`(버퍼→onReady flush) |
-| 토큰 발급/갱신 | `getToken`/`onTokenRefresh` → `PUT /api/v1/users/me/device-token` | — |
+| 상태            | 처리                                                              | 탭 → 딥링크                                  |
+| --------------- | ----------------------------------------------------------------- | -------------------------------------------- |
+| 포그라운드 수신 | `onMessage` → expo-notifications 로컬 표시                        | expo response 리스너                         |
+| 백그라운드 배너 | OS 자동 표시                                                      | `onNotificationOpenedApp`                    |
+| 종료→알림 실행  | —                                                                 | `getInitialNotification`(버퍼→onReady flush) |
+| 토큰 발급/갱신  | `getToken`/`onTokenRefresh` → `PUT /api/v1/users/me/device-token` | —                                            |
 
 딥링크: `gromo://league`→`Main`/리그, `focus`→`FocusCategory`, `home`→`Main`/홈. (스펙 GROMO-393에서 스킴 확정)
 
@@ -91,11 +91,13 @@ iOS 서버 주도 푸시 알림 수신·표시·딥링크 구현 기록. 발송�
 ## 6. 트러블슈팅 기록
 
 ### pod install "Permission denied @ fmt/base.h" (샌드박스)
+
 - **문제**: `pod install` post_install 훅 실패 — `[!] An error occurred while processing the post-install hook`, `Permission denied @ rb_sysopen - ios/Pods/fmt/include/fmt/base.h`. 게다가 `| tail` 파이프의 exit code(0)에 속아 성공으로 오판.
 - **원인**: Expo Podfile의 fmt consteval 패치(`File.write`)가 **샌드박스 실행 환경**에서 쓰기 차단. firebase/messaging과 무관.
 - **해결**: 샌드박스 해제 + `chmod -R u+w ios/Pods` 후 재실행, 성공은 **Podfile.lock의 pod 통합**으로 검증(파이프 exit code 신뢰 금지). 사용자 로컬 머신(`npx expo run:ios`)에선 애초에 발생 안 함.
 
 ### New Architecture 병합 충돌 (main #102/#103)
+
 - **문제**: 작업 중 main이 앞서감 — New Arch 전환(#102) + 버전 0.1.0 통일(#103)이 `app.config.js`·`Info.plist`·`Podfile.lock`과 충돌.
 - **해결**:
   - `app.config.js`: `scheme` 유지 + `version: 0.1.0` 채택.
@@ -104,6 +106,7 @@ iOS 서버 주도 푸시 알림 수신·표시·딥링크 구현 기록. 발송�
   - 검증: `ios.buildReactNativeFromSource: true` 보존 + Podfile.lock 프리빌트 코어 0/소스 코어 사용 확인 → RNFBMessaging도 소스 코어와 빌드되어 비모듈러 헤더 에러(NewArch §8) 회피.
 
 ### RNFBMessaging × New Arch 프리빌트 코어 (예방)
+
 - New Arch에서 firebase framework 모듈(`RNFBApp`/`RNFBMessaging`)이 프리빌트 React 헤더(비모듈러)와 충돌해 `include of non-modular header inside framework module` 에러 가능. `ios.buildReactNativeFromSource: true`가 프리빌트를 끄고 소스 빌드로 되돌려 해소(NewArch WorkLog §8). messaging 추가 후에도 이 플래그 유지 확인 필수.
 
 ## 7. 실기기 검증 체크리스트
