@@ -64,6 +64,14 @@
 				<string>fb990121817063522</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>gromo</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>gromo</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>15</string>
@@ -101,6 +109,10 @@
 	<true/>
 	<key>RCTNewArchEnabled</key>
 	<false/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>SplashScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>

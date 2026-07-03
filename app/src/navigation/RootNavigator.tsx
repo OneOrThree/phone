@@ -19,6 +19,7 @@ import {
 import { TabBar } from '@/components/TabBar';
 import { T } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { navigationRef, flushPendingDeepLink } from '@/navigation/navigationRef';
 
 // 메인 네비게이터 — 시안 "메인 4탭 + 중앙 FAB" 구조.
 // 그룹 탭만 placeholder(별도 티켓), 나머지는 구현 완료. 데이터 층은 @/store 공유.
@@ -58,7 +59,7 @@ function MainTabs() {
 
 export function RootNavigator() {
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef} onReady={flushPendingDeepLink}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Main" component={MainTabs} />
         <Stack.Screen name="Stats" component={StatsScreen} />
