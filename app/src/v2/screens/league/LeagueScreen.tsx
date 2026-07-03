@@ -16,6 +16,8 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/v2/constants/theme';
 import { tierByLevel } from '@/v2/constants/tiers';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
+import { useUser } from '@/store/UserContext';
+import { useSubjects } from '@/store/SubjectContext';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import {
   DEADLINE_LABEL,
@@ -75,12 +77,24 @@ export default function LeagueScreen() {
   // 진입·리그 전환 직후 1회 내 행으로 자동 스크롤
   const pendingScrollToMe = useRef(true);
 
-  // 온보딩 16(목표 선택) 값 = 내 시험 리그. mock 내 행의 exam을 이 값으로 보정 —
-  // TODO: 시험별 리그 백엔드 협의 후 랭킹 응답 값으로 대체
+  // 내 행은 실데이터로 보정 — 닉네임(홈과 같은 UserContext)·온보딩 카테고리·과목 누적 공부시간 합.
+  // 타 유저·주간 집계는 mock — TODO: 리그 API 연동 시 응답 값으로 대체
   const myCategory = useFocusCategory();
-  const ranking: RankedMember[] = myCategory
-    ? RANKING.map((m) => (m.userId === MY_USER_ID ? { ...m, exam: myCategory } : m))
-    : RANKING;
+  const { nickname: myNickname } = useUser();
+  const { subjects } = useSubjects();
+  const myTotalMinutes = Math.round(
+    subjects.reduce((acc, sub) => acc + sub.accumulatedSeconds, 0) / 60,
+  );
+  const ranking: RankedMember[] = RANKING.map((m) =>
+    m.userId === MY_USER_ID
+      ? {
+          ...m,
+          nickname: myNickname || m.nickname,
+          exam: myCategory ?? m.exam,
+          totalFocusMinutes: myTotalMinutes,
+        }
+      : m,
+  ).sort((a, b) => b.totalFocusMinutes - a.totalFocusMinutes);
   const me = ranking.find((m) => m.userId === MY_USER_ID);
   const myLeagueLabel = me?.exam ?? null;
   const myMinutes = me?.totalFocusMinutes ?? 0;
@@ -152,7 +166,7 @@ export default function LeagueScreen() {
       nickname: member.nickname,
       tierLevel: member.tierLevel,
       minutes: member.totalFocusMinutes,
-      globalRank: member.rank,
+      globalRank: ranking.indexOf(member) + 1, // 정렬된 전체 랭킹 기준
       examName: member.exam,
       examRank: examList.findIndex((m) => m.userId === member.userId) + 1,
       achievedRate: member.achievedRate,
@@ -242,7 +256,7 @@ export default function LeagueScreen() {
                           {i + 1}
                         </Text>
                       </View>
-                      <MemberAvatar size={first ? 60 : 48} me={isMe} />
+                      <MemberAvatar size={first ? 60 : 48} />
                       <View style={s.podiumNameRow}>
                         <TierBadge level={m.tierLevel} size={16} />
                         <Text style={s.podiumName} numberOfLines={1}>

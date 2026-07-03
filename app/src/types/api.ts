@@ -1,7 +1,10 @@
 // 백엔드 API 응답/요청 및 화면 간 전달에 쓰이는 공용 DTO 타입.
 // 네비게이션 파라미터·컨텍스트로 넘어가는 형태 위주로 정의하고,
 // 특정 화면 내부에서만 쓰는 응답 형태는 각 화면에서 로컬로 선언한다.
-import type { CostumeSlot, Variant } from '@/components/character/characterTypes';
+// 캐릭터 상태/코스튬 슬롯 — 상점·장비 도메인 값.
+// (구 components/character/characterTypes.ts에서 이전 — 파츠 캐릭터 폐기 후 타입만 유지)
+export type Variant = 'default' | 'focus' | 'reading' | 'yoga' | 'exercise' | 'study';
+export type CostumeSlot = 'hat' | 'hair' | 'top' | 'bottom' | 'accessory';
 
 // 장착형 아이템(가구/소품 — EquipmentContext의 equippedItem/equippedFurniture).
 // 서버/로컬에서 다양한 필드가 섞여 들어오므로 index signature를 둔다.

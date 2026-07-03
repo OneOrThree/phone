@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { T } from '@/v2/constants/theme';
 import { tierByLevel } from '@/v2/constants/tiers';
-import { Character2D } from '@/components/character/Character2D';
+import { CharacterImage } from '@/components/character/CharacterImage';
 import type { V2RootStackParamList } from '@/v2/navigation/types';
 import { TierBadge } from './components/TierBadge';
 
@@ -95,7 +95,7 @@ export default function LeagueResultScreen() {
 
               {/* 둥실 떠다니는 마스코트 */}
               <Animated.View style={{ transform: [{ translateY: float }] }}>
-                <Character2D size={108} />
+                <CharacterImage size={108} />
               </Animated.View>
 
               {/* 티어 전환 (이전 → 지금) */}

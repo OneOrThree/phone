@@ -15,7 +15,7 @@ import { useEquipment } from '@/store/EquipmentContext';
 import { useFocus } from '@/store/FocusContext';
 import { useUser } from '@/store/UserContext';
 import { useCoins } from '@/store/CoinContext';
-import { Character2D } from '@/components/character/Character2D';
+import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import ScreenTimeModule, { type AuthorizationStatus } from '@/services/ScreenTimeModule';
 import ScreenTimeReportViewRaw from '@/components/ScreenTimeReportView';
@@ -25,7 +25,6 @@ import type { ComponentType, ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import type { TabScreenProps } from '@/types/navigation';
 import type { FocusResult, ItemType } from '@/types/api';
-import type { CostumeSlot } from '@/components/character/characterTypes';
 
 // 네이티브 리포트 뷰 — iOS가 아니면 null이라 직접 JSX로 쓰면 타입이 맞지 않아
 // props 형태를 명시한 컴포넌트 타입으로 캐스팅해서 사용한다.
@@ -164,10 +163,9 @@ function Carpet2D() {
 
 interface RoomProps {
   equippedFurniture: ItemType[];
-  costumeSlots: CostumeSlot[];
 }
 
-function Room({ equippedFurniture, costumeSlots }: RoomProps) {
+function Room({ equippedFurniture }: RoomProps) {
   const ids: Array<number | string> = equippedFurniture.map((i) => i.id);
   const has = (id: number | string) => ids.includes(id);
 
@@ -208,7 +206,7 @@ function Room({ equippedFurniture, costumeSlots }: RoomProps) {
 
       {/* Character on top */}
       <View style={s.charPos}>
-        <Character2D size={128} costumeSlots={costumeSlots} />
+        <CharacterImage size={128} />
       </View>
 
       {/* Ambient deco */}
@@ -228,11 +226,10 @@ function formatTime(totalSeconds: number) {
 }
 
 export default function HomeScreen({ navigation, route }: TabScreenProps<'홈'>) {
-  const { equippedItem, equippedFurniture, equippedCostume } = useEquipment();
+  const { equippedItem, equippedFurniture } = useEquipment();
   const { todayFocusSeconds } = useFocus();
   const { nickname, goalSeconds, setGoalSeconds } = useUser();
   const { addCoins } = useCoins();
-  const costumeSlots = equippedCostume.map((c) => c.slot);
   const [focusResult, setFocusResult] = useState<FocusResult | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showFailModal, setShowFailModal] = useState(false);
@@ -540,7 +537,7 @@ export default function HomeScreen({ navigation, route }: TabScreenProps<'홈'>)
       </View>
 
       <View style={s.roomWrap}>
-        <Room equippedFurniture={equippedFurniture} costumeSlots={costumeSlots} />
+        <Room equippedFurniture={equippedFurniture} />
       </View>
 
       <View style={s.bottomCard}>

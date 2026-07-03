@@ -11,7 +11,7 @@ import { MemberAvatar } from './MemberAvatar';
 
 // 프로필 오버레이 — 랭킹 행 탭 시 뜨는 바텀시트 모달 (시안 "리그 메인 · 프로필").
 // 캐릭터 / 티어 일러스트 pill / 전체·{시험} 리그 순위 / 친구 pill / 목표달성 링 + 주간 집중 / 친구 버튼.
-// 내 프로필이면 캐릭터도 내 캐릭터(CharacterImage)로. 글씨는 공통 스케일(T.text).
+// 캐릭터는 정적 이미지(CharacterImage) 단일. 글씨는 공통 스케일(T.text).
 export interface ProfileTarget {
   userId: string;
   nickname: string;
@@ -61,7 +61,7 @@ export function ProfileSheet({ target, onClose }: Props) {
           </TouchableOpacity>
 
           {/* 캐릭터 + 이름 + 티어 pill(tier_image) */}
-          <MemberAvatar size={92} me={isMe} />
+          <MemberAvatar size={92} />
           <Text style={s.name}>{target.nickname}</Text>
           <View style={s.tierPill}>
             <Image source={tier.image} style={s.tierPillImg} />

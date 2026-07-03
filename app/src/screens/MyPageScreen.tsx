@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { T, inkBox } from '@/constants/theme';
-import { Character2D } from '@/components/character/Character2D';
+import { CharacterImage } from '@/components/character/CharacterImage';
 import { useFocus } from '@/store/FocusContext';
 import { useUser } from '@/store/UserContext';
 import ScreenTimeModule, { type AppSelectionCounts } from '@/services/ScreenTimeModule';
@@ -317,7 +317,7 @@ export default function MyPageScreen({ onLogout, onWithdraw }: MyPageScreenProps
       <View style={[s.profileCard, inkBox(T.yellow)]}>
         <View style={s.profileRow}>
           <View style={s.avatarWrap}>
-            <Character2D size={72} />
+            <CharacterImage size={72} />
           </View>
           <View style={s.profileInfo}>
             <View style={s.nicknameRow}>

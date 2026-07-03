@@ -48,7 +48,7 @@ export function RankRow({
         </Text>
       )}
       <TierBadge level={tierLevel} size={30} />
-      <MemberAvatar size={36} me={isMe} />
+      <MemberAvatar size={36} />
       <View style={s.nameCol}>
         <Text style={s.name} numberOfLines={1}>
           {nickname}
