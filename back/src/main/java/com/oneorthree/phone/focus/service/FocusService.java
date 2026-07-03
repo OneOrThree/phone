@@ -22,6 +22,7 @@ import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.service.UserStreakService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
@@ -32,6 +33,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,6 +52,7 @@ public class FocusService {
     private final UserActivityEventLogger userActivityEventLogger;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
+    private final UserStreakService userStreakService;
 
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         User user = userRepository.findById(userId)
@@ -66,10 +69,14 @@ public class FocusService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        focusTagRepository.save(FocusTag.builder()
+        FocusTag savedTag = focusTagRepository.save(FocusTag.builder()
                 .user(user)
                 .name(body.name())
                 .build());
+
+        // 태그 이름은 유저 입력(PII 금지) — tag_id 만 기록
+        userActivityEventLogger.log(UserActivityEvent.FOCUS_TAG_CREATED,
+                Map.of("tag_id", savedTag.getId().toString()));
     }
 
     @Transactional
@@ -162,10 +169,15 @@ public class FocusService {
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
                 .build());
         long durationSeconds = Duration.between(body.getStartedAt(), body.getEndedAt()).getSeconds();
-        userActivityEventLogger.log(UserActivityEvent.FOCUS_SESSION_COMPLETED,
-                Map.of("duration_seconds", durationSeconds,
-                        "distraction_count", body.getDistractionCount(),
-                        "has_tag", tag != null));
+        // payload 에 null 값 금지 — nullable 인 focus_tag_id 는 태그 있을 때만 키 포함
+        Map<String, Object> sessionPayload = new LinkedHashMap<>();
+        sessionPayload.put("duration_seconds", durationSeconds);
+        sessionPayload.put("distraction_count", body.getDistractionCount());
+        sessionPayload.put("has_tag", tag != null);
+        if (tag != null) {
+            sessionPayload.put("focus_tag_id", tag.getId().toString());
+        }
+        userActivityEventLogger.log(UserActivityEvent.FOCUS_SESSION_COMPLETED, sessionPayload);
 
         // ── DailyFocusStat upsert: endedAt UTC date 기준 (user, date) 멱등 누적 ──
         LocalDate statDate = body.getEndedAt().atOffset(ZoneOffset.UTC).toLocalDate();
@@ -187,6 +199,8 @@ public class FocusService {
                         .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
                 if (goal > 0 && stat.getTotalFocusMinutes() >= goal) {
                     stat.setFocusGoalAchieved(true);
+                    // false→true 전이 순간 1회 발행 — 영속 플래그가 하루 1회를 보장 (GROMO-395)
+                    logDailyFocusGoalAchieved(statDate, stat.getTotalFocusMinutes(), goal);
                 }
             }
         } else {
@@ -194,14 +208,30 @@ public class FocusService {
             // UserFocusTimeSettings row 없거나 goal=0이면 플래그 false 유지
             int goal = userFocusTimeSettingsRepository.findById(userId)
                     .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
+            boolean goalAchieved = goal > 0 && addedMinutes >= goal;
             dailyFocusStatRepository.save(DailyFocusStat.builder()
                     .user(user)
                     .date(statDate)
                     .totalFocusMinutes(addedMinutes)
                     .sessionCount(1)
                     .distractionCount(body.getDistractionCount())
-                    .focusGoalAchieved(goal > 0 && addedMinutes >= goal)
+                    .focusGoalAchieved(goalAchieved)
                     .build());
+            if (goalAchieved) {
+                // 신규 row 가 곧바로 달성 = false→true 전이와 동일 — 1회 발행 (GROMO-395)
+                logDailyFocusGoalAchieved(statDate, addedMinutes, goal);
+            }
         }
+
+        // 스트릭 갱신 — 세션 저장·일별 집계와 같은 트랜잭션(원자적), 날짜 기준도 동일(endedAt UTC)
+        userStreakService.updateOnSessionComplete(user, statDate);
+    }
+
+    /** 일일 집중 목표 달성(false→true 전이) 이벤트 발행 — date 는 ISO(UTC). */
+    private void logDailyFocusGoalAchieved(LocalDate statDate, int totalFocusMinutes, int goalMinutes) {
+        userActivityEventLogger.log(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED, Map.of(
+                "date", statDate.toString(),
+                "total_focus_minutes", totalFocusMinutes,
+                "goal_minutes", goalMinutes));
     }
 }

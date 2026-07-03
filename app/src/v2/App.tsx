@@ -13,8 +13,8 @@ import { CoinProvider } from '@/store/CoinContext';
 import { EquipmentProvider } from '@/store/EquipmentContext';
 import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
-import { T } from '@/v2/constants/theme';
-import { RootNavigator } from '@/v2/navigation/RootNavigator';
+import { T } from '@/constants/theme';
+import { RootNavigator } from '@/navigation/RootNavigator';
 import { OrphanFocusSettler } from '@/v2/screens/focus/OrphanFocusSettler';
 import LoginScreen from '@/v2/screens/LoginScreen';
 import OnboardingFlow, {
@@ -42,17 +42,19 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 // 온보딩은 로그인이 '마지막' 단계(OnboardingFlow가 내부에서 처리) — 게스트로 수집 후 로그인.
 // TODO: 로그아웃/탈퇴 UI를 v2 화면으로 재구현. 09 권한거부 분기(09a/09b)·06 성별/생일 화면.
 
-// v2 온보딩 수집 데이터를 서버로 전송. 로그인 상태에서만 호출(토큰 필요).
-// 매핑: usageGoalMinutes → dailyScreenTimeGoalMinutes, nickname → nickname.
-// focusCategory(16)·dailyFocusMinutes(17)는 서버 필드 미정 → 미전송(TODO: 백엔드 협의).
+// v2 온보딩 수집 데이터를 서버로 전송(POST /users/me 프로필 설정). 로그인 상태에서만 호출.
+// 매핑: nickname → nickname, usageGoalMinutes(12) → dailyScreenTimeGoalMinutes,
+//       dailyFocusMinutes(17) → dailyFocusTimeGoalMinutes.
+// focusCategory(16)는 서버 Occupation enum(5종)과 항목이 안 맞아 로컬 보관 유지
+// (handleOnboardingComplete — 리그 기본 시험 리그로 쓰인다. TODO: 백엔드 협의).
 async function syncOnboardingToServer(data: V2OnboardingData) {
   const body = {
     nickname: data.nickname,
     dailyScreenTimeGoalMinutes: data.usageGoalMinutes ?? undefined,
-    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    dailyFocusTimeGoalMinutes: data.dailyFocusMinutes ?? undefined,
   };
   try {
-    await api.post('/api/v1/user', body);
+    await api.post('/api/v1/users/me', body);
   } catch {
     // 실패해도 진행 — 추후 재동기화(TODO)
   }
@@ -82,7 +84,7 @@ export default function App() {
       const data = JSON.parse(raw) as UserProfile;
       const userId = getUserIdFromToken(data.accessToken ?? '');
       try {
-        const profileRes = await api.get('/api/v1/user');
+        const profileRes = await api.get('/api/v1/users/me');
         const merged = { ...data, ...profileRes.data };
         await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
         setUser({ ...merged, userId });
@@ -104,6 +106,7 @@ export default function App() {
       STORAGE_KEYS.refreshToken,
       STORAGE_KEYS.user,
       STORAGE_KEYS.onboardingComplete,
+      STORAGE_KEYS.focusCategory,
     ]);
     setOnboardingFocusGoalSeconds(null);
     setOnboardingScreenTimeGoalSeconds(null);
@@ -114,6 +117,10 @@ export default function App() {
   // 온보딩 완료(마지막 로그인/게스트) → 플래그 저장 + 유저 설정 → 홈 진입.
   async function handleOnboardingComplete({ data, login }: OnboardingResult) {
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
+    // 목표 선택(16) — 리그 화면이 기본 시험 리그로 읽는다. 서버 필드 협의 전까지 로컬 보관.
+    if (data.focusCategory) {
+      await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategory);
+    }
     setOnboarded(true);
     // 집중 목표=17단계 dailyFocusMinutes, 사용시간 목표=12단계 usageGoalMinutes.
     setOnboardingFocusGoalSeconds(data.dailyFocusMinutes ? data.dailyFocusMinutes * 60 : null);
@@ -159,7 +166,10 @@ export default function App() {
       <UserProvider
         initialNickname={user?.nickname}
         initialUserId={user?.userId}
-        initialGoalSeconds={onboardingFocusGoalSeconds}
+        initialGoalSeconds={
+          onboardingFocusGoalSeconds ??
+          (user?.dailyFocusTimeGoalMinutes ? user.dailyFocusTimeGoalMinutes * 60 : null)
+        }
         initialScreenTimeGoalSeconds={
           onboardingScreenTimeGoalSeconds ??
           (user?.dailyScreenTimeGoalMinutes ? user.dailyScreenTimeGoalMinutes * 60 : null)

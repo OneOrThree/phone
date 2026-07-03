@@ -3,8 +3,8 @@ import { View, Text, StyleSheet, Pressable, ScrollView, Image } from 'react-nati
 import type { ImageSourcePropType } from 'react-native';
 import { useEquipment } from '@/store/EquipmentContext';
 import { useCoins } from '@/store/CoinContext';
-import { T } from '@/constants/theme';
-import type { Variant, CostumeSlot } from '@/components/character/characterTypes';
+import { T } from '@/constants/legacyTheme';
+import type { Variant, CostumeSlot } from '@/types/api';
 
 type Rarity = 'Common' | 'Rare' | 'Epic' | 'Legendary';
 

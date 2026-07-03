@@ -13,7 +13,7 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { T, inkBox } from '@/constants/theme';
+import { T, inkBox } from '@/constants/legacyTheme';
 import { api } from '@/services/api';
 import { useUser } from '@/store/UserContext';
 import type { Group } from '@/types/api';

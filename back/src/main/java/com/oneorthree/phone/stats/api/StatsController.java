@@ -1,7 +1,9 @@
 package com.oneorthree.phone.stats.api;
 
+import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
+import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.StatsPeriod;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
@@ -85,5 +87,39 @@ public class StatsController {
             HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(statsService.getFocusStatsByPeriod(userId, period));
+    }
+
+    @Operation(summary = "카테고리별 집중 통계 조회",
+            description = "day(오늘)/week(이번 주 월~오늘)/month(이번 달 1일~오늘) 기간의 "
+                    + "완료된 세션을 태그별로 집계. 비율(%)은 클라이언트가 totalFocusMinutes 합계로 계산.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공 (데이터 없으면 items=[], totalFocusMinutes=0)"),
+        @ApiResponse(responseCode = "400", description = "period 값 오류 (day|week|month 외)"),
+        @ApiResponse(responseCode = "401", description = "인증 필요")
+    })
+    @GetMapping("/stats/by-category")
+    public ResponseEntity<CategoryFocusStatsResponse> getFocusStatsByCategory(
+            @RequestParam StatsPeriod period,
+            HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(statsService.getFocusStatsByCategory(userId, period));
+    }
+
+    @Operation(summary = "기간별 스크린타임 통계 조회",
+            description = "day·week·month 기간별 스크린타임 합계, 직전 기간 대비 delta, 목표 달성 정보 반환."
+                    + " day 단위 goalAchieved: 목표가 설정된 경우(goalMinutes > 0)에만 유효하며,"
+                    + " 사용량이 목표 이내(0분 포함)이면 달성. 목표 미설정 시 false.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "400", description = "잘못된 period 값"),
+        @ApiResponse(responseCode = "401", description = "인증 필요"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
+    @GetMapping("/stats/screen-time")
+    public ResponseEntity<ScreenTimePeriodStatsResponse> getScreenTimePeriodStats(
+            @RequestParam StatsPeriod period,
+            HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(statsService.getScreenTimePeriodStats(userId, period));
     }
 }

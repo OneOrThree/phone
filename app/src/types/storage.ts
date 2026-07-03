@@ -7,6 +7,7 @@ export const STORAGE_KEYS = {
   refreshToken: 'gromo:refreshToken',
   user: 'gromo:user',
   onboardingComplete: 'gromo:onboardingComplete',
+  focusCategory: 'gromo:focusCategory',
   equipment: 'gromo:equipment',
   ownedItems: 'gromo:ownedItems',
   focus: 'gromo:focus',

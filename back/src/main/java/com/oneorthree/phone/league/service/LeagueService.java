@@ -1,5 +1,7 @@
 package com.oneorthree.phone.league.service;
 
+import com.oneorthree.phone.common.logging.UserActivityEvent;
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.league.domain.LeagueArena;
 import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
@@ -24,6 +26,7 @@ import java.time.ZonedDateTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -36,6 +39,7 @@ public class LeagueService {
 
     private final LeagueArenaUserRepository leagueArenaUserRepository;
     private final LeagueTierConfigRepository leagueTierConfigRepository;
+    private final UserActivityEventLogger userActivityEventLogger;
 
     public LeagueTierResponse getMyTier(UUID userId) {
         return findActiveMembership(userId)
@@ -98,6 +102,12 @@ public class LeagueService {
                     if (myRank == null) {
                         throw new IllegalStateException("Active member not in ranked list: userId=" + userId);
                     }
+                    // ACTIVE 멤버십이 있을 때만 발행 — 미소속 조회는 이벤트 생략
+                    userActivityEventLogger.log(UserActivityEvent.LEAGUE_RANK_VIEWED,
+                            Map.of("my_rank", myRank,
+                                    "league_id", member.getLeagueArena().getId().toString(),
+                                    "tier_level", member.getTierLevel(),
+                                    "total_focus_minutes", member.getTotalFocusMinutes()));
                     return new LeagueRankResponse(
                             true,
                             myRank,

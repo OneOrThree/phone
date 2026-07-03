@@ -1,0 +1,52 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      # v0.1.0 부트스트랩: 빈 RDS에 스키마 생성. 스키마 안정화 후 validate + 마이그레이션으로 전환 권장.
+      ddl-auto: update
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: Asia/Seoul
+
+jwt:
+  secret: ${JWT_SECRET}
+  access-expiration: 3600
+  refresh-expiration: 2592000
+
+apple:
+  jwks-url: https://appleid.apple.com/auth/keys
+  client-id: ${APPLE_CLIENT_ID}
+
+kakao:
+  api-base-url: https://kapi.kakao.com
+
+google:
+  jwks-url: https://www.googleapis.com/oauth2/v3/certs
+  client-id: ${GOOGLE_CLIENT_ID}
+
+line:
+  api-base-url: https://api.line.me
+
+instagram:
+  api-base-url: https://graph.instagram.com
+
+facebook:
+  jwks-url: https://www.facebook.com/.well-known/oauth/openid/jwks/
+  client-id: ${FACEBOOK_CLIENT_ID:990121817063522}
+
+decorator:
+  datasource:
+    p6spy:
+      enable-logging: false
+
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    org.springframework.web: WARN

@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 
 // v2 통계 화면 — 홈 '오늘' 카드의 '자세히'에서 진입.
 // 오늘 요약(공부/핸드폰) + 주간 추이 막대. 데이터는 placeholder, 실제 연결은 TODO.

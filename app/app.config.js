@@ -41,15 +41,15 @@ export default {
         : []),
     ],
     slug: 'gromo-kr',
-    version: '0.0.5',
+    version: '0.1.0',
     orientation: 'portrait',
     userInterfaceStyle: 'light',
-    newArchEnabled: false,
+    newArchEnabled: true,
     assetBundlePatterns: ['**/*', 'src/assets/models/*'],
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.oneorthree.gromo',
-      buildNumber: '21',
+      buildNumber: '1',
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
         // Firebase 자동 화면추적 끄기 — RN에선 네이티브 뷰컨트롤러명(RNSScreen 등)만 잡혀 노이즈.

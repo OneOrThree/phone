@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 
 // 온보딩 스텝 공통 레이아웃 — 상단 제목/부제 + 본문(children) + 하단 풀폭 CTA(+선택적 보조 액션).
 // header: 제목 위 영역(히어로 일러스트 등). center: 본문 세로 가운데 + 텍스트 가운데(히어로형 화면).

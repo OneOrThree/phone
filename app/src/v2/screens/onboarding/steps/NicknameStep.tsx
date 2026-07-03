@@ -1,11 +1,11 @@
 import { View, Text, TextInput, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // 15 · 캐릭터·닉네임 — nickname 입력. 캐릭터는 '표시'만(이 화면에 커스터마이즈 없음).
-// TODO: 마스코트는 임시 이모지 → Character2D 연결. 닉네임 중복확인 API 연결.
+// TODO: 마스코트는 임시 이모지 → CharacterImage 연결. 닉네임 중복확인 API 연결.
 
 function Room() {
   return (
@@ -92,7 +92,7 @@ const s = StyleSheet.create({
     borderTopRightRadius: 6,
     backgroundColor: '#C7A87E',
   },
-  mascot: { fontSize: 96, marginBottom: 30 }, // 임시 마스코트(이모지) 크기 — Character2D 교체 예정
+  mascot: { fontSize: 96, marginBottom: 30 }, // 임시 마스코트(이모지) 크기 — CharacterImage 교체 예정
   label: { ...T.text.caption, color: T.ink, marginBottom: 9 },
   labelEn: { color: T.inkMuted, fontWeight: '500' },
   inputRow: { position: 'relative', justifyContent: 'center' },

@@ -8,6 +8,6 @@
 		<string>com.apple.deviceactivityui.report-extension</string>
 	</dict>
 	<key>RCTNewArchEnabled</key>
-	<false/>
+	<true/>
 </dict>
 </plist>

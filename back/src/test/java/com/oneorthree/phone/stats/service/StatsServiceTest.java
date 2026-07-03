@@ -1,11 +1,16 @@
 package com.oneorthree.phone.stats.service;
 
+import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.domain.FocusTag;
+import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
+import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
+import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.StatsPeriod;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
@@ -27,6 +32,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -51,6 +57,8 @@ class StatsServiceTest {
     private DailyFocusStatRepository dailyFocusStatRepository;
     @Mock
     private DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
+    @Mock
+    private FocusSessionRepository focusSessionRepository;
     @Mock
     private UserStreakRepository userStreakRepository;
     @Mock
@@ -411,5 +419,530 @@ class StatsServiceTest {
         // 두 번째 호출: previous 구간 (전주 월요일~전주 동일 요일)
         assertThat(fromCaptor.getAllValues().get(1)).isEqualTo(LocalDate.of(2026, 6, 22));
         assertThat(toCaptor.getAllValues().get(1)).isEqualTo(LocalDate.of(2026, 6, 26));
+    }
+
+    // ── getScreenTimePeriodStats ──────────────────────────────────────────
+
+    @Test
+    @DisplayName("스크린타임 DAY — 오늘/어제 row 있음 → currentMinutes·previousMinutes·deltaMinutes 정확, goalAchieved=true")
+    void getScreenTimePeriodStatsDayNormal() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        DailyScreenTimeStat todayRow = DailyScreenTimeStat.builder()
+                .user(user).date(FIXED_TODAY)
+                .actualScreenTimeMinutes(80).screenTimeGoalAchieved(true).build();
+        DailyScreenTimeStat yesterdayRow = DailyScreenTimeStat.builder()
+                .user(user).date(FIXED_TODAY.minusDays(1))
+                .actualScreenTimeMinutes(100).screenTimeGoalAchieved(false).build();
+
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, FIXED_TODAY, FIXED_TODAY)).willReturn(List.of(todayRow));
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(List.of(yesterdayRow));
+        given(userScreenTimeSettingsRepository.findById(USER_ID))
+                .willReturn(Optional.of(UserScreenTimeSettings.builder()
+                        .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build()));
+
+        ScreenTimePeriodStatsResponse response =
+                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.period()).isEqualTo(StatsPeriod.DAY);
+        assertThat(response.from()).isEqualTo(FIXED_TODAY);
+        assertThat(response.to()).isEqualTo(FIXED_TODAY);
+        assertThat(response.currentMinutes()).isEqualTo(80);
+        assertThat(response.previousMinutes()).isEqualTo(100);
+        assertThat(response.deltaMinutes()).isEqualTo(-20);
+        assertThat(response.goalMinutes()).isEqualTo(120);
+        assertThat(response.goalAchieved()).isTrue();   // 80 <= 120 → 달성
+        assertThat(response.achievedDays()).isNull();
+        assertThat(response.elapsedDays()).isNull();
+    }
+
+    @Test
+    @DisplayName("스크린타임 DAY — 오늘 row 없음 + 목표 미설정 → currentMinutes=0, goalAchieved=false")
+    void getScreenTimePeriodStatsDayNoTodayRow() {
+        // 데이터 row가 없고 목표도 미설정(goalMinutes=0)인 경우:
+        // goalMinutes > 0 조건이 false → goalAchieved=false
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, FIXED_TODAY, FIXED_TODAY)).willReturn(List.of());
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(List.of());
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        ScreenTimePeriodStatsResponse response =
+                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.currentMinutes()).isZero();
+        assertThat(response.goalMinutes()).isZero();
+        assertThat(response.goalAchieved()).isFalse();   // goalMinutes=0 → false
+    }
+
+    @Test
+    @DisplayName("스크린타임 DAY — 오늘 row 없음 + 목표 설정(goalMinutes=60) → currentMinutes=0, goalAchieved=true")
+    void getScreenTimePeriodStatsDayNoTodayRowWithGoal() {
+        // 오늘 사용 기록 없음(0분) + 목표 설정됨 → 0 ≤ goalMinutes → goalAchieved=true
+        // 스크린타임은 적을수록 좋으므로 기록이 없으면 목표 이내로 간주한다.
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, FIXED_TODAY, FIXED_TODAY)).willReturn(List.of());
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(List.of());
+        given(userScreenTimeSettingsRepository.findById(USER_ID))
+                .willReturn(Optional.of(UserScreenTimeSettings.builder()
+                        .userId(USER_ID).dailyScreenTimeGoalMinutes(60).build()));
+
+        ScreenTimePeriodStatsResponse response =
+                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.currentMinutes()).isZero();
+        assertThat(response.goalMinutes()).isEqualTo(60);
+        assertThat(response.goalAchieved()).isTrue();   // 0 <= 60 → 달성
+    }
+
+    @Test
+    @DisplayName("스크린타임 DAY — 목표 미설정(goalMinutes=0) → goalAchieved=false")
+    void getScreenTimePeriodStatsDayNoGoal() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        DailyScreenTimeStat todayRow = DailyScreenTimeStat.builder()
+                .user(user).date(FIXED_TODAY)
+                .actualScreenTimeMinutes(50).screenTimeGoalAchieved(false).build();
+        DailyScreenTimeStat yesterdayRow = DailyScreenTimeStat.builder()
+                .user(user).date(FIXED_TODAY.minusDays(1))
+                .actualScreenTimeMinutes(80).screenTimeGoalAchieved(false).build();
+
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, FIXED_TODAY, FIXED_TODAY)).willReturn(List.of(todayRow));
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(List.of(yesterdayRow));
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        ScreenTimePeriodStatsResponse response =
+                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.goalMinutes()).isZero();
+        assertThat(response.goalAchieved()).isFalse();   // 목표 미설정 → false
+        assertThat(response.deltaMinutes()).isEqualTo(-30); // 50 - 80 = -30 (음수 = 개선)
+    }
+
+    @Test
+    @DisplayName("스크린타임 WEEK — 현재주 복수 row → currentMinutes 합산, achievedDays·totalDays 정확")
+    void getScreenTimePeriodStatsWeekMultipleRows() {
+        // 2026-07-03은 금요일, 이번 주 월요일 = 2026-06-29
+        LocalDate thisMonday = LocalDate.of(2026, 6, 29);
+        LocalDate prevMonday = LocalDate.of(2026, 6, 22);
+        LocalDate prevFriday = LocalDate.of(2026, 6, 26);
+
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        // 현재주: 월(달성)·수(미달성)·금(달성) — 3일치, 달성 2개
+        List<DailyScreenTimeStat> currentStats = List.of(
+                DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 6, 29))
+                        .actualScreenTimeMinutes(60).screenTimeGoalAchieved(true).build(),
+                DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 7, 1))
+                        .actualScreenTimeMinutes(130).screenTimeGoalAchieved(false).build(),
+                DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 7, 3))
+                        .actualScreenTimeMinutes(80).screenTimeGoalAchieved(true).build()
+        );
+        // 전주: 2일치
+        List<DailyScreenTimeStat> previousStats = List.of(
+                DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 6, 22))
+                        .actualScreenTimeMinutes(90).screenTimeGoalAchieved(false).build(),
+                DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 6, 25))
+                        .actualScreenTimeMinutes(70).screenTimeGoalAchieved(true).build()
+        );
+
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, thisMonday, FIXED_TODAY)).willReturn(currentStats);
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, prevMonday, prevFriday)).willReturn(previousStats);
+        given(userScreenTimeSettingsRepository.findById(USER_ID))
+                .willReturn(Optional.of(UserScreenTimeSettings.builder()
+                        .userId(USER_ID).dailyScreenTimeGoalMinutes(100).build()));
+
+        ScreenTimePeriodStatsResponse response =
+                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        assertThat(response.period()).isEqualTo(StatsPeriod.WEEK);
+        assertThat(response.from()).isEqualTo(thisMonday);
+        assertThat(response.to()).isEqualTo(FIXED_TODAY);
+        assertThat(response.currentMinutes()).isEqualTo(270);   // 60+130+80
+        assertThat(response.previousMinutes()).isEqualTo(160);  // 90+70
+        assertThat(response.deltaMinutes()).isEqualTo(110);
+        assertThat(response.goalAchieved()).isNull();           // week → null
+        assertThat(response.achievedDays()).isEqualTo(2);       // 월·금 달성, 수 미달성
+        assertThat(response.elapsedDays()).isEqualTo(5);        // 월~금 5일 (DAYS.between(Mon,Fri)+1)
+    }
+
+    @Test
+    @DisplayName("스크린타임 WEEK — 전주 경계: previousFrom=currentFrom-1주, previousTo=today-1주")
+    void getScreenTimePeriodStatsWeekPreviousBounds() {
+        // 2026-07-03 기준: thisMonday=2026-06-29, prevMonday=2026-06-22, prevFriday=2026-06-26
+        LocalDate thisMonday = LocalDate.of(2026, 6, 29);
+        LocalDate prevMonday = LocalDate.of(2026, 6, 22);
+        LocalDate prevFriday = LocalDate.of(2026, 6, 26);
+
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                any(), any(), any())).willReturn(List.of());
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        ArgumentCaptor<LocalDate> fromCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> toCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        verify(dailyScreenTimeStatRepository, times(2))
+                .findByUserAndDateBetweenOrderByDateAsc(eq(user), fromCaptor.capture(), toCaptor.capture());
+
+        // 첫 번째 호출: current (이번 주 월요일~오늘)
+        assertThat(fromCaptor.getAllValues().get(0)).isEqualTo(thisMonday);
+        assertThat(toCaptor.getAllValues().get(0)).isEqualTo(FIXED_TODAY);
+        // 두 번째 호출: previous (전주 월요일~전주 같은 요일)
+        assertThat(fromCaptor.getAllValues().get(1)).isEqualTo(prevMonday);
+        assertThat(toCaptor.getAllValues().get(1)).isEqualTo(prevFriday);
+    }
+
+    @Test
+    @DisplayName("스크린타임 MONTH — 이번달 1일~오늘 경계, totalDays=오늘 일수")
+    void getScreenTimePeriodStatsMonthCurrentBounds() {
+        // 2026-07-03 기준: currentFrom=2026-07-01, totalDays=3
+        LocalDate monthStart = LocalDate.of(2026, 7, 1);
+        LocalDate prevMonthStart = LocalDate.of(2026, 6, 1);
+        LocalDate prevMonthSameDay = LocalDate.of(2026, 6, 3);
+
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        DailyScreenTimeStat row1 = DailyScreenTimeStat.builder()
+                .user(user).date(LocalDate.of(2026, 7, 1))
+                .actualScreenTimeMinutes(90).screenTimeGoalAchieved(true).build();
+        DailyScreenTimeStat row2 = DailyScreenTimeStat.builder()
+                .user(user).date(LocalDate.of(2026, 7, 3))
+                .actualScreenTimeMinutes(110).screenTimeGoalAchieved(false).build();
+
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, monthStart, FIXED_TODAY)).willReturn(List.of(row1, row2));
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, prevMonthStart, prevMonthSameDay)).willReturn(List.of());
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        ScreenTimePeriodStatsResponse response =
+                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
+
+        assertThat(response.period()).isEqualTo(StatsPeriod.MONTH);
+        assertThat(response.from()).isEqualTo(monthStart);
+        assertThat(response.to()).isEqualTo(FIXED_TODAY);
+        assertThat(response.currentMinutes()).isEqualTo(200);   // 90+110
+        assertThat(response.previousMinutes()).isZero();
+        assertThat(response.elapsedDays()).isEqualTo(3);         // 1일~3일
+        assertThat(response.achievedDays()).isEqualTo(1);       // row1만 달성
+        assertThat(response.goalAchieved()).isNull();
+    }
+
+    @Test
+    @DisplayName("스크린타임 MONTH — 직전월 경계: previousFrom=전월 1일, previousTo=전월 같은 날짜")
+    void getScreenTimePeriodStatsMonthPreviousBounds() {
+        LocalDate monthStart = LocalDate.of(2026, 7, 1);
+        LocalDate prevMonthStart = LocalDate.of(2026, 6, 1);
+        LocalDate prevMonthSameDay = LocalDate.of(2026, 6, 3);
+
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                any(), any(), any())).willReturn(List.of());
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
+
+        ArgumentCaptor<LocalDate> fromCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> toCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        verify(dailyScreenTimeStatRepository, times(2))
+                .findByUserAndDateBetweenOrderByDateAsc(eq(user), fromCaptor.capture(), toCaptor.capture());
+
+        assertThat(fromCaptor.getAllValues().get(0)).isEqualTo(monthStart);
+        assertThat(toCaptor.getAllValues().get(0)).isEqualTo(FIXED_TODAY);
+        assertThat(fromCaptor.getAllValues().get(1)).isEqualTo(prevMonthStart);
+        assertThat(toCaptor.getAllValues().get(1)).isEqualTo(prevMonthSameDay);
+    }
+
+    @Test
+    @DisplayName("스크린타임 WEEK/MONTH — 달성 row 0개 → achievedDays=0")
+    void getScreenTimePeriodStatsWeekNoAchievedDays() {
+        LocalDate thisMonday = LocalDate.of(2026, 6, 29);
+
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        // 현재주 row: 모두 미달성
+        List<DailyScreenTimeStat> currentStats = List.of(
+                DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 6, 29))
+                        .actualScreenTimeMinutes(150).screenTimeGoalAchieved(false).build(),
+                DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 7, 3))
+                        .actualScreenTimeMinutes(200).screenTimeGoalAchieved(false).build()
+        );
+
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, thisMonday, FIXED_TODAY)).willReturn(currentStats);
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, LocalDate.of(2026, 6, 22), LocalDate.of(2026, 6, 26))).willReturn(List.of());
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        ScreenTimePeriodStatsResponse response =
+                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        assertThat(response.achievedDays()).isZero();
+    }
+
+    @Test
+    @DisplayName("스크린타임 — 유저 없음 → UserException(NOT_FOUND)")
+    void getScreenTimePeriodStatsUserNotFound() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY))
+                .isInstanceOf(UserException.class);
+    }
+
+    // ── getFocusStatsByCategory ───────────────────────────────────────────
+
+    // 고정 UUID — 카테고리 테스트 전용
+    private static final UUID TAG_A = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
+    private static final UUID TAG_B = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000001");
+
+    /** FocusSession 빌더 헬퍼 — startedAt·endedAt·focusTag·deletedAt 지정. */
+    private FocusSession session(Instant start, Instant end, FocusTag tag, Instant deletedAt) {
+        return FocusSession.builder()
+                .startedAt(start)
+                .endedAt(end)
+                .focusTag(tag)
+                .deletedAt(deletedAt)
+                .build();
+    }
+
+    @Test
+    @DisplayName("카테고리별 — 복수 태그 정상 케이스: 태그별 totalFocusMinutes 정확, 전체 합계 일치")
+    void getFocusStatsByCategoryMultipleTags() {
+        // given: tagA=60분(30+30), tagB=90분
+        User user = User.builder().id(USER_ID).build();
+        FocusTag tagA = FocusTag.builder().id(TAG_A).name("공부").user(user).build();
+        FocusTag tagB = FocusTag.builder().id(TAG_B).name("운동").user(user).build();
+
+        Instant base = Instant.parse("2026-07-03T01:00:00Z");
+        List<FocusSession> sessions = List.of(
+                session(base, base.plusSeconds(1800), tagA, null),  // 30분
+                session(base.plusSeconds(3600), base.plusSeconds(5400), tagA, null), // 30분
+                session(base.plusSeconds(7200), base.plusSeconds(12600), tagB, null) // 90분
+        );
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(sessions);
+
+        // when
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        // then
+        assertThat(response.period()).isEqualTo(StatsPeriod.DAY);
+        assertThat(response.totalFocusMinutes()).isEqualTo(150); // 60 + 90
+        assertThat(response.items()).hasSize(2);
+        // 내림차순 정렬: tagB(90) > tagA(60)
+        assertThat(response.items().get(0).tagId()).isEqualTo(TAG_B);
+        assertThat(response.items().get(0).tagName()).isEqualTo("운동");
+        assertThat(response.items().get(0).totalFocusMinutes()).isEqualTo(90);
+        assertThat(response.items().get(1).tagId()).isEqualTo(TAG_A);
+        assertThat(response.items().get(1).tagName()).isEqualTo("공부");
+        assertThat(response.items().get(1).totalFocusMinutes()).isEqualTo(60);
+    }
+
+    @Test
+    @DisplayName("카테고리별 — 태그 없는 세션(미분류) 포함: tagId=null 항목 존재, 분 합산 정확")
+    void getFocusStatsByCategoryUntaggedSession() {
+        User user = User.builder().id(USER_ID).build();
+        FocusTag tagA = FocusTag.builder().id(TAG_A).name("공부").user(user).build();
+
+        Instant base = Instant.parse("2026-07-03T02:00:00Z");
+        List<FocusSession> sessions = List.of(
+                session(base, base.plusSeconds(3600), tagA, null),   // tagA 60분
+                session(base.plusSeconds(7200), base.plusSeconds(9000), null, null) // 미분류 30분
+        );
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(sessions);
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.totalFocusMinutes()).isEqualTo(90);
+        assertThat(response.items()).hasSize(2);
+        // 내림차순: tagA(60) > 미분류(30)
+        assertThat(response.items().get(0).tagId()).isEqualTo(TAG_A);
+        assertThat(response.items().get(1).tagId()).isNull();
+        assertThat(response.items().get(1).tagName()).isNull();
+        assertThat(response.items().get(1).totalFocusMinutes()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("카테고리별 — 소프트딜리트 태그 세션 → 미분류 버킷 합류")
+    void getFocusStatsByCategorySoftDeletedTagGoesToUntagged() {
+        User user = User.builder().id(USER_ID).build();
+        // deletedAt 설정된 소프트딜리트 태그
+        FocusTag deletedTag = FocusTag.builder()
+                .id(TAG_A).name("삭제된태그").user(user)
+                .deletedAt(Instant.parse("2026-06-01T00:00:00Z"))
+                .build();
+        FocusTag activeTag = FocusTag.builder().id(TAG_B).name("활성태그").user(user).build();
+
+        Instant base = Instant.parse("2026-07-03T03:00:00Z");
+        List<FocusSession> sessions = List.of(
+                session(base, base.plusSeconds(3600), deletedTag, null),  // 60분 → 미분류
+                session(base.plusSeconds(7200), base.plusSeconds(9000), activeTag, null) // 30분 → tagB
+        );
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(sessions);
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.totalFocusMinutes()).isEqualTo(90);
+        assertThat(response.items()).hasSize(2);
+        // 내림차순: 미분류(60) > tagB(30)
+        assertThat(response.items().get(0).tagId()).isNull();
+        assertThat(response.items().get(0).totalFocusMinutes()).isEqualTo(60);
+        assertThat(response.items().get(1).tagId()).isEqualTo(TAG_B);
+        assertThat(response.items().get(1).totalFocusMinutes()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("카테고리별 — 빈 기간(세션 없음): items=[], totalFocusMinutes=0")
+    void getFocusStatsByCategoryEmptyPeriod() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(List.of());
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        assertThat(response.totalFocusMinutes()).isZero();
+        assertThat(response.items()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("카테고리별 — 미분류 0분이면 items에서 제외")
+    void getFocusStatsByCategoryUntaggedZeroMinutesExcluded() {
+        User user = User.builder().id(USER_ID).build();
+        FocusTag tagA = FocusTag.builder().id(TAG_A).name("공부").user(user).build();
+        Instant base = Instant.parse("2026-07-03T04:00:00Z");
+        List<FocusSession> sessions = List.of(
+                session(base, base.plusSeconds(1800), tagA, null) // 태그 있는 세션만
+        );
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(sessions);
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        // 미분류 항목 없음
+        assertThat(response.items()).hasSize(1);
+        assertThat(response.items().get(0).tagId()).isEqualTo(TAG_A);
+    }
+
+    @Test
+    @DisplayName("카테고리별 items — totalFocusMinutes 내림차순 정렬 검증")
+    void getFocusStatsByCategoryItemsSortedDesc() {
+        User user = User.builder().id(USER_ID).build();
+        FocusTag tagA = FocusTag.builder().id(TAG_A).name("공부").user(user).build();
+        FocusTag tagB = FocusTag.builder().id(TAG_B).name("운동").user(user).build();
+
+        Instant base = Instant.parse("2026-07-03T05:00:00Z");
+        // tagA=20분, tagB=120분, 미분류=45분 → 정렬: tagB(120) > 미분류(45) > tagA(20)
+        List<FocusSession> sessions = List.of(
+                session(base, base.plusSeconds(1200), tagA, null),          // 20분
+                session(base.plusSeconds(3600), base.plusSeconds(10800), tagB, null), // 120분
+                session(base.plusSeconds(14400), base.plusSeconds(17100), null, null) // 45분
+        );
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(sessions);
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.items()).hasSize(3);
+        assertThat(response.items().get(0).totalFocusMinutes()).isEqualTo(120); // tagB
+        assertThat(response.items().get(1).totalFocusMinutes()).isEqualTo(45);  // 미분류
+        assertThat(response.items().get(2).totalFocusMinutes()).isEqualTo(20);  // tagA
+    }
+
+    @Test
+    @DisplayName("카테고리별 DAY — fromInstant=today 00:00 UTC, toInstant=today+1 00:00 UTC (ArgumentCaptor)")
+    void getFocusStatsByCategoryDayBounds() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(List.of());
+
+        statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
+        ArgumentCaptor<Instant> toCaptor = ArgumentCaptor.forClass(Instant.class);
+        verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), toCaptor.capture());
+
+        Instant expectedFrom = FIXED_TODAY.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant expectedTo = FIXED_TODAY.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        assertThat(fromCaptor.getValue()).isEqualTo(expectedFrom);
+        assertThat(toCaptor.getValue()).isEqualTo(expectedTo);
+    }
+
+    @Test
+    @DisplayName("카테고리별 WEEK — fromInstant=이번 주 월요일 00:00 UTC (ArgumentCaptor)")
+    void getFocusStatsByCategoryWeekBounds() {
+        // FIXED_TODAY=2026-07-03(금요일) → 이번 주 월요일=2026-06-29
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(List.of());
+
+        statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
+        verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), any());
+
+        LocalDate expectedMonday = LocalDate.of(2026, 6, 29);
+        assertThat(fromCaptor.getValue()).isEqualTo(expectedMonday.atStartOfDay(ZoneOffset.UTC).toInstant());
+    }
+
+    @Test
+    @DisplayName("카테고리별 MONTH — fromInstant=이번 달 1일 00:00 UTC (ArgumentCaptor)")
+    void getFocusStatsByCategoryMonthBounds() {
+        // FIXED_TODAY=2026-07-03 → 이번 달 1일=2026-07-01
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+                .willReturn(List.of());
+
+        statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
+
+        ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
+        verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), any());
+
+        LocalDate expectedFirstDay = LocalDate.of(2026, 7, 1);
+        assertThat(fromCaptor.getValue()).isEqualTo(expectedFirstDay.atStartOfDay(ZoneOffset.UTC).toInstant());
     }
 }

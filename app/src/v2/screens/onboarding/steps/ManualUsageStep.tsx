@@ -2,7 +2,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import Slider from '@/v2/screens/onboarding/components/Slider';
 import InfoNote, { NoteStrong } from '@/v2/screens/onboarding/components/InfoNote';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 import { formatDuration } from '@/v2/screens/onboarding/format';
 

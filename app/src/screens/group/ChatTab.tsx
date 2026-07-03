@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import type { ListRenderItemInfo } from 'react-native';
-import { T, inkBox } from '@/constants/theme';
+import { T, inkBox } from '@/constants/legacyTheme';
 import { api } from '@/services/api';
 import { useUser } from '@/store/UserContext';
 

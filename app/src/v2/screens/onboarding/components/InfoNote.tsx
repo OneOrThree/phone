@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 
 // 온보딩 공통 안내 박스 — 점 + 텍스트. 강조 문구는 <NoteStrong> 으로 감싼다.
 export default function InfoNote({ children }: { children: ReactNode }) {

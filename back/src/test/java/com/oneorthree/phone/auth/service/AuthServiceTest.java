@@ -33,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -127,6 +128,31 @@ class AuthServiceTest {
         assertThat(response.isNewUser()).isFalse();
         verify(userRepository, never()).save(any(User.class));
         verify(socialAccountRepository, never()).save(any(SocialAccount.class));
+        // 기존 유저는 가입 이벤트 미발행
+        verify(userActivityEventLogger, never())
+                .log(anyString(), eq(UserActivityEvent.USER_SIGNED_UP), any());
+    }
+
+    @Test
+    @DisplayName("신규 소셜 가입 → USER_SIGNED_UP + LOGIN_SUCCEEDED 둘 다 발행")
+    void socialLoginNewUserEmitsSignedUp() {
+        // given
+        User savedUser = User.builder().id(USER_ID).build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.empty());
+        given(userRepository.save(any(User.class))).willReturn(savedUser);
+        given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
+
+        // when
+        authService.socialLogin(Provider.KAKAO, "kakao-token", null);
+
+        // then: 가입 이벤트 + 로그인 이벤트 둘 다 발행
+        verify(userActivityEventLogger).log(USER_ID.toString(), UserActivityEvent.USER_SIGNED_UP,
+                Map.of("method", "kakao", "is_guest", false));
+        verify(userActivityEventLogger).log(USER_ID.toString(), UserActivityEvent.LOGIN_SUCCEEDED,
+                Map.of("is_new_user", true, "method", "kakao"));
     }
 
     @Test
@@ -182,6 +208,30 @@ class AuthServiceTest {
         assertThat(deletedAccount.getDeletedAt()).isNull();
         verify(userRepository, never()).save(any(User.class));
         verify(socialAccountRepository, never()).save(any(SocialAccount.class));
+        // 재활성화 로그인은 isNewUser=false → 가입 이벤트 미발행 (527 정합)
+        verify(userActivityEventLogger, never())
+                .log(anyString(), eq(UserActivityEvent.USER_SIGNED_UP), any());
+    }
+
+    // ── guestLogin ────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("게스트 로그인 → USER_SIGNED_UP(method=guest, is_guest=true) + LOGIN_SUCCEEDED 발행")
+    void guestLoginEmitsSignedUp() {
+        // given
+        User savedUser = User.builder().id(USER_ID).isGuest(true).build();
+        given(userRepository.save(any(User.class))).willReturn(savedUser);
+        given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
+
+        // when
+        authService.guestLogin();
+
+        // then: 게스트 생성은 항상 신규 가입 → 가입·로그인 이벤트 둘 다 발행
+        verify(userActivityEventLogger).log(USER_ID.toString(), UserActivityEvent.USER_SIGNED_UP,
+                Map.of("method", "guest", "is_guest", true));
+        verify(userActivityEventLogger).log(USER_ID.toString(), UserActivityEvent.LOGIN_SUCCEEDED,
+                Map.of("is_new_user", true, "method", "guest"));
     }
 
     // ── refreshToken ──────────────────────────────────────────────────────

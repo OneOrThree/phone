@@ -3,7 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
 
 // 앱별/카테고리별 사용시간 상세 — 홈 "핸드폰 사용" 탭 시 탭 위로 push되는 스택 화면.
 // Total Activity 리포트를 임베드. RN Modal이 아닌 일반 화면이라 DeviceActivityReport scene이

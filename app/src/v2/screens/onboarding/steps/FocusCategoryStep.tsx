@@ -1,17 +1,11 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
-import { T } from '@/v2/constants/theme';
+import { T } from '@/constants/theme';
+import { FOCUS_CATEGORY_GROUPS } from '@/constants/focusCategories';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // 16 · 목표 선택 — focusCategory(집중 목표 1개, 리그 매칭용). 서버 계약 미정(신규 필드).
-// TODO(시안 16): 칩 단일 선택. 카테고리 목록은 추후 서버/상수로 분리.
-const GROUPS: { label: string; items: string[] }[] = [
-  { label: '전문 자격증', items: ['노무사', '변리사', '세무사', '회계사', '감정평가사'] },
-  { label: '공무원·고시', items: ['공무원', '경찰·소방', '행정고시', '자격증'] },
-  { label: '학생', items: ['중학생', '고등학생', '수능·N수', '대학생'] },
-  { label: '취업·어학', items: ['취업 준비', '토익·토플', '코딩'] },
-  { label: '그 외', items: ['자기계발', '집중력 키우기', '기타'] },
-];
+// 카테고리 목록은 리그 시험 칩과 같은 상수(focusCategories)를 쓴다.
 
 export default function FocusCategoryStep({ data, update, onNext, onBack }: StepProps) {
   const selected = data.focusCategory;
@@ -24,7 +18,7 @@ export default function FocusCategoryStep({ data, update, onNext, onBack }: Step
       onCta={onNext}
       onBack={onBack}
     >
-      {GROUPS.map((g) => (
+      {FOCUS_CATEGORY_GROUPS.map((g) => (
         <View key={g.label} style={s.group}>
           <Text style={s.groupLabel}>{g.label}</Text>
           <View style={s.chips}>

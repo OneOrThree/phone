@@ -119,6 +119,11 @@ public class AuthService {
         String refreshToken = jwtProvider.generateRefreshToken(user.getId());
         user.setRefreshToken(refreshToken);
 
+        // 신규 유저만 가입 이벤트 발행 — 재활성화 로그인(isNewUser=false)은 제외
+        if (isNewUser) {
+            userActivityEventLogger.log(user.getId().toString(), UserActivityEvent.USER_SIGNED_UP,
+                    Map.of("method", provider.name().toLowerCase(), "is_guest", false));
+        }
         userActivityEventLogger.log(user.getId().toString(), UserActivityEvent.LOGIN_SUCCEEDED,
                 Map.of("is_new_user", isNewUser, "method", provider.name().toLowerCase()));
 
@@ -134,6 +139,9 @@ public class AuthService {
         String refreshToken = jwtProvider.generateRefreshToken(newUser.getId());
         newUser.setRefreshToken(refreshToken);
 
+        // 게스트 생성은 항상 신규 가입
+        userActivityEventLogger.log(newUser.getId().toString(), UserActivityEvent.USER_SIGNED_UP,
+                Map.of("method", "guest", "is_guest", true));
         userActivityEventLogger.log(newUser.getId().toString(), UserActivityEvent.LOGIN_SUCCEEDED,
                 Map.of("is_new_user", true, "method", "guest"));
         return new GuestLoginResponse(accessToken, refreshToken, newUser.isGuest());

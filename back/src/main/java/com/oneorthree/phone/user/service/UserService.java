@@ -1,5 +1,7 @@
 package com.oneorthree.phone.user.service;
 
+import com.oneorthree.phone.common.logging.UserActivityEvent;
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.domain.Occupation;
@@ -12,6 +14,7 @@ import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.user.domain.SocialAccount;
+import com.oneorthree.phone.user.domain.StatVisibility;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
@@ -35,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -52,6 +56,7 @@ public class UserService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final SocialAccountRepository socialAccountRepository;
+    private final UserActivityEventLogger userActivityEventLogger;
 
     @Transactional
     public void setupProfile(UUID userId, UserProfileSetupRequest body) {
@@ -152,8 +157,21 @@ public class UserService {
                 screenSettings.getDailyScreenTimeGoalMinutes(),
                 focusSettings.getDailyFocusTimeGoalMinutes(),
                 user.getCountryCode(),
-                user.getReportTime() != null ? user.getReportTime().toString() : null
+                user.getReportTime() != null ? user.getReportTime().toString() : null,
+                user.getStatVisibility() != null ? user.getStatVisibility().name() : null
         );
+    }
+
+    /**
+     * 개인 통계 공개 범위(FRIENDS/PUBLIC) 수정 + STAT_VISIBILITY_UPDATED 이벤트 발행.
+     */
+    @Transactional
+    public void updateStatVisibility(UUID userId, StatVisibility statVisibility) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        user.setStatVisibility(statVisibility);
+        userActivityEventLogger.log(UserActivityEvent.STAT_VISIBILITY_UPDATED,
+                Map.of("visibility", statVisibility.name()));
     }
 
     @Transactional
@@ -168,6 +186,8 @@ public class UserService {
         UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         settings.setDailyScreenTimeGoalMinutes(dailyScreenTimeGoalMinutes);
+        userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
+                Map.of("goal_type", "screen_time", "goal_minutes", dailyScreenTimeGoalMinutes));
     }
 
     @Transactional
@@ -175,6 +195,8 @@ public class UserService {
         UserFocusTimeSettings settings = userFocusTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         settings.setDailyFocusTimeGoalMinutes(dailyFocusTimeGoalMinutes);
+        userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
+                Map.of("goal_type", "focus_time", "goal_minutes", dailyFocusTimeGoalMinutes));
     }
 
     @Transactional
