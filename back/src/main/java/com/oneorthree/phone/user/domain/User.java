@@ -61,6 +61,13 @@ public class User {
     @Column(name = "current_tier")
     private Integer currentTier;
 
+    // 개인 통계 공개 범위 — migration v22 로 컬럼 추가 (NOT NULL DEFAULT 'FRIENDS')
+    // columnDefinition 으로 DB default 지정 → ddl-auto=update 환경에서 v22 선적용 없이 배포 시 기존 row ALTER 실패 방지
+    @Enumerated(EnumType.STRING)
+    @Column(name = "stat_visibility", nullable = false, columnDefinition = "varchar(20) not null default 'FRIENDS'")
+    @Builder.Default
+    private StatVisibility statVisibility = StatVisibility.FRIENDS;
+
     @Column(name = "report_time")
     private LocalTime reportTime;
 

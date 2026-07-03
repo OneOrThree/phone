@@ -7,6 +7,7 @@ import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
 import com.oneorthree.phone.user.dto.OccupationUpdateRequest;
 import com.oneorthree.phone.user.dto.ScreenTimeGoalUpdateRequest;
 import com.oneorthree.phone.user.dto.SocialLinkResponse;
+import com.oneorthree.phone.user.dto.StatVisibilityUpdateRequest;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.service.UserService;
@@ -186,6 +187,22 @@ public class UserController {
             HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         userService.updateOccupation(userId, body.getOccupation());
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "통계 공개 범위 수정",
+            description = "개인 통계 공개 범위(FRIENDS/PUBLIC)를 수정. 성공 시 204 반환.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "수정 성공"),
+        @ApiResponse(responseCode = "400", description = "statVisibility 누락/유효하지 않은 값"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
+    @PatchMapping("/users/me/stat-visibility")
+    public ResponseEntity<Void> updateStatVisibility(
+            @Valid @RequestBody StatVisibilityUpdateRequest body,
+            HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        userService.updateStatVisibility(userId, body.statVisibility());
         return ResponseEntity.noContent().build();
     }
 

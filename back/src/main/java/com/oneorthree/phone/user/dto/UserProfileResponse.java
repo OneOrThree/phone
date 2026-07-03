@@ -13,5 +13,6 @@ public record UserProfileResponse(
         int dailyScreenTimeGoalMinutes,
         int dailyFocusTimeGoalMinutes,
         String countryCode,
-        String reportTime
+        String reportTime,
+        String statVisibility
 ) {}

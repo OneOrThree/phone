@@ -199,6 +199,8 @@ public class FocusService {
                         .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
                 if (goal > 0 && stat.getTotalFocusMinutes() >= goal) {
                     stat.setFocusGoalAchieved(true);
+                    // false→true 전이 순간 1회 발행 — 영속 플래그가 하루 1회를 보장 (GROMO-395)
+                    logDailyFocusGoalAchieved(statDate, stat.getTotalFocusMinutes(), goal);
                 }
             }
         } else {
@@ -206,17 +208,30 @@ public class FocusService {
             // UserFocusTimeSettings row 없거나 goal=0이면 플래그 false 유지
             int goal = userFocusTimeSettingsRepository.findById(userId)
                     .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
+            boolean goalAchieved = goal > 0 && addedMinutes >= goal;
             dailyFocusStatRepository.save(DailyFocusStat.builder()
                     .user(user)
                     .date(statDate)
                     .totalFocusMinutes(addedMinutes)
                     .sessionCount(1)
                     .distractionCount(body.getDistractionCount())
-                    .focusGoalAchieved(goal > 0 && addedMinutes >= goal)
+                    .focusGoalAchieved(goalAchieved)
                     .build());
+            if (goalAchieved) {
+                // 신규 row 가 곧바로 달성 = false→true 전이와 동일 — 1회 발행 (GROMO-395)
+                logDailyFocusGoalAchieved(statDate, addedMinutes, goal);
+            }
         }
 
         // 스트릭 갱신 — 세션 저장·일별 집계와 같은 트랜잭션(원자적), 날짜 기준도 동일(endedAt UTC)
         userStreakService.updateOnSessionComplete(user, statDate);
+    }
+
+    /** 일일 집중 목표 달성(false→true 전이) 이벤트 발행 — date 는 ISO(UTC). */
+    private void logDailyFocusGoalAchieved(LocalDate statDate, int totalFocusMinutes, int goalMinutes) {
+        userActivityEventLogger.log(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED, Map.of(
+                "date", statDate.toString(),
+                "total_focus_minutes", totalFocusMinutes,
+                "goal_minutes", goalMinutes));
     }
 }

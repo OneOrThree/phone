@@ -12,6 +12,7 @@ import com.oneorthree.phone.user.domain.Gender;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.Provider;
 import com.oneorthree.phone.user.domain.SocialAccount;
+import com.oneorthree.phone.user.domain.StatVisibility;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.domain.UserNotificationSettings;
@@ -48,6 +49,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -264,6 +267,7 @@ class UserServiceTest {
         assertThat(response.dailyFocusTimeGoalMinutes()).isEqualTo(90);
         assertThat(response.countryCode()).isEqualTo("KR");
         assertThat(response.reportTime()).isEqualTo("21:00");
+        assertThat(response.statVisibility()).isEqualTo("FRIENDS"); // 기본값
     }
 
     @Test
@@ -401,6 +405,34 @@ class UserServiceTest {
         assertThat(settings.getDailyScreenTimeGoalMinutes()).isEqualTo(120);
         verify(userActivityEventLogger).log(UserActivityEvent.GOAL_SET,
                 Map.of("goal_type", "screen_time", "goal_minutes", 120));
+    }
+
+    // ── updateStatVisibility ──────────────────────────────────────────────
+
+    @Test
+    @DisplayName("공개 범위 수정 → user.statVisibility 반영 + STAT_VISIBILITY_UPDATED(visibility) 발행")
+    void updateStatVisibilityEmitsEvent() {
+        User user = User.builder().id(USER_ID).build(); // 기본값 FRIENDS
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        userService.updateStatVisibility(USER_ID, StatVisibility.PUBLIC);
+
+        assertThat(user.getStatVisibility()).isEqualTo(StatVisibility.PUBLIC);
+        verify(userActivityEventLogger).log(UserActivityEvent.STAT_VISIBILITY_UPDATED,
+                Map.of("visibility", "PUBLIC"));
+    }
+
+    @Test
+    @DisplayName("공개 범위 수정 - 존재하지 않는 유저 → UserException(NOT_FOUND), 이벤트 미발행")
+    void updateStatVisibilityUserNotFound() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.updateStatVisibility(USER_ID, StatVisibility.PUBLIC))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+        verify(userActivityEventLogger, never())
+                .log(any(UserActivityEvent.class), anyMap());
     }
 
     // ── updateNotificationSettings ────────────────────────────────────────

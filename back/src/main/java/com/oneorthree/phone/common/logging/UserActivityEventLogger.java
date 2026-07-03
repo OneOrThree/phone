@@ -15,7 +15,8 @@ import static net.logstash.logback.argument.StructuredArguments.keyValue;
 public class UserActivityEventLogger {
 
     private static final Logger USER_ACTIVITY = LoggerFactory.getLogger("user-activity");
-    private static final String SOURCE = "server";
+    private static final String SOURCE_SERVER = "server";
+    private static final String SOURCE_CLIENT = "client";
     @Value("${spring.profiles.active:local}")
     private String env;
 
@@ -25,19 +26,28 @@ public class UserActivityEventLogger {
         log(MDC.get("user_id"), event, payload);
     }
 
+    /** 인증 전 이벤트(로그인 직후·게스트 등)용 — userId 직접 전달. source="server". */
+    public void log(String userId, UserActivityEvent event, Map<String, Object> payload) {
+        emit(userId, event, SOURCE_SERVER, payload);
+    }
+
+    /** 클라 수신 이벤트(analytics 엔드포인트)용 — source="client". user_id 는 MDC 자동. */
+    public void logClient(ActivityEvent event, Map<String, Object> payload) {
+        emit(MDC.get("user_id"), event, SOURCE_CLIENT, payload);
+    }
+
     /**
-     * 인증 전 이벤트(로그인 직후·게스트 등)용 — userId 직접 전달.
-     * event·category(=UserActivityEvent에서)·user_id·source·env·payload 를 StructuredArguments 로 실어
+     * event·category·user_id·source·env·payload 를 StructuredArguments 로 실어
      * logstash JSON 인코더가 "필드"로 출력하게 한다. payload 는 발행 전 2차 마스킹.
      * 로깅 실패가 비즈니스 흐름을 막지 않도록 예외를 삼킨다.
      */
-    public void log(String userId, UserActivityEvent event, Map<String, Object> payload) {
+    private void emit(String userId, ActivityEvent event, String source, Map<String, Object> payload) {
         try {
             USER_ACTIVITY.info("user_activity",
                     keyValue("event", event.event()),
                     keyValue("category", event.category()),
                     keyValue("user_id", userId),
-                    keyValue("source", SOURCE),
+                    keyValue("source", source),
                     keyValue("env", env),
                     keyValue("payload", mask(payload)));
         } catch (Exception e) {

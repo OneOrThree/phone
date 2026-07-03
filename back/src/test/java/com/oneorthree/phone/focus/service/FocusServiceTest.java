@@ -44,6 +44,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
@@ -794,6 +795,110 @@ class FocusServiceTest {
         // 달성 상태 그대로 유지, goal 조회를 위한 findById 미호출
         assertThat(existing.isFocusGoalAchieved()).isTrue();
         verify(userFocusTimeSettingsRepository, never()).findById(any());
+    }
+
+    // ── DAILY_FOCUS_GOAL_ACHIEVED 이벤트 (GROMO-395 커밋 4) ─────────────────
+
+    /** E1: insert 경로 — 신규 row 가 곧바로 달성(false→true 전이와 동일) → 이벤트 1회 발행 */
+    @Test
+    @DisplayName("E1: 첫 세션으로 목표 도달(insert 경로) → DAILY_FOCUS_GOAL_ACHIEVED 1회 발행")
+    void saveFocusStat_insertPath_goalAchieved_emitsEvent() {
+        // goal=60, START~END = 60분 세션 → 신규 row 즉시 달성
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
+                .willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        UserFocusTimeSettings settings = UserFocusTimeSettings.builder()
+                .userId(USER_ID).dailyFocusTimeGoalMinutes(60).build();
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, "공부", START, END, 0, 0));
+
+        verify(userActivityEventLogger).log(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED,
+                Map.of("date", "2026-06-23", "total_focus_minutes", 60, "goal_minutes", 60));
+    }
+
+    /** E2: update 경로 — 누적으로 false→true 전이 → 이벤트 1회 발행 */
+    @Test
+    @DisplayName("E2: 누적으로 목표 도달(update 경로 false→true 전이) → DAILY_FOCUS_GOAL_ACHIEVED 1회 발행")
+    void saveFocusStat_updatePath_transition_emitsEvent() {
+        // 기존 30분 미달성 + 30분 세션 = 60분 == goal → 전이 발행
+        User user = User.builder().id(USER_ID).build();
+        DailyFocusStat existing = DailyFocusStat.builder()
+                .user(user).date(LocalDate.of(2026, 6, 23))
+                .totalFocusMinutes(30).sessionCount(1).distractionCount(0)
+                .focusGoalAchieved(false).build();
+        Instant end30 = Instant.parse("2026-06-23T01:30:00Z");
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
+                .willReturn(Optional.of(existing));
+        UserFocusTimeSettings settings = UserFocusTimeSettings.builder()
+                .userId(USER_ID).dailyFocusTimeGoalMinutes(60).build();
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, "공부", START, end30, 0, 0));
+
+        verify(userActivityEventLogger).log(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED,
+                Map.of("date", "2026-06-23", "total_focus_minutes", 60, "goal_minutes", 60));
+    }
+
+    /** E3: 목표 미달 → 미발행 */
+    @Test
+    @DisplayName("E3: 목표 미달 → DAILY_FOCUS_GOAL_ACHIEVED 미발행")
+    void saveFocusStat_goalNotReached_doesNotEmit() {
+        // goal=120, 60분 세션 → 미달
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
+                .willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        UserFocusTimeSettings settings = UserFocusTimeSettings.builder()
+                .userId(USER_ID).dailyFocusTimeGoalMinutes(120).build();
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, "공부", START, END, 0, 0));
+
+        verify(userActivityEventLogger, never())
+                .log(eq(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED), anyMap());
+    }
+
+    /** E4: 이미 달성된 날 추가 세션(true 유지) → 재발행 없음 */
+    @Test
+    @DisplayName("E4: 이미 달성된 날 추가 세션(true→true) → DAILY_FOCUS_GOAL_ACHIEVED 재발행 없음")
+    void saveFocusStat_alreadyAchieved_doesNotReEmit() {
+        User user = User.builder().id(USER_ID).build();
+        DailyFocusStat existing = DailyFocusStat.builder()
+                .user(user).date(LocalDate.of(2026, 6, 23))
+                .totalFocusMinutes(60).sessionCount(1).distractionCount(0)
+                .focusGoalAchieved(true).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
+                .willReturn(Optional.of(existing));
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, "공부", START, END, 0, 0));
+
+        verify(userActivityEventLogger, never())
+                .log(eq(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED), anyMap());
+    }
+
+    /** E5: goal=0(판정 스킵) → 미발행 */
+    @Test
+    @DisplayName("E5: goal=0 → DAILY_FOCUS_GOAL_ACHIEVED 미발행")
+    void saveFocusStat_goalZero_doesNotEmit() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
+                .willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        UserFocusTimeSettings settings = UserFocusTimeSettings.builder()
+                .userId(USER_ID).dailyFocusTimeGoalMinutes(0).build();
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, "공부", START, END, 0, 0));
+
+        verify(userActivityEventLogger, never())
+                .log(eq(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED), anyMap());
     }
 
     // ── [직접 구현 B] 도메인 엣지케이스 (정책 판단 필요) ───────────────────────
