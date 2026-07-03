@@ -52,6 +52,9 @@ export default {
       buildNumber: '21',
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
+        // Firebase 자동 화면추적 끄기 — RN에선 네이티브 뷰컨트롤러명(RNSScreen 등)만 잡혀 노이즈.
+        // 화면 계측은 우리가 발행하는 커스텀 이벤트로만 관리한다.
+        FirebaseAutomaticScreenReportingEnabled: false,
       },
     },
     android: {
