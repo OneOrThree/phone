@@ -213,6 +213,14 @@ public class UserService {
         user.setDeviceToken(deviceToken);
     }
 
+    // 토큰 해제 — 로그아웃/기기 변경 시 이전 유저에게 오발송되는 것 방지 (GROMO-528)
+    @Transactional
+    public void clearDeviceToken(UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        user.setDeviceToken(null);
+    }
+
     /**
      * 유저의 활성 소셜 연동 목록 조회 (deletedAt IS NULL).
      * 게스트(연동 0개)는 빈 리스트 반환.

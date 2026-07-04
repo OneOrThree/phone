@@ -111,7 +111,7 @@ public class UserController {
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(summary = "디바이스 토큰 등록", description = "앱 시작 시 APNs 디바이스 토큰을 등록/갱신. 성공 시 204 반환.")
+    @Operation(summary = "디바이스 토큰 등록", description = "앱 시작 시 FCM registration token 을 등록/갱신. 성공 시 204 반환.")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "등록 성공"),
         @ApiResponse(responseCode = "400", description = "deviceToken 누락"),
@@ -123,6 +123,19 @@ public class UserController {
             HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         userService.registerDeviceToken(userId, body.getDeviceToken());
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "디바이스 토큰 해제",
+            description = "로그아웃/기기 변경 시 호출 — 이전 유저에게 푸시가 오발송되는 것 방지. 성공 시 204 반환.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "해제 성공"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
+    @DeleteMapping("/users/me/device-token")
+    public ResponseEntity<Void> clearDeviceToken(HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        userService.clearDeviceToken(userId);
         return ResponseEntity.noContent().build();
     }
 

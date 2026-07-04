@@ -71,7 +71,8 @@ public class User {
     @Column(name = "report_time")
     private LocalTime reportTime;
 
-    @Column(length = 255)
+    // FCM registration token — 최대 길이가 문서로 보장되지 않아 512 로 여유 확보 (GROMO-528, migration v23 선적용)
+    @Column(length = 512)
     private String deviceToken;
 
     private String refreshToken;
