@@ -1,0 +1,28 @@
+# GROMO-546 — promtail: docker 서비스 디스커버리로 컨테이너 stdout 수집 → Loki
+# 앱 로그(logback CONSOLE→stdout)가 여기로. Grafana 에서 {container="phone-app"} 라이브 테일.
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # 컨테이너명(/phone-app → phone-app) 을 container 라벨로
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: container
+      # stdout/stderr 구분
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: stream
+      # compose 서비스명(app, db, ...) 라벨
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: compose_service

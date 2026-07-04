@@ -1,0 +1,16 @@
+# GROMO-546 — Grafana 데이터소스 자동 프로비저닝 (as code)
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 5s        # 스크레이프 간격과 일치
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
