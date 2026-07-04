@@ -21,6 +21,10 @@
       "description": "홈 화면 통계 조회 API (스트릭·일별 집중 집계)"
     },
     {
+      "name": "notification-batch",
+      "description": "알림 배치 수동 트리거 (local/dev/staging 전용)"
+    },
+    {
       "name": "Group",
       "description": "Group 세션 관련 API (생성, 조회 등)"
     },
@@ -55,6 +59,10 @@
     {
       "name": "Friend",
       "description": "친구 요청·수락·거절·삭제·목록·검색·핀 API"
+    },
+    {
+      "name": "notification-test",
+      "description": "테스트 푸시 발송 (local/dev/staging 전용 — 인증·필터 미적용)"
     },
     {
       "name": "auth",
@@ -470,6 +478,78 @@
           },
           "404": {
             "description": "유저 없음"
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/test": {
+      "post": {
+        "tags": [
+          "notification-test"
+        ],
+        "summary": "테스트 푸시 발송",
+        "description": "body 의 deviceToken(FCM registration token)으로 즉시 발송. 인증·알림 설정·심야 필터 미적용. title/body/link 는 선택 — 생략 시 기본 문구. local/ci 프로파일에서는 NoOp 이라 실제 발송되지 않음.",
+        "operationId": "sendTestPush",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestPushRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "발송 시도 완료 — result 로 판별 (SENT/INVALID_TOKEN/FAILED)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestPushResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "deviceToken 누락",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestPushResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/league/results/run": {
+      "post": {
+        "tags": [
+          "notification-batch"
+        ],
+        "summary": "주간 리그 결과 알림 수동 실행",
+        "description": "직전 주차 승격/강등 유저에게 즉시 발송. ⚠️ 상태 재조회 방식이라 재트리거 시 같은 유저에게 중복 발송됨 — 운영 주의.",
+        "operationId": "runWeeklyResultNotifications",
+        "responses": {
+          "204": {
+            "description": "실행 완료 (발송 건수는 서버 로그 참조)"
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/league/deadline/run": {
+      "post": {
+        "tags": [
+          "notification-batch"
+        ],
+        "summary": "리그 마감 임박 알림 수동 실행",
+        "description": "ACTIVE 아레나 참가자 전원에게 현재 순위 포함 즉시 발송. 재트리거 시 중복 발송 — 운영 주의.",
+        "operationId": "runDeadlineReminders",
+        "responses": {
+          "204": {
+            "description": "실행 완료 (발송 건수는 서버 로그 참조)"
           }
         }
       }
@@ -3425,6 +3505,35 @@
           "reportedAt",
           "screenTimeGoalAchieved"
         ]
+      },
+      "TestPushRequest": {
+        "type": "object",
+        "properties": {
+          "deviceToken": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "link": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "deviceToken"
+        ]
+      },
+      "TestPushResponse": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        }
       },
       "GrantItemRequest": {
         "type": "object",
