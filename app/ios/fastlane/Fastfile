@@ -25,24 +25,20 @@ platform :ios do
       key_filepath: ENV.fetch("ASC_KEY_PATH"), # AuthKey_XXXX.p8 경로
     )
 
-    # 2. 빌드번호 = max(ASC 최신 빌드, 로컬 프로젝트 현재 빌드) + 1
-    #    ASC API는 전파 지연으로 방금 올린 빌드를 아직 최신으로 안 줄 때가 있다
-    #    (그 값만 믿고 +1 하면 이미 쓴 번호를 또 만들어 -19232 "already used"로 거부됨).
-    #    increment_build_number가 매번 gromo.xcodeproj에 값을 다시 써두므로,
-    #    로컬 현재 빌드번호는 항상 마지막에 올린 값 이상이다 → 이걸 하한으로 같이 쓰면
-    #    ASC가 늦어도 로컬 값이 앞서 있어 자동으로 +1 되고 충돌하지 않는다.
-    version = get_info_plist_value(path: "gromo/Info.plist", key: "CFBundleShortVersionString")
-    asc_latest = latest_testflight_build_number(
-      api_key: api_key,
-      app_identifier: APP_ID,
-      version: version,
-      initial_build_number: 0,
-    ).to_i
-    local_current = get_build_number(xcodeproj: "gromo.xcodeproj").to_i
-    # BUILD_NUMBER_FLOOR: 그래도 막히면 쓰는 수동 하한 (평소엔 불필요)
-    floor = ENV.fetch("BUILD_NUMBER_FLOOR", "0").to_i
-    next_build = [asc_latest + 1, local_current + 1, floor].max
-    UI.message("빌드번호: ASC=#{asc_latest}, 로컬=#{local_current}, floor=#{floor} → #{next_build}")
+    # 2. 빌드번호 = 현재 유닉스 타임스탬프 (매번 유일 + 항상 단조 증가)
+    #    이 프로젝트는 GENERATE_INFOPLIST_FILE=YES 라, 바이너리의 CFBundleVersion은
+    #    CURRENT_PROJECT_VERSION(= increment_build_number 가 쓰는 값)에서 나온다.
+    #    (gromo/Info.plist 의 리터럴 CFBundleVersion 값은 빌드 시 이 값으로 덮인다.)
+    #
+    #    "ASC 최신 빌드 + 1" 방식은 두 이유로 계속 -19232("already used") 충돌이 났다:
+    #      (1) CFBundleShortVersionString 이 "$(MARKETING_VERSION)" 문자 그대로라
+    #          latest_testflight_build_number 가 그런 버전을 못 찾고 항상 0을 반환,
+    #      (2) expo prebuild 가 CURRENT_PROJECT_VERSION 을 app.config.js 의 '1'로 되돌려
+    #          매 실행이 1→2 로만 올라가 이미 쓴 번호를 재생성.
+    #    타임스탬프는 ASC 전파 지연/prebuild 리셋과 무관하게 매번 커지므로 충돌이 불가능하다.
+    #    Time.now.to_i(≈17억) < 42.9억(CFBundleVersion 컴포넌트 상한)이라 2106년까지 안전.
+    next_build = Time.now.to_i
+    UI.message("빌드번호(타임스탬프): #{next_build}")
     increment_build_number(
       xcodeproj: "gromo.xcodeproj",
       build_number: next_build,
