@@ -450,9 +450,9 @@ export default function FocusSessionScreen() {
         >
           <View style={[s.page, { width }]}>
             <View style={s.characterWrap}>
-              {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터 */}
+              {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터(공부 집중 = study 캐릭터) */}
               <View ref={charShotRef} collapsable={false}>
-                <CharacterImage size={230} />
+                <CharacterImage size={230} variant="study" />
               </View>
             </View>
           </View>
