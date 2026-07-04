@@ -35,6 +35,7 @@ env:
 jobs:
   build-push:
     runs-on: [self-hosted, ci, spot]
+    timeout-minutes: 20 # self-hosted 기본 360분 — spot 러너 장기 점유 방지
     steps:
       - uses: actions/checkout@v4
 

@@ -40,6 +40,7 @@ jobs:
     # prod-ci 성공 시에만 (수동 실행은 항상)
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: [self-hosted, ci, spot]
+    timeout-minutes: 15 # self-hosted 기본 360분 — ssm wait이 걸려도 spot 러너 점유 제한
     steps:
       # compose를 배포 이미지와 같은 커밋에서 가져와 이미지-설정 버전을 일치시킨다.
       - uses: actions/checkout@v4
