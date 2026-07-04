@@ -7,13 +7,32 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 // W3 · 문제 공감 — "이런 하루, 익숙하지 않으세요?" 공감 카드 2개(정적).
 export default function ProblemEmpathyStep({ onNext }: StepProps) {
   return (
-    <StepScaffold center title={'이런 하루, 익숙하지\n않으세요?'} ctaLabel="공감돼요" onCta={onNext}>
+    <StepScaffold
+      center
+      title={'이런 하루, 익숙하지\n않으세요?'}
+      ctaLabel="공감돼요"
+      onCta={onNext}
+    >
       <View style={s.cards}>
         <View style={s.card}>
           <View style={s.iconBox}>
             <Svg width={22} height={22} viewBox="0 0 24 24">
-              <Rect x={6} y={2} width={12} height={20} rx={3} fill="none" stroke={T.accentAlt} strokeWidth={1.8} />
-              <Path d="M9 2h6M10 19h4" stroke={T.accentAlt} strokeWidth={1.8} strokeLinecap="round" />
+              <Rect
+                x={6}
+                y={2}
+                width={12}
+                height={20}
+                rx={3}
+                fill="none"
+                stroke={T.accentAlt}
+                strokeWidth={1.8}
+              />
+              <Path
+                d="M9 2h6M10 19h4"
+                stroke={T.accentAlt}
+                strokeWidth={1.8}
+                strokeLinecap="round"
+              />
             </Svg>
           </View>
           <Text style={s.cardText}>잠시 알림 확인하려고 핸드폰 들었다가 훌쩍 지나간 시간</Text>
@@ -22,7 +41,13 @@ export default function ProblemEmpathyStep({ onNext }: StepProps) {
         <View style={s.card}>
           <View style={s.iconBox}>
             <Svg width={22} height={22} viewBox="0 0 24 24">
-              <Path d="M5 20V10M12 20V4M19 20v-7" stroke={T.accentAlt} strokeWidth={1.9} fill="none" strokeLinecap="round" />
+              <Path
+                d="M5 20V10M12 20V4M19 20v-7"
+                stroke={T.accentAlt}
+                strokeWidth={1.9}
+                fill="none"
+                strokeLinecap="round"
+              />
             </Svg>
           </View>
           <Text style={s.cardText}>내가 남들만큼 하는지 비교할 방법이 없는 답답한 순간</Text>

@@ -12,7 +12,6 @@ export interface V2OnboardingData {
   guessedYesterdayMinutes: number | null; // W9 어제 사용 자가 추측(분)
   screenTimeGranted: boolean | null; // W10 스크린타임 권한 결과 (null=아직 안 물어봄)
   screenTimeSelectionConfigured: boolean; // W10 측정 대상(앱) picker 완료 여부
-  manualYesterdayMinutes: number | null; // (구) 권한거부 수동 입력 — V3에서 W9 자가추측으로 대체 예정
   nickname: string; // 닉네임·캐릭터 화면
   usageGoalMinutes: number | null; // W12 하루 스크린타임 목표(60~600분)
   dailyFocusMinutes: number | null; // W12 하루 집중 목표(30~600분)
@@ -25,7 +24,6 @@ export const INITIAL_ONBOARDING_DATA: V2OnboardingData = {
   guessedYesterdayMinutes: null,
   screenTimeGranted: null,
   screenTimeSelectionConfigured: false,
-  manualYesterdayMinutes: null,
   nickname: '',
   usageGoalMinutes: null,
   dailyFocusMinutes: null,

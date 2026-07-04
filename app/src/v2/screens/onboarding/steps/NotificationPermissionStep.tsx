@@ -13,7 +13,12 @@ const MOON = 'M20 15a8 8 0 01-11-7 8 8 0 108 11z';
 const ITEMS = [
   { title: '승급했어요!', sub: '초집중 모드 → 갓생러', icon: 'star', color: T.accent },
   { title: '목표 달성 응원', sub: '한 걸음 더 나아가요', icon: 'star', color: T.green },
-  { title: '심야 절제 알림', sub: '밤 12시, 이제 쉴까요?', icon: 'moon', color: T.subjectPalette[5] },
+  {
+    title: '심야 절제 알림',
+    sub: '밤 12시, 이제 쉴까요?',
+    icon: 'moon',
+    color: T.subjectPalette[5],
+  },
 ] as const;
 
 export default function NotificationPermissionStep({ update, onNext, onBack }: StepProps) {
@@ -51,7 +56,13 @@ export default function NotificationPermissionStep({ update, onNext, onBack }: S
                 {it.icon === 'star' ? (
                   <Path d={STAR} fill={it.color} />
                 ) : (
-                  <Path d={MOON} fill="none" stroke={it.color} strokeWidth={1.8} strokeLinejoin="round" />
+                  <Path
+                    d={MOON}
+                    fill="none"
+                    stroke={it.color}
+                    strokeWidth={1.8}
+                    strokeLinejoin="round"
+                  />
                 )}
               </Svg>
             </View>

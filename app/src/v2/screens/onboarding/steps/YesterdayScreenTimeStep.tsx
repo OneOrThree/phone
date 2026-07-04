@@ -18,7 +18,9 @@ const BREAKDOWN: { label: string; ratio: number; color: string }[] = [
 ];
 
 export default function YesterdayScreenTimeStep({ data, onNext, onBack }: StepProps) {
-  const [totalMin, setTotalMin] = useState<number>(data.guessedYesterdayMinutes ?? SAMPLE_TOTAL_MIN);
+  const [totalMin, setTotalMin] = useState<number>(
+    data.guessedYesterdayMinutes ?? SAMPLE_TOTAL_MIN,
+  );
 
   useEffect(() => {
     let alive = true;
@@ -60,7 +62,12 @@ export default function YesterdayScreenTimeStep({ data, onNext, onBack }: StepPr
                 <Text style={s.rowVal}>{formatDuration(catMin)}</Text>
               </View>
               <View style={s.track}>
-                <View style={[s.fill, { width: `${(b.ratio / maxRatio) * 100}%`, backgroundColor: b.color }]} />
+                <View
+                  style={[
+                    s.fill,
+                    { width: `${(b.ratio / maxRatio) * 100}%`, backgroundColor: b.color },
+                  ]}
+                />
               </View>
             </View>
           );
@@ -71,7 +78,12 @@ export default function YesterdayScreenTimeStep({ data, onNext, onBack }: StepPr
 }
 
 const s = StyleSheet.create({
-  headline: { flexDirection: 'row', alignItems: 'baseline', alignSelf: 'flex-start', marginBottom: 22 },
+  headline: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    alignSelf: 'flex-start',
+    marginBottom: 22,
+  },
   big: { fontSize: 50, fontWeight: '800', letterSpacing: -2, color: T.ink },
   bigUnit: { fontSize: 28, fontWeight: '800', color: T.accent },
   list: { alignSelf: 'stretch', gap: 18 },

@@ -48,7 +48,10 @@ export default function SubjectCompareStep({ data, onNext, onBack }: StepProps) 
             <View key={subjects[i]} style={s.col}>
               <View style={s.bars}>
                 <View
-                  style={[s.bar, { height: b.me, backgroundColor: deficit ? T.accentLight : T.accent }]}
+                  style={[
+                    s.bar,
+                    { height: b.me, backgroundColor: deficit ? T.accentLight : T.accent },
+                  ]}
                 />
                 <View style={[s.bar, { height: b.avg, backgroundColor: T.borderDark }]} />
               </View>
@@ -112,5 +115,12 @@ const s = StyleSheet.create({
   noteDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.accentLight },
   noteText: { fontSize: 12, fontWeight: '600', color: T.accentDeep, lineHeight: 17, flex: 1 },
   noteStrong: { fontWeight: '800' },
-  caption: { ...T.text.caption, fontWeight: '500', color: T.link, textAlign: 'center', marginTop: 14, lineHeight: 20 },
+  caption: {
+    ...T.text.caption,
+    fontWeight: '500',
+    color: T.link,
+    textAlign: 'center',
+    marginTop: 14,
+    lineHeight: 20,
+  },
 });

@@ -46,7 +46,16 @@ export default function EffectStatsStep({ onNext, onSkipToLogin }: StepProps) {
 
         <View style={[s.card, s.cardDown]}>
           <Svg width={40} height={44} viewBox="0 0 46 68">
-            <Rect x={3} y={3} width={40} height={62} rx={7} fill="none" stroke={T.accentAlt} strokeWidth={3.5} />
+            <Rect
+              x={3}
+              y={3}
+              width={40}
+              height={62}
+              rx={7}
+              fill="none"
+              stroke={T.accentAlt}
+              strokeWidth={3.5}
+            />
             <Path
               d="M15 34 L23 42 L31 30"
               stroke={T.accentAlt}
@@ -88,5 +97,11 @@ const s = StyleSheet.create({
   cardTitle: { ...T.text.subtitle, fontWeight: '800', color: T.ink },
   emph: { color: T.accentAlt },
   cardSub: { ...T.text.caption, fontWeight: '500', color: T.link, marginTop: 2 },
-  foot: { ...T.text.caption, fontWeight: '500', color: T.inkMuted, textAlign: 'center', marginTop: 16 },
+  foot: {
+    ...T.text.caption,
+    fontWeight: '500',
+    color: T.inkMuted,
+    textAlign: 'center',
+    marginTop: 16,
+  },
 });

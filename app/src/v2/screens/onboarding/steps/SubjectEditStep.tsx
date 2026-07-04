@@ -54,7 +54,12 @@ export default function SubjectEditStep({ data, update, onNext, onBack }: StepPr
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
               <Svg width={10} height={10} viewBox="0 0 12 12">
-                <Path d="M1 1l10 10M11 1L1 11" stroke={T.inkMuted} strokeWidth={2} strokeLinecap="round" />
+                <Path
+                  d="M1 1l10 10M11 1L1 11"
+                  stroke={T.inkMuted}
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                />
               </Svg>
             </TouchableOpacity>
           </View>

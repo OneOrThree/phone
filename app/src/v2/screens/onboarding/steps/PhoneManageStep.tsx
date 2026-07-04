@@ -41,7 +41,9 @@ export default function PhoneManageStep({ onNext, onBack }: StepProps) {
           <Text style={s.modeText}>집중 모드 · 허용 앱만 사용</Text>
         </View>
       </View>
-      <Text style={s.caption}>집중 중엔 방해 알림을 막고,{'\n'}하루 스크린타임 목표를 지켜드려요</Text>
+      <Text style={s.caption}>
+        집중 중엔 방해 알림을 막고,{'\n'}하루 스크린타임 목표를 지켜드려요
+      </Text>
     </StepScaffold>
   );
 }
@@ -55,7 +57,13 @@ const s = StyleSheet.create({
     padding: 20,
     alignItems: 'center',
   },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', width: 44 * 3 + 12 * 2, gap: 12 },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    width: 44 * 3 + 12 * 2,
+    gap: 12,
+  },
   tile: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   tileBlocked: { backgroundColor: T.borderDark },
   modeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14 },
