@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -22,7 +23,12 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "social_accounts")
+// (provider, provider_id) 전체 유니크 — 중복 가입 방어이자 조회 인덱스 (GROMO-581).
+// deleted_at 미포함(부분 아님): soft-delete row와도 충돌해야 로그인의 재활성화 로직이 성립.
+@Table(name = "social_accounts",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_social_accounts_provider_id",
+                columnNames = {"provider", "provider_id"}))
 @Getter
 @Setter
 @Builder

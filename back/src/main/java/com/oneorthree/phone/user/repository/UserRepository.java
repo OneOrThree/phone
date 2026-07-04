@@ -13,6 +13,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByNickname(String nickname);
 
+    // 닉네임 중복 검사 (GROMO-584) — 본인 제외(AndIdNot)로 자기 닉네임 재사용은 허용.
+    boolean existsByNicknameAndIdNot(String nickname, UUID id);
+
     Optional<User> findByRefreshToken(String refreshToken);
 
     // 닉네임 trgm fuzzy 검색 (NicknameSearchStrategy에서 호출).

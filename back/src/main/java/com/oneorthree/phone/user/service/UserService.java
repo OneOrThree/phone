@@ -63,6 +63,10 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
+        // 닉네임 중복 방지 (GROMO-584) — 사전 검사로 409, 동시 요청 레이스는 DB 유니크 제약이 최종 방어
+        if (userRepository.existsByNicknameAndIdNot(body.getNickname(), userId)) {
+            throw new UserException(UserErrorCode.NICKNAME_DUPLICATE);
+        }
         user.setNickname(body.getNickname());
         user.setBirthDate(body.getBirthDate());
         user.setGender(body.getGender());
@@ -91,6 +95,10 @@ public class UserService {
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (body.getNickname() != null) {
+            // 본인 제외 중복 검사 — 자기 닉네임 재사용은 허용 (GROMO-584)
+            if (userRepository.existsByNicknameAndIdNot(body.getNickname(), userId)) {
+                throw new UserException(UserErrorCode.NICKNAME_DUPLICATE);
+            }
             user.setNickname(body.getNickname());
         }
         if (body.getBirthDate() != null) {
