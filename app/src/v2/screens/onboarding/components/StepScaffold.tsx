@@ -34,23 +34,12 @@ export default function StepScaffold({
   ctaDisabled,
   secondaryLabel,
   onSecondary,
-  onBack,
 }: StepScaffoldProps) {
   const progress = useOnboardingProgress();
   return (
     <SafeAreaView style={s.root}>
-      {onBack ? (
-        <TouchableOpacity
-          onPress={onBack}
-          style={s.back}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <Text style={s.backText}>‹</Text>
-        </TouchableOpacity>
-      ) : null}
-
       {progress ? (
-        <View style={[s.progress, onBack ? s.progressInset : null]}>
+        <View style={s.progress}>
           <View style={s.progressTrack}>
             <View
               style={[
@@ -101,10 +90,7 @@ export default function StepScaffold({
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paper },
-  back: { position: 'absolute', top: 6, left: 10, zIndex: 10, padding: 8 },
-  backText: { fontSize: 30, lineHeight: 30, color: T.ink }, // ‹ 글리프 — 아이콘 대용(타이포 스케일 밖)
   progress: { paddingTop: 16, paddingBottom: 4, paddingHorizontal: 26 },
-  progressInset: { paddingLeft: 46 }, // 뒤로가기 셰브론 피하기
   progressTrack: { height: 4, borderRadius: 2, backgroundColor: T.caramel, overflow: 'hidden' },
   progressFill: { height: 4, borderRadius: 2, backgroundColor: T.accent },
   body: { flexGrow: 1, paddingHorizontal: 26, paddingTop: 28 },

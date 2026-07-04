@@ -68,7 +68,7 @@ export default function EffectStatsStep({ onNext, onBack, onSkipToLogin }: StepP
           </Svg>
           <View style={s.cardText}>
             <Text style={s.cardTitle}>
-              폰 사용 <Text style={s.emph}>−32%</Text>
+              폰 사용 <Text style={s.emphBlue}>−32%</Text>
             </Text>
             <Text style={s.cardSub}>딴짓하는 시간은 줄어요</Text>
           </View>
@@ -97,6 +97,7 @@ const s = StyleSheet.create({
   cardText: { flex: 1 },
   cardTitle: { ...T.text.subtitle, fontWeight: '800', color: T.ink },
   emph: { color: T.accentAlt },
+  emphBlue: { color: T.blue }, // 폰 사용 −32% 강조(파란색)
   cardSub: { ...T.text.caption, fontWeight: '500', color: T.link, marginTop: 2 },
   foot: {
     ...T.text.caption,
