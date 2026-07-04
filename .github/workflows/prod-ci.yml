@@ -2,7 +2,7 @@
 #
 # main→prod PR: 빌드 "검증"만 (ECR push 안 함)
 # prod 머지(push)/수동: 빌드 + ECR push (commit SHA 태그만 — latest 없음)
-# 배포는 prod-cd 워크플로우에서 SHA를 지정해 수동 실행.
+# 빌드 성공 시 prod-cd가 이어받아 해당 SHA를 자동 배포.
 
 name: prod-ci
 
@@ -34,7 +34,7 @@ env:
 
 jobs:
   build-push:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci, spot]
     steps:
       - uses: actions/checkout@v4
 
@@ -73,5 +73,5 @@ jobs:
           else
             echo "### prod-ci: ECR push :rocket:" >> $GITHUB_STEP_SUMMARY
             echo "- \`:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- 배포하려면 prod-cd 워크플로우를 위 SHA로 수동 실행" >> $GITHUB_STEP_SUMMARY
+            echo "- prod-cd가 이 SHA를 이어서 자동 배포" >> $GITHUB_STEP_SUMMARY
           fi

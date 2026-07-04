@@ -1,13 +1,17 @@
-# GROMO prod 서버 — CD (수동, commit SHA 지정 배포)
+# GROMO prod 서버 — CD (commit SHA 배포)
 #
-# prod-ci가 ECR에 push해 둔 이미지 중 배포할 commit SHA를 직접 입력해 실행한다.
-# latest 태그는 사용하지 않음 — CI는 SHA 태그만 push, 배포 시점/버전은 사람이 결정.
+# prod-ci가 prod 브랜치에서 성공하면(=머지 후 빌드 완료) 그 커밋 SHA를 자동 배포.
+# 수동 실행 시엔 배포할 SHA를 직접 입력 (latest 태그 없음 — CI는 SHA 태그만 push).
 # 배포 로직은 SSM Document(gromo-prod-deploy)에 박제.
 # 이전 SHA로 되돌리는 건 prod-rollback.yml (compose 갱신 없이 이미지만 교체).
 
 name: prod-cd
 
 on:
+  workflow_run:
+    workflows: ["prod-ci"]
+    types: [completed]
+    branches: [prod] # prod push 빌드 완료 → 해당 SHA 자동 배포 (PR 검증 빌드는 미트리거)
   workflow_dispatch:
     inputs:
       image_sha:
@@ -28,15 +32,19 @@ env:
   AWS_REGION: ap-northeast-2
   ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-github-actions
   CICD_SECRET_ID: gromo-prod/cicd
+  # 자동(workflow_run)이면 CI가 빌드한 커밋 SHA, 수동이면 입력값
+  IMAGE_SHA: ${{ github.event.inputs.image_sha || github.event.workflow_run.head_sha }}
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # prod-ci 성공 시에만 (수동 실행은 항상)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: [self-hosted, ci, spot]
     steps:
-      # compose를 이미지와 같은 커밋에서 가져와 이미지-설정 버전을 일치시킨다.
+      # compose를 배포 이미지와 같은 커밋에서 가져와 이미지-설정 버전을 일치시킨다.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.image_sha }}
+          ref: ${{ env.IMAGE_SHA }}
 
       - name: AWS 자격증명 (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -52,14 +60,13 @@ jobs:
 
       - name: 대상 이미지 존재 확인 (없으면 중단)
         run: |
-          SHA="${{ github.event.inputs.image_sha }}"
           REPO_NAME="${ECR_REPO#*/}" # 레지스트리 호스트 제거 → 리포지토리명
           if ! aws ecr describe-images --repository-name "$REPO_NAME" \
-                 --image-ids imageTag="$SHA" >/dev/null 2>&1; then
-            echo "::error::ECR에 이미지 태그 '$SHA' 가 없습니다. prod-ci가 push한 SHA인지 확인하세요."
+                 --image-ids imageTag="$IMAGE_SHA" >/dev/null 2>&1; then
+            echo "::error::ECR에 이미지 태그 '$IMAGE_SHA' 가 없습니다. prod-ci가 push한 SHA인지 확인하세요."
             exit 1
           fi
-          echo "이미지 확인됨: $REPO_NAME:$SHA"
+          echo "이미지 확인됨: $REPO_NAME:$IMAGE_SHA"
 
       # compose(앱 소유)만 S3로. nginx.conf/인증서는 인프라(terraform/certbot) 관리.
       - name: compose S3 업로드
@@ -67,13 +74,12 @@ jobs:
 
       - name: SSM 문서로 SHA 배포
         run: |
-          SHA="${{ github.event.inputs.image_sha }}"
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "$SSM_DOC" \
-            --parameters ImageTag="$SHA" \
+            --parameters ImageTag="$IMAGE_SHA" \
             --query "Command.CommandId" --output text)
-          echo "CommandId=$CMD_ID (deploy $SHA)"
+          echo "CommandId=$CMD_ID (deploy $IMAGE_SHA)"
           aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" || true
           STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query Status --output text)
           echo "Status=$STATUS"
