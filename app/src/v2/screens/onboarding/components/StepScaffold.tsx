@@ -2,10 +2,11 @@ import type { ReactNode } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { T } from '@/constants/theme';
+import { useOnboardingProgress } from '@/v2/screens/onboarding/components/OnboardingProgressContext';
 
-// 온보딩 스텝 공통 레이아웃 — 상단 제목/부제 + 본문(children) + 하단 풀폭 CTA(+선택적 보조 액션).
+// 온보딩 스텝 공통 레이아웃 — 상단 진행바 + 제목/부제 + 본문(children) + 하단 풀폭 CTA(+선택적 보조 액션).
 // header: 제목 위 영역(히어로 일러스트 등). center: 본문 세로 가운데 + 텍스트 가운데(히어로형 화면).
-// TODO: 상단 단계 진행바(N/총단계) — OnboardingFlow에서 current/total 내려주면 공통 표시.
+// 진행바: OnboardingProgressContext가 있으면(=온보딩 플로우 내) current/total로 상단에 공통 표시.
 interface StepScaffoldProps {
   title: string;
   subtitle?: string;
@@ -35,6 +36,7 @@ export default function StepScaffold({
   onSecondary,
   onBack,
 }: StepScaffoldProps) {
+  const progress = useOnboardingProgress();
   return (
     <SafeAreaView style={s.root}>
       {onBack ? (
@@ -45,6 +47,21 @@ export default function StepScaffold({
         >
           <Text style={s.backText}>‹</Text>
         </TouchableOpacity>
+      ) : null}
+
+      {progress ? (
+        <View style={[s.progress, onBack ? s.progressInset : null]}>
+          <View style={s.progressTrack}>
+            <View
+              style={[
+                s.progressFill,
+                {
+                  width: `${(Math.min(progress.current + 1, progress.total) / progress.total) * 100}%`,
+                },
+              ]}
+            />
+          </View>
+        </View>
       ) : null}
 
       <ScrollView
@@ -86,6 +103,10 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paper },
   back: { position: 'absolute', top: 6, left: 10, zIndex: 10, padding: 8 },
   backText: { fontSize: 30, lineHeight: 30, color: T.ink }, // ‹ 글리프 — 아이콘 대용(타이포 스케일 밖)
+  progress: { paddingTop: 16, paddingBottom: 4, paddingHorizontal: 26 },
+  progressInset: { paddingLeft: 46 }, // 뒤로가기 셰브론 피하기
+  progressTrack: { height: 4, borderRadius: 2, backgroundColor: T.caramel, overflow: 'hidden' },
+  progressFill: { height: 4, borderRadius: 2, backgroundColor: T.accent },
   body: { flexGrow: 1, paddingHorizontal: 26, paddingTop: 28 },
   bodyCenter: { justifyContent: 'center', alignItems: 'center', paddingBottom: 28 },
   header: { alignSelf: 'stretch', alignItems: 'flex-start', marginBottom: 18 },

@@ -41,12 +41,12 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 // v2 새 앱의 뿌리 — 데이터/로직 층(@/store, @/services, @/utils)은 기존 것을 그대로 공유한다.
 // 게이트: 로딩 → (미온보딩 신규유저)온보딩 → 홈 / (온보딩 완료·로그아웃)로그인 → 홈.
 // 온보딩은 로그인이 '마지막' 단계(OnboardingFlow가 내부에서 처리) — 게스트로 수집 후 로그인.
-// TODO: 로그아웃/탈퇴 UI를 v2 화면으로 재구현. 09 권한거부 분기(09a/09b)·06 성별/생일 화면.
+// TODO: 로그아웃/탈퇴 UI를 v2 화면으로 재구현.
 
 // v2 온보딩 수집 데이터를 서버로 전송(POST /users/me 프로필 설정). 로그인 상태에서만 호출.
-// 매핑: nickname → nickname, usageGoalMinutes(12) → dailyScreenTimeGoalMinutes,
-//       dailyFocusMinutes(17) → dailyFocusTimeGoalMinutes.
-// focusCategory(16)는 서버 Occupation enum(5종)과 항목이 안 맞아 로컬 보관 유지
+// 매핑: nickname → nickname, usageGoalMinutes(W12) → dailyScreenTimeGoalMinutes,
+//       dailyFocusMinutes(W12) → dailyFocusTimeGoalMinutes.
+// focusCategory(W4)는 서버 Occupation enum(5종)과 항목이 안 맞아 로컬 보관 유지
 // (handleOnboardingComplete — 리그 기본 시험 리그로 쓰인다. TODO: 백엔드 협의).
 async function syncOnboardingToServer(data: V2OnboardingData) {
   const body = {
@@ -65,7 +65,7 @@ export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [onboarded, setOnboarded] = useState(false);
-  // 온보딩에서 받은 두 목표 — 집중(17단계)·사용시간(12단계)을 각각 보관.
+  // 온보딩에서 받은 두 목표 — 집중·사용시간 목표(W12)를 각각 보관.
   const [onboardingFocusGoalSeconds, setOnboardingFocusGoalSeconds] = useState<number | null>(null);
   const [onboardingScreenTimeGoalSeconds, setOnboardingScreenTimeGoalSeconds] = useState<
     number | null
@@ -116,24 +116,36 @@ export default function App() {
   }
 
   // 온보딩 완료(마지막 로그인/게스트) → 플래그 저장 + 유저 설정 → 홈 진입.
-  async function handleOnboardingComplete({ data, login }: OnboardingResult) {
+  // skipped=true('이미 계정이 있어요')는 수집값이 없으므로 프로필·목표를 덮어쓰지 않는다.
+  async function handleOnboardingComplete({ data, login, skipped }: OnboardingResult) {
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
-    // 목표 선택(16) — 리그 화면이 기본 시험 리그로 읽는다. 서버 필드 협의 전까지 로컬 보관.
-    if (data.focusCategory) {
-      await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategory);
+    if (!skipped) {
+      // 목표 선택(W4) — 리그 화면이 기본 시험 리그로 읽는다. 서버 필드 협의 전까지 로컬 보관.
+      if (data.focusCategory) {
+        await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategory);
+      }
+      // 집중·사용시간 목표(W12) 보관.
+      setOnboardingFocusGoalSeconds(data.dailyFocusMinutes ? data.dailyFocusMinutes * 60 : null);
+      setOnboardingScreenTimeGoalSeconds(data.usageGoalMinutes ? data.usageGoalMinutes * 60 : null);
     }
     setOnboarded(true);
-    // 집중 목표=17단계 dailyFocusMinutes, 사용시간 목표=12단계 usageGoalMinutes.
-    setOnboardingFocusGoalSeconds(data.dailyFocusMinutes ? data.dailyFocusMinutes * 60 : null);
-    setOnboardingScreenTimeGoalSeconds(data.usageGoalMinutes ? data.usageGoalMinutes * 60 : null);
     if (login) {
       // 소셜 로그인으로 마무리 — 세션(토큰/유저)은 auth.ts가 이미 저장.
       const userId = getUserIdFromToken(login.accessToken);
-      setUser({ ...login, userId, nickname: data.nickname });
-      syncOnboardingToServer(data);
+      if (skipped) {
+        // 기존 계정 — 로그인 프로필(닉네임 등)을 그대로 사용, 온보딩 값으로 덮어쓰지 않음.
+        setUser({ ...login, userId });
+      } else {
+        setUser({ ...login, userId, nickname: data.nickname });
+        syncOnboardingToServer(data);
+      }
     } else {
       // 게스트로 시작 — 토큰 없어 서버 미전송, 로컬 상태로 홈 진입.
-      setUser({ nickname: data.nickname, userId: null, isNewUser: false });
+      setUser(
+        skipped
+          ? { userId: null, isNewUser: false }
+          : { nickname: data.nickname, userId: null, isNewUser: false },
+      );
     }
   }
 
@@ -159,7 +171,7 @@ export default function App() {
         onGuestStart={() => setUser({ userId: null, isNewUser: false })}
       />
     ) : (
-      // 신규 유저 → 온보딩 플로우(8→9→12→15→16→17→로그인).
+      // 신규 유저 → 온보딩 플로우(V3: W1 오프닝 → … → W14 시작 → W15 로그인).
       <OnboardingFlow onComplete={handleOnboardingComplete} />
     );
   } else {

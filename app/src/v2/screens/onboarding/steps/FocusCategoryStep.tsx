@@ -28,7 +28,10 @@ export default function FocusCategoryStep({ data, update, onNext, onBack }: Step
                 <TouchableOpacity
                   key={it}
                   activeOpacity={0.85}
-                  onPress={() => update({ focusCategory: it })}
+                  // 카테고리 변경 시 과목(W5)도 리셋 — 이전 카테고리 과목이 남지 않도록.
+                  onPress={() => {
+                    if (it !== selected) update({ focusCategory: it, subjects: [] });
+                  }}
                   style={[s.chip, on ? s.chipOn : null]}
                 >
                   <Text style={[s.chipText, on ? s.chipTextOn : null]}>{it}</Text>

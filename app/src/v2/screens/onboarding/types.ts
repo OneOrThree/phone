@@ -34,6 +34,7 @@ export const INITIAL_ONBOARDING_DATA: V2OnboardingData = {
 export interface OnboardingResult {
   data: V2OnboardingData;
   login: LoginResult | null; // null = '로그인 없이 시작하기'(게스트)
+  skipped?: boolean; // true = '이미 계정이 있어요'(W1·W2)로 온보딩 건너뜀 — 수집값 없어 프로필 덮어쓰기 금지
 }
 
 // 입력 스텝 공통 props — 모든 화면이 이 계약을 따른다.

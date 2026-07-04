@@ -17,10 +17,9 @@ const BREAKDOWN: { label: string; ratio: number; color: string }[] = [
   { label: '기타', ratio: 0.14, color: T.borderDark },
 ];
 
-export default function YesterdayScreenTimeStep({ data, onNext, onBack }: StepProps) {
-  const [totalMin, setTotalMin] = useState<number>(
-    data.guessedYesterdayMinutes ?? SAMPLE_TOTAL_MIN,
-  );
+export default function YesterdayScreenTimeStep({ onNext, onBack }: StepProps) {
+  // 실측을 못 얻으면(시뮬레이터·데이터 미동기) 시안 샘플로 폴백 — 사용자 추측값을 '실제'로 되비추지 않는다.
+  const [totalMin, setTotalMin] = useState<number>(SAMPLE_TOTAL_MIN);
 
   useEffect(() => {
     let alive = true;

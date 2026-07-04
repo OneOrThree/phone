@@ -3,6 +3,7 @@ import type { ComponentType } from 'react';
 import type { LoginResult } from '@/types/api';
 import { getDefaultSubjects } from '@/constants/focusCategories';
 import LoginScreen from '@/v2/screens/LoginScreen';
+import { OnboardingProgressContext } from '@/v2/screens/onboarding/components/OnboardingProgressContext';
 import TogetherEffectStep from '@/v2/screens/onboarding/steps/TogetherEffectStep';
 import EffectStatsStep from '@/v2/screens/onboarding/steps/EffectStatsStep';
 import ProblemEmpathyStep from '@/v2/screens/onboarding/steps/ProblemEmpathyStep';
@@ -38,6 +39,7 @@ interface OnboardingFlowProps {
 export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [index, setIndex] = useState(0);
   const [data, setData] = useState<V2OnboardingData>(INITIAL_ONBOARDING_DATA);
+  const [skipped, setSkipped] = useState(false);
 
   const update = (patch: Partial<V2OnboardingData>) => setData((d) => ({ ...d, ...patch }));
   const next = () => setIndex((i) => i + 1);
@@ -65,26 +67,32 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     ];
   }, [data.focusCategory, data.screenTimeGranted]);
 
-  // 마지막 = W15 로그인. '이미 계정이 있어요'(W1·W2)는 여기로 바로 점프한다.
-  const skipToLogin = () => setIndex(steps.length);
+  // 마지막 = W15 로그인. '이미 계정이 있어요'(W1·W2)는 여기로 바로 점프하며 skipped 표시
+  // (수집값이 없어 App이 프로필을 덮어쓰지 않도록).
+  const skipToLogin = () => {
+    setSkipped(true);
+    setIndex(steps.length);
+  };
 
   if (index >= steps.length) {
     return (
       <LoginScreen
-        onLogin={(login: LoginResult) => onComplete({ data, login })}
-        onGuestStart={() => onComplete({ data, login: null })}
+        onLogin={(login: LoginResult) => onComplete({ data, login, skipped })}
+        onGuestStart={() => onComplete({ data, login: null, skipped })}
       />
     );
   }
 
   const Step = steps[index];
   return (
-    <Step
-      data={data}
-      update={update}
-      onNext={next}
-      onBack={index > 0 ? back : undefined}
-      onSkipToLogin={skipToLogin}
-    />
+    <OnboardingProgressContext.Provider value={{ current: index, total: steps.length }}>
+      <Step
+        data={data}
+        update={update}
+        onNext={next}
+        onBack={index > 0 ? back : undefined}
+        onSkipToLogin={skipToLogin}
+      />
+    </OnboardingProgressContext.Provider>
   );
 }

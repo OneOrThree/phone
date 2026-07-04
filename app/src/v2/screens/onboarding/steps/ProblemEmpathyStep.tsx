@@ -5,13 +5,14 @@ import { T } from '@/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // W3 · 문제 공감 — "이런 하루, 익숙하지 않으세요?" 공감 카드 2개(정적).
-export default function ProblemEmpathyStep({ onNext }: StepProps) {
+export default function ProblemEmpathyStep({ onNext, onBack }: StepProps) {
   return (
     <StepScaffold
       center
       title={'이런 하루, 익숙하지\n않으세요?'}
       ctaLabel="공감돼요"
       onCta={onNext}
+      onBack={onBack}
     >
       <View style={s.cards}>
         <View style={s.card}>

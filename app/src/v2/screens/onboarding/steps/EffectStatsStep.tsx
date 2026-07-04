@@ -5,7 +5,7 @@ import { T } from '@/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // W2 · 효과(집중↑·폰↓) — "이렇게 달라져요" 베타 지표 2개(정적 설득).
-export default function EffectStatsStep({ onNext, onSkipToLogin }: StepProps) {
+export default function EffectStatsStep({ onNext, onBack, onSkipToLogin }: StepProps) {
   return (
     <StepScaffold
       center
@@ -14,6 +14,7 @@ export default function EffectStatsStep({ onNext, onSkipToLogin }: StepProps) {
       onCta={onNext}
       secondaryLabel="이미 계정이 있어요"
       onSecondary={onSkipToLogin}
+      onBack={onBack}
     >
       <View style={s.cards}>
         <View style={[s.card, s.cardUp]}>
