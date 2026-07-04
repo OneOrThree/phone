@@ -10,51 +10,52 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 // 리스트는 사용자가 만지지 않아도 크레딧처럼 계속 위로 흐른다(무한 루프, 목업 데이터).
 // TODO: 로그인/리그 연동 후 실데이터. 현재는 온보딩 설득용 샘플.
 const ROWS = [
-  { name: '민지노트', time: '04:12:38' },
-  { name: '현생사는중', time: '03:58:02' },
-  { name: '준비된자', time: '03:41:19' },
-  { name: '합격기원', time: '03:20:55' },
-  { name: '열공모드', time: '03:02:11' },
-  { name: '서연', time: '02:31:47' },
-  { name: '스터디윗미', time: '02:18:09' },
-  { name: '긍정왕', time: '02:04:33' },
-  { name: '노트필기왕', time: '01:52:20' },
-  { name: '카페인러버', time: '01:39:58' },
-  { name: '새벽형인간', time: '01:27:11' },
-  { name: '조용한불꽃', time: '01:15:40' },
+  { name: '민지노트', time: '04:12:38', focusing: true },
+  { name: '현생사는중', time: '03:58:02', focusing: true },
+  { name: '준비된자', time: '03:41:19', focusing: true },
+  { name: '합격기원', time: '03:20:55', focusing: false },
+  { name: '열공모드', time: '03:02:11', focusing: true },
+  { name: '서연', time: '02:31:47', focusing: true },
+  { name: '스터디윗미', time: '02:18:09', focusing: true },
+  { name: '긍정왕', time: '02:04:33', focusing: false },
+  { name: '노트필기왕', time: '01:52:20', focusing: true },
+  { name: '카페인러버', time: '01:39:58', focusing: true },
+  { name: '새벽형인간', time: '01:27:11', focusing: false },
+  { name: '조용한불꽃', time: '01:15:40', focusing: true },
 ];
 const MARQUEE_HEIGHT = 400;
 const SPEED = 34; // px/초
 
 function Row({
-  rank,
   name,
   subject,
   time,
+  focusing,
 }: {
-  rank: number;
   name: string;
   subject: string;
   time: string;
+  focusing: boolean;
 }) {
   return (
     <View style={s.row}>
-      <Text style={[s.rank, rank <= 3 ? s.rankTop : null]}>{rank}</Text>
       <View style={s.avatarWrap}>
         <View style={s.avatar}>
           <CharacterImage size={34} />
         </View>
-        <View style={s.online} />
+        <View style={[s.online, focusing ? null : s.offline]} />
       </View>
       <View style={s.rowMain}>
         <Text style={s.name}>{name}</Text>
         <Text style={s.subject}>{subject}</Text>
       </View>
       <View style={s.rowRight}>
-        <Text style={s.time}>{time}</Text>
+        <Text style={[s.time, focusing ? null : s.timeIdle]}>{time}</Text>
         <View style={s.focusing}>
-          <View style={s.focusDot} />
-          <Text style={s.focusText}>집중 중</Text>
+          <View style={[s.focusDot, focusing ? null : s.focusDotIdle]} />
+          <Text style={[s.focusText, focusing ? null : s.focusTextIdle]}>
+            {focusing ? '집중 중' : '쉬는 중'}
+          </Text>
         </View>
       </View>
     </View>
@@ -90,10 +91,10 @@ export default function LiveRankingStep({ data, onNext, onBack }: StepProps) {
       {ROWS.map((r, i) => (
         <Row
           key={`${prefix}-${i}`}
-          rank={i + 1}
           name={r.name}
           subject={subjectFor(i)}
           time={r.time}
+          focusing={r.focusing}
         />
       ))}
     </View>
@@ -153,8 +154,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 12,
     marginBottom: 8, // gap 대신 margin — 2벌 이음새를 균일하게(무한 루프)
   },
-  rank: { width: 18, textAlign: 'center', ...T.text.label, fontWeight: '800', color: T.inkMuted },
-  rankTop: { color: T.accent },
   avatarWrap: { width: 38, height: 38 },
   avatar: {
     width: 38,
@@ -184,4 +183,9 @@ const s = StyleSheet.create({
   focusing: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 },
   focusDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: T.green },
   focusText: { fontSize: 8, fontWeight: '600', color: T.successInk },
+  // 집중 안 하는(쉬는) 사람 — 회색 처리
+  offline: { backgroundColor: T.inkMuted },
+  timeIdle: { color: T.inkMuted },
+  focusDotIdle: { backgroundColor: T.inkMuted },
+  focusTextIdle: { color: T.inkMuted },
 });
