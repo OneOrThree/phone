@@ -137,6 +137,23 @@ class UserServiceTest {
                 .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
+    @Test
+    @DisplayName("셋업 시 닉네임 중복 → UserException(NICKNAME_DUPLICATE), setNickname 미반영")
+    void setupProfileDuplicateNickname() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.existsByNicknameAndIdNot("중복닉", USER_ID)).willReturn(true);
+
+        UserProfileSetupRequest body = new UserProfileSetupRequest(
+                "중복닉", LocalDate.of(2001, 3, 3), Gender.MALE, null, 120, 90, "KR", "21:00");
+
+        assertThatThrownBy(() -> userService.setupProfile(USER_ID, body))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NICKNAME_DUPLICATE);
+        assertThat(user.getNickname()).isNull();
+    }
+
     // ── updateProfile ─────────────────────────────────────────────────────
 
     @Test
@@ -153,6 +170,23 @@ class UserServiceTest {
         assertThat(user.getNickname()).isEqualTo("새닉네임");
         assertThat(user.getGender()).isEqualTo(Gender.FEMALE);
         assertThat(user.getCountryCode()).isEqualTo("US");
+    }
+
+    @Test
+    @DisplayName("수정 시 타인이 쓰는 닉네임 → UserException(NICKNAME_DUPLICATE), 기존 닉네임 유지")
+    void updateProfileDuplicateNickname() {
+        User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.existsByNicknameAndIdNot("남의닉", USER_ID)).willReturn(true);
+
+        UserProfileUpdateRequest body = new UserProfileUpdateRequest(
+                "남의닉", null, null, null, null, null, null);
+
+        assertThatThrownBy(() -> userService.updateProfile(USER_ID, body))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NICKNAME_DUPLICATE);
+        assertThat(user.getNickname()).isEqualTo("기존닉네임");
     }
 
     @Test

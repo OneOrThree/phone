@@ -12,6 +12,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -29,7 +30,10 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "users")
+// nickname 유니크 — 닉네임 중복 방지 (GROMO-584). nullable(게스트·온보딩 전)이나 Postgres 는 NULL 을
+// 서로 다른 값으로 취급해 다중 NULL 을 허용하므로 전체 유니크로 충분(부분 인덱스 불필요).
+@Table(name = "users",
+        uniqueConstraints = @UniqueConstraint(name = "uq_users_nickname", columnNames = "nickname"))
 @Getter
 @Setter
 @Builder

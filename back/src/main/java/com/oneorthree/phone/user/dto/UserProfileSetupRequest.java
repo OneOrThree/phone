@@ -2,6 +2,7 @@ package com.oneorthree.phone.user.dto;
 
 import com.oneorthree.phone.user.domain.Gender;
 import com.oneorthree.phone.user.domain.Occupation;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
 import lombok.AllArgsConstructor;
@@ -14,6 +15,8 @@ import java.time.LocalDate;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UserProfileSetupRequest {
+    // 온보딩 시 닉네임 필수 — 로그인 후 반드시 입력 (GROMO-584)
+    @NotBlank
     String nickname;
     LocalDate birthDate;
     Gender gender;
