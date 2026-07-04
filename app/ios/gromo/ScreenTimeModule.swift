@@ -51,7 +51,12 @@ class ScreenTimeModule: NSObject {
                 try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
                 let isApproved = AuthorizationCenter.shared.authorizationStatus == .approved
                 resolve(isApproved)
+            } catch FamilyControlsError.authorizationCanceled {
+                // 사용자가 권한 시트에서 '허용 안함'(취소)을 누른 경우 — 에러가 아니라 '거부'로 처리.
+                // resolve(false): JS가 실패 알림 없이 권한 거부 분기 화면으로 넘어간다.
+                resolve(false)
             } catch {
+                // 엔타이틀먼트/프로파일 등 실제 오류만 reject로 노출(진단용).
                 reject("AUTH_ERROR", "권한 요청 실패: \(error.localizedDescription)", error)
             }
         }
