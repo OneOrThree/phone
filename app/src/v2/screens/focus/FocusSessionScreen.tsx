@@ -28,11 +28,7 @@ import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
-import {
-  ensureNotificationPermission,
-  scheduleLeaveNotifications,
-  cancelLeaveNotifications,
-} from './leaveNotifications';
+import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { useFocusFriends } from '@/v2/screens/league/useFocusFriends';
 import { FriendGrid } from './components/FriendGrid';
 import { FocusMenuDrawer } from './components/FocusMenuDrawer';
@@ -196,11 +192,6 @@ export default function FocusSessionScreen() {
   useEffect(() => {
     if (session.elapsed > 0 && session.elapsed % 5 === 0) saveLive(session.elapsed);
   }, [session.elapsed, saveLive]);
-
-  // 세션 시작 시 알림 권한 확보(거부돼도 이탈 감지는 동작).
-  useEffect(() => {
-    ensureNotificationPermission().catch(() => {});
-  }, []);
 
   // 세션 실드 — 시작 시 허용앱 외 전부 차단, 화면을 떠날 때 해제(멱등, finish에서도 해제).
   // 적용 성공 여부(shielded)로 이탈 정책이 갈린다: 실드 O = 집중 인정 / 실드 X = 15초 정책.
