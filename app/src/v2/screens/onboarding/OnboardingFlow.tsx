@@ -90,12 +90,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   };
 
   if (index >= steps.length) {
-    return (
-      <LoginScreen
-        onLogin={(login: LoginResult) => onComplete({ data, login, skipped })}
-        onGuestStart={() => onComplete({ data, login: null, skipped })}
-      />
-    );
+    return <LoginScreen onLogin={(login: LoginResult) => onComplete({ data, login, skipped })} />;
   }
 
   const Step = steps[index];

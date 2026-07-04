@@ -168,7 +168,6 @@ export default function App() {
           const userId = getUserIdFromToken(u.accessToken);
           setUser({ ...u, userId });
         }}
-        onGuestStart={() => setUser({ userId: null, isNewUser: false })}
       />
     ) : (
       // 신규 유저 → 온보딩 플로우(V3: W1 오프닝 → … → W14 시작 → W15 로그인).
