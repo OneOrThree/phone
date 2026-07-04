@@ -70,12 +70,6 @@ export default function StepScaffold({
       </ScrollView>
 
       <View style={s.footer}>
-        {/* 보조 액션은 CTA '위'에 — CTA를 전 화면 동일하게 바닥 고정하기 위함(아래 두면 CTA가 밀려 올라감). */}
-        {secondaryLabel ? (
-          <TouchableOpacity onPress={onSecondary} style={s.secondary}>
-            <Text style={s.secondaryText}>{secondaryLabel}</Text>
-          </TouchableOpacity>
-        ) : null}
         <TouchableOpacity
           activeOpacity={0.85}
           disabled={ctaDisabled}
@@ -84,6 +78,17 @@ export default function StepScaffold({
         >
           <Text style={s.ctaText}>{ctaLabel}</Text>
         </TouchableOpacity>
+        {/* 보조 액션 자리 — 라벨이 없어도 높이를 고정 예약해 CTA 위치를 전 화면 동일하게 유지. */}
+        <View style={s.secondarySlot}>
+          {secondaryLabel ? (
+            <TouchableOpacity
+              onPress={onSecondary}
+              hitSlop={{ top: 10, bottom: 10, left: 20, right: 20 }}
+            >
+              <Text style={s.secondaryText}>{secondaryLabel}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -105,7 +110,7 @@ const s = StyleSheet.create({
   // alignSelf:stretch로 가로를 채워야 안쪽 alignSelf:stretch 자식(카드 등)이 풀폭이 된다.
   // (부모가 bodyCenter의 alignItems:center라 stretch 없으면 콘텐츠 폭으로 쭈그러듦)
   contentCenter: { marginTop: 18, alignItems: 'center', alignSelf: 'stretch' },
-  footer: { paddingHorizontal: 22, paddingBottom: 22, paddingTop: 8 },
+  footer: { paddingHorizontal: 22, paddingBottom: 10, paddingTop: 8 },
   cta: {
     height: 56,
     borderRadius: 18,
@@ -115,6 +120,6 @@ const s = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.45 },
   ctaText: { ...T.text.subtitle, color: T.white },
-  secondary: { alignItems: 'center', marginBottom: 14 },
+  secondarySlot: { height: 22, marginTop: 14, alignItems: 'center', justifyContent: 'center' },
   secondaryText: { ...T.text.label, color: T.inkMuted },
 });
