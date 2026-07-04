@@ -5,7 +5,27 @@ import { T } from '@/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // W8 · 핸드폰 관리 — "집중을 깨는 건, 대부분 핸드폰이에요"(설득). 허용/차단 앱 그리드.
-const ALLOWED = [T.green, T.blue, T.accent];
+// 허용 앱은 iOS 앱 아이콘처럼 컬러 타일 + 흰색 글리프(전화·메시지·음악)로 표현.
+const APP_GLYPHS = {
+  call: 'M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z',
+  chat: 'M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z',
+  music: 'M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z',
+};
+const ALLOWED = [
+  { key: 'call' as const, bg: T.green },
+  { key: 'chat' as const, bg: T.blue },
+  { key: 'music' as const, bg: T.accent },
+];
+
+function AppIcon({ glyph, bg }: { glyph: string; bg: string }) {
+  return (
+    <View style={[s.tile, { backgroundColor: bg }]}>
+      <Svg width={26} height={26} viewBox="0 0 24 24">
+        <Path d={glyph} fill={T.white} />
+      </Svg>
+    </View>
+  );
+}
 
 function LockTile() {
   return (
@@ -29,8 +49,8 @@ export default function PhoneManageStep({ onNext, onBack }: StepProps) {
     >
       <View style={s.card}>
         <View style={s.grid}>
-          {ALLOWED.map((c) => (
-            <View key={c} style={[s.tile, { backgroundColor: c }]} />
+          {ALLOWED.map(({ key, bg }) => (
+            <AppIcon key={key} glyph={APP_GLYPHS[key]} bg={bg} />
           ))}
           <LockTile />
           <LockTile />
