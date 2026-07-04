@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { ComponentType } from 'react';
+import { View, PanResponder, StyleSheet } from 'react-native';
 import type { LoginResult } from '@/types/api';
 import { getDefaultSubjects } from '@/constants/focusCategories';
 import LoginScreen from '@/v2/screens/LoginScreen';
@@ -45,6 +46,20 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const next = () => setIndex((i) => i + 1);
   const back = () => setIndex((i) => Math.max(0, i - 1));
 
+  // 뒤로가기 = 화면 왼쪽 가장자리에서 오른쪽으로 스와이프(다음은 버튼). 첫 스텝은 무시.
+  // 가장자리(24px)에서 시작한 수평 제스처만 인식 — 슬라이더·세로 스크롤과 충돌 방지.
+  const indexRef = useRef(index);
+  indexRef.current = index;
+  const swipeBack = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_e, g) =>
+        indexRef.current > 0 && g.x0 < 24 && g.dx > 12 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+      onPanResponderRelease: (_e, g) => {
+        if (g.dx > 60 && Math.abs(g.dx) > Math.abs(g.dy)) back();
+      },
+    }),
+  ).current;
+
   const steps = useMemo<ComponentType<StepProps>[]>(() => {
     const hasSubjects = getDefaultSubjects(data.focusCategory).length > 0;
     const denied = data.screenTimeGranted === false;
@@ -86,13 +101,19 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const Step = steps[index];
   return (
     <OnboardingProgressContext.Provider value={{ current: index, total: steps.length }}>
-      <Step
-        data={data}
-        update={update}
-        onNext={next}
-        onBack={index > 0 ? back : undefined}
-        onSkipToLogin={skipToLogin}
-      />
+      <View style={styles.flex} {...swipeBack.panHandlers}>
+        <Step
+          data={data}
+          update={update}
+          onNext={next}
+          onBack={index > 0 ? back : undefined}
+          onSkipToLogin={skipToLogin}
+        />
+      </View>
     </OnboardingProgressContext.Provider>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+});
