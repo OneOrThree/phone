@@ -8,7 +8,8 @@ import lombok.NoArgsConstructor;
 @Getter
 @NoArgsConstructor
 public class DeviceTokenRegisterRequest {
+    // FCM registration token — User.deviceToken length(512) 와 동기 (GROMO-528)
     @NotBlank
-    @Size(max = 255)
+    @Size(max = 512)
     private String deviceToken;
 }

@@ -59,6 +59,11 @@ class UserControllerTest {
         verify(userService).registerDeviceToken(any(), eq("apns-device-token"));
     }
 
+    // TODO GROMO-528 커밋①: 케이스 추가 (스펙 테스트 절)
+    //   - 512자 토큰 PUT → 204 (검증 완화 확인 — "a".repeat(512))
+    //   - 513자 토큰 PUT → 400
+    //   - DELETE /api/v1/users/me/device-token → 204 + verify(userService).clearDeviceToken(any())
+
     @Test
     @DisplayName("deviceToken 누락(blank) → 400")
     void registerDeviceTokenBlankReturns400() throws Exception {

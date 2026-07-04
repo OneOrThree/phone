@@ -321,6 +321,10 @@ class UserServiceTest {
         assertThat(user.getDeviceToken()).isEqualTo("apns-device-token");
     }
 
+    // TODO GROMO-528 커밋①: clearDeviceToken 케이스 추가 — 위 등록 케이스와 대칭
+    //   - 토큰 있는 유저 → clearDeviceToken(USER_ID) → user.getDeviceToken() null 확인
+    //   - 없는 유저 → UserException(UserErrorCode.NOT_FOUND)
+
     @Test
     @DisplayName("디바이스 토큰 등록 - 존재하지 않는 유저 → UserException(NOT_FOUND)")
     void registerDeviceTokenUserNotFound() {
