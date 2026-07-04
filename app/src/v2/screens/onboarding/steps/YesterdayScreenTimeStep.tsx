@@ -11,7 +11,7 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 export default function YesterdayScreenTimeStep({ onNext, onBack }: StepProps) {
   return (
     <StepScaffold
-      title="내가 얼마나 썼는지 볼까요?"
+      title="실제로는 얼마나 썼는지 볼까요?"
       subtitle="추측과 얼마나 달랐나요? 조금씩 줄여봐요."
       ctaLabel="다음"
       onCta={onNext}

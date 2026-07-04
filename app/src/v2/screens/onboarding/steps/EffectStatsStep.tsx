@@ -9,7 +9,7 @@ export default function EffectStatsStep({ onNext, onBack, onSkipToLogin }: StepP
   return (
     <StepScaffold
       center
-      title="이렇게 달라져요"
+      title="GROMO를 쓰면?"
       ctaLabel="다음"
       onCta={onNext}
       secondaryLabel="이미 계정이 있어요"
@@ -18,7 +18,7 @@ export default function EffectStatsStep({ onNext, onBack, onSkipToLogin }: StepP
     >
       <View style={s.cards}>
         <View style={[s.card, s.cardUp]}>
-          <Svg width={60} height={40} viewBox="0 0 150 84">
+          <Svg width={82} height={55} viewBox="0 0 150 84">
             <Polyline
               points="8,72 40,58 72,60 104,32 140,12"
               fill="none"
@@ -46,7 +46,7 @@ export default function EffectStatsStep({ onNext, onBack, onSkipToLogin }: StepP
         </View>
 
         <View style={[s.card, s.cardDown]}>
-          <Svg width={40} height={44} viewBox="0 0 46 68">
+          <Svg width={54} height={59} viewBox="0 0 46 68">
             <Rect
               x={3}
               y={3}
@@ -80,25 +80,26 @@ export default function EffectStatsStep({ onNext, onBack, onSkipToLogin }: StepP
 }
 
 const s = StyleSheet.create({
-  cards: { alignSelf: 'stretch', gap: 13 },
+  cards: { alignSelf: 'stretch', gap: 15 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 16,
     backgroundColor: T.white,
     borderRadius: 18,
     borderWidth: 2,
     borderStyle: 'dashed',
-    paddingVertical: 16,
-    paddingHorizontal: 18,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
   },
   cardUp: { borderColor: T.accent, transform: [{ rotate: '-1.5deg' }] },
   cardDown: { borderColor: T.accentAlt, transform: [{ rotate: '1.5deg' }] },
   cardText: { flex: 1 },
   cardTitle: { ...T.text.subtitle, fontWeight: '800', color: T.ink },
-  emph: { color: T.accentAlt },
-  emphBlue: { color: T.blue }, // 폰 사용 −32% 강조(파란색)
-  cardSub: { ...T.text.caption, fontWeight: '500', color: T.link, marginTop: 2 },
+  // +1.8시간 / −32% — 카드 제목보다 크게 키운 핵심 수치
+  emph: { fontSize: 25, fontWeight: '800', letterSpacing: -0.5, color: T.accentAlt },
+  emphBlue: { fontSize: 25, fontWeight: '800', letterSpacing: -0.5, color: T.blue },
+  cardSub: { ...T.text.label, fontWeight: '500', color: T.link, marginTop: 3 },
   foot: {
     ...T.text.caption,
     fontWeight: '500',

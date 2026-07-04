@@ -9,7 +9,7 @@ export default function ProblemEmpathyStep({ onNext, onBack }: StepProps) {
   return (
     <StepScaffold
       center
-      title={'이런 하루, 익숙하지\n않으세요?'}
+      title={'이런 순간, 익숙하지\n않으세요?'}
       ctaLabel="공감돼요"
       onCta={onNext}
       onBack={onBack}
