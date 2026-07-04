@@ -1,23 +1,21 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, Image, StyleSheet } from 'react-native';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
-import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // W1 · 함께 효과(오프닝) — "같이 앉으면 더 오래 가요". 정적 설득 화면(오프닝).
-// 디자인은 마스코트 군집 일러스트 — 단일 정적 캐릭터로 근사(가운데 크게 + 양옆). TODO: 전용 군집 에셋.
+// 일러스트는 3마리가 함께 공부하는 군집 에셋(characters_study.png).
 export default function TogetherEffectStep({ onNext, onSkipToLogin }: StepProps) {
   return (
     <StepScaffold
       center
       header={
         <View style={s.illust}>
-          <View style={s.table} />
-          <View style={s.cluster}>
-            <CharacterImage size={56} />
-            <CharacterImage size={78} />
-            <CharacterImage size={56} />
-          </View>
+          <Image
+            source={require('../../../../assets/characters_study.png')}
+            style={s.groupImage}
+            resizeMode="contain"
+          />
           <View style={s.badge}>
             <Text style={s.badgeText}>함께 = 1.9배 오래</Text>
           </View>
@@ -37,19 +35,10 @@ export default function TogetherEffectStep({ onNext, onSkipToLogin }: StepProps)
 }
 
 const s = StyleSheet.create({
-  illust: { alignItems: 'center', justifyContent: 'flex-end', height: 200 },
-  table: {
-    position: 'absolute',
-    bottom: 26,
-    width: 196,
-    height: 62,
-    borderRadius: 100,
-    backgroundColor: T.sand,
-    opacity: 0.6,
-  },
-  cluster: { flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
+  illust: { alignItems: 'center' },
+  groupImage: { width: 280, height: 184 },
   badge: {
-    marginTop: 10,
+    marginTop: 8,
     backgroundColor: T.green,
     borderRadius: 99,
     paddingVertical: 6,

@@ -115,7 +115,9 @@ const s = StyleSheet.create({
   centerText: { textAlign: 'center' },
   subtitle: { color: T.inkSub, marginTop: 8 },
   content: { flex: 1, marginTop: 20 },
-  contentCenter: { marginTop: 18, alignItems: 'center' },
+  // alignSelf:stretch로 가로를 채워야 안쪽 alignSelf:stretch 자식(카드 등)이 풀폭이 된다.
+  // (부모가 bodyCenter의 alignItems:center라 stretch 없으면 콘텐츠 폭으로 쭈그러듦)
+  contentCenter: { marginTop: 18, alignItems: 'center', alignSelf: 'stretch' },
   footer: { paddingHorizontal: 22, paddingBottom: 22, paddingTop: 8 },
   cta: {
     height: 56,
