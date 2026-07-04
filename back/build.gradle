@@ -36,6 +36,11 @@ dependencies {
 	// DB 쿼리 실행 시간 측정
 	implementation 'com.github.gavlyukovskiy:p6spy-spring-boot-starter:1.9.0'
 
+	// 관측 (GROMO-546) — Actuator 헬스·메트릭 엔드포인트 + micrometer Prometheus 레지스트리(/actuator/prometheus)
+	// HTTP 트래픽(http.server.requests)·HikariCP 풀 등 자동 계측. dev 는 내부 관리 포트(9091)로 격리 노출
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'io.micrometer:micrometer-registry-prometheus'
+
 	// Spring Web (REST API 기본, 내장 Tomcat 포함)
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 

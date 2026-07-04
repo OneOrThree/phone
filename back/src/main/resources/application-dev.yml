@@ -41,6 +41,27 @@ decorator:
     p6spy:
       enable-logging: false
 
+# 관측 (GROMO-588) — base application.yml 은 gitignored(로컬 전용)이라, 배포 이미지에 반영되려면
+# 관측 설정을 추적 파일인 이 dev 프로파일에 둔다. prometheus 는 공개 8080 이 아닌 내부 전용 관리 포트(9091)로
+# 격리 → docker-compose 에서 9091 호스트 미공개, app-network 안 Prometheus 만 app:9091 스크레이프.
+# JwtFilter 는 /api/* 만 필터하므로 /actuator/* 는 무인증 — 포트 격리로 공개 노출을 막는다.
+management:
+  server:
+    port: 9091
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    tags:
+      application: gromo-back
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true    # Grafana p95/p99(histogram_quantile) 용 버킷 생성
+
 logging:
   level:
     org.hibernate.SQL: WARN
