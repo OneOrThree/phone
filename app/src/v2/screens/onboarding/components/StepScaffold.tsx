@@ -70,6 +70,12 @@ export default function StepScaffold({
       </ScrollView>
 
       <View style={s.footer}>
+        {/* 보조 액션은 CTA '위'에 — CTA를 전 화면 동일하게 바닥 고정하기 위함(아래 두면 CTA가 밀려 올라감). */}
+        {secondaryLabel ? (
+          <TouchableOpacity onPress={onSecondary} style={s.secondary}>
+            <Text style={s.secondaryText}>{secondaryLabel}</Text>
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity
           activeOpacity={0.85}
           disabled={ctaDisabled}
@@ -78,11 +84,6 @@ export default function StepScaffold({
         >
           <Text style={s.ctaText}>{ctaLabel}</Text>
         </TouchableOpacity>
-        {secondaryLabel ? (
-          <TouchableOpacity onPress={onSecondary} style={s.secondary}>
-            <Text style={s.secondaryText}>{secondaryLabel}</Text>
-          </TouchableOpacity>
-        ) : null}
       </View>
     </SafeAreaView>
   );
@@ -114,6 +115,6 @@ const s = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.45 },
   ctaText: { ...T.text.subtitle, color: T.white },
-  secondary: { alignItems: 'center', marginTop: 14 },
+  secondary: { alignItems: 'center', marginBottom: 14 },
   secondaryText: { ...T.text.label, color: T.inkMuted },
 });
