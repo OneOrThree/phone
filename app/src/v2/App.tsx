@@ -4,6 +4,7 @@ import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-c
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
 import { setLogoutHandler, getUserIdFromToken, api } from '@/services/api';
+import { updateScreenTimePermission } from '@/services/userApi';
 import { runStorageMigrations } from '@/utils/storageMigration';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { LoginResult, UserProfile } from '@/types/api';
@@ -43,11 +44,16 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 // 온보딩은 로그인이 '마지막' 단계(OnboardingFlow가 내부에서 처리) — 게스트로 수집 후 로그인.
 // TODO: 로그아웃/탈퇴 UI를 v2 화면으로 재구현.
 
-// v2 온보딩 수집 데이터를 서버로 전송(POST /users/me 프로필 설정). 로그인 상태에서만 호출.
-// 매핑: nickname → nickname, usageGoalMinutes(W12) → dailyScreenTimeGoalMinutes,
-//       dailyFocusMinutes(W12) → dailyFocusTimeGoalMinutes.
+// v2 온보딩 수집 데이터를 서버로 전송. 로그인 상태에서만(토큰 발급 후) 호출.
+// (1) POST /users/me — 프로필 설정: nickname → nickname,
+//     usageGoalMinutes(W12) → dailyScreenTimeGoalMinutes,
+//     dailyFocusMinutes(W12) → dailyFocusTimeGoalMinutes.
+// (2) PATCH /users/me/screen-time-permission — 스크린타임 권한 허용 여부(W10).
+//     프로필 셋업 요청엔 권한 필드가 없어 별도 엔드포인트로 보낸다.
+//     screenTimeGranted === null(아직 안 물어봄)이면 스킵.
 // focusCategory(W4)는 서버 Occupation enum(5종)과 항목이 안 맞아 로컬 보관 유지
 // (handleOnboardingComplete — 리그 기본 시험 리그로 쓰인다. TODO: 백엔드 협의).
+// notificationGranted(W13)는 대응 엔드포인트가 알림 설정 전체 객체뿐이라 여기선 미전송(TODO).
 async function syncOnboardingToServer(data: V2OnboardingData) {
   const body = {
     nickname: data.nickname,
@@ -55,7 +61,11 @@ async function syncOnboardingToServer(data: V2OnboardingData) {
     dailyFocusTimeGoalMinutes: data.dailyFocusMinutes ?? undefined,
   };
   try {
+    // 프로필은 온보딩이 일부 필드만 수집해 부분 바디로 보낸다(setupProfile은 전체 필드 요구).
     await api.post('/api/v1/users/me', body);
+    if (data.screenTimeGranted !== null) {
+      await updateScreenTimePermission({ granted: data.screenTimeGranted });
+    }
   } catch {
     // 실패해도 진행 — 추후 재동기화(TODO)
   }
@@ -116,10 +126,15 @@ export default function App() {
   }
 
   // 온보딩 완료(마지막 로그인/게스트) → 플래그 저장 + 유저 설정 → 홈 진입.
-  // skipped=true('이미 계정이 있어요')는 수집값이 없으므로 프로필·목표를 덮어쓰지 않는다.
+  // 기존 계정엔 온보딩 수집값을 덮어쓰지 않는다(프로필·목표·로컬 상태 모두):
+  //   - skipped=true : 'W1/W2에서 이미 계정이 있어요' → 애초에 수집값이 없음.
+  //   - login.isNewUser === false : 버튼을 안 눌러도 재로그인이면 기존 유저(예: 로그아웃 후
+  //     같은 소셜로 재로그인). 백엔드가 (provider, providerId)로 같은 유저를 돌려주므로,
+  //     재온보딩으로 새로 입력한 값이 서버 프로필을 덮어쓰면 안 된다.
   async function handleOnboardingComplete({ data, login, skipped }: OnboardingResult) {
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
-    if (!skipped) {
+    const isExistingAccount = skipped || login?.isNewUser === false;
+    if (!isExistingAccount) {
       // 목표 선택(W4) — 리그 화면이 기본 시험 리그로 읽는다. 서버 필드 협의 전까지 로컬 보관.
       if (data.focusCategory) {
         await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategory);
@@ -132,7 +147,7 @@ export default function App() {
     if (login) {
       // 소셜 로그인으로 마무리 — 세션(토큰/유저)은 auth.ts가 이미 저장.
       const userId = getUserIdFromToken(login.accessToken);
-      if (skipped) {
+      if (isExistingAccount) {
         // 기존 계정 — 로그인 프로필(닉네임 등)을 그대로 사용, 온보딩 값으로 덮어쓰지 않음.
         setUser({ ...login, userId });
       } else {
@@ -142,7 +157,7 @@ export default function App() {
     } else {
       // 게스트로 시작 — 토큰 없어 서버 미전송, 로컬 상태로 홈 진입.
       setUser(
-        skipped
+        isExistingAccount
           ? { userId: null, isNewUser: false }
           : { nickname: data.nickname, userId: null, isNewUser: false },
       );
