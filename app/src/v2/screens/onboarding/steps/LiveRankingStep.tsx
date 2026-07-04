@@ -1,11 +1,13 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { View, Text, Animated, Easing, StyleSheet } from 'react-native';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { getDefaultSubjects } from '@/constants/focusCategories';
 import { T } from '@/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
-// W6 · 실시간 랭킹 — "같은 목표 준비생이 지금 함께 달리고 있어요"(설득). 목업 랭킹.
+// W6 · 실시간 랭킹 — "같은 목표 준비생이 지금 함께 달리고 있어요"(설득).
+// 리스트는 사용자가 만지지 않아도 크레딧처럼 계속 위로 흐른다(무한 루프, 목업 데이터).
 // TODO: 로그인/리그 연동 후 실데이터. 현재는 온보딩 설득용 샘플.
 const ROWS = [
   { name: '민지노트', time: '04:12:38' },
@@ -13,14 +15,89 @@ const ROWS = [
   { name: '준비된자', time: '03:41:19' },
   { name: '합격기원', time: '03:20:55' },
   { name: '열공모드', time: '03:02:11' },
-  { name: '나', time: '02:48:30', me: true },
   { name: '서연', time: '02:31:47' },
+  { name: '스터디윗미', time: '02:18:09' },
+  { name: '긍정왕', time: '02:04:33' },
+  { name: '노트필기왕', time: '01:52:20' },
+  { name: '카페인러버', time: '01:39:58' },
+  { name: '새벽형인간', time: '01:27:11' },
+  { name: '조용한불꽃', time: '01:15:40' },
 ];
+const MARQUEE_HEIGHT = 400;
+const SPEED = 34; // px/초
+
+function Row({
+  rank,
+  name,
+  subject,
+  time,
+}: {
+  rank: number;
+  name: string;
+  subject: string;
+  time: string;
+}) {
+  return (
+    <View style={s.row}>
+      <Text style={[s.rank, rank <= 3 ? s.rankTop : null]}>{rank}</Text>
+      <View style={s.avatarWrap}>
+        <View style={s.avatar}>
+          <CharacterImage size={34} />
+        </View>
+        <View style={s.online} />
+      </View>
+      <View style={s.rowMain}>
+        <Text style={s.name}>{name}</Text>
+        <Text style={s.subject}>{subject}</Text>
+      </View>
+      <View style={s.rowRight}>
+        <Text style={s.time}>{time}</Text>
+        <View style={s.focusing}>
+          <View style={s.focusDot} />
+          <Text style={s.focusText}>집중 중</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
 
 export default function LiveRankingStep({ data, onNext, onBack }: StepProps) {
   const category = data.focusCategory ?? '같은 목표';
   const subs = getDefaultSubjects(data.focusCategory);
   const subjectFor = (i: number) => (subs.length ? subs[i % subs.length] : category);
+
+  // 크레딧 자동 스크롤 — 리스트 1벌 높이(copyHeight)만큼 위로 이동 후 리셋(2벌이라 이음새 없음).
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const [copyHeight, setCopyHeight] = useState(0);
+
+  useEffect(() => {
+    if (copyHeight <= 0) return;
+    scrollY.setValue(0);
+    const anim = Animated.loop(
+      Animated.timing(scrollY, {
+        toValue: -copyHeight,
+        duration: (copyHeight / SPEED) * 1000,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [copyHeight, scrollY]);
+
+  const list = (prefix: string, onLayout?: (h: number) => void) => (
+    <View onLayout={onLayout ? (e) => onLayout(e.nativeEvent.layout.height) : undefined}>
+      {ROWS.map((r, i) => (
+        <Row
+          key={`${prefix}-${i}`}
+          rank={i + 1}
+          name={r.name}
+          subject={subjectFor(i)}
+          time={r.time}
+        />
+      ))}
+    </View>
+  );
 
   return (
     <StepScaffold
@@ -38,32 +115,11 @@ export default function LiveRankingStep({ data, onNext, onBack }: StepProps) {
       onCta={onNext}
       onBack={onBack}
     >
-      <View style={s.list}>
-        {ROWS.map((r, i) => (
-          <View key={r.name} style={[s.row, r.me ? s.rowMe : null]}>
-            <Text style={[s.rank, i < 3 ? s.rankTop : null]}>{i + 1}</Text>
-            <View style={s.avatarWrap}>
-              <View style={s.avatar}>
-                <CharacterImage size={34} />
-              </View>
-              <View style={s.online} />
-            </View>
-            <View style={s.rowMain}>
-              <Text style={s.name}>
-                {r.name}
-                {r.me ? <Text style={s.meTag}> 나</Text> : null}
-              </Text>
-              <Text style={s.subject}>{subjectFor(i)}</Text>
-            </View>
-            <View style={s.rowRight}>
-              <Text style={s.time}>{r.time}</Text>
-              <View style={s.focusing}>
-                <View style={s.focusDot} />
-                <Text style={s.focusText}>집중 중</Text>
-              </View>
-            </View>
-          </View>
-        ))}
+      <View style={s.marquee} pointerEvents="none">
+        <Animated.View style={{ transform: [{ translateY: scrollY }] }}>
+          {list('a', setCopyHeight)}
+          {list('b')}
+        </Animated.View>
       </View>
     </StepScaffold>
   );
@@ -84,7 +140,7 @@ const s = StyleSheet.create({
   badgeDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: T.green },
   badgeText: { ...T.text.caption, fontWeight: '700', fontSize: 11, color: T.successInk },
   badgeStrong: { fontWeight: '800' },
-  list: { alignSelf: 'stretch', gap: 8 },
+  marquee: { alignSelf: 'stretch', height: MARQUEE_HEIGHT, overflow: 'hidden' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -95,8 +151,8 @@ const s = StyleSheet.create({
     borderRadius: 15,
     paddingVertical: 9,
     paddingHorizontal: 12,
+    marginBottom: 8, // gap 대신 margin — 2벌 이음새를 균일하게(무한 루프)
   },
-  rowMe: { backgroundColor: T.successBg, borderWidth: 2, borderColor: T.successInk },
   rank: { width: 18, textAlign: 'center', ...T.text.label, fontWeight: '800', color: T.inkMuted },
   rankTop: { color: T.accent },
   avatarWrap: { width: 38, height: 38 },
@@ -122,7 +178,6 @@ const s = StyleSheet.create({
   },
   rowMain: { flex: 1, minWidth: 0 },
   name: { ...T.text.caption, fontWeight: '700', color: T.ink },
-  meTag: { fontSize: 9, fontWeight: '600', color: T.successInk },
   subject: { fontSize: 10, fontWeight: '500', color: T.inkMuted, marginTop: 1 },
   rowRight: { alignItems: 'flex-end' },
   time: { ...T.text.caption, fontWeight: '800', color: T.ink, fontVariant: ['tabular-nums'] },
