@@ -14,6 +14,9 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       APPLE_CLIENT_ID: ${APPLE_CLIENT_ID}
+      # FCM 발송 (GROMO-528) — dev 프로파일 = FCM 구현 활성, 시크릿 미등록 시 fail-fast 기동 실패
+      FCM_PROJECT_ID: ${FCM_PROJECT_ID}
+      FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON}
     depends_on:
       db:
         condition: service_healthy
