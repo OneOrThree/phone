@@ -35,7 +35,8 @@ services:
       - /var/log/springboot/app-2:/app/logs
 
   nginx:
-    image: nginx:alpine
+    # 마이너 버전 고정 (stable 브랜치) — 앱 이미지처럼 배포 재현성 보장
+    image: nginx:1.28-alpine
     container_name: gromo-nginx
     restart: unless-stopped
     ports:

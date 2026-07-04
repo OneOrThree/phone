@@ -1,7 +1,8 @@
 # GROMO prod 서버 — CI (이미지 빌드, prod 머지 시 ECR push)
 #
 # main→prod PR: 빌드 "검증"만 (ECR push 안 함)
-# prod 머지(push)/수동: 빌드 + ECR push (commit SHA + latest)
+# prod 머지(push)/수동: 빌드 + ECR push (commit SHA 태그만 — latest 없음)
+# 배포는 prod-cd 워크플로우에서 SHA를 지정해 수동 실행.
 
 name: prod-ci
 
@@ -24,15 +25,16 @@ permissions:
   id-token: write
   contents: read
 
+# OIDC 인증 이전에 필요한 부트스트랩 값만 여기 유지.
+# 리소스 식별자(ECR_REPO 등)는 Secrets Manager(gromo-prod/cicd)에서 주입 — terraform이 관리.
 env:
   AWS_REGION: ap-northeast-2
-  ECR_REPO: 808715036056.dkr.ecr.ap-northeast-2.amazonaws.com/gromo-prod/backend
   ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-github-actions
+  CICD_SECRET_ID: gromo-prod/cicd
 
 jobs:
   build-push:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -41,6 +43,12 @@ jobs:
         with:
           role-to-assume: ${{ env.ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: CI/CD 설정 주입 (Secrets Manager → env)
+        run: |
+          aws secretsmanager get-secret-value --secret-id "$CICD_SECRET_ID" \
+            --query SecretString --output text \
+          | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
 
       - name: ECR 로그인
         uses: aws-actions/amazon-ecr-login@v2
@@ -54,9 +62,7 @@ jobs:
           file: ./back/Dockerfile
           push: ${{ github.event_name != 'pull_request' }} # PR(검증)이면 build만
           provenance: false # attestation 매니페스트(태그 없는 이미지) 생성 방지
-          tags: |
-            ${{ env.ECR_REPO }}:${{ github.sha }}
-            ${{ env.ECR_REPO }}:latest
+          tags: ${{ env.ECR_REPO }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -66,5 +72,6 @@ jobs:
             echo "### prod-ci: 빌드 검증 완료 (ECR push 안 함)" >> $GITHUB_STEP_SUMMARY
           else
             echo "### prod-ci: ECR push :rocket:" >> $GITHUB_STEP_SUMMARY
-            echo "- \`:${{ github.sha }}\` + \`:latest\`" >> $GITHUB_STEP_SUMMARY
+            echo "- \`:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- 배포하려면 prod-cd 워크플로우를 위 SHA로 수동 실행" >> $GITHUB_STEP_SUMMARY
           fi
