@@ -22,7 +22,10 @@ import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
 import io.jsonwebtoken.JwtException;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -45,6 +48,9 @@ public class AuthService {
     private final UserActivityEventLogger userActivityEventLogger;
     private final Map<Provider, SocialLoginClient> socialLoginClients;
 
+    // 자기 자신 프록시 — 동시 첫 로그인 유니크 위반 시 새 트랜잭션으로 재시도하기 위함 (@Lazy 로 순환 주입 방지).
+    private final AuthService self;
+
     public AuthService(UserRepository userRepository,
                        UserWalletRepository userWalletRepository,
                        UserScreenTimeSettingsRepository userScreenTimeSettingsRepository,
@@ -53,7 +59,8 @@ public class AuthService {
                        SocialAccountRepository socialAccountRepository,
                        JwtProvider jwtProvider,
                        UserActivityEventLogger userActivityEventLogger,
-                       List<SocialLoginClient> socialLoginClients) {
+                       List<SocialLoginClient> socialLoginClients,
+                       @Lazy AuthService self) {
         this.userRepository = userRepository;
         this.userWalletRepository = userWalletRepository;
         this.userScreenTimeSettingsRepository = userScreenTimeSettingsRepository;
@@ -64,6 +71,7 @@ public class AuthService {
         this.userActivityEventLogger = userActivityEventLogger;
         this.socialLoginClients = socialLoginClients.stream()
                 .collect(Collectors.toMap(SocialLoginClient::provider, client -> client));
+        this.self = self;
     }
 
     // 회원 생성 시 1:1 부속 테이블(지갑·스크린타임·포커스·알림 설정) row를 함께 만든다.
@@ -75,20 +83,37 @@ public class AuthService {
     }
 
     /**
-     * 소셜 로그인 공통 흐름 (Google/Apple/Kakao/Line/Instagram).
-     * provider별 토큰 검증만 다형성으로 갈아끼우고, 회원 매핑·토큰 발급·로깅은 여기서 공통 처리한다.
+     * 소셜 로그인 진입점 (Google/Apple/Kakao/Line/Instagram) — provider 검증·providerId 추출은 트랜잭션 밖에서.
+     *
+     * 동시 첫 로그인 경쟁(TOCTOU): 같은 소셜 계정으로 두 요청이 동시에 최초 로그인하면 둘 다 "없음"으로 보고
+     * 생성 시도 → (provider, provider_id) 유니크 제약으로 한쪽 커밋 시 {@link DataIntegrityViolationException}.
+     * 유니크 위반은 flush/커밋 시점에 나므로 트랜잭션 내부에서 잡을 수 없어, self 프록시로 새 트랜잭션을 열어 1회
+     * 재시도한다(재시도 시 승자가 만든 계정이 보여 present 분기로 정상 로그인). 래퍼는 클래스 레벨
+     * readOnly 트랜잭션에 묶이지 않도록 NOT_SUPPORTED.
      *
      * @param nickname Apple fullName처럼 토큰 외 부가정보로 받는 닉네임(없으면 null)
      */
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SocialLoginResponse socialLogin(Provider provider, String token, String nickname) {
         SocialLoginClient client = socialLoginClients.get(provider);
         if (client == null) {
             throw new IllegalArgumentException("지원하지 않는 소셜 로그인 제공자입니다: " + provider);
         }
-
         String providerId = client.getProviderId(token);
 
+        try {
+            return self.loginOrRegister(provider, providerId, nickname);
+        } catch (DataIntegrityViolationException e) {
+            // 경쟁에서 진 요청 — 승자가 만든 계정으로 새 트랜잭션에서 1회 재시도(present 분기로 정상 로그인)
+            return self.loginOrRegister(provider, providerId, nickname);
+        }
+    }
+
+    /**
+     * 회원 매핑·토큰 발급·로깅 공통 처리. self 프록시로 호출돼 매 시도가 독립 트랜잭션이 되도록 public.
+     */
+    @Transactional
+    public SocialLoginResponse loginOrRegister(Provider provider, String providerId, String nickname) {
         Optional<SocialAccount> socialAccount =
                 socialAccountRepository.findByProviderAndProviderId(provider, providerId);
 

@@ -22,6 +22,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.List;
@@ -36,6 +38,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -76,7 +79,9 @@ class AuthServiceTest {
                 userRepository, userWalletRepository, userScreenTimeSettingsRepository,
                 userFocusTimeSettingsRepository, userNotificationSettingsRepository,
                 socialAccountRepository, jwtProvider, userActivityEventLogger,
-                List.of(kakaoClient, appleClient));
+                List.of(kakaoClient, appleClient), null);
+        // 런타임엔 @Lazy 프록시가 주입되는 self — 단위 테스트에선 자기 자신으로 대체(재시도 경로가 실제 로직을 타도록)
+        ReflectionTestUtils.setField(authService, "self", authService);
     }
 
     // ── socialLogin ───────────────────────────────────────────────────────
@@ -209,6 +214,36 @@ class AuthServiceTest {
         verify(userRepository, never()).save(any(User.class));
         verify(socialAccountRepository, never()).save(any(SocialAccount.class));
         // 재활성화 로그인은 isNewUser=false → 가입 이벤트 미발행 (527 정합)
+        verify(userActivityEventLogger, never())
+                .log(anyString(), eq(UserActivityEvent.USER_SIGNED_UP), any());
+    }
+
+    @Test
+    @DisplayName("동시 첫 로그인 경쟁 → 유니크 위반 시 새 트랜잭션으로 재시도, 승자 계정으로 정상 로그인(isNewUser=false)")
+    void socialLoginRetriesOnDuplicateRace() {
+        // given — 1차 시도: 없음 → 생성 중 SocialAccount 저장이 유니크 위반, 2차 시도: 승자가 만든 계정 조회됨
+        User existingUser = User.builder().id(USER_ID).build();
+        SocialAccount winnerAccount = SocialAccount.builder()
+                .user(existingUser).provider(Provider.KAKAO).providerId("12345").build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.empty(), Optional.of(winnerAccount));   // 1차 empty, 2차 present
+        given(userRepository.save(any(User.class))).willReturn(User.builder().id(USER_ID).build());
+        given(socialAccountRepository.save(any(SocialAccount.class)))
+                .willThrow(new DataIntegrityViolationException("uq_social_accounts_provider_id"));
+        given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
+
+        // when
+        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token", null);
+
+        // then — 재시도로 기존(승자) 계정 반환, 500 없이 정상 로그인
+        assertThat(response.isNewUser()).isFalse();
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        // 조회 2회(1차 empty → 2차 present), providerId 추출은 재시도해도 1회(외부 호출 절약)
+        verify(socialAccountRepository, times(2)).findByProviderAndProviderId(Provider.KAKAO, "12345");
+        verify(kakaoClient).getProviderId("kakao-token");
+        // 경쟁 패자는 신규 아님 → 가입 이벤트 미발행
         verify(userActivityEventLogger, never())
                 .log(anyString(), eq(UserActivityEvent.USER_SIGNED_UP), any());
     }
