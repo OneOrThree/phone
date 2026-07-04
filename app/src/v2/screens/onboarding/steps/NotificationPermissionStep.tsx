@@ -1,11 +1,15 @@
 import { View, Text, StyleSheet } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import messaging from '@react-native-firebase/messaging';
 import Svg, { Path } from 'react-native-svg';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
-// W13 · 알림 권한 — OS 알림 권한 요청(로그인 전이므로 expo-notifications로 직접).
+// W13 · 알림 권한 — OS 알림 권한 요청. 앱 푸시 스택이 FCM(@react-native-firebase/messaging)이라
+// 권한도 messaging().requestPermission()으로 요청한다(expo-notifications가 아님).
+//   → registerPushToken의 messaging().hasPermission() 확인과 API가 일치하고, iOS APNs 등록도
+//     이 호출에서 함께 이뤄져 로그인 후 getToken()이 정상 동작한다.
+//   (expo-notifications로 요청하면 firebase가 알림 델리게이트를 쥔 상태라 프롬프트가 안 뜰 수 있음.)
 // FCM 토큰 등록은 로그인 후 PushGate가 담당 — 여기선 권한만 받아 notificationGranted 저장.
 const STAR = 'M12 3l2.5 5.4 5.9.5-4.5 3.9 1.4 5.8L12 16.9 6.2 20.3l1.6-6.6L2.6 9.3l6.8-.5z';
 const MOON = 'M20 15a8 8 0 01-11-7 8 8 0 108 11z';
@@ -25,8 +29,10 @@ export default function NotificationPermissionStep({ update, onNext, onBack }: S
   const allow = async () => {
     let granted = false;
     try {
-      const { status } = await Notifications.requestPermissionsAsync();
-      granted = status === 'granted';
+      const status = await messaging().requestPermission();
+      granted =
+        status === messaging.AuthorizationStatus.AUTHORIZED ||
+        status === messaging.AuthorizationStatus.PROVISIONAL;
     } catch {
       granted = false;
     }
