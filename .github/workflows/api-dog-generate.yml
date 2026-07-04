@@ -2,9 +2,11 @@ name: Generate OpenAPI Docs
 
 on:
   push:
-    branches: [ main, release, 'bfeat/**' ]
+    branches: [ main, release, 'bfeat/**', 'bfix/**', 'brefactor/**' ]
     paths:
-      - 'back/src/main/java/com/oneorthree/phone/api/**'
+      # 도메인 기반 패키지 구조라 컨트롤러는 phone/<domain>/api/ 에 흩어져 있음.
+      # DTO·enum 변경도 OpenAPI 스키마에 반영되므로 백엔드 소스 전체를 감시한다.
+      - 'back/src/main/java/**'
   workflow_dispatch:
 
 jobs:
