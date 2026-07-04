@@ -15,6 +15,7 @@ docker compose -f docker-compose.dev.yml -f docker-compose.observability.yml up 
 
 - Grafana: `http://<서버>:3000` (admin / `$GRAFANA_ADMIN_PASSWORD`)
 - 대시보드: **"GROMO — dev 관측"** (자동 프로비저닝, 5초 새로고침)
+  - ※ 대시보드는 **as-code** — Grafana UI 에서 패널을 즉석 수정해도 ~10초 내 파일 버전으로 되돌아간다. 영구 변경은 `observability/grafana/dashboards/gromo-overview.json` 을 직접 수정.
 
 중지:
 
