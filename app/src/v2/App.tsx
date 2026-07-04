@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { View, Text, TextInput, ActivityIndicator, StyleSheet } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
 import { setLogoutHandler, getUserIdFromToken, api } from '@/services/api';
@@ -206,7 +206,8 @@ export default function App() {
   }
 
   // SafeAreaProvider 루트 — v2 LoginScreen 등 NavigationContainer 밖 화면도 SafeAreaView 사용 가능.
-  return <SafeAreaProvider>{content}</SafeAreaProvider>;
+  // initialMetrics: 첫 프레임부터 안전영역 인셋을 확정해 콜드스타트 레이아웃 점프(하단 CTA 튐) 방지.
+  return <SafeAreaProvider initialMetrics={initialWindowMetrics}>{content}</SafeAreaProvider>;
 }
 
 const s = StyleSheet.create({

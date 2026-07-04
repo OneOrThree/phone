@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T } from '@/constants/theme';
 import { useOnboardingProgress } from '@/v2/screens/onboarding/components/OnboardingProgressContext';
 
@@ -36,8 +36,21 @@ export default function StepScaffold({
   onSecondary,
 }: StepScaffoldProps) {
   const progress = useOnboardingProgress();
+  // 안전영역 인셋을 동기적으로 읽어 패딩으로 적용 — 네이티브 SafeAreaView는 스텝 remount마다
+  // 인셋 적용 전 한 프레임이 생겨 하단 CTA가 튀므로, 첫 프레임부터 확정되는 이 방식을 쓴다.
+  const insets = useSafeAreaInsets();
   return (
-    <SafeAreaView style={s.root}>
+    <View
+      style={[
+        s.root,
+        {
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
+          paddingLeft: insets.left,
+          paddingRight: insets.right,
+        },
+      ]}
+    >
       {progress ? (
         <View style={s.progress}>
           <View style={s.progressTrack}>
@@ -54,8 +67,10 @@ export default function StepScaffold({
       ) : null}
 
       <ScrollView
+        style={s.scroll}
         contentContainerStyle={[s.body, center ? s.bodyCenter : null]}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={false}
       >
         {header ? <View style={[s.header, center ? s.headerCenter : null]}>{header}</View> : null}
         <Text style={[T.text.title, s.title, center || titleCenter ? s.centerText : null]}>
@@ -90,12 +105,15 @@ export default function StepScaffold({
           ) : null}
         </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paper },
+  // 본문 영역을 화면에 고정(flex:1). 세로 스크롤은 끔(scrollEnabled=false) — 본문 높이가
+  // 바뀌어도 하단 CTA가 밀리지 않고, 화면은 세로로 고정된다(가로 스와이프 뒤로가기는 유지).
+  scroll: { flex: 1 },
   progress: { paddingTop: 16, paddingBottom: 4, paddingHorizontal: 26 },
   progressTrack: { height: 4, borderRadius: 2, backgroundColor: T.caramel, overflow: 'hidden' },
   progressFill: { height: 4, borderRadius: 2, backgroundColor: T.accent },
