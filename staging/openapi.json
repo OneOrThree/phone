@@ -3437,7 +3437,8 @@
         "type": "object",
         "properties": {
           "nickname": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "birthDate": {
             "type": "string",
@@ -3476,7 +3477,10 @@
           "reportTime": {
             "type": "string"
           }
-        }
+        },
+        "required": [
+          "nickname"
+        ]
       },
       "FocusTagSetupRequest": {
         "type": "object",
