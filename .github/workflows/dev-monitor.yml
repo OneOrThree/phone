@@ -1,0 +1,77 @@
+name: Dev Monitoring (Observability)
+
+# 관측 스택(Prometheus·Grafana·Loki·exporters)을 dev(self-hosted) 서버에 수동으로 올린다.
+# 앱 배포(cd.yml)와 분리 — app/db 는 건드리지 않고 관측 서비스만 관리한다.
+# cd.yml 과 동일한 self-hosted 러너·OIDC·Secrets Manager 를 재사용하므로 수동 SSH/aws login 이 불필요.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: '동작 선택 (up: 기동/갱신, restart: 재시작, down: 관측만 제거)'
+        type: choice
+        required: true
+        default: up
+        options:
+          - up
+          - restart
+          - down
+
+concurrency:
+  group: dev-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: [self-hosted, dev]
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      # 관측 overlay — app-network 를 공유해 Prometheus 가 app:9091 을 스크레이프한다.
+      # app/db 는 아래 OBS_SERVICES 에서 제외해 CD 로 배포된 컨테이너를 건드리지 않는다.
+      COMPOSE_FILES: -f docker-compose.dev.yml -f docker-compose.observability.yml
+      OBS_SERVICES: prometheus grafana loki promtail postgres-exporter node-exporter cadvisor
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-phone
+          aws-region: ap-northeast-2
+
+      - name: AWS Secrets Manager에서 시크릿 로드
+        run: |
+          SECRET=$(aws secretsmanager get-secret-value \
+            --secret-id oneorthree/phone \
+            --region ap-northeast-2 \
+            --query SecretString --output text)
+          # postgres-exporter(DB 메트릭)가 사용하는 DB 접속 정보
+          echo "POSTGRES_DB=$(echo $SECRET | jq -r '.POSTGRES_DB')" >> $GITHUB_ENV
+          echo "POSTGRES_USER=$(echo $SECRET | jq -r '.POSTGRES_USER')" >> $GITHUB_ENV
+          echo "POSTGRES_PASSWORD=$(echo $SECRET | jq -r '.POSTGRES_PASSWORD')" >> $GITHUB_ENV
+          # Grafana 관리자 계정 (시크릿에 없으면 compose 기본값 admin/admin 사용)
+          echo "GRAFANA_ADMIN_USER=$(echo $SECRET | jq -r '.GRAFANA_ADMIN_USER // "admin"')" >> $GITHUB_ENV
+          echo "GRAFANA_ADMIN_PASSWORD=$(echo $SECRET | jq -r '.GRAFANA_ADMIN_PASSWORD // "admin"')" >> $GITHUB_ENV
+
+      - name: 관측 스택 ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          case "${{ inputs.action }}" in
+            up)
+              # 관측 서비스만 기동/갱신 — app/db 는 named 대상이 아니라 그대로 유지된다.
+              docker compose $COMPOSE_FILES up -d $OBS_SERVICES
+              ;;
+            restart)
+              docker compose $COMPOSE_FILES restart $OBS_SERVICES
+              ;;
+            down)
+              # 관측 서비스만 중지·제거. (compose down 은 프로젝트 전체를 내려 app/db 까지 지우므로 쓰지 않는다)
+              docker compose $COMPOSE_FILES rm -sf $OBS_SERVICES
+              ;;
+          esac
+
+      - name: 상태 확인
+        if: ${{ inputs.action != 'down' }}
+        run: docker compose $COMPOSE_FILES ps
