@@ -107,7 +107,7 @@
           "user"
         ],
         "summary": "디바이스 토큰 등록",
-        "description": "앱 시작 시 APNs 디바이스 토큰을 등록/갱신. 성공 시 204 반환.",
+        "description": "앱 시작 시 FCM registration token 을 등록/갱신. 성공 시 204 반환.",
         "operationId": "registerDeviceToken",
         "requestBody": {
           "content": {
@@ -125,6 +125,22 @@
           },
           "400": {
             "description": "deviceToken 누락"
+          },
+          "404": {
+            "description": "유저 없음"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "user"
+        ],
+        "summary": "디바이스 토큰 해제",
+        "description": "로그아웃/기기 변경 시 호출 — 이전 유저에게 푸시가 오발송되는 것 방지. 성공 시 204 반환.",
+        "operationId": "clearDeviceToken",
+        "responses": {
+          "204": {
+            "description": "해제 성공"
           },
           "404": {
             "description": "유저 없음"
@@ -3311,7 +3327,7 @@
         "properties": {
           "deviceToken": {
             "type": "string",
-            "maxLength": 255,
+            "maxLength": 512,
             "minLength": 0
           }
         },
