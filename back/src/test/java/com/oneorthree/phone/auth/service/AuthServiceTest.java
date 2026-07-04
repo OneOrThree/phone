@@ -99,7 +99,7 @@ class AuthServiceTest {
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
-        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token", null);
+        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token");
 
         // then
         assertThat(response.isNewUser()).isTrue();
@@ -127,7 +127,7 @@ class AuthServiceTest {
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
-        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token", null);
+        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token");
 
         // then
         assertThat(response.isNewUser()).isFalse();
@@ -151,7 +151,7 @@ class AuthServiceTest {
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
-        authService.socialLogin(Provider.KAKAO, "kakao-token", null);
+        authService.socialLogin(Provider.KAKAO, "kakao-token");
 
         // then: 가입 이벤트 + 로그인 이벤트 둘 다 발행
         verify(userActivityEventLogger).log(USER_ID.toString(), UserActivityEvent.USER_SIGNED_UP,
@@ -161,8 +161,8 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("Apple 신규 로그인 → nickname(fullName) 세팅, method=apple 로깅")
-    void socialLoginAppleSetsNickname() {
+    @DisplayName("Apple 신규 로그인 → nickname 은 세팅하지 않음(온보딩에서 입력), method=apple 로깅")
+    void socialLoginAppleDoesNotSetNickname() {
         // given
         User savedUser = User.builder().id(USER_ID).build();
         given(appleClient.getProviderId("apple-token")).willReturn("apple-sub");
@@ -173,11 +173,11 @@ class AuthServiceTest {
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
-        SocialLoginResponse response = authService.socialLogin(Provider.APPLE, "apple-token", "홍길동");
+        SocialLoginResponse response = authService.socialLogin(Provider.APPLE, "apple-token");
 
-        // then
+        // then — fullName 프리필 제거: 가입 시 nickname 은 null (users.nickname 유니크 제약과 동명이인 충돌 방지)
         assertThat(response.isNewUser()).isTrue();
-        assertThat(savedUser.getNickname()).isEqualTo("홍길동");
+        assertThat(savedUser.getNickname()).isNull();
         verify(kakaoClient, never()).getProviderId(anyString());              // 라우팅: apple만 호출
         verify(userActivityEventLogger).log(USER_ID.toString(), UserActivityEvent.LOGIN_SUCCEEDED,
                 Map.of("is_new_user", true, "method", "apple"));
@@ -187,7 +187,7 @@ class AuthServiceTest {
     @DisplayName("등록되지 않은 provider → IllegalArgumentException")
     void socialLoginUnsupportedProvider() {
         // GOOGLE client는 주입되지 않았으므로 Map에 없다
-        assertThatThrownBy(() -> authService.socialLogin(Provider.GOOGLE, "token", null))
+        assertThatThrownBy(() -> authService.socialLogin(Provider.GOOGLE, "token"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -206,7 +206,7 @@ class AuthServiceTest {
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
-        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token", null);
+        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token");
 
         // then — 재활성화: deletedAt 이 null, 신규 유저 아님, 신규 row 없음
         assertThat(response.isNewUser()).isFalse();
@@ -235,7 +235,7 @@ class AuthServiceTest {
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
-        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token", null);
+        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token");
 
         // then — 재시도로 기존(승자) 계정 반환, 500 없이 정상 로그인
         assertThat(response.isNewUser()).isFalse();

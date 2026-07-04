@@ -91,10 +91,11 @@ public class AuthService {
      * 재시도한다(재시도 시 승자가 만든 계정이 보여 present 분기로 정상 로그인). 래퍼는 클래스 레벨
      * readOnly 트랜잭션에 묶이지 않도록 NOT_SUPPORTED.
      *
-     * @param nickname Apple fullName처럼 토큰 외 부가정보로 받는 닉네임(없으면 null)
+     * 닉네임은 가입 시점에 세팅하지 않는다 — 온보딩(setupProfile)에서 @NotBlank 로 필수 입력받는다(GROMO-584).
+     * (과거 Apple fullName 프리필은 users.nickname 유니크 제약과 동명이인 충돌을 일으켜 제거함)
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public SocialLoginResponse socialLogin(Provider provider, String token, String nickname) {
+    public SocialLoginResponse socialLogin(Provider provider, String token) {
         SocialLoginClient client = socialLoginClients.get(provider);
         if (client == null) {
             throw new IllegalArgumentException("지원하지 않는 소셜 로그인 제공자입니다: " + provider);
@@ -102,10 +103,11 @@ public class AuthService {
         String providerId = client.getProviderId(token);
 
         try {
-            return self.loginOrRegister(provider, providerId, nickname);
+            return self.loginOrRegister(provider, providerId);
         } catch (DataIntegrityViolationException e) {
-            // 경쟁에서 진 요청 — 승자가 만든 계정으로 새 트랜잭션에서 1회 재시도(present 분기로 정상 로그인)
-            return self.loginOrRegister(provider, providerId, nickname);
+            // 소셜 계정 경쟁에서 진 요청 — 승자가 만든 계정으로 새 트랜잭션에서 1회 재시도(present 분기로 정상 로그인).
+            // 가입 시 nickname 을 세팅하지 않으므로 여기서 잡히는 DIVE 는 (provider, provider_id) 위반뿐이다.
+            return self.loginOrRegister(provider, providerId);
         }
     }
 
@@ -113,7 +115,7 @@ public class AuthService {
      * 회원 매핑·토큰 발급·로깅 공통 처리. self 프록시로 호출돼 매 시도가 독립 트랜잭션이 되도록 public.
      */
     @Transactional
-    public SocialLoginResponse loginOrRegister(Provider provider, String providerId, String nickname) {
+    public SocialLoginResponse loginOrRegister(Provider provider, String providerId) {
         Optional<SocialAccount> socialAccount =
                 socialAccountRepository.findByProviderAndProviderId(provider, providerId);
 
@@ -128,9 +130,6 @@ public class AuthService {
                 .map(SocialAccount::getUser)
                 .orElseGet(() -> {
                     User newUser = userRepository.save(User.builder().build());
-                    if (nickname != null) {
-                        newUser.setNickname(nickname);
-                    }
                     socialAccountRepository.save(SocialAccount.builder()
                             .user(newUser)
                             .provider(provider)

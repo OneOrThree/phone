@@ -35,7 +35,7 @@ public class AuthController {
     })
     @PostMapping("/auth/google")
     public ResponseEntity<SocialLoginResponse> googleLogin(@RequestBody SocialLoginRequest request) {
-        return ResponseEntity.ok(authService.socialLogin(Provider.GOOGLE, request.token(), null));
+        return ResponseEntity.ok(authService.socialLogin(Provider.GOOGLE, request.token()));
     }
 
     @Operation(summary = "라인 로그인", description = "LINE Access Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
@@ -45,7 +45,7 @@ public class AuthController {
     })
     @PostMapping("/auth/line")
     public ResponseEntity<SocialLoginResponse> lineLogin(@RequestBody SocialLoginRequest request) {
-        return ResponseEntity.ok(authService.socialLogin(Provider.LINE, request.token(), null));
+        return ResponseEntity.ok(authService.socialLogin(Provider.LINE, request.token()));
     }
 
     @Operation(summary = "인스타그램 로그인", description = "Instagram Access Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
@@ -55,7 +55,7 @@ public class AuthController {
     })
     @PostMapping("/auth/instagram")
     public ResponseEntity<SocialLoginResponse> instagramLogin(@RequestBody SocialLoginRequest request) {
-        return ResponseEntity.ok(authService.socialLogin(Provider.INSTAGRAM, request.token(), null));
+        return ResponseEntity.ok(authService.socialLogin(Provider.INSTAGRAM, request.token()));
     }
 
     @Operation(summary = "페이스북 로그인",
@@ -66,7 +66,7 @@ public class AuthController {
     })
     @PostMapping("/auth/facebook")
     public ResponseEntity<SocialLoginResponse> facebookLogin(@RequestBody SocialLoginRequest request) {
-        return ResponseEntity.ok(authService.socialLogin(Provider.FACEBOOK, request.token(), null));
+        return ResponseEntity.ok(authService.socialLogin(Provider.FACEBOOK, request.token()));
     }
 
     @Operation(summary = "카카오 로그인", description = "카카오 Access Token → AT + RT 발급. 최초 로그인 시 isNewUser=true.")
@@ -76,7 +76,7 @@ public class AuthController {
     })
     @PostMapping("/auth/kakao")
     public ResponseEntity<SocialLoginResponse> kakaoLogin(@RequestBody SocialLoginRequest request) {
-        return ResponseEntity.ok(authService.socialLogin(Provider.KAKAO, request.token(), null));
+        return ResponseEntity.ok(authService.socialLogin(Provider.KAKAO, request.token()));
     }
 
     @Operation(summary = "애플 로그인", description = "Apple Identity Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
@@ -86,7 +86,7 @@ public class AuthController {
     })
     @PostMapping("/auth/apple")
     public ResponseEntity<SocialLoginResponse> appleLogin(@RequestBody AppleLoginRequest request) {
-        return ResponseEntity.ok(authService.socialLogin(Provider.APPLE, request.identityToken(), request.fullName()));
+        return ResponseEntity.ok(authService.socialLogin(Provider.APPLE, request.identityToken()));
     }
 
     @Operation(summary = "게스트 로그인", description = "소셜 계정 없이 임시 사용자 생성. 일부 기능(그룹 생성·챌린지 참여 등) 제한 적용.")
