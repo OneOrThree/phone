@@ -31,6 +31,19 @@ export function triggerLogout(): void {
   onLogout?.();
 }
 
+// 재로그인 핸들러 — 게스트가 설정에서 소셜 로그인해 새 토큰/유저가 저장된 뒤,
+// 로그아웃 없이 앱 인메모리 세션만 새 계정으로 교체할 때 App이 등록해 쓴다.
+let onRelogin: (() => void) | null = null;
+
+export function setReloginHandler(fn: (() => void) | null): void {
+  onRelogin = fn;
+}
+
+// 등록된 재로그인 핸들러를 외부에서 호출(게스트 → 소셜 전환 등).
+export function triggerRelogin(): void {
+  onRelogin?.();
+}
+
 // /api/v1/auth/refresh 응답 형태
 interface RefreshResponse {
   accessToken: string;
