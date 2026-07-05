@@ -18,6 +18,9 @@ export type Occupation =
 // 성별 (Java enum Gender).
 export type Gender = 'MALE' | 'FEMALE' | 'UNKNOWN';
 
+// 통계 공개 범위 (Java enum StatVisibility). PUBLIC=리그 전체, FRIENDS=친구만.
+export type StatVisibility = 'PUBLIC' | 'FRIENDS';
+
 // PUT /users/me/device-token 요청 — APNs 디바이스 토큰.
 export interface DeviceTokenRegisterRequest {
   deviceToken: string;
@@ -40,6 +43,11 @@ export interface NotificationSettingsRequest {
 // PATCH /users/me/occupation 요청 — 준비 시험 카테고리.
 export interface OccupationUpdateRequest {
   occupation: Occupation;
+}
+
+// PATCH /users/me/stat-visibility 요청 — 통계 공개 범위.
+export interface StatVisibilityUpdateRequest {
+  statVisibility: StatVisibility;
 }
 
 // PATCH /users/me/screen-time-goal 요청 — 일일 스크린타임 목표(분, 0 이상).
@@ -87,6 +95,13 @@ export interface UserProfileResponse {
   dailyFocusTimeGoalMinutes: number;
   countryCode: string;
   reportTime: string;
+  // ↓ 설정 화면 표시용 — 백엔드 응답 확장 예정(GROMO-559 짝 BE). 도착 전까진 undefined → 로컬 캐시·기본값 폴백.
+  statVisibility?: StatVisibility;
+  notificationEnabled?: boolean;
+  soundEnabled?: boolean;
+  nightModeEnabled?: boolean;
+  nightStartTime?: string; // 'HH:mm'
+  nightEndTime?: string; // 'HH:mm'
 }
 
 // GET /users/me/social-links 응답 — 연동된 소셜 계정.

@@ -7,6 +7,7 @@ import type {
   NotificationSettingsRequest,
   OccupationUpdateRequest,
   ScreenTimeGoalUpdateRequest,
+  StatVisibilityUpdateRequest,
   UpdateScreenTimePermissionRequest,
   UserProfileSetupRequest,
   UserProfileUpdateRequest,
@@ -68,6 +69,11 @@ export async function updateFocusTimeGoal(body: FocusTimeGoalUpdateRequest): Pro
 // PATCH /api/v1/users/me/occupation — 준비 시험 카테고리 저장.
 export async function updateOccupation(body: OccupationUpdateRequest): Promise<void> {
   await api.patch('/api/v1/users/me/occupation', body);
+}
+
+// PATCH /api/v1/users/me/stat-visibility — 통계 공개 범위(PUBLIC/FRIENDS) 저장.
+export async function updateStatVisibility(body: StatVisibilityUpdateRequest): Promise<void> {
+  await api.patch('/api/v1/users/me/stat-visibility', body);
 }
 
 // GET /api/v1/users/me/social-links — 연동된 소셜 계정 목록 조회.
