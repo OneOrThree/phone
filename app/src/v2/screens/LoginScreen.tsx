@@ -13,10 +13,11 @@ import {
 } from '@/services/auth';
 import type { LoginResult } from '@/types/api';
 import { T } from '@/constants/theme';
+import { CharacterImage } from '@/components/character/CharacterImage';
 
 // v2 로그인 화면 — Claude Design 온보딩 O7 시안 그대로.
 // 로직은 데이터 층(@/services/auth) 재사용, UI만 새로 구성. 색은 T 토큰만 사용.
-// TODO: 버튼 아이콘(카카오/애플/구글/메타) · 마스코트(CharacterImage) 연결.
+// TODO: 버튼 아이콘(카카오/애플/구글/메타) 연결.
 
 type Method = Extract<AuthMethod, 'kakao' | 'apple' | 'google' | 'facebook'>;
 
@@ -102,7 +103,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
       {/* 중앙: 마스코트 + 타이틀 */}
       <View style={s.center}>
         <View style={s.mascot}>
-          <Text style={s.mascotEmoji}>🐹</Text>
+          <CharacterImage size={104} />
         </View>
         <Text style={s.title}>Gromo</Text>
         <Text style={s.subtitle}>목표를 안전하게 저장하고{'\n'}어디서든 이어서 쓸 수 있어요.</Text>
@@ -161,7 +162,6 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 18,
   },
-  mascotEmoji: { fontSize: 72 }, // 임시 마스코트(이모지) 크기 — CharacterImage 교체 예정
   title: { ...T.text.display, color: T.ink },
   subtitle: {
     ...T.text.body,
