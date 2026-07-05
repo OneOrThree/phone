@@ -4,6 +4,7 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
+  Image,
   StyleSheet,
   useWindowDimensions,
   AppState,
@@ -449,6 +450,12 @@ export default function FocusSessionScreen() {
           </View>
           <View style={[s.page, { width }]}>
             <FriendGrid friends={sessionFriends} />
+            {/* 친구 그리드 아래 '함께 공부' 군집 일러스트 */}
+            <Image
+              source={require('../../../assets/characters_study.png')}
+              style={s.friendsStudy}
+              resizeMode="contain"
+            />
           </View>
         </ScrollView>
 
@@ -546,6 +553,7 @@ const s = StyleSheet.create({
   },
 
   page: { flex: 1 },
+  friendsStudy: { width: '100%', height: 104, marginBottom: 10 },
   characterWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 7, paddingVertical: 6 },
@@ -554,7 +562,7 @@ const s = StyleSheet.create({
 
   readout: { alignItems: 'center', paddingBottom: 18, minHeight: 118, justifyContent: 'flex-end' },
   roLabel: {
-    ...T.text.caption,
+    ...T.text.label,
     fontWeight: '500',
     letterSpacing: 1,
     color: T.night.muted,
@@ -566,7 +574,7 @@ const s = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     lineHeight: 56,
   },
-  roGoal: { ...T.text.caption, fontWeight: '500', color: T.night.muted, marginTop: 5 },
+  roGoal: { ...T.text.label, fontWeight: '500', color: T.night.muted, marginTop: 5 },
 
   setBadgeRow: { marginBottom: 6 },
   setBadge: {

@@ -70,7 +70,7 @@ const s = StyleSheet.create({
     marginBottom: 18,
   },
   bannerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.night.green },
-  bannerText: { ...T.text.caption, fontWeight: '700', color: T.night.greenSoft },
+  bannerText: { ...T.text.label, fontWeight: '700', color: T.night.greenSoft },
 
   grid: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around' },
   cell: { width: '31%', alignItems: 'center', gap: 5, marginVertical: 10 },
@@ -86,15 +86,15 @@ const s = StyleSheet.create({
   },
   avatarActive: { borderWidth: 2.5, borderColor: T.night.green },
   avatarIdle: { borderWidth: 2.5, borderColor: 'rgba(246,241,233,0.15)' },
-  name: { ...T.text.caption, color: T.paperLight, maxWidth: 74 },
+  name: { ...T.text.label, color: T.paperLight, maxWidth: 74 },
   timeActive: {
-    ...T.text.caption,
+    ...T.text.label,
     fontWeight: '700',
     color: T.night.green,
     fontVariant: ['tabular-nums'],
   },
   timeIdle: {
-    ...T.text.caption,
+    ...T.text.label,
     fontWeight: '700',
     color: T.night.muted,
     fontVariant: ['tabular-nums'],
