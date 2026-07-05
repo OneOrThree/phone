@@ -9,7 +9,7 @@ import { useOnboardingProgress } from '@/v2/screens/onboarding/components/Onboar
 // 진행바: OnboardingProgressContext가 있으면(=온보딩 플로우 내) current/total로 상단에 공통 표시.
 interface StepScaffoldProps {
   title: string;
-  subtitle?: string;
+  subtitle?: ReactNode; // 문자열 또는 일부 강조(<Text>)를 넣기 위한 JSX 허용
   header?: ReactNode;
   center?: boolean;
   titleCenter?: boolean; // 제목/부제만 가운데 정렬(세로 중앙 정렬 없이)
