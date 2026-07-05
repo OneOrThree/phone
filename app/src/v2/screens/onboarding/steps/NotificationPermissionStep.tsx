@@ -25,7 +25,7 @@ const ITEMS = [
   },
 ] as const;
 
-export default function NotificationPermissionStep({ update, onNext, onBack }: StepProps) {
+export default function NotificationPermissionStep({ update, onNext }: StepProps) {
   const allow = async () => {
     let granted = false;
     try {
@@ -52,7 +52,6 @@ export default function NotificationPermissionStep({ update, onNext, onBack }: S
       onCta={allow}
       secondaryLabel="건너뛰기"
       onSecondary={skip}
-      onBack={onBack}
     >
       <View style={s.list}>
         {ITEMS.map((it) => (

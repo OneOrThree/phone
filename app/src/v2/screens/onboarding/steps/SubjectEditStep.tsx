@@ -9,7 +9,7 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // W5 · 과목 확인·편집 — 선택 카테고리의 기본 추천 과목을 보여주고 추가/삭제.
 // 추천 과목이 없는 카테고리는 컨트롤러가 이 스텝을 건너뛴다.
-export default function SubjectEditStep({ data, update, onNext, onBack }: StepProps) {
+export default function SubjectEditStep({ data, update, onNext }: StepProps) {
   const category = data.focusCategory ?? '이 목표';
   const [subjects, setSubjects] = useState<string[]>(
     data.subjects.length ? data.subjects : getDefaultSubjects(data.focusCategory),
@@ -37,7 +37,7 @@ export default function SubjectEditStep({ data, update, onNext, onBack }: StepPr
         update({ subjects });
         onNext();
       }}
-      onBack={onBack}
+      scrollable
     >
       <View style={s.list}>
         {subjects.map((name, idx) => (

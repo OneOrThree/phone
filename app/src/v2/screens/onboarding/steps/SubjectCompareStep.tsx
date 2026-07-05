@@ -15,7 +15,7 @@ const BARS = [
 ];
 const FALLBACK_SUBJECTS = ['집중력', '꾸준함', '기록', '목표'];
 
-export default function SubjectCompareStep({ data, onNext, onBack }: StepProps) {
+export default function SubjectCompareStep({ data, onNext }: StepProps) {
   const subs = getDefaultSubjects(data.focusCategory);
   const subjects = (subs.length ? subs : FALLBACK_SUBJECTS).slice(0, 4);
   const bars = BARS.slice(0, subjects.length);
@@ -28,7 +28,6 @@ export default function SubjectCompareStep({ data, onNext, onBack }: StepProps) 
       title={'비교가 아니라,\n어디를 더 채우면 될지'}
       ctaLabel="다음"
       onCta={onNext}
-      onBack={onBack}
     >
       <View style={s.legend}>
         <View style={s.legendItem}>

@@ -62,7 +62,7 @@ function Row({
   );
 }
 
-export default function LiveRankingStep({ data, onNext, onBack }: StepProps) {
+export default function LiveRankingStep({ data, onNext }: StepProps) {
   const category = data.focusCategory ?? '같은 목표';
   const subs = getDefaultSubjects(data.focusCategory);
   const subjectFor = (i: number) => (subs.length ? subs[i % subs.length] : category);
@@ -114,7 +114,6 @@ export default function LiveRankingStep({ data, onNext, onBack }: StepProps) {
       subtitle="실시간 집중 랭킹 · 매초 갱신"
       ctaLabel="나도 지금 합류하기"
       onCta={onNext}
-      onBack={onBack}
     >
       <View style={s.marquee} pointerEvents="none">
         <Animated.View style={{ transform: [{ translateY: scrollY }] }}>

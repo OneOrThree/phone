@@ -8,7 +8,7 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 // 닉네임·캐릭터 — W11(전날 스크린타임)과 W12(목표 설정) 사이 삽입.
 // 캐릭터 '도착' 연출 + 닉네임 입력. 캐릭터 커스터마이즈는 이 화면 범위 밖(표시만).
 // TODO: 닉네임 중복확인 API 연결.
-export default function NicknameStep({ data, update, onNext, onBack }: StepProps) {
+export default function NicknameStep({ data, update, onNext }: StepProps) {
   const nickname = data.nickname;
   const ok = nickname.trim().length > 0;
 
@@ -19,7 +19,6 @@ export default function NicknameStep({ data, update, onNext, onBack }: StepProps
       ctaLabel="다음"
       ctaDisabled={!ok}
       onCta={onNext}
-      onBack={onBack}
     >
       <LinearGradient colors={[T.paperLight, T.caramel]} style={s.stage}>
         <CharacterImage size={172} />

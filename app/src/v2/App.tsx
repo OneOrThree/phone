@@ -41,7 +41,8 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 
 // v2 새 앱의 뿌리 — 데이터/로직 층(@/store, @/services, @/utils)은 기존 것을 그대로 공유한다.
 // 게이트: 로딩 → (미온보딩 신규유저)온보딩 → 홈 / (온보딩 완료·로그아웃)로그인 → 홈.
-// 온보딩은 로그인이 '마지막' 단계(OnboardingFlow가 내부에서 처리) — 게스트로 수집 후 로그인.
+// 온보딩은 로그인이 '마지막' 단계(OnboardingFlow가 내부에서 처리) — 데이터를 먼저 수집하고
+// W15에서 소셜/게스트 로그인(게스트도 /auth/guest로 실제 세션 발급).
 // TODO: 로그아웃/탈퇴 UI를 v2 화면으로 재구현.
 
 // v2 온보딩 수집 데이터를 서버로 전송. 로그인 상태에서만(토큰 발급 후) 호출.
@@ -133,7 +134,7 @@ export default function App() {
   //     재온보딩으로 새로 입력한 값이 서버 프로필을 덮어쓰면 안 된다.
   async function handleOnboardingComplete({ data, login, skipped }: OnboardingResult) {
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
-    const isExistingAccount = skipped || login?.isNewUser === false;
+    const isExistingAccount = skipped || login.isNewUser === false;
     if (!isExistingAccount) {
       // 목표 선택(W4) — 리그 화면이 기본 시험 리그로 읽는다. 서버 필드 협의 전까지 로컬 보관.
       if (data.focusCategory) {
@@ -144,23 +145,15 @@ export default function App() {
       setOnboardingScreenTimeGoalSeconds(data.usageGoalMinutes ? data.usageGoalMinutes * 60 : null);
     }
     setOnboarded(true);
-    if (login) {
-      // 소셜 로그인으로 마무리 — 세션(토큰/유저)은 auth.ts가 이미 저장.
-      const userId = getUserIdFromToken(login.accessToken);
-      if (isExistingAccount) {
-        // 기존 계정 — 로그인 프로필(닉네임 등)을 그대로 사용, 온보딩 값으로 덮어쓰지 않음.
-        setUser({ ...login, userId });
-      } else {
-        setUser({ ...login, userId, nickname: data.nickname });
-        syncOnboardingToServer(data);
-      }
+    // 소셜·게스트 모두 W15에서 실제 JWT 세션을 발급받고 온다(게스트=POST /auth/guest).
+    // 세션(토큰/유저)은 auth.ts가 이미 저장 — 여기선 화면 상태만 세팅.
+    const userId = getUserIdFromToken(login.accessToken);
+    if (isExistingAccount) {
+      // 기존 계정 — 로그인 프로필(닉네임 등)을 그대로 사용, 온보딩 값으로 덮어쓰지 않음.
+      setUser({ ...login, userId });
     } else {
-      // 게스트로 시작 — 토큰 없어 서버 미전송, 로컬 상태로 홈 진입.
-      setUser(
-        isExistingAccount
-          ? { userId: null, isNewUser: false }
-          : { nickname: data.nickname, userId: null, isNewUser: false },
-      );
+      setUser({ ...login, userId, nickname: data.nickname });
+      syncOnboardingToServer(data);
     }
   }
 

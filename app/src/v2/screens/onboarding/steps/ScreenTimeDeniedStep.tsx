@@ -12,7 +12,7 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 //   iOS는 스크린타임 권한 창 직접 딥링크를 공개 API로 지원하지 않음(비공개 App-Prefs 스킴은 리젝 사유).
 // 설정에서 권한을 켜고 돌아오면(AppState active) 이를 감지해 측정 앱 picker를 띄우고,
 //   screenTimeGranted=true로 전환 → 이 스텝이 허용 경로(W11 전날 스크린타임)로 자동 교체된다.
-export default function ScreenTimeDeniedStep({ update, onNext, onBack }: StepProps) {
+export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
   // update는 매 렌더 새 함수라 ref로 최신값만 참조(리스너는 1회만 등록).
   const updateRef = useRef(update);
   updateRef.current = update;
@@ -68,7 +68,6 @@ export default function ScreenTimeDeniedStep({ update, onNext, onBack }: StepPro
       onCta={openSettings}
       secondaryLabel="이대로 계속하기"
       onSecondary={onNext}
-      onBack={onBack}
     >
       <InfoNote>
         언제든 <NoteStrong>설정 › 스크린 타임 권한</NoteStrong>에서 켤 수 있어요.

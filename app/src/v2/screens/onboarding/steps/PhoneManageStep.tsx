@@ -38,14 +38,13 @@ function LockTile() {
   );
 }
 
-export default function PhoneManageStep({ onNext, onBack }: StepProps) {
+export default function PhoneManageStep({ onNext }: StepProps) {
   return (
     <StepScaffold
       center
       title={'집중을 깨는 건\n대부분 핸드폰이에요'}
       ctaLabel="다음"
       onCta={onNext}
-      onBack={onBack}
     >
       <View style={s.card}>
         <View style={s.grid}>

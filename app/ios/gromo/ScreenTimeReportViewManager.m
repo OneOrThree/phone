@@ -9,6 +9,8 @@
 // DeviceActivityReport.Context 이름 ("Total Activity" | "Compact Activity")
 RCT_EXPORT_VIEW_PROPERTY(reportContext, NSString)
 RCT_EXPORT_VIEW_PROPERTY(goalSeconds, double)
+// 표시할 날짜 오프셋(일): 0=오늘, -1=어제. 온보딩 '어제 스크린타임' 화면에서 사용.
+RCT_EXPORT_VIEW_PROPERTY(dayOffset, double)
 
 @end
 

@@ -19,7 +19,8 @@ interface StepScaffoldProps {
   ctaDisabled?: boolean;
   secondaryLabel?: string;
   onSecondary?: () => void;
-  onBack?: () => void;
+  // 기본은 스크롤 잠금(전환 시 본문 튐 방지). 콘텐츠가 긴 스텝만 opt-in해 세로 스크롤 허용.
+  scrollable?: boolean;
 }
 
 export default function StepScaffold({
@@ -34,6 +35,7 @@ export default function StepScaffold({
   ctaDisabled,
   secondaryLabel,
   onSecondary,
+  scrollable,
 }: StepScaffoldProps) {
   const progress = useOnboardingProgress();
   // 안전영역 인셋을 동기적으로 읽어 패딩으로 적용 — 네이티브 SafeAreaView는 스텝 remount마다
@@ -70,7 +72,7 @@ export default function StepScaffold({
         style={s.scroll}
         contentContainerStyle={[s.body, center ? s.bodyCenter : null]}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={false}
+        scrollEnabled={!!scrollable}
       >
         {header ? <View style={[s.header, center ? s.headerCenter : null]}>{header}</View> : null}
         <Text style={[T.text.title, s.title, center || titleCenter ? s.centerText : null]}>
@@ -111,8 +113,9 @@ export default function StepScaffold({
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paper },
-  // 본문 영역을 화면에 고정(flex:1). 세로 스크롤은 끔(scrollEnabled=false) — 본문 높이가
-  // 바뀌어도 하단 CTA가 밀리지 않고, 화면은 세로로 고정된다(가로 스와이프 뒤로가기는 유지).
+  // 본문 영역을 화면에 고정(flex:1). 기본은 세로 스크롤 잠금 — 본문 높이가 바뀌어도 화면이
+  // 세로로 고정된다(하단 CTA는 ScrollView 밖 형제라 항상 하단 고정). 콘텐츠가 긴 스텝은
+  // scrollable prop으로 스크롤을 켜 작은 기기에서 하단 잘림을 방지한다(가로 스와이프 뒤로가기 유지).
   scroll: { flex: 1 },
   progress: { paddingTop: 16, paddingBottom: 4, paddingHorizontal: 26 },
   progressTrack: { height: 4, borderRadius: 2, backgroundColor: T.caramel, overflow: 'hidden' },

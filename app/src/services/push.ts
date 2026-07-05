@@ -50,11 +50,15 @@ function notificationTypeFromData(data?: Record<string, unknown>): NotificationT
 let initialNotificationHandled = false;
 
 // 1) FCM 토큰 발급 + 서버 등록. 로그인(토큰 보유) 상태에서만 호출.
-// 권한 요청은 온보딩(NotificationPermissionStep)에서만 띄운다 — 여기선 요청하지 않고
-// 이미 받은 권한 상태만 확인(hasPermission)한다.
+// 권한은 보통 온보딩(NotificationPermissionStep)에서 이미 요청됐으므로 여기선 상태만 확인한다.
+// 단, '이미 계정이 있어요'로 온보딩을 건너뛴 유저는 그 스텝을 거치지 않아 권한이 미결정
+// (NOT_DETERMINED) 상태 → 이 경우에만 1회 요청해 토큰 등록 기회를 준다(중복 프롬프트 없음).
 export async function registerPushToken(): Promise<string | null> {
   try {
-    const status = await messaging().hasPermission();
+    let status = await messaging().hasPermission();
+    if (status === messaging.AuthorizationStatus.NOT_DETERMINED) {
+      status = await messaging().requestPermission();
+    }
     const granted =
       status === messaging.AuthorizationStatus.AUTHORIZED ||
       status === messaging.AuthorizationStatus.PROVISIONAL;

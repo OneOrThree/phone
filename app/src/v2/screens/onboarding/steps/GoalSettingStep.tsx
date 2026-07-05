@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import Slider from '@/v2/screens/onboarding/components/Slider';
@@ -19,18 +19,21 @@ function recommendScreenGoal(guessMinutes: number | null): number {
   return Math.min(SCREEN.max, Math.max(SCREEN.min, target));
 }
 
-export default function GoalSettingStep({ data, update, onNext, onBack }: StepProps) {
+export default function GoalSettingStep({ data, update, onNext }: StepProps) {
   const focusMin = data.dailyFocusMinutes ?? FOCUS.rec;
   const screenRec = recommendScreenGoal(data.guessedYesterdayMinutes);
   const screenMin = data.usageGoalMinutes ?? screenRec;
 
+  // update는 매 렌더 새 함수라 ref로 최신값만 참조 — deps에서 빼 부모 리렌더마다 재실행되지 않게 한다.
+  const updateRef = useRef(update);
+  updateRef.current = update;
   // 진입 시 추천값을 data에 미리 채워 둔다 — 슬라이더를 건드리지 않아도 추천 시간이 기본 선택된 상태가 되도록.
   useEffect(() => {
     const patch: Partial<V2OnboardingData> = {};
     if (data.dailyFocusMinutes == null) patch.dailyFocusMinutes = FOCUS.rec;
     if (data.usageGoalMinutes == null) patch.usageGoalMinutes = screenRec;
-    if (Object.keys(patch).length > 0) update(patch);
-  }, [data.dailyFocusMinutes, data.usageGoalMinutes, screenRec, update]);
+    if (Object.keys(patch).length > 0) updateRef.current(patch);
+  }, [data.dailyFocusMinutes, data.usageGoalMinutes, screenRec]);
 
   return (
     <StepScaffold
@@ -41,7 +44,6 @@ export default function GoalSettingStep({ data, update, onNext, onBack }: StepPr
         update({ dailyFocusMinutes: focusMin, usageGoalMinutes: screenMin });
         onNext();
       }}
-      onBack={onBack}
     >
       <View style={s.cards}>
         <View style={s.card}>

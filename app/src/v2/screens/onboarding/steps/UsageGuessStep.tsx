@@ -9,7 +9,7 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 const OPTIONS = [2, 4, 6, 8]; // 시간
 const DEFAULT_HOURS = 4;
 
-export default function UsageGuessStep({ data, update, onNext, onBack }: StepProps) {
+export default function UsageGuessStep({ data, update, onNext }: StepProps) {
   const initial = data.guessedYesterdayMinutes ? data.guessedYesterdayMinutes / 60 : DEFAULT_HOURS;
   const [hours, setHours] = useState<number>(OPTIONS.includes(initial) ? initial : DEFAULT_HOURS);
 
@@ -23,7 +23,6 @@ export default function UsageGuessStep({ data, update, onNext, onBack }: StepPro
         update({ guessedYesterdayMinutes: hours * 60 });
         onNext();
       }}
-      onBack={onBack}
     >
       <View style={s.card}>
         <Text style={s.cardCap}>내 추측</Text>
