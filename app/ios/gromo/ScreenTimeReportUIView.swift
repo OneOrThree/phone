@@ -12,7 +12,7 @@
 // 동작 흐름:
 //   1. React Native가 이 UIView를 생성
 //   2. setupHostingController()가 DeviceActivityReport SwiftUI 뷰를 내부에 삽입
-//   3. 화면에 오늘의 스크린 타임 데이터가 표시됨
+//   3. 화면에 dayOffset이 가리키는 날(기본 오늘, -1=어제)의 스크린 타임 데이터가 표시됨
 
 import UIKit
 import SwiftUI
@@ -28,6 +28,10 @@ class ScreenTimeReportUIView: UIView {
     // RN에서 prop으로 전달하는 DeviceActivityReport.Context 이름
     // 예: "Total Activity"(기본, ScreenTimeScreen), "Compact Activity"(HomeScreen "사용" StatBox)
     @objc var reportContext: String = "Total Activity"
+
+    // 표시할 날짜 오프셋(일): 0=오늘(00:00~현재), -1=어제(하루 전체).
+    // 온보딩 '어제 스크린타임' 비교 화면이 -1을 넘겨 어제 하루치를 보여준다.
+    @objc var dayOffset: Double = 0
 
     // "남은" 칸 전용: 앱 실행 시 App Group에 오늘 목표를 기록
     // 목표 변경은 다음날부터 적용 → 오늘 "남은"은 실시간 업데이트 없음
@@ -67,8 +71,16 @@ class ScreenTimeReportUIView: UIView {
     private func setupHostingController(parentVC: UIViewController) {
         let calendar = Calendar.current
         let now = Date()
-        let startOfDay = calendar.startOfDay(for: now)
-        let interval = DateInterval(start: startOfDay, end: now)
+        // dayOffset만큼 이동한 날의 하루 구간. 오늘은 00:00~현재(부분), 과거일은 하루 전체(00:00~다음날 00:00).
+        let targetDay = calendar.date(byAdding: .day, value: Int(dayOffset), to: now) ?? now
+        let startOfDay = calendar.startOfDay(for: targetDay)
+        let end: Date
+        if calendar.isDateInToday(targetDay) {
+            end = now
+        } else {
+            end = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? now
+        }
+        let interval = DateInterval(start: startOfDay, end: end)
 
         // App Group에 저장된 활성 측정 대상(picker로 고른 앱/카테고리)을 읽어
         // 그 토큰들만 집계하도록 필터에 적용 → 판정(threshold)과 동일 기준

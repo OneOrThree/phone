@@ -9,7 +9,6 @@ export function PushGate() {
   const { userId } = useUser();
 
   useEffect(() => {
-    if (!userId) return; // 게스트: 서버 등록 스킵(로그인 후 등록)
     registerPushToken();
     handleInitialNotification();
     return setupPushListeners();

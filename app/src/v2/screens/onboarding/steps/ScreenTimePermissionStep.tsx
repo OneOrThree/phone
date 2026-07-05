@@ -32,7 +32,7 @@ function ClockIcon() {
   );
 }
 
-export default function ScreenTimePermissionStep({ update, onNext, onBack }: StepProps) {
+export default function ScreenTimePermissionStep({ update, onNext }: StepProps) {
   async function allow() {
     try {
       const status = await ScreenTimeModule.getAuthorizationStatus();
@@ -87,7 +87,6 @@ export default function ScreenTimePermissionStep({ update, onNext, onBack }: Ste
       onCta={allow}
       secondaryLabel="나중에 할게요"
       onSecondary={later}
-      onBack={onBack}
     >
       <View style={s.card}>
         {PERKS.map((p, i) => (

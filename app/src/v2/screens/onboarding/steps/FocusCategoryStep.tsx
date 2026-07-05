@@ -7,7 +7,7 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 // 16 · 목표 선택 — focusCategory(집중 목표 1개, 리그 매칭용). 서버 계약 미정(신규 필드).
 // 카테고리 목록은 리그 시험 칩과 같은 상수(focusCategories)를 쓴다.
 
-export default function FocusCategoryStep({ data, update, onNext, onBack }: StepProps) {
+export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
   const selected = data.focusCategory;
   return (
     <StepScaffold
@@ -16,7 +16,7 @@ export default function FocusCategoryStep({ data, update, onNext, onBack }: Step
       ctaLabel="다음"
       ctaDisabled={!selected}
       onCta={onNext}
-      onBack={onBack}
+      scrollable
     >
       {FOCUS_CATEGORY_GROUPS.map((g) => (
         <View key={g.label} style={s.group}>
@@ -28,7 +28,10 @@ export default function FocusCategoryStep({ data, update, onNext, onBack }: Step
                 <TouchableOpacity
                   key={it}
                   activeOpacity={0.85}
-                  onPress={() => update({ focusCategory: it })}
+                  // 카테고리 변경 시 과목(W5)도 리셋 — 이전 카테고리 과목이 남지 않도록.
+                  onPress={() => {
+                    if (it !== selected) update({ focusCategory: it, subjects: [] });
+                  }}
                   style={[s.chip, on ? s.chipOn : null]}
                 >
                   <Text style={[s.chipText, on ? s.chipTextOn : null]}>{it}</Text>
