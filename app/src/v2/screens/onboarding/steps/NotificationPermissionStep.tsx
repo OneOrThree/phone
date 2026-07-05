@@ -12,15 +12,15 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 //   (expo-notifications로 요청하면 firebase가 알림 델리게이트를 쥔 상태라 프롬프트가 안 뜰 수 있음.)
 // FCM 토큰 등록은 로그인 후 PushGate가 담당 — 여기선 권한만 받아 notificationGranted 저장.
 const STAR = 'M12 3l2.5 5.4 5.9.5-4.5 3.9 1.4 5.8L12 16.9 6.2 20.3l1.6-6.6L2.6 9.3l6.8-.5z';
-const MOON = 'M20 15a8 8 0 01-11-7 8 8 0 108 11z';
+const RANK = 'M5 20V10M12 20V4M19 20v-7'; // 순위/랭킹 막대
 
 const ITEMS = [
   { title: '승급했어요!', sub: '초집중 모드 → 갓생러', icon: 'star', color: T.accent },
   { title: '목표 달성 응원', sub: '한 걸음 더 나아가요', icon: 'star', color: T.green },
   {
-    title: '심야 절제 알림',
-    sub: '밤 12시, 이제 쉴까요?',
-    icon: 'moon',
+    title: '순위 변동 알림',
+    sub: '00님이 사용자님을 이기고 있어요! 다시 집중을 시작해볼까요?',
+    icon: 'rank',
     color: T.subjectPalette[5],
   },
 ] as const;
@@ -47,7 +47,7 @@ export default function NotificationPermissionStep({ update, onNext, onBack }: S
   return (
     <StepScaffold
       center
-      title={'챙길 건 챙기고\n더 나아가게요'}
+      title={'다양한 알림을 통해 \n 그로모가 집중을 도와드릴게요!'}
       ctaLabel="허용"
       onCta={allow}
       secondaryLabel="건너뛰기"
@@ -63,10 +63,11 @@ export default function NotificationPermissionStep({ update, onNext, onBack }: S
                   <Path d={STAR} fill={it.color} />
                 ) : (
                   <Path
-                    d={MOON}
+                    d={RANK}
                     fill="none"
                     stroke={it.color}
                     strokeWidth={1.8}
+                    strokeLinecap="round"
                     strokeLinejoin="round"
                   />
                 )}

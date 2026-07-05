@@ -20,7 +20,7 @@ export default function GromoStartStep({ onNext, onBack }: StepProps) {
       onBack={onBack}
     >
       <Text style={s.sub}>
-        덜 쓴 시간을 다시 내 것으로.{'\n'}오늘부터 한 걸음씩 알차게 채워봐요.
+        낭비되던 시간을 다시 내 것으로.{'\n'}오늘부터 한 걸음씩 알차게 채워봐요.
       </Text>
     </StepScaffold>
   );
