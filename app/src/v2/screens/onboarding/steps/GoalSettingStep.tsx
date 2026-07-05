@@ -1,9 +1,10 @@
+import { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import Slider from '@/v2/screens/onboarding/components/Slider';
 import { T } from '@/constants/theme';
 import { formatDuration } from '@/v2/screens/onboarding/format';
-import type { StepProps } from '@/v2/screens/onboarding/types';
+import type { StepProps, V2OnboardingData } from '@/v2/screens/onboarding/types';
 
 // W12 · 목표 설정 — 하루 집중 목표(dailyFocusMinutes) + 하루 스크린타임 목표(usageGoalMinutes)를 한 화면에서.
 // 기존 FocusGoalStep·UsageGoalStep을 병합. 값이 추천값일 때 '추천' 배지 표시.
@@ -22,6 +23,14 @@ export default function GoalSettingStep({ data, update, onNext, onBack }: StepPr
   const focusMin = data.dailyFocusMinutes ?? FOCUS.rec;
   const screenRec = recommendScreenGoal(data.guessedYesterdayMinutes);
   const screenMin = data.usageGoalMinutes ?? screenRec;
+
+  // 진입 시 추천값을 data에 미리 채워 둔다 — 슬라이더를 건드리지 않아도 추천 시간이 기본 선택된 상태가 되도록.
+  useEffect(() => {
+    const patch: Partial<V2OnboardingData> = {};
+    if (data.dailyFocusMinutes == null) patch.dailyFocusMinutes = FOCUS.rec;
+    if (data.usageGoalMinutes == null) patch.usageGoalMinutes = screenRec;
+    if (Object.keys(patch).length > 0) update(patch);
+  }, [data.dailyFocusMinutes, data.usageGoalMinutes, screenRec, update]);
 
   return (
     <StepScaffold
