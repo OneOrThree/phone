@@ -1,18 +1,24 @@
-import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCallback, useState } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { triggerLogout, api } from '@/services/api';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
-import { STORAGE_KEYS } from '@/types/storage';
 import { useUser } from '@/store/UserContext';
+import { useFocusCategory } from '@/hooks/useFocusCategory';
+import { CharacterImage } from '@/components/character/CharacterImage';
+import { SettingsSection, SettingsRow } from '@/v2/screens/settings/components/SettingsList';
+import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 
-// v2 전체 탭 — 목표(스크린타임·집중) 변경 + 측정 대상 picker + 로그아웃.
+// v2 '전체' 탭 = 설정 허브(SET·앱 설정). 프로필 헤더 + 시안 행 그룹 + 광고 배너.
+// 실제 동작(목표 편집·허용앱·스크린타임·로그아웃 등)은 각 하위 화면(settings/*)이 담당하고,
+// 허브는 진입점만 제공한다. (기존 MenuScreen 로직은 하위 화면으로 이전·재사용)
 
-// 초 → "N시간 M분"
-function hm(totalSeconds: number): string {
+// 초 → "N시간"/"N시간 M분" (행 sub 요약용)
+function hLabel(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   if (h && m) return `${h}시간 ${m}분`;
@@ -20,172 +26,38 @@ function hm(totalSeconds: number): string {
   return `${m}분`;
 }
 
-const STEP = 10 * 60; // 10분 단위 조정
-type GoalKey = 'screen' | 'focus';
-const GOAL_META: Record<GoalKey, { title: string; min: number; max: number }> = {
-  screen: { title: '스크린타임 목표', min: 30 * 60, max: 12 * 3600 },
-  focus: { title: '집중 목표', min: 30 * 60, max: 8 * 3600 },
-};
-
-// 설정 리스트 한 줄 (렌더 중 컴포넌트 정의 방지 위해 모듈 스코프)
-function Row({
-  icon,
-  iconColor,
-  iconBg,
-  label,
-  sub,
-  onPress,
-  danger,
-  divider,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  iconColor: string;
-  iconBg: string;
-  label: string;
-  sub?: string;
-  onPress: () => void;
-  danger?: boolean;
-  divider?: boolean;
-}) {
-  return (
-    <TouchableOpacity
-      style={[s.row, divider ? s.rowDivider : null]}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      <View style={[s.rowIcon, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={18} color={iconColor} />
-      </View>
-      <View style={s.flex1}>
-        <Text style={[s.rowLabel, danger ? { color: T.accentAlt } : null]}>{label}</Text>
-        {sub ? <Text style={s.rowSub}>{sub}</Text> : null}
-      </View>
-      {!danger ? <Ionicons name="chevron-forward" size={17} color={T.inkMuted} /> : null}
-    </TouchableOpacity>
-  );
-}
+const APP_VERSION = Constants.expoConfig?.version ?? '—';
 
 export default function MenuScreen() {
-  const { goalSeconds, setGoalSeconds, screenTimeGoalSeconds, setScreenTimeGoalSeconds } =
-    useUser();
-  const [editing, setEditing] = useState<{ key: GoalKey; seconds: number } | null>(null);
-  // 집중 중 허용앱 개수 — 행 sub 표시용. null = 아직 로드 전.
+  const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  const { nickname, goalSeconds, screenTimeGoalSeconds } = useUser();
+  const category = useFocusCategory();
+  const insets = useSafeAreaInsets();
+
+  // 허브 행 우측 요약값 — 허용앱 개수 / 스크린타임 권한 상태.
   const [allowedApps, setAllowedApps] = useState<number | null>(null);
+  const [permission, setPermission] = useState<'approved' | 'denied' | 'notDetermined' | null>(
+    null,
+  );
 
-  useEffect(() => {
-    ScreenTimeModule.getAllowedSelectionCounts()
-      .then((c) => setAllowedApps(c?.applications ?? 0))
-      .catch(() => setAllowedApps(0));
-  }, []);
+  // 화면 재진입마다 최신값 반영(하위 화면에서 바꾸고 돌아올 수 있으므로).
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      ScreenTimeModule.getAllowedSelectionCounts()
+        .then((c) => !cancelled && setAllowedApps(c?.applications ?? 0))
+        .catch(() => !cancelled && setAllowedApps(0));
+      ScreenTimeModule.getAuthorizationStatus()
+        .then((st) => !cancelled && setPermission(st))
+        .catch(() => !cancelled && setPermission(null));
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
-  function openEdit(key: GoalKey) {
-    setEditing({ key, seconds: key === 'screen' ? screenTimeGoalSeconds : goalSeconds });
-  }
-
-  function adjust(delta: number) {
-    setEditing((e) => {
-      if (!e) return e;
-      const meta = GOAL_META[e.key];
-      return { ...e, seconds: Math.min(meta.max, Math.max(meta.min, e.seconds + delta)) };
-    });
-  }
-
-  async function saveEdit() {
-    if (!editing) return;
-    const { key, seconds } = editing;
-    setEditing(null);
-    if (key === 'focus') {
-      // 집중 목표 — 컨텍스트 + 서버(PATCH /users/me/focus-time-goal) 반영.
-      setGoalSeconds(seconds);
-      try {
-        await api.patch('/api/v1/users/me/focus-time-goal', {
-          dailyFocusTimeGoalMinutes: Math.round(seconds / 60),
-        });
-      } catch {
-        /* 실패해도 로컬은 반영, 다음 진입에 재시도 여지 */
-      }
-      return;
-    }
-    // 스크린타임 목표 — 컨텍스트 + 서버 + 로컬 유저 캐시 반영.
-    setScreenTimeGoalSeconds(seconds);
-    const minutes = Math.round(seconds / 60);
-    try {
-      await api.patch('/api/v1/users/me/screen-time-goal', {
-        dailyScreenTimeGoalMinutes: minutes,
-      });
-    } catch {
-      /* 실패해도 로컬은 반영, 다음 진입에 재시도 여지 */
-    }
-    try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
-      if (raw) {
-        const u = JSON.parse(raw);
-        u.dailyScreenTimeGoalMinutes = minutes;
-        await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(u));
-      }
-    } catch {
-      /* noop */
-    }
-  }
-
-  // 스크린타임 측정 대상(앱/카테고리) 재선택 → 즉시 활성 selection으로 반영.
-  async function editScreenTimeTargets() {
-    try {
-      const status = await ScreenTimeModule.getAuthorizationStatus();
-      if (status !== 'approved') {
-        Alert.alert(
-          '스크린타임 권한 필요',
-          '측정 대상을 고르려면 먼저 스크린타임 권한을 허용해야 해요.',
-        );
-        return;
-      }
-      const counts = await ScreenTimeModule.presentAppPicker();
-      if (!counts) return;
-      await ScreenTimeModule.promoteSelection();
-      const total = counts.applications + counts.categories + counts.webDomains;
-      Alert.alert(
-        '측정 대상 변경됨',
-        total > 0 ? `앱·카테고리 ${total}개를 측정합니다.` : '측정 대상을 비웠어요(전체 앱 기준).',
-      );
-    } catch (e) {
-      Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  // 집중 중 허용앱 선택 — 세션 실드에서 예외로 열어줄 앱들.
-  async function editAllowedApps() {
-    try {
-      const status = await ScreenTimeModule.getAuthorizationStatus();
-      if (status !== 'approved') {
-        Alert.alert(
-          '스크린타임 권한 필요',
-          '허용앱을 고르려면 먼저 스크린타임 권한을 허용해야 해요.',
-        );
-        return;
-      }
-      const counts = await ScreenTimeModule.presentAllowedAppManager();
-      if (!counts) return;
-      setAllowedApps(counts.applications);
-      // 실드 예외는 개별 앱 토큰만 지원 — 카테고리로 골랐으면 안내
-      const categoryNote =
-        counts.categories > 0 ? '\n(카테고리 선택은 적용되지 않아요 — 개별 앱으로 골라주세요)' : '';
-      Alert.alert(
-        '허용앱 변경됨',
-        counts.applications > 0
-          ? `집중 중에도 앱 ${counts.applications}개를 쓸 수 있어요.${categoryNote}`
-          : `허용앱을 비웠어요 — 집중 중엔 모든 앱이 잠겨요.${categoryNote}`,
-      );
-    } catch (e) {
-      Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  function onLogout() {
-    Alert.alert('로그아웃', '로그아웃 하시겠어요?', [
-      { text: '취소', style: 'cancel' },
-      { text: '로그아웃', style: 'destructive', onPress: () => triggerLogout() },
-    ]);
-  }
+  const permissionLabel =
+    permission === 'approved' ? '허용됨' : permission === 'denied' ? '거부됨' : '요청 필요';
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
@@ -193,173 +65,140 @@ export default function MenuScreen() {
         <Text style={s.headerTitle}>전체</Text>
       </View>
 
-      <View style={s.body}>
-        <View style={s.card}>
-          <Row
-            divider
-            icon="phone-portrait-outline"
-            iconColor={T.accent}
-            iconBg={T.accentBg}
-            label="스크린타임 목표"
-            sub={hm(screenTimeGoalSeconds)}
-            onPress={() => openEdit('screen')}
-          />
-          <Row
-            divider
-            icon="book-outline"
-            iconColor={T.greenDeep}
-            iconBg={T.greenBg}
-            label="집중 목표"
-            sub={hm(goalSeconds)}
-            onPress={() => openEdit('focus')}
-          />
-          <Row
-            divider
-            icon="apps-outline"
+      <ScrollView
+        contentContainerStyle={[s.body, { paddingBottom: insets.bottom + 90 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 프로필 헤더 — 탭하면 프로필 편집 */}
+        <TouchableOpacity
+          style={s.profile}
+          activeOpacity={0.8}
+          onPress={() => navigation.navigate('SettingsProfileEdit')}
+        >
+          <View style={s.avatar}>
+            <CharacterImage size={44} />
+          </View>
+          <View style={s.flex1}>
+            <Text style={s.profileName} numberOfLines={1}>
+              {nickname}
+            </Text>
+            <Text style={s.profileSub} numberOfLines={1}>
+              {category ? `${category} 준비 중` : '프로필 편집'}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={T.inkMuted} />
+        </TouchableOpacity>
+
+        <SettingsSection title="집중 · 목표">
+          <SettingsRow
+            icon="flag-outline"
             iconColor={T.accentDeep}
-            iconBg={T.sandLight}
-            label="측정 대상 앱 설정"
-            sub="핸드폰 사용시간을 잴 앱·카테고리 선택"
-            onPress={editScreenTimeTargets}
+            iconBg={T.accentBg}
+            label="개인 목표 수정"
+            sub={`집중 ${hLabel(goalSeconds)} · 사용 ${hLabel(screenTimeGoalSeconds)}`}
+            onPress={() => navigation.navigate('SettingsGoals')}
           />
-          <Row
-            divider
+          <SettingsRow
             icon="lock-open-outline"
             iconColor={T.greenDeep}
             iconBg={T.greenBg}
-            label="집중 중 허용 앱"
+            label="집중 중 허용 앱 관리"
             sub={
               allowedApps === null
-                ? '집중 중에도 쓸 수 있는 앱 선택'
+                ? '집중 중에도 쓸 수 있는 앱'
                 : allowedApps > 0
                   ? `앱 ${allowedApps}개 허용 중`
-                  : '허용앱 없음 — 집중 중 모든 앱 잠금'
+                  : '허용앱 없음'
             }
-            onPress={editAllowedApps}
+            onPress={() => navigation.navigate('SettingsAllowedApps')}
           />
-          <Row
-            icon="log-out-outline"
-            iconColor={T.accentAlt}
-            iconBg={T.accentAltBg}
-            label="로그아웃"
-            onPress={onLogout}
-            danger
+          <SettingsRow
+            icon="phone-portrait-outline"
+            iconColor={T.accent}
+            iconBg={T.accentBg}
+            label="스크린타임 권한"
+            value={permission === null ? undefined : permissionLabel}
+            valueColor={permission === 'approved' ? T.successInk : T.inkSub}
+            onPress={() => navigation.navigate('SettingsScreenTimePermission')}
           />
-        </View>
-      </View>
+        </SettingsSection>
 
-      {/* 목표 편집 모달 */}
-      <Modal
-        visible={editing !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setEditing(null)}
-      >
-        <View style={s.modalOverlay}>
-          <View style={s.modalCard}>
-            <Text style={s.modalTitle}>{editing ? GOAL_META[editing.key].title : ''}</Text>
-            <View style={s.stepper}>
-              <TouchableOpacity style={s.stepBtn} onPress={() => adjust(-STEP)} activeOpacity={0.7}>
-                <Ionicons name="remove" size={22} color={T.ink} />
-              </TouchableOpacity>
-              <Text style={s.stepValue}>{editing ? hm(editing.seconds) : ''}</Text>
-              <TouchableOpacity style={s.stepBtn} onPress={() => adjust(STEP)} activeOpacity={0.7}>
-                <Ionicons name="add" size={22} color={T.ink} />
-              </TouchableOpacity>
-            </View>
-            <View style={s.modalBtns}>
-              <TouchableOpacity
-                style={[s.modalBtn, s.modalCancel]}
-                onPress={() => setEditing(null)}
-                activeOpacity={0.8}
-              >
-                <Text style={s.modalCancelText}>취소</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.modalBtn, s.modalSave]}
-                onPress={saveEdit}
-                activeOpacity={0.8}
-              >
-                <Text style={s.modalSaveText}>저장</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        <SettingsSection title="알림 · 공개">
+          <SettingsRow
+            icon="notifications-outline"
+            iconColor={T.accentDeep}
+            iconBg={T.sandLight}
+            label="알림 설정"
+            sub="집중 리마인더 · 리그 · 심야 · 소리"
+            onPress={() => navigation.navigate('SettingsNotification')}
+          />
+          <SettingsRow
+            icon="eye-outline"
+            iconColor={T.greenDeep}
+            iconBg={T.greenBg}
+            label="통계 공개 범위"
+            onPress={() => navigation.navigate('SettingsStatVisibility')}
+          />
+        </SettingsSection>
+
+        <SettingsSection title="계정 · 정보">
+          <SettingsRow
+            icon="person-circle-outline"
+            iconColor={T.accent}
+            iconBg={T.accentBg}
+            label="계정 설정"
+            sub="소셜 연동 · 로그아웃 · 회원 탈퇴"
+            onPress={() => navigation.navigate('SettingsAccount')}
+          />
+          <SettingsRow
+            icon="document-text-outline"
+            iconColor={T.inkSub}
+            iconBg={T.sandLight}
+            label="개인정보 처리방침"
+            onPress={() => navigation.navigate('SettingsPrivacyPolicy')}
+          />
+          <SettingsRow
+            icon="information-circle-outline"
+            iconColor={T.inkSub}
+            iconBg={T.sandLight}
+            label="버전 정보"
+            value={`v${APP_VERSION}`}
+            onPress={() => navigation.navigate('SettingsVersion')}
+          />
+        </SettingsSection>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperLight },
+  flex1: { flex: 1 },
   header: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 8 },
   headerTitle: { ...T.text.title, color: T.ink },
-  body: { paddingHorizontal: 18, paddingTop: 8 },
-  card: {
+  body: { paddingHorizontal: 18, paddingTop: 4 },
+
+  // 프로필 헤더
+  profile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 16,
+    paddingVertical: 12,
     paddingHorizontal: 14,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 },
-  rowDivider: { borderBottomWidth: 1, borderBottomColor: T.divider },
-  rowIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: T.sandLight,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  flex1: { flex: 1 },
-  rowLabel: { ...T.text.label, color: T.ink },
-  rowSub: { ...T.text.caption, color: T.inkMuted, marginTop: 2 },
-
-  // 목표 편집 모달
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(27,22,19,0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-  },
-  modalCard: {
-    width: '100%',
-    backgroundColor: T.white,
-    borderRadius: 22,
-    paddingHorizontal: 22,
-    paddingTop: 22,
-    paddingBottom: 18,
-  },
-  modalTitle: { ...T.text.subtitle, color: T.ink, textAlign: 'center' },
-  stepper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 20,
-    marginBottom: 22,
-  },
-  stepBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: T.paperLight,
-    borderWidth: 1,
-    borderColor: T.paperAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepValue: { ...T.text.heading, color: T.ink },
-  modalBtns: { flexDirection: 'row', gap: 10 },
-  modalBtn: {
-    flex: 1,
-    height: 50,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalCancel: { backgroundColor: T.paperLight, borderWidth: 1, borderColor: T.paperAlt },
-  modalCancelText: { ...T.text.label, color: T.inkSub },
-  modalSave: { backgroundColor: T.accent },
-  modalSaveText: { ...T.text.label, color: T.white },
+  profileName: { ...T.text.subtitle, color: T.ink },
+  profileSub: { ...T.text.caption, color: T.inkMuted, marginTop: 3 },
 });
