@@ -51,7 +51,7 @@ export default function ProblemEmpathyStep({ onNext, onBack }: StepProps) {
               />
             </Svg>
           </View>
-          <Text style={s.cardText}>{'내가 남들만큼 하는지 \n 비교할 방법이 없는 답답한 순간'} </Text>
+          <Text style={s.cardText}>{'내가 남들만큼 하는지\n비교할 방법이 없는 답답한 순간'}</Text>
         </View>
       </View>
     </StepScaffold>
