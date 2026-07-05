@@ -9,7 +9,7 @@ export default function ProblemEmpathyStep({ onNext, onBack }: StepProps) {
   return (
     <StepScaffold
       center
-      title={'이런 순간, 익숙하지\n않으세요?'}
+      title={'이런 순간, \n익숙하지 않으세요?'}
       ctaLabel="공감돼요"
       onCta={onNext}
       onBack={onBack}
@@ -36,7 +36,7 @@ export default function ProblemEmpathyStep({ onNext, onBack }: StepProps) {
               />
             </Svg>
           </View>
-          <Text style={s.cardText}>잠시 알림 확인하려고 핸드폰 들었다가 훌쩍 지나간 시간</Text>
+          <Text style={s.cardText}>{'잠시 알림 확인하려고\n핸드폰 들었다가 훌쩍 지나간 시간'}</Text>
         </View>
 
         <View style={s.card}>
