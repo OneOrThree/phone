@@ -7,12 +7,21 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // W12 · 목표 설정 — 하루 집중 목표(dailyFocusMinutes) + 하루 스크린타임 목표(usageGoalMinutes)를 한 화면에서.
 // 기존 FocusGoalStep·UsageGoalStep을 병합. 값이 추천값일 때 '추천' 배지 표시.
-const FOCUS = { min: 30, max: 600, step: 10, rec: 240 }; // 4시간 추천
-const SCREEN = { min: 30, max: 480, step: 10, rec: 120 }; // 2시간 이하 추천
+const FOCUS = { min: 30, max: 600, step: 10, rec: 300 }; // 5시간 추천
+const SCREEN = { min: 30, max: 480, step: 10, fallback: 120 }; // 추측 없을 때 2시간 폴백
+
+// 하루 스크린타임 추천값 — 어제 자가추측(W9)보다 약 25% 적게, 슬라이더 눈금·범위로 보정.
+// 추측이 없으면(예외) 기존 2시간 폴백. 실측 없이 대략치라 '조금 줄여보자' 유도가 목적.
+function recommendScreenGoal(guessMinutes: number | null): number {
+  const base = guessMinutes ?? SCREEN.fallback;
+  const target = Math.round((base * 0.75) / SCREEN.step) * SCREEN.step;
+  return Math.min(SCREEN.max, Math.max(SCREEN.min, target));
+}
 
 export default function GoalSettingStep({ data, update, onNext, onBack }: StepProps) {
   const focusMin = data.dailyFocusMinutes ?? FOCUS.rec;
-  const screenMin = data.usageGoalMinutes ?? SCREEN.rec;
+  const screenRec = recommendScreenGoal(data.guessedYesterdayMinutes);
+  const screenMin = data.usageGoalMinutes ?? screenRec;
 
   return (
     <StepScaffold
@@ -48,7 +57,7 @@ export default function GoalSettingStep({ data, update, onNext, onBack }: StepPr
             <Text style={s.label}>하루 스크린타임 목표</Text>
             <View style={s.valueWrap}>
               <Text style={s.value}>{formatDuration(screenMin)} 이하</Text>
-              {screenMin === SCREEN.rec ? <Text style={s.rec}>추천</Text> : null}
+              {screenMin === screenRec ? <Text style={s.rec}>추천</Text> : null}
             </View>
           </View>
           <Slider
