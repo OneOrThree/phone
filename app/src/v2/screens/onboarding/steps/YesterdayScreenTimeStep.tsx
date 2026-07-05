@@ -1,4 +1,4 @@
-import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, Image, ActivityIndicator, StyleSheet } from 'react-native';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { T } from '@/constants/theme';
@@ -18,10 +18,23 @@ export default function YesterdayScreenTimeStep({ onNext, onBack }: StepProps) {
       onBack={onBack}
     >
       <View style={s.reportBox}>
-        {/* 리포트 콜드스타트가 느려 뒤에 스피너 → 뜨면 리포트가 덮음 */}
-        <ActivityIndicator style={s.loading} size="large" color={T.accent} />
         {ScreenTimeReportView ? (
-          <ScreenTimeReportView reportContext="Total Activity" style={s.report} />
+          <>
+            {/* '분석중'을 뒤에 깔고, 리포트를 그 위에 올린다. 리포트는 데이터가 뜨기 전까진
+                투명이라 이 화면이 비쳐 보이고, 로드 완료되면 위에서 덮어버린다(완료 감지 불필요). */}
+            <View style={s.loadingLayer}>
+              <Text style={s.analyzingText}>
+                그로모가 사용자님의{'\n'}사용시간을 분석하고 있어요!
+              </Text>
+              <Image
+                source={require('@/assets/character_study.png')}
+                style={s.character}
+                resizeMode="contain"
+              />
+              <ActivityIndicator size="large" color={T.accent} />
+            </View>
+            <ScreenTimeReportView reportContext="Total Activity" style={s.report} />
+          </>
         ) : (
           <Text style={s.empty}>iOS 기기에서만 볼 수 있어요</Text>
         )}
@@ -32,7 +45,14 @@ export default function YesterdayScreenTimeStep({ onNext, onBack }: StepProps) {
 
 const s = StyleSheet.create({
   reportBox: { alignSelf: 'stretch', height: 440 },
-  loading: { position: 'absolute', top: 40, left: 0, right: 0 },
   report: { flex: 1 },
   empty: { ...T.text.body, color: T.inkMuted, textAlign: 'center', marginTop: 40 },
+  loadingLayer: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 20,
+  },
+  analyzingText: { ...T.text.heading, color: T.ink, textAlign: 'center', lineHeight: 28 },
+  character: { width: 170, height: 200 },
 });
