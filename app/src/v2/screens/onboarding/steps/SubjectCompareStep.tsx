@@ -116,7 +116,7 @@ const s = StyleSheet.create({
   noteText: { fontSize: 12, fontWeight: '600', color: T.accentDeep, lineHeight: 17, flex: 1 },
   noteStrong: { fontWeight: '800' },
   caption: {
-    ...T.text.caption,
+    ...T.text.body,
     fontWeight: '500',
     color: T.link,
     textAlign: 'center',
