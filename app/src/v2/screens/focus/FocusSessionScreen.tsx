@@ -4,6 +4,7 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
+  Image,
   StyleSheet,
   useWindowDimensions,
   AppState,
@@ -28,11 +29,7 @@ import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
-import {
-  ensureNotificationPermission,
-  scheduleLeaveNotifications,
-  cancelLeaveNotifications,
-} from './leaveNotifications';
+import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { useFocusFriends } from '@/v2/screens/league/useFocusFriends';
 import { FriendGrid } from './components/FriendGrid';
 import { FocusMenuDrawer } from './components/FocusMenuDrawer';
@@ -196,11 +193,6 @@ export default function FocusSessionScreen() {
   useEffect(() => {
     if (session.elapsed > 0 && session.elapsed % 5 === 0) saveLive(session.elapsed);
   }, [session.elapsed, saveLive]);
-
-  // 세션 시작 시 알림 권한 확보(거부돼도 이탈 감지는 동작).
-  useEffect(() => {
-    ensureNotificationPermission().catch(() => {});
-  }, []);
 
   // 세션 실드 — 시작 시 허용앱 외 전부 차단, 화면을 떠날 때 해제(멱등, finish에서도 해제).
   // 적용 성공 여부(shielded)로 이탈 정책이 갈린다: 실드 O = 집중 인정 / 실드 X = 15초 정책.
@@ -450,14 +442,20 @@ export default function FocusSessionScreen() {
         >
           <View style={[s.page, { width }]}>
             <View style={s.characterWrap}>
-              {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터 */}
+              {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터(공부 집중 = study 캐릭터) */}
               <View ref={charShotRef} collapsable={false}>
-                <CharacterImage size={230} />
+                <CharacterImage size={230} variant="study" />
               </View>
             </View>
           </View>
           <View style={[s.page, { width }]}>
             <FriendGrid friends={sessionFriends} />
+            {/* 친구 그리드 아래 '함께 공부' 군집 일러스트 */}
+            <Image
+              source={require('../../../assets/characters_study.png')}
+              style={s.friendsStudy}
+              resizeMode="contain"
+            />
           </View>
         </ScrollView>
 
@@ -555,6 +553,7 @@ const s = StyleSheet.create({
   },
 
   page: { flex: 1 },
+  friendsStudy: { width: '100%', height: 104, marginBottom: 10 },
   characterWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 7, paddingVertical: 6 },
@@ -563,7 +562,7 @@ const s = StyleSheet.create({
 
   readout: { alignItems: 'center', paddingBottom: 18, minHeight: 118, justifyContent: 'flex-end' },
   roLabel: {
-    ...T.text.caption,
+    ...T.text.label,
     fontWeight: '500',
     letterSpacing: 1,
     color: T.night.muted,
@@ -575,7 +574,7 @@ const s = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     lineHeight: 56,
   },
-  roGoal: { ...T.text.caption, fontWeight: '500', color: T.night.muted, marginTop: 5 },
+  roGoal: { ...T.text.label, fontWeight: '500', color: T.night.muted, marginTop: 5 },
 
   setBadgeRow: { marginBottom: 6 },
   setBadge: {

@@ -15,6 +15,8 @@
 //     - "Remaining Activity": 남은 시간 (HomeScreen "남은" StatBox)
 //   goalSeconds (number, Remaining Activity 전용)
 //     - didSet에서 App Group에 동기 기록 → 익스텐션이 항상 최신 목표 시간을 읽음
+//   dayOffset (number, 기본 0=오늘)
+//     - 0: 오늘(00:00~현재), -1: 어제(하루 전체). 온보딩 '어제 사용시간' 비교 화면에서 -1 사용
 
 import { requireNativeComponent, Platform, type ViewProps } from 'react-native';
 import type { ComponentType } from 'react';
@@ -22,6 +24,8 @@ import type { ComponentType } from 'react';
 export interface ScreenTimeReportViewProps extends ViewProps {
   reportContext?: string;
   goalSeconds?: number;
+  // 표시할 날짜 오프셋(일). 0=오늘(부분), -1=어제(하루 전체). 기본 0.
+  dayOffset?: number;
 }
 
 // requireNativeComponent: RN이 ViewManager 클래스명에서 "Manager" 접미사를 제거한 이름으로 등록

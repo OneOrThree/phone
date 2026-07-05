@@ -12,6 +12,8 @@ const facebookClientToken = process.env.EXPO_PUBLIC_FACEBOOK_CLIENT_TOKEN || '';
 export default {
   expo: {
     name: 'gromo',
+    // 앱 아이콘 소스(정사각 1024). prebuild 시 이 파일로 네이티브 AppIcon 세트를 생성한다.
+    icon: './src/assets/icon.png',
     plugins: [
       [
         '@react-native-kakao/core',

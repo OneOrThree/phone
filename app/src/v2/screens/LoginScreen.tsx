@@ -6,22 +6,23 @@ import {
   appleLogin,
   googleLogin,
   facebookLogin,
+  guestLogin,
   trackAuthSuccess,
   statusCodes,
   type AuthMethod,
 } from '@/services/auth';
 import type { LoginResult } from '@/types/api';
 import { T } from '@/constants/theme';
+import { CharacterImage } from '@/components/character/CharacterImage';
 
 // v2 로그인 화면 — Claude Design 온보딩 O7 시안 그대로.
 // 로직은 데이터 층(@/services/auth) 재사용, UI만 새로 구성. 색은 T 토큰만 사용.
-// TODO: 버튼 아이콘(카카오/애플/구글/메타) · 마스코트(CharacterImage) 연결.
+// TODO: 버튼 아이콘(카카오/애플/구글/메타) 연결.
 
 type Method = Extract<AuthMethod, 'kakao' | 'apple' | 'google' | 'facebook'>;
 
 interface LoginScreenProps {
   onLogin: (u: LoginResult) => void;
-  onGuestStart: () => void;
 }
 
 const PROVIDERS: {
@@ -52,8 +53,9 @@ const PROVIDERS: {
   },
 ];
 
-export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps) {
+export default function LoginScreen({ onLogin }: LoginScreenProps) {
   const [busy, setBusy] = useState<Method | null>(null);
+  const [guestBusy, setGuestBusy] = useState(false);
 
   async function run(method: Method, fn: () => Promise<LoginResult>) {
     if (busy) return;
@@ -82,12 +84,26 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
     }
   }
 
+  // 로그인 없이 시작 = 게스트 세션 생성(백엔드 /auth/guest). 소셜과 동일하게 onLogin으로 흘려보낸다.
+  async function runGuest() {
+    if (busy !== null || guestBusy) return;
+    setGuestBusy(true);
+    try {
+      const result = await guestLogin();
+      onLogin(result);
+    } catch (e) {
+      Alert.alert('시작 실패', e instanceof Error ? e.message : '다시 시도해 주세요.');
+    } finally {
+      setGuestBusy(false);
+    }
+  }
+
   return (
     <SafeAreaView style={s.root}>
       {/* 중앙: 마스코트 + 타이틀 */}
       <View style={s.center}>
         <View style={s.mascot}>
-          <Text style={s.mascotEmoji}>🐹</Text>
+          <CharacterImage size={104} />
         </View>
         <Text style={s.title}>Gromo</Text>
         <Text style={s.subtitle}>목표를 안전하게 저장하고{'\n'}어디서든 이어서 쓸 수 있어요.</Text>
@@ -101,7 +117,7 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
             <TouchableOpacity
               key={p.method}
               activeOpacity={0.85}
-              disabled={busy !== null}
+              disabled={busy !== null || guestBusy}
               onPress={() => run(p.method, p.fn)}
               style={[
                 s.btn,
@@ -118,8 +134,12 @@ export default function LoginScreen({ onLogin, onGuestStart }: LoginScreenProps)
           );
         })}
 
-        <TouchableOpacity onPress={onGuestStart} disabled={busy !== null} style={s.guest}>
-          <Text style={s.guestText}>로그인 없이 시작하기</Text>
+        <TouchableOpacity onPress={runGuest} disabled={busy !== null || guestBusy} style={s.guest}>
+          {guestBusy ? (
+            <ActivityIndicator color={T.link} />
+          ) : (
+            <Text style={s.guestText}>로그인 없이 시작하기</Text>
+          )}
         </TouchableOpacity>
 
         <Text style={s.terms}>
@@ -142,7 +162,6 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 18,
   },
-  mascotEmoji: { fontSize: 72 }, // 임시 마스코트(이모지) 크기 — CharacterImage 교체 예정
   title: { ...T.text.display, color: T.ink },
   subtitle: {
     ...T.text.body,

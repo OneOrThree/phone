@@ -49,21 +49,27 @@ function notificationTypeFromData(data?: Record<string, unknown>): NotificationT
 // 캐시된 콜드스타트 딥링크로 재이동하지 않도록 가드한다.
 let initialNotificationHandled = false;
 
-// 1) 권한 요청(M3) + FCM 토큰 발급 + 서버 등록. 로그인(토큰 보유) 상태에서만 호출.
+// 1) FCM 토큰 발급 + 서버 등록. 로그인(토큰 보유) 상태에서만 호출.
+// 권한은 보통 온보딩(NotificationPermissionStep)에서 이미 요청됐으므로 여기선 상태만 확인한다.
+// 단, '이미 계정이 있어요'로 온보딩을 건너뛴 유저는 그 스텝을 거치지 않아 권한이 미결정
+// (NOT_DETERMINED) 상태 → 이 경우에만 1회 요청해 토큰 등록 기회를 준다(중복 프롬프트 없음).
 export async function registerPushToken(): Promise<string | null> {
   try {
-    const status = await messaging().requestPermission();
+    let status = await messaging().hasPermission();
+    if (status === messaging.AuthorizationStatus.NOT_DETERMINED) {
+      status = await messaging().requestPermission();
+    }
     const granted =
       status === messaging.AuthorizationStatus.AUTHORIZED ||
       status === messaging.AuthorizationStatus.PROVISIONAL;
     logNotificationPermissionResult({ granted });
-    if (!granted) return null; // 거부 시 서버 푸시 스킵(스펙 §2 사전조건)
+    if (!granted) return null; // 권한 없으면 서버 푸시 스킵(스펙 §2 사전조건)
 
     const token = await messaging().getToken();
     await putDeviceToken(token);
     return token;
   } catch {
-    // 권한 요청·토큰 발급 실패(네이티브 모듈 미준비·GoogleService-Info.plist 부재 등) —
+    // 토큰 발급 실패(네이티브 모듈 미준비·GoogleService-Info.plist 부재 등) —
     // 앱 흐름을 막지 않도록 흡수한다.
     return null;
   }

@@ -194,6 +194,25 @@ export async function facebookLogin(): Promise<LoginResult> {
   return postAuthSave(data);
 }
 
+// 게스트 로그인 — 소셜 계정 없이 임시 유저 생성(백엔드 POST /auth/guest, 바디 없음).
+// isGuest=true 실유저 + JWT 발급 → 진짜 인증 세션이 되어 코인·통계·리그 조회 등이 동작한다.
+// (그룹 생성/가입 등 일부는 서버가 403으로 제한.) 매 호출이 새 게스트를 만드므로
+// postAuthSave가 토큰을 저장 → 앱 재실행 시 저장된 토큰을 재사용해 같은 게스트를 유지한다.
+export async function guestLogin(): Promise<LoginResult> {
+  let data: AuthResponse;
+  try {
+    const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/guest`);
+    data = res.data;
+  } catch (e) {
+    const msg = axios.isAxiosError(e)
+      ? ((e.response?.data as AuthResponse | undefined)?.message ?? '게스트 시작 실패')
+      : '게스트 시작 실패';
+    throw new Error(msg);
+  }
+  // 게스트는 항상 신규 → 프로필 병합(GET /users/me) 스킵.
+  return postAuthSave({ ...data, isNewUser: true });
+}
+
 // 인증 성공 시 GA4 이벤트 + signup_method 유저속성 기록.
 export function trackAuthSuccess(method: AuthMethod, isNewUser?: boolean): void {
   if (isNewUser) logSignUp(method);
