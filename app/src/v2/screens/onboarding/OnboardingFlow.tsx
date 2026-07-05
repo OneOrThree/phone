@@ -4,6 +4,7 @@ import { View, PanResponder, StyleSheet } from 'react-native';
 import type { LoginResult } from '@/types/api';
 import { getDefaultSubjects } from '@/constants/focusCategories';
 import LoginScreen from '@/v2/screens/LoginScreen';
+import OnboardingSplash from './OnboardingSplash';
 import { OnboardingProgressContext } from '@/v2/screens/onboarding/components/OnboardingProgressContext';
 import TogetherEffectStep from '@/v2/screens/onboarding/steps/TogetherEffectStep';
 import EffectStatsStep from '@/v2/screens/onboarding/steps/EffectStatsStep';
@@ -41,6 +42,8 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [index, setIndex] = useState(0);
   const [data, setData] = useState<V2OnboardingData>(INITIAL_ONBOARDING_DATA);
   const [skipped, setSkipped] = useState(false);
+  // 진입 스플래시(캐릭터 + GROMO) — 노출·페이드아웃은 스플래시가 관리, 끝나면 온보딩(W1)으로.
+  const [showSplash, setShowSplash] = useState(true);
 
   const update = (patch: Partial<V2OnboardingData>) => setData((d) => ({ ...d, ...patch }));
   const next = () => setIndex((i) => i + 1);
@@ -88,6 +91,8 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     setSkipped(true);
     setIndex(steps.length);
   };
+
+  if (showSplash) return <OnboardingSplash onDone={() => setShowSplash(false)} />;
 
   if (index >= steps.length) {
     return <LoginScreen onLogin={(login: LoginResult) => onComplete({ data, login, skipped })} />;

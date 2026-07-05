@@ -15,7 +15,7 @@ export default function NicknameStep({ data, update, onNext, onBack }: StepProps
   return (
     <StepScaffold
       titleCenter
-      title={'당신의 집중을 도와줄 별사탕이\n도착했어요'}
+      title={'당신의 집중을 도와줄 그로몬이\n도착했어요!'}
       ctaLabel="다음"
       ctaDisabled={!ok}
       onCta={onNext}
