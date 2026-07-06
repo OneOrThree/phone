@@ -1,5 +1,6 @@
 package com.oneorthree.phone.notification.api;
 
+import com.oneorthree.phone.notification.service.InactiveReturnNotificationService;
 import com.oneorthree.phone.notification.service.LeagueNotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class NotificationBatchController {
 
     private final LeagueNotificationService leagueNotificationService;
+    private final InactiveReturnNotificationService inactiveReturnNotificationService;
 
     @Operation(summary = "주간 리그 결과 알림 수동 실행",
             description = "직전 주차 승격/강등 유저에게 즉시 발송. "
@@ -47,6 +49,18 @@ public class NotificationBatchController {
     @PostMapping("/notifications/league/deadline/run")
     public ResponseEntity<Void> runDeadlineReminders() {
         leagueNotificationService.sendDeadlineReminders();
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "미접속 복귀 푸시 수동 실행",
+            description = "last_active_at 기준 D+3/7/14 정확히 N일째 유저에게 단계별 문구로 즉시 발송. "
+                    + "⚠️ Dedup 미적용 — 같은 날 재트리거 시 중복 발송될 수 있음(운영 주의).")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "실행 완료 (발송 건수는 서버 로그 참조)")
+    })
+    @PostMapping("/notifications/inactive-return/run")
+    public ResponseEntity<Void> runInactiveReturnNotifications() {
+        inactiveReturnNotificationService.sendInactiveReturnNotifications();
         return ResponseEntity.noContent().build();
     }
 }
