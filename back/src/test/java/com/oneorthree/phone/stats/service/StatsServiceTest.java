@@ -967,6 +967,16 @@ class StatsServiceTest {
     }
 
     @Test
+    @DisplayName("대상 결정 — friends 가 호출자 자신 id → 친구 검증 없이 self 반환 (NOT_FRIEND 404 오인 방지)")
+    void resolveTargetUserIdSelfViaFriendsParam() {
+        UUID target = statsService.resolveTargetUserId(USER_ID, USER_ID);
+
+        assertThat(target).isEqualTo(USER_ID);
+        verifyNoInteractions(friendshipRepository);
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
     @DisplayName("대상 결정 — friends 지정 + ACCEPTED 친구관계 → 대상 friends 반환")
     void resolveTargetUserIdFriend() {
         User caller = User.builder().id(USER_ID).build();

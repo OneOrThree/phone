@@ -387,4 +387,113 @@ class StatsControllerTest {
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
+
+    // friends 패스스루 — /stats/today
+
+    @Test
+    @DisplayName("친구 통계 — /stats/today ?friends={id} 바인딩·전달 후 대상 오늘 요약 반환 → 200")
+    void getTodayStatsWithFriendsReturns200() throws Exception {
+        UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        given(statsService.resolveTargetUserId(isNull(), eq(friendId))).willReturn(friendId);
+        given(statsService.getTodayStats(friendId))
+                .willReturn(new TodayStatsResponse(
+                        new TodayStatsResponse.FocusStat(45, 60, false, 75),
+                        new TodayStatsResponse.ScreenTimeStat(80, 120, true, 67)));
+
+        mockMvc.perform(get("/api/v1/stats/today").param("friends", friendId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.focus.todayMinutes").value(45))
+                .andExpect(jsonPath("$.screenTime.goalAchieved").value(true))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("친구 통계 — /stats/today 친구관계 아님(NOT_FRIEND) → 404")
+    void getTodayStatsWithFriendsNotFriendReturns404() throws Exception {
+        UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        given(statsService.resolveTargetUserId(isNull(), eq(friendId)))
+                .willThrow(new FriendException(FriendErrorCode.NOT_FRIEND));
+
+        mockMvc.perform(get("/api/v1/stats/today").param("friends", friendId.toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FRIEND"))
+                .andDo(print());
+    }
+
+    // friends 패스스루 — /stats/focus
+
+    @Test
+    @DisplayName("친구 통계 — /stats/focus ?friends={id} 바인딩·전달 후 대상 기간별 통계 반환 → 200")
+    void getFocusStatsByPeriodWithFriendsReturns200() throws Exception {
+        UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        given(statsService.resolveTargetUserId(isNull(), eq(friendId))).willReturn(friendId);
+        given(statsService.getFocusStatsByPeriod(eq(friendId), eq(StatsPeriod.DAY)))
+                .willReturn(new FocusPeriodStatsResponse(
+                        StatsPeriod.DAY,
+                        LocalDate.of(2026, 7, 3),
+                        LocalDate.of(2026, 7, 3),
+                        90, 60, 30));
+
+        mockMvc.perform(get("/api/v1/stats/focus")
+                        .param("period", "day")
+                        .param("friends", friendId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period").value("DAY"))
+                .andExpect(jsonPath("$.totalFocusMinutes").value(90))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("친구 통계 — /stats/focus 친구관계 아님(NOT_FRIEND) → 404")
+    void getFocusStatsByPeriodWithFriendsNotFriendReturns404() throws Exception {
+        UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        given(statsService.resolveTargetUserId(isNull(), eq(friendId)))
+                .willThrow(new FriendException(FriendErrorCode.NOT_FRIEND));
+
+        mockMvc.perform(get("/api/v1/stats/focus")
+                        .param("period", "day")
+                        .param("friends", friendId.toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FRIEND"))
+                .andDo(print());
+    }
+
+    // friends 패스스루 — /stats/screen-time
+
+    @Test
+    @DisplayName("친구 통계 — /stats/screen-time ?friends={id} 바인딩·전달 후 대상 통계 반환 → 200")
+    void getScreenTimePeriodStatsWithFriendsReturns200() throws Exception {
+        UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        given(statsService.resolveTargetUserId(isNull(), eq(friendId))).willReturn(friendId);
+        given(statsService.getScreenTimePeriodStats(eq(friendId), eq(StatsPeriod.DAY)))
+                .willReturn(new ScreenTimePeriodStatsResponse(
+                        StatsPeriod.DAY,
+                        LocalDate.of(2026, 7, 3),
+                        LocalDate.of(2026, 7, 3),
+                        80, 100, -20, 120, true, null, null));
+
+        mockMvc.perform(get("/api/v1/stats/screen-time")
+                        .param("period", "day")
+                        .param("friends", friendId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period").value("DAY"))
+                .andExpect(jsonPath("$.currentMinutes").value(80))
+                .andExpect(jsonPath("$.goalAchieved").value(true))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("친구 통계 — /stats/screen-time 친구관계 아님(NOT_FRIEND) → 404")
+    void getScreenTimePeriodStatsWithFriendsNotFriendReturns404() throws Exception {
+        UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        given(statsService.resolveTargetUserId(isNull(), eq(friendId)))
+                .willThrow(new FriendException(FriendErrorCode.NOT_FRIEND));
+
+        mockMvc.perform(get("/api/v1/stats/screen-time")
+                        .param("period", "day")
+                        .param("friends", friendId.toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FRIEND"))
+                .andDo(print());
+    }
 }
