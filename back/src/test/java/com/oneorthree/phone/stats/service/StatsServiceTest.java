@@ -18,6 +18,7 @@ import com.oneorthree.phone.stats.dto.StatsPeriod;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.exception.StatsException;
+import com.oneorthree.phone.user.domain.StatVisibility;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
@@ -992,9 +993,10 @@ class StatsServiceTest {
     }
 
     @Test
-    @DisplayName("대상 결정 — friends 지정 + 친구관계 아님 → FriendException(NOT_FRIEND)")
+    @DisplayName("대상 결정 — 비친구 + 대상 statVisibility=FRIENDS(기본값) → FriendException(NOT_FRIEND)")
     void resolveTargetUserIdNotFriend() {
         User caller = User.builder().id(USER_ID).build();
+        // User.builder() 의 @Builder.Default 로 statVisibility=FRIENDS
         User friend = User.builder().id(FRIEND_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
         given(userRepository.findById(FRIEND_ID)).willReturn(Optional.of(friend));
@@ -1002,6 +1004,36 @@ class StatsServiceTest {
 
         assertThatThrownBy(() -> statsService.resolveTargetUserId(USER_ID, FRIEND_ID))
                 .isInstanceOf(FriendException.class);
+    }
+
+    @Test
+    @DisplayName("대상 결정 — 비친구 + 대상 statVisibility=PUBLIC → 친구 아니어도 허용(대상 friends 반환) (GROMO-623)")
+    void resolveTargetUserIdNonFriendPublicAllowed() {
+        User caller = User.builder().id(USER_ID).build();
+        User friend = User.builder().id(FRIEND_ID).statVisibility(StatVisibility.PUBLIC).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
+        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.of(friend));
+        // 친구관계 없음 → PUBLIC 이라 열람 허용
+        given(friendshipRepository.findAcceptedBetween(caller, friend)).willReturn(Optional.empty());
+
+        UUID target = statsService.resolveTargetUserId(USER_ID, FRIEND_ID);
+
+        assertThat(target).isEqualTo(FRIEND_ID);
+    }
+
+    @Test
+    @DisplayName("대상 결정 — 친구 + 대상 statVisibility=FRIENDS → 허용(친구관계 우선)")
+    void resolveTargetUserIdFriendWithFriendsVisibilityAllowed() {
+        User caller = User.builder().id(USER_ID).build();
+        User friend = User.builder().id(FRIEND_ID).statVisibility(StatVisibility.FRIENDS).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
+        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.of(friend));
+        given(friendshipRepository.findAcceptedBetween(caller, friend))
+                .willReturn(Optional.of(mock(Friendship.class)));
+
+        UUID target = statsService.resolveTargetUserId(USER_ID, FRIEND_ID);
+
+        assertThat(target).isEqualTo(FRIEND_ID);
     }
 
     @Test
