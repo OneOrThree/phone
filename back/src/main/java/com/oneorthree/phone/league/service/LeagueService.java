@@ -70,16 +70,18 @@ public class LeagueService {
      * category 미지정 시: 내 ACTIVE 아레나 멤버 랭킹(기존 동작).
      */
     public List<LeagueMemberResponse> getMyRanking(UUID userId, Occupation category) {
-        // 조회자(me)가 핀한 유저 집합 — 랭킹 각 멤버 isPinned 후조인(user 핀 통일, GROMO-609).
-        Set<UUID> pinnedIds = pinnedFriendRepository.findFriendUserIdsByUserId(userId);
+        // 핀 조회(조회자 me가 핀한 유저 집합)는 실제 반환할 멤버가 있을 때만 수행 —
+        // 빈-멤버십 조기반환(List.of()) 경로에서 불필요한 쿼리를 태우지 않는다.
+        // 랭킹 각 멤버 isPinned 후조인(user 핀 통일, GROMO-609).
         if (category != null) {
             List<LeagueArenaUser> ranked = leagueArenaUserRepository
                     .findRankedByActiveArenasAndOccupation(category, PageRequest.of(0, 100));
-            return toResponses(ranked, pinnedIds);
+            return toResponses(ranked, pinnedFriendRepository.findFriendUserIdsByUserId(userId));
         }
         return findActiveMembership(userId)
                 .map(member -> toResponses(
-                        leagueArenaUserRepository.findRankedByArena(member.getLeagueArena()), pinnedIds))
+                        leagueArenaUserRepository.findRankedByArena(member.getLeagueArena()),
+                        pinnedFriendRepository.findFriendUserIdsByUserId(userId)))
                 .orElseGet(List::of);
     }
 

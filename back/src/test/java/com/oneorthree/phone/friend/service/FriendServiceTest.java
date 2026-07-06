@@ -438,6 +438,7 @@ class FriendServiceTest {
     @Test
     @DisplayName("핀 설정 — 대상이 존재하면 친구 아니어도 ON CONFLICT insert 호출(user 핀 통일)")
     void pinFriend_nonFriendTarget_inserts() {
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
         given(userRepository.findById(targetId)).willReturn(Optional.of(target));
 
         friendService.pinFriend(meId, targetId);
@@ -459,6 +460,7 @@ class FriendServiceTest {
     @Test
     @DisplayName("핀 설정 — 대상 유저 없으면 UserException, insert 미호출")
     void pinFriend_userNotFound_throws() {
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
         given(userRepository.findById(targetId)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> friendService.pinFriend(meId, targetId))

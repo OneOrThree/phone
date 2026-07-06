@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.UUID;
 
-@Tag(name = "Friend", description = "친구 요청·수락·거절·삭제·목록·검색·핀 API")
+@Tag(name = "Friend", description = "친구 요청·수락·거절·삭제·목록·검색 API")
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor

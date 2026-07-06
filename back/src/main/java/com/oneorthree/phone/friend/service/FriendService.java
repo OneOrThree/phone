@@ -174,6 +174,7 @@ public class FriendService {
         if (me.equals(friendUserId)) {
             throw new FriendException(FriendErrorCode.SELF_PIN);
         }
+        getUser(me);           // 나(me) 존재 검증 — 없으면 FK 위반 500 대신 UserErrorCode.NOT_FOUND(404)
         getUser(friendUserId); // 대상 유저 존재 검증(없으면 UserErrorCode.NOT_FOUND)
         // ON CONFLICT DO NOTHING — 동시 핀 요청에도 멱등(중복은 무시), 500 없음.
         pinnedFriendRepository.insertIgnoreConflict(UUID_V7.generate(), me, friendUserId);
