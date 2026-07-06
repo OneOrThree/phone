@@ -1340,7 +1340,7 @@
             }
           },
           "400": {
-            "description": "endedAt \u003c startedAt",
+            "description": "sessionId 누락·endedAt \u003c startedAt",
             "content": {
               "*/*": {
                 "schema": {
@@ -4281,7 +4281,10 @@
             "type": "string",
             "format": "uuid"
           }
-        }
+        },
+        "required": [
+          "sessionId"
+        ]
       },
       "FocusSessionEndResponse": {
         "type": "object",
