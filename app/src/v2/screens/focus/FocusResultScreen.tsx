@@ -338,7 +338,7 @@ function CompareCard({
               <Text style={s.cmpValue}>{hm(avg)}</Text>
             </View>
             <View style={s.cmpTrack}>
-              <View style={[s.cmpFill, { width: w(avg), backgroundColor: '#D8C8AC' }]} />
+              <View style={[s.cmpFill, s.cmpFillAvg, { width: w(avg) }]} />
             </View>
           </View>
           <Text style={s.cmpCaption}>
@@ -507,6 +507,7 @@ const s = StyleSheet.create({
   cmpValue: { ...T.text.caption, fontWeight: '700', color: '#5C5246' },
   cmpTrack: { height: 10, borderRadius: 5, backgroundColor: '#EFE7D8', overflow: 'hidden' },
   cmpFill: { height: 10, borderRadius: 5 },
+  cmpFillAvg: { backgroundColor: '#D8C8AC' },
   cmpCaption: { ...T.text.caption, fontWeight: '500', color: T.link, marginTop: 10 },
   // 준비 중 티저(가짜 비교 바) — 블러 아래 깔리는 표시용 고정값
   cmpTeaserGap: { marginTop: 8 },

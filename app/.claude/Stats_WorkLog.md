@@ -12,11 +12,11 @@
 
 성격이 다른 3개 화면으로 나뉘며 각각 하위작업 티켓 1개. 진입점·대상이 다름.
 
-| 티켓 | 화면 | 진입점 | 대상 |
-| --- | --- | --- | --- |
-| GROMO-603 | 집중 결과 | 집중 세션 종료 직후 | 방금 세션 + 이번 주 요약 |
-| **GROMO-604** | 내 통계(허브) | 홈 "자세히" | 내 전체 통계(기간·과목 필터) |
-| GROMO-605 | 다른 사람 통계 | 리그·친구 프로필 탭 | 타 유저(공개 설정 게이팅) |
+| 티켓          | 화면           | 진입점              | 대상                         |
+| ------------- | -------------- | ------------------- | ---------------------------- |
+| GROMO-603     | 집중 결과      | 집중 세션 종료 직후 | 방금 세션 + 이번 주 요약     |
+| **GROMO-604** | 내 통계(허브)  | 홈 "자세히"         | 내 전체 통계(기간·과목 필터) |
+| GROMO-605     | 다른 사람 통계 | 리그·친구 프로필 탭 | 타 유저(공개 설정 게이팅)    |
 
 ---
 
@@ -43,11 +43,13 @@
 ## 코드 변경 — GROMO-604 (1차)
 
 **데이터 계층**
+
 - `src/types/dto/stats.ts` — `CategoryFocusStatsResponse`(+`CategoryFocusItem`), `ScreenTimePeriodStatsResponse` DTO 미러 추가.
 - `src/services/statsApi.ts` — `getFocusStatsByCategory(period)`, `getScreenTimePeriodStats(period)` 래퍼 추가.
 - `src/services/analyticsEvents.ts` — `logStatsViewed` / `logStatsPeriodChanged` / `logStatsTagFilterSelected` (이벤트 `stats_viewed`·`stats_period_changed{period}`·`stats_tag_filter_selected{is_all}`) 추가.
 
 **화면**
+
 - `src/v2/screens/stats/format.ts` (신규) — 순수 헬퍼: `hm`, `PERIOD_TABS`, `periodLabel`, `prevLabel`, `periodKey`, `weekdayKo`, `heatmapRange`, `heatmapBars`, `focusGoalRate`, `grassLevel`.
 - `src/v2/screens/stats/useStatsData.ts` (신규) — 기간별 병렬 조회 훅(focus·category·screenTime·today·streak·heatmap·tags).
 - `src/v2/screens/StatsScreen.tsx` (재작성) — 플레이스홀더(mock) → 실 API. 필터(기간 일/주/월 + 과목 칩) + ST1~ST9. 서브컴포넌트 인라인(TagChip/SectionCard/StubCard/CompareStub/BarChart/CategoryBars/DeltaRow/GoalBlock/GrassGrid).
@@ -56,6 +58,7 @@
 **준비 중 스텁**: ST1 비교 3축 셀렉터·ST3 합격자·ST4 주별 누적.
 
 ### 604 정직한 한계 (후속 처리)
+
 - **ST1 비교 3축 배선 미완** — `leagueApi` 존재하나 전체/카테고리 평균 계산 + 친구 병합은 다음 증분. 현재 셀렉터 UI만.
 - **ST7 전 대비** — 디자인은 전일/전주/전월 3개 동시, 백엔드는 선택 기간 1개 delta만 제공 → **선택 기간 기준** 표시.
 - **과목 필터** — 백엔드가 태그 필터를 by-category만 지원 → 칩 선택은 ST2 강조 + 애널리틱스에만 반영, 나머지 섹션은 전체 기준.
@@ -73,6 +76,7 @@
 - `src/v2/screens/focus/FocusResultScreen.tsx` (신규) — 결과 화면. **첫 완료/이후 세션 2변형**. **로컬 데이터만**: 이번 집중(param). **코인 표기 제외**(설계 결정). CTA **홈으로 / 다시 집중**(다시 집중 = `FocusCategory`로 replace).
 
 **주의**:
+
 - 집중 흐름은 PATCH end API가 아니라 `saveFocusSession`(블록별 POST) + 로컬 `elapsed` 정산 모델 → 결과 화면 "이번 집중"은 `session.elapsed`(param) 기준. `FocusSessionEndResponse`는 앱 미사용.
 - `finish()`의 정산·고아 방지 로직은 무변경, **마지막 navigation만 교체**.
 - 첫 완료 판별은 로컬 플래그(`focusFirstDone`) — 서버 신호 없이 클라 판정.
@@ -98,6 +102,7 @@
     - ⚠️ **발견·수정한 근본 갭**: 앱이 occupation을 서버에 **한 번도 안 보내고 있었음**(온보딩 body는 nickname·목표뿐, 설정 updateOccupation 미호출) → 서버 유저 occupation이 비어 카테고리 랭킹이 빈 리스트. **수정**: 온보딩 완료(`App.tsx syncOnboardingToServer`)·설정 변경(`OccupationScreen`) 시 매핑되는 카테고리면 `PATCH /users/me/occupation` 동기화 → 유저가 쌓이면서 같은 카테고리 비교가 실동작. 기존 유저는 설정에서 재저장 시 반영.
 
 **주의**:
+
 - 스트릭 채우기 = **출석 체크**(그날 집중했는지), 목표 달성/분/잔디 아님. **첫 완료에만 표시**(이후 세션 변형(15번)엔 없음).
 - 시간대별("이 시간대") 비교·합격자는 소스 없음 → 후속.
 - 종료 시 결과 화면은 **길이 무관 항상 표시**(1분 미만은 "N초"). 초기 ≥1분 임계값 제거(598 후속 수정).

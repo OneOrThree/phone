@@ -402,15 +402,15 @@ npx expo run:ios
 
 ## 📝 유용한 npm 스크립트
 
-| 명령어                 | 용도                             |
-| ---------------------- | -------------------------------- |
-| `npm start`            | Metro 번들러 시작 (`expo start`) |
-| `npm run ios`          | iOS 시뮬레이터 빌드 & 실행       |
+| 명령어                 | 용도                               |
+| ---------------------- | ---------------------------------- |
+| `npm start`            | Metro 번들러 시작 (`expo start`)   |
+| `npm run ios`          | iOS 시뮬레이터 빌드 & 실행         |
 | `npm run typecheck`    | `tsc --noEmit` 타입 검사 (CI 포함) |
-| `npm run lint`         | ESLint 검사                      |
-| `npm run lint:fix`     | ESLint 자동 수정                 |
-| `npm run format:check` | Prettier 검사                    |
-| `npm run format:fix`   | Prettier 자동 포맷               |
+| `npm run lint`         | ESLint 검사                        |
+| `npm run lint:fix`     | ESLint 자동 수정                   |
+| `npm run format:check` | Prettier 검사                      |
+| `npm run format:fix`   | Prettier 자동 포맷                 |
 
 ---
 

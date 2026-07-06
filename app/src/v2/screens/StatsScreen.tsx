@@ -266,14 +266,14 @@ function CompareStub() {
             <Text style={s.teaserValueMine}>22시간</Text>
           </View>
           <View style={s.teaserTrack}>
-            <View style={[s.teaserFill, { width: '86%', backgroundColor: T.accent }]} />
+            <View style={[s.teaserFill, s.teaserFillMine]} />
           </View>
           <View style={[s.teaserRowHead, s.teaserRowGap]}>
             <Text style={s.teaserLabel}>전체 평균</Text>
             <Text style={s.teaserValue}>16시간</Text>
           </View>
           <View style={s.teaserTrack}>
-            <View style={[s.teaserFill, { width: '62%', backgroundColor: '#D8C8AC' }]} />
+            <View style={[s.teaserFill, s.teaserFillAvg]} />
           </View>
         </View>
       </ComingSoon>
@@ -300,7 +300,7 @@ function PasserCompareChart() {
             <View style={[s.teaserFill, { width: `${r.mine}%`, backgroundColor: T.accent }]} />
           </View>
           <View style={[s.teaserTrack, s.teaserTrackGap]}>
-            <View style={[s.teaserFill, { width: `${r.passer}%`, backgroundColor: '#9A6FB0' }]} />
+            <View style={[s.teaserFill, s.teaserFillPasser, { width: `${r.passer}%` }]} />
           </View>
         </View>
       ))}
@@ -310,7 +310,7 @@ function PasserCompareChart() {
           <Text style={s.teaserLegendText}>나</Text>
         </View>
         <View style={s.teaserLegendItem}>
-          <View style={[s.teaserDot, { backgroundColor: '#9A6FB0' }]} />
+          <View style={[s.teaserDot, s.teaserDotPasser]} />
           <Text style={s.teaserLegendText}>합격자 평균</Text>
         </View>
       </View>
@@ -564,6 +564,10 @@ const s = StyleSheet.create({
   teaserTrack: { height: 10, borderRadius: 5, backgroundColor: T.sandLight, overflow: 'hidden' },
   teaserTrackGap: { marginTop: 4 },
   teaserFill: { height: 10, borderRadius: 5 },
+  teaserFillMine: { width: '86%', backgroundColor: T.accent },
+  teaserFillAvg: { width: '62%', backgroundColor: '#D8C8AC' },
+  teaserFillPasser: { backgroundColor: '#9A6FB0' },
+  teaserDotPasser: { backgroundColor: '#9A6FB0' },
   teaserLegend: { flexDirection: 'row', gap: 14, marginTop: 12 },
   teaserLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   teaserDot: { width: 9, height: 9, borderRadius: 2 },
