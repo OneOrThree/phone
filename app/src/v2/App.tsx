@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, TextInput, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TextInput, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
@@ -56,7 +56,8 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 // focusCategory(W4)는 서버 Occupation enum(5종)과 항목이 안 맞아 로컬 보관 유지
 // (handleOnboardingComplete — 리그 기본 시험 리그로 쓰인다. TODO: 백엔드 협의).
 // notificationGranted(W13)는 대응 엔드포인트가 알림 설정 전체 객체뿐이라 여기선 미전송(TODO).
-async function syncOnboardingToServer(data: V2OnboardingData) {
+// 반환: 프로필 등록 성공 여부 — 실패 시 호출부가 온보딩 완료 처리를 보류한다(GROMO-617).
+async function syncOnboardingToServer(data: V2OnboardingData): Promise<boolean> {
   const body = {
     nickname: data.nickname,
     dailyScreenTimeGoalMinutes: data.usageGoalMinutes ?? undefined,
@@ -65,12 +66,18 @@ async function syncOnboardingToServer(data: V2OnboardingData) {
   try {
     // 프로필은 온보딩이 일부 필드만 수집해 부분 바디로 보낸다(setupProfile은 전체 필드 요구).
     await api.post('/api/v1/users/me', body);
+  } catch {
+    // 프로필 등록 실패 — 여기서 완료 처리하면 서버-로컬이 영구 불일치되므로 재시도 유도.
+    return false;
+  }
+  try {
     if (data.screenTimeGranted !== null) {
       await updateScreenTimePermission({ granted: data.screenTimeGranted });
     }
   } catch {
-    // 실패해도 진행 — 추후 재동기화(TODO)
+    // 권한 여부 전송 실패는 진행 — 추후 재동기화(TODO)
   }
+  return true;
 }
 
 export default function App() {
@@ -156,9 +163,23 @@ export default function App() {
   //     같은 소셜로 재로그인). 백엔드가 (provider, providerId)로 같은 유저를 돌려주므로,
   //     재온보딩으로 새로 입력한 값이 서버 프로필을 덮어쓰면 안 된다.
   async function handleOnboardingComplete({ data, login, skipped }: OnboardingResult) {
-    await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
     const isExistingAccount = skipped || login.isNewUser === false;
     if (!isExistingAccount) {
+      // 신규 유저는 서버 프로필 등록이 성공해야만 온보딩 완료로 처리(GROMO-617).
+      // 실패 시 플래그를 남기지 않아야 다음 실행에서 온보딩이 다시 뜬다(서버-로컬 불일치 방지).
+      const synced = await syncOnboardingToServer(data);
+      if (!synced) {
+        Alert.alert('프로필 등록 실패', '네트워크 연결을 확인한 뒤 다시 시도해 주세요.', [
+          { text: '닫기', style: 'cancel' },
+          {
+            text: '다시 시도',
+            onPress: () => {
+              handleOnboardingComplete({ data, login, skipped });
+            },
+          },
+        ]);
+        return;
+      }
       // 목표 선택(W4) — 리그 화면이 기본 시험 리그로 읽는다. 서버 필드 협의 전까지 로컬 보관.
       if (data.focusCategory) {
         await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategory);
@@ -167,6 +188,7 @@ export default function App() {
       setOnboardingFocusGoalSeconds(data.dailyFocusMinutes ? data.dailyFocusMinutes * 60 : null);
       setOnboardingScreenTimeGoalSeconds(data.usageGoalMinutes ? data.usageGoalMinutes * 60 : null);
     }
+    await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
     setOnboarded(true);
     // 소셜·게스트 모두 W15에서 실제 JWT 세션을 발급받고 온다(게스트=POST /auth/guest).
     // 세션(토큰/유저)은 auth.ts가 이미 저장 — 여기선 화면 상태만 세팅.
@@ -176,7 +198,6 @@ export default function App() {
       setUser({ ...login, userId });
     } else {
       setUser({ ...login, userId, nickname: data.nickname });
-      syncOnboardingToServer(data);
     }
   }
 
