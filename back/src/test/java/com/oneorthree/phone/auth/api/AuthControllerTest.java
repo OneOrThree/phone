@@ -17,6 +17,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Map;
 
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
@@ -37,7 +39,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("카카오 로그인 성공 - 신규 유저")
     void kakaoLoginNewUserReturns200() throws Exception {
-        given(authService.socialLogin(Provider.KAKAO, "valid-kakao-token"))
+        given(authService.socialLogin(eq(Provider.KAKAO), eq("valid-kakao-token"), isNull()))
                 .willReturn(new SocialLoginResponse("at", "rt", true));
 
         mockMvc.perform(post("/api/v1/auth/kakao")
@@ -52,7 +54,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("카카오 로그인 성공 - 기존 유저")
     void kakaoLoginExistingUserReturns200() throws Exception {
-        given(authService.socialLogin(Provider.KAKAO, "valid-kakao-token"))
+        given(authService.socialLogin(eq(Provider.KAKAO), eq("valid-kakao-token"), isNull()))
                 .willReturn(new SocialLoginResponse("at", "rt", false));
 
         mockMvc.perform(post("/api/v1/auth/kakao")
@@ -66,7 +68,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("구글 로그인 성공 - SocialLoginRequest(token) 라우팅")
     void googleLoginReturns200() throws Exception {
-        given(authService.socialLogin(Provider.GOOGLE, "valid-google-token"))
+        given(authService.socialLogin(eq(Provider.GOOGLE), eq("valid-google-token"), isNull()))
                 .willReturn(new SocialLoginResponse("at", "rt", true));
 
         mockMvc.perform(post("/api/v1/auth/google")
@@ -80,7 +82,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("페이스북 로그인 성공 - SocialLoginRequest(token) 라우팅")
     void facebookLoginReturns200() throws Exception {
-        given(authService.socialLogin(Provider.FACEBOOK, "valid-facebook-token"))
+        given(authService.socialLogin(eq(Provider.FACEBOOK), eq("valid-facebook-token"), isNull()))
                 .willReturn(new SocialLoginResponse("at", "rt", true));
 
         mockMvc.perform(post("/api/v1/auth/facebook")
@@ -95,7 +97,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("애플 로그인 성공 - identityToken 검증 (fullName 은 서버 미사용, 온보딩에서 닉네임 입력)")
     void appleLoginReturns200() throws Exception {
-        given(authService.socialLogin(Provider.APPLE, "valid-apple-token"))
+        given(authService.socialLogin(eq(Provider.APPLE), eq("valid-apple-token"), isNull()))
                 .willReturn(new SocialLoginResponse("at", "rt", true));
 
         mockMvc.perform(post("/api/v1/auth/apple")
@@ -110,7 +112,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("유효하지 않은 소셜 토큰 → 401")
     void socialLoginInvalidTokenReturns401() throws Exception {
-        given(authService.socialLogin(Provider.KAKAO, "bad-token"))
+        given(authService.socialLogin(eq(Provider.KAKAO), eq("bad-token"), isNull()))
                 .willThrow(new InvalidTokenException(InvalidTokenErrorCode.KAKAO_TOKEN));
 
         mockMvc.perform(post("/api/v1/auth/kakao")

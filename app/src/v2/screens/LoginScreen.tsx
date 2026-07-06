@@ -22,7 +22,8 @@ import { CharacterImage } from '@/components/character/CharacterImage';
 type Method = Extract<AuthMethod, 'kakao' | 'apple' | 'google' | 'facebook'>;
 
 interface LoginScreenProps {
-  onLogin: (u: LoginResult) => void;
+  // 온보딩 완료 처리(서버 동기화 포함)가 끝날 때까지 버튼을 잠가야 하므로 Promise를 요구한다.
+  onLogin: (u: LoginResult) => Promise<void>;
 }
 
 const PROVIDERS: {
@@ -63,7 +64,8 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
     try {
       const result = await fn();
       trackAuthSuccess(method, result.isNewUser);
-      onLogin(result);
+      // 온보딩 완료 처리(프로필 서버 동기화 등)가 끝날 때까지 busy 유지 — 더블탭 중복 제출 방지.
+      await onLogin(result);
     } catch (e) {
       const code = (e as { code?: unknown })?.code;
       // 사용자 취소는 조용히 무시
@@ -90,7 +92,8 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
     setGuestBusy(true);
     try {
       const result = await guestLogin();
-      onLogin(result);
+      // 게스트도 완료 처리까지 대기 — 재탭 시 게스트 계정이 중복 생성되는 것을 막는다.
+      await onLogin(result);
     } catch (e) {
       Alert.alert('시작 실패', e instanceof Error ? e.message : '다시 시도해 주세요.');
     } finally {

@@ -89,6 +89,15 @@ public class User {
 
     private Instant deletedAt;
 
+    // 마지막 활동 시각 — 미접속 복귀 푸시(GROMO-578)의 D+3/7/14 판정 기준. JwtFilter 가 하루 1회 스로틀 갱신.
+    // columnDefinition 으로 DB default now() 지정 → stat_visibility(v22) 선례와 동일하게 ddl-auto=update(prod)
+    // 환경에서 migration v25 선적용 없이 배포돼도 기존 row ALTER 실패 방지. 신규 유저는 @Builder.Default 로 채움
+    // (AuthService 미수정 — 585 충돌 회피).
+    @Column(name = "last_active_at", nullable = false,
+            columnDefinition = "timestamptz not null default now()")
+    @Builder.Default
+    private Instant lastActiveAt = Instant.now();
+
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<SocialAccount> socialAccounts = new ArrayList<>();

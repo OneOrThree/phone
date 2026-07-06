@@ -60,10 +60,41 @@ class UserControllerTest {
         verify(userService).registerDeviceToken(any(), eq("apns-device-token"));
     }
 
-    // TODO GROMO-528 커밋①: 케이스 추가 (스펙 테스트 절)
-    //   - 512자 토큰 PUT → 204 (검증 완화 확인 — "a".repeat(512))
-    //   - 513자 토큰 PUT → 400
-    //   - DELETE /api/v1/users/me/device-token → 204 + verify(userService).clearDeviceToken(any())
+    @Test
+    @DisplayName("512자 토큰 PUT → 204 (검증 완화 확인)")
+    void registerDeviceToken512CharsReturns204() throws Exception {
+        String token = "a".repeat(512);
+
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("deviceToken", token))))
+                .andExpect(status().isNoContent())
+                .andDo(print());
+
+        verify(userService).registerDeviceToken(any(), eq(token));
+    }
+
+    @Test
+    @DisplayName("513자 토큰 PUT → 400 (@Size(max=512) 초과)")
+    void registerDeviceToken513CharsReturns400() throws Exception {
+        String token = "a".repeat(513);
+
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("deviceToken", token))))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("디바이스 토큰 해제 DELETE → 204 + clearDeviceToken 호출")
+    void clearDeviceTokenReturns204() throws Exception {
+        mockMvc.perform(delete("/api/v1/users/me/device-token"))
+                .andExpect(status().isNoContent())
+                .andDo(print());
+
+        verify(userService).clearDeviceToken(any());
+    }
 
     @Test
     @DisplayName("deviceToken 누락(blank) → 400")

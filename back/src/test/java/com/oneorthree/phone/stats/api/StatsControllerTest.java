@@ -349,6 +349,48 @@ class StatsControllerTest {
                 .andDo(print());
     }
 
+    // friends 패스스루 — /stats/by-category (GROMO-624)
+
+    @Test
+    @DisplayName("친구 통계 — /stats/by-category ?friends={id} 바인딩·전달 후 대상 카테고리 통계 반환 → 200")
+    void getFocusStatsByCategoryWithFriendsReturns200() throws Exception {
+        UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        given(statsService.resolveTargetUserId(isNull(), eq(friendId))).willReturn(friendId);
+        given(statsService.getFocusStatsByCategory(eq(friendId), eq(StatsPeriod.DAY)))
+                .willReturn(new CategoryFocusStatsResponse(
+                        StatsPeriod.DAY,
+                        LocalDate.of(2026, 7, 3),
+                        LocalDate.of(2026, 7, 3),
+                        90,
+                        List.of(new CategoryFocusStatsResponse.CategoryItem(
+                                UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001"),
+                                "공부", 90))));
+
+        mockMvc.perform(get("/api/v1/stats/by-category")
+                        .param("period", "day")
+                        .param("friends", friendId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period").value("DAY"))
+                .andExpect(jsonPath("$.totalFocusMinutes").value(90))
+                .andExpect(jsonPath("$.items").isArray())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("친구 통계 — /stats/by-category 열람 권한 없음(비친구·비공개, NOT_FRIEND) → 404 (GROMO-623/624)")
+    void getFocusStatsByCategoryWithFriendsNotFriendReturns404() throws Exception {
+        UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        given(statsService.resolveTargetUserId(isNull(), eq(friendId)))
+                .willThrow(new FriendException(FriendErrorCode.NOT_FRIEND));
+
+        mockMvc.perform(get("/api/v1/stats/by-category")
+                        .param("period", "day")
+                        .param("friends", friendId.toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FRIEND"))
+                .andDo(print());
+    }
+
     // ── friends 파라미터 (친구 통계, GROMO-608) ────────────────────────────
 
     @Test

@@ -27,6 +27,7 @@ import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
+import com.oneorthree.phone.user.repository.OccupationInfoRepository;
 import com.oneorthree.phone.user.repository.SocialAccountRepository;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
@@ -95,6 +96,9 @@ class UserServiceTest {
 
     @Mock
     private SocialAccountRepository socialAccountRepository;
+
+    @Mock
+    private OccupationInfoRepository occupationInfoRepository;
 
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
@@ -356,9 +360,27 @@ class UserServiceTest {
         assertThat(user.getDeviceToken()).isEqualTo("apns-device-token");
     }
 
-    // TODO GROMO-528 커밋①: clearDeviceToken 케이스 추가 — 위 등록 케이스와 대칭
-    //   - 토큰 있는 유저 → clearDeviceToken(USER_ID) → user.getDeviceToken() null 확인
-    //   - 없는 유저 → UserException(UserErrorCode.NOT_FOUND)
+    @Test
+    @DisplayName("디바이스 토큰 해제 → user.deviceToken null (등록 케이스와 대칭)")
+    void clearDeviceToken() {
+        User user = User.builder().id(USER_ID).deviceToken("fcm-registration-token").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        userService.clearDeviceToken(USER_ID);
+
+        assertThat(user.getDeviceToken()).isNull();
+    }
+
+    @Test
+    @DisplayName("디바이스 토큰 해제 - 존재하지 않는 유저 → UserException(NOT_FOUND)")
+    void clearDeviceTokenUserNotFound() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.clearDeviceToken(USER_ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
 
     @Test
     @DisplayName("디바이스 토큰 등록 - 존재하지 않는 유저 → UserException(NOT_FOUND)")
@@ -377,6 +399,7 @@ class UserServiceTest {
     @DisplayName("occupation 저장 → user.occupation 반영")
     void updateOccupationSuccess() {
         User user = User.builder().id(USER_ID).build();
+        given(occupationInfoRepository.existsByCodeAndDeletedAtIsNull(Occupation.UNIVERSITY)).willReturn(true);
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
 
         userService.updateOccupation(USER_ID, Occupation.UNIVERSITY);
@@ -387,12 +410,24 @@ class UserServiceTest {
     @Test
     @DisplayName("occupation 저장 - 존재하지 않는 유저 → UserException(NOT_FOUND)")
     void updateOccupationUserNotFound() {
+        given(occupationInfoRepository.existsByCodeAndDeletedAtIsNull(Occupation.UNIVERSITY)).willReturn(true);
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.updateOccupation(USER_ID, Occupation.UNIVERSITY))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("occupation 저장 - 비활성(soft-deleted) occupation → UserException(OCCUPATION_NOT_AVAILABLE) (GROMO-626 Codex P2)")
+    void updateOccupationInactiveRejected() {
+        given(occupationInfoRepository.existsByCodeAndDeletedAtIsNull(Occupation.ETC)).willReturn(false);
+
+        assertThatThrownBy(() -> userService.updateOccupation(USER_ID, Occupation.ETC))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.OCCUPATION_NOT_AVAILABLE);
     }
 
     // ── updateFocusTimeGoal ───────────────────────────────────────────────
