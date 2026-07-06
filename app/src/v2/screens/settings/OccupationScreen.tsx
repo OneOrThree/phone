@@ -13,8 +13,8 @@ import { T } from '@/constants/theme';
 
 // 준비 시험 변경(SettingsOccupation) — 온보딩 W4와 같은 카테고리 목록(focusCategories)에서 하나 고른다.
 // 앱이 실제로 굴리는 건 로컬 focusCategory(리그 UI·시험 칩)라 그 값을 바꾼다.
-// 매핑되는 카테고리(4종)는 서버 occupation도 동기화 — 같은 카테고리 랭킹·비교 통계 모수용.
-// (매핑 확장은 백엔드 협의 TODO. 과목(subjects)은 사용자가 편집했을 수 있어 자동으로 건드리지 않는다.)
+// 전 카테고리가 서버 Occupation(19종)과 1:1이라 변경 시 서버 occupation도 동기화 —
+// 같은 카테고리 랭킹·비교 통계 모수용. (과목(subjects)은 사용자가 편집했을 수 있어 자동으로 건드리지 않는다.)
 
 export default function OccupationScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();

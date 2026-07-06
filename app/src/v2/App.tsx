@@ -60,9 +60,8 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 // (2) PATCH /users/me/screen-time-permission — 스크린타임 권한 허용 여부(W10).
 //     프로필 셋업 요청엔 권한 필드가 없어 별도 엔드포인트로 보낸다.
 //     screenTimeGranted === null(아직 안 물어봄)이면 스킵.
-// focusCategory(W4)는 서버 Occupation enum(5종)과 항목이 안 맞아 로컬 보관이 기본.
-// 단 매핑되는 4종(노무사·변리사·중학생·대학생)은 PATCH /users/me/occupation 으로 서버에도 동기화
-// → 같은 카테고리 리그 랭킹(?category=)·비교 통계의 모수가 쌓인다. (매핑 확장은 백엔드 협의 TODO)
+// focusCategory(W4)는 서버 Occupation(19종, GROMO-631)과 전 카테고리 1:1 매핑 —
+// PATCH /users/me/occupation 으로 서버에도 동기화 → 같은 카테고리 리그 랭킹(?category=)·비교 통계 모수.
 // notificationGranted(W13)는 대응 엔드포인트가 알림 설정 전체 객체뿐이라 여기선 미전송(TODO).
 // 반환: 프로필 등록 결과 — 'ok'가 아니면 호출부가 온보딩 완료 처리를 보류한다(GROMO-617/618).
 async function syncOnboardingToServer(data: V2OnboardingData): Promise<OnboardingCompleteStatus> {

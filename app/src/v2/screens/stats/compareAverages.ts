@@ -27,7 +27,7 @@ export async function fetchGlobalAverage(): Promise<number | null> {
   }
 }
 
-// 같은 카테고리 평균 — focusCategory가 Occupation으로 매핑될 때만(4종). null = 매핑 불가/실패.
+// 같은 카테고리 평균 — focusCategory ↔ Occupation 전 카테고리 1:1(19종, GROMO-631). null = 미선택/실패.
 export async function fetchCategoryAverage(): Promise<{
   avg: number | null;
   label: string | null;
