@@ -6,7 +6,9 @@ import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
+import { useUser } from '@/store/UserContext';
 import type { LiveFocusSession } from './types';
+import { enqueuePendingFocusUpload } from './pendingFocusUploads';
 
 // 죽은(강제 종료된) 세션 정산 — 앱 시작 시 라이브 레코드가 남아 있으면
 // 마지막 저장 시점까지의 집중시간을 적립하고 레코드를 지운다. 규칙은 finish()와 동일.
@@ -15,6 +17,7 @@ export function OrphanFocusSettler() {
   const { addFocusSeconds } = useFocus();
   const { addCoins } = useCoins();
   const { addFocusToSubject } = useSubjects();
+  const { userId } = useUser();
   const ran = useRef(false);
 
   useEffect(() => {
@@ -38,18 +41,20 @@ export function OrphanFocusSettler() {
       addFocusToSubject(rec.subjectId, focused);
       const coins = Math.floor(focused / 10);
       if (coins > 0) addCoins(coins);
-      api
-        .post('/api/v1/focus-session', {
-          focusTagId: null,
-          subject: rec.subjectName,
-          startedAt: rec.startedAt,
-          endedAt: rec.updatedAt,
-          distractionCount: 0,
-          totalDistractionSeconds: 0,
-        })
-        .catch(() => {});
+      // 실패 시 대기열에 남겨 재시도(GROMO-614) — 로컬 적립은 이미 반영돼 그냥 버리면 서버와 불일치.
+      const body = {
+        focusTagId: null,
+        subject: rec.subjectName,
+        startedAt: rec.startedAt,
+        endedAt: rec.updatedAt,
+        distractionCount: 0,
+        totalDistractionSeconds: 0,
+      };
+      api.post('/api/v1/focus-session', body).catch(() => {
+        enqueuePendingFocusUpload(body, userId).catch(() => {});
+      });
     })().catch(() => {});
-  }, [addFocusSeconds, addCoins, addFocusToSubject]);
+  }, [addFocusSeconds, addCoins, addFocusToSubject, userId]);
 
   return null;
 }

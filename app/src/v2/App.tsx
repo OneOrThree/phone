@@ -17,6 +17,7 @@ import { SubjectProvider } from '@/store/SubjectContext';
 import { T } from '@/constants/theme';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { OrphanFocusSettler } from '@/v2/screens/focus/OrphanFocusSettler';
+import { PendingFocusUploader } from '@/v2/screens/focus/PendingFocusUploader';
 import { PushGate } from '@/v2/PushGate';
 import { PendingGoalApplier } from '@/v2/PendingGoalApplier';
 import LoginScreen from '@/v2/screens/LoginScreen';
@@ -122,6 +123,7 @@ export default function App() {
       STORAGE_KEYS.focusCategory,
       // 계정 전환 시 이전 유저 값이 새 유저에 새지 않도록 디바이스 전역 캐시도 정리(리뷰 반영)
       STORAGE_KEYS.goalPending,
+      STORAGE_KEYS.focusPendingUploads, // 이전 계정 세션이 새 계정으로 업로드되지 않게
       STORAGE_KEYS.notificationSettings,
       STORAGE_KEYS.statVisibility,
     ]);
@@ -230,6 +232,8 @@ export default function App() {
               <SubjectProvider>
                 {/* 강제 종료된 세션 정산 — 라이브 레코드가 있으면 적립 후 삭제 */}
                 <OrphanFocusSettler />
+                {/* 업로드 실패로 대기열에 남은 집중 세션 재전송(앱 시작·포그라운드 복귀) */}
+                <PendingFocusUploader />
                 {/* 로그인 상태에서 푸시 권한·토큰 등록·수신 배선 */}
                 <PushGate />
                 {/* 예약된 목표('내일부터 적용')가 발효일 지나면 반영 */}
