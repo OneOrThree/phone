@@ -215,9 +215,36 @@ export async function guestLogin(): Promise<LoginResult> {
   return postAuthSave({ ...data, isNewUser: true }, true);
 }
 
-// 인증 성공 시 GA4 이벤트 + signup_method 유저속성 기록.
+// ── 마지막 사용 소셜 provider (GROMO-602) ──
+// 재로그인 화면의 '최근 사용' 배지용. 로그아웃해도 유지, 계정 탈퇴 시에만 초기화한다.
+// 게스트는 저장하지 않는다(마지막 '소셜'만 대상) — 저장은 trackAuthSuccess(소셜 전용)에서만.
+export async function saveLastAuthProvider(method: AuthMethod): Promise<void> {
+  try {
+    await AsyncStorage.setItem(STORAGE_KEYS.lastAuthProvider, method);
+  } catch {
+    // 저장 실패는 무시 — 배지 미표시일 뿐 로그인 흐름엔 영향 없음.
+  }
+}
+export async function getLastAuthProvider(): Promise<AuthMethod | null> {
+  try {
+    return ((await AsyncStorage.getItem(STORAGE_KEYS.lastAuthProvider)) as AuthMethod) ?? null;
+  } catch {
+    return null;
+  }
+}
+export async function clearLastAuthProvider(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(STORAGE_KEYS.lastAuthProvider);
+  } catch {
+    // 초기화 실패는 무시.
+  }
+}
+
+// 인증 성공 시 GA4 이벤트 + signup_method 유저속성 기록 + 마지막 provider 저장(GROMO-602).
 export function trackAuthSuccess(method: AuthMethod, isNewUser?: boolean): void {
   if (isNewUser) logSignUp(method);
   else logLogin(method);
   setIdentityProps({ is_guest: false, signup_method: method });
+  // 재로그인 '최근 사용' 배지용 저장(fire-and-forget) — 게스트는 이 함수를 안 탐.
+  saveLastAuthProvider(method).catch(() => {});
 }

@@ -1,13 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   kakaoLogin,
   appleLogin,
   googleLogin,
-  facebookLogin,
   guestLogin,
   trackAuthSuccess,
+  getLastAuthProvider,
   statusCodes,
   type AuthMethod,
 } from '@/services/auth';
@@ -19,7 +19,8 @@ import { CharacterImage } from '@/components/character/CharacterImage';
 // 로직은 데이터 층(@/services/auth) 재사용, UI만 새로 구성. 색은 T 토큰만 사용.
 // TODO: 버튼 아이콘(카카오/애플/구글/메타) 연결.
 
-type Method = Extract<AuthMethod, 'kakao' | 'apple' | 'google' | 'facebook'>;
+// 메타(facebook)는 화면에서 보류(GROMO-602) — auth.ts facebookLogin은 남겨둠(나중 복원).
+type Method = Extract<AuthMethod, 'kakao' | 'apple' | 'google'>;
 
 interface LoginScreenProps {
   // 온보딩 완료 처리(서버 동기화 포함)가 끝날 때까지 버튼을 잠가야 하므로 Promise를 요구한다.
@@ -44,19 +45,25 @@ const PROVIDERS: {
     fg: T.grayInk,
     border: T.border,
   },
-  {
-    method: 'facebook',
-    label: 'Meta로 계속하기',
-    fn: facebookLogin,
-    bg: T.white,
-    fg: T.grayInk,
-    border: T.border,
-  },
 ];
 
 export default function LoginScreen({ onLogin }: LoginScreenProps) {
   const [busy, setBusy] = useState<Method | null>(null);
   const [guestBusy, setGuestBusy] = useState(false);
+  // 마지막으로 로그인한 소셜 — 재방문 시 해당 버튼에 '최근 사용' 배지(GROMO-602).
+  // 저장값이 화면에 없는 provider(메타/라인)면 매칭되는 버튼이 없어 배지 미표시.
+  const [lastProvider, setLastProvider] = useState<AuthMethod | null>(null);
+
+  useEffect(() => {
+    // 빠른 언마운트(자동 로그인·딥링크 레이스) 시 해제된 컴포넌트 setState 방지 — 다른 화면 패턴과 일관.
+    let cancelled = false;
+    getLastAuthProvider().then((p) => {
+      if (!cancelled) setLastProvider(p);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function run(method: Method, fn: () => Promise<LoginResult>) {
     if (busy) return;
@@ -133,15 +140,27 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
               ) : (
                 <Text style={[s.btnText, { color: p.fg }]}>{p.label}</Text>
               )}
+              {p.method === lastProvider ? (
+                <View style={s.lastBadgeWrap} pointerEvents="none">
+                  <View style={s.lastBadge}>
+                    <Text style={s.lastBadgeText}>최근 사용</Text>
+                  </View>
+                </View>
+              ) : null}
             </TouchableOpacity>
           );
         })}
 
-        <TouchableOpacity onPress={runGuest} disabled={busy !== null || guestBusy} style={s.guest}>
+        <TouchableOpacity
+          onPress={runGuest}
+          disabled={busy !== null || guestBusy}
+          activeOpacity={0.85}
+          style={[s.btn, s.guestBtn]}
+        >
           {guestBusy ? (
-            <ActivityIndicator color={T.link} />
+            <ActivityIndicator color={T.ink} />
           ) : (
-            <Text style={s.guestText}>로그인 없이 시작하기</Text>
+            <Text style={[s.btnText, s.guestBtnText]}>로그인 없이 시작하기</Text>
           )}
         </TouchableOpacity>
 
@@ -181,12 +200,18 @@ const s = StyleSheet.create({
     marginBottom: 9,
   },
   btnText: { ...T.text.subtitle },
-  guest: { alignItems: 'center', marginTop: 4, marginBottom: 16 },
-  guestText: {
-    ...T.text.label,
-    color: T.link,
-    textDecorationLine: 'underline',
+  // 게스트 버튼 — 소셜과 동급(채움). 중립 톤으로 브랜드색과 구분.
+  guestBtn: { backgroundColor: T.sand, marginTop: 2, marginBottom: 16 },
+  guestBtnText: { color: T.ink },
+  // '최근 사용' 배지 — 마지막 로그인 소셜 버튼 우측(버튼 색 위에서도 보이게 accent 채움).
+  lastBadgeWrap: { position: 'absolute', right: 10, top: 0, bottom: 0, justifyContent: 'center' },
+  lastBadge: {
+    backgroundColor: T.accent,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
+  lastBadgeText: { ...T.text.caption, fontWeight: '800', color: T.white },
   terms: { ...T.text.caption, lineHeight: 17, color: T.inkMuted, textAlign: 'center' },
   termsLink: { color: T.link, textDecorationLine: 'underline' },
 });
