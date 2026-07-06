@@ -14,13 +14,17 @@ import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
 import com.oneorthree.phone.focus.dto.FocusTagResponse;
 import com.oneorthree.phone.focus.dto.FocusTagSetupRequest;
 import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
+import com.oneorthree.phone.focus.dto.OccupationDefaultTagResponse;
+import com.oneorthree.phone.focus.dto.OccupationDefaultTagsResponse;
 import com.oneorthree.phone.focus.domain.FocusTag;
+import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.focus.repository.FocusTagRepository;
+import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
@@ -54,6 +58,7 @@ public class FocusService {
     private static final Duration ORPHAN_TIMEOUT = Duration.ofHours(12);
 
     private final FocusTagRepository focusTagRepository;
+    private final OccupationDefaultTagRepository occupationDefaultTagRepository;
     private final UserRepository userRepository;
     private final FocusSessionRepository focusSessionRepository;
     private final UserActivityEventLogger userActivityEventLogger;
@@ -69,6 +74,33 @@ public class FocusService {
                 .stream()
                 .map(tag -> new FocusTagResponse(tag.getId(), tag.getName()))
                 .toList();
+    }
+
+    /**
+     * occupation별 기본(추천) 포커스 태그 조회.
+     *
+     * <p>occupation 파라미터가 주어지면 그 값으로, 없으면 로그인 유저의 저장 occupation 으로 조회한다.
+     * 유저 occupation 도 없으면(온보딩 미완료) {@link FocusErrorCode#OCCUPATION_REQUIRED}(400).
+     * 결과가 없으면 빈 tags 리스트로 200 을 반환한다(에러 아님).
+     */
+    public OccupationDefaultTagsResponse getDefaultTags(UUID userId, Occupation occupation) {
+        Occupation resolved = occupation;
+        if (resolved == null) {
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+            resolved = user.getOccupation();
+            if (resolved == null) {
+                throw new FocusException(FocusErrorCode.OCCUPATION_REQUIRED);
+            }
+        }
+
+        List<OccupationDefaultTagResponse> tags = occupationDefaultTagRepository
+                .findByOccupationOrderBySortOrderAsc(resolved)
+                .stream()
+                .map(tag -> new OccupationDefaultTagResponse(tag.getName(), tag.getSortOrder()))
+                .toList();
+
+        return new OccupationDefaultTagsResponse(resolved, tags);
     }
 
     @Transactional

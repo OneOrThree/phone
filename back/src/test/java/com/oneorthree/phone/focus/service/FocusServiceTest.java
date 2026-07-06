@@ -4,6 +4,7 @@ import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusTag;
+import com.oneorthree.phone.focus.domain.OccupationDefaultTag;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
@@ -13,10 +14,13 @@ import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
 import com.oneorthree.phone.focus.dto.FocusTagResponse;
 import com.oneorthree.phone.focus.dto.FocusTagSetupRequest;
 import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
+import com.oneorthree.phone.focus.dto.OccupationDefaultTagsResponse;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.FocusTagRepository;
+import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
+import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.User;
@@ -75,6 +79,9 @@ class FocusServiceTest {
     private FocusTagRepository focusTagRepository;
 
     @Mock
+    private OccupationDefaultTagRepository occupationDefaultTagRepository;
+
+    @Mock
     private UserRepository userRepository;
 
     @Mock
@@ -126,6 +133,70 @@ class FocusServiceTest {
 
         // when & then
         assertThatThrownBy(() -> focusService.getFocusTags(USER_ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    // ── getDefaultTags (occupation 기본 태그) ──────────────────────────────
+
+    @Test
+    @DisplayName("기본 태그 조회(occupation 지정) → 유저 조회 없이 occupation/tags 매핑, sortOrder 포함")
+    void getDefaultTagsWithParam() {
+        // given: occupation 파라미터 지정 → 유저 조회 불필요
+        given(occupationDefaultTagRepository.findByOccupationOrderBySortOrderAsc(Occupation.UNIVERSITY))
+                .willReturn(List.of(
+                        OccupationDefaultTag.builder().occupation(Occupation.UNIVERSITY).name("전공 공부").sortOrder(0).build(),
+                        OccupationDefaultTag.builder().occupation(Occupation.UNIVERSITY).name("과제").sortOrder(1).build()));
+
+        // when
+        OccupationDefaultTagsResponse result = focusService.getDefaultTags(USER_ID, Occupation.UNIVERSITY);
+
+        // then
+        assertThat(result.occupation()).isEqualTo(Occupation.UNIVERSITY);
+        assertThat(result.tags()).extracting("name").containsExactly("전공 공부", "과제");
+        assertThat(result.tags()).extracting("sortOrder").containsExactly(0, 1);
+        verify(userRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("기본 태그 조회(occupation 미지정) → 유저 저장 occupation 사용")
+    void getDefaultTagsFallbackToUserOccupation() {
+        // given: 파라미터 null → 유저의 저장 occupation(LAWYER) 사용
+        User user = User.builder().id(USER_ID).occupation(Occupation.LAWYER).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(occupationDefaultTagRepository.findByOccupationOrderBySortOrderAsc(Occupation.LAWYER))
+                .willReturn(List.of(
+                        OccupationDefaultTag.builder().occupation(Occupation.LAWYER).name("민법").sortOrder(0).build()));
+
+        // when
+        OccupationDefaultTagsResponse result = focusService.getDefaultTags(USER_ID, null);
+
+        // then
+        assertThat(result.occupation()).isEqualTo(Occupation.LAWYER);
+        assertThat(result.tags()).extracting("name").containsExactly("민법");
+    }
+
+    @Test
+    @DisplayName("기본 태그 조회(미지정) — 유저 occupation 이 null → FocusException(OCCUPATION_REQUIRED)")
+    void getDefaultTagsOccupationRequired() {
+        // given: 파라미터 null + 유저 occupation 미설정(온보딩 미완료)
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        // when & then
+        assertThatThrownBy(() -> focusService.getDefaultTags(USER_ID, null))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.OCCUPATION_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("기본 태그 조회(미지정) — 유저 없음 → UserException(NOT_FOUND)")
+    void getDefaultTagsUserNotFound() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> focusService.getDefaultTags(USER_ID, null))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);

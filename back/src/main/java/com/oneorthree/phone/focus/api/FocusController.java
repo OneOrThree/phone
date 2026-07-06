@@ -9,7 +9,9 @@ import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
 import com.oneorthree.phone.focus.dto.FocusTagResponse;
 import com.oneorthree.phone.focus.dto.FocusTagSetupRequest;
 import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
+import com.oneorthree.phone.focus.dto.OccupationDefaultTagsResponse;
 import com.oneorthree.phone.focus.service.FocusService;
+import com.oneorthree.phone.user.domain.Occupation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -50,6 +52,23 @@ public class FocusController {
     public ResponseEntity<List<FocusTagResponse>> getTag(HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(focusService.getFocusTags(userId));
+    }
+
+    @Operation(summary = "기본(추천) TAG 조회",
+            description = "occupation별 기본(추천) 포커스 태그 목록. occupation 미지정 시 로그인 유저의 저장 occupation 사용. "
+                    + "tagId 없음 — 유저가 선택 시 name 을 POST /api/v1/tag 로 넘겨 실제 태그 생성.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "400", description = "occupation 파라미터 형식 오류 또는 유저 occupation 미설정"),
+        @ApiResponse(responseCode = "401", description = "인증 필요"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
+    @GetMapping("/tag/defaults")
+    public ResponseEntity<OccupationDefaultTagsResponse> getDefaultTags(
+            HttpServletRequest request,
+            @RequestParam(required = false) Occupation occupation) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(focusService.getDefaultTags(userId, occupation));
     }
 
     @Operation(summary = "TAG 초기 등록", description = "TAG, 설명 등록")
