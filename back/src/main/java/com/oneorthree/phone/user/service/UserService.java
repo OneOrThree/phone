@@ -146,7 +146,15 @@ public class UserService {
         userScreenTimeSettingsRepository.deleteById(userId);
         userFocusTimeSettingsRepository.deleteById(userId);
         userNotificationSettingsRepository.deleteById(userId);
-        userRepository.delete(user);
+
+        // 개인정보 파기 + 소프트딜리트 (GROMO-635) — 하드 삭제 시 다수 FK(NOT NULL: social_accounts·focus_tags·
+        // user_items·currency_transactions·group_members·league_arena_users 등) 위반으로 409(이력 있는 유저 탈퇴 불가).
+        // → user row 는 남겨 소프트딜리트, 소셜연동·PII 만 파기. 집중 이력은 위 nullify 로 익명화.
+        socialAccountRepository.deleteByUserId(userId);   // 소셜 연동 삭제 → 재로그인 차단 + provider_id 파기
+        user.setNickname(null);
+        user.setDeviceToken(null);
+        user.setRefreshToken(null);
+        user.setDeletedAt(Instant.now());
     }
 
     public UserProfileResponse getProfile(UUID userId) {

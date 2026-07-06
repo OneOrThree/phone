@@ -227,9 +227,9 @@ class UserServiceTest {
     // ── withdraw ──────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("탈퇴 성공 → focus·wallet·3 settings 정리 후 유저 삭제")
+    @DisplayName("탈퇴 성공 → focus·wallet·3 settings 정리 + 소셜연동 삭제·PII 파기·소프트딜리트 (하드삭제 X) GROMO-635")
     void withdrawSuccess() {
-        User user = User.builder().id(USER_ID).build();
+        User user = User.builder().id(USER_ID).nickname("조재영").refreshToken("rt").deviceToken("dt").build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.existsByHostId(USER_ID)).willReturn(false);
 
@@ -242,7 +242,13 @@ class UserServiceTest {
         verify(userScreenTimeSettingsRepository).deleteById(USER_ID);
         verify(userFocusTimeSettingsRepository).deleteById(USER_ID);
         verify(userNotificationSettingsRepository).deleteById(USER_ID);
-        verify(userRepository).delete(user);
+        verify(socialAccountRepository).deleteByUserId(USER_ID);
+        // 소프트딜리트 + PII 파기, 하드 삭제 안 함 (FK 위반 방지)
+        assertThat(user.getDeletedAt()).isNotNull();
+        assertThat(user.getNickname()).isNull();
+        assertThat(user.getRefreshToken()).isNull();
+        assertThat(user.getDeviceToken()).isNull();
+        verify(userRepository, never()).delete(any());
     }
 
     @Test
@@ -267,7 +273,9 @@ class UserServiceTest {
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.HOST_WITHDRAW);
-        verify(userRepository, never()).delete(user);
+        // 호스트는 탈퇴 차단 → 소프트딜리트·소셜삭제 등 아무 변경 없음
+        assertThat(user.getDeletedAt()).isNull();
+        verify(socialAccountRepository, never()).deleteByUserId(any());
     }
 
     // ── getProfile ────────────────────────────────────────────────────────

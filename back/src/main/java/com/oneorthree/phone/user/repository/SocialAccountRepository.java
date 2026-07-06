@@ -6,6 +6,7 @@ import com.oneorthree.phone.user.domain.User;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -31,4 +32,9 @@ public interface SocialAccountRepository extends JpaRepository<SocialAccount, UU
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT sa FROM SocialAccount sa WHERE sa.user = :user AND sa.deletedAt IS NULL")
     List<SocialAccount> findAllByUserAndDeletedAtIsNullForUpdate(@Param("user") User user);
+
+    // 회원 탈퇴 — 해당 유저 소셜 연동 전체 하드 삭제 (provider_id PII 파기 + (provider,provider_id) 재가입 확보 + FK 프리). GROMO-635
+    @Modifying
+    @Query("DELETE FROM SocialAccount sa WHERE sa.user.id = :userId")
+    void deleteByUserId(@Param("userId") UUID userId);
 }
