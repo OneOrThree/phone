@@ -7,6 +7,8 @@ import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.StatsPeriod;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
+import com.oneorthree.phone.friend.exception.FriendErrorCode;
+import com.oneorthree.phone.friend.exception.FriendException;
 import com.oneorthree.phone.stats.service.StatsService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,8 +19,11 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
@@ -340,6 +345,45 @@ class StatsControllerTest {
     @DisplayName("카테고리별 통계 period 파라미터 누락 → 400")
     void getFocusStatsByCategoryMissingParamReturns400() throws Exception {
         mockMvc.perform(get("/api/v1/stats/by-category"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    // ── friends 파라미터 (친구 통계, GROMO-608) ────────────────────────────
+
+    @Test
+    @DisplayName("친구 통계 — ?friends={id} 지정 시 대상 결정 후 해당 대상 스트릭 반환 → 200")
+    void getStreakWithFriendsReturns200() throws Exception {
+        UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        // caller 는 JwtFilter 미적용 슬라이스라 null → resolveTargetUserId(null, friendId) 가 대상 결정
+        given(statsService.resolveTargetUserId(isNull(), eq(friendId))).willReturn(friendId);
+        given(statsService.getStreak(friendId))
+                .willReturn(new StreakResponse(3, 7, LocalDate.of(2026, 7, 5)));
+
+        mockMvc.perform(get("/api/v1/stats/streak").param("friends", friendId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentStreak").value(3))
+                .andExpect(jsonPath("$.longestStreak").value(7))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("친구 통계 — 친구관계 아님(NOT_FRIEND) → 404")
+    void getStreakWithFriendsNotFriendReturns404() throws Exception {
+        UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        given(statsService.resolveTargetUserId(isNull(), eq(friendId)))
+                .willThrow(new FriendException(FriendErrorCode.NOT_FRIEND));
+
+        mockMvc.perform(get("/api/v1/stats/streak").param("friends", friendId.toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FRIEND"))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("친구 통계 — ?friends 형식 오류(UUID 아님) → 400")
+    void getStreakWithFriendsInvalidUuidReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/stats/streak").param("friends", "not-a-uuid"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }

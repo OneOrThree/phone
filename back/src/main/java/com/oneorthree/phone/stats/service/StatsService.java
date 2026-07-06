@@ -3,6 +3,9 @@ package com.oneorthree.phone.stats.service;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusTag;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.friend.exception.FriendErrorCode;
+import com.oneorthree.phone.friend.exception.FriendException;
+import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
@@ -59,6 +62,32 @@ public class StatsService {
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final UserRepository userRepository;
+    private final FriendshipRepository friendshipRepository;
+
+    /**
+     * 통계 조회 대상 userId를 결정한다 (GROMO-608).
+     * <p>friends 미지정(null)이면 호출자 본인(self)을 반환한다.
+     * friends 지정 시 호출자·대상 User 를 로드한 뒤 <b>ACCEPTED 친구관계만</b> 검증하고
+     * 통과하면 대상 friends 를 반환한다. 공개범위(statVisibility) 검증은 결정에 따라 생략한다.
+     *
+     * @param callerId 호출자(로그인 유저) UUID
+     * @param friends  조회 대상 친구 UUID (null 이면 self)
+     * @return 실제 통계 집계 대상 userId
+     * @throws UserException   대상/호출자 User 미존재 (NOT_FOUND)
+     * @throws FriendException 대상과 ACCEPTED 친구관계가 아님 (NOT_FRIEND)
+     */
+    public UUID resolveTargetUserId(UUID callerId, UUID friends) {
+        if (friends == null) {
+            return callerId;
+        }
+        User caller = userRepository.findById(callerId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User friend = userRepository.findById(friends)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        friendshipRepository.findAcceptedBetween(caller, friend)
+                .orElseThrow(() -> new FriendException(FriendErrorCode.NOT_FRIEND));
+        return friends;
+    }
 
     public List<HeatmapCellResponse> getHeatmap(UUID userId, LocalDate from, LocalDate to) {
         if (from == null || to == null || from.isAfter(to)
