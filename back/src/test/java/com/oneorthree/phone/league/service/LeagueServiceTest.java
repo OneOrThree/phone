@@ -11,6 +11,8 @@ import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
+import com.oneorthree.phone.league.exception.LeagueErrorCode;
+import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.user.domain.Occupation;
@@ -18,6 +20,7 @@ import com.oneorthree.phone.user.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -207,6 +210,71 @@ class LeagueServiceTest {
         assertThat(ranking).hasSize(1);
         assertThat(ranking.get(0).rank()).isEqualTo(1);
         assertThat(ranking.get(0).nickname()).isEqualTo("other");
+    }
+
+    // ── getGlobalRanking ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("전역 랭킹 조회(scope=total) → 아레나 무관 전역 목록, rank 1부터 재부여")
+    void getGlobalRanking_returnsGlobalRanking() {
+        LeagueArena arenaA = activeArena();
+        LeagueArena arenaB = activeArena();
+        LeagueArenaUser top = member(U2, "top", arenaA, 500);
+        LeagueArenaUser mid = member(USER_ID, "mid", arenaB, 300);
+        given(leagueArenaUserRepository.findRankedByActiveArenas(any(Pageable.class)))
+                .willReturn(List.of(top, mid));
+
+        List<LeagueMemberResponse> ranking = leagueService.getGlobalRanking("total", 100);
+
+        assertThat(ranking).hasSize(2);
+        assertThat(ranking.get(0).rank()).isEqualTo(1);
+        assertThat(ranking.get(0).nickname()).isEqualTo("top");
+        assertThat(ranking.get(1).rank()).isEqualTo(2);
+        assertThat(ranking.get(1).userId()).isEqualTo(USER_ID);
+    }
+
+    @Test
+    @DisplayName("전역 랭킹 조회 - scope 대소문자 무관(TOTAL) 허용")
+    void getGlobalRanking_scopeCaseInsensitive() {
+        given(leagueArenaUserRepository.findRankedByActiveArenas(any(Pageable.class)))
+                .willReturn(List.of());
+
+        assertThat(leagueService.getGlobalRanking("TOTAL", 100)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("전역 랭킹 조회 - limit 상한(500) 초과 시 클램프되어 조회는 정상 수행")
+    void getGlobalRanking_limitClamped() {
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        given(leagueArenaUserRepository.findRankedByActiveArenas(any(Pageable.class)))
+                .willReturn(List.of());
+
+        leagueService.getGlobalRanking("total", 100000);
+
+        verify(leagueArenaUserRepository).findRankedByActiveArenas(captor.capture());
+        assertThat(captor.getValue().getPageSize()).isEqualTo(500);
+    }
+
+    @Test
+    @DisplayName("전역 랭킹 조회 - limit 0/음수 → 최소 1로 클램프")
+    void getGlobalRanking_limitMinClamped() {
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        given(leagueArenaUserRepository.findRankedByActiveArenas(any(Pageable.class)))
+                .willReturn(List.of());
+
+        leagueService.getGlobalRanking("total", 0);
+
+        verify(leagueArenaUserRepository).findRankedByActiveArenas(captor.capture());
+        assertThat(captor.getValue().getPageSize()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("전역 랭킹 조회 - 지원하지 않는 scope → LeagueException(INVALID_SCOPE)")
+    void getGlobalRanking_invalidScope() {
+        assertThatThrownBy(() -> leagueService.getGlobalRanking("weekly", 100))
+                .isInstanceOf(LeagueException.class)
+                .extracting(e -> ((LeagueException) e).getErrorCode())
+                .isEqualTo(LeagueErrorCode.INVALID_SCOPE);
     }
 
     // ── getMyRank ─────────────────────────────────────────────────────────

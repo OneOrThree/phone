@@ -10,6 +10,8 @@ import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
+import com.oneorthree.phone.league.exception.LeagueErrorCode;
+import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.user.domain.Occupation;
@@ -36,6 +38,9 @@ import java.util.UUID;
 public class LeagueService {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    private static final String SCOPE_TOTAL = "total";
+    // 전역 랭킹 상한 — 아레나를 가로지르는 대량 조회를 막기 위한 안전 상한
+    private static final int MAX_RANKING_LIMIT = 500;
 
     private final LeagueArenaUserRepository leagueArenaUserRepository;
     private final LeagueTierConfigRepository leagueTierConfigRepository;
@@ -71,6 +76,24 @@ public class LeagueService {
                 .map(member -> toResponses(
                         leagueArenaUserRepository.findRankedByArena(member.getLeagueArena())))
                 .orElseGet(List::of);
+    }
+
+    /**
+     * 전역 전체 유저 랭킹 조회 (직군 무관, GROMO-611).
+     * 이번 주 ACTIVE 아레나 전체를 가로질러 totalFocusMinutes 내림차순 상위 limit 명을 반환한다.
+     * rank 는 아레나가 아닌 전역 순번(반환 리스트 인덱스+1)이다.
+     *
+     * @param scope 랭킹 범위. 현재는 "total"(대소문자 무관)만 지원, 그 외 값은 INVALID_SCOPE(400).
+     * @param limit 상위 인원 상한. 대량 조회를 막기 위해 1~{@value #MAX_RANKING_LIMIT} 범위로 클램프한다.
+     */
+    public List<LeagueMemberResponse> getGlobalRanking(String scope, int limit) {
+        if (scope != null && !SCOPE_TOTAL.equalsIgnoreCase(scope)) {
+            throw new LeagueException(LeagueErrorCode.INVALID_SCOPE);
+        }
+        int clamped = Math.max(1, Math.min(limit, MAX_RANKING_LIMIT));
+        List<LeagueArenaUser> ranked = leagueArenaUserRepository
+                .findRankedByActiveArenas(PageRequest.of(0, clamped));
+        return toResponses(ranked);
     }
 
     private List<LeagueMemberResponse> toResponses(List<LeagueArenaUser> ranked) {

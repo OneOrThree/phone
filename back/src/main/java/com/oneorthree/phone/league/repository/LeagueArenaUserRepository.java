@@ -41,6 +41,13 @@ public interface LeagueArenaUserRepository extends JpaRepository<LeagueArenaUser
     List<LeagueArenaUser> findRankedByActiveArenasAndOccupation(
             @Param("occupation") Occupation occupation, Pageable pageable);
 
+    // 전역 전체 랭킹 — 이번 주 ACTIVE 아레나 전체(직군 무관), 상위 N 제한 (GROMO-611)
+    // occupation 필터만 뺀 findRankedByActiveArenasAndOccupation 형제 쿼리, 동점은 id 오름차순
+    @Query("SELECT m FROM LeagueArenaUser m JOIN FETCH m.user "
+            + "WHERE m.leagueArena.status = 'ACTIVE' "
+            + "ORDER BY m.totalFocusMinutes DESC, m.id ASC")
+    List<LeagueArenaUser> findRankedByActiveArenas(Pageable pageable);
+
     // 주간 알림용 — 직전 주차 ENDED 아레나의 확정 결과별 멤버 (GROMO-528).
     // user JOIN FETCH 로 N+1 방지, weekStartAt equality 는 412 배치의 atStartOfDay(KST) 산정과 동일 유래라 안전
     @Query("SELECT m FROM LeagueArenaUser m JOIN FETCH m.user JOIN FETCH m.leagueArena la "

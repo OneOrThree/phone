@@ -161,6 +161,49 @@ class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
+    @DisplayName("findRankedByActiveArenas — 직군 무관 전역 집계, 다른 아레나 포함, ENDED 제외, 내림차순")
+    void findRankedByActiveArenas_crossArenaExcludesEnded() {
+        LeagueTierConfig cfg = saveTierConfig(3);
+        LeagueArena activeA = saveArena(cfg, LeagueArenaStatus.ACTIVE);
+        LeagueArena activeB = saveArena(cfg, LeagueArenaStatus.ACTIVE);
+        LeagueArena ended = saveArena(cfg, LeagueArenaStatus.ENDED);
+
+        // 직군이 서로 달라도 전부 집계돼야 한다
+        saveMember(activeA, saveUserWithOccupation("lawyer", Occupation.LABOR_ATTORNEY), 300);
+        saveMember(activeA, saveUserWithOccupation("univ", Occupation.UNIVERSITY), 100);
+        saveMember(activeB, saveUser("noOccupation"), 200);
+        // ENDED 아레나는 제외
+        saveMember(ended, saveUser("endedUser"), 9999);
+        leagueArenaUserRepository.flush();
+
+        List<LeagueArenaUser> ranked =
+                leagueArenaUserRepository.findRankedByActiveArenas(PageRequest.of(0, 100));
+
+        assertThat(ranked).hasSize(3);
+        assertThat(ranked).extracting(m -> m.getUser().getNickname())
+                .containsExactly("lawyer", "noOccupation", "univ");
+        assertThat(ranked).noneMatch(m -> m.getUser().getNickname().equals("endedUser"));
+    }
+
+    @Test
+    @DisplayName("findRankedByActiveArenas — Pageable 상한 적용")
+    void findRankedByActiveArenas_pageLimitApplied() {
+        LeagueTierConfig cfg = saveTierConfig(3);
+        LeagueArena arena = saveArena(cfg, LeagueArenaStatus.ACTIVE);
+        saveMember(arena, saveUser("a"), 300);
+        saveMember(arena, saveUser("b"), 200);
+        saveMember(arena, saveUser("c"), 100);
+        leagueArenaUserRepository.flush();
+
+        List<LeagueArenaUser> ranked =
+                leagueArenaUserRepository.findRankedByActiveArenas(PageRequest.of(0, 2));
+
+        assertThat(ranked).hasSize(2);
+        assertThat(ranked.get(0).getUser().getNickname()).isEqualTo("a");
+        assertThat(ranked.get(1).getUser().getNickname()).isEqualTo("b");
+    }
+
+    @Test
     @DisplayName("findRankedByArena — 동점은 id 오름차순으로 순위 결정(결정적 정렬)")
     void findRankedByArena_tieBreakById() {
         LeagueTierConfig cfg = saveTierConfig(3);

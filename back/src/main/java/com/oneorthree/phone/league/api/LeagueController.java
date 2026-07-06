@@ -56,6 +56,23 @@ public class LeagueController {
         return ResponseEntity.ok(leagueService.getMyRanking(userId, category));
     }
 
+    @Operation(summary = "전역 전체 유저 랭킹 조회",
+            description = "직군 무관 전역 랭킹. 이번 주 ACTIVE 아레나 전체를 가로질러 totalFocusMinutes 내림차순 상위 limit 명. "
+                    + "rank 는 아레나가 아닌 전역 순번. scope 는 total(대소문자 무관)만 지원, 그 외 값은 400 INVALID_SCOPE. "
+                    + "limit 는 1~500 으로 클램프된다.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "400", description = "지원하지 않는 scope 값(INVALID_SCOPE) 또는 limit 형식 오류")
+    })
+    // 전역 랭킹은 유저 컨텍스트가 필요 없다(직군·본인 무관 집계). 인증은 JwtFilter(/api/*)가 강제하므로
+    // 핸들러에서 userId 를 읽지 않는다. request 파라미터도 불필요.
+    @GetMapping("/league/ranking")
+    public ResponseEntity<List<LeagueMemberResponse>> getGlobalRanking(
+            @RequestParam(required = false, defaultValue = "total") String scope,
+            @RequestParam(required = false, defaultValue = "100") int limit) {
+        return ResponseEntity.ok(leagueService.getGlobalRanking(scope, limit));
+    }
+
     @Operation(summary = "내 순위·승격/강등 상태 조회",
             description = "현재 아레나에서 내 순위와 결과. 진행 중엔 result=null, 확정 시 값. 미배정이면 assigned=false.")
     @ApiResponses({

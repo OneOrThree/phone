@@ -4,6 +4,8 @@ import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
+import com.oneorthree.phone.league.exception.LeagueErrorCode;
+import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.league.service.LeagueService;
 import com.oneorthree.phone.user.domain.Occupation;
 import org.junit.jupiter.api.DisplayName;
@@ -98,6 +100,55 @@ class LeagueControllerTest {
     @DisplayName("랭킹 조회(category=잘못된값) → 400 INVALID_PARAMETER")
     void getMyRankingWithInvalidCategoryReturns400() throws Exception {
         mockMvc.perform(get("/api/v1/league/me/ranking").param("category", "INVALID_OCCUPATION"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("전역 랭킹 조회(scope=total) → 200, rank 순서 배열")
+    void getGlobalRankingReturns200() throws Exception {
+        given(leagueService.getGlobalRanking(eq("total"), eq(100)))
+                .willReturn(List.of(
+                        new LeagueMemberResponse(1, UUID.randomUUID(), "global-top", 900, null),
+                        new LeagueMemberResponse(2, UUID.randomUUID(), "second", 800, null)));
+
+        mockMvc.perform(get("/api/v1/league/ranking").param("scope", "total"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].rank").value(1))
+                .andExpect(jsonPath("$[0].nickname").value("global-top"))
+                .andExpect(jsonPath("$[1].rank").value(2))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("전역 랭킹 조회(scope 미지정) → 200, 기본 total 적용")
+    void getGlobalRankingDefaultScopeReturns200() throws Exception {
+        given(leagueService.getGlobalRanking(eq("total"), eq(100)))
+                .willReturn(List.of(new LeagueMemberResponse(1, UUID.randomUUID(), "top", 900, null)));
+
+        mockMvc.perform(get("/api/v1/league/ranking"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].nickname").value("top"))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("전역 랭킹 조회(지원하지 않는 scope) → 400 INVALID_SCOPE")
+    void getGlobalRankingInvalidScopeReturns400() throws Exception {
+        given(leagueService.getGlobalRanking(eq("weekly"), eq(100)))
+                .willThrow(new LeagueException(LeagueErrorCode.INVALID_SCOPE));
+
+        mockMvc.perform(get("/api/v1/league/ranking").param("scope", "weekly"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_SCOPE"))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("전역 랭킹 조회(limit 비숫자) → 400 INVALID_PARAMETER")
+    void getGlobalRankingInvalidLimitReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/league/ranking").param("limit", "abc"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
                 .andDo(print());
