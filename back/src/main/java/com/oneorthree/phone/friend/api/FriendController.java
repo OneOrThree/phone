@@ -4,7 +4,6 @@ import com.oneorthree.phone.friend.dto.FriendRequestCreateRequest;
 import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
-import com.oneorthree.phone.friend.dto.PinnedFriendResponse;
 import com.oneorthree.phone.friend.search.SearchType;
 import com.oneorthree.phone.friend.service.FriendService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -130,42 +129,5 @@ public class FriendController {
             HttpServletRequest httpServletRequest) {
         UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         return ResponseEntity.ok(friendService.search(userId, type, q));
-    }
-
-    @Operation(summary = "친구 핀 설정", description = "친구를 핀해 홈·집중 화면에 함께 표시. 이미 핀이면 멱등(204). 친구 관계가 아니면 404.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "핀 설정 성공"),
-            @ApiResponse(responseCode = "404", description = "친구 관계 아님 / 대상 유저 없음")
-    })
-    @PostMapping("/friends/{friendUserId}/pin")
-    public ResponseEntity<Void> pinFriend(
-            @PathVariable UUID friendUserId,
-            HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
-        friendService.pinFriend(userId, friendUserId);
-        return ResponseEntity.noContent().build();
-    }
-
-    @Operation(summary = "친구 핀 해제", description = "핀 해제. 핀이 없어도 멱등(204).")
-    @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "핀 해제 성공")
-    })
-    @DeleteMapping("/friends/{friendUserId}/pin")
-    public ResponseEntity<Void> unpinFriend(
-            @PathVariable UUID friendUserId,
-            HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
-        friendService.unpinFriend(userId, friendUserId);
-        return ResponseEntity.noContent().build();
-    }
-
-    @Operation(summary = "핀한 친구 조회", description = "내가 핀한 친구 목록. 캐릭터 표시정보 + 오늘 집중분 + 현재 집중 여부 포함.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "조회 성공")
-    })
-    @GetMapping("/friends/pinned")
-    public ResponseEntity<List<PinnedFriendResponse>> getPinnedFriends(HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
-        return ResponseEntity.ok(friendService.getPinnedFriends(userId));
     }
 }

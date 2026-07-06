@@ -71,14 +71,16 @@ class LeagueControllerTest {
     void getMyRankingReturns200() throws Exception {
         given(leagueService.getMyRanking(any(), any()))
                 .willReturn(List.of(
-                        new LeagueMemberResponse(1, UUID.randomUUID(), "top", 300, null),
-                        new LeagueMemberResponse(2, UUID.randomUUID(), "me", 200, null)));
+                        new LeagueMemberResponse(1, UUID.randomUUID(), "top", 300, null, true),
+                        new LeagueMemberResponse(2, UUID.randomUUID(), "me", 200, null, false)));
 
         mockMvc.perform(get("/api/v1/league/me/ranking"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].rank").value(1))
                 .andExpect(jsonPath("$[0].nickname").value("top"))
+                .andExpect(jsonPath("$[0].isPinned").value(true))
                 .andExpect(jsonPath("$[1].rank").value(2))
+                .andExpect(jsonPath("$[1].isPinned").value(false))
                 .andDo(print());
     }
 
@@ -87,12 +89,13 @@ class LeagueControllerTest {
     void getMyRankingWithCategoryReturns200() throws Exception {
         given(leagueService.getMyRanking(any(), eq(Occupation.LABOR_ATTORNEY)))
                 .willReturn(List.of(
-                        new LeagueMemberResponse(1, UUID.randomUUID(), "global-top", 500, null)));
+                        new LeagueMemberResponse(1, UUID.randomUUID(), "global-top", 500, null, false)));
 
         mockMvc.perform(get("/api/v1/league/me/ranking").param("category", "LABOR_ATTORNEY"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].rank").value(1))
                 .andExpect(jsonPath("$[0].nickname").value("global-top"))
+                .andExpect(jsonPath("$[0].isPinned").value(false))
                 .andDo(print());
     }
 
@@ -110,8 +113,8 @@ class LeagueControllerTest {
     void getGlobalRankingReturns200() throws Exception {
         given(leagueService.getGlobalRanking(eq("total"), eq(100)))
                 .willReturn(List.of(
-                        new LeagueMemberResponse(1, UUID.randomUUID(), "global-top", 900, null),
-                        new LeagueMemberResponse(2, UUID.randomUUID(), "second", 800, null)));
+                        new LeagueMemberResponse(1, UUID.randomUUID(), "global-top", 900, null, false),
+                        new LeagueMemberResponse(2, UUID.randomUUID(), "second", 800, null, false)));
 
         mockMvc.perform(get("/api/v1/league/ranking").param("scope", "total"))
                 .andExpect(status().isOk())
@@ -125,7 +128,7 @@ class LeagueControllerTest {
     @DisplayName("전역 랭킹 조회(scope 미지정) → 200, 기본 total 적용")
     void getGlobalRankingDefaultScopeReturns200() throws Exception {
         given(leagueService.getGlobalRanking(eq("total"), eq(100)))
-                .willReturn(List.of(new LeagueMemberResponse(1, UUID.randomUUID(), "top", 900, null)));
+                .willReturn(List.of(new LeagueMemberResponse(1, UUID.randomUUID(), "top", 900, null, false)));
 
         mockMvc.perform(get("/api/v1/league/ranking"))
                 .andExpect(status().isOk())
