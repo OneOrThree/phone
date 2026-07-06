@@ -25,6 +25,10 @@
       "description": "알림 배치 수동 트리거 (local/dev/staging 전용)"
     },
     {
+      "name": "Pin",
+      "description": "유저 핀 API (리그·친구 공용) — 친구 아닌 임의 유저도 핀 가능"
+    },
+    {
       "name": "Group",
       "description": "Group 세션 관련 API (생성, 조회 등)"
     },
@@ -57,10 +61,6 @@
       "description": "스크린 타임 목표 달성 저장 API"
     },
     {
-      "name": "Friend",
-      "description": "친구 요청·수락·거절·삭제·목록·검색·핀 API"
-    },
-    {
       "name": "notification-test",
       "description": "테스트 푸시 발송 (local/dev/staging 전용 — 인증·필터 미적용)"
     },
@@ -75,6 +75,10 @@
     {
       "name": "user",
       "description": "user 관련 API (생성, 조회, 변경)"
+    },
+    {
+      "name": "Friend",
+      "description": "친구 요청·수락·거절·삭제·목록·검색 API"
     }
   ],
   "paths": {
@@ -478,6 +482,65 @@
           },
           "404": {
             "description": "유저 없음"
+          }
+        }
+      }
+    },
+    "/api/v1/pins/{userId}": {
+      "post": {
+        "tags": [
+          "Pin"
+        ],
+        "summary": "유저 핀 설정",
+        "description": "임의 유저(친구 아니어도 가능)를 핀해 홈·집중·리그 화면에 표시. 이미 핀이면 멱등(204). 자기 자신은 400.",
+        "operationId": "pin",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "핀 설정 성공"
+          },
+          "400": {
+            "description": "자기 자신 핀 시도"
+          },
+          "404": {
+            "description": "대상 유저 없음"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Pin"
+        ],
+        "summary": "유저 핀 해제",
+        "description": "핀 해제. 핀이 없어도 멱등(204).",
+        "operationId": "unpin",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "핀 해제 성공"
+          },
+          "404": {
+            "description": "대상 유저 없음"
           }
         }
       }
@@ -1005,59 +1068,6 @@
           },
           "404": {
             "description": "그룹 없음"
-          }
-        }
-      }
-    },
-    "/api/v1/friends/{friendUserId}/pin": {
-      "post": {
-        "tags": [
-          "Friend"
-        ],
-        "summary": "친구 핀 설정",
-        "description": "친구를 핀해 홈·집중 화면에 함께 표시. 이미 핀이면 멱등(204). 친구 관계가 아니면 404.",
-        "operationId": "pinFriend",
-        "parameters": [
-          {
-            "name": "friendUserId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "핀 설정 성공"
-          },
-          "404": {
-            "description": "친구 관계 아님 / 대상 유저 없음"
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "Friend"
-        ],
-        "summary": "친구 핀 해제",
-        "description": "핀 해제. 핀이 없어도 멱등(204).",
-        "operationId": "unpinFriend",
-        "parameters": [
-          {
-            "name": "friendUserId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "핀 해제 성공"
           }
         }
       }
@@ -2939,6 +2949,31 @@
         }
       }
     },
+    "/api/v1/pins": {
+      "get": {
+        "tags": [
+          "Pin"
+        ],
+        "summary": "핀한 유저 조회",
+        "description": "내가 핀한 유저 목록(친구 아님 포함). 캐릭터 표시정보 + 오늘 집중분 + 현재 집중 여부 포함.",
+        "operationId": "getPins",
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PinnedFriendResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/league/ranking": {
       "get": {
         "tags": [
@@ -3323,31 +3358,6 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/FriendSearchResultResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/friends/pinned": {
-      "get": {
-        "tags": [
-          "Friend"
-        ],
-        "summary": "핀한 친구 조회",
-        "description": "내가 핀한 친구 목록. 캐릭터 표시정보 + 오늘 집중분 + 현재 집중 여부 포함.",
-        "operationId": "getPinnedFriends",
-        "responses": {
-          "200": {
-            "description": "조회 성공",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PinnedFriendResponse"
                   }
                 }
               }
@@ -4877,6 +4887,34 @@
           }
         }
       },
+      "PinnedFriendResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "character": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CharacterEquipmentResponse"
+            }
+          },
+          "focusTimeMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "focusing": {
+            "type": "boolean"
+          },
+          "isFocusing": {
+            "type": "boolean"
+          }
+        }
+      },
       "LeagueMemberResponse": {
         "type": "object",
         "properties": {
@@ -4897,6 +4935,9 @@
           },
           "result": {
             "type": "string"
+          },
+          "isPinned": {
+            "type": "boolean"
           }
         }
       },
@@ -5375,34 +5416,6 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
-          }
-        }
-      },
-      "PinnedFriendResponse": {
-        "type": "object",
-        "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "nickname": {
-            "type": "string"
-          },
-          "character": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CharacterEquipmentResponse"
-            }
-          },
-          "focusTimeMinutes": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "focusing": {
-            "type": "boolean"
-          },
-          "isFocusing": {
-            "type": "boolean"
           }
         }
       },
