@@ -39,6 +39,12 @@ export interface OnboardingResult {
   skipped?: boolean; // true = '이미 계정이 있어요'(W1·W2)로 온보딩 건너뜀 — 수집값 없어 프로필 덮어쓰기 금지
 }
 
+// 가입 확정 결과 — 호출부(App)가 프로필 등록(POST /users/me)까지 마친 뒤 돌려준다.
+//  - ok: 완료(호출부가 유저 상태를 세팅해 홈으로 진입)
+//  - nickname-duplicate: 닉네임 중복(409 NICKNAME_DUPLICATE) → 닉네임 재입력
+//  - error: 네트워크 등 일시 오류 → 같은 닉네임으로 재시도
+export type OnboardingCompleteStatus = 'ok' | 'nickname-duplicate' | 'error';
+
 // 입력 스텝 공통 props — 모든 화면이 이 계약을 따른다.
 export interface StepProps {
   data: V2OnboardingData;

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, TextInput, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
 import { setLogoutHandler, setReloginHandler, getUserIdFromToken, api } from '@/services/api';
 import { updateScreenTimePermission } from '@/services/userApi';
@@ -21,6 +22,7 @@ import { PushGate } from '@/v2/PushGate';
 import { PendingGoalApplier } from '@/v2/PendingGoalApplier';
 import LoginScreen from '@/v2/screens/LoginScreen';
 import OnboardingFlow, {
+  type OnboardingCompleteStatus,
   type OnboardingResult,
   type V2OnboardingData,
 } from '@/v2/screens/onboarding';
@@ -50,27 +52,36 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 // (1) POST /users/me — 프로필 설정: nickname → nickname,
 //     usageGoalMinutes(W12) → dailyScreenTimeGoalMinutes,
 //     dailyFocusMinutes(W12) → dailyFocusTimeGoalMinutes.
+//     닉네임 중복이면 409(NICKNAME_DUPLICATE) — 온보딩 닉네임 화면은 로그인 전이라
+//     실시간 중복확인 API를 못 부르므로 여기가 유일한 중복 검증 지점이다(GROMO-618).
+//     실패를 삼키지 않고 결과를 돌려줘 OnboardingFlow가 재입력/재시도를 처리한다.
 // (2) PATCH /users/me/screen-time-permission — 스크린타임 권한 허용 여부(W10).
 //     프로필 셋업 요청엔 권한 필드가 없어 별도 엔드포인트로 보낸다.
 //     screenTimeGranted === null(아직 안 물어봄)이면 스킵.
 // focusCategory(W4)는 서버 Occupation enum(5종)과 항목이 안 맞아 로컬 보관 유지
 // (handleOnboardingComplete — 리그 기본 시험 리그로 쓰인다. TODO: 백엔드 협의).
 // notificationGranted(W13)는 대응 엔드포인트가 알림 설정 전체 객체뿐이라 여기선 미전송(TODO).
-async function syncOnboardingToServer(data: V2OnboardingData) {
+async function syncOnboardingToServer(data: V2OnboardingData): Promise<OnboardingCompleteStatus> {
   const body = {
-    nickname: data.nickname,
+    nickname: data.nickname.trim(),
     dailyScreenTimeGoalMinutes: data.usageGoalMinutes ?? undefined,
     dailyFocusTimeGoalMinutes: data.dailyFocusMinutes ?? undefined,
   };
   try {
     // 프로필은 온보딩이 일부 필드만 수집해 부분 바디로 보낸다(setupProfile은 전체 필드 요구).
     await api.post('/api/v1/users/me', body);
+  } catch (e) {
+    if (axios.isAxiosError(e) && e.response?.status === 409) return 'nickname-duplicate';
+    return 'error';
+  }
+  try {
     if (data.screenTimeGranted !== null) {
       await updateScreenTimePermission({ granted: data.screenTimeGranted });
     }
   } catch {
-    // 실패해도 진행 — 추후 재동기화(TODO)
+    // 권한 동기화 실패는 온보딩 완료를 막지 않는다 — 추후 재동기화(TODO)
   }
+  return 'ok';
 }
 
 export default function App() {
@@ -155,10 +166,18 @@ export default function App() {
   //   - login.isNewUser === false : 버튼을 안 눌러도 재로그인이면 기존 유저(예: 로그아웃 후
   //     같은 소셜로 재로그인). 백엔드가 (provider, providerId)로 같은 유저를 돌려주므로,
   //     재온보딩으로 새로 입력한 값이 서버 프로필을 덮어쓰면 안 된다.
-  async function handleOnboardingComplete({ data, login, skipped }: OnboardingResult) {
-    await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
+  async function handleOnboardingComplete({
+    data,
+    login,
+    skipped,
+  }: OnboardingResult): Promise<OnboardingCompleteStatus> {
     const isExistingAccount = skipped || login.isNewUser === false;
     if (!isExistingAccount) {
+      // 신규 유저 — 프로필 등록(닉네임 중복 검증 포함)이 성공해야 온보딩 완료(GROMO-618).
+      // 실패 시 완료 플래그·유저 상태를 세팅하지 않고 결과만 돌려줘 게이트를 유지한다
+      // (OnboardingFlow가 닉네임 재입력/재시도 UI를 띄운다).
+      const sync = await syncOnboardingToServer(data);
+      if (sync !== 'ok') return sync;
       // 목표 선택(W4) — 리그 화면이 기본 시험 리그로 읽는다. 서버 필드 협의 전까지 로컬 보관.
       if (data.focusCategory) {
         await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategory);
@@ -167,6 +186,7 @@ export default function App() {
       setOnboardingFocusGoalSeconds(data.dailyFocusMinutes ? data.dailyFocusMinutes * 60 : null);
       setOnboardingScreenTimeGoalSeconds(data.usageGoalMinutes ? data.usageGoalMinutes * 60 : null);
     }
+    await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
     setOnboarded(true);
     // 소셜·게스트 모두 W15에서 실제 JWT 세션을 발급받고 온다(게스트=POST /auth/guest).
     // 세션(토큰/유저)은 auth.ts가 이미 저장 — 여기선 화면 상태만 세팅.
@@ -175,9 +195,9 @@ export default function App() {
       // 기존 계정 — 로그인 프로필(닉네임 등)을 그대로 사용, 온보딩 값으로 덮어쓰지 않음.
       setUser({ ...login, userId });
     } else {
-      setUser({ ...login, userId, nickname: data.nickname });
-      syncOnboardingToServer(data);
+      setUser({ ...login, userId, nickname: data.nickname.trim() });
     }
+    return 'ok';
   }
 
   useEffect(() => {

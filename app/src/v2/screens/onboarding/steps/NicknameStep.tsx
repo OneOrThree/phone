@@ -7,17 +7,35 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // 닉네임·캐릭터 — W11(전날 스크린타임)과 W12(목표 설정) 사이 삽입.
 // 캐릭터 '도착' 연출 + 닉네임 입력. 캐릭터 커스터마이즈는 이 화면 범위 밖(표시만).
-// TODO: 닉네임 중복확인 API 연결.
-export default function NicknameStep({ data, update, onNext }: StepProps) {
+// 중복 검증: 실시간 중복확인 API가 서버에 없고 온보딩은 로그인 전이라 인증 API 호출도 불가.
+// 여기선 형식(2~10자, 프로필 편집과 동일)만 검사하고, 실제 중복은 가입 확정
+// (POST /users/me → 409 NICKNAME_DUPLICATE) 시점에 확정된다. 서버 검증에 실패하면
+// OnboardingFlow가 이 화면을 serverError와 함께 다시 띄워 재입력/재시도를 받는다.
+const NICK_MIN = 2;
+const NICK_MAX = 10;
+
+interface NicknameStepProps extends StepProps {
+  serverError?: string | null; // 가입 확정 시 서버 검증 실패(중복·일시 오류) 메시지
+  submitting?: boolean; // 가입 확정 요청 진행 중 — 입력·CTA 잠금
+}
+
+export default function NicknameStep({
+  data,
+  update,
+  onNext,
+  serverError,
+  submitting,
+}: NicknameStepProps) {
   const nickname = data.nickname;
-  const ok = nickname.trim().length > 0;
+  const trimmed = nickname.trim();
+  const validLength = trimmed.length >= NICK_MIN && trimmed.length <= NICK_MAX;
 
   return (
     <StepScaffold
       titleCenter
       title={'당신의 집중을 도와줄 그로몬이\n도착했어요!'}
-      ctaLabel="다음"
-      ctaDisabled={!ok}
+      ctaLabel={submitting ? '확인 중…' : '다음'}
+      ctaDisabled={!validLength || !!submitting}
       onCta={onNext}
     >
       <LinearGradient colors={[T.paperLight, T.caramel]} style={s.stage}>
@@ -32,13 +50,25 @@ export default function NicknameStep({ data, update, onNext }: StepProps) {
           onChangeText={(t) => update({ nickname: t })}
           placeholder="닉네임을 입력하세요"
           placeholderTextColor={T.inkMuted}
-          style={s.input}
-          maxLength={12}
+          style={[s.input, serverError ? s.inputError : null]}
+          maxLength={NICK_MAX}
           autoCapitalize="none"
           autoCorrect={false}
+          editable={!submitting}
         />
-        {ok ? <Text style={s.okText}>사용 가능 ✓</Text> : null}
       </View>
+      {/* 검증 안내 — 서버 실패 메시지 > 형식 가이드 > 기본 힌트 순. */}
+      {serverError ? (
+        <Text style={s.errorText}>{serverError}</Text>
+      ) : nickname.length > 0 && !validLength ? (
+        <Text style={s.errorText}>
+          닉네임은 {NICK_MIN}~{NICK_MAX}자로 입력해 주세요
+        </Text>
+      ) : (
+        <Text style={s.hintText}>
+          {NICK_MIN}~{NICK_MAX}자 · 중복 여부는 가입 완료 시 확인돼요
+        </Text>
+      )}
     </StepScaffold>
   );
 }
@@ -63,9 +93,10 @@ const s = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: T.accent,
     paddingHorizontal: 16,
-    paddingRight: 90,
     ...T.text.subtitle,
     color: T.ink,
   },
-  okText: { position: 'absolute', right: 16, ...T.text.caption, color: T.green },
+  inputError: { borderColor: T.dangerInk },
+  errorText: { ...T.text.caption, color: T.dangerInk, marginTop: 8, marginLeft: 4 },
+  hintText: { ...T.text.caption, color: T.inkMuted, marginTop: 8, marginLeft: 4 },
 });
