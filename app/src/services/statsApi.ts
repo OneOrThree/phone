@@ -43,12 +43,14 @@ export async function getFocusPeriodStats(
   return data;
 }
 
-// GET /api/v1/stats/by-category?period — 태그(과목)별 집중시간(본인). 비율은 클라 계산.
+// GET /api/v1/stats/by-category?period&friends — 태그(과목)별 집중시간. 비율은 클라 계산.
+// friends 지정 시 해당 친구(ACCEPTED)의 과목별 조회(GROMO-624), 미지정 시 본인.
 export async function getFocusStatsByCategory(
   period: StatsPeriod,
+  friends?: string,
 ): Promise<CategoryFocusStatsResponse> {
   const { data } = await api.get<CategoryFocusStatsResponse>('/api/v1/stats/by-category', {
-    params: { period },
+    params: { period, friends },
   });
   return data;
 }

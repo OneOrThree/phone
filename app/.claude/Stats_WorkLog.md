@@ -122,8 +122,10 @@
 
 ## 백엔드 갭 / BE 티켓
 
-- **GROMO-623** [버그] 타 유저 통계 전체공개(statVisibility PUBLIC) 미반영 — `getUserStats` 게이트에 PUBLIC 분기 추가. (조재영)
-- **GROMO-624** [버그] `by-category` 친구 조회 미지원 — 컨트롤러에 `?friends=` + `resolveTargetUserId` 추가(서비스는 이미 임의 userId 지원). → 604 ST2 친구 과목별·605. (조재영)
+- ~~GROMO-623~~ ✅ **머지됨**(PR #138) — 전체공개(PUBLIC) 유저는 비친구에게도 상세 공개. FE는 `today != null` 게이트라 무수정 반영.
+- ~~GROMO-624~~ ✅ **머지됨**(PR #138) — `by-category?friends=`. 605 과목별 비교 실배선 완료(아래).
+- ✅ **GROMO-631/626 머지됨** — Occupation 19종 실목록 + `GET /occupations`(code·표시명) + 과목 태그 시드(`GET /tag/defaults`). FE 매핑 19종 전체 확장 완료 — 모든 유저 occupation 동기화·같은 카테고리 비교 모수.
+- **605 과목별 비교 실배선**(2026-07-07): 내/상대 `by-category(WEEK)`를 태그명 매칭 → 겹치는 과목만 `SubjectCompareCard` 실비교, 겹침 없으면 안내 배너, 미확보 시 블러 티저 유지.
 - (미티켓) 타 유저 리그 내 순위(examRank) 조회 수단 — 605.
 - **소스 자체 없음(준비 중 유지)**: 합격자, 전체/카테고리 평균의 과목별, 일/월 단위 비교.
 
