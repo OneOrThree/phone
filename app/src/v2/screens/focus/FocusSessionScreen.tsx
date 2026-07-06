@@ -73,10 +73,10 @@ export default function FocusSessionScreen() {
   const pomo = params.pomodoro ?? { focusMin: 25, breakMin: 5, sets: 4 };
 
   const { width } = useWindowDimensions();
+  const { userId } = useUser();
   const { addFocusSeconds } = useFocus();
   const { addCoins } = useCoins();
   const { subjects, addFocusToSubject } = useSubjects();
-  const { userId } = useUser();
   // Live Activity 시작 시점에 읽을 과목 목록 — effect 재실행 없이 최신값 참조용
   const subjectsRef = useRef(subjects);
   subjectsRef.current = subjects;
@@ -186,10 +186,11 @@ export default function FocusSessionScreen() {
         elapsed: remaining,
         startedAt: settleAtRef.current,
         updatedAt: new Date().toISOString(),
+        userId, // 소유 계정 — 고아 정산 시 다른 계정으로 적립/업로드되는 것을 막는다
       };
       AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, JSON.stringify(record)).catch(() => {});
     },
-    [subjectId, subjectName],
+    [subjectId, subjectName, userId],
   );
 
   // 매초 쓰기는 과해서 5초마다 갱신. 백그라운드 진입·실드 복귀 전진 시엔 그 순간 값으로 즉시 저장.
