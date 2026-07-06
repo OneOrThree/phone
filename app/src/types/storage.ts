@@ -12,6 +12,7 @@ export const STORAGE_KEYS = {
   ownedItems: 'gromo:ownedItems',
   focus: 'gromo:focus',
   focusLiveSession: 'gromo:focus:liveSession',
+  focusFirstDone: 'gromo:focus:firstDone', // 첫 집중 완료 여부 — 결과 화면(603) 변형 분기
   focusPendingUploads: 'gromo:focus:pendingUploads', // 업로드 실패한 집중 세션 재시도 대기열
   subjects: 'gromo:subjects',
   goalPending: 'gromo:goal:pending',

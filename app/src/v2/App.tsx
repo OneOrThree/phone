@@ -5,7 +5,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
 import { setLogoutHandler, setReloginHandler, getUserIdFromToken, api } from '@/services/api';
-import { updateScreenTimePermission } from '@/services/userApi';
+import { updateScreenTimePermission, updateOccupation } from '@/services/userApi';
+import { occupationForCategory } from '@/constants/focusCategories';
 import { runStorageMigrations } from '@/utils/storageMigration';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { LoginResult, UserProfile } from '@/types/api';
@@ -59,8 +60,8 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 // (2) PATCH /users/me/screen-time-permission — 스크린타임 권한 허용 여부(W10).
 //     프로필 셋업 요청엔 권한 필드가 없어 별도 엔드포인트로 보낸다.
 //     screenTimeGranted === null(아직 안 물어봄)이면 스킵.
-// focusCategory(W4)는 서버 Occupation enum(5종)과 항목이 안 맞아 로컬 보관 유지
-// (handleOnboardingComplete — 리그 기본 시험 리그로 쓰인다. TODO: 백엔드 협의).
+// focusCategory(W4)는 서버 Occupation(19종, GROMO-631)과 전 카테고리 1:1 매핑 —
+// PATCH /users/me/occupation 으로 서버에도 동기화 → 같은 카테고리 리그 랭킹(?category=)·비교 통계 모수.
 // notificationGranted(W13)는 대응 엔드포인트가 알림 설정 전체 객체뿐이라 여기선 미전송(TODO).
 // 반환: 프로필 등록 결과 — 'ok'가 아니면 호출부가 온보딩 완료 처리를 보류한다(GROMO-617/618).
 async function syncOnboardingToServer(data: V2OnboardingData): Promise<OnboardingCompleteStatus> {
@@ -80,6 +81,10 @@ async function syncOnboardingToServer(data: V2OnboardingData): Promise<Onboardin
   try {
     if (data.screenTimeGranted !== null) {
       await updateScreenTimePermission({ granted: data.screenTimeGranted });
+    }
+    const occupation = occupationForCategory(data.focusCategory ?? null);
+    if (occupation) {
+      await updateOccupation({ occupation });
     }
   } catch {
     // 권한 동기화 실패는 온보딩 완료를 막지 않는다 — 추후 재동기화(TODO)
@@ -144,6 +149,7 @@ export default function App() {
       STORAGE_KEYS.focusPendingUploads, // 이전 계정 세션이 새 계정으로 업로드되지 않게
       STORAGE_KEYS.notificationSettings,
       STORAGE_KEYS.statVisibility,
+      STORAGE_KEYS.focusFirstDone, // 다음 계정이 '첫 집중 완료' 변형을 정상적으로 보게
     ]);
     setOnboardingFocusGoalSeconds(null);
     setOnboardingScreenTimeGoalSeconds(null);

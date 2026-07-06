@@ -14,6 +14,11 @@ export type V2RootStackParamList = {
     goalSeconds?: number; // 카운트다운 목표
     pomodoro?: PomodoroConfig; // 뽀모도로 설정
   }; // 06~11 집중 세션
+  FocusResult: {
+    focusSeconds: number; // 이번 세션 집중 초
+    subjectId: string;
+    subjectName: string;
+  }; // 집중 결과 화면 — 세션 종료 후 (GROMO-603)
   FriendAdd: undefined; // 친구 추가/검색 (리그 친구 탭에서 진입)
   FriendProfile: {
     userId: string;

@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import { saveFocusSession } from '@/services/focusApi';
+import { ensureFocusTagId } from './tagSync';
 import { enqueuePendingFocusUpload } from './pendingFocusUploads';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
@@ -271,19 +272,26 @@ export default function FocusSessionScreen() {
     addFocusSeconds(delta);
     addFocusToSubject(subjectId, delta);
     if (newCoins > 0) addCoins(newCoins);
-    // 서버 업로드 — 이번 집중 블록 구간만 (focusApi 래퍼 경유).
-    // 실패 시 대기열에 남겨 재시도(GROMO-614) — 로컬 적립은 이미 반영돼 그냥 버리면 서버와 불일치.
-    const body = {
-      focusTagId: null,
-      subject: subjectName,
-      startedAt,
-      endedAt,
-      distractionCount: 0,
-      totalDistractionSeconds: 0,
-    };
-    saveFocusSession(body).catch(() => {
-      enqueuePendingFocusUpload(body, userId).catch(() => {});
-    });
+    // 서버 업로드 — 이번 집중 블록 구간만. 과목명을 서버 태그로 매칭/생성해 tagId를 실어 보낸다
+    // (과목별 통계 집계용 — 매칭 실패 시 null = 미분류). 업로드 실패 시 대기열에 남겨
+    // 재시도(GROMO-614) — 로컬 적립은 이미 반영돼 그냥 버리면 서버와 불일치. 대기열 바디에도
+    // 해석된 tagId를 실어 재시도 시 과목이 유지되게 한다.
+    ensureFocusTagId(subjectName, userId)
+      .catch(() => null)
+      .then((focusTagId) => {
+        const body = {
+          focusTagId,
+          subject: subjectName,
+          startedAt,
+          endedAt,
+          distractionCount: 0,
+          totalDistractionSeconds: 0,
+        };
+        return saveFocusSession(body).catch(() => {
+          enqueuePendingFocusUpload(body, userId).catch(() => {});
+        });
+      })
+      .catch(() => {});
   }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName, userId]);
 
   // 정지/완료 — 남은 집중 블록 정산(적립+서버 업로드) 후 홈으로. 한 번만 실행.
@@ -301,10 +309,12 @@ export default function FocusSessionScreen() {
     try {
       settleFocusBlock();
     } finally {
-      // 정산 성공 여부와 무관하게 화면은 반드시 빠져나간다.
-      navigation.popToTop();
+      // 정산 성공 여부와 무관하게 화면은 반드시 빠져나간다 —
+      // 집중 결과 화면(GROMO-598)으로 replace, 길이 무관 항상 결과 화면을 보여준다.
+      const focusSeconds = Math.floor(sessionRef.current.elapsed);
+      navigation.replace('FocusResult', { focusSeconds, subjectId, subjectName });
     }
-  }, [settleFocusBlock, navigation]);
+  }, [settleFocusBlock, navigation, subjectId, subjectName]);
 
   // 카운트다운/뽀모도로 완료 시 자동 종료
   useEffect(() => {

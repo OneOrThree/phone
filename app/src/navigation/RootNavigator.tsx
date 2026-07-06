@@ -9,6 +9,7 @@ import MenuScreen from '@/v2/screens/MenuScreen';
 import UsageDetailScreen from '@/v2/screens/UsageDetailScreen';
 import FocusCategoryScreen from '@/v2/screens/focus/FocusCategoryScreen';
 import FocusSessionScreen from '@/v2/screens/focus/FocusSessionScreen';
+import FocusResultScreen from '@/v2/screens/focus/FocusResultScreen';
 import {
   LeagueScreen,
   FriendAddScreen,
@@ -91,6 +92,12 @@ export function RootNavigator() {
           name="FocusSession"
           component={FocusSessionScreen}
           options={{ gestureEnabled: false }}
+        />
+        {/* 집중 결과(GROMO-603) — 세션을 replace. 뒤로가기로 죽은 세션 복귀 방지 */}
+        <Stack.Screen
+          name="FocusResult"
+          component={FocusResultScreen}
+          options={{ gestureEnabled: false, animation: 'fade' }}
         />
         <Stack.Screen name="FriendAdd" component={FriendAddScreen} />
         <Stack.Screen name="FriendProfile" component={FriendProfileScreen} />

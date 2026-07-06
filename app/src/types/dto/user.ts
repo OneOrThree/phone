@@ -7,13 +7,35 @@ import type { CharacterEquipmentResponse } from '@/types/dto/item';
 // 소셜 로그인 제공자 (Java enum Provider). SocialLinkResponse.provider / 소셜 연동 해제 path.
 export type Provider = 'APPLE' | 'GOOGLE' | 'KAKAO' | 'LINE' | 'INSTAGRAM' | 'FACEBOOK';
 
-// 준비 시험 카테고리 (Java enum Occupation).
+// 준비 시험 카테고리 (Java enum Occupation) — GROMO-631에서 실제 목록 19종으로 확장.
+// 표시명(한글)은 GET /occupations 의 displayName 으로 서버가 제공.
 export type Occupation =
-  | 'MIDDLE_SCHOOL'
-  | 'UNIVERSITY'
   | 'LABOR_ATTORNEY'
   | 'PATENT_ATTORNEY'
-  | 'LAWYER';
+  | 'TAX_ACCOUNTANT'
+  | 'CPA'
+  | 'APPRAISER'
+  | 'CIVIL_SERVANT'
+  | 'POLICE_FIRE'
+  | 'ADMIN_EXAM'
+  | 'CERTIFICATION'
+  | 'MIDDLE_SCHOOL'
+  | 'HIGH_SCHOOL'
+  | 'CSAT'
+  | 'UNIVERSITY'
+  | 'JOB_PREP'
+  | 'ENGLISH_TEST'
+  | 'CODING'
+  | 'SELF_DEVELOPMENT'
+  | 'FOCUS_BUILDING'
+  | 'ETC';
+
+// GET /occupations 응답 1건 — code(enum name)·표시명·노출 순서(sort_order 오름차순).
+export interface OccupationResponse {
+  code: Occupation;
+  displayName: string;
+  sortOrder: number;
+}
 
 // 성별 (Java enum Gender).
 export type Gender = 'MALE' | 'FEMALE' | 'UNKNOWN';

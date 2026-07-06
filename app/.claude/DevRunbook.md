@@ -21,6 +21,7 @@
 - **iOS 시뮬레이터** (개발 용이)
 - **실기기** (p12 인증서로 서명)
 - **Docker / Docker Compose** — 로컬 백엔드(`back/`)를 직접 띄울 때만 필요 (`docker --version`, `docker compose version`)
+- **Ruby bundler + fastlane** — TestFlight 배포 시에만 필요 (아래 "TestFlight 배포" 참고, `app/ios/Gemfile`로 설치)
 
 ---
 
@@ -108,7 +109,7 @@ cd ..
 cp app/.env.example app/.env
 ```
 
-> `app/.env.example`의 기본값은 팀 서버(`https://oneorthree.dev.mooo.com`)를 가리키며 `app/utils/api.js`의 기본값과 동일합니다. 백엔드를 직접 띄우지 않아도 바로 개발을 시작할 수 있습니다 (아래 3.2의 (A) 방식).
+> `app/.env.example`의 기본값은 팀 서버(`https://oneorthree.dev.mooo.com`)를 가리키며 `src/services/api.ts`의 기본값과 동일합니다. 백엔드를 직접 띄우지 않아도 바로 개발을 시작할 수 있습니다 (아래 3.2의 (A) 방식).
 
 ### 3.2 백엔드 연결 모드 선택
 
@@ -203,36 +204,125 @@ Xcode에서:
 
 ---
 
+## 🛫 TestFlight 배포 (로컬 fastlane)
+
+> **왜 로컬 fastlane?** EAS Build 무료 한도(월 ~15회)를 다 태워서, EAS 대신 **수빈 맥에서 로컬 fastlane**으로 TestFlight에 올린다(무료·무제한). 빌드 머신 = 수빈 맥.
+
+한 방 배포는 `app/ios/testflight.sh` 하나면 된다. 아래 **5.1 최초 셋업은 처음 한 번만**, 이후엔 **5.2만 반복**한다.
+
+### 5.1 최초 1회 셋업
+
+#### (1) Ruby 의존성 설치 (fastlane)
+
+fastlane은 `app/ios/Gemfile`로 관리하며 `vendor/bundle`에 설치된다 (`.bundle/config`의 `BUNDLE_PATH`).
+
+```bash
+cd app/ios
+gem install bundler              # 없으면
+bundle install                   # Gemfile 의존성(fastlane) 설치 → vendor/bundle
+bundle exec fastlane --version   # 설치 확인
+```
+
+#### (2) App Store Connect API Key(.p8) 발급
+
+Apple ID 비번 대신 API Key로 인증한다 (2FA·세션 만료 없음).
+
+1. App Store Connect → **사용자 및 액세스 → 통합(Integrations) → App Store Connect API**
+2. 키 생성 (역할 **App Manager** 이상) → `AuthKey_XXXXXX.p8` 다운로드 (**재발급 불가, 잘 보관**)
+3. 같은 화면 상단의 **Issuer ID**(UUID) 복사
+
+#### (3) `app/ios/fastlane/.env` 작성 (`.gitignore`됨 — 커밋 금지)
+
+```
+ASC_KEY_ID=XXXXXXXXXX             # .p8 파일명의 키 ID (AuthKey_XXXX 의 XXXX)
+ASC_ISSUER_ID=c8f76ca4-...        # (2)에서 복사한 Issuer ID
+ASC_KEY_PATH=/절대/경로/AuthKey_XXXXXX.p8
+```
+
+> 참고값: ASC 앱 id `6774498679`, Issuer `c8f76ca4-9f91-45d9-ad10-76f014ceb3f0`. 이 값들은 `fastlane/Fastfile`의 `app_store_connect_api_key(...)`가 읽는다.
+
+#### (4) 서명(수동) — 배포용 인증서 + 프로비저닝 프로파일
+
+- Apple Developer 계정은 **재영 개인 계정**(Team `P6Z68QUK9M`). 수빈은 재영에게 받은 **distribution p12**로 서명한다.
+- **7개 타겟** 각각 `distribution-gromo-*` 프로파일이 필요: 앱 본체 + `screentimemonitor` / `screentimereport` / `notificationservice` / `shieldconfiguration` / `shieldaction` / `widget`.
+- 프로파일 이름은 `gromo.xcodeproj`의 `PROVISIONING_PROFILE_SPECIFIER`, 그리고 `fastlane/Fastfile`의 `DIST_PROFILES` 매핑과 **정확히 일치**해야 한다.
+- p12(`.p12`)는 더블클릭으로 키체인에 설치, 프로파일(`.mobileprovision`)도 더블클릭으로 설치.
+- 자세한 서명/프로파일 발급 흐름은 [CLAUDE.md](./CLAUDE.md)의 "On-device signing / provisioning" 참고.
+
+#### (5) (선택) alias 등록 — 어디서든 `testflight`
+
+```bash
+echo 'alias testflight="/Users/soobin/phone/app/ios/testflight.sh"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### 5.2 배포 실행 (매번)
+
+```bash
+cd app/ios
+./testflight.sh        # alias 등록했으면 어디서든 `testflight`
+```
+
+`testflight.sh`가 하는 일:
+
+1. **API 서버 강제** — 릴리즈는 항상 팀 서버(`https://oneorthree.dev.mooo.com`)로 고정. 셸에 export한 `EXPO_PUBLIC_API_URL`이 로컬 `.env`보다 우선하므로, **개발용 로컬 백엔드 주소가 릴리즈 번들에 박히는 사고를 막는다** (다른 서버로 올리려면 `TESTFLIGHT_API_URL=... ./testflight.sh`).
+2. **Pods 동기화** — `Podfile.lock`↔`Pods/Manifest.lock`이 어긋날 때만 `pod install` (평소엔 건너뜀).
+3. **`bundle exec fastlane beta`** 실행 → 빌드번호 갱신 → archive(`.ipa`) → TestFlight 업로드.
+
+`fastlane beta` 레인(`fastlane/Fastfile`) 상세:
+
+- **빌드번호 = 현재 유닉스 타임스탬프**(`Time.now.to_i`). 매번 단조 증가라 "already used"(-19232) 충돌이 원천 차단된다. (과거 "ASC 최신 빌드 +1" 방식은 `MARKETING_VERSION` 리터럴 + `expo prebuild`의 버전 리셋 때문에 계속 충돌했음.)
+- **archive** — workspace `gromo.xcworkspace`, scheme `gromo`, `Release`, `app-store` export, **수동 서명**(`DIST_PROFILES`).
+- **업로드** — `skip_waiting_for_build_processing: true` (ASC 처리 완료까지 대기 안 함). 업로드 후 App Store Connect에서 처리(수 분)가 끝나면 TestFlight에 노출된다.
+
+### 5.3 배포 트러블슈팅 (자주 막히는 곳)
+
+- **codesign `errSecInternalComponent`** = 키체인이 distribution 개인키에 접근하지 못함.
+  키체인 접근 앱 → "Apple Distribution: jaeyoung jo" **개인키** → 정보(⌘I) → **접근 제어** → "모든 응용 프로그램이 이 항목에 접근하도록 허용". 또는 CLI로:
+  ```bash
+  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k <login-비번> ~/Library/Keychains/login.keychain-db
+  ```
+- **"sandbox is not in sync with the `Podfile.lock`"** = 브랜치 전환/라이브러리 추가 후 `pod install`을 안 함. `testflight.sh`가 자동 처리하지만, 수동으로 돌릴 땐 `pod install` 후 `Pod installation complete!`를 확인.
+- **`react-native-fbsdk-next` throw** = `app.config.js`가 `EXPO_PUBLIC_FACEBOOK_APP_ID`가 없으면 플러그인에서 throw. appID가 있을 때만 플러그인을 추가하도록 조건부 처리돼 있어(없어도 빌드는 됨), 값이 비어도 배포는 진행된다.
+- **`.env`가 Release 번들에 인라인됨** = Expo는 빌드 시점의 `EXPO_PUBLIC_*` 값을 번들에 그대로 박는다. `testflight.sh`는 export로 팀 서버를 강제하니 안전하지만, **`fastlane beta`를 직접 돌릴 땐** `app/.env`의 `EXPO_PUBLIC_API_URL`이 팀 서버인지 반드시 확인.
+- **`node: command not found`**(비대화형/일부 셸) = `testflight.sh`가 `/opt/homebrew/Cellar/node@24/...`를 PATH에 보강해 둠. node 버전이 바뀌면 스크립트 안의 경로도 같이 갱신할 것.
+
+---
+
 ## 📂 프로젝트 구조
+
+> 코드는 전부 **TypeScript**, 소스는 `app/src/` 아래에 있고 `@/` 별칭(`@` = `src`)으로 임포트한다. 화면/컴포넌트/상태 규칙의 정본은 [CLAUDE.md](./CLAUDE.md) "Project structure" 참고.
 
 ```
 Gromo/
-├── app/                          # React Native 앱 (메인)
-│   ├── package.json              # JavaScript 의존성
-│   ├── .env                       # 환경 변수 (개인 설정)
-│   ├── App.js                     # 앱 진입점
-│   ├── screens/                   # 화면 컴포넌트
-│   ├── components/                # UI 컴포넌트
-│   ├── utils/                     # 유틸리티 (API, ScreenTimeModule 등)
-│   ├── contexts/                  # Context API (전역 상태)
-│   ├── ios/                       # iOS 네이티브 코드
+├── app/                          # React Native + Expo 앱 (TypeScript)
+│   ├── package.json              # JS 의존성
+│   ├── app.config.js             # Expo 설정 (플러그인·assets)
+│   ├── .env                      # 환경 변수 (개인 설정, gitignore)
+│   ├── index.ts                  # 진입점 → ./src/App
+│   ├── src/
+│   │   ├── App.tsx               # 인증 게이팅 + Provider + <RootNavigator/>
+│   │   ├── screens/              # 화면 (Homescreen.tsx 등)
+│   │   ├── components/           # 재사용 UI
+│   │   ├── navigation/           # RootNavigator.tsx
+│   │   ├── store/                # 전역 상태 (Context API)
+│   │   ├── services/             # api.ts(axios), ScreenTimeModule.ts
+│   │   ├── constants/            # theme.ts (디자인 토큰)
+│   │   ├── utils/ types/ hooks/ assets/
+│   ├── ios/                      # iOS 네이티브 코드
 │   │   ├── gromo.xcworkspace     # Xcode 워크스페이스 (열기)
-│   │   ├── gromo/                 # 메인 앱 타겟
-│   │   │   ├── ScreenTimeModule.swift
-│   │   │   ├── ScreenTimeModule.m
-│   │   │   ├── gromo.entitlements
-│   │   │   └── AppDelegate.swift
-│   │   ├── screentimereport/      # 스크린 타임 리포트 익스텐션
-│   │   │   ├── TotalActivityReport.swift
-│   │   │   ├── TotalActivityView.swift
-│   │   │   └── screentimereport.entitlements
-│   │   └── Pods/                  # CocoaPods 의존성 (자동 생성)
+│   │   ├── gromo/                # 메인 앱 타겟 (ScreenTimeModule.swift, *.entitlements, AppDelegate.swift)
+│   │   ├── screentimereport/     # 스크린 타임 리포트 익스텐션 (TotalActivityReport/View.swift)
+│   │   ├── Gemfile               # fastlane 등 Ruby 의존성
+│   │   ├── testflight.sh         # TestFlight 한 방 배포 스크립트
+│   │   ├── fastlane/             # Fastfile · Appfile · .env(gitignore)
+│   │   └── Pods/                 # CocoaPods 의존성 (자동 생성)
 │   └── .claude/
-│       ├── SETUP.md               # 이 파일
-│       ├── dev-runbook.md         # 개발 가이드
-│       └── CLAUDE.md              # 프로젝트 규칙
+│       ├── DevRunbook.md         # 이 파일 (환경 세팅 + 배포)
+│       ├── CLAUDE.md             # 프론트엔드 코드 규칙
+│       └── *_WorkLog.md          # 기능별 작업 로그 (ScreenTime 등)
 │
-└── back/                          # Spring Boot 백엔드 (이 리포에 포함)
+└── back/                         # Spring Boot 백엔드 (이 리포에 포함)
     └── ...
 ```
 
@@ -312,14 +402,15 @@ npx expo run:ios
 
 ## 📝 유용한 npm 스크립트
 
-| 명령어                 | 용도                             |
-| ---------------------- | -------------------------------- |
-| `npm start`            | Metro 번들러 시작 (`expo start`) |
-| `npm run ios`          | iOS 시뮬레이터 빌드 & 실행       |
-| `npm run lint`         | ESLint 검사                      |
-| `npm run lint:fix`     | ESLint 자동 수정                 |
-| `npm run format:check` | Prettier 검사                    |
-| `npm run format:fix`   | Prettier 자동 포맷               |
+| 명령어                 | 용도                               |
+| ---------------------- | ---------------------------------- |
+| `npm start`            | Metro 번들러 시작 (`expo start`)   |
+| `npm run ios`          | iOS 시뮬레이터 빌드 & 실행         |
+| `npm run typecheck`    | `tsc --noEmit` 타입 검사 (CI 포함) |
+| `npm run lint`         | ESLint 검사                        |
+| `npm run lint:fix`     | ESLint 자동 수정                   |
+| `npm run format:check` | Prettier 검사                      |
+| `npm run format:fix`   | Prettier 자동 포맷                 |
 
 ---
 
@@ -333,15 +424,15 @@ npx expo run:ios
    - Product → Scheme → Edit Scheme
    - Build 탭 → Code Sign Identity 설정
 
-자세한 내용은 `DevRunbook.md`의 "Apple Developer 설정" 섹션 참고.
+자세한 서명/프로파일 흐름은 [CLAUDE.md](./CLAUDE.md)의 "On-device signing / provisioning" 섹션 참고. TestFlight 배포용 서명은 위 "TestFlight 배포 (로컬 fastlane)" 5.1-(4) 참고.
 
 ---
 
 ## 📚 다음 단계
 
-1. **개발 시작**: `dev-runbook.md` 읽기
-2. **코드 규칙**: `CLAUDE.md` 읽기
-3. **스크린 타임 통합**: `dev-runbook.md`의 "스크린 타임 통합" 섹션
+1. **코드 규칙**: [CLAUDE.md](./CLAUDE.md) 읽기
+2. **스크린 타임 통합**: [ScreenTime_WorkLog.md](./ScreenTime_WorkLog.md)
+3. **TestFlight 배포**: 위 "TestFlight 배포 (로컬 fastlane)" 섹션
 
 ---
 
@@ -349,10 +440,10 @@ npx expo run:ios
 
 문제가 생기면:
 
-1. 이 파일의 "문제 해결" 섹션 확인
-2. `dev-runbook.md`의 트러블슈팅 섹션 확인
+1. 이 파일의 "문제 해결" / "배포 트러블슈팅" 섹션 확인
+2. [CLAUDE.md](./CLAUDE.md)의 "Troubleshooting" 섹션 확인
 3. 팀 리더에게 문의
 
 ---
 
-**최종 업데이트**: 2026-06-14
+**최종 업데이트**: 2026-07-07
