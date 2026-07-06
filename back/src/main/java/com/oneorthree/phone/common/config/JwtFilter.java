@@ -1,22 +1,27 @@
 package com.oneorthree.phone.common.config;
 
 import com.oneorthree.phone.auth.service.JwtProvider;
+import com.oneorthree.phone.user.service.UserActivityService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
 @RequiredArgsConstructor
+@Slf4j
 public class JwtFilter extends OncePerRequestFilter {
 
     private final JwtProvider jwtProvider;
+    private final UserActivityService userActivityService;
 
     private static final List<String> WHITELIST = List.of(
             "/api/v1/auth/kakao",
@@ -52,6 +57,13 @@ public class JwtFilter extends OncePerRequestFilter {
 
         UUID userId = jwtProvider.extractUserId(token);
         request.setAttribute("userId", userId);
+        // last_active_at 스로틀 갱신 (GROMO-578) — 미접속 복귀 푸시용 부가 데이터.
+        // 하루 1회만 실쓰기(WHERE 가드). 갱신 실패가 요청 자체를 막지 않도록 예외 격리(요청은 그대로 진행).
+        try {
+            userActivityService.touchLastActive(userId, Instant.now());
+        } catch (Exception e) {
+            log.warn("last_active_at 갱신 실패 — userId={}", userId, e);
+        }
         filterChain.doFilter(request, response);
     }
 

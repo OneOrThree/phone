@@ -4,7 +4,7 @@ import { fetchFriends, fetchPinnedFriends } from './friendsApi';
 
 // 집중 세션 친구 그리드용 라이브 상태 — 대상은 친구 전체(GET /friends). 핀과 무관.
 // GET /friends 응답엔 아직 오늘 집중분·집중중 여부가 없어(BE 확장 협의 필요),
-// 핀 응답(GET /friends/pinned)에 있는 친구만 라이브 값을 임시 보강한다.
+// 핀 응답(GET /pins)에 있는 친구만 라이브 값을 임시 보강한다.
 // TODO: BE가 /friends에 focusTimeMinutes·isFocusing을 추가하면 단일 호출로 교체.
 
 export interface SessionFriend {

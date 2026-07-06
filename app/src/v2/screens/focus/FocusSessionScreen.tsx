@@ -21,10 +21,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import { saveFocusSession } from '@/services/focusApi';
+import { enqueuePendingFocusUpload } from './pendingFocusUploads';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
+import { useUser } from '@/store/UserContext';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
@@ -71,6 +73,7 @@ export default function FocusSessionScreen() {
   const pomo = params.pomodoro ?? { focusMin: 25, breakMin: 5, sets: 4 };
 
   const { width } = useWindowDimensions();
+  const { userId } = useUser();
   const { addFocusSeconds } = useFocus();
   const { addCoins } = useCoins();
   const { subjects, addFocusToSubject } = useSubjects();
@@ -183,10 +186,11 @@ export default function FocusSessionScreen() {
         elapsed: remaining,
         startedAt: settleAtRef.current,
         updatedAt: new Date().toISOString(),
+        userId, // 소유 계정 — 고아 정산 시 다른 계정으로 적립/업로드되는 것을 막는다
       };
       AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, JSON.stringify(record)).catch(() => {});
     },
-    [subjectId, subjectName],
+    [subjectId, subjectName, userId],
   );
 
   // 매초 쓰기는 과해서 5초마다 갱신. 백그라운드 진입·실드 복귀 전진 시엔 그 순간 값으로 즉시 저장.
@@ -267,16 +271,20 @@ export default function FocusSessionScreen() {
     addFocusSeconds(delta);
     addFocusToSubject(subjectId, delta);
     if (newCoins > 0) addCoins(newCoins);
-    // 서버 업로드 — 이번 집중 블록 구간만 (focusApi 래퍼 경유)
-    saveFocusSession({
+    // 서버 업로드 — 이번 집중 블록 구간만 (focusApi 래퍼 경유).
+    // 실패 시 대기열에 남겨 재시도(GROMO-614) — 로컬 적립은 이미 반영돼 그냥 버리면 서버와 불일치.
+    const body = {
       focusTagId: null,
       subject: subjectName,
       startedAt,
       endedAt,
       distractionCount: 0,
       totalDistractionSeconds: 0,
-    }).catch(() => {});
-  }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName]);
+    };
+    saveFocusSession(body).catch(() => {
+      enqueuePendingFocusUpload(body, userId).catch(() => {});
+    });
+  }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName, userId]);
 
   // 정지/완료 — 남은 집중 블록 정산(적립+서버 업로드) 후 홈으로. 한 번만 실행.
   const finish = useCallback(async () => {

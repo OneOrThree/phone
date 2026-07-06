@@ -51,7 +51,7 @@ public class StatsController {
 
     @Operation(summary = "스트릭(연속일) 조회",
             description = "현재 연속일·최장 연속일·마지막 집중일. 기록 없으면 0/0/null."
-                    + " friends 지정 시 해당 친구(ACCEPTED)의 스트릭을 조회, 미지정 시 self.")
+                    + " friends 지정 시 해당 친구(또는 PUBLIC)의 스트릭을 조회, 미지정 시 self.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "401", description = "인증 필요"),
@@ -68,7 +68,7 @@ public class StatsController {
 
     @Operation(summary = "오늘 요약 조회",
             description = "오늘의 집중·스크린타임 사용량·목표·목표 달성 진행도(%)를 통합 반환. 데이터 없으면 0/미달성."
-                    + " friends 지정 시 해당 친구(ACCEPTED)의 오늘 요약을 조회, 미지정 시 self.")
+                    + " friends 지정 시 해당 친구(또는 PUBLIC)의 오늘 요약을 조회, 미지정 시 self.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "401", description = "인증 필요"),
@@ -85,7 +85,7 @@ public class StatsController {
 
     @Operation(summary = "기간별 집중시간 통계 조회",
             description = "day(오늘)/week(이번 주 월~오늘)/month(이번 달 1일~오늘) 집중 시간 합계 + 직전 동일 기간 대비 delta 반환."
-                    + " friends 지정 시 해당 친구(ACCEPTED)의 통계를 조회, 미지정 시 self.")
+                    + " friends 지정 시 해당 친구(또는 PUBLIC)의 통계를 조회, 미지정 시 self.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "400", description = "period 값 오류 (day|week|month 외)"),
@@ -104,25 +104,29 @@ public class StatsController {
 
     @Operation(summary = "카테고리별 집중 통계 조회",
             description = "day(오늘)/week(이번 주 월~오늘)/month(이번 달 1일~오늘) 기간의 "
-                    + "완료된 세션을 태그별로 집계. 비율(%)은 클라이언트가 totalFocusMinutes 합계로 계산.")
+                    + "완료된 세션을 태그별로 집계. 비율(%)은 클라이언트가 totalFocusMinutes 합계로 계산."
+                    + " friends 지정 시 해당 친구(또는 PUBLIC)의 통계를 조회, 미지정 시 self.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공 (데이터 없으면 items=[], totalFocusMinutes=0)"),
         @ApiResponse(responseCode = "400", description = "period 값 오류 (day|week|month 외)"),
-        @ApiResponse(responseCode = "401", description = "인증 필요")
+        @ApiResponse(responseCode = "401", description = "인증 필요"),
+        @ApiResponse(responseCode = "404", description = "대상 유저 없음 또는 열람 권한 없음(친구 아님·비공개)")
     })
     @GetMapping("/stats/by-category")
     public ResponseEntity<CategoryFocusStatsResponse> getFocusStatsByCategory(
             @RequestParam StatsPeriod period,
+            @RequestParam(required = false) UUID friends,
             HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
-        return ResponseEntity.ok(statsService.getFocusStatsByCategory(userId, period));
+        UUID callerId = (UUID) request.getAttribute("userId");
+        UUID targetId = statsService.resolveTargetUserId(callerId, friends);
+        return ResponseEntity.ok(statsService.getFocusStatsByCategory(targetId, period));
     }
 
     @Operation(summary = "기간별 스크린타임 통계 조회",
             description = "day·week·month 기간별 스크린타임 합계, 직전 기간 대비 delta, 목표 달성 정보 반환."
                     + " day 단위 goalAchieved: 목표가 설정된 경우(goalMinutes > 0)에만 유효하며,"
                     + " 사용량이 목표 이내(0분 포함)이면 달성. 목표 미설정 시 false."
-                    + " friends 지정 시 해당 친구(ACCEPTED)의 통계를 조회, 미지정 시 self.")
+                    + " friends 지정 시 해당 친구(또는 PUBLIC)의 통계를 조회, 미지정 시 self.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "400", description = "잘못된 period 값"),
