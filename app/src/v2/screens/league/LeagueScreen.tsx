@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
   LayoutAnimation,
@@ -19,6 +19,7 @@ import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import { useLeagueRanking } from './useLeagueRanking';
 import { useLeagueMeta } from './useLeagueMeta';
+import { pinFriend, unpinFriend } from './friendsApi';
 import { useFriends } from './useFriends';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { MY_USER_ID, type RankedMember } from './mock';
@@ -68,7 +69,7 @@ export default function LeagueScreen() {
   const [leagueMenuOpen, setLeagueMenuOpen] = useState(false);
   // 핀한 사람만 보기 — 리스트를 나+핀으로 좁히고 나 대비 차이를 붙인다
   const [pinnedOnly, setPinnedOnly] = useState(false);
-  // 핀 토글은 로컬 상태 — TODO: POST·DELETE /friends/{id}/pin 연동
+  // 핀 상태 — 랭킹 응답 isPinned(GROMO-609)로 동기화하고, 토글은 서버(/pins) 낙관적 갱신+롤백
   const [pinned, setPinned] = useState<Set<string>>(() => new Set<string>());
 
   const listRef = useRef<ScrollView>(null);
@@ -124,12 +125,33 @@ export default function LeagueScreen() {
     ? visibleRanking.filter((m) => m.userId === MY_USER_ID || pinned.has(m.userId))
     : visibleRanking.slice(3);
 
+  // 랭킹 재조회 때마다 서버 핀 상태로 재동기화 — 토글 중 낙관값은 아래 togglePin이 관리.
+  // 의존성은 핀 id 문자열(랭킹 배열은 렌더마다 새 참조라 직접 deps로 쓰면 무한 갱신).
+  const pinnedIdsKey = ranking
+    .filter((m) => m.isPinned)
+    .map((m) => m.userId)
+    .join(',');
+  useEffect(() => {
+    setPinned(new Set(pinnedIdsKey ? pinnedIdsKey.split(',') : []));
+  }, [pinnedIdsKey]);
+
+  // 핀 토글 — 낙관적 갱신 후 서버(/pins/{userId}) 반영, 실패 시 롤백 (FriendProfileScreen 선례와 동일)
   function togglePin(userId: string) {
+    const next = !pinned.has(userId);
     setPinned((prev) => {
-      const next = new Set(prev);
-      if (next.has(userId)) next.delete(userId);
-      else next.add(userId);
-      return next;
+      const s = new Set(prev);
+      if (next) s.add(userId);
+      else s.delete(userId);
+      return s;
+    });
+    (next ? pinFriend(userId) : unpinFriend(userId)).catch(() => {
+      // 실패 롤백 — 서버는 멱등이라 중복 탭 안전
+      setPinned((prev) => {
+        const s = new Set(prev);
+        if (next) s.delete(userId);
+        else s.add(userId);
+        return s;
+      });
     });
   }
 
