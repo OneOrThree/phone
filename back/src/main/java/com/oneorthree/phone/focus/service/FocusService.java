@@ -4,9 +4,13 @@ import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
+import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
+import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
+import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
 import com.oneorthree.phone.focus.dto.FocusTagResponse;
 import com.oneorthree.phone.focus.dto.FocusTagSetupRequest;
 import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
@@ -45,6 +49,9 @@ import java.util.UUID;
 public class FocusService {
 
     private static final int MAX_PAGE_SIZE = 100;
+
+    // orphan(앱 강제종료로 endedAt 미기록) 자동 종료 임계값 — 이보다 오래된 진행 중 세션은 상한으로 종료.
+    private static final Duration ORPHAN_TIMEOUT = Duration.ofHours(12);
 
     private final FocusTagRepository focusTagRepository;
     private final UserRepository userRepository;
@@ -149,15 +156,7 @@ public class FocusService {
             throw new IllegalArgumentException("종료 시간이 시작 시간보다 앞설 수 없습니다");
         }
 
-        FocusTag tag = null;
-        if (body.getFocusTagId() != null) {
-            tag = focusTagRepository.findByIdAndDeletedAtIsNull(body.getFocusTagId())
-                    .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
-
-            if (!tag.getUser().getId().equals(userId)) {
-                throw new FocusException(FocusErrorCode.FORBIDDEN);
-            }
-        }
+        FocusTag tag = resolveOwnedTag(userId, body.getFocusTagId());
 
         focusSessionRepository.save(FocusSession.builder()
                 .user(user)
@@ -168,11 +167,115 @@ public class FocusService {
                 .distractionCount(body.getDistractionCount())
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
                 .build());
-        long durationSeconds = Duration.between(body.getStartedAt(), body.getEndedAt()).getSeconds();
+
+        recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(), body.getDistractionCount());
+    }
+
+    /**
+     * 라이브 집중 세션 시작(GROMO-610) — startedAt 만 기록한 진행 중(endedAt NULL) 세션을 INSERT.
+     * 통계·스트릭은 종료(PATCH) 시점에 귀속하므로 여기서는 건드리지 않는다.
+     */
+    @Transactional
+    public FocusSessionStartResponse startFocusSession(UUID userId, FocusSessionStartRequest body) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+
+        Instant startedAt = body.startedAt() != null ? body.startedAt() : Instant.now();
+        FocusTag tag = resolveOwnedTag(userId, body.focusTagId());
+
+        FocusSession saved = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .focusTag(tag)
+                .subject(body.subject())
+                .startedAt(startedAt)
+                .build());
+
+        return new FocusSessionStartResponse(saved.getId(), saved.getStartedAt());
+    }
+
+    /**
+     * 라이브 집중 세션 종료(GROMO-610) — 진행 중(endedAt NULL) 세션에 종료 시각을 채워 완료 처리.
+     * 완료 시점에 통계(DailyFocusStat)·스트릭·이벤트를 귀속시킨다(POST 완료 저장과 동일 로직 공유).
+     */
+    @Transactional
+    public FocusSessionEndResponse endFocusSession(UUID userId, FocusSessionEndRequest body) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+
+        FocusSession session = focusSessionRepository.findById(body.sessionId())
+                .orElseThrow(() -> new FocusException(FocusErrorCode.SESSION_NOT_FOUND));
+
+        if (session.getUser() == null || !session.getUser().getId().equals(userId)) {
+            throw new FocusException(FocusErrorCode.FORBIDDEN);
+        }
+        // 멱등/이중 완료 방지 — 이미 종료된 세션 재요청은 409(통계 이중 누적 차단)
+        if (session.isEnded()) {
+            throw new FocusException(FocusErrorCode.SESSION_ALREADY_ENDED);
+        }
+
+        Instant endedAt = body.endedAt() != null ? body.endedAt() : Instant.now();
+        if (endedAt.isBefore(session.getStartedAt())) {
+            throw new FocusException(FocusErrorCode.INVALID_DATE_RANGE);
+        }
+
+        FocusTag tag = session.getFocusTag();
+        if (body.focusTagId() != null) {
+            tag = resolveOwnedTag(userId, body.focusTagId());
+            session.applyTag(tag);
+        }
+
+        session.end(endedAt, body.distractionCount(), body.totalDistractionSeconds());
+        recordCompletion(user, userId, tag, session.getStartedAt(), endedAt, body.distractionCount());
+
+        long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
+        return new FocusSessionEndResponse(session.getId(), session.getStartedAt(), endedAt,
+                durationSeconds, body.distractionCount(), body.totalDistractionSeconds());
+    }
+
+    /**
+     * orphan 정리(GROMO-610) — 앱 강제종료 등으로 ORPHAN_TIMEOUT 이전에 시작됐으나 미종료인 세션을
+     * '시작+상한'으로 종료해 friend isFocusing 오염('영원히 집중중')을 제거한다.
+     *
+     * <p>자동 종료 세션은 종료 시각 신뢰도가 낮아(유저 미확정) DailyFocusStat/스트릭 통계에는 반영하지 않는다.
+     * WHERE endedAt IS NULL 조건 조회이므로 유저 PATCH 와 경합해도 이미 종료된 세션은 대상에서 빠진다.
+     *
+     * @return 자동 종료한 세션 수
+     */
+    @Transactional
+    public int sweepOrphanSessions(Instant now) {
+        Instant threshold = now.minus(ORPHAN_TIMEOUT);
+        List<FocusSession> orphans = focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(threshold);
+        for (FocusSession session : orphans) {
+            Instant cappedEnd = session.getStartedAt().plus(ORPHAN_TIMEOUT);
+            session.end(cappedEnd, session.getDistractionCount(), session.getTotalDistractionSeconds());
+        }
+        return orphans.size();
+    }
+
+    /** 태그 id 로 소유 태그를 조회(없으면 null 반환, 미소유면 FORBIDDEN). POST/PATCH 공용. */
+    private FocusTag resolveOwnedTag(UUID userId, UUID focusTagId) {
+        if (focusTagId == null) {
+            return null;
+        }
+        FocusTag tag = focusTagRepository.findByIdAndDeletedAtIsNull(focusTagId)
+                .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
+        if (!tag.getUser().getId().equals(userId)) {
+            throw new FocusException(FocusErrorCode.FORBIDDEN);
+        }
+        return tag;
+    }
+
+    /**
+     * 세션 완료 귀속 — FOCUS_SESSION_COMPLETED 로깅 + DailyFocusStat upsert(비관적 락) + 스트릭 갱신.
+     * POST(완료 통째 저장)와 PATCH(라이브 종료)가 공유해 통계 로직을 한 곳으로 모은다.
+     */
+    private void recordCompletion(User user, UUID userId, FocusTag tag,
+                                  Instant startedAt, Instant endedAt, int distractionCount) {
+        long durationSeconds = Duration.between(startedAt, endedAt).getSeconds();
         // payload 에 null 값 금지 — nullable 인 focus_tag_id 는 태그 있을 때만 키 포함
         Map<String, Object> sessionPayload = new LinkedHashMap<>();
         sessionPayload.put("duration_seconds", durationSeconds);
-        sessionPayload.put("distraction_count", body.getDistractionCount());
+        sessionPayload.put("distraction_count", distractionCount);
         sessionPayload.put("has_tag", tag != null);
         if (tag != null) {
             sessionPayload.put("focus_tag_id", tag.getId().toString());
@@ -180,9 +283,9 @@ public class FocusService {
         userActivityEventLogger.log(UserActivityEvent.FOCUS_SESSION_COMPLETED, sessionPayload);
 
         // ── DailyFocusStat upsert: endedAt UTC date 기준 (user, date) 멱등 누적 ──
-        LocalDate statDate = body.getEndedAt().atOffset(ZoneOffset.UTC).toLocalDate();
+        LocalDate statDate = endedAt.atOffset(ZoneOffset.UTC).toLocalDate();
         // 세션 분 계산: floor (Duration.toMinutes() = 초/60 내림, 별도 반올림 정책 없음)
-        int addedMinutes = (int) Duration.between(body.getStartedAt(), body.getEndedAt()).toMinutes();
+        int addedMinutes = (int) Duration.between(startedAt, endedAt).toMinutes();
 
         // UPDATE-UPDATE lost update 방지(누적 연산): 비관적 쓰기 잠금으로 동시 세션 저장 시 += 누락 차단
         // INSERT-INSERT 동시 삽입은 unique(user_id, date) 제약이 정합성 보장(오염 없음, 실패 건은 클라 재시도)
@@ -192,7 +295,7 @@ public class FocusService {
             DailyFocusStat stat = existingStat.get();
             stat.setTotalFocusMinutes(stat.getTotalFocusMinutes() + addedMinutes);
             stat.setSessionCount(stat.getSessionCount() + 1);
-            stat.setDistractionCount(stat.getDistractionCount() + body.getDistractionCount());
+            stat.setDistractionCount(stat.getDistractionCount() + distractionCount);
             // focusGoalAchieved: 이미 달성(true)이면 재판정 불필요 — 플래그 단방향이므로 조기 스킵
             if (!stat.isFocusGoalAchieved()) {
                 int goal = userFocusTimeSettingsRepository.findById(userId)
@@ -214,7 +317,7 @@ public class FocusService {
                     .date(statDate)
                     .totalFocusMinutes(addedMinutes)
                     .sessionCount(1)
-                    .distractionCount(body.getDistractionCount())
+                    .distractionCount(distractionCount)
                     .focusGoalAchieved(goalAchieved)
                     .build());
             if (goalAchieved) {

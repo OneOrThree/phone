@@ -44,7 +44,8 @@ public class FocusSession {
     @Column(nullable = false)
     private Instant startedAt;
 
-    @Column(nullable = false)
+    // 라이브 세션(GROMO-610): 진행 중이면 null, 종료 시 채워짐.
+    // 과거 nullable=false 였으나 '시작만 저장' 경로를 위해 NOT NULL 제거 — friend isFocusing 판정(endedAt IS NULL) 전제.
     private Instant endedAt;
 
     @Builder.Default
@@ -55,4 +56,21 @@ public class FocusSession {
 
     // 소프트 딜리트 컬럼(삭제 시각) — 스키마 정합용(GROMO-561). 세팅/필터 배선은 후속 티켓.
     private Instant deletedAt;
+
+    /** 진행 중 세션에 종료 시각·방해 지표를 채워 완료 처리(더티 체킹). */
+    public void end(Instant endedAt, int distractionCount, int totalDistractionSeconds) {
+        this.endedAt = endedAt;
+        this.distractionCount = distractionCount;
+        this.totalDistractionSeconds = totalDistractionSeconds;
+    }
+
+    /** 시작 시 미지정한 태그를 종료 시점에 보정. */
+    public void applyTag(FocusTag focusTag) {
+        this.focusTag = focusTag;
+    }
+
+    /** 종료 여부(endedAt 존재). */
+    public boolean isEnded() {
+        return endedAt != null;
+    }
 }

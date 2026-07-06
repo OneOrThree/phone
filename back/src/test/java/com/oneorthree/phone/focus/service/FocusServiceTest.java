@@ -4,8 +4,12 @@ import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusTag;
+import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
+import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
+import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
+import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
 import com.oneorthree.phone.focus.dto.FocusTagResponse;
 import com.oneorthree.phone.focus.dto.FocusTagSetupRequest;
 import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
@@ -34,6 +38,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.SliceImpl;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -899,6 +904,288 @@ class FocusServiceTest {
 
         verify(userActivityEventLogger, never())
                 .log(eq(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED), anyMap());
+    }
+
+    // ── startFocusSession — 라이브 세션 시작(GROMO-610) ──────────────────────
+
+    @Test
+    @DisplayName("라이브 세션 시작 성공 → endedAt null 로 저장, 생성 id 반환")
+    void startFocusSessionSuccess() {
+        // given
+        User user = User.builder().id(USER_ID).build();
+        FocusTag tag = FocusTag.builder().id(TAG_ID).user(user).name("공부").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        UUID sessionId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
+        given(focusSessionRepository.save(any(FocusSession.class)))
+                .willAnswer(inv -> FocusSession.builder()
+                        .id(sessionId)
+                        .user(user)
+                        .focusTag(tag)
+                        .startedAt(START)
+                        .build());
+        FocusSessionStartRequest body = new FocusSessionStartRequest(TAG_ID, "수학", START);
+
+        // when
+        FocusSessionStartResponse response = focusService.startFocusSession(USER_ID, body);
+
+        // then: 저장된 세션은 endedAt null(진행 중), 응답에 생성 id·startedAt
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository).save(captor.capture());
+        assertThat(captor.getValue().getEndedAt()).isNull();
+        assertThat(captor.getValue().getStartedAt()).isEqualTo(START);
+        assertThat(response.sessionId()).isEqualTo(sessionId);
+        assertThat(response.startedAt()).isEqualTo(START);
+        // 시작 시엔 통계·스트릭 미반영
+        verify(dailyFocusStatRepository, never()).save(any(DailyFocusStat.class));
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+    }
+
+    @Test
+    @DisplayName("startedAt 미지정 → 서버 시각(now) 사용, 세션 저장")
+    void startFocusSessionDefaultsStartedAt() {
+        // given
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+        FocusSessionStartRequest body = new FocusSessionStartRequest(null, null, null);
+
+        // when
+        Instant before = Instant.now();
+        focusService.startFocusSession(USER_ID, body);
+
+        // then: startedAt 이 now 근처로 채워짐
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository).save(captor.capture());
+        assertThat(captor.getValue().getStartedAt()).isAfterOrEqualTo(before);
+        assertThat(captor.getValue().getEndedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
+    void startFocusSessionUserNotFound() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionStartRequest body = new FocusSessionStartRequest(null, null, START);
+
+        // when & then
+        assertThatThrownBy(() -> focusService.startFocusSession(USER_ID, body))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+        verify(focusSessionRepository, never()).save(any(FocusSession.class));
+    }
+
+    @Test
+    @DisplayName("타인 태그로 시작 → FocusException(FORBIDDEN)")
+    void startFocusSessionForbiddenTag() {
+        // given
+        User user = User.builder().id(USER_ID).build();
+        User other = User.builder().id(OTHER_USER_ID).build();
+        FocusTag tag = FocusTag.builder().id(TAG_ID).user(other).name("공부").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        FocusSessionStartRequest body = new FocusSessionStartRequest(TAG_ID, "수학", START);
+
+        // when & then
+        assertThatThrownBy(() -> focusService.startFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.FORBIDDEN);
+        verify(focusSessionRepository, never()).save(any(FocusSession.class));
+    }
+
+    // ── endFocusSession — 라이브 세션 종료(GROMO-610) ────────────────────────
+
+    private static final UUID SESSION_ID = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
+
+    @Test
+    @DisplayName("라이브 세션 종료 성공 → endedAt 채움 + 통계·스트릭 귀속, 요약 반환")
+    void endFocusSessionSuccess() {
+        // given: 본인 소유 진행 중 세션
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(START).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 2, 30, null);
+
+        // when
+        FocusSessionEndResponse response = focusService.endFocusSession(USER_ID, body);
+
+        // then: 세션에 endedAt·방해지표 반영(더티 체킹)
+        assertThat(session.getEndedAt()).isEqualTo(END);
+        assertThat(session.getDistractionCount()).isEqualTo(2);
+        assertThat(session.getTotalDistractionSeconds()).isEqualTo(30);
+        // 완료 귀속(통계·스트릭·이벤트)
+        verify(dailyFocusStatRepository).save(any(DailyFocusStat.class));
+        verify(userStreakService).updateOnSessionComplete(eq(user), any());
+        verify(userActivityEventLogger).log(eq(UserActivityEvent.FOCUS_SESSION_COMPLETED), anyMap());
+        // 응답 요약: 1시간 = 3600초
+        assertThat(response.sessionId()).isEqualTo(SESSION_ID);
+        assertThat(response.durationSeconds()).isEqualTo(3600L);
+        assertThat(response.distractionCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("endedAt 미지정 → 서버 시각(now)으로 종료")
+    void endFocusSessionDefaultsEndedAt() {
+        // given
+        User user = User.builder().id(USER_ID).build();
+        Instant recentStart = Instant.now().minusSeconds(60);
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(recentStart).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, null, 0, 0, null);
+
+        // when
+        Instant before = Instant.now();
+        focusService.endFocusSession(USER_ID, body);
+
+        // then: endedAt 이 now 근처로 채워짐
+        assertThat(session.getEndedAt()).isAfterOrEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 세션 → FocusException(SESSION_NOT_FOUND)")
+    void endFocusSessionNotFound() {
+        // given
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.empty());
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, 0, null);
+
+        // when & then
+        assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.SESSION_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("타인 세션 종료 → FocusException(FORBIDDEN)")
+    void endFocusSessionForbidden() {
+        // given: 세션 소유자가 OTHER_USER_ID
+        User user = User.builder().id(USER_ID).build();
+        User other = User.builder().id(OTHER_USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(other).startedAt(START).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, 0, null);
+
+        // when & then
+        assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.FORBIDDEN);
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+    }
+
+    @Test
+    @DisplayName("이미 종료된 세션 재종료 → FocusException(SESSION_ALREADY_ENDED)")
+    void endFocusSessionAlreadyEnded() {
+        // given: endedAt 이 이미 채워진 세션
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(START).endedAt(END).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, 0, null);
+
+        // when & then
+        assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.SESSION_ALREADY_ENDED);
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+    }
+
+    @Test
+    @DisplayName("endedAt < startedAt → FocusException(INVALID_DATE_RANGE)")
+    void endFocusSessionInvalidDateRange() {
+        // given: endedAt(START) 이 startedAt(END) 보다 앞섬
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(END).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, START, 0, 0, null);
+
+        // when & then
+        assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.INVALID_DATE_RANGE);
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+    }
+
+    @Test
+    @DisplayName("종료 시 focusTagId 지정 → 태그 보정(applyTag)")
+    void endFocusSessionAppliesTag() {
+        // given: 시작 시 태그 없던 세션에 종료 시 본인 태그 지정
+        User user = User.builder().id(USER_ID).build();
+        FocusTag tag = FocusTag.builder().id(TAG_ID).user(user).name("공부").build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(START).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, 0, TAG_ID);
+
+        // when
+        focusService.endFocusSession(USER_ID, body);
+
+        // then: 세션에 태그가 보정됨
+        assertThat(session.getFocusTag()).isEqualTo(tag);
+    }
+
+    // ── sweepOrphanSessions — orphan 자동 종료(GROMO-610) ────────────────────
+
+    @Test
+    @DisplayName("임계값 초과 진행 중 세션 → 시작+상한으로 종료, 통계 미반영, 건수 반환")
+    void sweepOrphanSessionsClosesStale() {
+        // given: 24시간 전 시작해 아직 미종료인 orphan 1건
+        Instant now = Instant.parse("2026-07-06T12:00:00Z");
+        Instant staleStart = now.minus(Duration.ofHours(24));
+        User user = User.builder().id(USER_ID).build();
+        FocusSession orphan = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(staleStart).build();
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any()))
+                .willReturn(List.of(orphan));
+
+        // when
+        int closed = focusService.sweepOrphanSessions(now);
+
+        // then: 시작+12h 상한으로 종료, 통계·스트릭은 미반영(유저 미확정 세션)
+        assertThat(closed).isEqualTo(1);
+        assertThat(orphan.getEndedAt()).isEqualTo(staleStart.plus(Duration.ofHours(12)));
+        verify(dailyFocusStatRepository, never()).save(any(DailyFocusStat.class));
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+    }
+
+    @Test
+    @DisplayName("orphan 없음 → 0 반환, 종료 처리 없음")
+    void sweepOrphanSessionsNoop() {
+        // given
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any()))
+                .willReturn(List.of());
+
+        // when
+        int closed = focusService.sweepOrphanSessions(Instant.now());
+
+        // then
+        assertThat(closed).isZero();
     }
 
     // ── [직접 구현 B] 도메인 엣지케이스 (정책 판단 필요) ───────────────────────
