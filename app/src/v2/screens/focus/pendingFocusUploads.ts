@@ -22,6 +22,9 @@ interface PendingFocusUpload {
 const MAX_PENDING = 50;
 
 // 대기열 조작(읽기-수정-쓰기)을 직렬화 — enqueue와 flush가 겹쳐도 항목이 유실/중복되지 않게.
+// 락은 스토리지 읽기/쓰기 구간에만 건다. 네트워크 요청(리뷰 반영)은 락 밖에서 수행 —
+// 요청당 타임아웃 × 최대 50건이면 flush가 수 분간 락을 점유해, 그 사이 실패한 세션의
+// enqueue가 스토리지에 쓰이지 못하고 메모리에만 남아 앱 종료 시 유실될 수 있다.
 let chain: Promise<void> = Promise.resolve();
 function serialize(task: () => Promise<void>): Promise<void> {
   chain = chain.then(task, task);
@@ -54,24 +57,64 @@ export function enqueuePendingFocusUpload(
   });
 }
 
+// 동시 flush 중복 실행 방지 — 예전에는 serialize가 flush 전체를 감싸 자연히 보장됐지만,
+// 이제 네트워크 구간이 락 밖이라 별도 플래그가 필요하다. 진행 중이면 skip해도 되는 이유:
+// 이미 도는 flush가 같은 대기열을 처리 중이고, 그 사이 enqueue된 항목은 다음 flush
+// (포그라운드 복귀마다 호출)에서 처리된다.
+let flushing = false;
+
 // 대기열 재시도 — 성공한 항목만 제거하고 실패분은 남겨 다음 flush에서 다시 시도한다.
 // currentUserId는 현재 로그인 계정(useUser().userId). 저장된 userId와 다른 항목은
 // 다른 계정 소유로 업로드되면 안 되므로 재시도하지 않고 버린다. userId 필드가 없는
 // 구버전 항목도 소유 계정을 알 수 없으므로 같이 버린다(undefined !== null/UUID).
-export function flushPendingFocusUploads(currentUserId: string | null): Promise<void> {
-  return serialize(async () => {
-    const queue = await readQueue();
-    if (queue.length === 0) return;
-    const failed: PendingFocusUpload[] = [];
-    for (const item of queue) {
-      if (!item || typeof item !== 'object' || !item.body) continue; // 구버전/깨진 항목 폐기
-      if (item.userId !== currentUserId) continue; // 다른 계정 항목 폐기
+//
+// 3단계 구조: (1) 락 안에서 스냅샷 읽기 → (2) 락 밖에서 업로드 시도 →
+// (3) 락 안에서 큐를 다시 읽어(그 사이 enqueue된 새 항목 보존) 처리된 항목만 빼고 재저장.
+export async function flushPendingFocusUploads(currentUserId: string | null): Promise<void> {
+  if (flushing) return;
+  flushing = true;
+  try {
+    // 1단계 — 스냅샷 읽기 (락 안)
+    let snapshot: PendingFocusUpload[] = [];
+    await serialize(async () => {
+      snapshot = await readQueue();
+    });
+    if (snapshot.length === 0) return;
+
+    // 2단계 — 업로드 시도 (락 밖). 성공(제거)·폐기 대상을 직렬화 문자열로 수집하고,
+    // 실패분은 수집하지 않아 큐에 남긴다.
+    const settled: string[] = [];
+    for (const item of snapshot) {
+      if (!item || typeof item !== 'object' || !item.body) {
+        settled.push(JSON.stringify(item)); // 구버전/깨진 항목 폐기
+        continue;
+      }
+      if (item.userId !== currentUserId) {
+        settled.push(JSON.stringify(item)); // 다른 계정 항목 폐기
+        continue;
+      }
       try {
         await saveFocusSession(item.body);
+        settled.push(JSON.stringify(item)); // 성공 — 제거
       } catch {
-        failed.push(item);
+        // 실패 — 유지, 다음 flush에서 재시도
       }
     }
-    await writeQueue(failed);
-  });
+    if (settled.length === 0) return;
+
+    // 3단계 — 재조정 (락 안). 내용이 같은 중복 항목은 처리한 개수만큼만 제거한다.
+    await serialize(async () => {
+      const queue = await readQueue();
+      const remaining = [...settled];
+      const next = queue.filter((item) => {
+        const idx = remaining.indexOf(JSON.stringify(item));
+        if (idx === -1) return true;
+        remaining.splice(idx, 1);
+        return false;
+      });
+      await writeQueue(next);
+    });
+  } finally {
+    flushing = false;
+  }
 }
