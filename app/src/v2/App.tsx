@@ -97,7 +97,12 @@ export default function App() {
       const done = await AsyncStorage.getItem(STORAGE_KEYS.onboardingComplete);
       if (done) setOnboarded(true);
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
-      if (!raw) {
+      // 온보딩 미완료 세션은 복원하지 않는다(GROMO-617). 신규 유저는 인증 성공 시점에
+      // postAuthSave가 토큰/유저를 먼저 저장하므로, 프로필 등록(POST /users/me) 실패 후
+      // 재실행하면 '저장된 user는 있는데 완료 플래그는 없는' 반쪽 세션이 남는다.
+      // 이걸 복원하면 프로필 미등록 상태로 홈에 진입하므로, 온보딩을 다시 밟게 한다.
+      // (user와 플래그가 따로 노는 경우는 이 경로뿐 — 완료/로그아웃 시엔 둘을 함께 저장/삭제.)
+      if (!done || !raw) {
         setLoading(false);
         return;
       }
