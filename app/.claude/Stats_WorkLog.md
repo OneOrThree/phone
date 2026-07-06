@@ -62,6 +62,23 @@
 
 ---
 
+## 코드 변경 — GROMO-598 (집중 완료 결과 화면)
+
+집중 완료 결과 화면은 **전용 티켓 598**(작업, 진행 중). 화면·진입·로컬 데이터·CTA가 598, 결과 화면에 얹는 서버 통계(이번 주·스트릭·잔디)는 아래 **603**으로 분리.
+
+- `src/navigation/types.ts` — `FocusResult` 라우트 추가 `{ focusSeconds, subjectId, subjectName }`.
+- `src/navigation/RootNavigator.tsx` — `FocusResultScreen` 등록(`animation: 'fade'`, `gestureEnabled: false`).
+- `src/types/storage.ts` — `focusFirstDone` 키 추가(첫 완료 변형 분기용 로컬 플래그).
+- `src/v2/screens/focus/FocusSessionScreen.tsx` — `finish()` 종료 시 `popToTop` → **집중 ≥1분이면 `FocusResult`로 `replace`**(짧은 중도 이탈은 그대로 홈).
+- `src/v2/screens/focus/FocusResultScreen.tsx` (신규) — 결과 화면. **첫 완료/이후 세션 2변형**. **로컬 데이터만**: 이번 집중(param). **코인 표기 제외**(설계 결정). CTA **홈으로 / 다시 집중**(다시 집중 = `FocusCategory`로 replace).
+
+**주의**:
+- 집중 흐름은 PATCH end API가 아니라 `saveFocusSession`(블록별 POST) + 로컬 `elapsed` 정산 모델 → 결과 화면 "이번 집중"은 `session.elapsed`(param) 기준. `FocusSessionEndResponse`는 앱 미사용.
+- `finish()`의 정산·고아 방지 로직은 무변경, **마지막 navigation만 교체**.
+- 첫 완료 판별은 로컬 플래그(`focusFirstDone`) — 서버 신호 없이 클라 판정.
+
+---
+
 ## 백엔드 갭 / BE 티켓
 
 - **GROMO-623** [버그] 타 유저 통계 전체공개(statVisibility PUBLIC) 미반영 — `getUserStats` 게이트에 PUBLIC 분기 추가. (조재영)
@@ -86,10 +103,11 @@
 - [x] 604 화면 — 필터 + ST1(나)·ST2(나)·ST5~ST9 실데이터 + 준비중 스텁
 - [ ] 604 ST1 3축 비교 배선 (`leagueApi` 전체/카테고리 + 친구 평균)
 - [ ] 604 시뮬레이터 렌더 확인
+- [x] 598 집중 완료 결과 화면 (진입 배선 + 로컬 이번 집중 + 홈/다시집중 CTA)
+- [ ] 603 집중 완료 통계 (결과 화면에 이번 주·스트릭·잔디)
 - [ ] 605 다른 사람 통계 화면 (getPublicProfile + getUserStats + isFriend 분기 + 친구/핀 액션)
-- [ ] 603 집중 결과 화면 (endFocusSession 래퍼 + 결과 화면, **코인 표기 제외**)
 - [ ] BE 623/624 머지 후 → 전체공개·친구 과목별 연동
 
 ---
 
-**최근 갱신**: 2026-07-06 — 604 내 통계 화면 1차 구현.
+**최근 갱신**: 2026-07-06 — 604 내 통계 화면 1차 + 598 집중 완료 결과 화면 구현.

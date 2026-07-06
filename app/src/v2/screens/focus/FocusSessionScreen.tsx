@@ -293,8 +293,14 @@ export default function FocusSessionScreen() {
       // 제거 실패 — 여기서 정산하면 남은 레코드로 이중 적립될 수 있으니 건너뛰고,
       // 레코드는 다음 실행의 고아 정산이 한 번만 적립한다.
     }
-    navigation.popToTop();
-  }, [settleFocusBlock, navigation]);
+    // 집중 결과 화면(GROMO-603)으로 replace — 의미 있는 집중(≥1분)만. 짧은 중도 이탈은 조용히 홈으로.
+    const focusSeconds = Math.floor(sessionRef.current.elapsed);
+    if (focusSeconds >= 60) {
+      navigation.replace('FocusResult', { focusSeconds, subjectId, subjectName });
+    } else {
+      navigation.popToTop();
+    }
+  }, [settleFocusBlock, navigation, subjectId, subjectName]);
 
   // 카운트다운/뽀모도로 완료 시 자동 종료
   useEffect(() => {
