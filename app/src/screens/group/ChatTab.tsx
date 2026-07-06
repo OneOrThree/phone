@@ -14,7 +14,6 @@ import {
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import type { ListRenderItemInfo } from 'react-native';
 import { T, inkBox } from '@/constants/legacyTheme';
-import { api } from '@/services/api';
 import { useUser } from '@/store/UserContext';
 
 // 채팅 메시지
@@ -98,33 +97,16 @@ function MyBubble({ message }: { message: ChatMessage }) {
   );
 }
 
-export default function ChatTab({ groupId }: ChatTabProps) {
+export default function ChatTab({ groupId: _groupId }: ChatTabProps) {
   const { userId } = useUser();
   const tabBarHeight = useBottomTabBarHeight();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [loading, setLoading] = useState(true);
+  // 메시지 조회 API(GET /groups/{id}/messages)는 백엔드에 존재하지 않아 제거(GROMO-601 점검) —
+  // 3초 폴링이 매번 404였음. 이 화면(GroupRoomScreen)은 v2 전환으로 현재 라우팅되지 않는 레거시.
+  const [messages] = useState<ChatMessage[]>([]);
+  const [loading] = useState(false);
   const [inputText, setInputText] = useState('');
   const [kbOffset, setKbOffset] = useState(0);
   const flatListRef = useRef<FlatList<ChatMessage>>(null);
-
-  async function fetchMessages() {
-    try {
-      const res = await api.get<ChatMessage[]>(`/api/v1/groups/${groupId}/messages`);
-      const data = res.data;
-      setMessages(data);
-    } catch {
-      // 조용히 실패 처리
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    fetchMessages();
-    const id = setInterval(fetchMessages, 3000);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId]);
 
   useEffect(() => {
     const eventName = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';

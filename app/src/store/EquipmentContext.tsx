@@ -79,7 +79,7 @@ export function EquipmentProvider({ children }: { children: ReactNode }) {
     }
 
     api
-      .get<ServerEquipmentSlot[]>(`/api/equipment/${userId}`)
+      .get<ServerEquipmentSlot[]>(`/api/v1/equipment/${userId}`)
       .then((res) => {
         const costumes: CostumeItem[] = res.data
           .filter((s) => s.item !== null)
@@ -135,12 +135,12 @@ export function EquipmentProvider({ children }: { children: ReactNode }) {
     if (already) {
       setEquippedCostume((prev) => prev.filter((c) => c.id !== item.id));
       if (userId && serverSlot) {
-        await api.delete(`/api/equipment/${userId}/${serverSlot}`).catch(() => {});
+        await api.delete(`/api/v1/equipment/${userId}/${serverSlot}`).catch(() => {});
       }
     } else {
       setEquippedCostume((prev) => [...prev, item]);
       if (userId && item.id) {
-        await api.post('/api/equipment/equip', { userId, itemId: item.id }).catch(() => {});
+        await api.post('/api/v1/equipment/equip', { userId, itemId: item.id }).catch(() => {});
       }
     }
   }
