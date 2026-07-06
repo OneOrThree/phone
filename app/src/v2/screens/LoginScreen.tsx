@@ -55,7 +55,14 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
   const [lastProvider, setLastProvider] = useState<AuthMethod | null>(null);
 
   useEffect(() => {
-    getLastAuthProvider().then(setLastProvider);
+    // 빠른 언마운트(자동 로그인·딥링크 레이스) 시 해제된 컴포넌트 setState 방지 — 다른 화면 패턴과 일관.
+    let cancelled = false;
+    getLastAuthProvider().then((p) => {
+      if (!cancelled) setLastProvider(p);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function run(method: Method, fn: () => Promise<LoginResult>) {
