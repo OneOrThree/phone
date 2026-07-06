@@ -27,6 +27,10 @@ public class UserActivityService {
     /**
      * 저장된 last_active_at 가 오늘(KST) 시작 이전이면 now 로 갱신한다.
      * 스로틀 가드는 UPDATE 의 WHERE 절에 있어 오늘 이미 갱신된 유저는 0건 매치(무쓰기)로 끝난다.
+     * <p>TODO(트래픽 증가 시): 매 인증요청마다 트랜잭션 UPDATE 1회가 붙는다. WHERE 가드로 하루 1회만
+     * 실제 write 되지만, 오늘 이미 갱신된 유저도 0건 매치를 확인하려 쿼리 왕복(트랜잭션 begin/commit 포함)은
+     * 매번 발생한다. 지금 트래픽엔 급하지 않아 트래킹만 — 부하가 커지면 유저별 "오늘 갱신함" 인메모리 스로틀
+     * 캐시(TTL=자정까지)로 DB 왕복 자체를 건너뛰는 후속 최적화를 검토한다.
      */
     @Transactional
     public void touchLastActive(UUID userId, Instant now) {

@@ -144,6 +144,53 @@ class InactiveReturnNotificationServiceTest {
     }
 
     @Test
+    @DisplayName("D+3/7/14 조회 창은 서로 겹치지 않는다 — 동일 유저가 두 단계에 동시에 걸릴 수 없다(mutual exclusivity)")
+    void escalationWindowsAreMutuallyExclusive() {
+        given(userRepository.findInactiveReturnTargets(any(), any())).willReturn(List.of());
+
+        service.sendInactiveReturnNotifications(NOW);
+
+        ArgumentCaptor<Instant> startCaptor = ArgumentCaptor.forClass(Instant.class);
+        ArgumentCaptor<Instant> endCaptor = ArgumentCaptor.forClass(Instant.class);
+        verify(userRepository, times(3)).findInactiveReturnTargets(startCaptor.capture(), endCaptor.capture());
+
+        List<Instant> starts = startCaptor.getAllValues();
+        List<Instant> ends = endCaptor.getAllValues();
+        // 세 창 [start, end) 를 하한 오름차순으로 정렬 후 인접 창이 겹치지 않는지 검증.
+        // 반열림 구간이 disjoint → 어떤 last_active_at 값도 최대 한 창에만 속함(유저당 단일 단계 매치 보장).
+        List<Integer> order = List.of(0, 1, 2).stream()
+                .sorted(java.util.Comparator.comparing(starts::get))
+                .toList();
+        for (int i = 0; i + 1 < order.size(); i++) {
+            Instant prevEnd = ends.get(order.get(i));
+            Instant nextStart = starts.get(order.get(i + 1));
+            // 앞 창의 상한(end, 배타) <= 뒤 창의 하한(start, 포함) → 겹침 없음
+            assertThat(prevEnd).isBeforeOrEqualTo(nextStart);
+        }
+    }
+
+    @Test
+    @DisplayName("last_active_at 가 정확히 D+3 경계인 유저는 D+3 창에만 매치되고 D+7/14 창에는 잡히지 않는다")
+    void exactD3BoundaryUserMatchesOnlyD3Window() {
+        UUID id3 = UUID.randomUUID();
+        User u3 = user(id3);
+        // last_active_at = 오늘−3일 KST 자정 정각(D+3 창의 포함 하한). D+3 창에만 걸리도록 stub 하고
+        // D+7/14 창은 비운다 → 발송이 정확히 D+3 문구 1건인지로 상호배타를 검증.
+        given(userRepository.findInactiveReturnTargets(stageStart(3), stageEnd(3))).willReturn(List.of(u3));
+        given(userRepository.findInactiveReturnTargets(stageStart(7), stageEnd(7))).willReturn(List.of());
+        given(userRepository.findInactiveReturnTargets(stageStart(14), stageEnd(14))).willReturn(List.of());
+        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of(soundOnSettings(id3)));
+
+        service.sendInactiveReturnNotifications(NOW);
+
+        // 정확히 D+3 1건만 — D+7/14 문구로는 발송되지 않음
+        verify(pushNotificationService, times(1)).sendIfAllowed(any(), any(), any(), any());
+        verify(pushNotificationService).sendIfAllowed(eq(u3), any(), eq(MSG_D3), eq(NOW));
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), eq(MSG_D7), any());
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), eq(MSG_D14), any());
+    }
+
+    @Test
     @DisplayName("소리 설정이 꺼진 유저는 문구의 soundEnabled 도 false 로 조립된다")
     void soundDisabledPropagatesToMessage() {
         UUID id3 = UUID.randomUUID();
