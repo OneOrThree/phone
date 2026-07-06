@@ -33,6 +33,10 @@
       "description": "Group 세션 관련 API (생성, 조회 등)"
     },
     {
+      "name": "occupation",
+      "description": "occupation(직업/신분) 마스터 조회 API"
+    },
+    {
       "name": "league",
       "description": "리그/티어 조회 API"
     },
@@ -3123,6 +3127,44 @@
         }
       }
     },
+    "/api/v1/occupations": {
+      "get": {
+        "tags": [
+          "occupation"
+        ],
+        "summary": "occupation 목록 조회",
+        "description": "선택 가능한 occupation(직업/신분) 전역 목록. code(enum name)·표시명·노출 순서를 sort_order 오름차순으로 반환한다. 온보딩 등에서 유저가 고른 code 를 users.occupation 으로 저장.",
+        "operationId": "getOccupations",
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OccupationResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 필요",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OccupationResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/league/ranking": {
       "get": {
         "tags": [
@@ -5081,6 +5123,21 @@
           },
           "isFocusing": {
             "type": "boolean"
+          }
+        }
+      },
+      "OccupationResponse": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
