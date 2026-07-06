@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 
@@ -21,6 +21,7 @@ export default function SettingsScaffold({
   footer,
   scroll = true,
 }: SettingsScaffoldProps) {
+  const insets = useSafeAreaInsets();
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       <View style={s.bar}>
@@ -44,7 +45,9 @@ export default function SettingsScaffold({
         <View style={[s.body, s.flex1]}>{children}</View>
       )}
 
-      {footer ? <View style={s.footer}>{footer}</View> : null}
+      {footer ? (
+        <View style={[s.footer, { paddingBottom: insets.bottom + 18 }]}>{footer}</View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -63,5 +66,5 @@ const s = StyleSheet.create({
   back: { padding: 4 },
   title: { ...T.text.heading, color: T.ink },
   body: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 32 },
-  footer: { paddingHorizontal: 18, paddingBottom: 18, paddingTop: 8 },
+  footer: { paddingHorizontal: 18, paddingTop: 8 },
 });
