@@ -219,7 +219,7 @@ export default function App() {
     content = onboarded ? (
       // 온보딩 완료한 재방문 유저(로그아웃 상태) → 바로 로그인.
       <LoginScreen
-        onLogin={(u: LoginResult) => {
+        onLogin={async (u: LoginResult) => {
           const userId = getUserIdFromToken(u.accessToken);
           setUser({ ...u, userId });
         }}

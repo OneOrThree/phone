@@ -35,7 +35,8 @@ import type { OnboardingResult } from './types';
 //   - W11 전날 스크린타임: 권한 거부면 데이터가 없어 스킵(허용일 때만).
 // 서버 전송·게이팅은 호출부(App)가 담당 — 이 컴포넌트는 '수집'만 한다.
 interface OnboardingFlowProps {
-  onComplete: (result: OnboardingResult) => void;
+  // LoginScreen이 완료 처리(서버 동기화)까지 await하도록 Promise 체인을 그대로 이어준다.
+  onComplete: (result: OnboardingResult) => Promise<void>;
 }
 
 export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
