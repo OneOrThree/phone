@@ -35,21 +35,25 @@ public class PushNotificationService {
      * settings 는 호출측이 findAllById 로 일괄 로드해 전달 (유저별 단건 조회 N+1 금지),
      * null 허용 — row 부재 시 기본값(알림 on·심야 off)으로 취급.
      * INVALID_TOKEN 시 토큰을 정리하므로 호출측은 쓰기 @Transactional 안에서 불러야 한다.
+     *
+     * @return 실제 발송이 성사(FCM SENT)되면 true. 필터 스킵(알림 off·토큰 없음·quiet hours)·
+     *     무효 토큰·실패·예외는 모두 false. 순위 추월(579)이 이 반환값으로 "발송되면 sent_log INSERT" 를
+     *     정확히 판정한다(quiet hours 스킵을 발송으로 오기록하지 않기 위함). ①②④⑥ 는 반환값을 무시.
      */
-    public void sendIfAllowed(User user, UserNotificationSettings settings,
-                              PushMessage message, Instant now) {
+    public boolean sendIfAllowed(User user, UserNotificationSettings settings,
+                                 PushMessage message, Instant now) {
         // 1. 알림 꺼짐 → 스킵 (settings null = 기본값 허용)
         if (settings != null && !settings.isNotificationEnabled()) {
-            return;
+            return false;
         }
         // 2. 토큰 없음(알림 권한 미허용/해제) → 스킵
         if (user.getDeviceToken() == null) {
-            return;
+            return false;
         }
         // 3. Quiet hours → 스킵 + info 로그 (지연 발송 하지 않음 — 스펙 확정)
         if (isQuietHours(settings, now)) {
             log.info("Quiet hours 스킵 — userId={}, title={}", user.getId(), message.title());
-            return;
+            return false;
         }
         // 4. 발송 — 한 유저 실패가 배치 루프를 중단시키지 않게 예외 격리
         try {
@@ -58,11 +62,15 @@ public class PushNotificationService {
                 // 무효 토큰 정리 — 다음 발송부터 필터 2 에서 컷 (더티체킹 반영)
                 user.setDeviceToken(null);
                 log.info("무효 토큰 정리 — userId={}", user.getId());
+                return false;
             } else if (result == PushSendResult.FAILED) {
                 log.warn("푸시 발송 실패 — userId={}, title={}", user.getId(), message.title());
+                return false;
             }
+            return true;
         } catch (Exception e) {
             log.warn("푸시 발송 중 예외 — userId={}", user.getId(), e);
+            return false;
         }
     }
 

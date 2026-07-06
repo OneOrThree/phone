@@ -8,7 +8,7 @@ import type { LeagueMemberResponse, LeagueRankResponse, LeagueTierResponse } fro
 //   내 티어/뱃지        → GET /api/v1/league/me/tier      (MY_TIER)
 //   전체 랭킹 목록       → GET /api/v1/league/me/ranking   (RANKING) ※ 시안은 혼합 티어 전체 랭킹
 //   내 순위·승격/강등    → GET /api/v1/league/me/rank      (MY_RANK, result → 연출 트리거)
-//   나만의 랭킹(핀)      → GET /api/v1/friends/pinned — 랭킹이 mock인 동안 핀 토글은 로컬 유지
+//   나만의 랭킹(핀)      → GET /api/v1/pins — 연동 완료(./usePinned·./friendsApi)
 
 export const MY_USER_ID = 'u-07';
 

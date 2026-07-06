@@ -156,7 +156,7 @@ export interface FriendSearchResultResponse {
   relation: FriendRelation;
 }
 
-// GET /friends/pinned — 나만의 랭킹(핀 친구) 한 명
+// GET /pins — 나만의 랭킹(핀한 유저, 친구 아님 포함) 한 명
 export interface PinnedFriendResponse {
   userId: string;
   nickname: string;
