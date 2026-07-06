@@ -198,7 +198,12 @@ const s = StyleSheet.create({
   guestBtnText: { color: T.ink },
   // '최근 사용' 배지 — 마지막 로그인 소셜 버튼 우측(버튼 색 위에서도 보이게 accent 채움).
   lastBadgeWrap: { position: 'absolute', right: 10, top: 0, bottom: 0, justifyContent: 'center' },
-  lastBadge: { backgroundColor: T.accent, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  lastBadge: {
+    backgroundColor: T.accent,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
   lastBadgeText: { ...T.text.caption, fontWeight: '800', color: T.white },
   terms: { ...T.text.caption, lineHeight: 17, color: T.inkMuted, textAlign: 'center' },
   termsLink: { color: T.link, textDecorationLine: 'underline' },
