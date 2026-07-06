@@ -43,3 +43,18 @@ export interface FocusPeriodStatsResponse {
   previousTotalFocusMinutes: number;
   deltaMinutes: number;
 }
+
+// GET /stats/screen-time — 기간별 스크린타임 합계 + 직전 동일 기간 대비 delta.
+// day: goalAchieved 유효, achievedDays·elapsedDays는 null / week·month: 반대.
+export interface ScreenTimePeriodStatsResponse {
+  period: StatsPeriod;
+  from: string; // LocalDate
+  to: string; // LocalDate
+  currentMinutes: number;
+  previousMinutes: number;
+  deltaMinutes: number; // current - previous (음수 = 개선)
+  goalMinutes: number; // 일일 목표(분), 0 = 미설정
+  goalAchieved: boolean | null; // day 전용, week/month는 null
+  achievedDays: number | null; // week/month 전용 달성일수
+  elapsedDays: number | null; // week/month 전용 경과일수
+}
