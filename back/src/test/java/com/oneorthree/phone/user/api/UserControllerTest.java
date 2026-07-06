@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.Provider;
 import com.oneorthree.phone.user.domain.StatVisibility;
+import com.oneorthree.phone.user.dto.NotificationSettingsResponse;
 import com.oneorthree.phone.user.dto.SocialLinkResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -272,6 +273,37 @@ class UserControllerTest {
                 .andDo(print());
 
         verify(userService).updateNotificationSettings(any(), any());
+    }
+
+    // ── GET /users/me/notification-settings ───────────────────────────────
+
+    @Test
+    @DisplayName("알림 설정 조회 → 200 + 5개 필드 노출")
+    void getNotificationSettingsReturns200() throws Exception {
+        given(userService.getNotificationSettings(any())).willReturn(
+                new NotificationSettingsResponse(true, false, true, "22:00", "07:00"));
+
+        mockMvc.perform(get("/api/v1/users/me/notification-settings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.notificationEnabled").value(true))
+                .andExpect(jsonPath("$.soundEnabled").value(false))
+                .andExpect(jsonPath("$.nightModeEnabled").value(true))
+                .andExpect(jsonPath("$.nightStartTime").value("22:00"))
+                .andExpect(jsonPath("$.nightEndTime").value("07:00"))
+                .andDo(print());
+
+        verify(userService).getNotificationSettings(any());
+    }
+
+    @Test
+    @DisplayName("알림 설정 조회 - 설정 없음 → 404")
+    void getNotificationSettingsNotFoundReturns404() throws Exception {
+        willThrow(new UserException(UserErrorCode.NOT_FOUND))
+                .given(userService).getNotificationSettings(any());
+
+        mockMvc.perform(get("/api/v1/users/me/notification-settings"))
+                .andExpect(status().isNotFound())
+                .andDo(print());
     }
 
     // ── PATCH /users/me/stat-visibility ───────────────────────────────────

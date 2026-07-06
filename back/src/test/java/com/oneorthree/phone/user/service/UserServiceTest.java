@@ -19,6 +19,7 @@ import com.oneorthree.phone.user.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
+import com.oneorthree.phone.user.dto.NotificationSettingsResponse;
 import com.oneorthree.phone.user.dto.SocialLinkResponse;
 import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.user.dto.UserProfileResponse;
@@ -532,6 +533,41 @@ class UserServiceTest {
         // null 입력 시 기존 값이 null 로 초기화되어야 함
         assertThat(settings.getNightStartTime()).isNull();
         assertThat(settings.getNightEndTime()).isNull();
+    }
+
+    // ── getNotificationSettings ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("알림 설정 조회 성공 → notification settings 가 응답으로 매핑(시각은 HH:mm)")
+    void getNotificationSettingsSuccess() {
+        UserNotificationSettings settings = UserNotificationSettings.builder()
+                .userId(USER_ID)
+                .notificationEnabled(true)
+                .soundEnabled(false)
+                .nightModeEnabled(true)
+                .nightStartTime(LocalTime.of(22, 0))
+                .nightEndTime(LocalTime.of(7, 0))
+                .build();
+        given(userNotificationSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        NotificationSettingsResponse response = userService.getNotificationSettings(USER_ID);
+
+        assertThat(response.notificationEnabled()).isTrue();
+        assertThat(response.soundEnabled()).isFalse();
+        assertThat(response.nightModeEnabled()).isTrue();
+        assertThat(response.nightStartTime()).isEqualTo("22:00");
+        assertThat(response.nightEndTime()).isEqualTo("07:00");
+    }
+
+    @Test
+    @DisplayName("알림 설정 조회 - 설정 없음 → UserException(NOT_FOUND)")
+    void getNotificationSettingsNotFound() {
+        given(userNotificationSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.getNotificationSettings(USER_ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
     // ── getSocialLinks ────────────────────────────────────────────────────
