@@ -101,15 +101,16 @@ export default function AccountScreen() {
       let cancelled = false;
       getSocialLinks()
         .then((d) => !cancelled && setLinks(d))
-        .catch(() => !cancelled && setLinks([]));
+        .catch(() => {}); // 조회 실패를 게스트(빈 목록)로 오판하지 않도록 null 유지(리뷰 반영)
       return () => {
         cancelled = true;
       };
     }, []),
   );
 
-  // 최종 게스트 판별 — 태깅이 게스트면 즉시 확정, 소셜(false)이면 연동 목록으로 확정. null = 로딩.
-  const isGuest: boolean | null = isGuestCtx ? true : links === null ? null : links.length === 0;
+  // 게스트 판별 — 로그인 시점 태깅(isGuestCtx)이 1순위. 태깅이 소셜(false)인 구 세션 대비
+  // '연동 목록 조회 성공 + 빈 목록'일 때만 게스트로 본다(조회 실패는 게스트로 분류하지 않음 — 리뷰 반영).
+  const isGuest = isGuestCtx || (links !== null && links.length === 0);
 
   // 게스트 → 소셜 로그인. 세션은 auth.ts가 저장하고, triggerRelogin으로 새 계정으로 재부팅한다.
   const runLogin = async (method: Method, fn: () => Promise<LoginResult>) => {
@@ -205,12 +206,7 @@ export default function AccountScreen() {
 
   return (
     <SettingsScaffold title="계정 설정" onBack={() => navigation.goBack()}>
-      {isGuest === null ? (
-        // 판별 중(태깅이 소셜이라 연동 목록 확인 중).
-        <SettingsSection title="소셜 로그인">
-          <SettingsRow label="계정 정보 확인 중…" />
-        </SettingsSection>
-      ) : isGuest ? (
+      {isGuest ? (
         // 게스트 — 카카오·애플·구글 로그인 버튼으로 계정 전환 유도.
         <>
           <SettingsSection title="소셜 로그인">
