@@ -1,16 +1,26 @@
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import CircularGauge from '@/components/CircularGauge';
+import { getPublicProfile, getUserStats } from '@/services/userApi';
+import { getHeatmap } from '@/services/statsApi';
+import type { PublicProfileResponse, UserStatsResponse } from '@/types/dto/user';
+import type { HeatmapCellResponse } from '@/types/dto/stats';
 import type { V2RootStackParamList } from '@/navigation/types';
-import { COMPARE_FALLBACK, PROFILE_COMPARE, RANKING, TEASER_SUBJECTS } from './mock';
 import {
   deleteFriend,
   fetchFriends,
@@ -19,23 +29,35 @@ import {
   unpinFriend,
 } from './friendsApi';
 import { fmtHourMin } from './format';
+import { heatmapRange } from '@/v2/screens/stats/format';
 import { MemberAvatar } from './components/MemberAvatar';
-import { SubjectCompareCard } from './components/SubjectCompareCard';
 import { DuoDayChart } from './components/DuoDayChart';
+import type { CompareByDay } from './mock';
 
-// 프로필 상세 (root stack, 풀스크린) — 시안 "프로필 · 비친구/친구/겹치는 과목 없음" 3분기.
-// 공통: 아바타·이름·친구 pill·티어 pill → 요약(목표 달성 링·이번 주 집중·연속) → 준비 시험.
-// 분기: 비친구        = 과목 비교 카드를 블러 티저로 잠금 + [친구 신청] CTA
-//       친구·과목 겹침 = 과목별 비교 + 요일별 집중·폰 사용 비교 + [친구 끊기]
-//       친구·겹침 없음 = 안내 배너 + 요일별 비교 2종 + [친구 끊기]
-// 친구 신청(POST /friends/requests)·끊기(DELETE /friends/{id})는 실API(./friendsApi).
-// 요약·비교 통계는 아직 mock — TODO: 프로필 통계/비교 API 백엔드 협의 후 교체.
+// 프로필 상세 (GROMO-605 다른 사람 통계) — 실 API 연동.
+// 공개 프로필(getPublicProfile): 아바타·이름·친구 수·티어·전체 랭킹 → 항상 공개.
+// 상세 통계(getUserStats): 목표달성·이번 주 집중·스트릭·요일 비교 → 대상 statVisibility(친구공개/전체공개)에 따라.
+//   today/heatmap 이 오면 공개(친구 또는 전체공개), null 이면 잠금 → 친구 신청 유도.
+// 요일별 집중·폰 사용 비교는 내 heatmap + 상대 heatmap 으로 실계산(월~일). 과목별 비교는 준비 중(친구 by-category 대기, GROMO-624).
+// 친구 신청/끊기·핀 토글은 실 API(./friendsApi) — 관계는 통계 공개와 별개.
 
-// 시안 비교 색 — 상대(보라) / 폰 사용 상대(연보라). 나(폰 사용)는 T.accentAlt
 const THEIRS_FOCUS = '#9A6FB0';
 const THEIRS_PHONE = '#B08FC4';
-// 친구 끊기 텍스트 색(시안 고유색)
 const UNFRIEND_INK = '#9A5A48';
+
+// 최근 7일 히트맵 → 월~일(0=월..6=일) 분 배열.
+function byWeekday(
+  cells: HeatmapCellResponse[],
+  pick: (c: HeatmapCellResponse) => number,
+): number[] {
+  const arr = [0, 0, 0, 0, 0, 0, 0];
+  for (const c of cells) {
+    const [y, m, d] = c.date.split('-').map(Number);
+    const dow = new Date(y, m - 1, d).getDay(); // 0=일..6=토
+    arr[dow === 0 ? 6 : dow - 1] += pick(c);
+  }
+  return arr;
+}
 
 export default function FriendProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -43,16 +65,38 @@ export default function FriendProfileScreen() {
   const route = useRoute<RouteProp<V2RootStackParamList, 'FriendProfile'>>();
   const { userId, nickname, tierLevel, exam } = route.params;
 
-  // 랭킹(mock)에 있는 유저면 요약 표시값, 실유저는 0 기본값 — TODO: 프로필 통계 API
-  const member = RANKING.find((m) => m.userId === userId);
-  const tier = tierByLevel(tierLevel);
-
-  // 친구 여부는 진입점(그리드/검색 relation/랭킹)이 전달 — 끊으면 즉시 비친구(잠금) 분기 전환
+  // 친구 관계·핀은 진입점 파라미터 + 서버 친구 목록으로 관리(통계 공개와 별개).
   const [isFriend, setIsFriend] = useState(route.params.isFriend);
   const [isPinned, setIsPinned] = useState(route.params.isPinned ?? false);
   const [requested, setRequested] = useState(false);
 
-  // 서버 친구 목록으로 친구/핀 상태 재동기화 — 검색·랭킹 진입은 isPinned를 모른 채 들어온다
+  const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
+  const [stats, setStats] = useState<UserStatsResponse | null>(null);
+  const [myHeatmap, setMyHeatmap] = useState<HeatmapCellResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // 공개 프로필 + 타 유저 통계 + 내 히트맵(비교용) 조회.
+  useEffect(() => {
+    let stale = false;
+    (async () => {
+      const { from, to } = heatmapRange('WEEK');
+      const [p, st, mine] = await Promise.all([
+        getPublicProfile(userId).catch(() => null),
+        getUserStats(userId).catch(() => null),
+        getHeatmap(from, to).catch(() => [] as HeatmapCellResponse[]),
+      ]);
+      if (stale) return;
+      setProfile(p);
+      setStats(st);
+      setMyHeatmap(mine);
+      setLoading(false);
+    })();
+    return () => {
+      stale = true;
+    };
+  }, [userId]);
+
+  // 서버 친구 목록으로 친구/핀 상태 재동기화 — 검색·랭킹 진입은 isPinned를 모른 채 들어온다.
   useEffect(() => {
     let stale = false;
     (async () => {
@@ -71,7 +115,7 @@ export default function FriendProfileScreen() {
     };
   }, [userId]);
 
-  // 핀 토글 — 낙관적 갱신, 실패 시 롤백 (서버는 멱등이라 중복 탭 안전)
+  // 핀 토글 — 낙관적 갱신, 실패 시 롤백 (서버 멱등이라 중복 탭 안전)
   async function togglePin() {
     const next = !isPinned;
     setIsPinned(next);
@@ -87,15 +131,12 @@ export default function FriendProfileScreen() {
     }
   }
 
-  const compare = PROFILE_COMPARE[userId] ?? COMPARE_FALLBACK;
-  const hasOverlap = compare.subjects.length > 0;
-
   async function requestFriend() {
     try {
       await sendFriendRequest(userId);
       setRequested(true);
     } catch (e) {
-      // 409 = 이미 친구/이미 보낸 요청 — 요청됨으로 간주 (mock 랭킹 유저는 404가 나 실패 안내)
+      // 409 = 이미 친구/이미 보낸 요청 — 요청됨으로 간주
       if (axios.isAxiosError(e) && e.response?.status === 409) {
         setRequested(true);
       } else {
@@ -127,6 +168,25 @@ export default function FriendProfileScreen() {
     ]);
   }
 
+  const tier = tierByLevel(profile?.currentTier ?? tierLevel);
+  const friendCount = profile?.friendCount ?? 0;
+  const rank = profile?.rank ?? null;
+
+  // 상세 통계 공개 여부 — today/heatmap 이 오면 공개(친구 또는 대상이 전체공개). 관계와 별개.
+  const statsVisible = stats?.today != null;
+  const goalPercent = stats?.today?.focus.progressPercent ?? 0;
+  const weekFocusMinutes = (stats?.heatmap ?? []).reduce((a, c) => a + c.totalFocusMinutes, 0);
+  const streakDays = stats?.streak.currentStreak ?? 0;
+
+  const focusByDay: CompareByDay = {
+    mine: byWeekday(myHeatmap, (c) => c.totalFocusMinutes),
+    theirs: byWeekday(stats?.heatmap ?? [], (c) => c.totalFocusMinutes),
+  };
+  const phoneByDay: CompareByDay = {
+    mine: byWeekday(myHeatmap, (c) => c.actualScreenTimeMinutes),
+    theirs: byWeekday(stats?.heatmap ?? [], (c) => c.actualScreenTimeMinutes),
+  };
+
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       {/* ── 헤더 (원형 백버튼 + 좌측 제목 + 우측 핀 토글 — 핀은 나만의 랭킹 고정용) ── */}
@@ -156,7 +216,7 @@ export default function FriendProfileScreen() {
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── 아바타·이름·친구 수·티어 ── */}
+        {/* ── 아바타·이름·친구 수·티어·전체 랭킹 ── */}
         <View style={s.heroCol}>
           <MemberAvatar size={96} />
           <View style={s.nameRow}>
@@ -166,7 +226,7 @@ export default function FriendProfileScreen() {
             <View style={s.friendPill}>
               <Ionicons name="person-outline" size={11} color={T.inkSub} />
               <Text style={s.friendPillText} allowFontScaling={false}>
-                친구 {member?.friendCount ?? 0}
+                친구 {friendCount}
               </Text>
             </View>
           </View>
@@ -179,99 +239,106 @@ export default function FriendProfileScreen() {
             <Ionicons name="star" size={12} color={T.white} />
             <Text style={s.tierPillText}>{tier.name}</Text>
           </LinearGradient>
+          {rank != null && <Text style={s.rankText}>전체 랭킹 {rank}위</Text>}
         </View>
 
-        {/* ── 요약: 목표 달성 링 + 이번 주 집중·연속 ── */}
-        <View style={s.summaryRow}>
-          <View style={s.ringCard}>
-            <CircularGauge
-              size={64}
-              progress={member?.achievedRate ?? 0}
-              trackColor="#EFE7D8"
-              progressColor={T.accent}
-            >
-              <Text style={s.ringValue} allowFontScaling={false}>
-                {Math.round((member?.achievedRate ?? 0) * 100)}%
-              </Text>
-            </CircularGauge>
-            <Text style={s.ringLabel}>목표 달성</Text>
+        {loading ? (
+          <View style={s.loader}>
+            <ActivityIndicator color={T.accent} />
           </View>
-          <View style={s.summaryCol}>
-            <View style={s.summaryCard}>
-              <Text style={s.summaryLabel}>이번 주 집중</Text>
-              <Text style={s.summaryValue} allowFontScaling={false}>
-                {fmtHourMin(member?.totalFocusMinutes ?? 0)}
-              </Text>
-            </View>
-            <View style={s.summaryCard}>
-              <Text style={s.summaryLabel}>연속</Text>
-              <Text style={s.summaryValue} allowFontScaling={false}>
-                {member?.streakDays ?? 0}일
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* ── 준비 시험 — 실유저 응답엔 아직 없어 값이 있을 때만 표시(TODO: 백엔드 협의) ── */}
-        {exam != null && (
-          <View style={s.examCard}>
-            <View style={s.examIcon}>
-              <Ionicons name="calendar-outline" size={16} color={T.accentDeep} />
-            </View>
-            <View style={s.examCol}>
-              <Text style={s.examLabel}>준비 시험</Text>
-              <Text style={s.examValue}>{exam}</Text>
-            </View>
-          </View>
-        )}
-
-        {isFriend ? (
+        ) : (
           <>
-            {/* 과목 겹침 → 과목별 비교 / 없음 → 안내 배너 */}
-            {hasOverlap ? (
-              <SubjectCompareCard subjects={compare.subjects} opponentName={nickname} />
+            {/* ── 요약: 목표 달성 링 + 이번 주 집중 + 연속 (비공개면 상세는 잠금, 연속은 항상) ── */}
+            <View style={s.summaryRow}>
+              <View style={s.ringCard}>
+                <CircularGauge
+                  size={64}
+                  progress={statsVisible ? goalPercent / 100 : 0}
+                  trackColor="#EFE7D8"
+                  progressColor={T.accent}
+                >
+                  {statsVisible ? (
+                    <Text style={s.ringValue} allowFontScaling={false}>
+                      {goalPercent}%
+                    </Text>
+                  ) : (
+                    <Ionicons name="lock-closed" size={15} color={T.inkMuted} />
+                  )}
+                </CircularGauge>
+                <Text style={s.ringLabel}>목표 달성</Text>
+              </View>
+              <View style={s.summaryCol}>
+                <View style={s.summaryCard}>
+                  <Text style={s.summaryLabel}>이번 주 집중</Text>
+                  <Text style={s.summaryValue} allowFontScaling={false}>
+                    {statsVisible ? fmtHourMin(weekFocusMinutes) : '비공개'}
+                  </Text>
+                </View>
+                <View style={s.summaryCard}>
+                  <Text style={s.summaryLabel}>연속</Text>
+                  <Text style={s.summaryValue} allowFontScaling={false}>
+                    {streakDays}일
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* ── 준비 시험 — 실유저 응답엔 아직 없어 값이 있을 때만 표시(TODO: 백엔드 협의) ── */}
+            {exam != null && (
+              <View style={s.examCard}>
+                <View style={s.examIcon}>
+                  <Ionicons name="calendar-outline" size={16} color={T.accentDeep} />
+                </View>
+                <View style={s.examCol}>
+                  <Text style={s.examLabel}>준비 시험</Text>
+                  <Text style={s.examValue}>{exam}</Text>
+                </View>
+              </View>
+            )}
+
+            {statsVisible ? (
+              <>
+                {/* 요일별 집중·폰 사용 비교 — 내 히트맵 vs 상대 히트맵(실데이터) */}
+                <View style={s.chartGap}>
+                  <DuoDayChart
+                    title="이번 주 요일별 집중시간"
+                    data={focusByDay}
+                    mineColor={T.accent}
+                    theirsColor={THEIRS_FOCUS}
+                    opponentName={nickname}
+                  />
+                </View>
+                <View style={s.chartGap}>
+                  <DuoDayChart
+                    title="이번 주 요일별 폰 사용시간"
+                    data={phoneByDay}
+                    mineColor={T.accentAlt}
+                    theirsColor={THEIRS_PHONE}
+                    opponentName={nickname}
+                  />
+                </View>
+                {/* 과목별 비교 — 친구 by-category 대기(GROMO-624) → 준비 중 */}
+                <View style={[s.chartGap, s.subjectStub]}>
+                  <Text style={s.subjectStubTitle}>과목별 공부량 비교</Text>
+                  <View style={s.stubBadge}>
+                    <Text style={s.stubBadgeText}>준비 중</Text>
+                  </View>
+                  <Text style={s.subjectStubNote}>같은 과목 공부량 비교는 곧 제공돼요</Text>
+                </View>
+              </>
             ) : (
-              <View style={s.noOverlapNote}>
-                <Ionicons name="star" size={15} color={T.accent} />
-                <Text style={s.noOverlapText}>
-                  겹치는 공부 과목이 없습니다. 요일별 집중·폰 사용시간으로 비교해요.
+              /* 비공개(친구 아님 + 친구공개 대상) — 상세 통계 잠금 */
+              <View style={s.lockCard}>
+                <View style={s.lockCircle}>
+                  <Ionicons name="lock-closed" size={18} color={T.accent} />
+                </View>
+                <Text style={s.lockTitle}>친구만 볼 수 있어요</Text>
+                <Text style={s.lockSub}>
+                  친구가 되면 집중·폰 사용 통계를{'\n'}나와 비교해서 볼 수 있어요.
                 </Text>
               </View>
             )}
-            <View style={s.chartGap}>
-              <DuoDayChart
-                title="이번 주 요일별 집중시간"
-                data={compare.focusByDay}
-                mineColor={T.accent}
-                theirsColor={THEIRS_FOCUS}
-                opponentName={nickname}
-              />
-            </View>
-            <View style={s.chartGap}>
-              <DuoDayChart
-                title="이번 주 요일별 폰 사용시간"
-                data={compare.phoneByDay}
-                mineColor={T.accentAlt}
-                theirsColor={THEIRS_PHONE}
-                opponentName={nickname}
-              />
-            </View>
           </>
-        ) : (
-          /* 비친구 — 비교 카드 블러 티저(잠금) */
-          <View style={s.teaserWrap}>
-            <SubjectCompareCard subjects={TEASER_SUBJECTS} opponentName={nickname} />
-            <BlurView intensity={26} tint="light" style={StyleSheet.absoluteFill} />
-            <View style={s.lockOverlay}>
-              <View style={s.lockCircle}>
-                <Ionicons name="lock-closed" size={18} color={T.accent} />
-              </View>
-              <Text style={s.lockTitle}>친구만 볼 수 있어요</Text>
-              <Text style={s.lockSub}>
-                친구가 되면 과목별 공부량을{'\n'}나와 비교해서 볼 수 있어요.
-              </Text>
-            </View>
-          </View>
         )}
       </ScrollView>
 
@@ -359,6 +426,9 @@ const s = StyleSheet.create({
     marginTop: 9,
   },
   tierPillText: { ...T.text.caption, fontSize: 12, fontWeight: '700', color: T.white },
+  rankText: { ...T.text.caption, color: T.inkSub, marginTop: 8 },
+
+  loader: { paddingVertical: 48, alignItems: 'center' },
 
   // 요약(링 + 이번 주/연속)
   summaryRow: { flexDirection: 'row', gap: 10, marginTop: 18, marginBottom: 10 },
@@ -419,43 +489,53 @@ const s = StyleSheet.create({
   examLabel: { ...T.text.caption, fontSize: 11, fontWeight: '500', color: T.inkMuted },
   examValue: { ...T.text.label, fontWeight: '700', color: T.ink },
 
-  // 겹치는 과목 없음 안내
-  noOverlapNote: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 9,
+  chartGap: { marginTop: 12 },
+
+  // 과목별 비교 준비 중
+  subjectStub: {
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.paperAlt,
+    borderRadius: 16,
+    padding: 16,
+    gap: 8,
+  },
+  subjectStubTitle: { ...T.text.label, fontWeight: '700', color: T.ink },
+  subjectStubNote: { ...T.text.caption, color: T.inkMuted },
+  stubBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
     backgroundColor: T.noteBg,
     borderWidth: 1,
     borderColor: T.noteBorder,
-    borderRadius: 13,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 14,
   },
-  noOverlapText: { ...T.text.caption, flex: 1, fontWeight: '600', color: T.link, lineHeight: 19 },
+  stubBadgeText: { ...T.text.caption, color: T.accentDeep },
 
-  chartGap: { marginTop: 12 },
-
-  // 비친구 블러 티저
-  teaserWrap: { borderRadius: 16, overflow: 'hidden' },
-  lockOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
+  // 상세 통계 잠금(비공개)
+  lockCard: {
+    marginTop: 12,
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.paperAlt,
+    borderRadius: 16,
     paddingHorizontal: 24,
+    paddingVertical: 28,
+    alignItems: 'center',
   },
   lockCircle: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: T.white,
+    backgroundColor: T.paperLight,
     borderWidth: 1,
     borderColor: T.paperAlt,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
   },
-  lockTitle: { ...T.text.caption, fontWeight: '700', color: T.ink },
+  lockTitle: { ...T.text.label, fontWeight: '700', color: T.ink },
   lockSub: {
     ...T.text.caption,
     fontWeight: '500',

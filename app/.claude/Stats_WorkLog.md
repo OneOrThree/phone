@@ -89,6 +89,21 @@
 
 ---
 
+## 코드 변경 — GROMO-605 (다른 사람 통계)
+
+`FriendProfileScreen`(league)을 mock → 실 API로 전면 교체.
+
+- `src/v2/screens/league/FriendProfileScreen.tsx` — `getPublicProfile` + `getUserStats` + 내 `getHeatmap` 조회. mock(RANKING·PROFILE_COMPARE·TEASER·SubjectCompareCard·BlurView) 제거.
+  - **공개 프로필**(항상): 아바타·닉네임·친구 수·티어·전체 랭킹.
+  - **상세 통계 게이팅**: `stats.today != null` = 공개(친구 또는 대상 전체공개) → 목표달성·이번 주 집중 + 요일별 집중·폰 사용 비교. `null` = 잠금 UI("친구만 볼 수 있어요") + 친구 신청 CTA. **스트릭은 항상 표시**.
+  - **요일별 비교 실데이터**: 내 heatmap + 상대 heatmap(`getUserStats.heatmap`)을 **월~일로 재배치**해 `DuoDayChart` 2종(집중·폰 사용).
+  - **과목별 비교**: 준비 중(친구 by-category 대기, GROMO-624).
+  - 친구 신청/끊기·핀 토글은 기존 실 API 유지 — **관계(isFriend)와 통계 공개(statsVisible)는 별개**로 분리.
+
+**주의**: 전체공개(PUBLIC) 대상의 비친구 조회는 BE `getUserStats` PUBLIC 분기(GROMO-623) 머지 후 자동 공개 — FE는 `today != null` 게이트로 이미 대응(무수정 점등).
+
+---
+
 ## 백엔드 갭 / BE 티켓
 
 - **GROMO-623** [버그] 타 유저 통계 전체공개(statVisibility PUBLIC) 미반영 — `getUserStats` 게이트에 PUBLIC 분기 추가. (조재영)
@@ -115,9 +130,10 @@
 - [ ] 604 시뮬레이터 렌더 확인
 - [x] 598 집중 완료 결과 화면 (진입 배선 + 로컬 이번 집중 + 홈/다시집중 CTA)
 - [x] 603 집중 완료 통계 (결과 화면에 이번 주·스트릭·잔디)
-- [ ] 605 다른 사람 통계 화면 (getPublicProfile + getUserStats + isFriend 분기 + 친구/핀 액션)
+- [x] 605 다른 사람 통계 (FriendProfileScreen 실 API + statVisibility 게이팅 + 요일 비교 실데이터)
 - [ ] BE 623/624 머지 후 → 전체공개·친구 과목별 연동
+- [ ] 시뮬레이터 렌더 확인 (604·598·603·605)
 
 ---
 
-**최근 갱신**: 2026-07-06 — 604 내 통계 화면 1차 + 598 집중 완료 결과 화면 + 603 집중 완료 통계 구현.
+**최근 갱신**: 2026-07-06 — 604 내 통계 + 598 집중 완료 결과 화면 + 603 집중 완료 통계 + 605 다른 사람 통계 구현.
