@@ -104,15 +104,18 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   // 'ok'면 호출부가 유저 상태를 세팅해 이 컴포넌트는 언마운트된다.
   const submit = async (login: LoginResult) => {
     setSubmitting(true);
-    const status = await onComplete({ data, login, skipped });
-    if (status === 'ok') return;
-    setPendingLogin(login);
-    setServerError(
-      status === 'nickname-duplicate'
-        ? '이미 사용 중인 닉네임이에요. 다른 닉네임을 입력해 주세요.'
-        : '일시적인 오류로 등록하지 못했어요. 다시 시도해 주세요.',
-    );
-    setSubmitting(false);
+    try {
+      const status = await onComplete({ data, login, skipped });
+      if (status === 'ok') return;
+      setPendingLogin(login);
+      setServerError(
+        status === 'nickname-duplicate'
+          ? '이미 사용 중인 닉네임이에요. 다른 닉네임을 입력해 주세요.'
+          : '일시적인 오류로 등록하지 못했어요. 다시 시도해 주세요.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (showSplash) return <OnboardingSplash onDone={() => setShowSplash(false)} />;
