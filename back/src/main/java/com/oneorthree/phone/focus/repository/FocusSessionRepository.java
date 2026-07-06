@@ -35,6 +35,15 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // 스케줄러가 조회해 시작+상한으로 종료시각을 채워 '영원히 집중중' 오염을 제거한다.
     List<FocusSession> findByEndedAtIsNullAndStartedAtBefore(Instant threshold);
 
+    // 오늘 집중 여부 판정용(GROMO-579 순위 추월 억제조건 c) — 대상 유저들 중 오늘(KST 하루 구간)
+    // 시작한 세션이 하나라도 있는 유저 id 집합을 반환. startedAt 기준(라이브·소프트딜리트 무관 — '오늘 집중 행동을 했나'만 판단).
+    // 유저별 단건 조회 N+1 금지: 대상 유저 전체를 한 쿼리로 좁혀 in-memory 판정.
+    @Query("SELECT DISTINCT s.user.id FROM FocusSession s "
+            + "WHERE s.user.id IN :userIds AND s.startedAt >= :from AND s.startedAt < :to")
+    List<UUID> findUserIdsWithSessionStartedBetween(@Param("userIds") Collection<UUID> userIds,
+                                                    @Param("from") Instant from,
+                                                    @Param("to") Instant to);
+
     // 기간 내 완료 세션 집계용 전체 조회 — 카테고리별 집중 통계(GROMO-524).
     // endedAt 기준 귀속, 진행 중·소프트딜리트 세션 제외, focusTag LEFT JOIN FETCH 로 N+1 방지.
     @Query("SELECT s FROM FocusSession s LEFT JOIN FETCH s.focusTag "
