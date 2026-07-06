@@ -1,6 +1,7 @@
 package com.oneorthree.phone.common.exception;
 
 import com.oneorthree.phone.analytics.exception.AnalyticsException;
+import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.currency.exception.CurrencyException;
 import com.oneorthree.phone.focus.exception.FocusException;
@@ -45,6 +46,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(InvalidTokenException.class)
     public ResponseEntity<ErrorResponse> handleToken(InvalidTokenException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(AuthException.class)
+    public ResponseEntity<ErrorResponse> handleAuth(AuthException e) {
         return ResponseEntity.status(e.getErrorCode().getStatus())
                 .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
     }

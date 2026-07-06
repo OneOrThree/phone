@@ -17,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -34,8 +35,10 @@ public class AuthController {
         @ApiResponse(responseCode = "401", description = "유효하지 않은 Google 토큰")
     })
     @PostMapping("/auth/google")
-    public ResponseEntity<SocialLoginResponse> googleLogin(@RequestBody SocialLoginRequest request) {
-        return ResponseEntity.ok(authService.socialLogin(Provider.GOOGLE, request.token()));
+    public ResponseEntity<SocialLoginResponse> googleLogin(
+            @RequestBody SocialLoginRequest request,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        return ResponseEntity.ok(authService.socialLogin(Provider.GOOGLE, request.token(), authorization));
     }
 
     @Operation(summary = "라인 로그인", description = "LINE Access Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
@@ -44,8 +47,10 @@ public class AuthController {
         @ApiResponse(responseCode = "401", description = "유효하지 않은 LINE 토큰")
     })
     @PostMapping("/auth/line")
-    public ResponseEntity<SocialLoginResponse> lineLogin(@RequestBody SocialLoginRequest request) {
-        return ResponseEntity.ok(authService.socialLogin(Provider.LINE, request.token()));
+    public ResponseEntity<SocialLoginResponse> lineLogin(
+            @RequestBody SocialLoginRequest request,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        return ResponseEntity.ok(authService.socialLogin(Provider.LINE, request.token(), authorization));
     }
 
     @Operation(summary = "인스타그램 로그인", description = "Instagram Access Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
@@ -54,8 +59,10 @@ public class AuthController {
         @ApiResponse(responseCode = "401", description = "유효하지 않은 Instagram 토큰")
     })
     @PostMapping("/auth/instagram")
-    public ResponseEntity<SocialLoginResponse> instagramLogin(@RequestBody SocialLoginRequest request) {
-        return ResponseEntity.ok(authService.socialLogin(Provider.INSTAGRAM, request.token()));
+    public ResponseEntity<SocialLoginResponse> instagramLogin(
+            @RequestBody SocialLoginRequest request,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        return ResponseEntity.ok(authService.socialLogin(Provider.INSTAGRAM, request.token(), authorization));
     }
 
     @Operation(summary = "페이스북 로그인",
@@ -65,8 +72,10 @@ public class AuthController {
         @ApiResponse(responseCode = "401", description = "유효하지 않은 Facebook 토큰")
     })
     @PostMapping("/auth/facebook")
-    public ResponseEntity<SocialLoginResponse> facebookLogin(@RequestBody SocialLoginRequest request) {
-        return ResponseEntity.ok(authService.socialLogin(Provider.FACEBOOK, request.token()));
+    public ResponseEntity<SocialLoginResponse> facebookLogin(
+            @RequestBody SocialLoginRequest request,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        return ResponseEntity.ok(authService.socialLogin(Provider.FACEBOOK, request.token(), authorization));
     }
 
     @Operation(summary = "카카오 로그인", description = "카카오 Access Token → AT + RT 발급. 최초 로그인 시 isNewUser=true.")
@@ -75,8 +84,10 @@ public class AuthController {
         @ApiResponse(responseCode = "401", description = "유효하지 않은 카카오 토큰")
     })
     @PostMapping("/auth/kakao")
-    public ResponseEntity<SocialLoginResponse> kakaoLogin(@RequestBody SocialLoginRequest request) {
-        return ResponseEntity.ok(authService.socialLogin(Provider.KAKAO, request.token()));
+    public ResponseEntity<SocialLoginResponse> kakaoLogin(
+            @RequestBody SocialLoginRequest request,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        return ResponseEntity.ok(authService.socialLogin(Provider.KAKAO, request.token(), authorization));
     }
 
     @Operation(summary = "애플 로그인", description = "Apple Identity Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
@@ -85,8 +96,10 @@ public class AuthController {
         @ApiResponse(responseCode = "401", description = "Identity Token 검증 실패")
     })
     @PostMapping("/auth/apple")
-    public ResponseEntity<SocialLoginResponse> appleLogin(@RequestBody AppleLoginRequest request) {
-        return ResponseEntity.ok(authService.socialLogin(Provider.APPLE, request.identityToken()));
+    public ResponseEntity<SocialLoginResponse> appleLogin(
+            @RequestBody AppleLoginRequest request,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        return ResponseEntity.ok(authService.socialLogin(Provider.APPLE, request.identityToken(), authorization));
     }
 
     @Operation(summary = "게스트 로그인", description = "소셜 계정 없이 임시 사용자 생성. 일부 기능(그룹 생성·챌린지 참여 등) 제한 적용.")
