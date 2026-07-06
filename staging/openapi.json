@@ -1310,6 +1310,148 @@
             "description": "유저 없음"
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "focus"
+        ],
+        "summary": "Focus Session 종료(라이브)",
+        "description": "진행 중(endedAt NULL) 세션에 종료 시각을 채워 완료 처리한다. endedAt 생략 시 서버 수신 시각. 완료 시점에 통계·스트릭이 귀속된다. 이미 종료된 세션 재요청은 409.",
+        "operationId": "endFocusSession",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FocusSessionEndRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "종료 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionEndResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "sessionId 누락·endedAt \u003c startedAt",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionEndResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 필요",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionEndResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "세션·태그 소유자 불일치",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionEndResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "유저·세션 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionEndResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "이미 종료된 세션",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionEndResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/focus-session/start": {
+      "post": {
+        "tags": [
+          "focus"
+        ],
+        "summary": "Focus Session 시작(라이브)",
+        "description": "startedAt 만 기록한 진행 중(endedAt NULL) 세션을 생성한다. 생성 세션 id 를 반환해 이후 PATCH /focus-session 으로 종료할 때 참조한다. 통계·스트릭은 종료 시점에 귀속.",
+        "operationId": "startFocusSession",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FocusSessionStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "시작 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionStartResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 필요",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionStartResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "타인 태그 지정",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionStartResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "유저·태그 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionStartResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/equipment/equip": {
@@ -2728,6 +2870,65 @@
         }
       }
     },
+    "/api/v1/league/ranking": {
+      "get": {
+        "tags": [
+          "league"
+        ],
+        "summary": "전역 전체 유저 랭킹 조회",
+        "description": "직군 무관 전역 랭킹. 이번 주 ACTIVE 아레나 전체를 가로질러 totalFocusMinutes 내림차순 상위 limit 명. rank 는 아레나가 아닌 전역 순번. scope 는 total(대소문자 무관)만 지원, 그 외 값은 400 INVALID_SCOPE. limit 는 1~500 으로 클램프된다.",
+        "operationId": "getGlobalRanking",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "total"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LeagueMemberResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "지원하지 않는 scope 값(INVALID_SCOPE) 또는 limit 형식 오류",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LeagueMemberResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/league/me/tier": {
       "get": {
         "tags": [
@@ -3804,6 +4005,35 @@
           }
         }
       },
+      "FocusSessionStartRequest": {
+        "type": "object",
+        "properties": {
+          "focusTagId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FocusSessionStartResponse": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "EquipRequest": {
         "type": "object",
         "properties": {
@@ -4144,6 +4374,63 @@
               "type": "string",
               "format": "uuid"
             }
+          }
+        }
+      },
+      "FocusSessionEndRequest": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "distractionCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalDistractionSeconds": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "focusTagId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "sessionId"
+        ]
+      },
+      "FocusSessionEndResponse": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "distractionCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalDistractionSeconds": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -4488,6 +4775,29 @@
           }
         }
       },
+      "LeagueMemberResponse": {
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "totalFocusMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "result": {
+            "type": "string"
+          }
+        }
+      },
       "LeagueTierResponse": {
         "type": "object",
         "properties": {
@@ -4524,29 +4834,6 @@
           "remainingSeconds": {
             "type": "integer",
             "format": "int64"
-          }
-        }
-      },
-      "LeagueMemberResponse": {
-        "type": "object",
-        "properties": {
-          "rank": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "nickname": {
-            "type": "string"
-          },
-          "totalFocusMinutes": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "result": {
-            "type": "string"
           }
         }
       },
