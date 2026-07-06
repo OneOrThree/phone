@@ -2,7 +2,10 @@ package com.oneorthree.phone.focus.api;
 
 import com.oneorthree.phone.focus.dto.FocusSessionResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
+import com.oneorthree.phone.focus.dto.OccupationDefaultTagResponse;
+import com.oneorthree.phone.focus.dto.OccupationDefaultTagsResponse;
 import com.oneorthree.phone.focus.service.FocusService;
+import com.oneorthree.phone.user.domain.Occupation;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +19,7 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
@@ -70,6 +74,34 @@ class FocusControllerTest {
                         .param("from", "not-an-instant")
                         .param("to", "2026-06-30T23:59:59Z")
                         .param("size", "20"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("기본 태그 조회(occupation 지정) → 200, occupation/tags[name,sortOrder], tagId 없음")
+    void getDefaultTagsReturns200() throws Exception {
+        given(focusService.getDefaultTags(any(), eq(Occupation.UNIVERSITY)))
+                .willReturn(new OccupationDefaultTagsResponse(Occupation.UNIVERSITY, List.of(
+                        new OccupationDefaultTagResponse("전공 공부", 0),
+                        new OccupationDefaultTagResponse("과제", 1))));
+
+        mockMvc.perform(get("/api/v1/tag/defaults")
+                        .param("occupation", "UNIVERSITY"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.occupation").value("UNIVERSITY"))
+                .andExpect(jsonPath("$.tags[0].name").value("전공 공부"))
+                .andExpect(jsonPath("$.tags[0].sortOrder").value(0))
+                .andExpect(jsonPath("$.tags[0].tagId").doesNotExist())
+                .andExpect(jsonPath("$.tags[1].name").value("과제"))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("기본 태그 조회 — occupation enum 에 없는 값 → 400")
+    void getDefaultTagsInvalidOccupationReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/tag/defaults")
+                        .param("occupation", "NOT_A_JOB"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }

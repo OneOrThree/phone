@@ -11,7 +11,8 @@ public enum FocusErrorCode {
     INVALID_DATE_RANGE(HttpStatus.BAD_REQUEST, "유효하지 않은 기간입니다."),
     INVALID_PAGE_REQUEST(HttpStatus.BAD_REQUEST, "유효하지 않은 페이지 요청입니다."),
     SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 집중 세션입니다."),
-    SESSION_ALREADY_ENDED(HttpStatus.CONFLICT, "이미 종료된 집중 세션입니다.");
+    SESSION_ALREADY_ENDED(HttpStatus.CONFLICT, "이미 종료된 집중 세션입니다."),
+    OCCUPATION_REQUIRED(HttpStatus.BAD_REQUEST, "직업 정보가 없습니다.");
 
     private final HttpStatus status;
     private final String message;
