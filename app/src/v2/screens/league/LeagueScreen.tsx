@@ -69,7 +69,7 @@ export default function LeagueScreen() {
   const [pinnedOnly, setPinnedOnly] = useState(false);
   // 핀 실데이터 — 포커스마다 서버(GET /pins) 재조회 + 낙관적 토글(./usePinned).
   // 프로필 상세·친구 탭과 같은 서버 상태를 공유해 화면 간 불일치가 없다.
-  const { pinned, togglePin } = usePinned();
+  const { pinned, togglePin, loaded: pinnedLoaded } = usePinned();
 
   const listRef = useRef<ScrollView>(null);
   // 랭킹 리스트 안 내 행의 y — 스트립 탭/진입 자동 스크롤 목적지
@@ -430,36 +430,42 @@ export default function LeagueScreen() {
           </Text>
           {/* 실친구 목록 — 주간 집중시간은 응답에 없어 미표기(TODO: 백엔드 협의 후 복원) */}
           <View style={s.friendGrid}>
-            {friends.map((f) => (
-              <TouchableOpacity
-                key={f.userId}
-                style={s.friendCard}
-                activeOpacity={0.85}
-                onPress={() =>
-                  navigation.navigate('FriendProfile', {
-                    userId: f.userId,
-                    nickname: f.nickname,
-                    tierLevel: f.tierLevel ?? 1,
-                    isFriend: true,
-                    isPinned: f.isPinned,
-                  })
-                }
-              >
-                {f.isPinned && (
-                  <View style={s.friendPinBadge}>
-                    <Ionicons name="pin" size={11} color={T.white} />
+            {friends.map((f) => {
+              // 핀 배지는 공유 핀 상태(usePinned)에서 파생 — 랭킹 탭에서 토글한 직후 같은 화면 안에서
+              // 친구 세그먼트로 전환해도 일치한다. 친구 응답의 isPinned(포커스 시에만 갱신)는
+              // 핀 목록을 아직 못 받았을 때의 폴백으로만 쓴다.
+              const isPinned = pinnedLoaded ? pinned.has(f.userId) : f.isPinned;
+              return (
+                <TouchableOpacity
+                  key={f.userId}
+                  style={s.friendCard}
+                  activeOpacity={0.85}
+                  onPress={() =>
+                    navigation.navigate('FriendProfile', {
+                      userId: f.userId,
+                      nickname: f.nickname,
+                      tierLevel: f.tierLevel ?? 1,
+                      isFriend: true,
+                      isPinned,
+                    })
+                  }
+                >
+                  {isPinned && (
+                    <View style={s.friendPinBadge}>
+                      <Ionicons name="pin" size={11} color={T.white} />
+                    </View>
+                  )}
+                  <MemberAvatar size={48} />
+                  <Text style={s.friendName} numberOfLines={1}>
+                    {f.nickname}
+                  </Text>
+                  <View style={s.friendTierRow}>
+                    <TierBadge level={f.tierLevel ?? 1} size={18} />
+                    <Text style={s.friendTier}>{tierByLevel(f.tierLevel ?? 1).name}</Text>
                   </View>
-                )}
-                <MemberAvatar size={48} />
-                <Text style={s.friendName} numberOfLines={1}>
-                  {f.nickname}
-                </Text>
-                <View style={s.friendTierRow}>
-                  <TierBadge level={f.tierLevel ?? 1} size={18} />
-                  <Text style={s.friendTier}>{tierByLevel(f.tierLevel ?? 1).name}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
+                </TouchableOpacity>
+              );
+            })}
             {friends.length % 2 === 1 && <View style={s.friendCardGhost} />}
           </View>
           {friends.length === 0 && (
