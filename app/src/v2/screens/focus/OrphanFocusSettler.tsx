@@ -6,6 +6,7 @@ import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
+import { useUser } from '@/store/UserContext';
 import type { LiveFocusSession } from './types';
 
 // 죽은(강제 종료된) 세션 정산 — 앱 시작 시 라이브 레코드가 남아 있으면
@@ -15,6 +16,7 @@ import type { LiveFocusSession } from './types';
 // 여기서는 업로드 성공 후에만 레코드를 지운다(강제 종료 세션은 재시도 기회가 이 경로뿐이므로).
 // 컨텍스트들의 AsyncStorage 로드가 먼저 요청되므로(마운트 순서) 적립은 로드된 값 위에 얹힌다.
 export function OrphanFocusSettler() {
+  const { userId } = useUser();
   const { addFocusSeconds } = useFocus();
   const { addCoins } = useCoins();
   const { addFocusToSubject } = useSubjects();
@@ -33,6 +35,14 @@ export function OrphanFocusSettler() {
         rec = JSON.parse(raw) as LiveFocusSession;
       } catch {
         // 깨진 레코드 — 정산할 수 없으니 제거만 한다
+        await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
+        return;
+      }
+      // 계정 대조 — 레코드 소유자와 현재 계정이 다르면(로그아웃 후 다른 계정으로 로그인 등)
+      // 정산하지 않고 폐기한다. 남의 세션을 현재 계정에 적립/업로드하면 통계 오염 + 메타데이터 누출.
+      // userId 필드가 없는 구버전 레코드(undefined)도 소유자를 알 수 없으므로 이 비교에서
+      // 함께 걸러 폐기한다(undefined는 string|null과 절대 같지 않음 — 대기열과 같은 규칙).
+      if (rec.userId !== userId) {
         await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
         return;
       }
@@ -76,7 +86,7 @@ export function OrphanFocusSettler() {
         await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
       }
     })().catch(() => {});
-  }, [addFocusSeconds, addCoins, addFocusToSubject]);
+  }, [userId, addFocusSeconds, addCoins, addFocusToSubject]);
 
   return null;
 }
