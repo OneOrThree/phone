@@ -268,7 +268,6 @@ public class UserService {
      * 알림 설정 현재값 조회 (GROMO-612).
      * LocalTime → "HH:mm" 매핑은 getProfile 의 reportTime 방식과 동일 (null 허용).
      */
-    @Transactional(readOnly = true)
     public NotificationSettingsResponse getNotificationSettings(UUID userId) {
         UserNotificationSettings s = userNotificationSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
