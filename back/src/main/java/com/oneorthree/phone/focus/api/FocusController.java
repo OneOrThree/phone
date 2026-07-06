@@ -15,6 +15,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -134,7 +135,7 @@ public class FocusController {
                     + "완료 시점에 통계·스트릭이 귀속된다. 이미 종료된 세션 재요청은 409.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "종료 성공"),
-        @ApiResponse(responseCode = "400", description = "endedAt < startedAt"),
+        @ApiResponse(responseCode = "400", description = "sessionId 누락·endedAt < startedAt"),
         @ApiResponse(responseCode = "401", description = "인증 필요"),
         @ApiResponse(responseCode = "403", description = "세션·태그 소유자 불일치"),
         @ApiResponse(responseCode = "404", description = "유저·세션 없음"),
@@ -143,7 +144,7 @@ public class FocusController {
     @PatchMapping("/focus-session")
     public ResponseEntity<FocusSessionEndResponse> endFocusSession(
             HttpServletRequest request,
-            @RequestBody FocusSessionEndRequest body) {
+            @Valid @RequestBody FocusSessionEndRequest body) {
         UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(focusService.endFocusSession(userId, body));
     }

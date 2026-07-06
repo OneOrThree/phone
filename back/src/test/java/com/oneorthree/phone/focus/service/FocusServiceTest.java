@@ -26,7 +26,6 @@ import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.service.UserStreakService;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -1008,6 +1007,7 @@ class FocusServiceTest {
                 .id(SESSION_ID).user(user).startedAt(START).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(SESSION_ID, END)).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -1040,6 +1040,7 @@ class FocusServiceTest {
                 .id(SESSION_ID).user(user).startedAt(recentStart).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -1090,14 +1091,15 @@ class FocusServiceTest {
     }
 
     @Test
-    @DisplayName("이미 종료된 세션 재종료 → FocusException(SESSION_ALREADY_ENDED)")
+    @DisplayName("이미 종료된 세션 재종료 → 조건부 UPDATE row=0 → FocusException(SESSION_ALREADY_ENDED)")
     void endFocusSessionAlreadyEnded() {
-        // given: endedAt 이 이미 채워진 세션
+        // given: 조건부 종료 UPDATE 가 0행(endedAt IS NULL 아님 = 이미 종료됨)
         User user = User.builder().id(USER_ID).build();
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).endedAt(END).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
         FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, 0, null);
 
         // when & then
@@ -1106,6 +1108,29 @@ class FocusServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(FocusErrorCode.SESSION_ALREADY_ENDED);
         verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+    }
+
+    @Test
+    @DisplayName("동시/중복 PATCH — 조건부 종료 패배(row=0) 시 통계·스트릭·이벤트 미반영(멱등)")
+    void endFocusSessionConcurrentDuplicateIsIdempotent() {
+        // given: 본인 진행 중 세션을 읽었으나, findById~UPDATE 사이 다른 요청이 먼저 종료해 조건부 UPDATE 가 0행
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(START).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 2, 30, null);
+
+        // when & then: 종료를 성사시키지 못한 요청은 recordCompletion(통계·스트릭·완료 이벤트)을 절대 실행하지 않는다
+        assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.SESSION_ALREADY_ENDED);
+        verify(dailyFocusStatRepository, never()).findByUserAndDateForUpdate(any(), any());
+        verify(dailyFocusStatRepository, never()).save(any(DailyFocusStat.class));
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+        verify(userActivityEventLogger, never()).log(eq(UserActivityEvent.FOCUS_SESSION_COMPLETED), anyMap());
     }
 
     @Test
@@ -1137,6 +1162,7 @@ class FocusServiceTest {
                 .id(SESSION_ID).user(user).startedAt(START).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(SESSION_ID, END)).willReturn(1);
         given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1186,23 +1212,5 @@ class FocusServiceTest {
 
         // then
         assertThat(closed).isZero();
-    }
-
-    // ── [직접 구현 B] 도메인 엣지케이스 (정책 판단 필요) ───────────────────────
-    @Test
-    @Disabled("TODO: 직접 구현 — 0초 세션 경계값 정책 결정")
-    @DisplayName("세션 종료==시작(0초 세션) → 허용? 거부? 정책 결정 필요")
-    void saveFocusSessionZeroDuration() {
-        // 배경: 현재 서비스는 endedAt.isBefore(startedAt) 만 막음 → '같을 때'는 통과(저장됨)
-        // given: startedAt == endedAt (예: START, START)
-        FocusSessionRequest req = new FocusSessionRequest(TAG_ID, "수학", START, START, 0, 0);
-
-        // when & then: 의도한 정책에 맞춰
-        //   - 0초 세션을 막아야 한다면: 서비스에 검증 추가 후 IllegalArgumentException 검증
-        //   - 허용이 맞다면: verify(focusSessionRepository).save(...) 로 '허용을 명시적으로 보장'
-        assertThatThrownBy(() -> focusService.saveFocusSession(USER_ID, req))
-                .isInstanceOf(FocusException.class)
-                .isEqualTo(FocusErrorCode.FORBIDDEN);
-        verify(focusSessionRepository, never()).save(any(FocusSession.class));
     }
 }

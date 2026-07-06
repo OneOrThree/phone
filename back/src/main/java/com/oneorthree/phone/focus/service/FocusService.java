@@ -208,14 +208,18 @@ public class FocusService {
         if (session.getUser() == null || !session.getUser().getId().equals(userId)) {
             throw new FocusException(FocusErrorCode.FORBIDDEN);
         }
-        // 멱등/이중 완료 방지 — 이미 종료된 세션 재요청은 409(통계 이중 누적 차단)
-        if (session.isEnded()) {
-            throw new FocusException(FocusErrorCode.SESSION_ALREADY_ENDED);
-        }
 
         Instant endedAt = body.endedAt() != null ? body.endedAt() : Instant.now();
         if (endedAt.isBefore(session.getStartedAt())) {
             throw new FocusException(FocusErrorCode.INVALID_DATE_RANGE);
+        }
+
+        // 멱등/이중 완료 방지(TOCTOU 차단) — isEnded() 사전 조회는 동시 PATCH 2건이 둘 다 endedAt==null 을
+        // 읽고 통과해 통계를 2번 누적할 수 있다. DB 단일 UPDATE(endedAt IS NULL 조건)로 종료를 원자적으로 성사시키고,
+        // 영향 row=0(이미 종료됨)이면 409 로 recordCompletion 을 스킵한다. → 종료를 성사시킨 요청만 통계 1회 반영.
+        int updated = focusSessionRepository.endSessionIfActive(body.sessionId(), endedAt);
+        if (updated == 0) {
+            throw new FocusException(FocusErrorCode.SESSION_ALREADY_ENDED);
         }
 
         FocusTag tag = session.getFocusTag();
@@ -224,6 +228,7 @@ public class FocusService {
             session.applyTag(tag);
         }
 
+        // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
         session.end(endedAt, body.distractionCount(), body.totalDistractionSeconds());
         recordCompletion(user, userId, tag, session.getStartedAt(), endedAt, body.distractionCount());
 

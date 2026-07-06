@@ -1,5 +1,7 @@
 package com.oneorthree.phone.focus.dto;
 
+import jakarta.validation.constraints.NotNull;
+
 import java.time.Instant;
 import java.util.UUID;
 
@@ -15,7 +17,7 @@ import java.util.UUID;
  * @param focusTagId              시작 시 미지정한 태그 보정용(선택). 소유 태그여야 함
  */
 public record FocusSessionEndRequest(
-        UUID sessionId,
+        @NotNull UUID sessionId,
         Instant endedAt,
         int distractionCount,
         int totalDistractionSeconds,

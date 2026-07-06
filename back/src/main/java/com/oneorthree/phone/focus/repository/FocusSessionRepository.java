@@ -50,4 +50,12 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     @Modifying
     @Query("UPDATE FocusSession f SET f.user = null WHERE f.user.id = :userId")
     void nullifyUser(@Param("userId") UUID userId);
+
+    // 원자적 조건부 종료(GROMO-610) — 진행 중(endedAt IS NULL)인 경우에만 종료 시각을 채운다.
+    // 반환값(영향 row 수)이 1이면 이 요청이 종료를 성사시킨 것이고, 0이면 이미 종료됨(동시/중복 PATCH).
+    // DB 단일 UPDATE 로 read-modify-write 를 원자화해 endFocusSession 의 TOCTOU 이중 완료(통계 이중 누적)를 차단한다.
+    @Modifying
+    @Query("UPDATE FocusSession s SET s.endedAt = :endedAt "
+            + "WHERE s.id = :id AND s.endedAt IS NULL")
+    int endSessionIfActive(@Param("id") UUID id, @Param("endedAt") Instant endedAt);
 }
