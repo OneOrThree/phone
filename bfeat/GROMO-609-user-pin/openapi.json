@@ -61,10 +61,6 @@
       "description": "스크린 타임 목표 달성 저장 API"
     },
     {
-      "name": "Friend",
-      "description": "친구 요청·수락·거절·삭제·목록·검색·핀 API"
-    },
-    {
       "name": "notification-test",
       "description": "테스트 푸시 발송 (local/dev/staging 전용 — 인증·필터 미적용)"
     },
@@ -79,6 +75,10 @@
     {
       "name": "user",
       "description": "user 관련 API (생성, 조회, 변경)"
+    },
+    {
+      "name": "Friend",
+      "description": "친구 요청·수락·거절·삭제·목록·검색 API"
     }
   ],
   "paths": {
