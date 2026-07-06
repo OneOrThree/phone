@@ -195,6 +195,25 @@ export function logLeagueProfileOpened(p: { is_me: boolean }): void {
   track('league_profile_opened', p);
 }
 
+// ── 통계(Stats) [C] (GROMO-558) ──
+// 통계 화면 진입·기간 탭 전환·과목 필터 선택. 서버 검증 이벤트([S])는 백엔드 MP 소유 — 클라 미발행.
+export type StatsPeriodKey = 'day' | 'week' | 'month';
+
+// 통계 화면 진입(포커스마다 1회).
+export function logStatsViewed(): void {
+  track('stats_viewed');
+}
+
+// 기간 탭(일/주/월) 전환.
+export function logStatsPeriodChanged(p: { period: StatsPeriodKey }): void {
+  track('stats_period_changed', p);
+}
+
+// 상단 과목 필터 선택. 태그명(PII 회피)은 미전송, 전체 여부만 기록(리그 필터와 동일 규칙).
+export function logStatsTagFilterSelected(p: { is_all: boolean }): void {
+  track('stats_tag_filter_selected', p);
+}
+
 // ── 리텐션/알림 [C] ── (event-logging-design.md §5.B)
 export type NotificationType = 'poke' | 'report' | 'challenge';
 

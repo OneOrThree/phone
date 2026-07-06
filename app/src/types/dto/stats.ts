@@ -43,3 +43,32 @@ export interface FocusPeriodStatsResponse {
   previousTotalFocusMinutes: number;
   deltaMinutes: number;
 }
+
+// GET /stats/by-category — 태그(과목)별 집중시간. 비율(%)은 클라가 totalFocusMinutes로 계산.
+export interface CategoryFocusItem {
+  tagId: string | null; // UUID, null = 미분류
+  tagName: string | null; // null = 미분류
+  totalFocusMinutes: number;
+}
+export interface CategoryFocusStatsResponse {
+  period: StatsPeriod;
+  from: string; // LocalDate
+  to: string; // LocalDate
+  totalFocusMinutes: number; // 전체 합계(비율 분모)
+  items: CategoryFocusItem[]; // totalFocusMinutes 내림차순
+}
+
+// GET /stats/screen-time — 기간별 스크린타임 합계 + 직전 대비 delta + 목표 달성.
+// day: goalAchieved 유효 / achievedDays·elapsedDays=null. week·month: 반대.
+export interface ScreenTimePeriodStatsResponse {
+  period: StatsPeriod;
+  from: string; // LocalDate
+  to: string; // LocalDate
+  currentMinutes: number;
+  previousMinutes: number;
+  deltaMinutes: number; // 음수 = 개선(사용 줄어듦)
+  goalMinutes: number; // 0 = 미설정
+  goalAchieved: boolean | null; // day 유효, week/month = null
+  achievedDays: number | null; // week/month 유효, day = null
+  elapsedDays: number | null; // week/month 유효, day = null
+}

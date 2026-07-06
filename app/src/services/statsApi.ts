@@ -6,6 +6,8 @@ import type {
   StreakResponse,
   HeatmapCellResponse,
   FocusPeriodStatsResponse,
+  CategoryFocusStatsResponse,
+  ScreenTimePeriodStatsResponse,
   StatsPeriod,
 } from '@/types/dto/stats';
 
@@ -32,6 +34,26 @@ export async function getHeatmap(from: string, to: string): Promise<HeatmapCellR
 // GET /api/v1/stats/focus?period — 기간별 집중시간 통계(DAY|WEEK|MONTH).
 export async function getFocusPeriodStats(period: StatsPeriod): Promise<FocusPeriodStatsResponse> {
   const { data } = await api.get<FocusPeriodStatsResponse>('/api/v1/stats/focus', {
+    params: { period },
+  });
+  return data;
+}
+
+// GET /api/v1/stats/by-category?period — 태그(과목)별 집중시간(본인). 비율은 클라 계산.
+export async function getFocusStatsByCategory(
+  period: StatsPeriod,
+): Promise<CategoryFocusStatsResponse> {
+  const { data } = await api.get<CategoryFocusStatsResponse>('/api/v1/stats/by-category', {
+    params: { period },
+  });
+  return data;
+}
+
+// GET /api/v1/stats/screen-time?period — 기간별 스크린타임 통계(DAY|WEEK|MONTH).
+export async function getScreenTimePeriodStats(
+  period: StatsPeriod,
+): Promise<ScreenTimePeriodStatsResponse> {
+  const { data } = await api.get<ScreenTimePeriodStatsResponse>('/api/v1/stats/screen-time', {
     params: { period },
   });
   return data;
