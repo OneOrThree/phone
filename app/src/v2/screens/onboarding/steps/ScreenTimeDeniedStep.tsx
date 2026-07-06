@@ -5,6 +5,7 @@ import InfoNote, { NoteStrong } from '@/v2/screens/onboarding/components/InfoNot
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
+import { logOnboardingScreentimeViewed } from '@/services/analyticsEvents';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // W10-1 · 권한 거부 분기 (제한 상태 안내). 권한 없이 계속할 수 있음을 안내.
@@ -18,6 +19,11 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
   updateRef.current = update;
   // '설정에서 허용하기'로 앱을 벗어났다가 돌아온 경우에만 권한을 재확인하도록 표시.
   const returningFromSettings = useRef(false);
+
+  // 스크린타임 요약 스텝 노출 계측 — 거부 분기라 데이터 없음(has_data:false). 진입당 1회.
+  useEffect(() => {
+    logOnboardingScreentimeViewed({ has_data: false });
+  }, []);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {

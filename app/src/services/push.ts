@@ -42,7 +42,9 @@ function linkFromData(data?: Record<string, unknown>): string | null {
 // payload의 type/category에서 알림 유형을 뽑는다. 알 수 없으면 null(이벤트 생략).
 function notificationTypeFromData(data?: Record<string, unknown>): NotificationType | null {
   const raw = data?.type ?? data?.category;
-  return raw === 'poke' || raw === 'report' || raw === 'challenge' ? raw : null;
+  return raw === 'poke' || raw === 'report' || raw === 'challenge' || raw === 'rank_change'
+    ? raw
+    : null;
 }
 
 // getInitialNotification은 앱 실행당 1회만 소비 — PushGate가 재로그인(userId 변경)마다 재호출해도

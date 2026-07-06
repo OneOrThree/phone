@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType } from 'react';
 import { View, PanResponder, StyleSheet } from 'react-native';
 import type { LoginResult } from '@/types/api';
@@ -24,6 +24,7 @@ import NotificationPermissionStep from '@/v2/screens/onboarding/steps/Notificati
 import GromoStartStep from '@/v2/screens/onboarding/steps/GromoStartStep';
 import { INITIAL_ONBOARDING_DATA, type StepProps, type V2OnboardingData } from './types';
 import type { OnboardingCompleteStatus, OnboardingResult } from './types';
+import { logOnboardingStarted, logOnboardingCompleted } from '@/services/analyticsEvents';
 
 // v2 신규 유저 온보딩 플로우 컨트롤러 (V3 재구성).
 // 순서(HTML V3 동일): W1 오프닝 → W2 효과 → W3 공감 → W4 목표 → W5 과목 → W6 랭킹 →
@@ -54,6 +55,11 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [pendingLogin, setPendingLogin] = useState<LoginResult | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // 플로우 진입 계측 — 스플래시 포함 마운트 시 1회(플로우는 이미 시작됨).
+  useEffect(() => {
+    logOnboardingStarted();
+  }, []);
 
   const update = (patch: Partial<V2OnboardingData>) => setData((d) => ({ ...d, ...patch }));
   const next = () => setIndex((i) => i + 1);
@@ -108,7 +114,11 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     setSubmitting(true);
     try {
       const status = await onComplete({ data, login, skipped });
-      if (status === 'ok') return;
+      if (status === 'ok') {
+        // skipped('이미 계정이 있어요')는 온보딩을 거치지 않았으니 완료로 계측하지 않는다.
+        if (!skipped) logOnboardingCompleted();
+        return;
+      }
       setPendingLogin(login);
       setServerError(
         status === 'nickname-duplicate'

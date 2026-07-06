@@ -2,6 +2,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
 import { FOCUS_CATEGORY_GROUPS } from '@/constants/focusCategories';
+import { logOnboardingFocusCategorySubmitted } from '@/services/analyticsEvents';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // 16 · 목표 선택 — focusCategory(집중 목표 1개, 리그 매칭용). 서버 계약 미정(신규 필드).
@@ -15,7 +16,10 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
       subtitle="같은 목표를 가진 사람들과 리그에서 만나요."
       ctaLabel="다음"
       ctaDisabled={!selected}
-      onCta={onNext}
+      onCta={() => {
+        logOnboardingFocusCategorySubmitted();
+        onNext();
+      }}
       scrollable
     >
       {FOCUS_CATEGORY_GROUPS.map((g) => (
