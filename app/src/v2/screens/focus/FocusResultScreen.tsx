@@ -7,12 +7,22 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import { STORAGE_KEYS } from '@/types/storage';
+import { getFocusPeriodStats, getStreak, getHeatmap } from '@/services/statsApi';
+import type {
+  FocusPeriodStatsResponse,
+  StreakResponse,
+  HeatmapCellResponse,
+} from '@/types/dto/stats';
+import { todayStr } from '@/utils/localDate';
 import type { V2RootStackParamList } from '@/navigation/types';
-import { hm } from '@/v2/screens/stats/format';
+import { hm, weekdayKo, grassLevel, heatmapRange } from '@/v2/screens/stats/format';
 
-// 집중 결과 화면(GROMO-598) — 세션 종료 직후. 첫 완료/이후 세션 2변형.
-// 로컬 데이터만: 이번 집중 시간(param) + 첫 완료 여부(로컬 플래그). 코인은 표기하지 않는다(설계 결정).
-// 이번 주 집중 통계(서버 stats)는 GROMO-603에서 이 화면에 얹는다.
+// 집중 결과 화면 — 세션 종료 직후. 첫 완료/이후 세션 2변형.
+// GROMO-598: 화면·진입·로컬 데이터(이번 집중)·CTA.
+// GROMO-603(집중 완료 통계): 이번 주 집중시간·스트릭·요일 잔디(서버 stats)를 이 화면에 얹음.
+// 코인은 표기하지 않는다(설계 결정).
+
+const GRASS = ['#ECE2D1', '#DCE8CE', '#B9D3A0', '#8FB86F', T.greenDeep];
 
 export default function FocusResultScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
@@ -20,6 +30,9 @@ export default function FocusResultScreen() {
   const { focusSeconds, subjectName } = params;
 
   const [firstTime, setFirstTime] = useState(false);
+  const [week, setWeek] = useState<FocusPeriodStatsResponse | null>(null);
+  const [streak, setStreak] = useState<StreakResponse | null>(null);
+  const [heatmap, setHeatmap] = useState<HeatmapCellResponse[]>([]);
 
   // 첫 완료 판별 — 로컬 플래그. 없으면 이번이 첫 완료로 보고 플래그를 남긴다.
   useEffect(() => {
@@ -30,6 +43,27 @@ export default function FocusResultScreen() {
     })();
   }, []);
 
+  // 집중 완료 통계(GROMO-603) — 이번 주 요약.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { from, to } = heatmapRange('WEEK');
+      const [w, st, h] = await Promise.all([
+        getFocusPeriodStats('WEEK').catch(() => null),
+        getStreak().catch(() => null),
+        getHeatmap(from, to).catch(() => [] as HeatmapCellResponse[]),
+      ]);
+      if (cancelled) return;
+      setWeek(w);
+      setStreak(st);
+      setHeatmap(h);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const today = todayStr();
   const focusMinutes = Math.round(focusSeconds / 60);
 
   return (
@@ -49,6 +83,38 @@ export default function FocusResultScreen() {
           <Text style={s.cardLabel}>이번 집중</Text>
           <Text style={s.bigStat}>{hm(focusMinutes)}</Text>
           <Text style={s.cardSub}>{subjectName}</Text>
+        </View>
+
+        {/* 집중 완료 통계(603) — 이번 주 집중 + 스트릭 + 요일 잔디 */}
+        <View style={s.card}>
+          <View style={s.rowBetween}>
+            <Text style={s.cardLabel}>
+              {firstTime ? '이번 주 스트릭 채우기 완료!' : '이번 주 집중시간'}
+            </Text>
+            {streak && streak.currentStreak > 0 ? (
+              <Text style={s.streakBadge}>{streak.currentStreak}일 연속</Text>
+            ) : null}
+          </View>
+          <Text style={[s.bigStat, { color: T.greenDeep }]}>
+            {hm(week?.totalFocusMinutes ?? 0)}
+          </Text>
+          {heatmap.length > 0 ? (
+            <View style={s.grassRow}>
+              {heatmap.map((c) => (
+                <View key={c.date} style={s.grassCol}>
+                  <View
+                    style={[
+                      s.grassCell,
+                      { backgroundColor: GRASS[grassLevel(c.totalFocusMinutes)] },
+                    ]}
+                  />
+                  <Text style={[s.grassDay, c.date === today ? s.grassDayToday : null]}>
+                    {weekdayKo(c.date)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -93,6 +159,14 @@ const s = StyleSheet.create({
   cardLabel: { ...T.text.label, color: T.inkSub },
   cardSub: { ...T.text.caption, color: T.inkMuted },
   bigStat: { ...T.text.display, color: T.ink },
+  rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  streakBadge: { ...T.text.caption, color: T.accentDeep },
+
+  grassRow: { flexDirection: 'row', gap: 6, marginTop: 8 },
+  grassCol: { flex: 1, alignItems: 'center', gap: 5 },
+  grassCell: { width: '100%', height: 24, borderRadius: 6 },
+  grassDay: { ...T.text.caption, fontSize: 11, color: T.inkMuted },
+  grassDayToday: { color: T.greenDeep, fontWeight: '800' },
 
   footer: {
     flexDirection: 'row',
