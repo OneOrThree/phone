@@ -115,7 +115,7 @@ function GoalCard({
 
 export default function GoalsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { goalSeconds, screenTimeGoalSeconds } = useUser();
+  const { userId, goalSeconds, screenTimeGoalSeconds } = useUser();
 
   // 오늘 적용 중인 목표(비교 기준) — 저장해도 이 값은 안 바뀐다(내일 발효).
   const activeFocusMin = useMemo(
@@ -166,19 +166,21 @@ export default function GoalsScreen() {
   }, []);
   const tomorrowLabel = `${tomorrow.getMonth() + 1}/${tomorrow.getDate()}`;
 
-  const changed = focusMinutes !== activeFocusMin || usageMinutes !== activeUsageMin;
-
   async function handleSave() {
     if (saving || !loaded) return;
     setSaving(true);
+    const focusChanged = focusMinutes !== activeFocusMin;
+    const usageChanged = usageMinutes !== activeUsageMin;
     try {
-      if (changed) {
+      if (focusChanged || usageChanged) {
         // 오늘은 그대로 두고 '내일부터 적용' 예약만 저장(컨텍스트·서버 미반영).
+        // 바뀐 목표 필드만 담고, 계정(userId)에 스코프해 다른 계정에 잘못 적용되지 않게 한다(리뷰 반영).
         await AsyncStorage.setItem(
           STORAGE_KEYS.goalPending,
           JSON.stringify({
-            dailyFocusTimeGoalMinutes: focusMinutes,
-            dailyScreenTimeGoalMinutes: usageMinutes,
+            userId,
+            ...(focusChanged ? { dailyFocusTimeGoalMinutes: focusMinutes } : {}),
+            ...(usageChanged ? { dailyScreenTimeGoalMinutes: usageMinutes } : {}),
             effectiveDate: toISODate(tomorrow),
           }),
         );

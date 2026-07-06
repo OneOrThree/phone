@@ -120,6 +120,10 @@ export default function App() {
       STORAGE_KEYS.user,
       STORAGE_KEYS.onboardingComplete,
       STORAGE_KEYS.focusCategory,
+      // 계정 전환 시 이전 유저 값이 새 유저에 새지 않도록 디바이스 전역 캐시도 정리(리뷰 반영)
+      STORAGE_KEYS.goalPending,
+      STORAGE_KEYS.notificationSettings,
+      STORAGE_KEYS.statVisibility,
     ]);
     setOnboardingFocusGoalSeconds(null);
     setOnboardingScreenTimeGoalSeconds(null);
