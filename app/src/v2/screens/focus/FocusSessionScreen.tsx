@@ -285,14 +285,12 @@ export default function FocusSessionScreen() {
     // 정상 종료 — 실드·Live Activity 해제
     ScreenTimeModule.stopFocusShield().catch(() => {});
     ScreenTimeModule.endFocusActivity().catch(() => {});
-    try {
-      // 라이브 레코드 '제거 완료' 후에만 정산(OrphanFocusSettler와 같은 순서).
-      await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
-      settleFocusBlock();
-    } catch {
-      // 제거 실패 — 여기서 정산하면 남은 레코드로 이중 적립될 수 있으니 건너뛰고,
-      // 레코드는 다음 실행의 고아 정산이 한 번만 적립한다.
-    }
+    // 라이브 레코드 제거를 먼저 시도하되, 실패해도 정산은 계속한다(GROMO-615).
+    // 제거 실패로 정산까지 건너뛰면 적립·서버 업로드가 통째로 빠진다(보상 유실).
+    // 제거는 settleFocusBlock 안에서 한 번 더 시도되고, 그래도 레코드가 남으면
+    // 다음 실행의 고아 정산이 마지막 저장분만큼 이중 적립될 수 있으나 미적립보다 낫다.
+    await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+    settleFocusBlock();
     navigation.popToTop();
   }, [settleFocusBlock, navigation]);
 
