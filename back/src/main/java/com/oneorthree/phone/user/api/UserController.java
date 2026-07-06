@@ -4,6 +4,7 @@ import com.oneorthree.phone.user.domain.Provider;
 import com.oneorthree.phone.user.dto.DeviceTokenRegisterRequest;
 import com.oneorthree.phone.user.dto.FocusTimeGoalUpdateRequest;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
+import com.oneorthree.phone.user.dto.NotificationSettingsResponse;
 import com.oneorthree.phone.user.dto.OccupationUpdateRequest;
 import com.oneorthree.phone.user.dto.ScreenTimeGoalUpdateRequest;
 import com.oneorthree.phone.user.dto.SocialLinkResponse;
@@ -153,6 +154,19 @@ public class UserController {
         UUID userId = (UUID) request.getAttribute("userId");
         userService.updateNotificationSettings(userId, body);
         return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "알림·심야·소리 설정 조회",
+            description = "유저 전역 알림/심야 모드/소리 설정 현재값 조회. 시각은 HH:mm 문자열(미설정 시 null).")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "401", description = "인증 없음"),
+        @ApiResponse(responseCode = "404", description = "유저 없음")
+    })
+    @GetMapping("/users/me/notification-settings")
+    public ResponseEntity<NotificationSettingsResponse> getNotificationSettings(HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(userService.getNotificationSettings(userId));
     }
 
     @Operation(summary = "스크린타임 목표 수정",

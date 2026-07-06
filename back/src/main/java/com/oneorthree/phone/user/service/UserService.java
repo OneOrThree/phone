@@ -28,6 +28,7 @@ import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
+import com.oneorthree.phone.user.dto.NotificationSettingsResponse;
 import com.oneorthree.phone.user.dto.SocialLinkResponse;
 import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.user.dto.UserProfileResponse;
@@ -261,6 +262,23 @@ public class UserService {
             throw new UserException(UserErrorCode.LAST_SOCIAL_ACCOUNT);
         }
         socialAccount.setDeletedAt(Instant.now());
+    }
+
+    /**
+     * 알림 설정 현재값 조회 (GROMO-612).
+     * LocalTime → "HH:mm" 매핑은 getProfile 의 reportTime 방식과 동일 (null 허용).
+     */
+    @Transactional(readOnly = true)
+    public NotificationSettingsResponse getNotificationSettings(UUID userId) {
+        UserNotificationSettings s = userNotificationSettingsRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        return new NotificationSettingsResponse(
+                s.isNotificationEnabled(),
+                s.isSoundEnabled(),
+                s.isNightModeEnabled(),
+                s.getNightStartTime() != null ? s.getNightStartTime().toString() : null,
+                s.getNightEndTime() != null ? s.getNightEndTime().toString() : null
+        );
     }
 
     @Transactional
