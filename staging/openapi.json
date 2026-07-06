@@ -83,6 +83,46 @@
   ],
   "paths": {
     "/api/v1/users/me/notification-settings": {
+      "get": {
+        "tags": [
+          "user"
+        ],
+        "summary": "알림·심야·소리 설정 조회",
+        "description": "유저 전역 알림/심야 모드/소리 설정 현재값 조회. 시각은 HH:mm 문자열(미설정 시 null).",
+        "operationId": "getNotificationSettings",
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettingsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettingsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "유저 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "put": {
         "tags": [
           "user"
@@ -4711,6 +4751,26 @@
           "linkedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "NotificationSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "notificationEnabled": {
+            "type": "boolean"
+          },
+          "soundEnabled": {
+            "type": "boolean"
+          },
+          "nightModeEnabled": {
+            "type": "boolean"
+          },
+          "nightStartTime": {
+            "type": "string"
+          },
+          "nightEndTime": {
+            "type": "string"
           }
         }
       },
