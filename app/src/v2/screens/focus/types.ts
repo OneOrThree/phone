@@ -26,6 +26,7 @@ export interface LiveFocusSession {
   elapsed: number; // 마지막 저장 시점까지의 집중 초
   startedAt: string; // ISO
   updatedAt: string; // ISO — 마지막 저장 시각
+  settledLocally?: boolean; // 고아 정산에서 로컬 적립(집중시간·과목·코인) 완료 — 업로드 재시도 시 중복 적립 방지
 }
 
 // 집중 중 허용앱(11) — 예시. initial = 아이콘 사각에 넣는 한 글자.
