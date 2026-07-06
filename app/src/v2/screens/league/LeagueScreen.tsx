@@ -20,6 +20,7 @@ import { useFocus } from '@/store/FocusContext';
 import { useLeagueRanking } from './useLeagueRanking';
 import { useLeagueMeta } from './useLeagueMeta';
 import { useFriends } from './useFriends';
+import { usePinned } from './usePinned';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { MY_USER_ID, type RankedMember } from './mock';
 import { fmtMinutes } from './format';
@@ -41,7 +42,7 @@ import {
 //   - 시안의 시험 칩은 카테고리(온보딩 16)가 많아 폐기 — 제목 드롭다운으로 전체/내 시험/다른 시험 전환.
 //   - 내 순위는 리스트와 같은 파생값 하나만 쓴다(순위 기준 이원화 방지).
 // 친구 탭: 친구 검색·추가 엔트리 + 친구 2열 그리드(카드 탭 → 프로필 상세 FriendProfile).
-// 랭킹은 아직 mock(./mock), 친구 목록·받은 요청 수는 실데이터(./useFriends).
+// 친구 목록·받은 요청 수(./useFriends)·핀(./usePinned)은 실데이터.
 
 // 탭바가 차지하는 높이(홈 '오늘' 카드 marginBottom 선례와 동일 기준)
 const TAB_BAR_SPACE = 74;
@@ -66,8 +67,9 @@ export default function LeagueScreen() {
   const [leagueMenuOpen, setLeagueMenuOpen] = useState(false);
   // 핀한 사람만 보기 — 리스트를 나+핀으로 좁히고 나 대비 차이를 붙인다
   const [pinnedOnly, setPinnedOnly] = useState(false);
-  // 핀 토글은 로컬 상태 — TODO: POST·DELETE /friends/{id}/pin 연동
-  const [pinned, setPinned] = useState<Set<string>>(() => new Set<string>());
+  // 핀 실데이터 — 포커스마다 서버(GET /pins) 재조회 + 낙관적 토글(./usePinned).
+  // 프로필 상세·친구 탭과 같은 서버 상태를 공유해 화면 간 불일치가 없다.
+  const { pinned, togglePin } = usePinned();
 
   const listRef = useRef<ScrollView>(null);
   // 랭킹 리스트 안 내 행의 y — 스트립 탭/진입 자동 스크롤 목적지
@@ -119,15 +121,6 @@ export default function LeagueScreen() {
   const listRows = pinnedOnly
     ? visibleRanking.filter((m) => m.userId === MY_USER_ID || pinned.has(m.userId))
     : visibleRanking.slice(3);
-
-  function togglePin(userId: string) {
-    setPinned((prev) => {
-      const next = new Set(prev);
-      if (next.has(userId)) next.delete(userId);
-      else next.add(userId);
-      return next;
-    });
-  }
 
   function scrollToMyRow() {
     // 내가 포디움(Top3)이거나 핀 모드면 최상단으로

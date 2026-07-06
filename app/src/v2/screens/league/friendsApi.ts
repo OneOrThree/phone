@@ -6,7 +6,7 @@ import type {
   PinnedFriendResponse,
 } from '@/types/api';
 
-// 친구 API 래퍼 — 백엔드 FriendController(/api/v1/friends*) 대응.
+// 친구·핀 API 래퍼 — 백엔드 FriendController(/api/v1/friends*)·PinController(/api/v1/pins*) 대응.
 // api(axios)는 비2xx에서 throw — 호출부에서 try/catch로 분기한다(409=중복 등).
 
 export async function fetchFriends(): Promise<FriendResponse[]> {
@@ -44,17 +44,18 @@ export async function deleteFriend(friendUserId: string): Promise<void> {
   await api.delete(`/api/v1/friends/${friendUserId}`);
 }
 
-// 핀한 친구 — 오늘 집중분·집중중 여부 포함. 세션 그리드의 라이브 값 임시 보강에도 사용
+// 핀한 유저 — 리그·친구 공용(GROMO-609), 친구 아닌 유저 포함. 오늘 집중분·집중중 여부 포함.
+// 세션 그리드의 라이브 값 임시 보강에도 사용
 export async function fetchPinnedFriends(): Promise<PinnedFriendResponse[]> {
-  const { data } = await api.get<PinnedFriendResponse[]>('/api/v1/friends/pinned');
+  const { data } = await api.get<PinnedFriendResponse[]>('/api/v1/pins');
   return data;
 }
 
-// 핀 설정/해제 — 서버가 멱등 처리(이미 핀/핀 없음이어도 204)
-export async function pinFriend(friendUserId: string): Promise<void> {
-  await api.post(`/api/v1/friends/${friendUserId}/pin`);
+// 핀 설정/해제 — 서버가 멱등 처리(이미 핀/핀 없음이어도 204). 친구 아니어도 가능, 자기 자신은 400
+export async function pinFriend(userId: string): Promise<void> {
+  await api.post(`/api/v1/pins/${userId}`);
 }
 
-export async function unpinFriend(friendUserId: string): Promise<void> {
-  await api.delete(`/api/v1/friends/${friendUserId}/pin`);
+export async function unpinFriend(userId: string): Promise<void> {
+  await api.delete(`/api/v1/pins/${userId}`);
 }
