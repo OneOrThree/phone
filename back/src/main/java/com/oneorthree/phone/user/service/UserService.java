@@ -21,6 +21,7 @@ import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
+import com.oneorthree.phone.user.repository.OccupationInfoRepository;
 import com.oneorthree.phone.user.repository.SocialAccountRepository;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
@@ -57,6 +58,7 @@ public class UserService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final SocialAccountRepository socialAccountRepository;
+    private final OccupationInfoRepository occupationInfoRepository;
     private final UserActivityEventLogger userActivityEventLogger;
 
     @Transactional
@@ -72,6 +74,7 @@ public class UserService {
         user.setBirthDate(body.getBirthDate());
         user.setGender(body.getGender());
         if (body.getOccupation() != null) {
+            requireActiveOccupation(body.getOccupation());
             user.setOccupation(body.getOccupation());
         }
         if (body.getCountryCode() != null) {
@@ -210,9 +213,18 @@ public class UserService {
 
     @Transactional
     public void updateOccupation(UUID userId, Occupation occupation) {
+        requireActiveOccupation(occupation);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setOccupation(occupation);
+    }
+
+    // occupation 마스터(occupations)에서 활성(deleted_at IS NULL)인 값만 저장 허용 (GROMO-626, Codex P2).
+    // soft-deleted 되어 GET /occupations 에서 빠진 직업을 저장 경로에서도 막아 목록↔저장 정합을 맞춘다.
+    private void requireActiveOccupation(Occupation occupation) {
+        if (occupation != null && !occupationInfoRepository.existsByCodeAndDeletedAtIsNull(occupation)) {
+            throw new UserException(UserErrorCode.OCCUPATION_NOT_AVAILABLE);
+        }
     }
 
     @Transactional
