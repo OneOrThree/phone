@@ -3,7 +3,7 @@ import { View, Text, TextInput, ActivityIndicator, StyleSheet } from 'react-nati
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
-import { setLogoutHandler, getUserIdFromToken, api } from '@/services/api';
+import { setLogoutHandler, setReloginHandler, getUserIdFromToken, api } from '@/services/api';
 import { updateScreenTimePermission } from '@/services/userApi';
 import { runStorageMigrations } from '@/utils/storageMigration';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -18,6 +18,7 @@ import { T } from '@/constants/theme';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { OrphanFocusSettler } from '@/v2/screens/focus/OrphanFocusSettler';
 import { PushGate } from '@/v2/PushGate';
+import { PendingGoalApplier } from '@/v2/PendingGoalApplier';
 import LoginScreen from '@/v2/screens/LoginScreen';
 import OnboardingFlow, {
   type OnboardingResult,
@@ -126,6 +127,24 @@ export default function App() {
     setUser(null);
   }
 
+  // 게스트가 설정 화면에서 소셜 로그인하면 auth.ts가 토큰/유저를 이미 저장한다.
+  // 로그아웃 없이 저장된 세션을 다시 읽어 인메모리 상태(user)를 새 소셜 계정으로 교체한다.
+  // (UserProvider는 아래 key(user.userId)로 리마운트되어 새 userId를 반영한다.)
+  async function applyStoredSession() {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
+    if (!raw) return;
+    const data = JSON.parse(raw) as UserProfile;
+    const userId = getUserIdFromToken(data.accessToken ?? '');
+    await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
+    setOnboarded(true);
+    try {
+      const profileRes = await api.get('/api/v1/users/me');
+      setUser({ ...data, ...profileRes.data, userId });
+    } catch {
+      setUser({ ...data, userId });
+    }
+  }
+
   // 온보딩 완료(마지막 로그인/게스트) → 플래그 저장 + 유저 설정 → 홈 진입.
   // 기존 계정엔 온보딩 수집값을 덮어쓰지 않는다(프로필·목표·로컬 상태 모두):
   //   - skipped=true : 'W1/W2에서 이미 계정이 있어요' → 애초에 수집값이 없음.
@@ -159,6 +178,9 @@ export default function App() {
 
   useEffect(() => {
     setLogoutHandler(handleLogout);
+    setReloginHandler(() => {
+      applyStoredSession();
+    });
   }, []);
 
   let content;
@@ -184,8 +206,10 @@ export default function App() {
   } else {
     content = (
       <UserProvider
+        key={user?.userId ?? 'guest'}
         initialNickname={user?.nickname}
         initialUserId={user?.userId}
+        initialIsGuest={user?.isGuest}
         initialGoalSeconds={
           onboardingFocusGoalSeconds ??
           (user?.dailyFocusTimeGoalMinutes ? user.dailyFocusTimeGoalMinutes * 60 : null)
@@ -204,6 +228,8 @@ export default function App() {
                 <OrphanFocusSettler />
                 {/* 로그인 상태에서 푸시 권한·토큰 등록·수신 배선 */}
                 <PushGate />
+                {/* 예약된 목표('내일부터 적용')가 발효일 지나면 반영 */}
+                <PendingGoalApplier />
                 <RootNavigator />
               </SubjectProvider>
             </FocusProvider>

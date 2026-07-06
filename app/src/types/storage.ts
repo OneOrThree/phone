@@ -14,6 +14,8 @@ export const STORAGE_KEYS = {
   focusLiveSession: 'gromo:focus:liveSession',
   subjects: 'gromo:subjects',
   goalPending: 'gromo:goal:pending',
+  notificationSettings: 'gromo:settings:notification', // 알림·심야·소리 로컬 캐시(GET 부재 폴백)
+  statVisibility: 'gromo:settings:statVisibility', // 통계 공개 범위 로컬 캐시(GET 부재 폴백)
   screentimeAuthGranted: 'gromo:screentime:authGranted',
   screentimeLastRewardedDate: 'gromo:screentime:lastRewardedDate',
   screentimeLastSyncedDate: 'gromo:screentime:lastSyncedDate',

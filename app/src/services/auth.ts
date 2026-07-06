@@ -29,22 +29,24 @@ interface AuthResponse {
 }
 
 // 토큰 저장 + (기존 유저면) 프로필 병합 — 모든 소셜 로그인 공통 후처리.
-async function postAuthSave(data: AuthResponse): Promise<LoginResult> {
+async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<LoginResult> {
   await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
   await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
 
+  // 게스트/소셜 구분 플래그 — 로그인 시점의 진실. 서버가 isGuest를 응답에 주면(GROMO-606)
+  // 프로필 병합에서 그 값이 우선한다(...profile 이 뒤에 spread).
+  let result: LoginResult;
   if (!data.isNewUser) {
     const profile = await api
       .get<Record<string, unknown>>('/api/v1/users/me')
       .then((profileRes) => profileRes.data)
       .catch(() => ({}) as Record<string, unknown>);
-    const merged: LoginResult = { ...data, ...profile };
-    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
-    return merged;
+    result = { isGuest, ...data, ...profile };
+  } else {
+    result = { isGuest, ...data };
   }
-
-  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data));
-  return data;
+  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(result));
+  return result;
 }
 
 export async function kakaoLogin(): Promise<LoginResult> {
@@ -61,7 +63,7 @@ export async function kakaoLogin(): Promise<LoginResult> {
       : '로그인 실패';
     throw new Error(msg);
   }
-  return postAuthSave(data);
+  return postAuthSave(data, false);
 }
 
 export async function appleLogin(): Promise<LoginResult> {
@@ -83,7 +85,7 @@ export async function appleLogin(): Promise<LoginResult> {
       : 'Apple 로그인 실패';
     throw new Error(msg);
   }
-  return postAuthSave(data);
+  return postAuthSave(data, false);
 }
 
 // Google 로그인 설정 — 모듈 로드 시 1회 실행.
@@ -116,7 +118,7 @@ export async function googleLogin(): Promise<LoginResult> {
       : 'Google 로그인 실패';
     throw new Error(msg);
   }
-  return postAuthSave(data);
+  return postAuthSave(data, false);
 }
 
 // LINE 로그인 설정 — setup()은 login() 전에 1회 호출돼야 한다.
@@ -156,7 +158,7 @@ export async function lineLogin(): Promise<LoginResult> {
       : 'LINE 로그인 실패';
     throw new Error(msg);
   }
-  return postAuthSave(data);
+  return postAuthSave(data, false);
 }
 
 export async function facebookLogin(): Promise<LoginResult> {
@@ -191,7 +193,7 @@ export async function facebookLogin(): Promise<LoginResult> {
       : 'Facebook 로그인 실패';
     throw new Error(msg);
   }
-  return postAuthSave(data);
+  return postAuthSave(data, false);
 }
 
 // 게스트 로그인 — 소셜 계정 없이 임시 유저 생성(백엔드 POST /auth/guest, 바디 없음).
@@ -209,8 +211,8 @@ export async function guestLogin(): Promise<LoginResult> {
       : '게스트 시작 실패';
     throw new Error(msg);
   }
-  // 게스트는 항상 신규 → 프로필 병합(GET /users/me) 스킵.
-  return postAuthSave({ ...data, isNewUser: true });
+  // 게스트는 항상 신규 → 프로필 병합(GET /users/me) 스킵. isGuest=true 로 태깅.
+  return postAuthSave({ ...data, isNewUser: true }, true);
 }
 
 // 인증 성공 시 GA4 이벤트 + signup_method 유저속성 기록.

@@ -15,6 +15,7 @@ import { setIdentityProps } from '@/services/analyticsEvents';
 
 interface UserContextValue {
   userId: string | null;
+  isGuest: boolean; // 게스트 세션 여부 (로그인 시점 태깅 → 서버 isGuest 응답 시 그 값)
   nickname: string;
   setNickname: Dispatch<SetStateAction<string>>;
   isNewUser: boolean;
@@ -30,6 +31,7 @@ interface UserContextValue {
 interface UserProviderProps {
   initialNickname?: string;
   initialUserId?: string | null;
+  initialIsGuest?: boolean;
   initialGoalSeconds?: number | null; // 집중 목표(온보딩 17단계 dailyFocusMinutes)
   initialScreenTimeGoalSeconds?: number | null; // 사용시간 목표(온보딩 12단계 usageGoalMinutes)
   initialIsNewUser?: boolean;
@@ -43,6 +45,7 @@ const PHONE_USAGE_SECONDS = 3 * 3600 + 28 * 60; // TODO: ScreenTime API 연동
 export function UserProvider({
   initialNickname,
   initialUserId,
+  initialIsGuest,
   initialGoalSeconds,
   initialScreenTimeGoalSeconds,
   initialIsNewUser,
@@ -50,6 +53,7 @@ export function UserProvider({
 }: UserProviderProps) {
   const [nickname, setNickname] = useState(initialNickname ?? '익명');
   const [userId] = useState<string | null>(initialUserId ?? null);
+  const isGuest = initialIsGuest ?? false;
   const [isNewUser, setIsNewUser] = useState(initialIsNewUser ?? false);
   const [goalSeconds, setGoalSecondsState] = useState(initialGoalSeconds ?? 3 * 3600);
   const [screenTimeGoalSeconds, setScreenTimeGoalSeconds] = useState(
@@ -66,13 +70,14 @@ export function UserProvider({
   // userId는 로그인/게스트 진입 시 1회 정해지고, 로그아웃 시 트리가 리마운트된다.
   useEffect(() => {
     setUserId(userId); // UUID(로그인) 또는 null(게스트)
-    setIdentityProps({ is_guest: userId === null });
-  }, [userId]);
+    setIdentityProps({ is_guest: isGuest });
+  }, [userId, isGuest]);
 
   return (
     <UserContext.Provider
       value={{
         userId,
+        isGuest,
         nickname,
         setNickname,
         isNewUser,

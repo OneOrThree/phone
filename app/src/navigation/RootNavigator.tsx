@@ -16,6 +16,18 @@ import {
   TierGuideScreen,
   LeagueResultScreen,
 } from '@/v2/screens/league';
+import {
+  ProfileEditScreen,
+  OccupationScreen,
+  AccountScreen,
+  GoalsScreen,
+  AllowedAppsScreen,
+  ScreenTimePermissionScreen,
+  NotificationSettingsScreen,
+  StatVisibilityScreen,
+  PrivacyPolicyScreen,
+  VersionInfoScreen,
+} from '@/v2/screens/settings';
 import { TabBar } from '@/components/TabBar';
 import { T } from '@/constants/theme';
 import { initAnalytics } from '@/services/analytics';
@@ -89,6 +101,17 @@ export function RootNavigator() {
           component={LeagueResultScreen}
           options={{ animation: 'fade' }}
         />
+        {/* 설정(GROMO-559) — '전체' 탭(MenuScreen) 허브에서 push 되는 하위 화면 */}
+        <Stack.Screen name="SettingsProfileEdit" component={ProfileEditScreen} />
+        <Stack.Screen name="SettingsOccupation" component={OccupationScreen} />
+        <Stack.Screen name="SettingsAccount" component={AccountScreen} />
+        <Stack.Screen name="SettingsGoals" component={GoalsScreen} />
+        <Stack.Screen name="SettingsAllowedApps" component={AllowedAppsScreen} />
+        <Stack.Screen name="SettingsScreenTimePermission" component={ScreenTimePermissionScreen} />
+        <Stack.Screen name="SettingsNotification" component={NotificationSettingsScreen} />
+        <Stack.Screen name="SettingsStatVisibility" component={StatVisibilityScreen} />
+        <Stack.Screen name="SettingsPrivacyPolicy" component={PrivacyPolicyScreen} />
+        <Stack.Screen name="SettingsVersion" component={VersionInfoScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
