@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
@@ -133,16 +133,22 @@ export default function GoalsScreen() {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // 기존 예약 원본 — 값이 그대로인 재저장 시 발효일을 보존하기 위해 들고 있는다(리뷰 반영).
+  const pendingRef = useRef<{
+    userId?: string | null;
+    dailyFocusTimeGoalMinutes?: number;
+    dailyScreenTimeGoalMinutes?: number;
+    effectiveDate?: string;
+  } | null>(null);
+
   // 발효 전 예약(goalPending)이 있으면 그 값으로 슬라이더 초기화.
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.goalPending)
       .then((raw) => {
         if (raw) {
           try {
-            const p = JSON.parse(raw) as {
-              dailyFocusTimeGoalMinutes?: number;
-              dailyScreenTimeGoalMinutes?: number;
-            };
+            const p = JSON.parse(raw) as NonNullable<typeof pendingRef.current>;
+            pendingRef.current = p;
             if (typeof p.dailyFocusTimeGoalMinutes === 'number') {
               setFocusMinutes(snapClamp(p.dailyFocusTimeGoalMinutes, FOCUS_MAX_MINUTES));
             }
@@ -175,13 +181,26 @@ export default function GoalsScreen() {
       if (focusChanged || usageChanged) {
         // 오늘은 그대로 두고 '내일부터 적용' 예약만 저장(컨텍스트·서버 미반영).
         // 바뀐 목표 필드만 담고, 계정(userId)에 스코프해 다른 계정에 잘못 적용되지 않게 한다(리뷰 반영).
+        const next = {
+          ...(focusChanged ? { dailyFocusTimeGoalMinutes: focusMinutes } : {}),
+          ...(usageChanged ? { dailyScreenTimeGoalMinutes: usageMinutes } : {}),
+        };
+        // 기존 예약과 값이 그대로면 발효일 보존(리뷰 반영) — 발효일이 지났는데 서버 반영이
+        // 실패해 예약이 남은 상태에서 그대로 재저장하면, 내일로 도장을 다시 찍어 이미 due인
+        // 재시도가 하루 밀린다. 실제로 값을 고친 경우에만 '내일부터'가 새로 시작된다.
+        const prev = pendingRef.current;
+        const sameAsPending =
+          prev != null &&
+          (!prev.userId || prev.userId === userId) &&
+          prev.dailyFocusTimeGoalMinutes === next.dailyFocusTimeGoalMinutes &&
+          prev.dailyScreenTimeGoalMinutes === next.dailyScreenTimeGoalMinutes;
         await AsyncStorage.setItem(
           STORAGE_KEYS.goalPending,
           JSON.stringify({
             userId,
-            ...(focusChanged ? { dailyFocusTimeGoalMinutes: focusMinutes } : {}),
-            ...(usageChanged ? { dailyScreenTimeGoalMinutes: usageMinutes } : {}),
-            effectiveDate: toISODate(tomorrow),
+            ...next,
+            effectiveDate:
+              sameAsPending && prev.effectiveDate ? prev.effectiveDate : toISODate(tomorrow),
           }),
         );
       } else {
