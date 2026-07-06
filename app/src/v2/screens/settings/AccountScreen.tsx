@@ -22,6 +22,7 @@ import {
   appleLogin,
   googleLogin,
   trackAuthSuccess,
+  clearLastAuthProvider,
   statusCodes,
   type AuthMethod,
 } from '@/services/auth';
@@ -175,6 +176,7 @@ export default function AccountScreen() {
     setWithdrawing(true);
     try {
       await withdraw();
+      await clearLastAuthProvider(); // GROMO-602: 탈퇴 시에만 마지막 provider 초기화(로그아웃은 유지)
       setWithdrawOpen(false);
       triggerLogout();
     } catch (e) {

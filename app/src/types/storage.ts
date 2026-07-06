@@ -26,6 +26,7 @@ export const STORAGE_KEYS = {
   selectionCounts: 'gromo:selection:counts',
   selectionPendingCounts: 'gromo:selection:pendingCounts',
   groupNotifyRequested: 'gromo:group:notifyRequested', // 그룹 fakedoor '알림 받기' 신청 여부(중복 방지)
+  lastAuthProvider: 'gromo:auth:lastProvider', // 마지막 사용 소셜 provider — 재로그인 '최근 사용' 배지(로그아웃 유지·탈퇴 초기화)
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];
