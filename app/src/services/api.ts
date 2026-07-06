@@ -50,8 +50,20 @@ interface RefreshResponse {
   refreshToken?: string;
 }
 
+// 진행 중인 토큰 갱신 Promise. 동시 다발 401이 와도 갱신은 한 번만 실행되도록
+// 공유한다(single-flight). 리프레시 토큰이 rotate되므로 중복 호출 시 두 번째부터
+// 이미 사용된 토큰으로 갱신을 시도해 실패 → 일부 요청만 로그아웃되는 경합이 생긴다.
+let refreshPromise: Promise<string> | null = null;
+
+function refreshAccessToken(): Promise<string> {
+  refreshPromise ??= doRefreshAccessToken().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
+}
+
 // 토큰 갱신. 인터셉터 루프를 피하기 위해 인스턴스(api)가 아닌 bare axios 사용.
-async function refreshAccessToken(): Promise<string> {
+async function doRefreshAccessToken(): Promise<string> {
   const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
   if (!refreshToken) throw new Error('no refresh token');
 
