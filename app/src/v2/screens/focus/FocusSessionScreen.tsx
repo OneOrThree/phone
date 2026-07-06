@@ -290,8 +290,12 @@ export default function FocusSessionScreen() {
     // 제거는 settleFocusBlock 안에서 한 번 더 시도되고, 그래도 레코드가 남으면
     // 다음 실행의 고아 정산이 마지막 저장분만큼 이중 적립될 수 있으나 미적립보다 낫다.
     await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
-    settleFocusBlock();
-    navigation.popToTop();
+    try {
+      settleFocusBlock();
+    } finally {
+      // 정산 성공 여부와 무관하게 화면은 반드시 빠져나간다.
+      navigation.popToTop();
+    }
   }, [settleFocusBlock, navigation]);
 
   // 카운트다운/뽀모도로 완료 시 자동 종료
