@@ -17,9 +17,14 @@ import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import CircularGauge from '@/components/CircularGauge';
 import { getPublicProfile, getUserStats } from '@/services/userApi';
-import { getFocusStatsByCategory, getHeatmap } from '@/services/statsApi';
+import {
+  getFocusPeriodStats,
+  getFocusStatsByCategory,
+  getHeatmap,
+  getTodayStats,
+} from '@/services/statsApi';
 import type { PublicProfileResponse, UserStatsResponse } from '@/types/dto/user';
-import type { HeatmapCellResponse } from '@/types/dto/stats';
+import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
 import type { V2RootStackParamList } from '@/navigation/types';
 import {
   deleteFriend,
@@ -29,7 +34,7 @@ import {
   unpinFriend,
 } from './friendsApi';
 import { fmtHourMin } from './format';
-import { heatmapRange } from '@/v2/screens/stats/format';
+import { rollingWeekRange } from '@/v2/screens/stats/format';
 import { MemberAvatar } from './components/MemberAvatar';
 import { DuoDayChart } from './components/DuoDayChart';
 import { SubjectCompareCard } from './components/SubjectCompareCard';
@@ -79,12 +84,19 @@ export default function FriendProfileScreen() {
   const [loading, setLoading] = useState(true);
   // 과목별 비교(겹치는 태그) — undefined = 미확보(블러 티저 유지), [] = 겹침 없음, N개 = 실비교
   const [subjectCompare, setSubjectCompare] = useState<SubjectCompare[] | undefined>(undefined);
+  // 전체공개(PUBLIC) 비친구 폴백 — getUserStats는 아직 친구만 채워주지만(BE 갭),
+  // /stats/*?friends= 는 PUBLIC을 허용(GROMO-623)하므로 today·주간 집중을 직접 조회해 요약을 채운다.
+  const [publicStats, setPublicStats] = useState<{
+    today: TodayStatsResponse;
+    weekMinutes: number;
+  } | null>(null);
 
   // 공개 프로필 + 타 유저 통계 + 내 히트맵(비교용) 조회.
   useEffect(() => {
     let stale = false;
     (async () => {
-      const { from, to } = heatmapRange('WEEK');
+      // 서버가 타 유저 heatmap을 '최근 7일'로 고정 반환하므로 내 heatmap도 같은 창으로 비교(리뷰 반영)
+      const { from, to } = rollingWeekRange();
       const [p, st, mine] = await Promise.all([
         getPublicProfile(userId).catch(() => null),
         getUserStats(userId).catch(() => null),
@@ -177,13 +189,37 @@ export default function FriendProfileScreen() {
   const friendCount = profile?.friendCount ?? 0;
   const rank = profile?.rank ?? null;
 
-  // 상세 통계 공개 여부 — today/heatmap 이 오면 공개(친구 또는 대상이 전체공개). 관계와 별개.
+  // 상세 통계 공개 여부(전체) — getUserStats가 채워준 경우(친구·본인). heatmap까지 있어 요일 비교 가능.
   const statsVisible = stats?.today != null;
+  // PUBLIC 요약 공개 — 비친구지만 대상이 전체공개라 /stats/*?friends= 조회가 성공한 경우.
+  // heatmap은 friends 파라미터가 없어 요일 비교는 불가 — 요약(달성률·이번 주 집중)·과목별만.
+  const publicVisible = !statsVisible && publicStats != null;
 
-  // 과목별 비교(GROMO-624) — 상세 공개 대상만. 내 by-category + 상대 by-category(WEEK)를
-  // 태그명으로 매칭해 겹치는 과목만 비교. 한쪽이라도 실패하면 undefined 유지(블러 티저).
+  // PUBLIC 폴백 조회 — getUserStats가 비었을 때만 시도. FRIENDS 비공개 대상은 404로 떨어져 잠금 유지.
   useEffect(() => {
-    if (!statsVisible) {
+    if (loading || statsVisible) {
+      setPublicStats(null);
+      return;
+    }
+    let stale = false;
+    (async () => {
+      const [t, w] = await Promise.all([
+        getTodayStats(userId).catch(() => null),
+        getFocusPeriodStats('WEEK', userId).catch(() => null),
+      ]);
+      if (stale || !t || !w) return;
+      setPublicStats({ today: t, weekMinutes: w.totalFocusMinutes });
+    })();
+    return () => {
+      stale = true;
+    };
+  }, [loading, statsVisible, userId]);
+
+  // 과목별 비교(GROMO-624) — 상세(친구·본인) 또는 PUBLIC 공개 대상. 내 by-category + 상대
+  // by-category(WEEK)를 태그명으로 매칭해 겹치는 과목만 비교. 한쪽이라도 실패하면 undefined 유지(블러 티저).
+  const canCompareSubjects = statsVisible || publicVisible;
+  useEffect(() => {
+    if (!canCompareSubjects) {
       setSubjectCompare(undefined);
       return;
     }
@@ -215,9 +251,15 @@ export default function FriendProfileScreen() {
     return () => {
       stale = true;
     };
-  }, [statsVisible, userId]);
-  const goalPercent = stats?.today?.focus.progressPercent ?? 0;
-  const weekFocusMinutes = (stats?.heatmap ?? []).reduce((a, c) => a + c.totalFocusMinutes, 0);
+  }, [canCompareSubjects, userId]);
+
+  // 요약 값 — 상세(친구·본인)는 getUserStats, PUBLIC 비친구는 폴백 조회값 사용.
+  const summaryVisible = statsVisible || publicVisible;
+  const goalPercent =
+    stats?.today?.focus.progressPercent ?? publicStats?.today.focus.progressPercent ?? 0;
+  const weekFocusMinutes = statsVisible
+    ? (stats?.heatmap ?? []).reduce((a, c) => a + c.totalFocusMinutes, 0)
+    : (publicStats?.weekMinutes ?? 0);
   const streakDays = stats?.streak.currentStreak ?? 0;
 
   const focusByDay: CompareByDay = {
@@ -228,6 +270,28 @@ export default function FriendProfileScreen() {
     mine: byWeekday(myHeatmap, (c) => c.actualScreenTimeMinutes),
     theirs: byWeekday(stats?.heatmap ?? [], (c) => c.actualScreenTimeMinutes),
   };
+
+  // 과목별 비교 블록 — 겹치는 과목 실비교 / 겹침 없음 배너 / 미확보 시 블러 티저.
+  // 상세(친구) 분기와 PUBLIC 분기가 공유한다.
+  const subjectCompareBlock =
+    subjectCompare && subjectCompare.length > 0 ? (
+      <View style={s.chartGap}>
+        <SubjectCompareCard subjects={subjectCompare} opponentName={nickname} />
+      </View>
+    ) : subjectCompare && subjectCompare.length === 0 ? (
+      <View style={[s.chartGap, s.noOverlapNote]}>
+        <Ionicons name="star" size={15} color={T.accent} />
+        <Text style={s.noOverlapText}>
+          겹치는 공부 과목이 없습니다. 요일별 집중·폰 사용시간으로 비교해요.
+        </Text>
+      </View>
+    ) : (
+      <View style={s.chartGap}>
+        <ComingSoon note="같은 과목 공부량 비교를 준비하고 있어요">
+          <SubjectCompareCard subjects={TEASER_SUBJECTS} opponentName={nickname} />
+        </ComingSoon>
+      </View>
+    );
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
@@ -295,11 +359,11 @@ export default function FriendProfileScreen() {
               <View style={s.ringCard}>
                 <CircularGauge
                   size={64}
-                  progress={statsVisible ? goalPercent / 100 : 0}
+                  progress={summaryVisible ? goalPercent / 100 : 0}
                   trackColor="#EFE7D8"
                   progressColor={T.accent}
                 >
-                  {statsVisible ? (
+                  {summaryVisible ? (
                     <Text style={s.ringValue} allowFontScaling={false}>
                       {goalPercent}%
                     </Text>
@@ -313,7 +377,7 @@ export default function FriendProfileScreen() {
                 <View style={s.summaryCard}>
                   <Text style={s.summaryLabel}>이번 주 집중</Text>
                   <Text style={s.summaryValue} allowFontScaling={false}>
-                    {statsVisible ? fmtHourMin(weekFocusMinutes) : '비공개'}
+                    {summaryVisible ? fmtHourMin(weekFocusMinutes) : '비공개'}
                   </Text>
                 </View>
                 <View style={s.summaryCard}>
@@ -359,25 +423,18 @@ export default function FriendProfileScreen() {
                     opponentName={nickname}
                   />
                 </View>
-                {/* 과목별 비교(GROMO-624) — 겹치는 과목 실비교 / 겹침 없음 배너 / 미확보 시 블러 티저 */}
-                {subjectCompare && subjectCompare.length > 0 ? (
-                  <View style={s.chartGap}>
-                    <SubjectCompareCard subjects={subjectCompare} opponentName={nickname} />
-                  </View>
-                ) : subjectCompare && subjectCompare.length === 0 ? (
-                  <View style={[s.chartGap, s.noOverlapNote]}>
-                    <Ionicons name="star" size={15} color={T.accent} />
-                    <Text style={s.noOverlapText}>
-                      겹치는 공부 과목이 없습니다. 요일별 집중·폰 사용시간으로 비교해요.
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={s.chartGap}>
-                    <ComingSoon note="같은 과목 공부량 비교를 준비하고 있어요">
-                      <SubjectCompareCard subjects={TEASER_SUBJECTS} opponentName={nickname} />
-                    </ComingSoon>
-                  </View>
-                )}
+                {subjectCompareBlock}
+              </>
+            ) : publicVisible ? (
+              /* 전체공개(PUBLIC) 비친구 — 요약·과목별은 공개, 요일 비교는 heatmap 미제공이라 친구 유도 */
+              <>
+                {subjectCompareBlock}
+                <View style={[s.chartGap, s.noOverlapNote]}>
+                  <Ionicons name="people-outline" size={15} color={T.accent} />
+                  <Text style={s.noOverlapText}>
+                    요일별 집중·폰 사용 비교는 친구가 되면 볼 수 있어요.
+                  </Text>
+                </View>
               </>
             ) : (
               /* 비공개(친구 아님 + 친구공개 대상) — 상세 통계 잠금 */

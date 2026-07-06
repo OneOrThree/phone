@@ -149,6 +149,7 @@ export default function App() {
       STORAGE_KEYS.focusPendingUploads, // 이전 계정 세션이 새 계정으로 업로드되지 않게
       STORAGE_KEYS.notificationSettings,
       STORAGE_KEYS.statVisibility,
+      STORAGE_KEYS.focusFirstDone, // 다음 계정이 '첫 집중 완료' 변형을 정상적으로 보게
     ]);
     setOnboardingFocusGoalSeconds(null);
     setOnboardingScreenTimeGoalSeconds(null);

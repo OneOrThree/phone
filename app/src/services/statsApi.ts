@@ -11,9 +11,12 @@ import type {
   StatsPeriod,
 } from '@/types/dto/stats';
 
-// GET /api/v1/stats/today — 오늘 집중·스크린타임 요약.
-export async function getTodayStats(): Promise<TodayStatsResponse> {
-  const { data } = await api.get<TodayStatsResponse>('/api/v1/stats/today');
+// GET /api/v1/stats/today?friends — 오늘 집중·스크린타임 요약.
+// friends 지정 시 해당 대상(ACCEPTED 친구 또는 전체공개 PUBLIC 유저) 조회, 미지정 시 본인.
+export async function getTodayStats(friends?: string): Promise<TodayStatsResponse> {
+  const { data } = await api.get<TodayStatsResponse>('/api/v1/stats/today', {
+    params: { friends },
+  });
   return data;
 }
 

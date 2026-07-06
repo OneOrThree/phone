@@ -93,7 +93,16 @@ export default function FocusResultScreen() {
 
   const today = todayStr();
   const days = thisWeekDates();
-  const maxMin = Math.max(...days.map((d) => cellByDate[d]?.totalFocusMinutes ?? 0), 1);
+  // 방금 끝낸 세션은 업로드 직후라 서버 집계(week·heatmap)에 아직 없을 수 있다(리뷰 반영).
+  // 오늘 값은 max(서버, 방금 세션 분)로 바닥을 깔고, 주간 합계에도 그 차이만큼 더해
+  // 결과 화면이 0/이전 값으로 보이지 않게 한다(이중 집계 없음 — max라 서버 반영 후엔 그대로).
+  const sessionMin = Math.round(focusSeconds / 60);
+  const serverToday = cellByDate[today]?.totalFocusMinutes ?? 0;
+  const adjustedToday = Math.max(serverToday, sessionMin);
+  const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
+  const dayMinutes = (d: string) =>
+    d === today ? adjustedToday : (cellByDate[d]?.totalFocusMinutes ?? 0);
+  const maxMin = Math.max(...days.map(dayMinutes), 1);
   // 이번 집중 시간 — 세션 타이머와 같은 디지털 표기(00:00:00).
   const focusLabel = hms(focusSeconds);
   // 과목별 누적(로컬) — 방금 세션까지 즉시 반영. 기록 있는 과목만, 많은 순.
@@ -194,11 +203,11 @@ export default function FocusResultScreen() {
         <View style={s.card}>
           <View style={s.rowBetween}>
             <Text style={s.cardTitle}>이번 주 집중시간</Text>
-            <Text style={s.cardValue}>{hm(week?.totalFocusMinutes ?? 0)}</Text>
+            <Text style={s.cardValue}>{hm(weekTotal)}</Text>
           </View>
           <View style={s.barRow}>
             {days.map((date, i) => {
-              const min = cellByDate[date]?.totalFocusMinutes ?? 0;
+              const min = dayMinutes(date);
               const isToday = date === today;
               const h = min > 0 ? Math.max((min / maxMin) * BAR_H, 4) : 0;
               return (
@@ -219,10 +228,7 @@ export default function FocusResultScreen() {
         </View>
 
         {/* 나 vs 3축 비교(오늘) — 카드는 즉시 뜨고 친구 평균 도착 시 채워진다 */}
-        <CompareCard
-          mine={Math.max(cellByDate[today]?.totalFocusMinutes ?? 0, Math.round(focusSeconds / 60))}
-          friends={friendDayAvg}
-        />
+        <CompareCard mine={adjustedToday} friends={friendDayAvg} />
       </ScrollView>
 
       {/* 하단 CTA — 홈으로 / 다시 집중 */}
@@ -234,10 +240,12 @@ export default function FocusResultScreen() {
         >
           <Text style={s.homeText}>홈으로</Text>
         </TouchableOpacity>
+        {/* 스택: Main → FocusCategory → FocusResult(세션을 replace) — 새 화면을 쌓지 않고
+            아래 깔린 기존 과목 선택으로 goBack(중복 스택 방지, 리뷰 반영) */}
         <TouchableOpacity
           style={s.againBtn}
           activeOpacity={0.85}
-          onPress={() => navigation.replace('FocusCategory')}
+          onPress={() => navigation.goBack()}
         >
           <Text style={s.againText}>다시 집중</Text>
         </TouchableOpacity>

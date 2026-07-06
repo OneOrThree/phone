@@ -276,7 +276,7 @@ export default function FocusSessionScreen() {
     // (과목별 통계 집계용 — 매칭 실패 시 null = 미분류). 업로드 실패 시 대기열에 남겨
     // 재시도(GROMO-614) — 로컬 적립은 이미 반영돼 그냥 버리면 서버와 불일치. 대기열 바디에도
     // 해석된 tagId를 실어 재시도 시 과목이 유지되게 한다.
-    ensureFocusTagId(subjectName)
+    ensureFocusTagId(subjectName, userId)
       .catch(() => null)
       .then((focusTagId) => {
         const body = {

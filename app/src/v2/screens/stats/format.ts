@@ -42,17 +42,27 @@ export function weekdayKo(dateStr: string): string {
 }
 
 // 기간별 히트맵 조회 범위 [from, to] ('YYYY-MM-DD').
-// DAY=오늘, WEEK=최근 7일, MONTH=이달 1일~오늘.
+// DAY=오늘, WEEK=이번 주 월요일~오늘(서버 /stats/focus WEEK와 동일 구간 — 리뷰 반영), MONTH=이달 1일~오늘.
 export function heatmapRange(period: StatsPeriod): { from: string; to: string } {
   const to = todayStr();
   if (period === 'DAY') return { from: to, to };
   const now = new Date();
   if (period === 'WEEK') {
-    const from = new Date(now);
-    from.setDate(now.getDate() - 6);
-    return { from: localDateStr(from), to };
+    const dow = now.getDay(); // 0=일..6=토
+    const toMonday = dow === 0 ? -6 : 1 - dow;
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + toMonday);
+    return { from: localDateStr(monday), to };
   }
   return { from: localDateStr(new Date(now.getFullYear(), now.getMonth(), 1)), to };
+}
+
+// 최근 7일 범위 [오늘-6, 오늘] — 타 유저 heatmap(getUserStats, 서버가 최근 7일 고정)과 같은 창으로
+// 비교할 때 사용(주간 월~오늘과 다름에 주의).
+export function rollingWeekRange(): { from: string; to: string } {
+  const now = new Date();
+  const from = new Date(now);
+  from.setDate(now.getDate() - 6);
+  return { from: localDateStr(from), to: todayStr() };
 }
 
 // 막대 1개(집중/폰 사용 공용).
