@@ -657,6 +657,21 @@
         }
       }
     },
+    "/api/v1/notifications/inactive-return/run": {
+      "post": {
+        "tags": [
+          "notification-batch"
+        ],
+        "summary": "미접속 복귀 푸시 수동 실행",
+        "description": "last_active_at 기준 D+3/7/14 정확히 N일째 유저에게 단계별 문구로 즉시 발송. ⚠️ Dedup 미적용 — 같은 날 재트리거 시 중복 발송될 수 있음(운영 주의).",
+        "operationId": "runInactiveReturnNotifications",
+        "responses": {
+          "204": {
+            "description": "실행 완료 (발송 건수는 서버 로그 참조)"
+          }
+        }
+      }
+    },
     "/api/v1/inventory/grant": {
       "post": {
         "tags": [
