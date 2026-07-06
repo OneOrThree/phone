@@ -20,6 +20,7 @@ import { useFocus } from '@/store/FocusContext';
 import { useLeagueRanking } from './useLeagueRanking';
 import { useLeagueMeta } from './useLeagueMeta';
 import { useFriends } from './useFriends';
+import { usePinned } from './usePinned';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { MY_USER_ID, type RankedMember } from './mock';
 import { fmtMinutes } from './format';
@@ -41,7 +42,7 @@ import {
 //   - 시안의 시험 칩은 카테고리(온보딩 16)가 많아 폐기 — 제목 드롭다운으로 전체/내 시험/다른 시험 전환.
 //   - 내 순위는 리스트와 같은 파생값 하나만 쓴다(순위 기준 이원화 방지).
 // 친구 탭: 친구 검색·추가 엔트리 + 친구 2열 그리드(카드 탭 → 프로필 상세 FriendProfile).
-// 랭킹은 아직 mock(./mock), 친구 목록·받은 요청 수는 실데이터(./useFriends).
+// 친구 목록·받은 요청 수(./useFriends)·핀(./usePinned)은 실데이터.
 
 // 탭바가 차지하는 높이(홈 '오늘' 카드 marginBottom 선례와 동일 기준)
 const TAB_BAR_SPACE = 74;
@@ -66,8 +67,9 @@ export default function LeagueScreen() {
   const [leagueMenuOpen, setLeagueMenuOpen] = useState(false);
   // 핀한 사람만 보기 — 리스트를 나+핀으로 좁히고 나 대비 차이를 붙인다
   const [pinnedOnly, setPinnedOnly] = useState(false);
-  // 핀 토글은 로컬 상태 — TODO: POST·DELETE /friends/{id}/pin 연동
-  const [pinned, setPinned] = useState<Set<string>>(() => new Set<string>());
+  // 핀 실데이터 — 포커스마다 서버(GET /pins) 재조회 + 낙관적 토글(./usePinned).
+  // 프로필 상세·친구 탭과 같은 서버 상태를 공유해 화면 간 불일치가 없다.
+  const { pinned, togglePin, loaded: pinnedLoaded } = usePinned();
 
   const listRef = useRef<ScrollView>(null);
   // 랭킹 리스트 안 내 행의 y — 스트립 탭/진입 자동 스크롤 목적지
@@ -92,7 +94,13 @@ export default function LeagueScreen() {
   const { todayFocusSeconds } = useFocus();
 
   // 친구 목록·받은 요청 수 — 실데이터(포커스마다 재조회)
-  const { friends, receivedCount } = useFriends();
+  const {
+    friends,
+    receivedCount,
+    loaded: friendsLoaded,
+    error: friendsError,
+    refetch: refetchFriends,
+  } = useFriends();
   const friendIds = new Set(friends.map((f) => f.userId));
 
   // 현재 리그 — 기본은 내 시험, 드롭다운 선택이 있으면 그 리그
@@ -119,15 +127,6 @@ export default function LeagueScreen() {
   const listRows = pinnedOnly
     ? visibleRanking.filter((m) => m.userId === MY_USER_ID || pinned.has(m.userId))
     : visibleRanking.slice(3);
-
-  function togglePin(userId: string) {
-    setPinned((prev) => {
-      const next = new Set(prev);
-      if (next.has(userId)) next.delete(userId);
-      else next.add(userId);
-      return next;
-    });
-  }
 
   function scrollToMyRow() {
     // 내가 포디움(Top3)이거나 핀 모드면 최상단으로
@@ -432,45 +431,65 @@ export default function LeagueScreen() {
             <Ionicons name="chevron-forward" size={15} color="#C8A06A" />
           </TouchableOpacity>
 
-          <Text style={s.friendCount}>
-            내 친구 <Text style={s.friendCountNum}>{friends.length}</Text>명
-          </Text>
-          {/* 실친구 목록 — 주간 집중시간은 응답에 없어 미표기(TODO: 백엔드 협의 후 복원) */}
-          <View style={s.friendGrid}>
-            {friends.map((f) => (
-              <TouchableOpacity
-                key={f.userId}
-                style={s.friendCard}
-                activeOpacity={0.85}
-                onPress={() =>
-                  navigation.navigate('FriendProfile', {
-                    userId: f.userId,
-                    nickname: f.nickname,
-                    tierLevel: f.tierLevel ?? 1,
-                    isFriend: true,
-                    isPinned: f.isPinned,
-                  })
-                }
-              >
-                {f.isPinned && (
-                  <View style={s.friendPinBadge}>
-                    <Ionicons name="pin" size={11} color={T.white} />
-                  </View>
-                )}
-                <MemberAvatar size={48} />
-                <Text style={s.friendName} numberOfLines={1}>
-                  {f.nickname}
-                </Text>
-                <View style={s.friendTierRow}>
-                  <TierBadge level={f.tierLevel ?? 1} size={18} />
-                  <Text style={s.friendTier}>{tierByLevel(f.tierLevel ?? 1).name}</Text>
-                </View>
+          {/* 조회 실패 + 보여줄 목록 없음 — "친구 0명" 빈 상태로 오인되지 않게 에러+재시도로 분기 (GROMO-621).
+               실패여도 기존 목록이 있으면 그대로 유지해서 보여준다. */}
+          {friendsError && friends.length === 0 ? (
+            <View style={s.friendErrorWrap}>
+              <Text style={s.emptyLeague}>친구 목록을 불러오지 못했어요</Text>
+              <TouchableOpacity style={s.retryBtn} activeOpacity={0.8} onPress={refetchFriends}>
+                <Text style={s.retryBtnText}>다시 시도</Text>
               </TouchableOpacity>
-            ))}
-            {friends.length % 2 === 1 && <View style={s.friendCardGhost} />}
-          </View>
-          {friends.length === 0 && (
-            <Text style={s.emptyLeague}>아직 친구가 없어요. 검색해서 추가해보세요!</Text>
+            </View>
+          ) : (
+            <>
+              <Text style={s.friendCount}>
+                내 친구 <Text style={s.friendCountNum}>{friends.length}</Text>명
+              </Text>
+              {/* 실친구 목록 — 주간 집중시간은 응답에 없어 미표기(TODO: 백엔드 협의 후 복원) */}
+              <View style={s.friendGrid}>
+                {friends.map((f) => {
+                  // 핀 배지는 공유 핀 상태(usePinned)에서 파생 — 랭킹 탭에서 토글한 직후 같은 화면 안에서
+                  // 친구 세그먼트로 전환해도 일치한다. 친구 응답의 isPinned(포커스 시에만 갱신)는
+                  // 핀 목록을 아직 못 받았을 때의 폴백으로만 쓴다.
+                  const isPinned = pinnedLoaded ? pinned.has(f.userId) : f.isPinned;
+                  return (
+                    <TouchableOpacity
+                      key={f.userId}
+                      style={s.friendCard}
+                      activeOpacity={0.85}
+                      onPress={() =>
+                        navigation.navigate('FriendProfile', {
+                          userId: f.userId,
+                          nickname: f.nickname,
+                          tierLevel: f.tierLevel ?? 1,
+                          isFriend: true,
+                          isPinned,
+                        })
+                      }
+                    >
+                      {isPinned && (
+                        <View style={s.friendPinBadge}>
+                          <Ionicons name="pin" size={11} color={T.white} />
+                        </View>
+                      )}
+                      <MemberAvatar size={48} />
+                      <Text style={s.friendName} numberOfLines={1}>
+                        {f.nickname}
+                      </Text>
+                      <View style={s.friendTierRow}>
+                        <TierBadge level={f.tierLevel ?? 1} size={18} />
+                        <Text style={s.friendTier}>{tierByLevel(f.tierLevel ?? 1).name}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+                {friends.length % 2 === 1 && <View style={s.friendCardGhost} />}
+              </View>
+              {/* 빈 상태는 성공 응답(빈 배열)일 때만 — 첫 로드 전엔 미표시 */}
+              {friendsLoaded && friends.length === 0 && (
+                <Text style={s.emptyLeague}>아직 친구가 없어요. 검색해서 추가해보세요!</Text>
+              )}
+            </>
           )}
         </ScrollView>
       )}
@@ -750,6 +769,15 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // 친구 목록 조회 실패 — 빈 상태와 구분되는 에러 안내 + 재시도 (GROMO-621)
+  friendErrorWrap: { alignItems: 'center', paddingVertical: 8 },
+  retryBtn: {
+    backgroundColor: T.accent,
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+  },
+  retryBtnText: { ...T.text.caption, fontWeight: '700', color: T.white },
   friendName: { ...T.text.label, fontWeight: '700', color: T.ink, marginTop: 8 },
   friendTierRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   friendTier: { ...T.text.caption, color: T.inkSub },

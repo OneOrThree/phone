@@ -19,6 +19,7 @@ import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.exception.StatsErrorCode;
 import com.oneorthree.phone.stats.exception.StatsException;
+import com.oneorthree.phone.user.domain.StatVisibility;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
@@ -65,19 +66,23 @@ public class StatsService {
     private final FriendshipRepository friendshipRepository;
 
     /**
-     * 통계 조회 대상 userId를 결정한다 (GROMO-608).
+     * 통계 조회 대상 userId를 결정한다 (GROMO-608, GROMO-623).
      * <p>friends 미지정(null)이거나 호출자 자신의 id 이면 친구 검증 없이 호출자 본인(self)을 반환한다.
-     * friends 지정 시 호출자·대상 User 를 로드한 뒤 <b>ACCEPTED 친구관계만</b> 검증하고
-     * 통과하면 대상 friends 를 반환한다.
-     * <p>공개범위(statVisibility) 필드는 실제로 존재하지만(User 기본값 FRIENDS, PATCH /users/me/stat-visibility
-     * 로 FRIENDS/PUBLIC 조정), 이 경로에선 별도 검증이 불필요하다. ACCEPTED 친구관계는 이미 가장 보수적인
-     * FRIENDS 공개범위 요건을 충족하므로, 대상의 statVisibility 가 FRIENDS 이든 PUBLIC 이든 친구는 조회 자격을 갖는다.
+     * friends 지정 시 호출자·대상 User 를 로드한 뒤 조회 자격을 판정한다:
+     * <ul>
+     *   <li>ACCEPTED 친구관계 → 허용 (대상 friends 반환)</li>
+     *   <li>친구가 아니어도 대상의 statVisibility 가 <b>PUBLIC</b> 이면 허용 (GROMO-623 — 전체 공개)</li>
+     *   <li>그 외(친구 아님 + 대상 statVisibility 가 FRIENDS) → NOT_FRIEND</li>
+     * </ul>
+     * <p>즉 PUBLIC 은 친구가 아니어도 열람을 허용하고, FRIENDS 는 ACCEPTED 친구에게만 열람을 허용한다.
+     * <p>이 판정은 friends 파라미터를 쓰는 <b>모든 stats 엔드포인트에 공통 적용</b>된다(GROMO-624 로
+     * by-category 까지 포함).
      *
      * @param callerId 호출자(로그인 유저) UUID
      * @param friends  조회 대상 친구 UUID (null 또는 self 이면 self)
      * @return 실제 통계 집계 대상 userId
      * @throws UserException   대상/호출자 User 미존재 (NOT_FOUND)
-     * @throws FriendException 대상과 ACCEPTED 친구관계가 아님 (NOT_FRIEND)
+     * @throws FriendException 친구도 아니고 대상 공개범위도 PUBLIC 이 아님 (NOT_FRIEND)
      */
     public UUID resolveTargetUserId(UUID callerId, UUID friends) {
         // friends 미지정(null) 또는 자기 자신 조회 → 친구 검증 없이 self.
@@ -89,9 +94,13 @@ public class StatsService {
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         User friend = userRepository.findById(friends)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        friendshipRepository.findAcceptedBetween(caller, friend)
-                .orElseThrow(() -> new FriendException(FriendErrorCode.NOT_FRIEND));
-        return friends;
+        // ACCEPTED 친구관계면 대상 공개범위와 무관하게 허용
+        boolean accepted = friendshipRepository.findAcceptedBetween(caller, friend).isPresent();
+        // PUBLIC 은 친구가 아니어도 열람 허용 (GROMO-623). FRIENDS 는 친구에게만.
+        if (accepted || friend.getStatVisibility() == StatVisibility.PUBLIC) {
+            return friends;
+        }
+        throw new FriendException(FriendErrorCode.NOT_FRIEND);
     }
 
     public List<HeatmapCellResponse> getHeatmap(UUID userId, LocalDate from, LocalDate to) {

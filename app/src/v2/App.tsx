@@ -18,6 +18,7 @@ import { SubjectProvider } from '@/store/SubjectContext';
 import { T } from '@/constants/theme';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { OrphanFocusSettler } from '@/v2/screens/focus/OrphanFocusSettler';
+import { PendingFocusUploader } from '@/v2/screens/focus/PendingFocusUploader';
 import { PushGate } from '@/v2/PushGate';
 import { PendingGoalApplier } from '@/v2/PendingGoalApplier';
 import LoginScreen from '@/v2/screens/LoginScreen';
@@ -61,6 +62,7 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 // focusCategory(W4)는 서버 Occupation enum(5종)과 항목이 안 맞아 로컬 보관 유지
 // (handleOnboardingComplete — 리그 기본 시험 리그로 쓰인다. TODO: 백엔드 협의).
 // notificationGranted(W13)는 대응 엔드포인트가 알림 설정 전체 객체뿐이라 여기선 미전송(TODO).
+// 반환: 프로필 등록 결과 — 'ok'가 아니면 호출부가 온보딩 완료 처리를 보류한다(GROMO-617/618).
 async function syncOnboardingToServer(data: V2OnboardingData): Promise<OnboardingCompleteStatus> {
   const body = {
     nickname: data.nickname.trim(),
@@ -71,6 +73,7 @@ async function syncOnboardingToServer(data: V2OnboardingData): Promise<Onboardin
     // 프로필은 온보딩이 일부 필드만 수집해 부분 바디로 보낸다(setupProfile은 전체 필드 요구).
     await api.post('/api/v1/users/me', body);
   } catch (e) {
+    // 프로필 등록 실패 — 여기서 완료 처리하면 서버-로컬이 영구 불일치되므로 재입력/재시도 유도.
     if (axios.isAxiosError(e) && e.response?.status === 409) return 'nickname-duplicate';
     return 'error';
   }
@@ -101,7 +104,12 @@ export default function App() {
       const done = await AsyncStorage.getItem(STORAGE_KEYS.onboardingComplete);
       if (done) setOnboarded(true);
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
-      if (!raw) {
+      // 온보딩 미완료 세션은 복원하지 않는다(GROMO-617). 신규 유저는 인증 성공 시점에
+      // postAuthSave가 토큰/유저를 먼저 저장하므로, 프로필 등록(POST /users/me) 실패 후
+      // 재실행하면 '저장된 user는 있는데 완료 플래그는 없는' 반쪽 세션이 남는다.
+      // 이걸 복원하면 프로필 미등록 상태로 홈에 진입하므로, 온보딩을 다시 밟게 한다.
+      // (user와 플래그가 따로 노는 경우는 이 경로뿐 — 완료/로그아웃 시엔 둘을 함께 저장/삭제.)
+      if (!done || !raw) {
         setLoading(false);
         return;
       }
@@ -133,6 +141,7 @@ export default function App() {
       STORAGE_KEYS.focusCategory,
       // 계정 전환 시 이전 유저 값이 새 유저에 새지 않도록 디바이스 전역 캐시도 정리(리뷰 반영)
       STORAGE_KEYS.goalPending,
+      STORAGE_KEYS.focusPendingUploads, // 이전 계정 세션이 새 계정으로 업로드되지 않게
       STORAGE_KEYS.notificationSettings,
       STORAGE_KEYS.statVisibility,
     ]);
@@ -173,7 +182,7 @@ export default function App() {
   }: OnboardingResult): Promise<OnboardingCompleteStatus> {
     const isExistingAccount = skipped || login.isNewUser === false;
     if (!isExistingAccount) {
-      // 신규 유저 — 프로필 등록(닉네임 중복 검증 포함)이 성공해야 온보딩 완료(GROMO-618).
+      // 신규 유저 — 프로필 등록(닉네임 중복 검증 포함)이 성공해야 온보딩 완료(GROMO-617/618).
       // 실패 시 완료 플래그·유저 상태를 세팅하지 않고 결과만 돌려줘 게이트를 유지한다
       // (OnboardingFlow가 닉네임 재입력/재시도 UI를 띄운다).
       const sync = await syncOnboardingToServer(data);
@@ -218,7 +227,7 @@ export default function App() {
     content = onboarded ? (
       // 온보딩 완료한 재방문 유저(로그아웃 상태) → 바로 로그인.
       <LoginScreen
-        onLogin={(u: LoginResult) => {
+        onLogin={async (u: LoginResult) => {
           const userId = getUserIdFromToken(u.accessToken);
           setUser({ ...u, userId });
         }}
@@ -250,6 +259,8 @@ export default function App() {
               <SubjectProvider>
                 {/* 강제 종료된 세션 정산 — 라이브 레코드가 있으면 적립 후 삭제 */}
                 <OrphanFocusSettler />
+                {/* 업로드 실패로 대기열에 남은 집중 세션 재전송(앱 시작·포그라운드 복귀) */}
+                <PendingFocusUploader />
                 {/* 로그인 상태에서 푸시 권한·토큰 등록·수신 배선 */}
                 <PushGate />
                 {/* 예약된 목표('내일부터 적용')가 발효일 지나면 반영 */}

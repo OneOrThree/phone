@@ -38,6 +38,8 @@ import type { OnboardingCompleteStatus, OnboardingResult } from './types';
 // 되돌려 재입력/재시도한다(GROMO-618 — 온보딩은 로그인 전이라 실시간 중복확인이 불가,
 // 서버 검증은 로그인 직후 프로필 등록 시점에 확정).
 interface OnboardingFlowProps {
+  // LoginScreen이 완료 처리(서버 동기화)까지 await하도록 Promise 체인을 그대로 이어주고,
+  // 결과 상태를 돌려받아 닉네임 재입력/재시도를 분기한다.
   onComplete: (result: OnboardingResult) => Promise<OnboardingCompleteStatus>;
 }
 
