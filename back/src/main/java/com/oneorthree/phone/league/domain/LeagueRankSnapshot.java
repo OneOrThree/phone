@@ -4,7 +4,6 @@ import com.oneorthree.phone.common.id.GeneratedUuidV7;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
-import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
@@ -27,10 +26,11 @@ import java.util.UUID;
 @Entity
 @Table(
         name = "league_rank_snapshots",
+        // 조회는 findByArenaIdInAndCapturedOn(arena_id IN + captured_on) 뿐 — UNIQUE(arena_id 선두)가 이미 커버.
+        // 별도 (user_id, captured_on) 인덱스는 미사용이라 제거(GROMO-579 리뷰 반영, 쓰기비용만 증가).
         uniqueConstraints = @UniqueConstraint(
                 name = "uq_league_rank_snapshots_arena_user_day",
-                columnNames = {"arena_id", "user_id", "captured_on"}),
-        indexes = @Index(name = "idx_league_rank_snapshots_user_day", columnList = "user_id, captured_on")
+                columnNames = {"arena_id", "user_id", "captured_on"})
 )
 @Getter
 @Setter

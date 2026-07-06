@@ -215,6 +215,23 @@ class RankOvertakeNotificationServiceTest {
     }
 
     @Test
+    @DisplayName("아레나 재편성 경계 — 어제 스냅샷이 이전 아레나 UUID로 저장돼 오늘 아레나로 매칭 안 됨 → 부트스트랩 무발송 (GROMO-579 리뷰)")
+    void bootstrapsWhenArenaReassignedYesterdaySnapshotUnderOldArena() {
+        // 주간 재편성(월 00:00)으로 아레나 UUID가 새로 생성되면, 어제(일) 스냅샷은 옛 아레나 ID로 저장돼 있어
+        // 오늘(월) findByArenaIdInAndCapturedOn(새 arenaId, 어제)는 빈 결과 → 전원 어제 순위 없음 → 추월 감지 스킵.
+        setUpDefaultScenario();   // 오늘 [r1,r2,me,bottom] — 라이벌이 위(원래라면 발송)
+        // 재편성으로 새 arenaId 에는 어제 스냅샷이 없음(옛 arenaId 아래에만 존재)
+        given(leagueRankSnapshotRepository.findByArenaIdInAndCapturedOn(List.of(arenaId), YESTERDAY))
+                .willReturn(List.of());
+
+        service.sendRankOvertakeNotifications(NOW);
+
+        // 어제 데이터 없음 → 오탐 없이 무발송(부트스트랩), 오늘 스냅샷은 저장됨
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+        verify(leagueRankSnapshotRepository).saveAll(anyList());
+    }
+
+    @Test
     @DisplayName("억제(b) 오늘 이미 접속(lastActiveAt >= 오늘0시 KST)한 유저는 스킵한다")
     void suppressesWhenActiveToday() {
         setUpDefaultScenario();

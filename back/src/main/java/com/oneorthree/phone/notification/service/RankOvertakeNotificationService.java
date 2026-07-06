@@ -236,6 +236,8 @@ public class RankOvertakeNotificationService {
     }
 
     // 오늘 순위를 captured_on=today 로 저장. 이미 오늘치가 있으면(재실행) 값 갱신, 없으면 신규 INSERT.
+    // ⚠️ read-then-write(원자적 upsert 아님) — 동시 실행(수동 트리거+스케줄러, 또는 멀티 인스턴스)이 겹치면
+    //    둘 다 "없음"으로 읽어 UNIQUE(arena_id,user_id,captured_on) 위반·이중 발송 가능. 분산 락(GROMO-565) 클래스 이슈.
     private void saveTodaySnapshots(Map<UUID, List<LeagueArenaUser>> rankedByArena,
                                     List<UUID> arenaIds, LocalDate today) {
         Map<RankKey, LeagueRankSnapshot> existing = leagueRankSnapshotRepository
