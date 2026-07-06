@@ -6,6 +6,7 @@ import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
+import { useUser } from '@/store/UserContext';
 import type { LiveFocusSession } from './types';
 import { enqueuePendingFocusUpload } from './pendingFocusUploads';
 
@@ -16,6 +17,7 @@ export function OrphanFocusSettler() {
   const { addFocusSeconds } = useFocus();
   const { addCoins } = useCoins();
   const { addFocusToSubject } = useSubjects();
+  const { userId } = useUser();
   const ran = useRef(false);
 
   useEffect(() => {
@@ -49,10 +51,10 @@ export function OrphanFocusSettler() {
         totalDistractionSeconds: 0,
       };
       api.post('/api/v1/focus-session', body).catch(() => {
-        enqueuePendingFocusUpload(body).catch(() => {});
+        enqueuePendingFocusUpload(body, userId).catch(() => {});
       });
     })().catch(() => {});
-  }, [addFocusSeconds, addCoins, addFocusToSubject]);
+  }, [addFocusSeconds, addCoins, addFocusToSubject, userId]);
 
   return null;
 }

@@ -26,6 +26,7 @@ import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
+import { useUser } from '@/store/UserContext';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
@@ -75,6 +76,7 @@ export default function FocusSessionScreen() {
   const { addFocusSeconds } = useFocus();
   const { addCoins } = useCoins();
   const { subjects, addFocusToSubject } = useSubjects();
+  const { userId } = useUser();
   // Live Activity 시작 시점에 읽을 과목 목록 — effect 재실행 없이 최신값 참조용
   const subjectsRef = useRef(subjects);
   subjectsRef.current = subjects;
@@ -279,9 +281,9 @@ export default function FocusSessionScreen() {
       totalDistractionSeconds: 0,
     };
     saveFocusSession(body).catch(() => {
-      enqueuePendingFocusUpload(body).catch(() => {});
+      enqueuePendingFocusUpload(body, userId).catch(() => {});
     });
-  }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName]);
+  }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName, userId]);
 
   // 정지/완료 — 남은 집중 블록 정산(적립+서버 업로드) 후 홈으로. 한 번만 실행.
   const finish = useCallback(async () => {
