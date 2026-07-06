@@ -1,5 +1,7 @@
 // 집중 목표(시험/카테고리) 마스터 — 온보딩 16(목표 선택)과 리그 시험 칩의 단일 소스.
 // 서버 계약 미정(신규 필드)이라 프론트 상수로 관리 — TODO: 백엔드 협의 후 서버 값으로 이관.
+import type { Occupation } from '@/types/dto/user';
+
 export interface FocusCategoryGroup {
   label: string;
   items: string[];
@@ -38,4 +40,35 @@ export const CATEGORY_SUBJECTS: Record<string, string[]> = {
 export function getDefaultSubjects(category: string | null): string[] {
   if (!category) return [];
   return CATEGORY_SUBJECTS[category] ?? [];
+}
+
+// 로컬 focusCategory ↔ 서버 Occupation enum — GROMO-631에서 19종으로 확장돼 전 카테고리 1:1 매핑.
+// 서버 동기화(updateOccupation)·같은 카테고리 리그 랭킹(?category=)·비교 통계에 사용.
+// 표시명은 GET /occupations 가 제공하므로 이 목록 자체를 서버 값으로 이관 검토(TODO).
+export const CATEGORY_TO_OCCUPATION: Record<string, Occupation> = {
+  노무사: 'LABOR_ATTORNEY',
+  변리사: 'PATENT_ATTORNEY',
+  세무사: 'TAX_ACCOUNTANT',
+  회계사: 'CPA',
+  감정평가사: 'APPRAISER',
+  공무원: 'CIVIL_SERVANT',
+  '경찰·소방': 'POLICE_FIRE',
+  행정고시: 'ADMIN_EXAM',
+  자격증: 'CERTIFICATION',
+  중학생: 'MIDDLE_SCHOOL',
+  고등학생: 'HIGH_SCHOOL',
+  '수능·N수': 'CSAT',
+  대학생: 'UNIVERSITY',
+  '취업 준비': 'JOB_PREP',
+  '토익·토플': 'ENGLISH_TEST',
+  코딩: 'CODING',
+  자기계발: 'SELF_DEVELOPMENT',
+  '집중력 키우기': 'FOCUS_BUILDING',
+  기타: 'ETC',
+};
+
+// 카테고리의 서버 Occupation(매핑 없으면 null).
+export function occupationForCategory(category: string | null): Occupation | null {
+  if (!category) return null;
+  return CATEGORY_TO_OCCUPATION[category] ?? null;
 }

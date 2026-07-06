@@ -5,15 +5,16 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import SettingsScaffold from '@/v2/screens/settings/components/SettingsScaffold';
-import { FOCUS_CATEGORY_GROUPS } from '@/constants/focusCategories';
+import { FOCUS_CATEGORY_GROUPS, occupationForCategory } from '@/constants/focusCategories';
+import { updateOccupation } from '@/services/userApi';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 
 // 준비 시험 변경(SettingsOccupation) — 온보딩 W4와 같은 카테고리 목록(focusCategories)에서 하나 고른다.
 // 앱이 실제로 굴리는 건 로컬 focusCategory(리그 UI·시험 칩)라 그 값을 바꾼다.
-// TODO(백엔드 협의): focusCategory ↔ 서버 Occupation(5종) 매핑 확정 시 updateOccupation 동기화.
-// 과목(subjects)은 사용자가 편집했을 수 있어 자동으로 건드리지 않는다(안내만).
+// 전 카테고리가 서버 Occupation(19종)과 1:1이라 변경 시 서버 occupation도 동기화 —
+// 같은 카테고리 랭킹·비교 통계 모수용. (과목(subjects)은 사용자가 편집했을 수 있어 자동으로 건드리지 않는다.)
 
 export default function OccupationScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
@@ -38,6 +39,11 @@ export default function OccupationScreen() {
       await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, selected);
     } catch {
       // 로컬 저장 실패는 치명적이지 않음
+    }
+    // 매핑되는 카테고리면 서버 occupation 동기화(실패해도 로컬 저장은 유효 — 다음 변경 때 재시도)
+    const occupation = occupationForCategory(selected);
+    if (occupation) {
+      updateOccupation({ occupation }).catch(() => {});
     }
     setSaving(false);
     navigation.goBack();

@@ -6,12 +6,17 @@ import type {
   StreakResponse,
   HeatmapCellResponse,
   FocusPeriodStatsResponse,
+  CategoryFocusStatsResponse,
+  ScreenTimePeriodStatsResponse,
   StatsPeriod,
 } from '@/types/dto/stats';
 
-// GET /api/v1/stats/today — 오늘 집중·스크린타임 요약.
-export async function getTodayStats(): Promise<TodayStatsResponse> {
-  const { data } = await api.get<TodayStatsResponse>('/api/v1/stats/today');
+// GET /api/v1/stats/today?friends — 오늘 집중·스크린타임 요약.
+// friends 지정 시 해당 대상(ACCEPTED 친구 또는 전체공개 PUBLIC 유저) 조회, 미지정 시 본인.
+export async function getTodayStats(friends?: string): Promise<TodayStatsResponse> {
+  const { data } = await api.get<TodayStatsResponse>('/api/v1/stats/today', {
+    params: { friends },
+  });
   return data;
 }
 
@@ -29,9 +34,35 @@ export async function getHeatmap(from: string, to: string): Promise<HeatmapCellR
   return data;
 }
 
-// GET /api/v1/stats/focus?period — 기간별 집중시간 통계(DAY|WEEK|MONTH).
-export async function getFocusPeriodStats(period: StatsPeriod): Promise<FocusPeriodStatsResponse> {
+// GET /api/v1/stats/focus?period&friends — 기간별 집중시간 통계(DAY|WEEK|MONTH).
+// friends 지정 시 해당 친구(ACCEPTED)의 통계 조회, 미지정 시 본인.
+export async function getFocusPeriodStats(
+  period: StatsPeriod,
+  friends?: string,
+): Promise<FocusPeriodStatsResponse> {
   const { data } = await api.get<FocusPeriodStatsResponse>('/api/v1/stats/focus', {
+    params: { period, friends },
+  });
+  return data;
+}
+
+// GET /api/v1/stats/by-category?period&friends — 태그(과목)별 집중시간. 비율은 클라 계산.
+// friends 지정 시 해당 친구(ACCEPTED)의 과목별 조회(GROMO-624), 미지정 시 본인.
+export async function getFocusStatsByCategory(
+  period: StatsPeriod,
+  friends?: string,
+): Promise<CategoryFocusStatsResponse> {
+  const { data } = await api.get<CategoryFocusStatsResponse>('/api/v1/stats/by-category', {
+    params: { period, friends },
+  });
+  return data;
+}
+
+// GET /api/v1/stats/screen-time?period — 기간별 스크린타임 통계(DAY|WEEK|MONTH).
+export async function getScreenTimePeriodStats(
+  period: StatsPeriod,
+): Promise<ScreenTimePeriodStatsResponse> {
+  const { data } = await api.get<ScreenTimePeriodStatsResponse>('/api/v1/stats/screen-time', {
     params: { period },
   });
   return data;
