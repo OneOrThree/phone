@@ -2644,11 +2644,25 @@
             "schema": {
               "type": "string",
               "enum": [
-                "MIDDLE_SCHOOL",
-                "UNIVERSITY",
                 "LABOR_ATTORNEY",
                 "PATENT_ATTORNEY",
-                "LAWYER"
+                "TAX_ACCOUNTANT",
+                "CPA",
+                "APPRAISER",
+                "CIVIL_SERVANT",
+                "POLICE_FIRE",
+                "ADMIN_EXAM",
+                "CERTIFICATION",
+                "MIDDLE_SCHOOL",
+                "HIGH_SCHOOL",
+                "CSAT",
+                "UNIVERSITY",
+                "JOB_PREP",
+                "ENGLISH_TEST",
+                "CODING",
+                "SELF_DEVELOPMENT",
+                "FOCUS_BUILDING",
+                "ETC"
               ]
             }
           }
@@ -3284,11 +3298,25 @@
             "schema": {
               "type": "string",
               "enum": [
-                "MIDDLE_SCHOOL",
-                "UNIVERSITY",
                 "LABOR_ATTORNEY",
                 "PATENT_ATTORNEY",
-                "LAWYER"
+                "TAX_ACCOUNTANT",
+                "CPA",
+                "APPRAISER",
+                "CIVIL_SERVANT",
+                "POLICE_FIRE",
+                "ADMIN_EXAM",
+                "CERTIFICATION",
+                "MIDDLE_SCHOOL",
+                "HIGH_SCHOOL",
+                "CSAT",
+                "UNIVERSITY",
+                "JOB_PREP",
+                "ENGLISH_TEST",
+                "CODING",
+                "SELF_DEVELOPMENT",
+                "FOCUS_BUILDING",
+                "ETC"
               ]
             }
           }
@@ -3986,11 +4014,25 @@
           "occupation": {
             "type": "string",
             "enum": [
-              "MIDDLE_SCHOOL",
-              "UNIVERSITY",
               "LABOR_ATTORNEY",
               "PATENT_ATTORNEY",
-              "LAWYER"
+              "TAX_ACCOUNTANT",
+              "CPA",
+              "APPRAISER",
+              "CIVIL_SERVANT",
+              "POLICE_FIRE",
+              "ADMIN_EXAM",
+              "CERTIFICATION",
+              "MIDDLE_SCHOOL",
+              "HIGH_SCHOOL",
+              "CSAT",
+              "UNIVERSITY",
+              "JOB_PREP",
+              "ENGLISH_TEST",
+              "CODING",
+              "SELF_DEVELOPMENT",
+              "FOCUS_BUILDING",
+              "ETC"
             ]
           },
           "dailyScreenTimeGoalMinutes": {
@@ -4553,11 +4595,25 @@
           "occupation": {
             "type": "string",
             "enum": [
-              "MIDDLE_SCHOOL",
-              "UNIVERSITY",
               "LABOR_ATTORNEY",
               "PATENT_ATTORNEY",
-              "LAWYER"
+              "TAX_ACCOUNTANT",
+              "CPA",
+              "APPRAISER",
+              "CIVIL_SERVANT",
+              "POLICE_FIRE",
+              "ADMIN_EXAM",
+              "CERTIFICATION",
+              "MIDDLE_SCHOOL",
+              "HIGH_SCHOOL",
+              "CSAT",
+              "UNIVERSITY",
+              "JOB_PREP",
+              "ENGLISH_TEST",
+              "CODING",
+              "SELF_DEVELOPMENT",
+              "FOCUS_BUILDING",
+              "ETC"
             ]
           }
         },
@@ -4955,11 +5011,25 @@
           "occupation": {
             "type": "string",
             "enum": [
-              "MIDDLE_SCHOOL",
-              "UNIVERSITY",
               "LABOR_ATTORNEY",
               "PATENT_ATTORNEY",
-              "LAWYER"
+              "TAX_ACCOUNTANT",
+              "CPA",
+              "APPRAISER",
+              "CIVIL_SERVANT",
+              "POLICE_FIRE",
+              "ADMIN_EXAM",
+              "CERTIFICATION",
+              "MIDDLE_SCHOOL",
+              "HIGH_SCHOOL",
+              "CSAT",
+              "UNIVERSITY",
+              "JOB_PREP",
+              "ENGLISH_TEST",
+              "CODING",
+              "SELF_DEVELOPMENT",
+              "FOCUS_BUILDING",
+              "ETC"
             ]
           },
           "tags": {
