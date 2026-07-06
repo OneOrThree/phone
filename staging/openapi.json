@@ -2870,65 +2870,6 @@
         }
       }
     },
-    "/api/v1/league/ranking": {
-      "get": {
-        "tags": [
-          "league"
-        ],
-        "summary": "전역 전체 유저 랭킹 조회",
-        "description": "직군 무관 전역 랭킹. 이번 주 ACTIVE 아레나 전체를 가로질러 totalFocusMinutes 내림차순 상위 limit 명. rank 는 아레나가 아닌 전역 순번. scope 는 total(대소문자 무관)만 지원, 그 외 값은 400 INVALID_SCOPE. limit 는 1~500 으로 클램프된다.",
-        "operationId": "getGlobalRanking",
-        "parameters": [
-          {
-            "name": "scope",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "total"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "default": 100
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "조회 성공",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/LeagueMemberResponse"
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "지원하지 않는 scope 값(INVALID_SCOPE) 또는 limit 형식 오류",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/LeagueMemberResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/league/me/tier": {
       "get": {
         "tags": [
@@ -4775,29 +4716,6 @@
           }
         }
       },
-      "LeagueMemberResponse": {
-        "type": "object",
-        "properties": {
-          "rank": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "nickname": {
-            "type": "string"
-          },
-          "totalFocusMinutes": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "result": {
-            "type": "string"
-          }
-        }
-      },
       "LeagueTierResponse": {
         "type": "object",
         "properties": {
@@ -4834,6 +4752,29 @@
           "remainingSeconds": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "LeagueMemberResponse": {
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "totalFocusMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "result": {
+            "type": "string"
           }
         }
       },
