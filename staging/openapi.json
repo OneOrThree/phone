@@ -1696,6 +1696,16 @@
         "summary": "라인 로그인",
         "description": "LINE Access Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser\u003dtrue.",
         "operationId": "lineLogin",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1738,6 +1748,16 @@
         "summary": "카카오 로그인",
         "description": "카카오 Access Token → AT + RT 발급. 최초 로그인 시 isNewUser\u003dtrue.",
         "operationId": "kakaoLogin",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1780,6 +1800,16 @@
         "summary": "인스타그램 로그인",
         "description": "Instagram Access Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser\u003dtrue.",
         "operationId": "instagramLogin",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1844,6 +1874,16 @@
         "summary": "구글 로그인",
         "description": "Google id_token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser\u003dtrue.",
         "operationId": "googleLogin",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1886,6 +1926,16 @@
         "summary": "페이스북 로그인",
         "description": "Facebook(Meta) Limited Login id_token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser\u003dtrue.",
         "operationId": "facebookLogin",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1928,6 +1978,16 @@
         "summary": "애플 로그인",
         "description": "Apple Identity Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser\u003dtrue.",
         "operationId": "appleLogin",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
