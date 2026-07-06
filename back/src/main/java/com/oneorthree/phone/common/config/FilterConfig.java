@@ -1,6 +1,7 @@
 package com.oneorthree.phone.common.config;
 
 import com.oneorthree.phone.auth.service.JwtProvider;
+import com.oneorthree.phone.user.service.UserActivityService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -11,11 +12,12 @@ import org.springframework.context.annotation.Configuration;
 public class FilterConfig {
 
     private final JwtProvider jwtProvider;
+    private final UserActivityService userActivityService;
 
     @Bean
     public FilterRegistrationBean<JwtFilter> jwtFilter() {
         FilterRegistrationBean<JwtFilter> bean = new FilterRegistrationBean<>();
-        bean.setFilter(new JwtFilter(jwtProvider));
+        bean.setFilter(new JwtFilter(jwtProvider, userActivityService));
         bean.addUrlPatterns("/api/*");
         bean.setOrder(1);
         return bean;
