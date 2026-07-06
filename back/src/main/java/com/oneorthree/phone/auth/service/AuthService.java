@@ -108,7 +108,7 @@ public class AuthService {
             throw new IllegalArgumentException("지원하지 않는 소셜 로그인 제공자입니다: " + provider);
         }
         String providerId = client.getProviderId(token);
-        Optional<UUID> currentUserId = resolveCurrentUserId(authorizationHeader);
+        UUID currentUserId = resolveCurrentUserId(authorizationHeader);
 
         try {
             return self.loginOrRegister(provider, providerId, currentUserId);
@@ -124,15 +124,15 @@ public class AuthService {
      * 헤더가 없거나 Bearer 형식이 아니거나 토큰이 무효면 empty(=신규 가입 흐름). JwtFilter 를 바꾸지 않기 위해
      * 여기서만 optional 파싱한다 — 유효할 때만 파싱하므로 무효 토큰이 로그인 자체를 막지는 않는다.
      */
-    private Optional<UUID> resolveCurrentUserId(String authorizationHeader) {
+    private UUID resolveCurrentUserId(String authorizationHeader) {
         if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
-            return Optional.empty();
+            return null;
         }
         String token = authorizationHeader.substring(7);
         if (!jwtProvider.isTokenValid(token)) {
-            return Optional.empty();
+            return null;
         }
-        return Optional.of(jwtProvider.extractUserId(token));
+        return jwtProvider.extractUserId(token);
     }
 
     /**
@@ -145,7 +145,7 @@ public class AuthService {
      * currentUserId 가 없거나 게스트가 아니면 기존 동작(신규 소셜은 새 User 생성).
      */
     @Transactional
-    public SocialLoginResponse loginOrRegister(Provider provider, String providerId, Optional<UUID> currentUserId) {
+    public SocialLoginResponse loginOrRegister(Provider provider, String providerId, UUID currentUserId) {
         Optional<SocialAccount> socialAccount =
                 socialAccountRepository.findByProviderAndProviderId(provider, providerId);
 
@@ -155,10 +155,8 @@ public class AuthService {
         }
 
         // 현재 호출자가 게스트인 경우에만 업그레이드 분기 대상 (비게스트/미존재는 null → 기존 흐름)
-        User guestUser = currentUserId
-                .flatMap(userRepository::findById)
-                .filter(User::isGuest)
-                .orElse(null);
+        User guestUser = currentUserId == null ? null
+                : userRepository.findById(currentUserId).filter(User::isGuest).orElse(null);
 
         boolean isNewUser;
         User user;
