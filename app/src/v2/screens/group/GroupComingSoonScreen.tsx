@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -22,6 +22,10 @@ const FEATURES = ['그룹 만들기 · 참가', '함께 집중 · 그룹 랭킹'
 export default function GroupComingSoonScreen() {
   const insets = useSafeAreaInsets();
   const [requested, setRequested] = useState(false);
+  // 저장값 로드 완료 여부 — 로드 전 탭으로 이미 신청한 유저의 이벤트가 재발사되는 레이스를 막는다.
+  const [loaded, setLoaded] = useState(false);
+  // 최초 1회 발사 보장 — 로드 레이스·더블탭(리렌더 전 연속 탭) 모두 여기서 차단.
+  const firedRef = useRef(false);
 
   // 진입 계측 — 탭 포커스마다 1회(수요 측정 핵심).
   useFocusEffect(
@@ -30,26 +34,32 @@ export default function GroupComingSoonScreen() {
     }, []),
   );
 
-  // 저장된 '알림 받기' 신청 여부 조회 — 있으면 '신청 완료' 상태로 시작.
+  // 저장된 '알림 받기' 신청 여부 조회 — 있으면 '신청 완료' 상태로 시작. 로드가 끝나면 loaded=true.
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.groupNotifyRequested)
       .then((v) => {
-        if (v) setRequested(true);
+        if (v) {
+          firedRef.current = true; // 이미 신청함 → 재발사 금지
+          setRequested(true);
+        }
       })
       .catch(() => {
         // 조회 실패는 무시 — 기본(미신청) 상태로 진행.
-      });
+      })
+      .finally(() => setLoaded(true));
   }, []);
 
   // '출시되면 알림 받기' — 최초 1회만 이벤트 발사 + 로컬 저장(중복 방지).
+  // firedRef로 로드 전 탭·더블탭을 모두 차단해 중복 발사를 원천 봉쇄.
   const onNotify = useCallback(() => {
-    if (requested) return;
+    if (firedRef.current) return;
+    firedRef.current = true;
     logGroupNotifyRequested();
     setRequested(true);
     AsyncStorage.setItem(STORAGE_KEYS.groupNotifyRequested, '1').catch(() => {
       // 저장 실패해도 이번 세션은 '신청 완료'로 표시 — 이벤트는 이미 기록됨.
     });
-  }, [requested]);
+  }, []);
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
@@ -77,7 +87,7 @@ export default function GroupComingSoonScreen() {
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={onNotify}
-          disabled={requested}
+          disabled={requested || !loaded}
           style={[s.cta, requested ? s.ctaDone : null]}
         >
           <Text style={[s.ctaText, requested ? s.ctaDoneText : null]}>
