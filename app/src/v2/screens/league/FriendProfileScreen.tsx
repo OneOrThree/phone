@@ -32,7 +32,9 @@ import { fmtHourMin } from './format';
 import { heatmapRange } from '@/v2/screens/stats/format';
 import { MemberAvatar } from './components/MemberAvatar';
 import { DuoDayChart } from './components/DuoDayChart';
-import type { CompareByDay } from './mock';
+import { SubjectCompareCard } from './components/SubjectCompareCard';
+import { ComingSoon } from '@/v2/screens/stats/ComingSoon';
+import { TEASER_SUBJECTS, type CompareByDay } from './mock';
 
 // 프로필 상세 (GROMO-605 다른 사람 통계) — 실 API 연동.
 // 공개 프로필(getPublicProfile): 아바타·이름·친구 수·티어·전체 랭킹 → 항상 공개.
@@ -317,13 +319,11 @@ export default function FriendProfileScreen() {
                     opponentName={nickname}
                   />
                 </View>
-                {/* 과목별 비교 — 친구 by-category 대기(GROMO-624) → 준비 중 */}
-                <View style={[s.chartGap, s.subjectStub]}>
-                  <Text style={s.subjectStubTitle}>과목별 공부량 비교</Text>
-                  <View style={s.stubBadge}>
-                    <Text style={s.stubBadgeText}>준비 중</Text>
-                  </View>
-                  <Text style={s.subjectStubNote}>같은 과목 공부량 비교는 곧 제공돼요</Text>
+                {/* 과목별 비교 — 친구 by-category 대기(GROMO-624). 실카드 + 블러 티저 */}
+                <View style={s.chartGap}>
+                  <ComingSoon note="같은 과목 공부량 비교를 준비하고 있어요">
+                    <SubjectCompareCard subjects={TEASER_SUBJECTS} opponentName={nickname} />
+                  </ComingSoon>
                 </View>
               </>
             ) : (
@@ -490,28 +490,6 @@ const s = StyleSheet.create({
   examValue: { ...T.text.label, fontWeight: '700', color: T.ink },
 
   chartGap: { marginTop: 12 },
-
-  // 과목별 비교 준비 중
-  subjectStub: {
-    backgroundColor: T.white,
-    borderWidth: 1,
-    borderColor: T.paperAlt,
-    borderRadius: 16,
-    padding: 16,
-    gap: 8,
-  },
-  subjectStubTitle: { ...T.text.label, fontWeight: '700', color: T.ink },
-  subjectStubNote: { ...T.text.caption, color: T.inkMuted },
-  stubBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: T.noteBg,
-    borderWidth: 1,
-    borderColor: T.noteBorder,
-  },
-  stubBadgeText: { ...T.text.caption, color: T.accentDeep },
 
   // 상세 통계 잠금(비공개)
   lockCard: {

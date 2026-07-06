@@ -28,7 +28,7 @@
 2. **`?friends={uuid}` = 특정 친구(ACCEPTED) 1명 조회.** "친구 평균"이 아님. today·streak·focus·screen-time 4개 엔드포인트만 지원. `by-category`·`heatmap`은 미노출(→ BE 요청 GROMO-624).
 3. **데이터 페칭 = `useFocusEffect` + `Promise.all` + 개별 `.catch`.** React Query 미사용(리그 화면 패턴과 통일). 개별 호출 실패는 해당 항목만 null/[]로 격리하고 나머지는 렌더.
 4. **차트는 라이브러리 없이 View 기반.** 프로젝트에 차트 lib 없음(`react-native-svg`만 있음). 막대=정규화 높이 View, 잔디=색 버킷 View 그리드. `league/components/DuoDayChart.tsx` 패턴 재사용.
-5. **소스 없는 지표는 "준비 중" 스텁.** 디자인대로 자리만 잡고 라벨 표기. BE 붙으면 데이터만 연결.
+5. **소스 없는 지표는 "준비 중" 티저(오스카 결정: 텍스트만 있는 빈 스텁 금지).** **실그래프를 그려두고 블러 + "준비 중" 오버레이**(`stats/ComingSoon.tsx`, expo-blur — 비친구 프로필 잠금 티저와 같은 패턴). 적용: 604 ST1 비교·ST3 합격자·ST4 주별 누적, 집중 결과 오늘 비교(전체·카테고리), 605 과목별 비교(`SubjectCompareCard` 티저 재활용). 데이터 붙으면 블러만 걷어냄. 로딩·"친구 없음"(액션 유도)은 텍스트 유지.
 6. **화면 파일은 기존 경로 유지**(`v2/screens/StatsScreen.tsx`) — `RootNavigator`가 그 경로를 import하므로 네비 변경 없이 in-place 재작성. 보조 파일은 `v2/screens/stats/`.
 
 ### 605 공개 게이팅 (statVisibility)

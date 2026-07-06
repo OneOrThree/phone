@@ -18,6 +18,7 @@ import {
   logStatsTagFilterSelected,
 } from '@/services/analyticsEvents';
 import { useStatsData } from './stats/useStatsData';
+import { ComingSoon } from './stats/ComingSoon';
 import {
   hm,
   PERIOD_TABS,
@@ -136,11 +137,19 @@ export default function StatsScreen() {
             />
           </SectionCard>
 
-          {/* ST3 합격자 비교 (준비 중) */}
-          <StubCard title="합격자와 비교" note="합격자 데이터 준비 중이에요" />
+          {/* ST3 합격자 비교 — 실그래프 + 블러 티저(합격자 데이터 준비 중) */}
+          <SectionCard title="합격자와 비교" caption="과목별">
+            <ComingSoon note="합격자 데이터가 쌓이면 보여드릴게요">
+              <PasserCompareChart />
+            </ComingSoon>
+          </SectionCard>
 
-          {/* ST4 주별 누적 공부 비율 (준비 중) */}
-          <StubCard title="주별 누적 공부 비율" note="준비 중이에요" />
+          {/* ST4 주별 누적 공부 비율 — 실그래프 + 블러 티저 */}
+          <SectionCard title="주별 누적 공부 비율">
+            <ComingSoon note="주별 누적 비율을 준비하고 있어요">
+              <WeeklyCumulativeChart />
+            </ComingSoon>
+          </SectionCard>
 
           {/* ST5 포커스 집중시간 */}
           <SectionCard title="포커스 집중시간" caption={periodLabel(period)}>
@@ -239,30 +248,90 @@ function SectionCard({
   );
 }
 
-function StubCard({ title, note }: { title: string; note: string }) {
-  return (
-    <View style={[s.card, s.stubCard]}>
-      <Text style={s.cardTitle}>{title}</Text>
-      <View style={s.stubBadge}>
-        <Text style={s.stubBadgeText}>준비 중</Text>
-      </View>
-      <Text style={s.stubNote}>{note}</Text>
-    </View>
-  );
-}
-
-// ST1 비교 자리 — 소스(친구/전체/같은 카테고리) 붙기 전까지 셀렉터만 노출.
+// ST1 비교 자리 — 실그래프(나 vs 평균 수평 바) + 블러 티저. 소스 붙으면 블러만 걷어낸다.
 function CompareStub() {
   return (
     <View style={s.compare}>
       <View style={s.compareChips}>
-        {['친구', '전체', '같은 카테고리'].map((c) => (
-          <View key={c} style={s.compareChip}>
-            <Text style={s.compareChipText}>{c}</Text>
+        {['친구', '전체', '같은 카테고리'].map((c, i) => (
+          <View key={c} style={[s.compareChip, i === 1 ? s.compareChipOn : null]}>
+            <Text style={[s.compareChipText, i === 1 ? s.compareChipTextOn : null]}>{c}</Text>
           </View>
         ))}
       </View>
-      <Text style={s.compareNote}>비교 준비 중이에요</Text>
+      <ComingSoon note="비교 데이터를 준비하고 있어요">
+        <View style={s.teaserPad}>
+          <View style={s.teaserRowHead}>
+            <Text style={s.teaserLabelMine}>나</Text>
+            <Text style={s.teaserValueMine}>22시간</Text>
+          </View>
+          <View style={s.teaserTrack}>
+            <View style={[s.teaserFill, { width: '86%', backgroundColor: T.accent }]} />
+          </View>
+          <View style={[s.teaserRowHead, s.teaserRowGap]}>
+            <Text style={s.teaserLabel}>전체 평균</Text>
+            <Text style={s.teaserValue}>16시간</Text>
+          </View>
+          <View style={s.teaserTrack}>
+            <View style={[s.teaserFill, { width: '62%', backgroundColor: '#D8C8AC' }]} />
+          </View>
+        </View>
+      </ComingSoon>
+    </View>
+  );
+}
+
+// ST3 티저 — 과목별 나 vs 합격자 이중 수평 바(시안 레이아웃). 데이터는 표시용 고정값.
+const PASSER_ROWS = [
+  { name: '노동법', mine: 78, passer: 92 },
+  { name: '행정쟁송법', mine: 55, passer: 70 },
+  { name: '사회보험법', mine: 40, passer: 62 },
+];
+
+function PasserCompareChart() {
+  return (
+    <View style={s.teaserPad}>
+      {PASSER_ROWS.map((r, i) => (
+        <View key={r.name} style={i > 0 ? s.teaserRowGap : null}>
+          <View style={s.teaserRowHead}>
+            <Text style={s.teaserLabel}>{r.name}</Text>
+          </View>
+          <View style={s.teaserTrack}>
+            <View style={[s.teaserFill, { width: `${r.mine}%`, backgroundColor: T.accent }]} />
+          </View>
+          <View style={[s.teaserTrack, s.teaserTrackGap]}>
+            <View style={[s.teaserFill, { width: `${r.passer}%`, backgroundColor: '#9A6FB0' }]} />
+          </View>
+        </View>
+      ))}
+      <View style={s.teaserLegend}>
+        <View style={s.teaserLegendItem}>
+          <View style={[s.teaserDot, { backgroundColor: T.accent }]} />
+          <Text style={s.teaserLegendText}>나</Text>
+        </View>
+        <View style={s.teaserLegendItem}>
+          <View style={[s.teaserDot, { backgroundColor: '#9A6FB0' }]} />
+          <Text style={s.teaserLegendText}>합격자 평균</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ST4 티저 — 1주~4주 누적 상승 막대(시안 레이아웃). 데이터는 표시용 고정값.
+const CUMULATIVE = [28, 52, 74, 100];
+
+function WeeklyCumulativeChart() {
+  return (
+    <View style={[s.teaserPad, s.teaserBars]}>
+      {CUMULATIVE.map((v, i) => (
+        <View key={i} style={s.teaserBarCol}>
+          <View style={s.teaserBarTrack}>
+            <View style={[s.teaserBar, { height: `${v}%` }]} />
+          </View>
+          <Text style={s.teaserLegendText}>{i + 1}주</Text>
+        </View>
+      ))}
     </View>
   );
 }
@@ -484,6 +553,26 @@ const s = StyleSheet.create({
 
   // ST1 비교 스텁
   compare: { marginTop: 14, gap: 8 },
+  // 준비 중 티저 공용(가짜 차트) 스타일
+  teaserPad: { paddingVertical: 4 },
+  teaserRowHead: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
+  teaserRowGap: { marginTop: 12 },
+  teaserLabelMine: { ...T.text.caption, fontWeight: '700', color: T.ink },
+  teaserValueMine: { ...T.text.caption, fontWeight: '800', color: T.accent },
+  teaserLabel: { ...T.text.caption, fontWeight: '600', color: T.inkSub },
+  teaserValue: { ...T.text.caption, fontWeight: '700', color: T.inkSub },
+  teaserTrack: { height: 10, borderRadius: 5, backgroundColor: T.sandLight, overflow: 'hidden' },
+  teaserTrackGap: { marginTop: 4 },
+  teaserFill: { height: 10, borderRadius: 5 },
+  teaserLegend: { flexDirection: 'row', gap: 14, marginTop: 12 },
+  teaserLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  teaserDot: { width: 9, height: 9, borderRadius: 2 },
+  teaserLegendText: { ...T.text.caption, fontSize: 11, color: T.inkSub },
+  teaserBars: { flexDirection: 'row', alignItems: 'flex-end', gap: 14, height: 120 },
+  teaserBarCol: { flex: 1, alignItems: 'center', gap: 6 },
+  teaserBarTrack: { flex: 1, width: 26, justifyContent: 'flex-end' },
+  teaserBar: { width: 26, borderRadius: 7, backgroundColor: T.greenDeep, opacity: 0.85 },
+
   compareChips: { flexDirection: 'row', gap: 8 },
   compareChip: {
     paddingHorizontal: 12,
@@ -492,6 +581,8 @@ const s = StyleSheet.create({
     backgroundColor: T.sandLight,
   },
   compareChipText: { ...T.text.caption, color: T.inkMuted },
+  compareChipOn: { backgroundColor: T.accent },
+  compareChipTextOn: { color: T.white, fontWeight: '700' },
   compareNote: { ...T.text.caption, color: T.inkFaint },
 
   // 준비중 스텁 카드

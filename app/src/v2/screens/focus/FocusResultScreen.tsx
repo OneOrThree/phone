@@ -20,6 +20,7 @@ import { useSubjects } from '@/store/SubjectContext';
 import { hm } from '@/v2/screens/stats/format';
 import { hms } from './format';
 import { fetchFriendsAverage } from '@/v2/screens/stats/compareAverages';
+import { ComingSoon } from '@/v2/screens/stats/ComingSoon';
 
 // 집중 결과 화면 — Claude Design Gromo.dc.html 14번(첫 집중 완료) 레이아웃 기준.
 // GROMO-598: 화면·진입·이번 집중(00:00:00)·과목별 누적(로컬 SubjectContext — 방금 세션 즉시 반영)·CTA. 코인 미표기.
@@ -346,8 +347,35 @@ function CompareCard({
               : `${cur.label}까지 ${hm(Math.abs(delta))} 남았어요. 오늘도 한 걸음!`}
           </Text>
         </>
-      ) : (
+      ) : cur.loading || axis === 'friends' ? (
+        // 로딩·친구 없음(액션 유도)은 텍스트 안내
         <Text style={s.cmpCaption}>{cur.loading ? '불러오는 중…' : cur.empty}</Text>
+      ) : (
+        // 준비 중(전체·같은 카테고리) — 실그래프 + 블러 티저
+        <View style={s.cmpTeaserGap}>
+          <ComingSoon note={cur.empty}>
+            <View>
+              <View style={s.cmpBlock}>
+                <View style={s.rowBetween}>
+                  <Text style={s.cmpLabelMine}>나</Text>
+                  <Text style={s.cmpValueMine}>1시간 30분</Text>
+                </View>
+                <View style={s.cmpTrack}>
+                  <View style={[s.cmpFill, s.cmpTeaserMine]} />
+                </View>
+              </View>
+              <View style={s.cmpBlock}>
+                <View style={s.rowBetween}>
+                  <Text style={s.cmpLabel}>{cur.label}</Text>
+                  <Text style={s.cmpValue}>1시간 2분</Text>
+                </View>
+                <View style={s.cmpTrack}>
+                  <View style={[s.cmpFill, s.cmpTeaserAvg]} />
+                </View>
+              </View>
+            </View>
+          </ComingSoon>
+        </View>
       )}
     </View>
   );
@@ -480,6 +508,10 @@ const s = StyleSheet.create({
   cmpTrack: { height: 10, borderRadius: 5, backgroundColor: '#EFE7D8', overflow: 'hidden' },
   cmpFill: { height: 10, borderRadius: 5 },
   cmpCaption: { ...T.text.caption, fontWeight: '500', color: T.link, marginTop: 10 },
+  // 준비 중 티저(가짜 비교 바) — 블러 아래 깔리는 표시용 고정값
+  cmpTeaserGap: { marginTop: 8 },
+  cmpTeaserMine: { width: '82%', backgroundColor: T.accent },
+  cmpTeaserAvg: { width: '58%', backgroundColor: '#D8C8AC' },
 
   // 하단 CTA
   footer: {
