@@ -3,6 +3,9 @@ package com.oneorthree.phone.stats.service;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusTag;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.friend.domain.Friendship;
+import com.oneorthree.phone.friend.exception.FriendException;
+import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
@@ -44,8 +47,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class StatsServiceTest {
@@ -67,8 +72,11 @@ class StatsServiceTest {
     private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private FriendshipRepository friendshipRepository;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID FRIEND_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
     // ── getHeatmap ────────────────────────────────────────────────────────
 
@@ -944,5 +952,75 @@ class StatsServiceTest {
 
         LocalDate expectedFirstDay = LocalDate.of(2026, 7, 1);
         assertThat(fromCaptor.getValue()).isEqualTo(expectedFirstDay.atStartOfDay(ZoneOffset.UTC).toInstant());
+    }
+
+    // ── resolveTargetUserId (친구 통계 대상 결정, GROMO-608) ────────────────
+
+    @Test
+    @DisplayName("대상 결정 — friends null → 호출자 self 반환, 친구/유저 조회 없음")
+    void resolveTargetUserIdSelf() {
+        UUID target = statsService.resolveTargetUserId(USER_ID, null);
+
+        assertThat(target).isEqualTo(USER_ID);
+        verifyNoInteractions(friendshipRepository);
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    @DisplayName("대상 결정 — friends 가 호출자 자신 id → 친구 검증 없이 self 반환 (NOT_FRIEND 404 오인 방지)")
+    void resolveTargetUserIdSelfViaFriendsParam() {
+        UUID target = statsService.resolveTargetUserId(USER_ID, USER_ID);
+
+        assertThat(target).isEqualTo(USER_ID);
+        verifyNoInteractions(friendshipRepository);
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    @DisplayName("대상 결정 — friends 지정 + ACCEPTED 친구관계 → 대상 friends 반환")
+    void resolveTargetUserIdFriend() {
+        User caller = User.builder().id(USER_ID).build();
+        User friend = User.builder().id(FRIEND_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
+        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.of(friend));
+        given(friendshipRepository.findAcceptedBetween(caller, friend))
+                .willReturn(Optional.of(mock(Friendship.class)));
+
+        UUID target = statsService.resolveTargetUserId(USER_ID, FRIEND_ID);
+
+        assertThat(target).isEqualTo(FRIEND_ID);
+    }
+
+    @Test
+    @DisplayName("대상 결정 — friends 지정 + 친구관계 아님 → FriendException(NOT_FRIEND)")
+    void resolveTargetUserIdNotFriend() {
+        User caller = User.builder().id(USER_ID).build();
+        User friend = User.builder().id(FRIEND_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
+        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.of(friend));
+        given(friendshipRepository.findAcceptedBetween(caller, friend)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> statsService.resolveTargetUserId(USER_ID, FRIEND_ID))
+                .isInstanceOf(FriendException.class);
+    }
+
+    @Test
+    @DisplayName("대상 결정 — friends 지정 + 대상 유저 미존재 → UserException(NOT_FOUND)")
+    void resolveTargetUserIdTargetNotFound() {
+        User caller = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
+        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> statsService.resolveTargetUserId(USER_ID, FRIEND_ID))
+                .isInstanceOf(UserException.class);
+    }
+
+    @Test
+    @DisplayName("대상 결정 — friends 지정 + 호출자 미존재 → UserException(NOT_FOUND)")
+    void resolveTargetUserIdCallerNotFound() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> statsService.resolveTargetUserId(USER_ID, FRIEND_ID))
+                .isInstanceOf(UserException.class);
     }
 }
