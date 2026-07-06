@@ -8,9 +8,7 @@ import type {
   LeagueRankResponse,
   LeagueScheduleResponse,
 } from '@/types/api';
-
-// 카테고리 랭킹의 category 값은 서버 Occupation enum 이름(예: 'LABOR_ATTORNEY').
-type OccupationCategory = string;
+import type { Occupation } from '@/types/dto/user';
 
 // GET /api/v1/league/me/tier — 내 현재 리그·티어 조회.
 export async function getMyTier(): Promise<LeagueTierResponse> {
@@ -19,7 +17,8 @@ export async function getMyTier(): Promise<LeagueTierResponse> {
 }
 
 // GET /api/v1/league/me/ranking?category — 티어 멤버 랭킹. category 미지정: 내 아레나 멤버, 지정: 같은 직군 전역 상위 100명.
-export async function getMyRanking(category?: OccupationCategory): Promise<LeagueMemberResponse[]> {
+// category 값은 서버 Occupation enum 이름(예: 'LABOR_ATTORNEY').
+export async function getMyRanking(category?: Occupation): Promise<LeagueMemberResponse[]> {
   const { data } = await api.get<LeagueMemberResponse[]>('/api/v1/league/me/ranking', {
     params: { category },
   });
