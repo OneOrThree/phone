@@ -31,6 +31,10 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // 진행 중(미종료) 세션 — 핀 친구 isFocusing 판정용. endedAt IS NULL.
     List<FocusSession> findByUserInAndEndedAtIsNull(Collection<User> users);
 
+    // orphan 정리용(GROMO-610) — 앱 강제종료 등으로 threshold 이전에 시작됐으나 아직 미종료인 세션.
+    // 스케줄러가 조회해 시작+상한으로 종료시각을 채워 '영원히 집중중' 오염을 제거한다.
+    List<FocusSession> findByEndedAtIsNullAndStartedAtBefore(Instant threshold);
+
     // 기간 내 완료 세션 집계용 전체 조회 — 카테고리별 집중 통계(GROMO-524).
     // endedAt 기준 귀속, 진행 중·소프트딜리트 세션 제외, focusTag LEFT JOIN FETCH 로 N+1 방지.
     @Query("SELECT s FROM FocusSession s LEFT JOIN FETCH s.focusTag "
@@ -46,4 +50,12 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     @Modifying
     @Query("UPDATE FocusSession f SET f.user = null WHERE f.user.id = :userId")
     void nullifyUser(@Param("userId") UUID userId);
+
+    // 원자적 조건부 종료(GROMO-610) — 진행 중(endedAt IS NULL)인 경우에만 종료 시각을 채운다.
+    // 반환값(영향 row 수)이 1이면 이 요청이 종료를 성사시킨 것이고, 0이면 이미 종료됨(동시/중복 PATCH).
+    // DB 단일 UPDATE 로 read-modify-write 를 원자화해 endFocusSession 의 TOCTOU 이중 완료(통계 이중 누적)를 차단한다.
+    @Modifying
+    @Query("UPDATE FocusSession s SET s.endedAt = :endedAt "
+            + "WHERE s.id = :id AND s.endedAt IS NULL")
+    int endSessionIfActive(@Param("id") UUID id, @Param("endedAt") Instant endedAt);
 }

@@ -1,7 +1,11 @@
 package com.oneorthree.phone.focus.api;
 
+import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
+import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
+import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
+import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
 import com.oneorthree.phone.focus.dto.FocusTagResponse;
 import com.oneorthree.phone.focus.dto.FocusTagSetupRequest;
 import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
@@ -11,6 +15,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -105,6 +110,43 @@ public class FocusController {
         UUID userId = (UUID) request.getAttribute("userId");
         focusService.saveFocusSession(userId, body);
         return ResponseEntity.status(HttpStatus.CREATED).build();
+    }
+
+    @Operation(summary = "Focus Session 시작(라이브)",
+            description = "startedAt 만 기록한 진행 중(endedAt NULL) 세션을 생성한다. 생성 세션 id 를 반환해 "
+                    + "이후 PATCH /focus-session 으로 종료할 때 참조한다. 통계·스트릭은 종료 시점에 귀속.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "201", description = "시작 성공"),
+        @ApiResponse(responseCode = "401", description = "인증 필요"),
+        @ApiResponse(responseCode = "403", description = "타인 태그 지정"),
+        @ApiResponse(responseCode = "404", description = "유저·태그 없음")
+    })
+    @PostMapping("/focus-session/start")
+    public ResponseEntity<FocusSessionStartResponse> startFocusSession(
+            HttpServletRequest request,
+            @RequestBody FocusSessionStartRequest body) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        FocusSessionStartResponse response = focusService.startFocusSession(userId, body);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @Operation(summary = "Focus Session 종료(라이브)",
+            description = "진행 중(endedAt NULL) 세션에 종료 시각을 채워 완료 처리한다. endedAt 생략 시 서버 수신 시각. "
+                    + "완료 시점에 통계·스트릭이 귀속된다. 이미 종료된 세션 재요청은 409.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "종료 성공"),
+        @ApiResponse(responseCode = "400", description = "sessionId 누락·endedAt < startedAt"),
+        @ApiResponse(responseCode = "401", description = "인증 필요"),
+        @ApiResponse(responseCode = "403", description = "세션·태그 소유자 불일치"),
+        @ApiResponse(responseCode = "404", description = "유저·세션 없음"),
+        @ApiResponse(responseCode = "409", description = "이미 종료된 세션")
+    })
+    @PatchMapping("/focus-session")
+    public ResponseEntity<FocusSessionEndResponse> endFocusSession(
+            HttpServletRequest request,
+            @Valid @RequestBody FocusSessionEndRequest body) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(focusService.endFocusSession(userId, body));
     }
 
     @Operation(summary = "Focus Session 조회",
