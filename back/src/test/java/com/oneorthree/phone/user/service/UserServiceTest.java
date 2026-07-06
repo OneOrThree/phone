@@ -422,9 +422,9 @@ class UserServiceTest {
     @Test
     @DisplayName("occupation 저장 - 비활성(soft-deleted) occupation → UserException(OCCUPATION_NOT_AVAILABLE) (GROMO-626 Codex P2)")
     void updateOccupationInactiveRejected() {
-        given(occupationInfoRepository.existsByCodeAndDeletedAtIsNull(Occupation.LAWYER)).willReturn(false);
+        given(occupationInfoRepository.existsByCodeAndDeletedAtIsNull(Occupation.ETC)).willReturn(false);
 
-        assertThatThrownBy(() -> userService.updateOccupation(USER_ID, Occupation.LAWYER))
+        assertThatThrownBy(() -> userService.updateOccupation(USER_ID, Occupation.ETC))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.OCCUPATION_NOT_AVAILABLE);

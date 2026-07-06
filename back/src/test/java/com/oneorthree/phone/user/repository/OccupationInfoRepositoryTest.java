@@ -26,20 +26,20 @@ class OccupationInfoRepositoryTest extends RepositoryTestBase {
     @Test
     @DisplayName("findAllByDeletedAtIsNullOrderBySortOrderAsc — 삭제 제외, sort_order 오름차순")
     void findsActiveOrderedBySortOrder() {
-        // given: 삽입 순서를 뒤섞고, LAWYER 는 소프트 딜리트
+        // given: 삽입 순서를 뒤섞고, PATENT_ATTORNEY 는 소프트 딜리트
         occupationInfoRepository.save(OccupationInfo.builder()
                 .code(Occupation.UNIVERSITY).displayName("대학생").sortOrder(1).build());
         occupationInfoRepository.save(OccupationInfo.builder()
                 .code(Occupation.MIDDLE_SCHOOL).displayName("중학생").sortOrder(0).build());
         occupationInfoRepository.save(OccupationInfo.builder()
-                .code(Occupation.LAWYER).displayName("변호사").sortOrder(4)
+                .code(Occupation.PATENT_ATTORNEY).displayName("변리사").sortOrder(4)
                 .deletedAt(Instant.now()).build());
         occupationInfoRepository.flush();
 
         // when
         List<OccupationInfo> result = occupationInfoRepository.findAllByDeletedAtIsNullOrderBySortOrderAsc();
 
-        // then: 삭제된 LAWYER 제외, sort_order 오름차순(중학생→대학생), enum @Id 왕복 확인
+        // then: 삭제된 PATENT_ATTORNEY 제외, sort_order 오름차순(중학생→대학생), enum @Id 왕복 확인
         assertThat(result).extracting(OccupationInfo::getCode)
                 .containsExactly(Occupation.MIDDLE_SCHOOL, Occupation.UNIVERSITY);
         assertThat(result).extracting(OccupationInfo::getDisplayName)
