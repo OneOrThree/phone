@@ -250,6 +250,16 @@ export function logGroupInviteShared(): void {
   track('group_invite_shared');
 }
 
+// ── 그룹 Fakedoor [C] ── (GROMO-597)
+// 실기능 미구현 준비중 화면의 수요 측정. 기존 group_viewed와 분리 —
+// 미래에 실제 그룹 기능이 켜지면 group_viewed가 실조회를 뜻하게 되므로 지표 오염을 막는다.
+export function logGroupFakedoorViewed(): void {
+  track('group_fakedoor_viewed'); // 그룹 탭 진입(수요 측정 핵심)
+}
+export function logGroupNotifyRequested(): void {
+  track('group_notify_requested'); // '출시되면 알림 받기' 탭(강한 수요 신호)
+}
+
 // ── 챌린지(Challenge) [C] ── (event-logging-design.md §5.E)
 // created/joined/completed/deleted 등 확정 이벤트는 서버([S]) 소유 — 진입만 클라.
 export function logChallengeCreateStarted(): void {

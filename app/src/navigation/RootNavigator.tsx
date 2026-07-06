@@ -1,8 +1,6 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, Text, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import HomeScreen from '@/v2/screens/HomeScreen';
 import StatsScreen from '@/v2/screens/StatsScreen';
 import MenuScreen from '@/v2/screens/MenuScreen';
@@ -10,6 +8,7 @@ import UsageDetailScreen from '@/v2/screens/UsageDetailScreen';
 import FocusCategoryScreen from '@/v2/screens/focus/FocusCategoryScreen';
 import FocusSessionScreen from '@/v2/screens/focus/FocusSessionScreen';
 import FocusResultScreen from '@/v2/screens/focus/FocusResultScreen';
+import GroupComingSoonScreen from '@/v2/screens/group/GroupComingSoonScreen';
 import {
   LeagueScreen,
   FriendAddScreen,
@@ -30,13 +29,12 @@ import {
   VersionInfoScreen,
 } from '@/v2/screens/settings';
 import { TabBar } from '@/components/TabBar';
-import { T } from '@/constants/theme';
 import { initAnalytics } from '@/services/analytics';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { navigationRef, flushPendingDeepLink } from '@/navigation/navigationRef';
 
 // 메인 네비게이터 — 시안 "메인 4탭 + 중앙 FAB" 구조.
-// 그룹 탭만 placeholder(별도 티켓), 나머지는 구현 완료. 데이터 층은 @/store 공유.
+// 그룹 탭은 준비중(Fakedoor) 화면(GROMO-597), 나머지는 구현 완료. 데이터 층은 @/store 공유.
 type TabParamList = {
   홈: undefined;
   리그: undefined;
@@ -47,25 +45,13 @@ type TabParamList = {
 const Tab = createBottomTabNavigator<TabParamList>();
 const Stack = createNativeStackNavigator<V2RootStackParamList>();
 
-// 미구현 탭 placeholder
-function Placeholder({ title }: { title: string }) {
-  return (
-    <SafeAreaView style={ph.root} edges={['top']}>
-      <View style={ph.center}>
-        <Text style={ph.title}>{title}</Text>
-        <Text style={ph.sub}>준비 중</Text>
-      </View>
-    </SafeAreaView>
-  );
-}
-
 // 4탭 + 중앙 FAB
 function MainTabs() {
   return (
     <Tab.Navigator screenOptions={{ headerShown: false }} tabBar={(props) => <TabBar {...props} />}>
       <Tab.Screen name="홈" component={HomeScreen} />
       <Tab.Screen name="리그" component={LeagueScreen} />
-      <Tab.Screen name="그룹">{() => <Placeholder title="그룹" />}</Tab.Screen>
+      <Tab.Screen name="그룹" component={GroupComingSoonScreen} />
       <Tab.Screen name="전체" component={MenuScreen} />
     </Tab.Navigator>
   );
@@ -123,10 +109,3 @@ export function RootNavigator() {
     </NavigationContainer>
   );
 }
-
-const ph = StyleSheet.create({
-  root: { flex: 1, backgroundColor: T.paperLight },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6 },
-  title: { ...T.text.title, color: T.ink },
-  sub: { ...T.text.label, color: T.inkSub },
-});

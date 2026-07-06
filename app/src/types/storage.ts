@@ -25,6 +25,7 @@ export const STORAGE_KEYS = {
   selectionConfigured: 'gromo:selection:configured',
   selectionCounts: 'gromo:selection:counts',
   selectionPendingCounts: 'gromo:selection:pendingCounts',
+  groupNotifyRequested: 'gromo:group:notifyRequested', // 그룹 fakedoor '알림 받기' 신청 여부(중복 방지)
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];
