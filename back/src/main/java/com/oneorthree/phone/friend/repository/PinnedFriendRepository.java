@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public interface PinnedFriendRepository extends JpaRepository<PinnedFriend, UUID> {
@@ -29,4 +30,8 @@ public interface PinnedFriendRepository extends JpaRepository<PinnedFriend, UUID
     // 내가 핀한 친구 전체 (조회 / getFriends isPinned 배선). friendUser fetch로 N+1 방지.
     @EntityGraph(attributePaths = "friendUser")
     List<PinnedFriend> findByUser(User user);
+
+    // 내가 핀한 유저 id 집합 — 리그 랭킹 isPinned 후조인용(user 핀 통일, GROMO-609). 소수라 1쿼리로 충분.
+    @Query("select p.friendUser.id from PinnedFriend p where p.user.id = :userId")
+    Set<UUID> findFriendUserIdsByUserId(@Param("userId") UUID userId);
 }

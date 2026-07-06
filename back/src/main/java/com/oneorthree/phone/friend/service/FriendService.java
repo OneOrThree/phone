@@ -168,13 +168,14 @@ public class FriendService {
                 .toList();
     }
 
-    // 친구 핀 설정 — ACCEPTED 검증 후 멱등 insert. 이미 핀돼 있으면 no-op(204).
+    // 유저 핀 설정 — 친구 아닌 임의 유저도 핀 가능(user 핀 통일, GROMO-609). 대상 존재만 검증 후 멱등 insert.
     @Transactional
     public void pinFriend(UUID me, UUID friendUserId) {
-        User meUser = getUser(me);
-        User friendUser = getUser(friendUserId);
-        friendshipRepository.findAcceptedBetween(meUser, friendUser)
-                .orElseThrow(() -> new FriendException(FriendErrorCode.NOT_FRIEND));
+        if (me.equals(friendUserId)) {
+            throw new FriendException(FriendErrorCode.SELF_PIN);
+        }
+        getUser(me);           // 나(me) 존재 검증 — 없으면 FK 위반 500 대신 UserErrorCode.NOT_FOUND(404)
+        getUser(friendUserId); // 대상 유저 존재 검증(없으면 UserErrorCode.NOT_FOUND)
         // ON CONFLICT DO NOTHING — 동시 핀 요청에도 멱등(중복은 무시), 500 없음.
         pinnedFriendRepository.insertIgnoreConflict(UUID_V7.generate(), me, friendUserId);
     }

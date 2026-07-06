@@ -7,6 +7,7 @@ public record LeagueMemberResponse(
         UUID userId,
         String nickname,
         int totalFocusMinutes,
-        String result
+        String result,
+        boolean isPinned
 ) {
 }

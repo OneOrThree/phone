@@ -2,6 +2,7 @@ package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.friend.repository.PinnedFriendRepository;
 import com.oneorthree.phone.league.domain.LeagueArena;
 import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
@@ -30,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -45,6 +47,7 @@ public class LeagueService {
     private final LeagueArenaUserRepository leagueArenaUserRepository;
     private final LeagueTierConfigRepository leagueTierConfigRepository;
     private final UserActivityEventLogger userActivityEventLogger;
+    private final PinnedFriendRepository pinnedFriendRepository;
 
     public LeagueTierResponse getMyTier(UUID userId) {
         return findActiveMembership(userId)
@@ -67,14 +70,18 @@ public class LeagueService {
      * category 미지정 시: 내 ACTIVE 아레나 멤버 랭킹(기존 동작).
      */
     public List<LeagueMemberResponse> getMyRanking(UUID userId, Occupation category) {
+        // 핀 조회(조회자 me가 핀한 유저 집합)는 실제 반환할 멤버가 있을 때만 수행 —
+        // 빈-멤버십 조기반환(List.of()) 경로에서 불필요한 쿼리를 태우지 않는다.
+        // 랭킹 각 멤버 isPinned 후조인(user 핀 통일, GROMO-609).
         if (category != null) {
             List<LeagueArenaUser> ranked = leagueArenaUserRepository
                     .findRankedByActiveArenasAndOccupation(category, PageRequest.of(0, 100));
-            return toResponses(ranked);
+            return toResponses(ranked, pinnedFriendRepository.findFriendUserIdsByUserId(userId));
         }
         return findActiveMembership(userId)
                 .map(member -> toResponses(
-                        leagueArenaUserRepository.findRankedByArena(member.getLeagueArena())))
+                        leagueArenaUserRepository.findRankedByArena(member.getLeagueArena()),
+                        pinnedFriendRepository.findFriendUserIdsByUserId(userId)))
                 .orElseGet(List::of);
     }
 
@@ -93,19 +100,22 @@ public class LeagueService {
         int clamped = Math.max(1, Math.min(limit, MAX_RANKING_LIMIT));
         List<LeagueArenaUser> ranked = leagueArenaUserRepository
                 .findRankedByActiveArenas(PageRequest.of(0, clamped));
-        return toResponses(ranked);
+        // 전역 랭킹은 per-caller 핀 없음, 후속 개선 여지 — isPinned=false (빈 핀 집합)
+        return toResponses(ranked, Set.of());
     }
 
-    private List<LeagueMemberResponse> toResponses(List<LeagueArenaUser> ranked) {
+    private List<LeagueMemberResponse> toResponses(List<LeagueArenaUser> ranked, Set<UUID> pinnedIds) {
         List<LeagueMemberResponse> responses = new ArrayList<>();
         for (int i = 0; i < ranked.size(); i++) {
             LeagueArenaUser m = ranked.get(i);
+            UUID memberId = m.getUser().getId();
             responses.add(new LeagueMemberResponse(
                     i + 1,
-                    m.getUser().getId(),
+                    memberId,
                     m.getUser().getNickname(),
                     m.getTotalFocusMinutes(),
-                    resultName(m)));
+                    resultName(m),
+                    pinnedIds.contains(memberId)));
         }
         return responses;
     }

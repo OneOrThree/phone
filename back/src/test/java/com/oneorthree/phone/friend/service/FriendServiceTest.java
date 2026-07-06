@@ -436,29 +436,24 @@ class FriendServiceTest {
     // ── pin / unpin / getPinned ────────────────────────────
 
     @Test
-    @DisplayName("핀 설정 — ACCEPTED 친구면 ON CONFLICT insert 호출(멱등은 DB가 보장)")
-    void pinFriend_success_inserts() {
+    @DisplayName("핀 설정 — 대상이 존재하면 친구 아니어도 ON CONFLICT insert 호출(user 핀 통일)")
+    void pinFriend_nonFriendTarget_inserts() {
         given(userRepository.findById(meId)).willReturn(Optional.of(me));
         given(userRepository.findById(targetId)).willReturn(Optional.of(target));
-        given(friendshipRepository.findAcceptedBetween(me, target))
-                .willReturn(Optional.of(friendship(me, target, FriendshipStatus.ACCEPTED)));
 
         friendService.pinFriend(meId, targetId);
 
+        // 친구관계(findAcceptedBetween) 검증 없이 바로 insert — user 핀 통일
         verify(pinnedFriendRepository).insertIgnoreConflict(any(), eq(meId), eq(targetId));
     }
 
     @Test
-    @DisplayName("핀 설정 — 친구 관계 아니면 FriendException(NOT_FRIEND), insert 미호출")
-    void pinFriend_notFriend_throws() {
-        given(userRepository.findById(meId)).willReturn(Optional.of(me));
-        given(userRepository.findById(targetId)).willReturn(Optional.of(target));
-        given(friendshipRepository.findAcceptedBetween(me, target)).willReturn(Optional.empty());
-
-        assertThatThrownBy(() -> friendService.pinFriend(meId, targetId))
+    @DisplayName("핀 설정 — 자기 자신은 FriendException(SELF_PIN), insert 미호출")
+    void pinFriend_self_throws() {
+        assertThatThrownBy(() -> friendService.pinFriend(meId, meId))
                 .isInstanceOf(FriendException.class)
                 .extracting("errorCode")
-                .isEqualTo(FriendErrorCode.NOT_FRIEND);
+                .isEqualTo(FriendErrorCode.SELF_PIN);
         verify(pinnedFriendRepository, never()).insertIgnoreConflict(any(), any(), any());
     }
 
