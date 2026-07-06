@@ -24,20 +24,20 @@ class OccupationDefaultTagRepositoryTest extends RepositoryTestBase {
     @Test
     @DisplayName("findByOccupationOrderBySortOrderAsc — 지정 occupation 만, sort_order 오름차순")
     void findsByOccupationOrderedBySortOrder() {
-        // given: UNIVERSITY 태그 2건(삽입 순서 뒤섞음) + 타 occupation(LAWYER) 1건
+        // given: UNIVERSITY 태그 2건(삽입 순서 뒤섞음) + 타 occupation(LABOR_ATTORNEY) 1건
         occupationDefaultTagRepository.save(OccupationDefaultTag.builder()
                 .occupation(Occupation.UNIVERSITY).name("과제").sortOrder(1).build());
         occupationDefaultTagRepository.save(OccupationDefaultTag.builder()
                 .occupation(Occupation.UNIVERSITY).name("전공 공부").sortOrder(0).build());
         occupationDefaultTagRepository.save(OccupationDefaultTag.builder()
-                .occupation(Occupation.LAWYER).name("민법").sortOrder(0).build());
+                .occupation(Occupation.LABOR_ATTORNEY).name("민법").sortOrder(0).build());
         occupationDefaultTagRepository.flush();
 
         // when
         List<OccupationDefaultTag> result =
                 occupationDefaultTagRepository.findByOccupationOrderBySortOrderAsc(Occupation.UNIVERSITY);
 
-        // then: UNIVERSITY 2건만, sort_order 오름차순(전공 공부→과제), LAWYER 는 제외
+        // then: UNIVERSITY 2건만, sort_order 오름차순(전공 공부→과제), LABOR_ATTORNEY 는 제외
         assertThat(result).extracting(OccupationDefaultTag::getName)
                 .containsExactly("전공 공부", "과제");
     }

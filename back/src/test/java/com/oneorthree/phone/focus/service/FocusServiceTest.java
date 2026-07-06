@@ -162,18 +162,18 @@ class FocusServiceTest {
     @Test
     @DisplayName("기본 태그 조회(occupation 미지정) → 유저 저장 occupation 사용")
     void getDefaultTagsFallbackToUserOccupation() {
-        // given: 파라미터 null → 유저의 저장 occupation(LAWYER) 사용
-        User user = User.builder().id(USER_ID).occupation(Occupation.LAWYER).build();
+        // given: 파라미터 null → 유저의 저장 occupation(LABOR_ATTORNEY) 사용
+        User user = User.builder().id(USER_ID).occupation(Occupation.LABOR_ATTORNEY).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(occupationDefaultTagRepository.findByOccupationOrderBySortOrderAsc(Occupation.LAWYER))
+        given(occupationDefaultTagRepository.findByOccupationOrderBySortOrderAsc(Occupation.LABOR_ATTORNEY))
                 .willReturn(List.of(
-                        OccupationDefaultTag.builder().occupation(Occupation.LAWYER).name("민법").sortOrder(0).build()));
+                        OccupationDefaultTag.builder().occupation(Occupation.LABOR_ATTORNEY).name("민법").sortOrder(0).build()));
 
         // when
         OccupationDefaultTagsResponse result = focusService.getDefaultTags(USER_ID, null);
 
         // then
-        assertThat(result.occupation()).isEqualTo(Occupation.LAWYER);
+        assertThat(result.occupation()).isEqualTo(Occupation.LABOR_ATTORNEY);
         assertThat(result.tags()).extracting("name").containsExactly("민법");
     }
 

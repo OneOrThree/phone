@@ -32,7 +32,7 @@ class OccupationControllerTest {
         given(occupationService.getOccupations()).willReturn(List.of(
                 new OccupationResponse("MIDDLE_SCHOOL", "중학생", 0),
                 new OccupationResponse("UNIVERSITY", "대학생", 1),
-                new OccupationResponse("LAWYER", "변호사", 4)));
+                new OccupationResponse("CIVIL_SERVANT", "공무원", 5)));
 
         mockMvc.perform(get("/api/v1/occupations"))
                 .andExpect(status().isOk())
@@ -40,7 +40,7 @@ class OccupationControllerTest {
                 .andExpect(jsonPath("$[0].displayName").value("중학생"))
                 .andExpect(jsonPath("$[0].sortOrder").value(0))
                 .andExpect(jsonPath("$[1].code").value("UNIVERSITY"))
-                .andExpect(jsonPath("$[2].displayName").value("변호사"))
+                .andExpect(jsonPath("$[2].displayName").value("공무원"))
                 .andDo(print());
     }
 }
