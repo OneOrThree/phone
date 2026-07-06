@@ -22,6 +22,7 @@ import { useLeagueMeta } from './useLeagueMeta';
 import { useFriends } from './useFriends';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { MY_USER_ID, type RankedMember } from './mock';
+import { OCCUPATIONS, OCCUPATION_LABEL, occupationByLabel } from '@/constants/occupations';
 import { fmtMinutes } from './format';
 import { RankRow } from './components/RankRow';
 import { MemberAvatar } from './components/MemberAvatar';
@@ -38,14 +39,15 @@ import {
 // 리그 탭: 최상단 세그먼트 + 좌 마감/우 제목(탭=리그 선택 드롭다운)
 //   + Top3 포디움 + sticky '내 순위' 스트립(탭=내 행으로) + 4위~ 랭킹(진입 시 내 행 자동 스크롤)
 //   + '핀한 사람만' 필터(나+핀만, 나 대비 시간 차 표시). 하단 시트는 폐기.
-//   - 시안의 시험 칩은 카테고리(온보딩 16)가 많아 폐기 — 제목 드롭다운으로 전체/내 시험/다른 시험 전환.
+//   - 시안의 시험 칩은 카테고리(온보딩 16)가 많아 폐기 — 제목 드롭다운으로 전체(내 아레나)/직군 전환.
+//     직군 선택 시 서버 category(Occupation) 랭킹 = 같은 직군 전역 상위 100명 (GROMO-601, BE GROMO-518).
 //   - 내 순위는 리스트와 같은 파생값 하나만 쓴다(순위 기준 이원화 방지).
 // 친구 탭: 친구 검색·추가 엔트리 + 친구 2열 그리드(카드 탭 → 프로필 상세 FriendProfile).
-// 랭킹은 아직 mock(./mock), 친구 목록·받은 요청 수는 실데이터(./useFriends).
+// 랭킹·친구 목록·받은 요청 수 모두 실데이터(./useLeagueRanking, ./useFriends) — mock은 타입·센티널만 사용.
 
 // 탭바가 차지하는 높이(홈 '오늘' 카드 marginBottom 선례와 동일 기준)
 const TAB_BAR_SPACE = 74;
-// 리그 드롭다운의 '전체' 항목 라벨
+// 리그 드롭다운의 '전체' 항목 라벨 — 서버 category 미지정(내 아레나 멤버 랭킹)에 대응
 const LEAGUE_ALL = '전체';
 // 자동/탭 스크롤 시 sticky 스트립에 내 행이 가리지 않게 두는 위 여유
 const MY_STRIP_SPACE = 70;
@@ -79,8 +81,15 @@ export default function LeagueScreen() {
 
   // 내 티어·마감 스케줄 실데이터 (GROMO-538) — 티어 조회는 여기 한 곳에서만.
   const { tier, deadlineLabel } = useLeagueMeta();
+  // 현재 리그 — 기본(전체)은 내 아레나, 직군 선택 시 같은 직군 전역 랭킹(서버 category, GROMO-601)
+  const filter = leagueFilter ?? LEAGUE_ALL;
+  const isAll = filter === LEAGUE_ALL;
+  const rankingCategory = isAll ? null : occupationByLabel(filter);
   // 리그 랭킹 실데이터 — 홈 상단바와 공유. 멤버 티어는 위 내 티어를 내려받는다(중복 조회 방지).
-  const { ranking, myLeagueLabel, myMinutes } = useLeagueRanking(tier.tierLevel ?? 1);
+  const { ranking, myLeagueLabel, myMinutes } = useLeagueRanking(
+    tier.tierLevel ?? 1,
+    rankingCategory,
+  );
 
   // 리그 화면 진입 계측 (GROMO-538) — 포커스마다 1회.
   useFocusEffect(
@@ -95,17 +104,12 @@ export default function LeagueScreen() {
   const { friends, receivedCount } = useFriends();
   const friendIds = new Set(friends.map((f) => f.userId));
 
-  // 현재 리그 — 기본은 내 시험, 드롭다운 선택이 있으면 그 리그
-  const filter = leagueFilter ?? myLeagueLabel ?? LEAGUE_ALL;
-  const isAll = filter === LEAGUE_ALL;
-  const visibleRanking = isAll ? ranking : ranking.filter((m) => m.exam === filter);
+  // 랭킹 스코프(아레나/직군)는 서버가 이미 필터해 내려주므로 그대로 사용 (클라 exam 필터 제거)
+  const visibleRanking = ranking;
   const title = isAll ? '전체 리그' : `${filter} 리그`;
 
-  // 전환 가능한 리그 — 전체 + 내 시험 + 랭킹 데이터에 있는 시험들
-  const leagues = [
-    LEAGUE_ALL,
-    ...new Set([...(myLeagueLabel ? [myLeagueLabel] : []), ...ranking.map((m) => m.exam)]),
-  ];
+  // 전환 가능한 리그 — 전체(내 아레나) + 직군 5종(서버 Occupation, GROMO-601)
+  const leagues = [LEAGUE_ALL, ...OCCUPATIONS.map((o) => OCCUPATION_LABEL[o])];
 
   const myTier = tierByLevel(tier.tierLevel ?? 1);
 
