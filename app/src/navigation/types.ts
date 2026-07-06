@@ -28,6 +28,7 @@ export type V2RootStackParamList = {
 
   // 설정(GROMO-559) — 허브는 '전체' 탭(MenuScreen), 하위 화면은 아래 스택에서 push.
   SettingsProfileEdit: undefined; // 프로필 편집 (닉네임 · 스킨[준비중])
+  SettingsOccupation: undefined; // 준비 시험 변경 (focusCategory)
   SettingsAccount: undefined; // 계정 설정 (소셜 연동 · 로그아웃 · 회원 탈퇴)
   SettingsGoals: undefined; // 개인 목표 수정 (집중 · 사용시간, 내일부터 적용)
   SettingsAllowedApps: undefined; // 집중 중 허용 앱 관리

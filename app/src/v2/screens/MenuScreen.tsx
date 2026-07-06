@@ -6,8 +6,9 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@/store/UserContext';
-import { useFocusCategory } from '@/hooks/useFocusCategory';
+import { STORAGE_KEYS } from '@/types/storage';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { SettingsSection, SettingsRow } from '@/v2/screens/settings/components/SettingsList';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -31,10 +32,10 @@ const APP_VERSION = Constants.expoConfig?.version ?? '—';
 export default function MenuScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { nickname, goalSeconds, screenTimeGoalSeconds } = useUser();
-  const category = useFocusCategory();
   const insets = useSafeAreaInsets();
 
-  // 허브 행 우측 요약값 — 허용앱 개수 / 스크린타임 권한 상태.
+  // 허브 행 우측 요약값 — 준비 시험 / 허용앱 개수 / 스크린타임 권한 상태.
+  const [category, setCategory] = useState<string | null>(null); // 준비 시험(focusCategory)
   const [allowedApps, setAllowedApps] = useState<number | null>(null);
   const [permission, setPermission] = useState<'approved' | 'denied' | 'notDetermined' | null>(
     null,
@@ -50,6 +51,9 @@ export default function MenuScreen() {
       ScreenTimeModule.getAuthorizationStatus()
         .then((st) => !cancelled && setPermission(st))
         .catch(() => !cancelled && setPermission(null));
+      AsyncStorage.getItem(STORAGE_KEYS.focusCategory)
+        .then((c) => !cancelled && setCategory(c))
+        .catch(() => {});
       return () => {
         cancelled = true;
       };
@@ -90,6 +94,14 @@ export default function MenuScreen() {
         </TouchableOpacity>
 
         <SettingsSection title="집중 · 목표">
+          <SettingsRow
+            icon="school-outline"
+            iconColor={T.accentDeep}
+            iconBg={T.accentBg}
+            label="준비 시험"
+            value={category ?? '미설정'}
+            onPress={() => navigation.navigate('SettingsOccupation')}
+          />
           <SettingsRow
             icon="flag-outline"
             iconColor={T.accentDeep}

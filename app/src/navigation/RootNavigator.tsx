@@ -18,6 +18,7 @@ import {
 } from '@/v2/screens/league';
 import {
   ProfileEditScreen,
+  OccupationScreen,
   AccountScreen,
   GoalsScreen,
   AllowedAppsScreen,
@@ -102,6 +103,7 @@ export function RootNavigator() {
         />
         {/* 설정(GROMO-559) — '전체' 탭(MenuScreen) 허브에서 push 되는 하위 화면 */}
         <Stack.Screen name="SettingsProfileEdit" component={ProfileEditScreen} />
+        <Stack.Screen name="SettingsOccupation" component={OccupationScreen} />
         <Stack.Screen name="SettingsAccount" component={AccountScreen} />
         <Stack.Screen name="SettingsGoals" component={GoalsScreen} />
         <Stack.Screen name="SettingsAllowedApps" component={AllowedAppsScreen} />
