@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
@@ -7,7 +7,6 @@ import { Ionicons } from '@expo/vector-icons';
 import SettingsScaffold from '@/v2/screens/settings/components/SettingsScaffold';
 import Slider from '@/v2/screens/onboarding/components/Slider';
 import { useUser } from '@/store/UserContext';
-import { updateFocusTimeGoal, updateScreenTimeGoal } from '@/services/userApi';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
@@ -15,8 +14,9 @@ import { T } from '@/constants/theme';
 type IconName = keyof typeof Ionicons.glyphMap;
 
 // 개인 목표 수정(SettingsGoals) — 집중(채우기)·사용(넘지 않기) 두 목표를 슬라이더로 조정.
-// 값 변경 시 '기존' 값을 함께 보여주고, 저장하면 서버 반영 + 컨텍스트 갱신 + '내일 발효' 예약을
-// 로컬(goalPending)에 남긴다. 실제 '내일부터 적용' 강제는 후속 작업이고, 지금은 즉시 저장 + 안내만.
+// ★ '오늘 보상 기준은 그대로' 보장: 저장해도 컨텍스트·서버를 즉시 바꾸지 않고 goalPending에 '내일부터'
+//   예약만 남긴다. 실제 반영은 발효일이 지난 뒤 PendingGoalApplier(App 루트)가 한다.
+//   현재 예약이 있으면 그 값으로 슬라이더를 초기화하고, 현재 목표와 같게 되돌려 저장하면 예약을 취소한다.
 
 // 목표 하한/상한(분) — 집중 30분~10시간, 사용 30분~12시간. 10분 단위.
 const MIN_MINUTES = 30;
@@ -24,9 +24,14 @@ const FOCUS_MAX_MINUTES = 10 * 60;
 const USAGE_MAX_MINUTES = 12 * 60;
 const STEP = 10;
 
-// 초 → 10분 단위로 스냅한 뒤 [하한, 상한]으로 클램프한 '목표 분'.
+// 초 → 10분 단위 스냅 + [하한, 상한] 클램프한 '목표 분'.
 function toGoalMinutes(seconds: number, maxMinutes: number): number {
-  const snapped = Math.round(seconds / 60 / STEP) * STEP;
+  return snapClamp(seconds / 60, maxMinutes);
+}
+
+// 분 → 10분 단위 스냅 + [하한, 상한] 클램프.
+function snapClamp(minutes: number, maxMinutes: number): number {
+  const snapped = Math.round(minutes / STEP) * STEP;
   return Math.min(maxMinutes, Math.max(MIN_MINUTES, snapped));
 }
 
@@ -57,7 +62,7 @@ interface GoalCardProps {
   min: number;
   max: number;
   value: number;
-  originalMinutes: number;
+  activeMinutes: number; // 오늘 적용 중인 목표
   onChange: (minutes: number) => void;
 }
 
@@ -70,10 +75,10 @@ function GoalCard({
   min,
   max,
   value,
-  originalMinutes,
+  activeMinutes,
   onChange,
 }: GoalCardProps) {
-  const changed = value !== originalMinutes;
+  const changed = value !== activeMinutes;
 
   return (
     <View style={s.card}>
@@ -87,11 +92,11 @@ function GoalCard({
         </View>
       </View>
 
-      {/* 현재 선택값(크게) + 바뀐 경우 기존값 표기 */}
+      {/* 선택값(크게) + 오늘 적용 중인 값 대비 */}
       <Text style={s.value}>{fmt(value)}</Text>
       {changed ? (
         <Text style={s.fromText} numberOfLines={1}>
-          기존 {fmt(originalMinutes)}에서 변경
+          오늘 {fmt(activeMinutes)} · 내일부터 이 값으로 적용
         </Text>
       ) : (
         <Text style={s.fromText}>현재 목표</Text>
@@ -110,25 +115,50 @@ function GoalCard({
 
 export default function GoalsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { goalSeconds, screenTimeGoalSeconds, setGoalSeconds, setScreenTimeGoalSeconds } =
-    useUser();
+  const { goalSeconds, screenTimeGoalSeconds } = useUser();
 
-  // 편집 전 원본(저장 전까진 컨텍스트가 바뀌지 않으므로 비교 기준으로 안전).
-  const originalFocusMin = useMemo(
+  // 오늘 적용 중인 목표(비교 기준) — 저장해도 이 값은 안 바뀐다(내일 발효).
+  const activeFocusMin = useMemo(
     () => toGoalMinutes(goalSeconds, FOCUS_MAX_MINUTES),
     [goalSeconds],
   );
-  const originalUsageMin = useMemo(
+  const activeUsageMin = useMemo(
     () => toGoalMinutes(screenTimeGoalSeconds, USAGE_MAX_MINUTES),
     [screenTimeGoalSeconds],
   );
 
-  // 편집 상태(분) — 초기값은 원본.
-  const [focusMinutes, setFocusMinutes] = useState(originalFocusMin);
-  const [usageMinutes, setUsageMinutes] = useState(originalUsageMin);
+  // 슬라이더 상태 — 초기엔 현재 목표, 예약이 있으면 예약값으로 덮어씀(아래 effect).
+  const [focusMinutes, setFocusMinutes] = useState(activeFocusMin);
+  const [usageMinutes, setUsageMinutes] = useState(activeUsageMin);
+  const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // 내일(발효일) — 안내 문구용 M/D와 저장용 ISO 날짜.
+  // 발효 전 예약(goalPending)이 있으면 그 값으로 슬라이더 초기화.
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.goalPending)
+      .then((raw) => {
+        if (raw) {
+          try {
+            const p = JSON.parse(raw) as {
+              dailyFocusTimeGoalMinutes?: number;
+              dailyScreenTimeGoalMinutes?: number;
+            };
+            if (typeof p.dailyFocusTimeGoalMinutes === 'number') {
+              setFocusMinutes(snapClamp(p.dailyFocusTimeGoalMinutes, FOCUS_MAX_MINUTES));
+            }
+            if (typeof p.dailyScreenTimeGoalMinutes === 'number') {
+              setUsageMinutes(snapClamp(p.dailyScreenTimeGoalMinutes, USAGE_MAX_MINUTES));
+            }
+          } catch {
+            // 깨진 예약값은 무시
+          }
+        }
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  // 내일(발효일).
   const tomorrow = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -136,40 +166,30 @@ export default function GoalsScreen() {
   }, []);
   const tomorrowLabel = `${tomorrow.getMonth() + 1}/${tomorrow.getDate()}`;
 
+  const changed = focusMinutes !== activeFocusMin || usageMinutes !== activeUsageMin;
+
   async function handleSave() {
-    if (saving) return;
+    if (saving || !loaded) return;
     setSaving(true);
-
-    // 서버 반영(둘을 독립적으로 시도 — 하나가 실패해도 나머지·로컬 반영은 진행).
     try {
-      await updateFocusTimeGoal({ dailyFocusTimeGoalMinutes: focusMinutes });
+      if (changed) {
+        // 오늘은 그대로 두고 '내일부터 적용' 예약만 저장(컨텍스트·서버 미반영).
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.goalPending,
+          JSON.stringify({
+            dailyFocusTimeGoalMinutes: focusMinutes,
+            dailyScreenTimeGoalMinutes: usageMinutes,
+            effectiveDate: toISODate(tomorrow),
+          }),
+        );
+      } else {
+        // 현재 목표와 동일하게 되돌림 → 기존 예약 취소.
+        await AsyncStorage.removeItem(STORAGE_KEYS.goalPending);
+      }
     } catch {
-      // 서버 반영 실패는 무시(로컬 반영 후 다음 동기화에서 복구)
+      // 예약 저장/삭제 실패는 치명적이지 않음
     }
-    try {
-      await updateScreenTimeGoal({ dailyScreenTimeGoalMinutes: usageMinutes });
-    } catch {
-      // 서버 반영 실패는 무시(로컬 반영 후 다음 동기화에서 복구)
-    }
-
-    // 컨텍스트 즉시 반영(앱 전역의 목표 표시가 곧바로 갱신됨).
-    setGoalSeconds(focusMinutes * 60);
-    setScreenTimeGoalSeconds(usageMinutes * 60);
-
-    // '내일 발효' 예약 — 후속 발효 처리에서 effectiveDate를 소비한다.
-    try {
-      await AsyncStorage.setItem(
-        STORAGE_KEYS.goalPending,
-        JSON.stringify({
-          dailyFocusTimeGoalMinutes: focusMinutes,
-          dailyScreenTimeGoalMinutes: usageMinutes,
-          effectiveDate: toISODate(tomorrow),
-        }),
-      );
-    } catch {
-      // 로컬 예약 저장 실패는 치명적이지 않음
-    }
-
+    setSaving(false);
     navigation.goBack();
   }
 
@@ -179,9 +199,9 @@ export default function GoalsScreen() {
       onBack={() => navigation.goBack()}
       footer={
         <TouchableOpacity
-          style={[s.saveBtn, saving && s.saveBtnDisabled]}
+          style={[s.saveBtn, saving || !loaded ? s.saveBtnDisabled : null]}
           activeOpacity={0.85}
-          disabled={saving}
+          disabled={saving || !loaded}
           onPress={handleSave}
         >
           <Text style={s.saveText}>{saving ? '저장 중…' : '저장'}</Text>
@@ -197,7 +217,7 @@ export default function GoalsScreen() {
         min={MIN_MINUTES}
         max={FOCUS_MAX_MINUTES}
         value={focusMinutes}
-        originalMinutes={originalFocusMin}
+        activeMinutes={activeFocusMin}
         onChange={setFocusMinutes}
       />
 
@@ -210,7 +230,7 @@ export default function GoalsScreen() {
         min={MIN_MINUTES}
         max={USAGE_MAX_MINUTES}
         value={usageMinutes}
-        originalMinutes={originalUsageMin}
+        activeMinutes={activeUsageMin}
         onChange={setUsageMinutes}
       />
 

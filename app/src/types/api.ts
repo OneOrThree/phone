@@ -57,6 +57,7 @@ export interface UserProfile {
   accessToken?: string;
   refreshToken?: string;
   isNewUser?: boolean;
+  isGuest?: boolean; // 게스트 세션 여부 — 로그인 시점 태깅(서버 isGuest 응답 시 그 값 우선)
   dailyScreenTimeGoalMinutes?: number;
   dailyFocusTimeGoalMinutes?: number;
   // 서버 응답에 추가 필드가 섞여 들어올 수 있음
@@ -68,6 +69,7 @@ export interface LoginResult {
   accessToken: string;
   refreshToken?: string;
   isNewUser?: boolean;
+  isGuest?: boolean; // 게스트 세션 여부 (게스트=true / 소셜=false)
   nickname?: string;
   [key: string]: unknown;
 }

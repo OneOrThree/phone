@@ -31,9 +31,10 @@ import type { LoginResult } from '@/types/api';
 import { T } from '@/constants/theme';
 
 // 계정 설정 화면 — 소셜 로그인/연동 + 로그아웃 + 회원 탈퇴.
-// 게스트(userId === null)일 땐 카카오·애플·구글 '로그인' 버튼을 띄워 계정 전환을 유도하고,
-// 소셜 로그인 완료 상태(userId 있음)일 땐 지금 연동된 계정만 보여주고 다른 소셜 로그인은 감춘다.
-// 게스트가 로그인하면 auth.ts가 토큰/유저를 저장하고, triggerRelogin으로 앱을 로그아웃 없이 재부팅한다.
+// 게스트(useUser().isGuest === true)일 땐 카카오·애플·구글 '로그인' 버튼을 띄워 계정 전환을 유도하고,
+// 소셜 로그인 완료 상태일 땐 지금 연동된 계정만 보여주고 다른 소셜 로그인은 감춘다.
+// 게스트 판별은 로그인 시점 태깅(isGuest)이 우선이고, 값이 소셜(false)이면 연동 목록으로 최종 확정한다
+// (구 세션·정확성 대비). 게스트가 로그인하면 auth.ts가 세션을 저장하고 triggerRelogin으로 재부팅한다.
 
 type Method = Extract<AuthMethod, 'kakao' | 'apple' | 'google'>;
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -79,10 +80,9 @@ const PROVIDERS: {
 
 export default function AccountScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { userId } = useUser();
-  const isGuest = userId === null; // App이 게스트를 userId: null 로 부팅한다.
+  const { isGuest: isGuestCtx } = useUser();
 
-  // 연동 목록(로딩 전 null). 소셜 유저일 때만 조회한다(게스트는 연동 없음).
+  // 연동 목록(로딩 전 null). 재진입마다 최신화.
   const [links, setLinks] = useState<SocialLinkResponse[] | null>(null);
   const [busy, setBusy] = useState<Method | null>(null); // 게스트 로그인 진행 중인 provider
   const [withdrawOpen, setWithdrawOpen] = useState(false);
@@ -98,7 +98,6 @@ export default function AccountScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (isGuest) return;
       let cancelled = false;
       getSocialLinks()
         .then((d) => !cancelled && setLinks(d))
@@ -106,8 +105,11 @@ export default function AccountScreen() {
       return () => {
         cancelled = true;
       };
-    }, [isGuest]),
+    }, []),
   );
+
+  // 최종 게스트 판별 — 태깅이 게스트면 즉시 확정, 소셜(false)이면 연동 목록으로 확정. null = 로딩.
+  const isGuest: boolean | null = isGuestCtx ? true : links === null ? null : links.length === 0;
 
   // 게스트 → 소셜 로그인. 세션은 auth.ts가 저장하고, triggerRelogin으로 새 계정으로 재부팅한다.
   const runLogin = async (method: Method, fn: () => Promise<LoginResult>) => {
@@ -203,74 +205,81 @@ export default function AccountScreen() {
 
   return (
     <SettingsScaffold title="계정 설정" onBack={() => navigation.goBack()}>
-      {isGuest ? (
-        // 게스트 — 카카오·애플·구글 로그인 버튼으로 계정 전환 유도.
+      {isGuest === null ? (
+        // 판별 중(태깅이 소셜이라 연동 목록 확인 중).
         <SettingsSection title="소셜 로그인">
-          {PROVIDERS.map((p) => (
-            <SettingsRow
-              key={p.key}
-              icon={p.icon}
-              iconColor={p.iconColor}
-              iconBg={p.iconBg}
-              label={`${p.name}로 로그인`}
-              value={busy === p.method ? undefined : '연결'}
-              valueColor={T.accent}
-              right={
-                busy === p.method ? <ActivityIndicator size="small" color={T.inkSub} /> : undefined
-              }
-              onPress={busy ? undefined : () => runLogin(p.method, p.fn)}
-            />
-          ))}
+          <SettingsRow label="계정 정보 확인 중…" />
         </SettingsSection>
-      ) : (
-        // 소셜 유저 — 지금 연동된 계정만 표시(다른 소셜 로그인은 감춤).
-        <SettingsSection title="소셜 로그인 연동">
-          {links === null ? (
-            <SettingsRow label="연동 계정 확인 중…" />
-          ) : linkedProviders.length === 0 ? (
-            <SettingsRow label="연동된 소셜 계정이 없어요" />
-          ) : (
-            linkedProviders.map((p) => (
+      ) : isGuest ? (
+        // 게스트 — 카카오·애플·구글 로그인 버튼으로 계정 전환 유도.
+        <>
+          <SettingsSection title="소셜 로그인">
+            {PROVIDERS.map((p) => (
               <SettingsRow
                 key={p.key}
                 icon={p.icon}
                 iconColor={p.iconColor}
                 iconBg={p.iconBg}
-                label={p.name}
-                sub="연동됨"
-                value="관리"
-                valueColor={T.successInk}
-                onPress={() => confirmUnlink(p.key, p.name)}
+                label={`${p.name}로 로그인`}
+                value={busy === p.method ? undefined : '연결'}
+                valueColor={T.accent}
+                right={
+                  busy === p.method ? (
+                    <ActivityIndicator size="small" color={T.inkSub} />
+                  ) : undefined
+                }
+                onPress={busy ? undefined : () => runLogin(p.method, p.fn)}
               />
-            ))
-          )}
-        </SettingsSection>
-      )}
-
-      {isGuest ? (
-        <View style={s.note}>
-          <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />
-          <Text style={s.noteText}>로그인하면 목표·집중 기록·코인이 계정에 안전하게 저장돼요.</Text>
-        </View>
+            ))}
+          </SettingsSection>
+          <View style={s.note}>
+            <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />
+            <Text style={s.noteText}>
+              로그인하면 목표·집중 기록·코인이 계정에 안전하게 저장돼요.
+            </Text>
+          </View>
+        </>
       ) : (
-        <SettingsSection>
-          <SettingsRow
-            icon="log-out-outline"
-            iconColor={T.accentAlt}
-            iconBg={T.accentAltBg}
-            label="로그아웃"
-            danger
-            onPress={confirmLogout}
-          />
-          <SettingsRow
-            icon="person-remove-outline"
-            iconColor={T.accentAlt}
-            iconBg={T.accentAltBg}
-            label="회원 탈퇴"
-            danger
-            onPress={() => setWithdrawOpen(true)}
-          />
-        </SettingsSection>
+        // 소셜 유저 — 지금 연동된 계정만 표시(다른 소셜 로그인은 감춤) + 로그아웃·회원 탈퇴.
+        <>
+          <SettingsSection title="소셜 로그인 연동">
+            {linkedProviders.length === 0 ? (
+              <SettingsRow label="연동된 소셜 계정이 없어요" />
+            ) : (
+              linkedProviders.map((p) => (
+                <SettingsRow
+                  key={p.key}
+                  icon={p.icon}
+                  iconColor={p.iconColor}
+                  iconBg={p.iconBg}
+                  label={p.name}
+                  sub="연동됨"
+                  value="관리"
+                  valueColor={T.successInk}
+                  onPress={() => confirmUnlink(p.key, p.name)}
+                />
+              ))
+            )}
+          </SettingsSection>
+          <SettingsSection>
+            <SettingsRow
+              icon="log-out-outline"
+              iconColor={T.accentAlt}
+              iconBg={T.accentAltBg}
+              label="로그아웃"
+              danger
+              onPress={confirmLogout}
+            />
+            <SettingsRow
+              icon="person-remove-outline"
+              iconColor={T.accentAlt}
+              iconBg={T.accentAltBg}
+              label="회원 탈퇴"
+              danger
+              onPress={() => setWithdrawOpen(true)}
+            />
+          </SettingsSection>
+        </>
       )}
 
       {/* 회원 탈퇴 확인 모달 — 반투명 오버레이 + 흰 카드(파괴적 동작 재확인) */}
