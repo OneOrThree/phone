@@ -25,6 +25,15 @@ export async function getMyRanking(category?: Occupation): Promise<LeagueMemberR
   return data;
 }
 
+// GET /api/v1/league/ranking?scope=total&limit — 전역 전체 유저 랭킹 (GROMO-611).
+// 직군·아레나 무관 상위 limit명(기본 100). rank는 아레나가 아닌 전역 순번.
+export async function getGlobalRanking(limit?: number): Promise<LeagueMemberResponse[]> {
+  const { data } = await api.get<LeagueMemberResponse[]>('/api/v1/league/ranking', {
+    params: { scope: 'total', limit },
+  });
+  return data;
+}
+
 // GET /api/v1/league/me/rank — 내 순위·승격/강등 상태 조회.
 export async function getMyRank(): Promise<LeagueRankResponse> {
   const { data } = await api.get<LeagueRankResponse>('/api/v1/league/me/rank');

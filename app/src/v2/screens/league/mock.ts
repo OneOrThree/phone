@@ -44,7 +44,8 @@ export const MY_RANK: LeagueRankResponse = {
 };
 
 // 전체 랭킹 — 시안 base 10명 그대로 (이름/티어/시간/시험/달성률/친구수)
-export const RANKING: RankedMember[] = [
+// isPinned는 서버 응답 필드(GROMO-609) — mock 행에는 없어 아래에서 false로 채운다.
+const RANKING_RAW: Omit<RankedMember, 'isPinned'>[] = [
   // prettier-ignore
   { rank: 1, userId: 'u-01', nickname: '민지노트', totalFocusMinutes: 2300, result: null, tierLevel: 5, exam: '노무사', achievedRate: 0.92, friendCount: 128, streakDays: 21, bestRank: 1, bestWeekMinutes: 2520 },
   // prettier-ignore
@@ -66,6 +67,7 @@ export const RANKING: RankedMember[] = [
   // prettier-ignore
   { rank: 10, userId: 'u-10', nickname: '민서', totalFocusMinutes: 725, result: null, tierLevel: 1, exam: '노무사', achievedRate: 0.4, friendCount: 7, streakDays: 0, bestRank: 9, bestWeekMinutes: 980 },
 ];
+export const RANKING: RankedMember[] = RANKING_RAW.map((r) => ({ ...r, isPinned: false }));
 
 // ── 프로필 상세(FriendProfile) 비교 통계 — 시안 "프로필 · 친구/비친구" 3분기용 ──
 // subjects는 나와 겹치는 과목만 담는다(이번 주 분값) — 빈 배열이면 "겹치는 과목 없음" 분기.

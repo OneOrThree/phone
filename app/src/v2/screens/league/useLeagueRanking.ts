@@ -44,6 +44,7 @@ export function useLeagueRanking(tierLevel = 1, category: Occupation | null = nu
                 nickname: isMe ? myNickname || m.nickname : m.nickname,
                 totalFocusMinutes: m.totalFocusMinutes,
                 result: m.result,
+                isPinned: m.isPinned,
                 exam: examLabel,
                 achievedRate: 0,
                 friendCount: 0,

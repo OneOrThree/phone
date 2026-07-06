@@ -100,7 +100,7 @@ export interface LeagueTierResponse {
   badgeId: string | null;
 }
 
-// GET /league/me/ranking — 아레나 랭킹 한 행
+// GET /league/me/ranking · GET /league/ranking — 랭킹 한 행
 export interface LeagueMemberResponse {
   rank: number;
   userId: string;
@@ -108,6 +108,8 @@ export interface LeagueMemberResponse {
   totalFocusMinutes: number;
   // 주간 정산 결과 ('PROMOTED'/'DEMOTED' 등) — 정산 전엔 null. 서버 enum 확장 대비 string 유지
   result: string | null;
+  // 조회자(me)가 이 유저를 핀했는지 — user 핀 통일(GROMO-609)로 랭킹 응답에 포함됨
+  isPinned: boolean;
 }
 
 // GET /league/me/rank — 내 순위 요약
