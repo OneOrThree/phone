@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import { saveFocusSession } from '@/services/focusApi';
+import { ensureFocusTagId } from './tagSync';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
@@ -267,15 +268,20 @@ export default function FocusSessionScreen() {
     addFocusSeconds(delta);
     addFocusToSubject(subjectId, delta);
     if (newCoins > 0) addCoins(newCoins);
-    // 서버 업로드 — 이번 집중 블록 구간만 (focusApi 래퍼 경유)
-    saveFocusSession({
-      focusTagId: null,
-      subject: subjectName,
-      startedAt,
-      endedAt,
-      distractionCount: 0,
-      totalDistractionSeconds: 0,
-    }).catch(() => {});
+    // 서버 업로드 — 이번 집중 블록 구간만. 과목명을 서버 태그로 매칭/생성해 tagId를 실어 보낸다
+    // (과목별 통계 집계용 — 매칭 실패 시 null = 미분류, 기존 동작과 동일).
+    ensureFocusTagId(subjectName)
+      .then((focusTagId) =>
+        saveFocusSession({
+          focusTagId,
+          subject: subjectName,
+          startedAt,
+          endedAt,
+          distractionCount: 0,
+          totalDistractionSeconds: 0,
+        }),
+      )
+      .catch(() => {});
   }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName]);
 
   // 정지/완료 — 남은 집중 블록 정산(적립+서버 업로드) 후 홈으로. 한 번만 실행.
@@ -293,13 +299,9 @@ export default function FocusSessionScreen() {
       // 제거 실패 — 여기서 정산하면 남은 레코드로 이중 적립될 수 있으니 건너뛰고,
       // 레코드는 다음 실행의 고아 정산이 한 번만 적립한다.
     }
-    // 집중 결과 화면(GROMO-603)으로 replace — 의미 있는 집중(≥1분)만. 짧은 중도 이탈은 조용히 홈으로.
+    // 집중 결과 화면(GROMO-598)으로 replace — 세션이 끝나면 길이 무관 항상 결과 화면을 보여준다.
     const focusSeconds = Math.floor(sessionRef.current.elapsed);
-    if (focusSeconds >= 60) {
-      navigation.replace('FocusResult', { focusSeconds, subjectId, subjectName });
-    } else {
-      navigation.popToTop();
-    }
+    navigation.replace('FocusResult', { focusSeconds, subjectId, subjectName });
   }, [settleFocusBlock, navigation, subjectId, subjectName]);
 
   // 카운트다운/뽀모도로 완료 시 자동 종료

@@ -83,9 +83,25 @@
 
 집중 완료 결과 화면(598) 위에 **서버 통계**를 얹는다.
 
-- `src/v2/screens/focus/FocusResultScreen.tsx` — 이번 주 요약 조회(`getFocusPeriodStats(WEEK)`·`getStreak`·`getHeatmap`) 추가 → **이번 주 집중시간 + 스트릭 + 요일 잔디** 카드. 첫 완료면 "이번 주 스트릭 채우기 완료!" 강조.
+- `src/v2/screens/focus/FocusResultScreen.tsx` — Claude Design **Gromo.dc.html 14번(첫 집중 완료)** 레이아웃 기준 재구성:
+  - **이번 집중 카드**: **과목명이 주인공(큰 글씨)** + 시간 **디지털 표기 00:00:00**(`hms`), 하단에 **과목별 누적 집중**(로컬 `SubjectContext` — 방금 세션 즉시 반영·과목 색 사용, `hmsCompact`).
+    - ⚠️ 처음엔 서버 by-category(WEEK)로 붙였다가 **안 뜨는 문제** 발견 → 원인: ① 앱이 세션을 전부 `focusTagId:null`로 업로드(서버 집계 전부 '미분류') ② 초 단위 테스트 세션은 분 집계 0 → items 빈 배열. → 결과 화면은 **로컬 과목 데이터로 전환**(항상 즉시 표시).
+  - **세션 업로드 태그 동기화**(`focus/tagSync.ts` 신규): 업로드 직전 과목명→서버 FocusTag 매칭/생성(`ensureFocusTagId`, 모듈 캐시) 후 `focusTagId` 실어 보냄 → **서버 과목별 통계(604 ST2 등)가 앞으로 실제 과목으로 집계**. 실패 시 null(기존 동작).
+  - **이번 주 스트릭 채우기**: **첫 완료 변형에만**(시안 14번 전용). **출석 체크** — 그날 집중 기록 있으면(월~일) ✓ (`sessionCount>0 || totalFocusMinutes>0`; 목표 달성 아님). 방금 끝낸 세션은 서버 집계 반영 전일 수 있어 **오늘 칸은 로컬로 즉시 채움**. + 연속일 배지.
+  - **이번 주 집중시간**: 총합 + 요일별 막대(나, 오늘 강조).
+  - **나 vs 3축 비교(친구/전체/같은 카테고리, 주간)**: `stats/compareAverages.ts`(신규 공용 헬퍼 — 604 ST1 재사용 가능)로 축별 평균 FE 계산 + 칩 셀렉터. 수평 바 2개 + ▲▼ 배지 + 격려체 캡션. 축별 미확보 시 폴백 문구(친구 없음/준비 중).
+    - **축별 독립 로딩**: 처음엔 한 Promise.all에 묶여 제일 느린 친구 N+1이 화면 전체를 지연 → 축별 독립 함수(`fetchGlobalAverage`/`fetchCategoryAverage`/`fetchFriendsAverage`)로 분리, 비교 카드는 **즉시 렌더**("불러오는 중…")하고 도착한 축부터 채움. 친구 상한 30→**10명**.
+    - **비교는 오늘(DAY) 단위로 확정**(이번 주 토글 제거 — 오스카 결정): 친구 = `/stats/focus?period=DAY&friends=` 평균 **실데이터**(기본 축). **전체·같은 카테고리는 리그가 주간 집계뿐이라 오늘 불가** → "준비 중" 안내. 오늘 내 값 = heatmap 오늘 셀 vs 방금 세션 분 중 큰 값. `fetchGlobalAverage`/`fetchCategoryAverage`(주간)는 604 ST1용으로 유지. → **BE 요청 후보**: 일 단위 전체/카테고리 평균 집계(525 비교 실집계 스코프에 period 파라미터 포함 제안).
+    - 전체 = `getGlobalRanking()`(신규 래퍼, `/league/ranking?scope=total&limit=100`) 평균.
+    - 친구 = `fetchFriends()` + 친구별 `getFocusPeriodStats('WEEK', friendId)`(래퍼에 `friends` 파라미터 추가) 평균. **N+1 상한 30명**.
+    - 같은 카테고리 = `getMyRanking(occupation)` 평균. **focusCategory↔Occupation 부분 매핑 4종만**(노무사·변리사·중학생·대학생, `constants/focusCategories.CATEGORY_TO_OCCUPATION`) — 그 외 카테고리는 "준비 중" 폴백. TODO: 매핑 확정 시 확장.
+    - ⚠️ **발견·수정한 근본 갭**: 앱이 occupation을 서버에 **한 번도 안 보내고 있었음**(온보딩 body는 nickname·목표뿐, 설정 updateOccupation 미호출) → 서버 유저 occupation이 비어 카테고리 랭킹이 빈 리스트. **수정**: 온보딩 완료(`App.tsx syncOnboardingToServer`)·설정 변경(`OccupationScreen`) 시 매핑되는 카테고리면 `PATCH /users/me/occupation` 동기화 → 유저가 쌓이면서 같은 카테고리 비교가 실동작. 기존 유저는 설정에서 재저장 시 반영.
 
-**주의**: 이번 주 비교(전체/카테고리 평균)는 소스 미비 → 결과 화면엔 미표기(내 통계 604 ST1과 동일한 준비 중 대상).
+**주의**:
+- 스트릭 채우기 = **출석 체크**(그날 집중했는지), 목표 달성/분/잔디 아님. **첫 완료에만 표시**(이후 세션 변형(15번)엔 없음).
+- 시간대별("이 시간대") 비교·합격자는 소스 없음 → 후속.
+- 종료 시 결과 화면은 **길이 무관 항상 표시**(1분 미만은 "N초"). 초기 ≥1분 임계값 제거(598 후속 수정).
+- CTA는 홈/다시집중 2개 유지(598 스펙) — 디자인 14번은 단일 "확인하고 홈으로"지만 티켓 스펙 우선.
 
 ---
 

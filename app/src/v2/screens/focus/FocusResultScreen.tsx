@@ -4,7 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { CharacterImage } from '@/components/character/CharacterImage';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { STORAGE_KEYS } from '@/types/storage';
 import { getFocusPeriodStats, getStreak, getHeatmap } from '@/services/statsApi';
@@ -13,26 +14,48 @@ import type {
   StreakResponse,
   HeatmapCellResponse,
 } from '@/types/dto/stats';
-import { todayStr } from '@/utils/localDate';
+import { localDateStr, todayStr } from '@/utils/localDate';
 import type { V2RootStackParamList } from '@/navigation/types';
-import { hm, weekdayKo, grassLevel, heatmapRange } from '@/v2/screens/stats/format';
+import { useSubjects } from '@/store/SubjectContext';
+import { hm } from '@/v2/screens/stats/format';
+import { hms } from './format';
+import { fetchFriendsAverage } from '@/v2/screens/stats/compareAverages';
 
-// 집중 결과 화면 — 세션 종료 직후. 첫 완료/이후 세션 2변형.
-// GROMO-598: 화면·진입·로컬 데이터(이번 집중)·CTA.
-// GROMO-603(집중 완료 통계): 이번 주 집중시간·스트릭·요일 잔디(서버 stats)를 이 화면에 얹음.
-// 코인은 표기하지 않는다(설계 결정).
+// 집중 결과 화면 — Claude Design Gromo.dc.html 14번(첫 집중 완료) 레이아웃 기준.
+// GROMO-598: 화면·진입·이번 집중(00:00:00)·과목별 누적(로컬 SubjectContext — 방금 세션 즉시 반영)·CTA. 코인 미표기.
+// GROMO-603(집중 완료 통계): 스트릭 채우기(첫 완료 변형에만 — 월~일 출석 체크) + 이번 주 집중시간(요일 막대)
+//   + 나 vs 3축(친구/전체/같은 카테고리) 주간 비교. 축별 독립 로딩 — 카드는 즉시 뜨고 도착한 축부터 채워진다.
+//   같은 카테고리는 focusCategory↔Occupation 부분 매핑(4종)만 실데이터, 그 외·시간대별은 폴백.
 
-const GRASS = ['#ECE2D1', '#DCE8CE', '#B9D3A0', '#8FB86F', T.greenDeep];
+const WEEK_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
+const BAR_H = 46;
+
+// 이번 주 월~일 날짜('YYYY-MM-DD') 배열.
+function thisWeekDates(): string[] {
+  const now = new Date();
+  const dow = now.getDay(); // 0=일..6=토
+  const toMonday = dow === 0 ? -6 : 1 - dow;
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + toMonday);
+  return Array.from({ length: 7 }, (_, i) =>
+    localDateStr(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i)),
+  );
+}
 
 export default function FocusResultScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { params } = useRoute<RouteProp<V2RootStackParamList, 'FocusResult'>>();
   const { focusSeconds, subjectName } = params;
+  const { subjects } = useSubjects();
 
   const [firstTime, setFirstTime] = useState(false);
   const [week, setWeek] = useState<FocusPeriodStatsResponse | null>(null);
   const [streak, setStreak] = useState<StreakResponse | null>(null);
-  const [heatmap, setHeatmap] = useState<HeatmapCellResponse[]>([]);
+  const [cellByDate, setCellByDate] = useState<Record<string, HeatmapCellResponse>>({});
+  // 오늘 비교 — 친구 축만 일 단위 실데이터(전체·카테고리는 리그가 주간 집계뿐이라 서버 집계 필요).
+  // undefined = 로딩 중, avg null = 미확보(폴백 문구)
+  const [friendDayAvg, setFriendDayAvg] = useState<
+    { avg: number | null; count: number } | undefined
+  >(undefined);
 
   // 첫 완료 판별 — 로컬 플래그. 없으면 이번이 첫 완료로 보고 플래그를 남긴다.
   useEffect(() => {
@@ -43,79 +66,162 @@ export default function FocusResultScreen() {
     })();
   }, []);
 
-  // 집중 완료 통계(GROMO-603) — 이번 주 요약.
+  // 집중 완료 통계(GROMO-603) — 핵심 지표(이번 주 합계·연속일·요일별)는 한 묶음으로 빠르게,
+  // 비교 3축은 독립 로딩(느린 축이 빠른 축·핵심 지표를 막지 않게).
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { from, to } = heatmapRange('WEEK');
-      const [w, st, h] = await Promise.all([
+      const days = thisWeekDates();
+      const [w, st, cells] = await Promise.all([
         getFocusPeriodStats('WEEK').catch(() => null),
         getStreak().catch(() => null),
-        getHeatmap(from, to).catch(() => [] as HeatmapCellResponse[]),
+        getHeatmap(days[0], todayStr()).catch(() => [] as HeatmapCellResponse[]),
       ]);
       if (cancelled) return;
       setWeek(w);
       setStreak(st);
-      setHeatmap(h);
+      const map: Record<string, HeatmapCellResponse> = {};
+      for (const c of cells) map[c.date] = c;
+      setCellByDate(map);
     })();
+    fetchFriendsAverage('DAY').then((v) => !cancelled && setFriendDayAvg(v));
     return () => {
       cancelled = true;
     };
   }, []);
 
   const today = todayStr();
-  const focusMinutes = Math.round(focusSeconds / 60);
+  const days = thisWeekDates();
+  const maxMin = Math.max(...days.map((d) => cellByDate[d]?.totalFocusMinutes ?? 0), 1);
+  // 이번 집중 시간 — 세션 타이머와 같은 디지털 표기(00:00:00).
+  const focusLabel = hms(focusSeconds);
+  // 과목별 누적(로컬) — 방금 세션까지 즉시 반영. 기록 있는 과목만, 많은 순.
+  const subjectRows = [...subjects]
+    .filter((x) => x.accumulatedSeconds > 0)
+    .sort((a, b) => b.accumulatedSeconds - a.accumulatedSeconds);
 
   return (
     <SafeAreaView style={s.root} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-        {/* 헤더 — 마스코트 + 축하 문구 */}
-        <View style={s.hero}>
-          <CharacterImage size={130} variant="study" />
+        {/* 헤더 — 축하 문구 */}
+        <View style={s.header}>
           <Text style={s.title}>{firstTime ? '첫 집중 완료!' : '집중 완료!'}</Text>
           <Text style={s.sub}>
             {firstTime ? '오늘 첫 걸음을 뗐어요 🎉' : `${subjectName} · 꾸준함이 쌓이고 있어요`}
           </Text>
         </View>
 
-        {/* 이번 집중 시간 (코인 표기 없음) */}
+        {/* 이번 집중 — 과목명 큰 글씨 + 00:00:00, 바로 아래 과목별 누적 집중(로컬) */}
         <View style={s.card}>
-          <Text style={s.cardLabel}>이번 집중</Text>
-          <Text style={s.bigStat}>{hm(focusMinutes)}</Text>
-          <Text style={s.cardSub}>{subjectName}</Text>
-        </View>
-
-        {/* 집중 완료 통계(603) — 이번 주 집중 + 스트릭 + 요일 잔디 */}
-        <View style={s.card}>
-          <View style={s.rowBetween}>
-            <Text style={s.cardLabel}>
-              {firstTime ? '이번 주 스트릭 채우기 완료!' : '이번 주 집중시간'}
+          <Text style={s.miniLabel}>이번 집중</Text>
+          {/* 과목명 + 시간 — 수평 배치(과목이 주인공, 시간은 오른쪽) */}
+          <View style={s.focusRow}>
+            <Text style={s.bigStat} numberOfLines={1}>
+              {subjectName}
             </Text>
-            {streak && streak.currentStreak > 0 ? (
-              <Text style={s.streakBadge}>{streak.currentStreak}일 연속</Text>
-            ) : null}
+            <Text style={s.focusTime}>{focusLabel}</Text>
           </View>
-          <Text style={[s.bigStat, { color: T.greenDeep }]}>
-            {hm(week?.totalFocusMinutes ?? 0)}
-          </Text>
-          {heatmap.length > 0 ? (
-            <View style={s.grassRow}>
-              {heatmap.map((c) => (
-                <View key={c.date} style={s.grassCol}>
+
+          {subjectRows.length > 0 ? (
+            <View style={s.catSection}>
+              <Text style={s.catHeading}>과목별 집중 현황</Text>
+              {/* 과목 + 시간만 쭉 (드로어 '과목별 집중 현황'과 동일 패턴) */}
+              <View style={s.subjectList}>
+                {subjectRows.map((x) => (
+                  <View key={x.id} style={s.subjectRow}>
+                    <View style={[s.subjectDot, { backgroundColor: x.color }]} />
+                    <Text style={s.subjectName} numberOfLines={1}>
+                      {x.name}
+                    </Text>
+                    <Text style={s.subjectTime}>{hms(x.accumulatedSeconds)}</Text>
+                  </View>
+                ))}
+              </View>
+              {/* 맨 아래 — 전체 대비 과목별 비율 바(flex 세그먼트 분할) */}
+              <View style={s.ratioTrack}>
+                {subjectRows.map((x) => (
                   <View
-                    style={[
-                      s.grassCell,
-                      { backgroundColor: GRASS[grassLevel(c.totalFocusMinutes)] },
-                    ]}
+                    key={x.id}
+                    style={{ flex: x.accumulatedSeconds, backgroundColor: x.color }}
                   />
-                  <Text style={[s.grassDay, c.date === today ? s.grassDayToday : null]}>
-                    {weekdayKo(c.date)}
-                  </Text>
-                </View>
-              ))}
+                ))}
+              </View>
             </View>
           ) : null}
         </View>
+
+        {/* 이번 주 스트릭 채우기 — 첫 집중 완료 변형(시안 14번)에만. 출석체크: 그날 집중했으면 ✓ */}
+        {firstTime ? (
+          <LinearGradient
+            colors={['#FBF3E8', '#F3E4CE']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={s.streakCard}
+          >
+            <View style={s.streakHead}>
+              <View style={s.streakIcon}>
+                <Ionicons name="flame" size={13} color={T.white} />
+              </View>
+              <Text style={s.streakTitle}>이번 주 집중 스트릭 채우기 완료!</Text>
+              {streak && streak.currentStreak > 0 ? (
+                <Text style={s.streakBadge}>{streak.currentStreak}일 연속</Text>
+              ) : null}
+            </View>
+            <View style={s.dotRow}>
+              {days.map((date, i) => {
+                const cell = cellByDate[date];
+                const isToday = date === today;
+                // 출석 = 그날 집중 기록 존재. 방금 끝낸 세션은 서버 집계에 아직 없을 수 있어 오늘은 즉시 채움.
+                const done =
+                  (cell != null && (cell.sessionCount > 0 || cell.totalFocusMinutes > 0)) ||
+                  (isToday && focusSeconds > 0);
+                const future = date > today;
+                return (
+                  <View key={date} style={s.dotCol}>
+                    <View style={[s.dot, done ? s.dotOn : null, future ? s.dotFuture : null]}>
+                      {done ? <Ionicons name="checkmark" size={15} color={T.white} /> : null}
+                    </View>
+                    <Text style={[s.dotDay, isToday ? s.dotDayToday : null]}>{WEEK_LABELS[i]}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </LinearGradient>
+        ) : null}
+
+        {/* 이번 주 집중시간 — 총합 + 요일 막대(나) */}
+        <View style={s.card}>
+          <View style={s.rowBetween}>
+            <Text style={s.cardTitle}>이번 주 집중시간</Text>
+            <Text style={s.cardValue}>{hm(week?.totalFocusMinutes ?? 0)}</Text>
+          </View>
+          <View style={s.barRow}>
+            {days.map((date, i) => {
+              const min = cellByDate[date]?.totalFocusMinutes ?? 0;
+              const isToday = date === today;
+              const h = min > 0 ? Math.max((min / maxMin) * BAR_H, 4) : 0;
+              return (
+                <View key={date} style={s.barCol}>
+                  <View style={s.barTrack}>
+                    <View
+                      style={[
+                        s.bar,
+                        { height: h, backgroundColor: isToday ? T.accent : '#E6D3B4' },
+                      ]}
+                    />
+                  </View>
+                  <Text style={[s.barDay, isToday ? s.barDayToday : null]}>{WEEK_LABELS[i]}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* 나 vs 3축 비교(오늘) — 카드는 즉시 뜨고 친구 평균 도착 시 채워진다 */}
+        <CompareCard
+          mine={Math.max(cellByDate[today]?.totalFocusMinutes ?? 0, Math.round(focusSeconds / 60))}
+          friends={friendDayAvg}
+        />
       </ScrollView>
 
       {/* 하단 CTA — 홈으로 / 다시 집중 */}
@@ -139,35 +245,243 @@ export default function FocusResultScreen() {
   );
 }
 
+// 나 vs 비교축 카드(오늘) — 3축(친구/전체/같은 카테고리) 셀렉터 + 수평 바 2개. 미달도 격려체.
+// 친구만 오늘 실데이터(/stats/focus?period=DAY&friends=). 전체·같은 카테고리는 리그가 주간 집계뿐이라
+// 일 단위 서버 집계가 생기면 연결 — 그때까지 "준비 중" 안내.
+type CompareAxis = 'friends' | 'all' | 'category';
+
+function CompareCard({
+  mine,
+  friends,
+}: {
+  mine: number;
+  friends: { avg: number | null; count: number } | undefined;
+}) {
+  const [axis, setAxis] = useState<CompareAxis>('friends');
+  const meta: Record<
+    CompareAxis,
+    { chip: string; label: string; avg: number | null; loading: boolean; empty: string }
+  > = {
+    friends: {
+      chip: '친구',
+      label: '친구 평균',
+      avg: friends?.avg ?? null,
+      loading: friends === undefined,
+      empty:
+        friends?.count === 0
+          ? '아직 친구가 없어요. 친구를 추가하고 비교해봐요!'
+          : '친구 평균을 불러오지 못했어요',
+    },
+    all: {
+      chip: '전체',
+      label: '전체 평균',
+      avg: null,
+      loading: false,
+      empty: '오늘 기준 전체 평균은 준비 중이에요',
+    },
+    category: {
+      chip: '같은 카테고리',
+      label: '같은 카테고리 평균',
+      avg: null,
+      loading: false,
+      empty: '오늘 기준 같은 카테고리 평균은 준비 중이에요',
+    },
+  };
+  const cur = meta[axis];
+  const avg = cur.avg;
+  const delta = avg != null ? mine - avg : 0;
+  const ahead = delta >= 0;
+  const max = Math.max(mine, avg ?? 0, 1);
+  const w = (v: number) => `${Math.max((v / max) * 100, 2)}%` as const;
+  return (
+    <View style={s.card}>
+      <View style={s.rowBetween}>
+        <Text style={s.cardTitle}>오늘 비교</Text>
+        {avg != null ? (
+          <View style={[s.deltaBadge, ahead ? s.deltaBadgeUp : s.deltaBadgeDown]}>
+            <Text style={[s.deltaBadgeText, { color: ahead ? T.successInk : T.dangerInk }]}>
+              {ahead ? '▲' : '▼'} {hm(Math.abs(delta))}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+      <View style={s.axisRow}>
+        {(['friends', 'all', 'category'] as CompareAxis[]).map((a) => {
+          const on = axis === a;
+          return (
+            <TouchableOpacity
+              key={a}
+              style={[s.axisChip, on ? s.axisChipOn : null]}
+              onPress={() => setAxis(a)}
+              activeOpacity={0.8}
+            >
+              <Text style={[s.axisChipText, on ? s.axisChipTextOn : null]}>{meta[a].chip}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      {avg != null ? (
+        <>
+          <View style={s.cmpBlock}>
+            <View style={s.rowBetween}>
+              <Text style={s.cmpLabelMine}>나</Text>
+              <Text style={s.cmpValueMine}>{hm(mine)}</Text>
+            </View>
+            <View style={s.cmpTrack}>
+              <View style={[s.cmpFill, { width: w(mine), backgroundColor: T.accent }]} />
+            </View>
+          </View>
+          <View style={s.cmpBlock}>
+            <View style={s.rowBetween}>
+              <Text style={s.cmpLabel}>{cur.label}</Text>
+              <Text style={s.cmpValue}>{hm(avg)}</Text>
+            </View>
+            <View style={s.cmpTrack}>
+              <View style={[s.cmpFill, { width: w(avg), backgroundColor: '#D8C8AC' }]} />
+            </View>
+          </View>
+          <Text style={s.cmpCaption}>
+            {ahead
+              ? `${cur.label}보다 ${hm(Math.abs(delta))} 더 집중했어요.`
+              : `${cur.label}까지 ${hm(Math.abs(delta))} 남았어요. 오늘도 한 걸음!`}
+          </Text>
+        </>
+      ) : (
+        <Text style={s.cmpCaption}>{cur.loading ? '불러오는 중…' : cur.empty}</Text>
+      )}
+    </View>
+  );
+}
+
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperLight },
-  scroll: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 24, gap: 14 },
+  scroll: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 24, gap: 12 },
 
-  hero: { alignItems: 'center', gap: 6, paddingVertical: 8 },
-  title: { ...T.text.title, color: T.ink, marginTop: 6 },
-  sub: { ...T.text.body, color: T.inkSub, textAlign: 'center' },
+  header: { gap: 4, paddingVertical: 4 },
+  title: { ...T.text.stat, color: T.ink },
+  sub: { ...T.text.label, fontWeight: '500', color: T.inkSub },
 
   card: {
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 18,
-    paddingHorizontal: 16,
+    paddingHorizontal: 17,
     paddingVertical: 16,
     gap: 6,
   },
-  cardLabel: { ...T.text.label, color: T.inkSub },
-  cardSub: { ...T.text.caption, color: T.inkMuted },
-  bigStat: { ...T.text.display, color: T.ink },
-  rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  miniLabel: { ...T.text.caption, fontSize: 11, fontWeight: '500', color: T.inkMuted },
+  miniSub: { ...T.text.caption, color: T.inkMuted },
+  focusRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  bigStat: { ...T.text.display, color: T.ink, flexShrink: 1 },
+  focusTime: { ...T.text.stat, color: T.accent, fontVariant: ['tabular-nums'] },
+
+  // 과목별 집중 현황 (이번 집중 카드 하단 — 드로어와 동일 패턴: 행 목록 + 비율 바)
+  catSection: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: T.divider,
+  },
+  catHeading: { ...T.text.caption, fontWeight: '700', color: T.inkSub, marginBottom: 10 },
+  subjectList: { gap: 10 },
+  subjectRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  subjectDot: { width: 8, height: 8, borderRadius: 4 },
+  subjectName: { flex: 1, ...T.text.caption, color: T.ink },
+  subjectTime: {
+    ...T.text.caption,
+    fontWeight: '700',
+    color: T.inkSub,
+    fontVariant: ['tabular-nums'],
+  },
+  ratioTrack: {
+    flexDirection: 'row',
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: T.caramel,
+    overflow: 'hidden',
+    marginTop: 13,
+  },
+
+  rowBetween: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
+  cardTitle: { ...T.text.label, fontWeight: '700', color: T.ink },
+  cardValue: { ...T.text.subtitle, color: T.accent },
+
+  // 스트릭 채우기 카드
+  streakCard: {
+    borderRadius: 20,
+    paddingHorizontal: 17,
+    paddingVertical: 16,
+    gap: 14,
+  },
+  streakHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  streakIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    backgroundColor: T.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  streakTitle: { ...T.text.label, fontWeight: '800', color: T.ink, flex: 1 },
   streakBadge: { ...T.text.caption, color: T.accentDeep },
+  dotRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  dotCol: { alignItems: 'center', gap: 5 },
+  dot: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E7D6BB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dotOn: { backgroundColor: T.greenDeep, borderColor: T.greenDeep },
+  dotFuture: { opacity: 0.4 },
+  dotDay: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
+  dotDayToday: { color: T.accentDeep, fontWeight: '800' },
 
-  grassRow: { flexDirection: 'row', gap: 6, marginTop: 8 },
-  grassCol: { flex: 1, alignItems: 'center', gap: 5 },
-  grassCell: { width: '100%', height: 24, borderRadius: 6 },
-  grassDay: { ...T.text.caption, fontSize: 11, color: T.inkMuted },
-  grassDayToday: { color: T.greenDeep, fontWeight: '800' },
+  // 이번 주 집중시간 막대
+  barRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 7, marginTop: 6 },
+  barCol: { flex: 1, alignItems: 'center', gap: 5 },
+  barTrack: { height: BAR_H, justifyContent: 'flex-end' },
+  bar: { width: 14, borderTopLeftRadius: 5, borderTopRightRadius: 5 },
+  barDay: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
+  barDayToday: { color: T.accent, fontWeight: '700' },
 
+  // 나 vs 비교축(3축 셀렉터)
+  axisRow: { flexDirection: 'row', gap: 7, marginTop: 4 },
+  axisChip: {
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: T.chipBg,
+    borderWidth: 1,
+    borderColor: T.chipBorder,
+  },
+  axisChipOn: { backgroundColor: T.accent, borderColor: T.accent },
+  axisChipText: { ...T.text.caption, fontSize: 11, color: T.inkSub },
+  axisChipTextOn: { color: T.white, fontWeight: '700' },
+  deltaBadge: { borderRadius: 99, paddingHorizontal: 9, paddingVertical: 3 },
+  deltaBadgeUp: { backgroundColor: T.successBg },
+  deltaBadgeDown: { backgroundColor: T.dangerBg },
+  deltaBadgeText: { ...T.text.caption, fontSize: 11, fontWeight: '700' },
+  cmpBlock: { gap: 5, marginTop: 8 },
+  cmpLabelMine: { ...T.text.caption, fontWeight: '700', color: T.ink },
+  cmpValueMine: { ...T.text.caption, fontWeight: '800', color: T.accent },
+  cmpLabel: { ...T.text.caption, color: T.inkSub },
+  cmpValue: { ...T.text.caption, fontWeight: '700', color: '#5C5246' },
+  cmpTrack: { height: 10, borderRadius: 5, backgroundColor: '#EFE7D8', overflow: 'hidden' },
+  cmpFill: { height: 10, borderRadius: 5 },
+  cmpCaption: { ...T.text.caption, fontWeight: '500', color: T.link, marginTop: 10 },
+
+  // 하단 CTA
   footer: {
     flexDirection: 'row',
     gap: 10,

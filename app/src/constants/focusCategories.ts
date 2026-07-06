@@ -1,5 +1,7 @@
 // 집중 목표(시험/카테고리) 마스터 — 온보딩 16(목표 선택)과 리그 시험 칩의 단일 소스.
 // 서버 계약 미정(신규 필드)이라 프론트 상수로 관리 — TODO: 백엔드 협의 후 서버 값으로 이관.
+import type { Occupation } from '@/types/dto/user';
+
 export interface FocusCategoryGroup {
   label: string;
   items: string[];
@@ -38,4 +40,20 @@ export const CATEGORY_SUBJECTS: Record<string, string[]> = {
 export function getDefaultSubjects(category: string | null): string[] {
   if (!category) return [];
   return CATEGORY_SUBJECTS[category] ?? [];
+}
+
+// 로컬 focusCategory ↔ 서버 Occupation enum(5종) 부분 매핑 — 확실한 4종만.
+// 서버 동기화(updateOccupation)와 같은 카테고리 리그 랭킹(?category=) 조회에 사용.
+// TODO(백엔드 협의): Occupation 확장/매핑 확정 시 전 카테고리로 확장.
+export const CATEGORY_TO_OCCUPATION: Record<string, Occupation> = {
+  노무사: 'LABOR_ATTORNEY',
+  변리사: 'PATENT_ATTORNEY',
+  중학생: 'MIDDLE_SCHOOL',
+  대학생: 'UNIVERSITY',
+};
+
+// 카테고리의 서버 Occupation(매핑 없으면 null).
+export function occupationForCategory(category: string | null): Occupation | null {
+  if (!category) return null;
+  return CATEGORY_TO_OCCUPATION[category] ?? null;
 }

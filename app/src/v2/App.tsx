@@ -4,7 +4,8 @@ import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-c
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
 import { setLogoutHandler, setReloginHandler, getUserIdFromToken, api } from '@/services/api';
-import { updateScreenTimePermission } from '@/services/userApi';
+import { updateScreenTimePermission, updateOccupation } from '@/services/userApi';
+import { occupationForCategory } from '@/constants/focusCategories';
 import { runStorageMigrations } from '@/utils/storageMigration';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { LoginResult, UserProfile } from '@/types/api';
@@ -53,8 +54,9 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 // (2) PATCH /users/me/screen-time-permission — 스크린타임 권한 허용 여부(W10).
 //     프로필 셋업 요청엔 권한 필드가 없어 별도 엔드포인트로 보낸다.
 //     screenTimeGranted === null(아직 안 물어봄)이면 스킵.
-// focusCategory(W4)는 서버 Occupation enum(5종)과 항목이 안 맞아 로컬 보관 유지
-// (handleOnboardingComplete — 리그 기본 시험 리그로 쓰인다. TODO: 백엔드 협의).
+// focusCategory(W4)는 서버 Occupation enum(5종)과 항목이 안 맞아 로컬 보관이 기본.
+// 단 매핑되는 4종(노무사·변리사·중학생·대학생)은 PATCH /users/me/occupation 으로 서버에도 동기화
+// → 같은 카테고리 리그 랭킹(?category=)·비교 통계의 모수가 쌓인다. (매핑 확장은 백엔드 협의 TODO)
 // notificationGranted(W13)는 대응 엔드포인트가 알림 설정 전체 객체뿐이라 여기선 미전송(TODO).
 async function syncOnboardingToServer(data: V2OnboardingData) {
   const body = {
@@ -67,6 +69,10 @@ async function syncOnboardingToServer(data: V2OnboardingData) {
     await api.post('/api/v1/users/me', body);
     if (data.screenTimeGranted !== null) {
       await updateScreenTimePermission({ granted: data.screenTimeGranted });
+    }
+    const occupation = occupationForCategory(data.focusCategory ?? null);
+    if (occupation) {
+      await updateOccupation({ occupation });
     }
   } catch {
     // 실패해도 진행 — 추후 재동기화(TODO)

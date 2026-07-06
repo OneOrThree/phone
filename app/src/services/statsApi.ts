@@ -31,10 +31,14 @@ export async function getHeatmap(from: string, to: string): Promise<HeatmapCellR
   return data;
 }
 
-// GET /api/v1/stats/focus?period — 기간별 집중시간 통계(DAY|WEEK|MONTH).
-export async function getFocusPeriodStats(period: StatsPeriod): Promise<FocusPeriodStatsResponse> {
+// GET /api/v1/stats/focus?period&friends — 기간별 집중시간 통계(DAY|WEEK|MONTH).
+// friends 지정 시 해당 친구(ACCEPTED)의 통계 조회, 미지정 시 본인.
+export async function getFocusPeriodStats(
+  period: StatsPeriod,
+  friends?: string,
+): Promise<FocusPeriodStatsResponse> {
   const { data } = await api.get<FocusPeriodStatsResponse>('/api/v1/stats/focus', {
-    params: { period },
+    params: { period, friends },
   });
   return data;
 }
