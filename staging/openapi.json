@@ -2484,6 +2484,75 @@
         }
       }
     },
+    "/api/v1/tag/defaults": {
+      "get": {
+        "tags": [
+          "focus"
+        ],
+        "summary": "기본(추천) TAG 조회",
+        "description": "occupation별 기본(추천) 포커스 태그 목록. occupation 미지정 시 로그인 유저의 저장 occupation 사용. tagId 없음 — 유저가 선택 시 name 을 POST /api/v1/tag 로 넘겨 실제 태그 생성.",
+        "operationId": "getDefaultTags",
+        "parameters": [
+          {
+            "name": "occupation",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "MIDDLE_SCHOOL",
+                "UNIVERSITY",
+                "LABOR_ATTORNEY",
+                "PATENT_ATTORNEY",
+                "LAWYER"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/OccupationDefaultTagsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "occupation 파라미터 형식 오류 또는 유저 occupation 미설정",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/OccupationDefaultTagsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 필요",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/OccupationDefaultTagsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "유저 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/OccupationDefaultTagsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/stats/today": {
       "get": {
         "tags": [
@@ -2863,6 +2932,65 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/CategoryFocusStatsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/league/ranking": {
+      "get": {
+        "tags": [
+          "league"
+        ],
+        "summary": "전역 전체 유저 랭킹 조회",
+        "description": "직군 무관 전역 랭킹. 이번 주 ACTIVE 아레나 전체를 가로질러 totalFocusMinutes 내림차순 상위 limit 명. rank 는 아레나가 아닌 전역 순번. scope 는 total(대소문자 무관)만 지원, 그 외 값은 400 INVALID_SCOPE. limit 는 1~500 으로 클램프된다.",
+        "operationId": "getGlobalRanking",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "total"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LeagueMemberResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "지원하지 않는 scope 값(INVALID_SCOPE) 또는 limit 형식 오류",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LeagueMemberResponse"
+                  }
                 }
               }
             }
@@ -4588,6 +4716,39 @@
           }
         }
       },
+      "OccupationDefaultTagResponse": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OccupationDefaultTagsResponse": {
+        "type": "object",
+        "properties": {
+          "occupation": {
+            "type": "string",
+            "enum": [
+              "MIDDLE_SCHOOL",
+              "UNIVERSITY",
+              "LABOR_ATTORNEY",
+              "PATENT_ATTORNEY",
+              "LAWYER"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OccupationDefaultTagResponse"
+            }
+          }
+        }
+      },
       "ScreenTimePeriodStatsResponse": {
         "type": "object",
         "properties": {
@@ -4716,6 +4877,29 @@
           }
         }
       },
+      "LeagueMemberResponse": {
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "totalFocusMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "result": {
+            "type": "string"
+          }
+        }
+      },
       "LeagueTierResponse": {
         "type": "object",
         "properties": {
@@ -4752,29 +4936,6 @@
           "remainingSeconds": {
             "type": "integer",
             "format": "int64"
-          }
-        }
-      },
-      "LeagueMemberResponse": {
-        "type": "object",
-        "properties": {
-          "rank": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "nickname": {
-            "type": "string"
-          },
-          "totalFocusMinutes": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "result": {
-            "type": "string"
           }
         }
       },
