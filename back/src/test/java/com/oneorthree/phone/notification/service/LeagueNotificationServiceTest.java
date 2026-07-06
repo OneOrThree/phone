@@ -8,6 +8,7 @@ import com.oneorthree.phone.league.domain.LeagueMemberResult;
 import com.oneorthree.phone.league.repository.LeagueArenaRepository;
 import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -182,6 +183,63 @@ class LeagueNotificationServiceTest {
 
         verify(userNotificationSettingsRepository, times(1)).findAllById(anyCollection());
         verify(userNotificationSettingsRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("settings.soundEnabled=false → PushMessage.soundEnabled()=false 로 전달")
+    void promotionRespectsSoundDisabled() {
+        LeagueArenaUser promoted = member(LeagueMemberResult.PROMOTED, 2);
+        UUID uid = promoted.getUser().getId();
+        given(leagueArenaUserRepository.findEndedByWeekStartAndResultIn(any(), anyCollection()))
+                .willReturn(List.of(promoted));
+        given(userNotificationSettingsRepository.findAllById(anyCollection()))
+                .willReturn(List.of(UserNotificationSettings.builder().userId(uid).soundEnabled(false).build()));
+
+        leagueNotificationService.sendWeeklyResultNotifications(MON_0900_KST);
+
+        verify(pushNotificationService)
+                .sendIfAllowed(eq(promoted.getUser()), any(), messageCaptor.capture(), eq(MON_0900_KST));
+        assertThat(messageCaptor.getValue().soundEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("여러 멤버 — loadSettings 가 유저별 설정을 정확히 매칭 (soundEnabled 각각)")
+    void weeklyMatchesSettingsPerUser() {
+        LeagueArenaUser soundOn = member(LeagueMemberResult.PROMOTED, 2);
+        LeagueArenaUser soundOff = member(LeagueMemberResult.RELEGATED, 3);
+        given(leagueArenaUserRepository.findEndedByWeekStartAndResultIn(any(), anyCollection()))
+                .willReturn(List.of(soundOn, soundOff));
+        given(userNotificationSettingsRepository.findAllById(anyCollection()))
+                .willReturn(List.of(
+                        UserNotificationSettings.builder().userId(soundOn.getUser().getId()).soundEnabled(true).build(),
+                        UserNotificationSettings.builder().userId(soundOff.getUser().getId()).soundEnabled(false).build()));
+
+        leagueNotificationService.sendWeeklyResultNotifications(MON_0900_KST);
+
+        ArgumentCaptor<PushMessage> onCaptor = ArgumentCaptor.forClass(PushMessage.class);
+        verify(pushNotificationService)
+                .sendIfAllowed(eq(soundOn.getUser()), any(), onCaptor.capture(), eq(MON_0900_KST));
+        assertThat(onCaptor.getValue().soundEnabled()).isTrue();
+
+        ArgumentCaptor<PushMessage> offCaptor = ArgumentCaptor.forClass(PushMessage.class);
+        verify(pushNotificationService)
+                .sendIfAllowed(eq(soundOff.getUser()), any(), offCaptor.capture(), eq(MON_0900_KST));
+        assertThat(offCaptor.getValue().soundEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("티어명 클램프 하한: RELEGATED tierLevel 1 → tierDisplayName(0) 은 최하위 '뽀시래기' 로 클램프")
+    void tierNameClampsBelowRange() {
+        LeagueArenaUser relegated = member(LeagueMemberResult.RELEGATED, 1); // 하위 = 0 → 클램프 1
+        given(leagueArenaUserRepository.findEndedByWeekStartAndResultIn(any(), anyCollection()))
+                .willReturn(List.of(relegated));
+        given(userNotificationSettingsRepository.findAllById(anyCollection())).willReturn(List.of());
+
+        leagueNotificationService.sendWeeklyResultNotifications(MON_0900_KST);
+
+        verify(pushNotificationService)
+                .sendIfAllowed(any(), any(), messageCaptor.capture(), any());
+        assertThat(messageCaptor.getValue().body()).contains("뽀시래기");
     }
 
     // ── ⑥ 마감 임박 ────────────────────────────────────────────────────────────
