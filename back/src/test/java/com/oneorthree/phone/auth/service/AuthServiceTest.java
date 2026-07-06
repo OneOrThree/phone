@@ -3,6 +3,8 @@ package com.oneorthree.phone.auth.service;
 import com.oneorthree.phone.auth.client.SocialLoginClient;
 import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
 import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;
+import com.oneorthree.phone.auth.exception.AuthErrorCode;
+import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
@@ -70,6 +72,7 @@ class AuthServiceTest {
     private AuthService authService;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID GUEST_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
     @BeforeEach
     void setUp() {
@@ -99,7 +102,7 @@ class AuthServiceTest {
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
-        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token");
+        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token", null);
 
         // then
         assertThat(response.isNewUser()).isTrue();
@@ -127,7 +130,7 @@ class AuthServiceTest {
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
-        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token");
+        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token", null);
 
         // then
         assertThat(response.isNewUser()).isFalse();
@@ -151,7 +154,7 @@ class AuthServiceTest {
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
-        authService.socialLogin(Provider.KAKAO, "kakao-token");
+        authService.socialLogin(Provider.KAKAO, "kakao-token", null);
 
         // then: 가입 이벤트 + 로그인 이벤트 둘 다 발행
         verify(userActivityEventLogger).log(USER_ID.toString(), UserActivityEvent.USER_SIGNED_UP,
@@ -173,7 +176,7 @@ class AuthServiceTest {
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
-        SocialLoginResponse response = authService.socialLogin(Provider.APPLE, "apple-token");
+        SocialLoginResponse response = authService.socialLogin(Provider.APPLE, "apple-token", null);
 
         // then — fullName 프리필 제거: 가입 시 nickname 은 null (users.nickname 유니크 제약과 동명이인 충돌 방지)
         assertThat(response.isNewUser()).isTrue();
@@ -187,7 +190,7 @@ class AuthServiceTest {
     @DisplayName("등록되지 않은 provider → IllegalArgumentException")
     void socialLoginUnsupportedProvider() {
         // GOOGLE client는 주입되지 않았으므로 Map에 없다
-        assertThatThrownBy(() -> authService.socialLogin(Provider.GOOGLE, "token"))
+        assertThatThrownBy(() -> authService.socialLogin(Provider.GOOGLE, "token", null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -206,7 +209,7 @@ class AuthServiceTest {
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
-        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token");
+        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token", null);
 
         // then — 재활성화: deletedAt 이 null, 신규 유저 아님, 신규 row 없음
         assertThat(response.isNewUser()).isFalse();
@@ -235,7 +238,7 @@ class AuthServiceTest {
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
         // when
-        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token");
+        SocialLoginResponse response = authService.socialLogin(Provider.KAKAO, "kakao-token", null);
 
         // then — 재시도로 기존(승자) 계정 반환, 500 없이 정상 로그인
         assertThat(response.isNewUser()).isFalse();
@@ -246,6 +249,69 @@ class AuthServiceTest {
         // 경쟁 패자는 신규 아님 → 가입 이벤트 미발행
         verify(userActivityEventLogger, never())
                 .log(anyString(), eq(UserActivityEvent.USER_SIGNED_UP), any());
+    }
+
+    // ── 게스트→소셜 업그레이드 (GROMO-585) ──────────────────────────────────
+
+    @Test
+    @DisplayName("게스트 + 신규 소셜 → 기존 게스트 User 재활용(isGuest=false), SocialAccount 생성, "
+            + "createUserSideRows 미호출, isNewUser=false")
+    void guestUpgradeWithNewSocial() {
+        // given — 게스트 JWT 헤더로 요청, 해당 소셜 계정은 아직 없음
+        User guestUser = User.builder().id(GUEST_ID).isGuest(true).build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.empty());
+        given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
+        given(userRepository.findById(GUEST_ID)).willReturn(Optional.of(guestUser));
+        given(jwtProvider.generateAccessToken(GUEST_ID)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(GUEST_ID)).willReturn("refresh-token");
+
+        // when
+        SocialLoginResponse response =
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer guest-jwt");
+
+        // then — 기존 게스트 User 재활용: 신규 아님, isGuest 해제, 새 User 저장 없음
+        assertThat(response.isNewUser()).isFalse();
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        assertThat(guestUser.isGuest()).isFalse();
+        assertThat(guestUser.getRefreshToken()).isEqualTo("refresh-token");
+        verify(userRepository, never()).save(any(User.class));            // 새 User 생성 금지(재활용)
+        verify(socialAccountRepository).save(any(SocialAccount.class));    // 소셜 연동만 새로 부착
+        // createUserSideRows 미호출 — 부속 row 는 게스트 생성 시 이미 존재(중복 방지)
+        verify(userWalletRepository, never()).save(any());
+        verify(userScreenTimeSettingsRepository, never()).save(any());
+        verify(userFocusTimeSettingsRepository, never()).save(any());
+        verify(userNotificationSettingsRepository, never()).save(any());
+        // 업그레이드는 신규 가입이 아님 → 가입 이벤트 미발행
+        verify(userActivityEventLogger, never())
+                .log(anyString(), eq(UserActivityEvent.USER_SIGNED_UP), any());
+    }
+
+    @Test
+    @DisplayName("게스트 + 이미 연동된 소셜 → SOCIAL_ACCOUNT_ALREADY_LINKED, 게스트 유지·연동 없음")
+    void guestUpgradeWithAlreadyLinkedSocialRejected() {
+        // given — 게스트 JWT 헤더, 그러나 해당 소셜 계정은 이미 다른 User 에 연동됨
+        User guestUser = User.builder().id(GUEST_ID).isGuest(true).build();
+        User otherUser = User.builder().id(USER_ID).build();
+        SocialAccount linkedAccount = SocialAccount.builder()
+                .user(otherUser).provider(Provider.KAKAO).providerId("12345").build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.of(linkedAccount));
+        given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
+        given(userRepository.findById(GUEST_ID)).willReturn(Optional.of(guestUser));
+
+        // when & then — 업그레이드 거부, 게스트 상태 유지, 연동/저장 없음
+        assertThatThrownBy(() ->
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer guest-jwt"))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.SOCIAL_ACCOUNT_ALREADY_LINKED);
+        assertThat(guestUser.isGuest()).isTrue();
+        verify(userRepository, never()).save(any(User.class));
+        verify(socialAccountRepository, never()).save(any(SocialAccount.class));
     }
 
     // ── guestLogin ────────────────────────────────────────────────────────
