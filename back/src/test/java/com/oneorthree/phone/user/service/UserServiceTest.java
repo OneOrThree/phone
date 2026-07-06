@@ -113,7 +113,7 @@ class UserServiceTest {
         User user = User.builder().id(USER_ID).build();
         UserScreenTimeSettings screen = UserScreenTimeSettings.builder().userId(USER_ID).build();
         UserFocusTimeSettings focus = UserFocusTimeSettings.builder().userId(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
         given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
 
@@ -134,7 +134,7 @@ class UserServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void setupProfileUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.setupProfile(USER_ID, null))
                 .isInstanceOf(UserException.class)
@@ -146,7 +146,7 @@ class UserServiceTest {
     @DisplayName("셋업 시 닉네임 중복 → UserException(NICKNAME_DUPLICATE), setNickname 미반영")
     void setupProfileDuplicateNickname() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
         given(userRepository.existsByNicknameAndIdNot("중복닉", USER_ID)).willReturn(true);
 
         UserProfileSetupRequest body = new UserProfileSetupRequest(
@@ -165,7 +165,7 @@ class UserServiceTest {
     @DisplayName("부분 수정 → null 필드는 무시하고 전달된 필드만 갱신")
     void updateProfilePartial() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").gender(Gender.FEMALE).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
 
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
                 "새닉네임", null, null, null, null, "US", null);
@@ -181,7 +181,7 @@ class UserServiceTest {
     @DisplayName("수정 시 타인이 쓰는 닉네임 → UserException(NICKNAME_DUPLICATE), 기존 닉네임 유지")
     void updateProfileDuplicateNickname() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
         given(userRepository.existsByNicknameAndIdNot("남의닉", USER_ID)).willReturn(true);
 
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
@@ -200,7 +200,7 @@ class UserServiceTest {
         User user = User.builder().id(USER_ID).build();
         UserScreenTimeSettings screen = UserScreenTimeSettings.builder().userId(USER_ID).build();
         UserFocusTimeSettings focus = UserFocusTimeSettings.builder().userId(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
         given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
 
@@ -216,7 +216,7 @@ class UserServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void updateProfileUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.updateProfile(USER_ID, null))
                 .isInstanceOf(UserException.class)
@@ -230,7 +230,7 @@ class UserServiceTest {
     @DisplayName("탈퇴 성공 → focus·wallet·3 settings 정리 + 소셜연동 삭제·PII 파기·소프트딜리트 (하드삭제 X) GROMO-635")
     void withdrawSuccess() {
         User user = User.builder().id(USER_ID).nickname("조재영").refreshToken("rt").deviceToken("dt").build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.existsByHostId(USER_ID)).willReturn(false);
 
         userService.withdraw(USER_ID);
@@ -254,9 +254,22 @@ class UserServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void withdrawUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.withdraw(USER_ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("소프트딜리트(탈퇴) 유저는 변경 경로에서 차단 — findByIdAndDeletedAtIsNull 로 404 (GROMO-635 리뷰)")
+    void softDeletedUserBlockedOnUpdate() {
+        // 탈퇴 유저는 deleted_at 세팅 → findByIdAndDeletedAtIsNull 빈 결과. 잔여 액세스토큰으로 재호출해도 차단됨.
+        given(occupationInfoRepository.existsByCodeAndDeletedAtIsNull(Occupation.CIVIL_SERVANT)).willReturn(true);
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.updateOccupation(USER_ID, Occupation.CIVIL_SERVANT))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
@@ -266,7 +279,7 @@ class UserServiceTest {
     @DisplayName("그룹 호스트인 유저 → GroupException(HOST_WITHDRAW), 삭제 안 함")
     void withdrawHostForbidden() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.existsByHostId(USER_ID)).willReturn(true);
 
         assertThatThrownBy(() -> userService.withdraw(USER_ID))
@@ -297,7 +310,7 @@ class UserServiceTest {
                 .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build();
         UserFocusTimeSettings focus = UserFocusTimeSettings.builder()
                 .userId(USER_ID).dailyFocusTimeGoalMinutes(90).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
         given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
         given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
@@ -320,7 +333,7 @@ class UserServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void getProfileUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.getProfile(USER_ID))
                 .isInstanceOf(UserException.class)
@@ -361,7 +374,7 @@ class UserServiceTest {
     @DisplayName("디바이스 토큰 등록 → user.deviceToken 갱신")
     void registerDeviceToken() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
 
         userService.registerDeviceToken(USER_ID, "apns-device-token");
 
@@ -372,7 +385,7 @@ class UserServiceTest {
     @DisplayName("디바이스 토큰 해제 → user.deviceToken null (등록 케이스와 대칭)")
     void clearDeviceToken() {
         User user = User.builder().id(USER_ID).deviceToken("fcm-registration-token").build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
 
         userService.clearDeviceToken(USER_ID);
 
@@ -382,7 +395,7 @@ class UserServiceTest {
     @Test
     @DisplayName("디바이스 토큰 해제 - 존재하지 않는 유저 → UserException(NOT_FOUND)")
     void clearDeviceTokenUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.clearDeviceToken(USER_ID))
                 .isInstanceOf(UserException.class)
@@ -393,7 +406,7 @@ class UserServiceTest {
     @Test
     @DisplayName("디바이스 토큰 등록 - 존재하지 않는 유저 → UserException(NOT_FOUND)")
     void registerDeviceTokenUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.registerDeviceToken(USER_ID, "apns-device-token"))
                 .isInstanceOf(UserException.class)
@@ -408,7 +421,7 @@ class UserServiceTest {
     void updateOccupationSuccess() {
         User user = User.builder().id(USER_ID).build();
         given(occupationInfoRepository.existsByCodeAndDeletedAtIsNull(Occupation.UNIVERSITY)).willReturn(true);
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
 
         userService.updateOccupation(USER_ID, Occupation.UNIVERSITY);
 
@@ -419,7 +432,7 @@ class UserServiceTest {
     @DisplayName("occupation 저장 - 존재하지 않는 유저 → UserException(NOT_FOUND)")
     void updateOccupationUserNotFound() {
         given(occupationInfoRepository.existsByCodeAndDeletedAtIsNull(Occupation.UNIVERSITY)).willReturn(true);
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.updateOccupation(USER_ID, Occupation.UNIVERSITY))
                 .isInstanceOf(UserException.class)
@@ -495,7 +508,7 @@ class UserServiceTest {
     @DisplayName("공개 범위 수정 → user.statVisibility 반영 + STAT_VISIBILITY_UPDATED(visibility) 발행")
     void updateStatVisibilityEmitsEvent() {
         User user = User.builder().id(USER_ID).build(); // 기본값 FRIENDS
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
 
         userService.updateStatVisibility(USER_ID, StatVisibility.PUBLIC);
 
@@ -507,7 +520,7 @@ class UserServiceTest {
     @Test
     @DisplayName("공개 범위 수정 - 존재하지 않는 유저 → UserException(NOT_FOUND), 이벤트 미발행")
     void updateStatVisibilityUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.updateStatVisibility(USER_ID, StatVisibility.PUBLIC))
                 .isInstanceOf(UserException.class)
@@ -627,7 +640,7 @@ class UserServiceTest {
         SocialAccount googleAccount = SocialAccount.builder()
                 .user(user).provider(Provider.GOOGLE).providerId("google-sub")
                 .createdAt(googleTime).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
         given(socialAccountRepository.findAllByUserAndDeletedAtIsNull(user))
                 .willReturn(List.of(appleAccount, googleAccount));
 
@@ -644,7 +657,7 @@ class UserServiceTest {
     @DisplayName("게스트 유저(소셜 연동 0개) → getSocialLinks → 빈 리스트 반환")
     void getSocialLinksReturnsEmptyForGuest() {
         User user = User.builder().id(USER_ID).isGuest(true).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
         given(socialAccountRepository.findAllByUserAndDeletedAtIsNull(user)).willReturn(List.of());
 
         List<SocialLinkResponse> result = userService.getSocialLinks(USER_ID);
@@ -655,7 +668,7 @@ class UserServiceTest {
     @Test
     @DisplayName("getSocialLinks - 존재하지 않는 유저 → UserException(NOT_FOUND)")
     void getSocialLinksUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.getSocialLinks(USER_ID))
                 .isInstanceOf(UserException.class)
@@ -673,7 +686,7 @@ class UserServiceTest {
                 .user(user).provider(Provider.APPLE).providerId("apple-sub").build();
         SocialAccount googleAccount = SocialAccount.builder()
                 .user(user).provider(Provider.GOOGLE).providerId("google-sub").build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
         // 비관적 잠금 쿼리가 활성 연동 전체를 반환 — count·대상 계정 확보를 원자적으로 수행
         given(socialAccountRepository.findAllByUserAndDeletedAtIsNullForUpdate(user))
                 .willReturn(List.of(appleAccount, googleAccount));
@@ -692,7 +705,7 @@ class UserServiceTest {
         User user = User.builder().id(USER_ID).build();
         SocialAccount googleAccount = SocialAccount.builder()
                 .user(user).provider(Provider.GOOGLE).providerId("google-sub").build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
         given(socialAccountRepository.findAllByUserAndDeletedAtIsNullForUpdate(user))
                 .willReturn(List.of(googleAccount));
 
@@ -708,7 +721,7 @@ class UserServiceTest {
     @DisplayName("미연동 provider 해제 시도 → UserException(SOCIAL_ACCOUNT_NOT_FOUND) 404")
     void unlinkSocialAccountNotLinkedThrows404() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.of(user));
         // KAKAO 연동 없음 — 빈 리스트 반환
         given(socialAccountRepository.findAllByUserAndDeletedAtIsNullForUpdate(user))
                 .willReturn(List.of());
@@ -722,7 +735,7 @@ class UserServiceTest {
     @Test
     @DisplayName("unlinkSocialAccount - 존재하지 않는 유저 → UserException(NOT_FOUND)")
     void unlinkSocialAccountUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.unlinkSocialAccount(USER_ID, Provider.APPLE))
                 .isInstanceOf(UserException.class)

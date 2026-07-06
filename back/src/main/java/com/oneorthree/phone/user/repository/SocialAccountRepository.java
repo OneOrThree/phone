@@ -34,7 +34,7 @@ public interface SocialAccountRepository extends JpaRepository<SocialAccount, UU
     List<SocialAccount> findAllByUserAndDeletedAtIsNullForUpdate(@Param("user") User user);
 
     // 회원 탈퇴 — 해당 유저 소셜 연동 전체 하드 삭제 (provider_id PII 파기 + (provider,provider_id) 재가입 확보 + FK 프리). GROMO-635
-    @Modifying
+    @Modifying(clearAutomatically = true)   // 벌크 DELETE 후 영속성 컨텍스트 정리 — stale SocialAccount 재사용 방지 (GROMO-635 리뷰)
     @Query("DELETE FROM SocialAccount sa WHERE sa.user.id = :userId")
     void deleteByUserId(@Param("userId") UUID userId);
 }

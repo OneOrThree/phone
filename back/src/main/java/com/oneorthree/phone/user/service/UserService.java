@@ -63,7 +63,7 @@ public class UserService {
 
     @Transactional
     public void setupProfile(UUID userId, UserProfileSetupRequest body) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         // 닉네임 중복 방지 (GROMO-584) — 사전 검사로 409, 동시 요청 레이스는 DB 유니크 제약이 최종 방어
@@ -95,7 +95,7 @@ public class UserService {
 
     @Transactional
     public void updateProfile(UUID userId, UserProfileUpdateRequest body) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (body.getNickname() != null) {
@@ -132,7 +132,7 @@ public class UserService {
 
     @Transactional
     public void withdraw(UUID userId) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (groupRepository.existsByHostId(userId)) {
@@ -154,11 +154,14 @@ public class UserService {
         user.setNickname(null);
         user.setDeviceToken(null);
         user.setRefreshToken(null);
+        user.setBirthDate(null);
+        user.setGender(null);
+        user.setCountryCode(null);
         user.setDeletedAt(Instant.now());
     }
 
     public UserProfileResponse getProfile(UUID userId) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         UserWallet wallet = userWalletRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
@@ -187,7 +190,7 @@ public class UserService {
      */
     @Transactional
     public void updateStatVisibility(UUID userId, StatVisibility statVisibility) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setStatVisibility(statVisibility);
         userActivityEventLogger.log(UserActivityEvent.STAT_VISIBILITY_UPDATED,
@@ -222,7 +225,7 @@ public class UserService {
     @Transactional
     public void updateOccupation(UUID userId, Occupation occupation) {
         requireActiveOccupation(occupation);
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setOccupation(occupation);
     }
@@ -237,7 +240,7 @@ public class UserService {
 
     @Transactional
     public void registerDeviceToken(UUID userId, String deviceToken) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setDeviceToken(deviceToken);
     }
@@ -245,7 +248,7 @@ public class UserService {
     // 토큰 해제 — 로그아웃/기기 변경 시 이전 유저에게 오발송되는 것 방지 (GROMO-528)
     @Transactional
     public void clearDeviceToken(UUID userId) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setDeviceToken(null);
     }
@@ -255,7 +258,7 @@ public class UserService {
      * 게스트(연동 0개)는 빈 리스트 반환.
      */
     public List<SocialLinkResponse> getSocialLinks(UUID userId) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         return socialAccountRepository.findAllByUserAndDeletedAtIsNull(user).stream()
                 .map(account -> new SocialLinkResponse(account.getProvider().name(), account.getCreatedAt()))
@@ -270,7 +273,7 @@ public class UserService {
      */
     @Transactional
     public void unlinkSocialAccount(UUID userId, Provider provider) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         // 비관적 잠금으로 활성 연동 전체 조회 — count와 대상 계정을 한 번에 확보해 원자성 보장
         List<SocialAccount> activeAccounts = socialAccountRepository.findAllByUserAndDeletedAtIsNullForUpdate(user);
