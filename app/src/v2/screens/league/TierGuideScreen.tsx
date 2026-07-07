@@ -8,20 +8,23 @@ import { T } from '@/constants/theme';
 import { TIERS, tierByLevel } from '@/constants/tiers';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { fmtMinutes } from './format';
-import { MY_RANK, MY_TIER } from './mock';
+import { useLeagueMeta } from './useLeagueMeta';
+import { useLeagueRanking } from './useLeagueRanking';
 import { TierBadge } from './components/TierBadge';
 
 // 티어 단계 안내 (root stack) — 시안 "티어 · 5단계 뱃지".
 // 현재 티어 히어로 카드(진행바) + 5단계 카드 리스트(N단계) + 정산 안내.
-// 데이터는 mock — TODO: GET /league/me/tier·rank 연동.
+// 티어·이번 주 집중분은 리그 탭과 동일 원천(useLeagueMeta → GET /league/me/tier, useLeagueRanking).
+// 미배정/게스트/실패 시 tierLevel null → 1단계 기본(리그 화면과 같은 규칙), 집중분 0.
 // 히어로·리스트 뱃지 모두 시안의 별 사각형 대신 tier 일러스트(tiers.ts image) 사용.
 
 export default function TierGuideScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
-  const level = MY_TIER.tierLevel ?? 1;
+  const { tier } = useLeagueMeta();
+  const level = tier.tierLevel ?? 1;
   const cur = tierByLevel(level);
-  const minutes = MY_RANK.totalFocusMinutes ?? 0;
+  const { myMinutes: minutes } = useLeagueRanking(level);
 
   // 다음 단계 기준(분)과 남은 시간 — 시안 진행바는 다음 기준 대비 누적 비율(14h20m/22h ≈ 64%)
   const nextAt = cur.maxHours != null ? cur.maxHours * 60 : null;

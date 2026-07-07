@@ -11,7 +11,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import axios from 'axios';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
@@ -320,7 +320,8 @@ export default function FriendProfileScreen() {
             activeOpacity={0.7}
             hitSlop={6}
           >
-            <Ionicons
+            {/* 리그(RankRow·포디움·칩)와 동일한 압정 아이콘(MaterialCommunityIcons) — Ionicons 핀은 모양이 달라 혼동 */}
+            <MaterialCommunityIcons
               name={isPinned ? 'pin' : 'pin-outline'}
               size={16}
               color={isPinned ? T.white : T.inkSub}
