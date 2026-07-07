@@ -22,9 +22,10 @@ interface NativeScreenTime {
   getAuthorizationStatus(): Promise<AuthorizationStatus>;
   getTotalScreenTime(): Promise<number>;
   setGoalSeconds(seconds: number): Promise<void>;
-  startGoalMonitoring(goalSeconds: number): Promise<void>;
+  startGoalMonitoring(goalSeconds: number): Promise<boolean>;
   startUsageBucketMonitoring(maxMinutes: number): Promise<boolean>;
   getTodayUsageBucketMinutes(): Promise<number>;
+  getYesterdayUsageBucketMinutes(): Promise<number>;
   getYesterdayResult(): Promise<YesterdayResult>;
   presentAppPicker(): Promise<AppSelectionCounts | null>;
   promoteSelection(): Promise<boolean>;
@@ -66,9 +67,10 @@ const ScreenTimeModule = {
     return NativeScreenTimeModule.setGoalSeconds(seconds);
   },
 
-  // 매일 자정 기준 스크린 타임 목표 달성 모니터링 등록
-  startGoalMonitoring: async (goalSeconds: number): Promise<void> => {
-    if (Platform.OS !== 'ios') return;
+  // 매일 자정 기준 스크린 타임 목표 달성 모니터링 등록 — 어제 판정(getYesterdayResult)의 소스.
+  // 측정 대상 미선택이면 false. 목표 변경 시 재호출하면 이전 모니터링을 교체한다.
+  startGoalMonitoring: async (goalSeconds: number): Promise<boolean> => {
+    if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.startGoalMonitoring(goalSeconds);
   },
 
@@ -83,6 +85,13 @@ const ScreenTimeModule = {
   getTodayUsageBucketMinutes: async (): Promise<number> => {
     if (Platform.OS !== 'ios') return 0;
     return NativeScreenTimeModule.getTodayUsageBucketMinutes();
+  },
+
+  // 어제의 최종 사용량(분) — Monitor가 하루 경계에 보존한 전일 눈금(GROMO-633).
+  // iOS 외/보존 날짜가 어제가 아니면 0.
+  getYesterdayUsageBucketMinutes: async (): Promise<number> => {
+    if (Platform.OS !== 'ios') return 0;
+    return NativeScreenTimeModule.getYesterdayUsageBucketMinutes();
   },
 
   // 어제 목표 달성 결과 조회. 반환값: "success" | "fail" | null
