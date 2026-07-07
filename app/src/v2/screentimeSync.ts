@@ -11,9 +11,14 @@ import { todayStr, yesterdayStr } from '@/utils/localDate';
 // 달성 여부 프로토콜:
 //  - 당일 중간 동기화는 goalAchieved=false 고정. 스크린타임 달성(목표 '이내')은 하루가 끝나야
 //    판정 가능하고, 중간에 true를 보내면 백엔드 false→true 전이 이벤트가 조기 발화한다(395 규칙).
-//  - 날짜가 바뀐 뒤 첫 동기화에서 어제분을 마감 — 네이티브 최종 판정(getYesterdayResult)을
-//    achieved에 싣고, 로컬에 보관해 둔 어제 분값을 함께 보낸다. 서버가 null 분값을 0으로
-//    덮어쓰므로 분값을 생략하면 어제 중간 동기화 값이 소실된다.
+//  - 날짜가 바뀐 뒤 첫 동기화에서 어제분을 마감 — Monitor가 하루 경계에 보존한 전일 최종 눈금과
+//    네이티브 최종 판정(getYesterdayResult, 없으면 분값 근사 폴백)으로 어제 행을 확정한다.
+//    서버가 null 분값을 0으로 덮어쓰므로 분값은 반드시 함께 보낸다.
+//
+// reportedAt은 대상 날짜의 '로컬 정오' instant로 보낸다 — 서버는 reportedAt을 유저 타임존
+// (country_code 파생, 미설정 시 UTC 폴백)의 날짜로 환산하는데 현재 앱은 countryCode를 보내지
+// 않아 UTC 폴백 유저가 존재한다. 정오 instant는 기기 오프셋 UTC-11~+12 범위에서 UTC로 환산해도
+// 같은 날짜라, 자정 경계(예: KST 아침 = UTC 전날 밤)의 날짜 오귀속을 막는다.
 
 // 마지막 성공 동기화 상태 — 어제분 마감(분값 보존)과 무변화 스킵 판단에 쓴다.
 // 디바이스 전역 키라 계정을 함께 기록해 다른 계정의 기록에 오염되지 않게 한다.
@@ -43,13 +48,28 @@ export async function registerUsageBucketMonitoring(): Promise<boolean> {
   }
 }
 
-// 어제 23:59(로컬)의 ISO instant — 마감 업로드의 reportedAt.
-// 서버(ScreenTimeService)가 유저 타임존 날짜로 환산하므로 어제 행에 귀속된다.
-function yesterdayEndInstant(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  d.setHours(23, 59, 0, 0);
-  return d.toISOString();
+// 목표 판정 모니터링(gromo.daily) 등록 — 어제 달성 판정(getYesterdayResult)의 소스.
+// 선택 앱 누적이 목표초 threshold에 도달하면 Monitor가 초과 플래그를 세우고, 하루 종료 시
+// success/fail을 기록한다. 등록된 목표초를 저장해 두고 값이 바뀔 때만 재등록한다 —
+// 재등록은 당일 누적 threshold를 리셋하지만, 목표 변경은 발효일(내일) 첫 실행 직후라 손실이 미미.
+export async function registerGoalMonitoring(goalSeconds: number): Promise<boolean> {
+  if (goalSeconds <= 0) return false;
+  try {
+    if ((await ScreenTimeModule.getAuthorizationStatus()) !== 'approved') return false;
+    const ok = await ScreenTimeModule.startGoalMonitoring(goalSeconds);
+    if (ok) {
+      await AsyncStorage.setItem(STORAGE_KEYS.screentimeGoalMonitorSeconds, String(goalSeconds));
+    }
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+// 대상 날짜('YYYY-MM-DD')의 로컬 정오 ISO instant — reportedAt용(파일 상단 주석 참고).
+function localNoonInstant(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d, 12, 0, 0).toISOString();
 }
 
 async function readSyncState(userId: string): Promise<ScreenTimeSyncState | null> {
@@ -75,7 +95,10 @@ async function writeSyncState(state: ScreenTimeSyncState): Promise<void> {
 // 사용량 동기화 본체 — 앱 시작·포그라운드 복귀마다 호출(ScreenTimeSyncer).
 // 게스트·권한 미허용이면 아무것도 하지 않는다. 실패는 그대로 던져 호출부에서 무시 —
 // 서버 upsert가 멱등이라 다음 포그라운드에서 최신값으로 다시 시도하면 된다.
-export async function syncScreenTimeUsage(userId: string | null): Promise<void> {
+export async function syncScreenTimeUsage(
+  userId: string | null,
+  goalSeconds: number,
+): Promise<void> {
   if (!userId) return; // 게스트 — 서버 통계 대상 아님
   if ((await ScreenTimeModule.getAuthorizationStatus()) !== 'approved') return;
 
@@ -89,28 +112,54 @@ export async function syncScreenTimeUsage(userId: string | null): Promise<void> 
     // 등록 실패는 동기화와 무관 — 계속 진행
   }
 
+  // 목표 판정 모니터링 등록/재등록 — 미등록이거나 목표가 바뀌었으면. 이게 없으면 gromo.daily가
+  // 안 돌아 getYesterdayResult()가 영영 null → 어제 마감이 분값 근사 폴백으로만 동작한다.
+  // (신규 유저는 목표가 온보딩 W12에서 정해지므로 W10이 아니라 여기서 첫 등록된다.)
+  try {
+    const registeredGoal = await AsyncStorage.getItem(STORAGE_KEYS.screentimeGoalMonitorSeconds);
+    if (goalSeconds > 0 && registeredGoal !== String(goalSeconds)) {
+      await registerGoalMonitoring(goalSeconds); // 선택 없으면 false → 저장 없이 다음에 재시도
+    }
+  } catch {
+    // 등록 실패는 동기화와 무관 — 계속 진행
+  }
+
   const today = todayStr();
   let last = await readSyncState(userId);
 
-  // 어제분 마감 — 어제 중간 동기화 기록이 있고 네이티브 최종 판정이 있으면 어제 행을 확정한다.
-  // 판정이 없으면(모니터링 미동작 등) 마감 생략 — 어제 행은 중간 동기화 값(achieved=false) 유지.
-  // 이틀 이상 지난 기록은 판정 소스가 없어 마감 불가 — 이미 업로드된 중간값을 그대로 둔다.
+  // 어제분 마감 — 어제 동기화 기록이 있으면 어제 행을 확정한다. 분값은 Monitor가 하루 경계에
+  // 보존한 전일 최종 눈금이 있으면 그 값(마지막 포그라운드 이후 늘어난 사용분 포함), 없으면
+  // 마지막 동기화 값. 이틀 이상 지난 기록은 판정·보존값 소스가 없어 마감 불가 — 중간값 유지.
   if (last && last.date === yesterdayStr()) {
+    let finalMinutes = last.minutes;
+    try {
+      finalMinutes = Math.max(
+        finalMinutes,
+        await ScreenTimeModule.getYesterdayUsageBucketMinutes(),
+      );
+    } catch {
+      // 보존값 조회 실패 — 마지막 동기화 값으로 마감
+    }
     let result: 'success' | 'fail' | null = null;
     try {
       result = await ScreenTimeModule.getYesterdayResult();
     } catch {
-      // 판정 조회 실패 → 이번엔 마감 생략(아래에서 상태만 오늘로 넘긴다)
+      // 판정 조회 실패 → 아래 분값 근사 폴백
     }
-    if (result) {
-      // 실패 시 상태를 어제로 보존한 채 중단 — 다음 포그라운드에서 마감부터 재시도.
+    // 네이티브 판정이 없으면(목표 모니터링 미등록 기간 등) 분값 근사로 폴백 — 30분 눈금이라
+    // 목표 직전 초과가 달성으로 후하게 잡힐 수 있고 목표도 오늘 값 기준인 근사지만,
+    // 미달성으로 고정해 두는 것보다 정확하다.
+    const achieved =
+      result !== null ? result === 'success' : goalSeconds > 0 && finalMinutes <= goalSeconds / 60;
+    if (finalMinutes > 0) {
+      // 실패 시 상태를 어제로 보존한 채 중단(throw) — 다음 포그라운드에서 마감부터 재시도.
       await saveScreenTime({
-        actualScreenTimeMinutes: last.minutes,
-        screenTimeGoalAchieved: result === 'success',
-        reportedAt: yesterdayEndInstant(),
+        actualScreenTimeMinutes: finalMinutes,
+        screenTimeGoalAchieved: achieved,
+        reportedAt: localNoonInstant(last.date),
       });
     }
-    // 마감 완료(또는 판정 없음) — 오늘 0분으로 상태를 넘겨 같은 날 마감이 반복되지 않게 한다.
+    // 마감 완료(또는 마감할 값 없음) — 오늘 0분으로 상태를 넘겨 같은 날 마감이 반복되지 않게 한다.
     last = { userId, date: today, minutes: 0 };
     await writeSyncState(last);
   }
@@ -124,7 +173,7 @@ export async function syncScreenTimeUsage(userId: string | null): Promise<void> 
   await saveScreenTime({
     actualScreenTimeMinutes: minutes,
     screenTimeGoalAchieved: false, // 중간 동기화는 미달성 고정 — 최종 판정은 다음날 마감에서
-    reportedAt: new Date().toISOString(),
+    reportedAt: localNoonInstant(today),
   });
   await writeSyncState({ userId, date: today, minutes });
 }

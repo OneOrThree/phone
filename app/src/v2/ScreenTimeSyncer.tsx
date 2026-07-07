@@ -8,7 +8,8 @@ import { syncScreenTimeUsage } from './screentimeSync';
 // POST /screen-time으로 올려 통계 화면 폰 사용량 지표를 채운다. 실패는 조용히 무시 —
 // 서버 upsert가 멱등이라 다음 복귀 때 최신값으로 다시 시도된다.
 export function ScreenTimeSyncer() {
-  const { userId } = useUser();
+  // 목표초는 목표 판정 모니터링(gromo.daily) 등록과 판정 폴백에 쓴다 — 변경 시 재동기화.
+  const { userId, screenTimeGoalSeconds } = useUser();
 
   useEffect(() => {
     // 포그라운드 이벤트 연타 시 동시 실행 방지 — 진행 중이면 이번 트리거는 건너뛴다.
@@ -16,7 +17,7 @@ export function ScreenTimeSyncer() {
     const run = () => {
       if (inFlight) return;
       inFlight = true;
-      syncScreenTimeUsage(userId)
+      syncScreenTimeUsage(userId, screenTimeGoalSeconds)
         .catch(() => {})
         .finally(() => {
           inFlight = false;
@@ -27,7 +28,7 @@ export function ScreenTimeSyncer() {
       if (state === 'active') run();
     });
     return () => sub.remove();
-  }, [userId]);
+  }, [userId, screenTimeGoalSeconds]);
 
   return null;
 }
