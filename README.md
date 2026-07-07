@@ -22,34 +22,66 @@ gromo/
 
 - [Node.js 24+](https://nodejs.org)
 - Android Studio 또는 Xcode (에뮬레이터/시뮬레이터)
+- iOS 빌드 시 [CocoaPods](https://cocoapods.org) (`pod install`용)
+- TestFlight 배포 시 Ruby + Bundler (fastlane용 — 아래 [TestFlight 배포](#testflight-배포) 참고)
 - 또는 실기기 + [Expo Dev Client](https://docs.expo.dev/develop/development-builds/introduction/)
-
-> **Expo Go는 지원하지 않습니다.**
-> 카카오 로그인에 네이티브 모듈(`@react-native-kakao/user`)이 필요해서
-> Expo Go로는 실행이 안 돼요. Development Build를 사용해야 합니다.
 
 ### 설치 및 실행
 
 ```bash
 cd app
 npm install
+cp .env.example .env             # 환경변수 파일 생성 (아래에서 API 서버 지정)
+cd ios && pod install && cd ..   # iOS 네이티브 의존성 (CocoaPods 필요)
+
+npx expo start                   # 개발 서버 시작
 ```
 
-**Development Build 생성 (최초 1회)**
+`.env`의 `EXPO_PUBLIC_API_URL`로 붙을 백엔드를 정해요.
+
+- **팀 서버(기본·권장)**: `EXPO_PUBLIC_API_URL=https://xxxxxxxxxx.com` — 백엔드 셋업 불필요
+- **로컬 백엔드**: `back/`를 띄운 뒤 `EXPO_PUBLIC_API_URL=http://localhost:8080` (실기기는 Mac의 LAN IP 사용)
+
+> `pod install`은 iOS 네이티브 빌드용이에요. 최초 1회, 그리고 브랜치 전환·네이티브 패키지
+> 추가 후에 다시 돌려주세요. (Android는 불필요)
+>
+> 개발용 앱이 아직 기기에 없다면 최초 1회만 USB로 연결해 네이티브 빌드를 설치해요.
+> (이후엔 와이파이만으로 충분)
+>
+> ```bash
+> npx expo run:ios --device       # iOS (Mac + Xcode + p12 서명 필요)
+> npx expo run:android --device   # Android (USB 디버깅 켠 상태)
+> ```
+
+### TestFlight 배포
+
+**로컬 fastlane**으로 TestFlight에 올려요. 셋업이 끝나 있으면 아래 한 방이면 됩니다.
+(빌드는 macOS + Xcode 필요)
 
 ```bash
-# Android
-npx expo run:android
-
-# iOS
-npx expo run:ios
+cd app/ios
+./testflight.sh
 ```
 
-빌드 후에는 아래 명령어로 개발 서버만 띄우면 됩니다.
+**최초 1회 셋업** (이미 되어 있으면 생략)
 
-```bash
-npm start
-```
+1. **fastlane 설치** — 전역 설치 대신 Gemfile(번들러)로 관리해요.
+   ```bash
+   cd app/ios
+   bundle install       # Gemfile 의 fastlane 설치 (Ruby·Bundler 필요)
+   ```
+2. **인증** — App Store Connect API Key(`.p8`)로 로그인해요.
+   `app/ios/fastlane/.env`(gitignore됨)에 아래 3개를 넣어둡니다.
+   ```bash
+   ASC_KEY_ID=XXXXXXXXXX          # AuthKey_XXXXXXXXXX.p8 의 키 ID
+   ASC_ISSUER_ID=xxxxxxxx-....    # ASC → 사용자 및 액세스 → 통합(Integrations) 상단
+   ASC_KEY_PATH=/절대경로/AuthKey_XXXXXXXXXX.p8
+   ```
+3. **서명** — 재영님 개인 Apple 계정의 distribution p12 인증서 + 7개 타겟용
+   `distribution-gromo-*` 프로비저닝 프로파일(수동 서명)이 키체인/Xcode에 설치돼 있어야 해요.
+
+> 자주 막히는 곳(codesign `errSecInternalComponent`, Pods sync 등)과 서명 셋업 상세는
+> `app/.claude/CLAUDE.md` 및 관련 WorkLog을 참고하세요.
 
 ---
 
@@ -83,8 +115,12 @@ docker compose -f ../docker-compose.local.yml up -d   # 로컬 PostgreSQL
 
 ## 로그인
 
-카카오 로그인이 적용되어 있어요.
-카카오 개발자 콘솔에서 앱 키를 발급받아 설정 파일(`app/app.config.js`)에 추가해야 합니다.
+소셜 로그인은 **카카오 / Apple / Google / LINE / Meta(Facebook)** 를 지원해요.
+
+- **카카오**는 네이티브 앱 키가 `app/app.config.js`에 이미 설정돼 있어 별도 준비 없이 동작해요.
+- **Google / LINE / Meta**는 각 콘솔에서 발급한 키를 `app/.env`(`EXPO_PUBLIC_*`)에 채워야
+  실제 로그인이 됩니다. 값이 없으면 빌드는 통과하되 해당 로그인만 비활성 — 채울 키 목록은
+  `app/.env.example` 참고. (⚠️ App Secret 등 비밀 값은 FE `.env`에 넣지 말 것 — 백엔드 전용)
 
 ---
 
@@ -97,6 +133,7 @@ docker compose -f ../docker-compose.local.yml up -d   # 로컬 PostgreSQL
 | `npm start`            | Expo 개발 서버 시작 (Dev Client용) |
 | `npx expo run:android` | Android 네이티브 빌드 + 실행       |
 | `npx expo run:ios`     | iOS 네이티브 빌드 + 실행           |
+| `./ios/testflight.sh`  | iOS 빌드 → TestFlight 업로드 (fastlane) |
 | `npm run lint`         | ESLint 검사                        |
 | `npm run format:fix`   | Prettier 포맷 적용                 |
 

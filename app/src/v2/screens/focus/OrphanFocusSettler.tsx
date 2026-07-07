@@ -7,6 +7,7 @@ import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { useUser } from '@/store/UserContext';
+import { todayStr, localDateStr } from '@/utils/localDate';
 import type { LiveFocusSession } from './types';
 import { enqueuePendingFocusUpload } from './pendingFocusUploads';
 
@@ -60,12 +61,13 @@ export function OrphanFocusSettler() {
         rec = { ...rec, settledLocally: true };
         stored = JSON.stringify(rec);
         await AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, stored);
-        // '오늘 집중'은 오늘 기록일 때만 반영(자정 넘겨 재실행 시 어제 세션이 오늘로 안 잡히게).
-        // 과목 누적(all-time)과 코인은 항상 반영. 날짜 규칙은 FocusContext와 동일(ISO 날짜).
-        if (rec.updatedAt.slice(0, 10) === new Date().toISOString().slice(0, 10)) {
+        // '오늘 집중'과 과목 누적은 둘 다 '오늘' 기준 → 세션이 오늘 기록일 때만 반영한다
+        // (자정 넘겨 재실행 시 어제 세션이 오늘로 안 잡히게). 코인은 all-time이라 항상 반영.
+        // 날짜 규칙은 FocusContext/SubjectContext와 동일(localDate=KST 자정 기준).
+        if (localDateStr(new Date(rec.updatedAt)) === todayStr()) {
           addFocusSeconds(focused);
+          addFocusToSubject(rec.subjectId, focused);
         }
-        addFocusToSubject(rec.subjectId, focused);
         const coins = Math.floor(focused / 10);
         if (coins > 0) addCoins(coins);
       }

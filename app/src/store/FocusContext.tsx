@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
+import { todayStr } from '@/utils/localDate';
 
 interface FocusContextValue {
   todayFocusSeconds: number;
@@ -9,10 +10,6 @@ interface FocusContextValue {
 }
 
 const FocusContext = createContext<FocusContextValue | null>(null);
-
-function todayDateString(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 interface SavedFocus {
   todayFocusSeconds?: number;
@@ -28,7 +25,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
       if (raw) {
         const saved = JSON.parse(raw) as SavedFocus;
         // 날짜가 바뀌면 오늘 집중 시간 초기화
-        if (saved.date === todayDateString()) {
+        if (saved.date === todayStr()) {
           setTodayFocusSeconds(saved.todayFocusSeconds ?? 0);
         }
       }
@@ -42,7 +39,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
       STORAGE_KEYS.focus,
       JSON.stringify({
         todayFocusSeconds,
-        date: todayDateString(),
+        date: todayStr(),
       }),
     );
   }, [todayFocusSeconds]);
