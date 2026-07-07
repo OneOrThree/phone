@@ -35,9 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
 import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
@@ -252,11 +250,9 @@ public class StatsService {
         LocalDate from = range.currentFrom();
         LocalDate to = range.currentTo();
 
-        Instant fromInstant = from.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant toInstant = to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant(); // exclusive 상한
-
+        // GROMO-643: 세션 localDate [from,to] 로 조회 — daily_focus_stats 버킷과 동일 기준(UTC 윈도우 제거)
         List<FocusSession> sessions =
-                focusSessionRepository.findCompletedSessionsInPeriod(user, fromInstant, toInstant);
+                focusSessionRepository.findCompletedSessionsInPeriod(user, from, to);
 
         // 태그별 집계 — Collectors.groupingBy 는 null 키 불가이므로 직접 누적 (GROMO-642: 세션별 분 내림 제거 → 초 누적)
         Map<UUID, Long> taggedSeconds = new LinkedHashMap<>();
@@ -276,18 +272,20 @@ public class StatsService {
             }
         }
 
-        // items 조립 — 태그별 초합을 분 환산(1회 내림). items 합 = totalFocusMinutes 로 정합(내림차순 정렬).
+        // total 은 전체 초합을 1회 내림(GROMO-642) — 태그별로 먼저 내림해 합하면 자투리 초가 태그마다 소실돼
+        // /stats/focus 와 어긋난다(예: 30초+30초 → category 0분 vs focus 1분). total 은 초합 기준으로 정합.
+        long totalSeconds = untaggedSeconds
+                + taggedSeconds.values().stream().mapToLong(Long::longValue).sum();
+        int totalMinutes = (int) (totalSeconds / 60);
+
+        // items 는 태그별 분(표시 단위) — 개별 항목은 분 내림. total 과 items 합은 다를 수 있음(total 이 정확값).
         List<CategoryFocusStatsResponse.CategoryItem> items = new ArrayList<>();
-        int totalMinutes = 0;
         for (Map.Entry<UUID, Long> entry : taggedSeconds.entrySet()) {
-            int mins = (int) (entry.getValue() / 60);
-            totalMinutes += mins;
             items.add(new CategoryFocusStatsResponse.CategoryItem(
-                    entry.getKey(), tagNames.get(entry.getKey()), mins));
+                    entry.getKey(), tagNames.get(entry.getKey()), (int) (entry.getValue() / 60)));
         }
         int untaggedMinutes = (int) (untaggedSeconds / 60);
         if (untaggedMinutes > 0) {
-            totalMinutes += untaggedMinutes;
             items.add(new CategoryFocusStatsResponse.CategoryItem(null, null, untaggedMinutes));
         }
         items.sort(Comparator.comparingInt(CategoryFocusStatsResponse.CategoryItem::totalFocusMinutes).reversed());

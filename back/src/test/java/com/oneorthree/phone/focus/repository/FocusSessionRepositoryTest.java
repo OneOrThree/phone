@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,8 +36,9 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
     // 테스트 기준 시각: 2026-07-03 UTC
     // from = 2026-07-03 00:00:00 UTC (inclusive)
     // to   = 2026-07-04 00:00:00 UTC (exclusive 상한)
-    private static final Instant FROM = Instant.parse("2026-07-03T00:00:00Z");
-    private static final Instant TO   = Instant.parse("2026-07-04T00:00:00Z");
+    // GROMO-643: 카테고리 조회는 세션 localDate [FROM,TO] 기준(inclusive)
+    private static final LocalDate FROM = LocalDate.of(2026, 7, 3);
+    private static final LocalDate TO   = LocalDate.of(2026, 7, 3);
 
     private User user;
 
@@ -50,17 +52,19 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
     @Test
     @DisplayName("findCompletedSessionsInPeriod — deletedAt!=null(소프트딜리트) 세션은 결과에서 제외")
     void excludesSoftDeletedSessions() {
-        // given: 활성 완료 세션 1개 + 소프트딜리트된 완료 세션 1개 저장
+        // given: 활성 완료 세션 1개 + 소프트딜리트된 완료 세션 1개 저장 (둘 다 localDate=2026-07-03)
         FocusSession active = focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
                 .endedAt(Instant.parse("2026-07-03T02:00:00Z"))
+                .localDate(LocalDate.of(2026, 7, 3))
                 .build());
         // 소프트딜리트 세션 — deletedAt 설정됨. deletedAt IS NULL 조건에 의해 제외되어야 한다.
         focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .startedAt(Instant.parse("2026-07-03T03:00:00Z"))
                 .endedAt(Instant.parse("2026-07-03T04:00:00Z"))
+                .localDate(LocalDate.of(2026, 7, 3))
                 .deletedAt(Instant.parse("2026-07-03T05:00:00Z"))
                 .build());
         focusSessionRepository.flush();
@@ -73,31 +77,33 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         assertThat(result.get(0).getId()).isEqualTo(active.getId());
     }
 
-    // ── 자정 걸친 세션 귀속 (endedAt 기준) ────────────────────────────────
+    // ── 세션 귀속은 localDate 기준 (GROMO-643 회귀) ───────────────────────
 
     @Test
-    @DisplayName("findCompletedSessionsInPeriod — 자정 걸친 세션(startedAt 어제, endedAt 오늘)은 endedAt 기준으로 오늘 구간에 귀속")
-    void midnightCrossingSessionBelongsToEndedAtDate() {
-        // given: startedAt=어제 23:30 UTC, endedAt=오늘 00:30 UTC — 자정을 넘어 종료된 세션.
-        // endedAt이 오늘(FROM <= endedAt < TO) 이므로 오늘 조회 결과에 포함되어야 한다.
-        FocusSession midnightCrossing = focusSessionRepository.save(FocusSession.builder()
+    @DisplayName("findCompletedSessionsInPeriod — 귀속은 endedAt UTC 가 아니라 localDate 기준 (KST 오전 세션 회귀)")
+    void belongsToLocalDateNotEndedAtUtc() {
+        // given: endedAt UTC date=2026-07-02 이지만 클라 localDate=2026-07-03 (KST 07-03 오전 세션).
+        // 과거 버그(endedAt UTC 윈도우)면 오늘(07-03) 조회에서 누락됐으나, 이제 localDate 로 포함되어야 한다.
+        FocusSession kstMorning = focusSessionRepository.save(FocusSession.builder()
                 .user(user)
-                .startedAt(Instant.parse("2026-07-02T23:30:00Z")) // 어제 23:30 UTC
-                .endedAt(Instant.parse("2026-07-03T00:30:00Z"))   // 오늘 00:30 UTC
+                .startedAt(Instant.parse("2026-07-02T22:30:00Z")) // KST 07-03 07:30
+                .endedAt(Instant.parse("2026-07-02T23:30:00Z"))   // KST 07-03 08:30, endedAt UTC date=07-02
+                .localDate(LocalDate.of(2026, 7, 3))
                 .build());
-        // 어제 전체 종료 세션 — startedAt·endedAt 모두 어제. 오늘 기준 조회 시 제외되어야 한다.
+        // localDate=07-02 세션 — 오늘(07-03) 조회에서 제외되어야 한다.
         focusSessionRepository.save(FocusSession.builder()
                 .user(user)
-                .startedAt(Instant.parse("2026-07-02T23:30:00Z"))
-                .endedAt(Instant.parse("2026-07-02T23:50:00Z"))
+                .startedAt(Instant.parse("2026-07-02T10:00:00Z"))
+                .endedAt(Instant.parse("2026-07-02T11:00:00Z"))
+                .localDate(LocalDate.of(2026, 7, 2))
                 .build());
         focusSessionRepository.flush();
 
-        // when: 오늘(FROM~TO) 기준 조회
+        // when: 오늘(localDate 2026-07-03) 기준 조회
         List<FocusSession> result = focusSessionRepository.findCompletedSessionsInPeriod(user, FROM, TO);
 
-        // then: 자정 걸친 세션(endedAt=오늘 00:30)만 포함, 어제 종료 세션은 제외
+        // then: localDate=07-03 세션만 포함 (endedAt UTC 는 07-02 여도)
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).getId()).isEqualTo(midnightCrossing.getId());
+        assertThat(result.get(0).getId()).isEqualTo(kstMorning.getId());
     }
 }

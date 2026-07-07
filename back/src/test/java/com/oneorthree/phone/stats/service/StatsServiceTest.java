@@ -901,7 +901,7 @@ class StatsServiceTest {
     }
 
     @Test
-    @DisplayName("카테고리별 DAY — fromInstant=today 00:00 UTC, toInstant=today+1 00:00 UTC (ArgumentCaptor)")
+    @DisplayName("카테고리별 DAY — localDate from=to=today (GROMO-643, inclusive)")
     void getFocusStatsByCategoryDayBounds() {
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
@@ -910,18 +910,16 @@ class StatsServiceTest {
 
         statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
 
-        ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
-        ArgumentCaptor<Instant> toCaptor = ArgumentCaptor.forClass(Instant.class);
+        ArgumentCaptor<LocalDate> fromCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> toCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), toCaptor.capture());
 
-        Instant expectedFrom = FIXED_TODAY.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant expectedTo = FIXED_TODAY.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
-        assertThat(fromCaptor.getValue()).isEqualTo(expectedFrom);
-        assertThat(toCaptor.getValue()).isEqualTo(expectedTo);
+        assertThat(fromCaptor.getValue()).isEqualTo(FIXED_TODAY);
+        assertThat(toCaptor.getValue()).isEqualTo(FIXED_TODAY);
     }
 
     @Test
-    @DisplayName("카테고리별 WEEK — fromInstant=이번 주 월요일 00:00 UTC (ArgumentCaptor)")
+    @DisplayName("카테고리별 WEEK — localDate from=이번 주 월요일 (GROMO-643)")
     void getFocusStatsByCategoryWeekBounds() {
         // FIXED_TODAY=2026-07-03(금요일) → 이번 주 월요일=2026-06-29
         User user = User.builder().id(USER_ID).build();
@@ -931,15 +929,14 @@ class StatsServiceTest {
 
         statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
-        ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
+        ArgumentCaptor<LocalDate> fromCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), any());
 
-        LocalDate expectedMonday = LocalDate.of(2026, 6, 29);
-        assertThat(fromCaptor.getValue()).isEqualTo(expectedMonday.atStartOfDay(ZoneOffset.UTC).toInstant());
+        assertThat(fromCaptor.getValue()).isEqualTo(LocalDate.of(2026, 6, 29));
     }
 
     @Test
-    @DisplayName("카테고리별 MONTH — fromInstant=이번 달 1일 00:00 UTC (ArgumentCaptor)")
+    @DisplayName("카테고리별 MONTH — localDate from=이번 달 1일 (GROMO-643)")
     void getFocusStatsByCategoryMonthBounds() {
         // FIXED_TODAY=2026-07-03 → 이번 달 1일=2026-07-01
         User user = User.builder().id(USER_ID).build();
@@ -949,11 +946,10 @@ class StatsServiceTest {
 
         statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
 
-        ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
+        ArgumentCaptor<LocalDate> fromCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), any());
 
-        LocalDate expectedFirstDay = LocalDate.of(2026, 7, 1);
-        assertThat(fromCaptor.getValue()).isEqualTo(expectedFirstDay.atStartOfDay(ZoneOffset.UTC).toInstant());
+        assertThat(fromCaptor.getValue()).isEqualTo(LocalDate.of(2026, 7, 1));
     }
 
     // ── resolveTargetUserId (친구 통계 대상 결정, GROMO-608) ────────────────

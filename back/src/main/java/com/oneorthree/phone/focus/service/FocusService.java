@@ -197,6 +197,7 @@ public class FocusService {
                 .endedAt(body.getEndedAt())
                 .distractionCount(body.getDistractionCount())
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
+                .localDate(body.getLocalDate())   // GROMO-643: 카테고리 통계용 로컬 귀속 날짜
                 .build());
 
         recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
@@ -262,6 +263,7 @@ public class FocusService {
 
         // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
         session.end(endedAt, body.distractionCount(), body.totalDistractionSeconds());
+        session.applyLocalDate(body.localDate());   // GROMO-643: 카테고리 통계용 로컬 귀속 날짜
         recordCompletion(user, userId, tag, session.getStartedAt(), endedAt,
                 body.distractionCount(), body.localDate());
 
