@@ -36,7 +36,7 @@ export function SubjectCompareCard({ subjects, opponentName }: Props) {
               </Text>
               <View style={s.track}>
                 <LinearGradient
-                  colors={['#D9A24C', T.accent]}
+                  colors={['#AFB5E9', T.accent]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={[s.fill, { width: `${minePct}%` }]}
@@ -100,7 +100,7 @@ const s = StyleSheet.create({
   barWho: { ...T.text.caption, fontSize: 11, width: 28 },
   barWhoMine: { color: T.accent },
   barWhoTheirs: { color: THEIRS },
-  track: { flex: 1, height: 10, borderRadius: 5, backgroundColor: '#EFE7D8' },
+  track: { flex: 1, height: 10, borderRadius: 5, backgroundColor: '#F1F2F6' },
   fill: { height: 10, borderRadius: 5 },
   fillTheirs: { backgroundColor: THEIRS },
   barVal: {

@@ -7,6 +7,6 @@ import type { AllowedApp } from './types';
 export const EXAMPLE_ALLOWED_APPS: AllowedApp[] = [
   { id: 'a1', name: '전자사전', initial: '사', color: '#7FA06A' },
   { id: 'a2', name: '전자책', initial: '책', color: '#6E8FB0' },
-  { id: 'a3', name: '노트', initial: '노', color: '#C8893F' },
+  { id: 'a3', name: '노트', initial: '노', color: '#5E6AD2' },
   { id: 'a4', name: '계산기', initial: '수', color: '#9C7BB0' },
 ];

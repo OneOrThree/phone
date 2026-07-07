@@ -17,7 +17,7 @@ export function MemberAvatar({ size = 46 }: Props) {
 
 const s = StyleSheet.create({
   circle: {
-    backgroundColor: '#EBD7B5',
+    backgroundColor: '#DDE0F3',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',

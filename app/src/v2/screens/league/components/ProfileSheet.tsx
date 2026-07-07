@@ -182,7 +182,7 @@ export function ProfileSheet({ target, onClose }: Props) {
               <CircularGauge
                 size={72}
                 progress={target.achievedRate}
-                trackColor="#EFE7D8"
+                trackColor="#F1F2F6"
                 progressColor={T.accent}
               >
                 <Text style={s.ringValue} allowFontScaling={false}>
@@ -241,7 +241,7 @@ const s = StyleSheet.create({
     width: 40,
     height: 5,
     borderRadius: 3,
-    backgroundColor: '#D8CFBE',
+    backgroundColor: '#EAEBEE',
     marginBottom: 8,
   },
   closeBtn: {
@@ -252,7 +252,7 @@ const s = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: '#EFE7D8',
+    backgroundColor: '#F1F2F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -274,10 +274,10 @@ const s = StyleSheet.create({
   },
   streakText: { ...T.text.caption, fontWeight: '700', color: T.accentAlt },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  metaTier: { ...T.text.label, fontWeight: '700', color: '#9C6B43' },
+  metaTier: { ...T.text.label, fontWeight: '700', color: '#667085' },
   metaDot: { ...T.text.caption, color: T.inkMuted },
   metaFriend: { ...T.text.caption, color: T.inkSub },
-  metaFriendNum: { fontWeight: '800', color: '#5B7A48' },
+  metaFriendNum: { fontWeight: '800', color: '#4A7A54' },
 
   // 집중 시간 히어로
   heroCard: {
@@ -308,7 +308,7 @@ const s = StyleSheet.create({
   chartArea: { flex: 1, height: BAR_AREA_H },
   gridWrap: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-between' },
   gridLine: { height: 1, backgroundColor: T.divider },
-  gridLineBase: { backgroundColor: '#E2D7C4' },
+  gridLineBase: { backgroundColor: '#E3E5EE' },
   sparkRow: {
     flex: 1,
     flexDirection: 'row',
@@ -320,7 +320,7 @@ const s = StyleSheet.create({
     flex: 1,
     borderTopLeftRadius: 3,
     borderTopRightRadius: 3,
-    backgroundColor: '#E6D3B4',
+    backgroundColor: '#DDE0F3',
   },
   dayRow: {
     flexDirection: 'row',
@@ -380,13 +380,13 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 14,
-    shadowColor: '#C8893F',
+    shadowColor: '#5E6AD2',
     shadowOpacity: 0.5,
     shadowRadius: 11,
     shadowOffset: { width: 0, height: 10 },
     elevation: 4,
   },
-  actionBtnFriend: { backgroundColor: '#EEF4E9', shadowOpacity: 0 },
+  actionBtnFriend: { backgroundColor: '#ECF5EE', shadowOpacity: 0 },
   actionText: { ...T.text.body, fontWeight: '700', color: T.white },
-  actionTextFriend: { color: '#5B7A48' },
+  actionTextFriend: { color: '#4A7A54' },
 });

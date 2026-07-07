@@ -46,8 +46,8 @@ export default function LeagueResultScreen() {
       <Svg style={StyleSheet.absoluteFill}>
         <Defs>
           <RadialGradient id="bg" cx="50%" cy={promote ? '28%' : '32%'} rx="80%" ry="55%">
-            <Stop offset="0" stopColor={promote ? '#4A3320' : '#463529'} />
-            <Stop offset="1" stopColor={promote ? '#28190F' : '#231A12'} />
+            <Stop offset="0" stopColor={promote ? '#2A2E45' : '#30344E'} />
+            <Stop offset="1" stopColor={promote ? '#1A1D2E' : '#181B29'} />
           </RadialGradient>
         </Defs>
         <Rect width="100%" height="100%" fill="url(#bg)" />
@@ -104,7 +104,7 @@ export default function LeagueResultScreen() {
                   <TierBadge level={from.level} size={40} />
                   <Text style={s.transFromName}>{from.name}</Text>
                 </View>
-                <Ionicons name="chevron-down" size={20} color="#B79A78" />
+                <Ionicons name="chevron-down" size={20} color="#8B90A8" />
                 <View style={s.transCol}>
                   <TierBadge level={to.level} size={56} />
                   <Text style={s.transToName}>{to.name} · 지금</Text>
@@ -115,7 +115,7 @@ export default function LeagueResultScreen() {
               <Text style={s.desc}>{to.name} 리그에서 더 힘내봐요!</Text>
 
               <View style={[s.pill, s.pillDemote]}>
-                <Ionicons name="checkmark" size={14} color="#E0BF82" />
+                <Ionicons name="checkmark" size={14} color="#AFB5E9" />
                 <Text style={[s.pillText, s.pillTextDemote]} allowFontScaling={false}>
                   다음 주 +8시간이면 다시 {from.name}
                 </Text>
@@ -134,12 +134,12 @@ export default function LeagueResultScreen() {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#28190F' },
+  root: { flex: 1, backgroundColor: '#1A1D2E' },
   safe: { flex: 1, paddingHorizontal: 22 },
   body: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
 
-  spark: { position: 'absolute', borderRadius: 99, backgroundColor: '#F0C76A' },
-  sparkMilk: { backgroundColor: '#E7D2A9', opacity: 0.7 },
+  spark: { position: 'absolute', borderRadius: 99, backgroundColor: '#B7BCF0' },
+  sparkMilk: { backgroundColor: '#C7CBEE', opacity: 0.7 },
   spark1: { left: 50, top: 120, width: 6, height: 6, opacity: 0.8 },
   spark2: { right: 60, top: 160, width: 8, height: 8 },
   spark3: { left: 80, top: 230, width: 5, height: 5, opacity: 0.6 },
@@ -148,12 +148,12 @@ const s = StyleSheet.create({
   caption: {
     ...T.text.label,
     fontWeight: '700',
-    color: '#E6C58A',
+    color: '#AFB5E9',
     letterSpacing: 2,
     marginBottom: 8,
   },
-  captionMuted: { ...T.text.caption, fontWeight: '700', color: '#B79A78' },
-  title: { ...T.text.display, color: '#F6F1E9', marginBottom: 24 },
+  captionMuted: { ...T.text.caption, fontWeight: '700', color: '#8B90A8' },
+  title: { ...T.text.display, color: '#D9DCF0', marginBottom: 24 },
   titleDemote: { ...T.text.title, marginBottom: 22 },
 
   glow: {
@@ -161,23 +161,23 @@ const s = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: 'rgba(240,199,106,0.16)',
     marginBottom: 24,
-    shadowColor: '#F0C76A',
+    shadowColor: '#B7BCF0',
     shadowOpacity: 0.55,
     shadowRadius: 30,
     shadowOffset: { width: 0, height: 0 },
   },
   badgeImg: { width: 120, height: 120, resizeMode: 'contain' },
-  tierName: { ...T.text.title, color: '#F6F1E9' },
+  tierName: { ...T.text.title, color: '#D9DCF0' },
 
   desc: {
     ...T.text.label,
     fontWeight: '500',
     lineHeight: 24,
-    color: '#C8A36A',
+    color: '#AFB5E9',
     textAlign: 'center',
     marginTop: 10,
   },
-  descStrong: { fontWeight: '800', color: '#F0C76A' },
+  descStrong: { fontWeight: '800', color: '#B7BCF0' },
 
   pill: {
     flexDirection: 'row',
@@ -192,16 +192,16 @@ const s = StyleSheet.create({
     marginTop: 22,
   },
   pillDemote: { backgroundColor: 'rgba(200,137,63,0.16)', borderColor: 'rgba(200,137,63,0.4)' },
-  pillText: { ...T.text.label, fontWeight: '700', color: '#F0C76A' },
-  pillTextDemote: { ...T.text.caption, fontWeight: '700', color: '#E0BF82' },
-  coin: { width: 17, height: 17, borderRadius: 9, backgroundColor: '#F0C76A' },
+  pillText: { ...T.text.label, fontWeight: '700', color: '#B7BCF0' },
+  pillTextDemote: { ...T.text.caption, fontWeight: '700', color: '#AFB5E9' },
+  coin: { width: 17, height: 17, borderRadius: 9, backgroundColor: '#B7BCF0' },
 
   transRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 18 },
   transCol: { alignItems: 'center', gap: 5 },
   transDim: { opacity: 0.45 },
-  transFromName: { ...T.text.caption, color: '#9A8472' },
-  transToName: { ...T.text.caption, fontWeight: '700', color: '#E0BF82' },
-  tierLeague: { ...T.text.stat, color: '#F6F1E9', marginTop: 12 },
+  transFromName: { ...T.text.caption, color: '#8B90A8' },
+  transToName: { ...T.text.caption, fontWeight: '700', color: '#AFB5E9' },
+  tierLeague: { ...T.text.stat, color: '#D9DCF0', marginTop: 12 },
 
   cta: {
     height: 56,

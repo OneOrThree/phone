@@ -74,7 +74,7 @@ export function RankRow({
           <MaterialCommunityIcons
             name={pinned ? 'pin' : 'pin-outline'}
             size={19}
-            color={pinned ? T.accent : '#C9BCA8'}
+            color={pinned ? T.accent : '#AEB4BF'}
           />
         </TouchableOpacity>
       )}
@@ -95,13 +95,13 @@ const s = StyleSheet.create({
     paddingVertical: 10,
     marginBottom: 7,
   },
-  rowMe: { backgroundColor: '#FBF3E8', borderWidth: 2, borderColor: '#C8893F' },
+  rowMe: { backgroundColor: '#EEF0FB', borderWidth: 2, borderColor: '#5E6AD2' },
   rank: {
     ...T.text.label,
     fontWeight: '800',
     width: 22,
     textAlign: 'center',
-    color: '#9A8C7C',
+    color: '#9AA0A8',
   },
   rankTop: { color: T.accent },
   nameCol: { flex: 1, gap: 1, minWidth: 0 },
@@ -115,6 +115,6 @@ const s = StyleSheet.create({
     color: T.inkSub,
     fontVariant: ['tabular-nums'],
   },
-  deltaAhead: { color: '#C8893F' },
+  deltaAhead: { color: '#5E6AD2' },
   pinBtn: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
 });

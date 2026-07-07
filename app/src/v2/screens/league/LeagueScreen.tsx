@@ -291,7 +291,7 @@ export default function LeagueScreen() {
                           <MaterialCommunityIcons
                             name={pinned.has(m.userId) ? 'pin' : 'pin-outline'}
                             size={15}
-                            color={pinned.has(m.userId) ? T.accent : '#C9BCA8'}
+                            color={pinned.has(m.userId) ? T.accent : '#AEB4BF'}
                           />
                         </TouchableOpacity>
                       )}
@@ -428,7 +428,7 @@ export default function LeagueScreen() {
               <Text style={s.addTitle}>친구 검색·추가</Text>
               <Text style={s.addSub}>받은 요청 {receivedCount}건</Text>
             </View>
-            <Ionicons name="chevron-forward" size={15} color="#C8A06A" />
+            <Ionicons name="chevron-forward" size={15} color="#9AA0A8" />
           </TouchableOpacity>
 
           {/* 조회 실패 + 보여줄 목록 없음 — "친구 0명" 빈 상태로 오인되지 않게 에러+재시도로 분기 (GROMO-621).
@@ -549,7 +549,7 @@ const s = StyleSheet.create({
   },
   headerToggle: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   headerTitle: { ...T.text.title, color: T.ink },
-  deadline: { ...T.text.caption, color: '#9C6B43' },
+  deadline: { ...T.text.caption, color: '#667085' },
 
   // 리그 선택 드롭다운
   menuBackdrop: { flex: 1, backgroundColor: 'rgba(20,14,9,0.25)' },
@@ -563,7 +563,7 @@ const s = StyleSheet.create({
     borderColor: T.border,
     borderRadius: 14,
     paddingVertical: 6,
-    shadowColor: '#50371E',
+    shadowColor: '#1E2340',
     shadowOpacity: 0.2,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
@@ -584,7 +584,7 @@ const s = StyleSheet.create({
   segmentWrapFriend: { paddingBottom: 2 },
   segment: {
     flexDirection: 'row',
-    backgroundColor: '#EAE0CF',
+    backgroundColor: '#F1F2F6',
     borderRadius: 12,
     padding: 4,
     gap: 4,
@@ -592,7 +592,7 @@ const s = StyleSheet.create({
   segBtn: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: 'center' },
   segBtnOn: {
     backgroundColor: T.white,
-    shadowColor: '#50371E',
+    shadowColor: '#1E2340',
     shadowOpacity: 0.1,
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
@@ -649,7 +649,7 @@ const s = StyleSheet.create({
     gap: 8,
     backgroundColor: T.noteBg,
     borderWidth: 1.5,
-    borderColor: '#C8893F',
+    borderColor: '#5E6AD2',
     borderRadius: 12,
     paddingHorizontal: 13,
     paddingVertical: 10,
@@ -713,9 +713,9 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#FBF3E8',
+    backgroundColor: '#EEF0FB',
     borderWidth: 1,
-    borderColor: '#EBDCC2',
+    borderColor: '#DDE0F3',
     borderRadius: 16,
     paddingHorizontal: 15,
     paddingVertical: 13,
@@ -726,13 +726,13 @@ const s = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 11,
-    backgroundColor: '#F0E0C2',
+    backgroundColor: '#EEF0FB',
     alignItems: 'center',
     justifyContent: 'center',
   },
   addTextCol: { flex: 1, gap: 1 },
-  addTitle: { ...T.text.label, fontWeight: '800', color: '#5C3D22' },
-  addSub: { ...T.text.caption, fontWeight: '500', color: '#A88D6E' },
+  addTitle: { ...T.text.label, fontWeight: '800', color: '#1C1E22' },
+  addSub: { ...T.text.caption, fontWeight: '500', color: '#9AA0A8' },
 
   friendCount: {
     ...T.text.label,

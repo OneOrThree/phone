@@ -163,7 +163,7 @@ export default function FocusResultScreen() {
         {/* 이번 주 스트릭 채우기 — 첫 집중 완료 변형(시안 14번)에만. 출석체크: 그날 집중했으면 ✓ */}
         {firstTime ? (
           <LinearGradient
-            colors={['#FBF3E8', '#F3E4CE']}
+            colors={['#EEF0FB', '#E1E4F5']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={s.streakCard}
@@ -216,7 +216,7 @@ export default function FocusResultScreen() {
                     <View
                       style={[
                         s.bar,
-                        { height: h, backgroundColor: isToday ? T.accent : '#E6D3B4' },
+                        { height: h, backgroundColor: isToday ? T.accent : '#DDE0F3' },
                       ]}
                     />
                   </View>
@@ -474,7 +474,7 @@ const s = StyleSheet.create({
     borderRadius: 15,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E7D6BB',
+    borderColor: '#EAEBEE',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -512,15 +512,15 @@ const s = StyleSheet.create({
   cmpLabelMine: { ...T.text.caption, fontWeight: '700', color: T.ink },
   cmpValueMine: { ...T.text.caption, fontWeight: '800', color: T.accent },
   cmpLabel: { ...T.text.caption, color: T.inkSub },
-  cmpValue: { ...T.text.caption, fontWeight: '700', color: '#5C5246' },
-  cmpTrack: { height: 10, borderRadius: 5, backgroundColor: '#EFE7D8', overflow: 'hidden' },
+  cmpValue: { ...T.text.caption, fontWeight: '700', color: '#667085' },
+  cmpTrack: { height: 10, borderRadius: 5, backgroundColor: '#F1F2F6', overflow: 'hidden' },
   cmpFill: { height: 10, borderRadius: 5 },
-  cmpFillAvg: { backgroundColor: '#D8C8AC' },
+  cmpFillAvg: { backgroundColor: '#C4C8D4' },
   cmpCaption: { ...T.text.caption, fontWeight: '500', color: T.link, marginTop: 10 },
   // 준비 중 티저(가짜 비교 바) — 블러 아래 깔리는 표시용 고정값
   cmpTeaserGap: { marginTop: 8 },
   cmpTeaserMine: { width: '82%', backgroundColor: T.accent },
-  cmpTeaserAvg: { width: '58%', backgroundColor: '#D8C8AC' },
+  cmpTeaserAvg: { width: '58%', backgroundColor: '#C4C8D4' },
 
   // 하단 CTA
   footer: {
