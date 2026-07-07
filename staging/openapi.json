@@ -2248,7 +2248,7 @@
           "Group"
         ],
         "summary": "그룹 상세 조회",
-        "description": "그룹원만 조회 가능. OWNER에게만 code, codeExpiresAt 반환.",
+        "description": "그룹원만 조회 가능. OWNER에게만 code, codeExpiresAt 반환. date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD) — 멤버별 오늘 집중분 집계 기준.",
         "operationId": "getGroupDetail",
         "parameters": [
           {
@@ -2259,11 +2259,30 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "date 누락·형식 오류",
             "content": {
               "*/*": {
                 "schema": {
@@ -2511,6 +2530,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
           }
         ],
         "responses": {
@@ -2721,6 +2749,15 @@
         "operationId": "getTodayStats",
         "parameters": [
           {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
             "name": "friends",
             "in": "query",
             "required": false,
@@ -2837,6 +2874,15 @@
                 "WEEK",
                 "MONTH"
               ]
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
             }
           },
           {
@@ -2987,6 +3033,15 @@
             }
           },
           {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
             "name": "friends",
             "in": "query",
             "required": false,
@@ -3063,6 +3118,15 @@
             }
           },
           {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
             "name": "friends",
             "in": "query",
             "required": false,
@@ -3122,11 +3186,35 @@
           "Pin"
         ],
         "summary": "핀한 유저 조회",
-        "description": "내가 핀한 유저 목록(친구 아님 포함). 캐릭터 표시정보 + 오늘 집중분 + 현재 집중 여부 포함.",
+        "description": "내가 핀한 유저 목록(친구 아님 포함). 캐릭터 표시정보 + 오늘 집중분 + 현재 집중 여부 포함. date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD).",
         "operationId": "getPins",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PinnedFriendResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "date 누락·형식 오류",
             "content": {
               "*/*": {
                 "schema": {
@@ -4314,8 +4402,15 @@
           "totalDistractionSeconds": {
             "type": "integer",
             "format": "int32"
+          },
+          "localDate": {
+            "type": "string",
+            "format": "date"
           }
-        }
+        },
+        "required": [
+          "localDate"
+        ]
       },
       "FocusSessionStartRequest": {
         "type": "object",
@@ -4725,9 +4820,14 @@
           "focusTagId": {
             "type": "string",
             "format": "uuid"
+          },
+          "localDate": {
+            "type": "string",
+            "format": "date"
           }
         },
         "required": [
+          "localDate",
           "sessionId"
         ]
       },
