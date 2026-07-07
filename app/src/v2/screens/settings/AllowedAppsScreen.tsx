@@ -71,10 +71,22 @@ export default function AllowedAppsScreen() {
         );
         return;
       }
+      const before = counts; // 편집 전 선택 스냅샷 — 변경 여부 판정용
       const result = await ScreenTimeModule.presentAllowedAppManager();
       if (!result) return; // 취소
       setCounts(result);
       setLoaded(true);
+      // 변경 없이 '완료'하면 알럿 생략 (GROMO-637).
+      // presentAllowedAppManager는 스와이프 취소가 불가해 완료 시 항상 현재 개수를 반환하므로,
+      // 편집 전 스냅샷과 앱/카테고리/웹도메인 개수가 모두 같으면 실제 변경이 없는 것으로 본다.
+      if (
+        before != null &&
+        before.applications === result.applications &&
+        before.categories === result.categories &&
+        before.webDomains === result.webDomains
+      ) {
+        return;
+      }
       // 실드 예외는 개별 앱 토큰만 지원 — 카테고리로 골랐으면 안내
       const categoryNote =
         result.categories > 0 ? '\n(카테고리 선택은 적용되지 않아요 — 개별 앱으로 골라주세요)' : '';
