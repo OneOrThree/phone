@@ -29,6 +29,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import {
   deleteFriend,
   fetchFriends,
+  fetchSentRequests,
   pinFriend,
   sendFriendRequest,
   unpinFriend,
@@ -84,8 +85,9 @@ export default function FriendProfileScreen() {
   const [loading, setLoading] = useState(true);
   // 과목별 비교(겹치는 태그) — undefined = 미확보(블러 티저 유지), [] = 겹침 없음, N개 = 실비교
   const [subjectCompare, setSubjectCompare] = useState<SubjectCompare[] | undefined>(undefined);
-  // 전체공개(PUBLIC) 비친구 폴백 — getUserStats는 아직 친구만 채워주지만(BE 갭),
-  // /stats/*?friends= 는 PUBLIC을 허용(GROMO-623)하므로 today·주간 집중을 직접 조회해 요약을 채운다.
+  // 상세 조회 실패 시 강등 폴백 — GROMO-640 이후 PUBLIC도 getUserStats가 상세(heatmap 포함)를
+  // 채워주므로 평시엔 발동하지 않는다. getUserStats가 실패한 경우에만 /stats/*?friends=
+  // (PUBLIC·친구 허용, GROMO-623)로 today·주간 집중을 직접 조회해 요약이라도 보여준다.
   const [publicStats, setPublicStats] = useState<{
     today: TodayStatsResponse;
     weekMinutes: number;
@@ -113,18 +115,25 @@ export default function FriendProfileScreen() {
     };
   }, [userId]);
 
-  // 서버 친구 목록으로 친구/핀 상태 재동기화 — 검색·랭킹 진입은 isPinned를 모른 채 들어온다.
+  // 서버 친구 목록·보낸 요청으로 친구/핀/요청 상태 재동기화 — 검색·랭킹 진입은 isPinned도,
+  // 이미 보낸 PENDING 요청도 모른 채 들어온다. 요청 상태를 안 채우면 이미 신청한 상대에게
+  // '친구 신청' 버튼이 다시 노출돼 중복 신청이 가능해진다(서버는 409로 막지만 UI가 오해를 준다).
   useEffect(() => {
     let stale = false;
     (async () => {
-      try {
-        const list = await fetchFriends();
-        if (stale) return;
+      const [list, sent] = await Promise.all([
+        fetchFriends().catch(() => null), // 실패 시 진입 파라미터 초기값 유지
+        fetchSentRequests().catch(() => null), // 실패 시 요청 상태는 현재값 유지
+      ]);
+      if (stale) return;
+      if (list) {
         const mine = list.find((f) => f.userId === userId);
         setIsFriend(mine != null);
         setIsPinned(mine?.isPinned ?? false);
-      } catch {
-        // 실패 시 진입 파라미터 초기값 유지
+      }
+      if (sent) {
+        // 이 화면에서 방금 누른 상태(true)를 조회 응답이 덮지 않게 OR 유지.
+        setRequested((prev) => prev || sent.some((r) => r.userId === userId));
       }
     })();
     return () => {
@@ -189,13 +198,13 @@ export default function FriendProfileScreen() {
   const friendCount = profile?.friendCount ?? 0;
   const rank = profile?.rank ?? null;
 
-  // 상세 통계 공개 여부(전체) — getUserStats가 채워준 경우(친구·본인). heatmap까지 있어 요일 비교 가능.
+  // 상세 통계 공개 여부 — getUserStats가 채워준 경우(본인·친구·전체공개, GROMO-640).
+  // heatmap까지 있어 요일 비교 가능.
   const statsVisible = stats?.today != null;
-  // PUBLIC 요약 공개 — 비친구지만 대상이 전체공개라 /stats/*?friends= 조회가 성공한 경우.
-  // heatmap은 friends 파라미터가 없어 요일 비교는 불가 — 요약(달성률·이번 주 집중)·과목별만.
+  // 강등 요약 — getUserStats 실패 후 /stats/*?friends= 폴백만 성공한 경우(요약·과목별만).
   const publicVisible = !statsVisible && publicStats != null;
 
-  // PUBLIC 폴백 조회 — getUserStats가 비었을 때만 시도. FRIENDS 비공개 대상은 404로 떨어져 잠금 유지.
+  // 강등 폴백 조회 — getUserStats가 비었을 때만 시도. FRIENDS 비공개 대상은 404로 떨어져 잠금 유지.
   useEffect(() => {
     if (loading || statsVisible) {
       setPublicStats(null);
@@ -253,7 +262,7 @@ export default function FriendProfileScreen() {
     };
   }, [canCompareSubjects, userId]);
 
-  // 요약 값 — 상세(친구·본인)는 getUserStats, PUBLIC 비친구는 폴백 조회값 사용.
+  // 요약 값 — 상세(본인·친구·전체공개)는 getUserStats, 상세 실패 시엔 폴백 조회값 사용.
   const summaryVisible = statsVisible || publicVisible;
   const goalPercent =
     stats?.today?.focus.progressPercent ?? publicStats?.today.focus.progressPercent ?? 0;
@@ -270,6 +279,9 @@ export default function FriendProfileScreen() {
     mine: byWeekday(myHeatmap, (c) => c.actualScreenTimeMinutes),
     theirs: byWeekday(stats?.heatmap ?? [], (c) => c.actualScreenTimeMinutes),
   };
+  // 상대 폰 사용이 7일 내내 0이면 미측정(스크린타임 미허용·구버전·미동기화)과 구분 불가 —
+  // 0짜리 막대 비교는 무의미해 안내로 대체한다. 내 쪽 0은 그대로 차트(내 상태는 내가 안다).
+  const theirPhoneMeasured = phoneByDay.theirs.some((m) => m > 0);
 
   // 과목별 비교 블록 — 겹치는 과목 실비교 / 겹침 없음 배너 / 미확보 시 블러 티저.
   // 상세(친구) 분기와 PUBLIC 분기가 공유한다.
@@ -404,35 +416,46 @@ export default function FriendProfileScreen() {
 
             {statsVisible ? (
               <>
-                {/* 요일별 집중·폰 사용 비교 — 내 히트맵 vs 상대 히트맵(실데이터) */}
+                {/* 요일별 집중·폰 사용 비교 — 내 히트맵 vs 상대 히트맵(실데이터).
+                    서버가 '오늘 기준 최근 7일'을 반환하므로 라벨도 달력 주가 아닌 최근 7일. */}
                 <View style={s.chartGap}>
                   <DuoDayChart
-                    title="이번 주 요일별 집중시간"
+                    title="최근 7일 요일별 집중시간"
                     data={focusByDay}
                     mineColor={T.accent}
                     theirsColor={THEIRS_FOCUS}
                     opponentName={nickname}
                   />
                 </View>
-                <View style={s.chartGap}>
-                  <DuoDayChart
-                    title="이번 주 요일별 폰 사용시간"
-                    data={phoneByDay}
-                    mineColor={T.accentAlt}
-                    theirsColor={THEIRS_PHONE}
-                    opponentName={nickname}
-                  />
-                </View>
+                {theirPhoneMeasured ? (
+                  <View style={s.chartGap}>
+                    <DuoDayChart
+                      title="최근 7일 요일별 폰 사용시간"
+                      data={phoneByDay}
+                      mineColor={T.accentAlt}
+                      theirsColor={THEIRS_PHONE}
+                      opponentName={nickname}
+                    />
+                  </View>
+                ) : (
+                  <View style={[s.chartGap, s.noOverlapNote]}>
+                    <Ionicons name="phone-portrait-outline" size={15} color={T.accent} />
+                    <Text style={s.noOverlapText}>
+                      {nickname}님의 폰 사용 기록이 아직 없어요. 측정이 쌓이면 여기서 비교돼요.
+                    </Text>
+                  </View>
+                )}
                 {subjectCompareBlock}
               </>
             ) : publicVisible ? (
-              /* 전체공개(PUBLIC) 비친구 — 요약·과목별은 공개, 요일 비교는 heatmap 미제공이라 친구 유도 */
+              /* 강등 요약 — 상세(getUserStats) 실패, 폴백만 성공. 요약·과목별만 표시하고
+                 요일 비교는 다음 진입에서 상세가 회복되면 자동으로 뜬다. */
               <>
                 {subjectCompareBlock}
                 <View style={[s.chartGap, s.noOverlapNote]}>
                   <Ionicons name="people-outline" size={15} color={T.accent} />
                   <Text style={s.noOverlapText}>
-                    요일별 집중·폰 사용 비교는 친구가 되면 볼 수 있어요.
+                    요일별 집중·폰 사용 비교를 지금 불러오지 못했어요.
                   </Text>
                 </View>
               </>
