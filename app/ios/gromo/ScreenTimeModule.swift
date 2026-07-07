@@ -162,7 +162,10 @@ class ScreenTimeModule: NSObject {
             return
         }
 
-        let totalSeconds = Int(goalSecondsValue)
+        // 달성 = 목표 '이내'(<=, 서버 분 단위 판정과 동일) — threshold는 '도달(>=) 시 초과 플래그'라
+        // 목표값을 그대로 걸면 정확히 목표에서 멈춘 유저까지 fail로 판정된다. +60초를 초과 판정선으로
+        // 등록해 분 단위 기준 '목표를 넘긴' 경우에만 fail이 되게 한다(GROMO-633 리뷰 반영).
+        let totalSeconds = Int(goalSecondsValue) + 60
         var threshold = DateComponents()
         threshold.hour = totalSeconds / 3600
         threshold.minute = (totalSeconds % 3600) / 60

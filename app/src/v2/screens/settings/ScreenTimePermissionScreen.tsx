@@ -51,8 +51,8 @@ function badgeMeta(status: AuthorizationStatus | null): {
 
 export default function ScreenTimePermissionScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  // 측정 대상 변경 시 목표 판정 모니터링 재등록에 현재 목표초가 필요하다(GROMO-633).
-  const { screenTimeGoalSeconds } = useUser();
+  // 측정 대상 변경 시 재등록에 현재 목표초와, 모니터 소유 기록용 계정이 필요하다(GROMO-633).
+  const { userId, screenTimeGoalSeconds } = useUser();
 
   const [status, setStatus] = useState<AuthorizationStatus | null>(null);
   const [lastSynced, setLastSynced] = useState<string | null>(null);
@@ -117,7 +117,7 @@ export default function ScreenTimePermissionScreen() {
       // 측정 대상이 바뀌면 두 모니터링(사용량 버킷·목표 판정) 모두 재등록 필수 — threshold
       // 이벤트가 등록 시점 selection 토큰으로 고정되어 있어 재등록 없이는 새 대상이 측정되지
       // 않는다(GROMO-633).
-      const monitoring = await registerUsageBucketMonitoring();
+      const monitoring = await registerUsageBucketMonitoring(userId);
       await registerGoalMonitoring(screenTimeGoalSeconds);
       const total = counts.applications + counts.categories + counts.webDomains;
       if (!monitoring && total === 0) {
