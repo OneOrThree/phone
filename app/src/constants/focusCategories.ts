@@ -15,6 +15,20 @@ export const FOCUS_CATEGORY_GROUPS: FocusCategoryGroup[] = [
   { label: '그 외', items: ['자기계발', '집중력 키우기', '기타'] },
 ];
 
+// 온보딩 목표 선택 화면(FocusCategoryStep)의 그룹(섹션) 헤더 — 표시명·목록은 GET /occupations(서버)가
+// 소스지만, 응답엔 그룹 정보가 없어(code·표시명·순서만) occupation code를 프론트에서 정적으로 묶는다.
+// occupation 목록은 고정이라 안전(전 19종 1:1 커버). 표시명은 서버 displayName을 그대로 쓴다.
+export const OCCUPATION_GROUPS: { label: string; codes: Occupation[] }[] = [
+  {
+    label: '전문 자격증',
+    codes: ['LABOR_ATTORNEY', 'PATENT_ATTORNEY', 'TAX_ACCOUNTANT', 'CPA', 'APPRAISER'],
+  },
+  { label: '공무원·고시', codes: ['CIVIL_SERVANT', 'POLICE_FIRE', 'ADMIN_EXAM', 'CERTIFICATION'] },
+  { label: '학생', codes: ['MIDDLE_SCHOOL', 'HIGH_SCHOOL', 'CSAT', 'UNIVERSITY'] },
+  { label: '취업·어학', codes: ['JOB_PREP', 'ENGLISH_TEST', 'CODING'] },
+  { label: '그 외', codes: ['SELF_DEVELOPMENT', 'FOCUS_BUILDING', 'ETC'] },
+];
+
 // 카테고리별 기본 추천 과목 — 온보딩 W5(과목 확인·편집)에서 미리 채워 보여주고 사용자가 편집한다.
 // 매핑이 없거나 빈 배열이면 W5를 건너뛴다(추천할 과목이 없는 추상 목표).
 // TODO: 백엔드/기획 확정값으로 이관 — 현재는 대표 과목 시드값.

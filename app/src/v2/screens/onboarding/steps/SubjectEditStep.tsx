@@ -1,25 +1,22 @@
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
-import { getDefaultSubjects } from '@/constants/focusCategories';
 import { T } from '@/constants/theme';
 import { eunNeun } from '@/v2/screens/onboarding/format';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
-// 과목 확인 — 선택 카테고리의 기본 추천 과목을 '읽기 전용'으로만 보여준다(추가/삭제 없음).
-// 추천 과목이 없는 카테고리는 컨트롤러가 이 스텝을 건너뛴다.
-export default function SubjectEditStep({ data, update, onNext }: StepProps) {
+// 과목 확인 — 선택 카테고리의 추천 과목을 '읽기 전용'으로만 보여준다(추가/삭제 없음).
+// 과목은 앞 스텝(FocusCategoryStep)이 GET /tag/defaults로 받아 data.subjects에 채워둔 값.
+// 추천 과목이 없는 카테고리는 컨트롤러가 이 스텝을 건너뛴다(hasSubjects=false).
+export default function SubjectEditStep({ data, onNext }: StepProps) {
   const category = data.focusCategory ?? '이 목표';
-  const subjects = getDefaultSubjects(data.focusCategory);
+  const subjects = data.subjects;
 
   return (
     <StepScaffold
       title={`${category}${eunNeun(category)} 보통\n이 과목들을 공부해요`}
       ctaLabel="이대로 시작"
-      onCta={() => {
-        update({ subjects });
-        onNext();
-      }}
+      onCta={onNext}
       scrollable
     >
       <View style={s.list}>

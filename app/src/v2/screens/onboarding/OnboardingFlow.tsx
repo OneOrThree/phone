@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType } from 'react';
 import { View, PanResponder, StyleSheet } from 'react-native';
 import type { LoginResult } from '@/types/api';
-import { getDefaultSubjects } from '@/constants/focusCategories';
 import LoginScreen from '@/v2/screens/LoginScreen';
 import OnboardingSplash from './OnboardingSplash';
 import { OnboardingProgressContext } from '@/v2/screens/onboarding/components/OnboardingProgressContext';
@@ -64,7 +63,9 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const next = () => setIndex((i) => i + 1);
 
   const sequence = useMemo<FlowNode[]>(() => {
-    const hasSubjects = getDefaultSubjects(data.focusCategory).length > 0;
+    // 추천 과목은 FocusCategoryStep이 서버(GET /tag/defaults)에서 받아 data.subjects에 채운다.
+    // 과목이 있을 때만 '과목 확인' 스텝을 끼운다(추천 과목 없는 카테고리는 건너뜀).
+    const hasSubjects = data.subjects.length > 0;
     const denied = data.screenTimeGranted === false;
     const step = (Component: ComponentType<StepProps>): FlowNode => ({ kind: 'step', Component });
     return [
@@ -79,7 +80,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       step(GoalSettingStep),
       { kind: 'nickname' },
     ];
-  }, [data.focusCategory, data.screenTimeGranted]);
+  }, [data.subjects, data.screenTimeGranted]);
 
   // 로그인 노드 위치 — 인증 후 뒤로가기 하한(로그인 이전 화면 복귀 방지)을 계산한다.
   const loginIndex = sequence.findIndex((n) => n.kind === 'login');

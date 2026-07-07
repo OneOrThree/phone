@@ -7,11 +7,24 @@ import type {
   FocusTagUpdateRequest,
   FocusSessionRequest,
   FocusSessionSliceResponse,
+  OccupationDefaultTagsResponse,
 } from '@/types/dto/focus';
+import type { Occupation } from '@/types/dto/user';
 
 // GET /api/v1/tag — 유저별 집중 태그 목록 조회.
 export async function getFocusTags(): Promise<FocusTagResponse[]> {
   const { data } = await api.get<FocusTagResponse[]>('/api/v1/tag');
+  return data;
+}
+
+// GET /api/v1/tag/defaults?occupation= — occupation별 기본(추천) 태그(과목) 조회.
+// occupation 생략 시 서버가 로그인 유저의 저장 occupation을 사용(미설정이면 400).
+export async function getDefaultTags(
+  occupation?: Occupation,
+): Promise<OccupationDefaultTagsResponse> {
+  const { data } = await api.get<OccupationDefaultTagsResponse>('/api/v1/tag/defaults', {
+    params: occupation ? { occupation } : undefined,
+  });
   return data;
 }
 

@@ -5,6 +5,7 @@ import type {
   DeviceTokenRegisterRequest,
   FocusTimeGoalUpdateRequest,
   NotificationSettingsRequest,
+  OccupationResponse,
   OccupationUpdateRequest,
   ScreenTimeGoalUpdateRequest,
   StatVisibilityUpdateRequest,
@@ -69,6 +70,12 @@ export async function updateFocusTimeGoal(body: FocusTimeGoalUpdateRequest): Pro
 // PATCH /api/v1/users/me/occupation — 준비 시험 카테고리 저장.
 export async function updateOccupation(body: OccupationUpdateRequest): Promise<void> {
   await api.patch('/api/v1/users/me/occupation', body);
+}
+
+// GET /api/v1/occupations — 선택 가능한 occupation(카테고리) 전역 목록(code·표시명·노출순서).
+export async function getOccupations(): Promise<OccupationResponse[]> {
+  const { data } = await api.get<OccupationResponse[]>('/api/v1/occupations');
+  return data;
 }
 
 // PATCH /api/v1/users/me/stat-visibility — 통계 공개 범위(PUBLIC/FRIENDS) 저장.
