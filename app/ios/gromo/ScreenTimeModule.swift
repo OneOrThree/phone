@@ -735,6 +735,8 @@ struct GromoFocusAttributes: ActivityAttributes {
 struct GoalAppPickerView: View {
     @State private var selection: FamilyActivitySelection
     @State private var showLimitAlert = false
+    // 알럿 사유: true=카테고리(하위 앱까지 더하면 40 초과), false=개별 앱 40 초과
+    @State private var limitAlertIsCategory = false
     @State private var lastAppCount: Int
     private let title: String
     private let maxApplications: Int?  // nil = 개수 제한 없음(측정 대상 선택). 허용앱은 40.
@@ -759,8 +761,8 @@ struct GoalAppPickerView: View {
 
     private var appCount: Int { selection.applicationTokens.count }
 
-    // 초과 판정 — 개별 앱이 상한 초과이거나, 카테고리(전체 선택)를 골랐을 때.
-    // 카테고리는 실드 예외(.all(except:))로도 무시되고 개수도 폭증하므로 허용 안 함.
+    // 초과 판정 — 개별 앱이 40을 넘거나, 카테고리를 골랐을 때(카테고리 하위 앱 수를 iOS가 주지
+    // 않아 40 초과로 간주 — 카테고리 토큰 자체는 개수에 세지 않는다) (GROMO-664).
     private var isOverLimit: Bool {
         guard let max = maxApplications else { return false }
         return appCount > max || !selection.categoryTokens.isEmpty
@@ -788,25 +790,39 @@ struct GoalAppPickerView: View {
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("완료") {
-                            if isOverLimit { showLimitAlert = true } else { onDone(selection) }
+                            if isOverLimit {
+                                // 개수 초과가 아니면 카테고리가 원인
+                                limitAlertIsCategory = appCount <= (maxApplications ?? 0)
+                                showLimitAlert = true
+                            } else {
+                                onDone(selection)
+                            }
                         }
                     }
                 }
-                // 개별 앱이 늘어나 상한을 넘는 순간 경고(줄이는 중엔 안 띄움)
+                // 개별 앱이 늘어나 40을 넘는 순간 경고(줄이는 중엔 안 띄움)
                 .onChange(of: selection.applicationTokens) { apps in
                     if let max = maxApplications, apps.count > max, apps.count > lastAppCount {
+                        limitAlertIsCategory = false
                         showLimitAlert = true
                     }
                     lastAppCount = apps.count
                 }
-                // 전체 선택(카테고리) 잡히면 즉시 경고
+                // 카테고리를 고르면 하위 앱까지 더해 40을 넘긴 것으로 보고 경고
                 .onChange(of: selection.categoryTokens) { cats in
-                    if maxApplications != nil, !cats.isEmpty { showLimitAlert = true }
+                    if maxApplications != nil, !cats.isEmpty {
+                        limitAlertIsCategory = true
+                        showLimitAlert = true
+                    }
                 }
                 .alert("\(maxApplications ?? 40)개까지만 고를 수 있어요", isPresented: $showLimitAlert) {
                     Button("확인", role: .cancel) {}
                 } message: {
-                    Text("허용앱은 개별 앱으로 최대 \(maxApplications ?? 40)개까지예요. 전체 선택은 할 수 없어요.")
+                    Text(
+                        limitAlertIsCategory
+                            ? "카테고리 속 앱까지 더하면 \(maxApplications ?? 40)개를 넘어요. 개별 앱으로 골라주세요."
+                            : "허용앱은 개별 앱 최대 \(maxApplications ?? 40)개까지예요."
+                    )
                 }
         }
     }
