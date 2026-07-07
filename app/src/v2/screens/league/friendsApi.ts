@@ -21,6 +21,15 @@ export async function fetchReceivedRequests(): Promise<FriendRequestResponse[]> 
   return data;
 }
 
+// 내가 보낸 PENDING 요청 목록 — userId는 요청 대상. 프로필의 '친구 신청' 버튼이
+// 이미 보낸 상대에게 다시 노출되지 않게 초기 상태를 채우는 데 쓴다.
+export async function fetchSentRequests(): Promise<FriendRequestResponse[]> {
+  const { data } = await api.get<FriendRequestResponse[]>('/api/v1/friends/requests', {
+    params: { type: 'sent' },
+  });
+  return data;
+}
+
 export async function searchFriends(q: string): Promise<FriendSearchResultResponse[]> {
   const { data } = await api.get<FriendSearchResultResponse[]>('/api/v1/friends/search', {
     params: { type: 'NICKNAME', q },

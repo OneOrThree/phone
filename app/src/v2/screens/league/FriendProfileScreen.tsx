@@ -29,6 +29,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import {
   deleteFriend,
   fetchFriends,
+  fetchSentRequests,
   pinFriend,
   sendFriendRequest,
   unpinFriend,
@@ -114,18 +115,25 @@ export default function FriendProfileScreen() {
     };
   }, [userId]);
 
-  // 서버 친구 목록으로 친구/핀 상태 재동기화 — 검색·랭킹 진입은 isPinned를 모른 채 들어온다.
+  // 서버 친구 목록·보낸 요청으로 친구/핀/요청 상태 재동기화 — 검색·랭킹 진입은 isPinned도,
+  // 이미 보낸 PENDING 요청도 모른 채 들어온다. 요청 상태를 안 채우면 이미 신청한 상대에게
+  // '친구 신청' 버튼이 다시 노출돼 중복 신청이 가능해진다(서버는 409로 막지만 UI가 오해를 준다).
   useEffect(() => {
     let stale = false;
     (async () => {
-      try {
-        const list = await fetchFriends();
-        if (stale) return;
+      const [list, sent] = await Promise.all([
+        fetchFriends().catch(() => null), // 실패 시 진입 파라미터 초기값 유지
+        fetchSentRequests().catch(() => null), // 실패 시 요청 상태는 현재값 유지
+      ]);
+      if (stale) return;
+      if (list) {
         const mine = list.find((f) => f.userId === userId);
         setIsFriend(mine != null);
         setIsPinned(mine?.isPinned ?? false);
-      } catch {
-        // 실패 시 진입 파라미터 초기값 유지
+      }
+      if (sent) {
+        // 이 화면에서 방금 누른 상태(true)를 조회 응답이 덮지 않게 OR 유지.
+        setRequested((prev) => prev || sent.some((r) => r.userId === userId));
       }
     })();
     return () => {
