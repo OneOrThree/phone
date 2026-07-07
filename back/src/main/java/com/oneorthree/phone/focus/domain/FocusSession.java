@@ -17,6 +17,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Entity
@@ -57,11 +58,22 @@ public class FocusSession {
     // 소프트 딜리트 컬럼(삭제 시각) — 스키마 정합용(GROMO-561). 세팅/필터 배선은 후속 티켓.
     private Instant deletedAt;
 
+    // GROMO-643: 클라 로컬 타임존 기준 세션 귀속 날짜. 완료(POST 저장/PATCH 종료) 시 채워짐.
+    // 카테고리 통계가 endedAt UTC 가 아니라 이 날짜로 조회해 daily_focus_stats 버킷과 정합.
+    // 라이브 시작(POST /focus-session/start)만 한 진행 중 세션은 null(카테고리는 완료 세션만 읽음).
+    @Column(name = "local_date")
+    private LocalDate localDate;
+
     /** 진행 중 세션에 종료 시각·방해 지표를 채워 완료 처리(더티 체킹). */
     public void end(Instant endedAt, int distractionCount, int totalDistractionSeconds) {
         this.endedAt = endedAt;
         this.distractionCount = distractionCount;
         this.totalDistractionSeconds = totalDistractionSeconds;
+    }
+
+    /** 종료 시점에 클라 로컬 귀속 날짜를 채운다(GROMO-643). */
+    public void applyLocalDate(LocalDate localDate) {
+        this.localDate = localDate;
     }
 
     /** 시작 시 미지정한 태그를 종료 시점에 보정. */

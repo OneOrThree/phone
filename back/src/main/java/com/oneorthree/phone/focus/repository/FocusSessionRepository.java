@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -45,16 +46,17 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
                                                     @Param("to") Instant to);
 
     // 기간 내 완료 세션 집계용 전체 조회 — 카테고리별 집중 통계(GROMO-524).
-    // endedAt 기준 귀속, 진행 중·소프트딜리트 세션 제외, focusTag LEFT JOIN FETCH 로 N+1 방지.
+    // GROMO-643: 클라 로컬 귀속 날짜(localDate) [from,to] 기준 — daily_focus_stats 버킷과 동일 기준으로
+    // 정합(과거 endedAt UTC 윈도우는 KST 오전 세션을 놓쳐 /stats/focus 와 어긋났음).
+    // 진행 중·소프트딜리트 세션 제외, focusTag LEFT JOIN FETCH 로 N+1 방지.
     @Query("SELECT s FROM FocusSession s LEFT JOIN FETCH s.focusTag "
             + "WHERE s.user = :user "
             + "AND s.endedAt IS NOT NULL "
-            + "AND s.endedAt >= :from "
-            + "AND s.endedAt < :to "
+            + "AND s.localDate BETWEEN :from AND :to "
             + "AND s.deletedAt IS NULL")
     List<FocusSession> findCompletedSessionsInPeriod(@Param("user") User user,
-                                                     @Param("from") Instant from,
-                                                     @Param("to") Instant to);
+                                                     @Param("from") LocalDate from,
+                                                     @Param("to") LocalDate to);
 
     @Modifying
     @Query("UPDATE FocusSession f SET f.user = null WHERE f.user.id = :userId")

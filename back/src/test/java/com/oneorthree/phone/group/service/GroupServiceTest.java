@@ -41,6 +41,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -700,7 +701,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember));
 
         // when
-        GroupDetailResponse response = groupService.getGroupDetail(GROUP_ID, USER_ID);
+        GroupDetailResponse response = groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3));
 
         // then
         assertThat(response.getCode()).isEqualTo("INVITE01");
@@ -723,7 +724,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(memberRole));
 
         // when
-        GroupDetailResponse response = groupService.getGroupDetail(GROUP_ID, USER_ID);
+        GroupDetailResponse response = groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3));
 
         // then
         assertThat(response.getCode()).isNull();
@@ -742,7 +743,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID, USER_ID))
+        assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3)))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -753,7 +754,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
-        assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID, USER_ID))
+        assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3)))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -765,7 +766,7 @@ class GroupServiceTest {
         given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID_99, USER_ID))
+        assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID_99, USER_ID, LocalDate.of(2026, 7, 3)))
                 .isInstanceOf(GroupException.class);
     }
 

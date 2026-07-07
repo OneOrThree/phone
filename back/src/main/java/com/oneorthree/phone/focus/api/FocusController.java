@@ -125,7 +125,7 @@ public class FocusController {
     @PostMapping("/focus-session")
     public ResponseEntity<Void> saveFocusSession(
             HttpServletRequest request,
-            @RequestBody FocusSessionRequest body) {
+            @Valid @RequestBody FocusSessionRequest body) {
         UUID userId = (UUID) request.getAttribute("userId");
         focusService.saveFocusSession(userId, body);
         return ResponseEntity.status(HttpStatus.CREATED).build();

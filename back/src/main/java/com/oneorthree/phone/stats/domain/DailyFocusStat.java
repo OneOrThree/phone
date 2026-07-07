@@ -46,8 +46,10 @@ public class DailyFocusStat {
     @Column(nullable = false)
     private LocalDate date;
 
+    // GROMO-642: 분 내림으로 1분 미만 세션이 0으로 누락되던 문제 → 초 단위 누적으로 전환.
+    // 응답은 초/60(내림)으로 분 환산(계약 유지). 컬럼: total_focus_seconds (migration v29).
     @Builder.Default
-    private int totalFocusMinutes = 0;
+    private int totalFocusSeconds = 0;
 
     @Builder.Default
     private int sessionCount = 0;

@@ -102,9 +102,9 @@ class ProfileControllerTest {
         HeatmapCellResponse cell = new HeatmapCellResponse(
                 LocalDate.of(2026, 7, 1), 60, 1, false, 30, true);
         UserStatsResponse response = new UserStatsResponse(true, streak, today, List.of(cell));
-        given(profileService.getUserStats(any(), any())).willReturn(response);
+        given(profileService.getUserStats(any(), any(), any())).willReturn(response);
 
-        mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId))
+        mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId).param("date", "2026-07-03"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isFriend").value(true))
                 .andExpect(jsonPath("$.streak.currentStreak").value(7))
@@ -118,9 +118,9 @@ class ProfileControllerTest {
     void getUserStatsReturns200ForNonFriend() throws Exception {
         StreakResponse streak = new StreakResponse(3, 10, LocalDate.of(2026, 6, 30));
         UserStatsResponse response = new UserStatsResponse(false, streak, null, null);
-        given(profileService.getUserStats(any(), any())).willReturn(response);
+        given(profileService.getUserStats(any(), any(), any())).willReturn(response);
 
-        mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId))
+        mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId).param("date", "2026-07-03"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isFriend").value(false))
                 .andExpect(jsonPath("$.streak.currentStreak").value(3))
@@ -132,10 +132,10 @@ class ProfileControllerTest {
     @Test
     @DisplayName("통계 조회 - 존재하지 않는 userId → 404")
     void getUserStatsNotFoundReturns404() throws Exception {
-        given(profileService.getUserStats(any(), any()))
+        given(profileService.getUserStats(any(), any(), any()))
                 .willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
-        mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId))
+        mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId).param("date", "2026-07-03"))
                 .andExpect(status().isNotFound())
                 .andDo(print());
     }

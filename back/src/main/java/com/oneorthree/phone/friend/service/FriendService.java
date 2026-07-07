@@ -4,7 +4,6 @@ import com.fasterxml.uuid.Generators;
 import com.fasterxml.uuid.NoArgGenerator;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
@@ -32,7 +31,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -190,7 +188,7 @@ public class FriendService {
     }
 
     // 내가 핀한 친구 조회 — 각 친구의 캐릭터 표시정보 + 오늘 집중분 + 진행중 여부 매핑(GROMO-369 재사용).
-    public List<PinnedFriendResponse> getPinnedFriends(UUID me) {
+    public List<PinnedFriendResponse> getPinnedFriends(UUID me, LocalDate date) {
         User meUser = getUser(me);
         List<User> friends = pinnedFriendRepository.findByUser(meUser).stream()
                 .map(PinnedFriend::getFriendUser)
@@ -199,9 +197,10 @@ public class FriendService {
             return List.of();
         }
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        Map<UUID, Integer> focusMap = dailyFocusStatRepository.findByUserInAndDate(friends, today).stream()
-                .collect(Collectors.toMap(s -> s.getUser().getId(), DailyFocusStat::getTotalFocusMinutes));
+        // GROMO-643: 클라 로컬 날짜(date)로 오늘 집계 조회 (저장과 동일 기준, UTC 산정 제거)
+        Map<UUID, Integer> focusMap = dailyFocusStatRepository.findByUserInAndDate(friends, date).stream()
+                // GROMO-642: 초 저장 → 분 환산
+                .collect(Collectors.toMap(s -> s.getUser().getId(), s -> s.getTotalFocusSeconds() / 60));
         Set<UUID> focusingIds = focusSessionRepository.findByUserInAndEndedAtIsNull(friends).stream()
                 .map(s -> s.getUser().getId())
                 .collect(Collectors.toSet());

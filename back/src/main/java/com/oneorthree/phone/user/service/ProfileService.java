@@ -22,7 +22,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -112,7 +111,7 @@ public class ProfileService {
      * @return 유저 통계 응답
      * @throws UserException 대상 유저가 없거나 탈퇴된 경우 NOT_FOUND
      */
-    public UserStatsResponse getUserStats(UUID callerId, UUID targetUserId) {
+    public UserStatsResponse getUserStats(UUID callerId, UUID targetUserId, LocalDate date) {
         User target = userRepository.findById(targetUserId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -137,9 +136,9 @@ public class ProfileService {
 
         // 본인·친구, 또는 대상이 전체공개(PUBLIC)면 세부 통계 노출 (GROMO-640 — 623 의 /stats/* 정책과 정합)
         if (isOwn || isFriend || target.getStatVisibility() == StatVisibility.PUBLIC) {
-            // 세부 통계: today + streak + 최근 7일 heatmap
-            TodayStatsResponse today = statsService.getTodayStats(targetUserId);
-            LocalDate to = LocalDate.now(ZoneOffset.UTC);
+            // 세부 통계: today + streak + 최근 7일 heatmap — GROMO-643: 클라 로컬 날짜(date) 기준
+            TodayStatsResponse today = statsService.getTodayStats(targetUserId, date);
+            LocalDate to = date;
             LocalDate from = to.minusDays(6);
             List<HeatmapCellResponse> heatmap = statsService.getHeatmap(targetUserId, from, to);
             return new UserStatsResponse(isFriend, streak, today, heatmap);

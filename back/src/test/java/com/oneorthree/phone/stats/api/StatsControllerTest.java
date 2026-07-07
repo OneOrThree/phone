@@ -83,12 +83,12 @@ class StatsControllerTest {
     @Test
     @DisplayName("오늘 요약 조회 → 200, focus/screenTime 블록")
     void getTodayStatsReturns200() throws Exception {
-        given(statsService.getTodayStats(any()))
+        given(statsService.getTodayStats(any(), any()))
                 .willReturn(new TodayStatsResponse(
                         new TodayStatsResponse.FocusStat(45, 60, false, 75),
                         new TodayStatsResponse.ScreenTimeStat(80, 120, true, 67)));
 
-        mockMvc.perform(get("/api/v1/stats/today"))
+        mockMvc.perform(get("/api/v1/stats/today").param("date", "2026-07-03"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.focus.todayMinutes").value(45))
                 .andExpect(jsonPath("$.focus.progressPercent").value(75))
@@ -102,14 +102,14 @@ class StatsControllerTest {
     @Test
     @DisplayName("기간별 통계 ?period=day → 200, 응답 필드 존재")
     void getFocusStatsByPeriodDayReturns200() throws Exception {
-        given(statsService.getFocusStatsByPeriod(any(), any()))
+        given(statsService.getFocusStatsByPeriod(any(), any(), any()))
                 .willReturn(new FocusPeriodStatsResponse(
                         StatsPeriod.DAY,
                         LocalDate.of(2026, 7, 3),
                         LocalDate.of(2026, 7, 3),
                         90, 60, 30));
 
-        mockMvc.perform(get("/api/v1/stats/focus").param("period", "day"))
+        mockMvc.perform(get("/api/v1/stats/focus").param("date", "2026-07-03").param("period", "day"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.period").value("DAY"))
                 .andExpect(jsonPath("$.from").value("2026-07-03"))
@@ -123,14 +123,14 @@ class StatsControllerTest {
     @Test
     @DisplayName("기간별 통계 ?period=week → 200")
     void getFocusStatsByPeriodWeekReturns200() throws Exception {
-        given(statsService.getFocusStatsByPeriod(any(), any()))
+        given(statsService.getFocusStatsByPeriod(any(), any(), any()))
                 .willReturn(new FocusPeriodStatsResponse(
                         StatsPeriod.WEEK,
                         LocalDate.of(2026, 6, 29),
                         LocalDate.of(2026, 7, 3),
                         200, 150, 50));
 
-        mockMvc.perform(get("/api/v1/stats/focus").param("period", "week"))
+        mockMvc.perform(get("/api/v1/stats/focus").param("date", "2026-07-03").param("period", "week"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.period").value("WEEK"))
                 .andExpect(jsonPath("$.from").value("2026-06-29"))
@@ -144,14 +144,14 @@ class StatsControllerTest {
     @Test
     @DisplayName("기간별 통계 ?period=month → 200")
     void getFocusStatsByPeriodMonthReturns200() throws Exception {
-        given(statsService.getFocusStatsByPeriod(any(), any()))
+        given(statsService.getFocusStatsByPeriod(any(), any(), any()))
                 .willReturn(new FocusPeriodStatsResponse(
                         StatsPeriod.MONTH,
                         LocalDate.of(2026, 7, 1),
                         LocalDate.of(2026, 7, 3),
                         120, 100, 20));
 
-        mockMvc.perform(get("/api/v1/stats/focus").param("period", "month"))
+        mockMvc.perform(get("/api/v1/stats/focus").param("date", "2026-07-03").param("period", "month"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.period").value("MONTH"))
                 .andExpect(jsonPath("$.from").value("2026-07-01"))
@@ -165,7 +165,7 @@ class StatsControllerTest {
     @Test
     @DisplayName("기간별 통계 ?period=invalid → 400")
     void getFocusStatsByPeriodInvalidValueReturns400() throws Exception {
-        mockMvc.perform(get("/api/v1/stats/focus").param("period", "invalid"))
+        mockMvc.perform(get("/api/v1/stats/focus").param("date", "2026-07-03").param("period", "invalid"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
@@ -173,7 +173,7 @@ class StatsControllerTest {
     @Test
     @DisplayName("기간별 통계 period 파라미터 누락 → 400")
     void getFocusStatsByPeriodMissingParamReturns400() throws Exception {
-        mockMvc.perform(get("/api/v1/stats/focus"))
+        mockMvc.perform(get("/api/v1/stats/focus").param("date", "2026-07-03"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
@@ -183,14 +183,14 @@ class StatsControllerTest {
     @Test
     @DisplayName("스크린타임 기간별 통계 ?period=day → 200, day 전용 필드(goalAchieved) + achievedDays/totalDays=null")
     void getScreenTimePeriodStatsDayReturns200() throws Exception {
-        given(statsService.getScreenTimePeriodStats(any(), any()))
+        given(statsService.getScreenTimePeriodStats(any(), any(), any()))
                 .willReturn(new ScreenTimePeriodStatsResponse(
                         StatsPeriod.DAY,
                         LocalDate.of(2026, 7, 3),
                         LocalDate.of(2026, 7, 3),
                         80, 100, -20, 120, true, null, null));
 
-        mockMvc.perform(get("/api/v1/stats/screen-time").param("period", "day"))
+        mockMvc.perform(get("/api/v1/stats/screen-time").param("date", "2026-07-03").param("period", "day"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.period").value("DAY"))
                 .andExpect(jsonPath("$.from").value("2026-07-03"))
@@ -208,14 +208,14 @@ class StatsControllerTest {
     @Test
     @DisplayName("스크린타임 기간별 통계 ?period=week → 200, achievedDays·totalDays 존재, goalAchieved=null")
     void getScreenTimePeriodStatsWeekReturns200() throws Exception {
-        given(statsService.getScreenTimePeriodStats(any(), any()))
+        given(statsService.getScreenTimePeriodStats(any(), any(), any()))
                 .willReturn(new ScreenTimePeriodStatsResponse(
                         StatsPeriod.WEEK,
                         LocalDate.of(2026, 6, 29),
                         LocalDate.of(2026, 7, 3),
                         270, 160, 110, 100, null, 2, 5));
 
-        mockMvc.perform(get("/api/v1/stats/screen-time").param("period", "week"))
+        mockMvc.perform(get("/api/v1/stats/screen-time").param("date", "2026-07-03").param("period", "week"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.period").value("WEEK"))
                 .andExpect(jsonPath("$.from").value("2026-06-29"))
@@ -232,14 +232,14 @@ class StatsControllerTest {
     @Test
     @DisplayName("스크린타임 기간별 통계 ?period=month → 200")
     void getScreenTimePeriodStatsMonthReturns200() throws Exception {
-        given(statsService.getScreenTimePeriodStats(any(), any()))
+        given(statsService.getScreenTimePeriodStats(any(), any(), any()))
                 .willReturn(new ScreenTimePeriodStatsResponse(
                         StatsPeriod.MONTH,
                         LocalDate.of(2026, 7, 1),
                         LocalDate.of(2026, 7, 3),
                         200, 0, 200, 0, null, 1, 3));
 
-        mockMvc.perform(get("/api/v1/stats/screen-time").param("period", "month"))
+        mockMvc.perform(get("/api/v1/stats/screen-time").param("date", "2026-07-03").param("period", "month"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.period").value("MONTH"))
                 .andExpect(jsonPath("$.from").value("2026-07-01"))
@@ -253,7 +253,7 @@ class StatsControllerTest {
     @Test
     @DisplayName("스크린타임 기간별 통계 ?period=INVALID → 400")
     void getScreenTimePeriodStatsInvalidValueReturns400() throws Exception {
-        mockMvc.perform(get("/api/v1/stats/screen-time").param("period", "INVALID"))
+        mockMvc.perform(get("/api/v1/stats/screen-time").param("date", "2026-07-03").param("period", "INVALID"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
@@ -261,7 +261,7 @@ class StatsControllerTest {
     @Test
     @DisplayName("스크린타임 기간별 통계 period 누락 → 400")
     void getScreenTimePeriodStatsMissingParamReturns400() throws Exception {
-        mockMvc.perform(get("/api/v1/stats/screen-time"))
+        mockMvc.perform(get("/api/v1/stats/screen-time").param("date", "2026-07-03"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
@@ -271,7 +271,7 @@ class StatsControllerTest {
     @Test
     @DisplayName("카테고리별 통계 ?period=day → 200, 응답 필드 존재")
     void getFocusStatsByCategoryDayReturns200() throws Exception {
-        given(statsService.getFocusStatsByCategory(any(), any()))
+        given(statsService.getFocusStatsByCategory(any(), any(), any()))
                 .willReturn(new CategoryFocusStatsResponse(
                         StatsPeriod.DAY,
                         LocalDate.of(2026, 7, 3),
@@ -281,7 +281,7 @@ class StatsControllerTest {
                                 java.util.UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001"),
                                 "공부", 90))));
 
-        mockMvc.perform(get("/api/v1/stats/by-category").param("period", "day"))
+        mockMvc.perform(get("/api/v1/stats/by-category").param("date", "2026-07-03").param("period", "day"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.period").value("DAY"))
                 .andExpect(jsonPath("$.from").value("2026-07-03"))
@@ -294,7 +294,7 @@ class StatsControllerTest {
     @Test
     @DisplayName("카테고리별 통계 ?period=week → 200")
     void getFocusStatsByCategoryWeekReturns200() throws Exception {
-        given(statsService.getFocusStatsByCategory(any(), any()))
+        given(statsService.getFocusStatsByCategory(any(), any(), any()))
                 .willReturn(new CategoryFocusStatsResponse(
                         StatsPeriod.WEEK,
                         LocalDate.of(2026, 6, 29),
@@ -302,7 +302,7 @@ class StatsControllerTest {
                         200,
                         List.of()));
 
-        mockMvc.perform(get("/api/v1/stats/by-category").param("period", "week"))
+        mockMvc.perform(get("/api/v1/stats/by-category").param("date", "2026-07-03").param("period", "week"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.period").value("WEEK"))
                 .andExpect(jsonPath("$.from").value("2026-06-29"))
@@ -315,7 +315,7 @@ class StatsControllerTest {
     @Test
     @DisplayName("카테고리별 통계 ?period=month → 200")
     void getFocusStatsByCategoryMonthReturns200() throws Exception {
-        given(statsService.getFocusStatsByCategory(any(), any()))
+        given(statsService.getFocusStatsByCategory(any(), any(), any()))
                 .willReturn(new CategoryFocusStatsResponse(
                         StatsPeriod.MONTH,
                         LocalDate.of(2026, 7, 1),
@@ -323,7 +323,7 @@ class StatsControllerTest {
                         300,
                         List.of()));
 
-        mockMvc.perform(get("/api/v1/stats/by-category").param("period", "month"))
+        mockMvc.perform(get("/api/v1/stats/by-category").param("date", "2026-07-03").param("period", "month"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.period").value("MONTH"))
                 .andExpect(jsonPath("$.from").value("2026-07-01"))
@@ -336,7 +336,7 @@ class StatsControllerTest {
     @Test
     @DisplayName("카테고리별 통계 ?period=invalid → 400")
     void getFocusStatsByCategoryInvalidValueReturns400() throws Exception {
-        mockMvc.perform(get("/api/v1/stats/by-category").param("period", "invalid"))
+        mockMvc.perform(get("/api/v1/stats/by-category").param("date", "2026-07-03").param("period", "invalid"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
@@ -344,7 +344,7 @@ class StatsControllerTest {
     @Test
     @DisplayName("카테고리별 통계 period 파라미터 누락 → 400")
     void getFocusStatsByCategoryMissingParamReturns400() throws Exception {
-        mockMvc.perform(get("/api/v1/stats/by-category"))
+        mockMvc.perform(get("/api/v1/stats/by-category").param("date", "2026-07-03"))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
@@ -356,7 +356,7 @@ class StatsControllerTest {
     void getFocusStatsByCategoryWithFriendsReturns200() throws Exception {
         UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
         given(statsService.resolveTargetUserId(isNull(), eq(friendId))).willReturn(friendId);
-        given(statsService.getFocusStatsByCategory(eq(friendId), eq(StatsPeriod.DAY)))
+        given(statsService.getFocusStatsByCategory(eq(friendId), eq(StatsPeriod.DAY), any()))
                 .willReturn(new CategoryFocusStatsResponse(
                         StatsPeriod.DAY,
                         LocalDate.of(2026, 7, 3),
@@ -366,7 +366,7 @@ class StatsControllerTest {
                                 UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001"),
                                 "공부", 90))));
 
-        mockMvc.perform(get("/api/v1/stats/by-category")
+        mockMvc.perform(get("/api/v1/stats/by-category").param("date", "2026-07-03")
                         .param("period", "day")
                         .param("friends", friendId.toString()))
                 .andExpect(status().isOk())
@@ -383,7 +383,7 @@ class StatsControllerTest {
         given(statsService.resolveTargetUserId(isNull(), eq(friendId)))
                 .willThrow(new FriendException(FriendErrorCode.NOT_FRIEND));
 
-        mockMvc.perform(get("/api/v1/stats/by-category")
+        mockMvc.perform(get("/api/v1/stats/by-category").param("date", "2026-07-03")
                         .param("period", "day")
                         .param("friends", friendId.toString()))
                 .andExpect(status().isNotFound())
@@ -437,12 +437,12 @@ class StatsControllerTest {
     void getTodayStatsWithFriendsReturns200() throws Exception {
         UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
         given(statsService.resolveTargetUserId(isNull(), eq(friendId))).willReturn(friendId);
-        given(statsService.getTodayStats(friendId))
+        given(statsService.getTodayStats(eq(friendId), any()))
                 .willReturn(new TodayStatsResponse(
                         new TodayStatsResponse.FocusStat(45, 60, false, 75),
                         new TodayStatsResponse.ScreenTimeStat(80, 120, true, 67)));
 
-        mockMvc.perform(get("/api/v1/stats/today").param("friends", friendId.toString()))
+        mockMvc.perform(get("/api/v1/stats/today").param("date", "2026-07-03").param("friends", friendId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.focus.todayMinutes").value(45))
                 .andExpect(jsonPath("$.screenTime.goalAchieved").value(true))
@@ -456,7 +456,7 @@ class StatsControllerTest {
         given(statsService.resolveTargetUserId(isNull(), eq(friendId)))
                 .willThrow(new FriendException(FriendErrorCode.NOT_FRIEND));
 
-        mockMvc.perform(get("/api/v1/stats/today").param("friends", friendId.toString()))
+        mockMvc.perform(get("/api/v1/stats/today").param("date", "2026-07-03").param("friends", friendId.toString()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FRIEND"))
                 .andDo(print());
@@ -469,14 +469,14 @@ class StatsControllerTest {
     void getFocusStatsByPeriodWithFriendsReturns200() throws Exception {
         UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
         given(statsService.resolveTargetUserId(isNull(), eq(friendId))).willReturn(friendId);
-        given(statsService.getFocusStatsByPeriod(eq(friendId), eq(StatsPeriod.DAY)))
+        given(statsService.getFocusStatsByPeriod(eq(friendId), eq(StatsPeriod.DAY), any()))
                 .willReturn(new FocusPeriodStatsResponse(
                         StatsPeriod.DAY,
                         LocalDate.of(2026, 7, 3),
                         LocalDate.of(2026, 7, 3),
                         90, 60, 30));
 
-        mockMvc.perform(get("/api/v1/stats/focus")
+        mockMvc.perform(get("/api/v1/stats/focus").param("date", "2026-07-03")
                         .param("period", "day")
                         .param("friends", friendId.toString()))
                 .andExpect(status().isOk())
@@ -492,7 +492,7 @@ class StatsControllerTest {
         given(statsService.resolveTargetUserId(isNull(), eq(friendId)))
                 .willThrow(new FriendException(FriendErrorCode.NOT_FRIEND));
 
-        mockMvc.perform(get("/api/v1/stats/focus")
+        mockMvc.perform(get("/api/v1/stats/focus").param("date", "2026-07-03")
                         .param("period", "day")
                         .param("friends", friendId.toString()))
                 .andExpect(status().isNotFound())
@@ -507,14 +507,14 @@ class StatsControllerTest {
     void getScreenTimePeriodStatsWithFriendsReturns200() throws Exception {
         UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
         given(statsService.resolveTargetUserId(isNull(), eq(friendId))).willReturn(friendId);
-        given(statsService.getScreenTimePeriodStats(eq(friendId), eq(StatsPeriod.DAY)))
+        given(statsService.getScreenTimePeriodStats(eq(friendId), eq(StatsPeriod.DAY), any()))
                 .willReturn(new ScreenTimePeriodStatsResponse(
                         StatsPeriod.DAY,
                         LocalDate.of(2026, 7, 3),
                         LocalDate.of(2026, 7, 3),
                         80, 100, -20, 120, true, null, null));
 
-        mockMvc.perform(get("/api/v1/stats/screen-time")
+        mockMvc.perform(get("/api/v1/stats/screen-time").param("date", "2026-07-03")
                         .param("period", "day")
                         .param("friends", friendId.toString()))
                 .andExpect(status().isOk())
@@ -531,7 +531,7 @@ class StatsControllerTest {
         given(statsService.resolveTargetUserId(isNull(), eq(friendId)))
                 .willThrow(new FriendException(FriendErrorCode.NOT_FRIEND));
 
-        mockMvc.perform(get("/api/v1/stats/screen-time")
+        mockMvc.perform(get("/api/v1/stats/screen-time").param("date", "2026-07-03")
                         .param("period", "day")
                         .param("friends", friendId.toString()))
                 .andExpect(status().isNotFound())
