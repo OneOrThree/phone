@@ -4,6 +4,7 @@ import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import Slider from '@/v2/screens/onboarding/components/Slider';
 import { T } from '@/constants/theme';
 import { formatDuration } from '@/v2/screens/onboarding/format';
+import { logOnboardingGoalSubmitted } from '@/services/analyticsEvents';
 import type { StepProps, V2OnboardingData } from '@/v2/screens/onboarding/types';
 
 // W12 · 목표 설정 — 하루 집중 목표(dailyFocusMinutes) + 하루 스크린타임 목표(usageGoalMinutes)를 한 화면에서.
@@ -42,6 +43,9 @@ export default function GoalSettingStep({ data, update, onNext }: StepProps) {
       ctaLabel="다음"
       onCta={() => {
         update({ dailyFocusMinutes: focusMin, usageGoalMinutes: screenMin });
+        // 한 화면에서 집중·스크린타임 목표를 각각 제출 — goal_type으로 구분해 2회 발사.
+        logOnboardingGoalSubmitted({ goal_minutes: focusMin, goal_type: 'focus' });
+        logOnboardingGoalSubmitted({ goal_minutes: screenMin, goal_type: 'usage' });
         onNext();
       }}
     >

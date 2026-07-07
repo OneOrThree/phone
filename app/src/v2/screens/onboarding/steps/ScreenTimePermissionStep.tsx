@@ -2,6 +2,10 @@ import { View, Text, StyleSheet, Alert, Linking } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
+import {
+  logOnboardingPermissionRequested,
+  logOnboardingPermissionResulted,
+} from '@/services/analyticsEvents';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 
@@ -45,7 +49,9 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
         return;
       }
       // approved면 재요청 창 안 뜸(그대로 통과), notDetermined면 실제 권한창 표시.
+      logOnboardingPermissionRequested();
       const granted = status === 'approved' ? true : await ScreenTimeModule.requestAuthorization();
+      logOnboardingPermissionResulted({ granted });
       update({ screenTimeGranted: granted });
       if (!granted) {
         onNext(); // 거부 → OnboardingFlow가 09a(제한)/09b(수동입력) 삽입

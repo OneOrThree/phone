@@ -1,11 +1,18 @@
+import { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Polyline, Path, Rect } from 'react-native-svg';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
+import { logOnboardingShockViewed } from '@/services/analyticsEvents';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // W2 · 효과(집중↑·폰↓) — "이렇게 달라져요" 베타 지표 2개(정적 설득).
 export default function EffectStatsStep({ onNext, onSkipToLogin }: StepProps) {
+  // 쇼크 화면 노출 계측 — 진입당 1회.
+  useEffect(() => {
+    logOnboardingShockViewed();
+  }, []);
+
   return (
     <StepScaffold
       center

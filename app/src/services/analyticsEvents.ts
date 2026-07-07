@@ -10,9 +10,6 @@ import { track, setUserProperty } from '@/services/analytics';
 // 로그인/가입 수단
 export type AuthMethod = 'kakao' | 'apple' | 'google' | 'line' | 'facebook' | 'guest';
 
-// 비식별 성별 코드 (PII 아님)
-export type GenderCode = 'MALE' | 'FEMALE' | 'UNKNOWN';
-
 // ── GA4 표준 이벤트 ── (도구 기본 리포트 자동화용)
 export function logLogin(method: AuthMethod): void {
   track('login', { method });
@@ -30,64 +27,56 @@ export function logTutorialComplete(): void {
   track('tutorial_complete');
 }
 
-// ── 온보딩 퍼널 [C] ── (event-logging-design.md §5.A)
-// 모든 온보딩 이벤트에 step_index(number) 부착 → 퍼널 단계 정렬 일관(O1~O8).
+// ── 온보딩 퍼널 [C] ── (event-logging-design.md §5.A / 프로젝트/이벤트-정의-기획.md §5)
+// step_index = 실제 v2 퍼널 순서(설계 O1~O8 폐기). 동적 삽입 스텝과 무관하게 고정.
 export function logOnboardingStarted(): void {
   track('onboarding_started', { step_index: 0 });
   logTutorialBegin();
 }
 
-// O1 프로필 제출
-export function logOnboardingProfileSubmitted(p: {
-  gender: GenderCode;
-  age_band: string; // 예: '10s' | '20s' | '30s' | '40s' | '50s+' | 'unknown'
-  country_code?: string;
-}): void {
-  track('onboarding_profile_submitted', { step_index: 1, ...p });
-}
-
-// O2 쇼크 화면 노출
+// W2 효과/쇼크 화면 노출
 export function logOnboardingShockViewed(): void {
   track('onboarding_shock_viewed', { step_index: 2 });
 }
 
-// O3 스크린타임 권한 요청 / 응답(granted)
+// W4 집중 카테고리(목표) 선택 제출 🆕
+export function logOnboardingFocusCategorySubmitted(): void {
+  track('onboarding_focus_category_submitted', { step_index: 4 });
+}
+
+// W10 스크린타임 권한 요청 / 응답(granted)
 export function logOnboardingPermissionRequested(): void {
-  track('onboarding_permission_requested', { step_index: 3 });
+  track('onboarding_permission_requested', { step_index: 10 });
 }
 export function logOnboardingPermissionResulted(p: { granted: boolean }): void {
-  track('onboarding_permission_resulted', { step_index: 3, ...p });
+  track('onboarding_permission_resulted', { step_index: 10, ...p });
 }
 
-// O4 스크린타임 요약 노출 (has_data: 실제 사용량 확보 여부)
+// W11 전날 스크린타임 요약 노출 (has_data: 실제 사용량 확보 여부)
 export function logOnboardingScreentimeViewed(p: { has_data: boolean }): void {
-  track('onboarding_screentime_viewed', { step_index: 4, ...p });
+  track('onboarding_screentime_viewed', { step_index: 11, ...p });
 }
 
-// O5 예측 화면 노출
-export function logOnboardingPredictionViewed(): void {
-  track('onboarding_prediction_viewed', { step_index: 5 });
+// 닉네임 제출
+export function logOnboardingNicknameSubmitted(): void {
+  track('onboarding_nickname_submitted', { step_index: 12 });
 }
 
-// O6 목표 제출
-export function logOnboardingGoalSubmitted(p: { goal_minutes: number }): void {
-  track('onboarding_goal_submitted', { step_index: 6, ...p });
+// W12 목표 제출 — goal_type으로 집중/스크린타임 구분(한 화면에서 2회 발사) 🆕
+export type OnboardingGoalType = 'focus' | 'usage';
+export function logOnboardingGoalSubmitted(p: {
+  goal_minutes: number;
+  goal_type: OnboardingGoalType;
+}): void {
+  track('onboarding_goal_submitted', { step_index: 13, ...p });
 }
 
-// O7 가입 수단 선택 / 실패
+// W15 가입 수단 선택 / 실패 (배선은 후속 — §6)
 export function logOnboardingSignupSelected(p: { method: AuthMethod }): void {
-  track('onboarding_signup_selected', { step_index: 7, ...p });
+  track('onboarding_signup_selected', { step_index: 15, ...p });
 }
 export function logOnboardingSignupFailed(p: { method: AuthMethod; reason: string }): void {
-  track('onboarding_signup_failed', { step_index: 7, ...p });
-}
-
-// O8 캐릭터 / 닉네임 제출
-export function logOnboardingCharacterSubmitted(): void {
-  track('onboarding_character_submitted', { step_index: 8 });
-}
-export function logOnboardingNicknameSubmitted(): void {
-  track('onboarding_nickname_submitted', { step_index: 8 });
+  track('onboarding_signup_failed', { step_index: 15, ...p });
 }
 
 export function logOnboardingCompleted(): void {
@@ -215,7 +204,8 @@ export function logStatsTagFilterSelected(p: { is_all: boolean }): void {
 }
 
 // ── 리텐션/알림 [C] ── (event-logging-design.md §5.B)
-export type NotificationType = 'poke' | 'report' | 'challenge';
+// rank_change: 순위 역전 푸시(백엔드 bfeat/GROMO-579) — payload data.type='rank_change' 필요.
+export type NotificationType = 'poke' | 'report' | 'challenge' | 'rank_change';
 
 // 푸시로 앱 복귀(리텐션 핵심).
 export function logNotificationOpened(p: { type: NotificationType }): void {
@@ -225,6 +215,16 @@ export function logNotificationOpened(p: { type: NotificationType }): void {
 // 푸시 권한 응답.
 export function logNotificationPermissionResult(p: { granted: boolean }): void {
   track('notification_permission_result', p);
+}
+
+// ── 넛지(Nudge) [C] ── (프로젝트/이벤트-정의-기획.md §H)
+// "수치+색으로 유도하되 명령하지 않기"가 통했는지 — 노출 대비 반응률.
+export type NudgeType = 'rank' | 'streak' | 'stat';
+export function logNudgeViewed(p: { type: NudgeType }): void {
+  track('nudge_viewed', p);
+}
+export function logNudgeTapped(p: { type: NudgeType }): void {
+  track('nudge_tapped', p);
 }
 
 // ── 그룹(Group) [C] ── (event-logging-design.md §5.D)

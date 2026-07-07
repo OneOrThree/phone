@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
   LayoutAnimation,
@@ -33,6 +33,8 @@ import {
   logLeagueTabChanged,
   logLeagueFilterSelected,
   logLeagueProfileOpened,
+  logNudgeViewed,
+  logNudgeTapped,
 } from '@/services/analyticsEvents';
 
 // 리그 메인 (탭 2번째) — 포디움형 레이아웃.
@@ -84,10 +86,16 @@ export default function LeagueScreen() {
   // 리그 랭킹 실데이터 — 홈 상단바와 공유. 멤버 티어는 위 내 티어를 내려받는다(중복 조회 방지).
   const { ranking, myLeagueLabel, myMinutes } = useLeagueRanking(tier.tierLevel ?? 1);
 
+  // 진입(포커스)마다 증가 — 넛지 노출을 '진입당 1회'로 발화시키는 트리거. 랭킹은 비동기 로드라
+  // 포커스 시점엔 myIdx가 아직 -1일 수 있어, 데이터가 채워진 뒤 이 seq 기준으로 딱 1회만 쏜다.
+  const [focusSeq, setFocusSeq] = useState(0);
+  const rankNudgeSeq = useRef(-1);
+
   // 리그 화면 진입 계측 (GROMO-538) — 포커스마다 1회.
   useFocusEffect(
     useCallback(() => {
       logLeagueViewed();
+      setFocusSeq((n) => n + 1);
     }, []),
   );
   const { goalSeconds } = useUser();
@@ -120,6 +128,15 @@ export default function LeagueScreen() {
   // 내 순위 — 위 리스트와 같은 파생값에서만 계산
   const myIdx = visibleRanking.findIndex((m) => m.userId === MY_USER_ID);
   const above = myIdx > 0 ? visibleRanking[myIdx - 1] : null;
+
+  // 넛지 노출 — '내 순위 스트립'(▲ N위까지 M분)이 실제 순위와 함께 뜰 때(rank) 진입당 1회.
+  // 랭킹 비동기 로드로 myIdx가 뒤늦게 확정돼도 focusSeq 기준으로 딱 1회만 발화(중복 방지).
+  useEffect(() => {
+    if (tab === 'league' && myIdx >= 0 && rankNudgeSeq.current !== focusSeq) {
+      rankNudgeSeq.current = focusSeq;
+      logNudgeViewed({ type: 'rank' });
+    }
+  }, [tab, myIdx, focusSeq]);
 
   // 포디움(Top3) / 리스트(4위~ 또는 핀한 사람만)
   const top3 = visibleRanking.slice(0, 3);
@@ -307,7 +324,15 @@ export default function LeagueScreen() {
             <TouchableOpacity
               style={s.myStrip}
               activeOpacity={0.85}
-              onPress={myIdx >= 0 ? scrollToMyRow : () => selectLeague(LEAGUE_ALL)}
+              onPress={
+                myIdx >= 0
+                  ? () => {
+                      // 유도 수치(순위·격차)를 탭 = 넛지 유도 성공.
+                      logNudgeTapped({ type: 'rank' });
+                      scrollToMyRow();
+                    }
+                  : () => selectLeague(LEAGUE_ALL)
+              }
             >
               {myIdx >= 0 ? (
                 <>

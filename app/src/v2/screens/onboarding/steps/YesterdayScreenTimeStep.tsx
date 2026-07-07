@@ -1,7 +1,9 @@
+import { useEffect } from 'react';
 import { View, Text, Image, ActivityIndicator, StyleSheet } from 'react-native';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { T } from '@/constants/theme';
+import { logOnboardingScreentimeViewed } from '@/services/analyticsEvents';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // W11 · 어제 스크린타임 — 어제 하루 실제 사용시간(총량+카테고리별+앱별)을 네이티브 리포트 뷰로 표시.
@@ -10,6 +12,13 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 // (DeviceActivityReport 익스텐션 안에서만 카테고리 데이터가 나옴 — App Group 우회 불가.)
 // 권한 거부 유저는 컨트롤러가 이 스텝을 건너뛴다.
 export default function YesterdayScreenTimeStep({ onNext }: StepProps) {
+  // 전날 스크린타임 요약 노출 계측 — 진입당 1회.
+  // has_data: 실제 사용 분은 익스텐션 안에서만 그려져 JS로 넘어오지 않으므로(완료 감지 불필요),
+  // 네이티브 리포트 뷰가 렌더 가능한지로 판정한다(iOS 실기기+모듈=데이터 표시 가능).
+  useEffect(() => {
+    logOnboardingScreentimeViewed({ has_data: !!ScreenTimeReportView });
+  }, []);
+
   return (
     <StepScaffold
       title="실제로는 얼마나 썼는지 볼까요?"

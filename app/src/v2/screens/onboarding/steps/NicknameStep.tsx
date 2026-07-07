@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
+import { logOnboardingNicknameSubmitted } from '@/services/analyticsEvents';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // 닉네임·캐릭터 — W11(전날 스크린타임)과 W12(목표 설정) 사이 삽입.
@@ -36,7 +37,11 @@ export default function NicknameStep({
       title={'당신의 집중을 도와줄 그로몬이\n도착했어요!'}
       ctaLabel={submitting ? '확인 중…' : '다음'}
       ctaDisabled={!validLength || !!submitting}
-      onCta={onNext}
+      onCta={() => {
+        // ⚠️ 닉네임 문자열은 PII라 전송 금지 — 이벤트엔 값 없음.
+        logOnboardingNicknameSubmitted();
+        onNext();
+      }}
     >
       <LinearGradient colors={[T.paperLight, T.caramel]} style={s.stage}>
         <CharacterImage size={172} />
