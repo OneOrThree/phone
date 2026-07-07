@@ -35,13 +35,19 @@ export const USAGE_BUCKET_MAX_MINUTES = 720;
 
 // 30분 버킷 모니터링 등록 — 권한 허용 + 측정 대상 선택(App Group selection)이 있어야 성공(없으면 false).
 // threshold 이벤트는 등록 시점의 selection 토큰으로 고정되므로, 측정 대상을 바꾸면(promoteSelection)
-// 반드시 재등록해야 한다. 성공 시 플래그를 남겨 Syncer의 기존 유저 1회 등록과 중복되지 않게 한다.
-export async function registerUsageBucketMonitoring(): Promise<boolean> {
+// 반드시 재등록해야 한다. 성공 시 등록 기록을 남겨 Syncer의 1회 등록과 중복되지 않게 하고,
+// 값에는 소유 계정(userId)을 기록한다 — 동기화 이력이 아직 없는 날(첫날 0분·업로드 실패)에도
+// 이 계정의 측정으로 믿고 어제분을 마감할 앵커가 된다(리뷰 반영). 로그인 전(온보딩 W10) 등록은
+// 소유 미상('1')으로 남기고 Syncer 첫 실행이 현재 계정으로 귀속시킨다.
+export async function registerUsageBucketMonitoring(ownerUserId: string | null): Promise<boolean> {
   try {
     if ((await ScreenTimeModule.getAuthorizationStatus()) !== 'approved') return false;
     const ok = await ScreenTimeModule.startUsageBucketMonitoring(USAGE_BUCKET_MAX_MINUTES);
     if (ok) {
-      await AsyncStorage.setItem(STORAGE_KEYS.screentimeBucketMonitorRegistered, '1');
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.screentimeBucketMonitorRegistered,
+        ownerUserId ?? '1',
+      );
     }
     return ok;
   } catch {
@@ -124,10 +130,19 @@ export async function syncScreenTimeUsage(
 
   // 기존 허용 유저 마이그레이션 — 이 기능 배포 전에 권한·선택을 이미 마친 유저는 W10/설정의
   // 등록 시점을 다시 지나지 않으므로 여기서 1회 등록한다. 재등록은 당일 누적 threshold를
-  // 리셋할 수 있어 성공 플래그로 1회만 — 이후엔 측정 대상 변경 시에만 재등록한다.
+  // 리셋할 수 있어 등록 기록으로 1회만 — 이후엔 측정 대상 변경 시에만 재등록한다.
+  // 기록 값 = 모니터 소유 계정. 소유 미상('1' — 구버전/로그인 전 등록)이면 현재 계정으로
+  // 귀속시킨다(1기기 1계정 가정) — 어제분 마감의 계정 앵커로 쓰인다.
+  let monitorOwner: string | null = null;
   try {
-    const registered = await AsyncStorage.getItem(STORAGE_KEYS.screentimeBucketMonitorRegistered);
-    if (!registered) await registerUsageBucketMonitoring(); // 선택 없으면 false → 플래그 없이 다음에 재시도
+    monitorOwner = await AsyncStorage.getItem(STORAGE_KEYS.screentimeBucketMonitorRegistered);
+    if (!monitorOwner) {
+      // 선택 없으면 false → 기록 없이 다음에 재시도
+      if (await registerUsageBucketMonitoring(userId)) monitorOwner = userId;
+    } else if (monitorOwner === '1') {
+      await AsyncStorage.setItem(STORAGE_KEYS.screentimeBucketMonitorRegistered, userId);
+      monitorOwner = userId;
+    }
   } catch {
     // 등록 실패는 동기화와 무관 — 계속 진행
   }
@@ -146,17 +161,18 @@ export async function syncScreenTimeUsage(
 
   const today = todayStr();
   const yesterday = yesterdayStr();
-  const last = await readSyncState(userId);
+  let last = await readSyncState(userId);
 
   // 어제분 마감(GROMO-627) — 어제 동기화 기록이 없어도(하루 종일 앱 미실행·첫 30분 미도달)
   // Monitor는 앱과 무관하게 판정·최종 눈금을 남기므로 그것만으로 어제 행을 확정한다.
   // 분값은 max(하루 경계에 보존된 전일 최종 눈금, 어제 마지막 동기화 값) — 마지막 포그라운드
-  // 이후 늘어난 사용분까지 반영. 그제 이전 날들은 소스가 없어 마감 불가(업로드된 중간값 유지).
-  // Monitor 값은 기기 전역이라 현재 계정의 동기화 이력(last)이 있을 때만 마감한다 — 계정 전환
-  // 직후 남의 사용 기록을 새 계정으로 올리지 않게(리뷰 반영). 이력은 첫 중간 동기화에서 생긴다.
+  // 이후 늘어난 사용분까지 반영.
+  // Monitor 값은 기기 전역이라 현재 계정 앵커(동기화 이력 또는 모니터 등록 소유)가 있을 때만
+  // 마감한다 — 계정 전환 직후 남의 사용 기록을 새 계정으로 올리지 않게(리뷰 반영). 등록 소유
+  // 앵커 덕에 동기화 이력이 아직 없는 첫날(0분·업로드 실패)도 다음날 마감된다(리뷰 반영).
   const closedDate = await readClosedDate(userId);
-  if (closedDate !== yesterday && last !== null) {
-    if (last.date === today && last.minutes === 0) {
+  if (closedDate !== yesterday && (last !== null || monitorOwner === userId)) {
+    if (last && last.date === today && last.minutes === 0) {
       // 구버전(633) 마감 직후 시그니처 — 옛 코드는 마감 후 상태를 {오늘, 0분}으로 덮었고
       // 마커는 없었다. OTA 직후 어제를 재전송하지 않게 마킹만 하고 넘어간다(리뷰 반영).
       // 새 코드는 {오늘, 0분}을 쓰지 않으므로(중간 동기화는 0분 스킵) 오탐 없음.
@@ -165,7 +181,7 @@ export async function syncScreenTimeUsage(
       // 네이티브 읽기가 하나라도 실패하면 마킹하지 않는다 — "보낼 것 없음"과 "조회 실패"를
       // 구분해, 일시 오류로 그 날이 영영 누락되지 않게(리뷰 반영). 다음 포그라운드에서 재시도.
       let readsOk = true;
-      let finalMinutes = last.date === yesterday ? last.minutes : 0;
+      let finalMinutes = last && last.date === yesterday ? last.minutes : 0;
       try {
         finalMinutes = Math.max(
           finalMinutes,
@@ -204,6 +220,23 @@ export async function syncScreenTimeUsage(
         await writeClosedDate(userId, yesterday);
       }
     }
+  }
+
+  // 지난 중간 동기화 행 확정 — 며칠 만의 실행이면 last.date가 어제보다 과거일 수 있다. 그 날의
+  // 네이티브 판정·보존 눈금은 이미 다음 날들로 덮여 없으므로, 업로드해 둔 분값 그대로 달성
+  // 여부만 근사 확정한다(리뷰 반영 — 영영 미달성으로 남는 것 방지). 달성으로 뒤집히는 경우만
+  // 전송 — 아니면 이미 저장된 false가 곧 결과다. 처리 후 상태를 지워 반복을 막는다.
+  if (last && last.date !== today && last.date !== yesterday) {
+    if (goalSeconds > 0 && last.minutes > 0 && last.minutes <= goalSeconds / 60) {
+      // 실패 시 상태를 보존한 채 중단(throw) — 다음 포그라운드에서 재시도.
+      await saveScreenTime({
+        actualScreenTimeMinutes: last.minutes,
+        screenTimeGoalAchieved: true,
+        reportedAt: localNoonInstant(last.date),
+      });
+    }
+    await AsyncStorage.removeItem(STORAGE_KEYS.screentimeSyncState);
+    last = null;
   }
 
   // 오늘 사용량 중간 동기화 — 0이면 스킵: 미측정(선택 없음·첫 30분 미도달)과 구분이 안 되므로
