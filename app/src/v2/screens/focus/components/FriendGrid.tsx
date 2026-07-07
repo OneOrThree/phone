@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet } from 'react-native';
-import { T } from '@/constants/theme';
+import { T, withAlpha } from '@/constants/theme';
 import type { SessionFriend } from '@/v2/screens/league/useFocusFriends';
 import { hourMin } from '../format';
 import { StarAvatar } from './StarAvatar';
@@ -9,7 +9,7 @@ import { StarAvatar } from './StarAvatar';
 // 아바타 색은 팔레트 순환 — TODO: 캐릭터 장착 정보 렌더 연동 시 교체.
 
 // 별사탕 아바타 팔레트 (시안 6인 색 그대로 순환)
-const AVATAR_COLORS = ['#C8893F', '#9A6FB0', '#5B8A6A', '#7A8AA0', '#6A9AA0', '#B0607A'];
+const AVATAR_COLORS = T.avatarPalette;
 
 export function FriendGrid({ friends }: { friends: SessionFriend[] }) {
   const focusing = friends.filter((f) => f.isFocusing).length;
@@ -61,9 +61,9 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 7,
-    backgroundColor: 'rgba(127,203,142,0.12)',
+    backgroundColor: withAlpha(T.night.green, 0.12),
     borderWidth: 1,
-    borderColor: 'rgba(127,203,142,0.25)',
+    borderColor: withAlpha(T.night.green, 0.25),
     borderRadius: 13,
     paddingVertical: 9,
     paddingHorizontal: 12,
@@ -79,13 +79,13 @@ const s = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: 'rgba(246,241,233,0.08)',
+    backgroundColor: withAlpha(T.night.cream, 0.08),
     alignItems: 'center',
     justifyContent: 'flex-end',
     overflow: 'hidden',
   },
   avatarActive: { borderWidth: 2.5, borderColor: T.night.green },
-  avatarIdle: { borderWidth: 2.5, borderColor: 'rgba(246,241,233,0.15)' },
+  avatarIdle: { borderWidth: 2.5, borderColor: withAlpha(T.night.cream, 0.15) },
   name: { ...T.text.label, color: T.paperLight, maxWidth: 74 },
   timeActive: {
     ...T.text.label,

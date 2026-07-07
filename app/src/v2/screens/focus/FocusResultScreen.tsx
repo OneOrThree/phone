@@ -163,7 +163,7 @@ export default function FocusResultScreen() {
         {/* 이번 주 스트릭 채우기 — 첫 집중 완료 변형(시안 14번)에만. 출석체크: 그날 집중했으면 ✓ */}
         {firstTime ? (
           <LinearGradient
-            colors={['#FBF3E8', '#F3E4CE']}
+            colors={[T.accentBg, T.sand]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={s.streakCard}
@@ -214,10 +214,7 @@ export default function FocusResultScreen() {
                 <View key={date} style={s.barCol}>
                   <View style={s.barTrack}>
                     <View
-                      style={[
-                        s.bar,
-                        { height: h, backgroundColor: isToday ? T.accent : '#E6D3B4' },
-                      ]}
+                      style={[s.bar, { height: h, backgroundColor: isToday ? T.accent : T.sand }]}
                     />
                   </View>
                   <Text style={[s.barDay, isToday ? s.barDayToday : null]}>{WEEK_LABELS[i]}</Text>
@@ -472,9 +469,9 @@ const s = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.white,
     borderWidth: 1,
-    borderColor: '#E7D6BB',
+    borderColor: T.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -512,15 +509,15 @@ const s = StyleSheet.create({
   cmpLabelMine: { ...T.text.caption, fontWeight: '700', color: T.ink },
   cmpValueMine: { ...T.text.caption, fontWeight: '800', color: T.accent },
   cmpLabel: { ...T.text.caption, color: T.inkSub },
-  cmpValue: { ...T.text.caption, fontWeight: '700', color: '#5C5246' },
-  cmpTrack: { height: 10, borderRadius: 5, backgroundColor: '#EFE7D8', overflow: 'hidden' },
+  cmpValue: { ...T.text.caption, fontWeight: '700', color: T.inkSub },
+  cmpTrack: { height: 10, borderRadius: 5, backgroundColor: T.track, overflow: 'hidden' },
   cmpFill: { height: 10, borderRadius: 5 },
-  cmpFillAvg: { backgroundColor: '#D8C8AC' },
+  cmpFillAvg: { backgroundColor: T.compare.avg },
   cmpCaption: { ...T.text.caption, fontWeight: '500', color: T.link, marginTop: 10 },
   // 준비 중 티저(가짜 비교 바) — 블러 아래 깔리는 표시용 고정값
   cmpTeaserGap: { marginTop: 8 },
   cmpTeaserMine: { width: '82%', backgroundColor: T.accent },
-  cmpTeaserAvg: { width: '58%', backgroundColor: '#D8C8AC' },
+  cmpTeaserAvg: { width: '58%', backgroundColor: T.compare.avg },
 
   // 하단 CTA
   footer: {

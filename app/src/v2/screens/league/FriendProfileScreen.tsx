@@ -49,9 +49,9 @@ import { TEASER_SUBJECTS, type CompareByDay, type SubjectCompare } from './mock'
 // 과목별 비교는 by-category?friends=(GROMO-624)로 실비교 — 겹치는 태그만, 겹침 없으면 안내 배너, 미확보 시 블러 티저.
 // 친구 신청/끊기·핀 토글은 실 API(./friendsApi) — 관계는 통계 공개와 별개.
 
-const THEIRS_FOCUS = '#9A6FB0';
-const THEIRS_PHONE = '#B08FC4';
-const UNFRIEND_INK = '#9A5A48';
+const THEIRS_FOCUS = T.compare.theirs;
+const THEIRS_PHONE = T.compare.theirsPhone;
+const UNFRIEND_INK = T.dangerInk;
 
 // 최근 7일 히트맵 → 월~일(0=월..6=일) 분 배열.
 function byWeekday(
@@ -298,7 +298,7 @@ export default function FriendProfileScreen() {
       {/* ── 헤더 (원형 백버튼 + 좌측 제목 + 우측 핀 토글 — 핀은 나만의 랭킹 고정용) ── */}
       <View style={s.header}>
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
-          <Ionicons name="chevron-back" size={18} color="#5C5246" />
+          <Ionicons name="chevron-back" size={18} color={T.inkSub} />
         </TouchableOpacity>
         <Text style={s.headerTitle}>프로필</Text>
         {isFriend && (
@@ -337,7 +337,7 @@ export default function FriendProfileScreen() {
             </View>
           </View>
           <LinearGradient
-            colors={['#D49A4E', T.accent]}
+            colors={[T.accentLight, T.accent]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={s.tierPill}
@@ -360,7 +360,7 @@ export default function FriendProfileScreen() {
                 <CircularGauge
                   size={64}
                   progress={summaryVisible ? goalPercent / 100 : 0}
-                  trackColor="#EFE7D8"
+                  trackColor={T.track}
                   progressColor={T.accent}
                 >
                   {summaryVisible ? (
@@ -475,7 +475,7 @@ export default function FriendProfileScreen() {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F1EADD' },
+  root: { flex: 1, backgroundColor: T.bg },
 
   header: {
     flexDirection: 'row',
@@ -519,12 +519,12 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#EFE7D8',
+    backgroundColor: T.track,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 3,
   },
-  friendPillText: { ...T.text.caption, fontSize: 11, fontWeight: '700', color: '#5C5246' },
+  friendPillText: { ...T.text.caption, fontSize: 11, fontWeight: '700', color: T.inkSub },
   tierPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -667,7 +667,7 @@ const s = StyleSheet.create({
   requestedBtn: {
     height: 54,
     borderRadius: 16,
-    backgroundColor: '#EFE7D8',
+    backgroundColor: T.track,
     alignItems: 'center',
     justifyContent: 'center',
   },

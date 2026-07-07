@@ -16,14 +16,14 @@ import UIKit
 
 private let appGroupId = "group.com.oneorthree.gromo"
 
-// T.night.bottom #241A14 — 세션 화면과 같은 다크 배경
-private let shieldBg = UIColor(red: 0x24 / 255, green: 0x1A / 255, blue: 0x14 / 255, alpha: 1)
-// T.night.cream #E6D3B4 — 제목
-private let shieldCream = UIColor(red: 0xE6 / 255, green: 0xD3 / 255, blue: 0xB4 / 255, alpha: 1)
-// T.night.muted #9A8472 — 부제
-private let shieldMuted = UIColor(red: 0x9A / 255, green: 0x84 / 255, blue: 0x72 / 255, alpha: 1)
-// T.accent #C8893F — 버튼
-private let shieldAccent = UIColor(red: 0xC8 / 255, green: 0x89 / 255, blue: 0x3F / 255, alpha: 1)
+// T.night.bottom #1A1D2E — 세션 화면과 같은 다크 배경
+private let shieldBg = UIColor(red: 0x1A / 255, green: 0x1D / 255, blue: 0x2E / 255, alpha: 1)
+// T.night.cream #D9DCF0 — 제목
+private let shieldCream = UIColor(red: 0xD9 / 255, green: 0xDC / 255, blue: 0xF0 / 255, alpha: 1)
+// T.night.muted #8B90A8 — 부제
+private let shieldMuted = UIColor(red: 0x8B / 255, green: 0x90 / 255, blue: 0xA8 / 255, alpha: 1)
+// T.accent #5E6AD2 — 버튼
+private let shieldAccent = UIColor(red: 0x5E / 255, green: 0x6A / 255, blue: 0xD2 / 255, alpha: 1)
 
 class ShieldConfigurationExtension: ShieldConfigurationDataSource {
 

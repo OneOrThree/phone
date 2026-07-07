@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { T } from '@/constants/theme';
+import { T, withAlpha } from '@/constants/theme';
 
 // 바텀시트 공용 껍데기(03/04/05) — 딤 + 하단 흰 패널. 딤 탭 시 닫힘.
 export function SheetShell({ children, onClose }: { children: ReactNode; onClose: () => void }) {
@@ -15,7 +15,7 @@ export function SheetShell({ children, onClose }: { children: ReactNode; onClose
 }
 
 const s = StyleSheet.create({
-  dim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(20,14,9,0.42)' },
+  dim: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.night.bottom, 0.42) },
   panel: {
     position: 'absolute',
     left: 0,

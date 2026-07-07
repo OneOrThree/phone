@@ -13,7 +13,7 @@ interface Props {
 }
 
 // 시안 상대(보라) 바 색 — 테마 팔레트 밖 시안 고유색
-const THEIRS = '#9A6FB0';
+const THEIRS = T.compare.theirs;
 
 export function SubjectCompareCard({ subjects, opponentName }: Props) {
   const max = Math.max(...subjects.flatMap((v) => [v.myMinutes, v.theirMinutes]), 1);
@@ -36,7 +36,7 @@ export function SubjectCompareCard({ subjects, opponentName }: Props) {
               </Text>
               <View style={s.track}>
                 <LinearGradient
-                  colors={['#D9A24C', T.accent]}
+                  colors={[T.accentLight, T.accent]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={[s.fill, { width: `${minePct}%` }]}
@@ -100,7 +100,7 @@ const s = StyleSheet.create({
   barWho: { ...T.text.caption, fontSize: 11, width: 28 },
   barWhoMine: { color: T.accent },
   barWhoTheirs: { color: THEIRS },
-  track: { flex: 1, height: 10, borderRadius: 5, backgroundColor: '#EFE7D8' },
+  track: { flex: 1, height: 10, borderRadius: 5, backgroundColor: T.track },
   fill: { height: 10, borderRadius: 5 },
   fillTheirs: { backgroundColor: THEIRS },
   barVal: {

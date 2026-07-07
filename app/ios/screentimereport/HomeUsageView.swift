@@ -11,10 +11,10 @@ struct HomeUsageView: View {
     let totalActivity: ActivityReport
 
     // v2 팔레트 (theme.ts와 일치)
-    private let ink = Color(red: 0x2C / 255, green: 0x24 / 255, blue: 0x21 / 255)
-    private let muted = Color(red: 0xA8 / 255, green: 0x9B / 255, blue: 0x89 / 255)
-    private let track = Color(red: 0xEF / 255, green: 0xE7 / 255, blue: 0xDA / 255)
-    private let accent = Color(red: 0xC8 / 255, green: 0x89 / 255, blue: 0x3F / 255)
+    private let ink = Color(red: 0x1C / 255, green: 0x1E / 255, blue: 0x22 / 255)
+    private let muted = Color(red: 0x9A / 255, green: 0xA0 / 255, blue: 0xA8 / 255)
+    private let track = Color(red: 0xF1 / 255, green: 0xF2 / 255, blue: 0xF6 / 255)
+    private let accent = Color(red: 0x5E / 255, green: 0x6A / 255, blue: 0xD2 / 255)
     private let over = Color(red: 0xC2 / 255, green: 0x70 / 255, blue: 0x5A / 255)
 
     var body: some View {

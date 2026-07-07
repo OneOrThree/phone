@@ -112,7 +112,7 @@ export default function FriendAddScreen() {
       {/* ── 헤더 (시안: 원형 백버튼 + 좌측 정렬 제목) ── */}
       <View style={s.header}>
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
-          <Ionicons name="chevron-back" size={18} color="#5C5246" />
+          <Ionicons name="chevron-back" size={18} color={T.inkSub} />
         </TouchableOpacity>
         <Text style={s.headerTitle}>친구 추가</Text>
       </View>
@@ -131,7 +131,7 @@ export default function FriendAddScreen() {
         />
         {query.length > 0 && (
           <TouchableOpacity style={s.clearBtn} onPress={() => setQuery('')} hitSlop={8}>
-            <Ionicons name="close" size={11} color="#9A8C7C" />
+            <Ionicons name="close" size={11} color={T.inkMuted} />
           </TouchableOpacity>
         )}
       </View>
@@ -234,7 +234,7 @@ export default function FriendAddScreen() {
                 onPress={() => resolveRequest(r.requestId, false)}
                 activeOpacity={0.8}
               >
-                <Ionicons name="close" size={14} color="#9A8C7C" />
+                <Ionicons name="close" size={14} color={T.inkMuted} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.acceptBtn}
@@ -259,7 +259,7 @@ export default function FriendAddScreen() {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F1EADD' },
+  root: { flex: 1, backgroundColor: T.bg },
 
   header: {
     flexDirection: 'row',
@@ -299,7 +299,7 @@ const s = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#EFE7D8',
+    backgroundColor: T.track,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -341,14 +341,14 @@ const s = StyleSheet.create({
   },
   reqBtnText: { ...T.text.caption, fontWeight: '700', color: T.white },
   reqBtnMuted: {
-    backgroundColor: '#F1EADD',
+    backgroundColor: T.bg,
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 7,
   },
   reqBtnTextMuted: { ...T.text.caption, fontWeight: '700', color: T.inkSub },
 
-  divider: { height: 1, backgroundColor: '#E2D7C4', marginVertical: 14, marginHorizontal: 2 },
+  divider: { height: 1, backgroundColor: T.chipBorder, marginVertical: 14, marginHorizontal: 2 },
 
   reqTitleRow: {
     flexDirection: 'row',
@@ -370,9 +370,9 @@ const s = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 9,
-    backgroundColor: '#F1EADD',
+    backgroundColor: T.bg,
     borderWidth: 1,
-    borderColor: '#E2D7C4',
+    borderColor: T.chipBorder,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -391,9 +391,9 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 9,
-    backgroundColor: '#FBF3E8',
+    backgroundColor: T.accentBg,
     borderWidth: 1,
-    borderColor: '#EBDCC2',
+    borderColor: T.sand,
     borderRadius: 13,
     paddingHorizontal: 14,
     paddingVertical: 12,

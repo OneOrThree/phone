@@ -1,4 +1,5 @@
 import { StyleSheet, View } from 'react-native';
+import { T } from '@/constants/theme';
 import { CharacterImage } from '@/components/character/CharacterImage';
 
 // 원형 캐릭터 아바타 — 정적 캐릭터 이미지(assets/character.png) 단일 사용.
@@ -17,7 +18,7 @@ export function MemberAvatar({ size = 46 }: Props) {
 
 const s = StyleSheet.create({
   circle: {
-    backgroundColor: '#EBD7B5',
+    backgroundColor: T.sand,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',

@@ -33,7 +33,7 @@ export default function TierGuideScreen() {
       {/* ── 헤더 ── */}
       <View style={s.header}>
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
-          <Ionicons name="chevron-back" size={18} color="#5C5246" />
+          <Ionicons name="chevron-back" size={18} color={T.inkSub} />
         </TouchableOpacity>
         <Text style={s.headerTitle}>티어 단계</Text>
       </View>
@@ -45,7 +45,7 @@ export default function TierGuideScreen() {
           activeOpacity={0.9}
           onLongPress={() => navigation.navigate('LeagueResult', { type: 'promote' })}
         >
-          <LinearGradient colors={['#FBF3E8', '#F3E6CF']} style={s.hero}>
+          <LinearGradient colors={[T.accentBg, T.sand]} style={s.hero}>
             <Image source={cur.image} style={s.heroImg} />
             <Text style={s.heroName}>{cur.name}</Text>
             <Text style={s.heroSub} allowFontScaling={false}>
@@ -54,7 +54,7 @@ export default function TierGuideScreen() {
             </Text>
             <View style={s.heroTrack}>
               <LinearGradient
-                colors={['#D9A24C', '#C8893F']}
+                colors={[T.accentLight, T.accent]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={[s.heroFill, { width: `${progress * 100}%` }]}
@@ -132,7 +132,7 @@ const s = StyleSheet.create({
   hero: {
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#EBDCC2',
+    borderColor: T.sand,
     borderRadius: 18,
     paddingHorizontal: 16,
     paddingVertical: 16,
@@ -145,7 +145,7 @@ const s = StyleSheet.create({
     alignSelf: 'stretch',
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#EFE7D8',
+    backgroundColor: T.track,
     marginTop: 10,
     overflow: 'hidden',
   },
@@ -163,7 +163,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
-  tierRowCur: { backgroundColor: '#FBF3E8', borderWidth: 2, borderColor: '#C8893F' },
+  tierRowCur: { backgroundColor: T.accentBg, borderWidth: 2, borderColor: T.accent },
   tierNameCol: { flex: 1 },
   tierNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   tierName: { ...T.text.label, fontWeight: '700', color: T.ink },
@@ -188,5 +188,5 @@ const s = StyleSheet.create({
     marginTop: 11,
   },
   noticeText: { ...T.text.caption, fontWeight: '500', color: T.link, lineHeight: 20 },
-  noticeStrong: { fontWeight: '700', color: '#5C5246' },
+  noticeStrong: { fontWeight: '700', color: T.inkSub },
 });

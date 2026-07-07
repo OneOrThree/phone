@@ -19,7 +19,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
-import { T } from '@/constants/theme';
+import { T, withAlpha } from '@/constants/theme';
 import { saveFocusSession } from '@/services/focusApi';
 import { ensureFocusTagId } from './tagSync';
 import { enqueuePendingFocusUpload } from './pendingFocusUploads';
@@ -567,7 +567,7 @@ const s = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: withAlpha(T.white, 0.1),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -577,7 +577,7 @@ const s = StyleSheet.create({
   characterWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 7, paddingVertical: 6 },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: 'rgba(246,241,233,0.3)' },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: withAlpha(T.night.cream, 0.3) },
   dotActive: { width: 18, backgroundColor: T.night.gold },
 
   readout: { alignItems: 'center', paddingBottom: 18, minHeight: 118, justifyContent: 'flex-end' },
@@ -601,9 +601,9 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(200,137,63,0.16)',
+    backgroundColor: withAlpha(T.accent, 0.16),
     borderWidth: 1,
-    borderColor: 'rgba(200,137,63,0.32)',
+    borderColor: withAlpha(T.accent, 0.32),
     borderRadius: 99,
     paddingVertical: 4,
     paddingHorizontal: 11,
@@ -611,7 +611,7 @@ const s = StyleSheet.create({
   setBadgeDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: T.night.gold },
   setBadgeText: { ...T.text.caption, fontWeight: '700', color: T.night.gold },
   setDots: { flexDirection: 'row', gap: 7, marginTop: 10 },
-  setDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: 'rgba(246,241,233,0.22)' },
+  setDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: withAlpha(T.night.cream, 0.22) },
   setDotOn: { backgroundColor: T.night.gold },
 
   controls: { flexDirection: 'row', justifyContent: 'center', gap: 18, paddingBottom: 30 },
@@ -619,7 +619,7 @@ const s = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: withAlpha(T.white, 0.12),
     alignItems: 'center',
     justifyContent: 'center',
   },

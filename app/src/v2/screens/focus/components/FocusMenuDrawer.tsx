@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Pressable, Animated, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { T } from '@/constants/theme';
+import { T, withAlpha } from '@/constants/theme';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import AllowedAppsListView from '@/components/AllowedAppsListView';
 import { useFocus } from '@/store/FocusContext';
@@ -164,7 +164,7 @@ export function FocusMenuDrawer({
 }
 
 const s = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,7,4,0.5)' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.night.bottom, 0.5) },
   panel: {
     position: 'absolute',
     top: 0,
