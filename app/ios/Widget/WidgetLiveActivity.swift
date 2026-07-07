@@ -34,10 +34,10 @@ struct GromoFocusAttributes: ActivityAttributes {
 }
 
 // gromo 팔레트 (app/src/v2/constants/theme.ts 의 T.night / T.accent 값과 동일)
-private let laBg = Color(red: 0x24 / 255, green: 0x1A / 255, blue: 0x14 / 255) // night.bottom
-private let laCream = Color(red: 0xE6 / 255, green: 0xD3 / 255, blue: 0xB4 / 255) // night.cream
-private let laMuted = Color(red: 0x9A / 255, green: 0x84 / 255, blue: 0x72 / 255) // night.muted
-private let laGold = Color(red: 0xF0 / 255, green: 0xC7 / 255, blue: 0x6A / 255) // night.gold
+private let laBg = Color(red: 0x1A / 255, green: 0x1D / 255, blue: 0x2E / 255) // night.bottom
+private let laCream = Color(red: 0xD9 / 255, green: 0xDC / 255, blue: 0xF0 / 255) // night.cream
+private let laMuted = Color(red: 0x8B / 255, green: 0x90 / 255, blue: 0xA8 / 255) // night.muted
+private let laGold = Color(red: 0xB7 / 255, green: 0xBC / 255, blue: 0xF0 / 255) // night.gold
 
 // 캐릭터 이미지 뷰 — 위젯 번들 에셋(character.imageset, 512px 축소본)을 직접 사용.
 // App Group 스냅샷(captureRef) 경로는 배경이 불투명해지는 문제가 있어 쓰지 않는다.

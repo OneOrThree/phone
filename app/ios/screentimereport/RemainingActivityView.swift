@@ -6,7 +6,7 @@
 //       (목표 시간을 못 읽었으면 "-", 다 썼으면 "실패")
 //
 // 디자인: app/components/theme.js의 statValue / statValueFail 스타일과 맞춤
-//   { fontSize: 15, fontWeight: '900', color: T.ink(#111111) | T.danger(#D9362F) }
+//   { fontSize: 15, fontWeight: '900', color: T.ink(#1C1E22) | T.danger(#C25F52) }
 
 import SwiftUI
 
@@ -31,8 +31,8 @@ struct RemainingActivityView: View {
             .font(.system(size: 15, weight: .black))
             .foregroundColor(
                 isFailed
-                    ? Color(red: 0xD9 / 255, green: 0x36 / 255, blue: 0x2F / 255)
-                    : Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x11 / 255)
+                    ? Color(red: 0xC2 / 255, green: 0x5F / 255, blue: 0x52 / 255)
+                    : Color(red: 0x1C / 255, green: 0x1E / 255, blue: 0x22 / 255)
             )
             .frame(maxWidth: .infinity, alignment: .center)
     }
