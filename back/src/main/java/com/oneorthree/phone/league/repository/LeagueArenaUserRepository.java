@@ -6,8 +6,10 @@ import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueMemberResult;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -27,6 +29,14 @@ public interface LeagueArenaUserRepository extends JpaRepository<LeagueArenaUser
     @Query("SELECT m FROM LeagueArenaUser m JOIN FETCH m.leagueArena la "
             + "WHERE m.user.id = :userId AND la.status = :status")
     Optional<LeagueArenaUser> findByUserAndArenaStatus(
+            @Param("userId") UUID userId, @Param("status") LeagueArenaStatus status);
+
+    // GROMO-646: 세션 완료 시 주간 누적 집중 시간 += 용 비관적 락 조회.
+    // DailyFocusStat.findByUserAndDateForUpdate 와 동일 패턴 — 동시 세션 종료의 lost update 차단.
+    // (fetch join 없음 — 갱신에 leagueArena 로드 불필요, 락과 fetch join 병행 회피)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT m FROM LeagueArenaUser m WHERE m.user.id = :userId AND m.leagueArena.status = :status")
+    Optional<LeagueArenaUser> findByUserAndArenaStatusForUpdate(
             @Param("userId") UUID userId, @Param("status") LeagueArenaStatus status);
 
     // 랭킹용 — user fetch 로 닉네임 N+1 방지, 동점은 id 오름차순으로 순위 결정
