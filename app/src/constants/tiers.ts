@@ -15,44 +15,45 @@ export interface TierMeta {
   image: ImageSourcePropType;
 }
 
+// 구간은 하루 기준 0–2/2–4/4–6/6–8/8–10시간 × 7일 = 주간 수치.
 export const TIERS: TierMeta[] = [
   {
     level: 1,
     name: '뽀시래기',
-    rangeLabel: '주간 집중 0–5시간',
+    rangeLabel: '주간 집중 0–14시간',
     minHours: 0,
-    maxHours: 5,
+    maxHours: 14,
     image: require('@/assets/tier_image/tier1.png'),
   },
   {
     level: 2,
     name: '예열 모드',
-    rangeLabel: '주간 집중 5–12시간',
-    minHours: 5,
-    maxHours: 12,
+    rangeLabel: '주간 집중 14–28시간',
+    minHours: 14,
+    maxHours: 28,
     image: require('@/assets/tier_image/tier2.png'),
   },
   {
     level: 3,
     name: '초집중 모드',
-    rangeLabel: '주간 집중 12–22시간',
-    minHours: 12,
-    maxHours: 22,
+    rangeLabel: '주간 집중 28–42시간',
+    minHours: 28,
+    maxHours: 42,
     image: require('@/assets/tier_image/tier3.png'),
   },
   {
     level: 4,
     name: '갓생러',
-    rangeLabel: '주간 집중 22–35시간',
-    minHours: 22,
-    maxHours: 35,
+    rangeLabel: '주간 집중 42–56시간',
+    minHours: 42,
+    maxHours: 56,
     image: require('@/assets/tier_image/tier4.png'),
   },
   {
     level: 5,
     name: '집중 정복자',
-    rangeLabel: '주간 집중 35시간 이상',
-    minHours: 35,
+    rangeLabel: '주간 집중 56–70시간',
+    minHours: 56,
     maxHours: null,
     image: require('@/assets/tier_image/tier5.png'),
   },
