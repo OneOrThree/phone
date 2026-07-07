@@ -2,7 +2,6 @@ import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
@@ -56,10 +55,10 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         activeOpacity={0.85}
         onPress={() => rootNav.navigate('FocusCategory')}
       >
-        <LinearGradient colors={[T.accentLight, T.accent]} style={s.fabGrad}>
+        <View style={s.fabInner}>
           {/* ▶ 재생(시작) 아이콘 — 삼각형이 왼쪽으로 치우쳐 보여서 살짝 오른쪽 보정 */}
           <Ionicons name="play" size={26} color={T.white} style={s.playIcon} />
-        </LinearGradient>
+        </View>
       </TouchableOpacity>
     </View>
   );
@@ -100,10 +99,11 @@ const s = StyleSheet.create({
     ...Platform.select({ ios: {}, android: {} }),
   },
   playIcon: { marginLeft: 3 },
-  fabGrad: {
+  fabInner: {
     width: 56,
     height: 56,
     borderRadius: 28,
+    backgroundColor: T.accent,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: T.accent,
