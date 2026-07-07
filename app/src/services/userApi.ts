@@ -1,6 +1,7 @@
 // user 도메인 API 래퍼 (UserController + ProfileController, base /api/v1).
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
 import { api } from '@/services/api';
+import { todayStr } from '@/utils/localDate';
 import type {
   DeviceTokenRegisterRequest,
   FocusTimeGoalUpdateRequest,
@@ -93,8 +94,15 @@ export async function getPublicProfile(userId: string): Promise<PublicProfileRes
   return data;
 }
 
-// GET /api/v1/users/{userId}/stats — 타 유저 통계 조회.
-export async function getUserStats(userId: string): Promise<UserStatsResponse> {
-  const { data } = await api.get<UserStatsResponse>(`/api/v1/users/${userId}/stats`);
+// GET /api/v1/users/{userId}/stats — 타 유저 통계 조회(본인·친구·전체공개면 상세).
+// date는 서버 필수 파라미터(GROMO-643 — '오늘'·최근 7일 기준을 클라 로컬 날짜로 산정).
+// 미전송 시 400으로 상세 통계 전체가 떨어지므로 기본값으로 항상 로컬 오늘을 채운다.
+export async function getUserStats(
+  userId: string,
+  date: string = todayStr(),
+): Promise<UserStatsResponse> {
+  const { data } = await api.get<UserStatsResponse>(`/api/v1/users/${userId}/stats`, {
+    params: { date },
+  });
   return data;
 }
