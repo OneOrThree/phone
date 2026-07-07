@@ -328,16 +328,16 @@ class ProfileServiceTest {
         givenBothUsers(target, caller);
         given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.of(friendship));
         given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
-        given(statsService.getTodayStats(USER_ID)).willReturn(sampleToday());
+        given(statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleToday());
         given(statsService.getHeatmap(any(), any(), any())).willReturn(List.of());
 
-        UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID);
+        UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3));
 
         assertThat(response.isFriend()).isTrue();
         assertThat(response.streak()).isNotNull();
         assertThat(response.today()).isNotNull();
         assertThat(response.heatmap()).isNotNull();
-        verify(statsService).getTodayStats(USER_ID);
+        verify(statsService).getTodayStats(USER_ID, LocalDate.of(2026, 7, 3));
         verify(statsService).getHeatmap(any(UUID.class), any(LocalDate.class), any(LocalDate.class));
     }
 
@@ -351,14 +351,14 @@ class ProfileServiceTest {
         given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.empty());
         given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
 
-        UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID);
+        UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3));
 
         assertThat(response.isFriend()).isFalse();
         assertThat(response.streak()).isNotNull();
         assertThat(response.today()).isNull();
         assertThat(response.heatmap()).isNull();
         // 친구X 일 때 세부 통계 메서드는 호출되지 않아야 한다
-        verify(statsService, never()).getTodayStats(any());
+        verify(statsService, never()).getTodayStats(any(), any());
         verify(statsService, never()).getHeatmap(any(), any(), any());
     }
 
@@ -371,15 +371,15 @@ class ProfileServiceTest {
         givenBothUsers(target, caller);
         given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.empty());
         given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
-        given(statsService.getTodayStats(USER_ID)).willReturn(sampleToday());
+        given(statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleToday());
         given(statsService.getHeatmap(any(), any(), any())).willReturn(List.of());
 
-        UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID);
+        UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3));
 
         assertThat(response.isFriend()).isFalse();   // 친구 아님 — PUBLIC 이라 세부 열람
         assertThat(response.today()).isNotNull();
         assertThat(response.heatmap()).isNotNull();
-        verify(statsService).getTodayStats(USER_ID);
+        verify(statsService).getTodayStats(USER_ID, LocalDate.of(2026, 7, 3));
     }
 
     @Test
@@ -393,7 +393,7 @@ class ProfileServiceTest {
         given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.empty());
         given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
 
-        UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID);
+        UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3));
 
         assertThat(response.isFriend()).isFalse();
         assertThat(response.today()).isNull();
@@ -408,10 +408,10 @@ class ProfileServiceTest {
         // 본인 조회이므로 target 만 조회 (caller 조회 불필요)
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(self));
         given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
-        given(statsService.getTodayStats(USER_ID)).willReturn(sampleToday());
+        given(statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleToday());
         given(statsService.getHeatmap(any(), any(), any())).willReturn(List.of());
 
-        UserStatsResponse response = profileService.getUserStats(USER_ID, USER_ID);
+        UserStatsResponse response = profileService.getUserStats(USER_ID, USER_ID, LocalDate.of(2026, 7, 3));
 
         // 본인은 isFriend=false 이지만 세부 통계를 받는다
         assertThat(response.isFriend()).isFalse();
@@ -427,7 +427,7 @@ class ProfileServiceTest {
     void getUserStats_targetNotFound_throws404() {
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> profileService.getUserStats(OTHER_ID, USER_ID))
+        assertThatThrownBy(() -> profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
@@ -443,7 +443,7 @@ class ProfileServiceTest {
                 .build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(deleted));
 
-        assertThatThrownBy(() -> profileService.getUserStats(OTHER_ID, USER_ID))
+        assertThatThrownBy(() -> profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);

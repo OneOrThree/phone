@@ -38,7 +38,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -269,7 +268,7 @@ public class GroupService {
         return new RenewGroupCodeResponse(group.getCode(), group.getCodeExpiresAt());
     }
 
-    public GroupDetailResponse getGroupDetail(UUID groupId, UUID userId) {
+    public GroupDetailResponse getGroupDetail(UUID groupId, UUID userId, LocalDate date) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -286,12 +285,12 @@ public class GroupService {
         List<GroupMember> groupMembers = groupMemberRepository.findByGroup(group);
 
         List<User> users = groupMembers.stream().map(GroupMember::getUser).toList();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        List<DailyFocusStat> focusStats = dailyFocusStatRepository.findByUserInAndDate(users, today);
+        // GROMO-643: 클라 로컬 날짜(date)로 오늘 집계 조회 (UTC 산정 제거)
+        List<DailyFocusStat> focusStats = dailyFocusStatRepository.findByUserInAndDate(users, date);
         Map<UUID, Integer> focusMap = focusStats.stream()
                 .collect((Collectors.toMap(
                         s -> s.getUser().getId(),
-                        DailyFocusStat::getTotalFocusMinutes
+                        s -> s.getTotalFocusSeconds() / 60   // GROMO-642: 초→분
                 )));
         List<GroupDetailMemberResponse> list = groupMembers.stream()
                 .map(m -> GroupDetailMemberResponse.builder()

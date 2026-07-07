@@ -76,11 +76,12 @@ public class StatsController {
     })
     @GetMapping("/stats/today")
     public ResponseEntity<TodayStatsResponse> getTodayStats(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
             HttpServletRequest request) {
         UUID callerId = (UUID) request.getAttribute("userId");
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
-        return ResponseEntity.ok(statsService.getTodayStats(targetId));
+        return ResponseEntity.ok(statsService.getTodayStats(targetId, date));
     }
 
     @Operation(summary = "기간별 집중시간 통계 조회",
@@ -95,11 +96,12 @@ public class StatsController {
     @GetMapping("/stats/focus")
     public ResponseEntity<FocusPeriodStatsResponse> getFocusStatsByPeriod(
             @RequestParam StatsPeriod period,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
             HttpServletRequest request) {
         UUID callerId = (UUID) request.getAttribute("userId");
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
-        return ResponseEntity.ok(statsService.getFocusStatsByPeriod(targetId, period));
+        return ResponseEntity.ok(statsService.getFocusStatsByPeriod(targetId, period, date));
     }
 
     @Operation(summary = "카테고리별 집중 통계 조회",
@@ -115,11 +117,12 @@ public class StatsController {
     @GetMapping("/stats/by-category")
     public ResponseEntity<CategoryFocusStatsResponse> getFocusStatsByCategory(
             @RequestParam StatsPeriod period,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
             HttpServletRequest request) {
         UUID callerId = (UUID) request.getAttribute("userId");
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
-        return ResponseEntity.ok(statsService.getFocusStatsByCategory(targetId, period));
+        return ResponseEntity.ok(statsService.getFocusStatsByCategory(targetId, period, date));
     }
 
     @Operation(summary = "기간별 스크린타임 통계 조회",
@@ -136,10 +139,11 @@ public class StatsController {
     @GetMapping("/stats/screen-time")
     public ResponseEntity<ScreenTimePeriodStatsResponse> getScreenTimePeriodStats(
             @RequestParam StatsPeriod period,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
             HttpServletRequest request) {
         UUID callerId = (UUID) request.getAttribute("userId");
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
-        return ResponseEntity.ok(statsService.getScreenTimePeriodStats(targetId, period));
+        return ResponseEntity.ok(statsService.getScreenTimePeriodStats(targetId, period, date));
     }
 }

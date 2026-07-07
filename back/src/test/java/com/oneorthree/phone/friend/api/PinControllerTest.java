@@ -64,9 +64,9 @@ class PinControllerTest {
                 .focusTimeMinutes(42)
                 .isFocusing(true)
                 .build();
-        given(friendService.getPinnedFriends(any())).willReturn(List.of(response));
+        given(friendService.getPinnedFriends(any(), any())).willReturn(List.of(response));
 
-        mockMvc.perform(get("/api/v1/pins"))
+        mockMvc.perform(get("/api/v1/pins").param("date", "2026-07-03"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].userId").value(targetUserId.toString()))
                 .andExpect(jsonPath("$[0].focusTimeMinutes").value(42))
