@@ -16,7 +16,7 @@ import { DrumPicker } from '@/components/DrumPicker';
 import { getMyProfile, updateNotificationSettings } from '@/services/userApi';
 import type { NotificationSettingsRequest } from '@/types/dto/user';
 import { STORAGE_KEYS } from '@/types/storage';
-import { T } from '@/constants/theme';
+import { T, withAlpha } from '@/constants/theme';
 
 // 알림 · 심야 · 소리 (라우트 SettingsNotification).
 // 현재 백엔드가 저장하는 알림 필드는 5개뿐 → 토글도 그 범위에 맞춰 3개만 노출한다:
@@ -286,7 +286,7 @@ const s = StyleSheet.create({
 
   // 시각 피커 모달
   overlay: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(20,14,9,0.5)' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.night.bottom, 0.5) },
   sheet: {
     backgroundColor: T.paperLight,
     borderTopLeftRadius: 28,

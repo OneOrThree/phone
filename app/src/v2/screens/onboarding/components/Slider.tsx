@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { View, PanResponder, StyleSheet } from 'react-native';
 import type { GestureResponderEvent } from 'react-native';
-import { T } from '@/constants/theme';
+import { T, withAlpha } from '@/constants/theme';
 
 // 커스텀 가로 슬라이더 — core RN PanResponder.
 // (@react-native-community/slider가 이 RN/New Arch 셋업에서 미빌드라 직접 구현)
@@ -83,7 +83,7 @@ const s = StyleSheet.create({
     borderRadius: 13,
     backgroundColor: T.white,
     borderWidth: 3,
-    borderColor: 'rgba(0,0,0,0.12)',
+    borderColor: withAlpha(T.black, 0.12),
     shadowColor: T.black,
     shadowOpacity: 0.28,
     shadowOffset: { width: 0, height: 2 },

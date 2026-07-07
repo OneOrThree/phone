@@ -13,7 +13,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { T } from '@/constants/theme';
+import { T, withAlpha } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
@@ -552,7 +552,7 @@ const s = StyleSheet.create({
   deadline: { ...T.text.caption, color: T.inkSub },
 
   // 리그 선택 드롭다운
-  menuBackdrop: { flex: 1, backgroundColor: 'rgba(20,14,9,0.25)' },
+  menuBackdrop: { flex: 1, backgroundColor: withAlpha(T.night.bottom, 0.25) },
   menuCard: {
     position: 'absolute',
     right: 20,

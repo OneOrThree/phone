@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
-import { T } from '@/constants/theme';
+import { T, withAlpha } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -159,7 +159,7 @@ const s = StyleSheet.create({
   glow: {
     padding: 18,
     borderRadius: 999,
-    backgroundColor: 'rgba(240,199,106,0.16)',
+    backgroundColor: withAlpha(T.night.gold, 0.16),
     marginBottom: 24,
     shadowColor: T.night.gold,
     shadowOpacity: 0.55,
@@ -183,15 +183,15 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(200,137,63,0.2)',
+    backgroundColor: withAlpha(T.accent, 0.2),
     borderWidth: 1,
-    borderColor: 'rgba(200,137,63,0.45)',
+    borderColor: withAlpha(T.accent, 0.45),
     borderRadius: 999,
     paddingHorizontal: 18,
     paddingVertical: 9,
     marginTop: 22,
   },
-  pillDemote: { backgroundColor: 'rgba(200,137,63,0.16)', borderColor: 'rgba(200,137,63,0.4)' },
+  pillDemote: { backgroundColor: withAlpha(T.accent, 0.16), borderColor: withAlpha(T.accent, 0.4) },
   pillText: { ...T.text.label, fontWeight: '700', color: T.night.gold },
   pillTextDemote: { ...T.text.caption, fontWeight: '700', color: T.accentLight },
   coin: { width: 17, height: 17, borderRadius: 9, backgroundColor: T.night.gold },

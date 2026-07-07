@@ -110,3 +110,13 @@ export const T = {
     caption: { fontSize: 13, fontWeight: '600' }, // 배지·캡션·보조 (최소 가독선)
   },
 } as const;
+
+// #RRGGBB 팔레트 토큰 → rgba 문자열. 반투명 색을 하드코딩하지 말고 토큰에서 파생시킬 때 사용.
+// 예: backgroundColor: withAlpha(T.accent, 0.2)
+export function withAlpha(hex: string, alpha: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}

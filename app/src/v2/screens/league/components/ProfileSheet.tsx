@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { T } from '@/constants/theme';
+import { T, withAlpha } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import CircularGauge from '@/components/CircularGauge';
 import { fmtMinutes } from '../format';
@@ -228,7 +228,7 @@ export function ProfileSheet({ target, onClose }: Props) {
 
 const s = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(20,14,9,0.5)' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.night.bottom, 0.5) },
   sheet: {
     backgroundColor: T.paperLight,
     borderTopLeftRadius: 28,

@@ -29,7 +29,7 @@ import {
 import { useUser } from '@/store/UserContext';
 import type { Provider, SocialLinkResponse } from '@/types/dto/user';
 import type { LoginResult } from '@/types/api';
-import { T } from '@/constants/theme';
+import { T, withAlpha } from '@/constants/theme';
 
 // 계정 설정 화면 — 소셜 로그인/연동 + 로그아웃 + 회원 탈퇴.
 // 게스트(useUser().isGuest === true)일 땐 카카오·애플·구글 '로그인' 버튼을 띄워 계정 전환을 유도하고,
@@ -338,7 +338,7 @@ const s = StyleSheet.create({
 
   // 모달 — v2 ProfileSheet와 동일한 스크림(전용 토큰 없음) + 중앙 흰 카드
   overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(20,14,9,0.5)' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.night.bottom, 0.5) },
   card: {
     width: '100%',
     maxWidth: 360,
