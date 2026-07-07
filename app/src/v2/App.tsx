@@ -175,18 +175,16 @@ export default function App() {
     }
   }
 
-  // 온보딩 완료(마지막 로그인/게스트) → 플래그 저장 + 유저 설정 → 홈 진입.
+  // 온보딩 완료(중간 로그인 세션 + 수집 데이터) → 플래그 저장 + 유저 설정 → 홈 진입.
   // 기존 계정엔 온보딩 수집값을 덮어쓰지 않는다(프로필·목표·로컬 상태 모두):
-  //   - skipped=true : 'W1/W2에서 이미 계정이 있어요' → 애초에 수집값이 없음.
-  //   - login.isNewUser === false : 버튼을 안 눌러도 재로그인이면 기존 유저(예: 로그아웃 후
-  //     같은 소셜로 재로그인). 백엔드가 (provider, providerId)로 같은 유저를 돌려주므로,
-  //     재온보딩으로 새로 입력한 값이 서버 프로필을 덮어쓰면 안 된다.
+  //   - login.isNewUser === false : 재로그인이면 기존 유저(예: 로그아웃 후 같은 소셜로 재로그인).
+  //     백엔드가 (provider, providerId)로 같은 유저를 돌려주므로, 새로 입력한 값이 서버 프로필을
+  //     덮어쓰면 안 된다. (중간 로그인에서 isNewUser === false면 남은 온보딩을 건너뛰고 바로 확정.)
   async function handleOnboardingComplete({
     data,
     login,
-    skipped,
   }: OnboardingResult): Promise<OnboardingCompleteStatus> {
-    const isExistingAccount = skipped || login.isNewUser === false;
+    const isExistingAccount = login.isNewUser === false;
     if (!isExistingAccount) {
       // 신규 유저 — 프로필 등록(닉네임 중복 검증 포함)이 성공해야 온보딩 완료(GROMO-617/618).
       // 실패 시 완료 플래그·유저 상태를 세팅하지 않고 결과만 돌려줘 게이트를 유지한다
@@ -203,7 +201,7 @@ export default function App() {
     }
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
     setOnboarded(true);
-    // 소셜·게스트 모두 W15에서 실제 JWT 세션을 발급받고 온다(게스트=POST /auth/guest).
+    // 소셜·게스트 모두 중간 로그인 노드에서 실제 JWT 세션을 발급받고 온다(게스트=POST /auth/guest).
     // 세션(토큰/유저)은 auth.ts가 이미 저장 — 여기선 화면 상태만 세팅.
     const userId = getUserIdFromToken(login.accessToken);
     if (isExistingAccount) {

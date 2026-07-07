@@ -7,52 +7,51 @@ import LoginScreen from '@/v2/screens/LoginScreen';
 import OnboardingSplash from './OnboardingSplash';
 import { OnboardingProgressContext } from '@/v2/screens/onboarding/components/OnboardingProgressContext';
 import TogetherEffectStep from '@/v2/screens/onboarding/steps/TogetherEffectStep';
-import EffectStatsStep from '@/v2/screens/onboarding/steps/EffectStatsStep';
 import ProblemEmpathyStep from '@/v2/screens/onboarding/steps/ProblemEmpathyStep';
 import FocusCategoryStep from '@/v2/screens/onboarding/steps/FocusCategoryStep';
 import SubjectEditStep from '@/v2/screens/onboarding/steps/SubjectEditStep';
-import LiveRankingStep from '@/v2/screens/onboarding/steps/LiveRankingStep';
 import SubjectCompareStep from '@/v2/screens/onboarding/steps/SubjectCompareStep';
-import PhoneManageStep from '@/v2/screens/onboarding/steps/PhoneManageStep';
-import UsageGuessStep from '@/v2/screens/onboarding/steps/UsageGuessStep';
 import ScreenTimePermissionStep from '@/v2/screens/onboarding/steps/ScreenTimePermissionStep';
 import ScreenTimeDeniedStep from '@/v2/screens/onboarding/steps/ScreenTimeDeniedStep';
 import YesterdayScreenTimeStep from '@/v2/screens/onboarding/steps/YesterdayScreenTimeStep';
-import NicknameStep from '@/v2/screens/onboarding/steps/NicknameStep';
 import GoalSettingStep from '@/v2/screens/onboarding/steps/GoalSettingStep';
-import NotificationPermissionStep from '@/v2/screens/onboarding/steps/NotificationPermissionStep';
-import GromoStartStep from '@/v2/screens/onboarding/steps/GromoStartStep';
+import NicknameStep from '@/v2/screens/onboarding/steps/NicknameStep';
 import { INITIAL_ONBOARDING_DATA, type StepProps, type V2OnboardingData } from './types';
 import type { OnboardingCompleteStatus, OnboardingResult } from './types';
 import { logOnboardingStarted, logOnboardingCompleted } from '@/services/analyticsEvents';
 
-// v2 신규 유저 온보딩 플로우 컨트롤러 (V3 재구성).
-// 순서(HTML V3 동일): W1 오프닝 → W2 효과 → W3 공감 → W4 목표 → W5 과목 → W6 랭킹 →
-//   W7 비교 → W8 관리 → W9 자가추측 → W10 권한 →(거부 시 W10-1)→ W11 전날(허용만) →
-//   닉네임 → W12 목표설정 → W13 알림 → W14 시작 → W15 로그인(마지막).
+// v2 신규 유저 온보딩 플로우 컨트롤러.
+// 순서: 스플래시 → 문제공감 → 함께효과 → 과목비교 → [로그인] → 집중카테고리 →
+//   (과목편집) → 스크린타임 권한 →(거부:제한/허용:전날)→ 목표설정 → 닉네임(가입 확정).
+// 로그인은 플로우 '중간'에 위치 — 성공 시:
+//   - 기존 계정(isNewUser === false): 남은 스텝을 건너뛰고 즉시 가입 확정(홈 진입).
+//   - 신규: LoginResult를 보관하고 프로필 수집 스텝을 계속 진행, 마지막 닉네임 뒤 가입 확정.
 // 동적 분기:
-//   - W5 과목 편집: 선택 카테고리에 추천 과목이 있을 때만 삽입.
-//   - W10-1 제한 상태: 권한 거부(screenTimeGranted === false)일 때만 삽입.
-//   - W11 전날 스크린타임: 권한 거부면 데이터가 없어 스킵(허용일 때만).
-// 서버 전송·게이팅은 호출부(App)가 담당 — 이 컴포넌트는 수집 + 검증 실패 시 재입력 UI를 맡는다.
-// 가입 확정(onComplete)은 결과를 돌려받아, 닉네임 중복(409)·일시 오류면 닉네임 화면으로
-// 되돌려 재입력/재시도한다(GROMO-618 — 온보딩은 로그인 전이라 실시간 중복확인이 불가,
-// 서버 검증은 로그인 직후 프로필 등록 시점에 확정).
+//   - 과목 편집: 선택 카테고리에 추천 과목이 있을 때만 삽입.
+//   - 스크린타임: 권한 거부면 제한 화면(Denied), 허용이면 전날 스크린타임(Yesterday).
+// 가입 확정(onComplete)은 신규 유저의 닉네임 검증(409 중복)·일시 오류면 닉네임 화면으로
+// 되돌려 재입력/재시도한다(GROMO-618). 세션(토큰/유저)은 auth.ts가 로그인 즉시 저장하나,
+// 온보딩을 유지하기 위해 홈 전환(setUser)은 가입 확정 시점까지 미룬다.
 interface OnboardingFlowProps {
   // LoginScreen이 완료 처리(서버 동기화)까지 await하도록 Promise 체인을 그대로 이어주고,
   // 결과 상태를 돌려받아 닉네임 재입력/재시도를 분기한다.
   onComplete: (result: OnboardingResult) => Promise<OnboardingCompleteStatus>;
 }
 
+// 플로우 노드 — 입력 스텝 / 중간 로그인 / 마지막 닉네임(가입 확정 지점).
+type FlowNode =
+  | { kind: 'step'; Component: ComponentType<StepProps> }
+  | { kind: 'login' }
+  | { kind: 'nickname' };
+
 export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [index, setIndex] = useState(0);
   const [data, setData] = useState<V2OnboardingData>(INITIAL_ONBOARDING_DATA);
-  const [skipped, setSkipped] = useState(false);
-  // 진입 스플래시(캐릭터 + GROMO) — 노출·페이드아웃은 스플래시가 관리, 끝나면 온보딩(W1)으로.
+  // 진입 스플래시(캐릭터 + GROMO) — 노출·페이드아웃은 스플래시가 관리, 끝나면 온보딩으로.
   const [showSplash, setShowSplash] = useState(true);
-  // 가입 확정 실패 상태 — 로그인은 이미 끝났으므로(세션 발급) 로그인 결과를 들고
-  // 닉네임 재입력 화면만 다시 띄운다. serverError는 입력을 고치면 지운다.
-  const [pendingLogin, setPendingLogin] = useState<LoginResult | null>(null);
+  // 중간 로그인에서 받은 세션 — 신규 유저는 이걸 들고 남은 스텝을 진행, 닉네임 뒤 가입 확정에 사용.
+  const [login, setLogin] = useState<LoginResult | null>(null);
+  // 가입 확정(신규 유저) 실패 상태 — 닉네임 화면에 에러를 띄운다. 입력을 고치면 지운다.
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -63,63 +62,61 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   const update = (patch: Partial<V2OnboardingData>) => setData((d) => ({ ...d, ...patch }));
   const next = () => setIndex((i) => i + 1);
-  const back = () => setIndex((i) => Math.max(0, i - 1));
 
-  // 뒤로가기 = 화면 왼쪽 가장자리에서 오른쪽으로 스와이프(다음은 버튼). 첫 스텝은 무시.
+  const sequence = useMemo<FlowNode[]>(() => {
+    const hasSubjects = getDefaultSubjects(data.focusCategory).length > 0;
+    const denied = data.screenTimeGranted === false;
+    const step = (Component: ComponentType<StepProps>): FlowNode => ({ kind: 'step', Component });
+    return [
+      step(ProblemEmpathyStep),
+      step(TogetherEffectStep),
+      step(SubjectCompareStep),
+      { kind: 'login' },
+      step(FocusCategoryStep),
+      ...(hasSubjects ? [step(SubjectEditStep)] : []),
+      step(ScreenTimePermissionStep),
+      step(denied ? ScreenTimeDeniedStep : YesterdayScreenTimeStep),
+      step(GoalSettingStep),
+      { kind: 'nickname' },
+    ];
+  }, [data.focusCategory, data.screenTimeGranted]);
+
+  // 로그인 노드 위치 — 인증 후 뒤로가기 하한(로그인 이전 화면 복귀 방지)을 계산한다.
+  const loginIndex = sequence.findIndex((n) => n.kind === 'login');
+  const backFloor = login ? loginIndex + 1 : 0;
+  const backFloorRef = useRef(backFloor);
+  backFloorRef.current = backFloor;
+
+  const back = () => setIndex((i) => Math.max(backFloorRef.current, i - 1));
+
+  // 뒤로가기 = 화면 왼쪽 가장자리에서 오른쪽으로 스와이프(다음은 버튼). 하한 이하는 무시.
   // 가장자리(24px)에서 시작한 수평 제스처만 인식 — 슬라이더·세로 스크롤과 충돌 방지.
   const indexRef = useRef(index);
   indexRef.current = index;
   const swipeBack = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_e, g) =>
-        indexRef.current > 0 && g.x0 < 24 && g.dx > 12 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+        indexRef.current > backFloorRef.current &&
+        g.x0 < 24 &&
+        g.dx > 12 &&
+        Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
       onPanResponderRelease: (_e, g) => {
         if (g.dx > 60 && Math.abs(g.dx) > Math.abs(g.dy)) back();
       },
     }),
   ).current;
 
-  const steps = useMemo<ComponentType<StepProps>[]>(() => {
-    const hasSubjects = getDefaultSubjects(data.focusCategory).length > 0;
-    const denied = data.screenTimeGranted === false;
-    return [
-      TogetherEffectStep, // W1
-      EffectStatsStep, // W2
-      ProblemEmpathyStep, // W3
-      FocusCategoryStep, // W4
-      ...(hasSubjects ? [SubjectEditStep] : []), // W5
-      LiveRankingStep, // W6
-      SubjectCompareStep, // W7
-      PhoneManageStep, // W8
-      UsageGuessStep, // W9
-      ScreenTimePermissionStep, // W10
-      ...(denied ? [ScreenTimeDeniedStep] : [YesterdayScreenTimeStep]), // W10-1 or W11
-      NicknameStep, // 닉네임·캐릭터
-      GoalSettingStep, // W12
-      NotificationPermissionStep, // W13
-      GromoStartStep, // W14
-    ];
-  }, [data.focusCategory, data.screenTimeGranted]);
-
-  // 마지막 = W15 로그인. '이미 계정이 있어요'(W1·W2)는 여기로 바로 점프하며 skipped 표시
-  // (수집값이 없어 App이 프로필을 덮어쓰지 않도록).
-  const skipToLogin = () => {
-    setSkipped(true);
-    setIndex(steps.length);
-  };
-
-  // 로그인 후 가입 확정 — 호출부(App)가 프로필 등록(닉네임 중복 검증 포함)까지 마쳐야 'ok'.
-  // 'ok'면 호출부가 유저 상태를 세팅해 이 컴포넌트는 언마운트된다.
-  const submit = async (login: LoginResult) => {
+  // 가입 확정 — 호출부(App)가 프로필 등록(신규 유저의 닉네임 중복 검증 포함)까지 마쳐야 'ok'.
+  // 'ok'면 App이 유저 상태를 세팅해 이 컴포넌트는 언마운트된다. 실패면 닉네임 화면에 에러 표시.
+  const finalize = async (loginResult: LoginResult) => {
     setSubmitting(true);
     try {
-      const status = await onComplete({ data, login, skipped });
+      const status = await onComplete({ data, login: loginResult });
       if (status === 'ok') {
-        // skipped('이미 계정이 있어요')는 온보딩을 거치지 않았으니 완료로 계측하지 않는다.
-        if (!skipped) logOnboardingCompleted();
+        // 기존 계정(재로그인)은 온보딩을 거치지 않았으니 완료로 계측하지 않는다.
+        if (loginResult.isNewUser !== false) logOnboardingCompleted();
         return;
       }
-      setPendingLogin(login);
       setServerError(
         status === 'nickname-duplicate'
           ? '이미 사용 중인 닉네임이에요. 다른 닉네임을 입력해 주세요.'
@@ -130,39 +127,54 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     }
   };
 
+  // 중간 로그인 성공 — 기존 계정이면 즉시 확정(홈 진입), 신규면 세션을 보관하고 프로필 수집 진행.
+  const onMidFlowLogin = async (result: LoginResult) => {
+    if (result.isNewUser === false) {
+      await finalize(result);
+      return;
+    }
+    setLogin(result);
+    next();
+  };
+
   if (showSplash) return <OnboardingSplash onDone={() => setShowSplash(false)} />;
 
-  // 가입 확정 실패 — 닉네임 재입력/재시도. '다음'이 같은 로그인 세션으로 등록을 재시도한다.
-  if (pendingLogin) {
+  const node = sequence[index];
+  const canBack = index > backFloor;
+
+  // 중간 로그인 화면 — 자체 전체화면 레이아웃(진행바 없음).
+  if (node.kind === 'login') {
+    return <LoginScreen onLogin={onMidFlowLogin} />;
+  }
+
+  // 마지막 닉네임 — 입력 후 곧바로 가입 확정. 실패 시 이 화면에 serverError/submitting을 유지한다.
+  if (node.kind === 'nickname') {
     return (
-      <NicknameStep
-        data={data}
-        update={(patch) => {
-          if (serverError) setServerError(null);
-          update(patch);
-        }}
-        onNext={() => submit(pendingLogin)}
-        serverError={serverError}
-        submitting={submitting}
-      />
+      <OnboardingProgressContext.Provider value={{ current: index, total: sequence.length }}>
+        <View style={styles.flex} {...swipeBack.panHandlers}>
+          <NicknameStep
+            data={data}
+            update={(patch) => {
+              if (serverError) setServerError(null);
+              update(patch);
+            }}
+            onNext={() => {
+              if (login) finalize(login);
+            }}
+            onBack={canBack ? back : undefined}
+            serverError={serverError}
+            submitting={submitting}
+          />
+        </View>
+      </OnboardingProgressContext.Provider>
     );
   }
 
-  if (index >= steps.length) {
-    return <LoginScreen onLogin={(login: LoginResult) => submit(login)} />;
-  }
-
-  const Step = steps[index];
+  const Step = node.Component;
   return (
-    <OnboardingProgressContext.Provider value={{ current: index, total: steps.length }}>
+    <OnboardingProgressContext.Provider value={{ current: index, total: sequence.length }}>
       <View style={styles.flex} {...swipeBack.panHandlers}>
-        <Step
-          data={data}
-          update={update}
-          onNext={next}
-          onBack={index > 0 ? back : undefined}
-          onSkipToLogin={skipToLogin}
-        />
+        <Step data={data} update={update} onNext={next} onBack={canBack ? back : undefined} />
       </View>
     </OnboardingProgressContext.Provider>
   );

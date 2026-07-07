@@ -6,12 +6,12 @@ import { T } from '@/constants/theme';
 import { logOnboardingNicknameSubmitted } from '@/services/analyticsEvents';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
-// 닉네임·캐릭터 — W11(전날 스크린타임)과 W12(목표 설정) 사이 삽입.
+// 닉네임·캐릭터 — 온보딩 마지막 스텝(목표 설정 뒤). 입력 후 곧바로 가입 확정을 트리거한다.
 // 캐릭터 '도착' 연출 + 닉네임 입력. 캐릭터 커스터마이즈는 이 화면 범위 밖(표시만).
-// 중복 검증: 실시간 중복확인 API가 서버에 없고 온보딩은 로그인 전이라 인증 API 호출도 불가.
-// 여기선 형식(2~10자, 프로필 편집과 동일)만 검사하고, 실제 중복은 가입 확정
-// (POST /users/me → 409 NICKNAME_DUPLICATE) 시점에 확정된다. 서버 검증에 실패하면
-// OnboardingFlow가 이 화면을 serverError와 함께 다시 띄워 재입력/재시도를 받는다.
+// 중복 검증: 실시간 중복확인 API가 서버에 없어(중간 로그인은 마쳤지만) 여기선 형식(2~10자,
+// 프로필 편집과 동일)만 검사하고, 실제 중복은 가입 확정(POST /users/me → 409
+// NICKNAME_DUPLICATE) 시점에 확정된다. 서버 검증에 실패하면 OnboardingFlow가 이 화면을
+// serverError와 함께 그대로 유지해 재입력/재시도를 받는다.
 const NICK_MIN = 2;
 const NICK_MAX = 10;
 
