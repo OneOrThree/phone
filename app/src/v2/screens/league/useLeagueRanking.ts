@@ -2,7 +2,8 @@ import { useCallback, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { useUser } from '@/store/UserContext';
-import { getMyRanking } from '@/services/leagueApi';
+import { getMyRanking, getGlobalRanking } from '@/services/leagueApi';
+import { occupationForCategory } from '@/constants/focusCategories';
 import { MY_USER_ID, type RankedMember } from './mock';
 
 // 리그 랭킹 — 리그 화면·홈 상단바가 공유. 서버(GET /league/me/ranking) 실데이터 전용(GROMO-538).
@@ -27,7 +28,13 @@ export function useLeagueRanking(tierLevel = 1) {
       let cancelled = false;
       (async () => {
         try {
-          const res = await getMyRanking();
+          // 직군 리그 = 같은 Occupation 전역 랭킹(?category=). category 미전달 시 서버가 내 아레나
+          // 멤버를 돌려주므로(GROMO-644) 로컬 focusCategory(한글명)를 서버 enum으로 변환해 넘긴다.
+          const occupation = occupationForCategory(myCategory);
+          let res = await getMyRanking(occupation ?? undefined);
+          // 아레나/직군 랭킹이 비면(신규·아레나 미배정 유저, GROMO-657) 전체 전역 랭킹으로 폴백해
+          // 리그 화면이 완전히 비지 않도록 최소 한 번은 실데이터를 채운다.
+          if (res.length === 0) res = await getGlobalRanking();
           if (cancelled) return;
           setMembers(
             res.map((m) => {
