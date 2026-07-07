@@ -5,7 +5,7 @@ import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // W1 · 함께 효과(오프닝) — "같이 앉으면 더 오래 가요". 정적 설득 화면(오프닝).
 // 일러스트는 3마리가 함께 공부하는 군집 에셋(characters_study.png).
-export default function TogetherEffectStep({ onNext, onSkipToLogin }: StepProps) {
+export default function TogetherEffectStep({ onNext }: StepProps) {
   return (
     <StepScaffold
       center
@@ -24,8 +24,6 @@ export default function TogetherEffectStep({ onNext, onSkipToLogin }: StepProps)
       title={'같이 앉으면\n더 오래 가요'}
       ctaLabel="다음"
       onCta={onNext}
-      secondaryLabel="이미 계정이 있어요"
-      onSecondary={onSkipToLogin}
     >
       <Text style={s.sub}>
         혼자일 때보다 평균 <Text style={s.emph}>1.9배</Text> 더 오래 집중해요.

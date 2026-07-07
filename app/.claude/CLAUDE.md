@@ -4,8 +4,6 @@ React Native + Expo frontend for **gromo**. This file is the single source of tr
 frontend code rules; it loads in addition to the repo-root `CLAUDE.md`.
 Run all commands from inside `app/`.
 
-> 한국어 번역본: [`docs/app-guide.ko.md`](../../docs/app-guide.ko.md) (repo root).
-
 ---
 
 ## 📚 Doc navigation

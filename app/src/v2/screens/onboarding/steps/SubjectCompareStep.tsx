@@ -1,24 +1,23 @@
 import { View, Text, StyleSheet } from 'react-native';
 import StepScaffold from '@/v2/screens/onboarding/components/StepScaffold';
-import { getDefaultSubjects } from '@/constants/focusCategories';
 import { T } from '@/constants/theme';
 import { iGa } from '@/v2/screens/onboarding/format';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
-// W7 · 과목별 비교 — "비교가 아니라, 어디를 더 채우면 될지"(설득). 목업 막대 비교.
-// TODO: 통계 연동 후 실데이터. 현재는 온보딩 설득용 샘플.
+// 과목별 비교 — "비교가 아니라, 어디를 더 채우면 될지"(설득). 목업 막대 비교.
+// 실제 과목명 대신 일반 라벨(A~D과목)만 써서 '앱이 과목 단위로 비교해준다'는 느낌만 준다
+// (이 화면은 카테고리 선택 전이라 실제 과목이 아직 없음). TODO: 통계 연동 후 실데이터.
 const BARS = [
   { me: 77, avg: 65 },
   { me: 63, avg: 59 },
   { me: 34, avg: 67 }, // 평균보다 부족한 과목
   { me: 58, avg: 54 },
 ];
-const FALLBACK_SUBJECTS = ['집중력', '꾸준함', '기록', '목표'];
+const SUBJECTS = ['A과목', 'B과목', 'C과목', 'D과목'];
 
-export default function SubjectCompareStep({ data, onNext }: StepProps) {
-  const subs = getDefaultSubjects(data.focusCategory);
-  const subjects = (subs.length ? subs : FALLBACK_SUBJECTS).slice(0, 4);
-  const bars = BARS.slice(0, subjects.length);
+export default function SubjectCompareStep({ onNext }: StepProps) {
+  const subjects = SUBJECTS;
+  const bars = BARS;
   const deficitIdx = bars.findIndex((b) => b.me < b.avg);
   const deficitSubject = deficitIdx >= 0 ? subjects[deficitIdx] : null;
 

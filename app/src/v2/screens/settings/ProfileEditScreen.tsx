@@ -15,6 +15,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import SettingsScaffold from '@/v2/screens/settings/components/SettingsScaffold';
 import { useUser } from '@/store/UserContext';
 import { updateProfile } from '@/services/userApi';
+import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { T } from '@/constants/theme';
 
 // 프로필 편집 — 닉네임 입력 + 캐릭터 스킨 그리드(이번엔 미구현 → 딤 오버레이 '준비 중').
@@ -44,7 +45,8 @@ export default function ProfileEditScreen() {
     if (!canSave) return;
     setSaving(true);
     try {
-      await updateProfile({ nickname: trimmed });
+      // 닉네임과 함께 기기 로케일 국가코드도 갱신 전송(GROMO-663). 확정 불가면 생략.
+      await updateProfile({ nickname: trimmed, countryCode: getDeviceCountryCode() });
       setNickname(trimmed);
       navigation.goBack();
     } catch {

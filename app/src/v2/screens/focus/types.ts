@@ -10,11 +10,11 @@ export interface PomodoroConfig {
   sets: number; // 총 세트 수
 }
 
-// 과목(02) — 예시 데이터. accumulatedSeconds = 누적 집중시간(표시용).
+// 과목(02) — 예시 데이터. accumulatedSeconds = '오늘' 집중시간(로컬 자정 리셋, 표시용).
 export interface Subject {
   id: string;
   name: string;
-  accumulatedSeconds: number;
+  accumulatedSeconds: number; // 오늘 누적(초) — SubjectContext가 날짜 경계에 0으로 리셋
   color: string; // 대표색 — T.subjectPalette 중 하나(드로어 비율 바·행 아이콘에 사용)
 }
 

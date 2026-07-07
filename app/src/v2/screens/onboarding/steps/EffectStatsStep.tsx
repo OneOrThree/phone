@@ -7,21 +7,14 @@ import { logOnboardingShockViewed } from '@/services/analyticsEvents';
 import type { StepProps } from '@/v2/screens/onboarding/types';
 
 // W2 · 효과(집중↑·폰↓) — "이렇게 달라져요" 베타 지표 2개(정적 설득).
-export default function EffectStatsStep({ onNext, onSkipToLogin }: StepProps) {
+export default function EffectStatsStep({ onNext }: StepProps) {
   // 쇼크 화면 노출 계측 — 진입당 1회.
   useEffect(() => {
     logOnboardingShockViewed();
   }, []);
 
   return (
-    <StepScaffold
-      center
-      title="GROMO를 쓰면?"
-      ctaLabel="다음"
-      onCta={onNext}
-      secondaryLabel="이미 계정이 있어요"
-      onSecondary={onSkipToLogin}
-    >
+    <StepScaffold center title="GROMO를 쓰면?" ctaLabel="다음" onCta={onNext}>
       <View style={s.cards}>
         <View style={[s.card, s.cardUp]}>
           <Svg width={82} height={55} viewBox="0 0 150 84">

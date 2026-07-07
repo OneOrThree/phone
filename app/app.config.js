@@ -24,6 +24,7 @@ export default {
       ],
       '@react-native-community/datetimepicker',
       'expo-apple-authentication',
+      'expo-localization',
       ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
       '@xmartlabs/react-native-line',
       // Facebook SDK 플러그인은 appID 가 있을 때만 추가한다.

@@ -1,11 +1,24 @@
 // 서버 focus 도메인 DTO 미러 (com.oneorthree.phone.focus.dto).
 // 값 단위·의미는 백엔드 기준. 시각(Instant)은 ISO 문자열.
 // ⚠️ 백엔드 DTO가 바뀌면 이 파일도 함께 갱신한다.
+import type { Occupation } from '@/types/dto/user';
 
 // GET /tag — 유저별 집중 태그.
 export interface FocusTagResponse {
   tagId: string; // UUID
   name: string;
+}
+
+// GET /tag/defaults 응답 항목 — occupation별 기본(추천) 태그(과목). tagId 없음(유저 소유 아님).
+export interface OccupationDefaultTag {
+  name: string;
+  sortOrder: number;
+}
+
+// GET /tag/defaults 응답 — 조회 기준 occupation + 추천 태그 목록.
+export interface OccupationDefaultTagsResponse {
+  occupation: Occupation;
+  tags: OccupationDefaultTag[];
 }
 
 // POST /tag — 태그 초기 등록 요청.

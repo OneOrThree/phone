@@ -173,7 +173,8 @@ export default function HomeScreen() {
       try {
         const data = await getTodayStats();
         setTodayStats(data);
-        return data.focus.todayMinutes;
+        // 계측도 실제 표시값과 동일 기준 — 서버·로컬 최댓값 병합(아래 focusValueSeconds와 같은 규칙).
+        return Math.max(data.focus.todayMinutes, Math.round(todayFocusSecondsRef.current / 60));
       } catch {
         // 네트워크/인증 실패 → 아래 로컬 폴백
       }
@@ -212,8 +213,13 @@ export default function HomeScreen() {
   const tier = tierByLevel(3);
   const hasNotifications = false; // TODO: 실제 안 읽은 알림 여부로 교체
 
-  // 공부 집중 값·목표: 서버 오늘요약(분→초) 우선, 없으면 로컬 FocusContext/온보딩 목표로 폴백.
-  const focusValueSeconds = todayStats ? todayStats.focus.todayMinutes * 60 : todayFocusSeconds;
+  // 공부 집중 값: 방금 끝낸 세션은 업로드가 비동기(실패 시 재시도 큐)라 서버 오늘요약에 아직
+  // 없을 수 있고, 서버는 분 내림 집계라 1분 미만 세션은 영영 0이다. 결과 화면과 동일하게
+  // max(서버, 로컬 누적)로 바닥을 깔아 홈 복귀 직후에도 방금 세션이 보이게 한다
+  // (이중 집계 없음 — max라 서버 반영 후엔 서버값 그대로). 목표는 서버값 우선, 없으면 온보딩 목표.
+  const focusValueSeconds = todayStats
+    ? Math.max(todayStats.focus.todayMinutes * 60, todayFocusSeconds)
+    : todayFocusSeconds;
   const focusGoalSeconds = todayStats ? todayStats.focus.goalMinutes * 60 : goalSeconds;
 
   return (
