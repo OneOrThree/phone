@@ -51,7 +51,7 @@ const LEAGUE_ALL = '전체';
 // 자동/탭 스크롤 시 sticky 스트립에 내 행이 가리지 않게 두는 위 여유
 const MY_STRIP_SPACE = 70;
 // 포디움 메달 색 (1·2·3위 — 골드/실버/브론즈)
-const MEDAL_COLORS = ['#E0A83F', '#B8B0A3', '#C58F5A'];
+const MEDAL_COLORS = [T.medal.gold, T.medal.silver, T.medal.bronze];
 
 type TabKey = 'league' | 'friend';
 const TAB_LABEL: Record<TabKey, string> = { league: '리그', friend: '친구' };
@@ -291,7 +291,7 @@ export default function LeagueScreen() {
                           <MaterialCommunityIcons
                             name={pinned.has(m.userId) ? 'pin' : 'pin-outline'}
                             size={15}
-                            color={pinned.has(m.userId) ? T.accent : '#AEB4BF'}
+                            color={pinned.has(m.userId) ? T.accent : T.inkFaint}
                           />
                         </TouchableOpacity>
                       )}
@@ -428,7 +428,7 @@ export default function LeagueScreen() {
               <Text style={s.addTitle}>친구 검색·추가</Text>
               <Text style={s.addSub}>받은 요청 {receivedCount}건</Text>
             </View>
-            <Ionicons name="chevron-forward" size={15} color="#9AA0A8" />
+            <Ionicons name="chevron-forward" size={15} color={T.inkMuted} />
           </TouchableOpacity>
 
           {/* 조회 실패 + 보여줄 목록 없음 — "친구 0명" 빈 상태로 오인되지 않게 에러+재시도로 분기 (GROMO-621).
@@ -549,7 +549,7 @@ const s = StyleSheet.create({
   },
   headerToggle: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   headerTitle: { ...T.text.title, color: T.ink },
-  deadline: { ...T.text.caption, color: '#667085' },
+  deadline: { ...T.text.caption, color: T.inkSub },
 
   // 리그 선택 드롭다운
   menuBackdrop: { flex: 1, backgroundColor: 'rgba(20,14,9,0.25)' },
@@ -563,7 +563,7 @@ const s = StyleSheet.create({
     borderColor: T.border,
     borderRadius: 14,
     paddingVertical: 6,
-    shadowColor: '#1E2340',
+    shadowColor: T.shadow,
     shadowOpacity: 0.2,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
@@ -584,7 +584,7 @@ const s = StyleSheet.create({
   segmentWrapFriend: { paddingBottom: 2 },
   segment: {
     flexDirection: 'row',
-    backgroundColor: '#F1F2F6',
+    backgroundColor: T.track,
     borderRadius: 12,
     padding: 4,
     gap: 4,
@@ -592,7 +592,7 @@ const s = StyleSheet.create({
   segBtn: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: 'center' },
   segBtnOn: {
     backgroundColor: T.white,
-    shadowColor: '#1E2340',
+    shadowColor: T.shadow,
     shadowOpacity: 0.1,
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
@@ -649,7 +649,7 @@ const s = StyleSheet.create({
     gap: 8,
     backgroundColor: T.noteBg,
     borderWidth: 1.5,
-    borderColor: '#5E6AD2',
+    borderColor: T.accent,
     borderRadius: 12,
     paddingHorizontal: 13,
     paddingVertical: 10,
@@ -713,9 +713,9 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#EEF0FB',
+    backgroundColor: T.accentBg,
     borderWidth: 1,
-    borderColor: '#DDE0F3',
+    borderColor: T.sand,
     borderRadius: 16,
     paddingHorizontal: 15,
     paddingVertical: 13,
@@ -726,13 +726,13 @@ const s = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 11,
-    backgroundColor: '#EEF0FB',
+    backgroundColor: T.accentBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
   addTextCol: { flex: 1, gap: 1 },
-  addTitle: { ...T.text.label, fontWeight: '800', color: '#1C1E22' },
-  addSub: { ...T.text.caption, fontWeight: '500', color: '#9AA0A8' },
+  addTitle: { ...T.text.label, fontWeight: '800', color: T.ink },
+  addSub: { ...T.text.caption, fontWeight: '500', color: T.inkMuted },
 
   friendCount: {
     ...T.text.label,

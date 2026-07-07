@@ -38,7 +38,7 @@ import {
 
 const CHART_H = 120;
 // 잔디 강도 0..4 색(빈 칸 → 진한 초록).
-const GRASS = ['#EEF0FB', '#DCE8CE', '#B9D3A0', '#8FB86F', T.greenDeep];
+const GRASS = T.grass;
 const FOCUS_COLOR = T.greenDeep;
 const PHONE_COLOR = T.accent;
 
@@ -565,9 +565,9 @@ const s = StyleSheet.create({
   teaserTrackGap: { marginTop: 4 },
   teaserFill: { height: 10, borderRadius: 5 },
   teaserFillMine: { width: '86%', backgroundColor: T.accent },
-  teaserFillAvg: { width: '62%', backgroundColor: '#C4C8D4' },
-  teaserFillPasser: { backgroundColor: '#9A6FB0' },
-  teaserDotPasser: { backgroundColor: '#9A6FB0' },
+  teaserFillAvg: { width: '62%', backgroundColor: T.compare.avg },
+  teaserFillPasser: { backgroundColor: T.compare.theirs },
+  teaserDotPasser: { backgroundColor: T.compare.theirs },
   teaserLegend: { flexDirection: 'row', gap: 14, marginTop: 12 },
   teaserLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   teaserDot: { width: 9, height: 9, borderRadius: 2 },

@@ -9,7 +9,7 @@ import { StarAvatar } from './StarAvatar';
 // 아바타 색은 팔레트 순환 — TODO: 캐릭터 장착 정보 렌더 연동 시 교체.
 
 // 별사탕 아바타 팔레트 (시안 6인 색 그대로 순환)
-const AVATAR_COLORS = ['#5E6AD2', '#9A6FB0', '#5B8A6A', '#7A8AA0', '#6A9AA0', '#B0607A'];
+const AVATAR_COLORS = T.avatarPalette;
 
 export function FriendGrid({ friends }: { friends: SessionFriend[] }) {
   const focusing = friends.filter((f) => f.isFocusing).length;

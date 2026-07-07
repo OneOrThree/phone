@@ -12,6 +12,7 @@ export const T = {
   caramel: '#EEF0FB', // 아이콘 박스·진행 트랙(인디고 틴트)
   chipBg: '#F1F2F8', // 칩·스텝퍼 버튼 배경
   chipBorder: '#E3E5EE', // 칩 테두리
+  track: '#F1F2F6', // 진행 트랙·중립 행 배경(회색 계열)
 
   // 텍스트 — 쿨 그레이
   ink: '#1C1E22', // 진한 텍스트(제목)
@@ -57,6 +58,21 @@ export const T = {
     '#6C86B3', // 더스티 블루
     '#9A7FAE', // 라벤더
   ],
+
+  // 순위 메달 — 금/은/동(의미색, 인디고화하지 않음)
+  medal: { gold: '#E0A83F', silver: '#B8B0A3', bronze: '#C58F5A' },
+
+  // 비교 지표 색 — 나(accent) vs 상대(퍼플)·평균(중립). 겹침 비교 바에서 구분용.
+  compare: { theirs: '#9A6FB0', theirsPhone: '#B08FC4', avg: '#C4C8D4' },
+
+  // 잔디 히트맵 램프 — 빈칸(인디고 틴트) → 진한 초록. 집중량 강도별.
+  grass: ['#EEF0FB', '#DCE8CE', '#B9D3A0', '#8FB86F', '#4E9B5C'],
+
+  // 아바타 배경 팔레트 — 친구 그리드 로테이션(6색, 구분용).
+  avatarPalette: ['#5E6AD2', '#9A6FB0', '#5B8A6A', '#7A8AA0', '#6A9AA0', '#B0607A'],
+
+  // 앱 아이콘 대표색 — 집중 앱 목록(4색, 구분용).
+  appPalette: ['#7FA06A', '#6E8FB0', '#5E6AD2', '#9C7BB0'],
 
   // 브랜드(소셜 로그인)
   kakao: '#FEE500',
