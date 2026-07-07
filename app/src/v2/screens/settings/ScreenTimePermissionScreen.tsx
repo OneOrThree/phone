@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenTimeModule, { type AuthorizationStatus } from '@/services/ScreenTimeModule';
 import { updateScreenTimePermission } from '@/services/userApi';
+import { registerUsageBucketMonitoring } from '@/v2/screentimeSync';
 import SettingsScaffold from '@/v2/screens/settings/components/SettingsScaffold';
 import { SettingsSection, SettingsRow } from '@/v2/screens/settings/components/SettingsList';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -110,6 +111,9 @@ export default function ScreenTimePermissionScreen() {
       const counts = await ScreenTimeModule.presentAppPicker();
       if (!counts) return; // 피커 취소
       await ScreenTimeModule.promoteSelection();
+      // 측정 대상이 바뀌면 버킷 모니터링 재등록 필수 — threshold 이벤트가 등록 시점
+      // selection 토큰으로 고정되어 있어 재등록 없이는 새 대상이 측정되지 않는다(GROMO-633).
+      await registerUsageBucketMonitoring();
       const total = counts.applications + counts.categories + counts.webDomains;
       Alert.alert(
         '측정 대상 변경됨',
