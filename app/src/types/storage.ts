@@ -24,6 +24,7 @@ export const STORAGE_KEYS = {
   screentimeSyncState: 'gromo:screentime:syncState', // 마지막 업로드 성공 {userId,date,minutes} — 어제 마감·중복 스킵용(GROMO-633)
   screentimeBucketMonitorRegistered: 'gromo:screentime:bucketMonitorRegistered', // 버킷 모니터링 1회 등록 플래그(기존 유저 마이그레이션)
   screentimeGoalMonitorSeconds: 'gromo:screentime:goalMonitorSeconds', // 목표 판정 모니터링(gromo.daily)에 등록된 목표초 — 변경 감지·재등록용(GROMO-633)
+  screentimeLastClosedDate: 'gromo:screentime:lastClosedDate', // 어제분 마감 처리 완료 {userId,date} — 같은 날짜 중복 전송 방지(GROMO-627)
   selectionApplyDate: 'gromo:selection:applyDate',
   selectionConfigured: 'gromo:selection:configured',
   selectionCounts: 'gromo:selection:counts',

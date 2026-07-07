@@ -11,9 +11,10 @@ import { todayStr, yesterdayStr } from '@/utils/localDate';
 // 달성 여부 프로토콜:
 //  - 당일 중간 동기화는 goalAchieved=false 고정. 스크린타임 달성(목표 '이내')은 하루가 끝나야
 //    판정 가능하고, 중간에 true를 보내면 백엔드 false→true 전이 이벤트가 조기 발화한다(395 규칙).
-//  - 날짜가 바뀐 뒤 첫 동기화에서 어제분을 마감 — Monitor가 하루 경계에 보존한 전일 최종 눈금과
-//    네이티브 최종 판정(getYesterdayResult, 없으면 분값 근사 폴백)으로 어제 행을 확정한다.
-//    서버가 null 분값을 0으로 덮어쓰므로 분값은 반드시 함께 보낸다.
+//  - 날짜가 바뀐 뒤 첫 동기화에서 어제분을 마감(GROMO-627) — Monitor가 하루 경계에 보존한 전일
+//    최종 눈금과 최종 판정(getYesterdayResult, 없으면 분값 근사 폴백)으로 어제 행을 확정한다.
+//    Monitor는 앱과 무관하게 돌므로 어제 앱을 안 열었어도 마감되며, 처리한 날짜를 계정 스코프로
+//    마킹해 같은 날짜 중복 전송을 막는다. 서버가 null 분값을 0으로 덮어쓰므로 분값은 반드시 함께 보낸다.
 //
 // reportedAt은 대상 날짜의 '로컬 정오' instant로 보낸다 — 서버는 reportedAt을 유저 타임존
 // (country_code 파생, 미설정 시 UTC 폴백)의 날짜로 환산하는데 현재 앱은 countryCode를 보내지
@@ -92,6 +93,25 @@ async function writeSyncState(state: ScreenTimeSyncState): Promise<void> {
   ]);
 }
 
+// 어제분 마감 처리 완료 마킹 — 계정 스코프 {userId, date}. 마킹된 날짜는 다시 마감하지 않는다.
+async function readClosedDate(userId: string): Promise<string | null> {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeLastClosedDate);
+    if (!raw) return null;
+    const mark = JSON.parse(raw) as { userId: string; date: string };
+    return mark.userId === userId ? mark.date : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeClosedDate(userId: string, date: string): Promise<void> {
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.screentimeLastClosedDate,
+    JSON.stringify({ userId, date }),
+  );
+}
+
 // 사용량 동기화 본체 — 앱 시작·포그라운드 복귀마다 호출(ScreenTimeSyncer).
 // 게스트·권한 미허용이면 아무것도 하지 않는다. 실패는 그대로 던져 호출부에서 무시 —
 // 서버 upsert가 멱등이라 다음 포그라운드에서 최신값으로 다시 시도하면 된다.
@@ -125,20 +145,23 @@ export async function syncScreenTimeUsage(
   }
 
   const today = todayStr();
-  let last = await readSyncState(userId);
+  const yesterday = yesterdayStr();
+  const last = await readSyncState(userId);
 
-  // 어제분 마감 — 어제 동기화 기록이 있으면 어제 행을 확정한다. 분값은 Monitor가 하루 경계에
-  // 보존한 전일 최종 눈금이 있으면 그 값(마지막 포그라운드 이후 늘어난 사용분 포함), 없으면
-  // 마지막 동기화 값. 이틀 이상 지난 기록은 판정·보존값 소스가 없어 마감 불가 — 중간값 유지.
-  if (last && last.date === yesterdayStr()) {
-    let finalMinutes = last.minutes;
+  // 어제분 마감(GROMO-627) — 어제 동기화 기록이 없어도(하루 종일 앱 미실행·첫 30분 미도달)
+  // Monitor는 앱과 무관하게 판정·최종 눈금을 남기므로 그것만으로 어제 행을 확정한다.
+  // 분값은 max(하루 경계에 보존된 전일 최종 눈금, 어제 마지막 동기화 값) — 마지막 포그라운드
+  // 이후 늘어난 사용분까지 반영. 그제 이전 날들은 소스가 없어 마감 불가(업로드된 중간값 유지).
+  const closedDate = await readClosedDate(userId);
+  if (closedDate !== yesterday) {
+    let finalMinutes = last && last.date === yesterday ? last.minutes : 0;
     try {
       finalMinutes = Math.max(
         finalMinutes,
         await ScreenTimeModule.getYesterdayUsageBucketMinutes(),
       );
     } catch {
-      // 보존값 조회 실패 — 마지막 동기화 값으로 마감
+      // 보존값 조회 실패 — 어제 동기화 값(있다면)으로 마감
     }
     let result: 'success' | 'fail' | null = null;
     try {
@@ -146,22 +169,26 @@ export async function syncScreenTimeUsage(
     } catch {
       // 판정 조회 실패 → 아래 분값 근사 폴백
     }
-    // 네이티브 판정이 없으면(목표 모니터링 미등록 기간 등) 분값 근사로 폴백 — 30분 눈금이라
-    // 목표 직전 초과가 달성으로 후하게 잡힐 수 있고 목표도 오늘 값 기준인 근사지만,
-    // 미달성으로 고정해 두는 것보다 정확하다.
-    const achieved =
-      result !== null ? result === 'success' : goalSeconds > 0 && finalMinutes <= goalSeconds / 60;
-    if (finalMinutes > 0) {
-      // 실패 시 상태를 어제로 보존한 채 중단(throw) — 다음 포그라운드에서 마감부터 재시도.
+    // 판정도 사용 기록도 없으면 보낼 것이 없다 — 전송 없이 마킹만 하고 넘어간다.
+    if (result !== null || finalMinutes > 0) {
+      // 네이티브 판정이 없으면(목표 모니터링 미등록 기간 등) 분값 근사로 폴백 — 30분 눈금이라
+      // 목표 직전 초과가 달성으로 후하게 잡힐 수 있고 목표도 오늘 값 기준인 근사지만,
+      // 미달성으로 고정해 두는 것보다 정확하다.
+      const achieved =
+        result !== null
+          ? result === 'success'
+          : goalSeconds > 0 && finalMinutes <= goalSeconds / 60;
+      // 실패 시 마킹 없이 중단(throw) — 다음 포그라운드에서 마감부터 재시도.
       await saveScreenTime({
         actualScreenTimeMinutes: finalMinutes,
         screenTimeGoalAchieved: achieved,
-        reportedAt: localNoonInstant(last.date),
+        reportedAt: localNoonInstant(yesterday),
       });
+      // 마감도 동기화의 일종 — 설정 화면 '마지막 동기화' 표시를 갱신한다.
+      await AsyncStorage.setItem(STORAGE_KEYS.screentimeLastSyncedDate, today);
     }
-    // 마감 완료(또는 마감할 값 없음) — 오늘 0분으로 상태를 넘겨 같은 날 마감이 반복되지 않게 한다.
-    last = { userId, date: today, minutes: 0 };
-    await writeSyncState(last);
+    // 전송 성공(또는 보낼 것 없음 확인) 후에만 마킹 — 같은 날짜 중복 전송 방지.
+    await writeClosedDate(userId, yesterday);
   }
 
   // 오늘 사용량 중간 동기화 — 0이면 스킵: 미측정(선택 없음·첫 30분 미도달)과 구분이 안 되므로
