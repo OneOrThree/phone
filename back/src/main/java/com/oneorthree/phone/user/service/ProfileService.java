@@ -10,6 +10,7 @@ import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.service.StatsService;
+import com.oneorthree.phone.user.domain.StatVisibility;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.dto.PublicProfileResponse;
 import com.oneorthree.phone.user.dto.UserStatsResponse;
@@ -103,7 +104,8 @@ public class ProfileService {
      * 타 유저 통계를 친구 여부에 따라 분기 조회한다 (GROMO-521).
      * 본인 조회(callerId == targetUserId)는 친구 판정 없이 세부 통계를 반환한다.
      * 이때 응답의 isFriend 는 false — isFriend=false 여도 본인 조회면 today/heatmap 이 채워진다.
-     * 친구X(PENDING 포함): streak 만 반환. 친구O: today·streak·heatmap 전체 반환.
+     * 친구X(PENDING 포함) + 대상이 FRIENDS 공개: streak 만 반환.
+     * 친구O, 또는 대상이 PUBLIC(전체공개): today·streak·heatmap 전체 반환 (PUBLIC 비친구는 isFriend=false 유지, GROMO-640).
      *
      * @param callerId     호출자 유저 ID
      * @param targetUserId 조회 대상 유저 ID
@@ -133,7 +135,8 @@ public class ProfileService {
         // 스트릭은 친구 여부와 무관하게 항상 반환
         StreakResponse streak = statsService.getStreak(targetUserId);
 
-        if (isOwn || isFriend) {
+        // 본인·친구, 또는 대상이 전체공개(PUBLIC)면 세부 통계 노출 (GROMO-640 — 623 의 /stats/* 정책과 정합)
+        if (isOwn || isFriend || target.getStatVisibility() == StatVisibility.PUBLIC) {
             // 세부 통계: today + streak + 최근 7일 heatmap
             TodayStatsResponse today = statsService.getTodayStats(targetUserId);
             LocalDate to = LocalDate.now(ZoneOffset.UTC);
