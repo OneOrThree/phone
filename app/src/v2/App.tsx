@@ -5,8 +5,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
 import { setLogoutHandler, setReloginHandler, getUserIdFromToken, api } from '@/services/api';
-import { updateScreenTimePermission, updateOccupation } from '@/services/userApi';
+import { updateScreenTimePermission, updateOccupation, updateProfile } from '@/services/userApi';
 import { occupationForCategory } from '@/constants/focusCategories';
+import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { runStorageMigrations } from '@/utils/storageMigration';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { LoginResult, UserProfile } from '@/types/api';
@@ -69,6 +70,8 @@ async function syncOnboardingToServer(data: V2OnboardingData): Promise<Onboardin
     nickname: data.nickname.trim(),
     dailyScreenTimeGoalMinutes: data.usageGoalMinutes ?? undefined,
     dailyFocusTimeGoalMinutes: data.dailyFocusMinutes ?? undefined,
+    // 기기 로케일 국가코드 — 서버가 유저 타임존(ZoneId) 파생에 사용(GROMO-663). 확정 불가면 생략.
+    countryCode: getDeviceCountryCode(),
   };
   try {
     // 프로필은 온보딩이 일부 필드만 수집해 부분 바디로 보낸다(setupProfile은 전체 필드 요구).
@@ -125,6 +128,12 @@ export default function App() {
         const merged = { ...data, ...profileRes.data };
         await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
         setUser({ ...merged, userId });
+        // GROMO-663: 기존 유저 백필 — 프로필에 countryCode 없으면 기기 로케일로 1회 PATCH.
+        // 앱 진입을 막지 않도록 fire-and-forget(실패 시 다음 실행에 재시도).
+        if (!profileRes.data?.countryCode) {
+          const countryCode = getDeviceCountryCode();
+          if (countryCode) updateProfile({ countryCode }).catch(() => {});
+        }
       } catch {
         setUser({ ...data, userId });
       }
