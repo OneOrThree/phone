@@ -10,6 +10,7 @@ import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.service.StatsService;
+import com.oneorthree.phone.user.domain.StatVisibility;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.dto.PublicProfileResponse;
 import com.oneorthree.phone.user.dto.UserStatsResponse;
@@ -133,7 +134,8 @@ public class ProfileService {
         // 스트릭은 친구 여부와 무관하게 항상 반환
         StreakResponse streak = statsService.getStreak(targetUserId);
 
-        if (isOwn || isFriend) {
+        // 본인·친구, 또는 대상이 전체공개(PUBLIC)면 세부 통계 노출 (GROMO-640 — 623 의 /stats/* 정책과 정합)
+        if (isOwn || isFriend || target.getStatVisibility() == StatVisibility.PUBLIC) {
             // 세부 통계: today + streak + 최근 7일 heatmap
             TodayStatsResponse today = statsService.getTodayStats(targetUserId);
             LocalDate to = LocalDate.now(ZoneOffset.UTC);

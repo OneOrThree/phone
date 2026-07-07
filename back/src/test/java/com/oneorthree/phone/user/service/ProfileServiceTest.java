@@ -14,6 +14,7 @@ import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.service.StatsService;
+import com.oneorthree.phone.user.domain.StatVisibility;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.dto.PublicProfileResponse;
 import com.oneorthree.phone.user.dto.UserStatsResponse;
@@ -359,6 +360,26 @@ class ProfileServiceTest {
         // 친구X 일 때 세부 통계 메서드는 호출되지 않아야 한다
         verify(statsService, never()).getTodayStats(any());
         verify(statsService, never()).getHeatmap(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("친구X + 대상 statVisibility=PUBLIC → 세부 통계 반환, isFriend=false (GROMO-640)")
+    void getUserStats_notFriendPublic_returnsDetailedStats() {
+        User target = User.builder().id(USER_ID).nickname("대상유저").statVisibility(StatVisibility.PUBLIC).build();
+        User caller = User.builder().id(OTHER_ID).nickname("호출자").build();
+
+        givenBothUsers(target, caller);
+        given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.empty());
+        given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
+        given(statsService.getTodayStats(USER_ID)).willReturn(sampleToday());
+        given(statsService.getHeatmap(any(), any(), any())).willReturn(List.of());
+
+        UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID);
+
+        assertThat(response.isFriend()).isFalse();   // 친구 아님 — PUBLIC 이라 세부 열람
+        assertThat(response.today()).isNotNull();
+        assertThat(response.heatmap()).isNotNull();
+        verify(statsService).getTodayStats(USER_ID);
     }
 
     @Test
