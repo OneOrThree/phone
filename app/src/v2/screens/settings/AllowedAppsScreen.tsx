@@ -71,19 +71,19 @@ export default function AllowedAppsScreen() {
         );
         return;
       }
+      const before = counts; // 변경 여부 판정용 — 피커 열기 전 개수
       const result = await ScreenTimeModule.presentAllowedAppManager();
       if (!result) return; // 취소
       setCounts(result);
       setLoaded(true);
-      // 실드 예외는 개별 앱 토큰만 지원 — 카테고리로 골랐으면 안내
-      const categoryNote =
-        result.categories > 0 ? '\n(카테고리 선택은 적용되지 않아요 — 개별 앱으로 골라주세요)' : '';
-      Alert.alert(
-        '허용앱 변경됨',
-        result.applications > 0
-          ? `집중 중에도 앱 ${result.applications}개를 쓸 수 있어요.${categoryNote}`
-          : `허용앱을 비웠어요 — 집중 중엔 모든 앱이 잠겨요.${categoryNote}`,
-      );
+      // 허용앱이 그대로면(개수 3종 동일) 알림을 띄우지 않는다.
+      const unchanged =
+        before != null &&
+        before.applications === result.applications &&
+        before.categories === result.categories &&
+        before.webDomains === result.webDomains;
+      if (unchanged) return;
+      Alert.alert('허용앱 변경됨', `집중 중에도 앱 ${result.applications}개를 쓸 수 있어요.`);
     } catch (e) {
       Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
     }
