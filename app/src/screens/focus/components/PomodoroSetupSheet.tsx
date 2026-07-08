@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { PomodoroConfig } from '../types';
-import { SheetShell } from './SheetShell';
+import { SheetShell } from '@/components/SheetShell';
 
 // 05 뽀모도로 설정 — 집중/휴식/세트를 스텝퍼로 조절 후 집중 시작.
 interface Field {

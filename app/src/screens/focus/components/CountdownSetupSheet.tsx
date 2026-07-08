@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { T } from '@/constants/theme';
 import { DrumPicker } from '@/components/DrumPicker';
-import { SheetShell } from './SheetShell';
+import { SheetShell } from '@/components/SheetShell';
 
 // 04 카운트다운 설정 — 시/분 휠로 목표 시간을 정하고 집중 시작.
 const MAX_HOURS = 12; // 상한 12시간 — 12시간 선택 시 분은 0 고정
