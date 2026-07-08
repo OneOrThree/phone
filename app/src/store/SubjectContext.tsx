@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { T } from '@/constants/theme';
 import { todayStr } from '@/utils/localDate';
-import type { Subject } from '@/v2/screens/focus/types';
+import type { Subject } from '@/screens/focus/types';
 
 // 과목 목록 + 과목별 '오늘' 집중시간을 로컬에 저장·관리하는 store.
 // 집중 세션이 끝나면 해당 과목에 실제 경과 시간을 누적하고, 로컬 날짜가 바뀌면 0으로 리셋한다.
