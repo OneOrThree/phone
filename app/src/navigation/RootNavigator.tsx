@@ -1,21 +1,21 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import HomeScreen from '@/v2/screens/HomeScreen';
-import StatsScreen from '@/v2/screens/StatsScreen';
-import MenuScreen from '@/v2/screens/MenuScreen';
-import UsageDetailScreen from '@/v2/screens/UsageDetailScreen';
-import FocusCategoryScreen from '@/v2/screens/focus/FocusCategoryScreen';
-import FocusSessionScreen from '@/v2/screens/focus/FocusSessionScreen';
-import FocusResultScreen from '@/v2/screens/focus/FocusResultScreen';
-import GroupComingSoonScreen from '@/v2/screens/group/GroupComingSoonScreen';
+import HomeScreen from '@/screens/HomeScreen';
+import StatsScreen from '@/screens/StatsScreen';
+import MenuScreen from '@/screens/MenuScreen';
+import UsageDetailScreen from '@/screens/UsageDetailScreen';
+import FocusCategoryScreen from '@/screens/focus/FocusCategoryScreen';
+import FocusSessionScreen from '@/screens/focus/FocusSessionScreen';
+import FocusResultScreen from '@/screens/focus/FocusResultScreen';
+import GroupComingSoonScreen from '@/screens/group/GroupComingSoonScreen';
 import {
   LeagueScreen,
   FriendAddScreen,
   FriendProfileScreen,
   TierGuideScreen,
   LeagueResultScreen,
-} from '@/v2/screens/league';
+} from '@/screens/league';
 import {
   ProfileEditScreen,
   OccupationScreen,
@@ -27,7 +27,7 @@ import {
   StatVisibilityScreen,
   PrivacyPolicyScreen,
   VersionInfoScreen,
-} from '@/v2/screens/settings';
+} from '@/screens/settings';
 import { TabBar } from '@/components/TabBar';
 import { initAnalytics } from '@/services/analytics';
 import type { V2RootStackParamList } from '@/navigation/types';
