@@ -397,7 +397,8 @@ class ScreenTimeModule: NSObject {
 
     // 허용앱 선택 picker — 선택 결과를 gromo:focus:allowedSelection에 바로 저장.
     // 반환값: { applications, categories, webDomains } (각 선택 개수) | nil(취소)
-    // ⚠️ shield의 예외(.all(except:))는 개별 앱 토큰만 지원 — 카테고리 선택은 개수만 저장되고 차단 예외론 무시됨.
+    // 카테고리 통째 선택도 includeEntireCategory:true로 하위 앱 토큰이 채워져 개수·허용 예외에 반영된다(GROMO-664).
+    // (단, 선택 시점 '설치된' 멤버 앱 스냅샷 — 이후 새로 깐 앱은 자동 포함 안 됨.)
     @objc func presentAllowedAppPicker(
         _ resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
@@ -413,11 +414,17 @@ class ScreenTimeModule: NSObject {
             }
 
             // 저장된 허용앱 선택을 미리 불러와 피커에 채운다(재선택 시 기존 선택 유지)
+            // includeEntireCategory: true — 카테고리 통째 선택 시 하위 개별 앱 토큰까지 selection에
+            // 채워져, 개수 카운트(40)와 허용 예외(.all(except:))가 카테고리에도 적용된다 (GROMO-664).
+            // includeEntireCategory는 let이라 저장본(옛 false 값)을 그대로 쓰면 플래그가 꺼지므로,
+            // 플래그 true 컨테이너에 토큰만 옮겨 담아 항상 보장한다.
             let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
-            var initialSelection = FamilyActivitySelection()
+            var initialSelection = FamilyActivitySelection(includeEntireCategory: true)
             if let data = defaults?.data(forKey: "gromo:focus:allowedSelection"),
                let saved = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
-                initialSelection = saved
+                initialSelection.applicationTokens = saved.applicationTokens
+                initialSelection.categoryTokens = saved.categoryTokens
+                initialSelection.webDomainTokens = saved.webDomainTokens
             }
 
             let pickerView = GoalAppPickerView(
@@ -463,11 +470,15 @@ class ScreenTimeModule: NSObject {
             }
 
             // 저장된 허용앱 선택을 미리 불러와 목록·피커에 채운다
+            // includeEntireCategory: true — 카테고리 통째 선택 시 하위 앱 토큰까지 채워 목록·개수·허용에 반영(GROMO-664).
+            // let 필드라 저장본(옛 false)은 토큰만 옮겨 담아 플래그를 보장한다.
             let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
-            var initialSelection = FamilyActivitySelection()
+            var initialSelection = FamilyActivitySelection(includeEntireCategory: true)
             if let data = defaults?.data(forKey: "gromo:focus:allowedSelection"),
                let saved = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
-                initialSelection = saved
+                initialSelection.applicationTokens = saved.applicationTokens
+                initialSelection.categoryTokens = saved.categoryTokens
+                initialSelection.webDomainTokens = saved.webDomainTokens
             }
 
             let managerView = AllowedAppManagerView(
@@ -735,8 +746,6 @@ struct GromoFocusAttributes: ActivityAttributes {
 struct GoalAppPickerView: View {
     @State private var selection: FamilyActivitySelection
     @State private var showLimitAlert = false
-    // 알럿 사유: true=카테고리(하위 앱까지 더하면 40 초과), false=개별 앱 40 초과
-    @State private var limitAlertIsCategory = false
     @State private var lastAppCount: Int
     private let title: String
     private let maxApplications: Int?  // nil = 개수 제한 없음(측정 대상 선택). 허용앱은 40.
@@ -761,11 +770,11 @@ struct GoalAppPickerView: View {
 
     private var appCount: Int { selection.applicationTokens.count }
 
-    // 초과 판정 — 개별 앱이 40을 넘거나, 카테고리를 골랐을 때(카테고리 하위 앱 수를 iOS가 주지
-    // 않아 40 초과로 간주 — 카테고리 토큰 자체는 개수에 세지 않는다) (GROMO-664).
+    // 초과 판정 — includeEntireCategory:true 덕분에 카테고리 선택 시 하위 앱이 applicationTokens에
+    // 채워지므로, 개별 앱이든 카테고리 확장분이든 applicationTokens 개수만으로 40 초과를 판정한다 (GROMO-664).
     private var isOverLimit: Bool {
         guard let max = maxApplications else { return false }
-        return appCount > max || !selection.categoryTokens.isEmpty
+        return appCount > max
     }
 
     var body: some View {
@@ -790,39 +799,22 @@ struct GoalAppPickerView: View {
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("완료") {
-                            if isOverLimit {
-                                // 개수 초과가 아니면 카테고리가 원인
-                                limitAlertIsCategory = appCount <= (maxApplications ?? 0)
-                                showLimitAlert = true
-                            } else {
-                                onDone(selection)
-                            }
+                            if isOverLimit { showLimitAlert = true } else { onDone(selection) }
                         }
                     }
                 }
-                // 개별 앱이 늘어나 40을 넘는 순간 경고(줄이는 중엔 안 띄움)
+                // 앱(개별+카테고리 확장분)이 늘어나 40을 넘는 순간 경고(줄이는 중엔 안 띄움).
+                // 카테고리 선택도 includeEntireCategory:true로 applicationTokens에 반영되므로 여기서 함께 처리된다.
                 .onChange(of: selection.applicationTokens) { apps in
                     if let max = maxApplications, apps.count > max, apps.count > lastAppCount {
-                        limitAlertIsCategory = false
                         showLimitAlert = true
                     }
                     lastAppCount = apps.count
                 }
-                // 카테고리를 고르면 하위 앱까지 더해 40을 넘긴 것으로 보고 경고
-                .onChange(of: selection.categoryTokens) { cats in
-                    if maxApplications != nil, !cats.isEmpty {
-                        limitAlertIsCategory = true
-                        showLimitAlert = true
-                    }
-                }
                 .alert("\(maxApplications ?? 40)개까지만 고를 수 있어요", isPresented: $showLimitAlert) {
                     Button("확인", role: .cancel) {}
                 } message: {
-                    Text(
-                        limitAlertIsCategory
-                            ? "카테고리 속 앱까지 더하면 \(maxApplications ?? 40)개를 넘어요. 개별 앱으로 골라주세요."
-                            : "허용앱은 개별 앱 최대 \(maxApplications ?? 40)개까지예요."
-                    )
+                    Text("허용앱은 최대 \(maxApplications ?? 40)개까지예요. 카테고리를 고르면 그 안의 앱들도 개수에 포함돼요. 조금 줄여주세요.")
                 }
         }
     }
