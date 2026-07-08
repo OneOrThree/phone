@@ -25,6 +25,8 @@ import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.focus.repository.FocusTagRepository;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
+import com.oneorthree.phone.league.domain.LeagueArenaStatus;
+import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
@@ -64,6 +66,7 @@ public class FocusService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserStreakService userStreakService;
+    private final LeagueArenaUserRepository leagueArenaUserRepository;
 
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         User user = userRepository.findById(userId)
@@ -367,6 +370,11 @@ public class FocusService {
 
         // 스트릭 갱신 — 세션 저장·일별 집계와 같은 트랜잭션(원자적), 날짜 기준도 동일(endedAt UTC)
         userStreakService.updateOnSessionComplete(user, statDate);
+
+        // GROMO-646: 현재 ACTIVE 아레나 멤버면 주간 누적 집중 시간 반영(리그 탭·랭킹·주간 마감 정합).
+        // 리그는 분 단위(초/60 내림) — 랭킹용 근사. 아레나 미배정 유저는 스킵. 락 조회로 동시 세션 lost update 차단.
+        leagueArenaUserRepository.findByUserAndArenaStatusForUpdate(userId, LeagueArenaStatus.ACTIVE)
+                .ifPresent(member -> member.addFocusMinutes(addedSeconds / 60));
     }
 
     /** 일일 집중 목표 달성(false→true 전이) 이벤트 발행 — date 는 ISO(UTC). */
