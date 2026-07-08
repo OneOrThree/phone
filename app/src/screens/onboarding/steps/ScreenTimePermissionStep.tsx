@@ -8,6 +8,7 @@ import {
 } from '@/services/analyticsEvents';
 import type { StepProps } from '@/screens/onboarding/types';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
+import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
 
 // 09 · 스크린타임 권한 — Apple 스크린타임 권한 요청. 결과를 screenTimeGranted 에 저장.
 // 권한 허용 직후 측정 대상(앱) picker를 띄워 selection을 활성으로 저장(최초 설정 → 즉시 승격).
@@ -73,6 +74,12 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
       const counts = await ScreenTimeModule.presentAppPicker();
       if (counts) {
         await ScreenTimeModule.promoteSelection();
+        // threshold 이벤트는 등록 시점 selection 토큰으로 고정 — 선택 확정 직후
+        // 30분 버킷 모니터링을 등록해야 사용량 측정·서버 동기화가 시작된다(GROMO-633).
+        // 목표 판정 모니터링(gromo.daily)은 목표가 W12에서 정해지므로 여기가 아니라
+        // 온보딩 완료 후 첫 실행 때 ScreenTimeSyncer가 등록한다.
+        // 로그인 전이라 소유 계정 미상(null) — Syncer 첫 실행이 현재 계정으로 귀속시킨다.
+        await registerUsageBucketMonitoring(null);
         update({ screenTimeSelectionConfigured: true });
       }
     } catch {

@@ -59,6 +59,9 @@ export default {
         // Firebase 자동 화면추적 끄기 — RN에선 네이티브 뷰컨트롤러명(RNSScreen 등)만 잡혀 노이즈.
         // 화면 계측은 우리가 발행하는 커스텀 이벤트로만 관리한다.
         FirebaseAutomaticScreenReportingEnabled: false,
+        // Screen Time(FamilyControls) 권한 사용 목적 — 시스템 팝업엔 안 뜨지만 심사 대비 명시
+        NSFamilyControlsUsageDescription:
+          '폰 사용 시간을 측정해 스크린타임 목표 달성 확인과 사용 통계 제공에 사용합니다.',
       },
     },
     android: {

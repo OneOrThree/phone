@@ -6,6 +6,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenTimeModule, { type AuthorizationStatus } from '@/services/ScreenTimeModule';
 import { updateScreenTimePermission } from '@/services/userApi';
+import { registerUsageBucketMonitoring, registerGoalMonitoring } from '@/services/screentimeSync';
+import { useUser } from '@/store/UserContext';
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import { SettingsSection, SettingsRow } from '@/screens/settings/components/SettingsList';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -49,6 +51,8 @@ function badgeMeta(status: AuthorizationStatus | null): {
 
 export default function ScreenTimePermissionScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  // 측정 대상 변경 시 재등록에 현재 목표초와, 모니터 소유 기록용 계정이 필요하다(GROMO-633).
+  const { userId, screenTimeGoalSeconds } = useUser();
 
   const [status, setStatus] = useState<AuthorizationStatus | null>(null);
   const [lastSynced, setLastSynced] = useState<string | null>(null);
@@ -110,11 +114,24 @@ export default function ScreenTimePermissionScreen() {
       const counts = await ScreenTimeModule.presentAppPicker();
       if (!counts) return; // 피커 취소
       await ScreenTimeModule.promoteSelection();
+      // 측정 대상이 바뀌면 두 모니터링(사용량 버킷·목표 판정) 모두 재등록 필수 — threshold
+      // 이벤트가 등록 시점 selection 토큰으로 고정되어 있어 재등록 없이는 새 대상이 측정되지
+      // 않는다(GROMO-633).
+      const monitoring = await registerUsageBucketMonitoring(userId);
+      await registerGoalMonitoring(screenTimeGoalSeconds);
       const total = counts.applications + counts.categories + counts.webDomains;
-      Alert.alert(
-        '측정 대상 변경됨',
-        total > 0 ? `앱·카테고리 ${total}개를 측정합니다.` : '측정 대상을 비웠어요(전체 앱 기준).',
-      );
+      if (!monitoring && total === 0) {
+        // 빈 선택 — 네이티브가 기존 모니터를 중지하고 등록을 거부한다(threshold는 토큰 없이
+        // 발화 불가). 등록 기록을 지워 다음 선택 때 다시 등록되게 하고, 사실대로 안내한다.
+        AsyncStorage.removeItem(STORAGE_KEYS.screentimeBucketMonitorRegistered).catch(() => {});
+        AsyncStorage.removeItem(STORAGE_KEYS.screentimeGoalMonitorSeconds).catch(() => {});
+        Alert.alert(
+          '측정 대상 변경됨',
+          '측정 대상을 비웠어요 — 사용량 측정과 서버 동기화가 중단돼요. 홈 리포트는 전체 앱 기준으로 표시돼요.',
+        );
+        return;
+      }
+      Alert.alert('측정 대상 변경됨', `앱·카테고리 ${total}개를 측정합니다.`);
     } catch (e) {
       Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
     }

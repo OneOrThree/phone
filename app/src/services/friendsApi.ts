@@ -1,4 +1,5 @@
 import { api } from '@/services/api';
+import { todayStr } from '@/utils/localDate';
 import type {
   FriendRequestResponse,
   FriendResponse,
@@ -17,6 +18,15 @@ export async function fetchFriends(): Promise<FriendResponse[]> {
 export async function fetchReceivedRequests(): Promise<FriendRequestResponse[]> {
   const { data } = await api.get<FriendRequestResponse[]>('/api/v1/friends/requests', {
     params: { type: 'received' },
+  });
+  return data;
+}
+
+// 내가 보낸 PENDING 요청 목록 — userId는 요청 대상. 프로필의 '친구 신청' 버튼이
+// 이미 보낸 상대에게 다시 노출되지 않게 초기 상태를 채우는 데 쓴다.
+export async function fetchSentRequests(): Promise<FriendRequestResponse[]> {
+  const { data } = await api.get<FriendRequestResponse[]>('/api/v1/friends/requests', {
+    params: { type: 'sent' },
   });
   return data;
 }
@@ -45,9 +55,12 @@ export async function deleteFriend(friendUserId: string): Promise<void> {
 }
 
 // 핀한 유저 — 리그·친구 공용(GROMO-609), 친구 아닌 유저 포함. 오늘 집중분·집중중 여부 포함.
-// 세션 그리드의 라이브 값 임시 보강에도 사용
+// 세션 그리드의 라이브 값 임시 보강에도 사용.
+// date는 서버 필수(GROMO-643 — '오늘 집중분' 기준 클라 로컬 날짜). 미전송 시 400.
 export async function fetchPinnedFriends(): Promise<PinnedFriendResponse[]> {
-  const { data } = await api.get<PinnedFriendResponse[]>('/api/v1/pins');
+  const { data } = await api.get<PinnedFriendResponse[]>('/api/v1/pins', {
+    params: { date: todayStr() },
+  });
   return data;
 }
 

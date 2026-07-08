@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import { useLeagueRanking } from '@/screens/league/useLeagueRanking';
+import { useLeagueMeta } from '@/screens/league/useLeagueMeta';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
@@ -208,9 +209,11 @@ export default function HomeScreen() {
     refetchTodayStats().finally(() => setTimeout(() => setRefreshing(false), 600));
   }, [refetchTodayStats]);
 
-  // 순위 = 내 시험 리그 기준(리그 탭과 같은 훅 — mock+내 실데이터). 티어는 placeholder(TODO: 리그 API)
-  const { myLeagueRank } = useLeagueRanking();
-  const tier = tierByLevel(3);
+  // 순위·티어 = 리그 탭과 동일 원천(useLeagueMeta → GET /league/me/tier, useLeagueRanking).
+  // 미배정/게스트/실패 시 tierLevel null → 1단계 기본 배지(리그 화면과 같은 규칙).
+  const { tier: leagueTier } = useLeagueMeta();
+  const { myLeagueRank } = useLeagueRanking(leagueTier.tierLevel ?? 1);
+  const tier = tierByLevel(leagueTier.tierLevel ?? 1);
   const hasNotifications = false; // TODO: 실제 안 읽은 알림 여부로 교체
 
   // 공부 집중 값: 방금 끝낸 세션은 업로드가 비동기(실패 시 재시도 큐)라 서버 오늘요약에 아직

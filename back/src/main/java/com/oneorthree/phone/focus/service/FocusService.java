@@ -25,6 +25,8 @@ import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.focus.repository.FocusTagRepository;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
+import com.oneorthree.phone.league.domain.LeagueArenaStatus;
+import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
@@ -40,7 +42,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +66,7 @@ public class FocusService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserStreakService userStreakService;
+    private final LeagueArenaUserRepository leagueArenaUserRepository;
 
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         User user = userRepository.findById(userId)
@@ -198,9 +200,11 @@ public class FocusService {
                 .endedAt(body.getEndedAt())
                 .distractionCount(body.getDistractionCount())
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
+                .localDate(body.getLocalDate())   // GROMO-643: 카테고리 통계용 로컬 귀속 날짜
                 .build());
 
-        recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(), body.getDistractionCount());
+        recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
+                body.getDistractionCount(), body.getLocalDate());
     }
 
     /**
@@ -262,7 +266,9 @@ public class FocusService {
 
         // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
         session.end(endedAt, body.distractionCount(), body.totalDistractionSeconds());
-        recordCompletion(user, userId, tag, session.getStartedAt(), endedAt, body.distractionCount());
+        session.applyLocalDate(body.localDate());   // GROMO-643: 카테고리 통계용 로컬 귀속 날짜
+        recordCompletion(user, userId, tag, session.getStartedAt(), endedAt,
+                body.distractionCount(), body.localDate());
 
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
         return new FocusSessionEndResponse(session.getId(), session.getStartedAt(), endedAt,
@@ -307,7 +313,7 @@ public class FocusService {
      * POST(완료 통째 저장)와 PATCH(라이브 종료)가 공유해 통계 로직을 한 곳으로 모은다.
      */
     private void recordCompletion(User user, UUID userId, FocusTag tag,
-                                  Instant startedAt, Instant endedAt, int distractionCount) {
+                                  Instant startedAt, Instant endedAt, int distractionCount, LocalDate statDate) {
         long durationSeconds = Duration.between(startedAt, endedAt).getSeconds();
         // payload 에 null 값 금지 — nullable 인 focus_tag_id 는 태그 있을 때만 키 포함
         Map<String, Object> sessionPayload = new LinkedHashMap<>();
@@ -319,10 +325,9 @@ public class FocusService {
         }
         userActivityEventLogger.log(UserActivityEvent.FOCUS_SESSION_COMPLETED, sessionPayload);
 
-        // ── DailyFocusStat upsert: endedAt UTC date 기준 (user, date) 멱등 누적 ──
-        LocalDate statDate = endedAt.atOffset(ZoneOffset.UTC).toLocalDate();
-        // 세션 분 계산: floor (Duration.toMinutes() = 초/60 내림, 별도 반올림 정책 없음)
-        int addedMinutes = (int) Duration.between(startedAt, endedAt).toMinutes();
+        // ── DailyFocusStat upsert: 클라 로컬 날짜(statDate) 기준 (user, date) 멱등 누적 (GROMO-643) ──
+        // GROMO-642: 초 단위 누적(세션별 분 내림 제거 — 30초×10=300초 정확). goal(분)은 *60 초로 비교.
+        int addedSeconds = (int) Duration.between(startedAt, endedAt).getSeconds();
 
         // UPDATE-UPDATE lost update 방지(누적 연산): 비관적 쓰기 잠금으로 동시 세션 저장 시 += 누락 차단
         // INSERT-INSERT 동시 삽입은 unique(user_id, date) 제약이 정합성 보장(오염 없음, 실패 건은 클라 재시도)
@@ -330,17 +335,17 @@ public class FocusService {
         if (existingStat.isPresent()) {
             // 기존 row 누적 (+= 방식) — 더티 체킹으로 반영됨, 별도 save() 불필요
             DailyFocusStat stat = existingStat.get();
-            stat.setTotalFocusMinutes(stat.getTotalFocusMinutes() + addedMinutes);
+            stat.setTotalFocusSeconds(stat.getTotalFocusSeconds() + addedSeconds);
             stat.setSessionCount(stat.getSessionCount() + 1);
             stat.setDistractionCount(stat.getDistractionCount() + distractionCount);
             // focusGoalAchieved: 이미 달성(true)이면 재판정 불필요 — 플래그 단방향이므로 조기 스킵
             if (!stat.isFocusGoalAchieved()) {
                 int goal = userFocusTimeSettingsRepository.findById(userId)
                         .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
-                if (goal > 0 && stat.getTotalFocusMinutes() >= goal) {
+                if (goal > 0 && stat.getTotalFocusSeconds() >= goal * 60) {
                     stat.setFocusGoalAchieved(true);
                     // false→true 전이 순간 1회 발행 — 영속 플래그가 하루 1회를 보장 (GROMO-395)
-                    logDailyFocusGoalAchieved(statDate, stat.getTotalFocusMinutes(), goal);
+                    logDailyFocusGoalAchieved(statDate, stat.getTotalFocusSeconds() / 60, goal);
                 }
             }
         } else {
@@ -348,23 +353,28 @@ public class FocusService {
             // UserFocusTimeSettings row 없거나 goal=0이면 플래그 false 유지
             int goal = userFocusTimeSettingsRepository.findById(userId)
                     .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
-            boolean goalAchieved = goal > 0 && addedMinutes >= goal;
+            boolean goalAchieved = goal > 0 && addedSeconds >= goal * 60;
             dailyFocusStatRepository.save(DailyFocusStat.builder()
                     .user(user)
                     .date(statDate)
-                    .totalFocusMinutes(addedMinutes)
+                    .totalFocusSeconds(addedSeconds)
                     .sessionCount(1)
                     .distractionCount(distractionCount)
                     .focusGoalAchieved(goalAchieved)
                     .build());
             if (goalAchieved) {
                 // 신규 row 가 곧바로 달성 = false→true 전이와 동일 — 1회 발행 (GROMO-395)
-                logDailyFocusGoalAchieved(statDate, addedMinutes, goal);
+                logDailyFocusGoalAchieved(statDate, addedSeconds / 60, goal);
             }
         }
 
         // 스트릭 갱신 — 세션 저장·일별 집계와 같은 트랜잭션(원자적), 날짜 기준도 동일(endedAt UTC)
         userStreakService.updateOnSessionComplete(user, statDate);
+
+        // GROMO-646: 현재 ACTIVE 아레나 멤버면 주간 누적 집중 시간 반영(리그 탭·랭킹·주간 마감 정합).
+        // 리그는 분 단위(초/60 내림) — 랭킹용 근사. 아레나 미배정 유저는 스킵. 락 조회로 동시 세션 lost update 차단.
+        leagueArenaUserRepository.findByUserAndArenaStatusForUpdate(userId, LeagueArenaStatus.ACTIVE)
+                .ifPresent(member -> member.addFocusMinutes(addedSeconds / 60));
     }
 
     /** 일일 집중 목표 달성(false→true 전이) 이벤트 발행 — date 는 ISO(UTC). */

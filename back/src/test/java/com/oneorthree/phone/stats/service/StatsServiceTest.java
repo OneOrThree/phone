@@ -89,7 +89,7 @@ class StatsServiceTest {
         User user = User.builder().id(USER_ID).build();
         DailyFocusStat focusMid = DailyFocusStat.builder()
                 .user(user).date(LocalDate.of(2026, 6, 2))
-                .totalFocusMinutes(120).sessionCount(2)
+                .totalFocusSeconds(120 * 60).sessionCount(2)
                 .focusGoalAchieved(true)
                 .build();
         DailyScreenTimeStat screenMid = DailyScreenTimeStat.builder()
@@ -180,7 +180,7 @@ class StatsServiceTest {
         // 저장 플래그는 일부러 반대로 세팅 → 재계산이 이를 덮어쓰는지 검증
         given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.of(DailyFocusStat.builder()
-                        .totalFocusMinutes(45).focusGoalAchieved(true).build()));
+                        .totalFocusSeconds(45 * 60).focusGoalAchieved(true).build()));
         given(dailyScreenTimeStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.of(DailyScreenTimeStat.builder()
                         .actualScreenTimeMinutes(80).screenTimeGoalAchieved(false).build()));
@@ -191,7 +191,7 @@ class StatsServiceTest {
                 .willReturn(Optional.of(UserScreenTimeSettings.builder()
                         .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build()));
 
-        TodayStatsResponse response = statsService.getTodayStats(USER_ID);
+        TodayStatsResponse response = statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3));
 
         assertThat(response.focus().todayMinutes()).isEqualTo(45);
         assertThat(response.focus().goalMinutes()).isEqualTo(60);
@@ -215,7 +215,7 @@ class StatsServiceTest {
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
         given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
 
-        TodayStatsResponse response = statsService.getTodayStats(USER_ID);
+        TodayStatsResponse response = statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3));
 
         assertThat(response.focus().todayMinutes()).isZero();
         assertThat(response.focus().goalMinutes()).isZero();
@@ -240,16 +240,17 @@ class StatsServiceTest {
                 .willReturn(Optional.of(UserScreenTimeSettings.builder()
                         .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build()));
 
-        TodayStatsResponse response = statsService.getTodayStats(USER_ID);
+        TodayStatsResponse response = statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3));
 
         assertThat(response.screenTime().progressPercent()).isEqualTo(125); // round(150/120*100)
         assertThat(response.screenTime().goalAchieved()).isFalse();         // 150 > 120 → 미달성
     }
 
     @Test
-    @DisplayName("오늘 요약 — 서버 UTC 기준 날짜로 집계 조회")
-    void getTodayStatsResolvesDateByUtc() {
+    @DisplayName("오늘 요약 — 클라가 전달한 로컬 날짜로 집계 조회 (GROMO-643)")
+    void getTodayStatsResolvesDateByClientDate() {
         User user = User.builder().id(USER_ID).build();
+        LocalDate clientDate = LocalDate.of(2026, 7, 3);
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.empty());
@@ -258,11 +259,11 @@ class StatsServiceTest {
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
         given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
 
-        statsService.getTodayStats(USER_ID);
+        statsService.getTodayStats(USER_ID, clientDate);
 
         ArgumentCaptor<LocalDate> dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(dailyFocusStatRepository).findByUserAndDate(eq(user), dateCaptor.capture());
-        assertThat(dateCaptor.getValue()).isEqualTo(LocalDate.now(ZoneOffset.UTC));
+        assertThat(dateCaptor.getValue()).isEqualTo(clientDate);
     }
 
     @Test
@@ -270,7 +271,7 @@ class StatsServiceTest {
     void getTodayStatsUserNotFound() {
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> statsService.getTodayStats(USER_ID))
+        assertThatThrownBy(() -> statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3)))
                 .isInstanceOf(UserException.class);
     }
 
@@ -285,10 +286,10 @@ class StatsServiceTest {
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
         // 오늘(current): 90분, 어제(previous): 60분
-        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
-                user, FIXED_TODAY, FIXED_TODAY)).willReturn(90);
-        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
-                user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(60);
+        given(dailyFocusStatRepository.sumTotalFocusSecondsByUserAndDateBetween(
+                user, FIXED_TODAY, FIXED_TODAY)).willReturn(5400);
+        given(dailyFocusStatRepository.sumTotalFocusSecondsByUserAndDateBetween(
+                user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(3600);
 
         FocusPeriodStatsResponse response = statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
 
@@ -310,10 +311,10 @@ class StatsServiceTest {
         LocalDate prevMonday = LocalDate.of(2026, 6, 22);
         LocalDate prevFriday = LocalDate.of(2026, 6, 26);
 
-        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
-                user, thisMonday, FIXED_TODAY)).willReturn(200);
-        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
-                user, prevMonday, prevFriday)).willReturn(150);
+        given(dailyFocusStatRepository.sumTotalFocusSecondsByUserAndDateBetween(
+                user, thisMonday, FIXED_TODAY)).willReturn(12000);
+        given(dailyFocusStatRepository.sumTotalFocusSecondsByUserAndDateBetween(
+                user, prevMonday, prevFriday)).willReturn(9000);
 
         FocusPeriodStatsResponse response = statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
@@ -334,10 +335,10 @@ class StatsServiceTest {
         LocalDate prevMonthStart = LocalDate.of(2026, 6, 1);
         LocalDate prevMonthSameDay = LocalDate.of(2026, 6, 3);
 
-        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
-                user, thisMonthStart, FIXED_TODAY)).willReturn(120);
-        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
-                user, prevMonthStart, prevMonthSameDay)).willReturn(100);
+        given(dailyFocusStatRepository.sumTotalFocusSecondsByUserAndDateBetween(
+                user, thisMonthStart, FIXED_TODAY)).willReturn(7200);
+        given(dailyFocusStatRepository.sumTotalFocusSecondsByUserAndDateBetween(
+                user, prevMonthStart, prevMonthSameDay)).willReturn(6000);
 
         FocusPeriodStatsResponse response = statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
 
@@ -354,10 +355,10 @@ class StatsServiceTest {
     void getFocusStatsByPeriodDayNoTodayData() {
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
-        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+        given(dailyFocusStatRepository.sumTotalFocusSecondsByUserAndDateBetween(
                 user, FIXED_TODAY, FIXED_TODAY)).willReturn(0);
-        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
-                user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(45);
+        given(dailyFocusStatRepository.sumTotalFocusSecondsByUserAndDateBetween(
+                user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(2700);
 
         FocusPeriodStatsResponse response = statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
 
@@ -371,7 +372,7 @@ class StatsServiceTest {
     void getFocusStatsByPeriodWeekNoData() {
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
-        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+        given(dailyFocusStatRepository.sumTotalFocusSecondsByUserAndDateBetween(
                 any(), any(), any())).willReturn(0);
 
         FocusPeriodStatsResponse response = statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
@@ -392,10 +393,10 @@ class StatsServiceTest {
 
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
-        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
-                user, marchStart, march31)).willReturn(300);
-        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
-                user, febStart, feb28)).willReturn(200);
+        given(dailyFocusStatRepository.sumTotalFocusSecondsByUserAndDateBetween(
+                user, marchStart, march31)).willReturn(18000);
+        given(dailyFocusStatRepository.sumTotalFocusSecondsByUserAndDateBetween(
+                user, febStart, feb28)).willReturn(12000);
 
         FocusPeriodStatsResponse response = statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.MONTH, march31);
 
@@ -407,11 +408,11 @@ class StatsServiceTest {
     }
 
     @Test
-    @DisplayName("기간별 통계 WEEK — sumTotalFocusMinutesByUserAndDateBetween 2회 호출 시 from/to 구간 정확")
+    @DisplayName("기간별 통계 WEEK — sumTotalFocusSecondsByUserAndDateBetween 2회 호출 시 from/to 구간 정확")
     void getFocusStatsByPeriodWeekCallsRepositoryWithCorrectBounds() {
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
-        given(dailyFocusStatRepository.sumTotalFocusMinutesByUserAndDateBetween(
+        given(dailyFocusStatRepository.sumTotalFocusSecondsByUserAndDateBetween(
                 any(), any(), any())).willReturn(0);
 
         statsService.getFocusStatsByPeriod(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
@@ -420,7 +421,7 @@ class StatsServiceTest {
         ArgumentCaptor<LocalDate> toCaptor = ArgumentCaptor.forClass(LocalDate.class);
         // 2회 호출 검증
         verify(dailyFocusStatRepository, times(2))
-                .sumTotalFocusMinutesByUserAndDateBetween(eq(user), fromCaptor.capture(), toCaptor.capture());
+                .sumTotalFocusSecondsByUserAndDateBetween(eq(user), fromCaptor.capture(), toCaptor.capture());
 
         // 첫 번째 호출: current 구간 (이번 주 월요일~오늘). 2026-07-03은 금요일 → 월요일=2026-06-29
         assertThat(fromCaptor.getAllValues().get(0)).isEqualTo(LocalDate.of(2026, 6, 29));
@@ -900,7 +901,7 @@ class StatsServiceTest {
     }
 
     @Test
-    @DisplayName("카테고리별 DAY — fromInstant=today 00:00 UTC, toInstant=today+1 00:00 UTC (ArgumentCaptor)")
+    @DisplayName("카테고리별 DAY — localDate from=to=today (GROMO-643, inclusive)")
     void getFocusStatsByCategoryDayBounds() {
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
@@ -909,18 +910,16 @@ class StatsServiceTest {
 
         statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
 
-        ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
-        ArgumentCaptor<Instant> toCaptor = ArgumentCaptor.forClass(Instant.class);
+        ArgumentCaptor<LocalDate> fromCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> toCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), toCaptor.capture());
 
-        Instant expectedFrom = FIXED_TODAY.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant expectedTo = FIXED_TODAY.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
-        assertThat(fromCaptor.getValue()).isEqualTo(expectedFrom);
-        assertThat(toCaptor.getValue()).isEqualTo(expectedTo);
+        assertThat(fromCaptor.getValue()).isEqualTo(FIXED_TODAY);
+        assertThat(toCaptor.getValue()).isEqualTo(FIXED_TODAY);
     }
 
     @Test
-    @DisplayName("카테고리별 WEEK — fromInstant=이번 주 월요일 00:00 UTC (ArgumentCaptor)")
+    @DisplayName("카테고리별 WEEK — localDate from=이번 주 월요일 (GROMO-643)")
     void getFocusStatsByCategoryWeekBounds() {
         // FIXED_TODAY=2026-07-03(금요일) → 이번 주 월요일=2026-06-29
         User user = User.builder().id(USER_ID).build();
@@ -930,15 +929,14 @@ class StatsServiceTest {
 
         statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
-        ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
+        ArgumentCaptor<LocalDate> fromCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), any());
 
-        LocalDate expectedMonday = LocalDate.of(2026, 6, 29);
-        assertThat(fromCaptor.getValue()).isEqualTo(expectedMonday.atStartOfDay(ZoneOffset.UTC).toInstant());
+        assertThat(fromCaptor.getValue()).isEqualTo(LocalDate.of(2026, 6, 29));
     }
 
     @Test
-    @DisplayName("카테고리별 MONTH — fromInstant=이번 달 1일 00:00 UTC (ArgumentCaptor)")
+    @DisplayName("카테고리별 MONTH — localDate from=이번 달 1일 (GROMO-643)")
     void getFocusStatsByCategoryMonthBounds() {
         // FIXED_TODAY=2026-07-03 → 이번 달 1일=2026-07-01
         User user = User.builder().id(USER_ID).build();
@@ -948,11 +946,10 @@ class StatsServiceTest {
 
         statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
 
-        ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
+        ArgumentCaptor<LocalDate> fromCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), any());
 
-        LocalDate expectedFirstDay = LocalDate.of(2026, 7, 1);
-        assertThat(fromCaptor.getValue()).isEqualTo(expectedFirstDay.atStartOfDay(ZoneOffset.UTC).toInstant());
+        assertThat(fromCaptor.getValue()).isEqualTo(LocalDate.of(2026, 7, 1));
     }
 
     // ── resolveTargetUserId (친구 통계 대상 결정, GROMO-608) ────────────────

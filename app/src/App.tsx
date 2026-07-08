@@ -23,6 +23,7 @@ import { OrphanFocusSettler } from '@/screens/focus/OrphanFocusSettler';
 import { PendingFocusUploader } from '@/screens/focus/PendingFocusUploader';
 import { PushGate } from '@/components/PushGate';
 import { PendingGoalApplier } from '@/components/PendingGoalApplier';
+import { ScreenTimeSyncer } from '@/components/ScreenTimeSyncer';
 import LoginScreen from '@/screens/LoginScreen';
 import OnboardingFlow, {
   type OnboardingCompleteStatus,
@@ -278,6 +279,8 @@ export default function App() {
                 <PushGate />
                 {/* 예약된 목표('내일부터 적용')가 발효일 지나면 반영 */}
                 <PendingGoalApplier />
+                {/* 스크린타임 사용량 서버 동기화(어제 마감 + 오늘 중간값, 앱 시작·포그라운드 복귀) */}
+                <ScreenTimeSyncer />
                 <RootNavigator />
               </SubjectProvider>
             </FocusProvider>

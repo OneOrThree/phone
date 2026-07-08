@@ -143,6 +143,10 @@ class ScreenTimeModule: NSObject {
             repeats: true
         )
 
+        // 기존 모니터를 먼저 중지 — 선택을 비운 경우에도 옛 대상 측정이 계속 남지 않게
+        // guard보다 앞에서 수행한다(GROMO-633 리뷰 반영).
+        center.stopMonitoring([activityName])
+
         // App Group에 저장된 "측정 대상"(picker로 선택한 앱/카테고리) 로드
         // 이게 있어야 threshold 이벤트가 실제로 발화함 (빈 배열이면 발화 안 함)
         let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
@@ -158,7 +162,10 @@ class ScreenTimeModule: NSObject {
             return
         }
 
-        let totalSeconds = Int(goalSecondsValue)
+        // 달성 = 목표 '이내'(<=, 서버 분 단위 판정과 동일) — threshold는 '도달(>=) 시 초과 플래그'라
+        // 목표값을 그대로 걸면 정확히 목표에서 멈춘 유저까지 fail로 판정된다. +60초를 초과 판정선으로
+        // 등록해 분 단위 기준 '목표를 넘긴' 경우에만 fail이 되게 한다(GROMO-633 리뷰 반영).
+        let totalSeconds = Int(goalSecondsValue) + 60
         var threshold = DateComponents()
         threshold.hour = totalSeconds / 3600
         threshold.minute = (totalSeconds % 3600) / 60
@@ -174,7 +181,6 @@ class ScreenTimeModule: NSObject {
         )
 
         do {
-            center.stopMonitoring([activityName])
             try center.startMonitoring(
                 activityName,
                 during: schedule,
@@ -217,6 +223,10 @@ class ScreenTimeModule: NSObject {
             repeats: true
         )
 
+        // 기존 모니터를 먼저 중지 — 선택을 비운 경우에도 옛 대상 측정이 계속 남지 않게
+        // guard보다 앞에서 수행한다(GROMO-633 리뷰 반영).
+        center.stopMonitoring([activityName])
+
         // 측정 대상(picker selection) 로드 — 토큰이 있어야 threshold가 발화함.
         let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
         guard
@@ -249,7 +259,6 @@ class ScreenTimeModule: NSObject {
         }
 
         do {
-            center.stopMonitoring([activityName])
             try center.startMonitoring(activityName, during: schedule, events: events)
             resolve(true)
         } catch {
@@ -270,6 +279,25 @@ class ScreenTimeModule: NSObject {
         formatter.dateFormat = "yyyy-MM-dd"
         let today = formatter.string(from: Date())
         resolve(date == today ? mins : 0)
+    }
+
+    // 어제의 최종 사용량 버킷(분) 조회 — Monitor가 하루 경계에 보존한 전일 눈금(GROMO-633).
+    // 메인 앱의 '어제분 마감 업로드'가 마지막 포그라운드 이후 늘어난 사용분까지 반영하는 데 쓴다.
+    // 보존 날짜가 어제와 다르면(이틀 이상 미기록 등) 0으로 취급.
+    @objc func getYesterdayUsageBucketMinutes(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        let mins = defaults?.integer(forKey: "gromo:screentime:prevBucketMinutes") ?? 0
+        let date = defaults?.string(forKey: "gromo:screentime:prevBucketDate")
+        guard let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date()) else {
+            resolve(0)
+            return
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        resolve(date == formatter.string(from: yesterday) ? mins : 0)
     }
 
     // 어제 날짜의 스크린 타임 목표 달성 결과를 App Group에서 읽어 반환

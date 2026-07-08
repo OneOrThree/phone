@@ -33,6 +33,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -518,7 +519,7 @@ class FriendServiceTest {
 
         DailyFocusStat stat = mock(DailyFocusStat.class);
         given(stat.getUser()).willReturn(target);
-        given(stat.getTotalFocusMinutes()).willReturn(42);
+        given(stat.getTotalFocusSeconds()).willReturn(42 * 60);
         given(dailyFocusStatRepository.findByUserInAndDate(any(), any())).willReturn(List.of(stat));
 
         FocusSession session = mock(FocusSession.class);
@@ -527,7 +528,7 @@ class FriendServiceTest {
 
         given(characterEquipmentRepository.findByUserIn(any())).willReturn(List.of());
 
-        List<PinnedFriendResponse> result = friendService.getPinnedFriends(meId);
+        List<PinnedFriendResponse> result = friendService.getPinnedFriends(meId, LocalDate.of(2026, 7, 3));
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getUserId()).isEqualTo(targetId);

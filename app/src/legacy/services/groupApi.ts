@@ -1,6 +1,7 @@
 // group 도메인 API 래퍼 (GroupController, base /api/v1).
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
 import { api } from '@/services/api';
+import { todayStr } from '@/utils/localDate';
 import type {
   CreateGroupRequest,
   CreateGroupResponse,
@@ -57,9 +58,12 @@ export async function renewGroupCode(groupId: string): Promise<RenewGroupCodeRes
   return data;
 }
 
-// GET /api/v1/groups/{groupId} — 그룹 상세(그룹원만, code는 OWNER에게만).
+// GET /api/v1/groups/{groupId}?date — 그룹 상세(그룹원만, code는 OWNER에게만).
+// date는 서버 필수(GROMO-643 — 멤버 '오늘 집중분' 기준 클라 로컬 날짜). 미전송 시 400.
 export async function getGroupDetail(groupId: string): Promise<GroupDetailResponse> {
-  const { data } = await api.get<GroupDetailResponse>(`/api/v1/groups/${groupId}`);
+  const { data } = await api.get<GroupDetailResponse>(`/api/v1/groups/${groupId}`, {
+    params: { date: todayStr() },
+  });
   return data;
 }
 

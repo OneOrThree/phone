@@ -141,9 +141,11 @@ export default function LeagueScreen() {
   // 포디움(Top3) / 리스트(4위~ 또는 핀한 사람만)
   const top3 = visibleRanking.slice(0, 3);
   const showPodium = !pinnedOnly && top3.length > 0;
-  const listRows = pinnedOnly
-    ? visibleRanking.filter((m) => m.userId === MY_USER_ID || pinned.has(m.userId))
-    : visibleRanking.slice(3);
+  // '핀한 사람만': 핀한 사람이 하나라도 있으면 나+핀을 함께 보여주고(나 대비 시간 차),
+  // 하나도 없으면 나만 뜨지 않도록 비운다 (GROMO-636).
+  const hasPinned = visibleRanking.some((m) => pinned.has(m.userId));
+  const pinnedRows = visibleRanking.filter((m) => m.userId === MY_USER_ID || pinned.has(m.userId));
+  const listRows = pinnedOnly ? (hasPinned ? pinnedRows : []) : visibleRanking.slice(3);
 
   function scrollToMyRow() {
     // 내가 포디움(Top3)이거나 핀 모드면 최상단으로
@@ -419,7 +421,7 @@ export default function LeagueScreen() {
           {visibleRanking.length === 0 && (
             <Text style={s.emptyLeague}>아직 이 리그엔 아무도 없어요</Text>
           )}
-          {pinnedOnly && listRows.length <= 1 && (
+          {pinnedOnly && listRows.length === 0 && (
             <Text style={s.emptyLeague}>랭킹에서 핀을 누르면 여기에 담겨요</Text>
           )}
 

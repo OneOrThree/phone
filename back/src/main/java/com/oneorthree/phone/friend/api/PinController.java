@@ -8,14 +8,17 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -60,13 +63,17 @@ public class PinController {
     }
 
     @Operation(summary = "핀한 유저 조회",
-            description = "내가 핀한 유저 목록(친구 아님 포함). 캐릭터 표시정보 + 오늘 집중분 + 현재 집중 여부 포함.")
+            description = "내가 핀한 유저 목록(친구 아님 포함). 캐릭터 표시정보 + 오늘 집중분 + 현재 집중 여부 포함."
+                    + " date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD).")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "조회 성공")
+            @ApiResponse(responseCode = "200", description = "조회 성공"),
+            @ApiResponse(responseCode = "400", description = "date 누락·형식 오류")
     })
     @GetMapping("/pins")
-    public ResponseEntity<List<PinnedFriendResponse>> getPins(HttpServletRequest httpServletRequest) {
+    public ResponseEntity<List<PinnedFriendResponse>> getPins(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            HttpServletRequest httpServletRequest) {
         UUID me = (UUID) httpServletRequest.getAttribute("userId");
-        return ResponseEntity.ok(friendService.getPinnedFriends(me));
+        return ResponseEntity.ok(friendService.getPinnedFriends(me, date));
     }
 }

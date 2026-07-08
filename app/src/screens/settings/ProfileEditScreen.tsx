@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -49,10 +50,17 @@ export default function ProfileEditScreen() {
       await updateProfile({ nickname: trimmed, countryCode: getDeviceCountryCode() });
       setNickname(trimmed);
       navigation.goBack();
-    } catch {
+    } catch (e) {
       // 성공 경로에서만 언마운트되므로 여기서만 저장 상태 해제.
       setSaving(false);
-      Alert.alert('저장 실패', '이미 사용 중이거나 저장에 실패했어요');
+      // 중복 닉네임(409 NICKNAME_DUPLICATE)과 기타 실패를 구분해 정확히 안내 (GROMO-639).
+      const duplicated = axios.isAxiosError(e) && e.response?.status === 409;
+      Alert.alert(
+        '저장 실패',
+        duplicated
+          ? '이미 사용 중인 닉네임이에요'
+          : '저장에 실패했어요. 잠시 후 다시 시도해 주세요',
+      );
     }
   };
 
@@ -63,7 +71,7 @@ export default function ProfileEditScreen() {
       onPress={onSave}
       style={[s.cta, !canSave ? s.ctaDisabled : null]}
     >
-      {saving ? <ActivityIndicator color={T.white} /> : <Text style={s.ctaText}>저장</Text>}
+      {saving ? <ActivityIndicator color={T.white} /> : <Text style={s.ctaText}>검사 및 저장</Text>}
     </TouchableOpacity>
   );
 
@@ -90,11 +98,12 @@ export default function ProfileEditScreen() {
         </Text>
       </View>
 
-      {/* 검증 안내 — 유효(변경+2~10자)일 때만 성공 문구, 변경했는데 길이 미달이면 가이드. */}
+      {/* 검증 안내 — 형식(2~10자)+변경 시 '사용 가능해요'(낙관적 표시), 변경했는데 길이 미달이면 가이드.
+          실제 중복 검사는 서버 검증 API가 없어 '검사 및 저장' 버튼으로 저장 시 확정한다 (GROMO-639). */}
       {valid ? (
         <View style={s.hintRow}>
           <Ionicons name="checkmark-circle" size={15} color={T.successInk} />
-          <Text style={[s.hintText, { color: T.successInk }]}>사용 가능한 닉네임이에요</Text>
+          <Text style={[s.hintText, { color: T.successInk }]}>사용 가능해요</Text>
         </View>
       ) : changed && !validLength ? (
         <View style={s.hintRow}>

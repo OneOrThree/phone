@@ -56,4 +56,9 @@ public class LeagueArenaUser {
 
     @Enumerated(EnumType.STRING)
     private LeagueMemberResult result;
+
+    /** 세션 완료 시 주간 누적 집중 시간(분)을 더한다 (GROMO-646). 더티 체킹으로 반영. */
+    public void addFocusMinutes(int minutes) {
+        this.totalFocusMinutes += minutes;
+    }
 }

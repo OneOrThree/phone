@@ -23,3 +23,10 @@ export function tomorrowStr(): string {
   t.setDate(t.getDate() + 1);
   return localDateStr(t);
 }
+
+// 어제 날짜 "YYYY-MM-DD"
+export function yesterdayStr(): string {
+  const t = new Date();
+  t.setDate(t.getDate() - 1);
+  return localDateStr(t);
+}
