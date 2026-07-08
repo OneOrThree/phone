@@ -2,7 +2,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { FocusTimerMode } from '../types';
-import { SheetShell } from './SheetShell';
+import { SheetShell } from '@/components/SheetShell';
 
 // 03 타이머 방식 — 카운트업/카운트다운/뽀모도로 중 선택.
 const OPTIONS: {
