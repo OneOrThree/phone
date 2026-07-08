@@ -110,7 +110,8 @@ export default function AllowedAppsScreen() {
       <View style={s.note}>
         <View style={s.noteDot} />
         <Text style={s.noteText}>
-          집중 중에도 이 앱들은 쓸 수 있어요. 카테고리를 고르면 그 안의 앱들도 함께 허용돼요(지금 설치된 앱 기준).
+          집중 중에도 이 앱들은 쓸 수 있어요. 카테고리를 고르면 그 안의 앱들도 함께 허용돼요(지금
+          설치된 앱 기준).
         </Text>
       </View>
 
