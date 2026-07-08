@@ -45,7 +45,6 @@ export default function AllowedAppsScreen() {
   );
 
   const apps = counts?.applications ?? 0;
-  const categories = counts?.categories ?? 0;
 
   // 요약 문구 — 로딩 전/허용앱 있음/없음.
   const summaryLabel = !loaded
@@ -87,15 +86,7 @@ export default function AllowedAppsScreen() {
       ) {
         return;
       }
-      // 실드 예외는 개별 앱 토큰만 지원 — 카테고리로 골랐으면 안내
-      const categoryNote =
-        result.categories > 0 ? '\n(카테고리 선택은 적용되지 않아요 — 개별 앱으로 골라주세요)' : '';
-      Alert.alert(
-        '허용앱 변경됨',
-        result.applications > 0
-          ? `집중 중에도 앱 ${result.applications}개를 쓸 수 있어요.${categoryNote}`
-          : `허용앱을 비웠어요 — 집중 중엔 모든 앱이 잠겨요.${categoryNote}`,
-      );
+      Alert.alert('허용앱 변경됨', `집중 중에도 앱 ${result.applications}개를 쓸 수 있어요.`);
     } catch (e) {
       Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
     }
@@ -115,11 +106,12 @@ export default function AllowedAppsScreen() {
         </TouchableOpacity>
       }
     >
-      {/* 안내 카드 — 허용앱의 의미 + 개별 앱만 지원되는 제약 */}
+      {/* 안내 카드 — 허용앱의 의미 + 카테고리 처리(하위 앱으로 확장) */}
       <View style={s.note}>
         <View style={s.noteDot} />
         <Text style={s.noteText}>
-          집중 중에도 이 앱들은 쓸 수 있어요. 개별 앱만 지원돼요 — 카테고리는 적용되지 않아요.
+          집중 중에도 이 앱들은 쓸 수 있어요. 카테고리를 고르면 그 안의 앱들도 함께 허용돼요(지금
+          설치된 앱 기준).
         </Text>
       </View>
 
@@ -133,13 +125,6 @@ export default function AllowedAppsScreen() {
           sub={summarySub}
         />
       </SettingsSection>
-
-      {/* 카테고리로 잘못 고른 게 있으면 무시된다고 명시 */}
-      {loaded && categories > 0 ? (
-        <Text style={s.warn}>
-          카테고리 {categories}개는 적용되지 않아요 — 개별 앱으로 골라주세요.
-        </Text>
-      ) : null}
 
       {/* 허용 앱 고르기 — 네이티브 관리 화면(목록 + 추가/삭제 피커) 표시 */}
       <TouchableOpacity style={s.pickBtn} activeOpacity={0.85} onPress={editAllowedApps}>
@@ -164,9 +149,6 @@ const s = StyleSheet.create({
   },
   noteDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.accent, marginTop: 6 },
   noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, flex: 1, lineHeight: 19 },
-
-  // 카테고리 경고 문구
-  warn: { ...T.text.caption, fontWeight: '500', color: T.dangerInk, marginTop: 10, marginLeft: 6 },
 
   // 허용 앱 고르기 버튼(아웃라인 틴트)
   pickBtn: {
