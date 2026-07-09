@@ -1,6 +1,6 @@
 package com.oneorthree.phone.friend.api;
 
-import com.oneorthree.phone.friend.dto.PinnedFriendResponse;
+import com.oneorthree.phone.friend.dto.PinnedUserResponse;
 import com.oneorthree.phone.friend.service.FriendService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -57,7 +57,7 @@ class PinControllerTest {
     @Test
     @DisplayName("핀한 유저 조회 → 200 + 응답 매핑")
     void getPinsReturns200() throws Exception {
-        PinnedFriendResponse response = PinnedFriendResponse.builder()
+        PinnedUserResponse response = PinnedUserResponse.builder()
                 .userId(targetUserId)
                 .nickname("짝꿍")
                 .character(List.of())
