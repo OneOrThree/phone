@@ -61,6 +61,6 @@ different jobs.
 
 ## Key docs
 
-- `back/docs/db/schema.dbml` — canonical DB schema (DBML, reflects current state). Local-only migration scripts in `back/docs/db/` (`run-migration-v*.sh`, gitignored) apply each delta.
+- `back/docs/db/schema.dbml` — canonical DB schema (DBML, reflects current state). Schema deltas are applied by **Flyway** migrations in `back/src/main/resources/db/migration/` (`V1__baseline.sql` onward); the local-only `run-migration-v*.sh` scripts in `back/docs/db/` (gitignored, up to v30) are a legacy archive.
 - `docs/design.md` — design spec. `docs/project-feature.md` — feature spec.
 - `back/HELP.md` — Spring Boot reference notes.
