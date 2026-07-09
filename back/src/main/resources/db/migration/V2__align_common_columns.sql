@@ -122,6 +122,10 @@ ALTER TABLE group_challenges RENAME CONSTRAINT group_challenges_mission_category
 
 -- groups: status CHECK 에서 CLOSED 제거(WAITING/ACTIVE/ENDED).
 ALTER TABLE groups DROP CONSTRAINT groups_status_check;
+-- 기존 행 정규화(GROMO-671 배포 실패 보정): 구 도메인 status=CLOSED(그룹 종료) → ENDED 이관.
+--   신규 CHECK(WAITING/ACTIVE/ENDED) 밖의 값을 ENDED 로 포괄(NOT IN — 예상 밖 값도 안전).
+--   구 CHECK 제거 후 UPDATE 해야 신규 값이 아직 살아있는 구 CHECK 에 걸리지 않는다.
+UPDATE groups SET status = 'ENDED' WHERE status NOT IN ('WAITING', 'ACTIVE', 'ENDED');
 ALTER TABLE groups
     ADD CONSTRAINT groups_status_check
     CHECK ((status)::text = ANY ((ARRAY['WAITING'::character varying, 'ACTIVE'::character varying, 'ENDED'::character varying])::text[]));
