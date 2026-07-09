@@ -1,7 +1,7 @@
 package com.oneorthree.phone.stats.service;
 
 import com.oneorthree.phone.focus.domain.FocusSession;
-import com.oneorthree.phone.focus.domain.FocusTag;
+import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.friend.exception.FriendErrorCode;
 import com.oneorthree.phone.friend.exception.FriendException;
@@ -265,14 +265,15 @@ public class StatsService {
 
         for (FocusSession s : sessions) {
             long secs = Duration.between(s.getStartedAt(), s.getEndedAt()).getSeconds();
-            FocusTag tag = s.getFocusTag();
+            // GROMO-673: 태그는 user_focus_tags. 버킷 키는 user_focus_tags.id, 이름은 defaultTag.name.
+            UserFocusTag tag = s.getFocusTag();
             if (tag == null || tag.getDeletedAt() != null) {
                 // 미분류: 태그 없는 세션 + 소프트딜리트된 태그를 참조하는 세션
                 untaggedSeconds += secs;
             } else {
                 UUID tagId = tag.getId();
                 taggedSeconds.merge(tagId, secs, Long::sum);
-                tagNames.putIfAbsent(tagId, tag.getName());
+                tagNames.putIfAbsent(tagId, tag.getDefaultTag().getName());
             }
         }
 
