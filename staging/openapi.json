@@ -3877,7 +3877,7 @@
           "Group"
         ],
         "summary": "그룹 탈퇴",
-        "description": "MEMBER는 즉시 탈퇴. OWNER는 위임 후 탈퇴 가능. 마지막 1인 탈퇴 시 그룹 CLOSED. 성공 시 204 반환.",
+        "description": "MEMBER는 즉시 탈퇴. OWNER는 위임 후 탈퇴 가능. 마지막 1인 탈퇴 시 그룹 ENDED. 성공 시 204 반환.",
         "operationId": "withdrawGroup",
         "parameters": [
           {
@@ -4087,18 +4087,6 @@
             "type": "string",
             "minLength": 1
           },
-          "birthDate": {
-            "type": "string",
-            "format": "date"
-          },
-          "gender": {
-            "type": "string",
-            "enum": [
-              "MALE",
-              "FEMALE",
-              "UNKNOWN"
-            ]
-          },
           "occupation": {
             "type": "string",
             "enum": [
@@ -4134,9 +4122,6 @@
           "countryCode": {
             "type": "string",
             "pattern": "^[A-Z]{2}$"
-          },
-          "reportTime": {
-            "type": "string"
           }
         },
         "required": [
@@ -4384,9 +4369,6 @@
             "type": "string",
             "format": "uuid"
           },
-          "subject": {
-            "type": "string"
-          },
           "startedAt": {
             "type": "string",
             "format": "date-time"
@@ -4395,22 +4377,11 @@
             "type": "string",
             "format": "date-time"
           },
-          "distractionCount": {
-            "type": "integer",
-            "format": "int32"
-          },
           "totalDistractionSeconds": {
             "type": "integer",
             "format": "int32"
-          },
-          "localDate": {
-            "type": "string",
-            "format": "date"
           }
-        },
-        "required": [
-          "localDate"
-        ]
+        }
       },
       "FocusSessionStartRequest": {
         "type": "object",
@@ -4418,9 +4389,6 @@
           "focusTagId": {
             "type": "string",
             "format": "uuid"
-          },
-          "subject": {
-            "type": "string"
           },
           "startedAt": {
             "type": "string",
@@ -4485,13 +4453,13 @@
           "slotType": {
             "type": "string"
           },
-          "rarity": {
+          "grade": {
             "type": "string"
           },
-          "assetAddress": {
+          "assetUrl": {
             "type": "string"
           },
-          "priceType": {
+          "paymentType": {
             "type": "string"
           },
           "currencyPrice": {
@@ -4511,7 +4479,7 @@
             "type": "integer",
             "format": "int32"
           },
-          "reason": {
+          "type": {
             "type": "string",
             "enum": [
               "SESSION_COMPLETE",
@@ -4617,18 +4585,6 @@
           "nickname": {
             "type": "string"
           },
-          "birthDate": {
-            "type": "string",
-            "format": "date"
-          },
-          "gender": {
-            "type": "string",
-            "enum": [
-              "MALE",
-              "FEMALE",
-              "UNKNOWN"
-            ]
-          },
           "dailyScreenTimeGoalMinutes": {
             "type": "integer",
             "format": "int32"
@@ -4640,9 +4596,6 @@
           "countryCode": {
             "type": "string",
             "pattern": "^[A-Z]{2}$"
-          },
-          "reportTime": {
-            "type": "string"
           }
         }
       },
@@ -4809,10 +4762,6 @@
             "type": "string",
             "format": "date-time"
           },
-          "distractionCount": {
-            "type": "integer",
-            "format": "int32"
-          },
           "totalDistractionSeconds": {
             "type": "integer",
             "format": "int32"
@@ -4820,14 +4769,9 @@
           "focusTagId": {
             "type": "string",
             "format": "uuid"
-          },
-          "localDate": {
-            "type": "string",
-            "format": "date"
           }
         },
         "required": [
-          "localDate",
           "sessionId"
         ]
       },
@@ -4849,10 +4793,6 @@
           "durationSeconds": {
             "type": "integer",
             "format": "int64"
-          },
-          "distractionCount": {
-            "type": "integer",
-            "format": "int32"
           },
           "totalDistractionSeconds": {
             "type": "integer",
@@ -5015,18 +4955,7 @@
           "nickname": {
             "type": "string"
           },
-          "gender": {
-            "type": "string"
-          },
-          "birthDate": {
-            "type": "string",
-            "format": "date"
-          },
           "currency": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "currentTier": {
             "type": "integer",
             "format": "int32"
           },
@@ -5039,9 +4968,6 @@
             "format": "int32"
           },
           "countryCode": {
-            "type": "string"
-          },
-          "reportTime": {
             "type": "string"
           },
           "statVisibility": {
@@ -5304,10 +5230,6 @@
           },
           "displayName": {
             "type": "string"
-          },
-          "sortOrder": {
-            "type": "integer",
-            "format": "int32"
           }
         }
       },
@@ -5405,7 +5327,7 @@
           "item": {
             "$ref": "#/components/schemas/ItemResponse"
           },
-          "acquiredAt": {
+          "createdAt": {
             "type": "string",
             "format": "date-time"
           }
@@ -5444,8 +5366,7 @@
             "enum": [
               "WAITING",
               "ACTIVE",
-              "ENDED",
-              "CLOSED"
+              "ENDED"
             ]
           }
         }
@@ -5521,8 +5442,7 @@
             "enum": [
               "WAITING",
               "ACTIVE",
-              "ENDED",
-              "CLOSED"
+              "ENDED"
             ]
           },
           "members": {
@@ -5632,8 +5552,7 @@
             "enum": [
               "WAITING",
               "ACTIVE",
-              "ENDED",
-              "CLOSED"
+              "ENDED"
             ]
           },
           "hasPassword": {
@@ -5682,7 +5601,7 @@
             "type": "string",
             "enum": [
               "ACTIVE",
-              "ENDED"
+              "INACTIVE"
             ]
           },
           "createdAt": {
@@ -5736,8 +5655,7 @@
             "enum": [
               "WAITING",
               "ACTIVE",
-              "ENDED",
-              "CLOSED"
+              "ENDED"
             ]
           },
           "hasPassword": {
@@ -5822,9 +5740,6 @@
             "type": "string",
             "format": "uuid"
           },
-          "subject": {
-            "type": "string"
-          },
           "startedAt": {
             "type": "string",
             "format": "date-time"
@@ -5832,10 +5747,6 @@
           "endedAt": {
             "type": "string",
             "format": "date-time"
-          },
-          "distractionCount": {
-            "type": "integer",
-            "format": "int32"
           },
           "totalDistractionSeconds": {
             "type": "integer",
@@ -5875,19 +5786,12 @@
           "type": {
             "type": "string",
             "enum": [
-              "EARN",
-              "SPEND"
-            ]
-          },
-          "reason": {
-            "type": "string",
-            "enum": [
               "SESSION_COMPLETE",
               "STREAK_BONUS",
               "PURCHASE"
             ]
           },
-          "transactedAt": {
+          "createdAt": {
             "type": "string",
             "format": "date-time"
           }
