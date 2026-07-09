@@ -312,6 +312,46 @@ class GroupServiceTest {
         verify(groupRepository, never()).save(any());
     }
 
+    @Test
+    @DisplayName("충돌 코드가 만료 상태면 ENDED 로 정리하고 다른 코드로 재시도")
+    void createGroupExpiresStaleCollidingCode() {
+        // given: 첫 코드 충돌 + 그 코드는 이미 만료 → expire() 대상, 두 번째 코드는 사용 가능
+        CreateGroupRequest request = durationRequest(null, 5, 60);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true, false);
+        GroupJoinCode expiredCollision = joinCodeFor(Group.builder().id(GROUP_ID).build(), "OLDCODE1",
+                Instant.now().minus(1, ChronoUnit.HOURS));
+        given(groupJoinCodeRepository.findByCode(anyString())).willReturn(Optional.of(expiredCollision));
+        givenSaveReturnsGroupWithId(GROUP_ID);
+
+        // when
+        groupService.createGroup(USER_ID, request);
+
+        // then: 만료 충돌 코드는 ENDED 로 정리됨(재사용 아님 — 새 코드로 발급)
+        assertThat(expiredCollision.getStatus()).isEqualTo(GroupJoinCodeStatus.ENDED);
+        verify(groupRepository).save(any(Group.class));
+    }
+
+    @Test
+    @DisplayName("충돌 코드가 아직 유효하면 상태를 건드리지 않고 재시도만 한다")
+    void createGroupKeepsActiveCollidingCode() {
+        // given: 첫 코드 충돌 + 그 코드는 아직 유효(미래 만료) → 상태 유지, 두 번째 코드는 사용 가능
+        CreateGroupRequest request = durationRequest(null, 5, 60);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true, false);
+        GroupJoinCode activeCollision = joinCodeFor(Group.builder().id(GROUP_ID).build(), "LIVECODE",
+                Instant.now().plus(1, ChronoUnit.HOURS));
+        given(groupJoinCodeRepository.findByCode(anyString())).willReturn(Optional.of(activeCollision));
+        givenSaveReturnsGroupWithId(GROUP_ID);
+
+        // when
+        groupService.createGroup(USER_ID, request);
+
+        // then: 유효한 충돌 코드는 그대로 ACTIVE 유지
+        assertThat(activeCollision.getStatus()).isEqualTo(GroupJoinCodeStatus.ACTIVE);
+        verify(groupRepository).save(any(Group.class));
+    }
+
     // ── getMyGroups ───────────────────────────────────────────────────────
 
     @Test
@@ -331,11 +371,11 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUser(user)).willReturn(List.of(member1, member2));
         given(groupMemberRepository.findByGroup(group1)).willReturn(List.of(member1));
         given(groupMemberRepository.findByGroup(group2)).willReturn(List.of(member2));
-        // GROMO-672: 요약 응답의 code 는 group_join_codes 에서 조회 (PK = group_id)
-        given(groupJoinCodeRepository.findById(GROUP_ID))
-                .willReturn(Optional.of(joinCodeFor(group1, "AAAA1111", null)));
-        given(groupJoinCodeRepository.findById(GROUP_ID_2))
-                .willReturn(Optional.of(joinCodeFor(group2, "BBBB2222", null)));
+        // GROMO-672: 요약 응답의 code 는 group_join_codes 일괄 조회(findAllById)로 채운다 — N+1 방지
+        given(groupJoinCodeRepository.findAllById(List.of(GROUP_ID, GROUP_ID_2)))
+                .willReturn(List.of(
+                        GroupJoinCode.builder().groupId(GROUP_ID).group(group1).code("AAAA1111").build(),
+                        GroupJoinCode.builder().groupId(GROUP_ID_2).group(group2).code("BBBB2222").build()));
 
         // when
         List<GroupSummaryResponse> result = groupService.getMyGroups(USER_ID);

@@ -132,14 +132,18 @@ public class GroupService {
 
         List<GroupMember> groupMembers = groupMemberRepository.findByUser(user);
 
+        // GROMO-672: 참가 코드는 1:1 테이블(PK=group_id)에서 일괄 조회 — 그룹당 findById N+1 방지
+        List<UUID> groupIds = groupMembers.stream()
+                .map(member -> member.getGroup().getId())
+                .toList();
+        Map<UUID, String> codeByGroupId = groupJoinCodeRepository.findAllById(groupIds).stream()
+                .collect(Collectors.toMap(GroupJoinCode::getGroupId, GroupJoinCode::getCode));
+
         return groupMembers.stream()
                 .map(member -> {
                     Group group = member.getGroup();
                     int currentMembers = groupMemberRepository.findByGroup(group).size();
-                    // GROMO-672: 참가 코드는 1:1 테이블에서 조회 (PK = group_id)
-                    String code = groupJoinCodeRepository.findById(group.getId())
-                            .map(GroupJoinCode::getCode)
-                            .orElse(null);
+                    String code = codeByGroupId.get(group.getId());
                     return new GroupSummaryResponse(
                             group.getId(),
                             group.getName(),
@@ -474,7 +478,9 @@ public class GroupService {
                 return code;
             }
 
-            // 충돌: 만료된 코드면 ENDED 로 정리하고 다른 코드로 재시도
+            // 충돌: 만료된 코드면 ENDED 로 정리하고 다른 코드로 재시도.
+            // 의도된 동작 — code 는 NOT NULL UNIQUE 라 구 스키마처럼 null 로 비워 재사용하지 않는다.
+            // 즉 한 번 발급된 코드 문자열은 영구히 재발급되지 않음(36^8 공간이라 고갈 우려 없음).
             groupJoinCodeRepository.findByCode(code).ifPresent(existing -> {
                 if (existing.getExpiresAt() != null
                         && existing.getExpiresAt().isBefore(Instant.now())) {
