@@ -70,6 +70,11 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
   `create-drop` with Flyway disabled. Flyway needs three deps (see `build.gradle`):
   `spring-boot-flyway` (Boot 4.0 splits autoconfig into per-tech modules), `flyway-core`,
   and `flyway-database-postgresql`.
+- **Local setup (required since GROMO-670)**: your gitignored `application-local.yml`
+  MUST set `spring.flyway.enabled: false`. Once `spring-boot-flyway` is on the classpath
+  Flyway auto-activates by default, and against an existing `ddl-auto: update` local schema
+  (no baseline marking) it fails on `bootRun`. Copy `application-local.yml.example` (which
+  already includes this) to `application-local.yml` when setting up.
 - The `docs/db/run-migration-v*.sh` scripts (up to v30, gitignored) are a **legacy
   archive** — do not add new ones. `/back-migration` still scaffolds that old `.sh` format
   (skill rewrite to scaffold `V<N>` SQL is a follow-up).

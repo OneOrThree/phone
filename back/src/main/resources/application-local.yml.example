@@ -1,0 +1,30 @@
+# application-local.yml 템플릿 — 이 파일을 같은 폴더에 application-local.yml 로 복사해서 쓰세요.
+# (application-local.yml 은 .gitignore 대상이라 저장소에 커밋되지 않습니다.)
+#
+# ⚠️ GROMO-670 이후 필수: spring.flyway.enabled: false 를 반드시 유지하세요.
+#   Flyway 의존성(spring-boot-flyway)이 추가돼 기본적으로 Flyway 가 활성화되는데, local 은
+#   ddl-auto: update 로 스키마를 관리하므로 Flyway 를 끄지 않으면, 이미 만들어진 로컬 스키마에
+#   V1__baseline.sql 을 실행하려다(베이스라인 마킹 없음) bootRun 이 실패합니다.
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tt_db
+    username: jajo
+    password: jajo
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: update
+  # local 은 Flyway 미개입(위 주석 참조). 이 줄을 지우거나 true 로 바꾸지 마세요.
+  flyway:
+    enabled: false
+
+decorator:
+  datasource:
+    p6spy:
+      enable-logging: true
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE
