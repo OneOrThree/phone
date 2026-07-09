@@ -40,15 +40,15 @@ class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
 
     private LeagueArena saveArena(LeagueTierConfig cfg, LeagueArenaStatus status) {
         return leagueArenaRepository.save(LeagueArena.builder()
-                .tierConfig(cfg).weekStartAt(Instant.parse("2026-06-22T00:00:00Z")).status(status).build());
+                .tierConfig(cfg).startedAt(Instant.parse("2026-06-22T00:00:00Z")).status(status).build());
     }
 
     private User saveUser(String nickname) {
-        return userRepository.save(User.builder().nickname(nickname).currentTier(1).build());
+        return userRepository.save(User.builder().nickname(nickname).build());
     }
 
     private User saveUserWithOccupation(String nickname, Occupation occupation) {
-        return userRepository.save(User.builder().nickname(nickname).currentTier(1)
+        return userRepository.save(User.builder().nickname(nickname)
                 .occupation(occupation).build());
     }
 

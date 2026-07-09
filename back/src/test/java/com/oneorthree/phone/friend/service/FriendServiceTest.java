@@ -91,12 +91,12 @@ class FriendServiceTest {
 
         meId = UUID.randomUUID();
         targetId = UUID.randomUUID();
-        me = user(meId, "me", 3);
-        target = user(targetId, "target", 2);
+        me = user(meId, "me");
+        target = user(targetId, "target");
     }
 
-    private User user(UUID id, String nickname, Integer tier) {
-        return User.builder().id(id).nickname(nickname).currentTier(tier).build();
+    private User user(UUID id, String nickname) {
+        return User.builder().id(id).nickname(nickname).build();
     }
 
     private Friendship friendship(User from, User to, FriendshipStatus status) {
@@ -342,8 +342,8 @@ class FriendServiceTest {
     @Test
     @DisplayName("친구 목록 — 양방향(from/to) 모두 상대 유저로 매핑, isPinned=false")
     void getFriends_mapsCounterpart_bothDirections() {
-        User a = user(UUID.randomUUID(), "alice", 4);
-        User b = user(UUID.randomUUID(), "bob", 1);
+        User a = user(UUID.randomUUID(), "alice");
+        User b = user(UUID.randomUUID(), "bob");
         given(userRepository.findById(meId)).willReturn(Optional.of(me));
         given(friendshipRepository.findAcceptedByUser(me)).willReturn(List.of(
                 friendship(me, a, FriendshipStatus.ACCEPTED),   // me가 from
@@ -398,8 +398,8 @@ class FriendServiceTest {
         UUID friendId = UUID.randomUUID();
         UUID pendingId = UUID.randomUUID();
         UUID strangerId = UUID.randomUUID();
-        User friend = user(friendId, "friend", 5);
-        User pending = user(pendingId, "pending", 1);
+        User friend = user(friendId, "friend");
+        User pending = user(pendingId, "pending");
 
         given(userRepository.findById(meId)).willReturn(Optional.of(me));
         given(nicknameStrategy.search(meId, "f")).willReturn(List.of(

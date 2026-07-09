@@ -12,7 +12,6 @@ import java.util.UUID;
  * @param startedAt               시작 시각(기존 값)
  * @param endedAt                 채워진 종료 시각
  * @param durationSeconds         지속 시간(초) = endedAt - startedAt
- * @param distractionCount        최종 방해 횟수
  * @param totalDistractionSeconds 최종 방해 초
  */
 public record FocusSessionEndResponse(
@@ -20,7 +19,6 @@ public record FocusSessionEndResponse(
         Instant startedAt,
         Instant endedAt,
         long durationSeconds,
-        int distractionCount,
         int totalDistractionSeconds
 ) {
 }

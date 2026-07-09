@@ -21,7 +21,7 @@ public class OccupationService {
      * code 는 {@link com.oneorthree.phone.user.domain.Occupation} enum name 문자열.
      */
     public List<OccupationResponse> getOccupations() {
-        return occupationInfoRepository.findAllByDeletedAtIsNullOrderBySortOrderAsc().stream()
+        return occupationInfoRepository.findAllByDeletedAtIsNullOrderByCodeAsc().stream()
                 .map(OccupationService::toResponse)
                 .toList();
     }
@@ -29,7 +29,6 @@ public class OccupationService {
     private static OccupationResponse toResponse(OccupationInfo occupation) {
         return new OccupationResponse(
                 occupation.getCode().name(),
-                occupation.getDisplayName(),
-                occupation.getSortOrder());
+                occupation.getDisplayName());
     }
 }

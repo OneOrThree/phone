@@ -56,7 +56,7 @@ public class GroupAnnouncementService {
         groupAnnouncementRepository.save(
                 GroupAnnouncement.builder()
                         .group(group)
-                        .author(user)
+                        .user(user)
                         .title(request.getTitle())
                         .content(request.getContent())
                         .build()

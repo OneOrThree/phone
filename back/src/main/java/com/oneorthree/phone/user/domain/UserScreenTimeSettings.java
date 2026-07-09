@@ -10,7 +10,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
@@ -41,9 +40,6 @@ public class UserScreenTimeSettings {
     @Column(nullable = false)
     @Builder.Default
     private int dailyScreenTimeGoalMinutes = 0;
-
-    @CreationTimestamp
-    private Instant createdAt;
 
     @UpdateTimestamp
     private Instant updatedAt;

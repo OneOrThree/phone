@@ -35,7 +35,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
@@ -124,8 +126,8 @@ public class StatsService {
                     d,
                     f != null ? f.getTotalFocusSeconds() / 60 : 0,   // GROMO-642: 초 → 분
                     f != null ? f.getSessionCount() : 0,
-                    f != null && f.isFocusGoalAchieved(),
-                    s != null ? s.getActualScreenTimeMinutes() : 0,
+                    f != null && f.isFocusTimeGoalAchieved(),
+                    s != null ? s.getTotalScreenTimeMinutes() : 0,
                     s != null && s.isScreenTimeGoalAchieved()));
         }
         return cells;
@@ -134,7 +136,7 @@ public class StatsService {
     public StreakResponse getStreak(UUID userId) {
         User user = userRepository.getReferenceById(userId);
         return userStreakRepository.findByUser(user)
-                .map(s -> new StreakResponse(s.getStreakCount(), s.getLongestStreak(), s.getLastSessionDate()))
+                .map(s -> new StreakResponse(s.getStreakCount(), s.getLongestStreakCount(), s.getLastSessionDate()))
                 .orElseGet(() -> new StreakResponse(0, 0, null));
     }
 
@@ -150,7 +152,7 @@ public class StatsService {
         int focusMinutes = dailyFocusStatRepository.findByUserAndDate(user, today)
                 .map(d -> d.getTotalFocusSeconds() / 60).orElse(0);   // GROMO-642: 초 저장 → 분 환산
         int screenMinutes = dailyScreenTimeStatRepository.findByUserAndDate(user, today)
-                .map(DailyScreenTimeStat::getActualScreenTimeMinutes).orElse(0);
+                .map(DailyScreenTimeStat::getTotalScreenTimeMinutes).orElse(0);
         int focusGoal = userFocusTimeSettingsRepository.findById(userId)
                 .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
         int screenGoal = userScreenTimeSettingsRepository.findById(userId)
@@ -208,9 +210,9 @@ public class StatsService {
                 .findByUserAndDateBetweenOrderByDateAsc(user, range.previousFrom(), range.previousTo());
 
         int currentMinutes = currentStats.stream()
-                .mapToInt(DailyScreenTimeStat::getActualScreenTimeMinutes).sum();
+                .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes).sum();
         int previousMinutes = previousStats.stream()
-                .mapToInt(DailyScreenTimeStat::getActualScreenTimeMinutes).sum();
+                .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes).sum();
         int goalMinutes = userScreenTimeSettingsRepository.findById(userId)
                 .map(UserScreenTimeSettings::getDailyScreenTimeGoalMinutes).orElse(0);
 
@@ -250,9 +252,11 @@ public class StatsService {
         LocalDate from = range.currentFrom();
         LocalDate to = range.currentTo();
 
-        // GROMO-643: 세션 localDate [from,to] 로 조회 — daily_focus_stats 버킷과 동일 기준(UTC 윈도우 제거)
+        // GROMO-671(커밋3): local_date 제거로 endedAt(UTC) 윈도우 기준 조회 — [from 00:00, to+1 00:00) 반열림 구간.
+        Instant fromInstant = from.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant toInstant = to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
         List<FocusSession> sessions =
-                focusSessionRepository.findCompletedSessionsInPeriod(user, from, to);
+                focusSessionRepository.findCompletedSessionsInPeriod(user, fromInstant, toInstant);
 
         // 태그별 집계 — Collectors.groupingBy 는 null 키 불가이므로 직접 누적 (GROMO-642: 세션별 분 내림 제거 → 초 누적)
         Map<UUID, Long> taggedSeconds = new LinkedHashMap<>();

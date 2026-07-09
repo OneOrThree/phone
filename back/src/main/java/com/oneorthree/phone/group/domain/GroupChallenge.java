@@ -28,6 +28,9 @@ import java.util.UUID;
 @AllArgsConstructor
 public class GroupChallenge {
 
+    // NOTE(671 스코프 밖 — 674 커플링): duration_minutes/window_start/end 를
+    //   group_challenge_durations/windows 로 분리하는 건 여기서 하지 말 것.
+
     @Id
     @GeneratedUuidV7
     private UUID id;
@@ -37,8 +40,8 @@ public class GroupChallenge {
     private Group group;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "mission_type", nullable = false)
-    private MissionType missionType;
+    @Column(nullable = false)
+    private MissionType type;
 
     @Column(name = "duration_minutes")
     private Integer durationMinutes;
@@ -55,8 +58,8 @@ public class GroupChallenge {
     private GroupChallengeStatus status = GroupChallengeStatus.ACTIVE;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "mission_category", nullable = false)
-    private MissionCategory missionCategory;
+    @Column(nullable = false)
+    private MissionCategory category;
 
     @Column(name = "time_zone")
     private String timeZone;
@@ -64,4 +67,7 @@ public class GroupChallenge {
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
 }

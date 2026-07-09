@@ -13,9 +13,9 @@ public class ItemResponse {
     private String name;
     private String itemType;
     private String slotType;
-    private String rarity;
-    private String assetAddress;
-    private String priceType;
+    private String grade;
+    private String assetUrl;
+    private String paymentType;
     private Integer currencyPrice;
     private Integer premiumPrice;
 
@@ -25,9 +25,9 @@ public class ItemResponse {
                 .name(item.getName())
                 .itemType(item.getItemType().name())
                 .slotType(item.getSlotType() != null ? item.getSlotType().name() : null)
-                .rarity(item.getRarity().name())
-                .assetAddress(item.getAssetAddress())
-                .priceType(item.getPriceType().name())
+                .grade(item.getGrade())
+                .assetUrl(item.getAssetUrl())
+                .paymentType(item.getPaymentType().name())
                 .currencyPrice(item.getCurrencyPrice())
                 .premiumPrice(item.getPremiumPrice())
                 .build();

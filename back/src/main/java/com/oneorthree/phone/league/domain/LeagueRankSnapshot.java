@@ -19,18 +19,18 @@ import java.util.UUID;
 /**
  * 아레나별 일간 순위 스냅샷 (GROMO-579 — 순위 추월 푸시).
  *
- * <p>매일 배치가 ACTIVE 아레나 멤버의 그날 순위(findRankedByArena index+1)를 captured_on 날짜로 저장한다.
+ * <p>매일 배치가 ACTIVE 아레나 멤버의 그날 순위(findRankedByArena index+1)를 created_at 날짜로 저장한다.
  * 다음 날 배치가 "어제 스냅샷"과 "오늘 실시간 순위"를 비교해 나를 제친 라이벌을 감지한다.
- * (arena_id, user_id, captured_on) UNIQUE 로 하루 1행/멤버 보장 — 재실행 시 upsert(save 로 갱신).
+ * (arena_id, user_id, created_at) UNIQUE 로 하루 1행/멤버 보장 — 재실행 시 upsert(save 로 갱신).
  */
 @Entity
 @Table(
         name = "league_rank_snapshots",
-        // 조회는 findByArenaIdInAndCapturedOn(arena_id IN + captured_on) 뿐 — UNIQUE(arena_id 선두)가 이미 커버.
-        // 별도 (user_id, captured_on) 인덱스는 미사용이라 제거(GROMO-579 리뷰 반영, 쓰기비용만 증가).
+        // 조회는 findByArenaIdInAndCapturedOn(arena_id IN + created_at) 뿐 — UNIQUE(arena_id 선두)가 이미 커버.
+        // 별도 (user_id, created_at) 인덱스는 미사용이라 제거(GROMO-579 리뷰 반영, 쓰기비용만 증가).
         uniqueConstraints = @UniqueConstraint(
                 name = "uq_league_rank_snapshots_arena_user_day",
-                columnNames = {"arena_id", "user_id", "captured_on"})
+                columnNames = {"arena_id", "user_id", "created_at"})
 )
 @Getter
 @Setter
@@ -53,7 +53,7 @@ public class LeagueRankSnapshot {
     @Column(nullable = false)
     private int rank;
 
-    // 스냅샷을 찍은 KST 캘린더 날짜 — 어제(captured_on = 어제)와 오늘 비교의 키
-    @Column(name = "captured_on", nullable = false)
-    private LocalDate capturedOn;
+    // 스냅샷을 찍은 KST 캘린더 날짜 — 어제(created_at = 어제)와 오늘 비교의 키 (구 captured_on, 날짜 타입 유지)
+    @Column(name = "created_at", nullable = false)
+    private LocalDate createdAt;
 }

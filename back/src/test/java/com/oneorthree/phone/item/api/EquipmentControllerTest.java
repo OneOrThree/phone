@@ -57,8 +57,8 @@ public class EquipmentControllerTest {
                         .id(ITEM_ID)
                         .name("테스트 모자")
                         .slotType("HAT")
-                        .rarity("COMMON")
-                        .assetAddress("https://asset.example.com/hat.glb")
+                        .grade("COMMON")
+                        .assetUrl("https://asset.example.com/hat.glb")
                         .build())
                 .build();
         given(equipmentService.getEquipment(USER_ID)).willReturn(List.of(response));
@@ -84,7 +84,7 @@ public class EquipmentControllerTest {
                         .id(ITEM_ID)
                         .name("테스트 모자")
                         .slotType("HAT")
-                        .rarity("COMMON")
+                        .grade("COMMON")
                         .build())
                 .build();
 

@@ -106,16 +106,16 @@ class GroupChallengeServiceTest {
         GroupChallenge focus = GroupChallenge.builder()
                 .id(CHALLENGE_ID)
                 .group(group)
-                .missionType(MissionType.DURATION)
-                .missionCategory(MissionCategory.FOCUS)
+                .type(MissionType.DURATION)
+                .category(MissionCategory.FOCUS)
                 .durationMinutes(30)
                 .status(GroupChallengeStatus.ACTIVE)
                 .build();
         GroupChallenge screenTime = GroupChallenge.builder()
                 .id(UUID.fromString("00000000-0000-0000-0000-0000000000c2"))
                 .group(group)
-                .missionType(MissionType.TIME_WINDOW)
-                .missionCategory(MissionCategory.SCREEN_TIME)
+                .type(MissionType.TIME_WINDOW)
+                .category(MissionCategory.SCREEN_TIME)
                 .windowStart(Instant.parse("2026-01-01T00:00:00Z")) // Asia/Seoul → 09:00:00
                 .windowEnd(Instant.parse("2026-01-01T09:00:00Z"))   // Asia/Seoul → 18:00:00
                 .timeZone("Asia/Seoul")
@@ -198,7 +198,7 @@ class GroupChallengeServiceTest {
         // 중복 체크(existsBy...AndStatus)는 stub 안 함 → 기본값 false
 
         GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
-                .missionType(MissionType.DURATION).missionCategory(MissionCategory.FOCUS)
+                .type(MissionType.DURATION).category(MissionCategory.FOCUS)
                 .durationMinutes(30).status(GroupChallengeStatus.ACTIVE).build();
         given(groupChallengeRepository.save(any(GroupChallenge.class))).willReturn(saved);
 
@@ -230,7 +230,7 @@ class GroupChallengeServiceTest {
         given(request.getTimeZone()).willReturn("Asia/Seoul");
 
         GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
-                .missionType(MissionType.TIME_WINDOW).missionCategory(MissionCategory.FOCUS)
+                .type(MissionType.TIME_WINDOW).category(MissionCategory.FOCUS)
                 .status(GroupChallengeStatus.ACTIVE).build();
         given(groupChallengeRepository.save(any(GroupChallenge.class))).willReturn(saved);
 
@@ -259,7 +259,7 @@ class GroupChallengeServiceTest {
         given(request.getDurationMinutes()).willReturn(30);
 
         GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
-                .missionType(MissionType.DURATION).missionCategory(MissionCategory.SCREEN_TIME)
+                .type(MissionType.DURATION).category(MissionCategory.SCREEN_TIME)
                 .durationMinutes(30).status(GroupChallengeStatus.ACTIVE).build();
         given(groupChallengeRepository.save(any(GroupChallenge.class))).willReturn(saved);
 
@@ -372,7 +372,7 @@ class GroupChallengeServiceTest {
         given(request.getMissionType()).willReturn(MissionType.DURATION);
         given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
         given(request.getDurationMinutes()).willReturn(30);
-        given(groupChallengeRepository.existsByGroupAndMissionCategoryAndMissionTypeAndStatus(
+        given(groupChallengeRepository.existsByGroupAndCategoryAndTypeAndStatus(
                 group, MissionCategory.FOCUS, MissionType.DURATION, GroupChallengeStatus.ACTIVE))
                 .willReturn(true);
 

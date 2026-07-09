@@ -37,8 +37,8 @@ public class GroupAnnouncement {
     private Group group;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "author_id")
-    private User author;
+    @JoinColumn(name = "user_id")
+    private User user;
 
     @Column(nullable = false, length = 100)
     private String title;
@@ -52,6 +52,9 @@ public class GroupAnnouncement {
 
     @UpdateTimestamp
     private Instant updatedAt;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
 
     public void updateContent(String title, String content) {
         if (title != null) {

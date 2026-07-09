@@ -23,8 +23,6 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -51,19 +49,11 @@ public class User {
 
     private String nickname;
 
-    @Enumerated(EnumType.STRING)
-    private Gender gender;
-
-    private LocalDate birthDate;
-
     @Column(name = "country_code")
     private String countryCode;
 
     @Enumerated(EnumType.STRING)
     private Occupation occupation;
-
-    @Column(name = "current_tier")
-    private Integer currentTier;
 
     // 개인 통계 공개 범위 — migration v22 로 컬럼 추가 (NOT NULL DEFAULT 'FRIENDS')
     // columnDefinition 으로 DB default 지정 → ddl-auto=update 환경에서 v22 선적용 없이 배포 시 기존 row ALTER 실패 방지
@@ -71,9 +61,6 @@ public class User {
     @Column(name = "stat_visibility", nullable = false, columnDefinition = "varchar(20) not null default 'FRIENDS'")
     @Builder.Default
     private StatVisibility statVisibility = StatVisibility.FRIENDS;
-
-    @Column(name = "report_time")
-    private LocalTime reportTime;
 
     // FCM registration token — 최대 길이가 문서로 보장되지 않아 512 로 여유 확보 (GROMO-528, migration v23 선적용)
     @Column(length = 512)
@@ -87,7 +74,10 @@ public class User {
     @UpdateTimestamp
     private Instant updatedAt;
 
-    private Instant deletedAt;
+    // 회원탈퇴 삭제 대기 플래그 — 동의 보관기간 경과 후 배치 하드 삭제(retention→purge). GROMO-671
+    @Column(name = "is_deleted", nullable = false)
+    @Builder.Default
+    private boolean isDeleted = false;
 
     // 마지막 활동 시각 — 미접속 복귀 푸시(GROMO-578)의 D+3/7/14 판정 기준. JwtFilter 가 하루 1회 스로틀 갱신.
     // columnDefinition 으로 DB default now() 지정 → stat_visibility(v22) 선례와 동일하게 ddl-auto=update(prod)

@@ -49,10 +49,9 @@ class UserStreakServiceTest {
 
     private UserStreak streak(int count, int longest, LocalDate lastSessionDate) {
         return UserStreak.builder()
-                .id(UUID.randomUUID())
                 .user(USER)
                 .streakCount(count)
-                .longestStreak(longest)
+                .longestStreakCount(longest)
                 .lastSessionDate(lastSessionDate)
                 .build();
     }
@@ -70,7 +69,7 @@ class UserStreakServiceTest {
         UserStreak saved = captor.getValue();
         assertThat(saved.getUser()).isEqualTo(USER);
         assertThat(saved.getStreakCount()).isEqualTo(1);
-        assertThat(saved.getLongestStreak()).isEqualTo(1);
+        assertThat(saved.getLongestStreakCount()).isEqualTo(1);
         assertThat(saved.getLastSessionDate()).isEqualTo(TODAY);
         verify(userActivityEventLogger).log(UserActivityEvent.STREAK_UPDATED,
                 Map.of("streak_count", 1, "longest_streak", 1, "change", "started"));
@@ -85,7 +84,7 @@ class UserStreakServiceTest {
         userStreakService.updateOnSessionComplete(USER, TODAY);
 
         assertThat(existing.getStreakCount()).isEqualTo(1);
-        assertThat(existing.getLongestStreak()).isEqualTo(1);
+        assertThat(existing.getLongestStreakCount()).isEqualTo(1);
         assertThat(existing.getLastSessionDate()).isEqualTo(TODAY);
         // 기존 row 는 더티 체킹으로 반영 — save 미호출
         verify(userStreakRepository, never()).save(any(UserStreak.class));
@@ -102,7 +101,7 @@ class UserStreakServiceTest {
         userStreakService.updateOnSessionComplete(USER, TODAY);
 
         assertThat(existing.getStreakCount()).isEqualTo(4);
-        assertThat(existing.getLongestStreak()).isEqualTo(4);
+        assertThat(existing.getLongestStreakCount()).isEqualTo(4);
         assertThat(existing.getLastSessionDate()).isEqualTo(TODAY);
         verify(userActivityEventLogger).log(UserActivityEvent.STREAK_UPDATED,
                 Map.of("streak_count", 4, "longest_streak", 4, "change", "extended"));
@@ -117,7 +116,7 @@ class UserStreakServiceTest {
         userStreakService.updateOnSessionComplete(USER, TODAY);
 
         assertThat(existing.getStreakCount()).isEqualTo(3);
-        assertThat(existing.getLongestStreak()).isEqualTo(5);
+        assertThat(existing.getLongestStreakCount()).isEqualTo(5);
         assertThat(existing.getLastSessionDate()).isEqualTo(TODAY);
         verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), any());
     }
@@ -131,7 +130,7 @@ class UserStreakServiceTest {
         userStreakService.updateOnSessionComplete(USER, TODAY);
 
         assertThat(existing.getStreakCount()).isEqualTo(1);
-        assertThat(existing.getLongestStreak()).isEqualTo(5);
+        assertThat(existing.getLongestStreakCount()).isEqualTo(5);
         assertThat(existing.getLastSessionDate()).isEqualTo(TODAY);
         verify(userActivityEventLogger).log(UserActivityEvent.STREAK_UPDATED,
                 Map.of("streak_count", 1, "longest_streak", 5, "change", "reset"));
@@ -146,7 +145,7 @@ class UserStreakServiceTest {
         userStreakService.updateOnSessionComplete(USER, TODAY.minusDays(3));
 
         assertThat(existing.getStreakCount()).isEqualTo(3);
-        assertThat(existing.getLongestStreak()).isEqualTo(5);
+        assertThat(existing.getLongestStreakCount()).isEqualTo(5);
         assertThat(existing.getLastSessionDate()).isEqualTo(TODAY);
         verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), any());
     }
@@ -160,7 +159,7 @@ class UserStreakServiceTest {
         userStreakService.updateOnSessionComplete(USER, TODAY);
 
         assertThat(existing.getStreakCount()).isEqualTo(3);
-        assertThat(existing.getLongestStreak()).isEqualTo(5);
+        assertThat(existing.getLongestStreakCount()).isEqualTo(5);
         verify(userActivityEventLogger).log(UserActivityEvent.STREAK_UPDATED,
                 Map.of("streak_count", 3, "longest_streak", 5, "change", "extended"));
     }

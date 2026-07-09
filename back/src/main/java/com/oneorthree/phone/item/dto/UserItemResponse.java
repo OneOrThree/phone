@@ -12,13 +12,13 @@ import java.util.UUID;
 public class UserItemResponse {
     private UUID id;
     private ItemResponse item;
-    private Instant acquiredAt;
+    private Instant createdAt;
 
     public static UserItemResponse from(UserItem userItem) {
         return UserItemResponse.builder()
                 .id(userItem.getId())
                 .item(ItemResponse.from(userItem.getItem()))
-                .acquiredAt(userItem.getAcquiredAt())
+                .createdAt(userItem.getCreatedAt())
                 .build();
     }
 }

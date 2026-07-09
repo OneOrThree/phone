@@ -84,7 +84,7 @@ class ScreenTimeServiceTest {
         screenTimeService.saveScreenTime(USER_ID, request(true, 120));
 
         assertThat(existing.isScreenTimeGoalAchieved()).isTrue();
-        assertThat(existing.getActualScreenTimeMinutes()).isEqualTo(120);
+        assertThat(existing.getTotalScreenTimeMinutes()).isEqualTo(120);
         verify(dailyScreenTimeStatRepository, never()).save(any());
         verify(notificationPort).notify(USER_ID, true);
     }
@@ -105,7 +105,7 @@ class ScreenTimeServiceTest {
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
         assertThat(captor.getValue().isScreenTimeGoalAchieved()).isFalse();
-        assertThat(captor.getValue().getActualScreenTimeMinutes()).isEqualTo(200);
+        assertThat(captor.getValue().getTotalScreenTimeMinutes()).isEqualTo(200);
         verify(notificationPort).notify(USER_ID, false);
     }
 
@@ -124,7 +124,7 @@ class ScreenTimeServiceTest {
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
-        assertThat(captor.getValue().getActualScreenTimeMinutes()).isEqualTo(0);
+        assertThat(captor.getValue().getTotalScreenTimeMinutes()).isEqualTo(0);
     }
 
     // ── country_code 파생 ZoneId 환산 ─────────────────────────────────────
@@ -179,7 +179,7 @@ class ScreenTimeServiceTest {
     void saveScreenTimeFalseToTrueEmitsEvent() {
         User user = normalUser();
         DailyScreenTimeStat existing = DailyScreenTimeStat.builder()
-                .user(user).date(expectedDate()).screenTimeGoalAchieved(false).build();
+                .user(user).date(expectedDate()).isScreenTimeGoalAchieved(false).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyScreenTimeStatRepository.findByUserAndDate(user, expectedDate()))
                 .willReturn(Optional.of(existing));
@@ -195,7 +195,7 @@ class ScreenTimeServiceTest {
     void saveScreenTimeTrueToTrueDoesNotEmit() {
         User user = normalUser();
         DailyScreenTimeStat existing = DailyScreenTimeStat.builder()
-                .user(user).date(expectedDate()).screenTimeGoalAchieved(true).build();
+                .user(user).date(expectedDate()).isScreenTimeGoalAchieved(true).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyScreenTimeStatRepository.findByUserAndDate(user, expectedDate()))
                 .willReturn(Optional.of(existing));

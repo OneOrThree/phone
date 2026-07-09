@@ -101,7 +101,7 @@ class GroupAnnouncementServiceTest {
         verify(groupAnnouncementRepository).save(captor.capture());
         GroupAnnouncement saved = captor.getValue();
         assertThat(saved.getGroup()).isEqualTo(group);
-        assertThat(saved.getAuthor()).isEqualTo(user);
+        assertThat(saved.getUser()).isEqualTo(user);
         assertThat(saved.getTitle()).isEqualTo("제목");
         assertThat(saved.getContent()).isEqualTo("내용");
     }
@@ -199,12 +199,12 @@ class GroupAnnouncementServiceTest {
 
         GroupAnnouncement newer = GroupAnnouncement.builder()
                 .id(UUID.fromString("00000000-0000-0000-0000-0000000000b2"))
-                .group(group).author(user).title("새 공지").content("새 내용")
+                .group(group).user(user).title("새 공지").content("새 내용")
                 .createdAt(Instant.parse("2026-06-20T00:00:00Z"))
                 .build();
         GroupAnnouncement older = GroupAnnouncement.builder()
                 .id(UUID.fromString("00000000-0000-0000-0000-0000000000b3"))
-                .group(group).author(user).title("옛 공지").content("옛 내용")
+                .group(group).user(user).title("옛 공지").content("옛 내용")
                 .createdAt(Instant.parse("2026-06-10T00:00:00Z"))
                 .build();
         given(groupAnnouncementRepository.findByGroupOrderByCreatedAtDesc(group))
@@ -265,7 +265,7 @@ class GroupAnnouncementServiceTest {
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
 
         GroupAnnouncement announcement = GroupAnnouncement.builder()
-                .id(ANNOUNCEMENT_ID).group(group).author(user)
+                .id(ANNOUNCEMENT_ID).group(group).user(user)
                 .title("옛 제목").content("옛 내용").build();
         given(groupAnnouncementRepository.findByIdAndGroup(ANNOUNCEMENT_ID, group))
                 .willReturn(Optional.of(announcement));
@@ -337,7 +337,7 @@ class GroupAnnouncementServiceTest {
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
 
         GroupAnnouncement announcement = GroupAnnouncement.builder()
-                .id(ANNOUNCEMENT_ID).group(group).author(user)
+                .id(ANNOUNCEMENT_ID).group(group).user(user)
                 .title("제목").content("내용").build();
         given(groupAnnouncementRepository.findByIdAndGroup(ANNOUNCEMENT_ID, group))
                 .willReturn(Optional.of(announcement));

@@ -54,7 +54,7 @@ public class ProfileService {
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         // 소프트딜리트된 유저(탈퇴) → 404
-        if (user.getDeletedAt() != null) {
+        if (user.isDeleted()) {
             throw new UserException(UserErrorCode.NOT_FOUND);
         }
 
@@ -91,8 +91,8 @@ public class ProfileService {
                 }
             }
         } else {
-            // 리그 미소속 → User.currentTier fallback (미설정 시 null)
-            currentTier = user.getCurrentTier();
+            // 리그 미소속 → 티어 없음(null). 티어는 league_arena_users.tier_level 로만 도출 (GROMO-671).
+            currentTier = null;
             rank = null;
         }
 
@@ -116,7 +116,7 @@ public class ProfileService {
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         // 소프트딜리트된 유저(탈퇴) → 404
-        if (target.getDeletedAt() != null) {
+        if (target.isDeleted()) {
             throw new UserException(UserErrorCode.NOT_FOUND);
         }
 

@@ -27,7 +27,8 @@ public class NicknameSearchStrategy implements FriendSearchStrategy {
                 .map(u -> FriendSearchResult.builder()
                         .userId(u.getId())
                         .nickname(u.getNickname())
-                        .tierLevel(u.getCurrentTier())
+                        // GROMO-671: User.current_tier 제거 — 티어는 league_arena_users 로만 도출. 검색 결과 티어 미노출(null).
+                        .tierLevel(null)
                         .build())
                 .toList();
     }

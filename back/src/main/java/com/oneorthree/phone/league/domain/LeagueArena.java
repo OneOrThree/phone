@@ -15,6 +15,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -35,8 +37,8 @@ public class LeagueArena {
     @JoinColumn(name = "tier_level", nullable = false)
     private LeagueTierConfig tierConfig;
 
-    @Column(name = "week_start_at", nullable = false)
-    private Instant weekStartAt;
+    @Column(name = "started_at", nullable = false)
+    private Instant startedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -45,6 +47,14 @@ public class LeagueArena {
 
     @Column(name = "ended_at")
     private Instant endedAt;
+
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at")
+    private Instant updatedAt;
 
     // 주간 마감 — 아레나를 ENDED 로 전환하고 마감 시각을 기록한다
     public void end(Instant endedAt) {

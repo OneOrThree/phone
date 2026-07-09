@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * OccupationInfoRepository 통합 테스트.
  *
- * <p>enum @Id(occupations.code) 매핑과 소프트 딜리트 제외 + sort_order 오름차순 조회를
+ * <p>enum @Id(occupations.code) 매핑과 소프트 딜리트 제외 + code(enum name) 오름차순 조회를
  * 실 PostgreSQL(Testcontainers)로 검증한다. (create-drop 이라 시드 없이 직접 저장해 확인.)
  */
 class OccupationInfoRepositoryTest extends RepositoryTestBase {
@@ -24,22 +24,22 @@ class OccupationInfoRepositoryTest extends RepositoryTestBase {
     private OccupationInfoRepository occupationInfoRepository;
 
     @Test
-    @DisplayName("findAllByDeletedAtIsNullOrderBySortOrderAsc — 삭제 제외, sort_order 오름차순")
-    void findsActiveOrderedBySortOrder() {
+    @DisplayName("findAllByDeletedAtIsNullOrderByCodeAsc — 삭제 제외, code(enum name) 오름차순")
+    void findsActiveOrderedByCode() {
         // given: 삽입 순서를 뒤섞고, PATENT_ATTORNEY 는 소프트 딜리트
         occupationInfoRepository.save(OccupationInfo.builder()
-                .code(Occupation.UNIVERSITY).displayName("대학생").sortOrder(1).build());
+                .code(Occupation.UNIVERSITY).displayName("대학생").build());
         occupationInfoRepository.save(OccupationInfo.builder()
-                .code(Occupation.MIDDLE_SCHOOL).displayName("중학생").sortOrder(0).build());
+                .code(Occupation.MIDDLE_SCHOOL).displayName("중학생").build());
         occupationInfoRepository.save(OccupationInfo.builder()
-                .code(Occupation.PATENT_ATTORNEY).displayName("변리사").sortOrder(4)
+                .code(Occupation.PATENT_ATTORNEY).displayName("변리사")
                 .deletedAt(Instant.now()).build());
         occupationInfoRepository.flush();
 
         // when
-        List<OccupationInfo> result = occupationInfoRepository.findAllByDeletedAtIsNullOrderBySortOrderAsc();
+        List<OccupationInfo> result = occupationInfoRepository.findAllByDeletedAtIsNullOrderByCodeAsc();
 
-        // then: 삭제된 PATENT_ATTORNEY 제외, sort_order 오름차순(중학생→대학생), enum @Id 왕복 확인
+        // then: 삭제된 PATENT_ATTORNEY 제외, code 오름차순(MIDDLE_SCHOOL→UNIVERSITY), enum @Id 왕복 확인
         assertThat(result).extracting(OccupationInfo::getCode)
                 .containsExactly(Occupation.MIDDLE_SCHOOL, Occupation.UNIVERSITY);
         assertThat(result).extracting(OccupationInfo::getDisplayName)

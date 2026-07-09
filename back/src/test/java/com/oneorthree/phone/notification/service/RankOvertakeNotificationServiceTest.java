@@ -99,7 +99,7 @@ class RankOvertakeNotificationServiceTest {
     }
 
     private LeagueRankSnapshot snapshot(UUID userId, int rank, LocalDate day) {
-        return LeagueRankSnapshot.builder().arenaId(arenaId).userId(userId).rank(rank).capturedOn(day).build();
+        return LeagueRankSnapshot.builder().arenaId(arenaId).userId(userId).rank(rank).createdAt(day).build();
     }
 
     // 기본 픽스처 stub — 오늘 [r1,r2,me,bottom], 어제 [me,bottom,r1,r2].
@@ -367,7 +367,7 @@ class RankOvertakeNotificationServiceTest {
         // 아레나 4명 전원 오늘 순위 저장 — 순위 1..4, captured_on=오늘
         assertThat(snapshots).hasSize(4);
         assertThat(snapshots).allSatisfy(s -> {
-            assertThat(s.getCapturedOn()).isEqualTo(TODAY);
+            assertThat(s.getCreatedAt()).isEqualTo(TODAY);
             assertThat(s.getArenaId()).isEqualTo(arenaId);
         });
         assertThat(snapshots).extracting(LeagueRankSnapshot::getUserId, LeagueRankSnapshot::getRank)

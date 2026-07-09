@@ -75,9 +75,9 @@ public class EquipmentService {
             payload.put("slot_type", item.getSlotType().name());
         }
         payload.put("item_type", item.getItemType().name());
-        payload.put("rarity", item.getRarity().name());
-        if (userItem.getAcquiredAt() != null) {
-            payload.put("acquired_at", userItem.getAcquiredAt().toEpochMilli());
+        payload.put("grade", item.getGrade());
+        if (userItem.getCreatedAt() != null) {
+            payload.put("acquired_at", userItem.getCreatedAt().toEpochMilli());
         }
         userActivityEventLogger.log(userId.toString(), UserActivityEvent.ITEM_EQUIPPED, payload);
         return response;

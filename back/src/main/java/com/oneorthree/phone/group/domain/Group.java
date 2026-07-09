@@ -27,6 +27,9 @@ import java.util.UUID;
 @AllArgsConstructor
 public class Group {
 
+    // NOTE(671 스코프 밖 — 건드리지 말 것): 챌린지 컬럼(mission_*/window_*/duration_minutes/time_zone)→674,
+    //   code/code_expires_at→672, notice_permission/host_id/started_at/ended_at/bet_type→676.
+
     @Id
     @GeneratedUuidV7
     private UUID id;
@@ -76,6 +79,7 @@ public class Group {
 
     private UUID hostId;
 
+    // GROMO-671: dbml 은 version 을 누락했으나 낙관락(동시성)이 필요해 유지(UserWallet 과 동일 판단).
     @Version
     private Long version;
 
@@ -85,6 +89,9 @@ public class Group {
     private Instant startedAt;
 
     private Instant endedAt;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
 
     public void expireCode() {
         this.code = null;
@@ -116,9 +123,9 @@ public class Group {
         this.password = null;
     }
 
-    @Column(nullable = false)
+    @Column(name = "is_chat_enabled", nullable = false)
     @Builder.Default
-    private boolean chatEnabled = true;
+    private boolean isChatEnabled = true;
 
     @Column
     private Integer chatLimitPerPerson;
@@ -140,7 +147,7 @@ public class Group {
     public void updateSettings(Boolean chatEnabled, Integer chatLimitPerPerson,
             GroupPermissionScope noticePermission, GroupPermissionScope invitePermission) {
         if (chatEnabled != null) {
-            this.chatEnabled = chatEnabled;
+            this.isChatEnabled = chatEnabled;
         }
         if (chatLimitPerPerson != null) {
             this.chatLimitPerPerson = chatLimitPerPerson;
@@ -154,7 +161,7 @@ public class Group {
     }
 
     public void close() {
-        this.status = GroupStatus.CLOSED;
+        this.status = GroupStatus.ENDED;
         this.endedAt = Instant.now();
     }
 }

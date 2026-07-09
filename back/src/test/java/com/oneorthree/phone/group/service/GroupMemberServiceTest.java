@@ -198,7 +198,7 @@ class GroupMemberServiceTest {
 
         // then: 멤버 삭제 + 그룹 종료
         verify(groupMemberRepository).delete(member);
-        assertThat(group.getStatus()).isEqualTo(GroupStatus.CLOSED);
+        assertThat(group.getStatus()).isEqualTo(GroupStatus.ENDED);
     }
 
     @Test
@@ -222,7 +222,7 @@ class GroupMemberServiceTest {
 
         // then: 멤버만 삭제, 그룹은 종료되지 않음
         verify(groupMemberRepository).delete(member);
-        assertThat(group.getStatus()).isNotEqualTo(GroupStatus.CLOSED);
+        assertThat(group.getStatus()).isNotEqualTo(GroupStatus.ENDED);
     }
 
     @Test

@@ -61,7 +61,7 @@ public interface LeagueArenaUserRepository extends JpaRepository<LeagueArenaUser
     // 주간 알림용 — 직전 주차 ENDED 아레나의 확정 결과별 멤버 (GROMO-528).
     // user JOIN FETCH 로 N+1 방지, weekStartAt equality 는 412 배치의 atStartOfDay(KST) 산정과 동일 유래라 안전
     @Query("SELECT m FROM LeagueArenaUser m JOIN FETCH m.user JOIN FETCH m.leagueArena la "
-            + "WHERE la.status = 'ENDED' AND la.weekStartAt = :weekStartAt AND m.result IN :results")
+            + "WHERE la.status = 'ENDED' AND la.startedAt = :weekStartAt AND m.result IN :results")
     List<LeagueArenaUser> findEndedByWeekStartAndResultIn(
             @Param("weekStartAt") Instant weekStartAt,
             @Param("results") Collection<LeagueMemberResult> results);

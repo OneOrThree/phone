@@ -33,12 +33,12 @@ class FriendshipRepositoryTest extends RepositoryTestBase {
     }
 
     private User saveUser(String nickname) {
-        return userRepository.save(User.builder().nickname(nickname).currentTier(1).build());
+        return userRepository.save(User.builder().nickname(nickname).build());
     }
 
     private User saveDeletedUser(String nickname) {
-        return userRepository.save(User.builder().nickname(nickname).currentTier(1)
-                .deletedAt(Instant.now()).build());
+        return userRepository.save(User.builder().nickname(nickname)
+                .isDeleted(true).build());
     }
 
     private Friendship save(User from, User to, FriendshipStatus status) {

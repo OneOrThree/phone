@@ -24,7 +24,7 @@ public interface UserItemRepository extends JpaRepository<UserItem, UUID> {
     // 아이템 지급 (ON CONFLICT DO NOTHING)
     @Modifying
     @Query(value = """
-                INSERT INTO user_items (user_id, item_id, acquired_at)
+                INSERT INTO user_items (user_id, item_id, created_at)
                 VALUES (:userId, :itemId, now())
                 ON CONFLICT (user_id, item_id) DO NOTHING
                 """, nativeQuery = true)
