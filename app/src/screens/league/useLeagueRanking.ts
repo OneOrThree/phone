@@ -36,25 +36,35 @@ export function toRankingMembers(
   });
 }
 
-// 직군 리그 랭킹 — 리그 화면 '직군' 탭·홈 상단바가 공유. 서버(GET /league/me/ranking) 실데이터 전용(GROMO-538).
-// 게스트/미배정/실패 시 빈 배열(mock 폴백 없음) — 화면은 빈 상태로 처리한다.
-// - 직군 리그 = 같은 Occupation 전역 랭킹(?category=). category를 넘겨야 내 아레나가 아닌 직군 랭킹이
-//   온다(GROMO-644). 응답엔 멤버별 직군·티어가 없어, 직군 랭킹을 실제로 받은 경우에 한해 리그 라벨을
-//   내 카테고리로 확정하고(같은 직군 집단), 혼합 직군인 전역 폴백(GROMO-657)엔 라벨을 붙이지 않는다
-//   (모든 멤버를 내 카테고리로 덮어쓰면 전역 랭킹이 '내 직군 리그'로 둔갑 — 그게 곧 GROMO-644).
-//   ※ '전체' 탭의 진짜 전역 랭킹은 별도 useGlobalRanking 이 담당한다(직군 리스트 재사용 금지).
-// - 멤버 tierLevel은 응답에 없어 호출부가 넘긴 tierLevel(내 티어)을 임시로 부여한다(직군 리그는 실제론
-//   교차 티어라 근사값 — 멤버별 티어 노출은 백엔드 확장 후 TODO).
+// 내 이번 주 집중분 — 내 ACTIVE 아레나 로스터에서 뽑는 '권위 값'.
+// 직군 top-100 리스트가 아니라 로스터에서 뽑는 이유: 활성 유저 많은 직군(수능·공무원 등)은 100위 밖이
+// 흔한데, top-100에 내가 없으면 리스트로는 내 분이 0으로 떨어져 TierGuide 진행바·핀 격차가 조용히
+// 틀어진다(GROMO-644 회귀). 아레나 로스터(getMyRanking() = findActiveMembership 기반)는 항상 나를
+// 포함하므로 실제 분을 보장한다(내가 top-100 안이면 리스트의 내 분과 같은 값 — 같은 주간 집계라 일치).
+// 미배정/게스트면 로스터가 비어 0. ※ getMyRank(/league/me/rank)는 호출마다 LEAGUE_RANK_VIEWED를 남겨
+// 화면 포커스마다 부르면 계측이 오염되므로, 로깅 없는 getMyRanking을 재사용한다.
+function pickMyMinutes(roster: LeagueMemberResponse[], userId: string): number {
+  return roster.find((m) => m.userId === userId)?.totalFocusMinutes ?? 0;
+}
+
+// 직군 리그 랭킹 — 리그 화면 '직군' 탭·홈 상단바가 공유. 서버 실데이터 전용(GROMO-538, mock 폴백 없음).
+// - 리스트(ranking): 직군 = 같은 Occupation 전역 상위 100명(GET /league/me/ranking?category=). category를
+//   넘겨야 내 아레나가 아닌 직군 랭킹이 온다(GROMO-644). 비면(신규·직군 미설정) 전역으로 폴백하되
+//   혼합 직군이라 라벨은 붙이지 않는다(GROMO-657). ※ '전체' 탭의 진짜 전역 랭킹은 별도 useGlobalRanking.
+// - myMinutes: 위 top-100 리스트가 아니라 내 아레나 로스터에서 뽑는다(pickMyMinutes) — top-100 밖 유저도
+//   내 실제 주간분이 정확. myLeagueRank는 직군 리스트 내 위치(리그 탭과 동일 원천) — top-100 밖이면 null이라
+//   순위는 '값 없음'으로 정직하게 비운다(홈 배지 숨김). 리그 탭도 나를 못 찾으므로 화면 간 이야기가 일치.
+// - 멤버 tierLevel은 응답에 없어 호출부가 넘긴 tierLevel(내 티어)을 임시 부여(직군은 교차 티어라 근사 — TODO).
 export function useLeagueRanking(tierLevel = 1) {
   const myCategory = useFocusCategory();
   const { nickname: myNickname, userId } = useUser();
 
-  // 서버 멤버 원본(tierLevel 제외 — 렌더 시 파라미터로 주입)과 리그 라벨을 원자적으로 함께 보관한다.
-  // label: 직군 랭킹을 실제로 받았을 때만 내 카테고리, 전역 폴백/직군 미설정이면 null(=전체 리그).
-  // 전체 값이 null이면 미조회/게스트/실패/미배정 → 화면은 빈 상태.
+  // 리스트(직군 top-100)·리그 라벨·내 권위 주간분을 원자적으로 함께 보관한다.
+  // 전체가 null이면 미조회/게스트/실패 → 화면은 빈 상태.
   const [state, setState] = useState<{
     members: Omit<RankedMember, 'tierLevel'>[];
     label: string | null;
+    myMinutes: number;
   } | null>(null);
 
   useFocusEffect(
@@ -66,12 +76,19 @@ export function useLeagueRanking(tierLevel = 1) {
       let cancelled = false;
       (async () => {
         try {
-          // 직군 리그 = 같은 Occupation 전역 랭킹(?category=). 로컬 focusCategory(한글)를 서버 enum으로
-          // 변환해 넘긴다. 미전달 시 서버가 내 아레나 멤버를 돌려줘 '아레나로 표시'되는 버그(GROMO-644).
+          // 직군 top-100(표시용 리스트)과 내 아레나 로스터(권위 있는 내 주간분)를 병렬 조회한다.
+          // occupation 지정 시 res는 직군 top-100이라 나를 포함하지 않을 수 있어 아레나 로스터를 따로 받고,
+          // 미지정 시엔 res가 곧 내 아레나 로스터라 그대로 재사용해 중복 호출을 피한다.
           const occupation = occupationForCategory(myCategory);
-          let res = await getMyRanking(occupation ?? undefined);
-          // 직군 랭킹을 실제로 받아온 경우에만 리그 라벨을 내 카테고리로 확정한다.
+          const [occRanking, arenaRoster] = await Promise.all([
+            getMyRanking(occupation ?? undefined),
+            occupation != null
+              ? getMyRanking()
+              : Promise.resolve<LeagueMemberResponse[] | null>(null),
+          ]);
+          let res = occRanking;
           let label: string | null = occupation != null ? myCategory : null;
+          const roster = arenaRoster ?? occRanking;
           // 직군 랭킹이 비면(신규·직군 미설정, GROMO-657) 전역 랭킹으로 폴백해 화면이 비지 않게 한다.
           // 전역 랭킹은 혼합 직군이라 라벨을 붙이지 않는다(전체 리그로 정직하게 표기).
           if (res.length === 0) {
@@ -79,7 +96,11 @@ export function useLeagueRanking(tierLevel = 1) {
             label = null;
           }
           if (cancelled) return;
-          setState({ label, members: toRankingMembers(res, userId, myNickname, label) });
+          setState({
+            label,
+            members: toRankingMembers(res, userId, myNickname, label),
+            myMinutes: pickMyMinutes(roster, userId),
+          });
         } catch {
           if (!cancelled) setState(null); // 네트워크/인증 실패 → 빈 상태
         }
@@ -95,10 +116,11 @@ export function useLeagueRanking(tierLevel = 1) {
 
   const me = ranking.find((m) => m.userId === MY_USER_ID);
   const myLeagueLabel = state?.label ?? null;
-  const myMinutes = me?.totalFocusMinutes ?? 0;
+  // 내 주간분은 아레나 로스터 기준(직군 top-100 밖이어도 정확). 미배정/게스트면 0.
+  const myMinutes = state?.myMinutes ?? 0;
 
-  // 내 직군 리그 내 순위 (1-base) — 직군 랭킹을 받았고(label!=null) 내가 그 안에 있을 때만.
-  // 전역 폴백/미배정은 '내 직군 리그'가 없으므로 null(홈 상단바는 null이면 순위 배지 숨김).
+  // 내 직군 리그 내 순위 (1-base) — 직군 랭킹을 받았고(label!=null) 내가 그 top-100 안에 있을 때만.
+  // 전역 폴백/미배정/100위 밖은 '내 직군 순위'를 알 수 없어 null(홈 상단바는 null이면 순위 배지 숨김).
   const myLeagueRank =
     me != null && myLeagueLabel != null
       ? ranking.filter((m) => m.exam === myLeagueLabel).findIndex((m) => m.userId === MY_USER_ID) +
