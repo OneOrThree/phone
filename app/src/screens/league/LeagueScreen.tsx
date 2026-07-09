@@ -18,6 +18,7 @@ import { tierByLevel } from '@/constants/tiers';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import { useLeagueRanking } from './useLeagueRanking';
+import { useGlobalRanking } from './useGlobalRanking';
 import { useLeagueMeta } from './useLeagueMeta';
 import { useFriends } from './useFriends';
 import { usePinned } from './usePinned';
@@ -85,6 +86,8 @@ export default function LeagueScreen() {
   const { tier, deadlineLabel } = useLeagueMeta();
   // 리그 랭킹 실데이터 — 홈 상단바와 공유. 멤버 티어는 위 내 티어를 내려받는다(중복 조회 방지).
   const { ranking, myLeagueLabel, myMinutes } = useLeagueRanking(tier.tierLevel ?? 1);
+  // '전체' 탭 전용 진짜 전역 랭킹(직군 리스트 재사용 금지 — GROMO-644).
+  const globalRanking = useGlobalRanking(tier.tierLevel ?? 1);
 
   // 진입(포커스)마다 증가 — 넛지 노출을 '진입당 1회'로 발화시키는 트리거. 랭킹은 비동기 로드라
   // 포커스 시점엔 myIdx가 아직 -1일 수 있어, 데이터가 채워진 뒤 이 seq 기준으로 딱 1회만 쏜다.
@@ -111,17 +114,15 @@ export default function LeagueScreen() {
   } = useFriends();
   const friendIds = new Set(friends.map((f) => f.userId));
 
-  // 현재 리그 — 기본은 내 시험, 드롭다운 선택이 있으면 그 리그
+  // 현재 리그 — 기본은 내 직군, 드롭다운 선택이 있으면 그 리그.
+  // '전체'는 진짜 전역 랭킹(globalRanking), 직군은 내 직군 랭킹을 라벨로 필터한다(GROMO-644).
   const filter = leagueFilter ?? myLeagueLabel ?? LEAGUE_ALL;
   const isAll = filter === LEAGUE_ALL;
-  const visibleRanking = isAll ? ranking : ranking.filter((m) => m.exam === filter);
+  const visibleRanking = isAll ? globalRanking : ranking.filter((m) => m.exam === filter);
   const title = isAll ? '전체 리그' : `${filter} 리그`;
 
-  // 전환 가능한 리그 — 전체 + 내 시험 + 랭킹 데이터에 있는 시험들
-  const leagues = [
-    LEAGUE_ALL,
-    ...new Set([...(myLeagueLabel ? [myLeagueLabel] : []), ...ranking.map((m) => m.exam)]),
-  ];
+  // 전환 가능한 리그 — 전체 + 내 직군(있을 때). 직군 랭킹은 단일 직군이라 라벨은 최대 하나.
+  const leagues = [LEAGUE_ALL, ...(myLeagueLabel ? [myLeagueLabel] : [])];
 
   const myTier = tierByLevel(tier.tierLevel ?? 1);
 
