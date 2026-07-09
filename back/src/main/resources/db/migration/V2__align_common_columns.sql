@@ -91,8 +91,13 @@ ALTER TABLE users ADD COLUMN is_deleted boolean NOT NULL DEFAULT false;
 
 -- currency_transactions: reason 컬럼 제거(+ CHECK 동반 제거) / type CHECK 를 신규 도메인으로 교체.
 --   기존 type CHECK(EARN/SPEND) → SESSION_COMPLETE/STREAK_BONUS/PURCHASE.
-ALTER TABLE currency_transactions DROP COLUMN reason;
+-- 기존 행 정규화(GROMO-671 배포 실패 보정): 구 type CHECK(EARN/SPEND) 를 먼저 제거한 뒤
+--   reason(이미 신규 도메인 값 보유) 을 type 으로 이관하고 reason 을 드롭한다. 이관 없이 신규 CHECK 를
+--   붙이면 레거시 type=EARN/SPEND 행이 위반해 ADD CONSTRAINT 가 23514(check_violation)로 실패한다.
+--   ※ 구 CHECK 제거를 UPDATE 앞에 둬야 신규 도메인 값이 아직 살아있는 구 CHECK 에 걸리지 않는다.
 ALTER TABLE currency_transactions DROP CONSTRAINT currency_transactions_type_check;
+UPDATE currency_transactions SET type = reason;
+ALTER TABLE currency_transactions DROP COLUMN reason;
 ALTER TABLE currency_transactions
     ADD CONSTRAINT currency_transactions_type_check
     CHECK ((type)::text = ANY ((ARRAY['SESSION_COMPLETE'::character varying, 'STREAK_BONUS'::character varying, 'PURCHASE'::character varying])::text[]));
@@ -105,6 +110,9 @@ ALTER TABLE items RENAME CONSTRAINT items_price_type_check TO items_payment_type
 
 -- group_challenges: status CHECK ACTIVE/ENDED → ACTIVE/INACTIVE.
 ALTER TABLE group_challenges DROP CONSTRAINT group_challenges_status_check;
+-- 기존 행 정규화(GROMO-671 배포 실패 보정): 신규 도메인(ACTIVE/INACTIVE) 밖의 모든 레거시 값을 INACTIVE 로
+--   이관(구 도메인 ENDED 포함 — NOT IN 이라 예상 밖 값도 포괄). 구 CHECK 제거 후 UPDATE 해야 구 CHECK 에 안 걸린다.
+UPDATE group_challenges SET status = 'INACTIVE' WHERE status NOT IN ('ACTIVE', 'INACTIVE');
 ALTER TABLE group_challenges
     ADD CONSTRAINT group_challenges_status_check
     CHECK ((status)::text = ANY ((ARRAY['ACTIVE'::character varying, 'INACTIVE'::character varying])::text[]));
