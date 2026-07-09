@@ -107,6 +107,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSFamilyControlsUsageDescription</key>
+	<string>폰 사용 시간을 측정해 스크린타임 목표 달성 확인과 사용 통계 제공에 사용합니다.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>RCTNewArchEnabled</key>

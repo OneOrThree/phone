@@ -40,9 +40,9 @@ problem→cause→fix, build/deploy notes, checklist). Promote it into "Doc navi
 ## Stack
 
 - React Native 0.81 / Expo SDK 54 / React 19, written in **TypeScript** (`strict` mode).
-- React Navigation — bottom tab navigator (`홈` / `그룹` / `상점` / `마이페이지`), with
-  `FocusCategory` / `FocusMode` / `GroupDetail` as hidden (no tab button) screens and
-  `MemberCalendar` as a root-stack transparent modal.
+- React Navigation — bottom tab navigator (`홈` / `리그` / `그룹`(커밍순) / `전체`), with
+  Stats / UsageDetail / Focus\* / Friend\* / League\* / Settings\* screens registered on the
+  root stack (tab bar hidden).
 - AsyncStorage for local persistence; Kakao + Apple login; JWT auth.
 - HTTP via **axios** (`@/services/api`).
 
@@ -62,12 +62,13 @@ problem→cause→fix, build/deploy notes, checklist). Promote it into "Doc navi
 ## Architecture
 
 State is managed with the **Context API + hooks** (no Redux/MobX/Zustand). Providers are
-nested in `src/App.tsx`: `UserProvider › CoinProvider › EquipmentProvider › FocusProvider`,
-consumed via `useUser()` / `useCoins()` / `useEquipment()` / `useFocus()`. State is persisted
-to AsyncStorage and synced to the backend through the axios client.
+nested in `src/App.tsx`: `UserProvider › CoinProvider › EquipmentProvider › FocusProvider ›
+SubjectProvider`, consumed via `useUser()` / `useCoins()` / `useEquipment()` / `useFocus()` /
+`useSubjects()`. State is persisted to AsyncStorage and synced to the backend through the
+axios client.
 
-`App.tsx` only does auth/onboarding gating + provider nesting; the navigators live in
-`src/navigation/RootNavigator.tsx`.
+`App.tsx` only does auth/onboarding gating + provider nesting (+ app-shell components
+`PushGate`, `PendingGoalApplier`); the navigators live in `src/navigation/RootNavigator.tsx`.
 
 ---
 
@@ -91,15 +92,16 @@ app/
 └── src/
     ├── App.tsx              # auth gating + providers + <RootNavigator/>
     ├── assets/              # images, fonts
-    ├── components/          # reusable UI (character/ = static character image)
-    ├── constants/           # design tokens — theme.ts (T, inkBox)
-    ├── hooks/               # custom hooks (currently empty)
-    ├── navigation/          # RootNavigator.tsx (NavigationContainer + Tab/Stack)
-    ├── screens/             # one file per screen (group/ = group-detail tabs)
-    ├── services/            # external integrations — api.ts (axios), ScreenTimeModule.ts
-    ├── store/               # global state (Context API): User/Coin/Equipment/Focus
-    ├── types/               # shared TS types — api.ts, navigation.ts, storage.ts
-    └── utils/               # pure helpers — localDate.ts, challengeTime.ts
+    ├── components/          # cross-feature UI (TabBar, DrumPicker, character/) + app shell (PushGate, PendingGoalApplier)
+    ├── constants/           # design tokens — theme.ts (T, inkBox), focusCategories.ts, tiers.ts
+    ├── hooks/               # cross-feature hooks only — useFocusCategory.ts
+    ├── navigation/          # RootNavigator.tsx (NavigationContainer + Tab/Stack), navigationRef, types
+    ├── screens/             # screens + per-feature folders (focus/, league/, onboarding/, settings/, stats/, group/)
+    ├── services/            # API·external — api.ts (axios), *Api.ts, ScreenTimeModule.ts, analytics, push
+    ├── store/               # global state (Context API): User/Coin/Equipment/Focus/Subject
+    ├── types/               # shared TS types — api.ts, navigation.ts, storage.ts, dto/
+    ├── utils/               # cross-feature pure helpers — localDate.ts, challengeTime.ts, deviceLocale.ts
+    └── legacy/              # frozen v1 code (reference only — never import from live code)
 ```
 
 ### Key modules
@@ -114,8 +116,8 @@ app/
   don't hardcode colors or border styles.
 - `src/components/character/` — `CharacterImage.tsx` renders the single static character
   image (`assets/character.png`).
-- `src/types/` — `api.ts` (DTOs), `navigation.ts` (param lists + screen-prop helpers + global
-  `ReactNavigation.RootParamList` augmentation), `storage.ts` (`STORAGE_KEYS`).
+- `src/types/` — `api.ts` (공용 DTOs), `storage.ts` (`STORAGE_KEYS`), `dto/` (feature DTOs).
+  네비게이션 param lists + screen-prop helpers는 `src/navigation/types.ts`.
 
 ---
 
@@ -159,17 +161,29 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 
 ### Folders
 
-| Folder                      | Purpose                             | Examples                                |
-| --------------------------- | ----------------------------------- | --------------------------------------- |
-| `src/screens/`              | tab/navigation-level screens        | `Homescreen.tsx`, `MyPageScreen.tsx`    |
-| `src/components/`           | reusable UI components              | `DrumPicker.tsx`, `MorphingTabBar.tsx`  |
-| `src/components/character/` | static character image              | `CharacterImage.tsx`                    |
-| `src/store/`                | global state (Context API)          | `UserContext.tsx`, `CoinContext.tsx`    |
-| `src/services/`             | API / native integrations           | `api.ts`, `ScreenTimeModule.ts`         |
-| `src/constants/`            | design tokens / shared style values | `theme.ts`                              |
-| `src/utils/`                | pure utility functions              | `localDate.ts`, `challengeTime.ts`      |
-| `src/types/`                | shared TypeScript types             | `api.ts`, `navigation.ts`, `storage.ts` |
-| `src/assets/`               | static resources                    | images, fonts, SVG                      |
+| Folder                      | Purpose                                    | Examples                                         |
+| --------------------------- | ------------------------------------------ | ------------------------------------------------ |
+| `src/screens/`              | screens + per-feature folders (colocation) | `HomeScreen.tsx`, `focus/`, `league/`            |
+| `src/components/`           | cross-feature UI + app shell               | `TabBar.tsx`, `DrumPicker.tsx`, `PushGate.tsx`   |
+| `src/components/character/` | static character image                     | `CharacterImage.tsx`                             |
+| `src/hooks/`                | cross-feature hooks only                   | `useFocusCategory.ts`                            |
+| `src/store/`                | global state (Context API)                 | `UserContext.tsx`, `SubjectContext.tsx`          |
+| `src/services/`             | API / native / external integrations       | `api.ts`, `friendsApi.ts`, `ScreenTimeModule.ts` |
+| `src/constants/`            | design tokens / shared style values        | `theme.ts`, `focusCategories.ts`                 |
+| `src/utils/`                | cross-feature pure utility functions       | `localDate.ts`, `challengeTime.ts`               |
+| `src/types/`                | shared TypeScript types                    | `api.ts`, `storage.ts`, `dto/`                   |
+| `src/assets/`               | static resources                           | images, fonts, SVG                               |
+| `src/legacy/`               | frozen v1 code (reference/restore only)    | `screens/GroupListScreen.tsx`                    |
+
+**배치 규칙 (하이브리드 콜로케이션)** — 파일을 어디에 둘지는 아래 규칙으로 판단한다:
+
+- **화면 전용** 훅·유틸·컴포넌트는 해당 화면의 feature 폴더에 콜로케이션한다
+  (예: `screens/league/useLeagueRanking.ts`, `screens/focus/format.ts`,
+  `screens/onboarding/components/StepScaffold.tsx`).
+- **2곳 이상의 feature에서 쓰이는 순간** 전역 폴더(`hooks/`·`utils/`·`components/`)로 승격한다.
+- **API 모듈(`*Api.ts`)은 사용처 수와 무관하게 항상 `src/services/`** — 화면 폴더에 두지 않는다.
+- `src/legacy/`는 v1 보존용이다. **라이브 코드에서 `@/legacy` import 금지** — 참조·복원
+  용도로만 남겨둔 것이며, 신규 코드가 필요로 하면 legacy 밖으로 꺼내 현행화한 뒤 쓴다.
 
 ### Styling
 
@@ -183,12 +197,12 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 
 ### Navigation
 
-- Visible bottom tabs (via the custom `MorphingTabBar`): `홈` | `그룹` | `마이페이지`.
-- Registered but hidden (`tabBarButton: () => null`, reached via navigation): `상점`,
-  `FocusCategoryScreen`, `FocusMode`, `GroupDetail`. Root stack also has `MemberCalendar`
-  (transparent modal).
+- Visible bottom tabs (via the custom `TabBar`): `홈` | `리그` | `그룹`(커밍순) | `전체`.
+- Root-stack screens (tab bar hidden, reached via navigation): `Stats`, `UsageDetail`,
+  `FocusCategory`/`FocusSession`/`FocusResult`, `FriendAdd`/`FriendProfile`/`TierGuide`/
+  `LeagueResult`, `Settings*` 계열.
 - All navigator setup is in `src/navigation/RootNavigator.tsx`. Route names + params are typed in
-  `src/types/navigation.ts`.
+  `src/navigation/types.ts`.
 
 ### API
 
@@ -213,7 +227,8 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 
 - **Location**: `src/store/`. **Pattern**: Context API + Provider; each file exports a provider and a `use…()` hook.
 - **Provider order** (in `src/App.tsx`, top → bottom): `UserProvider` → `CoinProvider` →
-  `EquipmentProvider` → `FocusProvider` → `<RootNavigator/>`.
+  `EquipmentProvider` → `FocusProvider` → `SubjectProvider` → (`PushGate` ·
+  `PendingGoalApplier` ·) `<RootNavigator/>`.
 
 ---
 
@@ -346,4 +361,4 @@ running the app (simulator/device) or an `npx expo export` bundle check.
 
 ---
 
-**Last updated**: 2026-06-23
+**Last updated**: 2026-07-08 (src 구조 표준화 — v2 해체·legacy 격리·하이브리드 배치 규칙)

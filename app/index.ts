@@ -2,7 +2,7 @@ import { LogBox } from 'react-native';
 import { registerRootComponent } from 'expo';
 import { initializeKakaoSDK } from '@react-native-kakao/core';
 import messaging from '@react-native-firebase/messaging';
-import App from './src/v2/App';
+import App from './src/App';
 
 // RN Firebase v22 namespaced API deprecation 경고 억제 — 공식 silence 플래그(모듈러 마이그레이션 전까지).
 const g = globalThis as { RNFB_SILENCE_MODULAR_DEPRECATION_WARNINGS?: boolean };
