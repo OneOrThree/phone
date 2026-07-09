@@ -44,8 +44,8 @@ public class InventoryControllerTest {
                 .id(ITEM_ID)
                 .name("테스트 모자")
                 .slotType("HAT")
-                .rarity("COMMON")
-                .assetAddress("https://asset.example.com/hat.glb")
+                .grade("COMMON")
+                .assetUrl("https://asset.example.com/hat.glb")
                 .build();
 
         UserItemResponse userItemResponse = UserItemResponse.builder()

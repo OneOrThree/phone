@@ -60,11 +60,11 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
 
     private LeagueArena saveActiveArena(LeagueTierConfig cfg) {
         return leagueArenaRepository.save(LeagueArena.builder()
-                .tierConfig(cfg).weekStartAt(LAST_WEEK_START).status(LeagueArenaStatus.ACTIVE).build());
+                .tierConfig(cfg).startedAt(LAST_WEEK_START).status(LeagueArenaStatus.ACTIVE).build());
     }
 
     private User saveUser(String nickname) {
-        return userRepository.save(User.builder().nickname(nickname).currentTier(1).build());
+        return userRepository.save(User.builder().nickname(nickname).build());
     }
 
     private LeagueArenaUser saveMember(LeagueArena arena, User user, int focusMinutes) {
@@ -281,7 +281,7 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
         assertThat(arena.getEndedAt()).isEqualTo(BATCH_NOW);
         List<LeagueArena> actives = leagueArenaRepository.findByStatus(LeagueArenaStatus.ACTIVE);
         assertThat(actives).hasSize(1);
-        assertThat(actives.get(0).getWeekStartAt()).isEqualTo(BATCH_NOW);
+        assertThat(actives.get(0).getStartedAt()).isEqualTo(BATCH_NOW);
         assertThat(actives.get(0).getEndedAt()).isNull();
         assertThat(summary.weekStartAt()).isEqualTo(BATCH_NOW);
         assertThat(summary.createdArenaCount()).isEqualTo(1);
@@ -301,7 +301,7 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
         List<LeagueArena> actives = leagueArenaRepository.findByStatus(LeagueArenaStatus.ACTIVE);
         assertThat(actives).hasSize(1);
         // 새 아레나의 weekStartAt 은 "다음 주 월요일"이 아닌 이번 주 월요일 00:00 KST(BATCH_NOW) 이어야 한다
-        assertThat(actives.get(0).getWeekStartAt()).isEqualTo(BATCH_NOW);
+        assertThat(actives.get(0).getStartedAt()).isEqualTo(BATCH_NOW);
     }
 
     // ── (6) 0 리셋(신규 row) + 이력 보존 ─────────────────────────────────
@@ -409,32 +409,8 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
                 .isEqualTo(LeagueErrorCode.TIER_CONFIG_NOT_FOUND);
     }
 
-    // ── (10) User.currentTier 갱신 ───────────────────────────────────────
-
-    @Test
-    @DisplayName("User.currentTier 갱신 — 재배정 후 승격·유지·강등 유저의 currentTier 가 새 티어로 각각 갱신됨")
-    void reassignNextWeek_updatesUserCurrentTier() {
-        // 티어 1·2·3 설정 (2티어: promote=1, relegate=1)
-        saveTierConfig(1, 30, 0, 0, 0);
-        LeagueTierConfig cfg2 = saveTierConfig(2, 30, 1, 1, 0);
-        saveTierConfig(3, 30, 0, 0, 0);
-        LeagueArena arena = saveActiveArena(cfg2);
-
-        // 세 유저 모두 currentTier=2 로 시작
-        User promotedUser = userRepository.save(User.builder().nickname("promoted").currentTier(2).build());
-        User stayUser = userRepository.save(User.builder().nickname("stay").currentTier(2).build());
-        User relegatedUser = userRepository.save(User.builder().nickname("relegated").currentTier(2).build());
-        saveMember(arena, promotedUser, 300);  // 1위 → 승격 → 3티어
-        saveMember(arena, stayUser, 200);      // 2위 → 유지 → 2티어
-        saveMember(arena, relegatedUser, 100); // 3위 → 강등 → 1티어
-
-        leagueBatchService.runWeeklyBatch(BATCH_NOW);
-
-        // 재배정된 티어가 User.currentTier 에 반영돼야 한다
-        assertThat(userRepository.findById(promotedUser.getId()).orElseThrow().getCurrentTier()).isEqualTo(3);
-        assertThat(userRepository.findById(stayUser.getId()).orElseThrow().getCurrentTier()).isEqualTo(2);
-        assertThat(userRepository.findById(relegatedUser.getId()).orElseThrow().getCurrentTier()).isEqualTo(1);
-    }
+    // ── (10) [삭제됨] User.currentTier 갱신 — GROMO-671 로 User.current_tier 컬럼 제거.
+    //          티어는 league_arena_users.tier_level 로만 도출되므로 배치의 User 티어 미러링 검증도 삭제.
 
     // ── [SKIP] (11) 트랜잭션 원자성 — 부분 커밋 없음 ─────────────────────
     // RepositoryTestBase 가 @Transactional 을 클래스 레벨에 선언하므로, 서비스의

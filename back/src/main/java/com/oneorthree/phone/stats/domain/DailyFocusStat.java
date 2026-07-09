@@ -54,12 +54,15 @@ public class DailyFocusStat {
     @Builder.Default
     private int sessionCount = 0;
 
+    // GROMO-671(커밋2): distraction_count(횟수) → total_distraction_seconds(초) 의미 변경(기존 값 폐기).
+    // 세션의 누적 방해 초(FocusSession.totalDistractionSeconds)를 일별로 누적한다.
     @Builder.Default
-    private int distractionCount = 0;
+    @Column(name = "total_distraction_seconds", nullable = false)
+    private int totalDistractionSeconds = 0;
 
     @Builder.Default
-    @Column(nullable = false)
-    private boolean focusGoalAchieved = false;
+    @Column(name = "is_focus_time_goal_achieved", nullable = false)
+    private boolean isFocusTimeGoalAchieved = false;
 
     @UpdateTimestamp
     private Instant updatedAt;

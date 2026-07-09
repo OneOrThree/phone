@@ -381,14 +381,14 @@ class FocusServiceTest {
         FocusTag tag = FocusTag.builder().id(TAG_ID).user(user).name("공부").build();
         FocusSession withTag = FocusSession.builder()
                 .id(UUID.fromString("00000000-0000-0000-0000-0000000000bb"))
-                .user(user).focusTag(tag).subject("수학")
+                .user(user).focusTag(tag)
                 .startedAt(START).endedAt(END)
-                .distractionCount(2).totalDistractionSeconds(30).build();
+                .totalDistractionSeconds(30).build();
         FocusSession withoutTag = FocusSession.builder()
                 .id(LAST_ID)
-                .user(user).focusTag(null).subject("영어")
+                .user(user).focusTag(null)
                 .startedAt(START).endedAt(END)
-                .distractionCount(0).totalDistractionSeconds(0).build();
+                .totalDistractionSeconds(0).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         // 첫 페이지(cursor=null) — id DESC 정렬 결과 2건, 다음 페이지 있음
         given(focusSessionRepository.findSessionsByCursor(
@@ -399,7 +399,7 @@ class FocusServiceTest {
 
         assertThat(result.content()).hasSize(2);
         assertThat(result.content().get(0).getFocusTagId()).isEqualTo(TAG_ID);
-        assertThat(result.content().get(0).getSubject()).isEqualTo("수학");
+        assertThat(result.content().get(0).getTotalDistractionSeconds()).isEqualTo(30);
         assertThat(result.content().get(1).getFocusTagId()).isNull();
         assertThat(result.size()).isEqualTo(20);
         assertThat(result.hasNext()).isTrue();
@@ -411,7 +411,7 @@ class FocusServiceTest {
     void getFocusSessionsLastPage() {
         User user = User.builder().id(USER_ID).build();
         FocusSession only = FocusSession.builder()
-                .id(LAST_ID).user(user).subject("영어")
+                .id(LAST_ID).user(user)
                 .startedAt(START).endedAt(END).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findSessionsByCursor(
@@ -489,7 +489,7 @@ class FocusServiceTest {
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(TAG_ID, "수학", START, END, 2, 30, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(TAG_ID, START, END, 30);
 
         // when
         focusService.saveFocusSession(USER_ID, body);
@@ -500,10 +500,8 @@ class FocusServiceTest {
         FocusSession saved = captor.getValue();
         assertThat(saved.getUser()).isEqualTo(user);
         assertThat(saved.getFocusTag()).isEqualTo(tag);
-        assertThat(saved.getSubject()).isEqualTo("수학");
         assertThat(saved.getStartedAt()).isEqualTo(START);
         assertThat(saved.getEndedAt()).isEqualTo(END);
-        assertThat(saved.getDistractionCount()).isEqualTo(2);
         assertThat(saved.getTotalDistractionSeconds()).isEqualTo(30);
     }
 
@@ -521,7 +519,7 @@ class FocusServiceTest {
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
         given(leagueArenaUserRepository.findByUserAndArenaStatusForUpdate(eq(USER_ID), eq(LeagueArenaStatus.ACTIVE)))
                 .willReturn(Optional.of(member));
-        FocusSessionRequest body = new FocusSessionRequest(null, "수학", START, END, 0, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
 
         // when: START~END = 60분
         focusService.saveFocusSession(USER_ID, body);
@@ -539,7 +537,7 @@ class FocusServiceTest {
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(null, "수학", START, END, 0, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
 
         // when & then: 예외 없이 완료 (리그 조회는 하되 empty → 스킵)
         focusService.saveFocusSession(USER_ID, body);
@@ -556,7 +554,7 @@ class FocusServiceTest {
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(null, "영어", START, END, 0, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
 
         // when
         focusService.saveFocusSession(USER_ID, body);
@@ -572,7 +570,7 @@ class FocusServiceTest {
     void saveFocusSessionUserNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(null, "영어", START, END, 0, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
 
         // when & then
         assertThatThrownBy(() -> focusService.saveFocusSession(USER_ID, body))
@@ -588,7 +586,7 @@ class FocusServiceTest {
         // given: 유저는 존재하지만 startedAt/endedAt 이 null
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        FocusSessionRequest body = new FocusSessionRequest(null, "영어", null, null, 0, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, null, null, 0);
 
         // when & then
         assertThatThrownBy(() -> focusService.saveFocusSession(USER_ID, body))
@@ -602,7 +600,7 @@ class FocusServiceTest {
         // given: endedAt < startedAt
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        FocusSessionRequest body = new FocusSessionRequest(null, "영어", END, START, 0, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, END, START, 0);
 
         // when & then
         assertThatThrownBy(() -> focusService.saveFocusSession(USER_ID, body))
@@ -619,7 +617,7 @@ class FocusServiceTest {
         FocusTag tag = FocusTag.builder().id(TAG_ID).user(other).name("공부").build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
-        FocusSessionRequest body = new FocusSessionRequest(TAG_ID, "수학", START, END, 2, 30, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(TAG_ID, START, END, 30);
 
         // when & then
         assertThatThrownBy(() -> focusService.saveFocusSession(USER_ID, body))
@@ -642,7 +640,7 @@ class FocusServiceTest {
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(TAG_ID, "수학", START, END, 2, 30, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(TAG_ID, START, END, 30);
 
         // when
         focusService.saveFocusSession(USER_ID, body);
@@ -650,7 +648,7 @@ class FocusServiceTest {
         // then
         verify(userActivityEventLogger).log(UserActivityEvent.FOCUS_SESSION_COMPLETED,
                 Map.of("duration_seconds", 3600L,
-                        "distraction_count", 2,
+                        "total_distraction_seconds", 30,
                         "has_tag", true,
                         "focus_tag_id", TAG_ID.toString()));
     }
@@ -664,7 +662,7 @@ class FocusServiceTest {
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(null, "영어", START, END, 0, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
 
         // when
         focusService.saveFocusSession(USER_ID, body);
@@ -672,7 +670,7 @@ class FocusServiceTest {
         // then: focus_tag_id 키 자체가 없음
         verify(userActivityEventLogger).log(UserActivityEvent.FOCUS_SESSION_COMPLETED,
                 Map.of("duration_seconds", 3600L,
-                        "distraction_count", 0,
+                        "total_distraction_seconds", 0,
                         "has_tag", false));
     }
 
@@ -687,7 +685,7 @@ class FocusServiceTest {
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(null, "운동", startedAt, endedAt, 0, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, startedAt, endedAt, 0);
 
         // when
         focusService.saveFocusSession(USER_ID, body);
@@ -705,7 +703,7 @@ class FocusServiceTest {
         FocusTag tag = FocusTag.builder().id(TAG_ID).user(other).name("공부").build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
-        FocusSessionRequest body = new FocusSessionRequest(TAG_ID, "수학", START, END, 2, 30, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(TAG_ID, START, END, 30);
 
         // when & then
         assertThatThrownBy(() -> focusService.saveFocusSession(USER_ID, body))
@@ -717,7 +715,7 @@ class FocusServiceTest {
 
     /** T1: 신규 날짜 첫 세션 → DailyFocusStat 신규 insert, 집계 정합 검증 */
     @Test
-    @DisplayName("T1: 신규 날짜 첫 세션 → DailyFocusStat 신규 insert, totalFocusMinutes/sessionCount/distractionCount 정합")
+    @DisplayName("T1: 신규 날짜 첫 세션 → DailyFocusStat 신규 insert, totalFocusMinutes/sessionCount/totalDistractionSeconds 정합")
     void saveFocusStat_newDate_firstSession_createsNewRow() {
         // START=01:00Z, END=02:00Z → 60분, endedAt UTC date = 2026-06-23
         User user = User.builder().id(USER_ID).build();
@@ -726,7 +724,7 @@ class FocusServiceTest {
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(null, "공부", START, END, 2, 30, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 30);
 
         focusService.saveFocusSession(USER_ID, body);
 
@@ -735,24 +733,24 @@ class FocusServiceTest {
         DailyFocusStat stat = captor.getValue();
         assertThat(stat.getTotalFocusSeconds()).isEqualTo(60 * 60);
         assertThat(stat.getSessionCount()).isEqualTo(1);
-        assertThat(stat.getDistractionCount()).isEqualTo(2);
-        assertThat(stat.isFocusGoalAchieved()).isFalse();
+        assertThat(stat.getTotalDistractionSeconds()).isEqualTo(30);
+        assertThat(stat.isFocusTimeGoalAchieved()).isFalse();
     }
 
-    /** T2: 같은 날 두 번째 세션 → 기존 row 누적(totalFocusMinutes 합산, sessionCount+1, distractionCount 합산) */
+    /** T2: 같은 날 두 번째 세션 → 기존 row 누적(totalFocusMinutes 합산, sessionCount+1, totalDistractionSeconds 합산) */
     @Test
-    @DisplayName("T2: 같은 날 두 번째 세션 → 기존 row 누적 — totalFocusMinutes/sessionCount/distractionCount 합산")
+    @DisplayName("T2: 같은 날 두 번째 세션 → 기존 row 누적 — totalFocusMinutes/sessionCount/totalDistractionSeconds 합산")
     void saveFocusStat_sameDay_secondSession_accumulates() {
-        // 기존 30분·1세션·1방해 row 존재, 60분 세션 추가 → 90분·2세션·4방해
+        // 기존 30분·1세션·방해 1초 row 존재, 60분·방해 0초 세션 추가 → 90분·2세션·방해 1초
         User user = User.builder().id(USER_ID).build();
         DailyFocusStat existing = DailyFocusStat.builder()
                 .user(user).date(LocalDate.of(2026, 6, 23))
-                .totalFocusSeconds(30 * 60).sessionCount(1).distractionCount(1).build();
+                .totalFocusSeconds(30 * 60).sessionCount(1).totalDistractionSeconds(1).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.of(existing));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(null, "독서", START, END, 3, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
 
         focusService.saveFocusSession(USER_ID, body);
 
@@ -760,37 +758,34 @@ class FocusServiceTest {
         verify(dailyFocusStatRepository, never()).save(any(DailyFocusStat.class));
         assertThat(existing.getTotalFocusSeconds()).isEqualTo(90 * 60);
         assertThat(existing.getSessionCount()).isEqualTo(2);
-        assertThat(existing.getDistractionCount()).isEqualTo(4);
+        assertThat(existing.getTotalDistractionSeconds()).isEqualTo(1);
     }
 
     /**
-     * T3 (GROMO-643 회귀): 집계 날짜는 endedAt UTC date 가 아니라 클라가 보낸 로컬 날짜(localDate)로 버킷팅된다.
-     * 시나리오: KST 07-07 08:00 세션 → endedAt UTC = 07-06 23:00Z (UTC date 06). 클라 localDate = 07-07(KST).
-     * 과거 버그: endedAt UTC(07-06)로 귀속돼 KST '오늘'(07-07) 통계에서 사라짐 → 이제 localDate(07-07)로 귀속.
+     * T3 (GROMO-671 커밋3): local_date 컬럼 제거로 집계 날짜는 endedAt(UTC) 의 날짜로 버킷팅된다.
+     * 시나리오: endedAt = 07-06 23:00Z → endedAt UTC date = 07-06 로 귀속(클라 로컬 날짜 개념 제거됨).
      */
     @Test
-    @DisplayName("T3(GROMO-643): 집계 날짜는 endedAt UTC 가 아닌 클라 localDate 로 귀속 (KST 오전 세션 누락 회귀)")
-    void saveFocusStat_bucketsByClientLocalDate_notEndedAtUtc() {
-        Instant startedAt = Instant.parse("2026-07-06T22:30:00Z"); // KST 07-07 07:30
-        Instant endedAt = Instant.parse("2026-07-06T23:00:00Z");   // KST 07-07 08:00 — endedAt UTC date=07-06
-        LocalDate clientLocalDate = LocalDate.of(2026, 7, 7);       // 클라(KST) 로컬 날짜
-        LocalDate endedAtUtcDate = LocalDate.of(2026, 7, 6);        // 과거 버그가 귀속하던 날짜
+    @DisplayName("T3(GROMO-671): 집계 날짜는 endedAt UTC date 로 귀속 (local_date 제거)")
+    void saveFocusStat_bucketsByEndedAtUtcDate() {
+        Instant startedAt = Instant.parse("2026-07-06T22:30:00Z");
+        Instant endedAt = Instant.parse("2026-07-06T23:00:00Z");   // endedAt UTC date = 07-06
+        LocalDate endedAtUtcDate = LocalDate.of(2026, 7, 6);
 
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(clientLocalDate)))
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(endedAtUtcDate)))
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(null, "운동", startedAt, endedAt, 0, 0, clientLocalDate);
+        FocusSessionRequest body = new FocusSessionRequest(null, startedAt, endedAt, 0);
 
         focusService.saveFocusSession(USER_ID, body);
 
-        // 클라 localDate(07-07)로 귀속 — endedAt UTC date(07-06)로는 조회조차 안 함
+        // endedAt UTC date(07-06)로 귀속
         ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
         verify(dailyFocusStatRepository).save(captor.capture());
-        assertThat(captor.getValue().getDate()).isEqualTo(clientLocalDate);
-        verify(dailyFocusStatRepository, never()).findByUserAndDateForUpdate(user, endedAtUtcDate);
+        assertThat(captor.getValue().getDate()).isEqualTo(endedAtUtcDate);
     }
 
     /**
@@ -813,7 +808,7 @@ class FocusServiceTest {
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         focusService.saveFocusSession(USER_ID,
-                new FocusSessionRequest(null, "쪽지시험", s1Start, s1End, 0, 0, date));
+                new FocusSessionRequest(null, s1Start, s1End, 0));
 
         ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
         verify(dailyFocusStatRepository).save(captor.capture());
@@ -824,7 +819,7 @@ class FocusServiceTest {
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(date)))
                 .willReturn(Optional.of(inserted));
         focusService.saveFocusSession(USER_ID,
-                new FocusSessionRequest(null, "쪽지시험", s1Start, s1End, 0, 0, date));
+                new FocusSessionRequest(null, s1Start, s1End, 0));
 
         assertThat(inserted.getTotalFocusSeconds()).isEqualTo(60);
     }
@@ -842,14 +837,14 @@ class FocusServiceTest {
         UserFocusTimeSettings settings = UserFocusTimeSettings.builder()
                 .userId(USER_ID).dailyFocusTimeGoalMinutes(60).build();
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
-        FocusSessionRequest body = new FocusSessionRequest(null, "공부", START, END, 0, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
 
         focusService.saveFocusSession(USER_ID, body);
 
         ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
         verify(dailyFocusStatRepository).save(captor.capture());
         assertThat(captor.getValue().getTotalFocusSeconds()).isEqualTo(60 * 60);
-        assertThat(captor.getValue().isFocusGoalAchieved()).isTrue();
+        assertThat(captor.getValue().isFocusTimeGoalAchieved()).isTrue();
     }
 
     /** T5: UserFocusTimeSettings row 없음(목표 미설정) → 예외 없이 정상 완료, focusGoalAchieved=false 유지 */
@@ -863,13 +858,13 @@ class FocusServiceTest {
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         // 목표 설정 row 없음
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(null, "공부", START, END, 0, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
 
         focusService.saveFocusSession(USER_ID, body);
 
         ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
         verify(dailyFocusStatRepository).save(captor.capture());
-        assertThat(captor.getValue().isFocusGoalAchieved()).isFalse();
+        assertThat(captor.getValue().isFocusTimeGoalAchieved()).isFalse();
     }
 
     /** T6: dailyFocusTimeGoalMinutes=0 → 플래그 세팅 스킵, focusGoalAchieved=false */
@@ -885,33 +880,33 @@ class FocusServiceTest {
         UserFocusTimeSettings settings = UserFocusTimeSettings.builder()
                 .userId(USER_ID).dailyFocusTimeGoalMinutes(0).build();
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
-        FocusSessionRequest body = new FocusSessionRequest(null, "공부", START, END, 0, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
 
         focusService.saveFocusSession(USER_ID, body);
 
         ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
         verify(dailyFocusStatRepository).save(captor.capture());
-        assertThat(captor.getValue().isFocusGoalAchieved()).isFalse();
+        assertThat(captor.getValue().isFocusTimeGoalAchieved()).isFalse();
     }
 
-    /** T7: 방해 횟수 누적 — 두 세션의 distractionCount 합산 정합 검증 */
+    /** T7: 방해 초 누적 — 두 세션의 totalDistractionSeconds 합산 정합 검증 */
     @Test
-    @DisplayName("T7: 기존 row에 두 번째 세션 distractionCount 누적 → 합산 정합")
-    void saveFocusStat_distractionCountAccumulates() {
-        // 기존 5방해 row 존재 + 3방해 세션 추가 → 8방해
+    @DisplayName("T7: 기존 row에 두 번째 세션 totalDistractionSeconds 누적 → 합산 정합")
+    void saveFocusStat_totalDistractionSecondsAccumulates() {
+        // 기존 방해 5초 row 존재 + 방해 3초 세션 추가 → 8초
         User user = User.builder().id(USER_ID).build();
         DailyFocusStat existing = DailyFocusStat.builder()
                 .user(user).date(LocalDate.of(2026, 6, 23))
-                .totalFocusSeconds(30 * 60).sessionCount(1).distractionCount(5).build();
+                .totalFocusSeconds(30 * 60).sessionCount(1).totalDistractionSeconds(5).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.of(existing));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(null, "수학", START, END, 3, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 3);
 
         focusService.saveFocusSession(USER_ID, body);
 
-        assertThat(existing.getDistractionCount()).isEqualTo(8); // 5 + 3
+        assertThat(existing.getTotalDistractionSeconds()).isEqualTo(8); // 5 + 3
     }
 
     /** T8: update 경로 goal 달성 — 기존 30분·focusGoalAchieved=false·goal=60 에서 추가 30분 → 누적 60분 == goal → focusGoalAchieved=true 전이 */
@@ -922,8 +917,8 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         DailyFocusStat existing = DailyFocusStat.builder()
                 .user(user).date(LocalDate.of(2026, 6, 23))
-                .totalFocusSeconds(30 * 60).sessionCount(1).distractionCount(0)
-                .focusGoalAchieved(false).build();
+                .totalFocusSeconds(30 * 60).sessionCount(1).totalDistractionSeconds(0)
+                .isFocusTimeGoalAchieved(false).build();
         // 추가 세션: START=01:00Z ~ 01:30Z → 30분
         Instant end30 = Instant.parse("2026-06-23T01:30:00Z");
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
@@ -932,14 +927,14 @@ class FocusServiceTest {
         UserFocusTimeSettings settings = UserFocusTimeSettings.builder()
                 .userId(USER_ID).dailyFocusTimeGoalMinutes(60).build();
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
-        FocusSessionRequest body = new FocusSessionRequest(null, "공부", START, end30, 0, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, end30, 0);
 
         focusService.saveFocusSession(USER_ID, body);
 
         // update 경로: save() 미호출, 누적 60분 == goal → focusGoalAchieved=true 전이
         verify(dailyFocusStatRepository, never()).save(any(DailyFocusStat.class));
         assertThat(existing.getTotalFocusSeconds()).isEqualTo(60 * 60);
-        assertThat(existing.isFocusGoalAchieved()).isTrue();
+        assertThat(existing.isFocusTimeGoalAchieved()).isTrue();
     }
 
     /** T9: update 경로 이미 달성(true) → userFocusTimeSettingsRepository 조회 스킵(단방향 플래그) */
@@ -950,17 +945,17 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         DailyFocusStat existing = DailyFocusStat.builder()
                 .user(user).date(LocalDate.of(2026, 6, 23))
-                .totalFocusSeconds(60 * 60).sessionCount(1).distractionCount(0)
-                .focusGoalAchieved(true).build();
+                .totalFocusSeconds(60 * 60).sessionCount(1).totalDistractionSeconds(0)
+                .isFocusTimeGoalAchieved(true).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.of(existing));
-        FocusSessionRequest body = new FocusSessionRequest(null, "공부", START, END, 0, 0, LocalDate.of(2026, 6, 23));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
 
         focusService.saveFocusSession(USER_ID, body);
 
         // 달성 상태 그대로 유지, goal 조회를 위한 findById 미호출
-        assertThat(existing.isFocusGoalAchieved()).isTrue();
+        assertThat(existing.isFocusTimeGoalAchieved()).isTrue();
         verify(userFocusTimeSettingsRepository, never()).findById(any());
     }
 
@@ -980,7 +975,7 @@ class FocusServiceTest {
                 .userId(USER_ID).dailyFocusTimeGoalMinutes(60).build();
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
 
-        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, "공부", START, END, 0, 0, LocalDate.of(2026, 6, 23)));
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0));
 
         verify(userActivityEventLogger).log(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED,
                 Map.of("date", "2026-06-23", "total_focus_minutes", 60, "goal_minutes", 60));
@@ -994,8 +989,8 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         DailyFocusStat existing = DailyFocusStat.builder()
                 .user(user).date(LocalDate.of(2026, 6, 23))
-                .totalFocusSeconds(30 * 60).sessionCount(1).distractionCount(0)
-                .focusGoalAchieved(false).build();
+                .totalFocusSeconds(30 * 60).sessionCount(1).totalDistractionSeconds(0)
+                .isFocusTimeGoalAchieved(false).build();
         Instant end30 = Instant.parse("2026-06-23T01:30:00Z");
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
@@ -1004,7 +999,7 @@ class FocusServiceTest {
                 .userId(USER_ID).dailyFocusTimeGoalMinutes(60).build();
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
 
-        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, "공부", START, end30, 0, 0, LocalDate.of(2026, 6, 23)));
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, end30, 0));
 
         verify(userActivityEventLogger).log(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED,
                 Map.of("date", "2026-06-23", "total_focus_minutes", 60, "goal_minutes", 60));
@@ -1024,7 +1019,7 @@ class FocusServiceTest {
                 .userId(USER_ID).dailyFocusTimeGoalMinutes(120).build();
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
 
-        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, "공부", START, END, 0, 0, LocalDate.of(2026, 6, 23)));
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0));
 
         verify(userActivityEventLogger, never())
                 .log(eq(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED), anyMap());
@@ -1037,13 +1032,13 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         DailyFocusStat existing = DailyFocusStat.builder()
                 .user(user).date(LocalDate.of(2026, 6, 23))
-                .totalFocusSeconds(60 * 60).sessionCount(1).distractionCount(0)
-                .focusGoalAchieved(true).build();
+                .totalFocusSeconds(60 * 60).sessionCount(1).totalDistractionSeconds(0)
+                .isFocusTimeGoalAchieved(true).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.of(existing));
 
-        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, "공부", START, END, 0, 0, LocalDate.of(2026, 6, 23)));
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0));
 
         verify(userActivityEventLogger, never())
                 .log(eq(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED), anyMap());
@@ -1062,7 +1057,7 @@ class FocusServiceTest {
                 .userId(USER_ID).dailyFocusTimeGoalMinutes(0).build();
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
 
-        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, "공부", START, END, 0, 0, LocalDate.of(2026, 6, 23)));
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0));
 
         verify(userActivityEventLogger, never())
                 .log(eq(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED), anyMap());
@@ -1086,7 +1081,7 @@ class FocusServiceTest {
                         .focusTag(tag)
                         .startedAt(START)
                         .build());
-        FocusSessionStartRequest body = new FocusSessionStartRequest(TAG_ID, "수학", START);
+        FocusSessionStartRequest body = new FocusSessionStartRequest(TAG_ID, START);
 
         // when
         FocusSessionStartResponse response = focusService.startFocusSession(USER_ID, body);
@@ -1110,7 +1105,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
-        FocusSessionStartRequest body = new FocusSessionStartRequest(null, null, null);
+        FocusSessionStartRequest body = new FocusSessionStartRequest(null, null);
 
         // when
         Instant before = Instant.now();
@@ -1128,7 +1123,7 @@ class FocusServiceTest {
     void startFocusSessionUserNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionStartRequest body = new FocusSessionStartRequest(null, null, START);
+        FocusSessionStartRequest body = new FocusSessionStartRequest(null, START);
 
         // when & then
         assertThatThrownBy(() -> focusService.startFocusSession(USER_ID, body))
@@ -1147,7 +1142,7 @@ class FocusServiceTest {
         FocusTag tag = FocusTag.builder().id(TAG_ID).user(other).name("공부").build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
-        FocusSessionStartRequest body = new FocusSessionStartRequest(TAG_ID, "수학", START);
+        FocusSessionStartRequest body = new FocusSessionStartRequest(TAG_ID, START);
 
         // when & then
         assertThatThrownBy(() -> focusService.startFocusSession(USER_ID, body))
@@ -1174,14 +1169,13 @@ class FocusServiceTest {
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 2, 30, null, LocalDate.of(2026, 6, 23));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 30, null);
 
         // when
         FocusSessionEndResponse response = focusService.endFocusSession(USER_ID, body);
 
         // then: 세션에 endedAt·방해지표 반영(더티 체킹)
         assertThat(session.getEndedAt()).isEqualTo(END);
-        assertThat(session.getDistractionCount()).isEqualTo(2);
         assertThat(session.getTotalDistractionSeconds()).isEqualTo(30);
         // 완료 귀속(통계·스트릭·이벤트)
         verify(dailyFocusStatRepository).save(any(DailyFocusStat.class));
@@ -1190,7 +1184,7 @@ class FocusServiceTest {
         // 응답 요약: 1시간 = 3600초
         assertThat(response.sessionId()).isEqualTo(SESSION_ID);
         assertThat(response.durationSeconds()).isEqualTo(3600L);
-        assertThat(response.distractionCount()).isEqualTo(2);
+        assertThat(response.totalDistractionSeconds()).isEqualTo(30);
     }
 
     @Test
@@ -1207,7 +1201,7 @@ class FocusServiceTest {
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, null, 0, 0, null, LocalDate.of(2026, 6, 23));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, null, 0, null);
 
         // when
         Instant before = Instant.now();
@@ -1224,7 +1218,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.empty());
-        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, 0, null, LocalDate.of(2026, 6, 23));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, null);
 
         // when & then
         assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
@@ -1243,7 +1237,7 @@ class FocusServiceTest {
                 .id(SESSION_ID).user(other).startedAt(START).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
-        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, 0, null, LocalDate.of(2026, 6, 23));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, null);
 
         // when & then
         assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
@@ -1263,7 +1257,7 @@ class FocusServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
-        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, 0, null, LocalDate.of(2026, 6, 23));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, null);
 
         // when & then
         assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
@@ -1283,7 +1277,7 @@ class FocusServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
-        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 2, 30, null, LocalDate.of(2026, 6, 23));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 30, null);
 
         // when & then: 종료를 성사시키지 못한 요청은 recordCompletion(통계·스트릭·완료 이벤트)을 절대 실행하지 않는다
         assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
@@ -1305,7 +1299,7 @@ class FocusServiceTest {
                 .id(SESSION_ID).user(user).startedAt(END).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
-        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, START, 0, 0, null, LocalDate.of(2026, 6, 23));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, START, 0, null);
 
         // when & then
         assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
@@ -1330,7 +1324,7 @@ class FocusServiceTest {
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, 0, TAG_ID, LocalDate.of(2026, 6, 23));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, TAG_ID);
 
         // when
         focusService.endFocusSession(USER_ID, body);

@@ -42,9 +42,9 @@ import java.util.stream.Collectors;
  *
  * <p>매일 19:00 KST 배치(NotificationScheduler)·수동 트리거(NotificationBatchController)가 진입점.
  * ACTIVE 아레나별 오늘 실시간 순위(findRankedByArena, totalFocusMinutes DESC)를 확보하고,
- * <b>어제 스냅샷</b>(captured_on = 어제 KST)과 비교해 "나를 제친 라이벌"(어제 나보다 아래/같음 → 오늘 나보다 위)을
+ * <b>어제 스냅샷</b>(created_at = 어제 KST)과 비교해 "나를 제친 라이벌"(어제 나보다 아래/같음 → 오늘 나보다 위)을
  * 감지한다. 라이벌이 있으면 대표 1명 + "외 N명" 으로 <b>1건 묶음</b> 발송하고, 처리 후 오늘 순위를
- * captured_on = 오늘 로 upsert 해 다음날 비교 기준을 남긴다(부트스트랩: 어제 스냅샷이 없으면 감지 없이 저장만).
+ * created_at = 오늘 로 upsert 해 다음날 비교 기준을 남긴다(부트스트랩: 어제 스냅샷이 없으면 감지 없이 저장만).
  *
  * <p>발송 파이프라인은 528 을 재사용 — settings 일괄 로드(findAllById) 후 sendIfAllowed 로 위임.
  * quiet hours(야간)는 sendIfAllowed 가 처리하며, 실제 발송(true 반환)된 건만 notification_sent_logs 에 기록해
@@ -235,9 +235,9 @@ public class RankOvertakeNotificationService {
         saveTodaySnapshots(rankedByArena, arenaIds, today);
     }
 
-    // 오늘 순위를 captured_on=today 로 저장. 이미 오늘치가 있으면(재실행) 값 갱신, 없으면 신규 INSERT.
+    // 오늘 순위를 created_at=today 로 저장. 이미 오늘치가 있으면(재실행) 값 갱신, 없으면 신규 INSERT.
     // ⚠️ read-then-write(원자적 upsert 아님) — 동시 실행(수동 트리거+스케줄러, 또는 멀티 인스턴스)이 겹치면
-    //    둘 다 "없음"으로 읽어 UNIQUE(arena_id,user_id,captured_on) 위반·이중 발송 가능. 분산 락(GROMO-565) 클래스 이슈.
+    //    둘 다 "없음"으로 읽어 UNIQUE(arena_id,user_id,created_at) 위반·이중 발송 가능. 분산 락(GROMO-565) 클래스 이슈.
     private void saveTodaySnapshots(Map<UUID, List<LeagueArenaUser>> rankedByArena,
                                     List<UUID> arenaIds, LocalDate today) {
         Map<RankKey, LeagueRankSnapshot> existing = leagueRankSnapshotRepository
@@ -255,7 +255,7 @@ public class RankOvertakeNotificationService {
                     snapshot.setRank(rank);   // 더티체킹으로 갱신
                 } else {
                     toSave.add(LeagueRankSnapshot.builder()
-                            .arenaId(arenaId).userId(userId).rank(rank).capturedOn(today).build());
+                            .arenaId(arenaId).userId(userId).rank(rank).createdAt(today).build());
                 }
             }
         }

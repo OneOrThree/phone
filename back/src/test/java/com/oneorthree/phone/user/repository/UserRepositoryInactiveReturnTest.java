@@ -31,11 +31,11 @@ class UserRepositoryInactiveReturnTest extends RepositoryTestBase {
         return date.atStartOfDay(KST).toInstant();
     }
 
-    private User save(boolean guest, Instant lastActiveAt, Instant deletedAt) {
+    private User save(boolean guest, Instant lastActiveAt, boolean deleted) {
         return userRepository.saveAndFlush(User.builder()
                 .isGuest(guest)
                 .lastActiveAt(lastActiveAt)
-                .deletedAt(deletedAt)
+                .isDeleted(deleted)
                 .build());
     }
 
@@ -45,10 +45,10 @@ class UserRepositoryInactiveReturnTest extends RepositoryTestBase {
         Instant d3 = startOfDayKst(TODAY.minusDays(3)).plusSeconds(43_200); // D-3 KST 정오
         Instant d2 = startOfDayKst(TODAY.minusDays(2)).plusSeconds(43_200); // D-2 KST 정오(비대상)
 
-        User target = save(false, d3, null);
-        save(false, d2, null);       // 2일차 — 경계 밖
-        save(true, d3, null);        // 게스트 — 제외
-        save(false, d3, NOW);        // 소프트딜리트 — 제외
+        User target = save(false, d3, false);
+        save(false, d2, false);      // 2일차 — 경계 밖
+        save(true, d3, false);       // 게스트 — 제외
+        save(false, d3, true);       // 소프트딜리트 — 제외
 
         List<User> found = userRepository.findInactiveReturnTargets(
                 startOfDayKst(TODAY.minusDays(3)), startOfDayKst(TODAY.minusDays(2)));
@@ -60,8 +60,8 @@ class UserRepositoryInactiveReturnTest extends RepositoryTestBase {
     @DisplayName("touchLastActiveAt — 오늘 이전 값이면 1행 갱신, 이미 오늘이면 0행(스로틀)")
     void touchLastActiveAtThrottlesToOncePerDay() {
         Instant startOfTodayKst = startOfDayKst(TODAY);
-        User stale = save(false, startOfDayKst(TODAY.minusDays(1)).plusSeconds(3600), null); // 어제
-        User fresh = save(false, startOfTodayKst.plusSeconds(3600), null);                    // 오늘 새벽
+        User stale = save(false, startOfDayKst(TODAY.minusDays(1)).plusSeconds(3600), false); // 어제
+        User fresh = save(false, startOfTodayKst.plusSeconds(3600), false);                    // 오늘 새벽
 
         int updatedStale = userRepository.touchLastActiveAt(stale.getId(), NOW, startOfTodayKst);
         int updatedFresh = userRepository.touchLastActiveAt(fresh.getId(), NOW, startOfTodayKst);

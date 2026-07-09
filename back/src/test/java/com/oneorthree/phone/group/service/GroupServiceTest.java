@@ -846,7 +846,7 @@ class GroupServiceTest {
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
         GroupChallenge challenge = GroupChallenge.builder()
-                .id(CHALLENGE_ID).group(group).missionType(MissionType.DURATION)
+                .id(CHALLENGE_ID).group(group).type(MissionType.DURATION)
                 .durationMinutes(60).status(GroupChallengeStatus.ACTIVE)
                 .createdAt(Instant.now()).build();
 

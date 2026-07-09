@@ -2,7 +2,6 @@ package com.oneorthree.phone.item.service;
 
 import com.oneorthree.phone.item.dto.UserItemResponse;
 import com.oneorthree.phone.item.domain.Item;
-import com.oneorthree.phone.item.domain.Rarity;
 import com.oneorthree.phone.item.domain.SlotType;
 import com.oneorthree.phone.item.service.InventoryService;
 import com.oneorthree.phone.user.domain.User;
@@ -81,7 +80,7 @@ public class InventoryServiceTest {
     void grantItemSuccess() {
         // given
         User user = User.builder().nickname("테스터").build();
-        Item item = Item.builder().name("모자").slotType(SlotType.HAIR).rarity(Rarity.COMMON).build();
+        Item item = Item.builder().name("모자").slotType(SlotType.HAIR).grade("COMMON").build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(itemRepository.findById(ITEM_ID)).willReturn(Optional.of(item));
 

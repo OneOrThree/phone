@@ -18,7 +18,7 @@ import java.time.Instant;
 /**
  * occupation 마스터 테이블 (하이브리드).
  *
- * <p>{@link Occupation} enum 은 그대로 유지하고, 그 값셋에 표시명·정렬 순서 등 메타데이터를 얹는
+ * <p>{@link Occupation} enum 은 그대로 유지하고, 그 값셋에 표시명 등 메타데이터를 얹는
  * 마스터 행. {@code users.occupation} 과 {@code occupation_default_tags.occupation} 이 이 테이블의
  * {@code code} 를 FK 로 참조한다(무결성 보강). enum 저장 관례({@code @Enumerated(STRING)})와 동일하게
  * PK({@code code}) 에 enum name 문자열이 저장되므로 기존 컬럼값(전부 5개 enum 값 or null)과 그대로 정합.
@@ -42,9 +42,6 @@ public class OccupationInfo {
 
     @Column(name = "display_name", nullable = false)
     private String displayName;
-
-    @Column(name = "sort_order", nullable = false)
-    private int sortOrder;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false)

@@ -28,27 +28,27 @@ class OccupationServiceTest {
     @Test
     @DisplayName("getOccupations — repo 결과를 code=enum name 으로 매핑, 조회 순서 유지")
     void mapsToResponsePreservingOrder() {
-        // given: repo 가 sort_order 오름차순으로 이미 정렬해 반환
-        given(occupationInfoRepository.findAllByDeletedAtIsNullOrderBySortOrderAsc())
+        // given: repo 가 code 오름차순으로 이미 정렬해 반환
+        given(occupationInfoRepository.findAllByDeletedAtIsNullOrderByCodeAsc())
                 .willReturn(List.of(
                         OccupationInfo.builder()
-                                .code(Occupation.MIDDLE_SCHOOL).displayName("중학생").sortOrder(0).build(),
+                                .code(Occupation.MIDDLE_SCHOOL).displayName("중학생").build(),
                         OccupationInfo.builder()
-                                .code(Occupation.UNIVERSITY).displayName("대학생").sortOrder(1).build()));
+                                .code(Occupation.UNIVERSITY).displayName("대학생").build()));
 
         // when
         List<OccupationResponse> result = occupationService.getOccupations();
 
-        // then: code=enum name, displayName·sortOrder 그대로, 순서 유지
+        // then: code=enum name, displayName 그대로, 순서 유지
         assertThat(result).containsExactly(
-                new OccupationResponse("MIDDLE_SCHOOL", "중학생", 0),
-                new OccupationResponse("UNIVERSITY", "대학생", 1));
+                new OccupationResponse("MIDDLE_SCHOOL", "중학생"),
+                new OccupationResponse("UNIVERSITY", "대학생"));
     }
 
     @Test
     @DisplayName("getOccupations — repo 빈 결과면 빈 리스트")
     void returnsEmptyWhenNoRows() {
-        given(occupationInfoRepository.findAllByDeletedAtIsNullOrderBySortOrderAsc())
+        given(occupationInfoRepository.findAllByDeletedAtIsNullOrderByCodeAsc())
                 .willReturn(List.of());
 
         assertThat(occupationService.getOccupations()).isEmpty();

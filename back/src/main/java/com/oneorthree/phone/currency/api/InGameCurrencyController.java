@@ -61,7 +61,7 @@ public class InGameCurrencyController {
             HttpServletRequest request,
             @RequestBody CurrencyRequest body) {
         UUID userId = (UUID) request.getAttribute("userId");
-        inGameCurrencyService.earnCurrency(userId, body.getReason(), body.getAmount());
+        inGameCurrencyService.earnCurrency(userId, body.getType(), body.getAmount());
         return ResponseEntity.noContent().build();
     }
 
@@ -76,7 +76,7 @@ public class InGameCurrencyController {
             HttpServletRequest request,
             @RequestBody CurrencyRequest body) {
         UUID userId = (UUID) request.getAttribute("userId");
-        inGameCurrencyService.spendCurrency(userId, body.getReason(), body.getAmount());
+        inGameCurrencyService.spendCurrency(userId, body.getType(), body.getAmount());
         return ResponseEntity.noContent().build();
     }
 }

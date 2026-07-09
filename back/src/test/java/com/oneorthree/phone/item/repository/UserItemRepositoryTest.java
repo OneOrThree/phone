@@ -2,7 +2,6 @@ package com.oneorthree.phone.item.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
 import com.oneorthree.phone.item.domain.Item;
-import com.oneorthree.phone.item.domain.Rarity;
 import com.oneorthree.phone.item.domain.SlotType;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.item.domain.UserItem;
@@ -44,7 +43,7 @@ class UserItemRepositoryTest extends RepositoryTestBase {
         item = itemRepository.save(Item.builder()
                 .name("테스트 모자")
                 .slotType(SlotType.HAIR)
-                .rarity(Rarity.COMMON)
+                .grade("COMMON")
                 .build());
     }
 

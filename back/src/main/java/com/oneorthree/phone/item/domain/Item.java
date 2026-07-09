@@ -8,6 +8,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import java.time.Instant;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -15,6 +16,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 @Entity
 @Table(name = "items")
@@ -39,20 +42,34 @@ public class Item {
     @Column(name = "slot_type")
     private SlotType slotType;
 
-    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private Rarity rarity;
+    private String grade;
 
-    @Column(name = "asset_address")
-    private String assetAddress;
+    @Column(name = "asset_url")
+    private String assetUrl;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "price_type", nullable = false)
-    private PriceType priceType;
+    @Column(name = "payment_type", nullable = false)
+    private PriceType paymentType;
 
     @Column(name = "currency_price")
     private Integer currencyPrice;
 
     @Column(name = "premium_price")
     private Integer premiumPrice;
+
+    @Column(columnDefinition = "text")
+    private String description;
+
+    @Builder.Default
+    @Column(name = "is_active", nullable = false)
+    private boolean isActive = true;
+
+    @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
+    private Instant createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at")
+    private Instant updatedAt;
 }

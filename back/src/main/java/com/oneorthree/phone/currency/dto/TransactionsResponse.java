@@ -1,7 +1,6 @@
 package com.oneorthree.phone.currency.dto;
 
-import com.oneorthree.phone.currency.domain.CurrencyReason;
-import com.oneorthree.phone.currency.domain.TransactionType;
+import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -13,7 +12,6 @@ import java.time.Instant;
 @AllArgsConstructor
 public class TransactionsResponse {
     int amount;
-    TransactionType type;
-    CurrencyReason reason;
-    Instant transactedAt;
+    CurrencyTransactionType type;
+    Instant createdAt;
 }

@@ -1,7 +1,7 @@
 package com.oneorthree.phone.currency.service;
 
 import com.oneorthree.phone.common.support.IntegrationTestBase;
-import com.oneorthree.phone.currency.domain.CurrencyReason;
+import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -84,7 +84,7 @@ class InGameCurrencyConcurrencyTest extends IntegrationTestBase {
             pool.submit(() -> {
                 try {
                     startGate.await();
-                    inGameCurrencyService.spendCurrency(user.getId(), CurrencyReason.PURCHASE, 80);
+                    inGameCurrencyService.spendCurrency(user.getId(), CurrencyTransactionType.PURCHASE, 80);
                     successCount.incrementAndGet();
                 }
                 catch (Throwable e) {

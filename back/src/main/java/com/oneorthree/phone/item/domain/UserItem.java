@@ -3,6 +3,7 @@ package com.oneorthree.phone.item.domain;
 import com.oneorthree.phone.user.domain.User;
 
 import com.oneorthree.phone.common.id.GeneratedUuidV7;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
@@ -46,6 +47,10 @@ public class UserItem {
     private Item item;
 
     @CreationTimestamp
-    private Instant acquiredAt;
+    @Column(name = "created_at")
+    private Instant createdAt;
+
+    @Column(name = "is_used", nullable = false)
+    private boolean isUsed = false;
 
 }

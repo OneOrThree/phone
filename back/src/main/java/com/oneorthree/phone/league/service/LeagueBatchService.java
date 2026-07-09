@@ -64,7 +64,7 @@ public class LeagueBatchService {
 
         List<LeagueArena> activeArenas = leagueArenaRepository.findByStatus(LeagueArenaStatus.ACTIVE);
         List<LeagueArena> targets = activeArenas.stream()
-                .filter(arena -> arena.getWeekStartAt().isBefore(newWeekStart))
+                .filter(arena -> arena.getStartedAt().isBefore(newWeekStart))
                 .toList();
         if (targets.isEmpty()) {
             if (activeArenas.isEmpty()) {
@@ -195,7 +195,7 @@ public class LeagueBatchService {
                 List<User> chunk = users.subList(from, Math.min(from + arenaSize, users.size()));
                 LeagueArena newArena = leagueArenaRepository.save(LeagueArena.builder()
                         .tierConfig(config)
-                        .weekStartAt(weekStartAt)
+                        .startedAt(weekStartAt)
                         .status(LeagueArenaStatus.ACTIVE)
                         .build());
                 List<LeagueArenaUser> newMembers = chunk.stream()
@@ -207,9 +207,8 @@ public class LeagueBatchService {
                                 .build())
                         .toList();
                 leagueArenaUserRepository.saveAll(newMembers);
-                // 재배정 완료 후 각 유저의 currentTier를 새 티어로 갱신
-                // (배치 후 프로필·친구 목록·닉네임 검색에서 최신 티어가 노출되도록)
-                chunk.forEach(user -> user.setCurrentTier(config.getTierLevel()));
+                // GROMO-671: 티어는 league_arena_users.tier_level 로만 도출 —
+                // User.current_tier 컬럼 제거로 배치의 티어 미러링 갱신도 삭제.
                 createdArenaCount++;
             }
         }

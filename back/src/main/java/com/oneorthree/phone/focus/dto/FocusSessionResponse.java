@@ -12,9 +12,7 @@ import java.util.UUID;
 @AllArgsConstructor
 public class FocusSessionResponse {
     UUID focusTagId;
-    String subject;
     Instant startedAt;
     Instant endedAt;
-    int distractionCount;
     int totalDistractionSeconds;
 }

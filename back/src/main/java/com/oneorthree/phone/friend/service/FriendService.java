@@ -159,7 +159,8 @@ public class FriendService {
                     return FriendResponse.builder()
                             .userId(other.getId())
                             .nickname(other.getNickname())
-                            .tierLevel(other.getCurrentTier())
+                            // GROMO-671: User.current_tier 제거 — 티어는 league_arena_users 로만 도출. 목록 티어 미노출(null).
+                            .tierLevel(null)
                             .isPinned(pinnedIds.contains(other.getId()))
                             .build();
                 })
@@ -235,7 +236,8 @@ public class FriendService {
                             .requestId(f.getId())
                             .userId(other.getId())
                             .nickname(other.getNickname())
-                            .tierLevel(other.getCurrentTier())
+                            // GROMO-671: User.current_tier 제거 — 티어는 league_arena_users 로만 도출. 요청 목록 티어 미노출(null).
+                            .tierLevel(null)
                             .createdAt(f.getCreatedAt())
                             .build();
                 })

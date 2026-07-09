@@ -9,5 +9,5 @@ import java.util.UUID;
 
 public interface CurrencyTransactionRepository extends JpaRepository<CurrencyTransaction, UUID> {
 
-    List<CurrencyTransaction> findByUserOrderByTransactedAtDesc(User user);
+    List<CurrencyTransaction> findByUserOrderByCreatedAtDesc(User user);
 }

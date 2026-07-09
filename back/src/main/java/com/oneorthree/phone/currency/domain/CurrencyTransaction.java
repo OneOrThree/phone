@@ -42,13 +42,13 @@ public class CurrencyTransaction {
     private int amount;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private TransactionType type;
+    @Column(name = "type", nullable = false)
+    private CurrencyTransactionType type;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private CurrencyReason reason;
+    @Column(name = "idempotency_key", unique = true)
+    private String idempotencyKey;
 
     @CreationTimestamp
-    private Instant transactedAt;
+    @Column(name = "created_at")
+    private Instant createdAt;
 }

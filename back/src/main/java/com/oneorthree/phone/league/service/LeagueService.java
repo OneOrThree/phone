@@ -57,7 +57,7 @@ public class LeagueService {
                             true,
                             member.getTierLevel(),
                             arena.getId(),
-                            arena.getWeekStartAt(),
+                            arena.getStartedAt(),
                             arena.getStatus().name(),
                             badgeId(member.getTierLevel()));
                 })

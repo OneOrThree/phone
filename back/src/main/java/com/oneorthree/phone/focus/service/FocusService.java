@@ -42,6 +42,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -161,10 +162,8 @@ public class FocusService {
         List<FocusSessionResponse> content = slice.getContent().stream()
                 .map(session -> new FocusSessionResponse(
                         session.getFocusTag() != null ? session.getFocusTag().getId() : null,
-                        session.getSubject(),
                         session.getStartedAt(),
                         session.getEndedAt(),
-                        session.getDistractionCount(),
                         session.getTotalDistractionSeconds()
                 ))
                 .toList();
@@ -195,16 +194,18 @@ public class FocusService {
         focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .focusTag(tag)
-                .subject(body.getSubject())
                 .startedAt(body.getStartedAt())
                 .endedAt(body.getEndedAt())
-                .distractionCount(body.getDistractionCount())
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
-                .localDate(body.getLocalDate())   // GROMO-643: 카테고리 통계용 로컬 귀속 날짜
                 .build());
 
         recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
-                body.getDistractionCount(), body.getLocalDate());
+                body.getTotalDistractionSeconds(), statDate(body.getEndedAt()));
+    }
+
+    // GROMO-671(커밋3): local_date 제거로 일별 집계 버킷 날짜는 endedAt(UTC) 로 환산한다.
+    private static LocalDate statDate(Instant endedAt) {
+        return endedAt.atZone(ZoneOffset.UTC).toLocalDate();
     }
 
     /**
@@ -222,7 +223,6 @@ public class FocusService {
         FocusSession saved = focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .focusTag(tag)
-                .subject(body.subject())
                 .startedAt(startedAt)
                 .build());
 
@@ -265,14 +265,13 @@ public class FocusService {
         }
 
         // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
-        session.end(endedAt, body.distractionCount(), body.totalDistractionSeconds());
-        session.applyLocalDate(body.localDate());   // GROMO-643: 카테고리 통계용 로컬 귀속 날짜
+        session.end(endedAt, body.totalDistractionSeconds());
         recordCompletion(user, userId, tag, session.getStartedAt(), endedAt,
-                body.distractionCount(), body.localDate());
+                body.totalDistractionSeconds(), statDate(endedAt));
 
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
         return new FocusSessionEndResponse(session.getId(), session.getStartedAt(), endedAt,
-                durationSeconds, body.distractionCount(), body.totalDistractionSeconds());
+                durationSeconds, body.totalDistractionSeconds());
     }
 
     /**
@@ -290,7 +289,7 @@ public class FocusService {
         List<FocusSession> orphans = focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(threshold);
         for (FocusSession session : orphans) {
             Instant cappedEnd = session.getStartedAt().plus(ORPHAN_TIMEOUT);
-            session.end(cappedEnd, session.getDistractionCount(), session.getTotalDistractionSeconds());
+            session.end(cappedEnd, session.getTotalDistractionSeconds());
         }
         return orphans.size();
     }
@@ -313,12 +312,12 @@ public class FocusService {
      * POST(완료 통째 저장)와 PATCH(라이브 종료)가 공유해 통계 로직을 한 곳으로 모은다.
      */
     private void recordCompletion(User user, UUID userId, FocusTag tag,
-                                  Instant startedAt, Instant endedAt, int distractionCount, LocalDate statDate) {
+                                  Instant startedAt, Instant endedAt, int totalDistractionSeconds, LocalDate statDate) {
         long durationSeconds = Duration.between(startedAt, endedAt).getSeconds();
         // payload 에 null 값 금지 — nullable 인 focus_tag_id 는 태그 있을 때만 키 포함
         Map<String, Object> sessionPayload = new LinkedHashMap<>();
         sessionPayload.put("duration_seconds", durationSeconds);
-        sessionPayload.put("distraction_count", distractionCount);
+        sessionPayload.put("total_distraction_seconds", totalDistractionSeconds);
         sessionPayload.put("has_tag", tag != null);
         if (tag != null) {
             sessionPayload.put("focus_tag_id", tag.getId().toString());
@@ -337,19 +336,19 @@ public class FocusService {
             DailyFocusStat stat = existingStat.get();
             stat.setTotalFocusSeconds(stat.getTotalFocusSeconds() + addedSeconds);
             stat.setSessionCount(stat.getSessionCount() + 1);
-            stat.setDistractionCount(stat.getDistractionCount() + distractionCount);
-            // focusGoalAchieved: 이미 달성(true)이면 재판정 불필요 — 플래그 단방향이므로 조기 스킵
-            if (!stat.isFocusGoalAchieved()) {
+            stat.setTotalDistractionSeconds(stat.getTotalDistractionSeconds() + totalDistractionSeconds);
+            // isFocusTimeGoalAchieved: 이미 달성(true)이면 재판정 불필요 — 플래그 단방향이므로 조기 스킵
+            if (!stat.isFocusTimeGoalAchieved()) {
                 int goal = userFocusTimeSettingsRepository.findById(userId)
                         .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
                 if (goal > 0 && stat.getTotalFocusSeconds() >= goal * 60) {
-                    stat.setFocusGoalAchieved(true);
+                    stat.setFocusTimeGoalAchieved(true);
                     // false→true 전이 순간 1회 발행 — 영속 플래그가 하루 1회를 보장 (GROMO-395)
                     logDailyFocusGoalAchieved(statDate, stat.getTotalFocusSeconds() / 60, goal);
                 }
             }
         } else {
-            // INSERT 경로: focusGoalAchieved 판정을 builder에 포함시켜 INSERT 쿼리 1회로 줄임
+            // INSERT 경로: isFocusTimeGoalAchieved 판정을 builder에 포함시켜 INSERT 쿼리 1회로 줄임
             // UserFocusTimeSettings row 없거나 goal=0이면 플래그 false 유지
             int goal = userFocusTimeSettingsRepository.findById(userId)
                     .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
@@ -359,8 +358,8 @@ public class FocusService {
                     .date(statDate)
                     .totalFocusSeconds(addedSeconds)
                     .sessionCount(1)
-                    .distractionCount(distractionCount)
-                    .focusGoalAchieved(goalAchieved)
+                    .totalDistractionSeconds(totalDistractionSeconds)
+                    .isFocusTimeGoalAchieved(goalAchieved)
                     .build());
             if (goalAchieved) {
                 // 신규 row 가 곧바로 달성 = false→true 전이와 동일 — 1회 발행 (GROMO-395)

@@ -76,7 +76,7 @@ class LeagueServiceTest {
     private LeagueArena activeArena() {
         return LeagueArena.builder()
                 .id(ARENA_ID)
-                .weekStartAt(WEEK_START)
+                .startedAt(WEEK_START)
                 .status(LeagueArenaStatus.ACTIVE)
                 .build();
     }

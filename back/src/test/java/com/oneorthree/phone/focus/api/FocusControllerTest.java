@@ -41,9 +41,9 @@ class FocusControllerTest {
         UUID nextCursor = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
         given(focusService.getFocusSessions(any(), any(), any(), any(), anyInt()))
                 .willReturn(new FocusSessionSliceResponse(
-                        List.of(new FocusSessionResponse(null, "영어",
+                        List.of(new FocusSessionResponse(null,
                                 Instant.parse("2026-06-10T01:00:00Z"),
-                                Instant.parse("2026-06-10T02:00:00Z"), 0, 0)),
+                                Instant.parse("2026-06-10T02:00:00Z"), 0)),
                         20, true, nextCursor));
 
         mockMvc.perform(get("/api/v1/focus-session")
@@ -51,7 +51,7 @@ class FocusControllerTest {
                         .param("to", "2026-06-30T23:59:59Z")
                         .param("size", "20"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].subject").value("영어"))
+                .andExpect(jsonPath("$.content[0].totalDistractionSeconds").value(0))
                 .andExpect(jsonPath("$.hasNext").value(true))
                 .andExpect(jsonPath("$.nextCursor").value(nextCursor.toString()))
                 .andDo(print());

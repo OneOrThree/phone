@@ -36,6 +36,9 @@ import java.util.UUID;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CharacterEquipment {
 
+    // NOTE(671 스코프 밖 — GROMO-707): item_id(FK→items) → user_item_id(FK→user_items) 참조 재설계는
+    //   장착 로직 변경을 동반하는 후속 티켓(707)에서 진행. 671 에서는 건드리지 않음.
+
     @Id
     @GeneratedUuidV7
     private UUID id;
@@ -53,8 +56,8 @@ public class CharacterEquipment {
     private SlotType slotType;
 
     @CreationTimestamp
-    @Column(name = "equipped_at", updatable = false)
-    private Instant equippedAt;
+    @Column(name = "created_at", updatable = false)
+    private Instant createdAt;
 
     public void equip(Item item) {
         this.item = item;

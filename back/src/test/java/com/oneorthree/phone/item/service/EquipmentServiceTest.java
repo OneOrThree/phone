@@ -7,7 +7,6 @@ import com.oneorthree.phone.item.domain.CharacterEquipment;
 import com.oneorthree.phone.item.domain.Item;
 import com.oneorthree.phone.item.domain.ItemType;
 import com.oneorthree.phone.item.domain.PriceType;
-import com.oneorthree.phone.item.domain.Rarity;
 import com.oneorthree.phone.item.domain.SlotType;
 import com.oneorthree.phone.item.domain.UserItem;
 import com.oneorthree.phone.user.domain.User;
@@ -72,14 +71,14 @@ public class EquipmentServiceTest {
     @BeforeEach
     void setUp() {
         user = User.builder().nickname("테스터").build();
-        // priceType 은 ItemResponse.from 매핑에 필수 (과거 @Disabled 원인이던 NPE 방지)
+        // paymentType 은 ItemResponse.from 매핑에 필수 (과거 @Disabled 원인이던 NPE 방지)
         item = Item.builder().name("조재영의 하얀 모자")
                 .itemType(ItemType.EQUIPPABLE)
                 .slotType(SlotType.HAIR)
-                .rarity(Rarity.LEGENDARY)
-                .priceType(PriceType.CURRENCY)
+                .grade("LEGENDARY")
+                .paymentType(PriceType.CURRENCY)
                 .build();
-        userItem = new UserItem(UUID.randomUUID(), user, item, ACQUIRED_AT);
+        userItem = new UserItem(UUID.randomUUID(), user, item, ACQUIRED_AT, false);
     }
 
     @Test
@@ -101,7 +100,7 @@ public class EquipmentServiceTest {
     }
 
     @Test
-    @DisplayName("아이템 장착 성공 → ITEM_EQUIPPED(slot_type·item_type·rarity·acquired_at) 발행 — 명시 userId 오버로드")
+    @DisplayName("아이템 장착 성공 → ITEM_EQUIPPED(slot_type·item_type·grade·acquired_at) 발행 — 명시 userId 오버로드")
     void equipEmitsItemEquipped() {
         // given
         given(userRepo.findById(USER_ID)).willReturn(Optional.of(user));
@@ -118,7 +117,7 @@ public class EquipmentServiceTest {
                 Map.of("item_id", ITEM_ID.toString(),
                         "slot_type", "HAIR",
                         "item_type", "EQUIPPABLE",
-                        "rarity", "LEGENDARY",
+                        "grade", "LEGENDARY",
                         "acquired_at", ACQUIRED_AT.toEpochMilli()));
     }
 

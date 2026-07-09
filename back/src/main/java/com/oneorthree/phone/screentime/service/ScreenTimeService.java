@@ -51,15 +51,15 @@ public class ScreenTimeService {
         if (existing.isPresent()) {
             DailyScreenTimeStat stat = existing.get();
             transitioned = !stat.isScreenTimeGoalAchieved() && goalAchieved;
-            stat.setActualScreenTimeMinutes(actualMinutes);
+            stat.setTotalScreenTimeMinutes(actualMinutes);
             stat.setScreenTimeGoalAchieved(goalAchieved);
         } else {
             transitioned = goalAchieved;
             dailyScreenTimeStatRepository.save(DailyScreenTimeStat.builder()
                     .user(user)
                     .date(date)
-                    .actualScreenTimeMinutes(actualMinutes)
-                    .screenTimeGoalAchieved(goalAchieved)
+                    .totalScreenTimeMinutes(actualMinutes)
+                    .isScreenTimeGoalAchieved(goalAchieved)
                     .build());
         }
 

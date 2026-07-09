@@ -338,7 +338,7 @@ public class GroupController {
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(summary = "그룹 탈퇴", description = "MEMBER는 즉시 탈퇴. OWNER는 위임 후 탈퇴 가능. 마지막 1인 탈퇴 시 그룹 CLOSED. 성공 시 204 반환.")
+    @Operation(summary = "그룹 탈퇴", description = "MEMBER는 즉시 탈퇴. OWNER는 위임 후 탈퇴 가능. 마지막 1인 탈퇴 시 그룹 ENDED. 성공 시 204 반환.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "탈퇴 성공"),
             @ApiResponse(responseCode = "400", description = "방장 위임 필요"),

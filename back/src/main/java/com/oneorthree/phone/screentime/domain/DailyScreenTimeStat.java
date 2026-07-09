@@ -47,11 +47,12 @@ public class DailyScreenTimeStat {
     private LocalDate date;
 
     @Builder.Default
-    private int actualScreenTimeMinutes = 0;
+    @Column(name = "total_screen_time_minutes")
+    private int totalScreenTimeMinutes = 0;
 
     @Builder.Default
-    @Column(nullable = false)
-    private boolean screenTimeGoalAchieved = false;
+    @Column(name = "is_screen_time_goal_achieved", nullable = false)
+    private boolean isScreenTimeGoalAchieved = false;
 
     @CreationTimestamp
     private Instant createdAt;

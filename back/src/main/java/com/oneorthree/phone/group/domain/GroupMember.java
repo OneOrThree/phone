@@ -19,6 +19,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -33,6 +34,8 @@ import java.util.UUID;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 public class GroupMember {
+
+    // NOTE: announcement_permission 추가는 671 아님(커플링 → 676). 여기서 건드리지 말 것
 
     @Id
     @GeneratedUuidV7
@@ -51,14 +54,24 @@ public class GroupMember {
     @Builder.Default
     private GroupMemberRole role = GroupMemberRole.MEMBER;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    @Builder.Default
+    private GroupMemberStatus status = GroupMemberStatus.INACTIVE;
+
     @Column(nullable = false)
     @Builder.Default
     private boolean notificationEnabled = true;
 
-    @CreationTimestamp
-    private Instant joinedAt;
+    @Column(name = "is_left", nullable = false)
+    @Builder.Default
+    private boolean isLeft = false;
 
-    private Instant completedAt;
+    @CreationTimestamp
+    private Instant createdAt;
+
+    @UpdateTimestamp
+    private Instant updatedAt;
 
     public void demoteToMember() {
         this.role = GroupMemberRole.MEMBER;

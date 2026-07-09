@@ -1,8 +1,7 @@
 package com.oneorthree.phone.currency.service;
 
-import com.oneorthree.phone.currency.domain.CurrencyReason;
 import com.oneorthree.phone.currency.domain.CurrencyTransaction;
-import com.oneorthree.phone.currency.domain.TransactionType;
+import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.currency.exception.CurrencyErrorCode;
@@ -42,19 +41,19 @@ public class InGameCurrencyService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        return currencyTransactionRepository.findByUserOrderByTransactedAtDesc(user)
+        return currencyTransactionRepository.findByUserOrderByCreatedAtDesc(user)
                 .stream()
                 .map(transaction -> new TransactionsResponse(transaction.getAmount(),
-                        transaction.getType(), transaction.getReason(), transaction.getTransactedAt()))
+                        transaction.getType(), transaction.getCreatedAt()))
                 .toList();
     }
 
     @Transactional
-    public void earnCurrency(UUID userId, CurrencyReason reason, int amount) {
+    public void earnCurrency(UUID userId, CurrencyTransactionType type, int amount) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        if (reason == CurrencyReason.PURCHASE) {
+        if (type == CurrencyTransactionType.PURCHASE) {
             throw new CurrencyException(CurrencyErrorCode.ILLEGAL_EARN_REASON);
         }
 
@@ -64,17 +63,16 @@ public class InGameCurrencyService {
         currencyTransactionRepository.save(CurrencyTransaction.builder()
                 .user(user)
                 .amount(amount)
-                .type(TransactionType.EARN)
-                .reason(reason)
+                .type(type)
                 .build());
     }
 
     @Transactional
-    public void spendCurrency(UUID userId, CurrencyReason reason, int amount) {
+    public void spendCurrency(UUID userId, CurrencyTransactionType type, int amount) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        if (reason != CurrencyReason.PURCHASE) {
+        if (type != CurrencyTransactionType.PURCHASE) {
             throw new CurrencyException(CurrencyErrorCode.ILLEGAL_SPEND_REASON);
         }
 
@@ -84,8 +82,7 @@ public class InGameCurrencyService {
         currencyTransactionRepository.save(CurrencyTransaction.builder()
                 .user(user)
                 .amount(amount)
-                .type(TransactionType.SPEND)
-                .reason(reason)
+                .type(type)
                 .build());
     }
 }

@@ -37,7 +37,7 @@ public class UserStreakService {
      *   <li>sessionDate > lastSessionDate + 1일 → streakCount = 1 리셋 (change=reset)</li>
      *   <li>sessionDate < lastSessionDate (과거 세션 소급 저장) → 무변화, 미발행 (방어)</li>
      * </ul>
-     * 공통: lastSessionDate = max(기존, sessionDate), longestStreak = max(longestStreak, streakCount).
+     * 공통: lastSessionDate = max(기존, sessionDate), longestStreakCount = max(longestStreakCount, streakCount).
      *
      * <p>동시성: 동시 INSERT race 는 user_id unique 제약이 정합성을 보장한다
      * (실패 건은 클라 재시도 — DailyFocusStat upsert 의 INSERT-INSERT 방어와 동일).
@@ -73,7 +73,7 @@ public class UserStreakService {
             change = "reset";
         }
         streak.setLastSessionDate(sessionDateUtc);
-        streak.setLongestStreak(Math.max(streak.getLongestStreak(), streak.getStreakCount()));
+        streak.setLongestStreakCount(Math.max(streak.getLongestStreakCount(), streak.getStreakCount()));
 
         if (isNew) {
             userStreakRepository.save(streak);
@@ -81,7 +81,7 @@ public class UserStreakService {
 
         userActivityEventLogger.log(UserActivityEvent.STREAK_UPDATED,
                 Map.of("streak_count", streak.getStreakCount(),
-                        "longest_streak", streak.getLongestStreak(),
+                        "longest_streak", streak.getLongestStreakCount(),
                         "change", change));
     }
 }

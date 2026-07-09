@@ -70,14 +70,14 @@ class ProfileServiceTest {
     private static final UUID ARENA_ID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
 
     private User activeUser(String nickname) {
-        return User.builder().id(USER_ID).nickname(nickname).currentTier(2).build();
+        return User.builder().id(USER_ID).nickname(nickname).build();
     }
 
     private LeagueArena activeArena() {
         return LeagueArena.builder()
                 .id(ARENA_ID)
                 .status(LeagueArenaStatus.ACTIVE)
-                .weekStartAt(Instant.parse("2026-06-22T00:00:00Z"))
+                .startedAt(Instant.parse("2026-06-22T00:00:00Z"))
                 .build();
     }
 
@@ -141,7 +141,7 @@ class ProfileServiceTest {
         User deleted = User.builder()
                 .id(USER_ID)
                 .nickname("탈퇴유저")
-                .deletedAt(Instant.now())
+                .isDeleted(true)
                 .build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(deleted));
 
@@ -151,29 +151,12 @@ class ProfileServiceTest {
                 .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
-    // ── 리그 미소속 → User.currentTier fallback, rank null ───────────────
+    // ── 리그 미소속 → tier=null(GROMO-671: User.current_tier 제거, 티어는 league_arena_users 로만 도출), rank null ──
 
     @Test
-    @DisplayName("리그 미소속 → User.currentTier fallback, rank=null")
-    void getPublicProfile_noLeagueMembership_withCurrentTier() {
-        User user = activeUser("조재영");  // currentTier=2
-
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
-        given(friendshipRepository.countAcceptedByUser(user)).willReturn(0L);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.empty());
-
-        PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
-
-        assertThat(response.currentTier()).isEqualTo(2);
-        assertThat(response.rank()).isNull();
-    }
-
-    @Test
-    @DisplayName("리그 미소속 + User.currentTier 미설정 → tier=null, rank=null")
-    void getPublicProfile_noLeagueMembership_noCurrentTier() {
-        User user = User.builder().id(USER_ID).nickname("새유저").build();  // currentTier=null
+    @DisplayName("리그 미소속 → tier=null, rank=null (User.current_tier fallback 제거)")
+    void getPublicProfile_noLeagueMembership_noTier() {
+        User user = User.builder().id(USER_ID).nickname("새유저").build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
@@ -439,7 +422,7 @@ class ProfileServiceTest {
         User deleted = User.builder()
                 .id(USER_ID)
                 .nickname("탈퇴유저")
-                .deletedAt(Instant.now())
+                .isDeleted(true)
                 .build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(deleted));
 

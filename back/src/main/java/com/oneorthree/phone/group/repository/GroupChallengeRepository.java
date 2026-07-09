@@ -20,13 +20,13 @@ public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, 
 
     List<GroupChallenge> findByGroupOrderByCreatedAtDesc(Group group);
 
-    boolean existsByGroupAndMissionCategoryAndMissionTypeAndStatus(
+    boolean existsByGroupAndCategoryAndTypeAndStatus(
             Group group, MissionCategory category, MissionType type, GroupChallengeStatus status);
 
     @Query("SELECT COUNT(c) > 0 FROM GroupChallenge c"
             + " WHERE c.group = :group"
-            + " AND c.missionCategory = :category"
-            + " AND c.missionType = 'TIME_WINDOW'"
+            + " AND c.category = :category"
+            + " AND c.type = 'TIME_WINDOW'"
             + " AND c.status = 'ACTIVE'"
             + " AND c.windowStart < :end"
             + " AND c.windowEnd > :start")

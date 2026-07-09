@@ -72,13 +72,13 @@ public class GroupChallengeService {
                 .stream()
                 .map(c -> GroupChallengeResponse.builder()
                         .id(c.getId())
-                        .missionType(c.getMissionType())
-                        .missionCategory(c.getMissionCategory())
+                        .missionType(c.getType())
+                        .missionCategory(c.getCategory())
                         .durationMinutes(c.getDurationMinutes())
                         .windowStart(toLocalTimeString(c.getWindowStart(), c.getTimeZone()))
                         .windowEnd(toLocalTimeString(c.getWindowEnd(), c.getTimeZone()))
                         .timeZone(c.getTimeZone())
-                        .canParticipate(c.getMissionCategory() == MissionCategory.FOCUS
+                        .canParticipate(c.getCategory() == MissionCategory.FOCUS
                                 || screenTimePermissionGranted)
                         .status(c.getStatus())
                         .createdAt(c.getCreatedAt())
@@ -126,7 +126,7 @@ public class GroupChallengeService {
         }
 
         if (request.getMissionType() == MissionType.DURATION) {
-            if (groupChallengeRepository.existsByGroupAndMissionCategoryAndMissionTypeAndStatus(
+            if (groupChallengeRepository.existsByGroupAndCategoryAndTypeAndStatus(
                     group, request.getMissionCategory(), MissionType.DURATION, GroupChallengeStatus.ACTIVE)) {
                 throw new GroupException(GroupErrorCode.ACTIVE_CHALLENGE_EXISTS);
             }
@@ -139,8 +139,8 @@ public class GroupChallengeService {
 
         GroupChallenge savedChallenge = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group)
-                .missionType(request.getMissionType())
-                .missionCategory(request.getMissionCategory())
+                .type(request.getMissionType())
+                .category(request.getMissionCategory())
                 .durationMinutes(request.getDurationMinutes())
                 .windowStart(request.getWindowStart())
                 .windowEnd(request.getWindowEnd())

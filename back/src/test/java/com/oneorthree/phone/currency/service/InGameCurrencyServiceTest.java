@@ -1,8 +1,7 @@
 package com.oneorthree.phone.currency.service;
 
-import com.oneorthree.phone.currency.domain.CurrencyReason;
 import com.oneorthree.phone.currency.domain.CurrencyTransaction;
-import com.oneorthree.phone.currency.domain.TransactionType;
+import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.dto.TransactionsResponse;
 import com.oneorthree.phone.currency.exception.CurrencyErrorCode;
 import com.oneorthree.phone.currency.exception.CurrencyException;
@@ -88,24 +87,22 @@ class InGameCurrencyServiceTest {
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
         Instant earlier = Instant.parse("2025-12-31T00:00:00Z");
         CurrencyTransaction recent = CurrencyTransaction.builder()
-                .user(user).amount(100).type(TransactionType.EARN)
-                .reason(CurrencyReason.SESSION_COMPLETE).transactedAt(now).build();
+                .user(user).amount(100).type(CurrencyTransactionType.SESSION_COMPLETE)
+                .createdAt(now).build();
         CurrencyTransaction old = CurrencyTransaction.builder()
-                .user(user).amount(50).type(TransactionType.SPEND)
-                .reason(CurrencyReason.PURCHASE).transactedAt(earlier).build();
-        given(currencyTransactionRepository.findByUserOrderByTransactedAtDesc(user))
+                .user(user).amount(50).type(CurrencyTransactionType.PURCHASE)
+                .createdAt(earlier).build();
+        given(currencyTransactionRepository.findByUserOrderByCreatedAtDesc(user))
                 .willReturn(List.of(recent, old));
 
         List<TransactionsResponse> responses = inGameCurrencyService.getCurrencyTransactions(USER_ID);
 
         assertThat(responses).hasSize(2);
         assertThat(responses.get(0).getAmount()).isEqualTo(100);
-        assertThat(responses.get(0).getType()).isEqualTo(TransactionType.EARN);
-        assertThat(responses.get(0).getReason()).isEqualTo(CurrencyReason.SESSION_COMPLETE);
-        assertThat(responses.get(0).getTransactedAt()).isEqualTo(now);
+        assertThat(responses.get(0).getType()).isEqualTo(CurrencyTransactionType.SESSION_COMPLETE);
+        assertThat(responses.get(0).getCreatedAt()).isEqualTo(now);
         assertThat(responses.get(1).getAmount()).isEqualTo(50);
-        assertThat(responses.get(1).getType()).isEqualTo(TransactionType.SPEND);
-        assertThat(responses.get(1).getReason()).isEqualTo(CurrencyReason.PURCHASE);
+        assertThat(responses.get(1).getType()).isEqualTo(CurrencyTransactionType.PURCHASE);
     }
 
     @Test
@@ -122,22 +119,21 @@ class InGameCurrencyServiceTest {
     // ── earnCurrency ──────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("적립 성공 → wallet 잔액 증가 + EARN 거래 저장")
+    @DisplayName("적립 성공 → wallet 잔액 증가 + SESSION_COMPLETE 거래 저장")
     void earnCurrencySuccess() {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(100).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
 
-        inGameCurrencyService.earnCurrency(USER_ID, CurrencyReason.SESSION_COMPLETE, 50);
+        inGameCurrencyService.earnCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, 50);
 
         assertThat(wallet.getBalance()).isEqualTo(150);
 
         ArgumentCaptor<CurrencyTransaction> captor = ArgumentCaptor.forClass(CurrencyTransaction.class);
         verify(currencyTransactionRepository).save(captor.capture());
         CurrencyTransaction saved = captor.getValue();
-        assertThat(saved.getType()).isEqualTo(TransactionType.EARN);
-        assertThat(saved.getReason()).isEqualTo(CurrencyReason.SESSION_COMPLETE);
+        assertThat(saved.getType()).isEqualTo(CurrencyTransactionType.SESSION_COMPLETE);
         assertThat(saved.getAmount()).isEqualTo(50);
     }
 
@@ -147,7 +143,7 @@ class InGameCurrencyServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() ->
-                inGameCurrencyService.earnCurrency(USER_ID, CurrencyReason.SESSION_COMPLETE, 50))
+                inGameCurrencyService.earnCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, 50))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
@@ -161,7 +157,7 @@ class InGameCurrencyServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
 
         assertThatThrownBy(() ->
-                inGameCurrencyService.earnCurrency(USER_ID, CurrencyReason.PURCHASE, 50))
+                inGameCurrencyService.earnCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 50))
                 .isInstanceOf(CurrencyException.class)
                 .extracting("errorCode")
                 .isEqualTo(CurrencyErrorCode.ILLEGAL_EARN_REASON);
@@ -171,22 +167,21 @@ class InGameCurrencyServiceTest {
     // ── spendCurrency ─────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("사용 성공 → wallet 잔액 차감 + SPEND 거래 저장")
+    @DisplayName("사용 성공 → wallet 잔액 차감 + PURCHASE 거래 저장")
     void spendCurrencySuccess() {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(1000).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
 
-        inGameCurrencyService.spendCurrency(USER_ID, CurrencyReason.PURCHASE, 300);
+        inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 300);
 
         assertThat(wallet.getBalance()).isEqualTo(700);
 
         ArgumentCaptor<CurrencyTransaction> captor = ArgumentCaptor.forClass(CurrencyTransaction.class);
         verify(currencyTransactionRepository).save(captor.capture());
         CurrencyTransaction saved = captor.getValue();
-        assertThat(saved.getType()).isEqualTo(TransactionType.SPEND);
-        assertThat(saved.getReason()).isEqualTo(CurrencyReason.PURCHASE);
+        assertThat(saved.getType()).isEqualTo(CurrencyTransactionType.PURCHASE);
         assertThat(saved.getAmount()).isEqualTo(300);
     }
 
@@ -196,7 +191,7 @@ class InGameCurrencyServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() ->
-                inGameCurrencyService.spendCurrency(USER_ID, CurrencyReason.PURCHASE, 300))
+                inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 300))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
@@ -209,7 +204,7 @@ class InGameCurrencyServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
 
         assertThatThrownBy(() ->
-                inGameCurrencyService.spendCurrency(USER_ID, CurrencyReason.SESSION_COMPLETE, 300))
+                inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, 300))
                 .isInstanceOf(CurrencyException.class)
                 .extracting("errorCode")
                 .isEqualTo(CurrencyErrorCode.ILLEGAL_SPEND_REASON);
@@ -227,7 +222,7 @@ class InGameCurrencyServiceTest {
         given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
 
         assertThatThrownBy(() ->
-                inGameCurrencyService.spendCurrency(USER_ID, CurrencyReason.PURCHASE, 100))
+                inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 100))
                 .isInstanceOf(CurrencyException.class)
                 .extracting("errorCode")
                 .isEqualTo(CurrencyErrorCode.INSUFFICIENT_CURRENCY);
@@ -244,10 +239,10 @@ class InGameCurrencyServiceTest {
         given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
 
         assertThatThrownBy(() ->
-                inGameCurrencyService.earnCurrency(USER_ID, CurrencyReason.SESSION_COMPLETE, 0))
+                inGameCurrencyService.earnCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, 0))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() ->
-                inGameCurrencyService.earnCurrency(USER_ID, CurrencyReason.SESSION_COMPLETE, -10))
+                inGameCurrencyService.earnCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, -10))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(wallet.getBalance()).isEqualTo(100);
         verify(currencyTransactionRepository, never()).save(any());
@@ -262,10 +257,10 @@ class InGameCurrencyServiceTest {
         given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
 
         assertThatThrownBy(() ->
-                inGameCurrencyService.spendCurrency(USER_ID, CurrencyReason.PURCHASE, 0))
+                inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 0))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() ->
-                inGameCurrencyService.spendCurrency(USER_ID, CurrencyReason.PURCHASE, -10))
+                inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, -10))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(wallet.getBalance()).isEqualTo(1000);
         verify(currencyTransactionRepository, never()).save(any());

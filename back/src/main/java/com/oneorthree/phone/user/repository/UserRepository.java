@@ -15,8 +15,8 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByNickname(String nickname);
 
-    // 소프트딜리트(탈퇴) 유저 차단 (GROMO-635) — deleted_at 세팅된 유저는 조회/변경 경로에서 제외.
-    Optional<User> findByIdAndDeletedAtIsNull(UUID id);
+    // 소프트딜리트(탈퇴) 유저 차단 (GROMO-635) — is_deleted=true 인 유저는 조회/변경 경로에서 제외.
+    Optional<User> findByIdAndIsDeletedFalse(UUID id);
 
     // 닉네임 중복 검사 (GROMO-584) — 본인 제외(AndIdNot)로 자기 닉네임 재사용은 허용.
     boolean existsByNicknameAndIdNot(String nickname, UUID id);
@@ -27,7 +27,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     // 전제: pg_trgm 확장 + users.nickname GIN trgm 인덱스 (run-migration-v13.sh).
     // % = 트라이그램 유사도 매칭, <-> = 거리(가까운 순). 임계값 튜닝은 실데이터 기준(한글 gotcha 주의).
     @Query(value = "SELECT * FROM users u"
-            + " WHERE u.nickname % :q AND u.deleted_at IS NULL"
+            + " WHERE u.nickname % :q AND u.is_deleted = false"
             + " ORDER BY u.nickname <-> :q"
             + " LIMIT :limit", nativeQuery = true)
     List<User> searchByNicknameTrgm(@Param("q") String q, @Param("limit") int limit);
@@ -46,7 +46,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     // 호출측이 D+3/7/14 각 단계의 KST 캘린더 하루 경계를 주입 → "정확히 N일째" 판정. isGuest·소프트딜리트 유저는 제외.
     // (deviceToken·알림설정 필터는 sendIfAllowed 가 처리 — 여기선 대상 셋만 좁힘)
     @Query("SELECT u FROM User u"
-            + " WHERE u.isGuest = false AND u.deletedAt IS NULL"
+            + " WHERE u.isGuest = false AND u.isDeleted = false"
             + " AND u.lastActiveAt >= :startInclusive AND u.lastActiveAt < :endExclusive")
     List<User> findInactiveReturnTargets(@Param("startInclusive") Instant startInclusive,
                                          @Param("endExclusive") Instant endExclusive);
