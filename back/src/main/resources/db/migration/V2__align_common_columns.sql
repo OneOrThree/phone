@@ -110,8 +110,8 @@ ALTER TABLE items RENAME CONSTRAINT items_price_type_check TO items_payment_type
 
 -- group_challenges: status CHECK ACTIVE/ENDED → ACTIVE/INACTIVE.
 ALTER TABLE group_challenges DROP CONSTRAINT group_challenges_status_check;
--- 기존 행 정규화(GROMO-671 배포 실패 보정): 구 도메인 status=ENDED → INACTIVE 이관.
---   구 CHECK(ACTIVE/ENDED) 제거 후 UPDATE 해야 신규 값이 구 CHECK 에 걸리지 않는다.
+-- 기존 행 정규화(GROMO-671 배포 실패 보정): 신규 도메인(ACTIVE/INACTIVE) 밖의 모든 레거시 값을 INACTIVE 로
+--   이관(구 도메인 ENDED 포함 — NOT IN 이라 예상 밖 값도 포괄). 구 CHECK 제거 후 UPDATE 해야 구 CHECK 에 안 걸린다.
 UPDATE group_challenges SET status = 'INACTIVE' WHERE status NOT IN ('ACTIVE', 'INACTIVE');
 ALTER TABLE group_challenges
     ADD CONSTRAINT group_challenges_status_check
