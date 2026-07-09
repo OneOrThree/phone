@@ -56,12 +56,29 @@ Enforced by `config/checkstyle/checkstyle.xml` (Google Java Style, modified):
 
 ## Database changes
 
-The canonical DB schema is `docs/db/schema.dbml` (DBML — keep it in sync with the
-current state), rendered at <https://dbdiagram.io/d/GroMo-6a1e2ece2eeb2f46cd390435>.
-Apply local schema changes with the migration scripts in `docs/db/`
-(`run-migration-v<N>.sh` — a `docker exec … psql` heredoc, gitignored/local-only); add a
-new `run-migration-v<N+1>.sh` for the next change and update `schema.dbml` to match.
-**Flag any DB schema change in the PR** (per the PR template).
+Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
+`docs/db/schema.dbml` (DBML — keep it in sync with the current state), rendered at
+<https://dbdiagram.io/d/GroMo-6a1e2ece2eeb2f46cd390435>.
+
+- **New schema change**: add `src/main/resources/db/migration/V<N>__<desc>.sql` (Flyway
+  runs migrations in version order) and update `schema.dbml` to match. Never edit an
+  already-applied migration — fix mistakes with a new `V<N+1>` file (Flyway checksums them).
+- **Baseline**: `V1__baseline.sql` is the current-state snapshot. Existing DBs are marked
+  at V1 via `baseline-on-migrate` (V1 is not re-run); fresh/empty DBs run V1 onward.
+- **Per profile**: dev/staging/prod apply migrations automatically on boot with
+  `ddl-auto: validate`; `local` keeps `ddl-auto: update` with Flyway disabled; `ci` keeps
+  `create-drop` with Flyway disabled. Flyway needs three deps (see `build.gradle`):
+  `spring-boot-flyway` (Boot 4.0 splits autoconfig into per-tech modules), `flyway-core`,
+  and `flyway-database-postgresql`.
+- **Local setup (required since GROMO-670)**: your gitignored `application-local.yml`
+  MUST set `spring.flyway.enabled: false`. Once `spring-boot-flyway` is on the classpath
+  Flyway auto-activates by default, and against an existing `ddl-auto: update` local schema
+  (no baseline marking) it fails on `bootRun`. Copy `application-local.yml.example` (which
+  already includes this) to `application-local.yml` when setting up.
+- The `docs/db/run-migration-v*.sh` scripts (up to v30, gitignored) are a **legacy
+  archive** — do not add new ones. `/back-migration` still scaffolds that old `.sh` format
+  (skill rewrite to scaffold `V<N>` SQL is a follow-up).
+- **Flag any DB schema change in the PR** (per the PR template).
 
 ## Deploy
 

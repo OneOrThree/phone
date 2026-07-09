@@ -7,6 +7,11 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
+  # Flyway OFF (GROMO-670). CI 는 create-drop 으로 엔티티에서 스키마를 만든다.
+  # base application.yml 은 gitignored 라 CI 체크아웃에 없음 → 여기 명시하지 않으면 flyway-core 가
+  # 클래스패스에 있어 기본 enabled=true 로 켜지고, Testcontainers 에서 V1 실행과 create-drop 이 충돌한다.
+  flyway:
+    enabled: false
 
 decorator:
   datasource:

@@ -9,6 +9,13 @@ spring:
       # 스키마 변경은 마이그레이션으로만 반영. 엔티티↔DB 드리프트 시 기동 거부해 조기 탐지 (GROMO-577)
       # ※ live 배포(cd.yml → docker-compose.dev.yml)가 dev 프로파일로 동작하므로 사실상 운영 DB를 검증한다.
       ddl-auto: validate
+  # Flyway 형상관리 (GROMO-670). 기존 dev DB 는 스키마가 이미 있으므로 첫 기동 때 baseline-on-migrate 가
+  # flyway_schema_history 에 V1 을 '적용됨'으로 마킹만 하고 실행은 건너뜀(무중단). 이후 V2+ 부터 배포 시 자동 적용.
+  # baseline-version: 1 → V1(=현재 스키마)은 기존 DB 에서 재실행 안 됨. 빈 DB 는 V1 부터 전부 실행.
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
 
 jwt:
   secret: ${JWT_SECRET}
