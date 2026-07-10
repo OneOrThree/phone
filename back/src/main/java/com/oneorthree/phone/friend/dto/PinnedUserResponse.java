@@ -10,7 +10,7 @@ import java.util.UUID;
 
 @Getter
 @Builder
-public class PinnedFriendResponse {
+public class PinnedUserResponse {
     private UUID userId;
     private String nickname;
     private List<CharacterEquipmentResponse> character;  // 장착 슬롯/아이템 표시정보

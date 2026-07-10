@@ -10,16 +10,16 @@ import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.friend.domain.Friendship;
 import com.oneorthree.phone.friend.domain.FriendshipStatus;
-import com.oneorthree.phone.friend.domain.PinnedFriend;
+import com.oneorthree.phone.friend.domain.PinnedUser;
 import com.oneorthree.phone.friend.dto.FriendRelation;
 import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
-import com.oneorthree.phone.friend.dto.PinnedFriendResponse;
+import com.oneorthree.phone.friend.dto.PinnedUserResponse;
 import com.oneorthree.phone.friend.exception.FriendErrorCode;
 import com.oneorthree.phone.friend.exception.FriendException;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
-import com.oneorthree.phone.friend.repository.PinnedFriendRepository;
+import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.friend.search.FriendSearchStrategy;
 import com.oneorthree.phone.friend.search.SearchType;
 import com.oneorthree.phone.user.domain.User;
@@ -42,12 +42,12 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class FriendService {
 
-    // pinned_friends.id 직접 생성용 (네이티브 INSERT는 @GeneratedUuidV7를 안 타므로 직접 발급)
+    // pinned_users.id 직접 생성용 (네이티브 INSERT는 @GeneratedUuidV7를 안 타므로 직접 발급)
     private static final NoArgGenerator UUID_V7 = Generators.timeBasedEpochRandomGenerator();
 
     private final FriendshipRepository friendshipRepository;
     private final UserRepository userRepository;
-    private final PinnedFriendRepository pinnedFriendRepository;
+    private final PinnedUserRepository pinnedUserRepository;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final FocusSessionRepository focusSessionRepository;
     private final CharacterEquipmentRepository characterEquipmentRepository;
@@ -58,7 +58,7 @@ public class FriendService {
     // 모든 빈을 모아 type() 기준 Map으로 구성한다. (검색 수단 추가 = 구현체 1개 추가)
     public FriendService(FriendshipRepository friendshipRepository,
                          UserRepository userRepository,
-                         PinnedFriendRepository pinnedFriendRepository,
+                         PinnedUserRepository pinnedUserRepository,
                          DailyFocusStatRepository dailyFocusStatRepository,
                          FocusSessionRepository focusSessionRepository,
                          CharacterEquipmentRepository characterEquipmentRepository,
@@ -66,7 +66,7 @@ public class FriendService {
                          List<FriendSearchStrategy> searchStrategies) {
         this.friendshipRepository = friendshipRepository;
         this.userRepository = userRepository;
-        this.pinnedFriendRepository = pinnedFriendRepository;
+        this.pinnedUserRepository = pinnedUserRepository;
         this.dailyFocusStatRepository = dailyFocusStatRepository;
         this.focusSessionRepository = focusSessionRepository;
         this.characterEquipmentRepository = characterEquipmentRepository;
@@ -150,8 +150,8 @@ public class FriendService {
     // 친구 목록 — ACCEPTED·미삭제 관계를 상대 유저로 매핑. isPinned는 내 핀 친구 집합으로 결정.
     public List<FriendResponse> getFriends(UUID me) {
         User meUser = getUser(me);
-        Set<UUID> pinnedIds = pinnedFriendRepository.findByUser(meUser).stream()
-                .map(p -> p.getFriendUser().getId())
+        Set<UUID> pinnedIds = pinnedUserRepository.findByUser(meUser).stream()
+                .map(p -> p.getPinnedUser().getId())
                 .collect(Collectors.toSet());
         return friendshipRepository.findAcceptedByUser(meUser).stream()
                 .map(f -> {
@@ -176,7 +176,7 @@ public class FriendService {
         getUser(me);           // 나(me) 존재 검증 — 없으면 FK 위반 500 대신 UserErrorCode.NOT_FOUND(404)
         getUser(friendUserId); // 대상 유저 존재 검증(없으면 UserErrorCode.NOT_FOUND)
         // ON CONFLICT DO NOTHING — 동시 핀 요청에도 멱등(중복은 무시), 500 없음.
-        pinnedFriendRepository.insertIgnoreConflict(UUID_V7.generate(), me, friendUserId);
+        pinnedUserRepository.insertIgnoreConflict(UUID_V7.generate(), me, friendUserId);
     }
 
     // 친구 핀 해제 — 있으면 삭제, 없으면 멱등(204).
@@ -184,15 +184,15 @@ public class FriendService {
     public void unpinFriend(UUID me, UUID friendUserId) {
         User meUser = getUser(me);
         User friendUser = getUser(friendUserId);
-        pinnedFriendRepository.findByUserAndFriendUser(meUser, friendUser)
-                .ifPresent(pinnedFriendRepository::delete);
+        pinnedUserRepository.findByUserAndPinnedUser(meUser, friendUser)
+                .ifPresent(pinnedUserRepository::delete);
     }
 
     // 내가 핀한 친구 조회 — 각 친구의 캐릭터 표시정보 + 오늘 집중분 + 진행중 여부 매핑(GROMO-369 재사용).
-    public List<PinnedFriendResponse> getPinnedFriends(UUID me, LocalDate date) {
+    public List<PinnedUserResponse> getPinnedFriends(UUID me, LocalDate date) {
         User meUser = getUser(me);
-        List<User> friends = pinnedFriendRepository.findByUser(meUser).stream()
-                .map(PinnedFriend::getFriendUser)
+        List<User> friends = pinnedUserRepository.findByUser(meUser).stream()
+                .map(PinnedUser::getPinnedUser)
                 .toList();
         if (friends.isEmpty()) {
             return List.of();
@@ -211,7 +211,7 @@ public class FriendService {
                                 Collectors.mapping(CharacterEquipmentResponse::from, Collectors.toList())));
 
         return friends.stream()
-                .map(f -> PinnedFriendResponse.builder()
+                .map(f -> PinnedUserResponse.builder()
                         .userId(f.getId())
                         .nickname(f.getNickname())
                         .character(equipMap.getOrDefault(f.getId(), List.of()))

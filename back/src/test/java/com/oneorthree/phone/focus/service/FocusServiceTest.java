@@ -2,9 +2,10 @@ package com.oneorthree.phone.focus.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.focus.domain.DefaultTag;
 import com.oneorthree.phone.focus.domain.FocusSession;
-import com.oneorthree.phone.focus.domain.FocusTag;
 import com.oneorthree.phone.focus.domain.OccupationDefaultTag;
+import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
@@ -17,9 +18,10 @@ import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
 import com.oneorthree.phone.focus.dto.OccupationDefaultTagsResponse;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
+import com.oneorthree.phone.focus.repository.DefaultTagRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
-import com.oneorthree.phone.focus.repository.FocusTagRepository;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
+import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
@@ -81,7 +83,10 @@ class FocusServiceTest {
     private UserActivityEventLogger userActivityEventLogger;
 
     @Mock
-    private FocusTagRepository focusTagRepository;
+    private UserFocusTagRepository userFocusTagRepository;
+
+    @Mock
+    private DefaultTagRepository defaultTagRepository;
 
     @Mock
     private OccupationDefaultTagRepository occupationDefaultTagRepository;
@@ -120,6 +125,15 @@ class FocusServiceTest {
                 .thenReturn(Optional.empty());
     }
 
+    // GROMO-673: 유저 태그는 이제 UserFocusTag(정체성=defaultTag). id 는 user_focus_tags.id, 이름은 defaultTag.name.
+    private static UserFocusTag userFocusTag(UUID id, User user, String name) {
+        return UserFocusTag.builder()
+                .id(id)
+                .user(user)
+                .defaultTag(DefaultTag.builder().name(name).build())
+                .build();
+    }
+
     // ── getFocusTags ──────────────────────────────────────────────────────
 
     @Test
@@ -128,10 +142,10 @@ class FocusServiceTest {
         // given: findById(USER_ID) → User, findByUser → 태그 2개
         User user = User.builder().id(USER_ID).build();
         UUID tagId2 = UUID.fromString("00000000-0000-0000-0000-0000000000a2");
-        FocusTag tag1 = FocusTag.builder().id(TAG_ID).user(user).name("공부").build();
-        FocusTag tag2 = FocusTag.builder().id(tagId2).user(user).name("운동").build();
+        UserFocusTag tag1 = userFocusTag(TAG_ID, user, "공부");
+        UserFocusTag tag2 = userFocusTag(tagId2, user, "운동");
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(focusTagRepository.findByUserAndDeletedAtIsNull(user)).willReturn(List.of(tag1, tag2));
+        given(userFocusTagRepository.findByUserAndDeletedAtIsNull(user)).willReturn(List.of(tag1, tag2));
 
         // when
         List<FocusTagResponse> result = focusService.getFocusTags(USER_ID);
@@ -163,8 +177,10 @@ class FocusServiceTest {
         // given: occupation 파라미터 지정 → 유저 조회 불필요
         given(occupationDefaultTagRepository.findByOccupationOrderBySortOrderAsc(Occupation.UNIVERSITY))
                 .willReturn(List.of(
-                        OccupationDefaultTag.builder().occupation(Occupation.UNIVERSITY).name("전공 공부").sortOrder(0).build(),
-                        OccupationDefaultTag.builder().occupation(Occupation.UNIVERSITY).name("과제").sortOrder(1).build()));
+                        OccupationDefaultTag.builder().occupation(Occupation.UNIVERSITY)
+                                .defaultTag(DefaultTag.builder().name("전공 공부").build()).sortOrder(0).build(),
+                        OccupationDefaultTag.builder().occupation(Occupation.UNIVERSITY)
+                                .defaultTag(DefaultTag.builder().name("과제").build()).sortOrder(1).build()));
 
         // when
         OccupationDefaultTagsResponse result = focusService.getDefaultTags(USER_ID, Occupation.UNIVERSITY);
@@ -184,7 +200,8 @@ class FocusServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(occupationDefaultTagRepository.findByOccupationOrderBySortOrderAsc(Occupation.LABOR_ATTORNEY))
                 .willReturn(List.of(
-                        OccupationDefaultTag.builder().occupation(Occupation.LABOR_ATTORNEY).name("민법").sortOrder(0).build()));
+                        OccupationDefaultTag.builder().occupation(Occupation.LABOR_ATTORNEY)
+                                .defaultTag(DefaultTag.builder().name("민법").build()).sortOrder(0).build()));
 
         // when
         OccupationDefaultTagsResponse result = focusService.getDefaultTags(USER_ID, null);
@@ -222,33 +239,89 @@ class FocusServiceTest {
     // ── setupFocusTag ─────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("태그 생성 성공 → FocusTag 저장")
+    @DisplayName("태그 생성 성공(신규 default_tag) → DefaultTag 생성 후 UserFocusTag 채택")
     void setupFocusTagSuccess() {
-        // given
+        // given: '공부' default_tag 미존재 → 새로 생성 후 UserFocusTag 채택
         User user = User.builder().id(USER_ID).build();
+        DefaultTag defaultTag = DefaultTag.builder().name("공부").build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(focusTagRepository.save(any(FocusTag.class)))
-                .willReturn(FocusTag.builder().id(TAG_ID).user(user).name("공부").build());
+        given(defaultTagRepository.findByName("공부")).willReturn(Optional.empty());
+        given(defaultTagRepository.save(any(DefaultTag.class))).willReturn(defaultTag);
+        given(userFocusTagRepository.findByUserAndDefaultTagAndDeletedAtIsNull(user, defaultTag))
+                .willReturn(Optional.empty());
+        given(userFocusTagRepository.save(any(UserFocusTag.class)))
+                .willReturn(userFocusTag(TAG_ID, user, "공부"));
         FocusTagSetupRequest body = new FocusTagSetupRequest("공부");
 
         // when
         focusService.setupFocusTag(USER_ID, body);
 
-        // then: 저장된 태그의 user/name 검증
-        ArgumentCaptor<FocusTag> captor = ArgumentCaptor.forClass(FocusTag.class);
-        verify(focusTagRepository).save(captor.capture());
+        // then: default_tag 신규 생성 + UserFocusTag 채택(user/defaultTag) 검증
+        ArgumentCaptor<DefaultTag> defaultCaptor = ArgumentCaptor.forClass(DefaultTag.class);
+        verify(defaultTagRepository).save(defaultCaptor.capture());
+        assertThat(defaultCaptor.getValue().getName()).isEqualTo("공부");
+        ArgumentCaptor<UserFocusTag> captor = ArgumentCaptor.forClass(UserFocusTag.class);
+        verify(userFocusTagRepository).save(captor.capture());
         assertThat(captor.getValue().getUser()).isEqualTo(user);
-        assertThat(captor.getValue().getName()).isEqualTo("공부");
+        assertThat(captor.getValue().getDefaultTag()).isEqualTo(defaultTag);
     }
 
     @Test
-    @DisplayName("태그 생성 → FOCUS_TAG_CREATED(tag_id) 발행, 태그 이름은 PII 로 payload 제외")
-    void setupFocusTagEmitsTagCreated() {
-        // given: save 가 id 채워진 엔티티를 반환
+    @DisplayName("태그 생성(기존 default_tag 재사용) → default_tag 신규 저장 없이 UserFocusTag 채택")
+    void setupFocusTagReusesExistingDefaultTag() {
+        // given: '공부' default_tag 이미 존재 → 재사용, 새 UserFocusTag 채택
         User user = User.builder().id(USER_ID).build();
+        DefaultTag existing = DefaultTag.builder().name("공부").build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(focusTagRepository.save(any(FocusTag.class)))
-                .willReturn(FocusTag.builder().id(TAG_ID).user(user).name("공부").build());
+        given(defaultTagRepository.findByName("공부")).willReturn(Optional.of(existing));
+        given(userFocusTagRepository.findByUserAndDefaultTagAndDeletedAtIsNull(user, existing))
+                .willReturn(Optional.empty());
+        given(userFocusTagRepository.save(any(UserFocusTag.class)))
+                .willReturn(userFocusTag(TAG_ID, user, "공부"));
+
+        // when
+        focusService.setupFocusTag(USER_ID, new FocusTagSetupRequest("공부"));
+
+        // then: default_tag 신규 저장 없음, UserFocusTag 는 기존 default_tag 참조
+        verify(defaultTagRepository, never()).save(any(DefaultTag.class));
+        ArgumentCaptor<UserFocusTag> captor = ArgumentCaptor.forClass(UserFocusTag.class);
+        verify(userFocusTagRepository).save(captor.capture());
+        assertThat(captor.getValue().getDefaultTag()).isEqualTo(existing);
+    }
+
+    @Test
+    @DisplayName("태그 재채택(멱등) — 이미 활성 채택 중이면 새 UserFocusTag 저장하지 않음")
+    void setupFocusTagIdempotentWhenAlreadyAdopted() {
+        // given: '공부' default_tag 존재 + 유저가 이미 활성 채택 중
+        User user = User.builder().id(USER_ID).build();
+        DefaultTag existing = DefaultTag.builder().name("공부").build();
+        UserFocusTag alreadyAdopted = userFocusTag(TAG_ID, user, "공부");
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(defaultTagRepository.findByName("공부")).willReturn(Optional.of(existing));
+        given(userFocusTagRepository.findByUserAndDefaultTagAndDeletedAtIsNull(user, existing))
+                .willReturn(Optional.of(alreadyAdopted));
+
+        // when
+        focusService.setupFocusTag(USER_ID, new FocusTagSetupRequest("공부"));
+
+        // then: 중복 채택 저장 없음, 이벤트는 기존 tag_id 로 발행
+        verify(userFocusTagRepository, never()).save(any(UserFocusTag.class));
+        verify(userActivityEventLogger).log(UserActivityEvent.FOCUS_TAG_CREATED,
+                Map.of("tag_id", TAG_ID.toString()));
+    }
+
+    @Test
+    @DisplayName("태그 생성 → FOCUS_TAG_CREATED(tag_id=user_focus_tags.id) 발행, 태그 이름은 PII 로 payload 제외")
+    void setupFocusTagEmitsTagCreated() {
+        // given: save 가 id 채워진 UserFocusTag 를 반환
+        User user = User.builder().id(USER_ID).build();
+        DefaultTag defaultTag = DefaultTag.builder().name("공부").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(defaultTagRepository.findByName("공부")).willReturn(Optional.of(defaultTag));
+        given(userFocusTagRepository.findByUserAndDefaultTagAndDeletedAtIsNull(user, defaultTag))
+                .willReturn(Optional.empty());
+        given(userFocusTagRepository.save(any(UserFocusTag.class)))
+                .willReturn(userFocusTag(TAG_ID, user, "공부"));
 
         // when
         focusService.setupFocusTag(USER_ID, new FocusTagSetupRequest("공부"));
@@ -270,32 +343,60 @@ class FocusServiceTest {
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
-        verify(focusTagRepository, never()).save(any(FocusTag.class));
+        verify(userFocusTagRepository, never()).save(any(UserFocusTag.class));
     }
 
     // ── updateFocusTag ────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("태그 수정 성공 → 이름 변경")
+    @DisplayName("태그 수정 성공 → 기존 채택 소프트딜리트 + 새 이름 default_tag 로 재채택 (공유 default_tags 오염 방지)")
     void updateFocusTagSuccess() {
-        // given: 소유자가 USER_ID 인 태그
+        // given: 소유자가 USER_ID 인 태그('이전이름'), 새 이름 '새이름' default_tag 는 신규
         User owner = User.builder().id(USER_ID).build();
-        FocusTag tag = FocusTag.builder().id(TAG_ID).user(owner).name("이전이름").build();
-        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        UserFocusTag tag = userFocusTag(TAG_ID, owner, "이전이름");
+        DefaultTag target = DefaultTag.builder().name("새이름").build();
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        given(defaultTagRepository.findByName("새이름")).willReturn(Optional.empty());
+        given(defaultTagRepository.save(any(DefaultTag.class))).willReturn(target);
+        given(userFocusTagRepository.findByUserAndDefaultTagAndDeletedAtIsNull(owner, target))
+                .willReturn(Optional.empty());
+        given(userFocusTagRepository.save(any(UserFocusTag.class))).willAnswer(inv -> inv.getArgument(0));
         FocusTagUpdateRequest body = new FocusTagUpdateRequest(TAG_ID, "새이름");
 
         // when
         focusService.updateFocusTag(USER_ID, body);
 
-        // then
-        assertThat(tag.getName()).isEqualTo("새이름");
+        // then: 기존 태그 소프트딜리트 + 새 이름 default_tag 로 재채택
+        assertThat(tag.getDeletedAt()).isNotNull();
+        ArgumentCaptor<UserFocusTag> captor = ArgumentCaptor.forClass(UserFocusTag.class);
+        verify(userFocusTagRepository).save(captor.capture());
+        assertThat(captor.getValue().getDefaultTag()).isEqualTo(target);
+        assertThat(captor.getValue().getUser()).isEqualTo(owner);
+    }
+
+    @Test
+    @DisplayName("태그 수정 — 같은 이름(같은 default_tag)이면 no-op (소프트딜리트/재채택 없음)")
+    void updateFocusTagSameNameIsNoop() {
+        // given: 기존 태그와 요청 이름이 동일한 default_tag
+        User owner = User.builder().id(USER_ID).build();
+        UserFocusTag tag = userFocusTag(TAG_ID, owner, "공부");
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        given(defaultTagRepository.findByName("공부")).willReturn(Optional.of(tag.getDefaultTag()));
+        FocusTagUpdateRequest body = new FocusTagUpdateRequest(TAG_ID, "공부");
+
+        // when
+        focusService.updateFocusTag(USER_ID, body);
+
+        // then: 변경 없음 — 소프트딜리트/재채택 저장 없음
+        assertThat(tag.getDeletedAt()).isNull();
+        verify(userFocusTagRepository, never()).save(any(UserFocusTag.class));
     }
 
     @Test
     @DisplayName("존재하지 않는 태그 → FocusException(TAG_NOT_FOUND)")
     void updateFocusTagNotFound() {
         // given
-        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.empty());
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.empty());
         FocusTagUpdateRequest body = new FocusTagUpdateRequest(TAG_ID, "새이름");
 
         // when & then
@@ -310,8 +411,8 @@ class FocusServiceTest {
     void updateFocusTagForbidden() {
         // given: 태그 소유자가 OTHER_USER_ID
         User otherOwner = User.builder().id(OTHER_USER_ID).build();
-        FocusTag tag = FocusTag.builder().id(TAG_ID).user(otherOwner).name("이전이름").build();
-        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        UserFocusTag tag = userFocusTag(TAG_ID, otherOwner, "이전이름");
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         FocusTagUpdateRequest body = new FocusTagUpdateRequest(TAG_ID, "새이름");
 
         // when & then: USER_ID 로 수정 시 FORBIDDEN
@@ -328,22 +429,22 @@ class FocusServiceTest {
     void deleteFocusTagSuccess() {
         // given: 소유자 USER_ID 태그
         User owner = User.builder().id(USER_ID).build();
-        FocusTag tag = FocusTag.builder().id(TAG_ID).user(owner).name("공부").build();
-        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        UserFocusTag tag = userFocusTag(TAG_ID, owner, "공부");
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
 
         // when
         focusService.deleteFocusTag(USER_ID, TAG_ID);
 
         // then: 하드 삭제가 아니라 deletedAt 세팅
         assertThat(tag.getDeletedAt()).isNotNull();
-        verify(focusTagRepository, never()).delete(any(FocusTag.class));
+        verify(userFocusTagRepository, never()).delete(any(UserFocusTag.class));
     }
 
     @Test
     @DisplayName("존재하지 않는 태그 → FocusException(TAG_NOT_FOUND)")
     void deleteFocusTagNotFound() {
         // given
-        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.empty());
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> focusService.deleteFocusTag(USER_ID, TAG_ID))
@@ -357,15 +458,15 @@ class FocusServiceTest {
     void deleteFocusTagForbidden() {
         // given: 소유자 OTHER_USER_ID
         User otherOwner = User.builder().id(OTHER_USER_ID).build();
-        FocusTag tag = FocusTag.builder().id(TAG_ID).user(otherOwner).name("공부").build();
-        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        UserFocusTag tag = userFocusTag(TAG_ID, otherOwner, "공부");
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
 
         // when & then: FORBIDDEN, delete 미호출
         assertThatThrownBy(() -> focusService.deleteFocusTag(USER_ID, TAG_ID))
                 .isInstanceOf(FocusException.class)
                 .extracting("errorCode")
                 .isEqualTo(FocusErrorCode.FORBIDDEN);
-        verify(focusTagRepository, never()).delete(any(FocusTag.class));
+        verify(userFocusTagRepository, never()).delete(any(UserFocusTag.class));
     }
 
     // ── getFocusSessions (커서 페이지네이션) ────────────────────────────────
@@ -378,7 +479,7 @@ class FocusServiceTest {
     @DisplayName("커서 조회 성공 → 태그 null 포함 매핑 + hasNext/nextCursor(마지막 id)")
     void getFocusSessionsSuccess() {
         User user = User.builder().id(USER_ID).build();
-        FocusTag tag = FocusTag.builder().id(TAG_ID).user(user).name("공부").build();
+        UserFocusTag tag = userFocusTag(TAG_ID, user, "공부");
         FocusSession withTag = FocusSession.builder()
                 .id(UUID.fromString("00000000-0000-0000-0000-0000000000bb"))
                 .user(user).focusTag(tag)
@@ -482,9 +583,9 @@ class FocusServiceTest {
     void saveFocusSessionSuccess() {
         // given: 유효한 시간 + 본인 소유 태그
         User user = User.builder().id(USER_ID).build();
-        FocusTag tag = FocusTag.builder().id(TAG_ID).user(user).name("공부").build();
+        UserFocusTag tag = userFocusTag(TAG_ID, user, "공부");
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         // DailyFocusStat upsert 경로 설정 (신규 insert)
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -614,9 +715,9 @@ class FocusServiceTest {
         // given: focusTagId 의 태그 소유자가 OTHER_USER_ID
         User user = User.builder().id(USER_ID).build();
         User other = User.builder().id(OTHER_USER_ID).build();
-        FocusTag tag = FocusTag.builder().id(TAG_ID).user(other).name("공부").build();
+        UserFocusTag tag = userFocusTag(TAG_ID, other, "공부");
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         FocusSessionRequest body = new FocusSessionRequest(TAG_ID, START, END, 30);
 
         // when & then
@@ -634,9 +735,9 @@ class FocusServiceTest {
     void saveFocusSessionLogsWithFocusTagId() {
         // given: START~END = 3600초, 본인 소유 태그
         User user = User.builder().id(USER_ID).build();
-        FocusTag tag = FocusTag.builder().id(TAG_ID).user(user).name("공부").build();
+        UserFocusTag tag = userFocusTag(TAG_ID, user, "공부");
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -700,9 +801,9 @@ class FocusServiceTest {
         // given: 다른 유저 소유 태그
         User user = User.builder().id(USER_ID).build();
         User other = User.builder().id(OTHER_USER_ID).build();
-        FocusTag tag = FocusTag.builder().id(TAG_ID).user(other).name("공부").build();
+        UserFocusTag tag = userFocusTag(TAG_ID, other, "공부");
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         FocusSessionRequest body = new FocusSessionRequest(TAG_ID, START, END, 30);
 
         // when & then
@@ -1070,9 +1171,9 @@ class FocusServiceTest {
     void startFocusSessionSuccess() {
         // given
         User user = User.builder().id(USER_ID).build();
-        FocusTag tag = FocusTag.builder().id(TAG_ID).user(user).name("공부").build();
+        UserFocusTag tag = userFocusTag(TAG_ID, user, "공부");
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         UUID sessionId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
         given(focusSessionRepository.save(any(FocusSession.class)))
                 .willAnswer(inv -> FocusSession.builder()
@@ -1139,9 +1240,9 @@ class FocusServiceTest {
         // given
         User user = User.builder().id(USER_ID).build();
         User other = User.builder().id(OTHER_USER_ID).build();
-        FocusTag tag = FocusTag.builder().id(TAG_ID).user(other).name("공부").build();
+        UserFocusTag tag = userFocusTag(TAG_ID, other, "공부");
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         FocusSessionStartRequest body = new FocusSessionStartRequest(TAG_ID, START);
 
         // when & then
@@ -1314,13 +1415,13 @@ class FocusServiceTest {
     void endFocusSessionAppliesTag() {
         // given: 시작 시 태그 없던 세션에 종료 시 본인 태그 지정
         User user = User.builder().id(USER_ID).build();
-        FocusTag tag = FocusTag.builder().id(TAG_ID).user(user).name("공부").build();
+        UserFocusTag tag = userFocusTag(TAG_ID, user, "공부");
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, END)).willReturn(1);
-        given(focusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
