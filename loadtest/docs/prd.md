@@ -186,6 +186,11 @@ reports/<UTC일시>-<sha>-<profile>-<target>/
 ### 8-2. 볼륨 표 — **V2 스키마 교정본** (진실 원천: `V2__align_common_columns.sql`)
 
 > 설계 문서(부하테스트-아키텍처.md §상세1)의 볼륨표는 V2 이전 컬럼 기준 — 아래 교정을 적용한다.
+>
+> **⚠️ 갱신(PRD 확정 직후 V3~V6 머지)**: 아래 표는 post-V2 시점 스냅샷이다. 이후 V4(focus_tags →
+> default_tags+user_focus_tags 분리), V5(그룹 미션 컬럼 → 챌린지 CTI 상세), V3(pinned_users·
+> group_join_codes), V6(포모도로 2종)이 반영되어, **살아있는 진실 원천은 `loadtest/seed/volume.md`
+> (post-V6)** 다. 마이그레이션이 추가되면 volume.md 부터 갱신한다.
 
 | 테이블 | 건수 | V2 교정 사항 |
 |---|---|---|

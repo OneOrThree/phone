@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# golden DB 시드 오케스트레이터 (GROMO-548 M4)
+#
+# 사용 (랩탑 또는 러너에서):
+#   PROJECT_ID=gromo-loadtest-1 ./seed.sh            # full (~6,500만 건, 수십 분)
+#   PROJECT_ID=... SCALE=0.01 ./seed.sh              # 파이프라인 디버그용 축소 시드 (분 단위)
+#
+# 원칙:
+#   - DB 는 사설 IP 전용 → 모든 DB 접근은 관측 VM(IAP ssh) 경유. 랩탑/러너는 DB 직통 경로 없음.
+#   - 차원 CSV(한글 닉네임·그룹명)는 랩탑에서 node 로 생성 → scp. 팩트는 DB 안에서 generate_series.
+#   - 재현성: 결정론 UUID + setseed 고정 + SEED_VERSION 태깅 (버전 다르면 baseline diff 거부).
+set -euo pipefail
+
+PROJECT_ID="${PROJECT_ID:?}"
+ZONE="${ZONE:-asia-northeast3-a}"
+SCALE="${SCALE:-1}"
+SEED_VERSION="${SEED_VERSION:-seed-v1}"
+OBS_VM="${OBS_VM:-obs}"
+SQL_INSTANCE="${SQL_INSTANCE:-loadtest-pg}"
+
+SEED_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SEED_DIR/../.." && pwd)"
+MIGRATIONS_DIR="$REPO_ROOT/back/src/main/resources/db/migration"
+CSV_DIR="$(mktemp -d)/csv"
+PARAMS_DIR="$(mktemp -d)/params"
+mkdir -p "$CSV_DIR" "$PARAMS_DIR"
+
+log() { printf '\n[seed] %s\n' "$*"; }
+run_vm() { gcloud compute ssh "$OBS_VM" --zone="$ZONE" --tunnel-through-iap --project="$PROJECT_ID" --command="$1"; }
+scp_to_vm() { gcloud compute scp --zone="$ZONE" --tunnel-through-iap --project="$PROJECT_ID" --recurse "$@"; }
+
+# ── 0. 사전 조건 ─────────────────────────────────────────────
+log "Cloud SQL 상태 확인"
+SQL_STATE=$(gcloud sql instances describe "$SQL_INSTANCE" --project="$PROJECT_ID" --format='value(state)')
+if [ "$SQL_STATE" != "RUNNABLE" ]; then
+  log "❌ Cloud SQL 이 기동 상태가 아님($SQL_STATE) — 먼저: make up"
+  exit 1
+fi
+DB_HOST=$(gcloud sql instances describe "$SQL_INSTANCE" --project="$PROJECT_ID" \
+  --format='value(ipAddresses[0].ipAddress)')
+DB_PASSWORD=$(gcloud secrets versions access latest --secret=loadtest-db-password --project="$PROJECT_ID")
+JWT_SECRET=$(gcloud secrets versions access latest --secret=loadtest-jwt-secret --project="$PROJECT_ID")
+
+# ── 1. 차원 CSV 생성 (랩탑, node) ────────────────────────────
+log "차원 CSV 생성 (SCALE=$SCALE)"
+node "$SEED_DIR/10_dimensions.mjs" --scale "$SCALE" --out "$CSV_DIR"
+
+# ── 2. 관측 VM 스테이징 ──────────────────────────────────────
+log "관측 VM 준비·파일 전송"
+run_vm 'command -v psql >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client)'
+run_vm 'rm -rf ~/seed && mkdir -p ~/seed/migration ~/seed/csv ~/seed/params'
+scp_to_vm "$SEED_DIR"/*.sh "$SEED_DIR"/*.sql "$OBS_VM":~/seed/
+scp_to_vm "$MIGRATIONS_DIR"/*.sql "$OBS_VM":~/seed/migration/
+scp_to_vm "$CSV_DIR"/* "$OBS_VM":~/seed/csv/
+
+VM_ENV="DB_HOST=$DB_HOST DB_USER=loadtest DB_PASSWORD='$DB_PASSWORD'"
+VM_PSQL="PGPASSWORD='$DB_PASSWORD' psql -h $DB_HOST -U loadtest -v ON_ERROR_STOP=1"
+
+# ── 3. 스키마 (Flyway V1+) → 4. 차원 → 5. 팩트 → 6. 제약·통계 ──
+log "3/8 스키마 — Flyway (docker)"
+run_vm "$VM_ENV MIGRATIONS_DIR=~/seed/migration bash ~/seed/00_flyway.sh"
+
+log "4/8 차원 테이블 \\copy"
+run_vm "$VM_ENV bash ~/seed/15_copy_dimensions.sh"
+
+log "5/8 팩트 테이블 generate_series (가장 오래 걸리는 단계)"
+run_vm "$VM_PSQL -d golden -v scale=$SCALE -f ~/seed/20_facts.sql"
+
+log "6/8 제약·인덱스 복원 + VACUUM ANALYZE"
+run_vm "$VM_PSQL -d golden -f ~/seed/30_constraints_indexes.sql"
+
+# ── 7. params export → mint → GCS ───────────────────────────
+log "7/8 params export + JWT mint"
+run_vm "$VM_PSQL -d golden -f ~/seed/40_params_export.sql"
+gcloud compute scp --zone="$ZONE" --tunnel-through-iap --project="$PROJECT_ID" --recurse \
+  "$OBS_VM":"~/seed/params/*" "$PARAMS_DIR/"
+JWT_SECRET="$JWT_SECRET" node "$SEED_DIR/50_mint_jwt.mjs" "$PARAMS_DIR"
+gcloud storage cp -r "$PARAMS_DIR"/* "gs://${PROJECT_ID}-params/${SEED_VERSION}/"
+
+# ── 8. 검증 → golden 동결 (동결 후엔 golden 접속 불가라 검증이 선행) ──
+log "8/8 검증(95_verify: 건수·크기·커서 정렬·FK 표본) → golden 동결"
+run_vm "$VM_PSQL -d golden -f ~/seed/95_verify.sql"
+run_vm "$VM_PSQL -d postgres -f ~/seed/90_freeze_golden.sql"
+cat <<EOF
+
+  SEED_VERSION=${SEED_VERSION} SCALE=${SCALE}
+  params: gs://${PROJECT_ID}-params/${SEED_VERSION}/
+  다음: make reset (loadtest ← golden 복제) → smoke run
+  ※ 위 95_verify 출력에서 건수를 volume.md 와 대조하고 cursor_order_violations=0,
+    dangling_tag_refs=0 을 확인할 것
+EOF
