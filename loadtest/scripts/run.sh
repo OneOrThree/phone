@@ -15,6 +15,9 @@ DURATION="${DURATION:-}"
 # 숫자·시간단위(s/m/h)만 허용해 메타문자(; ` $() 등)를 차단한다. 빈값 허용(프로파일 기본).
 [[ "$RATE" =~ ^[0-9]*$ ]] || { log "invalid RATE (숫자만 허용): '$RATE'"; exit 1; }
 [[ "$DURATION" =~ ^[0-9smh]*$ ]] || { log "invalid DURATION (예: 5m·90s): '$DURATION'"; exit 1; }
+# RECIPE: matrix/_generic.js 가 open(../recipes/<RECIPE>.json) 로 읽는다. 파일명·경로주입 방지로 영숫자/_/- 만 허용.
+RECIPE="${RECIPE:-}"
+[[ "$RECIPE" =~ ^[a-zA-Z0-9_-]*$ ]] || { log "invalid RECIPE (영숫자·_·- 만): '$RECIPE'"; exit 1; }
 REPORT_DIR="${REPORT_DIR:?Makefile 이 주입}"
 mkdir -p "$REPORT_DIR"
 
@@ -34,7 +37,7 @@ K6_BASE="sudo docker run --rm \
 date -u +%Y-%m-%dT%H:%M:%SZ > "$REPORT_DIR/.started_at"
 
 log "① 워밍업 2분 (판정·요약 제외)"
-vm_ssh loadgen "$K6_BASE -e PROFILE=warmup $K6_IMAGE run --no-thresholds --no-summary /scripts/$TARGET" \
+vm_ssh loadgen "$K6_BASE -e PROFILE=warmup -e RECIPE=$RECIPE $K6_IMAGE run --no-thresholds --no-summary /scripts/$TARGET" \
   || { "$(dirname "$0")/loadgen.sh" alive || { log "⚠️ 부하 VM 소실 — spot 선점 의심"; touch "$REPORT_DIR/.preempted"; exit 0; }; log "⚠️ 워밍업 비정상 종료 — 계속 진행"; }
 
 # 인자 없는 reset() 은 클러스터 전체(모든 DB) 통계를 리셋한다 — 이 SQL 인스턴스가 loadtest
@@ -45,7 +48,7 @@ obs_psql loadtest '-c "SELECT pg_stat_statements_reset();"'
 log "③ 본측정 (PROFILE=$PROFILE TARGET=$TARGET)"
 K6_EXIT=0
 vm_ssh loadgen "$K6_BASE \
-  -e PROFILE=$PROFILE -e RATE=$RATE -e DURATION=$DURATION -e SUMMARY_PATH=/out/summary.json \
+  -e PROFILE=$PROFILE -e RATE=$RATE -e DURATION=$DURATION -e RECIPE=$RECIPE -e SUMMARY_PATH=/out/summary.json \
   -e K6_PROMETHEUS_RW_SERVER_URL=http://${OBS_IP}:9090/api/v1/write \
   -e K6_PROMETHEUS_RW_TREND_STATS='p(95),p(99),avg,max' \
   $K6_IMAGE run -o experimental-prometheus-rw /scripts/$TARGET" || K6_EXIT=$?

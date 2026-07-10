@@ -40,6 +40,10 @@ on:
         description: 'SCALE (시드 볼륨 0.01~1 · 빈값=1)'
         type: string
         default: ''
+      recipe:
+        description: 'RECIPE (TARGET=matrix/_generic.js 일 때 실행할 엔드포인트 · 예: focus_getFocusSessions)'
+        type: string
+        default: ''
 
 # golden/loadtest DB 는 하나 — run 은 직렬화 (대기 중 run 취소하지 않음)
 concurrency:
@@ -59,6 +63,7 @@ env:
   RATE: ${{ inputs.rate }}
   DURATION: ${{ inputs.duration }}
   SCALE: ${{ inputs.scale || '1' }}
+  RECIPE: ${{ inputs.recipe }}
   RUN_ID: gha-${{ github.run_number }}
 
 run-name: 'loadtest: ${{ inputs.profile }} × ${{ inputs.target }}'
@@ -85,7 +90,7 @@ jobs:
           echo '[{"term":"검증"}]' > /tmp/k6params/search_terms.json
           docker run --rm -v "$PWD/loadtest/k6":/scripts:ro -v /tmp/k6params:/params:ro \
             grafana/k6:0.54.0 inspect --env PARAMS_DIR=/params --env PROFILE="$PROFILE" \
-            "/scripts/$TARGET"
+            --env RECIPE="$RECIPE" "/scripts/$TARGET"
 
       - name: SUT 이미지 빌드·push (핀 SHA — prod 동일 Dockerfile)
         run: make -C loadtest image

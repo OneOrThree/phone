@@ -54,6 +54,7 @@ export interface RunOverrides {
   rate?: string;
   duration?: string;
   scale?: string;
+  recipe?: string; // 제네릭 러너용 — TARGET=matrix/_generic.js 일 때 실행할 엔드포인트 recipe
 }
 
 export const dispatchRun = (
@@ -70,6 +71,7 @@ export const dispatchRun = (
   if (overrides.rate) inputs.rate = overrides.rate;
   if (overrides.duration) inputs.duration = overrides.duration;
   if (overrides.scale) inputs.scale = overrides.scale;
+  if (overrides.recipe) inputs.recipe = overrides.recipe;
   return gh<void>(`/repos/${REPO}/actions/workflows/${WORKFLOW}/dispatches`, {
     method: 'POST',
     body: JSON.stringify({
