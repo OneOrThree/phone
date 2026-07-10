@@ -62,12 +62,12 @@ class GroupMemberServiceTest {
     // ── transferOwner ─────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("권한 이양 성공 → 기존 방장 강등 + 대상 승격 + group.transferOwner")
+    @DisplayName("권한 이양 성공 → 기존 방장 강등 + 대상 승격")
     void transferOwnerSuccess() {
         // given: OWNER_ID 가 OWNER, TARGET_ID 가 일반 멤버인 그룹
         User owner = User.builder().id(OWNER_ID).build();
         User target = User.builder().id(TARGET_ID).build();
-        Group group = Group.builder().id(GROUP_ID).hostId(OWNER_ID).build();
+        Group group = Group.builder().id(GROUP_ID).build();
         GroupMember hostMember = GroupMember.builder()
                 .user(owner).group(group).role(GroupMemberRole.OWNER).build();
         GroupMember targetMember = GroupMember.builder()
@@ -82,10 +82,9 @@ class GroupMemberServiceTest {
         // when
         groupMemberService.transferOwner(GROUP_ID, TARGET_ID, OWNER_ID);
 
-        // then: 역할 교체 + group 의 hostId 변경
+        // then: 역할 교체 (GROMO-676 — groups.host_id 폐기, role 이 방장의 단일 원천)
         assertThat(hostMember.getRole()).isEqualTo(GroupMemberRole.MEMBER);
         assertThat(targetMember.getRole()).isEqualTo(GroupMemberRole.OWNER);
-        assertThat(group.getHostId()).isEqualTo(TARGET_ID);
     }
 
     @Test

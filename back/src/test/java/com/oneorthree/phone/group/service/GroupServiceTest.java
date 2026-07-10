@@ -26,8 +26,8 @@ import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.domain.GroupAnnouncementGrant;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
-import com.oneorthree.phone.group.repository.GroupNoticeGrantRepository;
 import com.oneorthree.phone.group.dto.CreateGroupRequest;
 import com.oneorthree.phone.group.dto.CreateGroupResponse;
 import com.oneorthree.phone.group.dto.GroupAnnouncementResponse;
@@ -35,9 +35,11 @@ import com.oneorthree.phone.group.dto.GroupChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupDetailResponse;
 import com.oneorthree.phone.group.dto.GroupSearchResponse;
 import com.oneorthree.phone.group.dto.GroupOverviewResponse;
+import com.oneorthree.phone.group.dto.GroupSettingsResponse;
 import com.oneorthree.phone.group.dto.GroupSummaryResponse;
 import com.oneorthree.phone.group.dto.JoinGroupRequest;
 import com.oneorthree.phone.group.dto.RenewGroupCodeResponse;
+import com.oneorthree.phone.group.dto.UpdateGroupSettingsRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -110,9 +112,6 @@ class GroupServiceTest {
 
     @Mock
     private DailyFocusStatRepository dailyFocusStatRepository;
-
-    @Mock
-    private GroupNoticeGrantRepository groupNoticeGrantRepository;
 
     @Mock
     private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
@@ -193,7 +192,6 @@ class GroupServiceTest {
         ArgumentCaptor<Group> groupCaptor = ArgumentCaptor.forClass(Group.class);
         verify(groupRepository).save(groupCaptor.capture());
         Group savedGroup = groupCaptor.getValue();
-        assertThat(savedGroup.getHostId()).isEqualTo(USER_ID);
         assertThat(savedGroup.getPassword()).isEqualTo("hashed-pw");
 
         // GROMO-672: 참가 코드/만료시각은 GroupJoinCode(1:1) 로 저장
@@ -1245,7 +1243,7 @@ class GroupServiceTest {
     private static final UUID TARGET_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
     @Test
-    @DisplayName("OWNER가 MEMBER에게 위임 → 역할 교체 + hostId 갱신")
+    @DisplayName("OWNER가 MEMBER에게 위임 → 역할 교체(OWNER↔MEMBER)")
     void transferOwnerSuccess() {
         // given
         User owner = userWithNickname(USER_ID, "방장");
@@ -1263,10 +1261,9 @@ class GroupServiceTest {
         // when
         groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID);
 
-        // then
+        // then: GROMO-676 — host_id 폐기, 방장 이양은 role 교체로만 검증
         assertThat(ownerMember.getRole()).isEqualTo(GroupMemberRole.MEMBER);
         assertThat(targetMember.getRole()).isEqualTo(GroupMemberRole.OWNER);
-        assertThat(group.getHostId()).isEqualTo(TARGET_USER_ID);
     }
 
     @Test
@@ -1346,5 +1343,145 @@ class GroupServiceTest {
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID))
                 .isInstanceOf(GroupException.class);
+    }
+
+    // ── 공지 권한(announcement_permission) 재배선 (GROMO-676) ─────────────
+
+    private GroupMember ownerMemberOf(User owner, Group group) {
+        return GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
+    }
+
+    private GroupMember memberWithPermission(User user, Group group, GroupAnnouncementGrant permission) {
+        return GroupMember.builder().user(user).group(group)
+                .role(GroupMemberRole.MEMBER).announcementPermission(permission).build();
+    }
+
+    @Test
+    @DisplayName("설정 조회 → noticeGrantedUserIds 는 announcement_permission=ALLOW 멤버만 (방장 제외)")
+    void getGroupSettingsNoticeGrantedFromMembers() {
+        // given: 방장 + ALLOW 멤버 + DISALLOW(기본값) 멤버
+        User owner = userWithNickname(USER_ID, "방장");
+        User granted = userWithNickname(TARGET_USER_ID, "허용멤버");
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember ownerMember = ownerMemberOf(owner, group);
+        GroupMember grantedMember = memberWithPermission(granted, group, GroupAnnouncementGrant.ALLOW);
+        GroupMember plainMember = memberWithPermission(
+                userWithNickname(UUID.fromString("00000000-0000-0000-0000-000000000003"), "일반멤버"),
+                group, GroupAnnouncementGrant.DISALLOW);
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupMemberRepository.findByGroup(group))
+                .willReturn(List.of(ownerMember, grantedMember, plainMember));
+
+        // when
+        GroupSettingsResponse response = groupService.getGroupSettings(GROUP_ID, USER_ID);
+
+        // then: ALLOW 멤버만 포함
+        assertThat(response.getNoticeGrantedUserIds()).containsExactly(TARGET_USER_ID);
+    }
+
+    @Test
+    @DisplayName("설정 변경(noticeGrantedUserIds) → 대상 멤버 ALLOW, 미포함 멤버 회수, 방장 불변")
+    void updateGroupSettingsRewiresAnnouncementPermission() {
+        // given: 방장 + 부여 대상(DISALLOW) + 회수 대상(기존 ALLOW)
+        User owner = userWithNickname(USER_ID, "방장");
+        User grantee = userWithNickname(TARGET_USER_ID, "부여대상");
+        User revokee = userWithNickname(UUID.fromString("00000000-0000-0000-0000-000000000003"), "회수대상");
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember ownerMember = ownerMemberOf(owner, group);
+        GroupMember granteeMember = memberWithPermission(grantee, group, GroupAnnouncementGrant.DISALLOW);
+        GroupMember revokeeMember = memberWithPermission(revokee, group, GroupAnnouncementGrant.ALLOW);
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupMemberRepository.findByGroup(group))
+                .willReturn(List.of(ownerMember, granteeMember, revokeeMember));
+
+        UpdateGroupSettingsRequest request =
+                new UpdateGroupSettingsRequest(null, null, null, List.of(TARGET_USER_ID));
+
+        // when
+        groupService.updateGroupSettings(GROUP_ID, USER_ID, request);
+
+        // then: 목록에 있으면 ALLOW, 없으면 DISALLOW, 방장은 role 로 항상 가능하므로 컬럼 불변
+        assertThat(granteeMember.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.ALLOW);
+        assertThat(revokeeMember.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.DISALLOW);
+        assertThat(ownerMember.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.DISALLOW);
+    }
+
+    @Test
+    @DisplayName("설정 변경(noticeGrantedUserIds=빈 리스트) → 전원 회수, 방장 불변")
+    void updateGroupSettingsEmptyNoticeGrantedRevokesAll() {
+        // given: 방장 + ALLOW 멤버 2명 (빈 리스트 = 전원 초기화 케이스, PR #178 리뷰)
+        User owner = userWithNickname(USER_ID, "방장");
+        User memberA = userWithNickname(TARGET_USER_ID, "멤버A");
+        User memberB = userWithNickname(UUID.fromString("00000000-0000-0000-0000-000000000003"), "멤버B");
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember ownerMember = ownerMemberOf(owner, group);
+        GroupMember allowA = memberWithPermission(memberA, group, GroupAnnouncementGrant.ALLOW);
+        GroupMember allowB = memberWithPermission(memberB, group, GroupAnnouncementGrant.ALLOW);
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember, allowA, allowB));
+
+        UpdateGroupSettingsRequest request = new UpdateGroupSettingsRequest(null, null, null, List.of());
+
+        // when
+        groupService.updateGroupSettings(GROUP_ID, USER_ID, request);
+
+        // then: 전 멤버 DISALLOW 회수, 방장은 컬럼 불변(role 로 항상 가능)
+        assertThat(allowA.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.DISALLOW);
+        assertThat(allowB.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.DISALLOW);
+        assertThat(ownerMember.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.DISALLOW);
+    }
+
+    @Test
+    @DisplayName("설정 변경(noticeGrantedUserIds=null) → 공지 권한 미변경, 나머지 설정만 반영")
+    void updateGroupSettingsNullNoticeGrantedKeepsPermissions() {
+        // given
+        User owner = userWithNickname(USER_ID, "방장");
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember ownerMember = ownerMemberOf(owner, group);
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+
+        UpdateGroupSettingsRequest request = new UpdateGroupSettingsRequest(false, 10, null, null);
+
+        // when
+        groupService.updateGroupSettings(GROUP_ID, USER_ID, request);
+
+        // then: 멤버 권한 일괄 반영 없음(findByGroup 미호출) + 채팅 설정 반영
+        verify(groupMemberRepository, never()).findByGroup(group);
+        assertThat(group.isChatEnabled()).isFalse();
+        assertThat(group.getChatLimitPerPerson()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("그룹 상세 → noticeGrantedUserIds 는 announcement_permission=ALLOW 멤버만 (방장 제외)")
+    void getGroupDetailNoticeGrantedFromMembers() {
+        // given: 방장 + ALLOW 멤버
+        User owner = userWithNickname(USER_ID, "방장");
+        User granted = userWithNickname(TARGET_USER_ID, "허용멤버");
+        Group group = groupWithCode(GROUP_ID, "INVITE01", Instant.now().plus(3, ChronoUnit.HOURS));
+        GroupMember ownerMember = ownerMemberOf(owner, group);
+        GroupMember grantedMember = memberWithPermission(granted, group, GroupAnnouncementGrant.ALLOW);
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember, grantedMember));
+
+        // when
+        GroupDetailResponse response = groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3));
+
+        // then
+        assertThat(response.getNoticeGrantedUserIds()).containsExactly(TARGET_USER_ID);
     }
 }
