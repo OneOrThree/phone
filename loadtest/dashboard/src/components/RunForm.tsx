@@ -34,23 +34,46 @@ export function RunForm({ onDispatched }: { onDispatched: () => void }) {
   const p = useMemo(() => PROFILES.find((x) => x.value === profile) as ProfileMeta, [profile]);
   const t = useMemo(() => TARGETS.find((x) => x.value === target) ?? TARGETS[0], [target]);
 
-  // precedence: 프로파일 기본 < preset < 고급설정 override
+  // precedence: 프로파일 기본 < preset < 고급설정 override.
+  // 계단형(stress/spike)은 k6 가 __ENV.RATE/DURATION 을 안 읽으므로 rate/duration override·preset 무시(SCALE 은 적용).
+  // dispatch(실제 실행값)를 여기서 함께 계산해 미리보기와 실행을 항상 일치시킨다(preset 이 실행에 실리도록).
   const preview = useMemo(() => {
     const preset = presetFor(target, profile);
-    const presetActive = preset.rate != null || preset.duration != null || preset.scale != null;
-    const overrideActive = !!(ovRate || ovDuration || ovScale);
-    const rateSrc: Src = ovRate ? 'override' : preset.rate != null ? 'preset' : 'profile';
-    const durSrc: Src = ovDuration ? 'override' : preset.duration != null ? 'preset' : 'profile';
-    const effRate = ovRate || preset.rate || p.rate;
-    const effDur = ovDuration || preset.duration || p.duration;
-    const effScale = ovScale || preset.scale || '1.0';
+    const ramping = p.ramping;
+    const rateSrc: Src = ramping
+      ? 'profile'
+      : ovRate.trim()
+        ? 'override'
+        : preset.rate != null
+          ? 'preset'
+          : 'profile';
+    const durSrc: Src = ramping
+      ? 'profile'
+      : ovDuration.trim()
+        ? 'override'
+        : preset.duration != null
+          ? 'preset'
+          : 'profile';
+    const scaleSrc: Src = ovScale.trim() ? 'override' : preset.scale != null ? 'preset' : 'profile';
+    // dispatch 로 나갈 값 — 빈 문자열이면 github.ts 가 생략 → 워크플로우/k6 기본값으로 폴백
+    const dispatch = {
+      rate: ramping ? '' : ovRate.trim() || preset.rate || '',
+      duration: ramping ? '' : ovDuration.trim() || preset.duration || '',
+      scale: ovScale.trim() || preset.scale || '',
+    };
+    // 표시용 — 빈값이면 프로파일 기본을 보여줌
+    const dispRate = ramping ? p.rate : dispatch.rate || p.rate;
+    const effDur = ramping ? p.duration : dispatch.duration || p.duration;
+    const effScale = dispatch.scale || '1.0';
     const base = parseMinutes(effDur);
     const eta =
       base != null
         ? `~${Math.round(base + p.warmupMin + 1)}분 (warmup ${p.warmupMin}분 + 오버헤드 포함)`
         : `warmup ${p.warmupMin}분 + 실행 + 오버헤드`;
-    const rateText = p.ramping && !ovRate ? `${effRate} rps 계단` : `${effRate} rps`;
-    return { presetActive, overrideActive, rateSrc, durSrc, effDur, effScale, eta, rateText };
+    const rateText = ramping ? `${p.rate} rps 계단` : `${dispRate} rps`;
+    const presetActive = rateSrc === 'preset' || durSrc === 'preset' || scaleSrc === 'preset';
+    const overrideActive = rateSrc === 'override' || durSrc === 'override' || scaleSrc === 'override';
+    return { rateSrc, durSrc, effDur, effScale, eta, rateText, presetActive, overrideActive, dispatch };
   }, [target, profile, ovRate, ovDuration, ovScale, p]);
 
   const rampingOverride = p.ramping && (!!ovRate || !!ovDuration);
@@ -58,11 +81,8 @@ export function RunForm({ onDispatched }: { onDispatched: () => void }) {
   const run = async () => {
     setState('busy');
     try {
-      await dispatchRun(profile, target, updateBaseline, {
-        rate: ovRate.trim(),
-        duration: ovDuration.trim(),
-        scale: ovScale.trim(),
-      });
+      // preview.dispatch = precedence(프로파일<preset<override) 적용된 실제 실행값 — 미리보기와 동일
+      await dispatchRun(profile, target, updateBaseline, preview.dispatch);
       setState('ok');
       setTimeout(onDispatched, 3000); // dispatch 후 run 이 API 에 잡히기까지 지연
     } catch (e) {
@@ -154,6 +174,7 @@ export function RunForm({ onDispatched }: { onDispatched: () => void }) {
             <label>
               RATE (rps)
               <input
+                type="text"
                 className="short"
                 value={ovRate}
                 placeholder="기본"
@@ -164,6 +185,7 @@ export function RunForm({ onDispatched }: { onDispatched: () => void }) {
             <label>
               DURATION
               <input
+                type="text"
                 className="short"
                 value={ovDuration}
                 placeholder="기본"
@@ -173,6 +195,7 @@ export function RunForm({ onDispatched }: { onDispatched: () => void }) {
             <label>
               SCALE
               <input
+                type="text"
                 className="short"
                 value={ovScale}
                 placeholder="1.0"

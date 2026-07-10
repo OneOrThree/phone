@@ -11,6 +11,10 @@ TARGET="${TARGET:-scenarios/daily_mix.js}"
 # 고급 설정 override — 빈값이면 k6 프로파일이 __ENV.RATE/DURATION 대신 기본값 사용
 RATE="${RATE:-}"
 DURATION="${DURATION:-}"
+# 셸 인젝션 방지: RATE/DURATION 은 workflow_dispatch 자유 문자열이라 vm_ssh 원격 명령에 보간되기 전
+# 숫자·시간단위(s/m/h)만 허용해 메타문자(; ` $() 등)를 차단한다. 빈값 허용(프로파일 기본).
+[[ "$RATE" =~ ^[0-9]*$ ]] || { log "invalid RATE (숫자만 허용): '$RATE'"; exit 1; }
+[[ "$DURATION" =~ ^[0-9smh]*$ ]] || { log "invalid DURATION (예: 5m·90s): '$DURATION'"; exit 1; }
 REPORT_DIR="${REPORT_DIR:?Makefile 이 주입}"
 mkdir -p "$REPORT_DIR"
 

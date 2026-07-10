@@ -139,7 +139,7 @@ code { background: #eef1f4; padding: 1px 6px; border-radius: 4px; font-size: 13p
 .chip.cat { background: #eef1f4; color: var(--muted); }
 .chip.star { background: #fbeecb; color: #8a6100; }
 .chip.preset { background: #dce8ff; color: #1d4ed8; }
-.chip.override { background: #fbeecb; color: #8a6100; }
+.chip.override { background: #fbe0cf; color: #9a4d00; }
 .adv-toggle {
   margin-top: 16px;
   font-size: 14px;
