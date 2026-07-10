@@ -1,0 +1,82 @@
+# 부하테스트 SUT 프로파일 (GROMO-548) — dev 와 최대한 동일하게 두고 관측·풀 설정만 명시한다.
+# base application.yml 은 gitignored(로컬 전용)라 배포 이미지에 없음 → 이 파일은 자기완결로 작성 (588 교훈).
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      # 기본값이지만 명시 — Phase 4 에서 측정 근거로 튜닝한다 (부하테스트-아키텍처 §2-2)
+      maximum-pool-size: 10
+      connection-timeout: 3000
+  jpa:
+    hibernate:
+      ddl-auto: validate    # golden 클론 스키마 ↔ 엔티티 드리프트 시 기동 거부
+    properties:
+      hibernate:
+        use_sql_comments: true    # 쿼리 앞 JPQL 출처 주석 → pg_stat_statements 에서 어느 API 쿼리인지 식별
+  # golden DB 는 seed 단계에서 Flyway CLI 로 생성되어 flyway_schema_history 가 이미 최신
+  # → 기동 시 no-op 검증만 수행 = 마이그레이션 드리프트 가드
+  flyway:
+    enabled: true
+
+jwt:
+  secret: ${JWT_SECRET}     # GCP Secret Manager(loadtest-jwt-secret) 주입 — AWS dev 시크릿과 무관
+  access-expiration: 3600   # 로그인 미사용 — 부하 토큰은 mint 로 사전 발급(exp +30d), 필터 파싱 비용만 측정에 포함
+  refresh-expiration: 2592000
+
+# 소셜 로그인은 부하 대상이 아님(JWT 사전 발급) — 부팅용 더미 기본값, 실검증 필요 시 env 로 대체
+apple:
+  jwks-url: https://appleid.apple.com/auth/keys
+  client-id: ${APPLE_CLIENT_ID:loadtest-dummy}
+
+kakao:
+  api-base-url: https://kapi.kakao.com
+
+google:
+  jwks-url: https://www.googleapis.com/oauth2/v3/certs
+  client-id: ${GOOGLE_CLIENT_ID:loadtest-dummy}
+
+line:
+  api-base-url: https://api.line.me
+
+instagram:
+  api-base-url: https://graph.instagram.com
+
+facebook:
+  jwks-url: https://www.facebook.com/.well-known/oauth/openid/jwks/
+  client-id: ${FACEBOOK_CLIENT_ID:loadtest-dummy}
+
+decorator:
+  datasource:
+    p6spy:
+      enable-logging: false    # 부하 중 쿼리 로깅 금지(오버헤드·로그 폭발) — 쿼리 관측은 pg_stat 4계층으로
+
+# 관측 — dev(588)와 동일 패턴 + SLO 버킷 추가. 격리 VPC 지만 관리 포트 분리를 유지해
+# 8080(부하 트래픽)과 9091(Prometheus 스크레이프) 경로를 나눈다.
+management:
+  server:
+    port: 9091
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    tags:
+      application: gromo-back
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true    # Grafana p95/p99(histogram_quantile) 용 버킷
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms,1s    # 합격선(p95<200ms·p99<500ms) 경계 버킷
+
+logging:
+  level:
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    org.springframework.web.servlet.DispatcherServlet: WARN
+    org.springframework.web.filter: WARN
