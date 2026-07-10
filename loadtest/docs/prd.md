@@ -98,7 +98,7 @@ flowchart LR
 | `infra-up` | terraform apply (상시 인프라) | |
 | `up` / `down` | SUT·관측 VM 기동/중지 + compose up | down = 과금 차단 |
 | `sync` | 관측 설정(prometheus tpl 렌더·grafana provisioning) VM 반영 | 레포가 진실 원천 |
-| `seed` | golden DB 생성(스키마=Flyway V1+V2, 데이터=SQL) | `SCALE=` 축소 지원 |
+| `seed` | golden DB 생성(스키마=Flyway V1~최신, 데이터=SQL) | `SCALE=` 축소 지원 |
 | `reset` | loadtest ← golden TEMPLATE 복제 + pg_stat reset | 분 단위 |
 | `mint` | JWT 대량 재발급(만료 임박 시) → GCS params | exp +30d |
 | `run` | 워밍업 2분 → pg_stat reset → 본측정 (k6 2회 실행) | §9 |
@@ -186,6 +186,11 @@ reports/<UTC일시>-<sha>-<profile>-<target>/
 ### 8-2. 볼륨 표 — **V2 스키마 교정본** (진실 원천: `V2__align_common_columns.sql`)
 
 > 설계 문서(부하테스트-아키텍처.md §상세1)의 볼륨표는 V2 이전 컬럼 기준 — 아래 교정을 적용한다.
+>
+> **⚠️ 갱신(PRD 확정 직후 V3~V6 머지)**: 아래 표는 post-V2 시점 스냅샷이다. 이후 V4(focus_tags →
+> default_tags+user_focus_tags 분리), V5(그룹 미션 컬럼 → 챌린지 CTI 상세), V3(pinned_users·
+> group_join_codes), V6(포모도로 2종)이 반영되어, **살아있는 진실 원천은 `loadtest/seed/volume.md`
+> (post-V6)** 다. 마이그레이션이 추가되면 volume.md 부터 갱신한다.
 
 | 테이블 | 건수 | V2 교정 사항 |
 |---|---|---|
