@@ -2,7 +2,7 @@ package com.oneorthree.phone.common.port;
 
 /**
  * 서버 푸시 발송 포트 (GROMO-528).
- * 구현: FcmPushNotificationClient(dev·staging·prod) / NoOpPushNotification(local·ci) — @Profile 게이팅.
+ * 구현: FcmPushNotificationClient(dev·staging·prod) / NoOpPushNotification(local·ci·loadtest) — @Profile 게이팅.
  */
 public interface PushNotificationPort {
 

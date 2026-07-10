@@ -5,12 +5,13 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
- * 푸시 발송 NoOp 구현 (GROMO-528) — local·ci 프로파일 전용.
+ * 푸시 발송 NoOp 구현 (GROMO-528) — local·ci·loadtest 프로파일 전용.
  * 선례: NoOpScreenTimeNotification (같은 패키지), 프로파일 게이팅은 LeagueBatchController 선례.
+ * loadtest(GROMO-548): 부하 측정에 외부 FCM 호출이 섞이면 지연이 오염되므로 NoOp 로 대체.
  */
 @Slf4j
 @Component
-@Profile({"local", "ci"})
+@Profile({"local", "ci", "loadtest"})
 public class NoOpPushNotification implements PushNotificationPort {
 
     @Override
