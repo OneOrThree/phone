@@ -1,32 +1,88 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { dispatchRun } from '../api/github';
+import { PROFILES, TARGETS, VERDICT_LABEL, type ProfileMeta } from '../catalog';
+import { presetFor } from '../presets';
 
-// value=워크플로우가 받는 값(영어 고정), label=한글 설명. soak 은 Phase 4 까지 제외(#184 리뷰).
-const PROFILES = [
-  { value: 'smoke', label: 'smoke — 빠른 검증 (5 rps · 1분)' },
-  { value: 'load', label: 'load — 목표 부하 (목표 rps 10분 유지)' },
-  { value: 'stress', label: 'stress — 한계 탐색 (100→400 rps 계단)' },
-  { value: 'spike', label: 'spike — 급증 부하 (순간 폭증)' },
-];
-const TARGETS = [
-  { value: 'scenarios/daily_mix.js', label: '현실 믹스 — 6개 유저 여정 혼합' },
-  { value: 'matrix/focus-session-list.js', label: '집중세션 조회 ⭐ — 커서 API (Phase 1 표적)' },
-  { value: 'matrix/focus-session-create.js', label: '집중세션 생성 — 쓰기 경로' },
-  { value: 'matrix/stats-today.js', label: '오늘 통계 — 인덱스 대조군' },
-];
+type Src = 'profile' | 'preset' | 'override';
+
+// "10m" · "90s" · "~2.5m" → 분. 계단형 표시("100→200→400")는 null.
+function parseMinutes(d: string): number | null {
+  const s = d.replace('~', '').trim();
+  let m = 0;
+  const h = s.match(/(\d+(?:\.\d+)?)h/);
+  const mm = s.match(/(\d+(?:\.\d+)?)m/);
+  const sec = s.match(/(\d+(?:\.\d+)?)s/);
+  if (h) m += parseFloat(h[1]) * 60;
+  if (mm) m += parseFloat(mm[1]);
+  if (sec) m += parseFloat(sec[1]) / 60;
+  if (!h && !mm && !sec && /^\d/.test(s)) m = parseFloat(s);
+  return m || null;
+}
 
 // 딸깍 버튼 — workflow_dispatch 호출 (run 은 concurrency 로 직렬화됨)
 export function RunForm({ onDispatched }: { onDispatched: () => void }) {
   const [profile, setProfile] = useState('smoke');
   const [target, setTarget] = useState(TARGETS[0].value);
   const [updateBaseline, setUpdateBaseline] = useState(false);
+  const [advOpen, setAdvOpen] = useState(false);
+  const [ovRate, setOvRate] = useState('');
+  const [ovDuration, setOvDuration] = useState('');
+  const [ovScale, setOvScale] = useState('');
   const [state, setState] = useState<'idle' | 'busy' | 'ok' | 'err'>('idle');
   const [err, setErr] = useState('');
+
+  const p = useMemo(() => PROFILES.find((x) => x.value === profile) as ProfileMeta, [profile]);
+  const t = useMemo(() => TARGETS.find((x) => x.value === target) ?? TARGETS[0], [target]);
+
+  // precedence: 프로파일 기본 < preset < 고급설정 override.
+  // 계단형(stress/spike)은 k6 가 __ENV.RATE/DURATION 을 안 읽으므로 rate/duration override·preset 무시(SCALE 은 적용).
+  // dispatch(실제 실행값)를 여기서 함께 계산해 미리보기와 실행을 항상 일치시킨다(preset 이 실행에 실리도록).
+  const preview = useMemo(() => {
+    const preset = presetFor(target, profile);
+    const ramping = p.ramping;
+    const rateSrc: Src = ramping
+      ? 'profile'
+      : ovRate.trim()
+        ? 'override'
+        : preset.rate != null
+          ? 'preset'
+          : 'profile';
+    const durSrc: Src = ramping
+      ? 'profile'
+      : ovDuration.trim()
+        ? 'override'
+        : preset.duration != null
+          ? 'preset'
+          : 'profile';
+    const scaleSrc: Src = ovScale.trim() ? 'override' : preset.scale != null ? 'preset' : 'profile';
+    // dispatch 로 나갈 값 — 빈 문자열이면 github.ts 가 생략 → 워크플로우/k6 기본값으로 폴백
+    const dispatch = {
+      rate: ramping ? '' : ovRate.trim() || preset.rate || '',
+      duration: ramping ? '' : ovDuration.trim() || preset.duration || '',
+      scale: ovScale.trim() || preset.scale || '',
+    };
+    // 표시용 — 빈값이면 프로파일 기본을 보여줌
+    const dispRate = ramping ? p.rate : dispatch.rate || p.rate;
+    const effDur = ramping ? p.duration : dispatch.duration || p.duration;
+    const effScale = dispatch.scale || '1.0';
+    const base = parseMinutes(effDur);
+    const eta =
+      base != null
+        ? `~${Math.round(base + p.warmupMin + 1)}분 (warmup ${p.warmupMin}분 + 오버헤드 포함)`
+        : `warmup ${p.warmupMin}분 + 실행 + 오버헤드`;
+    const rateText = ramping ? `${p.rate} rps 계단` : `${dispRate} rps`;
+    const presetActive = rateSrc === 'preset' || durSrc === 'preset' || scaleSrc === 'preset';
+    const overrideActive = rateSrc === 'override' || durSrc === 'override' || scaleSrc === 'override';
+    return { rateSrc, durSrc, effDur, effScale, eta, rateText, presetActive, overrideActive, dispatch };
+  }, [target, profile, ovRate, ovDuration, ovScale, p]);
+
+  const rampingOverride = p.ramping && (!!ovRate || !!ovDuration);
 
   const run = async () => {
     setState('busy');
     try {
-      await dispatchRun(profile, target, updateBaseline);
+      // preview.dispatch = precedence(프로파일<preset<override) 적용된 실제 실행값 — 미리보기와 동일
+      await dispatchRun(profile, target, updateBaseline, preview.dispatch);
       setState('ok');
       setTimeout(onDispatched, 3000); // dispatch 후 run 이 API 에 잡히기까지 지연
     } catch (e) {
@@ -42,9 +98,9 @@ export function RunForm({ onDispatched }: { onDispatched: () => void }) {
         <label>
           프로파일 (부하 강도·시간)
           <select value={profile} onChange={(e) => setProfile(e.target.value)}>
-            {PROFILES.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
+            {PROFILES.map((x) => (
+              <option key={x.value} value={x.value}>
+                {x.label}
               </option>
             ))}
           </select>
@@ -52,13 +108,116 @@ export function RunForm({ onDispatched }: { onDispatched: () => void }) {
         <label>
           타겟 (무엇에 부하)
           <select value={target} onChange={(e) => setTarget(e.target.value)}>
-            {TARGETS.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
+            {TARGETS.map((x) => (
+              <option key={x.value} value={x.value}>
+                {x.label}
               </option>
             ))}
           </select>
         </label>
+      </div>
+
+      {/* 실행 전 "이 실행 요약" — 유효 값(precedence 반영) 미리보기 */}
+      <div className="summary">
+        <h3 className="summary-title">
+          이 실행 요약
+          <span className="chip cat">{t.category}</span>
+          {t.star && <span className="chip star">⭐ Phase 1</span>}
+        </h3>
+        <dl className="summary-dl">
+          <dt>엔드포인트</dt>
+          <dd>{t.endpoint}</dd>
+          <dt>부하</dt>
+          <dd>
+            <span className={preview.rateSrc !== 'profile' ? 'over' : ''}>{preview.rateText}</span>
+            {' · '}
+            <span className={preview.durSrc !== 'profile' ? 'over' : ''}>{preview.effDur}</span>{' '}
+            <span className="muted">({p.model})</span>
+            {(preview.rateSrc === 'preset' || preview.durSrc === 'preset') && (
+              <span className="chip preset">preset</span>
+            )}
+            {(preview.rateSrc === 'override' || preview.durSrc === 'override') && (
+              <span className="chip override">override</span>
+            )}
+          </dd>
+          <dt>VU</dt>
+          <dd>{p.vu}</dd>
+          <dt>판정</dt>
+          <dd>{VERDICT_LABEL}</dd>
+          <dt>예상 소요</dt>
+          <dd>{preview.eta}</dd>
+        </dl>
+        <div className="summary-src">
+          값 출처: profile <b>{profile}</b>
+          {preview.presetActive && (
+            <>
+              {' + '}preset <b>{target.split('/').pop()}·{profile}</b>
+            </>
+          )}
+          {preview.overrideActive && (
+            <>
+              {' + '}
+              <b>고급설정 override</b>
+            </>
+          )}
+          {' · '}SCALE {preview.effScale}
+        </div>
+      </div>
+
+      {/* 고급 설정 — 기본은 접힘, 필요 시 펼쳐 세밀 조정 */}
+      <button className="adv-toggle" onClick={() => setAdvOpen((v) => !v)}>
+        {advOpen ? '▾' : '▸'} 고급 설정 (비우면 프로파일·프리셋 기본값)
+      </button>
+      {advOpen && (
+        <div className="adv">
+          <div className="adv-row">
+            <label>
+              RATE (rps)
+              <input
+                type="text"
+                className="short"
+                value={ovRate}
+                placeholder="기본"
+                inputMode="numeric"
+                onChange={(e) => setOvRate(e.target.value)}
+              />
+            </label>
+            <label>
+              DURATION
+              <input
+                type="text"
+                className="short"
+                value={ovDuration}
+                placeholder="기본"
+                onChange={(e) => setOvDuration(e.target.value)}
+              />
+            </label>
+            <label>
+              SCALE
+              <input
+                type="text"
+                className="short"
+                value={ovScale}
+                placeholder="1.0"
+                inputMode="decimal"
+                onChange={(e) => setOvScale(e.target.value)}
+              />
+            </label>
+          </div>
+          <p className="adv-hint">
+            RATE·DURATION 은 프로파일 기본값을 덮어씀. SCALE 은 시드 볼륨(0.01~1, 디버그용). 빈칸이면
+            프리셋→프로파일 기본값 순 폴백.
+          </p>
+          {rampingOverride && (
+            <p className="adv-warn">
+              ⚠ 계단형(ramping) 프로파일 — RATE/DURATION override 는 smoke·load 같은 constant
+              프로파일에 적용됩니다.
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="run-actions">
         <label className="checkbox">
           <input
             type="checkbox"

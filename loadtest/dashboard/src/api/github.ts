@@ -49,14 +49,35 @@ export interface Verdict {
   meta: { sha: string; profile: string; target: string; startedAt: string };
 }
 
-export const dispatchRun = (profile: string, target: string, updateBaseline: boolean) =>
-  gh<void>(`/repos/${REPO}/actions/workflows/${WORKFLOW}/dispatches`, {
+// 고급 설정(expert) override — 빈 값은 생략해 워크플로우 default(=프로파일 기본)로 폴백
+export interface RunOverrides {
+  rate?: string;
+  duration?: string;
+  scale?: string;
+}
+
+export const dispatchRun = (
+  profile: string,
+  target: string,
+  updateBaseline: boolean,
+  overrides: RunOverrides = {},
+) => {
+  const inputs: Record<string, string | boolean> = {
+    profile,
+    target,
+    update_baseline: updateBaseline,
+  };
+  if (overrides.rate) inputs.rate = overrides.rate;
+  if (overrides.duration) inputs.duration = overrides.duration;
+  if (overrides.scale) inputs.scale = overrides.scale;
+  return gh<void>(`/repos/${REPO}/actions/workflows/${WORKFLOW}/dispatches`, {
     method: 'POST',
     body: JSON.stringify({
       ref: 'main', // WIF 신뢰 조건이 main ref 한정 — 다른 브랜치 dispatch 는 GCP 인증 실패
-      inputs: { profile, target, update_baseline: updateBaseline },
+      inputs,
     }),
   });
+};
 
 export const listRuns = async (): Promise<WorkflowRun[]> => {
   const r = await gh<{ workflow_runs: WorkflowRun[] }>(

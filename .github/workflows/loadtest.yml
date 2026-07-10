@@ -26,6 +26,20 @@ on:
         description: 'PASS 시 baseline 승격 PR 생성'
         type: boolean
         default: false
+      # 고급 설정(expert) — 빈값이면 프로파일 기본값. RATE/DURATION 은 smoke·load 같은
+      # constant 프로파일에 적용(stress·spike 는 계단/stages 고정). k6 가 __ENV 로 읽음.
+      rate:
+        description: 'RATE override (rps · 빈값=프로파일 기본)'
+        type: string
+        default: ''
+      duration:
+        description: 'DURATION override (예: 5m · 빈값=프로파일 기본)'
+        type: string
+        default: ''
+      scale:
+        description: 'SCALE (시드 볼륨 0.01~1 · 빈값=1)'
+        type: string
+        default: ''
 
 # golden/loadtest DB 는 하나 — run 은 직렬화 (대기 중 run 취소하지 않음)
 concurrency:
@@ -42,6 +56,9 @@ env:
   REGION: ${{ vars.GCP_REGION }}
   PROFILE: ${{ inputs.profile }}
   TARGET: ${{ inputs.target }}
+  RATE: ${{ inputs.rate }}
+  DURATION: ${{ inputs.duration }}
+  SCALE: ${{ inputs.scale || '1' }}
   RUN_ID: gha-${{ github.run_number }}
 
 run-name: 'loadtest: ${{ inputs.profile }} × ${{ inputs.target }}'
