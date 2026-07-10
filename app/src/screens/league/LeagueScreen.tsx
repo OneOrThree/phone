@@ -181,12 +181,17 @@ export default function LeagueScreen() {
     const isMe = member.userId === MY_USER_ID;
     logLeagueProfileOpened({ is_me: isMe });
     if (!isMe) {
+      // 프로필 순위 = 지금 보고 있는 목록의 순위 그대로 전달 — 서버 프로필 rank(아레나 내 순위)와
+      // 스코프가 달라 숫자가 어긋나므로, 탭한 숫자와 일치시킨다 (GROMO-685).
+      const rank = visibleRanking.indexOf(member) + 1;
       navigation.navigate('FriendProfile', {
         userId: member.userId,
         nickname: member.nickname,
         tierLevel: member.tierLevel,
         exam: member.exam,
         isFriend: friendIds.has(member.userId),
+        rank: rank > 0 ? rank : undefined,
+        rankLabel: filter,
       });
       return;
     }
