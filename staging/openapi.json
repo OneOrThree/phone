@@ -4725,13 +4725,6 @@
             "type": "integer",
             "format": "int32"
           },
-          "noticePermission": {
-            "type": "string",
-            "enum": [
-              "OWNER_ONLY",
-              "ALL_MEMBERS"
-            ]
-          },
           "invitePermission": {
             "type": "string",
             "enum": [
@@ -5473,13 +5466,6 @@
           "chatLimitPerPerson": {
             "type": "integer",
             "format": "int32"
-          },
-          "noticePermission": {
-            "type": "string",
-            "enum": [
-              "OWNER_ONLY",
-              "ALL_MEMBERS"
-            ]
           },
           "invitePermission": {
             "type": "string",
