@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { getToken } from './api/github';
-import { RunForm } from './components/RunForm';
 import { RunList } from './components/RunList';
 import { PatModal } from './components/PatModal';
 import { SingleApiMode } from './components/SingleApiMode';
-import { TARGETS } from './catalog';
+import { ScenarioMode } from './components/ScenarioMode';
 
 type Mode = 'single' | 'scenario';
 
@@ -12,7 +11,6 @@ export default function App() {
   const [hasToken, setHasToken] = useState(!!getToken());
   const [refreshKey, setRefreshKey] = useState(0);
   const [mode, setMode] = useState<Mode>('single');
-  const [target, setTarget] = useState(TARGETS[0].value); // 시나리오 모드 타겟
   const refresh = () => setRefreshKey((k) => k + 1);
 
   return (
@@ -43,11 +41,7 @@ export default function App() {
             </button>
           </div>
 
-          {mode === 'single' ? (
-            <SingleApiMode onDispatched={refresh} />
-          ) : (
-            <RunForm target={target} onTargetChange={setTarget} onDispatched={refresh} />
-          )}
+          {mode === 'single' ? <SingleApiMode onDispatched={refresh} /> : <ScenarioMode onDispatched={refresh} />}
           <RunList refreshKey={refreshKey} />
         </>
       )}

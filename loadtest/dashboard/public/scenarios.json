@@ -1,0 +1,114 @@
+[
+  {
+    "id": "daily_mix",
+    "name": "현실 믹스 — 하루 사용 패턴",
+    "description": "아침 확인 → 통계 탐색 → 소셜 → 집중 기록 → 그룹 활동의 가중 혼합. 실제 유저 트래픽 모사(가중치 assumed-v1 — 실측 후 보정).",
+    "journeys": [
+      {
+        "name": "아침 확인",
+        "weight": 25,
+        "steps": [
+          {
+            "recipe": "stats_getTodayStats",
+            "desc": "오늘 요약"
+          },
+          {
+            "recipe": "stats_getStreak",
+            "desc": "스트릭"
+          },
+          {
+            "recipe": "user_getProfile",
+            "desc": "내 프로필"
+          }
+        ]
+      },
+      {
+        "name": "통계 탐색",
+        "weight": 20,
+        "steps": [
+          {
+            "recipe": "stats_getHeatmap",
+            "desc": "히트맵"
+          },
+          {
+            "recipe": "focus_getFocusSessions",
+            "desc": "집중세션 조회(커서)"
+          }
+        ]
+      },
+      {
+        "name": "소셜",
+        "weight": 20,
+        "steps": [
+          {
+            "recipe": "Friend_getFriendRequests",
+            "desc": "친구 요청"
+          },
+          {
+            "recipe": "Group_getMyGroups",
+            "desc": "내 그룹"
+          }
+        ]
+      },
+      {
+        "name": "집중 기록",
+        "weight": 15,
+        "steps": [
+          {
+            "recipe": "focus_saveFocusSession",
+            "desc": "집중세션 저장(쓰기)"
+          }
+        ]
+      },
+      {
+        "name": "그룹 활동",
+        "weight": 20,
+        "steps": [
+          {
+            "recipe": "Group_getGroupDetail",
+            "desc": "그룹 상세"
+          },
+          {
+            "recipe": "Group_getGroupChallenges",
+            "desc": "그룹 챌린지"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "focus_heavy",
+    "name": "집중 세션 헤비 — 쓰기 경로 집중",
+    "description": "집중 세션 저장·조회가 잦은 헤비 유저. 쓰기 경로(daily_focus_stats·streak·currency 연쇄 upsert) 부하 검증.",
+    "journeys": [
+      {
+        "name": "세션 기록",
+        "weight": 60,
+        "steps": [
+          {
+            "recipe": "focus_saveFocusSession",
+            "desc": "집중세션 저장(쓰기·연쇄)"
+          },
+          {
+            "recipe": "stats_getTodayStats",
+            "desc": "오늘 요약 갱신 확인"
+          }
+        ]
+      },
+      {
+        "name": "세션 조회",
+        "weight": 40,
+        "steps": [
+          {
+            "recipe": "focus_getFocusSessions",
+            "desc": "집중세션 조회(커서)"
+          },
+          {
+            "recipe": "stats_getStreak",
+            "desc": "스트릭"
+          }
+        ]
+      }
+    ]
+  }
+]

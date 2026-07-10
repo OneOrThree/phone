@@ -48,6 +48,10 @@ on:
         description: 'loadgen spot VM 수 (고rps 분산 생성 · 빈값=1)'
         type: string
         default: ''
+      scenario:
+        description: 'SCENARIO (TARGET=scenarios/_generic.js — 유저 시나리오 def id · 예: daily_mix)'
+        type: string
+        default: ''
 
 # golden/loadtest DB 는 하나 — run 은 직렬화 (대기 중 run 취소하지 않음)
 concurrency:
@@ -69,6 +73,7 @@ env:
   SCALE: ${{ inputs.scale || '1' }}
   RECIPES: ${{ inputs.recipes }}
   SPOTS: ${{ inputs.spots || '1' }}
+  SCENARIO: ${{ inputs.scenario }}
   RUN_ID: gha-${{ github.run_number }}
 
 run-name: 'loadtest: ${{ inputs.profile }} × ${{ inputs.target }}'
@@ -95,7 +100,7 @@ jobs:
           echo '[{"term":"검증"}]' > /tmp/k6params/search_terms.json
           docker run --rm -v "$PWD/loadtest/k6":/scripts:ro -v /tmp/k6params:/params:ro \
             grafana/k6:0.54.0 inspect --env PARAMS_DIR=/params --env PROFILE="$PROFILE" \
-            --env RECIPES="$RECIPES" "/scripts/$TARGET"
+            --env RECIPES="$RECIPES" --env SCENARIO="$SCENARIO" "/scripts/$TARGET"
 
       - name: SUT 이미지 빌드·push (핀 SHA — prod 동일 Dockerfile)
         run: make -C loadtest image
