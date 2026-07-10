@@ -12,17 +12,11 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import axios from 'axios';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import CircularGauge from '@/components/CircularGauge';
 import { getPublicProfile, getUserStats } from '@/services/userApi';
-import {
-  getFocusPeriodStats,
-  getFocusStatsByCategory,
-  getHeatmap,
-  getTodayStats,
-} from '@/services/statsApi';
+import { getFocusStatsByCategory, getHeatmap, getTodayStats } from '@/services/statsApi';
 import type { PublicProfileResponse, UserStatsResponse } from '@/types/dto/user';
 import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -34,9 +28,10 @@ import {
   sendFriendRequest,
   unpinFriend,
 } from '@/services/friendsApi';
-import { fmtHourMin } from './format';
-import { rollingWeekRange } from '@/screens/stats/format';
+import { fmtMinutes } from './format';
+import { heatmapRange } from '@/screens/stats/format';
 import { MemberAvatar } from './components/MemberAvatar';
+import { TierBadge } from './components/TierBadge';
 import { DuoDayChart } from './components/DuoDayChart';
 import { SubjectCompareCard } from './components/SubjectCompareCard';
 import { ComingSoon } from '@/screens/stats/ComingSoon';
@@ -54,7 +49,7 @@ const THEIRS_FOCUS = T.compare.theirs;
 const THEIRS_PHONE = T.compare.theirsPhone;
 const UNFRIEND_INK = T.dangerInk;
 
-// 최근 7일 히트맵 → 월~일(0=월..6=일) 분 배열.
+// 히트맵 → 월~일(0=월..6=일) 분 배열.
 function byWeekday(
   cells: HeatmapCellResponse[],
   pick: (c: HeatmapCellResponse) => number,
@@ -86,19 +81,17 @@ export default function FriendProfileScreen() {
   // 과목별 비교(겹치는 태그) — undefined = 미확보(블러 티저 유지), [] = 겹침 없음, N개 = 실비교
   const [subjectCompare, setSubjectCompare] = useState<SubjectCompare[] | undefined>(undefined);
   // 상세 조회 실패 시 강등 폴백 — GROMO-640 이후 PUBLIC도 getUserStats가 상세(heatmap 포함)를
-  // 채워주므로 평시엔 발동하지 않는다. getUserStats가 실패한 경우에만 /stats/*?friends=
-  // (PUBLIC·친구 허용, GROMO-623)로 today·주간 집중을 직접 조회해 요약이라도 보여준다.
-  const [publicStats, setPublicStats] = useState<{
-    today: TodayStatsResponse;
-    weekMinutes: number;
-  } | null>(null);
+  // 채워주므로 평시엔 발동하지 않는다. getUserStats가 실패한 경우에만 /stats/today?friends=
+  // (PUBLIC·친구 허용, GROMO-623)로 today를 직접 조회해 요약이라도 보여준다.
+  const [publicStats, setPublicStats] = useState<{ today: TodayStatsResponse } | null>(null);
 
   // 공개 프로필 + 타 유저 통계 + 내 히트맵(비교용) 조회.
   useEffect(() => {
     let stale = false;
     (async () => {
-      // 서버가 타 유저 heatmap을 '최근 7일'로 고정 반환하므로 내 heatmap도 같은 창으로 비교(리뷰 반영)
-      const { from, to } = rollingWeekRange();
+      // 요일 비교는 이번 주(월~오늘) 기준 — 내 heatmap은 이번 주만 조회하고,
+      // 타 유저 heatmap(서버가 최근 7일 고정 반환)은 렌더 시 이번 주만 걸러 쓴다.
+      const { from, to } = heatmapRange('WEEK');
       const [p, st, mine] = await Promise.all([
         getPublicProfile(userId).catch(() => null),
         getUserStats(userId).catch(() => null),
@@ -212,12 +205,9 @@ export default function FriendProfileScreen() {
     }
     let stale = false;
     (async () => {
-      const [t, w] = await Promise.all([
-        getTodayStats(userId).catch(() => null),
-        getFocusPeriodStats('WEEK', userId).catch(() => null),
-      ]);
-      if (stale || !t || !w) return;
-      setPublicStats({ today: t, weekMinutes: w.totalFocusMinutes });
+      const t = await getTodayStats(userId).catch(() => null);
+      if (stale || !t) return;
+      setPublicStats({ today: t });
     })();
     return () => {
       stale = true;
@@ -266,20 +256,22 @@ export default function FriendProfileScreen() {
   const summaryVisible = statsVisible || publicVisible;
   const goalPercent =
     stats?.today?.focus.progressPercent ?? publicStats?.today.focus.progressPercent ?? 0;
-  const weekFocusMinutes = statsVisible
-    ? (stats?.heatmap ?? []).reduce((a, c) => a + c.totalFocusMinutes, 0)
-    : (publicStats?.weekMinutes ?? 0);
+  const todayFocusMinutes =
+    stats?.today?.focus.todayMinutes ?? publicStats?.today.focus.todayMinutes ?? 0;
   const streakDays = stats?.streak.currentStreak ?? 0;
 
+  // 타 유저 heatmap은 서버가 최근 7일 고정 반환 — 이번 주(월~) 셀만 걸러 지난주 꼬리를 제거.
+  const weekFrom = heatmapRange('WEEK').from;
+  const theirWeekCells = (stats?.heatmap ?? []).filter((c) => c.date >= weekFrom);
   const focusByDay: CompareByDay = {
     mine: byWeekday(myHeatmap, (c) => c.totalFocusMinutes),
-    theirs: byWeekday(stats?.heatmap ?? [], (c) => c.totalFocusMinutes),
+    theirs: byWeekday(theirWeekCells, (c) => c.totalFocusMinutes),
   };
   const phoneByDay: CompareByDay = {
     mine: byWeekday(myHeatmap, (c) => c.actualScreenTimeMinutes),
-    theirs: byWeekday(stats?.heatmap ?? [], (c) => c.actualScreenTimeMinutes),
+    theirs: byWeekday(theirWeekCells, (c) => c.actualScreenTimeMinutes),
   };
-  // 상대 폰 사용이 7일 내내 0이면 미측정(스크린타임 미허용·구버전·미동기화)과 구분 불가 —
+  // 상대 폰 사용이 이번 주 내내 0이면 미측정(스크린타임 미허용·구버전·미동기화)과 구분 불가 —
   // 0짜리 막대 비교는 무의미해 안내로 대체한다. 내 쪽 0은 그대로 차트(내 상태는 내가 안다).
   const theirPhoneMeasured = phoneByDay.theirs.some((m) => m > 0);
 
@@ -349,16 +341,16 @@ export default function FriendProfileScreen() {
               </Text>
             </View>
           </View>
-          <LinearGradient
-            colors={[T.accentLight, T.accent]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={s.tierPill}
-          >
-            <Ionicons name="star" size={12} color={T.white} />
-            <Text style={s.tierPillText}>{tier.name}</Text>
-          </LinearGradient>
-          {rank != null && <Text style={s.rankText}>전체 랭킹 {rank}위</Text>}
+          {/* 티어 + 현재 등수 — 공식 티어 이미지·이름 오른쪽에 전체 랭킹 (구 그라데이션 칩 폐기 GROMO-689) */}
+          <View style={s.tierRow}>
+            <TierBadge level={tier.level} size={20} />
+            <Text style={s.tierText}>{tier.name}</Text>
+            {rank != null && (
+              <Text style={s.rankText} allowFontScaling={false}>
+                · 전체 랭킹 {rank}위
+              </Text>
+            )}
+          </View>
         </View>
 
         {loading ? (
@@ -388,9 +380,9 @@ export default function FriendProfileScreen() {
               </View>
               <View style={s.summaryCol}>
                 <View style={s.summaryCard}>
-                  <Text style={s.summaryLabel}>이번 주 집중</Text>
+                  <Text style={s.summaryLabel}>오늘 집중</Text>
                   <Text style={s.summaryValue} allowFontScaling={false}>
-                    {summaryVisible ? fmtHourMin(weekFocusMinutes) : '비공개'}
+                    {summaryVisible ? fmtMinutes(todayFocusMinutes) : '비공개'}
                   </Text>
                 </View>
                 <View style={s.summaryCard}>
@@ -418,10 +410,10 @@ export default function FriendProfileScreen() {
             {statsVisible ? (
               <>
                 {/* 요일별 집중·폰 사용 비교 — 내 히트맵 vs 상대 히트맵(실데이터).
-                    서버가 '오늘 기준 최근 7일'을 반환하므로 라벨도 달력 주가 아닌 최근 7일. */}
+                    이번 주(월~일) 기준 — 아직 안 지난 요일은 0으로 표시. */}
                 <View style={s.chartGap}>
                   <DuoDayChart
-                    title="최근 7일 요일별 집중시간"
+                    title="이번 주 요일별 집중시간"
                     data={focusByDay}
                     mineColor={T.accent}
                     theirsColor={THEIRS_FOCUS}
@@ -431,7 +423,7 @@ export default function FriendProfileScreen() {
                 {theirPhoneMeasured ? (
                   <View style={s.chartGap}>
                     <DuoDayChart
-                      title="최근 7일 요일별 폰 사용시간"
+                      title="이번 주 요일별 폰 사용시간"
                       data={phoneByDay}
                       mineColor={T.accentAlt}
                       theirsColor={THEIRS_PHONE}
@@ -549,18 +541,9 @@ const s = StyleSheet.create({
     paddingVertical: 3,
   },
   friendPillText: { ...T.text.caption, fontSize: 11, fontWeight: '700', color: T.inkSub },
-  tierPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: 999,
-    paddingLeft: 10,
-    paddingRight: 13,
-    paddingVertical: 5,
-    marginTop: 9,
-  },
-  tierPillText: { ...T.text.caption, fontSize: 12, fontWeight: '700', color: T.white },
-  rankText: { ...T.text.caption, color: T.inkSub, marginTop: 8 },
+  tierRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 9 },
+  tierText: { ...T.text.caption, fontSize: 12, fontWeight: '700', color: T.inkSub },
+  rankText: { ...T.text.caption, fontSize: 12, color: T.inkSub },
 
   loader: { paddingVertical: 48, alignItems: 'center' },
 
