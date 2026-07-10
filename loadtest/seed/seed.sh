@@ -23,10 +23,14 @@ REPO_ROOT="$(cd "$SEED_DIR/../.." && pwd)"
 MIGRATIONS_DIR="$REPO_ROOT/back/src/main/resources/db/migration"
 CSV_DIR="$(mktemp -d)/csv"
 PARAMS_DIR="$(mktemp -d)/params"
-mkdir -p "$CSV_DIR" "$PARAMS_DIR"
+STEP_DIR="$(mktemp -d)/steps"
+mkdir -p "$CSV_DIR" "$PARAMS_DIR" "$STEP_DIR"
 
 log() { printf '\n[seed] %s\n' "$*"; }
-run_vm() { gcloud compute ssh "$OBS_VM" --zone="$ZONE" --tunnel-through-iap --project="$PROJECT_ID" --command="$1"; }
+# keepalive — focus_sessions(수천만 INSERT) 같은 장시간 원격 작업 중 IAP ssh 세션이 끊겨
+# psql 이 죽는 것을 방지 (ServerAliveInterval 로 유휴 터널 유지)
+run_vm() { gcloud compute ssh "$OBS_VM" --zone="$ZONE" --tunnel-through-iap --project="$PROJECT_ID" \
+  --ssh-flag="-o ServerAliveInterval=30" --ssh-flag="-o ServerAliveCountMax=20" --command="$1"; }
 scp_to_vm() { gcloud compute scp --zone="$ZONE" --tunnel-through-iap --project="$PROJECT_ID" --recurse "$@"; }
 
 # ── 0. 사전 조건 ─────────────────────────────────────────────
@@ -56,6 +60,32 @@ scp_to_vm "$CSV_DIR"/* "$OBS_VM":~/seed/csv/
 vm_sh()  { run_vm ". ~/seed/vm_env.sh && $1"; }
 VM_PSQL='psql -h "$DB_HOST" -U "$DB_USER" -v ON_ERROR_STOP=1'
 
+# 장시간 DB 단계(팩트 생성·제약 복원)를 VM 에서 detached(setsid) 로 실행하고 폴링한다.
+# full seed(focus_sessions 3천만)가 조용히 죽던 원인 = 장시간 INSERT 중 IAP ssh 세션이 끊기면
+# 포그라운드 원격 psql 이 SIGHUP 으로 종료·롤백되던 것. setsid 로 psql 을 SSH 수명에서 분리하면
+# 터널이 끊겨도 VM 안에서 계속 실행된다(폴링 ssh 가 끊겨도 재연결로 무해). rc 파일로 성공/실패 판정.
+vm_sh_bg() {
+  local tag="$1" inner="$2"
+  printf 'set -euo pipefail\n. ~/seed/vm_env.sh\n%s\n' "$inner" > "$STEP_DIR/${tag}.step.sh"
+  scp_to_vm "$STEP_DIR/${tag}.step.sh" "$OBS_VM":"~/seed/${tag}.step.sh" >/dev/null
+  run_vm "rm -f ~/seed/${tag}.rc ~/seed/${tag}.log; setsid bash -c 'bash ~/seed/${tag}.step.sh; echo \$? > ~/seed/${tag}.rc' </dev/null >~/seed/${tag}.log 2>&1 & sleep 1"
+  log "  ↳ ${tag}: VM detached 실행 — 30s 폴링 (ssh 드롭 무관)"
+  local waited=0 cap=7200
+  while true; do
+    if run_vm "test -f ~/seed/${tag}.rc" 2>/dev/null; then break; fi
+    if [ "$waited" -ge "$cap" ]; then
+      log "❌ ${tag}: ${cap}s 초과 — 중단"; run_vm "tail -n 40 ~/seed/${tag}.log" || true; exit 1
+    fi
+    run_vm "tail -n 1 ~/seed/${tag}.log 2>/dev/null" 2>/dev/null | sed 's/^/    │ /' || true
+    sleep 30; waited=$((waited+30))
+  done
+  local rc; rc=$(run_vm "cat ~/seed/${tag}.rc" 2>/dev/null | tr -dc '0-9' || true)
+  if [ "${rc:-1}" != "0" ]; then
+    log "❌ ${tag}: 실패 (rc=${rc:-?}) — 마지막 로그 40줄:"; run_vm "tail -n 40 ~/seed/${tag}.log" || true; exit 1
+  fi
+  log "  ↳ ${tag}: 완료 (rc=0, ~${waited}s)"
+}
+
 # ── 3. 스키마 (Flyway V1~최신) → 4. 차원 → 5. 팩트 → 6. 제약·통계 ──
 log "3/8 스키마 — Flyway (docker)"
 vm_sh "MIGRATIONS_DIR=~/seed/migration bash ~/seed/00_flyway.sh"
@@ -63,11 +93,11 @@ vm_sh "MIGRATIONS_DIR=~/seed/migration bash ~/seed/00_flyway.sh"
 log "4/8 차원 테이블 \\copy"
 vm_sh "bash ~/seed/15_copy_dimensions.sh"
 
-log "5/8 팩트 테이블 generate_series (가장 오래 걸리는 단계)"
-vm_sh "$VM_PSQL -d golden -v scale=$SCALE -f ~/seed/20_facts.sql"
+log "5/8 팩트 테이블 generate_series (가장 오래 걸리는 단계 — VM detached)"
+vm_sh_bg facts "$VM_PSQL -d golden -v scale=$SCALE -f ~/seed/20_facts.sql"
 
-log "6/8 제약·인덱스 복원 + VACUUM ANALYZE"
-vm_sh "$VM_PSQL -d golden -f ~/seed/30_constraints_indexes.sql"
+log "6/8 제약·인덱스 복원 + VACUUM ANALYZE (VM detached)"
+vm_sh_bg constraints "$VM_PSQL -d golden -f ~/seed/30_constraints_indexes.sql"
 
 # ── 7. params export → mint → GCS ───────────────────────────
 log "7/8 params export + JWT mint"

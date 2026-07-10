@@ -27,20 +27,21 @@ case "$STAGE" in
     "$(dirname "$0")/sync.sh"
 
     log "관측 스택 up (obs)"
-    vm_ssh obs 'cd ~/obs && bash fetch-env.sh obs && docker compose -f docker-compose.obs.yml up -d'
+    vm_ssh obs 'cd ~/obs && bash fetch-env.sh obs && sudo docker compose -f docker-compose.obs.yml up -d'
     ;;
 
   app)
     : "${IMAGE:?IMAGE 필요 — make image 로 빌드·push 후 태그 지정}"
     log "SUT app 기동 (IMAGE=$IMAGE)"
-    vm_ssh sut "gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet"
-    vm_ssh sut "cd ~/sut && IMAGE='$IMAGE' bash fetch-env.sh sut && docker compose -f docker-compose.sut.yml pull -q app && docker compose -f docker-compose.sut.yml up -d"
+    # Artifact Registry 자격을 root(sudo docker 용)에 설정 — sudo docker 가 root 의 config 를 참조
+    vm_ssh sut "sudo gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet"
+    vm_ssh sut "cd ~/sut && IMAGE='$IMAGE' bash fetch-env.sh sut && sudo docker compose -f docker-compose.sut.yml pull -q app && sudo docker compose -f docker-compose.sut.yml up -d"
 
     log "/health 대기 (Flyway·JPA validate 포함 최대 2분)"
     tries=0
     until vm_ssh sut 'curl -fsS http://localhost:8080/health >/dev/null' 2>/dev/null; do
       tries=$((tries + 1))
-      [ "$tries" -ge 24 ] && { log "❌ /health 대기 초과 — vm_ssh sut 'docker logs loadtest-app' 확인"; exit 1; }
+      [ "$tries" -ge 24 ] && { log "❌ /health 대기 초과 — vm_ssh sut 'sudo docker logs loadtest-app' 확인"; exit 1; }
       sleep 5
     done
     log "SUT 준비 완료 ✅"
