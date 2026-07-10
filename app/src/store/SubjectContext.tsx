@@ -70,11 +70,14 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
         );
       } else {
         // 로컬 데이터 없음(첫 실행·재로그인) — 서버 태그로 과목 목록 복원(GROMO-677).
-        // 과목별 오늘 누적은 오늘 세션 구간 합으로 복원 — 세션의 tagId 일치분 +
-        // 태그 매칭 실패로 미분류(null)였던 것 중 과목명 일치분. 실패·빈 목록이면 시드 유지.
+        // 과목별 오늘 누적은 오늘 세션 중 tagId 일치분 합산. 조회 실패(미로그인·오프라인)면 시드 유지.
         try {
           const tags = await getFocusTags();
-          if (tags.length > 0) {
+          if (tags.length === 0) {
+            // 성공 응답의 빈 목록 = 서버에 태그가 없는 계정(과목 전부 삭제 등) —
+            // 시드가 부활하지 않게 빈 목록을 그대로 반영한다(리뷰 반영).
+            setSubjects([]);
+          } else {
             const sessions = await fetchTodayFocusSessions().catch(
               () => [] as FocusSessionResponse[],
             );
@@ -82,11 +85,11 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
               tags.map((t, i) => ({
                 id: t.tagId,
                 name: t.name,
+                // 세션 응답에 과목명 필드가 없어 tagId 일치분만 합산(리뷰 반영 — 구 s.subject 조건은
+                // 서버가 안 보내는 필드라 죽은 코드였음). 태그 매칭 실패(tagId=null) 세션은
+                // 홈 총합(FocusContext)에만 포함되고 과목별로는 귀속 불가.
                 accumulatedSeconds: sessions
-                  .filter(
-                    (s) =>
-                      s.focusTagId === t.tagId || (s.focusTagId === null && s.subject === t.name),
-                  )
+                  .filter((s) => s.focusTagId === t.tagId)
                   .reduce((acc, s) => acc + sessionFocusSeconds(s), 0),
                 color: PALETTE[i % PALETTE.length],
               })),

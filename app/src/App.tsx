@@ -5,6 +5,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
 import { setLogoutHandler, setReloginHandler, getUserIdFromToken, api } from '@/services/api';
+import { setAccountSwitchHandler } from '@/services/auth';
+import { todayStr } from '@/utils/localDate';
 import { updateScreenTimePermission, updateOccupation, updateProfile } from '@/services/userApi';
 import { occupationForCategory, categoryForOccupation } from '@/constants/focusCategories';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
@@ -20,6 +22,7 @@ import { SubjectProvider } from '@/store/SubjectContext';
 import { T } from '@/constants/theme';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { OrphanFocusSettler } from '@/screens/focus/OrphanFocusSettler';
+import { abortTagEdits } from '@/screens/focus/tagSync';
 import { PendingFocusUploader } from '@/screens/focus/PendingFocusUploader';
 import { PushGate } from '@/components/PushGate';
 import { PendingGoalApplier } from '@/components/PendingGoalApplier';
@@ -164,6 +167,8 @@ export default function App() {
       const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
       if (refreshToken) await api.post('/api/v1/auth/logout', { refreshToken });
     } catch {}
+    // 대기 중인 태그 편집 동기화 폐기 — 이전 계정의 편집이 다음 계정 토큰으로 실행되지 않게(리뷰 반영)
+    abortTagEdits();
     // 온보딩 완료 플래그까지 지워 로그아웃 시 온보딩 첫 페이지로 돌아가게 한다.
     await AsyncStorage.multiRemove([
       STORAGE_KEYS.accessToken,
@@ -198,6 +203,8 @@ export default function App() {
     // 로그아웃과 동일하게 이전 계정 디바이스 캐시를 정리해 누출을 막는다(GROMO-677 리뷰).
     // 세션·온보딩 키는 새 계정 것이 이미 저장돼 있으므로 유지. 같은 userId(계정 연결)면 그대로 둔다.
     if (currentUserIdRef.current && userId && currentUserIdRef.current !== userId) {
+      // 태그 편집 큐 폐기는 여기가 아니라 토큰 저장 직전(auth.ts postAuthSave → setAccountSwitchHandler)에
+      // 실행된다 — 이 시점엔 새 토큰이 이미 저장돼 늦다(PR 200 리뷰).
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.focusCategory,
         STORAGE_KEYS.goalPending,
@@ -240,6 +247,23 @@ export default function App() {
       if (data.focusCategory) {
         await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategory);
       }
+      // 과목 확인(W5) 결과를 실제 과목 목록으로 저장 — SubjectProvider는 user 세팅 후 마운트되므로
+      // 여기서 저장하면 첫 로드가 이 목록을 읽는다. 저장 안 하면 신규 계정은 서버 태그도 비어 있어
+      // 과목 0개로 시작하는 문제(PR 200 리뷰). color는 로드 시 팔레트 자동 배정, 서버 태그 생성은
+      // 세션 업로드 시 ensureFocusTagId가 find-or-create로 자가치유.
+      if (data.subjects.length > 0) {
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.subjects,
+          JSON.stringify({
+            date: todayStr(),
+            subjects: data.subjects.map((name, i) => ({
+              id: `subj-ob-${i}`,
+              name,
+              accumulatedSeconds: 0,
+            })),
+          }),
+        );
+      }
       // 집중·사용시간 목표(W12) 보관.
       setOnboardingFocusGoalSeconds(data.dailyFocusMinutes ? data.dailyFocusMinutes * 60 : null);
       setOnboardingScreenTimeGoalSeconds(data.usageGoalMinutes ? data.usageGoalMinutes * 60 : null);
@@ -263,6 +287,8 @@ export default function App() {
     setReloginHandler(() => {
       applyStoredSession();
     });
+    // 계정이 바뀌는 토큰 교체 직전에 이전 계정의 태그 편집 큐 폐기(PR 200 리뷰 — applyStoredSession은 늦음)
+    setAccountSwitchHandler(abortTagEdits);
   }, []);
 
   let content;

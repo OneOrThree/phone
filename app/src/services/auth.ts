@@ -11,7 +11,7 @@ import {
 import LineLogin, { LoginPermission } from '@xmartlabs/react-native-line';
 import { LoginManager, AccessToken, AuthenticationToken } from 'react-native-fbsdk-next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL, api } from '@/services/api';
+import { API_URL, api, getUserIdFromToken } from '@/services/api';
 import { logLogin, logSignUp, setIdentityProps, type AuthMethod } from '@/services/analyticsEvents';
 import type { LoginResult } from '@/types/api';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -28,8 +28,21 @@ interface AuthResponse {
   [key: string]: unknown;
 }
 
+// 계정(userId)이 실제로 바뀌는 토큰 교체 직전에 호출되는 훅 — 이전 계정의 태그 편집 큐 폐기용(App.tsx 등록).
+// applyStoredSession 시점엔 새 토큰이 이미 저장된 뒤라 대기 편집이 새 계정 토큰으로 나갈 수 있어(PR 200 리뷰)
+// 토큰 저장 직전으로 앞당긴다.
+let accountSwitchHandler: (() => void) | null = null;
+export function setAccountSwitchHandler(handler: () => void): void {
+  accountSwitchHandler = handler;
+}
+
 // 토큰 저장 + (기존 유저면) 프로필 병합 — 모든 소셜 로그인 공통 후처리.
 async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<LoginResult> {
+  // 다른 계정으로 갈아타는 로그인이면 새 토큰 저장 전에 계정 전환 훅 실행(같은 userId 재로그인은 통과)
+  const prevToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+  const prevUserId = prevToken ? getUserIdFromToken(prevToken) : null;
+  const nextUserId = getUserIdFromToken(data.accessToken);
+  if (prevUserId && nextUserId && prevUserId !== nextUserId) accountSwitchHandler?.();
   await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
   await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
 
