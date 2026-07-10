@@ -212,7 +212,7 @@ export default function HomeScreen() {
   // 순위·티어 = 리그 탭과 동일 원천(useLeagueMeta → GET /league/me/tier, useLeagueRanking).
   // 미배정/게스트/실패 시 tierLevel null → 1단계 기본 배지(리그 화면과 같은 규칙).
   const { tier: leagueTier } = useLeagueMeta();
-  const { myLeagueRank } = useLeagueRanking(leagueTier.tierLevel ?? 1);
+  const { myLeagueRank } = useLeagueRanking();
   const tier = tierByLevel(leagueTier.tierLevel ?? 1);
   const hasNotifications = false; // TODO: 실제 안 읽은 알림 여부로 교체
 

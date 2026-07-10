@@ -7,9 +7,10 @@ import { occupationForCategory } from '@/constants/focusCategories';
 import type { LeagueMemberResponse } from '@/types/api';
 import { MY_USER_ID, type RankedMember } from './mock';
 
-// 서버 랭킹 응답(LeagueMemberResponse) → 화면 RankedMember 원본(tierLevel 제외 — 렌더 시 주입).
+// 서버 랭킹 응답(LeagueMemberResponse) → 화면 RankedMember.
 // 직군 리그(useLeagueRanking)·전체 리그(useGlobalRanking)가 공유하는 단일 변환기.
 // - 내 행은 화면 로직(=== MY_USER_ID)을 그대로 쓰도록 userId를 MY_USER_ID 센티널로 치환.
+// - tierLevel은 서버가 주는 멤버별 실제 티어(GROMO-748) — 구 '내 티어 임시 부여' 제거.
 // - exam(리그 라벨)은 호출부가 넘긴 label: 직군 랭킹이면 내 카테고리, 전역이면 null(혼합 직군 → '').
 // - 프로필 상세 필드(달성률·스트릭·기록)는 랭킹 응답에 없어 0 — 프로필 조회(GROMO-539/557)에서 채운다.
 export function toRankingMembers(
@@ -17,13 +18,14 @@ export function toRankingMembers(
   userId: string,
   myNickname: string | null,
   label: string | null,
-): Omit<RankedMember, 'tierLevel'>[] {
+): RankedMember[] {
   return res.map((m) => {
     const isMe = m.userId === userId;
     return {
       rank: m.rank,
       userId: isMe ? MY_USER_ID : m.userId,
       nickname: isMe ? myNickname || m.nickname : m.nickname,
+      tierLevel: m.tierLevel,
       totalFocusMinutes: m.totalFocusMinutes,
       result: m.result,
       exam: label ?? '',
@@ -54,15 +56,15 @@ function pickMyMinutes(roster: LeagueMemberResponse[], userId: string): number {
 // - myMinutes: 위 top-100 리스트가 아니라 내 아레나 로스터에서 뽑는다(pickMyMinutes) — top-100 밖 유저도
 //   내 실제 주간분이 정확. myLeagueRank는 직군 리스트 내 위치(리그 탭과 동일 원천) — top-100 밖이면 null이라
 //   순위는 '값 없음'으로 정직하게 비운다(홈 배지 숨김). 리그 탭도 나를 못 찾으므로 화면 간 이야기가 일치.
-// - 멤버 tierLevel은 응답에 없어 호출부가 넘긴 tierLevel(내 티어)을 임시 부여(직군은 교차 티어라 근사 — TODO).
-export function useLeagueRanking(tierLevel = 1) {
+// - 멤버 tierLevel은 서버 응답의 실제 티어(GROMO-748).
+export function useLeagueRanking() {
   const myCategory = useFocusCategory();
   const { nickname: myNickname, userId } = useUser();
 
   // 리스트(직군 top-100)·리그 라벨·내 권위 주간분을 원자적으로 함께 보관한다.
   // 전체가 null이면 미조회/게스트/실패 → 화면은 빈 상태.
   const [state, setState] = useState<{
-    members: Omit<RankedMember, 'tierLevel'>[];
+    members: RankedMember[];
     label: string | null;
     myMinutes: number;
   } | null>(null);
@@ -111,8 +113,8 @@ export function useLeagueRanking(tierLevel = 1) {
     }, [userId, myCategory, myNickname]),
   );
 
-  // 멤버별 tierLevel 주입(직군 리그는 교차 티어라 내 티어 근사). 데이터 없으면 빈 배열.
-  const ranking: RankedMember[] = state ? state.members.map((m) => ({ ...m, tierLevel })) : [];
+  // 데이터 없으면 빈 배열.
+  const ranking: RankedMember[] = state?.members ?? [];
 
   const me = ranking.find((m) => m.userId === MY_USER_ID);
   const myLeagueLabel = state?.label ?? null;

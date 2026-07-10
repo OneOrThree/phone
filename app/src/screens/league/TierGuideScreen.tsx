@@ -24,7 +24,7 @@ export default function TierGuideScreen() {
   const { tier } = useLeagueMeta();
   const level = tier.tierLevel ?? 1;
   const cur = tierByLevel(level);
-  const { myMinutes: minutes } = useLeagueRanking(level);
+  const { myMinutes: minutes } = useLeagueRanking();
 
   // 다음 단계 기준(분)과 남은 시간 — 시안 진행바는 다음 기준 대비 누적 비율(14h20m/22h ≈ 64%)
   const nextAt = cur.maxHours != null ? cur.maxHours * 60 : null;

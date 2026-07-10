@@ -105,9 +105,11 @@ export interface LeagueMemberResponse {
   rank: number;
   userId: string;
   nickname: string;
+  tierLevel: number; // 멤버별 실제 티어(league_arena_users.tier_level) — GROMO-748
   totalFocusMinutes: number;
   // 주간 정산 결과 ('PROMOTED'/'DEMOTED' 등) — 정산 전엔 null. 서버 enum 확장 대비 string 유지
   result: string | null;
+  // ※ 서버 응답의 isPinned는 미러 생략 — 핀 상태는 GET /pins(usePinned)로 별도 관리
 }
 
 // GET /league/me/rank — 내 순위 요약
@@ -137,6 +139,7 @@ export interface FriendResponse {
   nickname: string;
   tierLevel: number | null;
   isPinned: boolean;
+  occupation: string | null; // 준비 시험 코드(Occupation enum name) — 미설정 null (GROMO-747)
 }
 
 // GET /friends/requests — 받은/보낸 요청
@@ -154,6 +157,7 @@ export interface FriendSearchResultResponse {
   nickname: string;
   tierLevel: number | null;
   relation: FriendRelation;
+  occupation: string | null; // 준비 시험 코드(Occupation enum name) — 미설정 null (GROMO-747)
 }
 
 // GET /pins — 나만의 랭킹(핀한 유저, 친구 아님 포함) 한 명

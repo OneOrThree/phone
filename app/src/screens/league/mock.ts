@@ -13,10 +13,9 @@ import type { LeagueMemberResponse, LeagueRankResponse, LeagueTierResponse } fro
 export const MY_USER_ID = 'u-07';
 
 // 랭킹 한 행 — 시안은 혼합 티어 전체 랭킹이라 행마다 티어·시험·프로필 값이 붙는다.
-// LeagueMemberResponse(단일 아레나 전제)에는 없는 필드 → UI 확장으로 두고,
-// TODO: 전체(티어 혼합)·시험별 랭킹 백엔드 협의 후 응답 필드로 교체
+// tierLevel은 서버 응답 필드로 승격(GROMO-748), 나머지는 UI 확장으로 두고
+// TODO: 시험별 랭킹 백엔드 협의 후 응답 필드로 교체
 export interface RankedMember extends LeagueMemberResponse {
-  tierLevel: number;
   exam: string; // 준비 시험 (시험 칩 필터)
   achievedRate: number; // 주간 목표 달성률 0..1 (프로필 링)
   friendCount: number; // 친구 수 (프로필 pill)
