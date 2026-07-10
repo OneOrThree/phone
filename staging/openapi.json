@@ -4915,6 +4915,9 @@
           "nickname": {
             "type": "string"
           },
+          "occupation": {
+            "type": "string"
+          },
           "equipments": {
             "type": "array",
             "items": {
@@ -5657,6 +5660,9 @@
             "type": "integer",
             "format": "int32"
           },
+          "occupation": {
+            "type": "string"
+          },
           "pinned": {
             "type": "boolean"
           },
@@ -5678,6 +5684,9 @@
           "tierLevel": {
             "type": "integer",
             "format": "int32"
+          },
+          "occupation": {
+            "type": "string"
           },
           "relation": {
             "type": "string",
