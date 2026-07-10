@@ -1,20 +1,24 @@
 import { useState } from 'react';
 import { dispatchRun } from '../api/github';
 
-// soak 은 Phase 4 까지 workflow_dispatch 선택지에서 제외 — 목록을 workflow(loadtest.yml)와 일치시켜
-// 서버가 거부할 값을 애초에 못 고르게 한다 (#184 리뷰: soak vs 90분 timeout)
-const PROFILES = ['smoke', 'load', 'stress', 'spike'];
+// value=워크플로우가 받는 값(영어 고정), label=한글 설명. soak 은 Phase 4 까지 제외(#184 리뷰).
+const PROFILES = [
+  { value: 'smoke', label: 'smoke — 빠른 검증 (5 rps · 1분)' },
+  { value: 'load', label: 'load — 목표 부하 (목표 rps 10분 유지)' },
+  { value: 'stress', label: 'stress — 한계 탐색 (100→400 rps 계단)' },
+  { value: 'spike', label: 'spike — 급증 부하 (순간 폭증)' },
+];
 const TARGETS = [
-  'scenarios/daily_mix.js',
-  'matrix/focus-session-list.js',
-  'matrix/focus-session-create.js',
-  'matrix/stats-today.js',
+  { value: 'scenarios/daily_mix.js', label: '현실 믹스 — 6개 유저 여정 혼합' },
+  { value: 'matrix/focus-session-list.js', label: '집중세션 조회 ⭐ — 커서 API (Phase 1 표적)' },
+  { value: 'matrix/focus-session-create.js', label: '집중세션 생성 — 쓰기 경로' },
+  { value: 'matrix/stats-today.js', label: '오늘 통계 — 인덱스 대조군' },
 ];
 
 // 딸깍 버튼 — workflow_dispatch 호출 (run 은 concurrency 로 직렬화됨)
 export function RunForm({ onDispatched }: { onDispatched: () => void }) {
   const [profile, setProfile] = useState('smoke');
-  const [target, setTarget] = useState(TARGETS[0]);
+  const [target, setTarget] = useState(TARGETS[0].value);
   const [updateBaseline, setUpdateBaseline] = useState(false);
   const [state, setState] = useState<'idle' | 'busy' | 'ok' | 'err'>('idle');
   const [err, setErr] = useState('');
@@ -36,18 +40,22 @@ export function RunForm({ onDispatched }: { onDispatched: () => void }) {
       <h2>run 트리거</h2>
       <div className="form-row">
         <label>
-          프로파일
+          프로파일 (부하 강도·시간)
           <select value={profile} onChange={(e) => setProfile(e.target.value)}>
             {PROFILES.map((p) => (
-              <option key={p}>{p}</option>
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
             ))}
           </select>
         </label>
         <label>
-          타겟
+          타겟 (무엇에 부하)
           <select value={target} onChange={(e) => setTarget(e.target.value)}>
             {TARGETS.map((t) => (
-              <option key={t}>{t}</option>
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
             ))}
           </select>
         </label>
