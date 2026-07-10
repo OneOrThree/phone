@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -105,6 +105,9 @@ export default function App() {
   const [onboardingScreenTimeGoalSeconds, setOnboardingScreenTimeGoalSeconds] = useState<
     number | null
   >(null);
+  // applyStoredSession이 [] effect에서 1회 등록돼 user 클로저가 낡는다 — 현재 userId는 ref로 참조.
+  const currentUserIdRef = useRef<string | null>(null);
+  currentUserIdRef.current = user?.userId ?? null;
 
   useEffect(() => {
     (async () => {
@@ -177,6 +180,21 @@ export default function App() {
     if (!raw) return;
     const data = JSON.parse(raw) as UserProfile;
     const userId = getUserIdFromToken(data.accessToken ?? '');
+    // 로그아웃 없이 계정이 바뀌는 유일한 경로 — 다른 계정(userId 변경)으로 갈아탄 경우엔
+    // 로그아웃과 동일하게 이전 계정 디바이스 캐시를 정리해 누출을 막는다(GROMO-677 리뷰).
+    // 세션·온보딩 키는 새 계정 것이 이미 저장돼 있으므로 유지. 같은 userId(계정 연결)면 그대로 둔다.
+    if (currentUserIdRef.current && userId && currentUserIdRef.current !== userId) {
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.focusCategory,
+        STORAGE_KEYS.goalPending,
+        STORAGE_KEYS.focusPendingUploads,
+        STORAGE_KEYS.notificationSettings,
+        STORAGE_KEYS.statVisibility,
+        STORAGE_KEYS.focusFirstDone,
+        STORAGE_KEYS.subjects,
+        STORAGE_KEYS.focus,
+      ]);
+    }
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
     setOnboarded(true);
     try {

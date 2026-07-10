@@ -32,6 +32,9 @@ const SEED: Subject[] = [
 
 interface SubjectContextValue {
   subjects: Subject[];
+  // 로컬 로드(+서버 복원) 완료 여부 — 복원 스냅샷이 이후 적립분을 덮지 않게
+  // OrphanFocusSettler가 이걸 기다린다(리뷰 반영).
+  ready: boolean;
   addSubject: (name: string) => void;
   renameSubject: (id: string, name: string) => void;
   deleteSubject: (id: string) => void;
@@ -44,6 +47,7 @@ const SubjectContext = createContext<SubjectContextValue | null>(null);
 
 export function SubjectProvider({ children }: { children: ReactNode }) {
   const [subjects, setSubjects] = useState<Subject[]>(SEED);
+  const [ready, setReady] = useState(false);
   const loaded = useRef(false);
 
   useEffect(() => {
@@ -91,6 +95,7 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
         } catch {}
       }
       loaded.current = true;
+      setReady(true);
     });
   }, []);
 
@@ -119,7 +124,9 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
 
   function deleteSubject(id: string) {
     const target = subjects.find((x) => x.id === id);
-    if (target) syncTagDeleted(target.name);
+    // 같은 이름 과목이 더 남아 있으면 서버 태그는 그 과목과 공유 중 — 삭제하지 않는다(리뷰 반영)
+    const nameStillUsed = target && subjects.some((x) => x.id !== id && x.name === target.name);
+    if (target && !nameStillUsed) syncTagDeleted(target.name);
     setSubjects((prev) => prev.filter((x) => x.id !== id));
   }
 
@@ -145,6 +152,7 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
     <SubjectContext.Provider
       value={{
         subjects,
+        ready,
         addSubject,
         renameSubject,
         deleteSubject,

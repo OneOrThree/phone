@@ -41,6 +41,13 @@ export async function ensureFocusTagId(
 // SubjectContext의 생성/이름변경/삭제를 서버에 동기화한다. 전부 fire-and-forget —
 // 실패해도 던지지 않는다(오프라인 등). 못 맞춘 생성분은 업로드 시 ensureFocusTagId가 자가치유.
 // tagId는 호출 시점에 목록을 재조회해 현재 계정 토큰 기준으로 해석한다(이전 계정 캐시 오염 방지).
+// 편집끼리는 순차 큐로 직렬화 — 생성 POST가 끝나기 전에 이름변경/삭제가 먼저 서버에 도착하는
+// 순서 역전(유령 태그 잔존 → 복원 시 부활)을 막는다(리뷰 반영). 실패해도 체인은 이어진다.
+
+let editChain: Promise<void> = Promise.resolve();
+function enqueueEdit(task: () => Promise<void>): void {
+  editChain = editChain.then(task, task);
+}
 
 async function resolveTagIdByName(name: string): Promise<string | null> {
   await refreshCache();
@@ -48,32 +55,38 @@ async function resolveTagIdByName(name: string): Promise<string | null> {
 }
 
 // 과목 생성 → POST /tag. 서버가 이름으로 find-or-create 하므로 멱등.
-export async function syncTagCreated(name: string): Promise<void> {
-  try {
-    await setupFocusTag({ name });
-    await refreshCache();
-  } catch {}
+export function syncTagCreated(name: string): void {
+  enqueueEdit(async () => {
+    try {
+      await setupFocusTag({ name });
+      await refreshCache();
+    } catch {}
+  });
 }
 
 // 과목 이름변경 → PATCH /tag(서버는 옛 채택 소프트삭제 + 새 이름 재채택).
 // 서버에 옛 이름이 아직 없으면(생성 동기화 실패 등) 새 이름으로 등록만 한다.
-export async function syncTagRenamed(oldName: string, newName: string): Promise<void> {
-  try {
-    const tagId = await resolveTagIdByName(oldName);
-    if (tagId) await updateFocusTag({ tagId, name: newName });
-    else await setupFocusTag({ name: newName });
-    await refreshCache();
-  } catch {}
+export function syncTagRenamed(oldName: string, newName: string): void {
+  enqueueEdit(async () => {
+    try {
+      const tagId = await resolveTagIdByName(oldName);
+      if (tagId) await updateFocusTag({ tagId, name: newName });
+      else await setupFocusTag({ name: newName });
+      await refreshCache();
+    } catch {}
+  });
 }
 
 // 과목 삭제 → DELETE /tag/{tagId} (서버는 소프트 삭제 — 과거 세션 기록은 보존).
 // 서버에 없는 과목이면 할 일 없음.
-export async function syncTagDeleted(name: string): Promise<void> {
-  try {
-    const tagId = await resolveTagIdByName(name);
-    if (tagId) {
-      await deleteFocusTag(tagId);
-      await refreshCache();
-    }
-  } catch {}
+export function syncTagDeleted(name: string): void {
+  enqueueEdit(async () => {
+    try {
+      const tagId = await resolveTagIdByName(name);
+      if (tagId) {
+        await deleteFocusTag(tagId);
+        await refreshCache();
+      }
+    } catch {}
+  });
 }
