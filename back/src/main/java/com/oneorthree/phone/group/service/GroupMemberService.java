@@ -52,9 +52,9 @@ public class GroupMemberService {
         GroupMember targetGroupMember = groupMemberRepository.findByUserAndGroup(targetUser, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
+        // GROMO-676: groups.host_id 폐기 — 방장 이양은 group_members.role 교체(OWNER↔MEMBER)로만 수행한다.
         hostGroupMember.demoteToMember();
         targetGroupMember.promoteToOwner();
-        group.transferOwner(targetUserId);
     }
 
     @Transactional

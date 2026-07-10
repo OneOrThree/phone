@@ -35,8 +35,6 @@ import java.util.UUID;
 @AllArgsConstructor
 public class GroupMember {
 
-    // NOTE: announcement_permission 추가는 671 아님(커플링 → 676). 여기서 건드리지 말 것
-
     @Id
     @GeneratedUuidV7
     private UUID id;
@@ -59,6 +57,12 @@ public class GroupMember {
     @Builder.Default
     private GroupMemberStatus status = GroupMemberStatus.INACTIVE;
 
+    // GROMO-676: 멤버 단위 공지 작성 권한 — 방장(OWNER)은 컬럼과 무관하게 항상 가능
+    @Enumerated(EnumType.STRING)
+    @Column(name = "announcement_permission", nullable = false)
+    @Builder.Default
+    private GroupAnnouncementGrant announcementPermission = GroupAnnouncementGrant.DISALLOW;
+
     @Column(nullable = false)
     @Builder.Default
     private boolean notificationEnabled = true;
@@ -79,5 +83,18 @@ public class GroupMember {
 
     public void promoteToOwner() {
         this.role = GroupMemberRole.OWNER;
+    }
+
+    public void allowAnnouncement() {
+        this.announcementPermission = GroupAnnouncementGrant.ALLOW;
+    }
+
+    public void disallowAnnouncement() {
+        this.announcementPermission = GroupAnnouncementGrant.DISALLOW;
+    }
+
+    /** 공지 작성/관리 가능 여부 — 방장은 항상 가능, 멤버는 권한(ALLOW) 부여 시 가능 (GROMO-676). */
+    public boolean canWriteAnnouncement() {
+        return role == GroupMemberRole.OWNER || announcementPermission == GroupAnnouncementGrant.ALLOW;
     }
 }

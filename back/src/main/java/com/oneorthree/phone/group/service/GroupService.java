@@ -5,9 +5,9 @@ import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.domain.Group;
+import com.oneorthree.phone.group.domain.GroupAnnouncementGrant;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
-import com.oneorthree.phone.group.domain.GroupNoticeGrant;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.dto.CreateGroupRequest;
 import com.oneorthree.phone.group.dto.CreateGroupResponse;
@@ -24,7 +24,6 @@ import com.oneorthree.phone.group.dto.UpdateGroupSettingsRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupNoticeGrantRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
@@ -56,7 +55,6 @@ public class GroupService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final DailyFocusStatRepository dailyFocusStatRepository;
-    private final GroupNoticeGrantRepository groupNoticeGrantRepository;
     private final UserActivityEventLogger userActivityEventLogger;
 
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -100,7 +98,6 @@ public class GroupService {
                 .durationMinutes(request.getDurationMinutes())
                 .windowStart(request.getWindowStart())
                 .windowEnd(request.getWindowEnd())
-                .hostId(userId)
                 .code(uniqueCode)
                 .codeExpiresAt(Instant.now().plus(3, ChronoUnit.HOURS))
                 .build());
@@ -301,9 +298,8 @@ public class GroupService {
                         .build())
                 .toList();
 
-        List<UUID> granteUsers = groupNoticeGrantRepository.findByGroup(group).stream()
-                .map(u -> u.getUserId())
-                .toList();
+        // GROMO-676: 공지 권한은 group_members.announcement_permission 기준 (방장 제외)
+        List<UUID> granteUsers = noticeGrantedUserIds(groupMembers);
 
         return GroupDetailResponse.builder()
                 .id(group.getId())
@@ -384,14 +380,12 @@ public class GroupService {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
 
-        List<UUID> grantedUserIds = groupNoticeGrantRepository.findByGroup(group).stream()
-                .map(GroupNoticeGrant::getUserId)
-                .toList();
+        // GROMO-676: 공지 권한은 group_members.announcement_permission 기준 (방장 제외)
+        List<UUID> grantedUserIds = noticeGrantedUserIds(groupMemberRepository.findByGroup(group));
 
         return GroupSettingsResponse.builder()
                 .chatEnabled(group.isChatEnabled())
                 .chatLimitPerPerson(group.getChatLimitPerPerson())
-                .noticePermission(group.getNoticePermission())
                 .invitePermission(group.getInvitePermission())
                 .noticeGrantedUserIds(grantedUserIds)
                 .build();
@@ -419,23 +413,32 @@ public class GroupService {
         group.updateSettings(
                 request.getChatEnabled(),
                 request.getChatLimitPerPerson(),
-                request.getNoticePermission(),
                 request.getInvitePermission()
         );
 
+        // GROMO-676: 공지 권한 부여/회수 — group_members.announcement_permission 로 일괄 반영.
+        // null = 미변경, 빈 리스트 = 권한 초기화(방장만), 목록에 없는 멤버는 회수, 비멤버 id 는 무시.
         if (request.getNoticeGrantedUserIds() != null) {
-            groupNoticeGrantRepository.deleteByGroup(group);
-            if (!request.getNoticeGrantedUserIds().isEmpty()) {
-                List<GroupNoticeGrant> grants = request.getNoticeGrantedUserIds().stream()
-                        .filter(granteeId -> groupMemberRepository.existsByUserIdAndGroup(granteeId, group))
-                        .map(granteeId -> GroupNoticeGrant.builder()
-                                .group(group)
-                                .userId(granteeId)
-                                .build())
-                        .toList();
-                groupNoticeGrantRepository.saveAll(grants);
-            }
+            List<UUID> granteeIds = request.getNoticeGrantedUserIds();
+            groupMemberRepository.findByGroup(group).stream()
+                    .filter(member -> member.getRole() != GroupMemberRole.OWNER)
+                    .forEach(member -> {
+                        if (granteeIds.contains(member.getUser().getId())) {
+                            member.allowAnnouncement();
+                        } else {
+                            member.disallowAnnouncement();
+                        }
+                    });
         }
+    }
+
+    /** 공지 작성 권한(ALLOW)을 가진 멤버 id 목록 — 방장은 컬럼과 무관하게 항상 가능하므로 제외한다. */
+    private List<UUID> noticeGrantedUserIds(List<GroupMember> members) {
+        return members.stream()
+                .filter(member -> member.getRole() != GroupMemberRole.OWNER)
+                .filter(member -> member.getAnnouncementPermission() == GroupAnnouncementGrant.ALLOW)
+                .map(member -> member.getUser().getId())
+                .toList();
     }
 
     private String generateUniqueCode() {

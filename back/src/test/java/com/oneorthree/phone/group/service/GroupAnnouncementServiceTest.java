@@ -2,16 +2,15 @@ package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupAnnouncement;
+import com.oneorthree.phone.group.domain.GroupAnnouncementGrant;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
-import com.oneorthree.phone.group.domain.GroupPermissionScope;
 import com.oneorthree.phone.group.dto.CreateAnnouncementRequest;
 import com.oneorthree.phone.group.dto.GroupAnnouncementResponse;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupNoticeGrantRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -39,7 +38,7 @@ import static org.mockito.Mockito.verify;
  *
  * <p>대상: 공지 생성/조회/수정/삭제.
  * 핵심 검증 포인트는 게스트 차단, 멤버십 존재, 그리고 공지 관리 권한
- * (canManageNotice: OWNER ∨ noticePermission=ALL_MEMBERS ∨ NoticeGrant 보유).
+ * (GROMO-676: OWNER ∨ group_members.announcement_permission=ALLOW).
  */
 @ExtendWith(MockitoExtension.class)
 class GroupAnnouncementServiceTest {
@@ -59,9 +58,6 @@ class GroupAnnouncementServiceTest {
     @Mock
     private GroupAnnouncementRepository groupAnnouncementRepository;
 
-    @Mock
-    private GroupNoticeGrantRepository groupNoticeGrantRepository;
-
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID ANNOUNCEMENT_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b1");
@@ -70,12 +66,17 @@ class GroupAnnouncementServiceTest {
         return User.builder().id(USER_ID).isGuest(guest).build();
     }
 
-    private Group group(GroupPermissionScope noticePermission) {
-        return Group.builder().id(GROUP_ID).noticePermission(noticePermission).build();
+    private Group group() {
+        return Group.builder().id(GROUP_ID).build();
     }
 
     private GroupMember member(User user, Group group, GroupMemberRole role) {
         return GroupMember.builder().user(user).group(group).role(role).build();
+    }
+
+    private GroupMember memberWithPermission(User user, Group group, GroupAnnouncementGrant permission) {
+        return GroupMember.builder().user(user).group(group)
+                .role(GroupMemberRole.MEMBER).announcementPermission(permission).build();
     }
 
     // ── createAnnouncement ────────────────────────────────────────────────
@@ -85,7 +86,7 @@ class GroupAnnouncementServiceTest {
     void createAnnouncementByOwner() {
         // given: 요청자 OWNER, 그룹/멤버 존재
         User user = user(false);
-        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        Group group = group();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
@@ -107,16 +108,15 @@ class GroupAnnouncementServiceTest {
     }
 
     @Test
-    @DisplayName("권한 부여(NoticeGrant) 받은 멤버가 공지 생성 → 저장 성공")
+    @DisplayName("권한 부여(announcement_permission=ALLOW) 받은 멤버가 공지 생성 → 저장 성공")
     void createAnnouncementByGrantedMember() {
-        // given: 일반 멤버 + noticePermission=OWNER_ONLY 지만 grant 보유
+        // given: 일반 멤버지만 announcement_permission=ALLOW (GROMO-676)
         User user = user(false);
-        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        Group group = group();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
-        given(groupNoticeGrantRepository.existsByGroupAndUserId(group, USER_ID)).willReturn(true);
+                .willReturn(Optional.of(memberWithPermission(user, group, GroupAnnouncementGrant.ALLOW)));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
 
@@ -148,7 +148,7 @@ class GroupAnnouncementServiceTest {
     void createAnnouncementNotMember() {
         // given: 그룹은 있으나 멤버가 아님
         User user = user(false);
-        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        Group group = group();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
@@ -165,14 +165,13 @@ class GroupAnnouncementServiceTest {
     @Test
     @DisplayName("권한 없는 일반 멤버 → GroupException(NOTICE_FORBIDDEN)")
     void createAnnouncementNoticeForbidden() {
-        // given: 일반 멤버 + noticePermission!=ALL_MEMBERS + grant 없음
+        // given: 일반 멤버 + announcement_permission=DISALLOW(기본값)
         User user = user(false);
-        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        Group group = group();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
-        given(groupNoticeGrantRepository.existsByGroupAndUserId(group, USER_ID)).willReturn(false);
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
 
@@ -191,7 +190,7 @@ class GroupAnnouncementServiceTest {
     void getAnnouncementsSuccess() {
         // given: 멤버 + 공지 2개(최신순)
         User user = user(false);
-        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        Group group = group();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
@@ -239,7 +238,7 @@ class GroupAnnouncementServiceTest {
     void getAnnouncementsNotMember() {
         // given: 그룹은 있으나 멤버가 아님
         User user = user(false);
-        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        Group group = group();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
@@ -258,7 +257,7 @@ class GroupAnnouncementServiceTest {
     void updateAnnouncementSuccess() {
         // given: OWNER + 해당 그룹의 공지 존재
         User user = user(false);
-        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        Group group = group();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
@@ -283,14 +282,13 @@ class GroupAnnouncementServiceTest {
     @Test
     @DisplayName("권한 없음 → GroupException(NOTICE_FORBIDDEN)")
     void updateAnnouncementForbidden() {
-        // given: 일반 멤버 + OWNER_ONLY + grant 없음 (공지 조회 전에 권한에서 막힘)
+        // given: 일반 멤버 + announcement_permission=DISALLOW (공지 조회 전에 권한에서 막힘)
         User user = user(false);
-        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        Group group = group();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
-        given(groupNoticeGrantRepository.existsByGroupAndUserId(group, USER_ID)).willReturn(false);
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("새 제목", "새 내용");
 
@@ -306,7 +304,7 @@ class GroupAnnouncementServiceTest {
     void updateAnnouncementNotFound() {
         // given: 권한 있으나 공지 미존재
         User user = user(false);
-        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        Group group = group();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
@@ -330,7 +328,7 @@ class GroupAnnouncementServiceTest {
     void deleteAnnouncementSuccess() {
         // given: OWNER + 공지 존재
         User user = user(false);
-        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        Group group = group();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
@@ -352,14 +350,13 @@ class GroupAnnouncementServiceTest {
     @Test
     @DisplayName("권한 없음 → GroupException(NOTICE_FORBIDDEN)")
     void deleteAnnouncementForbidden() {
-        // given: 일반 멤버 + OWNER_ONLY + grant 없음
+        // given: 일반 멤버 + announcement_permission=DISALLOW
         User user = user(false);
-        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        Group group = group();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
-        given(groupNoticeGrantRepository.existsByGroupAndUserId(group, USER_ID)).willReturn(false);
 
         // when & then: 예외 발생 + 삭제 미호출
         assertThatThrownBy(() -> groupAnnouncementService.deleteAnnouncement(GROUP_ID, ANNOUNCEMENT_ID, USER_ID))
@@ -374,7 +371,7 @@ class GroupAnnouncementServiceTest {
     void deleteAnnouncementNotFound() {
         // given: 권한 있으나 공지 미존재
         User user = user(false);
-        Group group = group(GroupPermissionScope.OWNER_ONLY);
+        Group group = group();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))

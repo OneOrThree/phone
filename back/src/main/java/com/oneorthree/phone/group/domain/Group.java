@@ -28,7 +28,7 @@ import java.util.UUID;
 public class Group {
 
     // NOTE(671 스코프 밖 — 건드리지 말 것): 챌린지 컬럼(mission_*/window_*/duration_minutes/time_zone)→674,
-    //   code/code_expires_at→672, notice_permission/host_id/started_at/ended_at/bet_type→676.
+    //   code/code_expires_at→672.
 
     @Id
     @GeneratedUuidV7
@@ -64,11 +64,6 @@ public class Group {
 
     private Integer durationMinutes;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    @Builder.Default
-    private BetType betType = BetType.NONE;
-
     @Column(nullable = false)
     private int maxMembers;
 
@@ -77,18 +72,12 @@ public class Group {
     @Builder.Default
     private GroupStatus status = GroupStatus.WAITING;
 
-    private UUID hostId;
-
     // GROMO-671: dbml 은 version 을 누락했으나 낙관락(동시성)이 필요해 유지(UserWallet 과 동일 판단).
     @Version
     private Long version;
 
     @CreationTimestamp
     private Instant createdAt;
-
-    private Instant startedAt;
-
-    private Instant endedAt;
 
     @Column(name = "deleted_at")
     private Instant deletedAt;
@@ -101,10 +90,6 @@ public class Group {
     public void renewCode(String newCode) {
         this.code = newCode;
         this.codeExpiresAt = Instant.now().plus(3, ChronoUnit.HOURS);
-    }
-
-    public void transferOwner(UUID newOwnerId) {
-        hostId = newOwnerId;
     }
 
     public void updateName(String newName) {
@@ -133,11 +118,6 @@ public class Group {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     @Builder.Default
-    private GroupPermissionScope noticePermission = GroupPermissionScope.OWNER_ONLY;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    @Builder.Default
     private GroupPermissionScope invitePermission = GroupPermissionScope.OWNER_ONLY;
 
     public void updateDescription(String description) {
@@ -145,23 +125,20 @@ public class Group {
     }
 
     public void updateSettings(Boolean chatEnabled, Integer chatLimitPerPerson,
-            GroupPermissionScope noticePermission, GroupPermissionScope invitePermission) {
+            GroupPermissionScope invitePermission) {
         if (chatEnabled != null) {
             this.isChatEnabled = chatEnabled;
         }
         if (chatLimitPerPerson != null) {
             this.chatLimitPerPerson = chatLimitPerPerson;
         }
-        if (noticePermission != null) {
-            this.noticePermission = noticePermission;
-        }
         if (invitePermission != null) {
             this.invitePermission = invitePermission;
         }
     }
 
+    // GROMO-676: 챌린지 생명주기(started/ended_at)는 group_challenges 소유 — 그룹 종료는 status 만 전이한다.
     public void close() {
         this.status = GroupStatus.ENDED;
-        this.endedAt = Instant.now();
     }
 }

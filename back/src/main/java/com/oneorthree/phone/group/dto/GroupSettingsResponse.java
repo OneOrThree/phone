@@ -12,7 +12,6 @@ import java.util.UUID;
 public class GroupSettingsResponse {
     private boolean chatEnabled;
     private Integer chatLimitPerPerson;
-    private GroupPermissionScope noticePermission;
     private GroupPermissionScope invitePermission;
-    private List<UUID> noticeGrantedUserIds;
+    private List<UUID> noticeGrantedUserIds;    // announcement_permission=ALLOW 인 멤버 (방장 제외)
 }
