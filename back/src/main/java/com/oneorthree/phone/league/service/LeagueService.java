@@ -113,6 +113,8 @@ public class LeagueService {
                     i + 1,
                     memberId,
                     m.getUser().getNickname(),
+                    // 멤버별 실제 티어 — 이미 조회된 league_arena_users 행의 컬럼(추가 쿼리 없음, GROMO-748)
+                    m.getTierLevel(),
                     m.getTotalFocusMinutes(),
                     resultName(m),
                     pinnedIds.contains(memberId)));
