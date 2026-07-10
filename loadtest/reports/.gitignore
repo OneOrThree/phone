@@ -1,0 +1,5 @@
+# run 산출물은 로컬·Actions artifact·loadtest-reports 브랜치 소관 — 레포엔 baseline 만 커밋
+*
+!.gitignore
+!baseline/
+!baseline/**
