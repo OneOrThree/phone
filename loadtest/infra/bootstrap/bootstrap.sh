@@ -37,7 +37,10 @@ else
   log "프로젝트 생성: $PROJECT_ID"
   gcloud projects create "$PROJECT_ID"
 fi
-gcloud config set project "$PROJECT_ID" >/dev/null
+# 전역 gcloud config 를 바꾸지 않고 이 스크립트 프로세스 안에서만 프로젝트를 지정한다 —
+# `config set project` 는 사용자의 기본 프로젝트를 덮어써 dev/prod 작업과 혼선을 일으킨다.
+# CLOUDSDK_CORE_PROJECT 는 이후 모든 gcloud 호출에 적용되되 ~/.config/gcloud 는 건드리지 않는다.
+export CLOUDSDK_CORE_PROJECT="$PROJECT_ID"
 
 # ── 2. 빌링 ─────────────────────────────────────────────────
 if [ -n "$BILLING_ACCOUNT_ID" ]; then

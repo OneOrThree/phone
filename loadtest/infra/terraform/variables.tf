@@ -40,6 +40,12 @@ variable "loadgen_machine_type" {
   default     = "c2-standard-4"
 }
 
+variable "loadgen_use_spot" {
+  description = "부하 VM 을 spot 으로 띄울지 — 무료 크레딧 계정은 spot 불가라 false(온디맨드)로. 유료면 true 권장(저렴·선점 무효처리)"
+  type        = bool
+  default     = true
+}
+
 variable "db_tier" {
   description = "Cloud SQL 스펙 — 데이터(~15GB) > RAM(8GB) 조건 유지가 전제"
   type        = string
