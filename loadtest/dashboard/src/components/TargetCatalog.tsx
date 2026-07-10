@@ -21,12 +21,27 @@ export function TargetCatalog({
 }) {
   const [cat, setCat] = useState<Catalog | null>(null);
   const [err, setErr] = useState('');
+  const [openTags, setOpenTags] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadCatalog()
-      .then(setCat)
+      .then((c) => {
+        setCat(c);
+        // 스크립트 있는 그룹은 기본 펼침. controlled — 이후 사용자 토글도 그대로 유지.
+        setOpenTags(
+          new Set(c.groups.filter((g) => g.endpoints.some((e) => e.kind === 'script')).map((g) => g.tag)),
+        );
+      })
       .catch((e) => setErr(String(e)));
   }, []);
+
+  const toggleTag = (tag: string, isOpen: boolean) =>
+    setOpenTags((prev) => {
+      const next = new Set(prev);
+      if (isOpen) next.add(tag);
+      else next.delete(tag);
+      return next;
+    });
 
   return (
     <section className="card">
@@ -52,7 +67,12 @@ export function TargetCatalog({
             </span>
           </div>
           {cat.groups.map((g) => (
-            <details className="grp" key={g.tag} open={g.endpoints.some((e) => e.kind === 'script')}>
+            <details
+              className="grp"
+              key={g.tag}
+              open={openTags.has(g.tag)}
+              onToggle={(ev) => toggleTag(g.tag, (ev.currentTarget as HTMLDetailsElement).open)}
+            >
               <summary>
                 {g.tag} <span className="chip cat">{g.endpoints.length}</span>
               </summary>
@@ -77,11 +97,12 @@ function EndpointRow({
   onPick: (target: string) => void;
 }) {
   const clickable = e.kind === 'script';
-  const isSel = clickable && e.target === selected;
+  const runTarget = clickable ? e.target : undefined;
+  const isSel = runTarget === selected;
   return (
     <div
       className={`ep${clickable ? ' clickable' : ' disabled'}${isSel ? ' sel' : ''}`}
-      onClick={clickable && e.target ? () => onPick(e.target as string) : undefined}
+      onClick={runTarget ? () => onPick(runTarget) : undefined}
     >
       <span className={`b method ${METHOD_CLASS[e.method] ?? ''}`}>{e.method}</span>
       <span className="path">{e.path.replace(/^\/api\/v1/, '')}</span>

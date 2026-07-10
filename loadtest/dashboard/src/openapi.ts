@@ -1,6 +1,7 @@
 // openapi.json(springdoc 스냅샷)에서 대시보드 타겟 카탈로그를 파생한다 (GROMO-750).
-// 스냅샷은 public/openapi.json 에 커밋 — 재생성: loadtest/openapi/generate.sh
-// (백엔드 ci 프로파일로 gradlew generateOpenApiDocs → build/docs/api/openapi.json 복사).
+// 스냅샷은 public/openapi.json 에 커밋. 재생성은 .github/workflows/api-dog-generate.yml 과 동일 방식:
+// 백엔드에서 SPRING_PROFILES_ACTIVE=ci 로 ./gradlew generateOpenApiDocs → build/docs/api/openapi.json 복사.
+// (일괄 재생성 스크립트는 후속 증분에 동봉 예정.)
 // "카탈로그 우선(점진)": 전체 엔드포인트를 목록화하되, 지금 실행 가능한 건 기존 k6 스크립트가 있는 것뿐.
 
 export type RunKind = 'script' | 'runnable' | 'recipe';
@@ -48,7 +49,8 @@ interface RawOp {
 }
 
 export async function loadCatalog(): Promise<Catalog> {
-  const res = await fetch('openapi.json');
+  // 절대경로 — 항상 도메인 루트에서 서빙되는 정적 스냅샷(서브패스 배포 시에도 안전)
+  const res = await fetch('/openapi.json');
   if (!res.ok) throw new Error(`openapi.json 로드 실패 (${res.status})`);
   const spec = (await res.json()) as { paths?: Record<string, Record<string, RawOp>> };
 
