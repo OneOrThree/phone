@@ -1,8 +1,9 @@
-// 제네릭 단일-엔드포인트 러너 (GROMO-750) — recipe(입력 전략)를 받아 임의 API 에 부하.
-// __ENV.RECIPE = k6/recipes/<name>.json 의 name. 유저/JWT 변동은 usersZipf/uniform + authParams
-// 재사용(단일 유저로 치면 버퍼캐시 과대평가 — 매 iteration 유저를 바꾼다).
-// recipe 는 recipes/gen-recipes.mjs 가 openapi.json 에서 생성. gap(=path ID 미조달) recipe 는
-// runnable:false 라 대시보드가 디스패치하지 않는다.
+// 제네릭 러너 (GROMO-750) — 선택한 엔드포인트 목록(RECIPES)에 병렬 부하.
+// __ENV.RECIPES = 콤마구분 recipe 이름 목록(단일도 목록 길이 1). __ENV.RATE = 총 arrival rate(rps).
+// 모델 A: 하나의 arrival-rate 시나리오에서 매 iteration 랜덤 recipe 를 골라 실행 → 총 부하를 선택
+// 엔드포인트에 분산(daily_mix 와 동일 모델). 동시 VU 가 서로 다른 엔드포인트를 때리므로 "병렬 부하".
+// 유저/JWT 변동은 usersZipf/uniform + authParams 재사용(단일 유저는 버퍼캐시 과대평가). per-endpoint
+// 지표는 authParams 의 endpoint 태그로 분리 유지(pg_stat 격리는 그 엔드포인트만 단독 선택 시).
 import http from 'k6/http';
 import { BASE_URL, THRESHOLDS, pick, randInt } from '../lib/config.js';
 import { usersZipf, usersUniform, groupIds, searchTerms } from '../lib/params.js';
@@ -11,17 +12,20 @@ import { followCursor } from '../lib/cursor.js';
 import { summarize } from '../lib/summary.js';
 import { resolveProfile } from '../profiles/index.js';
 
-const RECIPE_NAME = __ENV.RECIPE || '';
-if (!RECIPE_NAME) throw new Error('RECIPE 환경변수 필요 (예: -e RECIPE=focus_getFocusSessions)');
-const recipe = JSON.parse(open(`../recipes/${RECIPE_NAME}.json`)); // init context 전용
+const NAMES = (__ENV.RECIPES || __ENV.RECIPE || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+if (!NAMES.length) throw new Error('RECIPES 환경변수 필요 (콤마구분 recipe 목록)');
+const recipes = NAMES.map((name) => JSON.parse(open(`../recipes/${name}.json`))); // init context 전용
 
-// 쓰기는 uniform(유저당 1 VU 로 락 경합 배제), 읽기는 zipf(핫유저 편중 = 현실 트래픽)
-const users = recipe.userPool === 'uniform' ? usersUniform() : usersZipf();
+const usersZ = usersZipf();
+const usersU = usersUniform();
 const groups = groupIds();
 const terms = searchTerms();
 
 export const options = {
-  scenarios: resolveProfile().scenarios('run'),
+  scenarios: resolveProfile().scenarios('run'), // 총 arrival rate = __ENV.RATE || 프로파일 기본
   thresholds: THRESHOLDS,
 };
 
@@ -30,7 +34,6 @@ const isoDate = (offsetDays, dateOnly) => {
   return dateOnly ? d.toISOString().slice(0, 10) : d.toISOString();
 };
 
-// gen 스펙 → 값 (u = 현재 유저)
 function genValue(g, u) {
   switch (g.gen) {
     case 'date':
@@ -54,11 +57,11 @@ function genValue(g, u) {
       if (g.source === 'userId') return u.userId;
       return null;
     default:
-      return null; // gap 은 runnable recipe 엔 없음
+      return null;
   }
 }
 
-function buildPath(u) {
+function buildPath(recipe, u) {
   let path = recipe.path;
   for (const [name, g] of Object.entries(recipe.pathParams || {})) {
     path = path.replace(`{${name}}`, encodeURIComponent(genValue(g, u)));
@@ -66,7 +69,7 @@ function buildPath(u) {
   return path;
 }
 
-function buildQuery(u) {
+function buildQuery(recipe, u) {
   const parts = [];
   for (const q of recipe.query || []) {
     const v = genValue(q, u);
@@ -87,9 +90,11 @@ function buildBody(node, u) {
 }
 
 export function run() {
+  const recipe = pick(recipes); // 매 iteration 랜덤 픽 = 총 rate 를 선택분에 분산(모델 A)
+  const users = recipe.userPool === 'uniform' ? usersU : usersZ;
   const u = pick(users);
-  const url = `${BASE_URL}${buildPath(u)}${buildQuery(u)}`;
-  const params = authParams(u, recipe.endpoint);
+  const url = `${BASE_URL}${buildPath(recipe, u)}${buildQuery(recipe, u)}`;
+  const params = authParams(u, recipe.endpoint); // endpoint 태그 → per-endpoint 지표 분리
   const method = recipe.method;
 
   if (method === 'GET') {

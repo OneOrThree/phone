@@ -104,6 +104,7 @@ export async function loadCatalog(): Promise<Catalog> {
       if (scriptTarget) {
         kind = 'script';
         target = scriptTarget;
+        recipe = rec?.endpoint; // 배치(병렬)에선 스크립트 엔드포인트도 generic recipe 로 함께 실행
         scriptCount++;
       } else if (rec && rec.runnable) {
         kind = 'recipe';

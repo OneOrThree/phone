@@ -15,8 +15,9 @@ SCALE ?= 1
 # 고급 설정(expert) override — 빈값이면 k6 프로파일 기본값 사용 (run.sh 가 k6 __ENV 로 전달)
 RATE ?=
 DURATION ?=
-# 제네릭 러너용 recipe (TARGET=matrix/_generic.js 일 때 실행할 엔드포인트)
-RECIPE ?=
+# 제네릭 러너용 recipe 목록(콤마구분, TARGET=matrix/_generic.js) + loadgen VM 수(고rps 분산 생성)
+RECIPES ?=
+SPOTS ?= 1
 
 SHA := $(shell git rev-parse --short HEAD)
 # SUT 이미지 — prod 와 같은 back/Dockerfile 을 핀 SHA 로 빌드 (make image)
@@ -28,7 +29,7 @@ RUN_ID := $(or $(RUN_ID),$(shell date -u +%Y%m%dT%H%M%SZ)-$(SHA))
 TARGET_KEY := $(subst /,_,$(TARGET))
 REPORT_DIR := reports/$(RUN_ID)-$(PROFILE)-$(TARGET_KEY)
 
-export PROJECT_ID REGION ZONE PROFILE TARGET SEED_VERSION SCALE RATE DURATION RECIPE REPORT_DIR IMAGE
+export PROJECT_ID REGION ZONE PROFILE TARGET SEED_VERSION SCALE RATE DURATION RECIPES SPOTS REPORT_DIR IMAGE
 
 .PHONY: help bootstrap check-quota infra-up image up up-base app-up down sync \
         seed seed-verify reset mint run collect verdict test \

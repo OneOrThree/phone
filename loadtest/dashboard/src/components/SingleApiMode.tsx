@@ -1,12 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  loadCatalog,
-  dispatchTargetOf,
-  isRunnable,
-  short,
-  type Catalog,
-  type EndpointEntry,
-} from '../openapi';
+import { loadCatalog, isRunnable, short, type Catalog, type EndpointEntry } from '../openapi';
 import { dispatchRun } from '../api/github';
 
 // 단일 API 부하 모드 (GROMO-750) — openapi 카탈로그에서 실행 가능한 엔드포인트를 다중선택(또는 전체선택)해
@@ -30,6 +23,8 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
   const [cat, setCat] = useState<Catalog | null>(null);
   const [err, setErr] = useState('');
   const [profile, setProfile] = useState('load');
+  const [rps, setRps] = useState(''); // 총 arrival rate override(빈값=프로파일 기본). 선택분에 분산(모델 A)
+  const [spots, setSpots] = useState('1'); // loadgen spot VM 수(고rps 분산 생성)
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [openTags, setOpenTags] = useState<Set<string>>(new Set());
   const [running, setRunning] = useState(false);
@@ -62,25 +57,25 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
       return n;
     });
 
+  // 선택 엔드포인트를 한 run 에서 병렬 부하 — 총 rate 를 선택분에 분산(모델 A). loadgen 1사이클.
   const runBatch = async () => {
     if (!cat || sel.size === 0 || running) return;
     setRunning(true);
     const picked = runnable.filter((e) => sel.has(keyOf(e)));
-    let ok = 0;
-    let fail = 0;
-    for (let i = 0; i < picked.length; i++) {
-      const dt = dispatchTargetOf(picked[i]);
-      if (!dt) continue;
-      setProgress(`디스패치 중 ${i + 1}/${picked.length} — ${dt.label}`);
-      try {
-        await dispatchRun(profile, dt.target, false, dt.recipe ? { recipe: dt.recipe } : {});
-        ok += 1;
-      } catch {
-        fail += 1;
-      }
-      await new Promise((r) => setTimeout(r, 900)); // GitHub API rate 완화 (run 은 어차피 직렬 실행)
+    const recipes = picked.map((e) => e.recipe).filter((r): r is string => !!r);
+    try {
+      await dispatchRun(profile, 'matrix/_generic.js', false, {
+        recipes: recipes.join(','),
+        rate: rps.trim() || undefined,
+        spots: spots.trim() || undefined,
+      });
+      const opts = [profile, rps.trim() && `${rps.trim()}rps`, spots.trim() !== '1' && `spot ${spots.trim()}`]
+        .filter(Boolean)
+        .join(' · ');
+      setProgress(`디스패치 완료 — ${recipes.length}개 엔드포인트 병렬 부하 (${opts}). 히스토리에 나타납니다.`);
+    } catch (e) {
+      setProgress(`실패: ${String(e)} (PAT 권한: actions rw)`);
     }
-    setProgress(`완료 — 디스패치 ${ok}건${fail ? ` · 실패 ${fail}` : ''}. 히스토리에 순차 등장합니다.`);
     setRunning(false);
     setTimeout(onDispatched, 3000);
   };
@@ -95,7 +90,7 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
           <p className="sub">
             openapi <b>{cat.total}</b>개 중 실행 가능 <b className="ok">{runnable.length}</b>(스크립트{' '}
             {cat.scriptCount} · recipe {cat.recipeCount}) · gap {cat.gapCount}. 특정 API만 고르거나 전체
-            선택해 <b>{profile}</b> 부하를 배치 실행(직렬).
+            선택해 <b>{profile}</b> 부하를 한 run 에서 병렬 실행(총 rate 를 선택분에 분산).
           </p>
 
           <div className="form-row" style={{ marginBottom: 10 }}>
@@ -108,6 +103,30 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
                   </option>
                 ))}
               </select>
+            </label>
+            <label>
+              총 rps (빈값=프로파일 기본)
+              <input
+                type="text"
+                className="short"
+                value={rps}
+                placeholder="기본"
+                inputMode="numeric"
+                disabled={running}
+                onChange={(e) => setRps(e.target.value)}
+              />
+            </label>
+            <label>
+              loadgen spot 수
+              <input
+                type="text"
+                className="short"
+                value={spots}
+                placeholder="1"
+                inputMode="numeric"
+                disabled={running}
+                onChange={(e) => setSpots(e.target.value)}
+              />
             </label>
           </div>
 
