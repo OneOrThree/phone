@@ -42,13 +42,15 @@ class ProfileControllerTest {
     @DisplayName("공개 프로필 조회 → 200, 닉네임·친구수·티어·랭킹 반환")
     void getPublicProfileReturns200() throws Exception {
         PublicProfileResponse response = new PublicProfileResponse(
-                targetUserId, "조재영", List.of(), 5L, 3, 2);
+                targetUserId, "조재영", "CSAT", List.of(), 5L, 3, 2);
         given(profileService.getPublicProfile(any())).willReturn(response);
 
         mockMvc.perform(get("/api/v1/users/{userId}/profile", targetUserId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value(targetUserId.toString()))
                 .andExpect(jsonPath("$.nickname").value("조재영"))
+                // 준비 시험 코드 노출 (GROMO-747)
+                .andExpect(jsonPath("$.occupation").value("CSAT"))
                 .andExpect(jsonPath("$.friendCount").value(5))
                 .andExpect(jsonPath("$.currentTier").value(3))
                 .andExpect(jsonPath("$.rank").value(2))
@@ -59,7 +61,7 @@ class ProfileControllerTest {
     @DisplayName("리그 미소속 → 200, tier/rank null")
     void getPublicProfileNoLeagueReturns200() throws Exception {
         PublicProfileResponse response = new PublicProfileResponse(
-                targetUserId, "조재영", List.of(), 0L, null, null);
+                targetUserId, "조재영", null, List.of(), 0L, null, null);
         given(profileService.getPublicProfile(any())).willReturn(response);
 
         mockMvc.perform(get("/api/v1/users/{userId}/profile", targetUserId))
@@ -114,17 +116,21 @@ class ProfileControllerTest {
     }
 
     @Test
-    @DisplayName("통계 조회 - 친구X → 200, isFriend=false, today/heatmap null")
+    @DisplayName("통계 조회 - 친구X → 200, isFriend=false, today 채움·heatmap 만 null (GROMO-746)")
     void getUserStatsReturns200ForNonFriend() throws Exception {
         StreakResponse streak = new StreakResponse(3, 10, LocalDate.of(2026, 6, 30));
-        UserStatsResponse response = new UserStatsResponse(false, streak, null, null);
+        TodayStatsResponse today = new TodayStatsResponse(
+                new TodayStatsResponse.FocusStat(45, 90, false, 50),
+                new TodayStatsResponse.ScreenTimeStat(20, 120, true, 17));
+        UserStatsResponse response = new UserStatsResponse(false, streak, today, null);
         given(profileService.getUserStats(any(), any(), any())).willReturn(response);
 
         mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId).param("date", "2026-07-03"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isFriend").value(false))
                 .andExpect(jsonPath("$.streak.currentStreak").value(3))
-                .andExpect(jsonPath("$.today").value(nullValue()))
+                // 프로필 요약(today)은 비친구에게도 항상 반환 (GROMO-746)
+                .andExpect(jsonPath("$.today.focus.todayMinutes").value(45))
                 .andExpect(jsonPath("$.heatmap").value(nullValue()))
                 .andDo(print());
     }

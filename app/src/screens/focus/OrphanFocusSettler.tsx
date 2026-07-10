@@ -17,19 +17,24 @@ import { enqueuePendingFocusUpload } from './pendingFocusUploads';
 // 케이스에만 레코드를 보존해 다음 실행에서 이 경로가 재시도한다(로컬 적립은 마킹으로 1회만).
 // 주의: finish()와 규칙이 다르다 — finish()는 레코드를 먼저 지우고 업로드하지만,
 // 여기서는 업로드/인계가 끝난 뒤에만 레코드를 지운다(강제 종료 세션의 재시도 기회 보존).
-// 컨텍스트들의 AsyncStorage 로드가 먼저 요청되므로(마운트 순서) 적립은 로드된 값 위에 얹힌다.
+// 정산은 두 컨텍스트의 ready(로컬 로드 + 서버 복원 완료)를 기다린 뒤 시작한다 —
+// 복원이 네트워크를 기다리는 동안 적립하면 뒤늦은 복원 스냅샷이 적립분을 덮는다(GROMO-677 리뷰).
 export function OrphanFocusSettler() {
-  const { addFocusSeconds } = useFocus();
+  const { addFocusSeconds, ready: focusReady } = useFocus();
   const { addCoins } = useCoins();
-  const { addFocusToSubject } = useSubjects();
+  const { addFocusToSubject, ready: subjectsReady } = useSubjects();
   const { userId } = useUser();
   const ran = useRef(false);
 
+  // 세션 중 죽었으면 실드가 켜진 채 남는다 — 정산(네트워크 대기)과 무관하게 마운트 즉시 해제(멱등).
+  useEffect(() => {
+    ScreenTimeModule.stopFocusShield().catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (ran.current) return;
+    if (!focusReady || !subjectsReady) return;
     ran.current = true;
-    // 세션 중 죽었으면 실드가 켜진 채 남는다 — 레코드 유무와 무관하게 앱 시작 시 해제(멱등).
-    ScreenTimeModule.stopFocusShield().catch(() => {});
     (async () => {
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
       if (!raw) return;
@@ -97,7 +102,7 @@ export function OrphanFocusSettler() {
         await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
       }
     })().catch(() => {});
-  }, [userId, addFocusSeconds, addCoins, addFocusToSubject]);
+  }, [userId, focusReady, subjectsReady, addFocusSeconds, addCoins, addFocusToSubject]);
 
   return null;
 }

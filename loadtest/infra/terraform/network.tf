@@ -39,6 +39,20 @@ resource "google_compute_firewall" "allow_iap_ssh" {
   }
 }
 
+# Grafana(3000)를 IAP TCP 포워딩으로만 접근 — 인터넷 개방(0.0.0.0/0) 없이 gcloud 계정 인증으로.
+# 개발자 IP 가 바뀌어도 무관하고, IAP 대역(고정)만 허용해 노출면이 없다 (make grafana).
+resource "google_compute_firewall" "allow_iap_grafana" {
+  name          = "loadtest-allow-iap-grafana"
+  network       = google_compute_network.loadtest.name
+  source_ranges = ["35.235.240.0/20"]
+  target_tags   = ["obs"]
+
+  allow {
+    protocol = "tcp"
+    ports    = ["3000"]
+  }
+}
+
 # 서브넷 내부 상호 통신 (부하→SUT 8080, 스크레이프 9091/9100/9187, k6 RW 9090 등)
 # 전용 실험 VPC 라 내부는 tcp 전체 허용 — 포트 추가 때마다 규칙을 안 늘리기 위한 단순화
 resource "google_compute_firewall" "allow_internal" {

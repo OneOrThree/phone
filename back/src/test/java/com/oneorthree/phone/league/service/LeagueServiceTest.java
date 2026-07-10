@@ -165,6 +165,8 @@ class LeagueServiceTest {
         assertThat(ranking).hasSize(3);
         assertThat(ranking.get(0).rank()).isEqualTo(1);
         assertThat(ranking.get(0).nickname()).isEqualTo("top");
+        // 멤버별 실제 티어 반영 — league_arena_users.tier_level (GROMO-748)
+        assertThat(ranking.get(0).tierLevel()).isEqualTo(3);
         assertThat(ranking.get(0).totalFocusMinutes()).isEqualTo(300);
         assertThat(ranking.get(1).rank()).isEqualTo(2);
         assertThat(ranking.get(1).userId()).isEqualTo(USER_ID);

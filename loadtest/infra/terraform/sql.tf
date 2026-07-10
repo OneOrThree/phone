@@ -12,7 +12,10 @@ resource "google_sql_database_instance" "loadtest" {
   }
 
   settings {
-    tier              = var.db_tier
+    tier = var.db_tier
+    # 신규 프로젝트는 기본 Edition 이 ENTERPRISE_PLUS 로 잡혀 db-custom-* tier 를 거부한다.
+    # 커스텀 tier(db-custom-2-8192)는 ENTERPRISE Edition 에서만 허용 — 명시.
+    edition           = "ENTERPRISE"
     availability_type = "ZONAL"
     disk_type         = "PD_SSD"
     disk_size         = var.db_disk_size_gb
@@ -26,36 +29,15 @@ resource "google_sql_database_instance" "loadtest" {
       ssl_mode = "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
     }
 
-    # 쿼리 관측 4계층의 ①②용 플래그 (부하테스트-아키텍처 §4-1)
-    # shared_preload_libraries 는 Cloud SQL PG 지원 플래그이며 auto_explain·pg_stat_statements
-    # 둘 다 허용 목록에 있음(설계 문서 GCP 체크포인트에서 기확인) — 최종 확인은 apply 가 겸한다.
-    database_flags {
-      name  = "shared_preload_libraries"
-      value = "pg_stat_statements,auto_explain"
-    }
-    database_flags {
-      name  = "pg_stat_statements.track"
-      value = "top"
-    }
-    database_flags {
-      name  = "auto_explain.log_min_duration"
-      value = "100"
-    }
-    database_flags {
-      name  = "auto_explain.log_analyze"
-      value = "on"
-    }
-    database_flags {
-      name  = "auto_explain.log_buffers"
-      value = "on"
-    }
-    database_flags {
-      name  = "auto_explain.log_format"
-      value = "json"
-    }
+    # 쿼리 관측 (부하테스트-아키텍처 §4) — Cloud SQL 특성 반영, database_flags 불필요:
+    #  ① pg_stat_statements: Cloud SQL 은 기본 preload 하므로 shared_preload_libraries 설정 불필요.
+    #     seed 의 CREATE EXTENSION pg_stat_statements 로 활성화 → pg_top20 델타 덤프 그대로 동작.
+    #  ② auto_explain: Cloud SQL 은 사용자 flag 로 노출하지 않음 → insights_config(Query Insights)로 대체.
+    # (신규 프로젝트에서 shared_preload_libraries·auto_explain·pg_stat_statements.track 이 전부
+    #  invalidFlagName 으로 거부돼 실측으로 교정 — Cloud SQL 은 이 계층을 관리형으로 제공한다.)
 
     insights_config {
-      query_insights_enabled = true # 무료 보너스 — pg_stat_statements 보완 대시보드
+      query_insights_enabled = true # 쿼리별 지연·샘플 플랜 (auto_explain 대체) — 무료
     }
 
     backup_configuration {
