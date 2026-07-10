@@ -4313,9 +4313,6 @@
           "windowEnd": {
             "type": "string",
             "format": "date-time"
-          },
-          "timeZone": {
-            "type": "string"
           }
         },
         "required": [
@@ -5592,9 +5589,6 @@
             "type": "string"
           },
           "windowEnd": {
-            "type": "string"
-          },
-          "timeZone": {
             "type": "string"
           },
           "status": {
