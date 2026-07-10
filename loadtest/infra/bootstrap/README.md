@@ -101,8 +101,8 @@ make runner-down PROJECT_ID=<project>   # MIG→0 (유휴 비용 0)
 gh api repos/OneOrThree/phone/actions/runners --jq '.runners[]|[.name,.status]'   # 등록 확인
 ```
 
-러너 VM 이 startup 에서 자동 설치하는 도구: `gcloud`·`node`(20)·`make`·`git`·`gettext`·`jq`·`python3`.
-선점(spot) 시 MIG 가 재생성→재등록. offline 잔재 러너는 startup 이 정리.
+러너 VM 이 startup 에서 자동 설치하는 도구: `docker`·`terraform`·`gcloud`·`node`(20)·`make`·`git`·`gh`·`gettext`·`jq`·`python3` + actions-runner 런타임 의존성(`installdependencies.sh`).
+선점(spot) 시 MIG 가 재시작→startup 재실행으로 재등록. offline 잔재 러너는 startup 이 정리.
 
 ## 5. 완료 판정
 

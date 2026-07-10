@@ -18,12 +18,6 @@ variable "runner_machine_type" {
   default     = "e2-standard-2"
 }
 
-variable "github_repo" {
-  description = "러너가 등록될 GitHub 레포 (loadtest.yml 이 도는 곳)"
-  type        = string
-  default     = "OneOrThree/phone"
-}
-
 # 러너 등록용 GitHub App 크리덴셜 — 값은 수동 주입(JSON: GITHUB_APP_ID/INSTALLATION_ID/GITHUB_APP_PEM/RUNNER_ORG/RUNNER_REPO).
 # 러너 VM 이 자기 SA(project secretmanager.admin 보유)로 읽어 App JWT→installation token→러너 등록토큰 발급.
 # enable_runner 와 무관하게 항상 생성 — 활성화 전에 미리 주입해 둘 수 있도록.
@@ -44,7 +38,7 @@ resource "google_compute_instance_template" "runner" {
     provisioning_model          = "SPOT"
     preemptible                 = true
     automatic_restart           = false
-    instance_termination_action = "STOP" # MIG 와 함께: STOP 된 VM 을 MIG 가 감지해 재생성
+    instance_termination_action = "STOP" # 선점 시 MIG 가 spot VM 재시작 → startup(매 부팅 실행) 재실행으로 재등록. 상태없는 러너라 STOP/DELETE 무관하나 MIG 표준 STOP 유지
   }
 
   disk {
@@ -68,8 +62,7 @@ resource "google_compute_instance_template" "runner" {
   metadata = {
     enable-oslogin = "TRUE"
     startup-script = templatefile("${path.module}/scripts/runner-startup.sh", {
-      github_repo = var.github_repo
-      gh_secret   = google_secret_manager_secret.runner_gh_app.secret_id
+      gh_secret = google_secret_manager_secret.runner_gh_app.secret_id
     })
   }
 

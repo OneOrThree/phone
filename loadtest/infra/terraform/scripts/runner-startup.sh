@@ -1,6 +1,6 @@
 #!/bin/bash
 # loadtest self-hosted 러너 startup (GROMO-752) — terraform templatefile 로 주입.
-#   ${github_repo}, ${gh_secret} 는 terraform 변수. bash 변수는 중괄호 없이 $VAR (templatefile 충돌 방지).
+#   ${gh_secret} 만 terraform 변수(등록 org/repo·App creds 는 시크릿 JSON 에서). bash 변수는 중괄호 없이 $VAR (templatefile 충돌 방지).
 # 등록 크리덴셜: gromo-stress Secret Manager 의 ${gh_secret}(=oneorthree/ci-runner 와 같은 GitHub App creds)
 #   를 VM 자기 SA(secretmanager.admin)로 읽어 App JWT→installation token→러너 등록토큰 발급.
 # MIG(target_size=0) 온디맨드 — make runner-up 이 1 로 resize 하면 이 스크립트가 돌아 러너 등록.
@@ -39,6 +39,14 @@ if ! command -v terraform >/dev/null 2>&1; then
   echo "deb [signed-by=/usr/share/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
     > /etc/apt/sources.list.d/hashicorp.list
   apt-get update -y && apt-get install -y terraform
+fi
+
+# GitHub CLI — loadtest.yml 의 baseline 승격 스텝(update_baseline=true)이 gh pr create 사용
+if ! command -v gh >/dev/null 2>&1; then
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | gpg --dearmor -o /usr/share/keyrings/githubcli.gpg
+  echo "deb [signed-by=/usr/share/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
+    > /etc/apt/sources.list.d/github-cli.list
+  apt-get update -y && apt-get install -y gh
 fi
 
 echo "=== [2/5] GitHub App creds (Secret Manager) → 등록 토큰 ==="
@@ -94,6 +102,9 @@ tar xzf runner.tar.gz && rm runner.tar.gz
 useradd -m -s /bin/bash runner 2>/dev/null || true
 usermod -aG docker runner 2>/dev/null || true # make image(docker build)를 sudo 없이
 chown -R runner:runner "$RUNNER_DIR"
+
+# 러너 런타임 의존성(libicu·liblttng-ust 등) — 미니멀 Ubuntu 에서 config/svc 기동 전 필요
+./bin/installdependencies.sh
 
 echo "=== [5/5] 러너 등록 (labels: self-hosted,loadtest) + 서비스 기동 ==="
 sudo -u runner ./config.sh \
