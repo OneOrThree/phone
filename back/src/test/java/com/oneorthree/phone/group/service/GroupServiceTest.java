@@ -230,7 +230,7 @@ class GroupServiceTest {
         Instant start = Instant.parse("2026-07-10T13:00:00Z");
         Instant end = Instant.parse("2026-07-10T15:00:00Z");
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-        given(groupRepository.existsByCode(anyString())).willReturn(false);
+        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
         // when
