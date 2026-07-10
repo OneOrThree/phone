@@ -17,12 +17,7 @@ import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import CircularGauge from '@/components/CircularGauge';
 import { getPublicProfile, getUserStats } from '@/services/userApi';
-import {
-  getFocusPeriodStats,
-  getFocusStatsByCategory,
-  getHeatmap,
-  getTodayStats,
-} from '@/services/statsApi';
+import { getFocusStatsByCategory, getHeatmap, getTodayStats } from '@/services/statsApi';
 import type { PublicProfileResponse, UserStatsResponse } from '@/types/dto/user';
 import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -34,7 +29,7 @@ import {
   sendFriendRequest,
   unpinFriend,
 } from '@/services/friendsApi';
-import { fmtHourMin } from './format';
+import { fmtMinutes } from './format';
 import { rollingWeekRange } from '@/screens/stats/format';
 import { MemberAvatar } from './components/MemberAvatar';
 import { DuoDayChart } from './components/DuoDayChart';
@@ -86,12 +81,9 @@ export default function FriendProfileScreen() {
   // 과목별 비교(겹치는 태그) — undefined = 미확보(블러 티저 유지), [] = 겹침 없음, N개 = 실비교
   const [subjectCompare, setSubjectCompare] = useState<SubjectCompare[] | undefined>(undefined);
   // 상세 조회 실패 시 강등 폴백 — GROMO-640 이후 PUBLIC도 getUserStats가 상세(heatmap 포함)를
-  // 채워주므로 평시엔 발동하지 않는다. getUserStats가 실패한 경우에만 /stats/*?friends=
-  // (PUBLIC·친구 허용, GROMO-623)로 today·주간 집중을 직접 조회해 요약이라도 보여준다.
-  const [publicStats, setPublicStats] = useState<{
-    today: TodayStatsResponse;
-    weekMinutes: number;
-  } | null>(null);
+  // 채워주므로 평시엔 발동하지 않는다. getUserStats가 실패한 경우에만 /stats/today?friends=
+  // (PUBLIC·친구 허용, GROMO-623)로 today를 직접 조회해 요약이라도 보여준다.
+  const [publicStats, setPublicStats] = useState<{ today: TodayStatsResponse } | null>(null);
 
   // 공개 프로필 + 타 유저 통계 + 내 히트맵(비교용) 조회.
   useEffect(() => {
@@ -212,12 +204,9 @@ export default function FriendProfileScreen() {
     }
     let stale = false;
     (async () => {
-      const [t, w] = await Promise.all([
-        getTodayStats(userId).catch(() => null),
-        getFocusPeriodStats('WEEK', userId).catch(() => null),
-      ]);
-      if (stale || !t || !w) return;
-      setPublicStats({ today: t, weekMinutes: w.totalFocusMinutes });
+      const t = await getTodayStats(userId).catch(() => null);
+      if (stale || !t) return;
+      setPublicStats({ today: t });
     })();
     return () => {
       stale = true;
@@ -266,9 +255,8 @@ export default function FriendProfileScreen() {
   const summaryVisible = statsVisible || publicVisible;
   const goalPercent =
     stats?.today?.focus.progressPercent ?? publicStats?.today.focus.progressPercent ?? 0;
-  const weekFocusMinutes = statsVisible
-    ? (stats?.heatmap ?? []).reduce((a, c) => a + c.totalFocusMinutes, 0)
-    : (publicStats?.weekMinutes ?? 0);
+  const todayFocusMinutes =
+    stats?.today?.focus.todayMinutes ?? publicStats?.today.focus.todayMinutes ?? 0;
   const streakDays = stats?.streak.currentStreak ?? 0;
 
   const focusByDay: CompareByDay = {
@@ -388,9 +376,9 @@ export default function FriendProfileScreen() {
               </View>
               <View style={s.summaryCol}>
                 <View style={s.summaryCard}>
-                  <Text style={s.summaryLabel}>이번 주 집중</Text>
+                  <Text style={s.summaryLabel}>오늘 집중</Text>
                   <Text style={s.summaryValue} allowFontScaling={false}>
-                    {summaryVisible ? fmtHourMin(weekFocusMinutes) : '비공개'}
+                    {summaryVisible ? fmtMinutes(todayFocusMinutes) : '비공개'}
                   </Text>
                 </View>
                 <View style={s.summaryCard}>
