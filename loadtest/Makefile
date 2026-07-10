@@ -16,9 +16,12 @@ SCALE ?= 1
 SHA := $(shell git rev-parse --short HEAD)
 # SUT 이미지 — prod 와 같은 back/Dockerfile 을 핀 SHA 로 빌드 (make image)
 IMAGE ?= $(REGION)-docker.pkg.dev/$(PROJECT_ID)/loadtest/gromo-back:$(SHA)
-RUN_ID ?= $(shell date -u +%Y%m%dT%H%M%SZ)-$(SHA)
+# := 로 1회 고정 — ?= 는 참조마다 date 를 재평가해 REPORT_DIR 이 초 경계에서 어긋나고,
+# standalone make report/verdict 가 매번 새 타임스탬프를 만들어 직전 run 을 못 찾는다 (#183 리뷰).
+# 워크플로우는 RUN_ID 를 command-line 인자로 넘기므로 := 여도 오버라이드된다.
+RUN_ID := $(or $(RUN_ID),$(shell date -u +%Y%m%dT%H%M%SZ)-$(SHA))
 TARGET_KEY := $(subst /,_,$(TARGET))
-REPORT_DIR ?= reports/$(RUN_ID)-$(PROFILE)-$(TARGET_KEY)
+REPORT_DIR := reports/$(RUN_ID)-$(PROFILE)-$(TARGET_KEY)
 
 export PROJECT_ID REGION ZONE PROFILE TARGET SEED_VERSION SCALE REPORT_DIR IMAGE
 
@@ -99,9 +102,11 @@ verdict:
 	node scripts/verdict.mjs $(REPORT_DIR)
 
 # 딸깍 — 실패해도 teardown 이 보장되고, verdict 의 exit 코드(PASS=0/FAIL=1/INVALID=2)가 전파된다
+# trap 핸들러의 각 정리 명령을 || true 로 격리 — loadgen down 이 실패해도 down.sh(과금 차단)가
+# set -e 로 스킵되지 않게 (#183 리뷰: teardown 부분 실행 방지)
 test: guard
 	@set -e
-	trap 'scripts/loadgen.sh down; scripts/down.sh' EXIT
+	trap 'scripts/loadgen.sh down || true; scripts/down.sh || true' EXIT
 	scripts/up.sh base
 	scripts/reset.sh
 	scripts/up.sh app

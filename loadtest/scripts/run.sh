@@ -30,7 +30,9 @@ log "① 워밍업 2분 (판정·요약 제외)"
 vm_ssh loadgen "$K6_BASE -e PROFILE=warmup $K6_IMAGE run --no-thresholds --no-summary /scripts/$TARGET" \
   || { "$(dirname "$0")/loadgen.sh" alive || { log "⚠️ 부하 VM 소실 — spot 선점 의심"; touch "$REPORT_DIR/.preempted"; exit 0; }; log "⚠️ 워밍업 비정상 종료 — 계속 진행"; }
 
-log "② pg_stat_statements 리셋 (본측정 델타의 0점)"
+# 인자 없는 reset() 은 클러스터 전체(모든 DB) 통계를 리셋한다 — 이 SQL 인스턴스가 loadtest
+# 전용이라 실질 영향은 없음(#183 리뷰). 본측정 델타의 0점.
+log "② pg_stat_statements 리셋 (인스턴스 전체 — loadtest 전용이라 무방)"
 obs_psql loadtest '-c "SELECT pg_stat_statements_reset();"'
 
 log "③ 본측정 (PROFILE=$PROFILE TARGET=$TARGET)"

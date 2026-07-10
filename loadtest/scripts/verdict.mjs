@@ -31,10 +31,19 @@ const summary = existsSync(summaryPath) ? readJson(summaryPath) : null;
 const baselineKey = `${meta.profile}__${meta.target.replaceAll('/', '_')}.json`;
 const baselinePath = join(BASELINE_DIR, baselineKey);
 
+// INVALID 사유 수집(promote 가드와 판정에서 공유) — loadgenMaxCpu<0 은 조회 실패(수집 불가)라
+// "안전"이 아니라 신뢰 불가로 INVALID 취급 (#183 리뷰)
+const invalidReasons = [];
+if (meta.preempted) invalidReasons.push('INVALID: spot 선점으로 run 중단');
+if (meta.loadgenMaxCpu > 80) invalidReasons.push(`INVALID: 부하기 CPU ${meta.loadgenMaxCpu}% > 80% — 측정 불신`);
+if (meta.loadgenMaxCpu < 0) invalidReasons.push('INVALID: 부하기 CPU 조회 실패 — 측정 신뢰도 확인 불가');
+if (!summary) invalidReasons.push('INVALID: summary.json 없음 (비정상 종료)');
+
 // ── baseline 승격 모드 — run 리포트를 기준으로 저장 (커밋·PR 은 사람 소관) ──
 if (promote) {
-  if (!summary) {
-    console.error('[promote] summary.json 없는 run 은 baseline 이 될 수 없음');
+  // 선점·부하기 과부하·조회 실패 run 을 baseline 으로 승격하면 이후 모든 회귀 비교가 오염된다 (#183 리뷰)
+  if (invalidReasons.length > 0) {
+    console.error(`[promote] INVALID run 은 baseline 이 될 수 없음:\n  - ${invalidReasons.join('\n  - ')}`);
     process.exit(1);
   }
   mkdirSync(BASELINE_DIR, { recursive: true });
@@ -43,14 +52,10 @@ if (promote) {
   process.exit(0);
 }
 
-const reasons = [];
+const reasons = [...invalidReasons];
 let verdict = 'PASS';
 
-// ── ① INVALID — 가장 먼저 평가 ──────────────────────────────
-if (meta.preempted) reasons.push('INVALID: spot 선점으로 run 중단');
-if (meta.loadgenMaxCpu > 80) reasons.push(`INVALID: 부하기 CPU ${meta.loadgenMaxCpu}% > 80% — 측정 불신`);
-if (!summary) reasons.push('INVALID: summary.json 없음 (비정상 종료)');
-
+// ── ① INVALID — 가장 먼저 평가 (invalidReasons 는 위에서 수집) ──
 const baseline = existsSync(baselinePath) ? readJson(baselinePath) : null;
 if (baseline) {
   // 비교 가능 조건: sha 만 다르고 나머지 메타 동일 (PRD §6-2)
