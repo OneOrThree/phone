@@ -3,10 +3,14 @@ import { getToken } from './api/github';
 import { RunForm } from './components/RunForm';
 import { RunList } from './components/RunList';
 import { PatModal } from './components/PatModal';
+import { TargetCatalog } from './components/TargetCatalog';
+import { TARGETS } from './catalog';
 
 export default function App() {
   const [hasToken, setHasToken] = useState(!!getToken());
   const [refreshKey, setRefreshKey] = useState(0);
+  // 타겟 선택은 App 이 소유 — 트리거(RunForm)와 카탈로그(TargetCatalog)가 공유
+  const [target, setTarget] = useState(TARGETS[0].value);
 
   return (
     <div className="app">
@@ -24,7 +28,12 @@ export default function App() {
 
       {hasToken && (
         <>
-          <RunForm onDispatched={() => setRefreshKey((k) => k + 1)} />
+          <RunForm
+            target={target}
+            onTargetChange={setTarget}
+            onDispatched={() => setRefreshKey((k) => k + 1)}
+          />
+          <TargetCatalog selected={target} onPick={setTarget} />
           <RunList refreshKey={refreshKey} />
         </>
       )}
