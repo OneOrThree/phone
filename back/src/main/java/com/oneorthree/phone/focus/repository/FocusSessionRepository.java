@@ -46,8 +46,11 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
 
     // 기간 내 완료 세션 집계용 전체 조회 — 카테고리별 집중 통계(GROMO-524).
     // GROMO-671(커밋3): local_date 컬럼 제거로 endedAt(UTC) [from,to) 윈도우 기준으로 조회한다.
-    // 취소(CANCELED) 세션은 제외(과거 deleted_at IS NULL 을 status 기반으로 전환), focusTag LEFT JOIN FETCH 로 N+1 방지.
-    @Query("SELECT s FROM FocusSession s LEFT JOIN FETCH s.focusTag "
+    // 취소(CANCELED) 세션은 제외(과거 deleted_at IS NULL 을 status 기반으로 전환).
+    // GROMO-673: focusTag(user_focus_tags)와 그 defaultTag 까지 LEFT JOIN FETCH 로 N+1(이름 매핑) 방지.
+    @Query("SELECT s FROM FocusSession s "
+            + "LEFT JOIN FETCH s.focusTag ft "
+            + "LEFT JOIN FETCH ft.defaultTag "
             + "WHERE s.user = :user "
             + "AND s.endedAt IS NOT NULL "
             + "AND s.endedAt >= :from "

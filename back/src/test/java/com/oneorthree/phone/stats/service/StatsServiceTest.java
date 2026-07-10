@@ -1,7 +1,8 @@
 package com.oneorthree.phone.stats.service;
 
+import com.oneorthree.phone.focus.domain.DefaultTag;
 import com.oneorthree.phone.focus.domain.FocusSession;
-import com.oneorthree.phone.focus.domain.FocusTag;
+import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.friend.domain.Friendship;
 import com.oneorthree.phone.friend.exception.FriendException;
@@ -728,12 +729,31 @@ class StatsServiceTest {
     private static final UUID TAG_A = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
     private static final UUID TAG_B = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000001");
 
-    /** FocusSession 빌더 헬퍼 — startedAt·endedAt·focusTag 지정. */
-    private FocusSession session(Instant start, Instant end, FocusTag tag) {
+    /** FocusSession 빌더 헬퍼 — startedAt·endedAt·focusTag(user_focus_tags) 지정. */
+    private FocusSession session(Instant start, Instant end, UserFocusTag tag) {
         return FocusSession.builder()
                 .startedAt(start)
                 .endedAt(end)
                 .focusTag(tag)
+                .build();
+    }
+
+    /** UserFocusTag 빌더 헬퍼 — id + name(defaultTag) + user. name 은 default_tags 를 감싼다. */
+    private UserFocusTag userFocusTag(UUID id, String name, User user) {
+        return UserFocusTag.builder()
+                .id(id)
+                .user(user)
+                .defaultTag(DefaultTag.builder().name(name).build())
+                .build();
+    }
+
+    /** 소프트딜리트된 UserFocusTag 헬퍼. */
+    private UserFocusTag deletedUserFocusTag(UUID id, String name, User user, Instant deletedAt) {
+        return UserFocusTag.builder()
+                .id(id)
+                .user(user)
+                .defaultTag(DefaultTag.builder().name(name).build())
+                .deletedAt(deletedAt)
                 .build();
     }
 
@@ -742,8 +762,8 @@ class StatsServiceTest {
     void getFocusStatsByCategoryMultipleTags() {
         // given: tagA=60분(30+30), tagB=90분
         User user = User.builder().id(USER_ID).build();
-        FocusTag tagA = FocusTag.builder().id(TAG_A).name("공부").user(user).build();
-        FocusTag tagB = FocusTag.builder().id(TAG_B).name("운동").user(user).build();
+        UserFocusTag tagA = userFocusTag(TAG_A, "공부", user);
+        UserFocusTag tagB = userFocusTag(TAG_B, "운동", user);
 
         Instant base = Instant.parse("2026-07-03T01:00:00Z");
         List<FocusSession> sessions = List.of(
@@ -777,7 +797,7 @@ class StatsServiceTest {
     @DisplayName("카테고리별 — 태그 없는 세션(미분류) 포함: tagId=null 항목 존재, 분 합산 정확")
     void getFocusStatsByCategoryUntaggedSession() {
         User user = User.builder().id(USER_ID).build();
-        FocusTag tagA = FocusTag.builder().id(TAG_A).name("공부").user(user).build();
+        UserFocusTag tagA = userFocusTag(TAG_A, "공부", user);
 
         Instant base = Instant.parse("2026-07-03T02:00:00Z");
         List<FocusSession> sessions = List.of(
@@ -806,11 +826,9 @@ class StatsServiceTest {
     void getFocusStatsByCategorySoftDeletedTagGoesToUntagged() {
         User user = User.builder().id(USER_ID).build();
         // deletedAt 설정된 소프트딜리트 태그
-        FocusTag deletedTag = FocusTag.builder()
-                .id(TAG_A).name("삭제된태그").user(user)
-                .deletedAt(Instant.parse("2026-06-01T00:00:00Z"))
-                .build();
-        FocusTag activeTag = FocusTag.builder().id(TAG_B).name("활성태그").user(user).build();
+        UserFocusTag deletedTag =
+                deletedUserFocusTag(TAG_A, "삭제된태그", user, Instant.parse("2026-06-01T00:00:00Z"));
+        UserFocusTag activeTag = userFocusTag(TAG_B, "활성태그", user);
 
         Instant base = Instant.parse("2026-07-03T03:00:00Z");
         List<FocusSession> sessions = List.of(
@@ -853,7 +871,7 @@ class StatsServiceTest {
     @DisplayName("카테고리별 — 미분류 0분이면 items에서 제외")
     void getFocusStatsByCategoryUntaggedZeroMinutesExcluded() {
         User user = User.builder().id(USER_ID).build();
-        FocusTag tagA = FocusTag.builder().id(TAG_A).name("공부").user(user).build();
+        UserFocusTag tagA = userFocusTag(TAG_A, "공부", user);
         Instant base = Instant.parse("2026-07-03T04:00:00Z");
         List<FocusSession> sessions = List.of(
                 session(base, base.plusSeconds(1800), tagA) // 태그 있는 세션만
@@ -875,8 +893,8 @@ class StatsServiceTest {
     @DisplayName("카테고리별 items — totalFocusMinutes 내림차순 정렬 검증")
     void getFocusStatsByCategoryItemsSortedDesc() {
         User user = User.builder().id(USER_ID).build();
-        FocusTag tagA = FocusTag.builder().id(TAG_A).name("공부").user(user).build();
-        FocusTag tagB = FocusTag.builder().id(TAG_B).name("운동").user(user).build();
+        UserFocusTag tagA = userFocusTag(TAG_A, "공부", user);
+        UserFocusTag tagB = userFocusTag(TAG_B, "운동", user);
 
         Instant base = Instant.parse("2026-07-03T05:00:00Z");
         // tagA=20분, tagB=120분, 미분류=45분 → 정렬: tagB(120) > 미분류(45) > tagA(20)
