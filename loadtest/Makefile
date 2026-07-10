@@ -35,7 +35,7 @@ export PROJECT_ID REGION ZONE PROFILE TARGET SEED_VERSION SCALE RATE DURATION RE
 
 .PHONY: help bootstrap check-quota infra-up image up up-base app-up down sync \
         seed seed-verify reset mint run collect verdict test \
-        loadgen-up loadgen-down teardown report dashboard grafana baseline-promote guard
+        loadgen-up loadgen-down runner-up runner-down teardown report dashboard grafana baseline-promote guard
 
 help:
 	@grep -E '^[a-z-]+:' Makefile | cut -d: -f1 | sort | tr '\n' ' '; echo
@@ -99,6 +99,13 @@ loadgen-up: guard
 
 loadgen-down: guard
 	scripts/loadgen.sh down
+
+# 러너 온디맨드 제어 (GROMO-752) — MIG(loadtest-runner) 1↔0 resize. 대시보드 딸깍 전 runner-up, 끝나면 runner-down.
+runner-up: guard
+	gcloud compute instance-groups managed resize loadtest-runner --size=1 --zone=$(ZONE) --project=$(PROJECT_ID)
+	@echo "→ 러너 기동·등록 ~1-2분. 확인: gh api repos/OneOrThree/phone/actions/runners --jq '.runners[]|[.name,.status]'"
+runner-down: guard
+	gcloud compute instance-groups managed resize loadtest-runner --size=0 --zone=$(ZONE) --project=$(PROJECT_ID)
 
 run: guard
 	scripts/run.sh

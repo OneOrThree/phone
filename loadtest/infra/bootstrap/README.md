@@ -59,33 +59,57 @@ c2-standard-4 spot(4) = 8**. C2 쿼터가 없으면 부하 VM을 `n2-highcpu-4`�
 
 시크릿(PAT 등)은 불필요 — 워크플로우는 WIF 단명 토큰만 사용한다.
 
-## 4. 전용 `loadtest` 러너 등록 (수동, dev 서버에서)
+## 4. 전용 `loadtest` 러너 (GROMO-752 — terraform 관리 온디맨드 spot)
 
-부하 run은 수십 분~수 시간 러너를 점유하므로, **기존 dev 러너와 별개 프로세스**를 등록해
-`cd.yml` 배포 큐를 막지 않게 한다.
+부하 run은 러너를 점유하므로 dev 러너와 **별개**의 전용 러너를 둔다. 수동 등록 대신 **gromo-stress
+안의 spot MIG**(`terraform/runner.tf`)로 관리하고, 유휴 비용 0을 위해 **온디맨드**(MIG `target_size=0`
+→ `make runner-up`/`runner-down`)로 운용한다. 등록 크리덴셜은 dev CI 러너와 **같은 GitHub App**
+(`oneorthree/ci-runner`)을 재사용하되 값만 이 프로젝트 Secret Manager 에 넣는다 — WIF 는 job→GCP
+인증일 뿐, 러너 등록은 VM→GitHub 라 GitHub 크리덴셜이 별도로 필요하기 때문.
 
-```bash
-# dev 서버 ssh 후 — 새 토큰은 GitHub Settings → Actions → Runners → New self-hosted runner에서
-mkdir -p ~/actions-runner-loadtest && cd ~/actions-runner-loadtest
-# (러너 바이너리 다운로드/압축해제 — GitHub 안내 페이지의 명령 그대로)
-./config.sh --url https://github.com/OneOrThree/phone --token <등록토큰> \
-  --name dev-loadtest --labels self-hosted,loadtest --unattended
-sudo ./svc.sh install && sudo ./svc.sh start
-```
+### 4-1. 등록 크리덴셜 주입 (수동 1회)
 
-러너 사전 요구 도구 (run 오케스트레이션이 사용): `gcloud`(+`gke-gcloud-auth-plugin` 불필요),
-`terraform`, `make`, `node`(≥20), `python3`, `docker`. 등록 후 확인:
+ci-runner GitHub App 정보를 JSON 으로 `loadtest-runner-gh-app` 시크릿에 넣는다(App ID/PEM 은 dev
+AWS SM `oneorthree/ci-runner` 값과 동일). 시크릿 **컨테이너는 terraform 이 생성**하므로 값만 추가:
 
 ```bash
-gh api repos/OneOrThree/phone/actions/runners --jq '.runners[].labels[].name'
+cat > /tmp/gh-app.json <<'JSON'
+{"GITHUB_APP_ID":"<app id>","INSTALLATION_ID":"<installation id>",
+ "GITHUB_APP_PEM":"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----",
+ "RUNNER_ORG":"OneOrThree","RUNNER_REPO":"phone"}
+JSON
+gcloud secrets versions add loadtest-runner-gh-app --data-file=/tmp/gh-app.json --project=<project>
+rm /tmp/gh-app.json
 ```
+
+### 4-2. 러너 인프라 생성 (terraform)
+
+```bash
+cd ../terraform
+terraform apply -var "project_id=<project>" -var "enable_runner=true"
+```
+
+→ spot 인스턴스 템플릿 + MIG(`loadtest-runner`, `target_size=0`) 생성. 이 시점엔 VM 0대(비용 0).
+
+### 4-3. 온디맨드 기동/정리
+
+```bash
+make runner-up   PROJECT_ID=<project>   # MIG→1, 러너 자가등록(~1-2분, 라벨 self-hosted,loadtest)
+# ... 대시보드 딸깍 / make test ...
+make runner-down PROJECT_ID=<project>   # MIG→0 (유휴 비용 0)
+
+gh api repos/OneOrThree/phone/actions/runners --jq '.runners[]|[.name,.status]'   # 등록 확인
+```
+
+러너 VM 이 startup 에서 자동 설치하는 도구: `docker`·`terraform`·`gcloud`·`node`(20)·`make`·`git`·`gh`·`gettext`·`jq`·`python3` + actions-runner 런타임 의존성(`installdependencies.sh`).
+선점(spot) 시 MIG 가 재시작→startup 재실행으로 재등록. offline 잔재 러너는 startup 이 정리.
 
 ## 5. 완료 판정
 
 - [ ] `bootstrap.sh` 재실행 시 전부 "(skip)" 출력 (멱등 확인)
 - [ ] `check-quota.sh` ✅ 통과
 - [ ] GitHub Variables 4종 등록
-- [ ] `loadtest` 라벨 러너 Online
+- [ ] (러너, §4) `loadtest-runner-gh-app` 주입 + `enable_runner=true` apply → `make runner-up` 시 `loadtest` 러너 Online
 - [ ] 콘솔 Billing에 budget alert 4단계 표시
 
 ## 트러블슈팅
