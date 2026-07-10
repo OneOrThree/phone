@@ -1,0 +1,25 @@
+{
+  "endpoint": "Group_deleteGroupChallenge",
+  "method": "DELETE",
+  "path": "/api/v1/groups/{groupId}/challenges/{challengeId}",
+  "tag": "Group",
+  "summary": "그룹 챌린지 삭제",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    },
+    "challengeId": {
+      "gen": "gap",
+      "reason": "path-id:challengeId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "path.challengeId"
+  ],
+  "runnable": false
+}

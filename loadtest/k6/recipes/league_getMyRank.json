@@ -1,0 +1,14 @@
+{
+  "endpoint": "league_getMyRank",
+  "method": "GET",
+  "path": "/api/v1/league/me/rank",
+  "tag": "league",
+  "summary": "내 순위·승격/강등 상태 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

@@ -1,0 +1,17 @@
+{
+  "endpoint": "equipment_equip",
+  "method": "POST",
+  "path": "/api/v1/equipment/equip",
+  "tag": "equipment",
+  "summary": "장비 장착",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

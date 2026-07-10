@@ -1,0 +1,14 @@
+{
+  "endpoint": "notification-batch_runDeadlineReminders",
+  "method": "POST",
+  "path": "/api/v1/notifications/league/deadline/run",
+  "tag": "notification-batch",
+  "summary": "리그 마감 임박 알림 수동 실행",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

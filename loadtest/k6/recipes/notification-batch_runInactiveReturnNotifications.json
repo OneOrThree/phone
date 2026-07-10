@@ -1,0 +1,14 @@
+{
+  "endpoint": "notification-batch_runInactiveReturnNotifications",
+  "method": "POST",
+  "path": "/api/v1/notifications/inactive-return/run",
+  "tag": "notification-batch",
+  "summary": "미접속 복귀 푸시 수동 실행",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

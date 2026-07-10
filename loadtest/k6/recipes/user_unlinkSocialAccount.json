@@ -1,0 +1,26 @@
+{
+  "endpoint": "user_unlinkSocialAccount",
+  "method": "DELETE",
+  "path": "/api/v1/users/me/social-links/{provider}",
+  "tag": "user",
+  "summary": "소셜 연동 해제",
+  "userPool": "uniform",
+  "pathParams": {
+    "provider": {
+      "gen": "enum",
+      "values": [
+        "APPLE",
+        "GOOGLE",
+        "KAKAO",
+        "LINE",
+        "INSTAGRAM",
+        "FACEBOOK"
+      ]
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

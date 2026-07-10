@@ -1,0 +1,22 @@
+{
+  "endpoint": "Friend_createFriendRequest",
+  "method": "POST",
+  "path": "/api/v1/friends/requests",
+  "tag": "Friend",
+  "summary": "친구 요청 생성",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "targetUserId": {
+        "gen": "pool",
+        "source": "userId"
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

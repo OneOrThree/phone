@@ -1,0 +1,29 @@
+{
+  "endpoint": "Group_createGroupAnnouncement",
+  "method": "POST",
+  "path": "/api/v1/groups/{groupId}/announcements",
+  "tag": "Group",
+  "summary": "그룹 공지 작성",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    }
+  },
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "title": {
+        "gen": "string"
+      },
+      "content": {
+        "gen": "string"
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

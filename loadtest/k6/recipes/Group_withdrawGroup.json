@@ -1,0 +1,19 @@
+{
+  "endpoint": "Group_withdrawGroup",
+  "method": "DELETE",
+  "path": "/api/v1/groups/{groupId}/members/me",
+  "tag": "Group",
+  "summary": "그룹 탈퇴",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

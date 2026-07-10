@@ -1,0 +1,17 @@
+{
+  "endpoint": "inventory_grantItem",
+  "method": "POST",
+  "path": "/api/v1/inventory/grant",
+  "tag": "inventory",
+  "summary": "아이템 지급",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

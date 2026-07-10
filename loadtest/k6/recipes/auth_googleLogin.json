@@ -1,0 +1,17 @@
+{
+  "endpoint": "auth_googleLogin",
+  "method": "POST",
+  "path": "/api/v1/auth/google",
+  "tag": "auth",
+  "summary": "구글 로그인",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

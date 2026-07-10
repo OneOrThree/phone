@@ -1,0 +1,858 @@
+{
+  "total": 93,
+  "runnable": 86,
+  "gapped": 7,
+  "recipes": [
+    {
+      "endpoint": "user_getNotificationSettings",
+      "method": "GET",
+      "path": "/api/v1/users/me/notification-settings",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_getNotificationSettings.json"
+    },
+    {
+      "endpoint": "user_updateNotificationSettings",
+      "method": "PUT",
+      "path": "/api/v1/users/me/notification-settings",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_updateNotificationSettings.json"
+    },
+    {
+      "endpoint": "user_registerDeviceToken",
+      "method": "PUT",
+      "path": "/api/v1/users/me/device-token",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_registerDeviceToken.json"
+    },
+    {
+      "endpoint": "user_clearDeviceToken",
+      "method": "DELETE",
+      "path": "/api/v1/users/me/device-token",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_clearDeviceToken.json"
+    },
+    {
+      "endpoint": "Group_updateGroupAnnouncement",
+      "method": "PUT",
+      "path": "/api/v1/groups/{groupId}/announcements/{announcementId}",
+      "tag": "Group",
+      "runnable": false,
+      "gaps": [
+        "path.announcementId"
+      ],
+      "file": "Group_updateGroupAnnouncement.json"
+    },
+    {
+      "endpoint": "Group_deleteGroupAnnouncement",
+      "method": "DELETE",
+      "path": "/api/v1/groups/{groupId}/announcements/{announcementId}",
+      "tag": "Group",
+      "runnable": false,
+      "gaps": [
+        "path.announcementId"
+      ],
+      "file": "Group_deleteGroupAnnouncement.json"
+    },
+    {
+      "endpoint": "user_getProfile",
+      "method": "GET",
+      "path": "/api/v1/users/me",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_getProfile.json"
+    },
+    {
+      "endpoint": "user_setupProfile",
+      "method": "POST",
+      "path": "/api/v1/users/me",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_setupProfile.json"
+    },
+    {
+      "endpoint": "user_updateProfile",
+      "method": "PATCH",
+      "path": "/api/v1/users/me",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_updateProfile.json"
+    },
+    {
+      "endpoint": "user_withdraw",
+      "method": "DELETE",
+      "path": "/api/v1/users/me",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_withdraw.json"
+    },
+    {
+      "endpoint": "focus_getTag",
+      "method": "GET",
+      "path": "/api/v1/tag",
+      "tag": "focus",
+      "runnable": true,
+      "gaps": [],
+      "file": "focus_getTag.json"
+    },
+    {
+      "endpoint": "focus_setupTag",
+      "method": "POST",
+      "path": "/api/v1/tag",
+      "tag": "focus",
+      "runnable": true,
+      "gaps": [],
+      "file": "focus_setupTag.json"
+    },
+    {
+      "endpoint": "focus_updateTag",
+      "method": "PATCH",
+      "path": "/api/v1/tag",
+      "tag": "focus",
+      "runnable": true,
+      "gaps": [],
+      "file": "focus_updateTag.json"
+    },
+    {
+      "endpoint": "ScreenTime_saveScreenTime",
+      "method": "POST",
+      "path": "/api/v1/screen-time",
+      "tag": "ScreenTime",
+      "runnable": true,
+      "gaps": [],
+      "file": "ScreenTime_saveScreenTime.json"
+    },
+    {
+      "endpoint": "Pin_pin",
+      "method": "POST",
+      "path": "/api/v1/pins/{userId}",
+      "tag": "Pin",
+      "runnable": true,
+      "gaps": [],
+      "file": "Pin_pin.json"
+    },
+    {
+      "endpoint": "Pin_unpin",
+      "method": "DELETE",
+      "path": "/api/v1/pins/{userId}",
+      "tag": "Pin",
+      "runnable": true,
+      "gaps": [],
+      "file": "Pin_unpin.json"
+    },
+    {
+      "endpoint": "notification-test_sendTestPush",
+      "method": "POST",
+      "path": "/api/v1/notifications/test",
+      "tag": "notification-test",
+      "runnable": true,
+      "gaps": [],
+      "file": "notification-test_sendTestPush.json"
+    },
+    {
+      "endpoint": "notification-batch_runRankOvertakeNotifications",
+      "method": "POST",
+      "path": "/api/v1/notifications/rank-overtake/run",
+      "tag": "notification-batch",
+      "runnable": true,
+      "gaps": [],
+      "file": "notification-batch_runRankOvertakeNotifications.json"
+    },
+    {
+      "endpoint": "notification-batch_runWeeklyResultNotifications",
+      "method": "POST",
+      "path": "/api/v1/notifications/league/results/run",
+      "tag": "notification-batch",
+      "runnable": true,
+      "gaps": [],
+      "file": "notification-batch_runWeeklyResultNotifications.json"
+    },
+    {
+      "endpoint": "notification-batch_runDeadlineReminders",
+      "method": "POST",
+      "path": "/api/v1/notifications/league/deadline/run",
+      "tag": "notification-batch",
+      "runnable": true,
+      "gaps": [],
+      "file": "notification-batch_runDeadlineReminders.json"
+    },
+    {
+      "endpoint": "notification-batch_runInactiveReturnNotifications",
+      "method": "POST",
+      "path": "/api/v1/notifications/inactive-return/run",
+      "tag": "notification-batch",
+      "runnable": true,
+      "gaps": [],
+      "file": "notification-batch_runInactiveReturnNotifications.json"
+    },
+    {
+      "endpoint": "inventory_grantItem",
+      "method": "POST",
+      "path": "/api/v1/inventory/grant",
+      "tag": "inventory",
+      "runnable": true,
+      "gaps": [],
+      "file": "inventory_grantItem.json"
+    },
+    {
+      "endpoint": "Group_getMyGroups",
+      "method": "GET",
+      "path": "/api/v1/groups",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_getMyGroups.json"
+    },
+    {
+      "endpoint": "Group_createGroup",
+      "method": "POST",
+      "path": "/api/v1/groups",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_createGroup.json"
+    },
+    {
+      "endpoint": "Group_joinGroup",
+      "method": "POST",
+      "path": "/api/v1/groups/{groupId}/join",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_joinGroup.json"
+    },
+    {
+      "endpoint": "Group_renewGroupCode",
+      "method": "POST",
+      "path": "/api/v1/groups/{groupId}/code",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_renewGroupCode.json"
+    },
+    {
+      "endpoint": "Group_getGroupChallenges",
+      "method": "GET",
+      "path": "/api/v1/groups/{groupId}/challenges",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_getGroupChallenges.json"
+    },
+    {
+      "endpoint": "Group_createGroupChallenge",
+      "method": "POST",
+      "path": "/api/v1/groups/{groupId}/challenges",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_createGroupChallenge.json"
+    },
+    {
+      "endpoint": "Group_getGroupAnnouncements",
+      "method": "GET",
+      "path": "/api/v1/groups/{groupId}/announcements",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_getGroupAnnouncements.json"
+    },
+    {
+      "endpoint": "Group_createGroupAnnouncement",
+      "method": "POST",
+      "path": "/api/v1/groups/{groupId}/announcements",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_createGroupAnnouncement.json"
+    },
+    {
+      "endpoint": "Friend_getFriendRequests",
+      "method": "GET",
+      "path": "/api/v1/friends/requests",
+      "tag": "Friend",
+      "runnable": true,
+      "gaps": [],
+      "file": "Friend_getFriendRequests.json"
+    },
+    {
+      "endpoint": "Friend_createFriendRequest",
+      "method": "POST",
+      "path": "/api/v1/friends/requests",
+      "tag": "Friend",
+      "runnable": true,
+      "gaps": [],
+      "file": "Friend_createFriendRequest.json"
+    },
+    {
+      "endpoint": "Friend_rejectFriendRequest",
+      "method": "POST",
+      "path": "/api/v1/friends/requests/{id}/reject",
+      "tag": "Friend",
+      "runnable": false,
+      "gaps": [
+        "path.id"
+      ],
+      "file": "Friend_rejectFriendRequest.json"
+    },
+    {
+      "endpoint": "Friend_acceptFriendRequest",
+      "method": "POST",
+      "path": "/api/v1/friends/requests/{id}/accept",
+      "tag": "Friend",
+      "runnable": false,
+      "gaps": [
+        "path.id"
+      ],
+      "file": "Friend_acceptFriendRequest.json"
+    },
+    {
+      "endpoint": "focus_getFocusSessions",
+      "method": "GET",
+      "path": "/api/v1/focus-session",
+      "tag": "focus",
+      "runnable": true,
+      "gaps": [],
+      "file": "focus_getFocusSessions.json"
+    },
+    {
+      "endpoint": "focus_saveFocusSession",
+      "method": "POST",
+      "path": "/api/v1/focus-session",
+      "tag": "focus",
+      "runnable": true,
+      "gaps": [],
+      "file": "focus_saveFocusSession.json"
+    },
+    {
+      "endpoint": "focus_endFocusSession",
+      "method": "PATCH",
+      "path": "/api/v1/focus-session",
+      "tag": "focus",
+      "runnable": false,
+      "gaps": [
+        "body.sessionId"
+      ],
+      "file": "focus_endFocusSession.json"
+    },
+    {
+      "endpoint": "focus_startFocusSession",
+      "method": "POST",
+      "path": "/api/v1/focus-session/start",
+      "tag": "focus",
+      "runnable": true,
+      "gaps": [],
+      "file": "focus_startFocusSession.json"
+    },
+    {
+      "endpoint": "equipment_equip",
+      "method": "POST",
+      "path": "/api/v1/equipment/equip",
+      "tag": "equipment",
+      "runnable": true,
+      "gaps": [],
+      "file": "equipment_equip.json"
+    },
+    {
+      "endpoint": "currency_spendCurrency",
+      "method": "POST",
+      "path": "/api/v1/currency/spend",
+      "tag": "currency",
+      "runnable": true,
+      "gaps": [],
+      "file": "currency_spendCurrency.json"
+    },
+    {
+      "endpoint": "currency_earnCurrency",
+      "method": "POST",
+      "path": "/api/v1/currency/earn",
+      "tag": "currency",
+      "runnable": true,
+      "gaps": [],
+      "file": "currency_earnCurrency.json"
+    },
+    {
+      "endpoint": "auth_refreshToken",
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "tag": "auth",
+      "runnable": true,
+      "gaps": [],
+      "file": "auth_refreshToken.json"
+    },
+    {
+      "endpoint": "auth_logout",
+      "method": "POST",
+      "path": "/api/v1/auth/logout",
+      "tag": "auth",
+      "runnable": true,
+      "gaps": [],
+      "file": "auth_logout.json"
+    },
+    {
+      "endpoint": "auth_lineLogin",
+      "method": "POST",
+      "path": "/api/v1/auth/line",
+      "tag": "auth",
+      "runnable": true,
+      "gaps": [],
+      "file": "auth_lineLogin.json"
+    },
+    {
+      "endpoint": "auth_kakaoLogin",
+      "method": "POST",
+      "path": "/api/v1/auth/kakao",
+      "tag": "auth",
+      "runnable": true,
+      "gaps": [],
+      "file": "auth_kakaoLogin.json"
+    },
+    {
+      "endpoint": "auth_instagramLogin",
+      "method": "POST",
+      "path": "/api/v1/auth/instagram",
+      "tag": "auth",
+      "runnable": true,
+      "gaps": [],
+      "file": "auth_instagramLogin.json"
+    },
+    {
+      "endpoint": "auth_guestLogin",
+      "method": "POST",
+      "path": "/api/v1/auth/guest",
+      "tag": "auth",
+      "runnable": true,
+      "gaps": [],
+      "file": "auth_guestLogin.json"
+    },
+    {
+      "endpoint": "auth_googleLogin",
+      "method": "POST",
+      "path": "/api/v1/auth/google",
+      "tag": "auth",
+      "runnable": true,
+      "gaps": [],
+      "file": "auth_googleLogin.json"
+    },
+    {
+      "endpoint": "auth_facebookLogin",
+      "method": "POST",
+      "path": "/api/v1/auth/facebook",
+      "tag": "auth",
+      "runnable": true,
+      "gaps": [],
+      "file": "auth_facebookLogin.json"
+    },
+    {
+      "endpoint": "auth_appleLogin",
+      "method": "POST",
+      "path": "/api/v1/auth/apple",
+      "tag": "auth",
+      "runnable": true,
+      "gaps": [],
+      "file": "auth_appleLogin.json"
+    },
+    {
+      "endpoint": "analytics_recordEvent",
+      "method": "POST",
+      "path": "/api/v1/analytics/events",
+      "tag": "analytics",
+      "runnable": true,
+      "gaps": [],
+      "file": "analytics_recordEvent.json"
+    },
+    {
+      "endpoint": "user_updateStatVisibility",
+      "method": "PATCH",
+      "path": "/api/v1/users/me/stat-visibility",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_updateStatVisibility.json"
+    },
+    {
+      "endpoint": "user_updateScreenTimePermission",
+      "method": "PATCH",
+      "path": "/api/v1/users/me/screen-time-permission",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_updateScreenTimePermission.json"
+    },
+    {
+      "endpoint": "user_updateScreenTimeGoal",
+      "method": "PATCH",
+      "path": "/api/v1/users/me/screen-time-goal",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_updateScreenTimeGoal.json"
+    },
+    {
+      "endpoint": "user_updateOccupation",
+      "method": "PATCH",
+      "path": "/api/v1/users/me/occupation",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_updateOccupation.json"
+    },
+    {
+      "endpoint": "user_updateFocusTimeGoal",
+      "method": "PATCH",
+      "path": "/api/v1/users/me/focus-time-goal",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_updateFocusTimeGoal.json"
+    },
+    {
+      "endpoint": "Group_getGroupDetail",
+      "method": "GET",
+      "path": "/api/v1/groups/{groupId}",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_getGroupDetail.json"
+    },
+    {
+      "endpoint": "Group_updateGroup",
+      "method": "PATCH",
+      "path": "/api/v1/groups/{groupId}",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_updateGroup.json"
+    },
+    {
+      "endpoint": "Group_getGroupSettings",
+      "method": "GET",
+      "path": "/api/v1/groups/{groupId}/settings",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_getGroupSettings.json"
+    },
+    {
+      "endpoint": "Group_updateGroupSettings",
+      "method": "PATCH",
+      "path": "/api/v1/groups/{groupId}/settings",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_updateGroupSettings.json"
+    },
+    {
+      "endpoint": "Group_transferOwner",
+      "method": "PATCH",
+      "path": "/api/v1/groups/{groupId}/members/{targetUserId}/owner",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_transferOwner.json"
+    },
+    {
+      "endpoint": "Health_health",
+      "method": "GET",
+      "path": "/health",
+      "tag": "Health",
+      "runnable": true,
+      "gaps": [],
+      "file": "Health_health.json"
+    },
+    {
+      "endpoint": "profile_getUserStats",
+      "method": "GET",
+      "path": "/api/v1/users/{userId}/stats",
+      "tag": "profile",
+      "runnable": true,
+      "gaps": [],
+      "file": "profile_getUserStats.json"
+    },
+    {
+      "endpoint": "profile_getPublicProfile",
+      "method": "GET",
+      "path": "/api/v1/users/{userId}/profile",
+      "tag": "profile",
+      "runnable": true,
+      "gaps": [],
+      "file": "profile_getPublicProfile.json"
+    },
+    {
+      "endpoint": "user_getSocialLinks",
+      "method": "GET",
+      "path": "/api/v1/users/me/social-links",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_getSocialLinks.json"
+    },
+    {
+      "endpoint": "focus_getDefaultTags",
+      "method": "GET",
+      "path": "/api/v1/tag/defaults",
+      "tag": "focus",
+      "runnable": true,
+      "gaps": [],
+      "file": "focus_getDefaultTags.json"
+    },
+    {
+      "endpoint": "stats_getTodayStats",
+      "method": "GET",
+      "path": "/api/v1/stats/today",
+      "tag": "stats",
+      "runnable": true,
+      "gaps": [],
+      "file": "stats_getTodayStats.json"
+    },
+    {
+      "endpoint": "stats_getStreak",
+      "method": "GET",
+      "path": "/api/v1/stats/streak",
+      "tag": "stats",
+      "runnable": true,
+      "gaps": [],
+      "file": "stats_getStreak.json"
+    },
+    {
+      "endpoint": "stats_getScreenTimePeriodStats",
+      "method": "GET",
+      "path": "/api/v1/stats/screen-time",
+      "tag": "stats",
+      "runnable": true,
+      "gaps": [],
+      "file": "stats_getScreenTimePeriodStats.json"
+    },
+    {
+      "endpoint": "stats_getHeatmap",
+      "method": "GET",
+      "path": "/api/v1/stats/heatmap",
+      "tag": "stats",
+      "runnable": true,
+      "gaps": [],
+      "file": "stats_getHeatmap.json"
+    },
+    {
+      "endpoint": "stats_getFocusStatsByPeriod",
+      "method": "GET",
+      "path": "/api/v1/stats/focus",
+      "tag": "stats",
+      "runnable": true,
+      "gaps": [],
+      "file": "stats_getFocusStatsByPeriod.json"
+    },
+    {
+      "endpoint": "stats_getFocusStatsByCategory",
+      "method": "GET",
+      "path": "/api/v1/stats/by-category",
+      "tag": "stats",
+      "runnable": true,
+      "gaps": [],
+      "file": "stats_getFocusStatsByCategory.json"
+    },
+    {
+      "endpoint": "Pin_getPins",
+      "method": "GET",
+      "path": "/api/v1/pins",
+      "tag": "Pin",
+      "runnable": true,
+      "gaps": [],
+      "file": "Pin_getPins.json"
+    },
+    {
+      "endpoint": "occupation_getOccupations",
+      "method": "GET",
+      "path": "/api/v1/occupations",
+      "tag": "occupation",
+      "runnable": true,
+      "gaps": [],
+      "file": "occupation_getOccupations.json"
+    },
+    {
+      "endpoint": "league_getGlobalRanking",
+      "method": "GET",
+      "path": "/api/v1/league/ranking",
+      "tag": "league",
+      "runnable": true,
+      "gaps": [],
+      "file": "league_getGlobalRanking.json"
+    },
+    {
+      "endpoint": "league_getMyTier",
+      "method": "GET",
+      "path": "/api/v1/league/me/tier",
+      "tag": "league",
+      "runnable": true,
+      "gaps": [],
+      "file": "league_getMyTier.json"
+    },
+    {
+      "endpoint": "league_getMySchedule",
+      "method": "GET",
+      "path": "/api/v1/league/me/schedule",
+      "tag": "league",
+      "runnable": true,
+      "gaps": [],
+      "file": "league_getMySchedule.json"
+    },
+    {
+      "endpoint": "league_getMyRanking",
+      "method": "GET",
+      "path": "/api/v1/league/me/ranking",
+      "tag": "league",
+      "runnable": true,
+      "gaps": [],
+      "file": "league_getMyRanking.json"
+    },
+    {
+      "endpoint": "league_getMyRank",
+      "method": "GET",
+      "path": "/api/v1/league/me/rank",
+      "tag": "league",
+      "runnable": true,
+      "gaps": [],
+      "file": "league_getMyRank.json"
+    },
+    {
+      "endpoint": "inventory_getInventory",
+      "method": "GET",
+      "path": "/api/v1/inventory/{userId}",
+      "tag": "inventory",
+      "runnable": true,
+      "gaps": [],
+      "file": "inventory_getInventory.json"
+    },
+    {
+      "endpoint": "Group_getGroupOverview",
+      "method": "GET",
+      "path": "/api/v1/groups/{groupId}/overview",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_getGroupOverview.json"
+    },
+    {
+      "endpoint": "Group_searchGroups",
+      "method": "GET",
+      "path": "/api/v1/groups/search",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_searchGroups.json"
+    },
+    {
+      "endpoint": "Friend_getFriends",
+      "method": "GET",
+      "path": "/api/v1/friends",
+      "tag": "Friend",
+      "runnable": true,
+      "gaps": [],
+      "file": "Friend_getFriends.json"
+    },
+    {
+      "endpoint": "Friend_searchFriends",
+      "method": "GET",
+      "path": "/api/v1/friends/search",
+      "tag": "Friend",
+      "runnable": true,
+      "gaps": [],
+      "file": "Friend_searchFriends.json"
+    },
+    {
+      "endpoint": "equipment_getEquipment",
+      "method": "GET",
+      "path": "/api/v1/equipment/{userId}",
+      "tag": "equipment",
+      "runnable": true,
+      "gaps": [],
+      "file": "equipment_getEquipment.json"
+    },
+    {
+      "endpoint": "currency_getCurrencyBalance",
+      "method": "GET",
+      "path": "/api/v1/currency",
+      "tag": "currency",
+      "runnable": true,
+      "gaps": [],
+      "file": "currency_getCurrencyBalance.json"
+    },
+    {
+      "endpoint": "currency_getCurrencyTransactions",
+      "method": "GET",
+      "path": "/api/v1/currency/transactions",
+      "tag": "currency",
+      "runnable": true,
+      "gaps": [],
+      "file": "currency_getCurrencyTransactions.json"
+    },
+    {
+      "endpoint": "user_unlinkSocialAccount",
+      "method": "DELETE",
+      "path": "/api/v1/users/me/social-links/{provider}",
+      "tag": "user",
+      "runnable": true,
+      "gaps": [],
+      "file": "user_unlinkSocialAccount.json"
+    },
+    {
+      "endpoint": "focus_deleteTag",
+      "method": "DELETE",
+      "path": "/api/v1/tag/{tagId}",
+      "tag": "focus",
+      "runnable": false,
+      "gaps": [
+        "path.tagId"
+      ],
+      "file": "focus_deleteTag.json"
+    },
+    {
+      "endpoint": "Group_withdrawGroup",
+      "method": "DELETE",
+      "path": "/api/v1/groups/{groupId}/members/me",
+      "tag": "Group",
+      "runnable": true,
+      "gaps": [],
+      "file": "Group_withdrawGroup.json"
+    },
+    {
+      "endpoint": "Group_deleteGroupChallenge",
+      "method": "DELETE",
+      "path": "/api/v1/groups/{groupId}/challenges/{challengeId}",
+      "tag": "Group",
+      "runnable": false,
+      "gaps": [
+        "path.challengeId"
+      ],
+      "file": "Group_deleteGroupChallenge.json"
+    },
+    {
+      "endpoint": "Friend_deleteFriend",
+      "method": "DELETE",
+      "path": "/api/v1/friends/{friendUserId}",
+      "tag": "Friend",
+      "runnable": true,
+      "gaps": [],
+      "file": "Friend_deleteFriend.json"
+    },
+    {
+      "endpoint": "equipment_unequip",
+      "method": "DELETE",
+      "path": "/api/v1/equipment/{userId}/{slotType}",
+      "tag": "equipment",
+      "runnable": true,
+      "gaps": [],
+      "file": "equipment_unequip.json"
+    }
+  ]
+}

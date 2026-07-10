@@ -1,0 +1,14 @@
+{
+  "endpoint": "user_getSocialLinks",
+  "method": "GET",
+  "path": "/api/v1/users/me/social-links",
+  "tag": "user",
+  "summary": "소셜 연동 목록 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

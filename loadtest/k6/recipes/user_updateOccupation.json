@@ -1,0 +1,42 @@
+{
+  "endpoint": "user_updateOccupation",
+  "method": "PATCH",
+  "path": "/api/v1/users/me/occupation",
+  "tag": "user",
+  "summary": "준비 시험 카테고리(occupation) 저장",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "occupation": {
+        "gen": "enum",
+        "values": [
+          "LABOR_ATTORNEY",
+          "PATENT_ATTORNEY",
+          "TAX_ACCOUNTANT",
+          "CPA",
+          "APPRAISER",
+          "CIVIL_SERVANT",
+          "POLICE_FIRE",
+          "ADMIN_EXAM",
+          "CERTIFICATION",
+          "MIDDLE_SCHOOL",
+          "HIGH_SCHOOL",
+          "CSAT",
+          "UNIVERSITY",
+          "JOB_PREP",
+          "ENGLISH_TEST",
+          "CODING",
+          "SELF_DEVELOPMENT",
+          "FOCUS_BUILDING",
+          "ETC"
+        ]
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

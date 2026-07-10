@@ -1,0 +1,14 @@
+{
+  "endpoint": "currency_getCurrencyBalance",
+  "method": "GET",
+  "path": "/api/v1/currency",
+  "tag": "currency",
+  "summary": "잔액 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

@@ -1,0 +1,21 @@
+{
+  "endpoint": "Friend_rejectFriendRequest",
+  "method": "POST",
+  "path": "/api/v1/friends/requests/{id}/reject",
+  "tag": "Friend",
+  "summary": "친구 요청 거절",
+  "userPool": "uniform",
+  "pathParams": {
+    "id": {
+      "gen": "gap",
+      "reason": "path-id:id"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "path.id"
+  ],
+  "runnable": false
+}

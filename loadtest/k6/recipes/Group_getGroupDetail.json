@@ -1,0 +1,26 @@
+{
+  "endpoint": "Group_getGroupDetail",
+  "method": "GET",
+  "path": "/api/v1/groups/{groupId}",
+  "tag": "Group",
+  "summary": "그룹 상세 조회",
+  "userPool": "zipf",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    }
+  },
+  "query": [
+    {
+      "name": "date",
+      "gen": "date",
+      "offsetDays": 0,
+      "dateOnly": true
+    }
+  ],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

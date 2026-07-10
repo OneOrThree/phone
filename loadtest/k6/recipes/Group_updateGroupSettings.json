@@ -1,0 +1,22 @@
+{
+  "endpoint": "Group_updateGroupSettings",
+  "method": "PATCH",
+  "path": "/api/v1/groups/{groupId}/settings",
+  "tag": "Group",
+  "summary": "그룹 채팅·권한 설정 수정",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    }
+  },
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

@@ -1,0 +1,14 @@
+{
+  "endpoint": "notification-batch_runRankOvertakeNotifications",
+  "method": "POST",
+  "path": "/api/v1/notifications/rank-overtake/run",
+  "tag": "notification-batch",
+  "summary": "순위 추월 푸시 수동 실행",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

@@ -1,0 +1,14 @@
+{
+  "endpoint": "league_getMySchedule",
+  "method": "GET",
+  "path": "/api/v1/league/me/schedule",
+  "tag": "league",
+  "summary": "리그 마감 스케줄 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

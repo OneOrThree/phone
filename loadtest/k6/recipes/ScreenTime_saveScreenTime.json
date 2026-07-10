@@ -1,0 +1,24 @@
+{
+  "endpoint": "ScreenTime_saveScreenTime",
+  "method": "POST",
+  "path": "/api/v1/screen-time",
+  "tag": "ScreenTime",
+  "summary": "스크린 타임 저장",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "screenTimeGoalAchieved": {
+        "gen": "bool"
+      },
+      "reportedAt": {
+        "gen": "datetime"
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

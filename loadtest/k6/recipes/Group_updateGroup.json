@@ -1,0 +1,22 @@
+{
+  "endpoint": "Group_updateGroup",
+  "method": "PATCH",
+  "path": "/api/v1/groups/{groupId}",
+  "tag": "Group",
+  "summary": "그룹 설정 수정",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    }
+  },
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

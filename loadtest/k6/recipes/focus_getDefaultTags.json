@@ -1,0 +1,14 @@
+{
+  "endpoint": "focus_getDefaultTags",
+  "method": "GET",
+  "path": "/api/v1/tag/defaults",
+  "tag": "focus",
+  "summary": "기본(추천) TAG 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

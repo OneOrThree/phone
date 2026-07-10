@@ -1,0 +1,22 @@
+{
+  "endpoint": "user_updateScreenTimeGoal",
+  "method": "PATCH",
+  "path": "/api/v1/users/me/screen-time-goal",
+  "tag": "user",
+  "summary": "스크린타임 목표 수정",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "dailyScreenTimeGoalMinutes": {
+        "gen": "int",
+        "max": 3600
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

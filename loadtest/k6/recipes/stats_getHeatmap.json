@@ -1,0 +1,25 @@
+{
+  "endpoint": "stats_getHeatmap",
+  "method": "GET",
+  "path": "/api/v1/stats/heatmap",
+  "tag": "stats",
+  "summary": "일별 집중 집계(히트맵) 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [
+    {
+      "name": "from",
+      "gen": "date",
+      "offsetDays": -90
+    },
+    {
+      "name": "to",
+      "gen": "date",
+      "offsetDays": 0
+    }
+  ],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

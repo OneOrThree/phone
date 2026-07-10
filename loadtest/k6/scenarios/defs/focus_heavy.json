@@ -1,0 +1,23 @@
+{
+  "id": "focus_heavy",
+  "name": "집중 세션 헤비 — 쓰기 경로 집중",
+  "description": "집중 세션 저장·조회가 잦은 헤비 유저. 쓰기 경로(daily_focus_stats·streak·currency 연쇄 upsert) 부하 검증.",
+  "journeys": [
+    {
+      "name": "세션 기록",
+      "weight": 60,
+      "steps": [
+        { "recipe": "focus_saveFocusSession", "desc": "집중세션 저장(쓰기·연쇄)" },
+        { "recipe": "stats_getTodayStats", "desc": "오늘 요약 갱신 확인" }
+      ]
+    },
+    {
+      "name": "세션 조회",
+      "weight": 40,
+      "steps": [
+        { "recipe": "focus_getFocusSessions", "desc": "집중세션 조회(커서)" },
+        { "recipe": "stats_getStreak", "desc": "스트릭" }
+      ]
+    }
+  ]
+}

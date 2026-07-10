@@ -1,0 +1,14 @@
+{
+  "endpoint": "user_getNotificationSettings",
+  "method": "GET",
+  "path": "/api/v1/users/me/notification-settings",
+  "tag": "user",
+  "summary": "알림·심야·소리 설정 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

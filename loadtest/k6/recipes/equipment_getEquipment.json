@@ -1,0 +1,19 @@
+{
+  "endpoint": "equipment_getEquipment",
+  "method": "GET",
+  "path": "/api/v1/equipment/{userId}",
+  "tag": "equipment",
+  "summary": "착용 장비 확인",
+  "userPool": "zipf",
+  "pathParams": {
+    "userId": {
+      "gen": "pool",
+      "source": "userId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

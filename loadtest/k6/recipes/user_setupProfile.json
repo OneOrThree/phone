@@ -1,0 +1,21 @@
+{
+  "endpoint": "user_setupProfile",
+  "method": "POST",
+  "path": "/api/v1/users/me",
+  "tag": "user",
+  "summary": "유저 정보 등록",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "nickname": {
+        "gen": "string"
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

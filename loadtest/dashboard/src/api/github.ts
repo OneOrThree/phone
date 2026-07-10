@@ -54,6 +54,9 @@ export interface RunOverrides {
   rate?: string;
   duration?: string;
   scale?: string;
+  recipes?: string; // 제네릭 러너 — TARGET=matrix/_generic.js 일 때 콤마구분 엔드포인트 목록(총 rate 분산)
+  spots?: string; // loadgen spot VM 수(고rps 분산 생성)
+  scenario?: string; // 유저 시나리오 — TARGET=scenarios/_generic.js 일 때 def id
 }
 
 export const dispatchRun = (
@@ -70,6 +73,9 @@ export const dispatchRun = (
   if (overrides.rate) inputs.rate = overrides.rate;
   if (overrides.duration) inputs.duration = overrides.duration;
   if (overrides.scale) inputs.scale = overrides.scale;
+  if (overrides.recipes) inputs.recipes = overrides.recipes;
+  if (overrides.spots) inputs.spots = overrides.spots;
+  if (overrides.scenario) inputs.scenario = overrides.scenario;
   return gh<void>(`/repos/${REPO}/actions/workflows/${WORKFLOW}/dispatches`, {
     method: 'POST',
     body: JSON.stringify({

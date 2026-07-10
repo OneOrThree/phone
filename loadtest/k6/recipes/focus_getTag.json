@@ -1,0 +1,14 @@
+{
+  "endpoint": "focus_getTag",
+  "method": "GET",
+  "path": "/api/v1/tag",
+  "tag": "focus",
+  "summary": "TAG 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

@@ -1,0 +1,28 @@
+{
+  "endpoint": "equipment_unequip",
+  "method": "DELETE",
+  "path": "/api/v1/equipment/{userId}/{slotType}",
+  "tag": "equipment",
+  "summary": "장비 해제",
+  "userPool": "uniform",
+  "pathParams": {
+    "userId": {
+      "gen": "pool",
+      "source": "userId"
+    },
+    "slotType": {
+      "gen": "enum",
+      "values": [
+        "HAIR",
+        "TOP",
+        "BOTTOM",
+        "SHOES"
+      ]
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

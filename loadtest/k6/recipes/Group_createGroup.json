@@ -1,0 +1,35 @@
+{
+  "endpoint": "Group_createGroup",
+  "method": "POST",
+  "path": "/api/v1/groups",
+  "tag": "Group",
+  "summary": "그룹 생성",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "name": {
+        "gen": "string"
+      },
+      "missionType": {
+        "gen": "enum",
+        "values": [
+          "TIME_WINDOW",
+          "DURATION"
+        ]
+      },
+      "missionCategory": {
+        "gen": "enum",
+        "values": [
+          "FOCUS",
+          "SCREEN_TIME"
+        ]
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

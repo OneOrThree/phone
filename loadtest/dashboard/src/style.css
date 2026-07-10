@@ -197,3 +197,54 @@ code { background: #eef1f4; padding: 1px 6px; border-radius: 4px; font-size: 13p
 .ep .desc { color: var(--muted); font-size: 12.5px; }
 .ep .tail { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .ep .req { font-size: 11px; color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+
+/* ── 2모드 탭 + 단일 API 배치 (GROMO-750) ── */
+.tabs { display: flex; gap: 6px; margin-top: 18px; }
+.tab {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+.tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tab:hover:not(.active) { background: #f0f2f5; }
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin: 4px 0 10px;
+  flex-wrap: wrap;
+}
+label.ep { cursor: pointer; flex-direction: row; align-items: center; }
+label.ep.disabled { cursor: default; }
+.ep input[type='checkbox'] { margin: 0 2px 0 0; cursor: pointer; width: 15px; height: 15px; }
+.grp > summary .link { color: var(--accent); cursor: pointer; font-weight: 500; }
+.grp > summary .link:hover { text-decoration: underline; }
+
+/* ── 시나리오 여정 상세 (GROMO-750) ── */
+.journey { padding: 10px 0; border-top: 1px solid var(--border); }
+.journey:first-of-type { border-top: 0; }
+.journey-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+.journey-name { font-weight: 600; font-size: 14px; }
+.journey-weight { font-size: 12px; color: var(--muted); font-weight: 600; }
+.weight-bar { height: 6px; background: #eef1f4; border-radius: 3px; overflow: hidden; margin-bottom: 8px; }
+.weight-bar > span { display: block; height: 100%; background: var(--accent); }
+.steps { display: flex; gap: 8px; flex-wrap: wrap; }
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.step-recipe { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: var(--muted); }

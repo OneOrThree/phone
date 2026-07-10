@@ -1,0 +1,24 @@
+{
+  "endpoint": "focus_endFocusSession",
+  "method": "PATCH",
+  "path": "/api/v1/focus-session",
+  "tag": "focus",
+  "summary": "Focus Session 종료(라이브)",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "sessionId": {
+        "gen": "gap",
+        "reason": "body-id:sessionId"
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [
+    "body.sessionId"
+  ],
+  "runnable": false
+}
