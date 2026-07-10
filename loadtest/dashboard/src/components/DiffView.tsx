@@ -39,7 +39,10 @@ export function DiffView({ verdict }: { verdict: Verdict }) {
             <tr>
               <td>에러율</td>
               <td>{fmt(d.errRate.base * 100, '%')}</td>
-              <td>{fmt(d.errRate.cur * 100, '%')}</td>
+              {/* errRate 는 절대 임계(1%)로 판정 — baseline 대비 %가 아니라 악화 여부만 색으로 */}
+              <td className={d.errRate.cur > d.errRate.base ? 'worse' : d.errRate.cur < d.errRate.base ? 'better' : ''}>
+                {fmt(d.errRate.cur * 100, '%')}
+              </td>
               <td />
             </tr>
             <tr>

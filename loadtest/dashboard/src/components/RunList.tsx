@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { listRuns, getVerdict, type WorkflowRun, type Verdict } from '../api/github';
 import { VerdictBadge } from './VerdictBadge';
 import { DiffView } from './DiffView';
@@ -11,7 +11,10 @@ const dur = (r: WorkflowRun) => {
 // run 히스토리 — 10초 폴링. verdict 는 완료 run 만 조회(요청 절약), 클릭 시 diff 펼침.
 export function RunList({ refreshKey }: { refreshKey: number }) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
-  const [verdicts, setVerdicts] = useState<Record<number, Verdict | null>>({});
+  // 캐시는 useRef 로 — state 로 두면 폴링 클로저가 초기값만 캡처해 가드가 항상 참이 되고
+  // 완료 run 의 verdict 를 매 폴링마다 재조회한다 (#185 리뷰). ref 는 최신값을 읽는다.
+  const verdictsRef = useRef<Record<number, Verdict | null>>({});
+  const [, bump] = useState(0); // 캐시 채워지면 리렌더 트리거
   const [open, setOpen] = useState<number | null>(null);
   const [error, setError] = useState('');
 
@@ -24,10 +27,11 @@ export function RunList({ refreshKey }: { refreshKey: number }) {
         setRuns(rs);
         setError('');
         for (const r of rs.filter((r) => r.status === 'completed').slice(0, 10)) {
-          if (verdicts[r.run_number] === undefined) {
+          if (verdictsRef.current[r.run_number] === undefined) {
             const v = await getVerdict(r.run_number);
             if (!alive) return;
-            setVerdicts((prev) => ({ ...prev, [r.run_number]: v }));
+            verdictsRef.current[r.run_number] = v;
+            bump((n) => n + 1);
           }
         }
       } catch (e) {
@@ -61,7 +65,7 @@ export function RunList({ refreshKey }: { refreshKey: number }) {
         </thead>
         <tbody>
           {runs.map((r) => {
-            const v = verdicts[r.run_number] ?? null;
+            const v = verdictsRef.current[r.run_number] ?? null;
             return (
               <Fragment key={r.id}>
                 <tr>
