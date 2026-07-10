@@ -14,6 +14,17 @@ resource "google_storage_bucket" "reports" {
   versioning {
     enabled = true
   }
+
+  # 비용 가드 — versioning 이 켜져 있어 noncurrent 버전이 무한 누적되는 것을 차단 (#177 리뷰)
+  lifecycle_rule {
+    action {
+      type = "Delete"
+    }
+    condition {
+      with_state                 = "ARCHIVED"
+      days_since_noncurrent_time = 30
+    }
+  }
 }
 
 # SUT 이미지 저장소 — back/Dockerfile 을 핀 SHA 로 빌드해 push (M5/M8)

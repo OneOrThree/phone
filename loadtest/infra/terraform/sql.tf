@@ -21,9 +21,14 @@ resource "google_sql_database_instance" "loadtest" {
     ip_configuration {
       ipv4_enabled    = false # 사설 IP 전용
       private_network = google_compute_network.loadtest.id
+      # 명시 결정(#177 리뷰): 전용 VPC 사설 IP 가 경계 — 클라이언트(psql·JDBC·exporter) SSL 설정
+      # 마찰을 피하기 위해 평문 허용. 외부 노출 경로 자체가 없다.
+      ssl_mode = "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
     }
 
     # 쿼리 관측 4계층의 ①②용 플래그 (부하테스트-아키텍처 §4-1)
+    # shared_preload_libraries 는 Cloud SQL PG 지원 플래그이며 auto_explain·pg_stat_statements
+    # 둘 다 허용 목록에 있음(설계 문서 GCP 체크포인트에서 기확인) — 최종 확인은 apply 가 겸한다.
     database_flags {
       name  = "shared_preload_libraries"
       value = "pg_stat_statements,auto_explain"
@@ -58,7 +63,9 @@ resource "google_sql_database_instance" "loadtest" {
     }
   }
 
-  deletion_protection = true # 실수로 golden(수십 분짜리 시드)을 날리지 않게
+  # 실수로 golden(수십 분짜리 시드)을 날리지 않게. 의도적 destroy/replace 시에는
+  # 먼저 false 로 한 번 apply 해야 한다 (#177 리뷰 운영 노트).
+  deletion_protection = true
 
   depends_on = [google_service_networking_connection.psa]
 }

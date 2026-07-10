@@ -23,7 +23,7 @@ variable "sut_machine_type" {
 }
 
 variable "sut_min_cpu_platform" {
-  description = "run 간 하드웨어 일관성(baseline ±10% 판정) — e2 는 CPU 세대 랜덤 배정이라 n2+고정 사용"
+  description = "run 간 하드웨어 일관성(baseline ±10% 판정) — e2 는 CPU 세대 랜덤 배정이라 n2+고정 사용. 존별 가용성은 apply 가 검증 — asia-northeast3 미지원 시 'Intel Cascade Lake' 로 하향"
   type        = string
   default     = "Intel Ice Lake"
 }
