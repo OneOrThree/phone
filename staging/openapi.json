@@ -3207,7 +3207,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/PinnedFriendResponse"
+                    "$ref": "#/components/schemas/PinnedUserResponse"
                   }
                 }
               }
@@ -3220,7 +3220,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/PinnedFriendResponse"
+                    "$ref": "#/components/schemas/PinnedUserResponse"
                   }
                 }
               }
@@ -5194,7 +5194,7 @@
           }
         }
       },
-      "PinnedFriendResponse": {
+      "PinnedUserResponse": {
         "type": "object",
         "properties": {
           "userId": {
