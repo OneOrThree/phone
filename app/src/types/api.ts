@@ -137,6 +137,7 @@ export interface FriendResponse {
   nickname: string;
   tierLevel: number | null;
   isPinned: boolean;
+  occupation: string | null; // 준비 시험 코드(Occupation enum name) — 미설정 null (GROMO-747)
 }
 
 // GET /friends/requests — 받은/보낸 요청
@@ -154,6 +155,7 @@ export interface FriendSearchResultResponse {
   nickname: string;
   tierLevel: number | null;
   relation: FriendRelation;
+  occupation: string | null; // 준비 시험 코드(Occupation enum name) — 미설정 null (GROMO-747)
 }
 
 // GET /pins — 나만의 랭킹(핀한 유저, 친구 아님 포함) 한 명

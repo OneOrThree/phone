@@ -14,6 +14,7 @@ import axios from 'axios';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
+import { categoryForOccupation } from '@/constants/focusCategories';
 import CircularGauge from '@/components/CircularGauge';
 import { getPublicProfile, getUserStats } from '@/services/userApi';
 import { getFocusStatsByCategory, getHeatmap, getTodayStats } from '@/services/statsApi';
@@ -38,7 +39,8 @@ import { ComingSoon } from '@/screens/stats/ComingSoon';
 import { TEASER_SUBJECTS, type CompareByDay, type SubjectCompare } from './mock';
 
 // 프로필 상세 (GROMO-605 다른 사람 통계) — 실 API 연동.
-// 공개 프로필(getPublicProfile): 아바타·이름·친구 수·티어·전체 랭킹 → 항상 공개.
+// 공개 프로필(getPublicProfile): 아바타·이름·준비 시험(occupation)·친구 수·티어 → 항상 공개.
+// 순위는 서버 rank(아레나 내) 대신 진입한 랭킹 목록의 rank 파라미터를 표시(GROMO-685).
 // 상세 통계(getUserStats): 목표달성·이번 주 집중·스트릭·요일 비교 → 대상 statVisibility(친구공개/전체공개)에 따라.
 //   today/heatmap 이 오면 공개(친구 또는 전체공개), null 이면 잠금 → 친구 신청 유도.
 // 요일별 집중·폰 사용 비교는 내 heatmap + 상대 heatmap 으로 실계산(월~일).
@@ -69,7 +71,7 @@ export default function FriendProfileScreen() {
   const route = useRoute<RouteProp<V2RootStackParamList, 'FriendProfile'>>();
   // rank·rankLabel = 진입한 랭킹 목록의 순위·스코프('전체'/직군명) — 서버 프로필 rank(아레나 내 순위)와
   // 스코프가 달라 목록 값을 그대로 표시한다. 랭킹 외 진입(검색·친구·요청)은 미전달 → 순위 미표시 (GROMO-685).
-  const { userId, nickname, tierLevel, exam, rank, rankLabel } = route.params;
+  const { userId, nickname, tierLevel, rank, rankLabel } = route.params;
 
   // 친구 관계·핀은 진입점 파라미터 + 서버 친구 목록으로 관리(통계 공개와 별개).
   const [isFriend, setIsFriend] = useState(route.params.isFriend);
@@ -191,6 +193,9 @@ export default function FriendProfileScreen() {
 
   const tier = tierByLevel(profile?.currentTier ?? tierLevel);
   const friendCount = profile?.friendCount ?? 0;
+  // 준비 시험 표시명 — 공개 프로필의 occupation 코드를 로컬 카테고리명으로 매핑.
+  // 미설정·미로드면 null → 카드 숨김. (구 route 파라미터 exam은 리그 라벨이라 대상의 시험이 아니어서 폐기, GROMO-680)
+  const examLabel = categoryForOccupation(profile?.occupation ?? null);
 
   // 상세 통계 공개 여부 — getUserStats가 채워준 경우(본인·친구·전체공개, GROMO-640).
   // heatmap까지 있어 요일 비교 가능.
@@ -395,15 +400,15 @@ export default function FriendProfileScreen() {
               </View>
             </View>
 
-            {/* ── 준비 시험 — 실유저 응답엔 아직 없어 값이 있을 때만 표시(TODO: 백엔드 협의) ── */}
-            {exam != null && (
+            {/* ── 준비 시험 — 공개 프로필의 occupation(GROMO-747) 실값 표시, 미설정이면 카드 숨김 (GROMO-680) ── */}
+            {examLabel != null && (
               <View style={s.examCard}>
                 <View style={s.examIcon}>
                   <Ionicons name="calendar-outline" size={16} color={T.accentDeep} />
                 </View>
                 <View style={s.examCol}>
                   <Text style={s.examLabel}>준비 시험</Text>
-                  <Text style={s.examValue}>{exam}</Text>
+                  <Text style={s.examValue}>{examLabel}</Text>
                 </View>
               </View>
             )}

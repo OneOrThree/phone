@@ -86,3 +86,11 @@ export function occupationForCategory(category: string | null): Occupation | nul
   if (!category) return null;
   return CATEGORY_TO_OCCUPATION[category] ?? null;
 }
+
+// 서버 Occupation → 카테고리 표시명 (CATEGORY_TO_OCCUPATION 역방향, 19종 1:1이라 손실 없음).
+// 타 유저 프로필의 준비 시험 표시(GROMO-680) 등 단건 표시용 — GET /occupations 조회 없이 즉시 매핑.
+export function categoryForOccupation(occupation: string | null): string | null {
+  if (!occupation) return null;
+  const found = Object.entries(CATEGORY_TO_OCCUPATION).find(([, code]) => code === occupation);
+  return found ? found[0] : null;
+}

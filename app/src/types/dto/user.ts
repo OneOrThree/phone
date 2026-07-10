@@ -136,6 +136,7 @@ export interface SocialLinkResponse {
 export interface PublicProfileResponse {
   userId: string; // UUID
   nickname: string;
+  occupation: Occupation | null; // 준비 시험 코드 — 미설정 null, 표시명은 앱이 매핑 (GROMO-747)
   equipments: CharacterEquipmentResponse[];
   friendCount: number;
   currentTier: number | null; // 리그 미소속 시 null

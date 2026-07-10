@@ -24,7 +24,6 @@ export type V2RootStackParamList = {
     userId: string;
     nickname: string;
     tierLevel: number;
-    exam?: string; // 준비 시험 — 백엔드 응답에 아직 없어 mock 진입(랭킹)에서만 전달
     isFriend: boolean;
     isPinned?: boolean; // 핀 초기값 — 진입 후 서버 친구 목록으로 재동기화
     rank?: number; // 진입한 랭킹 목록에서의 순위 — 서버 프로필 rank(아레나 내)와 스코프가 달라 목록 값을 그대로 전달, 랭킹 진입에서만 (GROMO-685)

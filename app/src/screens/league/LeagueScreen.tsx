@@ -188,7 +188,6 @@ export default function LeagueScreen() {
         userId: member.userId,
         nickname: member.nickname,
         tierLevel: member.tierLevel,
-        exam: member.exam,
         isFriend: friendIds.has(member.userId),
         rank: rank > 0 ? rank : undefined,
         rankLabel: filter,
