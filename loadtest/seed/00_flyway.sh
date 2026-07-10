@@ -13,15 +13,21 @@ DB_PASSWORD="${DB_PASSWORD:?}"
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-$(cd "$(dirname "$0")/../.." && pwd)/back/src/main/resources/db/migration}"
 
 echo "[00_flyway] golden DB 재생성"
-PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 <<'SQL'
--- 재시드 시 기존 golden 회수: template 지정 해제 후 드롭
-UPDATE pg_database SET datistemplate = false WHERE datname = 'golden';
-DROP DATABASE IF EXISTS golden;
-CREATE DATABASE golden;
-SQL
+export PGPASSWORD="$DB_PASSWORD"
+PSQL=(psql -h "$DB_HOST" -U "$DB_USER" -d postgres)
+# 재시드 시 기존 golden 회수 — Cloud SQL 은 superuser 가 없어 pg_database 직접 UPDATE 가 거부된다.
+# owner 권한으로 되는 ALTER DATABASE 로 처리. 첫 실행엔 golden 이 없으니 ALTER 는 무시.
+"${PSQL[@]}" -c "ALTER DATABASE golden IS_TEMPLATE false" 2>/dev/null || true
+# 새 접속을 막고(ALLOW_CONNECTIONS false) 기존 세션을 강제 종료 — 끊긴 seed 의 좀비 psql 연결이
+# 남아 있으면 "being accessed by other users" 로 DROP 이 실패한다.
+"${PSQL[@]}" -c "ALTER DATABASE golden WITH ALLOW_CONNECTIONS false" 2>/dev/null || true
+"${PSQL[@]}" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='golden' AND pid <> pg_backend_pid()" 2>/dev/null || true
+"${PSQL[@]}" -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS golden"
+"${PSQL[@]}" -v ON_ERROR_STOP=1 -c "CREATE DATABASE golden"
 
 echo "[00_flyway] V1+ 마이그레이션 실행 (dockerized flyway)"
-docker run --rm \
+# OS Login 사용자는 docker 그룹이 아니라 소켓 접근에 sudo 필요 (VM 은 sudo 무암호 허용)
+sudo docker run --rm \
   -v "$MIGRATIONS_DIR":/flyway/sql:ro \
   flyway/flyway:10-alpine \
   -url="jdbc:postgresql://${DB_HOST}:5432/golden" \

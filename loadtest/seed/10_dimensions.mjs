@@ -78,7 +78,9 @@ for (let n = 1; n <= N_USERS; n++) {
   const isGuest = rnd() < 0.1;
   const k = n - 1;
   const name = SUR[k % SUR.length] + A[Math.floor(k / SUR.length) % A.length] + B[Math.floor(k / (SUR.length * A.length)) % B.length];
-  const nickname = isGuest ? `게스트${n}` : (n <= SUR.length * A.length * B.length ? name : `${name}${n}`);
+  // n 접미로 유일성 보장 — 조합(SUR×A×B)만으론 A/B 배열 내 중복 문자 때문에 충돌 가능(10만 규모에서 발생).
+  // 한글 prefix(name)는 trgm 검색어(left(nickname,2))에 그대로 유효하다.
+  const nickname = isGuest ? `게스트${n}` : `${name}${n}`;
   const created = BASE_DATE - Math.floor(rnd() * DAYS) * 864e5;
   userRows.push([
     uuid(`user-${n}`), isGuest, nickname, 'KR',
