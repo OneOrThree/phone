@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { dispatchRun } from '../api/github';
 
-const PROFILES = ['smoke', 'load', 'stress', 'spike', 'soak'];
+// soak 은 Phase 4 까지 workflow_dispatch 선택지에서 제외 — 목록을 workflow(loadtest.yml)와 일치시켜
+// 서버가 거부할 값을 애초에 못 고르게 한다 (#184 리뷰: soak vs 90분 timeout)
+const PROFILES = ['smoke', 'load', 'stress', 'spike'];
 const TARGETS = [
   'scenarios/daily_mix.js',
   'matrix/focus-session-list.js',
