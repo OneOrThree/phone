@@ -32,8 +32,8 @@ PY
 }
 
 FAIL=0
-check() { # check <metric> <필요 여유> <설명>
-  local metric=$1 need=$2 desc=$3
+check() { # check <metric> <필요 여유> <설명> [soft]
+  local metric=$1 need=$2 desc=$3 soft=${4:-}
   read -r limit usage <<<"$(remaining "$metric")"
   if [ "$limit" = "absent" ]; then
     echo "  - ${metric}: (미노출) — ${desc} → 공용 CPUS로 합산 확인 필요"
@@ -42,6 +42,9 @@ check() { # check <metric> <필요 여유> <설명>
   local avail=$((limit - usage))
   if [ "$avail" -ge "$need" ]; then
     echo "  ✅ ${metric}: 여유 ${avail} (limit ${limit}) ≥ 필요 ${need} — ${desc}"
+  elif [ -n "$soft" ]; then
+    # 경고만 — FAIL 로 막지 않음 (실제 검사는 다른 쿼터가 함)
+    echo "  ⚠️  ${metric}: 여유 ${avail} (limit ${limit}) < ${need} — ${desc}"
   else
     echo "  ❌ ${metric}: 여유 ${avail} (limit ${limit}) < 필요 ${need} — ${desc}"
     FAIL=1
@@ -51,8 +54,10 @@ check() { # check <metric> <필요 여유> <설명>
 echo "[check-quota] 필수 쿼터"
 check CPUS               4 "온디맨드 vCPU (SUT 2 + 관측 2)"
 check N2_CPUS            6 "N2 vCPU (SUT n2-standard-2 + 폴백 n2-highcpu-4 동시 대비)"
-check C2_CPUS            4 "C2 vCPU (부하 c2-standard-4)"
-check PREEMPTIBLE_CPUS   4 "spot vCPU (부하 VM — 미노출이면 CPUS에 합산됨)"
+check C2_CPUS            4 "C2 vCPU (부하 c2-standard-4 — spot 도 이 쿼터로 검사됨)"
+# PREEMPTIBLE_CPUS 는 legacy metric — 최신 GCP 는 spot 을 CPUS/C2_CPUS 로 검사한다.
+# 무료 계정에서 이 값이 0 이어도 spot 생성은 됨(실증 확인). 경고만 하고 막지 않는다.
+check PREEMPTIBLE_CPUS   4 "spot 참고용 legacy metric — 실제 검사는 C2_CPUS" soft
 check IN_USE_ADDRESSES   3 "외부 IP (SUT·관측·부하 ephemeral)"
 check DISKS_TOTAL_GB   150 "PD 용량 (SUT 20 + 관측 30 + 부하 20 + 여유)"
 

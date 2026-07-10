@@ -27,7 +27,7 @@ export PROJECT_ID REGION ZONE PROFILE TARGET SEED_VERSION SCALE REPORT_DIR IMAGE
 
 .PHONY: help bootstrap check-quota infra-up image up up-base app-up down sync \
         seed seed-verify reset mint run collect verdict test \
-        loadgen-up loadgen-down teardown report dashboard baseline-promote guard
+        loadgen-up loadgen-down teardown report dashboard grafana baseline-promote guard
 
 help:
 	@grep -E '^[a-z-]+:' Makefile | cut -d: -f1 | sort | tr '\n' ' '; echo
@@ -128,3 +128,11 @@ baseline-promote:
 dashboard:
 	@test -d dashboard || { echo "대시보드는 M9 에서 추가 예정"; exit 1; }
 	cd dashboard && npm install && npm run dev
+
+# Grafana 접속 — IAP TCP 포워딩(방화벽 개방 없이 gcloud 인증). IP 무관·인터넷 노출 0.
+# 전제: make up 으로 관측 스택(Grafana 컨테이너)이 기동돼 있어야 함. Ctrl+C 로 터널 종료.
+grafana: guard
+	@echo "→ 브라우저에서 http://localhost:3000  (최초 admin/admin — 접속 후 비밀번호 변경 권장)"
+	@echo "  Ctrl+C 로 터널 종료"
+	gcloud compute start-iap-tunnel obs 3000 --local-host-port=localhost:3000 \
+		--zone=$(ZONE) --project=$(PROJECT_ID)
