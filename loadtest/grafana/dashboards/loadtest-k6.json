@@ -1,0 +1,97 @@
+{
+  "title": "LOADTEST — k6 클라이언트 층 (open model)",
+  "uid": "loadtest-k6",
+  "tags": ["loadtest", "k6"],
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": { "from": "now-30m", "to": "now" },
+  "editable": true,
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "요청 처리율 (rps) — arrival rate 유지 확인",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(k6_http_reqs_total[30s]))", "legendFormat": "실측 rps", "refId": "A" },
+        { "expr": "sum(rate(k6_iterations_total[30s]))", "legendFormat": "iteration rps", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "지연 p95 / p99 (endpoint 태그별) — 합격선 200ms/500ms",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "max by (endpoint) (k6_http_req_duration_p95)", "legendFormat": "p95 {{endpoint}}", "refId": "A" },
+        { "expr": "max by (endpoint) (k6_http_req_duration_p99)", "legendFormat": "p99 {{endpoint}}", "refId": "B" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 200 }, { "color": "red", "value": 500 } ] },
+          "custom": { "thresholdsStyle": { "mode": "line" } }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "에러율 (http_req_failed) — 합격선 1%",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "max(k6_http_req_failed_rate) * 100", "legendFormat": "에러율", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] },
+          "custom": { "thresholdsStyle": { "mode": "line" } }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "dropped_iterations — >0 이면 SUT 포화 (단, 부하기 CPU 먼저 확인)",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(increase(k6_dropped_iterations_total[1m]))", "legendFormat": "dropped/1m", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "부하기 CPU — >80% 면 이 run 은 INVALID (측정 신뢰도 가드)",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{job=\"loadgen\",mode=\"idle\"}[1m])))",
+          "legendFormat": "loadgen CPU",
+          "refId": "A"
+        },
+        { "expr": "k6_vus", "legendFormat": "VUs", "refId": "B" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 80 } ] },
+          "custom": { "thresholdsStyle": { "mode": "line" } }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "VUs" }, "properties": [ { "id": "unit", "value": "short" }, { "id": "max", "value": null } ] }
+        ]
+      }
+    }
+  ]
+}
