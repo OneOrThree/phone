@@ -30,7 +30,7 @@ import {
   unpinFriend,
 } from '@/services/friendsApi';
 import { fmtMinutes } from './format';
-import { rollingWeekRange } from '@/screens/stats/format';
+import { heatmapRange } from '@/screens/stats/format';
 import { MemberAvatar } from './components/MemberAvatar';
 import { DuoDayChart } from './components/DuoDayChart';
 import { SubjectCompareCard } from './components/SubjectCompareCard';
@@ -49,7 +49,7 @@ const THEIRS_FOCUS = T.compare.theirs;
 const THEIRS_PHONE = T.compare.theirsPhone;
 const UNFRIEND_INK = T.dangerInk;
 
-// 최근 7일 히트맵 → 월~일(0=월..6=일) 분 배열.
+// 히트맵 → 월~일(0=월..6=일) 분 배열.
 function byWeekday(
   cells: HeatmapCellResponse[],
   pick: (c: HeatmapCellResponse) => number,
@@ -89,8 +89,9 @@ export default function FriendProfileScreen() {
   useEffect(() => {
     let stale = false;
     (async () => {
-      // 서버가 타 유저 heatmap을 '최근 7일'로 고정 반환하므로 내 heatmap도 같은 창으로 비교(리뷰 반영)
-      const { from, to } = rollingWeekRange();
+      // 요일 비교는 이번 주(월~오늘) 기준 — 내 heatmap은 이번 주만 조회하고,
+      // 타 유저 heatmap(서버가 최근 7일 고정 반환)은 렌더 시 이번 주만 걸러 쓴다.
+      const { from, to } = heatmapRange('WEEK');
       const [p, st, mine] = await Promise.all([
         getPublicProfile(userId).catch(() => null),
         getUserStats(userId).catch(() => null),
@@ -259,15 +260,18 @@ export default function FriendProfileScreen() {
     stats?.today?.focus.todayMinutes ?? publicStats?.today.focus.todayMinutes ?? 0;
   const streakDays = stats?.streak.currentStreak ?? 0;
 
+  // 타 유저 heatmap은 서버가 최근 7일 고정 반환 — 이번 주(월~) 셀만 걸러 지난주 꼬리를 제거.
+  const weekFrom = heatmapRange('WEEK').from;
+  const theirWeekCells = (stats?.heatmap ?? []).filter((c) => c.date >= weekFrom);
   const focusByDay: CompareByDay = {
     mine: byWeekday(myHeatmap, (c) => c.totalFocusMinutes),
-    theirs: byWeekday(stats?.heatmap ?? [], (c) => c.totalFocusMinutes),
+    theirs: byWeekday(theirWeekCells, (c) => c.totalFocusMinutes),
   };
   const phoneByDay: CompareByDay = {
     mine: byWeekday(myHeatmap, (c) => c.actualScreenTimeMinutes),
-    theirs: byWeekday(stats?.heatmap ?? [], (c) => c.actualScreenTimeMinutes),
+    theirs: byWeekday(theirWeekCells, (c) => c.actualScreenTimeMinutes),
   };
-  // 상대 폰 사용이 7일 내내 0이면 미측정(스크린타임 미허용·구버전·미동기화)과 구분 불가 —
+  // 상대 폰 사용이 이번 주 내내 0이면 미측정(스크린타임 미허용·구버전·미동기화)과 구분 불가 —
   // 0짜리 막대 비교는 무의미해 안내로 대체한다. 내 쪽 0은 그대로 차트(내 상태는 내가 안다).
   const theirPhoneMeasured = phoneByDay.theirs.some((m) => m > 0);
 
@@ -406,10 +410,10 @@ export default function FriendProfileScreen() {
             {statsVisible ? (
               <>
                 {/* 요일별 집중·폰 사용 비교 — 내 히트맵 vs 상대 히트맵(실데이터).
-                    서버가 '오늘 기준 최근 7일'을 반환하므로 라벨도 달력 주가 아닌 최근 7일. */}
+                    이번 주(월~일) 기준 — 아직 안 지난 요일은 0으로 표시. */}
                 <View style={s.chartGap}>
                   <DuoDayChart
-                    title="최근 7일 요일별 집중시간"
+                    title="이번 주 요일별 집중시간"
                     data={focusByDay}
                     mineColor={T.accent}
                     theirsColor={THEIRS_FOCUS}
@@ -419,7 +423,7 @@ export default function FriendProfileScreen() {
                 {theirPhoneMeasured ? (
                   <View style={s.chartGap}>
                     <DuoDayChart
-                      title="최근 7일 요일별 폰 사용시간"
+                      title="이번 주 요일별 폰 사용시간"
                       data={phoneByDay}
                       mineColor={T.accentAlt}
                       theirsColor={THEIRS_PHONE}

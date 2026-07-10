@@ -17,28 +17,64 @@ const DAYS = ['월', '화', '수', '목', '금', '토', '일'];
 // 막대 영역 높이(시안 72px)
 const AREA_H = 72;
 
+// 세로축 상한 — 최대치를 보기 좋은 값으로 올림해 눈금·막대 정규화 기준으로 쓴다(절반 눈금도 정수 분).
+const AXIS_STEPS = [30, 60, 120, 180, 240, 300, 360, 480, 600, 720];
+function axisCeil(maxMinutes: number): number {
+  return AXIS_STEPS.find((step) => step >= maxMinutes) ?? Math.ceil(maxMinutes / 120) * 120;
+}
+
+// 분 → 축 라벨 ("30m" / "1h" / "1h30m")
+function fmtAxis(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m === 0 ? `${h}h` : `${h}h${m}m`;
+}
+
 export function DuoDayChart({ title, data, mineColor, theirsColor, opponentName }: Props) {
-  const max = Math.max(...data.mine, ...data.theirs, 1);
-  const h = (v: number) => Math.max((v / max) * AREA_H, 3);
+  const axisMax = axisCeil(Math.max(...data.mine, ...data.theirs, 1));
+  const h = (v: number) => Math.max((v / axisMax) * AREA_H, 3);
   return (
     <View style={s.card}>
       <Text style={s.title}>{title}</Text>
       <Text style={s.sub}>나와 비교</Text>
 
-      <View style={s.chartRow}>
-        {DAYS.map((d, i) => (
-          <View key={d} style={s.dayCol}>
-            <View style={s.barsRow}>
-              <View style={[s.bar, { height: h(data.mine[i] ?? 0), backgroundColor: mineColor }]} />
-              <View
-                style={[s.bar, { height: h(data.theirs[i] ?? 0), backgroundColor: theirsColor }]}
-              />
-            </View>
-            <Text style={s.dayLabel} allowFontScaling={false}>
-              {d}
-            </Text>
+      <View style={s.plotRow}>
+        {/* 세로축 — 상한·절반 눈금 라벨 (그리드라인 높이에 맞춰 절대 배치) */}
+        <View style={s.axisCol}>
+          <Text style={[s.axisLabel, s.axisTop]} allowFontScaling={false}>
+            {fmtAxis(axisMax)}
+          </Text>
+          <Text style={[s.axisLabel, s.axisMid]} allowFontScaling={false}>
+            {fmtAxis(axisMax / 2)}
+          </Text>
+        </View>
+
+        <View style={s.plot}>
+          <View style={[s.gridLine, s.gridTop]} />
+          <View style={[s.gridLine, s.gridMid]} />
+          <View style={[s.gridLine, s.gridBottom]} />
+          <View style={s.chartRow}>
+            {DAYS.map((d, i) => (
+              <View key={d} style={s.dayCol}>
+                <View style={s.barsRow}>
+                  <View
+                    style={[s.bar, { height: h(data.mine[i] ?? 0), backgroundColor: mineColor }]}
+                  />
+                  <View
+                    style={[
+                      s.bar,
+                      { height: h(data.theirs[i] ?? 0), backgroundColor: theirsColor },
+                    ]}
+                  />
+                </View>
+                <Text style={s.dayLabel} allowFontScaling={false}>
+                  {d}
+                </Text>
+              </View>
+            ))}
           </View>
-        ))}
+        </View>
       </View>
 
       <View style={s.legendRow}>
@@ -68,6 +104,28 @@ const s = StyleSheet.create({
   title: { ...T.text.label, fontWeight: '700', color: T.ink, marginBottom: 4 },
   sub: { ...T.text.caption, color: T.inkSub, marginBottom: 12 },
 
+  plotRow: { flexDirection: 'row' },
+  axisCol: { width: 36, height: AREA_H },
+  axisLabel: {
+    ...T.text.caption,
+    position: 'absolute',
+    right: 6,
+    fontSize: 9,
+    color: T.inkMuted,
+  },
+  axisTop: { top: -5 },
+  axisMid: { top: AREA_H / 2 - 5 },
+  plot: { flex: 1 },
+  gridLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: T.paperAlt,
+  },
+  gridTop: { top: 0 },
+  gridMid: { top: AREA_H / 2 },
+  gridBottom: { top: AREA_H },
   chartRow: { flexDirection: 'row', gap: 6 },
   dayCol: { flex: 1, alignItems: 'center', gap: 5 },
   barsRow: {
