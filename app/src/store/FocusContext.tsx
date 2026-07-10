@@ -75,7 +75,9 @@ export function FocusProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <FocusContext.Provider value={{ todayFocusSeconds, ready, addFocusSeconds, removeFocusSeconds }}>
+    <FocusContext.Provider
+      value={{ todayFocusSeconds, ready, addFocusSeconds, removeFocusSeconds }}
+    >
       {children}
     </FocusContext.Provider>
   );
