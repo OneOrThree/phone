@@ -1413,6 +1413,34 @@ class GroupServiceTest {
     }
 
     @Test
+    @DisplayName("설정 변경(noticeGrantedUserIds=빈 리스트) → 전원 회수, 방장 불변")
+    void updateGroupSettingsEmptyNoticeGrantedRevokesAll() {
+        // given: 방장 + ALLOW 멤버 2명 (빈 리스트 = 전원 초기화 케이스, PR #178 리뷰)
+        User owner = userWithNickname(USER_ID, "방장");
+        User memberA = userWithNickname(TARGET_USER_ID, "멤버A");
+        User memberB = userWithNickname(UUID.fromString("00000000-0000-0000-0000-000000000003"), "멤버B");
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember ownerMember = ownerMemberOf(owner, group);
+        GroupMember allowA = memberWithPermission(memberA, group, GroupAnnouncementGrant.ALLOW);
+        GroupMember allowB = memberWithPermission(memberB, group, GroupAnnouncementGrant.ALLOW);
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember, allowA, allowB));
+
+        UpdateGroupSettingsRequest request = new UpdateGroupSettingsRequest(null, null, null, List.of());
+
+        // when
+        groupService.updateGroupSettings(GROUP_ID, USER_ID, request);
+
+        // then: 전 멤버 DISALLOW 회수, 방장은 컬럼 불변(role 로 항상 가능)
+        assertThat(allowA.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.DISALLOW);
+        assertThat(allowB.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.DISALLOW);
+        assertThat(ownerMember.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.DISALLOW);
+    }
+
+    @Test
     @DisplayName("설정 변경(noticeGrantedUserIds=null) → 공지 권한 미변경, 나머지 설정만 반영")
     void updateGroupSettingsNullNoticeGrantedKeepsPermissions() {
         // given
