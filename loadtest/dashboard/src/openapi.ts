@@ -1,10 +1,9 @@
-// openapi.json(springdoc 스냅샷)에서 대시보드 타겟 카탈로그를 파생한다 (GROMO-750).
-// 스냅샷은 public/openapi.json 에 커밋. 재생성은 .github/workflows/api-dog-generate.yml 과 동일 방식:
-// 백엔드에서 SPRING_PROFILES_ACTIVE=ci 로 ./gradlew generateOpenApiDocs → build/docs/api/openapi.json 복사.
-// (일괄 재생성 스크립트는 후속 증분에 동봉 예정.)
-// "카탈로그 우선(점진)": 전체 엔드포인트를 목록화하되, 지금 실행 가능한 건 기존 k6 스크립트가 있는 것뿐.
+// openapi.json(springdoc 스냅샷) + recipes-manifest.json 에서 대시보드 타겟 카탈로그를 파생 (GROMO-750).
+// 스냅샷 재생성: .github/workflows/api-dog-generate.yml 과 동일(SPRING_PROFILES_ACTIVE=ci ./gradlew generateOpenApiDocs).
+// recipe 매니페스트: loadtest/recipes/gen-recipes.mjs 산출물(어떤 엔드포인트가 제네릭 러너로 실행 가능한지).
+// 디스패치: script=기존 k6 스크립트 / recipe=matrix/_generic.js + RECIPE / gap=아직 실행불가(path ID 미조달).
 
-export type RunKind = 'script' | 'runnable' | 'recipe';
+export type RunKind = 'script' | 'recipe' | 'gap';
 
 export interface EndpointEntry {
   method: string;
@@ -12,8 +11,9 @@ export interface EndpointEntry {
   summary: string;
   requiredParams: string[];
   hasBody: boolean;
-  kind: RunKind; // script=기존 스크립트 실행가능 / runnable=GET·무필수(제네릭 러너 후속) / recipe=파라미터·바디 필요
-  target?: string; // kind==='script' 일 때 트리거에 실릴 k6 타겟 경로
+  kind: RunKind;
+  target?: string; // kind 'script' — 기존 k6 스크립트 경로
+  recipe?: string; // kind 'recipe'|'gap' — recipe 이름(=RECIPE)
 }
 
 export interface CatalogGroup {
@@ -23,14 +23,28 @@ export interface CatalogGroup {
 
 export interface Catalog {
   groups: CatalogGroup[];
+  endpoints: EndpointEntry[]; // 평탄 목록(전체선택·배치용)
   total: number;
   scriptCount: number;
-  runnableCount: number;
   recipeCount: number;
+  gapCount: number;
 }
 
-// openapi 엔드포인트(METHOD 경로) → 지금 존재하는 k6 스크립트. 이것만 현재 트리거로 실행 가능.
-// (제네릭 러너 + recipes 는 후속 증분에서 이 맵을 확장 대체.)
+// 디스패치 대상 — 단일 실행/배치가 dispatchRun(profile, target, false, {recipe}) 로 사용
+export interface DispatchTarget {
+  target: string;
+  recipe?: string;
+  label: string;
+}
+export function dispatchTargetOf(e: EndpointEntry): DispatchTarget | null {
+  if (e.kind === 'script' && e.target) return { target: e.target, label: `${e.method} ${short(e.path)}` };
+  if (e.kind === 'recipe' && e.recipe) return { target: 'matrix/_generic.js', recipe: e.recipe, label: `${e.method} ${short(e.path)}` };
+  return null;
+}
+export const short = (p: string) => p.replace(/^\/api\/v1/, '');
+export const isRunnable = (e: EndpointEntry) => e.kind === 'script' || e.kind === 'recipe';
+
+// openapi 엔드포인트(METHOD 경로) → 기존 k6 스크립트(제네릭 recipe 보다 우선 — 현실 입력 전략 유지)
 const SCRIPT_TARGETS: Record<string, string> = {
   'GET /api/v1/focus-session': 'matrix/focus-session-list.js',
   'POST /api/v1/focus-session': 'matrix/focus-session-create.js',
@@ -38,7 +52,7 @@ const SCRIPT_TARGETS: Record<string, string> = {
 };
 
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
-const rank = (k: RunKind) => (k === 'script' ? 0 : k === 'runnable' ? 1 : 2);
+const rank = (k: RunKind) => (k === 'script' ? 0 : k === 'recipe' ? 1 : 2);
 
 interface RawOp {
   tags?: string[];
@@ -47,39 +61,60 @@ interface RawOp {
   parameters?: { name: string; in: string; required?: boolean }[];
   requestBody?: unknown;
 }
+interface ManifestRecipe {
+  endpoint: string;
+  method: string;
+  path: string;
+  runnable: boolean;
+}
 
 export async function loadCatalog(): Promise<Catalog> {
-  // 절대경로 — 항상 도메인 루트에서 서빙되는 정적 스냅샷(서브패스 배포 시에도 안전)
-  const res = await fetch('/openapi.json');
-  if (!res.ok) throw new Error(`openapi.json 로드 실패 (${res.status})`);
-  const spec = (await res.json()) as { paths?: Record<string, Record<string, RawOp>> };
+  const [specRes, manRes] = await Promise.all([
+    fetch('/openapi.json'),
+    fetch('/recipes-manifest.json'),
+  ]);
+  if (!specRes.ok) throw new Error(`openapi.json 로드 실패 (${specRes.status})`);
+  if (!manRes.ok) throw new Error(`recipes-manifest.json 로드 실패 (${manRes.status})`);
+  const spec = (await specRes.json()) as { paths?: Record<string, Record<string, RawOp>> };
+  const manifest = (await manRes.json()) as { recipes: ManifestRecipe[] };
+
+  // method+path → recipe
+  const recipeByKey = new Map<string, ManifestRecipe>();
+  for (const r of manifest.recipes) recipeByKey.set(`${r.method} ${r.path}`, r);
 
   const byTag = new Map<string, EndpointEntry[]>();
+  const endpoints: EndpointEntry[] = [];
   let scriptCount = 0;
-  let runnableCount = 0;
   let recipeCount = 0;
+  let gapCount = 0;
 
   for (const [path, item] of Object.entries(spec.paths ?? {})) {
     for (const method of METHODS) {
       const op = item[method];
       if (!op) continue;
+      const key = `${method.toUpperCase()} ${path}`;
       const requiredParams = (op.parameters ?? []).filter((x) => x.required).map((x) => x.name);
       const hasBody = op.requestBody != null;
-      const target = SCRIPT_TARGETS[`${method.toUpperCase()} ${path}`];
+      const scriptTarget = SCRIPT_TARGETS[key];
+      const rec = recipeByKey.get(key);
 
       let kind: RunKind;
-      if (target) {
+      let target: string | undefined;
+      let recipe: string | undefined;
+      if (scriptTarget) {
         kind = 'script';
+        target = scriptTarget;
         scriptCount++;
-      } else if (method === 'get' && requiredParams.length === 0 && !hasBody) {
-        kind = 'runnable';
-        runnableCount++;
-      } else {
+      } else if (rec && rec.runnable) {
         kind = 'recipe';
+        recipe = rec.endpoint;
         recipeCount++;
+      } else {
+        kind = 'gap';
+        recipe = rec?.endpoint;
+        gapCount++;
       }
 
-      const tag = op.tags?.[0] ?? '(기타)';
       const entry: EndpointEntry = {
         method: method.toUpperCase(),
         path,
@@ -88,25 +123,28 @@ export async function loadCatalog(): Promise<Catalog> {
         hasBody,
         kind,
         target,
+        recipe,
       };
-      const list = byTag.get(tag);
+      endpoints.push(entry);
+      const list = byTag.get(op.tags?.[0] ?? '(기타)');
       if (list) list.push(entry);
-      else byTag.set(tag, [entry]);
+      else byTag.set(op.tags?.[0] ?? '(기타)', [entry]);
     }
   }
 
   const groups = [...byTag.entries()]
-    .map(([tag, endpoints]) => ({
+    .map(([tag, eps]) => ({
       tag,
-      endpoints: endpoints.sort((a, b) => rank(a.kind) - rank(b.kind) || a.path.localeCompare(b.path)),
+      endpoints: eps.sort((a, b) => rank(a.kind) - rank(b.kind) || a.path.localeCompare(b.path)),
     }))
     .sort((a, b) => a.tag.localeCompare(b.tag));
 
   return {
     groups,
-    total: scriptCount + runnableCount + recipeCount,
+    endpoints,
+    total: scriptCount + recipeCount + gapCount,
     scriptCount,
-    runnableCount,
     recipeCount,
+    gapCount,
   };
 }

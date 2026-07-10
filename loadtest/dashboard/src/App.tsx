@@ -3,14 +3,17 @@ import { getToken } from './api/github';
 import { RunForm } from './components/RunForm';
 import { RunList } from './components/RunList';
 import { PatModal } from './components/PatModal';
-import { TargetCatalog } from './components/TargetCatalog';
+import { SingleApiMode } from './components/SingleApiMode';
 import { TARGETS } from './catalog';
+
+type Mode = 'single' | 'scenario';
 
 export default function App() {
   const [hasToken, setHasToken] = useState(!!getToken());
   const [refreshKey, setRefreshKey] = useState(0);
-  // 타겟 선택은 App 이 소유 — 트리거(RunForm)와 카탈로그(TargetCatalog)가 공유
-  const [target, setTarget] = useState(TARGETS[0].value);
+  const [mode, setMode] = useState<Mode>('single');
+  const [target, setTarget] = useState(TARGETS[0].value); // 시나리오 모드 타겟
+  const refresh = () => setRefreshKey((k) => k + 1);
 
   return (
     <div className="app">
@@ -28,12 +31,23 @@ export default function App() {
 
       {hasToken && (
         <>
-          <RunForm
-            target={target}
-            onTargetChange={setTarget}
-            onDispatched={() => setRefreshKey((k) => k + 1)}
-          />
-          <TargetCatalog selected={target} onPick={setTarget} />
+          <div className="tabs">
+            <button className={`tab${mode === 'single' ? ' active' : ''}`} onClick={() => setMode('single')}>
+              단일 API 부하
+            </button>
+            <button
+              className={`tab${mode === 'scenario' ? ' active' : ''}`}
+              onClick={() => setMode('scenario')}
+            >
+              유저 시나리오 부하
+            </button>
+          </div>
+
+          {mode === 'single' ? (
+            <SingleApiMode onDispatched={refresh} />
+          ) : (
+            <RunForm target={target} onTargetChange={setTarget} onDispatched={refresh} />
+          )}
           <RunList refreshKey={refreshKey} />
         </>
       )}
