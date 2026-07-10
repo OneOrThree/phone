@@ -1,0 +1,48 @@
+# SUT — prod 와 같은 back/Dockerfile 을 핀 SHA 로 빌드한 이미지를 loadtest 프로파일로 기동.
+# 실행(관측 VM 아님, SUT VM 에서 — make up 이 수행):
+#   IMAGE=<region>-docker.pkg.dev/<project>/loadtest/gromo-back:<sha> ./fetch-env.sh sut
+#   docker compose -f docker-compose.sut.yml up -d
+#
+# 8080(부하 트래픽)·9091(actuator)·9100(node) 은 호스트에 공개하지만, 방화벽이 VPC 내부·IAP 만
+# 허용하므로 인터넷 노출은 없다 (loadtest/infra/terraform/network.tf).
+services:
+  app:
+    image: ${IMAGE:?fetch-env.sh sut 가 .env 에 기록}
+    container_name: loadtest-app
+    env_file: .env # DB_URL·DB_USERNAME·DB_PASSWORD·JWT_SECRET (Secret Manager → fetch-env.sh)
+    environment:
+      SPRING_PROFILES_ACTIVE: loadtest
+      # 고정 힙 — run 간 힙 크기가 다르면 비교 불가 (설계 §2-2). GC 로그는 심층 분석 재료.
+      # egd 플래그: environment 는 Dockerfile 기본 JAVA_OPTS 를 append 가 아니라 override 하므로
+      # prod 이미지의 -Djava.security.egd 를 재포함 — SecureRandom 블로킹 변동 배제 (#180 리뷰)
+      JAVA_OPTS: >-
+        -Djava.security.egd=file:/dev/./urandom
+        -Xms2g -Xmx2g
+        -Xlog:gc*:file=/var/log/gc/gc.log:time,uptime:filecount=5,filesize=20m
+    ports:
+      - "8080:8080"   # 부하 트래픽 (k6 → BASE_URL)
+      - "9091:9091"   # actuator/prometheus — 관측 VM 이 크로스 VM 스크레이프
+    volumes:
+      - gc_logs:/var/log/gc
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 24 # loadtest 프로파일 첫 부팅(Flyway validate + JPA validate) 여유
+    restart: unless-stopped
+
+  # 시스템 층 — SUT 의 CPU·mem·disk·net (4층 관측 중 ③)
+  node-exporter:
+    image: prom/node-exporter:v1.8.2 # dev 관측(docker-compose.observability.yml)과 동일 핀
+    container_name: loadtest-node-exporter
+    command:
+      - --path.rootfs=/host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    ports:
+      - "9100:9100" # 크로스 VM 스크레이프 — dev(동일 네트워크)와 달리 호스트 공개 필요
+    restart: unless-stopped
+
+volumes:
+  gc_logs:

@@ -1,0 +1,14 @@
+# 부하테스트 Grafana 데이터소스 — Prometheus 단일 (Loki 는 Phase 0 제외).
+# uid 를 dev 와 동일하게 'prometheus' 로 맞춰 gromo-overview.json 을 무수정 재사용한다.
+# (gromo-overview 의 로그 행(Loki 패널)은 datasource 부재로 표시 안 됨 — 의도된 제외)
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 5s

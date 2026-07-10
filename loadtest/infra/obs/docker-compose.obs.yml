@@ -1,0 +1,57 @@
+# 부하테스트 관측 스택 — dev 관측(docker-compose.observability.yml)의 재사용 변형.
+# 같은 이미지 핀·provisioning 구조를 쓰되:
+#   - prometheus 에 --web.enable-remote-write-receiver (k6 클라 지표 수신)
+#   - postgres-exporter 는 Cloud SQL 사설 IP 직결 (dev 의 depends_on: db 제거)
+#   - Loki·promtail·cAdvisor 제외 (Phase 0 — 4층 대시보드에 불필요, SUT 로그는 ssh)
+#
+# 실행(관측 VM 에서 — make up 이 수행):
+#   ./fetch-env.sh obs && docker compose -f docker-compose.obs.yml up -d
+# 전제: make sync 가 다음을 배치
+#   ./prometheus.yml            (prometheus-loadtest.yml.tpl 렌더 결과)
+#   ./grafana-provisioning/     (이 디렉토리의 provisioning)
+#   ./dashboards/repo/          (레포 observability/grafana/dashboards — gromo-overview 재사용)
+#   ./dashboards/loadtest/      (레포 loadtest/grafana/dashboards — k6 클라 층)
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: loadtest-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-remote-write-receiver # k6 -o experimental-prometheus-rw 수신
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090" # 부하 VM 의 remote write — 방화벽이 VPC 내부로 한정
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: loadtest-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      # 기본값 admin — 첫 로그인 시 변경 강제 + 3000 은 개발자 IP 허용목록 한정(network.tf)
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana-provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards/repo:/var/lib/grafana/dashboards/repo:ro
+      - ./dashboards/loadtest:/var/lib/grafana/dashboards/loadtest:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus]
+    restart: unless-stopped
+
+  # 쿼리 부하 L2 — Cloud SQL(loadtest DB) 사설 IP 직결
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: loadtest-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://loadtest:${DB_PASSWORD}@${SQL_IP}:5432/loadtest?sslmode=disable"
+    restart: unless-stopped
+
+volumes:
+  prometheus_data: # 중지에도 보존 — run 간 히스토리 비교 (보존 7d)
+  grafana_data:
