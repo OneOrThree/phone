@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -75,5 +76,22 @@ class FocusSessionPomodoroRepositoryTest extends RepositoryTestBase {
         Optional<FocusSessionPomodoro> found = focusSessionPomodoroRepository.findByFocusSession(session);
         assertThat(found).isPresent();
         assertThat(found.get().getPomodoroSetting()).isNull();
+    }
+
+    @Test
+    @DisplayName("프리셋 목록 조회 — 소프트딜리트된 프리셋 제외")
+    void findsOnlyActivePresets() {
+        // given: 활성 프리셋 1 + 삭제된 프리셋 1
+        pomodoroSettingRepository.save(PomodoroSetting.builder()
+                .name("클래식 25/5").focusMinutes(25).breakMinutes(5).isDefault(true).build());
+        pomodoroSettingRepository.save(PomodoroSetting.builder()
+                .name("구버전 50/10").focusMinutes(50).breakMinutes(10).deletedAt(Instant.now()).build());
+        pomodoroSettingRepository.flush();
+
+        // when
+        List<PomodoroSetting> active = pomodoroSettingRepository.findByDeletedAtIsNull();
+
+        // then: 활성 프리셋만
+        assertThat(active).extracting(PomodoroSetting::getName).containsExactly("클래식 25/5");
     }
 }
