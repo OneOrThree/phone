@@ -37,21 +37,35 @@ const mint = (userId) => {
 const readJsonl = (path) =>
   readFileSync(path, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
 
+const signUsers = (rows, label) => {
+  const cache = new Map(); // zipf 파일은 핫유저가 가중치만큼 중복 수록 — 토큰은 유저당 1회만 서명
+  for (const r of rows) {
+    if (!cache.has(r.userId)) cache.set(r.userId, mint(r.userId));
+    r.token = cache.get(r.userId);
+  }
+  console.log(`[mint] ${label}: 항목 ${rows.length}, 고유 유저 ${cache.size}, exp=+${EXP_DAYS}d`);
+};
+
+// ① 최초 경로: 40_params_export 산출물(.jsonl) → 서명 + JSON 배열 변환
+const converted = new Set();
 for (const file of readdirSync(paramsDir).filter((f) => f.endsWith('.jsonl'))) {
   const path = join(paramsDir, file);
   const rows = readJsonl(path);
 
-  if (file.startsWith('users_')) {
-    const cache = new Map(); // zipf 파일은 핫유저가 가중치만큼 중복 수록 — 토큰은 유저당 1회만 서명
-    for (const r of rows) {
-      if (!cache.has(r.userId)) cache.set(r.userId, mint(r.userId));
-      r.token = cache.get(r.userId);
-    }
-    console.log(`[mint] ${file}: 항목 ${rows.length}, 고유 유저 ${cache.size}, exp=+${EXP_DAYS}d`);
-  } else {
-    console.log(`[mint] ${file}: 항목 ${rows.length} (변환만)`);
-  }
+  if (file.startsWith('users_')) signUsers(rows, file);
+  else console.log(`[mint] ${file}: 항목 ${rows.length} (변환만)`);
 
-  writeFileSync(join(paramsDir, basename(file, '.jsonl') + '.json'), JSON.stringify(rows));
+  const out = basename(file, '.jsonl') + '.json';
+  writeFileSync(join(paramsDir, out), JSON.stringify(rows));
+  converted.add(out);
   rmSync(path); // GCS 에는 .json 만 올린다
+}
+
+// ② 재발급 경로(make mint): 이미 변환된 users_*.json 의 토큰을 새 exp 로 재서명
+for (const file of readdirSync(paramsDir)
+  .filter((f) => f.startsWith('users_') && f.endsWith('.json') && !converted.has(f))) {
+  const path = join(paramsDir, file);
+  const rows = JSON.parse(readFileSync(path, 'utf8'));
+  signUsers(rows, `${file} (재발급)`);
+  writeFileSync(path, JSON.stringify(rows));
 }
