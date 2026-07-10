@@ -16,7 +16,6 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 @Entity
@@ -28,7 +27,7 @@ import java.util.UUID;
 public class Group {
 
     // NOTE(671 스코프 밖 — 건드리지 말 것): 챌린지 컬럼(mission_*/window_*/duration_minutes/time_zone)→674,
-    //   code/code_expires_at→672, notice_permission/host_id/started_at/ended_at/bet_type→676.
+    //   notice_permission/host_id/started_at/ended_at/bet_type→676.
 
     @Id
     @GeneratedUuidV7
@@ -37,12 +36,6 @@ public class Group {
     @Column(nullable = false, length = 50)
     @Builder.Default
     private String name = "";
-
-    @Column(unique = true, length = 8)
-    private String code;
-
-    @Column(name = "code_expires_at")
-    private Instant codeExpiresAt;
 
     @Column(length = 100)
     private String password;
@@ -92,16 +85,6 @@ public class Group {
 
     @Column(name = "deleted_at")
     private Instant deletedAt;
-
-    public void expireCode() {
-        this.code = null;
-        this.codeExpiresAt = null;
-    }
-
-    public void renewCode(String newCode) {
-        this.code = newCode;
-        this.codeExpiresAt = Instant.now().plus(3, ChronoUnit.HOURS);
-    }
 
     public void transferOwner(UUID newOwnerId) {
         hostId = newOwnerId;

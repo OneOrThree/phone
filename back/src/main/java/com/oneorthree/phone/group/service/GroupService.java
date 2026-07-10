@@ -5,6 +5,8 @@ import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.domain.Group;
+import com.oneorthree.phone.group.domain.GroupJoinCode;
+import com.oneorthree.phone.group.domain.GroupJoinCodeStatus;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.GroupNoticeGrant;
@@ -23,6 +25,7 @@ import com.oneorthree.phone.group.dto.UpdateGroupRequest;
 import com.oneorthree.phone.group.dto.UpdateGroupSettingsRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.repository.GroupJoinCodeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupNoticeGrantRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -52,6 +55,7 @@ import java.util.stream.Collectors;
 public class GroupService {
 
     private final GroupRepository groupRepository;
+    private final GroupJoinCodeRepository groupJoinCodeRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -101,8 +105,14 @@ public class GroupService {
                 .windowStart(request.getWindowStart())
                 .windowEnd(request.getWindowEnd())
                 .hostId(userId)
+                .build());
+
+        // GROMO-672: 참가 코드는 1:1 테이블(group_join_codes)에 저장 (발급 + 3시간 유효, ACTIVE)
+        groupJoinCodeRepository.save(GroupJoinCode.builder()
+                .group(group)
                 .code(uniqueCode)
-                .codeExpiresAt(Instant.now().plus(3, ChronoUnit.HOURS))
+                .status(GroupJoinCodeStatus.ACTIVE)
+                .expiresAt(Instant.now().plus(3, ChronoUnit.HOURS))
                 .build());
 
         // GroupMember(OWNER) 저장
@@ -122,14 +132,22 @@ public class GroupService {
 
         List<GroupMember> groupMembers = groupMemberRepository.findByUser(user);
 
+        // GROMO-672: 참가 코드는 1:1 테이블(PK=group_id)에서 일괄 조회 — 그룹당 findById N+1 방지
+        List<UUID> groupIds = groupMembers.stream()
+                .map(member -> member.getGroup().getId())
+                .toList();
+        Map<UUID, String> codeByGroupId = groupJoinCodeRepository.findAllById(groupIds).stream()
+                .collect(Collectors.toMap(GroupJoinCode::getGroupId, GroupJoinCode::getCode));
+
         return groupMembers.stream()
                 .map(member -> {
                     Group group = member.getGroup();
                     int currentMembers = groupMemberRepository.findByGroup(group).size();
+                    String code = codeByGroupId.get(group.getId());
                     return new GroupSummaryResponse(
                             group.getId(),
                             group.getName(),
-                            group.getCode(),
+                            code,
                             currentMembers,
                             group.getMaxMembers(),
                             member.getRole(),
@@ -149,12 +167,13 @@ public class GroupService {
 
         List<GroupSearchResponse> result = new ArrayList<>();
 
-        Optional<Group> groupByCode = groupRepository.findByCode(query.toUpperCase());
-        if (groupByCode.isPresent()) {
-            Group group = groupByCode.get();
-            if (group.getCodeExpiresAt() != null &&
-                    group.getCodeExpiresAt().isAfter(Instant.now())) {
-                result.add(toSearchResponse(group));
+        // GROMO-672: 코드 정확 매칭은 group_join_codes 기준 (만료 안 된 코드만)
+        Optional<GroupJoinCode> joinCodeByCode = groupJoinCodeRepository.findByCode(query.toUpperCase());
+        if (joinCodeByCode.isPresent()) {
+            GroupJoinCode joinCode = joinCodeByCode.get();
+            if (joinCode.getExpiresAt() != null &&
+                    joinCode.getExpiresAt().isAfter(Instant.now())) {
+                result.add(toSearchResponse(joinCode.getGroup()));
             }
         }
 
@@ -264,8 +283,11 @@ public class GroupService {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
 
-        group.renewCode(generateUniqueCode());
-        return new RenewGroupCodeResponse(group.getCode(), group.getCodeExpiresAt());
+        // GROMO-672: 참가 코드 재발급은 group_join_codes 의 같은 행 UPDATE (code/status/expiresAt 갱신)
+        GroupJoinCode joinCode = groupJoinCodeRepository.findById(group.getId())
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        joinCode.renew(generateUniqueCode());
+        return new RenewGroupCodeResponse(joinCode.getCode(), joinCode.getExpiresAt());
     }
 
     public GroupDetailResponse getGroupDetail(UUID groupId, UUID userId, LocalDate date) {
@@ -305,6 +327,12 @@ public class GroupService {
                 .map(u -> u.getUserId())
                 .toList();
 
+        // GROMO-672: OWNER 에게만 노출하는 참가 코드/만료시각은 group_join_codes 에서 조회
+        boolean isOwner = groupMember.getRole() == GroupMemberRole.OWNER;
+        GroupJoinCode joinCode = isOwner
+                ? groupJoinCodeRepository.findById(group.getId()).orElse(null)
+                : null;
+
         return GroupDetailResponse.builder()
                 .id(group.getId())
                 .name(group.getName())
@@ -317,10 +345,8 @@ public class GroupService {
                 .maxMembers(group.getMaxMembers())
                 .status(group.getStatus())
                 .members(list)
-                .code(groupMember.getRole() == GroupMemberRole.OWNER ?
-                        group.getCode() : null)
-                .codeExpiresAt(groupMember.getRole() == GroupMemberRole.OWNER ?
-                        group.getCodeExpiresAt() : null)
+                .code(joinCode != null ? joinCode.getCode() : null)
+                .codeExpiresAt(joinCode != null ? joinCode.getExpiresAt() : null)
                 .noticeGrantedUserIds(granteUsers)
                 .build();
     }
@@ -447,15 +473,18 @@ public class GroupService {
             }
             String code = sb.toString();
 
-            if (!groupRepository.existsByCode(code)) {
+            // GROMO-672: 유일성 검사는 group_join_codes 기준
+            if (!groupJoinCodeRepository.existsByCode(code)) {
                 return code;
             }
 
-            // 충돌: 만료된 코드면 NULL로 정리하고 재사용
-            groupRepository.findByCode(code).ifPresent(existing -> {
-                if (existing.getCodeExpiresAt() != null
-                        && existing.getCodeExpiresAt().isBefore(Instant.now())) {
-                    existing.expireCode();
+            // 충돌: 만료된 코드면 ENDED 로 정리하고 다른 코드로 재시도.
+            // 의도된 동작 — code 는 NOT NULL UNIQUE 라 구 스키마처럼 null 로 비워 재사용하지 않는다.
+            // 즉 한 번 발급된 코드 문자열은 영구히 재발급되지 않음(36^8 공간이라 고갈 우려 없음).
+            groupJoinCodeRepository.findByCode(code).ifPresent(existing -> {
+                if (existing.getExpiresAt() != null
+                        && existing.getExpiresAt().isBefore(Instant.now())) {
+                    existing.expire();
                 }
             });
         }

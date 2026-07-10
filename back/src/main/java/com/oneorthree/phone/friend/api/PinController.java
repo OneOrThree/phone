@@ -1,6 +1,6 @@
 package com.oneorthree.phone.friend.api;
 
-import com.oneorthree.phone.friend.dto.PinnedFriendResponse;
+import com.oneorthree.phone.friend.dto.PinnedUserResponse;
 import com.oneorthree.phone.friend.service.FriendService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -70,7 +70,7 @@ public class PinController {
             @ApiResponse(responseCode = "400", description = "date 누락·형식 오류")
     })
     @GetMapping("/pins")
-    public ResponseEntity<List<PinnedFriendResponse>> getPins(
+    public ResponseEntity<List<PinnedUserResponse>> getPins(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             HttpServletRequest httpServletRequest) {
         UUID me = (UUID) httpServletRequest.getAttribute("userId");
