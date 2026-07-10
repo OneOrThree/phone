@@ -5240,6 +5240,10 @@
           "nickname": {
             "type": "string"
           },
+          "tierLevel": {
+            "type": "integer",
+            "format": "int32"
+          },
           "totalFocusMinutes": {
             "type": "integer",
             "format": "int32"
