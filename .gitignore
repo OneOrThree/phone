@@ -7,6 +7,8 @@
 .idea/
 .superpowers/
 docs/
+# 부하테스트 기획 문서는 추적 (GROMO-548)
+!loadtest/docs/
 *.env
 .env*
 !.env.example
