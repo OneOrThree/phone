@@ -20,6 +20,7 @@ PROJECT_ID="${PROJECT_ID:?PROJECT_ID를 지정하세요 (예: gromo-loadtest-1)}
 BILLING_ACCOUNT_ID="${BILLING_ACCOUNT_ID:-}"
 REGION="${REGION:-asia-northeast3}"
 GITHUB_REPO="${GITHUB_REPO:-OneOrThree/phone}"
+GITHUB_REF="${GITHUB_REF:-refs/heads/main}" # loadtest.yml 은 main 에서 dispatch — 그 외 브랜치/워크플로우는 토큰 발급 불가
 
 SA_NAME="loadtest-runner"
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -123,13 +124,15 @@ if gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" \
      --workload-identity-pool="$POOL_ID" --location=global >/dev/null 2>&1; then
   log "WIF 프로바이더 존재: $PROVIDER_ID (skip)"
 else
-  log "WIF 프로바이더 생성: $PROVIDER_ID (신뢰 대상: ${GITHUB_REPO} 한정)"
+  # 신뢰 범위를 레포 + ref(main) 로 이중 한정 — 레포 조건만 두면 "PR 로 워크플로우를 추가할 수 있는
+  # 누구나"가 같은 repository 클레임의 토큰으로 SA 를 가장할 수 있다 (#175 리뷰 반영)
+  log "WIF 프로바이더 생성: $PROVIDER_ID (신뢰 대상: ${GITHUB_REPO} @ ${GITHUB_REF} 한정)"
   gcloud iam workload-identity-pools providers create-oidc "$PROVIDER_ID" \
     --workload-identity-pool="$POOL_ID" --location=global \
     --display-name="GitHub OIDC" \
     --issuer-uri="https://token.actions.githubusercontent.com" \
     --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
-    --attribute-condition="assertion.repository=='${GITHUB_REPO}'"
+    --attribute-condition="assertion.repository=='${GITHUB_REPO}' && assertion.ref=='${GITHUB_REF}'"
 fi
 
 gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \

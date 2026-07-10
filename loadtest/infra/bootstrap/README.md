@@ -93,5 +93,7 @@ gh api repos/OneOrThree/phone/actions/runners --jq '.runners[].labels[].name'
 - **`billing budgets create` 실패**: 계정에 Billing Account Administrator 권한이 없으면 콘솔에서
   수동 생성 (https://console.cloud.google.com/billing/budgets, 금액 $300·임계 25/50/75/90%).
 - **API 활성화 타임아웃**: 신규 프로젝트 직후엔 전파 지연이 있음 — 1~2분 뒤 재실행(멱등).
-- **WIF 인증 실패 (워크플로우)**: `attribute-condition`이 레포명을 정확히 요구
-  (`OneOrThree/phone`). 포크/레포 이름 변경 시 프로바이더 재생성 필요.
+- **WIF 인증 실패 (워크플로우)**: `attribute-condition`이 **레포명 + ref**를 요구
+  (`OneOrThree/phone` @ `refs/heads/main`) — loadtest.yml 은 **main 브랜치에서 dispatch**해야
+  토큰이 발급된다. 레포 조건만 두면 "PR로 워크플로우를 추가할 수 있는 누구나"가 SA를 가장할 수
+  있어 ref 조건으로 이중 한정했다. 포크/레포 이름·브랜치 정책 변경 시 프로바이더 재생성 필요.
