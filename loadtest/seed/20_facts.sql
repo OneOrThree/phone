@@ -1,9 +1,13 @@
--- 팩트 테이블 서버사이드 생성 (post-V6 스키마) — psql -d golden -v scale=1 -f 20_facts.sql
+-- 팩트 테이블 서버사이드 생성 (post-V7 스키마) — psql -d golden -v scale=1 -f 20_facts.sql
 -- 결정론: setseed 고정 + md5 UUID 공식(10_dimensions.mjs 와 공유). 볼륨 근거: volume.md
 \set ON_ERROR_STOP on
 SET synchronous_commit = off; -- 시드 세션 한정 — 유실 나면 재시드
 SET work_mem = '256MB';
 SELECT setseed(0.548);
+
+-- 쿼리 관측 계층 ①(설계 §4) — shared_preload 는 수집만 하고, reset()/뷰 노출은 확장 생성이 필요.
+-- golden 에 만들어 두면 TEMPLATE 복제된 loadtest/analysis 가 그대로 물려받는다.
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
 -- 시간순 UUID — 상위 6바이트 = epoch ms → id DESC ≒ 시간 역순 (커서 페이지네이션 특성 보존)
 CREATE OR REPLACE FUNCTION seed_uuid_v7(p_ts timestamptz) RETURNS uuid
