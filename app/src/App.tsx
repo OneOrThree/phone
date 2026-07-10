@@ -8,7 +8,7 @@ import { setLogoutHandler, setReloginHandler, getUserIdFromToken, api } from '@/
 import { setAccountSwitchHandler } from '@/services/auth';
 import { todayStr } from '@/utils/localDate';
 import { updateScreenTimePermission, updateOccupation, updateProfile } from '@/services/userApi';
-import { occupationForCategory } from '@/constants/focusCategories';
+import { occupationForCategory, categoryForOccupation } from '@/constants/focusCategories';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { runStorageMigrations } from '@/utils/storageMigration';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -36,6 +36,19 @@ import OnboardingFlow, {
 
 // Facebook SDK 초기화 — 앱 시작 시 1회.
 FacebookSettings.initializeSDK();
+
+// 준비 시험 백필(GROMO-758) — 서버 occupation(757)을 로컬 focusCategory로 복원한다.
+// 준비 시험 표시(useFocusCategory)가 로컬 전용이라 재로그인·새 기기에선 '미설정'이 되는 문제 대응.
+// 로컬 값이 있으면 유지(설정 화면의 로컬 변경 → 서버 동기 흐름과 충돌 방지), 757 배포 전(필드 없음)엔 no-op.
+async function backfillFocusCategory(profile: { occupation?: unknown }): Promise<void> {
+  try {
+    const existing = await AsyncStorage.getItem(STORAGE_KEYS.focusCategory);
+    if (existing) return;
+    const occupation = typeof profile.occupation === 'string' ? profile.occupation : null;
+    const category = categoryForOccupation(occupation);
+    if (category) await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, category);
+  } catch {}
+}
 
 // 앱 전체 글씨를 디자인 크기로 고정(기기 '텍스트 크기' 설정 무시) → 화면 간 크기 일관.
 // 홈은 네이티브 리포트 뷰와 맞추려 이미 고정이었는데, 나머지 화면도 같은 기준으로 통일한다.
@@ -134,6 +147,7 @@ export default function App() {
         const profileRes = await api.get('/api/v1/users/me');
         const merged = { ...data, ...profileRes.data };
         await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
+        await backfillFocusCategory(merged); // 준비 시험 복원(GROMO-758)
         setUser({ ...merged, userId });
         // GROMO-663: 기존 유저 백필 — 프로필에 countryCode 없으면 기기 로케일로 1회 PATCH.
         // 앱 진입을 막지 않도록 fire-and-forget(실패 시 다음 실행에 재시도).
@@ -206,6 +220,7 @@ export default function App() {
     setOnboarded(true);
     try {
       const profileRes = await api.get('/api/v1/users/me');
+      await backfillFocusCategory({ ...data, ...profileRes.data }); // 준비 시험 복원(GROMO-758)
       setUser({ ...data, ...profileRes.data, userId });
     } catch {
       setUser({ ...data, userId });
@@ -260,6 +275,8 @@ export default function App() {
     const userId = getUserIdFromToken(login.accessToken);
     if (isExistingAccount) {
       // 기존 계정 — 로그인 프로필(닉네임 등)을 그대로 사용, 온보딩 값으로 덮어쓰지 않음.
+      // 로그아웃/새 기기에선 온보딩 중간 로그인이 기존 계정의 주 진입로라 여기서도 백필(GROMO-758 리뷰).
+      await backfillFocusCategory(login); // postAuthSave가 /users/me를 병합해 occupation이 실려 옴
       setUser({ ...login, userId });
     } else {
       setUser({ ...login, userId, nickname: data.nickname.trim() });
@@ -289,6 +306,8 @@ export default function App() {
       <LoginScreen
         onLogin={async (u: LoginResult) => {
           const userId = getUserIdFromToken(u.accessToken);
+          // 기존 계정 로그인이면 postAuthSave가 /users/me를 병합해 occupation이 실려 온다
+          await backfillFocusCategory(u); // 준비 시험 복원(GROMO-758)
           setUser({ ...u, userId });
         }}
       />
