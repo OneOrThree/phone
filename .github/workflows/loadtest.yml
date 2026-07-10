@@ -14,7 +14,9 @@ on:
       profile:
         description: '부하 프로파일'
         type: choice
-        options: [smoke, load, stress, spike, soak]
+        # soak(2~8h)은 timeout-minutes 90 을 초과해 job 이 강제 종료되면 make 의 trap teardown 이
+        # 완주 못 해 GCP 인프라가 남을 수 있음 → Phase 4(표준 VM·긴 timeout)까지 선택지에서 제외 (#184 리뷰)
+        options: [smoke, load, stress, spike]
         default: smoke
       target:
         description: 'k6 타겟 (k6/ 기준 상대경로)'
@@ -94,33 +96,36 @@ jobs:
           retention-days: 30
 
       # slim 리포트(4파일, 수 KB) → orphan 브랜치 — 대시보드가 Contents API 로 CORS 없이 조회.
-      # main 은 절대 건드리지 않는다 (승인된 설계 — PRD §6-2).
+      # main 워크스페이스($GITHUB_SHA)는 절대 건드리지 않는다: orphan 초기화도 worktree 안에서만 하고,
+      # worktree 는 trap 으로 항상 정리 — push 실패가 self-hosted 워크스페이스에 죽은 worktree/삭제된
+      # 추적파일을 남겨 이후 run 을 영구 막던 비원자성 제거 (#184 리뷰). main 불가침(PRD §6-2).
       - name: slim 리포트를 loadtest-reports 브랜치에 커밋
         if: always() && steps.report.outputs.dir != ''
         run: |
+          set -e
           DIR="${{ steps.report.outputs.dir }}"
           NAME=$(basename "$DIR")
-          git fetch origin loadtest-reports:loadtest-reports 2>/dev/null || {
-            git checkout --orphan loadtest-reports
-            git rm -rf --quiet . || true
-            echo "# loadtest run 리포트 (자동 커밋 — 대시보드 조회용)" > README.md
-            git add README.md
-            git -c user.name=loadtest-bot -c user.email=bot@users.noreply.github.com \
-              commit -m "loadtest-reports 브랜치 초기화"
-            git push origin loadtest-reports
-            git checkout -f "$GITHUB_SHA"
-            git fetch origin loadtest-reports:loadtest-reports
-          }
           WT=$(mktemp -d)
-          git worktree add "$WT" loadtest-reports
+          cleanup() { git worktree remove --force "$WT" 2>/dev/null || true; git worktree prune 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          if git fetch origin loadtest-reports 2>/dev/null; then
+            git worktree add "$WT" -B loadtest-reports origin/loadtest-reports
+          else
+            # 최초 1회: main 이 아니라 격리된 worktree 안에서 orphan 브랜치를 만든다
+            git worktree add --detach "$WT" HEAD
+            git -C "$WT" checkout --orphan loadtest-reports
+            git -C "$WT" rm -rf --quiet . || true
+            echo "# loadtest run 리포트 (자동 커밋 — 대시보드 조회용)" > "$WT/README.md"
+          fi
+
           mkdir -p "$WT/runs/$NAME"
           cp "$DIR"/{summary.json,meta.json,verdict.json,pg_top20.csv} "$WT/runs/$NAME/" 2>/dev/null || \
             cp "$DIR"/*.json "$WT/runs/$NAME/"
-          git -C "$WT" add runs
+          git -C "$WT" add -A
           git -C "$WT" -c user.name=loadtest-bot -c user.email=bot@users.noreply.github.com \
             commit -m "run: $NAME (${PROFILE} × ${TARGET})"
           git -C "$WT" push origin loadtest-reports
-          git worktree remove --force "$WT"
 
       - name: baseline 승격 PR (요청 시 · PASS 한정)
         if: inputs.update_baseline && steps.pipeline.outputs.exit_code == '0'
