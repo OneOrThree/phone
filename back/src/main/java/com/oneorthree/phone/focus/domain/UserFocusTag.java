@@ -8,7 +8,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -24,16 +23,16 @@ import java.util.UUID;
  *
  * <p>태그의 정체성은 {@link DefaultTag}(default_tag_id)에 있고, 이 엔티티는 "어떤 유저가 그 태그를 채택했는가"
  * 를 나타내는 유저-태그 연결이다. 커스텀 태그도 먼저 {@link DefaultTag} 에 등록한 뒤 이 행으로 채택한다.
- * {@code (user_id, default_tag_id)} 유일 제약으로 동일 태그 중복 채택을 막는다.
+ * 동일 태그 중복 채택은 <b>활성 행 한정</b> DB partial unique index
+ * ({@code uq_user_focus_tags_user_default_active ON (user_id, default_tag_id) WHERE deleted_at IS NULL},
+ * V4 마이그레이션)가 막는다 — 소프트딜리트 후 같은 태그 재채택을 허용해야 하므로 테이블 UNIQUE 가 아니며,
+ * JPA 애노테이션으로는 partial index 를 표현할 수 없어 여기엔 선언하지 않는다(DB 인덱스가 소스).
  *
  * <p>{@code focus_sessions.focus_tag_id} 가 이 행을 참조하므로, 채택 태그를 제거해도 참조 무결성을 위해
  * 하드 삭제 대신 {@code deletedAt} 소프트 딜리트로 처리한다.
  */
 @Entity
-@Table(
-        name = "user_focus_tags",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "default_tag_id"})
-)
+@Table(name = "user_focus_tags")
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
