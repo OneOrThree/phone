@@ -20,6 +20,7 @@ import { SubjectProvider } from '@/store/SubjectContext';
 import { T } from '@/constants/theme';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { OrphanFocusSettler } from '@/screens/focus/OrphanFocusSettler';
+import { abortTagEdits } from '@/screens/focus/tagSync';
 import { PendingFocusUploader } from '@/screens/focus/PendingFocusUploader';
 import { PushGate } from '@/components/PushGate';
 import { PendingGoalApplier } from '@/components/PendingGoalApplier';
@@ -150,6 +151,8 @@ export default function App() {
       const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
       if (refreshToken) await api.post('/api/v1/auth/logout', { refreshToken });
     } catch {}
+    // 대기 중인 태그 편집 동기화 폐기 — 이전 계정의 편집이 다음 계정 토큰으로 실행되지 않게(리뷰 반영)
+    abortTagEdits();
     // 온보딩 완료 플래그까지 지워 로그아웃 시 온보딩 첫 페이지로 돌아가게 한다.
     await AsyncStorage.multiRemove([
       STORAGE_KEYS.accessToken,
@@ -184,6 +187,8 @@ export default function App() {
     // 로그아웃과 동일하게 이전 계정 디바이스 캐시를 정리해 누출을 막는다(GROMO-677 리뷰).
     // 세션·온보딩 키는 새 계정 것이 이미 저장돼 있으므로 유지. 같은 userId(계정 연결)면 그대로 둔다.
     if (currentUserIdRef.current && userId && currentUserIdRef.current !== userId) {
+      // 대기 중인 태그 편집 동기화 폐기 — 이전 계정의 편집이 새 계정 토큰으로 실행되지 않게(리뷰 반영)
+      abortTagEdits();
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.focusCategory,
         STORAGE_KEYS.goalPending,
