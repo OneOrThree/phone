@@ -5,9 +5,14 @@ import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.domain.Group;
+import com.oneorthree.phone.group.domain.GroupChallenge;
+import com.oneorthree.phone.group.domain.GroupChallengeDuration;
+import com.oneorthree.phone.group.domain.GroupChallengeStatus;
+import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.GroupNoticeGrant;
+import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.dto.CreateGroupRequest;
 import com.oneorthree.phone.group.dto.CreateGroupResponse;
@@ -23,6 +28,9 @@ import com.oneorthree.phone.group.dto.UpdateGroupRequest;
 import com.oneorthree.phone.group.dto.UpdateGroupSettingsRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupNoticeGrantRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -53,6 +61,9 @@ public class GroupService {
 
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
+    private final GroupChallengeRepository groupChallengeRepository;
+    private final GroupChallengeDurationRepository groupChallengeDurationRepository;
+    private final GroupChallengeWindowRepository groupChallengeWindowRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final DailyFocusStatRepository dailyFocusStatRepository;
@@ -89,21 +100,19 @@ public class GroupService {
             hashedPassword = passwordEncoder.encode(request.getPassword());
         }
 
-        // 5) Group 저장
+        // 5) Group 저장 (GROMO-674: 미션 정보는 groups 컬럼이 아니라 대표 챌린지가 소유)
         Group group = groupRepository.save(Group.builder()
                 .name(request.getName())
                 .password(hashedPassword)
                 .description(request.getDescription())
                 .maxMembers(request.getMaxMembers() != null ? request.getMaxMembers() : 10)
-                .missionType(request.getMissionType())
-                .missionCategory(request.getMissionCategory())
-                .durationMinutes(request.getDurationMinutes())
-                .windowStart(request.getWindowStart())
-                .windowEnd(request.getWindowEnd())
                 .hostId(userId)
                 .code(uniqueCode)
                 .codeExpiresAt(Instant.now().plus(3, ChronoUnit.HOURS))
                 .build());
+
+        // 5-1) 대표 GroupChallenge + type별 상세(CTI) 저장
+        createRepresentativeChallenge(group, request);
 
         // GroupMember(OWNER) 저장
         groupMemberRepository.save(GroupMember.builder()
@@ -229,15 +238,18 @@ public class GroupService {
 
         int memberCount = groupMemberRepository.findByGroup(group).size();
 
+        // GROMO-674: 미션 정보는 대표 챌린지(최신 ACTIVE)에서 조회
+        RepresentativeMission mission = resolveRepresentativeMission(group);
+
         return GroupOverviewResponse.builder()
                 .id(group.getId())
                 .name(group.getName())
                 .description(group.getDescription())
-                .missionCategory(group.getMissionCategory())
-                .missionType(group.getMissionType())
-                .durationMinutes(group.getDurationMinutes())
-                .windowStart(group.getWindowStart())
-                .windowEnd(group.getWindowEnd())
+                .missionCategory(mission.missionCategory())
+                .missionType(mission.missionType())
+                .durationMinutes(mission.durationMinutes())
+                .windowStart(mission.windowStart())
+                .windowEnd(mission.windowEnd())
                 .maxMembers(group.getMaxMembers())
                 .memberCount(memberCount)
                 .status(group.getStatus())
@@ -305,15 +317,18 @@ public class GroupService {
                 .map(u -> u.getUserId())
                 .toList();
 
+        // GROMO-674: 미션 정보는 대표 챌린지(최신 ACTIVE)에서 조회
+        RepresentativeMission mission = resolveRepresentativeMission(group);
+
         return GroupDetailResponse.builder()
                 .id(group.getId())
                 .name(group.getName())
                 .description(group.getDescription())
-                .missionCategory(group.getMissionCategory())
-                .missionType(group.getMissionType())
-                .durationMinutes(group.getDurationMinutes())
-                .windowStart(group.getWindowStart())
-                .windowEnd(group.getWindowEnd())
+                .missionCategory(mission.missionCategory())
+                .missionType(mission.missionType())
+                .durationMinutes(mission.durationMinutes())
+                .windowStart(mission.windowStart())
+                .windowEnd(mission.windowEnd())
                 .maxMembers(group.getMaxMembers())
                 .status(group.getStatus())
                 .members(list)
@@ -436,6 +451,68 @@ public class GroupService {
                 groupNoticeGrantRepository.saveAll(grants);
             }
         }
+    }
+
+    // ── GROMO-674: 그룹 미션 정보는 group_challenges(+CTI 상세)가 소유 ──────────────
+
+    /** 그룹 생성 시 대표 챌린지(status=ACTIVE) + type별 상세(Duration/Window) 행을 저장한다. */
+    private void createRepresentativeChallenge(Group group, CreateGroupRequest request) {
+        GroupChallenge challenge = GroupChallenge.builder()
+                .group(group)
+                .type(request.getMissionType())
+                .category(request.getMissionCategory())
+                .status(GroupChallengeStatus.ACTIVE)
+                .build();
+        groupChallengeRepository.save(challenge);
+
+        if (request.getMissionType() == MissionType.DURATION) {
+            groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
+                    .challenge(challenge)
+                    .durationMinutes(request.getDurationMinutes())
+                    .build());
+        } else if (request.getMissionType() == MissionType.TIME_WINDOW) {
+            groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
+                    .challenge(challenge)
+                    .windowStartAt(request.getWindowStart())
+                    .windowEndAt(request.getWindowEnd())
+                    .build());
+        }
+    }
+
+    /** 대표 챌린지(최신 ACTIVE, 미삭제) + type별 상세에서 상세/오버뷰 응답의 미션 필드를 채운다. */
+    private RepresentativeMission resolveRepresentativeMission(Group group) {
+        return groupChallengeRepository
+                .findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(group, GroupChallengeStatus.ACTIVE)
+                .map(this::toRepresentativeMission)
+                .orElse(RepresentativeMission.EMPTY);
+    }
+
+    private RepresentativeMission toRepresentativeMission(GroupChallenge challenge) {
+        Integer durationMinutes = null;
+        Instant windowStart = null;
+        Instant windowEnd = null;
+        if (challenge.getType() == MissionType.DURATION) {
+            durationMinutes = groupChallengeDurationRepository.findById(challenge.getId())
+                    .map(GroupChallengeDuration::getDurationMinutes)
+                    .orElse(null);
+        } else if (challenge.getType() == MissionType.TIME_WINDOW) {
+            Optional<GroupChallengeWindow> window = groupChallengeWindowRepository.findById(challenge.getId());
+            windowStart = window.map(GroupChallengeWindow::getWindowStartAt).orElse(null);
+            windowEnd = window.map(GroupChallengeWindow::getWindowEndAt).orElse(null);
+        }
+        return new RepresentativeMission(
+                challenge.getCategory(), challenge.getType(), durationMinutes, windowStart, windowEnd);
+    }
+
+    /** 상세/오버뷰 JSON 계약(missionCategory/missionType/durationMinutes/windowStart/windowEnd) 유지용 뷰. */
+    private record RepresentativeMission(
+            MissionCategory missionCategory,
+            MissionType missionType,
+            Integer durationMinutes,
+            Instant windowStart,
+            Instant windowEnd) {
+
+        private static final RepresentativeMission EMPTY = new RepresentativeMission(null, null, null, null, null);
     }
 
     private String generateUniqueCode() {

@@ -6,10 +6,7 @@ import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -20,19 +17,13 @@ public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, 
 
     List<GroupChallenge> findByGroupOrderByCreatedAtDesc(Group group);
 
+    // GROMO-674: 그룹 대표 챌린지(최신 ACTIVE, 미삭제) — 그룹 상세/오버뷰의 미션 정보 소스
+    Optional<GroupChallenge> findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
+            Group group, GroupChallengeStatus status);
+
     boolean existsByGroupAndCategoryAndTypeAndStatus(
             Group group, MissionCategory category, MissionType type, GroupChallengeStatus status);
 
-    @Query("SELECT COUNT(c) > 0 FROM GroupChallenge c"
-            + " WHERE c.group = :group"
-            + " AND c.category = :category"
-            + " AND c.type = 'TIME_WINDOW'"
-            + " AND c.status = 'ACTIVE'"
-            + " AND c.windowStart < :end"
-            + " AND c.windowEnd > :start")
-    boolean existsOverlappingTimeWindow(
-            @Param("group") Group group,
-            @Param("category") MissionCategory category,
-            @Param("start") Instant start,
-            @Param("end") Instant end);
+    // TIME_WINDOW 겹침 판정은 window 컬럼의 상세 테이블 분리에 따라
+    // GroupChallengeWindowRepository.existsOverlappingTimeWindow 로 이동.
 }
