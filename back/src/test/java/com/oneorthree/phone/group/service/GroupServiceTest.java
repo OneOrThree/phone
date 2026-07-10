@@ -152,7 +152,7 @@ class GroupServiceTest {
         GroupChallenge challenge = GroupChallenge.builder()
                 .id(CHALLENGE_ID).group(group).type(MissionType.DURATION)
                 .category(MissionCategory.FOCUS).status(GroupChallengeStatus.ACTIVE).build();
-        given(groupChallengeRepository.findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
+        given(groupChallengeRepository.findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtAsc(
                 group, GroupChallengeStatus.ACTIVE)).willReturn(Optional.of(challenge));
         given(groupChallengeDurationRepository.findById(CHALLENGE_ID)).willReturn(
                 Optional.of(GroupChallengeDuration.builder()
@@ -592,7 +592,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
-        given(groupChallengeRepository.findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
+        given(groupChallengeRepository.findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtAsc(
                 group, GroupChallengeStatus.ACTIVE)).willReturn(Optional.of(challenge));
         given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(
                 Optional.of(GroupChallengeWindow.builder()

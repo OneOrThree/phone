@@ -482,7 +482,7 @@ public class GroupService {
     /** 대표 챌린지(최신 ACTIVE, 미삭제) + type별 상세에서 상세/오버뷰 응답의 미션 필드를 채운다. */
     private RepresentativeMission resolveRepresentativeMission(Group group) {
         return groupChallengeRepository
-                .findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(group, GroupChallengeStatus.ACTIVE)
+                .findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtAsc(group, GroupChallengeStatus.ACTIVE)
                 .map(this::toRepresentativeMission)
                 .orElse(RepresentativeMission.EMPTY);
     }
