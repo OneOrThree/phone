@@ -169,3 +169,31 @@ code { background: #eef1f4; padding: 1px 6px; border-radius: 4px; font-size: 13p
   gap: 16px;
   flex-wrap: wrap;
 }
+
+/* ── 타겟 카탈로그 (OpenAPI · GROMO-750) ── */
+.card .sub { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin: 2px 0 12px; }
+.b { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.b.run { background: #d7f0dd; color: #1a7f37; }
+.b.blue { background: #dce8ff; color: #1d4ed8; }
+.b.need { background: #fbeecb; color: #8a6100; }
+.b.method { min-width: 48px; text-align: center; font-family: ui-monospace, Menlo, monospace; }
+.m-get { background: #d7f0dd; color: #1a7f37; }
+.m-post { background: #dce8ff; color: #1d4ed8; }
+.m-patch { background: #fbeecb; color: #8a6100; }
+.m-put { background: #e7ddff; color: #6b3fd4; }
+.m-delete { background: #fbd9dc; color: #b3243a; }
+.grp { border: 1px solid var(--border); border-radius: 9px; margin-top: 8px; overflow: hidden; }
+.grp > summary { list-style: none; cursor: pointer; padding: 9px 13px; background: #fafbfc; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.grp > summary::-webkit-details-marker { display: none; }
+.grp[open] > summary { border-bottom: 1px solid var(--border); }
+.ep { display: flex; align-items: center; gap: 11px; padding: 8px 13px; border-top: 1px solid var(--border); font-size: 13px; }
+.grp > summary + .ep { border-top: 0; }
+.ep:hover { background: #f7f9fb; }
+.ep.clickable { cursor: pointer; }
+.ep.disabled { opacity: 0.62; }
+.ep.sel { background: #eef5ff; box-shadow: inset 3px 0 0 var(--accent); }
+.ep .path { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
+.ep .desc { color: var(--muted); font-size: 12.5px; }
+.ep .tail { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.ep .req { font-size: 11px; color: var(--muted); font-family: ui-monospace, Menlo, monospace; }

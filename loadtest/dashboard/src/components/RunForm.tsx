@@ -20,9 +20,16 @@ function parseMinutes(d: string): number | null {
 }
 
 // 딸깍 버튼 — workflow_dispatch 호출 (run 은 concurrency 로 직렬화됨)
-export function RunForm({ onDispatched }: { onDispatched: () => void }) {
+export function RunForm({
+  target,
+  onTargetChange,
+  onDispatched,
+}: {
+  target: string;
+  onTargetChange: (t: string) => void;
+  onDispatched: () => void;
+}) {
   const [profile, setProfile] = useState('smoke');
-  const [target, setTarget] = useState(TARGETS[0].value);
   const [updateBaseline, setUpdateBaseline] = useState(false);
   const [advOpen, setAdvOpen] = useState(false);
   const [ovRate, setOvRate] = useState('');
@@ -107,7 +114,7 @@ export function RunForm({ onDispatched }: { onDispatched: () => void }) {
         </label>
         <label>
           타겟 (무엇에 부하)
-          <select value={target} onChange={(e) => setTarget(e.target.value)}>
+          <select value={target} onChange={(e) => onTargetChange(e.target.value)}>
             {TARGETS.map((x) => (
               <option key={x.value} value={x.value}>
                 {x.label}
