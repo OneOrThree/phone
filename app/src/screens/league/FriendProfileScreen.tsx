@@ -341,12 +341,16 @@ export default function FriendProfileScreen() {
               </Text>
             </View>
           </View>
-          {/* 티어 — 공식 티어 이미지 + 이름 (리그 화면과 동일, 구 그라데이션 칩 폐기 GROMO-689) */}
+          {/* 티어 + 현재 등수 — 공식 티어 이미지·이름 오른쪽에 전체 랭킹 (구 그라데이션 칩 폐기 GROMO-689) */}
           <View style={s.tierRow}>
             <TierBadge level={tier.level} size={20} />
             <Text style={s.tierText}>{tier.name}</Text>
+            {rank != null && (
+              <Text style={s.rankText} allowFontScaling={false}>
+                · 전체 랭킹 {rank}위
+              </Text>
+            )}
           </View>
-          {rank != null && <Text style={s.rankText}>전체 랭킹 {rank}위</Text>}
         </View>
 
         {loading ? (
@@ -539,7 +543,7 @@ const s = StyleSheet.create({
   friendPillText: { ...T.text.caption, fontSize: 11, fontWeight: '700', color: T.inkSub },
   tierRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 9 },
   tierText: { ...T.text.caption, fontSize: 12, fontWeight: '700', color: T.inkSub },
-  rankText: { ...T.text.caption, color: T.inkSub, marginTop: 8 },
+  rankText: { ...T.text.caption, fontSize: 12, color: T.inkSub },
 
   loader: { paddingVertical: 48, alignItems: 'center' },
 
