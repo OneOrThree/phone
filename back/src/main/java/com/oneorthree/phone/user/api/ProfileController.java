@@ -45,8 +45,9 @@ public class ProfileController {
     }
 
     @Operation(summary = "타 유저 통계 조회",
-            description = "친구O/본인 → 세부 통계(today·streak·heatmap). 친구X(PENDING 포함) → streak 만 반환. "
-                    + "본인 조회 시 isFriend=false 이지만 세부 통계가 채워짐.")
+            description = "프로필 요약(streak·today)은 친구 여부/공개설정과 무관하게 항상 반환(GROMO-746). "
+                    + "세부 차트(heatmap)만 공개 게이트 — 친구O·본인, 또는 대상 PUBLIC 이면 반환, 그 외 null. "
+                    + "본인 조회 시 isFriend=false 이지만 heatmap 이 채워짐.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "401", description = "인증 필요"),
