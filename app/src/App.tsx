@@ -275,6 +275,8 @@ export default function App() {
     const userId = getUserIdFromToken(login.accessToken);
     if (isExistingAccount) {
       // 기존 계정 — 로그인 프로필(닉네임 등)을 그대로 사용, 온보딩 값으로 덮어쓰지 않음.
+      // 로그아웃/새 기기에선 온보딩 중간 로그인이 기존 계정의 주 진입로라 여기서도 백필(GROMO-758 리뷰).
+      await backfillFocusCategory(login); // postAuthSave가 /users/me를 병합해 occupation이 실려 옴
       setUser({ ...login, userId });
     } else {
       setUser({ ...login, userId, nickname: data.nickname.trim() });
