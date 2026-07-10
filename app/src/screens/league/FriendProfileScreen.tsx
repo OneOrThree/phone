@@ -41,8 +41,8 @@ import { TEASER_SUBJECTS, type CompareByDay, type SubjectCompare } from './mock'
 // 프로필 상세 (GROMO-605 다른 사람 통계) — 실 API 연동.
 // 공개 프로필(getPublicProfile): 아바타·이름·준비 시험(occupation)·친구 수·티어 → 항상 공개.
 // 순위는 서버 rank(아레나 내) 대신 진입한 랭킹 목록의 rank 파라미터를 표시(GROMO-685).
-// 상세 통계(getUserStats): 목표달성·이번 주 집중·스트릭·요일 비교 → 대상 statVisibility(친구공개/전체공개)에 따라.
-//   today/heatmap 이 오면 공개(친구 또는 전체공개), null 이면 잠금 → 친구 신청 유도.
+// 통계(getUserStats): 요약(today=목표달성·오늘 집중, streak=연속)은 친구 여부/공개설정 무관 항상 공개(GROMO-746).
+//   세부 차트(heatmap)만 대상 statVisibility 게이트 — null 이면 잠금 카드 → 친구 신청 유도.
 // 요일별 집중·폰 사용 비교는 내 heatmap + 상대 heatmap 으로 실계산(월~일).
 // 과목별 비교는 by-category?friends=(GROMO-624)로 실비교 — 겹치는 태그만, 겹침 없으면 안내 배너, 미확보 시 블러 티저.
 // 친구 신청/끊기·핀 토글은 실 API(./friendsApi) — 관계는 통계 공개와 별개.
@@ -197,15 +197,18 @@ export default function FriendProfileScreen() {
   // 미설정·미로드면 null → 카드 숨김. (구 route 파라미터 exam은 리그 라벨이라 대상의 시험이 아니어서 폐기, GROMO-680)
   const examLabel = categoryForOccupation(profile?.occupation ?? null);
 
-  // 상세 통계 공개 여부 — getUserStats가 채워준 경우(본인·친구·전체공개, GROMO-640).
-  // heatmap까지 있어 요일 비교 가능.
-  const statsVisible = stats?.today != null;
-  // 강등 요약 — getUserStats 실패 후 /stats/*?friends= 폴백만 성공한 경우(요약·과목별만).
-  const publicVisible = !statsVisible && publicStats != null;
+  // 세부 차트(요일 비교) 공개 여부 — heatmap 게이트(본인·친구·전체공개).
+  // GROMO-746부터 today는 친구 여부/공개설정과 무관하게 항상 오므로 판정 기준은 heatmap (7/10 기획: 요약 상시 공개).
+  const detailVisible = stats?.heatmap != null;
+  // 강등 요약 — getUserStats 자체가 실패하고 /stats/*?friends= 폴백만 성공한 경우(요약·과목별만).
+  const publicVisible = !detailVisible && publicStats != null;
+  // 요약(목표달성·오늘 집중·연속) — 성공 응답이면 항상 공개, 실패 시에만 폴백이 채움.
+  const summaryVisible = stats?.today != null || publicVisible;
 
-  // 강등 폴백 조회 — getUserStats가 비었을 때만 시도. FRIENDS 비공개 대상은 404로 떨어져 잠금 유지.
+  // 강등 폴백 조회 — getUserStats 호출 자체가 실패했을 때만 시도(성공 응답엔 today가 항상 있음, GROMO-746).
+  // 폴백 게이트는 여전히 친구·PUBLIC만 허용이라 FRIENDS 비공개 대상은 404로 떨어져 빈 상태 유지.
   useEffect(() => {
-    if (loading || statsVisible) {
+    if (loading || stats != null) {
       setPublicStats(null);
       return;
     }
@@ -218,11 +221,11 @@ export default function FriendProfileScreen() {
     return () => {
       stale = true;
     };
-  }, [loading, statsVisible, userId]);
+  }, [loading, stats, userId]);
 
-  // 과목별 비교(GROMO-624) — 상세(친구·본인) 또는 PUBLIC 공개 대상. 내 by-category + 상대
+  // 과목별 비교(GROMO-624) — 세부 공개(친구·본인·PUBLIC) 대상. 내 by-category + 상대
   // by-category(WEEK)를 태그명으로 매칭해 겹치는 과목만 비교. 한쪽이라도 실패하면 undefined 유지(블러 티저).
-  const canCompareSubjects = statsVisible || publicVisible;
+  const canCompareSubjects = detailVisible || publicVisible;
   useEffect(() => {
     if (!canCompareSubjects) {
       setSubjectCompare(undefined);
@@ -258,8 +261,7 @@ export default function FriendProfileScreen() {
     };
   }, [canCompareSubjects, userId]);
 
-  // 요약 값 — 상세(본인·친구·전체공개)는 getUserStats, 상세 실패 시엔 폴백 조회값 사용.
-  const summaryVisible = statsVisible || publicVisible;
+  // 요약 값 — getUserStats(항상 공개, GROMO-746), 실패 시엔 폴백 조회값 사용.
   const goalPercent =
     stats?.today?.focus.progressPercent ?? publicStats?.today.focus.progressPercent ?? 0;
   const todayFocusMinutes =
@@ -413,7 +415,7 @@ export default function FriendProfileScreen() {
               </View>
             )}
 
-            {statsVisible ? (
+            {detailVisible ? (
               <>
                 {/* 요일별 집중·폰 사용 비교 — 내 히트맵 vs 상대 히트맵(실데이터).
                     이번 주(월~일) 기준 — 아직 안 지난 요일은 0으로 표시. */}
@@ -459,14 +461,14 @@ export default function FriendProfileScreen() {
                 </View>
               </>
             ) : (
-              /* 비공개(친구 아님 + 친구공개 대상) — 상세 통계 잠금 */
+              /* 세부 비교 잠금(친구 아님 + 친구공개 대상) — 요약은 위에서 항상 공개(GROMO-746), 차트만 잠금 */
               <View style={s.lockCard}>
                 <View style={s.lockCircle}>
                   <Ionicons name="lock-closed" size={18} color={T.accent} />
                 </View>
                 <Text style={s.lockTitle}>친구만 볼 수 있어요</Text>
                 <Text style={s.lockSub}>
-                  친구가 되면 집중·폰 사용 통계를{'\n'}나와 비교해서 볼 수 있어요.
+                  친구가 되면 요일별 집중·폰 사용,{'\n'}과목별 비교를 볼 수 있어요.
                 </Text>
               </View>
             )}
