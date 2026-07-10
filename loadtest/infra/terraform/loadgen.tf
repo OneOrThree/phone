@@ -6,8 +6,8 @@ resource "google_compute_instance_template" "loadgen" {
   machine_type = var.loadgen_machine_type
 
   # spot — 선점되면 run 은 verdict=INVALID 로 폐기 (FAIL 아님). soak(Phase 4)은 표준 VM 별도.
-  # 무료 크레딧(무료체험) 계정은 spot/preemptible 을 못 쓰므로(쿼터 증설도 거부) loadgen_use_spot=false
-  # 로 온디맨드 전환 — CPUS 쿼터로 커버되고 짧은 run 은 비용 무시 수준. 유료 전환 시 true 로 되돌림.
+  # 무료 크레딧 계정도 spot 사용 가능(실증 확인 — PREEMPTIBLE_CPUS metric 이 0 이어도 C2_CPUS 로 생성됨).
+  # 정말 spot 이 막힌 계정에서만 loadgen_use_spot=false 로 온디맨드 전환(CPUS 쿼터로 커버, 짧은 run 은 비용 무시).
   scheduling {
     provisioning_model          = var.loadgen_use_spot ? "SPOT" : "STANDARD"
     preemptible                 = var.loadgen_use_spot
