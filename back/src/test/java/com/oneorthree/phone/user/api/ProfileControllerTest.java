@@ -42,13 +42,15 @@ class ProfileControllerTest {
     @DisplayName("공개 프로필 조회 → 200, 닉네임·친구수·티어·랭킹 반환")
     void getPublicProfileReturns200() throws Exception {
         PublicProfileResponse response = new PublicProfileResponse(
-                targetUserId, "조재영", List.of(), 5L, 3, 2);
+                targetUserId, "조재영", "CSAT", List.of(), 5L, 3, 2);
         given(profileService.getPublicProfile(any())).willReturn(response);
 
         mockMvc.perform(get("/api/v1/users/{userId}/profile", targetUserId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value(targetUserId.toString()))
                 .andExpect(jsonPath("$.nickname").value("조재영"))
+                // 준비 시험 코드 노출 (GROMO-747)
+                .andExpect(jsonPath("$.occupation").value("CSAT"))
                 .andExpect(jsonPath("$.friendCount").value(5))
                 .andExpect(jsonPath("$.currentTier").value(3))
                 .andExpect(jsonPath("$.rank").value(2))
@@ -59,7 +61,7 @@ class ProfileControllerTest {
     @DisplayName("리그 미소속 → 200, tier/rank null")
     void getPublicProfileNoLeagueReturns200() throws Exception {
         PublicProfileResponse response = new PublicProfileResponse(
-                targetUserId, "조재영", List.of(), 0L, null, null);
+                targetUserId, "조재영", null, List.of(), 0L, null, null);
         given(profileService.getPublicProfile(any())).willReturn(response);
 
         mockMvc.perform(get("/api/v1/users/{userId}/profile", targetUserId))
