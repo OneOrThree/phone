@@ -28,8 +28,8 @@ import java.util.UUID;
 @AllArgsConstructor
 public class GroupChallenge {
 
-    // NOTE(671 스코프 밖 — 674 커플링): duration_minutes/window_start/end 를
-    //   group_challenge_durations/windows 로 분리하는 건 여기서 하지 말 것.
+    // type 별 파라미터는 CTI 상세 테이블에 1:1 로 분리 —
+    //   DURATION → GroupChallengeDuration, TIME_WINDOW → GroupChallengeWindow.
 
     @Id
     @GeneratedUuidV7
@@ -43,15 +43,6 @@ public class GroupChallenge {
     @Column(nullable = false)
     private MissionType type;
 
-    @Column(name = "duration_minutes")
-    private Integer durationMinutes;
-
-    @Column(name = "window_start")
-    private Instant windowStart;
-
-    @Column(name = "window_end")
-    private Instant windowEnd;
-
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default
@@ -60,9 +51,6 @@ public class GroupChallenge {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private MissionCategory category;
-
-    @Column(name = "time_zone")
-    private String timeZone;
 
     @CreationTimestamp
     @Column(nullable = false, updatable = false)

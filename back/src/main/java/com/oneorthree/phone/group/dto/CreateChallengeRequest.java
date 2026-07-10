@@ -18,5 +18,4 @@ public class CreateChallengeRequest {
     private Integer durationMinutes;
     private Instant windowStart;
     private Instant windowEnd;
-    private String timeZone;
 }

@@ -26,8 +26,7 @@ import java.util.UUID;
 @AllArgsConstructor
 public class Group {
 
-    // NOTE(671 스코프 밖 — 건드리지 말 것): 챌린지 컬럼(mission_*/window_*/duration_minutes/time_zone)→674,
-    //   notice_permission/host_id/started_at/ended_at/bet_type→676.
+    // NOTE(스코프 밖 — 건드리지 말 것): notice_permission/host_id/started_at/ended_at/bet_type→676.
 
     @Id
     @GeneratedUuidV7
@@ -42,20 +41,6 @@ public class Group {
 
     @Column(length = 200)
     private String description;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "mission_category", nullable = false)
-    private MissionCategory missionCategory;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "mission_type", nullable = false)
-    private MissionType missionType;
-
-    private Instant windowStart;
-
-    private Instant windowEnd;
-
-    private Integer durationMinutes;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

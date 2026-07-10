@@ -18,7 +18,6 @@ public class GroupChallengeResponse {
     private Integer durationMinutes;
     private String windowStart;
     private String windowEnd;
-    private String timeZone;
     private GroupChallengeStatus status;
     private Instant createdAt;
     private boolean canParticipate;

@@ -19,10 +19,14 @@ import com.oneorthree.phone.group.domain.GroupStatus;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.group.domain.GroupAnnouncement;
 import com.oneorthree.phone.group.domain.GroupChallenge;
+import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
+import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupNoticeGrantRepository;
 import com.oneorthree.phone.group.dto.CreateGroupRequest;
 import com.oneorthree.phone.group.dto.CreateGroupResponse;
@@ -99,6 +103,12 @@ class GroupServiceTest {
     private GroupChallengeRepository groupChallengeRepository;
 
     @Mock
+    private GroupChallengeDurationRepository groupChallengeDurationRepository;
+
+    @Mock
+    private GroupChallengeWindowRepository groupChallengeWindowRepository;
+
+    @Mock
     private DailyFocusStatRepository dailyFocusStatRepository;
 
     @Mock
@@ -149,6 +159,18 @@ class GroupServiceTest {
                 .willReturn(Group.builder().id(id).build());
     }
 
+    /** GROMO-674: 대표 챌린지(DURATION/FOCUS, ACTIVE) + duration 상세 스텁 — 상세/오버뷰 미션 필드 소스. */
+    private void givenRepresentativeDurationChallenge(Group group, int durationMinutes) {
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(CHALLENGE_ID).group(group).type(MissionType.DURATION)
+                .category(MissionCategory.FOCUS).status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtAsc(
+                group, GroupChallengeStatus.ACTIVE)).willReturn(Optional.of(challenge));
+        given(groupChallengeDurationRepository.findById(CHALLENGE_ID)).willReturn(
+                Optional.of(GroupChallengeDuration.builder()
+                        .challengeId(CHALLENGE_ID).durationMinutes(durationMinutes).build()));
+    }
+
     // ── 정상 생성 ─────────────────────────────────────────────────────────
 
     @Test
@@ -185,6 +207,46 @@ class GroupServiceTest {
         ArgumentCaptor<GroupMember> memberCaptor = ArgumentCaptor.forClass(GroupMember.class);
         verify(groupMemberRepository).save(memberCaptor.capture());
         assertThat(memberCaptor.getValue().getRole()).isEqualTo(GroupMemberRole.OWNER);
+
+        // GROMO-674: 미션 정보는 groups 컬럼 대신 대표 챌린지 + duration 상세로 저장
+        ArgumentCaptor<GroupChallenge> challengeCaptor = ArgumentCaptor.forClass(GroupChallenge.class);
+        verify(groupChallengeRepository).save(challengeCaptor.capture());
+        GroupChallenge savedChallenge = challengeCaptor.getValue();
+        assertThat(savedChallenge.getGroup().getId()).isEqualTo(GROUP_SAVE_ID);
+        assertThat(savedChallenge.getType()).isEqualTo(MissionType.DURATION);
+        assertThat(savedChallenge.getCategory()).isEqualTo(MissionCategory.FOCUS);
+        assertThat(savedChallenge.getStatus()).isEqualTo(GroupChallengeStatus.ACTIVE);
+
+        ArgumentCaptor<GroupChallengeDuration> durationCaptor = ArgumentCaptor.forClass(GroupChallengeDuration.class);
+        verify(groupChallengeDurationRepository).save(durationCaptor.capture());
+        assertThat(durationCaptor.getValue().getDurationMinutes()).isEqualTo(60);
+        verify(groupChallengeWindowRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("TIME_WINDOW 생성 → 대표 챌린지 + window 상세 저장, duration 상세는 저장 안 함")
+    void createGroupTimeWindowSavesWindowDetail() {
+        // given
+        Instant start = Instant.parse("2026-07-10T13:00:00Z");
+        Instant end = Instant.parse("2026-07-10T15:00:00Z");
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
+        givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
+
+        // when
+        groupService.createGroup(USER_ID, timeWindowRequest(start, end));
+
+        // then
+        ArgumentCaptor<GroupChallenge> challengeCaptor = ArgumentCaptor.forClass(GroupChallenge.class);
+        verify(groupChallengeRepository).save(challengeCaptor.capture());
+        assertThat(challengeCaptor.getValue().getType()).isEqualTo(MissionType.TIME_WINDOW);
+        assertThat(challengeCaptor.getValue().getStatus()).isEqualTo(GroupChallengeStatus.ACTIVE);
+
+        ArgumentCaptor<GroupChallengeWindow> windowCaptor = ArgumentCaptor.forClass(GroupChallengeWindow.class);
+        verify(groupChallengeWindowRepository).save(windowCaptor.capture());
+        assertThat(windowCaptor.getValue().getWindowStartAt()).isEqualTo(start);
+        assertThat(windowCaptor.getValue().getWindowEndAt()).isEqualTo(end);
+        verify(groupChallengeDurationRepository, never()).save(any());
     }
 
     @Test
@@ -262,6 +324,7 @@ class GroupServiceTest {
         assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, null)))
                 .isInstanceOf(GroupException.class);
         verify(groupRepository, never()).save(any());
+        verify(groupChallengeRepository, never()).save(any());
     }
 
     @Test
@@ -274,6 +337,7 @@ class GroupServiceTest {
         assertThatThrownBy(() -> groupService.createGroup(USER_ID, timeWindowRequest(Instant.now(), null)))
                 .isInstanceOf(GroupException.class);
         verify(groupRepository, never()).save(any());
+        verify(groupChallengeRepository, never()).save(any());
     }
 
     // ── 참가 코드 생성 ────────────────────────────────────────────────────
@@ -556,14 +620,14 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = Group.builder()
                 .id(GROUP_ID).name("스터디룸").description("열심히 공부")
-                .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
-                .durationMinutes(60).maxMembers(10).status(GroupStatus.WAITING).build();
+                .maxMembers(10).status(GroupStatus.WAITING).build();
         GroupMember member = GroupMember.builder().user(user).group(group).build();
 
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member));
+        givenRepresentativeDurationChallenge(group, 60);
 
         // when
         GroupOverviewResponse result = groupService.getGroupOverview(GROUP_ID, USER_ID);
@@ -574,6 +638,44 @@ class GroupServiceTest {
         assertThat(result.getMemberCount()).isEqualTo(1);
         assertThat(result.isMember()).isTrue();
         assertThat(result.isHasPassword()).isFalse();
+        // GROMO-674: 미션 필드는 대표 챌린지(+duration 상세)에서 채워진다
+        assertThat(result.getMissionCategory()).isEqualTo(MissionCategory.FOCUS);
+        assertThat(result.getMissionType()).isEqualTo(MissionType.DURATION);
+        assertThat(result.getDurationMinutes()).isEqualTo(60);
+    }
+
+    @Test
+    @DisplayName("TIME_WINDOW 대표 챌린지 → windowStart/windowEnd 는 window 상세에서 채움")
+    void getGroupOverviewTimeWindowMission() {
+        // given
+        User user = normalUser();
+        Group group = Group.builder().id(GROUP_ID).name("그룹")
+                .maxMembers(10).status(GroupStatus.WAITING).build();
+        Instant start = Instant.parse("2026-07-10T13:00:00Z");
+        Instant end = Instant.parse("2026-07-10T15:00:00Z");
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(CHALLENGE_ID).group(group).type(MissionType.TIME_WINDOW)
+                .category(MissionCategory.SCREEN_TIME).status(GroupChallengeStatus.ACTIVE).build();
+
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+        given(groupChallengeRepository.findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtAsc(
+                group, GroupChallengeStatus.ACTIVE)).willReturn(Optional.of(challenge));
+        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(
+                Optional.of(GroupChallengeWindow.builder()
+                        .challengeId(CHALLENGE_ID).windowStartAt(start).windowEndAt(end).build()));
+
+        // when
+        GroupOverviewResponse result = groupService.getGroupOverview(GROUP_ID, USER_ID);
+
+        // then
+        assertThat(result.getMissionCategory()).isEqualTo(MissionCategory.SCREEN_TIME);
+        assertThat(result.getMissionType()).isEqualTo(MissionType.TIME_WINDOW);
+        assertThat(result.getWindowStart()).isEqualTo(start);
+        assertThat(result.getWindowEnd()).isEqualTo(end);
+        assertThat(result.getDurationMinutes()).isNull();
     }
 
     @Test
@@ -582,7 +684,6 @@ class GroupServiceTest {
         // given
         User user = normalUser();
         Group group = Group.builder().id(GROUP_ID).name("그룹")
-                .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
                 .maxMembers(10).status(GroupStatus.WAITING).build();
 
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
@@ -596,6 +697,9 @@ class GroupServiceTest {
         // then
         assertThat(result.isMember()).isFalse();
         assertThat(result.getMemberCount()).isEqualTo(0);
+        // GROMO-674: 대표 챌린지(ACTIVE)가 없으면 미션 필드는 null
+        assertThat(result.getMissionCategory()).isNull();
+        assertThat(result.getMissionType()).isNull();
     }
 
     @Test
@@ -604,7 +708,6 @@ class GroupServiceTest {
         // given
         User user = normalUser();
         Group group = Group.builder().id(GROUP_ID).name("비밀방").password("hashed-pw")
-                .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
                 .maxMembers(5).status(GroupStatus.WAITING).build();
 
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
@@ -635,7 +738,6 @@ class GroupServiceTest {
     void getGroupOverviewUserNotFound() {
         // given
         Group group = Group.builder().id(GROUP_ID).name("그룹")
-                .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
                 .maxMembers(10).status(GroupStatus.WAITING).build();
 
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
@@ -772,6 +874,7 @@ class GroupServiceTest {
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember));
+        givenRepresentativeDurationChallenge(group, 60);
         // GROMO-672: OWNER 상세의 code/codeExpiresAt 은 group_join_codes 에서 조회
         given(groupJoinCodeRepository.findById(GROUP_ID))
                 .willReturn(Optional.of(joinCodeFor(group, "INVITE01", expiry)));
@@ -784,6 +887,10 @@ class GroupServiceTest {
         assertThat(response.getCodeExpiresAt()).isEqualTo(expiry);
         assertThat(response.getMembers()).hasSize(1);
         assertThat(response.getMembers().get(0).getNickname()).isEqualTo("방장");
+        // GROMO-674: 미션 필드는 대표 챌린지(+duration 상세)에서 채워진다
+        assertThat(response.getMissionCategory()).isEqualTo(MissionCategory.FOCUS);
+        assertThat(response.getMissionType()).isEqualTo(MissionType.DURATION);
+        assertThat(response.getDurationMinutes()).isEqualTo(60);
     }
 
     @Test
@@ -923,13 +1030,17 @@ class GroupServiceTest {
         GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
         GroupChallenge challenge = GroupChallenge.builder()
                 .id(CHALLENGE_ID).group(group).type(MissionType.DURATION)
-                .durationMinutes(60).status(GroupChallengeStatus.ACTIVE)
+                .category(MissionCategory.FOCUS).status(GroupChallengeStatus.ACTIVE)
                 .createdAt(Instant.now()).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
         given(groupChallengeRepository.findByGroupOrderByCreatedAtDesc(group)).willReturn(List.of(challenge));
+        // GROMO-674: durationMinutes 는 CTI 상세 배치 조회로 채워진다
+        given(groupChallengeDurationRepository.findByChallengeIdIn(List.of(CHALLENGE_ID)))
+                .willReturn(List.of(GroupChallengeDuration.builder()
+                        .challengeId(CHALLENGE_ID).durationMinutes(60).build()));
 
         // when
         List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID);
@@ -984,13 +1095,11 @@ class GroupServiceTest {
 
     private Group openGroup() {
         return Group.builder().id(GROUP_ID).name("스터디룸")
-                .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
                 .maxMembers(10).status(GroupStatus.WAITING).build();
     }
 
     private Group passwordGroup() {
         return Group.builder().id(GROUP_ID).name("비밀방").password("hashed-pw")
-                .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
                 .maxMembers(10).status(GroupStatus.WAITING).build();
     }
 
@@ -1084,7 +1193,6 @@ class GroupServiceTest {
         // given
         User user = normalUser();
         Group group = Group.builder().id(GROUP_ID).name("꽉찬방")
-                .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
                 .maxMembers(2).status(GroupStatus.WAITING).build();
         List<GroupMember> members = List.of(
                 GroupMember.builder().build(),
