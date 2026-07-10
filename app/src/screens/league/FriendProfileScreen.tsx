@@ -67,7 +67,9 @@ export default function FriendProfileScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute<RouteProp<V2RootStackParamList, 'FriendProfile'>>();
-  const { userId, nickname, tierLevel, exam } = route.params;
+  // rank·rankLabel = 진입한 랭킹 목록의 순위·스코프('전체'/직군명) — 서버 프로필 rank(아레나 내 순위)와
+  // 스코프가 달라 목록 값을 그대로 표시한다. 랭킹 외 진입(검색·친구·요청)은 미전달 → 순위 미표시 (GROMO-685).
+  const { userId, nickname, tierLevel, exam, rank, rankLabel } = route.params;
 
   // 친구 관계·핀은 진입점 파라미터 + 서버 친구 목록으로 관리(통계 공개와 별개).
   const [isFriend, setIsFriend] = useState(route.params.isFriend);
@@ -189,7 +191,6 @@ export default function FriendProfileScreen() {
 
   const tier = tierByLevel(profile?.currentTier ?? tierLevel);
   const friendCount = profile?.friendCount ?? 0;
-  const rank = profile?.rank ?? null;
 
   // 상세 통계 공개 여부 — getUserStats가 채워준 경우(본인·친구·전체공개, GROMO-640).
   // heatmap까지 있어 요일 비교 가능.
@@ -347,7 +348,7 @@ export default function FriendProfileScreen() {
             <Text style={s.tierText}>{tier.name}</Text>
             {rank != null && (
               <Text style={s.rankText} allowFontScaling={false}>
-                · 전체 랭킹 {rank}위
+                · {rankLabel ?? '전체'} 랭킹 {rank}위
               </Text>
             )}
           </View>
