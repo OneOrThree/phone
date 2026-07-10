@@ -66,7 +66,7 @@ VM_PSQL='psql -h "$DB_HOST" -U "$DB_USER" -v ON_ERROR_STOP=1'
 # 터널이 끊겨도 VM 안에서 계속 실행된다(폴링 ssh 가 끊겨도 재연결로 무해). rc 파일로 성공/실패 판정.
 vm_sh_bg() {
   local tag="$1" inner="$2"
-  printf '. ~/seed/vm_env.sh\n%s\n' "$inner" > "$STEP_DIR/${tag}.step.sh"
+  printf 'set -euo pipefail\n. ~/seed/vm_env.sh\n%s\n' "$inner" > "$STEP_DIR/${tag}.step.sh"
   scp_to_vm "$STEP_DIR/${tag}.step.sh" "$OBS_VM":"~/seed/${tag}.step.sh" >/dev/null
   run_vm "rm -f ~/seed/${tag}.rc ~/seed/${tag}.log; setsid bash -c 'bash ~/seed/${tag}.step.sh; echo \$? > ~/seed/${tag}.rc' </dev/null >~/seed/${tag}.log 2>&1 & sleep 1"
   log "  ↳ ${tag}: VM detached 실행 — 30s 폴링 (ssh 드롭 무관)"

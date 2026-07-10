@@ -41,7 +41,7 @@ case "$STAGE" in
     tries=0
     until vm_ssh sut 'curl -fsS http://localhost:8080/health >/dev/null' 2>/dev/null; do
       tries=$((tries + 1))
-      [ "$tries" -ge 24 ] && { log "❌ /health 대기 초과 — vm_ssh sut 'docker logs loadtest-app' 확인"; exit 1; }
+      [ "$tries" -ge 24 ] && { log "❌ /health 대기 초과 — vm_ssh sut 'sudo docker logs loadtest-app' 확인"; exit 1; }
       sleep 5
     done
     log "SUT 준비 완료 ✅"
