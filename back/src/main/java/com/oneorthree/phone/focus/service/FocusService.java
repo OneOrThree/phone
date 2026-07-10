@@ -16,14 +16,16 @@ import com.oneorthree.phone.focus.dto.FocusTagSetupRequest;
 import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
 import com.oneorthree.phone.focus.dto.OccupationDefaultTagResponse;
 import com.oneorthree.phone.focus.dto.OccupationDefaultTagsResponse;
-import com.oneorthree.phone.focus.domain.FocusTag;
+import com.oneorthree.phone.focus.domain.DefaultTag;
+import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.focus.repository.FocusTagRepository;
+import com.oneorthree.phone.focus.repository.DefaultTagRepository;
+import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
@@ -59,7 +61,8 @@ public class FocusService {
     // orphan(앱 강제종료로 endedAt 미기록) 자동 종료 임계값 — 이보다 오래된 진행 중 세션은 상한으로 종료.
     private static final Duration ORPHAN_TIMEOUT = Duration.ofHours(12);
 
-    private final FocusTagRepository focusTagRepository;
+    private final UserFocusTagRepository userFocusTagRepository;
+    private final DefaultTagRepository defaultTagRepository;
     private final OccupationDefaultTagRepository occupationDefaultTagRepository;
     private final UserRepository userRepository;
     private final FocusSessionRepository focusSessionRepository;
@@ -73,9 +76,10 @@ public class FocusService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        return focusTagRepository.findByUserAndDeletedAtIsNull(user)
+        // GROMO-673: 유저가 채택한 태그(user_focus_tags) 목록. id 는 user_focus_tags.id, 이름은 defaultTag.name.
+        return userFocusTagRepository.findByUserAndDeletedAtIsNull(user)
                 .stream()
-                .map(tag -> new FocusTagResponse(tag.getId(), tag.getName()))
+                .map(tag -> new FocusTagResponse(tag.getId(), tag.getDefaultTag().getName()))
                 .toList();
     }
 
@@ -97,10 +101,11 @@ public class FocusService {
             }
         }
 
+        // GROMO-673: occupation_default_tags 가 default_tags 를 FK 로 참조 → 이름은 defaultTag.name. sort_order 유지.
         List<OccupationDefaultTagResponse> tags = occupationDefaultTagRepository
                 .findByOccupationOrderBySortOrderAsc(resolved)
                 .stream()
-                .map(tag -> new OccupationDefaultTagResponse(tag.getName(), tag.getSortOrder()))
+                .map(tag -> new OccupationDefaultTagResponse(tag.getDefaultTag().getName(), tag.getSortOrder()))
                 .toList();
 
         return new OccupationDefaultTagsResponse(resolved, tags);
@@ -111,31 +116,65 @@ public class FocusService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        FocusTag savedTag = focusTagRepository.save(FocusTag.builder()
-                .user(user)
-                .name(body.name())
-                .build());
+        // GROMO-673: 태그 정체성은 default_tags(글로벌 재사용 단위). 이름으로 find-or-create 후
+        // 유저 채택 레코드(user_focus_tags)를 생성한다. 이미 채택한 태그면 unique(user, default_tag)로 멱등.
+        DefaultTag defaultTag = defaultTagRepository.findByName(body.name())
+                .orElseGet(() -> defaultTagRepository.save(DefaultTag.builder()
+                        .name(body.name())
+                        .build()));
 
-        // 태그 이름은 유저 입력(PII 금지) — tag_id 만 기록
+        UserFocusTag existing = userFocusTagRepository
+                .findByUserAndDefaultTagAndDeletedAtIsNull(user, defaultTag)
+                .orElse(null);
+        UserFocusTag savedTag = existing != null
+                ? existing
+                : userFocusTagRepository.save(UserFocusTag.builder()
+                        .user(user)
+                        .defaultTag(defaultTag)
+                        .build());
+
+        // 태그 이름은 유저 입력(PII 금지) — tag_id(user_focus_tags.id) 만 기록
         userActivityEventLogger.log(UserActivityEvent.FOCUS_TAG_CREATED,
                 Map.of("tag_id", savedTag.getId().toString()));
     }
 
     @Transactional
     public void updateFocusTag(UUID userId, FocusTagUpdateRequest body) {
-        FocusTag tag = focusTagRepository.findByIdAndDeletedAtIsNull(body.tagId())
+        UserFocusTag tag = userFocusTagRepository.findByIdAndDeletedAtIsNull(body.tagId())
                 .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
 
         if (!tag.getUser().getId().equals(userId)) {
             throw new FocusException(FocusErrorCode.FORBIDDEN);
         }
 
-        tag.updateName(body.name());
+        User user = tag.getUser();
+
+        // GROMO-673: 이름은 공유 default_tags 에 있어 default_tags 를 직접 rename 하면 이 태그를 공유하는 다른 유저·
+        // occupation 추천까지 오염된다. UserFocusTag 는 참조 전용(정체성 재지정 mutator 없음)이므로 유저 태그
+        // '이름 변경'은 = 기존 채택을 소프트 딜리트하고 새 이름의 default_tag 로 다시 채택한다.
+        // (이미 새 이름을 활성 채택 중이면 그 행을 유지해 unique(user, default_tag) 위반과 중복을 피한다.)
+        DefaultTag target = defaultTagRepository.findByName(body.name())
+                .orElseGet(() -> defaultTagRepository.save(DefaultTag.builder()
+                        .name(body.name())
+                        .build()));
+
+        // 이름이 실제로 같으면(같은 default_tag) 변경 없음 — no-op.
+        // name 은 default_tags 전역 유일이라 이름 일치 = 정체성 일치(엔티티 id 미할당 상황에도 안전).
+        if (tag.getDefaultTag().getName().equals(target.getName())) {
+            return;
+        }
+
+        tag.softDelete();
+        userFocusTagRepository.findByUserAndDefaultTagAndDeletedAtIsNull(user, target)
+                .orElseGet(() -> userFocusTagRepository.save(UserFocusTag.builder()
+                        .user(user)
+                        .defaultTag(target)
+                        .build()));
     }
 
     @Transactional
     public void deleteFocusTag(UUID userId, UUID tagId) {
-        FocusTag tag = focusTagRepository.findByIdAndDeletedAtIsNull(tagId)
+        UserFocusTag tag = userFocusTagRepository.findByIdAndDeletedAtIsNull(tagId)
                 .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
 
         if (!tag.getUser().getId().equals(userId)) {
@@ -189,7 +228,7 @@ public class FocusService {
             throw new IllegalArgumentException("종료 시간이 시작 시간보다 앞설 수 없습니다");
         }
 
-        FocusTag tag = resolveOwnedTag(userId, body.getFocusTagId());
+        UserFocusTag tag = resolveOwnedTag(userId, body.getFocusTagId());
 
         focusSessionRepository.save(FocusSession.builder()
                 .user(user)
@@ -218,7 +257,7 @@ public class FocusService {
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         Instant startedAt = body.startedAt() != null ? body.startedAt() : Instant.now();
-        FocusTag tag = resolveOwnedTag(userId, body.focusTagId());
+        UserFocusTag tag = resolveOwnedTag(userId, body.focusTagId());
 
         FocusSession saved = focusSessionRepository.save(FocusSession.builder()
                 .user(user)
@@ -258,7 +297,7 @@ public class FocusService {
             throw new FocusException(FocusErrorCode.SESSION_ALREADY_ENDED);
         }
 
-        FocusTag tag = session.getFocusTag();
+        UserFocusTag tag = session.getFocusTag();
         if (body.focusTagId() != null) {
             tag = resolveOwnedTag(userId, body.focusTagId());
             session.applyTag(tag);
@@ -294,12 +333,12 @@ public class FocusService {
         return orphans.size();
     }
 
-    /** 태그 id 로 소유 태그를 조회(없으면 null 반환, 미소유면 FORBIDDEN). POST/PATCH 공용. */
-    private FocusTag resolveOwnedTag(UUID userId, UUID focusTagId) {
+    /** 태그 id(user_focus_tags.id)로 소유 태그를 조회(없으면 null 반환, 미소유면 FORBIDDEN). POST/PATCH 공용. */
+    private UserFocusTag resolveOwnedTag(UUID userId, UUID focusTagId) {
         if (focusTagId == null) {
             return null;
         }
-        FocusTag tag = focusTagRepository.findByIdAndDeletedAtIsNull(focusTagId)
+        UserFocusTag tag = userFocusTagRepository.findByIdAndDeletedAtIsNull(focusTagId)
                 .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
         if (!tag.getUser().getId().equals(userId)) {
             throw new FocusException(FocusErrorCode.FORBIDDEN);
@@ -311,7 +350,7 @@ public class FocusService {
      * 세션 완료 귀속 — FOCUS_SESSION_COMPLETED 로깅 + DailyFocusStat upsert(비관적 락) + 스트릭 갱신.
      * POST(완료 통째 저장)와 PATCH(라이브 종료)가 공유해 통계 로직을 한 곳으로 모은다.
      */
-    private void recordCompletion(User user, UUID userId, FocusTag tag,
+    private void recordCompletion(User user, UUID userId, UserFocusTag tag,
                                   Instant startedAt, Instant endedAt, int totalDistractionSeconds, LocalDate statDate) {
         long durationSeconds = Duration.between(startedAt, endedAt).getSeconds();
         // payload 에 null 값 금지 — nullable 인 focus_tag_id 는 태그 있을 때만 키 포함

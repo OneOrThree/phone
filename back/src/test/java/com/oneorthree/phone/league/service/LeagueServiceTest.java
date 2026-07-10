@@ -2,7 +2,7 @@ package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.friend.repository.PinnedFriendRepository;
+import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.domain.LeagueArena;
 import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
@@ -58,7 +58,7 @@ class LeagueServiceTest {
     private UserActivityEventLogger userActivityEventLogger;
 
     @Mock
-    private PinnedFriendRepository pinnedFriendRepository;
+    private PinnedUserRepository pinnedUserRepository;
 
     private LeagueTierConfig tierConfig(int tierLevel, String badgeId) {
         return LeagueTierConfig.builder()
@@ -158,7 +158,7 @@ class LeagueServiceTest {
         // findRankedByArena 가 이미 정렬된 리스트를 반환한다고 가정 (top > me > last)
         given(leagueArenaUserRepository.findRankedByArena(arena))
                 .willReturn(List.of(top, me, last));
-        given(pinnedFriendRepository.findFriendUserIdsByUserId(any())).willReturn(Set.of());
+        given(pinnedUserRepository.findPinnedUserIdsByUserId(any())).willReturn(Set.of());
 
         List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, null);
 
@@ -191,7 +191,7 @@ class LeagueServiceTest {
         given(leagueArenaUserRepository.findRankedByActiveArenasAndOccupation(
                 eq(Occupation.LABOR_ATTORNEY), any(Pageable.class)))
                 .willReturn(List.of(top, me));
-        given(pinnedFriendRepository.findFriendUserIdsByUserId(any())).willReturn(Set.of());
+        given(pinnedUserRepository.findPinnedUserIdsByUserId(any())).willReturn(Set.of());
 
         List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, Occupation.LABOR_ATTORNEY);
 
@@ -210,7 +210,7 @@ class LeagueServiceTest {
         given(leagueArenaUserRepository.findRankedByActiveArenasAndOccupation(
                 eq(Occupation.UNIVERSITY), any(Pageable.class)))
                 .willReturn(List.of(other));
-        given(pinnedFriendRepository.findFriendUserIdsByUserId(any())).willReturn(Set.of());
+        given(pinnedUserRepository.findPinnedUserIdsByUserId(any())).willReturn(Set.of());
 
         // 미배정 유저가 category 지정으로 호출해도 전역 랭킹 반환
         List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, Occupation.UNIVERSITY);

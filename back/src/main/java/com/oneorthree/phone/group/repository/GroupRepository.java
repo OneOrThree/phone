@@ -7,14 +7,11 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 public interface GroupRepository extends JpaRepository<Group, UUID> {
 
     List<Group> findByStatus(GroupStatus status);
-
-    Optional<Group> findByCode(String code);
 
     // GROMO-676: groups.host_id 폐기 — 방장 여부는 group_members.role=OWNER 기준으로 판단한다.
     @Query("select count(gm) > 0 from GroupMember gm "
@@ -25,8 +22,6 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
     default boolean existsByHostId(UUID userId) {
         return existsGroupOwnedBy(userId);
     }
-
-    boolean existsByCode(String code);
 
     List<Group> findByNameContainingIgnoreCase(String name);
 }

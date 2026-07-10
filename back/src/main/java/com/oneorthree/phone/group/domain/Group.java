@@ -16,7 +16,6 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 @Entity
@@ -27,9 +26,6 @@ import java.util.UUID;
 @AllArgsConstructor
 public class Group {
 
-    // NOTE(671 스코프 밖 — 건드리지 말 것): 챌린지 컬럼(mission_*/window_*/duration_minutes/time_zone)→674,
-    //   code/code_expires_at→672.
-
     @Id
     @GeneratedUuidV7
     private UUID id;
@@ -38,31 +34,11 @@ public class Group {
     @Builder.Default
     private String name = "";
 
-    @Column(unique = true, length = 8)
-    private String code;
-
-    @Column(name = "code_expires_at")
-    private Instant codeExpiresAt;
-
     @Column(length = 100)
     private String password;
 
     @Column(length = 200)
     private String description;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "mission_category", nullable = false)
-    private MissionCategory missionCategory;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "mission_type", nullable = false)
-    private MissionType missionType;
-
-    private Instant windowStart;
-
-    private Instant windowEnd;
-
-    private Integer durationMinutes;
 
     @Column(nullable = false)
     private int maxMembers;
@@ -81,16 +57,6 @@ public class Group {
 
     @Column(name = "deleted_at")
     private Instant deletedAt;
-
-    public void expireCode() {
-        this.code = null;
-        this.codeExpiresAt = null;
-    }
-
-    public void renewCode(String newCode) {
-        this.code = newCode;
-        this.codeExpiresAt = Instant.now().plus(3, ChronoUnit.HOURS);
-    }
 
     public void updateName(String newName) {
         this.name = newName;

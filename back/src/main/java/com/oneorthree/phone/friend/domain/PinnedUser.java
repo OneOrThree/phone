@@ -22,14 +22,14 @@ import java.util.UUID;
 
 @Entity
 @Table(
-        name = "pinned_friends",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "friend_user_id"})
+        name = "pinned_users",
+        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "pinned_user_id"})
 )
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
-public class PinnedFriend {
+public class PinnedUser {
 
     @Id
     @GeneratedUuidV7
@@ -40,8 +40,8 @@ public class PinnedFriend {
     private User user;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "friend_user_id", nullable = false)
-    private User friendUser;
+    @JoinColumn(name = "pinned_user_id", nullable = false)
+    private User pinnedUser;
 
     @CreationTimestamp
     @Column(name = "created_at")

@@ -30,7 +30,8 @@ import java.util.UUID;
 @AllArgsConstructor
 public class FocusSession {
 
-    // NOTE: focus_tag_id → user_focus_tags 재지정은 671 아님(커플링 → 673). 여기서 건드리지 말 것
+    // GROMO-673: focus_tag_id 의 참조 대상을 focus_tags → user_focus_tags 로 재지정한다.
+    // 컬럼명(focus_tag_id)은 유지하고 FK 대상만 user_focus_tags 로 바뀐다.
 
     @Id
     @GeneratedUuidV7
@@ -40,9 +41,11 @@ public class FocusSession {
     @JoinColumn(name = "user_id")
     private User user;
 
+    // GROMO-673: 유저가 채택한 태그(user_focus_tags). nullable — 태그 없는 세션 허용.
+    // 참조 태그는 소프트 딜리트(user_focus_tags.deleted_at) 되므로 하드 삭제로 인한 참조 무결성 파손이 없다.
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "focus_tag_id")
-    private FocusTag focusTag;
+    private UserFocusTag focusTag;
 
     // GROMO-671(커밋1): 소속 일일 집계(FK → daily_focus_stats). nullable — 진행 중 세션은 미귀속.
     @Column(name = "daily_focus_stat_id")
@@ -83,8 +86,8 @@ public class FocusSession {
     // GROMO-671(커밋3): 소프트딜리트/취소는 deleted_at 대신 status=CANCELED 로 표현한다.
     // (기존에도 deleted_at 세팅/전환 배선은 후속 티켓이었음 — 여기선 조회 필터만 status 기반으로 전환.)
 
-    /** 시작 시 미지정한 태그를 종료 시점에 보정. */
-    public void applyTag(FocusTag focusTag) {
+    /** 시작 시 미지정한 태그(user_focus_tags)를 종료 시점에 보정. */
+    public void applyTag(UserFocusTag focusTag) {
         this.focusTag = focusTag;
     }
 

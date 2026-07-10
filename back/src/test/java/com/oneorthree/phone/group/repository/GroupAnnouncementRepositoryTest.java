@@ -3,8 +3,6 @@ package com.oneorthree.phone.group.repository;
 import com.oneorthree.phone.common.support.RepositoryTestBase;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupAnnouncement;
-import com.oneorthree.phone.group.domain.MissionCategory;
-import com.oneorthree.phone.group.domain.MissionType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,10 +24,9 @@ class GroupAnnouncementRepositoryTest extends RepositoryTestBase {
         // given: 같은 group 에 공지 3건을 '시간차를 두고' 저장
         //   - @CreationTimestamp 라 저장 순서대로 createdAt 이 증가 → 마지막 저장이 가장 최신
         //   - (시간 해상도 때문에 필요하면 저장 사이에 약간의 텀, 또는 createdAt 직접 세팅)
+        // GROMO-674: groups 미션 컬럼 제거 — 미션 정보는 group_challenges 소유라 여기선 불필요
         Group group = Group.builder()
                 .name("test")
-                .missionCategory(MissionCategory.FOCUS)
-                .missionType(MissionType.DURATION)
                 .build();
         groupRepository.save(group);
 

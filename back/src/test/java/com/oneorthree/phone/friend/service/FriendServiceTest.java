@@ -13,12 +13,12 @@ import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
-import com.oneorthree.phone.friend.domain.PinnedFriend;
-import com.oneorthree.phone.friend.dto.PinnedFriendResponse;
+import com.oneorthree.phone.friend.domain.PinnedUser;
+import com.oneorthree.phone.friend.dto.PinnedUserResponse;
 import com.oneorthree.phone.friend.exception.FriendErrorCode;
 import com.oneorthree.phone.friend.exception.FriendException;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
-import com.oneorthree.phone.friend.repository.PinnedFriendRepository;
+import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.friend.search.FriendSearchResult;
 import com.oneorthree.phone.friend.search.FriendSearchStrategy;
 import com.oneorthree.phone.friend.search.SearchType;
@@ -58,7 +58,7 @@ class FriendServiceTest {
     private UserRepository userRepository;
 
     @Mock
-    private PinnedFriendRepository pinnedFriendRepository;
+    private PinnedUserRepository pinnedUserRepository;
 
     @Mock
     private DailyFocusStatRepository dailyFocusStatRepository;
@@ -85,7 +85,7 @@ class FriendServiceTest {
     @BeforeEach
     void setUp() {
         given(nicknameStrategy.type()).willReturn(SearchType.NICKNAME);
-        friendService = new FriendService(friendshipRepository, userRepository, pinnedFriendRepository,
+        friendService = new FriendService(friendshipRepository, userRepository, pinnedUserRepository,
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
                 userActivityEventLogger, List.of(nicknameStrategy));
 
@@ -445,7 +445,7 @@ class FriendServiceTest {
         friendService.pinFriend(meId, targetId);
 
         // 친구관계(findAcceptedBetween) 검증 없이 바로 insert — user 핀 통일
-        verify(pinnedFriendRepository).insertIgnoreConflict(any(), eq(meId), eq(targetId));
+        verify(pinnedUserRepository).insertIgnoreConflict(any(), eq(meId), eq(targetId));
     }
 
     @Test
@@ -455,7 +455,7 @@ class FriendServiceTest {
                 .isInstanceOf(FriendException.class)
                 .extracting("errorCode")
                 .isEqualTo(FriendErrorCode.SELF_PIN);
-        verify(pinnedFriendRepository, never()).insertIgnoreConflict(any(), any(), any());
+        verify(pinnedUserRepository, never()).insertIgnoreConflict(any(), any(), any());
     }
 
     @Test
@@ -466,7 +466,7 @@ class FriendServiceTest {
 
         assertThatThrownBy(() -> friendService.pinFriend(meId, targetId))
                 .isInstanceOf(UserException.class);
-        verify(pinnedFriendRepository, never()).insertIgnoreConflict(any(), any(), any());
+        verify(pinnedUserRepository, never()).insertIgnoreConflict(any(), any(), any());
     }
 
     @Test
@@ -474,11 +474,11 @@ class FriendServiceTest {
     void unpinFriend_noPin_idempotent() {
         given(userRepository.findById(meId)).willReturn(Optional.of(me));
         given(userRepository.findById(targetId)).willReturn(Optional.of(target));
-        given(pinnedFriendRepository.findByUserAndFriendUser(me, target)).willReturn(Optional.empty());
+        given(pinnedUserRepository.findByUserAndPinnedUser(me, target)).willReturn(Optional.empty());
 
         friendService.unpinFriend(meId, targetId);
 
-        verify(pinnedFriendRepository, never()).delete(any());
+        verify(pinnedUserRepository, never()).delete(any());
     }
 
     @Test
@@ -487,8 +487,8 @@ class FriendServiceTest {
         given(userRepository.findById(meId)).willReturn(Optional.of(me));
         given(friendshipRepository.findAcceptedByUser(me))
                 .willReturn(List.of(friendship(me, target, FriendshipStatus.ACCEPTED)));
-        given(pinnedFriendRepository.findByUser(me))
-                .willReturn(List.of(PinnedFriend.builder().user(me).friendUser(target).build()));
+        given(pinnedUserRepository.findByUser(me))
+                .willReturn(List.of(PinnedUser.builder().user(me).pinnedUser(target).build()));
 
         List<FriendResponse> friends = friendService.getFriends(meId);
 
@@ -502,20 +502,20 @@ class FriendServiceTest {
     void unpinFriend_deletesWhenPresent() {
         given(userRepository.findById(meId)).willReturn(Optional.of(me));
         given(userRepository.findById(targetId)).willReturn(Optional.of(target));
-        PinnedFriend pin = PinnedFriend.builder().user(me).friendUser(target).build();
-        given(pinnedFriendRepository.findByUserAndFriendUser(me, target)).willReturn(Optional.of(pin));
+        PinnedUser pin = PinnedUser.builder().user(me).pinnedUser(target).build();
+        given(pinnedUserRepository.findByUserAndPinnedUser(me, target)).willReturn(Optional.of(pin));
 
         friendService.unpinFriend(meId, targetId);
 
-        verify(pinnedFriendRepository).delete(pin);
+        verify(pinnedUserRepository).delete(pin);
     }
 
     @Test
     @DisplayName("핀 친구 조회 — 오늘 집중분/진행중 매핑")
     void getPinnedFriends_mapsFocusInfo() {
         given(userRepository.findById(meId)).willReturn(Optional.of(me));
-        given(pinnedFriendRepository.findByUser(me))
-                .willReturn(List.of(PinnedFriend.builder().user(me).friendUser(target).build()));
+        given(pinnedUserRepository.findByUser(me))
+                .willReturn(List.of(PinnedUser.builder().user(me).pinnedUser(target).build()));
 
         DailyFocusStat stat = mock(DailyFocusStat.class);
         given(stat.getUser()).willReturn(target);
@@ -528,7 +528,7 @@ class FriendServiceTest {
 
         given(characterEquipmentRepository.findByUserIn(any())).willReturn(List.of());
 
-        List<PinnedFriendResponse> result = friendService.getPinnedFriends(meId, LocalDate.of(2026, 7, 3));
+        List<PinnedUserResponse> result = friendService.getPinnedFriends(meId, LocalDate.of(2026, 7, 3));
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getUserId()).isEqualTo(targetId);

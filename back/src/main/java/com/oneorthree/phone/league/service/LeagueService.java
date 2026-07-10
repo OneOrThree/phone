@@ -2,7 +2,7 @@ package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.friend.repository.PinnedFriendRepository;
+import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.domain.LeagueArena;
 import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
@@ -47,7 +47,7 @@ public class LeagueService {
     private final LeagueArenaUserRepository leagueArenaUserRepository;
     private final LeagueTierConfigRepository leagueTierConfigRepository;
     private final UserActivityEventLogger userActivityEventLogger;
-    private final PinnedFriendRepository pinnedFriendRepository;
+    private final PinnedUserRepository pinnedUserRepository;
 
     public LeagueTierResponse getMyTier(UUID userId) {
         return findActiveMembership(userId)
@@ -76,12 +76,12 @@ public class LeagueService {
         if (category != null) {
             List<LeagueArenaUser> ranked = leagueArenaUserRepository
                     .findRankedByActiveArenasAndOccupation(category, PageRequest.of(0, 100));
-            return toResponses(ranked, pinnedFriendRepository.findFriendUserIdsByUserId(userId));
+            return toResponses(ranked, pinnedUserRepository.findPinnedUserIdsByUserId(userId));
         }
         return findActiveMembership(userId)
                 .map(member -> toResponses(
                         leagueArenaUserRepository.findRankedByArena(member.getLeagueArena()),
-                        pinnedFriendRepository.findFriendUserIdsByUserId(userId)))
+                        pinnedUserRepository.findPinnedUserIdsByUserId(userId)))
                 .orElseGet(List::of);
     }
 
