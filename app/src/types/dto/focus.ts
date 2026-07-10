@@ -43,12 +43,11 @@ export interface FocusSessionRequest {
 }
 
 // GET /focus-session content 항목 — 집중 세션 단건.
+// ⚠️ 서버는 이 4개 필드만 직렬화한다(FocusSessionResponse.java) — subject·distractionCount 없음(리뷰 반영).
 export interface FocusSessionResponse {
-  focusTagId: string | null; // UUID, 태그 미지정 시 null
-  subject: string;
+  focusTagId: string | null; // UUID, 태그 미지정 시 null (user_focus_tags.id — GROMO-673)
   startedAt: string; // Instant, ISO 문자열
   endedAt: string; // Instant, ISO 문자열
-  distractionCount: number;
   totalDistractionSeconds: number;
 }
 

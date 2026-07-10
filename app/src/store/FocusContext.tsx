@@ -38,6 +38,9 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         // 로컬 데이터 없음(첫 실행·재로그인) — 오늘 서버 세션 구간 합으로 '오늘 집중' 복원(GROMO-677).
         // 소프트 삭제된 태그의 세션은 제외 — 과목 삭제가 홈 총합에서 차감하는 로컬 규칙과 일치(리뷰 반영).
         // 과목 미분류(tagId null) 세션은 포함. 실패하면 기존처럼 0에서 시작.
+        // ⚠️ 한계(리뷰): 서버 '이름 변경'도 옛 태그를 소프트삭제 + 새 채택이라(FocusService.updateFocusTag)
+        // 이름 변경 전 오늘 세션이 삭제 취급돼 복원 총합이 줄 수 있다. 클라에선 rename/delete 구분 불가 —
+        // rename 시 오늘 세션 재연결은 BE 요청으로 등록(app/.docs/be-요청사항.md 7번).
         try {
           const [sessions, tags] = await Promise.all([fetchTodayFocusSessions(), getFocusTags()]);
           const activeTagIds = new Set(tags.map((t) => t.tagId));

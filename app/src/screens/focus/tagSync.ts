@@ -45,8 +45,19 @@ export async function ensureFocusTagId(
 // 순서 역전(유령 태그 잔존 → 복원 시 부활)을 막는다(리뷰 반영). 실패해도 체인은 이어진다.
 
 let editChain: Promise<void> = Promise.resolve();
+let editGeneration = 0;
 function enqueueEdit(task: () => Promise<void>): void {
-  editChain = editChain.then(task, task);
+  // 등록 시점 세대를 캡처 — 계정 전환(abortTagEdits) 뒤에 차례가 오면 실행하지 않는다.
+  const gen = editGeneration;
+  const run = () => (gen === editGeneration ? task() : Promise.resolve());
+  editChain = editChain.then(run, run);
+}
+
+// 로그아웃/계정 전환 시 대기 중인 편집 동기화를 폐기한다(리뷰 반영) — 큐에 남은 이전 계정의
+// 생성/이름변경/삭제가 새 계정 토큰으로 실행되며 새 계정 태그를 오염시키는 누출 방지.
+// 이미 실행에 들어간 1건은 중단할 수 없지만, 큐 대기분은 세대 불일치로 전부 스킵된다.
+export function abortTagEdits(): void {
+  editGeneration++;
 }
 
 async function resolveTagIdByName(name: string): Promise<string | null> {
