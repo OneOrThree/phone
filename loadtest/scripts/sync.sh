@@ -16,6 +16,9 @@ SUT_HOST="$SUT_IP" LOADGEN_HOST="$LOADGEN_HOST" \
 
 vm_ssh obs 'mkdir -p ~/obs/dashboards/repo ~/obs/dashboards/loadtest ~/seed'
 vm_scp "$TMP" obs:~/obs/prometheus.yml
+# prometheus 컨테이너는 nobody 로 실행 — mktemp(0600) 유래 config 를 못 읽어 crash-loop 하므로
+# 원격에서 0644 로 강제(원격 umask/scp 모드보존 무관하게 확정).
+vm_ssh obs 'chmod 644 ~/obs/prometheus.yml'
 vm_scp "$LT_DIR/infra/obs/docker-compose.obs.yml" "$LT_DIR/infra/obs/grafana-provisioning" \
   "$LT_DIR/infra/fetch-env.sh" obs:~/obs/
 vm_scp "$LT_DIR"/../observability/grafana/dashboards/*.json obs:~/obs/dashboards/repo/
