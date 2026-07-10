@@ -18,6 +18,5 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
             + "where gm.user.id = :userId and gm.role = com.oneorthree.phone.group.domain.GroupMemberRole.OWNER")
     boolean existsGroupOwnedBy(@Param("userId") UUID userId);
 
-
     List<Group> findByNameContainingIgnoreCase(String name);
 }
