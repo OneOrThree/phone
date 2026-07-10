@@ -1,0 +1,173 @@
+# GROMO-548 부하테스트 딸깍 — workflow_dispatch 가 make 파이프라인의 원격 실행기.
+# 진입점 3개(대시보드 SPA·Actions UI·로컬 make) 중 원격 2개가 이 파일을 탄다.
+#
+# 전제 (loadtest/infra/bootstrap/README.md):
+#   - dev 서버에 `loadtest` 라벨 전용 러너 등록 (부하 run 이 cd.yml 배포 큐를 막지 않게 분리)
+#   - 러너 도구: gcloud·terraform·make·node(≥20)·python3·docker
+#   - GitHub Variables: GCP_PROJECT_ID / GCP_WIF_PROVIDER / GCP_SA_EMAIL / GCP_REGION
+#   - WIF 는 main 브랜치 ref 만 신뢰 — 이 워크플로우는 main 에서 dispatch 해야 인증됨
+name: Loadtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: '부하 프로파일'
+        type: choice
+        # soak(2~8h)은 timeout-minutes 90 을 초과해 job 이 강제 종료되면 make 의 trap teardown 이
+        # 완주 못 해 GCP 인프라가 남을 수 있음 → Phase 4(표준 VM·긴 timeout)까지 선택지에서 제외 (#184 리뷰)
+        options: [smoke, load, stress, spike]
+        default: smoke
+      target:
+        description: 'k6 타겟 (k6/ 기준 상대경로)'
+        type: string
+        default: scenarios/daily_mix.js
+      update_baseline:
+        description: 'PASS 시 baseline 승격 PR 생성'
+        type: boolean
+        default: false
+
+# golden/loadtest DB 는 하나 — run 은 직렬화 (대기 중 run 취소하지 않음)
+concurrency:
+  group: loadtest
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # WIF
+  contents: write # loadtest-reports 브랜치 push·baseline PR 브랜치
+  pull-requests: write # baseline 승격 PR
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  PROFILE: ${{ inputs.profile }}
+  TARGET: ${{ inputs.target }}
+  RUN_ID: gha-${{ github.run_number }}
+
+run-name: 'loadtest: ${{ inputs.profile }} × ${{ inputs.target }}'
+
+jobs:
+  loadtest:
+    runs-on: [self-hosted, loadtest]
+    timeout-minutes: 90 # Phase 0 기준(smoke·load) — soak(Phase 4) 도입 시 프로파일별 조정
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: GCP 인증 (WIF — 키리스)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SA_EMAIL }}
+
+      - name: k6 스크립트 정적 게이트 (inspect)
+        run: |
+          mkdir -p /tmp/k6params
+          echo '[{"userId":"00000000-0000-0000-0000-000000000001","nickname":"검증","token":"t"}]' > /tmp/k6params/users_zipf.json
+          cp /tmp/k6params/users_zipf.json /tmp/k6params/users_uniform.json
+          echo '[{"groupId":"00000000-0000-0000-0000-000000000002"}]' > /tmp/k6params/group_ids.json
+          echo '[{"term":"검증"}]' > /tmp/k6params/search_terms.json
+          docker run --rm -v "$PWD/loadtest/k6":/scripts:ro -v /tmp/k6params:/params:ro \
+            grafana/k6:0.54.0 inspect --env PARAMS_DIR=/params --env PROFILE="$PROFILE" \
+            "/scripts/$TARGET"
+
+      - name: SUT 이미지 빌드·push (핀 SHA — prod 동일 Dockerfile)
+        run: make -C loadtest image
+
+      - name: 딸깍 파이프라인 (make test)
+        id: pipeline
+        run: |
+          set +e
+          make -C loadtest test RUN_ID="$RUN_ID"
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: 리포트 경로 확인
+        id: report
+        if: always()
+        run: |
+          DIR=$(ls -dt loadtest/reports/${RUN_ID}-* 2>/dev/null | head -1 || true)
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
+      - name: 전체 리포트 artifact 업로드
+        if: always() && steps.report.outputs.dir != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: loadtest-report-${{ env.RUN_ID }}
+          path: ${{ steps.report.outputs.dir }}
+          retention-days: 30
+
+      # slim 리포트(4파일, 수 KB) → orphan 브랜치 — 대시보드가 Contents API 로 CORS 없이 조회.
+      # main 워크스페이스($GITHUB_SHA)는 절대 건드리지 않는다: orphan 초기화도 worktree 안에서만 하고,
+      # worktree 는 trap 으로 항상 정리 — push 실패가 self-hosted 워크스페이스에 죽은 worktree/삭제된
+      # 추적파일을 남겨 이후 run 을 영구 막던 비원자성 제거 (#184 리뷰). main 불가침(PRD §6-2).
+      - name: slim 리포트를 loadtest-reports 브랜치에 커밋
+        if: always() && steps.report.outputs.dir != ''
+        run: |
+          set -e
+          DIR="${{ steps.report.outputs.dir }}"
+          NAME=$(basename "$DIR")
+          WT=$(mktemp -d)
+          cleanup() { git worktree remove --force "$WT" 2>/dev/null || true; git worktree prune 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          if git fetch origin loadtest-reports 2>/dev/null; then
+            git worktree add "$WT" -B loadtest-reports origin/loadtest-reports
+          else
+            # 최초 1회: main 이 아니라 격리된 worktree 안에서 orphan 브랜치를 만든다
+            git worktree add --detach "$WT" HEAD
+            git -C "$WT" checkout --orphan loadtest-reports
+            git -C "$WT" rm -rf --quiet . || true
+            echo "# loadtest run 리포트 (자동 커밋 — 대시보드 조회용)" > "$WT/README.md"
+          fi
+
+          mkdir -p "$WT/runs/$NAME"
+          cp "$DIR"/{summary.json,meta.json,verdict.json,pg_top20.csv} "$WT/runs/$NAME/" 2>/dev/null || \
+            cp "$DIR"/*.json "$WT/runs/$NAME/"
+          git -C "$WT" add -A
+          git -C "$WT" -c user.name=loadtest-bot -c user.email=bot@users.noreply.github.com \
+            commit -m "run: $NAME (${PROFILE} × ${TARGET})"
+          git -C "$WT" push origin loadtest-reports
+
+      - name: baseline 승격 PR (요청 시 · PASS 한정)
+        if: inputs.update_baseline && steps.pipeline.outputs.exit_code == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DIR="${{ steps.report.outputs.dir }}"
+          BR="loadtest/baseline-${RUN_ID}"
+          git checkout -b "$BR"
+          node loadtest/scripts/verdict.mjs --promote "$DIR"
+          git add loadtest/reports/baseline
+          git -c user.name=loadtest-bot -c user.email=bot@users.noreply.github.com \
+            commit -m "[CHORE] GROMO-548 baseline 승격 — ${RUN_ID} (${PROFILE} × ${TARGET})"
+          git push origin "$BR"
+          gh pr create --draft --title "[CHORE] GROMO-548 baseline 승격 (${RUN_ID})" \
+            --body "run ${RUN_ID} (${PROFILE} × ${TARGET}) 의 리포트를 baseline 으로 승격합니다. verdict.json 검토 후 머지해 주세요 — 자동 머지 없음."
+
+      - name: 판정 요약 (job summary)
+        if: always() && steps.report.outputs.dir != ''
+        run: |
+          DIR="${{ steps.report.outputs.dir }}"
+          python3 - "$DIR" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys, os
+          d = sys.argv[1]
+          v = json.load(open(os.path.join(d, 'verdict.json'))) if os.path.exists(os.path.join(d, 'verdict.json')) else {}
+          m = json.load(open(os.path.join(d, 'meta.json'))) if os.path.exists(os.path.join(d, 'meta.json')) else {}
+          icon = {'PASS': '✅', 'FAIL': '❌', 'INVALID': '⚠️'}.get(v.get('verdict'), '❓')
+          print(f"## {icon} 부하테스트 판정: **{v.get('verdict', '리포트 없음')}**\n")
+          print(f"| 항목 | 값 |\n|---|---|")
+          print(f"| 프로파일 × 타겟 | {m.get('profile')} × {m.get('target')} |")
+          print(f"| SHA / seed | {m.get('sha')} / {m.get('seedVersion')} |")
+          print(f"| 부하기 CPU 최대 | {m.get('loadgenMaxCpu')}% (가드 80%) |")
+          diff = v.get('diff') or {}
+          if diff:
+              p95 = diff.get('p95', {})
+              print(f"| baseline p95 diff | {p95.get('base')} → {p95.get('cur')} ms ({p95.get('pct')}%) |")
+          if v.get('reasons'):
+              print("\n**사유**\n")
+              for r in v['reasons']:
+                  print(f"- {r}")
+          PY
+
+      - name: 파이프라인 exit 코드 반영 (PASS=green)
+        if: always()
+        run: exit "${{ steps.pipeline.outputs.exit_code || 1 }}"
