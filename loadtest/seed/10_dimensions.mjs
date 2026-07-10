@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 차원 테이블 CSV 생성 (랩탑에서 실행) — 현실적인 한글 문자열이 필요한 테이블만. (post-V6 스키마)
+// 차원 테이블 CSV 생성 (랩탑에서 실행) — 현실적인 한글 문자열이 필요한 테이블만. (post-V7 스키마)
 // 팩트 테이블은 20_facts.sql(generate_series)이 담당한다.
 //
 // 결정론 원칙: UUID = md5('<prefix>-'||n) — SQL(20_facts)과 같은 공식을 공유해
@@ -94,7 +94,9 @@ write('users.csv',
   userRows);
 
 // ── groups (한글 그룹명 — Phase 3 groups/search 표적) ──
-// post-V6: V3 로 code 컬럼 없음, V5 로 미션(mission_*/window_*/duration) 컬럼 없음 — 미션은 챌린지 소유.
+// post-V7: V3 로 code 없음, V5 로 미션(mission_*/window_*/duration) 없음, V7 로
+// host_id·bet_type·notice_permission·started_at·ended_at 없음 — 방장은 group_members.role=OWNER
+// (memberIdx 공식 i=1)가 단일 원천, 생명주기는 챌린지 소유.
 const ADJ = '열공하는,갓생,새벽,불타는,조용한,꾸준한,독한,성실한,집중,몰입,미라클,의지의,캠스터디,오늘도,합격,루틴'.split(',');
 const NOUN = '수학,영어,코딩,공시,자격증,수능,토익,회계,전공,독서,러닝,기상,스터디,챌린지,모각공,다이어트'.split(',');
 const groupRows = [];
@@ -107,16 +109,13 @@ for (let n = 1; n <= N_GROUPS; n++) {
     `${pick(ADJ)}${pick(NOUN)}${n % 97 === 0 ? '' : n % 1000}`, // 한글 프리픽스 + 유일성 접미
     rnd() < 0.5 ? '같이 집중해요' : null,
     null,                                                       // password
-    uuid(`user-${((n * 17 + 53) % N_USERS) + 1}`),              // host = memberIdx(n, 1)
     20 + Math.floor(rnd() * 30),
-    status, 'NONE', true, null, 'ALL_MEMBERS', 'OWNER_ONLY',
-    status !== 'WAITING' ? iso(created + 864e5) : null,
-    status === 'ENDED' ? iso(created + 30 * 864e5) : null,
+    status, true, null, 'ALL_MEMBERS',
     iso(created), null, 0,
   ]);
 }
 write('groups.csv',
-  'id,name,description,password,host_id,max_members,status,bet_type,is_chat_enabled,chat_limit_per_person,invite_permission,notice_permission,started_at,ended_at,created_at,deleted_at,version',
+  'id,name,description,password,max_members,status,is_chat_enabled,chat_limit_per_person,invite_permission,created_at,deleted_at,version',
   groupRows);
 
 // ── items (500 고정 — idx<400 EQUIPPABLE(슬롯=idx%4 → HAIR/TOP/BOTTOM/SHOES), 나머지 DECORATIVE) ──

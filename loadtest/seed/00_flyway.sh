@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# golden DB 스키마 구성 — 앱 부팅 없이 dockerized Flyway CLI 로 V1+V2 실행.
+# golden DB 스키마 구성 — 앱 부팅 없이 dockerized Flyway CLI 로 V1~최신 마이그레이션 전부 실행.
 # prod 와 같은 경로(Flyway 마이그레이션)로 만들어진 스키마여야 이후 앱의 ddl-auto:validate 가
 # 드리프트 가드로 성립한다. 빈 DB 라 baseline 불필요(V1부터 전부 실행).
 #

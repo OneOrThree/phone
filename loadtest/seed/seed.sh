@@ -36,9 +36,8 @@ if [ "$SQL_STATE" != "RUNNABLE" ]; then
   log "❌ Cloud SQL 이 기동 상태가 아님($SQL_STATE) — 먼저: make up"
   exit 1
 fi
-DB_HOST=$(gcloud sql instances describe "$SQL_INSTANCE" --project="$PROJECT_ID" \
-  --format='value(ipAddresses[0].ipAddress)')
-DB_PASSWORD=$(gcloud secrets versions access latest --secret=loadtest-db-password --project="$PROJECT_ID")
+# JWT 시크릿만 로컬로(mint 가 랩탑/러너에서 돎). DB 시크릿은 VM 이 vm_env.sh 로 스스로 조회 —
+# ssh --command 인라인 인용에 시크릿을 싣지 않는다 (#179 리뷰 2)
 JWT_SECRET=$(gcloud secrets versions access latest --secret=loadtest-jwt-secret --project="$PROJECT_ID")
 
 # ── 1. 차원 CSV 생성 (랩탑, node) ────────────────────────────
@@ -53,25 +52,26 @@ scp_to_vm "$SEED_DIR"/*.sh "$SEED_DIR"/*.sql "$OBS_VM":~/seed/
 scp_to_vm "$MIGRATIONS_DIR"/*.sql "$OBS_VM":~/seed/migration/
 scp_to_vm "$CSV_DIR"/* "$OBS_VM":~/seed/csv/
 
-VM_ENV="DB_HOST=$DB_HOST DB_USER=loadtest DB_PASSWORD='$DB_PASSWORD'"
-VM_PSQL="PGPASSWORD='$DB_PASSWORD' psql -h $DB_HOST -U loadtest -v ON_ERROR_STOP=1"
+# VM 쪽 실행 헬퍼 — vm_env.sh 를 source 해 DB_HOST/PGPASSWORD 를 VM 안에서 구성 (인용 안전)
+vm_sh()  { run_vm ". ~/seed/vm_env.sh && $1"; }
+VM_PSQL='psql -h "$DB_HOST" -U "$DB_USER" -v ON_ERROR_STOP=1'
 
-# ── 3. 스키마 (Flyway V1+) → 4. 차원 → 5. 팩트 → 6. 제약·통계 ──
+# ── 3. 스키마 (Flyway V1~최신) → 4. 차원 → 5. 팩트 → 6. 제약·통계 ──
 log "3/8 스키마 — Flyway (docker)"
-run_vm "$VM_ENV MIGRATIONS_DIR=~/seed/migration bash ~/seed/00_flyway.sh"
+vm_sh "MIGRATIONS_DIR=~/seed/migration bash ~/seed/00_flyway.sh"
 
 log "4/8 차원 테이블 \\copy"
-run_vm "$VM_ENV bash ~/seed/15_copy_dimensions.sh"
+vm_sh "bash ~/seed/15_copy_dimensions.sh"
 
 log "5/8 팩트 테이블 generate_series (가장 오래 걸리는 단계)"
-run_vm "$VM_PSQL -d golden -v scale=$SCALE -f ~/seed/20_facts.sql"
+vm_sh "$VM_PSQL -d golden -v scale=$SCALE -f ~/seed/20_facts.sql"
 
 log "6/8 제약·인덱스 복원 + VACUUM ANALYZE"
-run_vm "$VM_PSQL -d golden -f ~/seed/30_constraints_indexes.sql"
+vm_sh "$VM_PSQL -d golden -f ~/seed/30_constraints_indexes.sql"
 
 # ── 7. params export → mint → GCS ───────────────────────────
 log "7/8 params export + JWT mint"
-run_vm "$VM_PSQL -d golden -f ~/seed/40_params_export.sql"
+vm_sh "cd ~ && $VM_PSQL -d golden -f ~/seed/40_params_export.sql"
 gcloud compute scp --zone="$ZONE" --tunnel-through-iap --project="$PROJECT_ID" --recurse \
   "$OBS_VM":"~/seed/params/*" "$PARAMS_DIR/"
 JWT_SECRET="$JWT_SECRET" node "$SEED_DIR/50_mint_jwt.mjs" "$PARAMS_DIR"
@@ -79,8 +79,8 @@ gcloud storage cp -r "$PARAMS_DIR"/* "gs://${PROJECT_ID}-params/${SEED_VERSION}/
 
 # ── 8. 검증 → golden 동결 (동결 후엔 golden 접속 불가라 검증이 선행) ──
 log "8/8 검증(95_verify: 건수·크기·커서 정렬·FK 표본) → golden 동결"
-run_vm "$VM_PSQL -d golden -f ~/seed/95_verify.sql"
-run_vm "$VM_PSQL -d postgres -f ~/seed/90_freeze_golden.sql"
+vm_sh "$VM_PSQL -d golden -f ~/seed/95_verify.sql"
+vm_sh "$VM_PSQL -d postgres -f ~/seed/90_freeze_golden.sql"
 cat <<EOF
 
   SEED_VERSION=${SEED_VERSION} SCALE=${SCALE}

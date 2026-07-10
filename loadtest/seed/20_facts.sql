@@ -76,13 +76,16 @@ FROM friendships f
 WHERE f.status = 'ACCEPTED' AND f.deleted_at IS NULL AND random() < 0.1
 ON CONFLICT DO NOTHING;
 
--- ═══ 5. 그룹 멤버·챌린지 (V5 CTI) ═══
--- memberIdx(g,i) = (g*17 + i*53) % n_users + 1 — 10_dimensions 의 host 공식(i=1)과 공유
-INSERT INTO group_members (id, group_id, user_id, role, status, is_left, notification_enabled, created_at)
+-- ═══ 5. 그룹 멤버·챌린지 (V5 CTI · V7 멤버 공지권한) ═══
+-- memberIdx(g,i) = (g*17 + i*53) % n_users + 1. V7 로 groups.host_id 가 사라져
+-- 방장의 단일 원천은 여기 i=1 의 role=OWNER (announcement_permission 도 OWNER 만 ALLOW).
+INSERT INTO group_members (id, group_id, user_id, role, status, is_left,
+                           notification_enabled, announcement_permission, created_at)
 SELECT md5('gm-'||g.n||'-'||i)::uuid, g.id, su.id,
        CASE WHEN i = 1 THEN 'OWNER' ELSE 'MEMBER' END,
        CASE WHEN t.r < 0.6 THEN 'INACTIVE' WHEN t.r < 0.85 THEN 'CHALLENGE' ELSE 'FOCUS' END,
        random() < 0.05, true,
+       CASE WHEN i = 1 THEN 'ALLOW' ELSE 'DISALLOW' END,
        timestamptz '2026-07-01' - random() * interval '120 days'
 FROM seed_groups g
 CROSS JOIN generate_series(1, 20) i

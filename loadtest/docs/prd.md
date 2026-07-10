@@ -98,7 +98,7 @@ flowchart LR
 | `infra-up` | terraform apply (상시 인프라) | |
 | `up` / `down` | SUT·관측 VM 기동/중지 + compose up | down = 과금 차단 |
 | `sync` | 관측 설정(prometheus tpl 렌더·grafana provisioning) VM 반영 | 레포가 진실 원천 |
-| `seed` | golden DB 생성(스키마=Flyway V1+V2, 데이터=SQL) | `SCALE=` 축소 지원 |
+| `seed` | golden DB 생성(스키마=Flyway V1~최신, 데이터=SQL) | `SCALE=` 축소 지원 |
 | `reset` | loadtest ← golden TEMPLATE 복제 + pg_stat reset | 분 단위 |
 | `mint` | JWT 대량 재발급(만료 임박 시) → GCS params | exp +30d |
 | `run` | 워밍업 2분 → pg_stat reset → 본측정 (k6 2회 실행) | §9 |
