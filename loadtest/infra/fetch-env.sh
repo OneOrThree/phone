@@ -7,7 +7,8 @@
 set -euo pipefail
 
 ROLE="${1:?사용법: fetch-env.sh <sut|obs>}"
-PROJECT_ID=$(curl -s -H 'Metadata-Flavor: Google' \
+# -f: 메타데이터 조회 실패 시 빈 값으로 진행하지 않고 즉시 에러 (#180 리뷰)
+PROJECT_ID=$(curl -sf -H 'Metadata-Flavor: Google' \
   http://metadata.google.internal/computeMetadata/v1/project/project-id)
 SQL_INSTANCE="${SQL_INSTANCE:-loadtest-pg}"
 

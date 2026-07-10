@@ -13,7 +13,10 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: loadtest
       # 고정 힙 — run 간 힙 크기가 다르면 비교 불가 (설계 §2-2). GC 로그는 심층 분석 재료.
+      # egd 플래그: environment 는 Dockerfile 기본 JAVA_OPTS 를 append 가 아니라 override 하므로
+      # prod 이미지의 -Djava.security.egd 를 재포함 — SecureRandom 블로킹 변동 배제 (#180 리뷰)
       JAVA_OPTS: >-
+        -Djava.security.egd=file:/dev/./urandom
         -Xms2g -Xmx2g
         -Xlog:gc*:file=/var/log/gc/gc.log:time,uptime:filecount=5,filesize=20m
     ports:
