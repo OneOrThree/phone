@@ -60,6 +60,7 @@ export interface UserProfile {
   isGuest?: boolean; // 게스트 세션 여부 — 로그인 시점 태깅(서버 isGuest 응답 시 그 값 우선)
   dailyScreenTimeGoalMinutes?: number;
   dailyFocusTimeGoalMinutes?: number;
+  occupation?: string | null; // 준비 시험 코드(enum name) — /users/me 확장(757) 배포 후 채워짐, 백필용(GROMO-758)
   // 서버 응답에 추가 필드가 섞여 들어올 수 있음
   [key: string]: unknown;
 }
@@ -71,6 +72,7 @@ export interface LoginResult {
   isNewUser?: boolean;
   isGuest?: boolean; // 게스트 세션 여부 (게스트=true / 소셜=false)
   nickname?: string;
+  occupation?: string | null; // 준비 시험 코드 — 기존 계정 로그인 시 /users/me 병합으로 유입(757), 백필용(GROMO-758)
   [key: string]: unknown;
 }
 
