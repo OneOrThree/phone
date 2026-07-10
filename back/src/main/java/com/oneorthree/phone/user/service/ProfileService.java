@@ -96,7 +96,11 @@ public class ProfileService {
             rank = null;
         }
 
-        return new PublicProfileResponse(userId, user.getNickname(), equipments, friendCount, currentTier, rank);
+        // 준비 시험 코드 — 미설정(가입 직후 등)이면 null (GROMO-747)
+        String occupation = user.getOccupation() != null ? user.getOccupation().name() : null;
+
+        return new PublicProfileResponse(
+                userId, user.getNickname(), occupation, equipments, friendCount, currentTier, rank);
     }
 
     /**

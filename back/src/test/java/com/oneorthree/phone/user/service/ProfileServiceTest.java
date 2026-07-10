@@ -96,7 +96,8 @@ class ProfileServiceTest {
     @Test
     @DisplayName("정상 조회 → 닉네임·캐릭터·친구수·리그 티어·랭킹 집계")
     void getPublicProfile_success() {
-        User user = activeUser("조재영");
+        User user = User.builder().id(USER_ID).nickname("조재영")
+                .occupation(com.oneorthree.phone.user.domain.Occupation.CSAT).build();
         LeagueArena arena = activeArena();
         LeagueArenaUser me = membership(user, arena, 3, 200);
         User otherUser = User.builder().id(OTHER_ID).nickname("top").build();
@@ -114,6 +115,8 @@ class ProfileServiceTest {
 
         assertThat(response.userId()).isEqualTo(USER_ID);
         assertThat(response.nickname()).isEqualTo("조재영");
+        // 준비 시험 코드(enum name) 노출 — 미설정이면 null (GROMO-747)
+        assertThat(response.occupation()).isEqualTo("CSAT");
         assertThat(response.equipments()).isEmpty();
         assertThat(response.friendCount()).isEqualTo(5L);
         assertThat(response.currentTier()).isEqualTo(3);
@@ -168,6 +171,8 @@ class ProfileServiceTest {
 
         assertThat(response.currentTier()).isNull();
         assertThat(response.rank()).isNull();
+        // occupation 미설정 유저 → null (GROMO-747)
+        assertThat(response.occupation()).isNull();
     }
 
     // ── 친구수 0 ─────────────────────────────────────────────────────────
