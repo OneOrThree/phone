@@ -11,6 +11,10 @@ const isoDate = (off, dateOnly) => {
 };
 
 export function execRecipe(recipe, u, pools) {
+  // runnable:false(파라미터 gap) 레시피는 실행 불가 — RECIPES 자유입력으로 UI 가드를 우회해 넣어도
+  // 잘못된 요청이 조용히 나가 에러율·지연을 오염시키지 않도록 여기서 명시적으로 실패시킨다.
+  if (recipe.runnable === false)
+    throw new Error(`recipe ${recipe.endpoint || recipe.path} 는 runnable:false (파라미터 gap) — 실행 불가`);
   const gen = (g) => {
     switch (g.gen) {
       case 'date':
@@ -50,7 +54,12 @@ export function execRecipe(recipe, u, pools) {
 
   let path = recipe.path;
   for (const [name, g] of Object.entries(recipe.pathParams || {})) {
-    path = path.replace(`{${name}}`, encodeURIComponent(gen(g)));
+    const val = gen(g);
+    // null/undefined 를 그대로 encodeURIComponent 하면 'null'/'undefined' 리터럴이 경로에 박힌다
+    // (예: /friends/requests/null/accept). query 루프와 달리 조용히 흘리지 않고 명시적으로 실패.
+    if (val === null || val === undefined)
+      throw new Error(`recipe ${recipe.path} pathParam '${name}' 생성 실패(gen=${g.gen})`);
+    path = path.replace(`{${name}}`, encodeURIComponent(val));
   }
   const qs = [];
   for (const q of recipe.query || []) {

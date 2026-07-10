@@ -21,6 +21,12 @@ RECIPES="${RECIPES:-}"
 # SCENARIO: scenarios/_generic.js 가 open(./defs/<SCENARIO>.json). 경로주입 방지로 영숫자/_/- 만.
 SCENARIO="${SCENARIO:-}"
 [[ "$SCENARIO" =~ ^[a-zA-Z0-9_-]*$ ]] || { log "invalid SCENARIO (영숫자·_·- 만): '$SCENARIO'"; exit 1; }
+# SPOTS: 다중 loadgen 분산은 미구현 — loadgen.sh/run.sh 는 단일 'loadgen' VM 만 생성·사용한다.
+# SPOTS>1 을 조용히 1대로 처리하면 부하기 포화(CPU 가드)로 무효 결과를 '분산 결과'로 오인하게 되므로
+# 명시적으로 차단한다(실제 N-VM 분산은 GROMO-750 후속). 대시보드의 spot N 선택도 이 가드에 걸린다.
+SPOTS="${SPOTS:-1}"
+[[ "$SPOTS" =~ ^[0-9]+$ ]] || { log "invalid SPOTS (숫자만): '$SPOTS'"; exit 1; }
+[ "$SPOTS" -le 1 ] || { log "❌ SPOTS>1(다중 loadgen 분산)은 미구현 — 현재 단일 VM 만 지원. SPOTS=1 로 실행하세요."; exit 1; }
 REPORT_DIR="${REPORT_DIR:?Makefile 이 주입}"
 mkdir -p "$REPORT_DIR"
 

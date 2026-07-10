@@ -9,7 +9,8 @@
   "query": [
     {
       "name": "type",
-      "gen": "string"
+      "gen": "enum",
+      "values": ["received", "sent"]
     }
   ],
   "body": null,
