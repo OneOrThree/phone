@@ -325,23 +325,25 @@ class ProfileServiceTest {
     }
 
     @Test
-    @DisplayName("친구X → streak 만 반환, isFriend=false, today/heatmap null")
-    void getUserStats_notFriend_returnsStreakOnly() {
+    @DisplayName("친구X → 요약(streak·today)은 반환, heatmap 만 null (GROMO-746)")
+    void getUserStats_notFriend_returnsSummaryWithoutHeatmap() {
         User target = activeUser("대상유저");
         User caller = User.builder().id(OTHER_ID).nickname("호출자").build();
 
         givenBothUsers(target, caller);
         given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.empty());
         given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
+        given(statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleToday());
 
         UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3));
 
         assertThat(response.isFriend()).isFalse();
         assertThat(response.streak()).isNotNull();
-        assertThat(response.today()).isNull();
+        // 프로필 요약은 공개설정과 무관하게 항상 채워진다 (GROMO-746)
+        assertThat(response.today()).isNotNull();
         assertThat(response.heatmap()).isNull();
-        // 친구X 일 때 세부 통계 메서드는 호출되지 않아야 한다
-        verify(statsService, never()).getTodayStats(any(), any());
+        // 친구X 일 때 세부 차트(heatmap)만 잠긴다
+        verify(statsService).getTodayStats(USER_ID, LocalDate.of(2026, 7, 3));
         verify(statsService, never()).getHeatmap(any(), any(), any());
     }
 
@@ -366,7 +368,7 @@ class ProfileServiceTest {
     }
 
     @Test
-    @DisplayName("PENDING 관계 → 친구X 취급, streak 만 반환")
+    @DisplayName("PENDING 관계 → 친구X 취급, 요약(today) 채움·heatmap null (GROMO-746)")
     void getUserStats_pendingRelation_treatedAsNotFriend() {
         // findAcceptedBetween 은 ACCEPTED 조건이므로 PENDING 관계는 Optional.empty() 반환
         User target = activeUser("대상유저");
@@ -375,11 +377,12 @@ class ProfileServiceTest {
         givenBothUsers(target, caller);
         given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.empty());
         given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
+        given(statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleToday());
 
         UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3));
 
         assertThat(response.isFriend()).isFalse();
-        assertThat(response.today()).isNull();
+        assertThat(response.today()).isNotNull();
         assertThat(response.heatmap()).isNull();
     }
 

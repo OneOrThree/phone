@@ -114,17 +114,21 @@ class ProfileControllerTest {
     }
 
     @Test
-    @DisplayName("통계 조회 - 친구X → 200, isFriend=false, today/heatmap null")
+    @DisplayName("통계 조회 - 친구X → 200, isFriend=false, today 채움·heatmap 만 null (GROMO-746)")
     void getUserStatsReturns200ForNonFriend() throws Exception {
         StreakResponse streak = new StreakResponse(3, 10, LocalDate.of(2026, 6, 30));
-        UserStatsResponse response = new UserStatsResponse(false, streak, null, null);
+        TodayStatsResponse today = new TodayStatsResponse(
+                new TodayStatsResponse.FocusStat(45, 90, false, 50),
+                new TodayStatsResponse.ScreenTimeStat(20, 120, true, 17));
+        UserStatsResponse response = new UserStatsResponse(false, streak, today, null);
         given(profileService.getUserStats(any(), any(), any())).willReturn(response);
 
         mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId).param("date", "2026-07-03"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isFriend").value(false))
                 .andExpect(jsonPath("$.streak.currentStreak").value(3))
-                .andExpect(jsonPath("$.today").value(nullValue()))
+                // 프로필 요약(today)은 비친구에게도 항상 반환 (GROMO-746)
+                .andExpect(jsonPath("$.today.focus.todayMinutes").value(45))
                 .andExpect(jsonPath("$.heatmap").value(nullValue()))
                 .andDo(print());
     }
