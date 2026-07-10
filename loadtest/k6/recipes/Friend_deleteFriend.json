@@ -1,0 +1,19 @@
+{
+  "endpoint": "Friend_deleteFriend",
+  "method": "DELETE",
+  "path": "/api/v1/friends/{friendUserId}",
+  "tag": "Friend",
+  "summary": "친구 삭제",
+  "userPool": "uniform",
+  "pathParams": {
+    "friendUserId": {
+      "gen": "pool",
+      "source": "userId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

@@ -1,0 +1,30 @@
+{
+  "endpoint": "stats_getScreenTimePeriodStats",
+  "method": "GET",
+  "path": "/api/v1/stats/screen-time",
+  "tag": "stats",
+  "summary": "기간별 스크린타임 통계 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [
+    {
+      "name": "period",
+      "gen": "enum",
+      "values": [
+        "DAY",
+        "WEEK",
+        "MONTH"
+      ]
+    },
+    {
+      "name": "date",
+      "gen": "date",
+      "offsetDays": 0,
+      "dateOnly": true
+    }
+  ],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

@@ -1,0 +1,19 @@
+{
+  "endpoint": "profile_getPublicProfile",
+  "method": "GET",
+  "path": "/api/v1/users/{userId}/profile",
+  "tag": "profile",
+  "summary": "타 유저 공개 프로필 조회",
+  "userPool": "zipf",
+  "pathParams": {
+    "userId": {
+      "gen": "pool",
+      "source": "userId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

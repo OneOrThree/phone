@@ -1,0 +1,17 @@
+{
+  "endpoint": "auth_appleLogin",
+  "method": "POST",
+  "path": "/api/v1/auth/apple",
+  "tag": "auth",
+  "summary": "애플 로그인",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

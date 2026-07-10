@@ -1,0 +1,17 @@
+{
+  "endpoint": "focus_updateTag",
+  "method": "PATCH",
+  "path": "/api/v1/tag",
+  "tag": "focus",
+  "summary": "TAG 수정",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

@@ -1,0 +1,23 @@
+{
+  "endpoint": "Group_transferOwner",
+  "method": "PATCH",
+  "path": "/api/v1/groups/{groupId}/members/{targetUserId}/owner",
+  "tag": "Group",
+  "summary": "그룹장 위임",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    },
+    "targetUserId": {
+      "gen": "pool",
+      "source": "userId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

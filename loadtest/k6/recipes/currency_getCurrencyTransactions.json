@@ -1,0 +1,14 @@
+{
+  "endpoint": "currency_getCurrencyTransactions",
+  "method": "GET",
+  "path": "/api/v1/currency/transactions",
+  "tag": "currency",
+  "summary": "거래 내역 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

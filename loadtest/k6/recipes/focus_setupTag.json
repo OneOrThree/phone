@@ -1,0 +1,17 @@
+{
+  "endpoint": "focus_setupTag",
+  "method": "POST",
+  "path": "/api/v1/tag",
+  "tag": "focus",
+  "summary": "TAG 초기 등록",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

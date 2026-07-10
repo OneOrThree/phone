@@ -1,0 +1,21 @@
+{
+  "endpoint": "user_registerDeviceToken",
+  "method": "PUT",
+  "path": "/api/v1/users/me/device-token",
+  "tag": "user",
+  "summary": "디바이스 토큰 등록",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "deviceToken": {
+        "gen": "string"
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

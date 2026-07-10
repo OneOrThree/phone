@@ -1,0 +1,14 @@
+{
+  "endpoint": "Group_getMyGroups",
+  "method": "GET",
+  "path": "/api/v1/groups",
+  "tag": "Group",
+  "summary": "내 그룹 목록 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

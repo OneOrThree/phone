@@ -1,0 +1,19 @@
+{
+  "endpoint": "Pin_unpin",
+  "method": "DELETE",
+  "path": "/api/v1/pins/{userId}",
+  "tag": "Pin",
+  "summary": "유저 핀 해제",
+  "userPool": "uniform",
+  "pathParams": {
+    "userId": {
+      "gen": "pool",
+      "source": "userId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

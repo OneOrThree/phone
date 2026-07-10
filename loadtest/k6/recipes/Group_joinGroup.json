@@ -1,0 +1,22 @@
+{
+  "endpoint": "Group_joinGroup",
+  "method": "POST",
+  "path": "/api/v1/groups/{groupId}/join",
+  "tag": "Group",
+  "summary": "그룹 참가",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    }
+  },
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

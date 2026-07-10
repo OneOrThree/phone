@@ -1,0 +1,30 @@
+{
+  "endpoint": "stats_getFocusStatsByPeriod",
+  "method": "GET",
+  "path": "/api/v1/stats/focus",
+  "tag": "stats",
+  "summary": "기간별 집중시간 통계 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [
+    {
+      "name": "period",
+      "gen": "enum",
+      "values": [
+        "DAY",
+        "WEEK",
+        "MONTH"
+      ]
+    },
+    {
+      "name": "date",
+      "gen": "date",
+      "offsetDays": 0,
+      "dateOnly": true
+    }
+  ],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

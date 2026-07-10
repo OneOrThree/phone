@@ -1,0 +1,21 @@
+{
+  "endpoint": "notification-test_sendTestPush",
+  "method": "POST",
+  "path": "/api/v1/notifications/test",
+  "tag": "notification-test",
+  "summary": "테스트 푸시 발송",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "deviceToken": {
+        "gen": "string"
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

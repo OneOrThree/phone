@@ -1,0 +1,19 @@
+{
+  "endpoint": "Group_getGroupOverview",
+  "method": "GET",
+  "path": "/api/v1/groups/{groupId}/overview",
+  "tag": "Group",
+  "summary": "그룹 개요 조회",
+  "userPool": "zipf",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

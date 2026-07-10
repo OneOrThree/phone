@@ -1,0 +1,33 @@
+{
+  "endpoint": "focus_getFocusSessions",
+  "method": "GET",
+  "path": "/api/v1/focus-session",
+  "tag": "focus",
+  "summary": "Focus Session 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [
+    {
+      "name": "from",
+      "gen": "date",
+      "offsetDays": -90
+    },
+    {
+      "name": "to",
+      "gen": "date",
+      "offsetDays": 0
+    },
+    {
+      "name": "size",
+      "gen": "const",
+      "value": 20
+    }
+  ],
+  "body": null,
+  "paginate": {
+    "cursorField": "nextCursor",
+    "pages": 2
+  },
+  "gaps": [],
+  "runnable": true
+}

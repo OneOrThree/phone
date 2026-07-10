@@ -1,0 +1,19 @@
+{
+  "endpoint": "Group_renewGroupCode",
+  "method": "POST",
+  "path": "/api/v1/groups/{groupId}/code",
+  "tag": "Group",
+  "summary": "초대 코드 갱신",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

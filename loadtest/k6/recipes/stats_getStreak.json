@@ -1,0 +1,14 @@
+{
+  "endpoint": "stats_getStreak",
+  "method": "GET",
+  "path": "/api/v1/stats/streak",
+  "tag": "stats",
+  "summary": "스트릭(연속일) 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

@@ -1,0 +1,14 @@
+{
+  "endpoint": "auth_guestLogin",
+  "method": "POST",
+  "path": "/api/v1/auth/guest",
+  "tag": "auth",
+  "summary": "게스트 로그인",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

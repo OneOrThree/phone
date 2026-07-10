@@ -1,0 +1,30 @@
+{
+  "endpoint": "stats_getFocusStatsByCategory",
+  "method": "GET",
+  "path": "/api/v1/stats/by-category",
+  "tag": "stats",
+  "summary": "카테고리별 집중 통계 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [
+    {
+      "name": "period",
+      "gen": "enum",
+      "values": [
+        "DAY",
+        "WEEK",
+        "MONTH"
+      ]
+    },
+    {
+      "name": "date",
+      "gen": "date",
+      "offsetDays": 0,
+      "dateOnly": true
+    }
+  ],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

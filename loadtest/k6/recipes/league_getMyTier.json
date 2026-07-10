@@ -1,0 +1,14 @@
+{
+  "endpoint": "league_getMyTier",
+  "method": "GET",
+  "path": "/api/v1/league/me/tier",
+  "tag": "league",
+  "summary": "내 현재 리그·티어 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

@@ -1,0 +1,14 @@
+{
+  "endpoint": "occupation_getOccupations",
+  "method": "GET",
+  "path": "/api/v1/occupations",
+  "tag": "occupation",
+  "summary": "occupation 목록 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

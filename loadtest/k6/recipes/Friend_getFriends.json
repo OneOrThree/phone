@@ -1,0 +1,14 @@
+{
+  "endpoint": "Friend_getFriends",
+  "method": "GET",
+  "path": "/api/v1/friends",
+  "tag": "Friend",
+  "summary": "친구 목록 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

@@ -1,0 +1,35 @@
+{
+  "endpoint": "Group_updateGroupAnnouncement",
+  "method": "PUT",
+  "path": "/api/v1/groups/{groupId}/announcements/{announcementId}",
+  "tag": "Group",
+  "summary": "그룹 공지 수정",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    },
+    "announcementId": {
+      "gen": "gap",
+      "reason": "path-id:announcementId"
+    }
+  },
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "title": {
+        "gen": "string"
+      },
+      "content": {
+        "gen": "string"
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [
+    "path.announcementId"
+  ],
+  "runnable": false
+}

@@ -1,0 +1,17 @@
+{
+  "endpoint": "currency_earnCurrency",
+  "method": "POST",
+  "path": "/api/v1/currency/earn",
+  "tag": "currency",
+  "summary": "적립",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

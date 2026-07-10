@@ -1,0 +1,17 @@
+{
+  "endpoint": "focus_startFocusSession",
+  "method": "POST",
+  "path": "/api/v1/focus-session/start",
+  "tag": "focus",
+  "summary": "Focus Session 시작(라이브)",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

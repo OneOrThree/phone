@@ -1,0 +1,27 @@
+{
+  "endpoint": "Friend_searchFriends",
+  "method": "GET",
+  "path": "/api/v1/friends/search",
+  "tag": "Friend",
+  "summary": "친구 검색",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [
+    {
+      "name": "type",
+      "gen": "enum",
+      "values": [
+        "NICKNAME",
+        "CODE"
+      ]
+    },
+    {
+      "name": "q",
+      "gen": "searchTerm"
+    }
+  ],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

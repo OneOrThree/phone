@@ -1,0 +1,17 @@
+{
+  "endpoint": "focus_saveFocusSession",
+  "method": "POST",
+  "path": "/api/v1/focus-session",
+  "tag": "focus",
+  "summary": "Focus Session 저장",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

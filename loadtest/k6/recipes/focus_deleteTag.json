@@ -1,0 +1,21 @@
+{
+  "endpoint": "focus_deleteTag",
+  "method": "DELETE",
+  "path": "/api/v1/tag/{tagId}",
+  "tag": "focus",
+  "summary": "TAG 삭제",
+  "userPool": "uniform",
+  "pathParams": {
+    "tagId": {
+      "gen": "gap",
+      "reason": "path-id:tagId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "path.tagId"
+  ],
+  "runnable": false
+}

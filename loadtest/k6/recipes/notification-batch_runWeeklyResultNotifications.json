@@ -1,0 +1,14 @@
+{
+  "endpoint": "notification-batch_runWeeklyResultNotifications",
+  "method": "POST",
+  "path": "/api/v1/notifications/league/results/run",
+  "tag": "notification-batch",
+  "summary": "주간 리그 결과 알림 수동 실행",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

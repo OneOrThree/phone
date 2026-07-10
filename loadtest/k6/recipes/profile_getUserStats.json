@@ -1,0 +1,26 @@
+{
+  "endpoint": "profile_getUserStats",
+  "method": "GET",
+  "path": "/api/v1/users/{userId}/stats",
+  "tag": "profile",
+  "summary": "타 유저 통계 조회",
+  "userPool": "zipf",
+  "pathParams": {
+    "userId": {
+      "gen": "pool",
+      "source": "userId"
+    }
+  },
+  "query": [
+    {
+      "name": "date",
+      "gen": "date",
+      "offsetDays": 0,
+      "dateOnly": true
+    }
+  ],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

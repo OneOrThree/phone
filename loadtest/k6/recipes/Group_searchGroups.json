@@ -1,0 +1,19 @@
+{
+  "endpoint": "Group_searchGroups",
+  "method": "GET",
+  "path": "/api/v1/groups/search",
+  "tag": "Group",
+  "summary": "그룹 검색",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [
+    {
+      "name": "query",
+      "gen": "searchTerm"
+    }
+  ],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

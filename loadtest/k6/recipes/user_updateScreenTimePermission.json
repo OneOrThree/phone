@@ -1,0 +1,21 @@
+{
+  "endpoint": "user_updateScreenTimePermission",
+  "method": "PATCH",
+  "path": "/api/v1/users/me/screen-time-permission",
+  "tag": "user",
+  "summary": "스크린타임 권한 동의 상태 업데이트",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "granted": {
+        "gen": "bool"
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

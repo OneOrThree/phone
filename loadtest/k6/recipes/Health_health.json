@@ -1,0 +1,14 @@
+{
+  "endpoint": "Health_health",
+  "method": "GET",
+  "path": "/health",
+  "tag": "Health",
+  "summary": "서버 상태 확인",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

@@ -1,0 +1,25 @@
+{
+  "endpoint": "Group_deleteGroupAnnouncement",
+  "method": "DELETE",
+  "path": "/api/v1/groups/{groupId}/announcements/{announcementId}",
+  "tag": "Group",
+  "summary": "그룹 공지 삭제",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    },
+    "announcementId": {
+      "gen": "gap",
+      "reason": "path-id:announcementId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "path.announcementId"
+  ],
+  "runnable": false
+}

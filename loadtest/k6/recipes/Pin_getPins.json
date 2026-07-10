@@ -1,0 +1,21 @@
+{
+  "endpoint": "Pin_getPins",
+  "method": "GET",
+  "path": "/api/v1/pins",
+  "tag": "Pin",
+  "summary": "핀한 유저 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [
+    {
+      "name": "date",
+      "gen": "date",
+      "offsetDays": 0,
+      "dateOnly": true
+    }
+  ],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

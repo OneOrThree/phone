@@ -1,0 +1,21 @@
+{
+  "endpoint": "stats_getTodayStats",
+  "method": "GET",
+  "path": "/api/v1/stats/today",
+  "tag": "stats",
+  "summary": "오늘 요약 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [
+    {
+      "name": "date",
+      "gen": "date",
+      "offsetDays": 0,
+      "dateOnly": true
+    }
+  ],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

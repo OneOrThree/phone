@@ -1,0 +1,21 @@
+{
+  "endpoint": "Friend_acceptFriendRequest",
+  "method": "POST",
+  "path": "/api/v1/friends/requests/{id}/accept",
+  "tag": "Friend",
+  "summary": "친구 요청 수락",
+  "userPool": "uniform",
+  "pathParams": {
+    "id": {
+      "gen": "gap",
+      "reason": "path-id:id"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "path.id"
+  ],
+  "runnable": false
+}

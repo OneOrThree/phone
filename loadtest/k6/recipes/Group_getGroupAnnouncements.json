@@ -1,0 +1,19 @@
+{
+  "endpoint": "Group_getGroupAnnouncements",
+  "method": "GET",
+  "path": "/api/v1/groups/{groupId}/announcements",
+  "tag": "Group",
+  "summary": "그룹 공지 목록 조회",
+  "userPool": "zipf",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

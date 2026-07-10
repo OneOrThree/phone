@@ -1,0 +1,14 @@
+{
+  "endpoint": "league_getGlobalRanking",
+  "method": "GET",
+  "path": "/api/v1/league/ranking",
+  "tag": "league",
+  "summary": "전역 전체 유저 랭킹 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}

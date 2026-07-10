@@ -1,0 +1,14 @@
+{
+  "endpoint": "user_clearDeviceToken",
+  "method": "DELETE",
+  "path": "/api/v1/users/me/device-token",
+  "tag": "user",
+  "summary": "디바이스 토큰 해제",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [],
+  "runnable": true
+}
