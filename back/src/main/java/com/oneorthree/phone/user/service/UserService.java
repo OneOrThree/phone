@@ -121,7 +121,7 @@ public class UserService {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        if (groupRepository.existsByHostId(userId)) {
+        if (groupRepository.existsGroupOwnedBy(userId)) {
             throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
         }
 

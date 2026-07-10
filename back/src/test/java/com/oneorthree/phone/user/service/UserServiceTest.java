@@ -225,7 +225,7 @@ class UserServiceTest {
     void withdrawSuccess() {
         User user = User.builder().id(USER_ID).nickname("조재영").refreshToken("rt").deviceToken("dt").build();
         given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.existsByHostId(USER_ID)).willReturn(false);
+        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(false);
 
         userService.withdraw(USER_ID);
 
@@ -274,7 +274,7 @@ class UserServiceTest {
     void withdrawHostForbidden() {
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.existsByHostId(USER_ID)).willReturn(true);
+        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(true);
 
         assertThatThrownBy(() -> userService.withdraw(USER_ID))
                 .isInstanceOf(GroupException.class)
