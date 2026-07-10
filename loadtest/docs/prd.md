@@ -132,6 +132,9 @@ reports/<UTC일시>-<sha>-<profile>-<target>/
 | INVALID | spot 선점 감지 / 부하기 CPU>80% / 메타 불일치로 diff 불가 |
 | PASS | 위 어디에도 해당 없음 |
 
+**평가 순서**: **INVALID 조건을 가장 먼저** 평가하고, 하나라도 참이면 threshold·회귀 판정을 건너뛴다
+— 부하기 과부하·spot 선점으로 인한 인위적 고지연이 "회귀(FAIL)"로 오판정되는 것을 막는다.
+
 ### 6-4. 대시보드 MVP (4기능, ~500줄 예산)
 
 | # | 기능 | 데이터 소스 |
@@ -189,12 +192,12 @@ reports/<UTC일시>-<sha>-<profile>-<target>/
 | users (+1:1 **×5**) | 10만 (×5) | `is_deleted` boolean(~2%). 1:1은 wallets·streaks·focus_time/notification/screen_time settings 5종 |
 | focus_tags | 40만 | |
 | daily_focus_stats | 1,200만 | `total_distraction_seconds`·`is_focus_time_goal_achieved`. **focus_sessions보다 먼저 적재**(FK 대상) |
-| daily_screen_time_stats | 1,200만 | |
-| **focus_sessions** | **3,000만** | subject/local_date/distraction_count/deleted_at **제거됨** → `status`(COMPLETED ~97%/CANCELED ~3%)·`focus_type`(3종 믹스)·`daily_focus_stat_id`(user+date 조인)·`created_at`=ended_at. id = `seed_uuid_v7(started_at)` — 커서 정렬 보존 |
+| daily_screen_time_stats | 1,200만 | `actual_screen_time_minutes`→`total_screen_time_minutes`, `screen_time_goal_achieved`→`is_screen_time_goal_achieved` 리네임(분 단위 유지) |
+| **focus_sessions** | **3,000만** | subject/local_date/distraction_count/deleted_at **제거됨** → `status`(COMPLETED ~97%/CANCELED ~3%)·`focus_type`(3종 믹스)·`daily_focus_stat_id`(user+date 조인)·`created_at`=ended_at. **`total_distraction_seconds`(NOT NULL, V1부터 존속)도 시드 필수** — daily_focus_stats의 동명 컬럼과 별개. id = `seed_uuid_v7(started_at)` — 커서 정렬 보존 |
 | currency_transactions | 500만 | type ∈ SESSION_COMPLETE/STREAK_BONUS/PURCHASE, `idempotency_key`=결정론 md5 |
 | friendships | 200만 | deleted_at 5% (부분 unique 인덱스 현실화) |
-| groups / group_members | 5만 / 100만 | 한글 그룹명(Phase 3용). members: `created_at`·`status`·`is_left` |
-| group_challenges / _members | 20만 / 200만 | |
+| groups / group_members | 5만 / 100만 | 한글 그룹명(Phase 3용). `groups.status` ∈ **WAITING/ACTIVE/ENDED**(V2에서 CLOSED 제거 — 구 도메인 값 시드 시 CHECK 위반). members: `created_at`·`status`(INACTIVE/CHALLENGE/FOCUS)·`is_left` |
+| group_challenges / _members | 20만 / 200만 | `status` ∈ **ACTIVE/INACTIVE**(V2에서 ENDED→INACTIVE — 구 도메인 값 시드 금지) |
 | league_arenas / league_arena_users | ~4만 / 120만 | 12주 × arena당 30명 |
 | items / user_items / character_equipment | 500 / 100만 / 40만 | |
 | **합계** | **≈6,500만 / ~15GB** | 하한 요구: **≥3,000만** 충족 |
@@ -254,7 +257,7 @@ loadtest/k6/
 | M1 | `[FEAT] GROMO-548 GCP 부트스트랩 스크립트` | bootstrap.sh·check-quota.sh·README | 스크립트 green, 버킷·WIF 존재 |
 | M2 | `[FEAT] GROMO-548 백엔드 loadtest 프로파일 추가` | application-loadtest.yml | /back-check green (실부팅은 M5) |
 | M3 | `[FEAT] GROMO-548 GCP 인프라 Terraform` | terraform/ 일체 | apply→IAP ssh→psql 플래그 확인→down |
-| M4 | `[FEAT] GROMO-548 시드 파이프라인` | seed/ 일체 + volume.md | SCALE=0.01 관통 → full: 건수·크기·reset·커서 정렬 |
+| M4 | `[FEAT] GROMO-548 시드 파이프라인` | seed/ 일체 + volume.md | SCALE=0.01 관통 → full: 건수·크기·reset·커서 정렬(API 이전 단계 — psql로 `ORDER BY id DESC` 표본이 `started_at DESC`와 일치하는지 SQL로 직접 확인) |
 | M5 | `[FEAT] GROMO-548 SUT·관측 스택 배포 구성` | compose 2종 + prometheus tpl + k6 대시보드 | make up → /health·targets UP·Grafana |
 | M6 | `[FEAT] GROMO-548 k6 스위트` | k6/ 일체 | 전 파일 k6 inspect |
 | M7 | `[FEAT] GROMO-548 make 딸깍 파이프라인` | Makefile + scripts 4종 | 랩탑 make test smoke 첫 관통 |
