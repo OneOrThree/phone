@@ -8,6 +8,9 @@ LT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 PROFILE="${PROFILE:-smoke}"
 TARGET="${TARGET:-scenarios/daily_mix.js}"
+# 고급 설정 override — 빈값이면 k6 프로파일이 __ENV.RATE/DURATION 대신 기본값 사용
+RATE="${RATE:-}"
+DURATION="${DURATION:-}"
 REPORT_DIR="${REPORT_DIR:?Makefile 이 주입}"
 mkdir -p "$REPORT_DIR"
 
@@ -20,7 +23,7 @@ vm_ssh loadgen 'rm -rf ~/k6run && mkdir -p ~/k6run/params ~/k6run/out && chmod 7
 vm_scp "$LT_DIR/k6" loadgen:~/k6run/scripts
 vm_ssh loadgen "gcloud storage cp -r 'gs://${PROJECT_ID}-params/${SEED_VERSION}/*' ~/k6run/params/ -q"
 
-K6_BASE="docker run --rm \
+K6_BASE="sudo docker run --rm \
   -v \$HOME/k6run/scripts:/scripts:ro -v \$HOME/k6run/params:/params:ro -v \$HOME/k6run/out:/out \
   -e PARAMS_DIR=/params -e BASE_URL=http://${SUT_IP}:8080"
 
@@ -38,7 +41,7 @@ obs_psql loadtest '-c "SELECT pg_stat_statements_reset();"'
 log "③ 본측정 (PROFILE=$PROFILE TARGET=$TARGET)"
 K6_EXIT=0
 vm_ssh loadgen "$K6_BASE \
-  -e PROFILE=$PROFILE -e SUMMARY_PATH=/out/summary.json \
+  -e PROFILE=$PROFILE -e RATE=$RATE -e DURATION=$DURATION -e SUMMARY_PATH=/out/summary.json \
   -e K6_PROMETHEUS_RW_SERVER_URL=http://${OBS_IP}:9090/api/v1/write \
   -e K6_PROMETHEUS_RW_TREND_STATS='p(95),p(99),avg,max' \
   $K6_IMAGE run -o experimental-prometheus-rw /scripts/$TARGET" || K6_EXIT=$?

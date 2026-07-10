@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RUN 트리거·타겟·시나리오 상세화 — 목업 (GROMO-548)</title>
+<style>
+  :root {
+    --bg: #0f1116; --card: #181b22; --border: #2a2e37; --text: #e6e8ec; --muted: #8b909a;
+    --pass: #2ea043; --fail: #d1242f; --invalid: #bf8700; --accent: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+  .app { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  header h1 { margin: 0 0 4px; font-size: 20px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px 20px; margin-top: 16px; }
+  .card h2 { margin: 0 0 4px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+  .card .sub { margin: 0 0 12px; font-size: 12px; color: var(--muted); }
+  .form-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  label.checkbox { flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
+  select, input[type='text'] { background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; min-width: 200px; }
+  input.short { min-width: 0; width: 82px; }
+  input.wt { min-width: 0; width: 56px; text-align: right; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+    padding: 8px 16px; cursor: pointer; font-weight: 600; }
+  button.ghost { background: none; border: 1px solid var(--border); color: var(--text); font-weight: 500; }
+  button.link { background: none; color: var(--accent); padding: 2px 6px; font-weight: 400; cursor: pointer; }
+  a { color: var(--accent); }
+
+  .mock-banner { background: rgba(59,130,246,0.08); border: 1px dashed var(--accent); border-radius: 8px;
+    padding: 10px 14px; margin-top: 16px; font-size: 12px; color: var(--muted); }
+  .mock-banner b { color: var(--text); }
+
+  .tk { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700;
+    background: rgba(59,130,246,.16); color: #7db1ff; }
+
+  .summary { margin-top: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); padding: 12px 14px; }
+  .summary h3 { margin: 0 0 10px; font-size: 12px; color: var(--muted); font-weight: 600; }
+  .summary dl { display: grid; grid-template-columns: 92px 1fr; gap: 6px 12px; margin: 0; }
+  .summary dt { color: var(--muted); font-size: 12px; }
+  .summary dd { margin: 0; font-size: 13px; }
+  .summary dd .over { color: var(--invalid); }
+  .summary .src { margin-top: 10px; font-size: 11px; color: var(--muted); }
+  .chip { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700;
+    margin-left: 6px; vertical-align: middle; }
+  .chip.star { background: rgba(191,135,0,.18); color: #e2b53d; }
+  .chip.preset { background: rgba(59,130,246,.18); color: #7db1ff; }
+  .chip.cat { background: var(--border); color: var(--muted); font-weight: 600; }
+
+  .adv-toggle { margin-top: 14px; font-size: 13px; color: var(--accent); background: none; border: 0; padding: 0;
+    cursor: pointer; font-weight: 500; }
+  .adv { margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: var(--bg); display: none; }
+  .adv.open { display: block; }
+  .adv .adv-row { display: flex; gap: 18px; align-items: flex-end; flex-wrap: wrap; }
+  .adv .hint { margin: 10px 0 0; font-size: 11px; color: var(--muted); }
+  .adv .warn { margin: 8px 0 0; font-size: 12px; color: var(--invalid); min-height: 16px; }
+
+  .actions { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; gap: 16px; flex-wrap: wrap; }
+  .ok { color: var(--pass); font-size: 13px; }
+
+  /* ── 타겟 카탈로그 (②) ── */
+  .legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin: 2px 0 10px; flex-wrap: wrap; }
+  .b { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; }
+  .b.run { background: rgba(46,160,67,.18); color: #4ac16d; }
+  .b.need { background: rgba(191,135,0,.18); color: #e2b53d; }
+  .b.method { min-width: 46px; text-align: center; }
+  .m-get { background: rgba(46,160,67,.16); color: #4ac16d; }
+  .m-post { background: rgba(59,130,246,.16); color: #7db1ff; }
+  .m-patch { background: rgba(191,135,0,.16); color: #e2b53d; }
+  .m-delete { background: rgba(209,36,47,.16); color: #f2707a; }
+  .grp { border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; overflow: hidden; }
+  .grp > summary { list-style: none; cursor: pointer; padding: 9px 12px; background: var(--bg); font-size: 13px;
+    display: flex; align-items: center; gap: 8px; }
+  .grp > summary::-webkit-details-marker { display: none; }
+  .grp > summary .cnt { color: var(--muted); font-size: 11px; margin-left: auto; }
+  .ep { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-top: 1px solid var(--border); font-size: 13px; }
+  .ep:hover { background: rgba(255,255,255,.02); }
+  .ep .path { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
+  .ep .desc { color: var(--muted); font-size: 12px; margin-left: 2px; }
+  .ep .tail { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .ep.disabled { opacity: .6; }
+  .catbar { display: flex; gap: 12px; align-items: center; font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  /* ── 시나리오 에디터 (③) ── */
+  .jrow { display: grid; grid-template-columns: 150px 64px 1fr 28px; gap: 10px; align-items: center;
+    padding: 8px 0; border-top: 1px solid var(--border); }
+  .jrow .steps { display: flex; gap: 6px; flex-wrap: wrap; }
+  .step { background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px;
+    font-size: 11px; font-family: ui-monospace, Menlo, monospace; color: var(--text); }
+  .step.add { color: var(--accent); border-style: dashed; cursor: pointer; }
+  .xbtn { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 16px; }
+  .jhead { display: grid; grid-template-columns: 150px 64px 1fr 28px; gap: 10px; font-size: 11px; color: var(--muted); }
+  .wtotal { margin-top: 10px; font-size: 12px; }
+  .wtotal.bad { color: var(--invalid); }
+  .wtotal.good { color: var(--pass); }
+
+  footer.note { margin-top: 20px; font-size: 12px; color: var(--muted); }
+  footer.note code { background: var(--card); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>gromo 부하테스트 대시보드</h1>
+    <p class="muted">트리거·히스토리·판정·baseline diff. 시계열 심층분석은 Grafana(관측 VM :3000).</p>
+  </header>
+
+  <div class="mock-banner">
+    <b>목업 (GROMO-548 · 대시보드 트리거/타겟/시나리오 상세화)</b> — 실제 디스패치는 하지 않습니다.
+    아래 3개 카드는 <b>3개 QA 티켓</b>에 대응하며, 데이터는 실제 백엔드(<b>openapi.json · 94개 엔드포인트</b>)·
+    k6 구조를 흉내낸 리뷰용입니다.
+  </div>
+
+  <!-- ───────────────── 티켓 ① RUN 트리거 ───────────────── -->
+  <section class="card">
+    <h2>run 트리거 <span class="tk">티켓 ①</span></h2>
+    <p class="sub">미리보기 + expert 파라미터. 프로파일·타겟은 catalog.json/presets.json에서 로드(하드코딩 제거).</p>
+    <div class="form-row">
+      <label>프로파일 (부하 강도·시간)<select id="profile"></select></label>
+      <label>타겟 (무엇에 부하)<select id="target"></select></label>
+    </div>
+
+    <div class="summary">
+      <h3 id="sum-title">이 실행 요약</h3>
+      <dl>
+        <dt>엔드포인트</dt><dd id="sum-endpoint"></dd>
+        <dt>부하</dt><dd id="sum-load"></dd>
+        <dt>VU</dt><dd id="sum-vu"></dd>
+        <dt>판정</dt><dd id="sum-verdict"></dd>
+        <dt>예상 소요</dt><dd id="sum-eta"></dd>
+      </dl>
+      <div class="src" id="sum-src"></div>
+    </div>
+
+    <button class="adv-toggle" id="advToggle">▸ 고급 설정 (비우면 프로파일·프리셋 기본값)</button>
+    <div class="adv" id="advPanel">
+      <div class="adv-row">
+        <label>RATE (rps)<input type="text" class="short" id="ovRate" placeholder="기본" inputmode="numeric" /></label>
+        <label>DURATION<input type="text" class="short" id="ovDuration" placeholder="기본" /></label>
+        <label>SCALE<input type="text" class="short" id="ovScale" placeholder="1.0" inputmode="decimal" /></label>
+      </div>
+      <p class="hint">RATE·DURATION은 프로파일 기본값을 덮어씀. SCALE은 시드 볼륨(0.01~1, 디버그용). 빈칸이면 프리셋→프로파일 기본값 순 폴백.</p>
+      <p class="warn" id="advWarn"></p>
+    </div>
+
+    <div class="actions">
+      <label class="checkbox"><input type="checkbox" id="baseline" /> PASS 시 baseline 승격 PR</label>
+      <div>
+        <span class="ok" id="okMsg" style="display:none">디스패치 완료 (목업)</span>
+        <button id="runBtn">실행 ▶</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────── 티켓 ② OpenAPI 타겟 카탈로그 ───────────────── -->
+  <section class="card">
+    <h2>타겟 카탈로그 (OpenAPI) <span class="tk">티켓 ②</span></h2>
+    <p class="sub">
+      <code style="background:var(--bg);padding:1px 5px;border-radius:4px">openapi.json</code>(springdoc · 94개 엔드포인트)에서
+      컨트롤러별 자동 목록화. 여기서 고른 엔드포인트가 위 트리거의 타겟이 됩니다. <b>손으로 4개 하드코딩하던 걸 대체.</b>
+    </p>
+    <div class="legend">
+      <span><span class="b run">실행 가능</span> GET·무필수파라미터 — 제네릭 러너로 바로</span>
+      <span><span class="b need">레시피 필요</span> 파라미터·바디 필요 — 입력 레시피 작성분만</span>
+      <span>★ = 기존 matrix 스크립트 존재</span>
+    </div>
+
+    <details class="grp" open>
+      <summary>focus <span class="chip cat">9</span><span class="cnt">실행 가능 2 · 레시피 필요 7</span></summary>
+      <div class="ep"><span class="b method m-get">GET</span><span class="path">/tag</span><span class="desc">TAG 조회</span><span class="tail"><span class="b run">실행 가능</span></span></div>
+      <div class="ep"><span class="b method m-get">GET</span><span class="path">/tag/defaults</span><span class="desc">기본(추천) TAG 조회</span><span class="tail"><span class="b run">실행 가능</span></span></div>
+      <div class="ep"><span class="b method m-get">GET</span><span class="path">/focus-session</span><span class="desc">세션 조회(커서 keyset) ★⭐</span><span class="tail"><span class="b need">레시피 필요</span><span class="muted" style="font-size:11px">from·to·size</span></span></div>
+      <div class="ep"><span class="b method m-post">POST</span><span class="path">/focus-session</span><span class="desc">세션 저장(쓰기) ★</span><span class="tail"><span class="b need">레시피 필요</span><span class="muted" style="font-size:11px">body</span></span></div>
+      <div class="ep"><span class="b method m-post">POST</span><span class="path">/focus-session/start</span><span class="desc">세션 시작(라이브)</span><span class="tail"><span class="b need">레시피 필요</span></span></div>
+      <div class="ep"><span class="b method m-patch">PATCH</span><span class="path">/focus-session</span><span class="desc">세션 종료(라이브)</span><span class="tail"><span class="b need">레시피 필요</span></span></div>
+      <div class="ep"><span class="b method m-post">POST</span><span class="path">/tag</span><span class="desc">TAG 초기 등록</span><span class="tail"><span class="b need">레시피 필요</span></span></div>
+      <div class="ep"><span class="b method m-patch">PATCH</span><span class="path">/tag</span><span class="desc">TAG 수정</span><span class="tail"><span class="b need">레시피 필요</span></span></div>
+      <div class="ep disabled"><span class="b method m-delete">DELETE</span><span class="path">/tag/{tagId}</span><span class="desc">TAG 삭제 · 파괴적</span><span class="tail"><span class="b need">레시피 필요</span></span></div>
+    </details>
+
+    <details class="grp" open>
+      <summary>stats <span class="chip cat">6</span><span class="cnt">실행 가능 1 · 레시피 필요 5</span></summary>
+      <div class="ep"><span class="b method m-get">GET</span><span class="path">/stats/streak</span><span class="desc">스트릭(연속일)</span><span class="tail"><span class="b run">실행 가능</span></span></div>
+      <div class="ep"><span class="b method m-get">GET</span><span class="path">/stats/today</span><span class="desc">오늘 요약 ★</span><span class="tail"><span class="b need">레시피 필요</span><span class="muted" style="font-size:11px">date</span></span></div>
+      <div class="ep"><span class="b method m-get">GET</span><span class="path">/stats/heatmap</span><span class="desc">일별 집계(히트맵)</span><span class="tail"><span class="b need">레시피 필요</span><span class="muted" style="font-size:11px">from·to</span></span></div>
+      <div class="ep"><span class="b method m-get">GET</span><span class="path">/stats/focus</span><span class="desc">기간별 집중시간</span><span class="tail"><span class="b need">레시피 필요</span><span class="muted" style="font-size:11px">period·date</span></span></div>
+      <div class="ep"><span class="b method m-get">GET</span><span class="path">/stats/by-category</span><span class="desc">카테고리별 집중</span><span class="tail"><span class="b need">레시피 필요</span></span></div>
+      <div class="ep"><span class="b method m-get">GET</span><span class="path">/stats/screen-time</span><span class="desc">기간별 스크린타임</span><span class="tail"><span class="b need">레시피 필요</span></span></div>
+    </details>
+
+    <details class="grp">
+      <summary>그 외 18개 컨트롤러 <span class="chip cat">79</span><span class="cnt">auth · user · league · friend · group · item · currency · screentime · analytics · notification …</span></summary>
+      <div class="ep disabled"><span class="b method m-get">GET</span><span class="path">/league/me/ranking</span><span class="desc">리그 랭킹</span><span class="tail"><span class="b run">실행 가능</span></span></div>
+      <div class="ep disabled"><span class="b method m-get">GET</span><span class="path">/friends?query=…</span><span class="desc">친구 검색</span><span class="tail"><span class="b need">레시피 필요</span></span></div>
+      <div class="ep disabled"><span class="b method m-get">GET</span><span class="path">/inventory</span><span class="desc">보유 아이템</span><span class="tail"><span class="b run">실행 가능</span></span></div>
+      <div class="ep" style="justify-content:center;color:var(--muted);font-size:12px">… 자동 목록화 (레시피 미작성분은 목록엔 보이되 '레시피 필요')</div>
+    </details>
+
+    <div class="catbar">전체 <b style="color:var(--text)">94</b> · 실행 가능 <b style="color:#4ac16d">~30</b> · 레시피 필요 <b style="color:#e2b53d">~64</b> · 레시피 작성분만 실전 부하 (점진 확장)</div>
+  </section>
+
+  <!-- ───────────────── 티켓 ③ 시나리오 에디터 ───────────────── -->
+  <section class="card">
+    <h2>시나리오 에디터 <span class="tk">티켓 ③</span></h2>
+    <p class="sub">default <code style="background:var(--bg);padding:1px 5px;border-radius:4px">daily_mix</code> 외 커스텀 믹스를 인앱에서 작성·수정 → <code style="background:var(--bg);padding:1px 5px;border-radius:4px">loadtest/k6/scenarios/*.json</code> 저장(PR). 제네릭 시나리오 러너가 이 JSON을 소비.</p>
+    <div class="form-row" style="margin-bottom:6px">
+      <label>시나리오
+        <select id="scenSel">
+          <option>daily_mix (현실 믹스 · assumed-v1)</option>
+          <option>+ 새 시나리오</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="jhead"><div>여정 이름</div><div style="text-align:right">가중치</div><div>스텝 (엔드포인트)</div><div></div></div>
+    <div id="journeys">
+      <!-- daily_mix 6개 여정 프리필 -->
+    </div>
+    <button class="ghost" id="addJourney" style="margin-top:10px">+ 여정 추가</button>
+    <div class="wtotal" id="wtotal"></div>
+
+    <div class="actions">
+      <span class="muted" style="font-size:12px">스텝은 ② 카탈로그에서 엔드포인트를 골라 추가 (목업에선 표시만)</span>
+      <div>
+        <span class="ok" id="scenOk" style="display:none">저장 — PR 생성 (목업)</span>
+        <button id="saveScen">저장 (PR 생성)</button>
+      </div>
+    </div>
+  </section>
+
+  <footer class="note">
+    precedence: <code>프로파일 기본값 &lt; presets.json &lt; 고급설정 override</code>.
+    ② 타겟은 <code>openapi.json</code> → 제네릭 러너({method,path,query,body}) + <code>recipes/*.json</code>.
+    ③ 시나리오는 제네릭 시나리오 러너가 <code>scenarios/*.json</code>(가중 여정)을 소비.
+  </footer>
+</div>
+
+<script>
+// ── ① catalog/presets 흉내 ──────────────────────────────
+const PROFILES = {
+  smoke:  { label: 'smoke — 빠른 검증 (5 rps · 1분)',        rate: 5,             duration: '1m',   vu: '10 ~ 50',    model: 'open · constant-arrival', ramping: false, warmup: 2 },
+  load:   { label: 'load — 목표 부하 (50 rps · 10분 유지)',  rate: 50,            duration: '10m',  vu: '200 ~ 1000', model: 'open · constant-arrival', ramping: false, warmup: 2 },
+  stress: { label: 'stress — 한계 탐색 (100→400 rps 계단)',  rate: '100→200→400', duration: '9m',   vu: '200 ~ 1000', model: 'open · ramping-arrival',  ramping: true,  warmup: 2 },
+  spike:  { label: 'spike — 급증 부하 (10→300 rps 폭증)',    rate: '10→300',      duration: '~2.5m',vu: '300 ~ 1500', model: 'open · ramping-arrival',  ramping: true,  warmup: 2 },
+};
+const TARGETS = {
+  'scenarios/daily_mix.js':         { label: '현실 믹스 — 6개 유저 여정 혼합',          endpoint: '혼합 6종 (stats/today · focus-session · friends · shop …)', cat: 'scenario', star: false },
+  'matrix/focus-session-list.js':   { label: '집중세션 조회 — 커서 API (Phase 1 표적)', endpoint: 'GET /api/v1/focus-session (cursor pagination)',            cat: 'matrix',   star: true  },
+  'matrix/focus-session-create.js': { label: '집중세션 생성 — 쓰기 경로',               endpoint: 'POST /api/v1/focus-session (write · cascade)',             cat: 'matrix',   star: false },
+  'matrix/stats-today.js':          { label: '오늘 통계 — 인덱스 대조군',               endpoint: 'GET /api/v1/stats/today (indexed control)',               cat: 'matrix',   star: false },
+};
+const VERDICT = 'p95<200ms · p99<500ms · 오류율<1% · baseline p95 +10% 이내';
+const PRESETS = { 'matrix/focus-session-create.js': { load: { rate: 30 } } };
+
+const $ = (id) => document.getElementById(id);
+const profileSel = $('profile'), targetSel = $('target');
+for (const [v, p] of Object.entries(PROFILES)) profileSel.add(new Option(p.label, v));
+for (const [v, t] of Object.entries(TARGETS)) targetSel.add(new Option(t.label, v));
+targetSel.value = 'matrix/focus-session-list.js';
+
+function parseMin(d) {
+  if (!d) return null; d = String(d).replace('~', '').trim(); let m = 0;
+  const h = d.match(/(\d+(?:\.\d+)?)h/); if (h) m += parseFloat(h[1]) * 60;
+  const mm = d.match(/(\d+(?:\.\d+)?)m/); if (mm) m += parseFloat(mm[1]);
+  const s = d.match(/(\d+(?:\.\d+)?)s/); if (s) m += parseFloat(s[1]) / 60;
+  if (!h && !mm && !s && /^\d/.test(d)) m = parseFloat(d);
+  return m || null;
+}
+function render() {
+  const pk = profileSel.value, tk = targetSel.value, p = PROFILES[pk], t = TARGETS[tk];
+  const preset = (PRESETS[tk] && PRESETS[tk][pk]) || {};
+  const ovRate = $('ovRate').value.trim(), ovDur = $('ovDuration').value.trim(), ovScale = $('ovScale').value.trim();
+  const rateSrc = ovRate ? 'override' : (preset.rate != null ? 'preset' : 'profile');
+  const durSrc  = ovDur  ? 'override' : (preset.duration != null ? 'preset' : 'profile');
+  const effRate = ovRate || (preset.rate != null ? preset.rate : p.rate);
+  const effDur  = ovDur  || (preset.duration != null ? preset.duration : p.duration);
+  const effScale = ovScale || (preset.scale != null ? preset.scale : '1.0');
+  const rampingOverride = p.ramping && (ovRate || ovDur);
+  $('sum-endpoint').textContent = t.endpoint;
+  $('sum-load').innerHTML =
+    `<span class="${rateSrc !== 'profile' ? 'over' : ''}">${p.ramping && !ovRate ? effRate + ' rps 계단' : effRate + ' rps'}</span>` +
+    ` · <span class="${durSrc !== 'profile' ? 'over' : ''}">${effDur}</span>` +
+    ` <span style="color:var(--muted)">(${p.model})</span>` +
+    (rateSrc === 'preset' || durSrc === 'preset' ? '<span class="chip preset">preset</span>' : '') +
+    (rateSrc === 'override' || durSrc === 'override' ? '<span class="chip preset" style="background:rgba(191,135,0,.18);color:#e2b53d">override</span>' : '');
+  $('sum-vu').textContent = p.vu;
+  $('sum-verdict').textContent = VERDICT;
+  const base = parseMin(effDur);
+  $('sum-eta').textContent = base ? `~${Math.round(base + p.warmup + 1)}분 (warmup ${p.warmup}분 + 오버헤드 포함)` : `warmup ${p.warmup}분 + 실행 + 오버헤드`;
+  $('sum-title').innerHTML = '이 실행 요약' + `<span class="chip cat">${t.cat}</span>` + (t.star ? '<span class="chip star">⭐ Phase 1</span>' : '');
+  $('sum-src').innerHTML = `값 출처: profile <b style="color:var(--text)">${pk}</b>`
+    + (Object.keys(preset).length ? ` + preset <b style="color:var(--text)">${tk.split('/').pop()}·${pk}</b>` : '')
+    + ((ovRate || ovDur || ovScale) ? ` + <b style="color:var(--text)">고급설정 override</b>` : '') + ` · SCALE ${effScale}`;
+  $('advWarn').textContent = rampingOverride ? '⚠ 계단형(ramping) 프로파일 — RATE/DURATION override는 smoke·load 같은 constant 프로파일에 적용됩니다.' : '';
+}
+$('advToggle').addEventListener('click', () => {
+  const open = $('advPanel').classList.toggle('open');
+  $('advToggle').textContent = (open ? '▾' : '▸') + ' 고급 설정 (비우면 프로파일·프리셋 기본값)';
+});
+['profile','target','ovRate','ovDuration','ovScale'].forEach((id) => $(id).addEventListener('input', render));
+$('runBtn').addEventListener('click', () => { const m = $('okMsg'); m.style.display = 'inline'; setTimeout(() => (m.style.display = 'none'), 2500); });
+render();
+
+// ── ③ 시나리오 에디터 ──────────────────────────────
+const JOURNEYS = [
+  { name: 'morningCheck', weight: 25, steps: ['GET /stats/today', 'GET /league/me/ranking', 'GET /stats/streak'] },
+  { name: 'statsBrowse',  weight: 20, steps: ['GET /stats/heatmap', 'GET /focus-session'] },
+  { name: 'social',       weight: 20, steps: ['GET /friends', 'GET /friends?query', 'GET /group'] },
+  { name: 'focusWrite',   weight: 15, steps: ['POST /focus-session'] },
+  { name: 'shop',         weight: 10, steps: ['GET /inventory', 'GET /currency'] },
+  { name: 'misc',         weight: 10, steps: ['GET /group/search'] },
+];
+function stepsHtml(steps) {
+  return steps.map((s) => `<span class="step">${s}</span>`).join('') + '<span class="step add">+ 스텝</span>';
+}
+function renderJourneys() {
+  $('journeys').innerHTML = JOURNEYS.map((j, i) => `
+    <div class="jrow">
+      <input type="text" value="${j.name}" data-i="${i}" class="jname" />
+      <input type="text" class="wt" value="${j.weight}" data-i="${i}" inputmode="numeric" />
+      <div class="steps">${stepsHtml(j.steps)}</div>
+      <button class="xbtn" data-i="${i}" title="여정 삭제">×</button>
+    </div>`).join('');
+  document.querySelectorAll('.wt').forEach((el) => el.addEventListener('input', (e) => { JOURNEYS[+e.target.dataset.i].weight = parseFloat(e.target.value) || 0; updateTotal(); }));
+  document.querySelectorAll('.xbtn').forEach((el) => el.addEventListener('click', (e) => { JOURNEYS.splice(+e.target.dataset.i, 1); renderJourneys(); }));
+  updateTotal();
+}
+function updateTotal() {
+  const sum = JOURNEYS.reduce((s, j) => s + (j.weight || 0), 0);
+  const el = $('wtotal');
+  el.textContent = `가중치 합계: ${sum} ${sum === 100 ? '✓ (정규화됨)' : '— 실행 시 합계 기준으로 정규화됩니다'}`;
+  el.className = 'wtotal ' + (sum === 100 ? 'good' : 'bad');
+}
+$('addJourney').addEventListener('click', () => { JOURNEYS.push({ name: 'newJourney', weight: 0, steps: [] }); renderJourneys(); });
+$('saveScen').addEventListener('click', () => { const m = $('scenOk'); m.style.display = 'inline'; setTimeout(() => (m.style.display = 'none'), 2500); });
+renderJourneys();
+</script>
+</body>
+</html>
