@@ -12,7 +12,6 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import axios from 'axios';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import CircularGauge from '@/components/CircularGauge';
@@ -32,6 +31,7 @@ import {
 import { fmtMinutes } from './format';
 import { heatmapRange } from '@/screens/stats/format';
 import { MemberAvatar } from './components/MemberAvatar';
+import { TierBadge } from './components/TierBadge';
 import { DuoDayChart } from './components/DuoDayChart';
 import { SubjectCompareCard } from './components/SubjectCompareCard';
 import { ComingSoon } from '@/screens/stats/ComingSoon';
@@ -341,15 +341,11 @@ export default function FriendProfileScreen() {
               </Text>
             </View>
           </View>
-          <LinearGradient
-            colors={[T.accentLight, T.accent]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={s.tierPill}
-          >
-            <Ionicons name="star" size={12} color={T.white} />
-            <Text style={s.tierPillText}>{tier.name}</Text>
-          </LinearGradient>
+          {/* 티어 — 공식 티어 이미지 + 이름 (리그 화면과 동일, 구 그라데이션 칩 폐기 GROMO-689) */}
+          <View style={s.tierRow}>
+            <TierBadge level={tier.level} size={20} />
+            <Text style={s.tierText}>{tier.name}</Text>
+          </View>
           {rank != null && <Text style={s.rankText}>전체 랭킹 {rank}위</Text>}
         </View>
 
@@ -541,17 +537,8 @@ const s = StyleSheet.create({
     paddingVertical: 3,
   },
   friendPillText: { ...T.text.caption, fontSize: 11, fontWeight: '700', color: T.inkSub },
-  tierPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: 999,
-    paddingLeft: 10,
-    paddingRight: 13,
-    paddingVertical: 5,
-    marginTop: 9,
-  },
-  tierPillText: { ...T.text.caption, fontSize: 12, fontWeight: '700', color: T.white },
+  tierRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 9 },
+  tierText: { ...T.text.caption, fontSize: 12, fontWeight: '700', color: T.inkSub },
   rankText: { ...T.text.caption, color: T.inkSub, marginTop: 8 },
 
   loader: { paddingVertical: 48, alignItems: 'center' },
