@@ -1,0 +1,6 @@
+# terraform 로컬 산출물 — 상태는 GCS 백엔드, 프로바이더 바이너리는 재다운로드
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
