@@ -18,10 +18,6 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
             + "where gm.user.id = :userId and gm.role = com.oneorthree.phone.group.domain.GroupMemberRole.OWNER")
     boolean existsGroupOwnedBy(@Param("userId") UUID userId);
 
-    // GROMO-676 호환용 별칭 — user 도메인 호출부(UserService)가 existsGroupOwnedBy 로 교체되면 제거한다.
-    default boolean existsByHostId(UUID userId) {
-        return existsGroupOwnedBy(userId);
-    }
 
     List<Group> findByNameContainingIgnoreCase(String name);
 }
