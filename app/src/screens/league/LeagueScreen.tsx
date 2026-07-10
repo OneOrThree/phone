@@ -84,10 +84,10 @@ export default function LeagueScreen() {
 
   // 내 티어·마감 스케줄 실데이터 (GROMO-538) — 티어 조회는 여기 한 곳에서만.
   const { tier, deadlineLabel } = useLeagueMeta();
-  // 리그 랭킹 실데이터 — 홈 상단바와 공유. 멤버 티어는 위 내 티어를 내려받는다(중복 조회 방지).
-  const { ranking, myLeagueLabel, myMinutes } = useLeagueRanking(tier.tierLevel ?? 1);
+  // 리그 랭킹 실데이터 — 홈 상단바와 공유. 멤버 티어는 서버 응답 실값(GROMO-748).
+  const { ranking, myLeagueLabel, myMinutes } = useLeagueRanking();
   // '전체' 탭 전용 진짜 전역 랭킹(직군 리스트 재사용 금지 — GROMO-644).
-  const globalRanking = useGlobalRanking(tier.tierLevel ?? 1);
+  const globalRanking = useGlobalRanking();
 
   // 진입(포커스)마다 증가 — 넛지 노출을 '진입당 1회'로 발화시키는 트리거. 랭킹은 비동기 로드라
   // 포커스 시점엔 myIdx가 아직 -1일 수 있어, 데이터가 채워진 뒤 이 seq 기준으로 딱 1회만 쏜다.
