@@ -17,7 +17,9 @@ export const options = {
 };
 
 export function create() {
-  const u = users[scenario.iterationInTest % users.length]; // 파티셔닝 — 유저당 동시 1요청
+  // 파티셔닝 — 유저당 동시 1요청. 무충돌 조건: 풀 크기 ≥ 프로파일 maxVUs(최대 1500, spike).
+  // users_uniform.json 은 1만 명 export(40_params_export) — SCALE 축소 시드에선 풀이 줄어드니 주의 (#182 리뷰 3)
+  const u = users[scenario.iterationInTest % users.length];
   const durMin = 15 + randInt(60);
   const ended = Date.now() - randInt(3600) * 1000;
   const started = ended - durMin * 60e3;

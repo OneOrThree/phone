@@ -1,7 +1,6 @@
 // ⭐ 매트릭스: GET /api/v1/focus-session (커서 페이지네이션) — Phase 1 표적.
 // focus_sessions 3천만 건·PK 외 인덱스 0 위에서 도는 조회. 단건 run 의 pg_stat 델타 = 이 API 의 쿼리 프로필.
-import http from 'k6/http';
-import { API, THRESHOLDS, pick, randInt } from '../lib/config.js';
+import { API, THRESHOLDS, pick } from '../lib/config.js';
 import { usersZipf } from '../lib/params.js';
 import { authParams } from '../lib/auth.js';
 import { followCursor } from '../lib/cursor.js';
