@@ -6,6 +6,8 @@ export const authParams = (user, endpoint, extra = {}) => ({
     Authorization: `Bearer ${user.token}`,
     'Content-Type': 'application/json',
   },
-  tags: { endpoint },
+  // name 태그 필수: 없으면 k6 가 원시 URL(랜덤 from/to·cursor 포함)을 name 라벨로 붙여
+  // remote-write 시계열이 요청 수만큼 폭발한다 — endpoint 템플릿으로 고정.
+  tags: { endpoint, name: endpoint },
   ...extra,
 });
