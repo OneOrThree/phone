@@ -1,18 +1,19 @@
 {
-  "title": "LOADTEST — k6 클라이언트 층 (open model)",
+  "title": "LOADTEST — 통합 관측 (k6 · 서버 · DB · 시스템)",
   "uid": "loadtest-k6",
-  "tags": ["loadtest", "k6"],
+  "tags": ["loadtest", "k6", "overview"],
   "timezone": "browser",
   "refresh": "5s",
   "time": { "from": "now-30m", "to": "now" },
   "editable": true,
   "schemaVersion": 39,
   "panels": [
+    { "id": 100, "type": "row", "title": "① k6 부하 생성기 층 — 클라이언트가 본 부하·응답", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
     {
-      "id": 1,
-      "type": "timeseries",
-      "title": "요청 처리율 (rps) — arrival rate 유지 확인",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1, "type": "timeseries",
+      "title": "요청 처리율 (rps)",
+      "description": "k6가 실제 발생시킨 초당 요청/이터레이션. 목표 arrival rate가 유지되는지 확인.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         { "expr": "sum(rate(k6_http_reqs_total[30s]))", "legendFormat": "실측 rps", "refId": "A" },
@@ -21,10 +22,10 @@
       "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
     },
     {
-      "id": 2,
-      "type": "timeseries",
-      "title": "지연 p95 / p99 (endpoint 태그별) — 합격선 200ms/500ms",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2, "type": "timeseries",
+      "title": "지연 p95 / p99 (endpoint별) — 클라이언트 관점",
+      "description": "엔드포인트별 응답시간(네트워크 포함, 클라이언트가 체감). 합격선 p95<200ms · p99<500ms.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         { "expr": "max by (endpoint) (k6_http_req_duration_p95)", "legendFormat": "p95 {{endpoint}}", "refId": "A" },
@@ -35,51 +36,41 @@
           "unit": "ms",
           "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 200 }, { "color": "red", "value": 500 } ] },
           "custom": { "thresholdsStyle": { "mode": "line" } }
-        },
-        "overrides": []
+        }, "overrides": []
       }
     },
     {
-      "id": 3,
-      "type": "timeseries",
+      "id": 3, "type": "timeseries",
       "title": "에러율 (http_req_failed) — 합격선 1%",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "description": "실패 요청 비율(4xx/5xx/타임아웃 포함). 합격선 <1%.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 9 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        { "expr": "max(k6_http_req_failed_rate) * 100", "legendFormat": "에러율", "refId": "A" }
-      ],
+      "targets": [ { "expr": "max(k6_http_req_failed_rate) * 100", "legendFormat": "에러율", "refId": "A" } ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent", "min": 0,
           "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] },
           "custom": { "thresholdsStyle": { "mode": "line" } }
-        },
-        "overrides": []
+        }, "overrides": []
       }
     },
     {
-      "id": 4,
-      "type": "timeseries",
-      "title": "dropped_iterations — >0 이면 SUT 포화 (단, 부하기 CPU 먼저 확인)",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "id": 4, "type": "timeseries",
+      "title": "dropped_iterations — >0 이면 포화",
+      "description": "k6가 목표 rate를 못 따라가 버린 이터레이션. >0 = 포화 신호(단, 아래 부하기 CPU를 먼저 확인 — 부하기가 먼저 죽은 것일 수 있음).",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 9 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        { "expr": "sum(increase(k6_dropped_iterations_total[1m]))", "legendFormat": "dropped/1m", "refId": "A" }
-      ],
+      "targets": [ { "expr": "sum(increase(k6_dropped_iterations_total[1m]))", "legendFormat": "dropped/1m", "refId": "A" } ],
       "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] }
     },
     {
-      "id": 5,
-      "type": "timeseries",
-      "title": "부하기 CPU — >80% 면 이 run 은 INVALID (측정 신뢰도 가드)",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "id": 5, "type": "timeseries",
+      "title": "부하기 CPU — >80% 면 INVALID (측정 가드)",
+      "description": "부하기(loadgen) CPU 사용률. >80%면 부하기가 SUT보다 먼저 포화된 것 → 이 run은 verdict=INVALID(측정 무효). VUs 동시 부하도 함께 표시.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 9 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        {
-          "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{job=\"loadgen\",mode=\"idle\"}[1m])))",
-          "legendFormat": "loadgen CPU",
-          "refId": "A"
-        },
+        { "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{job=\"loadgen\",mode=\"idle\"}[1m])))", "legendFormat": "loadgen CPU", "refId": "A" },
         { "expr": "k6_vus", "legendFormat": "VUs", "refId": "B" }
       ],
       "fieldConfig": {
@@ -88,10 +79,129 @@
           "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 80 } ] },
           "custom": { "thresholdsStyle": { "mode": "line" } }
         },
-        "overrides": [
-          { "matcher": { "id": "byName", "options": "VUs" }, "properties": [ { "id": "unit", "value": "short" }, { "id": "max", "value": null } ] }
-        ]
+        "overrides": [ { "matcher": { "id": "byName", "options": "VUs" }, "properties": [ { "id": "unit", "value": "short" }, { "id": "max", "value": null } ] } ]
       }
+    },
+
+    { "id": 101, "type": "row", "title": "② 서버 층 — SUT Spring micrometer (서버가 본 요청·커넥션풀)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 } },
+    {
+      "id": 6, "type": "timeseries",
+      "title": "서버 요청 수 (req/s)",
+      "description": "SUT가 처리한 초당 요청(micrometer). 위 k6 rps와 대조 — 큰 차이는 유실/타임아웃 의심.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(rate(http_server_requests_seconds_count{job=\"gromo-back\"}[30s]))", "legendFormat": "req/s", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 7, "type": "timeseries",
+      "title": "서버 지연 p95 / p99 (서버 관점)",
+      "description": "SUT 서버측 처리시간 p95/p99(네트워크 제외). k6 지연과의 차이 = 네트워크·큐잉. 서버 자체 병목은 이 값으로 판단.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"gromo-back\"}[1m])) by (le))", "legendFormat": "p95", "refId": "A" },
+        { "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job=\"gromo-back\"}[1m])) by (le))", "legendFormat": "p99", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 8, "type": "stat",
+      "title": "5xx 에러율 (%)",
+      "description": "SUT 5xx(서버 내부 오류) 비율. 4xx(클라 오류)와 분리해 서버 장애만 본다.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "100 * sum(rate(http_server_requests_seconds_count{job=\"gromo-back\",status=~\"5..\"}[1m])) / clamp_min(sum(rate(http_server_requests_seconds_count{job=\"gromo-back\"}[1m])), 1)", "legendFormat": "5xx %", "refId": "A" } ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
+        }, "overrides": []
+      }
+    },
+    {
+      "id": 9, "type": "timeseries",
+      "title": "상태코드별 요청 (req/s)",
+      "description": "응답 상태코드 분포(2xx/4xx/5xx). 부하 중 어떤 응답이 늘어나는지.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum by (status) (rate(http_server_requests_seconds_count{job=\"gromo-back\"}[30s]))", "legendFormat": "{{status}}", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 10, "type": "timeseries",
+      "title": "HikariCP 커넥션 (active/idle/pending)",
+      "description": "SUT DB 커넥션풀 상태. pending이 지속적으로 >0 이면 풀 고갈 = DB 병목의 유력 후보(풀 크기·쿼리 지연 확인).",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "hikaricp_connections_active{job=\"gromo-back\"}", "legendFormat": "active", "refId": "A" },
+        { "expr": "hikaricp_connections_idle{job=\"gromo-back\"}", "legendFormat": "idle", "refId": "B" },
+        { "expr": "hikaricp_connections_pending{job=\"gromo-back\"}", "legendFormat": "pending", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+
+    { "id": 102, "type": "row", "title": "③ DB 층 — Cloud SQL / postgres-exporter (커넥션·TPS·캐시)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 } },
+    {
+      "id": 11, "type": "timeseries",
+      "title": "DB 활성 커넥션",
+      "description": "Cloud SQL 동시 활성 백엔드 수(템플릿·postgres 제외). 커넥션 포화 시 대기 발생.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(pg_stat_database_numbackends{datname!~\"template.*|postgres\"})", "legendFormat": "backends", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 12, "type": "timeseries",
+      "title": "DB TPS (commit + rollback /s)",
+      "description": "초당 트랜잭션 수. rollback 비율이 높으면 경합·오류 의심.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(pg_stat_database_xact_commit{datname!~\"template.*|postgres\"}[30s]))", "legendFormat": "commit", "refId": "A" },
+        { "expr": "sum(rate(pg_stat_database_xact_rollback{datname!~\"template.*|postgres\"}[30s]))", "legendFormat": "rollback", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+    {
+      "id": 13, "type": "stat",
+      "title": "버퍼 캐시 히트율",
+      "description": "PostgreSQL 버퍼캐시 히트율. 낮으면(예: <0.99) 디스크 I/O가 많다 = 느린 쿼리·인덱스 부재 신호(pg_top20.csv와 대조).",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(rate(pg_stat_database_blks_hit{datname!~\"template.*|postgres\"}[1m])) / clamp_min(sum(rate(pg_stat_database_blks_hit{datname!~\"template.*|postgres\"}[1m])) + sum(rate(pg_stat_database_blks_read{datname!~\"template.*|postgres\"}[1m])), 1)", "legendFormat": "hit", "refId": "A" } ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit", "min": 0, "max": 1,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 0.95 }, { "color": "green", "value": 0.99 } ] }
+        }, "overrides": []
+      }
+    },
+
+    { "id": 103, "type": "row", "title": "④ 시스템 층 — node-exporter (SUT·부하기 호스트 자원)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 } },
+    {
+      "id": 14, "type": "timeseries",
+      "title": "호스트 CPU 사용률 (%)",
+      "description": "호스트별 CPU(job=node: SUT, job=loadgen: 부하기). SUT가 100%면 서버 CPU 병목, loadgen이 높으면 측정 무효(위 부하기 CPU 가드와 동일).",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "100 - (avg by (job) (rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100)", "legendFormat": "{{job}}", "refId": "A" } ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 90 } ] }
+        }, "overrides": []
+      }
+    },
+    {
+      "id": 15, "type": "timeseries",
+      "title": "호스트 메모리 사용률 (%)",
+      "description": "호스트별 메모리 사용률(SUT·부하기). SUT 메모리 압박은 GC·스왑으로 지연을 키운다.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))", "legendFormat": "{{job}}", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] }
     }
   ]
 }
