@@ -2,7 +2,10 @@
 # 예) make test PROJECT_ID=gromo-loadtest-1 PROFILE=smoke TARGET=scenarios/daily_mix.js
 # 진입점 3개(대시보드 버튼·Actions UI·이 Makefile)가 전부 같은 타겟을 실행한다.
 
-SHELL := /usr/bin/env bash
+# 단일 단어여야 함 — .ONESHELL 하에서 GNU Make(러너 4.3)는 SHELL 을 공백 분리하지 않아
+# '/usr/bin/env bash' 처럼 인자가 붙으면 통째로 exec 하려다 'No such file' 로 실패한다.
+# PATH 로 bash 를 찾는다(Mac=brew 최신 bash, 러너=/usr/bin/bash). macOS make 3.81 은 .ONESHELL 무시.
+SHELL := bash
 .ONESHELL:
 
 PROJECT_ID ?=
