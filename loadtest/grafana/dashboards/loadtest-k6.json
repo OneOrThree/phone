@@ -8,7 +8,7 @@
   "editable": true,
   "schemaVersion": 39,
   "panels": [
-    { "id": 100, "type": "row", "title": "① k6 부하 생성기 층 — 클라이언트가 본 부하·응답", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+    { "id": 100, "type": "row", "collapsed": false, "panels": [], "title": "① k6 부하 생성기 층 — 클라이언트가 본 부하·응답", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
     {
       "id": 1, "type": "timeseries",
       "title": "요청 처리율 (rps)",
@@ -83,7 +83,7 @@
       }
     },
 
-    { "id": 101, "type": "row", "title": "② 서버 층 — SUT Spring micrometer (서버가 본 요청·커넥션풀)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 } },
+    { "id": 101, "type": "row", "collapsed": false, "panels": [], "title": "② 서버 층 — SUT Spring micrometer (서버가 본 요청·커넥션풀)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 } },
     {
       "id": 6, "type": "timeseries",
       "title": "서버 요청 수 (req/s)",
@@ -142,7 +142,7 @@
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
     },
 
-    { "id": 102, "type": "row", "title": "③ DB 층 — Cloud SQL / postgres-exporter (커넥션·TPS·캐시)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 } },
+    { "id": 102, "type": "row", "collapsed": false, "panels": [], "title": "③ DB 층 — Cloud SQL / postgres-exporter (커넥션·TPS·캐시)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 } },
     {
       "id": 11, "type": "timeseries",
       "title": "DB 활성 커넥션",
@@ -167,10 +167,10 @@
     {
       "id": 13, "type": "stat",
       "title": "버퍼 캐시 히트율",
-      "description": "PostgreSQL 버퍼캐시 히트율. 낮으면(예: <0.99) 디스크 I/O가 많다 = 느린 쿼리·인덱스 부재 신호(pg_top20.csv와 대조).",
+      "description": "PostgreSQL 버퍼캐시 히트율. 낮으면(예: <0.99) 디스크 I/O가 많다 = 느린 쿼리·인덱스 부재 신호(pg_top20.csv와 대조). 부하 없는 idle 구간은 분모(hit+read)가 0 → No data(빨간 0% 오인 방지).",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 35 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [ { "expr": "sum(rate(pg_stat_database_blks_hit{datname!~\"template.*|postgres\"}[1m])) / clamp_min(sum(rate(pg_stat_database_blks_hit{datname!~\"template.*|postgres\"}[1m])) + sum(rate(pg_stat_database_blks_read{datname!~\"template.*|postgres\"}[1m])), 1)", "legendFormat": "hit", "refId": "A" } ],
+      "targets": [ { "expr": "sum(rate(pg_stat_database_blks_hit{datname!~\"template.*|postgres\"}[1m])) / (sum(rate(pg_stat_database_blks_hit{datname!~\"template.*|postgres\"}[1m])) + sum(rate(pg_stat_database_blks_read{datname!~\"template.*|postgres\"}[1m])) > 0)", "legendFormat": "hit", "refId": "A" } ],
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit", "min": 0, "max": 1,
@@ -179,14 +179,14 @@
       }
     },
 
-    { "id": 103, "type": "row", "title": "④ 시스템 층 — node-exporter (SUT·부하기 호스트 자원)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 } },
+    { "id": 103, "type": "row", "collapsed": false, "panels": [], "title": "④ 시스템 층 — node-exporter (SUT·부하기 호스트 자원)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 } },
     {
       "id": 14, "type": "timeseries",
       "title": "호스트 CPU 사용률 (%)",
-      "description": "호스트별 CPU(job=node: SUT, job=loadgen: 부하기). SUT가 100%면 서버 CPU 병목, loadgen이 높으면 측정 무효(위 부하기 CPU 가드와 동일).",
+      "description": "호스트별 CPU(범례: SUT·부하기). SUT가 100%면 서버 CPU 병목, 부하기가 높으면 측정 무효(위 부하기 CPU 가드와 동일).",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 44 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [ { "expr": "100 - (avg by (job) (rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100)", "legendFormat": "{{job}}", "refId": "A" } ],
+      "targets": [ { "expr": "label_replace(label_replace(100 - (avg by (job) (rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100), \"job\", \"SUT\", \"job\", \"node\"), \"job\", \"부하기\", \"job\", \"loadgen\")", "legendFormat": "{{job}}", "refId": "A" } ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent", "min": 0, "max": 100,
@@ -200,7 +200,7 @@
       "description": "호스트별 메모리 사용률(SUT·부하기). SUT 메모리 압박은 GC·스왑으로 지연을 키운다.",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 44 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [ { "expr": "100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))", "legendFormat": "{{job}}", "refId": "A" } ],
+      "targets": [ { "expr": "label_replace(label_replace(100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)), \"job\", \"SUT\", \"job\", \"node\"), \"job\", \"부하기\", \"job\", \"loadgen\")", "legendFormat": "{{job}}", "refId": "A" } ],
       "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] }
     }
   ]
