@@ -1198,14 +1198,14 @@ const s = StyleSheet.create({
   streakDivider: { width: 1, height: 28, backgroundColor: T.divider },
   streakValue: { ...T.text.stat, color: T.ink },
   streakLabel: { ...T.text.caption, color: T.inkMuted },
-  // 월 탭 잔디 — 해당 월 전체 날짜, 한 줄 7칸(작은 정사각형)
-  monthGrass: { gap: 6, marginTop: 4 },
+  // 월 탭 잔디 — 해당 월 전체 날짜, 한 줄 7칸(작은 정사각형), 블록 가운데 정렬
+  monthGrass: { gap: 6, marginTop: 4, alignSelf: 'center' },
   monthGrassRow: { flexDirection: 'row', gap: 6 },
   monthGrassCell: { width: 24, height: 24, borderRadius: 6 },
-  // 주 탭 잔디 한 줄 — 월~일 7칸 정사각형(aspectRatio) + 요일 라벨
-  weekGrassRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  weekGrassCol: { flex: 1, alignItems: 'center', gap: 6 },
-  weekGrassCell: { width: '100%', aspectRatio: 1, borderRadius: 8 },
+  // 주 탭 잔디 한 줄 — 월 탭과 같은 24px 정사각형 + 요일 라벨, 블록 가운데 정렬
+  weekGrassRow: { flexDirection: 'row', gap: 6, marginTop: 4, alignSelf: 'center' },
+  weekGrassCol: { alignItems: 'center', gap: 4 },
+  weekGrassCell: { width: 24, height: 24, borderRadius: 6 },
   weekGrassLabel: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
   grassHint: { ...T.text.caption, color: T.inkMuted, marginTop: 10 },
 });
