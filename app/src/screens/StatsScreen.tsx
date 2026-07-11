@@ -40,7 +40,6 @@ import {
   periodKey,
   heatmapBars,
   tenMinuteFocusSlots,
-  focusGoalRate,
   grassLevel,
   dailyFirstStartMinutes,
   firstStartPoints,
@@ -300,15 +299,7 @@ export default function StatsScreen() {
     ),
   });
 
-  // ST8 목표 달성
-  cards.push({
-    key: 'goal',
-    node: (
-      <SectionCard key="goal" title="목표 달성" caption={periodLabel(period)}>
-        <GoalBlock period={period} data={data} />
-      </SectionCard>
-    ),
-  });
+  // ST8 목표 달성 카드는 제거(2026-07-11 오스카 결정) — 저장된 순서의 'goal' 키는 mergeCardOrder가 걸러냄
 
   // ST9 공부 잔디 (Streak) — 일 탭에선 숨김(하루 데이터로는 잔디가 무의미)
   if (period !== 'DAY') {
@@ -1263,39 +1254,6 @@ function DeltaRow({
   );
 }
 
-function GoalBlock({
-  period,
-  data,
-}: {
-  period: StatsPeriod;
-  data: ReturnType<typeof useStatsData>['data'];
-}) {
-  // DAY: 오늘 목표 달성률. WEEK/MONTH: 달성일/경과일.
-  if (period === 'DAY') {
-    const f = data.today?.focus;
-    const percent = f?.progressPercent ?? 0;
-    const achieved = f?.goalAchieved ?? false;
-    return (
-      <View>
-        <Text style={[s.bigStat, { color: achieved ? T.successInk : T.ink }]}>{percent}%</Text>
-        <Text style={s.goalSub}>
-          목표 {fmtMinutes(f?.goalMinutes ?? 0)} 중 {fmtMinutes(f?.todayMinutes ?? 0)}{' '}
-          {achieved ? '달성 ✓' : ''}
-        </Text>
-      </View>
-    );
-  }
-  const rate = focusGoalRate(data.heatmap);
-  return (
-    <View>
-      <Text style={[s.bigStat, { color: T.successInk }]}>{rate.percent}%</Text>
-      <Text style={s.goalSub}>
-        {rate.total}일 중 {rate.achieved}일 달성
-      </Text>
-    </View>
-  );
-}
-
 // ST9(주) 공부 잔디 한 줄 — 월~일 7칸 정사각형 고정, 공부량이 많을수록 진해진다(GROMO-761).
 // 아직 안 온 요일은 빈 칸(레벨 0)으로 자리만 유지.
 const WEEK_DAYS = ['월', '화', '수', '목', '금', '토', '일'];
@@ -1560,7 +1518,6 @@ const s = StyleSheet.create({
   deltaMin: { ...T.text.caption, color: T.inkMuted },
 
   // 목표 달성
-  goalSub: { ...T.text.body, color: T.inkSub, marginTop: 4 },
 
   // 스트릭 + 잔디
   streakRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },

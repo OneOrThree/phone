@@ -80,10 +80,21 @@ export function periodKey(period: StatsPeriod): 'day' | 'week' | 'month' {
 }
 
 const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
-// 'YYYY-MM-DD' → 요일 '월'..'일' (로컬 자정 파싱으로 타임존 어긋남 방지).
-export function weekdayKo(dateStr: string): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return WEEKDAY[new Date(y, m - 1, d).getDay()];
+
+// 이번 주 월~일 7일의 로컬 날짜 키('YYYY-MM-DD') — 요일별 차트들이 남은 요일까지 미리 그릴 때 공용.
+function weekDateKeys(): string[] {
+  const now = new Date();
+  const dow = now.getDay(); // 0=일..6=토
+  const monday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + (dow === 0 ? -6 : 1 - dow),
+  );
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return localDateStr(d);
+  });
 }
 
 // 기간별 히트맵 조회 범위 [from, to] ('YYYY-MM-DD').
@@ -118,7 +129,7 @@ export interface StatBar {
   future?: boolean; // 아직 오지 않은 구간 — 가로축 라벨만 표시하고 선·점은 그리지 않음(GROMO-761)
 }
 
-// 히트맵 → 기간별 막대. WEEK=요일별, MONTH=주차별 합산, DAY=오늘 단일.
+// 히트맵 → 기간별 막대. WEEK=요일별(월~일 7칸 전체), MONTH=주차별 합산, DAY=오늘 단일.
 export function heatmapBars(
   period: StatsPeriod,
   cells: HeatmapCellResponse[],
@@ -126,10 +137,14 @@ export function heatmapBars(
 ): StatBar[] {
   const today = todayStr();
   if (period === 'WEEK') {
-    return cells.map((c) => ({
-      label: weekdayKo(c.date),
-      value: pick(c),
-      current: c.date === today,
+    // 월~일 7칸을 미리 기재 — 서버 히트맵은 월~오늘까지만 오므로 없는 날은 0,
+    // 아직 안 온 요일은 future(라벨만 표시, 선·점 없음)로 채운다
+    const byDate = new Map(cells.map((c) => [c.date, pick(c)]));
+    return weekDateKeys().map((key, i) => ({
+      label: WEEKDAY[(i + 1) % 7], // 월~일
+      value: byDate.get(key) ?? 0,
+      current: key === today,
+      future: key > today, // 'YYYY-MM-DD'는 문자열 비교가 날짜 비교와 일치
     }));
   }
   if (period === 'MONTH') {
@@ -180,23 +195,12 @@ export function firstStartPoints(
   const now = new Date();
   const today = todayStr();
   if (period === 'WEEK') {
-    const dow = now.getDay(); // 0=일..6=토
-    const monday = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + (dow === 0 ? -6 : 1 - dow),
-    );
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      const key = localDateStr(d);
-      return {
-        label: WEEKDAY[(i + 1) % 7], // 월~일
-        minutes: byDay.get(key) ?? null,
-        current: key === today,
-        future: key > today, // 'YYYY-MM-DD'는 문자열 비교가 날짜 비교와 일치
-      };
-    });
+    return weekDateKeys().map((key, i) => ({
+      label: WEEKDAY[(i + 1) % 7], // 월~일
+      minutes: byDay.get(key) ?? null,
+      current: key === today,
+      future: key > today, // 'YYYY-MM-DD'는 문자열 비교가 날짜 비교와 일치
+    }));
   }
   // MONTH — MonthWeeklyChart와 동일한 주 분할·라벨(6/29~7/5 또는 6~12)
   const monthFirst = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -256,17 +260,6 @@ export function mergeCardOrder(defaults: string[], stored?: string[] | null): st
     result.splice(at, 0, k);
   });
   return result;
-}
-
-// 집중 목표 달성률(주·월) — 달성일/경과일.
-export function focusGoalRate(cells: HeatmapCellResponse[]): {
-  percent: number;
-  achieved: number;
-  total: number;
-} {
-  const total = cells.length;
-  const achieved = cells.filter((c) => c.focusGoalAchieved).length;
-  return { percent: total ? Math.round((achieved / total) * 100) : 0, achieved, total };
 }
 
 // 집중 분 → 잔디 강도 0..4 (칸 색 진하기).
