@@ -16,10 +16,17 @@ case "$STAGE" in
       done
     fi
 
+    # 존 재고 소진(stockout)은 짧으면 수 분 내 풀린다 — 재시도로 흡수, 길면 사람이 판단
     for vm in sut obs; do
       if [ "$(vm_status "$vm")" != "RUNNING" ]; then
         log "$vm VM 시작"
-        gcloud compute instances start "$vm" --zone="$ZONE" --project="$PROJECT_ID" --quiet
+        tries=0
+        until gcloud compute instances start "$vm" --zone="$ZONE" --project="$PROJECT_ID" --quiet; do
+          tries=$((tries + 1))
+          [ "$tries" -ge 3 ] && { log "❌ $vm 시작 3회 실패 — 존 재고 소진(stockout)이면 잠시 뒤 재실행"; exit 1; }
+          log "$vm 시작 재시도 ($tries/3) — 60s 대기"
+          sleep 60
+        done
       fi
     done
     wait_ssh sut; wait_ssh obs
