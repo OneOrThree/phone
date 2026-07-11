@@ -773,14 +773,12 @@ function FocusTimetable() {
         {/* 범례 칼럼은 비어도 자리를 유지 — 격자 크기가 범례 유무와 무관하게 고정되도록 */}
         <View style={s.ttLegendCol}>
           {legendSubjects.map((sub) => (
-            <Text
-              key={sub.id}
-              style={[s.ttLegendText, { backgroundColor: sub.color }]}
-              numberOfLines={1}
-              allowFontScaling={false}
-            >
-              {sub.name}
-            </Text>
+            <View key={sub.id} style={s.ttLegendRow}>
+              <View style={[s.ttLegendDot, { backgroundColor: sub.color }]} />
+              <Text style={s.ttLegendText} numberOfLines={1} allowFontScaling={false}>
+                {sub.name}
+              </Text>
+            </View>
           ))}
         </View>
         <View style={s.ttGrid}>
@@ -1478,15 +1476,10 @@ const s = StyleSheet.create({
   // 시간대별 타임테이블 — 왼쪽 과목 범례(형광펜 하이라이트) + 격자(한 줄 1시간 = 10분×6칸)
   ttLayout: { flexDirection: 'row', gap: 12, marginTop: 14 },
   ttLegendCol: { width: 76, gap: 6, paddingTop: 2, alignItems: 'flex-start' },
-  ttLegendText: {
-    ...T.text.caption,
-    fontSize: 11,
-    color: T.ink,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
+  // 범례 — 글자 배경칠 대신 왼쪽 원형 점으로 과목 색 표시
+  ttLegendRow: { flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: '100%' },
+  ttLegendDot: { width: 8, height: 8, borderRadius: 4 },
+  ttLegendText: { ...T.text.caption, fontSize: 11, color: T.ink, flexShrink: 1 },
   ttGrid: { flex: 1, gap: 3 },
   ttRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   ttHourLabel: { ...T.text.caption, fontSize: 9, color: T.inkMuted, width: 18, textAlign: 'right' },
