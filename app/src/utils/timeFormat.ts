@@ -9,6 +9,15 @@ export function fmtMinutes(totalMinutes: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
 }
 
+// 초 → 디지털 표기 "01:47:23" (시:분:초) — 집중 타이머·통계 최장 세션 공용
+// (focus/format.ts에서 승격 — 2개 feature 이상 사용 시 전역 이동 규칙)
+export function hms(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
 // 세로축 눈금 상한 — 최대치를 보기 좋은 값(30m 단위→h 단위)으로 올림해 그리드 라벨·막대 정규화
 // 기준으로 쓴다(절반 눈금도 정수 분). 리그 비교 차트(DuoDayChart)·통계 막대 차트 공용(GROMO-691/761).
 const AXIS_STEPS = [30, 60, 120, 180, 240, 300, 360, 480, 600, 720];

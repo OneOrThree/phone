@@ -6,6 +6,7 @@ import type {
   FocusTagSetupRequest,
   FocusTagUpdateRequest,
   FocusSessionRequest,
+  FocusSessionResponse,
   FocusSessionSliceResponse,
   OccupationDefaultTagsResponse,
 } from '@/types/dto/focus';
@@ -60,4 +61,22 @@ export async function getFocusSessions(
     params: { from, to, cursor, size },
   });
   return data;
+}
+
+// 기간 내 세션 전량 조회 — 커서를 끝까지 따라간다(서버 필터는 startedAt 기준, 재로그인 복원·통계 공용).
+// 페이지 상한은 무한 루프 방지용 안전장치 — 50페이지=5,000건이면 한 달 내내 뽀모도로로 쪼개 저장하는
+// 헤비유저도 여유(10페이지는 조기 절단 위험, 리뷰 반영).
+export async function getAllFocusSessions(
+  from: string,
+  to: string,
+): Promise<FocusSessionResponse[]> {
+  const all: FocusSessionResponse[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 50; page++) {
+    const slice = await getFocusSessions(from, to, 100, cursor);
+    all.push(...slice.content);
+    if (!slice.hasNext || !slice.nextCursor) break;
+    cursor = slice.nextCursor;
+  }
+  return all;
 }

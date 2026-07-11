@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T, withAlpha } from '@/constants/theme';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import AllowedAppsListView from '@/components/AllowedAppsListView';
+import { SubjectProgressList } from '@/components/SubjectProgressList';
 import { useFocus } from '@/store/FocusContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { hms } from '../format';
@@ -32,7 +33,6 @@ export function FocusMenuDrawer({
   const rows = subjects.map((x) =>
     x.id === liveSubjectId ? { ...x, accumulatedSeconds: x.accumulatedSeconds + liveSeconds } : x,
   );
-  const totalSeconds = rows.reduce((a, x) => a + x.accumulatedSeconds, 0);
   const [level, setLevel] = useState<'menu' | 'apps'>('menu');
   // 허용앱 개수 — 열 때마다 갱신(전체 탭에서 바꿨을 수 있음). null = 로드 전.
   const [allowedApps, setAllowedApps] = useState<number | null>(null);
@@ -90,29 +90,8 @@ export function FocusMenuDrawer({
 
             <View style={s.cardBlock}>
               <Text style={s.statLabel}>과목별 집중 현황</Text>
-              <View style={s.progressList}>
-                {rows.map((p) => (
-                  <View key={p.id} style={s.subjectRow}>
-                    <View style={[s.subjectDot, { backgroundColor: p.color }]} />
-                    <Text style={s.progressName} numberOfLines={1}>
-                      {p.name}
-                    </Text>
-                    <Text style={s.progressTime}>{hms(p.accumulatedSeconds)}</Text>
-                  </View>
-                ))}
-              </View>
-              {/* 전체 집중시간 대비 과목별 비율 바 — flex로 세그먼트 분할 */}
-              <View style={s.ratioTrack}>
-                {rows
-                  .filter((p) => p.accumulatedSeconds > 0)
-                  .map((p) => (
-                    <View
-                      key={p.id}
-                      style={{ flex: p.accumulatedSeconds, backgroundColor: p.color }}
-                    />
-                  ))}
-              </View>
-              {totalSeconds <= 0 && <Text style={s.ratioEmpty}>아직 기록된 집중시간이 없어요</Text>}
+              {/* 행 목록+비율 바는 통계 일 탭과 공용(SubjectProgressList로 승격, GROMO-762) */}
+              <SubjectProgressList rows={rows} />
             </View>
           </>
         ) : (
@@ -235,26 +214,6 @@ const s = StyleSheet.create({
     color: T.ink,
     fontVariant: ['tabular-nums'],
   },
-
-  progressList: { gap: 10 },
-  subjectRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  subjectDot: { width: 8, height: 8, borderRadius: 4 },
-  progressName: { flex: 1, ...T.text.caption, color: T.ink },
-  progressTime: {
-    ...T.text.caption,
-    fontWeight: '700',
-    color: T.inkSub,
-    fontVariant: ['tabular-nums'],
-  },
-  ratioTrack: {
-    flexDirection: 'row',
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: T.caramel,
-    overflow: 'hidden',
-    marginTop: 13,
-  },
-  ratioEmpty: { ...T.text.caption, fontWeight: '500', color: T.inkMuted, marginTop: 8 },
 
   appsHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
   appsSub: { ...T.text.caption, fontWeight: '500', color: T.inkMuted, marginBottom: 12 },

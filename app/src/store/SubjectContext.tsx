@@ -30,6 +30,12 @@ const SEED: Subject[] = [
   { id: 's3', name: '사회보험법', accumulatedSeconds: 0, color: PALETTE[2] },
 ];
 
+// 로컬 과목 id — Date.now()만 쓰면 '추천 과목 전부 추가'(forEach 연속 호출)처럼 같은 밀리초에
+// 생성될 때 id가 전부 겹쳐 목록 렌더·이름변경·삭제가 꼬인다(762 작업 중 발견). 난수 꼬리로 유니크 보장.
+function newSubjectId(): string {
+  return `subj-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
 interface SubjectContextValue {
   subjects: Subject[];
   // 로컬 로드(+서버 복원) 완료 여부 — 복원 스냅샷이 이후 적립분을 덮지 않게
@@ -58,15 +64,23 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
         const list = Array.isArray(parsed) ? parsed : (parsed.subjects ?? []);
         const savedDate = Array.isArray(parsed) ? undefined : parsed.date;
         const sameDay = savedDate === todayStr();
+        const seen = new Set<string>();
         setSubjects(
-          list.map((x, i) => ({
-            ...x,
-            // color 없던 기존 데이터 마이그레이션 — 팔레트를 순서대로 배정
-            color: x.color ?? PALETTE[i % PALETTE.length],
-            // 날짜가 바뀌었거나(자정 지남) 구버전(날짜 없음)이면 오늘 집중시간만 0으로 리셋.
-            // 과목 목록·이름·색·순서는 유지.
-            accumulatedSeconds: sameDay ? x.accumulatedSeconds : 0,
-          })),
+          list.map((x, i) => {
+            // 같은 밀리초 연속 생성으로 id가 중복된 과거 데이터 복구 — 뒤쪽 중복에 새 id 재부여.
+            // (id는 로컬 전용 — 서버 태그 동기화는 이름 기준이라 재부여해도 안전)
+            const id = seen.has(x.id) ? newSubjectId() : x.id;
+            seen.add(id);
+            return {
+              ...x,
+              id,
+              // color 없던 기존 데이터 마이그레이션 — 팔레트를 순서대로 배정
+              color: x.color ?? PALETTE[i % PALETTE.length],
+              // 날짜가 바뀌었거나(자정 지남) 구버전(날짜 없음)이면 오늘 집중시간만 0으로 리셋.
+              // 과목 목록·이름·색·순서는 유지.
+              accumulatedSeconds: sameDay ? x.accumulatedSeconds : 0,
+            };
+          }),
         );
       } else {
         // 로컬 데이터 없음(첫 실행·재로그인) — 서버 태그로 과목 목록 복원(GROMO-677).
@@ -108,7 +122,7 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
   }, [subjects]);
 
   function addSubject(name: string) {
-    const id = `subj-${Date.now().toString(36)}`;
+    const id = newSubjectId();
     setSubjects((prev) => {
       // 아직 안 쓰인 팔레트 색 우선 배정, 다 쓰였으면 순환
       const used = new Set(prev.map((x) => x.color));

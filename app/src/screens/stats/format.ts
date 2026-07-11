@@ -69,26 +69,27 @@ export const PERIOD_TABS: { key: StatsPeriod; label: string }[] = [
   { key: 'MONTH', label: '월' },
 ];
 
-// 현재 구간 라벨(카드 부제용).
-export function periodLabel(period: StatsPeriod): string {
-  return period === 'DAY' ? '오늘' : period === 'WEEK' ? '이번 주' : '이번 달';
-}
-
-// 전(前) 대비 라벨(전일/전주/전월).
-export function prevLabel(period: StatsPeriod): string {
-  return period === 'DAY' ? '전일' : period === 'WEEK' ? '전주' : '전월';
-}
-
 // StatsPeriod → 애널리틱스 소문자 키.
 export function periodKey(period: StatsPeriod): 'day' | 'week' | 'month' {
   return period === 'DAY' ? 'day' : period === 'WEEK' ? 'week' : 'month';
 }
 
 const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
-// 'YYYY-MM-DD' → 요일 '월'..'일' (로컬 자정 파싱으로 타임존 어긋남 방지).
-export function weekdayKo(dateStr: string): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return WEEKDAY[new Date(y, m - 1, d).getDay()];
+
+// 이번 주 월~일 7일의 로컬 날짜 키('YYYY-MM-DD') — 요일별 차트들이 남은 요일까지 미리 그릴 때 공용.
+function weekDateKeys(): string[] {
+  const now = new Date();
+  const dow = now.getDay(); // 0=일..6=토
+  const monday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + (dow === 0 ? -6 : 1 - dow),
+  );
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return localDateStr(d);
+  });
 }
 
 // 기간별 히트맵 조회 범위 [from, to] ('YYYY-MM-DD').
@@ -123,7 +124,7 @@ export interface StatBar {
   future?: boolean; // 아직 오지 않은 구간 — 가로축 라벨만 표시하고 선·점은 그리지 않음(GROMO-761)
 }
 
-// 히트맵 → 기간별 막대. WEEK=요일별, MONTH=주차별 합산, DAY=오늘 단일.
+// 히트맵 → 기간별 막대. WEEK=요일별(월~일 7칸 전체), MONTH=주차별 합산, DAY=오늘 단일.
 export function heatmapBars(
   period: StatsPeriod,
   cells: HeatmapCellResponse[],
@@ -131,10 +132,14 @@ export function heatmapBars(
 ): StatBar[] {
   const today = todayStr();
   if (period === 'WEEK') {
-    return cells.map((c) => ({
-      label: weekdayKo(c.date),
-      value: pick(c),
-      current: c.date === today,
+    // 월~일 7칸을 미리 기재 — 서버 히트맵은 월~오늘까지만 오므로 없는 날은 0,
+    // 아직 안 온 요일은 future(라벨만 표시, 선·점 없음)로 채운다
+    const byDate = new Map(cells.map((c) => [c.date, pick(c)]));
+    return weekDateKeys().map((key, i) => ({
+      label: WEEKDAY[(i + 1) % 7], // 월~일
+      value: byDate.get(key) ?? 0,
+      current: key === today,
+      future: key > today, // 'YYYY-MM-DD'는 문자열 비교가 날짜 비교와 일치
     }));
   }
   if (period === 'MONTH') {
@@ -150,15 +155,106 @@ export function heatmapBars(
   return cells.map((c) => ({ label: '오늘', value: pick(c), current: true }));
 }
 
-// 집중 목표 달성률(주·월) — 달성일/경과일.
-export function focusGoalRate(cells: HeatmapCellResponse[]): {
-  percent: number;
-  achieved: number;
-  total: number;
-} {
-  const total = cells.length;
-  const achieved = cells.filter((c) => c.focusGoalAchieved).length;
-  return { percent: total ? Math.round((achieved / total) * 100) : 0, achieved, total };
+// 달력 일 번호 — UTC 자정으로 정규화해 DST가 있는 시간대에서도 일수 차이가 정확(StatsScreen과 동일 로직).
+const dayNum = (y: number, monthIdx: number, d: number) =>
+  Math.floor(Date.UTC(y, monthIdx, d) / 86400e3);
+
+// 세션 목록 → 일별 첫 세션 시작 시각(로컬 자정 경과 분). key = 'YYYY-MM-DD'(로컬).
+export function dailyFirstStartMinutes(sessions: { startedAt: string }[]): Map<string, number> {
+  const byDay = new Map<string, number>();
+  for (const s of sessions) {
+    const d = new Date(s.startedAt);
+    if (Number.isNaN(d.getTime())) continue;
+    const key = localDateStr(d);
+    const minutes = d.getHours() * 60 + d.getMinutes();
+    const prev = byDay.get(key);
+    if (prev === undefined || minutes < prev) byDay.set(key, minutes);
+  }
+  return byDay;
+}
+
+// 첫 시작 시각 점 1개 — 기록 없는 날(주)은 minutes=null로 라벨만 남기고 점은 그리지 않는다.
+export interface StartTimePoint {
+  label: string;
+  minutes: number | null; // 자정 경과 분
+  current: boolean;
+  future?: boolean;
+}
+
+// 일별 첫 시작 시각 → 기간별 점. WEEK=요일별(월~일), MONTH=주별 평균('N월 주별' 차트와 같은
+// 달력 주 분할 — 이달 1일이 낀 주의 월요일부터). 평균은 기록 있는 날만 분모에 넣는다.
+export function firstStartPoints(
+  period: StatsPeriod,
+  byDay: Map<string, number>,
+): StartTimePoint[] {
+  const now = new Date();
+  const today = todayStr();
+  if (period === 'WEEK') {
+    return weekDateKeys().map((key, i) => ({
+      label: WEEKDAY[(i + 1) % 7], // 월~일
+      minutes: byDay.get(key) ?? null,
+      current: key === today,
+      future: key > today, // 'YYYY-MM-DD'는 문자열 비교가 날짜 비교와 일치
+    }));
+  }
+  // MONTH — MonthWeeklyChart와 동일한 주 분할·라벨(6/29~7/5 또는 6~12)
+  const monthFirst = new Date(now.getFullYear(), now.getMonth(), 1);
+  const dow = monthFirst.getDay();
+  const weekStart0 = new Date(monthFirst);
+  weekStart0.setDate(monthFirst.getDate() - (dow === 0 ? 6 : dow - 1));
+  const startDay = dayNum(weekStart0.getFullYear(), weekStart0.getMonth(), weekStart0.getDate());
+  const monthLast = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const weekCount =
+    Math.floor(
+      (dayNum(monthLast.getFullYear(), monthLast.getMonth(), monthLast.getDate()) - startDay) / 7,
+    ) + 1;
+  const thisWeekIdx = Math.floor(
+    (dayNum(now.getFullYear(), now.getMonth(), now.getDate()) - startDay) / 7,
+  );
+  return Array.from({ length: weekCount }, (_, i) => {
+    const ws = new Date(weekStart0);
+    ws.setDate(weekStart0.getDate() + i * 7);
+    const we = new Date(ws);
+    we.setDate(ws.getDate() + 6);
+    const vals: number[] = [];
+    for (let d = 0; d < 7; d++) {
+      const day = new Date(ws);
+      day.setDate(ws.getDate() + d);
+      const v = byDay.get(localDateStr(day));
+      if (v !== undefined) vals.push(v);
+    }
+    const label =
+      ws.getMonth() === we.getMonth()
+        ? `${ws.getDate()}~${we.getDate()}`
+        : `${ws.getMonth() + 1}/${ws.getDate()}~${we.getMonth() + 1}/${we.getDate()}`;
+    return {
+      label,
+      minutes: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null,
+      current: i === thisWeekIdx,
+      future: i > thisWeekIdx,
+    };
+  });
+}
+
+// 저장된 카드 순서를 현재 카드 목록에 적용(통계 카드 순서 편집).
+// 저장에 없는 새 카드는 기본 순서상 바로 앞 카드(존재하는 것 중 가장 가까운) 뒤에 끼워넣고,
+// 이제 없는 카드 키는 버린다 — 카드가 추가/삭제돼도 저장된 순서가 자연스럽게 이어진다.
+export function mergeCardOrder(defaults: string[], stored?: string[] | null): string[] {
+  if (!stored || stored.length === 0) return defaults;
+  const result = stored.filter((k) => defaults.includes(k));
+  defaults.forEach((k, di) => {
+    if (result.includes(k)) return;
+    let at = 0;
+    for (let i = di - 1; i >= 0; i--) {
+      const idx = result.indexOf(defaults[i]);
+      if (idx >= 0) {
+        at = idx + 1;
+        break;
+      }
+    }
+    result.splice(at, 0, k);
+  });
+  return result;
 }
 
 // 집중 분 → 잔디 강도 0..4 (칸 색 진하기).

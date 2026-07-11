@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -6,11 +6,15 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  Share,
+  Platform,
 } from 'react-native';
+import { captureRef } from 'react-native-view-shot';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Line, Polygon, Polyline } from 'react-native-svg';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import type { StatsPeriod, HeatmapCellResponse } from '@/types/dto/stats';
 import { logStatsViewed, logStatsPeriodChanged } from '@/services/analyticsEvents';
@@ -21,27 +25,33 @@ import {
 } from '@/services/compareAverages';
 import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
-import { fetchTodayFocusSessions } from '@/screens/focus/focusRestore';
-import { getFocusTags } from '@/services/focusApi';
+import { CardOrderEditor } from './stats/CardOrderEditor';
+import { SubjectProgressList } from '@/components/SubjectProgressList';
+import { STORAGE_KEYS } from '@/types/storage';
+import { fetchTodayFocusSessions, sessionFocusSeconds } from '@/screens/focus/focusRestore';
+import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
+import type { FocusSessionResponse } from '@/types/dto/focus';
 import { getHeatmap } from '@/services/statsApi';
+import { useFocus } from '@/store/FocusContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { localDateStr, todayStr } from '@/utils/localDate';
-import { fmtMinutes, axisCeil, fmtAxis } from '@/utils/timeFormat';
+import { fmtMinutes, axisCeil, fmtAxis, hms } from '@/utils/timeFormat';
 import {
   PERIOD_TABS,
-  periodLabel,
-  prevLabel,
   periodKey,
   heatmapBars,
   tenMinuteFocusSlots,
-  focusGoalRate,
   grassLevel,
+  dailyFirstStartMinutes,
+  firstStartPoints,
+  mergeCardOrder,
   type FocusSlotSegment,
   type StatBar,
+  type StartTimePoint,
 } from './stats/format';
 
 // v2 내 통계 화면(GROMO-604) — 홈 '오늘' 카드의 '자세히'에서 진입.
-// 상단 고정 필터(기간 일/주/월) 아래로 ST1~ST9 지표 스크롤. 과목 칩 필터는 제거(GROMO-761 — 과목별 섹션과 중복).
+// 상단 고정 필터(기간 일/주/월) 아래로 ST1~ST9 지표 스크롤.
 // 실데이터: 집중시간·폰사용·전대비·목표달성·잔디·총공부량(나)·과목별(나).
 // 준비 중: 비교(친구/전체/같은 카테고리)·합격자·주별 누적 — 소스 미비로 스텁.
 
@@ -63,6 +73,31 @@ export default function StatsScreen() {
   const navigation = useNavigation();
   const [period, setPeriod] = useState<StatsPeriod>('WEEK');
   const { data, loading } = useStatsData(period);
+  // 일 탭 과목별 카드 — 집중 세션 메뉴 드로어와 동일한 로컬 오늘 누적(SubjectContext) 사용
+  const { subjects } = useSubjects();
+  // 일 탭 총계도 같은 로컬 소스(홈·드로어와 동일) — 서버 집계(data.focus)는 업로드 지연·재시도 중이면
+  // 과목별 합보다 낮게 보여 카드끼리 어긋난다(리뷰 반영)
+  const { todayFocusSeconds } = useFocus();
+  const [editing, setEditing] = useState(false);
+  // 카드 순서(탭별, GROMO-762) — AsyncStorage에서 로드, 드래그 확정 시마다 저장.
+  // 로드 완료 전에 그리면 기본 순서가 잠깐 보였다 튀므로 플래그로 막는다.
+  const [cardOrder, setCardOrder] = useState<Record<string, string[]>>({});
+  const [orderLoaded, setOrderLoaded] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.statsCardOrder)
+      .then((raw) => {
+        if (raw) setCardOrder(JSON.parse(raw));
+      })
+      .catch(() => {}) // 조회·파싱 실패 → 기본 순서
+      .finally(() => setOrderLoaded(true));
+  }, []);
+
+  const onReorderCards = (keys: string[]) => {
+    const next = { ...cardOrder, [period]: keys };
+    setCardOrder(next);
+    AsyncStorage.setItem(STORAGE_KEYS.statsCardOrder, JSON.stringify(next)).catch(() => {});
+  };
 
   // 화면 진입(포커스마다 1회) 로깅.
   useFocusEffect(
@@ -79,6 +114,243 @@ export default function StatsScreen() {
 
   const firstLoad = loading && data.focus === null && data.heatmap.length === 0;
 
+  // 카드 목록(현재 탭) — push 순서가 기본 순서(기존 렌더 순서 그대로). key는 순서 저장(AsyncStorage)에
+  // 쓰이므로 바꾸면 유저가 저장한 순서와 어긋난다(GROMO-762).
+  const month = new Date().getMonth() + 1;
+  const cards: { key: string; node: ReactNode }[] = [];
+
+  // ST1 총 공부량 (나) + 비교 — 주간은 리그 랭킹·친구 통계 기반 실비교(GROMO-761), 일/월은 준비중.
+  // 제목이 탭별 기간 표기(오늘/이번 주/N월)라 캡션 불필요
+  cards.push({
+    key: 'total',
+    node: (
+      <SectionCard
+        key="total"
+        title={
+          period === 'DAY'
+            ? '오늘 총 집중시간'
+            : period === 'WEEK'
+              ? '이번 주 총 집중시간'
+              : `${month}월 총 집중시간`
+        }
+      >
+        <Text style={s.bigStat}>
+          {period === 'DAY'
+            ? hms(todayFocusSeconds)
+            : fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
+        </Text>
+        {period === 'WEEK' ? (
+          <CompareWeek myMinutes={data.focus?.totalFocusMinutes ?? 0} />
+        ) : (
+          <CompareStub />
+        )}
+      </SectionCard>
+    ),
+  });
+
+  // ST2 과목별 공부량 (나) — 총 공부량 바로 아래. 주/월 탭은 도넛(비중), 일 탭은 집중 세션 메뉴
+  // 드로어와 동일한 과목별 현황(로컬 오늘 누적 — 색 점+시간+비율 바, GROMO-762)
+  cards.push({
+    key: 'category',
+    node: (
+      <SectionCard
+        key="category"
+        title={
+          period === 'DAY'
+            ? '오늘 과목별 집중시간'
+            : period === 'WEEK'
+              ? '이번 주 과목별 집중시간'
+              : `${month}월 과목별 집중시간`
+        }
+      >
+        {period !== 'DAY' ? (
+          <CategoryDonut
+            items={data.category?.items ?? []}
+            total={data.category?.totalFocusMinutes ?? 0}
+          />
+        ) : (
+          <SubjectProgressList rows={subjects} />
+        )}
+      </SectionCard>
+    ),
+  });
+
+  // 타임테이블(일) — 오늘 세션 실데이터, 과목별 공부량 아래(GROMO-761). 카드 헤더에 공유 버튼(GROMO-762)
+  if (period === 'DAY') {
+    cards.push({
+      key: 'timetable',
+      node: <FocusTimetableCard key="timetable" />,
+    });
+  }
+
+  // 해당월 주별 공부시간·핸드폰 사용량(월) — 과목별 아래. heatmap 주차 합산 실데이터(GROMO-761)
+  if (period === 'MONTH') {
+    cards.push({
+      key: 'monthWeeklyFocus',
+      node: (
+        <SectionCard key="monthWeeklyFocus" title={`${month}월 주별 집중시간`}>
+          <MonthWeeklyChart pick={pickFocus} color={FOCUS_COLOR} />
+        </SectionCard>
+      ),
+    });
+    cards.push({
+      key: 'monthWeeklyPhone',
+      node: (
+        <SectionCard key="monthWeeklyPhone" title={`${month}월 주별 핸드폰 사용량`}>
+          <MonthWeeklyChart pick={pickScreenTime} color={PHONE_COLOR} />
+        </SectionCard>
+      ),
+    });
+  }
+
+  // ST5·ST6 요일별 집중시간·핸드폰 사용량(주) — 일 탭은 타임테이블이, 월 탭은 'N월 주별'이 대체
+  if (period === 'WEEK') {
+    cards.push({
+      key: 'weekdayFocus',
+      node: (
+        <SectionCard key="weekdayFocus" title="요일별 집중시간">
+          <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
+            총 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
+          </Text>
+          <LineChart
+            bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
+            color={FOCUS_COLOR}
+          />
+        </SectionCard>
+      ),
+    });
+    cards.push({
+      key: 'weekdayPhone',
+      node: (
+        <SectionCard key="weekdayPhone" title="요일별 핸드폰 사용량">
+          <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
+            총 {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
+          </Text>
+          <LineChart
+            bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
+            color={PHONE_COLOR}
+          />
+        </SectionCard>
+      ),
+    });
+  }
+
+  // 첫 시작 시각 추이(주·월) — 일별 첫 세션 startedAt 기반(GROMO-762).
+  // 월 탭은 주별 평균값이라 제목에 명시(다른 'N월 ~' 카드와 표기 통일)
+  if (period !== 'DAY') {
+    const firstStartTitle =
+      period === 'WEEK' ? '요일별 첫 집중 시작 시각' : `${month}월 주별 첫 집중 시작 시각`;
+    cards.push({
+      key: 'firstStart',
+      node: (
+        <SectionCard key="firstStart" title={firstStartTitle}>
+          {/* key로 탭 전환 시 리마운트 — 이전 기간 점이 새 라벨 위에 잠깐 보이는 것 방지 */}
+          <FirstStartChart key={period} period={period} />
+        </SectionCard>
+      ),
+    });
+  }
+
+  // 최장 연속 집중(일·주·월) — 기간 내 최장 세션 기록(GROMO-762). 제목 자체가 탭별 '기간 최고기록'
+  cards.push({
+    key: 'longest',
+    node: (
+      <SectionCard
+        key="longest"
+        title={
+          period === 'DAY'
+            ? '오늘 최장 연속 집중'
+            : period === 'WEEK'
+              ? '이번 주 최장 연속 집중'
+              : `${month}월 최장 연속 집중`
+        }
+      >
+        <LongestSessionStat key={period} period={period} />
+      </SectionCard>
+    ),
+  });
+
+  // ST3 합격자 비교 — 레이더 티저 + 블러(데이터 준비 중)
+  cards.push({
+    key: 'passer',
+    node: (
+      <SectionCard key="passer" title="합격자와 비교" caption="과목별">
+        <ComingSoon note="합격자 데이터가 쌓이면 보여드릴게요">
+          <PasserCompareChart />
+        </ComingSoon>
+      </SectionCard>
+    ),
+  });
+
+  // ST7 전(前) 대비 — 제목은 탭별 직전 기간 표기(어제 / 저번주 / N-1월)
+  cards.push({
+    key: 'delta',
+    node: (
+      <SectionCard
+        key="delta"
+        title={
+          period === 'DAY'
+            ? '어제 대비'
+            : period === 'WEEK'
+              ? '저번 주 대비'
+              : `${month === 1 ? 12 : month - 1}월 대비`
+        }
+      >
+        <DeltaRow
+          label="집중"
+          delta={data.focus?.deltaMinutes ?? 0}
+          base={data.focus?.previousTotalFocusMinutes ?? 0}
+          lowerIsBetter={false}
+        />
+        <DeltaRow
+          label="폰 사용"
+          delta={data.screenTime?.deltaMinutes ?? 0}
+          base={data.screenTime?.previousMinutes ?? 0}
+          lowerIsBetter
+        />
+      </SectionCard>
+    ),
+  });
+
+  // ST8 목표 달성 카드는 제거(2026-07-11 오스카 결정) — 저장된 순서의 'goal' 키는 mergeCardOrder가 걸러냄
+
+  // ST9 공부 잔디 (Streak) — 일 탭에선 숨김(하루 데이터로는 잔디가 무의미)
+  if (period !== 'DAY') {
+    cards.push({
+      key: 'grass',
+      node: (
+        <SectionCard key="grass" title="공부 잔디">
+          <View style={s.streakRow}>
+            <View style={s.streakItem}>
+              <Text style={s.streakValue}>{data.streak?.currentStreak ?? 0}일</Text>
+              <Text style={s.streakLabel}>연속</Text>
+            </View>
+            <View style={s.streakDivider} />
+            <View style={s.streakItem}>
+              <Text style={s.streakValue}>{data.streak?.longestStreak ?? 0}일</Text>
+              <Text style={s.streakLabel}>최장</Text>
+            </View>
+          </View>
+          {/* 주 탭은 월~일 7칸 한 줄, 월 탭은 해당 월 전체 날짜 7칸씩 그리드 */}
+          {period === 'WEEK' ? (
+            <WeekGrassRow cells={data.heatmap} />
+          ) : (
+            <MonthGrassGrid cells={data.heatmap} />
+          )}
+          <Text style={s.grassHint}>집중시간이 많을수록 칸이 진해져요</Text>
+        </SectionCard>
+      ),
+    });
+  }
+
+  // 저장된 순서 적용 — 저장이 없거나 이후 새 카드가 생겼으면 기본 순서에 병합
+  const orderedKeys = mergeCardOrder(
+    cards.map((c) => c.key),
+    cardOrder[period],
+  );
+  const byKey = new Map(cards.map((c) => [c.key, c]));
+  const orderedCards = orderedKeys.flatMap((k) => byKey.get(k) ?? []);
+
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       {/* ── 헤더 ── */}
@@ -87,7 +359,14 @@ export default function StatsScreen() {
           <Ionicons name="chevron-back" size={22} color={T.ink} />
         </TouchableOpacity>
         <Text style={s.headerTitle}>통계</Text>
-        <View style={s.backBtn} />
+        {/* 카드 순서 편집 토글(GROMO-762) — 연필로 진입, 체크로 완료. 순서는 드래그를 놓을 때마다 저장 */}
+        <TouchableOpacity
+          style={s.backBtn}
+          onPress={() => setEditing((v) => !v)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name={editing ? 'checkmark' : 'pencil'} size={20} color={T.ink} />
+        </TouchableOpacity>
       </View>
 
       {/* ── 고정 필터: 기간(일/주/월) — 과목 칩 필터는 제거(과목별 섹션이 전체를 보여줘 중복) ── */}
@@ -109,133 +388,16 @@ export default function StatsScreen() {
         </View>
       </View>
 
-      {firstLoad ? (
+      {firstLoad || !orderLoaded ? (
         <View style={s.loader}>
           <ActivityIndicator color={T.accent} />
         </View>
+      ) : editing ? (
+        // 순서 편집 모드 — 실제 카드 오른쪽 위 핸들을 잡아 카드를 끌어 순서 변경. 탭을 바꾸면 그 탭 순서 편집(탭별 저장)
+        <CardOrderEditor key={period} cards={orderedCards} onReorder={onReorderCards} />
       ) : (
         <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-          {/* ST1 총 공부량 (나) + 비교 — 주간은 리그 랭킹·친구 통계 기반 실비교(GROMO-761), 일/월은 준비중 */}
-          <SectionCard title="총 공부량" caption={periodLabel(period)}>
-            <Text style={s.bigStat}>{fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}</Text>
-            {period === 'WEEK' ? (
-              <CompareWeek myMinutes={data.focus?.totalFocusMinutes ?? 0} />
-            ) : (
-              <CompareStub />
-            )}
-          </SectionCard>
-
-          {/* ST2 과목별 공부량 (나) — 총 공부량 바로 아래. 주/월 탭은 도넛(비중), 일 탭은 가로 막대 */}
-          <SectionCard title="과목별 공부량" caption={periodLabel(period)}>
-            {period !== 'DAY' ? (
-              <CategoryDonut
-                items={data.category?.items ?? []}
-                total={data.category?.totalFocusMinutes ?? 0}
-              />
-            ) : (
-              <CategoryBars
-                items={data.category?.items ?? []}
-                total={data.category?.totalFocusMinutes ?? 0}
-              />
-            )}
-          </SectionCard>
-
-          {/* 타임테이블(일) — 오늘 세션 실데이터, 과목별 공부량 아래(GROMO-761) */}
-          {period === 'DAY' && (
-            <SectionCard title="타임테이블" caption="오늘">
-              <FocusTimetable />
-            </SectionCard>
-          )}
-
-          {/* 해당월 주별 공부시간·핸드폰 사용량(월) — 과목별 아래, 합격자 위. heatmap 주차 합산 실데이터(GROMO-761) */}
-          {period === 'MONTH' && (
-            <>
-              <SectionCard title={`${new Date().getMonth() + 1}월 주별 공부시간`}>
-                <MonthWeeklyChart pick={pickFocus} color={FOCUS_COLOR} />
-              </SectionCard>
-              <SectionCard title={`${new Date().getMonth() + 1}월 주별 핸드폰 사용량`}>
-                <MonthWeeklyChart pick={pickScreenTime} color={PHONE_COLOR} />
-              </SectionCard>
-            </>
-          )}
-
-          {/* ST5 요일별 집중시간(주) — 일 탭은 타임테이블이, 월 탭은 'N월 주별 공부시간'이 대체 */}
-          {period === 'WEEK' && (
-            <SectionCard title="요일별 집중시간" caption={periodLabel(period)}>
-              <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
-                총 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
-              </Text>
-              <LineChart
-                bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
-                color={FOCUS_COLOR}
-              />
-            </SectionCard>
-          )}
-
-          {/* ST6 요일별 핸드폰 사용량(주) — 일 탭은 제거(홈 카드와 중복), 월 탭은 'N월 주별'이 대체 */}
-          {period === 'WEEK' && (
-            <SectionCard title="요일별 핸드폰 사용량" caption={periodLabel(period)}>
-              <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
-                총 {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
-              </Text>
-              <LineChart
-                bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
-                color={PHONE_COLOR}
-              />
-            </SectionCard>
-          )}
-
-          {/* ST3 합격자 비교 — 모든 탭에서 핸드폰 사용량 아래 배치. 레이더 티저 + 블러(데이터 준비 중) */}
-          <SectionCard title="합격자와 비교" caption="과목별">
-            <ComingSoon note="합격자 데이터가 쌓이면 보여드릴게요">
-              <PasserCompareChart />
-            </ComingSoon>
-          </SectionCard>
-
-          {/* ST7 전(前) 대비 */}
-          <SectionCard title={`${prevLabel(period)} 대비`}>
-            <DeltaRow
-              label="집중"
-              delta={data.focus?.deltaMinutes ?? 0}
-              base={data.focus?.previousTotalFocusMinutes ?? 0}
-              lowerIsBetter={false}
-            />
-            <DeltaRow
-              label="폰 사용"
-              delta={data.screenTime?.deltaMinutes ?? 0}
-              base={data.screenTime?.previousMinutes ?? 0}
-              lowerIsBetter
-            />
-          </SectionCard>
-
-          {/* ST8 목표 달성 */}
-          <SectionCard title="목표 달성" caption={periodLabel(period)}>
-            <GoalBlock period={period} data={data} />
-          </SectionCard>
-
-          {/* ST9 공부 잔디 (Streak) — 일 탭에선 숨김(하루 데이터로는 잔디가 무의미) */}
-          {period !== 'DAY' && (
-            <SectionCard title="공부 잔디">
-              <View style={s.streakRow}>
-                <View style={s.streakItem}>
-                  <Text style={s.streakValue}>{data.streak?.currentStreak ?? 0}일</Text>
-                  <Text style={s.streakLabel}>연속</Text>
-                </View>
-                <View style={s.streakDivider} />
-                <View style={s.streakItem}>
-                  <Text style={s.streakValue}>{data.streak?.longestStreak ?? 0}일</Text>
-                  <Text style={s.streakLabel}>최장</Text>
-                </View>
-              </View>
-              {/* 주 탭은 월~일 7칸 한 줄, 월 탭은 해당 월 전체 날짜 7칸씩 그리드 */}
-              {period === 'WEEK' ? (
-                <WeekGrassRow cells={data.heatmap} />
-              ) : (
-                <MonthGrassGrid cells={data.heatmap} />
-              )}
-              <Text style={s.grassHint}>공부시간이 많을수록 칸이 진해져요</Text>
-            </SectionCard>
-          )}
+          {orderedCards.map((c) => c.node)}
         </ScrollView>
       )}
     </SafeAreaView>
@@ -247,17 +409,26 @@ export default function StatsScreen() {
 function SectionCard({
   title,
   caption,
+  action,
   children,
 }: {
   title: string;
   caption?: string;
+  action?: ReactNode; // 헤더 오른쪽 끝 버튼(예: 타임테이블 공유)
   children: React.ReactNode;
 }) {
   return (
     <View style={s.card}>
       <View style={s.cardHead}>
         <Text style={s.cardTitle}>{title}</Text>
-        {caption ? <Text style={s.cardCaption}>{caption}</Text> : null}
+        {action ? (
+          <View style={s.cardHeadRight}>
+            {caption ? <Text style={s.cardCaption}>{caption}</Text> : null}
+            {action}
+          </View>
+        ) : caption ? (
+          <Text style={s.cardCaption}>{caption}</Text>
+        ) : null}
       </View>
       {children}
     </View>
@@ -503,6 +674,7 @@ function PasserCompareChart() {
 // 해당월 주별 차트(월 탭) — 이달 1일이 낀 주(월~일)의 월요일부터 heatmap을 달력 주 단위로 합산,
 // 가로축은 실제 날짜 구간(예: 6/29~7/5)·해당월 전체 주 미리 기재·미래 주는 선 미표시. 전용 집계 API
 // 없이 파생 계산(GROMO-761). 지표(pick)·색만 바꿔 공부시간/핸드폰 사용량이 공유한다.
+// (하루 평균 전환을 검토했다가 주별 합계 유지로 결정 — 2026-07-11 결정기록 참고)
 function MonthWeeklyChart({
   pick,
   color,
@@ -586,6 +758,56 @@ function MonthWeeklyChart({
 // 겹친 슬롯만 칠해진다(칠 농도 = 슬롯 내 집중 비율). 서버 집계 없이 세션 구간만으로 계산(GROMO-761).
 const TIMETABLE_HOURS = Array.from({ length: 24 }, (_, i) => (i + 6) % 24);
 
+// 타임테이블 카드(일) — 헤더에 공유 버튼. 카드 내용(범례+격자)을 이미지로 캡처해
+// iOS 공유 시트로 내보낸다(react-native-view-shot, GROMO-762).
+function FocusTimetableCard() {
+  const shotRef = useRef<View>(null);
+  const [sharing, setSharing] = useState(false);
+
+  const onShare = async () => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const uri = await captureRef(shotRef, {
+        format: 'png',
+        quality: 1,
+        // 공유 파일명 — 예: 260711_타임테이블.png (사진 저장 시엔 이름이 남지 않음)
+        fileName: `${todayStr().slice(2).replace(/-/g, '')}_타임테이블`,
+      });
+      // Android Share는 url을 무시하고 message 기반이라 플랫폼별 페이로드(현재 iOS 전용 앱이지만 방어, 리뷰 반영)
+      await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
+    } catch {
+      // 캡처 실패·공유 취소 — 무시
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  return (
+    <SectionCard
+      title="오늘 타임테이블"
+      action={
+        // 캡션 자리에 '공유하기' 라벨 — 텍스트·아이콘 전체가 버튼
+        <TouchableOpacity
+          style={s.shareBtn}
+          onPress={onShare}
+          hitSlop={8}
+          activeOpacity={0.7}
+          disabled={sharing}
+        >
+          <Text style={s.shareBtnText}>공유하기</Text>
+          <Ionicons name="share-outline" size={15} color={T.inkSub} />
+        </TouchableOpacity>
+      }
+    >
+      {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게 */}
+      <View ref={shotRef} collapsable={false} style={s.ttShot}>
+        <FocusTimetable />
+      </View>
+    </SectionCard>
+  );
+}
+
 function FocusTimetable() {
   const { subjects } = useSubjects();
   const [slots, setSlots] = useState<FocusSlotSegment[][] | null>(null);
@@ -641,14 +863,12 @@ function FocusTimetable() {
         {/* 범례 칼럼은 비어도 자리를 유지 — 격자 크기가 범례 유무와 무관하게 고정되도록 */}
         <View style={s.ttLegendCol}>
           {legendSubjects.map((sub) => (
-            <Text
-              key={sub.id}
-              style={[s.ttLegendText, { backgroundColor: sub.color }]}
-              numberOfLines={1}
-              allowFontScaling={false}
-            >
-              {sub.name}
-            </Text>
+            <View key={sub.id} style={s.ttLegendRow}>
+              <View style={[s.ttLegendDot, { backgroundColor: sub.color }]} />
+              <Text style={s.ttLegendText} numberOfLines={1} allowFontScaling={false}>
+                {sub.name}
+              </Text>
+            </View>
           ))}
         </View>
         <View style={s.ttGrid}>
@@ -762,6 +982,182 @@ function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
   );
 }
 
+// 첫 시작 시각 추이(주·월) — 일별 첫 세션 startedAt을 점으로만 찍는다(선 연결 없음, GROMO-762).
+// 세로축은 시각이라 LineChart(0부터 시작하는 분량 축)를 못 쓰고 전용 축을 그린다. 시간표처럼
+// 이른 시각이 위 — 시작이 빨라지면 점이 올라간다. 주=요일별, 월=주별 평균. 서버 집계 없이 세션 조회만으로 계산.
+function FirstStartChart({ period }: { period: StatsPeriod }) {
+  const [points, setPoints] = useState<StartTimePoint[] | null>(null);
+  const [plotW, setPlotW] = useState(0);
+
+  // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 방금 세션이 반영(타임테이블과 동일 패턴)
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        // 조회 시작점: 주=이번 주 월요일, 월=이달 1일이 낀 주의 월요일('N월 주별' 차트와 동일 구간).
+        // 서버 /focus-session은 startedAt 필터라 '그날 시작한 세션'과 정확히 일치한다.
+        const now = new Date();
+        const from = new Date(
+          period === 'WEEK' ? now : new Date(now.getFullYear(), now.getMonth(), 1),
+        );
+        const dow = from.getDay(); // 0=일..6=토
+        from.setDate(from.getDate() - (dow === 0 ? 6 : dow - 1));
+        from.setHours(0, 0, 0, 0);
+        // 조회 실패 → 빈 차트("아직 기록이 없어요")로 표시
+        const all = await getAllFocusSessions(from.toISOString(), new Date().toISOString()).catch(
+          () => [] as FocusSessionResponse[],
+        );
+        if (cancelled) return;
+        setPoints(firstStartPoints(period, dailyFirstStartMinutes(all)));
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [period]),
+  );
+
+  if (points === null) {
+    return (
+      <View style={s.compareLoading}>
+        <ActivityIndicator color={T.accent} size="small" />
+      </View>
+    );
+  }
+
+  const vals = points.filter((p) => !p.future && p.minutes != null).map((p) => p.minutes as number);
+  if (vals.length === 0) {
+    return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
+  }
+
+  // 세로축 경계 — 정시로 내리고 폭을 3시간 배수로 맞춰 ⅓·⅔ 눈금도 정시가 되게 한다
+  let axisMin = Math.floor(Math.min(...vals) / 60) * 60;
+  const span = Math.max(180, Math.ceil((Math.max(...vals) - axisMin) / 180) * 180);
+  let axisMax = axisMin + span;
+  if (axisMax > 1440) {
+    // 심야 시작이면 축이 24시를 넘지 않게 아래로 내림
+    axisMax = 1440;
+    axisMin = 1440 - span;
+  }
+  const fmtClock = (m: number) => `${Math.floor(m / 60)}시`;
+  const step = plotW / points.length;
+  // 미래 구간·기록 없는 날은 라벨만 남기고 점에서 제외(0으로 찍으면 '자정 시작'으로 왜곡)
+  const pts = points
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => !p.future && p.minutes != null)
+    .map(({ p, i }) => ({
+      x: step * (i + 0.5),
+      y: (((p.minutes as number) - axisMin) / (axisMax - axisMin)) * CHART_H,
+    }));
+  return (
+    <View>
+      <View style={s.chartPlotRow}>
+        {/* 세로축 — 위가 이른 시각. 분량 축과 달리 바닥이 0이 아니라 4눈금 모두 라벨 */}
+        <View style={s.chartAxisCol}>
+          <Text style={[s.chartAxisLabel, s.chartAxisTop]} allowFontScaling={false}>
+            {fmtClock(axisMin)}
+          </Text>
+          <Text style={[s.chartAxisLabel, s.chartAxisUpper]} allowFontScaling={false}>
+            {fmtClock(axisMin + span / 3)}
+          </Text>
+          <Text style={[s.chartAxisLabel, s.chartAxisLower]} allowFontScaling={false}>
+            {fmtClock(axisMin + (span * 2) / 3)}
+          </Text>
+          <Text style={[s.chartAxisLabel, s.chartAxisBottom]} allowFontScaling={false}>
+            {fmtClock(axisMax)}
+          </Text>
+        </View>
+        <View style={s.chartPlot} onLayout={(e) => setPlotW(e.nativeEvent.layout.width)}>
+          <View style={[s.chartGridLine, s.chartGridTop]} />
+          <View style={[s.chartGridLine, s.chartGridUpper]} />
+          <View style={[s.chartGridLine, s.chartGridLower]} />
+          <View style={[s.chartGridLine, s.chartGridBottom]} />
+          {plotW > 0 && (
+            <Svg width={plotW + DOT_PAD * 2} height={CHART_H + DOT_PAD * 2} style={s.lineSvg}>
+              {/* 선 없이 점만이라 크게(r 5, DOT_PAD 안) — 오늘 강조는 크기 대신 라벨 볼드만 */}
+              {pts.map((p, i) => (
+                <Circle key={i} cx={p.x + DOT_PAD} cy={p.y + DOT_PAD} r={5} fill={FOCUS_COLOR} />
+              ))}
+            </Svg>
+          )}
+          <View style={s.lineLabelRow}>
+            {points.map((p, i) => (
+              <Text
+                key={`${p.label}-${i}`}
+                style={[s.lineLabel, p.current ? [s.lineLabelCur, { color: FOCUS_COLOR }] : null]}
+                allowFontScaling={false}
+              >
+                {p.label}
+              </Text>
+            ))}
+          </View>
+        </View>
+      </View>
+      <Text style={s.grassHint}>그날 처음 집중을 시작한 시각 · 위로 갈수록 이른 시각이에요</Text>
+    </View>
+  );
+}
+
+// 최장 연속 집중(일·주·월) — 기간 내 가장 긴 세션(endedAt−startedAt, 방해시간 미차감)을 HH:MM:SS로.
+// 기간 귀속은 앱의 '오늘' 규칙(홈 정산·타임테이블)과 동일하게 종료 시점 기준 — 기간 시작 하루 전부터
+// 받아 endedAt으로 거른다. 월은 이달 1일부터('N월 주별'류의 주 정렬과 달리 달 자체의 기록이라 1일 기준).
+function LongestSessionStat({ period }: { period: StatsPeriod }) {
+  const [seconds, setSeconds] = useState<number | null>(null); // null=로딩 · 0=기록 없음
+
+  // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 방금 세션이 반영(타임테이블과 동일 패턴)
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        let sessions: FocusSessionResponse[];
+        if (period === 'DAY') {
+          sessions = await fetchTodayFocusSessions().catch(() => []);
+        } else {
+          // 기간 시작(로컬 자정): 주=이번 주 월요일, 월=이달 1일
+          const now = new Date();
+          const dow = now.getDay(); // 0=일..6=토
+          const start =
+            period === 'WEEK'
+              ? new Date(
+                  now.getFullYear(),
+                  now.getMonth(),
+                  now.getDate() + (dow === 0 ? -6 : 1 - dow),
+                )
+              : new Date(now.getFullYear(), now.getMonth(), 1);
+          // 자정 걸친 세션 포함 위해 하루 전부터 받아 endedAt으로 거른다(fetchTodayFocusSessions와 동일 방식)
+          const from = new Date(start);
+          from.setDate(from.getDate() - 1);
+          const all = await getAllFocusSessions(from.toISOString(), now.toISOString()).catch(
+            () => [] as FocusSessionResponse[],
+          );
+          sessions = all.filter((x) => Date.parse(x.endedAt) >= start.getTime());
+        }
+        if (cancelled) return;
+        setSeconds(sessions.reduce((mx, x) => Math.max(mx, sessionFocusSeconds(x)), 0));
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [period]),
+  );
+
+  if (seconds === null) {
+    return (
+      <View style={s.compareLoading}>
+        <ActivityIndicator color={T.accent} size="small" />
+      </View>
+    );
+  }
+  if (seconds <= 0) {
+    return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
+  }
+  return (
+    <View>
+      <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>{hms(seconds)}</Text>
+      <Text style={s.grassHint}>한 번에 가장 오래 이어간 집중 세션이에요</Text>
+    </View>
+  );
+}
+
 // ST2(주) 과목별 공부량 도넛 — 과목별 비중을 링 구간(strokeDasharray)으로 그리고 가운데에 총합,
 // 우측 범례에 과목·비중을 표시(GROMO-761). 색은 CategoryBars와 동일하게 팔레트 순서 배정.
 const DONUT_SIZE = 132;
@@ -844,42 +1240,6 @@ function CategoryDonut({
   );
 }
 
-function CategoryBars({
-  items,
-  total,
-}: {
-  items: { tagId: string | null; tagName: string | null; totalFocusMinutes: number }[];
-  total: number;
-}) {
-  if (items.length === 0) {
-    return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
-  }
-  const denom = total || 1;
-  return (
-    <View style={s.catList}>
-      {items.map((it, i) => {
-        const pct = Math.round((it.totalFocusMinutes / denom) * 100);
-        const color = T.subjectPalette[i % T.subjectPalette.length];
-        return (
-          <View key={it.tagId ?? `untagged-${i}`} style={s.catRow}>
-            <View style={s.catHead}>
-              <Text style={s.catName} numberOfLines={1}>
-                {it.tagName ?? '미분류'}
-              </Text>
-              <Text style={s.catValue}>{fmtMinutes(it.totalFocusMinutes)}</Text>
-            </View>
-            <View style={s.catTrack}>
-              <View
-                style={[s.catFill, { width: `${Math.max(pct, 2)}%`, backgroundColor: color }]}
-              />
-            </View>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
 function DeltaRow({
   label,
   delta,
@@ -905,39 +1265,6 @@ function DeltaRow({
         <Text style={[s.deltaPct, { color }]}>{pct === null ? '–' : `${pct}%`}</Text>
         <Text style={s.deltaMin}>{flat ? '변화 없어요' : `${fmtMinutes(Math.abs(delta))}`}</Text>
       </View>
-    </View>
-  );
-}
-
-function GoalBlock({
-  period,
-  data,
-}: {
-  period: StatsPeriod;
-  data: ReturnType<typeof useStatsData>['data'];
-}) {
-  // DAY: 오늘 목표 달성률. WEEK/MONTH: 달성일/경과일.
-  if (period === 'DAY') {
-    const f = data.today?.focus;
-    const percent = f?.progressPercent ?? 0;
-    const achieved = f?.goalAchieved ?? false;
-    return (
-      <View>
-        <Text style={[s.bigStat, { color: achieved ? T.successInk : T.ink }]}>{percent}%</Text>
-        <Text style={s.goalSub}>
-          목표 {fmtMinutes(f?.goalMinutes ?? 0)} 중 {fmtMinutes(f?.todayMinutes ?? 0)}{' '}
-          {achieved ? '달성 ✓' : ''}
-        </Text>
-      </View>
-    );
-  }
-  const rate = focusGoalRate(data.heatmap);
-  return (
-    <View>
-      <Text style={[s.bigStat, { color: T.successInk }]}>{rate.percent}%</Text>
-      <Text style={s.goalSub}>
-        {rate.total}일 중 {rate.achieved}일 달성
-      </Text>
     </View>
   );
 }
@@ -1053,6 +1380,9 @@ const s = StyleSheet.create({
   },
   cardTitle: { ...T.text.heading, color: T.ink },
   cardCaption: { ...T.text.caption, color: T.inkMuted },
+  cardHeadRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  shareBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  shareBtnText: { ...T.text.caption, color: T.inkMuted },
   bigStat: { ...T.text.title, color: T.ink },
   emptyText: { ...T.text.body, color: T.inkMuted, paddingVertical: 8 },
 
@@ -1154,6 +1484,7 @@ const s = StyleSheet.create({
   chartAxisTop: { top: -5 },
   chartAxisUpper: { top: CHART_H / 3 - 5 },
   chartAxisLower: { top: (CHART_H * 2) / 3 - 5 },
+  chartAxisBottom: { top: CHART_H - 5 }, // 시각 축(첫 시작 시각) 전용 — 바닥이 0이 아니라 라벨 필요
   chartPlot: { flex: 1 },
   chartGridLine: {
     position: 'absolute',
@@ -1167,17 +1498,15 @@ const s = StyleSheet.create({
   chartGridLower: { top: (CHART_H * 2) / 3 },
   chartGridBottom: { top: CHART_H },
   // 시간대별 타임테이블 — 왼쪽 과목 범례(형광펜 하이라이트) + 격자(한 줄 1시간 = 10분×6칸)
+  // 캡처 이미지 배경(투명 PNG 방지) + 좌우 여백 — 음수 마진으로 상쇄해 화면 레이아웃은 그대로,
+  // 저장되는 이미지에만 여백이 생긴다(LineChart의 DOT_PAD 확장과 같은 기법)
+  ttShot: { backgroundColor: T.white, paddingHorizontal: 16, marginHorizontal: -16 },
   ttLayout: { flexDirection: 'row', gap: 12, marginTop: 14 },
   ttLegendCol: { width: 76, gap: 6, paddingTop: 2, alignItems: 'flex-start' },
-  ttLegendText: {
-    ...T.text.caption,
-    fontSize: 11,
-    color: T.ink,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
+  // 범례 — 글자 배경칠 대신 왼쪽 원형 점으로 과목 색 표시
+  ttLegendRow: { flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: '100%' },
+  ttLegendDot: { width: 8, height: 8, borderRadius: 4 },
+  ttLegendText: { ...T.text.caption, fontSize: 11, color: T.ink, flexShrink: 1 },
   ttGrid: { flex: 1, gap: 3 },
   ttRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   ttHourLabel: { ...T.text.caption, fontSize: 9, color: T.inkMuted, width: 18, textAlign: 'right' },
@@ -1191,15 +1520,6 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   ttCellFill: { position: 'absolute', top: 0, bottom: 0, backgroundColor: FOCUS_COLOR },
-
-  // 과목별 비율 바
-  catList: { gap: 12 },
-  catRow: { gap: 6 },
-  catHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  catName: { ...T.text.label, color: T.ink, flex: 1, marginRight: 8 },
-  catValue: { ...T.text.label, color: T.inkSub },
-  catTrack: { height: 10, borderRadius: 5, backgroundColor: T.sandLight, overflow: 'hidden' },
-  catFill: { height: 10, borderRadius: 5 },
 
   // 전 대비
   deltaRow: {
@@ -1215,7 +1535,6 @@ const s = StyleSheet.create({
   deltaMin: { ...T.text.caption, color: T.inkMuted },
 
   // 목표 달성
-  goalSub: { ...T.text.body, color: T.inkSub, marginTop: 4 },
 
   // 스트릭 + 잔디
   streakRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
