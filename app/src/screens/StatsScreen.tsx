@@ -189,9 +189,17 @@ export default function StatsScreen() {
             </SectionCard>
           )}
 
-          {/* 첫 시작 시각 추이(주·월) — 일별 첫 세션 startedAt 기반. 핸드폰 사용량 아래·합격자 위(GROMO-762) */}
+          {/* 첫 시작 시각 추이(주·월) — 일별 첫 세션 startedAt 기반. 핸드폰 사용량 아래·합격자 위(GROMO-762).
+              월 탭은 주별 평균값이라 제목에 명시(다른 'N월 ~' 카드와 표기 통일) */}
           {period !== 'DAY' && (
-            <SectionCard title="첫 시작 시각" caption={period === 'WEEK' ? '이번 주' : '주별 평균'}>
+            <SectionCard
+              title={
+                period === 'WEEK'
+                  ? '요일별 첫 집중 시작 시각'
+                  : `${new Date().getMonth() + 1}월 첫 집중 시작 시각 평균`
+              }
+              caption={period === 'WEEK' ? '이번 주' : undefined}
+            >
               {/* key로 탭 전환 시 리마운트 — 이전 기간 점이 새 라벨 위에 잠깐 보이는 것 방지 */}
               <FirstStartChart key={period} period={period} />
             </SectionCard>
