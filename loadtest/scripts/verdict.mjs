@@ -87,22 +87,24 @@ if (verdict !== 'INVALID' && summary) {
 const pct = (cur, base) => (base > 0 ? Math.round(((cur - base) / base) * 1000) / 10 : null);
 let diff = null;
 if (verdict !== 'INVALID' && summary && baseline) {
-  const key = 'http_req_duration{phase:main}';
-  const cur = summary.metrics[key]?.values ?? {};
-  const base = baseline.summary.metrics[key]?.values ?? {};
   const curErr = summary.metrics['http_req_failed{phase:main}']?.values?.rate ?? 0;
   const baseErr = baseline.summary.metrics['http_req_failed{phase:main}']?.values?.rate ?? 0;
   const curDropped = summary.metrics.dropped_iterations?.values?.count ?? 0;
+  // GROMO-763: p95/p99 는 SUT micrometer 히스토그램(meta.sutP95/sutP99 — 참 글로벌·부하기 대수 무관).
+  // k6 summary 의 http_req_duration 은 per-VM 이라 N대에선 병합 불가 → 회귀 소스에서 제외.
+  // 기존(pre-763) baseline 은 meta.sutP95 부재 → pct=null 로 회귀 게이트 일시 skip(N대 baseline 재승격이 게이트).
+  const curP95 = meta.sutP95, curP99 = meta.sutP99;
+  const baseP95 = baseline.meta.sutP95 ?? null, baseP99 = baseline.meta.sutP99 ?? null;
 
   diff = {
-    p95: { base: base['p(95)'], cur: cur['p(95)'], pct: pct(cur['p(95)'], base['p(95)']) },
-    p99: { base: base['p(99)'], cur: cur['p(99)'], pct: pct(cur['p(99)'], base['p(99)']) },
+    p95: { base: baseP95, cur: curP95, pct: (curP95 > 0 && baseP95 > 0) ? pct(curP95, baseP95) : null },
+    p99: { base: baseP99, cur: curP99, pct: (curP99 > 0 && baseP99 > 0) ? pct(curP99, baseP99) : null },
     errRate: { base: baseErr, cur: curErr },
     dropped: curDropped,
   };
   if (diff.p95.pct !== null && diff.p95.pct >= 10) {
     verdict = 'FAIL';
-    reasons.push(`FAIL(회귀): p95 ${diff.p95.base}→${diff.p95.cur}ms (+${diff.p95.pct}%) ≥ +10%`);
+    reasons.push(`FAIL(회귀): SUT p95 ${diff.p95.base}→${diff.p95.cur}ms (+${diff.p95.pct}%) ≥ +10%`);
   }
   if (curDropped > 0) {
     verdict = 'FAIL';
