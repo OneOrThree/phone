@@ -110,7 +110,7 @@ echo "=== [5/5] 러너 등록 (labels: self-hosted,loadtest) + 서비스 기동 
 sudo -u runner ./config.sh \
   --url "https://github.com/$RUNNER_ORG/$RUNNER_REPO" \
   --token "$REG_TOKEN" \
-  --name "loadtest-runner-$(hostname)" \
+  --name "$(hostname -s)" \
   --labels "self-hosted,loadtest,gcp,spot" \
   --unattended --replace
 ./svc.sh install runner
