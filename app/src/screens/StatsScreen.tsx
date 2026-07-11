@@ -127,12 +127,19 @@ export default function StatsScreen() {
             </SectionCard>
           )}
 
-          {/* ST2 과목별 공부량 (나) */}
+          {/* ST2 과목별 공부량 (나) — 주 탭은 도넛(비중), 일/월 탭은 가로 막대 */}
           <SectionCard title="과목별 공부량" caption={periodLabel(period)}>
-            <CategoryBars
-              items={data.category?.items ?? []}
-              total={data.category?.totalFocusMinutes ?? 0}
-            />
+            {period === 'WEEK' ? (
+              <CategoryDonut
+                items={data.category?.items ?? []}
+                total={data.category?.totalFocusMinutes ?? 0}
+              />
+            ) : (
+              <CategoryBars
+                items={data.category?.items ?? []}
+                total={data.category?.totalFocusMinutes ?? 0}
+              />
+            )}
           </SectionCard>
 
           {/* 해당월 주별 공부시간(월) — 과목별 공부량 아래, heatmap 주차 합산 실데이터(GROMO-761) */}
@@ -747,6 +754,88 @@ function BarChart({ bars, color }: { bars: StatBar[]; color: string }) {
   );
 }
 
+// ST2(주) 과목별 공부량 도넛 — 과목별 비중을 링 구간(strokeDasharray)으로 그리고 가운데에 총합,
+// 우측 범례에 과목·비중을 표시(GROMO-761). 색은 CategoryBars와 동일하게 팔레트 순서 배정.
+const DONUT_SIZE = 132;
+const DONUT_STROKE = 20;
+
+function CategoryDonut({
+  items,
+  total,
+}: {
+  items: { tagId: string | null; tagName: string | null; totalFocusMinutes: number }[];
+  total: number;
+}) {
+  if (items.length === 0) {
+    return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
+  }
+  const denom = total || 1;
+  const half = DONUT_SIZE / 2;
+  const r = (DONUT_SIZE - DONUT_STROKE) / 2;
+  const circumference = 2 * Math.PI * r;
+  let acc = 0;
+  const segs = items.map((it, i) => {
+    const seg = {
+      frac: it.totalFocusMinutes / denom,
+      offset: acc,
+      color: T.subjectPalette[i % T.subjectPalette.length],
+      name: it.tagName ?? '미분류',
+    };
+    acc += seg.frac;
+    return seg;
+  });
+  return (
+    <View style={s.donutRow}>
+      <View style={s.donutWrap}>
+        <Svg width={DONUT_SIZE} height={DONUT_SIZE}>
+          <Circle
+            cx={half}
+            cy={half}
+            r={r}
+            stroke={T.track}
+            strokeWidth={DONUT_STROKE}
+            fill="none"
+          />
+          {segs.map((sg, i) => (
+            <Circle
+              key={i}
+              cx={half}
+              cy={half}
+              r={r}
+              stroke={sg.color}
+              strokeWidth={DONUT_STROKE}
+              fill="none"
+              strokeDasharray={`${sg.frac * circumference} ${circumference}`}
+              strokeDashoffset={-sg.offset * circumference}
+              transform={`rotate(-90 ${half} ${half})`}
+            />
+          ))}
+        </Svg>
+        {/* 가운데 총합 — 12시 방향부터 시계 방향으로 구간이 채워진다 */}
+        <View style={s.donutCenter}>
+          <Text style={s.donutCenterValue} allowFontScaling={false}>
+            {fmtMinutes(total)}
+          </Text>
+          <Text style={s.donutCenterLabel}>총 공부</Text>
+        </View>
+      </View>
+      <View style={s.donutLegend}>
+        {segs.map((sg, i) => (
+          <View key={i} style={s.donutLegendRow}>
+            <View style={[s.donutLegendDot, { backgroundColor: sg.color }]} />
+            <Text style={s.donutLegendName} numberOfLines={1}>
+              {sg.name}
+            </Text>
+            <Text style={s.donutLegendPct} allowFontScaling={false}>
+              {Math.round(sg.frac * 100)}%
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 function CategoryBars({
   items,
   total,
@@ -973,6 +1062,22 @@ const s = StyleSheet.create({
 
   // 막대 차트
   chartPlotRow: { flexDirection: 'row', marginTop: 14 },
+  // 과목별 도넛 — 링 + 가운데 총합 + 우측 범례
+  donutRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 8 },
+  donutWrap: {
+    width: DONUT_SIZE,
+    height: DONUT_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  donutCenter: { position: 'absolute', alignItems: 'center' },
+  donutCenterValue: { ...T.text.label, fontWeight: '800', color: T.ink },
+  donutCenterLabel: { ...T.text.caption, fontSize: 10, color: T.inkSub, marginTop: 2 },
+  donutLegend: { flex: 1, gap: 8 },
+  donutLegendRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  donutLegendDot: { width: 10, height: 10, borderRadius: 3 },
+  donutLegendName: { ...T.text.caption, color: T.ink, flex: 1 },
+  donutLegendPct: { ...T.text.caption, fontWeight: '700', color: T.inkSub },
   // 선그래프 — 확장 캔버스를 음수 마진으로 되돌려 레이아웃(격자 정렬)은 그대로 유지
   lineSvg: {
     marginTop: -DOT_PAD,
