@@ -3,6 +3,8 @@ import { localDateStr, todayStr } from '@/utils/localDate';
 import type { HeatmapCellResponse, StatsPeriod } from '@/types/dto/stats';
 
 // 분 → "N시간 M분" / "N시간" / "M분" / "0분"
+// ⚠️ 통계 허브(StatsScreen)는 fmtMinutes(00:00:00)로 전환(GROMO-761) — 현재 집중 결과(FocusResult)만 사용,
+// 683(집중 결과 00:00:00 통일)에서 정리 예정.
 export function hm(totalMinutes: number): string {
   const t = Math.max(0, Math.round(totalMinutes));
   const h = Math.floor(t / 60);

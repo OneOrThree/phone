@@ -20,8 +20,8 @@ import {
 } from '@/services/compareAverages';
 import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
+import { fmtMinutes } from '@/utils/timeFormat';
 import {
-  hm,
   PERIOD_TABS,
   periodLabel,
   prevLabel,
@@ -101,7 +101,7 @@ export default function StatsScreen() {
         <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
           {/* ST1 총 공부량 (나) + 비교 — 주간은 리그 랭킹·친구 통계 기반 실비교(GROMO-761), 일/월은 준비중 */}
           <SectionCard title="총 공부량" caption={periodLabel(period)}>
-            <Text style={s.bigStat}>{hm(data.focus?.totalFocusMinutes ?? 0)}</Text>
+            <Text style={s.bigStat}>{fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}</Text>
             {period === 'WEEK' ? (
               <CompareWeek myMinutes={data.focus?.totalFocusMinutes ?? 0} />
             ) : (
@@ -134,7 +134,7 @@ export default function StatsScreen() {
           {/* ST5 포커스 집중시간 */}
           <SectionCard title="포커스 집중시간" caption={periodLabel(period)}>
             <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
-              {hm(data.focus?.totalFocusMinutes ?? 0)}
+              {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
             </Text>
             <BarChart
               bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
@@ -145,7 +145,7 @@ export default function StatsScreen() {
           {/* ST6 폰 사용량 */}
           <SectionCard title="폰 사용량" caption="집중 시간과 대비돼요">
             <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
-              {hm(data.screenTime?.currentMinutes ?? 0)}
+              {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
             </Text>
             <BarChart
               bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
@@ -295,7 +295,7 @@ function CompareWeek({ myMinutes }: { myMinutes: number }) {
         <View style={s.teaserPad}>
           <View style={s.teaserRowHead}>
             <Text style={s.teaserLabelMine}>나</Text>
-            <Text style={s.teaserValueMine}>{hm(myMinutes)}</Text>
+            <Text style={s.teaserValueMine}>{fmtMinutes(myMinutes)}</Text>
           </View>
           <View style={s.teaserTrack}>
             <View
@@ -304,7 +304,7 @@ function CompareWeek({ myMinutes }: { myMinutes: number }) {
           </View>
           <View style={[s.teaserRowHead, s.teaserRowGap]}>
             <Text style={s.teaserLabel}>{avgLabel}</Text>
-            <Text style={s.teaserValue}>{hm(avg)}</Text>
+            <Text style={s.teaserValue}>{fmtMinutes(avg)}</Text>
           </View>
           <View style={s.teaserTrack}>
             <View style={[s.teaserFill, s.teaserFillAvg, { width: `${(avg / denom) * 100}%` }]} />
@@ -454,7 +454,7 @@ function CategoryBars({
               <Text style={s.catName} numberOfLines={1}>
                 {it.tagName ?? '미분류'}
               </Text>
-              <Text style={s.catValue}>{hm(it.totalFocusMinutes)}</Text>
+              <Text style={s.catValue}>{fmtMinutes(it.totalFocusMinutes)}</Text>
             </View>
             <View style={s.catTrack}>
               <View
@@ -491,7 +491,7 @@ function DeltaRow({
       <View style={s.deltaValueWrap}>
         <Text style={[s.deltaArrow, { color }]}>{arrow}</Text>
         <Text style={[s.deltaPct, { color }]}>{pct === null ? '–' : `${pct}%`}</Text>
-        <Text style={s.deltaMin}>{flat ? '변화 없어요' : `${hm(Math.abs(delta))}`}</Text>
+        <Text style={s.deltaMin}>{flat ? '변화 없어요' : `${fmtMinutes(Math.abs(delta))}`}</Text>
       </View>
     </View>
   );
@@ -513,7 +513,8 @@ function GoalBlock({
       <View>
         <Text style={[s.bigStat, { color: achieved ? T.successInk : T.ink }]}>{percent}%</Text>
         <Text style={s.goalSub}>
-          목표 {hm(f?.goalMinutes ?? 0)} 중 {hm(f?.todayMinutes ?? 0)} {achieved ? '달성 ✓' : ''}
+          목표 {fmtMinutes(f?.goalMinutes ?? 0)} 중 {fmtMinutes(f?.todayMinutes ?? 0)}{' '}
+          {achieved ? '달성 ✓' : ''}
         </Text>
       </View>
     );
