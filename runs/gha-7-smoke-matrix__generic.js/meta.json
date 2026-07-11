@@ -1,0 +1,16 @@
+{
+  "sha": "3fec39f",
+  "seedVersion": "seed-v1",
+  "profile": "smoke",
+  "target": "matrix/_generic.js",
+  "mixVersion": "assumed-v1",
+  "sut": "n2d-standard-2/AMD Milan / loadtest-profile / -Xmx2g",
+  "db": "db-custom-2-8192 / PG16",
+  "loadgen": "c2-standard-4",
+  "k6OptionsHash": "428ecfd15f9a",
+  "loadgenMaxCpu": 82.3,
+  "preempted": false,
+  "k6ExitCode": 99,
+  "startedAt": "2026-07-11T19:01:26Z",
+  "endedAt": "2026-07-11T19:05:55Z"
+}
