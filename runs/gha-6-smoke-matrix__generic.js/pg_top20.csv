@@ -1,0 +1,57 @@
+calls,mean_ms,total_ms,rows,hit_pct,query
+96,1.3,121,96,100.0,SELECT pg_database_size($1)
+27,3.0,81,27,,"SELECT setting, current_timestamp FROM pg_catalog.pg_settings WHERE name = $1"
+16,4.8,76,608,100.0,"SELECT
+		current_database() datname,
+		schemaname,
+		relname,
+		seq_scan,
+		seq_tup_read,
+		idx_scan,
+		idx_tup_fetch,
+	"
+5,11.8,59,5,100.0,"SELECT default_version, installed_version FROM pg_catalog.pg_available_extensions WHERE name = $1"
+301,0.1,42,290,100.0,/* UPDATE User u SET u.lastActiveAt = :now WHERE u.id = :id AND u.lastActiveAt < :startOfTodayKst */ update users u1_0 s
+301,0.1,35,1204,96.3,/* SELECT ut FROM UserFocusTag ut JOIN FETCH ut.defaultTag WHERE ut.user = :user AND ut.deletedAt IS NULL */ select uft1
+16,2.1,33,5728,,"SELECT name, setting, COALESCE(unit, $1), short_desc, vartype FROM pg_settings WHERE vartype IN ($2, $3, $4) AND name !="
+3,7.2,22,18,100.0,"SELECT d.datname, pg_catalog.pg_database_size(d.datname), current_timestamp FROM pg_catalog.pg_database d ORDER BY d.dat"
+16,0.8,13,864,100.0,"SELECT 
+		  pg_database.datname as datname,
+		  tmp.mode as mode,
+		  COALESCE(count, $1) as count 
+		FROM 
+		  (
+		    "
+16,0.7,11,16,,"SELECT
+			COUNT(*) AS segments,
+			SUM(size) AS size
+		FROM pg_ls_waldir()
+		WHERE name ~ $1"
+16,0.7,11,608,100.0,"SELECT
+		current_database() datname,
+		schemaname,
+		relname,
+		heap_blks_read,
+		heap_blks_hit,
+		idx_blks_read,
+		idx_"
+301,0.0,9,301,100.0,"select u1_0.id,u1_0.country_code,u1_0.created_at,u1_0.device_token,u1_0.is_deleted,u1_0.is_guest,u1_0.last_active_at,u1_"
+3,2.8,8,3,,"SELECT
+	(SELECT setting=$1 FROM pg_catalog.pg_settings WHERE name=$2) AND
+	(SELECT setting=$3 FROM pg_catalog.pg_setting"
+4,1.2,5,4,,SELECT setting AS max_autovacuum_workers from pg_catalog.pg_settings WHERE name=$1
+3,1.6,5,3,100.0,"SELECT COALESCE(SUM(pg_stat_get_live_tuples(c.oid)), $1) AS n_live_tup, COALESCE(SUM(pg_stat_get_dead_tuples(c.oid)), $2"
+3,1.4,4,3,100.0,"SELECT COALESCE(SUM(pg_stat_get_live_tuples(c.oid)), $1) AS n_live_tup, COALESCE(SUM(pg_stat_get_dead_tuples(c.oid)), $2"
+3,1.4,4,3,100.0,"SELECT
+    sum(psat.autovacuum_count) AS total_autovacuum_count,
+    sum(psat.autoanalyze_count) AS total_autoanalyze_co"
+3,1.3,4,3,100.0,"SELECT
+    sum(psat.autovacuum_count) AS total_autovacuum_count,
+    sum(psat.autoanalyze_count) AS total_autoanalyze_co"
+16,0.2,4,578,100.0,"SELECT
+				pg_database.datname,
+				tmp.state,
+				tmp2.usename,
+				tmp2.application_name,
+				COALESCE(count,$1) as co"
+301,0.0,4,0,,BEGIN READ ONLY

@@ -1,0 +1,14 @@
+{
+  "verdict": "INVALID",
+  "reasons": [
+    "INVALID: 부하기 CPU 조회 실패 — 측정 신뢰도 확인 불가"
+  ],
+  "baseline": null,
+  "diff": null,
+  "meta": {
+    "sha": "23d6890",
+    "profile": "smoke",
+    "target": "matrix/_generic.js",
+    "startedAt": "2026-07-11T03:29:09Z"
+  }
+}
