@@ -34,7 +34,6 @@ import { fmtMinutes, axisCeil, fmtAxis, hms } from '@/utils/timeFormat';
 import {
   PERIOD_TABS,
   periodLabel,
-  prevLabel,
   periodKey,
   heatmapBars,
   tenMinuteFocusSlots,
@@ -112,11 +111,21 @@ export default function StatsScreen() {
   const month = new Date().getMonth() + 1;
   const cards: { key: string; node: ReactNode }[] = [];
 
-  // ST1 총 공부량 (나) + 비교 — 주간은 리그 랭킹·친구 통계 기반 실비교(GROMO-761), 일/월은 준비중
+  // ST1 총 공부량 (나) + 비교 — 주간은 리그 랭킹·친구 통계 기반 실비교(GROMO-761), 일/월은 준비중.
+  // 제목이 탭별 기간 표기(오늘/이번 주/N월)라 캡션 불필요
   cards.push({
     key: 'total',
     node: (
-      <SectionCard key="total" title="총 공부량" caption={periodLabel(period)}>
+      <SectionCard
+        key="total"
+        title={
+          period === 'DAY'
+            ? '오늘 공부량'
+            : period === 'WEEK'
+              ? '이번 주 공부량'
+              : `${month}월 공부량`
+        }
+      >
         <Text style={s.bigStat}>{fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}</Text>
         {period === 'WEEK' ? (
           <CompareWeek myMinutes={data.focus?.totalFocusMinutes ?? 0} />
@@ -262,11 +271,20 @@ export default function StatsScreen() {
     ),
   });
 
-  // ST7 전(前) 대비
+  // ST7 전(前) 대비 — 제목은 탭별 직전 기간 표기(어제 / 저번주 / N-1월)
   cards.push({
     key: 'delta',
     node: (
-      <SectionCard key="delta" title={`${prevLabel(period)} 대비`}>
+      <SectionCard
+        key="delta"
+        title={
+          period === 'DAY'
+            ? '어제 대비'
+            : period === 'WEEK'
+              ? '저번주 대비'
+              : `${month === 1 ? 12 : month - 1}월 대비`
+        }
+      >
         <DeltaRow
           label="집중"
           delta={data.focus?.deltaMinutes ?? 0}

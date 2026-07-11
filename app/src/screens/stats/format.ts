@@ -74,11 +74,6 @@ export function periodLabel(period: StatsPeriod): string {
   return period === 'DAY' ? '오늘' : period === 'WEEK' ? '이번 주' : '이번 달';
 }
 
-// 전(前) 대비 라벨(전일/전주/전월).
-export function prevLabel(period: StatsPeriod): string {
-  return period === 'DAY' ? '전일' : period === 'WEEK' ? '전주' : '전월';
-}
-
 // StatsPeriod → 애널리틱스 소문자 키.
 export function periodKey(period: StatsPeriod): 'day' | 'week' | 'month' {
   return period === 'DAY' ? 'day' : period === 'WEEK' ? 'week' : 'month';
