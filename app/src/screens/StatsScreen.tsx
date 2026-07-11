@@ -231,11 +231,20 @@ export default function StatsScreen() {
     });
   }
 
-  // 최장 연속 집중(일·주·월) — 기간 내 최장 세션 기록(GROMO-762)
+  // 최장 연속 집중(일·주·월) — 기간 내 최장 세션 기록(GROMO-762). 제목 자체가 탭별 '기간 최고기록'
   cards.push({
     key: 'longest',
     node: (
-      <SectionCard key="longest" title="최장 연속 집중" caption={periodLabel(period)}>
+      <SectionCard
+        key="longest"
+        title={
+          period === 'DAY'
+            ? '오늘 최고기록'
+            : period === 'WEEK'
+              ? '이번 주 최고기록'
+              : `${month}월 최고기록`
+        }
+      >
         <LongestSessionStat key={period} period={period} />
       </SectionCard>
     ),
