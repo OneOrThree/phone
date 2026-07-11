@@ -33,7 +33,7 @@ import {
   tenMinuteFocusSlots,
   focusGoalRate,
   grassLevel,
-  type FocusSlot,
+  type FocusSlotSegment,
   type StatBar,
 } from './stats/format';
 
@@ -117,6 +117,13 @@ export default function StatsScreen() {
             )}
           </SectionCard>
 
+          {/* 타임테이블(일) — 오늘 세션 실데이터, 총 공부량 바로 아래(GROMO-761) */}
+          {period === 'DAY' && (
+            <SectionCard title="타임테이블" caption="오늘">
+              <FocusTimetable />
+            </SectionCard>
+          )}
+
           {/* ST2 과목별 공부량 (나) */}
           <SectionCard title="과목별 공부량" caption={periodLabel(period)}>
             <CategoryBars
@@ -132,12 +139,8 @@ export default function StatsScreen() {
             </ComingSoon>
           </SectionCard>
 
-          {/* ST4 — 일 탭은 시간대별 집중 타임테이블(오늘 세션 실데이터), 주/월은 주별 누적 비율 티저(GROMO-761) */}
-          {period === 'DAY' ? (
-            <SectionCard title="시간대별 집중 현황" caption="오늘">
-              <FocusTimetable />
-            </SectionCard>
-          ) : (
+          {/* ST4 주별 누적 공부 비율(주/월) — 일 탭은 타임테이블이 총 공부량 아래로 대체 */}
+          {period !== 'DAY' && (
             <SectionCard title="주별 누적 공부 비율">
               <ComingSoon note="주별 누적 비율을 준비하고 있어요">
                 <WeeklyCumulativeChart />
@@ -145,16 +148,18 @@ export default function StatsScreen() {
             </SectionCard>
           )}
 
-          {/* ST5 집중시간 차트 — 제목은 기간 단위 따라(오늘/요일별/주차별) */}
-          <SectionCard title={`${granularity} 집중시간`} caption={periodLabel(period)}>
-            <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
-              {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
-            </Text>
-            <BarChart
-              bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
-              color={FOCUS_COLOR}
-            />
-          </SectionCard>
+          {/* ST5 집중시간 차트 — 일 탭은 숨김(타임테이블이 대체), 주=요일별·월=주차별 */}
+          {period !== 'DAY' && (
+            <SectionCard title={`${granularity} 집중시간`} caption={periodLabel(period)}>
+              <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
+                {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
+              </Text>
+              <BarChart
+                bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
+                color={FOCUS_COLOR}
+              />
+            </SectionCard>
+          )}
 
           {/* ST6 핸드폰 사용량 차트 — 제목은 기간 단위 따라(오늘/요일별/주차별) */}
           <SectionCard title={`${granularity} 핸드폰 사용량`} caption={periodLabel(period)}>
@@ -426,7 +431,7 @@ const TIMETABLE_HOURS = Array.from({ length: 24 }, (_, i) => (i + 6) % 24);
 
 function FocusTimetable() {
   const { subjects } = useSubjects();
-  const [slots, setSlots] = useState<FocusSlot[] | null>(null);
+  const [slots, setSlots] = useState<FocusSlotSegment[][] | null>(null);
   // 서버 tagId → 태그명 (과목 색 매칭용). 로컬 과목 id는 서버 tagId와 다를 수 있어 이름으로 잇는다.
   const [tagNames, setTagNames] = useState<Map<string, string>>(new Map());
 
@@ -454,7 +459,7 @@ function FocusTimetable() {
     );
   }
 
-  // 슬롯의 지배 과목 색 — tagId → 태그명 → 로컬 과목 색. 미분류·매칭 실패는 기본 집중색.
+  // 구간의 과목 색 — tagId → 태그명 → 로컬 과목 색. 미분류·매칭 실패는 기본 집중색.
   const colorForTag = (tagId: string | null): string => {
     const name = tagId ? tagNames.get(tagId) : undefined;
     const subject = name ? subjects.find((x) => x.name === name) : undefined;
@@ -464,8 +469,8 @@ function FocusTimetable() {
   // 왼쪽 범례 — 오늘 타임테이블에 등장한 과목만, 과목 순서대로. 텍스트를 형광펜처럼 과목 색으로 칠한다.
   const usedNames = new Set(
     slots
-      .filter((slot) => slot.minutes > 0 && slot.tagId)
-      .map((slot) => tagNames.get(slot.tagId as string))
+      .flat()
+      .map((seg) => (seg.tagId ? tagNames.get(seg.tagId) : undefined))
       .filter((name): name is string => name != null),
   );
   const legendSubjects = subjects.filter((x) => usedNames.has(x.name));
@@ -473,20 +478,19 @@ function FocusTimetable() {
   return (
     <View>
       <View style={s.ttLayout}>
-        {legendSubjects.length > 0 && (
-          <View style={s.ttLegendCol}>
-            {legendSubjects.map((sub) => (
-              <Text
-                key={sub.id}
-                style={[s.ttLegendText, { backgroundColor: sub.color }]}
-                numberOfLines={1}
-                allowFontScaling={false}
-              >
-                {sub.name}
-              </Text>
-            ))}
-          </View>
-        )}
+        {/* 범례 칼럼은 비어도 자리를 유지 — 격자 크기가 범례 유무와 무관하게 고정되도록 */}
+        <View style={s.ttLegendCol}>
+          {legendSubjects.map((sub) => (
+            <Text
+              key={sub.id}
+              style={[s.ttLegendText, { backgroundColor: sub.color }]}
+              numberOfLines={1}
+              allowFontScaling={false}
+            >
+              {sub.name}
+            </Text>
+          ))}
+        </View>
         <View style={s.ttGrid}>
           {TIMETABLE_HOURS.map((hour) => (
             <View key={hour} style={s.ttRow}>
@@ -494,21 +498,23 @@ function FocusTimetable() {
                 {hour}
               </Text>
               {Array.from({ length: 6 }, (_, i) => {
-                const slot = slots[hour * 6 + i];
+                const segments = slots[hour * 6 + i];
                 return (
                   <View key={i} style={s.ttCell}>
-                    {slot.minutes > 0 && (
+                    {/* 슬롯 내 실제 집중 위치 그대로 칠함 — 3:35~3:45 집중이면 3:30 칸 오른쪽 절반 */}
+                    {segments.map((seg, j) => (
                       <View
+                        key={j}
                         style={[
                           s.ttCellFill,
                           {
-                            backgroundColor: colorForTag(slot.tagId),
-                            // 채움 폭 = 집중량 비례 — 5분이면 절반, 10분이면 한 칸 가득
-                            width: `${Math.min(slot.minutes / 10, 1) * 100}%`,
+                            backgroundColor: colorForTag(seg.tagId),
+                            left: `${seg.start * 100}%`,
+                            width: `${(seg.end - seg.start) * 100}%`,
                           },
                         ]}
                       />
-                    )}
+                    ))}
                   </View>
                 );
               })}
@@ -846,7 +852,7 @@ const s = StyleSheet.create({
     backgroundColor: T.white,
     overflow: 'hidden',
   },
-  ttCellFill: { height: '100%', backgroundColor: FOCUS_COLOR },
+  ttCellFill: { position: 'absolute', top: 0, bottom: 0, backgroundColor: FOCUS_COLOR },
   barTrack: { height: CHART_H, justifyContent: 'flex-end' },
   bar: { width: 16, borderRadius: 6 },
   barLabel: { ...T.text.caption, color: T.inkMuted },

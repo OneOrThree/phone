@@ -2,21 +2,21 @@
 import { localDateStr, todayStr } from '@/utils/localDate';
 import type { HeatmapCellResponse, StatsPeriod } from '@/types/dto/stats';
 
-// 오늘 세션 → 10분 슬롯(0~143 = 24시간×6)별 집중 분 + 지배 과목(GROMO-761 시간대별 집중 타임테이블).
-// 세션 구간을 슬롯 경계로 잘라 분배하고, 자정 이전(어제) 부분은 제외한다. minutes 범위 0~10(분).
-// tagId = 그 슬롯에서 가장 오래 집중한 세션의 태그(과목 색 결정용) — 없거나 미분류면 null.
-export interface FocusSlot {
-  minutes: number;
-  tagId: string | null;
+// 오늘 세션 → 10분 슬롯(0~143 = 24시간×6)별 집중 구간(GROMO-761 시간대별 집중 타임테이블).
+// 슬롯 경계는 시계 기준(정각 정렬 — 예: 3:00~3:10, 3:10~3:20)이고, 세션 구간을 경계로 잘라
+// 슬롯 안의 실제 위치(start~end, 0~1 비율)로 담는다 → 3:35~3:45 집중이면 3:30 칸의 오른쪽
+// 절반 + 3:40 칸의 왼쪽 절반이 칠해진다. 자정 이전(어제) 부분은 제외.
+export interface FocusSlotSegment {
+  start: number; // 슬롯 내 시작 위치 0~1
+  end: number; // 슬롯 내 끝 위치 0~1
+  tagId: string | null; // 세션의 태그(과목 색 결정용) — 미분류면 null
 }
 
 export function tenMinuteFocusSlots(
   sessions: { startedAt: string; endedAt: string; focusTagId: string | null }[],
-): FocusSlot[] {
+): FocusSlotSegment[][] {
   const SLOT_MS = 600e3; // 10분
-  const totals: number[] = new Array(144).fill(0);
-  // 슬롯별 태그 누적(지배 과목 판정용) — key는 tagId(미분류는 '')
-  const byTag: Map<string, number>[] = Array.from({ length: 144 }, () => new Map());
+  const slots: FocusSlotSegment[][] = Array.from({ length: 144 }, () => []);
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
   const dayStart = midnight.getTime();
@@ -29,25 +29,17 @@ export function tenMinuteFocusSlots(
     const last = Math.min(Math.floor((end - 1 - dayStart) / SLOT_MS), 143);
     for (let i = first; i <= last; i++) {
       const slotStart = dayStart + i * SLOT_MS;
-      const overlap = Math.min(end, slotStart + SLOT_MS) - Math.max(start, slotStart);
-      if (overlap <= 0) continue;
-      const minutes = overlap / 60000;
-      totals[i] += minutes;
-      const key = s.focusTagId ?? '';
-      byTag[i].set(key, (byTag[i].get(key) ?? 0) + minutes);
+      const segStart = Math.max(start, slotStart);
+      const segEnd = Math.min(end, slotStart + SLOT_MS);
+      if (segEnd <= segStart) continue;
+      slots[i].push({
+        start: (segStart - slotStart) / SLOT_MS,
+        end: (segEnd - slotStart) / SLOT_MS,
+        tagId: s.focusTagId,
+      });
     }
   }
-  return totals.map((minutes, i) => {
-    let tagId: string | null = null;
-    let best = 0;
-    for (const [key, m] of byTag[i]) {
-      if (m > best) {
-        best = m;
-        tagId = key === '' ? null : key;
-      }
-    }
-    return { minutes, tagId };
-  });
+  return slots;
 }
 
 // 분 → "N시간 M분" / "N시간" / "M분" / "0분"
