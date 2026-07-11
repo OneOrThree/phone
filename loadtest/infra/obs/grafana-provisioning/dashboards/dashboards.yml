@@ -1,15 +1,17 @@
-# 대시보드 프로바이더 2개 — ① 레포 dev 대시보드 재사용(서버/DB/시스템 층) ② 부하테스트 전용(k6 클라 층)
+# 대시보드 프로바이더 2개:
+#   ① loadtest-dashboards — 부하테스트 통합 대시보드(k6·서버·DB·시스템 4층 한 화면). 평소엔 이것만 보면 됨.
+#   ② gromo-stress-test — 레포 dev 대시보드 재사용(서버/DB/시스템 심층 패널). 통합에서 안 잡히는 세부는 여기서.
 apiVersion: 1
 
 providers:
-  - name: repo-dashboards
-    folder: gromo (dev 재사용)
-    type: file
-    options:
-      path: /var/lib/grafana/dashboards/repo
-
   - name: loadtest-dashboards
     folder: loadtest
     type: file
     options:
       path: /var/lib/grafana/dashboards/loadtest
+
+  - name: repo-dashboards
+    folder: gromo-stress-test
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards/repo

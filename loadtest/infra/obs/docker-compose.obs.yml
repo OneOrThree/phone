@@ -9,8 +9,8 @@
 # 전제: make sync 가 다음을 배치
 #   ./prometheus.yml            (prometheus-loadtest.yml.tpl 렌더 결과)
 #   ./grafana-provisioning/     (이 디렉토리의 provisioning)
-#   ./dashboards/repo/          (레포 observability/grafana/dashboards — gromo-overview 재사용)
-#   ./dashboards/loadtest/      (레포 loadtest/grafana/dashboards — k6 클라 층)
+#   ./dashboards/repo/          (레포 observability/grafana/dashboards — gromo-overview → gromo-stress-test 폴더)
+#   ./dashboards/loadtest/      (레포 loadtest/grafana/dashboards — k6·서버·DB·시스템 4층 통합)
 services:
   prometheus:
     image: prom/prometheus:v2.55.1
