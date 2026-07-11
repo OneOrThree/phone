@@ -434,21 +434,28 @@ function MonthWeeklyFocus() {
       );
       if (cancelled) return;
       const startMs = weekStart0.getTime();
-      const weekCount = Math.floor((now.getTime() - startMs) / (7 * 86400e3)) + 1;
+      // 해당 월의 모든 주를 미리 기재 — 말일이 낀 주까지 포함(아직 안 온 주는 0으로 빈 막대)
+      const monthLast = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      const weekCount = Math.floor((monthLast.getTime() - startMs) / (7 * 86400e3)) + 1;
+      const thisWeekIdx = Math.floor((now.getTime() - startMs) / (7 * 86400e3));
       const sums: number[] = new Array(weekCount).fill(0);
       for (const c of cells) {
         const [y, m, d] = c.date.split('-').map(Number);
         const idx = Math.floor((new Date(y, m - 1, d).getTime() - startMs) / (7 * 86400e3));
         if (idx >= 0 && idx < weekCount) sums[idx] += c.totalFocusMinutes;
       }
-      const fmt = (dt: Date) => `${dt.getMonth() + 1}/${dt.getDate()}`;
       setBars(
         sums.map((v, i) => {
           const ws = new Date(weekStart0);
           ws.setDate(weekStart0.getDate() + i * 7);
           const we = new Date(ws);
           we.setDate(ws.getDate() + 6);
-          return { label: `${fmt(ws)}~${fmt(we)}`, value: v, current: i === weekCount - 1 };
+          // 달이 바뀌는 주만 월 표기(6/29~7/5), 같은 달 안의 주는 날짜만(6~12)
+          const label =
+            ws.getMonth() === we.getMonth()
+              ? `${ws.getDate()}~${we.getDate()}`
+              : `${ws.getMonth() + 1}/${ws.getDate()}~${we.getMonth() + 1}/${we.getDate()}`;
+          return { label, value: v, current: i === thisWeekIdx };
         }),
       );
     })();
