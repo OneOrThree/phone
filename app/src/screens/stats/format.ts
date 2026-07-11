@@ -150,6 +150,98 @@ export function heatmapBars(
   return cells.map((c) => ({ label: '오늘', value: pick(c), current: true }));
 }
 
+// 달력 일 번호 — UTC 자정으로 정규화해 DST가 있는 시간대에서도 일수 차이가 정확(StatsScreen과 동일 로직).
+const dayNum = (y: number, monthIdx: number, d: number) =>
+  Math.floor(Date.UTC(y, monthIdx, d) / 86400e3);
+
+// 세션 목록 → 일별 첫 세션 시작 시각(로컬 자정 경과 분). key = 'YYYY-MM-DD'(로컬).
+export function dailyFirstStartMinutes(sessions: { startedAt: string }[]): Map<string, number> {
+  const byDay = new Map<string, number>();
+  for (const s of sessions) {
+    const d = new Date(s.startedAt);
+    if (Number.isNaN(d.getTime())) continue;
+    const key = localDateStr(d);
+    const minutes = d.getHours() * 60 + d.getMinutes();
+    const prev = byDay.get(key);
+    if (prev === undefined || minutes < prev) byDay.set(key, minutes);
+  }
+  return byDay;
+}
+
+// 첫 시작 시각 점 1개 — 기록 없는 날(주)은 minutes=null로 라벨만 남기고 점은 그리지 않는다.
+export interface StartTimePoint {
+  label: string;
+  minutes: number | null; // 자정 경과 분
+  current: boolean;
+  future?: boolean;
+}
+
+// 일별 첫 시작 시각 → 기간별 점. WEEK=요일별(월~일), MONTH=주별 평균('N월 주별' 차트와 같은
+// 달력 주 분할 — 이달 1일이 낀 주의 월요일부터). 평균은 기록 있는 날만 분모에 넣는다.
+export function firstStartPoints(
+  period: StatsPeriod,
+  byDay: Map<string, number>,
+): StartTimePoint[] {
+  const now = new Date();
+  const today = todayStr();
+  if (period === 'WEEK') {
+    const dow = now.getDay(); // 0=일..6=토
+    const monday = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + (dow === 0 ? -6 : 1 - dow),
+    );
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const key = localDateStr(d);
+      return {
+        label: WEEKDAY[(i + 1) % 7], // 월~일
+        minutes: byDay.get(key) ?? null,
+        current: key === today,
+        future: key > today, // 'YYYY-MM-DD'는 문자열 비교가 날짜 비교와 일치
+      };
+    });
+  }
+  // MONTH — MonthWeeklyChart와 동일한 주 분할·라벨(6/29~7/5 또는 6~12)
+  const monthFirst = new Date(now.getFullYear(), now.getMonth(), 1);
+  const dow = monthFirst.getDay();
+  const weekStart0 = new Date(monthFirst);
+  weekStart0.setDate(monthFirst.getDate() - (dow === 0 ? 6 : dow - 1));
+  const startDay = dayNum(weekStart0.getFullYear(), weekStart0.getMonth(), weekStart0.getDate());
+  const monthLast = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const weekCount =
+    Math.floor(
+      (dayNum(monthLast.getFullYear(), monthLast.getMonth(), monthLast.getDate()) - startDay) / 7,
+    ) + 1;
+  const thisWeekIdx = Math.floor(
+    (dayNum(now.getFullYear(), now.getMonth(), now.getDate()) - startDay) / 7,
+  );
+  return Array.from({ length: weekCount }, (_, i) => {
+    const ws = new Date(weekStart0);
+    ws.setDate(weekStart0.getDate() + i * 7);
+    const we = new Date(ws);
+    we.setDate(ws.getDate() + 6);
+    const vals: number[] = [];
+    for (let d = 0; d < 7; d++) {
+      const day = new Date(ws);
+      day.setDate(ws.getDate() + d);
+      const v = byDay.get(localDateStr(day));
+      if (v !== undefined) vals.push(v);
+    }
+    const label =
+      ws.getMonth() === we.getMonth()
+        ? `${ws.getDate()}~${we.getDate()}`
+        : `${ws.getMonth() + 1}/${ws.getDate()}~${we.getMonth() + 1}/${we.getDate()}`;
+    return {
+      label,
+      minutes: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null,
+      current: i === thisWeekIdx,
+      future: i > thisWeekIdx,
+    };
+  });
+}
+
 // 집중 목표 달성률(주·월) — 달성일/경과일.
 export function focusGoalRate(cells: HeatmapCellResponse[]): {
   percent: number;

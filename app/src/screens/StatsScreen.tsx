@@ -22,7 +22,8 @@ import {
 import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
 import { fetchTodayFocusSessions } from '@/screens/focus/focusRestore';
-import { getFocusTags } from '@/services/focusApi';
+import { getFocusSessions, getFocusTags } from '@/services/focusApi';
+import type { FocusSessionResponse } from '@/types/dto/focus';
 import { getHeatmap } from '@/services/statsApi';
 import { useSubjects } from '@/store/SubjectContext';
 import { localDateStr, todayStr } from '@/utils/localDate';
@@ -36,8 +37,11 @@ import {
   tenMinuteFocusSlots,
   focusGoalRate,
   grassLevel,
+  dailyFirstStartMinutes,
+  firstStartPoints,
   type FocusSlotSegment,
   type StatBar,
+  type StartTimePoint,
 } from './stats/format';
 
 // v2 내 통계 화면(GROMO-604) — 홈 '오늘' 카드의 '자세히'에서 진입.
@@ -182,6 +186,14 @@ export default function StatsScreen() {
                 bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
                 color={PHONE_COLOR}
               />
+            </SectionCard>
+          )}
+
+          {/* 첫 시작 시각 추이(주·월) — 일별 첫 세션 startedAt 기반. 핸드폰 사용량 아래·합격자 위(GROMO-762) */}
+          {period !== 'DAY' && (
+            <SectionCard title="첫 시작 시각" caption={period === 'WEEK' ? '이번 주' : '주별 평균'}>
+              {/* key로 탭 전환 시 리마운트 — 이전 기간 점이 새 라벨 위에 잠깐 보이는 것 방지 */}
+              <FirstStartChart key={period} period={period} />
             </SectionCard>
           )}
 
@@ -762,6 +774,135 @@ function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
   );
 }
 
+// 첫 시작 시각 추이(주·월) — 일별 첫 세션 startedAt을 점으로만 찍는다(선 연결 없음, GROMO-762).
+// 세로축은 시각이라 LineChart(0부터 시작하는 분량 축)를 못 쓰고 전용 축을 그린다. 시간표처럼
+// 이른 시각이 위 — 시작이 빨라지면 점이 올라간다. 주=요일별, 월=주별 평균. 서버 집계 없이 세션 조회만으로 계산.
+function FirstStartChart({ period }: { period: StatsPeriod }) {
+  const [points, setPoints] = useState<StartTimePoint[] | null>(null);
+  const [plotW, setPlotW] = useState(0);
+
+  // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 방금 세션이 반영(타임테이블과 동일 패턴)
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        // 조회 시작점: 주=이번 주 월요일, 월=이달 1일이 낀 주의 월요일('N월 주별' 차트와 동일 구간).
+        // 서버 /focus-session은 startedAt 필터라 '그날 시작한 세션'과 정확히 일치한다.
+        const now = new Date();
+        const from = new Date(
+          period === 'WEEK' ? now : new Date(now.getFullYear(), now.getMonth(), 1),
+        );
+        const dow = from.getDay(); // 0=일..6=토
+        from.setDate(from.getDate() - (dow === 0 ? 6 : dow - 1));
+        from.setHours(0, 0, 0, 0);
+        const all: FocusSessionResponse[] = [];
+        try {
+          let cursor: string | undefined;
+          // 커서 페이지네이션 — 한 달치 세션이 이 상한을 넘을 일은 없고, 무한 루프만 방지
+          for (let page = 0; page < 10; page++) {
+            const slice = await getFocusSessions(
+              from.toISOString(),
+              new Date().toISOString(),
+              100,
+              cursor,
+            );
+            all.push(...slice.content);
+            if (!slice.hasNext || !slice.nextCursor) break;
+            cursor = slice.nextCursor;
+          }
+        } catch {
+          // 조회 실패 → 빈 차트("아직 기록이 없어요")로 표시
+        }
+        if (cancelled) return;
+        setPoints(firstStartPoints(period, dailyFirstStartMinutes(all)));
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [period]),
+  );
+
+  if (points === null) {
+    return (
+      <View style={s.compareLoading}>
+        <ActivityIndicator color={T.accent} size="small" />
+      </View>
+    );
+  }
+
+  const vals = points.filter((p) => !p.future && p.minutes != null).map((p) => p.minutes as number);
+  if (vals.length === 0) {
+    return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
+  }
+
+  // 세로축 경계 — 정시로 내리고 폭을 3시간 배수로 맞춰 ⅓·⅔ 눈금도 정시가 되게 한다
+  let axisMin = Math.floor(Math.min(...vals) / 60) * 60;
+  const span = Math.max(180, Math.ceil((Math.max(...vals) - axisMin) / 180) * 180);
+  let axisMax = axisMin + span;
+  if (axisMax > 1440) {
+    // 심야 시작이면 축이 24시를 넘지 않게 아래로 내림
+    axisMax = 1440;
+    axisMin = 1440 - span;
+  }
+  const fmtClock = (m: number) => `${Math.floor(m / 60)}시`;
+  const step = plotW / points.length;
+  // 미래 구간·기록 없는 날은 라벨만 남기고 점에서 제외(0으로 찍으면 '자정 시작'으로 왜곡)
+  const pts = points
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => !p.future && p.minutes != null)
+    .map(({ p, i }) => ({
+      x: step * (i + 0.5),
+      y: (((p.minutes as number) - axisMin) / (axisMax - axisMin)) * CHART_H,
+    }));
+  return (
+    <View>
+      <View style={s.chartPlotRow}>
+        {/* 세로축 — 위가 이른 시각. 분량 축과 달리 바닥이 0이 아니라 4눈금 모두 라벨 */}
+        <View style={s.chartAxisCol}>
+          <Text style={[s.chartAxisLabel, s.chartAxisTop]} allowFontScaling={false}>
+            {fmtClock(axisMin)}
+          </Text>
+          <Text style={[s.chartAxisLabel, s.chartAxisUpper]} allowFontScaling={false}>
+            {fmtClock(axisMin + span / 3)}
+          </Text>
+          <Text style={[s.chartAxisLabel, s.chartAxisLower]} allowFontScaling={false}>
+            {fmtClock(axisMin + (span * 2) / 3)}
+          </Text>
+          <Text style={[s.chartAxisLabel, s.chartAxisBottom]} allowFontScaling={false}>
+            {fmtClock(axisMax)}
+          </Text>
+        </View>
+        <View style={s.chartPlot} onLayout={(e) => setPlotW(e.nativeEvent.layout.width)}>
+          <View style={[s.chartGridLine, s.chartGridTop]} />
+          <View style={[s.chartGridLine, s.chartGridUpper]} />
+          <View style={[s.chartGridLine, s.chartGridLower]} />
+          <View style={[s.chartGridLine, s.chartGridBottom]} />
+          {plotW > 0 && (
+            <Svg width={plotW + DOT_PAD * 2} height={CHART_H + DOT_PAD * 2} style={s.lineSvg}>
+              {/* 선 없이 점만이라 크게(r 5, DOT_PAD 안) — 오늘 강조는 크기 대신 라벨 볼드만 */}
+              {pts.map((p, i) => (
+                <Circle key={i} cx={p.x + DOT_PAD} cy={p.y + DOT_PAD} r={5} fill={FOCUS_COLOR} />
+              ))}
+            </Svg>
+          )}
+          <View style={s.lineLabelRow}>
+            {points.map((p, i) => (
+              <Text
+                key={`${p.label}-${i}`}
+                style={[s.lineLabel, p.current ? [s.lineLabelCur, { color: FOCUS_COLOR }] : null]}
+                allowFontScaling={false}
+              >
+                {p.label}
+              </Text>
+            ))}
+          </View>
+        </View>
+      </View>
+      <Text style={s.grassHint}>그날 처음 집중을 시작한 시각 · 위로 갈수록 이른 시각이에요</Text>
+    </View>
+  );
+}
+
 // ST2(주) 과목별 공부량 도넛 — 과목별 비중을 링 구간(strokeDasharray)으로 그리고 가운데에 총합,
 // 우측 범례에 과목·비중을 표시(GROMO-761). 색은 CategoryBars와 동일하게 팔레트 순서 배정.
 const DONUT_SIZE = 132;
@@ -1154,6 +1295,7 @@ const s = StyleSheet.create({
   chartAxisTop: { top: -5 },
   chartAxisUpper: { top: CHART_H / 3 - 5 },
   chartAxisLower: { top: (CHART_H * 2) / 3 - 5 },
+  chartAxisBottom: { top: CHART_H - 5 }, // 시각 축(첫 시작 시각) 전용 — 바닥이 0이 아니라 라벨 필요
   chartPlot: { flex: 1 },
   chartGridLine: {
     position: 'absolute',
