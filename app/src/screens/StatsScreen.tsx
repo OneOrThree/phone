@@ -1488,7 +1488,9 @@ const s = StyleSheet.create({
   chartGridLower: { top: (CHART_H * 2) / 3 },
   chartGridBottom: { top: CHART_H },
   // 시간대별 타임테이블 — 왼쪽 과목 범례(형광펜 하이라이트) + 격자(한 줄 1시간 = 10분×6칸)
-  ttShot: { backgroundColor: T.white }, // 캡처 이미지 배경(투명 PNG 방지)
+  // 캡처 이미지 배경(투명 PNG 방지) + 좌우 여백 — 음수 마진으로 상쇄해 화면 레이아웃은 그대로,
+  // 저장되는 이미지에만 여백이 생긴다(LineChart의 DOT_PAD 확장과 같은 기법)
+  ttShot: { backgroundColor: T.white, paddingHorizontal: 16, marginHorizontal: -16 },
   ttLayout: { flexDirection: 'row', gap: 12, marginTop: 14 },
   ttLegendCol: { width: 76, gap: 6, paddingTop: 2, alignItems: 'flex-start' },
   // 범례 — 글자 배경칠 대신 왼쪽 원형 점으로 과목 색 표시
