@@ -135,6 +135,13 @@ export default function StatsScreen() {
             />
           </SectionCard>
 
+          {/* 해당월 주별 공부시간(월) — 과목별 공부량 아래, heatmap 주차 합산 실데이터(GROMO-761) */}
+          {period === 'MONTH' && (
+            <SectionCard title={`${new Date().getMonth() + 1}월 주별 공부시간`}>
+              <MonthWeeklyFocus />
+            </SectionCard>
+          )}
+
           {/* ST3 합격자 비교 — 실그래프 + 블러 티저(합격자 데이터 준비 중). 주 탭은 핸드폰 사용량 아래로 이동 */}
           {period !== 'WEEK' && (
             <SectionCard title="합격자와 비교" caption="과목별">
@@ -144,13 +151,7 @@ export default function StatsScreen() {
             </SectionCard>
           )}
 
-          {/* ST4 — 주 탭은 이번 달 주별 공부시간(heatmap 주차 합산 실데이터), 월 탭은 누적 티저 유지.
-              일 탭은 타임테이블이 총 공부량 아래로 대체 */}
-          {period === 'WEEK' && (
-            <SectionCard title={`${new Date().getMonth() + 1}월 주별 공부시간`}>
-              <MonthWeeklyFocus />
-            </SectionCard>
-          )}
+          {/* ST4(월) 주별 누적 티저 — 일 탭은 타임테이블, 주 탭은 해당 섹션 없음 */}
           {period === 'MONTH' && (
             <SectionCard title="주별 누적 공부 비율">
               <ComingSoon note="주별 누적 비율을 준비하고 있어요">
