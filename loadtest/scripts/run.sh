@@ -43,6 +43,9 @@ vm_ssh loadgen "gcloud storage cp -r 'gs://${PROJECT_ID}-params/${SEED_VERSION}/
 # 읽는다(부하기가 SUT 보다 먼저 포화되면 verdict=INVALID). loadgen 은 run 마다 새 VM 이라 매번 기동해야 하며,
 # 없으면 loadgenMaxCpu=-1 로 항상 INVALID 가 된다. SUT compose 의 node-exporter 와 동일 핀(v1.8.2).
 vm_ssh loadgen "sudo docker rm -f node-exporter 2>/dev/null; sudo docker run -d --name node-exporter --restart=unless-stopped --net=host --pid=host -v /:/host:ro,rslave prom/node-exporter:v1.8.2 --path.rootfs=/host"
+# 기동 확인 — 실패 시 조용히 loadgenMaxCpu=-1(INVALID) 로 떨어지므로 로그로 드러낸다(#206 리뷰).
+vm_ssh loadgen "sudo docker ps --filter name=node-exporter --filter status=running -q" | grep -q . \
+  || log "⚠️ loadgen node-exporter 미기동 — 부하기 CPU 가드가 INVALID 로 떨어질 수 있음"
 
 K6_BASE="sudo docker run --rm \
   -v \$HOME/k6run/scripts:/scripts:ro -v \$HOME/k6run/params:/params:ro -v \$HOME/k6run/out:/out \
