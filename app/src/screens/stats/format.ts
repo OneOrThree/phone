@@ -20,23 +20,31 @@ export function tenMinuteFocusSlots(
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
   const dayStart = midnight.getTime();
-  const dayEnd = dayStart + 24 * 3600e3;
+  // 달력 기준 다음날 자정 — DST 전환일은 하루가 23/25시간이라 +24h 고정 더하기는 어긋난다(리뷰 반영)
+  const nextMidnight = new Date(midnight);
+  nextMidnight.setDate(midnight.getDate() + 1);
+  const dayEnd = nextMidnight.getTime();
   for (const s of sessions) {
     const start = Math.max(Date.parse(s.startedAt), dayStart);
     const end = Math.min(Date.parse(s.endedAt), dayEnd);
     if (!(end > start)) continue;
-    const first = Math.floor((start - dayStart) / SLOT_MS);
-    const last = Math.min(Math.floor((end - 1 - dayStart) / SLOT_MS), 143);
-    for (let i = first; i <= last; i++) {
-      const slotStart = dayStart + i * SLOT_MS;
-      const segStart = Math.max(start, slotStart);
-      const segEnd = Math.min(end, slotStart + SLOT_MS);
-      if (segEnd <= segStart) continue;
-      slots[i].push({
-        start: (segStart - slotStart) / SLOT_MS,
-        end: (segEnd - slotStart) / SLOT_MS,
-        tagId: s.focusTagId,
-      });
+    // 슬롯은 로컬 벽시계(시:분) 기준 — 자정 경과 ms 나눗셈은 DST 전환일에 시각과 어긋난다(리뷰 반영).
+    // 슬롯의 로컬 경계까지 조각을 담으며 전진한다.
+    let t = start;
+    while (t < end) {
+      const d = new Date(t);
+      const idx = d.getHours() * 6 + Math.floor(d.getMinutes() / 10);
+      const boundary = new Date(d);
+      boundary.setMinutes(Math.floor(d.getMinutes() / 10) * 10 + 10, 0, 0);
+      const segEnd = Math.min(end, boundary.getTime());
+      const segStartFrac =
+        ((d.getMinutes() % 10) * 60e3 + d.getSeconds() * 1e3 + d.getMilliseconds()) / SLOT_MS;
+      const segEndFrac = Math.min(segStartFrac + (segEnd - t) / SLOT_MS, 1);
+      if (idx >= 0 && idx < 144 && segEndFrac > segStartFrac) {
+        slots[idx].push({ start: segStartFrac, end: segEndFrac, tagId: s.focusTagId });
+      }
+      // 경계가 전진하지 않는 비정상 케이스(시간대 급변 등) 무한 루프 방지
+      t = segEnd > t ? segEnd : t + 60e3;
     }
   }
   return slots;

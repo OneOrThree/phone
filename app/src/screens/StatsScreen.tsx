@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -54,6 +54,10 @@ const PHONE_COLOR = T.accent;
 // 히트맵 셀 → 지표 추출기 — 렌더마다 재생성되지 않게 모듈 상수(훅 의존성 안정화)
 const pickFocus = (c: HeatmapCellResponse) => c.totalFocusMinutes;
 const pickScreenTime = (c: HeatmapCellResponse) => c.actualScreenTimeMinutes;
+
+// 달력 일 번호 — UTC 자정으로 정규화해 DST가 있는 시간대에서도 일수 차이가 정확(리뷰 반영)
+const dayNumber = (y: number, monthIdx: number, d: number) =>
+  Math.floor(Date.UTC(y, monthIdx, d) / 86400e3);
 
 export default function StatsScreen() {
   const navigation = useNavigation();
@@ -272,22 +276,25 @@ function CompareWeek({ myMinutes }: { myMinutes: number }) {
     friends: { avg: number | null; count: number };
   }>({ global: null, category: { avg: null, label: null }, friends: { avg: null, count: 0 } });
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const [global, category, friends] = await Promise.all([
-        fetchGlobalAverage(),
-        fetchCategoryAverage(),
-        fetchFriendsAverage('WEEK'),
-      ]);
-      if (cancelled) return;
-      setAvgs({ global, category, friends });
-      setLoaded(true);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // 화면 재진입마다 재조회 — 리뷰 반영(타임테이블과 동일 패턴)
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        const [global, category, friends] = await Promise.all([
+          fetchGlobalAverage(),
+          fetchCategoryAverage(),
+          fetchFriendsAverage('WEEK'),
+        ]);
+        if (cancelled) return;
+        setAvgs({ global, category, friends });
+        setLoaded(true);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
   const AXES = [
     { key: 'FRIENDS', label: '친구' },
@@ -505,49 +512,64 @@ function MonthWeeklyChart({
 }) {
   const [bars, setBars] = useState<StatBar[] | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const now = new Date();
-      const monthFirst = new Date(now.getFullYear(), now.getMonth(), 1);
-      // 이달 1일이 속한 주의 월요일 — 첫 주가 전월에 걸치면 전월 날짜부터 시작(예: 7월 첫 주 = 6/29~7/5)
-      const dow = monthFirst.getDay(); // 0=일..6=토
-      const weekStart0 = new Date(monthFirst);
-      weekStart0.setDate(monthFirst.getDate() - (dow === 0 ? 6 : dow - 1));
-      const cells = await getHeatmap(localDateStr(weekStart0), todayStr()).catch(
-        () => [] as HeatmapCellResponse[],
-      );
-      if (cancelled) return;
-      const startMs = weekStart0.getTime();
-      // 해당 월의 모든 주를 미리 기재 — 말일이 낀 주까지 포함(아직 안 온 주는 0으로 빈 막대)
-      const monthLast = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      const weekCount = Math.floor((monthLast.getTime() - startMs) / (7 * 86400e3)) + 1;
-      const thisWeekIdx = Math.floor((now.getTime() - startMs) / (7 * 86400e3));
-      const sums: number[] = new Array(weekCount).fill(0);
-      for (const c of cells) {
-        const [y, m, d] = c.date.split('-').map(Number);
-        const idx = Math.floor((new Date(y, m - 1, d).getTime() - startMs) / (7 * 86400e3));
-        if (idx >= 0 && idx < weekCount) sums[idx] += pick(c);
-      }
-      setBars(
-        sums.map((v, i) => {
-          const ws = new Date(weekStart0);
-          ws.setDate(weekStart0.getDate() + i * 7);
-          const we = new Date(ws);
-          we.setDate(ws.getDate() + 6);
-          // 달이 바뀌는 주만 월 표기(6/29~7/5), 같은 달 안의 주는 날짜만(6~12)
-          const label =
-            ws.getMonth() === we.getMonth()
-              ? `${ws.getDate()}~${we.getDate()}`
-              : `${ws.getMonth() + 1}/${ws.getDate()}~${we.getMonth() + 1}/${we.getDate()}`;
-          return { label, value: v, current: i === thisWeekIdx, future: i > thisWeekIdx };
-        }),
-      );
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [pick]);
+  // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 최신 반영(리뷰 반영, useStatsData와 동일 패턴)
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        const now = new Date();
+        const monthFirst = new Date(now.getFullYear(), now.getMonth(), 1);
+        // 이달 1일이 속한 주의 월요일 — 첫 주가 전월에 걸치면 전월 날짜부터 시작(예: 7월 첫 주 = 6/29~7/5)
+        const dow = monthFirst.getDay(); // 0=일..6=토
+        const weekStart0 = new Date(monthFirst);
+        weekStart0.setDate(monthFirst.getDate() - (dow === 0 ? 6 : dow - 1));
+        const cells = await getHeatmap(localDateStr(weekStart0), todayStr()).catch(
+          () => [] as HeatmapCellResponse[],
+        );
+        if (cancelled) return;
+        // 주차 인덱스는 달력 일수 차이 기준 — 경과 ms 나눗셈은 DST 전환일에 하루가 23/25시간이라 어긋난다(리뷰 반영)
+        const startDay = dayNumber(
+          weekStart0.getFullYear(),
+          weekStart0.getMonth(),
+          weekStart0.getDate(),
+        );
+        // 해당 월의 모든 주를 미리 기재 — 말일이 낀 주까지 포함(아직 안 온 주는 0으로 빈 막대)
+        const monthLast = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        const weekCount =
+          Math.floor(
+            (dayNumber(monthLast.getFullYear(), monthLast.getMonth(), monthLast.getDate()) -
+              startDay) /
+              7,
+          ) + 1;
+        const thisWeekIdx = Math.floor(
+          (dayNumber(now.getFullYear(), now.getMonth(), now.getDate()) - startDay) / 7,
+        );
+        const sums: number[] = new Array(weekCount).fill(0);
+        for (const c of cells) {
+          const [y, m, d] = c.date.split('-').map(Number);
+          const idx = Math.floor((dayNumber(y, m - 1, d) - startDay) / 7);
+          if (idx >= 0 && idx < weekCount) sums[idx] += pick(c);
+        }
+        setBars(
+          sums.map((v, i) => {
+            const ws = new Date(weekStart0);
+            ws.setDate(weekStart0.getDate() + i * 7);
+            const we = new Date(ws);
+            we.setDate(ws.getDate() + 6);
+            // 달이 바뀌는 주만 월 표기(6/29~7/5), 같은 달 안의 주는 날짜만(6~12)
+            const label =
+              ws.getMonth() === we.getMonth()
+                ? `${ws.getDate()}~${we.getDate()}`
+                : `${ws.getMonth() + 1}/${ws.getDate()}~${we.getMonth() + 1}/${we.getDate()}`;
+            return { label, value: v, current: i === thisWeekIdx, future: i > thisWeekIdx };
+          }),
+        );
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [pick]),
+  );
 
   if (bars === null) {
     return (
@@ -570,21 +592,24 @@ function FocusTimetable() {
   // 서버 tagId → 태그명 (과목 색 매칭용). 로컬 과목 id는 서버 tagId와 다를 수 있어 이름으로 잇는다.
   const [tagNames, setTagNames] = useState<Map<string, string>>(new Map());
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const [sessions, tags] = await Promise.all([
-        fetchTodayFocusSessions().catch(() => []),
-        getFocusTags().catch(() => []),
-      ]);
-      if (cancelled) return;
-      setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
-      setSlots(tenMinuteFocusSlots(sessions));
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 방금 세션이 타임테이블에 반영(리뷰 반영)
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        const [sessions, tags] = await Promise.all([
+          fetchTodayFocusSessions().catch(() => []),
+          getFocusTags().catch(() => []),
+        ]);
+        if (cancelled) return;
+        setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
+        setSlots(tenMinuteFocusSlots(sessions));
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
   if (slots === null) {
     return (
