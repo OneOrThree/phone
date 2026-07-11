@@ -4,11 +4,12 @@ import { dispatchRun } from '../api/github';
 
 // 단일 API 부하 모드 (GROMO-750) — openapi 카탈로그에서 실행 가능한 엔드포인트를 다중선택(또는 전체선택)해
 // 프로파일(load/stress/spike)로 배치 디스패치. run 은 concurrency 로 직렬화되므로 "전체 선택 = 새벽 통째 실행".
+// rps=constant-arrival-rate 프로파일 기본값(표시·폴백용). ramping(stress/spike)은 계단이라 rps 무의미.
 const PROFILES = [
-  { value: 'smoke', label: 'smoke — 빠른 검증 (5rps·1분)' },
-  { value: 'load', label: 'load — 목표 부하 (50rps·10분)' },
-  { value: 'stress', label: 'stress — 한계 탐색 (계단)' },
-  { value: 'spike', label: 'spike — 급증 (10→300)' },
+  { value: 'smoke', label: 'smoke — 빠른 검증 (5rps·1분)', rps: 5, ramping: false },
+  { value: 'load', label: 'load — 목표 부하 (50rps·10분)', rps: 50, ramping: false },
+  { value: 'stress', label: 'stress — 한계 탐색 (계단 100→400)', rps: null, ramping: true },
+  { value: 'spike', label: 'spike — 급증 (10→300)', rps: null, ramping: true },
 ];
 const METHOD_CLASS: Record<string, string> = {
   GET: 'm-get',
@@ -40,6 +41,7 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
   }, []);
 
   const runnable = useMemo(() => (cat ? cat.endpoints.filter(isRunnable) : []), [cat]);
+  const prof = PROFILES.find((p) => p.value === profile) ?? PROFILES[1];
   const toggle = (k: string) =>
     setSel((prev) => {
       const n = new Set(prev);
@@ -60,18 +62,30 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
   // 선택 엔드포인트를 한 run 에서 병렬 부하 — 총 rate 를 선택분에 분산(모델 A). loadgen 1사이클.
   const runBatch = async () => {
     if (!cat || sel.size === 0 || running) return;
-    setRunning(true);
     const picked = runnable.filter((e) => sel.has(keyOf(e)));
     const recipes = picked.map((e) => e.recipe).filter((r): r is string => !!r);
+    if (recipes.length === 0) {
+      setProgress('실패: 선택 항목에 실행 가능한 recipe 가 없습니다.');
+      return;
+    }
+    // rps: 계단형 프로파일은 무시. 값이 있으면 1 이상 정수만(서버 run.sh 가드 전 조기 실패 UX)
+    const rpsVal = prof.ramping ? '' : rps.trim();
+    if (rpsVal && !/^[1-9][0-9]*$/.test(rpsVal)) {
+      setProgress('실패: rps 는 1 이상 정수여야 합니다.');
+      return;
+    }
+    const spotsVal = spots.trim();
+    if (spotsVal && spotsVal !== '1') {
+      setProgress('실패: 멀티-VM loadgen 은 미구현 — spot 수는 1 이어야 합니다(후속).');
+      return;
+    }
+    setRunning(true);
     try {
       await dispatchRun(profile, 'matrix/_generic.js', false, {
         recipes: recipes.join(','),
-        rate: rps.trim() || undefined,
-        spots: spots.trim() || undefined,
+        rate: rpsVal || undefined,
       });
-      const opts = [profile, rps.trim() && `${rps.trim()}rps`, spots.trim() !== '1' && `spot ${spots.trim()}`]
-        .filter(Boolean)
-        .join(' · ');
+      const opts = [profile, rpsVal && `${rpsVal}rps`].filter(Boolean).join(' · ');
       setProgress(`디스패치 완료 — ${recipes.length}개 엔드포인트 병렬 부하 (${opts}). 히스토리에 나타납니다.`);
     } catch (e) {
       setProgress(`실패: ${String(e)} (PAT 권한: actions rw)`);
@@ -105,14 +119,14 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
               </select>
             </label>
             <label>
-              총 rps (빈값=프로파일 기본)
+              총 rps {prof.ramping ? '(계단형 — 무시)' : '(빈값=기본)'}
               <input
                 type="text"
                 className="short"
-                value={rps}
-                placeholder="기본"
+                value={prof.ramping ? '' : rps}
+                placeholder={prof.ramping ? '계단형' : `${prof.rps} (기본)`}
                 inputMode="numeric"
-                disabled={running}
+                disabled={running || prof.ramping}
                 onChange={(e) => setRps(e.target.value)}
               />
             </label>
@@ -129,6 +143,11 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
               />
             </label>
           </div>
+          <p className="muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.5 }}>
+            <b>rps</b> = 초당 요청 수(총량, 선택 API에 분산). 비우면 프로파일 기본(load 50·smoke 5). 계단형(stress/spike)은
+            프로파일이 계단으로 정해 무시됩니다. · <b>spot</b> = 부하를 만드는 loadgen VM 수. 한 대로도 수천 rps 생성
+            가능(부하기 CPU&gt;80% 넘으면 결과 무효). <b>현재 1만 지원</b>(멀티-VM 분산은 후속).
+          </p>
 
           <div className="batch-bar">
             <button className="ghost" onClick={selectAll} disabled={running}>

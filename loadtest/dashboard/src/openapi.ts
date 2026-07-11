@@ -76,7 +76,9 @@ export async function loadCatalog(): Promise<Catalog> {
   if (!specRes.ok) throw new Error(`openapi.json 로드 실패 (${specRes.status})`);
   if (!manRes.ok) throw new Error(`recipes-manifest.json 로드 실패 (${manRes.status})`);
   const spec = (await specRes.json()) as { paths?: Record<string, Record<string, RawOp>> };
-  const manifest = (await manRes.json()) as { recipes: ManifestRecipe[] };
+  const manifest = (await manRes.json()) as { recipes?: ManifestRecipe[] };
+  if (!Array.isArray(manifest.recipes))
+    throw new Error('recipes-manifest.json 형식 오류 — recipes 배열이 없습니다');
 
   // method+path → recipe
   const recipeByKey = new Map<string, ManifestRecipe>();
