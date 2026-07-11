@@ -11,7 +11,6 @@ import {
   getStreak,
   getHeatmap,
 } from '@/services/statsApi';
-import { getFocusTags } from '@/services/focusApi';
 import type {
   FocusPeriodStatsResponse,
   CategoryFocusStatsResponse,
@@ -21,7 +20,6 @@ import type {
   HeatmapCellResponse,
   StatsPeriod,
 } from '@/types/dto/stats';
-import type { FocusTagResponse } from '@/types/dto/focus';
 import { heatmapRange } from './format';
 
 export interface StatsData {
@@ -31,7 +29,6 @@ export interface StatsData {
   today: TodayStatsResponse | null;
   streak: StreakResponse | null;
   heatmap: HeatmapCellResponse[];
-  tags: FocusTagResponse[];
 }
 
 const EMPTY: StatsData = {
@@ -41,7 +38,6 @@ const EMPTY: StatsData = {
   today: null,
   streak: null,
   heatmap: [],
-  tags: [],
 };
 
 export function useStatsData(period: StatsPeriod): { data: StatsData; loading: boolean } {
@@ -54,17 +50,16 @@ export function useStatsData(period: StatsPeriod): { data: StatsData; loading: b
       setLoading(true);
       (async () => {
         const { from, to } = heatmapRange(period);
-        const [focus, category, screenTime, today, streak, heatmap, tags] = await Promise.all([
+        const [focus, category, screenTime, today, streak, heatmap] = await Promise.all([
           getFocusPeriodStats(period).catch(() => null),
           getFocusStatsByCategory(period).catch(() => null),
           getScreenTimePeriodStats(period).catch(() => null),
           getTodayStats().catch(() => null),
           getStreak().catch(() => null),
           getHeatmap(from, to).catch(() => [] as HeatmapCellResponse[]),
-          getFocusTags().catch(() => [] as FocusTagResponse[]),
         ]);
         if (cancelled) return;
-        setData({ focus, category, screenTime, today, streak, heatmap, tags });
+        setData({ focus, category, screenTime, today, streak, heatmap });
         setLoading(false);
       })();
       return () => {

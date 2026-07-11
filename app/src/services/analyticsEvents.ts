@@ -198,10 +198,7 @@ export function logStatsPeriodChanged(p: { period: StatsPeriodKey }): void {
   track('stats_period_changed', p);
 }
 
-// 상단 과목 필터 선택. 태그명(PII 회피)은 미전송, 전체 여부만 기록(리그 필터와 동일 규칙).
-export function logStatsTagFilterSelected(p: { is_all: boolean }): void {
-  track('stats_tag_filter_selected', p);
-}
+// (stats_tag_filter_selected 이벤트는 과목 칩 필터 제거로 폐기 — GROMO-761)
 
 // ── 리텐션/알림 [C] ── (event-logging-design.md §5.B)
 // rank_change: 순위 역전 푸시(백엔드 bfeat/GROMO-579) — payload data.type='rank_change' 필요.

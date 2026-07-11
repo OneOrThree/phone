@@ -2,7 +2,57 @@
 import { localDateStr, todayStr } from '@/utils/localDate';
 import type { HeatmapCellResponse, StatsPeriod } from '@/types/dto/stats';
 
+// 오늘 세션 → 10분 슬롯(0~143 = 24시간×6)별 집중 구간(GROMO-761 시간대별 집중 타임테이블).
+// 슬롯 경계는 시계 기준(정각 정렬 — 예: 3:00~3:10, 3:10~3:20)이고, 세션 구간을 경계로 잘라
+// 슬롯 안의 실제 위치(start~end, 0~1 비율)로 담는다 → 3:35~3:45 집중이면 3:30 칸의 오른쪽
+// 절반 + 3:40 칸의 왼쪽 절반이 칠해진다. 자정 이전(어제) 부분은 제외.
+export interface FocusSlotSegment {
+  start: number; // 슬롯 내 시작 위치 0~1
+  end: number; // 슬롯 내 끝 위치 0~1
+  tagId: string | null; // 세션의 태그(과목 색 결정용) — 미분류면 null
+}
+
+export function tenMinuteFocusSlots(
+  sessions: { startedAt: string; endedAt: string; focusTagId: string | null }[],
+): FocusSlotSegment[][] {
+  const SLOT_MS = 600e3; // 10분
+  const slots: FocusSlotSegment[][] = Array.from({ length: 144 }, () => []);
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const dayStart = midnight.getTime();
+  // 달력 기준 다음날 자정 — DST 전환일은 하루가 23/25시간이라 +24h 고정 더하기는 어긋난다(리뷰 반영)
+  const nextMidnight = new Date(midnight);
+  nextMidnight.setDate(midnight.getDate() + 1);
+  const dayEnd = nextMidnight.getTime();
+  for (const s of sessions) {
+    const start = Math.max(Date.parse(s.startedAt), dayStart);
+    const end = Math.min(Date.parse(s.endedAt), dayEnd);
+    if (!(end > start)) continue;
+    // 슬롯은 로컬 벽시계(시:분) 기준 — 자정 경과 ms 나눗셈은 DST 전환일에 시각과 어긋난다(리뷰 반영).
+    // 슬롯의 로컬 경계까지 조각을 담으며 전진한다.
+    let t = start;
+    while (t < end) {
+      const d = new Date(t);
+      const idx = d.getHours() * 6 + Math.floor(d.getMinutes() / 10);
+      const boundary = new Date(d);
+      boundary.setMinutes(Math.floor(d.getMinutes() / 10) * 10 + 10, 0, 0);
+      const segEnd = Math.min(end, boundary.getTime());
+      const segStartFrac =
+        ((d.getMinutes() % 10) * 60e3 + d.getSeconds() * 1e3 + d.getMilliseconds()) / SLOT_MS;
+      const segEndFrac = Math.min(segStartFrac + (segEnd - t) / SLOT_MS, 1);
+      if (idx >= 0 && idx < 144 && segEndFrac > segStartFrac) {
+        slots[idx].push({ start: segStartFrac, end: segEndFrac, tagId: s.focusTagId });
+      }
+      // 경계가 전진하지 않는 비정상 케이스(시간대 급변 등) 무한 루프 방지
+      t = segEnd > t ? segEnd : t + 60e3;
+    }
+  }
+  return slots;
+}
+
 // 분 → "N시간 M분" / "N시간" / "M분" / "0분"
+// ⚠️ 통계 허브(StatsScreen)는 fmtMinutes(00:00:00)로 전환(GROMO-761) — 현재 집중 결과(FocusResult)만 사용,
+// 683(집중 결과 00:00:00 통일)에서 정리 예정.
 export function hm(totalMinutes: number): string {
   const t = Math.max(0, Math.round(totalMinutes));
   const h = Math.floor(t / 60);
@@ -65,11 +115,12 @@ export function rollingWeekRange(): { from: string; to: string } {
   return { from: localDateStr(from), to: todayStr() };
 }
 
-// 막대 1개(집중/폰 사용 공용).
+// 막대/점 1개(집중/폰 사용 공용).
 export interface StatBar {
   label: string;
   value: number; // 분
   current: boolean; // 강조(오늘/이번 주차 등)
+  future?: boolean; // 아직 오지 않은 구간 — 가로축 라벨만 표시하고 선·점은 그리지 않음(GROMO-761)
 }
 
 // 히트맵 → 기간별 막대. WEEK=요일별, MONTH=주차별 합산, DAY=오늘 단일.
