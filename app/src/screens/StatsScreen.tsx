@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Circle, Polyline } from 'react-native-svg';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
@@ -134,12 +135,14 @@ export default function StatsScreen() {
             />
           </SectionCard>
 
-          {/* ST3 합격자 비교 — 실그래프 + 블러 티저(합격자 데이터 준비 중) */}
-          <SectionCard title="합격자와 비교" caption="과목별">
-            <ComingSoon note="합격자 데이터가 쌓이면 보여드릴게요">
-              <PasserCompareChart />
-            </ComingSoon>
-          </SectionCard>
+          {/* ST3 합격자 비교 — 실그래프 + 블러 티저(합격자 데이터 준비 중). 주 탭은 핸드폰 사용량 아래로 이동 */}
+          {period !== 'WEEK' && (
+            <SectionCard title="합격자와 비교" caption="과목별">
+              <ComingSoon note="합격자 데이터가 쌓이면 보여드릴게요">
+                <PasserCompareChart />
+              </ComingSoon>
+            </SectionCard>
+          )}
 
           {/* ST4 — 주 탭은 이번 달 주별 공부시간(heatmap 주차 합산 실데이터), 월 탭은 누적 티저 유지.
               일 탭은 타임테이블이 총 공부량 아래로 대체 */}
@@ -162,10 +165,17 @@ export default function StatsScreen() {
               <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
                 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
               </Text>
-              <BarChart
-                bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
-                color={FOCUS_COLOR}
-              />
+              {period === 'WEEK' ? (
+                <LineChart
+                  bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
+                  color={FOCUS_COLOR}
+                />
+              ) : (
+                <BarChart
+                  bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
+                  color={FOCUS_COLOR}
+                />
+              )}
             </SectionCard>
           )}
 
@@ -174,11 +184,27 @@ export default function StatsScreen() {
             <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
               {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
             </Text>
-            <BarChart
-              bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
-              color={PHONE_COLOR}
-            />
+            {period === 'WEEK' ? (
+              <LineChart
+                bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
+                color={PHONE_COLOR}
+              />
+            ) : (
+              <BarChart
+                bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
+                color={PHONE_COLOR}
+              />
+            )}
           </SectionCard>
+
+          {/* 합격자 비교(주) — 요일별 핸드폰 사용량 아래 배치 */}
+          {period === 'WEEK' && (
+            <SectionCard title="합격자와 비교" caption="과목별">
+              <ComingSoon note="합격자 데이터가 쌓이면 보여드릴게요">
+                <PasserCompareChart />
+              </ComingSoon>
+            </SectionCard>
+          )}
 
           {/* ST7 전(前) 대비 */}
           <SectionCard title={`${prevLabel(period)} 대비`}>
@@ -455,7 +481,7 @@ function MonthWeeklyFocus() {
             ws.getMonth() === we.getMonth()
               ? `${ws.getDate()}~${we.getDate()}`
               : `${ws.getMonth() + 1}/${ws.getDate()}~${we.getMonth() + 1}/${we.getDate()}`;
-          return { label, value: v, current: i === thisWeekIdx };
+          return { label, value: v, current: i === thisWeekIdx, future: i > thisWeekIdx };
         }),
       );
     })();
@@ -471,7 +497,7 @@ function MonthWeeklyFocus() {
       </View>
     );
   }
-  return <BarChart bars={bars} color={FOCUS_COLOR} />;
+  return <LineChart bars={bars} color={FOCUS_COLOR} />;
 }
 
 // ST4 티저(월) — 1주~4주 누적 상승 막대(시안 레이아웃). 데이터는 표시용 고정값.
@@ -591,6 +617,81 @@ function FocusTimetable() {
         </View>
       </View>
       <Text style={s.grassHint}>한 칸 = 10분 · 집중한 과목 색으로 칠해져요</Text>
+    </View>
+  );
+}
+
+// 선그래프 — BarChart와 같은 데이터(StatBar[])·세로축 구조를 쓰되 값을 점+꺾은선으로 잇는다(주 탭, GROMO-761).
+// 점의 x좌표는 아래 라벨 칼럼(flex 균등 분할)의 중앙과 일치. 직선·원은 SVG가 필요해 react-native-svg 사용.
+const DOT_PAD = 6; // 점(최대 r 4.5)이 캔버스 경계에서 잘리지 않게 사방 여유
+function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
+  const [plotW, setPlotW] = useState(0);
+  if (bars.length === 0) {
+    return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
+  }
+  const axisMax = axisCeil(Math.max(...bars.map((b) => b.value), 1));
+  const step = plotW / bars.length;
+  // 아직 오지 않은 구간(future)은 라벨만 남기고 선·점에서 제외 — x좌표는 원래 칼럼 위치 유지
+  const pts = bars
+    .map((b, i) => ({ b, i }))
+    .filter(({ b }) => !b.future)
+    .map(({ b, i }) => ({
+      x: step * (i + 0.5),
+      y: CHART_H - (b.value / axisMax) * CHART_H,
+      current: b.current,
+    }));
+  return (
+    <View style={s.chartPlotRow}>
+      {/* 세로축 — 상한·⅔·⅓ 눈금 3줄 (막대 차트와 동일) */}
+      <View style={s.chartAxisCol}>
+        <Text style={[s.chartAxisLabel, s.chartAxisTop]} allowFontScaling={false}>
+          {fmtAxis(axisMax)}
+        </Text>
+        <Text style={[s.chartAxisLabel, s.chartAxisUpper]} allowFontScaling={false}>
+          {fmtAxis((axisMax * 2) / 3)}
+        </Text>
+        <Text style={[s.chartAxisLabel, s.chartAxisLower]} allowFontScaling={false}>
+          {fmtAxis(axisMax / 3)}
+        </Text>
+      </View>
+      <View style={s.chartPlot} onLayout={(e) => setPlotW(e.nativeEvent.layout.width)}>
+        <View style={[s.chartGridLine, s.chartGridTop]} />
+        <View style={[s.chartGridLine, s.chartGridUpper]} />
+        <View style={[s.chartGridLine, s.chartGridLower]} />
+        <View style={[s.chartGridLine, s.chartGridBottom]} />
+        {plotW > 0 && (
+          // 캔버스를 점 반지름만큼 사방으로 키우고 음수 마진으로 되돌림 — 상단(최댓값)·바닥(0)의
+          // 점이 캔버스 경계에서 잘리지 않게 (SVG는 자기 영역 밖을 클리핑)
+          <Svg width={plotW + DOT_PAD * 2} height={CHART_H + DOT_PAD * 2} style={s.lineSvg}>
+            <Polyline
+              points={pts.map((p) => `${p.x + DOT_PAD},${p.y + DOT_PAD}`).join(' ')}
+              fill="none"
+              stroke={color}
+              strokeWidth={2}
+            />
+            {pts.map((p, i) => (
+              <Circle
+                key={i}
+                cx={p.x + DOT_PAD}
+                cy={p.y + DOT_PAD}
+                r={p.current ? 4.5 : 3}
+                fill={color}
+              />
+            ))}
+          </Svg>
+        )}
+        <View style={s.lineLabelRow}>
+          {bars.map((b, i) => (
+            <Text
+              key={`${b.label}-${i}`}
+              style={[s.lineLabel, b.current ? [s.lineLabelCur, { color }] : null]}
+              allowFontScaling={false}
+            >
+              {b.label}
+            </Text>
+          ))}
+        </View>
+      </View>
     </View>
   );
 }
@@ -871,6 +972,17 @@ const s = StyleSheet.create({
 
   // 막대 차트
   chartPlotRow: { flexDirection: 'row', marginTop: 14 },
+  // 선그래프 — 확장 캔버스를 음수 마진으로 되돌려 레이아웃(격자 정렬)은 그대로 유지
+  lineSvg: {
+    marginTop: -DOT_PAD,
+    marginBottom: -DOT_PAD,
+    marginLeft: -DOT_PAD,
+    marginRight: -DOT_PAD,
+  },
+  // 선그래프 라벨 — 점 x좌표(칼럼 중앙)와 정렬되도록 균등 분할
+  lineLabelRow: { flexDirection: 'row', marginTop: 8 },
+  lineLabel: { ...T.text.caption, fontSize: 10, color: T.inkMuted, flex: 1, textAlign: 'center' },
+  lineLabelCur: { fontWeight: '800' },
   chartAxisCol: { width: 36, height: CHART_H },
   chartAxisLabel: {
     ...T.text.caption,

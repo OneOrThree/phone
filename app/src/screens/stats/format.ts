@@ -107,11 +107,12 @@ export function rollingWeekRange(): { from: string; to: string } {
   return { from: localDateStr(from), to: todayStr() };
 }
 
-// 막대 1개(집중/폰 사용 공용).
+// 막대/점 1개(집중/폰 사용 공용).
 export interface StatBar {
   label: string;
   value: number; // 분
   current: boolean; // 강조(오늘/이번 주차 등)
+  future?: boolean; // 아직 오지 않은 구간 — 가로축 라벨만 표시하고 선·점은 그리지 않음(GROMO-761)
 }
 
 // 히트맵 → 기간별 막대. WEEK=요일별, MONTH=주차별 합산, DAY=오늘 단일.
