@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, Polyline } from 'react-native-svg';
+import Svg, { Circle, Line, Polygon, Polyline } from 'react-native-svg';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
@@ -158,15 +158,6 @@ export default function StatsScreen() {
             </>
           )}
 
-          {/* ST3 합격자 비교 — 실그래프 + 블러 티저(합격자 데이터 준비 중). 주 탭은 핸드폰 사용량 아래로 이동 */}
-          {period !== 'WEEK' && (
-            <SectionCard title="합격자와 비교" caption="과목별">
-              <ComingSoon note="합격자 데이터가 쌓이면 보여드릴게요">
-                <PasserCompareChart />
-              </ComingSoon>
-            </SectionCard>
-          )}
-
           {/* ST5 요일별 집중시간(주) — 일 탭은 타임테이블이, 월 탭은 'N월 주별 공부시간'이 대체 */}
           {period === 'WEEK' && (
             <SectionCard title="요일별 집중시간" caption={periodLabel(period)}>
@@ -200,14 +191,12 @@ export default function StatsScreen() {
             </SectionCard>
           )}
 
-          {/* 합격자 비교(주) — 요일별 핸드폰 사용량 아래 배치 */}
-          {period === 'WEEK' && (
-            <SectionCard title="합격자와 비교" caption="과목별">
-              <ComingSoon note="합격자 데이터가 쌓이면 보여드릴게요">
-                <PasserCompareChart />
-              </ComingSoon>
-            </SectionCard>
-          )}
+          {/* ST3 합격자 비교 — 모든 탭에서 핸드폰 사용량 아래 배치. 레이더 티저 + 블러(데이터 준비 중) */}
+          <SectionCard title="합격자와 비교" caption="과목별">
+            <ComingSoon note="합격자 데이터가 쌓이면 보여드릴게요">
+              <PasserCompareChart />
+            </ComingSoon>
+          </SectionCard>
 
           {/* ST7 전(前) 대비 */}
           <SectionCard title={`${prevLabel(period)} 대비`}>
@@ -407,28 +396,94 @@ function CompareStub() {
 }
 
 // ST3 티저 — 과목별 나 vs 합격자 이중 수평 바(시안 레이아웃). 데이터는 표시용 고정값.
-const PASSER_ROWS = [
-  { name: '노동법', mine: 78, passer: 92 },
-  { name: '행정쟁송법', mine: 55, passer: 70 },
-  { name: '사회보험법', mine: 40, passer: 62 },
+// ST3 티저 — 과목별 나 vs 합격자 평균 레이더 차트(표시용 고정값, ComingSoon 블러 아래에 깔림).
+const RADAR_AXES = [
+  { name: '노동법', mine: 0.78, passer: 0.92 },
+  { name: '민법', mine: 0.5, passer: 0.75 },
+  { name: '행정쟁송법', mine: 0.55, passer: 0.7 },
+  { name: '사회보험법', mine: 0.4, passer: 0.62 },
+  { name: '경영학', mine: 0.65, passer: 0.6 },
 ];
+const RADAR_SIZE = 210;
+const RADAR_R = 72;
+
+// 축 i의 반지름 비율 frac(0~1) 지점 좌표 — 12시 방향부터 시계 방향 균등 분할
+function radarPoint(i: number, frac: number): { x: number; y: number } {
+  const angle = -Math.PI / 2 + (i * 2 * Math.PI) / RADAR_AXES.length;
+  return {
+    x: RADAR_SIZE / 2 + RADAR_R * frac * Math.cos(angle),
+    y: RADAR_SIZE / 2 + RADAR_R * frac * Math.sin(angle),
+  };
+}
+
+function radarPolygon(fracs: number[]): string {
+  return fracs
+    .map((f, i) => {
+      const p = radarPoint(i, f);
+      return `${p.x},${p.y}`;
+    })
+    .join(' ');
+}
 
 function PasserCompareChart() {
   return (
-    <View style={s.teaserPad}>
-      {PASSER_ROWS.map((r, i) => (
-        <View key={r.name} style={i > 0 ? s.teaserRowGap : null}>
-          <View style={s.teaserRowHead}>
-            <Text style={s.teaserLabel}>{r.name}</Text>
-          </View>
-          <View style={s.teaserTrack}>
-            <View style={[s.teaserFill, { width: `${r.mine}%`, backgroundColor: T.accent }]} />
-          </View>
-          <View style={[s.teaserTrack, s.teaserTrackGap]}>
-            <View style={[s.teaserFill, s.teaserFillPasser, { width: `${r.passer}%` }]} />
-          </View>
-        </View>
-      ))}
+    <View style={s.radarWrap}>
+      <View style={s.radarCanvas}>
+        <Svg width={RADAR_SIZE} height={RADAR_SIZE}>
+          {/* 배경 격자 — ⅓·⅔·1 폴리곤 + 중심에서 꼭짓점으로 축선 */}
+          {[1 / 3, 2 / 3, 1].map((lv) => (
+            <Polygon
+              key={lv}
+              points={radarPolygon(RADAR_AXES.map(() => lv))}
+              fill="none"
+              stroke={T.paperAlt}
+              strokeWidth={1}
+            />
+          ))}
+          {RADAR_AXES.map((_, i) => {
+            const p = radarPoint(i, 1);
+            return (
+              <Line
+                key={i}
+                x1={RADAR_SIZE / 2}
+                y1={RADAR_SIZE / 2}
+                x2={p.x}
+                y2={p.y}
+                stroke={T.paperAlt}
+                strokeWidth={1}
+              />
+            );
+          })}
+          {/* 합격자 평균 → 나 순서로 겹쳐 그림 */}
+          <Polygon
+            points={radarPolygon(RADAR_AXES.map((a) => a.passer))}
+            fill={T.compare.theirs}
+            fillOpacity={0.18}
+            stroke={T.compare.theirs}
+            strokeWidth={1.5}
+          />
+          <Polygon
+            points={radarPolygon(RADAR_AXES.map((a) => a.mine))}
+            fill={T.accent}
+            fillOpacity={0.25}
+            stroke={T.accent}
+            strokeWidth={2}
+          />
+        </Svg>
+        {/* 축 라벨 — 꼭짓점 바깥에 절대 배치 */}
+        {RADAR_AXES.map((a, i) => {
+          const p = radarPoint(i, 1.28);
+          return (
+            <Text
+              key={a.name}
+              style={[s.radarLabel, { left: p.x - 40, top: p.y - 8 }]}
+              allowFontScaling={false}
+            >
+              {a.name}
+            </Text>
+          );
+        })}
+      </View>
       <View style={s.teaserLegend}>
         <View style={s.teaserLegendItem}>
           <View style={[s.teaserDot, { backgroundColor: T.accent }]} />
@@ -1002,12 +1057,21 @@ const s = StyleSheet.create({
   teaserLabel: { ...T.text.caption, fontWeight: '600', color: T.inkSub },
   teaserValue: { ...T.text.caption, fontWeight: '700', color: T.inkSub },
   teaserTrack: { height: 10, borderRadius: 5, backgroundColor: T.sandLight, overflow: 'hidden' },
-  teaserTrackGap: { marginTop: 4 },
   teaserFill: { height: 10, borderRadius: 5 },
   teaserFillMine: { width: '86%', backgroundColor: T.accent },
   teaserFillAvg: { width: '62%', backgroundColor: T.compare.avg },
-  teaserFillPasser: { backgroundColor: T.compare.theirs },
   teaserDotPasser: { backgroundColor: T.compare.theirs },
+  // 합격자 레이더 티저 — 라벨은 꼭짓점 바깥 절대 배치
+  radarWrap: { alignItems: 'center', paddingVertical: 4 },
+  radarCanvas: { width: RADAR_SIZE, height: RADAR_SIZE },
+  radarLabel: {
+    ...T.text.caption,
+    position: 'absolute',
+    width: 80,
+    textAlign: 'center',
+    fontSize: 10,
+    color: T.inkSub,
+  },
   teaserLegend: { flexDirection: 'row', gap: 14, marginTop: 12 },
   teaserLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   teaserDot: { width: 9, height: 9, borderRadius: 2 },
