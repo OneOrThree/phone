@@ -2,6 +2,54 @@
 import { localDateStr, todayStr } from '@/utils/localDate';
 import type { HeatmapCellResponse, StatsPeriod } from '@/types/dto/stats';
 
+// 오늘 세션 → 10분 슬롯(0~143 = 24시간×6)별 집중 분 + 지배 과목(GROMO-761 시간대별 집중 타임테이블).
+// 세션 구간을 슬롯 경계로 잘라 분배하고, 자정 이전(어제) 부분은 제외한다. minutes 범위 0~10(분).
+// tagId = 그 슬롯에서 가장 오래 집중한 세션의 태그(과목 색 결정용) — 없거나 미분류면 null.
+export interface FocusSlot {
+  minutes: number;
+  tagId: string | null;
+}
+
+export function tenMinuteFocusSlots(
+  sessions: { startedAt: string; endedAt: string; focusTagId: string | null }[],
+): FocusSlot[] {
+  const SLOT_MS = 600e3; // 10분
+  const totals: number[] = new Array(144).fill(0);
+  // 슬롯별 태그 누적(지배 과목 판정용) — key는 tagId(미분류는 '')
+  const byTag: Map<string, number>[] = Array.from({ length: 144 }, () => new Map());
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const dayStart = midnight.getTime();
+  const dayEnd = dayStart + 24 * 3600e3;
+  for (const s of sessions) {
+    const start = Math.max(Date.parse(s.startedAt), dayStart);
+    const end = Math.min(Date.parse(s.endedAt), dayEnd);
+    if (!(end > start)) continue;
+    const first = Math.floor((start - dayStart) / SLOT_MS);
+    const last = Math.min(Math.floor((end - 1 - dayStart) / SLOT_MS), 143);
+    for (let i = first; i <= last; i++) {
+      const slotStart = dayStart + i * SLOT_MS;
+      const overlap = Math.min(end, slotStart + SLOT_MS) - Math.max(start, slotStart);
+      if (overlap <= 0) continue;
+      const minutes = overlap / 60000;
+      totals[i] += minutes;
+      const key = s.focusTagId ?? '';
+      byTag[i].set(key, (byTag[i].get(key) ?? 0) + minutes);
+    }
+  }
+  return totals.map((minutes, i) => {
+    let tagId: string | null = null;
+    let best = 0;
+    for (const [key, m] of byTag[i]) {
+      if (m > best) {
+        best = m;
+        tagId = key === '' ? null : key;
+      }
+    }
+    return { minutes, tagId };
+  });
+}
+
 // 분 → "N시간 M분" / "N시간" / "M분" / "0분"
 // ⚠️ 통계 허브(StatsScreen)는 fmtMinutes(00:00:00)로 전환(GROMO-761) — 현재 집중 결과(FocusResult)만 사용,
 // 683(집중 결과 00:00:00 통일)에서 정리 예정.

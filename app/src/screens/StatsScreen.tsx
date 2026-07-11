@@ -20,6 +20,9 @@ import {
 } from '@/services/compareAverages';
 import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
+import { fetchTodayFocusSessions } from '@/screens/focus/focusRestore';
+import { getFocusTags } from '@/services/focusApi';
+import { useSubjects } from '@/store/SubjectContext';
 import { fmtMinutes, axisCeil, fmtAxis } from '@/utils/timeFormat';
 import {
   PERIOD_TABS,
@@ -27,8 +30,10 @@ import {
   prevLabel,
   periodKey,
   heatmapBars,
+  tenMinuteFocusSlots,
   focusGoalRate,
   grassLevel,
+  type FocusSlot,
   type StatBar,
 } from './stats/format';
 
@@ -127,12 +132,18 @@ export default function StatsScreen() {
             </ComingSoon>
           </SectionCard>
 
-          {/* ST4 주별 누적 공부 비율 — 실그래프 + 블러 티저 */}
-          <SectionCard title="주별 누적 공부 비율">
-            <ComingSoon note="주별 누적 비율을 준비하고 있어요">
-              <WeeklyCumulativeChart />
-            </ComingSoon>
-          </SectionCard>
+          {/* ST4 — 일 탭은 시간대별 집중 타임테이블(오늘 세션 실데이터), 주/월은 주별 누적 비율 티저(GROMO-761) */}
+          {period === 'DAY' ? (
+            <SectionCard title="시간대별 집중 현황" caption="오늘">
+              <FocusTimetable />
+            </SectionCard>
+          ) : (
+            <SectionCard title="주별 누적 공부 비율">
+              <ComingSoon note="주별 누적 비율을 준비하고 있어요">
+                <WeeklyCumulativeChart />
+              </ComingSoon>
+            </SectionCard>
+          )}
 
           {/* ST5 집중시간 차트 — 제목은 기간 단위 따라(오늘/요일별/주차별) */}
           <SectionCard title={`${granularity} 집중시간`} caption={periodLabel(period)}>
@@ -404,6 +415,108 @@ function WeeklyCumulativeChart() {
           <Text style={s.teaserLegendText}>{i + 1}주</Text>
         </View>
       ))}
+    </View>
+  );
+}
+
+// ST4(일) 시간대별 집중 타임테이블 — 스터디 플래너식 격자. 한 줄 = 1시간(칸 6개 × 10분),
+// 첫 줄 오전 6시 → 다음날 새벽 5시까지 24줄. 격자는 항상 그려지고, 오늘 세션(GET /focus-session)이
+// 겹친 슬롯만 칠해진다(칠 농도 = 슬롯 내 집중 비율). 서버 집계 없이 세션 구간만으로 계산(GROMO-761).
+const TIMETABLE_HOURS = Array.from({ length: 24 }, (_, i) => (i + 6) % 24);
+
+function FocusTimetable() {
+  const { subjects } = useSubjects();
+  const [slots, setSlots] = useState<FocusSlot[] | null>(null);
+  // 서버 tagId → 태그명 (과목 색 매칭용). 로컬 과목 id는 서버 tagId와 다를 수 있어 이름으로 잇는다.
+  const [tagNames, setTagNames] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [sessions, tags] = await Promise.all([
+        fetchTodayFocusSessions().catch(() => []),
+        getFocusTags().catch(() => []),
+      ]);
+      if (cancelled) return;
+      setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
+      setSlots(tenMinuteFocusSlots(sessions));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (slots === null) {
+    return (
+      <View style={s.compareLoading}>
+        <ActivityIndicator color={T.accent} size="small" />
+      </View>
+    );
+  }
+
+  // 슬롯의 지배 과목 색 — tagId → 태그명 → 로컬 과목 색. 미분류·매칭 실패는 기본 집중색.
+  const colorForTag = (tagId: string | null): string => {
+    const name = tagId ? tagNames.get(tagId) : undefined;
+    const subject = name ? subjects.find((x) => x.name === name) : undefined;
+    return subject?.color ?? FOCUS_COLOR;
+  };
+
+  // 왼쪽 범례 — 오늘 타임테이블에 등장한 과목만, 과목 순서대로. 텍스트를 형광펜처럼 과목 색으로 칠한다.
+  const usedNames = new Set(
+    slots
+      .filter((slot) => slot.minutes > 0 && slot.tagId)
+      .map((slot) => tagNames.get(slot.tagId as string))
+      .filter((name): name is string => name != null),
+  );
+  const legendSubjects = subjects.filter((x) => usedNames.has(x.name));
+
+  return (
+    <View>
+      <View style={s.ttLayout}>
+        {legendSubjects.length > 0 && (
+          <View style={s.ttLegendCol}>
+            {legendSubjects.map((sub) => (
+              <Text
+                key={sub.id}
+                style={[s.ttLegendText, { backgroundColor: sub.color }]}
+                numberOfLines={1}
+                allowFontScaling={false}
+              >
+                {sub.name}
+              </Text>
+            ))}
+          </View>
+        )}
+        <View style={s.ttGrid}>
+          {TIMETABLE_HOURS.map((hour) => (
+            <View key={hour} style={s.ttRow}>
+              <Text style={s.ttHourLabel} allowFontScaling={false}>
+                {hour}
+              </Text>
+              {Array.from({ length: 6 }, (_, i) => {
+                const slot = slots[hour * 6 + i];
+                return (
+                  <View key={i} style={s.ttCell}>
+                    {slot.minutes > 0 && (
+                      <View
+                        style={[
+                          s.ttCellFill,
+                          {
+                            backgroundColor: colorForTag(slot.tagId),
+                            // 채움 폭 = 집중량 비례 — 5분이면 절반, 10분이면 한 칸 가득
+                            width: `${Math.min(slot.minutes / 10, 1) * 100}%`,
+                          },
+                        ]}
+                      />
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+      </View>
+      <Text style={s.grassHint}>한 칸 = 10분 · 집중한 과목 색으로 칠해져요</Text>
     </View>
   );
 }
@@ -709,6 +822,31 @@ const s = StyleSheet.create({
   chartGridBottom: { top: CHART_H },
   chart: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
   barCol: { flex: 1, alignItems: 'center', gap: 8 },
+  // 시간대별 타임테이블 — 왼쪽 과목 범례(형광펜 하이라이트) + 격자(한 줄 1시간 = 10분×6칸)
+  ttLayout: { flexDirection: 'row', gap: 12, marginTop: 14 },
+  ttLegendCol: { width: 76, gap: 6, paddingTop: 2, alignItems: 'flex-start' },
+  ttLegendText: {
+    ...T.text.caption,
+    fontSize: 11,
+    color: T.ink,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  ttGrid: { flex: 1, gap: 3 },
+  ttRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  ttHourLabel: { ...T.text.caption, fontSize: 9, color: T.inkMuted, width: 18, textAlign: 'right' },
+  ttCell: {
+    flex: 1,
+    height: 14,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: T.paperAlt,
+    backgroundColor: T.white,
+    overflow: 'hidden',
+  },
+  ttCellFill: { height: '100%', backgroundColor: FOCUS_COLOR },
   barTrack: { height: CHART_H, justifyContent: 'flex-end' },
   bar: { width: 16, borderRadius: 6 },
   barLabel: { ...T.text.caption, color: T.inkMuted },
