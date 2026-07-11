@@ -71,7 +71,7 @@ export function execRecipe(recipe, u, pools) {
   const m = recipe.method;
 
   if (m === 'GET') {
-    if (recipe.paginate) followCursor(url, params, recipe.paginate.pages || 2);
+    if (recipe.paginate) followCursor(url, params, recipe.paginate.pages || 2, recipe.paginate.cursorField);
     else http.get(url, params);
     return;
   }

@@ -49,15 +49,32 @@ export interface Verdict {
   meta: { sha: string; profile: string; target: string; startedAt: string };
 }
 
-// 고급 설정(expert) override — 빈 값은 생략해 워크플로우 default(=프로파일 기본)로 폴백
+// 고급 설정(expert) override — 빈 값은 생략해 워크플로우 default(=프로파일 기본)로 폴백.
+// rate 계열(rate·duration·startRate·baseRate·spikeRate)은 workflow_dispatch 10-input 제한 때문에
+// 단일 `params` 입력(KEY=VALUE;…)으로 합쳐 보낸다(run.sh 가 파싱·검증). 프로파일별로 쓰는 것만 채움.
 export interface RunOverrides {
-  rate?: string;
-  duration?: string;
+  rate?: string; // RATE — smoke/load(constant) 총 rps
+  duration?: string; // DURATION — smoke/load 지속시간(예: 5m)
+  startRate?: string; // START_RATE — stress 시작 rps
+  baseRate?: string; // BASE_RATE — spike 시작(평시) rps
+  spikeRate?: string; // SPIKE_RATE — spike 끝(피크) rps
   scale?: string;
   recipes?: string; // 제네릭 러너 — TARGET=matrix/_generic.js 일 때 콤마구분 엔드포인트 목록(총 rate 분산)
   spots?: string; // loadgen spot VM 수(고rps 분산 생성)
   scenario?: string; // 유저 시나리오 — TARGET=scenarios/_generic.js 일 때 def id
 }
+
+// rate 계열 override → 단일 params 문자열 "RATE=..;DURATION=..;.." (빈값 제외). KEY 는 k6 __ENV 이름.
+const buildParams = (o: RunOverrides): string =>
+  [
+    o.rate && `RATE=${o.rate}`,
+    o.duration && `DURATION=${o.duration}`,
+    o.startRate && `START_RATE=${o.startRate}`,
+    o.baseRate && `BASE_RATE=${o.baseRate}`,
+    o.spikeRate && `SPIKE_RATE=${o.spikeRate}`,
+  ]
+    .filter(Boolean)
+    .join(';');
 
 export const dispatchRun = (
   profile: string,
@@ -70,8 +87,8 @@ export const dispatchRun = (
     target,
     update_baseline: updateBaseline,
   };
-  if (overrides.rate) inputs.rate = overrides.rate;
-  if (overrides.duration) inputs.duration = overrides.duration;
+  const params = buildParams(overrides);
+  if (params) inputs.params = params;
   if (overrides.scale) inputs.scale = overrides.scale;
   if (overrides.recipes) inputs.recipes = overrides.recipes;
   if (overrides.spots) inputs.spots = overrides.spots;

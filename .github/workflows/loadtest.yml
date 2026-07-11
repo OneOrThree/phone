@@ -26,14 +26,12 @@ on:
         description: 'PASS 시 baseline 승격 PR 생성'
         type: boolean
         default: false
-      # 고급 설정(expert) — 빈값이면 프로파일 기본값. RATE/DURATION 은 smoke·load 같은
-      # constant 프로파일에 적용(stress·spike 는 계단/stages 고정). k6 가 __ENV 로 읽음.
-      rate:
-        description: 'RATE override (rps · 빈값=프로파일 기본)'
-        type: string
-        default: ''
-      duration:
-        description: 'DURATION override (예: 5m · 빈값=프로파일 기본)'
+      # 고급 설정(expert) — 빈값이면 프로파일 기본값. rate 계열을 한 입력에 합쳤다(workflow_dispatch
+      # 10-input 제한). "KEY=VALUE;…" 형식, KEY ∈ RATE·DURATION·START_RATE·BASE_RATE·SPIKE_RATE.
+      #   constant(smoke/load): RATE·DURATION  ·  stress: START_RATE(이후 계단 고정)  ·  spike: BASE_RATE·SPIKE_RATE
+      # run.sh 가 키 화이트리스트·값 검증 후 k6 __ENV 로 전달.
+      params:
+        description: '부하 파라미터 override (예: RATE=80;DURATION=5m · 빈값=프로파일 기본)'
         type: string
         default: ''
       scale:
@@ -68,8 +66,7 @@ env:
   REGION: ${{ vars.GCP_REGION }}
   PROFILE: ${{ inputs.profile }}
   TARGET: ${{ inputs.target }}
-  RATE: ${{ inputs.rate }}
-  DURATION: ${{ inputs.duration }}
+  PARAMS: ${{ inputs.params }}
   SCALE: ${{ inputs.scale || '1' }}
   RECIPES: ${{ inputs.recipes }}
   SPOTS: ${{ inputs.spots || '1' }}

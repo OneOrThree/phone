@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { dispatchRun } from '../api/github';
+import { paramsFor, defaultValues, validateParam, toOverrides } from '../loadparams';
 
 // 유저 시나리오 부하 모드 (GROMO-750) — 시나리오 def(내가 저작한 JSON)를 골라 여정·가중치·스텝을
 // 상세 표시하고 실행. 한 run 에서 여정을 가중 혼합, 한 유저가 스텝을 순차 실행(세션).
@@ -31,34 +32,48 @@ export function ScenarioMode({ onDispatched }: { onDispatched: () => void }) {
   const [err, setErr] = useState('');
   const [id, setId] = useState('');
   const [profile, setProfile] = useState('load');
-  const [rps, setRps] = useState('');
+  const [params, setParams] = useState<Record<string, string>>(defaultValues('load'));
   const [state, setState] = useState<'idle' | 'busy' | 'ok' | 'err'>('idle');
   const [msg, setMsg] = useState('');
 
   useEffect(() => {
     fetch('/scenarios.json')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`scenarios.json ${r.status}`))))
-      .then((s: ScenarioDef[]) => {
-        setScenarios(s);
-        if (s[0]) setId(s[0].id);
+      .then((s) => {
+        if (!Array.isArray(s)) throw new Error('scenarios.json 형식 오류 — 배열이 아닙니다');
+        const defs = s as ScenarioDef[];
+        setScenarios(defs);
+        if (defs[0]) setId(defs[0].id);
       })
       .catch((e) => setErr(String(e)));
   }, []);
 
   const sel = useMemo(() => scenarios?.find((s) => s.id === id), [scenarios, id]);
   const totalW = sel ? sel.journeys.reduce((a, j) => a + j.weight, 0) || 1 : 1;
+  const fields = paramsFor(profile);
+  const onProfile = (v: string) => {
+    setProfile(v);
+    setParams(defaultValues(v));
+  };
 
   const run = async () => {
-    if (!sel) return;
+    if (!sel || state === 'busy') return;
+    for (const f of fields) {
+      const err = validateParam(f, params[f.key] ?? '');
+      if (err) {
+        setMsg(`실패: ${err}`);
+        setState('err');
+        return;
+      }
+    }
     setState('busy');
     try {
       await dispatchRun(profile, 'scenarios/_generic.js', false, {
         scenario: sel.id,
-        rate: rps.trim() || undefined,
+        ...toOverrides(profile, params),
       });
-      setMsg(
-        `디스패치 완료 — "${sel.name}" (${profile}${rps.trim() ? `, ${rps.trim()}rps` : ''}). 히스토리에 나타납니다.`,
-      );
+      const opts = [profile, ...fields.map((f) => `${f.label} ${params[f.key]}`)].join(', ');
+      setMsg(`디스패치 완료 — "${sel.name}" (${opts}). 히스토리에 나타납니다.`);
       setState('ok');
       setTimeout(onDispatched, 3000);
     } catch (e) {
@@ -87,7 +102,7 @@ export function ScenarioMode({ onDispatched }: { onDispatched: () => void }) {
             </label>
             <label>
               프로파일
-              <select value={profile} onChange={(e) => setProfile(e.target.value)} disabled={state === 'busy'}>
+              <select value={profile} onChange={(e) => onProfile(e.target.value)} disabled={state === 'busy'}>
                 {PROFILES.map((p) => (
                   <option key={p.value} value={p.value}>
                     {p.label}
@@ -95,19 +110,32 @@ export function ScenarioMode({ onDispatched }: { onDispatched: () => void }) {
                 ))}
               </select>
             </label>
-            <label>
-              총 rps (빈값=프로파일 기본)
-              <input
-                type="text"
-                className="short"
-                value={rps}
-                placeholder="기본"
-                inputMode="numeric"
-                disabled={state === 'busy'}
-                onChange={(e) => setRps(e.target.value)}
-              />
-            </label>
+            {fields.map((f) => (
+              <label key={f.key}>
+                {f.label}
+                <input
+                  type="text"
+                  className="short"
+                  value={params[f.key] ?? ''}
+                  inputMode={f.kind === 'rps' ? 'numeric' : 'text'}
+                  disabled={state === 'busy'}
+                  onChange={(e) => setParams((p) => ({ ...p, [f.key]: e.target.value }))}
+                />
+              </label>
+            ))}
           </div>
+          {fields.some((f) => f.note) && (
+            <p className="muted" style={{ fontSize: 12, margin: '0 0 6px' }}>
+              {fields
+                .filter((f) => f.note)
+                .map((f) => `※ ${f.label}: ${f.note}`)
+                .join('   ')}
+            </p>
+          )}
+          <p className="muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.7 }}>
+            <b>rps</b> = 초당 유입 유저 수(여정에 분산). 프로파일을 고르면 기본값이 채워지고 직접 수정 가능.
+            constant(smoke/load)은 총 rps·시간, 계단형(stress/spike)은 시작/피크 rps 로 커스텀합니다.
+          </p>
 
           {sel && (
             <div className="summary">
