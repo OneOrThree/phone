@@ -124,14 +124,7 @@ export default function StatsScreen() {
             )}
           </SectionCard>
 
-          {/* 타임테이블(일) — 오늘 세션 실데이터, 총 공부량 바로 아래(GROMO-761) */}
-          {period === 'DAY' && (
-            <SectionCard title="타임테이블" caption="오늘">
-              <FocusTimetable />
-            </SectionCard>
-          )}
-
-          {/* ST2 과목별 공부량 (나) — 주/월 탭은 도넛(비중), 일 탭은 가로 막대 */}
+          {/* ST2 과목별 공부량 (나) — 총 공부량 바로 아래. 주/월 탭은 도넛(비중), 일 탭은 가로 막대 */}
           <SectionCard title="과목별 공부량" caption={periodLabel(period)}>
             {period !== 'DAY' ? (
               <CategoryDonut
@@ -145,6 +138,13 @@ export default function StatsScreen() {
               />
             )}
           </SectionCard>
+
+          {/* 타임테이블(일) — 오늘 세션 실데이터, 과목별 공부량 아래(GROMO-761) */}
+          {period === 'DAY' && (
+            <SectionCard title="타임테이블" caption="오늘">
+              <FocusTimetable />
+            </SectionCard>
+          )}
 
           {/* 해당월 주별 공부시간·핸드폰 사용량(월) — 과목별 아래, 합격자 위. heatmap 주차 합산 실데이터(GROMO-761) */}
           {period === 'MONTH' && (
