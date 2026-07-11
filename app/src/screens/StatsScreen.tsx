@@ -127,9 +127,9 @@ export default function StatsScreen() {
             </SectionCard>
           )}
 
-          {/* ST2 과목별 공부량 (나) — 주 탭은 도넛(비중), 일/월 탭은 가로 막대 */}
+          {/* ST2 과목별 공부량 (나) — 주/월 탭은 도넛(비중), 일 탭은 가로 막대 */}
           <SectionCard title="과목별 공부량" caption={periodLabel(period)}>
-            {period === 'WEEK' ? (
+            {period !== 'DAY' ? (
               <CategoryDonut
                 items={data.category?.items ?? []}
                 total={data.category?.totalFocusMinutes ?? 0}
@@ -158,32 +158,16 @@ export default function StatsScreen() {
             </SectionCard>
           )}
 
-          {/* ST4(월) 주별 누적 티저 — 일 탭은 타임테이블, 주 탭은 해당 섹션 없음 */}
-          {period === 'MONTH' && (
-            <SectionCard title="주별 누적 공부 비율">
-              <ComingSoon note="주별 누적 비율을 준비하고 있어요">
-                <WeeklyCumulativeChart />
-              </ComingSoon>
-            </SectionCard>
-          )}
-
-          {/* ST5 집중시간 차트 — 일 탭은 숨김(타임테이블이 대체), 주=요일별·월=주차별 */}
-          {period !== 'DAY' && (
-            <SectionCard title={`${granularity} 집중시간`} caption={periodLabel(period)}>
+          {/* ST5 요일별 집중시간(주) — 일 탭은 타임테이블이, 월 탭은 'N월 주별 공부시간'이 대체 */}
+          {period === 'WEEK' && (
+            <SectionCard title="요일별 집중시간" caption={periodLabel(period)}>
               <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
                 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
               </Text>
-              {period === 'WEEK' ? (
-                <LineChart
-                  bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
-                  color={FOCUS_COLOR}
-                />
-              ) : (
-                <BarChart
-                  bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
-                  color={FOCUS_COLOR}
-                />
-              )}
+              <LineChart
+                bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
+                color={FOCUS_COLOR}
+              />
             </SectionCard>
           )}
 
@@ -506,24 +490,6 @@ function MonthWeeklyFocus() {
     );
   }
   return <LineChart bars={bars} color={FOCUS_COLOR} />;
-}
-
-// ST4 티저(월) — 1주~4주 누적 상승 막대(시안 레이아웃). 데이터는 표시용 고정값.
-const CUMULATIVE = [28, 52, 74, 100];
-
-function WeeklyCumulativeChart() {
-  return (
-    <View style={[s.teaserPad, s.teaserBars]}>
-      {CUMULATIVE.map((v, i) => (
-        <View key={i} style={s.teaserBarCol}>
-          <View style={s.teaserBarTrack}>
-            <View style={[s.teaserBar, { height: `${v}%` }]} />
-          </View>
-          <Text style={s.teaserLegendText}>{i + 1}주</Text>
-        </View>
-      ))}
-    </View>
-  );
 }
 
 // ST4(일) 시간대별 집중 타임테이블 — 스터디 플래너식 격자. 한 줄 = 1시간(칸 6개 × 10분),
@@ -1029,10 +995,6 @@ const s = StyleSheet.create({
   teaserLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   teaserDot: { width: 9, height: 9, borderRadius: 2 },
   teaserLegendText: { ...T.text.caption, fontSize: 11, color: T.inkSub },
-  teaserBars: { flexDirection: 'row', alignItems: 'flex-end', gap: 14, height: 120 },
-  teaserBarCol: { flex: 1, alignItems: 'center', gap: 6 },
-  teaserBarTrack: { flex: 1, width: 26, justifyContent: 'flex-end' },
-  teaserBar: { width: 26, borderRadius: 7, backgroundColor: T.greenDeep, opacity: 0.85 },
 
   compareChips: { flexDirection: 'row', gap: 8 },
   compareChip: {
