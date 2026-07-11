@@ -416,18 +416,22 @@ function BarChart({ bars, color }: { bars: StatBar[]; color: string }) {
   const axisMax = axisCeil(Math.max(...bars.map((b) => b.value), 1));
   return (
     <View style={s.chartPlotRow}>
-      {/* 세로축 — 상한·절반 눈금 라벨 (그리드라인 높이에 맞춰 절대 배치) */}
+      {/* 세로축 — 상한·⅔·⅓ 눈금 3줄 (그리드라인 높이에 맞춰 절대 배치, 상한은 3의 배수라 전부 정수 분) */}
       <View style={s.chartAxisCol}>
         <Text style={[s.chartAxisLabel, s.chartAxisTop]} allowFontScaling={false}>
           {fmtAxis(axisMax)}
         </Text>
-        <Text style={[s.chartAxisLabel, s.chartAxisMid]} allowFontScaling={false}>
-          {fmtAxis(axisMax / 2)}
+        <Text style={[s.chartAxisLabel, s.chartAxisUpper]} allowFontScaling={false}>
+          {fmtAxis((axisMax * 2) / 3)}
+        </Text>
+        <Text style={[s.chartAxisLabel, s.chartAxisLower]} allowFontScaling={false}>
+          {fmtAxis(axisMax / 3)}
         </Text>
       </View>
       <View style={s.chartPlot}>
         <View style={[s.chartGridLine, s.chartGridTop]} />
-        <View style={[s.chartGridLine, s.chartGridMid]} />
+        <View style={[s.chartGridLine, s.chartGridUpper]} />
+        <View style={[s.chartGridLine, s.chartGridLower]} />
         <View style={[s.chartGridLine, s.chartGridBottom]} />
         <View style={s.chart}>
           {bars.map((b, i) => {
@@ -689,7 +693,8 @@ const s = StyleSheet.create({
     color: T.inkMuted,
   },
   chartAxisTop: { top: -5 },
-  chartAxisMid: { top: CHART_H / 2 - 5 },
+  chartAxisUpper: { top: CHART_H / 3 - 5 },
+  chartAxisLower: { top: (CHART_H * 2) / 3 - 5 },
   chartPlot: { flex: 1 },
   chartGridLine: {
     position: 'absolute',
@@ -699,7 +704,8 @@ const s = StyleSheet.create({
     backgroundColor: T.paperAlt,
   },
   chartGridTop: { top: 0 },
-  chartGridMid: { top: CHART_H / 2 },
+  chartGridUpper: { top: CHART_H / 3 },
+  chartGridLower: { top: (CHART_H * 2) / 3 },
   chartGridBottom: { top: CHART_H },
   chart: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
   barCol: { flex: 1, alignItems: 'center', gap: 8 },
