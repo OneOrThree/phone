@@ -75,9 +75,6 @@ export default function StatsScreen() {
 
   const firstLoad = loading && data.focus === null && data.heatmap.length === 0;
 
-  // 차트 제목의 단위 라벨 — 막대 구성과 일치(일=오늘 단일, 주=요일별, 월=주차별 합산; heatmapBars 참고)
-  const granularity = period === 'DAY' ? '오늘' : period === 'WEEK' ? '요일별' : '주차별';
-
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       {/* ── 헤더 ── */}
@@ -171,25 +168,16 @@ export default function StatsScreen() {
             </SectionCard>
           )}
 
-          {/* ST6 핸드폰 사용량 차트(일/주) — 월 탭은 'N월 주별 핸드폰 사용량'이 대체 */}
-          {period !== 'MONTH' && (
-            <SectionCard title={`${granularity} 핸드폰 사용량`} caption={periodLabel(period)}>
-              {/* 주 탭은 요일 합계라는 걸 드러내려 '총:' 접두 — 일 탭은 오늘 단일 값이라 그대로 */}
+          {/* ST6 요일별 핸드폰 사용량(주) — 일 탭은 제거(홈 카드와 중복), 월 탭은 'N월 주별'이 대체 */}
+          {period === 'WEEK' && (
+            <SectionCard title="요일별 핸드폰 사용량" caption={periodLabel(period)}>
               <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
-                {period === 'WEEK' ? '총 ' : ''}
-                {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
+                총 {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
               </Text>
-              {period === 'WEEK' ? (
-                <LineChart
-                  bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
-                  color={PHONE_COLOR}
-                />
-              ) : (
-                <BarChart
-                  bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
-                  color={PHONE_COLOR}
-                />
-              )}
+              <LineChart
+                bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
+                color={PHONE_COLOR}
+              />
             </SectionCard>
           )}
 
@@ -235,7 +223,12 @@ export default function StatsScreen() {
                   <Text style={s.streakLabel}>최장</Text>
                 </View>
               </View>
-              <GrassGrid cells={data.heatmap} />
+              {/* 주 탭은 월~일 7칸 한 줄, 월 탭은 해당 월 전체 날짜 7칸씩 그리드 */}
+              {period === 'WEEK' ? (
+                <WeekGrassRow cells={data.heatmap} />
+              ) : (
+                <MonthGrassGrid cells={data.heatmap} />
+              )}
               <Text style={s.grassHint}>공부시간이 많을수록 칸이 진해져요</Text>
             </SectionCard>
           )}
@@ -744,56 +737,6 @@ function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
   );
 }
 
-function BarChart({ bars, color }: { bars: StatBar[]; color: string }) {
-  if (bars.length === 0) {
-    return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
-  }
-  // 세로축 상한 — 보기 좋은 값으로 올림하고 막대도 같은 기준으로 정규화해 눈금과 일치(GROMO-761)
-  const axisMax = axisCeil(Math.max(...bars.map((b) => b.value), 1));
-  return (
-    <View style={s.chartPlotRow}>
-      {/* 세로축 — 상한·⅔·⅓ 눈금 3줄 (그리드라인 높이에 맞춰 절대 배치, 상한은 3의 배수라 전부 정수 분) */}
-      <View style={s.chartAxisCol}>
-        <Text style={[s.chartAxisLabel, s.chartAxisTop]} allowFontScaling={false}>
-          {fmtAxis(axisMax)}
-        </Text>
-        <Text style={[s.chartAxisLabel, s.chartAxisUpper]} allowFontScaling={false}>
-          {fmtAxis((axisMax * 2) / 3)}
-        </Text>
-        <Text style={[s.chartAxisLabel, s.chartAxisLower]} allowFontScaling={false}>
-          {fmtAxis(axisMax / 3)}
-        </Text>
-      </View>
-      <View style={s.chartPlot}>
-        <View style={[s.chartGridLine, s.chartGridTop]} />
-        <View style={[s.chartGridLine, s.chartGridUpper]} />
-        <View style={[s.chartGridLine, s.chartGridLower]} />
-        <View style={[s.chartGridLine, s.chartGridBottom]} />
-        <View style={s.chart}>
-          {bars.map((b, i) => {
-            const h = Math.max((b.value / axisMax) * CHART_H, 3);
-            return (
-              <View key={`${b.label}-${i}`} style={s.barCol}>
-                <View style={s.barTrack}>
-                  <View
-                    style={[
-                      s.bar,
-                      { height: h, backgroundColor: color, opacity: b.current ? 1 : 0.32 },
-                    ]}
-                  />
-                </View>
-                <Text style={[s.barLabel, b.current ? { color, fontWeight: '800' } : null]}>
-                  {b.label}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-      </View>
-    </View>
-  );
-}
-
 // ST2(주) 과목별 공부량 도넛 — 과목별 비중을 링 구간(strokeDasharray)으로 그리고 가운데에 총합,
 // 우측 범례에 과목·비중을 표시(GROMO-761). 색은 CategoryBars와 동일하게 팔레트 순서 배정.
 const DONUT_SIZE = 132;
@@ -974,17 +917,58 @@ function GoalBlock({
   );
 }
 
-function GrassGrid({ cells }: { cells: HeatmapCellResponse[] }) {
-  if (cells.length === 0) {
-    return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
+// ST9(주) 공부 잔디 한 줄 — 월~일 7칸 정사각형 고정, 공부량이 많을수록 진해진다(GROMO-761).
+// 아직 안 온 요일은 빈 칸(레벨 0)으로 자리만 유지.
+const WEEK_DAYS = ['월', '화', '수', '목', '금', '토', '일'];
+
+function WeekGrassRow({ cells }: { cells: HeatmapCellResponse[] }) {
+  const minutesByDay = [0, 0, 0, 0, 0, 0, 0];
+  for (const c of cells) {
+    const [y, m, d] = c.date.split('-').map(Number);
+    const dow = (new Date(y, m - 1, d).getDay() + 6) % 7; // 0=월..6=일
+    minutesByDay[dow] = c.totalFocusMinutes;
   }
   return (
-    <View style={s.grassWrap}>
-      {cells.map((c) => (
-        <View
-          key={c.date}
-          style={[s.grassCell, { backgroundColor: GRASS[grassLevel(c.totalFocusMinutes)] }]}
-        />
+    <View style={s.weekGrassRow}>
+      {WEEK_DAYS.map((d, i) => (
+        <View key={d} style={s.weekGrassCol}>
+          <View
+            style={[s.weekGrassCell, { backgroundColor: GRASS[grassLevel(minutesByDay[i])] }]}
+          />
+          <Text style={s.weekGrassLabel} allowFontScaling={false}>
+            {d}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ST9(월) 공부 잔디 — 해당 월 전체 날짜(말일까지)를 한 줄 7칸씩 정사각형으로 미리 그림(GROMO-761).
+// 아직 안 온 날짜는 빈 칸(레벨 0)으로 자리만 유지.
+function MonthGrassGrid({ cells }: { cells: HeatmapCellResponse[] }) {
+  const now = new Date();
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const minutesByDate = new Map(cells.map((c) => [c.date, c.totalFocusMinutes]));
+  const days = Array.from({ length: lastDay }, (_, i) =>
+    localDateStr(new Date(now.getFullYear(), now.getMonth(), i + 1)),
+  );
+  const rows: string[][] = [];
+  for (let i = 0; i < days.length; i += 7) rows.push(days.slice(i, i + 7));
+  return (
+    <View style={s.monthGrass}>
+      {rows.map((row, ri) => (
+        <View key={ri} style={s.monthGrassRow}>
+          {row.map((date) => (
+            <View
+              key={date}
+              style={[
+                s.monthGrassCell,
+                { backgroundColor: GRASS[grassLevel(minutesByDate.get(date) ?? 0)] },
+              ]}
+            />
+          ))}
+        </View>
       ))}
     </View>
   );
@@ -1157,8 +1141,6 @@ const s = StyleSheet.create({
   chartGridUpper: { top: CHART_H / 3 },
   chartGridLower: { top: (CHART_H * 2) / 3 },
   chartGridBottom: { top: CHART_H },
-  chart: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
-  barCol: { flex: 1, alignItems: 'center', gap: 8 },
   // 시간대별 타임테이블 — 왼쪽 과목 범례(형광펜 하이라이트) + 격자(한 줄 1시간 = 10분×6칸)
   ttLayout: { flexDirection: 'row', gap: 12, marginTop: 14 },
   ttLegendCol: { width: 76, gap: 6, paddingTop: 2, alignItems: 'flex-start' },
@@ -1184,9 +1166,6 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   ttCellFill: { position: 'absolute', top: 0, bottom: 0, backgroundColor: FOCUS_COLOR },
-  barTrack: { height: CHART_H, justifyContent: 'flex-end' },
-  bar: { width: 16, borderRadius: 6 },
-  barLabel: { ...T.text.caption, color: T.inkMuted },
 
   // 과목별 비율 바
   catList: { gap: 12 },
@@ -1219,7 +1198,14 @@ const s = StyleSheet.create({
   streakDivider: { width: 1, height: 28, backgroundColor: T.divider },
   streakValue: { ...T.text.stat, color: T.ink },
   streakLabel: { ...T.text.caption, color: T.inkMuted },
-  grassWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
-  grassCell: { width: 16, height: 16, borderRadius: 4 },
+  // 월 탭 잔디 — 해당 월 전체 날짜, 한 줄 7칸(작은 정사각형)
+  monthGrass: { gap: 6, marginTop: 4 },
+  monthGrassRow: { flexDirection: 'row', gap: 6 },
+  monthGrassCell: { width: 24, height: 24, borderRadius: 6 },
+  // 주 탭 잔디 한 줄 — 월~일 7칸 정사각형(aspectRatio) + 요일 라벨
+  weekGrassRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  weekGrassCol: { flex: 1, alignItems: 'center', gap: 6 },
+  weekGrassCell: { width: '100%', aspectRatio: 1, borderRadius: 8 },
+  weekGrassLabel: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
   grassHint: { ...T.text.caption, color: T.inkMuted, marginTop: 10 },
 });
