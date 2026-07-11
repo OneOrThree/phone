@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,9 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  Share,
 } from 'react-native';
+import { captureRef } from 'react-native-view-shot';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Line, Polygon, Polyline } from 'react-native-svg';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -23,6 +25,7 @@ import {
 import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
 import { CardOrderEditor } from './stats/CardOrderEditor';
+import { SubjectProgressList } from '@/components/SubjectProgressList';
 import { STORAGE_KEYS } from '@/types/storage';
 import { fetchTodayFocusSessions, sessionFocusSeconds } from '@/screens/focus/focusRestore';
 import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
@@ -70,6 +73,8 @@ export default function StatsScreen() {
   const navigation = useNavigation();
   const [period, setPeriod] = useState<StatsPeriod>('WEEK');
   const { data, loading } = useStatsData(period);
+  // 일 탭 과목별 카드 — 집중 세션 메뉴 드로어와 동일한 로컬 오늘 누적(SubjectContext) 사용
+  const { subjects } = useSubjects();
   const [editing, setEditing] = useState(false);
   // 카드 순서(탭별, GROMO-762) — AsyncStorage에서 로드, 드래그 확정 시마다 저장.
   // 로드 완료 전에 그리면 기본 순서가 잠깐 보였다 튀므로 플래그로 막는다.
@@ -136,7 +141,8 @@ export default function StatsScreen() {
     ),
   });
 
-  // ST2 과목별 공부량 (나) — 총 공부량 바로 아래. 주/월 탭은 도넛(비중), 일 탭은 가로 막대
+  // ST2 과목별 공부량 (나) — 총 공부량 바로 아래. 주/월 탭은 도넛(비중), 일 탭은 집중 세션 메뉴
+  // 드로어와 동일한 과목별 현황(로컬 오늘 누적 — 색 점+시간+비율 바, GROMO-762)
   cards.push({
     key: 'category',
     node: (
@@ -147,24 +153,17 @@ export default function StatsScreen() {
             total={data.category?.totalFocusMinutes ?? 0}
           />
         ) : (
-          <CategoryBars
-            items={data.category?.items ?? []}
-            total={data.category?.totalFocusMinutes ?? 0}
-          />
+          <SubjectProgressList rows={subjects} />
         )}
       </SectionCard>
     ),
   });
 
-  // 타임테이블(일) — 오늘 세션 실데이터, 과목별 공부량 아래(GROMO-761)
+  // 타임테이블(일) — 오늘 세션 실데이터, 과목별 공부량 아래(GROMO-761). 카드 헤더에 공유 버튼(GROMO-762)
   if (period === 'DAY') {
     cards.push({
       key: 'timetable',
-      node: (
-        <SectionCard key="timetable" title="타임테이블" caption="오늘">
-          <FocusTimetable />
-        </SectionCard>
-      ),
+      node: <FocusTimetableCard key="timetable" />,
     });
   }
 
@@ -406,17 +405,26 @@ export default function StatsScreen() {
 function SectionCard({
   title,
   caption,
+  action,
   children,
 }: {
   title: string;
   caption?: string;
+  action?: ReactNode; // 헤더 오른쪽 끝 버튼(예: 타임테이블 공유)
   children: React.ReactNode;
 }) {
   return (
     <View style={s.card}>
       <View style={s.cardHead}>
         <Text style={s.cardTitle}>{title}</Text>
-        {caption ? <Text style={s.cardCaption}>{caption}</Text> : null}
+        {action ? (
+          <View style={s.cardHeadRight}>
+            {caption ? <Text style={s.cardCaption}>{caption}</Text> : null}
+            {action}
+          </View>
+        ) : caption ? (
+          <Text style={s.cardCaption}>{caption}</Text>
+        ) : null}
       </View>
       {children}
     </View>
@@ -744,6 +752,43 @@ function MonthWeeklyChart({
 // 첫 줄 오전 6시 → 다음날 새벽 5시까지 24줄. 격자는 항상 그려지고, 오늘 세션(GET /focus-session)이
 // 겹친 슬롯만 칠해진다(칠 농도 = 슬롯 내 집중 비율). 서버 집계 없이 세션 구간만으로 계산(GROMO-761).
 const TIMETABLE_HOURS = Array.from({ length: 24 }, (_, i) => (i + 6) % 24);
+
+// 타임테이블 카드(일) — 헤더에 공유 버튼. 카드 내용(범례+격자)을 이미지로 캡처해
+// iOS 공유 시트로 내보낸다(react-native-view-shot, GROMO-762).
+function FocusTimetableCard() {
+  const shotRef = useRef<View>(null);
+  const [sharing, setSharing] = useState(false);
+
+  const onShare = async () => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const uri = await captureRef(shotRef, { format: 'png', quality: 1 });
+      await Share.share({ url: uri });
+    } catch {
+      // 캡처 실패·공유 취소 — 무시
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  return (
+    <SectionCard
+      title="타임테이블"
+      caption="오늘"
+      action={
+        <TouchableOpacity onPress={onShare} hitSlop={8} activeOpacity={0.7} disabled={sharing}>
+          <Ionicons name="share-outline" size={15} color={T.inkSub} />
+        </TouchableOpacity>
+      }
+    >
+      {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게 */}
+      <View ref={shotRef} collapsable={false} style={s.ttShot}>
+        <FocusTimetable />
+      </View>
+    </SectionCard>
+  );
+}
 
 function FocusTimetable() {
   const { subjects } = useSubjects();
@@ -1177,42 +1222,6 @@ function CategoryDonut({
   );
 }
 
-function CategoryBars({
-  items,
-  total,
-}: {
-  items: { tagId: string | null; tagName: string | null; totalFocusMinutes: number }[];
-  total: number;
-}) {
-  if (items.length === 0) {
-    return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
-  }
-  const denom = total || 1;
-  return (
-    <View style={s.catList}>
-      {items.map((it, i) => {
-        const pct = Math.round((it.totalFocusMinutes / denom) * 100);
-        const color = T.subjectPalette[i % T.subjectPalette.length];
-        return (
-          <View key={it.tagId ?? `untagged-${i}`} style={s.catRow}>
-            <View style={s.catHead}>
-              <Text style={s.catName} numberOfLines={1}>
-                {it.tagName ?? '미분류'}
-              </Text>
-              <Text style={s.catValue}>{fmtMinutes(it.totalFocusMinutes)}</Text>
-            </View>
-            <View style={s.catTrack}>
-              <View
-                style={[s.catFill, { width: `${Math.max(pct, 2)}%`, backgroundColor: color }]}
-              />
-            </View>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
 function DeltaRow({
   label,
   delta,
@@ -1386,6 +1395,7 @@ const s = StyleSheet.create({
   },
   cardTitle: { ...T.text.heading, color: T.ink },
   cardCaption: { ...T.text.caption, color: T.inkMuted },
+  cardHeadRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   bigStat: { ...T.text.title, color: T.ink },
   emptyText: { ...T.text.body, color: T.inkMuted, paddingVertical: 8 },
 
@@ -1501,6 +1511,7 @@ const s = StyleSheet.create({
   chartGridLower: { top: (CHART_H * 2) / 3 },
   chartGridBottom: { top: CHART_H },
   // 시간대별 타임테이블 — 왼쪽 과목 범례(형광펜 하이라이트) + 격자(한 줄 1시간 = 10분×6칸)
+  ttShot: { backgroundColor: T.white }, // 캡처 이미지 배경(투명 PNG 방지)
   ttLayout: { flexDirection: 'row', gap: 12, marginTop: 14 },
   ttLegendCol: { width: 76, gap: 6, paddingTop: 2, alignItems: 'flex-start' },
   // 범례 — 글자 배경칠 대신 왼쪽 원형 점으로 과목 색 표시
@@ -1520,15 +1531,6 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   ttCellFill: { position: 'absolute', top: 0, bottom: 0, backgroundColor: FOCUS_COLOR },
-
-  // 과목별 비율 바
-  catList: { gap: 12 },
-  catRow: { gap: 6 },
-  catHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  catName: { ...T.text.label, color: T.ink, flex: 1, marginRight: 8 },
-  catValue: { ...T.text.label, color: T.inkSub },
-  catTrack: { height: 10, borderRadius: 5, backgroundColor: T.sandLight, overflow: 'hidden' },
-  catFill: { height: 10, borderRadius: 5 },
 
   // 전 대비
   deltaRow: {
