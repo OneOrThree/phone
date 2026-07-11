@@ -51,6 +51,10 @@ const GRASS = T.grass;
 const FOCUS_COLOR = T.greenDeep;
 const PHONE_COLOR = T.accent;
 
+// 히트맵 셀 → 지표 추출기 — 렌더마다 재생성되지 않게 모듈 상수(훅 의존성 안정화)
+const pickFocus = (c: HeatmapCellResponse) => c.totalFocusMinutes;
+const pickScreenTime = (c: HeatmapCellResponse) => c.actualScreenTimeMinutes;
+
 export default function StatsScreen() {
   const navigation = useNavigation();
   const [period, setPeriod] = useState<StatsPeriod>('WEEK');
@@ -142,11 +146,16 @@ export default function StatsScreen() {
             )}
           </SectionCard>
 
-          {/* 해당월 주별 공부시간(월) — 과목별 공부량 아래, heatmap 주차 합산 실데이터(GROMO-761) */}
+          {/* 해당월 주별 공부시간·핸드폰 사용량(월) — 과목별 아래, 합격자 위. heatmap 주차 합산 실데이터(GROMO-761) */}
           {period === 'MONTH' && (
-            <SectionCard title={`${new Date().getMonth() + 1}월 주별 공부시간`}>
-              <MonthWeeklyFocus />
-            </SectionCard>
+            <>
+              <SectionCard title={`${new Date().getMonth() + 1}월 주별 공부시간`}>
+                <MonthWeeklyChart pick={pickFocus} color={FOCUS_COLOR} />
+              </SectionCard>
+              <SectionCard title={`${new Date().getMonth() + 1}월 주별 핸드폰 사용량`}>
+                <MonthWeeklyChart pick={pickScreenTime} color={PHONE_COLOR} />
+              </SectionCard>
+            </>
           )}
 
           {/* ST3 합격자 비교 — 실그래프 + 블러 티저(합격자 데이터 준비 중). 주 탭은 핸드폰 사용량 아래로 이동 */}
@@ -171,23 +180,25 @@ export default function StatsScreen() {
             </SectionCard>
           )}
 
-          {/* ST6 핸드폰 사용량 차트 — 제목은 기간 단위 따라(오늘/요일별/주차별) */}
-          <SectionCard title={`${granularity} 핸드폰 사용량`} caption={periodLabel(period)}>
-            <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
-              {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
-            </Text>
-            {period === 'WEEK' ? (
-              <LineChart
-                bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
-                color={PHONE_COLOR}
-              />
-            ) : (
-              <BarChart
-                bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
-                color={PHONE_COLOR}
-              />
-            )}
-          </SectionCard>
+          {/* ST6 핸드폰 사용량 차트(일/주) — 월 탭은 'N월 주별 핸드폰 사용량'이 대체 */}
+          {period !== 'MONTH' && (
+            <SectionCard title={`${granularity} 핸드폰 사용량`} caption={periodLabel(period)}>
+              <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
+                {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
+              </Text>
+              {period === 'WEEK' ? (
+                <LineChart
+                  bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
+                  color={PHONE_COLOR}
+                />
+              ) : (
+                <BarChart
+                  bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
+                  color={PHONE_COLOR}
+                />
+              )}
+            </SectionCard>
+          )}
 
           {/* 합격자 비교(주) — 요일별 핸드폰 사용량 아래 배치 */}
           {period === 'WEEK' && (
@@ -432,10 +443,16 @@ function PasserCompareChart() {
   );
 }
 
-// ST4(주) 해당월 주별 공부시간 — 이달 1일이 낀 주(월~일)의 월요일부터 오늘까지 heatmap을
-// 달력 주 단위로 합산, 가로축은 실제 날짜 구간(예: 6/29~7/5)으로 표기. 전용 집계 API 없이
-// 파생 계산(GROMO-761). 이번 주 막대는 강조(current).
-function MonthWeeklyFocus() {
+// 해당월 주별 차트(월 탭) — 이달 1일이 낀 주(월~일)의 월요일부터 heatmap을 달력 주 단위로 합산,
+// 가로축은 실제 날짜 구간(예: 6/29~7/5)·해당월 전체 주 미리 기재·미래 주는 선 미표시. 전용 집계 API
+// 없이 파생 계산(GROMO-761). 지표(pick)·색만 바꿔 공부시간/핸드폰 사용량이 공유한다.
+function MonthWeeklyChart({
+  pick,
+  color,
+}: {
+  pick: (c: HeatmapCellResponse) => number;
+  color: string;
+}) {
   const [bars, setBars] = useState<StatBar[] | null>(null);
 
   useEffect(() => {
@@ -460,7 +477,7 @@ function MonthWeeklyFocus() {
       for (const c of cells) {
         const [y, m, d] = c.date.split('-').map(Number);
         const idx = Math.floor((new Date(y, m - 1, d).getTime() - startMs) / (7 * 86400e3));
-        if (idx >= 0 && idx < weekCount) sums[idx] += c.totalFocusMinutes;
+        if (idx >= 0 && idx < weekCount) sums[idx] += pick(c);
       }
       setBars(
         sums.map((v, i) => {
@@ -480,7 +497,7 @@ function MonthWeeklyFocus() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [pick]);
 
   if (bars === null) {
     return (
@@ -489,7 +506,7 @@ function MonthWeeklyFocus() {
       </View>
     );
   }
-  return <LineChart bars={bars} color={FOCUS_COLOR} />;
+  return <LineChart bars={bars} color={color} />;
 }
 
 // ST4(일) 시간대별 집중 타임테이블 — 스터디 플래너식 격자. 한 줄 = 1시간(칸 6개 × 10분),
