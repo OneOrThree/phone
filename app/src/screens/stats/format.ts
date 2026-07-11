@@ -69,11 +69,6 @@ export const PERIOD_TABS: { key: StatsPeriod; label: string }[] = [
   { key: 'MONTH', label: '월' },
 ];
 
-// 현재 구간 라벨(카드 부제용).
-export function periodLabel(period: StatsPeriod): string {
-  return period === 'DAY' ? '오늘' : period === 'WEEK' ? '이번 주' : '이번 달';
-}
-
 // StatsPeriod → 애널리틱스 소문자 키.
 export function periodKey(period: StatsPeriod): 'day' | 'week' | 'month' {
   return period === 'DAY' ? 'day' : period === 'WEEK' ? 'week' : 'month';

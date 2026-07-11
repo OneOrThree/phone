@@ -36,7 +36,6 @@ import { localDateStr, todayStr } from '@/utils/localDate';
 import { fmtMinutes, axisCeil, fmtAxis, hms } from '@/utils/timeFormat';
 import {
   PERIOD_TABS,
-  periodLabel,
   periodKey,
   heatmapBars,
   tenMinuteFocusSlots,
@@ -124,10 +123,10 @@ export default function StatsScreen() {
         key="total"
         title={
           period === 'DAY'
-            ? '오늘 공부량'
+            ? '오늘 총 집중시간'
             : period === 'WEEK'
-              ? '이번 주 공부량'
-              : `${month}월 공부량`
+              ? '이번 주 총 집중시간'
+              : `${month}월 총 집중시간`
         }
       >
         <Text style={s.bigStat}>{fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}</Text>
@@ -145,7 +144,16 @@ export default function StatsScreen() {
   cards.push({
     key: 'category',
     node: (
-      <SectionCard key="category" title="과목별 공부량" caption={periodLabel(period)}>
+      <SectionCard
+        key="category"
+        title={
+          period === 'DAY'
+            ? '오늘 과목별 집중시간'
+            : period === 'WEEK'
+              ? '이번 주 과목별 집중시간'
+              : `${month}월 과목별 집중시간`
+        }
+      >
         {period !== 'DAY' ? (
           <CategoryDonut
             items={data.category?.items ?? []}
@@ -171,7 +179,7 @@ export default function StatsScreen() {
     cards.push({
       key: 'monthWeeklyFocus',
       node: (
-        <SectionCard key="monthWeeklyFocus" title={`${month}월 주별 공부시간`}>
+        <SectionCard key="monthWeeklyFocus" title={`${month}월 주별 집중시간`}>
           <MonthWeeklyChart pick={pickFocus} color={FOCUS_COLOR} />
         </SectionCard>
       ),
@@ -191,7 +199,7 @@ export default function StatsScreen() {
     cards.push({
       key: 'weekdayFocus',
       node: (
-        <SectionCard key="weekdayFocus" title="요일별 집중시간" caption={periodLabel(period)}>
+        <SectionCard key="weekdayFocus" title="요일별 집중시간">
           <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
             총 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
           </Text>
@@ -205,7 +213,7 @@ export default function StatsScreen() {
     cards.push({
       key: 'weekdayPhone',
       node: (
-        <SectionCard key="weekdayPhone" title="요일별 핸드폰 사용량" caption={periodLabel(period)}>
+        <SectionCard key="weekdayPhone" title="요일별 핸드폰 사용량">
           <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
             총 {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
           </Text>
@@ -222,15 +230,11 @@ export default function StatsScreen() {
   // 월 탭은 주별 평균값이라 제목에 명시(다른 'N월 ~' 카드와 표기 통일)
   if (period !== 'DAY') {
     const firstStartTitle =
-      period === 'WEEK' ? '요일별 첫 집중 시작 시각' : `${month}월 첫 집중 시작 시각 평균`;
+      period === 'WEEK' ? '요일별 첫 집중 시작 시각' : `${month}월 주별 첫 집중 시작 시각`;
     cards.push({
       key: 'firstStart',
       node: (
-        <SectionCard
-          key="firstStart"
-          title={firstStartTitle}
-          caption={period === 'WEEK' ? '이번 주' : undefined}
-        >
+        <SectionCard key="firstStart" title={firstStartTitle}>
           {/* key로 탭 전환 시 리마운트 — 이전 기간 점이 새 라벨 위에 잠깐 보이는 것 방지 */}
           <FirstStartChart key={period} period={period} />
         </SectionCard>
@@ -246,10 +250,10 @@ export default function StatsScreen() {
         key="longest"
         title={
           period === 'DAY'
-            ? '오늘 최고기록'
+            ? '오늘 최장 연속 집중'
             : period === 'WEEK'
-              ? '이번 주 최고기록'
-              : `${month}월 최고기록`
+              ? '이번 주 최장 연속 집중'
+              : `${month}월 최장 연속 집중`
         }
       >
         <LongestSessionStat key={period} period={period} />
@@ -279,7 +283,7 @@ export default function StatsScreen() {
           period === 'DAY'
             ? '어제 대비'
             : period === 'WEEK'
-              ? '저번주 대비'
+              ? '저번 주 대비'
               : `${month === 1 ? 12 : month - 1}월 대비`
         }
       >
@@ -324,7 +328,7 @@ export default function StatsScreen() {
           ) : (
             <MonthGrassGrid cells={data.heatmap} />
           )}
-          <Text style={s.grassHint}>공부시간이 많을수록 칸이 진해져요</Text>
+          <Text style={s.grassHint}>집중시간이 많을수록 칸이 진해져요</Text>
         </SectionCard>
       ),
     });
@@ -661,6 +665,7 @@ function PasserCompareChart() {
 // 해당월 주별 차트(월 탭) — 이달 1일이 낀 주(월~일)의 월요일부터 heatmap을 달력 주 단위로 합산,
 // 가로축은 실제 날짜 구간(예: 6/29~7/5)·해당월 전체 주 미리 기재·미래 주는 선 미표시. 전용 집계 API
 // 없이 파생 계산(GROMO-761). 지표(pick)·색만 바꿔 공부시간/핸드폰 사용량이 공유한다.
+// (하루 평균 전환을 검토했다가 주별 합계 유지로 결정 — 2026-07-11 결정기록 참고)
 function MonthWeeklyChart({
   pick,
   color,
@@ -770,7 +775,7 @@ function FocusTimetableCard() {
 
   return (
     <SectionCard
-      title="타임테이블"
+      title="오늘 타임테이블"
       action={
         // 캡션 자리에 '공유하기' 라벨 — 텍스트·아이콘 전체가 버튼
         <TouchableOpacity
