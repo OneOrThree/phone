@@ -15,9 +15,15 @@ PROFILE ?= smoke
 TARGET ?= scenarios/daily_mix.js
 SEED_VERSION ?= seed-v1
 SCALE ?= 1
-# 고급 설정(expert) override — 빈값이면 k6 프로파일 기본값 사용 (run.sh 가 k6 __ENV 로 전달)
+# 고급 설정(expert) override — 빈값이면 k6 프로파일 기본값 사용 (run.sh 가 k6 __ENV 로 전달).
+# rate 계열: RATE/DURATION(constant) · START_RATE(stress) · BASE_RATE/SPIKE_RATE(spike).
+# 원격(workflow)은 PARAMS="KEY=VALUE;…" 하나로 받아 run.sh 가 파싱; 로컬 make 는 개별 변수도 가능.
 RATE ?=
 DURATION ?=
+START_RATE ?=
+BASE_RATE ?=
+SPIKE_RATE ?=
+PARAMS ?=
 # 제네릭 러너용 recipe 목록(콤마구분, TARGET=matrix/_generic.js) + loadgen VM 수(고rps 분산 생성)
 RECIPES ?=
 SPOTS ?= 1
@@ -34,7 +40,7 @@ RUN_ID := $(or $(RUN_ID),$(shell date -u +%Y%m%dT%H%M%SZ)-$(SHA))
 TARGET_KEY := $(subst /,_,$(TARGET))
 REPORT_DIR := reports/$(RUN_ID)-$(PROFILE)-$(TARGET_KEY)
 
-export PROJECT_ID REGION ZONE PROFILE TARGET SEED_VERSION SCALE RATE DURATION RECIPES SPOTS SCENARIO REPORT_DIR IMAGE
+export PROJECT_ID REGION ZONE PROFILE TARGET SEED_VERSION SCALE RATE DURATION START_RATE BASE_RATE SPIKE_RATE PARAMS RECIPES SPOTS SCENARIO REPORT_DIR IMAGE
 
 .PHONY: help bootstrap check-quota infra-up image up up-base app-up down sync \
         seed seed-verify reset mint run collect verdict test \

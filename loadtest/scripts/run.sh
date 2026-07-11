@@ -8,13 +8,39 @@ LT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 PROFILE="${PROFILE:-smoke}"
 TARGET="${TARGET:-scenarios/daily_mix.js}"
-# 고급 설정 override — 빈값이면 k6 프로파일이 __ENV.RATE/DURATION 대신 기본값 사용
+# 고급 설정 override — 빈값이면 k6 프로파일이 __ENV.* 대신 기본값 사용.
+# rate 계열: RATE/DURATION(constant) · START_RATE(stress) · BASE_RATE/SPIKE_RATE(spike).
+# 원격(workflow)은 10-input 제한 때문에 PARAMS="KEY=VALUE;…" 한 입력으로 실어 보낸다 → 여기서 파싱.
+# 키 화이트리스트로 오타·미지원 키를 차단하고, 값은 아래 개별 검증을 그대로 통과시킨다.
+# 로컬 `make run RATE=80` 은 PARAMS 없이 개별 env 로도 동작(PARAMS 가 있으면 해당 키만 덮어씀).
+PARAMS="${PARAMS:-}"
+if [ -n "$PARAMS" ]; then
+  IFS=';' read -ra _pairs <<< "$PARAMS"
+  for _pair in "${_pairs[@]}"; do
+    [ -z "$_pair" ] && continue
+    _k="${_pair%%=*}"; _v="${_pair#*=}"
+    case "$_k" in
+      RATE) RATE="$_v" ;;
+      DURATION) DURATION="$_v" ;;
+      START_RATE) START_RATE="$_v" ;;
+      BASE_RATE) BASE_RATE="$_v" ;;
+      SPIKE_RATE) SPIKE_RATE="$_v" ;;
+      *) log "invalid PARAMS key '$_k' (허용: RATE·DURATION·START_RATE·BASE_RATE·SPIKE_RATE)"; exit 1 ;;
+    esac
+  done
+fi
 RATE="${RATE:-}"
 DURATION="${DURATION:-}"
-# 셸 인젝션 방지: RATE/DURATION 은 workflow_dispatch 자유 문자열이라 vm_ssh 원격 명령에 보간되기 전
-# 숫자·시간단위(s/m/h)만 허용해 메타문자(; ` $() 등)를 차단한다. 빈값 허용(프로파일 기본).
+START_RATE="${START_RATE:-}"
+BASE_RATE="${BASE_RATE:-}"
+SPIKE_RATE="${SPIKE_RATE:-}"
+# 셸 인젝션 방지: 값이 vm_ssh 원격 명령에 보간되기 전 숫자·시간단위(s/m/h)만 허용해 메타문자(; ` $() 등)를
+# 차단한다. 빈값 허용(프로파일 기본). rps 계열은 숫자만, DURATION 만 시간단위 허용.
 [[ "$RATE" =~ ^[0-9]*$ ]] || { log "invalid RATE (숫자만 허용): '$RATE'"; exit 1; }
 [[ "$DURATION" =~ ^[0-9smh]*$ ]] || { log "invalid DURATION (예: 5m·90s): '$DURATION'"; exit 1; }
+[[ "$START_RATE" =~ ^[0-9]*$ ]] || { log "invalid START_RATE (숫자만 허용): '$START_RATE'"; exit 1; }
+[[ "$BASE_RATE" =~ ^[0-9]*$ ]] || { log "invalid BASE_RATE (숫자만 허용): '$BASE_RATE'"; exit 1; }
+[[ "$SPIKE_RATE" =~ ^[0-9]*$ ]] || { log "invalid SPIKE_RATE (숫자만 허용): '$SPIKE_RATE'"; exit 1; }
 # RECIPES: matrix/_generic.js 가 콤마구분 목록으로 읽어 open(../recipes/<name>.json). 경로주입 방지로 영숫자/_/-/, 만 허용.
 RECIPES="${RECIPES:-}"
 [[ "$RECIPES" =~ ^[a-zA-Z0-9_,-]*$ ]] || { log "invalid RECIPES (영숫자·_·-·, 만): '$RECIPES'"; exit 1; }
@@ -65,7 +91,7 @@ obs_psql loadtest '-c "SELECT pg_stat_statements_reset();"'
 log "③ 본측정 (PROFILE=$PROFILE TARGET=$TARGET)"
 K6_EXIT=0
 vm_ssh loadgen "$K6_BASE \
-  -e PROFILE=$PROFILE -e RATE=$RATE -e DURATION=$DURATION -e RECIPES=$RECIPES -e SCENARIO=$SCENARIO -e SUMMARY_PATH=/out/summary.json \
+  -e PROFILE=$PROFILE -e RATE=$RATE -e DURATION=$DURATION -e START_RATE=$START_RATE -e BASE_RATE=$BASE_RATE -e SPIKE_RATE=$SPIKE_RATE -e RECIPES=$RECIPES -e SCENARIO=$SCENARIO -e SUMMARY_PATH=/out/summary.json \
   -e K6_PROMETHEUS_RW_SERVER_URL=http://${OBS_IP}:9090/api/v1/write \
   -e K6_PROMETHEUS_RW_TREND_STATS='p(95),p(99),avg,max' \
   $K6_IMAGE run -o experimental-prometheus-rw /scripts/$TARGET" || K6_EXIT=$?

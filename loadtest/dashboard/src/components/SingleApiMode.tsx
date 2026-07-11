@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { loadCatalog, isRunnable, short, type Catalog, type EndpointEntry } from '../openapi';
 import { dispatchRun } from '../api/github';
+import { paramsFor, defaultValues, validateParam, toOverrides } from '../loadparams';
 
 // 단일 API 부하 모드 (GROMO-750) — openapi 카탈로그에서 실행 가능한 엔드포인트를 다중선택(또는 전체선택)해
 // 프로파일(load/stress/spike)로 배치 디스패치. run 은 concurrency 로 직렬화되므로 "전체 선택 = 새벽 통째 실행".
-// rps=constant-arrival-rate 프로파일 기본값(표시·폴백용). ramping(stress/spike)은 계단이라 rps 무의미.
+// 프로파일을 고르면 그 프로파일이 실제 읽는 파라미터만 우측에 뜨고 기본값이 프리필된다(loadparams.ts).
 const PROFILES = [
-  { value: 'smoke', label: 'smoke — 빠른 검증 (5rps·1분)', rps: 5, ramping: false },
-  { value: 'load', label: 'load — 목표 부하 (50rps·10분)', rps: 50, ramping: false },
-  { value: 'stress', label: 'stress — 한계 탐색 (계단 100→400)', rps: null, ramping: true },
-  { value: 'spike', label: 'spike — 급증 (10→300)', rps: null, ramping: true },
+  { value: 'smoke', label: 'smoke — 빠른 검증 (5rps·1분)' },
+  { value: 'load', label: 'load — 목표 부하 (50rps·10분)' },
+  { value: 'stress', label: 'stress — 한계 탐색 (계단 100→400)' },
+  { value: 'spike', label: 'spike — 급증 (10→300)' },
 ];
 const METHOD_CLASS: Record<string, string> = {
   GET: 'm-get',
@@ -24,7 +25,7 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
   const [cat, setCat] = useState<Catalog | null>(null);
   const [err, setErr] = useState('');
   const [profile, setProfile] = useState('load');
-  const [rps, setRps] = useState(''); // 총 arrival rate override(빈값=프로파일 기본). 선택분에 분산(모델 A)
+  const [params, setParams] = useState<Record<string, string>>(defaultValues('load')); // 프로파일별 부하 파라미터(프리필)
   const [spots, setSpots] = useState('1'); // loadgen spot VM 수(고rps 분산 생성)
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [openTags, setOpenTags] = useState<Set<string>>(new Set());
@@ -41,7 +42,12 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
   }, []);
 
   const runnable = useMemo(() => (cat ? cat.endpoints.filter(isRunnable) : []), [cat]);
-  const prof = PROFILES.find((p) => p.value === profile) ?? PROFILES[1];
+  const fields = paramsFor(profile);
+  // 프로파일 전환 시 그 프로파일의 파라미터 기본값으로 프리필(우측 입력이 프로파일에 맞게 바뀜)
+  const onProfile = (v: string) => {
+    setProfile(v);
+    setParams(defaultValues(v));
+  };
   const toggle = (k: string) =>
     setSel((prev) => {
       const n = new Set(prev);
@@ -68,11 +74,13 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
       setProgress('실패: 선택 항목에 실행 가능한 recipe 가 없습니다.');
       return;
     }
-    // rps: 계단형 프로파일은 무시. 값이 있으면 1 이상 정수만(서버 run.sh 가드 전 조기 실패 UX)
-    const rpsVal = prof.ramping ? '' : rps.trim();
-    if (rpsVal && !/^[1-9][0-9]*$/.test(rpsVal)) {
-      setProgress('실패: rps 는 1 이상 정수여야 합니다.');
-      return;
+    // 프로파일 파라미터 검증(서버 run.sh 가드 전 조기 실패 UX)
+    for (const f of fields) {
+      const msg = validateParam(f, params[f.key] ?? '');
+      if (msg) {
+        setProgress(`실패: ${msg}`);
+        return;
+      }
     }
     const spotsVal = spots.trim();
     if (spotsVal && spotsVal !== '1') {
@@ -83,9 +91,9 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
     try {
       await dispatchRun(profile, 'matrix/_generic.js', false, {
         recipes: recipes.join(','),
-        rate: rpsVal || undefined,
+        ...toOverrides(profile, params),
       });
-      const opts = [profile, rpsVal && `${rpsVal}rps`].filter(Boolean).join(' · ');
+      const opts = [profile, ...fields.map((f) => `${f.label} ${params[f.key]}`)].join(' · ');
       setProgress(`디스패치 완료 — ${recipes.length}개 엔드포인트 병렬 부하 (${opts}). 히스토리에 나타납니다.`);
     } catch (e) {
       setProgress(`실패: ${String(e)} (PAT 권한: actions rw)`);
@@ -110,7 +118,7 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
           <div className="form-row" style={{ marginBottom: 10 }}>
             <label>
               프로파일
-              <select value={profile} onChange={(e) => setProfile(e.target.value)} disabled={running}>
+              <select value={profile} onChange={(e) => onProfile(e.target.value)} disabled={running}>
                 {PROFILES.map((p) => (
                   <option key={p.value} value={p.value}>
                     {p.label}
@@ -118,18 +126,19 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
                 ))}
               </select>
             </label>
-            <label>
-              총 rps {prof.ramping ? '(계단형 — 무시)' : '(빈값=기본)'}
-              <input
-                type="text"
-                className="short"
-                value={prof.ramping ? '' : rps}
-                placeholder={prof.ramping ? '계단형' : `${prof.rps} (기본)`}
-                inputMode="numeric"
-                disabled={running || prof.ramping}
-                onChange={(e) => setRps(e.target.value)}
-              />
-            </label>
+            {fields.map((f) => (
+              <label key={f.key}>
+                {f.label}
+                <input
+                  type="text"
+                  className="short"
+                  value={params[f.key] ?? ''}
+                  inputMode={f.kind === 'rps' ? 'numeric' : 'text'}
+                  disabled={running}
+                  onChange={(e) => setParams((p) => ({ ...p, [f.key]: e.target.value }))}
+                />
+              </label>
+            ))}
             <label>
               loadgen spot 수
               <input
@@ -143,10 +152,20 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
               />
             </label>
           </div>
-          <p className="muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.5 }}>
-            <b>rps</b> = 초당 요청 수(총량, 선택 API에 분산). 비우면 프로파일 기본(load 50·smoke 5). 계단형(stress/spike)은
-            프로파일이 계단으로 정해 무시됩니다. · <b>spot</b> = 부하를 만드는 loadgen VM 수. 한 대로도 수천 rps 생성
-            가능(부하기 CPU&gt;80% 넘으면 결과 무효). <b>현재 1만 지원</b>(멀티-VM 분산은 후속).
+          {fields.some((f) => f.note) && (
+            <p className="muted" style={{ fontSize: 12, margin: '0 0 6px' }}>
+              {fields
+                .filter((f) => f.note)
+                .map((f) => `※ ${f.label}: ${f.note}`)
+                .join('   ')}
+            </p>
+          )}
+          <p className="muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.7 }}>
+            <b>rps</b> = 초당 요청 수(총량, 선택 API에 분산). 프로파일을 고르면 기본값이 채워지고 직접 수정 가능.
+            constant(smoke/load)은 총 rps·시간, 계단형(stress/spike)은 시작/피크 rps 로 커스텀합니다.
+            <br />
+            <b>spot</b> = 부하를 만드는 loadgen VM 수. 한 대로도 수천 rps 생성 가능(부하기 CPU&gt;80% 넘으면 결과 무효).
+            <b> 현재 1만 지원</b>(멀티-VM 분산은 후속).
           </p>
 
           <div className="batch-bar">
