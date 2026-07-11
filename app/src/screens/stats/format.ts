@@ -242,6 +242,27 @@ export function firstStartPoints(
   });
 }
 
+// 저장된 카드 순서를 현재 카드 목록에 적용(통계 카드 순서 편집).
+// 저장에 없는 새 카드는 기본 순서상 바로 앞 카드(존재하는 것 중 가장 가까운) 뒤에 끼워넣고,
+// 이제 없는 카드 키는 버린다 — 카드가 추가/삭제돼도 저장된 순서가 자연스럽게 이어진다.
+export function mergeCardOrder(defaults: string[], stored?: string[] | null): string[] {
+  if (!stored || stored.length === 0) return defaults;
+  const result = stored.filter((k) => defaults.includes(k));
+  defaults.forEach((k, di) => {
+    if (result.includes(k)) return;
+    let at = 0;
+    for (let i = di - 1; i >= 0; i--) {
+      const idx = result.indexOf(defaults[i]);
+      if (idx >= 0) {
+        at = idx + 1;
+        break;
+      }
+    }
+    result.splice(at, 0, k);
+  });
+  return result;
+}
+
 // 집중 목표 달성률(주·월) — 달성일/경과일.
 export function focusGoalRate(cells: HeatmapCellResponse[]): {
   percent: number;

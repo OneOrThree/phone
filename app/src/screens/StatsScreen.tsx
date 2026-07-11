@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Line, Polygon, Polyline } from 'react-native-svg';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import type { StatsPeriod, HeatmapCellResponse } from '@/types/dto/stats';
 import { logStatsViewed, logStatsPeriodChanged } from '@/services/analyticsEvents';
@@ -21,6 +22,8 @@ import {
 } from '@/services/compareAverages';
 import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
+import { CardOrderEditor } from './stats/CardOrderEditor';
+import { STORAGE_KEYS } from '@/types/storage';
 import { fetchTodayFocusSessions, sessionFocusSeconds } from '@/screens/focus/focusRestore';
 import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
 import type { FocusSessionResponse } from '@/types/dto/focus';
@@ -39,6 +42,7 @@ import {
   grassLevel,
   dailyFirstStartMinutes,
   firstStartPoints,
+  mergeCardOrder,
   type FocusSlotSegment,
   type StatBar,
   type StartTimePoint,
@@ -67,6 +71,26 @@ export default function StatsScreen() {
   const navigation = useNavigation();
   const [period, setPeriod] = useState<StatsPeriod>('WEEK');
   const { data, loading } = useStatsData(period);
+  const [editing, setEditing] = useState(false);
+  // 카드 순서(탭별, GROMO-762) — AsyncStorage에서 로드, 드래그 확정 시마다 저장.
+  // 로드 완료 전에 그리면 기본 순서가 잠깐 보였다 튀므로 플래그로 막는다.
+  const [cardOrder, setCardOrder] = useState<Record<string, string[]>>({});
+  const [orderLoaded, setOrderLoaded] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.statsCardOrder)
+      .then((raw) => {
+        if (raw) setCardOrder(JSON.parse(raw));
+      })
+      .catch(() => {}) // 조회·파싱 실패 → 기본 순서
+      .finally(() => setOrderLoaded(true));
+  }, []);
+
+  const onReorderCards = (keys: string[]) => {
+    const next = { ...cardOrder, [period]: keys };
+    setCardOrder(next);
+    AsyncStorage.setItem(STORAGE_KEYS.statsCardOrder, JSON.stringify(next)).catch(() => {});
+  };
 
   // 화면 진입(포커스마다 1회) 로깅.
   useFocusEffect(
@@ -83,6 +107,220 @@ export default function StatsScreen() {
 
   const firstLoad = loading && data.focus === null && data.heatmap.length === 0;
 
+  // 카드 목록(현재 탭) — push 순서가 기본 순서(기존 렌더 순서 그대로). key는 순서 저장(AsyncStorage)에
+  // 쓰이므로 바꾸면 유저가 저장한 순서와 어긋난다(GROMO-762).
+  const month = new Date().getMonth() + 1;
+  const cards: { key: string; node: ReactNode }[] = [];
+
+  // ST1 총 공부량 (나) + 비교 — 주간은 리그 랭킹·친구 통계 기반 실비교(GROMO-761), 일/월은 준비중
+  cards.push({
+    key: 'total',
+    node: (
+      <SectionCard key="total" title="총 공부량" caption={periodLabel(period)}>
+        <Text style={s.bigStat}>{fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}</Text>
+        {period === 'WEEK' ? (
+          <CompareWeek myMinutes={data.focus?.totalFocusMinutes ?? 0} />
+        ) : (
+          <CompareStub />
+        )}
+      </SectionCard>
+    ),
+  });
+
+  // ST2 과목별 공부량 (나) — 총 공부량 바로 아래. 주/월 탭은 도넛(비중), 일 탭은 가로 막대
+  cards.push({
+    key: 'category',
+    node: (
+      <SectionCard key="category" title="과목별 공부량" caption={periodLabel(period)}>
+        {period !== 'DAY' ? (
+          <CategoryDonut
+            items={data.category?.items ?? []}
+            total={data.category?.totalFocusMinutes ?? 0}
+          />
+        ) : (
+          <CategoryBars
+            items={data.category?.items ?? []}
+            total={data.category?.totalFocusMinutes ?? 0}
+          />
+        )}
+      </SectionCard>
+    ),
+  });
+
+  // 타임테이블(일) — 오늘 세션 실데이터, 과목별 공부량 아래(GROMO-761)
+  if (period === 'DAY') {
+    cards.push({
+      key: 'timetable',
+      node: (
+        <SectionCard key="timetable" title="타임테이블" caption="오늘">
+          <FocusTimetable />
+        </SectionCard>
+      ),
+    });
+  }
+
+  // 해당월 주별 공부시간·핸드폰 사용량(월) — 과목별 아래. heatmap 주차 합산 실데이터(GROMO-761)
+  if (period === 'MONTH') {
+    cards.push({
+      key: 'monthWeeklyFocus',
+      node: (
+        <SectionCard key="monthWeeklyFocus" title={`${month}월 주별 공부시간`}>
+          <MonthWeeklyChart pick={pickFocus} color={FOCUS_COLOR} />
+        </SectionCard>
+      ),
+    });
+    cards.push({
+      key: 'monthWeeklyPhone',
+      node: (
+        <SectionCard key="monthWeeklyPhone" title={`${month}월 주별 핸드폰 사용량`}>
+          <MonthWeeklyChart pick={pickScreenTime} color={PHONE_COLOR} />
+        </SectionCard>
+      ),
+    });
+  }
+
+  // ST5·ST6 요일별 집중시간·핸드폰 사용량(주) — 일 탭은 타임테이블이, 월 탭은 'N월 주별'이 대체
+  if (period === 'WEEK') {
+    cards.push({
+      key: 'weekdayFocus',
+      node: (
+        <SectionCard key="weekdayFocus" title="요일별 집중시간" caption={periodLabel(period)}>
+          <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
+            총 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
+          </Text>
+          <LineChart
+            bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
+            color={FOCUS_COLOR}
+          />
+        </SectionCard>
+      ),
+    });
+    cards.push({
+      key: 'weekdayPhone',
+      node: (
+        <SectionCard key="weekdayPhone" title="요일별 핸드폰 사용량" caption={periodLabel(period)}>
+          <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
+            총 {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
+          </Text>
+          <LineChart
+            bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
+            color={PHONE_COLOR}
+          />
+        </SectionCard>
+      ),
+    });
+  }
+
+  // 첫 시작 시각 추이(주·월) — 일별 첫 세션 startedAt 기반(GROMO-762).
+  // 월 탭은 주별 평균값이라 제목에 명시(다른 'N월 ~' 카드와 표기 통일)
+  if (period !== 'DAY') {
+    const firstStartTitle =
+      period === 'WEEK' ? '요일별 첫 집중 시작 시각' : `${month}월 첫 집중 시작 시각 평균`;
+    cards.push({
+      key: 'firstStart',
+      node: (
+        <SectionCard
+          key="firstStart"
+          title={firstStartTitle}
+          caption={period === 'WEEK' ? '이번 주' : undefined}
+        >
+          {/* key로 탭 전환 시 리마운트 — 이전 기간 점이 새 라벨 위에 잠깐 보이는 것 방지 */}
+          <FirstStartChart key={period} period={period} />
+        </SectionCard>
+      ),
+    });
+  }
+
+  // 최장 연속 집중(일·주·월) — 기간 내 최장 세션 기록(GROMO-762)
+  cards.push({
+    key: 'longest',
+    node: (
+      <SectionCard key="longest" title="최장 연속 집중" caption={periodLabel(period)}>
+        <LongestSessionStat key={period} period={period} />
+      </SectionCard>
+    ),
+  });
+
+  // ST3 합격자 비교 — 레이더 티저 + 블러(데이터 준비 중)
+  cards.push({
+    key: 'passer',
+    node: (
+      <SectionCard key="passer" title="합격자와 비교" caption="과목별">
+        <ComingSoon note="합격자 데이터가 쌓이면 보여드릴게요">
+          <PasserCompareChart />
+        </ComingSoon>
+      </SectionCard>
+    ),
+  });
+
+  // ST7 전(前) 대비
+  cards.push({
+    key: 'delta',
+    node: (
+      <SectionCard key="delta" title={`${prevLabel(period)} 대비`}>
+        <DeltaRow
+          label="집중"
+          delta={data.focus?.deltaMinutes ?? 0}
+          base={data.focus?.previousTotalFocusMinutes ?? 0}
+          lowerIsBetter={false}
+        />
+        <DeltaRow
+          label="폰 사용"
+          delta={data.screenTime?.deltaMinutes ?? 0}
+          base={data.screenTime?.previousMinutes ?? 0}
+          lowerIsBetter
+        />
+      </SectionCard>
+    ),
+  });
+
+  // ST8 목표 달성
+  cards.push({
+    key: 'goal',
+    node: (
+      <SectionCard key="goal" title="목표 달성" caption={periodLabel(period)}>
+        <GoalBlock period={period} data={data} />
+      </SectionCard>
+    ),
+  });
+
+  // ST9 공부 잔디 (Streak) — 일 탭에선 숨김(하루 데이터로는 잔디가 무의미)
+  if (period !== 'DAY') {
+    cards.push({
+      key: 'grass',
+      node: (
+        <SectionCard key="grass" title="공부 잔디">
+          <View style={s.streakRow}>
+            <View style={s.streakItem}>
+              <Text style={s.streakValue}>{data.streak?.currentStreak ?? 0}일</Text>
+              <Text style={s.streakLabel}>연속</Text>
+            </View>
+            <View style={s.streakDivider} />
+            <View style={s.streakItem}>
+              <Text style={s.streakValue}>{data.streak?.longestStreak ?? 0}일</Text>
+              <Text style={s.streakLabel}>최장</Text>
+            </View>
+          </View>
+          {/* 주 탭은 월~일 7칸 한 줄, 월 탭은 해당 월 전체 날짜 7칸씩 그리드 */}
+          {period === 'WEEK' ? (
+            <WeekGrassRow cells={data.heatmap} />
+          ) : (
+            <MonthGrassGrid cells={data.heatmap} />
+          )}
+          <Text style={s.grassHint}>공부시간이 많을수록 칸이 진해져요</Text>
+        </SectionCard>
+      ),
+    });
+  }
+
+  // 저장된 순서 적용 — 저장이 없거나 이후 새 카드가 생겼으면 기본 순서에 병합
+  const orderedKeys = mergeCardOrder(
+    cards.map((c) => c.key),
+    cardOrder[period],
+  );
+  const byKey = new Map(cards.map((c) => [c.key, c]));
+  const orderedCards = orderedKeys.flatMap((k) => byKey.get(k) ?? []);
+
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       {/* ── 헤더 ── */}
@@ -91,7 +329,14 @@ export default function StatsScreen() {
           <Ionicons name="chevron-back" size={22} color={T.ink} />
         </TouchableOpacity>
         <Text style={s.headerTitle}>통계</Text>
-        <View style={s.backBtn} />
+        {/* 카드 순서 편집 토글(GROMO-762) — 연필로 진입, 체크로 완료. 순서는 드래그를 놓을 때마다 저장 */}
+        <TouchableOpacity
+          style={s.backBtn}
+          onPress={() => setEditing((v) => !v)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name={editing ? 'checkmark' : 'pencil'} size={20} color={T.ink} />
+        </TouchableOpacity>
       </View>
 
       {/* ── 고정 필터: 기간(일/주/월) — 과목 칩 필터는 제거(과목별 섹션이 전체를 보여줘 중복) ── */}
@@ -113,154 +358,16 @@ export default function StatsScreen() {
         </View>
       </View>
 
-      {firstLoad ? (
+      {firstLoad || !orderLoaded ? (
         <View style={s.loader}>
           <ActivityIndicator color={T.accent} />
         </View>
+      ) : editing ? (
+        // 순서 편집 모드 — 실제 카드 오른쪽 위 핸들을 잡아 카드를 끌어 순서 변경. 탭을 바꾸면 그 탭 순서 편집(탭별 저장)
+        <CardOrderEditor key={period} cards={orderedCards} onReorder={onReorderCards} />
       ) : (
         <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-          {/* ST1 총 공부량 (나) + 비교 — 주간은 리그 랭킹·친구 통계 기반 실비교(GROMO-761), 일/월은 준비중 */}
-          <SectionCard title="총 공부량" caption={periodLabel(period)}>
-            <Text style={s.bigStat}>{fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}</Text>
-            {period === 'WEEK' ? (
-              <CompareWeek myMinutes={data.focus?.totalFocusMinutes ?? 0} />
-            ) : (
-              <CompareStub />
-            )}
-          </SectionCard>
-
-          {/* ST2 과목별 공부량 (나) — 총 공부량 바로 아래. 주/월 탭은 도넛(비중), 일 탭은 가로 막대 */}
-          <SectionCard title="과목별 공부량" caption={periodLabel(period)}>
-            {period !== 'DAY' ? (
-              <CategoryDonut
-                items={data.category?.items ?? []}
-                total={data.category?.totalFocusMinutes ?? 0}
-              />
-            ) : (
-              <CategoryBars
-                items={data.category?.items ?? []}
-                total={data.category?.totalFocusMinutes ?? 0}
-              />
-            )}
-          </SectionCard>
-
-          {/* 타임테이블(일) — 오늘 세션 실데이터, 과목별 공부량 아래(GROMO-761) */}
-          {period === 'DAY' && (
-            <SectionCard title="타임테이블" caption="오늘">
-              <FocusTimetable />
-            </SectionCard>
-          )}
-
-          {/* 해당월 주별 공부시간·핸드폰 사용량(월) — 과목별 아래, 합격자 위. heatmap 주차 합산 실데이터(GROMO-761) */}
-          {period === 'MONTH' && (
-            <>
-              <SectionCard title={`${new Date().getMonth() + 1}월 주별 공부시간`}>
-                <MonthWeeklyChart pick={pickFocus} color={FOCUS_COLOR} />
-              </SectionCard>
-              <SectionCard title={`${new Date().getMonth() + 1}월 주별 핸드폰 사용량`}>
-                <MonthWeeklyChart pick={pickScreenTime} color={PHONE_COLOR} />
-              </SectionCard>
-            </>
-          )}
-
-          {/* ST5 요일별 집중시간(주) — 일 탭은 타임테이블이, 월 탭은 'N월 주별 공부시간'이 대체 */}
-          {period === 'WEEK' && (
-            <SectionCard title="요일별 집중시간" caption={periodLabel(period)}>
-              <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
-                총 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
-              </Text>
-              <LineChart
-                bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
-                color={FOCUS_COLOR}
-              />
-            </SectionCard>
-          )}
-
-          {/* ST6 요일별 핸드폰 사용량(주) — 일 탭은 제거(홈 카드와 중복), 월 탭은 'N월 주별'이 대체 */}
-          {period === 'WEEK' && (
-            <SectionCard title="요일별 핸드폰 사용량" caption={periodLabel(period)}>
-              <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
-                총 {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
-              </Text>
-              <LineChart
-                bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
-                color={PHONE_COLOR}
-              />
-            </SectionCard>
-          )}
-
-          {/* 첫 시작 시각 추이(주·월) — 일별 첫 세션 startedAt 기반. 핸드폰 사용량 아래·합격자 위(GROMO-762).
-              월 탭은 주별 평균값이라 제목에 명시(다른 'N월 ~' 카드와 표기 통일) */}
-          {period !== 'DAY' && (
-            <SectionCard
-              title={
-                period === 'WEEK'
-                  ? '요일별 첫 집중 시작 시각'
-                  : `${new Date().getMonth() + 1}월 첫 집중 시작 시각 평균`
-              }
-              caption={period === 'WEEK' ? '이번 주' : undefined}
-            >
-              {/* key로 탭 전환 시 리마운트 — 이전 기간 점이 새 라벨 위에 잠깐 보이는 것 방지 */}
-              <FirstStartChart key={period} period={period} />
-            </SectionCard>
-          )}
-
-          {/* 최장 연속 집중(일·주·월) — 기간 내 최장 세션 기록. 첫 시작 시각 아래·합격자 위(GROMO-762) */}
-          <SectionCard title="최장 연속 집중" caption={periodLabel(period)}>
-            <LongestSessionStat key={period} period={period} />
-          </SectionCard>
-
-          {/* ST3 합격자 비교 — 모든 탭에서 핸드폰 사용량 아래 배치. 레이더 티저 + 블러(데이터 준비 중) */}
-          <SectionCard title="합격자와 비교" caption="과목별">
-            <ComingSoon note="합격자 데이터가 쌓이면 보여드릴게요">
-              <PasserCompareChart />
-            </ComingSoon>
-          </SectionCard>
-
-          {/* ST7 전(前) 대비 */}
-          <SectionCard title={`${prevLabel(period)} 대비`}>
-            <DeltaRow
-              label="집중"
-              delta={data.focus?.deltaMinutes ?? 0}
-              base={data.focus?.previousTotalFocusMinutes ?? 0}
-              lowerIsBetter={false}
-            />
-            <DeltaRow
-              label="폰 사용"
-              delta={data.screenTime?.deltaMinutes ?? 0}
-              base={data.screenTime?.previousMinutes ?? 0}
-              lowerIsBetter
-            />
-          </SectionCard>
-
-          {/* ST8 목표 달성 */}
-          <SectionCard title="목표 달성" caption={periodLabel(period)}>
-            <GoalBlock period={period} data={data} />
-          </SectionCard>
-
-          {/* ST9 공부 잔디 (Streak) — 일 탭에선 숨김(하루 데이터로는 잔디가 무의미) */}
-          {period !== 'DAY' && (
-            <SectionCard title="공부 잔디">
-              <View style={s.streakRow}>
-                <View style={s.streakItem}>
-                  <Text style={s.streakValue}>{data.streak?.currentStreak ?? 0}일</Text>
-                  <Text style={s.streakLabel}>연속</Text>
-                </View>
-                <View style={s.streakDivider} />
-                <View style={s.streakItem}>
-                  <Text style={s.streakValue}>{data.streak?.longestStreak ?? 0}일</Text>
-                  <Text style={s.streakLabel}>최장</Text>
-                </View>
-              </View>
-              {/* 주 탭은 월~일 7칸 한 줄, 월 탭은 해당 월 전체 날짜 7칸씩 그리드 */}
-              {period === 'WEEK' ? (
-                <WeekGrassRow cells={data.heatmap} />
-              ) : (
-                <MonthGrassGrid cells={data.heatmap} />
-              )}
-              <Text style={s.grassHint}>공부시간이 많을수록 칸이 진해져요</Text>
-            </SectionCard>
-          )}
+          {orderedCards.map((c) => c.node)}
         </ScrollView>
       )}
     </SafeAreaView>
