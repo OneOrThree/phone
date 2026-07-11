@@ -21,13 +21,13 @@ import {
 } from '@/services/compareAverages';
 import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
-import { fetchTodayFocusSessions } from '@/screens/focus/focusRestore';
-import { getFocusSessions, getFocusTags } from '@/services/focusApi';
+import { fetchTodayFocusSessions, sessionFocusSeconds } from '@/screens/focus/focusRestore';
+import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
 import type { FocusSessionResponse } from '@/types/dto/focus';
 import { getHeatmap } from '@/services/statsApi';
 import { useSubjects } from '@/store/SubjectContext';
 import { localDateStr, todayStr } from '@/utils/localDate';
-import { fmtMinutes, axisCeil, fmtAxis } from '@/utils/timeFormat';
+import { fmtMinutes, axisCeil, fmtAxis, hms } from '@/utils/timeFormat';
 import {
   PERIOD_TABS,
   periodLabel,
@@ -45,7 +45,7 @@ import {
 } from './stats/format';
 
 // v2 내 통계 화면(GROMO-604) — 홈 '오늘' 카드의 '자세히'에서 진입.
-// 상단 고정 필터(기간 일/주/월) 아래로 ST1~ST9 지표 스크롤. 과목 칩 필터는 제거(GROMO-761 — 과목별 섹션과 중복).
+// 상단 고정 필터(기간 일/주/월) 아래로 ST1~ST9 지표 스크롤.
 // 실데이터: 집중시간·폰사용·전대비·목표달성·잔디·총공부량(나)·과목별(나).
 // 준비 중: 비교(친구/전체/같은 카테고리)·합격자·주별 누적 — 소스 미비로 스텁.
 
@@ -204,6 +204,11 @@ export default function StatsScreen() {
               <FirstStartChart key={period} period={period} />
             </SectionCard>
           )}
+
+          {/* 최장 연속 집중(일·주·월) — 기간 내 최장 세션 기록. 첫 시작 시각 아래·합격자 위(GROMO-762) */}
+          <SectionCard title="최장 연속 집중" caption={periodLabel(period)}>
+            <LongestSessionStat key={period} period={period} />
+          </SectionCard>
 
           {/* ST3 합격자 비교 — 모든 탭에서 핸드폰 사용량 아래 배치. 레이더 티저 + 블러(데이터 준비 중) */}
           <SectionCard title="합격자와 비교" caption="과목별">
@@ -803,24 +808,10 @@ function FirstStartChart({ period }: { period: StatsPeriod }) {
         const dow = from.getDay(); // 0=일..6=토
         from.setDate(from.getDate() - (dow === 0 ? 6 : dow - 1));
         from.setHours(0, 0, 0, 0);
-        const all: FocusSessionResponse[] = [];
-        try {
-          let cursor: string | undefined;
-          // 커서 페이지네이션 — 한 달치 세션이 이 상한을 넘을 일은 없고, 무한 루프만 방지
-          for (let page = 0; page < 10; page++) {
-            const slice = await getFocusSessions(
-              from.toISOString(),
-              new Date().toISOString(),
-              100,
-              cursor,
-            );
-            all.push(...slice.content);
-            if (!slice.hasNext || !slice.nextCursor) break;
-            cursor = slice.nextCursor;
-          }
-        } catch {
-          // 조회 실패 → 빈 차트("아직 기록이 없어요")로 표시
-        }
+        // 조회 실패 → 빈 차트("아직 기록이 없어요")로 표시
+        const all = await getAllFocusSessions(from.toISOString(), new Date().toISOString()).catch(
+          () => [] as FocusSessionResponse[],
+        );
         if (cancelled) return;
         setPoints(firstStartPoints(period, dailyFirstStartMinutes(all)));
       })();
@@ -907,6 +898,67 @@ function FirstStartChart({ period }: { period: StatsPeriod }) {
         </View>
       </View>
       <Text style={s.grassHint}>그날 처음 집중을 시작한 시각 · 위로 갈수록 이른 시각이에요</Text>
+    </View>
+  );
+}
+
+// 최장 연속 집중(일·주·월) — 기간 내 가장 긴 세션(endedAt−startedAt, 방해시간 미차감)을 HH:MM:SS로.
+// 기간 귀속은 앱의 '오늘' 규칙(홈 정산·타임테이블)과 동일하게 종료 시점 기준 — 기간 시작 하루 전부터
+// 받아 endedAt으로 거른다. 월은 이달 1일부터('N월 주별'류의 주 정렬과 달리 달 자체의 기록이라 1일 기준).
+function LongestSessionStat({ period }: { period: StatsPeriod }) {
+  const [seconds, setSeconds] = useState<number | null>(null); // null=로딩 · 0=기록 없음
+
+  // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 방금 세션이 반영(타임테이블과 동일 패턴)
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        let sessions: FocusSessionResponse[];
+        if (period === 'DAY') {
+          sessions = await fetchTodayFocusSessions().catch(() => []);
+        } else {
+          // 기간 시작(로컬 자정): 주=이번 주 월요일, 월=이달 1일
+          const now = new Date();
+          const dow = now.getDay(); // 0=일..6=토
+          const start =
+            period === 'WEEK'
+              ? new Date(
+                  now.getFullYear(),
+                  now.getMonth(),
+                  now.getDate() + (dow === 0 ? -6 : 1 - dow),
+                )
+              : new Date(now.getFullYear(), now.getMonth(), 1);
+          // 자정 걸친 세션 포함 위해 하루 전부터 받아 endedAt으로 거른다(fetchTodayFocusSessions와 동일 방식)
+          const from = new Date(start);
+          from.setDate(from.getDate() - 1);
+          const all = await getAllFocusSessions(from.toISOString(), now.toISOString()).catch(
+            () => [] as FocusSessionResponse[],
+          );
+          sessions = all.filter((x) => Date.parse(x.endedAt) >= start.getTime());
+        }
+        if (cancelled) return;
+        setSeconds(sessions.reduce((mx, x) => Math.max(mx, sessionFocusSeconds(x)), 0));
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [period]),
+  );
+
+  if (seconds === null) {
+    return (
+      <View style={s.compareLoading}>
+        <ActivityIndicator color={T.accent} size="small" />
+      </View>
+    );
+  }
+  if (seconds <= 0) {
+    return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
+  }
+  return (
+    <View>
+      <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>{hms(seconds)}</Text>
+      <Text style={s.grassHint}>한 번에 가장 오래 이어간 집중 세션이에요</Text>
     </View>
   );
 }

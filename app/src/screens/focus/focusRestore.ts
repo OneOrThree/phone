@@ -3,7 +3,7 @@
 // endedAt - startedAt = 그 블록의 집중초. '오늘' 판정은 로컬 정산과 동일하게 종료 시점 기준 —
 // 서버 조회(/focus-session)는 startedAt 필터라 자정 걸친 세션이 잘리므로, 어제 자정부터
 // 받아와 endedAt이 오늘(로컬 자정 이후)인 것만 남긴다(리뷰 반영).
-import { getFocusSessions } from '@/services/focusApi';
+import { getAllFocusSessions } from '@/services/focusApi';
 import type { FocusSessionResponse } from '@/types/dto/focus';
 
 export async function fetchTodayFocusSessions(): Promise<FocusSessionResponse[]> {
@@ -11,17 +11,7 @@ export async function fetchTodayFocusSessions(): Promise<FocusSessionResponse[]>
   midnight.setHours(0, 0, 0, 0);
   const fromDate = new Date(midnight);
   fromDate.setDate(fromDate.getDate() - 1);
-  const from = fromDate.toISOString();
-  const to = new Date().toISOString();
-  const all: FocusSessionResponse[] = [];
-  let cursor: string | undefined;
-  // 커서 페이지네이션 — 이틀치 세션이 이 상한을 넘을 일은 없고, 무한 루프만 방지
-  for (let page = 0; page < 10; page++) {
-    const slice = await getFocusSessions(from, to, 100, cursor);
-    all.push(...slice.content);
-    if (!slice.hasNext || !slice.nextCursor) break;
-    cursor = slice.nextCursor;
-  }
+  const all = await getAllFocusSessions(fromDate.toISOString(), new Date().toISOString());
   return all.filter((s) => Date.parse(s.endedAt) >= midnight.getTime());
 }
 
