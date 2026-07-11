@@ -20,7 +20,7 @@ import {
 } from '@/services/compareAverages';
 import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
-import { fmtMinutes } from '@/utils/timeFormat';
+import { fmtMinutes, axisCeil, fmtAxis } from '@/utils/timeFormat';
 import {
   PERIOD_TABS,
   periodLabel,
@@ -62,6 +62,9 @@ export default function StatsScreen() {
   };
 
   const firstLoad = loading && data.focus === null && data.heatmap.length === 0;
+
+  // 차트 제목의 단위 라벨 — 막대 구성과 일치(일=오늘 단일, 주=요일별, 월=주차별 합산; heatmapBars 참고)
+  const granularity = period === 'DAY' ? '오늘' : period === 'WEEK' ? '요일별' : '주차별';
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
@@ -131,8 +134,8 @@ export default function StatsScreen() {
             </ComingSoon>
           </SectionCard>
 
-          {/* ST5 포커스 집중시간 */}
-          <SectionCard title="포커스 집중시간" caption={periodLabel(period)}>
+          {/* ST5 집중시간 차트 — 제목은 기간 단위 따라(오늘/요일별/주차별) */}
+          <SectionCard title={`${granularity} 집중시간`} caption={periodLabel(period)}>
             <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
               {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
             </Text>
@@ -142,8 +145,8 @@ export default function StatsScreen() {
             />
           </SectionCard>
 
-          {/* ST6 폰 사용량 */}
-          <SectionCard title="폰 사용량" caption="집중 시간과 대비돼요">
+          {/* ST6 핸드폰 사용량 차트 — 제목은 기간 단위 따라(오늘/요일별/주차별) */}
+          <SectionCard title={`${granularity} 핸드폰 사용량`} caption={periodLabel(period)}>
             <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
               {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
             </Text>
@@ -174,22 +177,24 @@ export default function StatsScreen() {
             <GoalBlock period={period} data={data} />
           </SectionCard>
 
-          {/* ST9 공부 잔디 (Streak) */}
-          <SectionCard title="공부 잔디">
-            <View style={s.streakRow}>
-              <View style={s.streakItem}>
-                <Text style={s.streakValue}>{data.streak?.currentStreak ?? 0}일</Text>
-                <Text style={s.streakLabel}>연속</Text>
+          {/* ST9 공부 잔디 (Streak) — 일 탭에선 숨김(하루 데이터로는 잔디가 무의미) */}
+          {period !== 'DAY' && (
+            <SectionCard title="공부 잔디">
+              <View style={s.streakRow}>
+                <View style={s.streakItem}>
+                  <Text style={s.streakValue}>{data.streak?.currentStreak ?? 0}일</Text>
+                  <Text style={s.streakLabel}>연속</Text>
+                </View>
+                <View style={s.streakDivider} />
+                <View style={s.streakItem}>
+                  <Text style={s.streakValue}>{data.streak?.longestStreak ?? 0}일</Text>
+                  <Text style={s.streakLabel}>최장</Text>
+                </View>
               </View>
-              <View style={s.streakDivider} />
-              <View style={s.streakItem}>
-                <Text style={s.streakValue}>{data.streak?.longestStreak ?? 0}일</Text>
-                <Text style={s.streakLabel}>최장</Text>
-              </View>
-            </View>
-            <GrassGrid cells={data.heatmap} />
-            <Text style={s.grassHint}>공부시간이 많은 날일수록 칸이 진해져요</Text>
-          </SectionCard>
+              <GrassGrid cells={data.heatmap} />
+              <Text style={s.grassHint}>공부시간이 많을수록 칸이 진해져요</Text>
+            </SectionCard>
+          )}
         </ScrollView>
       )}
     </SafeAreaView>
@@ -407,27 +412,44 @@ function BarChart({ bars, color }: { bars: StatBar[]; color: string }) {
   if (bars.length === 0) {
     return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
   }
-  const max = Math.max(...bars.map((b) => b.value), 1);
+  // 세로축 상한 — 보기 좋은 값으로 올림하고 막대도 같은 기준으로 정규화해 눈금과 일치(GROMO-761)
+  const axisMax = axisCeil(Math.max(...bars.map((b) => b.value), 1));
   return (
-    <View style={s.chart}>
-      {bars.map((b, i) => {
-        const h = Math.max((b.value / max) * CHART_H, 3);
-        return (
-          <View key={`${b.label}-${i}`} style={s.barCol}>
-            <View style={s.barTrack}>
-              <View
-                style={[
-                  s.bar,
-                  { height: h, backgroundColor: color, opacity: b.current ? 1 : 0.32 },
-                ]}
-              />
-            </View>
-            <Text style={[s.barLabel, b.current ? { color, fontWeight: '800' } : null]}>
-              {b.label}
-            </Text>
-          </View>
-        );
-      })}
+    <View style={s.chartPlotRow}>
+      {/* 세로축 — 상한·절반 눈금 라벨 (그리드라인 높이에 맞춰 절대 배치) */}
+      <View style={s.chartAxisCol}>
+        <Text style={[s.chartAxisLabel, s.chartAxisTop]} allowFontScaling={false}>
+          {fmtAxis(axisMax)}
+        </Text>
+        <Text style={[s.chartAxisLabel, s.chartAxisMid]} allowFontScaling={false}>
+          {fmtAxis(axisMax / 2)}
+        </Text>
+      </View>
+      <View style={s.chartPlot}>
+        <View style={[s.chartGridLine, s.chartGridTop]} />
+        <View style={[s.chartGridLine, s.chartGridMid]} />
+        <View style={[s.chartGridLine, s.chartGridBottom]} />
+        <View style={s.chart}>
+          {bars.map((b, i) => {
+            const h = Math.max((b.value / axisMax) * CHART_H, 3);
+            return (
+              <View key={`${b.label}-${i}`} style={s.barCol}>
+                <View style={s.barTrack}>
+                  <View
+                    style={[
+                      s.bar,
+                      { height: h, backgroundColor: color, opacity: b.current ? 1 : 0.32 },
+                    ]}
+                  />
+                </View>
+                <Text style={[s.barLabel, b.current ? { color, fontWeight: '800' } : null]}>
+                  {b.label}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      </View>
     </View>
   );
 }
@@ -657,7 +679,29 @@ const s = StyleSheet.create({
   stubNote: { ...T.text.body, color: T.inkMuted },
 
   // 막대 차트
-  chart: { flexDirection: 'row', alignItems: 'flex-end', marginTop: 14, gap: 6 },
+  chartPlotRow: { flexDirection: 'row', marginTop: 14 },
+  chartAxisCol: { width: 36, height: CHART_H },
+  chartAxisLabel: {
+    ...T.text.caption,
+    position: 'absolute',
+    right: 6,
+    fontSize: 9,
+    color: T.inkMuted,
+  },
+  chartAxisTop: { top: -5 },
+  chartAxisMid: { top: CHART_H / 2 - 5 },
+  chartPlot: { flex: 1 },
+  chartGridLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: T.paperAlt,
+  },
+  chartGridTop: { top: 0 },
+  chartGridMid: { top: CHART_H / 2 },
+  chartGridBottom: { top: CHART_H },
+  chart: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
   barCol: { flex: 1, alignItems: 'center', gap: 8 },
   barTrack: { height: CHART_H, justifyContent: 'flex-end' },
   bar: { width: 16, borderRadius: 6 },

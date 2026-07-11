@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { axisCeil, fmtAxis } from '@/utils/timeFormat';
 import type { CompareByDay } from '../mock';
 
 // 요일별 나/상대 이중 막대 카드 — 프로필 상세의 집중시간·폰 사용시간 비교 공용(색만 교체).
@@ -16,20 +17,6 @@ interface Props {
 const DAYS = ['월', '화', '수', '목', '금', '토', '일'];
 // 막대 영역 높이(시안 72px)
 const AREA_H = 72;
-
-// 세로축 상한 — 최대치를 보기 좋은 값으로 올림해 눈금·막대 정규화 기준으로 쓴다(절반 눈금도 정수 분).
-const AXIS_STEPS = [30, 60, 120, 180, 240, 300, 360, 480, 600, 720];
-function axisCeil(maxMinutes: number): number {
-  return AXIS_STEPS.find((step) => step >= maxMinutes) ?? Math.ceil(maxMinutes / 120) * 120;
-}
-
-// 분 → 축 라벨 ("30m" / "1h" / "1h30m")
-function fmtAxis(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m === 0 ? `${h}h` : `${h}h${m}m`;
-}
 
 export function DuoDayChart({ title, data, mineColor, theirsColor, opponentName }: Props) {
   const axisMax = axisCeil(Math.max(...data.mine, ...data.theirs, 1));
