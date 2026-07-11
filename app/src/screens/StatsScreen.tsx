@@ -22,7 +22,9 @@ import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
 import { fetchTodayFocusSessions } from '@/screens/focus/focusRestore';
 import { getFocusTags } from '@/services/focusApi';
+import { getHeatmap } from '@/services/statsApi';
 import { useSubjects } from '@/store/SubjectContext';
+import { localDateStr, todayStr } from '@/utils/localDate';
 import { fmtMinutes, axisCeil, fmtAxis } from '@/utils/timeFormat';
 import {
   PERIOD_TABS,
@@ -139,8 +141,14 @@ export default function StatsScreen() {
             </ComingSoon>
           </SectionCard>
 
-          {/* ST4 주별 누적 공부 비율(주/월) — 일 탭은 타임테이블이 총 공부량 아래로 대체 */}
-          {period !== 'DAY' && (
+          {/* ST4 — 주 탭은 이번 달 주별 공부시간(heatmap 주차 합산 실데이터), 월 탭은 누적 티저 유지.
+              일 탭은 타임테이블이 총 공부량 아래로 대체 */}
+          {period === 'WEEK' && (
+            <SectionCard title={`${new Date().getMonth() + 1}월 주별 공부시간`}>
+              <MonthWeeklyFocus />
+            </SectionCard>
+          )}
+          {period === 'MONTH' && (
             <SectionCard title="주별 누적 공부 비율">
               <ComingSoon note="주별 누적 비율을 준비하고 있어요">
                 <WeeklyCumulativeChart />
@@ -406,7 +414,60 @@ function PasserCompareChart() {
   );
 }
 
-// ST4 티저 — 1주~4주 누적 상승 막대(시안 레이아웃). 데이터는 표시용 고정값.
+// ST4(주) 해당월 주별 공부시간 — 이달 1일이 낀 주(월~일)의 월요일부터 오늘까지 heatmap을
+// 달력 주 단위로 합산, 가로축은 실제 날짜 구간(예: 6/29~7/5)으로 표기. 전용 집계 API 없이
+// 파생 계산(GROMO-761). 이번 주 막대는 강조(current).
+function MonthWeeklyFocus() {
+  const [bars, setBars] = useState<StatBar[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const now = new Date();
+      const monthFirst = new Date(now.getFullYear(), now.getMonth(), 1);
+      // 이달 1일이 속한 주의 월요일 — 첫 주가 전월에 걸치면 전월 날짜부터 시작(예: 7월 첫 주 = 6/29~7/5)
+      const dow = monthFirst.getDay(); // 0=일..6=토
+      const weekStart0 = new Date(monthFirst);
+      weekStart0.setDate(monthFirst.getDate() - (dow === 0 ? 6 : dow - 1));
+      const cells = await getHeatmap(localDateStr(weekStart0), todayStr()).catch(
+        () => [] as HeatmapCellResponse[],
+      );
+      if (cancelled) return;
+      const startMs = weekStart0.getTime();
+      const weekCount = Math.floor((now.getTime() - startMs) / (7 * 86400e3)) + 1;
+      const sums: number[] = new Array(weekCount).fill(0);
+      for (const c of cells) {
+        const [y, m, d] = c.date.split('-').map(Number);
+        const idx = Math.floor((new Date(y, m - 1, d).getTime() - startMs) / (7 * 86400e3));
+        if (idx >= 0 && idx < weekCount) sums[idx] += c.totalFocusMinutes;
+      }
+      const fmt = (dt: Date) => `${dt.getMonth() + 1}/${dt.getDate()}`;
+      setBars(
+        sums.map((v, i) => {
+          const ws = new Date(weekStart0);
+          ws.setDate(weekStart0.getDate() + i * 7);
+          const we = new Date(ws);
+          we.setDate(ws.getDate() + 6);
+          return { label: `${fmt(ws)}~${fmt(we)}`, value: v, current: i === weekCount - 1 };
+        }),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (bars === null) {
+    return (
+      <View style={s.compareLoading}>
+        <ActivityIndicator color={T.accent} size="small" />
+      </View>
+    );
+  }
+  return <BarChart bars={bars} color={FOCUS_COLOR} />;
+}
+
+// ST4 티저(월) — 1주~4주 누적 상승 막대(시안 레이아웃). 데이터는 표시용 고정값.
 const CUMULATIVE = [28, 52, 74, 100];
 
 function WeeklyCumulativeChart() {
