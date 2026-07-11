@@ -62,24 +62,29 @@ flowchart TB
   WF -->|job| RVM
   RVM --> WIF
   RVM --> MT
+  RVM -.->|gh-app · 러너 등록| SM
   LOCAL -.->|랩탑에서 직접| MT
-  MT -.->|creds| SM
   MT -->|make image| AR
   MT -.->|params| GCS
 
-  MT ==>|① up: SQL·VM 기동| SQL
-  MT ==> OBS
-  MT ==>|③ SUT app| SUTV
-  MT ==>|④ loadgen up| LG
+  MT ==>|up: SQL·VM 기동| SQL
+  MT ==>|obs 기동·관측 up| OBS
+  MT ==>|SUT app| SUTV
+  MT ==>|loadgen up| LG
 
-  LG -->|⑤ k6 부하 :8080| SUTV
+  SUTV -.->|db·jwt · fetch-env| SM
+  OBS -.->|db · fetch-env| SM
+
+  LG -->|k6 부하 :8080| SUTV
   LG -->|k6 metrics| OBS
   OBS -.->|스크레이프| SUTV
   OBS -.->|스크레이프| LG
   OBS -.->|pg-exporter| SQL
 
-  MT -->|⑦ verdict·리포트| RPT
-  OBS -.->|IAP 터널| DASH
+  MT -->|verdict·리포트| RPT
+
+  DEV["개발자 브라우저<br/>localhost:3000"]
+  OBS -.->|IAP 터널 · make grafana| DEV
 ```
 
 ### make test 런타임 순서
