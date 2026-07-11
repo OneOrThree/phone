@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,11 +12,12 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { StatsPeriod, HeatmapCellResponse } from '@/types/dto/stats';
+import { logStatsViewed, logStatsPeriodChanged } from '@/services/analyticsEvents';
 import {
-  logStatsViewed,
-  logStatsPeriodChanged,
-  logStatsTagFilterSelected,
-} from '@/services/analyticsEvents';
+  fetchGlobalAverage,
+  fetchCategoryAverage,
+  fetchFriendsAverage,
+} from '@/services/compareAverages';
 import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
 import {
@@ -32,7 +33,7 @@ import {
 } from './stats/format';
 
 // v2 내 통계 화면(GROMO-604) — 홈 '오늘' 카드의 '자세히'에서 진입.
-// 상단 고정 필터(기간 일/주/월 + 과목) 아래로 ST1~ST9 지표 스크롤.
+// 상단 고정 필터(기간 일/주/월) 아래로 ST1~ST9 지표 스크롤. 과목 칩 필터는 제거(GROMO-761 — 과목별 섹션과 중복).
 // 실데이터: 집중시간·폰사용·전대비·목표달성·잔디·총공부량(나)·과목별(나).
 // 준비 중: 비교(친구/전체/같은 카테고리)·합격자·주별 누적 — 소스 미비로 스텁.
 
@@ -42,12 +43,9 @@ const GRASS = T.grass;
 const FOCUS_COLOR = T.greenDeep;
 const PHONE_COLOR = T.accent;
 
-type TagFilter = 'ALL' | string; // 'ALL' | tagId
-
 export default function StatsScreen() {
   const navigation = useNavigation();
   const [period, setPeriod] = useState<StatsPeriod>('WEEK');
-  const [tag, setTag] = useState<TagFilter>('ALL');
   const { data, loading } = useStatsData(period);
 
   // 화면 진입(포커스마다 1회) 로깅.
@@ -63,12 +61,6 @@ export default function StatsScreen() {
     logStatsPeriodChanged({ period: periodKey(p) });
   };
 
-  const onTag = (id: TagFilter) => {
-    if (id === tag) return;
-    setTag(id);
-    logStatsTagFilterSelected({ is_all: id === 'ALL' });
-  };
-
   const firstLoad = loading && data.focus === null && data.heatmap.length === 0;
 
   return (
@@ -82,7 +74,7 @@ export default function StatsScreen() {
         <View style={s.backBtn} />
       </View>
 
-      {/* ── 고정 필터: 기간 + 과목 ── */}
+      {/* ── 고정 필터: 기간(일/주/월) — 과목 칩 필터는 제거(과목별 섹션이 전체를 보여줘 중복) ── */}
       <View style={s.filters}>
         <View style={s.segment}>
           {PERIOD_TABS.map((t) => {
@@ -99,21 +91,6 @@ export default function StatsScreen() {
             );
           })}
         </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={s.tagRow}
-        >
-          <TagChip label="전체" on={tag === 'ALL'} onPress={() => onTag('ALL')} />
-          {data.tags.map((t) => (
-            <TagChip
-              key={t.tagId}
-              label={t.name}
-              on={tag === t.tagId}
-              onPress={() => onTag(t.tagId)}
-            />
-          ))}
-        </ScrollView>
       </View>
 
       {firstLoad ? (
@@ -122,10 +99,14 @@ export default function StatsScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-          {/* ST1 총 공부량 (나) + 비교 준비중 */}
+          {/* ST1 총 공부량 (나) + 비교 — 주간은 리그 랭킹·친구 통계 기반 실비교(GROMO-761), 일/월은 준비중 */}
           <SectionCard title="총 공부량" caption={periodLabel(period)}>
             <Text style={s.bigStat}>{hm(data.focus?.totalFocusMinutes ?? 0)}</Text>
-            <CompareStub />
+            {period === 'WEEK' ? (
+              <CompareWeek myMinutes={data.focus?.totalFocusMinutes ?? 0} />
+            ) : (
+              <CompareStub />
+            )}
           </SectionCard>
 
           {/* ST2 과목별 공부량 (나) */}
@@ -133,7 +114,6 @@ export default function StatsScreen() {
             <CategoryBars
               items={data.category?.items ?? []}
               total={data.category?.totalFocusMinutes ?? 0}
-              selectedTag={tag}
             />
           </SectionCard>
 
@@ -218,16 +198,6 @@ export default function StatsScreen() {
 
 // ── 서브 컴포넌트 ──
 
-function TagChip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
-  return (
-    <TouchableOpacity style={[s.chip, on ? s.chipOn : null]} onPress={onPress} activeOpacity={0.8}>
-      <Text style={[s.chipText, on ? s.chipTextOn : null]} numberOfLines={1}>
-        {label}
-      </Text>
-    </TouchableOpacity>
-  );
-}
-
 function SectionCard({
   title,
   caption,
@@ -248,7 +218,104 @@ function SectionCard({
   );
 }
 
-// ST1 비교 자리 — 실그래프(나 vs 평균 수평 바) + 블러 티저. 소스 붙으면 블러만 걷어낸다.
+// ST1 비교(주간 실데이터) — 전체/같은 카테고리는 리그 랭킹(주간 아레나 집계) 평균, 친구는 친구별
+// 주간 집중 합계 평균(compareAverages 공용 헬퍼). 리그가 주간 집계라 '주' 탭에서만 유효 —
+// 일/월은 서버 평균 집계 API(be-요청사항 5번) 전까지 CompareStub(준비중) 유지 (GROMO-761).
+function CompareWeek({ myMinutes }: { myMinutes: number }) {
+  const [axis, setAxis] = useState<'FRIENDS' | 'ALL' | 'CATEGORY'>('ALL');
+  const [loaded, setLoaded] = useState(false);
+  const [avgs, setAvgs] = useState<{
+    global: number | null;
+    category: { avg: number | null; label: string | null };
+    friends: { avg: number | null; count: number };
+  }>({ global: null, category: { avg: null, label: null }, friends: { avg: null, count: 0 } });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [global, category, friends] = await Promise.all([
+        fetchGlobalAverage(),
+        fetchCategoryAverage(),
+        fetchFriendsAverage('WEEK'),
+      ]);
+      if (cancelled) return;
+      setAvgs({ global, category, friends });
+      setLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const AXES = [
+    { key: 'FRIENDS', label: '친구' },
+    { key: 'ALL', label: '전체' },
+    { key: 'CATEGORY', label: '같은 카테고리' },
+  ] as const;
+  const avg =
+    axis === 'ALL' ? avgs.global : axis === 'FRIENDS' ? avgs.friends.avg : avgs.category.avg;
+  const avgLabel =
+    axis === 'ALL'
+      ? '전체 평균'
+      : axis === 'FRIENDS'
+        ? '친구 평균'
+        : `${avgs.category.label ?? '같은 카테고리'} 평균`;
+  // 축별 빈 상태 안내 — 친구 없음/준비 시험 미설정은 원인을 알려주고, 그 외엔 조회 실패로 안내.
+  const emptyNote =
+    axis === 'FRIENDS' && avgs.friends.count === 0
+      ? '아직 친구가 없어요'
+      : axis === 'CATEGORY' && !avgs.category.label
+        ? '준비 시험을 설정하면 비교할 수 있어요'
+        : '비교 데이터를 불러오지 못했어요';
+  const denom = Math.max(myMinutes, avg ?? 0, 1);
+
+  return (
+    <View style={s.compare}>
+      <View style={s.compareChips}>
+        {AXES.map((a) => (
+          <TouchableOpacity
+            key={a.key}
+            style={[s.compareChip, axis === a.key ? s.compareChipOn : null]}
+            onPress={() => setAxis(a.key)}
+            activeOpacity={0.8}
+          >
+            <Text style={[s.compareChipText, axis === a.key ? s.compareChipTextOn : null]}>
+              {a.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      {!loaded ? (
+        <View style={s.compareLoading}>
+          <ActivityIndicator color={T.accent} size="small" />
+        </View>
+      ) : avg == null ? (
+        <Text style={s.emptyText}>{emptyNote}</Text>
+      ) : (
+        <View style={s.teaserPad}>
+          <View style={s.teaserRowHead}>
+            <Text style={s.teaserLabelMine}>나</Text>
+            <Text style={s.teaserValueMine}>{hm(myMinutes)}</Text>
+          </View>
+          <View style={s.teaserTrack}>
+            <View
+              style={[s.teaserFill, s.teaserFillMine, { width: `${(myMinutes / denom) * 100}%` }]}
+            />
+          </View>
+          <View style={[s.teaserRowHead, s.teaserRowGap]}>
+            <Text style={s.teaserLabel}>{avgLabel}</Text>
+            <Text style={s.teaserValue}>{hm(avg)}</Text>
+          </View>
+          <View style={s.teaserTrack}>
+            <View style={[s.teaserFill, s.teaserFillAvg, { width: `${(avg / denom) * 100}%` }]} />
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ST1 비교 자리(일/월) — 실그래프(나 vs 평균 수평 바) + 블러 티저. 서버 평균 API가 붙으면 걷어낸다.
 function CompareStub() {
   return (
     <View style={s.compare}>
@@ -368,11 +435,9 @@ function BarChart({ bars, color }: { bars: StatBar[]; color: string }) {
 function CategoryBars({
   items,
   total,
-  selectedTag,
 }: {
   items: { tagId: string | null; tagName: string | null; totalFocusMinutes: number }[];
   total: number;
-  selectedTag: TagFilter;
 }) {
   if (items.length === 0) {
     return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
@@ -383,9 +448,8 @@ function CategoryBars({
       {items.map((it, i) => {
         const pct = Math.round((it.totalFocusMinutes / denom) * 100);
         const color = T.subjectPalette[i % T.subjectPalette.length];
-        const active = selectedTag === 'ALL' || selectedTag === it.tagId;
         return (
-          <View key={it.tagId ?? `untagged-${i}`} style={[s.catRow, active ? null : s.catRowDim]}>
+          <View key={it.tagId ?? `untagged-${i}`} style={s.catRow}>
             <View style={s.catHead}>
               <Text style={s.catName} numberOfLines={1}>
                 {it.tagName ?? '미분류'}
@@ -515,19 +579,6 @@ const s = StyleSheet.create({
   segText: { ...T.text.label, color: T.inkMuted },
   segTextOn: { color: T.ink },
 
-  tagRow: { flexDirection: 'row', gap: 8, paddingRight: 18 },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: T.chipBg,
-    borderWidth: 1,
-    borderColor: T.chipBorder,
-  },
-  chipOn: { backgroundColor: T.accent, borderColor: T.accent },
-  chipText: { ...T.text.caption, color: T.inkSub, maxWidth: 120 },
-  chipTextOn: { color: T.white },
-
   loader: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scroll: { paddingHorizontal: 18, paddingBottom: 40, gap: 14 },
 
@@ -553,6 +604,7 @@ const s = StyleSheet.create({
 
   // ST1 비교 스텁
   compare: { marginTop: 14, gap: 8 },
+  compareLoading: { paddingVertical: 20, alignItems: 'center' },
   // 준비 중 티저 공용(가짜 차트) 스타일
   teaserPad: { paddingVertical: 4 },
   teaserRowHead: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
@@ -613,7 +665,6 @@ const s = StyleSheet.create({
   // 과목별 비율 바
   catList: { gap: 12 },
   catRow: { gap: 6 },
-  catRowDim: { opacity: 0.4 },
   catHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   catName: { ...T.text.label, color: T.ink, flex: 1, marginRight: 8 },
   catValue: { ...T.text.label, color: T.inkSub },
