@@ -7,6 +7,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Share,
+  Platform,
 } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -31,6 +32,7 @@ import { fetchTodayFocusSessions, sessionFocusSeconds } from '@/screens/focus/fo
 import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
 import type { FocusSessionResponse } from '@/types/dto/focus';
 import { getHeatmap } from '@/services/statsApi';
+import { useFocus } from '@/store/FocusContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { localDateStr, todayStr } from '@/utils/localDate';
 import { fmtMinutes, axisCeil, fmtAxis, hms } from '@/utils/timeFormat';
@@ -73,6 +75,9 @@ export default function StatsScreen() {
   const { data, loading } = useStatsData(period);
   // 일 탭 과목별 카드 — 집중 세션 메뉴 드로어와 동일한 로컬 오늘 누적(SubjectContext) 사용
   const { subjects } = useSubjects();
+  // 일 탭 총계도 같은 로컬 소스(홈·드로어와 동일) — 서버 집계(data.focus)는 업로드 지연·재시도 중이면
+  // 과목별 합보다 낮게 보여 카드끼리 어긋난다(리뷰 반영)
+  const { todayFocusSeconds } = useFocus();
   const [editing, setEditing] = useState(false);
   // 카드 순서(탭별, GROMO-762) — AsyncStorage에서 로드, 드래그 확정 시마다 저장.
   // 로드 완료 전에 그리면 기본 순서가 잠깐 보였다 튀므로 플래그로 막는다.
@@ -129,7 +134,11 @@ export default function StatsScreen() {
               : `${month}월 총 집중시간`
         }
       >
-        <Text style={s.bigStat}>{fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}</Text>
+        <Text style={s.bigStat}>
+          {period === 'DAY'
+            ? hms(todayFocusSeconds)
+            : fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
+        </Text>
         {period === 'WEEK' ? (
           <CompareWeek myMinutes={data.focus?.totalFocusMinutes ?? 0} />
         ) : (
@@ -765,7 +774,8 @@ function FocusTimetableCard() {
         // 공유 파일명 — 예: 260711_타임테이블.png (사진 저장 시엔 이름이 남지 않음)
         fileName: `${todayStr().slice(2).replace(/-/g, '')}_타임테이블`,
       });
-      await Share.share({ url: uri });
+      // Android Share는 url을 무시하고 message 기반이라 플랫폼별 페이로드(현재 iOS 전용 앱이지만 방어, 리뷰 반영)
+      await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
     } catch {
       // 캡처 실패·공유 취소 — 무시
     } finally {
