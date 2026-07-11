@@ -162,7 +162,7 @@ export default function StatsScreen() {
           {period === 'WEEK' && (
             <SectionCard title="요일별 집중시간" caption={periodLabel(period)}>
               <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
-                {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
+                총 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
               </Text>
               <LineChart
                 bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
@@ -174,7 +174,9 @@ export default function StatsScreen() {
           {/* ST6 핸드폰 사용량 차트(일/주) — 월 탭은 'N월 주별 핸드폰 사용량'이 대체 */}
           {period !== 'MONTH' && (
             <SectionCard title={`${granularity} 핸드폰 사용량`} caption={periodLabel(period)}>
+              {/* 주 탭은 요일 합계라는 걸 드러내려 '총:' 접두 — 일 탭은 오늘 단일 값이라 그대로 */}
               <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
+                {period === 'WEEK' ? '총 ' : ''}
                 {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
               </Text>
               {period === 'WEEK' ? (
