@@ -763,7 +763,12 @@ function FocusTimetableCard() {
     if (sharing) return;
     setSharing(true);
     try {
-      const uri = await captureRef(shotRef, { format: 'png', quality: 1 });
+      const uri = await captureRef(shotRef, {
+        format: 'png',
+        quality: 1,
+        // 공유 파일명 — 예: 260711_타임테이블.png (사진 저장 시엔 이름이 남지 않음)
+        fileName: `${todayStr().slice(2).replace(/-/g, '')}_타임테이블`,
+      });
       await Share.share({ url: uri });
     } catch {
       // 캡처 실패·공유 취소 — 무시
@@ -775,9 +780,16 @@ function FocusTimetableCard() {
   return (
     <SectionCard
       title="타임테이블"
-      caption="오늘"
       action={
-        <TouchableOpacity onPress={onShare} hitSlop={8} activeOpacity={0.7} disabled={sharing}>
+        // 캡션 자리에 '공유하기' 라벨 — 텍스트·아이콘 전체가 버튼
+        <TouchableOpacity
+          style={s.shareBtn}
+          onPress={onShare}
+          hitSlop={8}
+          activeOpacity={0.7}
+          disabled={sharing}
+        >
+          <Text style={s.shareBtnText}>공유하기</Text>
           <Ionicons name="share-outline" size={15} color={T.inkSub} />
         </TouchableOpacity>
       }
@@ -1396,6 +1408,8 @@ const s = StyleSheet.create({
   cardTitle: { ...T.text.heading, color: T.ink },
   cardCaption: { ...T.text.caption, color: T.inkMuted },
   cardHeadRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  shareBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  shareBtnText: { ...T.text.caption, color: T.inkMuted },
   bigStat: { ...T.text.title, color: T.ink },
   emptyText: { ...T.text.body, color: T.inkMuted, paddingVertical: 8 },
 
