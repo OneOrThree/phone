@@ -21,6 +21,14 @@ TMP=$(mktemp)
 SUT_HOST="$SUT_IP" LOADGEN_TARGETS="$LOADGEN_TARGETS" \
   envsubst '$SUT_HOST $LOADGEN_TARGETS' < "$LT_DIR/infra/obs/prometheus-loadtest.yml.tpl" > "$TMP"
 
+# 렌더 결과 검증(fail-fast) — envsubst 는 주석까지 치환해 조용히 YAML 을 부술 수 있다(gha-8·9:
+# 깨진 설정이 그대로 배포 → prometheus crash-loop → 25분 run 뒤 INVALID 로 간접 발견).
+# obs 와 동일 이미지의 promtool 로 스키마까지 검사해 그 실패 클래스를 sync 단계 즉사로 바꾼다.
+chmod 644 "$TMP" # mktemp 0600 → 컨테이너 기본 유저(nobody)가 읽도록
+docker run --rm -v "$TMP:/prometheus.yml:ro" --entrypoint promtool \
+  prom/prometheus:v2.55.1 check config /prometheus.yml \
+  || { log "❌ prometheus.yml 렌더 결과 깨짐(promtool) — 배포 중단"; exit 1; } # 태그는 docker-compose.obs.yml 과 동일 유지
+
 vm_ssh obs 'mkdir -p ~/obs/dashboards/repo ~/obs/dashboards/loadtest ~/seed'
 vm_scp "$TMP" obs:~/obs/prometheus.yml
 vm_scp "$LT_DIR/infra/obs/docker-compose.obs.yml" "$LT_DIR/infra/obs/grafana-provisioning" \
