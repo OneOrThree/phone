@@ -40,6 +40,12 @@ variable "loadgen_machine_type" {
   default     = "n2-highcpu-4"
 }
 
+variable "loadgen_min_cpu_platform" {
+  description = "부하 VM 세대 하한 핀 — sut 핀과 분리 필수: sut 는 n2d(AMD Milan)인데 공유하면 인텔 n2-highcpu-4 와 비호환이라 인스턴스 생성이 400 으로 죽는다. 'Intel Cascade Lake'(하한)는 세대 혼재를 허용하지만 CPU max 가드는 보수적으로 유효. 완전 균질(exact-pin)이 필요하면 'Intel Ice Lake' — 단 존 재고(stockout) 리스크"
+  type        = string
+  default     = "Intel Cascade Lake"
+}
+
 variable "loadgen_use_spot" {
   description = "부하 VM 을 spot 으로 띄울지 — 무료 크레딧 계정은 spot 불가라 false(온디맨드)로. 유료면 true 권장(저렴·선점 무효처리)"
   type        = bool
