@@ -83,14 +83,15 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
       }
     }
     const spotsVal = spots.trim();
-    if (spotsVal && spotsVal !== '1') {
-      setProgress('실패: 멀티-VM loadgen 은 미구현 — spot 수는 1 이어야 합니다(후속).');
+    if (spotsVal && !(/^\d+$/.test(spotsVal) && +spotsVal >= 1 && +spotsVal <= 6)) {
+      setProgress('실패: loadgen spot 수는 1~6 정수여야 합니다 (GCP vCPU 쿼터 상한 6).');
       return;
     }
     setRunning(true);
     try {
       await dispatchRun(profile, 'matrix/_generic.js', false, {
         recipes: recipes.join(','),
+        spots: spotsVal || undefined,
         ...toOverrides(profile, params),
       });
       const opts = [profile, ...fields.map((f) => `${f.label} ${params[f.key]}`)].join(' · ');
@@ -164,8 +165,8 @@ export function SingleApiMode({ onDispatched }: { onDispatched: () => void }) {
             <b>rps</b> = 초당 요청 수(총량, 선택 API에 분산). 프로파일을 고르면 기본값이 채워지고 직접 수정 가능.
             constant(smoke/load)은 총 rps·시간, 계단형(stress/spike)은 시작/피크 rps 로 커스텀합니다.
             <br />
-            <b>spot</b> = 부하를 만드는 loadgen VM 수. 한 대로도 수천 rps 생성 가능(부하기 CPU&gt;80% 넘으면 결과 무효).
-            <b> 현재 1만 지원</b>(멀티-VM 분산은 후속).
+            <b>spot</b> = 부하를 만드는 loadgen VM 수(1~6). 총 rate 를 N대에 균등 분산하고 CPU 가드는 VM별로 평가.
+            상한 6 — GCP 전역 32vCPU 에서 SUT·obs·러너 제외 예산(n2-highcpu-4 6대=24vCPU).
           </p>
 
           <div className="batch-bar">

@@ -37,6 +37,11 @@ const invalidReasons = [];
 if (meta.preempted) invalidReasons.push('INVALID: spot 선점으로 run 중단');
 if (meta.loadgenMaxCpu > 80) invalidReasons.push(`INVALID: 부하기 CPU ${meta.loadgenMaxCpu}% > 80% — 측정 불신`);
 if (meta.loadgenMaxCpu < 0) invalidReasons.push('INVALID: 부하기 CPU 조회 실패 — 측정 신뢰도 확인 불가');
+// 현재 run 의 SUT 지연 조회 실패(collect 가 -1)는 baseline 부재(pct=null skip)와 달리 실제 장애 → INVALID (#211 리뷰).
+if (meta.sutP95 < 0 || meta.sutP99 < 0) invalidReasons.push('INVALID: SUT 지연 p95/p99 조회 실패 — 판정 지표 확인 불가');
+// summary 부분 수거(N-1)는 dropped·에러율 과소집계 → INVALID. preempted 는 별도 사유라 중복 제외 (#211 리뷰).
+if (!meta.preempted && meta.spots != null && meta.summariesCollected != null && meta.summariesCollected !== meta.spots)
+  invalidReasons.push(`INVALID: summary 수거 ${meta.summariesCollected}/${meta.spots} — 부분 병합(과소집계)`);
 if (!summary) invalidReasons.push('INVALID: summary.json 없음 (비정상 종료)');
 
 // ── baseline 승격 모드 — run 리포트를 기준으로 저장 (커밋·PR 은 사람 소관) ──
@@ -87,22 +92,24 @@ if (verdict !== 'INVALID' && summary) {
 const pct = (cur, base) => (base > 0 ? Math.round(((cur - base) / base) * 1000) / 10 : null);
 let diff = null;
 if (verdict !== 'INVALID' && summary && baseline) {
-  const key = 'http_req_duration{phase:main}';
-  const cur = summary.metrics[key]?.values ?? {};
-  const base = baseline.summary.metrics[key]?.values ?? {};
   const curErr = summary.metrics['http_req_failed{phase:main}']?.values?.rate ?? 0;
   const baseErr = baseline.summary.metrics['http_req_failed{phase:main}']?.values?.rate ?? 0;
   const curDropped = summary.metrics.dropped_iterations?.values?.count ?? 0;
+  // GROMO-763: p95/p99 는 SUT micrometer 히스토그램(meta.sutP95/sutP99 — 참 글로벌·부하기 대수 무관).
+  // k6 summary 의 http_req_duration 은 per-VM 이라 N대에선 병합 불가 → 회귀 소스에서 제외.
+  // 기존(pre-763) baseline 은 meta.sutP95 부재 → pct=null 로 회귀 게이트 일시 skip(N대 baseline 재승격이 게이트).
+  const curP95 = meta.sutP95, curP99 = meta.sutP99;
+  const baseP95 = baseline.meta.sutP95 ?? null, baseP99 = baseline.meta.sutP99 ?? null;
 
   diff = {
-    p95: { base: base['p(95)'], cur: cur['p(95)'], pct: pct(cur['p(95)'], base['p(95)']) },
-    p99: { base: base['p(99)'], cur: cur['p(99)'], pct: pct(cur['p(99)'], base['p(99)']) },
+    p95: { base: baseP95, cur: curP95, pct: (curP95 > 0 && baseP95 > 0) ? pct(curP95, baseP95) : null },
+    p99: { base: baseP99, cur: curP99, pct: (curP99 > 0 && baseP99 > 0) ? pct(curP99, baseP99) : null },
     errRate: { base: baseErr, cur: curErr },
     dropped: curDropped,
   };
   if (diff.p95.pct !== null && diff.p95.pct >= 10) {
     verdict = 'FAIL';
-    reasons.push(`FAIL(회귀): p95 ${diff.p95.base}→${diff.p95.cur}ms (+${diff.p95.pct}%) ≥ +10%`);
+    reasons.push(`FAIL(회귀): SUT p95 ${diff.p95.base}→${diff.p95.cur}ms (+${diff.p95.pct}%) ≥ +10%`);
   }
   if (curDropped > 0) {
     verdict = 'FAIL';
