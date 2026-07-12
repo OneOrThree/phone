@@ -1,0 +1,15 @@
+{
+  "verdict": "INVALID",
+  "reasons": [
+    "INVALID: 부하기 CPU 조회 실패 — 측정 신뢰도 확인 불가",
+    "INVALID: SUT 지연 p95/p99 조회 실패 — 판정 지표 확인 불가"
+  ],
+  "baseline": null,
+  "diff": null,
+  "meta": {
+    "sha": "f9c93e0",
+    "profile": "smoke",
+    "target": "matrix/_generic.js",
+    "startedAt": "2026-07-12T05:19:26Z"
+  }
+}
