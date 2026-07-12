@@ -110,7 +110,10 @@ export const listRuns = async (): Promise<WorkflowRun[]> => {
 };
 
 // slim 리포트는 runs/gha-<run_number>-… 디렉토리에 커밋됨 (loadtest.yml) — run_number 로 매칭
-export async function getVerdict(runNumber: number): Promise<Verdict | null> {
+const decodeB64 = (content: string) =>
+  new TextDecoder().decode(Uint8Array.from(atob(content), (c) => c.charCodeAt(0)));
+
+async function reportFile(runNumber: number, name: string): Promise<string | null> {
   try {
     const dirs = await gh<{ name: string }[]>(
       `/repos/${REPO}/contents/runs?ref=${REPORTS_BRANCH}`,
@@ -118,10 +121,111 @@ export async function getVerdict(runNumber: number): Promise<Verdict | null> {
     const dir = dirs.find((d) => d.name.startsWith(`gha-${runNumber}-`));
     if (!dir) return null;
     const file = await gh<{ content: string }>(
-      `/repos/${REPO}/contents/runs/${dir.name}/verdict.json?ref=${REPORTS_BRANCH}`,
+      `/repos/${REPO}/contents/runs/${dir.name}/${name}?ref=${REPORTS_BRANCH}`,
     );
-    return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(file.content), (c) => c.charCodeAt(0))));
+    return decodeB64(file.content);
   } catch {
-    return null; // 브랜치/리포트 미존재 — 진행 중이거나 초기 상태
+    return null; // 브랜치/리포트/파일 미존재 — 진행 중이거나 초기 상태
   }
+}
+
+export async function getVerdict(runNumber: number): Promise<Verdict | null> {
+  const text = await reportFile(runNumber, 'verdict.json');
+  return text ? (JSON.parse(text) as Verdict) : null;
+}
+
+// meta.json — 비교 가능 조건 + 측정 신뢰도 (collect.sh 작성)
+export interface RunMeta {
+  sha: string;
+  seedVersion: string;
+  profile: string;
+  target: string;
+  sut: string;
+  db: string;
+  loadgen: string;
+  loadgenCpuPlatforms?: string; // #213 이후 — 실제 배정 CPU 세대(정보용)
+  spots?: number;
+  summariesCollected?: number;
+  k6OptionsHash: string;
+  loadgenMaxCpu: number; // -1 = 조회 실패
+  sutP95?: number; // 서버 관점(micrometer) — 부하기 대수 무관 참 글로벌. -1 = 조회 실패
+  sutP99?: number;
+  preempted: boolean;
+  k6ExitCode: number;
+  startedAt: string;
+  endedAt: string;
+}
+
+// k6 summary(병합본) — threshold 보유 메트릭만 남는다(collect.sh 병합 규칙). values 는 관대하게 읽는다.
+export interface K6Summary {
+  metrics: Record<
+    string,
+    { values?: Record<string, number>; thresholds?: Record<string, { ok: boolean }> }
+  >;
+}
+
+export interface PgRow {
+  calls: string;
+  mean_ms: string;
+  total_ms: string;
+  rows: string;
+  hit_pct: string;
+  query: string;
+}
+
+// RFC4180 최소 파서 — pg_top20 의 query 컬럼이 따옴표·개행·콤마를 포함해 line split 으론 못 파싱
+function parseCsv(text: string): PgRow[] {
+  const rows: string[][] = [];
+  let cur = '';
+  let row: string[] = [];
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else quoted = false;
+      } else cur += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') {
+      row.push(cur);
+      cur = '';
+    } else if (c === '\n') {
+      row.push(cur);
+      if (row.some((x) => x !== '')) rows.push(row);
+      row = [];
+      cur = '';
+    } else if (c !== '\r') cur += c;
+  }
+  if (cur !== '' || row.length > 0) {
+    row.push(cur);
+    if (row.some((x) => x !== '')) rows.push(row);
+  }
+  const [head, ...data] = rows;
+  if (!head) return [];
+  return data.map(
+    (r) => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ''])) as unknown as PgRow,
+  );
+}
+
+export interface RunDetailData {
+  meta: RunMeta | null;
+  summary: K6Summary | null;
+  pgTop: PgRow[];
+}
+
+// 상세 3종은 행 펼침 시에만 lazy 조회 (verdict 는 목록에서 이미 조회)
+export async function getRunDetail(runNumber: number): Promise<RunDetailData> {
+  const [meta, summary, pg] = await Promise.all([
+    reportFile(runNumber, 'meta.json'),
+    reportFile(runNumber, 'summary.json'),
+    reportFile(runNumber, 'pg_top20.csv'),
+  ]);
+  return {
+    meta: meta ? (JSON.parse(meta) as RunMeta) : null,
+    summary: summary ? (JSON.parse(summary) as K6Summary) : null,
+    pgTop: pg ? parseCsv(pg) : [],
+  };
 }

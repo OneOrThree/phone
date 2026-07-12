@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { listRuns, getVerdict, type WorkflowRun, type Verdict } from '../api/github';
 import { VerdictBadge } from './VerdictBadge';
-import { DiffView } from './DiffView';
+import { RunDetail } from './RunDetail';
 
 const dur = (r: WorkflowRun) => {
   const ms = new Date(r.updated_at).getTime() - new Date(r.created_at).getTime();
@@ -83,7 +83,7 @@ export function RunList({ refreshKey }: { refreshKey: number }) {
                     </a>
                     {v && (
                       <button className="link" onClick={() => setOpen(open === r.id ? null : r.id)}>
-                        {open === r.id ? '접기' : 'diff'}
+                        {open === r.id ? '접기' : '상세'}
                       </button>
                     )}
                   </td>
@@ -91,7 +91,7 @@ export function RunList({ refreshKey }: { refreshKey: number }) {
                 {open === r.id && v && (
                   <tr>
                     <td colSpan={7}>
-                      <DiffView verdict={v} />
+                      <RunDetail runNumber={r.run_number} verdict={v} />
                     </td>
                   </tr>
                 )}
