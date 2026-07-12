@@ -4,9 +4,9 @@
 resource "google_compute_instance_template" "loadgen" {
   name_prefix  = "loadgen-"
   machine_type = var.loadgen_machine_type
-  # GROMO-763: n2 는 Ice/Cascade Lake 혼재 배정 → VM 간 CPU 성능 균질화(부하기 CPU max 가드 유효성 전제).
-  # c2 는 Cascade 고정이라 불필요했으나 n2-highcpu-4 전환으로 필요. 존 미지원 시 apply 가 검증 → 하향.
-  min_cpu_platform = var.sut_min_cpu_platform
+  # GROMO-763: n2 는 Ice/Cascade Lake 혼재 배정 → 세대 하한 핀(부하기 CPU max 가드 전제).
+  # sut 핀 공유 금지 — sut 는 n2d(AMD Milan)라 공유하면 인텔 n2 와 비호환, 인스턴스 생성이 400 으로 죽는다.
+  min_cpu_platform = var.loadgen_min_cpu_platform
 
   # spot — 선점되면 run 은 verdict=INVALID 로 폐기 (FAIL 아님). soak(Phase 4)은 표준 VM 별도.
   # 무료 크레딧 계정도 spot 사용 가능(실증 확인 — PREEMPTIBLE_CPUS metric 이 0 이어도 C2_CPUS 로 생성됨).
