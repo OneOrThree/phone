@@ -14,7 +14,7 @@ variable "zone" {
   default = "asia-northeast3-a"
 }
 
-# ── vCPU 예산 (무료체험 동시 8 상한): SUT 2 + 관측 2 + 부하 4 = 8 ──
+# ── vCPU 예산 (전역 CPUS_ALL_REGIONS=32): SUT 2 + 관측 2 + 러너 2 + 부하 4×SPOTS(≤6) = 최대 30 ──
 
 variable "sut_machine_type" {
   description = "SUT VM — prod 동급 고정 스펙. n2(인텔)는 a존 stockout 반복으로 시작 실패 이력 — AMD(n2d) 재고 풀 사용"
@@ -35,9 +35,9 @@ variable "obs_machine_type" {
 }
 
 variable "loadgen_machine_type" {
-  description = "부하 VM 템플릿 기본값 — C2 쿼터/재고 없으면 n2-highcpu-4 로 폴백"
+  description = "부하 VM 템플릿 기본값(n2-highcpu-4, 4vCPU) — SPOTS 대 수평 확장(GROMO-763). C2_CPUS=8 우회(N2 는 리전 200). c2-standard-4 는 옵션"
   type        = string
-  default     = "c2-standard-4"
+  default     = "n2-highcpu-4"
 }
 
 variable "loadgen_use_spot" {

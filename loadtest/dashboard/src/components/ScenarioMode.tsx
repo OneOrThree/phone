@@ -33,6 +33,7 @@ export function ScenarioMode({ onDispatched }: { onDispatched: () => void }) {
   const [id, setId] = useState('');
   const [profile, setProfile] = useState('load');
   const [params, setParams] = useState<Record<string, string>>(defaultValues('load'));
+  const [spots, setSpots] = useState('1'); // loadgen spot VM 수(고rps 분산 생성)
   const [state, setState] = useState<'idle' | 'busy' | 'ok' | 'err'>('idle');
   const [msg, setMsg] = useState('');
 
@@ -66,10 +67,17 @@ export function ScenarioMode({ onDispatched }: { onDispatched: () => void }) {
         return;
       }
     }
+    const spotsVal = spots.trim();
+    if (spotsVal && !(/^\d+$/.test(spotsVal) && +spotsVal >= 1 && +spotsVal <= 6)) {
+      setMsg('실패: loadgen spot 수는 1~6 정수여야 합니다 (GCP vCPU 쿼터 상한 6).');
+      setState('err');
+      return;
+    }
     setState('busy');
     try {
       await dispatchRun(profile, 'scenarios/_generic.js', false, {
         scenario: sel.id,
+        spots: spotsVal || undefined,
         ...toOverrides(profile, params),
       });
       const opts = [profile, ...fields.map((f) => `${f.label} ${params[f.key]}`)].join(', ');
@@ -123,6 +131,18 @@ export function ScenarioMode({ onDispatched }: { onDispatched: () => void }) {
                 />
               </label>
             ))}
+            <label>
+              loadgen spot 수
+              <input
+                type="text"
+                className="short"
+                value={spots}
+                placeholder="1"
+                inputMode="numeric"
+                disabled={state === 'busy'}
+                onChange={(e) => setSpots(e.target.value)}
+              />
+            </label>
           </div>
           {fields.some((f) => f.note) && (
             <p className="muted" style={{ fontSize: 12, margin: '0 0 6px' }}>
@@ -135,6 +155,8 @@ export function ScenarioMode({ onDispatched }: { onDispatched: () => void }) {
           <p className="muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.7 }}>
             <b>rps</b> = 초당 유입 유저 수(여정에 분산). 프로파일을 고르면 기본값이 채워지고 직접 수정 가능.
             constant(smoke/load)은 총 rps·시간, 계단형(stress/spike)은 시작/피크 rps 로 커스텀합니다.
+            <br />
+            <b>spot</b> = 부하를 만드는 loadgen VM 수(1~6). 총 rate 를 N대에 균등 분산, CPU 가드는 VM별 평가.
           </p>
 
           {sel && (

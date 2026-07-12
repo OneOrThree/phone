@@ -6,13 +6,20 @@
 LT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 SUT_IP=$(ip_of sut)
-# 부하 VM 은 run 마다 재생성 — 존별 내부 DNS 는 이름 기준이라 재생성에도 안정
-LOADGEN_HOST="loadgen.${ZONE}.c.${PROJECT_ID}.internal"
+# 부하 VM 은 run 마다 재생성 — 존별 내부 DNS 는 이름 기준이라 재생성에도 안정.
+# GROMO-763: loadgen-0..5 6대(상한)를 항상 등록 — sync 시점 SPOTS 와 run 시점 SPOTS 불일치로 인한
+# 결측 스크레이프(가장 조용한 실패)를 원천 차단. SPOTS<6 이면 미기동 VM 은 DOWN(정상), CPU 가드
+# max by(instance) 에서 자연 제외되므로 무해. 들여쓰기 6칸(YAML) + 각 줄 개행 유지.
+DNS_SUF="${ZONE}.c.${PROJECT_ID}.internal"
+LOADGEN_TARGETS=""
+for i in $(seq 0 5); do
+  LOADGEN_TARGETS+="      - targets: ['loadgen-${i}.${DNS_SUF}:9100']"$'\n'
+done
 
-log "obs 설정 반영 (SUT=${SUT_IP}, LOADGEN=${LOADGEN_HOST})"
+log "obs 설정 반영 (SUT=${SUT_IP}, LOADGEN loadgen-0..5)"
 TMP=$(mktemp)
-SUT_HOST="$SUT_IP" LOADGEN_HOST="$LOADGEN_HOST" \
-  envsubst '$SUT_HOST $LOADGEN_HOST' < "$LT_DIR/infra/obs/prometheus-loadtest.yml.tpl" > "$TMP"
+SUT_HOST="$SUT_IP" LOADGEN_TARGETS="$LOADGEN_TARGETS" \
+  envsubst '$SUT_HOST $LOADGEN_TARGETS' < "$LT_DIR/infra/obs/prometheus-loadtest.yml.tpl" > "$TMP"
 
 vm_ssh obs 'mkdir -p ~/obs/dashboards/repo ~/obs/dashboards/loadtest ~/seed'
 vm_scp "$TMP" obs:~/obs/prometheus.yml

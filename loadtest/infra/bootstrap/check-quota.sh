@@ -1,24 +1,29 @@
 #!/usr/bin/env bash
-# GROMO-548 부하테스트 리전 쿼터 사전 점검
+# GROMO-548/763 부하테스트 쿼터 사전 점검
 #
-# 필요 동시 vCPU (무료체험 상한 8 안에서의 예산):
+# 필요 동시 vCPU (전역 CPUS_ALL_REGIONS 가 실질 상한):
 #   SUT   n2d-standard-2 = 2 (온디맨드, N2D — 인텔 n2 존 재고 소진 반복으로 AMD 전환)
-#   관측  e2-small       = 2 (온디맨드, E2 → 공용 CPUS)
-#   부하  c2-standard-4  = 4 (spot, C2 — 폴백 n2-highcpu-4)
+#   관측  e2-small       = 2 (온디맨드, E2)
+#   러너  e2-standard-2  = 2 (온디맨드, E2 — 원격 트리거 시 상주)
+#   부하  n2-highcpu-4   = 4 × SPOTS (spot, N2 — GROMO-763 수평 확장, SPOTS≤6)
 #
-# 사용: PROJECT_ID=gromo-loadtest-1 ./check-quota.sh
+# 사용: PROJECT_ID=gromo-loadtest-1 [SPOTS=6] ./check-quota.sh
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:?PROJECT_ID를 지정하세요}"
 REGION="${REGION:-asia-northeast3}"
+SPOTS="${SPOTS:-1}"
+{ [[ "$SPOTS" =~ ^[0-9]+$ ]] && [ "$SPOTS" -ge 1 ] && [ "$SPOTS" -le 6 ]; } || { echo "SPOTS 는 1..6"; exit 1; }
+LG_CPUS=$((4 * SPOTS)) # n2-highcpu-4 × SPOTS
+NEED_CPUS=$((6 + LG_CPUS)) # SUT2 + 관측2 + 러너2 + 부하
 
-echo "[check-quota] ${PROJECT_ID} / ${REGION}"
+echo "[check-quota] ${PROJECT_ID} / ${REGION} (SPOTS=${SPOTS} → 부하 ${LG_CPUS}vCPU, 동시 총 ${NEED_CPUS}vCPU)"
 
 QUOTAS_JSON=$(gcloud compute regions describe "$REGION" --project="$PROJECT_ID" --format=json)
 
 # metric별 남은 여유(limit-usage)를 확인한다. 반환: "limit usage" 두 값.
 remaining() {
-  python3 - "$1" <<'PY' "$QUOTAS_JSON"
+  python3 - "$1" <<'PY' "$2"
 import json, sys
 metric = sys.argv[1]
 data = json.loads(sys.argv[2])
@@ -32,18 +37,17 @@ PY
 }
 
 FAIL=0
-check() { # check <metric> <필요 여유> <설명> [soft]
-  local metric=$1 need=$2 desc=$3 soft=${4:-}
-  read -r limit usage <<<"$(remaining "$metric")"
+check() { # check <metric> <필요 여유> <설명> [json] [soft]
+  local metric=$1 need=$2 desc=$3 json=${4:-$QUOTAS_JSON} soft=${5:-}
+  read -r limit usage <<<"$(remaining "$metric" "$json")"
   if [ "$limit" = "absent" ]; then
-    echo "  - ${metric}: (미노출) — ${desc} → 공용 CPUS로 합산 확인 필요"
+    echo "  - ${metric}: (미노출) — ${desc}"
     return 0
   fi
   local avail=$((limit - usage))
   if [ "$avail" -ge "$need" ]; then
     echo "  ✅ ${metric}: 여유 ${avail} (limit ${limit}) ≥ 필요 ${need} — ${desc}"
   elif [ -n "$soft" ]; then
-    # 경고만 — FAIL 로 막지 않음 (실제 검사는 다른 쿼터가 함)
     echo "  ⚠️  ${metric}: 여유 ${avail} (limit ${limit}) < ${need} — ${desc}"
   else
     echo "  ❌ ${metric}: 여유 ${avail} (limit ${limit}) < 필요 ${need} — ${desc}"
@@ -51,25 +55,28 @@ check() { # check <metric> <필요 여유> <설명> [soft]
   fi
 }
 
-echo "[check-quota] 필수 쿼터"
-check CPUS               4 "온디맨드 vCPU (SUT 2 + 관측 2)"
-check N2D_CPUS           2 "N2D vCPU (SUT n2d-standard-2)"
-check N2_CPUS            4 "N2 vCPU (부하 폴백 n2-highcpu-4 대비)"
-check C2_CPUS            4 "C2 vCPU (부하 c2-standard-4 — spot 도 이 쿼터로 검사됨)"
-# PREEMPTIBLE_CPUS 는 legacy metric — 최신 GCP 는 spot 을 CPUS/C2_CPUS 로 검사한다.
-# 무료 계정에서 이 값이 0 이어도 spot 생성은 됨(실증 확인). 경고만 하고 막지 않는다.
-check PREEMPTIBLE_CPUS   4 "spot 참고용 legacy metric — 실제 검사는 C2_CPUS" soft
-check IN_USE_ADDRESSES   3 "외부 IP (SUT·관측·부하 ephemeral)"
-check DISKS_TOTAL_GB   150 "PD 용량 (SUT 20 + 관측 30 + 부하 20 + 여유)"
+# 전역(all-regions) CPU — 무료/기본 계정의 실질 상한. regions describe 엔 없어 project-info 로 별도 조회.
+# 리전 CPUS 여유가 커도(예: 100) 전역이 막으면 생성 실패하므로 이걸 가장 먼저 본다.
+echo "[check-quota] 전역 상한"
+GLOBAL_JSON=$(gcloud compute project-info describe --project="$PROJECT_ID" --format=json)
+check CPUS_ALL_REGIONS "$NEED_CPUS" "전역 동시 vCPU — 실질 상한(리전과 별개)" "$GLOBAL_JSON"
+
+echo "[check-quota] 리전 쿼터"
+check CPUS             "$NEED_CPUS"    "리전 온디맨드 vCPU (SUT2 + 관측2 + 러너2 + 부하 4×${SPOTS})"
+check N2D_CPUS         2               "N2D vCPU (SUT n2d-standard-2)"
+check N2_CPUS          "$LG_CPUS"      "N2 vCPU (부하 n2-highcpu-4×${SPOTS} — SUT 는 N2D 로 이동)"
+# GROMO-763: 부하를 n2-highcpu-4 로 전환 → C2_CPUS 검사 제거. spot 도 N2_CPUS/CPUS 로 검사됨.
+check PREEMPTIBLE_CPUS "$LG_CPUS"      "spot 참고용 legacy metric — 실제 검사는 N2_CPUS/CPUS" "$QUOTAS_JSON" soft
+check IN_USE_ADDRESSES $((3 + SPOTS))  "외부 IP (SUT·관측·러너 + 부하 ${SPOTS})"
+check DISKS_TOTAL_GB   $((80 + 20 * SPOTS)) "PD 용량 (SUT20 + 관측30 + 러너 여유 + 부하 20×${SPOTS})"
 
 echo
 if [ "$FAIL" -eq 1 ]; then
   cat <<EOF
 [check-quota] ❌ 부족한 쿼터가 있습니다.
   증설 요청: https://console.cloud.google.com/iam-admin/quotas?project=${PROJECT_ID}
-  (metric 검색 → 상향 요청. 무료체험 계정은 상향이 거부될 수 있음 — 그 경우:
-   ① 부하 VM을 n2-highcpu-4로 폴백(MACHINE_TYPE 변수), 또는
-   ② 유료 계정 업그레이드 재검토 — 크레딧은 유지되며 먼저 소진됨)
+  (metric 검색 → 상향 요청. 전역 CPUS_ALL_REGIONS 가 실질 상한 — 리전 CPUS 여유가 있어도 전역이 막으면 실패.
+   대안: SPOTS 를 낮춰(n2-highcpu-4 × 적은 대수) 예산 안으로 맞추기)
 EOF
   exit 1
 fi
