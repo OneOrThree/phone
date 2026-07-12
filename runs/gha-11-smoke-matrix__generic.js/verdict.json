@@ -1,0 +1,14 @@
+{
+  "verdict": "INVALID",
+  "reasons": [
+    "INVALID: 부하기 CPU 83% > 80% — 측정 불신"
+  ],
+  "baseline": null,
+  "diff": null,
+  "meta": {
+    "sha": "d337fff",
+    "profile": "smoke",
+    "target": "matrix/_generic.js",
+    "startedAt": "2026-07-12T07:10:26Z"
+  }
+}

@@ -1,0 +1,64 @@
+calls,mean_ms,total_ms,rows,hit_pct,query
+42,1.5,62,42,100.0,SELECT pg_database_size($1)
+7,4.5,32,266,100.0,"SELECT
+		current_database() datname,
+		schemaname,
+		relname,
+		seq_scan,
+		seq_tup_read,
+		idx_scan,
+		idx_tup_fetch,
+	"
+9,2.2,20,9,,"SELECT setting, current_timestamp FROM pg_catalog.pg_settings WHERE name = $1"
+7,1.5,11,2506,,"SELECT name, setting, COALESCE(unit, $1), short_desc, vartype FROM pg_settings WHERE vartype IN ($2, $3, $4) AND name !="
+1,10.5,11,1,100.0,"SELECT default_version, installed_version FROM pg_catalog.pg_available_extensions WHERE name = $1"
+1,8.1,8,6,100.0,"SELECT d.datname, pg_catalog.pg_database_size(d.datname), current_timestamp FROM pg_catalog.pg_database d ORDER BY d.dat"
+7,0.7,5,7,,"SELECT
+			COUNT(*) AS segments,
+			SUM(size) AS size
+		FROM pg_ls_waldir()
+		WHERE name ~ $1"
+7,0.6,4,378,100.0,"SELECT 
+		  pg_database.datname as datname,
+		  tmp.mode as mode,
+		  COALESCE(count, $1) as count 
+		FROM 
+		  (
+		    "
+7,0.5,4,266,100.0,"SELECT
+		current_database() datname,
+		schemaname,
+		relname,
+		heap_blks_read,
+		heap_blks_hit,
+		idx_blks_read,
+		idx_"
+1,2.5,3,1,100.0,"SELECT
+			COALESCE(sum(psat.n_tup_upd), $1) AS total_update_count,
+			COALESCE(sum(psat.n_tup_hot_upd), $2) AS hot_updat"
+1,1.8,2,1,,"SELECT
+	(SELECT setting=$1 FROM pg_catalog.pg_settings WHERE name=$2) AND
+	(SELECT setting=$3 FROM pg_catalog.pg_setting"
+1,1.7,2,1,,select (select setting=$1 from pg_catalog.pg_settings where name=$2) AND (select setting=$3 from pg_catalog.pg_settings 
+1,1.6,2,1,100.0,"SELECT
+    sum(psat.autovacuum_count) AS total_autovacuum_count,
+    sum(psat.autoanalyze_count) AS total_autoanalyze_co"
+2,0.8,2,2,,SELECT setting AS max_autovacuum_workers from pg_catalog.pg_settings WHERE name=$1
+7,0.2,1,254,100.0,"SELECT
+				pg_database.datname,
+				tmp.state,
+				tmp2.usename,
+				tmp2.application_name,
+				COALESCE(count,$1) as co"
+7,0.1,1,49,100.0,"SELECT datid,datname,numbackends,xact_commit,xact_rollback,blks_read,blks_hit,tup_returned,tup_fetched,tup_inserted,tup_"
+1,0.7,1,1,100.0,"SELECT
+			COALESCE(sum(psat.n_tup_upd), $1) AS total_update_count,
+			COALESCE(sum(psat.n_tup_hot_upd), $2) AS hot_updat"
+7,0.1,1,0,,"SELECT *,
+				(case pg_is_in_recovery() when $1 then pg_last_wal_receive_lsn() else pg_current_wal_lsn() end) AS pg_curr"
+1,0.5,1,1,100.0,"SELECT
+    sum(psat.autovacuum_count) AS total_autovacuum_count,
+    sum(psat.autoanalyze_count) AS total_autoanalyze_co"
+1,0.5,0,1,100.0,"SELECT
+			COALESCE(sum(psat.n_tup_upd), $1) AS total_update_count,
+			COALESCE(sum(psat.n_tup_hot_upd), $2) AS hot_updat"
