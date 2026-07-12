@@ -1,5 +1,7 @@
 # 부하테스트 Prometheus 스크레이프 — make sync 가 envsubst 로 렌더해 관측 VM 에 배치.
-# 변수: ${SUT_HOST}(SUT 내부 IP), ${LOADGEN_TARGETS}(loadgen-0..5 targets 줄 — sync.sh 가 6대 조립).
+# 변수: SUT_HOST(SUT 내부 IP), LOADGEN_TARGETS(loadgen-0..5 targets 줄 — sync.sh 가 6대 조립).
+# 주석에 달러-중괄호 변수 표기 금지 — envsubst 는 주석도 치환한다. 멀티라인 값이 주석을 뚫고 나와 YAML 을 부순
+# 전력(gha-9: prometheus crash-loop → 9090 거부 → k6 RW·collect 조회 전멸 → INVALID).
 # dev(observability/prometheus/prometheus.yml)와 같은 5s 그레인 — 대시보드 호환.
 global:
   scrape_interval: 5s
@@ -19,7 +21,7 @@ scrape_configs:
       - targets: ['${SUT_HOST}:9100']
 
   # 부하기 가드 — 부하 VM CPU>80% 면 run 무효(INVALID). run 중이 아닐 땐 DOWN 이 정상.
-  # GROMO-763: loadgen-0..N 다중 타겟 — sync.sh 가 ${LOADGEN_TARGETS} 를 6대(상한) targets 줄로 렌더.
+  # GROMO-763: loadgen-0..N 다중 타겟 — sync.sh 가 LOADGEN_TARGETS 를 6대(상한) targets 줄로 렌더.
   #            SPOTS<6 이면 미기동 VM 은 DOWN → collect 의 max by(instance) 에서 자연 제외.
   - job_name: loadgen
     static_configs:
