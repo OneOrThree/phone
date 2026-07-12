@@ -63,7 +63,7 @@ flowchart LR
   gha -->|"WIF 단명 토큰"| mk["make 파이프라인<br/>provision→reset→run→collect→verdict→teardown"]
   subgraph GCP["GCP (무료체험 · asia-northeast3 · 평시 전부 중지)"]
     lg["부하 VM c2-standard-4 spot<br/>(run 시만 생성, k6 open model)"]
-    sut["SUT VM n2-standard-2<br/>Spring Boot loadtest 프로파일<br/>+ node_exporter"]
+    sut["SUT VM n2d-standard-2<br/>Spring Boot loadtest 프로파일<br/>+ node_exporter"]
     sql[("Cloud SQL PG16<br/>golden/loadtest/analysis<br/>pg_stat_statements·auto_explain")]
     obs["관측 VM e2-small<br/>Prometheus(+RW receiver)·Grafana<br/>postgres_exporter"]
     lg -->|HTTP 부하| sut --> sql
@@ -152,7 +152,7 @@ reports/<UTC일시>-<sha>-<profile>-<target>/
 
 | 리소스 | 스펙 | 평시 | 왜 |
 |---|---|---|---|
-| SUT VM | **n2-standard-2** (2vCPU/8GB), min CPU platform 고정 | 중지 | e2는 CPU 세대 랜덤 배정 → baseline ±10% 판정 오염. prod 동급 크기 |
+| SUT VM | **n2d-standard-2** (2vCPU/8GB), min CPU platform 고정(AMD Milan) | 중지 | e2는 CPU 세대 랜덤 배정 → baseline ±10% 판정 오염. prod 동급 크기. 인텔 n2는 존 재고 소진 반복으로 AMD 전환 |
 | Cloud SQL | PG16 db-custom-2-8192, SSD 50GB, **사설 IP 전용** | 중지 | 플래그(pg_stat_statements·auto_explain)·TEMPLATE·pg_trgm 전부 지원 + Query Insights 무료 |
 | 관측 VM | e2-small (2vCPU), 디스크 보존 | 중지 | run 간 히스토리 비교. Prometheus(+remote-write receiver)·Grafana·postgres_exporter |
 | 부하 VM | **c2-standard-4 spot** (4vCPU), 폴백 n2-highcpu-4 | 없음 (run 시 생성) | 무료체험 8 vCPU 상한 안에서 최대. CPU>80%면 run 무효 |

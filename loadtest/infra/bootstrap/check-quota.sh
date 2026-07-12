@@ -2,7 +2,7 @@
 # GROMO-548 부하테스트 리전 쿼터 사전 점검
 #
 # 필요 동시 vCPU (무료체험 상한 8 안에서의 예산):
-#   SUT   n2-standard-2  = 2 (온디맨드, N2)
+#   SUT   n2d-standard-2 = 2 (온디맨드, N2D — 인텔 n2 존 재고 소진 반복으로 AMD 전환)
 #   관측  e2-small       = 2 (온디맨드, E2 → 공용 CPUS)
 #   부하  c2-standard-4  = 4 (spot, C2 — 폴백 n2-highcpu-4)
 #
@@ -53,7 +53,8 @@ check() { # check <metric> <필요 여유> <설명> [soft]
 
 echo "[check-quota] 필수 쿼터"
 check CPUS               4 "온디맨드 vCPU (SUT 2 + 관측 2)"
-check N2_CPUS            6 "N2 vCPU (SUT n2-standard-2 + 폴백 n2-highcpu-4 동시 대비)"
+check N2D_CPUS           2 "N2D vCPU (SUT n2d-standard-2)"
+check N2_CPUS            4 "N2 vCPU (부하 폴백 n2-highcpu-4 대비)"
 check C2_CPUS            4 "C2 vCPU (부하 c2-standard-4 — spot 도 이 쿼터로 검사됨)"
 # PREEMPTIBLE_CPUS 는 legacy metric — 최신 GCP 는 spot 을 CPUS/C2_CPUS 로 검사한다.
 # 무료 계정에서 이 값이 0 이어도 spot 생성은 됨(실증 확인). 경고만 하고 막지 않는다.
