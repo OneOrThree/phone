@@ -248,3 +248,11 @@ label.ep.disabled { cursor: default; }
   font-size: 12px;
 }
 .step-recipe { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: var(--muted); }
+
+/* run 리포트 상세 (GROMO-771) */
+.detail { display: grid; gap: 10px; padding: 4px 0 8px; }
+.detail .kv { margin: 0; font-size: 14px; }
+.detail .kv b { margin-right: 6px; }
+.detail table { font-size: 13px; }
+.pgtop summary { cursor: pointer; font-size: 14px; color: var(--muted); }
+.pgtop code.query { font-size: 12px; word-break: break-all; }
