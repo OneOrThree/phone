@@ -23,6 +23,8 @@ export const SHARD = Math.min(SPOTS - 1, Math.max(0, Math.floor(Number(__ENV.SHA
 // 주의2: constant-arrival-rate(smoke/load)·constant-vus(soak) 는 rate/vus>0 필수(k6 검증) → SPOTS>rate 엣지에서
 //        shardRate 가 0 이면 그 VM k6 가 config 에러로 죽는다. 그 호출부는 Math.max(1, shardRate(...)) 로 감쌀 것.
 //        ramping-arrival-rate(stress/spike) 는 target:0 을 허용하므로 그대로 shardRate(...).
+//        단 SPOTS>rate 엣지에선 0→1 승격으로 Σ가 total 을 초과(과다분배 — 예 smoke 5×6대=6, +20%).
+//        크래시 방지 우선의 의도적 트레이드오프(작은 프로파일·큰 SPOTS 조합에서만, 판정 영향 미미). (#211 리뷰)
 export const shardRate = (total) => {
   const t = Math.max(0, Math.floor(Number(total)));
   return Math.floor(t / SPOTS) + (SHARD < t % SPOTS ? 1 : 0);

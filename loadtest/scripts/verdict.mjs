@@ -37,6 +37,11 @@ const invalidReasons = [];
 if (meta.preempted) invalidReasons.push('INVALID: spot 선점으로 run 중단');
 if (meta.loadgenMaxCpu > 80) invalidReasons.push(`INVALID: 부하기 CPU ${meta.loadgenMaxCpu}% > 80% — 측정 불신`);
 if (meta.loadgenMaxCpu < 0) invalidReasons.push('INVALID: 부하기 CPU 조회 실패 — 측정 신뢰도 확인 불가');
+// 현재 run 의 SUT 지연 조회 실패(collect 가 -1)는 baseline 부재(pct=null skip)와 달리 실제 장애 → INVALID (#211 리뷰).
+if (meta.sutP95 < 0 || meta.sutP99 < 0) invalidReasons.push('INVALID: SUT 지연 p95/p99 조회 실패 — 판정 지표 확인 불가');
+// summary 부분 수거(N-1)는 dropped·에러율 과소집계 → INVALID. preempted 는 별도 사유라 중복 제외 (#211 리뷰).
+if (!meta.preempted && meta.spots != null && meta.summariesCollected != null && meta.summariesCollected !== meta.spots)
+  invalidReasons.push(`INVALID: summary 수거 ${meta.summariesCollected}/${meta.spots} — 부분 병합(과소집계)`);
 if (!summary) invalidReasons.push('INVALID: summary.json 없음 (비정상 종료)');
 
 // ── baseline 승격 모드 — run 리포트를 기준으로 저장 (커밋·PR 은 사람 소관) ──

@@ -17,6 +17,10 @@ if [ ! -f "$REPORT_DIR/.preempted" ]; then
       || log "⚠️ loadgen-$i summary 없음 (비정상 종료 run)"
   done
 fi
+# 수거 개수 검증 — SPOTS 와 다르면 부분 병합(과소집계). meta 에 기록해 verdict 가 INVALID 처리 (#211 리뷰).
+SUMMARIES_GOT=$(ls "$REPORT_DIR"/summary-*.json 2>/dev/null | wc -l | tr -d ' ')
+{ [ ! -f "$REPORT_DIR/.preempted" ] && [ "$SUMMARIES_GOT" -ne "$SPOTS" ]; } \
+  && log "⚠️ summary 수거 ${SUMMARIES_GOT}/${SPOTS} — 일부 shard 누락(verdict INVALID 예정)" || true
 
 # N-summary 병합 → 단일 summary.json. 카운트(dropped·reqs·fails)는 합산, 에러율은 Σfails/Σreqs 가중,
 # threshold 는 per-VM OR(어느 VM 이든 자기 rate/N 부하로 못 버티면 FAIL 보존). p95/p99 는 퍼센타일이라
@@ -98,6 +102,8 @@ cat > "$REPORT_DIR/meta.json" <<EOF
   "sut": "$SUT_SPEC / loadtest-profile / -Xmx2g",
   "db": "$DB_TIER / PG16",
   "loadgen": "$LOADGEN_SPEC",
+  "spots": $SPOTS,
+  "summariesCollected": $SUMMARIES_GOT,
   "k6OptionsHash": "$K6_HASH",
   "loadgenMaxCpu": $LOADGEN_MAX_CPU,
   "sutP95": $SUT_P95,

@@ -72,10 +72,17 @@ stage_one() { # $1 = shard index → loadgen-$1 스테이징
   vm_ssh "$vm" "sudo docker ps --filter name=node-exporter --filter status=running -q" | grep -q . \
     || log "⚠️ $vm node-exporter 미기동 — 부하기 CPU 가드가 INVALID/결측 위험"
 }
-for i in $(seq 0 $((SPOTS - 1))); do stage_one "$i" & done
-wait
+declare -a STAGE_PIDS=()
+for i in $(seq 0 $((SPOTS - 1))); do stage_one "$i" & STAGE_PIDS+=($!); done
+# 무인자 wait 는 자식 exit 와 무관하게 항상 0 → scp/params 실패가 은닉된다(#211 리뷰). 본측정 루프처럼
+# PID별로 개별 대기해 셋업 실패를 표출. 실패한 shard 는 스크립트 없이 본측정에 들어가 임의 FAIL 로 오인되므로 무효화.
+STAGE_FAIL=0
+for pid in "${STAGE_PIDS[@]}"; do wait "$pid" || STAGE_FAIL=1; done
 if ! "$(dirname "$0")/loadgen.sh" alive; then
   log "⚠️ 스테이징 중 부하 VM 소실 — spot 선점 의심 (verdict=INVALID)"; touch "$REPORT_DIR/.preempted"; exit 0
+fi
+if [ "$STAGE_FAIL" -ne 0 ]; then
+  log "❌ 스테이징 실패(scp/params/node-exporter) — 일부 shard 미준비. run 무효화"; touch "$REPORT_DIR/.preempted"; exit 0
 fi
 
 K6_BASE="sudo docker run --rm \
