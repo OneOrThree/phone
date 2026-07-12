@@ -113,25 +113,42 @@ export const listRuns = async (): Promise<WorkflowRun[]> => {
 const decodeB64 = (content: string) =>
   new TextDecoder().decode(Uint8Array.from(atob(content), (c) => c.charCodeAt(0)));
 
-async function reportFile(runNumber: number, name: string): Promise<string | null> {
+// 디렉토리 찾기와 파일 읽기를 분리 — 상세 3종 조회 시 목록을 1회만 재사용 (#216 리뷰)
+async function findReportDir(runNumber: number): Promise<string | null> {
   try {
     const dirs = await gh<{ name: string }[]>(
       `/repos/${REPO}/contents/runs?ref=${REPORTS_BRANCH}`,
     );
-    const dir = dirs.find((d) => d.name.startsWith(`gha-${runNumber}-`));
-    if (!dir) return null;
+    return dirs.find((d) => d.name.startsWith(`gha-${runNumber}-`))?.name ?? null;
+  } catch {
+    return null; // 브랜치/리포트 미존재 — 진행 중이거나 초기 상태
+  }
+}
+
+async function readReportFile(dir: string, name: string): Promise<string | null> {
+  try {
     const file = await gh<{ content: string }>(
-      `/repos/${REPO}/contents/runs/${dir.name}/${name}?ref=${REPORTS_BRANCH}`,
+      `/repos/${REPO}/contents/runs/${dir}/${name}?ref=${REPORTS_BRANCH}`,
     );
     return decodeB64(file.content);
   } catch {
-    return null; // 브랜치/리포트/파일 미존재 — 진행 중이거나 초기 상태
+    return null; // 파일 미존재(구버전 리포트 등)
+  }
+}
+
+// JSON 하나가 깨져도 나머지는 살린다 — 부분 성공 허용 (#216 리뷰)
+function safeJson<T>(text: string | null): T | null {
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
   }
 }
 
 export async function getVerdict(runNumber: number): Promise<Verdict | null> {
-  const text = await reportFile(runNumber, 'verdict.json');
-  return text ? (JSON.parse(text) as Verdict) : null;
+  const dir = await findReportDir(runNumber);
+  return safeJson<Verdict>(dir ? await readReportFile(dir, 'verdict.json') : null);
 }
 
 // meta.json — 비교 가능 조건 + 측정 신뢰도 (collect.sh 작성)
@@ -205,9 +222,14 @@ function parseCsv(text: string): PgRow[] {
   }
   const [head, ...data] = rows;
   if (!head) return [];
-  return data.map(
-    (r) => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ''])) as unknown as PgRow,
-  );
+  return data.flatMap((r) => {
+    // 열 수 불일치(손상 응답·닫히지 않은 quote 여파)는 조용히 채우거나 버리지 않고 행 자체를 배제 (#216 리뷰)
+    if (r.length !== head.length) {
+      console.warn(`pg_top20 CSV 열 수 불일치 (기대 ${head.length}, 실제 ${r.length}) — 행 무시`);
+      return [];
+    }
+    return [Object.fromEntries(head.map((h, i) => [h, r[i]])) as unknown as PgRow];
+  });
 }
 
 export interface RunDetailData {
@@ -218,14 +240,16 @@ export interface RunDetailData {
 
 // 상세 3종은 행 펼침 시에만 lazy 조회 (verdict 는 목록에서 이미 조회)
 export async function getRunDetail(runNumber: number): Promise<RunDetailData> {
+  const dir = await findReportDir(runNumber);
+  if (!dir) return { meta: null, summary: null, pgTop: [] };
   const [meta, summary, pg] = await Promise.all([
-    reportFile(runNumber, 'meta.json'),
-    reportFile(runNumber, 'summary.json'),
-    reportFile(runNumber, 'pg_top20.csv'),
+    readReportFile(dir, 'meta.json'),
+    readReportFile(dir, 'summary.json'),
+    readReportFile(dir, 'pg_top20.csv'),
   ]);
   return {
-    meta: meta ? (JSON.parse(meta) as RunMeta) : null,
-    summary: summary ? (JSON.parse(summary) as K6Summary) : null,
+    meta: safeJson<RunMeta>(meta),
+    summary: safeJson<K6Summary>(summary),
     pgTop: pg ? parseCsv(pg) : [],
   };
 }

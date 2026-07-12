@@ -28,7 +28,7 @@ SUMMARIES_GOT=$(ls "$REPORT_DIR"/summary-*.json 2>/dev/null | wc -l | tr -d ' ')
 if [ ! -f "$REPORT_DIR/.preempted" ] && ls "$REPORT_DIR"/summary-*.json >/dev/null 2>&1; then
   node -e '
     const fs = require("fs"), dir = process.argv[1];
-    const files = fs.readdirSync(dir).filter(f => /^summary-\d+\.json$/.test(f)).map(f => JSON.parse(fs.readFileSync(dir + "/" + f)));
+    const files = fs.readdirSync(dir).filter(f => /^summary-\d+\.json$/.test(f)).sort().map(f => JSON.parse(fs.readFileSync(dir + "/" + f))); // sort: readdir 순서 비보장 — values 채택 기준을 shard-0 으로 결정화(#216 리뷰)
     const g = (m, f) => files.reduce((s, d) => s + (d.metrics?.[m]?.values?.[f] ?? 0), 0);
     const dropped = g("dropped_iterations", "count");
     // 에러율 = Σ(rate×reqs) / Σreqs (phase:main). 비율 직접 평균은 VM별 reqs 가 다르면 틀림.
