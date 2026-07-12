@@ -90,6 +90,14 @@ DB_TIER=$(gcloud sql instances describe "$SQL_INSTANCE" --project="$PROJECT_ID" 
 LOADGEN_SPEC=$(gcloud compute instances describe loadgen-0 --zone="$ZONE" --project="$PROJECT_ID" \
   --format='value(machineType.basename())' 2>/dev/null || echo deleted)
 LOADGEN_SPEC="${LOADGEN_SPEC} ×${SPOTS}"
+# 실제 배정 세대 기록(정보용 — verdict 동일성 검사 제외 키). loadgen 은 하한 핀이라 세대 혼재가
+# 가능한데(#213), 핀 설정값(minCpuPlatform)은 상수라 혼재를 못 드러낸다 → 실제 cpuPlatform 을
+# 전 VM 에서 모아 ±10% 임계 근처 회귀의 사후 판별 근거로 남긴다. 정지/삭제 VM 은 조용히 제외.
+LOADGEN_PLATFORMS=$(for i in $(seq 0 $((SPOTS - 1))); do
+  gcloud compute instances describe "loadgen-$i" --zone="$ZONE" --project="$PROJECT_ID" \
+    --format='value(cpuPlatform)' 2>/dev/null || true
+done | sort -u | paste -sd '+' -)
+LOADGEN_PLATFORMS=${LOADGEN_PLATFORMS:-unknown}
 K6_HASH=$(find "$LT_DIR/k6" -type f -name '*.js' -print0 | sort -z | xargs -0 shasum | shasum | cut -c1-12)
 
 cat > "$REPORT_DIR/meta.json" <<EOF
@@ -102,6 +110,7 @@ cat > "$REPORT_DIR/meta.json" <<EOF
   "sut": "$SUT_SPEC / loadtest-profile / -Xmx2g",
   "db": "$DB_TIER / PG16",
   "loadgen": "$LOADGEN_SPEC",
+  "loadgenCpuPlatforms": "$LOADGEN_PLATFORMS",
   "spots": $SPOTS,
   "summariesCollected": $SUMMARIES_GOT,
   "k6OptionsHash": "$K6_HASH",
