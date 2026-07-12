@@ -18,8 +18,21 @@ done
 
 log "obs 설정 반영 (SUT=${SUT_IP}, LOADGEN loadgen-0..5)"
 TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT # promtool 게이트 exit 1 등 어떤 경로로 죽어도 임시파일 잔존 방지 (#215 리뷰)
 SUT_HOST="$SUT_IP" LOADGEN_TARGETS="$LOADGEN_TARGETS" \
   envsubst '$SUT_HOST $LOADGEN_TARGETS' < "$LT_DIR/infra/obs/prometheus-loadtest.yml.tpl" > "$TMP"
+
+# 렌더 결과 검증(fail-fast) — envsubst 는 주석까지 치환해 조용히 YAML 을 부술 수 있다(gha-8·9:
+# 깨진 설정이 그대로 배포 → prometheus crash-loop → 25분 run 뒤 INVALID 로 간접 발견).
+# obs 와 동일 이미지의 promtool 로 스키마까지 검사해 그 실패 클래스를 sync 단계 즉사로 바꾼다.
+chmod 644 "$TMP" # mktemp 0600 → 컨테이너 기본 유저(nobody)가 읽도록
+# pull 을 분리 — 인프라 실패(네트워크·레지스트리)와 렌더 깨짐을 다른 메시지로 보고 (#215 리뷰)
+docker image inspect prom/prometheus:v2.55.1 >/dev/null 2>&1 \
+  || docker pull -q prom/prometheus:v2.55.1 >/dev/null \
+  || { log "❌ prom/prometheus 이미지 pull 실패 — 네트워크/레지스트리 확인 (렌더 문제 아님)"; exit 1; }
+docker run --rm -v "$TMP:/prometheus.yml:ro" --entrypoint promtool \
+  prom/prometheus:v2.55.1 check config /prometheus.yml \
+  || { log "❌ prometheus.yml 렌더 결과 깨짐(promtool) — 배포 중단"; exit 1; } # 태그는 docker-compose.obs.yml 과 동일 유지
 
 vm_ssh obs 'mkdir -p ~/obs/dashboards/repo ~/obs/dashboards/loadtest ~/seed'
 vm_scp "$TMP" obs:~/obs/prometheus.yml
@@ -33,7 +46,6 @@ vm_scp "$LT_DIR"/grafana/dashboards/*.json obs:~/obs/dashboards/loadtest/
 vm_ssh obs 'chmod 644 ~/obs/prometheus.yml && chmod -R a+rX ~/obs/grafana-provisioning ~/obs/dashboards'
 # reset·검증·pg_stat 덤프가 seed 실행 여부와 무관하게 항상 가능하도록 운영 SQL 도 함께 배치
 vm_scp "$LT_DIR/seed/vm_env.sh" "$LT_DIR/seed/reset.sql" "$LT_DIR/seed/95_verify.sql" obs:~/seed/
-rm -f "$TMP"
 
 log "sut 설정 반영"
 vm_ssh sut 'mkdir -p ~/sut'
