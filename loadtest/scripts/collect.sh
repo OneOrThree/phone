@@ -57,20 +57,25 @@ log "pg_stat_statements top-20 덤프 (설계 §4-2 쿼리)"
 obs_psql loadtest "--csv -c \"SELECT calls, round(mean_exec_time::numeric,1) AS mean_ms, round(total_exec_time::numeric) AS total_ms, rows, round(100.0*shared_blks_hit/nullif(shared_blks_hit+shared_blks_read,0),1) AS hit_pct, left(query,120) AS query FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 20;\"" \
   > "$REPORT_DIR/pg_top20.csv" || log "⚠️ pg_top20 덤프 실패"
 
-log "부하기 CPU 최대치 조회 (VM별 최대 — 한 대만 포화돼도 INVALID)"
+# 본측정 창(.main_started_at ~ .ended_at) — CPU 가드·SUT 지연 조회가 공유. 창 하한 15s.
+MAIN_START=$(cat "$REPORT_DIR/.main_started_at" 2>/dev/null || echo unknown)
+ENDED=$(cat "$REPORT_DIR/.ended_at" 2>/dev/null || echo unknown)
+WIN=$(python3 -c "import datetime as d; a=d.datetime.fromisoformat('$MAIN_START'.replace('Z','+00:00')); b=d.datetime.fromisoformat('$ENDED'.replace('Z','+00:00')); print(max(15,int((b-a).total_seconds())))" 2>/dev/null || echo 60)
+END_EPOCH=$(python3 -c "import datetime as d; print(int(d.datetime.fromisoformat('$ENDED'.replace('Z','+00:00')).timestamp()))" 2>/dev/null || echo "")
+
+log "부하기 CPU 최대치 조회 (본측정 창 한정 · VM별 최대 — 한 대만 포화돼도 INVALID)"
 # avg by(instance) 로 VM별 코어평균 → 바깥 max 로 가장 뜨거운 VM. node-exporter 결측 VM 은 여기서
 # 조용히 빠지므로(포화 은닉) run.sh 스테이징의 전수 기동확인이 짝.
+# 창을 본측정 구간에 앵커([WIN s]@END) — 종전 30m max 는 부팅·k6 이미지 pull 스파이크까지 잡아
+# 매 run 새 VM 구조에서 구조적 오탐(gha-7 82.3%·gha-10 83% — 5rps 스모크가 4vCPU 를 포화시킬 수 없음).
 LOADGEN_MAX_CPU=$(vm_ssh obs "curl -sf 'http://localhost:9090/api/v1/query' --data-urlencode \
-  \"query=max(max_over_time((100*(1-avg by(instance)(rate(node_cpu_seconds_total{job='loadgen',mode='idle'}[1m]))))[30m:15s]))\" \
+  \"query=max(max_over_time((100*(1-avg by(instance)(rate(node_cpu_seconds_total{job='loadgen',mode='idle'}[1m]))))[${WIN}s:15s]))\" \
+  --data-urlencode 'time=${END_EPOCH}' \
   | python3 -c 'import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print(round(float(r[0][\"value\"][1]),1) if r else -1)'" \
   2>/dev/null || echo -1)
 
 log "SUT 지연 p95/p99 조회 (micrometer 히스토그램 — 부하기 대수 무관 참 글로벌, 본측정 창만)"
-MAIN_START=$(cat "$REPORT_DIR/.main_started_at" 2>/dev/null || echo unknown)
-ENDED=$(cat "$REPORT_DIR/.ended_at" 2>/dev/null || echo unknown)
-# micrometer 카운터는 boot 이래 누적 → rate([창])@end 로 본측정 구간만 잘라 워밍업 오염 차단. 창 하한 15s.
-WIN=$(python3 -c "import datetime as d; a=d.datetime.fromisoformat('$MAIN_START'.replace('Z','+00:00')); b=d.datetime.fromisoformat('$ENDED'.replace('Z','+00:00')); print(max(15,int((b-a).total_seconds())))" 2>/dev/null || echo 60)
-END_EPOCH=$(python3 -c "import datetime as d; print(int(d.datetime.fromisoformat('$ENDED'.replace('Z','+00:00')).timestamp()))" 2>/dev/null || echo "")
+# micrometer 카운터는 boot 이래 누적 → rate([창])@end 로 본측정 구간만 잘라 워밍업 오염 차단.
 sut_q() { # $1 = quantile(0.95|0.99) → ms (micrometer 초 × 1000), 결과 없으면 -1
   vm_ssh obs "curl -sf 'http://localhost:9090/api/v1/query' \
     --data-urlencode \"query=1000*histogram_quantile($1, sum(rate(http_server_requests_seconds_bucket{job='gromo-back',outcome='SUCCESS'}[${WIN}s]))by(le))\" \
