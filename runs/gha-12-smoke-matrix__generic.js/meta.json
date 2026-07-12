@@ -1,0 +1,21 @@
+{
+  "sha": "fd35614",
+  "seedVersion": "seed-v1",
+  "profile": "smoke",
+  "target": "matrix/_generic.js",
+  "mixVersion": "assumed-v1",
+  "sut": "n2d-standard-2/AMD Milan / loadtest-profile / -Xmx2g",
+  "db": "db-custom-2-8192 / PG16",
+  "loadgen": "n2-highcpu-4 ×1",
+  "loadgenCpuPlatforms": "Intel Cascade Lake",
+  "spots": 1,
+  "summariesCollected": 1,
+  "k6OptionsHash": "6f19e89f3e28",
+  "loadgenMaxCpu": 1.5,
+  "sutP95": 0.9,
+  "sutP99": 1.0,
+  "preempted": false,
+  "k6ExitCode": 0,
+  "startedAt": "2026-07-12T10:43:21Z",
+  "endedAt": "2026-07-12T10:46:01Z"
+}
