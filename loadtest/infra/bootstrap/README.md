@@ -42,9 +42,9 @@ BILLING_ACCOUNT_ID=XXXXXX-XXXXXX-XXXXXX \
 PROJECT_ID=gromo-loadtest-1 ./check-quota.sh
 ```
 
-무료체험 상한(동시 8 vCPU) 안의 예산: **SUT n2-standard-2(2) + 관측 e2-small(2) + 부하
-c2-standard-4 spot(4) = 8**. C2 쿼터가 없으면 부하 VM을 `n2-highcpu-4`로 폴백한다(Terraform
-변수). Cloud SQL vCPU는 Compute 쿼터와 별도.
+전역 상한(CPUS_ALL_REGIONS=32) 안의 예산: **SUT n2d-standard-2(2) + 관측 e2-small(2) + 러너
+e2-standard-2(2) + 부하 n2-highcpu-4 spot(4×SPOTS, SPOTS≤6) = 최대 30**. Cloud SQL vCPU는
+Compute 쿼터와 별도.
 
 ## 3. GitHub 레포 설정 (수동)
 

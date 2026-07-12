@@ -2,7 +2,7 @@
 # GROMO-548/763 부하테스트 쿼터 사전 점검
 #
 # 필요 동시 vCPU (전역 CPUS_ALL_REGIONS 가 실질 상한):
-#   SUT   n2-standard-2  = 2 (온디맨드, N2)
+#   SUT   n2d-standard-2 = 2 (온디맨드, N2D — 인텔 n2 존 재고 소진 반복으로 AMD 전환)
 #   관측  e2-small       = 2 (온디맨드, E2)
 #   러너  e2-standard-2  = 2 (온디맨드, E2 — 원격 트리거 시 상주)
 #   부하  n2-highcpu-4   = 4 × SPOTS (spot, N2 — GROMO-763 수평 확장, SPOTS≤6)
@@ -63,7 +63,8 @@ check CPUS_ALL_REGIONS "$NEED_CPUS" "전역 동시 vCPU — 실질 상한(리전
 
 echo "[check-quota] 리전 쿼터"
 check CPUS             "$NEED_CPUS"    "리전 온디맨드 vCPU (SUT2 + 관측2 + 러너2 + 부하 4×${SPOTS})"
-check N2_CPUS          $((2 + LG_CPUS)) "N2 vCPU (SUT n2-standard-2 + 부하 n2-highcpu-4×${SPOTS})"
+check N2D_CPUS         2               "N2D vCPU (SUT n2d-standard-2)"
+check N2_CPUS          "$LG_CPUS"      "N2 vCPU (부하 n2-highcpu-4×${SPOTS} — SUT 는 N2D 로 이동)"
 # GROMO-763: 부하를 n2-highcpu-4 로 전환 → C2_CPUS 검사 제거. spot 도 N2_CPUS/CPUS 로 검사됨.
 check PREEMPTIBLE_CPUS "$LG_CPUS"      "spot 참고용 legacy metric — 실제 검사는 N2_CPUS/CPUS" "$QUOTAS_JSON" soft
 check IN_USE_ADDRESSES $((3 + SPOTS))  "외부 IP (SUT·관측·러너 + 부하 ${SPOTS})"

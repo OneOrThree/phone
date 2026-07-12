@@ -17,15 +17,15 @@ variable "zone" {
 # ── vCPU 예산 (전역 CPUS_ALL_REGIONS=32): SUT 2 + 관측 2 + 러너 2 + 부하 4×SPOTS(≤6) = 최대 30 ──
 
 variable "sut_machine_type" {
-  description = "SUT VM — prod 동급 고정 스펙"
+  description = "SUT VM — prod 동급 고정 스펙. n2(인텔)는 a존 stockout 반복으로 시작 실패 이력 — AMD(n2d) 재고 풀 사용"
   type        = string
-  default     = "n2-standard-2"
+  default     = "n2d-standard-2"
 }
 
 variable "sut_min_cpu_platform" {
-  description = "run 간 하드웨어 일관성(baseline ±10% 판정) — e2 는 CPU 세대 랜덤 배정이라 n2+고정 사용. 존별 가용성은 apply 가 검증 — asia-northeast3 미지원 시 'Intel Cascade Lake' 로 하향"
+  description = "run 간 하드웨어 일관성(baseline ±10% 판정) — e2 는 CPU 세대 랜덤 배정이라 세대 고정 필수. n2d 의 최신 세대가 Milan 이라 '최소 Milan' = 사실상 Milan 고정. 존별 가용성은 apply 가 검증. 단 GCP 가 n2d 에 Milan 이후 세대를 추가하면 plan 은 No changes 인 채 신세대에 배치될 수 있음 — 그때 명시 핀 재검토(릴리스 노트 확인)"
   type        = string
-  default     = "Intel Ice Lake"
+  default     = "AMD Milan"
 }
 
 variable "obs_machine_type" {

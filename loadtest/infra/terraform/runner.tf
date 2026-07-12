@@ -85,4 +85,10 @@ resource "google_compute_instance_group_manager" "runner" {
   version {
     instance_template = google_compute_instance_template.runner[0].id
   }
+
+  # make runner-up/down 이 gcloud resize 로 1↔0 제어 — terraform 은 존재만 관리 (sut desired_status 와
+  # 동일 원칙). 이게 없으면 apply 가 켜져 있는 러너를 0 으로 되돌려 실행 중인 run 을 끊는다.
+  lifecycle {
+    ignore_changes = [target_size]
+  }
 }
