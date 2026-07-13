@@ -19,7 +19,7 @@ export interface RankedMember extends LeagueMemberResponse {
   exam: string; // 준비 시험 (시험 칩 필터)
   achievedRate: number; // 주간 목표 달성률 0..1 (프로필 링)
   friendCount: number; // 친구 수 (프로필 pill)
-  streakDays: number; // 연속 집중목표 달성 일수 (프로필 이름 옆 표기)
+  streakDays: number; // 연속 공부 일수 — 하루 10분 스트릭, UserStreak (프로필 이름 옆 표기)
   bestRank: number; // 역대 최고 순위 (프로필 기록 카드)
   bestWeekMinutes: number; // 일주일 최대 공부량(분) (프로필 기록 카드)
 }

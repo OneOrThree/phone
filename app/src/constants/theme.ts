@@ -46,6 +46,7 @@ export const T = {
   dangerInk: '#C25F52', // 경고 텍스트
   dangerBg: '#FBEFEC', // 경고 카드 배경
   dangerBorder: '#F3D9D4',
+  flame: '#E8452C', // 스트릭 불꽃 아이콘(연속 공부, GROMO-630)
   noteBg: '#EEF0FB', // 안내(인포) 박스 배경(인디고 틴트)
   noteBorder: '#DDE0F3',
 

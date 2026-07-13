@@ -18,21 +18,23 @@ type IconName = keyof typeof Ionicons.glyphMap;
 //   예약만 남긴다. 실제 반영은 발효일이 지난 뒤 PendingGoalApplier(App 루트)가 한다.
 //   현재 예약이 있으면 그 값으로 슬라이더를 초기화하고, 현재 목표와 같게 되돌려 저장하면 예약을 취소한다.
 
-// 목표 하한/상한(분) — 집중 30분~10시간, 사용 30분~12시간. 10분 단위.
-const MIN_MINUTES = 30;
-const FOCUS_MAX_MINUTES = 10 * 60;
+// 목표 하한/상한(분) — 집중 1분~24시간(1분 단위 자유 설정, GROMO-630), 사용 30분~12시간(10분 단위).
+const FOCUS_MIN_MINUTES = 1;
+const FOCUS_MAX_MINUTES = 24 * 60;
+const FOCUS_STEP = 1;
+const USAGE_MIN_MINUTES = 30;
 const USAGE_MAX_MINUTES = 12 * 60;
-const STEP = 10;
+const USAGE_STEP = 10;
 
-// 초 → 10분 단위 스냅 + [하한, 상한] 클램프한 '목표 분'.
-function toGoalMinutes(seconds: number, maxMinutes: number): number {
-  return snapClamp(seconds / 60, maxMinutes);
+// 초 → step 단위 스냅 + [하한, 상한] 클램프한 '목표 분'.
+function toGoalMinutes(seconds: number, min: number, max: number, step: number): number {
+  return snapClamp(seconds / 60, min, max, step);
 }
 
-// 분 → 10분 단위 스냅 + [하한, 상한] 클램프.
-function snapClamp(minutes: number, maxMinutes: number): number {
-  const snapped = Math.round(minutes / STEP) * STEP;
-  return Math.min(maxMinutes, Math.max(MIN_MINUTES, snapped));
+// 분 → step 단위 스냅 + [하한, 상한] 클램프.
+function snapClamp(minutes: number, min: number, max: number, step: number): number {
+  const snapped = Math.round(minutes / step) * step;
+  return Math.min(max, Math.max(min, snapped));
 }
 
 // 총 분 → '3시간 20분' / '4시간' / '30분' 표기.
@@ -61,6 +63,7 @@ interface GoalCardProps {
   sub: string;
   min: number;
   max: number;
+  step: number;
   value: number;
   activeMinutes: number; // 오늘 적용 중인 목표
   onChange: (minutes: number) => void;
@@ -74,6 +77,7 @@ function GoalCard({
   sub,
   min,
   max,
+  step,
   value,
   activeMinutes,
   onChange,
@@ -103,7 +107,7 @@ function GoalCard({
       )}
 
       <View style={s.sliderArea}>
-        <Slider min={min} max={max} step={STEP} value={value} onChange={onChange} />
+        <Slider min={min} max={max} step={step} value={value} onChange={onChange} />
         <View style={s.sliderLabels}>
           <Text style={s.minor}>{fmt(min)}</Text>
           <Text style={s.minor}>{fmt(max)}</Text>
@@ -119,11 +123,11 @@ export default function GoalsScreen() {
 
   // 오늘 적용 중인 목표(비교 기준) — 저장해도 이 값은 안 바뀐다(내일 발효).
   const activeFocusMin = useMemo(
-    () => toGoalMinutes(goalSeconds, FOCUS_MAX_MINUTES),
+    () => toGoalMinutes(goalSeconds, FOCUS_MIN_MINUTES, FOCUS_MAX_MINUTES, FOCUS_STEP),
     [goalSeconds],
   );
   const activeUsageMin = useMemo(
-    () => toGoalMinutes(screenTimeGoalSeconds, USAGE_MAX_MINUTES),
+    () => toGoalMinutes(screenTimeGoalSeconds, USAGE_MIN_MINUTES, USAGE_MAX_MINUTES, USAGE_STEP),
     [screenTimeGoalSeconds],
   );
 
@@ -150,10 +154,24 @@ export default function GoalsScreen() {
             const p = JSON.parse(raw) as NonNullable<typeof pendingRef.current>;
             pendingRef.current = p;
             if (typeof p.dailyFocusTimeGoalMinutes === 'number') {
-              setFocusMinutes(snapClamp(p.dailyFocusTimeGoalMinutes, FOCUS_MAX_MINUTES));
+              setFocusMinutes(
+                snapClamp(
+                  p.dailyFocusTimeGoalMinutes,
+                  FOCUS_MIN_MINUTES,
+                  FOCUS_MAX_MINUTES,
+                  FOCUS_STEP,
+                ),
+              );
             }
             if (typeof p.dailyScreenTimeGoalMinutes === 'number') {
-              setUsageMinutes(snapClamp(p.dailyScreenTimeGoalMinutes, USAGE_MAX_MINUTES));
+              setUsageMinutes(
+                snapClamp(
+                  p.dailyScreenTimeGoalMinutes,
+                  USAGE_MIN_MINUTES,
+                  USAGE_MAX_MINUTES,
+                  USAGE_STEP,
+                ),
+              );
             }
           } catch {
             // 깨진 예약값은 무시
@@ -235,8 +253,9 @@ export default function GoalsScreen() {
         iconBg={T.accentBg}
         label="목표 집중시간"
         sub="채우기 · 많이 채울수록 좋아요"
-        min={MIN_MINUTES}
+        min={FOCUS_MIN_MINUTES}
         max={FOCUS_MAX_MINUTES}
+        step={FOCUS_STEP}
         value={focusMinutes}
         activeMinutes={activeFocusMin}
         onChange={setFocusMinutes}
@@ -248,8 +267,9 @@ export default function GoalsScreen() {
         iconBg={T.greenBg}
         label="목표 사용시간"
         sub="넘지 않기 · 줄일수록 좋아요"
-        min={MIN_MINUTES}
+        min={USAGE_MIN_MINUTES}
         max={USAGE_MAX_MINUTES}
+        step={USAGE_STEP}
         value={usageMinutes}
         activeMinutes={activeUsageMin}
         onChange={setUsageMinutes}

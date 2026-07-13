@@ -21,7 +21,11 @@ import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { CharacterImage } from '@/components/character/CharacterImage';
-import { getTodayStats } from '@/services/statsApi';
+import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '@/types/storage';
+import { todayStr } from '@/utils/localDate';
+import { getTodayStats, getStreak } from '@/services/statsApi';
 import { hasUnread, subscribeInbox } from '@/services/notificationInbox';
 import type { TodayStatsResponse } from '@/types/dto/stats';
 import {
@@ -164,6 +168,15 @@ export default function HomeScreen() {
   const [reportRefresh, setReportRefresh] = useState(0);
   // 오늘 요약(서버 stats/today). null이면 미조회/게스트/실패 → 로컬 FocusContext 값으로 폴백.
   const [todayStats, setTodayStats] = useState<TodayStatsResponse | null>(null);
+  // 연속 공부 일수(하루 10분 스트릭, GROMO-630) — 0이면 칩 생략.
+  const [streakDays, setStreakDays] = useState(0);
+  // 목표 달성 축하(GROMO-630) — 결과 화면이 예약해 둔 축하를 홈 진입 시 노출. null=비노출.
+  // date = 달성한 날짜(예약 payload의 date) — 닫을 때 이 날짜로 기록한다.
+  const [goalCelebration, setGoalCelebration] = useState<{
+    date: string;
+    days: number;
+    goalMinutes?: number;
+  } | null>(null);
   // 오늘 집중 누적(로컬)을 effect 재실행 없이 최신값으로 읽기 위한 ref(폴백/계측용).
   const todayFocusSecondsRef = useRef(todayFocusSeconds);
   todayFocusSecondsRef.current = todayFocusSeconds;
@@ -195,6 +208,26 @@ export default function HomeScreen() {
       refetchTodayStats().then((focusMinutes) => {
         if (!cancelled) logTodaySummaryViewed({ focus_minutes: focusMinutes });
       });
+      // 연속 공부 일수(GROMO-630) — 홈 포커스마다 최신화(방금 세션 반영).
+      getStreak()
+        .then((v) => !cancelled && setStreakDays(v.currentStreak))
+        .catch(() => {});
+      // 목표 달성 축하 예약 확인(GROMO-630) — 오늘 예약이면 모달, 지난 예약이면 정리.
+      AsyncStorage.getItem(STORAGE_KEYS.focusGoalCelebratePending)
+        .then((raw) => {
+          if (cancelled || !raw) return;
+          try {
+            const p = JSON.parse(raw) as { date?: string; days?: number; goalMinutes?: number };
+            if (p.date === todayStr()) {
+              setGoalCelebration({ date: p.date, days: p.days ?? 1, goalMinutes: p.goalMinutes });
+              return;
+            }
+          } catch {
+            /* 깨진 값 → 아래에서 정리 */
+          }
+          AsyncStorage.removeItem(STORAGE_KEYS.focusGoalCelebratePending).catch(() => {});
+        })
+        .catch(() => {});
       return () => {
         cancelled = true;
       };
@@ -235,6 +268,18 @@ export default function HomeScreen() {
     ? Math.max(todayStats.focus.todayMinutes * 60, todayFocusSeconds)
     : todayFocusSeconds;
   const focusGoalSeconds = todayStats ? todayStats.focus.goalMinutes * 60 : goalSeconds;
+
+  // 축하 모달 닫기 — 축하 완료 기록 + 예약 제거(재노출 방지). 기록 날짜는 닫는 시점이 아니라
+  // 달성한 날짜(예약의 date) — 자정 넘겨 닫으면 새 날의 실제 축하까지 눌린다(PR 225 리뷰).
+  const closeGoalCelebration = useCallback(() => {
+    if (goalCelebration) {
+      AsyncStorage.setItem(STORAGE_KEYS.focusGoalCelebratedDate, goalCelebration.date).catch(
+        () => {},
+      );
+    }
+    AsyncStorage.removeItem(STORAGE_KEYS.focusGoalCelebratePending).catch(() => {});
+    setGoalCelebration(null);
+  }, [goalCelebration]);
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
@@ -297,17 +342,26 @@ export default function HomeScreen() {
             <Text style={s.cardTitle}>
               오늘 <Text style={s.cardTitleSub}>Today</Text>
             </Text>
-            <TouchableOpacity
-              style={s.moreBtn}
-              activeOpacity={0.7}
-              onPress={() => {
-                logHomeButtonTapped({ button: 'today_summary_detail', destination: 'Stats' });
-                navigation.navigate('Stats');
-              }}
-            >
-              <Text style={s.more}>자세히</Text>
-              <Ionicons name="chevron-forward" size={11} color={T.accent} />
-            </TouchableOpacity>
+            <View style={s.cardHeaderRight}>
+              {/* 연속 공부(GROMO-630) — 하루 10분 스트릭. 0일이면 생략 */}
+              {streakDays > 0 && (
+                <View style={s.streakChip}>
+                  <Ionicons name="flame" size={11} color={T.flame} />
+                  <Text style={s.streakChipText}>연속 공부 {streakDays}일</Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={s.moreBtn}
+                activeOpacity={0.7}
+                onPress={() => {
+                  logHomeButtonTapped({ button: 'today_summary_detail', destination: 'Stats' });
+                  navigation.navigate('Stats');
+                }}
+              >
+                <Text style={s.more}>자세히</Text>
+                <Ionicons name="chevron-forward" size={11} color={T.accent} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           <MetricRow
@@ -329,6 +383,14 @@ export default function HomeScreen() {
           />
         </View>
       </View>
+
+      {/* 목표 달성 축하 모달(GROMO-630) — 결과 화면을 닫고 홈에 오면 노출 */}
+      <GoalCelebrationModal
+        visible={goalCelebration != null}
+        goalStreakDays={goalCelebration?.days ?? 1}
+        goalMinutes={goalCelebration?.goalMinutes}
+        onClose={closeGoalCelebration}
+      />
     </SafeAreaView>
   );
 }
@@ -424,6 +486,18 @@ const s = StyleSheet.create({
   cardTitleSub: { color: T.inkFaint, fontWeight: '500' },
   moreBtn: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   more: { ...T.text.label, color: T.accent },
+  // 연속 공부 칩(GROMO-630)
+  cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  streakChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: T.accentBg,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  streakChipText: { ...T.text.caption, fontSize: 10, fontWeight: '700', color: T.accentDeep },
   metricRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8 },
   metricDivider: { borderBottomWidth: 1, borderBottomColor: T.divider, paddingBottom: 14 },
   metricIcon: {
