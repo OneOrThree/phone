@@ -52,10 +52,10 @@ class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
                 .occupation(occupation).build());
     }
 
-    private LeagueArenaUser saveMember(LeagueArena arena, User user, int focusMinutes) {
+    private LeagueArenaUser saveMember(LeagueArena arena, User user, int focusSeconds) {
         return leagueArenaUserRepository.save(LeagueArenaUser.builder()
                 .user(user).leagueArena(arena).tierLevel(arena.getTierConfig().getTierLevel())
-                .totalFocusMinutes(focusMinutes).build());
+                .totalFocusSeconds(focusSeconds).build());
     }
 
     @Test
@@ -103,7 +103,7 @@ class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("findRankedByArena — totalFocusMinutes 내림차순 정렬, 해당 아레나 멤버만, 닉네임 fetch")
+    @DisplayName("findRankedByArena — totalFocusSeconds 내림차순 정렬, 해당 아레나 멤버만, 닉네임 fetch")
     void findRankedByArena_orderedDesc() {
         LeagueTierConfig cfg = saveTierConfig(3);
         LeagueArena arena = saveArena(cfg, LeagueArenaStatus.ACTIVE);
@@ -150,7 +150,7 @@ class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
         List<LeagueArenaUser> ranked = leagueArenaUserRepository
                 .findRankedByActiveArenasAndOccupation(Occupation.LABOR_ATTORNEY, PageRequest.of(0, 100));
 
-        // 노무사만 3명(ACTIVE 아레나 전체), ENDED 제외, totalFocusMinutes 내림차순
+        // 노무사만 3명(ACTIVE 아레나 전체), ENDED 제외, totalFocusSeconds 내림차순
         assertThat(ranked).hasSize(3);
         assertThat(ranked).extracting(m -> m.getUser().getNickname())
                 .containsExactly("lawyerA1", "lawyerB", "lawyerA2");
@@ -230,7 +230,7 @@ class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
     void findRankedByArena_tieBreakById() {
         LeagueTierConfig cfg = saveTierConfig(3);
         LeagueArena arena = saveArena(cfg, LeagueArenaStatus.ACTIVE);
-        // 동일 focusMinutes 면 id 오름차순으로 결정적 정렬돼야 한다.
+        // 동일 focusSeconds 면 id 오름차순으로 결정적 정렬돼야 한다.
         // (UUID v7 는 같은 밀리초 내 생성 시 랜덤 꼬리로 순서가 갈려 저장 순서 != id 순서일 수 있으므로
         //  저장 순서를 가정하지 않고, 실제 id 를 정렬한 기대값과 비교한다.)
         LeagueArenaUser a = saveMember(arena, saveUser("a"), 150);

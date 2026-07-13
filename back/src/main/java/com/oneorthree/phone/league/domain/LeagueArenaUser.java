@@ -50,15 +50,15 @@ public class LeagueArenaUser {
     private int tierLevel;
 
     @Builder.Default
-    private int totalFocusMinutes = 0;
+    private int totalFocusSeconds = 0;
 
     private Integer rank;
 
     @Enumerated(EnumType.STRING)
     private LeagueMemberResult result;
 
-    /** 세션 완료 시 주간 누적 집중 시간(분)을 더한다 (GROMO-646). 더티 체킹으로 반영. */
-    public void addFocusMinutes(int minutes) {
-        this.totalFocusMinutes += minutes;
+    /** 세션 완료 시 주간 누적 집중 시간(초)을 더한다 (GROMO-665). 더티 체킹으로 반영. */
+    public void addFocusSeconds(int seconds) {
+        this.totalFocusSeconds += seconds;
     }
 }

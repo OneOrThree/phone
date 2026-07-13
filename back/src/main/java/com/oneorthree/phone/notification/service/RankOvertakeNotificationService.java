@@ -41,7 +41,7 @@ import java.util.stream.Collectors;
  * 순위 추월 푸시 트리거 (GROMO-579) — apns.md §3-⑤.
  *
  * <p>매일 19:00 KST 배치(NotificationScheduler)·수동 트리거(NotificationBatchController)가 진입점.
- * ACTIVE 아레나별 오늘 실시간 순위(findRankedByArena, totalFocusMinutes DESC)를 확보하고,
+ * ACTIVE 아레나별 오늘 실시간 순위(findRankedByArena, totalFocusSeconds DESC)를 확보하고,
  * <b>어제 스냅샷</b>(created_at = 어제 KST)과 비교해 "나를 제친 라이벌"(어제 나보다 아래/같음 → 오늘 나보다 위)을
  * 감지한다. 라이벌이 있으면 대표 1명 + "외 N명" 으로 <b>1건 묶음</b> 발송하고, 처리 후 오늘 순위를
  * created_at = 오늘 로 upsert 해 다음날 비교 기준을 남긴다(부트스트랩: 어제 스냅샷이 없으면 감지 없이 저장만).

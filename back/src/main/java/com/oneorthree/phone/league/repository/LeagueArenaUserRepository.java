@@ -21,7 +21,7 @@ import java.util.UUID;
 
 public interface LeagueArenaUserRepository extends JpaRepository<LeagueArenaUser, UUID> {
 
-    List<LeagueArenaUser> findByLeagueArenaOrderByTotalFocusMinutesDesc(LeagueArena leagueArena);
+    List<LeagueArenaUser> findByLeagueArenaOrderByTotalFocusSecondsDesc(LeagueArena leagueArena);
 
     Optional<LeagueArenaUser> findByLeagueArenaAndUser(LeagueArena leagueArena, User user);
 
@@ -48,13 +48,13 @@ public interface LeagueArenaUserRepository extends JpaRepository<LeagueArenaUser
 
     // 랭킹용 — user fetch 로 닉네임 N+1 방지, 동점은 id 오름차순으로 순위 결정
     @Query("SELECT m FROM LeagueArenaUser m JOIN FETCH m.user "
-            + "WHERE m.leagueArena = :arena ORDER BY m.totalFocusMinutes DESC, m.id ASC")
+            + "WHERE m.leagueArena = :arena ORDER BY m.totalFocusSeconds DESC, m.id ASC")
     List<LeagueArenaUser> findRankedByArena(@Param("arena") LeagueArena arena);
 
     // 전역 카테고리 랭킹 — 이번 주 ACTIVE 아레나 전체 × occupation 필터, 상위 N 제한
     @Query("SELECT m FROM LeagueArenaUser m JOIN FETCH m.user u "
             + "WHERE m.leagueArena.status = 'ACTIVE' AND u.occupation = :occupation "
-            + "ORDER BY m.totalFocusMinutes DESC, m.id ASC")
+            + "ORDER BY m.totalFocusSeconds DESC, m.id ASC")
     List<LeagueArenaUser> findRankedByActiveArenasAndOccupation(
             @Param("occupation") Occupation occupation, Pageable pageable);
 
@@ -62,7 +62,7 @@ public interface LeagueArenaUserRepository extends JpaRepository<LeagueArenaUser
     // occupation 필터만 뺀 findRankedByActiveArenasAndOccupation 형제 쿼리, 동점은 id 오름차순
     @Query("SELECT m FROM LeagueArenaUser m JOIN FETCH m.user "
             + "WHERE m.leagueArena.status = 'ACTIVE' "
-            + "ORDER BY m.totalFocusMinutes DESC, m.id ASC")
+            + "ORDER BY m.totalFocusSeconds DESC, m.id ASC")
     List<LeagueArenaUser> findRankedByActiveArenas(Pageable pageable);
 
     // 주간 알림용 — 직전 주차 ENDED 아레나의 확정 결과별 멤버 (GROMO-528).
