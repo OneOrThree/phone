@@ -21,6 +21,10 @@ import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { CharacterImage } from '@/components/character/CharacterImage';
+import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '@/types/storage';
+import { todayStr } from '@/utils/localDate';
 import { getTodayStats, getStreak } from '@/services/statsApi';
 import type { TodayStatsResponse } from '@/types/dto/stats';
 import {
@@ -165,6 +169,8 @@ export default function HomeScreen() {
   const [todayStats, setTodayStats] = useState<TodayStatsResponse | null>(null);
   // 연속 공부 일수(하루 10분 스트릭, GROMO-630) — 0이면 칩 생략.
   const [streakDays, setStreakDays] = useState(0);
+  // 목표 달성 축하(GROMO-630) — 결과 화면이 예약해 둔 축하를 홈 진입 시 노출. null=비노출.
+  const [goalCelebration, setGoalCelebration] = useState<number | null>(null);
   // 오늘 집중 누적(로컬)을 effect 재실행 없이 최신값으로 읽기 위한 ref(폴백/계측용).
   const todayFocusSecondsRef = useRef(todayFocusSeconds);
   todayFocusSecondsRef.current = todayFocusSeconds;
@@ -200,6 +206,22 @@ export default function HomeScreen() {
       getStreak()
         .then((v) => !cancelled && setStreakDays(v.currentStreak))
         .catch(() => {});
+      // 목표 달성 축하 예약 확인(GROMO-630) — 오늘 예약이면 모달, 지난 예약이면 정리.
+      AsyncStorage.getItem(STORAGE_KEYS.focusGoalCelebratePending)
+        .then((raw) => {
+          if (cancelled || !raw) return;
+          try {
+            const p = JSON.parse(raw) as { date?: string; days?: number };
+            if (p.date === todayStr()) {
+              setGoalCelebration(p.days ?? 1);
+              return;
+            }
+          } catch {
+            /* 깨진 값 → 아래에서 정리 */
+          }
+          AsyncStorage.removeItem(STORAGE_KEYS.focusGoalCelebratePending).catch(() => {});
+        })
+        .catch(() => {});
       return () => {
         cancelled = true;
       };
@@ -230,6 +252,13 @@ export default function HomeScreen() {
     ? Math.max(todayStats.focus.todayMinutes * 60, todayFocusSeconds)
     : todayFocusSeconds;
   const focusGoalSeconds = todayStats ? todayStats.focus.goalMinutes * 60 : goalSeconds;
+
+  // 축하 모달 닫기 — 오늘 축하 완료 기록 + 예약 제거(재노출 방지).
+  const closeGoalCelebration = useCallback(() => {
+    setGoalCelebration(null);
+    AsyncStorage.setItem(STORAGE_KEYS.focusGoalCelebratedDate, todayStr()).catch(() => {});
+    AsyncStorage.removeItem(STORAGE_KEYS.focusGoalCelebratePending).catch(() => {});
+  }, []);
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
@@ -332,6 +361,13 @@ export default function HomeScreen() {
           />
         </View>
       </View>
+
+      {/* 목표 달성 축하 모달(GROMO-630) — 결과 화면을 닫고 홈에 오면 노출 */}
+      <GoalCelebrationModal
+        visible={goalCelebration != null}
+        goalStreakDays={goalCelebration ?? 1}
+        onClose={closeGoalCelebration}
+      />
     </SafeAreaView>
   );
 }
