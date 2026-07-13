@@ -12,7 +12,7 @@
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:?}"
-ZONE="${ZONE:-asia-northeast3-a}"
+ZONE="${ZONE:-asia-northeast3-c}" # a존 stockout 연쇄(07-11~13)로 이동 — common.sh 와 동일 기본값
 SCALE="${SCALE:-1}"
 SEED_VERSION="${SEED_VERSION:-seed-v1}"
 OBS_VM="${OBS_VM:-obs}"

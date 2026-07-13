@@ -10,7 +10,7 @@ SHELL := bash
 
 PROJECT_ID ?=
 REGION ?= asia-northeast3
-ZONE ?= asia-northeast3-a
+ZONE ?= asia-northeast3-c
 PROFILE ?= smoke
 TARGET ?= scenarios/daily_mix.js
 SEED_VERSION ?= seed-v1

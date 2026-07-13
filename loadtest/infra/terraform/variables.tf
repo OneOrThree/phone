@@ -10,8 +10,9 @@ variable "region" {
 }
 
 variable "zone" {
+  # 존 이동 이력: a존 n2(07-11)·n2d(07-12~13) 연쇄 stockout → b존 시도했으나 b도 n2d 품절(07-13 프로브 실증) → c존(프로브로 재고 확인 후 이동)
   type    = string
-  default = "asia-northeast3-a"
+  default = "asia-northeast3-c"
 }
 
 # ── vCPU 예산 (전역 CPUS_ALL_REGIONS=32): SUT 2 + 관측 2 + 러너 2 + 부하 4×SPOTS(≤6) = 최대 30 ──

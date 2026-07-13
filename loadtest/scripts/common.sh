@@ -3,7 +3,7 @@
 set -euo pipefail
 
 : "${PROJECT_ID:?PROJECT_ID 를 지정하세요 (예: make test PROJECT_ID=gromo-loadtest-1)}"
-ZONE="${ZONE:-asia-northeast3-a}"
+ZONE="${ZONE:-asia-northeast3-c}" # a존 stockout 연쇄(07-11~13)로 이동 — terraform variables.tf 와 함께 변경
 REGION="${REGION:-asia-northeast3}"
 SQL_INSTANCE="${SQL_INSTANCE:-loadtest-pg}"
 SEED_VERSION="${SEED_VERSION:-seed-v1}"
