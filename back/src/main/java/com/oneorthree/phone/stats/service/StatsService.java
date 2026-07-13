@@ -1,5 +1,6 @@
 package com.oneorthree.phone.stats.service;
 
+import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -34,7 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -228,9 +229,12 @@ public class StatsService {
         LocalDate from = range.currentFrom();
         LocalDate to = range.currentTo();
 
-        // GROMO-671(커밋3): local_date 제거로 endedAt(UTC) 윈도우 기준 조회 — [from 00:00, to+1 00:00) 반열림 구간.
-        Instant fromInstant = from.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant toInstant = to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        // GROMO-803: endedAt 윈도우도 유저 country_code 존 기준으로 정합 — [from 00:00, to+1 00:00) 반열림 구간.
+        // 일별 버킷(DailyFocusStat)이 존 로컬 날짜가 됐으므로, by-category 윈도우도 같은 존으로 열어야 경계 세션이
+        // 두 집계에서 동일한 날에 귀속된다. countryCode null·미지원은 UTC 폴백(CountryZoneResolver).
+        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        Instant fromInstant = from.atStartOfDay(zone).toInstant();
+        Instant toInstant = to.plusDays(1).atStartOfDay(zone).toInstant();
         List<FocusSession> sessions =
                 focusSessionRepository.findCompletedSessionsInPeriod(user, fromInstant, toInstant);
 

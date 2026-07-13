@@ -2,6 +2,7 @@ package com.oneorthree.phone.focus.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.focus.domain.DefaultTag;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.OccupationDefaultTag;
@@ -776,12 +777,13 @@ class FocusServiceTest {
     }
 
     @Test
-    @DisplayName("세션 저장 → 스트릭 갱신을 endedAt 기준 UTC 날짜로 호출(같은 트랜잭션)")
+    @DisplayName("세션 저장(countryCode=null) → 스트릭 갱신을 endedAt UTC 폴백 날짜로 호출(같은 트랜잭션, GROMO-803)")
     void saveFocusSessionUpdatesStreakWithUtcDate() {
-        // given: 2026-06-22 23:55Z 시작 → 2026-06-23 00:05Z 종료 — endedAt 의 UTC 날짜(23일)로 호출돼야 함
+        // given: countryCode 없는 유저 → UTC 폴백. 2026-06-22 23:55Z 시작 → 2026-06-23 00:05Z 종료
+        //        → endedAt 의 UTC 날짜(23일)로 호출돼야 함(존 미지정 폴백 케이스). KR 존 케이스는 T3-KST 참고.
         Instant startedAt = Instant.parse("2026-06-22T23:55:00Z");
         Instant endedAt = Instant.parse("2026-06-23T00:05:00Z");
-        User user = User.builder().id(USER_ID).build();
+        User user = User.builder().id(USER_ID).build();   // countryCode 미설정 → UTC 폴백
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -863,17 +865,19 @@ class FocusServiceTest {
     }
 
     /**
-     * T3 (GROMO-671 커밋3): local_date 컬럼 제거로 집계 날짜는 endedAt(UTC) 의 날짜로 버킷팅된다.
-     * 시나리오: endedAt = 07-06 23:00Z → endedAt UTC date = 07-06 로 귀속(클라 로컬 날짜 개념 제거됨).
+     * T3 (GROMO-803): 집계 날짜는 유저 country_code 파생 존 로컬 날짜로 버킷팅된다.
+     * 이 케이스는 {@code countryCode==null} 유저 → UTC 폴백(CountryZoneResolver)이라 endedAt 의 UTC date 로 귀속.
+     * 시나리오: endedAt = 07-06 23:00Z, 유저 존 없음 → UTC → 07-06 로 귀속.
+     * (KR 유저의 존 전환 확증은 saveFocusStat_krUser_bucketsByKstDate 참고.)
      */
     @Test
-    @DisplayName("T3(GROMO-671): 집계 날짜는 endedAt UTC date 로 귀속 (local_date 제거)")
-    void saveFocusStat_bucketsByEndedAtUtcDate() {
+    @DisplayName("T3(GROMO-803): countryCode=null 유저 → UTC 폴백으로 endedAt UTC date 에 귀속")
+    void saveFocusStat_nullCountry_bucketsByUtcDate() {
         Instant startedAt = Instant.parse("2026-07-06T22:30:00Z");
-        Instant endedAt = Instant.parse("2026-07-06T23:00:00Z");   // endedAt UTC date = 07-06
+        Instant endedAt = Instant.parse("2026-07-06T23:00:00Z");   // 존 없음 → UTC date = 07-06
         LocalDate endedAtUtcDate = LocalDate.of(2026, 7, 6);
 
-        User user = User.builder().id(USER_ID).build();
+        User user = User.builder().id(USER_ID).build();   // countryCode 미설정 → UTC 폴백
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(endedAtUtcDate)))
                 .willReturn(Optional.empty());
@@ -883,10 +887,76 @@ class FocusServiceTest {
 
         focusService.saveFocusSession(USER_ID, body);
 
-        // endedAt UTC date(07-06)로 귀속
+        // 존 없음 → UTC date(07-06)로 귀속
         ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
         verify(dailyFocusStatRepository).save(captor.capture());
         assertThat(captor.getValue().getDate()).isEqualTo(endedAtUtcDate);
+    }
+
+    /**
+     * T3-KST (GROMO-803/720): KR 유저의 세션은 country_code(KR) 존(KST)의 로컬 날짜로 버킷팅된다.
+     * 시나리오: endedAt = 2026-07-12T20:00:00Z = 2026-07-13 05:00 KST → statDate 2026-07-13.
+     * 과거 UTC 기준이었다면 07-12 로 귀속됐을 것 — 존 전환을 확증한다(집계 존 == screentime 존).
+     */
+    @Test
+    @DisplayName("T3-KST(GROMO-803): KR 유저 endedAt 20:00Z(=05:00 KST 익일) → statDate=07-13 (UTC였다면 07-12)")
+    void saveFocusStat_krUser_bucketsByKstDate() {
+        Instant startedAt = Instant.parse("2026-07-12T19:30:00Z");
+        Instant endedAt = Instant.parse("2026-07-12T20:00:00Z");   // = 2026-07-13 05:00 KST
+        LocalDate kstDate = LocalDate.of(2026, 7, 13);
+        LocalDate utcDate = LocalDate.of(2026, 7, 12);
+
+        User krUser = User.builder().id(USER_ID).countryCode("KR").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(krUser));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(krUser), eq(kstDate)))
+                .willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(null, startedAt, endedAt, 0);
+
+        focusService.saveFocusSession(USER_ID, body);
+
+        // KST 로컬 날짜(07-13)로 귀속 — UTC(07-12)가 아님
+        ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
+        verify(dailyFocusStatRepository).save(captor.capture());
+        assertThat(captor.getValue().getDate()).isEqualTo(kstDate);
+        assertThat(captor.getValue().getDate()).isNotEqualTo(utcDate);
+        // 집계 존 == 스트릭 존 — 같은 statDate(07-13)로 스트릭 갱신되어야 한다(경계 세션이 오늘 스트릭에 반영)
+        verify(userStreakService).updateOnSessionComplete(krUser, kstDate);
+    }
+
+    /**
+     * T3-574 (GROMO-574): 집중 저장 존 == 스크린타임 저장 존 (같은 유저·같은 country_code 존).
+     * ScreenTimeService.resolveLocalDate 는 {@code reportedAt.atZone(CountryZoneResolver.resolve(countryCode))},
+     * FocusService.statDate 는 {@code endedAt.atZone(CountryZoneResolver.resolve(countryCode))} — 동일 규칙이다.
+     * 동일 유저(KR)·동일 순간(instant)을 두 도메인에 넣으면 같은 날짜에 귀속됨을 확인한다(도메인 정합).
+     * 여행/국가변경(디바이스 존 ≠ country 존) 엣지는 stats package-info 문서로 수용(코드 미처리).
+     */
+    @Test
+    @DisplayName("T3-574: 집중 저장 존 == 스크린타임 저장 존 — 같은 유저·같은 순간이 같은 날짜에 귀속(country_code 존)")
+    void saveFocusStat_zoneMatchesScreenTimeZone() {
+        // 경계 순간: 2026-07-12T20:00:00Z = 2026-07-13 05:00 KST (자정 넘김)
+        Instant instant = Instant.parse("2026-07-12T20:00:00Z");
+        User krUser = User.builder().id(USER_ID).countryCode("KR").build();
+
+        // 스크린타임이 같은 유저·같은 순간을 귀속시킬 날짜 = CountryZoneResolver 로 계산(도메인 공통 규칙)
+        LocalDate screenTimeDate = instant.atZone(CountryZoneResolver.resolve(krUser.getCountryCode()))
+                .toLocalDate();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(krUser));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        // startedAt 은 버킷에 영향 없음(endedAt 기준) — endedAt = 경계 순간
+        FocusSessionRequest body = new FocusSessionRequest(null, instant.minusSeconds(1800), instant, 0);
+
+        focusService.saveFocusSession(USER_ID, body);
+
+        ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
+        verify(dailyFocusStatRepository).save(captor.capture());
+        // 집중 저장 날짜 == 스크린타임 저장 날짜 (둘 다 KST 07-13)
+        assertThat(captor.getValue().getDate()).isEqualTo(screenTimeDate);
+        assertThat(captor.getValue().getDate()).isEqualTo(LocalDate.of(2026, 7, 13));
     }
 
     /**
@@ -1286,6 +1356,47 @@ class FocusServiceTest {
         assertThat(response.sessionId()).isEqualTo(SESSION_ID);
         assertThat(response.durationSeconds()).isEqualTo(3600L);
         assertThat(response.totalDistractionSeconds()).isEqualTo(30);
+    }
+
+    /**
+     * T3-KST-END (GROMO-803): 라이브 PATCH 종료도 country_code(KR) 존(KST) 로컬 날짜로 버킷팅된다.
+     * saveFocusSession 의 saveFocusStat_krUser_bucketsByKstDate 를 endFocusSession 경로로 미러링한다.
+     * 시나리오: endedAt = 2026-07-12T20:00:00Z = 2026-07-13 05:00 KST → statDate 2026-07-13.
+     * 과거 UTC 기준이었다면 07-12 로 귀속됐을 것 — 종료 경로의 존 전환을 확증한다.
+     * (기존 종료 테스트는 스트릭 날짜를 any() 로만 검증했다 — 여기선 eq(07-13) 로 못 박는다.)
+     */
+    @Test
+    @DisplayName("T3-KST-END(GROMO-803): KR 유저 라이브 종료 endedAt 20:00Z(=05:00 KST 익일) → statDate=07-13 (UTC였다면 07-12)")
+    void endFocusSession_krUser_bucketsByKstDate() {
+        Instant startedAt = Instant.parse("2026-07-12T19:30:00Z");
+        Instant endedAt = Instant.parse("2026-07-12T20:00:00Z");   // = 2026-07-13 05:00 KST
+        LocalDate kstDate = LocalDate.of(2026, 7, 13);
+        LocalDate utcDate = LocalDate.of(2026, 7, 12);
+
+        // given: KR 유저의 본인 소유 진행 중(ACTIVE) 세션 + 조건부 종료 성사(row=1)
+        User krUser = User.builder().id(USER_ID).countryCode("KR").build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(krUser).startedAt(startedAt).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(krUser));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
+        // 버킷 조회는 KST 날짜(07-13)로 이뤄져야 한다 — 신규 insert 경로
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(krUser), eq(kstDate)))
+                .willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, endedAt, 0, null);
+
+        // when
+        focusService.endFocusSession(USER_ID, body);
+
+        // then: DailyFocusStat 은 KST 로컬 날짜(07-13)로 버킷팅 — UTC(07-12)가 아님
+        ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
+        verify(dailyFocusStatRepository).save(captor.capture());
+        assertThat(captor.getValue().getDate()).isEqualTo(kstDate);
+        assertThat(captor.getValue().getDate()).isNotEqualTo(utcDate);
+        // 스트릭도 같은 statDate(07-13)로 갱신 — any() 가 아니라 eq(07-13) 로 확증
+        verify(userStreakService).updateOnSessionComplete(eq(krUser), eq(kstDate));
     }
 
     @Test

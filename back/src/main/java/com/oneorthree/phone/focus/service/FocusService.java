@@ -2,6 +2,7 @@ package com.oneorthree.phone.focus.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
@@ -44,7 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -238,19 +239,20 @@ public class FocusService {
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
                 .build());
 
+        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
         recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
-                body.getTotalDistractionSeconds(), statDate(body.getEndedAt()));
+                body.getTotalDistractionSeconds(), statDate(body.getEndedAt(), zone));
     }
 
     /**
      * 일별 집중 집계·스트릭 귀속 버킷 날짜를 계산한다.
      *
-     * <p><b>현재 기준: UTC.</b> endedAt(세션 종료 시각) 을 UTC 존으로 환산한 로컬 날짜를 버킷으로 쓴다
-     * (GROMO-671 커밋3에서 local_date 컬럼 제거로 도입). 클라 로컬 타임존은 반영하지 않는다.
-     * (ticket 803 에서 country_code 존 기준으로 전환 예정 — 그때 이 주석도 갱신한다.)
+     * <p><b>기준: 유저 country_code 파생 존 로컬 날짜 (GROMO-803, screentime 561과 동일 기준).</b>
+     * endedAt(세션 종료 시각) 을 유저 국가 존({@link CountryZoneResolver})으로 환산한 로컬 날짜를 버킷으로 쓴다.
+     * countryCode 가 null·미지원이면 UTC 로 폴백한다(CountryZoneResolver). 스크린타임 저장 존과 정합.
      */
-    private static LocalDate statDate(Instant endedAt) {
-        return endedAt.atZone(ZoneOffset.UTC).toLocalDate();
+    private static LocalDate statDate(Instant endedAt, ZoneId zone) {
+        return endedAt.atZone(zone).toLocalDate();
     }
 
     /**
@@ -311,8 +313,9 @@ public class FocusService {
 
         // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
         session.end(endedAt, body.totalDistractionSeconds());
+        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
         recordCompletion(user, userId, tag, session.getStartedAt(), endedAt,
-                body.totalDistractionSeconds(), statDate(endedAt));
+                body.totalDistractionSeconds(), statDate(endedAt, zone));
 
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
         return new FocusSessionEndResponse(session.getId(), session.getStartedAt(), endedAt,
@@ -369,7 +372,7 @@ public class FocusService {
         }
         userActivityEventLogger.log(UserActivityEvent.FOCUS_SESSION_COMPLETED, sessionPayload);
 
-        // ── DailyFocusStat upsert: statDate(현재 endedAt UTC 버킷) 기준 (user, date) 멱등 누적 ──
+        // ── DailyFocusStat upsert: statDate(country_code 존 로컬 날짜 버킷, GROMO-803) 기준 (user, date) 멱등 누적 ──
         // GROMO-642: 초 단위 누적(세션별 분 내림 제거 — 30초×10=300초 정확). goal(분)은 *60 초로 비교.
         int addedSeconds = (int) Duration.between(startedAt, endedAt).getSeconds();
 
@@ -412,7 +415,7 @@ public class FocusService {
             }
         }
 
-        // 스트릭 갱신 — 세션 저장·일별 집계와 같은 트랜잭션(원자적), 날짜 기준도 동일(endedAt UTC)
+        // 스트릭 갱신 — 세션 저장·일별 집계와 같은 트랜잭션(원자적), 날짜 기준도 동일(country_code 존 로컬 날짜, GROMO-803)
         userStreakService.updateOnSessionComplete(user, statDate);
 
         // GROMO-646: 현재 ACTIVE 아레나 멤버면 주간 누적 집중 시간 반영(리그 탭·랭킹·주간 마감 정합).
@@ -422,7 +425,7 @@ public class FocusService {
                 .ifPresent(member -> member.addFocusSeconds(addedSeconds));
     }
 
-    /** 일일 집중 목표 달성(false→true 전이) 이벤트 발행 — date 는 ISO(UTC). */
+    /** 일일 집중 목표 달성(false→true 전이) 이벤트 발행 — date 는 ISO(country_code 존 로컬 날짜, GROMO-803). */
     private void logDailyFocusGoalAchieved(LocalDate statDate, int totalFocusMinutes, int goalMinutes) {
         userActivityEventLogger.log(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED, Map.of(
                 "date", statDate.toString(),
