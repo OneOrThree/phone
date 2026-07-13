@@ -154,6 +154,9 @@ public class UserService {
         UserFocusTimeSettings focusSettings = userFocusTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
+        // 준비 시험(occupation) — enum name 문자열, 미설정이면 null (GROMO-757, 타 유저 공개 프로필과 동일 매핑)
+        String occupation = user.getOccupation() != null ? user.getOccupation().name() : null;
+
         return new UserProfileResponse(
                 user.getId(),
                 user.getNickname(),
@@ -161,7 +164,8 @@ public class UserService {
                 screenSettings.getDailyScreenTimeGoalMinutes(),
                 focusSettings.getDailyFocusTimeGoalMinutes(),
                 user.getCountryCode(),
-                user.getStatVisibility() != null ? user.getStatVisibility().name() : null
+                user.getStatVisibility() != null ? user.getStatVisibility().name() : null,
+                occupation
         );
     }
 
