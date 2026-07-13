@@ -6,6 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
+import { getStreak } from '@/services/statsApi';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@/store/UserContext';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -40,6 +41,8 @@ export default function MenuScreen() {
   const [permission, setPermission] = useState<'approved' | 'denied' | 'notDetermined' | null>(
     null,
   );
+  // 연속 공부 일수(하루 10분 스트릭, GROMO-630) — 0이면 pill 생략.
+  const [streakDays, setStreakDays] = useState(0);
 
   // 화면 재진입마다 최신값 반영(하위 화면에서 바꾸고 돌아올 수 있으므로).
   useFocusEffect(
@@ -53,6 +56,10 @@ export default function MenuScreen() {
         .catch(() => !cancelled && setPermission(null));
       AsyncStorage.getItem(STORAGE_KEYS.focusCategory)
         .then((c) => !cancelled && setCategory(c))
+        .catch(() => {});
+      // 연속 공부 일수(GROMO-630) — 재진입마다 최신화.
+      getStreak()
+        .then((v) => !cancelled && setStreakDays(v.currentStreak))
         .catch(() => {});
       return () => {
         cancelled = true;
@@ -83,9 +90,18 @@ export default function MenuScreen() {
             <CharacterImage size={44} />
           </View>
           <View style={s.flex1}>
-            <Text style={s.profileName} numberOfLines={1}>
-              {nickname}
-            </Text>
+            <View style={s.nameRow}>
+              <Text style={[s.profileName, s.nameShrink]} numberOfLines={1}>
+                {nickname}
+              </Text>
+              {/* 연속 공부(GROMO-630) — 하루 10분 스트릭. 0일이면 생략 */}
+              {streakDays > 0 && (
+                <View style={s.streakPill}>
+                  <Ionicons name="flame" size={10} color={T.accentDeep} />
+                  <Text style={s.streakPillText}>연속 공부 {streakDays}일</Text>
+                </View>
+              )}
+            </View>
             <Text style={s.profileSub} numberOfLines={1}>
               {category ? `${category} 준비 중` : '프로필 편집'}
             </Text>
@@ -213,4 +229,17 @@ const s = StyleSheet.create({
   },
   profileName: { ...T.text.subtitle, color: T.ink },
   profileSub: { ...T.text.caption, color: T.inkMuted, marginTop: 3 },
+  // 연속 공부 pill(GROMO-630)
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  nameShrink: { flexShrink: 1 },
+  streakPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: T.accentBg,
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  streakPillText: { ...T.text.caption, fontSize: 10, fontWeight: '700', color: T.accentDeep },
 });

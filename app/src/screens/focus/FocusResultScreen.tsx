@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { cubicBezier } from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 import { STORAGE_KEYS } from '@/types/storage';
-import { getFocusPeriodStats, getStreak, getHeatmap } from '@/services/statsApi';
+import { getFocusPeriodStats, getStreak, getHeatmap, getTodayStats } from '@/services/statsApi';
 import type {
   FocusPeriodStatsResponse,
   StreakResponse,
@@ -22,6 +22,7 @@ import { fmtMinutes, axisCeil, fmtAxis } from '@/utils/timeFormat';
 import { hms } from './format';
 import { fetchFriendsAverage } from '@/services/compareAverages';
 import { ComingSoon } from '@/screens/stats/ComingSoon';
+import { GoalCelebrationModal } from './components/GoalCelebrationModal';
 
 // 집중 결과 화면 — Claude Design Gromo.dc.html 14번(첫 집중 완료) 레이아웃 기준.
 // GROMO-598: 화면·진입·이번 집중(00:00:00)·과목별 누적(로컬 SubjectContext — 방금 세션 즉시 반영)·CTA. 코인 미표기.
@@ -75,6 +76,8 @@ export default function FocusResultScreen() {
   const [friendDayAvg, setFriendDayAvg] = useState<
     { avg: number | null; count: number } | undefined
   >(undefined);
+  // 목표 달성 축하(GROMO-630) — null=비노출, 숫자=오늘 포함 연속 목표달성 일수
+  const [goalCelebration, setGoalCelebration] = useState<number | null>(null);
 
   // 첫 완료 판별 — 로컬 플래그. 없으면 이번이 첫 완료로 보고 플래그를 남긴다.
   useEffect(() => {
@@ -108,6 +111,49 @@ export default function FocusResultScreen() {
       cancelled = true;
     };
   }, []);
+
+  // 목표 달성 축하 판정(GROMO-630) — 오늘 누적이 목표를 채웠고 아직 오늘 축하를 안 했으면 모달.
+  // 판정은 서버(/stats/today) 우선, 방금 세션이 집계에 늦게 반영되는 경우만 로컬 보정(내림 분).
+  // '연속 목표달성'은 일별 달성 플래그(heatmap)를 어제부터 뒤로 세어 오늘을 더한다 —
+  // '연속 공부'(하루 10분 스트릭)와 다른 값이므로 getStreak을 쓰지 않는다.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if ((await AsyncStorage.getItem(STORAGE_KEYS.focusGoalCelebratedDate)) === todayStr()) {
+          return;
+        }
+        const stats = await getTodayStats();
+        const goalMin = stats.focus.goalMinutes;
+        const todayMin = Math.max(stats.focus.todayMinutes, Math.floor(focusSeconds / 60));
+        if (!(goalMin > 0 && (stats.focus.goalAchieved || todayMin >= goalMin))) return;
+        const from = new Date();
+        from.setDate(from.getDate() - 60);
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const cells = await getHeatmap(localDateStr(from), localDateStr(yesterday)).catch(
+          () => [] as HeatmapCellResponse[],
+        );
+        const achievedByDate = new Map(cells.map((c) => [c.date, c.focusGoalAchieved]));
+        let days = 1; // 오늘(방금 달성)
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        while (achievedByDate.get(localDateStr(d))) {
+          days += 1;
+          d.setDate(d.getDate() - 1);
+        }
+        if (cancelled) return;
+        // 표시 전에 날짜를 기록 — 하루 1회 보장(모달을 닫기 전에 앱을 꺼도 재노출 없음)
+        await AsyncStorage.setItem(STORAGE_KEYS.focusGoalCelebratedDate, todayStr());
+        setGoalCelebration(days);
+      } catch {
+        // 조회 실패 시 축하 생략 — 다음 결과 화면 진입에서 다시 판정된다
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [focusSeconds]);
 
   const today = todayStr();
   const days = thisWeekDates();
@@ -310,6 +356,13 @@ export default function FocusResultScreen() {
           <Text style={s.againText}>다시 집중</Text>
         </TouchableOpacity>
       </View>
+
+      {/* 목표 달성 축하 모달(GROMO-630) — 오늘 목표를 처음 채운 순간 1회 */}
+      <GoalCelebrationModal
+        visible={goalCelebration != null}
+        goalStreakDays={goalCelebration ?? 1}
+        onClose={() => setGoalCelebration(null)}
+      />
     </SafeAreaView>
   );
 }
