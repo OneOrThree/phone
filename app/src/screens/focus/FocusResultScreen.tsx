@@ -17,7 +17,7 @@ import type {
 import { localDateStr, todayStr } from '@/utils/localDate';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useSubjects } from '@/store/SubjectContext';
-import { hm } from '@/screens/stats/format';
+import { fmtMinutes, axisCeil, fmtAxis } from '@/utils/timeFormat';
 import { hms } from './format';
 import { fetchFriendsAverage } from '@/services/compareAverages';
 import { ComingSoon } from '@/screens/stats/ComingSoon';
@@ -29,7 +29,8 @@ import { ComingSoon } from '@/screens/stats/ComingSoon';
 //   전체·같은 카테고리는 오늘(일 단위) 집계 API가 없어 블러 티저 — 서버 일 평균 API 생기면 연결.
 
 const WEEK_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
-const BAR_H = 46;
+// 차트 트랙 높이 — 세로축 ⅓ 간격 눈금·라벨이 겹치지 않을 만큼 확보(GROMO-683)
+const BAR_H = 72;
 // GROMO-682: 스트릭(출석 ✓) 인정 최소 기준 — 하루 누적 10분
 const STREAK_MIN_DAILY_MINUTES = 10;
 
@@ -108,7 +109,8 @@ export default function FocusResultScreen() {
   const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
   const dayMinutes = (d: string) =>
     d === today ? adjustedToday : (cellByDate[d]?.totalFocusMinutes ?? 0);
-  const maxMin = Math.max(...days.map(dayMinutes), 1);
+  // 세로축 상한 — 최대치를 보기 좋은 눈금으로 올림(통계 차트와 동일 규칙, GROMO-683)
+  const axisMax = axisCeil(Math.max(...days.map(dayMinutes), 1));
   // 이번 집중 시간 — 세션 타이머와 같은 디지털 표기(00:00:00).
   const focusLabel = hms(focusSeconds);
   // 과목별 누적(로컬) — 방금 세션까지 즉시 반영. 기록 있는 과목만, 많은 순.
@@ -219,28 +221,53 @@ export default function FocusResultScreen() {
           </View>
         ) : null}
 
-        {/* 이번 주 집중시간 — 총합 + 요일 막대(나) */}
+        {/* 이번 주 집중시간 — 총합 + 요일 막대(나). 세로축·눈금은 통계 차트 패턴 재사용(GROMO-683) */}
         <View style={s.card}>
           <View style={s.rowBetween}>
             <Text style={s.cardTitle}>이번 주 집중시간</Text>
-            <Text style={s.cardValue}>{hm(weekTotal)}</Text>
+            <Text style={s.cardValue}>{fmtMinutes(weekTotal)}</Text>
           </View>
-          <View style={s.barRow}>
-            {days.map((date, i) => {
-              const min = dayMinutes(date);
-              const isToday = date === today;
-              const h = min > 0 ? Math.max((min / maxMin) * BAR_H, 4) : 0;
-              return (
-                <View key={date} style={s.barCol}>
-                  <View style={s.barTrack}>
-                    <View
-                      style={[s.bar, { height: h, backgroundColor: isToday ? T.accent : T.sand }]}
-                    />
-                  </View>
-                  <Text style={[s.barDay, isToday ? s.barDayToday : null]}>{WEEK_LABELS[i]}</Text>
-                </View>
-              );
-            })}
+          <View style={s.chartPlotRow}>
+            {/* 세로축 — 상한·⅔·⅓ 눈금 3줄 (StatsScreen 차트와 동일 패턴) */}
+            <View style={s.chartAxisCol}>
+              <Text style={[s.chartAxisLabel, s.chartAxisTop]} allowFontScaling={false}>
+                {fmtAxis(axisMax)}
+              </Text>
+              <Text style={[s.chartAxisLabel, s.chartAxisUpper]} allowFontScaling={false}>
+                {fmtAxis((axisMax * 2) / 3)}
+              </Text>
+              <Text style={[s.chartAxisLabel, s.chartAxisLower]} allowFontScaling={false}>
+                {fmtAxis(axisMax / 3)}
+              </Text>
+            </View>
+            <View style={s.chartPlot}>
+              <View style={[s.chartGridLine, s.chartGridTop]} />
+              <View style={[s.chartGridLine, s.chartGridUpper]} />
+              <View style={[s.chartGridLine, s.chartGridLower]} />
+              <View style={[s.chartGridLine, s.chartGridBottom]} />
+              <View style={s.barRow}>
+                {days.map((date, i) => {
+                  const min = dayMinutes(date);
+                  const isToday = date === today;
+                  const h = min > 0 ? Math.max((min / axisMax) * BAR_H, 4) : 0;
+                  return (
+                    <View key={date} style={s.barCol}>
+                      <View style={s.barTrack}>
+                        <View
+                          style={[
+                            s.bar,
+                            { height: h, backgroundColor: isToday ? T.accent : T.sand },
+                          ]}
+                        />
+                      </View>
+                      <Text style={[s.barDay, isToday ? s.barDayToday : null]}>
+                        {WEEK_LABELS[i]}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
           </View>
         </View>
 
@@ -326,7 +353,7 @@ function CompareCard({
         {avg != null ? (
           <View style={[s.deltaBadge, ahead ? s.deltaBadgeUp : s.deltaBadgeDown]}>
             <Text style={[s.deltaBadgeText, { color: ahead ? T.successInk : T.dangerInk }]}>
-              {ahead ? '▲' : '▼'} {hm(Math.abs(delta))}
+              {ahead ? '▲' : '▼'} {fmtMinutes(Math.abs(delta))}
             </Text>
           </View>
         ) : null}
@@ -351,7 +378,7 @@ function CompareCard({
           <View style={s.cmpBlock}>
             <View style={s.rowBetween}>
               <Text style={s.cmpLabelMine}>나</Text>
-              <Text style={s.cmpValueMine}>{hm(mine)}</Text>
+              <Text style={s.cmpValueMine}>{fmtMinutes(mine)}</Text>
             </View>
             <View style={s.cmpTrack}>
               <View style={[s.cmpFill, { width: w(mine), backgroundColor: T.accent }]} />
@@ -360,7 +387,7 @@ function CompareCard({
           <View style={s.cmpBlock}>
             <View style={s.rowBetween}>
               <Text style={s.cmpLabel}>{cur.label}</Text>
-              <Text style={s.cmpValue}>{hm(avg)}</Text>
+              <Text style={s.cmpValue}>{fmtMinutes(avg)}</Text>
             </View>
             <View style={s.cmpTrack}>
               <View style={[s.cmpFill, s.cmpFillAvg, { width: w(avg) }]} />
@@ -368,8 +395,8 @@ function CompareCard({
           </View>
           <Text style={s.cmpCaption}>
             {ahead
-              ? `${cur.label}보다 ${hm(Math.abs(delta))} 더 집중했어요.`
-              : `${cur.label}까지 ${hm(Math.abs(delta))} 남았어요. 오늘도 한 걸음!`}
+              ? `${cur.label}보다 ${fmtMinutes(Math.abs(delta))} 더 집중했어요.`
+              : `${cur.label}까지 ${fmtMinutes(Math.abs(delta))} 남았어요. 오늘도 한 걸음!`}
           </Text>
         </>
       ) : cur.loading || axis === 'friends' ? (
@@ -383,7 +410,7 @@ function CompareCard({
               <View style={s.cmpBlock}>
                 <View style={s.rowBetween}>
                   <Text style={s.cmpLabelMine}>나</Text>
-                  <Text style={s.cmpValueMine}>1시간 30분</Text>
+                  <Text style={s.cmpValueMine}>01:30:00</Text>
                 </View>
                 <View style={s.cmpTrack}>
                   <View style={[s.cmpFill, s.cmpTeaserMine]} />
@@ -392,7 +419,7 @@ function CompareCard({
               <View style={s.cmpBlock}>
                 <View style={s.rowBetween}>
                   <Text style={s.cmpLabel}>{cur.label}</Text>
-                  <Text style={s.cmpValue}>1시간 2분</Text>
+                  <Text style={s.cmpValue}>01:02:00</Text>
                 </View>
                 <View style={s.cmpTrack}>
                   <View style={[s.cmpFill, s.cmpTeaserAvg]} />
@@ -513,12 +540,37 @@ const s = StyleSheet.create({
   streakNoticeText: { ...T.text.caption, fontWeight: '500', color: T.accentDeep, flex: 1 },
 
   // 이번 주 집중시간 막대
-  barRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 7, marginTop: 6 },
+  barRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 7 },
   barCol: { flex: 1, alignItems: 'center', gap: 5 },
   barTrack: { height: BAR_H, justifyContent: 'flex-end' },
   bar: { width: 14, borderTopLeftRadius: 5, borderTopRightRadius: 5 },
   barDay: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
   barDayToday: { color: T.accent, fontWeight: '700' },
+  // 세로축·눈금(GROMO-683) — StatsScreen 차트 축 패턴과 동일 구조
+  chartPlotRow: { flexDirection: 'row', marginTop: 6 },
+  chartAxisCol: { width: 36, height: BAR_H },
+  chartAxisLabel: {
+    ...T.text.caption,
+    position: 'absolute',
+    right: 6,
+    fontSize: 9,
+    color: T.inkMuted,
+  },
+  chartAxisTop: { top: -5 },
+  chartAxisUpper: { top: BAR_H / 3 - 5 },
+  chartAxisLower: { top: (BAR_H * 2) / 3 - 5 },
+  chartPlot: { flex: 1 },
+  chartGridLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: T.paperAlt,
+  },
+  chartGridTop: { top: 0 },
+  chartGridUpper: { top: BAR_H / 3 },
+  chartGridLower: { top: (BAR_H * 2) / 3 },
+  chartGridBottom: { top: BAR_H },
 
   // 나 vs 비교축(3축 셀렉터)
   axisRow: { flexDirection: 'row', gap: 7, marginTop: 4 },
