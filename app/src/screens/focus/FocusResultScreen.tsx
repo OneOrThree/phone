@@ -22,7 +22,6 @@ import { fmtMinutes, axisCeil, fmtAxis } from '@/utils/timeFormat';
 import { hms } from './format';
 import { fetchFriendsAverage } from '@/services/compareAverages';
 import { ComingSoon } from '@/screens/stats/ComingSoon';
-import { ConfettiBurst } from './components/ConfettiBurst';
 import { WeekStreakModal } from './components/WeekStreakModal';
 
 // 집중 결과 화면 — Claude Design Gromo.dc.html 14번(첫 집중 완료) 레이아웃 기준.
@@ -50,7 +49,8 @@ const barEnterAnim = (index: number) =>
     animationTimingFunction: cubicBezier(0.34, 1.56, 0.64, 1),
     animationFillMode: 'backwards',
   }) as const;
-// 주간 완성 연출(GROMO-667) — 일요일 ✓가 팝 하고 찍히는 모션(카드 진입 0.4s 뒤, 살짝 오버슛)
+// 스트릭 ✓ 팝 모션(GROMO-667) — 그날 누적 10분을 처음 채운 결과 화면에서 '오늘 칸'에만 재생.
+// 요일 무관 동일 효과 — 일요일이라 주간까지 완성되면 이 팝에 이어 종이폭죽·모달이 붙는다.
 const checkPop = {
   animationName: {
     from: { transform: [{ scale: 0 }] },
@@ -84,6 +84,8 @@ export default function FocusResultScreen() {
   const [week, setWeek] = useState<FocusPeriodStatsResponse | null>(null);
   const [streak, setStreak] = useState<StreakResponse | null>(null);
   const [cellByDate, setCellByDate] = useState<Record<string, HeatmapCellResponse>>({});
+  // heatmap 도착 여부 — 연출 판정(667)은 주간 데이터가 온 뒤 1회만 수행한다(오판 방지)
+  const [cellsLoaded, setCellsLoaded] = useState(false);
   // 오늘 비교 — 친구 축만 일 단위 실데이터(전체·카테고리는 리그가 주간 집계뿐이라 서버 집계 필요).
   // undefined = 로딩 중, avg null = 미확보(폴백 문구)
   const [friendDayAvg, setFriendDayAvg] = useState<
@@ -116,6 +118,7 @@ export default function FocusResultScreen() {
       const map: Record<string, HeatmapCellResponse> = {};
       for (const c of cells) map[c.date] = c;
       setCellByDate(map);
+      setCellsLoaded(true);
     })();
     fetchFriendsAverage('DAY').then((v) => !cancelled && setFriendDayAvg(v));
     return () => {
@@ -125,10 +128,10 @@ export default function FocusResultScreen() {
 
   const today = todayStr();
   const days = thisWeekDates();
-  // 주간 완성 연출 단계(GROMO-667) — idle → pop(✓ 모션) → burst(종이폭죽) → modal(축하)
-  const [celebrationStage, setCelebrationStage] = useState<'idle' | 'pop' | 'burst' | 'modal'>(
-    'idle',
-  );
+  // 오늘 ✓ 팝(GROMO-667) — 오늘 스트릭이 '채워지는 순간'의 결과 화면에서만 카드 노출+팝(하루 1회)
+  const [todayPop, setTodayPop] = useState(false);
+  // 주간 완성 추가 연출 — 축하 모달(종이폭죽은 모달 오버레이 안에서 동시에). ✓ 팝은 todayPop 담당.
+  const [weekModalVisible, setWeekModalVisible] = useState(false);
   const celebrationStarted = useRef(false);
   // 방금 끝낸 세션은 업로드 직후라 서버 집계(week·heatmap)에 아직 없을 수 있다(리뷰 반영).
   // 오늘 값은 max(서버, 방금 세션 분)로 바닥을 깔고, 주간 합계에도 그 차이만큼 더해
@@ -148,30 +151,37 @@ export default function FocusResultScreen() {
       (d) => d === today || (cellByDate[d]?.totalFocusMinutes ?? 0) >= STREAK_MIN_DAILY_MINUTES,
     );
 
-  // 주간 완성 연출 시퀀스(GROMO-667) — 판정이 참이 되면(heatmap 도착 후) 주 1회만:
-  // ✓ 팝(즉시, 모션 딜레이는 checkPop이 가짐) → 1.1s 종이폭죽 → 1.9s 축하 모달.
-  // started ref 가드 — stage 전이로 effect가 재실행돼도 타이머가 리셋되지 않게 한다.
+  // 연출 판정(GROMO-667) — heatmap 도착 후 1회: 오늘 ✓가 이날 처음 채워졌으면 카드+팝(하루 1회).
+  // 그 팝으로 주간(월~일)까지 완성이면 팝이 끝난 1.2s에 축하 모달+종이폭죽을 주 1회 재생.
+  // started ref 가드 — 상태 전이로 effect가 재실행돼도 타이머가 리셋되지 않게 한다.
   const mondayKey = days[0];
   useEffect(() => {
-    if (!weekStreakComplete || celebrationStarted.current) return;
+    if (!cellsLoaded || celebrationStarted.current) return;
+    if (!todayStreakDone) return;
     let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
     (async () => {
-      const seen = await AsyncStorage.getItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek).catch(
+      const popped = await AsyncStorage.getItem(STORAGE_KEYS.focusStreakPoppedDate).catch(
         () => null,
       );
-      if (cancelled || seen === mondayKey || celebrationStarted.current) return;
+      if (cancelled || celebrationStarted.current) return;
+      if (popped === today) return;
       celebrationStarted.current = true;
+      AsyncStorage.setItem(STORAGE_KEYS.focusStreakPoppedDate, today).catch(() => {});
+      setTodayPop(true);
+      if (!weekStreakComplete) return;
+      const seenWeek = await AsyncStorage.getItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek).catch(
+        () => null,
+      );
+      if (cancelled || seenWeek === mondayKey) return;
       AsyncStorage.setItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek, mondayKey).catch(() => {});
-      setCelebrationStage('pop');
-      timers.push(setTimeout(() => setCelebrationStage('burst'), 1100));
-      timers.push(setTimeout(() => setCelebrationStage('modal'), 1900));
+      timers.push(setTimeout(() => setWeekModalVisible(true), 1200));
     })();
     return () => {
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-  }, [weekStreakComplete, mondayKey]);
+  }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today]);
   const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
   const dayMinutes = (d: string) =>
     d === today ? adjustedToday : (cellByDate[d]?.totalFocusMinutes ?? 0);
@@ -234,8 +244,8 @@ export default function FocusResultScreen() {
           ) : null}
         </View>
 
-        {/* 이번 주 스트릭 채우기 — 첫 집중 완료 변형(시안 14번) + 주간 완성 연출(GROMO-667) */}
-        {firstTime || celebrationStage !== 'idle' ? (
+        {/* 이번 주 스트릭 채우기 — 첫 집중 완료 변형(시안 14번) + 오늘 ✓ 채워지는 날(GROMO-667) */}
+        {firstTime || todayPop ? (
           <LinearGradient
             colors={[T.accentBg, T.sand]}
             start={{ x: 0, y: 0 }}
@@ -266,8 +276,8 @@ export default function FocusResultScreen() {
                   ? todayStreakDone
                   : cell != null && cell.totalFocusMinutes >= STREAK_MIN_DAILY_MINUTES;
                 const future = date > today;
-                // 주간 완성 연출 — 오늘(일요일) ✓는 즉시 채우지 않고 팝 모션으로 찍는다
-                const popping = isToday && celebrationStage !== 'idle';
+                // 오늘 ✓가 채워지는 날은 즉시 채우지 않고 팝 모션으로 찍는다(지난 요일은 정적)
+                const popping = isToday && todayPop;
                 return (
                   <View key={date} style={s.dotCol}>
                     <View
@@ -377,12 +387,8 @@ export default function FocusResultScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* 주간 스트릭 완성 연출(GROMO-667) — ✓ 팝 뒤 종이폭죽, 이어서 축하 모달 */}
-      {celebrationStage === 'burst' || celebrationStage === 'modal' ? <ConfettiBurst /> : null}
-      <WeekStreakModal
-        visible={celebrationStage === 'modal'}
-        onClose={() => setCelebrationStage('pop')}
-      />
+      {/* 주간 스트릭 완성 연출(GROMO-667) — ✓ 팝 뒤 축하 모달(종이폭죽은 모달 안에서 동시에) */}
+      <WeekStreakModal visible={weekModalVisible} onClose={() => setWeekModalVisible(false)} />
     </SafeAreaView>
   );
 }
