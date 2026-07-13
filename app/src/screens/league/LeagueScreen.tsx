@@ -13,6 +13,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { T, withAlpha } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import { useUser } from '@/store/UserContext';
@@ -53,8 +54,8 @@ const TAB_BAR_SPACE = 74;
 const LEAGUE_ALL = '전체';
 // 자동/탭 스크롤 시 sticky 스트립에 내 행이 가리지 않게 두는 위 여유
 const MY_STRIP_SPACE = 70;
-// 포디움 메달 색 (1·2·3위 — 골드/실버/브론즈)
-const MEDAL_COLORS = [T.medal.gold, T.medal.silver, T.medal.bronze];
+// 포디움 메달 그라데이션 (1·2·3위 — 골드/실버/브론즈, 밝은 쪽→진한 쪽)
+const MEDAL_GRAD = [T.medalGrad.gold, T.medalGrad.silver, T.medalGrad.bronze];
 
 type TabKey = 'league' | 'friend';
 const TAB_LABEL: Record<TabKey, string> = { league: '리그', friend: '친구' };
@@ -285,21 +286,46 @@ export default function LeagueScreen() {
                       activeOpacity={0.85}
                       onPress={() => openProfile(m)}
                     >
-                      <View
-                        style={[
-                          s.podiumMedal,
-                          { backgroundColor: MEDAL_COLORS[i] },
-                          first ? s.podiumMedalFirst : null,
-                        ]}
-                      >
-                        <Text style={s.podiumMedalNum} allowFontScaling={false}>
-                          {i + 1}
-                        </Text>
+                      <View style={s.podiumMedalCol}>
+                        {first && (
+                          <MaterialCommunityIcons
+                            name="crown"
+                            size={18}
+                            color={T.medal.gold}
+                            style={s.podiumCrown}
+                          />
+                        )}
+                        <LinearGradient
+                          colors={MEDAL_GRAD[i]}
+                          start={{ x: 0.2, y: 0 }}
+                          end={{ x: 0.8, y: 1 }}
+                          style={[
+                            s.podiumMedal,
+                            first ? s.podiumMedalFirst : null,
+                            { shadowColor: MEDAL_GRAD[i][1] },
+                          ]}
+                        >
+                          <Text style={s.podiumMedalNum} allowFontScaling={false}>
+                            {i + 1}
+                          </Text>
+                        </LinearGradient>
                       </View>
-                      <MemberAvatar size={first ? 60 : 48} />
+                      <View style={[s.podiumAvatarWrap, isMe ? s.podiumAvatarWrapMe : null]}>
+                        <MemberAvatar size={first ? 60 : 48} />
+                        {isMe && (
+                          <View style={s.podiumMeBadge} pointerEvents="none">
+                            <Text style={s.podiumMeBadgeText} allowFontScaling={false}>
+                              나
+                            </Text>
+                          </View>
+                        )}
+                      </View>
                       <View style={s.podiumNameRow}>
                         <TierBadge level={m.tierLevel} size={16} />
-                        <Text style={s.podiumName} numberOfLines={1}>
+                        <Text
+                          style={[s.podiumName, isMe ? s.podiumNameMe : null]}
+                          numberOfLines={1}
+                        >
                           {m.nickname}
                         </Text>
                       </View>
@@ -646,17 +672,53 @@ const s = StyleSheet.create({
   },
   podiumCol: { alignItems: 'center', gap: 4, width: 100 },
   podiumColFirst: { marginBottom: 16 },
+  // 메달 — 왕관(1위)+그라데이션 원형 배지를 세로로 쌓는다
+  podiumMedalCol: { alignItems: 'center' },
+  podiumCrown: { marginBottom: -3 },
   podiumMedal: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: T.white,
+    // 메달색 글로우 (shadowColor는 각 메달별로 인라인)
+    shadowOpacity: 0.55,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
-  podiumMedalFirst: { width: 26, height: 26, borderRadius: 13 },
+  podiumMedalFirst: { width: 30, height: 30, borderRadius: 15 },
   podiumMedalNum: { ...T.text.caption, fontWeight: '800', color: T.white },
+  // 아바타 래퍼 — 기본은 투명(레이아웃 무변화), 내 것이면 액센트 글로우 링
+  podiumAvatarWrap: { alignItems: 'center', justifyContent: 'center' },
+  podiumAvatarWrapMe: {
+    padding: 3,
+    borderRadius: 999,
+    borderWidth: 2.5,
+    borderColor: T.accent,
+    backgroundColor: T.white,
+    shadowColor: T.accent,
+    shadowOpacity: 0.45,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
+  },
+  // 내 아바타 우상단 '나' 배지
+  podiumMeBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    backgroundColor: T.accent,
+    borderRadius: 9,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderWidth: 1.5,
+    borderColor: T.white,
+    zIndex: 2,
+  },
+  podiumMeBadgeText: { fontSize: 11, fontWeight: '800', color: T.white },
   podiumNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -665,6 +727,7 @@ const s = StyleSheet.create({
     marginTop: 2,
   },
   podiumName: { ...T.text.caption, fontWeight: '700', color: T.ink, flexShrink: 1 },
+  podiumNameMe: { color: T.accentDeep, fontWeight: '800' },
   podiumTime: {
     ...T.text.caption,
     fontWeight: '800',
