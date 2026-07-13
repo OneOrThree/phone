@@ -81,6 +81,28 @@ class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
+    @DisplayName("findByUserIdInAndArenaStatus — 여러 유저의 ACTIVE 멤버십만 배치 반환, ENDED·미소속 제외 (GROMO-710)")
+    void findByUserIdInAndArenaStatus_batchOnlyActive() {
+        LeagueTierConfig cfg = saveTierConfig(3);
+        LeagueArena active = saveArena(cfg, LeagueArenaStatus.ACTIVE);
+        LeagueArena ended = saveArena(cfg, LeagueArenaStatus.ENDED);
+        User activeUser = saveUser("activeUser");   // ACTIVE 멤버십 → 포함
+        User endedUser = saveUser("endedUser");     // ENDED 멤버십만 → 제외
+        User noMembership = saveUser("noMembership"); // 아레나 미소속 → 제외
+        saveMember(active, activeUser, 100);
+        saveMember(ended, endedUser, 100);
+        leagueArenaUserRepository.flush();
+
+        List<LeagueArenaUser> result = leagueArenaUserRepository.findByUserIdInAndArenaStatus(
+                List.of(activeUser.getId(), endedUser.getId(), noMembership.getId()),
+                LeagueArenaStatus.ACTIVE);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getUser().getId()).isEqualTo(activeUser.getId());
+        assertThat(result.get(0).getTierLevel()).isEqualTo(3);
+    }
+
+    @Test
     @DisplayName("findRankedByArena — totalFocusMinutes 내림차순 정렬, 해당 아레나 멤버만, 닉네임 fetch")
     void findRankedByArena_orderedDesc() {
         LeagueTierConfig cfg = saveTierConfig(3);

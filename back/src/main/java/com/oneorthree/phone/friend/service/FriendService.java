@@ -22,6 +22,7 @@ import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.friend.search.FriendSearchStrategy;
 import com.oneorthree.phone.friend.search.SearchType;
+import com.oneorthree.phone.league.service.LeagueTierLookup;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -52,6 +53,7 @@ public class FriendService {
     private final FocusSessionRepository focusSessionRepository;
     private final CharacterEquipmentRepository characterEquipmentRepository;
     private final UserActivityEventLogger userActivityEventLogger;
+    private final LeagueTierLookup leagueTierLookup;
     private final Map<SearchType, FriendSearchStrategy> searchStrategies;
 
     // 검색 전략은 AuthService의 Map<Provider, SocialLoginClient>와 동일하게
@@ -63,6 +65,7 @@ public class FriendService {
                          FocusSessionRepository focusSessionRepository,
                          CharacterEquipmentRepository characterEquipmentRepository,
                          UserActivityEventLogger userActivityEventLogger,
+                         LeagueTierLookup leagueTierLookup,
                          List<FriendSearchStrategy> searchStrategies) {
         this.friendshipRepository = friendshipRepository;
         this.userRepository = userRepository;
@@ -71,6 +74,7 @@ public class FriendService {
         this.focusSessionRepository = focusSessionRepository;
         this.characterEquipmentRepository = characterEquipmentRepository;
         this.userActivityEventLogger = userActivityEventLogger;
+        this.leagueTierLookup = leagueTierLookup;
         this.searchStrategies = searchStrategies.stream()
                 .collect(Collectors.toMap(FriendSearchStrategy::type, strategy -> strategy));
     }
@@ -153,18 +157,20 @@ public class FriendService {
         Set<UUID> pinnedIds = pinnedUserRepository.findByUser(meUser).stream()
                 .map(p -> p.getPinnedUser().getId())
                 .collect(Collectors.toSet());
-        return friendshipRepository.findAcceptedByUser(meUser).stream()
-                .map(f -> {
-                    User other = counterpart(f, me);
-                    return FriendResponse.builder()
-                            .userId(other.getId())
-                            .nickname(other.getNickname())
-                            .occupation(other.getOccupation() != null ? other.getOccupation().name() : null)
-                            // GROMO-671: User.current_tier 제거 — 티어는 league_arena_users 로만 도출. 목록 티어 미노출(null).
-                            .tierLevel(null)
-                            .isPinned(pinnedIds.contains(other.getId()))
-                            .build();
-                })
+        List<User> others = friendshipRepository.findAcceptedByUser(meUser).stream()
+                .map(f -> counterpart(f, me))
+                .toList();
+        // GROMO-710: 상대 userId 들을 한 번에 모아 티어 배치 조회(N+1 방지). 티어는 league_arena_users 로만 도출(GROMO-671).
+        Map<UUID, Integer> tierLevels = leagueTierLookup.tierLevelsByUserId(
+                others.stream().map(User::getId).toList());
+        return others.stream()
+                .map(other -> FriendResponse.builder()
+                        .userId(other.getId())
+                        .nickname(other.getNickname())
+                        .occupation(other.getOccupation() != null ? other.getOccupation().name() : null)
+                        .tierLevel(tierLevels.get(other.getId()))
+                        .isPinned(pinnedIds.contains(other.getId()))
+                        .build())
                 .toList();
     }
 
@@ -230,6 +236,10 @@ public class FriendService {
                 ? friendshipRepository.findByToUserAndStatus(meUser, FriendshipStatus.PENDING)
                 : friendshipRepository.findByFromUserAndStatus(meUser, FriendshipStatus.PENDING);
 
+        // GROMO-710: 상대 userId 들을 한 번에 모아 티어 배치 조회(N+1 방지). 티어는 league_arena_users 로만 도출(GROMO-671).
+        Map<UUID, Integer> tierLevels = leagueTierLookup.tierLevelsByUserId(requests.stream()
+                .map(f -> (received ? f.getFromUser() : f.getToUser()).getId())
+                .toList());
         return requests.stream()
                 .map(f -> {
                     User other = received ? f.getFromUser() : f.getToUser();
@@ -237,8 +247,7 @@ public class FriendService {
                             .requestId(f.getId())
                             .userId(other.getId())
                             .nickname(other.getNickname())
-                            // GROMO-671: User.current_tier 제거 — 티어는 league_arena_users 로만 도출. 요청 목록 티어 미노출(null).
-                            .tierLevel(null)
+                            .tierLevel(tierLevels.get(other.getId()))
                             .createdAt(f.getCreatedAt())
                             .build();
                 })
