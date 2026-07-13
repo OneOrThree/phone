@@ -3,6 +3,7 @@ import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, { cubicBezier } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -16,20 +17,38 @@ const BAR_H = 56;
 const BAR_R = 28; // 바 모서리
 const FAB_R = 28; // FAB 반지름(56/2)
 const NOTCH_R = FAB_R + 5; // 파임 반지름 — FAB 둘레에 5px 숨통
-const FAB_LIFT = 6; // FAB 중심이 바 상단선보다 위로 떠 있는 높이
+const FAB_LIFT = -8; // FAB 중심의 바 상단선 대비 높이 — 양수=위로 뜸, 0=반 안착, 음수=더 깊이 안착
 // 유리 느낌 — 기존 0.96이 탁해 보여 투명도를 크게 낮춤(파임 형태라 BlurView 마스킹 불가, 반투명으로 대체)
 const BAR_FILL = 'rgba(252,250,246,0.55)';
 const BAR_STROKE = 'rgba(255,255,255,0.75)';
 
+// 리퀴드 글래스 하이라이트 — 선택 탭을 감싸는 유리 알약(타원)이 탭 전환마다 미끄러져 이동
+// (iOS 26 리퀴드 글래스 탭 스위처 참고 — 굴절 필터는 RN에서 불가, 반투명 타원+오버슛으로 질감만)
+const HIGHLIGHT_W = 60;
+const HIGHLIGHT_H = 38;
+const highlightSlide = {
+  transitionProperty: 'transform',
+  transitionDuration: 350,
+  transitionTimingFunction: cubicBezier(0.34, 1.56, 0.64, 1), // 슉 미끄러지고 살짝 넘쳤다 안착
+} as const;
+
 // 상단 가운데가 파인 라운드 바 경로. 파임 호는 FAB 중심(cx, -FAB_LIFT)·반지름 NOTCH_R 원의
 // 바 상단선(y=0) 아래 부분 — 교점 반너비 a = √(R²-lift²).
+// index번째 탭의 중앙 x — 바 padding(8)·중앙 fabSlot(72)을 반영해 4탭 균등 분할과 일치시킨다
+function tabCenterX(w: number, index: number): number {
+  const tabW = (w - 16 - 72) / 4;
+  return 8 + tabW * (index + 0.5) + (index >= 2 ? 72 : 0);
+}
+
+// FAB_LIFT가 음수(중심이 상단선 아래)면 아래쪽 호가 반원을 넘으므로 large-arc(1)로 그린다.
 function barPath(w: number): string {
   const cx = w / 2;
   const a = Math.sqrt(NOTCH_R * NOTCH_R - FAB_LIFT * FAB_LIFT);
+  const largeArc = FAB_LIFT < 0 ? 1 : 0;
   return [
     `M ${BAR_R} 0`,
     `H ${cx - a}`,
-    `A ${NOTCH_R} ${NOTCH_R} 0 0 0 ${cx + a} 0`,
+    `A ${NOTCH_R} ${NOTCH_R} 0 ${largeArc} 0 ${cx + a} 0`,
     `H ${w - BAR_R}`,
     `A ${BAR_R} ${BAR_R} 0 0 1 ${w} ${BAR_R}`,
     `V ${BAR_H - BAR_R}`,
@@ -82,6 +101,16 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
             <Path d={barPath(barW)} fill={BAR_FILL} stroke={BAR_STROKE} strokeWidth={1} />
           </Svg>
         )}
+        {barW > 0 && (
+          // 선택 탭 중앙으로 미끄러지는 유리 원판 — 탭 아이콘 뒤(레이어 순서상 Tab보다 먼저)
+          <Animated.View
+            style={[
+              s.highlight,
+              { transform: [{ translateX: tabCenterX(barW, state.index) - HIGHLIGHT_W / 2 }] },
+              highlightSlide,
+            ]}
+          />
+        )}
         <Tab index={0} />
         <Tab index={1} />
         <View style={s.fabSlot} />
@@ -129,6 +158,18 @@ const s = StyleSheet.create({
   },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   fabSlot: { width: 72 },
+  // 리퀴드 글래스 하이라이트 알약(타원)
+  highlight: {
+    position: 'absolute',
+    top: (BAR_H - HIGHLIGHT_H) / 2,
+    left: 0,
+    width: HIGHLIGHT_W,
+    height: HIGHLIGHT_H,
+    borderRadius: HIGHLIGHT_H / 2,
+    backgroundColor: 'rgba(255,255,255,0.65)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.9)',
+  },
   fab: {
     position: 'absolute',
     // FAB 중심이 바 상단선에서 FAB_LIFT만큼 위 — 파임 호와 동심으로 안착
