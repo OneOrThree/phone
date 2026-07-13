@@ -4,9 +4,6 @@ import com.oneorthree.phone.focus.domain.DefaultTag;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
-import com.oneorthree.phone.friend.domain.Friendship;
-import com.oneorthree.phone.friend.exception.FriendException;
-import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
@@ -19,7 +16,6 @@ import com.oneorthree.phone.stats.dto.StatsPeriod;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.exception.StatsException;
-import com.oneorthree.phone.user.domain.StatVisibility;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
@@ -35,11 +31,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -49,10 +45,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class StatsServiceTest {
@@ -74,11 +68,14 @@ class StatsServiceTest {
     private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     @Mock
     private UserRepository userRepository;
+    // 기간 경계 계산은 무상태 실로직을 그대로 검증한다(@Spy) — 추출 후에도 경계 assertion 동일하게 유지.
+    @Spy
+    private StatsPeriodResolver statsPeriodResolver = new StatsPeriodResolver();
+    // 열람 권한 판정은 StatViewPolicy 로 위임(StatViewPolicyTest 에서 단위 검증). 여기선 미사용 mock.
     @Mock
-    private FriendshipRepository friendshipRepository;
+    private StatViewPolicy statViewPolicy;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
-    private static final UUID FRIEND_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
     // ── getHeatmap ────────────────────────────────────────────────────────
 
@@ -970,104 +967,6 @@ class StatsServiceTest {
         assertThat(fromCaptor.getValue()).isEqualTo(Instant.parse("2026-07-01T00:00:00Z"));
     }
 
-    // ── resolveTargetUserId (친구 통계 대상 결정, GROMO-608) ────────────────
-
-    @Test
-    @DisplayName("대상 결정 — friends null → 호출자 self 반환, 친구/유저 조회 없음")
-    void resolveTargetUserIdSelf() {
-        UUID target = statsService.resolveTargetUserId(USER_ID, null);
-
-        assertThat(target).isEqualTo(USER_ID);
-        verifyNoInteractions(friendshipRepository);
-        verifyNoInteractions(userRepository);
-    }
-
-    @Test
-    @DisplayName("대상 결정 — friends 가 호출자 자신 id → 친구 검증 없이 self 반환 (NOT_FRIEND 404 오인 방지)")
-    void resolveTargetUserIdSelfViaFriendsParam() {
-        UUID target = statsService.resolveTargetUserId(USER_ID, USER_ID);
-
-        assertThat(target).isEqualTo(USER_ID);
-        verifyNoInteractions(friendshipRepository);
-        verifyNoInteractions(userRepository);
-    }
-
-    @Test
-    @DisplayName("대상 결정 — friends 지정 + ACCEPTED 친구관계 → 대상 friends 반환")
-    void resolveTargetUserIdFriend() {
-        User caller = User.builder().id(USER_ID).build();
-        User friend = User.builder().id(FRIEND_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
-        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.of(friend));
-        given(friendshipRepository.findAcceptedBetween(caller, friend))
-                .willReturn(Optional.of(mock(Friendship.class)));
-
-        UUID target = statsService.resolveTargetUserId(USER_ID, FRIEND_ID);
-
-        assertThat(target).isEqualTo(FRIEND_ID);
-    }
-
-    @Test
-    @DisplayName("대상 결정 — 비친구 + 대상 statVisibility=FRIENDS(기본값) → FriendException(NOT_FRIEND)")
-    void resolveTargetUserIdNotFriend() {
-        User caller = User.builder().id(USER_ID).build();
-        // User.builder() 의 @Builder.Default 로 statVisibility=FRIENDS
-        User friend = User.builder().id(FRIEND_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
-        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.of(friend));
-        given(friendshipRepository.findAcceptedBetween(caller, friend)).willReturn(Optional.empty());
-
-        assertThatThrownBy(() -> statsService.resolveTargetUserId(USER_ID, FRIEND_ID))
-                .isInstanceOf(FriendException.class);
-    }
-
-    @Test
-    @DisplayName("대상 결정 — 비친구 + 대상 statVisibility=PUBLIC → 친구 아니어도 허용(대상 friends 반환) (GROMO-623)")
-    void resolveTargetUserIdNonFriendPublicAllowed() {
-        User caller = User.builder().id(USER_ID).build();
-        User friend = User.builder().id(FRIEND_ID).statVisibility(StatVisibility.PUBLIC).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
-        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.of(friend));
-        // 친구관계 없음 → PUBLIC 이라 열람 허용
-        given(friendshipRepository.findAcceptedBetween(caller, friend)).willReturn(Optional.empty());
-
-        UUID target = statsService.resolveTargetUserId(USER_ID, FRIEND_ID);
-
-        assertThat(target).isEqualTo(FRIEND_ID);
-    }
-
-    @Test
-    @DisplayName("대상 결정 — 친구 + 대상 statVisibility=FRIENDS → 허용(친구관계 우선)")
-    void resolveTargetUserIdFriendWithFriendsVisibilityAllowed() {
-        User caller = User.builder().id(USER_ID).build();
-        User friend = User.builder().id(FRIEND_ID).statVisibility(StatVisibility.FRIENDS).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
-        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.of(friend));
-        given(friendshipRepository.findAcceptedBetween(caller, friend))
-                .willReturn(Optional.of(mock(Friendship.class)));
-
-        UUID target = statsService.resolveTargetUserId(USER_ID, FRIEND_ID);
-
-        assertThat(target).isEqualTo(FRIEND_ID);
-    }
-
-    @Test
-    @DisplayName("대상 결정 — friends 지정 + 대상 유저 미존재 → UserException(NOT_FOUND)")
-    void resolveTargetUserIdTargetNotFound() {
-        User caller = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
-        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.empty());
-
-        assertThatThrownBy(() -> statsService.resolveTargetUserId(USER_ID, FRIEND_ID))
-                .isInstanceOf(UserException.class);
-    }
-
-    @Test
-    @DisplayName("대상 결정 — friends 지정 + 호출자 미존재 → UserException(NOT_FOUND)")
-    void resolveTargetUserIdCallerNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
-
-        assertThatThrownBy(() -> statsService.resolveTargetUserId(USER_ID, FRIEND_ID))
-                .isInstanceOf(UserException.class);
-    }
+    // 열람 권한 판정(resolveTargetUserId, 친구/PUBLIC)은 StatViewPolicy 로 분리(GROMO-779) —
+    // 단위 검증은 StatViewPolicyTest 참고. StatsService 는 얇은 위임만 하므로 여기서 중복 검증하지 않는다.
 }

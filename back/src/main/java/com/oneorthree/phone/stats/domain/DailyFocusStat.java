@@ -43,6 +43,8 @@ public class DailyFocusStat {
     @JoinColumn(name = "user_id")
     private User user;
 
+    // 일별 집계 버킷 날짜. 현재 기준: UTC — FocusService.statDate(endedAt) 가 endedAt 을 UTC 로 환산해 채운다.
+    // (ticket 803 에서 country_code 존 기준으로 전환 예정.)
     @Column(nullable = false)
     private LocalDate date;
 

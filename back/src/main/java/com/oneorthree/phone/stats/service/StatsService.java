@@ -3,11 +3,10 @@ package com.oneorthree.phone.stats.service;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
-import com.oneorthree.phone.friend.exception.FriendErrorCode;
-import com.oneorthree.phone.friend.exception.FriendException;
-import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.stats.service.StatsPeriodResolver.PeriodRange;
+import com.oneorthree.phone.stats.support.StatsUnits;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
@@ -19,7 +18,6 @@ import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.exception.StatsErrorCode;
 import com.oneorthree.phone.stats.exception.StatsException;
-import com.oneorthree.phone.user.domain.StatVisibility;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
@@ -33,13 +31,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -63,44 +59,24 @@ public class StatsService {
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final UserRepository userRepository;
-    private final FriendshipRepository friendshipRepository;
+    private final StatsPeriodResolver statsPeriodResolver;
+    private final StatViewPolicy statViewPolicy;
 
     /**
      * 통계 조회 대상 userId를 결정한다 (GROMO-608, GROMO-623).
-     * <p>friends 미지정(null)이거나 호출자 자신의 id 이면 친구 검증 없이 호출자 본인(self)을 반환한다.
-     * friends 지정 시 호출자·대상 User 를 로드한 뒤 조회 자격을 판정한다:
-     * <ul>
-     *   <li>ACCEPTED 친구관계 → 허용 (대상 friends 반환)</li>
-     *   <li>친구가 아니어도 대상의 statVisibility 가 <b>PUBLIC</b> 이면 허용 (GROMO-623 — 전체 공개)</li>
-     *   <li>그 외(친구 아님 + 대상 statVisibility 가 FRIENDS) → NOT_FRIEND</li>
-     * </ul>
-     * <p>즉 PUBLIC 은 친구가 아니어도 열람을 허용하고, FRIENDS 는 ACCEPTED 친구에게만 열람을 허용한다.
-     * <p>이 판정은 friends 파라미터를 쓰는 <b>모든 stats 엔드포인트에 공통 적용</b>된다(GROMO-624 로
-     * by-category 까지 포함).
+     *
+     * <p>열람 권한 판정은 {@link StatViewPolicy} 로 위임한다(GROMO-779 리팩토링). 컨트롤러 호출 계약을
+     * 유지하기 위해 서비스에 얇은 위임 메서드로 남긴다.
      *
      * @param callerId 호출자(로그인 유저) UUID
      * @param friends  조회 대상 친구 UUID (null 또는 self 이면 self)
      * @return 실제 통계 집계 대상 userId
      * @throws UserException   대상/호출자 User 미존재 (NOT_FOUND)
-     * @throws FriendException 친구도 아니고 대상 공개범위도 PUBLIC 이 아님 (NOT_FRIEND)
+     * @throws com.oneorthree.phone.friend.exception.FriendException 친구도 아니고 대상 공개범위도 PUBLIC 이 아님
+     *                                                              (NOT_FRIEND)
      */
     public UUID resolveTargetUserId(UUID callerId, UUID friends) {
-        // friends 미지정(null) 또는 자기 자신 조회 → 친구 검증 없이 self.
-        // (self 를 friends 로 넘기면 findAcceptedBetween(caller, caller) 매칭이 없어 NOT_FRIEND 404 로 오인됨)
-        if (friends == null || friends.equals(callerId)) {
-            return callerId;
-        }
-        User caller = userRepository.findById(callerId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        User friend = userRepository.findById(friends)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        // ACCEPTED 친구관계면 대상 공개범위와 무관하게 허용
-        boolean accepted = friendshipRepository.findAcceptedBetween(caller, friend).isPresent();
-        // PUBLIC 은 친구가 아니어도 열람 허용 (GROMO-623). FRIENDS 는 친구에게만.
-        if (accepted || friend.getStatVisibility() == StatVisibility.PUBLIC) {
-            return friends;
-        }
-        throw new FriendException(FriendErrorCode.NOT_FRIEND);
+        return statViewPolicy.resolveTargetUserId(callerId, friends);
     }
 
     public List<HeatmapCellResponse> getHeatmap(UUID userId, LocalDate from, LocalDate to) {
@@ -124,7 +100,7 @@ public class StatsService {
             DailyScreenTimeStat s = screenByDate.get(d);
             cells.add(new HeatmapCellResponse(
                     d,
-                    f != null ? f.getTotalFocusSeconds() / 60 : 0,   // GROMO-642: 초 → 분
+                    f != null ? StatsUnits.secondsToMinutes(f.getTotalFocusSeconds()) : 0,   // GROMO-642: 초 → 분
                     f != null ? f.getSessionCount() : 0,
                     f != null && f.isFocusTimeGoalAchieved(),
                     s != null ? s.getTotalScreenTimeMinutes() : 0,
@@ -150,7 +126,7 @@ public class StatsService {
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         int focusMinutes = dailyFocusStatRepository.findByUserAndDate(user, today)
-                .map(d -> d.getTotalFocusSeconds() / 60).orElse(0);   // GROMO-642: 초 저장 → 분 환산
+                .map(d -> StatsUnits.secondsToMinutes(d.getTotalFocusSeconds())).orElse(0);   // GROMO-642: 초→분
         int screenMinutes = dailyScreenTimeStatRepository.findByUserAndDate(user, today)
                 .map(DailyScreenTimeStat::getTotalScreenTimeMinutes).orElse(0);
         int focusGoal = userFocusTimeSettingsRepository.findById(userId)
@@ -163,12 +139,12 @@ public class StatsService {
                         focusMinutes,
                         focusGoal,
                         focusGoal > 0 && focusMinutes >= focusGoal,     // 집중: 분 이상 — 현재 목표로 재계산
-                        progressPercent(focusMinutes, focusGoal)),
+                        StatsUnits.progressPercent(focusMinutes, focusGoal)),
                 new TodayStatsResponse.ScreenTimeStat(
                         screenMinutes,
                         screenGoal,
                         screenGoal > 0 && screenMinutes <= screenGoal,  // 스크린타임: 분 이내 — 현재 목표로 재계산
-                        progressPercent(screenMinutes, screenGoal)));
+                        StatsUnits.progressPercent(screenMinutes, screenGoal)));
     }
 
     /**
@@ -179,13 +155,13 @@ public class StatsService {
      */
     public FocusPeriodStatsResponse getFocusStatsByPeriod(UUID userId, StatsPeriod period, LocalDate today) {
         User user = userRepository.getReferenceById(userId);
-        PeriodRange range = resolvePeriodRange(period, today);
+        PeriodRange range = statsPeriodResolver.resolve(period, today);
 
         // GROMO-642: 초로 합산 후 분 환산(1회) — 세션별 내림 손실 제거
-        int current = dailyFocusStatRepository
-                .sumTotalFocusSecondsByUserAndDateBetween(user, range.currentFrom(), range.currentTo()) / 60;
-        int previous = dailyFocusStatRepository
-                .sumTotalFocusSecondsByUserAndDateBetween(user, range.previousFrom(), range.previousTo()) / 60;
+        int current = StatsUnits.secondsToMinutes(dailyFocusStatRepository
+                .sumTotalFocusSecondsByUserAndDateBetween(user, range.currentFrom(), range.currentTo()));
+        int previous = StatsUnits.secondsToMinutes(dailyFocusStatRepository
+                .sumTotalFocusSecondsByUserAndDateBetween(user, range.previousFrom(), range.previousTo()));
 
         return new FocusPeriodStatsResponse(period, range.currentFrom(), range.currentTo(), current, previous,
                 current - previous);
@@ -201,8 +177,8 @@ public class StatsService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        // 직전 동일 길이 구간: getFocusStatsByPeriod와 공용 헬퍼 사용
-        PeriodRange range = resolvePeriodRange(period, today);
+        // 직전 동일 길이 구간: getFocusStatsByPeriod와 공용 리졸버 사용
+        PeriodRange range = statsPeriodResolver.resolve(period, today);
 
         List<DailyScreenTimeStat> currentStats = dailyScreenTimeStatRepository
                 .findByUserAndDateBetweenOrderByDateAsc(user, range.currentFrom(), range.currentTo());
@@ -247,8 +223,8 @@ public class StatsService {
     public CategoryFocusStatsResponse getFocusStatsByCategory(UUID userId, StatsPeriod period, LocalDate today) {
         User user = userRepository.getReferenceById(userId);
 
-        // 기간 경계 계산 — resolvePeriodRange 공통 헬퍼 재사용 (DRY: 인라인 switch 중복 제거)
-        PeriodRange range = resolvePeriodRange(period, today);
+        // 기간 경계 계산 — StatsPeriodResolver 공통 리졸버 재사용 (DRY: 인라인 switch 중복 제거)
+        PeriodRange range = statsPeriodResolver.resolve(period, today);
         LocalDate from = range.currentFrom();
         LocalDate to = range.currentTo();
 
@@ -296,42 +272,5 @@ public class StatsService {
         items.sort(Comparator.comparingInt(CategoryFocusStatsResponse.CategoryItem::totalFocusMinutes).reversed());
 
         return new CategoryFocusStatsResponse(period, from, to, totalMinutes, items);
-    }
-
-    /**
-     * 기간(period)·기준일(today)로부터 현재 구간과 직전 동일 길이 구간의 경계를 계산한다.
-     * DAY  : 오늘 / 어제
-     * WEEK : 이번 주 월요일~오늘 / 전주 동일 구간
-     * MONTH: 이번 달 1일~오늘 / 전월 1일~전월 동일 날짜
-     * GROMO-523·522·524·525 공통 재사용 헬퍼.
-     */
-    private PeriodRange resolvePeriodRange(StatsPeriod period, LocalDate today) {
-        LocalDate currentFrom = switch (period) {
-            case DAY -> today;
-            case WEEK -> today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-            case MONTH -> today.withDayOfMonth(1);
-        };
-        // 직전 동일 길이 구간: currentFrom~today 와 동일한 날수를 직전에 배치
-        LocalDate previousFrom = switch (period) {
-            case DAY -> today.minusDays(1);
-            case WEEK -> currentFrom.minusWeeks(1);
-            case MONTH -> today.minusMonths(1).withDayOfMonth(1);
-        };
-        LocalDate previousTo = switch (period) {
-            case DAY -> today.minusDays(1);
-            case WEEK -> today.minusWeeks(1);
-            // 전월 같은 날(말일 초과 시 Java가 자동으로 전월 말일로 조정)
-            case MONTH -> today.minusMonths(1);
-        };
-        return new PeriodRange(currentFrom, today, previousFrom, previousTo);
-    }
-
-    /** 현재 구간(currentFrom~currentTo)과 직전 동일 길이 구간(previousFrom~previousTo) 경계 묶음. */
-    private record PeriodRange(LocalDate currentFrom, LocalDate currentTo,
-                               LocalDate previousFrom, LocalDate previousTo) {}
-
-    // 목표 대비 진행도(%). 목표 미설정(0)은 0%, 초과 시 100 초과 그대로 노출(클램프 없음).
-    private int progressPercent(int actual, int goal) {
-        return goal > 0 ? (int) Math.round((double) actual / goal * 100) : 0;
     }
 }

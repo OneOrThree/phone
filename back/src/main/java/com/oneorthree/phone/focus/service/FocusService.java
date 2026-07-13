@@ -242,7 +242,13 @@ public class FocusService {
                 body.getTotalDistractionSeconds(), statDate(body.getEndedAt()));
     }
 
-    // GROMO-671(커밋3): local_date 제거로 일별 집계 버킷 날짜는 endedAt(UTC) 로 환산한다.
+    /**
+     * 일별 집중 집계·스트릭 귀속 버킷 날짜를 계산한다.
+     *
+     * <p><b>현재 기준: UTC.</b> endedAt(세션 종료 시각) 을 UTC 존으로 환산한 로컬 날짜를 버킷으로 쓴다
+     * (GROMO-671 커밋3에서 local_date 컬럼 제거로 도입). 클라 로컬 타임존은 반영하지 않는다.
+     * (ticket 803 에서 country_code 존 기준으로 전환 예정 — 그때 이 주석도 갱신한다.)
+     */
     private static LocalDate statDate(Instant endedAt) {
         return endedAt.atZone(ZoneOffset.UTC).toLocalDate();
     }
@@ -363,7 +369,7 @@ public class FocusService {
         }
         userActivityEventLogger.log(UserActivityEvent.FOCUS_SESSION_COMPLETED, sessionPayload);
 
-        // ── DailyFocusStat upsert: 클라 로컬 날짜(statDate) 기준 (user, date) 멱등 누적 (GROMO-643) ──
+        // ── DailyFocusStat upsert: statDate(현재 endedAt UTC 버킷) 기준 (user, date) 멱등 누적 ──
         // GROMO-642: 초 단위 누적(세션별 분 내림 제거 — 30초×10=300초 정확). goal(분)은 *60 초로 비교.
         int addedSeconds = (int) Duration.between(startedAt, endedAt).getSeconds();
 
