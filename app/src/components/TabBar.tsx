@@ -1,13 +1,46 @@
+import { useState } from 'react';
 import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Path } from 'react-native-svg';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
 
-// 커스텀 탭바 — Claude Design "01 홈" 시안: 프로스티드 바 + 4탭 + 중앙 FAB(집중 시작).
+// 커스텀 탭바 — Claude Design "01 홈" 시안: 글래스 바 + 4탭 + 중앙 FAB(집중 시작).
+// 바 배경은 SVG 패스 — 상단 가운데가 FAB 모양으로 오목하게 파인다(겹침 대신 안착).
+
+const BAR_H = 56;
+const BAR_R = 28; // 바 모서리
+const FAB_R = 28; // FAB 반지름(56/2)
+const NOTCH_R = FAB_R + 5; // 파임 반지름 — FAB 둘레에 5px 숨통
+const FAB_LIFT = 6; // FAB 중심이 바 상단선보다 위로 떠 있는 높이
+// 유리 느낌 — 기존 0.96이 탁해 보여 투명도를 크게 낮춤(파임 형태라 BlurView 마스킹 불가, 반투명으로 대체)
+const BAR_FILL = 'rgba(252,250,246,0.55)';
+const BAR_STROKE = 'rgba(255,255,255,0.75)';
+
+// 상단 가운데가 파인 라운드 바 경로. 파임 호는 FAB 중심(cx, -FAB_LIFT)·반지름 NOTCH_R 원의
+// 바 상단선(y=0) 아래 부분 — 교점 반너비 a = √(R²-lift²).
+function barPath(w: number): string {
+  const cx = w / 2;
+  const a = Math.sqrt(NOTCH_R * NOTCH_R - FAB_LIFT * FAB_LIFT);
+  return [
+    `M ${BAR_R} 0`,
+    `H ${cx - a}`,
+    `A ${NOTCH_R} ${NOTCH_R} 0 0 0 ${cx + a} 0`,
+    `H ${w - BAR_R}`,
+    `A ${BAR_R} ${BAR_R} 0 0 1 ${w} ${BAR_R}`,
+    `V ${BAR_H - BAR_R}`,
+    `A ${BAR_R} ${BAR_R} 0 0 1 ${w - BAR_R} ${BAR_H}`,
+    `H ${BAR_R}`,
+    `A ${BAR_R} ${BAR_R} 0 0 1 0 ${BAR_H - BAR_R}`,
+    `V ${BAR_R}`,
+    `A ${BAR_R} ${BAR_R} 0 0 1 ${BAR_R} 0`,
+    'Z',
+  ].join(' ');
+}
 type IconPair = [keyof typeof Ionicons.glyphMap, keyof typeof Ionicons.glyphMap];
 const ICONS: Record<string, IconPair> = {
   홈: ['home', 'home-outline'],
@@ -20,6 +53,8 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const rootNav = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const routes = state.routes;
+  // 파임 경로는 실제 폭 기준으로 그린다 — onLayout 측정 전에는 배경 생략
+  const [barW, setBarW] = useState(0);
 
   function Tab({ index }: { index: number }) {
     const route = routes[index];
@@ -41,7 +76,12 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
 
   return (
     <View style={[s.wrap, { paddingBottom: Math.max(insets.bottom, 8) }]} pointerEvents="box-none">
-      <View style={s.bar}>
+      <View style={s.bar} onLayout={(e) => setBarW(e.nativeEvent.layout.width)}>
+        {barW > 0 && (
+          <Svg width={barW} height={BAR_H} style={StyleSheet.absoluteFill}>
+            <Path d={barPath(barW)} fill={BAR_FILL} stroke={BAR_STROKE} strokeWidth={1} />
+          </Svg>
+        )}
         <Tab index={0} />
         <Tab index={1} />
         <View style={s.fabSlot} />
@@ -76,11 +116,8 @@ const s = StyleSheet.create({
   },
   bar: {
     width: '100%',
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(249,245,238,0.96)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.7)',
+    height: BAR_H,
+    // 배경·테두리는 SVG 패스(파임 포함)가 그린다 — 뷰 자체는 투명 유지
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
@@ -91,10 +128,12 @@ const s = StyleSheet.create({
     elevation: 8,
   },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  fabSlot: { width: 64 },
+  fabSlot: { width: 72 },
   fab: {
     position: 'absolute',
-    top: -8,
+    // FAB 중심이 바 상단선에서 FAB_LIFT만큼 위 — 파임 호와 동심으로 안착
+    // (wrap paddingTop 8 기준: 8 - FAB_LIFT - FAB_R)
+    top: 8 - FAB_LIFT - FAB_R,
     alignSelf: 'center',
     ...Platform.select({ ios: {}, android: {} }),
   },
