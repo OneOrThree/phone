@@ -30,6 +30,8 @@ import { ComingSoon } from '@/screens/stats/ComingSoon';
 
 const WEEK_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
 const BAR_H = 46;
+// GROMO-682: 스트릭(출석 ✓) 인정 최소 기준 — 하루 누적 10분
+const STREAK_MIN_DAILY_MINUTES = 10;
 
 // 이번 주 월~일 날짜('YYYY-MM-DD') 배열.
 function thisWeekDates(): string[] {
@@ -181,10 +183,11 @@ export default function FocusResultScreen() {
               {days.map((date, i) => {
                 const cell = cellByDate[date];
                 const isToday = date === today;
-                // 출석 = 그날 집중 기록 존재. 방금 끝낸 세션은 서버 집계에 아직 없을 수 있어 오늘은 즉시 채움.
-                const done =
-                  (cell != null && (cell.sessionCount > 0 || cell.totalFocusMinutes > 0)) ||
-                  (isToday && focusSeconds > 0);
+                // 출석 = 하루 누적 10분 이상(GROMO-682). 오늘은 방금 세션이 서버 집계에
+                // 아직 없을 수 있어 보정값(adjustedToday)으로 판정.
+                const done = isToday
+                  ? adjustedToday >= STREAK_MIN_DAILY_MINUTES
+                  : cell != null && cell.totalFocusMinutes >= STREAK_MIN_DAILY_MINUTES;
                 const future = date > today;
                 return (
                   <View key={date} style={s.dotCol}>
@@ -197,6 +200,14 @@ export default function FocusResultScreen() {
               })}
             </View>
           </LinearGradient>
+        ) : null}
+
+        {/* 스트릭 기준 안내(GROMO-682) — 오늘 누적이 10분 미만이면 채워지는 조건을 알려준다 */}
+        {adjustedToday < STREAK_MIN_DAILY_MINUTES ? (
+          <View style={s.streakNotice}>
+            <Ionicons name="flame-outline" size={14} color={T.accentDeep} />
+            <Text style={s.streakNoticeText}>하루 10분 이상 집중하면 연속 기록이 채워져요</Text>
+          </View>
         ) : null}
 
         {/* 이번 주 집중시간 — 총합 + 요일 막대(나) */}
@@ -479,6 +490,18 @@ const s = StyleSheet.create({
   dotFuture: { opacity: 0.4 },
   dotDay: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
   dotDayToday: { color: T.accentDeep, fontWeight: '800' },
+
+  // 스트릭 기준 안내(GROMO-682)
+  streakNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: T.accentBg,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  streakNoticeText: { ...T.text.caption, fontWeight: '500', color: T.accentDeep, flex: 1 },
 
   // 이번 주 집중시간 막대
   barRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 7, marginTop: 6 },
