@@ -77,4 +77,19 @@ class LeagueTierLookupTest {
         assertThat(result).isEmpty();
         verifyNoInteractions(leagueArenaUserRepository);
     }
+
+    @Test
+    @DisplayName("한 유저에 복수 ACTIVE 멤버십(앱 불변식 위반) → 먼저 온 티어 채택(병합 함수)")
+    void tierLevelsByUserId_duplicateActiveMemberships_keepsFirst() {
+        UUID dup = UUID.randomUUID();
+        // 불변식이 깨져 같은 유저의 ACTIVE 멤버십이 2건 조회되는 이상 상황을 가정.
+        given(leagueArenaUserRepository.findByUserIdInAndArenaStatus(
+                List.of(dup), LeagueArenaStatus.ACTIVE))
+                .willReturn(List.of(membership(dup, 3), membership(dup, 7)));
+
+        Map<UUID, Integer> result = leagueTierLookup.tierLevelsByUserId(List.of(dup));
+
+        // 병합 함수 (a, b) -> a 로 먼저 온 값(3) 유지 — ProfileService 는 이 경우 500 이지만 배치는 조용히 채택.
+        assertThat(result).containsOnly(Map.entry(dup, 3));
+    }
 }

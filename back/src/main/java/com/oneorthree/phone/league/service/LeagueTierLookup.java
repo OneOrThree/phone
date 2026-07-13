@@ -4,6 +4,7 @@ import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.Collection;
@@ -16,6 +17,7 @@ import java.util.stream.Collectors;
  * 티어는 league_arena_users.tier_level(현재 ACTIVE 아레나 멤버십)에서만 도출한다 (GROMO-671).
  * ProfileService#getPublicProfile 의 단건 티어 도출 로직을 배치(IN절)로 확장 — 친구 목록·요청·검색이 공유한다.
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class LeagueTierLookup {
@@ -35,8 +37,14 @@ public class LeagueTierLookup {
         }
         return leagueArenaUserRepository
                 .findByUserIdInAndArenaStatus(userIds, LeagueArenaStatus.ACTIVE).stream()
-                // 유저당 ACTIVE 아레나는 최대 1개지만, 방어적으로 병합 함수를 둔다(먼저 온 값 유지).
+                // 유저당 ACTIVE 아레나는 배치가 이전 아레나를 닫고 생성하는 앱 로직으로 최대 1개(DB 유니크 제약은 없음).
+                // 이 불변식이 깨지면(복수 ACTIVE) ProfileService 의 단건 findByUserAndArenaStatus 는 500 으로 드러나지만,
+                // 배치 경로는 조용히 임의값을 채택하게 되므로, 병합이 실제로 발생하면 warn 으로 남겨 정합성 이상을 가시화한다.
                 .collect(Collectors.toMap(
-                        m -> m.getUser().getId(), LeagueArenaUser::getTierLevel, (a, b) -> a));
+                        m -> m.getUser().getId(), LeagueArenaUser::getTierLevel,
+                        (a, b) -> {
+                            log.warn("복수 ACTIVE 아레나 멤버십 감지 — tier {} 채택, {} 무시 (앱 불변식 위반)", a, b);
+                            return a;
+                        }));
     }
 }

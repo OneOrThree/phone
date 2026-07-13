@@ -432,6 +432,24 @@ class FriendServiceTest {
         assertThat(requests.get(0).getTierLevel()).isEqualTo(4);
     }
 
+    @Test
+    @DisplayName("보낸 요청 목록(sent) — 티어는 toUser(상대) 기준으로 도출·매핑 (GROMO-710)")
+    void getRequests_sent_restoresTierLevel_fromLeagueLookup() {
+        Friendship req = friendship(me, target, FriendshipStatus.PENDING);
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(friendshipRepository.findByFromUserAndStatus(me, FriendshipStatus.PENDING))
+                .willReturn(List.of(req));
+        // sent 방향: 상대는 toUser(target) — 티어 배치 조회 대상도 target 이어야 한다
+        given(leagueTierLookup.tierLevelsByUserId(List.of(targetId)))
+                .willReturn(Map.of(targetId, 2));
+
+        List<FriendRequestResponse> requests = friendService.getRequests(meId, "sent");
+
+        assertThat(requests).hasSize(1);
+        assertThat(requests.get(0).getUserId()).isEqualTo(targetId);
+        assertThat(requests.get(0).getTierLevel()).isEqualTo(2);
+    }
+
     // ── search ─────────────────────────────────────────────
 
     @Test
