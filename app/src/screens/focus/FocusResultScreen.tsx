@@ -6,6 +6,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import Animated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 import { STORAGE_KEYS } from '@/types/storage';
 import { getFocusPeriodStats, getStreak, getHeatmap } from '@/services/statsApi';
@@ -33,6 +34,19 @@ const WEEK_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
 const BAR_H = 72;
 // GROMO-682: 스트릭(출석 ✓) 인정 최소 기준 — 하루 누적 10분
 const STREAK_MIN_DAILY_MINUTES = 10;
+// 진입 시 막대가 바닥부터 자라는 키프레임(GROMO-683) — height 애니메이션은 매 프레임
+// 레이아웃 패스를 유발하므로 scaleY 변환 사용(s.bar의 transformOrigin: 'bottom'과 조합).
+const growUp = { from: { transform: [{ scaleY: 0 }] } };
+// 막대별 진입 애니메이션 — 왼쪽부터 50ms 시차. fillMode backwards로 딜레이 동안
+// scaleY 0(접힌 상태)을 유지해 먼저 그려지는 튐 방지.
+const barEnterAnim = (index: number) =>
+  ({
+    animationName: growUp,
+    animationDuration: '500ms',
+    animationDelay: `${index * 50}ms`,
+    animationTimingFunction: 'ease-out',
+    animationFillMode: 'backwards',
+  }) as const;
 
 // 이번 주 월~일 날짜('YYYY-MM-DD') 배열.
 function thisWeekDates(): string[] {
@@ -253,10 +267,11 @@ export default function FocusResultScreen() {
                   return (
                     <View key={date} style={s.barCol}>
                       <View style={s.barTrack}>
-                        <View
+                        <Animated.View
                           style={[
                             s.bar,
                             { height: h, backgroundColor: isToday ? T.accent : T.sand },
+                            barEnterAnim(i),
                           ]}
                         />
                       </View>
@@ -543,7 +558,7 @@ const s = StyleSheet.create({
   barRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 7 },
   barCol: { flex: 1, alignItems: 'center', gap: 5 },
   barTrack: { height: BAR_H, justifyContent: 'flex-end' },
-  bar: { width: 14, borderTopLeftRadius: 5, borderTopRightRadius: 5 },
+  bar: { width: 14, borderTopLeftRadius: 5, borderTopRightRadius: 5, transformOrigin: 'bottom' },
   barDay: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
   barDayToday: { color: T.accent, fontWeight: '700' },
   // 세로축·눈금(GROMO-683) — StatsScreen 차트 축 패턴과 동일 구조
