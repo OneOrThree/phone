@@ -6,6 +6,7 @@ export type V2RootStackParamList = {
   Main: undefined; // 4탭 + FAB
   Stats: undefined; // 통계 상세 (홈 '자세히'에서 진입)
   UsageDetail: undefined; // 앱별 사용시간 상세 (홈 '핸드폰 사용' 탭에서 진입)
+  Notifications: undefined; // 알림 보관함 (홈 우측 상단 종에서 진입 — GROMO-661)
   FocusCategory: undefined; // 02 과목 선택 (홈 ● 집중 FAB에서 진입)
   FocusSession: {
     subjectId: string;

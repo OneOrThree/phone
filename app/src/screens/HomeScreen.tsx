@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
   RefreshControl,
@@ -21,7 +21,12 @@ import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { CharacterImage } from '@/components/character/CharacterImage';
-import { getTodayStats } from '@/services/statsApi';
+import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '@/types/storage';
+import { todayStr } from '@/utils/localDate';
+import { getTodayStats, getStreak } from '@/services/statsApi';
+import { hasUnread, subscribeInbox } from '@/services/notificationInbox';
 import type { TodayStatsResponse } from '@/types/dto/stats';
 import {
   logHomeViewed,
@@ -163,6 +168,15 @@ export default function HomeScreen() {
   const [reportRefresh, setReportRefresh] = useState(0);
   // 오늘 요약(서버 stats/today). null이면 미조회/게스트/실패 → 로컬 FocusContext 값으로 폴백.
   const [todayStats, setTodayStats] = useState<TodayStatsResponse | null>(null);
+  // 연속 공부 일수(하루 10분 스트릭, GROMO-630) — 0이면 칩 생략.
+  const [streakDays, setStreakDays] = useState(0);
+  // 목표 달성 축하(GROMO-630) — 결과 화면이 예약해 둔 축하를 홈 진입 시 노출. null=비노출.
+  // date = 달성한 날짜(예약 payload의 date) — 닫을 때 이 날짜로 기록한다.
+  const [goalCelebration, setGoalCelebration] = useState<{
+    date: string;
+    days: number;
+    goalMinutes?: number;
+  } | null>(null);
   // 오늘 집중 누적(로컬)을 effect 재실행 없이 최신값으로 읽기 위한 ref(폴백/계측용).
   const todayFocusSecondsRef = useRef(todayFocusSeconds);
   todayFocusSecondsRef.current = todayFocusSeconds;
@@ -194,6 +208,26 @@ export default function HomeScreen() {
       refetchTodayStats().then((focusMinutes) => {
         if (!cancelled) logTodaySummaryViewed({ focus_minutes: focusMinutes });
       });
+      // 연속 공부 일수(GROMO-630) — 홈 포커스마다 최신화(방금 세션 반영).
+      getStreak()
+        .then((v) => !cancelled && setStreakDays(v.currentStreak))
+        .catch(() => {});
+      // 목표 달성 축하 예약 확인(GROMO-630) — 오늘 예약이면 모달, 지난 예약이면 정리.
+      AsyncStorage.getItem(STORAGE_KEYS.focusGoalCelebratePending)
+        .then((raw) => {
+          if (cancelled || !raw) return;
+          try {
+            const p = JSON.parse(raw) as { date?: string; days?: number; goalMinutes?: number };
+            if (p.date === todayStr()) {
+              setGoalCelebration({ date: p.date, days: p.days ?? 1, goalMinutes: p.goalMinutes });
+              return;
+            }
+          } catch {
+            /* 깨진 값 → 아래에서 정리 */
+          }
+          AsyncStorage.removeItem(STORAGE_KEYS.focusGoalCelebratePending).catch(() => {});
+        })
+        .catch(() => {});
       return () => {
         cancelled = true;
       };
@@ -214,7 +248,17 @@ export default function HomeScreen() {
   const { tier: leagueTier } = useLeagueMeta();
   const { myLeagueRank } = useLeagueRanking();
   const tier = tierByLevel(leagueTier.tierLevel ?? 1);
-  const hasNotifications = false; // TODO: 실제 안 읽은 알림 여부로 교체
+
+  // 종 뱃지(빨간 점) = 보관함의 안 읽은 알림 여부. 최초 확인 + 보관함 변경 구독으로 갱신
+  // (알림 화면에서 읽음 처리하거나 포그라운드 푸시가 저장되면 즉시 반영).
+  const [hasNotifications, setHasNotifications] = useState(false);
+  useEffect(() => {
+    const refresh = () => {
+      hasUnread().then(setHasNotifications);
+    };
+    refresh();
+    return subscribeInbox(refresh);
+  }, []);
 
   // 공부 집중 값: 방금 끝낸 세션은 업로드가 비동기(실패 시 재시도 큐)라 서버 오늘요약에 아직
   // 없을 수 있고, 서버는 분 내림 집계라 1분 미만 세션은 영영 0이다. 결과 화면과 동일하게
@@ -224,6 +268,18 @@ export default function HomeScreen() {
     ? Math.max(todayStats.focus.todayMinutes * 60, todayFocusSeconds)
     : todayFocusSeconds;
   const focusGoalSeconds = todayStats ? todayStats.focus.goalMinutes * 60 : goalSeconds;
+
+  // 축하 모달 닫기 — 축하 완료 기록 + 예약 제거(재노출 방지). 기록 날짜는 닫는 시점이 아니라
+  // 달성한 날짜(예약의 date) — 자정 넘겨 닫으면 새 날의 실제 축하까지 눌린다(PR 225 리뷰).
+  const closeGoalCelebration = useCallback(() => {
+    if (goalCelebration) {
+      AsyncStorage.setItem(STORAGE_KEYS.focusGoalCelebratedDate, goalCelebration.date).catch(
+        () => {},
+      );
+    }
+    AsyncStorage.removeItem(STORAGE_KEYS.focusGoalCelebratePending).catch(() => {});
+    setGoalCelebration(null);
+  }, [goalCelebration]);
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
@@ -264,7 +320,8 @@ export default function HomeScreen() {
             <TouchableOpacity
               style={s.settingsBtn}
               onPress={() => {
-                // TODO: 알림 화면으로 이동
+                logHomeButtonTapped({ button: 'notification_bell', destination: 'Notifications' });
+                navigation.navigate('Notifications');
               }}
               activeOpacity={0.8}
             >
@@ -285,17 +342,26 @@ export default function HomeScreen() {
             <Text style={s.cardTitle}>
               오늘 <Text style={s.cardTitleSub}>Today</Text>
             </Text>
-            <TouchableOpacity
-              style={s.moreBtn}
-              activeOpacity={0.7}
-              onPress={() => {
-                logHomeButtonTapped({ button: 'today_summary_detail', destination: 'Stats' });
-                navigation.navigate('Stats');
-              }}
-            >
-              <Text style={s.more}>자세히</Text>
-              <Ionicons name="chevron-forward" size={11} color={T.accent} />
-            </TouchableOpacity>
+            <View style={s.cardHeaderRight}>
+              {/* 연속 공부(GROMO-630) — 하루 10분 스트릭. 0일이면 생략 */}
+              {streakDays > 0 && (
+                <View style={s.streakChip}>
+                  <Ionicons name="flame" size={11} color={T.flame} />
+                  <Text style={s.streakChipText}>연속 공부 {streakDays}일</Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={s.moreBtn}
+                activeOpacity={0.7}
+                onPress={() => {
+                  logHomeButtonTapped({ button: 'today_summary_detail', destination: 'Stats' });
+                  navigation.navigate('Stats');
+                }}
+              >
+                <Text style={s.more}>자세히</Text>
+                <Ionicons name="chevron-forward" size={11} color={T.accent} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           <MetricRow
@@ -317,6 +383,14 @@ export default function HomeScreen() {
           />
         </View>
       </View>
+
+      {/* 목표 달성 축하 모달(GROMO-630) — 결과 화면을 닫고 홈에 오면 노출 */}
+      <GoalCelebrationModal
+        visible={goalCelebration != null}
+        goalStreakDays={goalCelebration?.days ?? 1}
+        goalMinutes={goalCelebration?.goalMinutes}
+        onClose={closeGoalCelebration}
+      />
     </SafeAreaView>
   );
 }
@@ -412,6 +486,18 @@ const s = StyleSheet.create({
   cardTitleSub: { color: T.inkFaint, fontWeight: '500' },
   moreBtn: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   more: { ...T.text.label, color: T.accent },
+  // 연속 공부 칩(GROMO-630)
+  cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  streakChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: T.accentBg,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  streakChipText: { ...T.text.caption, fontSize: 10, fontWeight: '700', color: T.accentDeep },
   metricRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8 },
   metricDivider: { borderBottomWidth: 1, borderBottomColor: T.divider, paddingBottom: 14 },
   metricIcon: {

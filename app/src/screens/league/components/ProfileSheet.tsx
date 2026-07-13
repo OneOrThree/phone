@@ -22,7 +22,7 @@ export interface ProfileTarget {
   bestRank: number; // 역대 최고 순위 (기록 카드)
   bestWeekMinutes: number; // 일주일 최대 공부량(분) (기록 카드)
   achievedRate: number; // 목표 달성률 0..1 — 내 것은 오늘 실데이터
-  streakDays: number; // 연속 집중목표 달성 일수 (이름 옆 pill, 0이면 생략)
+  streakDays: number; // 연속 공부 일수 — 하루 10분 스트릭, UserStreak (이름 옆 pill, 0이면 생략)
   friendCount: number;
   isFriend: boolean;
   /** 요일(월~일)별 집중 시간(분) — 없으면 mock 스파크. 정규화는 시트에서 */
