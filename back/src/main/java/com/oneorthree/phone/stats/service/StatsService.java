@@ -203,17 +203,46 @@ public class StatsService {
             achievedDays = null;
             elapsedDays = null;
         } else {
-            // week/month: 저장된 달성 플래그(일 단위) 기반 집계
+            // week/month (GROMO-805): 경과일수는 가입일로 클램프한다 — 가입 전 날은 집계 대상이 아니다.
+            // clampedFrom = max(구간 시작, 가입일 유저존 로컬 날짜). createdAt 미상이면 클램프 없음.
             goalAchieved = null;
-            achievedDays = (int) currentStats.stream()
-                    .filter(DailyScreenTimeStat::isScreenTimeGoalAchieved).count();
-            elapsedDays = (int) (ChronoUnit.DAYS.between(range.currentFrom(), range.currentTo()) + 1);
+            LocalDate clampedFrom = clampFromByJoin(user, range.currentFrom());
+            int clampedElapsedDays = clampedFrom.isAfter(range.currentTo())
+                    ? 0
+                    : (int) (ChronoUnit.DAYS.between(clampedFrom, range.currentTo()) + 1);
+            elapsedDays = clampedElapsedDays;   // 승인 결정: elapsedDays 도 가입 클램프 반영해 일관
+
+            if (goalMinutes > 0) {
+                // 목표 설정 유저: day 뷰와 의미 일치 — row 없는 날 = 0분 = 달성. 실패 기록된 날만 차감.
+                // achievedDays = clampedElapsedDays − failedDays (failedDays = 미달성 플래그 row 수).
+                int failedDays = (int) currentStats.stream()
+                        .filter(s -> !s.isScreenTimeGoalAchieved()).count();
+                achievedDays = clampedElapsedDays - failedDays;
+            } else {
+                // 목표 미설정: day 뷰와 동일하게 달성 판정을 하지 않는다 — 저장 플래그(모두 false) 기준이라 0.
+                achievedDays = (int) currentStats.stream()
+                        .filter(DailyScreenTimeStat::isScreenTimeGoalAchieved).count();
+            }
         }
 
         return new ScreenTimePeriodStatsResponse(
                 period, range.currentFrom(), range.currentTo(),
                 currentMinutes, previousMinutes, currentMinutes - previousMinutes,
                 goalMinutes, goalAchieved, achievedDays, elapsedDays);
+    }
+
+    /**
+     * 기간 시작일을 가입일로 클램프한다(GROMO-805) — 가입 전 날은 집계 경과일에서 제외.
+     * 가입일은 {@code user.createdAt} 을 유저 country_code 파생 존(GROMO-561)의 로컬 날짜로 환산해 비교한다
+     * (스크린타임 쓰기 버킷과 동일 존). {@code createdAt} 이 null(테스트/레거시)이면 클램프 없이 원래 시작일을 쓴다.
+     */
+    private LocalDate clampFromByJoin(User user, LocalDate rangeFrom) {
+        if (user.getCreatedAt() == null) {
+            return rangeFrom;
+        }
+        LocalDate joinLocalDate = user.getCreatedAt()
+                .atZone(CountryZoneResolver.resolve(user.getCountryCode())).toLocalDate();
+        return joinLocalDate.isAfter(rangeFrom) ? joinLocalDate : rangeFrom;
     }
 
     /**

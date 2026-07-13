@@ -73,6 +73,34 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         assertThat(result.get(0).getId()).isEqualTo(active.getId());
     }
 
+    // ── orphan 자동 종료(AUTO_CLOSED) 세션 제외 (GROMO-804) ───────────────
+
+    @Test
+    @DisplayName("findCompletedSessionsInPeriod — status=AUTO_CLOSED(orphan 자동 종료) 세션은 결과에서 제외")
+    void excludesAutoClosedSessions() {
+        // given: 정상 완료 세션 1개 + orphan 자동 종료 세션 1개 (둘 다 endedAt 이 윈도우 내)
+        FocusSession active = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T02:00:00Z"))
+                .build());
+        // AUTO_CLOSED 세션 — endedAt 이 채워져 윈도우에 걸리지만 통계 미반영 세션이라 제외되어야 한다.
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T03:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T04:00:00Z"))
+                .status(FocusSessionStatus.AUTO_CLOSED)
+                .build());
+        focusSessionRepository.flush();
+
+        // when
+        List<FocusSession> result = focusSessionRepository.findCompletedSessionsInPeriod(user, FROM, TO);
+
+        // then: 정상 세션만 반환, AUTO_CLOSED 세션은 제외 (→ /stats/focus 사전집계와 by-category 총합 정합)
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(active.getId());
+    }
+
     // ── 세션 귀속은 endedAt(UTC) 윈도우 기준 ─────────────────────────────
 
     @Test

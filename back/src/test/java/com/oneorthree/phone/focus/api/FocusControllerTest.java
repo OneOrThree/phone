@@ -1,6 +1,8 @@
 package com.oneorthree.phone.focus.api;
 
+import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionResponse;
+import com.oneorthree.phone.focus.dto.FocusSessionSaveResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
 import com.oneorthree.phone.focus.dto.OccupationDefaultTagResponse;
 import com.oneorthree.phone.focus.dto.OccupationDefaultTagsResponse;
@@ -10,6 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -22,6 +25,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -103,6 +108,46 @@ class FocusControllerTest {
         mockMvc.perform(get("/api/v1/tag/defaults")
                         .param("occupation", "NOT_A_JOB"))
                 .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    // ── 세션완료 응답 필드 (GROMO-806, additive) ─────────────────────────────
+
+    @Test
+    @DisplayName("POST /focus-session → 201 + body(dayTotalFocusSeconds·streakQualifiedToday)")
+    void saveFocusSessionReturns201WithBody() throws Exception {
+        given(focusService.saveFocusSession(any(), any()))
+                .willReturn(new FocusSessionSaveResponse(660, true));
+
+        String body = "{\"startedAt\":\"2026-06-23T01:00:00Z\",\"endedAt\":\"2026-06-23T01:11:00Z\","
+                + "\"totalDistractionSeconds\":0}";
+        mockMvc.perform(post("/api/v1/focus-session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.dayTotalFocusSeconds").value(660))
+                .andExpect(jsonPath("$.streakQualifiedToday").value(true))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("PATCH /focus-session → 200 + body 에 dayTotalFocusSeconds·streakQualifiedToday 포함")
+    void endFocusSessionReturns200WithStreakFields() throws Exception {
+        UUID sessionId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
+        given(focusService.endFocusSession(any(), any()))
+                .willReturn(new FocusSessionEndResponse(sessionId,
+                        Instant.parse("2026-06-23T01:00:00Z"),
+                        Instant.parse("2026-06-23T01:05:00Z"),
+                        300L, 0, 300, false));
+
+        String body = "{\"sessionId\":\"" + sessionId + "\",\"endedAt\":\"2026-06-23T01:05:00Z\","
+                + "\"totalDistractionSeconds\":0}";
+        mockMvc.perform(patch("/api/v1/focus-session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dayTotalFocusSeconds").value(300))
+                .andExpect(jsonPath("$.streakQualifiedToday").value(false))
                 .andDo(print());
     }
 }

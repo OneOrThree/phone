@@ -77,6 +77,13 @@ class StatsServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
+    // GROMO-805: 스크린타임 목표(분) 스텁 — week/month 누락일 달성 판정용.
+    private void givenScreenTimeGoal(int goalMinutes) {
+        given(userScreenTimeSettingsRepository.findById(USER_ID))
+                .willReturn(Optional.of(UserScreenTimeSettings.builder()
+                        .userId(USER_ID).dailyScreenTimeGoalMinutes(goalMinutes).build()));
+    }
+
     // ── getHeatmap ────────────────────────────────────────────────────────
 
     @Test
@@ -541,17 +548,18 @@ class StatsServiceTest {
     }
 
     @Test
-    @DisplayName("스크린타임 WEEK — 현재주 복수 row → currentMinutes 합산, achievedDays·totalDays 정확")
+    @DisplayName("스크린타임 WEEK(목표설정) — 누락일 달성 카운트: achievedDays = elapsed − failed, day 뷰와 의미 일치")
     void getScreenTimePeriodStatsWeekMultipleRows() {
         // 2026-07-03은 금요일, 이번 주 월요일 = 2026-06-29
         LocalDate thisMonday = LocalDate.of(2026, 6, 29);
         LocalDate prevMonday = LocalDate.of(2026, 6, 22);
         LocalDate prevFriday = LocalDate.of(2026, 6, 26);
 
+        // createdAt null → 가입 클램프 없음(clampedFrom = thisMonday)
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
 
-        // 현재주: 월(달성)·수(미달성)·금(달성) — 3일치, 달성 2개
+        // 현재주: 월(달성 60)·수(미달성 130>100)·금(달성 80) — row 3개, 화·목(06-30·07-02)은 row 없음(=0분=달성).
         List<DailyScreenTimeStat> currentStats = List.of(
                 DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 6, 29))
                         .totalScreenTimeMinutes(60).isScreenTimeGoalAchieved(true).build(),
@@ -586,8 +594,9 @@ class StatsServiceTest {
         assertThat(response.previousMinutes()).isEqualTo(160);  // 90+70
         assertThat(response.deltaMinutes()).isEqualTo(110);
         assertThat(response.goalAchieved()).isNull();           // week → null
-        assertThat(response.achievedDays()).isEqualTo(2);       // 월·금 달성, 수 미달성
-        assertThat(response.elapsedDays()).isEqualTo(5);        // 월~금 5일 (DAYS.between(Mon,Fri)+1)
+        assertThat(response.elapsedDays()).isEqualTo(5);        // 월~금 5일
+        // GROMO-805: row 없는 화·목 = 0분 = 달성. failedDays=1(수). achievedDays = 5 − 1 = 4.
+        assertThat(response.achievedDays()).isEqualTo(4);
     }
 
     @Test
@@ -652,7 +661,8 @@ class StatsServiceTest {
         assertThat(response.currentMinutes()).isEqualTo(200);   // 90+110
         assertThat(response.previousMinutes()).isZero();
         assertThat(response.elapsedDays()).isEqualTo(3);         // 1일~3일
-        assertThat(response.achievedDays()).isEqualTo(1);       // row1만 달성
+        // GROMO-805: 목표 미설정(goal row 없음) → day 뷰와 동일하게 달성 판정 안 함 → 저장 플래그 카운트(row1만) = 1.
+        assertThat(response.achievedDays()).isEqualTo(1);
         assertThat(response.goalAchieved()).isNull();
     }
 
@@ -707,7 +717,55 @@ class StatsServiceTest {
         ScreenTimePeriodStatsResponse response =
                 statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
+        // 목표 미설정 → 저장 플래그(모두 false) 카운트 = 0.
         assertThat(response.achievedDays()).isZero();
+    }
+
+    @Test
+    @DisplayName("스크린타임 WEEK(목표설정) — row 전혀 없음 → 모든 경과일이 달성(achievedDays == elapsedDays)")
+    void getScreenTimePeriodStatsWeekAllMissingDaysAchievedWhenGoalSet() {
+        LocalDate thisMonday = LocalDate.of(2026, 6, 29);
+        User user = User.builder().id(USER_ID).build();   // createdAt null → 클램프 없음
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, thisMonday, FIXED_TODAY)).willReturn(List.of());
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, LocalDate.of(2026, 6, 22), LocalDate.of(2026, 6, 26))).willReturn(List.of());
+        givenScreenTimeGoal(120);
+
+        ScreenTimePeriodStatsResponse response =
+                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        // row 없음 = 매일 0분 = 매일 달성. failedDays=0 → achievedDays = elapsedDays = 5.
+        assertThat(response.elapsedDays()).isEqualTo(5);
+        assertThat(response.achievedDays()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("스크린타임 WEEK(목표설정) — 가입일 클램프: 가입 전 날은 경과·달성에서 제외")
+    void getScreenTimePeriodStatsWeekClampsByJoinDate() {
+        LocalDate thisMonday = LocalDate.of(2026, 6, 29);
+        // 가입 = 2026-07-01 KST(수요일) → clampedFrom = 07-01, clampedElapsed = 07-01..07-03 = 3일.
+        User user = User.builder().id(USER_ID).countryCode("KR")
+                .createdAt(Instant.parse("2026-06-30T15:30:00Z")).build();  // == 2026-07-01 00:30 KST
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        // 가입 후 금(07-03)만 미달성 row 1개, 목·화 등은 row 없음.
+        List<DailyScreenTimeStat> currentStats = List.of(
+                DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 7, 3))
+                        .totalScreenTimeMinutes(200).isScreenTimeGoalAchieved(false).build()
+        );
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, thisMonday, FIXED_TODAY)).willReturn(currentStats);
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, LocalDate.of(2026, 6, 22), LocalDate.of(2026, 6, 26))).willReturn(List.of());
+        givenScreenTimeGoal(100);
+
+        ScreenTimePeriodStatsResponse response =
+                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        // clampedElapsed = 07-01·07-02·07-03 = 3일. failedDays=1(금). achievedDays = 3 − 1 = 2(=07-01·07-02 누락일).
+        assertThat(response.elapsedDays()).isEqualTo(3);
+        assertThat(response.achievedDays()).isEqualTo(2);
     }
 
     @Test

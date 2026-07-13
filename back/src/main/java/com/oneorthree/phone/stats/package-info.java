@@ -2,8 +2,8 @@
  * 통계 도메인 — 홈/친구 화면의 집중·스크린타임 집계 조회.
  *
  * <p>이 패키지 문서는 통계 <b>파이프라인의 현재 동작(as-is)</b>을 한곳에 고정한다(GROMO-779). 날짜 기준·
- * 단위·목표 판정·집계 소스가 도메인마다 달라 산재해 있으므로, 아래 표로 현황을 명시하고 어긋난 지점을 후속
- * 티켓(803/804/805 — 번호만; 이 패키지가 직접 구현하지 않음)이 각각 해소한다.
+ * 단위·목표 판정·집계 소스가 도메인마다 달라 산재해 있으므로, 아래 표로 현황을 명시한다. 804·805 는
+ * PR3(GROMO-804/805/806)에서 해소됐고(아래 반영), 803(집중 쓰기 날짜 기준 통일)은 아직 후속(번호만)이다.
  *
  * <h2>쓰기(write) 흐름 — 집계 적재</h2>
  * <ul>
@@ -16,11 +16,11 @@
  *         <li>스트릭 — {@code UserStreakService.updateOnSessionComplete(user, statDate)} (같은 트랜잭션).</li>
  *         <li>리그 — ACTIVE 아레나 멤버면 주간 누적 집중 초 반영(GROMO-646/665).</li>
  *       </ul>
- *       자동 종료 orphan 세션({@code sweepOrphanSessions})은 통계·스트릭에 반영하지 않으며 상태가 ACTIVE 로
- *       남는다(→ by-category leak, ticket 804).</li>
+ *       자동 종료 orphan 세션({@code sweepOrphanSessions})은 통계·스트릭에 반영하지 않으며, GROMO-804 로 상태를
+ *       {@code AUTO_CLOSED} 로 표시해 by-category 실시간 집계에서도 제외된다(과거엔 ACTIVE 로 남아 leak).</li>
  *   <li><b>스크린타임</b>: 앱이 매일 전송 → {@code ScreenTimeService.saveScreenTime} 이
  *       {@code DailyScreenTimeStat} 적재. 버킷 날짜 = country_code 존 로컬 날짜(GROMO-561),
- *       목표 달성 플래그는 <b>클라 신뢰</b>(요청값 저장).</li>
+ *       목표 달성 플래그는 GROMO-805 로 <b>서버 판정</b>({@code actual <= goal}, goal 미설정이면 false)으로 전환.</li>
  * </ul>
  *
  * <h2>조회(read) 흐름 — 6개 엔드포인트</h2>
@@ -57,12 +57,12 @@
  *   <tr>
  *     <td>목표 판정</td>
  *     <td>쓰기 시 서버 단방향 flag(false→true 1회) · today 는 현재 목표로 재계산</td>
- *     <td>쓰기 시 <b>클라 신뢰</b> flag · today 는 서버 재계산({@code actual <= goal})</td>
- *     <td>week/month = 저장 flag 집계 · today/day = 재계산 → ticket 805</td>
+ *     <td>쓰기 시 <b>서버 판정</b> flag({@code actual <= goal}, GROMO-805) · today 는 서버 재계산</td>
+ *     <td>week/month = row 없는 날=달성(목표설정 유저, 가입일 클램프, GROMO-805) · today/day = 재계산</td>
  *   </tr>
  *   <tr>
  *     <td>집계 소스</td>
- *     <td>heatmap/today/focus = 사전집계(DailyFocusStat) · by-category = <b>실시간</b>(FocusSession) → ticket 804</td>
+ *     <td>heatmap/today/focus = 사전집계(DailyFocusStat) · by-category = <b>실시간</b>(FocusSession, orphan 제외 GROMO-804)</td>
  *     <td>모두 사전집계(DailyScreenTimeStat)</td>
  *     <td>—</td>
  *   </tr>
@@ -87,8 +87,9 @@
  *             다음 세션에서 날짜가 +1일 튀어 스트릭이 1회 잘못 리셋될 수 있다(연속인데 gap 오판).
  *             forward-only(806 도 소급 보정 안 함) + dev DB 리셋 전제로 수용.</li>
  *       </ul></li>
- *   <li><b>804</b> — by-category 실시간 집계가 orphan(ACTIVE+endedAt) 세션을 포함하는 소스 정합.</li>
- *   <li><b>805</b> — 목표 달성 판정 통일(스크린타임 클라 신뢰 제거 + 누락일 정책).</li>
+ *   <li><b>804</b> — <b>해소됨</b>: by-category 실시간 집계에서 orphan(AUTO_CLOSED) 세션 제외 → /stats/focus 와 정합.</li>
+ *   <li><b>805</b> — <b>해소됨</b>: 목표 달성 판정 통일(스크린타임 서버 판정 + week/month 누락일 정책).</li>
+ *   <li><b>806</b> — 스트릭 인정 게이트(그날 누적 10분 이상) + 세션완료 응답 필드(additive).</li>
  * </ul>
  */
 package com.oneorthree.phone.stats;

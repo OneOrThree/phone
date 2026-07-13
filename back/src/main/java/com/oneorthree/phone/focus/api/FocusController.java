@@ -3,6 +3,7 @@ package com.oneorthree.phone.focus.api;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
+import com.oneorthree.phone.focus.dto.FocusSessionSaveResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
@@ -116,19 +117,21 @@ public class FocusController {
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(summary = "Focus Session 저장", description = "Focus Session 정보 저장")
+    @Operation(summary = "Focus Session 저장",
+            description = "Focus Session 정보 저장. 완료 후 그날 누적 집중 초·스트릭 인정 여부(GROMO-806)를 함께 반환한다. "
+                    + "기존 빈 바디에 필드를 추가한 additive 변경 — 구버전 앱은 무시한다.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "저장 성공"),
         @ApiResponse(responseCode = "400", description = "유효성 검사 실패"),
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
     @PostMapping("/focus-session")
-    public ResponseEntity<Void> saveFocusSession(
+    public ResponseEntity<FocusSessionSaveResponse> saveFocusSession(
             HttpServletRequest request,
             @Valid @RequestBody FocusSessionRequest body) {
         UUID userId = (UUID) request.getAttribute("userId");
-        focusService.saveFocusSession(userId, body);
-        return ResponseEntity.status(HttpStatus.CREATED).build();
+        FocusSessionSaveResponse response = focusService.saveFocusSession(userId, body);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @Operation(summary = "Focus Session 시작(라이브)",

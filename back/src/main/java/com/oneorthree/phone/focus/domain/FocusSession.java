@@ -83,6 +83,14 @@ public class FocusSession {
         this.totalDistractionSeconds = totalDistractionSeconds;
     }
 
+    // GROMO-804: orphan 자동 종료 — 종료 시각을 상한으로 채우고 상태를 AUTO_CLOSED 로 표시한다.
+    // 통계·스트릭 미반영은 호출부(sweepOrphanSessions)가 recordCompletion 을 부르지 않음으로 보장하고,
+    // 이 status 로 by-category 실시간 집계에서도 제외된다. distraction 은 유저 미확정이라 건드리지 않는다.
+    public void autoClose(Instant endedAt) {
+        this.endedAt = endedAt;
+        this.status = FocusSessionStatus.AUTO_CLOSED;
+    }
+
     // GROMO-671(커밋3): 소프트딜리트/취소는 deleted_at 대신 status=CANCELED 로 표현한다.
     // (기존에도 deleted_at 세팅/전환 배선은 후속 티켓이었음 — 여기선 조회 필터만 status 기반으로 전환.)
 

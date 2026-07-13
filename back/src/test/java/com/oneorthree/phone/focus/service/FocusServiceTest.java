@@ -5,11 +5,13 @@ import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.focus.domain.DefaultTag;
 import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.domain.FocusSessionStatus;
 import com.oneorthree.phone.focus.domain.OccupationDefaultTag;
 import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
+import com.oneorthree.phone.focus.dto.FocusSessionSaveResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
@@ -1130,6 +1132,127 @@ class FocusServiceTest {
         verify(userFocusTimeSettingsRepository, never()).findById(any());
     }
 
+    // ── 스트릭 10분 게이트 + 세션완료 응답 필드 (GROMO-806) ──────────────────
+
+    /** ① 그날 누적 10분 미만 → updateOnSessionComplete 미호출(스트릭 미인정). */
+    @Test
+    @DisplayName("806-①: 그날 누적 < 10분(신규 5분) → 스트릭 갱신 미호출, streakQualifiedToday=false")
+    void streakGate_belowThreshold_doesNotUpdateStreak() {
+        // 신규 row, 5분(300초) 세션 → dayTotal=300 < 600 → 스트릭 미갱신
+        Instant end5m = Instant.parse("2026-06-23T01:05:00Z");   // START=01:00 → 5분
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        FocusSessionSaveResponse response =
+                focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, end5m, 0));
+
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+        assertThat(response.dayTotalFocusSeconds()).isEqualTo(300);
+        assertThat(response.streakQualifiedToday()).isFalse();
+    }
+
+    /** ② 두 세션 합산으로 10분 도달 → 2번째 세션에서 스트릭 갱신(1번째는 미갱신). */
+    @Test
+    @DisplayName("806-②: 5분+6분 → 1회차 미갱신, 2회차 누적 11분 → 스트릭 갱신")
+    void streakGate_twoSessionsReachThreshold_updatesOnSecond() {
+        LocalDate date = LocalDate.of(2026, 6, 23);
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        // 1회차: 신규 row 5분(300초) → dayTotal=300 < 600 → 미갱신
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(date)))
+                .willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        Instant end5m = Instant.parse("2026-06-23T01:05:00Z");
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, end5m, 0));
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+
+        // 2회차: 기존 row(300초)에 6분(360초) 추가 → dayTotal=660 >= 600 → 갱신
+        DailyFocusStat existing = DailyFocusStat.builder()
+                .user(user).date(date).totalFocusSeconds(300).sessionCount(1).totalDistractionSeconds(0).build();
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(date)))
+                .willReturn(Optional.of(existing));
+        Instant start2 = Instant.parse("2026-06-23T02:00:00Z");
+        Instant end6m = Instant.parse("2026-06-23T02:06:00Z");   // START2=02:00 → 6분
+        FocusSessionSaveResponse response =
+                focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, start2, end6m, 0));
+
+        verify(userStreakService).updateOnSessionComplete(user, date);
+        assertThat(response.dayTotalFocusSeconds()).isEqualTo(660);
+        assertThat(response.streakQualifiedToday()).isTrue();
+    }
+
+    /** ③ 이미 10분 넘긴 뒤 추가 세션 → 스트릭 재호출(기존 same-day 멱등이 무변화 보장). */
+    @Test
+    @DisplayName("806-③: 이미 10분 초과한 날 추가 세션 → 스트릭 재호출(멱등은 UserStreakService 책임)")
+    void streakGate_alreadyQualified_stillCallsStreak() {
+        LocalDate date = LocalDate.of(2026, 6, 23);
+        User user = User.builder().id(USER_ID).build();
+        // 기존 누적 30분(1800초) → 이미 인정된 날. 추가 60분 세션 → dayTotal=90분 >= 600 → 재호출.
+        DailyFocusStat existing = DailyFocusStat.builder()
+                .user(user).date(date).totalFocusSeconds(30 * 60).sessionCount(1).totalDistractionSeconds(0).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(date)))
+                .willReturn(Optional.of(existing));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        FocusSessionSaveResponse response =
+                focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0));
+
+        // 게이트 통과(누적>=600) → 호출됨. "이미 인정된 날 무변화"는 UserStreakService.same-day 멱등이 담당.
+        verify(userStreakService).updateOnSessionComplete(user, date);
+        assertThat(response.dayTotalFocusSeconds()).isEqualTo(90 * 60);
+        assertThat(response.streakQualifiedToday()).isTrue();
+    }
+
+    /** 경계: 정확히 10분(600초) → 인정(>=). */
+    @Test
+    @DisplayName("806 경계: 정확히 10분(600초) → 스트릭 갱신(>= 경계 포함)")
+    void streakGate_exactlyTenMinutes_updatesStreak() {
+        // 23:55Z ~ 00:05Z = 600초 정확
+        Instant startedAt = Instant.parse("2026-06-22T23:55:00Z");
+        Instant endedAt = Instant.parse("2026-06-23T00:05:00Z");
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        FocusSessionSaveResponse response =
+                focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 0));
+
+        verify(userStreakService).updateOnSessionComplete(user, LocalDate.of(2026, 6, 23));
+        assertThat(response.dayTotalFocusSeconds()).isEqualTo(600);
+        assertThat(response.streakQualifiedToday()).isTrue();
+    }
+
+    /** ④ PATCH 종료 응답에도 dayTotalFocusSeconds·streakQualifiedToday 채워짐(미달 케이스). */
+    @Test
+    @DisplayName("806-④: PATCH 종료 응답 — 5분 미달 → dayTotalFocusSeconds=300, streakQualifiedToday=false")
+    void endFocusSession_responseHasStreakFields_belowThreshold() {
+        User user = User.builder().id(USER_ID).build();
+        Instant end5m = Instant.parse("2026-06-23T01:05:00Z");   // START=01:00 → 5분
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(START).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(SESSION_ID, end5m)).willReturn(1);
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        FocusSessionEndResponse response =
+                focusService.endFocusSession(USER_ID, new FocusSessionEndRequest(SESSION_ID, end5m, 0, null));
+
+        assertThat(response.dayTotalFocusSeconds()).isEqualTo(300);
+        assertThat(response.streakQualifiedToday()).isFalse();
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+    }
+
     // ── DAILY_FOCUS_GOAL_ACHIEVED 이벤트 (GROMO-395 커밋 4) ─────────────────
 
     /** E1: insert 경로 — 신규 row 가 곧바로 달성(false→true 전이와 동일) → 이벤트 1회 발행 */
@@ -1565,6 +1688,8 @@ class FocusServiceTest {
         // then: 시작+12h 상한으로 종료, 통계·스트릭은 미반영(유저 미확정 세션)
         assertThat(closed).isEqualTo(1);
         assertThat(orphan.getEndedAt()).isEqualTo(staleStart.plus(Duration.ofHours(12)));
+        // GROMO-804: 상태가 AUTO_CLOSED 로 표시돼 by-category 실시간 집계에서 제외된다.
+        assertThat(orphan.getStatus()).isEqualTo(FocusSessionStatus.AUTO_CLOSED);
         verify(dailyFocusStatRepository, never()).save(any(DailyFocusStat.class));
         verify(userStreakService, never()).updateOnSessionComplete(any(), any());
     }
