@@ -8,11 +8,9 @@ import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
-import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,7 +28,6 @@ public class ScreenTimeService {
 
     private final UserRepository userRepository;
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
-    private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final ScreenTimeNotificationPort notificationPort;
     private final UserActivityEventLogger userActivityEventLogger;
 
@@ -43,50 +40,47 @@ public class ScreenTimeService {
         // 2. reportedAt → 유저 country_code 파생 ZoneId 기준 로컬 날짜 환산 (자정 경계 오귀속 방지)
         LocalDate date = resolveLocalDate(user, request);
 
-        // 3. 최종 보고 여부 판정 (GROMO-805 후속, Codex P1~P3 일괄 해소)
-        //    최종 보고 = 명시적 isFinal=true 이거나, 과거 날짜 보고(마감 업로드는 다음 날 올라온다).
-        //    앱이 아직 isFinal 을 안 실어 보내도(구버전) 과거 날짜면 마감으로 간주해 알림이 눌리지 않도록 서버에서 finality 를 추론한다.
+        // 3. 최종 보고 여부 판정 (GROMO-805 후속). 최종 보고 = 명시적 isFinal=true 이거나 과거 날짜 보고(마감은 다음 날 업로드).
+        //    앱이 아직 isFinal 을 안 보내도(구버전) 과거 날짜면 마감으로 간주해 알림이 눌리지 않도록 서버가 finality 를 추론한다.
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
-        LocalDate today = Instant.now().atZone(zone).toLocalDate(); // reportedAt 파생 date 와 같은 유저 존 기준
+        LocalDate today = Instant.now().atZone(zone).toLocalDate();
         boolean finalReport = Boolean.TRUE.equals(request.getIsFinal()) || date.isBefore(today);
 
-        // 4. 목표 달성 flag 판정 (is_screen_time_goal_achieved 저장값)
+        // 4. 총 스크린타임(측정 데이터 누락 null → 0) + 클라 달성 결과.
         int actualMinutes = request.getActualScreenTimeMinutes() != null
                 ? request.getActualScreenTimeMinutes() : 0;
-        int goal = userScreenTimeSettingsRepository.findById(userId)
-                .map(UserScreenTimeSettings::getDailyScreenTimeGoalMinutes).orElse(0);
-        boolean achieved;
-        if (finalReport) {
-            // 최종 보고(명시 isFinal 또는 과거 날짜)는 클라가 '당시' 목표·하루 전체 데이터로 계산한 달성 결과를 신뢰한다.
-            // 서버는 과거 날짜의 목표를 알 수 없어(현재 목표만 조회 가능) 과거 마감을 서버가 재판정하면 오귀속된다.
-            achieved = Boolean.TRUE.equals(request.getScreenTimeGoalAchieved());
-        } else {
-            // interim(오늘, 아직 미마감)은 서버가 임시 판정한다: goal>0 & actual<=goal.
-            // 단, 측정 데이터 누락(actualScreenTimeMinutes null)은 달성으로 세면 안 된다(null-data 가드, Codex #2).
-            achieved = request.getActualScreenTimeMinutes() != null && goal > 0 && actualMinutes <= goal;
-        }
+        boolean clientAchieved = Boolean.TRUE.equals(request.getScreenTimeGoalAchieved());
 
-        // 5. daily_screen_time_stats upsert (user, date) 기준 — 멱등. 저장 flag 는 매 동기화마다 판정값으로 갱신(805 조회 일관성).
+        // 5. daily_screen_time_stats upsert (user, date) — 멱등.
+        //    - interim(오늘, 미마감): total 만 갱신, 달성 flag 는 건드리지 않는다(신규 row 기본값 false, 기존 row flag 보존).
+        //      "오늘"은 마감 전까지 달성으로 확정하지 않는다(805 이전 "오늘 미집계"와 동일). 마감만이 달성을 확정한다.
+        //    - final(마감): is_screen_time_goal_achieved = 클라 달성 결과(client-trust). 서버는 과거 날짜의 당시 목표를
+        //      알 수 없어(현재 목표만 조회 가능) 재판정하면 오귀속되므로 클라를 신뢰한다.
         Optional<DailyScreenTimeStat> existing =
                 dailyScreenTimeStatRepository.findByUserAndDate(user, date);
+        // 알림 전이 판정을 위해 upsert 로 flag 를 덮기 전의 기존 값을 미리 읽어 둔다.
+        boolean wasAchieved = existing.isPresent() && existing.get().isScreenTimeGoalAchieved();
         if (existing.isPresent()) {
             DailyScreenTimeStat stat = existing.get();
             stat.setTotalScreenTimeMinutes(actualMinutes);
-            stat.setScreenTimeGoalAchieved(achieved);
+            if (finalReport) {
+                stat.setScreenTimeGoalAchieved(clientAchieved);
+            }
         } else {
-            dailyScreenTimeStatRepository.save(DailyScreenTimeStat.builder()
+            DailyScreenTimeStat.DailyScreenTimeStatBuilder builder = DailyScreenTimeStat.builder()
                     .user(user)
                     .date(date)
-                    .totalScreenTimeMinutes(actualMinutes)
-                    .isScreenTimeGoalAchieved(achieved)
-                    .build());
+                    .totalScreenTimeMinutes(actualMinutes);
+            if (finalReport) {
+                builder.isScreenTimeGoalAchieved(clientAchieved);
+            }
+            dailyScreenTimeStatRepository.save(builder.build());
         }
 
-        // 6. 목표 달성 알림(GROMO-395) — '최종 보고 & 달성'일 때만 이벤트+알림을 발사한다(interim 조기 알림 없음).
-        //    interim(오늘) 동기화는 부분 합계가 goal 이내여도 이후 한도 초과가 가능하므로 알림을 미룬다(이벤트는 회수 불가).
-        //    최종 보고는 하루 1회이므로 이 게이트가 종전 false→true 전이 dedup 역할까지 대체한다.
-        //    (최종 보고 재시도로 인한 중복 발사는 희귀 케이스로 수용한다.)
-        if (finalReport && achieved) {
+        // 6. 목표 달성 알림(GROMO-395) — '최종 보고로 false→true 전이'일 때만 이벤트+알림을 1회 발사한다.
+        //    interim 은 flag 를 true 로 세우지 않으므로 첫 마감은 항상 wasAchieved=false 를 보고 발사한다.
+        //    마감 재시도(네이티브 읽기 미완료 시 앱이 재업로드)는 이미 true 인 flag 를 만나 재발사하지 않는다(날짜별 멱등, Codex P2).
+        if (finalReport && clientAchieved && !wasAchieved) {
             userActivityEventLogger.log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED, Map.of(
                     "date", date.toString(),
                     "actual_screen_time_minutes", actualMinutes));

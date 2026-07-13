@@ -13,9 +13,8 @@ import java.time.Instant;
 @AllArgsConstructor
 public class ScreenTimeRequest {
 
-    // GROMO-805: 서버가 목표 달성을 직접 판정하므로(actual <= goal) 이 클라 필드는 더 이상 신뢰하지 않는다(deprecated).
-    // 구버전 앱 호환을 위해 필드는 유지(@NotNull)하되 저장·알림·이벤트는 서버 판정값을 쓴다.
-    @Deprecated
+    // GROMO-805: 최종 보고(finalReport)에서는 클라가 '당시' 목표·하루 전체 데이터로 계산한 이 달성 결과를 신뢰해
+    // 저장·알림·이벤트에 그대로 쓴다(서버는 과거 날짜의 당시 목표를 몰라 재판정 불가). interim(오늘)은 total 만 갱신한다.
     @NotNull
     private Boolean screenTimeGoalAchieved;
 
