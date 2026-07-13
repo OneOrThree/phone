@@ -161,7 +161,7 @@ export default function FocusResultScreen() {
         if (cancelled) return;
         await AsyncStorage.setItem(
           STORAGE_KEYS.focusGoalCelebratePending,
-          JSON.stringify({ date: today, days }),
+          JSON.stringify({ date: today, days, goalMinutes: goalMin }),
         );
       } catch {
         // 판정 실패 시 축하 생략 — 다음 결과 화면 진입에서 재판정된다

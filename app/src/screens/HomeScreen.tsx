@@ -170,7 +170,10 @@ export default function HomeScreen() {
   // 연속 공부 일수(하루 10분 스트릭, GROMO-630) — 0이면 칩 생략.
   const [streakDays, setStreakDays] = useState(0);
   // 목표 달성 축하(GROMO-630) — 결과 화면이 예약해 둔 축하를 홈 진입 시 노출. null=비노출.
-  const [goalCelebration, setGoalCelebration] = useState<number | null>(null);
+  const [goalCelebration, setGoalCelebration] = useState<{
+    days: number;
+    goalMinutes?: number;
+  } | null>(null);
   // 오늘 집중 누적(로컬)을 effect 재실행 없이 최신값으로 읽기 위한 ref(폴백/계측용).
   const todayFocusSecondsRef = useRef(todayFocusSeconds);
   todayFocusSecondsRef.current = todayFocusSeconds;
@@ -211,9 +214,9 @@ export default function HomeScreen() {
         .then((raw) => {
           if (cancelled || !raw) return;
           try {
-            const p = JSON.parse(raw) as { date?: string; days?: number };
+            const p = JSON.parse(raw) as { date?: string; days?: number; goalMinutes?: number };
             if (p.date === todayStr()) {
-              setGoalCelebration(p.days ?? 1);
+              setGoalCelebration({ days: p.days ?? 1, goalMinutes: p.goalMinutes });
               return;
             }
           } catch {
@@ -365,7 +368,8 @@ export default function HomeScreen() {
       {/* 목표 달성 축하 모달(GROMO-630) — 결과 화면을 닫고 홈에 오면 노출 */}
       <GoalCelebrationModal
         visible={goalCelebration != null}
-        goalStreakDays={goalCelebration ?? 1}
+        goalStreakDays={goalCelebration?.days ?? 1}
+        goalMinutes={goalCelebration?.goalMinutes}
         onClose={closeGoalCelebration}
       />
     </SafeAreaView>

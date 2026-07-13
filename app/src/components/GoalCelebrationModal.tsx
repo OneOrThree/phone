@@ -9,17 +9,29 @@ import { T, withAlpha } from '@/constants/theme';
 interface Props {
   visible: boolean;
   goalStreakDays: number; // 오늘 포함 연속 목표달성 일수
+  goalMinutes?: number; // 달성한 목표 시간(분) — 제목에 "N시간 집중 목표 달성!" 표기
   onClose: () => void;
 }
 
-export function GoalCelebrationModal({ visible, goalStreakDays, onClose }: Props) {
+// 분 → "5시간" / "1시간 30분" / "30분" (축하 제목용 — 00:00:00 표기보다 문장에 자연스러움)
+function goalLabel(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h && m) return `${h}시간 ${m}분`;
+  if (h) return `${h}시간`;
+  return `${m}분`;
+}
+
+export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onClose }: Props) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.overlay}>
         <TouchableOpacity style={s.backdrop} activeOpacity={1} onPress={onClose} />
         <View style={s.card}>
           <CharacterImage size={104} />
-          <Text style={s.title}>오늘 목표 달성! 🎉</Text>
+          <Text style={s.title}>
+            {goalMinutes ? `${goalLabel(goalMinutes)} 집중 목표 달성! 🎉` : '오늘 목표 달성! 🎉'}
+          </Text>
           <Text style={s.sub}>정한 만큼 다 채웠어. 오늘 진짜 멋졌어!</Text>
           <View style={s.streakBox}>
             <Ionicons name="ribbon" size={15} color={T.accentDeep} />
