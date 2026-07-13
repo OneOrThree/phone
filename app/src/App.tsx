@@ -7,7 +7,13 @@ import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
 import { setLogoutHandler, setReloginHandler, getUserIdFromToken, api } from '@/services/api';
 import { setAccountSwitchHandler } from '@/services/auth';
 import { todayStr } from '@/utils/localDate';
-import { updateScreenTimePermission, updateOccupation, updateProfile } from '@/services/userApi';
+import {
+  updateScreenTimePermission,
+  updateOccupation,
+  updateProfile,
+  deleteDeviceToken,
+} from '@/services/userApi';
+import { clearInbox } from '@/services/notificationInbox';
 import { occupationForCategory, categoryForOccupation } from '@/constants/focusCategories';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { runStorageMigrations } from '@/utils/storageMigration';
@@ -163,6 +169,14 @@ export default function App() {
   }, []);
 
   async function handleLogout() {
+    // 서버 디바이스 토큰 등록 해제 — 이전 계정 푸시가 이 기기로 계속 발송되지 않게(PR 224 리뷰).
+    // 아래 multiRemove로 토큰이 지워지기 전, 인증이 살아있을 때 호출해야 한다.
+    // 토큰을 명시해 bare 요청으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401 인터셉터가
+    // 이 함수(로그아웃)를 재발동시킬 수 있다(PR 226 리뷰).
+    try {
+      const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+      if (accessToken) await deleteDeviceToken(accessToken);
+    } catch {}
     try {
       const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
       if (refreshToken) await api.post('/api/v1/auth/logout', { refreshToken });
@@ -187,8 +201,10 @@ export default function App() {
       // 이전 계정의 축하 기록이 새 계정 축하를 막거나, 예약된 모달이 새 계정에 뜨지 않게(PR 225 리뷰)
       STORAGE_KEYS.focusGoalCelebratedDate,
       STORAGE_KEYS.focusGoalCelebratePending,
-      STORAGE_KEYS.notificationInbox, // 이전 계정 알림 목록·안읽음 뱃지가 새 계정에 노출되지 않게(PR 224 리뷰)
     ]);
+    // 알림 보관함 정리 — multiRemove가 아니라 보관함 쓰기 큐를 태워, 직전에 수신된 푸시의
+    // 저장이 옛 목록을 도로 써넣는 레이스를 막는다(PR 224 리뷰).
+    await clearInbox();
     setOnboardingFocusGoalSeconds(null);
     setOnboardingScreenTimeGoalSeconds(null);
     setOnboarded(false);
@@ -220,8 +236,8 @@ export default function App() {
         STORAGE_KEYS.focus,
         STORAGE_KEYS.focusGoalCelebratedDate,
         STORAGE_KEYS.focusGoalCelebratePending,
-        STORAGE_KEYS.notificationInbox,
       ]);
+      await clearInbox(); // 보관함은 쓰기 큐로 정리(위 handleLogout과 동일 이유)
     }
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
     setOnboarded(true);
@@ -296,8 +312,14 @@ export default function App() {
     setReloginHandler(() => {
       applyStoredSession();
     });
-    // 계정이 바뀌는 토큰 교체 직전에 이전 계정의 태그 편집 큐 폐기(PR 200 리뷰 — applyStoredSession은 늦음)
-    setAccountSwitchHandler(abortTagEdits);
+    // 계정이 바뀌는 토큰 교체 직전, 이전 계정 인증이 살아있을 때 뒷정리(PR 200 리뷰 — applyStoredSession은 늦음):
+    // 태그 편집 큐 폐기 + 서버 디바이스 토큰 등록 해제(이전 계정 푸시가 이 기기로 오지 않게, PR 224 리뷰).
+    // 해제 요청은 넘겨받은 이전 계정 토큰으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401
+    // 인터셉터가 전역 로그아웃을 발동시켜 방금 로그인한 계정이 풀릴 수 있다(PR 226 리뷰).
+    setAccountSwitchHandler(async (prevAccessToken) => {
+      abortTagEdits();
+      await deleteDeviceToken(prevAccessToken).catch(() => {});
+    });
   }, []);
 
   let content;

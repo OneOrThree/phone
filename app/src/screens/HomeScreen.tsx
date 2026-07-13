@@ -27,6 +27,11 @@ import { STORAGE_KEYS } from '@/types/storage';
 import { todayStr } from '@/utils/localDate';
 import { getTodayStats, getStreak } from '@/services/statsApi';
 import { hasUnread, subscribeInbox } from '@/services/notificationInbox';
+import {
+  readPendingCelebration,
+  clearPendingCelebration,
+  subscribeCelebration,
+} from '@/services/goalCelebration';
 import type { TodayStatsResponse } from '@/types/dto/stats';
 import {
   logHomeViewed,
@@ -198,6 +203,29 @@ export default function HomeScreen() {
     return Math.round(todayFocusSecondsRef.current / 60);
   }, [userId]);
 
+  // 목표 달성 축하 예약 확인(GROMO-630) — 오늘 예약이면 모달, 지난 예약이면 정리.
+  // 홈 포커스 때 + 예약 저장 완료 구독으로 호출된다. 홈이 화면 앞에 있을 때만 모달을 띄운다
+  // (다른 화면 위로 모달이 뜨지 않게).
+  const checkGoalCelebration = useCallback(async () => {
+    const p = await readPendingCelebration();
+    if (!p) return;
+    if (p.date !== todayStr()) {
+      clearPendingCelebration().catch(() => {});
+      return;
+    }
+    if (navigation.isFocused()) setGoalCelebration(p);
+  }, [navigation]);
+
+  // 예약 저장 완료 구독 — "홈으로"를 서버 판정보다 빨리 눌러 홈 포커스가 예약 저장보다 먼저
+  // 지나간 경우에도, 저장이 끝나는 즉시 모달이 뜬다(PR 225 후속 리뷰).
+  useEffect(
+    () =>
+      subscribeCelebration(() => {
+        checkGoalCelebration().catch(() => {});
+      }),
+    [checkGoalCelebration],
+  );
+
   useFocusEffect(
     useCallback(() => {
       setReportRefresh((r) => r + 1);
@@ -212,26 +240,11 @@ export default function HomeScreen() {
       getStreak()
         .then((v) => !cancelled && setStreakDays(v.currentStreak))
         .catch(() => {});
-      // 목표 달성 축하 예약 확인(GROMO-630) — 오늘 예약이면 모달, 지난 예약이면 정리.
-      AsyncStorage.getItem(STORAGE_KEYS.focusGoalCelebratePending)
-        .then((raw) => {
-          if (cancelled || !raw) return;
-          try {
-            const p = JSON.parse(raw) as { date?: string; days?: number; goalMinutes?: number };
-            if (p.date === todayStr()) {
-              setGoalCelebration({ date: p.date, days: p.days ?? 1, goalMinutes: p.goalMinutes });
-              return;
-            }
-          } catch {
-            /* 깨진 값 → 아래에서 정리 */
-          }
-          AsyncStorage.removeItem(STORAGE_KEYS.focusGoalCelebratePending).catch(() => {});
-        })
-        .catch(() => {});
+      checkGoalCelebration().catch(() => {});
       return () => {
         cancelled = true;
       };
-    }, [refetchTodayStats]),
+    }, [refetchTodayStats, checkGoalCelebration]),
   );
 
   // 당겨서 새로고침 — 오늘 요약 재조회 + 네이티브 사용량 리포트 리마운트.
@@ -277,7 +290,7 @@ export default function HomeScreen() {
         () => {},
       );
     }
-    AsyncStorage.removeItem(STORAGE_KEYS.focusGoalCelebratePending).catch(() => {});
+    clearPendingCelebration().catch(() => {});
     setGoalCelebration(null);
   }, [goalCelebration]);
 

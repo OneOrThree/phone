@@ -21,6 +21,7 @@ import { useSubjects } from '@/store/SubjectContext';
 import { fmtMinutes, axisCeil, fmtAxis } from '@/utils/timeFormat';
 import { hms } from './format';
 import { fetchFriendsAverage } from '@/services/compareAverages';
+import { readPendingCelebration, schedulePendingCelebration } from '@/services/goalCelebration';
 import { ComingSoon } from '@/screens/stats/ComingSoon';
 import { useFocus } from '@/store/FocusContext';
 import { useUser } from '@/store/UserContext';
@@ -120,21 +121,15 @@ export default function FocusResultScreen() {
   // '연속 목표달성'은 일별 달성 플래그(heatmap)를 어제부터 뒤로 세어 오늘을 더한다 —
   // '연속 공부'(하루 10분 스트릭)와 다른 값이므로 getStreak을 쓰지 않는다.
   // 상태를 건드리지 않는 순수 저장 작업이라 언마운트 가드를 두지 않는다 — "홈으로"를 서버
-  // 응답보다 빨리 눌러 화면이 닫혀도 예약 저장은 끝까지 수행된다(PR 225 리뷰).
+  // 응답보다 빨리 눌러 화면이 닫혀도 예약 저장은 끝까지 수행되고, 저장 완료는
+  // goalCelebration 구독으로 홈에 전달돼 이미 홈에 도착한 뒤에도 모달이 뜬다(PR 225 리뷰).
   useEffect(() => {
     (async () => {
       try {
         const today = todayStr();
         if ((await AsyncStorage.getItem(STORAGE_KEYS.focusGoalCelebratedDate)) === today) return;
-        const rawPending = await AsyncStorage.getItem(STORAGE_KEYS.focusGoalCelebratePending);
-        if (rawPending) {
-          try {
-            // 오늘 예약이 이미 있으면 재판정 불필요(깨진 값은 아래에서 덮어씀)
-            if ((JSON.parse(rawPending) as { date?: string }).date === today) return;
-          } catch {
-            /* noop */
-          }
-        }
+        // 오늘 예약이 이미 있으면 재판정 불필요
+        if ((await readPendingCelebration())?.date === today) return;
         const stats = await getTodayStats().catch(() => null);
         const goalMin = stats ? stats.focus.goalMinutes : Math.round(userGoalSeconds / 60);
         const todayMin = Math.max(
@@ -171,10 +166,7 @@ export default function FocusResultScreen() {
           }
           if (gapFound) break;
         }
-        await AsyncStorage.setItem(
-          STORAGE_KEYS.focusGoalCelebratePending,
-          JSON.stringify({ date: today, days, goalMinutes: goalMin }),
-        );
+        await schedulePendingCelebration({ date: today, days, goalMinutes: goalMin });
       } catch {
         // 판정 실패 시 축하 생략 — 다음 결과 화면 진입에서 재판정된다
       }

@@ -71,6 +71,7 @@ export async function addToInbox(input: {
   title: string;
   body: string;
   link: string | null;
+  receivedAt?: number; // FCM 발송 시각(sentTime) — 없으면 저장 시각으로 대체
 }): Promise<void> {
   if (!shouldStore(input.type)) return;
   if (!input.title && !input.body) return; // 표시할 내용이 없는 payload는 버림
@@ -79,6 +80,8 @@ export async function addToInbox(input: {
       const items = await loadAll();
       const id = input.id ?? `local-${Date.now()}`;
       if (items.some((n) => n.id === id)) return;
+      // receivedAt 내림차순 정렬 유지 — 몇 시간 전 발송된 알림(sentTime)을 뒤늦게 탭해 저장하면
+      // 단순 맨 앞 삽입으로는 더 새 알림 위로 올라가 최신순이 깨진다(PR 226 리뷰).
       const next: InboxNotification[] = [
         {
           id,
@@ -86,15 +89,30 @@ export async function addToInbox(input: {
           title: input.title,
           body: input.body,
           link: input.link,
-          receivedAt: Date.now(),
+          receivedAt: input.receivedAt ?? Date.now(),
           read: false,
         },
         ...items,
-      ].slice(0, MAX_ITEMS);
+      ]
+        .sort((a, b) => b.receivedAt - a.receivedAt)
+        .slice(0, MAX_ITEMS);
       await saveAll(next);
       emitChange();
     } catch {
       // 저장 실패는 무시 — 알림 수신/딥링크 흐름을 막지 않는다.
+    }
+  });
+}
+
+// 보관함 비우기 — 로그아웃/계정 전환 정리에서 호출. 같은 쓰기 큐를 타므로 직전에 시작된
+// 푸시 저장(옛 스냅샷)이 끝난 뒤 지워져, 정리 후 이전 계정 알림이 되살아나지 않는다(PR 224 리뷰).
+export async function clearInbox(): Promise<void> {
+  await enqueueWrite(async () => {
+    try {
+      await AsyncStorage.removeItem(STORAGE_KEYS.notificationInbox);
+      emitChange();
+    } catch {
+      // 삭제 실패는 무시 — 다음 로그아웃/계정 전환 정리에서 재시도된다.
     }
   });
 }
