@@ -327,7 +327,7 @@ export default function HomeScreen() {
               {/* 연속 공부(GROMO-630) — 하루 10분 스트릭. 0일이면 생략 */}
               {streakDays > 0 && (
                 <View style={s.streakChip}>
-                  <Ionicons name="flame" size={11} color={T.accentDeep} />
+                  <Ionicons name="flame" size={11} color={T.flame} />
                   <Text style={s.streakChipText}>연속 공부 {streakDays}일</Text>
                 </View>
               )}

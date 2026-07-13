@@ -97,7 +97,7 @@ export default function MenuScreen() {
               {/* 연속 공부(GROMO-630) — 하루 10분 스트릭. 0일이면 생략 */}
               {streakDays > 0 && (
                 <View style={s.streakPill}>
-                  <Ionicons name="flame" size={10} color={T.accentDeep} />
+                  <Ionicons name="flame" size={10} color={T.flame} />
                   <Text style={s.streakPillText}>연속 공부 {streakDays}일</Text>
                 </View>
               )}
