@@ -170,7 +170,9 @@ export default function HomeScreen() {
   // 연속 공부 일수(하루 10분 스트릭, GROMO-630) — 0이면 칩 생략.
   const [streakDays, setStreakDays] = useState(0);
   // 목표 달성 축하(GROMO-630) — 결과 화면이 예약해 둔 축하를 홈 진입 시 노출. null=비노출.
+  // date = 달성한 날짜(예약 payload의 date) — 닫을 때 이 날짜로 기록한다.
   const [goalCelebration, setGoalCelebration] = useState<{
+    date: string;
     days: number;
     goalMinutes?: number;
   } | null>(null);
@@ -216,7 +218,7 @@ export default function HomeScreen() {
           try {
             const p = JSON.parse(raw) as { date?: string; days?: number; goalMinutes?: number };
             if (p.date === todayStr()) {
-              setGoalCelebration({ days: p.days ?? 1, goalMinutes: p.goalMinutes });
+              setGoalCelebration({ date: p.date, days: p.days ?? 1, goalMinutes: p.goalMinutes });
               return;
             }
           } catch {
@@ -256,12 +258,17 @@ export default function HomeScreen() {
     : todayFocusSeconds;
   const focusGoalSeconds = todayStats ? todayStats.focus.goalMinutes * 60 : goalSeconds;
 
-  // 축하 모달 닫기 — 오늘 축하 완료 기록 + 예약 제거(재노출 방지).
+  // 축하 모달 닫기 — 축하 완료 기록 + 예약 제거(재노출 방지). 기록 날짜는 닫는 시점이 아니라
+  // 달성한 날짜(예약의 date) — 자정 넘겨 닫으면 새 날의 실제 축하까지 눌린다(PR 225 리뷰).
   const closeGoalCelebration = useCallback(() => {
-    setGoalCelebration(null);
-    AsyncStorage.setItem(STORAGE_KEYS.focusGoalCelebratedDate, todayStr()).catch(() => {});
+    if (goalCelebration) {
+      AsyncStorage.setItem(STORAGE_KEYS.focusGoalCelebratedDate, goalCelebration.date).catch(
+        () => {},
+      );
+    }
     AsyncStorage.removeItem(STORAGE_KEYS.focusGoalCelebratePending).catch(() => {});
-  }, []);
+    setGoalCelebration(null);
+  }, [goalCelebration]);
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>

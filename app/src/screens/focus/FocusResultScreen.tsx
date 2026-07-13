@@ -119,8 +119,9 @@ export default function FocusResultScreen() {
   // 목표는 서버 우선·실패 시 로컬 — 방금 세션 업로드가 서버 집계에 늦어도(레이스) 놓치지 않는다.
   // '연속 목표달성'은 일별 달성 플래그(heatmap)를 어제부터 뒤로 세어 오늘을 더한다 —
   // '연속 공부'(하루 10분 스트릭)와 다른 값이므로 getStreak을 쓰지 않는다.
+  // 상태를 건드리지 않는 순수 저장 작업이라 언마운트 가드를 두지 않는다 — "홈으로"를 서버
+  // 응답보다 빨리 눌러 화면이 닫혀도 예약 저장은 끝까지 수행된다(PR 225 리뷰).
   useEffect(() => {
-    let cancelled = false;
     (async () => {
       try {
         const today = todayStr();
@@ -143,22 +144,33 @@ export default function FocusResultScreen() {
         const achieved =
           goalMin > 0 && ((stats?.focus.goalAchieved ?? false) || todayMin >= goalMin);
         if (!achieved) return;
-        const from = new Date();
-        from.setDate(from.getDate() - 60);
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const cells = await getHeatmap(localDateStr(from), localDateStr(yesterday)).catch(
-          () => [] as HeatmapCellResponse[],
-        );
-        const achievedByDate = new Map(cells.map((c) => [c.date, c.focusGoalAchieved]));
+        // 어제부터 뒤로 60일 단위로 조회 창을 넓혀가며 연속 달성일을 센다 — 고정 60일 창은
+        // 장기 스트릭을 최대 61일로 잘라먹는다(PR 225 리뷰). 창 안이 전부 달성이면 다음 창을
+        // 이어 조회하고, 빈 날을 만나면 멈춘다. 상한 12창(약 2년) — 과호출 방지.
         let days = 1; // 오늘(방금 달성)
-        const d = new Date();
-        d.setDate(d.getDate() - 1);
-        while (achievedByDate.get(localDateStr(d))) {
-          days += 1;
-          d.setDate(d.getDate() - 1);
+        const cursor = new Date();
+        cursor.setDate(cursor.getDate() - 1);
+        const CHUNK_DAYS = 60;
+        const MAX_CHUNKS = 12;
+        for (let chunk = 0; chunk < MAX_CHUNKS; chunk += 1) {
+          const to = new Date(cursor);
+          const from = new Date(cursor);
+          from.setDate(from.getDate() - (CHUNK_DAYS - 1));
+          const cells = await getHeatmap(localDateStr(from), localDateStr(to)).catch(
+            () => [] as HeatmapCellResponse[],
+          );
+          const achievedByDate = new Map(cells.map((c) => [c.date, c.focusGoalAchieved]));
+          let gapFound = false;
+          for (let i = 0; i < CHUNK_DAYS; i += 1) {
+            if (!achievedByDate.get(localDateStr(cursor))) {
+              gapFound = true;
+              break;
+            }
+            days += 1;
+            cursor.setDate(cursor.getDate() - 1);
+          }
+          if (gapFound) break;
         }
-        if (cancelled) return;
         await AsyncStorage.setItem(
           STORAGE_KEYS.focusGoalCelebratePending,
           JSON.stringify({ date: today, days, goalMinutes: goalMin }),
@@ -167,9 +179,6 @@ export default function FocusResultScreen() {
         // 판정 실패 시 축하 생략 — 다음 결과 화면 진입에서 재판정된다
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, [todayFocusSeconds, userGoalSeconds]);
 
   const today = todayStr();
