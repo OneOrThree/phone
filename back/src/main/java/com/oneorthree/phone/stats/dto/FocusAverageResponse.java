@@ -1,5 +1,7 @@
 package com.oneorthree.phone.stats.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.time.LocalDate;
 
 /**
@@ -7,7 +9,11 @@ import java.time.LocalDate;
  *
  * <p>모수(scope) 유저 중 해당 기간 활동(row&ge;1) 유저의 집중 초 합을 활동 유저 수로 나눈 뒤 분 내림한 값.
  * 무활동/모수 없음/occupation 미설정이면 {@code averageMinutes = null}, {@code sampleSize = 0}.
+ *
+ * <p>{@code averageMinutes} 가 null 이면 JSON 에서 필드 자체를 생략(NON_NULL) — "데이터 없으면 필드 숨김"
+ * 의도를 정직하게 반영(클라는 해당 축 미표시). null 을 명시 직렬화하지 않음.
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record FocusAverageResponse(
         /** 집계 모수 종류 (FRIENDS | TOTAL | CATEGORY). */
         FocusAverageScope scope,
