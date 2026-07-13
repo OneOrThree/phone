@@ -5,7 +5,6 @@ import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.focus.domain.DefaultTag;
 import com.oneorthree.phone.focus.domain.FocusSession;
-import com.oneorthree.phone.focus.domain.FocusSessionStatus;
 import com.oneorthree.phone.focus.domain.OccupationDefaultTag;
 import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
@@ -1671,7 +1670,7 @@ class FocusServiceTest {
     // ── sweepOrphanSessions — orphan 자동 종료(GROMO-610) ────────────────────
 
     @Test
-    @DisplayName("임계값 초과 진행 중 세션 → 시작+상한으로 종료, 통계 미반영, 건수 반환")
+    @DisplayName("임계값 초과 진행 중 세션 → 조건부 UPDATE(markAutoClosedIfOpen)로 시작+상한 마감, 통계 미반영, 건수 반환")
     void sweepOrphanSessionsClosesStale() {
         // given: 24시간 전 시작해 아직 미종료인 orphan 1건
         Instant now = Instant.parse("2026-07-06T12:00:00Z");
@@ -1681,17 +1680,44 @@ class FocusServiceTest {
                 .id(SESSION_ID).user(user).startedAt(staleStart).build();
         given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any()))
                 .willReturn(List.of(orphan));
+        // GROMO-804(P2): 더티 라이트가 아니라 조건부 원자 UPDATE 로 마감 — 영향 row=1(마감 성사).
+        given(focusSessionRepository.markAutoClosedIfOpen(eq(SESSION_ID), any(Instant.class)))
+                .willReturn(1);
 
         // when
         int closed = focusService.sweepOrphanSessions(now);
 
-        // then: 시작+12h 상한으로 종료, 통계·스트릭은 미반영(유저 미확정 세션)
+        // then: 시작+12h 상한을 endedAt 으로 markAutoClosedIfOpen 호출(엔티티 autoClose 아님), 건수=1
         assertThat(closed).isEqualTo(1);
-        assertThat(orphan.getEndedAt()).isEqualTo(staleStart.plus(Duration.ofHours(12)));
-        // GROMO-804: 상태가 AUTO_CLOSED 로 표시돼 by-category 실시간 집계에서 제외된다.
-        assertThat(orphan.getStatus()).isEqualTo(FocusSessionStatus.AUTO_CLOSED);
+        verify(focusSessionRepository)
+                .markAutoClosedIfOpen(SESSION_ID, staleStart.plus(Duration.ofHours(12)));
+        // 통계·스트릭은 미반영(유저 미확정 세션)
         verify(dailyFocusStatRepository, never()).save(any(DailyFocusStat.class));
         verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+    }
+
+    @Test
+    @DisplayName("GROMO-804(P2): 스윕 중 유저 PATCH 로 이미 완료된 세션(markAutoClosedIfOpen=0) → 덮어쓰지 않고 스킵, 건수 제외")
+    void sweepOrphanSessionsSkipsConcurrentlyEndedSession() {
+        // given: orphan 목록엔 있으나 flush 전 유저가 PATCH(endSessionIfActive)로 먼저 완료한 세션.
+        // endedAt IS NULL 조건 UPDATE 라 영향 row=0 → 이미 통계 반영·정상 완료된 세션을 AUTO_CLOSED 로 덮어쓰지 않는다.
+        Instant now = Instant.parse("2026-07-06T12:00:00Z");
+        Instant staleStart = now.minus(Duration.ofHours(24));
+        User user = User.builder().id(USER_ID).build();
+        FocusSession racedOrphan = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(staleStart).build();
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any()))
+                .willReturn(List.of(racedOrphan));
+        given(focusSessionRepository.markAutoClosedIfOpen(eq(SESSION_ID), any(Instant.class)))
+                .willReturn(0);
+
+        // when
+        int closed = focusService.sweepOrphanSessions(now);
+
+        // then: 조건 UPDATE 는 시도하되 성사 0 → 마감 건수에서 제외(경합 완료 세션 보호)
+        assertThat(closed).isZero();
+        verify(focusSessionRepository)
+                .markAutoClosedIfOpen(SESSION_ID, staleStart.plus(Duration.ofHours(12)));
     }
 
     @Test
@@ -1704,7 +1730,8 @@ class FocusServiceTest {
         // when
         int closed = focusService.sweepOrphanSessions(Instant.now());
 
-        // then
+        // then: 조건 UPDATE 조차 호출되지 않음
         assertThat(closed).isZero();
+        verify(focusSessionRepository, never()).markAutoClosedIfOpen(any(), any());
     }
 }

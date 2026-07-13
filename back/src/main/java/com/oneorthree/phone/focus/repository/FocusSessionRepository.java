@@ -76,4 +76,15 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     @Query("UPDATE FocusSession s SET s.endedAt = :endedAt "
             + "WHERE s.id = :id AND s.endedAt IS NULL")
     int endSessionIfActive(@Param("id") UUID id, @Param("endedAt") Instant endedAt);
+
+    // 원자적 조건부 orphan 자동 종료(GROMO-804) — 아직 미종료(endedAt IS NULL)인 경우에만 AUTO_CLOSED 로 마감한다.
+    // 반환값(영향 row 수)이 1이면 이 스윕이 종료를 성사시킨 것이고, 0이면 그 사이 유저 PATCH(endSessionIfActive)가
+    // 먼저 완료해 이미 통계에 반영된 세션이다. 엔티티 autoClose() 더티 라이트는 이 경합에서 완료된 세션의 endedAt·status 를
+    // 무조건 덮어써(통계엔 이미 계수됨) by-category 에서 사라지게 만드므로, DB 단일 UPDATE 로 조건을 원자화해 차단한다.
+    @Modifying
+    @Query("UPDATE FocusSession s "
+            + "SET s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED, "
+            + "s.endedAt = :endedAt "
+            + "WHERE s.id = :id AND s.endedAt IS NULL")
+    int markAutoClosedIfOpen(@Param("id") UUID id, @Param("endedAt") Instant endedAt);
 }

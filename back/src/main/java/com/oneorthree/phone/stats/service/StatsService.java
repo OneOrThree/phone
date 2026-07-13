@@ -215,7 +215,10 @@ public class StatsService {
             if (goalMinutes > 0) {
                 // 목표 설정 유저: day 뷰와 의미 일치 — row 없는 날 = 0분 = 달성. 실패 기록된 날만 차감.
                 // achievedDays = clampedElapsedDays − failedDays (failedDays = 미달성 플래그 row 수).
+                // failedDays 는 clampedElapsedDays 와 같은 구간(clampedFrom 이후)만 센다 — 가입 전(clampedFrom 이전)
+                // 미달성 row 를 차감하면 그 구간에 속하지 않는 실패를 빼 achievedDays 가 과소(심하면 음수)가 된다.
                 int failedDays = (int) currentStats.stream()
+                        .filter(s -> !s.getDate().isBefore(clampedFrom))
                         .filter(s -> !s.isScreenTimeGoalAchieved()).count();
                 achievedDays = clampedElapsedDays - failedDays;
             } else {

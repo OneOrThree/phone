@@ -769,6 +769,37 @@ class StatsServiceTest {
     }
 
     @Test
+    @DisplayName("스크린타임 WEEK(목표설정) — 가입 전 미달성 row 는 차감하지 않는다(achievedDays 정확·음수 방지)")
+    void getScreenTimePeriodStatsWeekExcludesPreJoinFailedRow() {
+        LocalDate thisMonday = LocalDate.of(2026, 6, 29);
+        // 가입 = 2026-07-01 KST(수요일) → clampedFrom = 07-01, clampedElapsed = 07-01..07-03 = 3일.
+        User user = User.builder().id(USER_ID).countryCode("KR")
+                .createdAt(Instant.parse("2026-06-30T15:30:00Z")).build();  // == 2026-07-01 00:30 KST
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        // 가입 전(06-29·06-30) 미달성 row 2개 — currentFrom..currentTo 조회엔 걸리지만 clampedFrom 이전이라
+        // 경과일(clampedElapsed=3)에 속하지 않으므로 failedDays 차감 대상이 아니다. 가입 후 구간엔 row 없음(=매일 달성).
+        List<DailyScreenTimeStat> currentStats = List.of(
+                DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 6, 29))
+                        .totalScreenTimeMinutes(300).isScreenTimeGoalAchieved(false).build(),
+                DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 6, 30))
+                        .totalScreenTimeMinutes(250).isScreenTimeGoalAchieved(false).build()
+        );
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, thisMonday, FIXED_TODAY)).willReturn(currentStats);
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, LocalDate.of(2026, 6, 22), LocalDate.of(2026, 6, 26))).willReturn(List.of());
+        givenScreenTimeGoal(100);
+
+        ScreenTimePeriodStatsResponse response =
+                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        // clampedElapsed = 07-01·07-02·07-03 = 3일. 가입 전 2건은 차감 안 됨 → failedDays=0.
+        // achievedDays = 3 − 0 = 3 (음수 아님), elapsedDays = 3.
+        assertThat(response.elapsedDays()).isEqualTo(3);
+        assertThat(response.achievedDays()).isEqualTo(3);
+    }
+
+    @Test
     @DisplayName("스크린타임 — 유저 없음 → UserException(NOT_FOUND)")
     void getScreenTimePeriodStatsUserNotFound() {
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());

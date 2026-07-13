@@ -337,20 +337,27 @@ public class FocusService {
      * <p>자동 종료 세션은 종료 시각 신뢰도가 낮아(유저 미확정) DailyFocusStat/스트릭 통계에는 반영하지 않는다.
      * WHERE endedAt IS NULL 조건 조회이므로 유저 PATCH 와 경합해도 이미 종료된 세션은 대상에서 빠진다.
      *
-     * <p>GROMO-804: 상태를 {@code AUTO_CLOSED} 로 표시(autoClose)해 by-category 실시간 집계에서도 제외한다
+     * <p>GROMO-804: 상태를 {@code AUTO_CLOSED} 로 표시해 by-category 실시간 집계에서도 제외한다
      * (기존엔 status=ACTIVE 로 남아 endedAt 만 채워져 by-category 에 새어 들어갔다 — /stats/focus 사전집계와 총합 불일치).
      *
-     * @return 자동 종료한 세션 수
+     * <p>종료 반영은 엔티티 더티 라이트(autoClose)가 아니라 조건부 원자 UPDATE(markAutoClosedIfOpen)로 한다.
+     * 스윕이 orphan 목록을 읽은 뒤 flush 전에 유저가 같은 세션을 PATCH(endSessionIfActive)로 완료하면, 더티 라이트는
+     * 이미 recordCompletion 이 통계에 계수한 세션의 endedAt·status 를 무조건 덮어써(AUTO_CLOSED) by-category 에서
+     * 사라지면서 /stats/focus 와 불일치하고 endedAt 도 오염된다. endedAt IS NULL 조건 UPDATE 로 이 경합을 차단하고,
+     * 실제로 마감된(반환 1) 세션만 카운트한다(동시 완료돼 0 이 반환된 세션은 스킵).
+     *
+     * @return 자동 종료한 세션 수(경합으로 이미 완료된 세션 제외)
      */
     @Transactional
     public int sweepOrphanSessions(Instant now) {
         Instant threshold = now.minus(ORPHAN_TIMEOUT);
         List<FocusSession> orphans = focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(threshold);
+        int closed = 0;
         for (FocusSession session : orphans) {
             Instant cappedEnd = session.getStartedAt().plus(ORPHAN_TIMEOUT);
-            session.autoClose(cappedEnd);
+            closed += focusSessionRepository.markAutoClosedIfOpen(session.getId(), cappedEnd);
         }
-        return orphans.size();
+        return closed;
     }
 
     /** 태그 id(user_focus_tags.id)로 소유 태그를 조회(없으면 null 반환, 미소유면 FORBIDDEN). POST/PATCH 공용. */
