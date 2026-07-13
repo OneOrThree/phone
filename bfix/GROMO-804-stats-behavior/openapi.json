@@ -4161,8 +4161,7 @@
         "type": "object",
         "properties": {
           "screenTimeGoalAchieved": {
-            "type": "boolean",
-            "deprecated": true
+            "type": "boolean"
           },
           "actualScreenTimeMinutes": {
             "type": "integer",
