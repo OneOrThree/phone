@@ -53,6 +53,12 @@ export async function registerDeviceToken(body: DeviceTokenRegisterRequest): Pro
   await api.put('/api/v1/users/me/device-token', body);
 }
 
+// DELETE /api/v1/users/me/device-token — 디바이스 토큰 등록 해제.
+// 로그아웃·계정 전환 시 호출 — 서버가 이전 계정 푸시를 이 기기로 계속 보내지 않게(PR 224 리뷰).
+export async function deleteDeviceToken(): Promise<void> {
+  await api.delete('/api/v1/users/me/device-token');
+}
+
 // PUT /api/v1/users/me/notification-settings — 알림·심야·소리 설정 저장.
 export async function updateNotificationSettings(body: NotificationSettingsRequest): Promise<void> {
   await api.put('/api/v1/users/me/notification-settings', body);

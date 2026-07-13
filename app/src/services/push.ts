@@ -64,6 +64,9 @@ function saveToInbox(msg: FirebaseMessagingTypes.RemoteMessage | null): void {
     title: msg.notification.title ?? '',
     body: msg.notification.body ?? '',
     link: linkFromData(msg.data),
+    // 백그라운드/종료 상태 알림은 탭 시점에야 코드가 돌아 저장 시각이 '탭한 시각'이 된다 —
+    // FCM 발송 시각(sentTime)이 있으면 그걸 수신 시각으로 기록한다(PR 224 리뷰).
+    receivedAt: typeof msg.sentTime === 'number' && msg.sentTime > 0 ? msg.sentTime : undefined,
   });
 }
 

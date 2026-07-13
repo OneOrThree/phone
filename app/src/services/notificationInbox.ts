@@ -71,6 +71,7 @@ export async function addToInbox(input: {
   title: string;
   body: string;
   link: string | null;
+  receivedAt?: number; // FCM 발송 시각(sentTime) — 없으면 저장 시각으로 대체
 }): Promise<void> {
   if (!shouldStore(input.type)) return;
   if (!input.title && !input.body) return; // 표시할 내용이 없는 payload는 버림
@@ -86,7 +87,7 @@ export async function addToInbox(input: {
           title: input.title,
           body: input.body,
           link: input.link,
-          receivedAt: Date.now(),
+          receivedAt: input.receivedAt ?? Date.now(),
           read: false,
         },
         ...items,
@@ -95,6 +96,19 @@ export async function addToInbox(input: {
       emitChange();
     } catch {
       // 저장 실패는 무시 — 알림 수신/딥링크 흐름을 막지 않는다.
+    }
+  });
+}
+
+// 보관함 비우기 — 로그아웃/계정 전환 정리에서 호출. 같은 쓰기 큐를 타므로 직전에 시작된
+// 푸시 저장(옛 스냅샷)이 끝난 뒤 지워져, 정리 후 이전 계정 알림이 되살아나지 않는다(PR 224 리뷰).
+export async function clearInbox(): Promise<void> {
+  await enqueueWrite(async () => {
+    try {
+      await AsyncStorage.removeItem(STORAGE_KEYS.notificationInbox);
+      emitChange();
+    } catch {
+      // 삭제 실패는 무시 — 다음 로그아웃/계정 전환 정리에서 재시도된다.
     }
   });
 }

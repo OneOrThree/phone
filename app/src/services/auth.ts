@@ -28,11 +28,12 @@ interface AuthResponse {
   [key: string]: unknown;
 }
 
-// 계정(userId)이 실제로 바뀌는 토큰 교체 직전에 호출되는 훅 — 이전 계정의 태그 편집 큐 폐기용(App.tsx 등록).
-// applyStoredSession 시점엔 새 토큰이 이미 저장된 뒤라 대기 편집이 새 계정 토큰으로 나갈 수 있어(PR 200 리뷰)
-// 토큰 저장 직전으로 앞당긴다.
-let accountSwitchHandler: (() => void) | null = null;
-export function setAccountSwitchHandler(handler: () => void): void {
+// 계정(userId)이 실제로 바뀌는 토큰 교체 직전에 호출되는 훅 — 이전 계정 뒷정리용(App.tsx 등록).
+// applyStoredSession 시점엔 새 토큰이 이미 저장된 뒤라, 이전 계정 인증이 필요한 정리(태그 편집 큐
+// 폐기·디바이스 토큰 등록 해제)가 늦는다(PR 200/224 리뷰) — 토큰 저장 직전으로 앞당긴다.
+// async 핸들러는 완료까지 기다린다 — 새 토큰이 저장되면 이전 계정 API를 더는 부를 수 없어서.
+let accountSwitchHandler: (() => void | Promise<void>) | null = null;
+export function setAccountSwitchHandler(handler: () => void | Promise<void>): void {
   accountSwitchHandler = handler;
 }
 
@@ -42,7 +43,7 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
   const prevToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
   const prevUserId = prevToken ? getUserIdFromToken(prevToken) : null;
   const nextUserId = getUserIdFromToken(data.accessToken);
-  if (prevUserId && nextUserId && prevUserId !== nextUserId) accountSwitchHandler?.();
+  if (prevUserId && nextUserId && prevUserId !== nextUserId) await accountSwitchHandler?.();
   await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
   await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
 
