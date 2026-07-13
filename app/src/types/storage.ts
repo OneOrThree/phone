@@ -16,6 +16,7 @@ export const STORAGE_KEYS = {
   focusPendingUploads: 'gromo:focus:pendingUploads', // 업로드 실패한 집중 세션 재시도 대기열
   subjects: 'gromo:subjects',
   goalPending: 'gromo:goal:pending',
+  notificationInbox: 'gromo:notifications', // 알림 보관함 — 수신한 푸시 로컬 저장(GROMO-661)
   notificationSettings: 'gromo:settings:notification', // 알림·심야·소리 로컬 캐시(GET 부재 폴백)
   statVisibility: 'gromo:settings:statVisibility', // 통계 공개 범위 로컬 캐시(GET 부재 폴백)
   screentimeAuthGranted: 'gromo:screentime:authGranted',

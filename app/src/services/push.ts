@@ -1,9 +1,10 @@
 // 서버 푸시(FCM) 권한·토큰·수신·표시·딥링크 처리 (GROMO-393).
 // 전송 방식은 FCM: @react-native-firebase/messaging로 FCM 토큰을 받아 서버에 등록하고,
 // 서버(392)는 firebase-admin으로 발송한다. iOS는 오는 알림을 표시/라우팅만 담당한다.
-import messaging from '@react-native-firebase/messaging';
+import messaging, { type FirebaseMessagingTypes } from '@react-native-firebase/messaging';
 import * as Notifications from 'expo-notifications';
 import { api } from '@/services/api';
+import { addToInbox } from '@/services/notificationInbox';
 import { navigateToDeepLink } from '@/navigation/navigationRef';
 import {
   logNotificationOpened,
@@ -47,6 +48,25 @@ function notificationTypeFromData(data?: Record<string, unknown>): NotificationT
     : null;
 }
 
+// payload의 type/category 원문 문자열 — 보관함 분류용(위 분석 이벤트용 판별과 달리 제한 없음).
+function rawTypeFromData(data?: Record<string, unknown>): string | null {
+  const raw = data?.type ?? data?.category;
+  return typeof raw === 'string' ? raw : null;
+}
+
+// 수신/탭한 푸시를 알림 보관함에 저장 — 알림 화면(GROMO-661)의 데이터 원천.
+// messageId로 중복 저장을 막으므로 여러 경로에서 같은 메시지를 만나도 안전하다.
+function saveToInbox(msg: FirebaseMessagingTypes.RemoteMessage | null): void {
+  if (!msg?.notification) return; // 표시용 payload 없는 메시지(data-only)는 보관하지 않음
+  addToInbox({
+    id: msg.messageId ?? undefined,
+    type: rawTypeFromData(msg.data),
+    title: msg.notification.title ?? '',
+    body: msg.notification.body ?? '',
+    link: linkFromData(msg.data),
+  });
+}
+
 // getInitialNotification은 앱 실행당 1회만 소비 — PushGate가 재로그인(userId 변경)마다 재호출해도
 // 캐시된 콜드스타트 딥링크로 재이동하지 않도록 가드한다.
 let initialNotificationHandled = false;
@@ -84,9 +104,10 @@ export function setupPushListeners(): () => void {
   // 토큰 갱신 → 재등록
   unsubscribers.push(messaging().onTokenRefresh((token) => putDeviceToken(token)));
 
-  // 포그라운드 수신 → 로컬 알림으로 표시(위 핸들러가 배너 노출)
+  // 포그라운드 수신 → 보관함 저장 + 로컬 알림으로 표시(위 핸들러가 배너 노출)
   unsubscribers.push(
     messaging().onMessage(async (msg) => {
+      saveToInbox(msg);
       try {
         await Notifications.scheduleNotificationAsync({
           content: {
@@ -102,9 +123,11 @@ export function setupPushListeners(): () => void {
     }),
   );
 
-  // 백그라운드 상태에서 OS 배너 탭 → 딥링크
+  // 백그라운드 상태에서 OS 배너 탭 → 보관함 저장 + 딥링크
+  // (백그라운드 도착 시엔 앱 코드가 안 돌아 탭으로 복귀하는 지금이 첫 저장 기회)
   unsubscribers.push(
     messaging().onNotificationOpenedApp((msg) => {
+      saveToInbox(msg);
       const type = notificationTypeFromData(msg?.data);
       if (type) logNotificationOpened({ type }); // 백그라운드 탭으로 앱 복귀
       const link = linkFromData(msg?.data);
@@ -128,6 +151,7 @@ export async function handleInitialNotification(): Promise<void> {
   initialNotificationHandled = true;
   try {
     const msg = await messaging().getInitialNotification();
+    saveToInbox(msg);
     const type = notificationTypeFromData(msg?.data);
     if (type) logNotificationOpened({ type }); // 종료 상태에서 탭으로 콜드스타트
     const link = linkFromData(msg?.data);
