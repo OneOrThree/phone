@@ -101,6 +101,10 @@ export default function FocusResultScreen() {
   const sessionMin = Math.round(focusSeconds / 60);
   const serverToday = cellByDate[today]?.totalFocusMinutes ?? 0;
   const adjustedToday = Math.max(serverToday, sessionMin);
+  // 스트릭 판정용 오늘 충족 여부(GROMO-682) — 반올림(sessionMin)을 쓰면 9분 30초가 10분으로
+  // 인정되므로 판정에는 방금 세션을 내림으로 계산(표시용 adjustedToday와 분리).
+  const todayStreakDone =
+    Math.max(serverToday, Math.floor(focusSeconds / 60)) >= STREAK_MIN_DAILY_MINUTES;
   const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
   const dayMinutes = (d: string) =>
     d === today ? adjustedToday : (cellByDate[d]?.totalFocusMinutes ?? 0);
@@ -174,7 +178,12 @@ export default function FocusResultScreen() {
               <View style={s.streakIcon}>
                 <Ionicons name="flame" size={13} color={T.white} />
               </View>
-              <Text style={s.streakTitle}>이번 주 집중 스트릭 채우기 완료!</Text>
+              {/* 오늘 10분 미달이면 '완료'가 판정(빈 ✓·안내 문구)과 모순되므로 제목 분기 */}
+              <Text style={s.streakTitle}>
+                {todayStreakDone
+                  ? '이번 주 집중 스트릭 채우기 완료!'
+                  : '이번 주 집중 스트릭을 채워봐요!'}
+              </Text>
               {streak && streak.currentStreak > 0 ? (
                 <Text style={s.streakBadge}>{streak.currentStreak}일 연속</Text>
               ) : null}
@@ -184,9 +193,9 @@ export default function FocusResultScreen() {
                 const cell = cellByDate[date];
                 const isToday = date === today;
                 // 출석 = 하루 누적 10분 이상(GROMO-682). 오늘은 방금 세션이 서버 집계에
-                // 아직 없을 수 있어 보정값(adjustedToday)으로 판정.
+                // 아직 없을 수 있어 보정한 판정값(todayStreakDone)을 쓴다.
                 const done = isToday
-                  ? adjustedToday >= STREAK_MIN_DAILY_MINUTES
+                  ? todayStreakDone
                   : cell != null && cell.totalFocusMinutes >= STREAK_MIN_DAILY_MINUTES;
                 const future = date > today;
                 return (
@@ -203,7 +212,7 @@ export default function FocusResultScreen() {
         ) : null}
 
         {/* 스트릭 기준 안내(GROMO-682) — 오늘 누적이 10분 미만이면 채워지는 조건을 알려준다 */}
-        {adjustedToday < STREAK_MIN_DAILY_MINUTES ? (
+        {!todayStreakDone ? (
           <View style={s.streakNotice}>
             <Ionicons name="flame-outline" size={14} color={T.accentDeep} />
             <Text style={s.streakNoticeText}>하루 10분 이상 집중하면 연속 기록이 채워져요</Text>
