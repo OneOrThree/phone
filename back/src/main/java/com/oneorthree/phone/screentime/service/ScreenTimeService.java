@@ -52,17 +52,14 @@ public class ScreenTimeService {
         int goal = userScreenTimeSettingsRepository.findById(userId)
                 .map(UserScreenTimeSettings::getDailyScreenTimeGoalMinutes).orElse(0);
         boolean goalAchieved = goal > 0 && actualMinutes <= goal;
+        // 저장 flag 는 중간·최종 구분 없이 매 동기화마다 서버 판정값으로 갱신한다(GROMO-805 조회 일관성). 저장 로직은 변경하지 않는다.
         Optional<DailyScreenTimeStat> existing =
                 dailyScreenTimeStatRepository.findByUserAndDate(user, date);
-        // false→true 전이 여부 — 기존 row 미달성 & 요청 달성, 또는 신규 row 가 곧바로 달성
-        boolean transitioned;
         if (existing.isPresent()) {
             DailyScreenTimeStat stat = existing.get();
-            transitioned = !stat.isScreenTimeGoalAchieved() && goalAchieved;
             stat.setTotalScreenTimeMinutes(actualMinutes);
             stat.setScreenTimeGoalAchieved(goalAchieved);
         } else {
-            transitioned = goalAchieved;
             dailyScreenTimeStatRepository.save(DailyScreenTimeStat.builder()
                     .user(user)
                     .date(date)
@@ -71,16 +68,20 @@ public class ScreenTimeService {
                     .build());
         }
 
-        // false→true 전이 순간에만 1회 발행 — true→true 재전송은 미발행 (GROMO-395)
-        // GROMO-805: 전이 판정도 서버 판정값(goalAchieved) 기준 — 알림 트리거(395)가 서버 판정으로 바뀐다(프론트 공유).
-        if (transitioned) {
+        // 4. 목표 달성 알림(GROMO-395) — '최종 보고(isFinal=true) & 서버 판정 달성'일 때만 이벤트+알림을 발사한다.
+        //    GROMO-805 후속(Codex P1): 앱은 하루 중 여러 번 중간 동기화를 보내는데, 아직 한도를 넘지 않은 부분 합계가
+        //    goal 이내라는 이유로 조기에 알림이 나가고(이벤트는 회수 불가) 이후 한도를 초과해도 되돌릴 수 없었다.
+        //    → 중간 동기화(isFinal false/null)는 저장 total+flag 만 갱신하고 이벤트·알림은 발사하지 않는다(조기 알림 방지).
+        //    isFinal 부재(구버전 앱)는 이벤트 미발사로 처리한다 — 앱이 최종 보고에 isFinal=true 를 실어 보내도록 업데이트 필요(프론트 조율).
+        //    최종 보고는 하루 1회이므로 이 게이트가 종전 false→true 전이 dedup 역할까지 대체한다.
+        //    (최종 보고 재시도로 인한 중복 발사는 희귀 케이스로 수용한다.)
+        boolean finalReport = Boolean.TRUE.equals(request.getIsFinal());
+        if (finalReport && goalAchieved) {
             userActivityEventLogger.log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED, Map.of(
                     "date", date.toString(),
                     "actual_screen_time_minutes", actualMinutes));
+            notificationPort.notify(userId, true);
         }
-
-        // 4. 알림 인터페이스 호출 — GROMO-805: 클라 신뢰 대신 서버 판정값을 전달한다.
-        notificationPort.notify(userId, goalAchieved);
     }
 
     /**
