@@ -187,6 +187,7 @@ export default function App() {
       // 이전 계정의 축하 기록이 새 계정 축하를 막거나, 예약된 모달이 새 계정에 뜨지 않게(PR 225 리뷰)
       STORAGE_KEYS.focusGoalCelebratedDate,
       STORAGE_KEYS.focusGoalCelebratePending,
+      STORAGE_KEYS.notificationInbox, // 이전 계정 알림 목록·안읽음 뱃지가 새 계정에 노출되지 않게(PR 224 리뷰)
     ]);
     setOnboardingFocusGoalSeconds(null);
     setOnboardingScreenTimeGoalSeconds(null);
@@ -219,6 +220,7 @@ export default function App() {
         STORAGE_KEYS.focus,
         STORAGE_KEYS.focusGoalCelebratedDate,
         STORAGE_KEYS.focusGoalCelebratePending,
+        STORAGE_KEYS.notificationInbox,
       ]);
     }
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');

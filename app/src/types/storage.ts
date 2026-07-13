@@ -18,6 +18,7 @@ export const STORAGE_KEYS = {
   focusGoalCelebratePending: 'gromo:focus:goalCelebratePending', // 결과 화면이 예약한 축하 {date,days} — 홈 진입 시 노출(GROMO-630)
   subjects: 'gromo:subjects',
   goalPending: 'gromo:goal:pending',
+  notificationInbox: 'gromo:notifications', // 알림 보관함 — 수신한 푸시 로컬 저장(GROMO-661)
   notificationSettings: 'gromo:settings:notification', // 알림·심야·소리 로컬 캐시(GET 부재 폴백)
   statVisibility: 'gromo:settings:statVisibility', // 통계 공개 범위 로컬 캐시(GET 부재 폴백)
   screentimeAuthGranted: 'gromo:screentime:authGranted',
