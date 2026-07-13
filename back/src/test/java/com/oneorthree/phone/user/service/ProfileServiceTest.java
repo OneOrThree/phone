@@ -81,13 +81,13 @@ class ProfileServiceTest {
                 .build();
     }
 
-    private LeagueArenaUser membership(User user, LeagueArena arena, int tierLevel, int focusMinutes) {
+    private LeagueArenaUser membership(User user, LeagueArena arena, int tierLevel, int focusSeconds) {
         return LeagueArenaUser.builder()
                 .id(UUID.randomUUID())
                 .user(user)
                 .leagueArena(arena)
                 .tierLevel(tierLevel)
-                .totalFocusSeconds(focusMinutes)
+                .totalFocusSeconds(focusSeconds)
                 .build();
     }
 

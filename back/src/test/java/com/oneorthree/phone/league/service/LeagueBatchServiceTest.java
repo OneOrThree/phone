@@ -67,14 +67,14 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
         return userRepository.save(User.builder().nickname(nickname).build());
     }
 
-    private LeagueArenaUser saveMember(LeagueArena arena, User user, int focusMinutes) {
+    private LeagueArenaUser saveMember(LeagueArena arena, User user, int focusSeconds) {
         return leagueArenaUserRepository.save(LeagueArenaUser.builder()
                 .user(user).leagueArena(arena).tierLevel(arena.getTierConfig().getTierLevel())
-                .totalFocusSeconds(focusMinutes).build());
+                .totalFocusSeconds(focusSeconds).build());
     }
 
-    private LeagueArenaUser saveMember(LeagueArena arena, String nickname, int focusMinutes) {
-        return saveMember(arena, saveUser(nickname), focusMinutes);
+    private LeagueArenaUser saveMember(LeagueArena arena, String nickname, int focusSeconds) {
+        return saveMember(arena, saveUser(nickname), focusSeconds);
     }
 
     private List<LeagueArena> activeArenasOfTier(int tierLevel) {

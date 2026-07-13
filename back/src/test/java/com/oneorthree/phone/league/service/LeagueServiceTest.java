@@ -81,14 +81,14 @@ class LeagueServiceTest {
                 .build();
     }
 
-    private LeagueArenaUser member(UUID userId, String nickname, LeagueArena arena, int focusMinutes) {
+    private LeagueArenaUser member(UUID userId, String nickname, LeagueArena arena, int focusSeconds) {
         User user = User.builder().id(userId).nickname(nickname).build();
         return LeagueArenaUser.builder()
                 .id(UUID.randomUUID())
                 .user(user)
                 .leagueArena(arena)
                 .tierLevel(3)
-                .totalFocusSeconds(focusMinutes)
+                .totalFocusSeconds(focusSeconds)
                 .build();
     }
 
