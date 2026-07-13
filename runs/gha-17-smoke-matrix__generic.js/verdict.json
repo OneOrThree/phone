@@ -1,0 +1,17 @@
+{
+  "verdict": "FAIL",
+  "reasons": [
+    "FAIL(threshold): http_req_failed{phase:main} — rate<0.01",
+    "FAIL(threshold): dropped_iterations — count<1",
+    "FAIL(threshold): http_req_duration{phase:main} — p(95)<200",
+    "FAIL(threshold): http_req_duration{phase:main} — p(99)<500"
+  ],
+  "baseline": null,
+  "diff": null,
+  "meta": {
+    "sha": "46cdc93",
+    "profile": "smoke",
+    "target": "matrix/_generic.js",
+    "startedAt": "2026-07-13T04:59:09Z"
+  }
+}
