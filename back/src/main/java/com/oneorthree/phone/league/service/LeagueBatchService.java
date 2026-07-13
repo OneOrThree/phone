@@ -113,7 +113,7 @@ public class LeagueBatchService {
                 .toInstant();
     }
 
-    // 책임(1) 주간 랭킹 산정 — findRankedByArena 정렬(totalFocusMinutes DESC, id ASC) 순서로 rank 1..N 확정
+    // 책임(1) 주간 랭킹 산정 — findRankedByArena 정렬(totalFocusSeconds DESC, id ASC) 순서로 rank 1..N 확정
     private void settleArenaRanking(List<LeagueArenaUser> ranked) {
         for (int i = 0; i < ranked.size(); i++) {
             ranked.get(i).setRank(i + 1);
@@ -123,19 +123,19 @@ public class LeagueBatchService {
     /**
      * 책임(2) 승격/강등 결과 확정.
      *
-     * <p>활동 0분 멤버는 순위 무관 무조건 RELEGATED 로 먼저 확정하고, 나머지 활동 멤버에게
+     * <p>활동 0초 멤버는 순위 무관 무조건 RELEGATED 로 먼저 확정하고, 나머지 활동 멤버에게
      * 승격(상위 promoteCount) → 강등(하위 relegateCount) → 경고(강등 바로 위 relegateWarningCount)
      * 순으로 컷오프를 적용한다(겹치면 승격 우선). 마지막으로 경계 보정: 최상위 티어의 PROMOTED,
      * 최하위 티어의 RELEGATED 는 STAY 로 유지한다.
      */
     private void decideResults(List<LeagueArenaUser> ranked, LeagueTierConfig config, int minTier, int maxTier) {
-        // 활동 0분 멤버 — 컷오프 계산에서 제외하고 무조건 강등
+        // 활동 0초 멤버 — 컷오프 계산에서 제외하고 무조건 강등
         ranked.stream()
-                .filter(member -> member.getTotalFocusMinutes() == 0)
+                .filter(member -> member.getTotalFocusSeconds() == 0)
                 .forEach(member -> member.setResult(LeagueMemberResult.RELEGATED));
 
         List<LeagueArenaUser> actives = ranked.stream()
-                .filter(member -> member.getTotalFocusMinutes() > 0)
+                .filter(member -> member.getTotalFocusSeconds() > 0)
                 .toList();
         int activeCount = actives.size();
         int promotedEnd = Math.min(config.getPromoteCount(), activeCount);
@@ -180,7 +180,7 @@ public class LeagueBatchService {
      * 책임(3)(4) 다음 주차 아레나 생성 + 멤버 재배정 + 0 리셋.
      *
      * <p>티어별 편입 풀을 arenaSize 단위로 순차 분할한다(마지막 아레나 정원 미달 허용).
-     * 멤버는 신규 row 로 생성해 totalFocusMinutes=0, rank=null, result=null 로 자연 리셋된다.
+     * 멤버는 신규 row 로 생성해 totalFocusSeconds=0, rank=null, result=null 로 자연 리셋된다.
      */
     private int reassignNextWeek(
             Map<Integer, List<User>> nextWeekPools,
@@ -203,7 +203,7 @@ public class LeagueBatchService {
                                 .leagueArena(newArena)
                                 .user(user)
                                 .tierLevel(config.getTierLevel())
-                                .totalFocusMinutes(0)
+                                .totalFocusSeconds(0)
                                 .build())
                         .toList();
                 leagueArenaUserRepository.saveAll(newMembers);

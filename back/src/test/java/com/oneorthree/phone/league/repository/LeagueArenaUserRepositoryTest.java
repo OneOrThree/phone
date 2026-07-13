@@ -55,7 +55,7 @@ class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
     private LeagueArenaUser saveMember(LeagueArena arena, User user, int focusMinutes) {
         return leagueArenaUserRepository.save(LeagueArenaUser.builder()
                 .user(user).leagueArena(arena).tierLevel(arena.getTierConfig().getTierLevel())
-                .totalFocusMinutes(focusMinutes).build());
+                .totalFocusSeconds(focusMinutes).build());
     }
 
     @Test
@@ -103,7 +103,7 @@ class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("findRankedByArena — totalFocusMinutes 내림차순 정렬, 해당 아레나 멤버만, 닉네임 fetch")
+    @DisplayName("findRankedByArena — totalFocusSeconds 내림차순 정렬, 해당 아레나 멤버만, 닉네임 fetch")
     void findRankedByArena_orderedDesc() {
         LeagueTierConfig cfg = saveTierConfig(3);
         LeagueArena arena = saveArena(cfg, LeagueArenaStatus.ACTIVE);
@@ -150,7 +150,7 @@ class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
         List<LeagueArenaUser> ranked = leagueArenaUserRepository
                 .findRankedByActiveArenasAndOccupation(Occupation.LABOR_ATTORNEY, PageRequest.of(0, 100));
 
-        // 노무사만 3명(ACTIVE 아레나 전체), ENDED 제외, totalFocusMinutes 내림차순
+        // 노무사만 3명(ACTIVE 아레나 전체), ENDED 제외, totalFocusSeconds 내림차순
         assertThat(ranked).hasSize(3);
         assertThat(ranked).extracting(m -> m.getUser().getNickname())
                 .containsExactly("lawyerA1", "lawyerB", "lawyerA2");

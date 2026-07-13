@@ -41,7 +41,7 @@ public class LeagueController {
     }
 
     @Operation(summary = "티어 멤버 랭킹 조회",
-            description = "category 미지정: 현재 ACTIVE 아레나 멤버 랭킹(totalFocusMinutes 내림차순). 미배정이면 빈 배열. "
+            description = "category 미지정: 현재 ACTIVE 아레나 멤버 랭킹(totalFocusSeconds 내림차순). 미배정이면 빈 배열. "
                     + "category 지정: 전역 같은 occupation 유저 상위 100명 랭킹(아레나 무관). "
                     + "잘못된 category 값은 400 INVALID_PARAMETER.")
     @ApiResponses({
@@ -57,7 +57,7 @@ public class LeagueController {
     }
 
     @Operation(summary = "전역 전체 유저 랭킹 조회",
-            description = "직군 무관 전역 랭킹. 이번 주 ACTIVE 아레나 전체를 가로질러 totalFocusMinutes 내림차순 상위 limit 명. "
+            description = "직군 무관 전역 랭킹. 이번 주 ACTIVE 아레나 전체를 가로질러 totalFocusSeconds 내림차순 상위 limit 명. "
                     + "rank 는 아레나가 아닌 전역 순번. scope 는 total(대소문자 무관)만 지원, 그 외 값은 400 INVALID_SCOPE. "
                     + "limit 는 1~500 으로 클램프된다.")
     @ApiResponses({

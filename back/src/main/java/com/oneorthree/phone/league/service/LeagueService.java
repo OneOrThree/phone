@@ -87,7 +87,7 @@ public class LeagueService {
 
     /**
      * 전역 전체 유저 랭킹 조회 (직군 무관, GROMO-611).
-     * 이번 주 ACTIVE 아레나 전체를 가로질러 totalFocusMinutes 내림차순 상위 limit 명을 반환한다.
+     * 이번 주 ACTIVE 아레나 전체를 가로질러 totalFocusSeconds 내림차순 상위 limit 명을 반환한다.
      * rank 는 아레나가 아닌 전역 순번(반환 리스트 인덱스+1)이다.
      *
      * @param scope 랭킹 범위. 현재는 "total"(대소문자 무관)만 지원, 그 외 값은 INVALID_SCOPE(400).
@@ -115,7 +115,7 @@ public class LeagueService {
                     m.getUser().getNickname(),
                     // 멤버별 실제 티어 — 이미 조회된 league_arena_users 행의 컬럼(추가 쿼리 없음, GROMO-748)
                     m.getTierLevel(),
-                    m.getTotalFocusMinutes(),
+                    m.getTotalFocusSeconds(),
                     resultName(m),
                     pinnedIds.contains(memberId)));
         }
@@ -142,11 +142,11 @@ public class LeagueService {
                             Map.of("my_rank", myRank,
                                     "league_id", member.getLeagueArena().getId().toString(),
                                     "tier_level", member.getTierLevel(),
-                                    "total_focus_minutes", member.getTotalFocusMinutes()));
+                                    "total_focus_seconds", member.getTotalFocusSeconds()));
                     return new LeagueRankResponse(
                             true,
                             myRank,
-                            member.getTotalFocusMinutes(),
+                            member.getTotalFocusSeconds(),
                             resultName(member));
                 })
                 .orElseGet(() -> new LeagueRankResponse(false, null, null, null));

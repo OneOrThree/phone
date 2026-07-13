@@ -410,9 +410,10 @@ public class FocusService {
         userStreakService.updateOnSessionComplete(user, statDate);
 
         // GROMO-646: 현재 ACTIVE 아레나 멤버면 주간 누적 집중 시간 반영(리그 탭·랭킹·주간 마감 정합).
-        // 리그는 분 단위(초/60 내림) — 랭킹용 근사. 아레나 미배정 유저는 스킵. 락 조회로 동시 세션 lost update 차단.
+        // GROMO-665: 초 직접 누적(분 내림 제거 — DailyFocusStat와 동일 정밀도). 아레나 미배정 유저는 스킵.
+        // 락 조회로 동시 세션 lost update 차단.
         leagueArenaUserRepository.findByUserAndArenaStatusForUpdate(userId, LeagueArenaStatus.ACTIVE)
-                .ifPresent(member -> member.addFocusMinutes(addedSeconds / 60));
+                .ifPresent(member -> member.addFocusSeconds(addedSeconds));
     }
 
     /** 일일 집중 목표 달성(false→true 전이) 이벤트 발행 — date 는 ISO(UTC). */

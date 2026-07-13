@@ -70,7 +70,7 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     private LeagueArenaUser saveMember(LeagueArena arena, User user, int focusMinutes) {
         return leagueArenaUserRepository.save(LeagueArenaUser.builder()
                 .user(user).leagueArena(arena).tierLevel(arena.getTierConfig().getTierLevel())
-                .totalFocusMinutes(focusMinutes).build());
+                .totalFocusSeconds(focusMinutes).build());
     }
 
     private LeagueArenaUser saveMember(LeagueArena arena, String nickname, int focusMinutes) {
@@ -92,7 +92,7 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     // ── (1) 주간 랭킹 산정 ────────────────────────────────────────────────
 
     @Test
-    @DisplayName("랭킹 산정 — totalFocusMinutes 내림차순으로 rank 1..N 확정 (저장 순서 무관)")
+    @DisplayName("랭킹 산정 — totalFocusSeconds 내림차순으로 rank 1..N 확정 (저장 순서 무관)")
     void settleRanking_orderByMinutesDesc() {
         saveTierConfig(1, 30, 1, 1, 1);
         LeagueTierConfig cfg2 = saveTierConfig(2, 30, 1, 1, 1);
@@ -307,7 +307,7 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     // ── (6) 0 리셋(신규 row) + 이력 보존 ─────────────────────────────────
 
     @Test
-    @DisplayName("0 리셋 — 새 주차 멤버는 신규 row(totalFocusMinutes=0, rank=null, result=null), 기존 row 는 이력 보존")
+    @DisplayName("0 리셋 — 새 주차 멤버는 신규 row(totalFocusSeconds=0, rank=null, result=null), 기존 row 는 이력 보존")
     void zeroReset_newRowsAndHistoryPreserved() {
         LeagueTierConfig cfg = saveTierConfig(1, 30, 0, 0, 0);
         LeagueArena arena = saveActiveArena(cfg);
@@ -315,9 +315,9 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
 
         leagueBatchService.runWeeklyBatch(BATCH_NOW);
 
-        // 기존 row: ENDED 아레나에 rank/result/누적분 그대로 보존
+        // 기존 row: ENDED 아레나에 rank/result/누적초 그대로 보존
         assertThat(old.getLeagueArena().getId()).isEqualTo(arena.getId());
-        assertThat(old.getTotalFocusMinutes()).isEqualTo(250);
+        assertThat(old.getTotalFocusSeconds()).isEqualTo(250);
         assertThat(old.getRank()).isEqualTo(1);
         assertThat(old.getResult()).isEqualTo(LeagueMemberResult.STAY);
         // 신규 row: 0 리셋
@@ -327,7 +327,7 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
         LeagueArenaUser fresh = newMembers.get(0);
         assertThat(fresh.getId()).isNotEqualTo(old.getId());
         assertThat(fresh.getUser().getId()).isEqualTo(old.getUser().getId());
-        assertThat(fresh.getTotalFocusMinutes()).isZero();
+        assertThat(fresh.getTotalFocusSeconds()).isZero();
         assertThat(fresh.getRank()).isNull();
         assertThat(fresh.getResult()).isNull();
         assertThat(fresh.getTierLevel()).isEqualTo(1);

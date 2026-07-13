@@ -87,7 +87,7 @@ class ProfileServiceTest {
                 .user(user)
                 .leagueArena(arena)
                 .tierLevel(tierLevel)
-                .totalFocusMinutes(focusMinutes)
+                .totalFocusSeconds(focusMinutes)
                 .build();
     }
 

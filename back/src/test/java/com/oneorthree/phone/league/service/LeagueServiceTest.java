@@ -88,7 +88,7 @@ class LeagueServiceTest {
                 .user(user)
                 .leagueArena(arena)
                 .tierLevel(3)
-                .totalFocusMinutes(focusMinutes)
+                .totalFocusSeconds(focusMinutes)
                 .build();
     }
 
@@ -167,7 +167,7 @@ class LeagueServiceTest {
         assertThat(ranking.get(0).nickname()).isEqualTo("top");
         // 멤버별 실제 티어 반영 — league_arena_users.tier_level (GROMO-748)
         assertThat(ranking.get(0).tierLevel()).isEqualTo(3);
-        assertThat(ranking.get(0).totalFocusMinutes()).isEqualTo(300);
+        assertThat(ranking.get(0).totalFocusSeconds()).isEqualTo(300);
         assertThat(ranking.get(1).rank()).isEqualTo(2);
         assertThat(ranking.get(1).userId()).isEqualTo(USER_ID);
         assertThat(ranking.get(2).rank()).isEqualTo(3);
@@ -305,7 +305,7 @@ class LeagueServiceTest {
 
         assertThat(response.assigned()).isTrue();
         assertThat(response.myRank()).isEqualTo(2);
-        assertThat(response.totalFocusMinutes()).isEqualTo(200);
+        assertThat(response.totalFocusSeconds()).isEqualTo(200);
         assertThat(response.result()).isNull();
     }
 
@@ -355,7 +355,7 @@ class LeagueServiceTest {
     }
 
     @Test
-    @DisplayName("내 순위 조회(소속) → LEAGUE_RANK_VIEWED(my_rank·league_id·tier_level·total_focus_minutes) 발행")
+    @DisplayName("내 순위 조회(소속) → LEAGUE_RANK_VIEWED(my_rank·league_id·tier_level·total_focus_seconds) 발행")
     void getMyRankEmitsRankViewed() {
         LeagueArena arena = activeArena();
         LeagueArenaUser me = member(USER_ID, "me", arena, 200);
@@ -371,7 +371,7 @@ class LeagueServiceTest {
                 Map.of("my_rank", 2,
                         "league_id", ARENA_ID.toString(),
                         "tier_level", 3,
-                        "total_focus_minutes", 200));
+                        "total_focus_seconds", 200));
     }
 
     @Test

@@ -609,11 +609,11 @@ class FocusServiceTest {
     // ── GROMO-646: 세션 완료 시 리그 공부시간 반영 ──────────────────────────
 
     @Test
-    @DisplayName("GROMO-646: 세션 완료 시 ACTIVE 아레나 멤버면 리그 공부시간 += (분, 초/60 내림)")
-    void recordCompletionAddsFocusMinutesToActiveArena() {
-        // given: 기존 10분 누적된 ACTIVE 아레나 멤버 + 60분(3600초) 세션
+    @DisplayName("GROMO-665: 세션 완료 시 ACTIVE 아레나 멤버면 리그 공부시간 += (초 직접 누적, 분 내림 없음)")
+    void recordCompletionAddsFocusSecondsToActiveArena() {
+        // given: 기존 10초 누적된 ACTIVE 아레나 멤버 + 60분(3600초) 세션
         User user = User.builder().id(USER_ID).build();
-        LeagueArenaUser member = LeagueArenaUser.builder().user(user).totalFocusMinutes(10).build();
+        LeagueArenaUser member = LeagueArenaUser.builder().user(user).totalFocusSeconds(10).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -625,8 +625,8 @@ class FocusServiceTest {
         // when: START~END = 60분
         focusService.saveFocusSession(USER_ID, body);
 
-        // then: 10 + 60 = 70 분 (더티 체킹 반영)
-        assertThat(member.getTotalFocusMinutes()).isEqualTo(70);
+        // then: 10 + 3600 = 3610 초 (초 직접 누적, 분 내림 없음 — 더티 체킹 반영)
+        assertThat(member.getTotalFocusSeconds()).isEqualTo(3610);
     }
 
     @Test
