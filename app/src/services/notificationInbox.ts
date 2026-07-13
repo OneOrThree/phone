@@ -53,6 +53,17 @@ function shouldStore(type: string | null): boolean {
   return STORED_TYPES === 'all' || (type !== null && STORED_TYPES.includes(type));
 }
 
+// 보관함 수정(읽기→고치기→쓰기) 직렬화 큐 — 푸시 2건이 거의 동시에 저장되면 둘 다 같은
+// 스냅샷을 읽고 나중 쓰기가 먼저 쓴 알림을 덮어써 유실될 수 있어(PR 224 리뷰),
+// 수정 작업은 한 번에 하나씩 실행한다.
+let writeQueue: Promise<void> = Promise.resolve();
+
+function enqueueWrite(task: () => Promise<void>): Promise<void> {
+  const next = writeQueue.then(task);
+  writeQueue = next.catch(() => {}); // 작업이 실패해도 큐는 계속 흐르게
+  return next;
+}
+
 // 수신/탭한 푸시 1건을 보관함 맨 앞에 저장. 같은 id가 이미 있으면 무시(중복 진입 대비).
 export async function addToInbox(input: {
   id?: string;
@@ -63,27 +74,29 @@ export async function addToInbox(input: {
 }): Promise<void> {
   if (!shouldStore(input.type)) return;
   if (!input.title && !input.body) return; // 표시할 내용이 없는 payload는 버림
-  try {
-    const items = await loadAll();
-    const id = input.id ?? `local-${Date.now()}`;
-    if (items.some((n) => n.id === id)) return;
-    const next: InboxNotification[] = [
-      {
-        id,
-        type: input.type,
-        title: input.title,
-        body: input.body,
-        link: input.link,
-        receivedAt: Date.now(),
-        read: false,
-      },
-      ...items,
-    ].slice(0, MAX_ITEMS);
-    await saveAll(next);
-    emitChange();
-  } catch {
-    // 저장 실패는 무시 — 알림 수신/딥링크 흐름을 막지 않는다.
-  }
+  await enqueueWrite(async () => {
+    try {
+      const items = await loadAll();
+      const id = input.id ?? `local-${Date.now()}`;
+      if (items.some((n) => n.id === id)) return;
+      const next: InboxNotification[] = [
+        {
+          id,
+          type: input.type,
+          title: input.title,
+          body: input.body,
+          link: input.link,
+          receivedAt: Date.now(),
+          read: false,
+        },
+        ...items,
+      ].slice(0, MAX_ITEMS);
+      await saveAll(next);
+      emitChange();
+    } catch {
+      // 저장 실패는 무시 — 알림 수신/딥링크 흐름을 막지 않는다.
+    }
+  });
 }
 
 // 보관함 전체(최신순).
@@ -91,16 +104,21 @@ export async function getInbox(): Promise<InboxNotification[]> {
   return loadAll();
 }
 
-// 전체 읽음 처리 — 알림 화면 진입 시 호출, 홈 종 빨간 점이 꺼진다.
-export async function markAllRead(): Promise<void> {
-  try {
-    const items = await loadAll();
-    if (!items.some((n) => !n.read)) return;
-    await saveAll(items.map((n) => (n.read ? n : { ...n, read: true })));
-    emitChange();
-  } catch {
-    // 실패해도 다음 진입 때 다시 시도된다.
-  }
+// 지정한 id만 읽음 처리 — 알림 화면이 진입 시점 스냅샷의 id로 호출한다. 전체 읽음으로 하면
+// 스냅샷 직후 도착해 화면에 안 보인 알림까지 읽음 처리돼 조용히 묻힐 수 있다(PR 224 리뷰).
+export async function markRead(ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await enqueueWrite(async () => {
+    try {
+      const idSet = new Set(ids);
+      const items = await loadAll();
+      if (!items.some((n) => !n.read && idSet.has(n.id))) return;
+      await saveAll(items.map((n) => (!n.read && idSet.has(n.id) ? { ...n, read: true } : n)));
+      emitChange();
+    } catch {
+      // 실패해도 다음 진입 때 다시 시도된다.
+    }
+  });
 }
 
 // 안 읽은 알림 존재 여부 — 홈 종 뱃지용.

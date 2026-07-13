@@ -7,10 +7,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { navigateToDeepLink } from '@/navigation/navigationRef';
-import { getInbox, markAllRead, type InboxNotification } from '@/services/notificationInbox';
+import { getInbox, markRead, type InboxNotification } from '@/services/notificationInbox';
 
 // 알림 화면 (GROMO-661) — 보관함(notificationInbox)에 저장된 푸시를 최신순 목록으로 보여준다.
-// 홈 우측 상단 종에서 진입. 진입 시 전체 읽음 처리되어 홈 종의 빨간 점이 꺼지고,
+// 홈 우측 상단 종에서 진입. 진입 시점 스냅샷의 알림만 읽음 처리해 홈 종의 빨간 점을 끄고,
 // 이번 진입 시점에 안 읽었던 알림에는 목록에서 점 표시를 남긴다.
 // 데이터 원천은 로컬 보관함 — BE 알림 이력 API가 생기면 notificationInbox만 교체하면 된다.
 
@@ -44,8 +44,9 @@ export default function NotificationsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const [items, setItems] = useState<InboxNotification[]>([]);
 
-  // 진입 시 목록 스냅샷을 뜨고 나서 전체 읽음 처리 — 화면에는 진입 시점의 안읽음 점이 남고,
-  // 홈 종 뱃지는 구독(subscribeInbox)을 통해 즉시 꺼진다.
+  // 진입 시 목록 스냅샷을 뜨고 그 id들만 읽음 처리 — 스냅샷 직후 도착한 알림은 안읽음으로
+  // 남아 종 뱃지가 유지된다. 화면에는 진입 시점의 안읽음 점이 남고, 홈 종 뱃지는
+  // 구독(subscribeInbox)을 통해 즉시 갱신된다.
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
@@ -53,7 +54,7 @@ export default function NotificationsScreen() {
         const list = await getInbox();
         if (cancelled) return;
         setItems(list);
-        await markAllRead();
+        await markRead(list.map((n) => n.id));
       })();
       return () => {
         cancelled = true;
