@@ -1,12 +1,24 @@
 import { useMemo } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
-import Animated, { type CSSAnimationProperties } from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  SensorType,
+  useAnimatedSensor,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+  type AnimatedSensor,
+  type CSSAnimationProperties,
+  type Value3D,
+} from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 
 // 종이폭죽 오버레이(GROMO-667) — 모달 등장 직후 위에서 흩뿌려진다. obstacle(모달 카드)을
 // 장애물로 취급: 카드 위로 떨어진 조각은 윗변에 쌓이고, 가장자리에 걸친 조각은 옆으로
-// 미끄러져 화면 밖까지, 카드 밖 조각은 그대로 바닥까지 낙하한다. 라이브러리 없이
-// reanimated CSS 키프레임 1회 재생(터치 통과, 종료 상태 유지는 fillMode both).
+// 미끄러져 화면 밖까지, 카드 밖 조각은 그대로 바닥까지 낙하한다. 쌓인 조각은 기울임
+// (중력 센서 x)에 밀리다가 카드 가장자리를 넘으면 떨어진다 — 시뮬레이터는 센서가 없어
+// 기울임 효과는 실기기에서만 보인다. 라이브러리 없이 reanimated로만 구현.
 const PALETTE = [T.accent, T.greenDeep, T.blue, T.accentDeep, T.sand];
 const PIECE_COUNT = 44;
 const BASE_DELAY = 250; // 모달 페이드 인(fade)이 끝난 직후 시작
@@ -23,8 +35,12 @@ interface Props {
 
 // 조각 하나의 정적 스타일 + 키프레임 — 분기별 리터럴이 유니언으로 넓혀지지 않게 타입을 고정
 interface PieceSpec {
-  base: { left: number; width: number; height: number; backgroundColor: string };
+  kind: 'pile' | 'through'; // pile = 카드 윗변에 쌓임(기울임 반응 대상)
+  left: number;
+  base: { width: number; height: number; backgroundColor: string };
   anim: CSSAnimationProperties;
+  finalX: number; // 낙하 종료 시점의 x(시작 + 흔들림) — 기울임 낙하 판정 기준
+  sensitivity: number; // 중력 x(m/s²) 1당 밀리는 px — 조각마다 달라 모래처럼 흩어진다
 }
 
 // 조각 공통 애니메이션 속성 — 렌더 밖 상수(no-inline-styles 회피, 매 렌더 재생성 방지)
@@ -33,8 +49,49 @@ const pieceAnimBase = {
   animationFillMode: 'both',
 } as const;
 
+// 쌓인 조각 — 기울임(중력 x)에 스프링으로 밀리고, 카드 가장자리를 넘는 순간 낙하한다.
+function TiltPiece({
+  spec,
+  gravity,
+  cardLeft,
+  cardRight,
+  screenH,
+}: {
+  spec: PieceSpec;
+  gravity: AnimatedSensor<Value3D>;
+  cardLeft: number;
+  cardRight: number;
+  screenH: number;
+}) {
+  const fallen = useSharedValue(0); // 0=쌓여 있음, 1=가장자리를 넘어 낙하 시작
+  const fallY = useSharedValue(0);
+  const tiltStyle = useAnimatedStyle(() => {
+    const shift = gravity.sensor.value.x * spec.sensitivity;
+    if (fallen.value === 0) {
+      const x = spec.finalX + shift;
+      if (x < cardLeft - 4 || x > cardRight + 4) {
+        fallen.value = 1;
+        fallY.value = withTiming(screenH, { duration: 900, easing: Easing.in(Easing.quad) });
+      }
+    }
+    return {
+      transform: [
+        { translateX: withSpring(shift, { damping: 20, stiffness: 180 }) },
+        { translateY: fallY.value },
+      ],
+    };
+  });
+  return (
+    <Animated.View style={[s.piece, { left: spec.left }, tiltStyle]}>
+      <Animated.View style={[s.pieceBody, spec.base, spec.anim]} />
+    </Animated.View>
+  );
+}
+
 export function ConfettiBurst({ obstacle }: Props) {
   const { width: W, height: H } = useWindowDimensions();
+  // 기울임 감지 — 컨페티가 떠 있는 동안만 구독(언마운트 시 자동 해제)
+  const gravity = useAnimatedSensor(SensorType.GRAVITY);
 
   // 조각 파라미터·궤적은 1회 생성(useMemo) — 최종 낙하 x가 카드 폭 안이면 '쌓임',
   // 카드 가장자리 14% 구간이면 '미끄러짐', 밖이면 '통과 낙하'로 분기한다.
@@ -48,8 +105,8 @@ export function ConfettiBurst({ obstacle }: Props) {
       const spin = 360 + Math.random() * 720;
       const duration = 1500 + Math.random() * 1000;
       const delay = BASE_DELAY + Math.random() * 350;
+      const sensitivity = 5 + Math.random() * 8;
       const base = {
-        left: startX,
         width: size,
         height: pieceH,
         backgroundColor: PALETTE[i % PALETTE.length],
@@ -63,11 +120,15 @@ export function ConfettiBurst({ obstacle }: Props) {
         onCard && obstacle != null && finalX > obstacle.x + obstacle.width - edgeZone;
 
       if (obstacle && onCard && !nearLeft && !nearRight) {
-        // 카드 윗변에 쌓임 — 살짝 눌렸다가 안착해 그대로 머문다
+        // 카드 윗변에 쌓임 — 살짝 눌렸다가 안착해 그대로 머문다(이후 기울임 반응)
         const landY = obstacle.y - pieceH + 16 + (Math.random() * 8 - 2);
         const settle = `${(Math.random() - 0.5) * 80}deg`;
         return {
+          kind: 'pile',
+          left: startX,
           base,
+          finalX,
+          sensitivity,
           anim: {
             animationName: {
               from: { transform: [{ translateY: 0 }, { translateX: 0 }, { rotate: '0deg' }] },
@@ -89,7 +150,11 @@ export function ConfettiBurst({ obstacle }: Props) {
         const dir = nearLeft ? -1 : 1;
         const push = dir * (edgeZone + 30 + Math.random() * 40);
         return {
+          kind: 'through',
+          left: startX,
           base,
+          finalX,
+          sensitivity,
           anim: {
             animationName: {
               from: { transform: [{ translateY: 0 }, { translateX: 0 }, { rotate: '0deg' }] },
@@ -124,7 +189,11 @@ export function ConfettiBurst({ obstacle }: Props) {
 
       // 카드 밖 — 바닥까지 그대로 낙하
       return {
+        kind: 'through',
+        left: startX,
         base,
+        finalX,
+        sensitivity,
         anim: {
           animationName: {
             from: { transform: [{ translateY: 0 }, { translateX: 0 }, { rotate: '0deg' }] },
@@ -142,13 +211,25 @@ export function ConfettiBurst({ obstacle }: Props) {
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {pieces.map((p, i) => (
-        <Animated.View key={i} style={[s.piece, p.base, p.anim]} />
-      ))}
+      {pieces.map((p, i) =>
+        p.kind === 'pile' && obstacle ? (
+          <TiltPiece
+            key={i}
+            spec={p}
+            gravity={gravity}
+            cardLeft={obstacle.x}
+            cardRight={obstacle.x + obstacle.width}
+            screenH={H}
+          />
+        ) : (
+          <Animated.View key={i} style={[s.piece, s.pieceBody, { left: p.left }, p.base, p.anim]} />
+        ),
+      )}
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  piece: { position: 'absolute', top: -16, borderRadius: 2 },
+  piece: { position: 'absolute', top: -16 },
+  pieceBody: { borderRadius: 2 },
 });
