@@ -18,9 +18,11 @@ export function hms(totalSeconds: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
-// 세로축 눈금 상한 — 최대치를 보기 좋은 값(30m 단위→h 단위)으로 올림해 그리드 라벨·막대 정규화
-// 기준으로 쓴다(절반 눈금도 정수 분). 리그 비교 차트(DuoDayChart)·통계 막대 차트 공용(GROMO-691/761).
-const AXIS_STEPS = [30, 60, 120, 180, 240, 300, 360, 480, 600, 720];
+// 세로축 눈금 상한 — 최대치를 보기 좋은 값으로 올림해 그리드 라벨·막대 정규화 기준으로 쓴다.
+// 리그 비교 차트(DuoDayChart)·통계 막대 차트·집중 결과 차트 공용(GROMO-691/761/683).
+// 데이터가 적을 때도 축이 데이터에 맞게 조여지도록 하한은 6분(GROMO-683). 모든 눈금은
+// 6의 배수 — 절반(리그)·⅓(통계·결과) 분할 라벨이 전부 정수 분이 되게 유지할 것.
+const AXIS_STEPS = [6, 12, 18, 30, 60, 120, 180, 240, 300, 360, 480, 600, 720];
 export function axisCeil(maxMinutes: number): number {
   return AXIS_STEPS.find((step) => step >= maxMinutes) ?? Math.ceil(maxMinutes / 120) * 120;
 }
