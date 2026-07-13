@@ -4171,6 +4171,9 @@
           "reportedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "isFinal": {
+            "type": "boolean"
           }
         },
         "required": [
