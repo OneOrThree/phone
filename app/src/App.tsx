@@ -184,6 +184,7 @@ export default function App() {
       STORAGE_KEYS.focusFirstDone, // 다음 계정이 '첫 집중 완료' 변형을 정상적으로 보게
       STORAGE_KEYS.subjects, // 이전 계정 과목 목록·과목별 오늘 누적이 새 계정에 노출되지 않게(GROMO-677)
       STORAGE_KEYS.focus, // 이전 계정 '오늘 집중' 총합이 새 계정 홈에 남지 않게(GROMO-677)
+      STORAGE_KEYS.notificationInbox, // 이전 계정 알림 목록·안읽음 뱃지가 새 계정에 노출되지 않게(PR 224 리뷰)
     ]);
     setOnboardingFocusGoalSeconds(null);
     setOnboardingScreenTimeGoalSeconds(null);
@@ -214,6 +215,7 @@ export default function App() {
         STORAGE_KEYS.focusFirstDone,
         STORAGE_KEYS.subjects,
         STORAGE_KEYS.focus,
+        STORAGE_KEYS.notificationInbox,
       ]);
     }
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');

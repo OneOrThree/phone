@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
   RefreshControl,
@@ -22,6 +22,7 @@ import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { getTodayStats } from '@/services/statsApi';
+import { hasUnread, subscribeInbox } from '@/services/notificationInbox';
 import type { TodayStatsResponse } from '@/types/dto/stats';
 import {
   logHomeViewed,
@@ -214,7 +215,17 @@ export default function HomeScreen() {
   const { tier: leagueTier } = useLeagueMeta();
   const { myLeagueRank } = useLeagueRanking();
   const tier = tierByLevel(leagueTier.tierLevel ?? 1);
-  const hasNotifications = false; // TODO: 실제 안 읽은 알림 여부로 교체
+
+  // 종 뱃지(빨간 점) = 보관함의 안 읽은 알림 여부. 최초 확인 + 보관함 변경 구독으로 갱신
+  // (알림 화면에서 읽음 처리하거나 포그라운드 푸시가 저장되면 즉시 반영).
+  const [hasNotifications, setHasNotifications] = useState(false);
+  useEffect(() => {
+    const refresh = () => {
+      hasUnread().then(setHasNotifications);
+    };
+    refresh();
+    return subscribeInbox(refresh);
+  }, []);
 
   // 공부 집중 값: 방금 끝낸 세션은 업로드가 비동기(실패 시 재시도 큐)라 서버 오늘요약에 아직
   // 없을 수 있고, 서버는 분 내림 집계라 1분 미만 세션은 영영 0이다. 결과 화면과 동일하게
@@ -264,7 +275,8 @@ export default function HomeScreen() {
             <TouchableOpacity
               style={s.settingsBtn}
               onPress={() => {
-                // TODO: 알림 화면으로 이동
+                logHomeButtonTapped({ button: 'notification_bell', destination: 'Notifications' });
+                navigation.navigate('Notifications');
               }}
               activeOpacity={0.8}
             >
