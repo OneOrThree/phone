@@ -294,6 +294,7 @@ class UserServiceTest {
                 .id(USER_ID)
                 .nickname("조재영")
                 .countryCode("KR")
+                .occupation(Occupation.UNIVERSITY)
                 .build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(500).build();
         UserScreenTimeSettings screen = UserScreenTimeSettings.builder()
@@ -314,6 +315,30 @@ class UserServiceTest {
         assertThat(response.dailyFocusTimeGoalMinutes()).isEqualTo(90);
         assertThat(response.countryCode()).isEqualTo("KR");
         assertThat(response.statVisibility()).isEqualTo("FRIENDS"); // 기본값
+        assertThat(response.occupation()).isEqualTo("UNIVERSITY"); // 준비 시험 enum name (GROMO-757)
+    }
+
+    @Test
+    @DisplayName("occupation 미설정 유저 → response.occupation() 은 null")
+    void getProfileWithoutOccupationReturnsNull() {
+        User user = User.builder()
+                .id(USER_ID)
+                .nickname("조재영")
+                .countryCode("KR")
+                .build();
+        UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(500).build();
+        UserScreenTimeSettings screen = UserScreenTimeSettings.builder()
+                .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build();
+        UserFocusTimeSettings focus = UserFocusTimeSettings.builder()
+                .userId(USER_ID).dailyFocusTimeGoalMinutes(90).build();
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
+
+        UserProfileResponse response = userService.getProfile(USER_ID);
+
+        assertThat(response.occupation()).isNull();
     }
 
     @Test
