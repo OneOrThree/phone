@@ -1,6 +1,8 @@
 // user 도메인 API 래퍼 (UserController + ProfileController, base /api/v1).
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
-import { api } from '@/services/api';
+// (예외: deleteDeviceToken — 세션 정리용이라 인터셉터 없는 bare axios를 쓴다. 아래 주석 참고.)
+import axios from 'axios';
+import { api, API_URL } from '@/services/api';
 import { todayStr } from '@/utils/localDate';
 import type {
   DeviceTokenRegisterRequest,
@@ -55,8 +57,13 @@ export async function registerDeviceToken(body: DeviceTokenRegisterRequest): Pro
 
 // DELETE /api/v1/users/me/device-token — 디바이스 토큰 등록 해제.
 // 로그아웃·계정 전환 시 호출 — 서버가 이전 계정 푸시를 이 기기로 계속 보내지 않게(PR 224 리뷰).
-export async function deleteDeviceToken(): Promise<void> {
-  await api.delete('/api/v1/users/me/device-token');
+// 공유 api 인스턴스를 쓰지 않는다 — 이전 계정 토큰이 만료 상태면 401 인터셉터가 전역 로그아웃을
+// 발동시켜 방금 로그인한 계정까지 로그아웃될 수 있어(PR 226 리뷰), 정리 대상 계정의 토큰을
+// 명시한 bare axios로 보낸다.
+export async function deleteDeviceToken(accessToken: string): Promise<void> {
+  await axios.delete(`${API_URL}/api/v1/users/me/device-token`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
 }
 
 // PUT /api/v1/users/me/notification-settings — 알림·심야·소리 설정 저장.

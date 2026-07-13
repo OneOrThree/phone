@@ -54,6 +54,15 @@ function rawTypeFromData(data?: Record<string, unknown>): string | null {
   return typeof raw === 'string' ? raw : null;
 }
 
+// FCM 발송 시각 정규화 — iOS의 sentTime은 APNs payload의 google.c.a.ts에서 파생돼 문자열이나
+// 초 단위로 올 수 있다(PR 226 리뷰). 숫자로 파싱하고, 초 단위(1e12 미만 — ms라면 2001년 이후는
+// 항상 그 이상)면 ms로 환산한다. 유효하지 않으면 null.
+function normalizeSentTime(sentTime: unknown): number | null {
+  const n = typeof sentTime === 'string' ? Number(sentTime) : sentTime;
+  if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return null;
+  return n < 1e12 ? n * 1000 : n;
+}
+
 // 수신/탭한 푸시를 알림 보관함에 저장 — 알림 화면(GROMO-661)의 데이터 원천.
 // messageId로 중복 저장을 막으므로 여러 경로에서 같은 메시지를 만나도 안전하다.
 function saveToInbox(msg: FirebaseMessagingTypes.RemoteMessage | null): void {
@@ -66,7 +75,7 @@ function saveToInbox(msg: FirebaseMessagingTypes.RemoteMessage | null): void {
     link: linkFromData(msg.data),
     // 백그라운드/종료 상태 알림은 탭 시점에야 코드가 돌아 저장 시각이 '탭한 시각'이 된다 —
     // FCM 발송 시각(sentTime)이 있으면 그걸 수신 시각으로 기록한다(PR 224 리뷰).
-    receivedAt: typeof msg.sentTime === 'number' && msg.sentTime > 0 ? msg.sentTime : undefined,
+    receivedAt: normalizeSentTime(msg.sentTime) ?? undefined,
   });
 }
 

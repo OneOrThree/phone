@@ -171,8 +171,11 @@ export default function App() {
   async function handleLogout() {
     // 서버 디바이스 토큰 등록 해제 — 이전 계정 푸시가 이 기기로 계속 발송되지 않게(PR 224 리뷰).
     // 아래 multiRemove로 토큰이 지워지기 전, 인증이 살아있을 때 호출해야 한다.
+    // 토큰을 명시해 bare 요청으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401 인터셉터가
+    // 이 함수(로그아웃)를 재발동시킬 수 있다(PR 226 리뷰).
     try {
-      await deleteDeviceToken();
+      const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+      if (accessToken) await deleteDeviceToken(accessToken);
     } catch {}
     try {
       const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
@@ -310,10 +313,12 @@ export default function App() {
       applyStoredSession();
     });
     // 계정이 바뀌는 토큰 교체 직전, 이전 계정 인증이 살아있을 때 뒷정리(PR 200 리뷰 — applyStoredSession은 늦음):
-    // 태그 편집 큐 폐기 + 서버 디바이스 토큰 등록 해제(이전 계정 푸시가 이 기기로 오지 않게, PR 224 리뷰)
-    setAccountSwitchHandler(async () => {
+    // 태그 편집 큐 폐기 + 서버 디바이스 토큰 등록 해제(이전 계정 푸시가 이 기기로 오지 않게, PR 224 리뷰).
+    // 해제 요청은 넘겨받은 이전 계정 토큰으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401
+    // 인터셉터가 전역 로그아웃을 발동시켜 방금 로그인한 계정이 풀릴 수 있다(PR 226 리뷰).
+    setAccountSwitchHandler(async (prevAccessToken) => {
       abortTagEdits();
-      await deleteDeviceToken().catch(() => {});
+      await deleteDeviceToken(prevAccessToken).catch(() => {});
     });
   }, []);
 

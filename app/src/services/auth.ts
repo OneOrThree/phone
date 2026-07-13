@@ -32,8 +32,12 @@ interface AuthResponse {
 // applyStoredSession 시점엔 새 토큰이 이미 저장된 뒤라, 이전 계정 인증이 필요한 정리(태그 편집 큐
 // 폐기·디바이스 토큰 등록 해제)가 늦는다(PR 200/224 리뷰) — 토큰 저장 직전으로 앞당긴다.
 // async 핸들러는 완료까지 기다린다 — 새 토큰이 저장되면 이전 계정 API를 더는 부를 수 없어서.
-let accountSwitchHandler: (() => void | Promise<void>) | null = null;
-export function setAccountSwitchHandler(handler: () => void | Promise<void>): void {
+// 이전 계정 access 토큰을 핸들러에 넘긴다 — 공유 api 인스턴스의 401 전역 로그아웃을 피해
+// bare 요청에 명시적으로 실어 보내기 위함(PR 226 리뷰).
+let accountSwitchHandler: ((prevAccessToken: string) => void | Promise<void>) | null = null;
+export function setAccountSwitchHandler(
+  handler: (prevAccessToken: string) => void | Promise<void>,
+): void {
   accountSwitchHandler = handler;
 }
 
@@ -43,7 +47,9 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
   const prevToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
   const prevUserId = prevToken ? getUserIdFromToken(prevToken) : null;
   const nextUserId = getUserIdFromToken(data.accessToken);
-  if (prevUserId && nextUserId && prevUserId !== nextUserId) await accountSwitchHandler?.();
+  if (prevToken && prevUserId && nextUserId && prevUserId !== nextUserId) {
+    await accountSwitchHandler?.(prevToken);
+  }
   await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
   await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
 

@@ -80,6 +80,8 @@ export async function addToInbox(input: {
       const items = await loadAll();
       const id = input.id ?? `local-${Date.now()}`;
       if (items.some((n) => n.id === id)) return;
+      // receivedAt 내림차순 정렬 유지 — 몇 시간 전 발송된 알림(sentTime)을 뒤늦게 탭해 저장하면
+      // 단순 맨 앞 삽입으로는 더 새 알림 위로 올라가 최신순이 깨진다(PR 226 리뷰).
       const next: InboxNotification[] = [
         {
           id,
@@ -91,7 +93,9 @@ export async function addToInbox(input: {
           read: false,
         },
         ...items,
-      ].slice(0, MAX_ITEMS);
+      ]
+        .sort((a, b) => b.receivedAt - a.receivedAt)
+        .slice(0, MAX_ITEMS);
       await saveAll(next);
       emitChange();
     } catch {
