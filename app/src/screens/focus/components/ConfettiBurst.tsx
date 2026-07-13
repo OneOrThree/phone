@@ -5,12 +5,11 @@ import Animated, {
   SensorType,
   useAnimatedSensor,
   useAnimatedStyle,
+  useFrameCallback,
   useSharedValue,
-  withSpring,
   withTiming,
-  type AnimatedSensor,
   type CSSAnimationProperties,
-  type Value3D,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 
@@ -40,7 +39,7 @@ interface PieceSpec {
   base: { width: number; height: number; backgroundColor: string };
   anim: CSSAnimationProperties;
   finalX: number; // 낙하 종료 시점의 x(시작 + 흔들림) — 기울임 낙하 판정 기준
-  sensitivity: number; // 중력 x(m/s²) 1당 밀리는 px — 조각마다 달라 모래처럼 흩어진다
+  factor: number; // 공통 미끄러짐 오프셋에 곱하는 배율 — 조각마다 달라 모래처럼 흩어진다
 }
 
 // 조각 공통 애니메이션 속성 — 렌더 밖 상수(no-inline-styles 회피, 매 렌더 재생성 방지)
@@ -49,16 +48,18 @@ const pieceAnimBase = {
   animationFillMode: 'both',
 } as const;
 
-// 쌓인 조각 — 기울임(중력 x)에 스프링으로 밀리고, 카드 가장자리를 넘는 순간 낙하한다.
+// 쌓인 조각 — 공통 미끄러짐 오프셋(slide, 기울임 적분값)에 배율을 곱해 밀리고,
+// 카드 가장자리를 넘는 순간 낙하한다. 기울이는 동안 오프셋이 계속 커지므로
+// 충분히 기울이고 있으면 가운데 조각까지 전부 우수수 흘러내린다.
 function TiltPiece({
   spec,
-  gravity,
+  slide,
   cardLeft,
   cardRight,
   screenH,
 }: {
   spec: PieceSpec;
-  gravity: AnimatedSensor<Value3D>;
+  slide: SharedValue<number>;
   cardLeft: number;
   cardRight: number;
   screenH: number;
@@ -66,7 +67,7 @@ function TiltPiece({
   const fallen = useSharedValue(0); // 0=쌓여 있음, 1=가장자리를 넘어 낙하 시작
   const fallY = useSharedValue(0);
   const tiltStyle = useAnimatedStyle(() => {
-    const shift = gravity.sensor.value.x * spec.sensitivity;
+    const shift = slide.value * spec.factor;
     if (fallen.value === 0) {
       const x = spec.finalX + shift;
       if (x < cardLeft - 4 || x > cardRight + 4) {
@@ -75,10 +76,7 @@ function TiltPiece({
       }
     }
     return {
-      transform: [
-        { translateX: withSpring(shift, { damping: 20, stiffness: 180 }) },
-        { translateY: fallY.value },
-      ],
+      transform: [{ translateX: shift }, { translateY: fallY.value }],
     };
   });
   return (
@@ -92,6 +90,21 @@ export function ConfettiBurst({ obstacle }: Props) {
   const { width: W, height: H } = useWindowDimensions();
   // 기울임 감지 — 컨페티가 떠 있는 동안만 구독(언마운트 시 자동 해제)
   const gravity = useAnimatedSensor(SensorType.GRAVITY);
+  // 미끄러짐 물리 — 매 프레임 중력 x를 적분(가속→속도→변위)해 공통 오프셋을 만든다.
+  // 비례식(기울기×상수)은 가운데 조각이 가장자리에 못 미쳐 멈추는 문제가 있어 적분으로 교체.
+  // |g|<0.8(≈5°)은 정지 마찰로 취급해 속도를 감쇠 — 살짝 기울임엔 흐르지 않는다.
+  const slide = useSharedValue(0);
+  const slideVel = useSharedValue(0);
+  useFrameCallback((frame) => {
+    const dt = Math.min((frame.timeSincePreviousFrame ?? 16) / 1000, 0.05);
+    const g = gravity.sensor.value.x;
+    if (Math.abs(g) < 0.8) {
+      slideVel.value *= 0.8;
+    } else {
+      slideVel.value = (slideVel.value + g * 260 * dt) * 0.995;
+    }
+    slide.value += slideVel.value * dt;
+  });
 
   // 조각 파라미터·궤적은 1회 생성(useMemo) — 최종 낙하 x가 카드 폭 안이면 '쌓임',
   // 카드 가장자리 14% 구간이면 '미끄러짐', 밖이면 '통과 낙하'로 분기한다.
@@ -105,7 +118,7 @@ export function ConfettiBurst({ obstacle }: Props) {
       const spin = 360 + Math.random() * 720;
       const duration = 1500 + Math.random() * 1000;
       const delay = BASE_DELAY + Math.random() * 350;
-      const sensitivity = 5 + Math.random() * 8;
+      const factor = 0.6 + Math.random() * 0.8;
       const base = {
         width: size,
         height: pieceH,
@@ -128,7 +141,7 @@ export function ConfettiBurst({ obstacle }: Props) {
           left: startX,
           base,
           finalX,
-          sensitivity,
+          factor,
           anim: {
             animationName: {
               from: { transform: [{ translateY: 0 }, { translateX: 0 }, { rotate: '0deg' }] },
@@ -154,7 +167,7 @@ export function ConfettiBurst({ obstacle }: Props) {
           left: startX,
           base,
           finalX,
-          sensitivity,
+          factor,
           anim: {
             animationName: {
               from: { transform: [{ translateY: 0 }, { translateX: 0 }, { rotate: '0deg' }] },
@@ -193,7 +206,7 @@ export function ConfettiBurst({ obstacle }: Props) {
         left: startX,
         base,
         finalX,
-        sensitivity,
+        factor,
         anim: {
           animationName: {
             from: { transform: [{ translateY: 0 }, { translateX: 0 }, { rotate: '0deg' }] },
@@ -216,7 +229,7 @@ export function ConfettiBurst({ obstacle }: Props) {
           <TiltPiece
             key={i}
             spec={p}
-            gravity={gravity}
+            slide={slide}
             cardLeft={obstacle.x}
             cardRight={obstacle.x + obstacle.width}
             screenH={H}
