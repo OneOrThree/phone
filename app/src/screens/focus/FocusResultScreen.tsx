@@ -115,15 +115,19 @@ export default function FocusResultScreen() {
       const [w, st, cells] = await Promise.all([
         getFocusPeriodStats('WEEK').catch(() => null),
         getStreak().catch(() => null),
-        getHeatmap(days[0], todayStr()).catch(() => [] as HeatmapCellResponse[]),
+        getHeatmap(days[0], todayStr()).catch(() => null),
       ]);
       if (cancelled) return;
       setWeek(w);
       setStreak(st);
-      const map: Record<string, HeatmapCellResponse> = {};
-      for (const c of cells) map[c.date] = c;
-      setCellByDate(map);
-      setCellsLoaded(true);
+      // heatmap 실패는 '로드됨'으로 치지 않는다 — 빈 데이터로 연출을 판정하면 popped 플래그가
+      // 선기록돼 그 주의 주간 축하가 유실된다(PR 227 리뷰). 실패 시 다음 진입에서 재판정.
+      if (cells) {
+        const map: Record<string, HeatmapCellResponse> = {};
+        for (const c of cells) map[c.date] = c;
+        setCellByDate(map);
+        setCellsLoaded(true);
+      }
     })();
     fetchFriendsAverage('DAY').then((v) => !cancelled && setFriendDayAvg(v));
     return () => {
@@ -211,10 +215,11 @@ export default function FocusResultScreen() {
   const sessionMin = Math.round(focusSeconds / 60);
   const serverToday = cellByDate[today]?.totalFocusMinutes ?? 0;
   const adjustedToday = Math.max(serverToday, sessionMin);
-  // 스트릭 판정용 오늘 충족 여부(GROMO-682) — 반올림(sessionMin)을 쓰면 9분 30초가 10분으로
-  // 인정되므로 판정에는 방금 세션을 내림으로 계산(표시용 adjustedToday와 분리).
+  // 스트릭 판정용 오늘 충족 여부(GROMO-682) — 서버와 로컬 하루 누적(FocusContext, 방금 세션
+  // 포함) 중 큰 값을 내림으로 판정. 세션 단건만 보면 '서버 5분+이번 6분' 같은 합산 도달을
+  // 업로드 레이스에서 놓친다(PR 227 리뷰). 반올림 금지 — 9분 30초가 10분으로 인정되는 문제.
   const todayStreakDone =
-    Math.max(serverToday, Math.floor(focusSeconds / 60)) >= STREAK_MIN_DAILY_MINUTES;
+    Math.max(serverToday, Math.floor(todayFocusSeconds / 60)) >= STREAK_MIN_DAILY_MINUTES;
   // 주간 스트릭 완성(GROMO-667) — 월~일 7칸 모두 하루 10분 기준 충족.
   // 미래 요일은 셀이 없어 자동으로 false — 사실상 일요일 세션 완료 시에만 참이 된다.
   const weekStreakComplete =
@@ -237,17 +242,32 @@ export default function FocusResultScreen() {
         () => null,
       );
       if (cancelled || celebrationStarted.current) return;
-      if (popped === today) return;
       celebrationStarted.current = true;
-      AsyncStorage.setItem(STORAGE_KEYS.focusStreakPoppedDate, today).catch(() => {});
-      setTodayPop(true);
+      // 오늘 ✓ 팝은 하루 1회. 주간 축하는 팝 여부와 독립 판정 — 팝 도장이 이미 있어도(예: 이전
+      // 진입에서 모달을 못 보고 이탈) 이번 주 도장이 없으면 다시 시도한다(PR 227 리뷰).
+      const shouldPop = popped !== today;
+      if (shouldPop) {
+        AsyncStorage.setItem(STORAGE_KEYS.focusStreakPoppedDate, today).catch(() => {});
+        setTodayPop(true);
+      }
       if (!weekStreakComplete) return;
       const seenWeek = await AsyncStorage.getItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek).catch(
         () => null,
       );
       if (cancelled || seenWeek === mondayKey) return;
-      AsyncStorage.setItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek, mondayKey).catch(() => {});
-      timers.push(setTimeout(() => setWeekModalVisible(true), 1200));
+      timers.push(
+        setTimeout(
+          () => {
+            // 주 1회 도장은 모달이 실제로 뜨는 순간 기록 — 딜레이 중 화면을 떠나면(타이머 취소)
+            // 다음 결과 진입에서 다시 뜰 수 있다(PR 227 리뷰).
+            AsyncStorage.setItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek, mondayKey).catch(
+              () => {},
+            );
+            setWeekModalVisible(true);
+          },
+          shouldPop ? 1200 : 400,
+        ),
+      );
     })();
     return () => {
       cancelled = true;

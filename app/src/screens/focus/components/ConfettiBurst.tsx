@@ -3,6 +3,7 @@ import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Easing,
   SensorType,
+  useAnimatedReaction,
   useAnimatedSensor,
   useAnimatedStyle,
   useFrameCallback,
@@ -66,19 +67,23 @@ function TiltPiece({
 }) {
   const fallen = useSharedValue(0); // 0=쌓여 있음, 1=가장자리를 넘어 낙하 시작
   const fallY = useSharedValue(0);
-  const tiltStyle = useAnimatedStyle(() => {
-    const shift = slide.value * spec.factor;
-    if (fallen.value === 0) {
-      const x = spec.finalX + shift;
-      if (x < cardLeft - 4 || x > cardRight + 4) {
-        fallen.value = 1;
-        fallY.value = withTiming(screenH, { duration: 900, easing: Easing.in(Easing.quad) });
+  // 낙하 트리거는 reaction에서 — useAnimatedStyle 안에서 공유값을 쓰는 건 문서상 UB(평가 루프
+  // 가능)라 스타일 훅은 읽기 전용으로 유지한다(PR 227 리뷰).
+  useAnimatedReaction(
+    () => slide.value * spec.factor,
+    (shift) => {
+      if (fallen.value === 0) {
+        const x = spec.finalX + shift;
+        if (x < cardLeft - 4 || x > cardRight + 4) {
+          fallen.value = 1;
+          fallY.value = withTiming(screenH, { duration: 900, easing: Easing.in(Easing.quad) });
+        }
       }
-    }
-    return {
-      transform: [{ translateX: shift }, { translateY: fallY.value }],
-    };
-  });
+    },
+  );
+  const tiltStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: slide.value * spec.factor }, { translateY: fallY.value }],
+  }));
   return (
     <Animated.View style={[s.piece, { left: spec.left }, tiltStyle]}>
       <Animated.View style={[s.pieceBody, spec.base, spec.anim]} />
