@@ -31,6 +31,13 @@ public interface LeagueArenaUserRepository extends JpaRepository<LeagueArenaUser
     Optional<LeagueArenaUser> findByUserAndArenaStatus(
             @Param("userId") UUID userId, @Param("status") LeagueArenaStatus status);
 
+    // GROMO-710: 여러 유저의 현재 아레나 멤버십을 한 번에 배치 조회 (친구 목록·요청·검색 티어 도출, N+1 방지).
+    // user JOIN FETCH 로 유저 접근 N+1 방지, leagueArena 는 상태 필터에만 쓰여 fetch 불필요.
+    @Query("SELECT m FROM LeagueArenaUser m JOIN FETCH m.user JOIN m.leagueArena la "
+            + "WHERE m.user.id IN :userIds AND la.status = :status")
+    List<LeagueArenaUser> findByUserIdInAndArenaStatus(
+            @Param("userIds") Collection<UUID> userIds, @Param("status") LeagueArenaStatus status);
+
     // GROMO-646: 세션 완료 시 주간 누적 집중 시간 += 용 비관적 락 조회.
     // DailyFocusStat.findByUserAndDateForUpdate 와 동일 패턴 — 동시 세션 종료의 lost update 차단.
     // (fetch join 없음 — 갱신에 leagueArena 로드 불필요, 락과 fetch join 병행 회피)

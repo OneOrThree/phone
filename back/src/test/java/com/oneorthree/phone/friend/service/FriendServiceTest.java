@@ -22,6 +22,7 @@ import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.friend.search.FriendSearchResult;
 import com.oneorthree.phone.friend.search.FriendSearchStrategy;
 import com.oneorthree.phone.friend.search.SearchType;
+import com.oneorthree.phone.league.service.LeagueTierLookup;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -75,6 +76,9 @@ class FriendServiceTest {
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
 
+    @Mock
+    private LeagueTierLookup leagueTierLookup;
+
     private FriendService friendService;
 
     private UUID meId;
@@ -87,7 +91,7 @@ class FriendServiceTest {
         given(nicknameStrategy.type()).willReturn(SearchType.NICKNAME);
         friendService = new FriendService(friendshipRepository, userRepository, pinnedUserRepository,
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
-                userActivityEventLogger, List.of(nicknameStrategy));
+                userActivityEventLogger, leagueTierLookup, List.of(nicknameStrategy));
 
         meId = UUID.randomUUID();
         targetId = UUID.randomUUID();
@@ -359,6 +363,28 @@ class FriendServiceTest {
         assertThat(friends).allMatch(f -> !f.isPinned());
     }
 
+    @Test
+    @DisplayName("친구 목록 — 티어는 LeagueTierLookup 에서 도출: 멤버십 있으면 채우고 미소속은 null (GROMO-710)")
+    void getFriends_restoresTierLevel_fromLeagueLookup() {
+        User a = user(UUID.randomUUID(), "alice");   // ACTIVE 멤버십 있음
+        User b = user(UUID.randomUUID(), "bob");     // 미소속
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(friendshipRepository.findAcceptedByUser(me)).willReturn(List.of(
+                friendship(me, a, FriendshipStatus.ACCEPTED),
+                friendship(me, b, FriendshipStatus.ACCEPTED)
+        ));
+        // 상대 userId 들을 한 번에 모아 배치 조회 → alice=티어3, bob 미포함
+        given(leagueTierLookup.tierLevelsByUserId(List.of(a.getId(), b.getId())))
+                .willReturn(Map.of(a.getId(), 3));
+
+        List<FriendResponse> friends = friendService.getFriends(meId);
+
+        assertThat(friends).filteredOn(f -> f.getUserId().equals(a.getId()))
+                .extracting(FriendResponse::getTierLevel).containsExactly(3);
+        assertThat(friends).filteredOn(f -> f.getUserId().equals(b.getId()))
+                .extracting(FriendResponse::getTierLevel).containsExactly((Integer) null);
+    }
+
     // ── getRequests ────────────────────────────────────────
 
     @Test
@@ -388,6 +414,22 @@ class FriendServiceTest {
 
         assertThat(requests).hasSize(1);
         assertThat(requests.get(0).getUserId()).isEqualTo(targetId);
+    }
+
+    @Test
+    @DisplayName("요청 목록 — 티어는 LeagueTierLookup 에서 도출: 멤버십 있으면 채움 (GROMO-710)")
+    void getRequests_restoresTierLevel_fromLeagueLookup() {
+        Friendship req = friendship(target, me, FriendshipStatus.PENDING);
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(friendshipRepository.findByToUserAndStatus(me, FriendshipStatus.PENDING))
+                .willReturn(List.of(req));
+        given(leagueTierLookup.tierLevelsByUserId(List.of(targetId)))
+                .willReturn(Map.of(targetId, 4));
+
+        List<FriendRequestResponse> requests = friendService.getRequests(meId, "received");
+
+        assertThat(requests).hasSize(1);
+        assertThat(requests.get(0).getTierLevel()).isEqualTo(4);
     }
 
     // ── search ─────────────────────────────────────────────
@@ -428,6 +470,9 @@ class FriendServiceTest {
         assertThat(results).filteredOn(r -> r.getUserId().equals(strangerId))
                 .extracting(FriendSearchResultResponse::getRelation)
                 .containsExactly(FriendRelation.NONE);
+        // 전략이 채운 티어가 응답까지 흐른다 (GROMO-710) — 전략 자체의 티어 도출은 NicknameSearchStrategyTest 담당
+        assertThat(results).extracting(FriendSearchResultResponse::getTierLevel)
+                .containsOnly(1);
     }
 
     private FriendSearchResult result(UUID userId, String nickname) {
