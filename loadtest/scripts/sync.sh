@@ -44,8 +44,12 @@ vm_scp "$LT_DIR"/grafana/dashboards/*.json obs:~/obs/dashboards/loadtest/
 # prometheus.yml(mktemp 0600 유래) + provisioning/dashboards(체크아웃 umask 에 좌우, umask 077 대비)
 # 를 한 번에 확정 개방 — 같은 "컨테이너 non-root 가독" 실패 클래스를 통째로 닫는다.
 vm_ssh obs 'chmod 644 ~/obs/prometheus.yml && chmod -R a+rX ~/obs/grafana-provisioning ~/obs/dashboards'
-# reset·검증·pg_stat 덤프가 seed 실행 여부와 무관하게 항상 가능하도록 운영 SQL 도 함께 배치
+# reset·검증·pg_stat 덤프가 seed 실행 여부와 무관하게 항상 가능하도록 운영 SQL 을 배치하고,
+# 그 SQL 을 실행할 psql 바이너리도 함께 보장한다 — psql 설치는 seed.sh(make seed) 에만 있고
+# obs startup 은 Docker 만 깐다. 존 이동으로 obs 가 새 디스크로 재생성되면 SQL 은 sync 로 올라오지만
+# psql 이 없어 reset.sh 의 obs_psql 이 exit 127(command not found)로 죽는다(gha-16 실증). 멱등: 있으면 스킵.
 vm_scp "$LT_DIR/seed/vm_env.sh" "$LT_DIR/seed/reset.sql" "$LT_DIR/seed/95_verify.sql" obs:~/seed/
+vm_ssh obs 'command -v psql >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client)'
 
 log "sut 설정 반영"
 vm_ssh sut 'mkdir -p ~/sut'
