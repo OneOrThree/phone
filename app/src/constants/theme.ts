@@ -62,6 +62,12 @@ export const T = {
 
   // 순위 메달 — 금/은/동(의미색, 인디고화하지 않음)
   medal: { gold: '#E0A83F', silver: '#B8B0A3', bronze: '#C58F5A' },
+  // 포디움 메달 그라데이션 — 밝은 쪽→진한 쪽(입체감). medal과 같은 금/은/동 계열 (GROMO-655)
+  medalGrad: {
+    gold: ['#F7D97E', '#D9962A'],
+    silver: ['#DCD6CC', '#A69D90'],
+    bronze: ['#E2AE7E', '#B37845'],
+  },
 
   // 비교 지표 색 — 나(accent) vs 상대(퍼플)·평균(중립). 겹침 비교 바에서 구분용.
   compare: { theirs: '#9A6FB0', theirsPhone: '#B08FC4', avg: '#C4C8D4' },
