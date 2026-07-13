@@ -32,7 +32,7 @@ export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onC
           <Text style={s.title}>
             {goalMinutes ? `${goalLabel(goalMinutes)} 집중 목표 달성! 🎉` : '오늘 목표 달성! 🎉'}
           </Text>
-          <Text style={s.sub}>정한 만큼 다 채웠어. 오늘 진짜 멋졌어!</Text>
+          <Text style={s.sub}>내일도 힘내서 목표 달성해요!</Text>
           <View style={s.streakBox}>
             <Ionicons name="ribbon" size={15} color={T.accentDeep} />
             <Text style={s.streakText}>
@@ -40,7 +40,7 @@ export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onC
             </Text>
           </View>
           <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={onClose}>
-            <Text style={s.ctaText}>내일도 같이 하자</Text>
+            <Text style={s.ctaText}>좋아요!</Text>
           </TouchableOpacity>
         </View>
       </View>
