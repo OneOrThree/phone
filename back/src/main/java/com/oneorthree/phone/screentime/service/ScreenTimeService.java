@@ -17,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Map;
@@ -42,41 +43,50 @@ public class ScreenTimeService {
         // 2. reportedAt → 유저 country_code 파생 ZoneId 기준 로컬 날짜 환산 (자정 경계 오귀속 방지)
         LocalDate date = resolveLocalDate(user, request);
 
-        // 3. daily_screen_time_stats upsert (user, date) 기준 — 멱등
+        // 3. 최종 보고 여부 판정 (GROMO-805 후속, Codex P1~P3 일괄 해소)
+        //    최종 보고 = 명시적 isFinal=true 이거나, 과거 날짜 보고(마감 업로드는 다음 날 올라온다).
+        //    앱이 아직 isFinal 을 안 실어 보내도(구버전) 과거 날짜면 마감으로 간주해 알림이 눌리지 않도록 서버에서 finality 를 추론한다.
+        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        LocalDate today = Instant.now().atZone(zone).toLocalDate(); // reportedAt 파생 date 와 같은 유저 존 기준
+        boolean finalReport = Boolean.TRUE.equals(request.getIsFinal()) || date.isBefore(today);
+
+        // 4. 목표 달성 flag 판정 (is_screen_time_goal_achieved 저장값)
         int actualMinutes = request.getActualScreenTimeMinutes() != null
                 ? request.getActualScreenTimeMinutes() : 0;
-
-        // GROMO-805: 목표 달성은 클라 신뢰(request.getScreenTimeGoalAchieved()) 대신 서버가 판정한다.
-        // goal(분) 미설정(0)이면 판정 안 함(false). 스크린타임은 '이내(actual <= goal)'가 달성 — 집중의 '이상'과 방향 반대.
-        // (focus 의 서버 단방향 flag 와 동일 원칙 — 주체를 서버로 통일. 클라 필드는 무시한다.)
         int goal = userScreenTimeSettingsRepository.findById(userId)
                 .map(UserScreenTimeSettings::getDailyScreenTimeGoalMinutes).orElse(0);
-        boolean goalAchieved = goal > 0 && actualMinutes <= goal;
-        // 저장 flag 는 중간·최종 구분 없이 매 동기화마다 서버 판정값으로 갱신한다(GROMO-805 조회 일관성). 저장 로직은 변경하지 않는다.
+        boolean achieved;
+        if (finalReport) {
+            // 최종 보고(명시 isFinal 또는 과거 날짜)는 클라가 '당시' 목표·하루 전체 데이터로 계산한 달성 결과를 신뢰한다.
+            // 서버는 과거 날짜의 목표를 알 수 없어(현재 목표만 조회 가능) 과거 마감을 서버가 재판정하면 오귀속된다.
+            achieved = Boolean.TRUE.equals(request.getScreenTimeGoalAchieved());
+        } else {
+            // interim(오늘, 아직 미마감)은 서버가 임시 판정한다: goal>0 & actual<=goal.
+            // 단, 측정 데이터 누락(actualScreenTimeMinutes null)은 달성으로 세면 안 된다(null-data 가드, Codex #2).
+            achieved = request.getActualScreenTimeMinutes() != null && goal > 0 && actualMinutes <= goal;
+        }
+
+        // 5. daily_screen_time_stats upsert (user, date) 기준 — 멱등. 저장 flag 는 매 동기화마다 판정값으로 갱신(805 조회 일관성).
         Optional<DailyScreenTimeStat> existing =
                 dailyScreenTimeStatRepository.findByUserAndDate(user, date);
         if (existing.isPresent()) {
             DailyScreenTimeStat stat = existing.get();
             stat.setTotalScreenTimeMinutes(actualMinutes);
-            stat.setScreenTimeGoalAchieved(goalAchieved);
+            stat.setScreenTimeGoalAchieved(achieved);
         } else {
             dailyScreenTimeStatRepository.save(DailyScreenTimeStat.builder()
                     .user(user)
                     .date(date)
                     .totalScreenTimeMinutes(actualMinutes)
-                    .isScreenTimeGoalAchieved(goalAchieved)
+                    .isScreenTimeGoalAchieved(achieved)
                     .build());
         }
 
-        // 4. 목표 달성 알림(GROMO-395) — '최종 보고(isFinal=true) & 서버 판정 달성'일 때만 이벤트+알림을 발사한다.
-        //    GROMO-805 후속(Codex P1): 앱은 하루 중 여러 번 중간 동기화를 보내는데, 아직 한도를 넘지 않은 부분 합계가
-        //    goal 이내라는 이유로 조기에 알림이 나가고(이벤트는 회수 불가) 이후 한도를 초과해도 되돌릴 수 없었다.
-        //    → 중간 동기화(isFinal false/null)는 저장 total+flag 만 갱신하고 이벤트·알림은 발사하지 않는다(조기 알림 방지).
-        //    isFinal 부재(구버전 앱)는 이벤트 미발사로 처리한다 — 앱이 최종 보고에 isFinal=true 를 실어 보내도록 업데이트 필요(프론트 조율).
+        // 6. 목표 달성 알림(GROMO-395) — '최종 보고 & 달성'일 때만 이벤트+알림을 발사한다(interim 조기 알림 없음).
+        //    interim(오늘) 동기화는 부분 합계가 goal 이내여도 이후 한도 초과가 가능하므로 알림을 미룬다(이벤트는 회수 불가).
         //    최종 보고는 하루 1회이므로 이 게이트가 종전 false→true 전이 dedup 역할까지 대체한다.
         //    (최종 보고 재시도로 인한 중복 발사는 희귀 케이스로 수용한다.)
-        boolean finalReport = Boolean.TRUE.equals(request.getIsFinal());
-        if (finalReport && goalAchieved) {
+        if (finalReport && achieved) {
             userActivityEventLogger.log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED, Map.of(
                     "date", date.toString(),
                     "actual_screen_time_minutes", actualMinutes));
