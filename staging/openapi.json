@@ -4965,6 +4965,9 @@
           },
           "statVisibility": {
             "type": "string"
+          },
+          "occupation": {
+            "type": "string"
           }
         }
       },
