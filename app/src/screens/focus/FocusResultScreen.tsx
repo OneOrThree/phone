@@ -6,7 +6,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import Animated from 'react-native-reanimated';
+import Animated, { cubicBezier } from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 import { STORAGE_KEYS } from '@/types/storage';
 import { getFocusPeriodStats, getStreak, getHeatmap } from '@/services/statsApi';
@@ -37,14 +37,15 @@ const STREAK_MIN_DAILY_MINUTES = 10;
 // 진입 시 막대가 바닥부터 자라는 키프레임(GROMO-683) — height 애니메이션은 매 프레임
 // 레이아웃 패스를 유발하므로 scaleY 변환 사용(s.bar의 transformOrigin: 'bottom'과 조합).
 const growUp = { from: { transform: [{ scaleY: 0 }] } };
-// 막대별 진입 애니메이션 — 왼쪽부터 50ms 시차. fillMode backwards로 딜레이 동안
-// scaleY 0(접힌 상태)을 유지해 먼저 그려지는 튐 방지.
+// 막대별 진입 애니메이션 — 왼쪽부터 80ms 시차. fillMode backwards로 딜레이 동안
+// scaleY 0(접힌 상태)을 유지해 먼저 그려지는 튐 방지. 이징은 목표를 살짝 넘었다가
+// 자리 잡는 overshoot 곡선(easeOutBack) — 500ms ease-out은 너무 빨라 체감이 안 됐음.
 const barEnterAnim = (index: number) =>
   ({
     animationName: growUp,
-    animationDuration: '500ms',
-    animationDelay: `${index * 50}ms`,
-    animationTimingFunction: 'ease-out',
+    animationDuration: '800ms',
+    animationDelay: `${index * 80}ms`,
+    animationTimingFunction: cubicBezier(0.34, 1.56, 0.64, 1),
     animationFillMode: 'backwards',
   }) as const;
 
