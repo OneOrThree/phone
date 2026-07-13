@@ -1,0 +1,12 @@
+{
+  "verdict": "PASS",
+  "reasons": [],
+  "baseline": null,
+  "diff": null,
+  "meta": {
+    "sha": "46cdc93",
+    "profile": "load",
+    "target": "matrix/_generic.js",
+    "startedAt": "2026-07-13T05:26:43Z"
+  }
+}
