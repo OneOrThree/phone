@@ -1,6 +1,8 @@
 package com.oneorthree.phone.stats.api;
 
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
+import com.oneorthree.phone.stats.dto.FocusAverageResponse;
+import com.oneorthree.phone.stats.dto.FocusAverageScope;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
@@ -102,6 +104,27 @@ public class StatsController {
         UUID callerId = (UUID) request.getAttribute("userId");
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
         return ResponseEntity.ok(statsService.getFocusStatsByPeriod(targetId, period, date));
+    }
+
+    @Operation(summary = "기간별 평균 집중시간 집계 조회",
+            description = "scope(friends|total|category) × period(day|week|month) 로 활동 유저 1인당 평균 집중 시간(분) 반환."
+                    + " 모수는 해당 기간 활동(row≥1) 유저만(휴면 제외). 집계라 per-user 열람권한 불요."
+                    + " friends=자기 자신 제외한 ACCEPTED 친구, total=전체 유저(자기 포함), category=같은 occupation(자기 포함)."
+                    + " occupation 미설정 상태로 category 조회 시 400 아닌 averageMinutes=null."
+                    + " 활동 유저 0명이면 averageMinutes=null, sampleSize=0.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공 (무활동/미설정이면 averageMinutes=null, sampleSize=0)"),
+        @ApiResponse(responseCode = "400", description = "scope/period 값 오류 또는 date 누락"),
+        @ApiResponse(responseCode = "401", description = "인증 필요")
+    })
+    @GetMapping("/stats/focus/average")
+    public ResponseEntity<FocusAverageResponse> getFocusAverage(
+            @RequestParam FocusAverageScope scope,
+            @RequestParam StatsPeriod period,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            HttpServletRequest request) {
+        UUID callerId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(statsService.getFocusAverage(callerId, scope, period, date));
     }
 
     @Operation(summary = "카테고리별 집중 통계 조회",

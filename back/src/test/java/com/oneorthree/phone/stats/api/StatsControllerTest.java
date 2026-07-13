@@ -1,6 +1,8 @@
 package com.oneorthree.phone.stats.api;
 
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
+import com.oneorthree.phone.stats.dto.FocusAverageResponse;
+import com.oneorthree.phone.stats.dto.FocusAverageScope;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
@@ -536,6 +538,122 @@ class StatsControllerTest {
                         .param("friends", friendId.toString()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FRIEND"))
+                .andDo(print());
+    }
+
+    // ── getFocusAverage (GROMO-753) ───────────────────────────────────────
+
+    @Test
+    @DisplayName("평균 집중 ?scope=friends&period=day → 200, 응답 필드 존재 + enum 대문자 직렬화")
+    void getFocusAverageFriendsDayReturns200() throws Exception {
+        given(statsService.getFocusAverage(any(), eq(FocusAverageScope.FRIENDS), eq(StatsPeriod.DAY), any()))
+                .willReturn(new FocusAverageResponse(
+                        FocusAverageScope.FRIENDS, StatsPeriod.DAY,
+                        LocalDate.of(2026, 7, 3), LocalDate.of(2026, 7, 3),
+                        75, 2));
+
+        mockMvc.perform(get("/api/v1/stats/focus/average")
+                        .param("scope", "friends")
+                        .param("period", "day")
+                        .param("date", "2026-07-03"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scope").value("FRIENDS"))
+                .andExpect(jsonPath("$.period").value("DAY"))
+                .andExpect(jsonPath("$.from").value("2026-07-03"))
+                .andExpect(jsonPath("$.to").value("2026-07-03"))
+                .andExpect(jsonPath("$.averageMinutes").value(75))
+                .andExpect(jsonPath("$.sampleSize").value(2))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("평균 집중 ?scope=total&period=week → 200")
+    void getFocusAverageTotalWeekReturns200() throws Exception {
+        given(statsService.getFocusAverage(any(), eq(FocusAverageScope.TOTAL), eq(StatsPeriod.WEEK), any()))
+                .willReturn(new FocusAverageResponse(
+                        FocusAverageScope.TOTAL, StatsPeriod.WEEK,
+                        LocalDate.of(2026, 6, 29), LocalDate.of(2026, 7, 3),
+                        66, 3));
+
+        mockMvc.perform(get("/api/v1/stats/focus/average")
+                        .param("scope", "total")
+                        .param("period", "week")
+                        .param("date", "2026-07-03"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scope").value("TOTAL"))
+                .andExpect(jsonPath("$.period").value("WEEK"))
+                .andExpect(jsonPath("$.from").value("2026-06-29"))
+                .andExpect(jsonPath("$.averageMinutes").value(66))
+                .andExpect(jsonPath("$.sampleSize").value(3))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("평균 집중 ?scope=category — occupation 미설정/무활동 → averageMinutes=null, sampleSize=0")
+    void getFocusAverageCategoryNullReturns200WithNull() throws Exception {
+        given(statsService.getFocusAverage(any(), eq(FocusAverageScope.CATEGORY), eq(StatsPeriod.MONTH), any()))
+                .willReturn(new FocusAverageResponse(
+                        FocusAverageScope.CATEGORY, StatsPeriod.MONTH,
+                        LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 3),
+                        null, 0));
+
+        mockMvc.perform(get("/api/v1/stats/focus/average")
+                        .param("scope", "category")
+                        .param("period", "month")
+                        .param("date", "2026-07-03"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scope").value("CATEGORY"))
+                .andExpect(jsonPath("$.averageMinutes").doesNotExist())
+                .andExpect(jsonPath("$.sampleSize").value(0))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("평균 집중 — scope 대문자(FRIENDS)도 바인딩 → 200")
+    void getFocusAverageUppercaseScopeBinds() throws Exception {
+        given(statsService.getFocusAverage(any(), eq(FocusAverageScope.FRIENDS), eq(StatsPeriod.DAY), any()))
+                .willReturn(new FocusAverageResponse(
+                        FocusAverageScope.FRIENDS, StatsPeriod.DAY,
+                        LocalDate.of(2026, 7, 3), LocalDate.of(2026, 7, 3),
+                        30, 1));
+
+        mockMvc.perform(get("/api/v1/stats/focus/average")
+                        .param("scope", "FRIENDS")
+                        .param("period", "DAY")
+                        .param("date", "2026-07-03"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scope").value("FRIENDS"))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("평균 집중 ?scope=invalid → 400")
+    void getFocusAverageInvalidScopeReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/stats/focus/average")
+                        .param("scope", "invalid")
+                        .param("period", "day")
+                        .param("date", "2026-07-03"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("평균 집중 — scope 파라미터 누락 → 400")
+    void getFocusAverageMissingScopeReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/stats/focus/average")
+                        .param("period", "day")
+                        .param("date", "2026-07-03"))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("평균 집중 — date 파라미터 누락 → 400")
+    void getFocusAverageMissingDateReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/stats/focus/average")
+                        .param("scope", "total")
+                        .param("period", "day"))
+                .andExpect(status().isBadRequest())
                 .andDo(print());
     }
 }

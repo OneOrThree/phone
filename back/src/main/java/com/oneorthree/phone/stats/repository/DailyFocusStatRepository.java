@@ -1,6 +1,8 @@
 package com.oneorthree.phone.stats.repository;
 
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
+import com.oneorthree.phone.stats.dto.FocusAverageAggregate;
+import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -41,6 +43,45 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
             + "FROM DailyFocusStat d WHERE d.user = :user AND d.date BETWEEN :from AND :to")
     int sumTotalFocusSecondsByUserAndDateBetween(
             @Param("user") User user,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
+
+    // ── 평균 집중시간 집계 (GROMO-753) ─────────────────────────────────────
+    // 모수 유저의 [from,to] 집중 초 총합 + 활동(row≥1) 유저 수를 한 쿼리로 반환한다.
+    // 평균 = floor(totalSeconds / activeUserCount / 60) 는 서비스에서 계산(count=0 → null).
+    // COUNT(DISTINCT user.id) 로 활동 유저만 모수에 세고(휴면 유저 자연 제외), COALESCE(SUM,0) 으로 무데이터 0 보장.
+
+    /**
+     * 주어진 유저 집합(친구/카테고리) 중 기간 내 활동 유저의 집중 초 총합·활동 유저 수를 집계한다.
+     * (호출 측이 빈 집합은 사전 차단 — 빈 IN 절 회피)
+     */
+    @Query("SELECT new com.oneorthree.phone.stats.dto.FocusAverageAggregate("
+            + "COALESCE(SUM(d.totalFocusSeconds), 0), COUNT(DISTINCT d.user.id)) "
+            + "FROM DailyFocusStat d WHERE d.user IN :users AND d.date BETWEEN :from AND :to")
+    FocusAverageAggregate sumAndActiveCountByUsersInPeriod(
+            @Param("users") Collection<User> users,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
+
+    /**
+     * 전체 유저(탈퇴 유저 {@code user IS NULL} 제외) 중 기간 내 활동 유저의 집중 초 총합·활동 유저 수를 집계한다.
+     */
+    @Query("SELECT new com.oneorthree.phone.stats.dto.FocusAverageAggregate("
+            + "COALESCE(SUM(d.totalFocusSeconds), 0), COUNT(DISTINCT d.user.id)) "
+            + "FROM DailyFocusStat d WHERE d.user.id IS NOT NULL AND d.date BETWEEN :from AND :to")
+    FocusAverageAggregate sumAndActiveCountAllInPeriod(
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
+
+    /**
+     * 특정 occupation 유저 중 기간 내 활동 유저의 집중 초 총합·활동 유저 수를 집계한다.
+     * (user IS NULL 인 탈퇴 row 는 occupation 조인 시 자연 제외)
+     */
+    @Query("SELECT new com.oneorthree.phone.stats.dto.FocusAverageAggregate("
+            + "COALESCE(SUM(d.totalFocusSeconds), 0), COUNT(DISTINCT d.user.id)) "
+            + "FROM DailyFocusStat d WHERE d.user.occupation = :occupation AND d.date BETWEEN :from AND :to")
+    FocusAverageAggregate sumAndActiveCountByOccupationInPeriod(
+            @Param("occupation") Occupation occupation,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);
 }

@@ -3,6 +3,8 @@ package com.oneorthree.phone.stats.service;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.friend.domain.Friendship;
+import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.stats.service.StatsPeriodResolver.PeriodRange;
@@ -10,6 +12,9 @@ import com.oneorthree.phone.stats.support.StatsUnits;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
+import com.oneorthree.phone.stats.dto.FocusAverageAggregate;
+import com.oneorthree.phone.stats.dto.FocusAverageResponse;
+import com.oneorthree.phone.stats.dto.FocusAverageScope;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
@@ -18,6 +23,7 @@ import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.exception.StatsErrorCode;
 import com.oneorthree.phone.stats.exception.StatsException;
+import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
@@ -41,6 +47,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -59,6 +66,7 @@ public class StatsService {
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final UserRepository userRepository;
+    private final FriendshipRepository friendshipRepository;
     private final StatsPeriodResolver statsPeriodResolver;
     private final StatViewPolicy statViewPolicy;
 
@@ -165,6 +173,73 @@ public class StatsService {
 
         return new FocusPeriodStatsResponse(period, range.currentFrom(), range.currentTo(), current, previous,
                 current - previous);
+    }
+
+    /**
+     * 기간별 평균 집중시간 집계 조회 (GROMO-753).
+     *
+     * <p>모수(scope) 유저 중 해당 기간 활동(row&ge;1)한 유저만 대상으로,
+     * {@code averageMinutes = floor( SUM(집중 초) / 활동 유저 수 / 60 )} 을 반환한다.
+     * per-user 열람권한은 불요(집계라 개인 데이터 미노출).
+     *
+     * <ul>
+     *   <li>FRIENDS : 호출자 ACCEPTED 친구 집합(자기 자신 미포함). 친구 0명이면 null/0.</li>
+     *   <li>TOTAL   : 전체 유저(탈퇴 제외, 자기 자신 포함).</li>
+     *   <li>CATEGORY: 호출자와 같은 occupation 유저(자기 자신 포함). occupation 미설정이면 400 아닌 null 응답.</li>
+     * </ul>
+     *
+     * <p>휴면 유저(기간 내 row 없음)는 모수에서 자연 제외(평균 희석 방지). 활동 유저 0명이면
+     * {@code averageMinutes=null, sampleSize=0}.
+     *
+     * @param callerId 호출자(로그인 유저) UUID
+     * @param scope    집계 모수(FRIENDS/TOTAL/CATEGORY)
+     * @param period   집계 기간(DAY/WEEK/MONTH)
+     * @param date     클라 로컬 기준 날짜
+     */
+    public FocusAverageResponse getFocusAverage(
+            UUID callerId, FocusAverageScope scope, StatsPeriod period, LocalDate date) {
+        PeriodRange range = statsPeriodResolver.resolve(period, date);
+        LocalDate from = range.currentFrom();
+        LocalDate to = range.currentTo();
+
+        FocusAverageAggregate aggregate = switch (scope) {
+            case FRIENDS -> {
+                User caller = userRepository.getReferenceById(callerId);
+                // 상대(친구) User 집합 — caller 는 친구 집합에 미포함이라 자연 제외. Set 으로 중복 방지.
+                Set<User> friends = friendshipRepository.findAcceptedByUser(caller).stream()
+                        .map(f -> counterpart(f, callerId))
+                        .collect(Collectors.toSet());
+                // 친구 0명이면 빈 IN 절 회피 위해 사전 차단 → null 응답.
+                yield friends.isEmpty()
+                        ? null
+                        : dailyFocusStatRepository.sumAndActiveCountByUsersInPeriod(friends, from, to);
+            }
+            case TOTAL -> dailyFocusStatRepository.sumAndActiveCountAllInPeriod(from, to);
+            case CATEGORY -> {
+                Occupation occupation = userRepository.findById(callerId)
+                        .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND))
+                        .getOccupation();
+                // occupation 미설정: 에러 아님 → 활동 유저 0 취급으로 null 응답(클라는 해당 축 숨김).
+                yield occupation == null
+                        ? null
+                        : dailyFocusStatRepository.sumAndActiveCountByOccupationInPeriod(occupation, from, to);
+            }
+        };
+
+        // 활동 유저 0명(친구 없음/occupation 미설정/무활동): averageMinutes=null, sampleSize=0.
+        if (aggregate == null || aggregate.activeUserCount() == 0) {
+            return new FocusAverageResponse(scope, period, from, to, null, 0);
+        }
+        // 초 합산 후 인원으로 나누고 분 내림(정수 나눗셈=floor) — /stats/focus 내림 규칙과 정합.
+        int averageMinutes = (int) (aggregate.totalSeconds() / aggregate.activeUserCount() / 60);
+        return new FocusAverageResponse(scope, period, from, to, averageMinutes, (int) aggregate.activeUserCount());
+    }
+
+    /** 친구 관계에서 호출자(me)가 아닌 상대 User 를 반환한다. */
+    private User counterpart(Friendship friendship, UUID me) {
+        return friendship.getFromUser().getId().equals(me)
+                ? friendship.getToUser()
+                : friendship.getFromUser();
     }
 
     /**
