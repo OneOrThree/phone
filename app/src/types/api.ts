@@ -112,6 +112,11 @@ export interface LeagueMemberResponse {
   // 주간 정산 결과 ('PROMOTED'/'DEMOTED' 등) — 정산 전엔 null. 서버 enum 확장 대비 string 유지
   result: string | null;
   // ※ 서버 응답의 isPinned는 미러 생략 — 핀 상태는 GET /pins(usePinned)로 별도 관리
+  // GROMO-824 라이브 필드(구현 예정 스펙 선반영) — 서버 배포 전이라 optional
+  isFocusing?: boolean; // 현재 집중 세션 진행 중 여부
+  focusTimeMinutes?: number; // 당일 누적 집중 분
+  focusStartedAt?: string | null; // 진행 중 세션 시작 시각(ISO) — 초 단위 경과 렌더링 기준
+  focusTagName?: string | null; // 진행 중 세션 태그명(집중 과목)
 }
 
 // GET /league/me/rank — 내 순위 요약

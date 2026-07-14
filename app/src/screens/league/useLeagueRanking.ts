@@ -31,6 +31,11 @@ export function toRankingMembers(
       tierLevel: m.tierLevel,
       totalFocusSeconds: m.totalFocusSeconds,
       result: m.result,
+      // GROMO-824 라이브 필드(810·811·812) — 서버 배포 전 응답엔 없어 undefined 로 흐른다
+      isFocusing: m.isFocusing,
+      focusTimeMinutes: m.focusTimeMinutes,
+      focusStartedAt: m.focusStartedAt,
+      focusTagName: m.focusTagName,
       exam: label ?? '',
       achievedRate: 0,
       friendCount: 0,
