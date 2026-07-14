@@ -1,7 +1,7 @@
 package com.oneorthree.phone.league.service;
 
-import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserTierLevelProjection;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -22,16 +22,16 @@ public class LeagueTierLookup {
 
     /**
      * 주어진 유저들의 현재 티어를 userId→tierLevel 맵으로 배치 도출한다.
-     * 존재하지 않는 유저 ID는 맵에서 빠진다(호출측이 get 시 null 로 처리).
+     * 존재하지 않거나 탈퇴한 유저 ID는 맵에서 빠진다(호출측이 get 시 null 로 처리).
      *
      * @param userIds 티어를 조회할 유저 ID 목록
-     * @return userId→tierLevel 맵 (존재하지 않는 유저는 미포함)
+     * @return userId→tierLevel 맵 (존재하지 않거나 탈퇴한 유저는 미포함)
      */
     public Map<UUID, Integer> tierLevelsByUserId(Collection<UUID> userIds) {
         if (userIds.isEmpty()) {
             return Map.of();
         }
-        return userRepository.findAllByIdInAndIsDeletedFalse(userIds).stream()
-                .collect(Collectors.toMap(User::getId, User::getTierLevel));
+        return userRepository.findTierLevelsByIdInAndIsDeletedFalse(userIds).stream()
+                .collect(Collectors.toMap(UserTierLevelProjection::id, UserTierLevelProjection::tierLevel));
     }
 }

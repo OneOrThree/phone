@@ -1,7 +1,7 @@
 package com.oneorthree.phone.league.service;
 
-import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserTierLevelProjection;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,20 +30,15 @@ class LeagueTierLookupTest {
     @Mock
     private UserRepository userRepository;
 
-    private User user(UUID userId, int tierLevel) {
-        return User.builder()
-                .id(userId)
-                .tierLevel(tierLevel)
-                .build();
-    }
-
     @Test
     @DisplayName("유저들의 users.tier_level 을 userId→tierLevel 맵으로 매핑")
     void tierLevelsByUserId_mapsUsers() {
         UUID a = UUID.randomUUID();
         UUID b = UUID.randomUUID();
-        given(userRepository.findAllByIdInAndIsDeletedFalse(List.of(a, b)))
-                .willReturn(List.of(user(a, 3), user(b, 5)));
+        given(userRepository.findTierLevelsByIdInAndIsDeletedFalse(List.of(a, b)))
+                .willReturn(List.of(
+                        new UserTierLevelProjection(a, 3),
+                        new UserTierLevelProjection(b, 5)));
 
         Map<UUID, Integer> result = leagueTierLookup.tierLevelsByUserId(List.of(a, b));
 
@@ -55,8 +50,8 @@ class LeagueTierLookupTest {
     void tierLevelsByUserId_omitsMissingOrDeletedUsers() {
         UUID existing = UUID.randomUUID();
         UUID missing = UUID.randomUUID();
-        given(userRepository.findAllByIdInAndIsDeletedFalse(List.of(existing, missing)))
-                .willReturn(List.of(user(existing, 2)));
+        given(userRepository.findTierLevelsByIdInAndIsDeletedFalse(List.of(existing, missing)))
+                .willReturn(List.of(new UserTierLevelProjection(existing, 2)));
 
         Map<UUID, Integer> result = leagueTierLookup.tierLevelsByUserId(List.of(existing, missing));
 
@@ -77,8 +72,8 @@ class LeagueTierLookupTest {
     @DisplayName("아레나 미소속 신규 유저도 기본 티어 T1을 반환")
     void tierLevelsByUserId_newUserReturnsTierOne() {
         UUID newUserId = UUID.randomUUID();
-        given(userRepository.findAllByIdInAndIsDeletedFalse(List.of(newUserId)))
-                .willReturn(List.of(User.builder().id(newUserId).build()));
+        given(userRepository.findTierLevelsByIdInAndIsDeletedFalse(List.of(newUserId)))
+                .willReturn(List.of(new UserTierLevelProjection(newUserId, 1)));
 
         Map<UUID, Integer> result = leagueTierLookup.tierLevelsByUserId(List.of(newUserId));
 

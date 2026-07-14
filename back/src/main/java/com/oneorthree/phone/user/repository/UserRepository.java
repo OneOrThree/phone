@@ -19,7 +19,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     // 소프트딜리트(탈퇴) 유저 차단 (GROMO-635) — is_deleted=true 인 유저는 조회/변경 경로에서 제외.
     Optional<User> findByIdAndIsDeletedFalse(UUID id);
 
-    List<User> findAllByIdInAndIsDeletedFalse(Collection<UUID> ids);
+    @Query("SELECT new com.oneorthree.phone.user.repository.UserTierLevelProjection(u.id, u.tierLevel)"
+            + " FROM User u WHERE u.id IN :ids AND u.isDeleted = false")
+    List<UserTierLevelProjection> findTierLevelsByIdInAndIsDeletedFalse(@Param("ids") Collection<UUID> ids);
 
     boolean existsByIdAndIsDeletedFalse(UUID id);
 

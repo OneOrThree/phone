@@ -34,10 +34,10 @@ class UserRepositoryTest extends RepositoryTestBase {
         User active = userRepository.save(User.builder().nickname("활성").tierLevel(2).build());
         User deleted = userRepository.save(User.builder().nickname("탈퇴").tierLevel(5).isDeleted(true).build());
 
-        List<User> result = userRepository.findAllByIdInAndIsDeletedFalse(
+        List<UserTierLevelProjection> result = userRepository.findTierLevelsByIdInAndIsDeletedFalse(
                 List.of(active.getId(), deleted.getId()));
 
-        assertThat(result).containsExactly(active);
+        assertThat(result).containsExactly(new UserTierLevelProjection(active.getId(), 2));
     }
 
     @Test
