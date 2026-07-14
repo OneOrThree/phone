@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -29,6 +29,25 @@ function hLabel(totalSeconds: number): string {
 }
 
 const APP_VERSION = Constants.expoConfig?.version ?? '—';
+
+// GROMO-813: 법적 문서는 팀 사이트로 연결. 무료 DNS가 CNAME을 막아 vercel 기본 도메인을 사용.
+const PRIVACY_URL = 'https://team-page.vercel.app/#/privacy';
+const TERMS_URL = 'https://team-page.vercel.app/#/terms';
+
+// 외부 브라우저 이동 전 확인 안내 — 확인을 눌러야 링크를 연다 (GROMO-813)
+function confirmOpenExternal(title: string, url: string) {
+  Alert.alert(title, '외부 브라우저로 팀 사이트가 열립니다.\n이동하시겠습니까?', [
+    { text: '취소', style: 'cancel' },
+    {
+      text: '확인',
+      onPress: () => {
+        Linking.openURL(url).catch(() =>
+          Alert.alert('링크를 열 수 없어요. 잠시 후 다시 시도해주세요.'),
+        );
+      },
+    },
+  ]);
+}
 
 export default function MenuScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
@@ -183,7 +202,14 @@ export default function MenuScreen() {
             iconColor={T.inkSub}
             iconBg={T.sandLight}
             label="개인정보 처리방침"
-            onPress={() => navigation.navigate('SettingsPrivacyPolicy')}
+            onPress={() => confirmOpenExternal('개인정보 처리방침', PRIVACY_URL)}
+          />
+          <SettingsRow
+            icon="reader-outline"
+            iconColor={T.inkSub}
+            iconBg={T.sandLight}
+            label="서비스 이용약관"
+            onPress={() => confirmOpenExternal('서비스 이용약관', TERMS_URL)}
           />
           <SettingsRow
             icon="information-circle-outline"
