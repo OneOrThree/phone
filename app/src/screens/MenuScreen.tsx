@@ -205,21 +205,26 @@ export default function MenuScreen() {
               label="리그 결과 화면 미리보기"
               sub="승격 · 유지 · 강등 연출 확인"
               onPress={() =>
-                Alert.alert('리그 결과 미리보기', '연출을 선택하세요', [
-                  {
-                    text: '승격',
-                    onPress: () => navigation.navigate('LeagueResult', { type: 'promote' }),
-                  },
-                  {
-                    text: '유지',
-                    onPress: () => navigation.navigate('LeagueResult', { type: 'maintain' }),
-                  },
-                  {
-                    text: '강등',
-                    onPress: () => navigation.navigate('LeagueResult', { type: 'demote' }),
-                  },
-                  { text: '취소', style: 'cancel' },
-                ])
+                Alert.alert(
+                  '리그 결과 미리보기',
+                  '연출을 선택하세요',
+                  [
+                    {
+                      text: '승격',
+                      onPress: () => navigation.navigate('LeagueResult', { type: 'promote' }),
+                    },
+                    {
+                      text: '유지',
+                      onPress: () => navigation.navigate('LeagueResult', { type: 'maintain' }),
+                    },
+                    {
+                      text: '강등',
+                      onPress: () => navigation.navigate('LeagueResult', { type: 'demote' }),
+                    },
+                    { text: '취소', style: 'cancel' },
+                  ],
+                  { cancelable: true },
+                )
               }
             />
           </SettingsSection>
