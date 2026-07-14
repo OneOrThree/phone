@@ -34,7 +34,7 @@ import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
-import { FriendGrid } from './components/FriendGrid';
+import { LiveFocusGrid } from './components/LiveFocusGrid';
 import { FocusMenuDrawer } from './components/FocusMenuDrawer';
 import {
   logFocusSessionStarted,
@@ -469,7 +469,11 @@ export default function FocusSessionScreen() {
             </View>
           </View>
           <View style={[s.page, { width }]}>
-            <FriendGrid friends={sessionFriends} />
+            <LiveFocusGrid
+              members={sessionFriends}
+              emptyTitle="아직 친구가 없어요"
+              emptySub={'리그 탭에서 친구를 추가하면\n집중할 때 여기서 같이 보여요.'}
+            />
             {/* 친구 그리드 아래 '함께 공부' 군집 일러스트 */}
             <Image
               source={require('@/assets/characters_study.png')}

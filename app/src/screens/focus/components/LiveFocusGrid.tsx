@@ -1,51 +1,83 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
-import type { SessionFriend } from '@/screens/league/useFocusFriends';
-import { hourMin } from '../format';
+import { useLiveFocusClock } from '@/hooks/useLiveFocusClock';
+import { liveTotalSeconds } from '@/utils/liveFocus';
+import { hourMin, hmsCompact } from '../format';
 import { StarAvatar } from './StarAvatar';
 
-// 09 집중 · 친구 그리드 — 세션에서 좌로 스와이프한 페이지. 친구 전체 3열 그리드(실데이터).
-// 전원 오늘 총 집중시간을 표기하고, 집중중(isFocusing)은 초록 테두리·시간으로 색 구분.
+// 집중 세션 소셜 그리드 공통 컴포넌트 — 친구(656)·리그(811)·같은 시험(812) 페이지가 공유.
+// 전원 오늘 총 집중시간을 표기하고, 집중중(isFocusing)은 초록 테두리·과목·초 단위 라이브로 구분.
 // 아바타 색은 팔레트 순환 — TODO: 캐릭터 장착 정보 렌더 연동 시 교체.
+
+// 그리드 멤버 공통 형태 — SessionFriend(친구)·리그 랭킹 매핑 결과가 모두 이 형태를 만족한다.
+export interface LiveGridMember {
+  userId: string;
+  nickname: string;
+  focusTimeMinutes: number; // 오늘 누적 집중 분 (완료 세션 집계 — 진행 중 경과는 미포함)
+  isFocusing: boolean;
+  focusStartedAt: string | null; // 진행 중 세션 시작 시각(ISO) — 초 단위 틱업 기준
+  focusTagName: string | null; // 진행 중 세션 태그명(집중 과목)
+}
 
 // 별사탕 아바타 팔레트 (시안 6인 색 그대로 순환)
 const AVATAR_COLORS = T.avatarPalette;
 
-export function FriendGrid({ friends }: { friends: SessionFriend[] }) {
-  const focusing = friends.filter((f) => f.isFocusing).length;
+export function LiveFocusGrid({
+  members,
+  title,
+  emptyTitle,
+  emptySub,
+}: {
+  members: LiveGridMember[];
+  /** 페이지 구분 헤더 (예: '내 리그') — 없으면 생략 */
+  title?: string;
+  emptyTitle: string;
+  emptySub: string;
+}) {
+  const focusing = members.filter((m) => m.isFocusing).length;
 
-  // 친구가 없으면 그리드 대신 안내 (친구 추가는 리그 탭 → 친구)
-  if (friends.length === 0) {
+  // 초 단위 틱업 — 그리드 전체가 공용 시계 하나를 공유. 집중중 멤버가 없으면 인터벌 정지.
+  const now = useLiveFocusClock(members.some((m) => m.isFocusing && m.focusStartedAt != null));
+
+  if (members.length === 0) {
     return (
       <View style={s.emptyWrap}>
-        <Text style={s.emptyTitle}>아직 친구가 없어요</Text>
-        <Text style={s.emptySub}>
-          리그 탭에서 친구를 추가하면{'\n'}집중할 때 여기서 같이 보여요.
-        </Text>
+        <Text style={s.emptyTitle}>{emptyTitle}</Text>
+        <Text style={s.emptySub}>{emptySub}</Text>
       </View>
     );
   }
 
   return (
     <View style={s.wrap}>
+      {title != null && <Text style={s.title}>{title}</Text>}
       <View style={s.banner}>
         <View style={s.bannerDot} />
         <Text style={s.bannerText}>{focusing}명이 지금 같이 집중하고 있어요</Text>
       </View>
 
       <View style={s.grid}>
-        {friends.map((f, i) => (
-          <View key={f.userId} style={[s.cell, !f.isFocusing && s.cellOff]}>
-            <View style={[s.avatar, f.isFocusing ? s.avatarActive : s.avatarIdle]}>
+        {members.map((m, i) => (
+          <View key={m.userId} style={[s.cell, !m.isFocusing && s.cellOff]}>
+            <View style={[s.avatar, m.isFocusing ? s.avatarActive : s.avatarIdle]}>
               <StarAvatar color={AVATAR_COLORS[i % AVATAR_COLORS.length]} size={50} />
             </View>
             <Text style={s.name} numberOfLines={1}>
-              {f.nickname}
+              {m.nickname}
             </Text>
-            {f.isFocusing ? (
-              <Text style={s.timeActive}>⏱ {hourMin(f.focusTimeMinutes * 60)}</Text>
+            {m.isFocusing ? (
+              <>
+                {m.focusTagName != null && (
+                  <Text style={s.tag} numberOfLines={1}>
+                    {m.focusTagName}
+                  </Text>
+                )}
+                <Text style={s.timeActive}>
+                  {hmsCompact(liveTotalSeconds(m.focusTimeMinutes * 60, m.focusStartedAt, now))}
+                </Text>
+              </>
             ) : (
-              <Text style={s.timeIdle}>{hourMin(f.focusTimeMinutes * 60)}</Text>
+              <Text style={s.timeIdle}>{hourMin(m.focusTimeMinutes * 60)}</Text>
             )}
           </View>
         ))}
@@ -56,6 +88,13 @@ export function FriendGrid({ friends }: { friends: SessionFriend[] }) {
 
 const s = StyleSheet.create({
   wrap: { flex: 1, paddingHorizontal: 18 },
+  title: {
+    ...T.text.caption,
+    fontWeight: '800',
+    color: T.night.cream,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -87,6 +126,7 @@ const s = StyleSheet.create({
   avatarActive: { borderWidth: 2.5, borderColor: T.night.green },
   avatarIdle: { borderWidth: 2.5, borderColor: withAlpha(T.night.cream, 0.15) },
   name: { ...T.text.label, color: T.paperLight, maxWidth: 74 },
+  tag: { ...T.text.caption, color: T.night.greenSoft, maxWidth: 74 },
   timeActive: {
     ...T.text.label,
     fontWeight: '700',
