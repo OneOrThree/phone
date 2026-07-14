@@ -19,8 +19,10 @@
  *       자동 종료 orphan 세션({@code sweepOrphanSessions})은 통계·스트릭에 반영하지 않으며, GROMO-804 로 상태를
  *       {@code AUTO_CLOSED} 로 표시해 by-category 실시간 집계에서도 제외된다(과거엔 ACTIVE 로 남아 leak).</li>
  *   <li><b>스크린타임</b>: 앱이 매일 전송 → {@code ScreenTimeService.saveScreenTime} 이
- *       {@code DailyScreenTimeStat} 적재. 버킷 날짜 = country_code 존 로컬 날짜(GROMO-561),
- *       목표 달성 플래그는 GROMO-805 로 <b>서버 판정</b>({@code actual <= goal}, goal 미설정이면 false)으로 전환.</li>
+ *       {@code DailyScreenTimeStat} 적재. 버킷 날짜 = country_code 존 로컬 날짜(GROMO-561).
+ *       목표 달성 플래그(GROMO-805 v3): <b>최종 보고</b>(isFinal=true 또는 과거 날짜)만 <b>클라 신뢰</b>
+ *       ({@code screenTimeGoalAchieved} 그대로 저장, 서버 재판정 안 함 — 과거 목표를 서버가 모름).
+ *       <b>interim(오늘·미마감)</b>은 total 만 갱신하고 flag 는 미확정(신규 row 기본값 false, 기존 flag 보존).</li>
  * </ul>
  *
  * <h2>조회(read) 흐름 — 6개 엔드포인트</h2>
@@ -57,8 +59,8 @@
  *   <tr>
  *     <td>목표 판정</td>
  *     <td>쓰기 시 서버 단방향 flag(false→true 1회) · today 는 현재 목표로 재계산</td>
- *     <td>쓰기 시 <b>서버 판정</b> flag({@code actual <= goal}, GROMO-805) · today 는 서버 재계산</td>
- *     <td>week/month = row 없는 날=달성(목표설정 유저, 가입일 클램프, GROMO-805) · today/day = 재계산</td>
+ *     <td>최종 보고만 <b>클라 신뢰</b>(flag 그대로 저장, 서버 재판정 안 함) · interim(오늘)은 total 만 갱신·flag 미확정(GROMO-805 v3)</td>
+ *     <td>week/month = row 없는 날=달성(목표설정 유저, 가입일 클램프) · today/day = 현재 목표로 재계산(GROMO-805, day 와 정합)</td>
  *   </tr>
  *   <tr>
  *     <td>집계 소스</td>
@@ -88,7 +90,8 @@
  *             forward-only(806 도 소급 보정 안 함) + dev DB 리셋 전제로 수용.</li>
  *       </ul></li>
  *   <li><b>804</b> — <b>해소됨</b>: by-category 실시간 집계에서 orphan(AUTO_CLOSED) 세션 제외 → /stats/focus 와 정합.</li>
- *   <li><b>805</b> — <b>해소됨</b>: 목표 달성 판정 통일(스크린타임 서버 판정 + week/month 누락일 정책).</li>
+ *   <li><b>805</b> — <b>해소됨</b>: 목표 달성 판정 통일(스크린타임 최종 보고 클라 신뢰·interim total 만 갱신 +
+ *       week/month 누락일 정책, 오늘은 day 와 동일 재계산).</li>
  *   <li><b>806</b> — 스트릭 인정 게이트(그날 누적 10분 이상) + 세션완료 응답 필드(additive).</li>
  * </ul>
  */

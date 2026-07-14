@@ -186,10 +186,14 @@ public class StatsService {
         List<DailyScreenTimeStat> previousStats = dailyScreenTimeStatRepository
                 .findByUserAndDateBetweenOrderByDateAsc(user, range.previousFrom(), range.previousTo());
 
-        int currentMinutes = currentStats.stream()
-                .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes).sum();
-        int previousMinutes = previousStats.stream()
-                .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes).sum();
+        // 가입일(유저존 로컬 날짜) — createdAt 미상이면 null(클램프/필터 없음). day 카운트와 분 합계가 같은 기준을 쓰도록
+        // 한 번만 계산해 재사용한다(Codex P2: 가입 전 레거시 row 는 분 합계에서도 제외해야 day 카운트와 정합).
+        LocalDate joinLocalDate = joinLocalDate(user);
+
+        // 가입 전 레거시 row(date < 가입일)는 분 합계·delta 에서도 제외한다 — day 클램프로 경과일에선 이미 빠지므로
+        // 분만 포함되면 불일치. joinLocalDate == null 이면 필터 없음.
+        int currentMinutes = sumMinutesFromJoin(currentStats, joinLocalDate);
+        int previousMinutes = sumMinutesFromJoin(previousStats, joinLocalDate);
         int goalMinutes = userScreenTimeSettingsRepository.findById(userId)
                 .map(UserScreenTimeSettings::getDailyScreenTimeGoalMinutes).orElse(0);
 
@@ -206,21 +210,34 @@ public class StatsService {
             // week/month (GROMO-805): 경과일수는 가입일로 클램프한다 — 가입 전 날은 집계 대상이 아니다.
             // clampedFrom = max(구간 시작, 가입일 유저존 로컬 날짜). createdAt 미상이면 클램프 없음.
             goalAchieved = null;
-            LocalDate clampedFrom = clampFromByJoin(user, range.currentFrom());
+            LocalDate clampedFrom = joinLocalDate != null && joinLocalDate.isAfter(range.currentFrom())
+                    ? joinLocalDate : range.currentFrom();
             int clampedElapsedDays = clampedFrom.isAfter(range.currentTo())
                     ? 0
                     : (int) (ChronoUnit.DAYS.between(clampedFrom, range.currentTo()) + 1);
             elapsedDays = clampedElapsedDays;   // 승인 결정: elapsedDays 도 가입 클램프 반영해 일관
 
             if (goalMinutes > 0) {
-                // 목표 설정 유저: day 뷰와 의미 일치 — row 없는 날 = 0분 = 달성. 실패 기록된 날만 차감.
-                // achievedDays = clampedElapsedDays − failedDays (failedDays = 미달성 플래그 row 수).
-                // failedDays 는 clampedElapsedDays 와 같은 구간(clampedFrom 이후)만 센다 — 가입 전(clampedFrom 이전)
-                // 미달성 row 를 차감하면 그 구간에 속하지 않는 실패를 빼 achievedDays 가 과소(심하면 음수)가 된다.
-                int failedDays = (int) currentStats.stream()
+                // 목표 설정 유저: day 뷰와 의미 일치 — row 없는 날 = 0분 = 달성. 실패한 날만 차감.
+                // achievedDays = clampedElapsedDays − (과거 확정 실패 + 오늘 실패).
+                // ① 과거 확정일(clampedFrom ≤ date < today): 저장 플래그(!isScreenTimeGoalAchieved)로 실패 판정.
+                //    가입 전(clampedFrom 이전) row 는 그 구간에 속하지 않으므로 차감 대상이 아니다(과소·음수 방지).
+                // ② 오늘(date == anchorDay, 미확정 현재일): 저장 플래그는 interim 이라 항상 false → day 뷰와 동일하게
+                //    현재 목표로 재계산한다(todayMinutes > goalMinutes 이면 실패). 이래야 오늘의 week/month 기여가 day 와 일치.
+                //    오늘이 clampedFrom 이전(가입 전)이면 경과일에 없으므로 세지 않는다. anchorDay = range.currentTo() = today 파라미터.
+                LocalDate anchorDay = range.currentTo();
+                int pastFailed = (int) currentStats.stream()
                         .filter(s -> !s.getDate().isBefore(clampedFrom))
+                        .filter(s -> s.getDate().isBefore(anchorDay))
                         .filter(s -> !s.isScreenTimeGoalAchieved()).count();
-                achievedDays = clampedElapsedDays - failedDays;
+                int todayFailed = 0;
+                if (!anchorDay.isBefore(clampedFrom)) {
+                    int todayMinutes = currentStats.stream()
+                            .filter(s -> s.getDate().isEqual(anchorDay))
+                            .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes).sum();
+                    todayFailed = todayMinutes > goalMinutes ? 1 : 0;
+                }
+                achievedDays = clampedElapsedDays - (pastFailed + todayFailed);
             } else {
                 // 목표 미설정: day 뷰와 동일하게 달성 판정을 하지 않는다 — 저장 플래그(모두 false) 기준이라 0.
                 achievedDays = (int) currentStats.stream()
@@ -235,17 +252,27 @@ public class StatsService {
     }
 
     /**
-     * 기간 시작일을 가입일로 클램프한다(GROMO-805) — 가입 전 날은 집계 경과일에서 제외.
-     * 가입일은 {@code user.createdAt} 을 유저 country_code 파생 존(GROMO-561)의 로컬 날짜로 환산해 비교한다
-     * (스크린타임 쓰기 버킷과 동일 존). {@code createdAt} 이 null(테스트/레거시)이면 클램프 없이 원래 시작일을 쓴다.
+     * 가입일을 유저존 로컬 날짜로 환산한다(GROMO-805) — 가입 전 날을 집계에서 제외하기 위한 공통 기준.
+     * {@code user.createdAt} 을 유저 country_code 파생 존(GROMO-561, 스크린타임 쓰기 버킷과 동일 존)의 로컬 날짜로
+     * 환산한다. {@code createdAt} 이 null(테스트/레거시)이면 {@code null} 을 반환해 호출부가 클램프/필터를 생략한다.
      */
-    private LocalDate clampFromByJoin(User user, LocalDate rangeFrom) {
+    private LocalDate joinLocalDate(User user) {
         if (user.getCreatedAt() == null) {
-            return rangeFrom;
+            return null;
         }
-        LocalDate joinLocalDate = user.getCreatedAt()
-                .atZone(CountryZoneResolver.resolve(user.getCountryCode())).toLocalDate();
-        return joinLocalDate.isAfter(rangeFrom) ? joinLocalDate : rangeFrom;
+        return user.getCreatedAt().atZone(CountryZoneResolver.resolve(user.getCountryCode())).toLocalDate();
+    }
+
+    /**
+     * 가입 전 레거시 row(date &lt; joinLocalDate)를 제외하고 분 합계를 낸다(Codex P2) — day 카운트가 가입일로
+     * 클램프되므로 분 합계·delta 도 같은 기준으로 맞춰 불일치를 없앤다. {@code joinLocalDate == null}(가입일 미상)이면
+     * 필터 없이 전체를 합산한다.
+     */
+    private int sumMinutesFromJoin(List<DailyScreenTimeStat> stats, LocalDate joinLocalDate) {
+        return stats.stream()
+                .filter(s -> joinLocalDate == null || !s.getDate().isBefore(joinLocalDate))
+                .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes)
+                .sum();
     }
 
     /**

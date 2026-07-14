@@ -56,8 +56,6 @@ class ScreenTimeServiceTest {
     private static final String COUNTRY_CODE = "KR";
     private static final ZoneId ZONE = ZoneId.of("Asia/Seoul"); // KR 파생 ZoneId
 
-    // interim(오늘) 판정 테스트용 — 현재 순간(유저 존 오늘). Instant.now() 의존은 date==today 성립만 필요하므로 안전.
-    private static final Instant TODAY_AT = Instant.now().truncatedTo(ChronoUnit.SECONDS);
     // 최종 보고(과거 날짜 추론) 테스트용 — 어제보다도 확실히 과거인 고정 시각(실제 '오늘'과 무관하게 결정론적).
     private static final Instant PAST_AT = Instant.parse("2020-01-01T00:00:00Z");
     private static final LocalDate PAST_DATE = PAST_AT.atZone(ZONE).toLocalDate(); // 2020-01-01
@@ -71,8 +69,16 @@ class ScreenTimeServiceTest {
         return new ScreenTimeRequest(clientAchieved, actualMinutes, reportedAt, isFinal);
     }
 
-    private LocalDate todayDate() {
-        return TODAY_AT.atZone(ZONE).toLocalDate();
+    // interim(오늘) 판정 테스트용 — 각 테스트 안에서 호출해 '지금'을 잡는다(Codex P4 결정론). 클래스 로드 시점에 한 번
+    // 잡으면 자정 직전 로드 → 자정 후 실행 시 요청 날짜(어제)와 서비스가 Instant.now() 로 계산하는 today 가 어긋나
+    // interim 이 final 로 추론돼 flake 가 난다. 요청 reportedAt 과 서비스 today 를 사실상 같은 순간에 계산하도록 매번 잡는다.
+    private Instant todayAt() {
+        return Instant.now().truncatedTo(ChronoUnit.SECONDS);
+    }
+
+    // 주어진 '지금' 순간을 유저 존 로컬 날짜로 환산 — findByUserAndDate 스텁 날짜와 요청 날짜를 같은 instant 로 맞춘다.
+    private LocalDate todayDate(Instant todayAt) {
+        return todayAt.atZone(ZONE).toLocalDate();
     }
 
     // ── 최종 보고: 클라 신뢰 (isFinal=true, GROMO-805) ──────────────────────
@@ -166,14 +172,15 @@ class ScreenTimeServiceTest {
     @DisplayName("interim(오늘, isFinal=false): total 만 저장, 신규 row 달성 flag 는 기본값 false, 이벤트·알림 미발사")
     void interimStoresTotalOnlyAndDoesNotSetFlag() {
         User user = normalUser();
+        Instant todayAt = todayAt();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(dailyScreenTimeStatRepository.findByUserAndDate(user, todayDate()))
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, todayDate(todayAt)))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
                 .willAnswer(i -> i.getArgument(0));
 
         // 클라가 달성 true 주장해도 interim 은 판정하지 않음 → 신규 row flag 기본값(false).
-        screenTimeService.saveScreenTime(USER_ID, request(true, 90, TODAY_AT, false));
+        screenTimeService.saveScreenTime(USER_ID, request(true, 90, todayAt, false));
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
@@ -187,14 +194,15 @@ class ScreenTimeServiceTest {
     @DisplayName("interim(오늘) & 기존 row 달성=true → total 만 갱신, 기존 flag(true) 보존, 이벤트·알림 미발사")
     void interimKeepsExistingAchievedFlag() {
         User user = normalUser();
+        Instant todayAt = todayAt();
         DailyScreenTimeStat existing = DailyScreenTimeStat.builder()
-                .user(user).date(todayDate()).isScreenTimeGoalAchieved(true).build();
+                .user(user).date(todayDate(todayAt)).isScreenTimeGoalAchieved(true).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(dailyScreenTimeStatRepository.findByUserAndDate(user, todayDate()))
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, todayDate(todayAt)))
                 .willReturn(Optional.of(existing));
 
         // interim 은 클라 달성=false 여도 기존 flag 를 덮지 않는다(마감만 flag 확정).
-        screenTimeService.saveScreenTime(USER_ID, request(false, 45, TODAY_AT, false));
+        screenTimeService.saveScreenTime(USER_ID, request(false, 45, todayAt, false));
 
         assertThat(existing.getTotalScreenTimeMinutes()).isEqualTo(45);
         assertThat(existing.isScreenTimeGoalAchieved()).isTrue(); // 기존 flag 보존
@@ -207,13 +215,14 @@ class ScreenTimeServiceTest {
     @DisplayName("interim(오늘) & actualScreenTimeMinutes null(측정 누락) → total 0 저장, flag 미설정, 이벤트·알림 미발사")
     void interimNullActualMinutesStoresZeroAndNoFlag() {
         User user = normalUser();
+        Instant todayAt = todayAt();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(dailyScreenTimeStatRepository.findByUserAndDate(user, todayDate()))
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, todayDate(todayAt)))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
                 .willAnswer(i -> i.getArgument(0));
 
-        screenTimeService.saveScreenTime(USER_ID, request(true, null, TODAY_AT, false));
+        screenTimeService.saveScreenTime(USER_ID, request(true, null, todayAt, false));
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
@@ -317,7 +326,7 @@ class ScreenTimeServiceTest {
     void saveScreenTimeUserNotFound() {
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> screenTimeService.saveScreenTime(USER_ID, request(true, 100, TODAY_AT, null)))
+        assertThatThrownBy(() -> screenTimeService.saveScreenTime(USER_ID, request(true, 100, todayAt(), null)))
                 .isInstanceOf(UserException.class);
         verify(dailyScreenTimeStatRepository, never()).save(any());
     }
