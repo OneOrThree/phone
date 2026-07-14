@@ -41,23 +41,42 @@ export default function LeagueResultScreen() {
     return () => loop.stop();
   }, [float]);
 
-  // 승격 뱃지 전환 — 이전 티어 뱃지 → 승격 티어 뱃지 (크로스페이드+팝, 승격 화면만)
+  // 승격 등장 연출(승격 화면만) — ① 이전→승격 뱃지 전환 ② 타이틀 크게 등장 후 축소 ③ 아래 문구 한 줄씩 탕탕
   const badgeAnim = useRef(new Animated.Value(0)).current;
+  const titleAnim = useRef(new Animated.Value(0)).current;
+  const line1 = useRef(new Animated.Value(0)).current;
+  const line2 = useRef(new Animated.Value(0)).current;
+  const line3 = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!promote) return;
-    badgeAnim.setValue(0);
+    [badgeAnim, titleAnim, line1, line2, line3].forEach((v) => v.setValue(0));
     const anim = Animated.sequence([
-      Animated.delay(500),
+      // 기존(승격 전) 뱃지를 잠깐 보여준 뒤 전환 시작
+      Animated.delay(1100),
+      // ① 이전 티어 → 승격 티어 뱃지 전환
       Animated.timing(badgeAnim, {
         toValue: 1,
         duration: 1200,
         easing: Easing.out(Easing.back(1.2)),
         useNativeDriver: true,
       }),
+      // ② PROMOTED·승격했어요! 크게 나타났다 현재 크기로 축소
+      Animated.timing(titleAnim, {
+        toValue: 1,
+        duration: 420,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      // ③ 아래 문구 한 줄씩 탕 탕 등장
+      Animated.stagger(170, [
+        Animated.spring(line1, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
+        Animated.spring(line2, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
+        Animated.spring(line3, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
+      ]),
     ]);
     anim.start();
     return () => anim.stop();
-  }, [promote, badgeAnim]);
+  }, [promote, badgeAnim, titleAnim, line1, line2, line3]);
 
   const to = tierByLevel(promote ? PROMOTE_TO : DEMOTE_FROM - 1);
   const from = tierByLevel(DEMOTE_FROM);
@@ -88,6 +107,23 @@ export default function LeagueResultScreen() {
   });
   const toScale = badgeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
 
+  // 타이틀 등장 — 크게(1.5x) 나타났다 현재 크기로 축소
+  const titleOpacity = titleAnim.interpolate({
+    inputRange: [0, 0.4],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+  const titleScale = titleAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1.5, 1],
+    extrapolate: 'clamp',
+  });
+  // 아래 문구 한 줄 — 페이드 + 팝(탕)
+  const lineStyle = (v: Animated.Value) => ({
+    opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolate: 'clamp' }),
+    transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }],
+  });
+
   return (
     <View style={s.root}>
       {/* 시안 radial 배경 — expo-linear-gradient엔 radial이 없어 svg로 */}
@@ -115,8 +151,16 @@ export default function LeagueResultScreen() {
         <View style={s.body}>
           {promote ? (
             <>
-              <Text style={s.caption}>PROMOTED</Text>
-              <Text style={s.title}>승격했어요!</Text>
+              {/* PROMOTED·승격했어요! — 뱃지 전환 뒤 크게 나타났다 현재 크기로 축소 */}
+              <Animated.View
+                style={[
+                  s.titleGroup,
+                  { opacity: titleOpacity, transform: [{ scale: titleScale }] },
+                ]}
+              >
+                <Text style={s.caption}>PROMOTED</Text>
+                <Text style={s.title}>승격했어요!</Text>
+              </Animated.View>
 
               {/* 큰 티어 뱃지 + 글로우 — 이전 티어 → 승격 티어 크로스페이드 전환 */}
               <View style={s.glow}>
@@ -136,27 +180,28 @@ export default function LeagueResultScreen() {
                 </View>
               </View>
 
-              <Text style={s.tierName}>{to.name}</Text>
-              <Text style={s.desc}>
+              {/* 아래 문구 — 한 줄씩 탕 탕 등장 */}
+              <Animated.Text style={[s.tierName, lineStyle(line1)]}>{to.name}</Animated.Text>
+              <Animated.Text style={[s.desc, lineStyle(line2)]}>
                 이번 주 <Text style={s.descStrong}>{PROMOTE_WEEK_HOURS}시간</Text> 집중!{'\n'}
                 {to.name} 기준(주 {to.minHours}시간)을 넘겨 한 단계 올라갔어요.
-              </Text>
+              </Animated.Text>
 
               {/* 다음 리그까지 남은 시간 안내 (승격 보너스/코인 없음) */}
               {promoteNext != null ? (
-                <View style={s.pill}>
+                <Animated.View style={[s.pill, lineStyle(line3)]}>
                   <Ionicons name="arrow-up" size={14} color={T.night.gold} />
                   <Text style={s.pillText} allowFontScaling={false}>
                     다음 주 +{promoteNextRemain}시간이면 {promoteNext.name} 승격
                   </Text>
-                </View>
+                </Animated.View>
               ) : (
-                <View style={s.pill}>
+                <Animated.View style={[s.pill, lineStyle(line3)]}>
                   <Ionicons name="trophy" size={14} color={T.night.gold} />
                   <Text style={s.pillText} allowFontScaling={false}>
                     최고 리그예요
                   </Text>
-                </View>
+                </Animated.View>
               )}
             </>
           ) : maintain ? (
@@ -245,6 +290,7 @@ const s = StyleSheet.create({
   spark3: { left: 80, top: 230, width: 5, height: 5, opacity: 0.6 },
   spark4: { right: 48, top: 280, width: 6, height: 6 },
 
+  titleGroup: { alignItems: 'center' },
   caption: {
     ...T.text.label,
     fontWeight: '700',
