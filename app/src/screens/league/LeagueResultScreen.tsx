@@ -30,22 +30,11 @@ const MAINTAIN_AT = 4;
 // mock: 승격 주 집중 시간(디자인 미리보기) — 갓생러(42–56h) 구간 안의 값
 const PROMOTE_WEEK_HOURS = 48;
 
-// 승격 격려 문장 — 진입(마운트)마다 랜덤 1개 노출
-const ENCOURAGE_LINES = [
-  '저번 주도 정말 고생 많았어요',
-  '좋아요! 이 기세, 이번 주도 이어가봐요',
-  '이 페이스면 다음 티어까지도 시간문제인데요?',
-];
-
 export default function LeagueResultScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<V2RootStackParamList, 'LeagueResult'>>();
   const promote = route.params.type === 'promote';
   const maintain = route.params.type === 'maintain';
-  // 격려 문장 — 진입(마운트)마다 랜덤 1개 선택(재렌더에도 고정)
-  const [encourage] = useState(
-    () => ENCOURAGE_LINES[Math.floor(Math.random() * ENCOURAGE_LINES.length)],
-  );
 
   // 강등 화면 마스코트 둥실 애니메이션 (시안 gmFloat 4s)
   const float = useRef(new Animated.Value(0)).current;
@@ -66,14 +55,13 @@ export default function LeagueResultScreen() {
   const badgeAnim = useRef(new Animated.Value(0)).current;
   const titleAnim = useRef(new Animated.Value(0)).current;
   const nameAnim = useRef(new Animated.Value(0)).current;
-  const line2 = useRef(new Animated.Value(0)).current;
   const line3 = useRef(new Animated.Value(0)).current;
   const [showTo, setShowTo] = useState(false);
   useEffect(() => {
     if (!promote) return;
     let cancelled = false;
     setShowTo(false);
-    [badgeAnim, titleAnim, nameAnim, line2, line3].forEach((v) => v.setValue(0));
+    [badgeAnim, titleAnim, nameAnim, line3].forEach((v) => v.setValue(0));
     // ① 기존 뱃지·이름 잠깐 노출
     const hold = Animated.delay(1100);
     hold.start(({ finished }) => {
@@ -101,7 +89,7 @@ export default function LeagueResultScreen() {
         tension: 120,
         useNativeDriver: true,
       }).start();
-      // ④ 갓생러 팝 0.2초 뒤 타이틀 팝 → ⑤ 문구 한 줄씩 탕탕
+      // ④ 갓생러 팝 0.2초 뒤 타이틀 팝 → ⑤ 하단 안내 문구 등장
       Animated.sequence([
         Animated.delay(200),
         Animated.timing(titleAnim, {
@@ -110,17 +98,14 @@ export default function LeagueResultScreen() {
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.stagger(170, [
-          Animated.spring(line2, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
-          Animated.spring(line3, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
-        ]),
+        Animated.spring(line3, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
       ]).start();
     });
     return () => {
       cancelled = true;
       hold.stop();
     };
-  }, [promote, badgeAnim, titleAnim, nameAnim, line2, line3]);
+  }, [promote, badgeAnim, titleAnim, nameAnim, line3]);
 
   const to = tierByLevel(promote ? PROMOTE_TO : DEMOTE_FROM - 1);
   const from = tierByLevel(DEMOTE_FROM);
@@ -241,27 +226,6 @@ export default function LeagueResultScreen() {
                   </Animated.View>
                 )}
               </View>
-              <Animated.Text style={[s.desc, lineStyle(line2)]}>
-                저번 주에 <Text style={s.descStrong}>{PROMOTE_WEEK_HOURS}시간</Text> 집중했어요!
-              </Animated.Text>
-              <Animated.Text style={[s.encourage, lineStyle(line2)]}>{encourage}</Animated.Text>
-
-              {/* 다음 리그까지 남은 시간 안내 (승격 보너스/코인 없음) */}
-              {promoteNext != null ? (
-                <Animated.View style={[s.pill, lineStyle(line3)]}>
-                  <Ionicons name="arrow-up" size={14} color={T.night.gold} />
-                  <Text style={s.pillText} allowFontScaling={false}>
-                    이번 주에 +{promoteNextRemain}시간이면 {promoteNext.name} 승격
-                  </Text>
-                </Animated.View>
-              ) : (
-                <Animated.View style={[s.pill, lineStyle(line3)]}>
-                  <Ionicons name="trophy" size={14} color={T.night.gold} />
-                  <Text style={s.pillText} allowFontScaling={false}>
-                    최고 리그예요
-                  </Text>
-                </Animated.View>
-              )}
             </>
           ) : maintain ? (
             <>
@@ -326,6 +290,20 @@ export default function LeagueResultScreen() {
           )}
         </View>
 
+        {/* 다음 티어까지 한 줄 안내 — CTA 바로 위 (승격만) */}
+        {promote && (
+          <Animated.Text style={[s.goalHint, lineStyle(line3)]}>
+            {promoteNext != null ? (
+              <>
+                저번 주보다 <Text style={s.goalStrong}>{promoteNextRemain}시간</Text> 더 집중하면
+                다음 티어로 올라갈 수 있어요!
+              </>
+            ) : (
+              '이미 최고 티어예요!'
+            )}
+          </Animated.Text>
+        )}
+
         {/* ── 하단 CTA ── */}
         <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={() => navigation.goBack()}>
           <Text style={s.ctaText}>
@@ -377,33 +355,34 @@ const s = StyleSheet.create({
     shadowRadius: 30,
     shadowOffset: { width: 0, height: 0 },
   },
-  badgeImg: { width: 150, height: 150, resizeMode: 'contain' },
-  badgeStack: { width: 150, height: 150, alignItems: 'center', justifyContent: 'center' },
+  badgeImg: { width: 190, height: 190, resizeMode: 'contain' },
+  badgeStack: { width: 190, height: 190, alignItems: 'center', justifyContent: 'center' },
   badgeAbs: { position: 'absolute' },
   tierChange: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   tierToGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   tierFrom: { ...T.text.subtitle, fontSize: 22, color: T.night.muted },
   tierName: { ...T.text.title, fontSize: 30, color: T.night.cream },
 
+  // 강등·유지 화면 설명 문구
   desc: {
     ...T.text.label,
-    fontSize: 19,
     fontWeight: '500',
-    lineHeight: 27,
+    lineHeight: 24,
     color: T.accentLight,
     textAlign: 'center',
     marginTop: 10,
   },
-  descStrong: { fontWeight: '800', color: T.night.gold },
-  // 격려 문장 — desc 아래 흐린 보조 톤
-  encourage: {
+
+  // 승격 다음 티어 안내 — CTA 바로 위 한 줄 힌트(숫자 금색 강조)
+  goalHint: {
     ...T.text.caption,
     fontWeight: '600',
-    color: T.night.muted,
+    color: T.accentLight,
     textAlign: 'center',
-    lineHeight: 19,
-    marginTop: 10,
+    paddingHorizontal: 16,
+    marginBottom: 12,
   },
+  goalStrong: { fontWeight: '800', color: T.night.gold },
 
   pill: {
     flexDirection: 'row',
