@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T, withAlpha } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import CircularGauge from '@/components/CircularGauge';
-import { fmtMinutes } from '../format';
+import { fmtMinutes, hms } from '../format';
 import { MY_USER_ID } from '../mock';
 import { MemberAvatar } from './MemberAvatar';
 import { TierBadge } from './TierBadge';
@@ -18,7 +18,7 @@ export interface ProfileTarget {
   userId: string;
   nickname: string;
   tierLevel: number;
-  minutes: number; // 집중 시간(분) — 내 것은 실데이터(과목 누적 합)
+  seconds: number; // 집중 시간(초) — 리그 주간 총합, HH:MM:SS 실초 표기(GROMO-665)
   bestRank: number; // 역대 최고 순위 (기록 카드)
   bestWeekMinutes: number; // 일주일 최대 공부량(분) (기록 카드)
   achievedRate: number; // 목표 달성률 0..1 — 내 것은 오늘 실데이터
@@ -127,7 +127,7 @@ export function ProfileSheet({ target, onClose }: Props) {
             <View style={s.heroTop}>
               <Text style={s.heroLabel}>집중 시간</Text>
               <Text style={s.heroValue} allowFontScaling={false}>
-                {fmtMinutes(target.minutes)}
+                {hms(target.seconds)}
               </Text>
             </View>
             {/* 차트: y축(시간) + 그리드 + 요일 막대 */}

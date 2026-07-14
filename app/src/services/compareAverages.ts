@@ -17,11 +17,12 @@ function mean(values: number[]): number | null {
   return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
 }
 
-// 전체 평균 — 이번 주 전체 랭킹(상위 100) totalFocusMinutes 평균. null = 리그 미시작/실패.
+// 전체 평균 — 이번 주 전체 랭킹(상위 100) 집중시간 평균(분). null = 리그 미시작/실패.
+// 서버는 초 단위(totalFocusSeconds, GROMO-665)라 분으로 내려 다른 축(분)과 단위를 맞춘다.
 export async function fetchGlobalAverage(): Promise<number | null> {
   try {
     const ranking = await getGlobalRanking();
-    return mean(ranking.map((m) => m.totalFocusMinutes));
+    return mean(ranking.map((m) => m.totalFocusSeconds / 60));
   } catch {
     return null;
   }
@@ -37,7 +38,7 @@ export async function fetchCategoryAverage(): Promise<{
   if (!occupation) return { avg: null, label };
   try {
     const ranking = await getMyRanking(occupation);
-    return { avg: mean(ranking.map((m) => m.totalFocusMinutes)), label };
+    return { avg: mean(ranking.map((m) => m.totalFocusSeconds / 60)), label };
   } catch {
     return { avg: null, label };
   }

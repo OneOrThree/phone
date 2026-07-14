@@ -108,7 +108,7 @@ export interface LeagueMemberResponse {
   userId: string;
   nickname: string;
   tierLevel: number; // 멤버별 실제 티어(league_arena_users.tier_level) — GROMO-748
-  totalFocusMinutes: number;
+  totalFocusSeconds: number; // 이번 주 누적 집중 초 (GROMO-665: 분→초 정밀도 전환)
   // 주간 정산 결과 ('PROMOTED'/'DEMOTED' 등) — 정산 전엔 null. 서버 enum 확장 대비 string 유지
   result: string | null;
   // ※ 서버 응답의 isPinned는 미러 생략 — 핀 상태는 GET /pins(usePinned)로 별도 관리
@@ -118,7 +118,7 @@ export interface LeagueMemberResponse {
 export interface LeagueRankResponse {
   assigned: boolean;
   myRank: number | null;
-  totalFocusMinutes: number | null;
+  totalFocusSeconds: number | null; // GROMO-665: 분→초 정밀도 전환
   result: string | null;
 }
 
