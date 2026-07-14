@@ -10,8 +10,12 @@ import type {
 // 친구·핀 API 래퍼 — 백엔드 FriendController(/api/v1/friends*)·PinController(/api/v1/pins*) 대응.
 // api(axios)는 비2xx에서 throw — 호출부에서 try/catch로 분기한다(409=중복 등).
 
+// date(클라 로컬 오늘)를 주면 GROMO-658 확장 서버가 focusTimeMinutes(오늘 집중분)를 포함해 준다.
+// 확장 배포 전 서버는 파라미터를 무시하므로 항상 보내도 안전.
 export async function fetchFriends(): Promise<FriendResponse[]> {
-  const { data } = await api.get<FriendResponse[]>('/api/v1/friends');
+  const { data } = await api.get<FriendResponse[]>('/api/v1/friends', {
+    params: { date: todayStr() },
+  });
   return data;
 }
 

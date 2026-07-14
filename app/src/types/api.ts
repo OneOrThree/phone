@@ -142,6 +142,11 @@ export interface FriendResponse {
   tierLevel: number | null;
   isPinned: boolean;
   occupation: string | null; // 준비 시험 코드(Occupation enum name) — 미설정 null (GROMO-747)
+  // GROMO-658 라이브 필드(822 스펙) — 서버 배포 전이라 optional. date 쿼리 미전달 시 focusTimeMinutes 는 null.
+  focusTimeMinutes?: number | null; // 오늘 누적 집중 분 (완료 세션 집계)
+  isFocusing?: boolean; // 현재 집중 세션 진행 중 여부
+  focusStartedAt?: string | null; // 진행 중 세션 시작 시각(ISO) — 초 단위 경과 렌더링 기준. 미집중이면 null
+  focusTagName?: string | null; // 진행 중 세션 태그명. 미집중·무태그면 null
 }
 
 // GET /friends/requests — 받은/보낸 요청
@@ -170,4 +175,7 @@ export interface PinnedFriendResponse {
   character: { id: string; slotType: string; item: unknown | null }[];
   focusTimeMinutes: number; // 오늘 누적 집중 분
   isFocusing: boolean; // 현재 집중 세션 진행 중 여부
+  // GROMO-658 라이브 필드(822 스펙) — 서버 배포 전이라 optional
+  focusStartedAt?: string | null; // 진행 중 세션 시작 시각(ISO) — 초 단위 경과 렌더링 기준. 미집중이면 null
+  focusTagName?: string | null; // 진행 중 세션 태그명. 미집중·무태그면 null
 }

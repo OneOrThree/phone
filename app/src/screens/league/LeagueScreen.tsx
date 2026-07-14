@@ -25,8 +25,10 @@ import { useFriends } from './useFriends';
 import { usePinned } from './usePinned';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { MY_USER_ID, type RankedMember } from './mock';
-import { hms } from './format';
+import { hms, fmtHourMin } from './format';
+import type { FriendResponse } from '@/types/api';
 import { RankRow } from './components/RankRow';
+import { LiveFocusTime } from './components/LiveFocusTime';
 import { MemberAvatar } from './components/MemberAvatar';
 import { TierBadge } from './components/TierBadge';
 import { ProfileSheet, type ProfileTarget } from './components/ProfileSheet';
@@ -114,6 +116,16 @@ export default function LeagueScreen() {
     refetch: refetchFriends,
   } = useFriends();
   const friendIds = new Set(friends.map((f) => f.userId));
+
+  // GROMO-658: 친구 그리드 정렬 — 핀한 친구 우선, 같은 그룹 안에선 오늘 집중 시간 내림차순.
+  // 핀 여부는 배지와 동일 기준(공유 핀 상태 usePinned 우선, 미로딩 시 응답 isPinned 폴백)으로
+  // 파생해야 랭킹 탭에서 핀 토글한 직후에도 순서가 배지와 일치한다.
+  const isFriendPinned = (f: FriendResponse) => (pinnedLoaded ? pinned.has(f.userId) : f.isPinned);
+  const sortedFriends = [...friends].sort(
+    (a, b) =>
+      Number(isFriendPinned(b)) - Number(isFriendPinned(a)) ||
+      (b.focusTimeMinutes ?? 0) - (a.focusTimeMinutes ?? 0),
+  );
 
   // 현재 리그 — 기본은 내 직군, 드롭다운 선택이 있으면 그 리그.
   // '전체'는 진짜 전역 랭킹(globalRanking), 직군은 내 직군 랭킹을 라벨로 필터한다(GROMO-644).
@@ -505,15 +517,17 @@ export default function LeagueScreen() {
               </Text>
               {/* 실친구 목록 — 주간 집중시간은 응답에 없어 미표기(TODO: 백엔드 협의 후 복원) */}
               <View style={s.friendGrid}>
-                {friends.map((f) => {
-                  // 핀 배지는 공유 핀 상태(usePinned)에서 파생 — 랭킹 탭에서 토글한 직후 같은 화면 안에서
-                  // 친구 세그먼트로 전환해도 일치한다. 친구 응답의 isPinned(포커스 시에만 갱신)는
-                  // 핀 목록을 아직 못 받았을 때의 폴백으로만 쓴다.
-                  const isPinned = pinnedLoaded ? pinned.has(f.userId) : f.isPinned;
+                {sortedFriends.map((f) => {
+                  // 핀 배지·정렬 모두 동일한 파생 핀 상태(isFriendPinned)를 쓴다 — 위 정렬 주석 참조.
+                  const isPinned = isFriendPinned(f);
                   return (
                     <TouchableOpacity
                       key={f.userId}
-                      style={s.friendCard}
+                      style={[
+                        s.friendCard,
+                        isPinned && s.friendCardPinned,
+                        f.isFocusing && s.friendCardFocusing,
+                      ]}
                       activeOpacity={0.85}
                       onPress={() =>
                         navigation.navigate('FriendProfile', {
@@ -538,6 +552,34 @@ export default function LeagueScreen() {
                         <TierBadge level={f.tierLevel ?? 1} size={18} />
                         <Text style={s.friendTier}>{tierByLevel(f.tierLevel ?? 1).name}</Text>
                       </View>
+                      {/* 오늘 집중 시간 (GROMO-658) — 집중 중이면 과목 + 초 단위 라이브,
+                           아니면 누적분 고정 표시. 서버 확장 전 응답엔 필드가 없어 0분·미집중 취급 */}
+                      {f.isFocusing ? (
+                        <>
+                          {f.focusTagName != null && (
+                            <View style={s.friendFocusingRow}>
+                              <View style={s.friendFocusingDot} />
+                              <Text style={s.friendFocusTag} numberOfLines={1}>
+                                {f.focusTagName}
+                              </Text>
+                            </View>
+                          )}
+                          <LiveFocusTime
+                            baseSeconds={(f.focusTimeMinutes ?? 0) * 60}
+                            focusStartedAt={f.focusStartedAt ?? null}
+                            style={s.friendFocusTimeLive}
+                          />
+                        </>
+                      ) : (
+                        <Text
+                          style={[
+                            s.friendFocusTime,
+                            (f.focusTimeMinutes ?? 0) > 0 && s.friendFocusTimeOn,
+                          ]}
+                        >
+                          {fmtHourMin(f.focusTimeMinutes ?? 0)}
+                        </Text>
+                      )}
                     </TouchableOpacity>
                   );
                 })}
@@ -852,6 +894,38 @@ const s = StyleSheet.create({
   },
   // 홀수 명일 때 마지막 줄을 채우는 투명 칸 — 혼자 남은 카드가 전체 폭으로 늘어나지 않게 2열 폭 고정
   friendCardGhost: { width: '48%', flexGrow: 1 },
+  // 핀한 친구 강조 — 상단 정렬과 함께 한눈에 구분되도록 액센트 테두리 + 은은한 배경·그림자 (GROMO-658)
+  friendCardPinned: {
+    borderWidth: 1.5,
+    borderColor: T.accent,
+    backgroundColor: withAlpha(T.accent, 0.05),
+    shadowColor: T.accent,
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  // 집중 중 표시 (GROMO-658) — 초록 테두리 카드 + 점·과목 + 초 단위 라이브 시간
+  friendCardFocusing: { borderWidth: 1.5, borderColor: T.green, backgroundColor: T.greenBg },
+  friendFocusingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 },
+  friendFocusingDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.green },
+  friendFocusTag: { ...T.text.caption, fontWeight: '700', color: T.greenDeep, maxWidth: 70 },
+  friendFocusTimeLive: {
+    ...T.text.caption,
+    fontWeight: '700',
+    color: T.greenDeep,
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
+  },
+  // 오늘 집중 시간 (GROMO-658) — 0분은 흐리게, 집중 이력 있으면 액센트로
+  friendFocusTime: {
+    ...T.text.caption,
+    fontWeight: '700',
+    color: T.inkMuted,
+    marginTop: 5,
+    fontVariant: ['tabular-nums'],
+  },
+  friendFocusTimeOn: { color: T.accent },
   // 핀한 친구 표시 — 나만의 랭킹(핀 경쟁자)에 고정된 친구
   friendPinBadge: {
     position: 'absolute',
