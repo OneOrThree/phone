@@ -20,7 +20,7 @@ interface Props {
   /** 나 대비 주간 집중 차이(분) — 핀한 사람만 모드에서만 전달 */
   deltaMinutes?: number;
   onPress?: () => void;
-  /** 없으면 핀 버튼 생략 */
+  /** 없으면 핀 버튼은 생략하되, 총 집중시간 세로선 정렬을 위해 자리(폭)는 유지 */
   onPin?: () => void;
 }
 
@@ -69,7 +69,7 @@ export function RankRow({
           {fmtMinutes(minutes)}
         </Text>
       )}
-      {onPin && (
+      {onPin ? (
         <TouchableOpacity onPress={onPin} hitSlop={8} style={s.pinBtn}>
           <MaterialCommunityIcons
             name={pinned ? 'pin' : 'pin-outline'}
@@ -77,6 +77,9 @@ export function RankRow({
             color={pinned ? T.accent : T.inkFaint}
           />
         </TouchableOpacity>
+      ) : (
+        // 내 칸엔 핀 버튼이 없지만, 남의 칸과 총 집중시간 세로선을 맞추려면 같은 폭을 차지해야 함
+        <View style={s.pinBtn} />
       )}
     </TouchableOpacity>
   );

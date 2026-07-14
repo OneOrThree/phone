@@ -210,6 +210,7 @@ export async function syncScreenTimeUsage(
           actualScreenTimeMinutes: finalMinutes,
           screenTimeGoalAchieved: achieved,
           reportedAt: localNoonInstant(yesterday),
+          isFinal: true, // 어제분 마감 — 최종 보고(서버가 achieved 신뢰·395 발사)
         });
         // 마감도 동기화의 일종 — 설정 화면 '마지막 동기화' 표시를 갱신한다.
         await AsyncStorage.setItem(STORAGE_KEYS.screentimeLastSyncedDate, today);
@@ -233,6 +234,7 @@ export async function syncScreenTimeUsage(
         actualScreenTimeMinutes: last.minutes,
         screenTimeGoalAchieved: true,
         reportedAt: localNoonInstant(last.date),
+        isFinal: true, // 밀린 과거분 확정 — 최종 보고
       });
     }
     await AsyncStorage.removeItem(STORAGE_KEYS.screentimeSyncState);
@@ -249,6 +251,7 @@ export async function syncScreenTimeUsage(
     actualScreenTimeMinutes: minutes,
     screenTimeGoalAchieved: false, // 중간 동기화는 미달성 고정 — 최종 판정은 다음날 마감에서
     reportedAt: localNoonInstant(today),
+    isFinal: false, // 오늘 중간 동기화 — 서버는 total만 갱신, 달성 판정·알림 스킵
   });
   await writeSyncState({ userId, date: today, minutes });
 }

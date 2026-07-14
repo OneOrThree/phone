@@ -54,6 +54,10 @@ public class DailyScreenTimeStat {
     @Column(name = "is_screen_time_goal_achieved", nullable = false)
     private boolean isScreenTimeGoalAchieved = false;
 
+    @Builder.Default
+    @Column(name = "is_screen_time_finalized", nullable = false)
+    private boolean screenTimeFinalized = false;
+
     @CreationTimestamp
     private Instant createdAt;
 

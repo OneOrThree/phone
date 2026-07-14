@@ -15,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Map;
@@ -39,39 +40,54 @@ public class ScreenTimeService {
         // 2. reportedAt → 유저 country_code 파생 ZoneId 기준 로컬 날짜 환산 (자정 경계 오귀속 방지)
         LocalDate date = resolveLocalDate(user, request);
 
-        // 3. daily_screen_time_stats upsert (user, date) 기준 — 멱등
+        // 3. 최종 보고 여부 판정 (GROMO-805 후속). 최종 보고 = 명시적 isFinal=true 이거나 과거 날짜 보고(마감은 다음 날 업로드).
+        //    앱이 아직 isFinal 을 안 보내도(구버전) 과거 날짜면 마감으로 간주해 알림이 눌리지 않도록 서버가 finality 를 추론한다.
+        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        LocalDate today = Instant.now().atZone(zone).toLocalDate();
+        boolean finalReport = Boolean.TRUE.equals(request.getIsFinal()) || date.isBefore(today);
+
+        // 4. 총 스크린타임(측정 데이터 누락 null → 0) + 클라 달성 결과.
         int actualMinutes = request.getActualScreenTimeMinutes() != null
                 ? request.getActualScreenTimeMinutes() : 0;
+        boolean clientAchieved = Boolean.TRUE.equals(request.getScreenTimeGoalAchieved());
 
-        boolean goalAchieved = Boolean.TRUE.equals(request.getScreenTimeGoalAchieved());
+        // 5. daily_screen_time_stats upsert (user, date) — 멱등.
+        //    - interim(오늘, 미마감): total 만 갱신, 달성 flag 는 건드리지 않는다(신규 row 기본값 false, 기존 row flag 보존).
+        //      "오늘"은 마감 전까지 달성으로 확정하지 않는다(805 이전 "오늘 미집계"와 동일). 마감만이 달성을 확정한다.
+        //    - final(마감): is_screen_time_goal_achieved = 클라 달성 결과(client-trust). 서버는 과거 날짜의 당시 목표를
+        //      알 수 없어(현재 목표만 조회 가능) 재판정하면 오귀속되므로 클라를 신뢰한다.
         Optional<DailyScreenTimeStat> existing =
                 dailyScreenTimeStatRepository.findByUserAndDate(user, date);
-        // false→true 전이 여부 — 기존 row 미달성 & 요청 달성, 또는 신규 row 가 곧바로 달성
-        boolean transitioned;
+        // 알림 전이 판정을 위해 upsert 로 flag 를 덮기 전의 기존 값을 미리 읽어 둔다.
+        boolean wasAchieved = existing.isPresent() && existing.get().isScreenTimeGoalAchieved();
         if (existing.isPresent()) {
             DailyScreenTimeStat stat = existing.get();
-            transitioned = !stat.isScreenTimeGoalAchieved() && goalAchieved;
             stat.setTotalScreenTimeMinutes(actualMinutes);
-            stat.setScreenTimeGoalAchieved(goalAchieved);
+            if (finalReport) {
+                stat.setScreenTimeGoalAchieved(clientAchieved);
+                stat.setScreenTimeFinalized(true);
+            }
         } else {
-            transitioned = goalAchieved;
-            dailyScreenTimeStatRepository.save(DailyScreenTimeStat.builder()
+            DailyScreenTimeStat.DailyScreenTimeStatBuilder builder = DailyScreenTimeStat.builder()
                     .user(user)
                     .date(date)
-                    .totalScreenTimeMinutes(actualMinutes)
-                    .isScreenTimeGoalAchieved(goalAchieved)
-                    .build());
+                    .totalScreenTimeMinutes(actualMinutes);
+            if (finalReport) {
+                builder.isScreenTimeGoalAchieved(clientAchieved)
+                        .screenTimeFinalized(true);
+            }
+            dailyScreenTimeStatRepository.save(builder.build());
         }
 
-        // false→true 전이 순간에만 1회 발행 — true→true 재전송은 미발행 (GROMO-395)
-        if (transitioned) {
+        // 6. 목표 달성 알림(GROMO-395) — '최종 보고로 false→true 전이'일 때만 이벤트+알림을 1회 발사한다.
+        //    interim 은 flag 를 true 로 세우지 않으므로 첫 마감은 항상 wasAchieved=false 를 보고 발사한다.
+        //    마감 재시도(네이티브 읽기 미완료 시 앱이 재업로드)는 이미 true 인 flag 를 만나 재발사하지 않는다(날짜별 멱등, Codex P2).
+        if (finalReport && clientAchieved && !wasAchieved) {
             userActivityEventLogger.log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED, Map.of(
                     "date", date.toString(),
                     "actual_screen_time_minutes", actualMinutes));
+            notificationPort.notify(userId, true);
         }
-
-        // 4. 알림 인터페이스 호출 (달성 여부는 클라이언트 계산값을 그대로 신뢰)
-        notificationPort.notify(userId, request.getScreenTimeGoalAchieved());
     }
 
     /**
