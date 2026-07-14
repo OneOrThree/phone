@@ -45,6 +45,8 @@ import static org.mockito.Mockito.verify;
 @ExtendWith(MockitoExtension.class)
 class LeagueServiceTest {
 
+    private static final int FOURTEEN_HOURS_IN_SECONDS = 14 * 60 * 60;
+
     @InjectMocks
     private LeagueService leagueService;
 
@@ -64,6 +66,8 @@ class LeagueServiceTest {
         return LeagueTierConfig.builder()
                 .tierLevel(tierLevel)
                 .badgeId(badgeId)
+                .promotionTime(tierLevel * FOURTEEN_HOURS_IN_SECONDS)
+                .relegationTime((tierLevel - 1) * FOURTEEN_HOURS_IN_SECONDS)
                 .build();
     }
 
