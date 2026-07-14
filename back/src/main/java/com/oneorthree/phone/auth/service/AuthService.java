@@ -156,7 +156,7 @@ public class AuthService {
 
         // 현재 호출자가 게스트인 경우에만 업그레이드 분기 대상 (비게스트/미존재는 null → 기존 흐름)
         User guestUser = currentUserId == null ? null
-                : userRepository.findById(currentUserId).filter(User::isGuest).orElse(null);
+                : userRepository.findByIdAndIsDeletedFalse(currentUserId).filter(User::isGuest).orElse(null);
 
         boolean isNewUser;
         User user;

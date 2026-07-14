@@ -1,7 +1,6 @@
 package com.oneorthree.phone.common.config;
 
 import com.oneorthree.phone.auth.service.JwtProvider;
-import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.service.UserActivityService;
 import jakarta.servlet.http.HttpServletResponse;
@@ -15,7 +14,6 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.time.Instant;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -76,8 +74,8 @@ class JwtFilterTest {
         UUID userId = UUID.randomUUID();
         given(jwtProvider.isTokenValid("valid-token")).willReturn(true);
         given(jwtProvider.extractUserId("valid-token")).willReturn(userId);
-        // 활성 유저(is_deleted=false) — 소프트딜리트 차단 조회에서 present 반환
-        given(userRepository.findByIdAndIsDeletedFalse(userId)).willReturn(Optional.of(User.builder().build()));
+        // 활성 유저(is_deleted=false) — 소프트딜리트 차단 존재 조회에서 true 반환
+        given(userRepository.existsByIdAndIsDeletedFalse(userId)).willReturn(true);
 
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/users/me");
         request.addHeader("Authorization", "Bearer valid-token");
@@ -98,8 +96,8 @@ class JwtFilterTest {
         UUID userId = UUID.randomUUID();
         given(jwtProvider.isTokenValid("valid-token")).willReturn(true);
         given(jwtProvider.extractUserId("valid-token")).willReturn(userId);
-        // 탈퇴 유저(is_deleted=true) — 활성 유저 조회에서 empty 반환
-        given(userRepository.findByIdAndIsDeletedFalse(userId)).willReturn(Optional.empty());
+        // 탈퇴 유저(is_deleted=true) — 활성 유저 존재 조회에서 false 반환
+        given(userRepository.existsByIdAndIsDeletedFalse(userId)).willReturn(false);
 
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/users/me");
         request.addHeader("Authorization", "Bearer valid-token");
@@ -123,7 +121,7 @@ class JwtFilterTest {
         UUID userId = UUID.randomUUID();
         given(jwtProvider.isTokenValid("valid-token")).willReturn(true);
         given(jwtProvider.extractUserId("valid-token")).willReturn(userId);
-        given(userRepository.findByIdAndIsDeletedFalse(userId)).willReturn(Optional.of(User.builder().build()));
+        given(userRepository.existsByIdAndIsDeletedFalse(userId)).willReturn(true);
         Mockito.doThrow(new RuntimeException("DB down"))
                 .when(userActivityService).touchLastActive(eq(userId), any(Instant.class));
 
