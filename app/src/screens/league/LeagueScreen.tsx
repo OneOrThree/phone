@@ -340,10 +340,26 @@ export default function LeagueScreen() {
                         >
                           {m.nickname}
                         </Text>
+                        {m.isFocusing && <View style={s.podiumFocusDot} />}
                       </View>
-                      <Text style={s.podiumTime} allowFontScaling={false}>
-                        {hms(m.totalFocusSeconds)}
-                      </Text>
+                      {/* GROMO-810: Top3 도 집중 중이면 과목 + 초 단위 라이브 (랭킹 행과 동일 규칙) */}
+                      {m.isFocusing && m.focusStartedAt != null ? (
+                        <>
+                          <Text style={s.podiumFocusTag} numberOfLines={1}>
+                            {m.focusTagName != null ? `${m.focusTagName} 집중 중` : '집중 중'}
+                          </Text>
+                          <LiveFocusTime
+                            baseSeconds={m.totalFocusSeconds}
+                            focusStartedAt={m.focusStartedAt}
+                            format={hms}
+                            style={[s.podiumTime, s.podiumTimeFocusing]}
+                          />
+                        </>
+                      ) : (
+                        <Text style={s.podiumTime} allowFontScaling={false}>
+                          {hms(m.totalFocusSeconds)}
+                        </Text>
+                      )}
                       {!isMe && (
                         <TouchableOpacity
                           style={s.podiumPin}
@@ -455,6 +471,9 @@ export default function LeagueScreen() {
                   isMe={isMe}
                   pinned={pinned.has(m.userId)}
                   deltaSeconds={pinnedOnly && !isMe ? m.totalFocusSeconds - mySeconds : undefined}
+                  isFocusing={m.isFocusing}
+                  focusStartedAt={m.focusStartedAt}
+                  focusTagName={m.focusTagName}
                   onPress={() => openProfile(m)}
                   onPin={isMe ? undefined : () => togglePin(m.userId)}
                 />
@@ -776,6 +795,10 @@ const s = StyleSheet.create({
     color: T.accentDeep,
     fontVariant: ['tabular-nums'],
   },
+  // 집중 중 표시 (GROMO-810) — 포디움도 랭킹 행과 동일한 초록 점·과목·라이브 시간
+  podiumFocusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.green },
+  podiumFocusTag: { ...T.text.caption, fontWeight: '700', color: T.greenDeep, maxWidth: 100 },
+  podiumTimeFocusing: { color: T.greenDeep },
   podiumPin: { position: 'absolute', top: 20, right: 4 },
 
   // 내 순위 스트립 (sticky) — 밑 리스트가 비치지 않게 배경을 깐다
@@ -917,15 +940,6 @@ const s = StyleSheet.create({
     marginTop: 2,
     fontVariant: ['tabular-nums'],
   },
-  // 오늘 집중 시간 (GROMO-658) — 0분은 흐리게, 집중 이력 있으면 액센트로
-  friendFocusTime: {
-    ...T.text.caption,
-    fontWeight: '700',
-    color: T.inkMuted,
-    marginTop: 5,
-    fontVariant: ['tabular-nums'],
-  },
-  friendFocusTimeOn: { color: T.accent },
   // 핀한 친구 표시 — 나만의 랭킹(핀 경쟁자)에 고정된 친구
   friendPinBadge: {
     position: 'absolute',
@@ -950,4 +964,13 @@ const s = StyleSheet.create({
   friendName: { ...T.text.label, fontWeight: '700', color: T.ink, marginTop: 8 },
   friendTierRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   friendTier: { ...T.text.caption, color: T.inkSub },
+  // 오늘 집중 시간 (GROMO-658) — 0분은 흐리게, 집중 이력 있으면 액센트로
+  friendFocusTime: {
+    ...T.text.caption,
+    fontWeight: '700',
+    color: T.inkMuted,
+    marginTop: 5,
+    fontVariant: ['tabular-nums'],
+  },
+  friendFocusTimeOn: { color: T.accent },
 });

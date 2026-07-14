@@ -34,6 +34,9 @@ import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
+import { useFocusCategory } from '@/hooks/useFocusCategory';
+import { occupationForCategory } from '@/constants/focusCategories';
+import { useSessionLeagueMembers } from './useSessionLeagueMembers';
 import { LiveFocusGrid } from './components/LiveFocusGrid';
 import { FocusMenuDrawer } from './components/FocusMenuDrawer';
 import {
@@ -87,6 +90,15 @@ export default function FocusSessionScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   // 친구 전체 라이브 상태 — 60초 폴링·포그라운드 복귀 갱신 (09 친구 그리드 실데이터)
   const { friends: sessionFriends } = useFocusFriends();
+  // 리그(811)·같은 시험(812) 그리드 라이브 멤버 — 내 행 제외(내 모습은 캐릭터 페이지가 담당)
+  const myCategory = useFocusCategory();
+  const myOccupation = occupationForCategory(myCategory);
+  const { members: leagueMembers } = useSessionLeagueMembers({ excludeUserId: userId });
+  const { members: examMembers } = useSessionLeagueMembers({
+    occupation: myOccupation ?? undefined,
+    enabled: myOccupation != null,
+    excludeUserId: userId,
+  });
   const [session, setSession] = useState<SessionState>(() => ({
     elapsed: 0,
     display: mode === 'countdown' ? goal : mode === 'pomodoro' ? pomo.focusMin * 60 : 0,
@@ -452,7 +464,7 @@ export default function FocusSessionScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* 페이저 — [캐릭터] ↔ [친구 그리드] */}
+        {/* 페이저 — [캐릭터] ↔ [친구 그리드(656)] ↔ [내 리그(811)] ↔ [같은 시험(812)] */}
         <ScrollView
           horizontal
           pagingEnabled
@@ -481,12 +493,37 @@ export default function FocusSessionScreen() {
               resizeMode="contain"
             />
           </View>
+          <View style={[s.page, { width }]}>
+            <LiveFocusGrid
+              members={leagueMembers}
+              title="내 리그"
+              emptyTitle="아직 리그 멤버가 없어요"
+              emptySub={'리그에 배정되면 여기서\n같이 공부하는 모습이 보여요.'}
+            />
+          </View>
+          <View style={[s.page, { width }]}>
+            <LiveFocusGrid
+              members={examMembers}
+              title={myCategory ? `${myCategory} 준비생` : '같은 시험'}
+              emptyTitle={
+                myOccupation == null
+                  ? '준비 시험이 설정되지 않았어요'
+                  : '아직 같은 시험 준비생이 없어요'
+              }
+              emptySub={
+                myOccupation == null
+                  ? '준비 시험을 설정하면\n같은 시험 준비생들이 여기 보여요.'
+                  : '곧 같은 목표의 유저들이\n여기에 모여요.'
+              }
+            />
+          </View>
         </ScrollView>
 
         {/* 페이지 인디케이터 */}
         <View style={s.dots}>
-          <View style={[s.dot, page === 0 && s.dotActive]} />
-          <View style={[s.dot, page === 1 && s.dotActive]} />
+          {[0, 1, 2, 3].map((i) => (
+            <View key={i} style={[s.dot, page === i && s.dotActive]} />
+          ))}
         </View>
 
         {/* 타이머 리드아웃(모드별) */}

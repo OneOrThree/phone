@@ -1,5 +1,6 @@
 import type { InternalAxiosRequestConfig } from 'axios';
 import { mockFriends, mockPin, mockPinnedFriends, mockUnpin } from './fixtures/friends';
+import { mockArenaRanking, mockCategoryRanking, mockGlobalRanking } from './fixtures/league';
 
 // 목킹할 요청의 경로 → 응답 매핑 테이블. 새 목이 필요하면 fixtures 에 데이터를 만들고 여기에 한 줄 추가.
 // url 은 baseURL 제외 상대 경로이며 query 는 config.params 로 분리돼 붙지 않는다.
@@ -22,6 +23,20 @@ function pinPathId(url: string | undefined): string | undefined {
 export const handlers: MockHandler[] = [
   { method: 'get', matches: (url) => url === '/api/v1/pins', respond: () => mockPinnedFriends() },
   { method: 'get', matches: (url) => url === '/api/v1/friends', respond: () => mockFriends() },
+  // 리그 랭킹 — GROMO-824 스펙(구현 예정) 선반영. 824 는 /league/me/ranking 만 확장:
+  // category 미지정=아레나 멤버(811), 지정=같은 occupation 상위 100(812) — 서로 다른 데이터.
+  {
+    method: 'get',
+    matches: (url) => url === '/api/v1/league/me/ranking',
+    respond: (config) =>
+      config.params?.category != null ? mockCategoryRanking(config) : mockArenaRanking(config),
+  },
+  // 전체 리그 — 824 범위 밖. 서버와 동일하게 라이브 필드 없이 응답(폴백 표기 검증용)
+  {
+    method: 'get',
+    matches: (url) => url === '/api/v1/league/ranking',
+    respond: (config) => mockGlobalRanking(config),
+  },
   {
     method: 'post',
     matches: (url) => PIN_PATH.test(url),
