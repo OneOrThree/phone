@@ -448,9 +448,8 @@ public class FocusService {
             userStreakService.updateOnSessionComplete(user, statDate);
         }
 
-        // GROMO-646: 현재 ACTIVE 아레나 멤버면 주간 누적 집중 시간 반영(리그 탭·랭킹·주간 마감 정합).
-        // GROMO-665: 초 직접 누적(분 내림 제거 — DailyFocusStat와 동일 정밀도). 아레나 미배정 유저는 스킵.
-        // 락 조회로 동시 세션 lost update 차단.
+        // GROMO-817에서 구 아레나 소비처(배치·알림·프로필)를 제거할 때까지 레거시 누적값도 함께 갱신한다.
+        // 락 조회로 동시 세션의 lost update를 방지하고, ACTIVE 아레나가 없는 유저는 건너뛴다.
         leagueArenaUserRepository.findByUserAndArenaStatusForUpdate(userId, LeagueArenaStatus.ACTIVE)
                 .ifPresent(member -> member.addFocusSeconds(addedSeconds));
 

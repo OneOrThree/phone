@@ -37,8 +37,8 @@ import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.service.UserStreakService;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -118,9 +118,6 @@ class FocusServiceTest {
     private static final Instant START = Instant.parse("2026-06-23T01:00:00Z");
     private static final Instant END = Instant.parse("2026-06-23T02:00:00Z");
 
-    // GROMO-646: recordCompletion 이 리그 갱신을 호출한다. 기본은 아레나 미배정(empty)로 두고,
-    // 리그 반영 검증 테스트만 개별로 Optional.of(member) 오버라이드. lenient — recordCompletion 안 타는
-    // 테스트(태그 CRUD·예외 조기 return 등)에서 미사용이어도 strict stubbing 위반이 되지 않도록.
     @BeforeEach
     void stubLeagueArenaLookup() {
         lenient().when(leagueArenaUserRepository.findByUserAndArenaStatusForUpdate(any(), any()))
@@ -608,12 +605,9 @@ class FocusServiceTest {
         assertThat(saved.getTotalDistractionSeconds()).isEqualTo(30);
     }
 
-    // ── GROMO-646: 세션 완료 시 리그 공부시간 반영 ──────────────────────────
-
     @Test
-    @DisplayName("GROMO-665: 세션 완료 시 ACTIVE 아레나 멤버면 리그 공부시간 += (초 직접 누적, 분 내림 없음)")
+    @DisplayName("세션 완료 시 ACTIVE 아레나의 레거시 집중시간도 초 단위로 누적한다")
     void recordCompletionAddsFocusSecondsToActiveArena() {
-        // given: 기존 10초 누적된 ACTIVE 아레나 멤버 + 60분(3600초) 세션
         User user = User.builder().id(USER_ID).build();
         LeagueArenaUser member = LeagueArenaUser.builder().user(user).totalFocusSeconds(10).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
@@ -622,28 +616,23 @@ class FocusServiceTest {
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
         given(leagueArenaUserRepository.findByUserAndArenaStatusForUpdate(eq(USER_ID), eq(LeagueArenaStatus.ACTIVE)))
                 .willReturn(Optional.of(member));
-        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
 
-        // when: START~END = 60분
-        focusService.saveFocusSession(USER_ID, body);
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0));
 
-        // then: 10 + 3600 = 3610 초 (초 직접 누적, 분 내림 없음 — 더티 체킹 반영)
         assertThat(member.getTotalFocusSeconds()).isEqualTo(3610);
     }
 
     @Test
-    @DisplayName("GROMO-646: 세션 완료 시 ACTIVE 아레나 없으면 리그 미갱신(스킵, 예외 없음)")
+    @DisplayName("세션 완료 시 ACTIVE 아레나가 없으면 레거시 누적을 건너뛴다")
     void recordCompletionSkipsLeagueWhenNoActiveArena() {
-        // given: 아레나 미배정(@BeforeEach 기본 empty)
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
 
-        // when & then: 예외 없이 완료 (리그 조회는 하되 empty → 스킵)
-        focusService.saveFocusSession(USER_ID, body);
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0));
+
         verify(leagueArenaUserRepository).findByUserAndArenaStatusForUpdate(USER_ID, LeagueArenaStatus.ACTIVE);
     }
 

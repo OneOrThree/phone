@@ -6,7 +6,8 @@ import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.domain.LeagueArena;
 import com.oneorthree.phone.league.domain.LeagueArenaUser;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
-import com.oneorthree.phone.league.domain.LeagueMemberResult;
+import com.oneorthree.phone.league.domain.LeagueRankingPosition;
+import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
@@ -15,17 +16,17 @@ import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
+import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.util.List;
@@ -37,6 +38,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
@@ -57,10 +59,16 @@ class LeagueServiceTest {
     private LeagueTierConfigRepository leagueTierConfigRepository;
 
     @Mock
+    private LeagueRankingQueryRepository leagueRankingQueryRepository;
+
+    @Mock
     private UserActivityEventLogger userActivityEventLogger;
 
     @Mock
     private PinnedUserRepository pinnedUserRepository;
+
+    @Spy
+    private LeagueWeek leagueWeek = new LeagueWeek();
 
     private LeagueTierConfig tierConfig(int tierLevel, String badgeId) {
         return LeagueTierConfig.builder()
@@ -73,7 +81,6 @@ class LeagueServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID U2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
-    private static final UUID U3 = UUID.fromString("00000000-0000-0000-0000-000000000003");
     private static final UUID ARENA_ID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
     private static final Instant WEEK_START = Instant.parse("2026-06-22T00:00:00Z");
 
@@ -94,6 +101,10 @@ class LeagueServiceTest {
                 .tierLevel(3)
                 .totalFocusSeconds(focusSeconds)
                 .build();
+    }
+
+    private LeagueRankingRow rankingRow(UUID userId, String nickname, int focusSeconds) {
+        return new LeagueRankingRow(userId, nickname, 3, focusSeconds);
     }
 
     // ── getMyTier ─────────────────────────────────────────────────────────
@@ -151,91 +162,54 @@ class LeagueServiceTest {
     // ── getMyRanking ──────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("랭킹 조회(category=null) → 정렬 순서대로 rank 1..N 부여 (기존 아레나 동작)")
-    void getMyRankingAssigned() {
-        LeagueArena arena = activeArena();
-        LeagueArenaUser me = member(USER_ID, "me", arena, 200);
-        LeagueArenaUser top = member(U2, "top", arena, 300);
-        LeagueArenaUser last = member(U3, "last", arena, 100);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.of(me));
-        // findRankedByArena 가 이미 정렬된 리스트를 반환한다고 가정 (top > me > last)
-        given(leagueArenaUserRepository.findRankedByArena(arena))
-                .willReturn(List.of(top, me, last));
-        given(pinnedUserRepository.findPinnedUserIdsByUserId(any())).willReturn(Set.of());
+    @DisplayName("내 랭킹은 category 미지정 시에도 DailyFocusStat 전역 상위 100명을 반환한다")
+    void getMyRankingWithoutCategoryReturnsGlobalRanking() {
+        LeagueRankingRow top = rankingRow(U2, "top", 300);
+        LeagueRankingRow me = rankingRow(USER_ID, "me", 200);
+        given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt()))
+                .willReturn(List.of(top, me));
+        given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of(U2));
 
         List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, null);
 
-        assertThat(ranking).hasSize(3);
-        assertThat(ranking.get(0).rank()).isEqualTo(1);
-        assertThat(ranking.get(0).nickname()).isEqualTo("top");
-        // 멤버별 실제 티어 반영 — league_arena_users.tier_level (GROMO-748)
-        assertThat(ranking.get(0).tierLevel()).isEqualTo(3);
-        assertThat(ranking.get(0).totalFocusSeconds()).isEqualTo(300);
-        assertThat(ranking.get(1).rank()).isEqualTo(2);
-        assertThat(ranking.get(1).userId()).isEqualTo(USER_ID);
-        assertThat(ranking.get(2).rank()).isEqualTo(3);
+        assertThat(ranking).hasSize(2);
+        assertThat(ranking).extracting(LeagueMemberResponse::rank).containsExactly(1, 2);
+        assertThat(ranking.get(0).isPinned()).isTrue();
         assertThat(ranking.get(0).result()).isNull();
+        verify(leagueRankingQueryRepository).findTop(any(), any(), eq(null), eq(100));
     }
 
     @Test
-    @DisplayName("랭킹 조회(category=null) - 미배정 → 빈 리스트")
-    void getMyRankingUnassigned() {
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.empty());
-
-        assertThat(leagueService.getMyRanking(USER_ID, null)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("랭킹 조회(category 지정) → 전역 같은 과목 랭킹, 다른 아레나 유저도 포함, rank 1부터 재부여")
-    void getMyRankingWithCategory_returnsGlobalRanking() {
-        LeagueArena arena = activeArena();
-        LeagueArenaUser top = member(U2, "top", arena, 300);
-        LeagueArenaUser me = member(USER_ID, "me", arena, 200);
-        // findRankedByActiveArenasAndOccupation 이 이미 정렬된 전역 목록을 반환한다고 가정
-        given(leagueArenaUserRepository.findRankedByActiveArenasAndOccupation(
-                eq(Occupation.LABOR_ATTORNEY), any(Pageable.class)))
-                .willReturn(List.of(top, me));
-        given(pinnedUserRepository.findPinnedUserIdsByUserId(any())).willReturn(Set.of());
+    @DisplayName("occupation 지정 시 같은 직군 전역 상위 100명을 조회한다")
+    void getMyRankingWithCategoryReturnsFilteredRanking() {
+        LeagueRankingRow row = rankingRow(U2, "labor", 300);
+        given(leagueRankingQueryRepository.findTop(
+                any(), any(), eq(Occupation.LABOR_ATTORNEY), eq(100))).willReturn(List.of(row));
+        given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of());
 
         List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, Occupation.LABOR_ATTORNEY);
 
-        assertThat(ranking).hasSize(2);
-        assertThat(ranking.get(0).rank()).isEqualTo(1);
-        assertThat(ranking.get(0).nickname()).isEqualTo("top");
-        assertThat(ranking.get(1).rank()).isEqualTo(2);
-        assertThat(ranking.get(1).userId()).isEqualTo(USER_ID);
+        assertThat(ranking).singleElement().extracting(LeagueMemberResponse::nickname).isEqualTo("labor");
     }
 
     @Test
-    @DisplayName("랭킹 조회(category 지정) - 미배정 유저도 전역 랭킹은 정상 반환(본인 목록에 없음)")
-    void getMyRankingUnassignedWithCategory_returnsGlobalRanking() {
-        LeagueArena arena = activeArena();
-        LeagueArenaUser other = member(U2, "other", arena, 500);
-        given(leagueArenaUserRepository.findRankedByActiveArenasAndOccupation(
-                eq(Occupation.UNIVERSITY), any(Pageable.class)))
-                .willReturn(List.of(other));
-        given(pinnedUserRepository.findPinnedUserIdsByUserId(any())).willReturn(Set.of());
+    @DisplayName("전역 결과가 비어 있으면 핀 조회 없이 빈 목록을 반환한다")
+    void getMyRankingEmptyDoesNotReadPins() {
+        given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt()))
+                .willReturn(List.of());
 
-        // 미배정 유저가 category 지정으로 호출해도 전역 랭킹 반환
-        List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, Occupation.UNIVERSITY);
-
-        assertThat(ranking).hasSize(1);
-        assertThat(ranking.get(0).rank()).isEqualTo(1);
-        assertThat(ranking.get(0).nickname()).isEqualTo("other");
+        assertThat(leagueService.getMyRanking(USER_ID, null)).isEmpty();
+        verify(pinnedUserRepository, never()).findPinnedUserIdsByUserId(any());
     }
 
     // ── getGlobalRanking ──────────────────────────────────────────────────
 
     @Test
-    @DisplayName("전역 랭킹 조회(scope=total) → 아레나 무관 전역 목록, rank 1부터 재부여")
+    @DisplayName("전역 랭킹 조회는 read model 순서대로 rank를 부여하고 호환 result는 null이다")
     void getGlobalRanking_returnsGlobalRanking() {
-        LeagueArena arenaA = activeArena();
-        LeagueArena arenaB = activeArena();
-        LeagueArenaUser top = member(U2, "top", arenaA, 500);
-        LeagueArenaUser mid = member(USER_ID, "mid", arenaB, 300);
-        given(leagueArenaUserRepository.findRankedByActiveArenas(any(Pageable.class)))
+        LeagueRankingRow top = rankingRow(U2, "top", 500);
+        LeagueRankingRow mid = rankingRow(USER_ID, "mid", 300);
+        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(100)))
                 .willReturn(List.of(top, mid));
 
         List<LeagueMemberResponse> ranking = leagueService.getGlobalRanking("total", 100);
@@ -245,12 +219,13 @@ class LeagueServiceTest {
         assertThat(ranking.get(0).nickname()).isEqualTo("top");
         assertThat(ranking.get(1).rank()).isEqualTo(2);
         assertThat(ranking.get(1).userId()).isEqualTo(USER_ID);
+        assertThat(ranking).allMatch(row -> row.result() == null && !row.isPinned());
     }
 
     @Test
     @DisplayName("전역 랭킹 조회 - scope 대소문자 무관(TOTAL) 허용")
     void getGlobalRanking_scopeCaseInsensitive() {
-        given(leagueArenaUserRepository.findRankedByActiveArenas(any(Pageable.class)))
+        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(100)))
                 .willReturn(List.of());
 
         assertThat(leagueService.getGlobalRanking("TOTAL", 100)).isEmpty();
@@ -259,27 +234,23 @@ class LeagueServiceTest {
     @Test
     @DisplayName("전역 랭킹 조회 - limit 상한(500) 초과 시 클램프되어 조회는 정상 수행")
     void getGlobalRanking_limitClamped() {
-        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        given(leagueArenaUserRepository.findRankedByActiveArenas(any(Pageable.class)))
+        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(500)))
                 .willReturn(List.of());
 
         leagueService.getGlobalRanking("total", 100000);
 
-        verify(leagueArenaUserRepository).findRankedByActiveArenas(captor.capture());
-        assertThat(captor.getValue().getPageSize()).isEqualTo(500);
+        verify(leagueRankingQueryRepository).findTop(any(), any(), eq(null), eq(500));
     }
 
     @Test
     @DisplayName("전역 랭킹 조회 - limit 0/음수 → 최소 1로 클램프")
     void getGlobalRanking_limitMinClamped() {
-        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        given(leagueArenaUserRepository.findRankedByActiveArenas(any(Pageable.class)))
+        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(1)))
                 .willReturn(List.of());
 
         leagueService.getGlobalRanking("total", 0);
 
-        verify(leagueArenaUserRepository).findRankedByActiveArenas(captor.capture());
-        assertThat(captor.getValue().getPageSize()).isEqualTo(1);
+        verify(leagueRankingQueryRepository).findTop(any(), any(), eq(null), eq(1));
     }
 
     @Test
@@ -294,16 +265,10 @@ class LeagueServiceTest {
     // ── getMyRank ─────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("내 순위 조회 → 정렬 리스트에서 내 위치 = myRank, 진행 중 result=null")
+    @DisplayName("내 순위 조회는 전역 read model의 순위·합계를 반환하고 호환 result는 null이다")
     void getMyRankAssigned() {
-        LeagueArena arena = activeArena();
-        LeagueArenaUser me = member(USER_ID, "me", arena, 200);
-        LeagueArenaUser top = member(U2, "top", arena, 300);
-        LeagueArenaUser last = member(U3, "last", arena, 100);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.of(me));
-        given(leagueArenaUserRepository.findRankedByArena(arena))
-                .willReturn(List.of(top, me, last));
+        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
+                .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
 
         LeagueRankResponse response = leagueService.getMyRank(USER_ID);
 
@@ -314,42 +279,9 @@ class LeagueServiceTest {
     }
 
     @Test
-    @DisplayName("내 순위 조회 - 확정된 result 매핑")
-    void getMyRankWithResult() {
-        LeagueArena arena = activeArena();
-        LeagueArenaUser me = member(USER_ID, "me", arena, 300);
-        me.setRank(1);
-        me.setResult(LeagueMemberResult.PROMOTED);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.of(me));
-        given(leagueArenaUserRepository.findRankedByArena(arena))
-                .willReturn(List.of(me));
-
-        LeagueRankResponse response = leagueService.getMyRank(USER_ID);
-
-        assertThat(response.myRank()).isEqualTo(1);
-        assertThat(response.result()).isEqualTo("PROMOTED");
-    }
-
-    @Test
-    @DisplayName("내 순위 조회 - 정합성 깨짐(랭킹 목록에 내가 없음) → IllegalStateException")
-    void getMyRankMemberNotInRanked() {
-        LeagueArena arena = activeArena();
-        LeagueArenaUser me = member(USER_ID, "me", arena, 200);
-        LeagueArenaUser other = member(U2, "other", arena, 300);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.of(me));
-        given(leagueArenaUserRepository.findRankedByArena(arena))
-                .willReturn(List.of(other)); // 내 멤버가 랭킹 목록에 없음
-
-        assertThatThrownBy(() -> leagueService.getMyRank(USER_ID))
-                .isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    @DisplayName("내 순위 조회 - 미배정 → assigned=false")
-    void getMyRankUnassigned() {
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+    @DisplayName("비활성 또는 존재하지 않는 유저는 기존 DTO 호환을 위해 assigned=false를 반환한다")
+    void getMyRankMissingReturnsUnassigned() {
+        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
                 .willReturn(Optional.empty());
 
         LeagueRankResponse response = leagueService.getMyRank(USER_ID);
@@ -359,29 +291,23 @@ class LeagueServiceTest {
     }
 
     @Test
-    @DisplayName("내 순위 조회(소속) → LEAGUE_RANK_VIEWED(my_rank·league_id·tier_level·total_focus_seconds) 발행")
+    @DisplayName("내 순위 조회 시 아레나 ID 없이 전역 rank 이벤트를 발행한다")
     void getMyRankEmitsRankViewed() {
-        LeagueArena arena = activeArena();
-        LeagueArenaUser me = member(USER_ID, "me", arena, 200);
-        LeagueArenaUser top = member(U2, "top", arena, 300);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.of(me));
-        given(leagueArenaUserRepository.findRankedByArena(arena))
-                .willReturn(List.of(top, me));
+        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
+                .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
 
         leagueService.getMyRank(USER_ID);
 
         verify(userActivityEventLogger).log(UserActivityEvent.LEAGUE_RANK_VIEWED,
                 Map.of("my_rank", 2,
-                        "league_id", ARENA_ID.toString(),
                         "tier_level", 3,
                         "total_focus_seconds", 200));
     }
 
     @Test
-    @DisplayName("내 순위 조회(미소속) → LEAGUE_RANK_VIEWED 미발행")
-    void getMyRankUnassignedDoesNotEmit() {
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+    @DisplayName("순위가 없는 유저는 LEAGUE_RANK_VIEWED를 발행하지 않는다")
+    void getMyRankMissingDoesNotEmit() {
+        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
                 .willReturn(Optional.empty());
 
         leagueService.getMyRank(USER_ID);
