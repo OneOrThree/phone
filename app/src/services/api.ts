@@ -1,6 +1,7 @@
 import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
+import { enableApiMocks } from '@/mocks';
 
 export const API_URL: string = process.env.EXPO_PUBLIC_API_URL ?? 'https://oneorthree.dev.mooo.com';
 
@@ -86,6 +87,12 @@ export const api: AxiosInstance = axios.create({
   timeout: REQUEST_TIMEOUT_MS,
   headers: { 'Content-Type': 'application/json' },
 });
+
+// 개발용 API 목킹(src/mocks) — dev 빌드 + EXPO_PUBLIC_USE_MOCK=true 일 때만 활성.
+// 등록된 경로만 목으로 응답하고 나머지는 실서버로 나간다. .env 변경 후엔 Metro 재시작 필요.
+if (__DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === 'true') {
+  enableApiMocks(api);
+}
 
 api.interceptors.request.use(async (config) => {
   const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
