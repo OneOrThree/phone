@@ -63,7 +63,13 @@ public class JwtFilter extends OncePerRequestFilter {
         // 탈퇴 시 소셜 연동·RT 는 파기되지만 이미 발급된 AT 는 만료까지 살아 있어, 이 PK 조회로 매 요청 최종 차단.
         // 차단 신호는 토큰 미제공/무효와 동일하게 401 로 통일(클라이언트는 401 을 재로그인 트리거로 처리).
         // 주의(리뷰어): 매 인증요청마다 PK 인덱스 단건 조회 1회가 추가된다 — 부하 시 캐시/토큰 폐기 방식은 후속 검토.
-        if (!userRepository.existsByIdAndIsDeletedFalse(userId)) {
+try {
+            if (!userRepository.existsByIdAndIsDeletedFalse(userId)) {
+                sendUnauthorized(response);
+                return;
+            }
+        } catch (Exception e) {
+            log.error("활성 유저 조회 실패 — userId={}", userId, e);
             sendUnauthorized(response);
             return;
         }
