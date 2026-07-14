@@ -65,6 +65,7 @@ public class ScreenTimeService {
             stat.setTotalScreenTimeMinutes(actualMinutes);
             if (finalReport) {
                 stat.setScreenTimeGoalAchieved(clientAchieved);
+                stat.setScreenTimeFinalized(true);
             }
         } else {
             DailyScreenTimeStat.DailyScreenTimeStatBuilder builder = DailyScreenTimeStat.builder()
@@ -72,7 +73,8 @@ public class ScreenTimeService {
                     .date(date)
                     .totalScreenTimeMinutes(actualMinutes);
             if (finalReport) {
-                builder.isScreenTimeGoalAchieved(clientAchieved);
+                builder.isScreenTimeGoalAchieved(clientAchieved)
+                        .screenTimeFinalized(true);
             }
             dailyScreenTimeStatRepository.save(builder.build());
         }

@@ -42,6 +42,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -222,9 +223,9 @@ public class StatsService {
                 // achievedDays = clampedElapsedDays − (과거 확정 실패 + 오늘 실패).
                 // ① 과거 확정일(clampedFrom ≤ date < today): 저장 플래그(!isScreenTimeGoalAchieved)로 실패 판정.
                 //    가입 전(clampedFrom 이전) row 는 그 구간에 속하지 않으므로 차감 대상이 아니다(과소·음수 방지).
-                // ② 오늘(date == anchorDay, 미확정 현재일): 저장 플래그는 interim 이라 항상 false → day 뷰와 동일하게
-                //    현재 목표로 재계산한다(todayMinutes > goalMinutes 이면 실패). 이래야 오늘의 week/month 기여가 day 와 일치.
-                //    오늘이 clampedFrom 이전(가입 전)이면 경과일에 없으므로 세지 않는다. anchorDay = range.currentTo() = today 파라미터.
+                // ② 오늘(date == anchorDay): final row 는 저장 스냅샷을 쓰고, interim row 는 day 뷰와 동일하게 현재 목표로
+                //    재계산한다(todayMinutes > goalMinutes 이면 실패). 오늘이 clampedFrom 이전(가입 전)이면 경과일에 없으므로 세지 않는다.
+                //    anchorDay = range.currentTo() = today 파라미터.
                 LocalDate anchorDay = range.currentTo();
                 int pastFailed = (int) currentStats.stream()
                         .filter(s -> !s.getDate().isBefore(clampedFrom))
@@ -232,15 +233,25 @@ public class StatsService {
                         .filter(s -> !s.isScreenTimeGoalAchieved()).count();
                 int todayFailed = 0;
                 if (!anchorDay.isBefore(clampedFrom)) {
-                    int todayMinutes = currentStats.stream()
+                    List<DailyScreenTimeStat> todayStats = currentStats.stream()
                             .filter(s -> s.getDate().isEqual(anchorDay))
-                            .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes).sum();
-                    todayFailed = todayMinutes > goalMinutes ? 1 : 0;
+                            .toList();
+                    Optional<DailyScreenTimeStat> finalizedToday = todayStats.stream()
+                            .filter(DailyScreenTimeStat::isScreenTimeFinalized)
+                            .findFirst();
+                    if (finalizedToday.isPresent()) {
+                        todayFailed = finalizedToday.get().isScreenTimeGoalAchieved() ? 0 : 1;
+                    } else {
+                        int todayMinutes = todayStats.stream()
+                                .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes).sum();
+                        todayFailed = todayMinutes > goalMinutes ? 1 : 0;
+                    }
                 }
                 achievedDays = clampedElapsedDays - (pastFailed + todayFailed);
             } else {
                 // 목표 미설정: day 뷰와 동일하게 달성 판정을 하지 않는다 — 저장 플래그(모두 false) 기준이라 0.
                 achievedDays = (int) currentStats.stream()
+                        .filter(s -> !s.getDate().isBefore(clampedFrom))
                         .filter(DailyScreenTimeStat::isScreenTimeGoalAchieved).count();
             }
         }

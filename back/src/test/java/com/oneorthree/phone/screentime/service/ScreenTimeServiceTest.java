@@ -100,6 +100,7 @@ class ScreenTimeServiceTest {
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
         assertThat(captor.getValue().isScreenTimeGoalAchieved()).isTrue();
+        assertThat(captor.getValue().isScreenTimeFinalized()).isTrue();
         assertThat(captor.getValue().getTotalScreenTimeMinutes()).isEqualTo(80);
         verify(userActivityEventLogger).log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED,
                 Map.of("date", PAST_DATE.toString(), "actual_screen_time_minutes", 80));
@@ -122,6 +123,7 @@ class ScreenTimeServiceTest {
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
         assertThat(captor.getValue().isScreenTimeGoalAchieved()).isFalse();
+        assertThat(captor.getValue().isScreenTimeFinalized()).isTrue();
         verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), anyMap());
         verify(notificationPort, never()).notify(any(UUID.class), anyBoolean());
     }
@@ -142,6 +144,7 @@ class ScreenTimeServiceTest {
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
         assertThat(captor.getValue().isScreenTimeGoalAchieved()).isTrue();
+        assertThat(captor.getValue().isScreenTimeFinalized()).isTrue();
         verify(userActivityEventLogger).log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED,
                 Map.of("date", PAST_DATE.toString(), "actual_screen_time_minutes", 999));
         verify(notificationPort).notify(USER_ID, true);
@@ -162,6 +165,7 @@ class ScreenTimeServiceTest {
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
         assertThat(captor.getValue().isScreenTimeGoalAchieved()).isFalse();
+        assertThat(captor.getValue().isScreenTimeFinalized()).isTrue();
         verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), anyMap());
         verify(notificationPort, never()).notify(any(UUID.class), anyBoolean());
     }
@@ -186,6 +190,7 @@ class ScreenTimeServiceTest {
         verify(dailyScreenTimeStatRepository).save(captor.capture());
         assertThat(captor.getValue().getTotalScreenTimeMinutes()).isEqualTo(90);
         assertThat(captor.getValue().isScreenTimeGoalAchieved()).isFalse(); // interim 은 flag 를 세우지 않음
+        assertThat(captor.getValue().isScreenTimeFinalized()).isFalse();
         verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), anyMap());
         verify(notificationPort, never()).notify(any(UUID.class), anyBoolean());
     }
@@ -206,6 +211,7 @@ class ScreenTimeServiceTest {
 
         assertThat(existing.getTotalScreenTimeMinutes()).isEqualTo(45);
         assertThat(existing.isScreenTimeGoalAchieved()).isTrue(); // 기존 flag 보존
+        assertThat(existing.isScreenTimeFinalized()).isFalse();
         verify(dailyScreenTimeStatRepository, never()).save(any());
         verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), anyMap());
         verify(notificationPort, never()).notify(any(UUID.class), anyBoolean());
@@ -228,6 +234,7 @@ class ScreenTimeServiceTest {
         verify(dailyScreenTimeStatRepository).save(captor.capture());
         assertThat(captor.getValue().getTotalScreenTimeMinutes()).isEqualTo(0); // null → 0
         assertThat(captor.getValue().isScreenTimeGoalAchieved()).isFalse();
+        assertThat(captor.getValue().isScreenTimeFinalized()).isFalse();
         verify(notificationPort, never()).notify(any(UUID.class), anyBoolean());
     }
 
@@ -249,6 +256,7 @@ class ScreenTimeServiceTest {
         screenTimeService.saveScreenTime(USER_ID, request(true, 55, PAST_AT, true));
 
         assertThat(existing.isScreenTimeGoalAchieved()).isTrue();
+        assertThat(existing.isScreenTimeFinalized()).isTrue();
         assertThat(existing.getTotalScreenTimeMinutes()).isEqualTo(55); // total 은 갱신
         verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), anyMap());
         verify(notificationPort, never()).notify(any(UUID.class), anyBoolean());
@@ -270,6 +278,7 @@ class ScreenTimeServiceTest {
         screenTimeService.saveScreenTime(USER_ID, request(true, 120, PAST_AT, true));
 
         assertThat(existing.isScreenTimeGoalAchieved()).isTrue();     // 최종 보고 → 클라 신뢰
+        assertThat(existing.isScreenTimeFinalized()).isTrue();
         assertThat(existing.getTotalScreenTimeMinutes()).isEqualTo(120);
         verify(dailyScreenTimeStatRepository, never()).save(any());
         verify(notificationPort).notify(USER_ID, true);

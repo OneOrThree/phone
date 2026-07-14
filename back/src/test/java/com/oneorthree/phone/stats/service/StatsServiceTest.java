@@ -866,6 +866,60 @@ class StatsServiceTest {
     }
 
     @Test
+    @DisplayName("스크린타임 WEEK(목표설정) — 오늘 final row 는 현재 목표 재계산 대신 저장 스냅샷으로 센다")
+    void getScreenTimePeriodStatsWeekTodayFinalRowUsesStoredSnapshot() {
+        LocalDate thisMonday = LocalDate.of(2026, 6, 29);
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        List<DailyScreenTimeStat> currentStats = List.of(
+                DailyScreenTimeStat.builder().user(user).date(FIXED_TODAY)
+                        .totalScreenTimeMinutes(80)
+                        .isScreenTimeGoalAchieved(false)
+                        .screenTimeFinalized(true)
+                        .build()
+        );
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, thisMonday, FIXED_TODAY)).willReturn(currentStats);
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, LocalDate.of(2026, 6, 22), LocalDate.of(2026, 6, 26))).willReturn(List.of());
+        givenScreenTimeGoal(100);
+
+        ScreenTimePeriodStatsResponse week =
+                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        assertThat(week.elapsedDays()).isEqualTo(5);
+        assertThat(week.achievedDays()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("스크린타임 WEEK(목표미설정) — 저장 달성 row 도 가입일 이전이면 achievedDays 에서 제외")
+    void getScreenTimePeriodStatsWeekNoGoalExcludesPreJoinAchievedRow() {
+        LocalDate thisMonday = LocalDate.of(2026, 6, 29);
+        User user = User.builder().id(USER_ID).countryCode("KR")
+                .createdAt(Instant.parse("2026-06-30T15:30:00Z")).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        List<DailyScreenTimeStat> currentStats = List.of(
+                DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 6, 30))
+                        .totalScreenTimeMinutes(50).isScreenTimeGoalAchieved(true).build(),
+                DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 7, 2))
+                        .totalScreenTimeMinutes(70).isScreenTimeGoalAchieved(false).build()
+        );
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, thisMonday, FIXED_TODAY)).willReturn(currentStats);
+        given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
+                user, LocalDate.of(2026, 6, 22), LocalDate.of(2026, 6, 26))).willReturn(List.of());
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        ScreenTimePeriodStatsResponse response =
+                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+
+        assertThat(response.elapsedDays()).isEqualTo(3);
+        assertThat(response.achievedDays()).isZero();
+    }
+
+    @Test
     @DisplayName("스크린타임 WEEK — 가입 전 레거시 row 는 분 합계·delta 에서도 제외한다(Fix 2, day 클램프와 정합)")
     void getScreenTimePeriodStatsWeekExcludesPreJoinRowFromMinutes() {
         // 가입 = 2026-07-01 KST(수) → joinLocalDate=07-01. 가입 전(06-29·06-30) row 는 경과일(클램프)에서 빠지므로
