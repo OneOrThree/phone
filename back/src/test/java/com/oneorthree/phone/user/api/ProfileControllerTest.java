@@ -58,15 +58,15 @@ class ProfileControllerTest {
     }
 
     @Test
-    @DisplayName("리그 미소속 → 200, tier/rank null")
+    @DisplayName("리그 미소속 신규 유저 → 200, 기본 tier=1/rank=null")
     void getPublicProfileNoLeagueReturns200() throws Exception {
         PublicProfileResponse response = new PublicProfileResponse(
-                targetUserId, "조재영", null, List.of(), 0L, null, null);
+                targetUserId, "조재영", null, List.of(), 0L, 1, null);
         given(profileService.getPublicProfile(any())).willReturn(response);
 
         mockMvc.perform(get("/api/v1/users/{userId}/profile", targetUserId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.currentTier").value(nullValue()))
+                .andExpect(jsonPath("$.currentTier").value(1))
                 .andExpect(jsonPath("$.rank").value(nullValue()))
                 .andDo(print());
     }

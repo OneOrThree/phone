@@ -29,7 +29,7 @@ import java.util.UUID;
 /**
  * 타 유저 공개 프로필 조회 서비스 (GROMO-520).
  * 유저·캐릭터·친구·리그 도메인을 READ-only로 집계한다.
- * LeagueService 수정 없이 LeagueArenaUserRepository 를 직접 사용한다.
+ * 티어는 User 에서, 기존 아레나 랭킹은 LeagueArenaUserRepository 에서 조회한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -67,33 +67,28 @@ public class ProfileService {
         // 친구 수 (ACCEPTED, 미삭제, 양방향)
         long friendCount = friendshipRepository.countAcceptedByUser(user);
 
-        // ACTIVE 리그 멤버십 조회
+        // 티어는 users.tier_level 단일 원천에서 조회한다. 신규 유저도 아레나 배정 전부터 T1을 가진다.
+        Integer currentTier = user.getTierLevel();
+
+        // 공개 계약을 유지하기 위해 랭킹은 전환 전 ACTIVE 아레나 멤버십 기준으로 계산한다.
         Optional<LeagueArenaUser> membershipOpt =
                 leagueArenaUserRepository.findByUserAndArenaStatus(userId, LeagueArenaStatus.ACTIVE);
 
-        Integer currentTier;
-        Integer rank;
+        Integer rank = null;
 
         if (membershipOpt.isPresent()) {
             LeagueArenaUser member = membershipOpt.get();
-            // 리그 멤버십 tierLevel 우선 (LeagueService#getMyTier 와 동일 원천)
-            currentTier = member.getTierLevel();
             // 랭킹 산출: 정렬 리스트에서 본인 인덱스+1 (LeagueService#getMyRank 와 동일 순회 로직).
             // LeagueService#getMyRank 는 ACTIVE 멤버가 findRankedByArena 결과에 없으면 IllegalStateException 을 던지지만,
             // 공개 프로필 API 에서는 데이터 정합성 오류 시 500 을 내리는 대신 rank=null 을 반환하는 방어적 처리를 의도적으로 선택한다.
             List<LeagueArenaUser> ranked =
                     leagueArenaUserRepository.findRankedByArena(member.getLeagueArena());
-            rank = null;
             for (int i = 0; i < ranked.size(); i++) {
                 if (ranked.get(i).getUser().getId().equals(userId)) {
                     rank = i + 1;
                     break;
                 }
             }
-        } else {
-            // 리그 미소속 → 티어 없음(null). 티어는 league_arena_users.tier_level 로만 도출 (GROMO-671).
-            currentTier = null;
-            rank = null;
         }
 
         // 준비 시험 코드 — 미설정(가입 직후 등)이면 null (GROMO-747)
