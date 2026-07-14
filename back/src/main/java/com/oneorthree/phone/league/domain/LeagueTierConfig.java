@@ -41,6 +41,12 @@ public class LeagueTierConfig {
     @Column(name = "badge_id", nullable = false)
     private String badgeId;
 
+    @Column(name = "promotion_time", nullable = false)
+    private int promotionTime;
+
+    @Column(name = "relegation_time", nullable = false)
+    private int relegationTime;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;

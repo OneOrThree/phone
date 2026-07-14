@@ -55,7 +55,10 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
         return leagueTierConfigRepository.save(LeagueTierConfig.builder()
                 .tierLevel(level).arenaSize(arenaSize)
                 .promoteCount(promote).relegateCount(relegate).relegateWarningCount(warning)
-                .badgeId("tier-" + level).build());
+                .badgeId("tier-" + level)
+                .promotionTime(level * 14 * 60 * 60)
+                .relegationTime((level - 1) * 14 * 60 * 60)
+                .build());
     }
 
     private LeagueArena saveActiveArena(LeagueTierConfig cfg) {
