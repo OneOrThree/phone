@@ -30,11 +30,22 @@ const MAINTAIN_AT = 4;
 // mock: 승격 주 집중 시간(디자인 미리보기) — 갓생러(42–56h) 구간 안의 값
 const PROMOTE_WEEK_HOURS = 48;
 
+// 승격 격려 문장 — 진입(마운트)마다 랜덤 1개 노출
+const ENCOURAGE_LINES = [
+  '저번 주도 정말 고생 많았어요',
+  '좋아요! 이 기세, 이번 주도 이어가봐요',
+  '이 페이스면 다음 티어까지도 시간문제인데요?',
+];
+
 export default function LeagueResultScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<V2RootStackParamList, 'LeagueResult'>>();
   const promote = route.params.type === 'promote';
   const maintain = route.params.type === 'maintain';
+  // 격려 문장 — 진입(마운트)마다 랜덤 1개 선택(재렌더에도 고정)
+  const [encourage] = useState(
+    () => ENCOURAGE_LINES[Math.floor(Math.random() * ENCOURAGE_LINES.length)],
+  );
 
   // 강등 화면 마스코트 둥실 애니메이션 (시안 gmFloat 4s)
   const float = useRef(new Animated.Value(0)).current;
@@ -225,7 +236,7 @@ export default function LeagueResultScreen() {
                       { opacity: nameAnim, transform: [{ scale: nameScale }] },
                     ]}
                   >
-                    <Ionicons name="arrow-forward" size={18} color={T.night.muted} />
+                    <Ionicons name="arrow-forward" size={22} color={T.night.muted} />
                     <Text style={s.tierName}>{to.name}</Text>
                   </Animated.View>
                 )}
@@ -233,9 +244,7 @@ export default function LeagueResultScreen() {
               <Animated.Text style={[s.desc, lineStyle(line2)]}>
                 저번 주에 <Text style={s.descStrong}>{PROMOTE_WEEK_HOURS}시간</Text> 집중했어요!
               </Animated.Text>
-              <Animated.Text style={[s.encourage, lineStyle(line2)]}>
-                꾸준히 쌓은 시간이 리그를 올렸어요.{'\n'}이번 주도 이 리듬 그대로 가봐요!
-              </Animated.Text>
+              <Animated.Text style={[s.encourage, lineStyle(line2)]}>{encourage}</Animated.Text>
 
               {/* 다음 리그까지 남은 시간 안내 (승격 보너스/코인 없음) */}
               {promoteNext != null ? (
@@ -373,13 +382,14 @@ const s = StyleSheet.create({
   badgeAbs: { position: 'absolute' },
   tierChange: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   tierToGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  tierFrom: { ...T.text.subtitle, color: T.night.muted },
-  tierName: { ...T.text.title, color: T.night.cream },
+  tierFrom: { ...T.text.subtitle, fontSize: 22, color: T.night.muted },
+  tierName: { ...T.text.title, fontSize: 30, color: T.night.cream },
 
   desc: {
     ...T.text.label,
+    fontSize: 19,
     fontWeight: '500',
-    lineHeight: 24,
+    lineHeight: 27,
     color: T.accentLight,
     textAlign: 'center',
     marginTop: 10,
