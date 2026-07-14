@@ -2,7 +2,9 @@ package com.oneorthree.phone.league.repository;
 
 import com.oneorthree.phone.league.domain.LeagueRankSnapshot;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -10,4 +12,10 @@ import java.util.UUID;
 public interface LeagueRankSnapshotRepository extends JpaRepository<LeagueRankSnapshot, UUID> {
 
     List<LeagueRankSnapshot> findByCreatedAt(LocalDate createdAt);
+
+    List<LeagueRankSnapshot> findByCreatedAtAndUserIdIn(LocalDate createdAt, Collection<UUID> userIds);
+
+    @Query("SELECT COALESCE(MAX(snapshot.rank), 0) FROM LeagueRankSnapshot snapshot "
+            + "WHERE snapshot.createdAt = :createdAt")
+    int findMaximumRankByCreatedAt(LocalDate createdAt);
 }

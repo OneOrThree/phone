@@ -15,6 +15,7 @@ import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -44,6 +45,7 @@ public class LeagueBatchService {
     private final LeagueWeeklyResultRepository leagueWeeklyResultRepository;
     private final UserRepository userRepository;
     private final LeagueWeek leagueWeek;
+    private final EntityManager entityManager;
 
     @Transactional
     public LeagueBatchSummaryResponse runWeeklyBatch() {
@@ -100,6 +102,8 @@ public class LeagueBatchService {
             }
 
             settlePage(page, previousWeekStart, tierConfigs);
+            entityManager.flush();
+            entityManager.clear();
             settledMemberCount += page.size();
             cursor = page.get(page.size() - 1).userId();
             if (page.size() < SETTLEMENT_PAGE_SIZE) {

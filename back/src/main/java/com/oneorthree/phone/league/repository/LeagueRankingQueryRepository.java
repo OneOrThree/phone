@@ -56,6 +56,40 @@ public class LeagueRankingQueryRepository {
         return jdbcTemplate.query(sql, parameters, this::mapRankingRow);
     }
 
+    /**
+     * 전역 순위용 keyset 페이지. 집중 시간 내림차순, 동률이면 user id 오름차순으로
+     * 정렬하고 직전 페이지의 마지막 점수·user id를 배타적 커서로 사용한다.
+     */
+    public List<LeagueRankingRow> findGlobalRankingPage(
+            LocalDate fromDate,
+            LocalDate toDate,
+            Integer cursorFocusSeconds,
+            UUID cursorUserId,
+            int limit) {
+        validateRange(fromDate, toDate);
+        if (limit < 1) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        if ((cursorFocusSeconds == null) != (cursorUserId == null)) {
+            throw new IllegalArgumentException("ranking cursor values must both be null or non-null");
+        }
+
+        String cursorCondition = cursorUserId == null ? "" : """
+                 HAVING COALESCE(SUM(d.total_focus_seconds), 0) < :cursorFocusSeconds
+                    OR (COALESCE(SUM(d.total_focus_seconds), 0) = :cursorFocusSeconds
+                        AND u.id > :cursorUserId)
+                """;
+        String sql = WEEKLY_TOTALS + GROUP_BY_USER + cursorCondition
+                + " ORDER BY total_focus_seconds DESC, u.id ASC LIMIT :limit";
+        MapSqlParameterSource parameters = rangeParameters(fromDate, toDate)
+                .addValue("limit", limit);
+        if (cursorUserId != null) {
+            parameters.addValue("cursorFocusSeconds", cursorFocusSeconds)
+                    .addValue("cursorUserId", cursorUserId);
+        }
+        return jdbcTemplate.query(sql, parameters, this::mapRankingRow);
+    }
+
     public Optional<LeagueRankingPosition> findRankOf(UUID userId, LocalDate fromDate, LocalDate toDate) {
         validateRange(fromDate, toDate);
         String sql = "WITH target AS ("

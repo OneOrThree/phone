@@ -79,6 +79,30 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
+    @DisplayName("전역 순위 keyset 커서는 동점 user.id 경계에서도 중복·누락 없이 이어진다")
+    void findGlobalRankingPageUsesScoreAndUserIdCursor() {
+        User high = saveUser("high", Occupation.CODING, false);
+        User tieA = saveUser("tieA", Occupation.CODING, false);
+        User tieB = saveUser("tieB", Occupation.CODING, false);
+        User zero = saveUser("zero", Occupation.CODING, false);
+        saveStat(high, MONDAY, 300);
+        saveStat(tieA, MONDAY, 100);
+        saveStat(tieB, MONDAY, 100);
+        flushFixtures();
+        List<LeagueRankingRow> expected = leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 10);
+
+        List<LeagueRankingRow> firstPage = leagueRankingQueryRepository.findGlobalRankingPage(
+                MONDAY, TUESDAY, null, null, 2);
+        LeagueRankingRow cursor = firstPage.get(1);
+        List<LeagueRankingRow> secondPage = leagueRankingQueryRepository.findGlobalRankingPage(
+                MONDAY, TUESDAY, cursor.totalFocusSeconds(), cursor.userId(), 2);
+
+        assertThat(firstPage).containsExactlyElementsOf(expected.subList(0, 2));
+        assertThat(secondPage).containsExactlyElementsOf(expected.subList(2, 4));
+        assertThat(secondPage).extracting(LeagueRankingRow::userId).contains(zero.getId());
+    }
+
+    @Test
     @DisplayName("내 순위는 전역 total DESC/user.id ASC 정렬에서 앞선 유저 수 + 1이다")
     void findRankOfUsesSameGlobalOrder() {
         User higher = saveUser("higher", Occupation.UNIVERSITY, false);

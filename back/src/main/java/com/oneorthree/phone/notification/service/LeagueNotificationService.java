@@ -11,9 +11,11 @@ import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -29,10 +31,10 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@Transactional
+@Transactional(isolation = Isolation.REPEATABLE_READ)
 public class LeagueNotificationService {
 
-    private static final int GLOBAL_POPULATION_LIMIT = Integer.MAX_VALUE;
+    static final int NOTIFICATION_PAGE_SIZE = 200;
 
     private final LeagueWeeklyResultRepository leagueWeeklyResultRepository;
     private final LeagueRankingQueryRepository leagueRankingQueryRepository;
@@ -40,6 +42,7 @@ public class LeagueNotificationService {
     private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final PushNotificationService pushNotificationService;
     private final LeagueWeek leagueWeek;
+    private final EntityManager entityManager;
 
     /** 승격/강등 알림 — 스케줄러(월 09:00 KST)·수동 트리거 진입점. */
     public void sendWeeklyResultNotifications() {
@@ -87,29 +90,56 @@ public class LeagueNotificationService {
     public void sendDeadlineReminders(Instant now) {
         LocalDate fromDate = leagueWeek.currentWeekStartDate(now);
         LocalDate toDate = leagueWeek.currentDate(now);
-        List<LeagueRankingRow> ranking = leagueRankingQueryRepository.findTop(
-                fromDate, toDate, null, GLOBAL_POPULATION_LIMIT);
-        if (ranking.isEmpty()) {
+        int processedCount = 0;
+        int rankOffset = 0;
+        Integer cursorFocusSeconds = null;
+        UUID cursorUserId = null;
+        while (true) {
+            List<LeagueRankingRow> fetched = leagueRankingQueryRepository.findGlobalRankingPage(
+                    fromDate, toDate, cursorFocusSeconds, cursorUserId, NOTIFICATION_PAGE_SIZE + 1);
+            if (fetched.isEmpty()) {
+                break;
+            }
+            boolean hasMore = fetched.size() > NOTIFICATION_PAGE_SIZE;
+            List<LeagueRankingRow> page = hasMore
+                    ? fetched.subList(0, NOTIFICATION_PAGE_SIZE) : fetched;
+            processedCount += sendDeadlinePage(page, rankOffset, now);
+            rankOffset += page.size();
+            entityManager.flush();
+            entityManager.clear();
+            if (!hasMore) {
+                break;
+            }
+            LeagueRankingRow lastRow = page.get(page.size() - 1);
+            cursorFocusSeconds = lastRow.totalFocusSeconds();
+            cursorUserId = lastRow.userId();
+        }
+        if (processedCount == 0) {
             log.info("리그 마감 임박 알림 — 전역 랭킹 대상 없음");
             return;
         }
+        log.info("리그 마감 임박 알림 — 전역 대상 {}건 처리 완료", processedCount);
+    }
 
-        List<UUID> userIds = ranking.stream().map(LeagueRankingRow::userId).toList();
+    private int sendDeadlinePage(List<LeagueRankingRow> page, int rankOffset, Instant now) {
+        List<UUID> userIds = page.stream().map(LeagueRankingRow::userId).toList();
         Map<UUID, User> usersById = loadUsers(userIds);
         Map<UUID, UserNotificationSettings> settingsByUserId = loadSettings(userIds);
         int processedCount = 0;
-        for (int index = 0; index < ranking.size(); index++) {
-            UUID userId = ranking.get(index).userId();
+        for (int index = 0; index < page.size(); index++) {
+            LeagueRankingRow row = page.get(index);
+            UUID userId = row.userId();
             User user = usersById.get(userId);
             if (user == null) {
                 continue;
             }
             UserNotificationSettings settings = settingsByUserId.get(userId);
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
-            pushNotificationService.sendIfAllowed(user, settings, composeDeadline(index + 1, soundEnabled), now);
+            pushNotificationService.sendIfAllowed(
+                    user, settings, composeDeadline(rankOffset + index + 1, soundEnabled), now);
             processedCount++;
         }
-        log.info("리그 마감 임박 알림 — 전역 대상 {}건 처리 완료", processedCount);
+        return processedCount;
     }
 
     private Map<UUID, User> loadUsers(Collection<UUID> userIds) {

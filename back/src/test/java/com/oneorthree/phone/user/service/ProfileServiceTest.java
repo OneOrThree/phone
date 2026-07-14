@@ -21,6 +21,7 @@ import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -40,6 +41,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -72,6 +74,12 @@ class ProfileServiceTest {
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID OTHER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final Instant NOW = Instant.parse("2026-06-24T03:00:00Z");
+
+    @BeforeEach
+    void setUpRankingDefault() {
+        lenient().when(leagueRankingQueryRepository.findRankOf(any(), any(), any()))
+                .thenReturn(Optional.empty());
+    }
 
     private User activeUser(String nickname) {
         return User.builder().id(USER_ID).nickname(nickname).build();

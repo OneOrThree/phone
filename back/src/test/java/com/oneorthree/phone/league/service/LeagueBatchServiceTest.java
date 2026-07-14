@@ -16,6 +16,7 @@ import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -53,6 +54,8 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     UserRepository userRepository;
     @Autowired
     DailyFocusStatRepository dailyFocusStatRepository;
+    @Autowired
+    EntityManager entityManager;
 
     @BeforeEach
     void saveTierConfigs() {
@@ -234,6 +237,7 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
         assertThat(resultUserIds).hasSize(activeUserCount)
                 .containsExactlyInAnyOrderElementsOf(activeUsers.stream().map(User::getId).toList());
         assertThat(resultUserIds).doesNotContain(deleted.getId());
+        assertThat(entityManager.contains(activeUsers.get(0))).isFalse();
     }
 
     private User saveUser(String nickname, int tierLevel, boolean deleted) {

@@ -11,6 +11,7 @@ import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,8 +23,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -44,6 +48,7 @@ class LeagueNotificationServiceTest {
     private static final Instant PREVIOUS_WEEK_START = Instant.parse("2026-06-28T15:00:00Z");
     private static final LocalDate WEEK_START_DATE = LocalDate.of(2026, 7, 6);
     private static final LocalDate TODAY = LocalDate.of(2026, 7, 6);
+    private static final int FETCH_SIZE = LeagueNotificationService.NOTIFICATION_PAGE_SIZE + 1;
 
     @Mock
     private LeagueWeeklyResultRepository leagueWeeklyResultRepository;
@@ -57,6 +62,8 @@ class LeagueNotificationServiceTest {
     private PushNotificationService pushNotificationService;
     @Mock
     private LeagueWeek leagueWeek;
+    @Mock
+    private EntityManager entityManager;
     @InjectMocks
     private LeagueNotificationService service;
 
@@ -156,8 +163,8 @@ class LeagueNotificationServiceTest {
         User second = user(UUID.randomUUID());
         given(leagueWeek.currentWeekStartDate(NOW)).willReturn(WEEK_START_DATE);
         given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
-        given(leagueRankingQueryRepository.findTop(
-                eq(WEEK_START_DATE), eq(TODAY), isNull(), eq(Integer.MAX_VALUE)))
+        given(leagueRankingQueryRepository.findGlobalRankingPage(
+                eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
                 .willReturn(List.of(
                         new LeagueRankingRow(first.getId(), "첫째", 3, 100),
                         new LeagueRankingRow(second.getId(), "둘째", 2, 0)));
@@ -177,11 +184,54 @@ class LeagueNotificationServiceTest {
     }
 
     @Test
+    @DisplayName("마감 알림은 limit+1 keyset 페이지로 순위를 유지하고 IN 조회를 200명 이하로 제한한다")
+    void pagesDeadlineRemindersWithoutLargeInClause() {
+        int pageSize = LeagueNotificationService.NOTIFICATION_PAGE_SIZE;
+        List<LeagueRankingRow> fetched = new ArrayList<>();
+        Map<UUID, User> usersById = new HashMap<>();
+        for (int index = 0; index <= pageSize; index++) {
+            User user = user(UUID.randomUUID());
+            usersById.put(user.getId(), user);
+            fetched.add(new LeagueRankingRow(user.getId(), "user-" + index, 1, pageSize - index));
+        }
+        LeagueRankingRow pageCursor = fetched.get(pageSize - 1);
+        given(leagueWeek.currentWeekStartDate(NOW)).willReturn(WEEK_START_DATE);
+        given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
+        given(leagueRankingQueryRepository.findGlobalRankingPage(
+                WEEK_START_DATE, TODAY, null, null, FETCH_SIZE)).willReturn(fetched);
+        given(leagueRankingQueryRepository.findGlobalRankingPage(
+                WEEK_START_DATE,
+                TODAY,
+                pageCursor.totalFocusSeconds(),
+                pageCursor.userId(),
+                FETCH_SIZE)).willReturn(List.of(fetched.get(pageSize)));
+        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willAnswer(invocation -> {
+            Collection<UUID> ids = invocation.getArgument(0);
+            return ids.stream().map(usersById::get).toList();
+        });
+        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+
+        service.sendDeadlineReminders(NOW);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<UUID>> ids = ArgumentCaptor.forClass(Collection.class);
+        verify(userRepository, times(2)).findAllByIdInAndIsDeletedFalse(ids.capture());
+        assertThat(ids.getAllValues()).extracting(Collection::size).containsExactly(pageSize, 1);
+        ArgumentCaptor<PushMessage> messages = ArgumentCaptor.forClass(PushMessage.class);
+        verify(pushNotificationService, times(pageSize + 1))
+                .sendIfAllowed(any(), any(), messages.capture(), eq(NOW));
+        assertThat(messages.getAllValues().get(pageSize).body())
+                .isEqualTo("지금 201위야. 마지막 스퍼트 한 번 어때?");
+        verify(entityManager, times(2)).clear();
+    }
+
+    @Test
     @DisplayName("전역 랭킹이 비어 있으면 사용자 조회와 발송을 생략한다")
     void skipsEmptyGlobalRanking() {
         given(leagueWeek.currentWeekStartDate(NOW)).willReturn(WEEK_START_DATE);
         given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
-        given(leagueRankingQueryRepository.findTop(any(), any(), isNull(), eq(Integer.MAX_VALUE)))
+        given(leagueRankingQueryRepository.findGlobalRankingPage(
+                any(), any(), isNull(), isNull(), eq(FETCH_SIZE)))
                 .willReturn(List.of());
 
         service.sendDeadlineReminders(NOW);
