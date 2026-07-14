@@ -1,5 +1,6 @@
 package com.oneorthree.phone.common.config;
 
+import com.oneorthree.phone.stats.dto.FocusAverageScope;
 import com.oneorthree.phone.stats.dto.StatsPeriod;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.format.FormatterRegistry;
@@ -16,7 +17,11 @@ public class WebMvcConfig implements WebMvcConfigurer {
     public void addFormatters(FormatterRegistry registry) {
         // 클라이언트가 소문자(day|week|month)로 전송하므로 대문자 변환 후 enum 매핑.
         // 지원하지 않는 값은 IllegalArgumentException → MethodArgumentTypeMismatchException → 400.
+        // toUpperCase 는 반드시 Locale.ROOT — 터키어 로케일에서 'i' → 'İ' 로 대문자화돼 enum 매핑이 깨지는 것 방지.
         registry.addConverter(String.class, StatsPeriod.class,
-                s -> StatsPeriod.valueOf(s.toUpperCase()));
+                s -> StatsPeriod.valueOf(s.toUpperCase(java.util.Locale.ROOT)));
+        // 평균 집중 API(GROMO-753) scope 파라미터도 소문자(friends|total|category) 허용 — period 와 동일 관례.
+        registry.addConverter(String.class, FocusAverageScope.class,
+                s -> FocusAverageScope.valueOf(s.toUpperCase(java.util.Locale.ROOT)));
     }
 }

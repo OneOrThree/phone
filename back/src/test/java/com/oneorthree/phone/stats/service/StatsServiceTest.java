@@ -4,11 +4,16 @@ import com.oneorthree.phone.focus.domain.DefaultTag;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.friend.domain.Friendship;
+import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
+import com.oneorthree.phone.stats.dto.FocusAverageAggregate;
+import com.oneorthree.phone.stats.dto.FocusAverageResponse;
+import com.oneorthree.phone.stats.dto.FocusAverageScope;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.ScreenTimePeriodStatsResponse;
@@ -16,6 +21,7 @@ import com.oneorthree.phone.stats.dto.StatsPeriod;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.exception.StatsException;
+import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
@@ -38,11 +44,14 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.times;
@@ -68,6 +77,8 @@ class StatsServiceTest {
     private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private FriendshipRepository friendshipRepository;
     // 기간 경계 계산은 무상태 실로직을 그대로 검증한다(@Spy) — 추출 후에도 경계 assertion 동일하게 유지.
     @Spy
     private StatsPeriodResolver statsPeriodResolver = new StatsPeriodResolver();
@@ -1236,6 +1247,169 @@ class StatsServiceTest {
         verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), any());
 
         assertThat(fromCaptor.getValue()).isEqualTo(Instant.parse("2026-07-01T00:00:00Z"));
+    }
+
+    // ── getFocusAverage (GROMO-753) ───────────────────────────────────────
+
+    private static final UUID FRIEND_A = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
+    private static final UUID FRIEND_B = UUID.fromString("00000000-0000-0000-0000-0000000000a2");
+
+    private Friendship acceptedWith(User caller, User other) {
+        // caller 가 fromUser 인 방향으로 세팅 — counterpart 는 toUser(other) 를 반환.
+        return Friendship.builder().fromUser(caller).toUser(other).build();
+    }
+
+    @Test
+    @DisplayName("평균 FRIENDS DAY — 활동 친구 2명(90분+60분 합) → floor(9000/2/60)=75, sampleSize=2")
+    void getFocusAverageFriendsDay() {
+        User caller = User.builder().id(USER_ID).build();
+        User friendA = User.builder().id(FRIEND_A).build();
+        User friendB = User.builder().id(FRIEND_B).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(caller);
+        given(friendshipRepository.findAcceptedByUser(caller))
+                .willReturn(List.of(acceptedWith(caller, friendA), acceptedWith(caller, friendB)));
+        // 90분(5400초) + 60분(3600초) = 9000초, 활동 유저 2명
+        given(dailyFocusStatRepository.sumAndActiveCountByUsersInPeriod(
+                anyCollection(), eq(FIXED_TODAY), eq(FIXED_TODAY)))
+                .willReturn(new FocusAverageAggregate(9000L, 2L));
+
+        FocusAverageResponse response =
+                statsService.getFocusAverage(USER_ID, FocusAverageScope.FRIENDS, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.scope()).isEqualTo(FocusAverageScope.FRIENDS);
+        assertThat(response.period()).isEqualTo(StatsPeriod.DAY);
+        assertThat(response.from()).isEqualTo(FIXED_TODAY);
+        assertThat(response.to()).isEqualTo(FIXED_TODAY);
+        assertThat(response.averageMinutes()).isEqualTo(75);
+        assertThat(response.sampleSize()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("평균 FRIENDS — 친구 집합에 상대 User 만 전달(caller 미포함)")
+    void getFocusAverageFriendsExcludesCaller() {
+        User caller = User.builder().id(USER_ID).build();
+        User friendA = User.builder().id(FRIEND_A).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(caller);
+        given(friendshipRepository.findAcceptedByUser(caller))
+                .willReturn(List.of(acceptedWith(caller, friendA)));
+        given(dailyFocusStatRepository.sumAndActiveCountByUsersInPeriod(anyCollection(), any(), any()))
+                .willReturn(new FocusAverageAggregate(3600L, 1L));
+
+        statsService.getFocusAverage(USER_ID, FocusAverageScope.FRIENDS, StatsPeriod.DAY, FIXED_TODAY);
+
+        // 전달된 집합은 상대(friendA) 만 — caller 는 미포함
+        verify(dailyFocusStatRepository).sumAndActiveCountByUsersInPeriod(
+                argThat(users -> users.size() == 1 && users.contains(friendA) && !users.contains(caller)),
+                eq(FIXED_TODAY), eq(FIXED_TODAY));
+    }
+
+    @Test
+    @DisplayName("평균 FRIENDS — 친구 0명 → averageMinutes=null, sampleSize=0 (리포지토리 미호출)")
+    void getFocusAverageFriendsEmptyReturnsNull() {
+        User caller = User.builder().id(USER_ID).build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(caller);
+        given(friendshipRepository.findAcceptedByUser(caller)).willReturn(List.of());
+
+        FocusAverageResponse response =
+                statsService.getFocusAverage(USER_ID, FocusAverageScope.FRIENDS, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.averageMinutes()).isNull();
+        assertThat(response.sampleSize()).isZero();
+        verify(dailyFocusStatRepository, times(0))
+                .sumAndActiveCountByUsersInPeriod(anyCollection(), any(), any());
+    }
+
+    @Test
+    @DisplayName("평균 TOTAL WEEK — 활동 유저 3명(총 12000초) → floor(12000/3/60)=66, sampleSize=3, 주 경계 정확")
+    void getFocusAverageTotalWeek() {
+        // 2026-07-03(금) → 이번 주 월요일=2026-06-29
+        LocalDate thisMonday = LocalDate.of(2026, 6, 29);
+        given(dailyFocusStatRepository.sumAndActiveCountAllInPeriod(thisMonday, FIXED_TODAY))
+                .willReturn(new FocusAverageAggregate(12000L, 3L));
+
+        FocusAverageResponse response =
+                statsService.getFocusAverage(USER_ID, FocusAverageScope.TOTAL, StatsPeriod.WEEK, FIXED_TODAY);
+
+        assertThat(response.scope()).isEqualTo(FocusAverageScope.TOTAL);
+        assertThat(response.from()).isEqualTo(thisMonday);
+        assertThat(response.to()).isEqualTo(FIXED_TODAY);
+        // 12000 / 3 = 4000초 → 66분(4000/60=66.67 내림)
+        assertThat(response.averageMinutes()).isEqualTo(66);
+        assertThat(response.sampleSize()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("평균 TOTAL — 활동 유저 0명(전원 휴면) → averageMinutes=null, sampleSize=0")
+    void getFocusAverageTotalNoActiveReturnsNull() {
+        given(dailyFocusStatRepository.sumAndActiveCountAllInPeriod(any(), any()))
+                .willReturn(new FocusAverageAggregate(0L, 0L));
+
+        FocusAverageResponse response =
+                statsService.getFocusAverage(USER_ID, FocusAverageScope.TOTAL, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.averageMinutes()).isNull();
+        assertThat(response.sampleSize()).isZero();
+    }
+
+    @Test
+    @DisplayName("평균 CATEGORY MONTH — caller occupation=CODING, 활동 4명(총 24000초) → floor(24000/4/60)=100, 월 경계 정확")
+    void getFocusAverageCategoryMonth() {
+        // 2026-07-03 → 이번 달 1일=2026-07-01
+        LocalDate thisMonthStart = LocalDate.of(2026, 7, 1);
+        User caller = User.builder().id(USER_ID).occupation(Occupation.CODING).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
+        given(dailyFocusStatRepository.sumAndActiveCountByOccupationInPeriod(
+                Occupation.CODING, thisMonthStart, FIXED_TODAY))
+                .willReturn(new FocusAverageAggregate(24000L, 4L));
+
+        FocusAverageResponse response =
+                statsService.getFocusAverage(USER_ID, FocusAverageScope.CATEGORY, StatsPeriod.MONTH, FIXED_TODAY);
+
+        assertThat(response.scope()).isEqualTo(FocusAverageScope.CATEGORY);
+        assertThat(response.from()).isEqualTo(thisMonthStart);
+        assertThat(response.to()).isEqualTo(FIXED_TODAY);
+        // 24000 / 4 = 6000초 → 100분
+        assertThat(response.averageMinutes()).isEqualTo(100);
+        assertThat(response.sampleSize()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("평균 CATEGORY — occupation 미설정 → 400 아닌 averageMinutes=null, sampleSize=0 (리포지토리 미호출)")
+    void getFocusAverageCategoryNullOccupationReturnsNull() {
+        User caller = User.builder().id(USER_ID).build(); // occupation = null
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
+
+        FocusAverageResponse response =
+                statsService.getFocusAverage(USER_ID, FocusAverageScope.CATEGORY, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.averageMinutes()).isNull();
+        assertThat(response.sampleSize()).isZero();
+        verify(dailyFocusStatRepository, times(0))
+                .sumAndActiveCountByOccupationInPeriod(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("평균 CATEGORY — caller User 미존재 → NOT_FOUND")
+    void getFocusAverageCategoryCallerNotFound() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                statsService.getFocusAverage(USER_ID, FocusAverageScope.CATEGORY, StatsPeriod.DAY, FIXED_TODAY))
+                .isInstanceOf(UserException.class);
+    }
+
+    @Test
+    @DisplayName("평균 — 초 합/인원 나눗셈 후 분 내림(floor): 5900초/2명=2950초 → 49분(2950/60=49.17)")
+    void getFocusAverageFloorsMinutes() {
+        given(dailyFocusStatRepository.sumAndActiveCountAllInPeriod(any(), any()))
+                .willReturn(new FocusAverageAggregate(5900L, 2L));
+
+        FocusAverageResponse response =
+                statsService.getFocusAverage(USER_ID, FocusAverageScope.TOTAL, StatsPeriod.DAY, FIXED_TODAY);
+
+        // 5900 / 2 = 2950초 → 2950/60 = 49.17 → 49분(내림)
+        assertThat(response.averageMinutes()).isEqualTo(49);
+        assertThat(response.sampleSize()).isEqualTo(2);
     }
 
     // 열람 권한 판정(resolveTargetUserId, 친구/PUBLIC)은 StatViewPolicy 로 분리(GROMO-779) —
