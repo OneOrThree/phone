@@ -47,6 +47,9 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // 기간 내 완료 세션 집계용 전체 조회 — 카테고리별 집중 통계(GROMO-524).
     // GROMO-671(커밋3): local_date 컬럼 제거로 endedAt(UTC) [from,to) 윈도우 기준으로 조회한다.
     // 취소(CANCELED) 세션은 제외(과거 deleted_at IS NULL 을 status 기반으로 전환).
+    // GROMO-804: orphan 자동 종료(AUTO_CLOSED) 세션도 제외한다. orphan 은 endedAt 이 채워져 이 윈도우에 걸리지만
+    // 통계 미반영 세션이므로, 여기서 걸러야 사전집계 /stats/focus 와 by-category 총합이 일치한다.
+    // (= COMPLETED 는 쓸 수 없다 — COMPLETED 는 죽은 값이라 정상 완료 세션도 status=ACTIVE 다. 반드시 NOT IN 방식.)
     // GROMO-673: focusTag(user_focus_tags)와 그 defaultTag 까지 LEFT JOIN FETCH 로 N+1(이름 매핑) 방지.
     @Query("SELECT s FROM FocusSession s "
             + "LEFT JOIN FETCH s.focusTag ft "
@@ -55,7 +58,9 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
             + "AND s.endedAt IS NOT NULL "
             + "AND s.endedAt >= :from "
             + "AND s.endedAt < :to "
-            + "AND s.status <> com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED")
+            + "AND s.status NOT IN ("
+            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED, "
+            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED)")
     List<FocusSession> findCompletedSessionsInPeriod(@Param("user") User user,
                                                      @Param("from") Instant from,
                                                      @Param("to") Instant to);
@@ -71,4 +76,15 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     @Query("UPDATE FocusSession s SET s.endedAt = :endedAt "
             + "WHERE s.id = :id AND s.endedAt IS NULL")
     int endSessionIfActive(@Param("id") UUID id, @Param("endedAt") Instant endedAt);
+
+    // 원자적 조건부 orphan 자동 종료(GROMO-804) — 아직 미종료(endedAt IS NULL)인 경우에만 AUTO_CLOSED 로 마감한다.
+    // 반환값(영향 row 수)이 1이면 이 스윕이 종료를 성사시킨 것이고, 0이면 그 사이 유저 PATCH(endSessionIfActive)가
+    // 먼저 완료해 이미 통계에 반영된 세션이다. 엔티티 autoClose() 더티 라이트는 이 경합에서 완료된 세션의 endedAt·status 를
+    // 무조건 덮어써(통계엔 이미 계수됨) by-category 에서 사라지게 만드므로, DB 단일 UPDATE 로 조건을 원자화해 차단한다.
+    @Modifying
+    @Query("UPDATE FocusSession s "
+            + "SET s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED, "
+            + "s.endedAt = :endedAt "
+            + "WHERE s.id = :id AND s.endedAt IS NULL")
+    int markAutoClosedIfOpen(@Param("id") UUID id, @Param("endedAt") Instant endedAt);
 }

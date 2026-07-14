@@ -9,6 +9,7 @@ import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionResponse;
+import com.oneorthree.phone.focus.dto.FocusSessionSaveResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
@@ -61,6 +62,9 @@ public class FocusService {
 
     // orphan(앱 강제종료로 endedAt 미기록) 자동 종료 임계값 — 이보다 오래된 진행 중 세션은 상한으로 종료.
     private static final Duration ORPHAN_TIMEOUT = Duration.ofHours(12);
+
+    // GROMO-806: 스트릭 인정 최소 누적 집중 시간(초) = 10분. 그날 누적이 이 값 이상일 때만 스트릭을 갱신한다.
+    private static final int STREAK_MIN_SECONDS = 600;
 
     private final UserFocusTagRepository userFocusTagRepository;
     private final DefaultTagRepository defaultTagRepository;
@@ -217,7 +221,7 @@ public class FocusService {
     }
 
     @Transactional
-    public void saveFocusSession(UUID userId, FocusSessionRequest body) {
+    public FocusSessionSaveResponse saveFocusSession(UUID userId, FocusSessionRequest body) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -239,9 +243,11 @@ public class FocusService {
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
                 .build());
 
+        // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 실어 준다(additive — 구버전 앱은 무시).
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
-        recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
+        RecordCompletionResult result = recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
                 body.getTotalDistractionSeconds(), statDate(body.getEndedAt(), zone));
+        return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday());
     }
 
     /**
@@ -314,12 +320,14 @@ public class FocusService {
         // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
         session.end(endedAt, body.totalDistractionSeconds());
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
-        recordCompletion(user, userId, tag, session.getStartedAt(), endedAt,
+        RecordCompletionResult result = recordCompletion(user, userId, tag, session.getStartedAt(), endedAt,
                 body.totalDistractionSeconds(), statDate(endedAt, zone));
 
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
+        // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 추가(additive).
         return new FocusSessionEndResponse(session.getId(), session.getStartedAt(), endedAt,
-                durationSeconds, body.totalDistractionSeconds());
+                durationSeconds, body.totalDistractionSeconds(),
+                result.dayTotalFocusSeconds(), result.streakQualifiedToday());
     }
 
     /**
@@ -329,17 +337,27 @@ public class FocusService {
      * <p>자동 종료 세션은 종료 시각 신뢰도가 낮아(유저 미확정) DailyFocusStat/스트릭 통계에는 반영하지 않는다.
      * WHERE endedAt IS NULL 조건 조회이므로 유저 PATCH 와 경합해도 이미 종료된 세션은 대상에서 빠진다.
      *
-     * @return 자동 종료한 세션 수
+     * <p>GROMO-804: 상태를 {@code AUTO_CLOSED} 로 표시해 by-category 실시간 집계에서도 제외한다
+     * (기존엔 status=ACTIVE 로 남아 endedAt 만 채워져 by-category 에 새어 들어갔다 — /stats/focus 사전집계와 총합 불일치).
+     *
+     * <p>종료 반영은 엔티티 더티 라이트(autoClose)가 아니라 조건부 원자 UPDATE(markAutoClosedIfOpen)로 한다.
+     * 스윕이 orphan 목록을 읽은 뒤 flush 전에 유저가 같은 세션을 PATCH(endSessionIfActive)로 완료하면, 더티 라이트는
+     * 이미 recordCompletion 이 통계에 계수한 세션의 endedAt·status 를 무조건 덮어써(AUTO_CLOSED) by-category 에서
+     * 사라지면서 /stats/focus 와 불일치하고 endedAt 도 오염된다. endedAt IS NULL 조건 UPDATE 로 이 경합을 차단하고,
+     * 실제로 마감된(반환 1) 세션만 카운트한다(동시 완료돼 0 이 반환된 세션은 스킵).
+     *
+     * @return 자동 종료한 세션 수(경합으로 이미 완료된 세션 제외)
      */
     @Transactional
     public int sweepOrphanSessions(Instant now) {
         Instant threshold = now.minus(ORPHAN_TIMEOUT);
         List<FocusSession> orphans = focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(threshold);
+        int closed = 0;
         for (FocusSession session : orphans) {
             Instant cappedEnd = session.getStartedAt().plus(ORPHAN_TIMEOUT);
-            session.end(cappedEnd, session.getTotalDistractionSeconds());
+            closed += focusSessionRepository.markAutoClosedIfOpen(session.getId(), cappedEnd);
         }
-        return orphans.size();
+        return closed;
     }
 
     /** 태그 id(user_focus_tags.id)로 소유 태그를 조회(없으면 null 반환, 미소유면 FORBIDDEN). POST/PATCH 공용. */
@@ -358,8 +376,10 @@ public class FocusService {
     /**
      * 세션 완료 귀속 — FOCUS_SESSION_COMPLETED 로깅 + DailyFocusStat upsert(비관적 락) + 스트릭 갱신.
      * POST(완료 통째 저장)와 PATCH(라이브 종료)가 공유해 통계 로직을 한 곳으로 모은다.
+     *
+     * @return 그날 누적 집중 초와 스트릭 인정 여부(응답 필드용, GROMO-806)
      */
-    private void recordCompletion(User user, UUID userId, UserFocusTag tag,
+    private RecordCompletionResult recordCompletion(User user, UUID userId, UserFocusTag tag,
                                   Instant startedAt, Instant endedAt, int totalDistractionSeconds, LocalDate statDate) {
         long durationSeconds = Duration.between(startedAt, endedAt).getSeconds();
         // payload 에 null 값 금지 — nullable 인 focus_tag_id 는 태그 있을 때만 키 포함
@@ -378,6 +398,8 @@ public class FocusService {
 
         // UPDATE-UPDATE lost update 방지(누적 연산): 비관적 쓰기 잠금으로 동시 세션 저장 시 += 누락 차단
         // INSERT-INSERT 동시 삽입은 unique(user_id, date) 제약이 정합성 보장(오염 없음, 실패 건은 클라 재시도)
+        // GROMO-806: 스트릭 게이트·응답 필드용 — 이 세션 반영 후 그날 누적 집중 초.
+        int dayTotalFocusSeconds;
         Optional<DailyFocusStat> existingStat = dailyFocusStatRepository.findByUserAndDateForUpdate(user, statDate);
         if (existingStat.isPresent()) {
             // 기존 row 누적 (+= 방식) — 더티 체킹으로 반영됨, 별도 save() 불필요
@@ -385,6 +407,7 @@ public class FocusService {
             stat.setTotalFocusSeconds(stat.getTotalFocusSeconds() + addedSeconds);
             stat.setSessionCount(stat.getSessionCount() + 1);
             stat.setTotalDistractionSeconds(stat.getTotalDistractionSeconds() + totalDistractionSeconds);
+            dayTotalFocusSeconds = stat.getTotalFocusSeconds();
             // isFocusTimeGoalAchieved: 이미 달성(true)이면 재판정 불필요 — 플래그 단방향이므로 조기 스킵
             if (!stat.isFocusTimeGoalAchieved()) {
                 int goal = userFocusTimeSettingsRepository.findById(userId)
@@ -409,20 +432,38 @@ public class FocusService {
                     .totalDistractionSeconds(totalDistractionSeconds)
                     .isFocusTimeGoalAchieved(goalAchieved)
                     .build());
+            dayTotalFocusSeconds = addedSeconds;
             if (goalAchieved) {
                 // 신규 row 가 곧바로 달성 = false→true 전이와 동일 — 1회 발행 (GROMO-395)
                 logDailyFocusGoalAchieved(statDate, addedSeconds / 60, goal);
             }
         }
 
-        // 스트릭 갱신 — 세션 저장·일별 집계와 같은 트랜잭션(원자적), 날짜 기준도 동일(country_code 존 로컬 날짜, GROMO-803)
-        userStreakService.updateOnSessionComplete(user, statDate);
+        // GROMO-806: 스트릭 인정 게이트 — 그날 누적 집중이 STREAK_MIN_SECONDS(10분) 이상일 때만 갱신한다.
+        // (예: 5분+6분 → 1회차 누적 300초<600 미갱신, 2회차 누적 660초>=600 갱신. 이미 인정된 날 재호출은
+        //  기존 same-day 멱등이 무변화를 보장.) 세션 저장·일별 집계와 같은 트랜잭션(원자적),
+        //  날짜 기준 동일(country_code 존 로컬 날짜, GROMO-803).
+        boolean streakQualifiedToday = dayTotalFocusSeconds >= STREAK_MIN_SECONDS;
+        if (streakQualifiedToday) {
+            userStreakService.updateOnSessionComplete(user, statDate);
+        }
 
         // GROMO-646: 현재 ACTIVE 아레나 멤버면 주간 누적 집중 시간 반영(리그 탭·랭킹·주간 마감 정합).
         // GROMO-665: 초 직접 누적(분 내림 제거 — DailyFocusStat와 동일 정밀도). 아레나 미배정 유저는 스킵.
         // 락 조회로 동시 세션 lost update 차단.
         leagueArenaUserRepository.findByUserAndArenaStatusForUpdate(userId, LeagueArenaStatus.ACTIVE)
                 .ifPresent(member -> member.addFocusSeconds(addedSeconds));
+
+        return new RecordCompletionResult(dayTotalFocusSeconds, streakQualifiedToday);
+    }
+
+    /**
+     * 세션 완료 귀속 결과(GROMO-806) — 세션완료 응답의 추가 필드로 노출한다.
+     *
+     * @param dayTotalFocusSeconds  이 세션 반영 후 그날(statDate) 누적 집중 초
+     * @param streakQualifiedToday  그날 누적이 스트릭 인정 기준(10분) 이상이라 스트릭을 갱신했는지
+     */
+    public record RecordCompletionResult(int dayTotalFocusSeconds, boolean streakQualifiedToday) {
     }
 
     /** 일일 집중 목표 달성(false→true 전이) 이벤트 발행 — date 는 ISO(country_code 존 로컬 날짜, GROMO-803). */

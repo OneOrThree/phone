@@ -42,6 +42,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -186,10 +187,14 @@ public class StatsService {
         List<DailyScreenTimeStat> previousStats = dailyScreenTimeStatRepository
                 .findByUserAndDateBetweenOrderByDateAsc(user, range.previousFrom(), range.previousTo());
 
-        int currentMinutes = currentStats.stream()
-                .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes).sum();
-        int previousMinutes = previousStats.stream()
-                .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes).sum();
+        // 가입일(유저존 로컬 날짜) — createdAt 미상이면 null(클램프/필터 없음). day 카운트와 분 합계가 같은 기준을 쓰도록
+        // 한 번만 계산해 재사용한다(Codex P2: 가입 전 레거시 row 는 분 합계에서도 제외해야 day 카운트와 정합).
+        LocalDate joinLocalDate = joinLocalDate(user);
+
+        // 가입 전 레거시 row(date < 가입일)는 분 합계·delta 에서도 제외한다 — day 클램프로 경과일에선 이미 빠지므로
+        // 분만 포함되면 불일치. joinLocalDate == null 이면 필터 없음.
+        int currentMinutes = sumMinutesFromJoin(currentStats, joinLocalDate);
+        int previousMinutes = sumMinutesFromJoin(previousStats, joinLocalDate);
         int goalMinutes = userScreenTimeSettingsRepository.findById(userId)
                 .map(UserScreenTimeSettings::getDailyScreenTimeGoalMinutes).orElse(0);
 
@@ -203,17 +208,82 @@ public class StatsService {
             achievedDays = null;
             elapsedDays = null;
         } else {
-            // week/month: 저장된 달성 플래그(일 단위) 기반 집계
+            // week/month (GROMO-805): 경과일수는 가입일로 클램프한다 — 가입 전 날은 집계 대상이 아니다.
+            // clampedFrom = max(구간 시작, 가입일 유저존 로컬 날짜). createdAt 미상이면 클램프 없음.
             goalAchieved = null;
-            achievedDays = (int) currentStats.stream()
-                    .filter(DailyScreenTimeStat::isScreenTimeGoalAchieved).count();
-            elapsedDays = (int) (ChronoUnit.DAYS.between(range.currentFrom(), range.currentTo()) + 1);
+            LocalDate clampedFrom = joinLocalDate != null && joinLocalDate.isAfter(range.currentFrom())
+                    ? joinLocalDate : range.currentFrom();
+            int clampedElapsedDays = clampedFrom.isAfter(range.currentTo())
+                    ? 0
+                    : (int) (ChronoUnit.DAYS.between(clampedFrom, range.currentTo()) + 1);
+            elapsedDays = clampedElapsedDays;   // 승인 결정: elapsedDays 도 가입 클램프 반영해 일관
+
+            if (goalMinutes > 0) {
+                // 목표 설정 유저: day 뷰와 의미 일치 — row 없는 날 = 0분 = 달성. 실패한 날만 차감.
+                // achievedDays = clampedElapsedDays − (과거 확정 실패 + 오늘 실패).
+                // ① 과거 확정일(clampedFrom ≤ date < today): 저장 플래그(!isScreenTimeGoalAchieved)로 실패 판정.
+                //    가입 전(clampedFrom 이전) row 는 그 구간에 속하지 않으므로 차감 대상이 아니다(과소·음수 방지).
+                // ② 오늘(date == anchorDay): final row 는 저장 스냅샷을 쓰고, interim row 는 day 뷰와 동일하게 현재 목표로
+                //    재계산한다(todayMinutes > goalMinutes 이면 실패). 오늘이 clampedFrom 이전(가입 전)이면 경과일에 없으므로 세지 않는다.
+                //    anchorDay = range.currentTo() = today 파라미터.
+                LocalDate anchorDay = range.currentTo();
+                int pastFailed = (int) currentStats.stream()
+                        .filter(s -> !s.getDate().isBefore(clampedFrom))
+                        .filter(s -> s.getDate().isBefore(anchorDay))
+                        .filter(s -> !s.isScreenTimeGoalAchieved()).count();
+                int todayFailed = 0;
+                if (!anchorDay.isBefore(clampedFrom)) {
+                    List<DailyScreenTimeStat> todayStats = currentStats.stream()
+                            .filter(s -> s.getDate().isEqual(anchorDay))
+                            .toList();
+                    Optional<DailyScreenTimeStat> finalizedToday = todayStats.stream()
+                            .filter(DailyScreenTimeStat::isScreenTimeFinalized)
+                            .findFirst();
+                    if (finalizedToday.isPresent()) {
+                        todayFailed = finalizedToday.get().isScreenTimeGoalAchieved() ? 0 : 1;
+                    } else {
+                        int todayMinutes = todayStats.stream()
+                                .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes).sum();
+                        todayFailed = todayMinutes > goalMinutes ? 1 : 0;
+                    }
+                }
+                achievedDays = clampedElapsedDays - (pastFailed + todayFailed);
+            } else {
+                // 목표 미설정: day 뷰와 동일하게 달성 판정을 하지 않는다 — 저장 플래그(모두 false) 기준이라 0.
+                achievedDays = (int) currentStats.stream()
+                        .filter(s -> !s.getDate().isBefore(clampedFrom))
+                        .filter(DailyScreenTimeStat::isScreenTimeGoalAchieved).count();
+            }
         }
 
         return new ScreenTimePeriodStatsResponse(
                 period, range.currentFrom(), range.currentTo(),
                 currentMinutes, previousMinutes, currentMinutes - previousMinutes,
                 goalMinutes, goalAchieved, achievedDays, elapsedDays);
+    }
+
+    /**
+     * 가입일을 유저존 로컬 날짜로 환산한다(GROMO-805) — 가입 전 날을 집계에서 제외하기 위한 공통 기준.
+     * {@code user.createdAt} 을 유저 country_code 파생 존(GROMO-561, 스크린타임 쓰기 버킷과 동일 존)의 로컬 날짜로
+     * 환산한다. {@code createdAt} 이 null(테스트/레거시)이면 {@code null} 을 반환해 호출부가 클램프/필터를 생략한다.
+     */
+    private LocalDate joinLocalDate(User user) {
+        if (user.getCreatedAt() == null) {
+            return null;
+        }
+        return user.getCreatedAt().atZone(CountryZoneResolver.resolve(user.getCountryCode())).toLocalDate();
+    }
+
+    /**
+     * 가입 전 레거시 row(date &lt; joinLocalDate)를 제외하고 분 합계를 낸다(Codex P2) — day 카운트가 가입일로
+     * 클램프되므로 분 합계·delta 도 같은 기준으로 맞춰 불일치를 없앤다. {@code joinLocalDate == null}(가입일 미상)이면
+     * 필터 없이 전체를 합산한다.
+     */
+    private int sumMinutesFromJoin(List<DailyScreenTimeStat> stats, LocalDate joinLocalDate) {
+        return stats.stream()
+                .filter(s -> joinLocalDate == null || !s.getDate().isBefore(joinLocalDate))
+                .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes)
+                .sum();
     }
 
     /**
