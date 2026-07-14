@@ -97,9 +97,12 @@ class ProfileServiceTest {
     @DisplayName("정상 조회 → 닉네임·캐릭터·친구수·리그 티어·랭킹 집계")
     void getPublicProfile_success() {
         User user = User.builder().id(USER_ID).nickname("조재영")
-                .occupation(com.oneorthree.phone.user.domain.Occupation.CSAT).build();
+                .occupation(com.oneorthree.phone.user.domain.Occupation.CSAT)
+                .tierLevel(3)
+                .build();
         LeagueArena arena = activeArena();
-        LeagueArenaUser me = membership(user, arena, 3, 200);
+        // 전환기 아레나 멤버십 값과 달라도 User.tierLevel 이 공개 티어의 원천이다.
+        LeagueArenaUser me = membership(user, arena, 2, 200);
         User otherUser = User.builder().id(OTHER_ID).nickname("top").build();
         LeagueArenaUser top = membership(otherUser, arena, 3, 300);
 
@@ -154,11 +157,11 @@ class ProfileServiceTest {
                 .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
-    // ── 리그 미소속 → tier=null(GROMO-671: User.current_tier 제거, 티어는 league_arena_users 로만 도출), rank null ──
+    // ── 리그 미소속 → User 기본 tier=1, rank=null ──────────────────────
 
     @Test
-    @DisplayName("리그 미소속 → tier=null, rank=null (User.current_tier fallback 제거)")
-    void getPublicProfile_noLeagueMembership_noTier() {
+    @DisplayName("리그 미소속 신규 유저 → users.tier_level 기본값 T1, rank=null")
+    void getPublicProfile_noLeagueMembership_hasDefaultTier() {
         User user = User.builder().id(USER_ID).nickname("새유저").build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
@@ -169,7 +172,7 @@ class ProfileServiceTest {
 
         PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
 
-        assertThat(response.currentTier()).isNull();
+        assertThat(response.currentTier()).isEqualTo(1);
         assertThat(response.rank()).isNull();
         // occupation 미설정 유저 → null (GROMO-747)
         assertThat(response.occupation()).isNull();
@@ -260,7 +263,7 @@ class ProfileServiceTest {
     @Test
     @DisplayName("리그 1위 → rank=1")
     void getPublicProfile_rankFirst() {
-        User user = activeUser("조재영");
+        User user = User.builder().id(USER_ID).nickname("조재영").tierLevel(5).build();
         LeagueArena arena = activeArena();
         LeagueArenaUser me = membership(user, arena, 5, 500);
 

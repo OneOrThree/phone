@@ -55,6 +55,10 @@ public class User {
     @Enumerated(EnumType.STRING)
     private Occupation occupation;
 
+    @Column(name = "tier_level", nullable = false, columnDefinition = "integer not null default 1")
+    @Builder.Default
+    private int tierLevel = 1;
+
     // 개인 통계 공개 범위 — migration v22 로 컬럼 추가 (NOT NULL DEFAULT 'FRIENDS')
     // columnDefinition 으로 DB default 지정 → ddl-auto=update 환경에서 v22 선적용 없이 배포 시 기존 row ALTER 실패 방지
     @Enumerated(EnumType.STRING)

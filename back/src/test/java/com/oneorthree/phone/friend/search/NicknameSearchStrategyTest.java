@@ -40,7 +40,7 @@ class NicknameSearchStrategyTest {
     }
 
     @Test
-    @DisplayName("검색 결과 — 멤버십 있는 유저는 티어 채우고 미소속은 null (GROMO-710)")
+    @DisplayName("검색 결과 — 아레나 소속과 무관하게 User 티어를 채움 (GROMO-814)")
     void search_restoresTierLevel_fromLeagueLookup() {
         UUID meId = UUID.randomUUID();
         UUID hasTierId = UUID.randomUUID();
@@ -48,13 +48,13 @@ class NicknameSearchStrategyTest {
         given(userRepository.searchByNicknameTrgm(eq("f"), anyInt()))
                 .willReturn(List.of(user(hasTierId, "foo"), user(noTierId, "far")));
         given(leagueTierLookup.tierLevelsByUserId(List.of(hasTierId, noTierId)))
-                .willReturn(Map.of(hasTierId, 6));
+                .willReturn(Map.of(hasTierId, 5, noTierId, 1));
 
         List<FriendSearchResult> results = strategy.search(meId, "f");
 
         assertThat(results).filteredOn(r -> r.getUserId().equals(hasTierId))
-                .extracting(FriendSearchResult::getTierLevel).containsExactly(6);
+                .extracting(FriendSearchResult::getTierLevel).containsExactly(5);
         assertThat(results).filteredOn(r -> r.getUserId().equals(noTierId))
-                .extracting(FriendSearchResult::getTierLevel).containsExactly((Integer) null);
+                .extracting(FriendSearchResult::getTierLevel).containsExactly(1);
     }
 }
