@@ -25,15 +25,31 @@ class LeagueWeeklyResultRepositoryTest extends RepositoryTestBase {
     @Autowired
     UserRepository userRepository;
 
-    private LeagueWeeklyResult result(User user, LeagueWeeklyResultType result) {
+    private LeagueWeeklyResult result(User user, LeagueWeeklyResultType resultType) {
+        int previousTierLevel = 2;
+        int newTierLevel = switch (resultType) {
+            case PROMOTED -> previousTierLevel + 1;
+            case STAY -> previousTierLevel;
+            case RELEGATED -> previousTierLevel - 1;
+        };
         return LeagueWeeklyResult.builder()
                 .user(user)
                 .weekStartAt(WEEK_START)
-                .previousTierLevel(2)
-                .newTierLevel(result == LeagueWeeklyResultType.PROMOTED ? 3 : 2)
-                .result(result)
+                .previousTierLevel(previousTierLevel)
+                .newTierLevel(newTierLevel)
+                .result(resultType)
                 .focusSeconds(101_000)
                 .build();
+    }
+
+    @Test
+    @DisplayName("주간 결과 타입별 새 티어를 승격 +1·유지 0·강등 -1로 계산")
+    void resultCalculatesNewTierLevelByType() {
+        User user = User.builder().build();
+
+        assertThat(result(user, LeagueWeeklyResultType.PROMOTED).getNewTierLevel()).isEqualTo(3);
+        assertThat(result(user, LeagueWeeklyResultType.STAY).getNewTierLevel()).isEqualTo(2);
+        assertThat(result(user, LeagueWeeklyResultType.RELEGATED).getNewTierLevel()).isEqualTo(1);
     }
 
     @Test
