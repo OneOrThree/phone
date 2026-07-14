@@ -1371,7 +1371,7 @@
           "focus"
         ],
         "summary": "Focus Session 저장",
-        "description": "Focus Session 정보 저장",
+        "description": "Focus Session 정보 저장. 완료 후 그날 누적 집중 초·스트릭 인정 여부(GROMO-806)를 함께 반환한다. 기존 빈 바디에 필드를 추가한 additive 변경 — 구버전 앱은 무시한다.",
         "operationId": "saveFocusSession",
         "requestBody": {
           "content": {
@@ -1385,13 +1385,34 @@
         },
         "responses": {
           "201": {
-            "description": "저장 성공"
+            "description": "저장 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionSaveResponse"
+                }
+              }
+            }
           },
           "400": {
-            "description": "유효성 검사 실패"
+            "description": "유효성 검사 실패",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionSaveResponse"
+                }
+              }
+            }
           },
           "404": {
-            "description": "유저 없음"
+            "description": "유저 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionSaveResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -4149,6 +4170,9 @@
           "reportedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "isFinal": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -4377,6 +4401,18 @@
           "totalDistractionSeconds": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "FocusSessionSaveResponse": {
+        "type": "object",
+        "properties": {
+          "dayTotalFocusSeconds": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "streakQualifiedToday": {
+            "type": "boolean"
           }
         }
       },
@@ -4787,6 +4823,13 @@
           "totalDistractionSeconds": {
             "type": "integer",
             "format": "int32"
+          },
+          "dayTotalFocusSeconds": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "streakQualifiedToday": {
+            "type": "boolean"
           }
         }
       },
