@@ -3116,6 +3116,85 @@
         }
       }
     },
+    "/api/v1/stats/focus/average": {
+      "get": {
+        "tags": [
+          "stats"
+        ],
+        "summary": "기간별 평균 집중시간 집계 조회",
+        "description": "scope(friends|total|category) × period(day|week|month) 로 활동 유저 1인당 평균 집중 시간(분) 반환. 모수는 해당 기간 활동(row≥1) 유저만(휴면 제외). 집계라 per-user 열람권한 불요. friends\u003d자기 자신 제외한 ACCEPTED 친구, total\u003d전체 유저(자기 포함), category\u003d같은 occupation(자기 포함). occupation 미설정 상태로 category 조회 시 400 아닌 averageMinutes\u003dnull. 활동 유저 0명이면 averageMinutes\u003dnull, sampleSize\u003d0.",
+        "operationId": "getFocusAverage",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "FRIENDS",
+                "TOTAL",
+                "CATEGORY"
+              ]
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DAY",
+                "WEEK",
+                "MONTH"
+              ]
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공 (무활동/미설정이면 averageMinutes\u003dnull, sampleSize\u003d0)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusAverageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "scope/period 값 오류 또는 date 누락",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusAverageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 필요",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusAverageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/stats/by-category": {
       "get": {
         "tags": [
@@ -5181,6 +5260,43 @@
             "format": "int32"
           },
           "deltaMinutes": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "FocusAverageResponse": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "FRIENDS",
+              "TOTAL",
+              "CATEGORY"
+            ]
+          },
+          "period": {
+            "type": "string",
+            "enum": [
+              "DAY",
+              "WEEK",
+              "MONTH"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "averageMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sampleSize": {
             "type": "integer",
             "format": "int32"
           }
