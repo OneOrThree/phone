@@ -64,6 +64,8 @@ class LeagueServiceTest {
         return LeagueTierConfig.builder()
                 .tierLevel(tierLevel)
                 .badgeId(badgeId)
+                .promotionTime(tierLevel * 14 * 60 * 60)
+                .relegationTime((tierLevel - 1) * 14 * 60 * 60)
                 .build();
     }
 
