@@ -42,7 +42,7 @@ function confirmOpenExternal(title: string, url: string) {
       text: '확인',
       onPress: () => {
         Linking.openURL(url).catch(() =>
-          Alert.alert('링크를 열 수 없어요. 잠시 후 다시 시도해주세요.'),
+          Alert.alert('알림', '링크를 열 수 없어요. 잠시 후 다시 시도해주세요.'),
         );
       },
     },
