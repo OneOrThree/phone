@@ -1,5 +1,13 @@
-import { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Animated,
+  Easing,
+  LayoutAnimation,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -41,42 +49,67 @@ export default function LeagueResultScreen() {
     return () => loop.stop();
   }, [float]);
 
-  // 승격 등장 연출(승격 화면만) — ① 이전→승격 뱃지 전환 ② 타이틀 크게 등장 후 축소 ③ 아래 문구 한 줄씩 탕탕
+  // 승격 등장 연출(승격 화면만):
+  // ① 기존 뱃지+이름 노출 → ②③ 뱃지 전환과 동시에 화살표+승격 티어명 등장(showTo)
+  // → ④ 타이틀 팝 → ⑤ 문구 한 줄씩 탕탕
   const badgeAnim = useRef(new Animated.Value(0)).current;
   const titleAnim = useRef(new Animated.Value(0)).current;
-  const line1 = useRef(new Animated.Value(0)).current;
+  const nameAnim = useRef(new Animated.Value(0)).current;
   const line2 = useRef(new Animated.Value(0)).current;
   const line3 = useRef(new Animated.Value(0)).current;
+  const [showTo, setShowTo] = useState(false);
   useEffect(() => {
     if (!promote) return;
-    [badgeAnim, titleAnim, line1, line2, line3].forEach((v) => v.setValue(0));
-    const anim = Animated.sequence([
-      // 기존(승격 전) 뱃지를 잠깐 보여준 뒤 전환 시작
-      Animated.delay(1100),
-      // ① 이전 티어 → 승격 티어 뱃지 전환
-      Animated.timing(badgeAnim, {
+    let cancelled = false;
+    setShowTo(false);
+    [badgeAnim, titleAnim, nameAnim, line2, line3].forEach((v) => v.setValue(0));
+    // ① 기존 뱃지·이름 잠깐 노출
+    const hold = Animated.delay(1100);
+    hold.start(({ finished }) => {
+      if (!finished || cancelled) return;
+      // ②③ 뱃지 전환과 '동시에' 화살표 + 승격 티어명 등장(showTo)
+      LayoutAnimation.configureNext(
+        LayoutAnimation.create(
+          500,
+          LayoutAnimation.Types.easeInEaseOut,
+          LayoutAnimation.Properties.opacity,
+        ),
+      );
+      setShowTo(true);
+      // ③ 새 티어명 화려하게 팝인 — 작게서 튀어오르는 스프링(뱃지 전환과 병렬)
+      Animated.spring(nameAnim, {
         toValue: 1,
-        duration: 1200,
-        easing: Easing.out(Easing.back(1.2)),
+        friction: 5,
+        tension: 120,
         useNativeDriver: true,
-      }),
-      // ② PROMOTED·승격했어요! 크게 나타났다 현재 크기로 축소
-      Animated.timing(titleAnim, {
-        toValue: 1,
-        duration: 420,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      // ③ 아래 문구 한 줄씩 탕 탕 등장
-      Animated.stagger(170, [
-        Animated.spring(line1, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
-        Animated.spring(line2, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
-        Animated.spring(line3, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
-      ]),
-    ]);
-    anim.start();
-    return () => anim.stop();
-  }, [promote, badgeAnim, titleAnim, line1, line2, line3]);
+      }).start();
+      Animated.sequence([
+        // ② 이전 티어 → 승격 티어 뱃지 전환 (③ 이름 등장과 동시 진행)
+        Animated.timing(badgeAnim, {
+          toValue: 1,
+          duration: 1200,
+          easing: Easing.out(Easing.back(1.2)),
+          useNativeDriver: true,
+        }),
+        // ④ 타이틀 팝
+        Animated.timing(titleAnim, {
+          toValue: 1,
+          duration: 420,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        // ⑤ 문구 한 줄씩 탕탕
+        Animated.stagger(170, [
+          Animated.spring(line2, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
+          Animated.spring(line3, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
+        ]),
+      ]).start();
+    });
+    return () => {
+      cancelled = true;
+      hold.stop();
+    };
+  }, [promote, badgeAnim, titleAnim, nameAnim, line2, line3]);
 
   const to = tierByLevel(promote ? PROMOTE_TO : DEMOTE_FROM - 1);
   const from = tierByLevel(DEMOTE_FROM);
@@ -106,6 +139,8 @@ export default function LeagueResultScreen() {
     extrapolate: 'clamp',
   });
   const toScale = badgeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
+  // 새 티어명 팝인 — 작게(0.4x)서 튀어오르는 스케일(스프링 오버슈트)
+  const nameScale = nameAnim.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
 
   // 타이틀 등장 — 크게(1.5x) 나타났다 현재 크기로 축소
   const titleOpacity = titleAnim.interpolate({
@@ -180,12 +215,21 @@ export default function LeagueResultScreen() {
                 </View>
               </View>
 
-              {/* 아래 문구 — 한 줄씩 탕 탕 등장. 이름은 이전 티어 → 승격 티어 화살표로 */}
-              <Animated.View style={[s.tierChange, lineStyle(line1)]}>
-                <Text style={s.tierFrom}>{promoteFrom.name}</Text>
-                <Ionicons name="arrow-forward" size={18} color={T.night.muted} />
-                <Text style={s.tierName}>{to.name}</Text>
-              </Animated.View>
+              {/* 뱃지 아래 티어명 — 기존 뱃지 땐 그 이름만 가운데, 승격 후 화살표+승격 티어명 화려하게 등장 */}
+              <View style={s.tierChange}>
+                <Text style={showTo ? s.tierFrom : s.tierName}>{promoteFrom.name}</Text>
+                {showTo && (
+                  <Animated.View
+                    style={[
+                      s.tierToGroup,
+                      { opacity: nameAnim, transform: [{ scale: nameScale }] },
+                    ]}
+                  >
+                    <Ionicons name="arrow-forward" size={18} color={T.night.muted} />
+                    <Text style={s.tierTo}>{to.name}</Text>
+                  </Animated.View>
+                )}
+              </View>
               <Animated.Text style={[s.desc, lineStyle(line2)]}>
                 이번 주에 <Text style={s.descStrong}>{PROMOTE_WEEK_HOURS}시간</Text> 집중했어요!
               </Animated.Text>
@@ -321,12 +365,21 @@ const s = StyleSheet.create({
     shadowRadius: 30,
     shadowOffset: { width: 0, height: 0 },
   },
-  badgeImg: { width: 120, height: 120, resizeMode: 'contain' },
-  badgeStack: { width: 120, height: 120, alignItems: 'center', justifyContent: 'center' },
+  badgeImg: { width: 150, height: 150, resizeMode: 'contain' },
+  badgeStack: { width: 150, height: 150, alignItems: 'center', justifyContent: 'center' },
   badgeAbs: { position: 'absolute' },
   tierChange: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  tierToGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   tierFrom: { ...T.text.subtitle, color: T.night.muted },
   tierName: { ...T.text.title, color: T.night.cream },
+  // 승격 티어명 — 금빛 글로우로 강조
+  tierTo: {
+    ...T.text.title,
+    color: T.night.cream,
+    textShadowColor: withAlpha(T.night.gold, 0.9),
+    textShadowRadius: 12,
+    textShadowOffset: { width: 0, height: 0 },
+  },
 
   desc: {
     ...T.text.label,
