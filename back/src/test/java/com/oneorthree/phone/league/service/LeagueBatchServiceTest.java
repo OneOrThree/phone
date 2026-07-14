@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LeagueBatchServiceTest extends RepositoryTestBase {
 
+    private static final int FOURTEEN_HOURS_IN_SECONDS = 14 * 60 * 60;
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     // 배치 실행 시각: 2026-06-29(월) 00:00 KST — 새 주차 시작 시점
     private static final Instant BATCH_NOW =
@@ -55,7 +56,10 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
         return leagueTierConfigRepository.save(LeagueTierConfig.builder()
                 .tierLevel(level).arenaSize(arenaSize)
                 .promoteCount(promote).relegateCount(relegate).relegateWarningCount(warning)
-                .badgeId("tier-" + level).build());
+                .badgeId("tier-" + level)
+                .promotionTime(level * FOURTEEN_HOURS_IN_SECONDS)
+                .relegationTime((level - 1) * FOURTEEN_HOURS_IN_SECONDS)
+                .build());
     }
 
     private LeagueArena saveActiveArena(LeagueTierConfig cfg) {

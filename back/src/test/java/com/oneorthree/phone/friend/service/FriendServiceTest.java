@@ -364,25 +364,25 @@ class FriendServiceTest {
     }
 
     @Test
-    @DisplayName("친구 목록 — 티어는 LeagueTierLookup 에서 도출: 멤버십 있으면 채우고 미소속은 null (GROMO-710)")
+    @DisplayName("친구 목록 — 아레나 소속과 무관하게 User 티어를 LeagueTierLookup 에서 도출 (GROMO-814)")
     void getFriends_restoresTierLevel_fromLeagueLookup() {
-        User a = user(UUID.randomUUID(), "alice");   // ACTIVE 멤버십 있음
-        User b = user(UUID.randomUUID(), "bob");     // 미소속
+        User a = user(UUID.randomUUID(), "alice");
+        User b = user(UUID.randomUUID(), "bob");
         given(userRepository.findById(meId)).willReturn(Optional.of(me));
         given(friendshipRepository.findAcceptedByUser(me)).willReturn(List.of(
                 friendship(me, a, FriendshipStatus.ACCEPTED),
                 friendship(me, b, FriendshipStatus.ACCEPTED)
         ));
-        // 상대 userId 들을 한 번에 모아 배치 조회 → alice=티어3, bob 미포함
+        // 상대 userId 들을 한 번에 모아 배치 조회 → alice=티어3, 신규 bob=기본 티어1
         given(leagueTierLookup.tierLevelsByUserId(List.of(a.getId(), b.getId())))
-                .willReturn(Map.of(a.getId(), 3));
+                .willReturn(Map.of(a.getId(), 3, b.getId(), 1));
 
         List<FriendResponse> friends = friendService.getFriends(meId);
 
         assertThat(friends).filteredOn(f -> f.getUserId().equals(a.getId()))
                 .extracting(FriendResponse::getTierLevel).containsExactly(3);
         assertThat(friends).filteredOn(f -> f.getUserId().equals(b.getId()))
-                .extracting(FriendResponse::getTierLevel).containsExactly((Integer) null);
+                .extracting(FriendResponse::getTierLevel).containsExactly(1);
     }
 
     // ── getRequests ────────────────────────────────────────
@@ -417,7 +417,7 @@ class FriendServiceTest {
     }
 
     @Test
-    @DisplayName("요청 목록 — 티어는 LeagueTierLookup 에서 도출: 멤버십 있으면 채움 (GROMO-710)")
+    @DisplayName("요청 목록 — 티어는 users.tier_level 기반 LeagueTierLookup 에서 도출 (GROMO-814)")
     void getRequests_restoresTierLevel_fromLeagueLookup() {
         Friendship req = friendship(target, me, FriendshipStatus.PENDING);
         given(userRepository.findById(meId)).willReturn(Optional.of(me));
