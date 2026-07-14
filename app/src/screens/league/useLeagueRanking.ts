@@ -7,6 +7,9 @@ import { occupationForCategory } from '@/constants/focusCategories';
 import type { LeagueMemberResponse } from '@/types/api';
 import { MY_USER_ID, type RankedMember } from './mock';
 
+// 서버는 초 단위(GROMO-665) — 화면/누적은 분 도메인이라 경계에서 분으로 내린다.
+const secToMin = (seconds: number): number => Math.floor(seconds / 60);
+
 // 서버 랭킹 응답(LeagueMemberResponse) → 화면 RankedMember.
 // 직군 리그(useLeagueRanking)·전체 리그(useGlobalRanking)가 공유하는 단일 변환기.
 // - 내 행은 화면 로직(=== MY_USER_ID)을 그대로 쓰도록 userId를 MY_USER_ID 센티널로 치환.
@@ -26,14 +29,14 @@ export function toRankingMembers(
       userId: isMe ? MY_USER_ID : m.userId,
       nickname: isMe ? myNickname || m.nickname : m.nickname,
       tierLevel: m.tierLevel,
-      totalFocusMinutes: m.totalFocusMinutes,
+      totalFocusSeconds: m.totalFocusSeconds,
       result: m.result,
       exam: label ?? '',
       achievedRate: 0,
       friendCount: 0,
       streakDays: 0,
       bestRank: m.rank,
-      bestWeekMinutes: m.totalFocusMinutes,
+      bestWeekMinutes: secToMin(m.totalFocusSeconds),
     };
   });
 }
@@ -45,15 +48,16 @@ export function toRankingMembers(
 // 포함하므로 실제 분을 보장한다(내가 top-100 안이면 리스트의 내 분과 같은 값 — 같은 주간 집계라 일치).
 // 미배정/게스트면 로스터가 비어 0. ※ getMyRank(/league/me/rank)는 호출마다 LEAGUE_RANK_VIEWED를 남겨
 // 화면 포커스마다 부르면 계측이 오염되므로, 로깅 없는 getMyRanking을 재사용한다.
-function pickMyMinutes(roster: LeagueMemberResponse[], userId: string): number {
-  return roster.find((m) => m.userId === userId)?.totalFocusMinutes ?? 0;
+// 초 원본을 반환한다 — 리그 화면은 실초(HH:MM:SS) 격차/델타, 티어가이드는 파생 분(secToMin)을 쓴다.
+function pickMySeconds(roster: LeagueMemberResponse[], userId: string): number {
+  return roster.find((m) => m.userId === userId)?.totalFocusSeconds ?? 0;
 }
 
 // 직군 리그 랭킹 — 리그 화면 '직군' 탭·홈 상단바가 공유. 서버 실데이터 전용(GROMO-538, mock 폴백 없음).
 // - 리스트(ranking): 직군 = 같은 Occupation 전역 상위 100명(GET /league/me/ranking?category=). category를
 //   넘겨야 내 아레나가 아닌 직군 랭킹이 온다(GROMO-644). 비면(신규·직군 미설정) 전역으로 폴백하되
 //   혼합 직군이라 라벨은 붙이지 않는다(GROMO-657). ※ '전체' 탭의 진짜 전역 랭킹은 별도 useGlobalRanking.
-// - myMinutes: 위 top-100 리스트가 아니라 내 아레나 로스터에서 뽑는다(pickMyMinutes) — top-100 밖 유저도
+// - mySeconds/myMinutes: 위 top-100 리스트가 아니라 내 아레나 로스터에서 뽑는다(pickMySeconds) — top-100 밖 유저도
 //   내 실제 주간분이 정확. myLeagueRank는 직군 리스트 내 위치(리그 탭과 동일 원천) — top-100 밖이면 null이라
 //   순위는 '값 없음'으로 정직하게 비운다(홈 배지 숨김). 리그 탭도 나를 못 찾으므로 화면 간 이야기가 일치.
 // - 멤버 tierLevel은 서버 응답의 실제 티어(GROMO-748).
@@ -66,7 +70,7 @@ export function useLeagueRanking() {
   const [state, setState] = useState<{
     members: RankedMember[];
     label: string | null;
-    myMinutes: number;
+    mySeconds: number;
   } | null>(null);
 
   useFocusEffect(
@@ -101,7 +105,7 @@ export function useLeagueRanking() {
           setState({
             label,
             members: toRankingMembers(res, userId, myNickname, label),
-            myMinutes: pickMyMinutes(roster, userId),
+            mySeconds: pickMySeconds(roster, userId),
           });
         } catch {
           if (!cancelled) setState(null); // 네트워크/인증 실패 → 빈 상태
@@ -118,8 +122,10 @@ export function useLeagueRanking() {
 
   const me = ranking.find((m) => m.userId === MY_USER_ID);
   const myLeagueLabel = state?.label ?? null;
-  // 내 주간분은 아레나 로스터 기준(직군 top-100 밖이어도 정확). 미배정/게스트면 0.
-  const myMinutes = state?.myMinutes ?? 0;
+  // 내 주간 집중은 아레나 로스터 기준(직군 top-100 밖이어도 정확). 미배정/게스트면 0.
+  // 초 원본(mySeconds) + 파생 분(myMinutes) 둘 다 노출 — 리그 화면은 초, 티어가이드·홈은 분.
+  const mySeconds = state?.mySeconds ?? 0;
+  const myMinutes = secToMin(mySeconds);
 
   // 내 직군 리그 내 순위 (1-base) — 직군 랭킹을 받았고(label!=null) 내가 그 top-100 안에 있을 때만.
   // 전역 폴백/미배정/100위 밖은 '내 직군 순위'를 알 수 없어 null(홈 상단바는 null이면 순위 배지 숨김).
@@ -129,5 +135,5 @@ export function useLeagueRanking() {
         1
       : null;
 
-  return { ranking, me, myLeagueLabel, myMinutes, myLeagueRank };
+  return { ranking, me, myLeagueLabel, myMinutes, mySeconds, myLeagueRank };
 }

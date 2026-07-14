@@ -25,7 +25,7 @@ import { useFriends } from './useFriends';
 import { usePinned } from './usePinned';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { MY_USER_ID, type RankedMember } from './mock';
-import { fmtMinutes } from './format';
+import { hms } from './format';
 import { RankRow } from './components/RankRow';
 import { MemberAvatar } from './components/MemberAvatar';
 import { TierBadge } from './components/TierBadge';
@@ -86,7 +86,7 @@ export default function LeagueScreen() {
   // 내 티어·마감 스케줄 실데이터 (GROMO-538) — 티어 조회는 여기 한 곳에서만.
   const { tier, deadlineLabel } = useLeagueMeta();
   // 리그 랭킹 실데이터 — 홈 상단바와 공유. 멤버 티어는 서버 응답 실값(GROMO-748).
-  const { ranking, myLeagueLabel, myMinutes } = useLeagueRanking();
+  const { ranking, myLeagueLabel, mySeconds } = useLeagueRanking();
   // '전체' 탭 전용 진짜 전역 랭킹(직군 리스트 재사용 금지 — GROMO-644).
   const globalRanking = useGlobalRanking();
 
@@ -202,7 +202,7 @@ export default function LeagueScreen() {
       userId: member.userId,
       nickname: member.nickname,
       tierLevel: member.tierLevel,
-      minutes: member.totalFocusMinutes,
+      seconds: member.totalFocusSeconds,
       bestRank: member.bestRank,
       bestWeekMinutes: member.bestWeekMinutes,
       achievedRate: isMe ? todayRate : member.achievedRate,
@@ -330,7 +330,7 @@ export default function LeagueScreen() {
                         </Text>
                       </View>
                       <Text style={s.podiumTime} allowFontScaling={false}>
-                        {fmtMinutes(m.totalFocusMinutes)}
+                        {hms(m.totalFocusSeconds)}
                       </Text>
                       {!isMe && (
                         <TouchableOpacity
@@ -374,7 +374,7 @@ export default function LeagueScreen() {
                   </Text>
                   <Text style={s.myStripGap} numberOfLines={1} allowFontScaling={false}>
                     {above
-                      ? `▲ ${myIdx}위까지 ${fmtMinutes(above.totalFocusMinutes - myMinutes)}`
+                      ? `▲ ${myIdx}위까지 ${hms(above.totalFocusSeconds - mySeconds)}`
                       : '지금 1위예요'}
                   </Text>
                   <Ionicons name="chevron-down" size={13} color={T.accentDeep} />
@@ -439,10 +439,10 @@ export default function LeagueScreen() {
                   rank={visibleRanking.indexOf(m) + 1}
                   nickname={m.nickname}
                   tierLevel={m.tierLevel}
-                  minutes={m.totalFocusMinutes}
+                  seconds={m.totalFocusSeconds}
                   isMe={isMe}
                   pinned={pinned.has(m.userId)}
-                  deltaMinutes={pinnedOnly && !isMe ? m.totalFocusMinutes - myMinutes : undefined}
+                  deltaSeconds={pinnedOnly && !isMe ? m.totalFocusSeconds - mySeconds : undefined}
                   onPress={() => openProfile(m)}
                   onPin={isMe ? undefined : () => togglePin(m.userId)}
                 />

@@ -27,7 +27,7 @@ export async function getMyRanking(category?: OccupationCategory): Promise<Leagu
 }
 
 // GET /api/v1/league/ranking?scope=total&limit — 이번 주 전체(ACTIVE 아레나 통합) 랭킹 상위 limit명.
-// 전체 평균 비교용: 멤버 totalFocusMinutes 평균을 클라가 계산한다(서버는 리스트만 제공).
+// 전체 평균 비교용: 멤버 totalFocusSeconds 평균을 클라가 계산한다(서버는 리스트만 제공).
 export async function getGlobalRanking(limit = 100): Promise<LeagueMemberResponse[]> {
   const { data } = await api.get<LeagueMemberResponse[]>('/api/v1/league/ranking', {
     params: { scope: 'total', limit },

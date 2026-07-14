@@ -2,23 +2,23 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
-import { fmtDelta, fmtMinutes } from '../format';
+import { fmtDelta, hms } from '../format';
 import { MemberAvatar } from './MemberAvatar';
 import { TierBadge } from './TierBadge';
 
 // 랭킹 한 행 — 순위 · 티어 뱃지 · 아바타 · 이름/티어명 · 주간 집중 시간 · 핀 토글.
 // 티어 뱃지(tier_image)는 아바타 코너가 아니라 순위-아바타 사이에 크게 둔다.
-// deltaMinutes를 주면(핀한 사람만 모드) 시간 아래에 나 대비 차이를 함께 표시.
-// 글씨는 공통 스케일(T.text) — caption(13)이 최소 가독선.
+// deltaSeconds를 주면(핀한 사람만 모드) 시간 아래에 나 대비 차이를 함께 표시.
+// 시간은 초 원본을 HH:MM:SS 실초로 표기(hms, GROMO-665). 글씨는 공통 스케일(T.text) — caption(13)이 최소 가독선.
 interface Props {
   rank?: number | null; // null이면 순위 컬럼 생략
   nickname: string;
   tierLevel: number;
-  minutes: number;
+  seconds: number;
   isMe?: boolean;
   pinned?: boolean;
-  /** 나 대비 주간 집중 차이(분) — 핀한 사람만 모드에서만 전달 */
-  deltaMinutes?: number;
+  /** 나 대비 주간 집중 차이(초) — 핀한 사람만 모드에서만 전달 */
+  deltaSeconds?: number;
   onPress?: () => void;
   /** 없으면 핀 버튼은 생략하되, 총 집중시간 세로선 정렬을 위해 자리(폭)는 유지 */
   onPin?: () => void;
@@ -28,10 +28,10 @@ export function RankRow({
   rank,
   nickname,
   tierLevel,
-  minutes,
+  seconds,
   isMe,
   pinned,
-  deltaMinutes,
+  deltaSeconds,
   onPress,
   onPin,
 }: Props) {
@@ -55,18 +55,18 @@ export function RankRow({
         </Text>
         <Text style={s.tierName}>{tierByLevel(tierLevel).name}</Text>
       </View>
-      {deltaMinutes != null ? (
+      {deltaSeconds != null ? (
         <View style={s.timeCol}>
           <Text style={s.time} allowFontScaling={false}>
-            {fmtMinutes(minutes)}
+            {hms(seconds)}
           </Text>
-          <Text style={[s.delta, deltaMinutes > 0 ? s.deltaAhead : null]} allowFontScaling={false}>
-            {fmtDelta(deltaMinutes)}
+          <Text style={[s.delta, deltaSeconds > 0 ? s.deltaAhead : null]} allowFontScaling={false}>
+            {fmtDelta(deltaSeconds)}
           </Text>
         </View>
       ) : (
         <Text style={s.time} allowFontScaling={false}>
-          {fmtMinutes(minutes)}
+          {hms(seconds)}
         </Text>
       )}
       {onPin ? (
