@@ -43,28 +43,22 @@ export default function TierGuideScreen() {
 
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
         {/* ── 현재 티어 히어로 ── */}
-        {/* 롱프레스 = 승격 연출 미리보기(임시 진입점) — 실제 트리거는 주간 정산 result(TODO) */}
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onLongPress={() => navigation.navigate('LeagueResult', { type: 'promote' })}
-        >
-          <LinearGradient colors={[T.accentBg, T.sand]} style={s.hero}>
-            <Image source={cur.image} style={s.heroImg} />
-            <Text style={s.heroName}>{cur.name}</Text>
-            <Text style={s.heroSub} allowFontScaling={false}>
-              이번 주 {fmtMinutes(minutes)}
-              {remain != null ? ` · 다음 단계까지 ${fmtMinutes(remain)}` : ' · 최고 단계예요'}
-            </Text>
-            <View style={s.heroTrack}>
-              <LinearGradient
-                colors={[T.accentLight, T.accent]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[s.heroFill, { width: `${progress * 100}%` }]}
-              />
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
+        <LinearGradient colors={[T.accentBg, T.sand]} style={s.hero}>
+          <Image source={cur.image} style={s.heroImg} />
+          <Text style={s.heroName}>{cur.name}</Text>
+          <Text style={s.heroSub} allowFontScaling={false}>
+            이번 주 {fmtMinutes(minutes)}
+            {remain != null ? ` · 다음 단계까지 ${fmtMinutes(remain)}` : ' · 최고 단계예요'}
+          </Text>
+          <View style={s.heroTrack}>
+            <LinearGradient
+              colors={[T.accentLight, T.accent]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={[s.heroFill, { width: `${progress * 100}%` }]}
+            />
+          </View>
+        </LinearGradient>
 
         {/* ── 5단계 카드 리스트 ── */}
         <View style={s.tierList}>
@@ -91,17 +85,12 @@ export default function TierGuideScreen() {
         </View>
 
         {/* ── 정산 안내 ── */}
-        {/* 롱프레스 = 강등 연출 미리보기(임시 진입점) */}
-        <TouchableOpacity
-          style={s.notice}
-          activeOpacity={0.9}
-          onLongPress={() => navigation.navigate('LeagueResult', { type: 'demote' })}
-        >
+        <View style={s.notice}>
           <Text style={s.noticeText}>
             매주 <Text style={s.noticeStrong}>월요일 09시</Text> 정산 · 기준 충족 시 자동 승급, 미달
             시 한 단계 강등.
           </Text>
-        </TouchableOpacity>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );

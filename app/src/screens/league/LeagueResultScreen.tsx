@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Animated, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,19 +10,23 @@ import { CharacterImage } from '@/components/character/CharacterImage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { TierBadge } from './components/TierBadge';
 
-// 승격/강등 연출 (root stack, 풀스크린 다크 radial) — 시안 "승격/강등 연출".
-// 실제 트리거는 주간 정산 result(TODO) — 지금은 TierGuide 롱프레스 임시 진입점으로 미리보기.
+// 승격/유지/강등 연출 (root stack, 풀스크린 다크 radial) — 시안 "승격/강등 연출".
+// 실제 트리거는 주간 정산 result(TODO) — 지금은 dev 메뉴/TierGuide 롱프레스 임시 진입점으로 미리보기.
 // TODO: 정산 result 기반 실데이터(이전/새 티어, 시간, 보너스) 연결.
 // 승격 큰 뱃지는 시안의 별 사각형 대신 tier 일러스트(tiers.ts image) — 계획서에서 확정.
 
-// mock: 승격 3→4 / 강등 4→3 (시안 연출 기준)
+// mock: 승격 3→4 / 유지 4 / 강등 4→3 (시안 연출 기준)
 const PROMOTE_TO = 4;
 const DEMOTE_FROM = 4;
+const MAINTAIN_AT = 4;
+// mock: 승격 주 집중 시간(디자인 미리보기) — 갓생러(42–56h) 구간 안의 값
+const PROMOTE_WEEK_HOURS = 48;
 
 export default function LeagueResultScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<V2RootStackParamList, 'LeagueResult'>>();
   const promote = route.params.type === 'promote';
+  const maintain = route.params.type === 'maintain';
 
   // 강등 화면 마스코트 둥실 애니메이션 (시안 gmFloat 4s)
   const float = useRef(new Animated.Value(0)).current;
@@ -37,8 +41,52 @@ export default function LeagueResultScreen() {
     return () => loop.stop();
   }, [float]);
 
+  // 승격 뱃지 전환 — 이전 티어 뱃지 → 승격 티어 뱃지 (크로스페이드+팝, 승격 화면만)
+  const badgeAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!promote) return;
+    badgeAnim.setValue(0);
+    const anim = Animated.sequence([
+      Animated.delay(500),
+      Animated.timing(badgeAnim, {
+        toValue: 1,
+        duration: 1200,
+        easing: Easing.out(Easing.back(1.2)),
+        useNativeDriver: true,
+      }),
+    ]);
+    anim.start();
+    return () => anim.stop();
+  }, [promote, badgeAnim]);
+
   const to = tierByLevel(promote ? PROMOTE_TO : DEMOTE_FROM - 1);
   const from = tierByLevel(DEMOTE_FROM);
+  const stay = tierByLevel(MAINTAIN_AT);
+
+  // 승격: 이전 티어(승격 전) + 다음 리그(한 단계 위) 안내값
+  const promoteFrom = tierByLevel(PROMOTE_TO - 1);
+  const promoteNext = to.maxHours != null ? tierByLevel(to.level + 1) : null;
+  const promoteNextRemain = promoteNext
+    ? Math.max(promoteNext.minHours - PROMOTE_WEEK_HOURS, 0)
+    : 0;
+
+  // 승격 뱃지 전환 보간 — 이전 티어(fade out·축소) → 승격 티어(fade in·팝)
+  const fromOpacity = badgeAnim.interpolate({
+    inputRange: [0, 0.5],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+  const fromScale = badgeAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.7],
+    extrapolate: 'clamp',
+  });
+  const toOpacity = badgeAnim.interpolate({
+    inputRange: [0.25, 1],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+  const toScale = badgeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
 
   return (
     <View style={s.root}>
@@ -70,21 +118,71 @@ export default function LeagueResultScreen() {
               <Text style={s.caption}>PROMOTED</Text>
               <Text style={s.title}>승격했어요!</Text>
 
-              {/* 큰 티어 뱃지 + 글로우 */}
+              {/* 큰 티어 뱃지 + 글로우 — 이전 티어 → 승격 티어 크로스페이드 전환 */}
               <View style={s.glow}>
-                <Image source={to.image} style={s.badgeImg} />
+                <View style={s.badgeStack}>
+                  <Animated.Image
+                    source={promoteFrom.image}
+                    style={[
+                      s.badgeImg,
+                      s.badgeAbs,
+                      { opacity: fromOpacity, transform: [{ scale: fromScale }] },
+                    ]}
+                  />
+                  <Animated.Image
+                    source={to.image}
+                    style={[s.badgeImg, { opacity: toOpacity, transform: [{ scale: toScale }] }]}
+                  />
+                </View>
               </View>
 
               <Text style={s.tierName}>{to.name}</Text>
               <Text style={s.desc}>
-                이번 주 <Text style={s.descStrong}>26시간</Text> 집중!{'\n'}
+                이번 주 <Text style={s.descStrong}>{PROMOTE_WEEK_HOURS}시간</Text> 집중!{'\n'}
                 {to.name} 기준(주 {to.minHours}시간)을 넘겨 한 단계 올라갔어요.
               </Text>
 
-              <View style={s.pill}>
-                <View style={s.coin} />
-                <Text style={s.pillText} allowFontScaling={false}>
-                  승격 보너스 +150
+              {/* 다음 리그까지 남은 시간 안내 (승격 보너스/코인 없음) */}
+              {promoteNext != null ? (
+                <View style={s.pill}>
+                  <Ionicons name="arrow-up" size={14} color={T.night.gold} />
+                  <Text style={s.pillText} allowFontScaling={false}>
+                    다음 주 +{promoteNextRemain}시간이면 {promoteNext.name} 승격
+                  </Text>
+                </View>
+              ) : (
+                <View style={s.pill}>
+                  <Ionicons name="trophy" size={14} color={T.night.gold} />
+                  <Text style={s.pillText} allowFontScaling={false}>
+                    최고 리그예요
+                  </Text>
+                </View>
+              )}
+            </>
+          ) : maintain ? (
+            <>
+              <Text style={[s.caption, s.captionMuted]}>한 주 마감 · WEEK CLOSED</Text>
+              <Text style={[s.title, s.titleDemote]}>자리를 지켰어요</Text>
+
+              {/* 둥실 떠다니는 마스코트 */}
+              <Animated.View style={{ transform: [{ translateY: float }] }}>
+                <CharacterImage size={108} />
+              </Animated.View>
+
+              {/* 현재 티어 유지 — 단일 뱃지 */}
+              <View style={s.stayBadge}>
+                <TierBadge level={stay.level} size={56} />
+              </View>
+              <Text style={s.tierLeague}>{stay.name} 리그 · 유지</Text>
+              <Text style={s.desc}>
+                이번 주도 {stay.name} 기준을 지켜냈어요.{'\n'}
+                다음 주엔 승격까지 노려봐요!
+              </Text>
+
+              <View style={[s.pill, s.pillDemote]}>
+                <Ionicons name="arrow-up" size={14} color={T.accentLight} />
+                <Text style={[s.pillText, s.pillTextDemote]} allowFontScaling={false}>
+                  다음 주 +6시간이면 승격 도전
                 </Text>
               </View>
             </>
@@ -126,7 +224,9 @@ export default function LeagueResultScreen() {
 
         {/* ── 하단 CTA ── */}
         <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={() => navigation.goBack()}>
-          <Text style={s.ctaText}>{promote ? '새 리그 보러가기' : '이번 주 다시 시작'}</Text>
+          <Text style={s.ctaText}>
+            {promote ? '새 리그 보러가기' : maintain ? '이어서 달리기' : '이번 주 다시 시작'}
+          </Text>
         </TouchableOpacity>
       </SafeAreaView>
     </View>
@@ -167,6 +267,8 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
   },
   badgeImg: { width: 120, height: 120, resizeMode: 'contain' },
+  badgeStack: { width: 120, height: 120, alignItems: 'center', justifyContent: 'center' },
+  badgeAbs: { position: 'absolute' },
   tierName: { ...T.text.title, color: T.night.cream },
 
   desc: {
@@ -194,8 +296,8 @@ const s = StyleSheet.create({
   pillDemote: { backgroundColor: withAlpha(T.accent, 0.16), borderColor: withAlpha(T.accent, 0.4) },
   pillText: { ...T.text.label, fontWeight: '700', color: T.night.gold },
   pillTextDemote: { ...T.text.caption, fontWeight: '700', color: T.accentLight },
-  coin: { width: 17, height: 17, borderRadius: 9, backgroundColor: T.night.gold },
 
+  stayBadge: { alignItems: 'center', marginTop: 18, marginBottom: 2 },
   transRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 18 },
   transCol: { alignItems: 'center', gap: 5 },
   transDim: { opacity: 0.45 },

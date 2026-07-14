@@ -31,7 +31,7 @@ export type V2RootStackParamList = {
     rankLabel?: string; // 순위 스코프 라벨 — '전체' 또는 직군명
   }; // 유저 프로필 상세 — 친구/비친구·과목 겹침 여부로 3분기 (친구 그리드·랭킹·친구 추가에서 진입)
   TierGuide: undefined; // 티어 5단계 안내 (리그 내 티어 스트립에서 진입)
-  LeagueResult: { type: 'promote' | 'demote' }; // 승격/강등 연출 (주간 정산 트리거 — 현재는 미리보기)
+  LeagueResult: { type: 'promote' | 'maintain' | 'demote' }; // 승격/유지/강등 연출 (주간 정산 트리거 — 현재는 미리보기)
 
   // 설정(GROMO-559) — 허브는 '전체' 탭(MenuScreen), 하위 화면은 아래 스택에서 push.
   SettingsProfileEdit: undefined; // 프로필 편집 (닉네임 · 스킨[준비중])
