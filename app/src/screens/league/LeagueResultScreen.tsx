@@ -180,11 +180,14 @@ export default function LeagueResultScreen() {
                 </View>
               </View>
 
-              {/* 아래 문구 — 한 줄씩 탕 탕 등장 */}
-              <Animated.Text style={[s.tierName, lineStyle(line1)]}>{to.name}</Animated.Text>
+              {/* 아래 문구 — 한 줄씩 탕 탕 등장. 이름은 이전 티어 → 승격 티어 화살표로 */}
+              <Animated.View style={[s.tierChange, lineStyle(line1)]}>
+                <Text style={s.tierFrom}>{promoteFrom.name}</Text>
+                <Ionicons name="arrow-forward" size={18} color={T.night.muted} />
+                <Text style={s.tierName}>{to.name}</Text>
+              </Animated.View>
               <Animated.Text style={[s.desc, lineStyle(line2)]}>
-                이번 주 <Text style={s.descStrong}>{PROMOTE_WEEK_HOURS}시간</Text> 집중!{'\n'}
-                {to.name} 기준(주 {to.minHours}시간)을 넘겨 한 단계 올라갔어요.
+                이번 주에 <Text style={s.descStrong}>{PROMOTE_WEEK_HOURS}시간</Text> 집중했어요!
               </Animated.Text>
 
               {/* 다음 리그까지 남은 시간 안내 (승격 보너스/코인 없음) */}
@@ -299,7 +302,13 @@ const s = StyleSheet.create({
     marginBottom: 8,
   },
   captionMuted: { ...T.text.caption, fontWeight: '700', color: T.night.muted },
-  title: { ...T.text.display, color: T.night.cream, marginBottom: 24 },
+  title: {
+    ...T.text.display,
+    fontSize: 40,
+    lineHeight: 46,
+    color: T.night.cream,
+    marginBottom: 24,
+  },
   titleDemote: { ...T.text.title, marginBottom: 22 },
 
   glow: {
@@ -315,6 +324,8 @@ const s = StyleSheet.create({
   badgeImg: { width: 120, height: 120, resizeMode: 'contain' },
   badgeStack: { width: 120, height: 120, alignItems: 'center', justifyContent: 'center' },
   badgeAbs: { position: 'absolute' },
+  tierChange: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  tierFrom: { ...T.text.subtitle, color: T.night.muted },
   tierName: { ...T.text.title, color: T.night.cream },
 
   desc: {
