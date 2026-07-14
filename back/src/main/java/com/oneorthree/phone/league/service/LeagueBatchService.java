@@ -2,51 +2,48 @@ package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.league.domain.LeagueArena;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
-import com.oneorthree.phone.league.domain.LeagueArenaUser;
-import com.oneorthree.phone.league.domain.LeagueMemberResult;
+import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
+import com.oneorthree.phone.league.domain.LeagueWeeklyResult;
+import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
 import com.oneorthree.phone.league.dto.LeagueBatchSummaryResponse;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.league.repository.LeagueArenaRepository;
-import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
+import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
+import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.DayOfWeek;
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.temporal.TemporalAdjusters;
-import java.util.ArrayList;
-import java.util.Collections;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/**
- * 주간 리그 마감/재편성 배치.
- *
- * <p>매주 월 00시(KST)에 (1) 랭킹 산정 → (2) 승격/강등 결과 확정 + 아레나 마감 →
- * (3) 다음 주차 아레나 생성/멤버 재배정 → (4) 0 리셋(신규 row) 을 수행한다.
- * 기존 row 는 ENDED 아레나에 주간 이력으로 보존된다.
- */
+/** 주간 집중 시간 임계값을 기준으로 전체 활성 사용자의 티어를 정산한다. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class LeagueBatchService {
 
-    // 리그 주차 기준 타임존 (KST 고정 — 외국 유저 타임존 대응은 별도 백로그 티켓)
-    private static final ZoneId LEAGUE_ZONE = ZoneId.of("Asia/Seoul");
+    static final int SETTLEMENT_PAGE_SIZE = 100;
+    private static final int MIN_TIER_LEVEL = 1;
+    private static final int MAX_TIER_LEVEL = 5;
 
     private final LeagueArenaRepository leagueArenaRepository;
-    private final LeagueArenaUserRepository leagueArenaUserRepository;
     private final LeagueTierConfigRepository leagueTierConfigRepository;
+    private final LeagueRankingQueryRepository leagueRankingQueryRepository;
+    private final LeagueWeeklyResultRepository leagueWeeklyResultRepository;
+    private final UserRepository userRepository;
+    private final LeagueWeek leagueWeek;
 
     @Transactional
     public LeagueBatchSummaryResponse runWeeklyBatch() {
@@ -54,183 +51,140 @@ public class LeagueBatchService {
     }
 
     /**
-     * 주간 배치 진입점. 새 주차 시작 시각(now 가 속한 주의 월요일 00:00 KST)보다
-     * 이전에 시작한 ACTIVE 아레나만 마감 대상으로 처리해 재실행 시 중복 마감을 방지한다.
+     * {@code now}가 속한 KST 주차의 anchor를 만들고, 직전 KST 월~일 집중 시간을 정산한다.
+     * anchor 확인부터 결과 저장, 사용자 티어 갱신까지 하나의 트랜잭션에서 수행한다.
      */
     @Transactional
     public LeagueBatchSummaryResponse runWeeklyBatch(Instant now) {
         long startedAtMillis = System.currentTimeMillis();
-        Instant newWeekStart = resolveWeekStart(now);
-
-        List<LeagueArena> activeArenas = leagueArenaRepository.findByStatus(LeagueArenaStatus.ACTIVE);
-        List<LeagueArena> targets = activeArenas.stream()
-                .filter(arena -> arena.getStartedAt().isBefore(newWeekStart))
-                .toList();
-        if (targets.isEmpty()) {
-            if (activeArenas.isEmpty()) {
-                log.info("리그 주간 배치 — 처리할 ACTIVE 아레나 없음 (weekStartAt={})", newWeekStart);
-                return new LeagueBatchSummaryResponse(
-                        newWeekStart, 0, 0, 0, System.currentTimeMillis() - startedAtMillis);
-            }
-            // ACTIVE 아레나가 전부 새 주차 소속 → 이번 주차 배치는 이미 실행됨 (idempotency)
+        Instant newWeekStart = leagueWeek.currentWeekStart(now);
+        if (leagueArenaRepository.existsByStartedAt(newWeekStart)) {
             throw new LeagueException(LeagueErrorCode.BATCH_ALREADY_RUN);
         }
 
         Map<Integer, LeagueTierConfig> tierConfigs = loadTierConfigs();
-        int minTier = Collections.min(tierConfigs.keySet());
-        int maxTier = Collections.max(tierConfigs.keySet());
+        LocalDate previousWeekStartDate = leagueWeek.previousWeekStartDate(now);
+        LocalDate previousWeekEndDate = previousWeekStartDate.plusDays(6);
+        Instant previousWeekStart = leagueWeek.previousWeekStart(now);
 
-        // 티어 레벨 → 다음 주차 편입 풀 (TreeMap: 낮은 티어부터 결정적 순서로 재배정)
-        Map<Integer, List<User>> nextWeekPools = new TreeMap<>();
-        int settledMemberCount = 0;
-        for (LeagueArena arena : targets) {
-            LeagueTierConfig config = requireTierConfig(tierConfigs, arena.getTierConfig().getTierLevel());
-            List<LeagueArenaUser> ranked = leagueArenaUserRepository.findRankedByArena(arena);
-            settleArenaRanking(ranked);
-            decideResults(ranked, config, minTier, maxTier);
-            arena.end(now);
-            for (LeagueArenaUser member : ranked) {
-                nextWeekPools.computeIfAbsent(nextTierLevel(member), key -> new ArrayList<>())
-                        .add(member.getUser());
-            }
-            settledMemberCount += ranked.size();
-        }
+        int settledMemberCount = settleUsers(
+                previousWeekStartDate, previousWeekEndDate, previousWeekStart, tierConfigs);
 
-        int createdArenaCount = reassignNextWeek(nextWeekPools, tierConfigs, newWeekStart);
+        List<LeagueArena> previousActiveAnchors = leagueArenaRepository
+                .findByStatusAndStartedAtBefore(LeagueArenaStatus.ACTIVE, newWeekStart);
+        previousActiveAnchors.forEach(arena -> arena.end(now));
+        leagueArenaRepository.save(LeagueArena.builder()
+                .startedAt(newWeekStart)
+                .status(LeagueArenaStatus.ACTIVE)
+                .build());
 
         long elapsedMillis = System.currentTimeMillis() - startedAtMillis;
-        log.info("리그 주간 배치 완료 — weekStartAt={}, endedArenas={}, members={}, createdArenas={}, elapsedMillis={}",
-                newWeekStart, targets.size(), settledMemberCount, createdArenaCount, elapsedMillis);
+        log.info("리그 주간 정산 완료 — weekStartAt={}, endedAnchors={}, users={}, elapsedMillis={}",
+                newWeekStart, previousActiveAnchors.size(), settledMemberCount, elapsedMillis);
         return new LeagueBatchSummaryResponse(
-                newWeekStart, targets.size(), settledMemberCount, createdArenaCount, elapsedMillis);
+                newWeekStart, previousActiveAnchors.size(), settledMemberCount, 1, elapsedMillis);
     }
 
-    // now 가 속한 주의 월요일 00:00(KST) — 새 주차 시작 시각
-    private Instant resolveWeekStart(Instant now) {
-        return now.atZone(LEAGUE_ZONE).toLocalDate()
-                .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-                .atStartOfDay(LEAGUE_ZONE)
-                .toInstant();
-    }
+    private int settleUsers(
+            LocalDate fromDate,
+            LocalDate toDate,
+            Instant previousWeekStart,
+            Map<Integer, LeagueTierConfig> tierConfigs) {
+        int settledMemberCount = 0;
+        UUID cursor = null;
+        while (true) {
+            List<LeagueRankingRow> page = leagueRankingQueryRepository.findWeeklyTotalsForSettlement(
+                    fromDate, toDate, cursor, SETTLEMENT_PAGE_SIZE);
+            if (page.isEmpty()) {
+                return settledMemberCount;
+            }
 
-    // 책임(1) 주간 랭킹 산정 — findRankedByArena 정렬(totalFocusSeconds DESC, id ASC) 순서로 rank 1..N 확정
-    private void settleArenaRanking(List<LeagueArenaUser> ranked) {
-        for (int i = 0; i < ranked.size(); i++) {
-            ranked.get(i).setRank(i + 1);
+            settlePage(page, previousWeekStart, tierConfigs);
+            settledMemberCount += page.size();
+            cursor = page.get(page.size() - 1).userId();
+            if (page.size() < SETTLEMENT_PAGE_SIZE) {
+                return settledMemberCount;
+            }
         }
     }
 
-    /**
-     * 책임(2) 승격/강등 결과 확정.
-     *
-     * <p>활동 0초 멤버는 순위 무관 무조건 RELEGATED 로 먼저 확정하고, 나머지 활동 멤버에게
-     * 승격(상위 promoteCount) → 강등(하위 relegateCount) → 경고(강등 바로 위 relegateWarningCount)
-     * 순으로 컷오프를 적용한다(겹치면 승격 우선). 마지막으로 경계 보정: 최상위 티어의 PROMOTED,
-     * 최하위 티어의 RELEGATED 는 STAY 로 유지한다.
-     */
-    private void decideResults(List<LeagueArenaUser> ranked, LeagueTierConfig config, int minTier, int maxTier) {
-        // 활동 0초 멤버 — 컷오프 계산에서 제외하고 무조건 강등
-        ranked.stream()
-                .filter(member -> member.getTotalFocusSeconds() == 0)
-                .forEach(member -> member.setResult(LeagueMemberResult.RELEGATED));
+    private void settlePage(
+            List<LeagueRankingRow> page,
+            Instant previousWeekStart,
+            Map<Integer, LeagueTierConfig> tierConfigs) {
+        Map<UUID, User> usersById = userRepository.findAllByIdInAndIsDeletedFalse(
+                        page.stream().map(LeagueRankingRow::userId).toList())
+                .stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
 
-        List<LeagueArenaUser> actives = ranked.stream()
-                .filter(member -> member.getTotalFocusSeconds() > 0)
+        List<LeagueWeeklyResult> results = page.stream()
+                .map(row -> settleUser(requireUser(usersById, row.userId()), row, previousWeekStart, tierConfigs))
                 .toList();
-        int activeCount = actives.size();
-        int promotedEnd = Math.min(config.getPromoteCount(), activeCount);
-        int relegateStart = Math.max(promotedEnd, activeCount - config.getRelegateCount());
-        int warningStart = Math.max(promotedEnd, relegateStart - config.getRelegateWarningCount());
-        for (int i = 0; i < activeCount; i++) {
-            LeagueArenaUser member = actives.get(i);
-            if (i < promotedEnd) {
-                member.setResult(LeagueMemberResult.PROMOTED);
-            } else if (i >= relegateStart) {
-                member.setResult(LeagueMemberResult.RELEGATED);
-            } else if (i >= warningStart) {
-                member.setResult(LeagueMemberResult.RELEGATE_WARNING);
-            } else {
-                member.setResult(LeagueMemberResult.STAY);
-            }
-        }
-
-        // 경계 보정 — 최상위 티어는 PROMOTED 없음, 최하위 티어는 RELEGATED 없음(티어 유지)
-        int tierLevel = config.getTierLevel();
-        for (LeagueArenaUser member : ranked) {
-            if (tierLevel >= maxTier && member.getResult() == LeagueMemberResult.PROMOTED) {
-                member.setResult(LeagueMemberResult.STAY);
-            }
-            if (tierLevel <= minTier && member.getResult() == LeagueMemberResult.RELEGATED) {
-                member.setResult(LeagueMemberResult.STAY);
-            }
-        }
+        leagueWeeklyResultRepository.saveAll(results);
     }
 
-    // 확정 결과 → 다음 주차 티어 레벨 (PROMOTED +1 / RELEGATED -1 / 나머지 유지)
-    private int nextTierLevel(LeagueArenaUser member) {
-        int tierLevel = member.getTierLevel();
-        return switch (member.getResult()) {
-            case PROMOTED -> tierLevel + 1;
-            case RELEGATED -> tierLevel - 1;
-            case STAY, RELEGATE_WARNING -> tierLevel;
+    private LeagueWeeklyResult settleUser(
+            User user,
+            LeagueRankingRow row,
+            Instant previousWeekStart,
+            Map<Integer, LeagueTierConfig> tierConfigs) {
+        int previousTierLevel = row.tierLevel();
+        LeagueTierConfig config = requireTierConfig(tierConfigs, previousTierLevel);
+        LeagueWeeklyResultType result = decideResult(previousTierLevel, row.totalFocusSeconds(), config);
+        int newTierLevel = switch (result) {
+            case PROMOTED -> previousTierLevel + 1;
+            case RELEGATED -> previousTierLevel - 1;
+            case STAY -> previousTierLevel;
         };
+        user.setTierLevel(newTierLevel);
+        return LeagueWeeklyResult.builder()
+                .user(user)
+                .weekStartAt(previousWeekStart)
+                .previousTierLevel(previousTierLevel)
+                .newTierLevel(newTierLevel)
+                .result(result)
+                .focusSeconds(row.totalFocusSeconds())
+                .build();
     }
 
-    /**
-     * 책임(3)(4) 다음 주차 아레나 생성 + 멤버 재배정 + 0 리셋.
-     *
-     * <p>티어별 편입 풀을 arenaSize 단위로 순차 분할한다(마지막 아레나 정원 미달 허용).
-     * 멤버는 신규 row 로 생성해 totalFocusSeconds=0, rank=null, result=null 로 자연 리셋된다.
-     */
-    private int reassignNextWeek(
-            Map<Integer, List<User>> nextWeekPools,
-            Map<Integer, LeagueTierConfig> tierConfigs,
-            Instant weekStartAt) {
-        int createdArenaCount = 0;
-        for (Map.Entry<Integer, List<User>> pool : nextWeekPools.entrySet()) {
-            LeagueTierConfig config = requireTierConfig(tierConfigs, pool.getKey());
-            List<User> users = pool.getValue();
-            int arenaSize = Math.max(1, config.getArenaSize()); // 잘못된 설정(0 이하) 방어
-            for (int from = 0; from < users.size(); from += arenaSize) {
-                List<User> chunk = users.subList(from, Math.min(from + arenaSize, users.size()));
-                LeagueArena newArena = leagueArenaRepository.save(LeagueArena.builder()
-                        .tierConfig(config)
-                        .startedAt(weekStartAt)
-                        .status(LeagueArenaStatus.ACTIVE)
-                        .build());
-                List<LeagueArenaUser> newMembers = chunk.stream()
-                        .map(user -> LeagueArenaUser.builder()
-                                .leagueArena(newArena)
-                                .user(user)
-                                .tierLevel(config.getTierLevel())
-                                .totalFocusSeconds(0)
-                                .build())
-                        .toList();
-                leagueArenaUserRepository.saveAll(newMembers);
-                // GROMO-671: 티어는 league_arena_users.tier_level 로만 도출 —
-                // User.current_tier 컬럼 제거로 배치의 티어 미러링 갱신도 삭제.
-                createdArenaCount++;
-            }
+    private LeagueWeeklyResultType decideResult(
+            int tierLevel, int focusSeconds, LeagueTierConfig config) {
+        if (tierLevel < MAX_TIER_LEVEL && focusSeconds >= config.getPromotionTime()) {
+            return LeagueWeeklyResultType.PROMOTED;
         }
-        return createdArenaCount;
+        if (tierLevel > MIN_TIER_LEVEL && focusSeconds < config.getRelegationTime()) {
+            return LeagueWeeklyResultType.RELEGATED;
+        }
+        return LeagueWeeklyResultType.STAY;
     }
 
-    // 소프트딜리트되지 않은 티어 설정 전체 (티어 레벨 → 설정)
     private Map<Integer, LeagueTierConfig> loadTierConfigs() {
         Map<Integer, LeagueTierConfig> tierConfigs = leagueTierConfigRepository.findAll().stream()
                 .filter(config -> config.getDeletedAt() == null)
                 .collect(Collectors.toMap(LeagueTierConfig::getTierLevel, Function.identity()));
-        if (tierConfigs.isEmpty()) {
+        if (tierConfigs.size() != MAX_TIER_LEVEL) {
             throw new LeagueException(LeagueErrorCode.TIER_CONFIG_NOT_FOUND);
+        }
+        for (int tierLevel = MIN_TIER_LEVEL; tierLevel <= MAX_TIER_LEVEL; tierLevel++) {
+            requireTierConfig(tierConfigs, tierLevel);
         }
         return tierConfigs;
     }
 
-    private LeagueTierConfig requireTierConfig(Map<Integer, LeagueTierConfig> tierConfigs, int tierLevel) {
+    private LeagueTierConfig requireTierConfig(
+            Map<Integer, LeagueTierConfig> tierConfigs, int tierLevel) {
         LeagueTierConfig config = tierConfigs.get(tierLevel);
         if (config == null) {
             throw new LeagueException(LeagueErrorCode.TIER_CONFIG_NOT_FOUND);
         }
         return config;
+    }
+
+    private User requireUser(Map<UUID, User> usersById, UUID userId) {
+        User user = usersById.get(userId);
+        if (user == null) {
+            throw new IllegalStateException("settlement user disappeared: " + userId);
+        }
+        return user;
     }
 }

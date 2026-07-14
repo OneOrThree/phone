@@ -3,9 +3,8 @@ package com.oneorthree.phone.user.service;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
-import com.oneorthree.phone.league.domain.LeagueArenaStatus;
-import com.oneorthree.phone.league.domain.LeagueArenaUser;
-import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
+import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
+import com.oneorthree.phone.league.service.LeagueWeek;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
@@ -21,15 +20,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
  * 타 유저 공개 프로필 조회 서비스 (GROMO-520).
  * 유저·캐릭터·친구·리그 도메인을 READ-only로 집계한다.
- * 티어는 User 에서, 기존 아레나 랭킹은 LeagueArenaUserRepository 에서 조회한다.
+ * 티어는 User 에서, 랭킹은 DailyFocusStat 기반 전역 주간 read model 에서 조회한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -39,7 +38,8 @@ public class ProfileService {
     private final UserRepository userRepository;
     private final CharacterEquipmentRepository characterEquipmentRepository;
     private final FriendshipRepository friendshipRepository;
-    private final LeagueArenaUserRepository leagueArenaUserRepository;
+    private final LeagueRankingQueryRepository leagueRankingQueryRepository;
+    private final LeagueWeek leagueWeek;
     private final StatsService statsService;
 
     /**
@@ -50,6 +50,10 @@ public class ProfileService {
      * @throws UserException 유저가 없거나 탈퇴(소프트딜리트)된 경우 NOT_FOUND
      */
     public PublicProfileResponse getPublicProfile(UUID userId) {
+        return getPublicProfile(userId, Instant.now());
+    }
+
+    PublicProfileResponse getPublicProfile(UUID userId, Instant now) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -70,26 +74,10 @@ public class ProfileService {
         // 티어는 users.tier_level 단일 원천에서 조회한다. 신규 유저도 아레나 배정 전부터 T1을 가진다.
         Integer currentTier = user.getTierLevel();
 
-        // 공개 계약을 유지하기 위해 랭킹은 전환 전 ACTIVE 아레나 멤버십 기준으로 계산한다.
-        Optional<LeagueArenaUser> membershipOpt =
-                leagueArenaUserRepository.findByUserAndArenaStatus(userId, LeagueArenaStatus.ACTIVE);
-
-        Integer rank = null;
-
-        if (membershipOpt.isPresent()) {
-            LeagueArenaUser member = membershipOpt.get();
-            // 랭킹 산출: 정렬 리스트에서 본인 인덱스+1 (LeagueService#getMyRank 와 동일 순회 로직).
-            // LeagueService#getMyRank 는 ACTIVE 멤버가 findRankedByArena 결과에 없으면 IllegalStateException 을 던지지만,
-            // 공개 프로필 API 에서는 데이터 정합성 오류 시 500 을 내리는 대신 rank=null 을 반환하는 방어적 처리를 의도적으로 선택한다.
-            List<LeagueArenaUser> ranked =
-                    leagueArenaUserRepository.findRankedByArena(member.getLeagueArena());
-            for (int i = 0; i < ranked.size(); i++) {
-                if (ranked.get(i).getUser().getId().equals(userId)) {
-                    rank = i + 1;
-                    break;
-                }
-            }
-        }
+        Integer rank = leagueRankingQueryRepository.findRankOf(
+                        userId, leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now))
+                .map(position -> position.rank())
+                .orElse(null);
 
         // 준비 시험 코드 — 미설정(가입 직후 등)이면 null (GROMO-747)
         String occupation = user.getOccupation() != null ? user.getOccupation().name() : null;

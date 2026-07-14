@@ -3,9 +3,6 @@ package com.oneorthree.phone.league.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
-import com.oneorthree.phone.league.domain.LeagueArena;
-import com.oneorthree.phone.league.domain.LeagueArenaUser;
-import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
@@ -15,10 +12,10 @@ import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.league.exception.LeagueException;
-import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.user.domain.Occupation;
+import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,7 +26,6 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -43,25 +39,27 @@ public class LeagueService {
     // 전역 랭킹 상한 — 대량 조회를 막기 위한 안전 상한
     private static final int MAX_RANKING_LIMIT = 500;
 
-    private final LeagueArenaUserRepository leagueArenaUserRepository;
     private final LeagueRankingQueryRepository leagueRankingQueryRepository;
     private final LeagueTierConfigRepository leagueTierConfigRepository;
+    private final UserRepository userRepository;
     private final UserActivityEventLogger userActivityEventLogger;
     private final PinnedUserRepository pinnedUserRepository;
     private final LeagueWeek leagueWeek;
 
     public LeagueTierResponse getMyTier(UUID userId) {
-        return findActiveMembership(userId)
-                .map(member -> {
-                    LeagueArena arena = member.getLeagueArena();
-                    return new LeagueTierResponse(
-                            true,
-                            member.getTierLevel(),
-                            arena.getId(),
-                            arena.getStartedAt(),
-                            arena.getStatus().name(),
-                            badgeId(member.getTierLevel()));
-                })
+        return getMyTier(userId, Instant.now());
+    }
+
+    LeagueTierResponse getMyTier(UUID userId, Instant now) {
+        return userRepository.findById(userId)
+                .filter(user -> !user.isDeleted())
+                .map(user -> new LeagueTierResponse(
+                        true,
+                        user.getTierLevel(),
+                        null,
+                        leagueWeek.currentWeekStart(now),
+                        null,
+                        badgeId(user.getTierLevel())))
                 .orElseGet(() -> new LeagueTierResponse(false, null, null, null, null, null));
     }
 
@@ -146,10 +144,6 @@ public class LeagueService {
         Instant nextResetAt = leagueWeek.currentWeekStart(now).plus(Duration.ofDays(7));
         long remainingSeconds = Duration.between(now, nextResetAt).getSeconds();
         return new LeagueScheduleResponse(nextResetAt, remainingSeconds);
-    }
-
-    private Optional<LeagueArenaUser> findActiveMembership(UUID userId) {
-        return leagueArenaUserRepository.findByUserAndArenaStatus(userId, LeagueArenaStatus.ACTIVE);
     }
 
     // 티어 레벨 → 배지 식별자 (시드 보장 1~5; 누락 시 null 로 방어)

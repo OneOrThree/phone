@@ -23,5 +23,8 @@ class LeagueWeekTest {
         assertThat(leagueWeek.currentDate(mondayMidnight)).isEqualTo(LocalDate.of(2026, 7, 13));
         assertThat(leagueWeek.currentWeekStartDate(mondayMidnight)).isEqualTo(LocalDate.of(2026, 7, 13));
         assertThat(leagueWeek.currentWeekStart(mondayMidnight)).isEqualTo(mondayMidnight);
+        assertThat(leagueWeek.previousWeekStartDate(mondayMidnight)).isEqualTo(LocalDate.of(2026, 7, 6));
+        assertThat(leagueWeek.previousWeekStart(mondayMidnight))
+                .isEqualTo(Instant.parse("2026-07-05T15:00:00Z"));
     }
 }

@@ -22,6 +22,14 @@ public class LeagueWeek {
         return currentDate(now).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
     }
 
+    public Instant previousWeekStart(Instant now) {
+        return previousWeekStartDate(now).atStartOfDay(KST).toInstant();
+    }
+
+    public LocalDate previousWeekStartDate(Instant now) {
+        return currentWeekStartDate(now).minusWeeks(1);
+    }
+
     public LocalDate currentDate(Instant now) {
         return now.atZone(KST).toLocalDate();
     }

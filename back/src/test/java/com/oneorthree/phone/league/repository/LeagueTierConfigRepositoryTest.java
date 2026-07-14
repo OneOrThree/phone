@@ -52,10 +52,6 @@ class LeagueTierConfigRepositoryTest extends RepositoryTestBase {
     void rejectsMissingThresholds() {
         LeagueTierConfig config = LeagueTierConfig.builder()
                 .tierLevel(2)
-                .arenaSize(30)
-                .promoteCount(10)
-                .relegateCount(5)
-                .relegateWarningCount(3)
                 .badgeId("preheat")
                 .build();
 
@@ -73,10 +69,6 @@ class LeagueTierConfigRepositoryTest extends RepositoryTestBase {
         for (int tierLevel = 1; tierLevel <= badgeIds.size(); tierLevel++) {
             leagueTierConfigRepository.save(LeagueTierConfig.builder()
                     .tierLevel(tierLevel)
-                    .arenaSize(30)
-                    .promoteCount(10)
-                    .relegateCount(5)
-                    .relegateWarningCount(3)
                     .badgeId(badgeIds.get(tierLevel - 1))
                     .promotionTime(tierLevel * FOURTEEN_HOURS_IN_SECONDS)
                     .relegationTime((tierLevel - 1) * FOURTEEN_HOURS_IN_SECONDS)
