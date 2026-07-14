@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import type { ImageSourcePropType } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +16,14 @@ import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { T, withAlpha } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import type { V2RootStackParamList } from '@/navigation/types';
+
+// 강등 시 '깨진 뱃지' 중간 연출 이미지 — 강등 전(from) 티어별(tierNdown.png)
+const DOWN_IMAGES: Record<number, ImageSourcePropType> = {
+  2: require('@/assets/tier_image/tier2down.png'),
+  3: require('@/assets/tier_image/tier3down.png'),
+  4: require('@/assets/tier_image/tier4down.png'),
+  5: require('@/assets/tier_image/tier5down.png'),
+};
 
 // 승격/유지/강등 연출 (root stack, 풀스크린 다크 radial) — 세 타입 동일 포맷.
 // 실제 트리거는 주간 정산 result(TODO) — 지금은 dev 메뉴 임시 진입점으로 미리보기.
@@ -59,6 +68,8 @@ export default function LeagueResultScreen() {
   const toTier = tierByLevel(cfg.toLevel);
   const hasTransition = cfg.fromLevel !== cfg.toLevel;
   const positive = cfg.toLevel >= cfg.fromLevel; // 승격·유지 = 반짝이 노출
+  const demote = cfg.toLevel < cfg.fromLevel; // 강등 = 3단계(깨진 뱃지) 연출
+  const downImage = demote ? DOWN_IMAGES[cfg.fromLevel] : null;
 
   // 다음 티어(현재 결과 티어의 한 단계 위)까지 저번 주 대비 남은 시간
   const nextUp = toTier.maxHours != null ? tierByLevel(toTier.level + 1) : null;
@@ -79,46 +90,50 @@ export default function LeagueResultScreen() {
     const hold = Animated.delay(hasTransition ? 1100 : 300);
     hold.start(({ finished }) => {
       if (!finished || cancelled) return;
-      // 티어명(화살표/단일) 등장 — 레이아웃 페이드
-      LayoutAnimation.configureNext(
-        LayoutAnimation.create(
-          500,
-          LayoutAnimation.Types.easeInEaseOut,
-          LayoutAnimation.Properties.opacity,
-        ),
-      );
-      setShowTo(true);
-      // 뱃지 전환/등장 (배경 병렬)
+      // 뱃지 전환/등장 시작 (배경 병렬) — 강등은 3단계라 더 길게·균등하게
       Animated.timing(badgeAnim, {
         toValue: 1,
-        duration: 1200,
-        easing: Easing.out(Easing.back(1.2)),
+        duration: demote ? 2000 : 1200,
+        easing: demote ? Easing.inOut(Easing.ease) : Easing.out(Easing.back(1.2)),
         useNativeDriver: true,
       }).start();
-      // 티어명 팝인
-      Animated.spring(nameAnim, {
-        toValue: 1,
-        friction: 5,
-        tension: 120,
-        useNativeDriver: true,
-      }).start();
-      // 티어명 팝 0.2초 뒤 타이틀 팝 → 하단 안내
-      Animated.sequence([
-        Animated.delay(200),
-        Animated.timing(titleAnim, {
+      // 결과 티어명 등장 — 승격·유지는 전환과 동시에, 강등은 결과(to) 뱃지가 뜨는 시점(≈1.5초)에 맞춰
+      Animated.delay(demote ? 1500 : 0).start(({ finished: f2 }) => {
+        if (!f2 || cancelled) return;
+        // 티어명(화살표/단일) 등장 — 레이아웃 페이드
+        LayoutAnimation.configureNext(
+          LayoutAnimation.create(
+            500,
+            LayoutAnimation.Types.easeInEaseOut,
+            LayoutAnimation.Properties.opacity,
+          ),
+        );
+        setShowTo(true);
+        // 티어명 팝인
+        Animated.spring(nameAnim, {
           toValue: 1,
-          duration: 420,
-          easing: Easing.out(Easing.cubic),
+          friction: 5,
+          tension: 120,
           useNativeDriver: true,
-        }),
-        Animated.spring(line3, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
-      ]).start();
+        }).start();
+        // 티어명 팝 0.2초 뒤 타이틀 팝 → 하단 안내
+        Animated.sequence([
+          Animated.delay(200),
+          Animated.timing(titleAnim, {
+            toValue: 1,
+            duration: 420,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.spring(line3, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
+        ]).start();
+      });
     });
     return () => {
       cancelled = true;
       hold.stop();
     };
-  }, [route.params.type, hasTransition, badgeAnim, titleAnim, nameAnim, line3]);
+  }, [route.params.type, hasTransition, demote, badgeAnim, titleAnim, nameAnim, line3]);
 
   // 뱃지 전환 보간 — 이전 티어(fade out·축소) → 결과 티어(fade in·팝)
   const fromOpacity = badgeAnim.interpolate({
@@ -137,6 +152,23 @@ export default function LeagueResultScreen() {
     extrapolate: 'clamp',
   });
   const toScale = badgeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
+  // 강등 3단계 보간 — 티어(from) → 깨진 뱃지(down) → 티어(to, 마지막)
+  // 깨짐은 '나타나는' 연출이 아니라 순간 교체(하드 컷): 갓생러가 딱 깨진 뱃지로 바뀐다.
+  const dFromOpacity = badgeAnim.interpolate({
+    inputRange: [0.28, 0.29],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+  const dDownOpacity = badgeAnim.interpolate({
+    inputRange: [0.28, 0.29, 0.62, 0.78],
+    outputRange: [0, 1, 1, 0],
+    extrapolate: 'clamp',
+  });
+  const dToOpacity = badgeAnim.interpolate({
+    inputRange: [0.75, 1],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
   // 결과 티어명 팝인 — 작게(0.4x)서 튀어오르는 스케일(스프링 오버슈트)
   const nameScale = nameAnim.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
 
@@ -190,23 +222,48 @@ export default function LeagueResultScreen() {
             <Text style={s.title}>{cfg.title}</Text>
           </Animated.View>
 
-          {/* 큰 티어 뱃지 + 글로우 — 전환형은 이전→결과 크로스페이드, 유지형은 단일 등장 */}
+          {/* 큰 티어 뱃지 + 글로우 — 강등 3단계(깨진 뱃지) / 승격 2단계 크로스페이드 / 유지 단일 */}
           <View style={s.glow}>
             <View style={s.badgeStack}>
-              {hasTransition && (
+              {demote ? (
+                <>
+                  {/* 티어4 → 깨진 뱃지(down) → 티어3 */}
+                  <Animated.Image
+                    source={fromTier.image}
+                    style={[s.badgeImg, s.badgeAbs, { opacity: dFromOpacity }]}
+                  />
+                  {downImage && (
+                    <Animated.Image
+                      source={downImage}
+                      style={[s.badgeImg, s.badgeAbs, { opacity: dDownOpacity }]}
+                    />
+                  )}
+                  <Animated.Image
+                    source={toTier.image}
+                    style={[s.badgeImg, { opacity: dToOpacity, transform: [{ scale: toScale }] }]}
+                  />
+                </>
+              ) : hasTransition ? (
+                <>
+                  <Animated.Image
+                    source={fromTier.image}
+                    style={[
+                      s.badgeImg,
+                      s.badgeAbs,
+                      { opacity: fromOpacity, transform: [{ scale: fromScale }] },
+                    ]}
+                  />
+                  <Animated.Image
+                    source={toTier.image}
+                    style={[s.badgeImg, { opacity: toOpacity, transform: [{ scale: toScale }] }]}
+                  />
+                </>
+              ) : (
                 <Animated.Image
-                  source={fromTier.image}
-                  style={[
-                    s.badgeImg,
-                    s.badgeAbs,
-                    { opacity: fromOpacity, transform: [{ scale: fromScale }] },
-                  ]}
+                  source={toTier.image}
+                  style={[s.badgeImg, { opacity: toOpacity, transform: [{ scale: toScale }] }]}
                 />
               )}
-              <Animated.Image
-                source={toTier.image}
-                style={[s.badgeImg, { opacity: toOpacity, transform: [{ scale: toScale }] }]}
-              />
             </View>
           </View>
 
