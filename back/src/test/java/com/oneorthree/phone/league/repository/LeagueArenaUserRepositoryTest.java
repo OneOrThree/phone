@@ -23,6 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
 
+    private static final int FOURTEEN_HOURS_IN_SECONDS = 14 * 60 * 60;
+
     @Autowired
     LeagueArenaUserRepository leagueArenaUserRepository;
     @Autowired
@@ -36,8 +38,8 @@ class LeagueArenaUserRepositoryTest extends RepositoryTestBase {
         return leagueTierConfigRepository.save(LeagueTierConfig.builder()
                 .tierLevel(level).arenaSize(30).promoteCount(10).relegateCount(5).relegateWarningCount(3)
                 .badgeId("tier-" + level)
-                .promotionTime(level * 14 * 60 * 60)
-                .relegationTime((level - 1) * 14 * 60 * 60)
+                .promotionTime(level * FOURTEEN_HOURS_IN_SECONDS)
+                .relegationTime((level - 1) * FOURTEEN_HOURS_IN_SECONDS)
                 .build());
     }
 
