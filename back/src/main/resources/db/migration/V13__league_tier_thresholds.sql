@@ -17,9 +17,7 @@ ON CONFLICT (tier_level) DO UPDATE SET
     promotion_time = EXCLUDED.promotion_time,
     relegation_time = EXCLUDED.relegation_time;
 
-ALTER TABLE league_tier_configs ALTER COLUMN promotion_time SET NOT NULL;
-ALTER TABLE league_tier_configs ALTER COLUMN relegation_time SET NOT NULL;
-
+-- NOT NULL 적용 전에 검증해 예상하지 못한 추가 티어의 null보다 설정 오류를 명확히 보고한다.
 -- 설정은 1~5티어가 정확히 한 행씩 존재해야 한다.
 DO $$
 BEGIN
@@ -34,6 +32,9 @@ BEGIN
     END IF;
 END
 $$;
+
+ALTER TABLE league_tier_configs ALTER COLUMN promotion_time SET NOT NULL;
+ALTER TABLE league_tier_configs ALTER COLUMN relegation_time SET NOT NULL;
 
 -- 각 티어의 승격선은 바로 다음 티어의 강등선과 이어져야 한다.
 DO $$

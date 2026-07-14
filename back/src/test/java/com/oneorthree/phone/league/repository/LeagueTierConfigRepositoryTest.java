@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LeagueTierConfigRepositoryTest extends RepositoryTestBase {
 
@@ -44,6 +45,23 @@ class LeagueTierConfigRepositoryTest extends RepositoryTestBase {
             assertThat(configs.get(index).getPromotionTime())
                     .isEqualTo(configs.get(index + 1).getRelegationTime());
         }
+    }
+
+    @Test
+    @DisplayName("티어 임계값 누락 — 기본값 0으로 저장하지 않고 명시적으로 거부")
+    void rejectsMissingThresholds() {
+        LeagueTierConfig config = LeagueTierConfig.builder()
+                .tierLevel(2)
+                .arenaSize(30)
+                .promoteCount(10)
+                .relegateCount(5)
+                .relegateWarningCount(3)
+                .badgeId("preheat")
+                .build();
+
+        assertThatThrownBy(() -> leagueTierConfigRepository.saveAndFlush(config))
+                .hasRootCauseInstanceOf(IllegalStateException.class)
+                .hasRootCauseMessage("강등 임계값은 T1만 0일 수 있고 나머지는 양수여야 합니다.");
     }
 
     private List<LeagueTierConfig> findAllOrderedByTierLevel() {
