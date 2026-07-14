@@ -29,8 +29,6 @@ import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.focus.repository.DefaultTagRepository;
 import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
-import com.oneorthree.phone.league.domain.LeagueArenaStatus;
-import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
@@ -75,7 +73,6 @@ public class FocusService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserStreakService userStreakService;
-    private final LeagueArenaUserRepository leagueArenaUserRepository;
 
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         User user = userRepository.findById(userId)
@@ -447,12 +444,6 @@ public class FocusService {
         if (streakQualifiedToday) {
             userStreakService.updateOnSessionComplete(user, statDate);
         }
-
-        // GROMO-646: 현재 ACTIVE 아레나 멤버면 주간 누적 집중 시간 반영(리그 탭·랭킹·주간 마감 정합).
-        // GROMO-665: 초 직접 누적(분 내림 제거 — DailyFocusStat와 동일 정밀도). 아레나 미배정 유저는 스킵.
-        // 락 조회로 동시 세션 lost update 차단.
-        leagueArenaUserRepository.findByUserAndArenaStatusForUpdate(userId, LeagueArenaStatus.ACTIVE)
-                .ifPresent(member -> member.addFocusSeconds(addedSeconds));
 
         return new RecordCompletionResult(dayTotalFocusSeconds, streakQualifiedToday);
     }
