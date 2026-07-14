@@ -264,7 +264,7 @@ class AuthServiceTest {
                 .willReturn(Optional.empty());
         given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
-        given(userRepository.findById(GUEST_ID)).willReturn(Optional.of(guestUser));
+        given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(guestUser));
         given(jwtProvider.generateAccessToken(GUEST_ID)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(GUEST_ID)).willReturn("refresh-token");
 
@@ -302,7 +302,7 @@ class AuthServiceTest {
                 .willReturn(Optional.of(linkedAccount));
         given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
-        given(userRepository.findById(GUEST_ID)).willReturn(Optional.of(guestUser));
+        given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(guestUser));
 
         // when & then — 업그레이드 거부, 게스트 상태 유지, 연동/저장 없음
         assertThatThrownBy(() ->
@@ -312,6 +312,29 @@ class AuthServiceTest {
         assertThat(guestUser.isGuest()).isTrue();
         verify(userRepository, never()).save(any(User.class));
         verify(socialAccountRepository, never()).save(any(SocialAccount.class));
+    }
+
+    @Test
+    @DisplayName("탈퇴 게스트의 유효한 토큰은 소셜 업그레이드에 사용되지 않고 새 가입으로 처리된다")
+    void softDeletedGuestTokenDoesNotUpgradeDeletedUser() {
+        User savedUser = User.builder().id(USER_ID).build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(jwtProvider.isTokenValid("deleted-guest-jwt")).willReturn(true);
+        given(jwtProvider.extractUserId("deleted-guest-jwt")).willReturn(GUEST_ID);
+        // 탈퇴 유저는 활성 유저 조회에서 제외돼 게스트 업그레이드 대상이 아니다.
+        given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.empty());
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.empty());
+        given(userRepository.save(any(User.class))).willReturn(savedUser);
+        given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
+
+        SocialLoginResponse response =
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer deleted-guest-jwt");
+
+        assertThat(response.isNewUser()).isTrue();
+        verify(userRepository).findByIdAndIsDeletedFalse(GUEST_ID);
+        verify(userRepository, never()).findById(GUEST_ID);
     }
 
     // ── guestLogin ────────────────────────────────────────────────────────

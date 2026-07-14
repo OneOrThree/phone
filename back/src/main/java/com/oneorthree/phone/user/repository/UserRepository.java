@@ -18,6 +18,8 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     // 소프트딜리트(탈퇴) 유저 차단 (GROMO-635) — is_deleted=true 인 유저는 조회/변경 경로에서 제외.
     Optional<User> findByIdAndIsDeletedFalse(UUID id);
 
+    boolean existsByIdAndIsDeletedFalse(UUID id);
+
     // 닉네임 중복 검사 (GROMO-584) — 본인 제외(AndIdNot)로 자기 닉네임 재사용은 허용.
     boolean existsByNicknameAndIdNot(String nickname, UUID id);
 
