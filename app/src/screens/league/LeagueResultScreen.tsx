@@ -76,29 +76,29 @@ export default function LeagueResultScreen() {
         ),
       );
       setShowTo(true);
-      // ③ 새 티어명 화려하게 팝인 — 작게서 튀어오르는 스프링(뱃지 전환과 병렬)
+      // ② 뱃지 전환(1.2초)은 배경에서 병렬 진행
+      Animated.timing(badgeAnim, {
+        toValue: 1,
+        duration: 1200,
+        easing: Easing.out(Easing.back(1.2)),
+        useNativeDriver: true,
+      }).start();
+      // ③ 새 티어명 화려하게 팝인 — 작게서 튀어오르는 스프링(뱃지 전환과 동시)
       Animated.spring(nameAnim, {
         toValue: 1,
         friction: 5,
         tension: 120,
         useNativeDriver: true,
       }).start();
+      // ④ 갓생러 팝 0.2초 뒤 타이틀 팝 → ⑤ 문구 한 줄씩 탕탕
       Animated.sequence([
-        // ② 이전 티어 → 승격 티어 뱃지 전환 (③ 이름 등장과 동시 진행)
-        Animated.timing(badgeAnim, {
-          toValue: 1,
-          duration: 1200,
-          easing: Easing.out(Easing.back(1.2)),
-          useNativeDriver: true,
-        }),
-        // ④ 타이틀 팝
+        Animated.delay(200),
         Animated.timing(titleAnim, {
           toValue: 1,
           duration: 420,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        // ⑤ 문구 한 줄씩 탕탕
         Animated.stagger(170, [
           Animated.spring(line2, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
           Animated.spring(line3, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
@@ -226,12 +226,15 @@ export default function LeagueResultScreen() {
                     ]}
                   >
                     <Ionicons name="arrow-forward" size={18} color={T.night.muted} />
-                    <Text style={s.tierTo}>{to.name}</Text>
+                    <Text style={s.tierName}>{to.name}</Text>
                   </Animated.View>
                 )}
               </View>
               <Animated.Text style={[s.desc, lineStyle(line2)]}>
-                이번 주에 <Text style={s.descStrong}>{PROMOTE_WEEK_HOURS}시간</Text> 집중했어요!
+                저번 주에 <Text style={s.descStrong}>{PROMOTE_WEEK_HOURS}시간</Text> 집중했어요!
+              </Animated.Text>
+              <Animated.Text style={[s.encourage, lineStyle(line2)]}>
+                꾸준히 쌓은 시간이 리그를 올렸어요.{'\n'}이번 주도 이 리듬 그대로 가봐요!
               </Animated.Text>
 
               {/* 다음 리그까지 남은 시간 안내 (승격 보너스/코인 없음) */}
@@ -239,7 +242,7 @@ export default function LeagueResultScreen() {
                 <Animated.View style={[s.pill, lineStyle(line3)]}>
                   <Ionicons name="arrow-up" size={14} color={T.night.gold} />
                   <Text style={s.pillText} allowFontScaling={false}>
-                    다음 주 +{promoteNextRemain}시간이면 {promoteNext.name} 승격
+                    이번 주에 +{promoteNextRemain}시간이면 {promoteNext.name} 승격
                   </Text>
                 </Animated.View>
               ) : (
@@ -372,14 +375,6 @@ const s = StyleSheet.create({
   tierToGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   tierFrom: { ...T.text.subtitle, color: T.night.muted },
   tierName: { ...T.text.title, color: T.night.cream },
-  // 승격 티어명 — 금빛 글로우로 강조
-  tierTo: {
-    ...T.text.title,
-    color: T.night.cream,
-    textShadowColor: withAlpha(T.night.gold, 0.9),
-    textShadowRadius: 12,
-    textShadowOffset: { width: 0, height: 0 },
-  },
 
   desc: {
     ...T.text.label,
@@ -390,6 +385,15 @@ const s = StyleSheet.create({
     marginTop: 10,
   },
   descStrong: { fontWeight: '800', color: T.night.gold },
+  // 격려 문장 — desc 아래 흐린 보조 톤
+  encourage: {
+    ...T.text.caption,
+    fontWeight: '600',
+    color: T.night.muted,
+    textAlign: 'center',
+    lineHeight: 19,
+    marginTop: 10,
+  },
 
   pill: {
     flexDirection: 'row',
