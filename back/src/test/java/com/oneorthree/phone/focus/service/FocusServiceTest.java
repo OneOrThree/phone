@@ -24,6 +24,9 @@ import com.oneorthree.phone.focus.repository.DefaultTagRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
 import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
+import com.oneorthree.phone.league.domain.LeagueArenaStatus;
+import com.oneorthree.phone.league.domain.LeagueArenaUser;
+import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
@@ -35,6 +38,7 @@ import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.service.UserStreakService;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -60,6 +64,7 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -103,12 +108,21 @@ class FocusServiceTest {
     @Mock
     private UserStreakService userStreakService;
 
+    @Mock
+    private LeagueArenaUserRepository leagueArenaUserRepository;
+
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID OTHER_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final UUID TAG_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
 
     private static final Instant START = Instant.parse("2026-06-23T01:00:00Z");
     private static final Instant END = Instant.parse("2026-06-23T02:00:00Z");
+
+    @BeforeEach
+    void stubLeagueArenaLookup() {
+        lenient().when(leagueArenaUserRepository.findByUserAndArenaStatusForUpdate(any(), any()))
+                .thenReturn(Optional.empty());
+    }
 
     // GROMO-673: 유저 태그는 이제 UserFocusTag(정체성=defaultTag). id 는 user_focus_tags.id, 이름은 defaultTag.name.
     private static UserFocusTag userFocusTag(UUID id, User user, String name) {
@@ -589,6 +603,37 @@ class FocusServiceTest {
         assertThat(saved.getStartedAt()).isEqualTo(START);
         assertThat(saved.getEndedAt()).isEqualTo(END);
         assertThat(saved.getTotalDistractionSeconds()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("세션 완료 시 ACTIVE 아레나의 레거시 집중시간도 초 단위로 누적한다")
+    void recordCompletionAddsFocusSecondsToActiveArena() {
+        User user = User.builder().id(USER_ID).build();
+        LeagueArenaUser member = LeagueArenaUser.builder().user(user).totalFocusSeconds(10).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(leagueArenaUserRepository.findByUserAndArenaStatusForUpdate(eq(USER_ID), eq(LeagueArenaStatus.ACTIVE)))
+                .willReturn(Optional.of(member));
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0));
+
+        assertThat(member.getTotalFocusSeconds()).isEqualTo(3610);
+    }
+
+    @Test
+    @DisplayName("세션 완료 시 ACTIVE 아레나가 없으면 레거시 누적을 건너뛴다")
+    void recordCompletionSkipsLeagueWhenNoActiveArena() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0));
+
+        verify(leagueArenaUserRepository).findByUserAndArenaStatusForUpdate(USER_ID, LeagueArenaStatus.ACTIVE);
     }
 
     @Test

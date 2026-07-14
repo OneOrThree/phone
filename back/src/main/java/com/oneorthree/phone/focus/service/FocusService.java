@@ -29,6 +29,8 @@ import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.focus.repository.DefaultTagRepository;
 import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
+import com.oneorthree.phone.league.domain.LeagueArenaStatus;
+import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
@@ -73,6 +75,7 @@ public class FocusService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserStreakService userStreakService;
+    private final LeagueArenaUserRepository leagueArenaUserRepository;
 
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         User user = userRepository.findById(userId)
@@ -444,6 +447,11 @@ public class FocusService {
         if (streakQualifiedToday) {
             userStreakService.updateOnSessionComplete(user, statDate);
         }
+
+        // GROMO-817에서 구 아레나 소비처(배치·알림·프로필)를 제거할 때까지 레거시 누적값도 함께 갱신한다.
+        // 락 조회로 동시 세션의 lost update를 방지하고, ACTIVE 아레나가 없는 유저는 건너뛴다.
+        leagueArenaUserRepository.findByUserAndArenaStatusForUpdate(userId, LeagueArenaStatus.ACTIVE)
+                .ifPresent(member -> member.addFocusSeconds(addedSeconds));
 
         return new RecordCompletionResult(dayTotalFocusSeconds, streakQualifiedToday);
     }

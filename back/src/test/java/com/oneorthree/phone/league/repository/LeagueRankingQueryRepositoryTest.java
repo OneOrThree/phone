@@ -81,20 +81,32 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
     @Test
     @DisplayName("내 순위는 전역 total DESC/user.id ASC 정렬에서 앞선 유저 수 + 1이다")
     void findRankOfUsesSameGlobalOrder() {
+        User higher = saveUser("higher", Occupation.UNIVERSITY, false);
         User firstTie = saveUser("firstTie", Occupation.CODING, false);
         User secondTie = saveUser("secondTie", Occupation.CODING, false);
+        saveStat(higher, MONDAY, 300);
         saveStat(firstTie, MONDAY, 120);
         saveStat(secondTie, MONDAY, 120);
         flushFixtures();
         List<LeagueRankingRow> ranking = leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100);
-        User target = ranking.get(1).userId().equals(firstTie.getId()) ? firstTie : secondTie;
+        User target = ranking.get(2).userId().equals(firstTie.getId()) ? firstTie : secondTie;
 
         LeagueRankingPosition position = leagueRankingQueryRepository
                 .findRankOf(target.getId(), MONDAY, TUESDAY)
                 .orElseThrow();
 
-        assertThat(position.rank()).isEqualTo(2);
+        assertThat(position.rank()).isEqualTo(3);
         assertThat(position.totalFocusSeconds()).isEqualTo(120);
+    }
+
+    @Test
+    @DisplayName("내 순위는 존재하지 않거나 탈퇴한 유저를 반환하지 않는다")
+    void findRankOfExcludesMissingAndDeletedUser() {
+        User deleted = saveUser("deletedTarget", Occupation.CODING, true);
+        flushFixtures();
+
+        assertThat(leagueRankingQueryRepository.findRankOf(deleted.getId(), MONDAY, TUESDAY)).isEmpty();
+        assertThat(leagueRankingQueryRepository.findRankOf(UUID.randomUUID(), MONDAY, TUESDAY)).isEmpty();
     }
 
     @Test

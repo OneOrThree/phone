@@ -58,11 +58,23 @@ public class LeagueRankingQueryRepository {
 
     public Optional<LeagueRankingPosition> findRankOf(UUID userId, LocalDate fromDate, LocalDate toDate) {
         validateRange(fromDate, toDate);
-        String sql = "WITH weekly_totals AS (" + WEEKLY_TOTALS + GROUP_BY_USER + "), ranked AS ("
-                + " SELECT user_id, tier_level, total_focus_seconds,"
-                + " ROW_NUMBER() OVER (ORDER BY total_focus_seconds DESC, user_id ASC) AS ranking_position"
-                + " FROM weekly_totals)"
-                + " SELECT ranking_position, tier_level, total_focus_seconds FROM ranked WHERE user_id = :userId";
+        String sql = "WITH target AS ("
+                + WEEKLY_TOTALS + " AND u.id = :userId\n" + GROUP_BY_USER
+                + "), higher_ranked AS ("
+                + " SELECT COUNT(*) AS user_count FROM ("
+                + " SELECT u.id FROM users u"
+                + " LEFT JOIN daily_focus_stats d ON d.user_id = u.id"
+                + " AND d.date BETWEEN :fromDate AND :toDate"
+                + " CROSS JOIN target t"
+                + " WHERE u.is_deleted = false"
+                + " GROUP BY u.id, t.user_id, t.total_focus_seconds"
+                + " HAVING COALESCE(SUM(d.total_focus_seconds), 0) > t.total_focus_seconds"
+                + " OR (COALESCE(SUM(d.total_focus_seconds), 0) = t.total_focus_seconds"
+                + " AND u.id < t.user_id)"
+                + " ) preceding_users)"
+                + " SELECT higher_ranked.user_count + 1 AS ranking_position,"
+                + " target.tier_level, target.total_focus_seconds"
+                + " FROM target CROSS JOIN higher_ranked";
         MapSqlParameterSource parameters = rangeParameters(fromDate, toDate)
                 .addValue("userId", userId);
         return jdbcTemplate.query(sql, parameters, (resultSet, rowNumber) -> new LeagueRankingPosition(
