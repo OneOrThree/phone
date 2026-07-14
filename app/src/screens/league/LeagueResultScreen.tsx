@@ -235,7 +235,7 @@ export default function LeagueResultScreen() {
                   {downImage && (
                     <Animated.Image
                       source={downImage}
-                      style={[s.badgeImg, s.badgeAbs, { opacity: dDownOpacity }]}
+                      style={[s.badgeImgDown, s.badgeAbs, { opacity: dDownOpacity }]}
                     />
                   )}
                   <Animated.Image
@@ -296,13 +296,18 @@ export default function LeagueResultScreen() {
 
         {/* 다음 티어까지 한 줄 안내 — CTA 바로 위 */}
         <Animated.Text style={[s.goalHint, lineStyle(line3)]}>
-          {nextUp != null ? (
+          {nextUp == null ? (
+            '이미 최고 티어예요!'
+          ) : demote ? (
+            <>
+              저번 주보다 <Text style={s.goalStrong}>{nextRemain}시간</Text> 더 집중하면 원래 티어로
+              돌아갈 수 있어요!
+            </>
+          ) : (
             <>
               저번 주보다 <Text style={s.goalStrong}>{nextRemain}시간</Text> 더 집중하면 다음 티어로
               올라갈 수 있어요!
             </>
-          ) : (
-            '이미 최고 티어예요!'
           )}
         </Animated.Text>
 
@@ -354,6 +359,8 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
   },
   badgeImg: { width: 190, height: 190, resizeMode: 'contain' },
+  // 강등 깨진 뱃지(down) — 아트가 작게 그려져 있어 조금 더 크게
+  badgeImgDown: { width: 205, height: 205, resizeMode: 'contain' },
   badgeStack: { width: 190, height: 190, alignItems: 'center', justifyContent: 'center' },
   badgeAbs: { position: 'absolute' },
   tierChange: { flexDirection: 'row', alignItems: 'center', gap: 8 },
