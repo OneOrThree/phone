@@ -55,6 +55,48 @@ class LeagueLegacyMigrationTest {
         }
     }
 
+    @Test
+    @DisplayName("프로덕션식 — 유니크 제약 이름이 베이스라인과 달라도 V14가 arena_id DROP으로 전환")
+    void migratesWhenLegacyUniqueConstraintHasDifferentName() {
+        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")) {
+            postgres.start();
+            migrate(postgres, MigrationVersion.fromVersion("13"));
+            JdbcTemplate jdbcTemplate = jdbcTemplate(postgres);
+
+            // 프로덕션 재현: Flyway 도입(GROMO-670) 전 레거시 스키마는 유니크 제약 이름이
+            // 베이스라인(uq_league_rank_snapshots_arena_user_day)과 다르다. Hibernate 자동 생성명
+            // 흉내로 rename 해, V14가 이름에 의존하지 않고 arena_id 컬럼 DROP으로 전환하는지 검증한다.
+            jdbcTemplate.execute(
+                    "ALTER TABLE league_rank_snapshots"
+                            + " RENAME CONSTRAINT uq_league_rank_snapshots_arena_user_day"
+                            + " TO uk_legacy_hibernate_generated_name");
+
+            migrate(postgres, MigrationVersion.LATEST);
+
+            // arena_id 컬럼과 (그를 포함한) 옛 유니크 제약이 이름과 무관하게 제거됐다.
+            assertThat(columnExists(jdbcTemplate, "league_rank_snapshots", "arena_id")).isFalse();
+
+            // 새 전역 유니크 (user_id, created_at) 가 강제된다.
+            UUID userId = UUID.randomUUID();
+            LocalDate day = LocalDate.of(2026, 7, 6);
+            jdbcTemplate.update(
+                    "INSERT INTO league_rank_snapshots (id, created_at, rank, user_id) VALUES (?, ?, ?, ?)",
+                    UUID.randomUUID(), day, 1, userId);
+            assertThatThrownBy(() -> jdbcTemplate.update(
+                    "INSERT INTO league_rank_snapshots (id, created_at, rank, user_id) VALUES (?, ?, ?, ?)",
+                    UUID.randomUUID(), day, 2, userId))
+                    .isInstanceOf(DataIntegrityViolationException.class);
+        }
+    }
+
+    private boolean columnExists(JdbcTemplate jdbcTemplate, String table, String column) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.columns"
+                        + " WHERE table_name = ? AND column_name = ?",
+                Integer.class, table, column);
+        return count != null && count > 0;
+    }
+
     private void migrate(PostgreSQLContainer<?> postgres, MigrationVersion target) {
         Flyway.configure()
                 .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
