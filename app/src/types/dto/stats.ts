@@ -72,3 +72,16 @@ export interface ScreenTimePeriodStatsResponse {
   achievedDays: number | null; // week/month 유효, day = null
   elapsedDays: number | null; // week/month 유효, day = null
 }
+
+// GET /stats/focus/average — scope(친구|전체|같은 카테고리) × period 활동 유저 1인당 평균
+// 집중시간(GROMO-753). 무활동·occupation 미설정이면 averageMinutes=null·sampleSize=0 (400 아님).
+export type FocusAverageScope = 'FRIENDS' | 'TOTAL' | 'CATEGORY';
+
+export interface FocusAverageResponse {
+  scope: FocusAverageScope;
+  period: StatsPeriod;
+  from: string; // LocalDate
+  to: string; // LocalDate
+  averageMinutes: number | null; // null = 집계 대상 없음
+  sampleSize: number; // 평균에 포함된 활동 유저 수
+}

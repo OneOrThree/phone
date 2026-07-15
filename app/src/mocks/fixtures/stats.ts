@@ -1,5 +1,11 @@
 import type { InternalAxiosRequestConfig } from 'axios';
-import type { CategoryFocusItem, CategoryFocusStatsResponse, StatsPeriod } from '@/types/dto/stats';
+import type {
+  CategoryFocusItem,
+  CategoryFocusStatsResponse,
+  FocusAverageResponse,
+  FocusAverageScope,
+  StatsPeriod,
+} from '@/types/dto/stats';
 import type { PublicProfileResponse, UserStatsResponse } from '@/types/dto/user';
 import { mockFriendById } from './friends';
 
@@ -52,6 +58,30 @@ export function mockFocusStatsByCategory(
     to: date,
     totalFocusMinutes: rows.reduce((a, b) => a + b.totalFocusMinutes, 0),
     items: rows,
+  };
+}
+
+// GROMO-755 — 오늘 비교 3축 평균(753 API) 목. scope·period 조합별로 값이 달라
+// 축 칩 전환·기간별 표기가 실제로 갈아끼워지는지 확인된다.
+const AVG_BASE: Record<FocusAverageScope, { avg: number; sample: number }> = {
+  FRIENDS: { avg: 38, sample: 4 },
+  TOTAL: { avg: 52, sample: 1240 },
+  CATEGORY: { avg: 61, sample: 87 },
+};
+
+// GET /api/v1/stats/focus/average — scope×period 평균(분)·표본 수
+export function mockFocusAverage(config: InternalAxiosRequestConfig): FocusAverageResponse {
+  const scope = (config.params?.scope as FocusAverageScope | undefined) ?? 'TOTAL';
+  const period = (config.params?.period as StatsPeriod | undefined) ?? 'DAY';
+  const date = (config.params?.date as string | undefined) ?? '2026-01-01';
+  const base = AVG_BASE[scope] ?? AVG_BASE.TOTAL;
+  return {
+    scope,
+    period,
+    from: date,
+    to: date,
+    averageMinutes: Math.round(base.avg * PERIOD_MULT[period]),
+    sampleSize: base.sample,
   };
 }
 
