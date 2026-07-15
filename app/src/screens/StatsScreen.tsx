@@ -450,7 +450,7 @@ function SectionCard({
 // 집계 API(compareAverages 공용 헬퍼). 리그가 주간 집계라 '주' 탭에서만 유효 —
 // 일/월은 평균 집계 API(753) 기반 ComparePeriod가 담당한다(GROMO-833).
 function CompareWeek({ myMinutes }: { myMinutes: number }) {
-  const [axis, setAxis] = useState<'FRIENDS' | 'ALL' | 'CATEGORY'>('ALL');
+  const [axis, setAxis] = useState<CompareAxisKey>('ALL');
   const [loaded, setLoaded] = useState(false);
   const [avgs, setAvgs] = useState<{
     global: number | null;
@@ -478,11 +478,6 @@ function CompareWeek({ myMinutes }: { myMinutes: number }) {
     }, []),
   );
 
-  const AXES = [
-    { key: 'FRIENDS', label: '친구' },
-    { key: 'ALL', label: '전체' },
-    { key: 'CATEGORY', label: '같은 카테고리' },
-  ] as const;
   const avg =
     axis === 'ALL' ? avgs.global : axis === 'FRIENDS' ? avgs.friends.avg : avgs.category.avg;
   const avgLabel =
@@ -501,20 +496,7 @@ function CompareWeek({ myMinutes }: { myMinutes: number }) {
 
   return (
     <View style={s.compare}>
-      <View style={s.compareChips}>
-        {AXES.map((a) => (
-          <TouchableOpacity
-            key={a.key}
-            style={[s.compareChip, axis === a.key ? s.compareChipOn : null]}
-            onPress={() => setAxis(a.key)}
-            activeOpacity={0.8}
-          >
-            <Text style={[s.compareChipText, axis === a.key ? s.compareChipTextOn : null]}>
-              {a.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <CompareChips active={axis} onSelect={setAxis} />
       {!loaded ? (
         <View style={s.compareLoading}>
           <ActivityIndicator color={T.accent} size="small" />
@@ -545,6 +527,9 @@ function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMinutes: 
   const [axis, setAxis] = useState<CompareAxisKey>('ALL');
   // 축별 도착 상태 — undefined=로딩. 도착한 축부터 채워 축 전환 시 기다림을 줄인다(755 패턴)
   const [avgs, setAvgs] = useState<Partial<Record<CompareAxisKey, CompareAvg>>>({});
+  // 준비 시험(카테고리)명 — 서버는 미설정도 sampleSize 0으로 응답해 응답만으론 '표본 없음'과
+  // 구분이 안 된다. CompareWeek처럼 로컬 값으로 미설정 문구를 분기한다(PR 254 리뷰 반영)
+  const [categoryLabel, setCategoryLabel] = useState<string | null>(null);
 
   // 화면 재진입마다 재조회 — CompareWeek와 동일 패턴
   useFocusEffect(
@@ -556,6 +541,9 @@ function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMinutes: 
       fetchFriendsAverage(period).then(put('FRIENDS'));
       fetchFocusAverage('TOTAL', period).then(put('ALL'));
       fetchFocusAverage('CATEGORY', period).then(put('CATEGORY'));
+      AsyncStorage.getItem(STORAGE_KEYS.focusCategory)
+        .then((v) => !cancelled && setCategoryLabel(v))
+        .catch(() => {}); // 조회 실패 → 미설정과 동일 취급(설정 유도 문구)
       return () => {
         cancelled = true;
       };
@@ -563,32 +551,27 @@ function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMinutes: 
   );
 
   const when = period === 'DAY' ? '오늘' : '이번 달';
-  // 축별 빈 상태 안내 — count 0은 집계 대상 없음(원인 안내), 그 외(-1)는 조회 실패
+  // 축별 빈 상태 안내 — count 0은 집계 대상 없음(원인 안내), 그 외(-1)는 조회 실패.
+  // 카테고리 미설정은 기다려도 안 바뀌므로 설정 유도 문구로 분리(CompareWeek와 동일)
   const emptyNote = (k: CompareAxisKey, count: number): string => {
     if (count !== 0) return '비교 데이터를 불러오지 못했어요';
     if (k === 'FRIENDS') return `${when} 집중한 친구가 아직 없어요`;
-    if (k === 'CATEGORY') return `${when} 같은 카테고리 기록이 아직 없어요`;
+    if (k === 'CATEGORY')
+      return categoryLabel
+        ? `${when} 같은 카테고리 기록이 아직 없어요`
+        : '준비 시험을 설정하면 비교할 수 있어요';
     return `${when} 집중 기록이 아직 모이지 않았어요`;
   };
   const cur = avgs[axis];
-  const meta = COMPARE_AXES.find((a) => a.key === axis) ?? COMPARE_AXES[1];
+  // 평균 라벨 — 카테고리 축은 주 탭(CompareWeek)처럼 실제 카테고리명으로 표기
+  const avgLabel =
+    axis === 'CATEGORY'
+      ? `${categoryLabel ?? '같은 카테고리'} 평균`
+      : (COMPARE_AXES.find((a) => a.key === axis) ?? COMPARE_AXES[1]).label;
 
   return (
     <View style={s.compare}>
-      <View style={s.compareChips}>
-        {COMPARE_AXES.map((a) => (
-          <TouchableOpacity
-            key={a.key}
-            style={[s.compareChip, axis === a.key ? s.compareChipOn : null]}
-            onPress={() => setAxis(a.key)}
-            activeOpacity={0.8}
-          >
-            <Text style={[s.compareChipText, axis === a.key ? s.compareChipTextOn : null]}>
-              {a.chip}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <CompareChips active={axis} onSelect={setAxis} />
       {cur === undefined ? (
         <View style={s.compareLoading}>
           <ActivityIndicator color={T.accent} size="small" />
@@ -596,8 +579,34 @@ function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMinutes: 
       ) : cur.avg == null ? (
         <Text style={s.emptyText}>{emptyNote(axis, cur.count)}</Text>
       ) : (
-        <CompareBars myMinutes={myMinutes} avg={cur.avg} avgLabel={meta.label} />
+        <CompareBars myMinutes={myMinutes} avg={cur.avg} avgLabel={avgLabel} />
       )}
+    </View>
+  );
+}
+
+// 비교축 칩 한 줄(친구/전체/같은 카테고리) — CompareWeek(주)·ComparePeriod(일/월) 공용
+function CompareChips({
+  active,
+  onSelect,
+}: {
+  active: CompareAxisKey;
+  onSelect: (k: CompareAxisKey) => void;
+}) {
+  return (
+    <View style={s.compareChips}>
+      {COMPARE_AXES.map((a) => (
+        <TouchableOpacity
+          key={a.key}
+          style={[s.compareChip, active === a.key ? s.compareChipOn : null]}
+          onPress={() => onSelect(a.key)}
+          activeOpacity={0.8}
+        >
+          <Text style={[s.compareChipText, active === a.key ? s.compareChipTextOn : null]}>
+            {a.chip}
+          </Text>
+        </TouchableOpacity>
+      ))}
     </View>
   );
 }
