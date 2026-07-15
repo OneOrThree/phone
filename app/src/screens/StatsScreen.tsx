@@ -22,6 +22,7 @@ import {
   fetchGlobalAverage,
   fetchCategoryAverage,
   fetchFriendsAverage,
+  fetchFocusAverage,
 } from '@/services/compareAverages';
 import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
@@ -52,8 +53,8 @@ import {
 
 // v2 내 통계 화면(GROMO-604) — 홈 '오늘' 카드의 '자세히'에서 진입.
 // 상단 고정 필터(기간 일/주/월) 아래로 ST1~ST9 지표 스크롤.
-// 실데이터: 집중시간·폰사용·전대비·목표달성·잔디·총공부량(나)·과목별(나).
-// 준비 중: 비교(친구/전체/같은 카테고리)·합격자·주별 누적 — 소스 미비로 스텁.
+// 실데이터: 집중시간·폰사용·전대비·목표달성·잔디·총공부량(나)·과목별(나)·비교(친구/전체/같은 카테고리).
+// 준비 중: 합격자 — 소스 미비로 스텁.
 
 const CHART_H = 120;
 // 잔디 강도 0..4 색(빈 칸 → 진한 초록).
@@ -119,8 +120,8 @@ export default function StatsScreen() {
   const month = new Date().getMonth() + 1;
   const cards: { key: string; node: ReactNode }[] = [];
 
-  // ST1 총 공부량 (나) + 비교 — 주간은 리그 랭킹·친구 통계 기반 실비교(GROMO-761), 일/월은 준비중.
-  // 제목이 탭별 기간 표기(오늘/이번 주/N월)라 캡션 불필요
+  // ST1 총 공부량 (나) + 비교 — 주간은 리그 랭킹 기반 실비교(GROMO-761), 일/월은 평균 집계
+  // API(753) 기반 실비교(GROMO-833). 제목이 탭별 기간 표기(오늘/이번 주/N월)라 캡션 불필요
   cards.push({
     key: 'total',
     node: (
@@ -142,7 +143,17 @@ export default function StatsScreen() {
         {period === 'WEEK' ? (
           <CompareWeek myMinutes={data.focus?.totalFocusMinutes ?? 0} />
         ) : (
-          <CompareStub />
+          // key로 탭 전환 시 리마운트 — 이전 기간 평균이 새 탭 위에 잠깐 보이는 것 방지
+          <ComparePeriod
+            key={period}
+            period={period}
+            myMinutes={
+              // 내 값은 위 큰 숫자와 동일 소스 — 일=로컬 오늘 누적(초→분), 월=서버 기간 집계
+              period === 'DAY'
+                ? Math.round(todayFocusSeconds / 60)
+                : (data.focus?.totalFocusMinutes ?? 0)
+            }
+          />
         )}
       </SectionCard>
     ),
@@ -435,9 +446,9 @@ function SectionCard({
   );
 }
 
-// ST1 비교(주간 실데이터) — 전체/같은 카테고리는 리그 랭킹(주간 아레나 집계) 평균, 친구는 친구별
-// 주간 집중 합계 평균(compareAverages 공용 헬퍼). 리그가 주간 집계라 '주' 탭에서만 유효 —
-// 일/월은 서버 평균 집계 API(be-요청사항 5번) 전까지 CompareStub(준비중) 유지 (GROMO-761).
+// ST1 비교(주간 실데이터) — 전체/같은 카테고리는 리그 랭킹(주간 아레나 집계) 평균, 친구는 평균
+// 집계 API(compareAverages 공용 헬퍼). 리그가 주간 집계라 '주' 탭에서만 유효 —
+// 일/월은 평균 집계 API(753) 기반 ComparePeriod가 담당한다(GROMO-833).
 function CompareWeek({ myMinutes }: { myMinutes: number }) {
   const [axis, setAxis] = useState<'FRIENDS' | 'ALL' | 'CATEGORY'>('ALL');
   const [loaded, setLoaded] = useState(false);
@@ -487,7 +498,6 @@ function CompareWeek({ myMinutes }: { myMinutes: number }) {
       : axis === 'CATEGORY' && !avgs.category.label
         ? '준비 시험을 설정하면 비교할 수 있어요'
         : '비교 데이터를 불러오지 못했어요';
-  const denom = Math.max(myMinutes, avg ?? 0, 1);
 
   return (
     <View style={s.compare}>
@@ -512,58 +522,115 @@ function CompareWeek({ myMinutes }: { myMinutes: number }) {
       ) : avg == null ? (
         <Text style={s.emptyText}>{emptyNote}</Text>
       ) : (
-        <View style={s.teaserPad}>
-          <View style={s.teaserRowHead}>
-            <Text style={s.teaserLabelMine}>나</Text>
-            <Text style={s.teaserValueMine}>{fmtMinutes(myMinutes)}</Text>
-          </View>
-          <View style={s.teaserTrack}>
-            <View
-              style={[s.teaserFill, s.teaserFillMine, { width: `${(myMinutes / denom) * 100}%` }]}
-            />
-          </View>
-          <View style={[s.teaserRowHead, s.teaserRowGap]}>
-            <Text style={s.teaserLabel}>{avgLabel}</Text>
-            <Text style={s.teaserValue}>{fmtMinutes(avg)}</Text>
-          </View>
-          <View style={s.teaserTrack}>
-            <View style={[s.teaserFill, s.teaserFillAvg, { width: `${(avg / denom) * 100}%` }]} />
-          </View>
-        </View>
+        <CompareBars myMinutes={myMinutes} avg={avg} avgLabel={avgLabel} />
       )}
     </View>
   );
 }
 
-// ST1 비교 자리(일/월) — 실그래프(나 vs 평균 수평 바) + 블러 티저. 서버 평균 API가 붙으면 걷어낸다.
-function CompareStub() {
+// ST1 비교(일/월, GROMO-833) — 3축(친구/전체/같은 카테고리) 모두 평균 집계 API(753)로 조회.
+// 그룹 값은 합계가 아니라 활동 유저 1인당 평균 — 내 값과 1:1 비교(티켓 833 용어 기준).
+// 주 탭(CompareWeek)의 리그 랭킹 기반 방식은 그대로 유지(755에서 범위 외로 결정).
+// count 0(집계 대상 없음)·-1(조회 실패)로 빈 문구를 나눈다(679 구분, 집중 결과 카드와 동일).
+type CompareAxisKey = 'FRIENDS' | 'ALL' | 'CATEGORY';
+type CompareAvg = { avg: number | null; count: number };
+
+const COMPARE_AXES: { key: CompareAxisKey; chip: string; label: string }[] = [
+  { key: 'FRIENDS', chip: '친구', label: '친구 평균' },
+  { key: 'ALL', chip: '전체', label: '전체 평균' },
+  { key: 'CATEGORY', chip: '같은 카테고리', label: '같은 카테고리 평균' },
+];
+
+function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMinutes: number }) {
+  const [axis, setAxis] = useState<CompareAxisKey>('ALL');
+  // 축별 도착 상태 — undefined=로딩. 도착한 축부터 채워 축 전환 시 기다림을 줄인다(755 패턴)
+  const [avgs, setAvgs] = useState<Partial<Record<CompareAxisKey, CompareAvg>>>({});
+
+  // 화면 재진입마다 재조회 — CompareWeek와 동일 패턴
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const put = (k: CompareAxisKey) => (v: CompareAvg) => {
+        if (!cancelled) setAvgs((prev) => ({ ...prev, [k]: v }));
+      };
+      fetchFriendsAverage(period).then(put('FRIENDS'));
+      fetchFocusAverage('TOTAL', period).then(put('ALL'));
+      fetchFocusAverage('CATEGORY', period).then(put('CATEGORY'));
+      return () => {
+        cancelled = true;
+      };
+    }, [period]),
+  );
+
+  const when = period === 'DAY' ? '오늘' : '이번 달';
+  // 축별 빈 상태 안내 — count 0은 집계 대상 없음(원인 안내), 그 외(-1)는 조회 실패
+  const emptyNote = (k: CompareAxisKey, count: number): string => {
+    if (count !== 0) return '비교 데이터를 불러오지 못했어요';
+    if (k === 'FRIENDS') return `${when} 집중한 친구가 아직 없어요`;
+    if (k === 'CATEGORY') return `${when} 같은 카테고리 기록이 아직 없어요`;
+    return `${when} 집중 기록이 아직 모이지 않았어요`;
+  };
+  const cur = avgs[axis];
+  const meta = COMPARE_AXES.find((a) => a.key === axis) ?? COMPARE_AXES[1];
+
   return (
     <View style={s.compare}>
       <View style={s.compareChips}>
-        {['친구', '전체', '같은 카테고리'].map((c, i) => (
-          <View key={c} style={[s.compareChip, i === 1 ? s.compareChipOn : null]}>
-            <Text style={[s.compareChipText, i === 1 ? s.compareChipTextOn : null]}>{c}</Text>
-          </View>
+        {COMPARE_AXES.map((a) => (
+          <TouchableOpacity
+            key={a.key}
+            style={[s.compareChip, axis === a.key ? s.compareChipOn : null]}
+            onPress={() => setAxis(a.key)}
+            activeOpacity={0.8}
+          >
+            <Text style={[s.compareChipText, axis === a.key ? s.compareChipTextOn : null]}>
+              {a.chip}
+            </Text>
+          </TouchableOpacity>
         ))}
       </View>
-      <ComingSoon note="비교 데이터를 준비하고 있어요">
-        <View style={s.teaserPad}>
-          <View style={s.teaserRowHead}>
-            <Text style={s.teaserLabelMine}>나</Text>
-            <Text style={s.teaserValueMine}>22시간</Text>
-          </View>
-          <View style={s.teaserTrack}>
-            <View style={[s.teaserFill, s.teaserFillMine]} />
-          </View>
-          <View style={[s.teaserRowHead, s.teaserRowGap]}>
-            <Text style={s.teaserLabel}>전체 평균</Text>
-            <Text style={s.teaserValue}>16시간</Text>
-          </View>
-          <View style={s.teaserTrack}>
-            <View style={[s.teaserFill, s.teaserFillAvg]} />
-          </View>
+      {cur === undefined ? (
+        <View style={s.compareLoading}>
+          <ActivityIndicator color={T.accent} size="small" />
         </View>
-      </ComingSoon>
+      ) : cur.avg == null ? (
+        <Text style={s.emptyText}>{emptyNote(axis, cur.count)}</Text>
+      ) : (
+        <CompareBars myMinutes={myMinutes} avg={cur.avg} avgLabel={meta.label} />
+      )}
+    </View>
+  );
+}
+
+// 나 vs 평균 수평 바 2개 — CompareWeek(주)·ComparePeriod(일/월) 공용
+function CompareBars({
+  myMinutes,
+  avg,
+  avgLabel,
+}: {
+  myMinutes: number;
+  avg: number;
+  avgLabel: string;
+}) {
+  const denom = Math.max(myMinutes, avg, 1);
+  return (
+    <View style={s.teaserPad}>
+      <View style={s.teaserRowHead}>
+        <Text style={s.teaserLabelMine}>나</Text>
+        <Text style={s.teaserValueMine}>{fmtMinutes(myMinutes)}</Text>
+      </View>
+      <View style={s.teaserTrack}>
+        <View
+          style={[s.teaserFill, s.teaserFillMine, { width: `${(myMinutes / denom) * 100}%` }]}
+        />
+      </View>
+      <View style={[s.teaserRowHead, s.teaserRowGap]}>
+        <Text style={s.teaserLabel}>{avgLabel}</Text>
+        <Text style={s.teaserValue}>{fmtMinutes(avg)}</Text>
+      </View>
+      <View style={s.teaserTrack}>
+        <View style={[s.teaserFill, s.teaserFillAvg, { width: `${(avg / denom) * 100}%` }]} />
+      </View>
     </View>
   );
 }
@@ -1386,10 +1453,10 @@ const s = StyleSheet.create({
   bigStat: { ...T.text.title, color: T.ink },
   emptyText: { ...T.text.body, color: T.inkMuted, paddingVertical: 8 },
 
-  // ST1 비교 스텁
+  // ST1 비교
   compare: { marginTop: 14, gap: 8 },
   compareLoading: { paddingVertical: 20, alignItems: 'center' },
-  // 준비 중 티저 공용(가짜 차트) 스타일
+  // 나 vs 평균 바(CompareBars) + 합격자 티저 공용 스타일
   teaserPad: { paddingVertical: 4 },
   teaserRowHead: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
   teaserRowGap: { marginTop: 12 },
