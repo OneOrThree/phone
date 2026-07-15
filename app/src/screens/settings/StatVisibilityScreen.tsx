@@ -125,5 +125,11 @@ export default function StatVisibilityScreen() {
 }
 
 const s = StyleSheet.create({
-  note: { ...T.text.caption, color: T.inkMuted, marginTop: 4, marginLeft: 6, lineHeight: 19 },
+  note: {
+    ...T.text.caption,
+    color: T.inkMuted,
+    marginTop: T.space.xs,
+    marginLeft: T.space.sm,
+    lineHeight: 19,
+  },
 });

@@ -146,32 +146,48 @@ export default function ProfileEditScreen() {
 
 const s = StyleSheet.create({
   // 섹션
-  sectionTitle: { ...T.text.caption, color: T.inkMuted, marginBottom: 8, marginLeft: 6 },
-  sectionTitleGap: { marginTop: 24 },
+  sectionTitle: {
+    ...T.text.caption,
+    color: T.inkMuted,
+    marginBottom: T.space.sm,
+    marginLeft: T.space.sm,
+  },
+  sectionTitleGap: { marginTop: T.space.xxl },
 
   // 닉네임 입력 카드
   inputCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: T.space.md,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 4,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.xs,
   },
-  input: { flex: 1, ...T.text.body, color: T.ink, paddingVertical: 12 },
+  input: { flex: 1, ...T.text.body, color: T.ink, paddingVertical: T.space.md },
   counter: { ...T.text.caption, color: T.inkMuted },
 
   // 검증 안내
-  hintRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, marginLeft: 6 },
+  hintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.xs,
+    marginTop: T.space.sm,
+    marginLeft: T.space.sm,
+  },
   hintText: { ...T.text.caption },
-  hintPlaceholder: { ...T.text.caption, color: T.inkMuted, marginTop: 8, marginLeft: 6 },
+  hintPlaceholder: {
+    ...T.text.caption,
+    color: T.inkMuted,
+    marginTop: T.space.sm,
+    marginLeft: T.space.sm,
+  },
 
   // 스킨 그리드(준비 중)
   skinWrap: { position: 'relative' },
-  skinGrid: { flexDirection: 'row', gap: 12 },
+  skinGrid: { flexDirection: 'row', gap: T.space.md },
   skinTile: {
     flex: 1,
     aspectRatio: 1,
@@ -196,13 +212,13 @@ const s = StyleSheet.create({
   skinBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: T.space.sm,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.border,
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.sm,
   },
   skinBadgeText: { ...T.text.caption, color: T.inkSub },
 

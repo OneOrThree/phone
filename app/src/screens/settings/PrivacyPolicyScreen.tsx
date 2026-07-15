@@ -32,7 +32,7 @@ const s = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
+    gap: T.space.lg,
   },
   iconWrap: {
     width: 64,
