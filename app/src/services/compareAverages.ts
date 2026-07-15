@@ -1,16 +1,14 @@
-// 비교 3축(친구/전체/같은 카테고리) 주간 평균 조회 — 집중 결과(603)·내 통계 ST1(604) 공용.
-// 서버에 평균 집계 API가 없어 리그 랭킹·친구 통계를 FE가 평균 낸다(계획: 통계-3화면-지표-계획.md).
-// 리그는 주간(이번 주 아레나) 기준 → "이번 주" 비교에만 사용한다.
-// 축별로 독립 함수 — 호출부가 각자 로딩/도착 시점을 다르게 처리할 수 있다(전체는 빠르고 친구는 N+1로 느림).
+// 비교 3축(친구/전체/같은 카테고리) 평균 조회 — 집중 결과(603)·내 통계 ST1(604) 공용.
+// GROMO-755: 친구 축은 서버 평균 집계 API(GROMO-753) 단일 호출로 전환(N+1·상한 10명 표본 편향 제거).
+// 전체·같은 카테고리의 "이번 주"(fetchGlobal/CategoryAverage)는 리그 랭킹 기반 기존 방식 유지 —
+// 내 통계 화면(558) 전환은 범위 외(755). 집중 결과의 "오늘" 축은 fetchFocusAverage를 쓴다.
+// 축별로 독립 함수 — 호출부가 각자 로딩/도착 시점을 다르게 처리할 수 있다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { occupationForCategory } from '@/constants/focusCategories';
 import { getGlobalRanking, getMyRanking } from '@/services/leagueApi';
-import { getFocusPeriodStats } from '@/services/statsApi';
-import { fetchFriends } from '@/services/friendsApi';
-
-// 친구 평균은 친구별 개별 조회(N+1)라 상한을 둔다(지연 억제).
-const FRIEND_FETCH_CAP = 10;
+import { getFocusAverage } from '@/services/statsApi';
+import type { FocusAverageScope, StatsPeriod } from '@/types/dto/stats';
 
 function mean(values: number[]): number | null {
   if (values.length === 0) return null;
@@ -44,25 +42,25 @@ export async function fetchCategoryAverage(): Promise<{
   }
 }
 
-// 친구 평균 — 친구별 기간 집중 합계 개별 조회(상한 FRIEND_FETCH_CAP명) 평균. count=0이면 친구 없음.
-// period: 'DAY'(오늘)·'WEEK'(이번 주) — /stats/focus?friends=는 기간 지정이 돼서 친구 축만 일 단위 비교 가능.
-// (전체·같은 카테고리는 리그 랭킹(주간 집계) 기반이라 오늘 비교 불가 — 서버 일 단위 집계 필요.)
-export async function fetchFriendsAverage(
-  period: 'DAY' | 'WEEK' = 'WEEK',
+// scope 평균 — 서버 평균 집계 API(GROMO-753) 단일 호출. count는 집계에 포함된 활동 유저 수.
+// count 규약: 0 = 집계 대상 없음(친구 없음·무활동·occupation 미설정), -1 = 조회 실패.
+// 실패↔대상 없음 구분(679)을 값으로 고정한다 — 예전엔 실패도 count 0이라 문구가 섞였다.
+export async function fetchFocusAverage(
+  scope: FocusAverageScope,
+  period: StatsPeriod,
 ): Promise<{ avg: number | null; count: number }> {
   try {
-    const friends = await fetchFriends();
-    if (friends.length === 0) return { avg: null, count: 0 };
-    const stats = await Promise.all(
-      friends
-        .slice(0, FRIEND_FETCH_CAP)
-        .map((f) => getFocusPeriodStats(period, f.userId).catch(() => null)),
-    );
-    const avg = mean(
-      stats.filter((s): s is NonNullable<typeof s> => s != null).map((s) => s.totalFocusMinutes),
-    );
-    return { avg, count: friends.length };
+    const res = await getFocusAverage(scope, period);
+    return { avg: res.averageMinutes ?? null, count: res.sampleSize };
   } catch {
-    return { avg: null, count: 0 };
+    return { avg: null, count: -1 };
   }
+}
+
+// 친구 평균 — scope=FRIENDS 단일 호출(GROMO-755). 기존 친구별 개별 조회(N+1, 상한 10명)를
+// 대체한다. count=0이면 친구 없음(또는 이번 기간 무활동), -1이면 조회 실패.
+export async function fetchFriendsAverage(
+  period: StatsPeriod = 'WEEK',
+): Promise<{ avg: number | null; count: number }> {
+  return fetchFocusAverage('FRIENDS', period);
 }

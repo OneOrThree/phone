@@ -18,11 +18,10 @@ import type {
 import { localDateStr, todayStr } from '@/utils/localDate';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useSubjects } from '@/store/SubjectContext';
-import { fmtMinutes, axisCeil, fmtAxis } from '@/utils/timeFormat';
+import { fmtMinutes, fmtHm, axisCeil, fmtAxis } from '@/utils/timeFormat';
 import { hms } from './format';
-import { fetchFriendsAverage } from '@/services/compareAverages';
+import { fetchFocusAverage, fetchFriendsAverage } from '@/services/compareAverages';
 import { readPendingCelebration, schedulePendingCelebration } from '@/services/goalCelebration';
-import { ComingSoon } from '@/screens/stats/ComingSoon';
 import { WeekStreakModal } from './components/WeekStreakModal';
 import { useFocus } from '@/store/FocusContext';
 import { useUser } from '@/store/UserContext';
@@ -31,8 +30,9 @@ import { subscribeSessionSaveVerdict, getSessionSaveVerdict } from './sessionSav
 // 집중 결과 화면 — Claude Design Gromo.dc.html 14번(첫 집중 완료) 레이아웃 기준.
 // GROMO-598: 화면·진입·이번 집중(00:00:00)·과목별 누적(로컬 SubjectContext — 방금 세션 즉시 반영)·CTA. 코인 미표기.
 // GROMO-603(집중 완료 통계): 스트릭 채우기(첫 완료 변형에만 — 월~일 출석 체크) + 이번 주 집중시간(요일 막대)
-//   + 나 vs 3축(친구/전체/같은 카테고리) 주간 비교. 축별 독립 로딩 — 카드는 즉시 뜨고 도착한 축부터 채워진다.
-//   전체·같은 카테고리는 오늘(일 단위) 집계 API가 없어 블러 티저 — 서버 일 평균 API 생기면 연결.
+//   + 나 vs 3축(친구/전체/같은 카테고리) 오늘 비교. 축별 독립 로딩 — 카드는 즉시 뜨고 도착한 축부터 채워진다.
+// GROMO-755: 3축 모두 평균 집계 API(753) 실데이터 연결 — 전체·같은 카테고리 블러 티저 제거,
+//   친구 축은 개별 조회(N+1) 대신 scope=FRIENDS 단일 호출.
 
 const WEEK_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
 // 차트 트랙 높이 — 세로축 ⅓ 간격 눈금·라벨이 겹치지 않을 만큼 확보(GROMO-683)
@@ -93,11 +93,46 @@ export default function FocusResultScreen() {
   const [cellByDate, setCellByDate] = useState<Record<string, HeatmapCellResponse>>({});
   // heatmap 도착 여부 — 연출 판정(667)은 주간 데이터가 온 뒤 1회만 수행한다(오판 방지)
   const [cellsLoaded, setCellsLoaded] = useState(false);
-  // 오늘 비교 — 친구 축만 일 단위 실데이터(전체·카테고리는 리그가 주간 집계뿐이라 서버 집계 필요).
-  // undefined = 로딩 중, avg null = 미확보(폴백 문구)
-  const [friendDayAvg, setFriendDayAvg] = useState<
-    { avg: number | null; count: number } | undefined
-  >(undefined);
+  // 비교 3축(GROMO-755) — 평균 집계 API(753) 단일 호출. 오늘/이번 주 기간 탭(692와 동일 패턴)
+  // × 축별 캐시: 탭 왕복 시 재조회 없이 즉시 전환, 축별 독립 도착은 유지.
+  // 축 값 undefined = 로딩 중, avg null = 미확보(count 0 = 집계 대상 없음 / -1 = 조회 실패)
+  const [comparePeriod, setComparePeriod] = useState<ComparePeriod>('DAY');
+  const [compareAvgs, setCompareAvgs] = useState<
+    Partial<
+      Record<ComparePeriod, { friends?: CompareAvg; total?: CompareAvg; category?: CompareAvg }>
+    >
+  >({});
+  // 기간별 조회 시작 여부 — 도착 여부(compareAvgs)로 가드하면 첫 축 도착 전 재진입 시 중복 조회된다
+  const comparePeriodsFetched = useRef(new Set<ComparePeriod>());
+  const compareUnmounted = useRef(false);
+  useEffect(
+    () => () => {
+      compareUnmounted.current = true;
+    },
+    [],
+  );
+  // 이번 달 내 합계 — 월 탭에서만 쓰므로 월 탭 첫 진입 시 1회 조회(주간과 달리 화면 핵심 지표가 아님)
+  const [month, setMonth] = useState<FocusPeriodStatsResponse | null>(null);
+  useEffect(() => {
+    if (comparePeriodsFetched.current.has(comparePeriod)) return;
+    comparePeriodsFetched.current.add(comparePeriod);
+    const put =
+      (axis: 'friends' | 'total' | 'category') => (v: { avg: number | null; count: number }) => {
+        if (compareUnmounted.current) return;
+        setCompareAvgs((prev) => ({
+          ...prev,
+          [comparePeriod]: { ...prev[comparePeriod], [axis]: v },
+        }));
+      };
+    fetchFriendsAverage(comparePeriod).then(put('friends'));
+    fetchFocusAverage('TOTAL', comparePeriod).then(put('total'));
+    fetchFocusAverage('CATEGORY', comparePeriod).then(put('category'));
+    if (comparePeriod === 'MONTH') {
+      getFocusPeriodStats('MONTH')
+        .then((m) => !compareUnmounted.current && setMonth(m))
+        .catch(() => {});
+    }
+  }, [comparePeriod]);
 
   // 첫 완료 판별 — 로컬 플래그. 없으면 이번이 첫 완료로 보고 플래그를 남긴다.
   useEffect(() => {
@@ -131,7 +166,6 @@ export default function FocusResultScreen() {
         setCellsLoaded(true);
       }
     })();
-    fetchFriendsAverage('DAY').then((v) => !cancelled && setFriendDayAvg(v));
     return () => {
       cancelled = true;
     };
@@ -278,6 +312,8 @@ export default function FocusResultScreen() {
     };
   }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today]);
   const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
+  // 이번 달 합계 — 주간과 동일하게 방금 세션 보정분(adjustedToday - serverToday)을 더한다(월도 오늘 포함)
+  const monthTotal = (month?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
   const dayMinutes = (d: string) =>
     d === today ? adjustedToday : (cellByDate[d]?.totalFocusMinutes ?? 0);
   // 세로축 상한 — 최대치를 보기 좋은 눈금으로 올림(통계 차트와 동일 규칙, GROMO-683)
@@ -458,8 +494,23 @@ export default function FocusResultScreen() {
           </View>
         </View>
 
-        {/* 나 vs 3축 비교(오늘) — 카드는 즉시 뜨고 친구 평균 도착 시 채워진다 */}
-        <CompareCard mine={adjustedToday} friends={friendDayAvg} />
+        {/* 나 vs 3축 비교(오늘/이번 주/이번 달 탭) — 카드는 즉시 뜨고 도착한 축부터 채워진다(GROMO-755).
+            내 값: 오늘 = 서버 확정 보정치(adjustedToday), 이번 주 = 위 주간 카드와 동일한 weekTotal,
+            이번 달 = 월 합계 + 방금 세션 보정 */}
+        <CompareCard
+          mine={
+            comparePeriod === 'DAY'
+              ? adjustedToday
+              : comparePeriod === 'WEEK'
+                ? weekTotal
+                : monthTotal
+          }
+          period={comparePeriod}
+          onPeriodChange={setComparePeriod}
+          friends={compareAvgs[comparePeriod]?.friends}
+          total={compareAvgs[comparePeriod]?.total}
+          category={compareAvgs[comparePeriod]?.category}
+        />
       </ScrollView>
 
       {/* 하단 CTA — 홈으로 / 다시 집중 */}
@@ -488,19 +539,36 @@ export default function FocusResultScreen() {
   );
 }
 
-// 나 vs 비교축 카드(오늘) — 3축(친구/전체/같은 카테고리) 셀렉터 + 수평 바 2개. 미달도 격려체.
-// 친구만 오늘 실데이터(/stats/focus?period=DAY&friends=). 전체·같은 카테고리는 리그가 주간 집계뿐이라
-// 일 단위 서버 집계가 생기면 연결 — 그때까지 "준비 중" 안내.
+// 나 vs 비교축 카드 — 3축(친구/전체/같은 카테고리) 셀렉터 + 오늘/이번 주 기간 탭 + 수평 바 2개.
+// 미달도 격려체. GROMO-755: 3축 모두 평균 집계 API(753) 실데이터 — 블러 티저 제거.
+// count 0(집계 대상 없음)과 -1(조회 실패)로 빈 상태 문구를 나눈다(679 구분 유지).
 type CompareAxis = 'friends' | 'all' | 'category';
+type ComparePeriod = 'DAY' | 'WEEK' | 'MONTH';
+type CompareAvg = { avg: number | null; count: number } | undefined;
+
+const COMPARE_PERIODS: { key: ComparePeriod; label: string }[] = [
+  { key: 'DAY', label: '오늘' },
+  { key: 'WEEK', label: '이번 주' },
+  { key: 'MONTH', label: '이번 달' },
+];
 
 function CompareCard({
   mine,
+  period,
+  onPeriodChange,
   friends,
+  total,
+  category,
 }: {
   mine: number;
-  friends: { avg: number | null; count: number } | undefined;
+  period: ComparePeriod;
+  onPeriodChange: (period: ComparePeriod) => void;
+  friends: CompareAvg;
+  total: CompareAvg;
+  category: CompareAvg;
 }) {
   const [axis, setAxis] = useState<CompareAxis>('friends');
+  const when = period === 'DAY' ? '오늘' : period === 'WEEK' ? '이번 주' : '이번 달';
   const meta: Record<
     CompareAxis,
     { chip: string; label: string; avg: number | null; loading: boolean; empty: string }
@@ -510,24 +578,32 @@ function CompareCard({
       label: '친구 평균',
       avg: friends?.avg ?? null,
       loading: friends === undefined,
+      // count 0 = 친구 없음 또는 친구 전원 무활동(서버 sampleSize가 활동 유저 수라 구분 불가)
+      // — 두 경우를 모두 덮는 중립 문구 + 행동 유도.
       empty:
         friends?.count === 0
-          ? '아직 친구가 없어요. 친구를 추가하고 비교해봐요!'
+          ? `${when} 집중한 친구가 아직 없어요. 친구를 추가하고 비교해봐요!`
           : '친구 평균을 불러오지 못했어요',
     },
     all: {
       chip: '전체',
       label: '전체 평균',
-      avg: null,
-      loading: false,
-      empty: '오늘 기준 전체 평균은 준비 중이에요',
+      avg: total?.avg ?? null,
+      loading: total === undefined,
+      empty:
+        total?.count === 0
+          ? `${when} 집중 기록이 아직 모이지 않았어요`
+          : '전체 평균을 불러오지 못했어요',
     },
     category: {
       chip: '같은 카테고리',
       label: '같은 카테고리 평균',
-      avg: null,
-      loading: false,
-      empty: '오늘 기준 같은 카테고리 평균은 준비 중이에요',
+      avg: category?.avg ?? null,
+      loading: category === undefined,
+      empty:
+        category?.count === 0
+          ? `${when} 같은 카테고리 기록이 아직 없어요`
+          : '같은 카테고리 평균을 불러오지 못했어요',
     },
   };
   const cur = meta[axis];
@@ -538,16 +614,26 @@ function CompareCard({
   const w = (v: number) => `${Math.max((v / max) * 100, 2)}%` as const;
   return (
     <View style={s.card}>
+      {/* 헤더 — 제목 + 기간 탭(GROMO-692 과목 비교 카드와 동일 패턴) */}
       <View style={s.rowBetween}>
-        <Text style={s.cardTitle}>오늘 비교</Text>
-        {avg != null ? (
-          <View style={[s.deltaBadge, ahead ? s.deltaBadgeUp : s.deltaBadgeDown]}>
-            <Text style={[s.deltaBadgeText, { color: ahead ? T.successInk : T.dangerInk }]}>
-              {ahead ? '▲' : '▼'} {fmtMinutes(Math.abs(delta))}
-            </Text>
-          </View>
-        ) : null}
+        <Text style={s.cardTitle}>{when} 비교</Text>
+        <View style={s.periodRow}>
+          {COMPARE_PERIODS.map(({ key, label }) => {
+            const on = period === key;
+            return (
+              <TouchableOpacity
+                key={key}
+                style={[s.axisChip, on ? s.axisChipOn : null]}
+                onPress={() => onPeriodChange(key)}
+                activeOpacity={0.8}
+              >
+                <Text style={[s.axisChipText, on ? s.axisChipTextOn : null]}>{label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
+      {/* 축 칩(좌) + 델타 뱃지(우) — 뱃지는 기간 탭에 자리를 내주고 축 줄로 이동 */}
       <View style={s.axisRow}>
         {(['friends', 'all', 'category'] as CompareAxis[]).map((a) => {
           const on = axis === a;
@@ -562,13 +648,20 @@ function CompareCard({
             </TouchableOpacity>
           );
         })}
+        {avg != null ? (
+          <View style={[s.deltaBadge, s.deltaBadgeEnd, ahead ? s.deltaBadgeUp : s.deltaBadgeDown]}>
+            <Text style={[s.deltaBadgeText, { color: ahead ? T.successInk : T.dangerInk }]}>
+              {ahead ? '▲' : '▼'} {fmtHm(Math.abs(delta))}
+            </Text>
+          </View>
+        ) : null}
       </View>
       {avg != null ? (
         <>
           <View style={s.cmpBlock}>
             <View style={s.rowBetween}>
               <Text style={s.cmpLabelMine}>나</Text>
-              <Text style={s.cmpValueMine}>{fmtMinutes(mine)}</Text>
+              <Text style={s.cmpValueMine}>{fmtHm(mine)}</Text>
             </View>
             <View style={s.cmpTrack}>
               <View style={[s.cmpFill, { width: w(mine), backgroundColor: T.accent }]} />
@@ -577,7 +670,7 @@ function CompareCard({
           <View style={s.cmpBlock}>
             <View style={s.rowBetween}>
               <Text style={s.cmpLabel}>{cur.label}</Text>
-              <Text style={s.cmpValue}>{fmtMinutes(avg)}</Text>
+              <Text style={s.cmpValue}>{fmtHm(avg)}</Text>
             </View>
             <View style={s.cmpTrack}>
               <View style={[s.cmpFill, s.cmpFillAvg, { width: w(avg) }]} />
@@ -585,39 +678,13 @@ function CompareCard({
           </View>
           <Text style={s.cmpCaption}>
             {ahead
-              ? `${cur.label}보다 ${fmtMinutes(Math.abs(delta))} 더 집중했어요.`
-              : `${cur.label}까지 ${fmtMinutes(Math.abs(delta))} 남았어요. 오늘도 한 걸음!`}
+              ? `${cur.label}보다 ${fmtHm(Math.abs(delta))} 더 집중했어요.`
+              : `${cur.label}까지 ${fmtHm(Math.abs(delta))} 남았어요. 오늘도 한 걸음!`}
           </Text>
         </>
-      ) : cur.loading || axis === 'friends' ? (
-        // 로딩·친구 없음(액션 유도)은 텍스트 안내
-        <Text style={s.cmpCaption}>{cur.loading ? '불러오는 중…' : cur.empty}</Text>
       ) : (
-        // 준비 중(전체·같은 카테고리) — 실그래프 + 블러 티저
-        <View style={s.cmpTeaserGap}>
-          <ComingSoon note={cur.empty}>
-            <View>
-              <View style={s.cmpBlock}>
-                <View style={s.rowBetween}>
-                  <Text style={s.cmpLabelMine}>나</Text>
-                  <Text style={s.cmpValueMine}>01:30:00</Text>
-                </View>
-                <View style={s.cmpTrack}>
-                  <View style={[s.cmpFill, s.cmpTeaserMine]} />
-                </View>
-              </View>
-              <View style={s.cmpBlock}>
-                <View style={s.rowBetween}>
-                  <Text style={s.cmpLabel}>{cur.label}</Text>
-                  <Text style={s.cmpValue}>01:02:00</Text>
-                </View>
-                <View style={s.cmpTrack}>
-                  <View style={[s.cmpFill, s.cmpTeaserAvg]} />
-                </View>
-              </View>
-            </View>
-          </ComingSoon>
-        </View>
+        // 로딩·미확보 — 텍스트 안내(GROMO-755: 티저 제거, 3축 모두 실데이터)
+        <Text style={s.cmpCaption}>{cur.loading ? '불러오는 중…' : cur.empty}</Text>
       )}
     </View>
   );
@@ -770,8 +837,10 @@ const s = StyleSheet.create({
   chartGridLower: { top: (BAR_H * 2) / 3 },
   chartGridBottom: { top: BAR_H },
 
-  // 나 vs 비교축(3축 셀렉터)
-  axisRow: { flexDirection: 'row', gap: 7, marginTop: 4 },
+  // 나 vs 비교축(3축 셀렉터 + 기간 탭)
+  axisRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 4 },
+  periodRow: { flexDirection: 'row', gap: 6 },
+  deltaBadgeEnd: { marginLeft: 'auto' },
   axisChip: {
     paddingHorizontal: 11,
     paddingVertical: 6,
@@ -796,10 +865,6 @@ const s = StyleSheet.create({
   cmpFill: { height: 10, borderRadius: 5 },
   cmpFillAvg: { backgroundColor: T.compare.avg },
   cmpCaption: { ...T.text.caption, fontWeight: '500', color: T.link, marginTop: 10 },
-  // 준비 중 티저(가짜 비교 바) — 블러 아래 깔리는 표시용 고정값
-  cmpTeaserGap: { marginTop: 8 },
-  cmpTeaserMine: { width: '82%', backgroundColor: T.accent },
-  cmpTeaserAvg: { width: '58%', backgroundColor: T.compare.avg },
 
   // 하단 CTA
   footer: {

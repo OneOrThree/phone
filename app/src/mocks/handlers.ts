@@ -1,7 +1,12 @@
 import type { InternalAxiosRequestConfig } from 'axios';
 import { mockFriends, mockPin, mockPinnedFriends, mockUnpin } from './fixtures/friends';
 import { mockArenaRanking, mockCategoryRanking, mockGlobalRanking } from './fixtures/league';
-import { mockFocusStatsByCategory, mockUserProfile, mockUserStats } from './fixtures/stats';
+import {
+  mockFocusAverage,
+  mockFocusStatsByCategory,
+  mockUserProfile,
+  mockUserStats,
+} from './fixtures/stats';
 
 // 목킹할 요청의 경로 → 응답 매핑 테이블. 새 목이 필요하면 fixtures 에 데이터를 만들고 여기에 한 줄 추가.
 // url 은 baseURL 제외 상대 경로이며 query 는 config.params 로 분리돼 붙지 않는다.
@@ -60,6 +65,12 @@ export const handlers: MockHandler[] = [
     method: 'get',
     matches: (url) => MOCK_USER_STATS.test(url),
     respond: () => mockUserStats(),
+  },
+  // 평균 집계(753) — 755 오늘 비교 3축 확인용
+  {
+    method: 'get',
+    matches: (url) => url === '/api/v1/stats/focus/average',
+    respond: (config) => mockFocusAverage(config),
   },
   {
     method: 'post',
