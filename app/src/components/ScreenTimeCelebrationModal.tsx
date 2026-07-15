@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
+import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
 import { T, withAlpha } from '@/constants/theme';
 
 // 스크린타임 목표 달성 축하 모달(GROMO-629) — 어제 사용 시간이 목표 이내였으면 그날 첫 홈 진입에
@@ -23,11 +25,18 @@ function goalLabel(minutes: number): string {
 }
 
 export function ScreenTimeCelebrationModal({ visible, streakDays, goalMinutes, onClose }: Props) {
+  const [cardRect, setCardRect] = useState<ConfettiObstacle | null>(null);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.overlay}>
         <TouchableOpacity style={s.backdrop} activeOpacity={1} onPress={onClose} />
-        <View style={s.card}>
+        <View
+          style={s.card}
+          onLayout={(e) => {
+            const { x, y, width } = e.nativeEvent.layout;
+            setCardRect((prev) => prev ?? { x, y, width });
+          }}
+        >
           <CharacterImage size={104} />
           <Text style={s.title}>어제 핸드폰 사용 시간 목표를 달성했군요!</Text>
           <Text style={s.sub}>
@@ -46,6 +55,7 @@ export function ScreenTimeCelebrationModal({ visible, streakDays, goalMinutes, o
             <Text style={s.ctaText}>좋아요!</Text>
           </TouchableOpacity>
         </View>
+        {cardRect ? <ConfettiBurst obstacle={cardRect} /> : null}
       </View>
     </Modal>
   );

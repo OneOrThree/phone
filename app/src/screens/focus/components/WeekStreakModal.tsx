@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T, withAlpha } from '@/constants/theme';
-import { ConfettiBurst, type ConfettiObstacle } from './ConfettiBurst';
+import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
 
 // 주간 스트릭 완성 축하 모달(GROMO-667) — 월~일 7일을 모두 채운 주, 일요일 결과 화면의
 // ✓ 팝 뒤에 노출(주 1회). 종이폭죽은 모달과 동시에 오버레이 안에서 터진다(오스카 결정).

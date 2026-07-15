@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
+import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
 import { T, withAlpha } from '@/constants/theme';
 
 // 포커스 목표 달성 축하 모달(GROMO-630) — 오늘 누적 집중이 목표를 처음 채운 순간 결과 화면에서
@@ -23,11 +25,18 @@ function goalLabel(minutes: number): string {
 }
 
 export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onClose }: Props) {
+  const [cardRect, setCardRect] = useState<ConfettiObstacle | null>(null);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.overlay}>
         <TouchableOpacity style={s.backdrop} activeOpacity={1} onPress={onClose} />
-        <View style={s.card}>
+        <View
+          style={s.card}
+          onLayout={(e) => {
+            const { x, y, width } = e.nativeEvent.layout;
+            setCardRect((prev) => prev ?? { x, y, width });
+          }}
+        >
           <CharacterImage size={104} />
           <Text style={s.title}>
             {goalMinutes ? `${goalLabel(goalMinutes)} 집중 목표 달성!` : '오늘 목표 달성!'}
@@ -43,6 +52,7 @@ export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onC
             <Text style={s.ctaText}>좋아요!</Text>
           </TouchableOpacity>
         </View>
+        {cardRect ? <ConfettiBurst obstacle={cardRect} /> : null}
       </View>
     </Modal>
   );
