@@ -289,15 +289,29 @@ class ScreenTimeModule: NSObject {
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
-        let mins = defaults?.integer(forKey: "gromo:screentime:prevBucketMinutes") ?? 0
-        let date = defaults?.string(forKey: "gromo:screentime:prevBucketDate")
         guard let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date()) else {
             resolve(0)
             return
         }
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        resolve(date == formatter.string(from: yesterday) ? mins : 0)
+        let yesterdayStr = formatter.string(from: yesterday)
+
+        // 보존된 전일 눈금(정상: intervalDidStart/End가 롤오버한 값).
+        let prevMins = defaults?.integer(forKey: "gromo:screentime:prevBucketMinutes") ?? 0
+        let prevDate = defaults?.string(forKey: "gromo:screentime:prevBucketDate")
+        var result = (prevDate == yesterdayStr) ? prevMins : 0
+
+        // 자정 롤오버 콜백(intervalDidStart/End)을 놓쳐 prevBucket으로 아직 안 넘어간 경우 —
+        // 오늘 버킷의 날짜가 어제면 그 값이 곧 어제 최종 눈금이다(GROMO-844). 어제분 마감이
+        // threshold 콜백의 지연 복구보다 먼저 실행돼도 올바른 값을 읽게 한다.
+        let curMins = defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0
+        let curDate = defaults?.string(forKey: "gromo:screentime:usageBucketDate")
+        if curDate == yesterdayStr {
+            result = max(result, curMins)
+        }
+
+        resolve(result)
     }
 
     // 어제 날짜의 스크린 타임 목표 달성 결과를 App Group에서 읽어 반환

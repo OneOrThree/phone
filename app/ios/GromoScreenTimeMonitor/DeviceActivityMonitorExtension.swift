@@ -76,12 +76,23 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
         let bucketPrefix = "gromo.usage.bucket."
         if name.hasPrefix(bucketPrefix), let mins = Int(name.dropFirst(bucketPrefix.count)) {
-            // 도달한 눈금이 기존 최고값보다 크면 갱신 (버킷은 순차 발화지만 방어적으로 max 비교)
-            let current = sharedDefaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0
+            // 저장된 날짜가 오늘이 아니면(=지난 날 잔여값) intervalDidStart(자정 리셋 콜백)를 놓친
+            // 상태다. 이때 그대로 두면 아래 max 비교라 값이 절대 안 내려가고 상한(720)까지 한 방향으로
+            // 래칫돼 매일 720이 찍힌다(GROMO-844). 새 날 첫 이벤트에서 스스로 리셋한다 —
+            // 지난 날 최종 눈금은 전일 키로 보존해 '어제분 마감'이 읽을 수 있게 한다.
+            let storedDate = sharedDefaults?.string(forKey: "gromo:screentime:usageBucketDate")
+            var current = sharedDefaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0
+            if storedDate != todayString {
+                if let storedDate, current > 0 {
+                    sharedDefaults?.set(current, forKey: "gromo:screentime:prevBucketMinutes")
+                    sharedDefaults?.set(storedDate, forKey: "gromo:screentime:prevBucketDate")
+                }
+                current = 0 // 오늘 기준으로 새로 카운트
+            }
+            // 도달한 눈금이 (오늘 기준) 기존 최고값보다 크면 갱신 (버킷은 순차 발화지만 방어적으로 max 비교)
             if mins > current {
                 sharedDefaults?.set(mins, forKey: "gromo:screentime:usageBucketMinutes")
             }
-            // intervalDidStart를 놓친 경우 대비해 날짜도 최신화
             sharedDefaults?.set(todayString, forKey: "gromo:screentime:usageBucketDate")
         }
     }
