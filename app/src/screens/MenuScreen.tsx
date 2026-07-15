@@ -11,6 +11,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@/store/UserContext';
 import { STORAGE_KEYS } from '@/types/storage';
 import { CharacterImage } from '@/components/character/CharacterImage';
+import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
+import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
 import { SettingsSection, SettingsRow } from '@/screens/settings/components/SettingsList';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
@@ -62,6 +64,8 @@ export default function MenuScreen() {
   );
   // 연속 공부 일수(하루 10분 스트릭, GROMO-630) — 0이면 pill 생략.
   const [streakDays, setStreakDays] = useState(0);
+  // dev 미리보기 — 목표 달성 축하 모달 연출 확인용(__DEV__ 전용).
+  const [modalPreview, setModalPreview] = useState<null | 'focus' | 'screentime'>(null);
 
   // 화면 재진입마다 최신값 반영(하위 화면에서 바꾸고 돌아올 수 있으므로).
   useFocusEffect(
@@ -253,9 +257,42 @@ export default function MenuScreen() {
                 )
               }
             />
+            <SettingsRow
+              icon="phone-portrait-outline"
+              iconColor={T.accentAlt}
+              iconBg={T.accentAltBg}
+              label="스크린타임 목표 달성 모달 미리보기"
+              sub="축하 + 연속 목표달성 연출"
+              onPress={() => setModalPreview('screentime')}
+            />
+            <SettingsRow
+              icon="timer-outline"
+              iconColor={T.accentAlt}
+              iconBg={T.accentAltBg}
+              label="포커스 목표 달성 모달 미리보기"
+              sub="축하 + 연속 목표달성 연출"
+              onPress={() => setModalPreview('focus')}
+            />
           </SettingsSection>
         )}
       </ScrollView>
+
+      {/* dev 미리보기 — 목표 달성 축하 모달 연출 확인(__DEV__ 전용) */}
+      {__DEV__ && (
+        <>
+          <ScreenTimeCelebrationModal
+            visible={modalPreview === 'screentime'}
+            streakDays={5}
+            onClose={() => setModalPreview(null)}
+          />
+          <GoalCelebrationModal
+            visible={modalPreview === 'focus'}
+            goalStreakDays={5}
+            goalMinutes={120}
+            onClose={() => setModalPreview(null)}
+          />
+        </>
+      )}
     </SafeAreaView>
   );
 }
