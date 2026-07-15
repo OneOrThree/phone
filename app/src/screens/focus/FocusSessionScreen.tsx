@@ -23,6 +23,7 @@ import { T, withAlpha } from '@/constants/theme';
 import { saveFocusSession } from '@/services/focusApi';
 import { ensureFocusTagId } from './tagSync';
 import { enqueuePendingFocusUpload } from './pendingFocusUploads';
+import { publishSessionSaveVerdict } from './sessionSaveVerdict';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
@@ -299,9 +300,15 @@ export default function FocusSessionScreen() {
           distractionCount: 0,
           totalDistractionSeconds: 0,
         };
-        return saveFocusSession(body).catch(() => {
-          enqueuePendingFocusUpload(body, userId).catch(() => {});
-        });
+        return (
+          saveFocusSession(body)
+            // 저장 성공 — 서버 스트릭 판정을 결과 화면에 전달(GROMO-807). 결과 화면이 먼저 떠 있어도
+            // 구독으로 갱신된다. 실패(대기열행)는 발행 없음 — 결과 화면은 기존 추정 판정으로 폴백.
+            .then((res) => publishSessionSaveVerdict(res))
+            .catch(() => {
+              enqueuePendingFocusUpload(body, userId).catch(() => {});
+            })
+        );
       })
       .catch(() => {});
   }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName, userId]);

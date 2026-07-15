@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -26,6 +26,7 @@ import { ComingSoon } from '@/screens/stats/ComingSoon';
 import { WeekStreakModal } from './components/WeekStreakModal';
 import { useFocus } from '@/store/FocusContext';
 import { useUser } from '@/store/UserContext';
+import { subscribeSessionSaveVerdict, getSessionSaveVerdict } from './sessionSaveVerdict';
 
 // 집중 결과 화면 — Claude Design Gromo.dc.html 14번(첫 집중 완료) 레이아웃 기준.
 // GROMO-598: 화면·진입·이번 집중(00:00:00)·과목별 누적(로컬 SubjectContext — 방금 세션 즉시 반영)·CTA. 코인 미표기.
@@ -201,16 +202,26 @@ export default function FocusResultScreen() {
   // 주간 완성 추가 연출 — 축하 모달(종이폭죽은 모달 오버레이 안에서 동시에). ✓ 팝은 todayPop 담당.
   const [weekModalVisible, setWeekModalVisible] = useState(false);
   const celebrationStarted = useRef(false);
+  // 세션 저장 응답의 서버 판정 구독(GROMO-807) — 업로드가 fire-and-forget이라 결과 화면 진입
+  // 후에 도착할 수 있고, 도착하면 구독으로 재렌더된다. 오늘 날짜 판정만 유효(자정 넘김 방어).
+  const rawVerdict = useSyncExternalStore(subscribeSessionSaveVerdict, getSessionSaveVerdict);
+  const verdict = rawVerdict?.date === today ? rawVerdict : null;
   // 방금 끝낸 세션은 업로드 직후라 서버 집계(week·heatmap)에 아직 없을 수 있다(리뷰 반영).
-  // 오늘 값은 max(서버, 방금 세션 분)로 바닥을 깔고, 주간 합계에도 그 차이만큼 더해
-  // 결과 화면이 0/이전 값으로 보이지 않게 한다(이중 집계 없음 — max라 서버 반영 후엔 그대로).
+  // 오늘 값은 max(서버 집계, 방금 세션 분, 저장 응답의 그날 누적)로 바닥을 깔고, 주간 합계에도
+  // 그 차이만큼 더해 결과 화면이 0/이전 값으로 보이지 않게 한다(이중 집계 없음 — max라 서버
+  // 반영 후엔 그대로). 저장 응답 누적은 서버가 방금 세션까지 확정한 값이라 집계 레이스가 없다.
   const sessionMin = Math.round(focusSeconds / 60);
   const serverToday = cellByDate[today]?.totalFocusMinutes ?? 0;
-  const adjustedToday = Math.max(serverToday, sessionMin);
-  // 스트릭 판정용 오늘 충족 여부(GROMO-682) — 서버와 로컬 하루 누적(FocusContext, 방금 세션
-  // 포함) 중 큰 값을 내림으로 판정. 세션 단건만 보면 '서버 5분+이번 6분' 같은 합산 도달을
-  // 업로드 레이스에서 놓친다(PR 227 리뷰). 반올림 금지 — 9분 30초가 10분으로 인정되는 문제.
+  const verdictToday = verdict ? Math.floor(verdict.dayTotalFocusSeconds / 60) : 0;
+  const adjustedToday = Math.max(serverToday, sessionMin, verdictToday);
+  // 스트릭 판정용 오늘 충족 여부(GROMO-682·807) — 서버 확정 판정(streakQualifiedToday)을 우선
+  // 사용하되 '상향 전용'으로 합친다: 서버 판정은 오프라인 대기열(614)에 남은 이전 세션을 모를 수
+  // 있어, false가 로컬 추정 true를 뒤집으면 실제 10분을 채운 유저가 미충족으로 보인다.
+  // 추정 폴백(응답 도착 전·업로드 실패 시)은 기존대로 — 서버와 로컬 하루 누적(FocusContext,
+  // 방금 세션 포함) 중 큰 값을 내림으로 판정. 세션 단건만 보면 '서버 5분+이번 6분' 같은 합산
+  // 도달을 업로드 레이스에서 놓친다(PR 227 리뷰). 반올림 금지 — 9분 30초가 10분으로 인정되는 문제.
   const todayStreakDone =
+    (verdict?.streakQualifiedToday ?? false) ||
     Math.max(serverToday, Math.floor(todayFocusSeconds / 60)) >= STREAK_MIN_DAILY_MINUTES;
   // 주간 스트릭 완성(GROMO-667) — 월~일 7칸 모두 하루 10분 기준 충족.
   // 미래 요일은 셀이 없어 자동으로 false — 사실상 일요일 세션 완료 시에만 참이 된다.
