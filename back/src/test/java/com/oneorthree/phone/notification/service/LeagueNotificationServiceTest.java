@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
@@ -360,6 +361,34 @@ class LeagueNotificationServiceTest {
     }
 
     @Test
+    @DisplayName("T5도 강등 임계값 미달이면 강등 경고를 받는다(마감 D-1 대상 아님)")
+    void tierFiveGetsRelegationWarningNotDeadlineDMinusOne() {
+        User tierFive = user(UUID.randomUUID());
+        givenCrisisContext(
+                List.of(new LeagueRankingRow(tierFive.getId(), "티어5", 5, 200_000)), // < T5 강등 201600
+                List.of(tierFive));
+
+        service.sendSundayCrisisReminders(NOW);
+
+        ArgumentCaptor<PushMessage> message = ArgumentCaptor.forClass(PushMessage.class);
+        verify(pushNotificationService).sendIfAllowed(eq(tierFive), any(), message.capture(), eq(NOW));
+        assertThat(message.getValue().link()).isEqualTo("gromo://focus"); // 강등 경고
+        assertThat(message.getValue().title()).contains("강등");
+    }
+
+    @Test
+    @DisplayName("삭제된 티어 설정이 섞여 불완전하면 예외로 드러내 잘못된 위기 알림을 막는다")
+    void throwsWhenTierConfigsIncompleteAfterDeletedFilter() {
+        List<LeagueTierConfig> configs = new ArrayList<>(defaultTierConfigs());
+        configs.set(2, deletedTierConfig(3, 151_200, 100_800)); // T3 soft-delete → 필터 후 4개
+        given(leagueTierConfigRepository.findAll()).willReturn(configs);
+
+        assertThatThrownBy(() -> service.sendSundayCrisisReminders(NOW))
+                .isInstanceOf(IllegalStateException.class);
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("강등 경고 문구에 부족한 시간을 시간·분으로 표기한다")
     void relegationWarningFormatsShortfall() {
         User relegationRisk = user(UUID.randomUUID());
@@ -401,6 +430,16 @@ class LeagueNotificationServiceTest {
                 .badgeId("badge-" + level)
                 .promotionTime(promotion)
                 .relegationTime(relegation)
+                .build();
+    }
+
+    private static LeagueTierConfig deletedTierConfig(int level, int promotion, int relegation) {
+        return LeagueTierConfig.builder()
+                .tierLevel(level)
+                .badgeId("badge-" + level)
+                .promotionTime(promotion)
+                .relegationTime(relegation)
+                .deletedAt(Instant.parse("2026-07-01T00:00:00Z"))
                 .build();
     }
 }

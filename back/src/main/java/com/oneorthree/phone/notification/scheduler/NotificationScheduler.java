@@ -74,7 +74,7 @@ public class NotificationScheduler {
         }
     }
 
-    // 미접속 복귀 푸시 (GROMO-578) — 매일 10:00 KST. quiet hours(기본 21–09) 종료 후 오전 리텐션 골든타임.
+    // 미접속 복귀 푸시 (GROMO-578) — 매일 10:00 KST. 조용한 시간(기본 23–07) 종료 후 오전 리텐션 골든타임.
     // TODO: 멀티 인스턴스 배포 시 분산 락 필요 (티켓 565) — 리그 스케줄과 동일
     @Scheduled(cron = "0 0 10 * * *", zone = "Asia/Seoul")
     public void sendInactiveReturnNotifications() {
@@ -85,7 +85,7 @@ public class NotificationScheduler {
         }
     }
 
-    // 순위 추월 푸시 (GROMO-579) — 매일 19:00 KST. 저녁이라 반응 여유 + 야간(기본 21시) 차단 전이라 그날 만회 가능.
+    // 순위 추월 푸시 (GROMO-579) — 매일 19:00 KST. 저녁이라 반응 여유 + 야간(기본 23시) 차단 전이라 그날 만회 가능.
     // 어제 스냅샷과 오늘 실시간 순위를 비교해 나를 제친 라이벌 1건 묶음 발송, 처리 후 오늘 스냅샷 저장.
     // TODO: 멀티 인스턴스 배포 시 분산 락 필요 (티켓 565) — 리그 스케줄과 동일
     @Scheduled(cron = "0 0 19 * * *", zone = "Asia/Seoul")

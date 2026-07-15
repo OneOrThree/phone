@@ -173,8 +173,7 @@ public class LeagueNotificationService {
     }
 
     private void sendCrisisReminders(Instant now, boolean includeDeadlineDMinusOne) {
-        Map<Integer, LeagueTierConfig> tierConfigs = leagueTierConfigRepository.findAll().stream()
-                .collect(Collectors.toMap(LeagueTierConfig::getTierLevel, Function.identity()));
+        Map<Integer, LeagueTierConfig> tierConfigs = loadTierConfigs();
         LocalDate fromDate = leagueWeek.currentWeekStartDate(now);
         LocalDate toDate = leagueWeek.currentDate(now);
         int processedCount = 0;
@@ -205,6 +204,22 @@ public class LeagueNotificationService {
         }
         log.info("리그 위기 알림 — 대상 {}건 처리 완료 (includeDMinusOne={})",
                 processedCount, includeDeadlineDMinusOne);
+    }
+
+    /**
+     * soft-delete 된 설정을 제외하고 티어 1~5 설정을 모두 확보한다.
+     * 불완전하면 예외 — 삭제된 임계값 오용이나 일부 티어 누락으로 위기 알림이 조용히 스킵되는 것을 막는다
+     * (LeagueBatchService.loadTierConfigs 와 동일 정책).
+     */
+    private Map<Integer, LeagueTierConfig> loadTierConfigs() {
+        Map<Integer, LeagueTierConfig> tierConfigs = leagueTierConfigRepository.findAll().stream()
+                .filter(config -> config.getDeletedAt() == null)
+                .collect(Collectors.toMap(LeagueTierConfig::getTierLevel, Function.identity()));
+        if (tierConfigs.size() != MAX_TIER_LEVEL) {
+            throw new IllegalStateException(
+                    "리그 티어 설정이 불완전합니다 (활성 " + tierConfigs.size() + "개, 기대 " + MAX_TIER_LEVEL + "개)");
+        }
+        return tierConfigs;
     }
 
     private int sendCrisisPage(List<LeagueRankingRow> page, Map<Integer, LeagueTierConfig> tierConfigs,
