@@ -17,7 +17,6 @@ export const STORAGE_KEYS = {
   focusGoalCelebratedDate: 'gromo:focus:goalCelebratedDate', // 목표 달성 축하 모달을 띄운 날짜(YYYY-MM-DD) — 하루 1회(GROMO-630)
   focusGoalCelebratePending: 'gromo:focus:goalCelebratePending', // 결과 화면이 예약한 축하 {date,days} — 홈 진입 시 노출(GROMO-630)
   focusWeekStreakCelebratedWeek: 'gromo:focus:weekCelebratedWeek', // 주간 스트릭 완성 축하를 띄운 주(월요일 YYYY-MM-DD) — 주 1회(GROMO-667)
-  focusStreakPoppedDate: 'gromo:focus:streakPoppedDate', // 오늘 ✓ 팝 연출을 보여준 날짜 — 하루 1회(GROMO-667)
   subjects: 'gromo:subjects',
   goalPending: 'gromo:goal:pending',
   notificationInbox: 'gromo:notifications', // 알림 보관함 — 수신한 푸시 로컬 저장(GROMO-661)
