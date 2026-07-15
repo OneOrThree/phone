@@ -9,6 +9,13 @@ export function fmtMinutes(totalMinutes: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
 }
 
+// 분 → 컴팩트 디지털 표기 "01:35" (시:분) — 비교 카드류(692·755). 초가 항상 00인 값에
+// :00을 붙이면 자릿수만 늘어나 바 옆 표기가 답답해져 시:분으로 줄인다.
+export function fmtHm(totalMinutes: number): string {
+  const t = Math.max(0, Math.round(totalMinutes));
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+}
+
 // 초 → 디지털 표기 "01:47:23" (시:분:초) — 집중 타이머·통계 최장 세션 공용
 // (focus/format.ts에서 승격 — 2개 feature 이상 사용 시 전역 이동 규칙)
 export function hms(totalSeconds: number): string {

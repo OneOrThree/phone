@@ -34,7 +34,7 @@ import { heatmapRange } from '@/screens/stats/format';
 import { MemberAvatar } from './components/MemberAvatar';
 import { TierBadge } from './components/TierBadge';
 import { DuoDayChart } from './components/DuoDayChart';
-import { SubjectCompareCard } from './components/SubjectCompareCard';
+import { SubjectCompareCard, type SubjectComparePeriod } from './components/SubjectCompareCard';
 import { ComingSoon } from '@/screens/stats/ComingSoon';
 import { TEASER_SUBJECTS, type CompareByDay, type SubjectCompare } from './mock';
 
@@ -82,8 +82,12 @@ export default function FriendProfileScreen() {
   const [stats, setStats] = useState<UserStatsResponse | null>(null);
   const [myHeatmap, setMyHeatmap] = useState<HeatmapCellResponse[]>([]);
   const [loading, setLoading] = useState(true);
-  // 과목별 비교(겹치는 태그) — undefined = 미확보(블러 티저 유지), [] = 겹침 없음, N개 = 실비교
-  const [subjectCompare, setSubjectCompare] = useState<SubjectCompare[] | undefined>(undefined);
+  // 과목별 비교(겹치는 태그) — undefined = 미확보(블러 티저 유지), [] = 겹침 없음, N개 = 실비교.
+  // GROMO-692: 오늘/이번주 탭 — 기간별로 캐시해 탭을 오가도 재조회 없이 즉시 전환된다.
+  const [subjectPeriod, setSubjectPeriod] = useState<SubjectComparePeriod>('WEEK');
+  const [subjectCompareByPeriod, setSubjectCompareByPeriod] = useState<
+    Partial<Record<SubjectComparePeriod, SubjectCompare[]>>
+  >({});
   // 상세 조회 실패 시 강등 폴백 — GROMO-640 이후 PUBLIC도 getUserStats가 상세(heatmap 포함)를
   // 채워주므로 평시엔 발동하지 않는다. getUserStats가 실패한 경우에만 /stats/today?friends=
   // (PUBLIC·친구 허용, GROMO-623)로 today를 직접 조회해 요약이라도 보여준다.
@@ -224,18 +228,17 @@ export default function FriendProfileScreen() {
   }, [loading, stats, userId]);
 
   // 과목별 비교(GROMO-624) — 세부 공개(친구·본인·PUBLIC) 대상. 내 by-category + 상대
-  // by-category(WEEK)를 태그명으로 매칭해 겹치는 과목만 비교. 한쪽이라도 실패하면 undefined 유지(블러 티저).
+  // by-category를 태그명으로 매칭해 겹치는 과목만 비교. 한쪽이라도 실패하면 undefined 유지(블러 티저).
+  // 기간은 선택 탭(GROMO-692)을 따르고, 이미 캐시된 기간은 재조회하지 않는다.
   const canCompareSubjects = detailVisible || publicVisible;
+  const subjectCompare = canCompareSubjects ? subjectCompareByPeriod[subjectPeriod] : undefined;
   useEffect(() => {
-    if (!canCompareSubjects) {
-      setSubjectCompare(undefined);
-      return;
-    }
+    if (!canCompareSubjects || subjectCompareByPeriod[subjectPeriod] != null) return;
     let stale = false;
     (async () => {
       const [mine, theirs] = await Promise.all([
-        getFocusStatsByCategory('WEEK').catch(() => null),
-        getFocusStatsByCategory('WEEK', userId).catch(() => null),
+        getFocusStatsByCategory(subjectPeriod).catch(() => null),
+        getFocusStatsByCategory(subjectPeriod, userId).catch(() => null),
       ]);
       if (stale) return;
       if (!mine || !theirs) return; // 미확보 — 티저 유지
@@ -254,12 +257,12 @@ export default function FriendProfileScreen() {
           myMinutes: mineByName.get(i.tagName) ?? 0,
           theirMinutes: i.totalFocusMinutes,
         }));
-      setSubjectCompare(rows);
+      setSubjectCompareByPeriod((prev) => ({ ...prev, [subjectPeriod]: rows }));
     })();
     return () => {
       stale = true;
     };
-  }, [canCompareSubjects, userId]);
+  }, [canCompareSubjects, userId, subjectPeriod, subjectCompareByPeriod]);
 
   // 요약 값 — getUserStats(항상 공개, GROMO-746), 실패 시엔 폴백 조회값 사용.
   const goalPercent =
@@ -283,27 +286,30 @@ export default function FriendProfileScreen() {
   // 0짜리 막대 비교는 무의미해 안내로 대체한다. 내 쪽 0은 그대로 차트(내 상태는 내가 안다).
   const theirPhoneMeasured = phoneByDay.theirs.some((m) => m > 0);
 
-  // 과목별 비교 블록 — 겹치는 과목 실비교 / 겹침 없음 배너 / 미확보 시 블러 티저.
-  // 상세(친구) 분기와 PUBLIC 분기가 공유한다.
-  const subjectCompareBlock =
-    subjectCompare && subjectCompare.length > 0 ? (
-      <View style={s.chartGap}>
-        <SubjectCompareCard subjects={subjectCompare} opponentName={nickname} />
-      </View>
-    ) : subjectCompare && subjectCompare.length === 0 ? (
-      <View style={[s.chartGap, s.noOverlapNote]}>
-        <Ionicons name="star" size={15} color={T.accent} />
-        <Text style={s.noOverlapText}>
-          겹치는 공부 과목이 없습니다. 요일별 집중·폰 사용시간으로 비교해요.
-        </Text>
-      </View>
-    ) : (
-      <View style={s.chartGap}>
-        <ComingSoon note="같은 과목 공부량 비교를 준비하고 있어요">
-          <SubjectCompareCard subjects={TEASER_SUBJECTS} opponentName={nickname} />
-        </ComingSoon>
-      </View>
-    );
+  // 과목별 비교 블록 — 겹치는 과목 실비교 / 미확보 시 블러 티저. 상세(친구) 분기와 PUBLIC
+  // 분기가 공유한다. 겹침 없음([])은 카드 안 빈 상태로 안내(GROMO-692) — 배너로 카드를 통째로
+  // 대체하면 다른 기간 탭으로 빠져나갈 수 없다.
+  const subjectCompareBlock = subjectCompare ? (
+    <View style={s.chartGap}>
+      <SubjectCompareCard
+        subjects={subjectCompare}
+        opponentName={nickname}
+        period={subjectPeriod}
+        onPeriodChange={setSubjectPeriod}
+      />
+    </View>
+  ) : (
+    <View style={s.chartGap}>
+      <ComingSoon note="같은 과목 공부량 비교를 준비하고 있어요">
+        <SubjectCompareCard
+          subjects={TEASER_SUBJECTS}
+          opponentName={nickname}
+          period={subjectPeriod}
+          onPeriodChange={setSubjectPeriod}
+        />
+      </ComingSoon>
+    </View>
+  );
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>

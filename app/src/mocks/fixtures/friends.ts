@@ -63,6 +63,11 @@ const pinnedIds = new Set<string>([
   '00000000-0000-0000-0000-000000000004',
 ]);
 
+// 프로필·통계 목(692)에서 닉네임·티어를 재사용하기 위한 조회 헬퍼
+export function mockFriendById(userId: string): MockFriendBase | undefined {
+  return FRIENDS.find((f) => f.userId === userId);
+}
+
 export function mockFriends(): FriendResponse[] {
   return FRIENDS.map((f) => ({
     userId: f.userId,
