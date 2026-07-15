@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,7 +19,7 @@ import CircularGauge from '@/components/CircularGauge';
 import { getPublicProfile, getUserStats } from '@/services/userApi';
 import { getFocusStatsByCategory, getHeatmap, getTodayStats } from '@/services/statsApi';
 import type { PublicProfileResponse, UserStatsResponse } from '@/types/dto/user';
-import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
+import type { HeatmapCellResponse, StatsPeriod, TodayStatsResponse } from '@/types/dto/stats';
 import type { V2RootStackParamList } from '@/navigation/types';
 import {
   deleteFriend,
@@ -82,8 +82,23 @@ export default function FriendProfileScreen() {
   const [stats, setStats] = useState<UserStatsResponse | null>(null);
   const [myHeatmap, setMyHeatmap] = useState<HeatmapCellResponse[]>([]);
   const [loading, setLoading] = useState(true);
-  // 과목별 비교(겹치는 태그) — undefined = 미확보(블러 티저 유지), [] = 겹침 없음, N개 = 실비교
-  const [subjectCompare, setSubjectCompare] = useState<SubjectCompare[] | undefined>(undefined);
+  // 과목별 비교(겹치는 태그) — undefined = 미확보(블러 티저 유지), [] = 겹침 없음, N개 = 실비교.
+  // GROMO-692: 오늘/이번주/이번달 탭 — `${userId}:${period}` 키로 캐시해 탭을 오가도 재조회 없이
+  // 즉시 전환된다. 키에 userId 포함 — 지금은 프로필→프로필 직행 경로가 없지만, navigate 재사용으로
+  // params만 바뀌는 진입이 생기면 이전 친구 데이터가 새 화면에 남는다(PR 252 리뷰 선반영).
+  const [subjectPeriod, setSubjectPeriod] = useState<StatsPeriod>('WEEK');
+  const [subjectCompareByKey, setSubjectCompareByKey] = useState<Record<string, SubjectCompare[]>>(
+    {},
+  );
+  // 조회 시작 키 — 도착 상태를 effect 의존성으로 쓰면 다른 기간 도착마다 재실행된다(PR 252 리뷰)
+  const subjectCompareFetched = useRef(new Set<string>());
+  const subjectCompareUnmounted = useRef(false);
+  useEffect(
+    () => () => {
+      subjectCompareUnmounted.current = true;
+    },
+    [],
+  );
   // 상세 조회 실패 시 강등 폴백 — GROMO-640 이후 PUBLIC도 getUserStats가 상세(heatmap 포함)를
   // 채워주므로 평시엔 발동하지 않는다. getUserStats가 실패한 경우에만 /stats/today?friends=
   // (PUBLIC·친구 허용, GROMO-623)로 today를 직접 조회해 요약이라도 보여준다.
@@ -224,21 +239,25 @@ export default function FriendProfileScreen() {
   }, [loading, stats, userId]);
 
   // 과목별 비교(GROMO-624) — 세부 공개(친구·본인·PUBLIC) 대상. 내 by-category + 상대
-  // by-category(WEEK)를 태그명으로 매칭해 겹치는 과목만 비교. 한쪽이라도 실패하면 undefined 유지(블러 티저).
+  // by-category를 태그명으로 매칭해 겹치는 과목만 비교. 한쪽이라도 실패하면 undefined 유지(블러 티저).
+  // 기간은 선택 탭(GROMO-692)을 따르고, 이미 캐시된(조회 시작한) 키는 재조회하지 않는다.
   const canCompareSubjects = detailVisible || publicVisible;
+  const subjectCompareKey = `${userId}:${subjectPeriod}`;
+  const subjectCompare = canCompareSubjects ? subjectCompareByKey[subjectCompareKey] : undefined;
   useEffect(() => {
-    if (!canCompareSubjects) {
-      setSubjectCompare(undefined);
-      return;
-    }
-    let stale = false;
+    if (!canCompareSubjects || subjectCompareFetched.current.has(subjectCompareKey)) return;
+    subjectCompareFetched.current.add(subjectCompareKey);
     (async () => {
       const [mine, theirs] = await Promise.all([
-        getFocusStatsByCategory('WEEK').catch(() => null),
-        getFocusStatsByCategory('WEEK', userId).catch(() => null),
+        getFocusStatsByCategory(subjectPeriod).catch(() => null),
+        getFocusStatsByCategory(subjectPeriod, userId).catch(() => null),
       ]);
-      if (stale) return;
-      if (!mine || !theirs) return; // 미확보 — 티저 유지
+      if (!mine || !theirs) {
+        // 미확보 — 티저 유지. 시작 표시를 지워 탭 재방문·화면 재진입에서 다시 시도한다.
+        subjectCompareFetched.current.delete(subjectCompareKey);
+        return;
+      }
+      if (subjectCompareUnmounted.current) return;
       const mineByName = new Map(
         mine.items
           .filter((i) => i.tagName != null)
@@ -254,12 +273,10 @@ export default function FriendProfileScreen() {
           myMinutes: mineByName.get(i.tagName) ?? 0,
           theirMinutes: i.totalFocusMinutes,
         }));
-      setSubjectCompare(rows);
+      // 키 스코프 캐시라 뒤늦게 도착해도 자기 키에 쓰면 안전 — 언마운트 후 쓰기만 막는다
+      setSubjectCompareByKey((prev) => ({ ...prev, [subjectCompareKey]: rows }));
     })();
-    return () => {
-      stale = true;
-    };
-  }, [canCompareSubjects, userId]);
+  }, [canCompareSubjects, userId, subjectPeriod, subjectCompareKey]);
 
   // 요약 값 — getUserStats(항상 공개, GROMO-746), 실패 시엔 폴백 조회값 사용.
   const goalPercent =
@@ -283,27 +300,30 @@ export default function FriendProfileScreen() {
   // 0짜리 막대 비교는 무의미해 안내로 대체한다. 내 쪽 0은 그대로 차트(내 상태는 내가 안다).
   const theirPhoneMeasured = phoneByDay.theirs.some((m) => m > 0);
 
-  // 과목별 비교 블록 — 겹치는 과목 실비교 / 겹침 없음 배너 / 미확보 시 블러 티저.
-  // 상세(친구) 분기와 PUBLIC 분기가 공유한다.
-  const subjectCompareBlock =
-    subjectCompare && subjectCompare.length > 0 ? (
-      <View style={s.chartGap}>
-        <SubjectCompareCard subjects={subjectCompare} opponentName={nickname} />
-      </View>
-    ) : subjectCompare && subjectCompare.length === 0 ? (
-      <View style={[s.chartGap, s.noOverlapNote]}>
-        <Ionicons name="star" size={15} color={T.accent} />
-        <Text style={s.noOverlapText}>
-          겹치는 공부 과목이 없습니다. 요일별 집중·폰 사용시간으로 비교해요.
-        </Text>
-      </View>
-    ) : (
-      <View style={s.chartGap}>
-        <ComingSoon note="같은 과목 공부량 비교를 준비하고 있어요">
-          <SubjectCompareCard subjects={TEASER_SUBJECTS} opponentName={nickname} />
-        </ComingSoon>
-      </View>
-    );
+  // 과목별 비교 블록 — 겹치는 과목 실비교 / 미확보 시 블러 티저. 상세(친구) 분기와 PUBLIC
+  // 분기가 공유한다. 겹침 없음([])은 카드 안 빈 상태로 안내(GROMO-692) — 배너로 카드를 통째로
+  // 대체하면 다른 기간 탭으로 빠져나갈 수 없다.
+  const subjectCompareBlock = subjectCompare ? (
+    <View style={s.chartGap}>
+      <SubjectCompareCard
+        subjects={subjectCompare}
+        opponentName={nickname}
+        period={subjectPeriod}
+        onPeriodChange={setSubjectPeriod}
+      />
+    </View>
+  ) : (
+    <View style={s.chartGap}>
+      <ComingSoon note="같은 과목 공부량 비교를 준비하고 있어요">
+        <SubjectCompareCard
+          subjects={TEASER_SUBJECTS}
+          opponentName={nickname}
+          period={subjectPeriod}
+          onPeriodChange={setSubjectPeriod}
+        />
+      </ComingSoon>
+    </View>
+  );
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>

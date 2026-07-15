@@ -12,6 +12,8 @@ import type {
   CategoryFocusStatsResponse,
   ScreenTimePeriodStatsResponse,
   StatsPeriod,
+  FocusAverageResponse,
+  FocusAverageScope,
 } from '@/types/dto/stats';
 
 // GET /api/v1/stats/today?date&friends — 오늘 집중·스크린타임 요약.
@@ -73,6 +75,19 @@ export async function getScreenTimePeriodStats(
 ): Promise<ScreenTimePeriodStatsResponse> {
   const { data } = await api.get<ScreenTimePeriodStatsResponse>('/api/v1/stats/screen-time', {
     params: { period, date },
+  });
+  return data;
+}
+
+// GET /api/v1/stats/focus/average?scope&period&date — 활동 유저 1인당 평균 집중시간(분).
+// scope: FRIENDS(내 친구)·TOTAL(전체)·CATEGORY(내 occupation) — GROMO-753.
+export async function getFocusAverage(
+  scope: FocusAverageScope,
+  period: StatsPeriod,
+  date: string = todayStr(),
+): Promise<FocusAverageResponse> {
+  const { data } = await api.get<FocusAverageResponse>('/api/v1/stats/focus/average', {
+    params: { scope, period, date },
   });
   return data;
 }
