@@ -283,6 +283,7 @@ export default function MenuScreen() {
           <ScreenTimeCelebrationModal
             visible={modalPreview === 'screentime'}
             streakDays={5}
+            goalMinutes={180}
             onClose={() => setModalPreview(null)}
           />
           <GoalCelebrationModal

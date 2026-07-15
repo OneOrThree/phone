@@ -8,6 +8,7 @@ import { STORAGE_KEYS } from '@/types/storage';
 export interface PendingScreenTimeCelebration {
   date: string; // 노출 대상일(YYYY-MM-DD, 보통 오늘) — 모달을 닫을 때 이 날짜로 기록(하루 1회 가드)
   days: number; // 연속 목표달성 일수(어제 포함)
+  goalMinutes?: number; // 어제 목표 사용 시간(분) — 모달 "N시간 이내" 문구용
 }
 
 type CelebrationListener = () => void;
@@ -31,12 +32,12 @@ export async function readPendingScreenTimeCelebration(): Promise<PendingScreenT
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeCelebratePending);
     if (!raw) return null;
-    const p = JSON.parse(raw) as { date?: string; days?: number };
+    const p = JSON.parse(raw) as { date?: string; days?: number; goalMinutes?: number };
     if (typeof p.date !== 'string') {
       clearScreenTimeCelebration().catch(() => {});
       return null;
     }
-    return { date: p.date, days: p.days ?? 1 };
+    return { date: p.date, days: p.days ?? 1, goalMinutes: p.goalMinutes };
   } catch {
     clearScreenTimeCelebration().catch(() => {});
     return null;

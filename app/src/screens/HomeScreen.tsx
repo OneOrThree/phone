@@ -192,6 +192,7 @@ export default function HomeScreen() {
   const [screenTimeCelebration, setScreenTimeCelebration] = useState<{
     date: string;
     days: number;
+    goalMinutes?: number;
   } | null>(null);
   // 오늘 집중 누적(로컬)을 effect 재실행 없이 최신값으로 읽기 위한 ref(폴백/계측용).
   const todayFocusSecondsRef = useRef(todayFocusSeconds);
@@ -452,6 +453,7 @@ export default function HomeScreen() {
       <ScreenTimeCelebrationModal
         visible={screenTimeCelebration != null}
         streakDays={screenTimeCelebration?.days ?? 1}
+        goalMinutes={screenTimeCelebration?.goalMinutes}
         onClose={closeScreenTimeCelebration}
       />
     </SafeAreaView>
