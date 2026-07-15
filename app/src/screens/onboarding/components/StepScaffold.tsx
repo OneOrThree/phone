@@ -100,7 +100,7 @@ export default function StepScaffold({
           {secondaryLabel ? (
             <TouchableOpacity
               onPress={onSecondary}
-              hitSlop={{ top: 10, bottom: 10, left: 20, right: 20 }}
+              hitSlop={{ top: 14, bottom: 14, left: 20, right: 20 }}
             >
               <Text style={s.secondaryText}>{secondaryLabel}</Text>
             </TouchableOpacity>

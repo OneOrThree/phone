@@ -867,7 +867,7 @@ function FocusTimetableCard() {
         <TouchableOpacity
           style={s.shareBtn}
           onPress={onShare}
-          hitSlop={8}
+          hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
           activeOpacity={0.7}
           disabled={sharing}
         >
