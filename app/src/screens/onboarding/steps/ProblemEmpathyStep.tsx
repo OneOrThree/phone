@@ -58,17 +58,17 @@ export default function ProblemEmpathyStep({ onNext }: StepProps) {
 }
 
 const s = StyleSheet.create({
-  cards: { alignSelf: 'stretch', gap: 11 },
+  cards: { alignSelf: 'stretch', gap: T.space.md },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 13,
+    gap: T.space.md,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 16,
-    paddingVertical: 15,
-    paddingHorizontal: 16,
+    paddingVertical: T.space.lg,
+    paddingHorizontal: T.space.lg,
   },
   iconBox: {
     width: 42,

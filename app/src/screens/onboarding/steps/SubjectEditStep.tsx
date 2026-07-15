@@ -40,13 +40,13 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.border,
     borderRadius: 14,
-    paddingHorizontal: 14,
+    paddingHorizontal: T.space.lg,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 13,
+    gap: T.space.md,
+    paddingVertical: T.space.md,
   },
   // 행 사이 얇은 구분선(첫 행 제외) — 낱개 카드가 아니라 하나의 리스트로 읽히게
   rowDivider: { borderTopWidth: 1, borderTopColor: T.divider },

@@ -89,23 +89,23 @@ export default function GoalSettingStep({ data, update, onNext }: StepProps) {
 }
 
 const s = StyleSheet.create({
-  cards: { alignSelf: 'stretch', gap: 12 },
+  cards: { alignSelf: 'stretch', gap: T.space.md },
   card: {
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 16,
-    paddingVertical: 15,
-    paddingHorizontal: 16,
+    paddingVertical: T.space.lg,
+    paddingHorizontal: T.space.lg,
   },
   head: {
     flexDirection: 'row',
     alignItems: 'baseline',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: T.space.lg,
   },
   label: { ...T.text.caption, fontWeight: '700', color: T.ink },
-  valueWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  valueWrap: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   value: { ...T.text.subtitle, fontWeight: '800', color: T.accent },
   rec: {
     ...T.text.caption,
@@ -115,7 +115,7 @@ const s = StyleSheet.create({
     backgroundColor: T.green,
     borderRadius: 99,
     paddingVertical: 2,
-    paddingHorizontal: 7,
+    paddingHorizontal: T.space.sm,
     overflow: 'hidden',
   },
 });

@@ -19,16 +19,16 @@ export function NoteStrong({ children }: { children: ReactNode }) {
 const s = StyleSheet.create({
   box: {
     flexDirection: 'row',
-    gap: 10,
+    gap: T.space.md,
     alignItems: 'flex-start',
     backgroundColor: T.noteBg,
     borderWidth: 1,
     borderColor: T.noteBorder,
     borderRadius: 14,
-    padding: 14,
+    padding: T.space.lg,
     alignSelf: 'stretch',
   },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.accent, marginTop: 6 },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.accent, marginTop: T.space.sm },
   text: { ...T.text.caption, fontWeight: '500', color: T.inkSub, flex: 1, lineHeight: 19 },
   strong: { color: T.ink, fontWeight: '700' },
 });

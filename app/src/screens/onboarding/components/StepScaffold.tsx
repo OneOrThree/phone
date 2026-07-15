@@ -117,21 +117,21 @@ const s = StyleSheet.create({
   // 세로로 고정된다(하단 CTA는 ScrollView 밖 형제라 항상 하단 고정). 콘텐츠가 긴 스텝은
   // scrollable prop으로 스크롤을 켜 작은 기기에서 하단 잘림을 방지한다(가로 스와이프 뒤로가기 유지).
   scroll: { flex: 1 },
-  progress: { paddingTop: 16, paddingBottom: 4, paddingHorizontal: 26 },
+  progress: { paddingTop: T.space.lg, paddingBottom: T.space.xs, paddingHorizontal: T.space.xxl },
   progressTrack: { height: 4, borderRadius: 2, backgroundColor: T.caramel, overflow: 'hidden' },
   progressFill: { height: 4, borderRadius: 2, backgroundColor: T.accent },
-  body: { flexGrow: 1, paddingHorizontal: 26, paddingTop: 28 },
+  body: { flexGrow: 1, paddingHorizontal: T.space.xxl, paddingTop: 28 },
   bodyCenter: { justifyContent: 'center', alignItems: 'center', paddingBottom: 28 },
-  header: { alignSelf: 'stretch', alignItems: 'flex-start', marginBottom: 18 },
-  headerCenter: { alignItems: 'center', marginBottom: 22 },
+  header: { alignSelf: 'stretch', alignItems: 'flex-start', marginBottom: T.space.xl },
+  headerCenter: { alignItems: 'center', marginBottom: T.space.xxl },
   title: { color: T.ink },
   centerText: { textAlign: 'center' },
-  subtitle: { color: T.inkSub, marginTop: 8 },
-  content: { flex: 1, marginTop: 20 },
+  subtitle: { color: T.inkSub, marginTop: T.space.sm },
+  content: { flex: 1, marginTop: T.space.xl },
   // alignSelf:stretch로 가로를 채워야 안쪽 alignSelf:stretch 자식(카드 등)이 풀폭이 된다.
   // (부모가 bodyCenter의 alignItems:center라 stretch 없으면 콘텐츠 폭으로 쭈그러듦)
-  contentCenter: { marginTop: 18, alignItems: 'center', alignSelf: 'stretch' },
-  footer: { paddingHorizontal: 22, paddingBottom: 10, paddingTop: 8 },
+  contentCenter: { marginTop: T.space.xl, alignItems: 'center', alignSelf: 'stretch' },
+  footer: { paddingHorizontal: T.space.xxl, paddingBottom: T.space.md, paddingTop: T.space.sm },
   cta: {
     height: 56,
     borderRadius: 18,
@@ -141,6 +141,11 @@ const s = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.45 },
   ctaText: { ...T.text.subtitle, color: T.white },
-  secondarySlot: { height: 22, marginTop: 14, alignItems: 'center', justifyContent: 'center' },
+  secondarySlot: {
+    height: 22,
+    marginTop: T.space.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   secondaryText: { ...T.text.label, color: T.inkMuted },
 });

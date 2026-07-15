@@ -79,17 +79,17 @@ export default function EffectStatsStep({ onNext }: StepProps) {
 }
 
 const s = StyleSheet.create({
-  cards: { alignSelf: 'stretch', gap: 15 },
+  cards: { alignSelf: 'stretch', gap: T.space.lg },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: T.space.lg,
     backgroundColor: T.white,
     borderRadius: 18,
     borderWidth: 2,
     borderStyle: 'dashed',
-    paddingVertical: 20,
-    paddingHorizontal: 20,
+    paddingVertical: T.space.xl,
+    paddingHorizontal: T.space.xl,
   },
   cardUp: { borderColor: T.accent, transform: [{ rotate: '-1.5deg' }] },
   cardDown: { borderColor: T.accentAlt, transform: [{ rotate: '1.5deg' }] },
@@ -104,6 +104,6 @@ const s = StyleSheet.create({
     fontWeight: '500',
     color: T.inkMuted,
     textAlign: 'center',
-    marginTop: 16,
+    marginTop: T.space.lg,
   },
 });
