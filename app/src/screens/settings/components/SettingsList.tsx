@@ -59,7 +59,7 @@ export function SettingsRow({
   const showChevron = chevron ?? (!!onPress && !danger);
   const Wrapper = onPress ? TouchableOpacity : View;
   return (
-    <Wrapper style={[s.row, divider ? s.rowDivider : null]} onPress={onPress} activeOpacity={0.7}>
+    <Wrapper style={s.row} onPress={onPress} activeOpacity={0.7}>
       {icon ? (
         <View style={[s.rowIcon, { backgroundColor: iconBg }]}>
           <Ionicons name={icon} size={18} color={iconColor} />
@@ -74,9 +74,12 @@ export function SettingsRow({
           {value ? (
             <Text style={[s.rowValue, valueColor ? { color: valueColor } : null]}>{value}</Text>
           ) : null}
-          {showChevron ? <Ionicons name="chevron-forward" size={17} color={T.inkMuted} /> : null}
+          {showChevron ? <Ionicons name="chevron-forward" size={17} color={T.inkFaint} /> : null}
         </>
       )}
+      {divider ? (
+        <View style={[s.divider, icon ? s.dividerInset : null]} pointerEvents="none" />
+      ) : null}
     </Wrapper>
   );
 }
@@ -106,7 +109,7 @@ export function SettingsToggleRow({
   divider,
 }: ToggleRowProps) {
   return (
-    <View style={[s.row, divider ? s.rowDivider : null, disabled ? s.rowDisabled : null]}>
+    <View style={[s.row, disabled ? s.rowDisabled : null]}>
       {icon ? (
         <View style={[s.rowIcon, { backgroundColor: iconBg }]}>
           <Ionicons name={icon} size={18} color={iconColor} />
@@ -124,22 +127,48 @@ export function SettingsToggleRow({
         thumbColor={T.white}
         ios_backgroundColor={T.chipBorder}
       />
+      {divider ? (
+        <View style={[s.divider, icon ? s.dividerInset : null]} pointerEvents="none" />
+      ) : null}
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  sectionWrap: { marginTop: 16 },
-  sectionTitle: { ...T.text.caption, color: T.inkMuted, marginBottom: 8, marginLeft: 6 },
+  sectionWrap: { marginTop: T.space.lg },
+  // HIG 그룹 헤더 — 시맨틱 세컨더리 + 약한 트래킹, 8pt 그리드 여백
+  sectionTitle: {
+    ...T.text.caption,
+    color: T.inkMuted,
+    letterSpacing: 0.3,
+    marginBottom: T.space.sm,
+    marginLeft: T.space.sm,
+  },
   card: {
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 16,
-    paddingHorizontal: 14,
+    paddingHorizontal: T.space.lg,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 },
-  rowDivider: { borderBottomWidth: 1, borderBottomColor: T.divider },
+  // HIG 최소 44pt 터치타겟 + 8pt 세로 리듬
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.md,
+    paddingVertical: T.space.md,
+    minHeight: 44,
+  },
+  // HIG 그룹 리스트 구분선 — 행 하단 라인. 아이콘 있는 행은 아이콘 뒤(36+gap12=48pt)에서 시작(인셋).
+  divider: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 1,
+    backgroundColor: T.divider,
+  },
+  dividerInset: { left: 48 },
   rowDisabled: { opacity: 0.45 },
   rowIcon: {
     width: 36,
