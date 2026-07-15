@@ -37,6 +37,12 @@ export function ScreenTimeCelebrationModal({ visible, streakDays, goalMinutes, o
             setCardRect((prev) => prev ?? { x, y, width });
           }}
         >
+          <View style={s.streakBox}>
+            <Ionicons name="ribbon" size={15} color={T.accentDeep} />
+            <Text style={s.streakText}>
+              연속 목표달성 <Text style={s.streakDays}>{streakDays}일</Text>
+            </Text>
+          </View>
           <CharacterImage size={104} />
           <Text style={s.title}>어제 핸드폰 사용 시간 목표를 달성했군요!</Text>
           <Text style={s.sub}>
@@ -45,12 +51,6 @@ export function ScreenTimeCelebrationModal({ visible, streakDays, goalMinutes, o
               : '목표 이내로 사용하기 성공했어요.'}
             {'\n'}오늘도 화이팅!
           </Text>
-          <View style={s.streakBox}>
-            <Ionicons name="ribbon" size={15} color={T.accentDeep} />
-            <Text style={s.streakText}>
-              연속 목표달성 <Text style={s.streakDays}>{streakDays}일</Text>
-            </Text>
-          </View>
           <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={onClose}>
             <Text style={s.ctaText}>좋아요!</Text>
           </TouchableOpacity>
@@ -84,7 +84,6 @@ const s = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    marginTop: 10,
   },
   streakText: { ...T.text.label, fontWeight: '600', color: T.accentDeep },
   streakDays: { fontWeight: '800' },

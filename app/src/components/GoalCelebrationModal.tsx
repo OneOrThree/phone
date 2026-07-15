@@ -37,17 +37,17 @@ export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onC
             setCardRect((prev) => prev ?? { x, y, width });
           }}
         >
-          <CharacterImage size={104} />
-          <Text style={s.title}>
-            {goalMinutes ? `${goalLabel(goalMinutes)} 집중 목표 달성!` : '오늘 목표 달성!'}
-          </Text>
-          <Text style={s.sub}>내일도 힘내서 목표 달성해요!</Text>
           <View style={s.streakBox}>
             <Ionicons name="ribbon" size={15} color={T.accentDeep} />
             <Text style={s.streakText}>
               연속 목표달성 <Text style={s.streakDays}>{goalStreakDays}일</Text>
             </Text>
           </View>
+          <CharacterImage size={104} />
+          <Text style={s.title}>
+            {goalMinutes ? `${goalLabel(goalMinutes)} 집중 목표 달성!` : '오늘 목표 달성!'}
+          </Text>
+          <Text style={s.sub}>내일도 힘내서 목표 달성해요!</Text>
           <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={onClose}>
             <Text style={s.ctaText}>좋아요!</Text>
           </TouchableOpacity>
@@ -81,7 +81,6 @@ const s = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    marginTop: 10,
   },
   streakText: { ...T.text.label, fontWeight: '600', color: T.accentDeep },
   streakDays: { fontWeight: '800' },
