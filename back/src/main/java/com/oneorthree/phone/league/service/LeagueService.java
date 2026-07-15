@@ -14,6 +14,7 @@ import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
+import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,7 @@ public class LeagueService {
 
     private final LeagueRankingQueryRepository leagueRankingQueryRepository;
     private final LeagueTierConfigRepository leagueTierConfigRepository;
+    private final LeagueWeeklyResultRepository leagueWeeklyResultRepository;
     private final UserRepository userRepository;
     private final UserActivityEventLogger userActivityEventLogger;
     private final PinnedUserRepository pinnedUserRepository;
@@ -53,6 +55,8 @@ public class LeagueService {
     LeagueTierResponse getMyTier(UUID userId, Instant now) {
         return userRepository.findById(userId)
                 .filter(user -> !user.isDeleted())
+                // 게스트는 온보딩 전 리그 미참가 — assigned=false(중립)로 반환해 클라이언트가 미배정으로 처리한다.
+                .filter(user -> !user.isGuest())
                 .map(user -> new LeagueTierResponse(
                         true,
                         user.getTierLevel(),
@@ -109,20 +113,38 @@ public class LeagueService {
     }
 
     public LeagueRankResponse getMyRank(UUID userId) {
-        Instant now = Instant.now();
-        LocalDate fromDate = leagueWeek.currentWeekStartDate(now);
-        LocalDate toDate = leagueWeek.currentDate(now);
-        return leagueRankingQueryRepository.findRankOf(userId, fromDate, toDate)
-                .map(position -> toRankResponse(position))
-                .orElseGet(() -> new LeagueRankResponse(false, null, null, null));
+        return getMyRank(userId, Instant.now());
     }
 
-    private LeagueRankResponse toRankResponse(LeagueRankingPosition position) {
+    /** 테스트에서 고정 시각을 주입하기 위한 package-private 오버로드. */
+    LeagueRankResponse getMyRank(UUID userId, Instant now) {
+        LocalDate fromDate = leagueWeek.currentWeekStartDate(now);
+        LocalDate toDate = leagueWeek.currentDate(now);
+        // 순위(assigned/myRank)는 이번 주 진행 상황, result는 직전 주 정산 결과 — 서로 독립이라 각각 조회한다.
+        String settlementResult = latestSettlementResult(userId, now);
+        return leagueRankingQueryRepository.findRankOf(userId, fromDate, toDate)
+                .map(position -> toRankResponse(position, settlementResult))
+                .orElseGet(() -> new LeagueRankResponse(false, null, null, settlementResult));
+    }
+
+    /**
+     * 직전(방금 마감된) 주차 정산 결과만 노출한다. 정산 확정 후 그 주 동안 승격·유지·강등을 반환하고,
+     * 미정산(진행 중)이거나 그보다 오래된 결과는 null 로 둔다 → 문서의 "진행 중엔 result=null".
+     */
+    private String latestSettlementResult(UUID userId, Instant now) {
+        Instant previousWeekStart = leagueWeek.previousWeekStart(now);
+        return leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(userId)
+                .filter(result -> result.getWeekStartAt().equals(previousWeekStart))
+                .map(result -> result.getResult().name())
+                .orElse(null);
+    }
+
+    private LeagueRankResponse toRankResponse(LeagueRankingPosition position, String settlementResult) {
         userActivityEventLogger.log(UserActivityEvent.LEAGUE_RANK_VIEWED,
                 Map.of("my_rank", position.rank(),
                         "tier_level", position.tierLevel(),
                         "total_focus_seconds", position.totalFocusSeconds()));
-        return new LeagueRankResponse(true, position.rank(), position.totalFocusSeconds(), null);
+        return new LeagueRankResponse(true, position.rank(), position.totalFocusSeconds(), settlementResult);
     }
 
     /**
