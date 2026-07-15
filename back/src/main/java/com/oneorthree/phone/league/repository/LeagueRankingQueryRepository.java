@@ -30,6 +30,7 @@ public class LeagueRankingQueryRepository {
                 ON d.user_id = u.id
                AND d.date BETWEEN :fromDate AND :toDate
              WHERE u.is_deleted = false
+               AND u.is_guest = false
             """;
 
     private static final String GROUP_BY_USER = """
@@ -100,7 +101,7 @@ public class LeagueRankingQueryRepository {
                 + " LEFT JOIN daily_focus_stats d ON d.user_id = u.id"
                 + " AND d.date BETWEEN :fromDate AND :toDate"
                 + " CROSS JOIN target t"
-                + " WHERE u.is_deleted = false"
+                + " WHERE u.is_deleted = false AND u.is_guest = false"
                 + " GROUP BY u.id, t.user_id, t.total_focus_seconds"
                 + " HAVING COALESCE(SUM(d.total_focus_seconds), 0) > t.total_focus_seconds"
                 + " OR (COALESCE(SUM(d.total_focus_seconds), 0) = t.total_focus_seconds"

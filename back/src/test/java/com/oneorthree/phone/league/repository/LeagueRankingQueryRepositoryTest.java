@@ -160,6 +160,28 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
+    @DisplayName("게스트 유저는 랭킹·정산·내순위 집계에서 모두 제외된다")
+    void excludesGuestUsers() {
+        User active = saveUser("activeUser", Occupation.CODING, false);
+        User guest = userRepository.save(User.builder()
+                .occupation(Occupation.CODING)
+                .tierLevel(3)
+                .isGuest(true)
+                .build());
+        saveStat(active, MONDAY, 50);
+        saveStat(guest, MONDAY, 9999);
+        flushFixtures();
+
+        assertThat(leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100))
+                .extracting(LeagueRankingRow::userId)
+                .containsExactly(active.getId());
+        assertThat(leagueRankingQueryRepository.findWeeklyTotalsForSettlement(MONDAY, TUESDAY, null, 100))
+                .extracting(LeagueRankingRow::userId)
+                .containsExactly(active.getId());
+        assertThat(leagueRankingQueryRepository.findRankOf(guest.getId(), MONDAY, TUESDAY)).isEmpty();
+    }
+
+    @Test
     @DisplayName("MVP 제한: country 로컬 DailyFocusStat 날짜는 KST 리그 창과 최대 1일 어긋날 수 있다")
     void countryLocalBucketCanDifferFromKstLeagueDateByOneDay() {
         User overseas = saveUser("overseas", Occupation.CODING, false);

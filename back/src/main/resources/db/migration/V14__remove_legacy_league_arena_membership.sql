@@ -27,3 +27,9 @@ ALTER TABLE league_rank_snapshots
     DROP CONSTRAINT uq_league_rank_snapshots_arena_user_day,
     DROP COLUMN arena_id,
     ADD CONSTRAINT uq_league_rank_snapshots_user_day UNIQUE (user_id, created_at);
+
+-- 일간 순위 비교 잡은 created_at(날짜)만으로 조회(findMaximumRankByCreatedAt/findByCreatedAtAndUserIdIn)하는데
+-- 유니크 인덱스는 user_id 선두라 날짜 단일 조회에 seek가 안 된다 → 테이블 전량 스캔.
+-- created_at 선두 보조 인덱스로 하루치만 탐색하도록 한다.
+CREATE INDEX idx_league_rank_snapshots_created_at
+    ON league_rank_snapshots (created_at);
