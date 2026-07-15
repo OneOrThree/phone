@@ -118,14 +118,14 @@ const s = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: T.space.md,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 14,
-    paddingHorizontal: 13,
-    paddingVertical: 10,
-    marginBottom: 7,
+    paddingHorizontal: T.space.md,
+    paddingVertical: T.space.md,
+    marginBottom: T.space.sm,
   },
   rowMe: { backgroundColor: T.accentBg, borderWidth: 2, borderColor: T.accent },
   rank: {
@@ -137,7 +137,7 @@ const s = StyleSheet.create({
   },
   rankTop: { color: T.accent },
   nameCol: { flex: 1, gap: 1, minWidth: 0 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 5, minWidth: 0 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs, minWidth: 0 },
   name: { ...T.text.label, fontWeight: '700', color: T.ink, flexShrink: 1 },
   tierName: { ...T.text.caption, color: T.inkSub },
   // 집중 중 표시 (GROMO-810) — 이름 옆 초록 점 + 과목 라벨 + 초록 라이브 시간
