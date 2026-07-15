@@ -2,16 +2,16 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T } from '@/constants/theme';
 import type { SubjectCompare } from '../mock';
+import type { StatsPeriod } from '@/types/dto/stats';
 import { fmtHm } from '@/utils/timeFormat';
 
 // 과목별 공부량 비교 카드 — 프로필 상세(친구·과목 겹침)의 나/상대 가로 바.
 // 바 폭은 카드 안 전체 값의 최대치 기준 정규화. 상대는 시안 보라(빗금 패턴 대신 단색).
-// GROMO-692: 오늘/이번주/이번달 기간 탭(API StatsPeriod와 1:1). 겹치는 과목이 없는 기간은
-// 카드 안 빈 상태로 안내해 탭 전환이 막히지 않게 한다.
+// GROMO-692: 오늘/이번주/이번달 기간 탭 — 같은 개념의 리터럴 중복 선언 대신 서버 기간 타입
+// (StatsPeriod)을 그대로 쓴다(PR 252 리뷰). 겹치는 과목이 없는 기간은 카드 안 빈 상태로
+// 안내해 탭 전환이 막히지 않게 한다.
 
-export type SubjectComparePeriod = 'DAY' | 'WEEK' | 'MONTH';
-
-const PERIODS: { key: SubjectComparePeriod; label: string }[] = [
+const PERIODS: { key: StatsPeriod; label: string }[] = [
   { key: 'DAY', label: '오늘' },
   { key: 'WEEK', label: '이번 주' },
   { key: 'MONTH', label: '이번 달' },
@@ -20,8 +20,8 @@ const PERIODS: { key: SubjectComparePeriod; label: string }[] = [
 interface Props {
   subjects: SubjectCompare[];
   opponentName: string;
-  period: SubjectComparePeriod;
-  onPeriodChange: (period: SubjectComparePeriod) => void;
+  period: StatsPeriod;
+  onPeriodChange: (period: StatsPeriod) => void;
 }
 
 // 시안 상대(보라) 바 색 — 테마 팔레트 밖 시안 고유색
