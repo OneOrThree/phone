@@ -111,7 +111,10 @@ class LeagueNotificationServiceTest {
         ArgumentCaptor<Collection<LeagueWeeklyResultType>> types = ArgumentCaptor.forClass(Collection.class);
         verify(leagueWeeklyResultRepository).findByWeekStartAtAndResultIn(eq(PREVIOUS_WEEK_START), types.capture());
         assertThat(types.getValue())
-                .containsExactlyInAnyOrder(LeagueWeeklyResultType.PROMOTED, LeagueWeeklyResultType.RELEGATED);
+                .containsExactlyInAnyOrder(
+                        LeagueWeeklyResultType.PROMOTED,
+                        LeagueWeeklyResultType.STAY,
+                        LeagueWeeklyResultType.RELEGATED);
 
         ArgumentCaptor<PushMessage> promotedMessage = ArgumentCaptor.forClass(PushMessage.class);
         verify(pushNotificationService).sendIfAllowed(eq(promoted), any(), promotedMessage.capture(), eq(NOW));
@@ -122,6 +125,23 @@ class LeagueNotificationServiceTest {
         verify(pushNotificationService).sendIfAllowed(eq(relegated), any(), relegatedMessage.capture(), eq(NOW));
         assertThat(relegatedMessage.getValue().body()).contains("갓생러", "초집중 모드");
         assertThat(relegatedMessage.getValue().link()).isEqualTo("gromo://focus");
+    }
+
+    @Test
+    @DisplayName("잔류(STAY) 결과에는 새 리그 시작 알림을 발송한다")
+    void sendsNewLeagueStartForStayResult() {
+        User stayedUser = user(UUID.randomUUID());
+        given(leagueWeeklyResultRepository.findByWeekStartAtAndResultIn(any(), anyCollection()))
+                .willReturn(List.of(result(stayedUser, LeagueWeeklyResultType.STAY, 3, 3)));
+        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(stayedUser));
+        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+
+        service.sendWeeklyResultNotifications(NOW);
+
+        ArgumentCaptor<PushMessage> captor = ArgumentCaptor.forClass(PushMessage.class);
+        verify(pushNotificationService).sendIfAllowed(eq(stayedUser), any(), captor.capture(), eq(NOW));
+        assertThat(captor.getValue().title()).contains("새 리그");
+        assertThat(captor.getValue().link()).isEqualTo("gromo://league");
     }
 
     @Test

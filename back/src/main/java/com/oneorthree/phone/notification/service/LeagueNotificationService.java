@@ -63,7 +63,9 @@ public class LeagueNotificationService {
         Instant previousWeekStart = leagueWeek.previousWeekStart(now);
         List<LeagueWeeklyResult> results = leagueWeeklyResultRepository.findByWeekStartAtAndResultIn(
                 previousWeekStart,
-                List.of(LeagueWeeklyResultType.PROMOTED, LeagueWeeklyResultType.RELEGATED));
+                List.of(LeagueWeeklyResultType.PROMOTED,
+                        LeagueWeeklyResultType.STAY,
+                        LeagueWeeklyResultType.RELEGATED));
         if (results.isEmpty()) {
             log.info("주간 리그 결과 알림 — 대상 없음 (previousWeekStart={})", previousWeekStart);
             return;
@@ -94,9 +96,13 @@ public class LeagueNotificationService {
             }
             UserNotificationSettings settings = settingsByUserId.get(user.getId());
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
-            PushMessage message = result.getResult() == LeagueWeeklyResultType.PROMOTED
-                    ? composePromotion(result.getPreviousTierLevel(), result.getNewTierLevel(), soundEnabled)
-                    : composeRelegation(result.getPreviousTierLevel(), result.getNewTierLevel(), soundEnabled);
+            PushMessage message = switch (result.getResult()) {
+                case PROMOTED ->
+                    composePromotion(result.getPreviousTierLevel(), result.getNewTierLevel(), soundEnabled);
+                case RELEGATED ->
+                    composeRelegation(result.getPreviousTierLevel(), result.getNewTierLevel(), soundEnabled);
+                case STAY -> composeNewLeagueStart(soundEnabled);
+            };
             pushNotificationService.sendIfAllowed(user, settings, message, now);
             processedCount++;
         }
@@ -331,6 +337,14 @@ public class LeagueNotificationService {
                 "저번 주 " + previousTier + " 리그에서 이번 주 " + newTier
                         + " 리그로 이동했어요. 조금 더 힘내봐요!",
                 "gromo://focus",
+                soundEnabled);
+    }
+
+    private PushMessage composeNewLeagueStart(boolean soundEnabled) {
+        return new PushMessage(
+                "새 리그 시작!",
+                "이번 주 리그가 새로 시작됐어. 오늘 목표는? 지금 바로 몰입 시작하자!",
+                "gromo://league",
                 soundEnabled);
     }
 

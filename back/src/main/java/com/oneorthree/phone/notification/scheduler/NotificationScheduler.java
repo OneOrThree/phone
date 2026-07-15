@@ -22,9 +22,9 @@ public class NotificationScheduler {
     private final InactiveReturnNotificationService inactiveReturnNotificationService;
     private final RankOvertakeNotificationService rankOvertakeNotificationService;
 
-    // 승격/강등 알림 — 주간 배치(월 00시 마감, 412) 후 quiet hours 가 끝나는 09시에 발송
+    // 주간 결과 알림 — 정산 배치(월 00시)와 유저 발표를 분리해 월 07시 발송 — 조용한 시간(기본 23–07) 종료 시각과 정합
     // TODO: 멀티 인스턴스 배포 시 분산 락 필요 (티켓 565) — LeagueScheduler 와 동일
-    @Scheduled(cron = "0 0 9 * * MON", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 7 * * MON", zone = "Asia/Seoul")
     public void sendWeeklyResultNotifications() {
         try {
             leagueNotificationService.sendWeeklyResultNotifications();
