@@ -130,7 +130,7 @@ export default function FriendAddScreen() {
           returnKeyType="search"
         />
         {query.length > 0 && (
-          <TouchableOpacity style={s.clearBtn} onPress={() => setQuery('')} hitSlop={8}>
+          <TouchableOpacity style={s.clearBtn} onPress={() => setQuery('')} hitSlop={14}>
             <Ionicons name="close" size={11} color={T.inkMuted} />
           </TouchableOpacity>
         )}

@@ -363,7 +363,7 @@ export default function LeagueScreen() {
                       {!isMe && (
                         <TouchableOpacity
                           style={s.podiumPin}
-                          hitSlop={8}
+                          hitSlop={15}
                           onPress={() => togglePin(m.userId)}
                         >
                           <MaterialCommunityIcons

@@ -99,7 +99,7 @@ export function RankRow({
         timeText
       )}
       {onPin ? (
-        <TouchableOpacity onPress={onPin} hitSlop={8} style={s.pinBtn}>
+        <TouchableOpacity onPress={onPin} hitSlop={10} style={s.pinBtn}>
           <MaterialCommunityIcons
             name={pinned ? 'pin' : 'pin-outline'}
             size={19}

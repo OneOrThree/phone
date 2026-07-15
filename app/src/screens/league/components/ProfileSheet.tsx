@@ -90,7 +90,7 @@ export function ProfileSheet({ target, onClose }: Props) {
         <TouchableOpacity style={s.backdrop} activeOpacity={1} onPress={onClose} />
         <View style={[s.sheet, { paddingBottom: insets.bottom + 24 }]}>
           <View style={s.handle} />
-          <TouchableOpacity style={s.closeBtn} onPress={onClose} hitSlop={6}>
+          <TouchableOpacity style={s.closeBtn} onPress={onClose} hitSlop={8}>
             <Ionicons name="close" size={15} color={T.link} />
           </TouchableOpacity>
 
