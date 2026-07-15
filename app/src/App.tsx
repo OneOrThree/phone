@@ -201,6 +201,8 @@ export default function App() {
       // 이전 계정의 축하 기록이 새 계정 축하를 막거나, 예약된 모달이 새 계정에 뜨지 않게(PR 225 리뷰)
       STORAGE_KEYS.focusGoalCelebratedDate,
       STORAGE_KEYS.focusGoalCelebratePending,
+      STORAGE_KEYS.screentimeLastRewardedDate,
+      STORAGE_KEYS.screentimeCelebratePending,
     ]);
     // 알림 보관함 정리 — multiRemove가 아니라 보관함 쓰기 큐를 태워, 직전에 수신된 푸시의
     // 저장이 옛 목록을 도로 써넣는 레이스를 막는다(PR 224 리뷰).
@@ -236,6 +238,8 @@ export default function App() {
         STORAGE_KEYS.focus,
         STORAGE_KEYS.focusGoalCelebratedDate,
         STORAGE_KEYS.focusGoalCelebratePending,
+        STORAGE_KEYS.screentimeLastRewardedDate,
+        STORAGE_KEYS.screentimeCelebratePending,
       ]);
       await clearInbox(); // 보관함은 쓰기 큐로 정리(위 handleLogout과 동일 이유)
     }

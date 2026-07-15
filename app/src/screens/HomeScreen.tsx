@@ -22,6 +22,7 @@ import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
+import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { todayStr } from '@/utils/localDate';
@@ -32,6 +33,11 @@ import {
   clearPendingCelebration,
   subscribeCelebration,
 } from '@/services/goalCelebration';
+import {
+  readPendingScreenTimeCelebration,
+  clearScreenTimeCelebration,
+  subscribeScreenTimeCelebration,
+} from '@/services/screentimeCelebration';
 import type { TodayStatsResponse } from '@/types/dto/stats';
 import {
   logHomeViewed,
@@ -182,6 +188,11 @@ export default function HomeScreen() {
     days: number;
     goalMinutes?: number;
   } | null>(null);
+  // 스크린타임 목표 달성 축하(GROMO-629) — 어제 달성 시 오늘 첫 홈 진입에 1회 노출. null=비노출.
+  const [screenTimeCelebration, setScreenTimeCelebration] = useState<{
+    date: string;
+    days: number;
+  } | null>(null);
   // 오늘 집중 누적(로컬)을 effect 재실행 없이 최신값으로 읽기 위한 ref(폴백/계측용).
   const todayFocusSecondsRef = useRef(todayFocusSeconds);
   todayFocusSecondsRef.current = todayFocusSeconds;
@@ -216,6 +227,17 @@ export default function HomeScreen() {
     if (navigation.isFocused()) setGoalCelebration(p);
   }, [navigation]);
 
+  // 스크린타임 축하 예약 확인(GROMO-629) — 오늘 예약이면 모달, 지난 예약이면 정리.
+  const checkScreenTimeCelebration = useCallback(async () => {
+    const p = await readPendingScreenTimeCelebration();
+    if (!p) return;
+    if (p.date !== todayStr()) {
+      clearScreenTimeCelebration().catch(() => {});
+      return;
+    }
+    if (navigation.isFocused()) setScreenTimeCelebration(p);
+  }, [navigation]);
+
   // 예약 저장 완료 구독 — "홈으로"를 서버 판정보다 빨리 눌러 홈 포커스가 예약 저장보다 먼저
   // 지나간 경우에도, 저장이 끝나는 즉시 모달이 뜬다(PR 225 후속 리뷰).
   useEffect(
@@ -224,6 +246,14 @@ export default function HomeScreen() {
         checkGoalCelebration().catch(() => {});
       }),
     [checkGoalCelebration],
+  );
+
+  useEffect(
+    () =>
+      subscribeScreenTimeCelebration(() => {
+        checkScreenTimeCelebration().catch(() => {});
+      }),
+    [checkScreenTimeCelebration],
   );
 
   useFocusEffect(
@@ -241,10 +271,11 @@ export default function HomeScreen() {
         .then((v) => !cancelled && setStreakDays(v.currentStreak))
         .catch(() => {});
       checkGoalCelebration().catch(() => {});
+      checkScreenTimeCelebration().catch(() => {});
       return () => {
         cancelled = true;
       };
-    }, [refetchTodayStats, checkGoalCelebration]),
+    }, [refetchTodayStats, checkGoalCelebration, checkScreenTimeCelebration]),
   );
 
   // 당겨서 새로고침 — 오늘 요약 재조회 + 네이티브 사용량 리포트 리마운트.
@@ -293,6 +324,18 @@ export default function HomeScreen() {
     clearPendingCelebration().catch(() => {});
     setGoalCelebration(null);
   }, [goalCelebration]);
+
+  // 스크린타임 축하 모달 닫기(GROMO-629) — 오늘 노출 기록(하루 1회 가드) + 예약 제거.
+  const closeScreenTimeCelebration = useCallback(() => {
+    if (screenTimeCelebration) {
+      AsyncStorage.setItem(
+        STORAGE_KEYS.screentimeLastRewardedDate,
+        screenTimeCelebration.date,
+      ).catch(() => {});
+    }
+    clearScreenTimeCelebration().catch(() => {});
+    setScreenTimeCelebration(null);
+  }, [screenTimeCelebration]);
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
@@ -403,6 +446,13 @@ export default function HomeScreen() {
         goalStreakDays={goalCelebration?.days ?? 1}
         goalMinutes={goalCelebration?.goalMinutes}
         onClose={closeGoalCelebration}
+      />
+
+      {/* 스크린타임 목표 달성 축하 모달(GROMO-629) — 어제 달성 시 오늘 첫 홈 진입에 노출 */}
+      <ScreenTimeCelebrationModal
+        visible={screenTimeCelebration != null}
+        streakDays={screenTimeCelebration?.days ?? 1}
+        onClose={closeScreenTimeCelebration}
       />
     </SafeAreaView>
   );

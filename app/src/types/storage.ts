@@ -24,7 +24,8 @@ export const STORAGE_KEYS = {
   notificationSettings: 'gromo:settings:notification', // 알림·심야·소리 로컬 캐시(GET 부재 폴백)
   statVisibility: 'gromo:settings:statVisibility', // 통계 공개 범위 로컬 캐시(GET 부재 폴백)
   screentimeAuthGranted: 'gromo:screentime:authGranted',
-  screentimeLastRewardedDate: 'gromo:screentime:lastRewardedDate',
+  screentimeLastRewardedDate: 'gromo:screentime:lastRewardedDate', // 스크린타임 목표 달성 축하를 띄운 날짜(YYYY-MM-DD) — 하루 1회(GROMO-629)
+  screentimeCelebratePending: 'gromo:screentime:celebratePending', // 어제 달성 축하 예약 {date,days} — 홈 진입 시 노출(GROMO-629)
   screentimeLastSyncedDate: 'gromo:screentime:lastSyncedDate',
   screentimeSyncState: 'gromo:screentime:syncState', // 마지막 업로드 성공 {userId,date,minutes} — 어제 마감·중복 스킵용(GROMO-633)
   screentimeBucketMonitorRegistered: 'gromo:screentime:bucketMonitorRegistered', // 버킷 모니터링 1회 등록 플래그(기존 유저 마이그레이션)

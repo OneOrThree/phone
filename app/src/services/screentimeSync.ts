@@ -1,8 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { saveScreenTime } from '@/services/screentimeApi';
+import { getHeatmap } from '@/services/statsApi';
+import {
+  readPendingScreenTimeCelebration,
+  schedulePendingScreenTimeCelebration,
+} from '@/services/screentimeCelebration';
 import { STORAGE_KEYS } from '@/types/storage';
-import { todayStr, yesterdayStr } from '@/utils/localDate';
+import type { HeatmapCellResponse } from '@/types/dto/stats';
+import { todayStr, yesterdayStr, localDateStr } from '@/utils/localDate';
 
 // 스크린타임 사용량 서버 동기화(GROMO-633) — 네이티브 30분 버킷 측정값을 POST /screen-time으로
 // 올려 daily_screen_time_stats(통계 화면 폰 사용량 지표의 소스)를 채운다.
@@ -118,6 +124,45 @@ async function writeClosedDate(userId: string, date: string): Promise<void> {
   );
 }
 
+// 어제 스크린타임 목표 달성 축하 예약(GROMO-629). '연속 목표달성'은 heatmap의
+// screenTimeGoalAchieved를 어제(달성일)부터 뒤로 세어 계산한다 — 포커스 목표 스트릭과 동일 방식
+// (별도 API 불필요, 실패한 날은 heatmap 갭이라 자연히 리셋). 조회 실패 시 연속 1일로 폴백.
+async function scheduleYesterdayScreenTimeCelebration(achievedDate: string): Promise<void> {
+  const today = todayStr();
+  // 하루 1회 가드 — 오늘 이미 노출했거나 이미 오늘 예약이 있으면 재계산·재예약하지 않는다.
+  if ((await AsyncStorage.getItem(STORAGE_KEYS.screentimeLastRewardedDate)) === today) return;
+  if ((await readPendingScreenTimeCelebration())?.date === today) return;
+
+  // achievedDate(어제)는 달성 확정 → 1일. 그 전날부터 60일 창을 넓혀가며 연속 달성일을 센다.
+  let days = 1;
+  const [ay, am, ad] = achievedDate.split('-').map(Number);
+  const cursor = new Date(ay, am - 1, ad);
+  cursor.setDate(cursor.getDate() - 1);
+  const CHUNK_DAYS = 60;
+  const MAX_CHUNKS = 12; // 상한 약 2년 — 과호출 방지
+  for (let chunk = 0; chunk < MAX_CHUNKS; chunk += 1) {
+    const to = new Date(cursor);
+    const from = new Date(cursor);
+    from.setDate(from.getDate() - (CHUNK_DAYS - 1));
+    const cells = await getHeatmap(localDateStr(from), localDateStr(to)).catch(
+      () => [] as HeatmapCellResponse[],
+    );
+    const achievedByDate = new Map(cells.map((c) => [c.date, c.screenTimeGoalAchieved]));
+    let gapFound = false;
+    for (let i = 0; i < CHUNK_DAYS; i += 1) {
+      if (!achievedByDate.get(localDateStr(cursor))) {
+        gapFound = true;
+        break;
+      }
+      days += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    if (gapFound) break;
+  }
+  // 예약 payload의 date = 노출 대상일(오늘) — 홈의 'p.date === 오늘' 신선도 판정·닫기 기록 기준.
+  await schedulePendingScreenTimeCelebration({ date: today, days });
+}
+
 // 사용량 동기화 본체 — 앱 시작·포그라운드 복귀마다 호출(ScreenTimeSyncer).
 // 게스트·권한 미허용이면 아무것도 하지 않는다. 실패는 그대로 던져 호출부에서 무시 —
 // 서버 upsert가 멱등이라 다음 포그라운드에서 최신값으로 다시 시도하면 된다.
@@ -214,6 +259,9 @@ export async function syncScreenTimeUsage(
         });
         // 마감도 동기화의 일종 — 설정 화면 '마지막 동기화' 표시를 갱신한다.
         await AsyncStorage.setItem(STORAGE_KEYS.screentimeLastSyncedDate, today);
+        // 어제 목표 달성 시 축하 예약(GROMO-629) — 오늘 첫 홈 진입에 1회 노출.
+        // 예약 실패가 마감/마킹을 막지 않도록 조용히 무시.
+        if (achieved) await scheduleYesterdayScreenTimeCelebration(yesterday).catch(() => {});
       }
       // 마킹은 읽기가 모두 성공했을 때만 — 부분 데이터로 보냈다면(위 upsert는 멱등) 다음
       // 포그라운드에서 온전한 값으로 한 번 더 확정한 뒤 마킹된다.
