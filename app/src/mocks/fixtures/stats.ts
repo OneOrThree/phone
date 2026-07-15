@@ -69,19 +69,22 @@ const AVG_BASE: Record<FocusAverageScope, { avg: number; sample: number }> = {
   CATEGORY: { avg: 61, sample: 87 },
 };
 
-// GET /api/v1/stats/focus/average — scope×period 평균(분)·표본 수
+// GET /api/v1/stats/focus/average — scope×period 평균(분)·표본 수.
+// 친구×월은 집계 대상 없음(averageMinutes null·sampleSize 0)으로 응답해
+// 빈 상태 문구(833 데이터 없음 처리)도 목으로 확인된다.
 export function mockFocusAverage(config: InternalAxiosRequestConfig): FocusAverageResponse {
   const scope = (config.params?.scope as FocusAverageScope | undefined) ?? 'TOTAL';
   const period = (config.params?.period as StatsPeriod | undefined) ?? 'DAY';
   const date = (config.params?.date as string | undefined) ?? '2026-01-01';
   const base = AVG_BASE[scope] ?? AVG_BASE.TOTAL;
+  const empty = scope === 'FRIENDS' && period === 'MONTH';
   return {
     scope,
     period,
     from: date,
     to: date,
-    averageMinutes: Math.round(base.avg * PERIOD_MULT[period]),
-    sampleSize: base.sample,
+    averageMinutes: empty ? null : Math.round(base.avg * PERIOD_MULT[period]),
+    sampleSize: empty ? 0 : base.sample,
   };
 }
 
