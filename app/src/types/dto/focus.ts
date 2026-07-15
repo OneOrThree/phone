@@ -42,6 +42,13 @@ export interface FocusSessionRequest {
   totalDistractionSeconds: number;
 }
 
+// POST /focus-session — 집중 세션 저장 응답(GROMO-806). 세션 반영 후 그날 누적·스트릭 인정 여부.
+// 구버전 백엔드는 빈 바디(201)를 주므로 필드가 없을 수 있다 — 사용처에서 유효성 검증 후 반영.
+export interface FocusSessionSaveResponse {
+  dayTotalFocusSeconds: number; // 이 세션 반영 후 그날 누적 집중 초
+  streakQualifiedToday: boolean; // 그날 누적이 스트릭 기준(하루 10분) 이상인지 — 서버 확정 판정
+}
+
 // GET /focus-session content 항목 — 집중 세션 단건.
 // ⚠️ 서버는 이 4개 필드만 직렬화한다(FocusSessionResponse.java) — subject·distractionCount 없음(리뷰 반영).
 export interface FocusSessionResponse {

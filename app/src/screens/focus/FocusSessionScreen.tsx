@@ -23,6 +23,7 @@ import { T, withAlpha } from '@/constants/theme';
 import { saveFocusSession } from '@/services/focusApi';
 import { ensureFocusTagId } from './tagSync';
 import { enqueuePendingFocusUpload } from './pendingFocusUploads';
+import { publishSessionSaveVerdict } from './sessionSaveVerdict';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
@@ -299,9 +300,19 @@ export default function FocusSessionScreen() {
           distractionCount: 0,
           totalDistractionSeconds: 0,
         };
-        return saveFocusSession(body).catch(() => {
-          enqueuePendingFocusUpload(body, userId).catch(() => {});
-        });
+        // onRejected 2인자 형태 — .then().catch() 체인이면 발행(구독 콜백) 중 예외까지 실패
+        // 핸들러로 새서, 이미 서버에 저장된 세션이 대기열에 재적재돼 중복 업로드된다(PR 250 리뷰).
+        return saveFocusSession(body).then(
+          // 저장 성공 — 서버 스트릭 판정을 결과 화면에 전달(GROMO-807). 결과 화면이 먼저 떠 있어도
+          // 구독으로 갱신된다.
+          (res) => {
+            publishSessionSaveVerdict(res);
+          },
+          // 저장 실패 — 대기열행(발행 없음). 결과 화면은 기존 추정 판정으로 폴백.
+          () => {
+            enqueuePendingFocusUpload(body, userId).catch(() => {});
+          },
+        );
       })
       .catch(() => {});
   }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName, userId]);

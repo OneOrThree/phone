@@ -7,6 +7,7 @@ import type {
   FocusTagUpdateRequest,
   FocusSessionRequest,
   FocusSessionResponse,
+  FocusSessionSaveResponse,
   FocusSessionSliceResponse,
   OccupationDefaultTagsResponse,
 } from '@/types/dto/focus';
@@ -44,9 +45,12 @@ export async function deleteFocusTag(tagId: string): Promise<void> {
   await api.delete(`/api/v1/tag/${tagId}`);
 }
 
-// POST /api/v1/focus-session — 집중 세션 저장.
-export async function saveFocusSession(body: FocusSessionRequest): Promise<void> {
-  await api.post('/api/v1/focus-session', body);
+// POST /api/v1/focus-session — 집중 세션 저장. 응답은 그날 누적·스트릭 서버 판정(GROMO-806).
+export async function saveFocusSession(
+  body: FocusSessionRequest,
+): Promise<FocusSessionSaveResponse> {
+  const { data } = await api.post<FocusSessionSaveResponse>('/api/v1/focus-session', body);
+  return data;
 }
 
 // GET /api/v1/focus-session?from&to&cursor?&size — 기간 필터 + 커서(keyset) 페이지네이션 조회.
