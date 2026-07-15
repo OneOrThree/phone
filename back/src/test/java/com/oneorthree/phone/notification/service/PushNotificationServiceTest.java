@@ -90,20 +90,33 @@ class PushNotificationServiceTest {
         verify(pushNotificationPort).send(eq("fcm-token"), eq(MESSAGE));
     }
 
-    // ── 필터 3: Quiet hours 경계 (기본 21:00–09:00, [start, end)) ───────────────
+    // ── 필터 3: Quiet hours 경계 (기본 23:00–07:00, [start, end)) ───────────────
     // sendIfAllowed 를 여러 시각으로 호출하고, 발송된 횟수로 경계를 검증한다.
+    // 공격형 카탈로그(GROMO-819) 수용을 위해 기본 금지 구간을 21:00–09:00 → 23:00–07:00 으로 조정(GROMO-840).
 
     @Test
-    @DisplayName("기본 구간 - 20:59 발송 / 21:00 스킵 / 08:59 스킵 / 09:00 발송 → 2회 발송")
+    @DisplayName("기본 구간 - 22:59 발송 / 23:00 스킵 / 06:59 스킵 / 07:00 발송 → 2회 발송")
     void defaultQuietHoursBoundaries() {
         lenient().when(pushNotificationPort.send(any(), any())).thenReturn(PushSendResult.SENT);
 
-        send(null, LocalTime.of(20, 59)); // 발송 (시작 직전)
-        send(null, LocalTime.of(21, 0));  // 스킵 (시작 포함)
-        send(null, LocalTime.of(8, 59));  // 스킵 (종료 직전)
-        send(null, LocalTime.of(9, 0));   // 발송 (종료 미포함)
+        send(null, LocalTime.of(22, 59)); // 발송 (시작 직전)
+        send(null, LocalTime.of(23, 0));  // 스킵 (시작 포함)
+        send(null, LocalTime.of(6, 59));  // 스킵 (종료 직전)
+        send(null, LocalTime.of(7, 0));   // 발송 (종료 미포함)
 
         verify(pushNotificationPort, times(2)).send(any(), any());
+    }
+
+    @Test
+    @DisplayName("기본 구간 23:00–07:00 - 카탈로그 발송 시각 07:00·21:00·22:00 모두 허용")
+    void catalogSendTimesAllowedUnderNewDefault() {
+        lenient().when(pushNotificationPort.send(any(), any())).thenReturn(PushSendResult.SENT);
+
+        send(null, LocalTime.of(7, 0));  // 결과·새 리그 (GROMO-839)
+        send(null, LocalTime.of(21, 0)); // 오늘 미집중 (GROMO-841)
+        send(null, LocalTime.of(22, 0)); // 마감 2h 전 / 스트릭 위기 (GROMO-840/841)
+
+        verify(pushNotificationPort, times(3)).send(any(), any());
     }
 
     @Test
@@ -133,13 +146,13 @@ class PushNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("nightModeEnabled=true + 시각 null → 기본 21–09 적용 (21:30 스킵 / 12:00 발송)")
+    @DisplayName("nightModeEnabled=true + 시각 null → 기본 23–07 적용 (23:30 스킵 / 12:00 발송)")
     void fallsBackToDefaultWhenNightModeOnButTimesNull() {
         lenient().when(pushNotificationPort.send(any(), any())).thenReturn(PushSendResult.SENT);
         UserNotificationSettings settings = UserNotificationSettings.builder()
                 .userId(USER_ID).nightModeEnabled(true).build(); // start/end null
 
-        send(settings, LocalTime.of(21, 30)); // 스킵 (기본 구간)
+        send(settings, LocalTime.of(23, 30)); // 스킵 (기본 구간)
         send(settings, LocalTime.of(12, 0));  // 발송
 
         verify(pushNotificationPort, times(1)).send(any(), any());
@@ -160,12 +173,12 @@ class PushNotificationServiceTest {
     // ── static isQuietHours 직접 경계 검증 (판정 로직 단위) ──────────────────────
 
     @Test
-    @DisplayName("isQuietHours - 기본 구간 경계 직접 검증 (start 포함·end 미포함)")
+    @DisplayName("isQuietHours - 기본 구간 23:00–07:00 경계 직접 검증 (start 포함·end 미포함)")
     void isQuietHoursDefaultBoundariesDirect() {
-        assertThat(PushNotificationService.isQuietHours(null, kstInstant(LocalTime.of(21, 0)))).isTrue();
-        assertThat(PushNotificationService.isQuietHours(null, kstInstant(LocalTime.of(8, 59)))).isTrue();
-        assertThat(PushNotificationService.isQuietHours(null, kstInstant(LocalTime.of(9, 0)))).isFalse();
-        assertThat(PushNotificationService.isQuietHours(null, kstInstant(LocalTime.of(20, 59)))).isFalse();
+        assertThat(PushNotificationService.isQuietHours(null, kstInstant(LocalTime.of(23, 0)))).isTrue();
+        assertThat(PushNotificationService.isQuietHours(null, kstInstant(LocalTime.of(6, 59)))).isTrue();
+        assertThat(PushNotificationService.isQuietHours(null, kstInstant(LocalTime.of(7, 0)))).isFalse();
+        assertThat(PushNotificationService.isQuietHours(null, kstInstant(LocalTime.of(22, 59)))).isFalse();
     }
 
     // ── 필터 4: 발송 결과 처리 ─────────────────────────────────────────────────

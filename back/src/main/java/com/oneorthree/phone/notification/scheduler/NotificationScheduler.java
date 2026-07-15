@@ -34,13 +34,43 @@ public class NotificationScheduler {
         }
     }
 
-    // 마감 임박 알림 — 마감(월 00시 KST) 4시간 전, 기본 quiet hours(21시) 진입 직전
+    // 마감 임박 알림 — 마감(월 00시 KST) 4시간 전(일 20시). 조용한 시간(기본 23시) 진입 전
     @Scheduled(cron = "0 0 20 * * SUN", zone = "Asia/Seoul")
     public void sendDeadlineReminders() {
         try {
             leagueNotificationService.sendDeadlineReminders();
         } catch (Exception e) {
             log.error("리그 마감 임박 알림 스케줄 실패", e);
+        }
+    }
+
+    // 강등 경고 + 마감 D-1 (GROMO-840) — 마감 하루 전 일요일 오전. 유저당 1건 분기(강등 경고 > 마감 D-1 > 무발송)
+    @Scheduled(cron = "0 0 9 * * SUN", zone = "Asia/Seoul")
+    public void sendSundayCrisisReminders() {
+        try {
+            leagueNotificationService.sendSundayCrisisReminders();
+        } catch (Exception e) {
+            log.error("일요일 위기 알림(강등 경고·마감 D-1) 스케줄 실패", e);
+        }
+    }
+
+    // 강등 경고 재발송 (GROMO-840) — 일요일 저녁(18시), 강등 위험군만 손실회피 강화
+    @Scheduled(cron = "0 0 18 * * SUN", zone = "Asia/Seoul")
+    public void sendRelegationWarnings() {
+        try {
+            leagueNotificationService.sendRelegationWarnings();
+        } catch (Exception e) {
+            log.error("일요일 저녁 강등 경고 재발송 스케줄 실패", e);
+        }
+    }
+
+    // 마감 2시간 전 알림 (GROMO-840) — 마감(월 00시 KST) 2시간 전(일 22시). 진행 중 전원 마지막 스퍼트
+    @Scheduled(cron = "0 0 22 * * SUN", zone = "Asia/Seoul")
+    public void sendFinalDeadlineReminders() {
+        try {
+            leagueNotificationService.sendFinalDeadlineReminders();
+        } catch (Exception e) {
+            log.error("리그 마감 2시간 전 알림 스케줄 실패", e);
         }
     }
 

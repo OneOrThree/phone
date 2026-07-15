@@ -2,9 +2,11 @@ package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
+import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.domain.LeagueWeeklyResult;
 import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
+import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.league.service.LeagueWeek;
 import com.oneorthree.phone.user.domain.User;
@@ -36,8 +38,12 @@ public class LeagueNotificationService {
 
     static final int NOTIFICATION_PAGE_SIZE = 200;
 
+    /** 최상위 티어 — 승급 대상이 아니므로 마감 D-1(승급 독려) 발송에서 제외한다. */
+    private static final int MAX_TIER_LEVEL = 5;
+
     private final LeagueWeeklyResultRepository leagueWeeklyResultRepository;
     private final LeagueRankingQueryRepository leagueRankingQueryRepository;
+    private final LeagueTierConfigRepository leagueTierConfigRepository;
     private final UserRepository userRepository;
     private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final PushNotificationService pushNotificationService;
@@ -99,8 +105,22 @@ public class LeagueNotificationService {
         sendDeadlineReminders(Instant.now());
     }
 
-    /** 이번 주 전역 랭킹의 모든 활성 사용자에게 현재 전역 순위를 포함해 발송한다. */
+    /** 이번 주 전역 랭킹의 모든 활성 사용자에게 현재 전역 순위를 포함해 마감 4시간 전 알림을 발송한다. */
     public void sendDeadlineReminders(Instant now) {
+        sendDeadlineSequence(now, "마감 4시간 전", this::composeDeadline);
+    }
+
+    /** 마감 2시간 전 알림 — 스케줄러(일 22:00 KST). 진행 중 전원. */
+    public void sendFinalDeadlineReminders() {
+        sendFinalDeadlineReminders(Instant.now());
+    }
+
+    public void sendFinalDeadlineReminders(Instant now) {
+        sendDeadlineSequence(now, "마감 2시간 전", this::composeFinalDeadline);
+    }
+
+    /** 전역 랭킹을 keyset 페이지로 순회하며 각 유저의 현재 순위로 마감 시퀀스 알림을 발송한다. */
+    private void sendDeadlineSequence(Instant now, String label, DeadlineMessageComposer composer) {
         LocalDate fromDate = leagueWeek.currentWeekStartDate(now);
         LocalDate toDate = leagueWeek.currentDate(now);
         int processedCount = 0;
@@ -116,7 +136,7 @@ public class LeagueNotificationService {
             boolean hasMore = fetched.size() > NOTIFICATION_PAGE_SIZE;
             List<LeagueRankingRow> page = hasMore
                     ? fetched.subList(0, NOTIFICATION_PAGE_SIZE) : fetched;
-            processedCount += sendDeadlinePage(page, rankOffset, now);
+            processedCount += sendDeadlinePage(page, rankOffset, now, composer);
             rankOffset += page.size();
             entityManager.flush();
             entityManager.clear();
@@ -128,13 +148,110 @@ public class LeagueNotificationService {
             cursorUserId = lastRow.userId();
         }
         if (processedCount == 0) {
-            log.info("리그 마감 임박 알림 — 전역 랭킹 대상 없음");
+            log.info("리그 {} 알림 — 전역 랭킹 대상 없음", label);
             return;
         }
-        log.info("리그 마감 임박 알림 — 전역 대상 {}건 처리 완료", processedCount);
+        log.info("리그 {} 알림 — 전역 대상 {}건 처리 완료", label, processedCount);
     }
 
-    private int sendDeadlinePage(List<LeagueRankingRow> page, int rankOffset, Instant now) {
+    /** 강등 경고 + 마감 D-1 — 스케줄러(일 09:00 KST)·수동 트리거 진입점. 유저당 1건 분기(강등 경고 우선). */
+    public void sendSundayCrisisReminders() {
+        sendSundayCrisisReminders(Instant.now());
+    }
+
+    public void sendSundayCrisisReminders(Instant now) {
+        sendCrisisReminders(now, true);
+    }
+
+    /** 강등 경고 재발송 — 스케줄러(일 18:00 KST). 강등 위험군만 손실회피 강화(마감 D-1 제외). */
+    public void sendRelegationWarnings() {
+        sendRelegationWarnings(Instant.now());
+    }
+
+    public void sendRelegationWarnings(Instant now) {
+        sendCrisisReminders(now, false);
+    }
+
+    private void sendCrisisReminders(Instant now, boolean includeDeadlineDMinusOne) {
+        Map<Integer, LeagueTierConfig> tierConfigs = leagueTierConfigRepository.findAll().stream()
+                .collect(Collectors.toMap(LeagueTierConfig::getTierLevel, Function.identity()));
+        LocalDate fromDate = leagueWeek.currentWeekStartDate(now);
+        LocalDate toDate = leagueWeek.currentDate(now);
+        int processedCount = 0;
+        Integer cursorFocusSeconds = null;
+        UUID cursorUserId = null;
+        while (true) {
+            List<LeagueRankingRow> fetched = leagueRankingQueryRepository.findGlobalRankingPage(
+                    fromDate, toDate, cursorFocusSeconds, cursorUserId, NOTIFICATION_PAGE_SIZE + 1);
+            if (fetched.isEmpty()) {
+                break;
+            }
+            boolean hasMore = fetched.size() > NOTIFICATION_PAGE_SIZE;
+            List<LeagueRankingRow> page = hasMore
+                    ? fetched.subList(0, NOTIFICATION_PAGE_SIZE) : fetched;
+            processedCount += sendCrisisPage(page, tierConfigs, includeDeadlineDMinusOne, now);
+            entityManager.flush();
+            entityManager.clear();
+            if (!hasMore) {
+                break;
+            }
+            LeagueRankingRow lastRow = page.get(page.size() - 1);
+            cursorFocusSeconds = lastRow.totalFocusSeconds();
+            cursorUserId = lastRow.userId();
+        }
+        if (processedCount == 0) {
+            log.info("리그 위기 알림 — 대상 없음 (includeDMinusOne={})", includeDeadlineDMinusOne);
+            return;
+        }
+        log.info("리그 위기 알림 — 대상 {}건 처리 완료 (includeDMinusOne={})",
+                processedCount, includeDeadlineDMinusOne);
+    }
+
+    private int sendCrisisPage(List<LeagueRankingRow> page, Map<Integer, LeagueTierConfig> tierConfigs,
+                               boolean includeDeadlineDMinusOne, Instant now) {
+        List<UUID> userIds = page.stream().map(LeagueRankingRow::userId).toList();
+        Map<UUID, User> usersById = loadUsers(userIds);
+        Map<UUID, UserNotificationSettings> settingsByUserId = loadSettings(userIds);
+        int processedCount = 0;
+        for (LeagueRankingRow row : page) {
+            User user = usersById.get(row.userId());
+            if (user == null) {
+                continue;
+            }
+            LeagueTierConfig config = tierConfigs.get(row.tierLevel());
+            if (config == null) {
+                continue;
+            }
+            UserNotificationSettings settings = settingsByUserId.get(row.userId());
+            boolean soundEnabled = settings == null || settings.isSoundEnabled();
+            PushMessage message = composeCrisisMessage(row, config, includeDeadlineDMinusOne, soundEnabled);
+            if (message == null) {
+                continue; // 안전권(승급 확정권/최상위) → 무발송
+            }
+            pushNotificationService.sendIfAllowed(user, settings, message, now);
+            processedCount++;
+        }
+        return processedCount;
+    }
+
+    /** 유저당 1건 분기: 강등 위험 &gt; 마감 D-1(승급 독려) &gt; 무발송(안전권). */
+    private PushMessage composeCrisisMessage(LeagueRankingRow row, LeagueTierConfig config,
+                                             boolean includeDeadlineDMinusOne, boolean soundEnabled) {
+        int total = row.totalFocusSeconds();
+        // 1. 강등 위험 — T1 제외(강등 임계값 0), 이번 주 누적이 현재 티어 강등 임계값 미달
+        if (row.tierLevel() > 1 && total < config.getRelegationTime()) {
+            return composeRelegationWarning(config.getRelegationTime() - total, soundEnabled);
+        }
+        // 2. 마감 D-1 승급 독려 — 최상위(T5) 제외, 아직 승급 임계값 미달. 저녁 재발송(false)엔 생략
+        if (includeDeadlineDMinusOne && row.tierLevel() < MAX_TIER_LEVEL && total < config.getPromotionTime()) {
+            return composeDeadlineDMinusOne(config.getPromotionTime() - total, soundEnabled);
+        }
+        // 3. 안전권(승급 확정권/최상위) → 무발송
+        return null;
+    }
+
+    private int sendDeadlinePage(List<LeagueRankingRow> page, int rankOffset, Instant now,
+                                 DeadlineMessageComposer composer) {
         List<UUID> userIds = page.stream().map(LeagueRankingRow::userId).toList();
         Map<UUID, User> usersById = loadUsers(userIds);
         Map<UUID, UserNotificationSettings> settingsByUserId = loadSettings(userIds);
@@ -149,10 +266,16 @@ public class LeagueNotificationService {
             UserNotificationSettings settings = settingsByUserId.get(userId);
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
             pushNotificationService.sendIfAllowed(
-                    user, settings, composeDeadline(rankOffset + index + 1, soundEnabled), now);
+                    user, settings, composer.compose(rankOffset + index + 1, soundEnabled), now);
             processedCount++;
         }
         return processedCount;
+    }
+
+    /** 마감 시퀀스 페이지의 각 유저 순위로 알림 문구를 만드는 컴포저(4h·2h가 문구·딥링크만 다름). */
+    @FunctionalInterface
+    private interface DeadlineMessageComposer {
+        PushMessage compose(int rank, boolean soundEnabled);
     }
 
     private Map<UUID, User> loadUsers(Collection<UUID> userIds) {
@@ -193,6 +316,41 @@ public class LeagueNotificationService {
                 "지금 " + rank + "위야. 마지막 스퍼트 한 번 어때?",
                 "gromo://league",
                 soundEnabled);
+    }
+
+    private PushMessage composeFinalDeadline(int rank, boolean soundEnabled) {
+        return new PushMessage(
+                "마감 2시간 전!",
+                "지금 " + rank + "위야. 마지막 스퍼트 한 번 어때?",
+                "gromo://focus",
+                soundEnabled);
+    }
+
+    private PushMessage composeRelegationWarning(int shortfallSeconds, boolean soundEnabled) {
+        return new PushMessage(
+                "강등 위기야!",
+                "이번 주 " + formatShortfall(shortfallSeconds) + " 더 채워야 강등을 피할 수 있어. 지금 몰입할까?",
+                "gromo://focus",
+                soundEnabled);
+    }
+
+    private PushMessage composeDeadlineDMinusOne(int shortfallSeconds, boolean soundEnabled) {
+        return new PushMessage(
+                "리그 마감 하루 전!",
+                "승급까지 " + formatShortfall(shortfallSeconds) + " 남았어. 오늘 몰아쳐볼까?",
+                "gromo://league",
+                soundEnabled);
+    }
+
+    /** 부족한 초를 사람이 읽는 "N시간 M분"(1분 미만도 최소 1분)으로 표기한다. */
+    private static String formatShortfall(int shortfallSeconds) {
+        int totalMinutes = (int) Math.ceil(shortfallSeconds / 60.0);
+        int hours = totalMinutes / 60;
+        int minutes = totalMinutes % 60;
+        if (hours > 0) {
+            return minutes > 0 ? hours + "시간 " + minutes + "분" : hours + "시간";
+        }
+        return minutes + "분";
     }
 
     private static String tierDisplayName(int tierLevel) {
