@@ -23,8 +23,13 @@ ALTER TABLE league_arenas
 -- 다음 추월 알림 실행이 오늘 전역 snapshot을 seed하게 한다.
 TRUNCATE TABLE league_rank_snapshots;
 
+-- 유니크 제약을 이름으로 지목하지 않는다: 프로덕션은 Flyway 도입(GROMO-670) 전 레거시 스크립트로
+-- 생성돼 실제 제약 이름이 베이스라인(uq_league_rank_snapshots_arena_user_day)과 다를 수 있다
+-- (Hibernate 자동 생성명 등). arena_id 컬럼을 지우면 이를 포함한 유니크 제약/인덱스는
+-- PostgreSQL이 이름과 무관하게 함께 제거하므로, 이름이 맞는 경우(리셋된 dev)만 IF EXISTS로
+-- 정리하고 나머지 환경은 컬럼 DROP에 위임한다. TRUNCATE(24행) 뒤라 새 제약 추가는 항상 성공한다.
 ALTER TABLE league_rank_snapshots
-    DROP CONSTRAINT uq_league_rank_snapshots_arena_user_day,
+    DROP CONSTRAINT IF EXISTS uq_league_rank_snapshots_arena_user_day,
     DROP COLUMN arena_id,
     ADD CONSTRAINT uq_league_rank_snapshots_user_day UNIQUE (user_id, created_at);
 
