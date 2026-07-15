@@ -2,7 +2,7 @@
 #
 # 이전에 배포됐던 특정 commit SHA로 되돌린다. 빌드하지 않고 ECR에 이미 있는
 # 이미지를 그대로 재배포하므로 빠르다. (ECR lifecycle이 최근 10개 보관)
-# 배포 로직은 SSM Document(gromo-prod-deploy)에 박제.
+# compose는 갱신하지 않고 이미지만 교체 — 배포 로직은 SSM Document(gromo-prod-deploy)에 박제.
 
 name: prod-rollback
 
@@ -21,11 +21,14 @@ permissions:
   id-token: write
   contents: read
 
+# OIDC 인증 이전에 필요한 부트스트랩 값만 여기 유지.
+# 리소스 식별자(INSTANCE_ID·ECR_REPO·SSM_DOC)는 Secrets Manager(gromo-prod/cicd)에서 주입
+# — terraform(OneOrThree/Infra)이 관리. prod-ci/cd와 동일 패턴(ticket 583).
 env:
   AWS_REGION: ap-northeast-2
-  INSTANCE_ID: i-08b8c75419f42a551
-  SSM_DOC: gromo-prod-deploy
   ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-github-actions
+  CICD_SECRET_ID: gromo-prod/cicd
+  IMAGE_SHA: ${{ github.event.inputs.image_sha }}
 
 jobs:
   rollback:
@@ -38,25 +41,30 @@ jobs:
           role-to-assume: ${{ env.ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: CI/CD 설정 주입 (Secrets Manager → env)
+        run: |
+          aws secretsmanager get-secret-value --secret-id "$CICD_SECRET_ID" \
+            --query SecretString --output text \
+          | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
+
       - name: 대상 이미지 존재 확인 (없으면 중단)
         run: |
-          SHA="${{ github.event.inputs.image_sha }}"
-          if ! aws ecr describe-images --repository-name gromo-prod/backend \
-                 --image-ids imageTag="$SHA" >/dev/null 2>&1; then
-            echo "::error::ECR에 이미지 태그 '$SHA' 가 없습니다. (lifecycle로 이미 삭제됐을 수 있음)"
+          REPO_NAME="${ECR_REPO#*/}" # 레지스트리 호스트 제거 → 리포지토리명
+          if ! aws ecr describe-images --repository-name "$REPO_NAME" \
+                 --image-ids imageTag="$IMAGE_SHA" >/dev/null 2>&1; then
+            echo "::error::ECR에 이미지 태그 '$IMAGE_SHA' 가 없습니다. (lifecycle로 이미 삭제됐을 수 있음)"
             exit 1
           fi
-          echo "이미지 확인됨: gromo-prod/backend:$SHA"
+          echo "이미지 확인됨: $REPO_NAME:$IMAGE_SHA"
 
       - name: SSM 문서로 롤백 배포
         run: |
-          SHA="${{ github.event.inputs.image_sha }}"
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "$SSM_DOC" \
-            --parameters ImageTag="$SHA" \
+            --parameters ImageTag="$IMAGE_SHA" \
             --query "Command.CommandId" --output text)
-          echo "CommandId=$CMD_ID (rollback → $SHA)"
+          echo "CommandId=$CMD_ID (rollback → $IMAGE_SHA)"
           aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" || true
           STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query Status --output text)
           echo "Status=$STATUS"
