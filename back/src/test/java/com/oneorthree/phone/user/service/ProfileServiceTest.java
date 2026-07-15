@@ -6,10 +6,9 @@ import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.item.domain.CharacterEquipment;
 import com.oneorthree.phone.item.domain.SlotType;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
-import com.oneorthree.phone.league.domain.LeagueArena;
-import com.oneorthree.phone.league.domain.LeagueArenaStatus;
-import com.oneorthree.phone.league.domain.LeagueArenaUser;
-import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
+import com.oneorthree.phone.league.domain.LeagueRankingPosition;
+import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
+import com.oneorthree.phone.league.service.LeagueWeek;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
@@ -22,10 +21,12 @@ import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
@@ -37,8 +38,10 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -60,35 +63,26 @@ class ProfileServiceTest {
     private FriendshipRepository friendshipRepository;
 
     @Mock
-    private LeagueArenaUserRepository leagueArenaUserRepository;
+    private LeagueRankingQueryRepository leagueRankingQueryRepository;
+
+    @Spy
+    private LeagueWeek leagueWeek = new LeagueWeek();
 
     @Mock
     private StatsService statsService;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID OTHER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
-    private static final UUID ARENA_ID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
+    private static final Instant NOW = Instant.parse("2026-06-24T03:00:00Z");
+
+    @BeforeEach
+    void setUpRankingDefault() {
+        lenient().when(leagueRankingQueryRepository.findRankOf(any(), any(), any()))
+                .thenReturn(Optional.empty());
+    }
 
     private User activeUser(String nickname) {
         return User.builder().id(USER_ID).nickname(nickname).build();
-    }
-
-    private LeagueArena activeArena() {
-        return LeagueArena.builder()
-                .id(ARENA_ID)
-                .status(LeagueArenaStatus.ACTIVE)
-                .startedAt(Instant.parse("2026-06-22T00:00:00Z"))
-                .build();
-    }
-
-    private LeagueArenaUser membership(User user, LeagueArena arena, int tierLevel, int focusSeconds) {
-        return LeagueArenaUser.builder()
-                .id(UUID.randomUUID())
-                .user(user)
-                .leagueArena(arena)
-                .tierLevel(tierLevel)
-                .totalFocusSeconds(focusSeconds)
-                .build();
     }
 
     // ── 정상 집계 ─────────────────────────────────────────────────────────
@@ -100,21 +94,14 @@ class ProfileServiceTest {
                 .occupation(com.oneorthree.phone.user.domain.Occupation.CSAT)
                 .tierLevel(3)
                 .build();
-        LeagueArena arena = activeArena();
-        // 전환기 아레나 멤버십 값과 달라도 User.tierLevel 이 공개 티어의 원천이다.
-        LeagueArenaUser me = membership(user, arena, 2, 200);
-        User otherUser = User.builder().id(OTHER_ID).nickname("top").build();
-        LeagueArenaUser top = membership(otherUser, arena, 3, 300);
-
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(5L);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.of(me));
-        // top=1, me=2
-        given(leagueArenaUserRepository.findRankedByArena(arena)).willReturn(List.of(top, me));
+        given(leagueRankingQueryRepository.findRankOf(
+                eq(USER_ID), eq(LocalDate.of(2026, 6, 22)), eq(LocalDate.of(2026, 6, 24))))
+                .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
 
-        PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
+        PublicProfileResponse response = profileService.getPublicProfile(USER_ID, NOW);
 
         assertThat(response.userId()).isEqualTo(USER_ID);
         assertThat(response.nickname()).isEqualTo("조재영");
@@ -157,17 +144,17 @@ class ProfileServiceTest {
                 .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
-    // ── 리그 미소속 → User 기본 tier=1, rank=null ──────────────────────
+    // ── 전역 랭킹 결과 없음 → User 기본 tier=1, rank=null ──────────────
 
     @Test
-    @DisplayName("리그 미소속 신규 유저 → users.tier_level 기본값 T1, rank=null")
+    @DisplayName("전역 랭킹 결과 없는 신규 유저 → users.tier_level 기본값 T1, rank=null")
     void getPublicProfile_noLeagueMembership_hasDefaultTier() {
         User user = User.builder().id(USER_ID).nickname("새유저").build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(0L);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
+        given(leagueRankingQueryRepository.findRankOf(any(), any(), any()))
                 .willReturn(Optional.empty());
 
         PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
@@ -188,8 +175,6 @@ class ProfileServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(0L);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.empty());
 
         PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
 
@@ -208,8 +193,6 @@ class ProfileServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(2L);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.empty());
 
         PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
 
@@ -226,8 +209,6 @@ class ProfileServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(1L);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.empty());
 
         PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
 
@@ -249,8 +230,6 @@ class ProfileServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of(equip));
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(0L);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.empty());
 
         PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
 
@@ -264,15 +243,12 @@ class ProfileServiceTest {
     @DisplayName("리그 1위 → rank=1")
     void getPublicProfile_rankFirst() {
         User user = User.builder().id(USER_ID).nickname("조재영").tierLevel(5).build();
-        LeagueArena arena = activeArena();
-        LeagueArenaUser me = membership(user, arena, 5, 500);
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(3L);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.of(me));
-        given(leagueArenaUserRepository.findRankedByArena(arena)).willReturn(List.of(me));
+        given(leagueRankingQueryRepository.findRankOf(any(), any(), any()))
+                .willReturn(Optional.of(new LeagueRankingPosition(1, 5, 500)));
 
         PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
 

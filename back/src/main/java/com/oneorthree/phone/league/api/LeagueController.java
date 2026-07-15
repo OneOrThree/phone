@@ -30,7 +30,7 @@ public class LeagueController {
     private final LeagueService leagueService;
 
     @Operation(summary = "내 현재 리그·티어 조회",
-            description = "현재 ACTIVE 아레나의 티어·주차 정보. 미배정이면 assigned=false.")
+            description = "users.tier_level에 저장된 현재 티어와 KST 기준 주차 정보를 반환한다.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공")
     })
@@ -40,9 +40,9 @@ public class LeagueController {
         return ResponseEntity.ok(leagueService.getMyTier(userId));
     }
 
-    @Operation(summary = "티어 멤버 랭킹 조회",
-            description = "category 미지정: 현재 ACTIVE 아레나 멤버 랭킹(totalFocusSeconds 내림차순). 미배정이면 빈 배열. "
-                    + "category 지정: 전역 같은 occupation 유저 상위 100명 랭킹(아레나 무관). "
+    @Operation(summary = "전역 주간 랭킹 조회",
+            description = "category 미지정: DailyFocusStat 기반 전역 주간 상위 100명 랭킹. "
+                    + "category 지정: 같은 occupation 활성 사용자의 전역 주간 상위 100명 랭킹. "
                     + "잘못된 category 값은 400 INVALID_PARAMETER.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
@@ -57,7 +57,7 @@ public class LeagueController {
     }
 
     @Operation(summary = "전역 전체 유저 랭킹 조회",
-            description = "직군 무관 전역 랭킹. 이번 주 ACTIVE 아레나 전체를 가로질러 totalFocusSeconds 내림차순 상위 limit 명. "
+            description = "직군 무관 DailyFocusStat 기반 전역 주간 랭킹의 totalFocusSeconds 내림차순 상위 limit 명. "
                     + "rank 는 아레나가 아닌 전역 순번. scope 는 total(대소문자 무관)만 지원, 그 외 값은 400 INVALID_SCOPE. "
                     + "limit 는 1~500 으로 클램프된다.")
     @ApiResponses({
@@ -74,7 +74,8 @@ public class LeagueController {
     }
 
     @Operation(summary = "내 순위·승격/강등 상태 조회",
-            description = "현재 아레나에서 내 순위와 결과. 진행 중엔 result=null, 확정 시 값. 미배정이면 assigned=false.")
+            description = "DailyFocusStat 기반 현재 전역 주간 순위와 최신 주간 정산 결과를 반환한다. "
+                    + "진행 중엔 result=null, 정산 확정 후에는 승격·유지·강등 결과를 반환한다.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공")
     })

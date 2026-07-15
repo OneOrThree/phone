@@ -27,19 +27,6 @@ public class LeagueTierConfig {
     @Column(name = "tier_level")
     private Integer tierLevel;
 
-    @Column(name = "arena_size", nullable = false)
-    @Builder.Default
-    private int arenaSize = 30;
-
-    @Column(nullable = false)
-    private int promoteCount;
-
-    @Column(nullable = false)
-    private int relegateCount;
-
-    @Column(nullable = false)
-    private int relegateWarningCount;
-
     @Column(name = "badge_id", nullable = false)
     private String badgeId;
 

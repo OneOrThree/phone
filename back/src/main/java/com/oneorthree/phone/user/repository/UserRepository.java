@@ -23,6 +23,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             + " FROM User u WHERE u.id IN :ids AND u.isDeleted = false")
     List<UserTierLevelProjection> findTierLevelsByIdInAndIsDeletedFalse(@Param("ids") Collection<UUID> ids);
 
+    /** 티어 정산처럼 실제 User 변경이 필요한 경로의 활성 사용자 엔티티 배치 조회. */
+    List<User> findAllByIdInAndIsDeletedFalse(Collection<UUID> ids);
+
     boolean existsByIdAndIsDeletedFalse(UUID id);
 
     // 닉네임 중복 검사 (GROMO-584) — 본인 제외(AndIdNot)로 자기 닉네임 재사용은 허용.

@@ -3,23 +3,24 @@ package com.oneorthree.phone.league.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
-import com.oneorthree.phone.league.domain.LeagueArena;
-import com.oneorthree.phone.league.domain.LeagueArenaUser;
-import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
+import com.oneorthree.phone.league.domain.LeagueWeeklyResult;
+import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.league.exception.LeagueException;
-import com.oneorthree.phone.league.repository.LeagueArenaUserRepository;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
+import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.UserRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,6 +29,7 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +43,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -53,13 +56,16 @@ class LeagueServiceTest {
     private LeagueService leagueService;
 
     @Mock
-    private LeagueArenaUserRepository leagueArenaUserRepository;
+    private UserRepository userRepository;
 
     @Mock
     private LeagueTierConfigRepository leagueTierConfigRepository;
 
     @Mock
     private LeagueRankingQueryRepository leagueRankingQueryRepository;
+
+    @Mock
+    private LeagueWeeklyResultRepository leagueWeeklyResultRepository;
 
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
@@ -81,82 +87,108 @@ class LeagueServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID U2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
-    private static final UUID ARENA_ID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
-    private static final Instant WEEK_START = Instant.parse("2026-06-22T00:00:00Z");
-
-    private LeagueArena activeArena() {
-        return LeagueArena.builder()
-                .id(ARENA_ID)
-                .startedAt(WEEK_START)
-                .status(LeagueArenaStatus.ACTIVE)
-                .build();
-    }
-
-    private LeagueArenaUser member(UUID userId, String nickname, LeagueArena arena, int focusSeconds) {
-        User user = User.builder().id(userId).nickname(nickname).build();
-        return LeagueArenaUser.builder()
-                .id(UUID.randomUUID())
-                .user(user)
-                .leagueArena(arena)
-                .tierLevel(3)
-                .totalFocusSeconds(focusSeconds)
-                .build();
-    }
+    private static final Instant NOW = Instant.parse("2026-06-24T03:00:00Z");
+    private static final Instant WEEK_START = Instant.parse("2026-06-21T15:00:00Z");
+    // NOW 기준 직전 주(방금 마감된 주) 시작 = 2026-06-15 00:00 KST
+    private static final Instant PREVIOUS_WEEK_START = Instant.parse("2026-06-14T15:00:00Z");
 
     private LeagueRankingRow rankingRow(UUID userId, String nickname, int focusSeconds) {
         return new LeagueRankingRow(userId, nickname, 3, focusSeconds);
     }
 
+    @BeforeEach
+    void setUp() {
+        // 기본값: 정산 결과 없음 — getMyRank 의 result 조회가 null Optional 을 받지 않도록 lenient 방어.
+        lenient().when(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(any()))
+                .thenReturn(Optional.empty());
+    }
+
+    private LeagueWeeklyResult weeklyResult(Instant weekStartAt, LeagueWeeklyResultType result) {
+        return LeagueWeeklyResult.builder()
+                .weekStartAt(weekStartAt)
+                .previousTierLevel(2)
+                .newTierLevel(3)
+                .result(result)
+                .focusSeconds(200)
+                .build();
+    }
+
     // ── getMyTier ─────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("내 티어 조회 성공 → ACTIVE 아레나 정보 매핑")
+    @DisplayName("내 티어 조회 성공 → 활성 User 티어와 설정 배지를 호환 DTO에 매핑")
     void getMyTierAssigned() {
-        LeagueArena arena = activeArena();
-        LeagueArenaUser me = member(USER_ID, "me", arena, 300);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.of(me));
+        given(userRepository.findById(USER_ID))
+                .willReturn(Optional.of(User.builder().id(USER_ID).tierLevel(3).build()));
         given(leagueTierConfigRepository.findById(3))
                 .willReturn(Optional.of(tierConfig(3, "hyperfocus")));
 
-        LeagueTierResponse response = leagueService.getMyTier(USER_ID);
+        LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
 
         assertThat(response.assigned()).isTrue();
         assertThat(response.tierLevel()).isEqualTo(3);
-        assertThat(response.arenaId()).isEqualTo(ARENA_ID);
+        assertThat(response.arenaId()).isNull();
         assertThat(response.weekStartAt()).isEqualTo(WEEK_START);
-        assertThat(response.status()).isEqualTo("ACTIVE");
+        assertThat(response.status()).isNull();
         assertThat(response.badgeId()).isEqualTo("hyperfocus");
     }
 
     @Test
     @DisplayName("내 티어 조회 - 티어 설정 누락 → badgeId=null 로 방어")
     void getMyTierBadgeConfigMissing() {
-        LeagueArena arena = activeArena();
-        LeagueArenaUser me = member(USER_ID, "me", arena, 300);
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.of(me));
+        given(userRepository.findById(USER_ID))
+                .willReturn(Optional.of(User.builder().id(USER_ID).tierLevel(3).build()));
         given(leagueTierConfigRepository.findById(3))
                 .willReturn(Optional.empty());
 
-        LeagueTierResponse response = leagueService.getMyTier(USER_ID);
+        LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
 
         assertThat(response.assigned()).isTrue();
         assertThat(response.badgeId()).isNull();
     }
 
     @Test
-    @DisplayName("내 티어 조회 - 미배정 → assigned=false")
+    @DisplayName("내 티어 조회 - 존재하지 않는 유저 → assigned=false")
     void getMyTierUnassigned() {
-        given(leagueArenaUserRepository.findByUserAndArenaStatus(USER_ID, LeagueArenaStatus.ACTIVE))
-                .willReturn(Optional.empty());
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
-        LeagueTierResponse response = leagueService.getMyTier(USER_ID);
+        LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
 
         assertThat(response.assigned()).isFalse();
         assertThat(response.tierLevel()).isNull();
         assertThat(response.arenaId()).isNull();
         assertThat(response.badgeId()).isNull();
+    }
+
+    @Test
+    @DisplayName("내 티어 조회 - 탈퇴 유저 → assigned=false")
+    void getMyTierDeletedUserIsUnassigned() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder()
+                .id(USER_ID)
+                .tierLevel(3)
+                .isDeleted(true)
+                .build()));
+
+        LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
+
+        assertThat(response.assigned()).isFalse();
+        verify(leagueTierConfigRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("내 티어 조회 - 게스트 유저 → assigned=false(온보딩 전 리그 미참가)")
+    void getMyTierGuestIsUnassigned() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder()
+                .id(USER_ID)
+                .tierLevel(3)
+                .isGuest(true)
+                .build()));
+
+        LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
+
+        assertThat(response.assigned()).isFalse();
+        assertThat(response.tierLevel()).isNull();
+        verify(leagueTierConfigRepository, never()).findById(any());
     }
 
     // ── getMyRanking ──────────────────────────────────────────────────────
@@ -265,7 +297,7 @@ class LeagueServiceTest {
     // ── getMyRank ─────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("내 순위 조회는 전역 read model의 순위·합계를 반환하고 호환 result는 null이다")
+    @DisplayName("내 순위 조회는 전역 read model의 순위·합계를 반환하고 정산 결과가 없으면 result=null")
     void getMyRankAssigned() {
         given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
                 .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
@@ -276,6 +308,50 @@ class LeagueServiceTest {
         assertThat(response.myRank()).isEqualTo(2);
         assertThat(response.totalFocusSeconds()).isEqualTo(200);
         assertThat(response.result()).isNull();
+    }
+
+    @Test
+    @DisplayName("직전 주 정산 결과가 있으면 순위와 함께 승격/강등 result를 반환한다")
+    void getMyRankReturnsSettlementResult() {
+        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
+                .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
+        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
+                .willReturn(Optional.of(weeklyResult(PREVIOUS_WEEK_START, LeagueWeeklyResultType.PROMOTED)));
+
+        LeagueRankResponse response = leagueService.getMyRank(USER_ID, NOW);
+
+        assertThat(response.assigned()).isTrue();
+        assertThat(response.myRank()).isEqualTo(2);
+        assertThat(response.result()).isEqualTo("PROMOTED");
+    }
+
+    @Test
+    @DisplayName("정산 결과가 직전 주가 아닌 오래된 주면 result=null (진행 중 취급)")
+    void getMyRankStaleSettlementResultIsNull() {
+        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
+                .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
+        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
+                .willReturn(Optional.of(weeklyResult(
+                        PREVIOUS_WEEK_START.minus(Duration.ofDays(7)), LeagueWeeklyResultType.PROMOTED)));
+
+        LeagueRankResponse response = leagueService.getMyRank(USER_ID, NOW);
+
+        assertThat(response.result()).isNull();
+    }
+
+    @Test
+    @DisplayName("이번 주 순위가 없어도(assigned=false) 직전 주 정산 결과는 반환한다")
+    void getMyRankUnassignedStillReturnsSettlementResult() {
+        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
+                .willReturn(Optional.empty());
+        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
+                .willReturn(Optional.of(weeklyResult(PREVIOUS_WEEK_START, LeagueWeeklyResultType.RELEGATED)));
+
+        LeagueRankResponse response = leagueService.getMyRank(USER_ID, NOW);
+
+        assertThat(response.assigned()).isFalse();
+        assertThat(response.myRank()).isNull();
+        assertThat(response.result()).isEqualTo("RELEGATED");
     }
 
     @Test

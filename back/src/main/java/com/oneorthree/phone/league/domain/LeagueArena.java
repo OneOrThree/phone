@@ -5,11 +5,9 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -22,7 +20,12 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "league_arenas")
+@Table(
+        name = "league_arenas",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_league_arenas_started_at",
+                columnNames = "started_at")
+)
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -32,10 +35,6 @@ public class LeagueArena {
     @Id
     @GeneratedUuidV7
     private UUID id;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "tier_level", nullable = false)
-    private LeagueTierConfig tierConfig;
 
     @Column(name = "started_at", nullable = false)
     private Instant startedAt;
