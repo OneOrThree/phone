@@ -60,11 +60,25 @@ public class LeagueNotificationService {
             return;
         }
 
-        List<UUID> userIds = results.stream().map(result -> result.getUser().getId()).toList();
+        // 승격/강등 대상이 많은 주에도 User·설정 IN 조회와 1차 캐시가 커지지 않도록 페이지 단위로 나눠 처리한다.
+        int processedCount = 0;
+        for (int start = 0; start < results.size(); start += NOTIFICATION_PAGE_SIZE) {
+            List<LeagueWeeklyResult> page = results.subList(
+                    start, Math.min(start + NOTIFICATION_PAGE_SIZE, results.size()));
+            processedCount += sendWeeklyResultPage(page, now);
+            entityManager.flush();
+            entityManager.clear();
+        }
+        log.info("주간 리그 결과 알림 — 대상 {}건 처리 완료 (previousWeekStart={})",
+                processedCount, previousWeekStart);
+    }
+
+    private int sendWeeklyResultPage(List<LeagueWeeklyResult> page, Instant now) {
+        List<UUID> userIds = page.stream().map(result -> result.getUser().getId()).toList();
         Map<UUID, User> usersById = loadUsers(userIds);
         Map<UUID, UserNotificationSettings> settingsByUserId = loadSettings(userIds);
         int processedCount = 0;
-        for (LeagueWeeklyResult result : results) {
+        for (LeagueWeeklyResult result : page) {
             User user = usersById.get(result.getUser().getId());
             if (user == null) {
                 continue;
@@ -77,8 +91,7 @@ public class LeagueNotificationService {
             pushNotificationService.sendIfAllowed(user, settings, message, now);
             processedCount++;
         }
-        log.info("주간 리그 결과 알림 — 대상 {}건 처리 완료 (previousWeekStart={})",
-                processedCount, previousWeekStart);
+        return processedCount;
     }
 
     /** 리그 마감 임박 알림 — 스케줄러(일 20:00 KST)·수동 트리거 진입점. */

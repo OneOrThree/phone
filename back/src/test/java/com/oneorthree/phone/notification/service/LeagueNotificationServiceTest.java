@@ -140,6 +140,35 @@ class LeagueNotificationServiceTest {
     }
 
     @Test
+    @DisplayName("주간 결과 알림도 200명 단위로 나눠 User·설정 IN 조회를 제한한다")
+    void pagesWeeklyResultsWithoutLargeInClause() {
+        int pageSize = LeagueNotificationService.NOTIFICATION_PAGE_SIZE;
+        List<LeagueWeeklyResult> results = new ArrayList<>();
+        Map<UUID, User> usersById = new HashMap<>();
+        for (int index = 0; index <= pageSize; index++) {
+            User user = user(UUID.randomUUID());
+            usersById.put(user.getId(), user);
+            results.add(result(user, LeagueWeeklyResultType.PROMOTED, 1, 2));
+        }
+        given(leagueWeeklyResultRepository.findByWeekStartAtAndResultIn(any(), anyCollection()))
+                .willReturn(results);
+        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willAnswer(invocation -> {
+            Collection<UUID> ids = invocation.getArgument(0);
+            return ids.stream().map(usersById::get).toList();
+        });
+        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+
+        service.sendWeeklyResultNotifications(NOW);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<UUID>> ids = ArgumentCaptor.forClass(Collection.class);
+        verify(userRepository, times(2)).findAllByIdInAndIsDeletedFalse(ids.capture());
+        assertThat(ids.getAllValues()).extracting(Collection::size).containsExactly(pageSize, 1);
+        verify(pushNotificationService, times(pageSize + 1)).sendIfAllowed(any(), any(), any(), eq(NOW));
+        verify(entityManager, times(2)).clear();
+    }
+
+    @Test
     @DisplayName("알림 설정의 soundEnabled를 주간 결과 메시지에 반영한다")
     void respectsWeeklySoundSetting() {
         User promoted = user(UUID.randomUUID());

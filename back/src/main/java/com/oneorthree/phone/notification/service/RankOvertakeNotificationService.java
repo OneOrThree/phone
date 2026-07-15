@@ -292,7 +292,7 @@ public class RankOvertakeNotificationService {
     }
 
     /**
-     * 지금까 순회한 오늘 사용자를 어제 순위 기준으로 색인한다.
+     * 지금까지 순회한 오늘 사용자를 어제 순위 기준으로 색인한다.
      * Fenwick tree는 임계 순위 이후의 라이벌 수를, segment tree는 그중 오늘 순위가
      * 가장 앞선 대표 라이벌을 O(log N)으로 찾는다.
      */
