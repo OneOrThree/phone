@@ -29,7 +29,7 @@ export function ScreenTimeCelebrationModal({ visible, streakDays, goalMinutes, o
         <TouchableOpacity style={s.backdrop} activeOpacity={1} onPress={onClose} />
         <View style={s.card}>
           <CharacterImage size={104} />
-          <Text style={s.title}>어제 핸드폰 사용 시간 목표를 달성했어요! 🎉</Text>
+          <Text style={s.title}>어제 핸드폰 사용 시간 목표를 달성했군요!</Text>
           <Text style={s.sub}>
             {goalMinutes
               ? `${goalLabel(goalMinutes)} 이내로 사용하기 성공했어요.`

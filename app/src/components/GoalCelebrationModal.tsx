@@ -30,7 +30,7 @@ export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onC
         <View style={s.card}>
           <CharacterImage size={104} />
           <Text style={s.title}>
-            {goalMinutes ? `${goalLabel(goalMinutes)} 집중 목표 달성! 🎉` : '오늘 목표 달성! 🎉'}
+            {goalMinutes ? `${goalLabel(goalMinutes)} 집중 목표 달성!` : '오늘 목표 달성!'}
           </Text>
           <Text style={s.sub}>내일도 힘내서 목표 달성해요!</Text>
           <View style={s.streakBox}>
