@@ -32,7 +32,7 @@ env:
 
 jobs:
   rollback:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci, spot]
     timeout-minutes: 15
     steps:
       - name: AWS 자격증명 (OIDC)

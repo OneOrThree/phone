@@ -6,7 +6,7 @@ on:
 jobs:
   cleanup:
     if: startsWith(github.event.ref, 'refs/heads/feat/')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci, spot]
 
     steps:
       - name: Checkout gh-pages
