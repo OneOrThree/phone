@@ -120,7 +120,8 @@ public class ProfileService {
         }
 
         // 프로필 요약(streak·today)은 친구 여부/공개설정과 무관하게 항상 반환 (GROMO-746)
-        StreakResponse streak = statsService.getStreak(targetUserId);
+        // 스트릭은 read-time 만료 반영을 위해 클라 로컬 date 를 함께 전달한다 (GROMO-847)
+        StreakResponse streak = statsService.getStreak(targetUserId, date);
         TodayStatsResponse today = statsService.getTodayStats(targetUserId, date);
 
         // 세부 차트(heatmap)만 공개 게이트: 본인·친구, 또는 대상이 전체공개(PUBLIC) (GROMO-640 — 623 의 /stats/* 정책과 정합)
