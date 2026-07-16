@@ -1,0 +1,80 @@
+name: Dev Datadog (APM + Observability)
+
+# Datadog Agent + APM 을 dev(self-hosted) 서버에 수동으로 올린다.
+# dev-monitor.yml 과 동일한 self-hosted 러너·OIDC·Secrets Manager 재사용. 앱 배포(cd.yml)와 분리.
+# DD_API_KEY 만 GitHub Actions 시크릿, DB/app 시크릿은 기존 AWS Secrets Manager 에서 로드(compose 보간용).
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: '동작 (up: 기동/갱신+APM 활성, restart: 재시작, down: Datadog 제거+app 평문 복원)'
+        type: choice
+        required: true
+        default: up
+        options: [up, restart, down]
+
+concurrency:
+  group: dev-datadog
+  cancel-in-progress: false
+
+jobs:
+  datadog:
+    runs-on: [self-hosted, dev]
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      COMPOSE_FILES: -f docker-compose.dev.yml -f docker-compose.datadog.yml
+      DD_API_KEY: ${{ secrets.DD_API_KEY }}   # GitHub Actions 시크릿(AWS Secrets Manager 아님)
+      DD_SITE: us5.datadoghq.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-phone
+          aws-region: ap-northeast-2
+
+      - name: AWS Secrets Manager에서 시크릿 로드
+        run: |
+          SECRET=$(aws secretsmanager get-secret-value \
+            --secret-id oneorthree/phone \
+            --region ap-northeast-2 \
+            --query SecretString --output text)
+          # compose 보간용 DB/app 시크릿 (app·db 서비스가 참조)
+          echo "POSTGRES_DB=$(echo $SECRET | jq -r '.POSTGRES_DB')" >> $GITHUB_ENV
+          echo "POSTGRES_USER=$(echo $SECRET | jq -r '.POSTGRES_USER')" >> $GITHUB_ENV
+          echo "POSTGRES_PASSWORD=$(echo $SECRET | jq -r '.POSTGRES_PASSWORD')" >> $GITHUB_ENV
+          echo "JWT_SECRET=$(echo $SECRET | jq -r '.JWT_SECRET')" >> $GITHUB_ENV
+          echo "GOOGLE_CLIENT_ID=$(echo $SECRET | jq -r '.GOOGLE_CLIENT_ID')" >> $GITHUB_ENV
+          echo "APPLE_CLIENT_ID=$(echo $SECRET | jq -r '.APPLE_CLIENT_ID')" >> $GITHUB_ENV
+          echo "FCM_PROJECT_ID=$(echo $SECRET | jq -r '.FCM_PROJECT_ID')" >> $GITHUB_ENV
+          echo "FCM_SERVICE_ACCOUNT_JSON=$(echo $SECRET | jq -r '.FCM_SERVICE_ACCOUNT_JSON')" >> $GITHUB_ENV
+          # DD_API_KEY·DD_SITE 는 job env(GitHub 시크릿)에서 주입 — 여기서 로드하지 않음.
+
+      - name: Datadog 스택 ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          case "${{ inputs.action }}" in
+            up)
+              # datadog-agent 기동 + app 을 APM overlay 로 재생성(-javaagent 활성)
+              docker compose $COMPOSE_FILES up -d datadog-agent app
+              ;;
+            restart)
+              docker compose $COMPOSE_FILES restart datadog-agent app
+              ;;
+            down)
+              # Datadog Agent 제거 후, app 을 dev 파일 단독으로 재생성 → 평문(javaagent 없음) 복원
+              docker compose $COMPOSE_FILES rm -sf datadog-agent
+              docker compose -f docker-compose.dev.yml up -d app
+              ;;
+          esac
+
+      - name: 상태 확인
+        if: ${{ inputs.action != 'down' }}
+        run: |
+          docker compose $COMPOSE_FILES ps
+          echo "== agent status (요약) =="
+          docker exec gromo-datadog-agent agent status 2>/dev/null | grep -iE "API Keys|Logs Agent|APM Agent|openmetrics" -A1 || true
