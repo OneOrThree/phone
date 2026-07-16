@@ -120,23 +120,29 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
 }
 
 const s = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 14 },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    gap: T.space.lg,
+  },
   errorText: { ...T.text.label, color: T.inkSub },
   retryBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.xl,
     borderRadius: 12,
     borderWidth: 1.5,
     borderColor: T.border,
     backgroundColor: T.white,
   },
   retryText: { ...T.text.label, fontWeight: '700', color: T.ink },
-  group: { marginBottom: 18 },
-  groupLabel: { ...T.text.caption, color: T.inkMuted, marginBottom: 9, marginLeft: 2 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  group: { marginBottom: T.space.xl },
+  groupLabel: { ...T.text.caption, color: T.inkMuted, marginBottom: T.space.sm, marginLeft: 2 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: T.space.sm },
   chip: {
-    paddingVertical: 11,
-    paddingHorizontal: 16,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.lg,
     borderRadius: 13,
     backgroundColor: T.white,
     borderWidth: 1.5,

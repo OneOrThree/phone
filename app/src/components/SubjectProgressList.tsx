@@ -38,8 +38,8 @@ export function SubjectProgressList({
 }
 
 const s = StyleSheet.create({
-  progressList: { gap: 10 },
-  subjectRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  progressList: { gap: T.space.md },
+  subjectRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   subjectDot: { width: 8, height: 8, borderRadius: 4 },
   progressName: { flex: 1, ...T.text.caption, color: T.ink },
   progressTime: {
@@ -54,7 +54,7 @@ const s = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: T.caramel,
     overflow: 'hidden',
-    marginTop: 13,
+    marginTop: T.space.md,
   },
-  ratioEmpty: { ...T.text.caption, fontWeight: '500', color: T.inkMuted, marginTop: 8 },
+  ratioEmpty: { ...T.text.caption, fontWeight: '500', color: T.inkMuted, marginTop: T.space.sm },
 });

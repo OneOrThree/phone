@@ -5,17 +5,17 @@ import { CharacterImage } from '@/components/character/CharacterImage';
 import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
 import { T, withAlpha } from '@/constants/theme';
 
-// 포커스 목표 달성 축하 모달(GROMO-630) — 오늘 누적 집중이 목표를 처음 채운 순간 결과 화면에서
-// 1회 노출. 코인/재화 지급 없음(목표 보상 = 축하 + 스트릭 정책). 표시는 '연속 목표달성'만 —
-// '연속 공부'(하루 10분 스트릭)와는 다른 개념이라 이 모달에는 섞지 않는다.
+// 스크린타임 목표 달성 축하 모달(GROMO-629) — 어제 사용 시간이 목표 이내였으면 그날 첫 홈 진입에
+// 1회 노출. 코인/재화 지급 없음(축하 + 스트릭 정책). 모양은 포커스 목표 축하(GoalCelebrationModal)
+// 와 동일 — 문구만 스크린타임용. '연속 목표달성'만 표시한다.
 interface Props {
   visible: boolean;
-  goalStreakDays: number; // 오늘 포함 연속 목표달성 일수
-  goalMinutes?: number; // 달성한 목표 시간(분) — 제목에 "N시간 집중 목표 달성!" 표기
+  streakDays: number; // 어제 포함 연속 목표달성 일수
+  goalMinutes?: number; // 어제 목표 사용 시간(분) — "N시간 이내로 사용하기 성공" 문구용
   onClose: () => void;
 }
 
-// 분 → "5시간" / "1시간 30분" / "30분" (축하 제목용 — 00:00:00 표기보다 문장에 자연스러움)
+// 분 → "3시간" / "3시간 30분" / "30분" (목표 시간 문장 표기용)
 function goalLabel(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
@@ -24,7 +24,7 @@ function goalLabel(minutes: number): string {
   return `${m}분`;
 }
 
-export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onClose }: Props) {
+export function ScreenTimeCelebrationModal({ visible, streakDays, goalMinutes, onClose }: Props) {
   const [cardRect, setCardRect] = useState<ConfettiObstacle | null>(null);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -40,14 +40,17 @@ export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onC
           <View style={s.streakBox}>
             <Ionicons name="ribbon" size={15} color={T.accentDeep} />
             <Text style={s.streakText}>
-              연속 목표달성 <Text style={s.streakDays}>{goalStreakDays}일</Text>
+              연속 목표달성 <Text style={s.streakDays}>{streakDays}일</Text>
             </Text>
           </View>
           <CharacterImage size={104} />
-          <Text style={s.title}>
-            {goalMinutes ? `${goalLabel(goalMinutes)} 집중 목표 달성!` : '오늘 목표 달성!'}
+          <Text style={s.title}>어제 핸드폰 사용 시간 목표를 달성했군요!</Text>
+          <Text style={s.sub}>
+            {goalMinutes
+              ? `${goalLabel(goalMinutes)} 이내로 사용하기 성공했어요.`
+              : '목표 이내로 사용하기 성공했어요.'}
+            {'\n'}오늘도 화이팅!
           </Text>
-          <Text style={s.sub}>내일도 힘내서 목표 달성해요!</Text>
           <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={onClose}>
             <Text style={s.ctaText}>좋아요!</Text>
           </TouchableOpacity>

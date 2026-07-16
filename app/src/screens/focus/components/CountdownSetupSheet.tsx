@@ -64,8 +64,14 @@ export function CountdownSetupSheet({
 
 const s = StyleSheet.create({
   title: { ...T.text.body, fontWeight: '800', color: T.ink },
-  sub: { ...T.text.label, fontWeight: '500', color: T.inkMuted, marginTop: 2, marginBottom: 6 },
-  pickerRow: { flexDirection: 'row', marginTop: 8, marginBottom: 16 },
+  sub: {
+    ...T.text.label,
+    fontWeight: '500',
+    color: T.inkMuted,
+    marginTop: 2,
+    marginBottom: T.space.sm,
+  },
+  pickerRow: { flexDirection: 'row', marginTop: T.space.sm, marginBottom: T.space.lg },
   pickerCol: { flex: 1 },
   startBtn: {
     height: 54,

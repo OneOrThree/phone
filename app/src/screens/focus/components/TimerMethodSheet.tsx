@@ -54,18 +54,24 @@ export function TimerMethodSheet({
 
 const s = StyleSheet.create({
   title: { ...T.text.body, fontWeight: '800', color: T.ink },
-  sub: { ...T.text.label, fontWeight: '500', color: T.inkMuted, marginTop: 2, marginBottom: 13 },
-  list: { gap: 9 },
+  sub: {
+    ...T.text.label,
+    fontWeight: '500',
+    color: T.inkMuted,
+    marginTop: 2,
+    marginBottom: T.space.md,
+  },
+  list: { gap: T.space.sm },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: T.space.md,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 15,
-    paddingVertical: 13,
-    paddingHorizontal: 14,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.lg,
   },
   iconBox: {
     width: 40,

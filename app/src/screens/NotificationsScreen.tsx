@@ -128,10 +128,10 @@ const s = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 18,
-    paddingTop: 6,
-    paddingBottom: 12,
+    gap: T.space.md,
+    paddingHorizontal: T.space.xl,
+    paddingTop: T.space.sm,
+    paddingBottom: T.space.md,
   },
   backBtn: {
     width: 32,
@@ -146,19 +146,19 @@ const s = StyleSheet.create({
   headerTitle: { ...T.text.heading, fontWeight: '800', color: T.ink },
 
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 16, paddingBottom: 40 },
+  scrollContent: { paddingHorizontal: T.space.lg, paddingBottom: 40 },
 
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 11,
+    gap: T.space.md,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 14,
-    paddingHorizontal: 13,
-    paddingVertical: 12,
-    marginBottom: 8,
+    paddingHorizontal: T.space.md,
+    paddingVertical: T.space.md,
+    marginBottom: T.space.sm,
   },
   cardIcon: {
     width: 34,
@@ -169,11 +169,11 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   cardBody: { flex: 1, minWidth: 0 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   title: { ...T.text.label, fontWeight: '700', color: T.ink, flexShrink: 1 },
   unreadDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: T.accentAlt },
   body: { ...T.text.caption, fontWeight: '500', color: T.inkSub, lineHeight: 19, marginTop: 2 },
-  time: { ...T.text.caption, color: T.inkMuted, marginTop: 5 },
+  time: { ...T.text.caption, color: T.inkMuted, marginTop: T.space.xs },
 
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 60 },
   emptyIcon: {
@@ -183,8 +183,8 @@ const s = StyleSheet.create({
     backgroundColor: T.chipBg,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 14,
+    marginBottom: T.space.lg,
   },
   emptyTitle: { ...T.text.label, fontWeight: '700', color: T.inkSub },
-  emptySub: { ...T.text.caption, color: T.inkMuted, marginTop: 4 },
+  emptySub: { ...T.text.caption, color: T.inkMuted, marginTop: T.space.xs },
 });

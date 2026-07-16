@@ -171,12 +171,12 @@ const s = StyleSheet.create({
     fontWeight: '500',
     color: T.inkMuted,
     marginTop: 2,
-    marginBottom: 13,
+    marginBottom: T.space.md,
     lineHeight: 19,
   },
   subDanger: { color: T.accentAlt, fontWeight: '700' },
   listScroll: { maxHeight: 320 },
-  list: { gap: 9 },
+  list: { gap: T.space.sm },
 
   primaryBtn: {
     height: 52,
@@ -184,7 +184,7 @@ const s = StyleSheet.create({
     backgroundColor: T.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 14,
+    marginTop: T.space.lg,
   },
   primaryBtnIdle: { backgroundColor: T.ink },
   primaryText: { ...T.text.subtitle, color: T.white },
@@ -196,7 +196,7 @@ const s = StyleSheet.create({
     backgroundColor: T.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 10,
+    marginTop: T.space.sm,
   },
   darkText: { ...T.text.subtitle, color: T.white },
 });

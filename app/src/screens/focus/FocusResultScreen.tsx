@@ -275,42 +275,32 @@ export default function FocusResultScreen() {
     let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
     (async () => {
-      const popped = await AsyncStorage.getItem(STORAGE_KEYS.focusStreakPoppedDate).catch(
-        () => null,
-      );
       if (cancelled || celebrationStarted.current) return;
       celebrationStarted.current = true;
-      // 오늘 ✓ 팝은 하루 1회. 주간 축하는 팝 여부와 독립 판정 — 팝 도장이 이미 있어도(예: 이전
-      // 진입에서 모달을 못 보고 이탈) 이번 주 도장이 없으면 다시 시도한다(PR 227 리뷰).
-      const shouldPop = popped !== today;
-      if (shouldPop) {
-        AsyncStorage.setItem(STORAGE_KEYS.focusStreakPoppedDate, today).catch(() => {});
-        setTodayPop(true);
-      }
+      // 오늘 ✓ 팝은 하루 1회가 아니라 매 세션(오늘 10분 충족 시) 노출(오스카 요청). 주간 축하는
+      // 팝과 독립 판정 — 이번 주 도장이 없으면 재생하되, 주 1회 가드는 그대로 유지한다.
+      setTodayPop(true);
       if (!weekStreakComplete) return;
       const seenWeek = await AsyncStorage.getItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek).catch(
         () => null,
       );
       if (cancelled || seenWeek === mondayKey) return;
       timers.push(
-        setTimeout(
-          () => {
-            // 주 1회 도장은 모달이 실제로 뜨는 순간 기록 — 딜레이 중 화면을 떠나면(타이머 취소)
-            // 다음 결과 진입에서 다시 뜰 수 있다(PR 227 리뷰).
-            AsyncStorage.setItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek, mondayKey).catch(
-              () => {},
-            );
-            setWeekModalVisible(true);
-          },
-          shouldPop ? 1200 : 400,
-        ),
+        setTimeout(() => {
+          // 주 1회 도장은 모달이 실제로 뜨는 순간 기록 — 딜레이 중 화면을 떠나면(타이머 취소)
+          // 다음 결과 진입에서 다시 뜰 수 있다(PR 227 리뷰).
+          AsyncStorage.setItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek, mondayKey).catch(
+            () => {},
+          );
+          setWeekModalVisible(true);
+        }, 1200), // ✓ 팝이 항상 재생되므로 팝 종료 후(1200ms) 축하 모달.
       );
     })();
     return () => {
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-  }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today]);
+  }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey]);
   const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
   // 이번 달 합계 — 주간과 동일하게 방금 세션 보정분(adjustedToday - serverToday)을 더한다(월도 오늘 포함)
   const monthTotal = (month?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
@@ -375,65 +365,59 @@ export default function FocusResultScreen() {
           ) : null}
         </View>
 
-        {/* 이번 주 스트릭 채우기 — 첫 집중 완료 변형(시안 14번) + 오늘 ✓ 채워지는 날(GROMO-667) */}
-        {firstTime || todayPop ? (
-          <LinearGradient
-            colors={[T.accentBg, T.sand]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={s.streakCard}
-          >
-            <View style={s.streakHead}>
-              <View style={s.streakIcon}>
-                <Ionicons name="flame" size={13} color={T.white} />
-              </View>
-              {/* 오늘 10분 미달이면 '완료'가 판정(빈 ✓·안내 문구)과 모순되므로 제목 분기 */}
-              <Text style={s.streakTitle}>
-                {todayStreakDone
-                  ? '이번 주 집중 스트릭 채우기 완료!'
-                  : '이번 주 집중 스트릭을 채워봐요!'}
-              </Text>
-              {streak && streak.currentStreak > 0 ? (
-                <Text style={s.streakBadge}>{streak.currentStreak}일 연속</Text>
-              ) : null}
+        {/* 이번 주 스트릭 카드 — 항상 노출(오스카 요청). ✓ 채우기 팝은 todayPop(오늘 10분 충족)일 때만. */}
+        <LinearGradient
+          colors={[T.accentBg, T.sand]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={s.streakCard}
+        >
+          <View style={s.streakHead}>
+            <View style={s.streakIcon}>
+              <Ionicons name="flame" size={13} color={T.white} />
             </View>
-            <View style={s.dotRow}>
-              {days.map((date, i) => {
-                const cell = cellByDate[date];
-                const isToday = date === today;
-                // 출석 = 하루 누적 10분 이상(GROMO-682). 오늘은 방금 세션이 서버 집계에
-                // 아직 없을 수 있어 보정한 판정값(todayStreakDone)을 쓴다.
-                const done = isToday
-                  ? todayStreakDone
-                  : cell != null && cell.totalFocusMinutes >= STREAK_MIN_DAILY_MINUTES;
-                const future = date > today;
-                // 오늘 ✓가 채워지는 날은 즉시 채우지 않고 팝 모션으로 찍는다(지난 요일은 정적)
-                const popping = isToday && todayPop;
-                return (
-                  <View key={date} style={s.dotCol}>
-                    <View
-                      style={[
-                        s.dot,
-                        done && !popping ? s.dotOn : null,
-                        future ? s.dotFuture : null,
-                      ]}
-                    >
-                      {done && !popping ? (
+            {/* 오늘 10분 미달이면 '완료'가 판정(빈 ✓·안내 문구)과 모순되므로 제목 분기 */}
+            <Text style={s.streakTitle}>
+              {todayStreakDone
+                ? '이번 주 집중 스트릭 채우기 완료!'
+                : '이번 주 집중 스트릭을 채워봐요!'}
+            </Text>
+            {streak && streak.currentStreak > 0 ? (
+              <Text style={s.streakBadge}>{streak.currentStreak}일 연속</Text>
+            ) : null}
+          </View>
+          <View style={s.dotRow}>
+            {days.map((date, i) => {
+              const cell = cellByDate[date];
+              const isToday = date === today;
+              // 출석 = 하루 누적 10분 이상(GROMO-682). 오늘은 방금 세션이 서버 집계에
+              // 아직 없을 수 있어 보정한 판정값(todayStreakDone)을 쓴다.
+              const done = isToday
+                ? todayStreakDone
+                : cell != null && cell.totalFocusMinutes >= STREAK_MIN_DAILY_MINUTES;
+              const future = date > today;
+              // 오늘 ✓가 채워지는 날은 즉시 채우지 않고 팝 모션으로 찍는다(지난 요일은 정적)
+              const popping = isToday && todayPop;
+              return (
+                <View key={date} style={s.dotCol}>
+                  <View
+                    style={[s.dot, done && !popping ? s.dotOn : null, future ? s.dotFuture : null]}
+                  >
+                    {done && !popping ? (
+                      <Ionicons name="checkmark" size={15} color={T.white} />
+                    ) : null}
+                    {popping ? (
+                      <Animated.View style={[s.dotPopFill, checkPop]}>
                         <Ionicons name="checkmark" size={15} color={T.white} />
-                      ) : null}
-                      {popping ? (
-                        <Animated.View style={[s.dotPopFill, checkPop]}>
-                          <Ionicons name="checkmark" size={15} color={T.white} />
-                        </Animated.View>
-                      ) : null}
-                    </View>
-                    <Text style={[s.dotDay, isToday ? s.dotDayToday : null]}>{WEEK_LABELS[i]}</Text>
+                      </Animated.View>
+                    ) : null}
                   </View>
-                );
-              })}
-            </View>
-          </LinearGradient>
-        ) : null}
+                  <Text style={[s.dotDay, isToday ? s.dotDayToday : null]}>{WEEK_LABELS[i]}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </LinearGradient>
 
         {/* 스트릭 기준 안내(GROMO-682) — 오늘 누적이 10분 미만이면 채워지는 조건을 알려준다 */}
         {!todayStreakDone ? (
@@ -692,9 +676,14 @@ function CompareCard({
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperLight },
-  scroll: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 24, gap: 12 },
+  scroll: {
+    paddingHorizontal: T.space.xl,
+    paddingTop: T.space.lg,
+    paddingBottom: T.space.xxl,
+    gap: T.space.md,
+  },
 
-  header: { gap: 4, paddingVertical: 4 },
+  header: { gap: T.space.xs, paddingVertical: T.space.xs },
   title: { ...T.text.stat, color: T.ink },
   sub: { ...T.text.label, fontWeight: '500', color: T.inkSub },
 
@@ -703,9 +692,9 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 18,
-    paddingHorizontal: 17,
-    paddingVertical: 16,
-    gap: 6,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.lg,
+    gap: T.space.sm,
   },
   miniLabel: { ...T.text.caption, fontSize: 11, fontWeight: '500', color: T.inkMuted },
   miniSub: { ...T.text.caption, color: T.inkMuted },
@@ -713,21 +702,21 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'baseline',
     justifyContent: 'space-between',
-    gap: 10,
+    gap: T.space.md,
   },
   bigStat: { ...T.text.display, color: T.ink, flexShrink: 1 },
   focusTime: { ...T.text.stat, color: T.accent, fontVariant: ['tabular-nums'] },
 
   // 과목별 집중 현황 (이번 집중 카드 하단 — 드로어와 동일 패턴: 행 목록 + 비율 바)
   catSection: {
-    marginTop: 12,
-    paddingTop: 12,
+    marginTop: T.space.md,
+    paddingTop: T.space.md,
     borderTopWidth: 1,
     borderTopColor: T.divider,
   },
-  catHeading: { ...T.text.caption, fontWeight: '700', color: T.inkSub, marginBottom: 10 },
-  subjectList: { gap: 10 },
-  subjectRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  catHeading: { ...T.text.caption, fontWeight: '700', color: T.inkSub, marginBottom: T.space.md },
+  subjectList: { gap: T.space.md },
+  subjectRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   subjectDot: { width: 8, height: 8, borderRadius: 4 },
   subjectName: { flex: 1, ...T.text.caption, color: T.ink },
   subjectTime: {
@@ -742,7 +731,7 @@ const s = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: T.caramel,
     overflow: 'hidden',
-    marginTop: 13,
+    marginTop: T.space.md,
   },
 
   rowBetween: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
@@ -752,11 +741,11 @@ const s = StyleSheet.create({
   // 스트릭 채우기 카드
   streakCard: {
     borderRadius: 20,
-    paddingHorizontal: 17,
-    paddingVertical: 16,
-    gap: 14,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.lg,
+    gap: T.space.lg,
   },
-  streakHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  streakHead: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   streakIcon: {
     width: 24,
     height: 24,
@@ -768,7 +757,7 @@ const s = StyleSheet.create({
   streakTitle: { ...T.text.label, fontWeight: '800', color: T.ink, flex: 1 },
   streakBadge: { ...T.text.caption, color: T.accentDeep },
   dotRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  dotCol: { alignItems: 'center', gap: 5 },
+  dotCol: { alignItems: 'center', gap: T.space.xs },
   dot: {
     width: 30,
     height: 30,
@@ -796,23 +785,23 @@ const s = StyleSheet.create({
   streakNotice: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: T.space.sm,
     backgroundColor: T.accentBg,
     borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.md,
   },
   streakNoticeText: { ...T.text.caption, fontWeight: '500', color: T.accentDeep, flex: 1 },
 
   // 이번 주 집중시간 막대
-  barRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 7 },
-  barCol: { flex: 1, alignItems: 'center', gap: 5 },
+  barRow: { flexDirection: 'row', alignItems: 'flex-end', gap: T.space.sm },
+  barCol: { flex: 1, alignItems: 'center', gap: T.space.xs },
   barTrack: { height: BAR_H, justifyContent: 'flex-end' },
   bar: { width: 14, borderTopLeftRadius: 5, borderTopRightRadius: 5, transformOrigin: 'bottom' },
   barDay: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
   barDayToday: { color: T.accent, fontWeight: '700' },
   // 세로축·눈금(GROMO-683) — StatsScreen 차트 축 패턴과 동일 구조
-  chartPlotRow: { flexDirection: 'row', marginTop: 6 },
+  chartPlotRow: { flexDirection: 'row', marginTop: T.space.sm },
   chartAxisCol: { width: 36, height: BAR_H },
   chartAxisLabel: {
     ...T.text.caption,
@@ -838,12 +827,12 @@ const s = StyleSheet.create({
   chartGridBottom: { top: BAR_H },
 
   // 나 vs 비교축(3축 셀렉터 + 기간 탭)
-  axisRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 4 },
-  periodRow: { flexDirection: 'row', gap: 6 },
+  axisRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm, marginTop: T.space.xs },
+  periodRow: { flexDirection: 'row', gap: T.space.sm },
   deltaBadgeEnd: { marginLeft: 'auto' },
   axisChip: {
-    paddingHorizontal: 11,
-    paddingVertical: 6,
+    paddingHorizontal: T.space.md,
+    paddingVertical: T.space.sm,
     borderRadius: 999,
     backgroundColor: T.chipBg,
     borderWidth: 1,
@@ -852,11 +841,11 @@ const s = StyleSheet.create({
   axisChipOn: { backgroundColor: T.accent, borderColor: T.accent },
   axisChipText: { ...T.text.caption, fontSize: 11, color: T.inkSub },
   axisChipTextOn: { color: T.white, fontWeight: '700' },
-  deltaBadge: { borderRadius: 99, paddingHorizontal: 9, paddingVertical: 3 },
+  deltaBadge: { borderRadius: 99, paddingHorizontal: T.space.sm, paddingVertical: 3 },
   deltaBadgeUp: { backgroundColor: T.successBg },
   deltaBadgeDown: { backgroundColor: T.dangerBg },
   deltaBadgeText: { ...T.text.caption, fontSize: 11, fontWeight: '700' },
-  cmpBlock: { gap: 5, marginTop: 8 },
+  cmpBlock: { gap: T.space.xs, marginTop: T.space.sm },
   cmpLabelMine: { ...T.text.caption, fontWeight: '700', color: T.ink },
   cmpValueMine: { ...T.text.caption, fontWeight: '800', color: T.accent },
   cmpLabel: { ...T.text.caption, color: T.inkSub },
@@ -864,15 +853,15 @@ const s = StyleSheet.create({
   cmpTrack: { height: 10, borderRadius: 5, backgroundColor: T.track, overflow: 'hidden' },
   cmpFill: { height: 10, borderRadius: 5 },
   cmpFillAvg: { backgroundColor: T.compare.avg },
-  cmpCaption: { ...T.text.caption, fontWeight: '500', color: T.link, marginTop: 10 },
+  cmpCaption: { ...T.text.caption, fontWeight: '500', color: T.link, marginTop: T.space.md },
 
   // 하단 CTA
   footer: {
     flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 18,
-    paddingTop: 8,
-    paddingBottom: 12,
+    gap: T.space.md,
+    paddingHorizontal: T.space.xl,
+    paddingTop: T.space.sm,
+    paddingBottom: T.space.md,
   },
   homeBtn: {
     flex: 1,
@@ -880,7 +869,7 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.border,
     borderRadius: 16,
-    paddingVertical: 16,
+    paddingVertical: T.space.lg,
     alignItems: 'center',
   },
   homeText: { ...T.text.subtitle, color: T.inkSub },
@@ -888,7 +877,7 @@ const s = StyleSheet.create({
     flex: 1.4,
     backgroundColor: T.accent,
     borderRadius: 16,
-    paddingVertical: 16,
+    paddingVertical: T.space.lg,
     alignItems: 'center',
   },
   againText: { ...T.text.subtitle, color: T.white },

@@ -129,13 +129,13 @@ const s = StyleSheet.create({
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: T.space.sm,
     backgroundColor: T.greenBg,
     borderWidth: 1,
     borderColor: T.successBorder,
     borderRadius: 99,
-    paddingVertical: 5,
-    paddingHorizontal: 12,
+    paddingVertical: T.space.xs,
+    paddingHorizontal: T.space.md,
   },
   badgeDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: T.green },
   badgeText: { ...T.text.caption, fontWeight: '700', fontSize: 11, color: T.successInk },
@@ -144,14 +144,14 @@ const s = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 11,
+    gap: T.space.md,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.chipBorder,
     borderRadius: 15,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
-    marginBottom: 8, // gap 대신 margin — 2벌 이음새를 균일하게(무한 루프)
+    paddingVertical: T.space.sm,
+    paddingHorizontal: T.space.md,
+    marginBottom: T.space.sm, // gap 대신 margin — 2벌 이음새를 균일하게(무한 루프)
   },
   avatarWrap: { width: 38, height: 38 },
   avatar: {

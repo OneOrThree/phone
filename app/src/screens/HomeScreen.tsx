@@ -22,6 +22,7 @@ import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
+import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { todayStr } from '@/utils/localDate';
@@ -32,6 +33,11 @@ import {
   clearPendingCelebration,
   subscribeCelebration,
 } from '@/services/goalCelebration';
+import {
+  readPendingScreenTimeCelebration,
+  clearScreenTimeCelebration,
+  subscribeScreenTimeCelebration,
+} from '@/services/screentimeCelebration';
 import type { TodayStatsResponse } from '@/types/dto/stats';
 import {
   logHomeViewed,
@@ -182,6 +188,12 @@ export default function HomeScreen() {
     days: number;
     goalMinutes?: number;
   } | null>(null);
+  // 스크린타임 목표 달성 축하(GROMO-629) — 어제 달성 시 오늘 첫 홈 진입에 1회 노출. null=비노출.
+  const [screenTimeCelebration, setScreenTimeCelebration] = useState<{
+    date: string;
+    days: number;
+    goalMinutes?: number;
+  } | null>(null);
   // 오늘 집중 누적(로컬)을 effect 재실행 없이 최신값으로 읽기 위한 ref(폴백/계측용).
   const todayFocusSecondsRef = useRef(todayFocusSeconds);
   todayFocusSecondsRef.current = todayFocusSeconds;
@@ -216,6 +228,17 @@ export default function HomeScreen() {
     if (navigation.isFocused()) setGoalCelebration(p);
   }, [navigation]);
 
+  // 스크린타임 축하 예약 확인(GROMO-629) — 오늘 예약이면 모달, 지난 예약이면 정리.
+  const checkScreenTimeCelebration = useCallback(async () => {
+    const p = await readPendingScreenTimeCelebration();
+    if (!p) return;
+    if (p.date !== todayStr()) {
+      clearScreenTimeCelebration().catch(() => {});
+      return;
+    }
+    if (navigation.isFocused()) setScreenTimeCelebration(p);
+  }, [navigation]);
+
   // 예약 저장 완료 구독 — "홈으로"를 서버 판정보다 빨리 눌러 홈 포커스가 예약 저장보다 먼저
   // 지나간 경우에도, 저장이 끝나는 즉시 모달이 뜬다(PR 225 후속 리뷰).
   useEffect(
@@ -224,6 +247,14 @@ export default function HomeScreen() {
         checkGoalCelebration().catch(() => {});
       }),
     [checkGoalCelebration],
+  );
+
+  useEffect(
+    () =>
+      subscribeScreenTimeCelebration(() => {
+        checkScreenTimeCelebration().catch(() => {});
+      }),
+    [checkScreenTimeCelebration],
   );
 
   useFocusEffect(
@@ -241,10 +272,11 @@ export default function HomeScreen() {
         .then((v) => !cancelled && setStreakDays(v.currentStreak))
         .catch(() => {});
       checkGoalCelebration().catch(() => {});
+      checkScreenTimeCelebration().catch(() => {});
       return () => {
         cancelled = true;
       };
-    }, [refetchTodayStats, checkGoalCelebration]),
+    }, [refetchTodayStats, checkGoalCelebration, checkScreenTimeCelebration]),
   );
 
   // 당겨서 새로고침 — 오늘 요약 재조회 + 네이티브 사용량 리포트 리마운트.
@@ -293,6 +325,18 @@ export default function HomeScreen() {
     clearPendingCelebration().catch(() => {});
     setGoalCelebration(null);
   }, [goalCelebration]);
+
+  // 스크린타임 축하 모달 닫기(GROMO-629) — 오늘 노출 기록(하루 1회 가드) + 예약 제거.
+  const closeScreenTimeCelebration = useCallback(() => {
+    if (screenTimeCelebration) {
+      AsyncStorage.setItem(
+        STORAGE_KEYS.screentimeLastRewardedDate,
+        screenTimeCelebration.date,
+      ).catch(() => {});
+    }
+    clearScreenTimeCelebration().catch(() => {});
+    setScreenTimeCelebration(null);
+  }, [screenTimeCelebration]);
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
@@ -404,6 +448,15 @@ export default function HomeScreen() {
         goalMinutes={goalCelebration?.goalMinutes}
         onClose={closeGoalCelebration}
       />
+
+      {/* 스크린타임 목표 달성 축하 모달(GROMO-629) — 어제 달성 시 오늘 첫 홈 진입에 노출 */}
+      {/* 포커스 축하가 떠 있으면 대기 — 두 모달이 겹치지 않게 순차 노출(코드리뷰 P2) */}
+      <ScreenTimeCelebrationModal
+        visible={screenTimeCelebration != null && goalCelebration == null}
+        streakDays={screenTimeCelebration?.days ?? 1}
+        goalMinutes={screenTimeCelebration?.goalMinutes}
+        onClose={closeScreenTimeCelebration}
+      />
     </SafeAreaView>
   );
 }
@@ -419,11 +472,11 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 6,
-    paddingBottom: 8,
+    paddingHorizontal: T.space.xl,
+    paddingTop: T.space.sm,
+    paddingBottom: T.space.sm,
   },
-  profileRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  profileRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.md },
   avatar: {
     width: 44,
     height: 44,
@@ -433,7 +486,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   nickname: { ...T.text.subtitle, color: T.ink },
   rankBadge: {
     flexDirection: 'row',
@@ -441,11 +494,11 @@ const s = StyleSheet.create({
     gap: 3,
     backgroundColor: T.blueBg,
     borderRadius: 7,
-    paddingHorizontal: 7,
+    paddingHorizontal: T.space.sm,
     paddingVertical: 2,
   },
   rankText: { ...T.text.label, color: T.blue },
-  tierRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  tierRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs, marginTop: 2 },
   tierImg: { width: 18, height: 18, resizeMode: 'contain' },
   tierText: { ...T.text.label, color: T.inkSub },
   settingsBtn: {
@@ -471,18 +524,18 @@ const s = StyleSheet.create({
   },
 
   // 방 + 캐릭터 — 가운데를 채우고, 카드를 하단으로 밀어냄
-  room: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  room: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: T.space.xs },
 
   // 오늘 카드
   card: {
-    marginHorizontal: 18,
-    marginTop: 8,
+    marginHorizontal: T.space.xl,
+    marginTop: T.space.sm,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.md,
     shadowColor: T.shadow,
     shadowOpacity: 0.16,
     shadowRadius: 16,
@@ -493,26 +546,31 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 11,
+    marginBottom: T.space.md,
   },
   cardTitle: { ...T.text.subtitle, color: T.ink },
   cardTitleSub: { color: T.inkFaint, fontWeight: '500' },
   moreBtn: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   more: { ...T.text.label, color: T.accent },
   // 연속 공부 칩(GROMO-630)
-  cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   streakChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
     backgroundColor: T.accentBg,
     borderRadius: 999,
-    paddingHorizontal: 8,
+    paddingHorizontal: T.space.sm,
     paddingVertical: 3,
   },
   streakChipText: { ...T.text.caption, fontSize: 10, fontWeight: '700', color: T.accentDeep },
-  metricRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8 },
-  metricDivider: { borderBottomWidth: 1, borderBottomColor: T.divider, paddingBottom: 14 },
+  metricRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.md,
+    paddingVertical: T.space.sm,
+  },
+  metricDivider: { borderBottomWidth: 1, borderBottomColor: T.divider, paddingBottom: T.space.lg },
   metricIcon: {
     width: 34,
     height: 34,
@@ -527,7 +585,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'baseline',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: T.space.sm,
     marginTop: 1,
   },
   metricValue: { ...T.text.stat, color: T.ink },
@@ -538,7 +596,7 @@ const s = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: T.caramel,
     overflow: 'hidden',
-    marginTop: 7,
+    marginTop: T.space.sm,
   },
   fill: { height: '100%', borderRadius: 3 },
 });

@@ -236,8 +236,8 @@ export function CardOrderEditor({ cards, onReorder }: Props) {
 const s = StyleSheet.create({
   flex1: { flex: 1 },
   // StatsScreen s.scroll과 같은 여백 — 편집 모드에서도 카드가 같은 자리에 보이도록
-  content: { paddingHorizontal: 18, paddingBottom: 40 },
-  flow: { gap: 14 },
+  content: { paddingHorizontal: T.space.xl, paddingBottom: 40 },
+  flow: { gap: T.space.lg },
   frozenItem: { position: 'absolute', left: 0, right: 0 },
   dragItem: {
     zIndex: 10,

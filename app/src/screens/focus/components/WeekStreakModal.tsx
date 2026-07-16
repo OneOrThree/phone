@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T, withAlpha } from '@/constants/theme';
-import { ConfettiBurst, type ConfettiObstacle } from './ConfettiBurst';
+import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
 
 // 주간 스트릭 완성 축하 모달(GROMO-667) — 월~일 7일을 모두 채운 주, 일요일 결과 화면의
 // ✓ 팝 뒤에 노출(주 1회). 종이폭죽은 모달과 동시에 오버레이 안에서 터진다(오스카 결정).
@@ -53,31 +53,31 @@ const s = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: T.white,
     borderRadius: 24,
-    paddingHorizontal: 24,
+    paddingHorizontal: T.space.xxl,
     paddingTop: 28,
-    paddingBottom: 20,
-    gap: 6,
+    paddingBottom: T.space.xl,
+    gap: T.space.sm,
   },
-  title: { ...T.text.subtitle, fontSize: 20, color: T.ink, marginTop: 10 },
+  title: { ...T.text.subtitle, fontSize: 20, color: T.ink, marginTop: T.space.md },
   sub: { ...T.text.label, fontWeight: '500', color: T.inkSub, textAlign: 'center' },
   weekBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: T.space.sm,
     backgroundColor: T.accentBg,
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    marginTop: 10,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.sm,
+    marginTop: T.space.md,
   },
   weekText: { ...T.text.label, fontWeight: '600', color: T.accentDeep },
   cta: {
     alignSelf: 'stretch',
     backgroundColor: T.accent,
     borderRadius: 14,
-    paddingVertical: 14,
+    paddingVertical: T.space.lg,
     alignItems: 'center',
-    marginTop: 14,
+    marginTop: T.space.lg,
   },
   ctaText: { ...T.text.subtitle, color: T.white },
 });

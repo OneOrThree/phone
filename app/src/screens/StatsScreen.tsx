@@ -867,7 +867,7 @@ function FocusTimetableCard() {
         <TouchableOpacity
           style={s.shareBtn}
           onPress={onShare}
-          hitSlop={8}
+          hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
           activeOpacity={0.7}
           disabled={sharing}
         >
@@ -1409,22 +1409,22 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingTop: 4,
-    paddingBottom: 8,
+    paddingHorizontal: T.space.md,
+    paddingTop: T.space.xs,
+    paddingBottom: T.space.sm,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { ...T.text.subtitle, color: T.ink },
 
   // 고정 필터
-  filters: { paddingHorizontal: 18, paddingBottom: 10, gap: 10 },
+  filters: { paddingHorizontal: T.space.xl, paddingBottom: T.space.md, gap: T.space.md },
   segment: {
     flexDirection: 'row',
     backgroundColor: T.sandLight,
     borderRadius: 12,
     padding: 3,
   },
-  segBtn: { flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: 'center' },
+  segBtn: { flex: 1, paddingVertical: T.space.sm, borderRadius: 9, alignItems: 'center' },
   segBtnOn: {
     backgroundColor: T.white,
     shadowColor: T.shadow,
@@ -1437,7 +1437,7 @@ const s = StyleSheet.create({
   segTextOn: { color: T.ink },
 
   loader: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  scroll: { paddingHorizontal: 18, paddingBottom: 40, gap: 14 },
+  scroll: { paddingHorizontal: T.space.xl, paddingBottom: 40, gap: T.space.lg },
 
   // 카드 공통
   card: {
@@ -1445,30 +1445,34 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.lg,
   },
   cardHead: {
     flexDirection: 'row',
     alignItems: 'baseline',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: T.space.md,
   },
   cardTitle: { ...T.text.heading, color: T.ink },
   cardCaption: { ...T.text.caption, color: T.inkMuted },
-  cardHeadRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  shareBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  cardHeadRight: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
+  shareBtn: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   shareBtnText: { ...T.text.caption, color: T.inkMuted },
   bigStat: { ...T.text.title, color: T.ink },
-  emptyText: { ...T.text.body, color: T.inkMuted, paddingVertical: 8 },
+  emptyText: { ...T.text.body, color: T.inkMuted, paddingVertical: T.space.sm },
 
   // ST1 비교
-  compare: { marginTop: 14, gap: 8 },
-  compareLoading: { paddingVertical: 20, alignItems: 'center' },
+  compare: { marginTop: T.space.lg, gap: T.space.sm },
+  compareLoading: { paddingVertical: T.space.xl, alignItems: 'center' },
   // 나 vs 평균 바(CompareBars) + 합격자 티저 공용 스타일
-  teaserPad: { paddingVertical: 4 },
-  teaserRowHead: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
-  teaserRowGap: { marginTop: 12 },
+  teaserPad: { paddingVertical: T.space.xs },
+  teaserRowHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: T.space.xs,
+  },
+  teaserRowGap: { marginTop: T.space.md },
   teaserLabelMine: { ...T.text.caption, fontWeight: '700', color: T.ink },
   teaserValueMine: { ...T.text.caption, fontWeight: '800', color: T.accent },
   teaserLabel: { ...T.text.caption, fontWeight: '600', color: T.inkSub },
@@ -1479,7 +1483,7 @@ const s = StyleSheet.create({
   teaserFillAvg: { width: '62%', backgroundColor: T.compare.avg },
   teaserDotPasser: { backgroundColor: T.compare.theirs },
   // 합격자 레이더 티저 — 라벨은 꼭짓점 바깥 절대 배치
-  radarWrap: { alignItems: 'center', paddingVertical: 4 },
+  radarWrap: { alignItems: 'center', paddingVertical: T.space.xs },
   radarCanvas: { width: RADAR_SIZE, height: RADAR_SIZE },
   radarLabel: {
     ...T.text.caption,
@@ -1489,15 +1493,15 @@ const s = StyleSheet.create({
     fontSize: 10,
     color: T.inkSub,
   },
-  teaserLegend: { flexDirection: 'row', gap: 14, marginTop: 12 },
-  teaserLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  teaserLegend: { flexDirection: 'row', gap: T.space.lg, marginTop: T.space.md },
+  teaserLegendItem: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   teaserDot: { width: 9, height: 9, borderRadius: 2 },
   teaserLegendText: { ...T.text.caption, fontSize: 11, color: T.inkSub },
 
-  compareChips: { flexDirection: 'row', gap: 8 },
+  compareChips: { flexDirection: 'row', gap: T.space.sm },
   compareChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: T.space.md,
+    paddingVertical: T.space.sm,
     borderRadius: 999,
     backgroundColor: T.sandLight,
   },
@@ -1507,11 +1511,11 @@ const s = StyleSheet.create({
   compareNote: { ...T.text.caption, color: T.inkFaint },
 
   // 준비중 스텁 카드
-  stubCard: { gap: 8 },
+  stubCard: { gap: T.space.sm },
   stubBadge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: T.space.md,
+    paddingVertical: T.space.xs,
     borderRadius: 999,
     backgroundColor: T.noteBg,
     borderWidth: 1,
@@ -1521,9 +1525,9 @@ const s = StyleSheet.create({
   stubNote: { ...T.text.body, color: T.inkMuted },
 
   // 막대 차트
-  chartPlotRow: { flexDirection: 'row', marginTop: 14 },
+  chartPlotRow: { flexDirection: 'row', marginTop: T.space.lg },
   // 과목별 도넛 — 링 + 가운데 총합 + 우측 범례
-  donutRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 8 },
+  donutRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.lg, marginTop: T.space.sm },
   donutWrap: {
     width: DONUT_SIZE,
     height: DONUT_SIZE,
@@ -1533,8 +1537,8 @@ const s = StyleSheet.create({
   donutCenter: { position: 'absolute', alignItems: 'center' },
   donutCenterValue: { ...T.text.label, fontWeight: '800', color: T.ink },
   donutCenterLabel: { ...T.text.caption, fontSize: 10, color: T.inkSub, marginTop: 2 },
-  donutLegend: { flex: 1, gap: 8 },
-  donutLegendRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  donutLegend: { flex: 1, gap: T.space.sm },
+  donutLegendRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   donutLegendDot: { width: 10, height: 10, borderRadius: 3 },
   donutLegendName: { ...T.text.caption, color: T.ink, flex: 1 },
   donutLegendPct: { ...T.text.caption, fontWeight: '700', color: T.inkSub },
@@ -1546,7 +1550,7 @@ const s = StyleSheet.create({
     marginRight: -DOT_PAD,
   },
   // 선그래프 라벨 — 점 x좌표(칼럼 중앙)와 정렬되도록 균등 분할
-  lineLabelRow: { flexDirection: 'row', marginTop: 8 },
+  lineLabelRow: { flexDirection: 'row', marginTop: T.space.sm },
   lineLabel: { ...T.text.caption, fontSize: 10, color: T.inkMuted, flex: 1, textAlign: 'center' },
   lineLabelCur: { fontWeight: '800' },
   chartAxisCol: { width: 36, height: CHART_H },
@@ -1576,11 +1580,11 @@ const s = StyleSheet.create({
   // 시간대별 타임테이블 — 왼쪽 과목 범례(형광펜 하이라이트) + 격자(한 줄 1시간 = 10분×6칸)
   // 캡처 이미지 배경(투명 PNG 방지) + 좌우 여백 — 음수 마진으로 상쇄해 화면 레이아웃은 그대로,
   // 저장되는 이미지에만 여백이 생긴다(LineChart의 DOT_PAD 확장과 같은 기법)
-  ttShot: { backgroundColor: T.white, paddingHorizontal: 16, marginHorizontal: -16 },
-  ttLayout: { flexDirection: 'row', gap: 12, marginTop: 14 },
-  ttLegendCol: { width: 76, gap: 6, paddingTop: 2, alignItems: 'flex-start' },
+  ttShot: { backgroundColor: T.white, paddingHorizontal: T.space.lg, marginHorizontal: -16 },
+  ttLayout: { flexDirection: 'row', gap: T.space.md, marginTop: T.space.lg },
+  ttLegendCol: { width: 76, gap: T.space.sm, paddingTop: 2, alignItems: 'flex-start' },
   // 범례 — 글자 배경칠 대신 왼쪽 원형 점으로 과목 색 표시
-  ttLegendRow: { flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: '100%' },
+  ttLegendRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs, maxWidth: '100%' },
   ttLegendDot: { width: 8, height: 8, borderRadius: 4 },
   ttLegendText: { ...T.text.caption, fontSize: 11, color: T.ink, flexShrink: 1 },
   ttGrid: { flex: 1, gap: 3 },
@@ -1602,10 +1606,10 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 6,
+    paddingVertical: T.space.sm,
   },
   deltaLabel: { ...T.text.label, color: T.inkSub },
-  deltaValueWrap: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  deltaValueWrap: { flexDirection: 'row', alignItems: 'baseline', gap: T.space.sm },
   deltaArrow: { ...T.text.label },
   deltaPct: { ...T.text.subtitle },
   deltaMin: { ...T.text.caption, color: T.inkMuted },
@@ -1613,19 +1617,24 @@ const s = StyleSheet.create({
   // 목표 달성
 
   // 스트릭 + 잔디
-  streakRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  streakRow: { flexDirection: 'row', alignItems: 'center', marginBottom: T.space.lg },
   streakItem: { flex: 1, alignItems: 'center', gap: 2 },
   streakDivider: { width: 1, height: 28, backgroundColor: T.divider },
   streakValue: { ...T.text.stat, color: T.ink },
   streakLabel: { ...T.text.caption, color: T.inkMuted },
   // 월 탭 잔디 — 해당 월 전체 날짜, 한 줄 7칸(작은 정사각형), 블록 가운데 정렬
-  monthGrass: { gap: 6, marginTop: 4, alignSelf: 'center' },
-  monthGrassRow: { flexDirection: 'row', gap: 6 },
+  monthGrass: { gap: T.space.sm, marginTop: T.space.xs, alignSelf: 'center' },
+  monthGrassRow: { flexDirection: 'row', gap: T.space.sm },
   monthGrassCell: { width: 24, height: 24, borderRadius: 6 },
   // 주 탭 잔디 한 줄 — 월 탭과 같은 24px 정사각형 + 요일 라벨, 블록 가운데 정렬
-  weekGrassRow: { flexDirection: 'row', gap: 6, marginTop: 4, alignSelf: 'center' },
-  weekGrassCol: { alignItems: 'center', gap: 4 },
+  weekGrassRow: {
+    flexDirection: 'row',
+    gap: T.space.sm,
+    marginTop: T.space.xs,
+    alignSelf: 'center',
+  },
+  weekGrassCol: { alignItems: 'center', gap: T.space.xs },
   weekGrassCell: { width: 24, height: 24, borderRadius: 6 },
   weekGrassLabel: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
-  grassHint: { ...T.text.caption, color: T.inkMuted, marginTop: 10 },
+  grassHint: { ...T.text.caption, color: T.inkMuted, marginTop: T.space.md },
 });

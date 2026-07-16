@@ -41,6 +41,6 @@ const s = StyleSheet.create({
     ...T.text.display,
     color: T.ink,
     letterSpacing: 4,
-    marginTop: 8,
+    marginTop: T.space.sm,
   },
 });
