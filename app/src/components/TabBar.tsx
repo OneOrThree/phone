@@ -8,6 +8,7 @@ import Svg, { Path } from 'react-native-svg';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
+import { hapticLight, hapticSelect } from '@/utils/haptics';
 import type { V2RootStackParamList } from '@/navigation/types';
 
 // 커스텀 탭바 — Claude Design "01 홈" 시안: 글래스 바 + 4탭 + 중앙 FAB(집중 시작).
@@ -104,7 +105,10 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         style={s.tab}
         activeOpacity={0.7}
         onPress={() => {
-          if (!focused) navigation.navigate(route.name);
+          if (!focused) {
+            hapticSelect();
+            navigation.navigate(route.name);
+          }
         }}
       >
         <Ionicons name={focused ? on : off} size={26} color={focused ? T.accent : T.inkMuted} />
@@ -144,7 +148,10 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
       <TouchableOpacity
         style={s.fab}
         activeOpacity={0.85}
-        onPress={() => rootNav.navigate('FocusCategory')}
+        onPress={() => {
+          hapticLight();
+          rootNav.navigate('FocusCategory');
+        }}
       >
         <View style={s.fabInner}>
           {/* ▶ 재생(시작) 아이콘 — 삼각형이 왼쪽으로 치우쳐 보여서 살짝 오른쪽 보정 */}

@@ -12,9 +12,12 @@ import SubjectEditStep from '@/screens/onboarding/steps/SubjectEditStep';
 import SubjectCompareStep from '@/screens/onboarding/steps/SubjectCompareStep';
 import ScreenTimePermissionStep from '@/screens/onboarding/steps/ScreenTimePermissionStep';
 import ScreenTimeDeniedStep from '@/screens/onboarding/steps/ScreenTimeDeniedStep';
-import YesterdayScreenTimeStep from '@/screens/onboarding/steps/YesterdayScreenTimeStep';
+import YesterdayScreenTimeStep, {
+  resetAnalyzeIntro,
+} from '@/screens/onboarding/steps/YesterdayScreenTimeStep';
 import GoalSettingStep from '@/screens/onboarding/steps/GoalSettingStep';
 import NicknameStep from '@/screens/onboarding/steps/NicknameStep';
+import { hapticLight, hapticMedium } from '@/utils/haptics';
 import { INITIAL_ONBOARDING_DATA, type StepProps, type V2OnboardingData } from './types';
 import type { OnboardingCompleteStatus, OnboardingResult } from './types';
 import { logOnboardingStarted, logOnboardingCompleted } from '@/services/analyticsEvents';
@@ -38,8 +41,9 @@ interface OnboardingFlowProps {
 }
 
 // 플로우 노드 — 입력 스텝 / 중간 로그인 / 마지막 닉네임(가입 확정 지점).
+// subStep: 동적으로 끼어드는 보조 스텝(과목 확인) — 진행바에서 직전 스텝과 같은 칸을 공유한다.
 type FlowNode =
-  | { kind: 'step'; Component: ComponentType<StepProps> }
+  | { kind: 'step'; Component: ComponentType<StepProps>; subStep?: boolean }
   | { kind: 'login' }
   | { kind: 'nickname' };
 
@@ -55,12 +59,18 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [submitting, setSubmitting] = useState(false);
 
   // 플로우 진입 계측 — 스플래시 포함 마운트 시 1회(플로우는 이미 시작됨).
+  // 분석 연출 1회 플래그도 함께 리셋 — 재진입한 온보딩에서 연출이 다시 보이도록.
   useEffect(() => {
     logOnboardingStarted();
+    resetAnalyzeIntro();
   }, []);
 
   const update = (patch: Partial<V2OnboardingData>) => setData((d) => ({ ...d, ...patch }));
-  const next = () => setIndex((i) => i + 1);
+  // 스텝 전환마다 중간 세기 진동(GROMO-786) — next/back 공통.
+  const next = () => {
+    hapticMedium();
+    setIndex((i) => i + 1);
+  };
 
   const sequence = useMemo<FlowNode[]>(() => {
     // 추천 과목은 FocusCategoryStep이 서버(GET /tag/defaults)에서 받아 data.subjects에 채운다.
@@ -74,7 +84,9 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       step(SubjectCompareStep),
       { kind: 'login' },
       step(FocusCategoryStep),
-      ...(hasSubjects ? [step(SubjectEditStep)] : []),
+      ...(hasSubjects
+        ? [{ kind: 'step' as const, Component: SubjectEditStep, subStep: true }]
+        : []),
       step(ScreenTimePermissionStep),
       step(denied ? ScreenTimeDeniedStep : YesterdayScreenTimeStep),
       step(GoalSettingStep),
@@ -88,7 +100,10 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const backFloorRef = useRef(backFloor);
   backFloorRef.current = backFloor;
 
-  const back = () => setIndex((i) => Math.max(backFloorRef.current, i - 1));
+  const back = () => {
+    hapticMedium();
+    setIndex((i) => Math.max(backFloorRef.current, i - 1));
+  };
 
   // 뒤로가기 = 화면 왼쪽 가장자리에서 오른쪽으로 스와이프(다음은 버튼). 하한 이하는 무시.
   // 가장자리(24px)에서 시작한 수평 제스처만 인식 — 슬라이더·세로 스크롤과 충돌 방지.
@@ -138,10 +153,32 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     next();
   };
 
-  if (showSplash) return <OnboardingSplash onDone={() => setShowSplash(false)} />;
+  // 스플래시(GROMO) → 첫 스텝 전환 시 가벼운 진동으로 시작을 알린다.
+  if (showSplash)
+    return (
+      <OnboardingSplash
+        onDone={() => {
+          hapticLight();
+          setShowSplash(false);
+        }}
+      />
+    );
 
   const node = sequence[index];
   const canBack = index > backFloor;
+
+  // 진행바는 로그인 전/후 구간을 각각 처음부터 다시 채운다 — 로그인 전 3칸, 후 5칸 고정.
+  // 과목 확인(subStep)은 칸 수에서 제외해 동적으로 끼어들어도 칸 수가 흔들리지 않는다
+  // (집중카테고리와 같은 칸을 공유).
+  const isSubStep = (n: FlowNode) => n.kind === 'step' && !!n.subStep;
+  const postLogin = sequence.slice(loginIndex + 1);
+  const progress =
+    index < loginIndex
+      ? { current: index, total: loginIndex }
+      : {
+          current: postLogin.slice(0, index - loginIndex).filter((n) => !isSubStep(n)).length - 1,
+          total: postLogin.filter((n) => !isSubStep(n)).length,
+        };
 
   // 중간 로그인 화면 — 자체 전체화면 레이아웃(진행바 없음).
   if (node.kind === 'login') {
@@ -151,7 +188,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   // 마지막 닉네임 — 입력 후 곧바로 가입 확정. 실패 시 이 화면에 serverError/submitting을 유지한다.
   if (node.kind === 'nickname') {
     return (
-      <OnboardingProgressContext.Provider value={{ current: index, total: sequence.length }}>
+      <OnboardingProgressContext.Provider value={progress}>
         <View style={styles.flex} {...swipeBack.panHandlers}>
           <NicknameStep
             data={data}
@@ -173,7 +210,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   const Step = node.Component;
   return (
-    <OnboardingProgressContext.Provider value={{ current: index, total: sequence.length }}>
+    <OnboardingProgressContext.Provider value={progress}>
       <View style={styles.flex} {...swipeBack.panHandlers}>
         <Step data={data} update={update} onNext={next} onBack={canBack ? back : undefined} />
       </View>

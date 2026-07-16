@@ -1,4 +1,12 @@
+import { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from 'react-native-reanimated';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
 import { iGa } from '@/screens/onboarding/format';
@@ -14,6 +22,20 @@ const BARS = [
   { me: 58, avg: 54 },
 ];
 const SUBJECTS = ['A과목', 'B과목', 'C과목', 'D과목'];
+
+// 막대가 바닥에서 목표 높이까지 자라며 등장 — 컨테이너가 바닥 정렬이라 height 증가 = 위로 상승.
+// 오버슛 없이 감속하며 목표 높이에 그대로 멈춘다(ease-out). delay로 좌→우 시차.
+function GrowingBar({ height, color, delay }: { height: number; color: string; delay: number }) {
+  const h = useSharedValue(0);
+  useEffect(() => {
+    h.value = withDelay(
+      delay,
+      withTiming(height, { duration: 550, easing: Easing.out(Easing.cubic) }),
+    );
+  }, [h, height, delay]);
+  const grow = useAnimatedStyle(() => ({ height: h.value }));
+  return <Animated.View style={[s.bar, { backgroundColor: color }, grow]} />;
+}
 
 export default function SubjectCompareStep({ onNext }: StepProps) {
   const subjects = SUBJECTS;
@@ -45,13 +67,12 @@ export default function SubjectCompareStep({ onNext }: StepProps) {
           return (
             <View key={subjects[i]} style={s.col}>
               <View style={s.bars}>
-                <View
-                  style={[
-                    s.bar,
-                    { height: b.me, backgroundColor: deficit ? T.accentLight : T.accent },
-                  ]}
+                <GrowingBar
+                  height={b.me}
+                  color={deficit ? T.accentLight : T.accent}
+                  delay={150 + i * 120}
                 />
-                <View style={[s.bar, { height: b.avg, backgroundColor: T.borderDark }]} />
+                <GrowingBar height={b.avg} color={T.borderDark} delay={210 + i * 120} />
               </View>
               <Text style={[s.colLabel, deficit ? s.colLabelDeficit : null]} numberOfLines={1}>
                 {subjects[i]}

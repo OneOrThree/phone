@@ -95,7 +95,7 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
     <StepScaffold
       header={<ClockIcon />}
       title={'사용 시간을\n정확히 보려면'}
-      subtitle="Apple 스크린타임 권한이 필요해요. 이 데이터로 통계와 코인 보상을 계산해요."
+      subtitle="Apple 스크린타임 권한이 필요해요. 이 데이터로 통계를 계산해요."
       ctaLabel="권한 허용하기"
       onCta={allow}
       secondaryLabel="나중에 할게요"

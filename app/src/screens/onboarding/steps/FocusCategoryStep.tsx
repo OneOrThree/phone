@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
+import { hapticLight } from '@/utils/haptics';
 import { OCCUPATION_GROUPS, getDefaultSubjects } from '@/constants/focusCategories';
 import { getOccupations } from '@/services/userApi';
 import { getDefaultTags } from '@/services/focusApi';
@@ -100,6 +101,7 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
                       activeOpacity={0.85}
                       // 카테고리 변경 시 과목도 리셋 — 이전 카테고리 과목이 남지 않도록.
                       onPress={() => {
+                        hapticLight();
                         if (o.displayName !== selected) {
                           update({ focusCategory: o.displayName, subjects: [] });
                         }

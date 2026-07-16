@@ -17,6 +17,8 @@ interface StepScaffoldProps {
   ctaLabel: string;
   onCta: () => void;
   ctaDisabled?: boolean;
+  // 로딩 연출 등이 끝날 때까지 CTA를 잠시 감출 때 — 자리는 유지해 레이아웃 튐 방지.
+  ctaHidden?: boolean;
   secondaryLabel?: string;
   onSecondary?: () => void;
   // 기본은 스크롤 잠금(전환 시 본문 튐 방지). 콘텐츠가 긴 스텝만 opt-in해 세로 스크롤 허용.
@@ -33,6 +35,7 @@ export default function StepScaffold({
   ctaLabel,
   onCta,
   ctaDisabled,
+  ctaHidden,
   secondaryLabel,
   onSecondary,
   scrollable,
@@ -54,16 +57,15 @@ export default function StepScaffold({
       ]}
     >
       {progress ? (
+        // 페이지별 세그먼트 — 현재 스텝(0-based)까지 채워서 전체 중 몇 번째인지 한눈에 보이게.
         <View style={s.progress}>
-          <View style={s.progressTrack}>
-            <View
-              style={[
-                s.progressFill,
-                {
-                  width: `${(Math.min(progress.current + 1, progress.total) / progress.total) * 100}%`,
-                },
-              ]}
-            />
+          <View style={s.progressRow}>
+            {Array.from({ length: progress.total }, (_, i) => (
+              <View
+                key={i}
+                style={[s.progressSeg, i <= progress.current ? s.progressSegOn : null]}
+              />
+            ))}
           </View>
         </View>
       ) : null}
@@ -89,9 +91,9 @@ export default function StepScaffold({
       <View style={s.footer}>
         <TouchableOpacity
           activeOpacity={0.85}
-          disabled={ctaDisabled}
+          disabled={ctaDisabled || ctaHidden}
           onPress={onCta}
-          style={[s.cta, ctaDisabled ? s.ctaDisabled : null]}
+          style={[s.cta, ctaDisabled ? s.ctaDisabled : null, ctaHidden ? s.ctaHidden : null]}
         >
           <Text style={s.ctaText}>{ctaLabel}</Text>
         </TouchableOpacity>
@@ -118,8 +120,9 @@ const s = StyleSheet.create({
   // scrollable prop으로 스크롤을 켜 작은 기기에서 하단 잘림을 방지한다(가로 스와이프 뒤로가기 유지).
   scroll: { flex: 1 },
   progress: { paddingTop: T.space.lg, paddingBottom: T.space.xs, paddingHorizontal: T.space.xxl },
-  progressTrack: { height: 4, borderRadius: 2, backgroundColor: T.caramel, overflow: 'hidden' },
-  progressFill: { height: 4, borderRadius: 2, backgroundColor: T.accent },
+  progressRow: { flexDirection: 'row', gap: 6 },
+  progressSeg: { flex: 1, height: 4, borderRadius: 2, backgroundColor: T.caramel },
+  progressSegOn: { backgroundColor: T.accent },
   body: { flexGrow: 1, paddingHorizontal: T.space.xxl, paddingTop: 28 },
   bodyCenter: { justifyContent: 'center', alignItems: 'center', paddingBottom: 28 },
   header: { alignSelf: 'stretch', alignItems: 'flex-start', marginBottom: T.space.xl },
@@ -140,6 +143,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   ctaDisabled: { opacity: 0.45 },
+  ctaHidden: { opacity: 0 },
   ctaText: { ...T.text.subtitle, color: T.white },
   secondarySlot: {
     height: 22,
