@@ -25,7 +25,7 @@ import { useFriends } from './useFriends';
 import { usePinned } from './usePinned';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { MY_USER_ID, type RankedMember } from './mock';
-import { hms, fmtHourMin } from './format';
+import { hms, fmtMinutes } from './format';
 import type { FriendResponse } from '@/types/api';
 import { RankRow } from './components/RankRow';
 import { LiveFocusTime } from './components/LiveFocusTime';
@@ -204,6 +204,8 @@ export default function LeagueScreen() {
         nickname: member.nickname,
         tierLevel: member.tierLevel,
         isFriend: friendIds.has(member.userId),
+        // 핀 초기값 — 공유 핀 상태(usePinned) 그대로 전달, 미로딩이면 false 진입 후 프로필이 재동기화 (GROMO-845)
+        isPinned: pinned.has(member.userId),
         rank: rank > 0 ? rank : undefined,
         rankLabel: filter,
       });
@@ -576,11 +578,7 @@ export default function LeagueScreen() {
                   return (
                     <TouchableOpacity
                       key={f.userId}
-                      style={[
-                        s.friendCard,
-                        isPinned && s.friendCardPinned,
-                        f.isFocusing && s.friendCardFocusing,
-                      ]}
+                      style={[s.friendCard, f.isFocusing && s.friendCardFocusing]}
                       activeOpacity={0.85}
                       onPress={() =>
                         navigation.navigate('FriendProfile', {
@@ -594,7 +592,8 @@ export default function LeagueScreen() {
                     >
                       {isPinned && (
                         <View style={s.friendPinBadge}>
-                          <Ionicons name="pin" size={11} color={T.white} />
+                          {/* 랭킹·필터 칩·프로필과 동일한 압정 아이콘 — Ionicons 핀은 모양이 달라 혼동 (GROMO-845) */}
+                          <MaterialCommunityIcons name="pin" size={11} color={T.white} />
                         </View>
                       )}
                       <MemberAvatar size={48} />
@@ -606,7 +605,8 @@ export default function LeagueScreen() {
                         <Text style={s.friendTier}>{tierByLevel(f.tierLevel ?? 1).name}</Text>
                       </View>
                       {/* 오늘 집중 시간 (GROMO-658) — 집중 중이면 과목 + 초 단위 라이브,
-                           아니면 누적분 고정 표시. 서버 확장 전 응답엔 필드가 없어 0분·미집중 취급 */}
+                           아니면 누적분 고정 표시(랭킹·라이브와 동일한 디지털 표기, 분 원본이라 초는
+                           :00 고정 — GROMO-845). 서버 확장 전 응답엔 필드가 없어 0분·미집중 취급 */}
                       {f.isFocusing ? (
                         <>
                           {f.focusTagName != null && (
@@ -630,7 +630,7 @@ export default function LeagueScreen() {
                             (f.focusTimeMinutes ?? 0) > 0 && s.friendFocusTimeOn,
                           ]}
                         >
-                          {fmtHourMin(f.focusTimeMinutes ?? 0)}
+                          {fmtMinutes(f.focusTimeMinutes ?? 0)}
                         </Text>
                       )}
                     </TouchableOpacity>
@@ -954,17 +954,6 @@ const s = StyleSheet.create({
   },
   // 홀수 명일 때 마지막 줄을 채우는 투명 칸 — 혼자 남은 카드가 전체 폭으로 늘어나지 않게 2열 폭 고정
   friendCardGhost: { width: '48%', flexGrow: 1 },
-  // 핀한 친구 강조 — 상단 정렬과 함께 한눈에 구분되도록 액센트 테두리 + 은은한 배경·그림자 (GROMO-658)
-  friendCardPinned: {
-    borderWidth: 1.5,
-    borderColor: T.accent,
-    backgroundColor: withAlpha(T.accent, 0.05),
-    shadowColor: T.accent,
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
-  },
   // 집중 중 표시 (GROMO-658) — 초록 테두리 카드 + 점·과목 + 초 단위 라이브 시간
   friendCardFocusing: { borderWidth: 1.5, borderColor: T.green, backgroundColor: T.greenBg },
   friendFocusingRow: {
