@@ -184,6 +184,34 @@ export function logLeagueProfileOpened(p: { is_me: boolean }): void {
   track('league_profile_opened', p);
 }
 
+// ── 친구(Friend) [C] (GROMO-782) ──
+// 신청·수락·거절·끊기·핀 토글 — API 성공 시에만 발행해 실제 성립한 액션만 센다
+// (409 중복·롤백된 낙관 갱신은 미집계). 대상 식별자는 PII 회피로 미포함.
+export type FriendRequestSource = 'friend_add' | 'friend_profile';
+
+// 친구 신청 발신. source: 친구 추가 검색 목록 / 프로필 상세 중 어디서 보냈는지.
+export function logFriendRequestSent(p: { source: FriendRequestSource }): void {
+  track('friend_request_sent', p);
+}
+
+// 받은 친구 요청 수락/거절(친구 추가 화면의 받은 요청 목록).
+export function logFriendRequestAccepted(): void {
+  track('friend_request_accepted');
+}
+export function logFriendRequestRejected(): void {
+  track('friend_request_rejected');
+}
+
+// 친구 끊기(Alert 확인 후 성공 시).
+export function logFriendUnfriended(): void {
+  track('friend_unfriended');
+}
+
+// 친구 프로필 핀 고정/해제. pinned: 토글 후 상태(true=고정).
+export function logFriendPinToggled(p: { pinned: boolean }): void {
+  track('friend_pin_toggled', p);
+}
+
 // ── 통계(Stats) [C] (GROMO-558) ──
 // 통계 화면 진입·기간 탭 전환·과목 필터 선택. 서버 검증 이벤트([S])는 백엔드 MP 소유 — 클라 미발행.
 export type StatsPeriodKey = 'day' | 'week' | 'month';
@@ -199,6 +227,13 @@ export function logStatsPeriodChanged(p: { period: StatsPeriodKey }): void {
 }
 
 // (stats_tag_filter_selected 이벤트는 과목 칩 필터 제거로 폐기 — GROMO-761)
+
+// 타임테이블/주간 타임라인 카드 공유(캡처→공유 시트, GROMO-782).
+// completed: 실제 공유 완료 여부 — iOS Share 결과로 시트만 열고 닫은 경우(false)를 구분.
+export type StatsShareCard = 'timetable' | 'weekly_timeline';
+export function logStatsShared(p: { card: StatsShareCard; completed: boolean }): void {
+  track('stats_shared', p);
+}
 
 // ── 리텐션/알림 [C] ── (event-logging-design.md §5.B)
 // rank_change: 순위 역전 푸시(백엔드 bfeat/GROMO-579) — payload data.type='rank_change' 필요.

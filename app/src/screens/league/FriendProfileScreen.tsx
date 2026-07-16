@@ -29,6 +29,11 @@ import {
   sendFriendRequest,
   unpinFriend,
 } from '@/services/friendsApi';
+import {
+  logFriendPinToggled,
+  logFriendRequestSent,
+  logFriendUnfriended,
+} from '@/services/analyticsEvents';
 import { fmtMinutes } from './format';
 import { heatmapRange } from '@/screens/stats/format';
 import { MemberAvatar } from './components/MemberAvatar';
@@ -172,6 +177,7 @@ export default function FriendProfileScreen() {
       } else {
         await unpinFriend(userId);
       }
+      logFriendPinToggled({ pinned: next }); // 서버 반영 성공 시에만 — 롤백되는 낙관 상태는 미집계
     } catch {
       setIsPinned(!next);
       Alert.alert('핀 변경 실패', '잠시 후 다시 시도해주세요.');
@@ -182,6 +188,7 @@ export default function FriendProfileScreen() {
     try {
       await sendFriendRequest(userId);
       setRequested(true);
+      logFriendRequestSent({ source: 'friend_profile' }); // 성공 시에만 — 409(중복)는 미발행
     } catch (e) {
       // 409 = 이미 친구/이미 보낸 요청 — 요청됨으로 간주
       if (axios.isAxiosError(e) && e.response?.status === 409) {
@@ -202,6 +209,7 @@ export default function FriendProfileScreen() {
           try {
             await deleteFriend(userId);
             setIsFriend(false);
+            logFriendUnfriended();
           } catch (e) {
             // 404 = 이미 친구 아님 — 화면도 비친구로 전환
             if (axios.isAxiosError(e) && e.response?.status === 404) {

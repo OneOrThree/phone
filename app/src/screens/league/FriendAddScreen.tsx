@@ -24,6 +24,11 @@ import {
   searchFriends,
   sendFriendRequest,
 } from '@/services/friendsApi';
+import {
+  logFriendRequestAccepted,
+  logFriendRequestRejected,
+  logFriendRequestSent,
+} from '@/services/analyticsEvents';
 import { MemberAvatar } from './components/MemberAvatar';
 
 // 친구 추가 화면 (root stack) — 시안 "친구 추가 · 검색 + 받은 요청".
@@ -84,6 +89,7 @@ export default function FriendAddScreen() {
     try {
       await sendFriendRequest(userId);
       setSentIds((prev) => new Set(prev).add(userId));
+      logFriendRequestSent({ source: 'friend_add' }); // 성공 시에만 — 409(중복)는 미발행
     } catch (e) {
       // 409 = 이미 친구/이미 보낸 요청 — 요청됨으로 간주
       if (axios.isAxiosError(e) && e.response?.status === 409) {
@@ -98,8 +104,10 @@ export default function FriendAddScreen() {
     try {
       if (accept) {
         await acceptFriendRequest(requestId);
+        logFriendRequestAccepted();
       } else {
         await rejectFriendRequest(requestId);
+        logFriendRequestRejected();
       }
       setRequests((prev) => prev.filter((r) => r.requestId !== requestId));
     } catch {

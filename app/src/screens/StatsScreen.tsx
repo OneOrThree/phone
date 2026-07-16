@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import type { StatsPeriod, HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
-import { logStatsViewed, logStatsPeriodChanged } from '@/services/analyticsEvents';
+import { logStatsViewed, logStatsPeriodChanged, logStatsShared } from '@/services/analyticsEvents';
 import {
   fetchGlobalAverage,
   fetchCategoryAverage,
@@ -958,7 +958,9 @@ function FocusTimetableCard() {
         fileName: `${todayStr().slice(2).replace(/-/g, '')}_타임테이블`,
       });
       // Android Share는 url을 무시하고 message 기반이라 플랫폼별 페이로드(현재 iOS 전용 앱이지만 방어, 리뷰 반영)
-      await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
+      const result = await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
+      // 시트만 열고 닫으면 completed=false — 탭 대비 실공유 전환을 구분(GROMO-782)
+      logStatsShared({ card: 'timetable', completed: result.action === Share.sharedAction });
     } catch {
       // 캡처 실패·공유 취소 — 무시
     } finally {
@@ -1103,7 +1105,9 @@ function WeeklyTimetableCard() {
         fileName: `${todayStr().slice(2).replace(/-/g, '')}_주간타임라인`,
       });
       // Android Share는 url을 무시하고 message 기반이라 플랫폼별 페이로드(현재 iOS 전용 앱이지만 방어)
-      await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
+      const result = await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
+      // 시트만 열고 닫으면 completed=false — 탭 대비 실공유 전환을 구분(GROMO-782)
+      logStatsShared({ card: 'weekly_timeline', completed: result.action === Share.sharedAction });
     } catch {
       // 캡처 실패·공유 취소 — 무시
     } finally {
