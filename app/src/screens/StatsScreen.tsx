@@ -316,7 +316,7 @@ export default function StatsScreen() {
   cards.push({
     key: 'passer',
     node: (
-      <SectionCard key="passer" title="합격자와 비교" caption="과목별">
+      <SectionCard key="passer" title="합격자와 비교">
         <ComingSoon note="합격자 데이터가 쌓이면 보여드릴게요">
           <PasserCompareChart />
         </ComingSoon>
@@ -1016,26 +1016,23 @@ function WeeklyTimetableCard() {
   };
 
   return (
-    <SectionCard
-      title="요일별 집중 타임라인"
-      action={
-        // 캡션 자리에 '공유하기' 라벨 — 텍스트·아이콘 전체가 버튼
-        <TouchableOpacity
-          style={s.shareBtn}
-          onPress={onShare}
-          hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
-          activeOpacity={0.7}
-          disabled={sharing}
-        >
-          <Text style={s.shareBtnText}>공유하기</Text>
-          <Ionicons name="share-outline" size={15} color={T.inkSub} />
-        </TouchableOpacity>
-      }
-    >
+    <SectionCard title="요일별 집중 타임라인">
       {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게 */}
       <View ref={shotRef} collapsable={false} style={s.ttShot}>
         <WeeklyTimetable />
       </View>
+      {/* 공유하기 — 카드 하단 오른쪽('오늘 타임테이블'과 동일). 헤더에 두면 상시 드래그 핸들과 겹친다.
+          shotRef 밖이라 캡처 이미지에는 안 담긴다 */}
+      <TouchableOpacity
+        style={s.shareBtn}
+        onPress={onShare}
+        hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
+        activeOpacity={0.7}
+        disabled={sharing}
+      >
+        <Text style={s.shareBtnText}>공유하기</Text>
+        <Ionicons name="share-outline" size={15} color={T.inkSub} />
+      </TouchableOpacity>
     </SectionCard>
   );
 }
@@ -1051,6 +1048,8 @@ function WeeklyTimetable() {
   const [blocks, setBlocks] = useState<WeekFocusBlock[] | null>(null);
   // 서버 tagId → 태그명(과목 색 매칭용). 로컬 과목 id는 서버 tagId와 달라 이름으로 잇는다(FocusTimetable과 동일).
   const [tagNames, setTagNames] = useState<Map<string, string>>(new Map());
+  // 플롯 실폭 — 칼럼 x좌표·세로 점선 격자 계산용(LineChart의 plotW 패턴)
+  const [plotW, setPlotW] = useState(0);
 
   // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 방금 세션이 반영(FirstStartChart와 동일 패턴)
   useFocusEffect(
@@ -1119,11 +1118,10 @@ function WeeklyTimetable() {
   const ticks: number[] = [];
   for (let h = startH; h <= endH; h += 3) ticks.push(h);
 
-  // 요일별 블록 그룹 + 오늘 칼럼(월=0..일=6)
-  const byCol: WeekFocusBlock[][] = Array.from({ length: 7 }, () => []);
-  blocks.forEach((b) => byCol[b.col].push(b));
+  // 오늘 칼럼(월=0..일=6) + 칼럼 폭
   const nowDow = new Date().getDay();
   const todayCol = nowDow === 0 ? 6 : nowDow - 1;
+  const colW = plotW / 7;
 
   // 범례 — 타임라인에 등장한 과목만, 과목 순서대로(FocusTimetable과 동일)
   const usedNames = new Set(
@@ -1152,7 +1150,8 @@ function WeeklyTimetable() {
           </Text>
         ))}
       </View>
-      {/* 시간축 + 7개 트랙 */}
+      {/* 시간축 + 플롯(수면 차트식) — 칼럼 배경 트랙 없이 가로 실선(3시간)·칼럼 사이 세로 점선만.
+          빈 요일은 문구 없이 빈 공간 그대로 둔다 */}
       <View style={s.wttBodyRow}>
         <View style={[s.wttGutter, { height: WTT_BODY_H }]}>
           {ticks.map((h) => (
@@ -1161,44 +1160,56 @@ function WeeklyTimetable() {
             </Text>
           ))}
         </View>
-        {byCol.map((day, i) => (
-          <View
-            key={i}
-            style={[
-              s.wttCol,
-              { height: WTT_BODY_H },
-              i >= 5 ? s.wttColWeekend : null,
-              i === todayCol ? s.wttColToday : null,
-            ]}
-          >
-            {/* 3시간 구분선(맨 위·아래 눈금 제외) */}
-            {ticks.slice(1, -1).map((h) => (
-              <View key={h} style={[s.wttHline, { top: topOf(h) }]} />
-            ))}
-            {day.length === 0
-              ? // 미래 요일은 빈칸으로, 지난 요일·오늘만 안내 문구
-                i <= todayCol && (
-                  <View style={s.wttEmptyWrap}>
-                    <Text style={s.wttEmptyText} allowFontScaling={false}>
-                      {i === todayCol ? '아직\n없음' : '집중\n없음'}
-                    </Text>
-                  </View>
-                )
-              : day.map((b, j) => (
-                  <View
-                    key={j}
-                    style={[
-                      s.wttBlock,
-                      {
-                        top: topOf(b.startMin / 60),
-                        height: Math.max(WTT_MIN_BLOCK, ((b.endMin - b.startMin) / 60) * px),
-                        backgroundColor: colorForTag(b.tagId),
-                      },
-                    ]}
+        <View
+          style={[s.wttPlot, { height: WTT_BODY_H }]}
+          onLayout={(e) => setPlotW(e.nativeEvent.layout.width)}
+        >
+          {plotW > 0 && (
+            <>
+              <Svg width={plotW} height={WTT_BODY_H} style={StyleSheet.absoluteFill}>
+                {ticks.map((h) => (
+                  <Line
+                    key={`h${h}`}
+                    x1={0}
+                    y1={topOf(h)}
+                    x2={plotW}
+                    y2={topOf(h)}
+                    stroke={T.divider}
+                    strokeWidth={1}
                   />
                 ))}
-          </View>
-        ))}
+                {Array.from({ length: 6 }, (_, i) => (
+                  <Line
+                    key={`v${i}`}
+                    x1={colW * (i + 1)}
+                    y1={0}
+                    x2={colW * (i + 1)}
+                    y2={WTT_BODY_H}
+                    stroke={T.chipBorder}
+                    strokeWidth={1}
+                    strokeDasharray="2 4"
+                  />
+                ))}
+              </Svg>
+              {/* 세션 블록 — 과목색 각진 사각형(라운드 없음), 휴식 틈은 그대로 빈 공간 */}
+              {blocks.map((b, j) => (
+                <View
+                  key={j}
+                  style={[
+                    s.wttBlock,
+                    {
+                      left: b.col * colW + 3,
+                      width: colW - 6,
+                      top: topOf(b.startMin / 60),
+                      height: Math.max(WTT_MIN_BLOCK, ((b.endMin - b.startMin) / 60) * px),
+                      backgroundColor: colorForTag(b.tagId),
+                    },
+                  ]}
+                />
+              ))}
+            </>
+          )}
+        </View>
       </View>
       {/* 범례 */}
       {legendSubjects.length > 0 && (
@@ -2074,8 +2085,9 @@ const s = StyleSheet.create({
   ttCellFill: { position: 'absolute', top: 0, bottom: 0, backgroundColor: FOCUS_COLOR },
 
   // 주 탭 요일별 집중 타임라인(GROMO-778)
-  wttHeadRow: { flexDirection: 'row', gap: 3, marginTop: T.space.sm, marginBottom: T.space.xs },
-  wttBodyRow: { flexDirection: 'row', gap: 3 },
+  // 헤더·바디는 gap 없이 거터+균등분할 — 라벨 중심과 플롯 칼럼(plotW/7) x좌표가 일치해야 한다
+  wttHeadRow: { flexDirection: 'row', marginTop: T.space.sm, marginBottom: T.space.xs },
+  wttBodyRow: { flexDirection: 'row' },
   wttGutter: { width: 18, position: 'relative' }, // 시간축 눈금 칼럼
   wttTick: {
     position: 'absolute',
@@ -2095,33 +2107,8 @@ const s = StyleSheet.create({
   wttSat: { color: T.blue },
   wttSun: { color: T.accentAlt },
   wttTodayLabel: { color: T.accent },
-  wttCol: {
-    flex: 1,
-    position: 'relative',
-    backgroundColor: T.track,
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  wttColWeekend: { backgroundColor: T.accentBg },
-  wttColToday: { borderWidth: 1.5, borderColor: T.accent },
-  wttHline: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    borderTopWidth: 1,
-    borderTopColor: T.divider,
-  },
-  wttBlock: { position: 'absolute', left: 2, right: 2, borderRadius: 3 },
-  wttEmptyWrap: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  wttEmptyText: { ...T.text.caption, fontSize: 9, color: T.inkFaint, textAlign: 'center' },
+  wttPlot: { flex: 1, position: 'relative' },
+  wttBlock: { position: 'absolute' }, // 과목색 세션 블록 — 각진 모서리(라운드 금지)
   wttLegend: {
     flexDirection: 'row',
     flexWrap: 'wrap',
