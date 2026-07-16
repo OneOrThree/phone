@@ -1,8 +1,10 @@
 package com.oneorthree.phone.focus.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
+import com.oneorthree.phone.focus.domain.DefaultTag;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusSessionStatus;
+import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
@@ -34,6 +36,12 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private DefaultTagRepository defaultTagRepository;
+
+    @Autowired
+    private UserFocusTagRepository userFocusTagRepository;
+
     // markAutoClosedIfOpen 은 @Modifying 벌크 UPDATE(clearAutomatically 미사용 — endSessionIfActive 스타일 일치).
     // 같은 트랜잭션에서 findById 재조회 시 영속성 컨텍스트 1차 캐시의 낡은 엔티티가 반환되므로, DB 실제 반영을
     // 검증하려면 clear() 로 컨텍스트를 비운 뒤 재조회한다.
@@ -45,6 +53,10 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
     // to   = 2026-07-04 00:00:00 UTC (exclusive 상한)
     private static final Instant FROM = Instant.parse("2026-07-03T00:00:00Z");
     private static final Instant TO   = Instant.parse("2026-07-04T00:00:00Z");
+
+    // findLiveSessionsByUserIdIn 라이브 하한 — 이보다 앞서 시작한 미종료 세션은 orphan 으로 보고 제외.
+    // 07-03 윈도우 세션은 모두 포함되도록 이틀 앞으로 잡는다.
+    private static final Instant LIVE_SINCE = Instant.parse("2026-07-01T00:00:00Z");
 
     private User user;
 
@@ -257,5 +269,109 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         FocusSession reloaded = focusSessionRepository.findById(ended.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(FocusSessionStatus.COMPLETED);
         assertThat(reloaded.getEndedAt()).isEqualTo(endedAt);
+    }
+
+    // ── findLiveSessionsByUserIdIn (GROMO-822 FocusLiveInfoLookup 공용) ──
+
+    @Test
+    @DisplayName("findLiveSessionsByUserIdIn — 미종료 세션만(userId 집합) + 태그명 fetch join 매핑. 종료 세션·집합 밖 유저 제외")
+    void findLiveSessionsByUserIdIn_returnsLiveSessionsWithTag() {
+        User other = userRepository.save(User.builder().nickname("other").build());
+        User outOfSet = userRepository.save(User.builder().nickname("outOfSet").build());
+
+        DefaultTag defaultTag = defaultTagRepository.save(DefaultTag.builder().name("전공 공부").build());
+        UserFocusTag userTag = userFocusTagRepository.save(
+                UserFocusTag.builder().user(user).defaultTag(defaultTag).build());
+
+        // user: 진행 중(태그 있음) → 포함
+        FocusSession live = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .focusTag(userTag)
+                .build());
+        // user: 종료 세션 → 제외 (endedAt IS NULL 조건)
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T02:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T03:00:00Z"))
+                .build());
+        // outOfSet: 진행 중이지만 집합 밖 → 제외
+        focusSessionRepository.save(FocusSession.builder()
+                .user(outOfSet)
+                .startedAt(Instant.parse("2026-07-03T01:30:00Z"))
+                .build());
+        focusSessionRepository.flush();
+        entityManager.clear();   // 1차 캐시 비우고 fetch join 로딩·매핑 검증
+
+        // other 는 집합에 있으나 라이브 세션 없음 → 결과에 미포함되어야 한다
+        List<FocusSession> result = focusSessionRepository.findLiveSessionsByUserIdIn(
+                List.of(user.getId(), other.getId()), LIVE_SINCE);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(live.getId());
+        assertThat(result.get(0).getFocusTag().getDefaultTag().getName()).isEqualTo("전공 공부");
+    }
+
+    @Test
+    @DisplayName("findLiveSessionsByUserIdIn — 태그 미지정 진행중 세션은 focusTag=null 로 반환")
+    void findLiveSessionsByUserIdIn_noTagSession_focusTagNull() {
+        FocusSession live = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T04:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        List<FocusSession> result = focusSessionRepository.findLiveSessionsByUserIdIn(
+                List.of(user.getId()), LIVE_SINCE);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(live.getId());
+        assertThat(result.get(0).getFocusTag()).isNull();
+    }
+
+    @Test
+    @DisplayName("findLiveSessionsByUserIdIn — startedAt<liveSince 인 미청소 orphan(미종료)은 제외 (GROMO-822 codex 리뷰)")
+    void findLiveSessionsByUserIdIn_excludesStaleOrphanBeforeLiveSince() {
+        // 최근 시작한 라이브 세션(liveSince 이후) → 포함
+        FocusSession recent = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .build());
+        // liveSince 이전에 시작한 미종료 세션(스윕 전 orphan) → endedAt IS NULL 이어도 제외
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-06-30T00:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        List<FocusSession> result = focusSessionRepository.findLiveSessionsByUserIdIn(
+                List.of(user.getId()), LIVE_SINCE);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(recent.getId());
+    }
+
+    @Test
+    @DisplayName("findLiveSessionsByUserIdIn — 한 유저 다중 라이브 세션은 startedAt DESC(최신 우선)로 정렬 (GROMO-822 codex 리뷰)")
+    void findLiveSessionsByUserIdIn_ordersByStartedAtDesc() {
+        FocusSession earlier = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .build());
+        FocusSession later = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T05:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        List<FocusSession> result = focusSessionRepository.findLiveSessionsByUserIdIn(
+                List.of(user.getId()), LIVE_SINCE);
+
+        // 최신(05:00)이 먼저, 이전(01:00)이 나중 — 호출측이 first 로 최신을 결정적으로 고른다
+        assertThat(result).extracting(FocusSession::getId)
+                .containsExactly(later.getId(), earlier.getId());
     }
 }
