@@ -544,11 +544,7 @@ export default function LeagueScreen() {
                   return (
                     <TouchableOpacity
                       key={f.userId}
-                      style={[
-                        s.friendCard,
-                        isPinned && s.friendCardPinned,
-                        f.isFocusing && s.friendCardFocusing,
-                      ]}
+                      style={[s.friendCard, f.isFocusing && s.friendCardFocusing]}
                       activeOpacity={0.85}
                       onPress={() =>
                         navigation.navigate('FriendProfile', {
@@ -920,17 +916,6 @@ const s = StyleSheet.create({
   },
   // 홀수 명일 때 마지막 줄을 채우는 투명 칸 — 혼자 남은 카드가 전체 폭으로 늘어나지 않게 2열 폭 고정
   friendCardGhost: { width: '48%', flexGrow: 1 },
-  // 핀한 친구 강조 — 상단 정렬과 함께 한눈에 구분되도록 액센트 테두리 + 은은한 배경·그림자 (GROMO-658)
-  friendCardPinned: {
-    borderWidth: 1.5,
-    borderColor: T.accent,
-    backgroundColor: withAlpha(T.accent, 0.05),
-    shadowColor: T.accent,
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
-  },
   // 집중 중 표시 (GROMO-658) — 초록 테두리 카드 + 점·과목 + 초 단위 라이브 시간
   friendCardFocusing: { borderWidth: 1.5, borderColor: T.green, backgroundColor: T.greenBg },
   friendFocusingRow: {
