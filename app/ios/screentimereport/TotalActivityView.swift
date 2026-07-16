@@ -11,12 +11,12 @@ struct TotalActivityView: View {
     let totalActivity: ActivityReport
 
     // v2 팔레트 (theme.ts와 일치)
-    private let bg = Color(red: 0xF4 / 255, green: 0xF5 / 255, blue: 0xF8 / 255)
-    private let ink = Color(red: 0x1C / 255, green: 0x1E / 255, blue: 0x22 / 255)
-    private let sub = Color(red: 0x66 / 255, green: 0x70 / 255, blue: 0x85 / 255)
-    private let muted = Color(red: 0x9A / 255, green: 0xA0 / 255, blue: 0xA8 / 255)
-    private let cardBorder = Color(red: 0xEA / 255, green: 0xEB / 255, blue: 0xEE / 255)
-    private let divider = Color(red: 0xF1 / 255, green: 0xF2 / 255, blue: 0xF5 / 255)
+    private let bg = Palette.bg
+    private let ink = Palette.ink
+    private let sub = Palette.inkSub
+    private let muted = Palette.inkMuted
+    private let cardBorder = Palette.border
+    private let divider = Palette.divider
 
     var body: some View {
         ScrollView {

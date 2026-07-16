@@ -7,23 +7,24 @@
 
 import ManagedSettings
 import ManagedSettingsUI
+import SwiftUI
 import UIKit
 
 // 집중 세션 가림막(GROMO-553) — 세션 중 비허용앱을 열면 OS가 이 구성으로 가림막을 띄운다.
 // iOS 제약상 자유 UI는 불가하고 배경·아이콘·제목/부제·버튼(라벨/색)만 커스터마이즈 가능.
-// 색은 app/src/v2/constants/theme.ts 의 T.night / T.accent 값과 동일하게 유지한다.
+// 색은 theme.ts에서 자동 생성된 Shared/Palette.swift를 참조한다 (GROMO-641).
 // TODO: Claude Design 시안 17번 확정되면 문구·색 보정.
 
 private let appGroupId = "group.com.oneorthree.gromo"
 
-// T.night.bottom #1A1D2E — 세션 화면과 같은 다크 배경
-private let shieldBg = UIColor(red: 0x1A / 255, green: 0x1D / 255, blue: 0x2E / 255, alpha: 1)
-// T.night.cream #D9DCF0 — 제목
-private let shieldCream = UIColor(red: 0xD9 / 255, green: 0xDC / 255, blue: 0xF0 / 255, alpha: 1)
-// T.night.muted #8B90A8 — 부제
-private let shieldMuted = UIColor(red: 0x8B / 255, green: 0x90 / 255, blue: 0xA8 / 255, alpha: 1)
-// T.accent #5E6AD2 — 버튼
-private let shieldAccent = UIColor(red: 0x5E / 255, green: 0x6A / 255, blue: 0xD2 / 255, alpha: 1)
+// 세션 화면과 같은 다크 배경
+private let shieldBg = UIColor(Palette.night.bottom)
+// 제목
+private let shieldCream = UIColor(Palette.night.cream)
+// 부제
+private let shieldMuted = UIColor(Palette.night.muted)
+// 버튼
+private let shieldAccent = UIColor(Palette.accent)
 
 class ShieldConfigurationExtension: ShieldConfigurationDataSource {
 

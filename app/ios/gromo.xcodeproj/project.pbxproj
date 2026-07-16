@@ -235,6 +235,17 @@
 			path = Widget;
 			sourceTree = "<group>";
 		};
+		AB641641C0DE6E70A1E77E01 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
 		D40D48322FE111100058301C /* GromoScreenTimeMonitor */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -372,6 +383,7 @@
 				A4776DB52FEFAEAD0099A6F4 /* ShieldConfiguration */,
 				A4776DC72FEFAFB00099A6F4 /* ShieldAction */,
 				A4776DDC2FEFAFFB0099A6F4 /* Widget */,
+				AB641641C0DE6E70A1E77E01 /* Shared */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				D841E8922A4931B49C1A0BD1 /* Pods */,
@@ -460,6 +472,9 @@
 				A4776DCD2FEFAFB00099A6F4 /* PBXTargetDependency */,
 				A4776DEB2FEFAFFC0099A6F4 /* PBXTargetDependency */,
 			);
+			fileSystemSynchronizedGroups = (
+				AB641641C0DE6E70A1E77E01 /* Shared */,
+			);
 			name = gromo;
 			productName = gromo;
 			productReference = 13B07F961A680F5B00A75B9A /* gromo.app */;
@@ -499,6 +514,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				A4776DB52FEFAEAD0099A6F4 /* ShieldConfiguration */,
+				AB641641C0DE6E70A1E77E01 /* Shared */,
 			);
 			name = ShieldConfiguration;
 			productName = ShieldConfiguration;
@@ -539,6 +555,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				A4776DDC2FEFAFFB0099A6F4 /* Widget */,
+				AB641641C0DE6E70A1E77E01 /* Shared */,
 			);
 			name = WidgetExtension;
 			productName = WidgetExtension;
@@ -579,6 +596,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				D463E7B52FD664D20049F07A /* screentimereport */,
+				AB641641C0DE6E70A1E77E01 /* Shared */,
 			);
 			name = screentimereport;
 			productName = screentimereport;

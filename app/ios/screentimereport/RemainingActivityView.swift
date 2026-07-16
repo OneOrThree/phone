@@ -30,9 +30,7 @@ struct RemainingActivityView: View {
         Text(text)
             .font(.system(size: 15, weight: .black))
             .foregroundColor(
-                isFailed
-                    ? Color(red: 0xC2 / 255, green: 0x5F / 255, blue: 0x52 / 255)
-                    : Color(red: 0x1C / 255, green: 0x1E / 255, blue: 0x22 / 255)
+                isFailed ? Palette.dangerInk : Palette.ink
             )
             .frame(maxWidth: .infinity, alignment: .center)
     }
