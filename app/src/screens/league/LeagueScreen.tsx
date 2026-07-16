@@ -202,6 +202,8 @@ export default function LeagueScreen() {
         nickname: member.nickname,
         tierLevel: member.tierLevel,
         isFriend: friendIds.has(member.userId),
+        // 핀 초기값 — 공유 핀 상태(usePinned) 그대로 전달, 미로딩이면 false 진입 후 프로필이 재동기화 (GROMO-845)
+        isPinned: pinned.has(member.userId),
         rank: rank > 0 ? rank : undefined,
         rankLabel: filter,
       });

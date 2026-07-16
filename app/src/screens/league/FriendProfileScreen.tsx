@@ -23,6 +23,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import {
   deleteFriend,
   fetchFriends,
+  fetchPinnedFriends,
   fetchSentRequests,
   pinFriend,
   sendFriendRequest,
@@ -73,7 +74,7 @@ export default function FriendProfileScreen() {
   // 미전달 → 순위 미표시 (GROMO-685).
   const { userId, nickname, tierLevel, rank } = route.params;
 
-  // 친구 관계·핀은 진입점 파라미터 + 서버 친구 목록으로 관리(통계 공개와 별개).
+  // 친구 관계는 진입점 파라미터 + 서버 친구 목록, 핀은 파라미터 + 서버 핀 목록으로 관리(통계 공개와 별개).
   const [isFriend, setIsFriend] = useState(route.params.isFriend);
   const [isPinned, setIsPinned] = useState(route.params.isPinned ?? false);
   const [requested, setRequested] = useState(false);
@@ -127,21 +128,25 @@ export default function FriendProfileScreen() {
     };
   }, [userId]);
 
-  // 서버 친구 목록·보낸 요청으로 친구/핀/요청 상태 재동기화 — 검색·랭킹 진입은 isPinned도,
+  // 서버 친구 목록·핀 목록·보낸 요청으로 친구/핀/요청 상태 재동기화 — 검색·랭킹 진입은 isPinned도,
   // 이미 보낸 PENDING 요청도 모른 채 들어온다. 요청 상태를 안 채우면 이미 신청한 상대에게
   // '친구 신청' 버튼이 다시 노출돼 중복 신청이 가능해진다(서버는 409로 막지만 UI가 오해를 준다).
+  // 핀은 친구 아니어도 가능(GROMO-609)이라 친구 목록의 isPinned가 아닌 핀 목록(GET /pins)으로 판정한다
+  // — 친구 목록 기반이면 핀한 비친구가 진입 직후 핀 꺼짐으로 덮인다(GROMO-845).
   useEffect(() => {
     let stale = false;
     (async () => {
-      const [list, sent] = await Promise.all([
+      const [list, pins, sent] = await Promise.all([
         fetchFriends().catch(() => null), // 실패 시 진입 파라미터 초기값 유지
+        fetchPinnedFriends().catch(() => null), // 실패 시 핀 상태는 진입 파라미터 초기값 유지
         fetchSentRequests().catch(() => null), // 실패 시 요청 상태는 현재값 유지
       ]);
       if (stale) return;
       if (list) {
-        const mine = list.find((f) => f.userId === userId);
-        setIsFriend(mine != null);
-        setIsPinned(mine?.isPinned ?? false);
+        setIsFriend(list.some((f) => f.userId === userId));
+      }
+      if (pins) {
+        setIsPinned(pins.some((p) => p.userId === userId));
       }
       if (sent) {
         // 이 화면에서 방금 누른 상태(true)를 조회 응답이 덮지 않게 OR 유지.
@@ -331,21 +336,20 @@ export default function FriendProfileScreen() {
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
         </TouchableOpacity>
         <Text style={s.headerTitle}>프로필</Text>
-        {isFriend && (
-          <TouchableOpacity
-            style={[s.pinBtn, isPinned && s.pinBtnOn]}
-            onPress={togglePin}
-            activeOpacity={0.7}
-            hitSlop={6}
-          >
-            {/* 리그(RankRow·포디움·칩)와 동일한 압정 아이콘(MaterialCommunityIcons) — Ionicons 핀은 모양이 달라 혼동 */}
-            <MaterialCommunityIcons
-              name={isPinned ? 'pin' : 'pin-outline'}
-              size={16}
-              color={isPinned ? T.white : T.inkSub}
-            />
-          </TouchableOpacity>
-        )}
+        {/* 핀은 친구 아니어도 가능(GROMO-609) — 친구 여부와 무관하게 항상 노출(GROMO-845) */}
+        <TouchableOpacity
+          style={[s.pinBtn, isPinned && s.pinBtnOn]}
+          onPress={togglePin}
+          activeOpacity={0.7}
+          hitSlop={6}
+        >
+          {/* 리그(RankRow·포디움·칩)와 동일한 압정 아이콘(MaterialCommunityIcons) — Ionicons 핀은 모양이 달라 혼동 */}
+          <MaterialCommunityIcons
+            name={isPinned ? 'pin' : 'pin-outline'}
+            size={16}
+            color={isPinned ? T.white : T.inkSub}
+          />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
