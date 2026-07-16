@@ -8,6 +8,7 @@ import {
   StyleSheet,
   useWindowDimensions,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -18,6 +19,7 @@ import { useSubjects } from '@/store/SubjectContext';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { occupationForCategory } from '@/constants/focusCategories';
 import { getDefaultTags } from '@/services/focusApi';
+import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, PomodoroConfig, Subject } from './types';
 import { DraggableSubjectRows } from './components/DraggableSubjectRows';
@@ -71,6 +73,19 @@ export default function FocusCategoryScreen() {
   }, [category]);
   const ownedNames = new Set(subjects.map((x) => x.name));
   const recommended = defaultTags.filter((n) => !ownedNames.has(n));
+
+  // 추천 섹션 접힘 토글 — AsyncStorage에 저장해 화면을 다시 열어도 유지
+  const [recoHidden, setRecoHidden] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.focusRecoHidden).then((v) => setRecoHidden(v === '1'));
+  }, []);
+  function toggleRecoHidden() {
+    setRecoHidden((prev) => {
+      const next = !prev;
+      AsyncStorage.setItem(STORAGE_KEYS.focusRecoHidden, next ? '1' : '0').catch(() => {});
+      return next;
+    });
+  }
 
   // 선택 과목 — 미선택/삭제 시 첫 과목으로 폴백.
   const active = subjects.find((x) => x.id === selectedId) ?? subjects[0];
@@ -180,32 +195,45 @@ export default function FocusCategoryScreen() {
               <Ionicons name="add" size={16} color={T.inkMuted} />
               <Text style={s.addText}>새 과목 추가</Text>
             </TouchableOpacity>
-            {/* 추천 과목 유도 — 탭하면 바로 과목으로 추가되고 목록에서 사라진다 */}
+            {/* 추천 과목 유도 — 탭하면 바로 과목으로 추가되고 목록에서 사라진다.
+                헤더 탭으로 접기/펼치기(상태는 AsyncStorage에 저장) */}
             {recommended.length > 0 && (
               <View style={s.recoSection}>
-                <Text style={s.recoLabel}>{category} 추천 과목</Text>
-                {recommended.map((name) => (
-                  <TouchableOpacity
-                    key={name}
-                    style={s.recoRow}
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      addSubject(name);
-                      logFocusTagCreated();
-                    }}
-                  >
-                    <View style={s.recoIcon}>
-                      <Ionicons name="book-outline" size={16} color={T.accent} />
-                    </View>
-                    <Text style={s.recoName} numberOfLines={1}>
-                      {name}
-                    </Text>
-                    <View style={s.recoAddPill}>
-                      <Ionicons name="add" size={13} color={T.accent} />
-                      <Text style={s.recoAddText}>추가</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                <TouchableOpacity
+                  style={s.recoHeader}
+                  activeOpacity={0.7}
+                  onPress={toggleRecoHidden}
+                >
+                  <Text style={s.recoLabel}>{category} 추천 과목</Text>
+                  <Ionicons
+                    name={recoHidden ? 'chevron-down' : 'chevron-up'}
+                    size={15}
+                    color={T.inkMuted}
+                  />
+                </TouchableOpacity>
+                {!recoHidden &&
+                  recommended.map((name) => (
+                    <TouchableOpacity
+                      key={name}
+                      style={s.recoRow}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        addSubject(name);
+                        logFocusTagCreated();
+                      }}
+                    >
+                      <View style={s.recoIcon}>
+                        <Ionicons name="book-outline" size={16} color={T.accent} />
+                      </View>
+                      <Text style={s.recoName} numberOfLines={1}>
+                        {name}
+                      </Text>
+                      <View style={s.recoAddPill}>
+                        <Ionicons name="add" size={13} color={T.accent} />
+                        <Text style={s.recoAddText}>추가</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
               </View>
             )}
           </>
@@ -357,7 +385,15 @@ const s = StyleSheet.create({
 
   // 추천 과목 유도 섹션 — 실제 과목 행과 구분되게 옅은 카드로
   recoSection: { marginTop: 18, gap: 8, paddingBottom: 24 },
-  recoLabel: { ...T.text.caption, color: T.inkMuted, marginLeft: 2, marginBottom: 1 },
+  // 접기/펼치기 헤더 — 라벨 왼쪽, 셰브론 오른쪽
+  recoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+  },
+  recoLabel: { ...T.text.caption, color: T.inkMuted },
   recoRow: {
     flexDirection: 'row',
     alignItems: 'center',
