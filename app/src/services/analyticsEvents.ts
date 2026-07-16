@@ -287,6 +287,34 @@ export function logGuestSocialLoginAttempted(p: { method: AuthMethod }): void {
   track('guest_social_login_attempted', p);
 }
 
+// ── 설정(Settings) [C] (GROMO-782) ──
+// 알림 설정 변경 — 바뀐 필드 단위로 발행(특히 알림 끄기 = 이탈 위험 신호). value: on/off 또는 'HH:mm'.
+export type NotificationSettingKey =
+  | 'notification'
+  | 'sound'
+  | 'night_mode'
+  | 'night_start_time'
+  | 'night_end_time';
+export function logNotificationSettingsChanged(p: {
+  setting: NotificationSettingKey;
+  value: string | boolean;
+}): void {
+  track('notification_settings_changed', p);
+}
+
+// 상세 통계 공개 범위 전환(전체/친구). 낙관적 반영 시점에 발행 — 저장 실패에도 낙관 값을 유지하는
+// 화면이라 UI 기준이 진실이다.
+export function logStatVisibilityChanged(p: { visibility: 'public' | 'friends' }): void {
+  track('stat_visibility_changed', p);
+}
+
+// ── 가이드(코치마크) [C] (GROMO-782) ──
+// 첫 진입 사용법 안내(GROMO-652)를 마지막 스텝까지 보고 닫은 경우.
+// guide: 스토리지 키 접미(home/league/menu/focusSession/stats/tier).
+export function logTabGuideCompleted(p: { guide: string }): void {
+  track('tab_guide_completed', p);
+}
+
 // ── 리텐션/알림 [C] ── (event-logging-design.md §5.B)
 // rank_change: 순위 역전 푸시(백엔드 bfeat/GROMO-579) — payload data.type='rank_change' 필요.
 export type NotificationType = 'poke' | 'report' | 'challenge' | 'rank_change';

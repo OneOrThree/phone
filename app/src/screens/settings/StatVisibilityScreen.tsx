@@ -11,6 +11,7 @@ import type { StatVisibility } from '@/types/dto/user';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
+import { logStatVisibilityChanged } from '@/services/analyticsEvents';
 
 // 상세 통계 공개 범위(SET·통계 공개) — PUBLIC/FRIENDS 택1 라디오.
 // 초기값: 서버 프로필 → 로컬 캐시 → 기본 'FRIENDS' 순으로 폴백. 탭 시 낙관적 반영 후 서버·캐시 저장.
@@ -90,6 +91,7 @@ export default function StatVisibilityScreen() {
     touchedRef.current = true;
     if (next === value) return;
     setValue(next);
+    logStatVisibilityChanged({ visibility: next === 'PUBLIC' ? 'public' : 'friends' });
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.statVisibility, next);
     } catch {

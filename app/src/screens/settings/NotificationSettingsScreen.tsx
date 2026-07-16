@@ -17,6 +17,10 @@ import { getMyProfile, updateNotificationSettings } from '@/services/userApi';
 import type { NotificationSettingsRequest } from '@/types/dto/user';
 import { STORAGE_KEYS } from '@/types/storage';
 import { T, withAlpha } from '@/constants/theme';
+import {
+  logNotificationSettingsChanged,
+  type NotificationSettingKey,
+} from '@/services/analyticsEvents';
 
 // 알림 · 심야 · 소리 (라우트 SettingsNotification).
 // 현재 백엔드가 저장하는 알림 필드는 5개뿐 → 토글도 그 범위에 맞춰 3개만 노출한다:
@@ -40,6 +44,15 @@ const DEFAULTS: NotifState = {
   nightModeEnabled: false,
   nightStartTime: '22:00',
   nightEndTime: '08:00',
+};
+
+// 계측용 필드명 매핑 — NotifState 필드를 이벤트 setting 값으로(GROMO-782)
+const SETTING_PARAM: Record<keyof NotifState, NotificationSettingKey> = {
+  notificationEnabled: 'notification',
+  soundEnabled: 'sound',
+  nightModeEnabled: 'night_mode',
+  nightStartTime: 'night_start_time',
+  nightEndTime: 'night_end_time',
 };
 
 // 시(0..23) / 10분 단위 휠 아이템.
@@ -112,6 +125,11 @@ export default function NotificationSettingsScreen() {
 
   // 값 변경 공통 처리 — 낙관적 로컬 반영 + 캐시 갱신 + 서버 저장(실패해도 로컬 유지).
   function apply(next: NotifState) {
+    // 바뀐 필드만 계측 — 모든 변경이 이 함수를 지나므로 여기서 diff로 한 번에 잡는다(GROMO-782)
+    (Object.keys(next) as (keyof NotifState)[]).forEach((k) => {
+      if (next[k] !== settings[k])
+        logNotificationSettingsChanged({ setting: SETTING_PARAM[k], value: next[k] });
+    });
     setSettings(next);
     const body: NotificationSettingsRequest = {
       notificationEnabled: next.notificationEnabled,
