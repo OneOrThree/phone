@@ -2,6 +2,8 @@ package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.focus.dto.FocusLiveInfo;
+import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
@@ -46,6 +48,7 @@ public class LeagueService {
     private final UserRepository userRepository;
     private final UserActivityEventLogger userActivityEventLogger;
     private final PinnedUserRepository pinnedUserRepository;
+    private final FocusLiveInfoLookup focusLiveInfoLookup;
     private final LeagueWeek leagueWeek;
 
     public LeagueTierResponse getMyTier(UUID userId) {
@@ -67,15 +70,22 @@ public class LeagueService {
                 .orElseGet(() -> new LeagueTierResponse(false, null, null, null, null, null));
     }
 
-    /** category가 없으면 활성 유저 전체, 있으면 해당 직군의 주간 집중 시간 상위 100명을 반환한다. */
-    public List<LeagueMemberResponse> getMyRanking(UUID userId, Occupation category) {
+    /**
+     * category가 없으면 활성 유저 전체, 있으면 해당 직군의 주간 집중 시간 상위 100명을 반환한다.
+     * 각 멤버의 집중 라이브 정보(당일 집중분·진행중 여부·시작시각·태그명)를 date 기준으로 1회 배치 조회해 채운다(GROMO-824).
+     */
+    public List<LeagueMemberResponse> getMyRanking(UUID userId, Occupation category, LocalDate date) {
         Instant now = Instant.now();
         List<LeagueRankingRow> ranked = leagueRankingQueryRepository.findTop(
                 leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now), category, MY_RANKING_LIMIT);
         if (ranked.isEmpty()) {
             return List.of();
         }
-        return toResponses(ranked, pinnedUserRepository.findPinnedUserIdsByUserId(userId));
+        // GROMO-824: ranked userId 들의 집중 라이브 정보를 1회 배치 조회(FocusLiveInfoLookup 공용, N+1 방지).
+        // date 는 클라 로컬 타임존 기준 오늘. 미조회 유저는 맵에 없어 toResponses 가 기본값(0/false/null) 처리.
+        List<UUID> userIds = ranked.stream().map(LeagueRankingRow::userId).toList();
+        Map<UUID, FocusLiveInfo> liveInfo = focusLiveInfoLookup.liveInfoByUserId(userIds, date);
+        return toResponses(ranked, pinnedUserRepository.findPinnedUserIdsByUserId(userId), liveInfo);
     }
 
     /**
@@ -92,22 +102,28 @@ public class LeagueService {
         Instant now = Instant.now();
         List<LeagueRankingRow> ranked = leagueRankingQueryRepository.findTop(
                 leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now), null, clamped);
-        // 전역 랭킹은 per-caller 핀 없음, 후속 개선 여지 — isPinned=false (빈 핀 집합)
-        return toResponses(ranked, Set.of());
+        // 전역 랭킹은 per-caller 핀 없음, 후속 개선 여지 — isPinned=false (빈 핀 집합).
+        // 라이브 필드는 /me/ranking 스코프 — 전역은 빈 맵으로 기본값(false/0/null) 전달(GROMO-824, 전역 라이브는 별도 티켓).
+        return toResponses(ranked, Set.of(), Map.of());
     }
 
-    private List<LeagueMemberResponse> toResponses(List<LeagueRankingRow> ranked, Set<UUID> pinnedIds) {
+    private List<LeagueMemberResponse> toResponses(List<LeagueRankingRow> ranked, Set<UUID> pinnedIds,
+                                                   Map<UUID, FocusLiveInfo> liveInfo) {
         List<LeagueMemberResponse> responses = new ArrayList<>();
         for (int i = 0; i < ranked.size(); i++) {
             LeagueRankingRow row = ranked.get(i);
+            FocusLiveInfo info = liveInfo.get(row.userId());
             responses.add(new LeagueMemberResponse(
                     i + 1,
                     row.userId(),
                     row.nickname(),
                     row.tierLevel(),
                     row.totalFocusSeconds(),
-                    null,
-                    pinnedIds.contains(row.userId())));
+                    pinnedIds.contains(row.userId()),
+                    info != null && info.isFocusing(),
+                    info != null ? info.focusTimeMinutes() : 0,
+                    info != null ? info.focusStartedAt() : null,
+                    info != null ? info.focusTagName() : null));
         }
         return responses;
     }

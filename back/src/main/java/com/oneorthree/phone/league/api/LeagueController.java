@@ -12,12 +12,14 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -43,17 +45,20 @@ public class LeagueController {
     @Operation(summary = "전역 주간 랭킹 조회",
             description = "category 미지정: DailyFocusStat 기반 전역 주간 상위 100명 랭킹. "
                     + "category 지정: 같은 occupation 활성 사용자의 전역 주간 상위 100명 랭킹. "
-                    + "잘못된 category 값은 400 INVALID_PARAMETER.")
+                    + "각 멤버의 집중 라이브 정보(isFocusing·focusTimeMinutes·focusStartedAt·focusTagName) 포함. "
+                    + "date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD, required). "
+                    + "잘못된 category 값·date 누락은 400 INVALID_PARAMETER.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
-        @ApiResponse(responseCode = "400", description = "잘못된 category 파라미터")
+        @ApiResponse(responseCode = "400", description = "잘못된 category 파라미터 또는 date 누락·형식 오류")
     })
     @GetMapping("/league/me/ranking")
     public ResponseEntity<List<LeagueMemberResponse>> getMyRanking(
             HttpServletRequest request,
-            @RequestParam(required = false) Occupation category) {
+            @RequestParam(required = false) Occupation category,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         UUID userId = (UUID) request.getAttribute("userId");
-        return ResponseEntity.ok(leagueService.getMyRanking(userId, category));
+        return ResponseEntity.ok(leagueService.getMyRanking(userId, category, date));
     }
 
     @Operation(summary = "전역 전체 유저 랭킹 조회",
