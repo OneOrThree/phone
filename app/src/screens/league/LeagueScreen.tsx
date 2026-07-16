@@ -25,7 +25,7 @@ import { useFriends } from './useFriends';
 import { usePinned } from './usePinned';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { MY_USER_ID, type RankedMember } from './mock';
-import { hms, fmtHourMin } from './format';
+import { hms, fmtMinutes } from './format';
 import type { FriendResponse } from '@/types/api';
 import { RankRow } from './components/RankRow';
 import { LiveFocusTime } from './components/LiveFocusTime';
@@ -571,7 +571,8 @@ export default function LeagueScreen() {
                         <Text style={s.friendTier}>{tierByLevel(f.tierLevel ?? 1).name}</Text>
                       </View>
                       {/* 오늘 집중 시간 (GROMO-658) — 집중 중이면 과목 + 초 단위 라이브,
-                           아니면 누적분 고정 표시. 서버 확장 전 응답엔 필드가 없어 0분·미집중 취급 */}
+                           아니면 누적분 고정 표시(랭킹·라이브와 동일한 디지털 표기, 분 원본이라 초는
+                           :00 고정 — GROMO-845). 서버 확장 전 응답엔 필드가 없어 0분·미집중 취급 */}
                       {f.isFocusing ? (
                         <>
                           {f.focusTagName != null && (
@@ -595,7 +596,7 @@ export default function LeagueScreen() {
                             (f.focusTimeMinutes ?? 0) > 0 && s.friendFocusTimeOn,
                           ]}
                         >
-                          {fmtHourMin(f.focusTimeMinutes ?? 0)}
+                          {fmtMinutes(f.focusTimeMinutes ?? 0)}
                         </Text>
                       )}
                     </TouchableOpacity>
