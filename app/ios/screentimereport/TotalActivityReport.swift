@@ -71,15 +71,17 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
     var totalDuration: TimeInterval = 0
 
     // 데이터 구조: data → activitySegments → categories → applications 순으로 중첩
-    // 설정 스크린타임 총합과 최대한 맞추기 위해 gromo 포함 전체 앱을 합산한다.
+    // 총합은 Apple이 계산한 세그먼트 총 사용시간(totalActivityDuration)을 그대로 쓴다 —
+    // 앱별 합산은 웹 도메인 등 앱으로 귀속되지 않는 사용분이 빠져 설정 스크린타임보다
+    // 작게 나온다(실측 -48분). 앱/카테고리 목록은 상세 표시용으로만 합산한다.
     for await d in data {
         for await segment in d.activitySegments {
+            totalDuration += segment.totalActivityDuration
             for await categoryActivity in segment.categories {
                 let catName = categoryActivity.category.localizedDisplayName ?? "기타"
                 for await app in categoryActivity.applications {
                     let name = app.application.localizedDisplayName ?? "알 수 없음"
                     let duration = app.totalActivityDuration
-                    totalDuration += duration
                     apps.append(AppUsage(name: name, duration: duration))
                     categoryDurations[catName, default: 0] += duration
                 }

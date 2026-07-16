@@ -22,9 +22,13 @@ import java.time.ZoneId;
 @Slf4j
 public class PushNotificationService {
 
-    /** 심야 미설정/비활성 유저에게 적용하는 기본 금지 구간 — 21:00~09:00 (apns.md §2). */
-    static final LocalTime DEFAULT_QUIET_START = LocalTime.of(21, 0);
-    static final LocalTime DEFAULT_QUIET_END = LocalTime.of(9, 0);
+    /**
+     * 심야 미설정/비활성 유저에게 적용하는 기본 금지 구간 — 23:00~07:00 KST.
+     * 공격형 카탈로그(GROMO-819) 수용을 위해 21:00~09:00 에서 조정(GROMO-840):
+     * 21:00(오늘 미집중)·22:00(마감 2h·스트릭)·07:00(결과·새 리그) 발송이 이 창 밖이라 통과한다.
+     */
+    static final LocalTime DEFAULT_QUIET_START = LocalTime.of(23, 0);
+    static final LocalTime DEFAULT_QUIET_END = LocalTime.of(7, 0);
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
@@ -75,8 +79,8 @@ public class PushNotificationService {
     }
 
     /**
-     * Quiet hours 판정 — 구간은 [start, end) (시작 포함·종료 미포함: 21:00 정각 = 금지, 09:00 정각 = 허용).
-     * nightModeEnabled == true 이고 시각이 모두 설정된 유저만 유저 구간, 그 외는 기본 21:00–09:00.
+     * Quiet hours 판정 — 구간은 [start, end) (시작 포함·종료 미포함: 23:00 정각 = 금지, 07:00 정각 = 허용).
+     * nightModeEnabled == true 이고 시각이 모두 설정된 유저만 유저 구간, 그 외는 기본 23:00–07:00.
      * 판정 시각은 KST 고정 (412/519 리그 도메인과 통일).
      */
     static boolean isQuietHours(UserNotificationSettings settings, Instant now) {

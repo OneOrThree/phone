@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { View, Animated, PanResponder, ScrollView, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 
-// 통계 카드 순서 편집(GROMO-762) — 별도 목록 화면 없이, 실제 카드 오른쪽 위에 6점 핸들을 띄우고
+// 통계 카드 순서 편집(GROMO-762) — 별도 편집 모드 없이 항상 카드 오른쪽 위에 드래그 핸들을 띄우고,
 // 핸들을 잡아 카드 자체를 위아래로 끌면 순서가 바뀐다. 드래그를 놓을 때마다 onReorder로 확정.
+// 카드 내용(공유하기·비교 칩 등)은 평소처럼 터치 가능 — 핸들만 드래그 대상.
 // 카드 높이가 제각각이라: 평소엔 일반 플로우로 두고 onLayout으로 각 카드의 y·높이를 기록해 두었다가,
 // 드래그가 시작되는 순간 전체를 absolute로 얼리고(freeze) 측정값 기반으로 슬롯을 계산·애니메이트한다.
 // 순수 RN(PanResponder+Animated) 구현 — reanimated4가 New Arch를 요구해 직접 구현(DraggableSubjectRows와 동일 기법).
@@ -14,9 +15,11 @@ const STEP = 12; // 자동 스크롤 한 틱 이동량(px)
 interface Props {
   cards: { key: string; node: ReactNode }[];
   onReorder: (keys: string[]) => void;
+  // 부모가 스크롤을 제어해야 할 때(첫 진입 투어의 카드 끌어오기, GROMO-652) 같은 인스턴스를 공유
+  scrollViewRef?: RefObject<ScrollView | null>;
 }
 
-export function CardOrderEditor({ cards, onReorder }: Props) {
+export function CardOrderEditor({ cards, onReorder, scrollViewRef }: Props) {
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0); // 현재 스크롤 오프셋
   const contentH = useRef(0); // 스크롤 콘텐츠 전체 높이(자동 스크롤 상한용)
@@ -184,7 +187,10 @@ export function CardOrderEditor({ cards, onReorder }: Props) {
   const frozen = frozenH !== null;
   return (
     <ScrollView
-      ref={scrollRef}
+      ref={(r) => {
+        scrollRef.current = r;
+        if (scrollViewRef) scrollViewRef.current = r;
+      }}
       style={s.flex1}
       scrollEnabled={dragKey === null}
       showsVerticalScrollIndicator={false}
@@ -219,9 +225,8 @@ export function CardOrderEditor({ cards, onReorder }: Props) {
                 isDrag ? s.dragItem : null,
               ]}
             >
-              {/* 편집 중엔 카드 내용 터치 차단 — 핸들만 조작 대상 */}
-              <View pointerEvents="none">{c.node}</View>
-              {/* 6점 핸들 — 카드 오른쪽 위. 잡고 끌면 카드가 통째로 움직인다 */}
+              {c.node}
+              {/* 드래그 핸들 — 카드 오른쪽 위. 배경 박스 없이 아이콘만(터치 영역 36×36은 투명 유지) */}
               <View style={s.handle} {...panFor(c.key).panHandlers}>
                 <MaterialCommunityIcons name="drag-vertical" size={20} color={T.inkSub} />
               </View>
@@ -253,8 +258,6 @@ const s = StyleSheet.create({
     right: 10,
     width: 36,
     height: 36,
-    borderRadius: 12,
-    backgroundColor: T.paperAlt,
     alignItems: 'center',
     justifyContent: 'center',
   },
