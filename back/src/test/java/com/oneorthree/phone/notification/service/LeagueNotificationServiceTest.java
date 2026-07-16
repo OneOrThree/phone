@@ -2,9 +2,11 @@ package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
+import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.domain.LeagueWeeklyResult;
 import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
+import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.league.service.LeagueWeek;
 import com.oneorthree.phone.user.domain.User;
@@ -31,6 +33,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
@@ -54,6 +57,8 @@ class LeagueNotificationServiceTest {
     private LeagueWeeklyResultRepository leagueWeeklyResultRepository;
     @Mock
     private LeagueRankingQueryRepository leagueRankingQueryRepository;
+    @Mock
+    private LeagueTierConfigRepository leagueTierConfigRepository;
     @Mock
     private UserRepository userRepository;
     @Mock
@@ -267,5 +272,187 @@ class LeagueNotificationServiceTest {
 
         verify(userRepository, never()).findAllByIdInAndIsDeletedFalse(anyCollection());
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("마감 2시간 전 알림 — 전역 순위 전원에게 '마감 2시간 전' 문구·gromo://focus로 발송한다")
+    void sendsFinalDeadlineReminderToGlobalRanking() {
+        User first = user(UUID.randomUUID());
+        User second = user(UUID.randomUUID());
+        given(leagueWeek.currentWeekStartDate(NOW)).willReturn(WEEK_START_DATE);
+        given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
+        given(leagueRankingQueryRepository.findGlobalRankingPage(
+                eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
+                .willReturn(List.of(
+                        new LeagueRankingRow(first.getId(), "첫째", 3, 100),
+                        new LeagueRankingRow(second.getId(), "둘째", 2, 0)));
+        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(first, second));
+        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+
+        service.sendFinalDeadlineReminders(NOW);
+
+        ArgumentCaptor<PushMessage> messages = ArgumentCaptor.forClass(PushMessage.class);
+        verify(pushNotificationService, times(2)).sendIfAllowed(any(), any(), messages.capture(), eq(NOW));
+        assertThat(messages.getAllValues()).extracting(PushMessage::title).containsOnly("마감 2시간 전!");
+        assertThat(messages.getAllValues()).extracting(PushMessage::link).containsOnly("gromo://focus");
+        assertThat(messages.getAllValues().get(0).body()).isEqualTo("지금 1위야. 마지막 스퍼트 한 번 어때?");
+    }
+
+    // ── 위기·마감 시퀀스 (GROMO-840 커밋②): 강등 경고 + 마감 D-1 ─────────────────
+
+    @Test
+    @DisplayName("일요일 오전 위기 알림 — 강등 위험/승급 미달/안전권을 유저당 1건으로 분기한다")
+    void sendsSundayMorningCrisisBranchedPerUser() {
+        User relegationRisk = user(UUID.randomUUID());
+        User promotionPending = user(UUID.randomUUID());
+        User safe = user(UUID.randomUUID());
+        givenCrisisContext(
+                List.of(
+                        new LeagueRankingRow(relegationRisk.getId(), "강등위험", 3, 90_000),   // < T3 강등 100800
+                        new LeagueRankingRow(promotionPending.getId(), "승급대기", 2, 60_000), // T2 강등 50400↑·승급 100800↓
+                        new LeagueRankingRow(safe.getId(), "안전", 2, 100_800)),               // ≥ T2 승급 → 무발송
+                List.of(relegationRisk, promotionPending, safe));
+
+        service.sendSundayCrisisReminders(NOW);
+
+        ArgumentCaptor<PushMessage> relegMsg = ArgumentCaptor.forClass(PushMessage.class);
+        verify(pushNotificationService).sendIfAllowed(eq(relegationRisk), any(), relegMsg.capture(), eq(NOW));
+        assertThat(relegMsg.getValue().link()).isEqualTo("gromo://focus");
+        assertThat(relegMsg.getValue().title()).contains("강등");
+
+        ArgumentCaptor<PushMessage> promoMsg = ArgumentCaptor.forClass(PushMessage.class);
+        verify(pushNotificationService).sendIfAllowed(eq(promotionPending), any(), promoMsg.capture(), eq(NOW));
+        assertThat(promoMsg.getValue().link()).isEqualTo("gromo://league");
+        assertThat(promoMsg.getValue().body()).contains("승급");
+
+        verify(pushNotificationService, never()).sendIfAllowed(eq(safe), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("T1은 강등 임계값이 0이라 강등 경고 대상이 아니고, 승급 미달이면 마감 D-1을 받는다")
+    void tierOneNeverRelegatedButGetsDeadlineDMinusOne() {
+        User tierOne = user(UUID.randomUUID());
+        givenCrisisContext(
+                List.of(new LeagueRankingRow(tierOne.getId(), "티어1", 1, 1_000)), // < T1 승급 50400
+                List.of(tierOne));
+
+        service.sendSundayCrisisReminders(NOW);
+
+        ArgumentCaptor<PushMessage> message = ArgumentCaptor.forClass(PushMessage.class);
+        verify(pushNotificationService).sendIfAllowed(eq(tierOne), any(), message.capture(), eq(NOW));
+        assertThat(message.getValue().link()).isEqualTo("gromo://league"); // 마감 D-1
+    }
+
+    @Test
+    @DisplayName("일요일 저녁 강등 경고 — 강등 위험군만 발송하고 승급 미달(D-1)은 제외한다")
+    void sendsSundayEveningRelegationWarningsOnly() {
+        User relegationRisk = user(UUID.randomUUID());
+        User promotionPending = user(UUID.randomUUID());
+        givenCrisisContext(
+                List.of(
+                        new LeagueRankingRow(relegationRisk.getId(), "강등위험", 3, 90_000),
+                        new LeagueRankingRow(promotionPending.getId(), "승급대기", 2, 60_000)),
+                List.of(relegationRisk, promotionPending));
+
+        service.sendRelegationWarnings(NOW);
+
+        verify(pushNotificationService).sendIfAllowed(eq(relegationRisk), any(), any(), eq(NOW));
+        verify(pushNotificationService, never()).sendIfAllowed(eq(promotionPending), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("T5도 강등 임계값 미달이면 강등 경고를 받는다(마감 D-1 대상 아님)")
+    void tierFiveGetsRelegationWarningNotDeadlineDMinusOne() {
+        User tierFive = user(UUID.randomUUID());
+        givenCrisisContext(
+                List.of(new LeagueRankingRow(tierFive.getId(), "티어5", 5, 200_000)), // < T5 강등 201600
+                List.of(tierFive));
+
+        service.sendSundayCrisisReminders(NOW);
+
+        ArgumentCaptor<PushMessage> message = ArgumentCaptor.forClass(PushMessage.class);
+        verify(pushNotificationService).sendIfAllowed(eq(tierFive), any(), message.capture(), eq(NOW));
+        assertThat(message.getValue().link()).isEqualTo("gromo://focus"); // 강등 경고
+        assertThat(message.getValue().title()).contains("강등");
+    }
+
+    @Test
+    @DisplayName("삭제된 티어 설정이 섞여 불완전하면 예외로 드러내 잘못된 위기 알림을 막는다")
+    void throwsWhenTierConfigsIncompleteAfterDeletedFilter() {
+        List<LeagueTierConfig> configs = new ArrayList<>(defaultTierConfigs());
+        configs.set(2, deletedTierConfig(3, 151_200, 100_800)); // T3 soft-delete → 필터 후 4개
+        given(leagueTierConfigRepository.findAll()).willReturn(configs);
+
+        assertThatThrownBy(() -> service.sendSundayCrisisReminders(NOW))
+                .isInstanceOf(IllegalStateException.class);
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("활성 개수는 5여도 티어가 1~5가 아니면 예외로 드러내 조용한 스킵을 막는다")
+    void throwsWhenTierMissingDespiteMatchingCount() {
+        List<LeagueTierConfig> configs = new ArrayList<>(defaultTierConfigs());
+        configs.set(4, deletedTierConfig(5, 252_000, 201_600)); // T5 soft-delete
+        configs.add(tierConfig(6, 302_400, 252_000)); // 오활성 티어6 → 활성 5개지만 T5 누락
+        given(leagueTierConfigRepository.findAll()).willReturn(configs);
+
+        assertThatThrownBy(() -> service.sendSundayCrisisReminders(NOW))
+                .isInstanceOf(IllegalStateException.class);
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("강등 경고 문구에 부족한 시간을 시간·분으로 표기한다")
+    void relegationWarningFormatsShortfall() {
+        User relegationRisk = user(UUID.randomUUID());
+        givenCrisisContext(
+                // T3 강등 100800 − 88200 = 12600초 = 3시간 30분 부족
+                List.of(new LeagueRankingRow(relegationRisk.getId(), "강등위험", 3, 88_200)),
+                List.of(relegationRisk));
+
+        service.sendSundayCrisisReminders(NOW);
+
+        ArgumentCaptor<PushMessage> message = ArgumentCaptor.forClass(PushMessage.class);
+        verify(pushNotificationService).sendIfAllowed(eq(relegationRisk), any(), message.capture(), eq(NOW));
+        assertThat(message.getValue().body()).contains("3시간 30분");
+    }
+
+    private void givenCrisisContext(List<LeagueRankingRow> rows, List<User> users) {
+        given(leagueWeek.currentWeekStartDate(NOW)).willReturn(WEEK_START_DATE);
+        given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
+        given(leagueTierConfigRepository.findAll()).willReturn(defaultTierConfigs());
+        given(leagueRankingQueryRepository.findGlobalRankingPage(
+                eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
+                .willReturn(rows);
+        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(users);
+        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+    }
+
+    private static List<LeagueTierConfig> defaultTierConfigs() {
+        return List.of(
+                tierConfig(1, 50_400, 0),
+                tierConfig(2, 100_800, 50_400),
+                tierConfig(3, 151_200, 100_800),
+                tierConfig(4, 201_600, 151_200),
+                tierConfig(5, 252_000, 201_600));
+    }
+
+    private static LeagueTierConfig tierConfig(int level, int promotion, int relegation) {
+        return LeagueTierConfig.builder()
+                .tierLevel(level)
+                .badgeId("badge-" + level)
+                .promotionTime(promotion)
+                .relegationTime(relegation)
+                .build();
+    }
+
+    private static LeagueTierConfig deletedTierConfig(int level, int promotion, int relegation) {
+        return LeagueTierConfig.builder()
+                .tierLevel(level)
+                .badgeId("badge-" + level)
+                .promotionTime(promotion)
+                .relegationTime(relegation)
+                .deletedAt(Instant.parse("2026-07-01T00:00:00Z"))
+                .build();
     }
 }
