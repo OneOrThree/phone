@@ -5,7 +5,7 @@
 //       오늘 총 사용 시간만 텍스트로 표시 (앱별 목록 없음)
 //
 // 디자인: app/components/theme.js의 statValue 스타일과 맞춤
-//   { fontSize: 15, fontWeight: '900', color: T.ink(#1C1E22) }
+//   { fontSize: 15, fontWeight: '900', color: T.ink }
 
 import SwiftUI
 
@@ -15,7 +15,7 @@ struct CompactActivityView: View {
     var body: some View {
         Text(formatDuration(totalActivity.totalDuration))
             .font(.system(size: 15, weight: .black))
-            .foregroundColor(Color(red: 0x1C / 255, green: 0x1E / 255, blue: 0x22 / 255))
+            .foregroundColor(Palette.ink)
             .frame(maxWidth: .infinity, alignment: .center)
     }
 }

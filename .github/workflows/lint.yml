@@ -39,3 +39,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
         working-directory: app
+
+      # 팔레트 코드젠 동기화 검증 (GROMO-641) — theme.ts 변경 후 재생성 누락 시 실패
+      - name: Check palette codegen sync
+        run: npm run gen:palette:check
+        working-directory: app
