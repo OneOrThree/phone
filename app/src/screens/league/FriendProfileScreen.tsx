@@ -15,7 +15,6 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import { categoryForOccupation } from '@/constants/focusCategories';
-import CircularGauge from '@/components/CircularGauge';
 import { getPublicProfile, getUserStats } from '@/services/userApi';
 import { getFocusStatsByCategory, getHeatmap, getTodayStats } from '@/services/statsApi';
 import type { PublicProfileResponse, UserStatsResponse } from '@/types/dto/user';
@@ -69,9 +68,10 @@ export default function FriendProfileScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute<RouteProp<V2RootStackParamList, 'FriendProfile'>>();
-  // rank·rankLabel = 진입한 랭킹 목록의 순위·스코프('전체'/직군명) — 서버 프로필 rank(아레나 내 순위)와
-  // 스코프가 달라 목록 값을 그대로 표시한다. 랭킹 외 진입(검색·친구·요청)은 미전달 → 순위 미표시 (GROMO-685).
-  const { userId, nickname, tierLevel, rank, rankLabel } = route.params;
+  // rank = 진입한 랭킹 목록에서의 순위(어느 랭킹에서 눌렀느냐에 따라 값이 다름) — 서버 프로필
+  // rank(아레나 내 순위)와 달라 목록 값을 그대로 표시한다. 랭킹 외 진입(검색·친구·요청)은
+  // 미전달 → 순위 미표시 (GROMO-685).
+  const { userId, nickname, tierLevel, rank } = route.params;
 
   // 친구 관계·핀은 진입점 파라미터 + 서버 친구 목록으로 관리(통계 공개와 별개).
   const [isFriend, setIsFriend] = useState(route.params.isFriend);
@@ -279,8 +279,6 @@ export default function FriendProfileScreen() {
   }, [canCompareSubjects, userId, subjectPeriod, subjectCompareKey]);
 
   // 요약 값 — getUserStats(항상 공개, GROMO-746), 실패 시엔 폴백 조회값 사용.
-  const goalPercent =
-    stats?.today?.focus.progressPercent ?? publicStats?.today.focus.progressPercent ?? 0;
   const todayFocusMinutes =
     stats?.today?.focus.todayMinutes ?? publicStats?.today.focus.todayMinutes ?? 0;
   const streakDays = stats?.streak.currentStreak ?? 0;
@@ -369,16 +367,6 @@ export default function FriendProfileScreen() {
               </Text>
             </View>
           </View>
-          {/* 티어 + 현재 등수 — 공식 티어 이미지·이름 오른쪽에 전체 랭킹 (구 그라데이션 칩 폐기 GROMO-689) */}
-          <View style={s.tierRow}>
-            <TierBadge level={tier.level} size={20} />
-            <Text style={s.tierText}>{tier.name}</Text>
-            {rank != null && (
-              <Text style={s.rankText} allowFontScaling={false}>
-                · {rankLabel ?? '전체'} 랭킹 {rank}위
-              </Text>
-            )}
-          </View>
         </View>
 
         {loading ? (
@@ -387,24 +375,17 @@ export default function FriendProfileScreen() {
           </View>
         ) : (
           <>
-            {/* ── 요약: 목표 달성 링 + 이번 주 집중 + 연속 (비공개면 상세는 잠금, 연속은 항상) ── */}
+            {/* ── 요약: 현재 티어 + 오늘 집중 + 연속(현재) (티어·연속은 항상 공개) ── */}
             <View style={s.summaryRow}>
               <View style={s.ringCard}>
-                <CircularGauge
-                  size={64}
-                  progress={summaryVisible ? goalPercent / 100 : 0}
-                  trackColor={T.track}
-                  progressColor={T.accent}
-                >
-                  {summaryVisible ? (
-                    <Text style={s.ringValue} allowFontScaling={false}>
-                      {goalPercent}%
-                    </Text>
-                  ) : (
-                    <Ionicons name="lock-closed" size={15} color={T.inkMuted} />
-                  )}
-                </CircularGauge>
-                <Text style={s.ringLabel}>목표 달성</Text>
+                {/* 현재 티어 — 뱃지 + 티어명 + 랭킹 등수 (항상 공개; 상단 티어 줄에서 이관) */}
+                <TierBadge level={tier.level} size={56} />
+                <Text style={s.ringLabel}>{tier.name}</Text>
+                {rank != null && (
+                  <Text style={s.ringRank} allowFontScaling={false}>
+                    랭킹 {rank}위
+                  </Text>
+                )}
               </View>
               <View style={s.summaryCol}>
                 <View style={s.summaryCard}>
@@ -569,9 +550,6 @@ const s = StyleSheet.create({
     paddingVertical: 3,
   },
   friendPillText: { ...T.text.caption, fontSize: 11, fontWeight: '700', color: T.inkSub },
-  tierRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs, marginTop: T.space.sm },
-  tierText: { ...T.text.caption, fontSize: 12, fontWeight: '700', color: T.inkSub },
-  rankText: { ...T.text.caption, fontSize: 12, color: T.inkSub },
 
   loader: { paddingVertical: 48, alignItems: 'center' },
 
@@ -592,8 +570,14 @@ const s = StyleSheet.create({
     borderRadius: 14,
     padding: T.space.md,
   },
-  ringValue: { ...T.text.label, fontWeight: '800', color: T.ink },
   ringLabel: { ...T.text.caption, fontSize: 11, color: T.inkSub },
+  ringRank: {
+    ...T.text.caption,
+    fontSize: 13,
+    fontWeight: '800',
+    color: T.accentDeep,
+    textAlign: 'center',
+  },
   summaryCol: { flex: 1, gap: T.space.md },
   summaryCard: {
     flex: 1,
