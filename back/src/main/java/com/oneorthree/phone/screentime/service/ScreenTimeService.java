@@ -11,9 +11,13 @@ import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -23,7 +27,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class ScreenTimeService {
 
     private final UserRepository userRepository;
@@ -31,8 +34,47 @@ public class ScreenTimeService {
     private final ScreenTimeNotificationPort notificationPort;
     private final UserActivityEventLogger userActivityEventLogger;
 
-    @Transactional
+    // 자기 자신 프록시 — 동시 첫 저장 유니크 위반 시 새 트랜잭션으로 재시도하기 위함 (@Lazy 로 순환 주입 방지).
+    private final ScreenTimeService self;
+
+    public ScreenTimeService(UserRepository userRepository,
+                             DailyScreenTimeStatRepository dailyScreenTimeStatRepository,
+                             ScreenTimeNotificationPort notificationPort,
+                             UserActivityEventLogger userActivityEventLogger,
+                             @Lazy ScreenTimeService self) {
+        this.userRepository = userRepository;
+        this.dailyScreenTimeStatRepository = dailyScreenTimeStatRepository;
+        this.notificationPort = notificationPort;
+        this.userActivityEventLogger = userActivityEventLogger;
+        this.self = self;
+    }
+
+    /**
+     * 스크린타임 저장 진입점 — 동시성 방어를 위한 얇은 재시도 래퍼(GROMO-560).
+     *
+     * <p>동시 저장 경쟁(TOCTOU): 같은 (user, date) 로 두 요청이 동시에 도달하면 둘 다
+     * {@code findByUserAndDate} 가 empty 로 보여 각각 insert 를 시도 → UNIQUE(user_id, date) 제약으로
+     * 한쪽 커밋 시 {@link DataIntegrityViolationException}. 유니크 위반은 flush/커밋 시점에 나 트랜잭션
+     * 내부에서 잡을 수 없어, self 프록시로 새 트랜잭션을 열어 1회 재시도한다(재시도 시 승자가 만든 row 가 보여
+     * update 분기로 정상 흡수 → 진 요청도 204). 스크린타임은 덮어쓰기라 lost-update 가 없어 비관적 락은 불필요.
+     * 래퍼는 트랜잭션에 묶이지 않도록 NOT_SUPPORTED — 재시도 tx 가 첫 tx 롤백과 독립되도록. (AuthService 선례)
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void saveScreenTime(UUID userId, ScreenTimeRequest request) {
+        try {
+            self.saveScreenTimeTx(userId, request);
+        } catch (DataIntegrityViolationException e) {
+            // 레이스에서 진 요청 — 승자가 만든 row 로 새 트랜잭션에서 1회 재조회·업데이트(present 분기로 정상 흡수).
+            self.saveScreenTimeTx(userId, request);
+        }
+    }
+
+    /**
+     * 스크린타임 저장 본 로직 — self 프록시로 호출돼 매 시도가 독립 트랜잭션이 되도록 public.
+     * 순수 upsert 가 아니라 알림 전이(false→true) side-effect 가 있어 native ON CONFLICT 대신 재조회 방식을 쓴다.
+     */
+    @Transactional
+    public void saveScreenTimeTx(UUID userId, ScreenTimeRequest request) {
         // 1. 유저 조회
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
@@ -81,12 +123,36 @@ public class ScreenTimeService {
 
         // 6. 목표 달성 알림(GROMO-395) — '최종 보고로 false→true 전이'일 때만 이벤트+알림을 1회 발사한다.
         //    interim 은 flag 를 true 로 세우지 않으므로 첫 마감은 항상 wasAchieved=false 를 보고 발사한다.
-        //    마감 재시도(네이티브 읽기 미완료 시 앱이 재업로드)는 이미 true 인 flag 를 만나 재발사하지 않는다(날짜별 멱등, Codex P2).
+        //    마감 재시도(네이티브 읽기 미완료 시 앱이 재업로드)는 이미 true 인 flag 를 만나 재발사하지 않는다(날짜별 멱등).
         if (finalReport && clientAchieved && !wasAchieved) {
+            emitGoalAchievedAfterCommit(userId, date, actualMinutes);
+        }
+    }
+
+    /**
+     * 목표 달성 이벤트·알림을 트랜잭션 커밋 이후로 미뤄 발사한다(GROMO-560 P2).
+     *
+     * <p>이벤트 로그(slf4j)·향후 APNs 푸시는 트랜잭션 side-effect 라 롤백돼도 취소되지 않는다. 동시 마감 레이스에서
+     * 진 트랜잭션이 커밋 전 발사한 뒤 UNIQUE 위반으로 롤백하면 승자와 합쳐 중복 발사되므로, 커밋에 성공한
+     * 트랜잭션에서만 {@code afterCommit} 으로 발사해 정확히 1회를 보장한다(진 트랜잭션은 롤백 → 미발사, 재시도는
+     * wasAchieved=true 라 이 분기에 진입하지 않음). 트랜잭션 동기화가 비활성(단위 테스트 등)이면 즉시 발사한다.
+     */
+    private void emitGoalAchievedAfterCommit(UUID userId, LocalDate date, int actualMinutes) {
+        Runnable emit = () -> {
             userActivityEventLogger.log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED, Map.of(
                     "date", date.toString(),
                     "actual_screen_time_minutes", actualMinutes));
             notificationPort.notify(userId, true);
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    emit.run();
+                }
+            });
+        } else {
+            emit.run();
         }
     }
 
