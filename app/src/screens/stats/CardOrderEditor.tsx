@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { View, Animated, PanResponder, ScrollView, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
@@ -15,9 +15,11 @@ const STEP = 12; // 자동 스크롤 한 틱 이동량(px)
 interface Props {
   cards: { key: string; node: ReactNode }[];
   onReorder: (keys: string[]) => void;
+  // 부모가 스크롤을 제어해야 할 때(첫 진입 투어의 카드 끌어오기, GROMO-652) 같은 인스턴스를 공유
+  scrollViewRef?: RefObject<ScrollView | null>;
 }
 
-export function CardOrderEditor({ cards, onReorder }: Props) {
+export function CardOrderEditor({ cards, onReorder, scrollViewRef }: Props) {
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0); // 현재 스크롤 오프셋
   const contentH = useRef(0); // 스크롤 콘텐츠 전체 높이(자동 스크롤 상한용)
@@ -185,7 +187,10 @@ export function CardOrderEditor({ cards, onReorder }: Props) {
   const frozen = frozenH !== null;
   return (
     <ScrollView
-      ref={scrollRef}
+      ref={(r) => {
+        scrollRef.current = r;
+        if (scrollViewRef) scrollViewRef.current = r;
+      }}
       style={s.flex1}
       scrollEnabled={dragKey === null}
       showsVerticalScrollIndicator={false}

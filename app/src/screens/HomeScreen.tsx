@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,6 +24,8 @@ import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
+import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { fabWindowRect } from '@/components/TabBar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { todayStr } from '@/utils/localDate';
@@ -338,6 +341,28 @@ export default function HomeScreen() {
     setScreenTimeCelebration(null);
   }, [screenTimeCelebration]);
 
+  // 첫 진입 사용법 안내(GROMO-652) — 캐릭터가 오늘 카드·집중 FAB를 차례로 설명.
+  // FAB는 탭바(다른 트리)에 있어 ref 대신 레이아웃 수식(fabWindowRect)으로 스포트라이트.
+  const { width: winW, height: winH } = useWindowDimensions();
+  const todayCardRef = useRef<View | null>(null);
+  const guideSteps: GuideStep[] = [
+    {
+      text: '안녕! 나는 그로모야.\n홈에서는 나와 함께 오늘의 공부 현황을 볼 수 있어.',
+      character: require('@/assets/character_hi.png'),
+    },
+    {
+      text: '오늘의 공부 집중과 핸드폰 사용 시간을 여기서 한눈에 볼 수 있어.\n‘자세히’를 누르면 통계로 이동해.',
+      character: require('@/assets/character_study.png'),
+      anchor: todayCardRef,
+    },
+    {
+      text: '준비됐으면 이 버튼을 눌러서 바로 집중을 시작해보자!',
+      character: require('@/assets/character_study.png'),
+      rect: fabWindowRect(winW, winH, insets.bottom),
+      round: true,
+    },
+  ];
+
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       <View style={s.body}>
@@ -394,7 +419,11 @@ export default function HomeScreen() {
         </ScrollView>
 
         {/* ── 오늘 요약 카드 (하단 탭바 바로 위 고정, 스크롤 밖) ── */}
-        <View style={[s.card, { marginBottom: insets.bottom + 74 }]}>
+        <View
+          style={[s.card, { marginBottom: insets.bottom + 74 }]}
+          ref={todayCardRef}
+          collapsable={false}
+        >
           <View style={s.cardHeader}>
             <Text style={s.cardTitle}>
               오늘 <Text style={s.cardTitleSub}>Today</Text>
@@ -457,6 +486,9 @@ export default function HomeScreen() {
         goalMinutes={screenTimeCelebration?.goalMinutes}
         onClose={closeScreenTimeCelebration}
       />
+
+      {/* 첫 진입 사용법 안내(GROMO-652) — 노출 완료 여부는 컴포넌트가 자체 관리 */}
+      <TabGuideOverlay storageKey={STORAGE_KEYS.guideHome} steps={guideSteps} />
     </SafeAreaView>
   );
 }

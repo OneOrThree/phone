@@ -32,6 +32,8 @@ import { LiveFocusTime } from './components/LiveFocusTime';
 import { MemberAvatar } from './components/MemberAvatar';
 import { TierBadge } from './components/TierBadge';
 import { ProfileSheet, type ProfileTarget } from './components/ProfileSheet';
+import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { STORAGE_KEYS } from '@/types/storage';
 import {
   logLeagueViewed,
   logLeagueTabChanged,
@@ -230,10 +232,42 @@ export default function LeagueScreen() {
     });
   }
 
+  // 첫 진입 사용법 안내(GROMO-652) — 캐릭터가 리그 경쟁·티어·친구 탭을 차례로 설명
+  const segmentRef = useRef<View | null>(null);
+  const headerRef = useRef<View | null>(null);
+  const guideSteps: GuideStep[] = [
+    {
+      text: '리그에 온 걸 환영해!\n같은 시험을 준비하는 사람들과 일주일 동안 공부 시간으로 경쟁하는 곳이야.',
+      character: require('@/assets/character_hi.png'),
+    },
+    {
+      text: '지금 참여 중인 리그와 마감까지 남은 시간이 여기 보여.\n제목을 누르면 전체 리그도 볼 수 있어.',
+      character: require('@/assets/character_study.png'),
+      anchor: headerRef,
+    },
+    {
+      text: '한 주가 끝나면 순위에 따라 티어가 올라가거나 내려가!\n랭킹 아래 ‘내 티어’를 누르면 티어 단계를 자세히 볼 수 있어.',
+      character: require('@/assets/character_happy.png'),
+    },
+    {
+      text: '친구 탭에서는 친구를 추가하고 서로의 공부시간을 볼 수 있어.\n같이 공부할 친구를 초대해봐!',
+      character: require('@/assets/character_happy.png'),
+      anchor: segmentRef,
+    },
+    {
+      text: '순위는 이번 주 집중 시간으로 정해져.\n지금 바로 집중을 시작해서 순위를 올려보자!',
+      character: require('@/assets/character_study.png'),
+    },
+  ];
+
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       {/* ── 최상단: 리그/친구 세그먼트 ── */}
-      <View style={[s.segmentWrap, tab === 'friend' ? s.segmentWrapFriend : null]}>
+      <View
+        style={[s.segmentWrap, tab === 'friend' ? s.segmentWrapFriend : null]}
+        ref={segmentRef}
+        collapsable={false}
+      >
         <View style={s.segment}>
           {(['league', 'friend'] as TabKey[]).map((k) => {
             const on = tab === k;
@@ -256,7 +290,7 @@ export default function LeagueScreen() {
 
       {/* ── 헤더: 좌상단 마감 카운트다운 + 우측 제목(탭=리그 선택 드롭다운) ── */}
       {tab === 'league' && (
-        <View style={s.header}>
+        <View style={s.header} ref={headerRef} collapsable={false}>
           <Text style={s.deadline} allowFontScaling={false}>
             {deadlineLabel ?? ''}
           </Text>
@@ -651,6 +685,9 @@ export default function LeagueScreen() {
 
       {/* ── 프로필 오버레이 ── */}
       <ProfileSheet target={selected} onClose={() => setSelected(null)} />
+
+      {/* 첫 진입 사용법 안내(GROMO-652) */}
+      <TabGuideOverlay storageKey={STORAGE_KEYS.guideLeague} steps={guideSteps} />
     </SafeAreaView>
   );
 }

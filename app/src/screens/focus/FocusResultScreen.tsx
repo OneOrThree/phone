@@ -497,12 +497,16 @@ export default function FocusResultScreen() {
         />
       </ScrollView>
 
-      {/* 하단 CTA — 홈으로 / 다시 집중 */}
+      {/* 하단 CTA — 홈으로 / 다시 집중.
+          fade 전환 중 더블 탭이 들어오면 스택이 이미 비워져 POP_TO_TOP 미처리 경고가 나서
+          canGoBack 가드로 두 번째 탭을 무시한다 */}
       <View style={s.footer}>
         <TouchableOpacity
           style={s.homeBtn}
           activeOpacity={0.85}
-          onPress={() => navigation.popToTop()}
+          onPress={() => {
+            if (navigation.canGoBack()) navigation.popToTop();
+          }}
         >
           <Text style={s.homeText}>홈으로</Text>
         </TouchableOpacity>
@@ -511,7 +515,9 @@ export default function FocusResultScreen() {
         <TouchableOpacity
           style={s.againBtn}
           activeOpacity={0.85}
-          onPress={() => navigation.goBack()}
+          onPress={() => {
+            if (navigation.canGoBack()) navigation.goBack();
+          }}
         >
           <Text style={s.againText}>다시 집중</Text>
         </TouchableOpacity>

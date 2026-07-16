@@ -14,6 +14,25 @@ import type { V2RootStackParamList } from '@/navigation/types';
 // 바 배경은 SVG 패스 — 상단 가운데가 FAB 모양으로 오목하게 파인다(겹침 대신 안착).
 
 const BAR_H = 56;
+
+// GROMO-652: 홈 첫 진입 가이드가 중앙 FAB를 스포트라이트하기 위한 윈도 좌표.
+// wrap(bottom:0, paddingTop=T.space.sm, paddingBottom=max(insets.bottom, T.space.sm))과
+// fab(top: T.space.sm - FAB_LIFT - FAB_R, 중앙 정렬) 레이아웃을 그대로 수식화한 값 —
+// 탭바 레이아웃을 바꾸면 이 함수도 함께 갱신할 것.
+export function fabWindowRect(
+  winW: number,
+  winH: number,
+  insetsBottom: number,
+): { x: number; y: number; w: number; h: number } {
+  const padBottom = Math.max(insetsBottom, T.space.sm);
+  const wrapTop = winH - (T.space.sm + BAR_H + padBottom);
+  return {
+    x: winW / 2 - FAB_R,
+    y: wrapTop + (T.space.sm - FAB_LIFT - FAB_R),
+    w: FAB_R * 2,
+    h: FAB_R * 2,
+  };
+}
 const BAR_R = 28; // 바 모서리
 const FAB_R = 28; // FAB 반지름(56/2)
 const NOTCH_R = FAB_R + 5; // 파임 반지름 — FAB 둘레에 5px 숨통

@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -11,6 +12,8 @@ import { fmtMinutes } from './format';
 import { useLeagueMeta } from './useLeagueMeta';
 import { useLeagueRanking } from './useLeagueRanking';
 import { TierBadge } from './components/TierBadge';
+import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { STORAGE_KEYS } from '@/types/storage';
 
 // 티어 단계 안내 (root stack) — 시안 "티어 · 5단계 뱃지".
 // 현재 티어 히어로 카드(진행바) + 5단계 카드 리스트(N단계) + 정산 안내.
@@ -31,6 +34,28 @@ export default function TierGuideScreen() {
   const remain = nextAt != null ? Math.max(nextAt - minutes, 0) : null;
   const progress = nextAt != null ? Math.min(minutes / nextAt, 1) : 1;
 
+  // 첫 진입 사용법 안내(GROMO-652) — 리그 가이드의 '내 티어' 유도에서 이어지는 설명
+  const heroRef = useRef<View | null>(null);
+  const listRef = useRef<View | null>(null);
+  const noticeRef = useRef<View | null>(null);
+  const guideSteps: GuideStep[] = [
+    {
+      text: '지금 내 티어야!\n이번 주 집중 시간과 다음 단계까지 남은 시간을 보여줘.',
+      character: require('@/assets/character_hi.png'),
+      anchor: heroRef,
+    },
+    {
+      text: '티어는 주간 집중 시간에 따라 5단계로 나뉘어.\n오래 집중할수록 높은 단계로 올라가!',
+      character: require('@/assets/character_study.png'),
+      anchor: listRef,
+    },
+    {
+      text: '매주 월요일 9시에 정산돼 — 기준을 채우면 승급, 미달이면 강등이야.\n꾸준함이 제일 중요해!',
+      character: require('@/assets/character_happy.png'),
+      anchor: noticeRef,
+    },
+  ];
+
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       {/* ── 헤더 ── */}
@@ -43,25 +68,27 @@ export default function TierGuideScreen() {
 
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
         {/* ── 현재 티어 히어로 ── */}
-        <LinearGradient colors={[T.accentBg, T.sand]} style={s.hero}>
-          <Image source={cur.image} style={s.heroImg} />
-          <Text style={s.heroName}>{cur.name}</Text>
-          <Text style={s.heroSub} allowFontScaling={false}>
-            이번 주 {fmtMinutes(minutes)}
-            {remain != null ? ` · 다음 단계까지 ${fmtMinutes(remain)}` : ' · 최고 단계예요'}
-          </Text>
-          <View style={s.heroTrack}>
-            <LinearGradient
-              colors={[T.accentLight, T.accent]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={[s.heroFill, { width: `${progress * 100}%` }]}
-            />
-          </View>
-        </LinearGradient>
+        <View ref={heroRef} collapsable={false}>
+          <LinearGradient colors={[T.accentBg, T.sand]} style={s.hero}>
+            <Image source={cur.image} style={s.heroImg} />
+            <Text style={s.heroName}>{cur.name}</Text>
+            <Text style={s.heroSub} allowFontScaling={false}>
+              이번 주 {fmtMinutes(minutes)}
+              {remain != null ? ` · 다음 단계까지 ${fmtMinutes(remain)}` : ' · 최고 단계예요'}
+            </Text>
+            <View style={s.heroTrack}>
+              <LinearGradient
+                colors={[T.accentLight, T.accent]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[s.heroFill, { width: `${progress * 100}%` }]}
+              />
+            </View>
+          </LinearGradient>
+        </View>
 
         {/* ── 5단계 카드 리스트 ── */}
-        <View style={s.tierList}>
+        <View style={s.tierList} ref={listRef} collapsable={false}>
           {TIERS.map((t) => {
             const isCur = t.level === level;
             return (
@@ -85,13 +112,16 @@ export default function TierGuideScreen() {
         </View>
 
         {/* ── 정산 안내 ── */}
-        <View style={s.notice}>
+        <View style={s.notice} ref={noticeRef} collapsable={false}>
           <Text style={s.noticeText}>
             매주 <Text style={s.noticeStrong}>월요일 09시</Text> 정산 · 기준 충족 시 자동 승급, 미달
             시 한 단계 강등.
           </Text>
         </View>
       </ScrollView>
+
+      {/* 첫 진입 사용법 안내(GROMO-652) */}
+      <TabGuideOverlay storageKey={STORAGE_KEYS.guideTier} steps={guideSteps} />
     </SafeAreaView>
   );
 }
