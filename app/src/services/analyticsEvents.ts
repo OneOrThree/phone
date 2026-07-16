@@ -206,8 +206,9 @@ export function logTierGuideViewed(): void {
 // (409 중복·롤백된 낙관 갱신은 미집계). 대상 식별자는 PII 회피로 미포함.
 export type FriendRequestSource = 'friend_add' | 'friend_profile';
 
-// 친구 신청 발신. source: 친구 추가 검색 목록 / 프로필 상세 중 어디서 보냈는지.
-export function logFriendRequestSent(p: { source: FriendRequestSource }): void {
+// 친구 신청 발신. request_source: 친구 추가 검색 목록 / 프로필 상세 중 어디서 보냈는지.
+// ('source'는 공통 파라미터(클라/서버 출처 'client')와 이름이 겹쳐 덮어쓰므로 사용 금지)
+export function logFriendRequestSent(p: { request_source: FriendRequestSource }): void {
   track('friend_request_sent', p);
 }
 

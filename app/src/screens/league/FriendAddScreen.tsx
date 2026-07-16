@@ -93,7 +93,7 @@ export default function FriendAddScreen() {
     try {
       await sendFriendRequest(userId);
       setSentIds((prev) => new Set(prev).add(userId));
-      logFriendRequestSent({ source: 'friend_add' }); // 성공 시에만 — 409(중복)는 미발행
+      logFriendRequestSent({ request_source: 'friend_add' }); // 성공 시에만 — 409(중복)는 미발행
     } catch (e) {
       // 409 = 이미 친구/이미 보낸 요청 — 요청됨으로 간주
       if (axios.isAxiosError(e) && e.response?.status === 409) {
