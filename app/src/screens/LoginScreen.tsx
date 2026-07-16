@@ -14,6 +14,7 @@ import {
 import type { LoginResult } from '@/types/api';
 import { T } from '@/constants/theme';
 import { CharacterImage } from '@/components/character/CharacterImage';
+import { logOnboardingSignupFailed, logOnboardingSignupSelected } from '@/services/analyticsEvents';
 
 // v2 로그인 화면 — Claude Design 온보딩 O7 시안 그대로.
 // 로직은 데이터 층(@/services/auth) 재사용, UI만 새로 구성. 색은 T 토큰만 사용.
@@ -25,6 +26,9 @@ type Method = Extract<AuthMethod, 'kakao' | 'apple' | 'google'>;
 interface LoginScreenProps {
   // 온보딩 완료 처리(서버 동기화 포함)가 끝날 때까지 버튼을 잠가야 하므로 Promise를 요구한다.
   onLogin: (u: LoginResult) => Promise<void>;
+  // 온보딩 W15로 쓰일 때만 true — 가입 수단 선택/실패 퍼널 이벤트(onboarding_signup_*)를 발행한다.
+  // 독립 재로그인 화면(App.tsx)에서는 미발행 — 온보딩 퍼널 오염 방지(GROMO-782).
+  isOnboarding?: boolean;
 }
 
 const PROVIDERS: {
@@ -47,7 +51,7 @@ const PROVIDERS: {
   },
 ];
 
-export default function LoginScreen({ onLogin }: LoginScreenProps) {
+export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps) {
   const [busy, setBusy] = useState<Method | null>(null);
   const [guestBusy, setGuestBusy] = useState(false);
   // 마지막으로 로그인한 소셜 — 재방문 시 해당 버튼에 '최근 사용' 배지(GROMO-602).
@@ -67,6 +71,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
 
   async function run(method: Method, fn: () => Promise<LoginResult>) {
     if (busy) return;
+    if (isOnboarding) logOnboardingSignupSelected({ method });
     setBusy(method);
     try {
       const result = await fn();
@@ -85,8 +90,14 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
         code === 'ERR_REQUEST_CANCELED' ||
         code === 'ERR_CANCELED'
       ) {
+        if (isOnboarding) logOnboardingSignupFailed({ method, reason: 'cancelled' });
         return;
       }
+      if (isOnboarding)
+        logOnboardingSignupFailed({
+          method,
+          reason: String(code ?? (e instanceof Error ? e.message : 'unknown')),
+        });
       Alert.alert('로그인 실패', e instanceof Error ? e.message : '다시 시도해 주세요.');
     } finally {
       setBusy(null);
@@ -96,12 +107,18 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
   // 로그인 없이 시작 = 게스트 세션 생성(백엔드 /auth/guest). 소셜과 동일하게 onLogin으로 흘려보낸다.
   async function runGuest() {
     if (busy !== null || guestBusy) return;
+    if (isOnboarding) logOnboardingSignupSelected({ method: 'guest' });
     setGuestBusy(true);
     try {
       const result = await guestLogin();
       // 게스트도 완료 처리까지 대기 — 재탭 시 게스트 계정이 중복 생성되는 것을 막는다.
       await onLogin(result);
     } catch (e) {
+      if (isOnboarding)
+        logOnboardingSignupFailed({
+          method: 'guest',
+          reason: e instanceof Error ? e.message : 'unknown',
+        });
       Alert.alert('시작 실패', e instanceof Error ? e.message : '다시 시도해 주세요.');
     } finally {
       setGuestBusy(false);

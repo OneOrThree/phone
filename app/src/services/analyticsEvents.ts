@@ -71,7 +71,7 @@ export function logOnboardingGoalSubmitted(p: {
   track('onboarding_goal_submitted', { step_index: 13, ...p });
 }
 
-// W15 가입 수단 선택 / 실패 (배선은 후속 — §6)
+// W15 가입 수단 선택 / 실패 — LoginScreen(isOnboarding)에서 발행. 취소는 reason='cancelled'.
 export function logOnboardingSignupSelected(p: { method: AuthMethod }): void {
   track('onboarding_signup_selected', { step_index: 15, ...p });
 }
@@ -184,6 +184,11 @@ export function logLeagueProfileOpened(p: { is_me: boolean }): void {
   track('league_profile_opened', p);
 }
 
+// 티어 단계 안내 화면 진입(포커스마다 1회, GROMO-782).
+export function logTierGuideViewed(): void {
+  track('tier_guide_viewed');
+}
+
 // ── 친구(Friend) [C] (GROMO-782) ──
 // 신청·수락·거절·끊기·핀 토글 — API 성공 시에만 발행해 실제 성립한 액션만 센다
 // (409 중복·롤백된 낙관 갱신은 미집계). 대상 식별자는 PII 회피로 미포함.
@@ -233,6 +238,17 @@ export function logStatsPeriodChanged(p: { period: StatsPeriodKey }): void {
 export type StatsShareCard = 'timetable' | 'weekly_timeline';
 export function logStatsShared(p: { card: StatsShareCard; completed: boolean }): void {
   track('stats_shared', p);
+}
+
+// ── 계정(Account) [C] (GROMO-782) ──
+// 로그아웃/탈퇴 — 이탈 분석용(계정 설정 화면).
+export function logLogout(): void {
+  track('logout');
+}
+
+// 회원 탈퇴 확정 — 탈퇴 API 성공 시에만 발행(모달 취소·실패는 미집계).
+export function logWithdrawalConfirmed(): void {
+  track('withdrawal_confirmed');
 }
 
 // ── 리텐션/알림 [C] ── (event-logging-design.md §5.B)

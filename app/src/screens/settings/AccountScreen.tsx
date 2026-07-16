@@ -27,6 +27,7 @@ import {
   type AuthMethod,
 } from '@/services/auth';
 import { useUser } from '@/store/UserContext';
+import { logLogout, logWithdrawalConfirmed } from '@/services/analyticsEvents';
 import type { Provider, SocialLinkResponse } from '@/types/dto/user';
 import type { LoginResult } from '@/types/api';
 import { T, withAlpha } from '@/constants/theme';
@@ -166,7 +167,14 @@ export default function AccountScreen() {
   const confirmLogout = () => {
     Alert.alert('로그아웃', '로그아웃할까요?', [
       { text: '취소', style: 'cancel' },
-      { text: '로그아웃', style: 'destructive', onPress: () => triggerLogout() },
+      {
+        text: '로그아웃',
+        style: 'destructive',
+        onPress: () => {
+          logLogout(); // 세션 해제(setUserId null) 전에 발행 — 유저 귀속 유지
+          triggerLogout();
+        },
+      },
     ]);
   };
 
@@ -176,6 +184,7 @@ export default function AccountScreen() {
     setWithdrawing(true);
     try {
       await withdraw();
+      logWithdrawalConfirmed(); // 탈퇴 API 성공 시에만 — 로그아웃(setUserId null) 전에 발행
       await clearLastAuthProvider(); // GROMO-602: 탈퇴 시에만 마지막 provider 초기화(로그아웃은 유지)
       setWithdrawOpen(false);
       triggerLogout();
