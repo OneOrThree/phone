@@ -92,12 +92,25 @@ class LeagueNotificationServiceTest {
                 .build();
     }
 
+    /** keyset 커서(getId())가 채워진 결과 — 페이지네이션 테스트에서 커서 전진 검증용. */
+    private static LeagueWeeklyResult resultWithId(
+            UUID id, User user, LeagueWeeklyResultType type, int previousTier, int newTier) {
+        return LeagueWeeklyResult.builder()
+                .id(id)
+                .user(user)
+                .weekStartAt(PREVIOUS_WEEK_START)
+                .previousTierLevel(previousTier)
+                .newTierLevel(newTier)
+                .result(type)
+                .build();
+    }
+
     @Test
     @DisplayName("직전 주간 정산의 승격·강등 결과와 이전/새 티어로 알림 문구를 만든다")
     void sendsWeeklyResultsFromGlobalSettlement() {
         User promoted = user(UUID.randomUUID());
         User relegated = user(UUID.randomUUID());
-        given(leagueWeeklyResultRepository.findByWeekStartAtAndResultIn(any(), anyCollection()))
+        given(leagueWeeklyResultRepository.findResultPageAfter(any(), anyCollection(), isNull(), any()))
                 .willReturn(List.of(
                         result(promoted, LeagueWeeklyResultType.PROMOTED, 2, 3),
                         result(relegated, LeagueWeeklyResultType.RELEGATED, 4, 3)));
@@ -109,7 +122,8 @@ class LeagueNotificationServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<LeagueWeeklyResultType>> types = ArgumentCaptor.forClass(Collection.class);
-        verify(leagueWeeklyResultRepository).findByWeekStartAtAndResultIn(eq(PREVIOUS_WEEK_START), types.capture());
+        verify(leagueWeeklyResultRepository)
+                .findResultPageAfter(eq(PREVIOUS_WEEK_START), types.capture(), isNull(), any());
         assertThat(types.getValue())
                 .containsExactlyInAnyOrder(
                         LeagueWeeklyResultType.PROMOTED,
@@ -131,7 +145,7 @@ class LeagueNotificationServiceTest {
     @DisplayName("잔류(STAY) 결과에는 새 리그 시작 알림을 발송한다")
     void sendsNewLeagueStartForStayResult() {
         User stayedUser = user(UUID.randomUUID());
-        given(leagueWeeklyResultRepository.findByWeekStartAtAndResultIn(any(), anyCollection()))
+        given(leagueWeeklyResultRepository.findResultPageAfter(any(), anyCollection(), isNull(), any()))
                 .willReturn(List.of(result(stayedUser, LeagueWeeklyResultType.STAY, 3, 3)));
         given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(stayedUser));
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
@@ -149,7 +163,7 @@ class LeagueNotificationServiceTest {
     void loadsWeeklyUsersAndSettingsInBatch() {
         User first = user(UUID.randomUUID());
         User second = user(UUID.randomUUID());
-        given(leagueWeeklyResultRepository.findByWeekStartAtAndResultIn(any(), anyCollection()))
+        given(leagueWeeklyResultRepository.findResultPageAfter(any(), anyCollection(), isNull(), any()))
                 .willReturn(List.of(
                         result(first, LeagueWeeklyResultType.PROMOTED, 1, 2),
                         result(second, LeagueWeeklyResultType.RELEGATED, 3, 2)));
@@ -165,18 +179,27 @@ class LeagueNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("주간 결과 알림도 200명 단위로 나눠 User·설정 IN 조회를 제한한다")
-    void pagesWeeklyResultsWithoutLargeInClause() {
+    @DisplayName("주간 결과 알림은 id keyset 으로 200명 단위 페이지를 끊어 조회한다(전체 로드 없이)")
+    void pagesWeeklyResultsWithKeyset() {
         int pageSize = LeagueNotificationService.NOTIFICATION_PAGE_SIZE;
-        List<LeagueWeeklyResult> results = new ArrayList<>();
+        List<LeagueWeeklyResult> firstPage = new ArrayList<>();
         Map<UUID, User> usersById = new HashMap<>();
-        for (int index = 0; index <= pageSize; index++) {
+        for (int index = 0; index < pageSize; index++) {
             User user = user(UUID.randomUUID());
             usersById.put(user.getId(), user);
-            results.add(result(user, LeagueWeeklyResultType.PROMOTED, 1, 2));
+            firstPage.add(resultWithId(UUID.randomUUID(), user, LeagueWeeklyResultType.PROMOTED, 1, 2));
         }
-        given(leagueWeeklyResultRepository.findByWeekStartAtAndResultIn(any(), anyCollection()))
-                .willReturn(results);
+        User lastUser = user(UUID.randomUUID());
+        usersById.put(lastUser.getId(), lastUser);
+        LeagueWeeklyResult overflow = resultWithId(
+                UUID.randomUUID(), lastUser, LeagueWeeklyResultType.STAY, 2, 2);
+        UUID cursorId = firstPage.get(pageSize - 1).getId();
+
+        // 첫 페이지(cursor=null)는 가득 찬 200건, 커서 이후 페이지는 1건 → 두 페이지로 소진
+        given(leagueWeeklyResultRepository.findResultPageAfter(
+                eq(PREVIOUS_WEEK_START), anyCollection(), isNull(), any())).willReturn(firstPage);
+        given(leagueWeeklyResultRepository.findResultPageAfter(
+                eq(PREVIOUS_WEEK_START), anyCollection(), eq(cursorId), any())).willReturn(List.of(overflow));
         given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willAnswer(invocation -> {
             Collection<UUID> ids = invocation.getArgument(0);
             return ids.stream().map(usersById::get).toList();
@@ -197,7 +220,7 @@ class LeagueNotificationServiceTest {
     @DisplayName("알림 설정의 soundEnabled를 주간 결과 메시지에 반영한다")
     void respectsWeeklySoundSetting() {
         User promoted = user(UUID.randomUUID());
-        given(leagueWeeklyResultRepository.findByWeekStartAtAndResultIn(any(), anyCollection()))
+        given(leagueWeeklyResultRepository.findResultPageAfter(any(), anyCollection(), isNull(), any()))
                 .willReturn(List.of(result(promoted, LeagueWeeklyResultType.PROMOTED, 2, 3)));
         given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(promoted));
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of(

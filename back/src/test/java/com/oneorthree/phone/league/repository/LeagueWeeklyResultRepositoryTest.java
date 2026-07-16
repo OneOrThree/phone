@@ -9,9 +9,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -63,9 +65,40 @@ class LeagueWeeklyResultRepositoryTest extends RepositoryTestBase {
         assertThat(saved.getCreatedAt()).isNotNull();
         assertThat(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(user.getId()))
                 .contains(saved);
-        assertThat(leagueWeeklyResultRepository.findByWeekStartAtAndResultIn(
-                WEEK_START, List.of(LeagueWeeklyResultType.PROMOTED, LeagueWeeklyResultType.RELEGATED)))
+        assertThat(leagueWeeklyResultRepository.findResultPageAfter(
+                WEEK_START,
+                List.of(LeagueWeeklyResultType.PROMOTED, LeagueWeeklyResultType.RELEGATED),
+                null,
+                PageRequest.ofSize(200)))
                 .containsExactly(saved);
+    }
+
+    @Test
+    @DisplayName("id keyset 으로 결과를 페이지 단위로 끊어 조회하고 커서 이후만 반환한다")
+    void findsResultPageAfterCursor() {
+        List<LeagueWeeklyResultType> types = List.of(
+                LeagueWeeklyResultType.PROMOTED,
+                LeagueWeeklyResultType.STAY,
+                LeagueWeeklyResultType.RELEGATED);
+        leagueWeeklyResultRepository.saveAll(List.of(
+                result(userRepository.save(User.builder().nickname("keyset-1").build()),
+                        LeagueWeeklyResultType.STAY),
+                result(userRepository.save(User.builder().nickname("keyset-2").build()),
+                        LeagueWeeklyResultType.PROMOTED),
+                result(userRepository.save(User.builder().nickname("keyset-3").build()),
+                        LeagueWeeklyResultType.RELEGATED)));
+        leagueWeeklyResultRepository.flush();
+
+        List<LeagueWeeklyResult> firstPage = leagueWeeklyResultRepository.findResultPageAfter(
+                WEEK_START, types, null, PageRequest.ofSize(2));
+        assertThat(firstPage).hasSize(2);
+
+        UUID cursor = firstPage.get(1).getId();
+        List<LeagueWeeklyResult> secondPage = leagueWeeklyResultRepository.findResultPageAfter(
+                WEEK_START, types, cursor, PageRequest.ofSize(2));
+        assertThat(secondPage).hasSize(1);
+        assertThat(secondPage.get(0).getId()).isGreaterThan(cursor);
+        assertThat(firstPage).doesNotContain(secondPage.get(0));
     }
 
     @Test
