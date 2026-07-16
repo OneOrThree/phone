@@ -21,9 +21,9 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -42,13 +42,11 @@ import static org.mockito.Mockito.verify;
 @ExtendWith(MockitoExtension.class)
 class LeagueReengagementNotificationServiceTest {
 
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final Instant NOW = Instant.parse("2026-07-15T12:00:00Z");
     private static final LocalDate WEEK_START_DATE = LocalDate.of(2026, 7, 13);
     private static final LocalDate TODAY = LocalDate.of(2026, 7, 15);
+    private static final LocalDate YESTERDAY = TODAY.minusDays(1);
     private static final int FETCH_SIZE = LeagueReengagementNotificationService.NOTIFICATION_PAGE_SIZE + 1;
-    private static final Instant START_TODAY = TODAY.atStartOfDay(KST).toInstant();
-    private static final Instant START_TOMORROW = TODAY.plusDays(1).atStartOfDay(KST).toInstant();
 
     @Mock
     private LeagueRankingQueryRepository leagueRankingQueryRepository;
@@ -103,9 +101,8 @@ class LeagueReengagementNotificationServiceTest {
                         row(target, 5_000),
                         row(focusedToday, 3_000),
                         row(nonParticipant, 0)));
-        given(focusSessionRepository.findUserIdsWithSessionStartedBetween(
-                anyCollection(), eq(START_TODAY), eq(START_TOMORROW)))
-                .willReturn(List.of(focusedToday.getId()));
+        given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
+                .willReturn(List.of(focusedToday.getId())); // 오늘(KST) 종료된 완료 세션 존재 → 미발송
         given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(target));
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
 
@@ -118,23 +115,78 @@ class LeagueReengagementNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("오늘 미집중 — 자정 넘겨 끝난 세션(오늘 DailyFocusStat>0)은 오늘 집중으로 보고 발송하지 않는다")
+    @DisplayName("오늘 미집중 — 자정 넘겨 오늘(KST) 종료된 완료 세션은 오늘 집중으로 보고 발송하지 않는다")
     void countsOvernightSessionAsTodayFocus() {
-        User overnight = user(UUID.randomUUID()); // 오늘 시작 세션 없음, 종료일(오늘) 귀속 집중 존재 → 미발송
+        User overnight = user(UUID.randomUUID()); // 어제 시작·오늘 종료(endedAt KST 오늘 구간) → 오늘 집중 인정 → 미발송
         given(leagueWeek.currentWeekStartDate(NOW)).willReturn(WEEK_START_DATE);
         given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
         given(leagueRankingQueryRepository.findGlobalRankingPage(
                 eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
                 .willReturn(List.of(row(overnight, 4_000)));
-        given(focusSessionRepository.findUserIdsWithSessionStartedBetween(
-                anyCollection(), eq(START_TODAY), eq(START_TOMORROW)))
-                .willReturn(List.of()); // 오늘 시작한 세션 없음(startedAt 기준으론 0분으로 오인)
-        given(dailyFocusStatRepository.findUserIdsWithFocusOnDate(anyCollection(), eq(TODAY)))
-                .willReturn(List.of(overnight.getId())); // 종료일 귀속 집중이 있어 오늘 집중으로 인정
+        given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
+                .willReturn(List.of(overnight.getId())); // endedAt 이 오늘(KST) 구간 → 오늘 집중으로 인정 → 미발송
 
         service.sendMissedFocusToday(NOW);
 
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("오늘 미집중 — 버려진(자동종료) 세션은 실집중 0이라 오늘 집중으로 보지 않고 발송한다")
+    void doesNotTreatAutoClosedSessionAsTodayFocus() {
+        User orphaned = user(UUID.randomUUID()); // 오늘 세션 시작했으나 orphan 자동종료 → DailyFocusStat 없음, 진행 중 세션 없음
+        given(leagueWeek.currentWeekStartDate(NOW)).willReturn(WEEK_START_DATE);
+        given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
+        given(leagueRankingQueryRepository.findGlobalRankingPage(
+                eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
+                .willReturn(List.of(row(orphaned, 4_000)));
+        // 완료세션(AUTO_CLOSED 는 status 필터로 제외)·라이브세션 조회 모두 미스텁 → 빈 결과 → 실집중 0으로 판정
+        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(orphaned));
+        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+
+        service.sendMissedFocusToday(NOW);
+
+        verify(pushNotificationService, times(1)).sendIfAllowed(eq(orphaned), any(), any(), eq(NOW));
+        // 회귀 락 — 재참여 경로는 고아 세션을 '집중함'으로 오판하던 신호(startedAt·DailyFocusStat-date)를 쓰지 않는다.
+        // (미스텁이면 pre-fix startedAt 구현도 이 단언을 통과하므로, '호출 안 함'을 명시적으로 검증해 회귀를 고정.)
+        verify(focusSessionRepository, never()).findUserIdsWithSessionStartedBetween(any(), any(), any());
+        verify(dailyFocusStatRepository, never()).findUserIdsWithFocusOnDate(any(), any());
+    }
+
+    @Test
+    @DisplayName("오늘 미집중 — 지금 진행 중(라이브) 세션 보유자는 집중 중으로 보고 발송하지 않는다")
+    void doesNotSendMissedFocusToUserWithOpenSession() {
+        User focusingNow = user(UUID.randomUUID()); // 오늘 완료 집중은 아직 0이지만 라이브 세션 진행 중 → 미발송
+        given(leagueWeek.currentWeekStartDate(NOW)).willReturn(WEEK_START_DATE);
+        given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
+        given(leagueRankingQueryRepository.findGlobalRankingPage(
+                eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
+                .willReturn(List.of(row(focusingNow, 4_000)));
+        given(focusSessionRepository.findUserIdsWithLiveSession(anyCollection(), any()))
+                .willReturn(List.of(focusingNow.getId()));
+
+        service.sendMissedFocusToday(NOW);
+
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("오늘 미집중 — 라이브 세션 조회에 orphan 컷오프(now-12h) 하한을 넘겨 미청소 고아를 라이브에서 배제한다")
+    void passesOrphanCutoffBoundToLiveSessionQuery() {
+        User target = user(UUID.randomUUID());
+        given(leagueWeek.currentWeekStartDate(NOW)).willReturn(WEEK_START_DATE);
+        given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
+        given(leagueRankingQueryRepository.findGlobalRankingPage(
+                eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
+                .willReturn(List.of(row(target, 5_000)));
+        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(target));
+        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+
+        service.sendMissedFocusToday(NOW);
+
+        // 라이브 판정 하한 = now - ORPHAN_TIMEOUT(12h) — 이 하한이 없으면 스윕 전 미종료 고아까지 라이브로 잡혀 과억제.
+        verify(focusSessionRepository)
+                .findUserIdsWithLiveSession(anyCollection(), eq(NOW.minus(Duration.ofHours(12))));
     }
 
     @Test
@@ -167,8 +219,7 @@ class LeagueReengagementNotificationServiceTest {
         User atRisk = user(UUID.randomUUID());  // streak 5, 오늘 300초(<600) → 발송
         User safe = user(UUID.randomUUID());    // streak 3, 오늘 700초(>=600) → 미발송
         given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
-        given(userStreakRepository.findByStreakCountGreaterThanAndLastSessionDateGreaterThanEqualAndDeletedAtIsNull(
-                0, TODAY.minusDays(1)))
+        given(userStreakRepository.findActiveStreakHoldersPage(eq(0), eq(YESTERDAY), isNull(), any()))
                 .willReturn(List.of(streak(atRisk.getId(), 5), streak(safe.getId(), 3)));
         given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection()))
                 .willReturn(List.of(atRisk, safe));
@@ -189,13 +240,55 @@ class LeagueReengagementNotificationServiceTest {
     @DisplayName("스트릭 위기 — 진행 중 스트릭이 없으면 발송하지 않는다")
     void skipsStreakAtRiskWhenNoActiveStreaks() {
         given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
-        given(userStreakRepository.findByStreakCountGreaterThanAndLastSessionDateGreaterThanEqualAndDeletedAtIsNull(
-                0, TODAY.minusDays(1)))
+        given(userStreakRepository.findActiveStreakHoldersPage(eq(0), eq(YESTERDAY), isNull(), any()))
                 .willReturn(List.of());
 
         service.sendStreakAtRisk(NOW);
 
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
         verify(userRepository, never()).findAllByIdInAndIsDeletedFalse(anyCollection());
+    }
+
+    @Test
+    @DisplayName("스트릭 위기 — 지금 집중 중(라이브 세션)인 유저는 오늘 10분 미달이어도 발송하지 않는다")
+    void skipsStreakAtRiskForActivelyFocusingUser() {
+        User focusingNow = user(UUID.randomUUID()); // streak 5, 오늘 완료 통계 200초(<600)지만 라이브 세션 진행 중 → 미발송
+        given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
+        given(userStreakRepository.findActiveStreakHoldersPage(eq(0), eq(YESTERDAY), isNull(), any()))
+                .willReturn(List.of(streak(focusingNow.getId(), 5)));
+        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection()))
+                .willReturn(List.of(focusingNow));
+        given(dailyFocusStatRepository.findByUserInAndDate(anyCollection(), eq(TODAY)))
+                .willReturn(List.of(dailyStat(focusingNow, 200)));
+        // eq(now-12h) — orphan 컷오프 하한을 정확히 넘겨야 매칭. 하한이 틀리면 스텁 미스 → 발송되어 테스트 실패(바운드 락).
+        given(focusSessionRepository.findUserIdsWithLiveSession(
+                anyCollection(), eq(NOW.minus(Duration.ofHours(12)))))
+                .willReturn(List.of(focusingNow.getId()));
+
+        service.sendStreakAtRisk(NOW);
+
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("스트릭 위기 — 첫 페이지가 가득 차면(PAGE_SIZE+1) userId 키셋 커서로 다음 페이지를 이어 조회한다")
+    void pagesStreakHoldersByKeyset() {
+        int pageSize = LeagueReengagementNotificationService.NOTIFICATION_PAGE_SIZE;
+        List<UserStreak> fullFetch = new ArrayList<>();
+        for (int i = 0; i <= pageSize; i++) { // pageSize+1 개 → hasMore=true
+            fullFetch.add(streak(UUID.randomUUID(), 3));
+        }
+        UUID lastUserId = fullFetch.get(pageSize - 1).getUserId(); // subList(0,pageSize) 의 마지막 = 다음 커서
+        given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
+        given(userStreakRepository.findActiveStreakHoldersPage(eq(0), eq(YESTERDAY), isNull(), any()))
+                .willReturn(fullFetch);
+        given(userStreakRepository.findActiveStreakHoldersPage(eq(0), eq(YESTERDAY), eq(lastUserId), any()))
+                .willReturn(List.of()); // 2차 페이지 비어있음 → 종료
+        // userRepository 기본(empty) → 발송 없음, 커서 전진(2회 조회)만 검증
+
+        service.sendStreakAtRisk(NOW);
+
+        verify(userStreakRepository, times(2))
+                .findActiveStreakHoldersPage(anyInt(), any(), any(), any());
     }
 }
