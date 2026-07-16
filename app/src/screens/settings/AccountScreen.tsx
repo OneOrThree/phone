@@ -27,7 +27,11 @@ import {
   type AuthMethod,
 } from '@/services/auth';
 import { useUser } from '@/store/UserContext';
-import { logLogout, logWithdrawalConfirmed } from '@/services/analyticsEvents';
+import {
+  logGuestSocialLoginAttempted,
+  logLogout,
+  logWithdrawalConfirmed,
+} from '@/services/analyticsEvents';
 import type { Provider, SocialLinkResponse } from '@/types/dto/user';
 import type { LoginResult } from '@/types/api';
 import { T, withAlpha } from '@/constants/theme';
@@ -117,6 +121,7 @@ export default function AccountScreen() {
   // 게스트 → 소셜 로그인. 세션은 auth.ts가 저장하고, triggerRelogin으로 새 계정으로 재부팅한다.
   const runLogin = async (method: Method, fn: () => Promise<LoginResult>) => {
     if (busy) return;
+    logGuestSocialLoginAttempted({ method }); // 성공 여부는 auth.ts(login/sign_up)가 기록
     setBusy(method);
     try {
       const result = await fn();

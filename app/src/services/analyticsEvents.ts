@@ -135,6 +135,18 @@ export function logFocusFriendsViewed(): void {
   track('focus_friends_viewed');
 }
 
+// 비교 축 공용 파라미터 값 — 집중 결과·통계 비교 카드에서 함께 쓴다(GROMO-782).
+export type CompareAxisParam = 'friends' | 'all' | 'category';
+
+// 집중 결과 화면 비교 카드 — 기간 탭(오늘/이번 주/이번 달)·축(친구/전체/같은 카테고리) 전환.
+// 같은 칩 재탭은 호출부에서 걸러 미계측.
+export function logFocusResultComparePeriodChanged(p: { period: StatsPeriodKey }): void {
+  track('focus_result_compare_period_changed', p);
+}
+export function logFocusResultCompareAxisChanged(p: { axis: CompareAxisParam }): void {
+  track('focus_result_compare_axis_changed', p);
+}
+
 // ── 홈(Home) 인터랙션 [C] ──
 // 홈 화면 진입 + 오늘 요약 조회. focus_session_completed([S])는 여기서 발행하지 않는다.
 // 집중 세션 리스트·PIN 친구 UI는 v2 홈(GROMO-552)에 아직 없어, 관련 이벤트는 해당 UI 도입 시 추가한다(GROMO-537).
@@ -217,6 +229,11 @@ export function logFriendPinToggled(p: { pinned: boolean }): void {
   track('friend_pin_toggled', p);
 }
 
+// 친구 닉네임 검색 실행(디바운스 확정분만 — 타이핑 중간 취소분 제외). 검색어 원문은 PII 회피로 미전송.
+export function logFriendSearchPerformed(p: { query_length: number; result_count: number }): void {
+  track('friend_search_performed', p);
+}
+
 // ── 통계(Stats) [C] (GROMO-558) ──
 // 통계 화면 진입·기간 탭 전환·과목 필터 선택. 서버 검증 이벤트([S])는 백엔드 MP 소유 — 클라 미발행.
 export type StatsPeriodKey = 'day' | 'week' | 'month';
@@ -240,6 +257,20 @@ export function logStatsShared(p: { card: StatsShareCard; completed: boolean }):
   track('stats_shared', p);
 }
 
+// 비교 카드 축(친구/전체/같은 카테고리) 전환. period: 어느 기간 탭의 비교 카드인지.
+export function logStatsCompareAxisChanged(p: {
+  axis: CompareAxisParam;
+  period: StatsPeriodKey;
+}): void {
+  track('stats_compare_axis_changed', p);
+}
+
+// 카드 순서 편집 확정(드래그 놓기 — 순서가 실제 바뀐 경우만). top_card: 편집 후 맨 위 카드 key.
+// 전체 순서 문자열은 GA4 값 100자 한도·고카디널리티라 최상단 선호만 기록한다.
+export function logStatsCardReordered(p: { period: StatsPeriodKey; top_card: string }): void {
+  track('stats_card_reordered', p);
+}
+
 // ── 계정(Account) [C] (GROMO-782) ──
 // 로그아웃/탈퇴 — 이탈 분석용(계정 설정 화면).
 export function logLogout(): void {
@@ -249,6 +280,11 @@ export function logLogout(): void {
 // 회원 탈퇴 확정 — 탈퇴 API 성공 시에만 발행(모달 취소·실패는 미집계).
 export function logWithdrawalConfirmed(): void {
   track('withdrawal_confirmed');
+}
+
+// 게스트 → 소셜 로그인 전환 시도(계정 설정 화면). 성공 여부는 auth.ts의 login/sign_up이 담당.
+export function logGuestSocialLoginAttempted(p: { method: AuthMethod }): void {
+  track('guest_social_login_attempted', p);
 }
 
 // ── 리텐션/알림 [C] ── (event-logging-design.md §5.B)

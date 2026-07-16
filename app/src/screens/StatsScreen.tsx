@@ -18,7 +18,14 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import type { StatsPeriod, HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
-import { logStatsViewed, logStatsPeriodChanged, logStatsShared } from '@/services/analyticsEvents';
+import {
+  logStatsViewed,
+  logStatsPeriodChanged,
+  logStatsShared,
+  logStatsCompareAxisChanged,
+  logStatsCardReordered,
+  type CompareAxisParam,
+} from '@/services/analyticsEvents';
 import {
   fetchGlobalAverage,
   fetchCategoryAverage,
@@ -98,6 +105,11 @@ export default function StatsScreen() {
   }, []);
 
   const onReorderCards = (keys: string[]) => {
+    // 실제로 순서가 바뀐 경우만 계측 — 제자리 드롭에도 onReorder는 불린다
+    // (저장된 순서가 없으면 비교 기준이 없어 첫 커스텀으로 간주하고 기록).
+    if (cardOrder[period]?.join() !== keys.join()) {
+      logStatsCardReordered({ period: periodKey(period), top_card: keys[0] });
+    }
     const next = { ...cardOrder, [period]: keys };
     setCardOrder(next);
     AsyncStorage.setItem(STORAGE_KEYS.statsCardOrder, JSON.stringify(next)).catch(() => {});
@@ -603,7 +615,14 @@ function CompareWeek({ myMinutes }: { myMinutes: number }) {
 
   return (
     <View style={s.compare}>
-      <CompareChips active={axis} onSelect={setAxis} />
+      <CompareChips
+        active={axis}
+        onSelect={(k) => {
+          // 같은 칩 재탭은 미계측 — 이 카드는 주 탭 전용이라 period 고정
+          if (k !== axis) logStatsCompareAxisChanged({ axis: axisParam(k), period: 'week' });
+          setAxis(k);
+        }}
+      />
       {!loaded ? (
         <View style={s.compareLoading}>
           <ActivityIndicator color={T.accent} size="small" />
@@ -629,6 +648,10 @@ const COMPARE_AXES: { key: CompareAxisKey; chip: string; label: string }[] = [
   { key: 'ALL', chip: '전체', label: '전체 평균' },
   { key: 'CATEGORY', chip: '같은 카테고리', label: '같은 카테고리 평균' },
 ];
+
+// 계측 파라미터 값 — CompareAxisKey를 이벤트 공용 소문자 값으로 변환(GROMO-782)
+const axisParam = (k: CompareAxisKey): CompareAxisParam =>
+  k === 'FRIENDS' ? 'friends' : k === 'ALL' ? 'all' : 'category';
 
 function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMinutes: number }) {
   const [axis, setAxis] = useState<CompareAxisKey>('ALL');
@@ -678,7 +701,15 @@ function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMinutes: 
 
   return (
     <View style={s.compare}>
-      <CompareChips active={axis} onSelect={setAxis} />
+      <CompareChips
+        active={axis}
+        onSelect={(k) => {
+          // 같은 칩 재탭은 미계측
+          if (k !== axis)
+            logStatsCompareAxisChanged({ axis: axisParam(k), period: periodKey(period) });
+          setAxis(k);
+        }}
+      />
       {cur === undefined ? (
         <View style={s.compareLoading}>
           <ActivityIndicator color={T.accent} size="small" />

@@ -28,6 +28,7 @@ import {
   logFriendRequestAccepted,
   logFriendRequestRejected,
   logFriendRequestSent,
+  logFriendSearchPerformed,
 } from '@/services/analyticsEvents';
 import { MemberAvatar } from './components/MemberAvatar';
 
@@ -72,7 +73,10 @@ export default function FriendAddScreen() {
     const timer = setTimeout(async () => {
       try {
         const rows = await searchFriends(q);
-        if (!stale) setResults(rows);
+        if (!stale) {
+          setResults(rows);
+          logFriendSearchPerformed({ query_length: q.length, result_count: rows.length });
+        }
       } catch {
         if (!stale) setResults([]);
       } finally {
