@@ -173,10 +173,16 @@ class ScreenTimeModule: NSObject {
 
         // 선택한 앱/카테고리의 누적 사용시간이 threshold(목표시간)에 도달하면
         // Monitor 익스텐션의 eventDidReachThreshold가 호출됨
+        // 웹 도메인 시간은 브라우저 앱 시간에 이미 포함돼, 앱/카테고리와 함께 걸면 같은 시간이
+        // 두 번 세진다(예: 사파리로 유튜브 웹 30분 = 사파리 30분 + youtube.com 30분 → 60분).
+        // 앱/카테고리가 있으면 웹 도메인은 제외하고, 웹 도메인만 고른 경우에만 그대로 쓴다.
+        let goalWebDomains =
+            (selection.applicationTokens.isEmpty && selection.categoryTokens.isEmpty)
+            ? selection.webDomainTokens : []
         let event = DeviceActivityEvent(
             applications: selection.applicationTokens,
             categories: selection.categoryTokens,
-            webDomains: selection.webDomainTokens,
+            webDomains: goalWebDomains,
             threshold: threshold
         )
 
@@ -241,6 +247,12 @@ class ScreenTimeModule: NSObject {
         }
 
         // 30분 간격 눈금(30,60,…). 이벤트 과다(RAM 6MB)·경계 뭉갬 방지로 720분(12h·24개)로 상한.
+        // 웹 도메인 시간은 브라우저 앱 시간에 이미 포함 — 앱/카테고리와 함께 걸면 같은 시간이
+        // 두 번 세져 버킷이 실사용량(설정 스크린타임)보다 크게 잡힌다. 목표 threshold와 동일하게
+        // 앱/카테고리가 있으면 웹 도메인은 제외한다.
+        let bucketWebDomains =
+            (selection.applicationTokens.isEmpty && selection.categoryTokens.isEmpty)
+            ? selection.webDomainTokens : []
         let step = 30
         let maxMinutes = min(max(Int(maxMinutesValue), step), 720)
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
@@ -252,7 +264,7 @@ class ScreenTimeModule: NSObject {
             events[DeviceActivityEvent.Name("gromo.usage.bucket.\(m)")] = DeviceActivityEvent(
                 applications: selection.applicationTokens,
                 categories: selection.categoryTokens,
-                webDomains: selection.webDomainTokens,
+                webDomains: bucketWebDomains,
                 threshold: threshold
             )
             m += step
