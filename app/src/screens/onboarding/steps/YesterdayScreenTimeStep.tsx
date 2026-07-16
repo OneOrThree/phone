@@ -15,6 +15,9 @@ import type { StepProps } from '@/screens/onboarding/types';
 // 분석 연출 시간 — 진행바가 리니어하게 100%까지 차는 데 걸리는 시간.
 const ANALYZE_MS = 2000;
 
+// 분석 연출은 앱 실행당 1회만 — 뒤로 갔다 다시 진입해도 반복하지 않는다(앱 재시작 시 초기화).
+let analyzedThisSession = false;
+
 // W11 · 어제 스크린타임 — 어제 하루 실제 사용시간(총량+카테고리별+앱별)을 네이티브 리포트 뷰로 표시.
 // ScreenTimeReportView 'Total Activity'에 dayOffset={-1}을 줘 어제 하루치를 집계(홈 '핸드폰 사용'과 동일 뷰).
 // W9에서 어제 사용을 자가추측 → 여기서 실제 어제 데이터로 비교한다.
@@ -22,7 +25,7 @@ const ANALYZE_MS = 2000;
 // 권한 거부 유저는 컨트롤러가 이 스텝을 건너뛴다.
 export default function YesterdayScreenTimeStep({ onNext }: StepProps) {
   // 분석 연출 — 진행바가 2초간 리니어하게 차오르고, 끝나면 로딩 레이어를 걷고 CTA를 노출한다.
-  const [analyzed, setAnalyzed] = useState(false);
+  const [analyzed, setAnalyzed] = useState(analyzedThisSession);
   const progress = useSharedValue(0);
 
   // 전날 스크린타임 요약 노출 계측 — 진입당 1회.
@@ -30,8 +33,12 @@ export default function YesterdayScreenTimeStep({ onNext }: StepProps) {
   // 네이티브 리포트 뷰가 렌더 가능한지로 판정한다(iOS 실기기+모듈=데이터 표시 가능).
   useEffect(() => {
     logOnboardingScreentimeViewed({ has_data: !!ScreenTimeReportView });
+    if (analyzedThisSession) return;
     progress.value = withTiming(1, { duration: ANALYZE_MS, easing: Easing.linear });
-    const timer = setTimeout(() => setAnalyzed(true), ANALYZE_MS);
+    const timer = setTimeout(() => {
+      analyzedThisSession = true;
+      setAnalyzed(true);
+    }, ANALYZE_MS);
     return () => clearTimeout(timer);
   }, [progress]);
 
