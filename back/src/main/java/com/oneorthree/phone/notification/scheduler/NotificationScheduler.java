@@ -2,6 +2,7 @@ package com.oneorthree.phone.notification.scheduler;
 
 import com.oneorthree.phone.notification.service.InactiveReturnNotificationService;
 import com.oneorthree.phone.notification.service.LeagueNotificationService;
+import com.oneorthree.phone.notification.service.LeagueReengagementNotificationService;
 import com.oneorthree.phone.notification.service.RankOvertakeNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +22,7 @@ public class NotificationScheduler {
     private final LeagueNotificationService leagueNotificationService;
     private final InactiveReturnNotificationService inactiveReturnNotificationService;
     private final RankOvertakeNotificationService rankOvertakeNotificationService;
+    private final LeagueReengagementNotificationService leagueReengagementNotificationService;
 
     // 주간 결과 알림 — 정산 배치(월 00시)와 유저 발표를 분리해 월 07시 발송 — 조용한 시간(기본 23–07) 종료 시각과 정합
     // TODO: 멀티 인스턴스 배포 시 분산 락 필요 (티켓 565) — LeagueScheduler 와 동일
@@ -94,6 +96,29 @@ public class NotificationScheduler {
             rankOvertakeNotificationService.sendRankOvertakeNotifications();
         } catch (Exception e) {
             log.error("순위 추월 푸시 스케줄 실패", e);
+        }
+    }
+
+    // 오늘 미집중 푸시 (GROMO-841) — 평일 21:00 KST. 이번 주 참여했으나 오늘 0분인 유저 리텐션
+    @Scheduled(cron = "0 0 21 * * MON-FRI", zone = "Asia/Seoul")
+    public void sendMissedFocusToday() {
+        try {
+            leagueReengagementNotificationService.sendMissedFocusToday();
+        } catch (Exception e) {
+            log.error("오늘 미집중 푸시 스케줄 실패", e);
+        }
+    }
+
+    // 스트릭 위기 푸시 (GROMO-841) — 출석 스트릭 끊길 위험 유저에게 마지막 독려.
+    // 평일·토 22:00 KST. 일요일만 21:00 으로 오프셋 — 일 22:00 은 마감 2시간 전 푸시
+    // (sendFinalDeadlineReminders)와 겹쳐 focus 넛지가 중복되므로, 겹치지 않는 21시로 분리(일요일도 스트릭 발송 유지).
+    @Scheduled(cron = "0 0 22 * * MON-SAT", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 21 * * SUN", zone = "Asia/Seoul")
+    public void sendStreakAtRisk() {
+        try {
+            leagueReengagementNotificationService.sendStreakAtRisk();
+        } catch (Exception e) {
+            log.error("스트릭 위기 푸시 스케줄 실패", e);
         }
     }
 }
