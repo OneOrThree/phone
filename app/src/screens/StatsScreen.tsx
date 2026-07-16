@@ -42,11 +42,13 @@ import {
   periodKey,
   heatmapBars,
   tenMinuteFocusSlots,
+  weekdayFocusBlocks,
   grassLevel,
   dailyFirstStartMinutes,
   firstStartPoints,
   mergeCardOrder,
   type FocusSlotSegment,
+  type WeekFocusBlock,
   type StatBar,
   type StartTimePoint,
 } from './stats/format';
@@ -246,19 +248,22 @@ export default function StatsScreen() {
     });
   }
 
-  // 첫 시작 시각 추이(주·월) — 일별 첫 세션 startedAt 기반(GROMO-762).
-  // 월 탭은 주별 평균값이라 제목에 명시(다른 'N월 ~' 카드와 표기 통일)
+  // 주 탭: 요일별 집중 타임라인(GROMO-778) — 기존 '요일별 첫 집중 시작 시각' 차트를 대체.
+  //   요일(열)×세로 시간축에 세션을 과목 색 블록으로. 첫 시작 시각은 그날 맨 위 블록 위치로 드러난다.
+  // 월 탭: 주별 첫 집중 시작 시각 차트 유지(요일 타임테이블은 주 단위라 월엔 부적합).
+  // 카드 키는 'firstStart'로 유지 — 저장된 카드 순서를 깨지 않기 위함.
   if (period !== 'DAY') {
-    const firstStartTitle =
-      period === 'WEEK' ? '요일별 첫 집중 시작 시각' : `${month}월 주별 첫 집중 시작 시각`;
     cards.push({
       key: 'firstStart',
-      node: (
-        <SectionCard key="firstStart" title={firstStartTitle}>
-          {/* key로 탭 전환 시 리마운트 — 이전 기간 점이 새 라벨 위에 잠깐 보이는 것 방지 */}
-          <FirstStartChart key={period} period={period} />
-        </SectionCard>
-      ),
+      node:
+        period === 'WEEK' ? (
+          <WeeklyTimetableCard key="firstStart" />
+        ) : (
+          <SectionCard key="firstStart" title={`${month}월 주별 첫 집중 시작 시각`}>
+            {/* key로 탭 전환 시 리마운트 — 이전 기간 점이 새 라벨 위에 잠깐 보이는 것 방지 */}
+            <FirstStartChart key={period} period={period} />
+          </SectionCard>
+        ),
     });
   }
 
@@ -983,6 +988,233 @@ function FocusTimetable() {
   );
 }
 
+// 주간 타임라인 카드 — '오늘 타임테이블'(FocusTimetableCard)과 동일하게 공유하기(캡처→Share) 버튼 제공(GROMO-778).
+function WeeklyTimetableCard() {
+  const shotRef = useRef<View>(null);
+  const [sharing, setSharing] = useState(false);
+
+  const onShare = async () => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const uri = await captureRef(shotRef, {
+        format: 'png',
+        quality: 1,
+        // 공유 파일명 — 예: 260716_주간타임라인.png (사진 저장 시엔 이름이 남지 않음)
+        fileName: `${todayStr().slice(2).replace(/-/g, '')}_주간타임라인`,
+      });
+      // Android Share는 url을 무시하고 message 기반이라 플랫폼별 페이로드(현재 iOS 전용 앱이지만 방어)
+      await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
+    } catch {
+      // 캡처 실패·공유 취소 — 무시
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  return (
+    <SectionCard
+      title="요일별 집중 타임라인"
+      action={
+        // 캡션 자리에 '공유하기' 라벨 — 텍스트·아이콘 전체가 버튼
+        <TouchableOpacity
+          style={s.shareBtn}
+          onPress={onShare}
+          hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
+          activeOpacity={0.7}
+          disabled={sharing}
+        >
+          <Text style={s.shareBtnText}>공유하기</Text>
+          <Ionicons name="share-outline" size={15} color={T.inkSub} />
+        </TouchableOpacity>
+      }
+    >
+      {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게 */}
+      <View ref={shotRef} collapsable={false} style={s.ttShot}>
+        <WeeklyTimetable />
+      </View>
+    </SectionCard>
+  );
+}
+
+// 주 탭 요일별 집중 타임라인(GROMO-778) — 요일(열)×세로 시간축. 세션을 날짜별로 분할해 해당 요일
+// 칼럼에 과목 색 블록으로 그린다. 색 매핑(tagId→태그명→과목색)·조회 패턴은 '오늘 타임테이블'(FocusTimetable)과 동일.
+const WTT_BODY_H = 220; // 트랙 세로 픽셀
+const WTT_MIN_BLOCK = 3; // 아주 짧은 세션도 보이도록 최소 블록 높이
+const WEEK_DOWS = ['월', '화', '수', '목', '금', '토', '일'];
+
+function WeeklyTimetable() {
+  const { subjects } = useSubjects();
+  const [blocks, setBlocks] = useState<WeekFocusBlock[] | null>(null);
+  // 서버 tagId → 태그명(과목 색 매칭용). 로컬 과목 id는 서버 tagId와 달라 이름으로 잇는다(FocusTimetable과 동일).
+  const [tagNames, setTagNames] = useState<Map<string, string>>(new Map());
+
+  // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 방금 세션이 반영(FirstStartChart와 동일 패턴)
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        // 이번 주 월요일 00:00(로컬)부터 지금까지. 전주 일요일에서 자정을 넘어온 세션의 월요일 몫도
+        // 담기 위해 하루 전부터 받고(LongestSessionStat과 동일 방식), 주 시작 이전 조각은 헬퍼가 버린다.
+        const now = new Date();
+        const dow = now.getDay(); // 0=일..6=토
+        const monday = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate() + (dow === 0 ? -6 : 1 - dow),
+        );
+        monday.setHours(0, 0, 0, 0);
+        const from = new Date(monday);
+        from.setDate(from.getDate() - 1);
+        const [sessions, tags] = await Promise.all([
+          getAllFocusSessions(from.toISOString(), now.toISOString()).catch(
+            () => [] as FocusSessionResponse[],
+          ),
+          getFocusTags().catch(() => []),
+        ]);
+        if (cancelled) return;
+        setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
+        setBlocks(weekdayFocusBlocks(sessions, monday.getTime()));
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
+
+  if (blocks === null) {
+    return (
+      <View style={s.compareLoading}>
+        <ActivityIndicator color={T.accent} size="small" />
+      </View>
+    );
+  }
+  if (blocks.length === 0) {
+    return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
+  }
+
+  // 구간의 과목 색 — tagId → 태그명 → 로컬 과목 색. 미분류·매칭 실패는 기본 집중색(FocusTimetable과 동일).
+  const colorForTag = (tagId: string | null): string => {
+    const name = tagId ? tagNames.get(tagId) : undefined;
+    const subject = name ? subjects.find((x) => x.name === name) : undefined;
+    return subject?.color ?? FOCUS_COLOR;
+  };
+
+  // 세로축 범위 — 데이터 최소~최대 시각을 3시간 배수로 맞춰 눈금이 정시가 되게(FirstStartChart와 동일 취지).
+  const minH = Math.min(...blocks.map((b) => b.startMin)) / 60;
+  const maxH = Math.max(...blocks.map((b) => b.endMin)) / 60;
+  let startH = Math.max(0, Math.floor(minH / 3) * 3);
+  let endH = Math.min(24, Math.ceil(maxH / 3) * 3);
+  if (endH - startH < 6) {
+    endH = Math.min(24, startH + 6);
+    startH = Math.max(0, endH - 6);
+  }
+  const span = endH - startH;
+  const px = WTT_BODY_H / span;
+  const topOf = (hourFloat: number) => (hourFloat - startH) * px;
+
+  const ticks: number[] = [];
+  for (let h = startH; h <= endH; h += 3) ticks.push(h);
+
+  // 요일별 블록 그룹 + 오늘 칼럼(월=0..일=6)
+  const byCol: WeekFocusBlock[][] = Array.from({ length: 7 }, () => []);
+  blocks.forEach((b) => byCol[b.col].push(b));
+  const nowDow = new Date().getDay();
+  const todayCol = nowDow === 0 ? 6 : nowDow - 1;
+
+  // 범례 — 타임라인에 등장한 과목만, 과목 순서대로(FocusTimetable과 동일)
+  const usedNames = new Set(
+    blocks
+      .map((b) => (b.tagId ? tagNames.get(b.tagId) : undefined))
+      .filter((n): n is string => n != null),
+  );
+  const legendSubjects = subjects.filter((x) => usedNames.has(x.name));
+
+  return (
+    <View>
+      {/* 요일 헤더 */}
+      <View style={s.wttHeadRow}>
+        <View style={s.wttGutter} />
+        {WEEK_DOWS.map((d, i) => (
+          <Text
+            key={i}
+            style={[
+              s.wttDayLabel,
+              i === 5 ? s.wttSat : i === 6 ? s.wttSun : null,
+              i === todayCol ? s.wttTodayLabel : null,
+            ]}
+            allowFontScaling={false}
+          >
+            {d}
+          </Text>
+        ))}
+      </View>
+      {/* 시간축 + 7개 트랙 */}
+      <View style={s.wttBodyRow}>
+        <View style={[s.wttGutter, { height: WTT_BODY_H }]}>
+          {ticks.map((h) => (
+            <Text key={h} style={[s.wttTick, { top: topOf(h) - 6 }]} allowFontScaling={false}>
+              {h}
+            </Text>
+          ))}
+        </View>
+        {byCol.map((day, i) => (
+          <View
+            key={i}
+            style={[
+              s.wttCol,
+              { height: WTT_BODY_H },
+              i >= 5 ? s.wttColWeekend : null,
+              i === todayCol ? s.wttColToday : null,
+            ]}
+          >
+            {/* 3시간 구분선(맨 위·아래 눈금 제외) */}
+            {ticks.slice(1, -1).map((h) => (
+              <View key={h} style={[s.wttHline, { top: topOf(h) }]} />
+            ))}
+            {day.length === 0
+              ? // 미래 요일은 빈칸으로, 지난 요일·오늘만 안내 문구
+                i <= todayCol && (
+                  <View style={s.wttEmptyWrap}>
+                    <Text style={s.wttEmptyText} allowFontScaling={false}>
+                      {i === todayCol ? '아직\n없음' : '집중\n없음'}
+                    </Text>
+                  </View>
+                )
+              : day.map((b, j) => (
+                  <View
+                    key={j}
+                    style={[
+                      s.wttBlock,
+                      {
+                        top: topOf(b.startMin / 60),
+                        height: Math.max(WTT_MIN_BLOCK, ((b.endMin - b.startMin) / 60) * px),
+                        backgroundColor: colorForTag(b.tagId),
+                      },
+                    ]}
+                  />
+                ))}
+          </View>
+        ))}
+      </View>
+      {/* 범례 */}
+      {legendSubjects.length > 0 && (
+        <View style={s.wttLegend}>
+          {legendSubjects.map((sub) => (
+            <View key={sub.id} style={s.wttLegendItem}>
+              <View style={[s.wttLegendDot, { backgroundColor: sub.color }]} />
+              <Text style={s.wttLegendText} numberOfLines={1} allowFontScaling={false}>
+                {sub.name}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+      <Text style={s.grassHint}>요일별 집중 시간대 · 집중한 과목 색으로 칠해져요</Text>
+    </View>
+  );
+}
+
 // 선그래프 — BarChart와 같은 데이터(StatBar[])·세로축 구조를 쓰되 값을 점+꺾은선으로 잇는다(주 탭, GROMO-761).
 // 점의 x좌표는 아래 라벨 칼럼(flex 균등 분할)의 중앙과 일치. 직선·원은 SVG가 필요해 react-native-svg 사용.
 const DOT_PAD = 6; // 점(최대 r 4.5)이 캔버스 경계에서 잘리지 않게 사방 여유
@@ -1257,6 +1489,7 @@ function CategoryDonut({
   const segs = items.map((it, i) => {
     const seg = {
       frac: it.totalFocusMinutes / denom,
+      minutes: it.totalFocusMinutes,
       offset: acc,
       color: T.subjectPalette[i % T.subjectPalette.length],
       name: it.tagName ?? '미분류',
@@ -1305,6 +1538,9 @@ function CategoryDonut({
             <View style={[s.donutLegendDot, { backgroundColor: sg.color }]} />
             <Text style={s.donutLegendName} numberOfLines={1}>
               {sg.name}
+            </Text>
+            <Text style={s.donutLegendTime} allowFontScaling={false}>
+              {fmtMinutes(sg.minutes)}
             </Text>
             <Text style={s.donutLegendPct} allowFontScaling={false}>
               {Math.round(sg.frac * 100)}%
@@ -1541,6 +1777,7 @@ const s = StyleSheet.create({
   donutLegendRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   donutLegendDot: { width: 10, height: 10, borderRadius: 3 },
   donutLegendName: { ...T.text.caption, color: T.ink, flex: 1 },
+  donutLegendTime: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
   donutLegendPct: { ...T.text.caption, fontWeight: '700', color: T.inkSub },
   // 선그래프 — 확장 캔버스를 음수 마진으로 되돌려 레이아웃(격자 정렬)은 그대로 유지
   lineSvg: {
@@ -1600,6 +1837,65 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   ttCellFill: { position: 'absolute', top: 0, bottom: 0, backgroundColor: FOCUS_COLOR },
+
+  // 주 탭 요일별 집중 타임라인(GROMO-778)
+  wttHeadRow: { flexDirection: 'row', gap: 3, marginTop: T.space.sm, marginBottom: T.space.xs },
+  wttBodyRow: { flexDirection: 'row', gap: 3 },
+  wttGutter: { width: 18, position: 'relative' }, // 시간축 눈금 칼럼
+  wttTick: {
+    position: 'absolute',
+    right: 3,
+    ...T.text.caption,
+    fontSize: 9,
+    color: T.inkMuted,
+  },
+  wttDayLabel: {
+    flex: 1,
+    textAlign: 'center',
+    ...T.text.caption,
+    fontSize: 12,
+    fontWeight: '800',
+    color: T.ink,
+  },
+  wttSat: { color: T.blue },
+  wttSun: { color: T.accentAlt },
+  wttTodayLabel: { color: T.accent },
+  wttCol: {
+    flex: 1,
+    position: 'relative',
+    backgroundColor: T.track,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  wttColWeekend: { backgroundColor: T.accentBg },
+  wttColToday: { borderWidth: 1.5, borderColor: T.accent },
+  wttHline: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    borderTopWidth: 1,
+    borderTopColor: T.divider,
+  },
+  wttBlock: { position: 'absolute', left: 2, right: 2, borderRadius: 3 },
+  wttEmptyWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wttEmptyText: { ...T.text.caption, fontSize: 9, color: T.inkFaint, textAlign: 'center' },
+  wttLegend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: T.space.sm,
+    marginTop: T.space.md,
+  },
+  wttLegendItem: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
+  wttLegendDot: { width: 8, height: 8, borderRadius: 4 },
+  wttLegendText: { ...T.text.caption, fontSize: 11, color: T.ink },
 
   // 전 대비
   deltaRow: {
