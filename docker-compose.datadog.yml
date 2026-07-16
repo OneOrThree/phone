@@ -1,0 +1,68 @@
+# Datadog dev overlay (docs/superpowers/specs/2026-07-16-datadog-dev-design.md)
+#
+# 실행:  docker compose -f docker-compose.dev.yml -f docker-compose.datadog.yml up -d datadog-agent app
+# 중지:  docker compose -f docker-compose.dev.yml -f docker-compose.datadog.yml rm -sf datadog-agent
+#        그 뒤 docker compose -f docker-compose.dev.yml up -d app  로 app 을 평문(javaagent 없음)으로 복원.
+#
+# 반드시 overlay(-f 두 개)로 실행 — dev 의 app-network·app·db 와 같은 프로젝트/네트워크를 공유해야
+# app 이 datadog-agent:8126 으로 트레이스를 보내고, Agent 가 app:9091 을 OpenMetrics 로 스크레이프한다.
+# cd.yml 은 `up -d app`(dev 파일만) 이므로 이 overlay 와 간섭 없음.
+services:
+  datadog-agent:
+    image: gcr.io/datadoghq/agent:7
+    container_name: gromo-datadog-agent
+    environment:
+      # 빈/미설정이면 즉시 실패(fail-fast) — 키 없이 up 이 green 처리되어 무텔레메트리로 남는 것 방지.
+      DD_API_KEY: ${DD_API_KEY:?DD_API_KEY 미설정 — GitHub Actions 시크릿(DD_API_KEY) 등록 필요}
+      DD_SITE: ${DD_SITE:-us5.datadoghq.com}
+      DD_ENV: dev
+      DD_HOSTNAME: gromo-dev
+      DD_TAGS: "env:dev service:gromo-back"
+      # 로그 수집 — 컨테이너 stdout tail
+      DD_LOGS_ENABLED: "true"
+      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
+      # APM 수신 — 같은 네트워크의 app 컨테이너가 접속(non-local)
+      DD_APM_ENABLED: "true"
+      DD_APM_NON_LOCAL_TRAFFIC: "true"
+      # 비용/노이즈 제어 — 기존 OSS 관측 컨테이너들은 수집 제외 (app/db 는 수집 대상)
+      DD_CONTAINER_EXCLUDE: "name:gromo-prometheus name:gromo-grafana name:gromo-loki name:gromo-promtail name:gromo-postgres-exporter name:gromo-node-exporter name:gromo-cadvisor name:gromo-datadog-agent"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro   # 로그 tail
+      - datadog_agent_run:/opt/datadog-agent/run:rw                # 로그 오프셋(재시작 시 재수집 방지)
+      # OpenMetrics 브리지 — 앱의 기존 /actuator/prometheus 를 스크레이프(app 무수정)
+      - ./observability/datadog/openmetrics.d/conf.yaml:/etc/datadog-agent/conf.d/openmetrics.d/conf.yaml:ro
+    networks: [app-network]
+    restart: unless-stopped
+
+  # dev 의 app 서비스를 override — overlay 켤 때만 APM 활성. dev 파일 단독(cd.yml) 실행 시엔 미적용(평문).
+  app:
+    environment:
+      # JAVA_OPTS 는 override 로 대체되므로 dev 의 egd 옵션을 다시 명시하고 -javaagent 를 추가.
+      JAVA_OPTS: "-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/datadog/dd-java-agent.jar"
+      DD_AGENT_HOST: datadog-agent
+      DD_ENV: dev
+      DD_SERVICE: gromo-back
+      DD_VERSION: ${IMAGE_TAG:-latest}   # 워크플로우가 IMAGE_TAG=github.sha 주입(미주입 시 latest 폴백)
+      # dd-java-agent 가 dd.trace_id/dd.span_id 를 MDC 에 주입. 단 CONSOLE appender 는 텍스트 패턴이고
+      # app 자체 trace_id 키를 찍으므로, 완전한 로그↔트레이스 상관은 아직 미완 — JSON 콘솔(별도 datadog
+      # 프로파일) 또는 Datadog Grok 로그 파이프라인 필요(Phase 3). 지금은 MDC 주입만 준비해 둔다.
+      DD_LOGS_INJECTION: "true"
+      DD_TRACE_SAMPLE_RATE: "0.2"      # 비용 제어(dev 저부하)
+    # base(dev)의 db healthy 의존을 유지하면서 datadog-agent 를 추가 — short-form(list)이 base 의 map 을
+    # 덮어써 db 대기가 사라지는 것 방지(fresh 호스트/DB 재생성 중 app 조기기동 실패 회피).
+    depends_on:
+      db:
+        condition: service_healthy
+      datadog-agent:
+        condition: service_started
+
+volumes:
+  datadog_agent_run:
+
+# dev compose 의 app-network 와 overlay 시 병합됨(같은 프로젝트).
+networks:
+  app-network:
+    driver: bridge
