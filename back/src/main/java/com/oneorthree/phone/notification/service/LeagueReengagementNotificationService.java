@@ -78,13 +78,15 @@ public class LeagueReengagementNotificationService {
             boolean hasMore = fetched.size() > NOTIFICATION_PAGE_SIZE;
             List<LeagueRankingRow> page = hasMore
                     ? fetched.subList(0, NOTIFICATION_PAGE_SIZE) : fetched;
-            processedCount += sendMissedFocusPage(page, startToday, startTomorrow, now);
+            processedCount += sendMissedFocusPage(page, startToday, startTomorrow, today, now);
             entityManager.flush();
             entityManager.clear();
-            if (!hasMore) {
+            LeagueRankingRow lastRow = page.get(page.size() - 1);
+            // 랭킹은 누적 DESC 정렬 — 페이지 끝이 0초면 이후 페이지는 전부 미참여자라
+            // 커서를 유저 테이블 끝까지 헛돌릴 필요 없이 중단한다.
+            if (!hasMore || lastRow.totalFocusSeconds() == 0) {
                 break;
             }
-            LeagueRankingRow lastRow = page.get(page.size() - 1);
             cursorFocusSeconds = lastRow.totalFocusSeconds();
             cursorUserId = lastRow.userId();
         }
@@ -92,7 +94,7 @@ public class LeagueReengagementNotificationService {
     }
 
     private int sendMissedFocusPage(List<LeagueRankingRow> page, Instant startToday, Instant startTomorrow,
-                                    Instant now) {
+                                    LocalDate today, Instant now) {
         // 이번 주 참여자(누적>0)만 대상 — 완전 미접속 유저는 결석 복귀(GROMO-578)가 담당
         List<UUID> participantIds = page.stream()
                 .filter(row -> row.totalFocusSeconds() > 0)
@@ -101,8 +103,11 @@ public class LeagueReengagementNotificationService {
         if (participantIds.isEmpty()) {
             return 0;
         }
+        // 오늘 이미 집중한 유저 = 오늘 시작한 세션(진행 중 포함) ∪ 오늘자 DailyFocusStat>0.
+        // 후자는 자정을 넘겨 끝난 세션(종료일 귀속)을 잡아, startedAt 기준만으로 놓치는 오발송을 막는다.
         Set<UUID> focusedTodayIds = new HashSet<>(focusSessionRepository
                 .findUserIdsWithSessionStartedBetween(participantIds, startToday, startTomorrow));
+        focusedTodayIds.addAll(dailyFocusStatRepository.findUserIdsWithFocusOnDate(participantIds, today));
         List<UUID> targetIds = participantIds.stream()
                 .filter(id -> !focusedTodayIds.contains(id))
                 .toList();
@@ -132,8 +137,11 @@ public class LeagueReengagementNotificationService {
 
     public void sendStreakAtRisk(Instant now) {
         LocalDate today = leagueWeek.currentDate(now);
-        List<UserStreak> streakHolders =
-                userStreakRepository.findByStreakCountGreaterThanAndDeletedAtIsNull(0);
+        // 마지막 세션이 어제 이후인(오늘 채우면 유지되는) 스트릭만 — 이미 끊긴 스트릭은 lazy reset 전이라
+        // streakCount 가 양수로 남아있어, 필터 없이는 매일 밤 "끊길라" 헛 알림이 간다.
+        List<UserStreak> streakHolders = userStreakRepository
+                .findByStreakCountGreaterThanAndLastSessionDateGreaterThanEqualAndDeletedAtIsNull(
+                        0, today.minusDays(1));
         if (streakHolders.isEmpty()) {
             log.info("스트릭 위기 알림 — 대상 없음 (today={})", today);
             return;

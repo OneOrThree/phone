@@ -36,6 +36,17 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
     List<DailyFocusStat> findByUserInAndDate(Collection<User> users, LocalDate date);
 
     /**
+     * 주어진 유저 중 {@code date} 당일 집중 초가 0 보다 큰(이미 오늘 집중한) 유저 id 를 반환한다.
+     * DailyFocusStat 는 세션 종료일(endedAt) 기준이라 자정을 넘겨 끝난 세션도 오늘로 귀속되어 잡힌다
+     * (startedAt 기준 조회가 놓치는 케이스 보완 — GROMO-841).
+     */
+    @Query("SELECT d.user.id FROM DailyFocusStat d "
+            + "WHERE d.user.id IN :userIds AND d.date = :date AND d.totalFocusSeconds > 0")
+    List<UUID> findUserIdsWithFocusOnDate(
+            @Param("userIds") Collection<UUID> userIds,
+            @Param("date") LocalDate date);
+
+    /**
      * [from, to] 구간의 totalFocusSeconds 합계를 반환한다(초 — GROMO-642).
      * 데이터 없는 구간은 COALESCE → 0 반환(null 처리 불필요).
      */

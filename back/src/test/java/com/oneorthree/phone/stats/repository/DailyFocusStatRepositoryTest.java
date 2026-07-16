@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -155,5 +156,27 @@ class DailyFocusStatRepositoryTest extends RepositoryTestBase {
 
         assertThat(agg.totalSeconds()).isZero();
         assertThat(agg.activeUserCount()).isZero();
+    }
+
+    // ── findUserIdsWithFocusOnDate (GROMO-841 오늘 미집중) ─────────────────
+
+    @Test
+    @DisplayName("focusOnDate — 해당 날짜 집중>0 인 유저 id만. 0초·다른 날짜·집합 밖 유저는 제외")
+    void focusOnDate_returnsUsersWithPositiveFocusThatDay() {
+        User focused = saveUser("focused", null);
+        User zero = saveUser("zero", null);
+        User otherDay = saveUser("otherDay", null);
+        User outOfSet = saveUser("outOfSet", null);
+        LocalDate day = LocalDate.of(2026, 7, 3);
+        saveStat(focused, day, 1200);               // 당일 집중>0 → 포함
+        saveStat(zero, day, 0);                     // 당일 0초 → 제외
+        saveStat(otherDay, day.minusDays(1), 3000); // 다른 날짜 → 제외
+        saveStat(outOfSet, day, 5000);              // 집합 밖 → 제외
+        dailyFocusStatRepository.flush();
+
+        List<UUID> result = dailyFocusStatRepository.findUserIdsWithFocusOnDate(
+                List.of(focused.getId(), zero.getId(), otherDay.getId()), day);
+
+        assertThat(result).containsExactly(focused.getId());
     }
 }

@@ -109,8 +109,9 @@ public class NotificationScheduler {
         }
     }
 
-    // 스트릭 위기 푸시 (GROMO-841) — 매일 22:00 KST. 출석 스트릭 끊길 위험 유저에게 마지막 독려
-    @Scheduled(cron = "0 0 22 * * *", zone = "Asia/Seoul")
+    // 스트릭 위기 푸시 (GROMO-841) — 22:00 KST, 일요일 제외(MON-SAT). 출석 스트릭 끊길 위험 유저에게 마지막 독려.
+    // 일 22:00 은 마감 2시간 전 푸시(sendFinalDeadlineReminders)와 겹쳐 동일 유저에게 focus 넛지가 중복되므로 제외.
+    @Scheduled(cron = "0 0 22 * * MON-SAT", zone = "Asia/Seoul")
     public void sendStreakAtRisk() {
         try {
             leagueReengagementNotificationService.sendStreakAtRisk();
