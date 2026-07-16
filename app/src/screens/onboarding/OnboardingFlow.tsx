@@ -15,7 +15,7 @@ import ScreenTimeDeniedStep from '@/screens/onboarding/steps/ScreenTimeDeniedSte
 import YesterdayScreenTimeStep from '@/screens/onboarding/steps/YesterdayScreenTimeStep';
 import GoalSettingStep from '@/screens/onboarding/steps/GoalSettingStep';
 import NicknameStep from '@/screens/onboarding/steps/NicknameStep';
-import { hapticMedium } from '@/utils/haptics';
+import { hapticLight, hapticMedium } from '@/utils/haptics';
 import { INITIAL_ONBOARDING_DATA, type StepProps, type V2OnboardingData } from './types';
 import type { OnboardingCompleteStatus, OnboardingResult } from './types';
 import { logOnboardingStarted, logOnboardingCompleted } from '@/services/analyticsEvents';
@@ -149,7 +149,16 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     next();
   };
 
-  if (showSplash) return <OnboardingSplash onDone={() => setShowSplash(false)} />;
+  // 스플래시(GROMO) → 첫 스텝 전환 시 가벼운 진동으로 시작을 알린다.
+  if (showSplash)
+    return (
+      <OnboardingSplash
+        onDone={() => {
+          hapticLight();
+          setShowSplash(false);
+        }}
+      />
+    );
 
   const node = sequence[index];
   const canBack = index > backFloor;
