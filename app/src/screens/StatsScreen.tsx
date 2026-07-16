@@ -1257,6 +1257,7 @@ function CategoryDonut({
   const segs = items.map((it, i) => {
     const seg = {
       frac: it.totalFocusMinutes / denom,
+      minutes: it.totalFocusMinutes,
       offset: acc,
       color: T.subjectPalette[i % T.subjectPalette.length],
       name: it.tagName ?? '미분류',
@@ -1305,6 +1306,9 @@ function CategoryDonut({
             <View style={[s.donutLegendDot, { backgroundColor: sg.color }]} />
             <Text style={s.donutLegendName} numberOfLines={1}>
               {sg.name}
+            </Text>
+            <Text style={s.donutLegendTime} allowFontScaling={false}>
+              {fmtMinutes(sg.minutes)}
             </Text>
             <Text style={s.donutLegendPct} allowFontScaling={false}>
               {Math.round(sg.frac * 100)}%
@@ -1541,6 +1545,7 @@ const s = StyleSheet.create({
   donutLegendRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   donutLegendDot: { width: 10, height: 10, borderRadius: 3 },
   donutLegendName: { ...T.text.caption, color: T.ink, flex: 1 },
+  donutLegendTime: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
   donutLegendPct: { ...T.text.caption, fontWeight: '700', color: T.inkSub },
   // 선그래프 — 확장 캔버스를 음수 마진으로 되돌려 레이아웃(격자 정렬)은 그대로 유지
   lineSvg: {
