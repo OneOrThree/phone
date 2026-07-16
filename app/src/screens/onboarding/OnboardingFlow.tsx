@@ -12,7 +12,9 @@ import SubjectEditStep from '@/screens/onboarding/steps/SubjectEditStep';
 import SubjectCompareStep from '@/screens/onboarding/steps/SubjectCompareStep';
 import ScreenTimePermissionStep from '@/screens/onboarding/steps/ScreenTimePermissionStep';
 import ScreenTimeDeniedStep from '@/screens/onboarding/steps/ScreenTimeDeniedStep';
-import YesterdayScreenTimeStep from '@/screens/onboarding/steps/YesterdayScreenTimeStep';
+import YesterdayScreenTimeStep, {
+  resetAnalyzeIntro,
+} from '@/screens/onboarding/steps/YesterdayScreenTimeStep';
 import GoalSettingStep from '@/screens/onboarding/steps/GoalSettingStep';
 import NicknameStep from '@/screens/onboarding/steps/NicknameStep';
 import { hapticLight, hapticMedium } from '@/utils/haptics';
@@ -57,8 +59,10 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [submitting, setSubmitting] = useState(false);
 
   // 플로우 진입 계측 — 스플래시 포함 마운트 시 1회(플로우는 이미 시작됨).
+  // 분석 연출 1회 플래그도 함께 리셋 — 재진입한 온보딩에서 연출이 다시 보이도록.
   useEffect(() => {
     logOnboardingStarted();
+    resetAnalyzeIntro();
   }, []);
 
   const update = (patch: Partial<V2OnboardingData>) => setData((d) => ({ ...d, ...patch }));

@@ -22,8 +22,14 @@ const HOLD_MS = 900; // 90%에서 멈춤(가드 타임)
 const FINISH_MS = 300; // 90% → 100%
 const ANALYZE_MS = FILL_MS + HOLD_MS + FINISH_MS;
 
-// 분석 연출은 앱 실행당 1회만 — 뒤로 갔다 다시 진입해도 반복하지 않는다(앱 재시작 시 초기화).
+// 분석 연출은 온보딩 플로우 진입당 1회만 — 뒤로 갔다 다시 진입해도 반복하지 않는다.
+// 모듈 전역이라 JS 번들이 사는 동안 유지되므로, 온보딩 재진입(디버그 초기화 등) 시
+// 연출이 다시 보이도록 OnboardingFlow 마운트에서 resetAnalyzeIntro()로 되돌린다.
 let analyzedThisSession = false;
+
+export function resetAnalyzeIntro() {
+  analyzedThisSession = false;
+}
 
 // W11 · 어제 스크린타임 — 어제 하루 실제 사용시간(총량+카테고리별+앱별)을 네이티브 리포트 뷰로 표시.
 // ScreenTimeReportView 'Total Activity'에 dayOffset={-1}을 줘 어제 하루치를 집계(홈 '핸드폰 사용'과 동일 뷰).
