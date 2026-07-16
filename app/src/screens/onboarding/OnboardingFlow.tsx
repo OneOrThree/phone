@@ -15,6 +15,7 @@ import ScreenTimeDeniedStep from '@/screens/onboarding/steps/ScreenTimeDeniedSte
 import YesterdayScreenTimeStep from '@/screens/onboarding/steps/YesterdayScreenTimeStep';
 import GoalSettingStep from '@/screens/onboarding/steps/GoalSettingStep';
 import NicknameStep from '@/screens/onboarding/steps/NicknameStep';
+import { hapticSelect } from '@/utils/haptics';
 import { INITIAL_ONBOARDING_DATA, type StepProps, type V2OnboardingData } from './types';
 import type { OnboardingCompleteStatus, OnboardingResult } from './types';
 import { logOnboardingStarted, logOnboardingCompleted } from '@/services/analyticsEvents';
@@ -60,7 +61,11 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   }, []);
 
   const update = (patch: Partial<V2OnboardingData>) => setData((d) => ({ ...d, ...patch }));
-  const next = () => setIndex((i) => i + 1);
+  // 스텝 전환마다 약한 진동(GROMO-786) — next/back 공통.
+  const next = () => {
+    hapticSelect();
+    setIndex((i) => i + 1);
+  };
 
   const sequence = useMemo<FlowNode[]>(() => {
     // 추천 과목은 FocusCategoryStep이 서버(GET /tag/defaults)에서 받아 data.subjects에 채운다.
@@ -88,7 +93,10 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const backFloorRef = useRef(backFloor);
   backFloorRef.current = backFloor;
 
-  const back = () => setIndex((i) => Math.max(backFloorRef.current, i - 1));
+  const back = () => {
+    hapticSelect();
+    setIndex((i) => Math.max(backFloorRef.current, i - 1));
+  };
 
   // 뒤로가기 = 화면 왼쪽 가장자리에서 오른쪽으로 스와이프(다음은 버튼). 하한 이하는 무시.
   // 가장자리(24px)에서 시작한 수평 제스처만 인식 — 슬라이더·세로 스크롤과 충돌 방지.
