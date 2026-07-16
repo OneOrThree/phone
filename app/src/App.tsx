@@ -27,6 +27,7 @@ import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
 import { T } from '@/constants/theme';
 import { RootNavigator } from '@/navigation/RootNavigator';
+import { RageTapDetector } from '@/components/RageTapDetector';
 import { OrphanFocusSettler } from '@/screens/focus/OrphanFocusSettler';
 import { abortTagEdits } from '@/screens/focus/tagSync';
 import { PendingFocusUploader } from '@/screens/focus/PendingFocusUploader';
@@ -390,7 +391,12 @@ export default function App() {
 
   // SafeAreaProvider 루트 — v2 LoginScreen 등 NavigationContainer 밖 화면도 SafeAreaView 사용 가능.
   // initialMetrics: 첫 프레임부터 안전영역 인셋을 확정해 콜드스타트 레이아웃 점프(하단 CTA 튐) 방지.
-  return <SafeAreaProvider initialMetrics={initialWindowMetrics}>{content}</SafeAreaProvider>;
+  // RageTapDetector — 전역 연타(좌절 신호) 계측. UI 없이 터치 버블링만 관찰(GROMO-782).
+  return (
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <RageTapDetector>{content}</RageTapDetector>
+    </SafeAreaProvider>
+  );
 }
 
 const s = StyleSheet.create({

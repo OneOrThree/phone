@@ -145,7 +145,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   // 중간 로그인 화면 — 자체 전체화면 레이아웃(진행바 없음).
   if (node.kind === 'login') {
-    return <LoginScreen onLogin={onMidFlowLogin} />;
+    return <LoginScreen onLogin={onMidFlowLogin} isOnboarding />;
   }
 
   // 마지막 닉네임 — 입력 후 곧바로 가입 확정. 실패 시 이 화면에 serverError/submitting을 유지한다.

@@ -71,7 +71,8 @@ export function logOnboardingGoalSubmitted(p: {
   track('onboarding_goal_submitted', { step_index: 13, ...p });
 }
 
-// W15 가입 수단 선택 / 실패 (배선은 후속 — §6)
+// W15 가입 수단 선택 / 실패 — LoginScreen(isOnboarding)에서 발행. 취소는 reason='cancelled',
+// 그 외 reason은 에러 코드 버킷만(원문 메시지는 PII·고카디널리티 위험으로 금지).
 export function logOnboardingSignupSelected(p: { method: AuthMethod }): void {
   track('onboarding_signup_selected', { step_index: 15, ...p });
 }
@@ -135,6 +136,18 @@ export function logFocusFriendsViewed(): void {
   track('focus_friends_viewed');
 }
 
+// 비교 축 공용 파라미터 값 — 집중 결과·통계 비교 카드에서 함께 쓴다(GROMO-782).
+export type CompareAxisParam = 'friends' | 'all' | 'category';
+
+// 집중 결과 화면 비교 카드 — 기간 탭(오늘/이번 주/이번 달)·축(친구/전체/같은 카테고리) 전환.
+// 같은 칩 재탭은 호출부에서 걸러 미계측.
+export function logFocusResultComparePeriodChanged(p: { period: StatsPeriodKey }): void {
+  track('focus_result_compare_period_changed', p);
+}
+export function logFocusResultCompareAxisChanged(p: { axis: CompareAxisParam }): void {
+  track('focus_result_compare_axis_changed', p);
+}
+
 // ── 홈(Home) 인터랙션 [C] ──
 // 홈 화면 진입 + 오늘 요약 조회. focus_session_completed([S])는 여기서 발행하지 않는다.
 // 집중 세션 리스트·PIN 친구 UI는 v2 홈(GROMO-552)에 아직 없어, 관련 이벤트는 해당 UI 도입 시 추가한다(GROMO-537).
@@ -184,6 +197,45 @@ export function logLeagueProfileOpened(p: { is_me: boolean }): void {
   track('league_profile_opened', p);
 }
 
+// 티어 단계 안내 화면 진입(포커스마다 1회, GROMO-782).
+export function logTierGuideViewed(): void {
+  track('tier_guide_viewed');
+}
+
+// ── 친구(Friend) [C] (GROMO-782) ──
+// 신청·수락·거절·끊기·핀 토글 — API 성공 시에만 발행해 실제 성립한 액션만 센다
+// (409 중복·롤백된 낙관 갱신은 미집계). 대상 식별자는 PII 회피로 미포함.
+export type FriendRequestSource = 'friend_add' | 'friend_profile';
+
+// 친구 신청 발신. request_source: 친구 추가 검색 목록 / 프로필 상세 중 어디서 보냈는지.
+// ('source'는 공통 파라미터(클라/서버 출처 'client')와 이름이 겹쳐 덮어쓰므로 사용 금지)
+export function logFriendRequestSent(p: { request_source: FriendRequestSource }): void {
+  track('friend_request_sent', p);
+}
+
+// 받은 친구 요청 수락/거절(친구 추가 화면의 받은 요청 목록).
+export function logFriendRequestAccepted(): void {
+  track('friend_request_accepted');
+}
+export function logFriendRequestRejected(): void {
+  track('friend_request_rejected');
+}
+
+// 친구 끊기(Alert 확인 후 성공 시).
+export function logFriendUnfriended(): void {
+  track('friend_unfriended');
+}
+
+// 친구 프로필 핀 고정/해제. pinned: 토글 후 상태(true=고정).
+export function logFriendPinToggled(p: { pinned: boolean }): void {
+  track('friend_pin_toggled', p);
+}
+
+// 친구 닉네임 검색 실행(디바운스 확정분만 — 타이핑 중간 취소분 제외). 검색어 원문은 PII 회피로 미전송.
+export function logFriendSearchPerformed(p: { query_length: number; result_count: number }): void {
+  track('friend_search_performed', p);
+}
+
 // ── 통계(Stats) [C] (GROMO-558) ──
 // 통계 화면 진입·기간 탭 전환·과목 필터 선택. 서버 검증 이벤트([S])는 백엔드 MP 소유 — 클라 미발행.
 export type StatsPeriodKey = 'day' | 'week' | 'month';
@@ -199,6 +251,72 @@ export function logStatsPeriodChanged(p: { period: StatsPeriodKey }): void {
 }
 
 // (stats_tag_filter_selected 이벤트는 과목 칩 필터 제거로 폐기 — GROMO-761)
+
+// 타임테이블/주간 타임라인 카드 공유(캡처→공유 시트, GROMO-782).
+// completed: 실제 공유 완료 여부 — iOS Share 결과로 시트만 열고 닫은 경우(false)를 구분.
+export type StatsShareCard = 'timetable' | 'weekly_timeline';
+export function logStatsShared(p: { card: StatsShareCard; completed: boolean }): void {
+  track('stats_shared', p);
+}
+
+// 비교 카드 축(친구/전체/같은 카테고리) 전환. period: 어느 기간 탭의 비교 카드인지.
+export function logStatsCompareAxisChanged(p: {
+  axis: CompareAxisParam;
+  period: StatsPeriodKey;
+}): void {
+  track('stats_compare_axis_changed', p);
+}
+
+// 카드 순서 편집 확정(드래그 놓기 — 순서가 실제 바뀐 경우만). top_card: 편집 후 맨 위 카드 key.
+// 전체 순서 문자열은 GA4 값 100자 한도·고카디널리티라 최상단 선호만 기록한다.
+export function logStatsCardReordered(p: { period: StatsPeriodKey; top_card: string }): void {
+  track('stats_card_reordered', p);
+}
+
+// ── 계정(Account) [C] (GROMO-782) ──
+// 로그아웃/탈퇴 — 이탈 분석용(계정 설정 화면).
+export function logLogout(): void {
+  track('logout');
+}
+
+// 회원 탈퇴 확정 — 탈퇴 API 성공 시에만 발행(모달 취소·실패는 미집계).
+export function logWithdrawalConfirmed(): void {
+  track('withdrawal_confirmed');
+}
+
+// 게스트 → 소셜 로그인 전환 시도(계정 설정 화면). 성공 여부는 auth.ts의 login/sign_up이 담당.
+export function logGuestSocialLoginAttempted(p: { method: AuthMethod }): void {
+  track('guest_social_login_attempted', p);
+}
+
+// ── 설정(Settings) [C] (GROMO-782) ──
+// 알림 설정 변경 — 바뀐 필드 단위로 발행(특히 알림 끄기 = 이탈 위험 신호).
+// setting_value: on/off 또는 'HH:mm'. ('value'는 GA4 예약 파라미터(숫자 이벤트 값)라 사용 금지)
+export type NotificationSettingKey =
+  | 'notification'
+  | 'sound'
+  | 'night_mode'
+  | 'night_start_time'
+  | 'night_end_time';
+export function logNotificationSettingsChanged(p: {
+  setting: NotificationSettingKey;
+  setting_value: string | boolean;
+}): void {
+  track('notification_settings_changed', p);
+}
+
+// 상세 통계 공개 범위 전환(전체/친구). 낙관적 반영 시점에 발행 — 저장 실패에도 낙관 값을 유지하는
+// 화면이라 UI 기준이 진실이다.
+export function logStatVisibilityChanged(p: { visibility: 'public' | 'friends' }): void {
+  track('stat_visibility_changed', p);
+}
+
+// ── 가이드(코치마크) [C] (GROMO-782) ──
+// 첫 진입 사용법 안내(GROMO-652)를 마지막 스텝까지 보고 닫은 경우.
+// guide: 스토리지 키 접미(home/league/menu/focusSession/stats/tier).
+export function logTabGuideCompleted(p: { guide: string }): void {
+  track('tab_guide_completed', p);
+}
 
 // ── 리텐션/알림 [C] ── (event-logging-design.md §5.B)
 // rank_change: 순위 역전 푸시(백엔드 bfeat/GROMO-579) — payload data.type='rank_change' 필요.
@@ -277,7 +395,7 @@ export function logFlowAbandoned(p: { flow: string; step: string }): void {
 export function logRepeatedFailure(p: { action: string; attempt_count: number }): void {
   track('repeated_failure', p);
 }
-// (선택) 짧은 시간 연타 감지.
+// 빡침 연타 감지 — RageTapDetector(앱 루트)가 발행. 같은 지점(40pt) 1초 간격 연타 4회째, 5초 쿨다운.
 export function logRageTapDetected(p: { screen_name: string }): void {
   track('rage_tap_detected', p);
 }

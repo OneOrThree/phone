@@ -27,6 +27,11 @@ import {
   type AuthMethod,
 } from '@/services/auth';
 import { useUser } from '@/store/UserContext';
+import {
+  logGuestSocialLoginAttempted,
+  logLogout,
+  logWithdrawalConfirmed,
+} from '@/services/analyticsEvents';
 import type { Provider, SocialLinkResponse } from '@/types/dto/user';
 import type { LoginResult } from '@/types/api';
 import { T, withAlpha } from '@/constants/theme';
@@ -116,6 +121,7 @@ export default function AccountScreen() {
   // 게스트 → 소셜 로그인. 세션은 auth.ts가 저장하고, triggerRelogin으로 새 계정으로 재부팅한다.
   const runLogin = async (method: Method, fn: () => Promise<LoginResult>) => {
     if (busy) return;
+    logGuestSocialLoginAttempted({ method }); // 성공 여부는 auth.ts(login/sign_up)가 기록
     setBusy(method);
     try {
       const result = await fn();
@@ -166,7 +172,14 @@ export default function AccountScreen() {
   const confirmLogout = () => {
     Alert.alert('로그아웃', '로그아웃할까요?', [
       { text: '취소', style: 'cancel' },
-      { text: '로그아웃', style: 'destructive', onPress: () => triggerLogout() },
+      {
+        text: '로그아웃',
+        style: 'destructive',
+        onPress: () => {
+          logLogout(); // 세션 해제(setUserId null) 전에 발행 — 유저 귀속 유지
+          triggerLogout();
+        },
+      },
     ]);
   };
 
@@ -176,6 +189,7 @@ export default function AccountScreen() {
     setWithdrawing(true);
     try {
       await withdraw();
+      logWithdrawalConfirmed(); // 탈퇴 API 성공 시에만 — 로그아웃(setUserId null) 전에 발행
       await clearLastAuthProvider(); // GROMO-602: 탈퇴 시에만 마지막 provider 초기화(로그아웃은 유지)
       setWithdrawOpen(false);
       triggerLogout();

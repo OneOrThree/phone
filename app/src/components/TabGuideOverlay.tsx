@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T, withAlpha } from '@/constants/theme';
+import { logTabGuideCompleted } from '@/services/analyticsEvents';
 
 // GROMO-652 — 탭 첫 진입 사용법 안내(코치마크). 캐릭터가 말풍선으로 화면 기능을 설명한다.
 // 스텝에 anchor(ref)가 있으면 해당 요소만 밝게 뚫린 스포트라이트(딤 4분할)와 강조 링을 그린다.
@@ -107,6 +108,8 @@ export function TabGuideOverlay({
     }
     setVisible(false);
     AsyncStorage.setItem(storageKey, '1').catch(() => {});
+    // 마지막 스텝까지 보고 닫은 경우만 — guide는 키 접미(home/league/stats 등, GROMO-782)
+    logTabGuideCompleted({ guide: storageKey.replace('gromo:guide:', '') });
     onFinish?.();
   }
 

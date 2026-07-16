@@ -1,7 +1,7 @@
-import { useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,6 +14,7 @@ import { useLeagueRanking } from './useLeagueRanking';
 import { TierBadge } from './components/TierBadge';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { STORAGE_KEYS } from '@/types/storage';
+import { logTierGuideViewed } from '@/services/analyticsEvents';
 
 // 티어 단계 안내 (root stack) — 시안 "티어 · 5단계 뱃지".
 // 현재 티어 히어로 카드(진행바) + 5단계 카드 리스트(N단계) + 정산 안내.
@@ -23,6 +24,13 @@ import { STORAGE_KEYS } from '@/types/storage';
 
 export default function TierGuideScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+
+  // 화면 진입 계측 (GROMO-782) — 포커스마다 1회(리그 화면과 동일 패턴).
+  useFocusEffect(
+    useCallback(() => {
+      logTierGuideViewed();
+    }, []),
+  );
 
   const { tier } = useLeagueMeta();
   const level = tier.tierLevel ?? 1;

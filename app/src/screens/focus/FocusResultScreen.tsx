@@ -26,6 +26,10 @@ import { WeekStreakModal } from './components/WeekStreakModal';
 import { useFocus } from '@/store/FocusContext';
 import { useUser } from '@/store/UserContext';
 import { subscribeSessionSaveVerdict, getSessionSaveVerdict } from './sessionSaveVerdict';
+import {
+  logFocusResultCompareAxisChanged,
+  logFocusResultComparePeriodChanged,
+} from '@/services/analyticsEvents';
 
 // 집중 결과 화면 — Claude Design Gromo.dc.html 14번(첫 집중 완료) 레이아웃 기준.
 // GROMO-598: 화면·진입·이번 집중(00:00:00)·과목별 누적(로컬 SubjectContext — 방금 세션 즉시 반영)·CTA. 코인 미표기.
@@ -542,6 +546,13 @@ const COMPARE_PERIODS: { key: ComparePeriod; label: string }[] = [
   { key: 'MONTH', label: '이번 달' },
 ];
 
+// 계측 파라미터 값 — ComparePeriod를 이벤트 공용 소문자 값으로 변환(GROMO-782)
+const PERIOD_PARAM: Record<ComparePeriod, 'day' | 'week' | 'month'> = {
+  DAY: 'day',
+  WEEK: 'week',
+  MONTH: 'month',
+};
+
 function CompareCard({
   mine,
   period,
@@ -614,7 +625,12 @@ function CompareCard({
               <TouchableOpacity
                 key={key}
                 style={[s.axisChip, on ? s.axisChipOn : null]}
-                onPress={() => onPeriodChange(key)}
+                onPress={() => {
+                  // 같은 탭 재탭은 미계측
+                  if (key !== period)
+                    logFocusResultComparePeriodChanged({ period: PERIOD_PARAM[key] });
+                  onPeriodChange(key);
+                }}
                 activeOpacity={0.8}
               >
                 <Text style={[s.axisChipText, on ? s.axisChipTextOn : null]}>{label}</Text>
@@ -631,7 +647,11 @@ function CompareCard({
             <TouchableOpacity
               key={a}
               style={[s.axisChip, on ? s.axisChipOn : null]}
-              onPress={() => setAxis(a)}
+              onPress={() => {
+                // 같은 칩 재탭은 미계측
+                if (a !== axis) logFocusResultCompareAxisChanged({ axis: a });
+                setAxis(a);
+              }}
               activeOpacity={0.8}
             >
               <Text style={[s.axisChipText, on ? s.axisChipTextOn : null]}>{meta[a].chip}</Text>

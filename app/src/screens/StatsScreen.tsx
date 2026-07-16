@@ -18,7 +18,14 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import type { StatsPeriod, HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
-import { logStatsViewed, logStatsPeriodChanged } from '@/services/analyticsEvents';
+import {
+  logStatsViewed,
+  logStatsPeriodChanged,
+  logStatsShared,
+  logStatsCompareAxisChanged,
+  logStatsCardReordered,
+  type CompareAxisParam,
+} from '@/services/analyticsEvents';
 import {
   fetchGlobalAverage,
   fetchCategoryAverage,
@@ -97,7 +104,15 @@ export default function StatsScreen() {
       .finally(() => setOrderLoaded(true));
   }, []);
 
+  // 현재 표시 중인 카드 순서 — onReorderCards는 CardOrderEditor의 PanResponder 캐시에 잡혀
+  // 스테일 클로저가 될 수 있어, 비교 기준은 ref로 최신값을 읽는다(PR 276 리뷰 반영).
+  const displayedKeysRef = useRef<string[]>([]);
+
   const onReorderCards = (keys: string[]) => {
+    // 표시 중인 순서와 달라진 드롭만 계측 — 제자리 드롭에도 onReorder는 불린다(PR 276 리뷰 반영)
+    if (displayedKeysRef.current.join() !== keys.join()) {
+      logStatsCardReordered({ period: periodKey(period), top_card: keys[0] });
+    }
     const next = { ...cardOrder, [period]: keys };
     setCardOrder(next);
     AsyncStorage.setItem(STORAGE_KEYS.statsCardOrder, JSON.stringify(next)).catch(() => {});
@@ -469,6 +484,7 @@ export default function StatsScreen() {
     cards.map((c) => c.key),
     cardOrder[period],
   );
+  displayedKeysRef.current = orderedKeys;
   const byKey = new Map(cards.map((c) => [c.key, c]));
   const orderedCards = orderedKeys.flatMap((k) => byKey.get(k) ?? []);
 
@@ -603,7 +619,14 @@ function CompareWeek({ myMinutes }: { myMinutes: number }) {
 
   return (
     <View style={s.compare}>
-      <CompareChips active={axis} onSelect={setAxis} />
+      <CompareChips
+        active={axis}
+        onSelect={(k) => {
+          // 같은 칩 재탭은 미계측 — 이 카드는 주 탭 전용이라 period 고정
+          if (k !== axis) logStatsCompareAxisChanged({ axis: axisParam(k), period: 'week' });
+          setAxis(k);
+        }}
+      />
       {!loaded ? (
         <View style={s.compareLoading}>
           <ActivityIndicator color={T.accent} size="small" />
@@ -629,6 +652,10 @@ const COMPARE_AXES: { key: CompareAxisKey; chip: string; label: string }[] = [
   { key: 'ALL', chip: '전체', label: '전체 평균' },
   { key: 'CATEGORY', chip: '같은 카테고리', label: '같은 카테고리 평균' },
 ];
+
+// 계측 파라미터 값 — CompareAxisKey를 이벤트 공용 소문자 값으로 변환(GROMO-782)
+const axisParam = (k: CompareAxisKey): CompareAxisParam =>
+  k === 'FRIENDS' ? 'friends' : k === 'ALL' ? 'all' : 'category';
 
 function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMinutes: number }) {
   const [axis, setAxis] = useState<CompareAxisKey>('ALL');
@@ -678,7 +705,15 @@ function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMinutes: 
 
   return (
     <View style={s.compare}>
-      <CompareChips active={axis} onSelect={setAxis} />
+      <CompareChips
+        active={axis}
+        onSelect={(k) => {
+          // 같은 칩 재탭은 미계측
+          if (k !== axis)
+            logStatsCompareAxisChanged({ axis: axisParam(k), period: periodKey(period) });
+          setAxis(k);
+        }}
+      />
       {cur === undefined ? (
         <View style={s.compareLoading}>
           <ActivityIndicator color={T.accent} size="small" />
@@ -958,7 +993,9 @@ function FocusTimetableCard() {
         fileName: `${todayStr().slice(2).replace(/-/g, '')}_타임테이블`,
       });
       // Android Share는 url을 무시하고 message 기반이라 플랫폼별 페이로드(현재 iOS 전용 앱이지만 방어, 리뷰 반영)
-      await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
+      const result = await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
+      // 시트만 열고 닫으면 completed=false — 탭 대비 실공유 전환을 구분(GROMO-782)
+      logStatsShared({ card: 'timetable', completed: result.action === Share.sharedAction });
     } catch {
       // 캡처 실패·공유 취소 — 무시
     } finally {
@@ -1103,7 +1140,9 @@ function WeeklyTimetableCard() {
         fileName: `${todayStr().slice(2).replace(/-/g, '')}_주간타임라인`,
       });
       // Android Share는 url을 무시하고 message 기반이라 플랫폼별 페이로드(현재 iOS 전용 앱이지만 방어)
-      await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
+      const result = await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
+      // 시트만 열고 닫으면 completed=false — 탭 대비 실공유 전환을 구분(GROMO-782)
+      logStatsShared({ card: 'weekly_timeline', completed: result.action === Share.sharedAction });
     } catch {
       // 캡처 실패·공유 취소 — 무시
     } finally {
