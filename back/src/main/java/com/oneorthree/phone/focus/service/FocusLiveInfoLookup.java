@@ -7,6 +7,8 @@ import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.HashSet;
@@ -26,6 +28,10 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class FocusLiveInfoLookup {
 
+    // 라이브 인정 최대 나이 — FocusService.ORPHAN_TIMEOUT(12h)과 동일 값. 이보다 오래된 미종료 세션은
+    // 스윕 전 버려진(orphan) 세션으로 보고 '집중 중'에서 제외한다(GROMO-841 findUserIdsWithLiveSession 과 동일 기준).
+    private static final Duration LIVE_SESSION_MAX_AGE = Duration.ofHours(12);
+
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final FocusSessionRepository focusSessionRepository;
 
@@ -44,8 +50,11 @@ public class FocusLiveInfoLookup {
         // 당일 집중분: 초/60 내림(GROMO-642 계약과 동일)
         Map<UUID, Integer> focusMinutes = dailyFocusStatRepository.findByUserIdInAndDate(userIds, date).stream()
                 .collect(Collectors.toMap(s -> s.getUser().getId(), s -> s.getTotalFocusSeconds() / 60));
-        // 진행 중(미종료) 세션 — 유저당 최대 1개(앱 단일 라이브 세션 보장). 방어적으로 중복 시 먼저 조회된 것 유지.
-        Map<UUID, FocusSession> liveByUserId = focusSessionRepository.findByUserIdInAndEndedAtIsNull(userIds).stream()
+        // 지금 집중 중(라이브) 세션 — 쿼리가 startedAt DESC 정렬이므로 중복 시작 세션이 있어도 toMap 이 먼저(=최신) 것을 유지.
+        // liveSince(now-12h) 하한으로 스윕 전 orphan(버려진 미종료) 세션은 제외한다.
+        Instant liveSince = Instant.now().minus(LIVE_SESSION_MAX_AGE);
+        Map<UUID, FocusSession> liveByUserId = focusSessionRepository.findLiveSessionsByUserIdIn(userIds, liveSince)
+                .stream()
                 .collect(Collectors.toMap(s -> s.getUser().getId(), Function.identity(), (existing, dup) -> existing));
 
         // 집계·라이브 어느 한쪽이라도 있는 유저만 맵에 담는다(둘 다 없으면 호출측 기본값 처리).

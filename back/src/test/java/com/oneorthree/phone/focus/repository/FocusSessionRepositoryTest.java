@@ -54,6 +54,10 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
     private static final Instant FROM = Instant.parse("2026-07-03T00:00:00Z");
     private static final Instant TO   = Instant.parse("2026-07-04T00:00:00Z");
 
+    // findLiveSessionsByUserIdIn 라이브 하한 — 이보다 앞서 시작한 미종료 세션은 orphan 으로 보고 제외.
+    // 07-03 윈도우 세션은 모두 포함되도록 이틀 앞으로 잡는다.
+    private static final Instant LIVE_SINCE = Instant.parse("2026-07-01T00:00:00Z");
+
     private User user;
 
     @BeforeEach
@@ -267,11 +271,11 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         assertThat(reloaded.getEndedAt()).isEqualTo(endedAt);
     }
 
-    // ── findByUserIdInAndEndedAtIsNull (GROMO-822 FocusLiveInfoLookup 공용) ──
+    // ── findLiveSessionsByUserIdIn (GROMO-822 FocusLiveInfoLookup 공용) ──
 
     @Test
-    @DisplayName("findByUserIdInAndEndedAtIsNull — 미종료 세션만(userId 집합) + 태그명 fetch join 매핑. 종료 세션·집합 밖 유저 제외")
-    void findByUserIdInAndEndedAtIsNull_returnsLiveSessionsWithTag() {
+    @DisplayName("findLiveSessionsByUserIdIn — 미종료 세션만(userId 집합) + 태그명 fetch join 매핑. 종료 세션·집합 밖 유저 제외")
+    void findLiveSessionsByUserIdIn_returnsLiveSessionsWithTag() {
         User other = userRepository.save(User.builder().nickname("other").build());
         User outOfSet = userRepository.save(User.builder().nickname("outOfSet").build());
 
@@ -300,8 +304,8 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         entityManager.clear();   // 1차 캐시 비우고 fetch join 로딩·매핑 검증
 
         // other 는 집합에 있으나 라이브 세션 없음 → 결과에 미포함되어야 한다
-        List<FocusSession> result = focusSessionRepository.findByUserIdInAndEndedAtIsNull(
-                List.of(user.getId(), other.getId()));
+        List<FocusSession> result = focusSessionRepository.findLiveSessionsByUserIdIn(
+                List.of(user.getId(), other.getId()), LIVE_SINCE);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getId()).isEqualTo(live.getId());
@@ -309,8 +313,8 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("findByUserIdInAndEndedAtIsNull — 태그 미지정 진행중 세션은 focusTag=null 로 반환")
-    void findByUserIdInAndEndedAtIsNull_noTagSession_focusTagNull() {
+    @DisplayName("findLiveSessionsByUserIdIn — 태그 미지정 진행중 세션은 focusTag=null 로 반환")
+    void findLiveSessionsByUserIdIn_noTagSession_focusTagNull() {
         FocusSession live = focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .startedAt(Instant.parse("2026-07-03T04:00:00Z"))
@@ -318,10 +322,56 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         focusSessionRepository.flush();
         entityManager.clear();
 
-        List<FocusSession> result = focusSessionRepository.findByUserIdInAndEndedAtIsNull(List.of(user.getId()));
+        List<FocusSession> result = focusSessionRepository.findLiveSessionsByUserIdIn(
+                List.of(user.getId()), LIVE_SINCE);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getId()).isEqualTo(live.getId());
         assertThat(result.get(0).getFocusTag()).isNull();
+    }
+
+    @Test
+    @DisplayName("findLiveSessionsByUserIdIn — startedAt<liveSince 인 미청소 orphan(미종료)은 제외 (GROMO-822 codex 리뷰)")
+    void findLiveSessionsByUserIdIn_excludesStaleOrphanBeforeLiveSince() {
+        // 최근 시작한 라이브 세션(liveSince 이후) → 포함
+        FocusSession recent = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .build());
+        // liveSince 이전에 시작한 미종료 세션(스윕 전 orphan) → endedAt IS NULL 이어도 제외
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-06-30T00:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        List<FocusSession> result = focusSessionRepository.findLiveSessionsByUserIdIn(
+                List.of(user.getId()), LIVE_SINCE);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(recent.getId());
+    }
+
+    @Test
+    @DisplayName("findLiveSessionsByUserIdIn — 한 유저 다중 라이브 세션은 startedAt DESC(최신 우선)로 정렬 (GROMO-822 codex 리뷰)")
+    void findLiveSessionsByUserIdIn_ordersByStartedAtDesc() {
+        FocusSession earlier = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .build());
+        FocusSession later = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T05:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        List<FocusSession> result = focusSessionRepository.findLiveSessionsByUserIdIn(
+                List.of(user.getId()), LIVE_SINCE);
+
+        // 최신(05:00)이 먼저, 이전(01:00)이 나중 — 호출측이 first 로 최신을 결정적으로 고른다
+        assertThat(result).extracting(FocusSession::getId)
+                .containsExactly(later.getId(), earlier.getId());
     }
 }

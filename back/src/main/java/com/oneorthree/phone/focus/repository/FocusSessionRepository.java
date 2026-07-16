@@ -31,15 +31,22 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // 진행 중(미종료) 세션 — 핀 친구 isFocusing 판정용. endedAt IS NULL.
     List<FocusSession> findByUserInAndEndedAtIsNull(Collection<User> users);
 
-    // 진행 중(미종료) 세션 배치 조회 — userId 기반(FocusLiveInfoLookup 공용, GROMO-822).
+    // 지금 집중 중(라이브) 세션 배치 조회 — userId 기반(FocusLiveInfoLookup 공용, GROMO-822).
     // 친구 목록 isFocusing·시작시각·태그명 도출용. User 기반 findByUserInAndEndedAtIsNull(핀 친구용)의 userId·태그 페치 확장판.
     // focusTag(user_focus_tags)와 그 defaultTag 를 LEFT JOIN FETCH 로 함께 로딩(태그명 매핑 N+1 방지 —
     // findCompletedSessionsInPeriod 관례).
+    // startedAt >= liveSince: 미종료여도 orphan 타임아웃(12h)을 넘겼는데 아직 스윕(GROMO-804) 안 된 버려진 세션은
+    // '라이브'에서 제외한다(findUserIdsWithLiveSession, GROMO-841 과 동일 기준). 이 응답이 focusStartedAt 을 노출하므로
+    // 하한이 없으면 12시간 전 시작한 죽은 세션이 '집중 중'으로 보인다.
+    // ORDER BY startedAt DESC: 단일 라이브 세션을 강제하는 가드가 없어(중복 시작 가능) 한 유저에 미종료 세션이 여럿일 때,
+    // 호출측이 최신 세션을 결정적으로 고르게 한다(정렬 없으면 startedAt·태그명이 호출마다 뒤집힐 수 있음).
     @Query("SELECT s FROM FocusSession s "
             + "LEFT JOIN FETCH s.focusTag ft "
             + "LEFT JOIN FETCH ft.defaultTag "
-            + "WHERE s.user.id IN :userIds AND s.endedAt IS NULL")
-    List<FocusSession> findByUserIdInAndEndedAtIsNull(@Param("userIds") Collection<UUID> userIds);
+            + "WHERE s.user.id IN :userIds AND s.endedAt IS NULL AND s.startedAt >= :liveSince "
+            + "ORDER BY s.startedAt DESC")
+    List<FocusSession> findLiveSessionsByUserIdIn(@Param("userIds") Collection<UUID> userIds,
+                                                  @Param("liveSince") Instant liveSince);
 
     // orphan 정리용(GROMO-610) — 앱 강제종료 등으로 threshold 이전에 시작됐으나 아직 미종료인 세션.
     // 스케줄러가 조회해 시작+상한으로 종료시각을 채워 '영원히 집중중' 오염을 제거한다.

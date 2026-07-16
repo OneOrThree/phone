@@ -22,6 +22,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -51,7 +53,7 @@ class FocusLiveInfoLookupTest {
         Instant start = Instant.parse("2026-07-03T01:00:00Z");
         given(dailyFocusStatRepository.findByUserIdInAndDate(List.of(uid), DATE))
                 .willReturn(List.of(stat(u, 42 * 60)));
-        given(focusSessionRepository.findByUserIdInAndEndedAtIsNull(List.of(uid)))
+        given(focusSessionRepository.findLiveSessionsByUserIdIn(eq(List.of(uid)), any()))
                 .willReturn(List.of(session(u, start, tag("전공 공부"))));
 
         Map<UUID, FocusLiveInfo> result = focusLiveInfoLookup.liveInfoByUserId(List.of(uid), DATE);
@@ -71,7 +73,7 @@ class FocusLiveInfoLookupTest {
         User u = user(uid);
         given(dailyFocusStatRepository.findByUserIdInAndDate(List.of(uid), DATE))
                 .willReturn(List.of(stat(u, 30 * 60)));
-        given(focusSessionRepository.findByUserIdInAndEndedAtIsNull(List.of(uid)))
+        given(focusSessionRepository.findLiveSessionsByUserIdIn(eq(List.of(uid)), any()))
                 .willReturn(List.of());
 
         Map<UUID, FocusLiveInfo> result = focusLiveInfoLookup.liveInfoByUserId(List.of(uid), DATE);
@@ -91,7 +93,7 @@ class FocusLiveInfoLookupTest {
         Instant start = Instant.parse("2026-07-03T02:00:00Z");
         given(dailyFocusStatRepository.findByUserIdInAndDate(List.of(uid), DATE))
                 .willReturn(List.of());
-        given(focusSessionRepository.findByUserIdInAndEndedAtIsNull(List.of(uid)))
+        given(focusSessionRepository.findLiveSessionsByUserIdIn(eq(List.of(uid)), any()))
                 .willReturn(List.of(session(u, start, null)));
 
         Map<UUID, FocusLiveInfo> result = focusLiveInfoLookup.liveInfoByUserId(List.of(uid), DATE);
@@ -101,6 +103,26 @@ class FocusLiveInfoLookupTest {
         assertThat(info.focusStartedAt()).isEqualTo(start);
         assertThat(info.focusTagName()).isNull();
         assertThat(info.focusTimeMinutes()).isZero();
+    }
+
+    @Test
+    @DisplayName("중복 라이브 세션 — startedAt DESC 정렬 전제로 첫(최신) 세션의 시작시각·태그명 채택(결정성)")
+    void liveInfo_multipleLiveSessions_picksLatest() {
+        UUID uid = UUID.randomUUID();
+        User u = user(uid);
+        Instant later = Instant.parse("2026-07-03T05:00:00Z");
+        Instant earlier = Instant.parse("2026-07-03T01:00:00Z");
+        given(dailyFocusStatRepository.findByUserIdInAndDate(List.of(uid), DATE))
+                .willReturn(List.of());
+        // 쿼리가 startedAt DESC 로 정렬해 최신이 먼저 온다 — 헬퍼는 첫 번째(최신)를 유지해야 한다.
+        given(focusSessionRepository.findLiveSessionsByUserIdIn(eq(List.of(uid)), any()))
+                .willReturn(List.of(session(u, later, tag("최신")), session(u, earlier, tag("이전"))));
+
+        Map<UUID, FocusLiveInfo> result = focusLiveInfoLookup.liveInfoByUserId(List.of(uid), DATE);
+
+        FocusLiveInfo info = result.get(uid);
+        assertThat(info.focusStartedAt()).isEqualTo(later);
+        assertThat(info.focusTagName()).isEqualTo("최신");
     }
 
     @Test
