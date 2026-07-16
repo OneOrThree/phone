@@ -2,6 +2,8 @@ package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.focus.dto.FocusLiveInfo;
+import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
@@ -31,6 +33,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -73,6 +76,9 @@ class LeagueServiceTest {
     @Mock
     private PinnedUserRepository pinnedUserRepository;
 
+    @Mock
+    private FocusLiveInfoLookup focusLiveInfoLookup;
+
     @Spy
     private LeagueWeek leagueWeek = new LeagueWeek();
 
@@ -91,9 +97,15 @@ class LeagueServiceTest {
     private static final Instant WEEK_START = Instant.parse("2026-06-21T15:00:00Z");
     // NOW 기준 직전 주(방금 마감된 주) 시작 = 2026-06-15 00:00 KST
     private static final Instant PREVIOUS_WEEK_START = Instant.parse("2026-06-14T15:00:00Z");
+    // 라이브 집계 기준일(클라 로컬 오늘)
+    private static final LocalDate DATE = LocalDate.of(2026, 6, 24);
 
     private LeagueRankingRow rankingRow(UUID userId, String nickname, int focusSeconds) {
         return new LeagueRankingRow(userId, nickname, 3, focusSeconds);
+    }
+
+    private FocusLiveInfo liveInfo(int minutes, boolean focusing, Instant startedAt, String tagName) {
+        return new FocusLiveInfo(minutes, focusing, startedAt, tagName);
     }
 
     @BeforeEach
@@ -202,42 +214,78 @@ class LeagueServiceTest {
                 .willReturn(List.of(top, me));
         given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of(U2));
 
-        List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, null);
+        List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, null, DATE);
 
         assertThat(ranking).hasSize(2);
         assertThat(ranking).extracting(LeagueMemberResponse::rank).containsExactly(1, 2);
         assertThat(ranking.get(0).isPinned()).isTrue();
-        assertThat(ranking.get(0).result()).isNull();
         verify(leagueRankingQueryRepository).findTop(any(), any(), eq(null), eq(100));
     }
 
     @Test
-    @DisplayName("occupation 지정 시 같은 직군 전역 상위 100명을 조회한다")
-    void getMyRankingWithCategoryReturnsFilteredRanking() {
-        LeagueRankingRow row = rankingRow(U2, "labor", 300);
-        given(leagueRankingQueryRepository.findTop(
-                any(), any(), eq(Occupation.LABOR_ATTORNEY), eq(100))).willReturn(List.of(row));
+    @DisplayName("category 미지정 랭킹 — ranked userId로 라이브 정보 1회 배치 조회해 4필드를 채운다(없는 유저는 기본값)")
+    void getMyRankingWithoutCategoryFillsLiveFocusInfo() {
+        LeagueRankingRow top = rankingRow(U2, "top", 300);
+        LeagueRankingRow me = rankingRow(USER_ID, "me", 200);
+        Instant start = Instant.parse("2026-06-24T01:00:00Z");
+        given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt()))
+                .willReturn(List.of(top, me));
         given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of());
+        // top(U2) 은 집중 중, me(USER_ID) 는 라이브 맵에 없음 → 기본값
+        given(focusLiveInfoLookup.liveInfoByUserId(List.of(U2, USER_ID), DATE))
+                .willReturn(Map.of(U2, liveInfo(42, true, start, "전공 공부")));
 
-        List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, Occupation.LABOR_ATTORNEY);
+        List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, null, DATE);
 
-        assertThat(ranking).singleElement().extracting(LeagueMemberResponse::nickname).isEqualTo("labor");
+        LeagueMemberResponse topResp = ranking.get(0);
+        assertThat(topResp.isFocusing()).isTrue();
+        assertThat(topResp.focusTimeMinutes()).isEqualTo(42);
+        assertThat(topResp.focusStartedAt()).isEqualTo(start);
+        assertThat(topResp.focusTagName()).isEqualTo("전공 공부");
+        LeagueMemberResponse meResp = ranking.get(1);
+        assertThat(meResp.isFocusing()).isFalse();
+        assertThat(meResp.focusTimeMinutes()).isZero();
+        assertThat(meResp.focusStartedAt()).isNull();
+        assertThat(meResp.focusTagName()).isNull();
     }
 
     @Test
-    @DisplayName("전역 결과가 비어 있으면 핀 조회 없이 빈 목록을 반환한다")
+    @DisplayName("occupation 지정 시 같은 직군 전역 상위 100명을 조회하고 라이브 4필드를 채운다")
+    void getMyRankingWithCategoryReturnsFilteredRanking() {
+        LeagueRankingRow row = rankingRow(U2, "labor", 300);
+        Instant start = Instant.parse("2026-06-24T02:00:00Z");
+        given(leagueRankingQueryRepository.findTop(
+                any(), any(), eq(Occupation.LABOR_ATTORNEY), eq(100))).willReturn(List.of(row));
+        given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of());
+        given(focusLiveInfoLookup.liveInfoByUserId(List.of(U2), DATE))
+                .willReturn(Map.of(U2, liveInfo(15, true, start, null)));
+
+        List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, Occupation.LABOR_ATTORNEY, DATE);
+
+        assertThat(ranking).singleElement().satisfies(resp -> {
+            assertThat(resp.nickname()).isEqualTo("labor");
+            assertThat(resp.isFocusing()).isTrue();
+            assertThat(resp.focusTimeMinutes()).isEqualTo(15);
+            assertThat(resp.focusStartedAt()).isEqualTo(start);
+            assertThat(resp.focusTagName()).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("전역 결과가 비어 있으면 핀·라이브 조회 없이 빈 목록을 반환한다")
     void getMyRankingEmptyDoesNotReadPins() {
         given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt()))
                 .willReturn(List.of());
 
-        assertThat(leagueService.getMyRanking(USER_ID, null)).isEmpty();
+        assertThat(leagueService.getMyRanking(USER_ID, null, DATE)).isEmpty();
         verify(pinnedUserRepository, never()).findPinnedUserIdsByUserId(any());
+        verify(focusLiveInfoLookup, never()).liveInfoByUserId(any(), any());
     }
 
     // ── getGlobalRanking ──────────────────────────────────────────────────
 
     @Test
-    @DisplayName("전역 랭킹 조회는 read model 순서대로 rank를 부여하고 호환 result는 null이다")
+    @DisplayName("전역 랭킹 조회는 read model 순서대로 rank를 부여하고 라이브 필드는 스코프 밖이라 기본값이다")
     void getGlobalRanking_returnsGlobalRanking() {
         LeagueRankingRow top = rankingRow(U2, "top", 500);
         LeagueRankingRow mid = rankingRow(USER_ID, "mid", 300);
@@ -251,7 +299,11 @@ class LeagueServiceTest {
         assertThat(ranking.get(0).nickname()).isEqualTo("top");
         assertThat(ranking.get(1).rank()).isEqualTo(2);
         assertThat(ranking.get(1).userId()).isEqualTo(USER_ID);
-        assertThat(ranking).allMatch(row -> row.result() == null && !row.isPinned());
+        // 전역 랭킹은 라이브 스코프 밖 — 핀·라이브 모두 기본값, 라이브 배치 조회도 하지 않는다
+        assertThat(ranking).allMatch(row -> !row.isPinned()
+                && !row.isFocusing() && row.focusTimeMinutes() == 0
+                && row.focusStartedAt() == null && row.focusTagName() == null);
+        verify(focusLiveInfoLookup, never()).liveInfoByUserId(any(), any());
     }
 
     @Test

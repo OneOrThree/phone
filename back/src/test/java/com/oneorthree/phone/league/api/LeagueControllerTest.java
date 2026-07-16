@@ -16,6 +16,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -67,33 +68,47 @@ class LeagueControllerTest {
     }
 
     @Test
-    @DisplayName("랭킹 조회(category 미지정) → 200, rank 순서 배열")
+    @DisplayName("랭킹 조회(category 미지정) → 200, rank 순서 배열 + 라이브 4필드")
     void getMyRankingReturns200() throws Exception {
-        given(leagueService.getMyRanking(any(), any()))
+        given(leagueService.getMyRanking(any(), any(), any()))
                 .willReturn(List.of(
-                        new LeagueMemberResponse(1, UUID.randomUUID(), "top", 3, 300, null, true),
-                        new LeagueMemberResponse(2, UUID.randomUUID(), "me", 2, 200, null, false)));
+                        new LeagueMemberResponse(1, UUID.randomUUID(), "top", 3, 300, true,
+                                true, 42, Instant.parse("2026-06-24T01:00:00Z"), "전공 공부"),
+                        new LeagueMemberResponse(2, UUID.randomUUID(), "me", 2, 200, false,
+                                false, 0, null, null)));
 
-        mockMvc.perform(get("/api/v1/league/me/ranking"))
+        mockMvc.perform(get("/api/v1/league/me/ranking").param("date", "2026-06-24"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].rank").value(1))
                 .andExpect(jsonPath("$[0].nickname").value("top"))
                 // 멤버별 tierLevel 노출 (GROMO-748)
                 .andExpect(jsonPath("$[0].tierLevel").value(3))
                 .andExpect(jsonPath("$[0].isPinned").value(true))
+                // 라이브 4필드 (GROMO-824) — record 컴포넌트명 그대로 isFocusing 키 노출
+                .andExpect(jsonPath("$[0].isFocusing").value(true))
+                .andExpect(jsonPath("$[0].focusTimeMinutes").value(42))
+                .andExpect(jsonPath("$[0].focusStartedAt").value("2026-06-24T01:00:00Z"))
+                .andExpect(jsonPath("$[0].focusTagName").value("전공 공부"))
                 .andExpect(jsonPath("$[1].rank").value(2))
                 .andExpect(jsonPath("$[1].isPinned").value(false))
+                .andExpect(jsonPath("$[1].isFocusing").value(false))
+                .andExpect(jsonPath("$[1].focusTimeMinutes").value(0))
+                .andExpect(jsonPath("$[1].focusStartedAt").value(nullValue()))
+                .andExpect(jsonPath("$[1].focusTagName").value(nullValue()))
                 .andDo(print());
     }
 
     @Test
-    @DisplayName("랭킹 조회(category=LABOR_ATTORNEY) → 200, 전역 같은 과목 랭킹")
+    @DisplayName("랭킹 조회(category=LABOR_ATTORNEY) → 200, 전역 같은 과목 랭킹, date 위임")
     void getMyRankingWithCategoryReturns200() throws Exception {
-        given(leagueService.getMyRanking(any(), eq(Occupation.LABOR_ATTORNEY)))
+        given(leagueService.getMyRanking(any(), eq(Occupation.LABOR_ATTORNEY), eq(LocalDate.of(2026, 6, 24))))
                 .willReturn(List.of(
-                        new LeagueMemberResponse(1, UUID.randomUUID(), "global-top", 5, 500, null, false)));
+                        new LeagueMemberResponse(1, UUID.randomUUID(), "global-top", 5, 500, false,
+                                false, 0, null, null)));
 
-        mockMvc.perform(get("/api/v1/league/me/ranking").param("category", "LABOR_ATTORNEY"))
+        mockMvc.perform(get("/api/v1/league/me/ranking")
+                        .param("category", "LABOR_ATTORNEY")
+                        .param("date", "2026-06-24"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].rank").value(1))
                 .andExpect(jsonPath("$[0].nickname").value("global-top"))
@@ -104,9 +119,19 @@ class LeagueControllerTest {
     @Test
     @DisplayName("랭킹 조회(category=잘못된값) → 400 INVALID_PARAMETER")
     void getMyRankingWithInvalidCategoryReturns400() throws Exception {
-        mockMvc.perform(get("/api/v1/league/me/ranking").param("category", "INVALID_OCCUPATION"))
+        mockMvc.perform(get("/api/v1/league/me/ranking")
+                        .param("category", "INVALID_OCCUPATION")
+                        .param("date", "2026-06-24"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("랭킹 조회 — date 누락 시 400 (required 계약)")
+    void getMyRankingMissingDateReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/league/me/ranking"))
+                .andExpect(status().isBadRequest())
                 .andDo(print());
     }
 
@@ -115,8 +140,10 @@ class LeagueControllerTest {
     void getGlobalRankingReturns200() throws Exception {
         given(leagueService.getGlobalRanking(eq("total"), eq(100)))
                 .willReturn(List.of(
-                        new LeagueMemberResponse(1, UUID.randomUUID(), "global-top", 5, 900, null, false),
-                        new LeagueMemberResponse(2, UUID.randomUUID(), "second", 4, 800, null, false)));
+                        new LeagueMemberResponse(1, UUID.randomUUID(), "global-top", 5, 900, false,
+                                false, 0, null, null),
+                        new LeagueMemberResponse(2, UUID.randomUUID(), "second", 4, 800, false,
+                                false, 0, null, null)));
 
         mockMvc.perform(get("/api/v1/league/ranking").param("scope", "total"))
                 .andExpect(status().isOk())
@@ -130,7 +157,8 @@ class LeagueControllerTest {
     @DisplayName("전역 랭킹 조회(scope 미지정) → 200, 기본 total 적용")
     void getGlobalRankingDefaultScopeReturns200() throws Exception {
         given(leagueService.getGlobalRanking(eq("total"), eq(100)))
-                .willReturn(List.of(new LeagueMemberResponse(1, UUID.randomUUID(), "top", 3, 900, null, false)));
+                .willReturn(List.of(new LeagueMemberResponse(1, UUID.randomUUID(), "top", 3, 900, false,
+                        false, 0, null, null)));
 
         mockMvc.perform(get("/api/v1/league/ranking"))
                 .andExpect(status().isOk())
