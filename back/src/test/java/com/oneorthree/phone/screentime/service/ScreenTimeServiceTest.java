@@ -17,11 +17,14 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -381,5 +384,38 @@ class ScreenTimeServiceTest {
         assertThatThrownBy(() -> screenTimeService.saveScreenTime(USER_ID, request))
                 .isInstanceOf(DataIntegrityViolationException.class);
         verify(self, times(2)).saveScreenTimeTx(USER_ID, request);
+    }
+
+    // ── 달성 알림·이벤트 커밋 이후 defer (GROMO-560 P2, codex 리뷰) ──────────
+
+    @Test
+    @DisplayName("트랜잭션 동기화 활성 시: 달성 이벤트·알림은 커밋 전 발사하지 않고 afterCommit 으로 defer → 정확히 1회")
+    void finalAchievementEmissionDeferredUntilAfterCommit() {
+        // 실제 트랜잭션(동기화 활성)을 흉내 — 활성 상태에서만 defer 가 동작한다.
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            User user = normalUser();
+            given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+            given(dailyScreenTimeStatRepository.findByUserAndDate(user, PAST_DATE))
+                    .willReturn(Optional.empty());
+            given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
+                    .willAnswer(i -> i.getArgument(0));
+
+            screenTimeService.saveScreenTimeTx(USER_ID, request(true, 80, PAST_AT, true));
+
+            // 커밋 전 — 롤백 시 중복을 막기 위해 아직 발사하지 않는다.
+            verify(notificationPort, never()).notify(any(UUID.class), anyBoolean());
+            verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), anyMap());
+
+            // 커밋 성공 시뮬레이션(afterCommit) → 정확히 1회 발사.
+            List<TransactionSynchronization> syncs = TransactionSynchronizationManager.getSynchronizations();
+            syncs.forEach(TransactionSynchronization::afterCommit);
+
+            verify(notificationPort).notify(USER_ID, true);
+            verify(userActivityEventLogger).log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED,
+                    Map.of("date", PAST_DATE.toString(), "actual_screen_time_minutes", 80));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 }

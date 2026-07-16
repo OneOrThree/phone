@@ -16,6 +16,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -121,12 +123,36 @@ public class ScreenTimeService {
 
         // 6. 목표 달성 알림(GROMO-395) — '최종 보고로 false→true 전이'일 때만 이벤트+알림을 1회 발사한다.
         //    interim 은 flag 를 true 로 세우지 않으므로 첫 마감은 항상 wasAchieved=false 를 보고 발사한다.
-        //    마감 재시도(네이티브 읽기 미완료 시 앱이 재업로드)는 이미 true 인 flag 를 만나 재발사하지 않는다(날짜별 멱등, Codex P2).
+        //    마감 재시도(네이티브 읽기 미완료 시 앱이 재업로드)는 이미 true 인 flag 를 만나 재발사하지 않는다(날짜별 멱등).
         if (finalReport && clientAchieved && !wasAchieved) {
+            emitGoalAchievedAfterCommit(userId, date, actualMinutes);
+        }
+    }
+
+    /**
+     * 목표 달성 이벤트·알림을 트랜잭션 커밋 이후로 미뤄 발사한다(GROMO-560 P2).
+     *
+     * <p>이벤트 로그(slf4j)·향후 APNs 푸시는 트랜잭션 side-effect 라 롤백돼도 취소되지 않는다. 동시 마감 레이스에서
+     * 진 트랜잭션이 커밋 전 발사한 뒤 UNIQUE 위반으로 롤백하면 승자와 합쳐 중복 발사되므로, 커밋에 성공한
+     * 트랜잭션에서만 {@code afterCommit} 으로 발사해 정확히 1회를 보장한다(진 트랜잭션은 롤백 → 미발사, 재시도는
+     * wasAchieved=true 라 이 분기에 진입하지 않음). 트랜잭션 동기화가 비활성(단위 테스트 등)이면 즉시 발사한다.
+     */
+    private void emitGoalAchievedAfterCommit(UUID userId, LocalDate date, int actualMinutes) {
+        Runnable emit = () -> {
             userActivityEventLogger.log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED, Map.of(
                     "date", date.toString(),
                     "actual_screen_time_minutes", actualMinutes));
             notificationPort.notify(userId, true);
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    emit.run();
+                }
+            });
+        } else {
+            emit.run();
         }
     }
 

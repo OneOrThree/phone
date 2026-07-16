@@ -86,6 +86,10 @@ class ScreenTimeConcurrencyTest extends IntegrationTestBase {
     }
 
     private void assertConcurrentSaveUpsertsSingleRow(int threadCount) throws Exception {
+        // 한계(codex P3): startGate 는 스레드를 동시 출발시킬 뿐, 각 스레드가 findByUserAndDate empty 를 관찰한
+        // 시점에 붙잡아 insert 레이스를 '결정론적으로' 강제하진 않는다. 빠른 워커가 먼저 커밋하면 나머지는 update
+        // path 만 타 재시도 경로가 미검증될 수 있다. 다만 N=10 + 동시 출발로 실용적으로 재현되며(구현 전 RED 에서
+        // 실제 DIVE 발생 확인), 결정론적 barrier 는 프로덕션에 테스트 seam 을 요구해 이 티켓 스코프에서 제외한다.
         ExecutorService pool = Executors.newFixedThreadPool(threadCount);
         CountDownLatch startGate = new CountDownLatch(1);
         CountDownLatch doneGate = new CountDownLatch(threadCount);
