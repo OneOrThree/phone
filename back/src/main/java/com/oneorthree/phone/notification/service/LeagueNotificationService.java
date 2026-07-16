@@ -16,6 +16,8 @@ import com.oneorthree.phone.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +40,12 @@ public class LeagueNotificationService {
 
     static final int NOTIFICATION_PAGE_SIZE = 200;
 
+    /** 결과 발표 대상 — 정산된 전원(승격·강등·잔류). */
+    private static final List<LeagueWeeklyResultType> WEEKLY_RESULT_TYPES = List.of(
+            LeagueWeeklyResultType.PROMOTED,
+            LeagueWeeklyResultType.STAY,
+            LeagueWeeklyResultType.RELEGATED);
+
     /** 최하위 티어 — 강등 대상이 아니므로 강등 경고 발송에서 제외한다. */
     private static final int MIN_TIER_LEVEL = 1;
 
@@ -58,25 +66,33 @@ public class LeagueNotificationService {
         sendWeeklyResultNotifications(Instant.now());
     }
 
-    /** 직전 주차에 확정된 승격/강등 결과를 기준으로 알림을 발송한다. */
+    /** 직전 주차에 확정된 승격/강등/잔류 결과 전원을 기준으로 알림을 발송한다. */
     public void sendWeeklyResultNotifications(Instant now) {
         Instant previousWeekStart = leagueWeek.previousWeekStart(now);
-        List<LeagueWeeklyResult> results = leagueWeeklyResultRepository.findByWeekStartAtAndResultIn(
-                previousWeekStart,
-                List.of(LeagueWeeklyResultType.PROMOTED, LeagueWeeklyResultType.RELEGATED));
-        if (results.isEmpty()) {
-            log.info("주간 리그 결과 알림 — 대상 없음 (previousWeekStart={})", previousWeekStart);
-            return;
-        }
-
-        // 승격/강등 대상이 많은 주에도 User·설정 IN 조회와 1차 캐시가 커지지 않도록 페이지 단위로 나눠 처리한다.
+        // STAY 포함으로 대상이 정산된 전원(대다수 잔류)이라, 전체를 한 번에 로드하지 않고 id keyset 으로
+        // 페이지를 끊어 조회한다 — 초기 조회·1차 캐시가 유저 수에 비례해 커지지 않도록.
+        Pageable pageLimit = PageRequest.ofSize(NOTIFICATION_PAGE_SIZE);
         int processedCount = 0;
-        for (int start = 0; start < results.size(); start += NOTIFICATION_PAGE_SIZE) {
-            List<LeagueWeeklyResult> page = results.subList(
-                    start, Math.min(start + NOTIFICATION_PAGE_SIZE, results.size()));
+        UUID cursorId = null;
+        while (true) {
+            List<LeagueWeeklyResult> page = leagueWeeklyResultRepository.findResultPageAfter(
+                    previousWeekStart, WEEKLY_RESULT_TYPES, cursorId, pageLimit);
+            if (page.isEmpty()) {
+                break;
+            }
+            boolean hasMore = page.size() == NOTIFICATION_PAGE_SIZE;
+            UUID nextCursor = page.get(page.size() - 1).getId();
             processedCount += sendWeeklyResultPage(page, now);
             entityManager.flush();
             entityManager.clear();
+            if (!hasMore) {
+                break;
+            }
+            cursorId = nextCursor;
+        }
+        if (processedCount == 0) {
+            log.info("주간 리그 결과 알림 — 대상 없음 (previousWeekStart={})", previousWeekStart);
+            return;
         }
         log.info("주간 리그 결과 알림 — 대상 {}건 처리 완료 (previousWeekStart={})",
                 processedCount, previousWeekStart);
@@ -94,9 +110,13 @@ public class LeagueNotificationService {
             }
             UserNotificationSettings settings = settingsByUserId.get(user.getId());
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
-            PushMessage message = result.getResult() == LeagueWeeklyResultType.PROMOTED
-                    ? composePromotion(result.getPreviousTierLevel(), result.getNewTierLevel(), soundEnabled)
-                    : composeRelegation(result.getPreviousTierLevel(), result.getNewTierLevel(), soundEnabled);
+            PushMessage message = switch (result.getResult()) {
+                case PROMOTED ->
+                    composePromotion(result.getPreviousTierLevel(), result.getNewTierLevel(), soundEnabled);
+                case RELEGATED ->
+                    composeRelegation(result.getPreviousTierLevel(), result.getNewTierLevel(), soundEnabled);
+                case STAY -> composeNewLeagueStart(soundEnabled);
+            };
             pushNotificationService.sendIfAllowed(user, settings, message, now);
             processedCount++;
         }
@@ -331,6 +351,14 @@ public class LeagueNotificationService {
                 "저번 주 " + previousTier + " 리그에서 이번 주 " + newTier
                         + " 리그로 이동했어요. 조금 더 힘내봐요!",
                 "gromo://focus",
+                soundEnabled);
+    }
+
+    private PushMessage composeNewLeagueStart(boolean soundEnabled) {
+        return new PushMessage(
+                "새 리그 시작!",
+                "이번 주 리그가 새로 시작됐어. 오늘 목표는? 지금 바로 몰입 시작하자!",
+                "gromo://league",
                 soundEnabled);
     }
 
