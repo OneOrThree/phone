@@ -1748,10 +1748,15 @@ function GoalWeekDots({
       ? 'miss'
       : 'future';
 
+  // 목표 미설정(goalMinutes 0) — 플래그가 항상 false라 매일 '미달'로 보인다(PR 리뷰 반영).
+  // 해당 지표 줄은 중립 도트 + '목표 미설정' 라벨. today 조회 실패 시엔 설정된 것으로 간주(기존 동작).
+  const focusGoalSet = today == null || today.focus.goalMinutes > 0;
+  const phoneGoalSet = today == null || today.screenTime.goalMinutes > 0;
+
   const stateFor = (
     offset: number,
-    pick: (c: HeatmapCellResponse) => boolean,
-    todayState: GoalDotState | null, // null = heatmap 플래그 그대로 사용
+    achieved: (c: HeatmapCellResponse | undefined) => boolean,
+    todayState: GoalDotState | null, // null = heatmap 판정 그대로 사용
   ): GoalDotState => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + offset);
@@ -1759,17 +1764,29 @@ function GoalWeekDots({
     if (key > todayKey) return 'future'; // 'YYYY-MM-DD' 문자열 비교 = 날짜 비교
     if (offset < preJoinCols) return 'future'; // 가입 전 — 판정 없음
     if (key === todayKey && todayState != null) return todayState;
-    const c = byDate.get(key);
-    return c && pick(c) ? 'on' : 'miss';
+    return achieved(byDate.get(key)) ? 'on' : 'miss';
   };
-  const focusStates = WEEK_DAYS.map((_, i) => stateFor(i, (c) => c.focusGoalAchieved, todayFocus));
+  // 집중: 플래그 그대로(기록 없는 날 = 0분 = 미달). 폰: 플래그 또는 0분이면 달성 — 서버 기간
+  // 통계의 'row 없는 날 = 0분 = 달성'과 의미 일치(PR 리뷰 반영). heatmap은 빈 날을 false
+  // 플래그·0분 셀로 채우므로 플래그만 보면 미동기화 날이 전부 미달로 보인다.
+  const focusStates = WEEK_DAYS.map((_, i) =>
+    focusGoalSet
+      ? stateFor(i, (c) => c?.focusGoalAchieved ?? false, todayFocus)
+      : ('future' as GoalDotState),
+  );
   const phoneStates = WEEK_DAYS.map((_, i) =>
-    stateFor(i, (c) => c.screenTimeGoalAchieved, todayPhone),
+    phoneGoalSet
+      ? stateFor(
+          i,
+          (c) => c != null && (c.screenTimeGoalAchieved || c.actualScreenTimeMinutes === 0),
+          todayPhone,
+        )
+      : ('future' as GoalDotState),
   );
   return (
     <View style={s.goalWeekWrap}>
-      <GoalDotRow label="집중" color={FOCUS_COLOR} states={focusStates} />
-      <GoalDotRow label="폰 사용" color={PHONE_COLOR} states={phoneStates} />
+      <GoalDotRow label="집중" color={FOCUS_COLOR} states={focusStates} unset={!focusGoalSet} />
+      <GoalDotRow label="폰 사용" color={PHONE_COLOR} states={phoneStates} unset={!phoneGoalSet} />
     </View>
   );
 }
@@ -1778,17 +1795,21 @@ function GoalDotRow({
   label,
   color,
   states,
+  unset,
 }: {
   label: string;
   color: string;
   states: GoalDotState[];
+  unset?: boolean; // 목표 미설정 — 도트는 전부 중립으로 오고, 카운트 자리에 안내만
 }) {
   const count = states.filter((x) => x === 'on').length;
   return (
     <View>
       <View style={s.goalDotHead}>
         <Text style={[s.goalDotLabel, { color }]}>{label}</Text>
-        <Text style={[s.goalDotCount, { color }]}>{count}일 달성</Text>
+        <Text style={[s.goalDotCount, { color: unset ? T.inkMuted : color }]}>
+          {unset ? '목표 미설정' : `${count}일 달성`}
+        </Text>
       </View>
       <View style={s.goalDotRow}>
         {WEEK_DAYS.map((d, i) => {
@@ -1827,7 +1848,13 @@ function GoalMonthGrid({
   const dayOf = (date: string) => Number(date.slice(8, 10));
   // 이달 앞쪽에서 가입 전인 날 수 — 오늘 일자가 경과일보다 크면 그 차이만큼
   const preJoinDays = elapsedDays != null ? Math.max(0, now.getDate() - elapsedDays) : 0;
-  const todayFocusOn = today?.focus.goalAchieved ?? false;
+  // 목표 미설정·폰 0분 달성 판정은 GoalWeekDots와 동일한 이유(PR 리뷰 반영).
+  const focusGoalSet = today == null || today.focus.goalMinutes > 0;
+  const phoneGoalSet = today == null || today.screenTime.goalMinutes > 0;
+  const todayFocusOn = focusGoalSet && (today?.focus.goalAchieved ?? false);
+  // 폰 과거일 달성 — 플래그 또는 0분(미동기화 날 포함): 서버 'row 없는 날 = 0분 = 달성'과 일치
+  const phoneAchieved = (c: HeatmapCellResponse | undefined) =>
+    c != null && (c.screenTimeGoalAchieved || c.actualScreenTimeMinutes === 0);
 
   let focusDays = todayFocusOn ? 1 : 0; // 오늘 몫은 라이브 판정으로만 계상(폰·둘 다는 다음날 확정)
   let phoneDays = 0;
@@ -1835,9 +1862,11 @@ function GoalMonthGrid({
   for (const c of cells) {
     if (c.date >= todayKey) continue; // 오늘은 위에서 라이브로, 미래는 제외
     if (dayOf(c.date) <= preJoinDays) continue; // 가입 전 — 판정 없음
-    if (c.focusGoalAchieved) focusDays += 1;
-    if (c.screenTimeGoalAchieved) phoneDays += 1;
-    if (c.focusGoalAchieved && c.screenTimeGoalAchieved) bothDays += 1;
+    const f = focusGoalSet && c.focusGoalAchieved;
+    const p = phoneGoalSet && phoneAchieved(c);
+    if (f) focusDays += 1;
+    if (p) phoneDays += 1;
+    if (f && p) bothDays += 1;
   }
   const days = Array.from({ length: lastDay }, (_, i) =>
     localDateStr(new Date(now.getFullYear(), now.getMonth(), i + 1)),
@@ -1849,15 +1878,23 @@ function GoalMonthGrid({
     if (dayOf(date) <= preJoinDays) return T.track; // 가입 전 — 판정 없음
     if (date === todayKey) return todayFocusOn ? GRASS[2] : T.track; // 오늘 — 집중 달성만 확정
     const c = byDate.get(date);
-    const n = (c?.focusGoalAchieved ? 1 : 0) + (c?.screenTimeGoalAchieved ? 1 : 0);
+    const n =
+      (focusGoalSet && c?.focusGoalAchieved ? 1 : 0) + (phoneGoalSet && phoneAchieved(c) ? 1 : 0);
     return n === 2 ? GRASS[4] : n === 1 ? GRASS[2] : GRASS[0];
   };
   return (
     <View>
       <View style={s.goalMonthHead}>
-        <Text style={[s.goalMonthStat, { color: FOCUS_COLOR }]}>집중 {focusDays}일</Text>
-        <Text style={[s.goalMonthStat, { color: PHONE_COLOR }]}>폰 사용 {phoneDays}일</Text>
-        <Text style={[s.goalMonthStat, { color: T.successInk }]}>둘 다 {bothDays}일</Text>
+        <Text style={[s.goalMonthStat, { color: FOCUS_COLOR }]}>
+          집중 {focusGoalSet ? `${focusDays}일` : '미설정'}
+        </Text>
+        <Text style={[s.goalMonthStat, { color: PHONE_COLOR }]}>
+          폰 사용 {phoneGoalSet ? `${phoneDays}일` : '미설정'}
+        </Text>
+        {/* 한쪽이라도 미설정이면 '둘 다'는 성립 불가 — 숨김 */}
+        {focusGoalSet && phoneGoalSet && (
+          <Text style={[s.goalMonthStat, { color: T.successInk }]}>둘 다 {bothDays}일</Text>
+        )}
       </View>
       <View style={s.monthGrass}>
         {rows.map((row, ri) => (
