@@ -128,7 +128,7 @@ export default function NotificationSettingsScreen() {
     // 바뀐 필드만 계측 — 모든 변경이 이 함수를 지나므로 여기서 diff로 한 번에 잡는다(GROMO-782)
     (Object.keys(next) as (keyof NotifState)[]).forEach((k) => {
       if (next[k] !== settings[k])
-        logNotificationSettingsChanged({ setting: SETTING_PARAM[k], value: next[k] });
+        logNotificationSettingsChanged({ setting: SETTING_PARAM[k], setting_value: next[k] });
     });
     setSettings(next);
     const body: NotificationSettingsRequest = {

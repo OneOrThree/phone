@@ -96,7 +96,8 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
       if (isOnboarding)
         logOnboardingSignupFailed({
           method,
-          reason: String(code ?? (e instanceof Error ? e.message : 'unknown')),
+          // 에러 메시지 원문은 계정 관련 텍스트·고카디널리티 위험 — 코드가 있을 때만 코드로 버킷(PR 276 리뷰 반영)
+          reason: typeof code === 'string' || typeof code === 'number' ? String(code) : 'unknown',
         });
       Alert.alert('로그인 실패', e instanceof Error ? e.message : '다시 시도해 주세요.');
     } finally {
@@ -114,11 +115,8 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
       // 게스트도 완료 처리까지 대기 — 재탭 시 게스트 계정이 중복 생성되는 것을 막는다.
       await onLogin(result);
     } catch (e) {
-      if (isOnboarding)
-        logOnboardingSignupFailed({
-          method: 'guest',
-          reason: e instanceof Error ? e.message : 'unknown',
-        });
+      // 게스트 실패는 구분 코드가 없어 'unknown' 고정 — 메시지 원문 미전송(PR 276 리뷰 반영)
+      if (isOnboarding) logOnboardingSignupFailed({ method: 'guest', reason: 'unknown' });
       Alert.alert('시작 실패', e instanceof Error ? e.message : '다시 시도해 주세요.');
     } finally {
       setGuestBusy(false);

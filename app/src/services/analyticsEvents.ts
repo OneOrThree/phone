@@ -71,7 +71,8 @@ export function logOnboardingGoalSubmitted(p: {
   track('onboarding_goal_submitted', { step_index: 13, ...p });
 }
 
-// W15 가입 수단 선택 / 실패 — LoginScreen(isOnboarding)에서 발행. 취소는 reason='cancelled'.
+// W15 가입 수단 선택 / 실패 — LoginScreen(isOnboarding)에서 발행. 취소는 reason='cancelled',
+// 그 외 reason은 에러 코드 버킷만(원문 메시지는 PII·고카디널리티 위험으로 금지).
 export function logOnboardingSignupSelected(p: { method: AuthMethod }): void {
   track('onboarding_signup_selected', { step_index: 15, ...p });
 }
@@ -289,7 +290,8 @@ export function logGuestSocialLoginAttempted(p: { method: AuthMethod }): void {
 }
 
 // ── 설정(Settings) [C] (GROMO-782) ──
-// 알림 설정 변경 — 바뀐 필드 단위로 발행(특히 알림 끄기 = 이탈 위험 신호). value: on/off 또는 'HH:mm'.
+// 알림 설정 변경 — 바뀐 필드 단위로 발행(특히 알림 끄기 = 이탈 위험 신호).
+// setting_value: on/off 또는 'HH:mm'. ('value'는 GA4 예약 파라미터(숫자 이벤트 값)라 사용 금지)
 export type NotificationSettingKey =
   | 'notification'
   | 'sound'
@@ -298,7 +300,7 @@ export type NotificationSettingKey =
   | 'night_end_time';
 export function logNotificationSettingsChanged(p: {
   setting: NotificationSettingKey;
-  value: string | boolean;
+  setting_value: string | boolean;
 }): void {
   track('notification_settings_changed', p);
 }

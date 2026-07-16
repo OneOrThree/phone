@@ -104,10 +104,13 @@ export default function StatsScreen() {
       .finally(() => setOrderLoaded(true));
   }, []);
 
+  // 현재 표시 중인 카드 순서 — onReorderCards는 CardOrderEditor의 PanResponder 캐시에 잡혀
+  // 스테일 클로저가 될 수 있어, 비교 기준은 ref로 최신값을 읽는다(PR 276 리뷰 반영).
+  const displayedKeysRef = useRef<string[]>([]);
+
   const onReorderCards = (keys: string[]) => {
-    // 실제로 순서가 바뀐 경우만 계측 — 제자리 드롭에도 onReorder는 불린다
-    // (저장된 순서가 없으면 비교 기준이 없어 첫 커스텀으로 간주하고 기록).
-    if (cardOrder[period]?.join() !== keys.join()) {
+    // 표시 중인 순서와 달라진 드롭만 계측 — 제자리 드롭에도 onReorder는 불린다(PR 276 리뷰 반영)
+    if (displayedKeysRef.current.join() !== keys.join()) {
       logStatsCardReordered({ period: periodKey(period), top_card: keys[0] });
     }
     const next = { ...cardOrder, [period]: keys };
@@ -481,6 +484,7 @@ export default function StatsScreen() {
     cards.map((c) => c.key),
     cardOrder[period],
   );
+  displayedKeysRef.current = orderedKeys;
   const byKey = new Map(cards.map((c) => [c.key, c]));
   const orderedCards = orderedKeys.flatMap((k) => byKey.get(k) ?? []);
 
