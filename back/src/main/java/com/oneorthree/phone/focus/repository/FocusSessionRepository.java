@@ -44,12 +44,27 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
                                                     @Param("from") Instant from,
                                                     @Param("to") Instant to);
 
-    // 지금 집중 중(라이브) 유저 id — 재참여/스트릭 위기 푸시에서 '현재 집중 중'을 대상에서 제외(GROMO-841).
-    // endedAt IS NULL 만 본다 — orphan 자동종료(AUTO_CLOSED)는 endedAt 이 채워져 자연히 빠진다.
-    // startedAt 기준과 달리, 통계 미반영 고아 세션(실집중 0)을 '오늘 집중함'으로 오판하지 않는다.
+    // 오늘(KST 하루) 완료된 실집중 세션 보유 유저 id — 재참여 '오늘 집중 여부' 판정용(GROMO-841).
+    // endedAt 이 [from,to) 에 든 세션만(취소·orphan 자동종료 제외). DailyFocusStat.date(country_code 로컬 버킷)와 달리
+    // 절대시각 endedAt 윈도우라 타임존에 견고하고(비-KST 유저도 정확), 자정 넘겨 끝난 세션도 종료일 기준으로 포함된다.
+    // (findCompletedSessionsInPeriod 와 동일한 endedAt-윈도우 + status 필터 관례.)
     @Query("SELECT DISTINCT s.user.id FROM FocusSession s "
-            + "WHERE s.user.id IN :userIds AND s.endedAt IS NULL")
-    List<UUID> findUserIdsWithOpenSession(@Param("userIds") Collection<UUID> userIds);
+            + "WHERE s.user.id IN :userIds AND s.endedAt >= :from AND s.endedAt < :to "
+            + "AND s.status NOT IN ("
+            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED, "
+            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED)")
+    List<UUID> findUserIdsWithCompletedFocusEndedBetween(@Param("userIds") Collection<UUID> userIds,
+                                                         @Param("from") Instant from,
+                                                         @Param("to") Instant to);
+
+    // 지금 집중 중(라이브) 유저 id — 재참여/스트릭 위기 푸시에서 '현재 집중 중'을 대상에서 제외(GROMO-841).
+    // endedAt IS NULL 이면서 startedAt 이 liveSince 이후인 세션만 본다. startedAt 하한이 없으면 orphan 타임아웃
+    // (FocusService.ORPHAN_TIMEOUT, 12h)을 넘겼는데 아직 스윕(GROMO-804) 안 된 미종료 세션(=버려진 세션, 실집중 0)까지
+    // '라이브'로 잡혀, 정각 경합(스윕 지연) 시 알림을 과억제한다 → liveSince = now - 12h 로 최근 세션만 라이브로 인정.
+    @Query("SELECT DISTINCT s.user.id FROM FocusSession s "
+            + "WHERE s.user.id IN :userIds AND s.endedAt IS NULL AND s.startedAt >= :liveSince")
+    List<UUID> findUserIdsWithLiveSession(@Param("userIds") Collection<UUID> userIds,
+                                          @Param("liveSince") Instant liveSince);
 
     // 기간 내 완료 세션 집계용 전체 조회 — 카테고리별 집중 통계(GROMO-524).
     // GROMO-671(커밋3): local_date 컬럼 제거로 endedAt(UTC) [from,to) 윈도우 기준으로 조회한다.

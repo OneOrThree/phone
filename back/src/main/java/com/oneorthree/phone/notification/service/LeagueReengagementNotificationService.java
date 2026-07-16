@@ -21,8 +21,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -43,6 +45,15 @@ public class LeagueReengagementNotificationService {
 
     /** 스트릭(출석) 인정 최소 집중 초 — 하루 10분(FocusService.STREAK_MIN_SECONDS 와 동일 기준, GROMO-806). */
     private static final int STREAK_MIN_SECONDS = 600;
+
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
+    /**
+     * 라이브(진행 중) 세션으로 인정하는 최대 경과 — 이보다 오래된 미종료 세션은 아직 청소 안 된 orphan(버려진 세션)으로 보고 제외.
+     * FocusService.ORPHAN_TIMEOUT(GROMO-804)과 동일해야 한다 — orphan sweeper 가 이 경과 이후 AUTO_CLOSED 처리하는데,
+     * 스윕과 알림이 같은 정각에 돌아 스윕이 늦으면 미종료로 남은 버려진 세션을 '라이브'로 오인해 과억제하기 때문.
+     */
+    private static final Duration LIVE_SESSION_MAX_AGE = Duration.ofHours(12);
 
     private final LeagueRankingQueryRepository leagueRankingQueryRepository;
     private final FocusSessionRepository focusSessionRepository;
@@ -98,13 +109,17 @@ public class LeagueReengagementNotificationService {
         if (participantIds.isEmpty()) {
             return 0;
         }
-        // 오늘 이미 집중한 유저 = 오늘자 DailyFocusStat>0(완료 집중, 자정 넘겨 끝난 세션도 종료일 귀속으로 포함)
-        //                        ∪ 지금 진행 중(라이브) 세션 보유.
-        // startedAt 기준을 쓰지 않는다 — orphan 자동종료(AUTO_CLOSED) 세션은 실집중 0인데도 startedAt 에 걸려
-        // '오늘 집중함'으로 오판, 버려진 세션 뒤 재참여 대상에서 빠지는 오검출을 유발한다(통계는 완료 시에만 기록).
-        Set<UUID> focusedTodayIds = new HashSet<>(
-                dailyFocusStatRepository.findUserIdsWithFocusOnDate(participantIds, today));
-        focusedTodayIds.addAll(focusSessionRepository.findUserIdsWithOpenSession(participantIds));
+        // 오늘 이미 집중한 유저 = 오늘(KST 하루)에 종료된 완료 세션 ∪ 지금 진행 중(라이브) 세션.
+        // 완료 판정은 endedAt 이 KST 오늘 구간에 든 세션(취소·orphan 자동종료 제외)으로 본다:
+        //   ① DailyFocusStat.date 는 country_code 존 로컬 버킷(GROMO-803)이라 KST 오늘과 어긋날 수 있어(비-KST 유저 오검출),
+        //      절대시각 endedAt-KST-윈도우로 잡아야 타임존에 견고하다. ② 자정 넘겨 끝난 세션도 종료일 기준이라 포함된다.
+        // startedAt 기준을 쓰지 않는다 — orphan 자동종료(AUTO_CLOSED)·미종료 세션은 실집중 0인데도 '오늘 집중함'으로 오판되기 때문.
+        Instant startToday = today.atStartOfDay(KST).toInstant();
+        Instant startTomorrow = today.plusDays(1).atStartOfDay(KST).toInstant();
+        Set<UUID> focusedTodayIds = new HashSet<>(focusSessionRepository
+                .findUserIdsWithCompletedFocusEndedBetween(participantIds, startToday, startTomorrow));
+        focusedTodayIds.addAll(focusSessionRepository
+                .findUserIdsWithLiveSession(participantIds, now.minus(LIVE_SESSION_MAX_AGE)));
         List<UUID> targetIds = participantIds.stream()
                 .filter(id -> !focusedTodayIds.contains(id))
                 .toList();
@@ -171,9 +186,10 @@ public class LeagueReengagementNotificationService {
                 .collect(Collectors.toMap(stat -> stat.getUser().getId(), DailyFocusStat::getTotalFocusSeconds));
         // 지금 집중 중(라이브 세션) 유저 — 완료 통계(DailyFocusStat)는 세션 종료 시에만 기록되므로, 22시에 이미
         // 10분 넘게 집중 중이어도 여기선 <600 으로 보인다. 실제로는 스트릭을 채우는 중이라 "끊길라" 넛지는 방해 →
-        // 진행 중 세션 보유자는 위기 대상에서 제외한다.
-        Set<UUID> activelyFocusingIds = new HashSet<>(
-                focusSessionRepository.findUserIdsWithOpenSession(userIds));
+        // 진행 중 세션 보유자는 위기 대상에서 제외한다. 단 orphan 타임아웃(12h)을 넘긴 미종료 세션은 청소 대기 중인
+        // 버려진 세션이라 라이브로 치지 않는다(스윕과 알림이 같은 정각에 돌아 스윕이 늦을 때 오분류 방지).
+        Set<UUID> activelyFocusingIds = new HashSet<>(focusSessionRepository
+                .findUserIdsWithLiveSession(userIds, now.minus(LIVE_SESSION_MAX_AGE)));
         Map<UUID, UserNotificationSettings> settingsByUserId = loadSettings(userIds);
         int processedCount = 0;
         for (UserStreak streak : chunk) {
