@@ -364,7 +364,7 @@ export function logFlowAbandoned(p: { flow: string; step: string }): void {
 export function logRepeatedFailure(p: { action: string; attempt_count: number }): void {
   track('repeated_failure', p);
 }
-// (선택) 짧은 시간 연타 감지.
+// 빡침 연타 감지 — RageTapDetector(앱 루트)가 발행. 같은 지점(40pt) 1초 간격 연타 4회째, 5초 쿨다운.
 export function logRageTapDetected(p: { screen_name: string }): void {
   track('rage_tap_detected', p);
 }
