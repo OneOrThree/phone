@@ -86,10 +86,10 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 16,
-    padding: 16,
+    padding: T.space.lg,
   },
-  title: { ...T.text.label, fontWeight: '700', color: T.ink, marginBottom: 4 },
-  sub: { ...T.text.caption, color: T.inkSub, marginBottom: 12 },
+  title: { ...T.text.label, fontWeight: '700', color: T.ink, marginBottom: T.space.xs },
+  sub: { ...T.text.caption, color: T.inkSub, marginBottom: T.space.md },
 
   plotRow: { flexDirection: 'row' },
   axisCol: { width: 36, height: AREA_H },
@@ -113,8 +113,8 @@ const s = StyleSheet.create({
   gridTop: { top: 0 },
   gridMid: { top: AREA_H / 2 },
   gridBottom: { top: AREA_H },
-  chartRow: { flexDirection: 'row', gap: 6 },
-  dayCol: { flex: 1, alignItems: 'center', gap: 5 },
+  chartRow: { flexDirection: 'row', gap: T.space.sm },
+  dayCol: { flex: 1, alignItems: 'center', gap: T.space.xs },
   barsRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -124,8 +124,8 @@ const s = StyleSheet.create({
   bar: { width: 6, borderTopLeftRadius: 2, borderTopRightRadius: 2 },
   dayLabel: { ...T.text.caption, fontSize: 11, color: T.inkSub },
 
-  legendRow: { flexDirection: 'row', gap: 14, marginTop: 10 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendRow: { flexDirection: 'row', gap: T.space.lg, marginTop: T.space.md },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   legendDot: { width: 9, height: 9, borderRadius: 2 },
   legendText: { ...T.text.caption, fontSize: 11, color: T.inkSub, maxWidth: 120 },
 });

@@ -242,14 +242,14 @@ export default function FocusCategoryScreen() {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperLight },
-  header: { height: 40, justifyContent: 'center', paddingHorizontal: 12 },
+  header: { height: 40, justifyContent: 'center', paddingHorizontal: T.space.md },
   backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   title: {
     ...T.text.body,
     fontWeight: '700',
     color: T.ink,
-    paddingHorizontal: 22,
-    paddingBottom: 8,
+    paddingHorizontal: T.space.xxl,
+    paddingBottom: T.space.sm,
   },
 
   // ⋮ 팝오버
@@ -260,7 +260,7 @@ const s = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: T.paperAlt,
-    paddingVertical: 4,
+    paddingVertical: T.space.xs,
     shadowColor: T.shadow,
     shadowOpacity: 0.2,
     shadowRadius: 18,
@@ -270,16 +270,21 @@ const s = StyleSheet.create({
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 9,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
+    gap: T.space.sm,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.lg,
   },
   menuText: { ...T.text.caption, color: T.ink },
   menuTextDanger: { color: T.accentAlt },
-  menuDivider: { height: 1, backgroundColor: T.divider, marginHorizontal: 6 },
+  menuDivider: { height: 1, backgroundColor: T.divider, marginHorizontal: T.space.sm },
 
   // 색 선택 팝오버
-  colorRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  colorRow: {
+    flexDirection: 'row',
+    gap: T.space.sm,
+    paddingHorizontal: T.space.md,
+    paddingVertical: T.space.sm,
+  },
   colorDot: { width: 22, height: 22, borderRadius: 11 },
   colorDotOn: { borderWidth: 2, borderColor: T.ink },
 
@@ -287,13 +292,13 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: T.space.sm,
     borderWidth: 1.5,
     borderStyle: 'dashed',
     borderColor: T.borderDark,
     borderRadius: 14,
-    paddingVertical: 11,
-    marginTop: 4,
+    paddingVertical: T.space.md,
+    marginTop: T.space.xs,
   },
   addText: { ...T.text.label, color: T.inkMuted },
 });

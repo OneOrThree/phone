@@ -322,8 +322,8 @@ export default function LeagueResultScreen() {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.night.bottom },
-  safe: { flex: 1, paddingHorizontal: 22 },
-  body: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  safe: { flex: 1, paddingHorizontal: T.space.xxl },
+  body: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: T.space.sm },
 
   spark: { position: 'absolute', borderRadius: 99, backgroundColor: T.night.gold },
   sparkMilk: { backgroundColor: T.night.cream, opacity: 0.7 },
@@ -338,21 +338,21 @@ const s = StyleSheet.create({
     fontWeight: '700',
     color: T.accentLight,
     letterSpacing: 2,
-    marginBottom: 8,
+    marginBottom: T.space.sm,
   },
   title: {
     ...T.text.display,
     fontSize: 40,
     lineHeight: 46,
     color: T.night.cream,
-    marginBottom: 24,
+    marginBottom: T.space.xxl,
   },
 
   glow: {
-    padding: 18,
+    padding: T.space.xl,
     borderRadius: 999,
     backgroundColor: withAlpha(T.night.gold, 0.16),
-    marginBottom: 24,
+    marginBottom: T.space.xxl,
     shadowColor: T.night.gold,
     shadowOpacity: 0.55,
     shadowRadius: 30,
@@ -363,8 +363,8 @@ const s = StyleSheet.create({
   badgeImgDown: { width: 205, height: 205, resizeMode: 'contain' },
   badgeStack: { width: 190, height: 190, alignItems: 'center', justifyContent: 'center' },
   badgeAbs: { position: 'absolute' },
-  tierChange: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  tierToGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  tierChange: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
+  tierToGroup: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   tierFrom: { ...T.text.subtitle, fontSize: 22, color: T.night.muted },
   tierName: { ...T.text.title, fontSize: 30, color: T.night.cream },
 
@@ -374,8 +374,8 @@ const s = StyleSheet.create({
     fontWeight: '600',
     color: T.accentLight,
     textAlign: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 12,
+    paddingHorizontal: T.space.lg,
+    marginBottom: T.space.md,
   },
   goalStrong: { fontWeight: '800', color: T.night.gold },
 
@@ -385,7 +385,7 @@ const s = StyleSheet.create({
     backgroundColor: T.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: T.space.xxl,
   },
   ctaText: { ...T.text.body, fontWeight: '700', color: T.white },
 });

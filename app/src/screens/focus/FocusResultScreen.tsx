@@ -676,9 +676,14 @@ function CompareCard({
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperLight },
-  scroll: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 24, gap: 12 },
+  scroll: {
+    paddingHorizontal: T.space.xl,
+    paddingTop: T.space.lg,
+    paddingBottom: T.space.xxl,
+    gap: T.space.md,
+  },
 
-  header: { gap: 4, paddingVertical: 4 },
+  header: { gap: T.space.xs, paddingVertical: T.space.xs },
   title: { ...T.text.stat, color: T.ink },
   sub: { ...T.text.label, fontWeight: '500', color: T.inkSub },
 
@@ -687,9 +692,9 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 18,
-    paddingHorizontal: 17,
-    paddingVertical: 16,
-    gap: 6,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.lg,
+    gap: T.space.sm,
   },
   miniLabel: { ...T.text.caption, fontSize: 11, fontWeight: '500', color: T.inkMuted },
   miniSub: { ...T.text.caption, color: T.inkMuted },
@@ -697,21 +702,21 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'baseline',
     justifyContent: 'space-between',
-    gap: 10,
+    gap: T.space.md,
   },
   bigStat: { ...T.text.display, color: T.ink, flexShrink: 1 },
   focusTime: { ...T.text.stat, color: T.accent, fontVariant: ['tabular-nums'] },
 
   // 과목별 집중 현황 (이번 집중 카드 하단 — 드로어와 동일 패턴: 행 목록 + 비율 바)
   catSection: {
-    marginTop: 12,
-    paddingTop: 12,
+    marginTop: T.space.md,
+    paddingTop: T.space.md,
     borderTopWidth: 1,
     borderTopColor: T.divider,
   },
-  catHeading: { ...T.text.caption, fontWeight: '700', color: T.inkSub, marginBottom: 10 },
-  subjectList: { gap: 10 },
-  subjectRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  catHeading: { ...T.text.caption, fontWeight: '700', color: T.inkSub, marginBottom: T.space.md },
+  subjectList: { gap: T.space.md },
+  subjectRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   subjectDot: { width: 8, height: 8, borderRadius: 4 },
   subjectName: { flex: 1, ...T.text.caption, color: T.ink },
   subjectTime: {
@@ -726,7 +731,7 @@ const s = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: T.caramel,
     overflow: 'hidden',
-    marginTop: 13,
+    marginTop: T.space.md,
   },
 
   rowBetween: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
@@ -736,11 +741,11 @@ const s = StyleSheet.create({
   // 스트릭 채우기 카드
   streakCard: {
     borderRadius: 20,
-    paddingHorizontal: 17,
-    paddingVertical: 16,
-    gap: 14,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.lg,
+    gap: T.space.lg,
   },
-  streakHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  streakHead: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   streakIcon: {
     width: 24,
     height: 24,
@@ -752,7 +757,7 @@ const s = StyleSheet.create({
   streakTitle: { ...T.text.label, fontWeight: '800', color: T.ink, flex: 1 },
   streakBadge: { ...T.text.caption, color: T.accentDeep },
   dotRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  dotCol: { alignItems: 'center', gap: 5 },
+  dotCol: { alignItems: 'center', gap: T.space.xs },
   dot: {
     width: 30,
     height: 30,
@@ -780,23 +785,23 @@ const s = StyleSheet.create({
   streakNotice: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: T.space.sm,
     backgroundColor: T.accentBg,
     borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.md,
   },
   streakNoticeText: { ...T.text.caption, fontWeight: '500', color: T.accentDeep, flex: 1 },
 
   // 이번 주 집중시간 막대
-  barRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 7 },
-  barCol: { flex: 1, alignItems: 'center', gap: 5 },
+  barRow: { flexDirection: 'row', alignItems: 'flex-end', gap: T.space.sm },
+  barCol: { flex: 1, alignItems: 'center', gap: T.space.xs },
   barTrack: { height: BAR_H, justifyContent: 'flex-end' },
   bar: { width: 14, borderTopLeftRadius: 5, borderTopRightRadius: 5, transformOrigin: 'bottom' },
   barDay: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
   barDayToday: { color: T.accent, fontWeight: '700' },
   // 세로축·눈금(GROMO-683) — StatsScreen 차트 축 패턴과 동일 구조
-  chartPlotRow: { flexDirection: 'row', marginTop: 6 },
+  chartPlotRow: { flexDirection: 'row', marginTop: T.space.sm },
   chartAxisCol: { width: 36, height: BAR_H },
   chartAxisLabel: {
     ...T.text.caption,
@@ -822,12 +827,12 @@ const s = StyleSheet.create({
   chartGridBottom: { top: BAR_H },
 
   // 나 vs 비교축(3축 셀렉터 + 기간 탭)
-  axisRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 4 },
-  periodRow: { flexDirection: 'row', gap: 6 },
+  axisRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm, marginTop: T.space.xs },
+  periodRow: { flexDirection: 'row', gap: T.space.sm },
   deltaBadgeEnd: { marginLeft: 'auto' },
   axisChip: {
-    paddingHorizontal: 11,
-    paddingVertical: 6,
+    paddingHorizontal: T.space.md,
+    paddingVertical: T.space.sm,
     borderRadius: 999,
     backgroundColor: T.chipBg,
     borderWidth: 1,
@@ -836,11 +841,11 @@ const s = StyleSheet.create({
   axisChipOn: { backgroundColor: T.accent, borderColor: T.accent },
   axisChipText: { ...T.text.caption, fontSize: 11, color: T.inkSub },
   axisChipTextOn: { color: T.white, fontWeight: '700' },
-  deltaBadge: { borderRadius: 99, paddingHorizontal: 9, paddingVertical: 3 },
+  deltaBadge: { borderRadius: 99, paddingHorizontal: T.space.sm, paddingVertical: 3 },
   deltaBadgeUp: { backgroundColor: T.successBg },
   deltaBadgeDown: { backgroundColor: T.dangerBg },
   deltaBadgeText: { ...T.text.caption, fontSize: 11, fontWeight: '700' },
-  cmpBlock: { gap: 5, marginTop: 8 },
+  cmpBlock: { gap: T.space.xs, marginTop: T.space.sm },
   cmpLabelMine: { ...T.text.caption, fontWeight: '700', color: T.ink },
   cmpValueMine: { ...T.text.caption, fontWeight: '800', color: T.accent },
   cmpLabel: { ...T.text.caption, color: T.inkSub },
@@ -848,15 +853,15 @@ const s = StyleSheet.create({
   cmpTrack: { height: 10, borderRadius: 5, backgroundColor: T.track, overflow: 'hidden' },
   cmpFill: { height: 10, borderRadius: 5 },
   cmpFillAvg: { backgroundColor: T.compare.avg },
-  cmpCaption: { ...T.text.caption, fontWeight: '500', color: T.link, marginTop: 10 },
+  cmpCaption: { ...T.text.caption, fontWeight: '500', color: T.link, marginTop: T.space.md },
 
   // 하단 CTA
   footer: {
     flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 18,
-    paddingTop: 8,
-    paddingBottom: 12,
+    gap: T.space.md,
+    paddingHorizontal: T.space.xl,
+    paddingTop: T.space.sm,
+    paddingBottom: T.space.md,
   },
   homeBtn: {
     flex: 1,
@@ -864,7 +869,7 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.border,
     borderRadius: 16,
-    paddingVertical: 16,
+    paddingVertical: T.space.lg,
     alignItems: 'center',
   },
   homeText: { ...T.text.subtitle, color: T.inkSub },
@@ -872,7 +877,7 @@ const s = StyleSheet.create({
     flex: 1.4,
     backgroundColor: T.accent,
     borderRadius: 16,
-    paddingVertical: 16,
+    paddingVertical: T.space.lg,
     alignItems: 'center',
   },
   againText: { ...T.text.subtitle, color: T.white },

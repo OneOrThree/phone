@@ -94,7 +94,10 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   }
 
   return (
-    <View style={[s.wrap, { paddingBottom: Math.max(insets.bottom, 8) }]} pointerEvents="box-none">
+    <View
+      style={[s.wrap, { paddingBottom: Math.max(insets.bottom, T.space.sm) }]}
+      pointerEvents="box-none"
+    >
       <View style={s.bar} onLayout={(e) => setBarW(e.nativeEvent.layout.width)}>
         {barW > 0 && (
           <Svg width={barW} height={BAR_H} style={StyleSheet.absoluteFill}>
@@ -139,8 +142,8 @@ const s = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 12,
-    paddingTop: 8,
+    paddingHorizontal: T.space.md,
+    paddingTop: T.space.sm,
     alignItems: 'center',
   },
   bar: {
@@ -149,14 +152,15 @@ const s = StyleSheet.create({
     // 배경·테두리는 SVG 패스(파임 포함)가 그린다 — 뷰 자체는 투명 유지
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: T.space.sm,
     shadowColor: T.shadow,
     shadowOpacity: 0.22,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
     elevation: 8,
   },
-  tab: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // HIG 44pt+ 터치타겟 — 바 전체 높이(56)를 채워 아이콘만한 좁은 세로 탭이 안 되게(GROMO-846)
+  tab: { flex: 1, height: BAR_H, alignItems: 'center', justifyContent: 'center' },
   fabSlot: { width: 72 },
   // 리퀴드 글래스 하이라이트 알약(타원)
   highlight: {

@@ -301,21 +301,21 @@ export default function MenuScreen() {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperLight },
   flex1: { flex: 1 },
-  header: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 8 },
+  header: { paddingHorizontal: T.space.xl, paddingTop: T.space.sm, paddingBottom: T.space.sm },
   headerTitle: { ...T.text.title, color: T.ink },
-  body: { paddingHorizontal: 18, paddingTop: 4 },
+  body: { paddingHorizontal: T.space.xl, paddingTop: T.space.xs },
 
   // 프로필 헤더
   profile: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: T.space.md,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.lg,
   },
   avatar: {
     width: 52,
@@ -329,7 +329,7 @@ const s = StyleSheet.create({
   profileName: { ...T.text.subtitle, color: T.ink },
   profileSub: { ...T.text.caption, color: T.inkMuted, marginTop: 3 },
   // 연속 공부 pill(GROMO-630)
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   nameShrink: { flexShrink: 1 },
   streakPill: {
     flexDirection: 'row',
@@ -337,7 +337,7 @@ const s = StyleSheet.create({
     gap: 3,
     backgroundColor: T.accentBg,
     borderRadius: 999,
-    paddingHorizontal: 7,
+    paddingHorizontal: T.space.sm,
     paddingVertical: 2,
   },
   streakPillText: { ...T.text.caption, fontSize: 10, fontWeight: '700', color: T.accentDeep },
