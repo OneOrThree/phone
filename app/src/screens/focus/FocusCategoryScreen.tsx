@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { useFocus } from '@/store/FocusContext';
 import { useSubjects } from '@/store/SubjectContext';
+import { useFocusCategory } from '@/hooks/useFocusCategory';
+import { occupationForCategory } from '@/constants/focusCategories';
+import { getDefaultTags } from '@/services/focusApi';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, PomodoroConfig, Subject } from './types';
 import { DraggableSubjectRows } from './components/DraggableSubjectRows';
@@ -29,6 +32,7 @@ import {
 
 // 02 과목 선택 — 홈 ● 집중 FAB → 이 화면. 행 탭 → 타이머 방식 시트(03) → 설정(04/05) → 세션.
 // 각 행: 과목명 + 누적 집중시간 + ⋮(탭=이름편집/삭제 팝오버, 잡고 위아래=순서 변경).
+// 리스트 아래에는 준비 시험(occupation) 추천 과목 중 미보유분을 노출해 추가를 유도한다(GROMO-668).
 type SheetKind = null | 'method' | 'countdown' | 'pomodoro';
 // ⋮ 팝오버 위치(측정한 버튼의 window 좌표)
 type MenuAnchor = { id: string; x: number; y: number; w: number; h: number } | null;
@@ -43,6 +47,30 @@ export default function FocusCategoryScreen() {
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [menu, setMenu] = useState<MenuAnchor>(null);
   const [colorMenu, setColorMenu] = useState<MenuAnchor>(null); // 색 선택 팝오버(네모 탭)
+
+  // 준비 시험 추천 과목(GET /tag/defaults) — 미보유분만 리스트 아래에 추가 유도로 노출.
+  // 조회 실패(미로그인·오프라인)면 조용히 숨긴다.
+  const category = useFocusCategory();
+  const [defaultTags, setDefaultTags] = useState<string[]>([]);
+  useEffect(() => {
+    const occupation = occupationForCategory(category);
+    if (!occupation) {
+      setDefaultTags([]);
+      return;
+    }
+    let cancelled = false;
+    getDefaultTags(occupation)
+      .then((res) => {
+        if (cancelled) return;
+        setDefaultTags([...res.tags].sort((a, b) => a.sortOrder - b.sortOrder).map((t) => t.name));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [category]);
+  const ownedNames = new Set(subjects.map((x) => x.name));
+  const recommended = defaultTags.filter((n) => !ownedNames.has(n));
 
   // 선택 과목 — 미선택/삭제 시 첫 과목으로 폴백.
   const active = subjects.find((x) => x.id === selectedId) ?? subjects[0];
@@ -147,10 +175,40 @@ export default function FocusCategoryScreen() {
           setMenu((m) => (m?.id === id ? null : { id, ...a }));
         }}
         footer={
-          <TouchableOpacity style={s.addBtn} activeOpacity={0.8} onPress={handleAddSubject}>
-            <Ionicons name="add" size={16} color={T.inkMuted} />
-            <Text style={s.addText}>새 과목 추가</Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity style={s.addBtn} activeOpacity={0.8} onPress={handleAddSubject}>
+              <Ionicons name="add" size={16} color={T.inkMuted} />
+              <Text style={s.addText}>새 과목 추가</Text>
+            </TouchableOpacity>
+            {/* 추천 과목 유도 — 탭하면 바로 과목으로 추가되고 목록에서 사라진다 */}
+            {recommended.length > 0 && (
+              <View style={s.recoSection}>
+                <Text style={s.recoLabel}>{category} 추천 과목</Text>
+                {recommended.map((name) => (
+                  <TouchableOpacity
+                    key={name}
+                    style={s.recoRow}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      addSubject(name);
+                      logFocusTagCreated();
+                    }}
+                  >
+                    <View style={s.recoIcon}>
+                      <Ionicons name="book-outline" size={16} color={T.accent} />
+                    </View>
+                    <Text style={s.recoName} numberOfLines={1}>
+                      {name}
+                    </Text>
+                    <View style={s.recoAddPill}>
+                      <Ionicons name="add" size={13} color={T.accent} />
+                      <Text style={s.recoAddText}>추가</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </>
         }
       />
 
@@ -296,4 +354,39 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
   addText: { ...T.text.label, color: T.inkMuted },
+
+  // 추천 과목 유도 섹션 — 실제 과목 행과 구분되게 옅은 카드로
+  recoSection: { marginTop: 18, gap: 8, paddingBottom: 24 },
+  recoLabel: { ...T.text.caption, color: T.inkMuted, marginLeft: 2, marginBottom: 1 },
+  recoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.paperAlt,
+    borderRadius: 13,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+  },
+  recoIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    backgroundColor: T.caramel,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recoName: { flex: 1, ...T.text.label, fontWeight: '600', color: T.inkSub },
+  recoAddPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 6,
+    paddingHorizontal: 11,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: T.accent,
+  },
+  recoAddText: { ...T.text.caption, fontWeight: '700', color: T.accent },
 });

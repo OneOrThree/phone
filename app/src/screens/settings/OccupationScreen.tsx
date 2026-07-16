@@ -6,6 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import { TagSuggestionSheet } from '@/screens/settings/components/TagSuggestionSheet';
+import { RecommendedTagsEditSheet } from '@/screens/settings/components/RecommendedTagsEditSheet';
 import { FOCUS_CATEGORY_GROUPS, occupationForCategory } from '@/constants/focusCategories';
 import { updateOccupation } from '@/services/userApi';
 import { getDefaultTags } from '@/services/focusApi';
@@ -39,6 +40,8 @@ export default function OccupationScreen() {
   const [proposal, setProposal] = useState<{ additions: string[]; removals: Subject[] } | null>(
     null,
   );
+  // [추천과목 수정하기] 시트용 — 현재 시험의 추천 과목 전체(null이면 비표시)
+  const [editList, setEditList] = useState<string[] | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.focusCategory).then((c) => {
@@ -47,7 +50,10 @@ export default function OccupationScreen() {
     });
   }, []);
 
-  const changed = selected !== null && selected !== original;
+  // 현재 시험이 그대로 선택된 상태 — 버튼이 [추천과목 수정하기]가 되어 시험 변경 없이
+  // 추천 추가/과목 정리 시트만 다시 돌릴 수 있다(GROMO-668). 다른 시험이면 기존 [저장].
+  const isSameAsCurrent = selected !== null && selected === original;
+  const canSave = selected !== null;
 
   // 시험 변경 실제 반영 — 시트 [완료하기](또는 시트 생략 시 저장 직후)에서만 호출된다
   async function applyCategoryChange() {
@@ -63,13 +69,27 @@ export default function OccupationScreen() {
   }
 
   async function handleSave() {
-    if (!selected || saving || !changed) return;
+    if (!selected || saving || !canSave) return;
     setSaving(true);
-    // 변경할 직군의 추천 과목 조회 — 보유 과목과 중복은 사전 제외.
+    const occupation = occupationForCategory(selected);
+
+    // [추천과목 수정하기] — 현재 시험 그대로일 때. 추천 전체를 단일 시트로 띄워
+    // 보유분은 체크된 상태로 시작, diff만 [완료하기]에서 반영한다.
+    if (isSameAsCurrent && occupation) {
+      try {
+        const res = await getDefaultTags(occupation);
+        setEditList([...res.tags].sort((a, b) => a.sortOrder - b.sortOrder).map((t) => t.name));
+      } catch {
+        // 조회 실패 — 시트 없이 화면에 남는다(재시도 가능)
+      }
+      setSaving(false);
+      return;
+    }
+
+    // [저장] — 다른 시험으로 변경. 추천 과목 조회 후 2스텝 시트(추가 제안 + 보유 과목 정리).
     // 삭제 제안은 직군 무관 '보유 과목 전체'를 대상으로 한다(GROMO-668) —
     // 전전 시험 과목처럼 어느 직군 추천에도 없는 과목도 이 기회에 정리할 수 있게.
     // 이 시점엔 아무것도 저장하지 않는다 — 반영은 시트 [완료하기]에서(취소하면 시험 변경도 무효).
-    const occupation = occupationForCategory(selected);
     if (occupation) {
       try {
         const res = await getDefaultTags(occupation);
@@ -93,11 +113,10 @@ export default function OccupationScreen() {
   }
 
   // 시트 [완료하기] — 시험 변경 + 과목 추가/삭제를 이 시점에 일괄 반영하고 닫는다.
-  // 추가는 로컬 과목으로만(서버 태그는 세션 업로드 때 tagSync가 지연 생성).
+  // 추가는 addSubject가 서버 태그 생성(syncTagCreated)까지 즉시 발사한다(실패 시 세션 업로드 때 자가치유).
   // 삭제는 FocusCategoryScreen과 동일한 후처리 — 서버 태그 동기화는 deleteSubject 내장,
   // 오늘 누적분은 홈 '오늘 집중'에서도 차감.
-  function handleComplete(adds: string[], removes: Subject[]) {
-    applyCategoryChange();
+  function applySubjectDiff(adds: string[], removes: Subject[]) {
     adds.forEach((n) => {
       addSubject(n);
       logFocusTagCreated();
@@ -107,6 +126,17 @@ export default function OccupationScreen() {
       logFocusTagDeleted();
       if (sub.accumulatedSeconds > 0) removeFocusSeconds(sub.accumulatedSeconds);
     });
+  }
+
+  function handleComplete(adds: string[], removes: Subject[]) {
+    applyCategoryChange();
+    applySubjectDiff(adds, removes);
+    navigation.goBack();
+  }
+
+  // [추천과목 수정하기] 완료 — 시험은 그대로이므로 과목 diff만 반영
+  function handleEditComplete(adds: string[], removes: Subject[]) {
+    applySubjectDiff(adds, removes);
     navigation.goBack();
   }
 
@@ -118,12 +148,14 @@ export default function OccupationScreen() {
         onBack={() => navigation.goBack()}
         footer={
           <TouchableOpacity
-            style={[s.saveBtn, !changed || saving ? s.saveBtnDisabled : null]}
+            style={[s.saveBtn, !canSave || saving ? s.saveBtnDisabled : null]}
             activeOpacity={0.85}
-            disabled={!changed || saving}
+            disabled={!canSave || saving}
             onPress={handleSave}
           >
-            <Text style={s.saveText}>{saving ? '저장 중…' : '저장'}</Text>
+            <Text style={s.saveText}>
+              {saving ? '저장 중…' : isSameAsCurrent ? '추천과목 수정하기' : '저장'}
+            </Text>
           </TouchableOpacity>
         }
       >
@@ -166,6 +198,16 @@ export default function OccupationScreen() {
           onComplete={handleComplete}
           // 취소·딤 탭 — 시험 변경 포함 전부 무반영. 화면에 남아 다시 고를 수 있게 시트만 닫는다.
           onCancel={() => setProposal(null)}
+        />
+      ) : null}
+
+      {editList !== null && selected !== null ? (
+        <RecommendedTagsEditSheet
+          examLabel={selected}
+          recommendations={editList}
+          owned={subjects}
+          onComplete={handleEditComplete}
+          onCancel={() => setEditList(null)}
         />
       ) : null}
     </View>
