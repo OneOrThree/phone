@@ -10,6 +10,8 @@ import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.dto.FocusLiveInfo;
+import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
@@ -34,6 +36,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +46,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
@@ -79,7 +83,12 @@ class FriendServiceTest {
     @Mock
     private LeagueTierLookup leagueTierLookup;
 
+    @Mock
+    private FocusLiveInfoLookup focusLiveInfoLookup;
+
     private FriendService friendService;
+
+    private static final LocalDate DATE = LocalDate.of(2026, 7, 3);
 
     private UUID meId;
     private UUID targetId;
@@ -91,7 +100,7 @@ class FriendServiceTest {
         given(nicknameStrategy.type()).willReturn(SearchType.NICKNAME);
         friendService = new FriendService(friendshipRepository, userRepository, pinnedUserRepository,
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
-                userActivityEventLogger, leagueTierLookup, List.of(nicknameStrategy));
+                userActivityEventLogger, leagueTierLookup, focusLiveInfoLookup, List.of(nicknameStrategy));
 
         meId = UUID.randomUUID();
         targetId = UUID.randomUUID();
@@ -354,7 +363,7 @@ class FriendServiceTest {
                 friendship(b, me, FriendshipStatus.ACCEPTED)    // me가 to
         ));
 
-        List<FriendResponse> friends = friendService.getFriends(meId);
+        List<FriendResponse> friends = friendService.getFriends(meId, DATE);
 
         assertThat(friends).extracting(FriendResponse::getUserId)
                 .containsExactlyInAnyOrder(a.getId(), b.getId());
@@ -377,7 +386,7 @@ class FriendServiceTest {
         given(leagueTierLookup.tierLevelsByUserId(List.of(a.getId(), b.getId())))
                 .willReturn(Map.of(a.getId(), 3, b.getId(), 1));
 
-        List<FriendResponse> friends = friendService.getFriends(meId);
+        List<FriendResponse> friends = friendService.getFriends(meId, DATE);
 
         assertThat(friends).filteredOn(f -> f.getUserId().equals(a.getId()))
                 .extracting(FriendResponse::getTierLevel).containsExactly(3);
@@ -553,11 +562,62 @@ class FriendServiceTest {
         given(pinnedUserRepository.findByUser(me))
                 .willReturn(List.of(PinnedUser.builder().user(me).pinnedUser(target).build()));
 
-        List<FriendResponse> friends = friendService.getFriends(meId);
+        List<FriendResponse> friends = friendService.getFriends(meId, DATE);
 
         assertThat(friends).hasSize(1);
         assertThat(friends.get(0).getUserId()).isEqualTo(targetId);
         assertThat(friends.get(0).isPinned()).isTrue();
+    }
+
+    @Test
+    @DisplayName("친구 목록 — 집중 중 친구는 라이브 필드(분·isFocusing·시작시각·태그명) 채워짐 (GROMO-822)")
+    void getFriends_focusingFriend_fillsLiveFields() {
+        Instant start = Instant.parse("2026-07-03T01:00:00Z");
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(friendshipRepository.findAcceptedByUser(me))
+                .willReturn(List.of(friendship(me, target, FriendshipStatus.ACCEPTED)));
+        given(focusLiveInfoLookup.liveInfoByUserId(List.of(targetId), DATE))
+                .willReturn(Map.of(targetId, new FocusLiveInfo(42, true, start, "전공 공부")));
+
+        List<FriendResponse> friends = friendService.getFriends(meId, DATE);
+
+        assertThat(friends).hasSize(1);
+        FriendResponse f = friends.get(0);
+        assertThat(f.getUserId()).isEqualTo(targetId);
+        assertThat(f.isFocusing()).isTrue();
+        assertThat(f.getFocusTimeMinutes()).isEqualTo(42);
+        assertThat(f.getFocusStartedAt()).isEqualTo(start);
+        assertThat(f.getFocusTagName()).isEqualTo("전공 공부");
+    }
+
+    @Test
+    @DisplayName("친구 목록 — 라이브 정보 없는 친구는 기본값(0·false·null)")
+    void getFriends_noLiveInfo_defaults() {
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(friendshipRepository.findAcceptedByUser(me))
+                .willReturn(List.of(friendship(me, target, FriendshipStatus.ACCEPTED)));
+        // liveInfoByUserId 는 미조회 유저를 맵에 담지 않는다 → Mockito 기본 빈 맵 반환
+
+        List<FriendResponse> friends = friendService.getFriends(meId, DATE);
+
+        assertThat(friends).hasSize(1);
+        FriendResponse f = friends.get(0);
+        assertThat(f.isFocusing()).isFalse();
+        assertThat(f.getFocusTimeMinutes()).isZero();
+        assertThat(f.getFocusStartedAt()).isNull();
+        assertThat(f.getFocusTagName()).isNull();
+    }
+
+    @Test
+    @DisplayName("친구 목록 — 조회 date 가 FocusLiveInfoLookup 에 그대로 전달됨")
+    void getFriends_passesDateToLookup() {
+        given(userRepository.findById(meId)).willReturn(Optional.of(me));
+        given(friendshipRepository.findAcceptedByUser(me))
+                .willReturn(List.of(friendship(me, target, FriendshipStatus.ACCEPTED)));
+
+        friendService.getFriends(meId, DATE);
+
+        verify(focusLiveInfoLookup).liveInfoByUserId(anyList(), eq(DATE));
     }
 
     @Test

@@ -31,6 +31,16 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // 진행 중(미종료) 세션 — 핀 친구 isFocusing 판정용. endedAt IS NULL.
     List<FocusSession> findByUserInAndEndedAtIsNull(Collection<User> users);
 
+    // 진행 중(미종료) 세션 배치 조회 — userId 기반(FocusLiveInfoLookup 공용, GROMO-822).
+    // 친구 목록 isFocusing·시작시각·태그명 도출용. User 기반 findByUserInAndEndedAtIsNull(핀 친구용)의 userId·태그 페치 확장판.
+    // focusTag(user_focus_tags)와 그 defaultTag 를 LEFT JOIN FETCH 로 함께 로딩(태그명 매핑 N+1 방지 —
+    // findCompletedSessionsInPeriod 관례).
+    @Query("SELECT s FROM FocusSession s "
+            + "LEFT JOIN FETCH s.focusTag ft "
+            + "LEFT JOIN FETCH ft.defaultTag "
+            + "WHERE s.user.id IN :userIds AND s.endedAt IS NULL")
+    List<FocusSession> findByUserIdInAndEndedAtIsNull(@Param("userIds") Collection<UUID> userIds);
+
     // orphan 정리용(GROMO-610) — 앱 강제종료 등으로 threshold 이전에 시작됐으나 아직 미종료인 세션.
     // 스케줄러가 조회해 시작+상한으로 종료시각을 채워 '영원히 집중중' 오염을 제거한다.
     List<FocusSession> findByEndedAtIsNullAndStartedAtBefore(Instant threshold);

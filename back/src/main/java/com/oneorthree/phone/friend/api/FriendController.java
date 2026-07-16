@@ -13,6 +13,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -95,14 +97,20 @@ public class FriendController {
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(summary = "친구 목록 조회", description = "ACCEPTED·미삭제 친구 목록. isPinned는 내가 핀한 친구면 true.")
+    @Operation(summary = "친구 목록 조회",
+            description = "ACCEPTED·미삭제 친구 목록. isPinned는 내가 핀한 친구면 true. 각 친구의 집중 라이브 정보"
+                    + "(isFocusing·focusTimeMinutes·focusStartedAt·focusTagName) 포함. "
+                    + "date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD).")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "조회 성공")
+            @ApiResponse(responseCode = "200", description = "조회 성공"),
+            @ApiResponse(responseCode = "400", description = "date 누락·형식 오류")
     })
     @GetMapping("/friends")
-    public ResponseEntity<List<FriendResponse>> getFriends(HttpServletRequest httpServletRequest) {
+    public ResponseEntity<List<FriendResponse>> getFriends(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            HttpServletRequest httpServletRequest) {
         UUID userId = (UUID) httpServletRequest.getAttribute("userId");
-        return ResponseEntity.ok(friendService.getFriends(userId));
+        return ResponseEntity.ok(friendService.getFriends(userId, date));
     }
 
     @Operation(summary = "친구 요청 목록 조회", description = "type=received(받은) | sent(보낸) PENDING 요청 목록.")

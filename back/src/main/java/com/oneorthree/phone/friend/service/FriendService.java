@@ -5,7 +5,9 @@ import com.fasterxml.uuid.NoArgGenerator;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.friend.domain.Friendship;
@@ -54,6 +56,7 @@ public class FriendService {
     private final CharacterEquipmentRepository characterEquipmentRepository;
     private final UserActivityEventLogger userActivityEventLogger;
     private final LeagueTierLookup leagueTierLookup;
+    private final FocusLiveInfoLookup focusLiveInfoLookup;
     private final Map<SearchType, FriendSearchStrategy> searchStrategies;
 
     // 검색 전략은 AuthService의 Map<Provider, SocialLoginClient>와 동일하게
@@ -66,6 +69,7 @@ public class FriendService {
                          CharacterEquipmentRepository characterEquipmentRepository,
                          UserActivityEventLogger userActivityEventLogger,
                          LeagueTierLookup leagueTierLookup,
+                         FocusLiveInfoLookup focusLiveInfoLookup,
                          List<FriendSearchStrategy> searchStrategies) {
         this.friendshipRepository = friendshipRepository;
         this.userRepository = userRepository;
@@ -75,6 +79,7 @@ public class FriendService {
         this.characterEquipmentRepository = characterEquipmentRepository;
         this.userActivityEventLogger = userActivityEventLogger;
         this.leagueTierLookup = leagueTierLookup;
+        this.focusLiveInfoLookup = focusLiveInfoLookup;
         this.searchStrategies = searchStrategies.stream()
                 .collect(Collectors.toMap(FriendSearchStrategy::type, strategy -> strategy));
     }
@@ -152,7 +157,7 @@ public class FriendService {
     }
 
     // 친구 목록 — ACCEPTED·미삭제 관계를 상대 유저로 매핑. isPinned는 내 핀 친구 집합으로 결정.
-    public List<FriendResponse> getFriends(UUID me) {
+    public List<FriendResponse> getFriends(UUID me, LocalDate date) {
         User meUser = getUser(me);
         Set<UUID> pinnedIds = pinnedUserRepository.findByUser(meUser).stream()
                 .map(p -> p.getPinnedUser().getId())
@@ -160,17 +165,27 @@ public class FriendService {
         List<User> others = friendshipRepository.findAcceptedByUser(meUser).stream()
                 .map(f -> counterpart(f, me))
                 .toList();
+        List<UUID> otherIds = others.stream().map(User::getId).toList();
         // GROMO-710: 상대 userId 들을 한 번에 모아 티어 배치 조회(N+1 방지). 티어는 league_arena_users 로만 도출(GROMO-671).
-        Map<UUID, Integer> tierLevels = leagueTierLookup.tierLevelsByUserId(
-                others.stream().map(User::getId).toList());
+        Map<UUID, Integer> tierLevels = leagueTierLookup.tierLevelsByUserId(otherIds);
+        // GROMO-822: 상대 userId 들의 집중 라이브 정보(당일 집중분·진행중 여부·시작시각·태그명)를 1회 배치 조회(N+1 방지).
+        // date 는 클라 로컬 타임존 기준 오늘(/pins 와 동일). 미조회 유저는 맵에 없어 아래에서 기본값(0/false/null) 처리.
+        Map<UUID, FocusLiveInfo> liveInfo = focusLiveInfoLookup.liveInfoByUserId(otherIds, date);
         return others.stream()
-                .map(other -> FriendResponse.builder()
-                        .userId(other.getId())
-                        .nickname(other.getNickname())
-                        .occupation(other.getOccupation() != null ? other.getOccupation().name() : null)
-                        .tierLevel(tierLevels.get(other.getId()))
-                        .isPinned(pinnedIds.contains(other.getId()))
-                        .build())
+                .map(other -> {
+                    FocusLiveInfo info = liveInfo.get(other.getId());
+                    return FriendResponse.builder()
+                            .userId(other.getId())
+                            .nickname(other.getNickname())
+                            .occupation(other.getOccupation() != null ? other.getOccupation().name() : null)
+                            .tierLevel(tierLevels.get(other.getId()))
+                            .isPinned(pinnedIds.contains(other.getId()))
+                            .isFocusing(info != null && info.isFocusing())
+                            .focusTimeMinutes(info != null ? info.focusTimeMinutes() : 0)
+                            .focusStartedAt(info != null ? info.focusStartedAt() : null)
+                            .focusTagName(info != null ? info.focusTagName() : null)
+                            .build();
+                })
                 .toList();
     }
 

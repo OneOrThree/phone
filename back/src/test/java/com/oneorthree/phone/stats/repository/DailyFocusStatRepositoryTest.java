@@ -179,4 +179,26 @@ class DailyFocusStatRepositoryTest extends RepositoryTestBase {
 
         assertThat(result).containsExactly(focused.getId());
     }
+
+    // ── findByUserIdInAndDate (GROMO-822 FocusLiveInfoLookup 공용) ─────────
+
+    @Test
+    @DisplayName("byUserIdInAndDate — userId 집합의 당일 집계만 반환. 다른 날짜·집합 밖 유저는 제외")
+    void byUserIdInAndDate_returnsStatsForUserIdsOnDate() {
+        User a = saveUser("a", null);
+        User b = saveUser("b", null);
+        User outOfSet = saveUser("outOfSet", null);
+        LocalDate day = LocalDate.of(2026, 7, 3);
+        saveStat(a, day, 2520);                 // 당일 → 포함
+        saveStat(b, day.minusDays(1), 3000);    // 다른 날짜 → 제외
+        saveStat(outOfSet, day, 5000);          // 집합 밖 → 제외
+        dailyFocusStatRepository.flush();
+
+        List<DailyFocusStat> result = dailyFocusStatRepository.findByUserIdInAndDate(
+                List.of(a.getId(), b.getId()), day);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getUser().getId()).isEqualTo(a.getId());
+        assertThat(result.get(0).getTotalFocusSeconds()).isEqualTo(2520);
+    }
 }
