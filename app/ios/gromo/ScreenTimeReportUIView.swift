@@ -96,13 +96,15 @@ class ScreenTimeReportUIView: UIView {
                 && sel.categoryTokens.isEmpty
                 && sel.webDomainTokens.isEmpty) {
             // 선택한 앱/카테고리만 집계
+            // 웹 도메인은 판정·버킷(ScreenTimeModule)과 동일 규칙으로 카테고리 선택 시 제외 —
+            // 리포트만 도메인을 세면 홈 표시량과 판정/서버 기록이 어긋난다(PR 리뷰 반영).
             filter = DeviceActivityFilter(
                 segment: .daily(during: interval),
                 users: .all,
                 devices: .init([.iPhone]),
                 applications: sel.applicationTokens,
                 categories: sel.categoryTokens,
-                webDomains: sel.webDomainTokens
+                webDomains: sel.categoryTokens.isEmpty ? sel.webDomainTokens : []
             )
         } else {
             // 측정 대상 미설정 → 전체 앱 (기존 동작)
