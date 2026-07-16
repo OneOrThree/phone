@@ -39,8 +39,9 @@ interface OnboardingFlowProps {
 }
 
 // 플로우 노드 — 입력 스텝 / 중간 로그인 / 마지막 닉네임(가입 확정 지점).
+// subStep: 동적으로 끼어드는 보조 스텝(과목 확인) — 진행바에서 직전 스텝과 같은 칸을 공유한다.
 type FlowNode =
-  | { kind: 'step'; Component: ComponentType<StepProps> }
+  | { kind: 'step'; Component: ComponentType<StepProps>; subStep?: boolean }
   | { kind: 'login' }
   | { kind: 'nickname' };
 
@@ -79,7 +80,9 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       step(SubjectCompareStep),
       { kind: 'login' },
       step(FocusCategoryStep),
-      ...(hasSubjects ? [step(SubjectEditStep)] : []),
+      ...(hasSubjects
+        ? [{ kind: 'step' as const, Component: SubjectEditStep, subStep: true }]
+        : []),
       step(ScreenTimePermissionStep),
       step(denied ? ScreenTimeDeniedStep : YesterdayScreenTimeStep),
       step(GoalSettingStep),
@@ -151,6 +154,19 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const node = sequence[index];
   const canBack = index > backFloor;
 
+  // 진행바는 로그인 전/후 구간을 각각 처음부터 다시 채운다 — 로그인 전 3칸, 후 5칸 고정.
+  // 과목 확인(subStep)은 칸 수에서 제외해 동적으로 끼어들어도 칸 수가 흔들리지 않는다
+  // (집중카테고리와 같은 칸을 공유).
+  const isSubStep = (n: FlowNode) => n.kind === 'step' && !!n.subStep;
+  const postLogin = sequence.slice(loginIndex + 1);
+  const progress =
+    index < loginIndex
+      ? { current: index, total: loginIndex }
+      : {
+          current: postLogin.slice(0, index - loginIndex).filter((n) => !isSubStep(n)).length - 1,
+          total: postLogin.filter((n) => !isSubStep(n)).length,
+        };
+
   // 중간 로그인 화면 — 자체 전체화면 레이아웃(진행바 없음).
   if (node.kind === 'login') {
     return <LoginScreen onLogin={onMidFlowLogin} />;
@@ -159,7 +175,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   // 마지막 닉네임 — 입력 후 곧바로 가입 확정. 실패 시 이 화면에 serverError/submitting을 유지한다.
   if (node.kind === 'nickname') {
     return (
-      <OnboardingProgressContext.Provider value={{ current: index, total: sequence.length }}>
+      <OnboardingProgressContext.Provider value={progress}>
         <View style={styles.flex} {...swipeBack.panHandlers}>
           <NicknameStep
             data={data}
@@ -181,7 +197,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   const Step = node.Component;
   return (
-    <OnboardingProgressContext.Provider value={{ current: index, total: sequence.length }}>
+    <OnboardingProgressContext.Provider value={progress}>
       <View style={styles.flex} {...swipeBack.panHandlers}>
         <Step data={data} update={update} onNext={next} onBack={canBack ? back : undefined} />
       </View>
