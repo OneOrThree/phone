@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Share,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -29,6 +30,7 @@ import { ComingSoon } from './stats/ComingSoon';
 import { CardOrderEditor } from './stats/CardOrderEditor';
 import { SubjectProgressList } from '@/components/SubjectProgressList';
 import { STORAGE_KEYS } from '@/types/storage';
+import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { fetchTodayFocusSessions, sessionFocusSeconds } from '@/screens/focus/focusRestore';
 import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
 import type { FocusSessionResponse } from '@/types/dto/focus';
@@ -122,42 +124,97 @@ export default function StatsScreen() {
   const month = new Date().getMonth() + 1;
   const cards: { key: string; node: ReactNode }[] = [];
 
+  // 첫 진입 스포트라이트 투어(GROMO-652) — 총/과목별 카드를 차례로 비추고, 화면 밖이면
+  // 스크롤로 끌어와서 보여준 뒤 투어가 끝나면 맨 위로 원위치한다.
+  const { height: winH } = useWindowDimensions();
+  const scrollRef = useRef<ScrollView>(null);
+  const guideScrollY = useRef(0);
+  const totalCardRef = useRef<View | null>(null);
+  const categoryCardRef = useRef<View | null>(null);
+  // 앵커가 필터 아래(140)~하단 여유(120) 사이에 오도록 스크롤한 뒤 측정하게 한다
+  function scrollCardIntoView(ref: RefObject<View | null>) {
+    return new Promise<void>((resolve) => {
+      const node = ref.current;
+      const scroller = scrollRef.current;
+      if (!node || !scroller) {
+        resolve();
+        return;
+      }
+      node.measureInWindow((_x, y, _w, h) => {
+        let delta = 0;
+        if (y + h > winH - 120) delta = y + h - (winH - 120);
+        else if (y < 140) delta = y - 140;
+        if (delta === 0) {
+          resolve();
+          return;
+        }
+        guideScrollY.current = Math.max(0, guideScrollY.current + delta);
+        scroller.scrollTo({ y: guideScrollY.current, animated: true });
+        setTimeout(resolve, 380); // 스크롤 애니메이션이 끝난 뒤 측정
+      });
+    });
+  }
+  const guideSteps: GuideStep[] = [
+    {
+      text: '여기는 통계야!\n공부 기록을 일·주·월 탭으로 나눠서 볼 수 있어.',
+      character: require('@/assets/character_hi.png'),
+    },
+    {
+      text: '기간 동안의 총 집중시간과 다른 사람들과의 비교를 보여줘.',
+      character: require('@/assets/character_study.png'),
+      anchor: totalCardRef,
+      prepare: () => scrollCardIntoView(totalCardRef),
+    },
+    {
+      text: '과목별로 얼마나 집중했는지도 여기서 확인할 수 있어.\n아래로 내리면 더 많은 그래프가 기다리고 있어!',
+      character: require('@/assets/character_happy.png'),
+      anchor: categoryCardRef,
+      prepare: () => scrollCardIntoView(categoryCardRef),
+    },
+  ];
+  // 투어 종료 — 투어 중 옮긴 스크롤을 맨 위로 원복
+  function finishGuide() {
+    guideScrollY.current = 0;
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }
+
   // ST1 총 공부량 (나) + 비교 — 주간은 리그 랭킹 기반 실비교(GROMO-761), 일/월은 평균 집계
   // API(753) 기반 실비교(GROMO-833). 제목이 탭별 기간 표기(오늘/이번 주/N월)라 캡션 불필요
   cards.push({
     key: 'total',
     node: (
-      <SectionCard
-        key="total"
-        title={
-          period === 'DAY'
-            ? '오늘 총 집중시간'
-            : period === 'WEEK'
-              ? '이번 주 총 집중시간'
-              : `${month}월 총 집중시간`
-        }
-      >
-        <Text style={s.bigStat}>
-          {period === 'DAY'
-            ? hms(todayFocusSeconds)
-            : fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
-        </Text>
-        {period === 'WEEK' ? (
-          <CompareWeek myMinutes={data.focus?.totalFocusMinutes ?? 0} />
-        ) : (
-          // key로 탭 전환 시 리마운트 — 이전 기간 평균이 새 탭 위에 잠깐 보이는 것 방지
-          <ComparePeriod
-            key={period}
-            period={period}
-            myMinutes={
-              // 내 값은 위 큰 숫자와 동일 소스 — 일=로컬 오늘 누적(초→분), 월=서버 기간 집계
-              period === 'DAY'
-                ? Math.round(todayFocusSeconds / 60)
-                : (data.focus?.totalFocusMinutes ?? 0)
-            }
-          />
-        )}
-      </SectionCard>
+      <View key="total" ref={totalCardRef} collapsable={false}>
+        <SectionCard
+          title={
+            period === 'DAY'
+              ? '오늘 총 집중시간'
+              : period === 'WEEK'
+                ? '이번 주 총 집중시간'
+                : `${month}월 총 집중시간`
+          }
+        >
+          <Text style={s.bigStat}>
+            {period === 'DAY'
+              ? hms(todayFocusSeconds)
+              : fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
+          </Text>
+          {period === 'WEEK' ? (
+            <CompareWeek myMinutes={data.focus?.totalFocusMinutes ?? 0} />
+          ) : (
+            // key로 탭 전환 시 리마운트 — 이전 기간 평균이 새 탭 위에 잠깐 보이는 것 방지
+            <ComparePeriod
+              key={period}
+              period={period}
+              myMinutes={
+                // 내 값은 위 큰 숫자와 동일 소스 — 일=로컬 오늘 누적(초→분), 월=서버 기간 집계
+                period === 'DAY'
+                  ? Math.round(todayFocusSeconds / 60)
+                  : (data.focus?.totalFocusMinutes ?? 0)
+              }
+            />
+          )}
+        </SectionCard>
+      </View>
     ),
   });
 
@@ -166,25 +223,26 @@ export default function StatsScreen() {
   cards.push({
     key: 'category',
     node: (
-      <SectionCard
-        key="category"
-        title={
-          period === 'DAY'
-            ? '오늘 과목별 집중시간'
-            : period === 'WEEK'
-              ? '이번 주 과목별 집중시간'
-              : `${month}월 과목별 집중시간`
-        }
-      >
-        {period !== 'DAY' ? (
-          <CategoryDonut
-            items={data.category?.items ?? []}
-            total={data.category?.totalFocusMinutes ?? 0}
-          />
-        ) : (
-          <SubjectProgressList rows={subjects} />
-        )}
-      </SectionCard>
+      <View key="category" ref={categoryCardRef} collapsable={false}>
+        <SectionCard
+          title={
+            period === 'DAY'
+              ? '오늘 과목별 집중시간'
+              : period === 'WEEK'
+                ? '이번 주 과목별 집중시간'
+                : `${month}월 과목별 집중시간`
+          }
+        >
+          {period !== 'DAY' ? (
+            <CategoryDonut
+              items={data.category?.items ?? []}
+              total={data.category?.totalFocusMinutes ?? 0}
+            />
+          ) : (
+            <SubjectProgressList rows={subjects} />
+          )}
+        </SectionCard>
+      </View>
     ),
   });
 
@@ -412,10 +470,23 @@ export default function StatsScreen() {
         // 순서 편집 모드 — 실제 카드 오른쪽 위 핸들을 잡아 카드를 끌어 순서 변경. 탭을 바꾸면 그 탭 순서 편집(탭별 저장)
         <CardOrderEditor key={period} cards={orderedCards} onReorder={onReorderCards} />
       ) : (
-        <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={s.scroll}
+          showsVerticalScrollIndicator={false}
+        >
           {orderedCards.map((c) => c.node)}
         </ScrollView>
       )}
+
+      {/* 첫 진입 스포트라이트 투어(GROMO-652) — 카드가 실제로 렌더된 뒤에만 */}
+      {!firstLoad && orderLoaded && !editing ? (
+        <TabGuideOverlay
+          storageKey={STORAGE_KEYS.guideStats}
+          steps={guideSteps}
+          onFinish={finishGuide}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }

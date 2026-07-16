@@ -32,6 +32,8 @@ import { LiveFocusTime } from './components/LiveFocusTime';
 import { MemberAvatar } from './components/MemberAvatar';
 import { TierBadge } from './components/TierBadge';
 import { ProfileSheet, type ProfileTarget } from './components/ProfileSheet';
+import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { STORAGE_KEYS } from '@/types/storage';
 import {
   logLeagueViewed,
   logLeagueTabChanged,
@@ -230,10 +232,32 @@ export default function LeagueScreen() {
     });
   }
 
+  // 첫 진입 사용법 안내(GROMO-652) — 캐릭터가 리그 경쟁·탭 전환을 설명
+  const segmentRef = useRef<View | null>(null);
+  const guideSteps: GuideStep[] = [
+    {
+      text: '리그에 온 걸 환영해!\n같은 시험을 준비하는 사람들과 일주일 동안 공부 시간으로 경쟁하는 곳이야.',
+      character: require('@/assets/character_hi.png'),
+    },
+    {
+      text: '여기서 리그와 친구 랭킹을 오갈 수 있어. 리그가 끝나면 순위에 따라 티어가 오르내려!',
+      character: require('@/assets/character_happy.png'),
+      anchor: segmentRef,
+    },
+    {
+      text: '순위는 이번 주 집중 시간으로 정해져.\n지금 바로 집중을 시작해서 순위를 올려보자!',
+      character: require('@/assets/character_study.png'),
+    },
+  ];
+
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       {/* ── 최상단: 리그/친구 세그먼트 ── */}
-      <View style={[s.segmentWrap, tab === 'friend' ? s.segmentWrapFriend : null]}>
+      <View
+        style={[s.segmentWrap, tab === 'friend' ? s.segmentWrapFriend : null]}
+        ref={segmentRef}
+        collapsable={false}
+      >
         <View style={s.segment}>
           {(['league', 'friend'] as TabKey[]).map((k) => {
             const on = tab === k;
@@ -651,6 +675,9 @@ export default function LeagueScreen() {
 
       {/* ── 프로필 오버레이 ── */}
       <ProfileSheet target={selected} onClose={() => setSelected(null)} />
+
+      {/* 첫 진입 사용법 안내(GROMO-652) */}
+      <TabGuideOverlay storageKey={STORAGE_KEYS.guideLeague} steps={guideSteps} />
     </SafeAreaView>
   );
 }

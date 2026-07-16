@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -14,6 +14,7 @@ import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
 import { SettingsSection, SettingsRow } from '@/screens/settings/components/SettingsList';
+import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 
@@ -93,6 +94,26 @@ export default function MenuScreen() {
   const permissionLabel =
     permission === 'approved' ? '허용됨' : permission === 'denied' ? '거부됨' : '요청 필요';
 
+  // 첫 진입 사용법 안내(GROMO-652) — 캐릭터가 프로필·설정 허브를 설명
+  const profileRef = useRef<View | null>(null);
+  const goalSectionRef = useRef<View | null>(null);
+  const guideSteps: GuideStep[] = [
+    {
+      text: '전체 탭에서는 프로필과 앱의 모든 설정을 관리할 수 있어.',
+      character: require('@/assets/character_hi.png'),
+    },
+    {
+      text: '프로필을 탭하면 닉네임을 편집할 수 있어.',
+      character: require('@/assets/character_happy.png'),
+      anchor: profileRef,
+    },
+    {
+      text: '준비 시험과 목표 시간은 여기서 바꿔.\n준비 시험을 바꾸면 추천 과목도 새로 받을 수 있어!',
+      character: require('@/assets/character_study.png'),
+      anchor: goalSectionRef,
+    },
+  ];
+
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       <View style={s.header}>
@@ -108,6 +129,7 @@ export default function MenuScreen() {
           style={s.profile}
           activeOpacity={0.8}
           onPress={() => navigation.navigate('SettingsProfileEdit')}
+          ref={profileRef}
         >
           <View style={s.avatar}>
             <CharacterImage size={44} />
@@ -132,47 +154,49 @@ export default function MenuScreen() {
           <Ionicons name="chevron-forward" size={18} color={T.inkMuted} />
         </TouchableOpacity>
 
-        <SettingsSection title="집중 · 목표">
-          <SettingsRow
-            icon="school-outline"
-            iconColor={T.accentDeep}
-            iconBg={T.accentBg}
-            label="준비 시험"
-            value={category ?? '미설정'}
-            onPress={() => navigation.navigate('SettingsOccupation')}
-          />
-          <SettingsRow
-            icon="flag-outline"
-            iconColor={T.accentDeep}
-            iconBg={T.accentBg}
-            label="개인 목표 수정"
-            sub={`집중 ${hLabel(goalSeconds)} · 사용 ${hLabel(screenTimeGoalSeconds)}`}
-            onPress={() => navigation.navigate('SettingsGoals')}
-          />
-          <SettingsRow
-            icon="lock-open-outline"
-            iconColor={T.greenDeep}
-            iconBg={T.greenBg}
-            label="집중 중 허용 앱 관리"
-            sub={
-              allowedApps === null
-                ? '집중 중에도 쓸 수 있는 앱'
-                : allowedApps > 0
-                  ? `앱 ${allowedApps}개 허용 중`
-                  : '허용앱 없음'
-            }
-            onPress={() => navigation.navigate('SettingsAllowedApps')}
-          />
-          <SettingsRow
-            icon="phone-portrait-outline"
-            iconColor={T.accent}
-            iconBg={T.accentBg}
-            label="스크린타임 권한"
-            value={permission === null ? undefined : permissionLabel}
-            valueColor={permission === 'approved' ? T.successInk : T.inkSub}
-            onPress={() => navigation.navigate('SettingsScreenTimePermission')}
-          />
-        </SettingsSection>
+        <View ref={goalSectionRef} collapsable={false}>
+          <SettingsSection title="집중 · 목표">
+            <SettingsRow
+              icon="school-outline"
+              iconColor={T.accentDeep}
+              iconBg={T.accentBg}
+              label="준비 시험"
+              value={category ?? '미설정'}
+              onPress={() => navigation.navigate('SettingsOccupation')}
+            />
+            <SettingsRow
+              icon="flag-outline"
+              iconColor={T.accentDeep}
+              iconBg={T.accentBg}
+              label="개인 목표 수정"
+              sub={`집중 ${hLabel(goalSeconds)} · 사용 ${hLabel(screenTimeGoalSeconds)}`}
+              onPress={() => navigation.navigate('SettingsGoals')}
+            />
+            <SettingsRow
+              icon="lock-open-outline"
+              iconColor={T.greenDeep}
+              iconBg={T.greenBg}
+              label="집중 중 허용 앱 관리"
+              sub={
+                allowedApps === null
+                  ? '집중 중에도 쓸 수 있는 앱'
+                  : allowedApps > 0
+                    ? `앱 ${allowedApps}개 허용 중`
+                    : '허용앱 없음'
+              }
+              onPress={() => navigation.navigate('SettingsAllowedApps')}
+            />
+            <SettingsRow
+              icon="phone-portrait-outline"
+              iconColor={T.accent}
+              iconBg={T.accentBg}
+              label="스크린타임 권한"
+              value={permission === null ? undefined : permissionLabel}
+              valueColor={permission === 'approved' ? T.successInk : T.inkSub}
+              onPress={() => navigation.navigate('SettingsScreenTimePermission')}
+            />
+          </SettingsSection>
+        </View>
 
         <SettingsSection title="알림 · 공개">
           <SettingsRow
@@ -294,6 +318,9 @@ export default function MenuScreen() {
           />
         </>
       )}
+
+      {/* 첫 진입 사용법 안내(GROMO-652) */}
+      <TabGuideOverlay storageKey={STORAGE_KEYS.guideMenu} steps={guideSteps} />
     </SafeAreaView>
   );
 }

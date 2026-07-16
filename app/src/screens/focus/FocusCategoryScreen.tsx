@@ -20,6 +20,7 @@ import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { occupationForCategory } from '@/constants/focusCategories';
 import { getDefaultTags } from '@/services/focusApi';
 import { STORAGE_KEYS } from '@/types/storage';
+import { TabGuideOverlay } from '@/components/TabGuideOverlay';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, PomodoroConfig, Subject } from './types';
 import { DraggableSubjectRows } from './components/DraggableSubjectRows';
@@ -299,6 +300,21 @@ export default function FocusCategoryScreen() {
           </View>
         </>
       )}
+
+      {/* 첫 진입 사용법 카드(GROMO-652) — 집중 시작(FAB) 첫 탭 시 잠깐 설명 후 이용 */}
+      <TabGuideOverlay
+        storageKey={STORAGE_KEYS.guideFocus}
+        steps={[
+          {
+            text: '집중할 과목을 골라줘!\n과목을 탭하면 무제한·타이머·뽀모도로 중 집중 방식을 고를 수 있어.',
+            character: require('@/assets/character_hi.png'),
+          },
+          {
+            text: '집중을 마치면 공부 시간이 과목별로 기록되고 리그 순위에도 반영돼.\n그럼 시작해보자!',
+            character: require('@/assets/character_study.png'),
+          },
+        ]}
+      />
 
       {sheet === 'method' && active && (
         <TimerMethodSheet
