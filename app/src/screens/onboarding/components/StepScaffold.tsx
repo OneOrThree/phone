@@ -17,6 +17,8 @@ interface StepScaffoldProps {
   ctaLabel: string;
   onCta: () => void;
   ctaDisabled?: boolean;
+  // 로딩 연출 등이 끝날 때까지 CTA를 잠시 감출 때 — 자리는 유지해 레이아웃 튐 방지.
+  ctaHidden?: boolean;
   secondaryLabel?: string;
   onSecondary?: () => void;
   // 기본은 스크롤 잠금(전환 시 본문 튐 방지). 콘텐츠가 긴 스텝만 opt-in해 세로 스크롤 허용.
@@ -33,6 +35,7 @@ export default function StepScaffold({
   ctaLabel,
   onCta,
   ctaDisabled,
+  ctaHidden,
   secondaryLabel,
   onSecondary,
   scrollable,
@@ -88,9 +91,9 @@ export default function StepScaffold({
       <View style={s.footer}>
         <TouchableOpacity
           activeOpacity={0.85}
-          disabled={ctaDisabled}
+          disabled={ctaDisabled || ctaHidden}
           onPress={onCta}
-          style={[s.cta, ctaDisabled ? s.ctaDisabled : null]}
+          style={[s.cta, ctaDisabled ? s.ctaDisabled : null, ctaHidden ? s.ctaHidden : null]}
         >
           <Text style={s.ctaText}>{ctaLabel}</Text>
         </TouchableOpacity>
@@ -140,6 +143,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   ctaDisabled: { opacity: 0.45 },
+  ctaHidden: { opacity: 0 },
   ctaText: { ...T.text.subtitle, color: T.white },
   secondarySlot: {
     height: 22,
