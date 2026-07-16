@@ -51,28 +51,44 @@ export function tenMinuteFocusSlots(
 }
 
 // 주간 세션 → 요일별 집중 블록(GROMO-778 요일별 집중 타임라인).
-// 각 세션을 '시작 시각의 로컬 요일'(월=0..일=6) 칼럼에 두고, 그날 자정 기준 시작·끝(분)으로 담는다.
-// 자정을 넘긴 세션은 그날 칼럼에서 24:00(1440분)으로 절단한다(시작 요일에 귀속 — FirstStartChart와 동일 취지).
+// 세션을 로컬 자정 경계로 분할해 각 조각을 해당 날짜의 요일 칼럼(월=0..일=6)에 담는다 — 자정을
+// 넘긴 세션도 다음날 칼럼에 이어서 보인다(리뷰 반영). 위치는 벽시계 시:분 기준 — 자정 경과 ms
+// 나눗셈은 DST 전환일에 시각과 어긋난다(tenMinuteFocusSlots와 동일 취지, 리뷰 반영).
+// weekStartMs(주 시작 월요일 00:00) 이전 조각은 버린다 — 전주 일요일에서 넘어온 세션은 월요일 몫만 남긴다.
 export interface WeekFocusBlock {
   col: number; // 0=월 .. 6=일
-  startMin: number; // 그날 자정 기준 시작(분)
-  endMin: number; // 그날 자정 기준 끝(분, 최대 1440)
+  startMin: number; // 그날 벽시계 기준 시작(분)
+  endMin: number; // 그날 벽시계 기준 끝(분, 최대 1440)
   tagId: string | null; // 과목 색 결정용(미분류면 null)
 }
 
 export function weekdayFocusBlocks(
   sessions: { startedAt: string; endedAt: string; focusTagId: string | null }[],
+  weekStartMs: number,
 ): WeekFocusBlock[] {
   const out: WeekFocusBlock[] = [];
   for (const sn of sessions) {
-    const start = new Date(sn.startedAt);
-    // 세션 시작일의 로컬 자정 — DST 전환일도 벽시계 자정이라 안전
-    const dayMid = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
-    const startMin = (Date.parse(sn.startedAt) - dayMid) / 60000;
-    const endMin = Math.min((Date.parse(sn.endedAt) - dayMid) / 60000, 1440);
-    if (!(endMin > startMin)) continue;
-    const dow = start.getDay(); // 0=일..6=토
-    out.push({ col: dow === 0 ? 6 : dow - 1, startMin, endMin, tagId: sn.focusTagId });
+    const end = Date.parse(sn.endedAt);
+    let t = Date.parse(sn.startedAt);
+    if (!(end > t)) continue;
+    while (t < end) {
+      const d = new Date(t);
+      // 조각 끝 = 세션 끝 vs 다음날 로컬 자정 중 이른 쪽
+      const nextMid = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+      const pieceEnd = Math.min(end, nextMid);
+      if (t >= weekStartMs) {
+        const startMin = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+        const e = new Date(pieceEnd);
+        const endMin =
+          pieceEnd === nextMid ? 1440 : e.getHours() * 60 + e.getMinutes() + e.getSeconds() / 60;
+        if (endMin > startMin) {
+          const dow = d.getDay(); // 0=일..6=토
+          out.push({ col: dow === 0 ? 6 : dow - 1, startMin, endMin, tagId: sn.focusTagId });
+        }
+      }
+      // 경계가 전진하지 않는 비정상 케이스(시간대 급변 등) 무한 루프 방지 — tenMinuteFocusSlots와 동일
+      t = pieceEnd > t ? pieceEnd : t + 60e3;
+    }
   }
   return out;
 }

@@ -1037,8 +1037,8 @@ function WeeklyTimetableCard() {
   );
 }
 
-// 주 탭 요일별 집중 타임라인(GROMO-778) — 요일(열)×세로 시간축. 각 세션을 시작 요일 칼럼에
-// 과목 색 블록으로 그린다. 색 매핑(tagId→태그명→과목색)·조회 패턴은 '오늘 타임테이블'(FocusTimetable)과 동일.
+// 주 탭 요일별 집중 타임라인(GROMO-778) — 요일(열)×세로 시간축. 세션을 날짜별로 분할해 해당 요일
+// 칼럼에 과목 색 블록으로 그린다. 색 매핑(tagId→태그명→과목색)·조회 패턴은 '오늘 타임테이블'(FocusTimetable)과 동일.
 const WTT_BODY_H = 220; // 트랙 세로 픽셀
 const WTT_MIN_BLOCK = 3; // 아주 짧은 세션도 보이도록 최소 블록 높이
 const WEEK_DOWS = ['월', '화', '수', '목', '금', '토', '일'];
@@ -1054,7 +1054,8 @@ function WeeklyTimetable() {
     useCallback(() => {
       let cancelled = false;
       (async () => {
-        // 이번 주 월요일 00:00(로컬)부터 지금까지. /focus-session은 startedAt 필터라 '이번 주 시작 세션'과 일치.
+        // 이번 주 월요일 00:00(로컬)부터 지금까지. 전주 일요일에서 자정을 넘어온 세션의 월요일 몫도
+        // 담기 위해 하루 전부터 받고(LongestSessionStat과 동일 방식), 주 시작 이전 조각은 헬퍼가 버린다.
         const now = new Date();
         const dow = now.getDay(); // 0=일..6=토
         const monday = new Date(
@@ -1063,15 +1064,17 @@ function WeeklyTimetable() {
           now.getDate() + (dow === 0 ? -6 : 1 - dow),
         );
         monday.setHours(0, 0, 0, 0);
+        const from = new Date(monday);
+        from.setDate(from.getDate() - 1);
         const [sessions, tags] = await Promise.all([
-          getAllFocusSessions(monday.toISOString(), now.toISOString()).catch(
+          getAllFocusSessions(from.toISOString(), now.toISOString()).catch(
             () => [] as FocusSessionResponse[],
           ),
           getFocusTags().catch(() => []),
         ]);
         if (cancelled) return;
         setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
-        setBlocks(weekdayFocusBlocks(sessions));
+        setBlocks(weekdayFocusBlocks(sessions, monday.getTime()));
       })();
       return () => {
         cancelled = true;
