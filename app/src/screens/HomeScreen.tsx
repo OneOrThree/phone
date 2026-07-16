@@ -450,8 +450,9 @@ export default function HomeScreen() {
       />
 
       {/* 스크린타임 목표 달성 축하 모달(GROMO-629) — 어제 달성 시 오늘 첫 홈 진입에 노출 */}
+      {/* 포커스 축하가 떠 있으면 대기 — 두 모달이 겹치지 않게 순차 노출(코드리뷰 P2) */}
       <ScreenTimeCelebrationModal
-        visible={screenTimeCelebration != null}
+        visible={screenTimeCelebration != null && goalCelebration == null}
         streakDays={screenTimeCelebration?.days ?? 1}
         goalMinutes={screenTimeCelebration?.goalMinutes}
         onClose={closeScreenTimeCelebration}

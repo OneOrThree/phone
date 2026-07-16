@@ -198,8 +198,12 @@ export async function syncScreenTimeUsage(
   // 목표 판정 모니터링 등록/재등록 — 미등록이거나 목표가 바뀌었으면. 이게 없으면 gromo.daily가
   // 안 돌아 getYesterdayResult()가 영영 null → 어제 마감이 분값 근사 폴백으로만 동작한다.
   // (신규 유저는 목표가 온보딩 W12에서 정해지므로 W10이 아니라 여기서 첫 등록된다.)
+  // 재등록 전에 읽은 등록 목표 = 어제 네이티브 판정에 쓰인 목표. 오늘 목표를 바꿔도 축하 문구가
+  // 어제 기준으로 나오게 보관한다(코드리뷰 P2).
+  let yesterdayGoalSeconds: number | null = null;
   try {
     const registeredGoal = await AsyncStorage.getItem(STORAGE_KEYS.screentimeGoalMonitorSeconds);
+    yesterdayGoalSeconds = registeredGoal ? Number(registeredGoal) : null;
     if (goalSeconds > 0 && registeredGoal !== String(goalSeconds)) {
       await registerGoalMonitoring(goalSeconds); // 선택 없으면 false → 저장 없이 다음에 재시도
     }
@@ -262,13 +266,15 @@ export async function syncScreenTimeUsage(
         });
         // 마감도 동기화의 일종 — 설정 화면 '마지막 동기화' 표시를 갱신한다.
         await AsyncStorage.setItem(STORAGE_KEYS.screentimeLastSyncedDate, today);
-        // 어제 목표 달성 시 축하 예약(GROMO-629) — 오늘 첫 홈 진입에 1회 노출. 목표(분)은 모달
-        // 'N시간 이내' 문구용. 예약 실패가 마감/마킹을 막지 않도록 조용히 무시.
-        if (achieved) {
-          await scheduleYesterdayScreenTimeCelebration(
-            yesterday,
-            goalSeconds > 0 ? Math.round(goalSeconds / 60) : undefined,
-          ).catch(() => {});
+        // 축하는 네이티브 '확정 성공'(result==='success')일 때만 예약(GROMO-629) — 오늘 첫 홈 진입에
+        // 1회 노출. 분값 근사(result null·조회 실패)로는 예약하지 않는다 — 오판 방지(코드리뷰 P2).
+        // 문구 'N시간 이내'의 목표는 어제 판정 기준 목표(yesterdayGoalSeconds)를 쓴다.
+        if (result === 'success') {
+          const goalMin =
+            yesterdayGoalSeconds && yesterdayGoalSeconds > 0
+              ? Math.round(yesterdayGoalSeconds / 60)
+              : undefined;
+          await scheduleYesterdayScreenTimeCelebration(yesterday, goalMin).catch(() => {});
         }
       }
       // 마킹은 읽기가 모두 성공했을 때만 — 부분 데이터로 보냈다면(위 upsert는 멱등) 다음
