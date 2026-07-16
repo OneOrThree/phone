@@ -77,6 +77,9 @@ export default function FriendProfileScreen() {
   // 친구 관계는 진입점 파라미터 + 서버 친구 목록, 핀은 파라미터 + 서버 핀 목록으로 관리(통계 공개와 별개).
   const [isFriend, setIsFriend] = useState(route.params.isFriend);
   const [isPinned, setIsPinned] = useState(route.params.isPinned ?? false);
+  // 이 화면에서 핀을 토글했는지 — 마운트 시 핀 목록 조회가 토글 전 스냅샷으로 뒤늦게 도착해
+  // 방금 누른 핀을 덮지 않게 가드(PR 267 리뷰 반영). 토글 후엔 낙관적 갱신+실패 롤백이 진실이다.
+  const pinTouched = useRef(false);
   const [requested, setRequested] = useState(false);
 
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
@@ -145,7 +148,7 @@ export default function FriendProfileScreen() {
       if (list) {
         setIsFriend(list.some((f) => f.userId === userId));
       }
-      if (pins) {
+      if (pins && !pinTouched.current) {
         setIsPinned(pins.some((p) => p.userId === userId));
       }
       if (sent) {
@@ -160,6 +163,7 @@ export default function FriendProfileScreen() {
 
   // 핀 토글 — 낙관적 갱신, 실패 시 롤백 (서버 멱등이라 중복 탭 안전)
   async function togglePin() {
+    pinTouched.current = true;
     const next = !isPinned;
     setIsPinned(next);
     try {
