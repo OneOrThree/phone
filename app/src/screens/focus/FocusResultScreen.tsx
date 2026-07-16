@@ -365,65 +365,59 @@ export default function FocusResultScreen() {
           ) : null}
         </View>
 
-        {/* 이번 주 스트릭 채우기 — 첫 집중 완료 변형(시안 14번) + 오늘 ✓ 채워지는 날(GROMO-667) */}
-        {firstTime || todayPop ? (
-          <LinearGradient
-            colors={[T.accentBg, T.sand]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={s.streakCard}
-          >
-            <View style={s.streakHead}>
-              <View style={s.streakIcon}>
-                <Ionicons name="flame" size={13} color={T.white} />
-              </View>
-              {/* 오늘 10분 미달이면 '완료'가 판정(빈 ✓·안내 문구)과 모순되므로 제목 분기 */}
-              <Text style={s.streakTitle}>
-                {todayStreakDone
-                  ? '이번 주 집중 스트릭 채우기 완료!'
-                  : '이번 주 집중 스트릭을 채워봐요!'}
-              </Text>
-              {streak && streak.currentStreak > 0 ? (
-                <Text style={s.streakBadge}>{streak.currentStreak}일 연속</Text>
-              ) : null}
+        {/* 이번 주 스트릭 카드 — 항상 노출(오스카 요청). ✓ 채우기 팝은 todayPop(오늘 10분 충족)일 때만. */}
+        <LinearGradient
+          colors={[T.accentBg, T.sand]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={s.streakCard}
+        >
+          <View style={s.streakHead}>
+            <View style={s.streakIcon}>
+              <Ionicons name="flame" size={13} color={T.white} />
             </View>
-            <View style={s.dotRow}>
-              {days.map((date, i) => {
-                const cell = cellByDate[date];
-                const isToday = date === today;
-                // 출석 = 하루 누적 10분 이상(GROMO-682). 오늘은 방금 세션이 서버 집계에
-                // 아직 없을 수 있어 보정한 판정값(todayStreakDone)을 쓴다.
-                const done = isToday
-                  ? todayStreakDone
-                  : cell != null && cell.totalFocusMinutes >= STREAK_MIN_DAILY_MINUTES;
-                const future = date > today;
-                // 오늘 ✓가 채워지는 날은 즉시 채우지 않고 팝 모션으로 찍는다(지난 요일은 정적)
-                const popping = isToday && todayPop;
-                return (
-                  <View key={date} style={s.dotCol}>
-                    <View
-                      style={[
-                        s.dot,
-                        done && !popping ? s.dotOn : null,
-                        future ? s.dotFuture : null,
-                      ]}
-                    >
-                      {done && !popping ? (
+            {/* 오늘 10분 미달이면 '완료'가 판정(빈 ✓·안내 문구)과 모순되므로 제목 분기 */}
+            <Text style={s.streakTitle}>
+              {todayStreakDone
+                ? '이번 주 집중 스트릭 채우기 완료!'
+                : '이번 주 집중 스트릭을 채워봐요!'}
+            </Text>
+            {streak && streak.currentStreak > 0 ? (
+              <Text style={s.streakBadge}>{streak.currentStreak}일 연속</Text>
+            ) : null}
+          </View>
+          <View style={s.dotRow}>
+            {days.map((date, i) => {
+              const cell = cellByDate[date];
+              const isToday = date === today;
+              // 출석 = 하루 누적 10분 이상(GROMO-682). 오늘은 방금 세션이 서버 집계에
+              // 아직 없을 수 있어 보정한 판정값(todayStreakDone)을 쓴다.
+              const done = isToday
+                ? todayStreakDone
+                : cell != null && cell.totalFocusMinutes >= STREAK_MIN_DAILY_MINUTES;
+              const future = date > today;
+              // 오늘 ✓가 채워지는 날은 즉시 채우지 않고 팝 모션으로 찍는다(지난 요일은 정적)
+              const popping = isToday && todayPop;
+              return (
+                <View key={date} style={s.dotCol}>
+                  <View
+                    style={[s.dot, done && !popping ? s.dotOn : null, future ? s.dotFuture : null]}
+                  >
+                    {done && !popping ? (
+                      <Ionicons name="checkmark" size={15} color={T.white} />
+                    ) : null}
+                    {popping ? (
+                      <Animated.View style={[s.dotPopFill, checkPop]}>
                         <Ionicons name="checkmark" size={15} color={T.white} />
-                      ) : null}
-                      {popping ? (
-                        <Animated.View style={[s.dotPopFill, checkPop]}>
-                          <Ionicons name="checkmark" size={15} color={T.white} />
-                        </Animated.View>
-                      ) : null}
-                    </View>
-                    <Text style={[s.dotDay, isToday ? s.dotDayToday : null]}>{WEEK_LABELS[i]}</Text>
+                      </Animated.View>
+                    ) : null}
                   </View>
-                );
-              })}
-            </View>
-          </LinearGradient>
-        ) : null}
+                  <Text style={[s.dotDay, isToday ? s.dotDayToday : null]}>{WEEK_LABELS[i]}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </LinearGradient>
 
         {/* 스트릭 기준 안내(GROMO-682) — 오늘 누적이 10분 미만이면 채워지는 조건을 알려준다 */}
         {!todayStreakDone ? (
