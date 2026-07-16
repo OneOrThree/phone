@@ -11,7 +11,7 @@ jobs:
     if: |
       github.event.issue.pull_request != null &&
       contains(github.event.comment.body, '@claude')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci, spot]
     timeout-minutes: 10
     permissions:
       contents: read
