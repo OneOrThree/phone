@@ -4,6 +4,8 @@ import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
@@ -12,8 +14,13 @@ import { T } from '@/constants/theme';
 import { logOnboardingScreentimeViewed } from '@/services/analyticsEvents';
 import type { StepProps } from '@/screens/onboarding/types';
 
-// 분석 연출 시간 — 진행바가 리니어하게 100%까지 차는 데 걸리는 시간.
-const ANALYZE_MS = 2000;
+// 분석 연출 타이밍 — 기본 2초에 90%까지 리니어하게 찬 뒤, 마지막에 잠깐 멈춰
+// 네이티브 리포트가 그려질 시간을 번다(가드). 익스텐션 내부 렌더라 로드 완료 신호가
+// JS로 오지 않아 시간으로만 버틸 수 있다 — 리포트가 늦게 뜨는 케이스 완화 목적.
+const FILL_MS = 2000; // 0 → 90%
+const HOLD_MS = 900; // 90%에서 멈춤(가드 타임)
+const FINISH_MS = 300; // 90% → 100%
+const ANALYZE_MS = FILL_MS + HOLD_MS + FINISH_MS;
 
 // 분석 연출은 앱 실행당 1회만 — 뒤로 갔다 다시 진입해도 반복하지 않는다(앱 재시작 시 초기화).
 let analyzedThisSession = false;
@@ -34,7 +41,10 @@ export default function YesterdayScreenTimeStep({ onNext }: StepProps) {
   useEffect(() => {
     logOnboardingScreentimeViewed({ has_data: !!ScreenTimeReportView });
     if (analyzedThisSession) return;
-    progress.value = withTiming(1, { duration: ANALYZE_MS, easing: Easing.linear });
+    progress.value = withSequence(
+      withTiming(0.9, { duration: FILL_MS, easing: Easing.linear }),
+      withDelay(HOLD_MS, withTiming(1, { duration: FINISH_MS, easing: Easing.out(Easing.cubic) })),
+    );
     const timer = setTimeout(() => {
       analyzedThisSession = true;
       setAnalyzed(true);
