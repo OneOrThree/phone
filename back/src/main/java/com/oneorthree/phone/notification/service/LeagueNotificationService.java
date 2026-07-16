@@ -38,6 +38,9 @@ public class LeagueNotificationService {
 
     static final int NOTIFICATION_PAGE_SIZE = 200;
 
+    /** 최하위 티어 — 강등 대상이 아니므로 강등 경고 발송에서 제외한다. */
+    private static final int MIN_TIER_LEVEL = 1;
+
     /** 최상위 티어 — 승급 대상이 아니므로 마감 D-1(승급 독려) 발송에서 제외한다. */
     private static final int MAX_TIER_LEVEL = 5;
 
@@ -110,7 +113,7 @@ public class LeagueNotificationService {
         sendDeadlineSequence(now, "마감 4시간 전", this::composeDeadline);
     }
 
-    /** 마감 2시간 전 알림 — 스케줄러(일 22:00 KST). 진행 중 전원. */
+    /** 마감 2시간 전 알림 — 스케줄러(일 22:00 KST)·수동 트리거 진입점. 진행 중 전원. */
     public void sendFinalDeadlineReminders() {
         sendFinalDeadlineReminders(Instant.now());
     }
@@ -163,7 +166,7 @@ public class LeagueNotificationService {
         sendCrisisReminders(now, true);
     }
 
-    /** 강등 경고 재발송 — 스케줄러(일 18:00 KST). 강등 위험군만 손실회피 강화(마감 D-1 제외). */
+    /** 강등 경고 재발송 — 스케줄러(일 18:00 KST)·수동 트리거 진입점. 강등 위험군만 손실회피 강화(마감 D-1 제외). */
     public void sendRelegationWarnings() {
         sendRelegationWarnings(Instant.now());
     }
@@ -208,8 +211,9 @@ public class LeagueNotificationService {
 
     /**
      * soft-delete 된 설정을 제외하고 티어 1~5 설정을 모두 확보한다.
-     * 불완전하면 예외 — 삭제된 임계값 오용이나 일부 티어 누락으로 위기 알림이 조용히 스킵되는 것을 막는다
-     * (LeagueBatchService.loadTierConfigs 와 동일 정책).
+     * 개수뿐 아니라 각 티어의 존재까지 검증한다 — 삭제된 T5 + 오활성 티어6처럼 개수는 5여도
+     * 특정 티어가 비면 그 티어 유저의 위기 알림이 config == null 로 조용히 스킵되기 때문이다.
+     * 불완전하면 예외로 드러낸다 (LeagueBatchService.loadTierConfigs 와 동일 정책).
      */
     private Map<Integer, LeagueTierConfig> loadTierConfigs() {
         Map<Integer, LeagueTierConfig> tierConfigs = leagueTierConfigRepository.findAll().stream()
@@ -218,6 +222,11 @@ public class LeagueNotificationService {
         if (tierConfigs.size() != MAX_TIER_LEVEL) {
             throw new IllegalStateException(
                     "리그 티어 설정이 불완전합니다 (활성 " + tierConfigs.size() + "개, 기대 " + MAX_TIER_LEVEL + "개)");
+        }
+        for (int tierLevel = MIN_TIER_LEVEL; tierLevel <= MAX_TIER_LEVEL; tierLevel++) {
+            if (!tierConfigs.containsKey(tierLevel)) {
+                throw new IllegalStateException("리그 티어 " + tierLevel + " 설정이 없습니다");
+            }
         }
         return tierConfigs;
     }

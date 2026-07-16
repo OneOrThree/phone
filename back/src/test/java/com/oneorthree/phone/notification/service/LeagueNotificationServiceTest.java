@@ -389,6 +389,19 @@ class LeagueNotificationServiceTest {
     }
 
     @Test
+    @DisplayName("활성 개수는 5여도 티어가 1~5가 아니면 예외로 드러내 조용한 스킵을 막는다")
+    void throwsWhenTierMissingDespiteMatchingCount() {
+        List<LeagueTierConfig> configs = new ArrayList<>(defaultTierConfigs());
+        configs.set(4, deletedTierConfig(5, 252_000, 201_600)); // T5 soft-delete
+        configs.add(tierConfig(6, 302_400, 252_000)); // 오활성 티어6 → 활성 5개지만 T5 누락
+        given(leagueTierConfigRepository.findAll()).willReturn(configs);
+
+        assertThatThrownBy(() -> service.sendSundayCrisisReminders(NOW))
+                .isInstanceOf(IllegalStateException.class);
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("강등 경고 문구에 부족한 시간을 시간·분으로 표기한다")
     void relegationWarningFormatsShortfall() {
         User relegationRisk = user(UUID.randomUUID());

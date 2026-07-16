@@ -54,6 +54,42 @@ public class NotificationBatchController {
         return ResponseEntity.noContent().build();
     }
 
+    @Operation(summary = "리그 위기 알림(강등 경고 + 마감 D-1) 수동 실행",
+            description = "스케줄러 일 09:00 KST 잡과 동일 — 전역 랭킹 전원 대상, 유저당 1건 분기(강등 경고 우선). "
+                    + "재트리거 시 중복 발송 — 운영 주의.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "실행 완료 (발송 건수는 서버 로그 참조)")
+    })
+    @PostMapping("/notifications/league/crisis/run")
+    public ResponseEntity<Void> runSundayCrisisReminders() {
+        leagueNotificationService.sendSundayCrisisReminders();
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "리그 강등 경고 재발송 수동 실행",
+            description = "스케줄러 일 18:00 KST 잡과 동일 — 강등 위험군만 재발송(마감 D-1 제외). "
+                    + "재트리거 시 중복 발송 — 운영 주의.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "실행 완료 (발송 건수는 서버 로그 참조)")
+    })
+    @PostMapping("/notifications/league/relegation-warning/run")
+    public ResponseEntity<Void> runRelegationWarnings() {
+        leagueNotificationService.sendRelegationWarnings();
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "리그 마감 2시간 전 알림 수동 실행",
+            description = "스케줄러 일 22:00 KST 잡과 동일 — 진행 중 전원에게 현재 순위 포함 발송. "
+                    + "재트리거 시 중복 발송 — 운영 주의.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "실행 완료 (발송 건수는 서버 로그 참조)")
+    })
+    @PostMapping("/notifications/league/final-deadline/run")
+    public ResponseEntity<Void> runFinalDeadlineReminders() {
+        leagueNotificationService.sendFinalDeadlineReminders();
+        return ResponseEntity.noContent().build();
+    }
+
     @Operation(summary = "미접속 복귀 푸시 수동 실행",
             description = "last_active_at 기준 D+3/7/14 정확히 N일째 유저에게 단계별 문구로 즉시 발송. "
                     + "⚠️ Dedup 미적용 — 같은 날 재트리거 시 중복 발송될 수 있음(운영 주의).")
