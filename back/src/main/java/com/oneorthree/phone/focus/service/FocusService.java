@@ -4,7 +4,10 @@ import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.domain.FocusSessionStatus;
+import com.oneorthree.phone.focus.domain.FocusType;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.focus.dto.FocusSessionCancelRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
@@ -232,9 +235,13 @@ public class FocusService {
 
         UserFocusTag tag = resolveOwnedTag(userId, body.getFocusTagId());
 
+        // GROMO-733: POST 는 완료(종료 시각 포함) 통째 저장 — status=COMPLETED 로 세팅해 'ACTIVE 로 남던' 부정합을 교정한다.
+        // focusType 은 null 이면 INFINITE 기본(엔티티 @Builder.Default 정합, 하위호환).
         focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .focusTag(tag)
+                .status(FocusSessionStatus.COMPLETED)
+                .focusType(body.getFocusType() != null ? body.getFocusType() : FocusType.INFINITE)
                 .startedAt(body.getStartedAt())
                 .endedAt(body.getEndedAt())
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
@@ -270,9 +277,11 @@ public class FocusService {
         Instant startedAt = body.startedAt() != null ? body.startedAt() : Instant.now();
         UserFocusTag tag = resolveOwnedTag(userId, body.focusTagId());
 
+        // GROMO-733: focus_type 인입 — null 이면 INFINITE 기본(엔티티 @Builder.Default 정합, 하위호환).
         FocusSession saved = focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .focusTag(tag)
+                .focusType(body.focusType() != null ? body.focusType() : FocusType.INFINITE)
                 .startedAt(startedAt)
                 .build());
 
@@ -325,6 +334,34 @@ public class FocusService {
         return new FocusSessionEndResponse(session.getId(), session.getStartedAt(), endedAt,
                 durationSeconds, body.totalDistractionSeconds(),
                 result.dayTotalFocusSeconds(), result.streakQualifiedToday());
+    }
+
+    /**
+     * 세션 취소(GROMO-733) — 진행 중(endedAt NULL) 세션을 status=CANCELED 로 마감한다.
+     *
+     * <p>endFocusSession 과 동일한 이중구조: cancelSessionIfActive(조건부 원자 UPDATE, endedAt IS NULL 가드)로
+     * 취소를 원자적으로 성사시켜 이중/중복 취소를 멱등 처리하고(영향 row=0 이면 이미 종료/취소 → 409),
+     * 성사된 요청만 관리 엔티티 cancel() 더티 flush 로 in-memory 상태를 정합시킨다.
+     * 취소는 통계·스트릭 귀속이 없다(완료가 아님).
+     */
+    @Transactional
+    public void cancelFocusSession(UUID userId, FocusSessionCancelRequest body) {
+        FocusSession session = focusSessionRepository.findById(body.sessionId())
+                .orElseThrow(() -> new FocusException(FocusErrorCode.SESSION_NOT_FOUND));
+
+        if (session.getUser() == null || !session.getUser().getId().equals(userId)) {
+            throw new FocusException(FocusErrorCode.FORBIDDEN);
+        }
+
+        // 멱등/이중 취소 방지(TOCTOU 차단) — endedAt IS NULL 조건 단일 UPDATE 로 취소를 원자적으로 성사시키고,
+        // 영향 row=0(이미 종료/취소됨)이면 409. → 취소를 성사시킨 요청만 관리 엔티티를 CANCELED 로 정합시킨다.
+        Instant canceledAt = Instant.now();
+        int updated = focusSessionRepository.cancelSessionIfActive(body.sessionId(), canceledAt);
+        if (updated == 0) {
+            throw new FocusException(FocusErrorCode.SESSION_ALREADY_ENDED);
+        }
+
+        session.cancel(canceledAt);
     }
 
     /**
