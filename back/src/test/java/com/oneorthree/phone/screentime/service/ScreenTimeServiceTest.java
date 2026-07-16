@@ -9,13 +9,14 @@ import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -31,14 +32,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class ScreenTimeServiceTest {
-
-    @InjectMocks
-    private ScreenTimeService screenTimeService;
 
     @Mock
     private UserRepository userRepository;
@@ -51,6 +51,19 @@ class ScreenTimeServiceTest {
 
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
+
+    // 재시도 래퍼(saveScreenTime)가 위임하는 self 프록시. 본 로직 테스트는 saveScreenTimeTx 를 직접 호출하므로
+    // 여기 self 는 재시도 분기 테스트에서만 스텁된다.
+    @Mock
+    private ScreenTimeService self;
+
+    private ScreenTimeService screenTimeService;
+
+    @BeforeEach
+    void setUp() {
+        screenTimeService = new ScreenTimeService(userRepository, dailyScreenTimeStatRepository,
+                notificationPort, userActivityEventLogger, self);
+    }
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final String COUNTRY_CODE = "KR";
@@ -95,7 +108,7 @@ class ScreenTimeServiceTest {
         // goal 은 최종 보고 판정에 쓰이지 않는다(클라 신뢰). 스텁하지 않아도 통과해야 정상.
 
         // 과거 날짜의 목표는 지금과 달랐을 수 있어 서버는 actual>goal 여도 클라의 달성을 신뢰한다.
-        screenTimeService.saveScreenTime(USER_ID, request(true, 80, PAST_AT, true));
+        screenTimeService.saveScreenTimeTx(USER_ID, request(true, 80, PAST_AT, true));
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
@@ -118,7 +131,7 @@ class ScreenTimeServiceTest {
                 .willAnswer(i -> i.getArgument(0));
 
         // 클라가 미달성(actual 30 이 goal 이내여도 클라 판정을 신뢰) → 저장 false.
-        screenTimeService.saveScreenTime(USER_ID, request(false, 30, PAST_AT, true));
+        screenTimeService.saveScreenTimeTx(USER_ID, request(false, 30, PAST_AT, true));
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
@@ -139,7 +152,7 @@ class ScreenTimeServiceTest {
                 .willAnswer(i -> i.getArgument(0));
 
         // isFinal 미지정(구버전 앱)이라도 과거 날짜면 마감으로 간주 → 클라 달성 신뢰.
-        screenTimeService.saveScreenTime(USER_ID, request(true, 999, PAST_AT, null));
+        screenTimeService.saveScreenTimeTx(USER_ID, request(true, 999, PAST_AT, null));
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
@@ -160,7 +173,7 @@ class ScreenTimeServiceTest {
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
                 .willAnswer(i -> i.getArgument(0));
 
-        screenTimeService.saveScreenTime(USER_ID, request(false, 10, PAST_AT, null));
+        screenTimeService.saveScreenTimeTx(USER_ID, request(false, 10, PAST_AT, null));
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
@@ -184,7 +197,7 @@ class ScreenTimeServiceTest {
                 .willAnswer(i -> i.getArgument(0));
 
         // 클라가 달성 true 주장해도 interim 은 판정하지 않음 → 신규 row flag 기본값(false).
-        screenTimeService.saveScreenTime(USER_ID, request(true, 90, todayAt, false));
+        screenTimeService.saveScreenTimeTx(USER_ID, request(true, 90, todayAt, false));
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
@@ -207,7 +220,7 @@ class ScreenTimeServiceTest {
                 .willReturn(Optional.of(existing));
 
         // interim 은 클라 달성=false 여도 기존 flag 를 덮지 않는다(마감만 flag 확정).
-        screenTimeService.saveScreenTime(USER_ID, request(false, 45, todayAt, false));
+        screenTimeService.saveScreenTimeTx(USER_ID, request(false, 45, todayAt, false));
 
         assertThat(existing.getTotalScreenTimeMinutes()).isEqualTo(45);
         assertThat(existing.isScreenTimeGoalAchieved()).isTrue(); // 기존 flag 보존
@@ -228,7 +241,7 @@ class ScreenTimeServiceTest {
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
                 .willAnswer(i -> i.getArgument(0));
 
-        screenTimeService.saveScreenTime(USER_ID, request(true, null, todayAt, false));
+        screenTimeService.saveScreenTimeTx(USER_ID, request(true, null, todayAt, false));
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
@@ -253,7 +266,7 @@ class ScreenTimeServiceTest {
                 .willReturn(Optional.of(existing));
 
         // 같은 날짜 마감 재업로드 — wasAchieved=true 이므로 재발사 없음.
-        screenTimeService.saveScreenTime(USER_ID, request(true, 55, PAST_AT, true));
+        screenTimeService.saveScreenTimeTx(USER_ID, request(true, 55, PAST_AT, true));
 
         assertThat(existing.isScreenTimeGoalAchieved()).isTrue();
         assertThat(existing.isScreenTimeFinalized()).isTrue();
@@ -275,7 +288,7 @@ class ScreenTimeServiceTest {
         given(dailyScreenTimeStatRepository.findByUserAndDate(user, PAST_DATE))
                 .willReturn(Optional.of(existing));
 
-        screenTimeService.saveScreenTime(USER_ID, request(true, 120, PAST_AT, true));
+        screenTimeService.saveScreenTimeTx(USER_ID, request(true, 120, PAST_AT, true));
 
         assertThat(existing.isScreenTimeGoalAchieved()).isTrue();     // 최종 보고 → 클라 신뢰
         assertThat(existing.isScreenTimeFinalized()).isTrue();
@@ -301,7 +314,7 @@ class ScreenTimeServiceTest {
                 .willAnswer(i -> i.getArgument(0));
 
         // 과거 날짜라 최종으로 추론됨(goal 조회 불필요). date-bucketing 만 검증.
-        screenTimeService.saveScreenTime(USER_ID, request(false, 60, reportedAt, null));
+        screenTimeService.saveScreenTimeTx(USER_ID, request(false, 60, reportedAt, null));
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
@@ -321,7 +334,7 @@ class ScreenTimeServiceTest {
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
                 .willAnswer(i -> i.getArgument(0));
 
-        screenTimeService.saveScreenTime(USER_ID, request(false, 60, reportedAt, null));
+        screenTimeService.saveScreenTimeTx(USER_ID, request(false, 60, reportedAt, null));
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
@@ -335,8 +348,38 @@ class ScreenTimeServiceTest {
     void saveScreenTimeUserNotFound() {
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> screenTimeService.saveScreenTime(USER_ID, request(true, 100, todayAt(), null)))
+        assertThatThrownBy(() -> screenTimeService.saveScreenTimeTx(USER_ID, request(true, 100, todayAt(), null)))
                 .isInstanceOf(UserException.class);
         verify(dailyScreenTimeStatRepository, never()).save(any());
+    }
+
+    // ── 동시성 재시도 래퍼: 레이스 진 요청 흡수 (GROMO-560) ──────────────────
+
+    @Test
+    @DisplayName("레이스 진 요청: 첫 saveScreenTimeTx 가 DataIntegrityViolationException → 새 트랜잭션 재시도 1회로 정상 흡수")
+    void saveScreenTimeRetriesOnceOnDataIntegrityViolation() {
+        ScreenTimeRequest request = request(false, 60, PAST_AT, true);
+        // 첫 호출은 유니크 위반, 재시도(승자 row 재조회 present)는 정상.
+        willThrow(new DataIntegrityViolationException("UNIQUE(user_id, date)"))
+                .willDoNothing()
+                .given(self).saveScreenTimeTx(USER_ID, request);
+
+        screenTimeService.saveScreenTime(USER_ID, request);
+
+        // 정확히 1회 재시도 → 총 2회 호출(AuthService 선례).
+        verify(self, times(2)).saveScreenTimeTx(USER_ID, request);
+    }
+
+    @Test
+    @DisplayName("재시도 후에도 DataIntegrityViolationException(현실적 미발생) → 전파(GlobalExceptionHandler 409 폴백)")
+    void saveScreenTimePropagatesWhenRetryAlsoFails() {
+        ScreenTimeRequest request = request(false, 60, PAST_AT, true);
+        // 두 호출 모두 유니크 위반 — catch 는 1회뿐이라 재시도 예외는 전파된다.
+        willThrow(new DataIntegrityViolationException("UNIQUE(user_id, date)"))
+                .given(self).saveScreenTimeTx(USER_ID, request);
+
+        assertThatThrownBy(() -> screenTimeService.saveScreenTime(USER_ID, request))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        verify(self, times(2)).saveScreenTimeTx(USER_ID, request);
     }
 }

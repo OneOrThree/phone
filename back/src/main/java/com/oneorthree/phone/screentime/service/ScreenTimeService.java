@@ -11,8 +11,10 @@ import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -23,7 +25,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class ScreenTimeService {
 
     private final UserRepository userRepository;
@@ -31,8 +32,47 @@ public class ScreenTimeService {
     private final ScreenTimeNotificationPort notificationPort;
     private final UserActivityEventLogger userActivityEventLogger;
 
-    @Transactional
+    // 자기 자신 프록시 — 동시 첫 저장 유니크 위반 시 새 트랜잭션으로 재시도하기 위함 (@Lazy 로 순환 주입 방지).
+    private final ScreenTimeService self;
+
+    public ScreenTimeService(UserRepository userRepository,
+                             DailyScreenTimeStatRepository dailyScreenTimeStatRepository,
+                             ScreenTimeNotificationPort notificationPort,
+                             UserActivityEventLogger userActivityEventLogger,
+                             @Lazy ScreenTimeService self) {
+        this.userRepository = userRepository;
+        this.dailyScreenTimeStatRepository = dailyScreenTimeStatRepository;
+        this.notificationPort = notificationPort;
+        this.userActivityEventLogger = userActivityEventLogger;
+        this.self = self;
+    }
+
+    /**
+     * 스크린타임 저장 진입점 — 동시성 방어를 위한 얇은 재시도 래퍼(GROMO-560).
+     *
+     * <p>동시 저장 경쟁(TOCTOU): 같은 (user, date) 로 두 요청이 동시에 도달하면 둘 다
+     * {@code findByUserAndDate} 가 empty 로 보여 각각 insert 를 시도 → UNIQUE(user_id, date) 제약으로
+     * 한쪽 커밋 시 {@link DataIntegrityViolationException}. 유니크 위반은 flush/커밋 시점에 나 트랜잭션
+     * 내부에서 잡을 수 없어, self 프록시로 새 트랜잭션을 열어 1회 재시도한다(재시도 시 승자가 만든 row 가 보여
+     * update 분기로 정상 흡수 → 진 요청도 204). 스크린타임은 덮어쓰기라 lost-update 가 없어 비관적 락은 불필요.
+     * 래퍼는 트랜잭션에 묶이지 않도록 NOT_SUPPORTED — 재시도 tx 가 첫 tx 롤백과 독립되도록. (AuthService 선례)
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void saveScreenTime(UUID userId, ScreenTimeRequest request) {
+        try {
+            self.saveScreenTimeTx(userId, request);
+        } catch (DataIntegrityViolationException e) {
+            // 레이스에서 진 요청 — 승자가 만든 row 로 새 트랜잭션에서 1회 재조회·업데이트(present 분기로 정상 흡수).
+            self.saveScreenTimeTx(userId, request);
+        }
+    }
+
+    /**
+     * 스크린타임 저장 본 로직 — self 프록시로 호출돼 매 시도가 독립 트랜잭션이 되도록 public.
+     * 순수 upsert 가 아니라 알림 전이(false→true) side-effect 가 있어 native ON CONFLICT 대신 재조회 방식을 쓴다.
+     */
+    @Transactional
+    public void saveScreenTimeTx(UUID userId, ScreenTimeRequest request) {
         // 1. 유저 조회
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
