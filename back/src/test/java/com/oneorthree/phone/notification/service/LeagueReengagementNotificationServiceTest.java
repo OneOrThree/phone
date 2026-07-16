@@ -23,7 +23,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -42,13 +41,11 @@ import static org.mockito.Mockito.verify;
 @ExtendWith(MockitoExtension.class)
 class LeagueReengagementNotificationServiceTest {
 
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final Instant NOW = Instant.parse("2026-07-15T12:00:00Z");
     private static final LocalDate WEEK_START_DATE = LocalDate.of(2026, 7, 13);
     private static final LocalDate TODAY = LocalDate.of(2026, 7, 15);
+    private static final LocalDate YESTERDAY = TODAY.minusDays(1);
     private static final int FETCH_SIZE = LeagueReengagementNotificationService.NOTIFICATION_PAGE_SIZE + 1;
-    private static final Instant START_TODAY = TODAY.atStartOfDay(KST).toInstant();
-    private static final Instant START_TOMORROW = TODAY.plusDays(1).atStartOfDay(KST).toInstant();
 
     @Mock
     private LeagueRankingQueryRepository leagueRankingQueryRepository;
@@ -103,9 +100,8 @@ class LeagueReengagementNotificationServiceTest {
                         row(target, 5_000),
                         row(focusedToday, 3_000),
                         row(nonParticipant, 0)));
-        given(focusSessionRepository.findUserIdsWithSessionStartedBetween(
-                anyCollection(), eq(START_TODAY), eq(START_TOMORROW)))
-                .willReturn(List.of(focusedToday.getId()));
+        given(dailyFocusStatRepository.findUserIdsWithFocusOnDate(anyCollection(), eq(TODAY)))
+                .willReturn(List.of(focusedToday.getId())); // 오늘 완료 집중 존재 → 미발송
         given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(target));
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
 
@@ -126,11 +122,43 @@ class LeagueReengagementNotificationServiceTest {
         given(leagueRankingQueryRepository.findGlobalRankingPage(
                 eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
                 .willReturn(List.of(row(overnight, 4_000)));
-        given(focusSessionRepository.findUserIdsWithSessionStartedBetween(
-                anyCollection(), eq(START_TODAY), eq(START_TOMORROW)))
-                .willReturn(List.of()); // 오늘 시작한 세션 없음(startedAt 기준으론 0분으로 오인)
         given(dailyFocusStatRepository.findUserIdsWithFocusOnDate(anyCollection(), eq(TODAY)))
-                .willReturn(List.of(overnight.getId())); // 종료일 귀속 집중이 있어 오늘 집중으로 인정
+                .willReturn(List.of(overnight.getId())); // 종료일(오늘) 귀속 집중이 있어 오늘 집중으로 인정 → 미발송
+
+        service.sendMissedFocusToday(NOW);
+
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("오늘 미집중 — 버려진(자동종료) 세션은 실집중 0이라 오늘 집중으로 보지 않고 발송한다")
+    void doesNotTreatAutoClosedSessionAsTodayFocus() {
+        User orphaned = user(UUID.randomUUID()); // 오늘 세션 시작했으나 orphan 자동종료 → DailyFocusStat 없음, 진행 중 세션 없음
+        given(leagueWeek.currentWeekStartDate(NOW)).willReturn(WEEK_START_DATE);
+        given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
+        given(leagueRankingQueryRepository.findGlobalRankingPage(
+                eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
+                .willReturn(List.of(row(orphaned, 4_000)));
+        // findUserIdsWithFocusOnDate·findUserIdsWithOpenSession 모두 미스텁 → 빈 결과(완료 집중 0·라이브 세션 없음)
+        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(orphaned));
+        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+
+        service.sendMissedFocusToday(NOW);
+
+        verify(pushNotificationService, times(1)).sendIfAllowed(eq(orphaned), any(), any(), eq(NOW));
+    }
+
+    @Test
+    @DisplayName("오늘 미집중 — 지금 진행 중(라이브) 세션 보유자는 집중 중으로 보고 발송하지 않는다")
+    void doesNotSendMissedFocusToUserWithOpenSession() {
+        User focusingNow = user(UUID.randomUUID()); // 오늘 완료 집중은 아직 0이지만 라이브 세션 진행 중 → 미발송
+        given(leagueWeek.currentWeekStartDate(NOW)).willReturn(WEEK_START_DATE);
+        given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
+        given(leagueRankingQueryRepository.findGlobalRankingPage(
+                eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
+                .willReturn(List.of(row(focusingNow, 4_000)));
+        given(focusSessionRepository.findUserIdsWithOpenSession(anyCollection()))
+                .willReturn(List.of(focusingNow.getId()));
 
         service.sendMissedFocusToday(NOW);
 
@@ -167,8 +195,7 @@ class LeagueReengagementNotificationServiceTest {
         User atRisk = user(UUID.randomUUID());  // streak 5, 오늘 300초(<600) → 발송
         User safe = user(UUID.randomUUID());    // streak 3, 오늘 700초(>=600) → 미발송
         given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
-        given(userStreakRepository.findByStreakCountGreaterThanAndLastSessionDateGreaterThanEqualAndDeletedAtIsNull(
-                0, TODAY.minusDays(1)))
+        given(userStreakRepository.findActiveStreakHoldersPage(eq(0), eq(YESTERDAY), isNull(), any()))
                 .willReturn(List.of(streak(atRisk.getId(), 5), streak(safe.getId(), 3)));
         given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection()))
                 .willReturn(List.of(atRisk, safe));
@@ -189,13 +216,53 @@ class LeagueReengagementNotificationServiceTest {
     @DisplayName("스트릭 위기 — 진행 중 스트릭이 없으면 발송하지 않는다")
     void skipsStreakAtRiskWhenNoActiveStreaks() {
         given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
-        given(userStreakRepository.findByStreakCountGreaterThanAndLastSessionDateGreaterThanEqualAndDeletedAtIsNull(
-                0, TODAY.minusDays(1)))
+        given(userStreakRepository.findActiveStreakHoldersPage(eq(0), eq(YESTERDAY), isNull(), any()))
                 .willReturn(List.of());
 
         service.sendStreakAtRisk(NOW);
 
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
         verify(userRepository, never()).findAllByIdInAndIsDeletedFalse(anyCollection());
+    }
+
+    @Test
+    @DisplayName("스트릭 위기 — 지금 집중 중(라이브 세션)인 유저는 오늘 10분 미달이어도 발송하지 않는다")
+    void skipsStreakAtRiskForActivelyFocusingUser() {
+        User focusingNow = user(UUID.randomUUID()); // streak 5, 오늘 완료 통계 200초(<600)지만 라이브 세션 진행 중 → 미발송
+        given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
+        given(userStreakRepository.findActiveStreakHoldersPage(eq(0), eq(YESTERDAY), isNull(), any()))
+                .willReturn(List.of(streak(focusingNow.getId(), 5)));
+        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection()))
+                .willReturn(List.of(focusingNow));
+        given(dailyFocusStatRepository.findByUserInAndDate(anyCollection(), eq(TODAY)))
+                .willReturn(List.of(dailyStat(focusingNow, 200)));
+        given(focusSessionRepository.findUserIdsWithOpenSession(anyCollection()))
+                .willReturn(List.of(focusingNow.getId()));
+
+        service.sendStreakAtRisk(NOW);
+
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("스트릭 위기 — 첫 페이지가 가득 차면(PAGE_SIZE+1) userId 키셋 커서로 다음 페이지를 이어 조회한다")
+    void pagesStreakHoldersByKeyset() {
+        int pageSize = LeagueReengagementNotificationService.NOTIFICATION_PAGE_SIZE;
+        List<UserStreak> fullFetch = new ArrayList<>();
+        for (int i = 0; i <= pageSize; i++) { // pageSize+1 개 → hasMore=true
+            fullFetch.add(streak(UUID.randomUUID(), 3));
+        }
+        UUID lastUserId = fullFetch.get(pageSize - 1).getUserId(); // subList(0,pageSize) 의 마지막 = 다음 커서
+        given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
+        given(userStreakRepository.findActiveStreakHoldersPage(eq(0), eq(YESTERDAY), isNull(), any()))
+                .willReturn(fullFetch);
+        given(userStreakRepository.findActiveStreakHoldersPage(eq(0), eq(YESTERDAY), eq(lastUserId), any()))
+                .willReturn(List.of()); // 2차 페이지 비어있음 → 종료
+        // userRepository 기본(empty) → 발송 없음, 커서 전진(2회 조회)만 검증
+
+        service.sendStreakAtRisk(NOW);
+
+        verify(userStreakRepository, times(2))
+                .findActiveStreakHoldersPage(anyInt(), any(), any(), any());
     }
 }

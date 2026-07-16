@@ -44,6 +44,13 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
                                                     @Param("from") Instant from,
                                                     @Param("to") Instant to);
 
+    // 지금 집중 중(라이브) 유저 id — 재참여/스트릭 위기 푸시에서 '현재 집중 중'을 대상에서 제외(GROMO-841).
+    // endedAt IS NULL 만 본다 — orphan 자동종료(AUTO_CLOSED)는 endedAt 이 채워져 자연히 빠진다.
+    // startedAt 기준과 달리, 통계 미반영 고아 세션(실집중 0)을 '오늘 집중함'으로 오판하지 않는다.
+    @Query("SELECT DISTINCT s.user.id FROM FocusSession s "
+            + "WHERE s.user.id IN :userIds AND s.endedAt IS NULL")
+    List<UUID> findUserIdsWithOpenSession(@Param("userIds") Collection<UUID> userIds);
+
     // 기간 내 완료 세션 집계용 전체 조회 — 카테고리별 집중 통계(GROMO-524).
     // GROMO-671(커밋3): local_date 컬럼 제거로 endedAt(UTC) [from,to) 윈도우 기준으로 조회한다.
     // 취소(CANCELED) 세션은 제외(과거 deleted_at IS NULL 을 status 기반으로 전환).
