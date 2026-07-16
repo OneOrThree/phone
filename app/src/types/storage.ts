@@ -22,7 +22,9 @@ export const STORAGE_KEYS = {
   guideLeague: 'gromo:guide:league', // 리그 탭 첫 진입 사용법 안내 노출 완료('1', GROMO-652)
   guideMenu: 'gromo:guide:menu', // 전체 탭 첫 진입 사용법 안내 노출 완료('1', GROMO-652)
   guideFocus: 'gromo:guide:focus', // 집중 과목 선택 첫 진입 사용법 카드 노출 완료('1', GROMO-652)
+  guideFocusSession: 'gromo:guide:focusSession', // 집중 세션 첫 진입 사용법 안내 노출 완료('1', GROMO-652)
   guideStats: 'gromo:guide:stats', // 통계 첫 진입 스포트라이트 투어 노출 완료('1', GROMO-652)
+  guideTier: 'gromo:guide:tier', // 티어 단계 첫 진입 사용법 안내 노출 완료('1', GROMO-652)
   subjects: 'gromo:subjects',
   goalPending: 'gromo:goal:pending',
   notificationInbox: 'gromo:notifications', // 알림 보관함 — 수신한 푸시 로컬 저장(GROMO-661)

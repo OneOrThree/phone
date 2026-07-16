@@ -23,21 +23,25 @@ export interface GuideStep {
   character: ImageSourcePropType; // 스텝별 캐릭터 표정 (character_hi 등)
   anchor?: RefObject<View | null>; // 스포트라이트 대상 — 없으면 전체 딤
   rect?: Rect; // 정적 스포트라이트 좌표(윈도 기준) — 다른 트리의 요소(탭바 FAB 등)용
-  round?: boolean; // 스포트라이트 링을 원형으로 (FAB 등 원형 버튼)
+  round?: boolean; // 완전 원형 스포트라이트 (FAB 등 원형 버튼)
+  radius?: number; // 대상 요소의 모서리 라운드 — 구멍이 요소 모양을 따라가게 (기본 CARD_RADIUS)
   // 측정 전에 실행 — 앵커가 화면 밖이면 여기서 스크롤로 끌어온 뒤 resolve(GROMO-652 통계 투어).
   // prepare가 있는 스텝은 준비 동안 전체 딤으로 전환된다.
   prepare?: () => Promise<void> | void;
 }
 
-const HOLE_PAD = 8; // 앵커 주위 여유
-const HOLE_PAD_ROUND = 5; // 원형은 버튼 크기에 딱 맞게 — FAB 파임 호(NOTCH_R)와 비슷한 둘레
+const HOLE_SCALE = 1.1; // 스포트라이트는 요소의 1.1배 크기(중심 기준)
+const CARD_RADIUS = 20; // radius 미지정 시 기본 모서리(카드류)
 const CHAR_SIZE = 96;
 
 type Rect = { x: number; y: number; w: number; h: number };
 type Hole = Rect | null;
 
-function padRect(r: Rect, pad: number): Rect {
-  return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
+// 중심을 유지한 채 HOLE_SCALE배로 키운 사각형
+function scaleRect(r: Rect): Rect {
+  const dw = (r.w * (HOLE_SCALE - 1)) / 2;
+  const dh = (r.h * (HOLE_SCALE - 1)) / 2;
+  return { x: r.x - dw, y: r.y - dh, w: r.w + dw * 2, h: r.h + dh * 2 };
 }
 
 export function TabGuideOverlay({
@@ -78,9 +82,8 @@ export function TabGuideOverlay({
         } catch {}
         if (req !== holeReq.current) return;
       }
-      const pad = st?.round ? HOLE_PAD_ROUND : HOLE_PAD;
       if (st?.rect) {
-        setHole(padRect(st.rect, pad));
+        setHole(scaleRect(st.rect));
         return;
       }
       const node = st?.anchor?.current;
@@ -90,7 +93,7 @@ export function TabGuideOverlay({
       }
       node.measureInWindow((x, y, w, h) => {
         if (req !== holeReq.current) return;
-        setHole(w > 0 && h > 0 ? padRect({ x, y, w, h }, pad) : null);
+        setHole(w > 0 && h > 0 ? scaleRect({ x, y, w, h }) : null);
       });
     })();
   }, [visible, idx]);
@@ -107,8 +110,10 @@ export function TabGuideOverlay({
     onFinish?.();
   }
 
-  // 원형 컷아웃 보더 두께 — 구멍에서 화면 가장자리까지 어느 방향이든 덮도록 최대변 사용
+  // 컷아웃 보더 두께 — 구멍에서 화면 가장자리까지 어느 방향이든 덮도록 최대변 사용
   const cutBw = Math.max(winW, winH);
+  // 구멍 모서리 — 원형이면 반지름, 아니면 요소 라운드(1.1배 확대에 맞춰 살짝 키움)
+  const holeRadius = step.round ? (hole?.h ?? 0) / 2 : (step.radius ?? CARD_RADIUS) * HOLE_SCALE;
 
   // 말풍선+캐릭터를 스포트라이트와 겹치지 않는 쪽(위/아래 중 넓은 쪽)에 배치
   const holeCenterY = hole ? hole.y + hole.h / 2 : winH / 2;
@@ -120,50 +125,34 @@ export function TabGuideOverlay({
   return (
     <Modal transparent statusBarTranslucent animationType="fade" onRequestClose={advance}>
       <Pressable style={s.flex1} onPress={advance}>
-        {/* 딤 — 원형 스텝은 거대 원형 보더로 동그란 구멍을, 사각은 구멍 주위 4분할. 없으면 전체 */}
+        {/* 딤 — 요소 모양(라운드)을 따라 뚫린 컷아웃: cutBw(화면 최대변)만큼 두꺼운 보더가
+            구멍 밖 전부를 덮는다(안쪽 모서리 = borderRadius - borderWidth). 구멍 없으면 전체 딤 */}
         {hole ? (
           <>
-            {step.round ? (
-              // cutBw(화면 최대변)만큼 두꺼운 원형 보더가 구멍 밖 전부를 딤으로 덮는다
-              <View
-                style={[
-                  s.roundCut,
-                  {
-                    top: hole.y - cutBw,
-                    left: hole.x - cutBw,
-                    width: hole.w + cutBw * 2,
-                    height: hole.h + cutBw * 2,
-                    borderRadius: cutBw + hole.w / 2,
-                    borderWidth: cutBw,
-                  },
-                ]}
-              />
-            ) : (
-              <>
-                <View style={[s.dim, s.dimTop, { height: Math.max(0, hole.y) }]} />
-                <View style={[s.dim, s.dimBottom, { top: hole.y + hole.h }]} />
-                <View
-                  style={[
-                    s.dim,
-                    s.dimLeft,
-                    { top: hole.y, width: Math.max(0, hole.x), height: hole.h },
-                  ]}
-                />
-                <View
-                  style={[
-                    s.dim,
-                    s.dimRight,
-                    { top: hole.y, left: hole.x + hole.w, height: hole.h },
-                  ]}
-                />
-              </>
-            )}
+            <View
+              style={[
+                s.cutout,
+                {
+                  top: hole.y - cutBw,
+                  left: hole.x - cutBw,
+                  width: hole.w + cutBw * 2,
+                  height: hole.h + cutBw * 2,
+                  borderRadius: cutBw + holeRadius,
+                  borderWidth: cutBw,
+                },
+              ]}
+            />
             <View
               pointerEvents="none"
               style={[
                 s.ring,
-                { top: hole.y, left: hole.x, width: hole.w, height: hole.h },
-                step.round && { borderRadius: hole.h / 2 },
+                {
+                  top: hole.y,
+                  left: hole.x,
+                  width: hole.w,
+                  height: hole.h,
+                  borderRadius: holeRadius,
+                },
               ]}
             />
           </>
@@ -196,15 +185,10 @@ const s = StyleSheet.create({
   flex1: { flex: 1 },
   // SheetShell 딤과 같은 색 계열, 스포트라이트 대비를 위해 더 진하게
   dim: { position: 'absolute', backgroundColor: withAlpha(T.night.bottom, 0.62) },
-  dimTop: { top: 0, left: 0, right: 0 },
-  dimBottom: { left: 0, right: 0, bottom: 0 },
-  dimLeft: { left: 0 },
-  dimRight: { right: 0 },
-  // 원형 컷아웃 — 투명한 원 중심 + 딤 색 보더
-  roundCut: { position: 'absolute', borderColor: withAlpha(T.night.bottom, 0.62) },
+  // 컷아웃 — 투명한 구멍 중심 + 딤 색 보더
+  cutout: { position: 'absolute', borderColor: withAlpha(T.night.bottom, 0.62) },
   ring: {
     position: 'absolute',
-    borderRadius: 16,
     borderWidth: 2.5,
     borderColor: T.accent,
   },

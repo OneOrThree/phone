@@ -232,15 +232,25 @@ export default function LeagueScreen() {
     });
   }
 
-  // 첫 진입 사용법 안내(GROMO-652) — 캐릭터가 리그 경쟁·탭 전환을 설명
+  // 첫 진입 사용법 안내(GROMO-652) — 캐릭터가 리그 경쟁·티어·친구 탭을 차례로 설명
   const segmentRef = useRef<View | null>(null);
+  const headerRef = useRef<View | null>(null);
   const guideSteps: GuideStep[] = [
     {
       text: '리그에 온 걸 환영해!\n같은 시험을 준비하는 사람들과 일주일 동안 공부 시간으로 경쟁하는 곳이야.',
       character: require('@/assets/character_hi.png'),
     },
     {
-      text: '여기서 리그와 친구 랭킹을 오갈 수 있어. 리그가 끝나면 순위에 따라 티어가 오르내려!',
+      text: '지금 참여 중인 리그와 마감까지 남은 시간이 여기 보여.\n제목을 누르면 전체 리그도 볼 수 있어.',
+      character: require('@/assets/character_study.png'),
+      anchor: headerRef,
+    },
+    {
+      text: '한 주가 끝나면 순위에 따라 티어가 올라가거나 내려가!\n랭킹 아래 ‘내 티어’를 누르면 티어 단계를 자세히 볼 수 있어.',
+      character: require('@/assets/character_happy.png'),
+    },
+    {
+      text: '친구 탭에서는 친구를 추가하고 서로의 공부시간을 볼 수 있어.\n같이 공부할 친구를 초대해봐!',
       character: require('@/assets/character_happy.png'),
       anchor: segmentRef,
     },
@@ -280,7 +290,7 @@ export default function LeagueScreen() {
 
       {/* ── 헤더: 좌상단 마감 카운트다운 + 우측 제목(탭=리그 선택 드롭다운) ── */}
       {tab === 'league' && (
-        <View style={s.header}>
+        <View style={s.header} ref={headerRef} collapsable={false}>
           <Text style={s.deadline} allowFontScaling={false}>
             {deadlineLabel ?? ''}
           </Text>

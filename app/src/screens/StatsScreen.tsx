@@ -128,7 +128,9 @@ export default function StatsScreen() {
   const { height: winH } = useWindowDimensions();
   const scrollRef = useRef<ScrollView>(null);
   const guideScrollY = useRef(0);
+  const filtersRef = useRef<View | null>(null);
   const totalCardRef = useRef<View | null>(null);
+  const goalCardRef = useRef<View | null>(null);
   const categoryCardRef = useRef<View | null>(null);
   // 앵커가 필터 아래(140)~하단 여유(120) 사이에 오도록 스크롤한 뒤 측정하게 한다
   function scrollCardIntoView(ref: RefObject<View | null>) {
@@ -155,14 +157,25 @@ export default function StatsScreen() {
   }
   const guideSteps: GuideStep[] = [
     {
-      text: '여기는 통계야!\n공부 기록을 일·주·월 탭으로 나눠서 볼 수 있어.',
+      text: '여기는 통계야!\n내 공부 기록을 그래프로 한눈에 볼 수 있어.',
       character: require('@/assets/character_hi.png'),
+    },
+    {
+      text: '일·주·월 탭으로 기간을 바꿔서 봐.\n일은 오늘 하루를 자세히, 월은 한 달 흐름을 보여줘!',
+      character: require('@/assets/character_study.png'),
+      anchor: filtersRef,
     },
     {
       text: '기간 동안의 총 집중시간과 다른 사람들과의 비교를 보여줘.',
       character: require('@/assets/character_study.png'),
       anchor: totalCardRef,
       prepare: () => scrollCardIntoView(totalCardRef),
+    },
+    {
+      text: '집중·사용시간 목표를 지켰는지 확인하는 곳이야.',
+      character: require('@/assets/character_happy.png'),
+      anchor: goalCardRef,
+      prepare: () => scrollCardIntoView(goalCardRef),
     },
     {
       text: '과목별로 얼마나 집중했는지도 여기서 확인할 수 있어.\n아래로 내리면 더 많은 그래프가 기다리고 있어!',
@@ -224,32 +237,33 @@ export default function StatsScreen() {
   cards.push({
     key: 'goalAchieve',
     node: (
-      <SectionCard
-        key="goalAchieve"
-        title={
-          period === 'DAY'
-            ? '오늘 목표 달성'
-            : period === 'WEEK'
-              ? '이번 주 목표 달성'
-              : `${month}월 목표 달성`
-        }
-      >
-        {period === 'DAY' ? (
-          <GoalDayStamps today={data.today} />
-        ) : period === 'WEEK' ? (
-          <GoalWeekDots
-            cells={data.heatmap}
-            today={data.today}
-            elapsedDays={data.screenTime?.elapsedDays ?? null}
-          />
-        ) : (
-          <GoalMonthGrid
-            cells={data.heatmap}
-            today={data.today}
-            elapsedDays={data.screenTime?.elapsedDays ?? null}
-          />
-        )}
-      </SectionCard>
+      <View key="goalAchieve" ref={goalCardRef} collapsable={false}>
+        <SectionCard
+          title={
+            period === 'DAY'
+              ? '오늘 목표 달성'
+              : period === 'WEEK'
+                ? '이번 주 목표 달성'
+                : `${month}월 목표 달성`
+          }
+        >
+          {period === 'DAY' ? (
+            <GoalDayStamps today={data.today} />
+          ) : period === 'WEEK' ? (
+            <GoalWeekDots
+              cells={data.heatmap}
+              today={data.today}
+              elapsedDays={data.screenTime?.elapsedDays ?? null}
+            />
+          ) : (
+            <GoalMonthGrid
+              cells={data.heatmap}
+              today={data.today}
+              elapsedDays={data.screenTime?.elapsedDays ?? null}
+            />
+          )}
+        </SectionCard>
+      </View>
     ),
   });
 
@@ -471,7 +485,7 @@ export default function StatsScreen() {
       </View>
 
       {/* ── 고정 필터: 기간(일/주/월) — 과목 칩 필터는 제거(과목별 섹션이 전체를 보여줘 중복) ── */}
-      <View style={s.filters}>
+      <View style={s.filters} ref={filtersRef} collapsable={false}>
         <View style={s.segment}>
           {PERIOD_TABS.map((t) => {
             const on = period === t.key;

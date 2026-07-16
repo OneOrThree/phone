@@ -40,6 +40,7 @@ import { occupationForCategory } from '@/constants/focusCategories';
 import { useSessionLeagueMembers } from './useSessionLeagueMembers';
 import { LiveFocusGrid } from './components/LiveFocusGrid';
 import { FocusMenuDrawer } from './components/FocusMenuDrawer';
+import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import {
   logFocusSessionStarted,
   logFocusSessionPaused,
@@ -456,6 +457,34 @@ export default function FocusSessionScreen() {
     setPage(next);
   }
 
+  // 첫 세션 사용법 안내(GROMO-652) — 페이저·메뉴·컨트롤을 차례로 설명 (세션은 계속 흐른다)
+  const dotsRef = useRef<View | null>(null);
+  const hamburgerRef = useRef<View | null>(null);
+  const controlsRef = useRef<View | null>(null);
+  const guideSteps: GuideStep[] = [
+    {
+      text: '집중 세션이 시작됐어!\n여기서 흐른 시간이 그대로 과목의 공부 기록이 돼.',
+      character: require('@/assets/character_study.png'),
+    },
+    {
+      text: '화면을 옆으로 넘겨봐 —\n친구·내 리그·같은 시험 준비생들이 공부하는 모습을 볼 수 있어.',
+      character: require('@/assets/character_happy.png'),
+      anchor: dotsRef,
+    },
+    {
+      text: '메뉴에서는 과목을 바꾸거나 오늘의 과목별 기록을 볼 수 있어.',
+      character: require('@/assets/character_hi.png'),
+      anchor: hamburgerRef,
+      round: true,
+    },
+    {
+      text: '잠깐 쉴 땐 일시정지, 끝낼 땐 정지!\n정지하면 기록이 저장되고 결과 화면으로 넘어가.',
+      character: require('@/assets/character_study.png'),
+      anchor: controlsRef,
+      radius: 36,
+    },
+  ];
+
   return (
     <View style={s.root}>
       <LinearGradient colors={[T.night.top, T.night.bottom]} style={StyleSheet.absoluteFill} />
@@ -466,6 +495,7 @@ export default function FocusSessionScreen() {
           <TouchableOpacity
             style={s.hamburger}
             activeOpacity={0.8}
+            ref={hamburgerRef}
             onPress={() => {
               logFocusMenuOpened();
               setDrawerOpen(true);
@@ -531,7 +561,7 @@ export default function FocusSessionScreen() {
         </ScrollView>
 
         {/* 페이지 인디케이터 */}
-        <View style={s.dots}>
+        <View style={s.dots} ref={dotsRef} collapsable={false}>
           {[0, 1, 2, 3].map((i) => (
             <View key={i} style={[s.dot, page === i && s.dotActive]} />
           ))}
@@ -541,7 +571,7 @@ export default function FocusSessionScreen() {
         <View style={s.readout}>{renderReadout(mode, session, goal, pomo.sets)}</View>
 
         {/* 컨트롤 — 일시정지 / 정지 */}
-        <View style={s.controls}>
+        <View style={s.controls} ref={controlsRef} collapsable={false}>
           <TouchableOpacity style={s.ctrlBtn} activeOpacity={0.8} onPress={togglePause}>
             <Ionicons name={paused ? 'play' : 'pause'} size={22} color={T.paperLight} />
           </TouchableOpacity>
@@ -550,6 +580,9 @@ export default function FocusSessionScreen() {
           </TouchableOpacity>
         </View>
       </SafeAreaView>
+
+      {/* 첫 세션 사용법 안내(GROMO-652) */}
+      <TabGuideOverlay storageKey={STORAGE_KEYS.guideFocusSession} steps={guideSteps} />
 
       <FocusMenuDrawer
         open={drawerOpen}
