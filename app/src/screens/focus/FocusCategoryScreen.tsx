@@ -66,7 +66,10 @@ export default function FocusCategoryScreen() {
         if (cancelled) return;
         setDefaultTags([...res.tags].sort((a, b) => a.sortOrder - b.sortOrder).map((t) => t.name));
       })
-      .catch(() => {});
+      .catch(() => {
+        // 실패 시 이전 카테고리의 추천이 남아 새 카테고리 라벨로 노출되지 않게 비운다(리뷰 반영)
+        if (!cancelled) setDefaultTags([]);
+      });
     return () => {
       cancelled = true;
     };

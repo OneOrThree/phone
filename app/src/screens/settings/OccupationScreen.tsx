@@ -29,19 +29,23 @@ import { T } from '@/constants/theme';
 export default function OccupationScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
-  const { subjects, addSubject, deleteSubject } = useSubjects();
+  const { subjects, addSubject, deleteSubjects } = useSubjects();
   const { removeFocusSeconds } = useFocus();
 
   const [original, setOriginal] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   // 저장 후 시트로 제안할 내용 — null이면 시트 비표시.
+  // category: [저장]을 누른 시점의 선택 스냅샷 — 조회 대기 중 칩을 바꿔도 시트·최종 반영이
+  // 눌렀던 시험 기준으로 일관되게 동작한다(리뷰 반영).
   // additions: 미보유 추천 과목명, removals: 보유 과목 전체(삭제 제안).
-  const [proposal, setProposal] = useState<{ additions: string[]; removals: Subject[] } | null>(
-    null,
-  );
-  // [추천과목 수정하기] 시트용 — 현재 시험의 추천 과목 전체(null이면 비표시)
-  const [editList, setEditList] = useState<string[] | null>(null);
+  const [proposal, setProposal] = useState<{
+    category: string;
+    additions: string[];
+    removals: Subject[];
+  } | null>(null);
+  // [추천과목 수정하기] 시트용 — 누른 시점의 시험 + 추천 과목 전체(null이면 비표시)
+  const [editData, setEditData] = useState<{ category: string; list: string[] } | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.focusCategory).then((c) => {
@@ -55,30 +59,35 @@ export default function OccupationScreen() {
   const isSameAsCurrent = selected !== null && selected === original;
   const canSave = selected !== null;
 
-  // 시험 변경 실제 반영 — 시트 [완료하기](또는 시트 생략 시 저장 직후)에서만 호출된다
-  async function applyCategoryChange() {
-    if (!selected) return;
+  // 시험 변경 실제 반영 — 시트 [완료하기](또는 시트 생략 시 저장 직후)에서만 호출된다.
+  // 화면 상태(selected)가 아닌 스냅샷된 category를 받는다(리뷰 반영).
+  async function applyCategoryChange(category: string) {
     try {
-      await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, selected);
+      await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, category);
     } catch {
       // 로컬 저장 실패는 치명적이지 않음
     }
     // 매핑되는 카테고리면 서버 occupation 동기화(실패해도 로컬 저장은 유효 — 다음 변경 때 재시도)
-    const occupation = occupationForCategory(selected);
+    const occupation = occupationForCategory(category);
     if (occupation) updateOccupation({ occupation }).catch(() => {});
   }
 
   async function handleSave() {
     if (!selected || saving || !canSave) return;
     setSaving(true);
-    const occupation = occupationForCategory(selected);
+    // 누른 시점의 선택 스냅샷 — 조회 대기 중 칩이 바뀌어도 이 값 기준으로 진행
+    const category = selected;
+    const occupation = occupationForCategory(category);
 
     // [추천과목 수정하기] — 현재 시험 그대로일 때. 추천 전체를 단일 시트로 띄워
     // 보유분은 체크된 상태로 시작, diff만 [완료하기]에서 반영한다.
     if (isSameAsCurrent && occupation) {
       try {
         const res = await getDefaultTags(occupation);
-        setEditList([...res.tags].sort((a, b) => a.sortOrder - b.sortOrder).map((t) => t.name));
+        setEditData({
+          category,
+          list: [...res.tags].sort((a, b) => a.sortOrder - b.sortOrder).map((t) => t.name),
+        });
       } catch {
         // 조회 실패 — 시트 없이 화면에 남는다(재시도 가능)
       }
@@ -100,14 +109,14 @@ export default function OccupationScreen() {
           .filter((n) => !owned.has(n));
         if (additions.length > 0 || subjects.length > 0) {
           setSaving(false);
-          setProposal({ additions, removals: subjects }); // 시트 표시 — 반영/취소는 시트 콜백에서
+          setProposal({ category, additions, removals: subjects }); // 시트 표시 — 반영/취소는 시트 콜백에서
           return;
         }
       } catch {
         // 추천 조회 실패는 조용히 무시 — 시트 없이 바로 반영
       }
     }
-    await applyCategoryChange();
+    await applyCategoryChange(category);
     setSaving(false);
     navigation.goBack();
   }
@@ -121,16 +130,19 @@ export default function OccupationScreen() {
       addSubject(n);
       logFocusTagCreated();
     });
+    // 일괄 삭제 — 개별 deleteSubject 루프는 동명 과목 동시 삭제 시 서버 삭제를 스킵한다(리뷰 반영)
+    deleteSubjects(removes.map((x) => x.id));
     removes.forEach((sub) => {
-      deleteSubject(sub.id);
       logFocusTagDeleted();
       if (sub.accumulatedSeconds > 0) removeFocusSeconds(sub.accumulatedSeconds);
     });
   }
 
-  function handleComplete(adds: string[], removes: Subject[]) {
-    applyCategoryChange();
+  // 시험 변경 저장을 await한 뒤 뒤로 간다 — focus 시 focusCategory를 다시 읽는 화면이
+  // 쓰기 완료 전에 포커스되어 이전 시험을 읽는 것을 방지(리뷰 반영)
+  async function handleComplete(category: string, adds: string[], removes: Subject[]) {
     applySubjectDiff(adds, removes);
+    await applyCategoryChange(category);
     navigation.goBack();
   }
 
@@ -190,24 +202,24 @@ export default function OccupationScreen() {
         </View>
       </SettingsScaffold>
 
-      {proposal !== null && selected !== null ? (
+      {proposal !== null ? (
         <TagSuggestionSheet
-          examLabel={selected}
+          examLabel={proposal.category}
           suggestions={proposal.additions}
           removals={proposal.removals}
-          onComplete={handleComplete}
+          onComplete={(adds, removes) => handleComplete(proposal.category, adds, removes)}
           // 취소·딤 탭 — 시험 변경 포함 전부 무반영. 화면에 남아 다시 고를 수 있게 시트만 닫는다.
           onCancel={() => setProposal(null)}
         />
       ) : null}
 
-      {editList !== null && selected !== null ? (
+      {editData !== null ? (
         <RecommendedTagsEditSheet
-          examLabel={selected}
-          recommendations={editList}
+          examLabel={editData.category}
+          recommendations={editData.list}
           owned={subjects}
           onComplete={handleEditComplete}
-          onCancel={() => setEditList(null)}
+          onCancel={() => setEditData(null)}
         />
       ) : null}
     </View>

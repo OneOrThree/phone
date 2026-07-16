@@ -44,6 +44,7 @@ interface SubjectContextValue {
   addSubject: (name: string) => void;
   renameSubject: (id: string, name: string) => void;
   deleteSubject: (id: string) => void;
+  deleteSubjects: (ids: string[]) => void;
   reorderSubjects: (next: Subject[]) => void;
   setSubjectColor: (id: string, color: string) => void;
   addFocusToSubject: (id: string, seconds: number) => void;
@@ -139,12 +140,22 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
     setSubjects((prev) => prev.map((x) => (x.id === id ? { ...x, name } : x)));
   }
 
+  // 여러 과목 일괄 삭제 — '삭제 후 남는 이름' 기준으로 서버 태그 동기화를 판단한다.
+  // 개별 deleteSubject를 루프로 돌리면 각 호출이 삭제 전 subjects 클로저를 봐서,
+  // 같은 이름 과목을 함께 지울 때 서로가 남아 있는 걸로 오판해 서버 삭제가 전부 스킵된다(리뷰 반영).
+  function deleteSubjects(ids: string[]) {
+    const idSet = new Set(ids);
+    const removed = subjects.filter((x) => idSet.has(x.id));
+    // 같은 이름 과목이 삭제 후에도 남아 있으면 서버 태그는 그 과목과 공유 중 — 삭제하지 않는다
+    const remainingNames = new Set(subjects.filter((x) => !idSet.has(x.id)).map((x) => x.name));
+    [...new Set(removed.map((x) => x.name))]
+      .filter((n) => !remainingNames.has(n))
+      .forEach((n) => syncTagDeleted(n));
+    setSubjects((prev) => prev.filter((x) => !idSet.has(x.id)));
+  }
+
   function deleteSubject(id: string) {
-    const target = subjects.find((x) => x.id === id);
-    // 같은 이름 과목이 더 남아 있으면 서버 태그는 그 과목과 공유 중 — 삭제하지 않는다(리뷰 반영)
-    const nameStillUsed = target && subjects.some((x) => x.id !== id && x.name === target.name);
-    if (target && !nameStillUsed) syncTagDeleted(target.name);
-    setSubjects((prev) => prev.filter((x) => x.id !== id));
+    deleteSubjects([id]);
   }
 
   // 드래그로 재정렬된 목록을 그대로 반영 (저장은 subjects effect가 자동 처리).
@@ -173,6 +184,7 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
         addSubject,
         renameSubject,
         deleteSubject,
+        deleteSubjects,
         reorderSubjects,
         setSubjectColor,
         addFocusToSubject,
