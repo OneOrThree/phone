@@ -15,7 +15,7 @@ import ScreenTimeDeniedStep from '@/screens/onboarding/steps/ScreenTimeDeniedSte
 import YesterdayScreenTimeStep from '@/screens/onboarding/steps/YesterdayScreenTimeStep';
 import GoalSettingStep from '@/screens/onboarding/steps/GoalSettingStep';
 import NicknameStep from '@/screens/onboarding/steps/NicknameStep';
-import { hapticSelect } from '@/utils/haptics';
+import { hapticMedium } from '@/utils/haptics';
 import { INITIAL_ONBOARDING_DATA, type StepProps, type V2OnboardingData } from './types';
 import type { OnboardingCompleteStatus, OnboardingResult } from './types';
 import { logOnboardingStarted, logOnboardingCompleted } from '@/services/analyticsEvents';
@@ -61,9 +61,9 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   }, []);
 
   const update = (patch: Partial<V2OnboardingData>) => setData((d) => ({ ...d, ...patch }));
-  // 스텝 전환마다 약한 진동(GROMO-786) — next/back 공통.
+  // 스텝 전환마다 중간 세기 진동(GROMO-786) — next/back 공통.
   const next = () => {
-    hapticSelect();
+    hapticMedium();
     setIndex((i) => i + 1);
   };
 
@@ -94,7 +94,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   backFloorRef.current = backFloor;
 
   const back = () => {
-    hapticSelect();
+    hapticMedium();
     setIndex((i) => Math.max(backFloorRef.current, i - 1));
   };
 

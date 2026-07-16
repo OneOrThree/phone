@@ -13,3 +13,8 @@ export function hapticSelect(): void {
 export function hapticLight(): void {
   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 }
+
+/** 화면 전환 등 또렷하게 느껴져야 하는 중간 임팩트 */
+export function hapticMedium(): void {
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+}
