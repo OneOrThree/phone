@@ -562,7 +562,8 @@ export default function LeagueScreen() {
                     >
                       {isPinned && (
                         <View style={s.friendPinBadge}>
-                          <Ionicons name="pin" size={11} color={T.white} />
+                          {/* 랭킹·필터 칩·프로필과 동일한 압정 아이콘 — Ionicons 핀은 모양이 달라 혼동 (GROMO-845) */}
+                          <MaterialCommunityIcons name="pin" size={11} color={T.white} />
                         </View>
                       )}
                       <MemberAvatar size={48} />
