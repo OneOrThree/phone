@@ -179,9 +179,17 @@ export default function StatsScreen() {
         {period === 'DAY' ? (
           <GoalDayStamps today={data.today} />
         ) : period === 'WEEK' ? (
-          <GoalWeekDots cells={data.heatmap} />
+          <GoalWeekDots
+            cells={data.heatmap}
+            today={data.today}
+            elapsedDays={data.screenTime?.elapsedDays ?? null}
+          />
         ) : (
-          <GoalMonthGrid cells={data.heatmap} />
+          <GoalMonthGrid
+            cells={data.heatmap}
+            today={data.today}
+            elapsedDays={data.screenTime?.elapsedDays ?? null}
+          />
         )}
       </SectionCard>
     ),
@@ -1609,7 +1617,8 @@ function GoalDayStamps({ today }: { today: TodayStatsResponse | null }) {
   }
   return (
     <View style={s.stampRow}>
-      <FocusStamp cur={Math.round(todayFocusSeconds / 60)} goal={today.focus.goalMinutes} />
+      {/* floor — 반올림하면 59분 31초가 60분이 돼 목표 도달 전에 '달성'이 뜬다(PR 리뷰 반영) */}
+      <FocusStamp cur={Math.floor(todayFocusSeconds / 60)} goal={today.focus.goalMinutes} />
       <PhoneStamp cur={today.screenTime.todayMinutes} goal={today.screenTime.goalMinutes} />
     </View>
   );
@@ -1699,8 +1708,20 @@ function PhoneStamp({ cur, goal }: { cur: number; goal: number }) {
 
 type GoalDotState = 'on' | 'miss' | 'future';
 
-// 주 탭 — 집중·폰 사용 각각 월~일 7칸 도트. 달성=색, 미달=빨강 틴트, 아직 안 온 요일=회색.
-function GoalWeekDots({ cells }: { cells: HeatmapCellResponse[] }) {
+// 주 탭 — 집중·폰 사용 각각 월~일 7칸 도트. 달성=색, 미달=빨강 틴트, 미래·판정 전·가입 전=회색.
+// 오늘은 heatmap 플래그 대신 라이브 판정(PR 리뷰 반영) — 폰 사용 플래그는 다음날 마감까지 항상
+// false라 그대로 쓰면 아직 목표 이내인 오늘이 하루 종일 '미달'로 칠해진다. 집중=달성 즉시 확정(on),
+// 폰=초과만 확정(miss), 그 외는 진행 중(중립). 가입 전 요일은 서버가 가입일로 클램프한
+// elapsedDays(스크린타임 기간 통계)로 역산해 중립 처리(신규 유저가 미달로 보이지 않게).
+function GoalWeekDots({
+  cells,
+  today,
+  elapsedDays,
+}: {
+  cells: HeatmapCellResponse[];
+  today: TodayStatsResponse | null;
+  elapsedDays: number | null;
+}) {
   const now = new Date();
   const dow = now.getDay(); // 0=일..6=토
   const monday = new Date(
@@ -1708,18 +1729,43 @@ function GoalWeekDots({ cells }: { cells: HeatmapCellResponse[] }) {
     now.getMonth(),
     now.getDate() + (dow === 0 ? -6 : 1 - dow),
   );
-  const today = todayStr();
+  const todayKey = todayStr();
   const byDate = new Map(cells.map((c) => [c.date, c]));
-  const stateFor = (offset: number, pick: (c: HeatmapCellResponse) => boolean): GoalDotState => {
+  const todayCol = dow === 0 ? 6 : dow - 1;
+  // 이번 주 앞쪽에서 가입 전인 요일 수 — 지난 요일 수(todayCol+1)가 경과일보다 크면 그 차이만큼
+  const preJoinCols = elapsedDays != null ? Math.max(0, todayCol + 1 - elapsedDays) : 0;
+
+  // 오늘 라이브 판정 — today 조회 실패 시 집중은 heatmap 플래그(달성 즉시 반영), 폰은 중립.
+  const todayFocus: GoalDotState | null = today
+    ? today.focus.goalAchieved
+      ? 'on'
+      : 'future'
+    : null;
+  const todayPhone: GoalDotState =
+    today &&
+    today.screenTime.goalMinutes > 0 &&
+    today.screenTime.todayMinutes > today.screenTime.goalMinutes
+      ? 'miss'
+      : 'future';
+
+  const stateFor = (
+    offset: number,
+    pick: (c: HeatmapCellResponse) => boolean,
+    todayState: GoalDotState | null, // null = heatmap 플래그 그대로 사용
+  ): GoalDotState => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + offset);
     const key = localDateStr(d);
-    if (key > today) return 'future'; // 'YYYY-MM-DD' 문자열 비교 = 날짜 비교
+    if (key > todayKey) return 'future'; // 'YYYY-MM-DD' 문자열 비교 = 날짜 비교
+    if (offset < preJoinCols) return 'future'; // 가입 전 — 판정 없음
+    if (key === todayKey && todayState != null) return todayState;
     const c = byDate.get(key);
     return c && pick(c) ? 'on' : 'miss';
   };
-  const focusStates = WEEK_DAYS.map((_, i) => stateFor(i, (c) => c.focusGoalAchieved));
-  const phoneStates = WEEK_DAYS.map((_, i) => stateFor(i, (c) => c.screenTimeGoalAchieved));
+  const focusStates = WEEK_DAYS.map((_, i) => stateFor(i, (c) => c.focusGoalAchieved, todayFocus));
+  const phoneStates = WEEK_DAYS.map((_, i) =>
+    stateFor(i, (c) => c.screenTimeGoalAchieved, todayPhone),
+  );
   return (
     <View style={s.goalWeekWrap}>
       <GoalDotRow label="집중" color={FOCUS_COLOR} states={focusStates} />
@@ -1762,17 +1808,33 @@ function GoalDotRow({
   );
 }
 
-// 월 탭 — 해당 월 달력. 하루에 둘 다 달성=진한 초록, 하나만=연초록, 못함=빈칸, 미래=회색.
-function GoalMonthGrid({ cells }: { cells: HeatmapCellResponse[] }) {
+// 월 탭 — 해당 월 달력. 하루에 둘 다 달성=진한 초록, 하나만=연초록, 못함=빈칸, 미래·판정 전·가입 전=회색.
+// 오늘·가입 전 처리는 GoalWeekDots와 동일한 이유(PR 리뷰 반영) — 오늘은 라이브 판정(집중 달성만
+// 확정 연초록, 폰은 다음날 마감 전이라 미판정), 가입 전 날짜는 elapsedDays 역산으로 중립 처리.
+function GoalMonthGrid({
+  cells,
+  today,
+  elapsedDays,
+}: {
+  cells: HeatmapCellResponse[];
+  today: TodayStatsResponse | null;
+  elapsedDays: number | null;
+}) {
   const now = new Date();
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const today = todayStr();
+  const todayKey = todayStr();
   const byDate = new Map(cells.map((c) => [c.date, c]));
-  let focusDays = 0;
+  const dayOf = (date: string) => Number(date.slice(8, 10));
+  // 이달 앞쪽에서 가입 전인 날 수 — 오늘 일자가 경과일보다 크면 그 차이만큼
+  const preJoinDays = elapsedDays != null ? Math.max(0, now.getDate() - elapsedDays) : 0;
+  const todayFocusOn = today?.focus.goalAchieved ?? false;
+
+  let focusDays = todayFocusOn ? 1 : 0; // 오늘 몫은 라이브 판정으로만 계상(폰·둘 다는 다음날 확정)
   let phoneDays = 0;
   let bothDays = 0;
   for (const c of cells) {
-    if (c.date > today) continue;
+    if (c.date >= todayKey) continue; // 오늘은 위에서 라이브로, 미래는 제외
+    if (dayOf(c.date) <= preJoinDays) continue; // 가입 전 — 판정 없음
     if (c.focusGoalAchieved) focusDays += 1;
     if (c.screenTimeGoalAchieved) phoneDays += 1;
     if (c.focusGoalAchieved && c.screenTimeGoalAchieved) bothDays += 1;
@@ -1783,7 +1845,9 @@ function GoalMonthGrid({ cells }: { cells: HeatmapCellResponse[] }) {
   const rows: string[][] = [];
   for (let i = 0; i < days.length; i += 7) rows.push(days.slice(i, i + 7));
   const colorFor = (date: string): string => {
-    if (date > today) return T.track;
+    if (date > todayKey) return T.track;
+    if (dayOf(date) <= preJoinDays) return T.track; // 가입 전 — 판정 없음
+    if (date === todayKey) return todayFocusOn ? GRASS[2] : T.track; // 오늘 — 집중 달성만 확정
     const c = byDate.get(date);
     const n = (c?.focusGoalAchieved ? 1 : 0) + (c?.screenTimeGoalAchieved ? 1 : 0);
     return n === 2 ? GRASS[4] : n === 1 ? GRASS[2] : GRASS[0];
