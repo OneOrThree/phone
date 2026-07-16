@@ -14,4 +14,5 @@ instances:
       - jvm_threads_live_threads
       - process_cpu_usage
       - system_cpu_usage
-      - logback_events_total                # 로그 레벨별 카운트
+      # OpenMetrics(agent:7)는 카운터의 _total 접미사를 제거한 뒤 metrics 필터와 매칭 → 접미사 없이 지정해야 수집됨.
+      - logback_events                      # 로그 레벨별 카운트

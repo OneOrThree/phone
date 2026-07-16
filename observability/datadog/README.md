@@ -32,9 +32,18 @@ dev 서버의 **인프라·컨테이너 메트릭 + 로그 + 앱 APM(분산 트�
 ## 확인 위치 (Datadog UI, us5)
 
 - **Infrastructure** > Host Map: `gromo-dev` 호스트 + `phone-app`/`phone-db` 컨테이너.
-- **Logs**: `phone-app` JSON 로그(구조화 파싱). APM 켜지면 `dd.trace_id` 로 트레이스 상관.
+- **Logs**: `phone-app` stdout 로그(컨테이너 tail). ⚠️ 아래 "로그↔트레이스 상관" 참고 — 자동 상관은 Phase 1+2 미완.
 - **APM** > Services: `gromo-back` 서비스·트레이스·플레임그래프.
 - **Metrics Explorer**: `gromo.*`(OpenMetrics 브리지 — http RED, HikariCP, JVM).
+
+### 로그↔트레이스 상관 (Phase 1+2 미완, 알려진 한계)
+
+`DD_LOGS_INJECTION=true` 로 dd-java-agent 가 `dd.trace_id`/`dd.span_id` 를 MDC 에 넣어두지만, 앱의
+`logback-spring.xml` CONSOLE appender 는 **텍스트 패턴**이고 앱 자체 `trace_id` 키만 찍는다. 따라서 Agent 가
+tail 하는 stdout 로그에는 Datadog 이 상관에 쓰는 `dd.trace_id` 가 구조화되어 담기지 않아 **자동 로그↔트레이스
+상관은 아직 동작하지 않는다.** 완성하려면 둘 중 하나 필요 (Phase 3 후보):
+- **JSON 콘솔**: `datadog` 전용 springProfile 에서 `dd.trace_id`/`dd.span_id` 를 포함한 JSON encoder 로 stdout 출력.
+- **Datadog 로그 파이프라인(서버측)**: 텍스트 패턴을 Grok 파서로 파싱해 `trace_id` 예약 속성으로 remap.
 
 ## 비용 레버 (최소비용)
 

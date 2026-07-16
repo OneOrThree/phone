@@ -12,7 +12,8 @@ services:
     image: gcr.io/datadoghq/agent:7
     container_name: gromo-datadog-agent
     environment:
-      DD_API_KEY: ${DD_API_KEY}
+      # 빈/미설정이면 즉시 실패(fail-fast) — 키 없이 up 이 green 처리되어 무텔레메트리로 남는 것 방지.
+      DD_API_KEY: ${DD_API_KEY:?DD_API_KEY 미설정 — GitHub Actions 시크릿(DD_API_KEY) 등록 필요}
       DD_SITE: ${DD_SITE:-us5.datadoghq.com}
       DD_ENV: dev
       DD_HOSTNAME: gromo-dev
@@ -44,11 +45,19 @@ services:
       DD_AGENT_HOST: datadog-agent
       DD_ENV: dev
       DD_SERVICE: gromo-back
-      DD_VERSION: ${IMAGE_TAG:-latest}
-      DD_LOGS_INJECTION: "true"        # trace_id/span_id 를 MDC→JSON 로그 주입(로그↔트레이스 상관)
+      DD_VERSION: ${IMAGE_TAG:-latest}   # 워크플로우가 IMAGE_TAG=github.sha 주입(미주입 시 latest 폴백)
+      # dd-java-agent 가 dd.trace_id/dd.span_id 를 MDC 에 주입. 단 CONSOLE appender 는 텍스트 패턴이고
+      # app 자체 trace_id 키를 찍으므로, 완전한 로그↔트레이스 상관은 아직 미완 — JSON 콘솔(별도 datadog
+      # 프로파일) 또는 Datadog Grok 로그 파이프라인 필요(Phase 3). 지금은 MDC 주입만 준비해 둔다.
+      DD_LOGS_INJECTION: "true"
       DD_TRACE_SAMPLE_RATE: "0.2"      # 비용 제어(dev 저부하)
+    # base(dev)의 db healthy 의존을 유지하면서 datadog-agent 를 추가 — short-form(list)이 base 의 map 을
+    # 덮어써 db 대기가 사라지는 것 방지(fresh 호스트/DB 재생성 중 app 조기기동 실패 회피).
     depends_on:
-      - datadog-agent
+      db:
+        condition: service_healthy
+      datadog-agent:
+        condition: service_started
 
 volumes:
   datadog_agent_run:

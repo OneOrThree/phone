@@ -13,8 +13,10 @@ on:
         default: up
         options: [up, restart, down]
 
+# cd.yml 과 동일 그룹 — 둘 다 같은 dev 호스트의 phone-app 을 (compose 입력만 다르게) 재생성하므로,
+# 수동 Datadog 토글과 push 배포가 겹쳐 서로의 app 상태(APM 활성 여부)·헬스결과를 무효화하지 않도록 직렬화한다.
 concurrency:
-  group: dev-datadog
+  group: cd-production
   cancel-in-progress: false
 
 jobs:
@@ -28,6 +30,7 @@ jobs:
       COMPOSE_FILES: -f docker-compose.dev.yml -f docker-compose.datadog.yml
       DD_API_KEY: ${{ secrets.DD_API_KEY }}   # GitHub Actions 시크릿(AWS Secrets Manager 아님)
       DD_SITE: us5.datadoghq.com
+      IMAGE_TAG: ${{ github.sha }}            # DD_VERSION 으로 전달 — up --build 가 빌드한 커밋과 APM 버전 일치
     steps:
       - uses: actions/checkout@v4
 
