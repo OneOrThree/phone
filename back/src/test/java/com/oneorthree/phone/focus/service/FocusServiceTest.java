@@ -5,8 +5,11 @@ import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.focus.domain.DefaultTag;
 import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.domain.FocusSessionStatus;
+import com.oneorthree.phone.focus.domain.FocusType;
 import com.oneorthree.phone.focus.domain.OccupationDefaultTag;
 import com.oneorthree.phone.focus.domain.UserFocusTag;
+import com.oneorthree.phone.focus.dto.FocusSessionCancelRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
@@ -589,6 +592,66 @@ class FocusServiceTest {
         assertThat(saved.getStartedAt()).isEqualTo(START);
         assertThat(saved.getEndedAt()).isEqualTo(END);
         assertThat(saved.getTotalDistractionSeconds()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("POST 완료 저장 → status=COMPLETED 로 저장(ACTIVE 부정합 교정, GROMO-733)")
+    void saveFocusSessionSetsCompletedStatus() {
+        // given: 완료(종료 시각 포함) 세션을 통째 저장
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
+
+        // when
+        focusService.saveFocusSession(USER_ID, body);
+
+        // then: 완료 저장인데 ACTIVE 로 남던 부정합을 COMPLETED 로 교정
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(FocusSessionStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("POST 완료 저장 focusType 지정(RANGE) → 그대로 저장, null 은 INFINITE 기본")
+    void saveFocusSessionPersistsFocusType() {
+        // given: focusType=RANGE
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0, FocusType.RANGE);
+
+        // when
+        focusService.saveFocusSession(USER_ID, body);
+
+        // then
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository).save(captor.capture());
+        assertThat(captor.getValue().getFocusType()).isEqualTo(FocusType.RANGE);
+    }
+
+    @Test
+    @DisplayName("POST 완료 저장 focusType 미지정(null) → INFINITE 기본값(하위호환)")
+    void saveFocusSessionDefaultsFocusTypeToInfinite() {
+        // given: 기존 4-arg 생성자(focusType 미지정)
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
+
+        // when
+        focusService.saveFocusSession(USER_ID, body);
+
+        // then
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository).save(captor.capture());
+        assertThat(captor.getValue().getFocusType()).isEqualTo(FocusType.INFINITE);
     }
 
     @Test
@@ -1389,6 +1452,44 @@ class FocusServiceTest {
         verify(focusSessionRepository, never()).save(any(FocusSession.class));
     }
 
+    // ── startFocusSession — focus_type 인입(GROMO-733) ──────────────────────
+
+    @Test
+    @DisplayName("focusType 지정(POMODORO) → 세션에 그대로 저장")
+    void startFocusSessionPersistsFocusType() {
+        // given: 요청에 focusType=POMODORO
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+        FocusSessionStartRequest body = new FocusSessionStartRequest(null, START, FocusType.POMODORO);
+
+        // when
+        focusService.startFocusSession(USER_ID, body);
+
+        // then: 저장된 세션의 focusType=POMODORO
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository).save(captor.capture());
+        assertThat(captor.getValue().getFocusType()).isEqualTo(FocusType.POMODORO);
+    }
+
+    @Test
+    @DisplayName("focusType 미지정(null) → INFINITE 기본값으로 저장(하위호환)")
+    void startFocusSessionDefaultsFocusTypeToInfinite() {
+        // given: 요청 focusType=null
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+        FocusSessionStartRequest body = new FocusSessionStartRequest(null, START, null);
+
+        // when
+        focusService.startFocusSession(USER_ID, body);
+
+        // then: null → INFINITE 기본값
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository).save(captor.capture());
+        assertThat(captor.getValue().getFocusType()).isEqualTo(FocusType.INFINITE);
+    }
+
     // ── endFocusSession — 라이브 세션 종료(GROMO-610) ────────────────────────
 
     private static final UUID SESSION_ID = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
@@ -1422,6 +1523,28 @@ class FocusServiceTest {
         assertThat(response.sessionId()).isEqualTo(SESSION_ID);
         assertThat(response.durationSeconds()).isEqualTo(3600L);
         assertThat(response.totalDistractionSeconds()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("종료 성사 → 관리 엔티티 end() 더티 flush 로 status=COMPLETED 전이(GROMO-733)")
+    void endFocusSessionTransitionsToCompleted() {
+        // given: 본인 소유 진행 중(ACTIVE) 세션, 조건부 종료 성사(row=1)
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(START).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(SESSION_ID, END)).willReturn(1);
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, null);
+
+        // when
+        focusService.endFocusSession(USER_ID, body);
+
+        // then: end() 안에서 status=COMPLETED 로 전이(벌크 endSessionIfActive 는 status-agnostic 유지)
+        assertThat(session.getStatus()).isEqualTo(FocusSessionStatus.COMPLETED);
     }
 
     /**
@@ -1677,5 +1800,82 @@ class FocusServiceTest {
         // then: 조건 UPDATE 조차 호출되지 않음
         assertThat(closed).isZero();
         verify(focusSessionRepository, never()).markAutoClosedIfOpen(any(), any());
+    }
+
+    // ── cancelFocusSession — 세션 취소(GROMO-733) ────────────────────────────
+
+    @Test
+    @DisplayName("취소 성사 → 조건부 UPDATE(cancelSessionIfActive)로 마감 + 관리 엔티티 cancel() 전이(CANCELED)")
+    void cancelFocusSessionSuccess() {
+        // given: 본인 소유 진행 중(ACTIVE) 세션, 조건부 취소 성사(row=1)
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(START).build();
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.cancelSessionIfActive(eq(SESSION_ID), any())).willReturn(1);
+        FocusSessionCancelRequest body = new FocusSessionCancelRequest(SESSION_ID);
+
+        // when
+        focusService.cancelFocusSession(USER_ID, body);
+
+        // then: 조건부 원자 UPDATE 호출 + 관리 엔티티가 CANCELED·endedAt 로 전이(더티 flush)
+        verify(focusSessionRepository).cancelSessionIfActive(eq(SESSION_ID), any());
+        assertThat(session.getStatus()).isEqualTo(FocusSessionStatus.CANCELED);
+        assertThat(session.getEndedAt()).isNotNull();
+        // 취소는 통계·스트릭·완료 이벤트를 귀속하지 않는다
+        verify(dailyFocusStatRepository, never()).save(any(DailyFocusStat.class));
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+        verify(userActivityEventLogger, never()).log(eq(UserActivityEvent.FOCUS_SESSION_COMPLETED), anyMap());
+    }
+
+    @Test
+    @DisplayName("이미 종료/취소된 세션 재취소 → 조건부 UPDATE row=0 → FocusException(SESSION_ALREADY_ENDED), 멱등")
+    void cancelFocusSessionAlreadyEnded() {
+        // given: 조건부 취소 UPDATE 가 0행(endedAt IS NULL 아님 = 이미 종료/취소됨)
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(START).endedAt(END).build();
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.cancelSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
+        FocusSessionCancelRequest body = new FocusSessionCancelRequest(SESSION_ID);
+
+        // when & then
+        assertThatThrownBy(() -> focusService.cancelFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.SESSION_ALREADY_ENDED);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 세션 취소 → FocusException(SESSION_NOT_FOUND), 조건부 UPDATE 미호출")
+    void cancelFocusSessionNotFound() {
+        // given
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.empty());
+        FocusSessionCancelRequest body = new FocusSessionCancelRequest(SESSION_ID);
+
+        // when & then
+        assertThatThrownBy(() -> focusService.cancelFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.SESSION_NOT_FOUND);
+        verify(focusSessionRepository, never()).cancelSessionIfActive(any(), any());
+    }
+
+    @Test
+    @DisplayName("타인 세션 취소 → FocusException(FORBIDDEN), 조건부 UPDATE 미호출")
+    void cancelFocusSessionForbidden() {
+        // given: 세션 소유자가 OTHER_USER_ID
+        User other = User.builder().id(OTHER_USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(other).startedAt(START).build();
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        FocusSessionCancelRequest body = new FocusSessionCancelRequest(SESSION_ID);
+
+        // when & then
+        assertThatThrownBy(() -> focusService.cancelFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.FORBIDDEN);
+        verify(focusSessionRepository, never()).cancelSessionIfActive(any(), any());
     }
 }

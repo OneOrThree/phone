@@ -77,10 +77,27 @@ public class FocusSession {
     @CreationTimestamp
     private Instant createdAt;
 
-    /** 진행 중 세션에 종료 시각·방해 지표(누적 초)를 채워 완료 처리(더티 체킹). */
+    /**
+     * 진행 중 세션에 종료 시각·방해 지표(누적 초)를 채워 완료 처리(더티 체킹).
+     *
+     * <p>GROMO-733: 완료 전이 시 status 를 COMPLETED 로 세팅한다. 벌크(endSessionIfActive)는 status-agnostic 하게
+     * endedAt 만 원자 세팅하고, COMPLETED 는 이 관리 엔티티 더티 flush 로 정확히 반영한다.
+     */
     public void end(Instant endedAt, int totalDistractionSeconds) {
         this.endedAt = endedAt;
         this.totalDistractionSeconds = totalDistractionSeconds;
+        this.status = FocusSessionStatus.COMPLETED;
+    }
+
+    /**
+     * 유저 취소(GROMO-733) — status=CANCELED 로 전이하고 취소 시각을 endedAt 에 채운다(더티 체킹).
+     *
+     * <p>조건부 원자 UPDATE(cancelSessionIfActive)가 벌크로 CANCELED·endedAt 를 성사시킨 뒤, 관리 엔티티를
+     * 같은 값으로 정합시켜 영속성 컨텍스트의 낡은 상태(ACTIVE)를 제거한다. 통계·스트릭 귀속은 없다.
+     */
+    public void cancel(Instant canceledAt) {
+        this.endedAt = canceledAt;
+        this.status = FocusSessionStatus.CANCELED;
     }
 
     // GROMO-804: orphan 자동 종료 — 종료 시각을 상한으로 채우고 상태를 AUTO_CLOSED 로 표시한다.

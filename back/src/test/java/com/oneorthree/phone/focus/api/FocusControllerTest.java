@@ -1,15 +1,19 @@
 package com.oneorthree.phone.focus.api;
 
+import com.oneorthree.phone.focus.domain.FocusType;
 import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionSaveResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
+import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
+import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
 import com.oneorthree.phone.focus.dto.OccupationDefaultTagResponse;
 import com.oneorthree.phone.focus.dto.OccupationDefaultTagsResponse;
 import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.user.domain.Occupation;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
@@ -20,10 +24,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -149,5 +155,41 @@ class FocusControllerTest {
                 .andExpect(jsonPath("$.dayTotalFocusSeconds").value(300))
                 .andExpect(jsonPath("$.streakQualifiedToday").value(false))
                 .andDo(print());
+    }
+
+    // ── focus_type 인입 + 취소 API (GROMO-733) ───────────────────────────────
+
+    @Test
+    @DisplayName("POST /focus-session/start — body 의 focusType 이 DTO 로 역직렬화되어 서비스로 전달, 201")
+    void startFocusSessionDeserializesFocusType() throws Exception {
+        UUID sessionId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
+        given(focusService.startFocusSession(any(), any()))
+                .willReturn(new FocusSessionStartResponse(sessionId, Instant.parse("2026-06-23T01:00:00Z")));
+
+        String body = "{\"startedAt\":\"2026-06-23T01:00:00Z\",\"focusType\":\"POMODORO\"}";
+        mockMvc.perform(post("/api/v1/focus-session/start")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andDo(print());
+
+        ArgumentCaptor<FocusSessionStartRequest> captor = ArgumentCaptor.forClass(FocusSessionStartRequest.class);
+        verify(focusService).startFocusSession(any(), captor.capture());
+        assertThat(captor.getValue().focusType()).isEqualTo(FocusType.POMODORO);
+    }
+
+    @Test
+    @DisplayName("PATCH /focus-session/cancel — sessionId 로 취소 위임, 204")
+    void cancelFocusSessionReturns204() throws Exception {
+        UUID sessionId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
+
+        String body = "{\"sessionId\":\"" + sessionId + "\"}";
+        mockMvc.perform(patch("/api/v1/focus-session/cancel")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isNoContent())
+                .andDo(print());
+
+        verify(focusService).cancelFocusSession(any(), any());
     }
 }

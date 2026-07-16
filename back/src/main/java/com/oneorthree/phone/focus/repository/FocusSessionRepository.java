@@ -71,7 +71,9 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // 취소(CANCELED) 세션은 제외(과거 deleted_at IS NULL 을 status 기반으로 전환).
     // GROMO-804: orphan 자동 종료(AUTO_CLOSED) 세션도 제외한다. orphan 은 endedAt 이 채워져 이 윈도우에 걸리지만
     // 통계 미반영 세션이므로, 여기서 걸러야 사전집계 /stats/focus 와 by-category 총합이 일치한다.
-    // (= COMPLETED 는 쓸 수 없다 — COMPLETED 는 죽은 값이라 정상 완료 세션도 status=ACTIVE 다. 반드시 NOT IN 방식.)
+    // GROMO-733: 정상 완료가 이제 status=COMPLETED 지만, 필터는 여전히 NOT IN(CANCELED, AUTO_CLOSED)를 쓴다 —
+    // COMPLETED 는 NOT IN 을 통과해 포함되고, 레거시 완료(endedAt 채워진 채 ACTIVE 로 남은 세션)도 함께 포함해야
+    // 하기 때문(status=COMPLETED 단독 필터로 바꾸면 레거시 완료가 누락된다). 제외 대상만 명시하는 방식이 정답이다.
     // GROMO-673: focusTag(user_focus_tags)와 그 defaultTag 까지 LEFT JOIN FETCH 로 N+1(이름 매핑) 방지.
     @Query("SELECT s FROM FocusSession s "
             + "LEFT JOIN FETCH s.focusTag ft "
@@ -109,4 +111,15 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
             + "s.endedAt = :endedAt "
             + "WHERE s.id = :id AND s.endedAt IS NULL")
     int markAutoClosedIfOpen(@Param("id") UUID id, @Param("endedAt") Instant endedAt);
+
+    // 원자적 조건부 유저 취소(GROMO-733) — 진행 중(endedAt IS NULL)인 경우에만 CANCELED 로 마감하고 취소 시각을 채운다.
+    // 반환값(영향 row 수)이 1이면 이 요청이 취소를 성사시킨 것이고, 0이면 이미 종료/취소된 세션(멱등 — 재취소·이중 취소 차단).
+    // endSessionIfActive 미러 구조지만, 취소는 markAutoClosedIfOpen 처럼 status 를 벌크 UPDATE 에서 직접 세팅한다
+    // (완료(COMPLETED)는 관리 엔티티 end() 더티 flush 로 반영하는 것과 달리, 취소는 통계 귀속이 없어 벌크 단일 세팅으로 충분).
+    @Modifying
+    @Query("UPDATE FocusSession s "
+            + "SET s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED, "
+            + "s.endedAt = :canceledAt "
+            + "WHERE s.id = :id AND s.endedAt IS NULL")
+    int cancelSessionIfActive(@Param("id") UUID id, @Param("canceledAt") Instant canceledAt);
 }

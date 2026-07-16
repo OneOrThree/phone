@@ -1,5 +1,6 @@
 package com.oneorthree.phone.focus.api;
 
+import com.oneorthree.phone.focus.dto.FocusSessionCancelRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
@@ -169,6 +170,26 @@ public class FocusController {
             @Valid @RequestBody FocusSessionEndRequest body) {
         UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(focusService.endFocusSession(userId, body));
+    }
+
+    @Operation(summary = "Focus Session 취소",
+            description = "진행 중(endedAt NULL) 세션을 취소해 status=CANCELED 로 마감한다. 취소 시각은 서버 수신 시각. "
+                    + "통계·스트릭은 귀속하지 않는다. 이미 종료/취소된 세션 재취소는 409(멱등).")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "취소 성공"),
+        @ApiResponse(responseCode = "400", description = "sessionId 누락"),
+        @ApiResponse(responseCode = "401", description = "인증 필요"),
+        @ApiResponse(responseCode = "403", description = "세션 소유자 불일치"),
+        @ApiResponse(responseCode = "404", description = "세션 없음"),
+        @ApiResponse(responseCode = "409", description = "이미 종료/취소된 세션")
+    })
+    @PatchMapping("/focus-session/cancel")
+    public ResponseEntity<Void> cancelFocusSession(
+            HttpServletRequest request,
+            @Valid @RequestBody FocusSessionCancelRequest body) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        focusService.cancelFocusSession(userId, body);
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(summary = "Focus Session 조회",

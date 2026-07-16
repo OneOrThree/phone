@@ -185,4 +185,77 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         assertThat(reloaded.getStatus()).isEqualTo(FocusSessionStatus.ACTIVE);
         assertThat(reloaded.getEndedAt()).isEqualTo(userEndedAt);
     }
+
+    // ── COMPLETED 세션 포함 (GROMO-733) ──────────────────────────────────
+
+    @Test
+    @DisplayName("findCompletedSessionsInPeriod — status=COMPLETED(정상 완료) 세션은 결과에 포함")
+    void includesCompletedSessions() {
+        // given: end() 로 COMPLETED 전이된 정상 완료 세션 (endedAt 윈도우 내)
+        FocusSession completed = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T02:00:00Z"))
+                .status(FocusSessionStatus.COMPLETED)
+                .build());
+        focusSessionRepository.flush();
+
+        // when
+        List<FocusSession> result = focusSessionRepository.findCompletedSessionsInPeriod(user, FROM, TO);
+
+        // then: COMPLETED 는 NOT IN(CANCELED, AUTO_CLOSED) 필터를 통과해 포함된다(이제 정상값)
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(completed.getId());
+    }
+
+    // ── 유저 취소 조건부 원자 UPDATE(cancelSessionIfActive) (GROMO-733) ──────
+
+    @Test
+    @DisplayName("cancelSessionIfActive — 미종료(진행 중) 세션은 CANCELED + endedAt 세팅, 반환 1")
+    void cancelSessionIfActiveCancelsOpenSession() {
+        // given: endedAt IS NULL 인 진행 중 세션
+        FocusSession open = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T00:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+        Instant canceledAt = Instant.parse("2026-07-03T00:30:00Z");
+
+        // when: 조건부 UPDATE
+        int updated = focusSessionRepository.cancelSessionIfActive(open.getId(), canceledAt);
+        focusSessionRepository.flush();
+        entityManager.clear();   // 1차 캐시 비우고 DB 실제 값 재조회
+
+        // then: 영향 row=1, DB 상태가 CANCELED + endedAt=canceledAt
+        assertThat(updated).isEqualTo(1);
+        FocusSession reloaded = focusSessionRepository.findById(open.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(FocusSessionStatus.CANCELED);
+        assertThat(reloaded.getEndedAt()).isEqualTo(canceledAt);
+    }
+
+    @Test
+    @DisplayName("cancelSessionIfActive — 이미 종료된 세션은 덮어쓰지 않고 반환 0(멱등)")
+    void cancelSessionIfActiveSkipsAlreadyEndedSession() {
+        // given: 이미 완료(endedAt 채워진) 세션 — 재취소 방지 경합 시나리오
+        Instant endedAt = Instant.parse("2026-07-03T02:00:00Z");
+        FocusSession ended = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T00:00:00Z"))
+                .endedAt(endedAt)
+                .status(FocusSessionStatus.COMPLETED)
+                .build());
+        focusSessionRepository.flush();
+
+        // when: endedAt IS NULL 조건 → 매칭 안 됨
+        int updated = focusSessionRepository.cancelSessionIfActive(ended.getId(),
+                Instant.parse("2026-07-03T03:00:00Z"));
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        // then: 영향 row=0, status·endedAt 는 기존 완료 값 보존(CANCELED 로 덮이지 않음)
+        assertThat(updated).isZero();
+        FocusSession reloaded = focusSessionRepository.findById(ended.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(FocusSessionStatus.COMPLETED);
+        assertThat(reloaded.getEndedAt()).isEqualTo(endedAt);
+    }
 }

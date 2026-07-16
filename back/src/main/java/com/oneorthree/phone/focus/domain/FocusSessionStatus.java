@@ -4,12 +4,16 @@ package com.oneorthree.phone.focus.domain;
  * 집중 세션 상태값. varchar + CHECK 제약(V2)으로 저장되며 {@code @Enumerated(STRING)} 매핑.
  */
 public enum FocusSessionStatus {
-    /** 진행 중. 완료(종료 시각 기록)된 세션도 상태는 계속 ACTIVE 로 남는다(아래 COMPLETED 참고). */
+    /**
+     * 진행 중(라이브). 종료 시각(endedAt)이 채워지면 완료 전이로 COMPLETED 가 된다.
+     * (GROMO-610 시절 레거시 경로로 endedAt 만 채워지고 ACTIVE 로 남은 완료 세션도 존재할 수 있어,
+     * 완료 조회 필터는 status=COMPLETED 단독이 아닌 NOT IN(CANCELED, AUTO_CLOSED) 방식을 유지한다.)
+     */
     ACTIVE,
     /**
-     * <b>현재 미사용(dead value).</b> 세션 완료 로직(FocusService.recordCompletion/endFocusSession)은
-     * endedAt 만 채우고 상태는 ACTIVE 로 유지하므로 이 값을 쓰는 경로가 없다. 값 변경(정상 완료를 COMPLETED 로
-     * 전환)은 동작 변경이라 GROMO-779 스코프 밖 — 별도 후속에서 다룬다.
+     * 정상 완료(GROMO-733부터 사용). 세션 완료 전이({@link FocusSession#end}) 및 POST 완료 저장
+     * ({@code FocusService.saveFocusSession})이 이 값을 세팅한다. 통계·스트릭에 반영되는 정상값이며,
+     * 완료 조회 필터 NOT IN(CANCELED, AUTO_CLOSED)를 통과한다.
      */
     COMPLETED,
     CANCELED,
