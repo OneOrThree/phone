@@ -150,13 +150,13 @@ export default function OccupationScreen() {
 
 const s = StyleSheet.create({
   flex1: { flex: 1 },
-  desc: { ...T.text.body, color: T.inkSub, marginTop: 6, marginBottom: 10 },
-  group: { marginTop: 16 },
-  groupLabel: { ...T.text.caption, color: T.inkMuted, marginBottom: 9, marginLeft: 2 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  desc: { ...T.text.body, color: T.inkSub, marginTop: T.space.sm, marginBottom: T.space.md },
+  group: { marginTop: T.space.lg },
+  groupLabel: { ...T.text.caption, color: T.inkMuted, marginBottom: T.space.sm, marginLeft: 2 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: T.space.sm },
   chip: {
-    paddingVertical: 11,
-    paddingHorizontal: 16,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.lg,
     borderRadius: 13,
     backgroundColor: T.white,
     borderWidth: 1.5,
@@ -169,14 +169,14 @@ const s = StyleSheet.create({
   note: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: T.space.sm,
     backgroundColor: T.noteBg,
     borderWidth: 1,
     borderColor: T.noteBorder,
     borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginTop: 22,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.lg,
+    marginTop: T.space.xxl,
   },
   noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, flex: 1, lineHeight: 19 },
 

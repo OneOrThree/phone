@@ -73,8 +73,14 @@ export function PomodoroSetupSheet({
 
 const s = StyleSheet.create({
   title: { ...T.text.body, fontWeight: '800', color: T.ink },
-  sub: { ...T.text.label, fontWeight: '500', color: T.inkMuted, marginTop: 2, marginBottom: 13 },
-  list: { gap: 9, marginBottom: 16 },
+  sub: {
+    ...T.text.label,
+    fontWeight: '500',
+    color: T.inkMuted,
+    marginTop: 2,
+    marginBottom: T.space.md,
+  },
+  list: { gap: T.space.sm, marginBottom: T.space.lg },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -83,11 +89,11 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 15,
-    paddingVertical: 11,
-    paddingHorizontal: 16,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.lg,
   },
   rowLabel: { ...T.text.label, fontWeight: '700', color: T.ink },
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: T.space.lg },
   stepBtn: {
     width: 32,
     height: 32,

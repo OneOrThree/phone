@@ -117,20 +117,20 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 16,
-    padding: 16,
+    padding: T.space.lg,
   },
   headRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: T.space.lg,
   },
   title: { ...T.text.label, fontWeight: '700', color: T.ink },
   // 기간 탭(GROMO-692) — 집중 결과 비교 카드의 축 칩과 동일 패턴
-  tabRow: { flexDirection: 'row', gap: 6 },
+  tabRow: { flexDirection: 'row', gap: T.space.sm },
   tabChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: T.space.md,
+    paddingVertical: T.space.xs,
     borderRadius: 999,
     backgroundColor: T.chipBg,
     borderWidth: 1,
@@ -140,11 +140,11 @@ const s = StyleSheet.create({
   tabChipText: { ...T.text.caption, fontSize: 11, color: T.inkSub },
   tabChipTextOn: { color: T.white, fontWeight: '700' },
 
-  emptyText: { ...T.text.caption, color: T.inkSub, paddingVertical: 6 },
+  emptyText: { ...T.text.caption, color: T.inkSub, paddingVertical: T.space.sm },
 
-  block: { marginBottom: 13 },
-  subject: { ...T.text.caption, fontWeight: '700', color: T.ink, marginBottom: 6 },
-  barRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 5 },
+  block: { marginBottom: T.space.md },
+  subject: { ...T.text.caption, fontWeight: '700', color: T.ink, marginBottom: T.space.sm },
+  barRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm, marginBottom: T.space.xs },
   barWho: { ...T.text.caption, fontSize: 11, width: 28 },
   barWhoMine: { color: T.accent },
   barWhoTheirs: { color: THEIRS },
@@ -162,8 +162,8 @@ const s = StyleSheet.create({
   },
   barValTheirs: { color: T.link },
 
-  legendRow: { flexDirection: 'row', gap: 14, marginTop: 4 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendRow: { flexDirection: 'row', gap: T.space.lg, marginTop: T.space.xs },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   legendDot: { width: 9, height: 9, borderRadius: 2 },
   legendText: { ...T.text.caption, fontSize: 11, color: T.inkSub, maxWidth: 120 },
 });

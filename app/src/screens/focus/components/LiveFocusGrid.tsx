@@ -85,32 +85,32 @@ export function LiveFocusGrid({
 }
 
 const s = StyleSheet.create({
-  wrap: { flex: 1, paddingHorizontal: 18 },
+  wrap: { flex: 1, paddingHorizontal: T.space.xl },
   title: {
     ...T.text.caption,
     fontWeight: '800',
     color: T.night.cream,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: T.space.sm,
   },
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 7,
+    gap: T.space.sm,
     backgroundColor: withAlpha(T.night.green, 0.12),
     borderWidth: 1,
     borderColor: withAlpha(T.night.green, 0.25),
     borderRadius: 13,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
-    marginBottom: 18,
+    paddingVertical: T.space.sm,
+    paddingHorizontal: T.space.md,
+    marginBottom: T.space.xl,
   },
   bannerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.night.green },
   bannerText: { ...T.text.label, fontWeight: '700', color: T.night.greenSoft },
 
   grid: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around' },
-  cell: { width: '31%', alignItems: 'center', gap: 5, marginVertical: 10 },
+  cell: { width: '31%', alignItems: 'center', gap: T.space.xs, marginVertical: T.space.md },
   cellOff: { opacity: 0.5 },
   avatar: {
     width: 60,
@@ -138,7 +138,13 @@ const s = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
 
-  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 30 },
+  emptyWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: T.space.sm,
+    padding: 30,
+  },
   emptyTitle: { ...T.text.label, fontWeight: '700', color: T.night.cream },
   emptySub: {
     ...T.text.caption,

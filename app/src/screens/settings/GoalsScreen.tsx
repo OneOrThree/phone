@@ -294,12 +294,12 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 18,
-    marginTop: 16,
+    paddingHorizontal: T.space.lg,
+    paddingTop: T.space.lg,
+    paddingBottom: T.space.xl,
+    marginTop: T.space.lg,
   },
-  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: T.space.md },
   cardIcon: {
     width: 36,
     height: 36,
@@ -311,32 +311,32 @@ const s = StyleSheet.create({
   cardSub: { ...T.text.caption, color: T.inkMuted, marginTop: 2 },
 
   // 값 표시
-  value: { ...T.text.display, color: T.ink, textAlign: 'center', marginTop: 14 },
+  value: { ...T.text.display, color: T.ink, textAlign: 'center', marginTop: T.space.lg },
   fromText: {
     ...T.text.caption,
     fontWeight: '500',
     color: T.inkMuted,
     textAlign: 'center',
-    marginTop: 4,
+    marginTop: T.space.xs,
   },
 
   // 슬라이더
-  sliderArea: { alignSelf: 'stretch', marginTop: 16 },
-  sliderLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
+  sliderArea: { alignSelf: 'stretch', marginTop: T.space.lg },
+  sliderLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: T.space.sm },
   minor: { ...T.text.caption, fontWeight: '500', color: T.inkMuted },
 
   // 안내 박스
   note: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: T.space.sm,
     backgroundColor: T.noteBg,
     borderWidth: 1,
     borderColor: T.noteBorder,
     borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginTop: 18,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.lg,
+    marginTop: T.space.xl,
   },
   noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, flex: 1, lineHeight: 19 },
 

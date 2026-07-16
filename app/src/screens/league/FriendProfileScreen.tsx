@@ -524,10 +524,10 @@ const s = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 18,
-    paddingTop: 6,
-    paddingBottom: 8,
+    gap: T.space.md,
+    paddingHorizontal: T.space.xl,
+    paddingTop: T.space.sm,
+    paddingBottom: T.space.sm,
   },
   backBtn: {
     width: 32,
@@ -553,43 +553,48 @@ const s = StyleSheet.create({
   pinBtnOn: { backgroundColor: T.accent, borderColor: T.accent },
 
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 18, paddingBottom: 16 },
+  scrollContent: { paddingHorizontal: T.space.xl, paddingBottom: T.space.lg },
 
   // 아바타·이름·티어
   heroCol: { alignItems: 'center' },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm, marginTop: T.space.sm },
   name: { ...T.text.stat, color: T.ink, maxWidth: 200 },
   friendPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: T.space.xs,
     backgroundColor: T.track,
     borderRadius: 999,
-    paddingHorizontal: 10,
+    paddingHorizontal: T.space.md,
     paddingVertical: 3,
   },
   friendPillText: { ...T.text.caption, fontSize: 11, fontWeight: '700', color: T.inkSub },
-  tierRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 9 },
+  tierRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs, marginTop: T.space.sm },
   tierText: { ...T.text.caption, fontSize: 12, fontWeight: '700', color: T.inkSub },
   rankText: { ...T.text.caption, fontSize: 12, color: T.inkSub },
 
   loader: { paddingVertical: 48, alignItems: 'center' },
 
   // 요약(링 + 이번 주/연속)
-  summaryRow: { flexDirection: 'row', gap: 10, marginTop: 18, marginBottom: 10 },
+  summaryRow: {
+    flexDirection: 'row',
+    gap: T.space.md,
+    marginTop: T.space.xl,
+    marginBottom: T.space.md,
+  },
   ringCard: {
     width: 104,
     alignItems: 'center',
-    gap: 6,
+    gap: T.space.sm,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 14,
-    padding: 12,
+    padding: T.space.md,
   },
   ringValue: { ...T.text.label, fontWeight: '800', color: T.ink },
   ringLabel: { ...T.text.caption, fontSize: 11, color: T.inkSub },
-  summaryCol: { flex: 1, gap: 10 },
+  summaryCol: { flex: 1, gap: T.space.md },
   summaryCard: {
     flex: 1,
     justifyContent: 'center',
@@ -597,15 +602,15 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 14,
-    paddingHorizontal: 13,
-    paddingVertical: 12,
+    paddingHorizontal: T.space.md,
+    paddingVertical: T.space.md,
   },
   summaryLabel: { ...T.text.caption, fontSize: 11, fontWeight: '500', color: T.inkMuted },
   summaryValue: {
     ...T.text.subtitle,
     fontWeight: '800',
     color: T.ink,
-    marginTop: 4,
+    marginTop: T.space.xs,
     fontVariant: ['tabular-nums'],
   },
 
@@ -613,14 +618,14 @@ const s = StyleSheet.create({
   examCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 9,
+    gap: T.space.sm,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 14,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.md,
+    marginBottom: T.space.lg,
   },
   examIcon: {
     width: 30,
@@ -634,30 +639,30 @@ const s = StyleSheet.create({
   examLabel: { ...T.text.caption, fontSize: 11, fontWeight: '500', color: T.inkMuted },
   examValue: { ...T.text.label, fontWeight: '700', color: T.ink },
 
-  chartGap: { marginTop: 12 },
+  chartGap: { marginTop: T.space.md },
 
   // 겹치는 과목 없음 안내(시안 '겹침 없음' 분기)
   noOverlapNote: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 9,
+    gap: T.space.sm,
     backgroundColor: T.noteBg,
     borderWidth: 1,
     borderColor: T.noteBorder,
     borderRadius: 13,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.md,
   },
   noOverlapText: { ...T.text.caption, flex: 1, fontWeight: '600', color: T.link, lineHeight: 19 },
 
   // 상세 통계 잠금(비공개)
   lockCard: {
-    marginTop: 12,
+    marginTop: T.space.md,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 16,
-    paddingHorizontal: 24,
+    paddingHorizontal: T.space.xxl,
     paddingVertical: 28,
     alignItems: 'center',
   },
@@ -670,7 +675,7 @@ const s = StyleSheet.create({
     borderColor: T.paperAlt,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: T.space.md,
   },
   lockTitle: { ...T.text.label, fontWeight: '700', color: T.ink },
   lockSub: {
@@ -679,11 +684,11 @@ const s = StyleSheet.create({
     color: T.inkSub,
     textAlign: 'center',
     lineHeight: 19,
-    marginTop: 4,
+    marginTop: T.space.xs,
   },
 
   // 하단 CTA
-  ctaWrap: { paddingHorizontal: 18, paddingTop: 12 },
+  ctaWrap: { paddingHorizontal: T.space.xl, paddingTop: T.space.md },
   requestBtn: {
     height: 54,
     borderRadius: 16,
@@ -691,7 +696,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 7,
+    gap: T.space.sm,
     shadowColor: T.accent,
     shadowOpacity: 0.55,
     shadowRadius: 12,
@@ -716,7 +721,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 7,
+    gap: T.space.sm,
   },
   unfriendText: { ...T.text.label, fontWeight: '700', color: UNFRIEND_INK },
 });

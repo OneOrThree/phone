@@ -139,15 +139,21 @@ const s = StyleSheet.create({
   // 안내 카드
   note: {
     flexDirection: 'row',
-    gap: 10,
+    gap: T.space.md,
     alignItems: 'flex-start',
     backgroundColor: T.noteBg,
     borderWidth: 1,
     borderColor: T.noteBorder,
     borderRadius: 14,
-    padding: 14,
+    padding: T.space.lg,
   },
-  noteDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.accent, marginTop: 6 },
+  noteDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: T.accent,
+    marginTop: T.space.sm,
+  },
   noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, flex: 1, lineHeight: 19 },
 
   // 허용 앱 고르기 버튼(아웃라인 틴트)
@@ -155,13 +161,13 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: T.space.sm,
     height: 54,
     borderRadius: 16,
     borderWidth: 1.5,
     borderColor: T.accent,
     backgroundColor: T.accentBg,
-    marginTop: 18,
+    marginTop: T.space.xl,
   },
   pickBtnText: { ...T.text.label, color: T.accentDeep },
 

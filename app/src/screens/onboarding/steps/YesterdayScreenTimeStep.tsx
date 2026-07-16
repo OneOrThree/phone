@@ -60,7 +60,7 @@ const s = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 20,
+    gap: T.space.xl,
   },
   analyzingText: { ...T.text.heading, color: T.ink, textAlign: 'center', lineHeight: 28 },
   character: { width: 170, height: 200 },

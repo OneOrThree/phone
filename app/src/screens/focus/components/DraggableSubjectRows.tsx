@@ -272,18 +272,18 @@ export function DraggableSubjectRows({
 
 const s = StyleSheet.create({
   flex1: { flex: 1 },
-  content: { paddingHorizontal: 22, paddingTop: 6 },
+  content: { paddingHorizontal: T.space.xxl, paddingTop: T.space.sm },
   rowWrap: { position: 'absolute', left: 0, right: 0, height: ROW_H },
   row: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 11,
+    gap: T.space.md,
     backgroundColor: T.white,
     borderWidth: 1.5,
     borderColor: T.paperAlt,
     borderRadius: 14,
-    paddingHorizontal: 13,
+    paddingHorizontal: T.space.md,
   },
   rowSelected: { borderColor: T.accent },
   rowActive: {

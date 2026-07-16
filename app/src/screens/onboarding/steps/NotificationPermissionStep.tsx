@@ -84,17 +84,17 @@ export default function NotificationPermissionStep({ update, onNext }: StepProps
 }
 
 const s = StyleSheet.create({
-  list: { alignSelf: 'stretch', gap: 9 },
+  list: { alignSelf: 'stretch', gap: T.space.sm },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 11,
+    gap: T.space.md,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 13,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.md,
   },
   iconBox: {
     width: 34,

@@ -229,13 +229,13 @@ const s = StyleSheet.create({
   statusCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: T.space.md,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    paddingVertical: T.space.lg,
+    paddingHorizontal: T.space.lg,
   },
   iconBox: {
     width: 44,
@@ -247,7 +247,7 @@ const s = StyleSheet.create({
   },
   statusTitle: { ...T.text.label, color: T.ink },
   statusSub: { ...T.text.caption, color: T.inkMuted, marginTop: 3 },
-  badge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+  badge: { paddingHorizontal: T.space.md, paddingVertical: T.space.xs, borderRadius: 999 },
   badgeText: { ...T.text.caption },
 
   // 안내 카드
@@ -256,16 +256,16 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.noteBorder,
     borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginTop: 16,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.lg,
+    marginTop: T.space.lg,
   },
-  noteHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  noteHead: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   noteStrong: { ...T.text.label, color: T.ink },
-  noteBody: { ...T.text.caption, color: T.inkSub, lineHeight: 19, marginTop: 8 },
+  noteBody: { ...T.text.caption, color: T.inkSub, lineHeight: 19, marginTop: T.space.sm },
 
   // 하단 버튼
-  footerCol: { gap: 10 },
+  footerCol: { gap: T.space.md },
   primaryBtn: {
     height: 54,
     borderRadius: 16,
@@ -284,7 +284,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: T.space.sm,
   },
   secondaryBtnText: { ...T.text.label, color: T.ink },
 });

@@ -116,6 +116,10 @@ export const T = {
     label: { fontSize: 15, fontWeight: '600' }, // 라벨·소제목
     caption: { fontSize: 13, fontWeight: '600' }, // 배지·캡션·보조 (최소 가독선)
   },
+
+  // 8pt 간격 그리드 (Apple HIG) — 패딩·마진·gap을 이 스케일로 통일한다(GROMO-846).
+  // xs 4 / sm 8 / md 12 / lg 16 / xl 20 / xxl 24.
+  space: { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24 },
 } as const;
 
 // #RRGGBB 팔레트 토큰 → rgba 문자열. 반투명 색을 하드코딩하지 말고 토큰에서 파생시킬 때 사용.

@@ -84,19 +84,25 @@ export function TagSuggestionSheet({
 
 const s = StyleSheet.create({
   title: { ...T.text.body, fontWeight: '800', color: T.ink },
-  sub: { ...T.text.label, fontWeight: '500', color: T.inkMuted, marginTop: 2, marginBottom: 13 },
+  sub: {
+    ...T.text.label,
+    fontWeight: '500',
+    color: T.inkMuted,
+    marginTop: 2,
+    marginBottom: T.space.md,
+  },
   listScroll: { maxHeight: 320 },
-  list: { gap: 9 },
+  list: { gap: T.space.sm },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: T.space.md,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 15,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.lg,
   },
   iconBox: {
     width: 38,
@@ -108,8 +114,8 @@ const s = StyleSheet.create({
   },
   rowName: { ...T.text.label, fontWeight: '700', color: T.ink, flex: 1 },
   addBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+    paddingVertical: T.space.sm,
+    paddingHorizontal: T.space.lg,
     borderRadius: 11,
     backgroundColor: T.white,
     borderWidth: 1.5,
@@ -122,9 +128,9 @@ const s = StyleSheet.create({
     backgroundColor: T.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 14,
+    marginTop: T.space.lg,
   },
   addAllText: { ...T.text.subtitle, color: T.white },
-  skipBtn: { alignItems: 'center', paddingVertical: 12 },
+  skipBtn: { alignItems: 'center', paddingVertical: T.space.md },
   skipText: { ...T.text.label, fontWeight: '600', color: T.inkMuted },
 });
