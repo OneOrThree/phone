@@ -1,10 +1,20 @@
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Rect, Path } from 'react-native-svg';
+import Animated, { SlideInUp } from 'react-native-reanimated';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
 import type { StepProps } from '@/screens/onboarding/types';
 
-// W3 · 문제 공감 — "이런 하루, 익숙하지 않으세요?" 공감 카드 2개(정적).
+// iOS 알림 드롭 연출 — 화면 위 바깥에서 미끄러져 내려와 목표 지점을 살짝 지나쳤다
+// 되돌아오며 안착(스프링 오버슛 = 바운스). 두 카드는 알림이 연달아 오듯 시차를 둔다.
+const notificationDrop = (order: number) =>
+  SlideInUp.springify()
+    .damping(14)
+    .stiffness(120)
+    .mass(0.9)
+    .delay(150 + order * 250);
+
+// W3 · 문제 공감 — "이런 하루, 익숙하지 않으세요?" 공감 카드 2개(알림 드롭 등장).
 export default function ProblemEmpathyStep({ onNext }: StepProps) {
   return (
     <StepScaffold
@@ -14,7 +24,7 @@ export default function ProblemEmpathyStep({ onNext }: StepProps) {
       onCta={onNext}
     >
       <View style={s.cards}>
-        <View style={s.card}>
+        <Animated.View style={s.card} entering={notificationDrop(0)}>
           <View style={s.iconBox}>
             <Svg width={22} height={22} viewBox="0 0 24 24">
               <Rect
@@ -36,9 +46,9 @@ export default function ProblemEmpathyStep({ onNext }: StepProps) {
             </Svg>
           </View>
           <Text style={s.cardText}>{'잠시 알림 확인하려고\n핸드폰 들었다가 훌쩍 지나간 시간'}</Text>
-        </View>
+        </Animated.View>
 
-        <View style={s.card}>
+        <Animated.View style={s.card} entering={notificationDrop(1)}>
           <View style={s.iconBox}>
             <Svg width={22} height={22} viewBox="0 0 24 24">
               <Path
@@ -51,7 +61,7 @@ export default function ProblemEmpathyStep({ onNext }: StepProps) {
             </Svg>
           </View>
           <Text style={s.cardText}>{'내가 남들만큼 하는지\n비교할 방법이 없는 답답한 순간'}</Text>
-        </View>
+        </Animated.View>
       </View>
     </StepScaffold>
   );
