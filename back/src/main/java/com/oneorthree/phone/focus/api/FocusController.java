@@ -88,10 +88,12 @@ public class FocusController {
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(summary = "TAG 수정", description = "TAG, 설명 수정")
+    @Operation(summary = "TAG 수정",
+            description = "TAG 이름 수정. rename 시 옛 태그를 참조하던 과거 세션을 새 태그로 재연결한다(동작 변경, GROMO-754). "
+                    + "직군 프리셋(occupation) 태그는 이름 변경 불가(400).")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "수정 성공"),
-        @ApiResponse(responseCode = "400", description = "유효성 검사 실패"),
+        @ApiResponse(responseCode = "400", description = "유효성 검사 실패 또는 직군 프리셋 태그 rename 시도"),
         @ApiResponse(responseCode = "404", description = "태그 없음")
     })
     @PatchMapping("/tag")
