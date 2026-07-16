@@ -153,23 +153,61 @@ class StatsServiceTest {
                 .isInstanceOf(StatsException.class);
     }
 
-    // ── getStreak ─────────────────────────────────────────────────────────
+    // ── getStreak (GROMO-847: read-time lazy 만료) ────────────────────────
+
+    // 고정 조회 기준일 — 클라 로컬 "오늘"
+    private static final LocalDate STREAK_TODAY = LocalDate.of(2026, 7, 16);
 
     @Test
-    @DisplayName("스트릭 — 기록 있으면 매핑")
-    void getStreakMapped() {
+    @DisplayName("스트릭 — lastSessionDate == 오늘 → currentStreak 유지")
+    void getStreakKeepsWhenLastSessionToday() {
         User user = User.builder().id(USER_ID).build();
         UserStreak streak = UserStreak.builder()
-                .user(user).streakCount(5).longestStreakCount(10).lastSessionDate(LocalDate.of(2026, 6, 28))
+                .user(user).streakCount(5).longestStreakCount(10).lastSessionDate(STREAK_TODAY)
                 .build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
         given(userStreakRepository.findByUser(user)).willReturn(Optional.of(streak));
 
-        StreakResponse response = statsService.getStreak(USER_ID);
+        StreakResponse response = statsService.getStreak(USER_ID, STREAK_TODAY);
 
         assertThat(response.currentStreak()).isEqualTo(5);
         assertThat(response.longestStreak()).isEqualTo(10);
-        assertThat(response.lastSessionDate()).isEqualTo(LocalDate.of(2026, 6, 28));
+        assertThat(response.lastSessionDate()).isEqualTo(STREAK_TODAY);
+    }
+
+    @Test
+    @DisplayName("스트릭 — lastSessionDate == 어제 → currentStreak 유지(오늘 아직 집중 전)")
+    void getStreakKeepsWhenLastSessionYesterday() {
+        User user = User.builder().id(USER_ID).build();
+        UserStreak streak = UserStreak.builder()
+                .user(user).streakCount(5).longestStreakCount(10)
+                .lastSessionDate(STREAK_TODAY.minusDays(1))
+                .build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(userStreakRepository.findByUser(user)).willReturn(Optional.of(streak));
+
+        StreakResponse response = statsService.getStreak(USER_ID, STREAK_TODAY);
+
+        assertThat(response.currentStreak()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("스트릭 — lastSessionDate <= 그저께(공백) → currentStreak 0 리셋, longest·lastDate 원본 유지 (핵심 회귀)")
+    void getStreakResetsWhenLastSessionBeforeYesterday() {
+        // GROMO-847 재현: streakCount=5, lastSessionDate=6/28 유저가 공백 후 7/16 조회 → 끊겨야 정상.
+        User user = User.builder().id(USER_ID).build();
+        LocalDate lastSession = LocalDate.of(2026, 6, 28);
+        UserStreak streak = UserStreak.builder()
+                .user(user).streakCount(5).longestStreakCount(10).lastSessionDate(lastSession)
+                .build();
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(userStreakRepository.findByUser(user)).willReturn(Optional.of(streak));
+
+        StreakResponse response = statsService.getStreak(USER_ID, STREAK_TODAY);
+
+        assertThat(response.currentStreak()).isZero();                  // 공백으로 끊김 → 0
+        assertThat(response.longestStreak()).isEqualTo(10);             // 최장 기록은 원본 유지
+        assertThat(response.lastSessionDate()).isEqualTo(lastSession);  // 마지막 집중일도 원본 유지(히스토리)
     }
 
     @Test
@@ -179,7 +217,7 @@ class StatsServiceTest {
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
         given(userStreakRepository.findByUser(user)).willReturn(Optional.empty());
 
-        StreakResponse response = statsService.getStreak(USER_ID);
+        StreakResponse response = statsService.getStreak(USER_ID, STREAK_TODAY);
 
         assertThat(response.currentStreak()).isZero();
         assertThat(response.longestStreak()).isZero();

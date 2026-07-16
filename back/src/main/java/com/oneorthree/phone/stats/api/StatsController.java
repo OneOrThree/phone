@@ -53,19 +53,24 @@ public class StatsController {
 
     @Operation(summary = "스트릭(연속일) 조회",
             description = "현재 연속일·최장 연속일·마지막 집중일. 기록 없으면 0/0/null."
+                    + " currentStreak 은 read-time 으로 만료된다(GROMO-847): lastSessionDate 가 어제 이전이면"
+                    + " 공백으로 끊긴 것으로 보아 0 을 반환한다(longestStreak·lastSessionDate 는 원본 유지)."
+                    + " date 는 클라 로컬 기준 '오늘'(required, GROMO-643 관례)."
                     + " friends 지정 시 해당 친구(또는 PUBLIC)의 스트릭을 조회, 미지정 시 self.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "400", description = "date 누락·형식 오류"),
         @ApiResponse(responseCode = "401", description = "인증 필요"),
         @ApiResponse(responseCode = "404", description = "대상 유저 없음 또는 친구 관계 아님")
     })
     @GetMapping("/stats/streak")
     public ResponseEntity<StreakResponse> getStreak(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
             HttpServletRequest request) {
         UUID callerId = (UUID) request.getAttribute("userId");
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
-        return ResponseEntity.ok(statsService.getStreak(targetId));
+        return ResponseEntity.ok(statsService.getStreak(targetId, date));
     }
 
     @Operation(summary = "오늘 요약 조회",

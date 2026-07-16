@@ -119,10 +119,18 @@ public class StatsService {
         return cells;
     }
 
-    public StreakResponse getStreak(UUID userId) {
+    /**
+     * 스트릭(연속일) 조회. currentStreak 은 read-time 으로 만료를 반영한다(GROMO-847) —
+     * lastSessionDate 가 어제 이전이면 공백으로 끊긴 것으로 보아 0 을 반환한다(판정은 {@link UserStreak}).
+     * longestStreak·lastSessionDate 는 저장된 원본을 그대로 유지한다.
+     *
+     * @param today 클라 로컬 기준 오늘(GROMO-643)
+     */
+    public StreakResponse getStreak(UUID userId, LocalDate today) {
         User user = userRepository.getReferenceById(userId);
         return userStreakRepository.findByUser(user)
-                .map(s -> new StreakResponse(s.getStreakCount(), s.getLongestStreakCount(), s.getLastSessionDate()))
+                .map(s -> new StreakResponse(
+                        s.currentStreakAsOf(today), s.getLongestStreakCount(), s.getLastSessionDate()))
                 .orElseGet(() -> new StreakResponse(0, 0, null));
     }
 

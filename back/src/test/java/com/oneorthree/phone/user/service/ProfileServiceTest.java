@@ -294,7 +294,7 @@ class ProfileServiceTest {
 
         givenBothUsers(target, caller);
         given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.of(friendship));
-        given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
+        given(statsService.getStreak(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleStreak());
         given(statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleToday());
         given(statsService.getHeatmap(any(), any(), any())).willReturn(List.of());
 
@@ -316,7 +316,7 @@ class ProfileServiceTest {
 
         givenBothUsers(target, caller);
         given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.empty());
-        given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
+        given(statsService.getStreak(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleStreak());
         given(statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleToday());
 
         UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3));
@@ -339,7 +339,7 @@ class ProfileServiceTest {
 
         givenBothUsers(target, caller);
         given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.empty());
-        given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
+        given(statsService.getStreak(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleStreak());
         given(statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleToday());
         given(statsService.getHeatmap(any(), any(), any())).willReturn(List.of());
 
@@ -360,7 +360,7 @@ class ProfileServiceTest {
 
         givenBothUsers(target, caller);
         given(friendshipRepository.findAcceptedBetween(caller, target)).willReturn(Optional.empty());
-        given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
+        given(statsService.getStreak(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleStreak());
         given(statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleToday());
 
         UserStatsResponse response = profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3));
@@ -377,7 +377,7 @@ class ProfileServiceTest {
 
         // 본인 조회이므로 target 만 조회 (caller 조회 불필요)
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(self));
-        given(statsService.getStreak(USER_ID)).willReturn(sampleStreak());
+        given(statsService.getStreak(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleStreak());
         given(statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleToday());
         given(statsService.getHeatmap(any(), any(), any())).willReturn(List.of());
 
