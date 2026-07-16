@@ -9,8 +9,10 @@ import { TagSuggestionSheet } from '@/screens/settings/components/TagSuggestionS
 import { FOCUS_CATEGORY_GROUPS, occupationForCategory } from '@/constants/focusCategories';
 import { updateOccupation } from '@/services/userApi';
 import { getDefaultTags } from '@/services/focusApi';
-import { logFocusTagCreated } from '@/services/analyticsEvents';
+import { logFocusTagCreated, logFocusTagDeleted } from '@/services/analyticsEvents';
 import { useSubjects } from '@/store/SubjectContext';
+import { useFocus } from '@/store/FocusContext';
+import type { Subject } from '@/screens/focus/types';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
@@ -18,19 +20,25 @@ import { T } from '@/constants/theme';
 // 준비 시험 변경(SettingsOccupation) — 온보딩 W4와 같은 카테고리 목록(focusCategories)에서 하나 고른다.
 // 앱이 실제로 굴리는 건 로컬 focusCategory(리그 UI·시험 칩)라 그 값을 바꾼다.
 // 전 카테고리가 서버 Occupation(19종)과 1:1이라 변경 시 서버 occupation도 동기화 —
-// 같은 카테고리 랭킹·비교 통계 모수용. (과목(subjects)은 사용자가 편집했을 수 있어 자동으로 건드리지 않는다.)
-// 저장 직후에는 해당 직군 추천 과목(GET /tag/defaults)을 시트로 제안하고, 고른 것만 추가한다(GROMO-632).
+// 같은 카테고리 랭킹·비교 통계 모수용.
+// [저장]을 누르면 추천 과목(GET /tag/defaults) 추가 + 보유 과목 정리(삭제) 2스텝 시트를
+// 먼저 띄우고(GROMO-632/668), 실제 반영(로컬 focusCategory + 서버 occupation + 과목 추가/삭제)은
+// 시트의 [완료하기]에서 일괄 적용한다. [취소하기]·딤 탭이면 시험 변경까지 전부 무반영.
 
 export default function OccupationScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
-  const { subjects, addSubject } = useSubjects();
+  const { subjects, addSubject, deleteSubject } = useSubjects();
+  const { removeFocusSeconds } = useFocus();
 
   const [original, setOriginal] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  // 저장 후 제안할 미보유 추천 과목 — null이면 시트 비표시
-  const [suggestions, setSuggestions] = useState<string[] | null>(null);
+  // 저장 후 시트로 제안할 내용 — null이면 시트 비표시.
+  // additions: 미보유 추천 과목명, removals: 보유 과목 전체(삭제 제안).
+  const [proposal, setProposal] = useState<{ additions: string[]; removals: Subject[] } | null>(
+    null,
+  );
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.focusCategory).then((c) => {
@@ -41,9 +49,9 @@ export default function OccupationScreen() {
 
   const changed = selected !== null && selected !== original;
 
-  async function handleSave() {
-    if (!selected || saving || !changed) return;
-    setSaving(true);
+  // 시험 변경 실제 반영 — 시트 [완료하기](또는 시트 생략 시 저장 직후)에서만 호출된다
+  async function applyCategoryChange() {
+    if (!selected) return;
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, selected);
     } catch {
@@ -51,40 +59,55 @@ export default function OccupationScreen() {
     }
     // 매핑되는 카테고리면 서버 occupation 동기화(실패해도 로컬 저장은 유효 — 다음 변경 때 재시도)
     const occupation = occupationForCategory(selected);
+    if (occupation) updateOccupation({ occupation }).catch(() => {});
+  }
+
+  async function handleSave() {
+    if (!selected || saving || !changed) return;
+    setSaving(true);
+    // 변경할 직군의 추천 과목 조회 — 보유 과목과 중복은 사전 제외.
+    // 삭제 제안은 직군 무관 '보유 과목 전체'를 대상으로 한다(GROMO-668) —
+    // 전전 시험 과목처럼 어느 직군 추천에도 없는 과목도 이 기회에 정리할 수 있게.
+    // 이 시점엔 아무것도 저장하지 않는다 — 반영은 시트 [완료하기]에서(취소하면 시험 변경도 무효).
+    const occupation = occupationForCategory(selected);
     if (occupation) {
-      updateOccupation({ occupation }).catch(() => {});
-      // 변경한 직군의 추천 과목 조회 — 보유 과목과 중복은 사전 제외.
-      // 조회 실패·추천 없음이면 기존 UX 그대로 바로 뒤로 간다(저장 자체는 이미 완료).
       try {
         const res = await getDefaultTags(occupation);
         const owned = new Set(subjects.map((x) => x.name));
-        const names = [...res.tags]
+        const additions = [...res.tags]
           .sort((a, b) => a.sortOrder - b.sortOrder)
           .map((t) => t.name)
           .filter((n) => !owned.has(n));
-        if (names.length > 0) {
+        if (additions.length > 0 || subjects.length > 0) {
           setSaving(false);
-          setSuggestions(names); // 시트 표시 — goBack은 시트가 닫힐 때
+          setProposal({ additions, removals: subjects }); // 시트 표시 — 반영/취소는 시트 콜백에서
           return;
         }
       } catch {
-        // 추천 조회 실패는 조용히 무시
+        // 추천 조회 실패는 조용히 무시 — 시트 없이 바로 반영
       }
     }
+    await applyCategoryChange();
     setSaving(false);
     navigation.goBack();
   }
 
-  // 시트 콜백 — 추가는 로컬 과목으로만(서버 태그는 세션 업로드 때 tagSync가 지연 생성)
-  function handleAddOne(name: string) {
-    addSubject(name);
-    logFocusTagCreated();
-  }
-  function handleAddAll(names: string[]) {
-    names.forEach((n) => {
+  // 시트 [완료하기] — 시험 변경 + 과목 추가/삭제를 이 시점에 일괄 반영하고 닫는다.
+  // 추가는 로컬 과목으로만(서버 태그는 세션 업로드 때 tagSync가 지연 생성).
+  // 삭제는 FocusCategoryScreen과 동일한 후처리 — 서버 태그 동기화는 deleteSubject 내장,
+  // 오늘 누적분은 홈 '오늘 집중'에서도 차감.
+  function handleComplete(adds: string[], removes: Subject[]) {
+    applyCategoryChange();
+    adds.forEach((n) => {
       addSubject(n);
       logFocusTagCreated();
     });
+    removes.forEach((sub) => {
+      deleteSubject(sub.id);
+      logFocusTagDeleted();
+      if (sub.accumulatedSeconds > 0) removeFocusSeconds(sub.accumulatedSeconds);
+    });
+    navigation.goBack();
   }
 
   return (
@@ -130,18 +153,19 @@ export default function OccupationScreen() {
         <View style={s.note}>
           <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />
           <Text style={s.noteText}>
-            준비 시험을 바꿔도 이미 등록한 과목은 그대로예요. 과목은 따로 편집할 수 있어요.
+            준비 시험을 바꿔도 이미 등록한 과목은 그대로예요.{'\n'}과목은 따로 편집할 수 있어요.
           </Text>
         </View>
       </SettingsScaffold>
 
-      {suggestions !== null && selected !== null ? (
+      {proposal !== null && selected !== null ? (
         <TagSuggestionSheet
           examLabel={selected}
-          suggestions={suggestions}
-          onAddOne={handleAddOne}
-          onAddAll={handleAddAll}
-          onClose={() => navigation.goBack()}
+          suggestions={proposal.additions}
+          removals={proposal.removals}
+          onComplete={handleComplete}
+          // 취소·딤 탭 — 시험 변경 포함 전부 무반영. 화면에 남아 다시 고를 수 있게 시트만 닫는다.
+          onCancel={() => setProposal(null)}
         />
       ) : null}
     </View>
