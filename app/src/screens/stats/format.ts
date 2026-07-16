@@ -50,6 +50,33 @@ export function tenMinuteFocusSlots(
   return slots;
 }
 
+// 주간 세션 → 요일별 집중 블록(GROMO-778 요일별 집중 타임라인).
+// 각 세션을 '시작 시각의 로컬 요일'(월=0..일=6) 칼럼에 두고, 그날 자정 기준 시작·끝(분)으로 담는다.
+// 자정을 넘긴 세션은 그날 칼럼에서 24:00(1440분)으로 절단한다(시작 요일에 귀속 — FirstStartChart와 동일 취지).
+export interface WeekFocusBlock {
+  col: number; // 0=월 .. 6=일
+  startMin: number; // 그날 자정 기준 시작(분)
+  endMin: number; // 그날 자정 기준 끝(분, 최대 1440)
+  tagId: string | null; // 과목 색 결정용(미분류면 null)
+}
+
+export function weekdayFocusBlocks(
+  sessions: { startedAt: string; endedAt: string; focusTagId: string | null }[],
+): WeekFocusBlock[] {
+  const out: WeekFocusBlock[] = [];
+  for (const sn of sessions) {
+    const start = new Date(sn.startedAt);
+    // 세션 시작일의 로컬 자정 — DST 전환일도 벽시계 자정이라 안전
+    const dayMid = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
+    const startMin = (Date.parse(sn.startedAt) - dayMid) / 60000;
+    const endMin = Math.min((Date.parse(sn.endedAt) - dayMid) / 60000, 1440);
+    if (!(endMin > startMin)) continue;
+    const dow = start.getDay(); // 0=일..6=토
+    out.push({ col: dow === 0 ? 6 : dow - 1, startMin, endMin, tagId: sn.focusTagId });
+  }
+  return out;
+}
+
 // 상단 기간 세그먼트 정의(일/주/월).
 export const PERIOD_TABS: { key: StatsPeriod; label: string }[] = [
   { key: 'DAY', label: '일' },
