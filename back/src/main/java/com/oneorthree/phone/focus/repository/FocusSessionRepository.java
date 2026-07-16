@@ -1,6 +1,7 @@
 package com.oneorthree.phone.focus.repository;
 
 import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.user.domain.User;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
@@ -139,4 +140,12 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
             + "s.endedAt = :canceledAt "
             + "WHERE s.id = :id AND s.endedAt IS NULL")
     int cancelSessionIfActive(@Param("id") UUID id, @Param("canceledAt") Instant canceledAt);
+
+    // 태그 rename 세션 재연결(GROMO-754) — 옛(소프트삭제) 태그를 참조하던 세션 전부를 새로 채택한 태그로 재지정한다.
+    // rename = 옛 UserFocusTag softDelete + 새 이름 재채택(GROMO-673)이라, 재연결 없으면 과거 세션이 소프트삭제 태그를
+    // 계속 참조해 by-category 통계에서 '미분류'로 강등된다. 날짜 조건 없이 전체기간을 옮긴다(총량 불변, 귀속만 이동).
+    // 반환값은 재지정된 세션 수(대상 0건이면 0 — 실패 아님).
+    @Modifying
+    @Query("UPDATE FocusSession s SET s.focusTag = :newTag WHERE s.focusTag = :oldTag")
+    int repointFocusTag(@Param("oldTag") UserFocusTag oldTag, @Param("newTag") UserFocusTag newTag);
 }

@@ -337,9 +337,9 @@ class FocusServiceTest {
     // ── updateFocusTag ────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("태그 수정 성공 → 기존 채택 소프트딜리트 + 새 이름 default_tag 로 재채택 (공유 default_tags 오염 방지)")
+    @DisplayName("태그 수정 성공 → 기존 채택 소프트딜리트 + 새 이름 default_tag 로 재채택 + 과거 세션 새 태그로 재연결 (GROMO-754)")
     void updateFocusTagSuccess() {
-        // given: 소유자가 USER_ID 인 태그('이전이름'), 새 이름 '새이름' default_tag 는 신규
+        // given: 소유자가 USER_ID 인 커스텀 태그('이전이름'), 새 이름 '새이름' default_tag 는 신규
         User owner = User.builder().id(USER_ID).build();
         UserFocusTag tag = userFocusTag(TAG_ID, owner, "이전이름");
         DefaultTag target = DefaultTag.builder().name("새이름").build();
@@ -360,6 +360,11 @@ class FocusServiceTest {
         verify(userFocusTagRepository).save(captor.capture());
         assertThat(captor.getValue().getDefaultTag()).isEqualTo(target);
         assertThat(captor.getValue().getUser()).isEqualTo(owner);
+
+        // GROMO-754: 옛(소프트삭제) 태그를 참조하던 과거 세션을 새로 채택한 태그로 재연결
+        ArgumentCaptor<UserFocusTag> repointCaptor = ArgumentCaptor.forClass(UserFocusTag.class);
+        verify(focusSessionRepository).repointFocusTag(eq(tag), repointCaptor.capture());
+        assertThat(repointCaptor.getValue().getDefaultTag()).isEqualTo(target);
     }
 
     @Test
@@ -375,9 +380,35 @@ class FocusServiceTest {
         // when
         focusService.updateFocusTag(USER_ID, body);
 
-        // then: 변경 없음 — 소프트딜리트/재채택 저장 없음
+        // then: 변경 없음 — 소프트딜리트/재채택 저장 없음, 세션 재연결도 없음(GROMO-754)
         assertThat(tag.getDeletedAt()).isNull();
         verify(userFocusTagRepository, never()).save(any(UserFocusTag.class));
+        verify(focusSessionRepository, never()).repointFocusTag(any(UserFocusTag.class), any(UserFocusTag.class));
+    }
+
+    @Test
+    @DisplayName("직군 프리셋(occupation) 태그 rename → FocusException(OCCUPATION_TAG_NOT_RENAMABLE), 소프트딜리트·재연결 없음")
+    void updateFocusTagOccupationTagNotRenamable() {
+        // given: sourceOccupationDefaultTag 가 있는(직군 프리셋 채택) 태그
+        User owner = User.builder().id(USER_ID).build();
+        UserFocusTag tag = UserFocusTag.builder()
+                .id(TAG_ID)
+                .user(owner)
+                .defaultTag(DefaultTag.builder().name("개발").build())
+                .sourceOccupationDefaultTag(OccupationDefaultTag.builder()
+                        .occupation(Occupation.UNIVERSITY)
+                        .build())
+                .build();
+        given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
+        FocusTagUpdateRequest body = new FocusTagUpdateRequest(TAG_ID, "새이름");
+
+        // when & then: 직군 프리셋 태그는 이름 변경 불가
+        assertThatThrownBy(() -> focusService.updateFocusTag(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.OCCUPATION_TAG_NOT_RENAMABLE);
+        assertThat(tag.getDeletedAt()).isNull();
+        verify(focusSessionRepository, never()).repointFocusTag(any(UserFocusTag.class), any(UserFocusTag.class));
     }
 
     @Test

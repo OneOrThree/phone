@@ -152,6 +152,18 @@ public class FocusService {
             throw new FocusException(FocusErrorCode.FORBIDDEN);
         }
 
+        // GROMO-754: 직군 프리셋(occupation 추천)에서 채택한 태그(sourceOccupationDefaultTag != null)는 이름 변경 불가.
+        // rename 은 옛 채택을 소프트삭제 후 새 이름으로 재채택하는데, 프리셋 태그를 rename 하면 그 프리셋 정체성이 끊긴다.
+        // 커스텀 태그(sourceOccupationDefaultTag == null)만 rename 을 허용한다.
+        //
+        // NOTE(GROMO-853): 현재 채택 경로는 이 컬럼을 기록하지 않아 이 가드는 아직 미실효(항상 null)다 —
+        // getDefaultTags 는 추천을 이름만 노출하고, setupFocusTag 는 UserFocusTag 를 user·defaultTag 만으로 저장한다.
+        // 채택 시점 occupation 출처 기록 배선은 후속 티켓 GROMO-853 에서 다루며, 배선되면 이 가드가 그대로 실효한다
+        // (에러코드·차단 로직은 여기 유지). PR #274 @codex 리뷰 지적 반영.
+        if (tag.getSourceOccupationDefaultTag() != null) {
+            throw new FocusException(FocusErrorCode.OCCUPATION_TAG_NOT_RENAMABLE);
+        }
+
         User user = tag.getUser();
 
         // GROMO-673: 이름은 공유 default_tags 에 있어 default_tags 를 직접 rename 하면 이 태그를 공유하는 다른 유저·
@@ -169,12 +181,18 @@ public class FocusService {
             return;
         }
 
+        // GROMO-754: softDelete(더티, 지연 flush) 후 @Modifying 벌크(repointFocusTag) 실행 시 Hibernate auto-flush 가
+        // 옛 deletedAt 을 먼저 반영하고, 이후 세션 재조회가 없어 stale 위험이 없다.
         tag.softDelete();
-        userFocusTagRepository.findByUserAndDefaultTagAndDeletedAtIsNull(user, target)
+        UserFocusTag newTag = userFocusTagRepository.findByUserAndDefaultTagAndDeletedAtIsNull(user, target)
                 .orElseGet(() -> userFocusTagRepository.save(UserFocusTag.builder()
                         .user(user)
                         .defaultTag(target)
                         .build()));
+
+        // GROMO-754: 옛(소프트삭제) 태그를 참조하던 과거 세션 전부를 새로 확보한 태그로 재연결(전체기간, 총량 불변·귀속 이동).
+        // 재연결이 없으면 과거 세션이 소프트삭제 태그를 계속 참조해 by-category 통계에서 '미분류'로 강등되고 오늘 총합에서 증발한다.
+        focusSessionRepository.repointFocusTag(tag, newTag);
     }
 
     @Transactional

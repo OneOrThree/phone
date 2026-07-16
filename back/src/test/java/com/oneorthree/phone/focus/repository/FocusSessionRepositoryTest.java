@@ -374,4 +374,52 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         assertThat(result).extracting(FocusSession::getId)
                 .containsExactly(later.getId(), earlier.getId());
     }
+
+    // ── 태그 rename 세션 재연결(repointFocusTag) (GROMO-754) ─────────────────
+
+    @Test
+    @DisplayName("repointFocusTag — 옛 태그를 참조하던 세션만 새 태그로 이동, 무관 세션은 그대로")
+    void repointFocusTagMovesOnlyOldTagSessions() {
+        // given: 옛 태그('이전이름')를 참조하는 세션 2개 + 무관 태그('무관')를 참조하는 세션 1개
+        DefaultTag oldDefault = defaultTagRepository.save(DefaultTag.builder().name("이전이름").build());
+        DefaultTag newDefault = defaultTagRepository.save(DefaultTag.builder().name("새이름").build());
+        DefaultTag otherDefault = defaultTagRepository.save(DefaultTag.builder().name("무관").build());
+        UserFocusTag oldTag = userFocusTagRepository.save(
+                UserFocusTag.builder().user(user).defaultTag(oldDefault).build());
+        UserFocusTag newTag = userFocusTagRepository.save(
+                UserFocusTag.builder().user(user).defaultTag(newDefault).build());
+        UserFocusTag otherTag = userFocusTagRepository.save(
+                UserFocusTag.builder().user(user).defaultTag(otherDefault).build());
+
+        FocusSession old1 = focusSessionRepository.save(FocusSession.builder()
+                .user(user).focusTag(oldTag)
+                .startedAt(Instant.parse("2026-07-01T01:00:00Z"))
+                .endedAt(Instant.parse("2026-07-01T02:00:00Z"))
+                .build());
+        FocusSession old2 = focusSessionRepository.save(FocusSession.builder()
+                .user(user).focusTag(oldTag)
+                .startedAt(Instant.parse("2026-07-02T01:00:00Z"))
+                .endedAt(Instant.parse("2026-07-02T02:00:00Z"))
+                .build());
+        FocusSession unrelated = focusSessionRepository.save(FocusSession.builder()
+                .user(user).focusTag(otherTag)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T02:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+
+        // when: 옛 태그 참조 세션을 새 태그로 재연결(전체기간, 날짜 조건 없음)
+        int updated = focusSessionRepository.repointFocusTag(oldTag, newTag);
+        focusSessionRepository.flush();
+        entityManager.clear();   // 1차 캐시 비우고 DB 실제 값 재조회
+
+        // then: 옛 태그 세션 2개만 새 태그로 이동, 무관 세션은 그대로
+        assertThat(updated).isEqualTo(2);
+        assertThat(focusSessionRepository.findById(old1.getId()).orElseThrow()
+                .getFocusTag().getId()).isEqualTo(newTag.getId());
+        assertThat(focusSessionRepository.findById(old2.getId()).orElseThrow()
+                .getFocusTag().getId()).isEqualTo(newTag.getId());
+        assertThat(focusSessionRepository.findById(unrelated.getId()).orElseThrow()
+                .getFocusTag().getId()).isEqualTo(otherTag.getId());
+    }
 }
