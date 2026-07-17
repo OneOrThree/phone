@@ -100,6 +100,17 @@ RCT_EXTERN_METHOD(
     rejecter:(RCTPromiseRejectBlock)reject
 )
 
+RCT_EXTERN_METHOD(
+    setFocusAllowSafariWeb:(BOOL)allowed
+    resolver:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
+RCT_EXTERN_METHOD(
+    getFocusAllowSafariWeb:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
 // ── 집중 세션 Live Activity (GROMO-553) ──
 
 RCT_EXTERN_METHOD(

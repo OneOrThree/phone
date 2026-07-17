@@ -34,6 +34,8 @@ interface NativeScreenTime {
   getAllowedSelectionCounts(): Promise<AppSelectionCounts | null>;
   startFocusShield(subjectName: string): Promise<boolean>;
   stopFocusShield(): Promise<void>;
+  setFocusAllowSafariWeb(allowed: boolean): Promise<void>;
+  getFocusAllowSafariWeb(): Promise<boolean>;
   saveCharacterSnapshot(base64: string): Promise<boolean>;
   startFocusActivity(subjectName: string, otherSubjectsJson: string): Promise<boolean>;
   endFocusActivity(): Promise<void>;
@@ -143,6 +145,18 @@ const ScreenTimeModule = {
   stopFocusShield: async (): Promise<void> => {
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.stopFocusShield();
+  },
+
+  // 집중 중 사파리·웹 허용 여부 저장 — 실드 중이면 즉시 반영(GROMO-866).
+  setFocusAllowSafariWeb: async (allowed: boolean): Promise<void> => {
+    if (Platform.OS !== 'ios') return;
+    return NativeScreenTimeModule.setFocusAllowSafariWeb(allowed);
+  },
+
+  // 저장된 사파리·웹 허용 여부 조회 (미설정 = false = 차단이 기본).
+  getFocusAllowSafariWeb: async (): Promise<boolean> => {
+    if (Platform.OS !== 'ios') return false;
+    return NativeScreenTimeModule.getFocusAllowSafariWeb();
   },
 
   // 캐릭터 스냅샷(base64 PNG)을 App Group에 저장 — Live Activity·가림막이 읽어 표시.

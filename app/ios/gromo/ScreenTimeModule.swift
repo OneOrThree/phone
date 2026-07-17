@@ -584,7 +584,59 @@ class ScreenTimeModule: NSObject {
         let store = ManagedSettingsStore(named: ManagedSettingsStore.Name("gromoFocus"))
         store.shield.applicationCategories = .all(except: allowedApps)
         store.shield.webDomainCategories = .all(except: allowedWebDomains)
+        // Apple이 .all() 실드에서 시스템 앱(사파리·메시지·전화·지도 등)을 제외해 사파리가
+        // 뚫린다(GROMO-866). 허용앱 토큰이 불투명해 "사파리를 허용앱으로 골랐는지"를 식별할
+        // 수 없으므로, 차단 여부는 별도 '사파리·웹 허용' 토글로 유저가 직접 정한다.
+        // 전화·메시지 등 나머지 시스템 앱 예외는 안전상 그대로 둔다.
+        let allowSafariWeb = defaults?.bool(forKey: "gromo:focus:allowSafariWeb") ?? false
+        ScreenTimeModule.applySafariWebBlock(to: store, allowSafariWeb: allowSafariWeb)
         resolve(true)
+    }
+
+    // 사파리 차단 + 웹 콘텐츠 필터를 토글 값에 맞춰 적용/해제 (GROMO-866).
+    // 끔(기본) = 차단: 실드와 달리 번들 ID로 직접 지정 가능한 blockedApplications로 사파리를
+    // 숨기고, 웹 콘텐츠 필터로 사파리·타 브라우저·인앱 웹뷰의 웹페이지를 시스템 '제한됨'
+    // 화면으로 차단한다. 유저 지정 허용 웹도메인(토큰)은 WebDomain으로 변환 불가라 예외로
+    // 못 옮긴다. 해제는 stopFocusShield의 clearAllSettings()도 커버한다.
+    @available(iOS 16.0, *)
+    private static func applySafariWebBlock(to store: ManagedSettingsStore, allowSafariWeb: Bool) {
+        if allowSafariWeb {
+            store.application.blockedApplications = nil
+            store.webContent.blockedByFilter = nil
+        } else {
+            store.application.blockedApplications = [
+                Application(bundleIdentifier: "com.apple.mobilesafari")
+            ]
+            store.webContent.blockedByFilter = .all()
+        }
+    }
+
+    // 집중 중 사파리·웹 허용 여부 저장 — 허용앱 화면 토글(GROMO-866).
+    // 실드가 걸려 있으면(집중 세션 중) 즉시 반영한다. 세션 밖에선 차단을 걸면 안 되므로
+    // 세션 시작 시에만 설정되는 shield.applicationCategories 유무로 판별한다.
+    @objc func setFocusAllowSafariWeb(
+        _ allowed: Bool,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        defaults?.set(allowed, forKey: "gromo:focus:allowSafariWeb")
+        if #available(iOS 16.0, *) {
+            let store = ManagedSettingsStore(named: ManagedSettingsStore.Name("gromoFocus"))
+            if store.shield.applicationCategories != nil {
+                ScreenTimeModule.applySafariWebBlock(to: store, allowSafariWeb: allowed)
+            }
+        }
+        resolve(nil)
+    }
+
+    // 저장된 사파리·웹 허용 여부 조회 (미설정 = false = 차단이 기본).
+    @objc func getFocusAllowSafariWeb(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        resolve(defaults?.bool(forKey: "gromo:focus:allowSafariWeb") ?? false)
     }
 
     // 집중 세션 실드 끄기 — 세션 정지/앱 재실행(고아 세션 정리) 시 호출.
