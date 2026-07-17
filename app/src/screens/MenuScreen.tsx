@@ -249,38 +249,11 @@ export default function MenuScreen() {
           />
         </SettingsSection>
 
-        {/* 개발 전용 — 리그 결과 연출 디자인 확인용 임시 진입점(__DEV__ 빌드에만 노출) */}
+        {/* 개발 전용 — 연출 디자인 확인용 임시 진입점(__DEV__ 빌드에만 노출).
+             리그 결과 미리보기는 실데이터 연결(GROMO-831)로 제거 — 결과 화면은
+             리그 탭 포커스 시 미확인 last-result가 있을 때만 뜬다 */}
         {__DEV__ && (
           <SettingsSection title="개발 (dev)">
-            <SettingsRow
-              icon="flask-outline"
-              iconColor={T.accentAlt}
-              iconBg={T.accentAltBg}
-              label="리그 결과 화면 미리보기"
-              sub="승격 · 유지 · 강등 연출 확인"
-              onPress={() =>
-                Alert.alert(
-                  '리그 결과 미리보기',
-                  '연출을 선택하세요',
-                  [
-                    {
-                      text: '승격',
-                      onPress: () => navigation.navigate('LeagueResult', { type: 'promote' }),
-                    },
-                    {
-                      text: '유지',
-                      onPress: () => navigation.navigate('LeagueResult', { type: 'maintain' }),
-                    },
-                    {
-                      text: '강등',
-                      onPress: () => navigation.navigate('LeagueResult', { type: 'demote' }),
-                    },
-                    { text: '취소', style: 'cancel' },
-                  ],
-                  { cancelable: true },
-                )
-              }
-            />
             <SettingsRow
               icon="phone-portrait-outline"
               iconColor={T.accentAlt}
