@@ -71,9 +71,10 @@ const checkPop = {
   animationFillMode: 'backwards',
 } as const;
 
-// 오늘 ✓ 팝을 재생한 날짜(프로세스 메모리) — 연속 결과 화면이 AsyncStorage 쓰기 완료 전에
-// 영속 마커를 다시 읽는 레이스 방어(코덱스 리뷰). 영속 마커(focusStreakPoppedDate)와 이중 가드.
-let poppedDateMemory: string | null = null;
+// 오늘 ✓ 팝을 재생한 마커(프로세스 메모리, 'userId:날짜') — 연속 결과 화면이 AsyncStorage 쓰기
+// 완료 전에 영속 마커를 다시 읽는 레이스 방어(코덱스 리뷰). 영속 마커(focusStreakPoppedDate)와
+// 이중 가드. 계정을 붙이는 이유: 기기 공용 마커면 같은 날 계정 전환 시 새 계정의 첫 팝이 눌린다.
+let poppedMarkerMemory: string | null = null;
 
 // 이번 주 월~일 날짜('YYYY-MM-DD') 배열.
 function thisWeekDates(): string[] {
@@ -93,7 +94,7 @@ export default function FocusResultScreen() {
   const { subjects } = useSubjects();
   // 목표 달성 판정용(GROMO-630) — 로컬 누적(오늘 전체)·로컬 목표. 서버 조회가 늦거나 실패해도 판정 가능.
   const { todayFocusSeconds } = useFocus();
-  const { goalSeconds: userGoalSeconds } = useUser();
+  const { goalSeconds: userGoalSeconds, userId } = useUser();
 
   const [firstTime, setFirstTime] = useState(false);
   const [week, setWeek] = useState<FocusPeriodStatsResponse | null>(null);
@@ -288,14 +289,16 @@ export default function FocusResultScreen() {
       // 오늘 ✓ 팝은 그날 처음 채워진 결과 화면에서만 재생(하루 1회 — '매 세션 노출'에서 재변경,
       // 오스카 요청). 이후 세션의 결과 화면은 팝 없이 정적 ✓로 표시된다. 주간 축하는 팝과
       // 독립 판정 — 이번 주 도장이 없으면 재생하되, 주 1회 가드는 그대로 유지한다.
-      const poppedDate = await AsyncStorage.getItem(STORAGE_KEYS.focusStreakPoppedDate).catch(
+      const poppedMarker = await AsyncStorage.getItem(STORAGE_KEYS.focusStreakPoppedDate).catch(
         () => null,
       );
       if (cancelled) return;
-      const firstPopToday = poppedDateMemory !== today && poppedDate !== today;
+      // 마커는 계정별('userId:날짜') — 같은 날 계정을 전환해도 각 계정의 첫 팝은 재생된다(코덱스 리뷰)
+      const todayMarker = `${userId ?? 'guest'}:${today}`;
+      const firstPopToday = poppedMarkerMemory !== todayMarker && poppedMarker !== todayMarker;
       if (firstPopToday) {
-        poppedDateMemory = today;
-        AsyncStorage.setItem(STORAGE_KEYS.focusStreakPoppedDate, today).catch(() => {});
+        poppedMarkerMemory = todayMarker;
+        AsyncStorage.setItem(STORAGE_KEYS.focusStreakPoppedDate, todayMarker).catch(() => {});
         setTodayPop(true);
       }
       if (!weekStreakComplete) return;
@@ -321,7 +324,7 @@ export default function FocusResultScreen() {
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-  }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today]);
+  }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today, userId]);
   const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
   // 이번 달 합계 — 주간과 동일하게 방금 세션 보정분(adjustedToday - serverToday)을 더한다(월도 오늘 포함)
   const monthTotal = (month?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);

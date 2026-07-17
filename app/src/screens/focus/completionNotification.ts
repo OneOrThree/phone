@@ -55,40 +55,45 @@ export async function scheduleCompletionNotification(
   );
 }
 
-// 뽀모도로 경계 체인(집중 중 이탈·실드 세션 한정): 남은 휴식 시작/집중 재개/최종 완료를 전부 예약.
+// 뽀모도로 경계 체인(집중 중 이탈·실드 세션 한정): 남은 휴식 시작/집중 재개/최종 완료를 예약.
 // 실드 세션은 나가 있어도 벽시계로 진행(복귀 시 fast-forward)하므로 이탈 시점에 경계 시각이 확정된다.
+// maxSeconds(복귀 시 집중 인정 상한)를 넘는 경계는 예약하지 않는다 — fast-forward가 상한까지만
+// 전진해 진행이 거기 못 미치므로 거짓 알림이 된다(코덱스 리뷰).
 export async function schedulePomodoroChainNotifications(
   subjectName: string,
   state: { display: number; setIndex: number },
   pomo: PomodoroConfig,
+  maxSeconds: number,
 ): Promise<void> {
   const gen = await beginScheduling();
+  const entries: { title: string; body: string; seconds: number }[] = [];
   let t = state.display; // 현재 집중 블록이 끝나는 시각(초 뒤)
   let set = state.setIndex;
   while (set < pomo.sets) {
-    await schedule(
-      gen,
-      '휴식 시간이에요!',
-      `${set}세트 집중을 끝까지 해냈어요. ${pomo.breakMin}분 쉬어 가요.`,
-      t,
-    );
+    entries.push({
+      title: '휴식 시간이에요!',
+      body: `${set}세트 집중을 끝까지 해냈어요. ${pomo.breakMin}분 쉬어 가요.`,
+      seconds: t,
+    });
     t += pomo.breakMin * 60;
-    await schedule(
-      gen,
-      '다시 집중할 시간이에요!',
-      `휴식이 끝났어요. ${subjectName} ${set + 1}세트를 이어가요.`,
-      t,
-    );
+    entries.push({
+      title: '다시 집중할 시간이에요!',
+      body: `휴식이 끝났어요. ${subjectName} ${set + 1}세트를 이어가요.`,
+      seconds: t,
+    });
     t += pomo.focusMin * 60;
     set += 1;
   }
   // 마지막 세트 집중 끝 = 세션 완료(트레일링 휴식 없음)
-  await schedule(
-    gen,
-    '집중 시간이 다 됐어요!',
-    `${subjectName} ${pomo.sets}세트를 모두 마쳤어요. 돌아와서 결과를 확인해 보세요!`,
-    t,
-  );
+  entries.push({
+    title: '집중 시간이 다 됐어요!',
+    body: `${subjectName} ${pomo.sets}세트를 모두 마쳤어요. 돌아와서 결과를 확인해 보세요!`,
+    seconds: t,
+  });
+  for (const e of entries) {
+    if (e.seconds > maxSeconds) break; // 경계 시각은 단조 증가 — 이후 경계도 전부 상한 밖
+    await schedule(gen, e.title, e.body, e.seconds);
+  }
 }
 
 // 뽀모도로 휴식 중 이탈: 휴식 끝 1건만 — 이후 집중은 복귀 대기(일시정지)라 시각을 예측할 수 없다.

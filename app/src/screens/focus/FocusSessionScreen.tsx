@@ -8,6 +8,7 @@ import {
   StyleSheet,
   useWindowDimensions,
   AppState,
+  Platform,
   Vibration,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
@@ -69,6 +70,9 @@ import {
 // 수동 일시정지 중 이탈은 무시, 뽀모도로 휴식 중 이탈은 벽시계만큼 휴식만 소진.
 const LEAVE_END_S = 15;
 const AWAY_CREDIT_CAP_S = 8 * 3600; // 실드 세션 복귀 시 집중 인정 상한
+// 짧은 진동 2번 — 패턴 의미가 플랫폼별로 다르다(코덱스 리뷰): iOS는 진동 길이 고정에
+// 배열=진동 사이 간격([0,500]=2번), Android는 [대기,진동] 교대라 [0,500]이 1번 500ms가 된다.
+const DOUBLE_VIBRATE_PATTERN = Platform.OS === 'android' ? [0, 400, 200, 400] : [0, 500];
 
 interface SessionState {
   elapsed: number; // 실제 집중 초(적립 기준) — 뽀모도로는 집중 블록만 누적
@@ -353,20 +357,22 @@ export default function FocusSessionScreen() {
   const doneByCatchUpRef = useRef(false);
 
   // 완료 시 처리(GROMO-864) — 카운트다운/뽀모도로 완료는 결과 화면 직행 대신 완료 게이트를
-  // 띄우고 확인을 눌러야 finish로 넘어간다. 집중 자체는 끝났으므로 실드·Live Activity는
-  // 게이트 시점에 먼저 해제한다(둘 다 멱등이라 finish에서 또 불러도 무해).
+  // 띄우고 확인을 눌러야 finish로 넘어간다. 실드·Live Activity 해제와 정산(적립+서버 업로드)은
+  // 게이트 시점에 바로 한다 — 정산을 확인까지 미루면 게이트에 머문 시간이 서버 세션 구간
+  // (endedAt=now)에 집중으로 붙는다(코덱스 리뷰). 셋 다 멱등이라 finish에서 또 불러도
+  // 무해하다(정산은 delta 0 no-op).
   useEffect(() => {
     if (!session.done || finishedRef.current) return;
-    if (doneGate) return; // 게이트가 이미 떠 있으면 재실행(finish 참조 변경 등)에도 진동 반복 금지
+    if (doneGate) return; // 게이트가 이미 떠 있으면 재실행에도 진동·정산 반복 금지
     setDoneGate(true);
     shieldedRef.current = false;
     ScreenTimeModule.stopFocusShield().catch(() => {});
     ScreenTimeModule.endFocusActivity().catch(() => {});
-    // 짧은 진동 2번 — iOS는 진동 길이 지정 불가, 배열은 [첫 진동까지 지연, 다음 진동까지 간격].
+    settleFocusBlock();
     // 백그라운드 완료 후 복귀한 게이트는 종료 알림이 이미 알렸으므로 진동 생략.
-    if (!doneByCatchUpRef.current) Vibration.vibrate([0, 500]);
+    if (!doneByCatchUpRef.current) Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
     doneByCatchUpRef.current = false;
-  }, [session.done, doneGate]);
+  }, [session.done, doneGate, settleFocusBlock]);
 
   // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
   // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
@@ -380,7 +386,7 @@ export default function FocusSessionScreen() {
     if (prev === cur) return;
     prevPhaseRef.current = cur;
     if (phaseByCatchUpRef.current) phaseByCatchUpRef.current = false;
-    else Vibration.vibrate([0, 500]);
+    else Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
     if (prev === 'focus' && cur === 'break') {
       settleFocusBlock();
     } else if (prev === 'break' && cur === 'focus') {
@@ -406,19 +412,26 @@ export default function FocusSessionScreen() {
         }
         // 실드 카운트다운은 백그라운드에서 JS가 멈춰 종료 순간을 못 알리므로,
         // 나가는 순간 남은 시간(display) 뒤로 완료 알림을 예약한다(GROMO-864). 복귀 시 취소.
-        if (mode === 'countdown' && shieldedRef.current) {
+        // 이탈 인정 상한(8시간)을 넘는 종료 시각은 예약하지 않는다 — 복귀 fast-forward가
+        // 상한까지만 전진해 타이머가 실제로 안 끝나므로 거짓 완료 알림이 된다(코덱스 리뷰).
+        if (
+          mode === 'countdown' &&
+          shieldedRef.current &&
+          sessionRef.current.display <= AWAY_CREDIT_CAP_S
+        ) {
           scheduleCompletionNotification(subjectName, sessionRef.current.display).catch(() => {});
         }
         // 뽀모도로도 같은 방식(GROMO-864) — 집중 중(실드)엔 벽시계로 계속 진행하므로 남은
-        // 경계(휴식 시작/집중 재개/최종 완료) 전부, 휴식 중엔 휴식 끝 1건만(이후 집중은
-        // 복귀 대기·일시정지라 시각 예측 불가). 복귀 시 취소.
+        // 경계(휴식 시작/집중 재개/최종 완료)를 인정 상한 안에서 전부, 휴식 중엔 휴식 끝
+        // 1건만(이후 집중은 복귀 대기·일시정지라 시각 예측 불가). 복귀 시 취소.
         if (mode === 'pomodoro') {
           if (sessionRef.current.phase === 'focus' && shieldedRef.current) {
-            schedulePomodoroChainNotifications(subjectName, sessionRef.current, {
-              focusMin: pomo.focusMin,
-              breakMin: pomo.breakMin,
-              sets: pomo.sets,
-            }).catch(() => {});
+            schedulePomodoroChainNotifications(
+              subjectName,
+              sessionRef.current,
+              { focusMin: pomo.focusMin, breakMin: pomo.breakMin, sets: pomo.sets },
+              AWAY_CREDIT_CAP_S,
+            ).catch(() => {});
           } else if (sessionRef.current.phase === 'break') {
             scheduleBreakEndNotification(subjectName, sessionRef.current.display).catch(() => {});
           }
