@@ -12,6 +12,7 @@
 
 import DeviceActivity   // Apple 스크린 타임 데이터 접근 프레임워크
 import ExtensionKit     // 익스텐션 앱 개발용 프레임워크
+import FamilyControls   // FamilyActivitySelection (측정 대상 유무 판별)
 import ManagedSettings  // 앱 제한/설정 관련 프레임워크
 import SwiftUI
 
@@ -68,22 +69,67 @@ struct TotalActivityReport: DeviceActivityReportScene {
 func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
     var apps: [AppUsage] = []
     var categoryDurations: [String: TimeInterval] = [:]
-    var totalDuration: TimeInterval = 0
+    var segmentTotal: TimeInterval = 0
+    var selectedSum: TimeInterval = 0
 
-    // 데이터 구조: data → activitySegments → categories → applications 순으로 중첩
-    // 총합은 Apple이 계산한 세그먼트 총 사용시간(totalActivityDuration)을 그대로 쓴다 —
-    // 앱별 합산은 웹 도메인 등 앱으로 귀속되지 않는 사용분이 빠져 설정 스크린타임보다
-    // 작게 나온다(실측 -48분). 앱/카테고리 목록은 상세 표시용으로만 합산한다.
+    // 측정 대상 선택을 먼저 읽는다 — 메인 앱(ScreenTimeReportUIView)이 필터를 만들 때와
+    // 동일한 키·동일한 빈 선택 판정을 써서 "필터가 걸렸는지"를 판별한다.
+    // synchronize(): 프로세스 간 공유 UserDefaults 캐시를 디스크에서 강제 재로드 —
+    // 메인 앱이 방금 바꾼 선택/목표를 읽기 전에 수행한다.
+    let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+    sharedDefaults?.synchronize()
+    var hasSelection = false
+    var includeWebDomains = false
+    if let selectionData = sharedDefaults?.data(forKey: "gromo:goal:selection"),
+       let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: selectionData) {
+        hasSelection = !(selection.applicationTokens.isEmpty
+            && selection.categoryTokens.isEmpty
+            && selection.webDomainTokens.isEmpty)
+        // 웹 도메인 합산 조건 = 필터가 도메인 토큰을 전달하는 조건(카테고리 미선택)과 동일.
+        // 카테고리 선택 시 도메인은 필터·threshold에서도 제외되므로(중복 카운트 방지 규칙)
+        // 여기서도 세지 않는다. 브라우저 앱+도메인을 함께 고른 경우의 중복은 threshold와
+        // 같은 한계로 남는다.
+        includeWebDomains = hasSelection && selection.categoryTokens.isEmpty
+    }
+
+    // 데이터 구조: data → activitySegments → categories → applications/webDomains 순 중첩.
+    // 총합 후보를 두 개 집계한다:
+    //  - segmentTotal: Apple이 계산한 세그먼트 총 사용시간. 홈화면 체류·웹 등 앱 미귀속
+    //    사용분까지 포함해 정확하지만(앱별 합산은 실측 -48분), DeviceActivityFilter의
+    //    앱/카테고리 필터가 이 레벨엔 **적용되지 않는다**(측정 대상을 골라도 전체 기기
+    //    사용량이 나옴 — Apple Developer Forums 735012).
+    //  - selectedSum: 앱별(+선택에 도메인이 있으면 웹 도메인별) 합산. 필터가 실제로 반영되는
+    //    레벨이라 측정 대상 선택 시 이걸 총합으로 쓴다. 도메인만 고른 선택이 0으로 나오지
+    //    않도록 웹 도메인 활동도 포함한다(PR 281 리뷰 반영).
+    // gromo 자신의 사용 시간은 어느 쪽에서도 제외한다(GROMO-843) — 집중 세션 중 앱을 켜둔
+    // 시간이 "핸드폰 사용"으로 잡히면 안 되기 때문.
+    // bundleIdentifier는 리포트 익스텐션 안에서만 값이 채워진다(메인 앱에선 opaque 토큰뿐).
     for await d in data {
         for await segment in d.activitySegments {
-            totalDuration += segment.totalActivityDuration
+            segmentTotal += segment.totalActivityDuration
             for await categoryActivity in segment.categories {
                 let catName = categoryActivity.category.localizedDisplayName ?? "기타"
                 for await app in categoryActivity.applications {
-                    let name = app.application.localizedDisplayName ?? "알 수 없음"
                     let duration = app.totalActivityDuration
+                    if app.application.bundleIdentifier == "com.oneorthree.gromo" {
+                        segmentTotal -= duration
+                        continue
+                    }
+                    selectedSum += duration
+                    let name = app.application.localizedDisplayName ?? "알 수 없음"
                     apps.append(AppUsage(name: name, duration: duration))
                     categoryDurations[catName, default: 0] += duration
+                }
+                if includeWebDomains {
+                    for await web in categoryActivity.webDomains {
+                        let duration = web.totalActivityDuration
+                        selectedSum += duration
+                        apps.append(AppUsage(
+                            name: web.webDomain.domain ?? "웹사이트",
+                            duration: duration
+                        ))
+                        categoryDurations[catName, default: 0] += duration
+                    }
                 }
             }
         }
@@ -97,16 +143,15 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
         .map { CategoryUsage(name: $0.key, duration: $0.value) }
         .sorted { $0.duration > $1.duration }
 
+    let totalDuration = hasSelection ? selectedSum : segmentTotal
+
     // App Group UserDefaults에 총 사용 시간 저장 (메인 앱에서 읽을 수 있도록)
-    let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
     if let sharedDefaults = sharedDefaults {
         sharedDefaults.set(totalDuration, forKey: "gromo:screentime:totalDuration")
         sharedDefaults.set(Date(), forKey: "gromo:screentime:lastUpdated")
     }
 
     // 메인 앱이 App Group에 쓴 목표 시간을 읽어서 "남은 시간" 계산에 사용
-    // synchronize(): 프로세스 간 공유 UserDefaults 캐시를 디스크에서 강제 재로드
-    sharedDefaults?.synchronize()
     let goalSeconds = sharedDefaults?.double(forKey: "gromo:user:goalSeconds") ?? -1
 
     return ActivityReport(
