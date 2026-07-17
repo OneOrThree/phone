@@ -1,5 +1,6 @@
 package com.oneorthree.phone.league.api;
 
+import com.oneorthree.phone.league.dto.LeagueLastResultResponse;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -24,7 +26,9 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -212,5 +216,56 @@ class LeagueControllerTest {
                 .andExpect(jsonPath("$.nextResetAt").value("2026-06-28T15:00:00Z"))
                 .andExpect(jsonPath("$.remainingSeconds").value(388800))
                 .andDo(print());
+    }
+
+    @Test
+    @DisplayName("주간 마감 결과 조회 → 200, 전체 필드 매핑")
+    void getLastResultReturns200() throws Exception {
+        given(leagueService.getLastResult(any()))
+                .willReturn(new LeagueLastResultResponse(true,
+                        Instant.parse("2026-06-15T00:00:00Z"), "PROMOTED", 2, 3, 50400, false));
+
+        mockMvc.perform(get("/api/v1/league/me/last-result"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hasResult").value(true))
+                .andExpect(jsonPath("$.weekStartAt").value("2026-06-15T00:00:00Z"))
+                .andExpect(jsonPath("$.result").value("PROMOTED"))
+                .andExpect(jsonPath("$.previousTierLevel").value(2))
+                .andExpect(jsonPath("$.newTierLevel").value(3))
+                .andExpect(jsonPath("$.focusSeconds").value(50400))
+                .andExpect(jsonPath("$.acknowledged").value(false))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("주간 마감 결과 조회 - 결과 없음 → 200 hasResult=false, 나머지 필드 null/false")
+    void getLastResultNoneReturns200() throws Exception {
+        given(leagueService.getLastResult(any()))
+                .willReturn(new LeagueLastResultResponse(false, null, null, null, null, null, false));
+
+        mockMvc.perform(get("/api/v1/league/me/last-result"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hasResult").value(false))
+                .andExpect(jsonPath("$.weekStartAt").value(nullValue()))
+                .andExpect(jsonPath("$.result").value(nullValue()))
+                .andExpect(jsonPath("$.previousTierLevel").value(nullValue()))
+                .andExpect(jsonPath("$.newTierLevel").value(nullValue()))
+                .andExpect(jsonPath("$.focusSeconds").value(nullValue()))
+                .andExpect(jsonPath("$.acknowledged").value(false))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("주간 마감 결과 확인(ack) → 200, body 의 weekStartAt 을 서비스에 위임")
+    void acknowledgeLastResultReturns200() throws Exception {
+        Instant weekStartAt = Instant.parse("2026-06-15T00:00:00Z");
+
+        mockMvc.perform(post("/api/v1/league/me/last-result/ack")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"weekStartAt\":\"2026-06-15T00:00:00Z\"}"))
+                .andExpect(status().isOk())
+                .andDo(print());
+
+        verify(leagueService).acknowledgeLastResult(any(), eq(weekStartAt));
     }
 }

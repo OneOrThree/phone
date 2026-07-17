@@ -1,5 +1,7 @@
 package com.oneorthree.phone.league.api;
 
+import com.oneorthree.phone.league.dto.LeagueLastResultAckRequest;
+import com.oneorthree.phone.league.dto.LeagueLastResultResponse;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
@@ -15,6 +17,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -100,5 +104,33 @@ public class LeagueController {
     public ResponseEntity<LeagueScheduleResponse> getMySchedule(HttpServletRequest request) {
         UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(leagueService.getMySchedule(userId));
+    }
+
+    @Operation(summary = "주간 마감 결과 조회",
+            description = "주간 배치가 남긴 최신 정산 결과 1건을 반환한다. 결과 행이 없으면(미배정/신규 유저) "
+                    + "hasResult=false. 클라는 리그 탭 첫 진입 시 hasResult && !acknowledged 이면 결과 모달을 노출한다.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공")
+    })
+    @GetMapping("/league/me/last-result")
+    public ResponseEntity<LeagueLastResultResponse> getLastResult(HttpServletRequest request) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        return ResponseEntity.ok(leagueService.getLastResult(userId));
+    }
+
+    @Operation(summary = "주간 마감 결과 확인 처리(ack)",
+            description = "GET 으로 받은 결과의 weekStartAt 을 실어 보내면 그 주차 결과를 확인 처리해 다시 노출되지 않게 한다. "
+                    + "ack 시점에 최신행을 다시 찾지 않고 이 주차를 대상으로 하므로, 그 사이 배치가 새 주차 결과를 넣어도 "
+                    + "유저가 못 본 결과를 삼키지 않는다. 대상 행 없음·이미 확인됨·동시 중복 호출 모두 no-op 이며 멱등하다.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "확인 처리 성공(멱등)")
+    })
+    @PostMapping("/league/me/last-result/ack")
+    public ResponseEntity<Void> acknowledgeLastResult(
+            HttpServletRequest request,
+            @RequestBody LeagueLastResultAckRequest body) {
+        UUID userId = (UUID) request.getAttribute("userId");
+        leagueService.acknowledgeLastResult(userId, body.weekStartAt());
+        return ResponseEntity.ok().build();
     }
 }

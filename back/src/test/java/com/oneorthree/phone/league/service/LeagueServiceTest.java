@@ -10,6 +10,7 @@ import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.domain.LeagueWeeklyResult;
 import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
+import com.oneorthree.phone.league.dto.LeagueLastResultResponse;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
@@ -498,5 +499,74 @@ class LeagueServiceTest {
         LeagueScheduleResponse response = leagueService.getMySchedule(USER_ID, now);
 
         assertThat(response.remainingSeconds()).isGreaterThanOrEqualTo(0L);
+    }
+
+    // ── getLastResult ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("주간 마감 결과 조회 - 결과 있음·미확인 → hasResult=true, acknowledged=false, 전체 필드 매핑")
+    void getLastResultUnacknowledged() {
+        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
+                .willReturn(Optional.of(weeklyResult(PREVIOUS_WEEK_START, LeagueWeeklyResultType.PROMOTED)));
+
+        LeagueLastResultResponse response = leagueService.getLastResult(USER_ID);
+
+        assertThat(response.hasResult()).isTrue();
+        assertThat(response.weekStartAt()).isEqualTo(PREVIOUS_WEEK_START);
+        assertThat(response.result()).isEqualTo("PROMOTED");
+        assertThat(response.previousTierLevel()).isEqualTo(2);
+        assertThat(response.newTierLevel()).isEqualTo(3);
+        assertThat(response.focusSeconds()).isEqualTo(200);
+        assertThat(response.acknowledged()).isFalse();
+    }
+
+    @Test
+    @DisplayName("주간 마감 결과 조회 - 결과 있음·확인됨(acknowledgedAt!=null) → acknowledged=true")
+    void getLastResultAcknowledged() {
+        LeagueWeeklyResult acked = LeagueWeeklyResult.builder()
+                .weekStartAt(PREVIOUS_WEEK_START)
+                .previousTierLevel(2)
+                .newTierLevel(3)
+                .result(LeagueWeeklyResultType.STAY)
+                .focusSeconds(200)
+                .acknowledgedAt(NOW)
+                .build();
+        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
+                .willReturn(Optional.of(acked));
+
+        LeagueLastResultResponse response = leagueService.getLastResult(USER_ID);
+
+        assertThat(response.hasResult()).isTrue();
+        assertThat(response.result()).isEqualTo("STAY");
+        assertThat(response.acknowledged()).isTrue();
+    }
+
+    @Test
+    @DisplayName("주간 마감 결과 조회 - 결과 행 없음(미배정/신규) → hasResult=false, 나머지 null/false")
+    void getLastResultNone() {
+        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
+                .willReturn(Optional.empty());
+
+        LeagueLastResultResponse response = leagueService.getLastResult(USER_ID);
+
+        assertThat(response.hasResult()).isFalse();
+        assertThat(response.weekStartAt()).isNull();
+        assertThat(response.result()).isNull();
+        assertThat(response.previousTierLevel()).isNull();
+        assertThat(response.newTierLevel()).isNull();
+        assertThat(response.focusSeconds()).isNull();
+        assertThat(response.acknowledged()).isFalse();
+    }
+
+    // ── acknowledgeLastResult ─────────────────────────────────────────────
+    // 멱등·선점·주차 고정의 실제 동작은 조건부 UPDATE 라 리포지토리 통합 테스트(LeagueWeeklyResultRepositoryTest)에서
+    // 검증한다. 서비스는 (userId, weekStartAt, now) 를 그대로 위임하는 얇은 계층이므로 위임만 확인한다.
+
+    @Test
+    @DisplayName("주간 마감 결과 확인 - GET 으로 받은 weekStartAt 을 고정해 (userId, weekStartAt, now) 조건부 UPDATE 로 위임")
+    void acknowledgeLastResultDelegatesToConditionalUpdate() {
+        leagueService.acknowledgeLastResult(USER_ID, PREVIOUS_WEEK_START, NOW);
+
+        verify(leagueWeeklyResultRepository).acknowledge(USER_ID, PREVIOUS_WEEK_START, NOW);
     }
 }
