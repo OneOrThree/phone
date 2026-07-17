@@ -632,9 +632,11 @@ class ScreenTimeModule: NSObject {
             store.application.blockedApplications = [
                 Application(bundleIdentifier: "com.apple.mobilesafari")
             ]
-            store.webContent.blockedByFilter = .all(
-                except: Set(allowedWebDomains.map { WebDomain(token: $0) })
-            )
+            // 콘텐츠 필터 예외는 Apple 한도 50개 — 초과분을 그대로 넘기면 필터 정책이 무효화될 수
+            // 있어 50개까지만 반영한다(PR 291 리뷰 반영). 피커가 도메인 수를 제한하지 않아 방어가
+            // 필요하다(Set이라 초과 시 어느 50개가 남는지는 비결정 — 50개 초과 선택 자체가 예외적).
+            let filterExceptions = Set(allowedWebDomains.prefix(50).map { WebDomain(token: $0) })
+            store.webContent.blockedByFilter = .all(except: filterExceptions)
         }
     }
 
