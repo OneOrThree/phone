@@ -10,6 +10,7 @@ import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.domain.LeagueWeeklyResult;
 import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
+import com.oneorthree.phone.league.dto.LeagueLastResultResponse;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
 import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
@@ -498,5 +499,105 @@ class LeagueServiceTest {
         LeagueScheduleResponse response = leagueService.getMySchedule(USER_ID, now);
 
         assertThat(response.remainingSeconds()).isGreaterThanOrEqualTo(0L);
+    }
+
+    // ── getLastResult ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("주간 마감 결과 조회 - 결과 있음·미확인 → hasResult=true, acknowledged=false, 전체 필드 매핑")
+    void getLastResultUnacknowledged() {
+        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
+                .willReturn(Optional.of(weeklyResult(PREVIOUS_WEEK_START, LeagueWeeklyResultType.PROMOTED)));
+
+        LeagueLastResultResponse response = leagueService.getLastResult(USER_ID);
+
+        assertThat(response.hasResult()).isTrue();
+        assertThat(response.weekStartAt()).isEqualTo(PREVIOUS_WEEK_START);
+        assertThat(response.result()).isEqualTo("PROMOTED");
+        assertThat(response.previousTierLevel()).isEqualTo(2);
+        assertThat(response.newTierLevel()).isEqualTo(3);
+        assertThat(response.focusSeconds()).isEqualTo(200);
+        assertThat(response.acknowledged()).isFalse();
+    }
+
+    @Test
+    @DisplayName("주간 마감 결과 조회 - 결과 있음·확인됨(acknowledgedAt!=null) → acknowledged=true")
+    void getLastResultAcknowledged() {
+        LeagueWeeklyResult acked = LeagueWeeklyResult.builder()
+                .weekStartAt(PREVIOUS_WEEK_START)
+                .previousTierLevel(2)
+                .newTierLevel(3)
+                .result(LeagueWeeklyResultType.STAY)
+                .focusSeconds(200)
+                .acknowledgedAt(NOW)
+                .build();
+        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
+                .willReturn(Optional.of(acked));
+
+        LeagueLastResultResponse response = leagueService.getLastResult(USER_ID);
+
+        assertThat(response.hasResult()).isTrue();
+        assertThat(response.result()).isEqualTo("STAY");
+        assertThat(response.acknowledged()).isTrue();
+    }
+
+    @Test
+    @DisplayName("주간 마감 결과 조회 - 결과 행 없음(미배정/신규) → hasResult=false, 나머지 null/false")
+    void getLastResultNone() {
+        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
+                .willReturn(Optional.empty());
+
+        LeagueLastResultResponse response = leagueService.getLastResult(USER_ID);
+
+        assertThat(response.hasResult()).isFalse();
+        assertThat(response.weekStartAt()).isNull();
+        assertThat(response.result()).isNull();
+        assertThat(response.previousTierLevel()).isNull();
+        assertThat(response.newTierLevel()).isNull();
+        assertThat(response.focusSeconds()).isNull();
+        assertThat(response.acknowledged()).isFalse();
+    }
+
+    // ── acknowledgeLastResult ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("주간 마감 결과 확인 - 최신 결과행 acknowledgedAt=now 세팅")
+    void acknowledgeLastResultSetsTimestamp() {
+        LeagueWeeklyResult result = weeklyResult(PREVIOUS_WEEK_START, LeagueWeeklyResultType.PROMOTED);
+        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
+                .willReturn(Optional.of(result));
+
+        leagueService.acknowledgeLastResult(USER_ID, NOW);
+
+        assertThat(result.getAcknowledgedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    @DisplayName("주간 마감 결과 확인 - 재호출해도 기존 acknowledgedAt 불변(멱등)")
+    void acknowledgeLastResultIsIdempotent() {
+        Instant firstAck = Instant.parse("2026-06-20T00:00:00Z");
+        LeagueWeeklyResult result = LeagueWeeklyResult.builder()
+                .weekStartAt(PREVIOUS_WEEK_START)
+                .previousTierLevel(2)
+                .newTierLevel(3)
+                .result(LeagueWeeklyResultType.PROMOTED)
+                .focusSeconds(200)
+                .acknowledgedAt(firstAck)
+                .build();
+        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
+                .willReturn(Optional.of(result));
+
+        leagueService.acknowledgeLastResult(USER_ID, NOW);
+
+        assertThat(result.getAcknowledgedAt()).isEqualTo(firstAck);
+    }
+
+    @Test
+    @DisplayName("주간 마감 결과 확인 - 결과행 없음 → no-op(예외 없이 정상 종료)")
+    void acknowledgeLastResultNoRowIsNoOp() {
+        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
+                .willReturn(Optional.empty());
+
+        leagueService.acknowledgeLastResult(USER_ID, NOW);
     }
 }
