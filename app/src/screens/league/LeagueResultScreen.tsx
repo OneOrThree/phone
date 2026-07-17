@@ -45,7 +45,8 @@ export default function LeagueResultScreen() {
   const { type, fromLevel, toLevel, weekHours, weekStartAt } = route.params;
   const cfg = TYPE_CFG[type];
 
-  // 닫힐 때(CTA·제스처 모두 unmount 경유) 확인 처리 — 멱등 API라 실패해도 다음 노출에서 재시도된다
+  // 닫힐 때(CTA·제스처 모두 unmount 경유) 확인 처리 — 실패하면 리그 탭 재포커스 때
+  // useLeagueLastResult가 미확인 상태를 감지해 재노출 없이 ack만 재시도한다(멱등)
   useEffect(() => {
     return () => {
       ackLastResult(weekStartAt).catch(() => {});
