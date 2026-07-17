@@ -17,6 +17,7 @@ export const STORAGE_KEYS = {
   focusGoalCelebratedDate: 'gromo:focus:goalCelebratedDate', // 목표 달성 축하 모달을 띄운 날짜(YYYY-MM-DD) — 하루 1회(GROMO-630)
   focusGoalCelebratePending: 'gromo:focus:goalCelebratePending', // 결과 화면이 예약한 축하 {date,days} — 홈 진입 시 노출(GROMO-630)
   focusWeekStreakCelebratedWeek: 'gromo:focus:weekCelebratedWeek', // 주간 스트릭 완성 축하를 띄운 주(월요일 YYYY-MM-DD) — 주 1회(GROMO-667)
+  focusStreakPoppedDate: 'gromo:focus:streakPoppedDate', // 오늘 ✓ 팝 마커 JSON 배열(['userId:YYYY-MM-DD', ...]) — 계정별 하루 1회
   focusRecoHidden: 'gromo:focus:recoHidden', // 과목 선택 화면 추천 과목 섹션 접힘 여부('1'=접힘, GROMO-668)
   guideHome: 'gromo:guide:home', // 홈 탭 첫 진입 사용법 안내 노출 완료('1', GROMO-652)
   guideLeague: 'gromo:guide:league', // 리그 탭 첫 진입 사용법 안내 노출 완료('1', GROMO-652)

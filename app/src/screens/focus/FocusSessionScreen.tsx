@@ -8,6 +8,9 @@ import {
   StyleSheet,
   useWindowDimensions,
   AppState,
+  BackHandler,
+  Platform,
+  Vibration,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
@@ -62,6 +65,9 @@ import {
 // 수동 일시정지 중 이탈은 무시, 뽀모도로 휴식 중 이탈은 벽시계만큼 휴식만 소진.
 const LEAVE_END_S = 15;
 const AWAY_CREDIT_CAP_S = 8 * 3600; // 실드 세션 복귀 시 집중 인정 상한
+// 짧은 진동 2번 — 패턴 의미가 플랫폼별로 다르다(코덱스 리뷰): iOS는 진동 길이 고정에
+// 배열=진동 사이 간격([0,500]=2번), Android는 [대기,진동] 교대라 [0,500]이 1번 500ms가 된다.
+const DOUBLE_VIBRATE_PATTERN = Platform.OS === 'android' ? [0, 400, 200, 400] : [0, 500];
 
 interface SessionState {
   elapsed: number; // 실제 집중 초(적립 기준) — 뽀모도로는 집중 블록만 누적
@@ -90,6 +96,8 @@ export default function FocusSessionScreen() {
   const [page, setPage] = useState(0);
   const [paused, setPaused] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // 완료 게이트(GROMO-864) — 카운트다운 종료 시 결과 화면 직행 대신 확인을 받는다
+  const [doneGate, setDoneGate] = useState(false);
   // 친구 전체 라이브 상태 — 60초 폴링·포그라운드 복귀 갱신 (09 친구 그리드 실데이터)
   const { friends: sessionFriends } = useFocusFriends();
   // 리그(811)·같은 시험(812) 그리드 라이브 멤버 — 내 행 제외(내 모습은 캐릭터 페이지가 담당)
@@ -340,19 +348,44 @@ export default function FocusSessionScreen() {
     }
   }, [settleFocusBlock, navigation, subjectId, subjectName]);
 
-  // 카운트다운/뽀모도로 완료 시 자동 종료
+  // 완료 게이트는 이미 세션을 정산하고 라이브 레코드를 제거한 상태다. Android 하드웨어
+  // 뒤로가기가 스택을 pop하면 결과 화면의 스트릭/목표 연출을 건너뛰므로 확인과 같은 경로로 보낸다.
   useEffect(() => {
-    if (session.done) finish();
-  }, [session.done, finish]);
+    if (!doneGate) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      finish();
+      return true;
+    });
+    return () => sub.remove();
+  }, [doneGate, finish]);
+
+  // 완료 시 처리(GROMO-864) — 카운트다운/뽀모도로 완료는 결과 화면 직행 대신 완료 게이트를
+  // 띄우고 확인을 눌러야 finish로 넘어간다. 실드·Live Activity 해제와 정산(적립+서버 업로드)은
+  // 게이트 시점에 바로 한다 — 정산을 확인까지 미루면 게이트에 머문 시간이 서버 세션 구간
+  // (endedAt=now)에 집중으로 붙는다(코덱스 리뷰). 셋 다 멱등이라 finish에서 또 불러도
+  // 무해하다(정산은 delta 0 no-op).
+  useEffect(() => {
+    if (!session.done || finishedRef.current) return;
+    if (doneGate) return; // 게이트가 이미 떠 있으면 재실행에도 진동·정산 반복 금지
+    setDoneGate(true);
+    shieldedRef.current = false;
+    ScreenTimeModule.stopFocusShield().catch(() => {});
+    ScreenTimeModule.endFocusActivity().catch(() => {});
+    settleFocusBlock();
+    Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
+  }, [session.done, doneGate, settleFocusBlock]);
 
   // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
   // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
+  // 라이브 전환이면 진동 2번으로 경계를 알린다(GROMO-864). 백그라운드에서 지난 경계도
+  // 복귀 시 현재 페이즈가 달라졌다면 한 번 알려준다.
   const prevPhaseRef = useRef(session.phase);
   useEffect(() => {
     const prev = prevPhaseRef.current;
     const cur = session.phase;
     if (prev === cur) return;
     prevPhaseRef.current = cur;
+    Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
     if (prev === 'focus' && cur === 'break') {
       settleFocusBlock();
     } else if (prev === 'break' && cur === 'focus') {
@@ -376,11 +409,14 @@ export default function FocusSessionScreen() {
         if (sessionRef.current.phase === 'focus' && !shieldedRef.current) {
           scheduleLeaveNotifications(subjectName, LEAVE_END_S).catch(() => {});
         }
+        // OS 예약 알림은 JS 프로세스가 종료된 뒤에도 남지만, 현재 고아 세션 레코드만으로는
+        // 남은 타이머/뽀모도로 페이즈와 결과 화면을 복구할 수 없다. 실제 완료를 복구할 수 없는
+        // 알림이 발송되지 않도록 백그라운드 경계 알림은 예약하지 않는다(코덱스 리뷰).
         return;
       }
       if (state !== 'active' || leftAtRef.current == null) return;
 
-      // 복귀 — 자리 비운 시간 계산 + 예약 알림 취소
+      // 복귀 — 자리 비운 시간 계산
       const away = Math.round((Date.now() - leftAtRef.current) / 1000);
       leftAtRef.current = null;
       cancelLeaveNotifications().catch(() => {});
@@ -428,7 +464,7 @@ export default function FocusSessionScreen() {
       sub.remove();
       cancelLeaveNotifications().catch(() => {});
     };
-  }, [subjectName, finish, pomo.focusMin, saveLive, nextTick]);
+  }, [subjectName, finish, pomo.focusMin, pomo.breakMin, pomo.sets, saveLive, nextTick, mode]);
 
   // 일시정지/재개 토글 — 새 상태에 맞춰 계측. 상태 업데이터 안이 아니라 여기서 발행(중복 방지).
   const togglePause = useCallback(() => {
@@ -590,6 +626,26 @@ export default function FocusSessionScreen() {
         liveSubjectId={subjectId}
         liveSeconds={session.elapsed}
       />
+
+      {/* 완료 게이트(GROMO-864) — 확인을 눌러야 결과 화면으로 넘어간다 */}
+      {doneGate && (
+        <View style={s.doneGate}>
+          <Image
+            source={require('@/assets/character_happy.png')}
+            style={s.doneGateChar}
+            resizeMode="contain"
+          />
+          <Text style={s.doneGateTitle}>집중이 끝났어요!</Text>
+          <Text style={s.doneGateSub}>
+            {mode === 'pomodoro'
+              ? `${subjectName} ${pomo.sets}세트를 모두 마쳤어요.`
+              : `${subjectName} 집중을 끝까지 해냈어요.`}
+          </Text>
+          <TouchableOpacity style={s.doneGateBtn} activeOpacity={0.8} onPress={finish}>
+            <Text style={s.doneGateBtnText}>확인</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -708,6 +764,24 @@ const s = StyleSheet.create({
   setDots: { flexDirection: 'row', gap: T.space.sm, marginTop: T.space.md },
   setDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: withAlpha(T.night.cream, 0.22) },
   setDotOn: { backgroundColor: T.night.gold },
+
+  doneGate: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: withAlpha(T.night.bottom, 0.94),
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: T.space.xxl,
+  },
+  doneGateChar: { width: 140, height: 140, marginBottom: T.space.lg },
+  doneGateTitle: { ...T.text.title, color: T.paperLight, marginBottom: T.space.sm },
+  doneGateSub: { ...T.text.body, color: T.night.muted, marginBottom: T.space.xxl },
+  doneGateBtn: {
+    backgroundColor: T.night.gold,
+    borderRadius: 99,
+    paddingVertical: T.space.md,
+    paddingHorizontal: 56,
+  },
+  doneGateBtnText: { ...T.text.subtitle, color: T.ink },
 
   controls: { flexDirection: 'row', justifyContent: 'center', gap: T.space.xl, paddingBottom: 30 },
   ctrlBtn: {

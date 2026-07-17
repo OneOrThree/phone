@@ -71,6 +71,24 @@ const checkPop = {
   animationFillMode: 'backwards',
 } as const;
 
+// 오늘 ✓ 팝을 재생한 마커(프로세스 메모리, 'userId:날짜') — 연속 결과 화면이 AsyncStorage 쓰기
+// 완료 전에 영속 마커를 다시 읽는 레이스 방어(코덱스 리뷰). 영속 마커(focusStreakPoppedDate)와
+// 이중 가드. 계정을 붙이는 이유: 기기 공용 마커면 같은 날 계정 전환 시 새 계정의 첫 팝이 눌린다.
+const poppedMarkersMemory = new Set<string>();
+
+function parsePoppedMarkers(raw: string | null): Set<string> {
+  if (!raw) return new Set();
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return new Set(parsed.filter((value): value is string => typeof value === 'string'));
+    }
+  } catch {
+    // 구버전 단일 'userId:날짜' 값은 아래에서 그대로 마이그레이션한다.
+  }
+  return new Set([raw]);
+}
+
 // 이번 주 월~일 날짜('YYYY-MM-DD') 배열.
 function thisWeekDates(): string[] {
   const now = new Date();
@@ -89,7 +107,7 @@ export default function FocusResultScreen() {
   const { subjects } = useSubjects();
   // 목표 달성 판정용(GROMO-630) — 로컬 누적(오늘 전체)·로컬 목표. 서버 조회가 늦거나 실패해도 판정 가능.
   const { todayFocusSeconds } = useFocus();
-  const { goalSeconds: userGoalSeconds } = useUser();
+  const { goalSeconds: userGoalSeconds, userId } = useUser();
 
   const [firstTime, setFirstTime] = useState(false);
   const [week, setWeek] = useState<FocusPeriodStatsResponse | null>(null);
@@ -281,30 +299,54 @@ export default function FocusResultScreen() {
     (async () => {
       if (cancelled || celebrationStarted.current) return;
       celebrationStarted.current = true;
-      // 오늘 ✓ 팝은 하루 1회가 아니라 매 세션(오늘 10분 충족 시) 노출(오스카 요청). 주간 축하는
-      // 팝과 독립 판정 — 이번 주 도장이 없으면 재생하되, 주 1회 가드는 그대로 유지한다.
-      setTodayPop(true);
+      // 오늘 ✓ 팝은 그날 처음 채워진 결과 화면에서만 재생(하루 1회 — '매 세션 노출'에서 재변경,
+      // 오스카 요청). 이후 세션의 결과 화면은 팝 없이 정적 ✓로 표시된다. 주간 축하는 팝과
+      // 독립 판정 — 이번 주 도장이 없으면 재생하되, 주 1회 가드는 그대로 유지한다.
+      const poppedMarkerRaw = await AsyncStorage.getItem(STORAGE_KEYS.focusStreakPoppedDate).catch(
+        () => null,
+      );
+      if (cancelled) return;
+      // 마커는 계정별('userId:날짜') 집합 — 같은 날 B 계정이 팝을 재생해도 A 계정의
+      // 마커를 덮어쓰지 않아, A로 돌아왔을 때 두 번째 팝이 재생되지 않는다(코덱스 리뷰).
+      const todayMarker = `${userId ?? 'guest'}:${today}`;
+      const persistedMarkers = parsePoppedMarkers(poppedMarkerRaw);
+      const firstPopToday =
+        !poppedMarkersMemory.has(todayMarker) && !persistedMarkers.has(todayMarker);
+      if (firstPopToday) {
+        poppedMarkersMemory.add(todayMarker);
+        // 오늘 마커만 유지하면 계정 수만큼으로 크기가 제한되면서 날짜가 바뀐 뒤에는 자연히 정리된다.
+        const todayMarkers = [...persistedMarkers].filter((marker) => marker.endsWith(`:${today}`));
+        todayMarkers.push(todayMarker);
+        AsyncStorage.setItem(
+          STORAGE_KEYS.focusStreakPoppedDate,
+          JSON.stringify(todayMarkers),
+        ).catch(() => {});
+        setTodayPop(true);
+      }
       if (!weekStreakComplete) return;
       const seenWeek = await AsyncStorage.getItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek).catch(
         () => null,
       );
       if (cancelled || seenWeek === mondayKey) return;
       timers.push(
-        setTimeout(() => {
-          // 주 1회 도장은 모달이 실제로 뜨는 순간 기록 — 딜레이 중 화면을 떠나면(타이머 취소)
-          // 다음 결과 진입에서 다시 뜰 수 있다(PR 227 리뷰).
-          AsyncStorage.setItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek, mondayKey).catch(
-            () => {},
-          );
-          setWeekModalVisible(true);
-        }, 1200), // ✓ 팝이 항상 재생되므로 팝 종료 후(1200ms) 축하 모달.
+        setTimeout(
+          () => {
+            // 주 1회 도장은 모달이 실제로 뜨는 순간 기록 — 딜레이 중 화면을 떠나면(타이머 취소)
+            // 다음 결과 진입에서 다시 뜰 수 있다(PR 227 리뷰).
+            AsyncStorage.setItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek, mondayKey).catch(
+              () => {},
+            );
+            setWeekModalVisible(true);
+          },
+          firstPopToday ? 1200 : 400, // 팝이 재생된 경우엔 팝 종료 후(1200ms), 아니면 짧게(400ms)
+        ),
       );
     })();
     return () => {
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-  }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey]);
+  }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today, userId]);
   const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
   // 이번 달 합계 — 주간과 동일하게 방금 세션 보정분(adjustedToday - serverToday)을 더한다(월도 오늘 포함)
   const monthTotal = (month?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
