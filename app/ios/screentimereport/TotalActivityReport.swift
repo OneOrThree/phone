@@ -74,14 +74,21 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
     // 총합은 Apple이 계산한 세그먼트 총 사용시간(totalActivityDuration)을 그대로 쓴다 —
     // 앱별 합산은 웹 도메인 등 앱으로 귀속되지 않는 사용분이 빠져 설정 스크린타임보다
     // 작게 나온다(실측 -48분). 앱/카테고리 목록은 상세 표시용으로만 합산한다.
+    // 단, gromo 자신의 사용 시간은 총합·목록에서 제외한다(GROMO-843) —
+    // 집중 세션 중 앱을 켜둔 시간이 "핸드폰 사용"으로 잡히면 안 되기 때문.
+    // bundleIdentifier는 리포트 익스텐션 안에서만 값이 채워진다(메인 앱에선 opaque 토큰뿐).
     for await d in data {
         for await segment in d.activitySegments {
             totalDuration += segment.totalActivityDuration
             for await categoryActivity in segment.categories {
                 let catName = categoryActivity.category.localizedDisplayName ?? "기타"
                 for await app in categoryActivity.applications {
-                    let name = app.application.localizedDisplayName ?? "알 수 없음"
                     let duration = app.totalActivityDuration
+                    if app.application.bundleIdentifier == "com.oneorthree.gromo" {
+                        totalDuration -= duration
+                        continue
+                    }
+                    let name = app.application.localizedDisplayName ?? "알 수 없음"
                     apps.append(AppUsage(name: name, duration: duration))
                     categoryDurations[catName, default: 0] += duration
                 }
