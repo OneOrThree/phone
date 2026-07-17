@@ -133,6 +133,18 @@ export interface LeagueScheduleResponse {
   remainingSeconds: number; // 지금부터 nextResetAt까지 남은 초(항상 ≥ 0)
 }
 
+// GET /league/me/last-result — 주간 마감 결과 (GROMO-567).
+// 결과 행이 없으면(미배정/신규 유저) hasResult=false 이고 나머지는 null/false.
+export interface LeagueLastResultResponse {
+  hasResult: boolean;
+  weekStartAt: string | null; // 정산 대상 주차 시작 시각(ISO) — ack 요청에 그대로 되돌려 보낸다
+  result: string | null; // 'PROMOTED' | 'STAY' | 'RELEGATED' — 서버 enum 확장 대비 string 유지
+  previousTierLevel: number | null; // 정산 전 티어
+  newTierLevel: number | null; // 정산 후 티어
+  focusSeconds: number | null; // 해당 주차 집중 시간(초)
+  acknowledged: boolean; // 확인 처리 여부 — true면 결과 화면 재노출 안 함
+}
+
 // ─────────────────────────────────────────────────────────────
 // 친구 (백엔드 friend/dto 대응 — /api/v1/friends*)
 // ─────────────────────────────────────────────────────────────
