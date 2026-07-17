@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { T, withAlpha } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
+import { ackLastResult } from '@/services/leagueApi';
 import type { V2RootStackParamList } from '@/navigation/types';
 
 // 강등 시 '깨진 뱃지' 중간 연출 이미지 — 강등 전(from) 티어별(tierNdown.png)
@@ -26,54 +27,43 @@ const DOWN_IMAGES: Record<number, ImageSourcePropType> = {
 };
 
 // 승격/유지/강등 연출 (root stack, 풀스크린 다크 radial) — 세 타입 동일 포맷.
-// 실제 트리거는 주간 정산 result(TODO) — 지금은 dev 메뉴 임시 진입점으로 미리보기.
+// 데이터는 주간 정산 실결과(GET /league/me/last-result) — 리그 탭 포커스 훅(useLeagueLastResult)이
+// 매핑해 params로 넘기고, 화면이 닫힐 때 ack로 확인 처리해 재노출을 막는다 (GROMO-831).
 // 뱃지 큰 일러스트는 tiers.ts image 공용. 전환형(승격·강등)은 이전→새 티어 크로스페이드,
 // 유지형은 전환 없이 현재 티어 단일 등장.
 
-// mock: 타입별 티어 전환·주간 집중시간(디자인 미리보기)
-//  - 승격 3→4(48h) · 유지 4(48h) · 강등 4→3(38h)
-const RESULT_CFG = {
-  promote: {
-    fromLevel: 3,
-    toLevel: 4,
-    weekHours: 48,
-    caption: 'PROMOTED',
-    title: '승격했어요!',
-    cta: '새 리그 보러가기',
-  },
-  maintain: {
-    fromLevel: 4,
-    toLevel: 4,
-    weekHours: 48,
-    caption: 'MAINTAINED',
-    title: '자리를 지켰어요',
-    cta: '이어서 달리기',
-  },
-  demote: {
-    fromLevel: 4,
-    toLevel: 3,
-    weekHours: 38,
-    caption: 'DEMOTED',
-    title: '한 단계 내려갔어요',
-    cta: '이번 주 다시 시작',
-  },
+// 타입별 연출 텍스트 — 티어·시간은 params 실데이터, 여기는 표시 문구만
+const TYPE_CFG = {
+  promote: { caption: 'PROMOTED', title: '승격했어요!', cta: '새 리그 보러가기' },
+  maintain: { caption: 'MAINTAINED', title: '자리를 지켰어요', cta: '이어서 달리기' },
+  demote: { caption: 'DEMOTED', title: '한 단계 내려갔어요', cta: '이번 주 다시 시작' },
 } as const;
 
 export default function LeagueResultScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<V2RootStackParamList, 'LeagueResult'>>();
-  const cfg = RESULT_CFG[route.params.type];
+  const { type, fromLevel, toLevel, weekHours, weekStartAt } = route.params;
+  const cfg = TYPE_CFG[type];
 
-  const fromTier = tierByLevel(cfg.fromLevel);
-  const toTier = tierByLevel(cfg.toLevel);
-  const hasTransition = cfg.fromLevel !== cfg.toLevel;
-  const positive = cfg.toLevel >= cfg.fromLevel; // 승격·유지 = 반짝이 노출
-  const demote = cfg.toLevel < cfg.fromLevel; // 강등 = 3단계(깨진 뱃지) 연출
-  const downImage = demote ? DOWN_IMAGES[cfg.fromLevel] : null;
+  // 닫힐 때(CTA·제스처 모두 unmount 경유) 확인 처리 — 멱등 API라 실패해도 다음 노출에서 재시도된다
+  useEffect(() => {
+    return () => {
+      ackLastResult(weekStartAt).catch(() => {});
+    };
+  }, [weekStartAt]);
 
-  // 다음 티어(현재 결과 티어의 한 단계 위)까지 저번 주 대비 남은 시간
+  const fromTier = tierByLevel(fromLevel);
+  const toTier = tierByLevel(toLevel);
+  const hasTransition = fromLevel !== toLevel;
+  const positive = toLevel >= fromLevel; // 승격·유지 = 반짝이 노출
+  const demote = toLevel < fromLevel; // 강등 = 3단계(깨진 뱃지) 연출
+  const downImage = demote ? DOWN_IMAGES[fromLevel] : null;
+
+  // 다음 티어(현재 결과 티어의 한 단계 위)까지 저번 주 대비 남은 시간.
+  // tiers.ts minHours는 백엔드 승급 기준 promotion_time(V13 시드, 14/28/42/56h)과 일치 확인됨.
+  // weekHours가 소수라 표시용 남은 시간은 올림 — 'N시간 더'가 실제 도달 기준을 밑돌지 않게.
   const nextUp = toTier.maxHours != null ? tierByLevel(toTier.level + 1) : null;
-  const nextRemain = nextUp ? Math.max(nextUp.minHours - cfg.weekHours, 0) : 0;
+  const nextRemain = nextUp ? Math.max(Math.ceil(nextUp.minHours - weekHours), 0) : 0;
 
   // 등장 연출:
   // ① (전환형) 기존 뱃지 잠깐 노출 / (유지형) 짧게 대기

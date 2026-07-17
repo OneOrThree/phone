@@ -31,7 +31,13 @@ export type V2RootStackParamList = {
     rankLabel?: string; // 순위 스코프 라벨 — '전체' 또는 직군명
   }; // 유저 프로필 상세 — 친구/비친구·과목 겹침 여부로 3분기 (친구 그리드·랭킹·친구 추가에서 진입)
   TierGuide: undefined; // 티어 5단계 안내 (리그 내 티어 스트립에서 진입)
-  LeagueResult: { type: 'promote' | 'maintain' | 'demote' }; // 승격/유지/강등 연출 (주간 정산 트리거 — 현재는 미리보기)
+  LeagueResult: {
+    type: 'promote' | 'maintain' | 'demote'; // 연출 텍스트 분기 — 서버 result 매핑(모르는 값은 유지 폴백)
+    fromLevel: number; // 정산 전 티어 (previousTierLevel)
+    toLevel: number; // 정산 후 티어 (newTierLevel)
+    weekHours: number; // 해당 주차 집중 시간(시간 단위, 소수 허용) — focusSeconds ÷ 3600
+    weekStartAt: string; // ack 대상 주차(ISO) — 화면 닫힐 때 확인 처리
+  }; // 승격/유지/강등 연출 — 리그 탭 포커스 시 미확인 last-result가 있으면 진입 (GROMO-831)
 
   // 설정(GROMO-559) — 허브는 '전체' 탭(MenuScreen), 하위 화면은 아래 스택에서 push.
   SettingsProfileEdit: undefined; // 프로필 편집 (닉네임 · 스킨[준비중])
