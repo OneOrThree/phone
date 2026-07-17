@@ -31,8 +31,8 @@ export async function getTodayStats(
 // GET /api/v1/stats/streak?date&friends — 연속일(스트릭).
 // friends 지정 시 해당 친구(ACCEPTED)의 스트릭 조회, 미지정 시 본인.
 export async function getStreak(
-  date: string = todayStr(),
   friends?: string,
+  date: string = todayStr(),
 ): Promise<StreakResponse> {
   const { data } = await api.get<StreakResponse>('/api/v1/stats/streak', {
     params: { date, friends },
