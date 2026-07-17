@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -46,6 +46,13 @@ export default function FocusCategoryScreen() {
   const { subjects, addSubject, renameSubject, deleteSubject, reorderSubjects, setSubjectColor } =
     useSubjects();
   const { removeFocusSeconds } = useFocus();
+  // Alert.prompt 콜백은 입력창을 연 순간의 subjects 클로저를 봐서, 입력창이 떠 있는 동안
+  // 저장소/서버 복원이 끝나면 낡은 목록(시드)으로 중복 검사를 하게 된다(PR 288 Codex 리뷰).
+  // 항상 최신 목록으로 검사하도록 ref를 경유한다.
+  const subjectsRef = useRef<Subject[]>(subjects);
+  useEffect(() => {
+    subjectsRef.current = subjects;
+  }, [subjects]);
   const [selectedId, setSelectedId] = useState<string>('');
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [menu, setMenu] = useState<MenuAnchor>(null);
@@ -120,7 +127,7 @@ export default function FocusCategoryScreen() {
         if (!name) return;
         // 기존 과목과 같은 이름이면 저장하지 않음 — 서버 태그가 이름 기준 1태그라 통계가 합산되고
         // 목록에 같은 이름이 중복 노출되는 것을 막는다(GROMO-867). 자기 자신(변경 없음)은 허용.
-        if (subjects.some((x) => x.id !== sub.id && x.name === name)) {
+        if (subjectsRef.current.some((x) => x.id !== sub.id && x.name === name)) {
           Alert.alert('이미 있는 과목이에요', '다른 이름으로 입력해 주세요.');
           return;
         }
@@ -162,7 +169,7 @@ export default function FocusCategoryScreen() {
         const name = text?.trim();
         if (!name) return;
         // 기존 과목과 같은 이름이면 추가하지 않음(GROMO-867)
-        if (subjects.some((x) => x.name === name)) {
+        if (subjectsRef.current.some((x) => x.name === name)) {
           Alert.alert('이미 있는 과목이에요', '다른 이름으로 입력해 주세요.');
           return;
         }
