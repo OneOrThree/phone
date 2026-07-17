@@ -5,7 +5,11 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenTimeModule, { type AppSelectionCounts } from '@/services/ScreenTimeModule';
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
-import { SettingsSection, SettingsRow } from '@/screens/settings/components/SettingsList';
+import {
+  SettingsSection,
+  SettingsRow,
+  SettingsToggleRow,
+} from '@/screens/settings/components/SettingsList';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 
@@ -22,6 +26,9 @@ export default function AllowedAppsScreen() {
   // 저장된 허용앱 선택 개수. null = 아직 로드 전.
   const [counts, setCounts] = useState<AppSelectionCounts | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // 집중 중 사파리·웹 허용 토글 — 허용앱 토큰이 불투명해 "사파리를 허용앱으로 골랐는지"를
+  // 식별할 수 없어 별도 스위치로 둔다. 기본 꺼짐 = 집중 중 사파리·웹 차단(GROMO-866).
+  const [allowSafariWeb, setAllowSafariWeb] = useState(false);
 
   // 화면 재진입마다 최신 개수 반영(피커 닫고 돌아올 수 있으므로).
   useFocusEffect(
@@ -38,11 +45,25 @@ export default function AllowedAppsScreen() {
           setCounts(null);
           setLoaded(true);
         });
+      ScreenTimeModule.getFocusAllowSafariWeb()
+        .then((v) => !cancelled && setAllowSafariWeb(v))
+        .catch(() => {});
       return () => {
         cancelled = true;
       };
     }, []),
   );
+
+  // 토글 즉시 반영(낙관적) — 네이티브 저장 실패 시 원복. 세션 중이면 실드에도 바로 적용됨.
+  async function toggleSafariWeb(v: boolean) {
+    setAllowSafariWeb(v);
+    try {
+      await ScreenTimeModule.setFocusAllowSafariWeb(v);
+    } catch (e) {
+      setAllowSafariWeb(!v);
+      Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
+    }
+  }
 
   const apps = counts?.applications ?? 0;
 
@@ -131,6 +152,20 @@ export default function AllowedAppsScreen() {
         <Ionicons name="add-circle-outline" size={20} color={T.accentDeep} />
         <Text style={s.pickBtnText}>허용 앱 고르기</Text>
       </TouchableOpacity>
+
+      {/* Safari·웹 허용 — 허용앱 피커로는 시스템 앱(사파리) 허용 여부를 알 수 없어 별도 토글.
+          꺼짐(기본)이면 집중 중 사파리가 잠기고 다른 브라우저·웹뷰의 웹페이지도 차단된다. */}
+      <SettingsSection title="웹">
+        <SettingsToggleRow
+          icon="globe-outline"
+          iconColor={T.accentDeep}
+          iconBg={T.accentBg}
+          label="Safari·웹 허용"
+          sub="켜면 집중 중에도 Safari와 웹사이트를 쓸 수 있어요"
+          value={allowSafariWeb}
+          onValueChange={toggleSafariWeb}
+        />
+      </SettingsSection>
     </SettingsScaffold>
   );
 }
