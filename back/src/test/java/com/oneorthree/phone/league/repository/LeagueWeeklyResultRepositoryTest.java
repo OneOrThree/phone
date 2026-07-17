@@ -21,6 +21,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class LeagueWeeklyResultRepositoryTest extends RepositoryTestBase {
 
     private static final Instant WEEK_START = Instant.parse("2026-07-05T15:00:00Z");
+    private static final Instant OTHER_WEEK_START = Instant.parse("2026-06-28T15:00:00Z");
+    private static final Instant ACK_AT = Instant.parse("2026-07-10T00:00:00Z");
+    private static final Instant LATER_ACK_AT = Instant.parse("2026-07-11T00:00:00Z");
 
     @Autowired
     LeagueWeeklyResultRepository leagueWeeklyResultRepository;
@@ -99,6 +102,54 @@ class LeagueWeeklyResultRepositoryTest extends RepositoryTestBase {
         assertThat(secondPage).hasSize(1);
         assertThat(secondPage.get(0).getId()).isGreaterThan(cursor);
         assertThat(firstPage).doesNotContain(secondPage.get(0));
+    }
+
+    @Test
+    @DisplayName("ack - 해당 주차 미확인 행에 acknowledgedAt 세팅(1행 반환)")
+    void acknowledgeSetsTimestampOnUnacknowledgedRow() {
+        User user = userRepository.save(User.builder().nickname("ack-user").build());
+        LeagueWeeklyResult saved = leagueWeeklyResultRepository.saveAndFlush(
+                result(user, LeagueWeeklyResultType.PROMOTED));
+
+        int updated = leagueWeeklyResultRepository.acknowledge(user.getId(), WEEK_START, ACK_AT);
+
+        assertThat(updated).isEqualTo(1);
+        assertThat(leagueWeeklyResultRepository.findById(saved.getId()))
+                .get()
+                .extracting(LeagueWeeklyResult::getAcknowledgedAt)
+                .isEqualTo(ACK_AT);
+    }
+
+    @Test
+    @DisplayName("ack - 이미 확인된 행 재호출 시 0행·기존 시각 불변(멱등·선점)")
+    void acknowledgeIsIdempotentFirstWins() {
+        User user = userRepository.save(User.builder().nickname("ack-idem-user").build());
+        LeagueWeeklyResult saved = leagueWeeklyResultRepository.saveAndFlush(
+                result(user, LeagueWeeklyResultType.STAY));
+
+        assertThat(leagueWeeklyResultRepository.acknowledge(user.getId(), WEEK_START, ACK_AT)).isEqualTo(1);
+        assertThat(leagueWeeklyResultRepository.acknowledge(user.getId(), WEEK_START, LATER_ACK_AT)).isZero();
+
+        assertThat(leagueWeeklyResultRepository.findById(saved.getId()))
+                .get()
+                .extracting(LeagueWeeklyResult::getAcknowledgedAt)
+                .isEqualTo(ACK_AT);
+    }
+
+    @Test
+    @DisplayName("ack - 다른 주차를 지정하면 그 주차 행이 없어 0행(유저가 못 본 결과를 삼키지 않음)")
+    void acknowledgeOnlyTargetsGivenWeek() {
+        User user = userRepository.save(User.builder().nickname("ack-week-user").build());
+        LeagueWeeklyResult saved = leagueWeeklyResultRepository.saveAndFlush(
+                result(user, LeagueWeeklyResultType.PROMOTED));
+
+        int updated = leagueWeeklyResultRepository.acknowledge(user.getId(), OTHER_WEEK_START, ACK_AT);
+
+        assertThat(updated).isZero();
+        assertThat(leagueWeeklyResultRepository.findById(saved.getId()))
+                .get()
+                .extracting(LeagueWeeklyResult::getAcknowledgedAt)
+                .isNull();
     }
 
     @Test

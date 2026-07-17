@@ -13,6 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -237,7 +238,7 @@ class LeagueControllerTest {
     }
 
     @Test
-    @DisplayName("주간 마감 결과 조회 - 결과 없음 → 200 hasResult=false")
+    @DisplayName("주간 마감 결과 조회 - 결과 없음 → 200 hasResult=false, 나머지 필드 null/false")
     void getLastResultNoneReturns200() throws Exception {
         given(leagueService.getLastResult(any()))
                 .willReturn(new LeagueLastResultResponse(false, null, null, null, null, null, false));
@@ -245,17 +246,26 @@ class LeagueControllerTest {
         mockMvc.perform(get("/api/v1/league/me/last-result"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.hasResult").value(false))
+                .andExpect(jsonPath("$.weekStartAt").value(nullValue()))
                 .andExpect(jsonPath("$.result").value(nullValue()))
+                .andExpect(jsonPath("$.previousTierLevel").value(nullValue()))
+                .andExpect(jsonPath("$.newTierLevel").value(nullValue()))
+                .andExpect(jsonPath("$.focusSeconds").value(nullValue()))
+                .andExpect(jsonPath("$.acknowledged").value(false))
                 .andDo(print());
     }
 
     @Test
-    @DisplayName("주간 마감 결과 확인(ack) → 200, 서비스에 위임")
+    @DisplayName("주간 마감 결과 확인(ack) → 200, body 의 weekStartAt 을 서비스에 위임")
     void acknowledgeLastResultReturns200() throws Exception {
-        mockMvc.perform(post("/api/v1/league/me/last-result/ack"))
+        Instant weekStartAt = Instant.parse("2026-06-15T00:00:00Z");
+
+        mockMvc.perform(post("/api/v1/league/me/last-result/ack")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"weekStartAt\":\"2026-06-15T00:00:00Z\"}"))
                 .andExpect(status().isOk())
                 .andDo(print());
 
-        verify(leagueService).acknowledgeLastResult(any());
+        verify(leagueService).acknowledgeLastResult(any(), eq(weekStartAt));
     }
 }

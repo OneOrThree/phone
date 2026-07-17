@@ -559,45 +559,14 @@ class LeagueServiceTest {
     }
 
     // ── acknowledgeLastResult ─────────────────────────────────────────────
+    // 멱등·선점·주차 고정의 실제 동작은 조건부 UPDATE 라 리포지토리 통합 테스트(LeagueWeeklyResultRepositoryTest)에서
+    // 검증한다. 서비스는 (userId, weekStartAt, now) 를 그대로 위임하는 얇은 계층이므로 위임만 확인한다.
 
     @Test
-    @DisplayName("주간 마감 결과 확인 - 최신 결과행 acknowledgedAt=now 세팅")
-    void acknowledgeLastResultSetsTimestamp() {
-        LeagueWeeklyResult result = weeklyResult(PREVIOUS_WEEK_START, LeagueWeeklyResultType.PROMOTED);
-        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
-                .willReturn(Optional.of(result));
+    @DisplayName("주간 마감 결과 확인 - GET 으로 받은 weekStartAt 을 고정해 (userId, weekStartAt, now) 조건부 UPDATE 로 위임")
+    void acknowledgeLastResultDelegatesToConditionalUpdate() {
+        leagueService.acknowledgeLastResult(USER_ID, PREVIOUS_WEEK_START, NOW);
 
-        leagueService.acknowledgeLastResult(USER_ID, NOW);
-
-        assertThat(result.getAcknowledgedAt()).isEqualTo(NOW);
-    }
-
-    @Test
-    @DisplayName("주간 마감 결과 확인 - 재호출해도 기존 acknowledgedAt 불변(멱등)")
-    void acknowledgeLastResultIsIdempotent() {
-        Instant firstAck = Instant.parse("2026-06-20T00:00:00Z");
-        LeagueWeeklyResult result = LeagueWeeklyResult.builder()
-                .weekStartAt(PREVIOUS_WEEK_START)
-                .previousTierLevel(2)
-                .newTierLevel(3)
-                .result(LeagueWeeklyResultType.PROMOTED)
-                .focusSeconds(200)
-                .acknowledgedAt(firstAck)
-                .build();
-        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
-                .willReturn(Optional.of(result));
-
-        leagueService.acknowledgeLastResult(USER_ID, NOW);
-
-        assertThat(result.getAcknowledgedAt()).isEqualTo(firstAck);
-    }
-
-    @Test
-    @DisplayName("주간 마감 결과 확인 - 결과행 없음 → no-op(예외 없이 정상 종료)")
-    void acknowledgeLastResultNoRowIsNoOp() {
-        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
-                .willReturn(Optional.empty());
-
-        leagueService.acknowledgeLastResult(USER_ID, NOW);
+        verify(leagueWeeklyResultRepository).acknowledge(USER_ID, PREVIOUS_WEEK_START, NOW);
     }
 }

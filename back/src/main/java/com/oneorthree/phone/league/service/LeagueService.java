@@ -206,18 +206,18 @@ public class LeagueService {
     }
 
     /**
-     * 최신 정산 결과를 확인 처리한다. 최신 결과 행을 로드해 {@code acknowledge(now)} 로 시각을 세팅하고
-     * 더티 체크 flush 로 UPDATE 한다. 결과 행이 없으면 no-op, 이미 확인된 경우도 값 불변이라 멱등하다.
+     * 클라가 조회(GET)로 받은 그 주차 결과를 확인 처리한다. ack 시점에 '최신행'을 다시 찾지 않고
+     * {@code weekStartAt} 으로 대상을 고정해, 그 사이 배치가 새 주차 결과를 넣어도 유저가 못 본 결과를 삼키지 않는다.
+     * 조건부 원자적 UPDATE 라 대상 없음·이미 확인됨·동시 중복 호출 모두 안전하게 no-op 이며 멱등하다.
      */
     @Transactional
-    public void acknowledgeLastResult(UUID userId) {
-        acknowledgeLastResult(userId, Instant.now());
+    public void acknowledgeLastResult(UUID userId, Instant weekStartAt) {
+        acknowledgeLastResult(userId, weekStartAt, Instant.now());
     }
 
     /** 테스트에서 고정 시각을 주입하기 위한 package-private 오버로드. 트랜잭션은 public 진입점이 연다. */
-    void acknowledgeLastResult(UUID userId, Instant now) {
-        leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(userId)
-                .ifPresent(result -> result.acknowledge(now));
+    void acknowledgeLastResult(UUID userId, Instant weekStartAt, Instant now) {
+        leagueWeeklyResultRepository.acknowledge(userId, weekStartAt, now);
     }
 
     // 티어 레벨 → 배지 식별자 (시드 보장 1~5; 누락 시 null 로 방어)

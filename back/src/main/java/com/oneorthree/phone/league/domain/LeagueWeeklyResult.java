@@ -66,14 +66,4 @@ public class LeagueWeeklyResult {
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
-
-    /**
-     * 결과를 확인 처리한다(GROMO-567). 최초 1회만 {@code acknowledgedAt} 을 세팅하고,
-     * 이미 확인된 경우 no-op 이라 중복 호출해도 값이 바뀌지 않는다(멱등).
-     */
-    public void acknowledge(Instant at) {
-        if (this.acknowledgedAt == null) {
-            this.acknowledgedAt = at;
-        }
-    }
 }
