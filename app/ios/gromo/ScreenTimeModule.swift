@@ -610,8 +610,10 @@ class ScreenTimeModule: NSObject {
     // 값에 맞춰 함께 적용/해제한다 (GROMO-866).
     // 끔(기본) = 차단: 실드와 달리 번들 ID로 직접 지정 가능한 blockedApplications로 사파리를
     // 숨기고, 웹 콘텐츠 필터로 사파리·타 브라우저·인앱 웹뷰의 웹페이지를 시스템 '제한됨'
-    // 화면으로 차단한다. 유저 지정 허용 웹도메인(토큰)은 WebDomain으로 변환 불가라 콘텐츠
-    // 필터 예외로는 못 옮기고, 도메인 카테고리 실드의 except로만 반영된다.
+    // 화면으로 차단한다. 유저 지정 허용 웹도메인은 WebDomain(token:)으로 감싸 콘텐츠 필터
+    // 예외(.all(except:), 최대 50개)에도 반영한다 — 필터를 .all()로 걸면 도메인 실드의 예외가
+    // 무의미해져 허용 도메인이 실제로는 하나도 안 열린다(PR 282 Codex 리뷰 반영).
+    // 단 사파리 앱 자체는 blockedApplications로 숨기므로 허용 도메인은 타 브라우저·웹뷰에서 열린다.
     // 켬 = 허용: 셋 다 풀어야 실제로 웹이 열린다 — webDomainCategories 실드가 남아 있으면
     // 사파리만 보이고 웹페이지는 여전히 가려진다(PR 282 리뷰 반영).
     // 해제는 stopFocusShield의 clearAllSettings()도 커버한다.
@@ -630,7 +632,9 @@ class ScreenTimeModule: NSObject {
             store.application.blockedApplications = [
                 Application(bundleIdentifier: "com.apple.mobilesafari")
             ]
-            store.webContent.blockedByFilter = .all()
+            store.webContent.blockedByFilter = .all(
+                except: Set(allowedWebDomains.map { WebDomain(token: $0) })
+            )
         }
     }
 
