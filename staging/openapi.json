@@ -474,7 +474,7 @@
           "focus"
         ],
         "summary": "TAG 수정",
-        "description": "TAG, 설명 수정",
+        "description": "TAG 이름 수정. rename 시 옛 태그를 참조하던 과거 세션을 새 태그로 재연결한다(동작 변경, GROMO-754). 직군 프리셋(occupation) 태그는 이름 변경 불가(400).",
         "operationId": "updateTag",
         "requestBody": {
           "content": {
@@ -491,7 +491,7 @@
             "description": "수정 성공"
           },
           "400": {
-            "description": "유효성 검사 실패"
+            "description": "유효성 검사 실패 또는 직군 프리셋 태그 rename 시도"
           },
           "404": {
             "description": "태그 없음"
@@ -661,6 +661,36 @@
         }
       }
     },
+    "/api/v1/notifications/league/relegation-warning/run": {
+      "post": {
+        "tags": [
+          "notification-batch"
+        ],
+        "summary": "리그 강등 경고 재발송 수동 실행",
+        "description": "스케줄러 일 18:00 KST 잡과 동일 — 강등 위험군만 재발송(마감 D-1 제외). 재트리거 시 중복 발송 — 운영 주의.",
+        "operationId": "runRelegationWarnings",
+        "responses": {
+          "204": {
+            "description": "실행 완료 (발송 건수는 서버 로그 참조)"
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/league/final-deadline/run": {
+      "post": {
+        "tags": [
+          "notification-batch"
+        ],
+        "summary": "리그 마감 2시간 전 알림 수동 실행",
+        "description": "스케줄러 일 22:00 KST 잡과 동일 — 진행 중 전원에게 현재 순위 포함 발송. 재트리거 시 중복 발송 — 운영 주의.",
+        "operationId": "runFinalDeadlineReminders",
+        "responses": {
+          "204": {
+            "description": "실행 완료 (발송 건수는 서버 로그 참조)"
+          }
+        }
+      }
+    },
     "/api/v1/notifications/league/deadline/run": {
       "post": {
         "tags": [
@@ -669,6 +699,21 @@
         "summary": "리그 마감 임박 알림 수동 실행",
         "description": "ACTIVE 아레나 참가자 전원에게 현재 순위 포함 즉시 발송. 재트리거 시 중복 발송 — 운영 주의.",
         "operationId": "runDeadlineReminders",
+        "responses": {
+          "204": {
+            "description": "실행 완료 (발송 건수는 서버 로그 참조)"
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/league/crisis/run": {
+      "post": {
+        "tags": [
+          "notification-batch"
+        ],
+        "summary": "리그 위기 알림(강등 경고 + 마감 D-1) 수동 실행",
+        "description": "스케줄러 일 09:00 KST 잡과 동일 — 전역 랭킹 전원 대상, 유저당 1건 분기(강등 경고 우선). 재트리거 시 중복 발송 — 운영 주의.",
+        "operationId": "runSundayCrisisReminders",
         "responses": {
           "204": {
             "description": "실행 완료 (발송 건수는 서버 로그 참조)"
@@ -2512,6 +2557,46 @@
         }
       }
     },
+    "/api/v1/focus-session/cancel": {
+      "patch": {
+        "tags": [
+          "focus"
+        ],
+        "summary": "Focus Session 취소",
+        "description": "진행 중(endedAt NULL) 세션을 취소해 status\u003dCANCELED 로 마감한다. 취소 시각은 서버 수신 시각. 통계·스트릭은 귀속하지 않는다. 이미 종료/취소된 세션 재취소는 409(멱등).",
+        "operationId": "cancelFocusSession",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FocusSessionCancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "취소 성공"
+          },
+          "400": {
+            "description": "sessionId 누락"
+          },
+          "401": {
+            "description": "인증 필요"
+          },
+          "403": {
+            "description": "세션 소유자 불일치"
+          },
+          "404": {
+            "description": "세션 없음"
+          },
+          "409": {
+            "description": "이미 종료/취소된 세션"
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -2828,9 +2913,18 @@
           "stats"
         ],
         "summary": "스트릭(연속일) 조회",
-        "description": "현재 연속일·최장 연속일·마지막 집중일. 기록 없으면 0/0/null. friends 지정 시 해당 친구(또는 PUBLIC)의 스트릭을 조회, 미지정 시 self.",
+        "description": "현재 연속일·최장 연속일·마지막 집중일. 기록 없으면 0/0/null. currentStreak 은 read-time 으로 만료된다(GROMO-847): lastSessionDate 가 어제 이전이면 공백으로 끊긴 것으로 보아 0 을 반환한다(longestStreak·lastSessionDate 는 원본 유지). date 는 클라 로컬 기준 \u0027오늘\u0027(required, GROMO-643 관례). friends 지정 시 해당 친구(또는 PUBLIC)의 스트릭을 조회, 미지정 시 self.",
         "operationId": "getStreak",
         "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
           {
             "name": "friends",
             "in": "query",
@@ -2844,6 +2938,16 @@
         "responses": {
           "200": {
             "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreakResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "date 누락·형식 오류",
             "content": {
               "*/*": {
                 "schema": {
@@ -3476,7 +3580,7 @@
           "league"
         ],
         "summary": "전역 주간 랭킹 조회",
-        "description": "category 미지정: DailyFocusStat 기반 전역 주간 상위 100명 랭킹. category 지정: 같은 occupation 활성 사용자의 전역 주간 상위 100명 랭킹. 잘못된 category 값은 400 INVALID_PARAMETER.",
+        "description": "category 미지정: DailyFocusStat 기반 전역 주간 상위 100명 랭킹. category 지정: 같은 occupation 활성 사용자의 전역 주간 상위 100명 랭킹. 각 멤버의 집중 라이브 정보(isFocusing·focusTimeMinutes·focusStartedAt·focusTagName) 포함. date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD, required). 잘못된 category 값·date 누락은 400 INVALID_PARAMETER.",
         "operationId": "getMyRanking",
         "parameters": [
           {
@@ -3507,6 +3611,15 @@
                 "ETC"
               ]
             }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
           }
         ],
         "responses": {
@@ -3524,7 +3637,7 @@
             }
           },
           "400": {
-            "description": "잘못된 category 파라미터",
+            "description": "잘못된 category 파라미터 또는 date 누락·형식 오류",
             "content": {
               "*/*": {
                 "schema": {
@@ -3694,11 +3807,35 @@
           "Friend"
         ],
         "summary": "친구 목록 조회",
-        "description": "ACCEPTED·미삭제 친구 목록. isPinned는 내가 핀한 친구면 true.",
+        "description": "ACCEPTED·미삭제 친구 목록. isPinned는 내가 핀한 친구면 true. 각 친구의 집중 라이브 정보(isFocusing·focusTimeMinutes·focusStartedAt·focusTagName) 포함. date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD).",
         "operationId": "getFriends",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FriendResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "date 누락·형식 오류",
             "content": {
               "*/*": {
                 "schema": {
@@ -4480,6 +4617,14 @@
           "totalDistractionSeconds": {
             "type": "integer",
             "format": "int32"
+          },
+          "focusType": {
+            "type": "string",
+            "enum": [
+              "INFINITE",
+              "RANGE",
+              "POMODORO"
+            ]
           }
         }
       },
@@ -4505,6 +4650,14 @@
           "startedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "focusType": {
+            "type": "string",
+            "enum": [
+              "INFINITE",
+              "RANGE",
+              "POMODORO"
+            ]
           }
         }
       },
@@ -4911,6 +5064,18 @@
             "type": "boolean"
           }
         }
+      },
+      "FocusSessionCancelRequest": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "sessionId"
+        ]
       },
       "FocusStat": {
         "type": "object",
@@ -5410,11 +5575,22 @@
             "type": "integer",
             "format": "int32"
           },
-          "result": {
-            "type": "string"
-          },
           "isPinned": {
             "type": "boolean"
+          },
+          "isFocusing": {
+            "type": "boolean"
+          },
+          "focusTimeMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "focusStartedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "focusTagName": {
+            "type": "string"
           }
         }
       },
@@ -5829,10 +6005,27 @@
           "occupation": {
             "type": "string"
           },
+          "focusTimeMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "focusStartedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "focusTagName": {
+            "type": "string"
+          },
+          "focusing": {
+            "type": "boolean"
+          },
           "pinned": {
             "type": "boolean"
           },
           "isPinned": {
+            "type": "boolean"
+          },
+          "isFocusing": {
             "type": "boolean"
           }
         }
