@@ -37,7 +37,9 @@ import { hms } from './format';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import {
   scheduleCompletionNotification,
-  cancelCompletionNotification,
+  schedulePomodoroChainNotifications,
+  scheduleBreakEndNotification,
+  cancelCompletionNotifications,
 } from './completionNotification';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
@@ -350,16 +352,11 @@ export default function FocusSessionScreen() {
   // 백그라운드 복귀 fast-forward로 완료된 표시 — 이 경우 게이트 진동을 생략한다
   const doneByCatchUpRef = useRef(false);
 
-  // 완료 시 처리(GROMO-864) — 카운트다운은 결과 화면 직행 대신 완료 게이트를 띄우고
-  // 확인을 눌러야 finish로 넘어간다. 집중 자체는 끝났으므로 실드·Live Activity는
+  // 완료 시 처리(GROMO-864) — 카운트다운/뽀모도로 완료는 결과 화면 직행 대신 완료 게이트를
+  // 띄우고 확인을 눌러야 finish로 넘어간다. 집중 자체는 끝났으므로 실드·Live Activity는
   // 게이트 시점에 먼저 해제한다(둘 다 멱등이라 finish에서 또 불러도 무해).
-  // 뽀모도로는 기존대로 즉시 종료(경계 알림은 후속 작업).
   useEffect(() => {
     if (!session.done || finishedRef.current) return;
-    if (mode !== 'countdown') {
-      finish();
-      return;
-    }
     if (doneGate) return; // 게이트가 이미 떠 있으면 재실행(finish 참조 변경 등)에도 진동 반복 금지
     setDoneGate(true);
     shieldedRef.current = false;
@@ -369,16 +366,21 @@ export default function FocusSessionScreen() {
     // 백그라운드 완료 후 복귀한 게이트는 종료 알림이 이미 알렸으므로 진동 생략.
     if (!doneByCatchUpRef.current) Vibration.vibrate([0, 500]);
     doneByCatchUpRef.current = false;
-  }, [session.done, mode, finish, doneGate]);
+  }, [session.done, doneGate]);
 
   // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
   // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
+  // 라이브 전환이면 진동 2번으로 경계를 알린다(GROMO-864) — 복귀 fast-forward로 건너뛴
+  // 전환은 예약해둔 경계 알림이 이미 알렸으므로 생략(phaseByCatchUpRef).
   const prevPhaseRef = useRef(session.phase);
+  const phaseByCatchUpRef = useRef(false);
   useEffect(() => {
     const prev = prevPhaseRef.current;
     const cur = session.phase;
     if (prev === cur) return;
     prevPhaseRef.current = cur;
+    if (phaseByCatchUpRef.current) phaseByCatchUpRef.current = false;
+    else Vibration.vibrate([0, 500]);
     if (prev === 'focus' && cur === 'break') {
       settleFocusBlock();
     } else if (prev === 'break' && cur === 'focus') {
@@ -407,6 +409,20 @@ export default function FocusSessionScreen() {
         if (mode === 'countdown' && shieldedRef.current) {
           scheduleCompletionNotification(subjectName, sessionRef.current.display).catch(() => {});
         }
+        // 뽀모도로도 같은 방식(GROMO-864) — 집중 중(실드)엔 벽시계로 계속 진행하므로 남은
+        // 경계(휴식 시작/집중 재개/최종 완료) 전부, 휴식 중엔 휴식 끝 1건만(이후 집중은
+        // 복귀 대기·일시정지라 시각 예측 불가). 복귀 시 취소.
+        if (mode === 'pomodoro') {
+          if (sessionRef.current.phase === 'focus' && shieldedRef.current) {
+            schedulePomodoroChainNotifications(subjectName, sessionRef.current, {
+              focusMin: pomo.focusMin,
+              breakMin: pomo.breakMin,
+              sets: pomo.sets,
+            }).catch(() => {});
+          } else if (sessionRef.current.phase === 'break') {
+            scheduleBreakEndNotification(subjectName, sessionRef.current.display).catch(() => {});
+          }
+        }
         return;
       }
       if (state !== 'active' || leftAtRef.current == null) return;
@@ -415,7 +431,7 @@ export default function FocusSessionScreen() {
       const away = Math.round((Date.now() - leftAtRef.current) / 1000);
       leftAtRef.current = null;
       cancelLeaveNotifications().catch(() => {});
-      cancelCompletionNotification().catch(() => {});
+      cancelCompletionNotifications().catch(() => {});
       if (__DEV__)
         console.log(`[이탈감지] ${away}초 만에 복귀 (실드 ${shieldedRef.current ? 'ON' : 'OFF'})`);
       if (sessionRef.current.done || finishedRef.current) return;
@@ -429,6 +445,8 @@ export default function FocusSessionScreen() {
           let cur = sessionRef.current;
           for (let i = 0; i < credit && !cur.done; i++) cur = nextTick(cur);
           if (cur.done) doneByCatchUpRef.current = true; // 종료 알림이 이미 알렸으므로 게이트 진동 생략
+          // fast-forward로 페이즈가 넘어간 경우도 경계 알림이 이미 알렸으므로 경계 진동 생략
+          if (cur.phase !== sessionRef.current.phase) phaseByCatchUpRef.current = true;
           setSession(cur);
           saveLive(cur.elapsed);
         } else if (away > LEAVE_END_S) {
@@ -448,6 +466,8 @@ export default function FocusSessionScreen() {
           setSession({ ...cur, display: cur.display - away });
         } else {
           setPaused(true);
+          // 휴식 끝 알림이 이미 알렸으므로 break→focus 전환 진동 생략
+          phaseByCatchUpRef.current = true;
           setSession({
             ...cur,
             display: pomo.focusMin * 60,
@@ -460,9 +480,9 @@ export default function FocusSessionScreen() {
     return () => {
       sub.remove();
       cancelLeaveNotifications().catch(() => {});
-      cancelCompletionNotification().catch(() => {});
+      cancelCompletionNotifications().catch(() => {});
     };
-  }, [subjectName, finish, pomo.focusMin, saveLive, nextTick, mode]);
+  }, [subjectName, finish, pomo.focusMin, pomo.breakMin, pomo.sets, saveLive, nextTick, mode]);
 
   // 일시정지/재개 토글 — 새 상태에 맞춰 계측. 상태 업데이터 안이 아니라 여기서 발행(중복 방지).
   const togglePause = useCallback(() => {
@@ -634,7 +654,11 @@ export default function FocusSessionScreen() {
             resizeMode="contain"
           />
           <Text style={s.doneGateTitle}>집중이 끝났어요!</Text>
-          <Text style={s.doneGateSub}>{subjectName} 집중을 끝까지 해냈어요.</Text>
+          <Text style={s.doneGateSub}>
+            {mode === 'pomodoro'
+              ? `${subjectName} ${pomo.sets}세트를 모두 마쳤어요.`
+              : `${subjectName} 집중을 끝까지 해냈어요.`}
+          </Text>
           <TouchableOpacity style={s.doneGateBtn} activeOpacity={0.8} onPress={finish}>
             <Text style={s.doneGateBtnText}>확인</Text>
           </TouchableOpacity>
