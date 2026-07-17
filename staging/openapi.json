@@ -736,6 +736,31 @@
         }
       }
     },
+    "/api/v1/league/me/last-result/ack": {
+      "post": {
+        "tags": [
+          "league"
+        ],
+        "summary": "주간 마감 결과 확인 처리(ack)",
+        "description": "GET 으로 받은 결과의 weekStartAt 을 실어 보내면 그 주차 결과를 확인 처리해 다시 노출되지 않게 한다. ack 시점에 최신행을 다시 찾지 않고 이 주차를 대상으로 하므로, 그 사이 배치가 새 주차 결과를 넣어도 유저가 못 본 결과를 삼키지 않는다. 대상 행 없음·이미 확인됨·동시 중복 호출 모두 no-op 이며 멱등하다.",
+        "operationId": "acknowledgeLastResult",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeagueLastResultAckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "확인 처리 성공(멱등)"
+          }
+        }
+      }
+    },
     "/api/v1/inventory/grant": {
       "post": {
         "tags": [
@@ -3674,6 +3699,28 @@
         }
       }
     },
+    "/api/v1/league/me/last-result": {
+      "get": {
+        "tags": [
+          "league"
+        ],
+        "summary": "주간 마감 결과 조회",
+        "description": "주간 배치가 남긴 최신 정산 결과 1건을 반환한다. 결과 행이 없으면(미배정/신규 유저) hasResult\u003dfalse. 클라는 리그 탭 첫 진입 시 hasResult \u0026\u0026 !acknowledged 이면 결과 모달을 노출한다.",
+        "operationId": "getLastResult",
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeagueLastResultResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/inventory/{userId}": {
       "get": {
         "tags": [
@@ -4422,6 +4469,15 @@
         "properties": {
           "result": {
             "type": "string"
+          }
+        }
+      },
+      "LeagueLastResultAckRequest": {
+        "type": "object",
+        "properties": {
+          "weekStartAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -5649,6 +5705,36 @@
           },
           "result": {
             "type": "string"
+          }
+        }
+      },
+      "LeagueLastResultResponse": {
+        "type": "object",
+        "properties": {
+          "hasResult": {
+            "type": "boolean"
+          },
+          "weekStartAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "result": {
+            "type": "string"
+          },
+          "previousTierLevel": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "newTierLevel": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "focusSeconds": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "acknowledged": {
+            "type": "boolean"
           }
         }
       },
