@@ -2,6 +2,7 @@
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
 // 타입은 기존 공용 타입(@/types/api)을 재사용한다(중복 DTO 방지 — 리뷰 반영).
 import { api } from '@/services/api';
+import { todayStr } from '@/utils/localDate';
 import type {
   LeagueTierResponse,
   LeagueMemberResponse,
@@ -18,10 +19,12 @@ export async function getMyTier(): Promise<LeagueTierResponse> {
   return data;
 }
 
-// GET /api/v1/league/me/ranking?category — 티어 멤버 랭킹. category 미지정: 내 아레나 멤버, 지정: 같은 직군 전역 상위 100명.
+// GET /api/v1/league/me/ranking?category&date — 티어 멤버 랭킹. category 미지정: 내 아레나 멤버, 지정: 같은 직군 전역 상위 100명.
+// date는 필수(누락 시 서버 400) — 라이브 필드의 '당일 집중분' 기준일로, 클라 로컬 오늘을 보낸다
+// (GROMO-824/854, friendsApi.fetchFriends와 동일 패턴).
 export async function getMyRanking(category?: OccupationCategory): Promise<LeagueMemberResponse[]> {
   const { data } = await api.get<LeagueMemberResponse[]>('/api/v1/league/me/ranking', {
-    params: { category },
+    params: { category, date: todayStr() },
   });
   return data;
 }

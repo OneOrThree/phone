@@ -30,8 +30,8 @@ export function toRankingMembers(
       nickname: isMe ? myNickname || m.nickname : m.nickname,
       tierLevel: m.tierLevel,
       totalFocusSeconds: m.totalFocusSeconds,
-      result: m.result,
-      // GROMO-824 라이브 필드(810·811·812) — 서버 배포 전 응답엔 없어 undefined 로 흐른다
+      // GROMO-824 라이브 필드(810·811·812) — /league/me/ranking은 항상 채워주고, 전역
+      // 랭킹(/league/ranking)은 스코프 밖이라 기본값(false/0/null/null)이 온다
       isFocusing: m.isFocusing,
       focusTimeMinutes: m.focusTimeMinutes,
       focusStartedAt: m.focusStartedAt,
