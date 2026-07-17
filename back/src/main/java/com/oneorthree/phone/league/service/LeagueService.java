@@ -64,11 +64,9 @@ public class LeagueService {
                 .map(user -> new LeagueTierResponse(
                         true,
                         user.getTierLevel(),
-                        null,
                         leagueWeek.currentWeekStart(now),
-                        null,
                         badgeId(user.getTierLevel())))
-                .orElseGet(() -> new LeagueTierResponse(false, null, null, null, null, null));
+                .orElseGet(() -> new LeagueTierResponse(false, null, null, null));
     }
 
     /**
@@ -137,31 +135,17 @@ public class LeagueService {
     LeagueRankResponse getMyRank(UUID userId, Instant now) {
         LocalDate fromDate = leagueWeek.currentWeekStartDate(now);
         LocalDate toDate = leagueWeek.currentDate(now);
-        // 순위(assigned/myRank)는 이번 주 진행 상황, result는 직전 주 정산 결과 — 서로 독립이라 각각 조회한다.
-        String settlementResult = latestSettlementResult(userId, now);
         return leagueRankingQueryRepository.findRankOf(userId, fromDate, toDate)
-                .map(position -> toRankResponse(position, settlementResult))
-                .orElseGet(() -> new LeagueRankResponse(false, null, null, settlementResult));
+                .map(this::toRankResponse)
+                .orElseGet(() -> new LeagueRankResponse(false, null, null));
     }
 
-    /**
-     * 직전(방금 마감된) 주차 정산 결과만 노출한다. 정산 확정 후 그 주 동안 승격·유지·강등을 반환하고,
-     * 미정산(진행 중)이거나 그보다 오래된 결과는 null 로 둔다 → 문서의 "진행 중엔 result=null".
-     */
-    private String latestSettlementResult(UUID userId, Instant now) {
-        Instant previousWeekStart = leagueWeek.previousWeekStart(now);
-        return leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(userId)
-                .filter(result -> result.getWeekStartAt().equals(previousWeekStart))
-                .map(result -> result.getResult().name())
-                .orElse(null);
-    }
-
-    private LeagueRankResponse toRankResponse(LeagueRankingPosition position, String settlementResult) {
+    private LeagueRankResponse toRankResponse(LeagueRankingPosition position) {
         userActivityEventLogger.log(UserActivityEvent.LEAGUE_RANK_VIEWED,
                 Map.of("my_rank", position.rank(),
                         "tier_level", position.tierLevel(),
                         "total_focus_seconds", position.totalFocusSeconds()));
-        return new LeagueRankResponse(true, position.rank(), position.totalFocusSeconds(), settlementResult);
+        return new LeagueRankResponse(true, position.rank(), position.totalFocusSeconds());
     }
 
     /**

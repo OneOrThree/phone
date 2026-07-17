@@ -82,9 +82,9 @@ public class LeagueController {
         return ResponseEntity.ok(leagueService.getGlobalRanking(scope, limit));
     }
 
-    @Operation(summary = "내 순위·승격/강등 상태 조회",
-            description = "DailyFocusStat 기반 현재 전역 주간 순위와 최신 주간 정산 결과를 반환한다. "
-                    + "진행 중엔 result=null, 정산 확정 후에는 승격·유지·강등 결과를 반환한다.")
+    @Operation(summary = "내 순위 조회",
+            description = "DailyFocusStat 기반 현재 전역 주간 순위(assigned·myRank·totalFocusSeconds)를 반환한다. "
+                    + "정산 결과 노출은 이 응답에서 분리되었다.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공")
     })
