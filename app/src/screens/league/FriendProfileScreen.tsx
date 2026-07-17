@@ -153,7 +153,11 @@ export default function FriendProfileScreen() {
       if (list) {
         setIsFriend(list.some((f) => f.userId === userId));
       }
-      if (pins && !pinTouched.current) {
+      // 진입 파라미터가 핀 값을 준 경우(리그 랭킹/팟 — usePinned의 낙관 상태 포함 최신값)는 덮지 않는다.
+      // 직전 화면에서 방금 누른 핀의 POST가 아직 서버 반영 전이면 이 마운트 조회가 토글 전 스냅샷을
+      // 돌려줘 낙관 상태를 되돌린다(PR 267 Codex 리뷰 반영). 파라미터 없이 들어오는 진입(친구 검색·
+      // 요청 목록)만 서버 핀 목록으로 채운다.
+      if (pins && !pinTouched.current && route.params.isPinned == null) {
         setIsPinned(pins.some((p) => p.userId === userId));
       }
       if (sent) {
@@ -164,10 +168,15 @@ export default function FriendProfileScreen() {
     return () => {
       stale = true;
     };
-  }, [userId]);
+  }, [userId, route.params.isPinned]);
 
-  // 핀 토글 — 낙관적 갱신, 실패 시 롤백 (서버 멱등이라 중복 탭 안전)
+  // 핀 토글 — 낙관적 갱신, 실패 시 롤백.
+  // 반영 중 연타는 무시(직렬화) — POST/DELETE가 동시에 나가면 서버 처리 순서에 따라 화면과
+  // 서버 상태가 어긋날 수 있다(PR 267 Codex 리뷰 반영, usePinned의 in-flight 가드와 동일 취지).
+  const pinBusy = useRef(false);
   async function togglePin() {
+    if (pinBusy.current) return;
+    pinBusy.current = true;
     pinTouched.current = true;
     const next = !isPinned;
     setIsPinned(next);
@@ -181,6 +190,8 @@ export default function FriendProfileScreen() {
     } catch {
       setIsPinned(!next);
       Alert.alert('핀 변경 실패', '잠시 후 다시 시도해주세요.');
+    } finally {
+      pinBusy.current = false;
     }
   }
 
