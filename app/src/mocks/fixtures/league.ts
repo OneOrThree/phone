@@ -1,5 +1,5 @@
 import type { InternalAxiosRequestConfig } from 'axios';
-import type { LeagueMemberResponse } from '@/types/api';
+import type { LeagueLastResultResponse, LeagueMemberResponse } from '@/types/api';
 
 // GROMO-824 스펙(구현 예정) 선반영 목 — 810·811·812 프론트를 백엔드 배포 전에 개발·테스트하기 위한 데이터.
 // 824 가 확장하는 것은 GET /league/me/ranking 뿐이다:
@@ -171,6 +171,29 @@ export function mockCategoryRanking(config: InternalAxiosRequestConfig): LeagueM
       focusTagName: '노동법',
     },
   ];
+}
+
+// 주간 마감 결과 (GET /league/me/last-result) — 831 결과 연출·ack 흐름 확인용.
+// ack 상태를 목 안에 유지해 '결과 화면 닫기 → 리그 탭 재진입 시 재노출 안 됨'을 목 모드에서
+// 그대로 검증한다(앱 재시작 시 초기화). 유지/강등 연출을 보려면 아래 result·티어·시간을 바꾼다:
+//   유지 STAY 4→4 / 강등 RELEGATED 4→3 (강등은 깨진 뱃지 3단계 연출)
+const MOCK_WEEK_START_AT = new Date(LOADED_AT - 7 * 24 * 60 * 60_000).toISOString();
+let mockLastResultAcknowledged = false;
+
+export function mockLastResult(): LeagueLastResultResponse {
+  return {
+    hasResult: true,
+    weekStartAt: MOCK_WEEK_START_AT,
+    result: 'PROMOTED',
+    previousTierLevel: 3,
+    newTierLevel: 4,
+    focusSeconds: 172800, // 48h — 다음 티어(56h) 기준 '8시간 더' 문구 확인용
+    acknowledged: mockLastResultAcknowledged,
+  };
+}
+
+export function mockAckLastResult(): void {
+  mockLastResultAcknowledged = true;
 }
 
 // 전체 리그 (GET /league/ranking?scope=total) — 824 범위 밖이라 라이브 필드 없이 기존 계약 그대로.
