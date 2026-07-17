@@ -371,11 +371,21 @@ class ScreenTimeModule: NSObject {
                 return
             }
 
+            // 저장된 측정 대상 선택을 미리 불러와 피커에 채운다(재선택 시 기존 체크 유지, GROMO-865).
+            // 아직 승격 전인 대기(pending) 선택이 있으면 그게 최신 선택이므로 활성분보다 우선한다.
+            let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+            var initialSelection = FamilyActivitySelection()
+            if let data = defaults?.data(forKey: "gromo:goal:selectionPending")
+                ?? defaults?.data(forKey: "gromo:goal:selection"),
+               let saved = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
+                initialSelection = saved
+            }
+
             let pickerView = GoalAppPickerView(
+                initialSelection: initialSelection,
                 onDone: { selection in
                     // 선택 결과를 App Group "대기(pending)" 키에 저장 (FamilyActivitySelection은 Codable)
                     // 활성 적용은 promoteSelection()에서 다음날 승격 시 처리
-                    let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
                     if let data = try? JSONEncoder().encode(selection) {
                         defaults?.set(data, forKey: "gromo:goal:selectionPending")
                     }
