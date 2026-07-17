@@ -109,10 +109,9 @@ export interface LeagueMemberResponse {
   nickname: string;
   tierLevel: number; // 멤버별 실제 티어(league_arena_users.tier_level) — GROMO-748
   totalFocusSeconds: number; // 이번 주 누적 집중 초 (GROMO-665: 분→초 정밀도 전환)
-  // 주간 정산 결과 ('PROMOTED'/'DEMOTED' 등) — 정산 전엔 null. 서버 enum 확장 대비 string 유지
-  result: string | null;
+  // ※ 항상 null이던 result는 서버에서 제거됨(GROMO-824가 818 위임분 흡수) — 854에서 미러도 제거
   // ※ 서버 응답의 isPinned는 미러 생략 — 핀 상태는 GET /pins(usePinned)로 별도 관리
-  // GROMO-824 라이브 필드(구현 예정 스펙 선반영) — 서버 배포 전이라 optional
+  // GROMO-824 라이브 필드 — 서버는 항상 내려주지만 목데이터·시안 placeholder 호환을 위해 optional 유지
   isFocusing?: boolean; // 현재 집중 세션 진행 중 여부
   focusTimeMinutes?: number; // 당일 누적 집중 분
   focusStartedAt?: string | null; // 진행 중 세션 시작 시각(ISO) — 초 단위 경과 렌더링 기준
@@ -120,11 +119,12 @@ export interface LeagueMemberResponse {
 }
 
 // GET /league/me/rank — 내 순위 요약
+// ※ 주간 정산 결과(result)는 서버가 /league/me/last-result로 분리하며 이 응답에서 제거(티켓 567) —
+//   죽은 미러 필드도 함께 제거. 결과 조회·ack 배선은 티켓 831(PR 283)이 담당.
 export interface LeagueRankResponse {
   assigned: boolean;
   myRank: number | null;
   totalFocusSeconds: number | null; // GROMO-665: 분→초 정밀도 전환
-  result: string | null;
 }
 
 // GET /league/me/schedule — 다음 리그 마감(다음 월요일 00:00 KST) 스케줄

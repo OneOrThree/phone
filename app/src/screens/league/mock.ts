@@ -41,32 +41,31 @@ export const MY_RANK: LeagueRankResponse = {
   assigned: true,
   myRank: 7,
   totalFocusSeconds: 51600, // 14h 20m (860분 × 60)
-  result: null,
 };
 
 // 전체 랭킹 — 시안 base 10명 그대로 (이름/티어/시간/시험/달성률/친구수). 미사용 placeholder.
 // totalFocusSeconds는 서버 계약(초, GROMO-665)에 맞춰 시안 분값 × 60으로 표기.
 export const RANKING: RankedMember[] = [
   // prettier-ignore
-  { rank: 1, userId: 'u-01', nickname: '민지노트', totalFocusSeconds: 2300 * 60, result: null, tierLevel: 5, exam: '노무사', achievedRate: 0.92, friendCount: 128, streakDays: 21, bestRank: 1, bestWeekMinutes: 2520 },
+  { rank: 1, userId: 'u-01', nickname: '민지노트', totalFocusSeconds: 2300 * 60, tierLevel: 5, exam: '노무사', achievedRate: 0.92, friendCount: 128, streakDays: 21, bestRank: 1, bestWeekMinutes: 2520 },
   // prettier-ignore
-  { rank: 2, userId: 'u-02', nickname: '현생사는중', totalFocusSeconds: 2102 * 60, result: null, tierLevel: 5, exam: '변리사', achievedRate: 0.88, friendCount: 94, streakDays: 14, bestRank: 1, bestWeekMinutes: 2350 },
+  { rank: 2, userId: 'u-02', nickname: '현생사는중', totalFocusSeconds: 2102 * 60, tierLevel: 5, exam: '변리사', achievedRate: 0.88, friendCount: 94, streakDays: 14, bestRank: 1, bestWeekMinutes: 2350 },
   // prettier-ignore
-  { rank: 3, userId: 'u-03', nickname: '준비된자', totalFocusSeconds: 1907 * 60, result: null, tierLevel: 4, exam: '노무사', achievedRate: 0.84, friendCount: 61, streakDays: 9, bestRank: 2, bestWeekMinutes: 2100 },
+  { rank: 3, userId: 'u-03', nickname: '준비된자', totalFocusSeconds: 1907 * 60, tierLevel: 4, exam: '노무사', achievedRate: 0.84, friendCount: 61, streakDays: 9, bestRank: 2, bestWeekMinutes: 2100 },
   // prettier-ignore
-  { rank: 4, userId: 'u-04', nickname: '합격기원', totalFocusSeconds: 1690 * 60, result: null, tierLevel: 4, exam: '공무원', achievedRate: 0.8, friendCount: 47, streakDays: 7, bestRank: 3, bestWeekMinutes: 1900 },
+  { rank: 4, userId: 'u-04', nickname: '합격기원', totalFocusSeconds: 1690 * 60, tierLevel: 4, exam: '공무원', achievedRate: 0.8, friendCount: 47, streakDays: 7, bestRank: 3, bestWeekMinutes: 1900 },
   // prettier-ignore
-  { rank: 5, userId: 'u-05', nickname: '서연', totalFocusSeconds: 1498 * 60, result: null, tierLevel: 4, exam: '노무사', achievedRate: 0.76, friendCount: 33, streakDays: 5, bestRank: 4, bestWeekMinutes: 1720 },
+  { rank: 5, userId: 'u-05', nickname: '서연', totalFocusSeconds: 1498 * 60, tierLevel: 4, exam: '노무사', achievedRate: 0.76, friendCount: 33, streakDays: 5, bestRank: 4, bestWeekMinutes: 1720 },
   // prettier-ignore
-  { rank: 6, userId: 'u-06', nickname: '태강', totalFocusSeconds: 1360 * 60, result: null, tierLevel: 3, exam: '변리사', achievedRate: 0.7, friendCount: 52, streakDays: 4, bestRank: 3, bestWeekMinutes: 1580 },
+  { rank: 6, userId: 'u-06', nickname: '태강', totalFocusSeconds: 1360 * 60, tierLevel: 3, exam: '변리사', achievedRate: 0.7, friendCount: 52, streakDays: 4, bestRank: 3, bestWeekMinutes: 1580 },
   // prettier-ignore
-  { rank: 7, userId: MY_USER_ID, nickname: '진수', totalFocusSeconds: 1295 * 60, result: null, tierLevel: 3, exam: '노무사', achievedRate: 0.67, friendCount: 18, streakDays: 3, bestRank: 5, bestWeekMinutes: 1490 },
+  { rank: 7, userId: MY_USER_ID, nickname: '진수', totalFocusSeconds: 1295 * 60, tierLevel: 3, exam: '노무사', achievedRate: 0.67, friendCount: 18, streakDays: 3, bestRank: 5, bestWeekMinutes: 1490 },
   // prettier-ignore
-  { rank: 8, userId: 'u-08', nickname: '유진', totalFocusSeconds: 1212 * 60, result: null, tierLevel: 3, exam: '세무사', achievedRate: 0.64, friendCount: 25, streakDays: 2, bestRank: 6, bestWeekMinutes: 1400 },
+  { rank: 8, userId: 'u-08', nickname: '유진', totalFocusSeconds: 1212 * 60, tierLevel: 3, exam: '세무사', achievedRate: 0.64, friendCount: 25, streakDays: 2, bestRank: 6, bestWeekMinutes: 1400 },
   // prettier-ignore
-  { rank: 9, userId: 'u-09', nickname: '도윤', totalFocusSeconds: 1050 * 60, result: null, tierLevel: 2, exam: '공무원', achievedRate: 0.55, friendCount: 12, streakDays: 1, bestRank: 7, bestWeekMinutes: 1210 },
+  { rank: 9, userId: 'u-09', nickname: '도윤', totalFocusSeconds: 1050 * 60, tierLevel: 2, exam: '공무원', achievedRate: 0.55, friendCount: 12, streakDays: 1, bestRank: 7, bestWeekMinutes: 1210 },
   // prettier-ignore
-  { rank: 10, userId: 'u-10', nickname: '민서', totalFocusSeconds: 725 * 60, result: null, tierLevel: 1, exam: '노무사', achievedRate: 0.4, friendCount: 7, streakDays: 0, bestRank: 9, bestWeekMinutes: 980 },
+  { rank: 10, userId: 'u-10', nickname: '민서', totalFocusSeconds: 725 * 60, tierLevel: 1, exam: '노무사', achievedRate: 0.4, friendCount: 7, streakDays: 0, bestRank: 9, bestWeekMinutes: 980 },
 ];
 
 // ── 프로필 상세(FriendProfile) 비교 통계 — 시안 "프로필 · 친구/비친구" 3분기용 ──
