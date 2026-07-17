@@ -207,8 +207,10 @@ export default function LeagueScreen() {
         nickname: member.nickname,
         tierLevel: member.tierLevel,
         isFriend: friendIds.has(member.userId),
-        // 핀 초기값 — 공유 핀 상태(usePinned) 그대로 전달, 미로딩이면 false 진입 후 프로필이 재동기화 (GROMO-845)
-        isPinned: pinned.has(member.userId),
+        // 핀 초기값 — 공유 핀 상태(usePinned)가 로딩된 경우에만 전달(낙관 상태 포함 최신값).
+        // 미로딩이면 undefined로 넘겨 프로필의 GET /pins 재동기화에 맡긴다 — false를 넘기면
+        // 프로필이 확정값으로 믿고 서버 동기화를 건너뛰어 핀한 유저가 꺼짐으로 보인다(PR 291 리뷰 반영).
+        isPinned: pinnedLoaded ? pinned.has(member.userId) : undefined,
         rank: rank > 0 ? rank : undefined,
         rankLabel: filter,
       });

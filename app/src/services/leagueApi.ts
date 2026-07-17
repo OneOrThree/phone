@@ -20,7 +20,8 @@ export async function getMyTier(): Promise<LeagueTierResponse> {
   return data;
 }
 
-// GET /api/v1/league/me/ranking?category&date — 티어 멤버 랭킹. category 미지정: 내 아레나 멤버, 지정: 같은 직군 전역 상위 100명.
+// GET /api/v1/league/me/ranking?category&date — 주간 랭킹 상위 100명. category 미지정: 전역(활성 유저 전체),
+// 지정: 같은 직군. ⚠️ 어느 쪽도 '나를 포함'을 보장하지 않는다(top-100 리스트일 뿐 — GROMO-818에서 아레나 응답 제거).
 // date는 필수(누락 시 서버 400) — 라이브 필드의 '당일 집중분' 기준일로, 클라 로컬 오늘을 보낸다
 // (GROMO-824/854, friendsApi.fetchFriends와 동일 패턴).
 export async function getMyRanking(category?: OccupationCategory): Promise<LeagueMemberResponse[]> {
