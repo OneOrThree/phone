@@ -62,15 +62,19 @@ function leagueWeekStart(): Date {
 // "getMyRanking() = 내 아레나, 항상 나 포함"이 깨짐 — PR 285 Codex 리뷰 반영). top-100 밖이면
 // 내 분이 0으로 떨어져 TierGuide 진행바·핀 격차가 조용히 틀어진다.
 // 서버 주간 집계(DailyFocusStat)도 세션의 순수 경과초(endedAt−startedAt) 누적이라 정의가 일치한다.
-// (서버는 endedAt 날짜 버킷, 여기는 startedAt 기간 필터라 자정을 걸친 세션만 미세하게 어긋날 수 있음.)
 // ※ getMyRank(/league/me/rank)는 호출마다 LEAGUE_RANK_VIEWED 계측을 남겨 화면 포커스마다 못 쓴다.
 // 초 원본을 반환한다 — 리그 화면은 실초(HH:MM:SS) 격차/델타, 티어가이드는 파생 분(secToMin)을 쓴다.
 async function fetchMyWeekSeconds(): Promise<number> {
-  const sessions = await getAllFocusSessions(
-    leagueWeekStart().toISOString(),
-    new Date().toISOString(),
-  );
-  return sessions.reduce((acc, s) => acc + sessionFocusSeconds(s), 0);
+  const weekStart = leagueWeekStart();
+  // 서버 조회 필터는 startedAt 기준이라 일요일 밤에 시작해 월요일에 끝난 세션이 주 시작 이후
+  // 조회에서 통째로 빠진다 — 서버 주간 집계는 endedAt 날짜 버킷이라 그 세션도 새 주에 포함된다.
+  // 주 시작 24시간 전부터 받아 endedAt이 주 시작 이후인 세션만 합산한다(PR 291 리뷰 반영,
+  // 24시간을 넘겨 경계를 걸치는 단일 세션은 현실적으로 없음).
+  const fetchFrom = new Date(weekStart.getTime() - 24 * 3600 * 1000);
+  const sessions = await getAllFocusSessions(fetchFrom.toISOString(), new Date().toISOString());
+  return sessions
+    .filter((s) => Date.parse(s.endedAt) >= weekStart.getTime())
+    .reduce((acc, s) => acc + sessionFocusSeconds(s), 0);
 }
 
 // 직군 리그 랭킹 — 리그 화면 '직군' 탭·홈 상단바가 공유. 서버 실데이터 전용(GROMO-538, mock 폴백 없음).
