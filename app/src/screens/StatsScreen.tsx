@@ -994,8 +994,13 @@ function FocusTimetableCard() {
       });
       // Android Share는 url을 무시하고 message 기반이라 플랫폼별 페이로드(현재 iOS 전용 앱이지만 방어, 리뷰 반영)
       const result = await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
-      // 시트만 열고 닫으면 completed=false — 탭 대비 실공유 전환을 구분(GROMO-782)
-      logStatsShared({ card: 'timetable', completed: result.action === Share.sharedAction });
+      // 시트만 열고 닫으면 completed=false — 탭 대비 실공유 전환을 구분(GROMO-782).
+      // Android는 시트를 그냥 닫아도 항상 sharedAction으로 resolve(RN 문서)라 신호가 무의미 —
+      // completed를 iOS에서만 인정해 stats_shared 오탐을 막는다(PR 276 Codex 리뷰 반영).
+      logStatsShared({
+        card: 'timetable',
+        completed: Platform.OS === 'ios' && result.action === Share.sharedAction,
+      });
     } catch {
       // 캡처 실패·공유 취소 — 무시
     } finally {
@@ -1141,8 +1146,12 @@ function WeeklyTimetableCard() {
       });
       // Android Share는 url을 무시하고 message 기반이라 플랫폼별 페이로드(현재 iOS 전용 앱이지만 방어)
       const result = await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
-      // 시트만 열고 닫으면 completed=false — 탭 대비 실공유 전환을 구분(GROMO-782)
-      logStatsShared({ card: 'weekly_timeline', completed: result.action === Share.sharedAction });
+      // 시트만 열고 닫으면 completed=false — 탭 대비 실공유 전환을 구분(GROMO-782).
+      // Android는 항상 sharedAction으로 resolve라 completed를 iOS에서만 인정(위 onShare와 동일).
+      logStatsShared({
+        card: 'weekly_timeline',
+        completed: Platform.OS === 'ios' && result.action === Share.sharedAction,
+      });
     } catch {
       // 캡처 실패·공유 취소 — 무시
     } finally {
