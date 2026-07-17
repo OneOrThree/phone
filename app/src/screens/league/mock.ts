@@ -41,7 +41,6 @@ export const MY_RANK: LeagueRankResponse = {
   assigned: true,
   myRank: 7,
   totalFocusSeconds: 51600, // 14h 20m (860분 × 60)
-  result: null,
 };
 
 // 전체 랭킹 — 시안 base 10명 그대로 (이름/티어/시간/시험/달성률/친구수). 미사용 placeholder.

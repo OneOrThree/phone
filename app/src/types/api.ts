@@ -119,11 +119,12 @@ export interface LeagueMemberResponse {
 }
 
 // GET /league/me/rank — 내 순위 요약
+// ※ 주간 정산 결과(result)는 서버가 /league/me/last-result로 분리하며 이 응답에서 제거(티켓 567) —
+//   죽은 미러 필드도 함께 제거. 결과 조회·ack 배선은 티켓 831(PR 283)이 담당.
 export interface LeagueRankResponse {
   assigned: boolean;
   myRank: number | null;
   totalFocusSeconds: number | null; // GROMO-665: 분→초 정밀도 전환
-  result: string | null;
 }
 
 // GET /league/me/schedule — 다음 리그 마감(다음 월요일 00:00 KST) 스케줄
