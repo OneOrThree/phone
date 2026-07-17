@@ -281,30 +281,42 @@ export default function FocusResultScreen() {
     (async () => {
       if (cancelled || celebrationStarted.current) return;
       celebrationStarted.current = true;
-      // 오늘 ✓ 팝은 하루 1회가 아니라 매 세션(오늘 10분 충족 시) 노출(오스카 요청). 주간 축하는
-      // 팝과 독립 판정 — 이번 주 도장이 없으면 재생하되, 주 1회 가드는 그대로 유지한다.
-      setTodayPop(true);
+      // 오늘 ✓ 팝은 그날 처음 채워진 결과 화면에서만 재생(하루 1회 — '매 세션 노출'에서 재변경,
+      // 오스카 요청). 이후 세션의 결과 화면은 팝 없이 정적 ✓로 표시된다. 주간 축하는 팝과
+      // 독립 판정 — 이번 주 도장이 없으면 재생하되, 주 1회 가드는 그대로 유지한다.
+      const poppedDate = await AsyncStorage.getItem(STORAGE_KEYS.focusStreakPoppedDate).catch(
+        () => null,
+      );
+      if (cancelled) return;
+      const firstPopToday = poppedDate !== today;
+      if (firstPopToday) {
+        AsyncStorage.setItem(STORAGE_KEYS.focusStreakPoppedDate, today).catch(() => {});
+        setTodayPop(true);
+      }
       if (!weekStreakComplete) return;
       const seenWeek = await AsyncStorage.getItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek).catch(
         () => null,
       );
       if (cancelled || seenWeek === mondayKey) return;
       timers.push(
-        setTimeout(() => {
-          // 주 1회 도장은 모달이 실제로 뜨는 순간 기록 — 딜레이 중 화면을 떠나면(타이머 취소)
-          // 다음 결과 진입에서 다시 뜰 수 있다(PR 227 리뷰).
-          AsyncStorage.setItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek, mondayKey).catch(
-            () => {},
-          );
-          setWeekModalVisible(true);
-        }, 1200), // ✓ 팝이 항상 재생되므로 팝 종료 후(1200ms) 축하 모달.
+        setTimeout(
+          () => {
+            // 주 1회 도장은 모달이 실제로 뜨는 순간 기록 — 딜레이 중 화면을 떠나면(타이머 취소)
+            // 다음 결과 진입에서 다시 뜰 수 있다(PR 227 리뷰).
+            AsyncStorage.setItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek, mondayKey).catch(
+              () => {},
+            );
+            setWeekModalVisible(true);
+          },
+          firstPopToday ? 1200 : 400, // 팝이 재생된 경우엔 팝 종료 후(1200ms), 아니면 짧게(400ms)
+        ),
       );
     })();
     return () => {
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-  }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey]);
+  }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today]);
   const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
   // 이번 달 합계 — 주간과 동일하게 방금 세션 보정분(adjustedToday - serverToday)을 더한다(월도 오늘 포함)
   const monthTotal = (month?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
