@@ -10,6 +10,7 @@ import { useUser } from '@/store/UserContext';
 import { todayStr, localDateStr } from '@/utils/localDate';
 import type { LiveFocusSession } from './types';
 import { enqueuePendingFocusUpload } from './pendingFocusUploads';
+import { cancelStaleCompletionNotifications } from './completionNotification';
 
 // 죽은(강제 종료된) 세션 정산 — 앱 시작 시 라이브 레코드가 남아 있으면
 // 마지막 저장 시점까지의 집중시간을 적립하고, 서버 업로드까지 끝나야 레코드를 지운다.
@@ -27,8 +28,10 @@ export function OrphanFocusSettler() {
   const ran = useRef(false);
 
   // 세션 중 죽었으면 실드가 켜진 채 남는다 — 정산(네트워크 대기)과 무관하게 마운트 즉시 해제(멱등).
+  // 죽은 세션이 예약해둔 종료·경계 알림도 같은 이유로 OS에 남는다 — 함께 회수(GROMO-864).
   useEffect(() => {
     ScreenTimeModule.stopFocusShield().catch(() => {});
+    cancelStaleCompletionNotifications().catch(() => {});
   }, []);
 
   useEffect(() => {

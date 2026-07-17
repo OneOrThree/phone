@@ -71,6 +71,10 @@ const checkPop = {
   animationFillMode: 'backwards',
 } as const;
 
+// 오늘 ✓ 팝을 재생한 날짜(프로세스 메모리) — 연속 결과 화면이 AsyncStorage 쓰기 완료 전에
+// 영속 마커를 다시 읽는 레이스 방어(코덱스 리뷰). 영속 마커(focusStreakPoppedDate)와 이중 가드.
+let poppedDateMemory: string | null = null;
+
 // 이번 주 월~일 날짜('YYYY-MM-DD') 배열.
 function thisWeekDates(): string[] {
   const now = new Date();
@@ -288,8 +292,9 @@ export default function FocusResultScreen() {
         () => null,
       );
       if (cancelled) return;
-      const firstPopToday = poppedDate !== today;
+      const firstPopToday = poppedDateMemory !== today && poppedDate !== today;
       if (firstPopToday) {
+        poppedDateMemory = today;
         AsyncStorage.setItem(STORAGE_KEYS.focusStreakPoppedDate, today).catch(() => {});
         setTodayPop(true);
       }
