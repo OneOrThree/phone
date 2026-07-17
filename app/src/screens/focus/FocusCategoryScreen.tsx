@@ -249,15 +249,21 @@ export default function FocusCategoryScreen() {
         <>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenu(null)} />
           <View style={[s.menu, { top: menu.y + menu.h + 4, right: winW - (menu.x + menu.w) }]}>
-            <TouchableOpacity
-              style={s.menuItem}
-              activeOpacity={0.7}
-              onPress={() => editSubject(menuSubject)}
-            >
-              <Ionicons name="pencil" size={14} color={T.inkSub} />
-              <Text style={s.menuText}>이름 편집</Text>
-            </TouchableOpacity>
-            <View style={s.menuDivider} />
+            {/* 서버에서 내려준 기본(추천) 과목은 이름 변경 불가 — 삭제/등록만 허용(GROMO-855).
+                판정은 현재 카테고리 추천 과목명과의 일치 기준(재로그인 복원 뒤에도 유지됨). */}
+            {!defaultTags.includes(menuSubject.name) && (
+              <>
+                <TouchableOpacity
+                  style={s.menuItem}
+                  activeOpacity={0.7}
+                  onPress={() => editSubject(menuSubject)}
+                >
+                  <Ionicons name="pencil" size={14} color={T.inkSub} />
+                  <Text style={s.menuText}>이름 편집</Text>
+                </TouchableOpacity>
+                <View style={s.menuDivider} />
+              </>
+            )}
             <TouchableOpacity
               style={s.menuItem}
               activeOpacity={0.7}
