@@ -166,7 +166,14 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.lg,
     paddingVertical: T.space.xs,
   },
-  input: { flex: 1, ...T.text.body, color: T.ink, paddingVertical: T.space.md },
+  // iOS TextInput은 lineHeight가 있으면 포커스 중 글자 하단(받침·디센더)이 잘림 → body에서 lineHeight 제외
+  input: {
+    flex: 1,
+    ...T.text.body,
+    lineHeight: undefined,
+    color: T.ink,
+    paddingVertical: T.space.md,
+  },
   counter: { ...T.text.caption, color: T.inkMuted },
 
   // 검증 안내
