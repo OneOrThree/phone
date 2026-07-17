@@ -117,10 +117,15 @@ export default function FocusCategoryScreen() {
       undefined,
       (text) => {
         const name = text?.trim();
-        if (name) {
-          renameSubject(sub.id, name);
-          logFocusTagUpdated();
+        if (!name) return;
+        // 기존 과목과 같은 이름이면 저장하지 않음 — 서버 태그가 이름 기준 1태그라 통계가 합산되고
+        // 목록에 같은 이름이 중복 노출되는 것을 막는다(GROMO-867). 자기 자신(변경 없음)은 허용.
+        if (subjects.some((x) => x.id !== sub.id && x.name === name)) {
+          Alert.alert('이미 있는 과목이에요', '다른 이름으로 입력해 주세요.');
+          return;
         }
+        renameSubject(sub.id, name);
+        logFocusTagUpdated();
       },
       'plain-text',
       sub.name,
@@ -155,10 +160,14 @@ export default function FocusCategoryScreen() {
       '집중할 과목 이름을 입력하세요.',
       (text) => {
         const name = text?.trim();
-        if (name) {
-          addSubject(name);
-          logFocusTagCreated();
+        if (!name) return;
+        // 기존 과목과 같은 이름이면 추가하지 않음(GROMO-867)
+        if (subjects.some((x) => x.name === name)) {
+          Alert.alert('이미 있는 과목이에요', '다른 이름으로 입력해 주세요.');
+          return;
         }
+        addSubject(name);
+        logFocusTagCreated();
       },
       'plain-text',
     );
