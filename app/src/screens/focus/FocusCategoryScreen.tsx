@@ -67,6 +67,13 @@ export default function FocusCategoryScreen() {
   // (오프라인 fail-open — 이때는 서버 태그 동기화도 안 되는 상태라 영향이 제한적).
   const [defaultsReady, setDefaultsReady] = useState(false);
   useEffect(() => {
+    // 카테고리 저장값을 아직 읽는 중(undefined) — "카테고리 없음"과 구분해 fail-closed 유지.
+    // 이 분기 없이는 로딩 순간을 무카테고리로 오판해 ready가 켜져 기본 과목의 이름 편집이
+    // 잠깐 노출된다(PR 287 Codex 리뷰 반영).
+    if (category === undefined) {
+      setDefaultsReady(false);
+      return;
+    }
     const occupation = occupationForCategory(category);
     if (!occupation) {
       setDefaultTags([]);

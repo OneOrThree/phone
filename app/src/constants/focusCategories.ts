@@ -81,8 +81,8 @@ export const CATEGORY_TO_OCCUPATION: Record<string, Occupation> = {
   기타: 'ETC',
 };
 
-// 카테고리의 서버 Occupation(매핑 없으면 null).
-export function occupationForCategory(category: string | null): Occupation | null {
+// 카테고리의 서버 Occupation(매핑 없으면 null). undefined(useFocusCategory 로딩 중)도 null로.
+export function occupationForCategory(category: string | null | undefined): Occupation | null {
   if (!category) return null;
   return CATEGORY_TO_OCCUPATION[category] ?? null;
 }
