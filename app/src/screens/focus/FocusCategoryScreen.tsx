@@ -55,13 +55,19 @@ export default function FocusCategoryScreen() {
   // 조회 실패(미로그인·오프라인)면 조용히 숨긴다.
   const category = useFocusCategory();
   const [defaultTags, setDefaultTags] = useState<string[]>([]);
+  // 추천 목록 조회 완료 여부 — 로딩 중엔 기본 과목 판별이 불가능하므로 이름 편집을 잠시 숨긴다
+  // (fail-closed, PR 287 Codex 리뷰 반영). 조회 실패는 완료로 취급해 기존처럼 편집을 허용한다
+  // (오프라인 fail-open — 이때는 서버 태그 동기화도 안 되는 상태라 영향이 제한적).
+  const [defaultsReady, setDefaultsReady] = useState(false);
   useEffect(() => {
     const occupation = occupationForCategory(category);
     if (!occupation) {
       setDefaultTags([]);
+      setDefaultsReady(true); // 추천 과목이 없는 카테고리 — 판별할 기본 과목도 없음
       return;
     }
     let cancelled = false;
+    setDefaultsReady(false);
     getDefaultTags(occupation)
       .then((res) => {
         if (cancelled) return;
@@ -70,6 +76,9 @@ export default function FocusCategoryScreen() {
       .catch(() => {
         // 실패 시 이전 카테고리의 추천이 남아 새 카테고리 라벨로 노출되지 않게 비운다(리뷰 반영)
         if (!cancelled) setDefaultTags([]);
+      })
+      .finally(() => {
+        if (!cancelled) setDefaultsReady(true);
       });
     return () => {
       cancelled = true;
@@ -250,8 +259,9 @@ export default function FocusCategoryScreen() {
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenu(null)} />
           <View style={[s.menu, { top: menu.y + menu.h + 4, right: winW - (menu.x + menu.w) }]}>
             {/* 서버에서 내려준 기본(추천) 과목은 이름 변경 불가 — 삭제/등록만 허용(GROMO-855).
-                판정은 현재 카테고리 추천 과목명과의 일치 기준(재로그인 복원 뒤에도 유지됨). */}
-            {!defaultTags.includes(menuSubject.name) && (
+                판정은 현재 카테고리 추천 과목명과의 일치 기준(재로그인 복원 뒤에도 유지됨).
+                추천 목록 도착 전엔 판별 불가라 편집을 숨긴다(defaultsReady). */}
+            {defaultsReady && !defaultTags.includes(menuSubject.name) && (
               <>
                 <TouchableOpacity
                   style={s.menuItem}
