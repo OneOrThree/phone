@@ -1,6 +1,12 @@
 import type { InternalAxiosRequestConfig } from 'axios';
 import { mockFriends, mockPin, mockPinnedFriends, mockUnpin } from './fixtures/friends';
-import { mockArenaRanking, mockCategoryRanking, mockGlobalRanking } from './fixtures/league';
+import {
+  mockAckLastResult,
+  mockArenaRanking,
+  mockCategoryRanking,
+  mockGlobalRanking,
+  mockLastResult,
+} from './fixtures/league';
 import {
   mockFocusAverage,
   mockFocusStatsByCategory,
@@ -49,6 +55,20 @@ export const handlers: MockHandler[] = [
     method: 'get',
     matches: (url) => url === '/api/v1/league/ranking',
     respond: (config) => mockGlobalRanking(config),
+  },
+  // 주간 마감 결과(831) — 리그 탭 진입 시 결과 연출 + ack 후 재노출 안 됨 흐름 확인용
+  {
+    method: 'get',
+    matches: (url) => url === '/api/v1/league/me/last-result',
+    respond: () => mockLastResult(),
+  },
+  {
+    method: 'post',
+    matches: (url) => url === '/api/v1/league/me/last-result/ack',
+    respond: () => {
+      mockAckLastResult();
+      return undefined;
+    },
   },
   // 과목별 집중 통계 — 692 기간 탭 확인용(내 통계 화면도 목 모드에선 이 데이터를 본다)
   {

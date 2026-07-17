@@ -8,6 +8,7 @@ import type {
   LeagueMemberResponse,
   LeagueRankResponse,
   LeagueScheduleResponse,
+  LeagueLastResultResponse,
 } from '@/types/api';
 
 // 카테고리 랭킹의 category 값은 서버 Occupation enum 이름(예: 'LABOR_ATTORNEY').
@@ -48,4 +49,16 @@ export async function getMyRank(): Promise<LeagueRankResponse> {
 export async function getMySchedule(): Promise<LeagueScheduleResponse> {
   const { data } = await api.get<LeagueScheduleResponse>('/api/v1/league/me/schedule');
   return data;
+}
+
+// GET /api/v1/league/me/last-result — 주간 마감 결과 조회 (GROMO-567). 결과 없으면 hasResult=false.
+export async function getLastResult(): Promise<LeagueLastResultResponse> {
+  const { data } = await api.get<LeagueLastResultResponse>('/api/v1/league/me/last-result');
+  return data;
+}
+
+// POST /api/v1/league/me/last-result/ack — 본 결과(weekStartAt 주차) 확인 처리.
+// 대상 없음·이미 확인·중복 호출 모두 서버가 no-op으로 받는 멱등 API.
+export async function ackLastResult(weekStartAt: string): Promise<void> {
+  await api.post('/api/v1/league/me/last-result/ack', { weekStartAt });
 }

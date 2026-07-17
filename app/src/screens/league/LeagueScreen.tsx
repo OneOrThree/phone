@@ -21,6 +21,7 @@ import { useFocus } from '@/store/FocusContext';
 import { useLeagueRanking } from './useLeagueRanking';
 import { useGlobalRanking } from './useGlobalRanking';
 import { useLeagueMeta } from './useLeagueMeta';
+import { useLeagueLastResult } from './useLeagueLastResult';
 import { useFriends } from './useFriends';
 import { usePinned } from './usePinned';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -89,6 +90,8 @@ export default function LeagueScreen() {
 
   // 내 티어·마감 스케줄 실데이터 (GROMO-538) — 티어 조회는 여기 한 곳에서만.
   const { tier, deadlineLabel } = useLeagueMeta();
+  // 미확인 주간 마감 결과가 있으면 결과 연출로 진입 (GROMO-831) — 포커스마다 last-result 조회
+  useLeagueLastResult();
   // 리그 랭킹 실데이터 — 홈 상단바와 공유. 멤버 티어는 서버 응답 실값(GROMO-748).
   const { ranking, myLeagueLabel, mySeconds } = useLeagueRanking();
   // '전체' 탭 전용 진짜 전역 랭킹(직군 리스트 재사용 금지 — GROMO-644).
