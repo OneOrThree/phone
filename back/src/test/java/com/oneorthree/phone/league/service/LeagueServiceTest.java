@@ -23,7 +23,6 @@ import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,7 +31,6 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -47,7 +45,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -109,13 +106,6 @@ class LeagueServiceTest {
         return new FocusLiveInfo(minutes, focusing, startedAt, tagName);
     }
 
-    @BeforeEach
-    void setUp() {
-        // 기본값: 정산 결과 없음 — getMyRank 의 result 조회가 null Optional 을 받지 않도록 lenient 방어.
-        lenient().when(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(any()))
-                .thenReturn(Optional.empty());
-    }
-
     private LeagueWeeklyResult weeklyResult(Instant weekStartAt, LeagueWeeklyResultType result) {
         return LeagueWeeklyResult.builder()
                 .weekStartAt(weekStartAt)
@@ -140,9 +130,7 @@ class LeagueServiceTest {
 
         assertThat(response.assigned()).isTrue();
         assertThat(response.tierLevel()).isEqualTo(3);
-        assertThat(response.arenaId()).isNull();
         assertThat(response.weekStartAt()).isEqualTo(WEEK_START);
-        assertThat(response.status()).isNull();
         assertThat(response.badgeId()).isEqualTo("hyperfocus");
     }
 
@@ -169,7 +157,6 @@ class LeagueServiceTest {
 
         assertThat(response.assigned()).isFalse();
         assertThat(response.tierLevel()).isNull();
-        assertThat(response.arenaId()).isNull();
         assertThat(response.badgeId()).isNull();
     }
 
@@ -350,7 +337,7 @@ class LeagueServiceTest {
     // ── getMyRank ─────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("내 순위 조회는 전역 read model의 순위·합계를 반환하고 정산 결과가 없으면 result=null")
+    @DisplayName("내 순위 조회는 전역 read model의 순위·합계를 반환한다")
     void getMyRankAssigned() {
         given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
                 .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
@@ -360,51 +347,6 @@ class LeagueServiceTest {
         assertThat(response.assigned()).isTrue();
         assertThat(response.myRank()).isEqualTo(2);
         assertThat(response.totalFocusSeconds()).isEqualTo(200);
-        assertThat(response.result()).isNull();
-    }
-
-    @Test
-    @DisplayName("직전 주 정산 결과가 있으면 순위와 함께 승격/강등 result를 반환한다")
-    void getMyRankReturnsSettlementResult() {
-        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
-                .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
-        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
-                .willReturn(Optional.of(weeklyResult(PREVIOUS_WEEK_START, LeagueWeeklyResultType.PROMOTED)));
-
-        LeagueRankResponse response = leagueService.getMyRank(USER_ID, NOW);
-
-        assertThat(response.assigned()).isTrue();
-        assertThat(response.myRank()).isEqualTo(2);
-        assertThat(response.result()).isEqualTo("PROMOTED");
-    }
-
-    @Test
-    @DisplayName("정산 결과가 직전 주가 아닌 오래된 주면 result=null (진행 중 취급)")
-    void getMyRankStaleSettlementResultIsNull() {
-        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
-                .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
-        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
-                .willReturn(Optional.of(weeklyResult(
-                        PREVIOUS_WEEK_START.minus(Duration.ofDays(7)), LeagueWeeklyResultType.PROMOTED)));
-
-        LeagueRankResponse response = leagueService.getMyRank(USER_ID, NOW);
-
-        assertThat(response.result()).isNull();
-    }
-
-    @Test
-    @DisplayName("이번 주 순위가 없어도(assigned=false) 직전 주 정산 결과는 반환한다")
-    void getMyRankUnassignedStillReturnsSettlementResult() {
-        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
-                .willReturn(Optional.empty());
-        given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
-                .willReturn(Optional.of(weeklyResult(PREVIOUS_WEEK_START, LeagueWeeklyResultType.RELEGATED)));
-
-        LeagueRankResponse response = leagueService.getMyRank(USER_ID, NOW);
-
-        assertThat(response.assigned()).isFalse();
-        assertThat(response.myRank()).isNull();
-        assertThat(response.result()).isEqualTo("RELEGATED");
     }
 
     @Test
