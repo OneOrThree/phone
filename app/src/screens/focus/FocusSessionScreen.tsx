@@ -8,6 +8,7 @@ import {
   StyleSheet,
   useWindowDimensions,
   AppState,
+  Vibration,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
@@ -34,6 +35,10 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
+import {
+  scheduleCompletionNotification,
+  cancelCompletionNotification,
+} from './completionNotification';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { occupationForCategory } from '@/constants/focusCategories';
@@ -90,6 +95,8 @@ export default function FocusSessionScreen() {
   const [page, setPage] = useState(0);
   const [paused, setPaused] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // 완료 게이트(GROMO-864) — 카운트다운 종료 시 결과 화면 직행 대신 확인을 받는다
+  const [doneGate, setDoneGate] = useState(false);
   // 친구 전체 라이브 상태 — 60초 폴링·포그라운드 복귀 갱신 (09 친구 그리드 실데이터)
   const { friends: sessionFriends } = useFocusFriends();
   // 리그(811)·같은 시험(812) 그리드 라이브 멤버 — 내 행 제외(내 모습은 캐릭터 페이지가 담당)
@@ -340,10 +347,29 @@ export default function FocusSessionScreen() {
     }
   }, [settleFocusBlock, navigation, subjectId, subjectName]);
 
-  // 카운트다운/뽀모도로 완료 시 자동 종료
+  // 백그라운드 복귀 fast-forward로 완료된 표시 — 이 경우 게이트 진동을 생략한다
+  const doneByCatchUpRef = useRef(false);
+
+  // 완료 시 처리(GROMO-864) — 카운트다운은 결과 화면 직행 대신 완료 게이트를 띄우고
+  // 확인을 눌러야 finish로 넘어간다. 집중 자체는 끝났으므로 실드·Live Activity는
+  // 게이트 시점에 먼저 해제한다(둘 다 멱등이라 finish에서 또 불러도 무해).
+  // 뽀모도로는 기존대로 즉시 종료(경계 알림은 후속 작업).
   useEffect(() => {
-    if (session.done) finish();
-  }, [session.done, finish]);
+    if (!session.done || finishedRef.current) return;
+    if (mode !== 'countdown') {
+      finish();
+      return;
+    }
+    if (doneGate) return; // 게이트가 이미 떠 있으면 재실행(finish 참조 변경 등)에도 진동 반복 금지
+    setDoneGate(true);
+    shieldedRef.current = false;
+    ScreenTimeModule.stopFocusShield().catch(() => {});
+    ScreenTimeModule.endFocusActivity().catch(() => {});
+    // 짧은 진동 2번 — iOS는 진동 길이 지정 불가, 배열은 [첫 진동까지 지연, 다음 진동까지 간격].
+    // 백그라운드 완료 후 복귀한 게이트는 종료 알림이 이미 알렸으므로 진동 생략.
+    if (!doneByCatchUpRef.current) Vibration.vibrate([0, 500]);
+    doneByCatchUpRef.current = false;
+  }, [session.done, mode, finish, doneGate]);
 
   // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
   // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
@@ -376,6 +402,11 @@ export default function FocusSessionScreen() {
         if (sessionRef.current.phase === 'focus' && !shieldedRef.current) {
           scheduleLeaveNotifications(subjectName, LEAVE_END_S).catch(() => {});
         }
+        // 실드 카운트다운은 백그라운드에서 JS가 멈춰 종료 순간을 못 알리므로,
+        // 나가는 순간 남은 시간(display) 뒤로 완료 알림을 예약한다(GROMO-864). 복귀 시 취소.
+        if (mode === 'countdown' && shieldedRef.current) {
+          scheduleCompletionNotification(subjectName, sessionRef.current.display).catch(() => {});
+        }
         return;
       }
       if (state !== 'active' || leftAtRef.current == null) return;
@@ -384,6 +415,7 @@ export default function FocusSessionScreen() {
       const away = Math.round((Date.now() - leftAtRef.current) / 1000);
       leftAtRef.current = null;
       cancelLeaveNotifications().catch(() => {});
+      cancelCompletionNotification().catch(() => {});
       if (__DEV__)
         console.log(`[이탈감지] ${away}초 만에 복귀 (실드 ${shieldedRef.current ? 'ON' : 'OFF'})`);
       if (sessionRef.current.done || finishedRef.current) return;
@@ -396,6 +428,7 @@ export default function FocusSessionScreen() {
           const credit = Math.min(away, AWAY_CREDIT_CAP_S);
           let cur = sessionRef.current;
           for (let i = 0; i < credit && !cur.done; i++) cur = nextTick(cur);
+          if (cur.done) doneByCatchUpRef.current = true; // 종료 알림이 이미 알렸으므로 게이트 진동 생략
           setSession(cur);
           saveLive(cur.elapsed);
         } else if (away > LEAVE_END_S) {
@@ -427,8 +460,9 @@ export default function FocusSessionScreen() {
     return () => {
       sub.remove();
       cancelLeaveNotifications().catch(() => {});
+      cancelCompletionNotification().catch(() => {});
     };
-  }, [subjectName, finish, pomo.focusMin, saveLive, nextTick]);
+  }, [subjectName, finish, pomo.focusMin, saveLive, nextTick, mode]);
 
   // 일시정지/재개 토글 — 새 상태에 맞춰 계측. 상태 업데이터 안이 아니라 여기서 발행(중복 방지).
   const togglePause = useCallback(() => {
@@ -590,6 +624,22 @@ export default function FocusSessionScreen() {
         liveSubjectId={subjectId}
         liveSeconds={session.elapsed}
       />
+
+      {/* 완료 게이트(GROMO-864) — 확인을 눌러야 결과 화면으로 넘어간다 */}
+      {doneGate && (
+        <View style={s.doneGate}>
+          <Image
+            source={require('@/assets/character_happy.png')}
+            style={s.doneGateChar}
+            resizeMode="contain"
+          />
+          <Text style={s.doneGateTitle}>집중이 끝났어요!</Text>
+          <Text style={s.doneGateSub}>{subjectName} 집중을 끝까지 해냈어요.</Text>
+          <TouchableOpacity style={s.doneGateBtn} activeOpacity={0.8} onPress={finish}>
+            <Text style={s.doneGateBtnText}>확인</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -708,6 +758,24 @@ const s = StyleSheet.create({
   setDots: { flexDirection: 'row', gap: T.space.sm, marginTop: T.space.md },
   setDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: withAlpha(T.night.cream, 0.22) },
   setDotOn: { backgroundColor: T.night.gold },
+
+  doneGate: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: withAlpha(T.night.bottom, 0.94),
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: T.space.xxl,
+  },
+  doneGateChar: { width: 140, height: 140, marginBottom: T.space.lg },
+  doneGateTitle: { ...T.text.title, color: T.paperLight, marginBottom: T.space.sm },
+  doneGateSub: { ...T.text.body, color: T.night.muted, marginBottom: T.space.xxl },
+  doneGateBtn: {
+    backgroundColor: T.night.gold,
+    borderRadius: 99,
+    paddingVertical: T.space.md,
+    paddingHorizontal: 56,
+  },
+  doneGateBtnText: { ...T.text.subtitle, color: T.ink },
 
   controls: { flexDirection: 'row', justifyContent: 'center', gap: T.space.xl, paddingBottom: 30 },
   ctrlBtn: {
