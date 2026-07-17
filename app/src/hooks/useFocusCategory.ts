@@ -14,7 +14,12 @@ export function useFocusCategory(): string | null | undefined {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      AsyncStorage.getItem(STORAGE_KEYS.focusCategory).then((c) => !cancelled && setCategory(c));
+      AsyncStorage.getItem(STORAGE_KEYS.focusCategory).then(
+        (c) => !cancelled && setCategory(c),
+        // 읽기 실패 — 미설정(null)으로 확정. undefined(로딩)로 남기면 소비자들이 로딩 대기에
+        // 영원히 갇힌다(리그 조회 스킵·기본 과목 판별 보류, PR 291 리뷰 반영).
+        () => !cancelled && setCategory(null),
+      );
       return () => {
         cancelled = true;
       };
