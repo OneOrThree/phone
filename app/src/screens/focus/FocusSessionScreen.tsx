@@ -8,6 +8,7 @@ import {
   StyleSheet,
   useWindowDimensions,
   AppState,
+  BackHandler,
   Platform,
   Vibration,
   type NativeSyntheticEvent,
@@ -36,12 +37,6 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
-import {
-  scheduleCompletionNotification,
-  schedulePomodoroChainNotifications,
-  scheduleBreakEndNotification,
-  cancelCompletionNotifications,
-} from './completionNotification';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { occupationForCategory } from '@/constants/focusCategories';
@@ -353,8 +348,16 @@ export default function FocusSessionScreen() {
     }
   }, [settleFocusBlock, navigation, subjectId, subjectName]);
 
-  // 백그라운드 복귀 fast-forward로 완료된 표시 — 이 경우 게이트 진동을 생략한다
-  const doneByCatchUpRef = useRef(false);
+  // 완료 게이트는 이미 세션을 정산하고 라이브 레코드를 제거한 상태다. Android 하드웨어
+  // 뒤로가기가 스택을 pop하면 결과 화면의 스트릭/목표 연출을 건너뛰므로 확인과 같은 경로로 보낸다.
+  useEffect(() => {
+    if (!doneGate) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      finish();
+      return true;
+    });
+    return () => sub.remove();
+  }, [doneGate, finish]);
 
   // 완료 시 처리(GROMO-864) — 카운트다운/뽀모도로 완료는 결과 화면 직행 대신 완료 게이트를
   // 띄우고 확인을 눌러야 finish로 넘어간다. 실드·Live Activity 해제와 정산(적립+서버 업로드)은
@@ -369,24 +372,20 @@ export default function FocusSessionScreen() {
     ScreenTimeModule.stopFocusShield().catch(() => {});
     ScreenTimeModule.endFocusActivity().catch(() => {});
     settleFocusBlock();
-    // 백그라운드 완료 후 복귀한 게이트는 종료 알림이 이미 알렸으므로 진동 생략.
-    if (!doneByCatchUpRef.current) Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
-    doneByCatchUpRef.current = false;
+    Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
   }, [session.done, doneGate, settleFocusBlock]);
 
   // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
   // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
-  // 라이브 전환이면 진동 2번으로 경계를 알린다(GROMO-864) — 복귀 fast-forward로 건너뛴
-  // 전환은 예약해둔 경계 알림이 이미 알렸으므로 생략(phaseByCatchUpRef).
+  // 라이브 전환이면 진동 2번으로 경계를 알린다(GROMO-864). 백그라운드에서 지난 경계도
+  // 복귀 시 현재 페이즈가 달라졌다면 한 번 알려준다.
   const prevPhaseRef = useRef(session.phase);
-  const phaseByCatchUpRef = useRef(false);
   useEffect(() => {
     const prev = prevPhaseRef.current;
     const cur = session.phase;
     if (prev === cur) return;
     prevPhaseRef.current = cur;
-    if (phaseByCatchUpRef.current) phaseByCatchUpRef.current = false;
-    else Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
+    Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
     if (prev === 'focus' && cur === 'break') {
       settleFocusBlock();
     } else if (prev === 'break' && cur === 'focus') {
@@ -410,41 +409,17 @@ export default function FocusSessionScreen() {
         if (sessionRef.current.phase === 'focus' && !shieldedRef.current) {
           scheduleLeaveNotifications(subjectName, LEAVE_END_S).catch(() => {});
         }
-        // 실드 카운트다운은 백그라운드에서 JS가 멈춰 종료 순간을 못 알리므로,
-        // 나가는 순간 남은 시간(display) 뒤로 완료 알림을 예약한다(GROMO-864). 복귀 시 취소.
-        // 이탈 인정 상한(8시간)을 넘는 종료 시각은 예약하지 않는다 — 복귀 fast-forward가
-        // 상한까지만 전진해 타이머가 실제로 안 끝나므로 거짓 완료 알림이 된다(코덱스 리뷰).
-        if (
-          mode === 'countdown' &&
-          shieldedRef.current &&
-          sessionRef.current.display <= AWAY_CREDIT_CAP_S
-        ) {
-          scheduleCompletionNotification(subjectName, sessionRef.current.display).catch(() => {});
-        }
-        // 뽀모도로도 같은 방식(GROMO-864) — 집중 중(실드)엔 벽시계로 계속 진행하므로 남은
-        // 경계(휴식 시작/집중 재개/최종 완료)를 인정 상한 안에서 전부, 휴식 중엔 휴식 끝
-        // 1건만(이후 집중은 복귀 대기·일시정지라 시각 예측 불가). 복귀 시 취소.
-        if (mode === 'pomodoro') {
-          if (sessionRef.current.phase === 'focus' && shieldedRef.current) {
-            schedulePomodoroChainNotifications(
-              subjectName,
-              sessionRef.current,
-              { focusMin: pomo.focusMin, breakMin: pomo.breakMin, sets: pomo.sets },
-              AWAY_CREDIT_CAP_S,
-            ).catch(() => {});
-          } else if (sessionRef.current.phase === 'break') {
-            scheduleBreakEndNotification(subjectName, sessionRef.current.display).catch(() => {});
-          }
-        }
+        // OS 예약 알림은 JS 프로세스가 종료된 뒤에도 남지만, 현재 고아 세션 레코드만으로는
+        // 남은 타이머/뽀모도로 페이즈와 결과 화면을 복구할 수 없다. 실제 완료를 복구할 수 없는
+        // 알림이 발송되지 않도록 백그라운드 경계 알림은 예약하지 않는다(코덱스 리뷰).
         return;
       }
       if (state !== 'active' || leftAtRef.current == null) return;
 
-      // 복귀 — 자리 비운 시간 계산 + 예약 알림 취소
+      // 복귀 — 자리 비운 시간 계산
       const away = Math.round((Date.now() - leftAtRef.current) / 1000);
       leftAtRef.current = null;
       cancelLeaveNotifications().catch(() => {});
-      cancelCompletionNotifications().catch(() => {});
       if (__DEV__)
         console.log(`[이탈감지] ${away}초 만에 복귀 (실드 ${shieldedRef.current ? 'ON' : 'OFF'})`);
       if (sessionRef.current.done || finishedRef.current) return;
@@ -457,9 +432,6 @@ export default function FocusSessionScreen() {
           const credit = Math.min(away, AWAY_CREDIT_CAP_S);
           let cur = sessionRef.current;
           for (let i = 0; i < credit && !cur.done; i++) cur = nextTick(cur);
-          if (cur.done) doneByCatchUpRef.current = true; // 종료 알림이 이미 알렸으므로 게이트 진동 생략
-          // fast-forward로 페이즈가 넘어간 경우도 경계 알림이 이미 알렸으므로 경계 진동 생략
-          if (cur.phase !== sessionRef.current.phase) phaseByCatchUpRef.current = true;
           setSession(cur);
           saveLive(cur.elapsed);
         } else if (away > LEAVE_END_S) {
@@ -479,8 +451,6 @@ export default function FocusSessionScreen() {
           setSession({ ...cur, display: cur.display - away });
         } else {
           setPaused(true);
-          // 휴식 끝 알림이 이미 알렸으므로 break→focus 전환 진동 생략
-          phaseByCatchUpRef.current = true;
           setSession({
             ...cur,
             display: pomo.focusMin * 60,
@@ -493,7 +463,6 @@ export default function FocusSessionScreen() {
     return () => {
       sub.remove();
       cancelLeaveNotifications().catch(() => {});
-      cancelCompletionNotifications().catch(() => {});
     };
   }, [subjectName, finish, pomo.focusMin, pomo.breakMin, pomo.sets, saveLive, nextTick, mode]);
 

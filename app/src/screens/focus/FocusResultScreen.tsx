@@ -74,7 +74,20 @@ const checkPop = {
 // 오늘 ✓ 팝을 재생한 마커(프로세스 메모리, 'userId:날짜') — 연속 결과 화면이 AsyncStorage 쓰기
 // 완료 전에 영속 마커를 다시 읽는 레이스 방어(코덱스 리뷰). 영속 마커(focusStreakPoppedDate)와
 // 이중 가드. 계정을 붙이는 이유: 기기 공용 마커면 같은 날 계정 전환 시 새 계정의 첫 팝이 눌린다.
-let poppedMarkerMemory: string | null = null;
+const poppedMarkersMemory = new Set<string>();
+
+function parsePoppedMarkers(raw: string | null): Set<string> {
+  if (!raw) return new Set();
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return new Set(parsed.filter((value): value is string => typeof value === 'string'));
+    }
+  } catch {
+    // 구버전 단일 'userId:날짜' 값은 아래에서 그대로 마이그레이션한다.
+  }
+  return new Set([raw]);
+}
 
 // 이번 주 월~일 날짜('YYYY-MM-DD') 배열.
 function thisWeekDates(): string[] {
@@ -289,16 +302,25 @@ export default function FocusResultScreen() {
       // 오늘 ✓ 팝은 그날 처음 채워진 결과 화면에서만 재생(하루 1회 — '매 세션 노출'에서 재변경,
       // 오스카 요청). 이후 세션의 결과 화면은 팝 없이 정적 ✓로 표시된다. 주간 축하는 팝과
       // 독립 판정 — 이번 주 도장이 없으면 재생하되, 주 1회 가드는 그대로 유지한다.
-      const poppedMarker = await AsyncStorage.getItem(STORAGE_KEYS.focusStreakPoppedDate).catch(
+      const poppedMarkerRaw = await AsyncStorage.getItem(STORAGE_KEYS.focusStreakPoppedDate).catch(
         () => null,
       );
       if (cancelled) return;
-      // 마커는 계정별('userId:날짜') — 같은 날 계정을 전환해도 각 계정의 첫 팝은 재생된다(코덱스 리뷰)
+      // 마커는 계정별('userId:날짜') 집합 — 같은 날 B 계정이 팝을 재생해도 A 계정의
+      // 마커를 덮어쓰지 않아, A로 돌아왔을 때 두 번째 팝이 재생되지 않는다(코덱스 리뷰).
       const todayMarker = `${userId ?? 'guest'}:${today}`;
-      const firstPopToday = poppedMarkerMemory !== todayMarker && poppedMarker !== todayMarker;
+      const persistedMarkers = parsePoppedMarkers(poppedMarkerRaw);
+      const firstPopToday =
+        !poppedMarkersMemory.has(todayMarker) && !persistedMarkers.has(todayMarker);
       if (firstPopToday) {
-        poppedMarkerMemory = todayMarker;
-        AsyncStorage.setItem(STORAGE_KEYS.focusStreakPoppedDate, todayMarker).catch(() => {});
+        poppedMarkersMemory.add(todayMarker);
+        // 오늘 마커만 유지하면 계정 수만큼으로 크기가 제한되면서 날짜가 바뀐 뒤에는 자연히 정리된다.
+        const todayMarkers = [...persistedMarkers].filter((marker) => marker.endsWith(`:${today}`));
+        todayMarkers.push(todayMarker);
+        AsyncStorage.setItem(
+          STORAGE_KEYS.focusStreakPoppedDate,
+          JSON.stringify(todayMarkers),
+        ).catch(() => {});
         setTodayPop(true);
       }
       if (!weekStreakComplete) return;
