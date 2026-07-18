@@ -525,9 +525,9 @@ export default function FocusSessionScreen() {
     <View style={s.root}>
       <LinearGradient colors={[T.night.top, T.night.bottom]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={s.flex1} edges={['top', 'bottom']}>
-        {/* 상단바 — 과목 + 햄버거 */}
+        {/* 상단바 — 햄버거만(과목명은 타이머 위 리드아웃으로 이동, 빈 View는 우측 정렬 유지용) */}
         <View style={s.topBar}>
-          <Text style={s.topSubject}>{subjectName}</Text>
+          <View />
           <TouchableOpacity
             style={s.hamburger}
             activeOpacity={0.8}
@@ -604,7 +604,7 @@ export default function FocusSessionScreen() {
         </View>
 
         {/* 타이머 리드아웃(모드별) */}
-        <View style={s.readout}>{renderReadout(mode, session, goal, pomo.sets)}</View>
+        <View style={s.readout}>{renderReadout(mode, session, goal, pomo.sets, subjectName)}</View>
 
         {/* 컨트롤 — 일시정지 / 정지 */}
         <View style={s.controls} ref={controlsRef} collapsable={false}>
@@ -650,12 +650,19 @@ export default function FocusSessionScreen() {
   );
 }
 
-// 모드별 하단 리드아웃(라벨 + 큰 타이머 + 보조표시). 과목명은 상단바에 표시.
-function renderReadout(mode: FocusTimerMode, session: SessionState, goal: number, sets: number) {
+// 모드별 하단 리드아웃(라벨 + 큰 타이머 + 보조표시).
+// 카운트업 라벨은 모드 안내("경과 · COUNT UP") 대신 집중 중인 과목명을 보여준다(GROMO-848).
+function renderReadout(
+  mode: FocusTimerMode,
+  session: SessionState,
+  goal: number,
+  sets: number,
+  subjectName: string,
+) {
   if (mode === 'countup') {
     return (
       <>
-        <Text style={s.roLabel}>경과 · COUNT UP ↑</Text>
+        <Text style={s.roSubject}>{subjectName}</Text>
         <Text style={s.bigTime}>{hms(session.display)}</Text>
       </>
     );
@@ -703,7 +710,6 @@ const s = StyleSheet.create({
     paddingVertical: T.space.sm,
     minHeight: 40,
   },
-  topSubject: { ...T.text.label, fontWeight: '700', color: T.night.cream },
   hamburger: {
     width: 36,
     height: 36,
@@ -739,6 +745,8 @@ const s = StyleSheet.create({
     color: T.night.muted,
     marginBottom: T.space.sm,
   },
+  // 카운트업 리드아웃의 과목명 — 모드 라벨보다 크게, 구 상단바 과목명의 크림색 유지
+  roSubject: { ...T.text.subtitle, color: T.night.cream, marginBottom: T.space.sm },
   bigTime: {
     ...T.text.timer,
     color: T.paperLight,
