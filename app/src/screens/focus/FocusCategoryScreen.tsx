@@ -25,6 +25,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, PomodoroConfig, Subject } from './types';
 import { DraggableSubjectRows } from './components/DraggableSubjectRows';
 import { TimerMethodSheet } from './components/TimerMethodSheet';
+import { SLIDE_MS } from './components/liquidGlass';
 import { CountdownSetupSheet } from './components/CountdownSetupSheet';
 import { PomodoroSetupSheet } from './components/PomodoroSetupSheet';
 import {
@@ -119,9 +120,25 @@ export default function FocusCategoryScreen() {
   const menuSubject = menu ? subjects.find((x) => x.id === menu.id) : undefined;
   const colorSubject = colorMenu ? subjects.find((x) => x.id === colorMenu.id) : undefined;
 
+  // 다른 과목을 고르면 유리 알약 슬라이드(GROMO-848)가 보이도록 시트를 슬라이드 뒤에 연다.
+  // 같은 과목 재탭은 이동이 없으니 바로 연다. 언마운트 시 예약 취소는 아래 useEffect.
+  const methodTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (methodTimer.current) clearTimeout(methodTimer.current);
+    },
+    [],
+  );
+
   function openMethod(sub: Subject) {
+    const moved = sub.id !== active?.id;
     setSelectedId(sub.id);
-    setSheet('method');
+    if (!moved) {
+      setSheet('method');
+      return;
+    }
+    if (methodTimer.current) clearTimeout(methodTimer.current);
+    methodTimer.current = setTimeout(() => setSheet('method'), SLIDE_MS + 60);
   }
 
   function editSubject(sub: Subject) {

@@ -9,9 +9,11 @@ import {
   StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Reanimated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 import { hmsCompact } from '../format';
 import type { Subject } from '../types';
+import { glassSlide, glassPill } from './liquidGlass';
 
 // 순수 RN(PanResponder+Animated) 드래그 정렬 리스트.
 // ⋮ 를 잡고 위아래로 움직이면 순서 변경. 화면 가장자리 근처로 끌면 자동 스크롤.
@@ -175,6 +177,10 @@ export function DraggableSubjectRows({
 
   useEffect(() => () => stopAuto(), []);
 
+  // GROMO-848 리퀴드 글래스 — 선택 과목 행 위의 유리 알약. 선택이 바뀌면 그 행으로
+  // 오버슛 슬라이드(./liquidGlass). 행 top이 index * SLOT 고정이라 측정 없이 계산.
+  const activeIndex = activeId ? subjects.findIndex((x) => x.id === activeId) : -1;
+
   return (
     <ScrollView
       ref={scrollRef}
@@ -264,6 +270,12 @@ export function DraggableSubjectRows({
             </Animated.View>
           );
         })}
+        {activeIndex >= 0 && (
+          <Reanimated.View
+            pointerEvents="none"
+            style={[s.glass, { transform: [{ translateY: activeIndex * SLOT }] }, glassSlide]}
+          />
+        )}
       </View>
       {footer}
     </ScrollView>
@@ -303,6 +315,17 @@ const s = StyleSheet.create({
   },
   iconBoxIdle: { backgroundColor: T.caramel },
   iconBoxSelected: { backgroundColor: T.accent },
+  // 리퀴드 글래스 알약 — 행 카드가 불투명이라 위에 얹는다(드래그 중 행 zIndex 10 아래)
+  glass: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: ROW_H,
+    borderRadius: 14,
+    zIndex: 5,
+    ...glassPill,
+  },
   rowName: { flex: 1, ...T.text.label, fontWeight: '700', color: T.ink },
   rowTime: { ...T.text.caption, color: T.inkMuted, fontVariant: ['tabular-nums'] },
   colorChip: { width: 19, height: 19, borderRadius: 6 },
