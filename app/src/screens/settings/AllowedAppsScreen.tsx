@@ -85,9 +85,18 @@ export default function AllowedAppsScreen() {
     try {
       const status = await ScreenTimeModule.getAuthorizationStatus();
       if (status !== 'approved') {
+        // 안내만 하고 끝나면 막다른 길(GROMO-860) — 권한 화면으로 이어줘
+        // 상태별 처리(요청 필요→권한 요청, 거부됨→iOS 설정 이동)를 그쪽에서 하게 한다.
         Alert.alert(
           '스크린타임 권한 필요',
           '허용앱을 고르려면 먼저 스크린타임 권한을 허용해야 해요.',
+          [
+            { text: '취소', style: 'cancel' },
+            {
+              text: '권한 설정하기',
+              onPress: () => navigation.navigate('SettingsScreenTimePermission'),
+            },
+          ],
         );
         return;
       }
