@@ -560,6 +560,7 @@ export default function FocusSessionScreen() {
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
               members={sessionFriends}
+              title="내 친구"
               emptyTitle="아직 친구가 없어요"
               emptySub={'리그 탭에서 친구를 추가하면\n집중할 때 여기서 같이 보여요.'}
             />
@@ -573,7 +574,7 @@ export default function FocusSessionScreen() {
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
               members={leagueMembers}
-              title="내 리그"
+              title="전체 리그"
               emptyTitle="아직 리그 멤버가 없어요"
               emptySub={'리그에 배정되면 여기서\n같이 공부하는 모습이 보여요.'}
             />
@@ -581,7 +582,7 @@ export default function FocusSessionScreen() {
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
               members={examMembers}
-              title={myCategory ? `${myCategory} 준비생` : '같은 시험'}
+              title={myCategory ? `${myCategory} 리그` : '같은 시험'}
               emptyTitle={
                 myOccupation == null
                   ? '준비 시험이 설정되지 않았어요'
@@ -651,7 +652,8 @@ export default function FocusSessionScreen() {
 }
 
 // 모드별 하단 리드아웃(라벨 + 큰 타이머 + 보조표시).
-// 카운트업 라벨은 모드 안내("경과 · COUNT UP") 대신 집중 중인 과목명을 보여준다(GROMO-848).
+// 타이머 바로 위엔 모드 안내 문구 대신 집중 중인 과목명을 보여준다(GROMO-848).
+// 뽀모도로 휴식 페이즈만 예외로 '휴식' — 과목명이 뜨면 집중 중으로 오해할 수 있어서.
 function renderReadout(
   mode: FocusTimerMode,
   session: SessionState,
@@ -670,7 +672,7 @@ function renderReadout(
   if (mode === 'countdown') {
     return (
       <>
-        <Text style={s.roLabel}>남음 · COUNT DOWN ↓</Text>
+        <Text style={s.roSubject}>{subjectName}</Text>
         <Text style={s.bigTime}>{hms(session.display)}</Text>
         <Text style={s.roGoal}>목표 {hms(goal)}</Text>
       </>
@@ -687,7 +689,7 @@ function renderReadout(
           </Text>
         </View>
       </View>
-      <Text style={s.roLabel}>{session.phase === 'focus' ? '다음 휴식까지' : '휴식'}</Text>
+      <Text style={s.roSubject}>{session.phase === 'focus' ? subjectName : '휴식'}</Text>
       <Text style={s.bigTime}>{hms(session.display)}</Text>
       <View style={s.setDots}>
         {Array.from({ length: sets }).map((_, i) => (
@@ -738,14 +740,7 @@ const s = StyleSheet.create({
     minHeight: 118,
     justifyContent: 'flex-end',
   },
-  roLabel: {
-    ...T.text.label,
-    fontWeight: '500',
-    letterSpacing: 1,
-    color: T.night.muted,
-    marginBottom: T.space.sm,
-  },
-  // 카운트업 리드아웃의 과목명 — 모드 라벨보다 크게, 구 상단바 과목명의 크림색 유지
+  // 리드아웃의 과목명(전 모드 공통) — 구 상단바 과목명의 크림색 유지
   roSubject: { ...T.text.subtitle, color: T.night.cream, marginBottom: T.space.sm },
   bigTime: {
     ...T.text.timer,

@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
 import { useLiveFocusClock } from '@/hooks/useLiveFocusClock';
 import { liveTotalSeconds } from '@/utils/liveFocus';
@@ -56,30 +56,33 @@ export function LiveFocusGrid({
         <Text style={s.bannerText}>{focusing}명이 지금 같이 집중하고 있어요</Text>
       </View>
 
-      <View style={s.grid}>
-        {members.map((m, i) => (
-          <View key={m.userId} style={[s.cell, !m.isFocusing && s.cellOff]}>
-            <View style={[s.avatar, m.isFocusing ? s.avatarActive : s.avatarIdle]}>
-              <StarAvatar color={AVATAR_COLORS[i % AVATAR_COLORS.length]} size={50} />
-            </View>
-            <Text style={s.name} numberOfLines={1}>
-              {m.nickname}
-            </Text>
-            {/* 과목 줄 — 태그 유무와 무관하게 항상 자리를 차지해(없으면 공백) 카드 높이를 통일한다.
-                 flexWrap 그리드에서 같은 행 카드가 2줄/3줄로 어긋나는 것 방지 */}
-            <Text style={s.tag} numberOfLines={1}>
-              {m.isFocusing && m.focusTagName != null ? m.focusTagName : ' '}
-            </Text>
-            {m.isFocusing ? (
-              <Text style={s.timeActive}>
-                {hmsCompact(liveTotalSeconds(m.focusTimeMinutes * 60, m.focusStartedAt, now))}
+      {/* 인원이 화면을 넘으면 세로 스크롤(GROMO-848) — 가로 페이저와 축이 달라 충돌 없음 */}
+      <ScrollView style={s.flex1} showsVerticalScrollIndicator={false}>
+        <View style={s.grid}>
+          {members.map((m, i) => (
+            <View key={m.userId} style={[s.cell, !m.isFocusing && s.cellOff]}>
+              <View style={[s.avatar, m.isFocusing ? s.avatarActive : s.avatarIdle]}>
+                <StarAvatar color={AVATAR_COLORS[i % AVATAR_COLORS.length]} size={50} />
+              </View>
+              <Text style={s.name} numberOfLines={1}>
+                {m.nickname}
               </Text>
-            ) : (
-              <Text style={s.timeIdle}>{hourMin(m.focusTimeMinutes * 60)}</Text>
-            )}
-          </View>
-        ))}
-      </View>
+              {/* 과목 줄 — 태그 유무와 무관하게 항상 자리를 차지해(없으면 공백) 카드 높이를 통일한다.
+                 flexWrap 그리드에서 같은 행 카드가 2줄/3줄로 어긋나는 것 방지 */}
+              <Text style={s.tag} numberOfLines={1}>
+                {m.isFocusing && m.focusTagName != null ? m.focusTagName : ' '}
+              </Text>
+              {m.isFocusing ? (
+                <Text style={s.timeActive}>
+                  {hmsCompact(liveTotalSeconds(m.focusTimeMinutes * 60, m.focusStartedAt, now))}
+                </Text>
+              ) : (
+                <Text style={s.timeIdle}>{hourMin(m.focusTimeMinutes * 60)}</Text>
+              )}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -109,7 +112,8 @@ const s = StyleSheet.create({
   bannerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.night.green },
   bannerText: { ...T.text.label, fontWeight: '700', color: T.night.greenSoft },
 
-  grid: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around' },
+  flex1: { flex: 1 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around' },
   cell: { width: '31%', alignItems: 'center', gap: T.space.xs, marginVertical: T.space.md },
   cellOff: { opacity: 0.5 },
   avatar: {
