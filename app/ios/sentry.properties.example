@@ -1,0 +1,13 @@
+# Sentry 소스맵/dSYM 업로드 설정 예시
+#
+# 사용법:
+#   1. 이 파일을 같은 폴더에 sentry.properties 이름으로 복사한다.
+#   2. https://oneorthree.sentry.io/settings/auth-tokens/ 에서 토큰을 발급받아
+#      auth.token 에 붙여넣는다.
+#
+# sentry.properties 는 gitignore 되어 있다(토큰=비밀값, 절대 커밋 금지).
+# 이 파일이 없어도 빌드는 되지만, 릴리즈 빌드의 에러 위치가 원본 코드로 안 보인다.
+defaults.url=https://sentry.io/
+defaults.org=oneorthree
+defaults.project=react-native
+auth.token=여기에_발급받은_토큰
