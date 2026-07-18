@@ -1,8 +1,17 @@
 import { LogBox } from 'react-native';
 import { registerRootComponent } from 'expo';
+import * as Sentry from '@sentry/react-native';
 import { initializeKakaoSDK } from '@react-native-kakao/core';
 import messaging from '@react-native-firebase/messaging';
 import App from './src/App';
+
+// Sentry 에러 리포팅 초기화 — 가능한 한 앱 시작 최상단에서 호출해야 한다.
+// DSN은 "에러를 어느 프로젝트로 보낼지" 주소일 뿐 비밀값이 아니므로 코드에 직접 둔다.
+Sentry.init({
+  dsn: 'https://884a7f73611b838911f1f91a15a93414@o4511753920315392.ingest.us.sentry.io/4511753927458816',
+  // 개발 중(Metro) 에러는 보내지 않고 배포 빌드에서만 전송
+  enabled: !__DEV__,
+});
 
 // RN Firebase v22 namespaced API deprecation 경고 억제 — 공식 silence 플래그(모듈러 마이그레이션 전까지).
 const g = globalThis as { RNFB_SILENCE_MODULAR_DEPRECATION_WARNINGS?: boolean };
@@ -20,4 +29,5 @@ initializeKakaoSDK('af3ff0c5b4fb9cd38b78428b88add65d');
 // 알림(alert) 메시지는 OS가 자동 표시하므로 여기선 data-only 처리만 담당(현재 no-op).
 messaging().setBackgroundMessageHandler(async () => {});
 
-registerRootComponent(App);
+// Sentry.wrap: 루트 컴포넌트 렌더링 중 에러까지 잡도록 감싼다.
+registerRootComponent(Sentry.wrap(App));
