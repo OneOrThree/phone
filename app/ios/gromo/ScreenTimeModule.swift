@@ -192,6 +192,11 @@ class ScreenTimeModule: NSObject {
                 during: schedule,
                 events: [DeviceActivityEvent.Name("gromo.goal.threshold"): event]
             )
+            // 등록 시각·등록 threshold 기록(GROMO-871) — Monitor 익스텐션 오발화 가드의 기준점.
+            // (재)등록 직후 iOS가 threshold 이벤트를 즉시 연쇄 오발화하는 버그가 있어, 익스텐션이
+            // "등록 후 경과 시간보다 큰 사용량은 물리적으로 불가능" 불변식으로 거를 때 읽는다.
+            defaults?.set(Date().timeIntervalSince1970, forKey: "gromo:screentime:goalRegisteredAt")
+            defaults?.set(totalSeconds, forKey: "gromo:screentime:goalThresholdSeconds")
             resolve(true)
         } catch {
             reject("MONITOR_ERROR", "모니터링 시작 실패: \(error.localizedDescription)", error)
@@ -271,6 +276,8 @@ class ScreenTimeModule: NSObject {
 
         do {
             try center.startMonitoring(activityName, during: schedule, events: events)
+            // 등록 시각 기록(GROMO-871) — Monitor 익스텐션 오발화 가드의 기준점(goal 등록과 동일 목적).
+            defaults?.set(Date().timeIntervalSince1970, forKey: "gromo:screentime:bucketRegisteredAt")
             resolve(true)
         } catch {
             reject("MONITOR_ERROR", "버킷 모니터링 시작 실패: \(error.localizedDescription)", error)
