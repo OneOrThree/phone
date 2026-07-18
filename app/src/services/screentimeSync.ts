@@ -35,9 +35,9 @@ interface ScreenTimeSyncState {
   minutes: number;
 }
 
-// 네이티브 버킷 상한(12h = 30분 눈금 × 24개). 목표 초과 사용도 실사용치로 집계해야 하므로
-// 목표값이 아니라 측정 가능 최대치로 등록한다(네이티브가 720으로 클램프).
-export const USAGE_BUCKET_MAX_MINUTES = 720;
+// 네이티브 버킷 상한(15h = 30분 눈금 × 30개). 목표 초과 사용도 실사용치로 집계해야 하므로
+// 목표값이 아니라 측정 가능 최대치로 등록한다(네이티브가 900으로 클램프).
+export const USAGE_BUCKET_MAX_MINUTES = 900;
 
 // 30분 버킷 모니터링 등록 — 권한 허용 + 측정 대상 선택(App Group selection)이 있어야 성공(없으면 false).
 // threshold 이벤트는 등록 시점의 selection 토큰으로 고정되므로, 측정 대상을 바꾸면(promoteSelection)
@@ -50,10 +50,11 @@ export async function registerUsageBucketMonitoring(ownerUserId: string | null):
     if ((await ScreenTimeModule.getAuthorizationStatus()) !== 'approved') return false;
     const ok = await ScreenTimeModule.startUsageBucketMonitoring(USAGE_BUCKET_MAX_MINUTES);
     if (ok) {
-      await AsyncStorage.setItem(
-        STORAGE_KEYS.screentimeBucketMonitorRegistered,
-        ownerUserId ?? '1',
-      );
+      // 등록 상한도 함께 기록 — 상수 변경 시 Syncer가 감지해 재등록한다(GROMO-871 상한 확장).
+      await AsyncStorage.multiSet([
+        [STORAGE_KEYS.screentimeBucketMonitorRegistered, ownerUserId ?? '1'],
+        [STORAGE_KEYS.screentimeBucketMonitorMaxMinutes, String(USAGE_BUCKET_MAX_MINUTES)],
+      ]);
     }
     return ok;
   } catch {
@@ -190,6 +191,17 @@ export async function syncScreenTimeUsage(
     } else if (monitorOwner === '1') {
       await AsyncStorage.setItem(STORAGE_KEYS.screentimeBucketMonitorRegistered, userId);
       monitorOwner = userId;
+    }
+    // 상한 확장 마이그레이션(GROMO-871, 12h→15h) — 등록 당시 상한이 현재 상수와 다르면 재등록해
+    // 새 눈금(900분)을 적용한다. 재등록 직후 iOS의 threshold 연쇄 오발화는 네이티브 등록 시각
+    // 가드가 걸러 안전. 재등록이 당일 누적 카운트를 리셋하는 손실은 1회성으로 감수한다.
+    if (monitorOwner) {
+      const registeredMax = await AsyncStorage.getItem(
+        STORAGE_KEYS.screentimeBucketMonitorMaxMinutes,
+      );
+      if (registeredMax !== String(USAGE_BUCKET_MAX_MINUTES)) {
+        await registerUsageBucketMonitoring(monitorOwner); // 선택 없으면 false → 다음에 재시도
+      }
     }
   } catch {
     // 등록 실패는 동기화와 무관 — 계속 진행

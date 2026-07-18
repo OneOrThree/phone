@@ -254,14 +254,14 @@ class ScreenTimeModule: NSObject {
             return
         }
 
-        // 30분 간격 눈금(30,60,…). 이벤트 과다(RAM 6MB)·경계 뭉갬 방지로 720분(12h·24개)로 상한.
+        // 30분 간격 눈금(30,60,…). 이벤트 과다(RAM 6MB)·경계 뭉갬 방지로 900분(15h·30개)로 상한.
         // 웹 도메인 시간은 브라우저 앱 시간에 이미 포함 — 브라우저를 덮는 선택과 함께 걸면 같은
         // 시간이 두 번 세져 버킷이 실사용량(설정 스크린타임)보다 크게 잡힌다. 목표 threshold와
         // 동일하게 카테고리 선택이 있으면 도메인을 제외하고, 개별 앱만 고른 선택은 도메인을
         // 유지한다(혼합 선택 보존, PR 리뷰 반영).
         let bucketWebDomains = selection.categoryTokens.isEmpty ? selection.webDomainTokens : []
         let step = 30
-        let maxMinutes = min(max(Int(maxMinutesValue), step), 720)
+        let maxMinutes = min(max(Int(maxMinutesValue), step), 900)
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
         var m = step
         while m <= maxMinutes {
