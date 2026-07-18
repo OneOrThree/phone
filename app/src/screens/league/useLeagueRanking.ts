@@ -48,12 +48,15 @@ export function toRankingMembers(
   });
 }
 
-// 이번 리그 주 시작(월요일 00:00, 기기 로컬) — 서버 리그 주(월요일 시작)와 같은 기준.
+// 이번 리그 주 시작(월요일 00:00 KST) — 서버 리그 주(LeagueWeek, Asia/Seoul 고정)와 같은 기준.
+// 기기 로컬로 계산하면 해외 타임존에서 주 경계가 서버와 몇 시간씩 어긋난다(PR 291 코덱스 리뷰).
+// KST는 서머타임이 없어 고정 오프셋(UTC+9) 계산으로 충분하다.
+const KST_OFFSET_MS = 9 * 3600 * 1000;
 function leagueWeekStart(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // getDay(): 0=일 … 1=월
-  return d;
+  const kst = new Date(Date.now() + KST_OFFSET_MS); // UTC 필드가 KST 벽시계를 가리키도록 이동
+  kst.setUTCHours(0, 0, 0, 0);
+  kst.setUTCDate(kst.getUTCDate() - ((kst.getUTCDay() + 6) % 7)); // getUTCDay(): 0=일 … 1=월
+  return new Date(kst.getTime() - KST_OFFSET_MS); // 이동분을 되돌려 실제 시각(epoch)으로 복원
 }
 
 // 내 이번 주 집중초 — 내 세션 합산으로 직접 구하는 '권위 값'.
