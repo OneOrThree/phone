@@ -62,6 +62,27 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         }
     }
 
+    // threshold 눈금(분)이 물리적으로 가능한 값인지 검사(GROMO-871).
+    // 모니터 (재)등록 직후 iOS가 등록된 threshold 이벤트 전부를 즉시 연쇄 오발화하는 버그가 있어
+    // (측정 대상 재저장 → 재등록 → 버킷이 한 방에 상한 720분까지 래칫 → 통계에 12시간),
+    // "선택 앱을 N분 쓰려면 실제 N분이 흘러야 한다" 불변식으로 거른다:
+    //  · 자정 기준 — 오늘 0시 이후 경과 시간보다 큰 사용량은 불가능(누적은 하루 단위 리셋)
+    //  · 등록 기준 — (재)등록이 당일 누적 카운트를 리셋하므로 등록 후 경과 시간보다 커도 불가능.
+    //    등록 시각은 메인 앱이 등록 성공 시 App Group에 기록. 기록이 없으면(구버전 등록) 자정 기준만.
+    // slack 5분 — 눈금 경계 직전 발화·시계 오차로 정상 이벤트가 잘리지 않게.
+    private func isPlausibleUsage(minutes: Double, registeredAtKey: String) -> Bool {
+        let now = Date()
+        let slack = 5.0
+        let sinceMidnight = now.timeIntervalSince(Calendar.current.startOfDay(for: now)) / 60
+        if minutes > sinceMidnight + slack { return false }
+        let registeredAt = sharedDefaults?.double(forKey: registeredAtKey) ?? 0
+        if registeredAt > 0 {
+            let sinceRegistration = (now.timeIntervalSince1970 - registeredAt) / 60
+            if minutes > sinceRegistration + slack { return false }
+        }
+        return true
+    }
+
     // threshold 도달 콜백 — 이벤트 이름으로 분기
     //  · gromo.goal.threshold        → 보상 판정 초과 플래그
     //  · gromo.usage.bucket.<분>      → 사용량 버킷(도달 최고 눈금) 갱신
@@ -70,6 +91,17 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         let name = event.rawValue
 
         if name == "gromo.goal.threshold" {
+            // 오발화 가드(GROMO-871) — 등록 threshold(초)가 기록돼 있으면 도달 가능 시간인지 검증.
+            // 오발화를 그대로 믿으면 goalExceededToday=true → 그날 목표가 무조건 '실패' 판정된다.
+            let thresholdSeconds =
+                sharedDefaults?.integer(forKey: "gromo:screentime:goalThresholdSeconds") ?? 0
+            if thresholdSeconds > 0,
+               !isPlausibleUsage(
+                   minutes: Double(thresholdSeconds) / 60,
+                   registeredAtKey: "gromo:screentime:goalRegisteredAt"
+               ) {
+                return
+            }
             sharedDefaults?.set(true, forKey: "gromo:screentime:goalExceededToday")
             return
         }
@@ -88,7 +120,16 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                     sharedDefaults?.set(storedDate, forKey: "gromo:screentime:prevBucketDate")
                 }
                 current = 0 // 오늘 기준으로 새로 카운트
+                // 리셋을 즉시 저장으로 확정(GROMO-871) — 아래 오발화 가드가 이번 이벤트를 버려도
+                // 지난 날 잔여값이 오늘 날짜로 남지 않게 한다(남으면 다음 max 비교에서 다시 래칫).
+                sharedDefaults?.set(0, forKey: "gromo:screentime:usageBucketMinutes")
+                sharedDefaults?.set(todayString, forKey: "gromo:screentime:usageBucketDate")
             }
+            // 오발화 가드(GROMO-871) — 물리적으로 도달 불가능한 눈금이면 기록하지 않는다.
+            guard isPlausibleUsage(
+                minutes: Double(mins),
+                registeredAtKey: "gromo:screentime:bucketRegisteredAt"
+            ) else { return }
             // 도달한 눈금이 (오늘 기준) 기존 최고값보다 크면 갱신 (버킷은 순차 발화지만 방어적으로 max 비교)
             if mins > current {
                 sharedDefaults?.set(mins, forKey: "gromo:screentime:usageBucketMinutes")

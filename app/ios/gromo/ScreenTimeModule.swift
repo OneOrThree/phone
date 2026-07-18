@@ -186,6 +186,14 @@ class ScreenTimeModule: NSObject {
             threshold: threshold
         )
 
+        // 등록 시각·등록 threshold 기록(GROMO-871) — Monitor 익스텐션 오발화 가드의 기준점.
+        // (재)등록 직후 iOS가 threshold 이벤트를 즉시 연쇄 오발화하는 버그가 있어, 익스텐션이
+        // "등록 후 경과 시간보다 큰 사용량은 물리적으로 불가능" 불변식으로 거를 때 읽는다.
+        // startMonitoring 호출 즉시 콜백이 올 수 있으므로 반드시 호출 '전'에 기록한다(코드리뷰 P1).
+        // 시작 실패 시에도 기록이 남지만, 위에서 기존 모니터를 이미 중지해 이벤트가 오지 않아 무해.
+        defaults?.set(Date().timeIntervalSince1970, forKey: "gromo:screentime:goalRegisteredAt")
+        defaults?.set(totalSeconds, forKey: "gromo:screentime:goalThresholdSeconds")
+
         do {
             try center.startMonitoring(
                 activityName,
@@ -268,6 +276,10 @@ class ScreenTimeModule: NSObject {
             )
             m += step
         }
+
+        // 등록 시각 기록(GROMO-871) — Monitor 익스텐션 오발화 가드의 기준점(goal 등록과 동일 목적).
+        // startMonitoring 호출 즉시 콜백이 올 수 있으므로 반드시 호출 '전'에 기록한다(코드리뷰 P1).
+        defaults?.set(Date().timeIntervalSince1970, forKey: "gromo:screentime:bucketRegisteredAt")
 
         do {
             try center.startMonitoring(activityName, during: schedule, events: events)
