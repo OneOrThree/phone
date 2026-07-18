@@ -1,4 +1,9 @@
-FROM --platform=linux/amd64 eclipse-temurin:17-jdk-alpine AS builder
+# 멀티 스테이지 — 아키텍처는 여기 하드코딩하지 않고 각 파이프라인이 결정한다:
+#   dev cd.yml: platforms: linux/amd64 (GCP dev VM) / prod-ci: platforms: linux/arm64 (AWS t4g)
+#   로컬은 platforms 미지정 → 호스트 네이티브(Apple Silicon이면 arm64)로 빠르게 빌드
+# builder는 $BUILDPLATFORM(빌드 머신 네이티브)에서 실행 — gradle을 QEMU 에뮬레이션 없이 돌리고,
+# 산출물 JAR는 아키텍처 무관이라 최종 스테이지만 타깃 아키텍처의 JRE 베이스로 조립된다.
+FROM --platform=$BUILDPLATFORM eclipse-temurin:17-jdk-alpine AS builder
 
 WORKDIR /app
 
@@ -6,11 +11,16 @@ COPY gradlew .
 COPY gradle gradle
 COPY build.gradle .
 COPY settings.gradle .
+
+# 의존성 해석을 소스 COPY보다 먼저 — 이 레이어는 build.gradle 변경 시에만 무효화되어
+# 소스만 바뀐 반복 빌드에서 의존성 재다운로드를 건너뛴다 (gha 캐시와 조합 시 효과 큼).
+RUN chmod +x gradlew && ./gradlew dependencies --no-daemon --quiet || true
+
 COPY src src
 
-RUN chmod +x gradlew && ./gradlew bootJar -x test
+RUN ./gradlew bootJar -x test --no-daemon
 
-FROM --platform=linux/amd64 eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:17-jre-alpine
 
 WORKDIR /app
 
