@@ -281,6 +281,20 @@ class ScreenTimeModule: NSObject {
         // startMonitoring 호출 즉시 콜백이 올 수 있으므로 반드시 호출 '전'에 기록한다(코드리뷰 P1).
         defaults?.set(Date().timeIntervalSince1970, forKey: "gromo:screentime:bucketRegisteredAt")
 
+        // 재등록 베이스라인(GROMO-871 코드리뷰 P2) — 재등록은 iOS 누적 카운트를 리셋하므로 이후
+        // 이벤트 눈금은 '등록 이후' 사용량이다. 오늘 이미 기록된 최고 눈금을 베이스로 보관해
+        // 익스텐션이 '베이스+눈금'으로 하루 누적을 복원하게 한다(전/후 구간이 겹치지 않아 이중
+        // 계산 없음). 이 값도 등록 직후 콜백이 읽으므로 startMonitoring 호출 '전'에 기록한다.
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "yyyy-MM-dd"
+        let todayString = dayFormatter.string(from: Date())
+        let storedBucketDate = defaults?.string(forKey: "gromo:screentime:usageBucketDate")
+        let baseMinutes =
+            storedBucketDate == todayString
+            ? (defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0) : 0
+        defaults?.set(baseMinutes, forKey: "gromo:screentime:bucketBaseMinutes")
+        defaults?.set(todayString, forKey: "gromo:screentime:bucketBaseDate")
+
         do {
             try center.startMonitoring(activityName, during: schedule, events: events)
             resolve(true)

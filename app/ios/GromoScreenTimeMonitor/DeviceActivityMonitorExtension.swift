@@ -30,6 +30,10 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             // 30분 버킷 사용량 리셋 (오늘 기준으로 새로 카운트)
             sharedDefaults?.set(0, forKey: "gromo:screentime:usageBucketMinutes")
             sharedDefaults?.set(todayString, forKey: "gromo:screentime:usageBucketDate")
+            // 재등록 베이스라인도 새 날 기준으로 리셋(GROMO-871 코드리뷰 P2) — 베이스는 '등록한
+            // 날'의 등록 전 기록이므로 날이 바뀌면 무효다(아래 합산부의 날짜 검사와 이중 방어).
+            sharedDefaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
+            sharedDefaults?.set(todayString, forKey: "gromo:screentime:bucketBaseDate")
         default:
             break
         }
@@ -130,9 +134,18 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                 minutes: Double(mins),
                 registeredAtKey: "gromo:screentime:bucketRegisteredAt"
             ) else { return }
-            // 도달한 눈금이 (오늘 기준) 기존 최고값보다 크면 갱신 (버킷은 순차 발화지만 방어적으로 max 비교)
-            if mins > current {
-                sharedDefaults?.set(mins, forKey: "gromo:screentime:usageBucketMinutes")
+            // 베이스 합산(GROMO-871 코드리뷰 P2) — 재등록 후 눈금(mins)은 '등록 이후' 사용량이라
+            // 등록 시점까지의 오늘 기록(베이스)에 더해 하루 누적으로 환산한다. 이게 없으면 재등록
+            // 전 최고 눈금에 가려(max 비교) 이후 측정이 하루 종일 무시된다. 베이스 날짜가 오늘이
+            // 아니면 0 취급, 합산은 등록 상한과 동일하게 900으로 클램프.
+            let baseDate = sharedDefaults?.string(forKey: "gromo:screentime:bucketBaseDate")
+            let base =
+                baseDate == todayString
+                ? (sharedDefaults?.integer(forKey: "gromo:screentime:bucketBaseMinutes") ?? 0) : 0
+            let total = min(base + mins, 900)
+            // 합산값이 (오늘 기준) 기존 최고값보다 크면 갱신 (버킷은 순차 발화지만 방어적으로 max 비교)
+            if total > current {
+                sharedDefaults?.set(total, forKey: "gromo:screentime:usageBucketMinutes")
             }
             sharedDefaults?.set(todayString, forKey: "gromo:screentime:usageBucketDate")
         }
