@@ -25,7 +25,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, PomodoroConfig, Subject } from './types';
 import { DraggableSubjectRows } from './components/DraggableSubjectRows';
 import { TimerMethodSheet } from './components/TimerMethodSheet';
-import { SLIDE_MS } from './components/liquidGlass';
+import { SLIDE_MS } from '@/components/liquidGlass';
 import { CountdownSetupSheet } from './components/CountdownSetupSheet';
 import { PomodoroSetupSheet } from './components/PomodoroSetupSheet';
 import {

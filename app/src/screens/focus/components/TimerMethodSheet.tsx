@@ -5,7 +5,13 @@ import Animated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 import type { FocusTimerMode } from '../types';
 import { SheetShell } from '@/components/SheetShell';
-import { SLIDE_MS, glassSlide, glassPill } from './liquidGlass';
+import {
+  SLIDE_MS,
+  glassSlide,
+  glassPill,
+  GlassPillFill,
+  isLiquidGlassSupported,
+} from '@/components/liquidGlass';
 
 // 03 타이머 방식 — 카운트업/카운트다운/뽀모도로 중 선택.
 const OPTIONS: {
@@ -90,6 +96,7 @@ export function TimerMethodSheet({
             pointerEvents="none"
             style={[
               s.glass,
+              !isLiquidGlassSupported && glassPill,
               {
                 height: glassRect.h,
                 opacity: picked ? 1 : 0,
@@ -97,7 +104,9 @@ export function TimerMethodSheet({
               },
               glassSlide,
             ]}
-          />
+          >
+            <GlassPillFill borderRadius={15} />
+          </Animated.View>
         )}
       </View>
     </SheetShell>
@@ -136,13 +145,12 @@ const s = StyleSheet.create({
   flex1: { flex: 1 },
   rowTitle: { ...T.text.label, fontWeight: '700', color: T.ink },
   rowDesc: { ...T.text.caption, fontWeight: '500', color: T.inkMuted, marginTop: 1 },
-  // 리퀴드 글래스 알약 — 행 전체를 덮는 틴트 유리
+  // 리퀴드 글래스 알약 래퍼 — 채움은 GlassPillFill(네이티브) 또는 glassPill(폴백)이 담당
   glass: {
     position: 'absolute',
     left: 0,
     right: 0,
     top: 0,
     borderRadius: 15,
-    ...glassPill,
   },
 });

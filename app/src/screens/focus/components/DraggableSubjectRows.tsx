@@ -13,7 +13,12 @@ import Reanimated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 import { hmsCompact } from '../format';
 import type { Subject } from '../types';
-import { glassSlide, glassPill } from './liquidGlass';
+import {
+  glassSlide,
+  glassPill,
+  GlassPillFill,
+  isLiquidGlassSupported,
+} from '@/components/liquidGlass';
 
 // 순수 RN(PanResponder+Animated) 드래그 정렬 리스트.
 // ⋮ 를 잡고 위아래로 움직이면 순서 변경. 화면 가장자리 근처로 끌면 자동 스크롤.
@@ -273,8 +278,15 @@ export function DraggableSubjectRows({
         {activeIndex >= 0 && (
           <Reanimated.View
             pointerEvents="none"
-            style={[s.glass, { transform: [{ translateY: activeIndex * SLOT }] }, glassSlide]}
-          />
+            style={[
+              s.glass,
+              !isLiquidGlassSupported && glassPill,
+              { transform: [{ translateY: activeIndex * SLOT }] },
+              glassSlide,
+            ]}
+          >
+            <GlassPillFill borderRadius={14} />
+          </Reanimated.View>
         )}
       </View>
       {footer}
@@ -315,7 +327,8 @@ const s = StyleSheet.create({
   },
   iconBoxIdle: { backgroundColor: T.caramel },
   iconBoxSelected: { backgroundColor: T.accent },
-  // 리퀴드 글래스 알약 — 행 카드가 불투명이라 위에 얹는다(드래그 중 행 zIndex 10 아래)
+  // 리퀴드 글래스 알약 래퍼 — 행 카드가 불투명이라 위에 얹는다(드래그 중 행 zIndex 10 아래).
+  // 채움은 GlassPillFill(네이티브) 또는 glassPill(폴백)이 담당
   glass: {
     position: 'absolute',
     left: 0,
@@ -324,7 +337,6 @@ const s = StyleSheet.create({
     height: ROW_H,
     borderRadius: 14,
     zIndex: 5,
-    ...glassPill,
   },
   rowName: { flex: 1, ...T.text.label, fontWeight: '700', color: T.ink },
   rowTime: { ...T.text.caption, color: T.inkMuted, fontVariant: ['tabular-nums'] },
