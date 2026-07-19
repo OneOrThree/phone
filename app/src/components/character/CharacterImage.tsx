@@ -7,7 +7,7 @@
 //    위젯 쪽 사본(ios/Widget/Assets.xcassets/character.imageset)도 같이 갱신.
 //    집중 세션 캐릭터는 스냅샷(saveCharacterSnapshot)으로 Live Activity·가림막에도 반영됨.
 
-import { Image } from 'react-native';
+import { Image, type ImageProps } from 'react-native';
 
 export type CharacterVariant = 'default' | 'study';
 
@@ -16,14 +16,29 @@ const SOURCES: Record<CharacterVariant, number> = {
   study: require('../../assets/character_study.png'),
 };
 
+// 캐릭터 에셋 프리캐시(GROMO-848) — 축하 모달처럼 갑자기 노출되는 화면에서 첫 로드
+// (dev는 Metro 다운로드) 지연으로 캐릭터가 늦게 뜨는 것을 줄인다. 실패해도 무해.
+Object.values(SOURCES).forEach((mod) => {
+  const src = Image.resolveAssetSource(mod);
+  if (src?.uri) Image.prefetch(src.uri).catch(() => {});
+});
+
 export function CharacterImage({
   size,
   variant = 'default',
+  onLoad,
 }: {
   size: number;
   variant?: CharacterVariant;
+  /** 이미지 표시 완료 콜백 — 축하 모달이 색종이 시작 타이밍을 맞추는 데 쓴다 */
+  onLoad?: ImageProps['onLoad'];
 }) {
   return (
-    <Image source={SOURCES[variant]} style={{ width: size, height: size }} resizeMode="contain" />
+    <Image
+      source={SOURCES[variant]}
+      style={{ width: size, height: size }}
+      resizeMode="contain"
+      onLoad={onLoad}
+    />
   );
 }

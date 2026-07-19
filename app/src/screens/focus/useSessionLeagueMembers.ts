@@ -4,13 +4,13 @@ import { getMyRanking } from '@/services/leagueApi';
 import type { LiveGridMember } from './components/LiveFocusGrid';
 
 // 집중 세션 리그(811)·같은 시험(812) 그리드용 라이브 멤버 — GET /league/me/ranking(?category=).
-// GROMO-824 가 라이브 필드를 채워주는 엔드포인트는 이것뿐이다(전체 리그 /league/ranking 은 범위 밖):
-//   occupation 미지정 = 내 아레나 멤버(811), 지정 = 같은 occupation 전역 상위 100(812).
+// GROMO-824 가 라이브 필드를 채워주는 엔드포인트는 이것뿐이다(/league/ranking 은 라이브 미포함):
+//   occupation 미지정 = 전역 주간 상위 100(811, 전체 리그와 같은 모수), 지정 = 같은 occupation 상위 100(812).
 // 미배포 서버 응답(필드 없음)은 전원 미집중·0분 폴백.
 // enabled=false(812에서 준비 시험 미설정)면 조회하지 않고 빈 목록을 유지한다.
 
 const DEFAULT_POLL_MS = 60_000;
-// 페이지가 세로 스크롤 없는 그리드라 상위 일부만 렌더 (top-100 전체 렌더 방지)
+// 그리드가 세로 스크롤을 지원해도(GROMO-848) top-100 전체 렌더는 과해서 상위 일부만
 const MAX_MEMBERS = 12;
 
 export function useSessionLeagueMembers({

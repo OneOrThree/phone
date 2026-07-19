@@ -1,8 +1,11 @@
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Animated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 import type { FocusTimerMode } from '../types';
 import { SheetShell } from '@/components/SheetShell';
+import { SLIDE_MS, glassSlide, glassPill } from '@/components/liquidGlass';
 
 // 03 타이머 방식 — 카운트업/카운트다운/뽀모도로 중 선택.
 const OPTIONS: {
@@ -16,6 +19,9 @@ const OPTIONS: {
   { mode: 'pomodoro', icon: 'timer-outline', title: '뽀모도로', desc: '집중·휴식을 반복해요' },
 ];
 
+// GROMO-848 리퀴드 글래스 선택 연출(./liquidGlass) — 누르면 유리 알약이
+// 누른 행으로 미끄러진 뒤(SLIDE_MS) 다음 단계로 진행한다.
+
 export function TimerMethodSheet({
   subjectName,
   onSelect,
@@ -25,6 +31,34 @@ export function TimerMethodSheet({
   onSelect: (mode: FocusTimerMode) => void;
   onClose: () => void;
 }) {
+  // 알약을 누른 행 위로 보내기 위한 행별 y/높이 측정값
+  const [rowRects, setRowRects] = useState<
+    Partial<Record<FocusTimerMode, { y: number; h: number }>>
+  >({});
+  const [picked, setPicked] = useState<FocusTimerMode | null>(null);
+  const proceedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 딤 탭 등으로 시트가 닫히면 예약된 진행을 취소 (늦은 onSelect 방지)
+  useEffect(
+    () => () => {
+      if (proceedRef.current) clearTimeout(proceedRef.current);
+    },
+    [],
+  );
+
+  const pick = (mode: FocusTimerMode) => {
+    if (picked) return; // 슬라이드 중 중복 탭 방지
+    if (!rowRects[mode]) {
+      onSelect(mode); // 측정 전 탭 — 연출 생략하고 바로 진행
+      return;
+    }
+    setPicked(mode);
+    proceedRef.current = setTimeout(() => onSelect(mode), SLIDE_MS + 60);
+  };
+
+  // 대기 위치는 첫 행 — 누르면 그 자리에서 누른 행으로 미끄러지며 나타난다
+  const glassRect = (picked && rowRects[picked]) || rowRects.countup;
+
   return (
     <SheetShell onClose={onClose}>
       <Text style={s.title}>{subjectName} · 타이머 방식</Text>
@@ -35,7 +69,11 @@ export function TimerMethodSheet({
             key={o.mode}
             style={s.row}
             activeOpacity={0.8}
-            onPress={() => onSelect(o.mode)}
+            onPress={() => pick(o.mode)}
+            onLayout={(e) => {
+              const { y, height } = e.nativeEvent.layout;
+              setRowRects((prev) => ({ ...prev, [o.mode]: { y, h: height } }));
+            }}
           >
             <View style={s.iconBox}>
               <Ionicons name={o.icon} size={22} color={T.accent} />
@@ -47,6 +85,21 @@ export function TimerMethodSheet({
             <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
           </TouchableOpacity>
         ))}
+        {glassRect && (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              s.glass,
+              glassPill,
+              {
+                height: glassRect.h,
+                opacity: picked ? 1 : 0,
+                transform: [{ translateY: glassRect.y }],
+              },
+              glassSlide,
+            ]}
+          />
+        )}
       </View>
     </SheetShell>
   );
@@ -84,4 +137,13 @@ const s = StyleSheet.create({
   flex1: { flex: 1 },
   rowTitle: { ...T.text.label, fontWeight: '700', color: T.ink },
   rowDesc: { ...T.text.caption, fontWeight: '500', color: T.inkMuted, marginTop: 1 },
+  // 유리 알약 래퍼 — ⚠️ 글자 위 오버레이라 네이티브 리퀴드 글래스 금지(뒤 글자 블러됨).
+  //    반투명 틴트(glassPill)만 사용.
+  glass: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    borderRadius: 15,
+  },
 });

@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       image_sha:
-        description: '롤백할 이미지 commit SHA (ECR에 존재해야 함)'
+        description: '롤백할 이미지 태그 — commit SHA 또는 vX.Y.Z (ECR에 존재해야 함)'
         required: true
 
 concurrency:

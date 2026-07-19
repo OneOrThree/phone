@@ -25,6 +25,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, PomodoroConfig, Subject } from './types';
 import { DraggableSubjectRows } from './components/DraggableSubjectRows';
 import { TimerMethodSheet } from './components/TimerMethodSheet';
+import { SLIDE_MS } from '@/components/liquidGlass';
 import { CountdownSetupSheet } from './components/CountdownSetupSheet';
 import { PomodoroSetupSheet } from './components/PomodoroSetupSheet';
 import {
@@ -119,9 +120,31 @@ export default function FocusCategoryScreen() {
   const menuSubject = menu ? subjects.find((x) => x.id === menu.id) : undefined;
   const colorSubject = colorMenu ? subjects.find((x) => x.id === colorMenu.id) : undefined;
 
+  // 다른 과목을 고르면 유리 알약 슬라이드(GROMO-848)가 보이도록 시트를 슬라이드 뒤에 연다.
+  // 같은 과목 재탭은 이동이 없으니 바로 연다. 언마운트 시 예약 취소는 아래 useEffect.
+  const methodTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 예약된 시트 열기 취소 — 어느 분기든 새 인터랙션(재탭·팝오버)이 시작되면 먼저 부른다.
+  // 스테일 콜백이 남으면 닫은 시트가 뒤늦게 다시 열린다(코덱스 리뷰, PR 301).
+  function cancelPendingMethodSheet() {
+    if (methodTimer.current) {
+      clearTimeout(methodTimer.current);
+      methodTimer.current = null;
+    }
+  }
+  useEffect(() => cancelPendingMethodSheet, []);
+
   function openMethod(sub: Subject) {
+    const moved = sub.id !== active?.id;
     setSelectedId(sub.id);
-    setSheet('method');
+    cancelPendingMethodSheet();
+    if (!moved) {
+      setSheet('method');
+      return;
+    }
+    methodTimer.current = setTimeout(() => {
+      methodTimer.current = null;
+      setSheet('method');
+    }, SLIDE_MS + 60);
   }
 
   function editSubject(sub: Subject) {
@@ -168,6 +191,7 @@ export default function FocusCategoryScreen() {
   }
 
   function handleAddSubject() {
+    cancelPendingMethodSheet(); // 추가 프롬프트 위로 예약 시트가 뒤늦게 뜨는 것 방지(코덱스 리뷰, PR 301 후속)
     // 이름을 먼저 입력받고 추가. 누적시간은 0에서 시작해 실제 세션으로 쌓인다.
     Alert.prompt(
       '새 과목 추가',
@@ -218,10 +242,12 @@ export default function FocusCategoryScreen() {
         onReorder={reorderSubjects}
         onPressRow={openMethod}
         onOpenColor={(id, a) => {
+          cancelPendingMethodSheet(); // 팝오버 위로 예약 시트가 뒤늦게 뜨는 것 방지
           setMenu(null);
           setColorMenu((m) => (m?.id === id ? null : { id, ...a }));
         }}
         onOpenMenu={(id, a) => {
+          cancelPendingMethodSheet();
           setColorMenu(null);
           setMenu((m) => (m?.id === id ? null : { id, ...a }));
         }}
@@ -254,6 +280,7 @@ export default function FocusCategoryScreen() {
                       style={s.recoRow}
                       activeOpacity={0.8}
                       onPress={() => {
+                        cancelPendingMethodSheet(); // 추천 추가 중 예약 시트 발화 방지
                         addSubject(name);
                         logFocusTagCreated();
                       }}

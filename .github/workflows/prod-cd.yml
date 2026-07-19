@@ -1,6 +1,6 @@
 # GROMO prod 서버 — CD (commit SHA 배포)
 #
-# prod-ci가 prod 브랜치에서 성공하면(=머지 후 빌드 완료) 그 커밋 SHA를 자동 배포.
+# prod-ci가 release 브랜치에서 성공하면(=머지 후 빌드 완료) 그 커밋 SHA를 자동 배포.
 # 수동 실행 시엔 배포할 SHA를 직접 입력 (latest 태그 없음 — CI는 SHA 태그만 push).
 # 배포 로직은 SSM Document(gromo-prod-deploy)에 박제.
 # 이전 SHA로 되돌리는 건 prod-rollback.yml (compose 갱신 없이 이미지만 교체).
@@ -11,7 +11,7 @@ on:
   workflow_run:
     workflows: ["prod-ci"]
     types: [completed]
-    branches: [prod] # prod push 빌드 완료 → 해당 SHA 자동 배포 (PR 검증 빌드는 미트리거)
+    branches: [release] # release push 빌드 완료 → 해당 SHA 자동 배포 (PR 검증 빌드는 미트리거)
   workflow_dispatch:
     inputs:
       image_sha:

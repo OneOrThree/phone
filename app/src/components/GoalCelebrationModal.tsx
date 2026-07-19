@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, InteractionManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
@@ -26,6 +26,15 @@ function goalLabel(minutes: number): string {
 
 export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onClose }: Props) {
   const [cardRect, setCardRect] = useState<ConfettiObstacle | null>(null);
+  // 색종이는 캐릭터가 그려지고 UI가 한가해진 뒤 시작(GROMO-848) — 등장 직후 로딩 잭으로
+  // 프레임이 밀리면 시간 기준 애니메이션이 건너뛰어 "이미 떨어진 상태"로 보이는 것 방지.
+  const [charReady, setCharReady] = useState(false);
+  const [uiIdle, setUiIdle] = useState(false);
+  useEffect(() => {
+    if (!visible) return;
+    const task = InteractionManager.runAfterInteractions(() => setUiIdle(true));
+    return () => task.cancel();
+  }, [visible]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.overlay}>
@@ -43,7 +52,7 @@ export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onC
               연속 목표달성 <Text style={s.streakDays}>{goalStreakDays}일</Text>
             </Text>
           </View>
-          <CharacterImage size={104} />
+          <CharacterImage size={104} onLoad={() => setCharReady(true)} />
           <Text style={s.title}>
             {goalMinutes ? `${goalLabel(goalMinutes)} 집중 목표 달성!` : '오늘 목표 달성!'}
           </Text>
@@ -52,7 +61,7 @@ export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onC
             <Text style={s.ctaText}>좋아요!</Text>
           </TouchableOpacity>
         </View>
-        {cardRect ? <ConfettiBurst obstacle={cardRect} /> : null}
+        {cardRect && charReady && uiIdle ? <ConfettiBurst obstacle={cardRect} /> : null}
       </View>
     </Modal>
   );

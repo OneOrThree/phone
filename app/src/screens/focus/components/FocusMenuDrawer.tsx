@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Pressable, Animated, StyleSheet } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { T, withAlpha } from '@/constants/theme';
@@ -61,6 +63,23 @@ export function FocusMenuDrawer({
       <Animated.View
         style={[s.panel, { paddingTop: insets.top + 20, transform: [{ translateX: tx }] }]}
       >
+        {/* 리퀴드 글래스 패널(GROMO-848) — iOS 26+는 네이티브 리퀴드 글래스(굴절·반사),
+            미지원(iOS 25 이하)은 블러 + 반투명 흰 오버레이 폴백. 오버레이는 잉크 텍스트 가독성용. */}
+        {isLiquidGlassSupported ? (
+          // clear + 흰 틴트 — regular는 블러 폴백과 구분이 안 될 만큼 뿌예서,
+          // 뒤 세션 화면이 비치는 clear로 유리 질감을 살리고 틴트로 잉크 텍스트 가독성 확보
+          <LiquidGlassView
+            effect="clear"
+            colorScheme="light"
+            tintColor={withAlpha(T.white, 0.4)}
+            style={StyleSheet.absoluteFill}
+          />
+        ) : (
+          <>
+            <BlurView intensity={55} tint="light" style={StyleSheet.absoluteFill} />
+            <View style={s.panelTint} />
+          </>
+        )}
         {level === 'menu' ? (
           <>
             <View style={s.menuHead}>
@@ -150,7 +169,12 @@ const s = StyleSheet.create({
     right: 0,
     bottom: 0,
     width: PANEL_W,
-    backgroundColor: T.paperLight,
+    // 배경은 LiquidGlassView(또는 블러 폴백)가 그린다 — 뷰 자체는 투명 유지.
+    // 왼쪽 모서리 라운드는 유리 굴절 하이라이트가 모서리에서 드러나게 하는 용도.
+    backgroundColor: 'transparent',
+    overflow: 'hidden',
+    borderTopLeftRadius: 24,
+    borderBottomLeftRadius: 24,
     paddingHorizontal: T.space.xl,
     paddingBottom: T.space.xxl,
     shadowColor: T.black,
@@ -159,6 +183,7 @@ const s = StyleSheet.create({
     shadowOffset: { width: -14, height: 0 },
     elevation: 24,
   },
+  panelTint: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.white, 0.6) },
 
   menuHead: {
     flexDirection: 'row',
@@ -176,11 +201,12 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // 카드 배경도 반투명 — 불투명 흰색이면 패널 대부분을 덮어 유리 느낌이 죽는다
   card: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: T.space.md,
-    backgroundColor: T.white,
+    backgroundColor: withAlpha(T.white, 0.55),
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 15,
@@ -189,7 +215,7 @@ const s = StyleSheet.create({
     marginBottom: T.space.md,
   },
   cardBlock: {
-    backgroundColor: T.white,
+    backgroundColor: withAlpha(T.white, 0.55),
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 15,
@@ -225,7 +251,7 @@ const s = StyleSheet.create({
   allowedCard: {
     alignItems: 'center',
     gap: T.space.sm,
-    backgroundColor: T.white,
+    backgroundColor: withAlpha(T.white, 0.55),
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 15,
