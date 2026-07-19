@@ -5,6 +5,7 @@ import android.content.res.Configuration
 
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
+import com.hotupdater.HotUpdater
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.ReactNativeHost
 import com.facebook.react.ReactPackage
@@ -32,6 +33,11 @@ class MainApplication : Application(), ReactApplication {
           override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
 
           override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
+
+          // hot-updater: OTA로 받은 JS 번들이 있으면 그 경로를, 없으면 내장 번들을 로드
+          override fun getJSBundleFile(): String? {
+            return HotUpdater.getJSBundleFile(applicationContext)
+          }
       }
   )
 

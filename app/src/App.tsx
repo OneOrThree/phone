@@ -4,6 +4,7 @@ import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-c
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
+import { HotUpdater } from '@hot-updater/react-native';
 import { setLogoutHandler, setReloginHandler, getUserIdFromToken, api } from '@/services/api';
 import { setAccountSwitchHandler } from '@/services/auth';
 import { todayStr } from '@/utils/localDate';
@@ -119,7 +120,7 @@ async function syncOnboardingToServer(data: V2OnboardingData): Promise<Onboardin
   return 'ok';
 }
 
-export default function App() {
+function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [onboarded, setOnboarded] = useState(false);
@@ -401,4 +402,22 @@ export default function App() {
 
 const s = StyleSheet.create({
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: T.paper },
+  updatingText: { marginTop: 12, fontSize: 14, color: T.inkSub },
 });
+
+// hot-updater OTA 게이트(GROMO-875) — 릴리즈 빌드 시작 시 새 JS 번들을 확인하고,
+// 있으면 내려받는 동안 아래 화면으로 진입을 막았다가 적용한다. 없으면 즉시 통과.
+// baseURL은 공개 엔드포인트(비밀값 아님). 채널은 네이티브 설정(HOT_UPDATER_CHANNEL=production)을 따른다.
+export default HotUpdater.wrap({
+  baseURL: 'https://ohwgkgbhzvnbtxfewosa.supabase.co/functions/v1/update-server',
+  updateStrategy: 'appVersion',
+  fallbackComponent: ({ progress }) => (
+    <View style={s.loading}>
+      <ActivityIndicator size="large" color={T.ink} />
+      <Text style={s.updatingText}>
+        새로운 소식을 준비하고 있어요{progress > 0 ? ` ${Math.round(progress * 100)}%` : ''}
+      </Text>
+    </View>
+  ),
+  // 제네릭 명시 — index.ts의 Sentry.wrap이 요구하는 props 타입(Record<string, unknown>)에 맞춘다.
+})<Record<string, unknown>>(App);

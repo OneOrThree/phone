@@ -15,6 +15,9 @@ export default {
     // 앱 아이콘 소스(정사각 1024). prebuild 시 이 파일로 네이티브 AppIcon 세트를 생성한다.
     icon: './src/assets/icon.png',
     plugins: [
+      // hot-updater OTA(GROMO-875) — prebuild 시 네이티브(AppDelegate·Info.plist·MainApplication·Manifest) 자동 반영.
+      // 현재 ios/·android/는 직접 관리하므로 같은 변경을 수동으로도 넣어뒀다.
+      ['@hot-updater/react-native', { channel: 'production' }],
       [
         '@react-native-kakao/core',
         {
