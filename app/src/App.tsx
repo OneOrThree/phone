@@ -409,29 +409,34 @@ const s = StyleSheet.create({
   updatingText: { marginTop: T.space.lg, fontSize: 14, color: T.inkSub },
 });
 
+// OTA 준비 화면 — 온보딩 진입 스플래시와 같은 구성(캐릭터+GROMO)에 응원 문구,
+// 다운로드 중임은 퍼센트로만 표시. 노출 기록은 렌더 도중이 아니라 커밋(마운트) 후에
+// 남긴다 — 커밋되지 않고 버려진 렌더가 온보딩 스플래시를 잘못 스킵시키지 않도록(코드리뷰 P2).
+function OtaUpdateGateScreen({ progress }: { progress: number }) {
+  useEffect(() => {
+    markOtaSplashShown();
+  }, []);
+  return (
+    <View style={s.loading}>
+      <Image
+        source={require('@/assets/character_hi.png')}
+        style={s.updatingChar}
+        resizeMode="contain"
+      />
+      <Text style={s.updatingBrand}>GROMO</Text>
+      <Text style={s.updatingText}>
+        오늘 집중도 화이팅!!{progress > 0 ? ` ${Math.round(progress * 100)}%` : ''}
+      </Text>
+    </View>
+  );
+}
+
 // hot-updater OTA 게이트(GROMO-875) — 릴리즈 빌드 시작 시 새 JS 번들을 확인하고,
-// 있으면 내려받는 동안 아래 화면으로 진입을 막았다가 적용한다. 없으면 즉시 통과.
+// 있으면 내려받는 동안 준비 화면으로 진입을 막았다가 적용한다. 없으면 즉시 통과.
 // baseURL은 공개 엔드포인트(비밀값 아님). 채널은 네이티브 설정(HOT_UPDATER_CHANNEL=production)을 따른다.
 export default HotUpdater.wrap({
   baseURL: 'https://ohwgkgbhzvnbtxfewosa.supabase.co/functions/v1/update-server',
   updateStrategy: 'appVersion',
-  // 준비 화면은 스플래시와 같은 레이아웃에 응원 문구 — 다운로드 중임은 퍼센트로만 표시.
-  // 노출 사실을 기록해 온보딩 진입 스플래시(같은 비주얼)가 연달아 또 뜨지 않게 한다.
-  fallbackComponent: ({ progress }) => {
-    markOtaSplashShown();
-    return (
-      <View style={s.loading}>
-        <Image
-          source={require('@/assets/character_hi.png')}
-          style={s.updatingChar}
-          resizeMode="contain"
-        />
-        <Text style={s.updatingBrand}>GROMO</Text>
-        <Text style={s.updatingText}>
-          오늘 집중도 화이팅!!{progress > 0 ? ` ${Math.round(progress * 100)}%` : ''}
-        </Text>
-      </View>
-    );
-  },
+  fallbackComponent: OtaUpdateGateScreen,
   // 제네릭 명시 — index.ts의 Sentry.wrap이 요구하는 props 타입(Record<string, unknown>)에 맞춘다.
 })<Record<string, unknown>>(App);

@@ -4,7 +4,7 @@ import { View, PanResponder, StyleSheet } from 'react-native';
 import type { LoginResult } from '@/types/api';
 import LoginScreen from '@/screens/LoginScreen';
 import OnboardingSplash from './OnboardingSplash';
-import { wasOtaSplashShown } from '@/utils/otaGate';
+import { wasOtaSplashJustShown } from '@/utils/otaGate';
 import { OnboardingProgressContext } from '@/screens/onboarding/components/OnboardingProgressContext';
 import TogetherEffectStep from '@/screens/onboarding/steps/TogetherEffectStep';
 import ProblemEmpathyStep from '@/screens/onboarding/steps/ProblemEmpathyStep';
@@ -52,8 +52,9 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [index, setIndex] = useState(0);
   const [data, setData] = useState<V2OnboardingData>(INITIAL_ONBOARDING_DATA);
   // 진입 스플래시(캐릭터 + GROMO) — 노출·페이드아웃은 스플래시가 관리, 끝나면 온보딩으로.
-  // 릴리즈에선 OTA 준비 화면(같은 비주얼, @/utils/otaGate)이 이미 떴으므로 건너뛴다(GROMO-875).
-  const [showSplash, setShowSplash] = useState(() => !wasOtaSplashShown());
+  // 릴리즈에선 OTA 준비 화면(같은 비주얼, @/utils/otaGate)이 방금 떴으므로 건너뛴다(GROMO-875).
+  // '방금'(15초 시효) 판정이라 로그아웃·탈퇴 후 재온보딩에선 스플래시가 정상 노출된다.
+  const [showSplash, setShowSplash] = useState(() => !wasOtaSplashJustShown());
   // 중간 로그인에서 받은 세션 — 신규 유저는 이걸 들고 남은 스텝을 진행, 닉네임 뒤 가입 확정에 사용.
   const [login, setLogin] = useState<LoginResult | null>(null);
   // 가입 확정(신규 유저) 실패 상태 — 닉네임 화면에 에러를 띄운다. 입력을 고치면 지운다.
@@ -65,6 +66,13 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   useEffect(() => {
     logOnboardingStarted();
     resetAnalyzeIntro();
+  }, []);
+
+  // OTA 준비 화면이 스플래시를 대신한 경우에도 시작 진동(GROMO-786)은 유지한다 —
+  // 스플래시 경로에선 OnboardingSplash.onDone이 울리므로 스킵 마운트에서만 1회.
+  useEffect(() => {
+    if (!showSplash) hapticLight();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 마운트 시 초기 스킵 여부만 판단
   }, []);
 
   const update = (patch: Partial<V2OnboardingData>) => setData((d) => ({ ...d, ...patch }));
