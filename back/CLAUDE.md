@@ -83,7 +83,8 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
 ## Observability
 
 - Spring Actuator + Micrometer expose health/metrics (`/actuator/prometheus`,
-  GROMO-546).
+  GROMO-546) — the Prometheus endpoint is exposed on the `dev`/`loadtest` profiles
+  only; `prod` does not expose it.
 - `docker-compose.observability.yml` (repo root) overlays Prometheus + Grafana +
   Loki/Promtail on the dev stack; configs live in the repo-root `observability/`
   (see its README).

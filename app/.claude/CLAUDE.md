@@ -95,7 +95,7 @@ app/
     ├── components/          # cross-feature UI (TabBar, DrumPicker, character/) + app shell (PushGate, PendingGoalApplier)
     ├── constants/           # design tokens — theme.ts (T, inkBox), focusCategories.ts, tiers.ts
     ├── hooks/               # cross-feature hooks only — useFocusCategory.ts
-    ├── mocks/               # MSW handlers + fixtures — handlers.ts, fixtures/, index.ts
+    ├── mocks/               # dev API mocking — custom axios adapter (EXPO_PUBLIC_USE_MOCK), handlers.ts + fixtures/
     ├── navigation/          # RootNavigator.tsx (NavigationContainer + Tab/Stack), navigationRef, types
     ├── screens/             # screens + per-feature folders (focus/, league/, onboarding/, settings/, stats/, group/)
     ├── services/            # API·external — api.ts (axios), *Api.ts, ScreenTimeModule.ts, analytics, push
@@ -168,7 +168,7 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 | `src/components/`           | cross-feature UI + app shell               | `TabBar.tsx`, `DrumPicker.tsx`, `PushGate.tsx`   |
 | `src/components/character/` | static character image                     | `CharacterImage.tsx`                             |
 | `src/hooks/`                | cross-feature hooks only                   | `useFocusCategory.ts`                            |
-| `src/mocks/`                | MSW API mocking (handlers + fixtures)      | `handlers.ts`, `fixtures/`                       |
+| `src/mocks/`                | dev API mocking — custom axios adapter, partial (`EXPO_PUBLIC_USE_MOCK=true`) | `handlers.ts`, `fixtures/`      |
 | `src/store/`                | global state (Context API)                 | `UserContext.tsx`, `SubjectContext.tsx`          |
 | `src/services/`             | API / native / external integrations       | `api.ts`, `friendsApi.ts`, `ScreenTimeModule.ts` |
 | `src/constants/`            | design tokens / shared style values        | `theme.ts`, `focusCategories.ts`                 |

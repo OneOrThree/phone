@@ -19,6 +19,11 @@ Steps:
    - Forward-only DDL. No destructive statements (`DROP TABLE` / `DROP COLUMN` /
      data-loss rewrites) unless the request explicitly asks for them.
    - Never touch `flyway_schema_history`.
+   - **Version-collision guard**: another branch may claim the same `V<N+1>` between
+     scaffold and merge — git merges duplicate versions without conflict (different
+     filenames), but Flyway then fails on boot, and the `ci` profile has Flyway
+     disabled so the PR gate won't catch it. Right before merging, re-scan
+     `origin/main`'s migration dir and renumber to the next free version if taken.
 4. Update `back/docs/db/schema.dbml` (DBML — the canonical schema doc,
    gitignored/local-only) to reflect the new columns/tables so it stays in sync
    with the current DB state.
