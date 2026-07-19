@@ -15,15 +15,10 @@ services:
     image: ${ECR_REPO}:${IMAGE_TAG}
     container_name: gromo-app
     restart: unless-stopped
-    mem_limit: 1.5g
-    memswap_limit: 1.5g # = mem_limit → 컨테이너 swap 0 (JVM 스왑 차단)
-    # SM 시크릿 전체 주입 — 키 나열 금지(위 규약). 프로파일·JVM 옵션 같은 비밀 아닌 고정값만 environment.
+    # 모든 env는 SM(gromo/prod/env) → .env.prod 전체 주입 — 여기 키 나열 금지.
+    # SPRING_PROFILES_ACTIVE·JAVA_TOOL_OPTIONS도 SM에서 관리한다.
     env_file:
       - .env.prod
-    environment:
-      SPRING_PROFILES_ACTIVE: prod
-      # heap을 억지로 낮추지 않는다 — 너무 작으면 GC 반복(LB 무관 문제). Datadog JVM 지표로 트래킹 후 조정.
-      JAVA_TOOL_OPTIONS: "-Xms1g -Xmx1g -XX:+AlwaysPreTouch -XX:+UseSerialGC"
     volumes:
       # 앱 로그(/app/logs: app.log·user-activity.log)를 호스트에 바인딩 — 컨테이너 재생성에도 보존,
       # 라이브 확인은 SSM 세션에서 tail, 유저 로그 S3 적재 파이프라인(590·790)도 이 경로를 본다.
@@ -53,19 +48,10 @@ services:
     image: gcr.io/datadoghq/agent:7
     container_name: gromo-datadog-agent
     restart: unless-stopped
-    mem_limit: 512m
-    environment:
-      # 빈/미설정이면 즉시 실패(fail-fast) — 키 없이 up이 green 처리되어 무텔레메트리로 남는 것 방지.
-      # 값은 --env-file(.env.prod → SM의 DD_API_KEY)에서 치환된다.
-      DD_API_KEY: ${DD_API_KEY:?DD_API_KEY 미설정 — SM(gromo/prod/env)에 등록 필요}
-      DD_SITE: ${DD_SITE:-us5.datadoghq.com}
-      DD_ENV: prod
-      DD_HOSTNAME: gromo-prod
-      DD_TAGS: "env:prod service:gromo-back"
-      # 로그 수집 — 컨테이너 stdout tail (앱 파일 로그 수집은 792에서 결정)
-      DD_LOGS_ENABLED: "true"
-      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
-      DD_CONTAINER_EXCLUDE: "name:gromo-datadog-agent"
+    # DD_* 설정 전부 SM(gromo/prod/env) → .env.prod 주입 — 키 나열 금지.
+    # (주의: fail-fast 없음 — DD_API_KEY 누락 시 조용히 무텔레메트리. SM 키 관리로 보장)
+    env_file:
+      - .env.prod
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /proc/:/host/proc/:ro
