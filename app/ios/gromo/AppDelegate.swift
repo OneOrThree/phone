@@ -4,6 +4,7 @@ import RNLine
 import RNCKakaoUser
 import React
 import ReactAppDependencyProvider
+import HotUpdater
 
 @UIApplicationMain
 public class AppDelegate: ExpoAppDelegate {
@@ -74,7 +75,8 @@ class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
 #if DEBUG
     return RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: ".expo/.virtual-metro-entry")
 #else
-    return Bundle.main.url(forResource: "main", withExtension: "jsbundle")
+    // hot-updater: OTA로 받은 JS 번들이 있으면 그 경로를, 없으면 내장 번들을 반환
+    return HotUpdater.bundleURL()
 #endif
   }
 }
