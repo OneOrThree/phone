@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   Share,
   Platform,
@@ -71,7 +72,9 @@ const CHART_H = 120;
 // 잔디 강도 0..4 색(빈 칸 → 진한 초록).
 const GRASS = T.grass;
 const FOCUS_COLOR = T.greenDeep;
-const PHONE_COLOR = T.accent;
+// 폰 사용 지표는 경고 계열(테라코타) — 메인 액센트를 쓰면 '줄여야 할 지표'가 브랜드색으로
+// 강조되는 의미 역전이 생긴다. 집중(초록)과 대비되는 시안의 색 의미 복원(GROMO-849)
+const PHONE_COLOR = T.accentAlt;
 
 // 히트맵 셀 → 지표 추출기 — 렌더마다 재생성되지 않게 모듈 상수(훅 의존성 안정화)
 const pickFocus = (c: HeatmapCellResponse) => c.totalFocusMinutes;
@@ -324,6 +327,11 @@ export default function StatsScreen() {
       key: 'monthWeeklyFocus',
       node: (
         <SectionCard key="monthWeeklyFocus" title={`${month}월 주별 집중시간`}>
+          {/* 주 탭(요일별)과 동일한 총계 히어로 — 탭 간 표기 일관(GROMO-849).
+              집계 조회 실패(null)면 숨김 — 0으로 그리면 차트와 모순(코덱스 리뷰 반영) */}
+          {data.focus != null && (
+            <Text style={s.bigStat}>총 {fmtMinutes(data.focus.totalFocusMinutes)}</Text>
+          )}
           <MonthWeeklyChart pick={pickFocus} color={FOCUS_COLOR} />
         </SectionCard>
       ),
@@ -331,7 +339,16 @@ export default function StatsScreen() {
     cards.push({
       key: 'monthWeeklyPhone',
       node: (
-        <SectionCard key="monthWeeklyPhone" title={`${month}월 주별 핸드폰 사용량`}>
+        <SectionCard
+          key="monthWeeklyPhone"
+          title={`${month}월 주별 핸드폰 사용량`}
+          subtitle="집중시간과 대비돼요. 줄어들면 함께 줄어요."
+        >
+          {data.screenTime != null && (
+            <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
+              총 {fmtMinutes(data.screenTime.currentMinutes)}
+            </Text>
+          )}
           <MonthWeeklyChart pick={pickScreenTime} color={PHONE_COLOR} />
         </SectionCard>
       ),
@@ -344,9 +361,10 @@ export default function StatsScreen() {
       key: 'weekdayFocus',
       node: (
         <SectionCard key="weekdayFocus" title="요일별 집중시간">
-          <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
-            총 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
-          </Text>
+          {/* 집계 조회 실패(null)면 히어로 숨김 — 월 탭과 동일(코덱스 리뷰 반영) */}
+          {data.focus != null && (
+            <Text style={s.bigStat}>총 {fmtMinutes(data.focus.totalFocusMinutes)}</Text>
+          )}
           <LineChart
             bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
             color={FOCUS_COLOR}
@@ -357,10 +375,16 @@ export default function StatsScreen() {
     cards.push({
       key: 'weekdayPhone',
       node: (
-        <SectionCard key="weekdayPhone" title="요일별 핸드폰 사용량">
-          <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
-            총 {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
-          </Text>
+        <SectionCard
+          key="weekdayPhone"
+          title="요일별 핸드폰 사용량"
+          subtitle="집중시간과 대비돼요. 줄어들면 함께 줄어요."
+        >
+          {data.screenTime != null && (
+            <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
+              총 {fmtMinutes(data.screenTime.currentMinutes)}
+            </Text>
+          )}
           <LineChart
             bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
             color={PHONE_COLOR}
@@ -473,7 +497,14 @@ export default function StatsScreen() {
           ) : (
             <MonthGrassGrid cells={data.heatmap} />
           )}
-          <Text style={s.grassHint}>집중시간이 많을수록 칸이 진해져요</Text>
+          {/* 강도 범례 — 시안의 '적음→많음' 4단계(빈 칸 제외, GROMO-849) */}
+          <View style={s.grassLegend}>
+            <Text style={s.grassLegendText}>적음</Text>
+            {GRASS.slice(1).map((c) => (
+              <View key={c} style={[s.grassLegendCell, { backgroundColor: c }]} />
+            ))}
+            <Text style={s.grassLegendText}>많음</Text>
+          </View>
         </SectionCard>
       ),
     });
@@ -552,18 +583,21 @@ export default function StatsScreen() {
 function SectionCard({
   title,
   caption,
+  subtitle,
   children,
 }: {
   title: string;
   caption?: string;
+  subtitle?: string; // 제목 아래 설명 한 줄 — 카드 의미 부제(시안 ST6, GROMO-849)
   children: React.ReactNode;
 }) {
   return (
     <View style={s.card}>
-      <View style={s.cardHead}>
+      <View style={[s.cardHead, subtitle ? s.cardHeadTight : null]}>
         <Text style={s.cardTitle}>{title}</Text>
         {caption ? <Text style={s.cardCaption}>{caption}</Text> : null}
       </View>
+      {subtitle ? <Text style={s.cardSubtitle}>{subtitle}</Text> : null}
       {children}
     </View>
   );
@@ -889,10 +923,11 @@ function PasserCompareChart() {
   );
 }
 
-// 해당월 주별 차트(월 탭) — 이달 1일이 낀 주(월~일)의 월요일부터 heatmap을 달력 주 단위로 합산,
-// 가로축은 실제 날짜 구간(예: 6/29~7/5)·해당월 전체 주 미리 기재·미래 주는 선 미표시. 전용 집계 API
-// 없이 파생 계산(GROMO-761). 지표(pick)·색만 바꿔 공부시간/핸드폰 사용량이 공유한다.
-// (하루 평균 전환을 검토했다가 주별 합계 유지로 결정 — 2026-07-11 결정기록 참고)
+// 해당월 주별 차트(월 탭) — 이달 1일부터의 heatmap을 달력 주(월~일) 단위로 합산. 첫 주가 전월에
+// 걸쳐도(라벨 6/29~7/5) 전월 활동은 합산에서 제외 — 카드 위 총계 히어로(이달 1일부터의 월 집계
+// API)와 구간이 일치해야 한다(코덱스 리뷰 반영). 가로축은 실제 날짜 구간·해당월 전체 주 미리
+// 기재·미래 주는 선 미표시. 전용 집계 API 없이 파생 계산(GROMO-761). 지표(pick)·색만 바꿔
+// 공부시간/핸드폰 사용량이 공유한다. (하루 평균 전환 검토 후 주별 합계 유지 — 2026-07-11 결정기록)
 function MonthWeeklyChart({
   pick,
   color,
@@ -909,11 +944,12 @@ function MonthWeeklyChart({
       (async () => {
         const now = new Date();
         const monthFirst = new Date(now.getFullYear(), now.getMonth(), 1);
-        // 이달 1일이 속한 주의 월요일 — 첫 주가 전월에 걸치면 전월 날짜부터 시작(예: 7월 첫 주 = 6/29~7/5)
+        // 이달 1일이 속한 주의 월요일 — 주차 인덱스·가로축 라벨의 기준점(예: 7월 첫 주 = 6/29~7/5)
         const dow = monthFirst.getDay(); // 0=일..6=토
         const weekStart0 = new Date(monthFirst);
         weekStart0.setDate(monthFirst.getDate() - (dow === 0 ? 6 : dow - 1));
-        const cells = await getHeatmap(localDateStr(weekStart0), todayStr()).catch(
+        // 조회는 이달 1일부터 — 첫 주에 낀 전월 날짜를 받으면 총계 히어로(월 집계)와 합이 어긋난다
+        const cells = await getHeatmap(localDateStr(monthFirst), todayStr()).catch(
           () => [] as HeatmapCellResponse[],
         );
         if (cancelled) return;
@@ -1368,7 +1404,6 @@ function WeeklyTimetable() {
           ))}
         </View>
       )}
-      <Text style={s.grassHint}>요일별 집중 시간대 · 집중한 과목 색으로 칠해져요</Text>
     </View>
   );
 }
@@ -1376,13 +1411,19 @@ function WeeklyTimetable() {
 // 선그래프 — BarChart와 같은 데이터(StatBar[])·세로축 구조를 쓰되 값을 점+꺾은선으로 잇는다(주 탭, GROMO-761).
 // 점의 x좌표는 아래 라벨 칼럼(flex 균등 분할)의 중앙과 일치. 직선·원은 SVG가 필요해 react-native-svg 사용.
 const DOT_PAD = 6; // 점(최대 r 4.5)이 캔버스 경계에서 잘리지 않게 사방 여유
+const TIP_W = 84; // 탭 말풍선 배치 폭 — 칼럼 중심 기준, 플롯 밖으로 나가지 않게 클램프
 function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
   const [plotW, setPlotW] = useState(0);
+  // 탭한 칼럼의 실값 말풍선(GROMO-849) — 같은 칼럼 재탭이면 닫힘. 기간 탭 전환 시 언마운트로 초기화.
+  const [picked, setPicked] = useState<number | null>(null);
   if (bars.length === 0) {
     return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
   }
   const axisMax = axisCeil(Math.max(...bars.map((b) => b.value), 1));
   const step = plotW / bars.length;
+  const tip = picked != null && picked < bars.length && !bars[picked].future ? bars[picked] : null;
+  const tipX = step * ((picked ?? 0) + 0.5);
+  const tipY = tip ? CHART_H - (tip.value / axisMax) * CHART_H : 0;
   // 아직 오지 않은 구간(future)은 라벨만 남기고 선·점에서 제외 — x좌표는 원래 칼럼 위치 유지
   const pts = bars
     .map((b, i) => ({ b, i }))
@@ -1430,7 +1471,49 @@ function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
                 fill={color}
               />
             ))}
+            {/* 선택 강조 링 — 탭한 점 둘레 */}
+            {tip && (
+              <Circle
+                cx={tipX + DOT_PAD}
+                cy={tipY + DOT_PAD}
+                r={7}
+                stroke={color}
+                strokeWidth={2}
+                fill="none"
+              />
+            )}
           </Svg>
+        )}
+        {/* 칼럼별 탭 영역 — 점 위가 아니어도 해당 칼럼 세로 영역 아무 데나 탭하면 실값 표시 */}
+        <View style={s.lineTapRow}>
+          {bars.map((b, i) => (
+            <Pressable
+              key={i}
+              style={s.lineTapCol}
+              onPress={() => {
+                // 미래 칼럼은 완전 무반응 — 열린 말풍선을 닫지도 않는다(코덱스 리뷰 반영)
+                if (b.future) return;
+                setPicked(picked === i ? null : i);
+              }}
+            />
+          ))}
+        </View>
+        {/* 실값 말풍선 — 점 위(상단에 가까우면 아래)에 표시 */}
+        {tip && (
+          <View
+            pointerEvents="none"
+            style={[
+              s.lineTipWrap,
+              {
+                left: Math.min(Math.max(tipX - TIP_W / 2, 0), Math.max(plotW - TIP_W, 0)),
+                top: tipY < 34 ? tipY + 12 : tipY - 32,
+              },
+            ]}
+          >
+            <Text style={s.lineTip} allowFontScaling={false}>
+              {fmtHm(tip.value)}
+            </Text>
+          </View>
         )}
         <View style={s.lineLabelRow}>
           {bars.map((b, i) => (
@@ -1454,6 +1537,8 @@ function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
 function FirstStartChart({ period }: { period: StatsPeriod }) {
   const [points, setPoints] = useState<StartTimePoint[] | null>(null);
   const [plotW, setPlotW] = useState(0);
+  // 탭한 칼럼의 시작 시각 말풍선(GROMO-849) — LineChart와 같은 패턴, 값만 시각(HH:MM)
+  const [picked, setPicked] = useState<number | null>(null);
 
   // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 방금 세션이 반영(타임테이블과 동일 패턴)
   useFocusEffect(
@@ -1514,6 +1599,11 @@ function FirstStartChart({ period }: { period: StatsPeriod }) {
       x: step * (i + 0.5),
       y: (((p.minutes as number) - axisMin) / (axisMax - axisMin)) * CHART_H,
     }));
+  const tip =
+    picked != null && picked < points.length && !points[picked].future ? points[picked] : null;
+  const tipMin = tip?.minutes ?? null;
+  const tipX = step * ((picked ?? 0) + 0.5);
+  const tipY = tipMin != null ? ((tipMin - axisMin) / (axisMax - axisMin)) * CHART_H : 0;
   return (
     <View>
       <View style={s.chartPlotRow}>
@@ -1543,7 +1633,49 @@ function FirstStartChart({ period }: { period: StatsPeriod }) {
               {pts.map((p, i) => (
                 <Circle key={i} cx={p.x + DOT_PAD} cy={p.y + DOT_PAD} r={5} fill={FOCUS_COLOR} />
               ))}
+              {/* 선택 강조 링 — 탭한 점 둘레 */}
+              {tipMin != null && (
+                <Circle
+                  cx={tipX + DOT_PAD}
+                  cy={tipY + DOT_PAD}
+                  r={8}
+                  stroke={FOCUS_COLOR}
+                  strokeWidth={2}
+                  fill="none"
+                />
+              )}
             </Svg>
+          )}
+          {/* 칼럼별 탭 영역 — 해당 칼럼 아무 데나 탭하면 첫 시작 시각 표시 */}
+          <View style={s.lineTapRow}>
+            {points.map((p, i) => (
+              <Pressable
+                key={i}
+                style={s.lineTapCol}
+                onPress={() => {
+                  // 미래·무기록 칼럼은 완전 무반응(코덱스 리뷰 반영)
+                  if (p.future || p.minutes == null) return;
+                  setPicked(picked === i ? null : i);
+                }}
+              />
+            ))}
+          </View>
+          {/* 시작 시각 말풍선 — 점 위(상단에 가까우면 아래)에 표시 */}
+          {tipMin != null && (
+            <View
+              pointerEvents="none"
+              style={[
+                s.lineTipWrap,
+                {
+                  left: Math.min(Math.max(tipX - TIP_W / 2, 0), Math.max(plotW - TIP_W, 0)),
+                  top: tipY < 34 ? tipY + 14 : tipY - 32,
+                },
+              ]}
+            >
+              <Text style={s.lineTip} allowFontScaling={false}>
+                {fmtHm(tipMin)}
+              </Text>
+            </View>
           )}
           <View style={s.lineLabelRow}>
             {points.map((p, i) => (
@@ -1618,7 +1750,7 @@ function LongestSessionStat({ period }: { period: StatsPeriod }) {
   }
   return (
     <View>
-      <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>{hms(seconds)}</Text>
+      <Text style={s.bigStat}>{hms(seconds)}</Text>
       <Text style={s.grassHint}>한 번에 가장 오래 이어간 집중 세션이에요</Text>
     </View>
   );
@@ -1685,9 +1817,9 @@ function CategoryDonut({
         {/* 가운데 총합 — 12시 방향부터 시계 방향으로 구간이 채워진다 */}
         <View style={s.donutCenter}>
           <Text style={s.donutCenterValue} allowFontScaling={false}>
-            {fmtMinutes(total)}
+            {fmtHm(total)}
           </Text>
-          <Text style={s.donutCenterLabel}>총 공부</Text>
+          <Text style={s.donutCenterLabel}>총 집중</Text>
         </View>
       </View>
       <View style={s.donutLegend}>
@@ -1698,7 +1830,7 @@ function CategoryDonut({
               {sg.name}
             </Text>
             <Text style={s.donutLegendTime} allowFontScaling={false}>
-              {fmtMinutes(sg.minutes)}
+              {fmtHm(sg.minutes)}
             </Text>
             <Text style={s.donutLegendPct} allowFontScaling={false}>
               {Math.round(sg.frac * 100)}%
@@ -1944,7 +2076,7 @@ function GoalDotRow({
       <View style={s.goalDotHead}>
         <Text style={[s.goalDotLabel, { color }]}>{label}</Text>
         <Text style={[s.goalDotCount, { color: unset ? T.inkMuted : color }]}>
-          {unset ? '목표 미설정' : `${count}일 달성`}
+          {unset ? '목표 미설정' : `7일 중 ${count}일 달성`}
         </Text>
       </View>
       <View style={s.goalDotRow}>
@@ -1977,6 +2109,8 @@ function GoalMonthGrid({
   today: TodayStatsResponse | null;
   elapsedDays: number | null;
 }) {
+  // 탭한 날의 목표별 달성 내역 정보줄(GROMO-849) — 미래·가입 전 무반응, 같은 칸 재탭이면 닫힘
+  const [picked, setPicked] = useState<string | null>(null);
   const now = new Date();
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const todayKey = todayStr();
@@ -2018,29 +2152,64 @@ function GoalMonthGrid({
       (focusGoalSet && c?.focusGoalAchieved ? 1 : 0) + (phoneGoalSet && phoneAchieved(c) ? 1 : 0);
     return n === 2 ? GRASS[4] : n === 1 ? GRASS[2] : GRASS[0];
   };
+  // 탭한 날 정보줄 — 달성한 목표만 나열(색 구분 없음). 오늘 폰 사용은 다음날 확정이라 미포함,
+  // 과거는 플래그·폰 0분 달성 규칙 그대로(달력 색칠과 동일 판정).
+  const pickedInfo = (() => {
+    if (picked == null) return null;
+    const [y, m, d] = picked.split('-').map(Number);
+    const day = WEEK_DAYS[(new Date(y, m - 1, d).getDay() + 6) % 7];
+    const isToday = picked === todayKey;
+    const c = byDate.get(picked);
+    const done = [
+      isToday ? todayFocusOn : focusGoalSet && (c?.focusGoalAchieved ?? false),
+      !isToday && phoneGoalSet && phoneAchieved(c),
+    ];
+    const names = ['집중', '폰 사용'].filter((_, i) => done[i]);
+    return `${m}월 ${d}일 (${day}) · ${names.length > 0 ? `${names.join('·')} 달성` : '달성한 목표 없음'}`;
+  })();
   return (
     <View>
       <View style={s.goalMonthHead}>
+        {/* 달성일/말일 분모 표기 — 주 탭 '7일 중 n일'과 같은 취지, 3개 나열이라 컴팩트(n/말일) */}
         <Text style={[s.goalMonthStat, { color: FOCUS_COLOR }]}>
-          집중 {focusGoalSet ? `${focusDays}일` : '미설정'}
+          집중 {focusGoalSet ? `${focusDays}/${lastDay}일` : '미설정'}
         </Text>
         <Text style={[s.goalMonthStat, { color: PHONE_COLOR }]}>
-          폰 사용 {phoneGoalSet ? `${phoneDays}일` : '미설정'}
+          폰 사용 {phoneGoalSet ? `${phoneDays}/${lastDay}일` : '미설정'}
         </Text>
         {/* 한쪽이라도 미설정이면 '둘 다'는 성립 불가 — 숨김 */}
         {focusGoalSet && phoneGoalSet && (
-          <Text style={[s.goalMonthStat, { color: T.successInk }]}>둘 다 {bothDays}일</Text>
+          <Text style={[s.goalMonthStat, { color: T.successInk }]}>
+            둘 다 {bothDays}/{lastDay}일
+          </Text>
         )}
       </View>
       <View style={s.monthGrass}>
         {rows.map((row, ri) => (
           <View key={ri} style={s.monthGrassRow}>
             {row.map((date) => (
-              <View key={date} style={[s.monthGrassCell, { backgroundColor: colorFor(date) }]} />
+              <Pressable
+                key={date}
+                onPress={() => {
+                  // 미래·가입 전 날짜는 완전 무반응(코덱스 리뷰 반영)
+                  if (date > todayKey || dayOf(date) <= preJoinDays) return;
+                  setPicked(picked === date ? null : date);
+                }}
+                style={[
+                  s.monthGrassCell,
+                  { backgroundColor: colorFor(date) },
+                  picked === date ? s.grassCellOn : null,
+                ]}
+              />
             ))}
           </View>
         ))}
       </View>
+      {pickedInfo != null && (
+        <Text style={s.grassPickInfo} allowFontScaling={false}>
+          {pickedInfo}
+        </Text>
+      )}
       <View style={s.goalLegend}>
         <GoalLegendDot color={GRASS[4]} label="둘 다" />
         <GoalLegendDot color={GRASS[2]} label="하나" />
@@ -2063,25 +2232,68 @@ function GoalLegendDot({ color, label }: { color: string; label: string }) {
 // 아직 안 온 요일은 빈 칸(레벨 0)으로 자리만 유지.
 const WEEK_DAYS = ['월', '화', '수', '목', '금', '토', '일'];
 
+// 탭한 잔디 칸 정보줄 문구 — 날짜·요일·집중시간. 서버가 초를 분으로 내림해 0분이어도 세션이
+// 있을 수 있어(sessionCount>0) '1분 미만'과 '기록 없음'을 구분한다(코덱스 리뷰 반영)
+function grassPickLabel(date: string, minutes: number, hasRecord: boolean): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const day = WEEK_DAYS[(new Date(y, m - 1, d).getDay() + 6) % 7];
+  const time = minutes > 0 ? `집중 ${fmtHm(minutes)}` : hasRecord ? '집중 1분 미만' : '기록 없음';
+  return `${m}월 ${d}일 (${day}) · ${time}`;
+}
+
 function WeekGrassRow({ cells }: { cells: HeatmapCellResponse[] }) {
+  // 탭한 칸의 날짜·집중시간 정보줄(GROMO-849) — 미래 요일 무반응, 같은 칸 재탭이면 닫힘
+  const [picked, setPicked] = useState<number | null>(null);
   const minutesByDay = [0, 0, 0, 0, 0, 0, 0];
+  const recordedByDay = [false, false, false, false, false, false, false]; // 세션 존재(0분 구분용)
   for (const c of cells) {
     const [y, m, d] = c.date.split('-').map(Number);
     const dow = (new Date(y, m - 1, d).getDay() + 6) % 7; // 0=월..6=일
     minutesByDay[dow] = c.totalFocusMinutes;
+    recordedByDay[dow] = c.sessionCount > 0;
   }
+  // 이번 주 월요일 — 칸별 날짜 계산(정보줄 표기·미래 판정용)
+  const now = new Date();
+  const dow0 = now.getDay(); // 0=일..6=토
+  const monday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + (dow0 === 0 ? -6 : 1 - dow0),
+  );
+  const dateFor = (i: number) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return localDateStr(d);
+  };
+  const todayKey = todayStr();
   return (
-    <View style={s.weekGrassRow}>
-      {WEEK_DAYS.map((d, i) => (
-        <View key={d} style={s.weekGrassCol}>
-          <View
-            style={[s.weekGrassCell, { backgroundColor: GRASS[grassLevel(minutesByDay[i])] }]}
-          />
-          <Text style={s.weekGrassLabel} allowFontScaling={false}>
-            {d}
-          </Text>
-        </View>
-      ))}
+    <View>
+      <View style={s.weekGrassRow}>
+        {WEEK_DAYS.map((d, i) => (
+          <View key={d} style={s.weekGrassCol}>
+            <Pressable
+              onPress={() => {
+                // 미래 요일은 완전 무반응(코덱스 리뷰 반영)
+                if (dateFor(i) > todayKey) return;
+                setPicked(picked === i ? null : i);
+              }}
+              style={[
+                s.weekGrassCell,
+                { backgroundColor: GRASS[grassLevel(minutesByDay[i])] },
+                picked === i ? s.grassCellOn : null,
+              ]}
+            />
+            <Text style={s.weekGrassLabel} allowFontScaling={false}>
+              {d}
+            </Text>
+          </View>
+        ))}
+      </View>
+      {picked != null && (
+        <Text style={s.grassPickInfo} allowFontScaling={false}>
+          {grassPickLabel(dateFor(picked), minutesByDay[picked], recordedByDay[picked])}
+        </Text>
+      )}
     </View>
   );
 }
@@ -2089,35 +2301,60 @@ function WeekGrassRow({ cells }: { cells: HeatmapCellResponse[] }) {
 // ST9(월) 공부 잔디 — 해당 월 전체 날짜(말일까지)를 한 줄 7칸씩 정사각형으로 미리 그림(GROMO-761).
 // 아직 안 온 날짜는 빈 칸(레벨 0)으로 자리만 유지.
 function MonthGrassGrid({ cells }: { cells: HeatmapCellResponse[] }) {
+  // 탭한 칸의 날짜·집중시간 정보줄(GROMO-849) — 미래 날짜 무반응, 같은 칸 재탭이면 닫힘
+  const [picked, setPicked] = useState<string | null>(null);
   const now = new Date();
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const minutesByDate = new Map(cells.map((c) => [c.date, c.totalFocusMinutes]));
+  const cellByDate = new Map(cells.map((c) => [c.date, c])); // 분·세션 수 함께 참조(0분 구분용)
   const days = Array.from({ length: lastDay }, (_, i) =>
     localDateStr(new Date(now.getFullYear(), now.getMonth(), i + 1)),
   );
   const rows: string[][] = [];
   for (let i = 0; i < days.length; i += 7) rows.push(days.slice(i, i + 7));
+  const todayKey = todayStr();
   return (
-    <View style={s.monthGrass}>
-      {rows.map((row, ri) => (
-        <View key={ri} style={s.monthGrassRow}>
-          {row.map((date) => (
-            <View
-              key={date}
-              style={[
-                s.monthGrassCell,
-                { backgroundColor: GRASS[grassLevel(minutesByDate.get(date) ?? 0)] },
-              ]}
-            />
-          ))}
-        </View>
-      ))}
+    <View>
+      <View style={s.monthGrass}>
+        {rows.map((row, ri) => (
+          <View key={ri} style={s.monthGrassRow}>
+            {row.map((date) => (
+              <Pressable
+                key={date}
+                onPress={() => {
+                  // 미래 날짜는 완전 무반응(코덱스 리뷰 반영)
+                  if (date > todayKey) return;
+                  setPicked(picked === date ? null : date);
+                }}
+                style={[
+                  s.monthGrassCell,
+                  {
+                    backgroundColor:
+                      GRASS[grassLevel(cellByDate.get(date)?.totalFocusMinutes ?? 0)],
+                  },
+                  picked === date ? s.grassCellOn : null,
+                ]}
+              />
+            ))}
+          </View>
+        ))}
+      </View>
+      {picked != null && (
+        <Text style={s.grassPickInfo} allowFontScaling={false}>
+          {grassPickLabel(
+            picked,
+            cellByDate.get(picked)?.totalFocusMinutes ?? 0,
+            (cellByDate.get(picked)?.sessionCount ?? 0) > 0,
+          )}
+        </Text>
+      )}
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: T.paperLight },
+  // 페이지 배경은 쿨 뉴트럴(T.bg) — 흰 카드가 배경과 구분되게(시안의 배경↔카드 대비, GROMO-849).
+  // 알림·친구 화면과 같은 페이지 배경 토큰.
+  root: { flex: 1, backgroundColor: T.bg },
 
   header: {
     flexDirection: 'row',
@@ -2156,7 +2393,7 @@ const s = StyleSheet.create({
   card: {
     backgroundColor: T.white,
     borderWidth: 1,
-    borderColor: T.paperAlt,
+    borderColor: T.border,
     borderRadius: 18,
     paddingHorizontal: T.space.lg,
     paddingVertical: T.space.lg,
@@ -2169,6 +2406,9 @@ const s = StyleSheet.create({
   },
   cardTitle: { ...T.text.heading, color: T.ink },
   cardCaption: { ...T.text.caption, color: T.inkMuted },
+  // 부제가 있는 카드 — 제목과 부제를 붙이고, 본문 여백은 부제가 담당
+  cardHeadTight: { marginBottom: T.space.xs },
+  cardSubtitle: { ...T.text.caption, color: T.inkMuted, marginBottom: T.space.md },
   // 공유하기 — 타임테이블 카드 하단 오른쪽(헤더에 두면 순서 편집 핸들과 겹침)
   shareBtn: {
     flexDirection: 'row',
@@ -2178,7 +2418,8 @@ const s = StyleSheet.create({
     marginTop: T.space.md,
   },
   shareBtnText: { ...T.text.caption, color: T.inkMuted },
-  bigStat: { ...T.text.title, color: T.ink },
+  // 히어로 숫자 — '숫자가 주인공' 규칙: 항상 지표색(기본 집중=초록). 폰 지표만 PHONE_COLOR로 덮어쓴다
+  bigStat: { ...T.text.title, color: FOCUS_COLOR },
   emptyText: { ...T.text.body, color: T.inkMuted, paddingVertical: T.space.sm },
 
   // ST1 비교
@@ -2254,7 +2495,8 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   donutCenter: { position: 'absolute', alignItems: 'center' },
-  donutCenterValue: { ...T.text.label, fontWeight: '800', color: T.ink },
+  // 도넛 중앙 총합 — 카드의 대표 숫자라 캡션급(label)이 아닌 히어로급으로(GROMO-849)
+  donutCenterValue: { ...T.text.subtitle, fontWeight: '800', color: FOCUS_COLOR },
   donutCenterLabel: { ...T.text.caption, fontSize: 10, color: T.inkSub, marginTop: 2 },
   donutLegend: { flex: 1, gap: T.space.sm },
   donutLegendRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
@@ -2273,6 +2515,27 @@ const s = StyleSheet.create({
   lineLabelRow: { flexDirection: 'row', marginTop: T.space.sm },
   lineLabel: { ...T.text.caption, fontSize: 10, color: T.inkMuted, flex: 1, textAlign: 'center' },
   lineLabelCur: { fontWeight: '800' },
+  // 선그래프 탭 실값 말풍선(GROMO-849)
+  lineTapRow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: CHART_H,
+    flexDirection: 'row',
+  },
+  lineTapCol: { flex: 1 },
+  lineTipWrap: { position: 'absolute', width: TIP_W, alignItems: 'center' },
+  lineTip: {
+    ...T.text.caption,
+    color: T.white,
+    backgroundColor: T.ink,
+    paddingHorizontal: T.space.sm,
+    paddingVertical: 3,
+    borderRadius: 7,
+    overflow: 'hidden',
+    fontVariant: ['tabular-nums'],
+  },
   chartAxisCol: { width: 36, height: CHART_H },
   chartAxisLabel: {
     ...T.text.caption,
@@ -2308,8 +2571,16 @@ const s = StyleSheet.create({
   ttLegendDot: { width: 8, height: 8, borderRadius: 4 },
   ttLegendText: { ...T.text.caption, fontSize: 11, color: T.ink, flexShrink: 1 },
   ttGrid: { flex: 1, gap: 3 },
-  ttRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  ttHourLabel: { ...T.text.caption, fontSize: 9, color: T.inkMuted, width: 18, textAlign: 'right' },
+  // 한 시간 안의 10분 칸은 간격 없이 붙임(GROMO-849) — 시간 라벨과의 간격은 라벨 마진이 담당
+  ttRow: { flexDirection: 'row', alignItems: 'center' },
+  ttHourLabel: {
+    ...T.text.caption,
+    fontSize: 9,
+    color: T.inkMuted,
+    width: 18,
+    textAlign: 'right',
+    marginRight: 3,
+  },
   ttCell: {
     flex: 1,
     height: 14,
@@ -2366,7 +2637,7 @@ const s = StyleSheet.create({
   deltaLabel: { ...T.text.label, color: T.inkSub },
   deltaValueWrap: { flexDirection: 'row', alignItems: 'baseline', gap: T.space.sm },
   deltaArrow: { ...T.text.label },
-  deltaPct: { ...T.text.subtitle },
+  deltaPct: { ...T.text.subtitle, fontWeight: '800' },
   deltaMin: { ...T.text.caption, color: T.inkMuted },
 
   // 목표 달성 — 일 스탬프
@@ -2415,7 +2686,13 @@ const s = StyleSheet.create({
   goalDotDay: { ...T.text.caption, fontSize: 10, fontWeight: '800' },
 
   // 목표 달성 — 월 달력
-  goalMonthHead: { flexDirection: 'row', gap: T.space.lg, marginBottom: T.space.md },
+  // 분모 표기로 길어질 수 있어 좁은 화면에선 줄바꿈 허용
+  goalMonthHead: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: T.space.lg,
+    marginBottom: T.space.md,
+  },
   goalMonthStat: { ...T.text.label, fontWeight: '800' },
   goalLegend: { flexDirection: 'row', gap: T.space.lg, marginTop: T.space.md, alignSelf: 'center' },
   goalLegendItem: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
@@ -2442,5 +2719,18 @@ const s = StyleSheet.create({
   weekGrassCol: { alignItems: 'center', gap: T.space.xs },
   weekGrassCell: { width: 24, height: 24, borderRadius: 6 },
   weekGrassLabel: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
+  // 잔디 강도 범례 — 적음→많음(빈 칸 제외 4단계, GROMO-849)
+  grassLegend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: T.space.xs,
+    marginTop: T.space.md,
+  },
+  grassLegendCell: { width: 12, height: 12, borderRadius: 4 },
+  grassLegendText: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
+  // 탭한 잔디 칸 강조·정보줄(GROMO-849)
+  grassCellOn: { borderWidth: 2, borderColor: T.ink },
+  grassPickInfo: { ...T.text.caption, color: T.ink, alignSelf: 'center', marginTop: T.space.sm },
   grassHint: { ...T.text.caption, color: T.inkMuted, marginTop: T.space.md },
 });
