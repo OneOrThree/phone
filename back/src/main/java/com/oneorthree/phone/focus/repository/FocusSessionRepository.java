@@ -19,12 +19,16 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
 
     // 기간 필터 + 커서(keyset) 페이지네이션. UUID v7 id 는 생성 시간순이라 id 내림차순이 곧 최신순.
     // cursor 가 null 이면 첫 페이지. Slice 는 size+1 조회로 hasNext 를 판정(count 쿼리 없음).
-    // GROMO-872: 사용자가 취소한 CANCELED 세션은 목록에서 제외한다(클라가 이 목록을 직접 합산 —
-    // 리그 '내 시간'·통계 타임라인 — 하므로 취소분이 과다 집계된다). AUTO_CLOSED(orphan 자동 종료)는
-    // 정상 집중으로 간주해 포함한다(집계 대상 완료 세션과 동일 취급 — 여기선 CANCELED 만 배제).
+    // GROMO-872: 클라가 이 목록을 직접 합산(리그 '내 시간'·통계 타임라인)하므로 집계에서 빠져야 할 세션을 제외한다.
+    // status NOT IN (CANCELED, AUTO_CLOSED) — 사용자 취소(CANCELED)와 orphan 자동 종료(AUTO_CLOSED)를 모두 배제.
+    // 라이브 세션 배선(GROMO-873)에선 세션 1건이 라이브 레코드(종료 시 CANCELED·강제종료 시 AUTO_CLOSED)와
+    // 완료 저장(POST /focus-session) 2줄로 남는데, 라이브 레코드의 두 종단 상태를 모두 걸러야 이중집계가 없다.
+    // findCompletedSessionsInPeriod 등 다른 집계 쿼리와 동일한 NOT IN(CANCELED, AUTO_CLOSED) 관례.
     @Query("SELECT s FROM FocusSession s "
             + "WHERE s.user = :user AND s.startedAt BETWEEN :from AND :to "
-            + "AND s.status <> com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED "
+            + "AND s.status NOT IN ("
+            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED, "
+            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED) "
             + "AND (:cursor IS NULL OR s.id < :cursor) "
             + "ORDER BY s.id DESC")
     Slice<FocusSession> findSessionsByCursor(@Param("user") User user,

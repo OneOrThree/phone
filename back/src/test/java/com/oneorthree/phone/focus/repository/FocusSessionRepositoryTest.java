@@ -425,30 +425,32 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
                 .getFocusTag().getId()).isEqualTo(otherTag.getId());
     }
 
-    // ── 세션 목록 조회(findSessionsByCursor) 취소 제외 (GROMO-872) ──────────
+    // ── 세션 목록 조회(findSessionsByCursor) 취소·자동종료 제외 (GROMO-872) ──
 
     @Test
-    @DisplayName("findSessionsByCursor — CANCELED 세션만 제외하고 ACTIVE·COMPLETED·AUTO_CLOSED 는 포함")
-    void findSessionsByCursorExcludesOnlyCanceled() {
+    @DisplayName("findSessionsByCursor — CANCELED·AUTO_CLOSED 는 제외하고 ACTIVE·COMPLETED 만 포함")
+    void findSessionsByCursorExcludesCanceledAndAutoClosed() {
         // given: 같은 startedAt 윈도우 내에 상태별 세션 4개
+        // ACTIVE(진행 중 라이브 또는 레거시 완료) — 포함
         FocusSession active = focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
                 .build());
+        // COMPLETED(정상 완료) — 포함
         FocusSession completed = focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .startedAt(Instant.parse("2026-07-03T02:00:00Z"))
                 .endedAt(Instant.parse("2026-07-03T02:30:00Z"))
                 .status(FocusSessionStatus.COMPLETED)
                 .build());
-        // AUTO_CLOSED(orphan 자동 종료)는 정상 집중으로 간주 → 목록에 포함
-        FocusSession autoClosed = focusSessionRepository.save(FocusSession.builder()
+        // AUTO_CLOSED(orphan 자동 종료 — 라이브 레코드 강제종료 종단) — 제외
+        focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .startedAt(Instant.parse("2026-07-03T03:00:00Z"))
                 .endedAt(Instant.parse("2026-07-03T04:00:00Z"))
                 .status(FocusSessionStatus.AUTO_CLOSED)
                 .build());
-        // CANCELED(유저 취소)만 제외 대상
+        // CANCELED(유저 취소 — 라이브 레코드 정상종료 종단) — 제외
         focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .startedAt(Instant.parse("2026-07-03T05:00:00Z"))
@@ -461,9 +463,9 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         Slice<FocusSession> slice =
                 focusSessionRepository.findSessionsByCursor(user, FROM, TO, null, PageRequest.of(0, 20));
 
-        // then: CANCELED 만 빠지고 나머지 3개 포함
+        // then: CANCELED·AUTO_CLOSED 는 빠지고 ACTIVE·COMPLETED 2개만 포함(이중집계 방지)
         assertThat(slice.getContent())
                 .extracting(FocusSession::getId)
-                .containsExactlyInAnyOrder(active.getId(), completed.getId(), autoClosed.getId());
+                .containsExactlyInAnyOrder(active.getId(), completed.getId());
     }
 }
