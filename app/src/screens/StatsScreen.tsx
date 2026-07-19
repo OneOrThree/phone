@@ -2135,37 +2135,20 @@ function GoalMonthGrid({
       (focusGoalSet && c?.focusGoalAchieved ? 1 : 0) + (phoneGoalSet && phoneAchieved(c) ? 1 : 0);
     return n === 2 ? GRASS[4] : n === 1 ? GRASS[2] : GRASS[0];
   };
-  // 탭한 날 정보줄 — 오늘은 집중만 라이브 판정(폰은 목표 초과 시에만 미달 확정, 아니면 판정 전),
-  // 과거는 플래그·폰 0분 달성 규칙 그대로. 색: 달성=초록 · 미달=빨강 · 그 외=회색.
-  const todayPhoneOver =
-    today != null &&
-    today.screenTime.goalMinutes > 0 &&
-    today.screenTime.todayMinutes > today.screenTime.goalMinutes;
+  // 탭한 날 정보줄 — 달성한 목표만 나열(색 구분 없음). 오늘 폰 사용은 다음날 확정이라 미포함,
+  // 과거는 플래그·폰 0분 달성 규칙 그대로(달력 색칠과 동일 판정).
   const pickedInfo = (() => {
     if (picked == null) return null;
     const [y, m, d] = picked.split('-').map(Number);
     const day = WEEK_DAYS[(new Date(y, m - 1, d).getDay() + 6) % 7];
     const isToday = picked === todayKey;
     const c = byDate.get(picked);
-    const focus = !focusGoalSet
-      ? { txt: '미설정', color: T.inkMuted }
-      : isToday
-        ? todayFocusOn
-          ? { txt: '달성', color: T.successInk }
-          : { txt: '진행 중', color: T.inkMuted }
-        : c?.focusGoalAchieved
-          ? { txt: '달성', color: T.successInk }
-          : { txt: '미달', color: T.dangerInk };
-    const phone = !phoneGoalSet
-      ? { txt: '미설정', color: T.inkMuted }
-      : isToday
-        ? todayPhoneOver
-          ? { txt: '미달', color: T.dangerInk }
-          : { txt: '판정 전', color: T.inkMuted }
-        : phoneAchieved(c)
-          ? { txt: '달성', color: T.successInk }
-          : { txt: '미달', color: T.dangerInk };
-    return { label: `${m}월 ${d}일 (${day})`, focus, phone };
+    const done = [
+      isToday ? todayFocusOn : focusGoalSet && (c?.focusGoalAchieved ?? false),
+      !isToday && phoneGoalSet && phoneAchieved(c),
+    ];
+    const names = ['집중', '폰 사용'].filter((_, i) => done[i]);
+    return `${m}월 ${d}일 (${day}) · ${names.length > 0 ? `${names.join('·')} 달성` : '달성한 목표 없음'}`;
   })();
   return (
     <View>
@@ -2205,11 +2188,9 @@ function GoalMonthGrid({
           </View>
         ))}
       </View>
-      {pickedInfo && (
+      {pickedInfo != null && (
         <Text style={s.grassPickInfo} allowFontScaling={false}>
-          {pickedInfo.label} ·{' '}
-          <Text style={{ color: pickedInfo.focus.color }}>집중 {pickedInfo.focus.txt}</Text> ·{' '}
-          <Text style={{ color: pickedInfo.phone.color }}>폰 사용 {pickedInfo.phone.txt}</Text>
+          {pickedInfo}
         </Text>
       )}
       <View style={s.goalLegend}>
