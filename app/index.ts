@@ -10,6 +10,9 @@ Sentry.init({
   dsn: 'https://884a7f73611b838911f1f91a15a93414@o4511753920315392.ingest.us.sentry.io/4511753927458816',
   // 개발 중(Metro) 에러는 보내지 않고 배포 빌드에서만 전송
   enabled: !__DEV__,
+  // 환경 태그 — analytics의 ENV와 같은 규칙(EXPO_PUBLIC_ENV 우선, 없으면 릴리즈=prod).
+  // dev 서버 대상 빌드와 prod 출시 빌드를 Sentry에서 구분하기 위함(GROMO-849).
+  environment: process.env.EXPO_PUBLIC_ENV ?? (__DEV__ ? 'dev' : 'prod'),
 });
 
 // RN Firebase v22 namespaced API deprecation 경고 억제 — 공식 silence 플래그(모듈러 마이그레이션 전까지).
