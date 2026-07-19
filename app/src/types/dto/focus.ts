@@ -70,8 +70,8 @@ export interface FocusSessionSliceResponse {
 // ── 라이브 세션 마커(GROMO-873, 서버 API는 GROMO-610·733) ────────────────
 // 시작 시 진행 중(endedAt NULL) 세션을 만든다 — 이 레코드가 친구/리그 isFocusing·
 // focusStartedAt·focusTagName 라이브 표시의 원천. 클라 설계상 이 레코드는 '표시용 마커'다:
-// 시간 저장·통계는 기존 완주 저장(POST /focus-session)이 담당하고, 마커는 세션 종료 시
-// 취소(cancel, 통계 미귀속)로 닫아 이중 집계를 막는다. CANCELED 세션은 목록 조회(GET)에서
+// 시간 저장·통계는 기존 완주 저장(POST /focus-session)이 담당하고, 마커는 블록 정산·세션 종료
+// 시 취소(cancel, 통계 미귀속)로 닫아 이중 집계를 막는다. CANCELED 세션은 목록 조회(GET)에서
 // 서버가 제외한다(GROMO-872).
 
 // 서버 FocusType 미러 — 타이머 모드 매핑: countup=INFINITE, countdown=RANGE, pomodoro=POMODORO.

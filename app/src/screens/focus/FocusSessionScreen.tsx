@@ -137,8 +137,9 @@ export default function FocusSessionScreen() {
   const settleAtRef = useRef(startedAtRef.current);
   // 서버 라이브 마커 세션(GROMO-873) — 시작 시 진행 중(endedAt NULL) 레코드를 만들어 친구/리그에
   // '집중 중'으로 뜨게 한다. 표시용 마커일 뿐 시간 저장·통계는 기존 완주 저장(POST, settleFocusBlock)이
-  // 담당하고, 마커는 종료 시 취소(통계 미귀속)로 닫는다 — 이중 집계 없음. liveIdRef는 라이브 레코드
-  // 저장용 스냅샷, liveStartPromiseRef는 시작 응답 시퀀싱용 — 응답 전에 취소가 걸려도 순서대로 처리.
+  // 담당하고, 마커는 블록 정산·세션 종료 시 취소(통계 미귀속)로 닫는다 — 이중 집계 없음. liveIdRef는
+  // 라이브 레코드 저장용 스냅샷, liveStartPromiseRef는 시작 응답 시퀀싱용 — 응답 전에 취소가 걸려도
+  // 순서대로 처리된다.
   const liveIdRef = useRef<string | null>(null);
   const liveStartPromiseRef = useRef<Promise<string | null>>(Promise.resolve(null));
 
@@ -185,7 +186,8 @@ export default function FocusSessionScreen() {
     [subjectName, userId, mode],
   );
 
-  // 세션 진입 시 1회 등록 — 마커는 세션 전체(뽀모도로 휴식 포함)에 하나다.
+  // 세션 진입 시 첫 마커 등록 — 이후 블록 정산마다 닫히고(마커 회전, settleFocusBlock 참고),
+  // 뽀모도로는 휴식이 끝나는 break→focus 경계에서 다음 블록 마커를 새로 연다.
   const liveStartedOnceRef = useRef(false);
   useEffect(() => {
     if (liveStartedOnceRef.current) return;
@@ -321,6 +323,28 @@ export default function FocusSessionScreen() {
     };
   }, [subjectName, subjectId]);
 
+  // 라이브 마커 마감 — 취소(통계 미귀속)로 닫아 친구 화면의 '집중 중'을 끈다. 시간 저장은
+  // settleFocusBlock의 완주 저장(POST)이 별도로 담당하므로 취소해도 기록은 잃지 않는다.
+  // 실패(오프라인 등)해도 서버 고아 스윕이 정리하므로 fire-and-forget.
+  const cancelLiveSession = useCallback(() => {
+    const livePromise = liveStartPromiseRef.current;
+    liveIdRef.current = null;
+    liveStartPromiseRef.current = Promise.resolve(null);
+    livePromise
+      .then((sessionId) => (sessionId != null ? cancelFocusSession({ sessionId }) : undefined))
+      .catch(() => {});
+  }, []);
+
+  // finish를 거치지 않는 언마운트(안드로이드 시스템 back 등)에서도 마커를 닫는다 — 안 닫으면
+  // 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다(코덱스 리뷰). 정상 종료는 finish/완료
+  // 게이트가 이미 취소했으므로 no-op(라이브 참조가 비어 있음).
+  useEffect(
+    () => () => {
+      if (!finishedRef.current) cancelLiveSession();
+    },
+    [cancelLiveSession],
+  );
+
   // 집중 블록 증분 정산 — 마지막 정산 이후 쌓인 집중초(delta)를 로컬·과목·코인에 적립하고
   // 그 구간[settleAt, now]을 서버에 세션으로 업로드한다. 뽀모도로는 집중 블록 끝마다,
   // 그 외 모드는 finish에서 1회 호출된다. 정산 완료분은 라이브 레코드에서 제거(고아 이중정산 방지).
@@ -341,6 +365,10 @@ export default function FocusSessionScreen() {
     addFocusSeconds(delta);
     addFocusToSubject(subjectId, delta);
     if (newCoins > 0) addCoins(newCoins);
+    // 마커 회전(코덱스 리뷰) — 정산된 블록은 서버 누적(base)에 들어가는데 마커를 그대로 두면
+    // 친구 화면 라이브 합산(base + (now − focusStartedAt))에 같은 구간이 두 번 잡힌다.
+    // 블록을 정산하는 즉시 마커를 닫고, 다음 집중 블록 시작(break→focus)에서 새로 연다.
+    cancelLiveSession();
     // 서버 업로드 — 이번 집중 블록 구간만. 과목명을 서버 태그로 매칭/생성해 tagId를 실어 보낸다
     // (과목별 통계 집계용 — 매칭 실패 시 null = 미분류). 업로드 실패 시 대기열에 남겨
     // 재시도(GROMO-614) — 로컬 적립은 이미 반영돼 그냥 버리면 서버와 불일치. 대기열 바디에도
@@ -374,29 +402,16 @@ export default function FocusSessionScreen() {
         );
       })
       .catch(() => {});
-  }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName, userId, mode]);
-
-  // 라이브 마커 마감 — 취소(통계 미귀속)로 닫아 친구 화면의 '집중 중'을 끈다. 시간 저장은
-  // settleFocusBlock의 완주 저장(POST)이 별도로 담당하므로 취소해도 기록은 잃지 않는다.
-  // 실패(오프라인 등)해도 서버 고아 스윕이 정리하므로 fire-and-forget.
-  const cancelLiveSession = useCallback(() => {
-    const livePromise = liveStartPromiseRef.current;
-    liveIdRef.current = null;
-    liveStartPromiseRef.current = Promise.resolve(null);
-    livePromise
-      .then((sessionId) => (sessionId != null ? cancelFocusSession({ sessionId }) : undefined))
-      .catch(() => {});
-  }, []);
-
-  // finish를 거치지 않는 언마운트(안드로이드 시스템 back 등)에서도 마커를 닫는다 — 안 닫으면
-  // 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다(코덱스 리뷰). 정상 종료는 finish/완료
-  // 게이트가 이미 취소했으므로 no-op(라이브 참조가 비어 있음).
-  useEffect(
-    () => () => {
-      if (!finishedRef.current) cancelLiveSession();
-    },
-    [cancelLiveSession],
-  );
+  }, [
+    addFocusSeconds,
+    addFocusToSubject,
+    addCoins,
+    cancelLiveSession,
+    subjectId,
+    subjectName,
+    userId,
+    mode,
+  ]);
 
   // 정지/완료 — 남은 집중 블록 정산(적립+서버 업로드) 후 홈으로. 한 번만 실행.
   const finish = useCallback(async () => {
@@ -468,8 +483,10 @@ export default function FocusSessionScreen() {
       settleFocusBlock();
     } else if (prev === 'break' && cur === 'focus') {
       settleAtRef.current = new Date().toISOString();
+      // 다음 집중 블록의 마커를 새로 연다(마커 회전) — 휴식 동안은 미집중으로 보인다.
+      startLiveSession(settleAtRef.current);
     }
-  }, [session.phase, settleFocusBlock]);
+  }, [session.phase, settleFocusBlock, startLiveSession]);
 
   // 이탈 감지 — background 진입 시각을 기록해두고, 복귀 시 자리 비운 시간으로 판정한다.
   const leftAtRef = useRef<number | null>(null);
