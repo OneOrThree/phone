@@ -74,11 +74,6 @@ export function LiveFocusGrid({
               <Text style={s.name} numberOfLines={1}>
                 {m.nickname}
               </Text>
-              {/* 과목 줄 — 태그 유무와 무관하게 항상 자리를 차지해(없으면 공백) 카드 높이를 통일한다.
-                 flexWrap 그리드에서 같은 행 카드가 2줄/3줄로 어긋나는 것 방지 */}
-              <Text style={s.tag} numberOfLines={1}>
-                {m.isFocusing && m.focusTagName != null ? m.focusTagName : ' '}
-              </Text>
               {m.isFocusing ? (
                 <Text style={s.timeActive}>
                   {hmsCompact(liveTotalSeconds(m.focusTimeMinutes * 60, m.focusStartedAt, now))}
@@ -86,6 +81,11 @@ export function LiveFocusGrid({
               ) : (
                 <Text style={s.timeIdle}>{hourMin(m.focusTimeMinutes * 60)}</Text>
               )}
+              {/* 과목 줄 — 태그 유무와 무관하게 항상 자리를 차지해(없으면 공백) 카드 높이를 통일한다.
+                 flexWrap 그리드에서 같은 행 카드가 2줄/3줄로 어긋나는 것 방지 */}
+              <Text style={s.tag} numberOfLines={1}>
+                {m.isFocusing && m.focusTagName != null ? m.focusTagName : ' '}
+              </Text>
             </View>
           ))}
         </View>
