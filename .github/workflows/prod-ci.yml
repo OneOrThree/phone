@@ -27,11 +27,11 @@ permissions:
   pull-requests: read # 머지된 PR의 라벨 조회용
 
 # OIDC 인증 이전에 필요한 부트스트랩 값만 여기 유지.
-# 리소스 식별자(ECR_REPO 등)는 Secrets Manager(gromo-prod/cicd)에서 주입 — terraform이 관리.
+# 리소스 식별자(ECR_REPO 등)는 Secrets Manager(gromo/prod/cicd)에서 주입 — terraform이 관리.
 env:
   AWS_REGION: ap-northeast-2
   ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-github-actions
-  CICD_SECRET_ID: gromo-prod/cicd
+  CICD_SECRET_ID: gromo/prod/cicd
 
 jobs:
   build-push:

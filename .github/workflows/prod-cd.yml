@@ -27,11 +27,11 @@ permissions:
   contents: read
 
 # OIDC 인증 이전에 필요한 부트스트랩 값만 여기 유지.
-# 리소스 식별자(INSTANCE_ID 등)는 Secrets Manager(gromo-prod/cicd)에서 주입 — terraform이 관리.
+# 리소스 식별자(INSTANCE_ID 등)는 Secrets Manager(gromo/prod/cicd)에서 주입 — terraform이 관리.
 env:
   AWS_REGION: ap-northeast-2
   ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-github-actions
-  CICD_SECRET_ID: gromo-prod/cicd
+  CICD_SECRET_ID: gromo/prod/cicd
   # 자동(workflow_run)이면 CI가 빌드한 커밋 SHA, 수동이면 입력값
   IMAGE_SHA: ${{ github.event.inputs.image_sha || github.event.workflow_run.head_sha }}
 
