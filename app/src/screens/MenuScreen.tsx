@@ -116,10 +116,6 @@ export default function MenuScreen() {
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
-      <View style={s.header}>
-        <Text style={s.headerTitle}>전체</Text>
-      </View>
-
       <ScrollView
         contentContainerStyle={[s.body, { paddingBottom: insets.bottom + 90 }]}
         showsVerticalScrollIndicator={false}
@@ -154,16 +150,10 @@ export default function MenuScreen() {
           <Ionicons name="chevron-forward" size={18} color={T.inkMuted} />
         </TouchableOpacity>
 
+        {/* 섹션·순서(GROMO-848) — 자주 쓰는 행이 위(개인 목표), 1회성·드문 행이 아래(계정·문서·버전).
+             아이콘 색 기준: 섹션마다 한 색 — 목표·집중=인디고, 알림·공개=초록, 계정·정보=중립 회색. */}
         <View ref={goalSectionRef} collapsable={false}>
-          <SettingsSection title="집중 · 목표">
-            <SettingsRow
-              icon="school-outline"
-              iconColor={T.accentDeep}
-              iconBg={T.accentBg}
-              label="준비 시험"
-              value={category ?? '미설정'}
-              onPress={() => navigation.navigate('SettingsOccupation')}
-            />
+          <SettingsSection title="목표 · 집중">
             <SettingsRow
               icon="flag-outline"
               iconColor={T.accentDeep}
@@ -174,8 +164,8 @@ export default function MenuScreen() {
             />
             <SettingsRow
               icon="lock-open-outline"
-              iconColor={T.greenDeep}
-              iconBg={T.greenBg}
+              iconColor={T.accentDeep}
+              iconBg={T.accentBg}
               label="집중 중 허용 앱 관리"
               sub={
                 allowedApps === null
@@ -188,12 +178,20 @@ export default function MenuScreen() {
             />
             <SettingsRow
               icon="phone-portrait-outline"
-              iconColor={T.accent}
+              iconColor={T.accentDeep}
               iconBg={T.accentBg}
               label="스크린타임 권한"
               value={permission === null ? undefined : permissionLabel}
               valueColor={permission === 'approved' ? T.successInk : T.inkSub}
               onPress={() => navigation.navigate('SettingsScreenTimePermission')}
+            />
+            <SettingsRow
+              icon="school-outline"
+              iconColor={T.accentDeep}
+              iconBg={T.accentBg}
+              label="준비 시험"
+              value={category ?? '미설정'}
+              onPress={() => navigation.navigate('SettingsOccupation')}
             />
           </SettingsSection>
         </View>
@@ -201,8 +199,8 @@ export default function MenuScreen() {
         <SettingsSection title="알림 · 공개">
           <SettingsRow
             icon="notifications-outline"
-            iconColor={T.accentDeep}
-            iconBg={T.sandLight}
+            iconColor={T.greenDeep}
+            iconBg={T.greenBg}
             label="알림 설정"
             sub="집중 리마인더 · 리그 · 심야 · 소리"
             onPress={() => navigation.navigate('SettingsNotification')}
@@ -219,8 +217,8 @@ export default function MenuScreen() {
         <SettingsSection title="계정 · 정보">
           <SettingsRow
             icon="person-circle-outline"
-            iconColor={T.accent}
-            iconBg={T.accentBg}
+            iconColor={T.inkSub}
+            iconBg={T.sandLight}
             label="계정 설정"
             sub="소셜 연동 · 로그아웃 · 회원 탈퇴"
             onPress={() => navigation.navigate('SettingsAccount')}
@@ -301,8 +299,6 @@ export default function MenuScreen() {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperLight },
   flex1: { flex: 1 },
-  header: { paddingHorizontal: T.space.xl, paddingTop: T.space.sm, paddingBottom: T.space.sm },
-  headerTitle: { ...T.text.title, color: T.ink },
   body: { paddingHorizontal: T.space.xl, paddingTop: T.space.xs },
 
   // 프로필 헤더
