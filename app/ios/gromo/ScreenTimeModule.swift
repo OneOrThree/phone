@@ -254,14 +254,14 @@ class ScreenTimeModule: NSObject {
             return
         }
 
-        // 30분 간격 눈금(30,60,…). 이벤트 과다(RAM 6MB)·경계 뭉갬 방지로 720분(12h·24개)로 상한.
+        // 30분 간격 눈금(30,60,…). 이벤트 과다(RAM 6MB)·경계 뭉갬 방지로 900분(15h·30개)로 상한.
         // 웹 도메인 시간은 브라우저 앱 시간에 이미 포함 — 브라우저를 덮는 선택과 함께 걸면 같은
         // 시간이 두 번 세져 버킷이 실사용량(설정 스크린타임)보다 크게 잡힌다. 목표 threshold와
         // 동일하게 카테고리 선택이 있으면 도메인을 제외하고, 개별 앱만 고른 선택은 도메인을
         // 유지한다(혼합 선택 보존, PR 리뷰 반영).
         let bucketWebDomains = selection.categoryTokens.isEmpty ? selection.webDomainTokens : []
         let step = 30
-        let maxMinutes = min(max(Int(maxMinutesValue), step), 720)
+        let maxMinutes = min(max(Int(maxMinutesValue), step), 900)
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
         var m = step
         while m <= maxMinutes {
@@ -280,6 +280,20 @@ class ScreenTimeModule: NSObject {
         // 등록 시각 기록(GROMO-871) — Monitor 익스텐션 오발화 가드의 기준점(goal 등록과 동일 목적).
         // startMonitoring 호출 즉시 콜백이 올 수 있으므로 반드시 호출 '전'에 기록한다(코드리뷰 P1).
         defaults?.set(Date().timeIntervalSince1970, forKey: "gromo:screentime:bucketRegisteredAt")
+
+        // 재등록 베이스라인(GROMO-871 코드리뷰 P2) — 재등록은 iOS 누적 카운트를 리셋하므로 이후
+        // 이벤트 눈금은 '등록 이후' 사용량이다. 오늘 이미 기록된 최고 눈금을 베이스로 보관해
+        // 익스텐션이 '베이스+눈금'으로 하루 누적을 복원하게 한다(전/후 구간이 겹치지 않아 이중
+        // 계산 없음). 이 값도 등록 직후 콜백이 읽으므로 startMonitoring 호출 '전'에 기록한다.
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "yyyy-MM-dd"
+        let todayString = dayFormatter.string(from: Date())
+        let storedBucketDate = defaults?.string(forKey: "gromo:screentime:usageBucketDate")
+        let baseMinutes =
+            storedBucketDate == todayString
+            ? (defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0) : 0
+        defaults?.set(baseMinutes, forKey: "gromo:screentime:bucketBaseMinutes")
+        defaults?.set(todayString, forKey: "gromo:screentime:bucketBaseDate")
 
         do {
             try center.startMonitoring(activityName, during: schedule, events: events)
