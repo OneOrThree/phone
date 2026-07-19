@@ -2092,6 +2092,8 @@ function GoalMonthGrid({
   today: TodayStatsResponse | null;
   elapsedDays: number | null;
 }) {
+  // 탭한 날의 목표별 달성 내역 정보줄(GROMO-849) — 미래·가입 전 무반응, 같은 칸 재탭이면 닫힘
+  const [picked, setPicked] = useState<string | null>(null);
   const now = new Date();
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const todayKey = todayStr();
@@ -2133,6 +2135,38 @@ function GoalMonthGrid({
       (focusGoalSet && c?.focusGoalAchieved ? 1 : 0) + (phoneGoalSet && phoneAchieved(c) ? 1 : 0);
     return n === 2 ? GRASS[4] : n === 1 ? GRASS[2] : GRASS[0];
   };
+  // 탭한 날 정보줄 — 오늘은 집중만 라이브 판정(폰은 목표 초과 시에만 미달 확정, 아니면 판정 전),
+  // 과거는 플래그·폰 0분 달성 규칙 그대로. 색: 달성=초록 · 미달=빨강 · 그 외=회색.
+  const todayPhoneOver =
+    today != null &&
+    today.screenTime.goalMinutes > 0 &&
+    today.screenTime.todayMinutes > today.screenTime.goalMinutes;
+  const pickedInfo = (() => {
+    if (picked == null) return null;
+    const [y, m, d] = picked.split('-').map(Number);
+    const day = WEEK_DAYS[(new Date(y, m - 1, d).getDay() + 6) % 7];
+    const isToday = picked === todayKey;
+    const c = byDate.get(picked);
+    const focus = !focusGoalSet
+      ? { txt: '미설정', color: T.inkMuted }
+      : isToday
+        ? todayFocusOn
+          ? { txt: '달성', color: T.successInk }
+          : { txt: '진행 중', color: T.inkMuted }
+        : c?.focusGoalAchieved
+          ? { txt: '달성', color: T.successInk }
+          : { txt: '미달', color: T.dangerInk };
+    const phone = !phoneGoalSet
+      ? { txt: '미설정', color: T.inkMuted }
+      : isToday
+        ? todayPhoneOver
+          ? { txt: '미달', color: T.dangerInk }
+          : { txt: '판정 전', color: T.inkMuted }
+        : phoneAchieved(c)
+          ? { txt: '달성', color: T.successInk }
+          : { txt: '미달', color: T.dangerInk };
+    return { label: `${m}월 ${d}일 (${day})`, focus, phone };
+  })();
   return (
     <View>
       <View style={s.goalMonthHead}>
@@ -2154,11 +2188,30 @@ function GoalMonthGrid({
         {rows.map((row, ri) => (
           <View key={ri} style={s.monthGrassRow}>
             {row.map((date) => (
-              <View key={date} style={[s.monthGrassCell, { backgroundColor: colorFor(date) }]} />
+              <Pressable
+                key={date}
+                onPress={() =>
+                  setPicked(
+                    date > todayKey || dayOf(date) <= preJoinDays || picked === date ? null : date,
+                  )
+                }
+                style={[
+                  s.monthGrassCell,
+                  { backgroundColor: colorFor(date) },
+                  picked === date ? s.grassCellOn : null,
+                ]}
+              />
             ))}
           </View>
         ))}
       </View>
+      {pickedInfo && (
+        <Text style={s.grassPickInfo} allowFontScaling={false}>
+          {pickedInfo.label} ·{' '}
+          <Text style={{ color: pickedInfo.focus.color }}>집중 {pickedInfo.focus.txt}</Text> ·{' '}
+          <Text style={{ color: pickedInfo.phone.color }}>폰 사용 {pickedInfo.phone.txt}</Text>
+        </Text>
+      )}
       <View style={s.goalLegend}>
         <GoalLegendDot color={GRASS[4]} label="둘 다" />
         <GoalLegendDot color={GRASS[2]} label="하나" />
