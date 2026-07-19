@@ -495,7 +495,6 @@ export default function StatsScreen() {
             ))}
             <Text style={s.grassLegendText}>많음</Text>
           </View>
-          <Text style={s.grassHint}>집중시간이 많을수록 칸이 진해져요</Text>
         </SectionCard>
       ),
     });
@@ -2182,25 +2181,60 @@ function GoalLegendDot({ color, label }: { color: string; label: string }) {
 // 아직 안 온 요일은 빈 칸(레벨 0)으로 자리만 유지.
 const WEEK_DAYS = ['월', '화', '수', '목', '금', '토', '일'];
 
+// 탭한 잔디 칸 정보줄 문구 — 날짜·요일·집중시간(0분은 기록 없음)
+function grassPickLabel(date: string, minutes: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const day = WEEK_DAYS[(new Date(y, m - 1, d).getDay() + 6) % 7];
+  return `${m}월 ${d}일 (${day}) · ${minutes > 0 ? `집중 ${fmtHm(minutes)}` : '기록 없음'}`;
+}
+
 function WeekGrassRow({ cells }: { cells: HeatmapCellResponse[] }) {
+  // 탭한 칸의 날짜·집중시간 정보줄(GROMO-849) — 미래 요일 무반응, 같은 칸 재탭이면 닫힘
+  const [picked, setPicked] = useState<number | null>(null);
   const minutesByDay = [0, 0, 0, 0, 0, 0, 0];
   for (const c of cells) {
     const [y, m, d] = c.date.split('-').map(Number);
     const dow = (new Date(y, m - 1, d).getDay() + 6) % 7; // 0=월..6=일
     minutesByDay[dow] = c.totalFocusMinutes;
   }
+  // 이번 주 월요일 — 칸별 날짜 계산(정보줄 표기·미래 판정용)
+  const now = new Date();
+  const dow0 = now.getDay(); // 0=일..6=토
+  const monday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + (dow0 === 0 ? -6 : 1 - dow0),
+  );
+  const dateFor = (i: number) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return localDateStr(d);
+  };
+  const todayKey = todayStr();
   return (
-    <View style={s.weekGrassRow}>
-      {WEEK_DAYS.map((d, i) => (
-        <View key={d} style={s.weekGrassCol}>
-          <View
-            style={[s.weekGrassCell, { backgroundColor: GRASS[grassLevel(minutesByDay[i])] }]}
-          />
-          <Text style={s.weekGrassLabel} allowFontScaling={false}>
-            {d}
-          </Text>
-        </View>
-      ))}
+    <View>
+      <View style={s.weekGrassRow}>
+        {WEEK_DAYS.map((d, i) => (
+          <View key={d} style={s.weekGrassCol}>
+            <Pressable
+              onPress={() => setPicked(dateFor(i) > todayKey || picked === i ? null : i)}
+              style={[
+                s.weekGrassCell,
+                { backgroundColor: GRASS[grassLevel(minutesByDay[i])] },
+                picked === i ? s.grassCellOn : null,
+              ]}
+            />
+            <Text style={s.weekGrassLabel} allowFontScaling={false}>
+              {d}
+            </Text>
+          </View>
+        ))}
+      </View>
+      {picked != null && (
+        <Text style={s.grassPickInfo} allowFontScaling={false}>
+          {grassPickLabel(dateFor(picked), minutesByDay[picked])}
+        </Text>
+      )}
     </View>
   );
 }
@@ -2208,6 +2242,8 @@ function WeekGrassRow({ cells }: { cells: HeatmapCellResponse[] }) {
 // ST9(월) 공부 잔디 — 해당 월 전체 날짜(말일까지)를 한 줄 7칸씩 정사각형으로 미리 그림(GROMO-761).
 // 아직 안 온 날짜는 빈 칸(레벨 0)으로 자리만 유지.
 function MonthGrassGrid({ cells }: { cells: HeatmapCellResponse[] }) {
+  // 탭한 칸의 날짜·집중시간 정보줄(GROMO-849) — 미래 날짜 무반응, 같은 칸 재탭이면 닫힘
+  const [picked, setPicked] = useState<string | null>(null);
   const now = new Date();
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const minutesByDate = new Map(cells.map((c) => [c.date, c.totalFocusMinutes]));
@@ -2216,21 +2252,31 @@ function MonthGrassGrid({ cells }: { cells: HeatmapCellResponse[] }) {
   );
   const rows: string[][] = [];
   for (let i = 0; i < days.length; i += 7) rows.push(days.slice(i, i + 7));
+  const todayKey = todayStr();
   return (
-    <View style={s.monthGrass}>
-      {rows.map((row, ri) => (
-        <View key={ri} style={s.monthGrassRow}>
-          {row.map((date) => (
-            <View
-              key={date}
-              style={[
-                s.monthGrassCell,
-                { backgroundColor: GRASS[grassLevel(minutesByDate.get(date) ?? 0)] },
-              ]}
-            />
-          ))}
-        </View>
-      ))}
+    <View>
+      <View style={s.monthGrass}>
+        {rows.map((row, ri) => (
+          <View key={ri} style={s.monthGrassRow}>
+            {row.map((date) => (
+              <Pressable
+                key={date}
+                onPress={() => setPicked(date > todayKey || picked === date ? null : date)}
+                style={[
+                  s.monthGrassCell,
+                  { backgroundColor: GRASS[grassLevel(minutesByDate.get(date) ?? 0)] },
+                  picked === date ? s.grassCellOn : null,
+                ]}
+              />
+            ))}
+          </View>
+        ))}
+      </View>
+      {picked != null && (
+        <Text style={s.grassPickInfo} allowFontScaling={false}>
+          {grassPickLabel(picked, minutesByDate.get(picked) ?? 0)}
+        </Text>
+      )}
     </View>
   );
 }
@@ -2613,5 +2659,8 @@ const s = StyleSheet.create({
   },
   grassLegendCell: { width: 12, height: 12, borderRadius: 4 },
   grassLegendText: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
+  // 탭한 잔디 칸 강조·정보줄(GROMO-849)
+  grassCellOn: { borderWidth: 2, borderColor: T.ink },
+  grassPickInfo: { ...T.text.caption, color: T.ink, alignSelf: 'center', marginTop: T.space.sm },
   grassHint: { ...T.text.caption, color: T.inkMuted, marginTop: T.space.md },
 });
