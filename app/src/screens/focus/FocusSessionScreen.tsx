@@ -142,6 +142,19 @@ export default function FocusSessionScreen() {
   // 순서대로 처리된다.
   const liveIdRef = useRef<string | null>(null);
   const liveStartPromiseRef = useRef<Promise<string | null>>(Promise.resolve(null));
+  // 취소 실패한 마커 id 보관 — 회전 중 버리면 옛 마커가 열린 채 남아 친구 화면에 옛 블록
+  // 시작부터의 '집중 중'으로 되살아난다(코덱스 리뷰). 새 마커 시작·앱 복귀·종료 시 재시도하고,
+  // 그래도 남으면 서버 고아 스윕(12h)이 최후 보루.
+  const pendingCancelIdsRef = useRef<Set<string>>(new Set());
+  const flushPendingCancels = useCallback(() => {
+    for (const sessionId of [...pendingCancelIdsRef.current]) {
+      cancelFocusSession({ sessionId })
+        .then(() => pendingCancelIdsRef.current.delete(sessionId))
+        .catch(() => {});
+    }
+  }, []);
+  // 휴식 만료 복귀가 다음 블록을 일시정지 대기로 만든 경우 — 마커 오픈을 재개 시점까지 유예(코덱스 리뷰)
+  const markerDeferredRef = useRef(false);
 
   // 집중 세션 시작 계측(GROMO-537) — 실제 세션 화면 진입 시 1회.
   // has_tag: 과목 부착 여부(현재 v2는 과목 선택이 필수라 항상 true지만, 계약상 명시). mode: 타이머 모드.
@@ -166,6 +179,8 @@ export default function FocusSessionScreen() {
   // sessionId는 promise로 전달 — 취소가 시작 응답보다 먼저 걸려도 순서대로 처리된다.
   const startLiveSession = useCallback(
     (startedAt: string) => {
+      // 회전 시점 = 연결이 살아있을 가능성이 큰 시점 — 밀린 취소부터 재시도(코덱스 리뷰)
+      flushPendingCancels();
       const promise = ensureFocusTagId(subjectName, userId)
         .catch(() => null)
         .then((focusTagId) =>
@@ -183,7 +198,7 @@ export default function FocusSessionScreen() {
       liveStartPromiseRef.current = promise;
       return promise;
     },
-    [subjectName, userId, mode],
+    [subjectName, userId, mode, flushPendingCancels],
   );
 
   // 세션 진입 시 첫 마커 등록 — 이후 블록 정산마다 닫히고(마커 회전, settleFocusBlock 참고),
@@ -331,7 +346,13 @@ export default function FocusSessionScreen() {
     liveIdRef.current = null;
     liveStartPromiseRef.current = Promise.resolve(null);
     livePromise
-      .then((sessionId) => (sessionId != null ? cancelFocusSession({ sessionId }) : undefined))
+      .then((sessionId) => {
+        if (sessionId == null) return;
+        // 취소 실패 시 id를 버리지 않고 보관 — 재시도(flushPendingCancels)로 닫는다(코덱스 리뷰)
+        return cancelFocusSession({ sessionId }).catch(() => {
+          pendingCancelIdsRef.current.add(sessionId);
+        });
+      })
       .catch(() => {});
   }, []);
 
@@ -429,13 +450,22 @@ export default function FocusSessionScreen() {
       settleFocusBlock();
       // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).
       cancelLiveSession();
+      // 화면을 떠나기 전 마지막 재시도 — 회전 중 실패해 쌓인 취소가 있으면 지금 정리(코덱스 리뷰)
+      flushPendingCancels();
     } finally {
       // 정산 성공 여부와 무관하게 화면은 반드시 빠져나간다 —
       // 집중 결과 화면(GROMO-598)으로 replace, 길이 무관 항상 결과 화면을 보여준다.
       const focusSeconds = Math.floor(sessionRef.current.elapsed);
       navigation.replace('FocusResult', { focusSeconds, subjectId, subjectName });
     }
-  }, [settleFocusBlock, cancelLiveSession, navigation, subjectId, subjectName]);
+  }, [
+    settleFocusBlock,
+    cancelLiveSession,
+    flushPendingCancels,
+    navigation,
+    subjectId,
+    subjectName,
+  ]);
 
   // 완료 게이트는 이미 세션을 정산하고 라이브 레코드를 제거한 상태다. Android 하드웨어
   // 뒤로가기가 스택을 pop하면 결과 화면의 스트릭/목표 연출을 건너뛰므로 확인과 같은 경로로 보낸다.
@@ -483,8 +513,14 @@ export default function FocusSessionScreen() {
       settleFocusBlock();
     } else if (prev === 'break' && cur === 'focus') {
       settleAtRef.current = new Date().toISOString();
-      // 다음 집중 블록의 마커를 새로 연다(마커 회전) — 휴식 동안은 미집중으로 보인다.
-      startLiveSession(settleAtRef.current);
+      if (pausedRef.current) {
+        // 휴식 만료 복귀가 다음 블록을 일시정지 대기로 만든 경우 — 지금 열면 대기 내내
+        // 친구 화면에 '집중 중'이 흐른다. 마커는 재개 시점에 연다(코덱스 리뷰).
+        markerDeferredRef.current = true;
+      } else {
+        // 다음 집중 블록의 마커를 새로 연다(마커 회전) — 휴식 동안은 미집중으로 보인다.
+        startLiveSession(settleAtRef.current);
+      }
     }
   }, [session.phase, settleFocusBlock, startLiveSession]);
 
@@ -515,6 +551,8 @@ export default function FocusSessionScreen() {
       const away = Math.round((Date.now() - leftAtRef.current) / 1000);
       leftAtRef.current = null;
       cancelLeaveNotifications().catch(() => {});
+      // 복귀 = 연결이 돌아왔을 가능성이 큰 시점 — 회전 중 실패한 마커 취소 재시도(코덱스 리뷰)
+      flushPendingCancels();
       if (__DEV__)
         console.log(`[이탈감지] ${away}초 만에 복귀 (실드 ${shieldedRef.current ? 'ON' : 'OFF'})`);
       if (sessionRef.current.done || finishedRef.current) return;
@@ -526,7 +564,29 @@ export default function FocusSessionScreen() {
           // 방금 인정한 시간이 고아 정산 대상에서 통째로 빠진다.
           const credit = Math.min(away, AWAY_CREDIT_CAP_S);
           let cur = sessionRef.current;
-          for (let i = 0; i < credit && !cur.done; i++) cur = nextTick(cur);
+          let crossed = false;
+          for (let i = 0; i < credit && !cur.done; i++) {
+            const next = nextTick(cur);
+            // 빨리감기가 지나치는 페이즈 경계도 실시간과 동일하게 정산·마커 회전 — 최종 페이즈만
+            // 비교하면 집중→휴식→집중 한 바퀴(같은 페이즈 복귀)가 경계 없음으로 보여 옛 마커가
+            // 휴식 시간까지 계속 흐른다(코덱스 리뷰).
+            if (cur.phase === 'focus' && next.phase === 'break') {
+              crossed = true;
+              sessionRef.current = next; // 정산이 경계 시점의 경과초를 읽도록 먼저 반영
+              settleFocusBlock();
+            } else if (cur.phase === 'break' && next.phase === 'focus') {
+              crossed = true;
+              settleAtRef.current = new Date().toISOString();
+              startLiveSession(settleAtRef.current);
+            }
+            cur = next;
+          }
+          if (crossed) {
+            // 페이즈 이펙트가 같은 경계를 또 처리(마커 이중 오픈)하지 않게 기준을 동기화하고,
+            // 지나온 경계는 진동 한 번으로만 알린다(기존 '복귀 시 한 번 알림' 동작 유지).
+            prevPhaseRef.current = cur.phase;
+            Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
+          }
           setSession(cur);
           saveLive(cur.elapsed);
         } else if (away > LEAVE_END_S) {
@@ -559,15 +619,37 @@ export default function FocusSessionScreen() {
       sub.remove();
       cancelLeaveNotifications().catch(() => {});
     };
-  }, [subjectName, finish, pomo.focusMin, pomo.breakMin, pomo.sets, saveLive, nextTick, mode]);
+  }, [
+    subjectName,
+    finish,
+    pomo.focusMin,
+    pomo.breakMin,
+    pomo.sets,
+    saveLive,
+    nextTick,
+    mode,
+    settleFocusBlock,
+    startLiveSession,
+    flushPendingCancels,
+  ]);
 
   // 일시정지/재개 토글 — 새 상태에 맞춰 계측. 상태 업데이터 안이 아니라 여기서 발행(중복 방지).
   const togglePause = useCallback(() => {
     const next = !pausedRef.current;
     setPaused(next);
-    if (next) logFocusSessionPaused({ elapsed_seconds: Math.floor(sessionRef.current.elapsed) });
-    else logFocusSessionResumed();
-  }, []);
+    if (next) {
+      logFocusSessionPaused({ elapsed_seconds: Math.floor(sessionRef.current.elapsed) });
+    } else {
+      // 일시정지 대기로 유예해둔 다음 블록 마커 — 실제 집중이 시작되는 재개 시점부터 연다.
+      // 정산 기준(settleAt)도 재개 시점으로 — 대기 동안은 경과초가 멈춰 있어 안전(코덱스 리뷰).
+      if (markerDeferredRef.current) {
+        markerDeferredRef.current = false;
+        settleAtRef.current = new Date().toISOString();
+        startLiveSession(settleAtRef.current);
+      }
+      logFocusSessionResumed();
+    }
+  }, [startLiveSession]);
 
   // 정지 버튼(사용자 수동 종료) — 아직 완료되지 않은 세션을 끝내는 것이므로 abandoned 계측 후 종료.
   // 카운트다운/뽀모도로 정상 완료는 done 이펙트가 finish를 부르므로 이 경로를 타지 않는다.
