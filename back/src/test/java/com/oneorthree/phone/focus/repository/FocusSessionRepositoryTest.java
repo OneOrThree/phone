@@ -13,6 +13,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 
 import java.time.Instant;
 import java.util.List;
@@ -421,5 +423,47 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
                 .getFocusTag().getId()).isEqualTo(newTag.getId());
         assertThat(focusSessionRepository.findById(unrelated.getId()).orElseThrow()
                 .getFocusTag().getId()).isEqualTo(otherTag.getId());
+    }
+
+    // ── 세션 목록 조회(findSessionsByCursor) 취소 제외 (GROMO-872) ──────────
+
+    @Test
+    @DisplayName("findSessionsByCursor — CANCELED 세션만 제외하고 ACTIVE·COMPLETED·AUTO_CLOSED 는 포함")
+    void findSessionsByCursorExcludesOnlyCanceled() {
+        // given: 같은 startedAt 윈도우 내에 상태별 세션 4개
+        FocusSession active = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .build());
+        FocusSession completed = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T02:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T02:30:00Z"))
+                .status(FocusSessionStatus.COMPLETED)
+                .build());
+        // AUTO_CLOSED(orphan 자동 종료)는 정상 집중으로 간주 → 목록에 포함
+        FocusSession autoClosed = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T03:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T04:00:00Z"))
+                .status(FocusSessionStatus.AUTO_CLOSED)
+                .build());
+        // CANCELED(유저 취소)만 제외 대상
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T05:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T05:10:00Z"))
+                .status(FocusSessionStatus.CANCELED)
+                .build());
+        focusSessionRepository.flush();
+
+        // when: 첫 페이지(cursor=null) 전체 조회
+        Slice<FocusSession> slice =
+                focusSessionRepository.findSessionsByCursor(user, FROM, TO, null, PageRequest.of(0, 20));
+
+        // then: CANCELED 만 빠지고 나머지 3개 포함
+        assertThat(slice.getContent())
+                .extracting(FocusSession::getId)
+                .containsExactlyInAnyOrder(active.getId(), completed.getId(), autoClosed.getId());
     }
 }
