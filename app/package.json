@@ -1,6 +1,6 @@
 {
-  "name": "testapp",
-  "version": "0.1.0",
+  "name": "gromo",
+  "version": "1.0.0",
   "main": "index.ts",
   "overrides": {
     "postcss": "^8.5.10",

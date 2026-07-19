@@ -48,7 +48,7 @@ export default {
     ],
     slug: 'gromo-kr',
     scheme: 'gromo',
-    version: '0.1.0',
+    version: '1.0.0',
     orientation: 'portrait',
     userInterfaceStyle: 'light',
     newArchEnabled: true,
