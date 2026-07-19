@@ -12,6 +12,9 @@ interface SettingsScaffoldProps {
   children: ReactNode;
   footer?: ReactNode; // 하단 고정 CTA(예: 저장 버튼)
   scroll?: boolean; // 본문 스크롤 여부(기본 true)
+  // 본문 콘텐츠를 최소 뷰포트 높이까지 늘림(flexGrow) — flex 스페이서로 하단 고정 요소를
+  // 만들 때 사용. 콘텐츠가 넘치면(작은 기기·큰 글씨) 그대로 스크롤된다.
+  stretch?: boolean;
 }
 
 export default function SettingsScaffold({
@@ -20,6 +23,7 @@ export default function SettingsScaffold({
   children,
   footer,
   scroll = true,
+  stretch = false,
 }: SettingsScaffoldProps) {
   const insets = useSafeAreaInsets();
   return (
@@ -38,7 +42,10 @@ export default function SettingsScaffold({
       </View>
 
       {scroll ? (
-        <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[s.body, stretch ? s.bodyGrow : null]}
+          showsVerticalScrollIndicator={false}
+        >
           {children}
         </ScrollView>
       ) : (
@@ -66,5 +73,6 @@ const s = StyleSheet.create({
   back: { padding: T.space.xs },
   title: { ...T.text.heading, color: T.ink },
   body: { paddingHorizontal: T.space.xl, paddingTop: T.space.sm, paddingBottom: 32 },
+  bodyGrow: { flexGrow: 1 },
   footer: { paddingHorizontal: T.space.xl, paddingTop: T.space.sm },
 });

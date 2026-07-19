@@ -154,13 +154,13 @@ export default function ScreenTimePermissionScreen() {
     ) : undefined;
 
   return (
-    // scroll={false} — 콘텐츠가 한 화면이라 스크롤 대신 고정 레이아웃으로 두고,
-    // 스페이서로 안내문(수집 항목·기기내 처리)을 화면 하단에 붙인다(GROMO-848)
+    // stretch — 스페이서로 안내문(수집 항목·기기내 처리)을 화면 하단에 붙이되,
+    // 작은 기기·큰 글씨로 콘텐츠가 넘치면 스크롤로 전환된다(코덱스 리뷰, PR 301)
     <SettingsScaffold
       title="스크린타임 관리"
       onBack={() => navigation.goBack()}
       footer={footer}
-      scroll={false}
+      stretch
     >
       {/* 상태 카드 — 권한 배지 + 마지막 동기화. 탭하면 iOS 설정으로 이동 */}
       <TouchableOpacity
