@@ -1,18 +1,18 @@
-# GROMO prod 서버 — CI (이미지 빌드, prod 머지 시 ECR push)
+# GROMO prod 서버 — CI (이미지 빌드, release 머지 시 ECR push)
 #
-# main→prod PR: 빌드 "검증"만 (ECR push 안 함)
-# prod 머지(push)/수동: 빌드 + ECR push (commit SHA 태그만 — latest 없음)
+# main→release PR: 빌드 "검증"만 (ECR push 안 함)
+# release 머지(push)/수동: 빌드 + ECR push (commit SHA 태그만 — latest 없음)
 # 빌드 성공 시 prod-cd가 이어받아 해당 SHA를 자동 배포.
 
 name: prod-ci
 
 on:
   pull_request:
-    branches: [prod] # base가 prod인 PR만 (= main→prod 릴리즈 PR). 검증만
+    branches: [release] # base가 release인 PR만 (= main→release 릴리즈 PR). 검증만
     paths:
       - 'back/**'
   push:
-    branches: [prod] # prod 머지 → 빌드 + ECR push
+    branches: [release] # release 머지 → 빌드 + ECR push
     paths:
       - 'back/**'
   workflow_dispatch:
@@ -23,7 +23,8 @@ concurrency:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write # SemVer 태그(vX.Y.Z) push용 — 라벨 기반 버전 산정(GROMO-788)
+  pull-requests: read # 머지된 PR의 라벨 조회용
 
 # OIDC 인증 이전에 필요한 부트스트랩 값만 여기 유지.
 # 리소스 식별자(ECR_REPO 등)는 Secrets Manager(gromo-prod/cicd)에서 주입 — terraform이 관리.
@@ -38,6 +39,8 @@ jobs:
     timeout-minutes: 20 # self-hosted 기본 360분 — spot 러너 장기 점유 방지
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # SemVer 산정에 기존 v* 태그 목록 필요
 
       - name: AWS 자격증명 (OIDC, keyless)
         uses: aws-actions/configure-aws-credentials@v4
@@ -54,18 +57,64 @@ jobs:
       - name: ECR 로그인
         uses: aws-actions/amazon-ecr-login@v2
 
+      # QEMU: 최종 스테이지에 RUN이 없어 지금은 미사용이지만, 향후 arm64 스테이지에
+      # RUN이 추가돼도 빌드가 깨지지 않게 보험으로 등록
+      - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v3
 
-      - name: 빌드 (push는 prod 머지/수동일 때만)
+      # buildx 캐시는 러너와 같은 리전의 GAR(ci-cache) 사용 — gha 캐시는 크로스 클라우드라
+      # 빌드당 수 분을 먹는다. GCE 러너의 SA 메타데이터 토큰으로 로그인 (gcloud 불필요).
+      - name: GAR 인증 (buildx 캐시 저장소)
+        run: |
+          curl -s -H "Metadata-Flavor: Google" \
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+          | jq -r .access_token \
+          | docker login -u oauth2accesstoken --password-stdin asia-northeast3-docker.pkg.dev
+
+      - name: 빌드 (push는 release 머지/수동일 때만)
         uses: docker/build-push-action@v6
         with:
           context: ./back
           file: ./back/Dockerfile
+          # prod EC2는 t4g(Graviton/arm64) — GROMO-541. builder 스테이지는 $BUILDPLATFORM
+          # (러너 네이티브 amd64)에서 돌아 gradle이 에뮬레이션을 타지 않는다.
+          platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' }} # PR(검증)이면 build만
           provenance: false # attestation 매니페스트(태그 없는 이미지) 생성 방지
           tags: ${{ env.ECR_REPO }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # 캐시는 러너 동일 리전 GAR(ci-cache) — gha 크로스 클라우드 왕복 제거.
+          # dev(cd.yml)는 기존 gha 캐시 유지 결정이라 캐시 공유 없음(prod 자기 캐시만).
+          cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree/ci-cache/back:cache-arm64
+          cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree/ci-cache/back:cache-arm64,mode=max
+
+      # SemVer 자동 산정 (GROMO-788) — release 머지를 만든 PR의 라벨로 범프 결정.
+      #   release:major / release:minor / release:patch (미지정 시 patch)
+      # 새 vX.Y.Z를 git 태그로 push하고, 이미 push된 SHA 이미지에 버전 태그를 재빌드 없이 부착
+      # (imagetools create = 매니페스트 참조 추가). 롤백 시 SHA 대신 vX.Y.Z로도 지정 가능해진다.
+      - name: SemVer 태깅 (release 머지에서만)
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BUMP=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+            --jq '[.[0].labels[].name] | if index("release:major") then "major" elif index("release:minor") then "minor" else "patch" end' \
+            2>/dev/null || echo patch)
+          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          LATEST=${LATEST:-v0.0.0}
+          IFS=. read -r MA MI PA <<< "${LATEST#v}"
+          case "$BUMP" in
+            major) MA=$((MA+1)); MI=0; PA=0 ;;
+            minor) MI=$((MI+1)); PA=0 ;;
+            *)     PA=$((PA+1)) ;;
+          esac
+          NEXT="v$MA.$MI.$PA"
+          git tag "$NEXT" "${{ github.sha }}"
+          git push origin "$NEXT"
+          # ECR 이미지에 버전 태그 부착 — 재빌드 없이 기존 SHA 매니페스트를 참조
+          docker buildx imagetools create -t "$ECR_REPO:$NEXT" "$ECR_REPO:${{ github.sha }}"
+          echo "NEXT_VERSION=$NEXT" >> "$GITHUB_ENV"
+          echo "BUMP=$BUMP" >> "$GITHUB_ENV"
 
       - name: 결과 요약
         run: |
@@ -74,5 +123,8 @@ jobs:
           else
             echo "### prod-ci: ECR push :rocket:" >> $GITHUB_STEP_SUMMARY
             echo "- \`:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+            if [ -n "${NEXT_VERSION:-}" ]; then
+              echo "- 버전: \`$NEXT_VERSION\` ($BUMP — PR 라벨 기준)" >> $GITHUB_STEP_SUMMARY
+            fi
             echo "- prod-cd가 이 SHA를 이어서 자동 배포" >> $GITHUB_STEP_SUMMARY
           fi
