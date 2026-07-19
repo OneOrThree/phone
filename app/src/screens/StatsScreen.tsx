@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   Share,
   Platform,
@@ -1400,13 +1401,19 @@ function WeeklyTimetable() {
 // 선그래프 — BarChart와 같은 데이터(StatBar[])·세로축 구조를 쓰되 값을 점+꺾은선으로 잇는다(주 탭, GROMO-761).
 // 점의 x좌표는 아래 라벨 칼럼(flex 균등 분할)의 중앙과 일치. 직선·원은 SVG가 필요해 react-native-svg 사용.
 const DOT_PAD = 6; // 점(최대 r 4.5)이 캔버스 경계에서 잘리지 않게 사방 여유
+const TIP_W = 84; // 탭 말풍선 배치 폭 — 칼럼 중심 기준, 플롯 밖으로 나가지 않게 클램프
 function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
   const [plotW, setPlotW] = useState(0);
+  // 탭한 칼럼의 실값 말풍선(GROMO-849) — 같은 칼럼 재탭이면 닫힘. 기간 탭 전환 시 언마운트로 초기화.
+  const [picked, setPicked] = useState<number | null>(null);
   if (bars.length === 0) {
     return <Text style={s.emptyText}>아직 기록이 없어요</Text>;
   }
   const axisMax = axisCeil(Math.max(...bars.map((b) => b.value), 1));
   const step = plotW / bars.length;
+  const tip = picked != null && picked < bars.length && !bars[picked].future ? bars[picked] : null;
+  const tipX = step * ((picked ?? 0) + 0.5);
+  const tipY = tip ? CHART_H - (tip.value / axisMax) * CHART_H : 0;
   // 아직 오지 않은 구간(future)은 라벨만 남기고 선·점에서 제외 — x좌표는 원래 칼럼 위치 유지
   const pts = bars
     .map((b, i) => ({ b, i }))
@@ -1454,7 +1461,45 @@ function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
                 fill={color}
               />
             ))}
+            {/* 선택 강조 링 — 탭한 점 둘레 */}
+            {tip && (
+              <Circle
+                cx={tipX + DOT_PAD}
+                cy={tipY + DOT_PAD}
+                r={7}
+                stroke={color}
+                strokeWidth={2}
+                fill="none"
+              />
+            )}
           </Svg>
+        )}
+        {/* 칼럼별 탭 영역 — 점 위가 아니어도 해당 칼럼 세로 영역 아무 데나 탭하면 실값 표시 */}
+        <View style={s.lineTapRow}>
+          {bars.map((b, i) => (
+            <Pressable
+              key={i}
+              style={s.lineTapCol}
+              onPress={() => setPicked(b.future || picked === i ? null : i)}
+            />
+          ))}
+        </View>
+        {/* 실값 말풍선 — 점 위(상단에 가까우면 아래)에 표시 */}
+        {tip && (
+          <View
+            pointerEvents="none"
+            style={[
+              s.lineTipWrap,
+              {
+                left: Math.min(Math.max(tipX - TIP_W / 2, 0), Math.max(plotW - TIP_W, 0)),
+                top: tipY < 34 ? tipY + 12 : tipY - 32,
+              },
+            ]}
+          >
+            <Text style={s.lineTip} allowFontScaling={false}>
+              {fmtHm(tip.value)}
+            </Text>
+          </View>
         )}
         <View style={s.lineLabelRow}>
           {bars.map((b, i) => (
@@ -1478,6 +1523,8 @@ function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
 function FirstStartChart({ period }: { period: StatsPeriod }) {
   const [points, setPoints] = useState<StartTimePoint[] | null>(null);
   const [plotW, setPlotW] = useState(0);
+  // 탭한 칼럼의 시작 시각 말풍선(GROMO-849) — LineChart와 같은 패턴, 값만 시각(HH:MM)
+  const [picked, setPicked] = useState<number | null>(null);
 
   // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 방금 세션이 반영(타임테이블과 동일 패턴)
   useFocusEffect(
@@ -1538,6 +1585,11 @@ function FirstStartChart({ period }: { period: StatsPeriod }) {
       x: step * (i + 0.5),
       y: (((p.minutes as number) - axisMin) / (axisMax - axisMin)) * CHART_H,
     }));
+  const tip =
+    picked != null && picked < points.length && !points[picked].future ? points[picked] : null;
+  const tipMin = tip?.minutes ?? null;
+  const tipX = step * ((picked ?? 0) + 0.5);
+  const tipY = tipMin != null ? ((tipMin - axisMin) / (axisMax - axisMin)) * CHART_H : 0;
   return (
     <View>
       <View style={s.chartPlotRow}>
@@ -1567,7 +1619,45 @@ function FirstStartChart({ period }: { period: StatsPeriod }) {
               {pts.map((p, i) => (
                 <Circle key={i} cx={p.x + DOT_PAD} cy={p.y + DOT_PAD} r={5} fill={FOCUS_COLOR} />
               ))}
+              {/* 선택 강조 링 — 탭한 점 둘레 */}
+              {tipMin != null && (
+                <Circle
+                  cx={tipX + DOT_PAD}
+                  cy={tipY + DOT_PAD}
+                  r={8}
+                  stroke={FOCUS_COLOR}
+                  strokeWidth={2}
+                  fill="none"
+                />
+              )}
             </Svg>
+          )}
+          {/* 칼럼별 탭 영역 — 해당 칼럼 아무 데나 탭하면 첫 시작 시각 표시 */}
+          <View style={s.lineTapRow}>
+            {points.map((p, i) => (
+              <Pressable
+                key={i}
+                style={s.lineTapCol}
+                onPress={() => setPicked(p.future || p.minutes == null || picked === i ? null : i)}
+              />
+            ))}
+          </View>
+          {/* 시작 시각 말풍선 — 점 위(상단에 가까우면 아래)에 표시 */}
+          {tipMin != null && (
+            <View
+              pointerEvents="none"
+              style={[
+                s.lineTipWrap,
+                {
+                  left: Math.min(Math.max(tipX - TIP_W / 2, 0), Math.max(plotW - TIP_W, 0)),
+                  top: tipY < 34 ? tipY + 14 : tipY - 32,
+                },
+              ]}
+            >
+              <Text style={s.lineTip} allowFontScaling={false}>
+                {fmtHm(tipMin)}
+              </Text>
+            </View>
           )}
           <View style={s.lineLabelRow}>
             {points.map((p, i) => (
@@ -2307,6 +2397,27 @@ const s = StyleSheet.create({
   lineLabelRow: { flexDirection: 'row', marginTop: T.space.sm },
   lineLabel: { ...T.text.caption, fontSize: 10, color: T.inkMuted, flex: 1, textAlign: 'center' },
   lineLabelCur: { fontWeight: '800' },
+  // 선그래프 탭 실값 말풍선(GROMO-849)
+  lineTapRow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: CHART_H,
+    flexDirection: 'row',
+  },
+  lineTapCol: { flex: 1 },
+  lineTipWrap: { position: 'absolute', width: TIP_W, alignItems: 'center' },
+  lineTip: {
+    ...T.text.caption,
+    color: T.white,
+    backgroundColor: T.ink,
+    paddingHorizontal: T.space.sm,
+    paddingVertical: 3,
+    borderRadius: 7,
+    overflow: 'hidden',
+    fontVariant: ['tabular-nums'],
+  },
   chartAxisCol: { width: 36, height: CHART_H },
   chartAxisLabel: {
     ...T.text.caption,
