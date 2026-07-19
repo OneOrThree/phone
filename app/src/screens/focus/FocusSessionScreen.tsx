@@ -613,6 +613,11 @@ export default function FocusSessionScreen() {
           if (!cur.done && away > credit && cur.phase === 'focus') {
             sessionRef.current = cur;
             settleFocusBlock(new Date(leftAtMs + credit * 1000).toISOString());
+            // 상한이 정확히 블록 경계(휴식→집중 직후)에 떨어지면 정산할 델타가 0이라 settle이
+            // 마커를 안 닫는다 — 직전에 연 과거 마커가 아래 startLiveSession의 참조 덮어쓰기로
+            // 유실돼 12h 스윕까지 '집중 중'으로 되살아나지 않게 명시적으로 닫는다(코덱스 리뷰).
+            // settle이 이미 회전했다면 참조가 비어 no-op.
+            cancelLiveSession();
             settleAtRef.current = new Date().toISOString();
             startLiveSession(settleAtRef.current);
           }
@@ -665,6 +670,7 @@ export default function FocusSessionScreen() {
     mode,
     settleFocusBlock,
     startLiveSession,
+    cancelLiveSession,
     flushPendingCancels,
   ]);
 
