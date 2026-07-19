@@ -29,6 +29,8 @@ export const glassPill = {
 
 // 네이티브 유리 알약 채움 — 지원 시에만 그린다. 미지원이면 null을 반환하므로
 // 호출부는 래퍼에 glassPill 폴백 스타일을 조건부로 유지해야 한다.
+// ⚠️ 유리는 뒤 콘텐츠를 블러시킨다 — 콘텐츠가 유리 "위"에 그려지는 구조(탭바: 아이콘이 알약 위)
+//    에서만 쓸 것. 글자 위에 얹는 오버레이(과목·타이머 선택 알약)에 쓰면 글자가 안 보인다.
 export function GlassPillFill({
   borderRadius,
   tintColor = withAlpha(T.accent, 0.15),

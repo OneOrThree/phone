@@ -13,12 +13,7 @@ import Reanimated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 import { hmsCompact } from '../format';
 import type { Subject } from '../types';
-import {
-  glassSlide,
-  glassPill,
-  GlassPillFill,
-  isLiquidGlassSupported,
-} from '@/components/liquidGlass';
+import { glassSlide, glassPill } from '@/components/liquidGlass';
 
 // 순수 RN(PanResponder+Animated) 드래그 정렬 리스트.
 // ⋮ 를 잡고 위아래로 움직이면 순서 변경. 화면 가장자리 근처로 끌면 자동 스크롤.
@@ -280,13 +275,11 @@ export function DraggableSubjectRows({
             pointerEvents="none"
             style={[
               s.glass,
-              !isLiquidGlassSupported && glassPill,
+              glassPill,
               { transform: [{ translateY: activeIndex * SLOT }] },
               glassSlide,
             ]}
-          >
-            <GlassPillFill borderRadius={14} />
-          </Reanimated.View>
+          />
         )}
       </View>
       {footer}
@@ -327,8 +320,9 @@ const s = StyleSheet.create({
   },
   iconBoxIdle: { backgroundColor: T.caramel },
   iconBoxSelected: { backgroundColor: T.accent },
-  // 리퀴드 글래스 알약 래퍼 — 행 카드가 불투명이라 위에 얹는다(드래그 중 행 zIndex 10 아래).
-  // 채움은 GlassPillFill(네이티브) 또는 glassPill(폴백)이 담당
+  // 유리 알약 래퍼 — 행 카드가 불투명이라 위에 얹는다(드래그 중 행 zIndex 10 아래).
+  // ⚠️ 글자 위 오버레이라 네이티브 리퀴드 글래스 금지 — 유리가 뒤 글자를 블러시켜 안 보인다.
+  //    반투명 틴트(glassPill)만 사용.
   glass: {
     position: 'absolute',
     left: 0,
