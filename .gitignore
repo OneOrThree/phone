@@ -9,6 +9,8 @@
 docs/
 # 앱 아이콘 로컬 스테이징 (레포 루트)
 /assets/
+# 작업 일지 (로컬 전용)
+/logs/
 # 부하테스트 기획 문서는 추적 (GROMO-548)
 !loadtest/docs/
 *.env

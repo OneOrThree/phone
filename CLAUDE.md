@@ -67,8 +67,9 @@ plus each file's `name:`.
 - **Prod**: `prod-ci.yml` (verifies PRs to `release`; builds + pushes the image on
   `release` push) → `prod-cd.yml` (auto-deploys via `workflow_run`, or manual
   dispatch by SHA) → `prod-rollback.yml` (manual rollback).
-- **API docs**: `api-dog-generate.yml` (OpenAPI generation on `main`/`release`/`b*`
-  pushes), `cleanup-api-docs.yml` (cleanup on branch delete).
+- **API docs**: `api-dog-generate.yml` (OpenAPI generation on `main`/`release`/
+  `bfeat|bfix|brefactor` pushes — `bchore` is excluded), `cleanup-api-docs.yml`
+  (cleanup on branch delete).
 - **Observability (manual dispatch)**: `dev-datadog.yml` (Datadog APM toggle),
   `dev-monitor.yml` (Prometheus/Grafana/Loki stack).
 - **Load test**: `loadtest.yml` — manual dispatch with profile/scenario inputs.
