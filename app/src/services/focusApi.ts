@@ -9,6 +9,9 @@ import type {
   FocusSessionResponse,
   FocusSessionSaveResponse,
   FocusSessionSliceResponse,
+  FocusSessionStartRequest,
+  FocusSessionStartResponse,
+  FocusSessionCancelRequest,
   OccupationDefaultTagsResponse,
 } from '@/types/dto/focus';
 import type { Occupation } from '@/types/dto/user';
@@ -53,6 +56,21 @@ export async function saveFocusSession(
   return data;
 }
 
+// POST /api/v1/focus-session/start — 라이브 세션 시작(진행 중 레코드 생성, GROMO-873).
+// 이 레코드가 친구/리그의 isFocusing·focusStartedAt·focusTagName 라이브 표시의 원천이다.
+// 표시용 마커일 뿐이라 시간 저장은 여전히 saveFocusSession(POST)이 담당한다.
+export async function startFocusSession(
+  body: FocusSessionStartRequest,
+): Promise<FocusSessionStartResponse> {
+  const { data } = await api.post<FocusSessionStartResponse>('/api/v1/focus-session/start', body);
+  return data;
+}
+
+// PATCH /api/v1/focus-session/cancel — 진행 중 세션 취소(통계 미귀속). 이미 마감이면 409.
+export async function cancelFocusSession(body: FocusSessionCancelRequest): Promise<void> {
+  await api.patch('/api/v1/focus-session/cancel', body);
+}
+
 // GET /api/v1/focus-session?from&to&cursor?&size — 기간 필터 + 커서(keyset) 페이지네이션 조회.
 // from/to는 UTC Instant(ISO 문자열, 필수), cursor 생략 시 첫 페이지, size 필수.
 export async function getFocusSessions(
@@ -78,7 +96,9 @@ export async function getAllFocusSessions(
   let cursor: string | undefined;
   for (let page = 0; page < 50; page++) {
     const slice = await getFocusSessions(from, to, 100, cursor);
-    all.push(...slice.content);
+    // 진행 중(endedAt null) 세션은 제외 — 라이브 마커 도입(GROMO-873)으로 목록에 섞일 수 있는데,
+    // 소비처 전부(복원·통계·주간 합산)가 완료 구간을 전제한다. 취소된 마커는 서버가 제외(GROMO-872).
+    all.push(...slice.content.filter((s) => s.endedAt != null));
     if (!slice.hasNext || !slice.nextCursor) break;
     cursor = slice.nextCursor;
   }

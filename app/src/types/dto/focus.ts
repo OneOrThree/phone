@@ -54,7 +54,7 @@ export interface FocusSessionSaveResponse {
 export interface FocusSessionResponse {
   focusTagId: string | null; // UUID, 태그 미지정 시 null (user_focus_tags.id — GROMO-673)
   startedAt: string; // Instant, ISO 문자열
-  endedAt: string; // Instant, ISO 문자열
+  endedAt: string; // Instant, ISO 문자열. ⚠️ 진행 중 세션은 null로 오지만 getAllFocusSessions가 걸러낸다
   totalDistractionSeconds: number;
 }
 
@@ -64,4 +64,32 @@ export interface FocusSessionSliceResponse {
   size: number;
   hasNext: boolean;
   nextCursor: string | null; // UUID, 마지막 항목 id. hasNext=false 면 null
+}
+
+// ── 라이브 세션 마커(GROMO-873, 서버 API는 GROMO-610·733) ────────────────
+// 시작 시 진행 중(endedAt NULL) 세션을 만든다 — 이 레코드가 친구/리그 isFocusing·
+// focusStartedAt·focusTagName 라이브 표시의 원천. 클라 설계상 이 레코드는 '표시용 마커'다:
+// 시간 저장·통계는 기존 완주 저장(POST /focus-session)이 담당하고, 마커는 세션 종료 시
+// 취소(cancel, 통계 미귀속)로 닫아 이중 집계를 막는다. CANCELED 세션은 목록 조회(GET)에서
+// 서버가 제외한다(GROMO-872).
+
+// 서버 FocusType 미러 — 타이머 모드 매핑: countup=INFINITE, countdown=RANGE, pomodoro=POMODORO.
+export type FocusType = 'INFINITE' | 'RANGE' | 'POMODORO';
+
+// POST /focus-session/start — 라이브 세션 시작 요청.
+export interface FocusSessionStartRequest {
+  focusTagId: string | null; // UUID, 태그 미지정 시 null
+  startedAt: string; // Instant, ISO 문자열
+  focusType: FocusType;
+}
+
+// POST /focus-session/start — 시작 응답. sessionId로 이후 취소를 참조한다.
+export interface FocusSessionStartResponse {
+  sessionId: string; // UUID
+  startedAt: string; // 서버가 확정한 시작 시각
+}
+
+// PATCH /focus-session/cancel — 진행 중 세션 취소 요청(통계 미귀속, 성공은 204 빈 바디).
+export interface FocusSessionCancelRequest {
+  sessionId: string; // UUID
 }
