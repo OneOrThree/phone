@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TextInput, ActivityIndicator, StyleSheet, Image } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -18,6 +18,7 @@ import { clearInbox } from '@/services/notificationInbox';
 import { occupationForCategory, categoryForOccupation } from '@/constants/focusCategories';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { runStorageMigrations } from '@/utils/storageMigration';
+import { markOtaSplashShown } from '@/utils/otaGate';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { LoginResult, UserProfile } from '@/types/api';
 
@@ -402,22 +403,40 @@ function App() {
 
 const s = StyleSheet.create({
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: T.paper },
-  updatingText: { marginTop: 12, fontSize: 14, color: T.inkSub },
+  // OTA 준비 화면 — OnboardingSplash(캐릭터+GROMO 워드마크)와 같은 구성
+  updatingChar: { width: 220, height: 220 },
+  updatingBrand: { ...T.text.display, color: T.ink, letterSpacing: 4, marginTop: T.space.sm },
+  updatingText: { marginTop: T.space.lg, fontSize: 14, color: T.inkSub },
 });
 
+// OTA 준비 화면 — 온보딩 진입 스플래시와 같은 구성(캐릭터+GROMO)에 응원 문구,
+// 다운로드 중임은 퍼센트로만 표시. 노출 기록은 렌더 도중이 아니라 커밋(마운트) 후에
+// 남긴다 — 커밋되지 않고 버려진 렌더가 온보딩 스플래시를 잘못 스킵시키지 않도록(코드리뷰 P2).
+function OtaUpdateGateScreen({ progress }: { progress: number }) {
+  useEffect(() => {
+    markOtaSplashShown();
+  }, []);
+  return (
+    <View style={s.loading}>
+      <Image
+        source={require('@/assets/character_hi.png')}
+        style={s.updatingChar}
+        resizeMode="contain"
+      />
+      <Text style={s.updatingBrand}>GROMO</Text>
+      <Text style={s.updatingText}>
+        오늘 집중도 화이팅!!{progress > 0 ? ` ${Math.round(progress * 100)}%` : ''}
+      </Text>
+    </View>
+  );
+}
+
 // hot-updater OTA 게이트(GROMO-875) — 릴리즈 빌드 시작 시 새 JS 번들을 확인하고,
-// 있으면 내려받는 동안 아래 화면으로 진입을 막았다가 적용한다. 없으면 즉시 통과.
+// 있으면 내려받는 동안 준비 화면으로 진입을 막았다가 적용한다. 없으면 즉시 통과.
 // baseURL은 공개 엔드포인트(비밀값 아님). 채널은 네이티브 설정(HOT_UPDATER_CHANNEL=production)을 따른다.
 export default HotUpdater.wrap({
   baseURL: 'https://ohwgkgbhzvnbtxfewosa.supabase.co/functions/v1/update-server',
   updateStrategy: 'appVersion',
-  fallbackComponent: ({ progress }) => (
-    <View style={s.loading}>
-      <ActivityIndicator size="large" color={T.ink} />
-      <Text style={s.updatingText}>
-        새로운 소식을 준비하고 있어요{progress > 0 ? ` ${Math.round(progress * 100)}%` : ''}
-      </Text>
-    </View>
-  ),
+  fallbackComponent: OtaUpdateGateScreen,
   // 제네릭 명시 — index.ts의 Sentry.wrap이 요구하는 props 타입(Record<string, unknown>)에 맞춘다.
 })<Record<string, unknown>>(App);
