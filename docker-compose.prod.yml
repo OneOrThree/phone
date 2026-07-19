@@ -8,7 +8,7 @@
 #     up 직후 삭제된다(컨테이너는 up 시점에 env를 이미 물려받음).
 #   - 개별 키를 나열하지 않으므로 SM에서 키를 지우면 다음 배포부터 자동으로 빠진다.
 #   - 따라서 SM 키 이름은 스프링이 읽는 env 이름(application-prod.yml의 ${...})과 정확히 일치해야
-#     한다: DB_URL·DB_USERNAME·DB_PASSWORD·JWT_SECRET·GOOGLE_CLIENT_ID·APPLE_CLIENT_ID·DD_API_KEY 등.
+#     한다: API_DB_URL·API_DB_USERNAME·API_DB_PASSWORD·JWT_SECRET·GOOGLE_CLIENT_ID·APPLE_CLIENT_ID·DD_API_KEY 등.
 
 services:
   app:

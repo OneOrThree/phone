@@ -9,7 +9,7 @@ services:
   app:
     image: ${IMAGE:?fetch-env.sh sut 가 .env 에 기록}
     container_name: loadtest-app
-    env_file: .env # DB_URL·DB_USERNAME·DB_PASSWORD·JWT_SECRET (Secret Manager → fetch-env.sh)
+    env_file: .env # API_DB_URL·API_DB_USERNAME·API_DB_PASSWORD·JWT_SECRET (Secret Manager → fetch-env.sh)
     environment:
       SPRING_PROFILES_ACTIVE: loadtest
       # 고정 힙 — run 간 힙 크기가 다르면 비교 불가 (설계 §2-2). GC 로그는 심층 분석 재료.
