@@ -191,6 +191,7 @@ export default function FocusCategoryScreen() {
   }
 
   function handleAddSubject() {
+    cancelPendingMethodSheet(); // 추가 프롬프트 위로 예약 시트가 뒤늦게 뜨는 것 방지(코덱스 리뷰, PR 301 후속)
     // 이름을 먼저 입력받고 추가. 누적시간은 0에서 시작해 실제 세션으로 쌓인다.
     Alert.prompt(
       '새 과목 추가',
@@ -279,6 +280,7 @@ export default function FocusCategoryScreen() {
                       style={s.recoRow}
                       activeOpacity={0.8}
                       onPress={() => {
+                        cancelPendingMethodSheet(); // 추천 추가 중 예약 시트 발화 방지
                         addSubject(name);
                         logFocusTagCreated();
                       }}
