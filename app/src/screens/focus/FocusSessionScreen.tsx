@@ -353,8 +353,14 @@ export default function FocusSessionScreen() {
           pendingCancelIdsRef.current.add(sessionId);
         });
       })
+      // 이 취소의 성패가 확정된 뒤 밀린 취소를 재시도 — finish의 flush가 진행 중이던 마지막
+      // 취소보다 먼저 돌아 실패분을 놓치는 순서 경합 방지(코덱스 리뷰). 체인은 언마운트 후에도
+      // 살아 있어 정지 직후 화면을 떠나도 재시도가 한 번은 돈다.
+      .then(() => {
+        if (pendingCancelIdsRef.current.size > 0) flushPendingCancels();
+      })
       .catch(() => {});
-  }, []);
+  }, [flushPendingCancels]);
 
   // finish를 거치지 않는 언마운트(안드로이드 시스템 back 등)에서도 마커를 닫는다 — 안 닫으면
   // 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다(코덱스 리뷰). 정상 종료는 finish/완료
@@ -369,70 +375,76 @@ export default function FocusSessionScreen() {
   // 집중 블록 증분 정산 — 마지막 정산 이후 쌓인 집중초(delta)를 로컬·과목·코인에 적립하고
   // 그 구간[settleAt, now]을 서버에 세션으로 업로드한다. 뽀모도로는 집중 블록 끝마다,
   // 그 외 모드는 finish에서 1회 호출된다. 정산 완료분은 라이브 레코드에서 제거(고아 이중정산 방지).
-  const settleFocusBlock = useCallback(() => {
-    const elapsed = Math.floor(sessionRef.current.elapsed);
-    const delta = elapsed - settledSecondsRef.current;
-    if (delta <= 0) return;
-    const endedAt = new Date().toISOString();
-    const startedAt = settleAtRef.current;
-    // 마커·레코드를 적립보다 먼저 갱신 — 적립 후 제거 전에 죽으면 고아 정산이 또 적립한다(원 finish와 동일 순서).
-    settledSecondsRef.current = elapsed;
-    const totalCoins = Math.floor(elapsed / 10);
-    const newCoins = totalCoins - settledCoinsRef.current;
-    settledCoinsRef.current = totalCoins;
-    settleAtRef.current = endedAt;
-    AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
-    // 로컬/과목/코인 적립
-    addFocusSeconds(delta);
-    addFocusToSubject(subjectId, delta);
-    if (newCoins > 0) addCoins(newCoins);
-    // 마커 회전(코덱스 리뷰) — 정산된 블록은 서버 누적(base)에 들어가는데 마커를 그대로 두면
-    // 친구 화면 라이브 합산(base + (now − focusStartedAt))에 같은 구간이 두 번 잡힌다.
-    // 블록을 정산하는 즉시 마커를 닫고, 다음 집중 블록 시작(break→focus)에서 새로 연다.
-    cancelLiveSession();
-    // 서버 업로드 — 이번 집중 블록 구간만. 과목명을 서버 태그로 매칭/생성해 tagId를 실어 보낸다
-    // (과목별 통계 집계용 — 매칭 실패 시 null = 미분류). 업로드 실패 시 대기열에 남겨
-    // 재시도(GROMO-614) — 로컬 적립은 이미 반영돼 그냥 버리면 서버와 불일치. 대기열 바디에도
-    // 해석된 tagId를 실어 재시도 시 과목이 유지되게 한다.
-    ensureFocusTagId(subjectName, userId)
-      .catch(() => null)
-      .then((focusTagId) => {
-        const body = {
-          focusTagId,
-          subject: subjectName,
-          startedAt,
-          endedAt,
-          distractionCount: 0,
-          totalDistractionSeconds: 0,
-          // 완주 저장에도 세션 유형을 전파 — 마커(취소됨)에만 실으면 RANGE/POMODORO가
-          // 전부 INFINITE(서버 기본)로 저장돼 유형별 통계가 오염된다(코덱스 리뷰).
-          focusType: FOCUS_TYPE_BY_MODE[mode],
-        };
-        // onRejected 2인자 형태 — .then().catch() 체인이면 발행(구독 콜백) 중 예외까지 실패
-        // 핸들러로 새서, 이미 서버에 저장된 세션이 대기열에 재적재돼 중복 업로드된다(PR 250 리뷰).
-        return saveFocusSession(body).then(
-          // 저장 성공 — 서버 스트릭 판정을 결과 화면에 전달(GROMO-807). 결과 화면이 먼저 떠 있어도
-          // 구독으로 갱신된다.
-          (res) => {
-            publishSessionSaveVerdict(res);
-          },
-          // 저장 실패 — 대기열행(발행 없음). 결과 화면은 기존 추정 판정으로 폴백.
-          () => {
-            enqueuePendingFocusUpload(body, userId).catch(() => {});
-          },
-        );
-      })
-      .catch(() => {});
-  }, [
-    addFocusSeconds,
-    addFocusToSubject,
-    addCoins,
-    cancelLiveSession,
-    subjectId,
-    subjectName,
-    userId,
-    mode,
-  ]);
+  // endedAtOverride: 빨리감기 리플레이가 '지난 경계의 실제 벽시계 시각'을 지정할 때 쓴다(생략 시 지금).
+  // 복귀 시각으로 찍으면 첫 블록 구간이 이후 휴식·블록까지 삼키고 나머지가 0초가 돼
+  // 서버 통계(endedAt−startedAt 합산)가 오염된다(코덱스 리뷰).
+  const settleFocusBlock = useCallback(
+    (endedAtOverride?: string) => {
+      const elapsed = Math.floor(sessionRef.current.elapsed);
+      const delta = elapsed - settledSecondsRef.current;
+      if (delta <= 0) return;
+      const endedAt = endedAtOverride ?? new Date().toISOString();
+      const startedAt = settleAtRef.current;
+      // 마커·레코드를 적립보다 먼저 갱신 — 적립 후 제거 전에 죽으면 고아 정산이 또 적립한다(원 finish와 동일 순서).
+      settledSecondsRef.current = elapsed;
+      const totalCoins = Math.floor(elapsed / 10);
+      const newCoins = totalCoins - settledCoinsRef.current;
+      settledCoinsRef.current = totalCoins;
+      settleAtRef.current = endedAt;
+      AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+      // 로컬/과목/코인 적립
+      addFocusSeconds(delta);
+      addFocusToSubject(subjectId, delta);
+      if (newCoins > 0) addCoins(newCoins);
+      // 마커 회전(코덱스 리뷰) — 정산된 블록은 서버 누적(base)에 들어가는데 마커를 그대로 두면
+      // 친구 화면 라이브 합산(base + (now − focusStartedAt))에 같은 구간이 두 번 잡힌다.
+      // 블록을 정산하는 즉시 마커를 닫고, 다음 집중 블록 시작(break→focus)에서 새로 연다.
+      cancelLiveSession();
+      // 서버 업로드 — 이번 집중 블록 구간만. 과목명을 서버 태그로 매칭/생성해 tagId를 실어 보낸다
+      // (과목별 통계 집계용 — 매칭 실패 시 null = 미분류). 업로드 실패 시 대기열에 남겨
+      // 재시도(GROMO-614) — 로컬 적립은 이미 반영돼 그냥 버리면 서버와 불일치. 대기열 바디에도
+      // 해석된 tagId를 실어 재시도 시 과목이 유지되게 한다.
+      ensureFocusTagId(subjectName, userId)
+        .catch(() => null)
+        .then((focusTagId) => {
+          const body = {
+            focusTagId,
+            subject: subjectName,
+            startedAt,
+            endedAt,
+            distractionCount: 0,
+            totalDistractionSeconds: 0,
+            // 완주 저장에도 세션 유형을 전파 — 마커(취소됨)에만 실으면 RANGE/POMODORO가
+            // 전부 INFINITE(서버 기본)로 저장돼 유형별 통계가 오염된다(코덱스 리뷰).
+            focusType: FOCUS_TYPE_BY_MODE[mode],
+          };
+          // onRejected 2인자 형태 — .then().catch() 체인이면 발행(구독 콜백) 중 예외까지 실패
+          // 핸들러로 새서, 이미 서버에 저장된 세션이 대기열에 재적재돼 중복 업로드된다(PR 250 리뷰).
+          return saveFocusSession(body).then(
+            // 저장 성공 — 서버 스트릭 판정을 결과 화면에 전달(GROMO-807). 결과 화면이 먼저 떠 있어도
+            // 구독으로 갱신된다.
+            (res) => {
+              publishSessionSaveVerdict(res);
+            },
+            // 저장 실패 — 대기열행(발행 없음). 결과 화면은 기존 추정 판정으로 폴백.
+            () => {
+              enqueuePendingFocusUpload(body, userId).catch(() => {});
+            },
+          );
+        })
+        .catch(() => {});
+    },
+    [
+      addFocusSeconds,
+      addFocusToSubject,
+      addCoins,
+      cancelLiveSession,
+      subjectId,
+      subjectName,
+      userId,
+      mode,
+    ],
+  );
 
   // 정지/완료 — 남은 집중 블록 정산(적립+서버 업로드) 후 홈으로. 한 번만 실행.
   const finish = useCallback(async () => {
@@ -547,8 +559,9 @@ export default function FocusSessionScreen() {
       }
       if (state !== 'active' || leftAtRef.current == null) return;
 
-      // 복귀 — 자리 비운 시간 계산
-      const away = Math.round((Date.now() - leftAtRef.current) / 1000);
+      // 복귀 — 자리 비운 시간 계산 (leftAtMs는 리플레이 경계 시각 복원용으로 보관)
+      const leftAtMs = leftAtRef.current;
+      const away = Math.round((Date.now() - leftAtMs) / 1000);
       leftAtRef.current = null;
       cancelLeaveNotifications().catch(() => {});
       // 복귀 = 연결이 돌아왔을 가능성이 큰 시점 — 회전 중 실패한 마커 취소 재시도(코덱스 리뷰)
@@ -570,14 +583,17 @@ export default function FocusSessionScreen() {
             // 빨리감기가 지나치는 페이즈 경계도 실시간과 동일하게 정산·마커 회전 — 최종 페이즈만
             // 비교하면 집중→휴식→집중 한 바퀴(같은 페이즈 복귀)가 경계 없음으로 보여 옛 마커가
             // 휴식 시간까지 계속 흐른다(코덱스 리뷰).
+            // 경계 시각은 '지금'이 아니라 실제 지난 벽시계로 복원한다 — 실드 전진은 자리 비운
+            // 1초당 1 tick이라 i번째 tick 종료 = leftAt + (i+1)초(코덱스 리뷰).
+            const boundaryAt = new Date(leftAtMs + (i + 1) * 1000).toISOString();
             if (cur.phase === 'focus' && next.phase === 'break') {
               crossed = true;
               sessionRef.current = next; // 정산이 경계 시점의 경과초를 읽도록 먼저 반영
-              settleFocusBlock();
+              settleFocusBlock(boundaryAt);
             } else if (cur.phase === 'break' && next.phase === 'focus') {
               crossed = true;
-              settleAtRef.current = new Date().toISOString();
-              startLiveSession(settleAtRef.current);
+              settleAtRef.current = boundaryAt;
+              startLiveSession(boundaryAt);
             }
             cur = next;
           }
