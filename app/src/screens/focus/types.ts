@@ -28,6 +28,7 @@ export interface LiveFocusSession {
   updatedAt: string; // ISO — 마지막 저장 시각
   userId?: string | null; // 세션 소유 계정(UUID) 또는 null(게스트) — 고아 정산 시 현재 계정과 대조
   settledLocally?: boolean; // 고아 정산에서 로컬 적립(집중시간·과목·코인) 완료 — 업로드 재시도 시 중복 적립 방지
+  serverSessionId?: string | null; // 서버 라이브 마커 세션 id(GROMO-873) — 강제종료 시 서버 스윕이 마감
 }
 
 // 집중 중 허용앱(11) — 예시. initial = 아이콘 사각에 넣는 한 글자.

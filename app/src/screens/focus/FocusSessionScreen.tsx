@@ -23,7 +23,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T, withAlpha } from '@/constants/theme';
-import { saveFocusSession } from '@/services/focusApi';
+import { saveFocusSession, startFocusSession, cancelFocusSession } from '@/services/focusApi';
+import type { FocusType } from '@/types/dto/focus';
 import { ensureFocusTagId } from './tagSync';
 import { enqueuePendingFocusUpload } from './pendingFocusUploads';
 import { publishSessionSaveVerdict } from './sessionSaveVerdict';
@@ -68,6 +69,12 @@ const AWAY_CREDIT_CAP_S = 8 * 3600; // 실드 세션 복귀 시 집중 인정 �
 // 짧은 진동 2번 — 패턴 의미가 플랫폼별로 다르다(코덱스 리뷰): iOS는 진동 길이 고정에
 // 배열=진동 사이 간격([0,500]=2번), Android는 [대기,진동] 교대라 [0,500]이 1번 500ms가 된다.
 const DOUBLE_VIBRATE_PATTERN = Platform.OS === 'android' ? [0, 400, 200, 400] : [0, 500];
+// 타이머 모드 → 서버 FocusType 매핑(GROMO-733)
+const FOCUS_TYPE_BY_MODE: Record<FocusTimerMode, FocusType> = {
+  countup: 'INFINITE',
+  countdown: 'RANGE',
+  pomodoro: 'POMODORO',
+};
 
 interface SessionState {
   elapsed: number; // 실제 집중 초(적립 기준) — 뽀모도로는 집중 블록만 누적
@@ -128,6 +135,12 @@ export default function FocusSessionScreen() {
   const settledSecondsRef = useRef(0);
   const settledCoinsRef = useRef(0);
   const settleAtRef = useRef(startedAtRef.current);
+  // 서버 라이브 마커 세션(GROMO-873) — 시작 시 진행 중(endedAt NULL) 레코드를 만들어 친구/리그에
+  // '집중 중'으로 뜨게 한다. 표시용 마커일 뿐 시간 저장·통계는 기존 완주 저장(POST, settleFocusBlock)이
+  // 담당하고, 마커는 종료 시 취소(통계 미귀속)로 닫는다 — 이중 집계 없음. liveIdRef는 라이브 레코드
+  // 저장용 스냅샷, liveStartPromiseRef는 시작 응답 시퀀싱용 — 응답 전에 취소가 걸려도 순서대로 처리.
+  const liveIdRef = useRef<string | null>(null);
+  const liveStartPromiseRef = useRef<Promise<string | null>>(Promise.resolve(null));
 
   // 집중 세션 시작 계측(GROMO-537) — 실제 세션 화면 진입 시 1회.
   // has_tag: 과목 부착 여부(현재 v2는 과목 선택이 필수라 항상 true지만, 계약상 명시). mode: 타이머 모드.
@@ -146,6 +159,39 @@ export default function FocusSessionScreen() {
       goal_minutes: goalSecondsForLog != null ? Math.round(goalSecondsForLog / 60) : undefined,
     });
   }, [subjectId, mode, goal, pomo.focusMin, pomo.sets]);
+
+  // 서버에 라이브 마커 시작을 등록 — 등록돼야 친구/리그 화면에 '집중 중'(과목명 포함)으로 보인다.
+  // 태그를 해석해 실어 보내되, 실패(오프라인 등)해도 세션·시간 저장은 영향 없다(마커는 표시용).
+  // sessionId는 promise로 전달 — 취소가 시작 응답보다 먼저 걸려도 순서대로 처리된다.
+  const startLiveSession = useCallback(
+    (startedAt: string) => {
+      const promise = ensureFocusTagId(subjectName, userId)
+        .catch(() => null)
+        .then((focusTagId) =>
+          startFocusSession({ focusTagId, startedAt, focusType: FOCUS_TYPE_BY_MODE[mode] }),
+        )
+        .then(
+          (res) => {
+            // 이 시작이 여전히 현재 마커일 때만 스냅샷 갱신 — 취소로 이미 닫힌 마커의 id를
+            // 늦게 도착한 응답이 라이브 레코드에 되살리지 않게.
+            if (liveStartPromiseRef.current === promise) liveIdRef.current = res.sessionId;
+            return res.sessionId;
+          },
+          () => null,
+        );
+      liveStartPromiseRef.current = promise;
+      return promise;
+    },
+    [subjectName, userId, mode],
+  );
+
+  // 세션 진입 시 1회 등록 — 마커는 세션 전체(뽀모도로 휴식 포함)에 하나다.
+  const liveStartedOnceRef = useRef(false);
+  useEffect(() => {
+    if (liveStartedOnceRef.current) return;
+    liveStartedOnceRef.current = true;
+    startLiveSession(startedAtRef.current);
+  }, [startLiveSession]);
 
   // 한 tick 진행 — 모드별 다음 상태 계산.
   const nextTick = useCallback(
@@ -210,6 +256,7 @@ export default function FocusSessionScreen() {
         startedAt: settleAtRef.current,
         updatedAt: new Date().toISOString(),
         userId, // 소유 계정 — 고아 정산 시 다른 계정으로 적립/업로드되는 것을 막는다
+        serverSessionId: liveIdRef.current, // 열려 있는 라이브 마커 — 강제종료 시 서버 스윕이 마감
       };
       AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, JSON.stringify(record)).catch(() => {});
     },
@@ -308,6 +355,9 @@ export default function FocusSessionScreen() {
           endedAt,
           distractionCount: 0,
           totalDistractionSeconds: 0,
+          // 완주 저장에도 세션 유형을 전파 — 마커(취소됨)에만 실으면 RANGE/POMODORO가
+          // 전부 INFINITE(서버 기본)로 저장돼 유형별 통계가 오염된다(코덱스 리뷰).
+          focusType: FOCUS_TYPE_BY_MODE[mode],
         };
         // onRejected 2인자 형태 — .then().catch() 체인이면 발행(구독 콜백) 중 예외까지 실패
         // 핸들러로 새서, 이미 서버에 저장된 세션이 대기열에 재적재돼 중복 업로드된다(PR 250 리뷰).
@@ -324,7 +374,29 @@ export default function FocusSessionScreen() {
         );
       })
       .catch(() => {});
-  }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName, userId]);
+  }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName, userId, mode]);
+
+  // 라이브 마커 마감 — 취소(통계 미귀속)로 닫아 친구 화면의 '집중 중'을 끈다. 시간 저장은
+  // settleFocusBlock의 완주 저장(POST)이 별도로 담당하므로 취소해도 기록은 잃지 않는다.
+  // 실패(오프라인 등)해도 서버 고아 스윕이 정리하므로 fire-and-forget.
+  const cancelLiveSession = useCallback(() => {
+    const livePromise = liveStartPromiseRef.current;
+    liveIdRef.current = null;
+    liveStartPromiseRef.current = Promise.resolve(null);
+    livePromise
+      .then((sessionId) => (sessionId != null ? cancelFocusSession({ sessionId }) : undefined))
+      .catch(() => {});
+  }, []);
+
+  // finish를 거치지 않는 언마운트(안드로이드 시스템 back 등)에서도 마커를 닫는다 — 안 닫으면
+  // 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다(코덱스 리뷰). 정상 종료는 finish/완료
+  // 게이트가 이미 취소했으므로 no-op(라이브 참조가 비어 있음).
+  useEffect(
+    () => () => {
+      if (!finishedRef.current) cancelLiveSession();
+    },
+    [cancelLiveSession],
+  );
 
   // 정지/완료 — 남은 집중 블록 정산(적립+서버 업로드) 후 홈으로. 한 번만 실행.
   const finish = useCallback(async () => {
@@ -340,13 +412,15 @@ export default function FocusSessionScreen() {
     await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
     try {
       settleFocusBlock();
+      // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).
+      cancelLiveSession();
     } finally {
       // 정산 성공 여부와 무관하게 화면은 반드시 빠져나간다 —
       // 집중 결과 화면(GROMO-598)으로 replace, 길이 무관 항상 결과 화면을 보여준다.
       const focusSeconds = Math.floor(sessionRef.current.elapsed);
       navigation.replace('FocusResult', { focusSeconds, subjectId, subjectName });
     }
-  }, [settleFocusBlock, navigation, subjectId, subjectName]);
+  }, [settleFocusBlock, cancelLiveSession, navigation, subjectId, subjectName]);
 
   // 완료 게이트는 이미 세션을 정산하고 라이브 레코드를 제거한 상태다. Android 하드웨어
   // 뒤로가기가 스택을 pop하면 결과 화면의 스트릭/목표 연출을 건너뛰므로 확인과 같은 경로로 보낸다.
@@ -372,8 +446,12 @@ export default function FocusSessionScreen() {
     ScreenTimeModule.stopFocusShield().catch(() => {});
     ScreenTimeModule.endFocusActivity().catch(() => {});
     settleFocusBlock();
+    // 세션은 이미 끝났으므로 마커도 게이트 시점에 바로 닫는다 — 확인을 누를 때까지 미루면
+    // 게이트에 머문 시간만큼 친구 화면에 '집중 중'이 이어져 보인다(코덱스 리뷰). finish에서
+    // 또 불려도 라이브 참조가 비어 no-op.
+    cancelLiveSession();
     Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
-  }, [session.done, doneGate, settleFocusBlock]);
+  }, [session.done, doneGate, settleFocusBlock, cancelLiveSession]);
 
   // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
   // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
