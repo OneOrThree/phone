@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+    branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 prod-ci가 test를 직접 호출
     paths:
       - 'back/**'
   workflow_dispatch:
