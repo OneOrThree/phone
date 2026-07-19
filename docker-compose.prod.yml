@@ -48,10 +48,19 @@ services:
     image: gcr.io/datadoghq/agent:7
     container_name: gromo-datadog-agent
     restart: unless-stopped
-    # DD_* 설정 전부 SM(gromo/prod/env) → .env.prod 주입 — 키 나열 금지.
-    # (주의: fail-fast 없음 — DD_API_KEY 누락 시 조용히 무텔레메트리. SM 키 관리로 보장)
-    env_file:
-      - .env.prod
+    mem_limit: 512m
+    environment:
+      # 값은 --env-file(.env.prod ← SM gromo/prod/env)에서 치환 — 원천은 SM 하나.
+      # 빈/미설정이면 즉시 실패(fail-fast) — 키 없이 up이 green 처리되어 무텔레메트리로 남는 것 방지.
+      DD_API_KEY: ${DD_API_KEY:?DD_API_KEY 미설정 — SM(gromo/prod/env)에 등록 필요}
+      DD_SITE: ${DD_SITE:-us5.datadoghq.com}
+      DD_ENV: prod
+      DD_HOSTNAME: gromo-prod
+      DD_TAGS: "env:prod service:gromo-back"
+      # 로그 수집 — 컨테이너 stdout tail
+      DD_LOGS_ENABLED: "true"
+      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
+      DD_CONTAINER_EXCLUDE: "name:gromo-datadog-agent"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /proc/:/host/proc/:ro
