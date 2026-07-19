@@ -327,8 +327,11 @@ export default function StatsScreen() {
       key: 'monthWeeklyFocus',
       node: (
         <SectionCard key="monthWeeklyFocus" title={`${month}월 주별 집중시간`}>
-          {/* 주 탭(요일별)과 동일한 총계 히어로 — 탭 간 표기 일관(GROMO-849) */}
-          <Text style={s.bigStat}>총 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}</Text>
+          {/* 주 탭(요일별)과 동일한 총계 히어로 — 탭 간 표기 일관(GROMO-849).
+              집계 조회 실패(null)면 숨김 — 0으로 그리면 차트와 모순(코덱스 리뷰 반영) */}
+          {data.focus != null && (
+            <Text style={s.bigStat}>총 {fmtMinutes(data.focus.totalFocusMinutes)}</Text>
+          )}
           <MonthWeeklyChart pick={pickFocus} color={FOCUS_COLOR} />
         </SectionCard>
       ),
@@ -341,9 +344,11 @@ export default function StatsScreen() {
           title={`${month}월 주별 핸드폰 사용량`}
           subtitle="집중시간과 대비돼요. 줄어들면 함께 줄어요."
         >
-          <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
-            총 {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
-          </Text>
+          {data.screenTime != null && (
+            <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
+              총 {fmtMinutes(data.screenTime.currentMinutes)}
+            </Text>
+          )}
           <MonthWeeklyChart pick={pickScreenTime} color={PHONE_COLOR} />
         </SectionCard>
       ),
@@ -356,7 +361,10 @@ export default function StatsScreen() {
       key: 'weekdayFocus',
       node: (
         <SectionCard key="weekdayFocus" title="요일별 집중시간">
-          <Text style={s.bigStat}>총 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}</Text>
+          {/* 집계 조회 실패(null)면 히어로 숨김 — 월 탭과 동일(코덱스 리뷰 반영) */}
+          {data.focus != null && (
+            <Text style={s.bigStat}>총 {fmtMinutes(data.focus.totalFocusMinutes)}</Text>
+          )}
           <LineChart
             bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
             color={FOCUS_COLOR}
@@ -372,9 +380,11 @@ export default function StatsScreen() {
           title="요일별 핸드폰 사용량"
           subtitle="집중시간과 대비돼요. 줄어들면 함께 줄어요."
         >
-          <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
-            총 {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
-          </Text>
+          {data.screenTime != null && (
+            <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
+              총 {fmtMinutes(data.screenTime.currentMinutes)}
+            </Text>
+          )}
           <LineChart
             bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
             color={PHONE_COLOR}
@@ -1480,7 +1490,11 @@ function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
             <Pressable
               key={i}
               style={s.lineTapCol}
-              onPress={() => setPicked(b.future || picked === i ? null : i)}
+              onPress={() => {
+                // 미래 칼럼은 완전 무반응 — 열린 말풍선을 닫지도 않는다(코덱스 리뷰 반영)
+                if (b.future) return;
+                setPicked(picked === i ? null : i);
+              }}
             />
           ))}
         </View>
@@ -1638,7 +1652,11 @@ function FirstStartChart({ period }: { period: StatsPeriod }) {
               <Pressable
                 key={i}
                 style={s.lineTapCol}
-                onPress={() => setPicked(p.future || p.minutes == null || picked === i ? null : i)}
+                onPress={() => {
+                  // 미래·무기록 칼럼은 완전 무반응(코덱스 리뷰 반영)
+                  if (p.future || p.minutes == null) return;
+                  setPicked(picked === i ? null : i);
+                }}
               />
             ))}
           </View>
@@ -2172,11 +2190,11 @@ function GoalMonthGrid({
             {row.map((date) => (
               <Pressable
                 key={date}
-                onPress={() =>
-                  setPicked(
-                    date > todayKey || dayOf(date) <= preJoinDays || picked === date ? null : date,
-                  )
-                }
+                onPress={() => {
+                  // 미래·가입 전 날짜는 완전 무반응(코덱스 리뷰 반영)
+                  if (date > todayKey || dayOf(date) <= preJoinDays) return;
+                  setPicked(picked === date ? null : date);
+                }}
                 style={[
                   s.monthGrassCell,
                   { backgroundColor: colorFor(date) },
@@ -2214,21 +2232,25 @@ function GoalLegendDot({ color, label }: { color: string; label: string }) {
 // 아직 안 온 요일은 빈 칸(레벨 0)으로 자리만 유지.
 const WEEK_DAYS = ['월', '화', '수', '목', '금', '토', '일'];
 
-// 탭한 잔디 칸 정보줄 문구 — 날짜·요일·집중시간(0분은 기록 없음)
-function grassPickLabel(date: string, minutes: number): string {
+// 탭한 잔디 칸 정보줄 문구 — 날짜·요일·집중시간. 서버가 초를 분으로 내림해 0분이어도 세션이
+// 있을 수 있어(sessionCount>0) '1분 미만'과 '기록 없음'을 구분한다(코덱스 리뷰 반영)
+function grassPickLabel(date: string, minutes: number, hasRecord: boolean): string {
   const [y, m, d] = date.split('-').map(Number);
   const day = WEEK_DAYS[(new Date(y, m - 1, d).getDay() + 6) % 7];
-  return `${m}월 ${d}일 (${day}) · ${minutes > 0 ? `집중 ${fmtHm(minutes)}` : '기록 없음'}`;
+  const time = minutes > 0 ? `집중 ${fmtHm(minutes)}` : hasRecord ? '집중 1분 미만' : '기록 없음';
+  return `${m}월 ${d}일 (${day}) · ${time}`;
 }
 
 function WeekGrassRow({ cells }: { cells: HeatmapCellResponse[] }) {
   // 탭한 칸의 날짜·집중시간 정보줄(GROMO-849) — 미래 요일 무반응, 같은 칸 재탭이면 닫힘
   const [picked, setPicked] = useState<number | null>(null);
   const minutesByDay = [0, 0, 0, 0, 0, 0, 0];
+  const recordedByDay = [false, false, false, false, false, false, false]; // 세션 존재(0분 구분용)
   for (const c of cells) {
     const [y, m, d] = c.date.split('-').map(Number);
     const dow = (new Date(y, m - 1, d).getDay() + 6) % 7; // 0=월..6=일
     minutesByDay[dow] = c.totalFocusMinutes;
+    recordedByDay[dow] = c.sessionCount > 0;
   }
   // 이번 주 월요일 — 칸별 날짜 계산(정보줄 표기·미래 판정용)
   const now = new Date();
@@ -2250,7 +2272,11 @@ function WeekGrassRow({ cells }: { cells: HeatmapCellResponse[] }) {
         {WEEK_DAYS.map((d, i) => (
           <View key={d} style={s.weekGrassCol}>
             <Pressable
-              onPress={() => setPicked(dateFor(i) > todayKey || picked === i ? null : i)}
+              onPress={() => {
+                // 미래 요일은 완전 무반응(코덱스 리뷰 반영)
+                if (dateFor(i) > todayKey) return;
+                setPicked(picked === i ? null : i);
+              }}
               style={[
                 s.weekGrassCell,
                 { backgroundColor: GRASS[grassLevel(minutesByDay[i])] },
@@ -2265,7 +2291,7 @@ function WeekGrassRow({ cells }: { cells: HeatmapCellResponse[] }) {
       </View>
       {picked != null && (
         <Text style={s.grassPickInfo} allowFontScaling={false}>
-          {grassPickLabel(dateFor(picked), minutesByDay[picked])}
+          {grassPickLabel(dateFor(picked), minutesByDay[picked], recordedByDay[picked])}
         </Text>
       )}
     </View>
@@ -2279,7 +2305,7 @@ function MonthGrassGrid({ cells }: { cells: HeatmapCellResponse[] }) {
   const [picked, setPicked] = useState<string | null>(null);
   const now = new Date();
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const minutesByDate = new Map(cells.map((c) => [c.date, c.totalFocusMinutes]));
+  const cellByDate = new Map(cells.map((c) => [c.date, c])); // 분·세션 수 함께 참조(0분 구분용)
   const days = Array.from({ length: lastDay }, (_, i) =>
     localDateStr(new Date(now.getFullYear(), now.getMonth(), i + 1)),
   );
@@ -2294,10 +2320,17 @@ function MonthGrassGrid({ cells }: { cells: HeatmapCellResponse[] }) {
             {row.map((date) => (
               <Pressable
                 key={date}
-                onPress={() => setPicked(date > todayKey || picked === date ? null : date)}
+                onPress={() => {
+                  // 미래 날짜는 완전 무반응(코덱스 리뷰 반영)
+                  if (date > todayKey) return;
+                  setPicked(picked === date ? null : date);
+                }}
                 style={[
                   s.monthGrassCell,
-                  { backgroundColor: GRASS[grassLevel(minutesByDate.get(date) ?? 0)] },
+                  {
+                    backgroundColor:
+                      GRASS[grassLevel(cellByDate.get(date)?.totalFocusMinutes ?? 0)],
+                  },
                   picked === date ? s.grassCellOn : null,
                 ]}
               />
@@ -2307,7 +2340,11 @@ function MonthGrassGrid({ cells }: { cells: HeatmapCellResponse[] }) {
       </View>
       {picked != null && (
         <Text style={s.grassPickInfo} allowFontScaling={false}>
-          {grassPickLabel(picked, minutesByDate.get(picked) ?? 0)}
+          {grassPickLabel(
+            picked,
+            cellByDate.get(picked)?.totalFocusMinutes ?? 0,
+            (cellByDate.get(picked)?.sessionCount ?? 0) > 0,
+          )}
         </Text>
       )}
     </View>
