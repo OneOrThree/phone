@@ -1709,7 +1709,7 @@ function CategoryDonut({
         {/* 가운데 총합 — 12시 방향부터 시계 방향으로 구간이 채워진다 */}
         <View style={s.donutCenter}>
           <Text style={s.donutCenterValue} allowFontScaling={false}>
-            {fmtMinutes(total)}
+            {fmtHm(total)}
           </Text>
           <Text style={s.donutCenterLabel}>총 집중</Text>
         </View>
@@ -1722,7 +1722,7 @@ function CategoryDonut({
               {sg.name}
             </Text>
             <Text style={s.donutLegendTime} allowFontScaling={false}>
-              {fmtMinutes(sg.minutes)}
+              {fmtHm(sg.minutes)}
             </Text>
             <Text style={s.donutLegendPct} allowFontScaling={false}>
               {Math.round(sg.frac * 100)}%
@@ -1968,7 +1968,7 @@ function GoalDotRow({
       <View style={s.goalDotHead}>
         <Text style={[s.goalDotLabel, { color }]}>{label}</Text>
         <Text style={[s.goalDotCount, { color: unset ? T.inkMuted : color }]}>
-          {unset ? '목표 미설정' : `${count}일 달성`}
+          {unset ? '목표 미설정' : `7일 중 ${count}일 달성`}
         </Text>
       </View>
       <View style={s.goalDotRow}>
@@ -2045,15 +2045,18 @@ function GoalMonthGrid({
   return (
     <View>
       <View style={s.goalMonthHead}>
+        {/* 달성일/말일 분모 표기 — 주 탭 '7일 중 n일'과 같은 취지, 3개 나열이라 컴팩트(n/말일) */}
         <Text style={[s.goalMonthStat, { color: FOCUS_COLOR }]}>
-          집중 {focusGoalSet ? `${focusDays}일` : '미설정'}
+          집중 {focusGoalSet ? `${focusDays}/${lastDay}일` : '미설정'}
         </Text>
         <Text style={[s.goalMonthStat, { color: PHONE_COLOR }]}>
-          폰 사용 {phoneGoalSet ? `${phoneDays}일` : '미설정'}
+          폰 사용 {phoneGoalSet ? `${phoneDays}/${lastDay}일` : '미설정'}
         </Text>
         {/* 한쪽이라도 미설정이면 '둘 다'는 성립 불가 — 숨김 */}
         {focusGoalSet && phoneGoalSet && (
-          <Text style={[s.goalMonthStat, { color: T.successInk }]}>둘 다 {bothDays}일</Text>
+          <Text style={[s.goalMonthStat, { color: T.successInk }]}>
+            둘 다 {bothDays}/{lastDay}일
+          </Text>
         )}
       </View>
       <View style={s.monthGrass}>
@@ -2339,8 +2342,16 @@ const s = StyleSheet.create({
   ttLegendDot: { width: 8, height: 8, borderRadius: 4 },
   ttLegendText: { ...T.text.caption, fontSize: 11, color: T.ink, flexShrink: 1 },
   ttGrid: { flex: 1, gap: 3 },
-  ttRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  ttHourLabel: { ...T.text.caption, fontSize: 9, color: T.inkMuted, width: 18, textAlign: 'right' },
+  // 한 시간 안의 10분 칸은 간격 없이 붙임(GROMO-849) — 시간 라벨과의 간격은 라벨 마진이 담당
+  ttRow: { flexDirection: 'row', alignItems: 'center' },
+  ttHourLabel: {
+    ...T.text.caption,
+    fontSize: 9,
+    color: T.inkMuted,
+    width: 18,
+    textAlign: 'right',
+    marginRight: 3,
+  },
   ttCell: {
     flex: 1,
     height: 14,
@@ -2446,7 +2457,13 @@ const s = StyleSheet.create({
   goalDotDay: { ...T.text.caption, fontSize: 10, fontWeight: '800' },
 
   // 목표 달성 — 월 달력
-  goalMonthHead: { flexDirection: 'row', gap: T.space.lg, marginBottom: T.space.md },
+  // 분모 표기로 길어질 수 있어 좁은 화면에선 줄바꿈 허용
+  goalMonthHead: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: T.space.lg,
+    marginBottom: T.space.md,
+  },
   goalMonthStat: { ...T.text.label, fontWeight: '800' },
   goalLegend: { flexDirection: 'row', gap: T.space.lg, marginTop: T.space.md, alignSelf: 'center' },
   goalLegendItem: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
