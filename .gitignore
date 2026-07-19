@@ -7,12 +7,15 @@
 .idea/
 .superpowers/
 docs/
+# 앱 아이콘 로컬 스테이징 (레포 루트)
+/assets/
 # 부하테스트 기획 문서는 추적 (GROMO-548)
 !loadtest/docs/
 *.env
 .env*
 !.env.example
 *.log
+*.tsbuildinfo
 node_modules
 
 # Expo

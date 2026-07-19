@@ -14,7 +14,8 @@ Read in this order when you first pick up the project:
 2. **[ScreenTime_WorkLog.md](./ScreenTime_WorkLog.md)** — Screen Time feature (integration architecture, Apple Developer setup, native module dev, Metro wiring, on-device testing, troubleshooting).
 3. **CLAUDE.md** — this file (code rules: structure, conventions, commit/PR workflow, gotchas).
 
-Other work logs: `ScreenTime2_WorkLog.md`, `Shop_WorkLog.md`.
+Other work logs: see `.claude/*_WorkLog.md` — one per feature; the set grows, so
+glob instead of trusting any list here.
 
 ### Planning/design reference docs (`app/.docs/`)
 
@@ -81,20 +82,20 @@ same-folder imports.) Entry point: root `index.ts` → `./src/App`.
 ```
 app/
 ├── index.ts                 # Expo entry → ./src/App
-├── app.config.js            # Expo config (assets, plugins, EAS projectId)
+├── app.config.js            # Expo config (assets, plugins, bundle id, version)
 ├── babel.config.js          # babel-preset-expo + module-resolver (@/ alias)
 ├── tsconfig.json            # extends expo/tsconfig.base, strict, paths @/*
-├── eas.json                 # EAS build profiles
 ├── .env                     # local env (gitignored)
 ├── .docs/                   # planning/design docs (gitignored)
 ├── .claude/                 # this guide + DevRunbook + WorkLogs
-├── ios/                     # native iOS (gromo app + screentimereport extension + Pods)
+├── ios/                     # native iOS (gromo app + screentimereport extension + fastlane/ + Pods)
 └── src/
     ├── App.tsx              # auth gating + providers + <RootNavigator/>
     ├── assets/              # images, fonts
     ├── components/          # cross-feature UI (TabBar, DrumPicker, character/) + app shell (PushGate, PendingGoalApplier)
     ├── constants/           # design tokens — theme.ts (T, inkBox), focusCategories.ts, tiers.ts
     ├── hooks/               # cross-feature hooks only — useFocusCategory.ts
+    ├── mocks/               # MSW handlers + fixtures — handlers.ts, fixtures/, index.ts
     ├── navigation/          # RootNavigator.tsx (NavigationContainer + Tab/Stack), navigationRef, types
     ├── screens/             # screens + per-feature folders (focus/, league/, onboarding/, settings/, stats/, group/)
     ├── services/            # API·external — api.ts (axios), *Api.ts, ScreenTimeModule.ts, analytics, push
@@ -167,6 +168,7 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 | `src/components/`           | cross-feature UI + app shell               | `TabBar.tsx`, `DrumPicker.tsx`, `PushGate.tsx`   |
 | `src/components/character/` | static character image                     | `CharacterImage.tsx`                             |
 | `src/hooks/`                | cross-feature hooks only                   | `useFocusCategory.ts`                            |
+| `src/mocks/`                | MSW API mocking (handlers + fixtures)      | `handlers.ts`, `fixtures/`                       |
 | `src/store/`                | global state (Context API)                 | `UserContext.tsx`, `SubjectContext.tsx`          |
 | `src/services/`             | API / native / external integrations       | `api.ts`, `friendsApi.ts`, `ScreenTimeModule.ts` |
 | `src/constants/`            | design tokens / shared style values        | `theme.ts`, `focusCategories.ts`                 |
@@ -361,4 +363,4 @@ running the app (simulator/device) or an `npx expo export` bundle check.
 
 ---
 
-**Last updated**: 2026-07-08 (src 구조 표준화 — v2 해체·legacy 격리·하이브리드 배치 규칙)
+**Last updated**: 2026-07-20 (harness refresh — added `src/mocks/`, removed dead `eas.json`, work-log list → glob pointer)

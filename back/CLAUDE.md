@@ -21,13 +21,13 @@ Run all commands below from inside `back/`.
   code lives in `common/` (`common/config`, `common/port`, `common/id` for the UUID v7
   generator). Do **not** introduce a parallel layer-first layout
   (`phone/api/`, `phone/service/`, …) — keep new files inside their domain package.
-- Controllers: `AuthController`, `UserController`, `FocusController`,
-  `EquipmentController`, `InventoryController`, `InGameCurrencyController`,
-  `GroupController`, `ScreenTimeController`, `HealthController`.
-- Domains: `User`/`UserStreak`/`SocialAccount`, `Group`/`GroupMember` (+`GroupAnnouncement`/`GroupChallenge`/`GroupInvite`),
-  `DailyFocusStat`/`FocusSession`/`FocusTag`, `CharacterEquipment`/`Item`/`UserItem`,
-  `LeagueGroup`/`LeagueGroupMember`/`LeagueTierConfig`, `CurrencyTransaction`,
-  `Friendship`/`ShareCard`/`WeeklyFeedback`.
+- Domain packages (authoritative: `ls src/main/java/com/oneorthree/phone/`):
+  `analytics`, `auth`, `currency`, `focus`, `friend`, `group`, `item`, `league`,
+  `notification`, `screentime`, `stats`, `user` — plus cross-cutting `common/`.
+  Entities live in each domain's `domain/` package.
+- Controllers live in `<domain>/api/*Controller.java`, one or more per domain —
+  enumerate with a `**/*Controller.java` glob (19 as of 2026-07); don't trust any
+  hardcoded list.
 - **Entity PKs are UUID v7** — annotate the `@Id UUID id` field with `@GeneratedUuidV7`
   (`common/id`); repositories are `JpaRepository<Entity, UUID>`.
 
@@ -76,14 +76,27 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
   (no baseline marking) it fails on `bootRun`. Copy `application-local.yml.example` (which
   already includes this) to `application-local.yml` when setting up.
 - The `docs/db/run-migration-v*.sh` scripts (up to v30, gitignored) are a **legacy
-  archive** — do not add new ones. `/back-migration` still scaffolds that old `.sh` format
-  (skill rewrite to scaffold `V<N>` SQL is a follow-up).
+  archive** — do not add new ones. `/back-migration` scaffolds the next
+  `V<N+1>__<desc>.sql` migration.
 - **Flag any DB schema change in the PR** (per the PR template).
+
+## Observability
+
+- Spring Actuator + Micrometer expose health/metrics (`/actuator/prometheus`,
+  GROMO-546).
+- `docker-compose.observability.yml` (repo root) overlays Prometheus + Grafana +
+  Loki/Promtail on the dev stack; configs live in the repo-root `observability/`
+  (see its README).
+- `docker-compose.datadog.yml` + the manual `dev-datadog.yml` workflow toggle the
+  Datadog agent (APM) on dev.
 
 ## Deploy
 
-`cd.yml` builds a Docker image and deploys to AWS (secrets from Secrets Manager
-`oneorthree/phone`); health check at `/health`.
+- **Dev**: `cd.yml` builds a Docker image on `main` push and deploys to AWS
+  (secrets from Secrets Manager `oneorthree/phone`); health check at `/health`.
+- **Prod**: `prod-ci.yml` (on `release`) builds + pushes the image →
+  `prod-cd.yml` deploys it (auto via `workflow_run`, or manual dispatch by SHA);
+  `prod-rollback.yml` rolls back manually.
 
 ## Recommended skills & tools (backend workflow)
 
@@ -94,7 +107,7 @@ The fast path for working in `back/`:
 - `superpowers:systematic-debugging` — for test failures / unexpected behavior.
 - `/back-check` — local CI gate (Checkstyle + SpotBugs + tests) before pushing.
 - `/back-endpoint <설명>` — scaffold a Controller→Service→Repository→DTO + test slice.
-- `/back-migration <설명>` — scaffold the next `run-migration-v<N+1>.sh` script in `docs/db/`.
+- `/back-migration <설명>` — scaffold the next Flyway `V<N+1>__<desc>.sql` in `src/main/resources/db/migration/`.
 - `spring-reviewer` (subagent) — focused Java/JPA/security/convention review of the diff.
 - `/code-review` — repo-wide correctness + cleanup pass on the diff before a PR.
 - `/security-review` — run when touching auth / `JwtFilter` / endpoints / secrets.
