@@ -3,7 +3,8 @@
 #   → 빌드 머신 네이티브(dev 러너 x86=amd64, Apple Silicon=arm64)로 빠르게 빌드
 # builder는 $BUILDPLATFORM(빌드 머신 네이티브)에서 실행 — gradle을 QEMU 에뮬레이션 없이 돌리고,
 # 산출물 JAR는 아키텍처 무관이라 최종 스테이지만 타깃 아키텍처의 JRE 베이스로 조립된다.
-FROM --platform=$BUILDPLATFORM eclipse-temurin:17-jdk-alpine AS builder
+# ⚠️ temurin의 alpine 태그는 amd64 전용(arm64 매니페스트 없음) — t4g·Apple Silicon 대응으로 jammy 사용
+FROM --platform=$BUILDPLATFORM eclipse-temurin:17-jdk-jammy AS builder
 
 WORKDIR /app
 
@@ -20,7 +21,7 @@ COPY src src
 
 RUN ./gradlew bootJar -x test --no-daemon
 
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:17-jre-jammy
 
 WORKDIR /app
 
