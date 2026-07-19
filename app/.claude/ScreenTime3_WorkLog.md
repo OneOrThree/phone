@@ -66,17 +66,17 @@ App Group에 기록 → 앱이 포그라운드에 올 때 그 값을 읽어 서�
 
 ## 2. 코드 지점 레퍼런스
 
-| 항목 | 위치 |
-| --- | --- |
-| 눈금 간격 `step = 30` | `ios/gromo/ScreenTimeModule.swift:263` |
-| 네이티브 상한 클램프 `min(…, 900)` | `ios/gromo/ScreenTimeModule.swift:264` |
-| 간격·상한 설계 이유 주석 | `ios/gromo/ScreenTimeModule.swift:257` |
-| JS 상한 `USAGE_BUCKET_MAX_MINUTES = 900` | `src/services/screentimeSync.ts:40` |
-| 재등록 감지 키(상한값 기준) | `src/services/screentimeSync.ts:53~56` |
-| 이벤트명 → 분값 파싱 | `ios/GromoScreenTimeMonitor/DeviceActivityMonitorExtension.swift:113~114` |
-| 익스텐션 합산 클램프 `min(base+mins, 900)` (하드코딩) | `ios/GromoScreenTimeMonitor/DeviceActivityMonitorExtension.swift:145` |
-| 동기화 트리거(마운트 + AppState) | `src/components/ScreenTimeSyncer.tsx` |
-| 서버 업로드 | `src/services/screentimeApi.ts` (POST `/api/v1/screen-time`) |
+| 항목                                                  | 위치                                                                      |
+| ----------------------------------------------------- | ------------------------------------------------------------------------- |
+| 눈금 간격 `step = 30`                                 | `ios/gromo/ScreenTimeModule.swift:263`                                    |
+| 네이티브 상한 클램프 `min(…, 900)`                    | `ios/gromo/ScreenTimeModule.swift:264`                                    |
+| 간격·상한 설계 이유 주석                              | `ios/gromo/ScreenTimeModule.swift:257`                                    |
+| JS 상한 `USAGE_BUCKET_MAX_MINUTES = 900`              | `src/services/screentimeSync.ts:40`                                       |
+| 재등록 감지 키(상한값 기준)                           | `src/services/screentimeSync.ts:53~56`                                    |
+| 이벤트명 → 분값 파싱                                  | `ios/GromoScreenTimeMonitor/DeviceActivityMonitorExtension.swift:113~114` |
+| 익스텐션 합산 클램프 `min(base+mins, 900)` (하드코딩) | `ios/GromoScreenTimeMonitor/DeviceActivityMonitorExtension.swift:145`     |
+| 동기화 트리거(마운트 + AppState)                      | `src/components/ScreenTimeSyncer.tsx`                                     |
+| 서버 업로드                                           | `src/services/screentimeApi.ts` (POST `/api/v1/screen-time`)              |
 
 ---
 
