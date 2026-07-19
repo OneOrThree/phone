@@ -393,9 +393,13 @@ export default function FocusSessionScreen() {
       settledCoinsRef.current = totalCoins;
       settleAtRef.current = endedAt;
       AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
-      // 로컬/과목/코인 적립
-      addFocusSeconds(delta);
-      addFocusToSubject(subjectId, delta);
+      // 로컬/과목 적립 — 둘 다 '오늘' 기준 스토어라, 리플레이가 자정을 넘겨 정산하는 어제
+      // 블록(endedAt이 오늘 아님)은 반영하지 않는다(고아 정산과 동일 규칙, 코덱스 리뷰).
+      // 코인은 all-time이라 항상 반영.
+      if (localDateStr(new Date(endedAt)) === todayStr()) {
+        addFocusSeconds(delta);
+        addFocusToSubject(subjectId, delta);
+      }
       if (newCoins > 0) addCoins(newCoins);
       // 마커 회전(코덱스 리뷰) — 정산된 블록은 서버 누적(base)에 들어가는데 마커를 그대로 두면
       // 친구 화면 라이브 합산(base + (now − focusStartedAt))에 같은 구간이 두 번 잡힌다.
@@ -543,6 +547,10 @@ export default function FocusSessionScreen() {
   // 이탈 감지 — background 진입 시각을 기록해두고, 복귀 시 자리 비운 시간으로 판정한다.
   const leftAtRef = useRef<number | null>(null);
   const leftPhaseRef = useRef<'focus' | 'break'>('focus');
+  // 이탈 시점 세션 스냅샷 — 서스펜드 전에 1초 tick이 몇 번 더 돌면 sessionRef가 leftAt보다
+  // 앞서 있어, 복귀 리플레이의 경계 시각(leftAt + i초)이 그만큼 당겨진다(코덱스 리뷰).
+  // 리플레이는 이 스냅샷에서 시작하고, 복귀 시 setSession이 전진분을 통째로 덮어쓴다.
+  const leftSessionRef = useRef<SessionState | null>(null);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -551,6 +559,7 @@ export default function FocusSessionScreen() {
         if (sessionRef.current.done || finishedRef.current || pausedRef.current) return;
         leftAtRef.current = Date.now();
         leftPhaseRef.current = sessionRef.current.phase;
+        leftSessionRef.current = sessionRef.current; // 리플레이 기준 스냅샷(leftAt과 짝)
         saveLive(sessionRef.current.elapsed); // 여기서 꺼져도 이 시점까지는 정산되게
         // 실드 세션은 나가 있어도 집중 인정이라 이탈 알림 없음(폴백 세션만 경고)
         if (sessionRef.current.phase === 'focus' && !shieldedRef.current) {
@@ -580,7 +589,11 @@ export default function FocusSessionScreen() {
           // 전진분은 즉시 저장 — 다음 5초 주기 저장 전에 강제 종료되면
           // 방금 인정한 시간이 고아 정산 대상에서 통째로 빠진다.
           const credit = Math.min(away, AWAY_CREDIT_CAP_S);
-          let cur = sessionRef.current;
+          // 리플레이는 이탈 시점 스냅샷에서 시작 — 서스펜드 전에 더 돈 tick으로 sessionRef가
+          // 앞서 있어도 경계 시각(leftAt + i초)과 어긋나지 않는다. 그 tick 전진분은 아래
+          // setSession(cur)이 덮어써 이중 계상 없음(settledSecondsRef 단조 가드도 동일 방어).
+          let cur = leftSessionRef.current ?? sessionRef.current;
+          leftSessionRef.current = null;
           let crossed = false;
           for (let i = 0; i < credit && !cur.done; i++) {
             const next = nextTick(cur);
