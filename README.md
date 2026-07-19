@@ -7,12 +7,15 @@
 
 ```
 gromo/
-  app/    # React Native 앱 (Expo) — iOS 스크린타임 익스텐션 포함
-  back/   # Spring Boot 백엔드 (Java 17 + PostgreSQL)
-  docs/   # DB 스키마·설계 문서
+  app/            # React Native 앱 (Expo) — iOS 스크린타임 익스텐션 포함
+  back/           # Spring Boot 백엔드 (Java 17 + PostgreSQL)
+  loadtest/       # k6 부하테스트 하네스 (GCP 러너 + 대시보드)
+  observability/  # dev 관측 스택 (Prometheus·Grafana·Loki·Datadog)
 ```
 
 > 각 디렉토리의 `CLAUDE.md`(루트 / `app` / `back`)에 개발 가이드와 컨벤션이 정리되어 있어요.
+> 부하테스트는 `loadtest/README.md`, dev 관측 스택은 `observability/README.md` 참고.
+> DB 스키마는 Flyway 마이그레이션(`back/src/main/resources/db/migration/`)이 소스예요.
 
 ---
 
@@ -97,6 +100,10 @@ cd app/ios
 ```bash
 cd back
 docker compose -f ../docker-compose.local.yml up -d   # 로컬 PostgreSQL
+
+# 최초 1회: 로컬 설정 파일 생성 (gitignore됨 — Flyway 비활성 등 로컬 기본값 포함)
+cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
+
 ./gradlew bootRun
 ```
 
@@ -108,7 +115,9 @@ docker compose -f ../docker-compose.local.yml up -d   # 로컬 PostgreSQL
 ```bash
 ./test-local.sh                                  # Testcontainers 기반 테스트
 ./gradlew checkstyleMain spotbugsMain test       # CI와 동일한 검사
-./reset-db.sh                                    # 로컬 DB 초기화
+
+# 로컬 DB 초기화 (볼륨 삭제 → 새 DB)
+docker compose -f ../docker-compose.local.yml down -v && docker compose -f ../docker-compose.local.yml up -d
 ```
 
 ---
@@ -144,7 +153,7 @@ docker compose -f ../docker-compose.local.yml up -d   # 로컬 PostgreSQL
 | `./gradlew bootRun`                             | 백엔드 실행                |
 | `./test-local.sh`                               | 로컬 테스트 (Testcontainers) |
 | `./gradlew checkstyleMain spotbugsMain test`    | CI와 동일한 검사           |
-| `./reset-db.sh`                                 | 로컬 DB 초기화             |
+| `docker compose -f ../docker-compose.local.yml down -v` | 로컬 DB 초기화 (이후 `up -d`) |
 
 ---
 
