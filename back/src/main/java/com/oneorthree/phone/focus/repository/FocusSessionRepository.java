@@ -19,8 +19,21 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
 
     // 기간 필터 + 커서(keyset) 페이지네이션. UUID v7 id 는 생성 시간순이라 id 내림차순이 곧 최신순.
     // cursor 가 null 이면 첫 페이지. Slice 는 size+1 조회로 hasNext 를 판정(count 쿼리 없음).
+    // GROMO-872: 클라가 이 목록을 직접 합산(리그 '내 시간'·통계 타임라인)하므로 집계에서 빠져야 할 세션을 제외한다.
+    // status NOT IN (CANCELED, AUTO_CLOSED) — 사용자 취소(CANCELED)와 orphan 자동 종료(AUTO_CLOSED)를 모두 배제.
+    // 라이브 세션 배선(GROMO-873)에선 세션 1건이 라이브 레코드(종료 시 CANCELED·강제종료 시 AUTO_CLOSED)와
+    // 완료 저장(POST /focus-session) 2줄로 남는데, 라이브 레코드의 두 종단 상태를 모두 걸러야 이중집계가 없다.
+    // findCompletedSessionsInPeriod 등 다른 집계 쿼리와 동일한 NOT IN(CANCELED, AUTO_CLOSED) 관례.
+    // ⚠️ ACTIVE(진행 중 라이브 레코드)는 여기서 제외하지 않아 목록에 남는다. 현재는 프론트 3개 소비처가
+    //    endedAt(IS NULL) 을 Date.parse → NaN 비교로 방어적으로 걸러(합산 제외) 이중집계가 없다
+    //    (focusRestore.ts:15, useLeagueRanking.ts:79, stats/format.ts). 다만 GROMO-873이 '라이브 행을 두고
+    //    별도 완료 행을 POST' 하는 방식으로 구현되면 완료 전까지 ACTIVE 라이브 행과 COMPLETED 행이 공존하는
+    //    구간이 생긴다 — 그때는 ACTIVE 제외 또는 완료 시 라이브 행 병합/삭제를 이 쿼리에서 재검토해야 한다.
     @Query("SELECT s FROM FocusSession s "
             + "WHERE s.user = :user AND s.startedAt BETWEEN :from AND :to "
+            + "AND s.status NOT IN ("
+            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED, "
+            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED) "
             + "AND (:cursor IS NULL OR s.id < :cursor) "
             + "ORDER BY s.id DESC")
     Slice<FocusSession> findSessionsByCursor(@Param("user") User user,
