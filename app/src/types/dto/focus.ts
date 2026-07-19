@@ -40,6 +40,7 @@ export interface FocusSessionRequest {
   endedAt: string; // Instant, ISO 문자열
   distractionCount: number;
   totalDistractionSeconds: number;
+  focusType?: FocusType; // GROMO-733 additive — 미지정 시 서버가 INFINITE 기본(고아 정산 등 모드 미상 경로)
 }
 
 // POST /focus-session — 집중 세션 저장 응답(GROMO-806). 세션 반영 후 그날 누적·스트릭 인정 여부.

@@ -355,6 +355,9 @@ export default function FocusSessionScreen() {
           endedAt,
           distractionCount: 0,
           totalDistractionSeconds: 0,
+          // 완주 저장에도 세션 유형을 전파 — 마커(취소됨)에만 실으면 RANGE/POMODORO가
+          // 전부 INFINITE(서버 기본)로 저장돼 유형별 통계가 오염된다(코덱스 리뷰).
+          focusType: FOCUS_TYPE_BY_MODE[mode],
         };
         // onRejected 2인자 형태 — .then().catch() 체인이면 발행(구독 콜백) 중 예외까지 실패
         // 핸들러로 새서, 이미 서버에 저장된 세션이 대기열에 재적재돼 중복 업로드된다(PR 250 리뷰).
@@ -371,7 +374,7 @@ export default function FocusSessionScreen() {
         );
       })
       .catch(() => {});
-  }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName, userId]);
+  }, [addFocusSeconds, addFocusToSubject, addCoins, subjectId, subjectName, userId, mode]);
 
   // 라이브 마커 마감 — 취소(통계 미귀속)로 닫아 친구 화면의 '집중 중'을 끈다. 시간 저장은
   // settleFocusBlock의 완주 저장(POST)이 별도로 담당하므로 취소해도 기록은 잃지 않는다.
@@ -384,6 +387,16 @@ export default function FocusSessionScreen() {
       .then((sessionId) => (sessionId != null ? cancelFocusSession({ sessionId }) : undefined))
       .catch(() => {});
   }, []);
+
+  // finish를 거치지 않는 언마운트(안드로이드 시스템 back 등)에서도 마커를 닫는다 — 안 닫으면
+  // 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다(코덱스 리뷰). 정상 종료는 finish/완료
+  // 게이트가 이미 취소했으므로 no-op(라이브 참조가 비어 있음).
+  useEffect(
+    () => () => {
+      if (!finishedRef.current) cancelLiveSession();
+    },
+    [cancelLiveSession],
+  );
 
   // 정지/완료 — 남은 집중 블록 정산(적립+서버 업로드) 후 홈으로. 한 번만 실행.
   const finish = useCallback(async () => {
@@ -433,8 +446,12 @@ export default function FocusSessionScreen() {
     ScreenTimeModule.stopFocusShield().catch(() => {});
     ScreenTimeModule.endFocusActivity().catch(() => {});
     settleFocusBlock();
+    // 세션은 이미 끝났으므로 마커도 게이트 시점에 바로 닫는다 — 확인을 누를 때까지 미루면
+    // 게이트에 머문 시간만큼 친구 화면에 '집중 중'이 이어져 보인다(코덱스 리뷰). finish에서
+    // 또 불려도 라이브 참조가 비어 no-op.
+    cancelLiveSession();
     Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
-  }, [session.done, doneGate, settleFocusBlock]);
+  }, [session.done, doneGate, settleFocusBlock, cancelLiveSession]);
 
   // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
   // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
