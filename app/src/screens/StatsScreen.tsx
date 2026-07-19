@@ -914,10 +914,11 @@ function PasserCompareChart() {
   );
 }
 
-// 해당월 주별 차트(월 탭) — 이달 1일이 낀 주(월~일)의 월요일부터 heatmap을 달력 주 단위로 합산,
-// 가로축은 실제 날짜 구간(예: 6/29~7/5)·해당월 전체 주 미리 기재·미래 주는 선 미표시. 전용 집계 API
-// 없이 파생 계산(GROMO-761). 지표(pick)·색만 바꿔 공부시간/핸드폰 사용량이 공유한다.
-// (하루 평균 전환을 검토했다가 주별 합계 유지로 결정 — 2026-07-11 결정기록 참고)
+// 해당월 주별 차트(월 탭) — 이달 1일부터의 heatmap을 달력 주(월~일) 단위로 합산. 첫 주가 전월에
+// 걸쳐도(라벨 6/29~7/5) 전월 활동은 합산에서 제외 — 카드 위 총계 히어로(이달 1일부터의 월 집계
+// API)와 구간이 일치해야 한다(코덱스 리뷰 반영). 가로축은 실제 날짜 구간·해당월 전체 주 미리
+// 기재·미래 주는 선 미표시. 전용 집계 API 없이 파생 계산(GROMO-761). 지표(pick)·색만 바꿔
+// 공부시간/핸드폰 사용량이 공유한다. (하루 평균 전환 검토 후 주별 합계 유지 — 2026-07-11 결정기록)
 function MonthWeeklyChart({
   pick,
   color,
@@ -934,11 +935,12 @@ function MonthWeeklyChart({
       (async () => {
         const now = new Date();
         const monthFirst = new Date(now.getFullYear(), now.getMonth(), 1);
-        // 이달 1일이 속한 주의 월요일 — 첫 주가 전월에 걸치면 전월 날짜부터 시작(예: 7월 첫 주 = 6/29~7/5)
+        // 이달 1일이 속한 주의 월요일 — 주차 인덱스·가로축 라벨의 기준점(예: 7월 첫 주 = 6/29~7/5)
         const dow = monthFirst.getDay(); // 0=일..6=토
         const weekStart0 = new Date(monthFirst);
         weekStart0.setDate(monthFirst.getDate() - (dow === 0 ? 6 : dow - 1));
-        const cells = await getHeatmap(localDateStr(weekStart0), todayStr()).catch(
+        // 조회는 이달 1일부터 — 첫 주에 낀 전월 날짜를 받으면 총계 히어로(월 집계)와 합이 어긋난다
+        const cells = await getHeatmap(localDateStr(monthFirst), todayStr()).catch(
           () => [] as HeatmapCellResponse[],
         );
         if (cancelled) return;
