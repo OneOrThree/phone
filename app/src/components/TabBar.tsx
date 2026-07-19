@@ -8,6 +8,7 @@ import Svg, { Path } from 'react-native-svg';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
+import { GlassPillFill, isLiquidGlassSupported } from '@/components/liquidGlass';
 import { hapticLight, hapticSelect } from '@/utils/haptics';
 import type { V2RootStackParamList } from '@/navigation/types';
 
@@ -128,14 +129,18 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
           </Svg>
         )}
         {barW > 0 && (
-          // 선택 탭 중앙으로 미끄러지는 유리 원판 — 탭 아이콘 뒤(레이어 순서상 Tab보다 먼저)
+          // 선택 탭 중앙으로 미끄러지는 유리 원판 — 탭 아이콘 뒤(레이어 순서상 Tab보다 먼저).
+          // iOS 26+는 네이티브 리퀴드 글래스(GROMO-848), 미지원은 기존 반투명 흰 알약
           <Animated.View
             style={[
               s.highlight,
+              isLiquidGlassSupported && s.highlightGlassHost,
               { transform: [{ translateX: tabCenterX(barW, state.index) - HIGHLIGHT_W / 2 }] },
               highlightSlide,
             ]}
-          />
+          >
+            <GlassPillFill borderRadius={HIGHLIGHT_H / 2} tintColor="rgba(255,255,255,0.45)" />
+          </Animated.View>
         )}
         <Tab index={0} />
         <Tab index={1} />
@@ -188,7 +193,7 @@ const s = StyleSheet.create({
   // HIG 44pt+ 터치타겟 — 바 전체 높이(56)를 채워 아이콘만한 좁은 세로 탭이 안 되게(GROMO-846)
   tab: { flex: 1, height: BAR_H, alignItems: 'center', justifyContent: 'center' },
   fabSlot: { width: 72 },
-  // 리퀴드 글래스 하이라이트 알약(타원)
+  // 리퀴드 글래스 하이라이트 알약(타원) — 미지원 기기 폴백 질감 포함
   highlight: {
     position: 'absolute',
     top: (BAR_H - HIGHLIGHT_H) / 2,
@@ -200,6 +205,8 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.9)',
   },
+  // 네이티브 유리를 쓸 땐 자체 배경·테두리를 끈다(채움은 GlassPillFill)
+  highlightGlassHost: { backgroundColor: 'transparent', borderWidth: 0 },
   fab: {
     position: 'absolute',
     // FAB 중심이 바 상단선에서 FAB_LIFT만큼 위 — 파임 호와 동심으로 안착

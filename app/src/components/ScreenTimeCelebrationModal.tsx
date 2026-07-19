@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, InteractionManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
@@ -26,6 +26,14 @@ function goalLabel(minutes: number): string {
 
 export function ScreenTimeCelebrationModal({ visible, streakDays, goalMinutes, onClose }: Props) {
   const [cardRect, setCardRect] = useState<ConfettiObstacle | null>(null);
+  // 색종이는 캐릭터가 그려지고 UI가 한가해진 뒤 시작(GROMO-848) — GoalCelebrationModal과 동일 가드
+  const [charReady, setCharReady] = useState(false);
+  const [uiIdle, setUiIdle] = useState(false);
+  useEffect(() => {
+    if (!visible) return;
+    const task = InteractionManager.runAfterInteractions(() => setUiIdle(true));
+    return () => task.cancel();
+  }, [visible]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.overlay}>
@@ -43,7 +51,7 @@ export function ScreenTimeCelebrationModal({ visible, streakDays, goalMinutes, o
               연속 목표달성 <Text style={s.streakDays}>{streakDays}일</Text>
             </Text>
           </View>
-          <CharacterImage size={104} />
+          <CharacterImage size={104} onLoad={() => setCharReady(true)} />
           <Text style={s.title}>어제 핸드폰 사용 시간 목표를 달성했군요!</Text>
           <Text style={s.sub}>
             {goalMinutes
@@ -55,7 +63,7 @@ export function ScreenTimeCelebrationModal({ visible, streakDays, goalMinutes, o
             <Text style={s.ctaText}>좋아요!</Text>
           </TouchableOpacity>
         </View>
-        {cardRect ? <ConfettiBurst obstacle={cardRect} /> : null}
+        {cardRect && charReady && uiIdle ? <ConfettiBurst obstacle={cardRect} /> : null}
       </View>
     </Modal>
   );

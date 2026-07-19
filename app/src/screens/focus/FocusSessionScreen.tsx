@@ -525,9 +525,9 @@ export default function FocusSessionScreen() {
     <View style={s.root}>
       <LinearGradient colors={[T.night.top, T.night.bottom]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={s.flex1} edges={['top', 'bottom']}>
-        {/* 상단바 — 과목 + 햄버거 */}
+        {/* 상단바 — 햄버거만(과목명은 타이머 위 리드아웃으로 이동, 빈 View는 우측 정렬 유지용) */}
         <View style={s.topBar}>
-          <Text style={s.topSubject}>{subjectName}</Text>
+          <View />
           <TouchableOpacity
             style={s.hamburger}
             activeOpacity={0.8}
@@ -560,6 +560,7 @@ export default function FocusSessionScreen() {
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
               members={sessionFriends}
+              title="내 친구"
               emptyTitle="아직 친구가 없어요"
               emptySub={'리그 탭에서 친구를 추가하면\n집중할 때 여기서 같이 보여요.'}
             />
@@ -573,7 +574,7 @@ export default function FocusSessionScreen() {
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
               members={leagueMembers}
-              title="내 리그"
+              title="전체 리그"
               emptyTitle="아직 리그 멤버가 없어요"
               emptySub={'리그에 배정되면 여기서\n같이 공부하는 모습이 보여요.'}
             />
@@ -581,7 +582,7 @@ export default function FocusSessionScreen() {
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
               members={examMembers}
-              title={myCategory ? `${myCategory} 준비생` : '같은 시험'}
+              title={myCategory ? `${myCategory} 리그` : '같은 시험'}
               emptyTitle={
                 myOccupation == null
                   ? '준비 시험이 설정되지 않았어요'
@@ -604,7 +605,7 @@ export default function FocusSessionScreen() {
         </View>
 
         {/* 타이머 리드아웃(모드별) */}
-        <View style={s.readout}>{renderReadout(mode, session, goal, pomo.sets)}</View>
+        <View style={s.readout}>{renderReadout(mode, session, goal, pomo.sets, subjectName)}</View>
 
         {/* 컨트롤 — 일시정지 / 정지 */}
         <View style={s.controls} ref={controlsRef} collapsable={false}>
@@ -650,12 +651,20 @@ export default function FocusSessionScreen() {
   );
 }
 
-// 모드별 하단 리드아웃(라벨 + 큰 타이머 + 보조표시). 과목명은 상단바에 표시.
-function renderReadout(mode: FocusTimerMode, session: SessionState, goal: number, sets: number) {
+// 모드별 하단 리드아웃(라벨 + 큰 타이머 + 보조표시).
+// 타이머 바로 위엔 모드 안내 문구 대신 집중 중인 과목명을 보여준다(GROMO-848).
+// 뽀모도로 휴식 페이즈만 예외로 '휴식' — 과목명이 뜨면 집중 중으로 오해할 수 있어서.
+function renderReadout(
+  mode: FocusTimerMode,
+  session: SessionState,
+  goal: number,
+  sets: number,
+  subjectName: string,
+) {
   if (mode === 'countup') {
     return (
       <>
-        <Text style={s.roLabel}>경과 · COUNT UP ↑</Text>
+        <Text style={s.roSubject}>{subjectName}</Text>
         <Text style={s.bigTime}>{hms(session.display)}</Text>
       </>
     );
@@ -663,7 +672,7 @@ function renderReadout(mode: FocusTimerMode, session: SessionState, goal: number
   if (mode === 'countdown') {
     return (
       <>
-        <Text style={s.roLabel}>남음 · COUNT DOWN ↓</Text>
+        <Text style={s.roSubject}>{subjectName}</Text>
         <Text style={s.bigTime}>{hms(session.display)}</Text>
         <Text style={s.roGoal}>목표 {hms(goal)}</Text>
       </>
@@ -680,7 +689,7 @@ function renderReadout(mode: FocusTimerMode, session: SessionState, goal: number
           </Text>
         </View>
       </View>
-      <Text style={s.roLabel}>{session.phase === 'focus' ? '다음 휴식까지' : '휴식'}</Text>
+      <Text style={s.roSubject}>{session.phase === 'focus' ? subjectName : '휴식'}</Text>
       <Text style={s.bigTime}>{hms(session.display)}</Text>
       <View style={s.setDots}>
         {Array.from({ length: sets }).map((_, i) => (
@@ -703,7 +712,6 @@ const s = StyleSheet.create({
     paddingVertical: T.space.sm,
     minHeight: 40,
   },
-  topSubject: { ...T.text.label, fontWeight: '700', color: T.night.cream },
   hamburger: {
     width: 36,
     height: 36,
@@ -732,13 +740,8 @@ const s = StyleSheet.create({
     minHeight: 118,
     justifyContent: 'flex-end',
   },
-  roLabel: {
-    ...T.text.label,
-    fontWeight: '500',
-    letterSpacing: 1,
-    color: T.night.muted,
-    marginBottom: T.space.sm,
-  },
+  // 리드아웃의 과목명(전 모드 공통) — 구 상단바 과목명의 크림색 유지
+  roSubject: { ...T.text.subtitle, color: T.night.cream, marginBottom: T.space.sm },
   bigTime: {
     ...T.text.timer,
     color: T.paperLight,
