@@ -38,6 +38,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
+import { todayStr, localDateStr } from '@/utils/localDate';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { occupationForCategory } from '@/constants/focusCategories';
@@ -424,7 +425,10 @@ export default function FocusSessionScreen() {
             // 저장 성공 — 서버 스트릭 판정을 결과 화면에 전달(GROMO-807). 결과 화면이 먼저 떠 있어도
             // 구독으로 갱신된다.
             (res) => {
-              publishSessionSaveVerdict(res);
+              // 리플레이가 자정을 넘겨 어제 날짜(endedAt)의 블록을 저장한 응답이면 발행하지
+              // 않는다 — 판정의 '그날 누적'이 어제 기준이라 오늘 판정을 오염시키고, 단조증가
+              // 가드에 걸려 오늘의 진짜 판정까지 막는다(대기열 flush 미발행과 같은 규칙, 코덱스 리뷰).
+              if (localDateStr(new Date(endedAt)) === todayStr()) publishSessionSaveVerdict(res);
             },
             // 저장 실패 — 대기열행(발행 없음). 결과 화면은 기존 추정 판정으로 폴백.
             () => {
@@ -586,7 +590,13 @@ export default function FocusSessionScreen() {
             // 경계 시각은 '지금'이 아니라 실제 지난 벽시계로 복원한다 — 실드 전진은 자리 비운
             // 1초당 1 tick이라 i번째 tick 종료 = leftAt + (i+1)초(코덱스 리뷰).
             const boundaryAt = new Date(leftAtMs + (i + 1) * 1000).toISOString();
-            if (cur.phase === 'focus' && next.phase === 'break') {
+            if (cur.phase === 'focus' && next.done) {
+              // 마지막 블록 완료(카운트다운·뽀모도로 마지막 세트)를 백그라운드에서 넘긴 경우 —
+              // 완료 경계 시각으로 정산해 완료~복귀 공백이 집중으로 계상되지 않게 한다(코덱스
+              // 리뷰). 뒤따르는 done 이펙트의 정산은 delta 0 no-op, 마커도 여기서 이미 닫힌다.
+              sessionRef.current = next;
+              settleFocusBlock(boundaryAt);
+            } else if (cur.phase === 'focus' && next.phase === 'break') {
               crossed = true;
               sessionRef.current = next; // 정산이 경계 시점의 경과초를 읽도록 먼저 반영
               settleFocusBlock(boundaryAt);
@@ -596,6 +606,15 @@ export default function FocusSessionScreen() {
               startLiveSession(boundaryAt);
             }
             cur = next;
+          }
+          // 크레딧 상한(8h)에 걸려 전진이 멈춘 경우 — 상한 시각으로 부분 정산하고 복귀 시점에서
+          // 다시 연다. 안 하면 상한~복귀의 미인정 공백이 다음 정산 구간과 라이브 표시에 집중으로
+          // 계상된다(코덱스 리뷰). 휴식 중 상한은 정산 구간에 안 들어가므로 집중 페이즈만.
+          if (!cur.done && away > credit && cur.phase === 'focus') {
+            sessionRef.current = cur;
+            settleFocusBlock(new Date(leftAtMs + credit * 1000).toISOString());
+            settleAtRef.current = new Date().toISOString();
+            startLiveSession(settleAtRef.current);
           }
           if (crossed) {
             // 페이즈 이펙트가 같은 경계를 또 처리(마커 이중 오픈)하지 않게 기준을 동기화하고,
