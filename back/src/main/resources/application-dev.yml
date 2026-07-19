@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: ${DB_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
+    url: ${API_DB_URL}
+    username: ${API_DB_USERNAME}
+    password: ${API_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:

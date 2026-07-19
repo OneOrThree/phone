@@ -2,9 +2,9 @@
 # base application.yml 은 gitignored(로컬 전용)라 배포 이미지에 없음 → 이 파일은 자기완결로 작성 (588 교훈).
 spring:
   datasource:
-    url: ${DB_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
+    url: ${API_DB_URL}
+    username: ${API_DB_USERNAME}
+    password: ${API_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
       # 기본값이지만 명시 — Phase 4 에서 측정 근거로 튜닝한다 (부하테스트-아키텍처 §2-2)

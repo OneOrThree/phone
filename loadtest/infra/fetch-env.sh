@@ -22,9 +22,9 @@ case "$ROLE" in
     : "${IMAGE:?IMAGE env 필요 — make up 이 Artifact Registry 이미지(:sha)를 주입}"
     cat > .env <<EOF
 IMAGE=${IMAGE}
-DB_URL=jdbc:postgresql://${SQL_IP}:5432/loadtest
-DB_USERNAME=loadtest
-DB_PASSWORD=${DB_PASSWORD}
+API_DB_URL=jdbc:postgresql://${SQL_IP}:5432/loadtest
+API_DB_USERNAME=loadtest
+API_DB_PASSWORD=${DB_PASSWORD}
 JWT_SECRET=${JWT_SECRET}
 EOF
     ;;

@@ -8,9 +8,9 @@ services:
       - "8080:8080"
     environment:
       SPRING_PROFILES_ACTIVE: dev
-      DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
-      DB_USERNAME: ${POSTGRES_USER}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      API_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
+      API_DB_USERNAME: ${POSTGRES_USER}
+      API_DB_PASSWORD: ${POSTGRES_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       APPLE_CLIENT_ID: ${APPLE_CLIENT_ID}
