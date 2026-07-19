@@ -1394,7 +1394,6 @@ function WeeklyTimetable() {
           ))}
         </View>
       )}
-      <Text style={s.grassHint}>요일별 집중 시간대 · 집중한 과목 색으로 칠해져요</Text>
     </View>
   );
 }
