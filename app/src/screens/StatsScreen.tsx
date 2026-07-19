@@ -71,7 +71,9 @@ const CHART_H = 120;
 // 잔디 강도 0..4 색(빈 칸 → 진한 초록).
 const GRASS = T.grass;
 const FOCUS_COLOR = T.greenDeep;
-const PHONE_COLOR = T.accent;
+// 폰 사용 지표는 경고 계열(테라코타) — 메인 액센트를 쓰면 '줄여야 할 지표'가 브랜드색으로
+// 강조되는 의미 역전이 생긴다. 집중(초록)과 대비되는 시안의 색 의미 복원(GROMO-849)
+const PHONE_COLOR = T.accentAlt;
 
 // 히트맵 셀 → 지표 추출기 — 렌더마다 재생성되지 않게 모듈 상수(훅 의존성 안정화)
 const pickFocus = (c: HeatmapCellResponse) => c.totalFocusMinutes;
@@ -324,6 +326,8 @@ export default function StatsScreen() {
       key: 'monthWeeklyFocus',
       node: (
         <SectionCard key="monthWeeklyFocus" title={`${month}월 주별 집중시간`}>
+          {/* 주 탭(요일별)과 동일한 총계 히어로 — 탭 간 표기 일관(GROMO-849) */}
+          <Text style={s.bigStat}>총 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}</Text>
           <MonthWeeklyChart pick={pickFocus} color={FOCUS_COLOR} />
         </SectionCard>
       ),
@@ -331,7 +335,14 @@ export default function StatsScreen() {
     cards.push({
       key: 'monthWeeklyPhone',
       node: (
-        <SectionCard key="monthWeeklyPhone" title={`${month}월 주별 핸드폰 사용량`}>
+        <SectionCard
+          key="monthWeeklyPhone"
+          title={`${month}월 주별 핸드폰 사용량`}
+          subtitle="집중시간과 대비돼요. 줄어들면 함께 줄어요."
+        >
+          <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
+            총 {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
+          </Text>
           <MonthWeeklyChart pick={pickScreenTime} color={PHONE_COLOR} />
         </SectionCard>
       ),
@@ -344,9 +355,7 @@ export default function StatsScreen() {
       key: 'weekdayFocus',
       node: (
         <SectionCard key="weekdayFocus" title="요일별 집중시간">
-          <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>
-            총 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
-          </Text>
+          <Text style={s.bigStat}>총 {fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}</Text>
           <LineChart
             bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
             color={FOCUS_COLOR}
@@ -357,7 +366,11 @@ export default function StatsScreen() {
     cards.push({
       key: 'weekdayPhone',
       node: (
-        <SectionCard key="weekdayPhone" title="요일별 핸드폰 사용량">
+        <SectionCard
+          key="weekdayPhone"
+          title="요일별 핸드폰 사용량"
+          subtitle="집중시간과 대비돼요. 줄어들면 함께 줄어요."
+        >
           <Text style={[s.bigStat, { color: PHONE_COLOR }]}>
             총 {fmtMinutes(data.screenTime?.currentMinutes ?? 0)}
           </Text>
@@ -473,6 +486,14 @@ export default function StatsScreen() {
           ) : (
             <MonthGrassGrid cells={data.heatmap} />
           )}
+          {/* 강도 범례 — 시안의 '적음→많음' 4단계(빈 칸 제외, GROMO-849) */}
+          <View style={s.grassLegend}>
+            <Text style={s.grassLegendText}>적음</Text>
+            {GRASS.slice(1).map((c) => (
+              <View key={c} style={[s.grassLegendCell, { backgroundColor: c }]} />
+            ))}
+            <Text style={s.grassLegendText}>많음</Text>
+          </View>
           <Text style={s.grassHint}>집중시간이 많을수록 칸이 진해져요</Text>
         </SectionCard>
       ),
@@ -552,18 +573,21 @@ export default function StatsScreen() {
 function SectionCard({
   title,
   caption,
+  subtitle,
   children,
 }: {
   title: string;
   caption?: string;
+  subtitle?: string; // 제목 아래 설명 한 줄 — 카드 의미 부제(시안 ST6, GROMO-849)
   children: React.ReactNode;
 }) {
   return (
     <View style={s.card}>
-      <View style={s.cardHead}>
+      <View style={[s.cardHead, subtitle ? s.cardHeadTight : null]}>
         <Text style={s.cardTitle}>{title}</Text>
         {caption ? <Text style={s.cardCaption}>{caption}</Text> : null}
       </View>
+      {subtitle ? <Text style={s.cardSubtitle}>{subtitle}</Text> : null}
       {children}
     </View>
   );
@@ -1618,7 +1642,7 @@ function LongestSessionStat({ period }: { period: StatsPeriod }) {
   }
   return (
     <View>
-      <Text style={[s.bigStat, { color: FOCUS_COLOR }]}>{hms(seconds)}</Text>
+      <Text style={s.bigStat}>{hms(seconds)}</Text>
       <Text style={s.grassHint}>한 번에 가장 오래 이어간 집중 세션이에요</Text>
     </View>
   );
@@ -1687,7 +1711,7 @@ function CategoryDonut({
           <Text style={s.donutCenterValue} allowFontScaling={false}>
             {fmtMinutes(total)}
           </Text>
-          <Text style={s.donutCenterLabel}>총 공부</Text>
+          <Text style={s.donutCenterLabel}>총 집중</Text>
         </View>
       </View>
       <View style={s.donutLegend}>
@@ -2117,7 +2141,9 @@ function MonthGrassGrid({ cells }: { cells: HeatmapCellResponse[] }) {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: T.paperLight },
+  // 페이지 배경은 쿨 뉴트럴(T.bg) — 흰 카드가 배경과 구분되게(시안의 배경↔카드 대비, GROMO-849).
+  // 알림·친구 화면과 같은 페이지 배경 토큰.
+  root: { flex: 1, backgroundColor: T.bg },
 
   header: {
     flexDirection: 'row',
@@ -2156,7 +2182,7 @@ const s = StyleSheet.create({
   card: {
     backgroundColor: T.white,
     borderWidth: 1,
-    borderColor: T.paperAlt,
+    borderColor: T.border,
     borderRadius: 18,
     paddingHorizontal: T.space.lg,
     paddingVertical: T.space.lg,
@@ -2169,6 +2195,9 @@ const s = StyleSheet.create({
   },
   cardTitle: { ...T.text.heading, color: T.ink },
   cardCaption: { ...T.text.caption, color: T.inkMuted },
+  // 부제가 있는 카드 — 제목과 부제를 붙이고, 본문 여백은 부제가 담당
+  cardHeadTight: { marginBottom: T.space.xs },
+  cardSubtitle: { ...T.text.caption, color: T.inkMuted, marginBottom: T.space.md },
   // 공유하기 — 타임테이블 카드 하단 오른쪽(헤더에 두면 순서 편집 핸들과 겹침)
   shareBtn: {
     flexDirection: 'row',
@@ -2178,7 +2207,8 @@ const s = StyleSheet.create({
     marginTop: T.space.md,
   },
   shareBtnText: { ...T.text.caption, color: T.inkMuted },
-  bigStat: { ...T.text.title, color: T.ink },
+  // 히어로 숫자 — '숫자가 주인공' 규칙: 항상 지표색(기본 집중=초록). 폰 지표만 PHONE_COLOR로 덮어쓴다
+  bigStat: { ...T.text.title, color: FOCUS_COLOR },
   emptyText: { ...T.text.body, color: T.inkMuted, paddingVertical: T.space.sm },
 
   // ST1 비교
@@ -2254,7 +2284,8 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   donutCenter: { position: 'absolute', alignItems: 'center' },
-  donutCenterValue: { ...T.text.label, fontWeight: '800', color: T.ink },
+  // 도넛 중앙 총합 — 카드의 대표 숫자라 캡션급(label)이 아닌 히어로급으로(GROMO-849)
+  donutCenterValue: { ...T.text.subtitle, fontWeight: '800', color: FOCUS_COLOR },
   donutCenterLabel: { ...T.text.caption, fontSize: 10, color: T.inkSub, marginTop: 2 },
   donutLegend: { flex: 1, gap: T.space.sm },
   donutLegendRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
@@ -2366,7 +2397,7 @@ const s = StyleSheet.create({
   deltaLabel: { ...T.text.label, color: T.inkSub },
   deltaValueWrap: { flexDirection: 'row', alignItems: 'baseline', gap: T.space.sm },
   deltaArrow: { ...T.text.label },
-  deltaPct: { ...T.text.subtitle },
+  deltaPct: { ...T.text.subtitle, fontWeight: '800' },
   deltaMin: { ...T.text.caption, color: T.inkMuted },
 
   // 목표 달성 — 일 스탬프
@@ -2442,5 +2473,15 @@ const s = StyleSheet.create({
   weekGrassCol: { alignItems: 'center', gap: T.space.xs },
   weekGrassCell: { width: 24, height: 24, borderRadius: 6 },
   weekGrassLabel: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
+  // 잔디 강도 범례 — 적음→많음(빈 칸 제외 4단계, GROMO-849)
+  grassLegend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: T.space.xs,
+    marginTop: T.space.md,
+  },
+  grassLegendCell: { width: 12, height: 12, borderRadius: 4 },
+  grassLegendText: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
   grassHint: { ...T.text.caption, color: T.inkMuted, marginTop: T.space.md },
 });
