@@ -1,6 +1,6 @@
 # 멀티 스테이지 — 아키텍처는 여기 하드코딩하지 않고 각 파이프라인이 결정한다:
-#   dev cd.yml: platforms: linux/amd64 (GCP dev VM) / prod-ci: platforms: linux/arm64 (AWS t4g)
-#   로컬은 platforms 미지정 → 호스트 네이티브(Apple Silicon이면 arm64)로 빠르게 빌드
+#   prod-ci: platforms: linux/arm64 (AWS t4g) / dev cd.yml·로컬: platforms 미지정
+#   → 빌드 머신 네이티브(dev 러너 x86=amd64, Apple Silicon=arm64)로 빠르게 빌드
 # builder는 $BUILDPLATFORM(빌드 머신 네이티브)에서 실행 — gradle을 QEMU 에뮬레이션 없이 돌리고,
 # 산출물 JAR는 아키텍처 무관이라 최종 스테이지만 타깃 아키텍처의 JRE 베이스로 조립된다.
 FROM --platform=$BUILDPLATFORM eclipse-temurin:17-jdk-alpine AS builder
