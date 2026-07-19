@@ -51,10 +51,17 @@ export function LiveFocusGrid({
   return (
     <View style={s.wrap}>
       {title != null && <Text style={s.title}>{title}</Text>}
-      <View style={s.banner}>
-        <View style={s.bannerDot} />
-        <Text style={s.bannerText}>{focusing}명이 지금 같이 집중하고 있어요</Text>
-      </View>
+      {/* 0명일 땐 라이브 점 없이 회색 톤 배너 — "0명이 같이 집중" 표기의 어색함 제거(GROMO-848) */}
+      {focusing === 0 ? (
+        <View style={[s.banner, s.bannerSolo]}>
+          <Text style={[s.bannerText, s.bannerTextSolo]}>지금은 나만 집중하고 있어요</Text>
+        </View>
+      ) : (
+        <View style={s.banner}>
+          <View style={s.bannerDot} />
+          <Text style={s.bannerText}>{focusing}명이 지금 같이 집중하고 있어요</Text>
+        </View>
+      )}
 
       {/* 인원이 화면을 넘으면 세로 스크롤(GROMO-848) — 가로 페이저와 축이 달라 충돌 없음 */}
       <ScrollView style={s.flex1} showsVerticalScrollIndicator={false}>
@@ -111,10 +118,24 @@ const s = StyleSheet.create({
   },
   bannerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.night.green },
   bannerText: { ...T.text.label, fontWeight: '700', color: T.night.greenSoft },
+  // 0명(혼자 집중) 배너 — 회청색 톤으로 라이브 배너와 구분
+  bannerSolo: {
+    backgroundColor: withAlpha(T.night.muted, 0.1),
+    borderColor: withAlpha(T.night.muted, 0.22),
+  },
+  bannerTextSolo: { color: T.night.muted },
 
   flex1: { flex: 1 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around' },
-  cell: { width: '31%', alignItems: 'center', gap: T.space.xs, marginVertical: T.space.md },
+  // 왼쪽부터 채움 — space-around는 1~2명 줄이 가운데로 퍼져 보인다(GROMO-848).
+  // marginHorizontal 1.16% ≈ 구 space-around의 셀당 여백(7%/6)이라 꽉 찬 줄 간격은 동일.
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start' },
+  cell: {
+    width: '31%',
+    marginHorizontal: '1.16%',
+    alignItems: 'center',
+    gap: T.space.xs,
+    marginVertical: T.space.md,
+  },
   cellOff: { opacity: 0.5 },
   avatar: {
     width: 60,
