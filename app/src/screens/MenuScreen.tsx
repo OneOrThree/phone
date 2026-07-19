@@ -180,7 +180,8 @@ export default function MenuScreen() {
               icon="phone-portrait-outline"
               iconColor={T.accentDeep}
               iconBg={T.accentBg}
-              label="스크린타임 권한"
+              label="스크린타임 관리"
+              sub="권한 · 측정 대상 앱"
               value={permission === null ? undefined : permissionLabel}
               valueColor={permission === 'approved' ? T.successInk : T.inkSub}
               onPress={() => navigation.navigate('SettingsScreenTimePermission')}

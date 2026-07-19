@@ -139,33 +139,35 @@ export default function ScreenTimePermissionScreen() {
 
   const badge = badgeMeta(status);
 
-  const footer = (
-    <View style={s.footerCol}>
-      {status === 'notDetermined' ? (
-        <TouchableOpacity
-          style={[s.primaryBtn, requesting ? s.btnDisabled : null]}
-          activeOpacity={0.85}
-          disabled={requesting}
-          onPress={requestPermission}
-        >
-          <Text style={s.primaryBtnText}>{requesting ? '요청 중…' : '권한 요청'}</Text>
-        </TouchableOpacity>
-      ) : null}
+  // 하단 고정 버튼 — 권한 미요청 상태에서만 '권한 요청' 노출.
+  // 'iOS 설정에서 관리' 버튼은 제거 — 상태 카드 탭으로 이동(GROMO-848).
+  const footer =
+    status === 'notDetermined' ? (
       <TouchableOpacity
-        style={s.secondaryBtn}
+        style={[s.primaryBtn, requesting ? s.btnDisabled : null]}
+        activeOpacity={0.85}
+        disabled={requesting}
+        onPress={requestPermission}
+      >
+        <Text style={s.primaryBtnText}>{requesting ? '요청 중…' : '권한 요청'}</Text>
+      </TouchableOpacity>
+    ) : undefined;
+
+  return (
+    // scroll={false} — 콘텐츠가 한 화면이라 스크롤 대신 고정 레이아웃으로 두고,
+    // 스페이서로 안내문(수집 항목·기기내 처리)을 화면 하단에 붙인다(GROMO-848)
+    <SettingsScaffold
+      title="스크린타임 관리"
+      onBack={() => navigation.goBack()}
+      footer={footer}
+      scroll={false}
+    >
+      {/* 상태 카드 — 권한 배지 + 마지막 동기화. 탭하면 iOS 설정으로 이동 */}
+      <TouchableOpacity
+        style={s.statusCard}
         activeOpacity={0.8}
         onPress={() => Linking.openSettings()}
       >
-        <Ionicons name="settings-outline" size={18} color={T.ink} />
-        <Text style={s.secondaryBtnText}>iOS 설정에서 관리</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  return (
-    <SettingsScaffold title="스크린타임 권한" onBack={() => navigation.goBack()} footer={footer}>
-      {/* 상태 카드 — 권한 배지 + 마지막 동기화 */}
-      <View style={s.statusCard}>
         <View style={s.iconBox}>
           <Ionicons name="phone-portrait-outline" size={20} color={T.accentDeep} />
         </View>
@@ -176,25 +178,35 @@ export default function ScreenTimePermissionScreen() {
         <View style={[s.badge, { backgroundColor: badge.bg }]}>
           <Text style={[s.badgeText, { color: badge.color }]}>{badge.label}</Text>
         </View>
-      </View>
+        <Ionicons name="chevron-forward" size={17} color={T.inkFaint} />
+      </TouchableOpacity>
 
-      {/* 수집 항목 — 정적 안내(탭 불가) */}
-      <SettingsSection title="수집 항목">
+      {/* 관리 — 측정 대상 앱 설정 (실제 조작 기능이라 접근 카드 바로 아래) */}
+      <SettingsSection title="관리">
         <SettingsRow
-          icon="time-outline"
-          iconColor={T.accentDeep}
+          icon="apps-outline"
+          iconColor={T.accent}
           iconBg={T.accentBg}
-          label="앱별 사용 시간"
-          sub="어떤 앱을 얼마나 썼는지"
-        />
-        <SettingsRow
-          icon="albums-outline"
-          iconColor={T.greenDeep}
-          iconBg={T.greenBg}
-          label="카테고리별 분류"
-          sub="SNS · 게임 등으로 묶어 집계"
+          label="측정 대상 앱 설정"
+          sub="사용시간을 잴 앱·카테고리 선택"
+          onPress={editScreenTimeTargets}
         />
       </SettingsSection>
+
+      {/* 남는 공간 밀어내기 — 아래 안내문들을 화면 하단에 정렬 */}
+      <View style={s.flex1} />
+
+      {/* 수집 항목 — 안내문. 설정 행 스타일이면 버튼처럼 보여 노트 카드로 표기(GROMO-848) */}
+      <View style={s.noteCard}>
+        <View style={s.noteHead}>
+          <Ionicons name="time-outline" size={16} color={T.accentDeep} />
+          <Text style={s.noteStrong}>수집 항목</Text>
+        </View>
+        <Text style={s.noteBody}>
+          앱별 사용 시간(어떤 앱을 얼마나 썼는지)과{'\n'}카테고리별 분류(SNS · 게임 등 묶음 집계)를
+          수집해요.
+        </Text>
+      </View>
 
       {/* 기기내 처리 안내 + 권한 종료 시 영향 */}
       <View style={s.noteCard}>
@@ -206,18 +218,6 @@ export default function ScreenTimePermissionScreen() {
           권한을 끄면 사용시간 통계·자동 코인이 멈춰요. iOS 설정 앱에서도 바꿀 수 있어요.
         </Text>
       </View>
-
-      {/* 관리 — 측정 대상 앱 설정 */}
-      <SettingsSection title="관리">
-        <SettingsRow
-          icon="apps-outline"
-          iconColor={T.accent}
-          iconBg={T.accentBg}
-          label="측정 대상 앱 설정"
-          sub="사용시간을 잴 앱·카테고리 선택"
-          onPress={editScreenTimeTargets}
-        />
-      </SettingsSection>
     </SettingsScaffold>
   );
 }
@@ -265,7 +265,6 @@ const s = StyleSheet.create({
   noteBody: { ...T.text.caption, color: T.inkSub, lineHeight: 19, marginTop: T.space.sm },
 
   // 하단 버튼
-  footerCol: { gap: T.space.md },
   primaryBtn: {
     height: 54,
     borderRadius: 16,
@@ -275,16 +274,4 @@ const s = StyleSheet.create({
   },
   primaryBtnText: { ...T.text.subtitle, color: T.white },
   btnDisabled: { opacity: 0.5 },
-  secondaryBtn: {
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: T.white,
-    borderWidth: 1,
-    borderColor: T.paperAlt,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: T.space.sm,
-  },
-  secondaryBtnText: { ...T.text.label, color: T.ink },
 });
