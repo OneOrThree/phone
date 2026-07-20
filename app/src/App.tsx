@@ -7,6 +7,7 @@ import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
 import { HotUpdater } from '@hot-updater/react-native';
 import { setLogoutHandler, setReloginHandler, getUserIdFromToken, api } from '@/services/api';
 import { setAccountSwitchHandler } from '@/services/auth';
+import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
 import { todayStr } from '@/utils/localDate';
 import {
   updateScreenTimePermission,
@@ -171,6 +172,12 @@ function App() {
     })();
   }, []);
 
+  // ATT(추적 동의) 팝업 — 홈 진입 시점 1회(기존 유저는 앱 시작, 신규 유저는 온보딩 완료 직후).
+  // 온보딩 도중의 알림·스크린타임 권한 요청 구간과 겹치지 않게 onboarded 이후로 미룬다(GROMO-890).
+  useEffect(() => {
+    if (onboarded) syncAdTracking();
+  }, [onboarded]);
+
   async function handleLogout() {
     // 서버 디바이스 토큰 등록 해제 — 이전 계정 푸시가 이 기기로 계속 발송되지 않게(PR 224 리뷰).
     // 아래 multiRemove로 토큰이 지워지기 전, 인증이 살아있을 때 호출해야 한다.
@@ -273,6 +280,9 @@ function App() {
       // (OnboardingFlow가 닉네임 재입력/재시도 UI를 띄운다).
       const sync = await syncOnboardingToServer(data);
       if (sync !== 'ok') return sync;
+      // 신규 가입 확정 — 광고 소재별 '설치 후 실제 사용' 판단용 온보딩 완료 이벤트(GROMO-890).
+      // 재로그인(isExistingAccount)·세션 복원 경로에는 넣지 않는다(가입이 아니므로 중복 집계 방지).
+      logCompleteRegistration();
       // 목표 선택(W4) — 리그 화면이 기본 시험 리그로 읽는다. 서버 필드 협의 전까지 로컬 보관.
       if (data.focusCategory) {
         await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategory);

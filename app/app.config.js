@@ -30,6 +30,14 @@ export default {
       'expo-localization',
       ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
       '@xmartlabs/react-native-line',
+      // ATT(앱 추적 투명성) 동의 팝업 — prebuild 시 Info.plist 문구를 동기화한다(현재는 네이티브에 직접 반영됨).
+      [
+        'expo-tracking-transparency',
+        {
+          userTrackingPermission:
+            '광고 성과 측정을 위해 사용돼요. 허용하지 않아도 앱 이용에는 영향이 없어요.',
+        },
+      ],
       // Facebook SDK 플러그인은 appID 가 있을 때만 추가한다.
       // (appID 가 비어 있으면 플러그인이 'missing appID' 로 throw 하므로 미설정 시 skip)
       ...(facebookAppId

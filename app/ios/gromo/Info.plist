@@ -115,6 +115,8 @@
 	<string>타임테이블 등 통계 이미지를 사진에 저장하기 위해 필요합니다.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>광고 성과 측정을 위해 사용돼요. 허용하지 않아도 앱 이용에는 영향이 없어요.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIBackgroundModes</key>
