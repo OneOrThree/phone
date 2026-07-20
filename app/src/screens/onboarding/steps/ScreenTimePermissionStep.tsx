@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { View, Text, StyleSheet, Alert, Linking } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
@@ -38,7 +39,13 @@ function ClockIcon() {
 }
 
 export default function ScreenTimePermissionStep({ update, onNext }: StepProps) {
+  // 연타 방지 — FamilyControls 권한 요청은 시스템 전역 동시 1건 제한이라, 요청 중 재탭 시
+  // "one application at a time" 에러 알림이 피커 뒤에 잔존한다(GROMO-909). 설정 화면과 동일 가드.
+  const [requesting, setRequesting] = useState(false);
+
   async function allow() {
+    if (requesting) return;
+    setRequesting(true);
     try {
       const status = await ScreenTimeModule.getAuthorizationStatus();
       if (status === 'denied') {
@@ -64,6 +71,8 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
     } catch (e) {
       // 조용히 삼키지 않고 노출 (엔타이틀먼트/프로파일 문제 진단용).
       Alert.alert('권한 요청 실패', e instanceof Error ? e.message : String(e));
+    } finally {
+      setRequesting(false);
     }
   }
 
@@ -96,7 +105,8 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
       header={<ClockIcon />}
       title={'사용 시간을\n정확히 보려면'}
       subtitle="Apple 스크린타임 권한이 필요해요. 이 데이터로 통계를 계산해요."
-      ctaLabel="권한 허용하기"
+      ctaLabel={requesting ? '요청 중…' : '권한 허용하기'}
+      ctaDisabled={requesting}
       onCta={allow}
       secondaryLabel="나중에 할게요"
       onSecondary={later}
