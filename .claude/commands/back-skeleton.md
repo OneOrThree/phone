@@ -12,7 +12,7 @@ allowed-tools: Bash, Read, Edit, Write
 - 다음은 작성한다:
   - 패키지 선언
   - 클래스/인터페이스/enum 타입에 맞는 어노테이션 (`@Entity`, `@Getter`, `@Builder` 등)
-  - 상속/구현 관계 (`extends JpaRepository<Foo, Long>`, `extends RuntimeException` 등)
+  - 상속/구현 관계 (`extends JpaRepository<Foo, UUID>`, `extends RuntimeException` 등)
   - 기존 파일에서 패턴을 읽어 맞춘다
 - 다음은 작성하지 않는다: 필드, 메서드 본문, 생성자, enum 값
 - 클래스 본문에 `// TODO <티켓>:` 주석으로 해야 할 일 목록만 적는다:
@@ -28,13 +28,17 @@ allowed-tools: Bash, Read, Edit, Write
 @Entity @Table(name = "foo") @Getter @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED) @AllArgsConstructor
 public class Foo {
+    // TODO: PK — 독립 서러게이트 키면 @Id @GeneratedUuidV7 UUID id (common/id, 기본 규칙).
+    //       @MapsId 상속 키(GroupJoinCode 등)·자연키·Integer PK(LeagueTierConfig)는
+    //       참고 패턴 파일의 ID 매핑을 그대로 따르고 @GeneratedUuidV7 을 붙이지 않는다.
     // TODO: 필드 목록
 }
 ```
 
 **Repository** — GroupMemberRepository.java 패턴 참고:
 ```java
-public interface FooRepository extends JpaRepository<Foo, Long> {
+public interface FooRepository extends JpaRepository<Foo, UUID> {
+    // ID 제네릭은 엔티티 PK 타입과 일치시킨다 (UUID 기본; LeagueTierConfig 처럼 예외 있음)
     // TODO: 메서드 목록
 }
 ```
@@ -63,9 +67,12 @@ public class FooService {
 }
 ```
 
-**migration .sh 파일**
-- 완성 코드로 작성한다.
-- `run-migration-v1.sh` 스타일을 그대로 따른다.
+**migration SQL 파일 (Flyway)**
+- 완성 코드로 작성한다 (골격 아님 — DDL은 TODO로 미룰 수 없다).
+- `back/src/main/resources/db/migration/V<N+1>__<desc>.sql` — 버전은 기존 파일의
+  **숫자 max+1** (사전순 정렬 금지: `V9`가 `V15`보다 뒤에 온다).
+- 최근 `V<N>__*.sql` 스타일을 따른다: 한국어 헤더 주석(`-- GROMO-####: ...`) + forward DDL.
+- 이미 적용된 마이그레이션은 절대 수정하지 않는다 (Flyway 체크섬).
 
 **기존 파일 수정이 필요한 경우**
 - 해당 파일을 Read 한 뒤, 수정할 위치에 `// TODO <티켓>:` 주석만 추가한다.
@@ -91,7 +98,7 @@ public class FooService {
 - `service/GroupService.java` — fooMethod() 추가
 
 ### migration
-- `docs/db/run-migration-vN.sh` — foo 테이블 생성
+- `back/src/main/resources/db/migration/V<N+1>__create_foo.sql` — foo 테이블 생성
 
 ## GROMO-YYY: ...
 ```

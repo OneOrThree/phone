@@ -17,8 +17,13 @@ shop items. Company `oneorthree`; iOS bundle id `com.oneorthree.gromo`.
 | -------------------- | ---------- |
 | `app/`               | React Native + Expo frontend (TypeScript). Includes `app/ios/` native project and the `screentimereport` Screen Time extension. See `app/.claude/CLAUDE.md`. |
 | `back/`              | Spring Boot 4 + Java 17 + PostgreSQL REST API. See `back/CLAUDE.md`. |
-| `docs/`              | DB schema, design, and feature docs (see pointers below). |
+| `loadtest/`          | k6 load-testing harness (scenarios, GCP runner terraform, trigger dashboard). See `loadtest/README.md`. |
+| `observability/`     | Prometheus / Grafana / Loki / Datadog configs for the dev observability overlay. See `observability/README.md`. |
 | `.github/workflows/` | CI/CD pipelines (see below). |
+
+Gitignored local-only dirs (machine-specific, not in git): `docs/` (planning
+scratch — tickets, reports, specs), `logs/` (work journals), `back/docs/`
+(schema.dbml + legacy migration scripts), `app/.docs/` (planning/design docs).
 
 The frontend and backend share almost no tooling — work in the relevant subtree
 and let its nested `CLAUDE.md` guide the specifics.
@@ -51,16 +56,32 @@ Korean. Keep code identifiers (types, functions, variables) in English.
 ## CI/CD (`.github/workflows/`)
 
 Pipelines are path-filtered — `app/**` changes and `back/**` changes trigger
-different jobs.
+different jobs. This list rots; the authoritative source is `ls .github/workflows/`
+plus each file's `name:`.
 
-- `lint.yml` — ESLint + Prettier on `app/**`.
-- `ci.yml`, `check-style-backend.yml`, `test-backend.yml`, `spot-bugs.yml` — Checkstyle, tests (JUnit + Testcontainers), and SpotBugs on `back/**`.
-- `testflight.yml` — iOS build & submit via EAS → TestFlight.
-- `cd.yml` — backend Docker image → AWS deploy.
+- **App**: `lint.yml` — ESLint + Prettier + tsc on `app/**`.
+- **Backend PR gate**: `ci.yml` orchestrates the reusable (`workflow_call`)
+  `check-style-backend.yml` / `test-backend.yml` / `spot-bugs.yml` — Checkstyle,
+  tests (JUnit + Testcontainers), and SpotBugs on `back/**`.
+- **Dev deploy**: `cd.yml` — `main` push → backend Docker image → AWS dev.
+- **Prod**: `prod-ci.yml` (verifies PRs to `release`; builds + pushes the image on
+  `release` push) → `prod-cd.yml` (auto-deploys via `workflow_run`, or manual
+  dispatch by SHA) → `prod-rollback.yml` (manual rollback).
+- **API docs**: `api-dog-generate.yml` (OpenAPI generation on `main`/`release`/
+  `bfeat|bfix|brefactor` pushes — `bchore` is excluded), `cleanup-api-docs.yml`
+  (cleanup on branch delete — currently a **no-op**: its predicate checks a
+  `refs/heads/` prefix that the `delete` event's `ref` never carries, so no
+  branch deletion is cleaned and doc dirs accumulate on `gh-pages`; known gap).
+- **Observability (manual dispatch)**: `dev-datadog.yml` (Datadog APM toggle),
+  `dev-monitor.yml` (Prometheus/Grafana/Loki stack).
+- **Load test**: `loadtest.yml` — manual dispatch with profile/scenario inputs.
 - `claude-review.yml` — Claude PR review, triggered by an `@claude` comment.
+
+iOS builds/deploys are **not in CI** — they run manually via fastlane
+(`app/ios/fastlane/`, lane `beta`: archive → TestFlight upload).
 
 ## Key docs
 
-- `back/docs/db/schema.dbml` — canonical DB schema (DBML, reflects current state). Schema deltas are applied by **Flyway** migrations in `back/src/main/resources/db/migration/` (`V1__baseline.sql` onward); the local-only `run-migration-v*.sh` scripts in `back/docs/db/` (gitignored, up to v30) are a legacy archive.
-- `docs/design.md` — design spec. `docs/project-feature.md` — feature spec.
+- `back/docs/db/schema.dbml` — canonical DB schema (DBML, local-only/gitignored; keep it in sync). Schema deltas are applied by **Flyway** migrations in `back/src/main/resources/db/migration/` (`V1__baseline.sql` onward); the `run-migration-v*.sh` scripts next to it are a legacy archive.
+- `loadtest/README.md` — load-testing harness guide. `observability/README.md` — dev observability stack guide.
 - `back/HELP.md` — Spring Boot reference notes.

@@ -1,5 +1,5 @@
 ---
-description: Create the next DB migration shell script (run-migration-v<N+1>.sh) for a schema change
+description: Create the next Flyway migration (V<N+1>__<desc>.sql) for a schema change
 argument-hint: "<the schema change, e.g. friendships 테이블에 status 컬럼 추가>"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write
 ---
@@ -7,41 +7,37 @@ allowed-tools: Bash, Read, Grep, Glob, Edit, Write
 Author a database schema change: **$ARGUMENTS**
 
 Steps:
-1. Discover the current migration version: list `back/docs/db/run-migration-v*.sh` and
-   find the highest `v<N>`. The new file is `back/docs/db/run-migration-v<N+1>.sh`. If
-   none exist, start at `run-migration-v1.sh`.
-2. Read the latest existing script to match its exact style: the `#!/bin/bash` header,
-   the usage comment, the `CONTAINER`/`DB`/`USER` defaults, and the
-   `docker exec -i "$CONTAINER" psql -U "$USER" -d "$DB" <<'EOF' … EOF` heredoc. Write the
-   new script with the forward DDL for the requested change inside the heredoc, ending
-   with `\echo '✅ migration-v<N+1> 완료'`.
-
-   **Fail-loud guard (required).** A migration must NOT print "완료" when it actually
-   failed. Include all of these so a wrong container name or a SQL error aborts the run:
-   - `set -euo pipefail` right after the `USER=` defaults.
-   - A container-existence check before any `docker exec` (catches the common mistake of
-     passing the *image* name like `postgres:16-alpine` instead of the container NAME):
-     ```bash
-     if ! docker inspect "$CONTAINER" >/dev/null 2>&1; then
-         echo "❌ '$CONTAINER' 컨테이너가 없습니다. docker ps 의 NAMES 값을 넘기세요 (이미지명 아님)." >&2
-         exit 1
-     fi
-     ```
-   - `-v ON_ERROR_STOP=1` on every `psql` invocation so a SQL error returns non-zero and
-     (with `set -e`) aborts before the final 완료 line. The trailing "완료" echo then only
-     runs on success.
-3. Make the new script executable (`chmod +x`).
-4. If the change affects JPA entities, point out which `domain/<feature>/` entities and
-   repositories need updating (or update them if I asked for the full change), keeping
-   them aligned with the new columns/tables.
-5. Remind me that the PR must flag this DB-schema change in the "DB 스키마 변경" section of
-   `.github/pull_request_template.md`.
-
-After writing the script, update `back/docs/db/schema.dbml` (DBML — the canonical schema
-doc) to reflect the new columns/tables so it stays in sync with the current DB state.
-
-Note: these `run-migration-v*.sh` scripts are gitignored / local-only — they apply DDL
-against my local Docker Postgres and are **not** committed.
+1. Discover the current migration version: glob
+   `back/src/main/resources/db/migration/V*__*.sql` and take the **numeric** max of
+   the `V(\d+)__` prefix — never sort lexicographically (`V9` sorts after `V15`).
+   The new file is `V<N+1>__<short_snake_case_desc>.sql` in the same directory.
+2. Read the 1–2 most recent migrations and match their exact style: a Korean header
+   comment (`-- GROMO-####: 무엇을 왜 바꾸는지`) followed by plain forward DDL.
+3. Guardrails (all required):
+   - **Never edit an already-applied/pushed migration** — Flyway checksums every
+     file; fix mistakes with a new `V<N+2>` migration instead.
+   - Forward-only DDL. No destructive statements (`DROP TABLE` / `DROP COLUMN` /
+     data-loss rewrites) unless the request explicitly asks for them.
+   - Never touch `flyway_schema_history`.
+   - **Version-collision guard**: another branch may claim the same `V<N+1>` between
+     scaffold and merge — git merges duplicate versions without conflict (different
+     filenames), but Flyway then fails on boot, and the `ci` profile has Flyway
+     disabled so the PR gate won't catch it. Right before merging, run
+     `git fetch origin main` first (a stale local ref defeats the guard), then
+     re-scan `origin/main`'s migration dir and renumber to the next free version
+     if taken.
+4. Update `back/docs/db/schema.dbml` (DBML — the canonical schema doc,
+   gitignored/local-only) to reflect the new columns/tables so it stays in sync
+   with the current DB state.
+5. If the change affects JPA entities, point out which `<domain>/domain/` entities
+   and repositories need updating (or update them if I asked for the full change),
+   keeping them aligned with the new columns/tables.
+6. Remind me that:
+   - nothing runs locally — the `local` profile has Flyway disabled
+     (`ddl-auto: update`); dev/staging/prod apply migrations automatically on boot
+     with `ddl-auto: validate`;
+   - the PR must flag this DB-schema change in the "DB 스키마 변경" section of
+     `.github/pull_request_template.md`.
 
 Create/modify files only — **do not commit, push, or run the migration against any
 database**.

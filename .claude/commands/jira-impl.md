@@ -37,7 +37,8 @@ allowed-tools: Bash, Read, Grep, Glob, Write, AskUserQuestion, mcp__atlassian__g
 - 비슷한 엔드포인트/엔티티/DTO/에러코드를 찾아 **따라야 할 패턴**을 확정한다
   (메서드 시그니처, `@Transactional` 위치, 예외 처리 방식, DTO 클래스/record 스타일 등).
 - `back/docs/db/schema.dbml` 을 확인해 **필요한 컬럼·테이블이 이미 있는지** 본다
-  → 있으면 migration 불필요, 없으면 `run-migration-v<N+1>.sh` 항목을 스펙에 포함.
+  → 있으면 migration 불필요, 없으면 Flyway `V<N+1>__<desc>.sql` 항목을 스펙에 포함
+  (`back/src/main/resources/db/migration/`, 버전은 기존 파일의 숫자 max+1).
 - Serena 심볼 도구가 있으면 호출 경로 추적에 활용한다.
 
 ### 4. 모호점 질의 (중요)
@@ -79,7 +80,7 @@ allowed-tools: Bash, Read, Grep, Glob, Write, AskUserQuestion, mcp__atlassian__g
 - `<domain>/service/FooService.java` — <추가할 메서드, 예외 처리>
 
 ### migration
-- 불필요 (컬럼 이미 존재) — 또는 `docs/db/run-migration-vN.sh` — <변경 내용>
+- 불필요 (컬럼 이미 존재) — 또는 `back/src/main/resources/db/migration/V<N+1>__<desc>.sql` — <변경 내용>
 
 ### 에러
 - 400/401/404 ... — <조건 / 에러코드>
