@@ -78,9 +78,20 @@
 	<key>FacebookAppID</key>
 	<string>990121817063522</string>
 	<key>FacebookClientToken</key>
-	<string>PLACEHOLDER_FACEBOOK_CLIENT_TOKEN</string>
+	<string>7ed99476de7a19056835e56b628574bb</string>
 	<key>FacebookDisplayName</key>
 	<string>gromo</string>
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>v9wttpbfk9.skadnetwork</string>
+		</dict>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>n38lu8286q.skadnetwork</string>
+		</dict>
+	</array>
 	<key>FirebaseAutomaticScreenReportingEnabled</key>
 	<false/>
 	<key>ITSAppUsesNonExemptEncryption</key>
