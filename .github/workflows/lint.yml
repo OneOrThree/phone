@@ -6,6 +6,7 @@ on:
     paths:
       - 'app/**'
   pull_request:
+    branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드라 제외 (ci.yml과 동일 패턴)
     paths:
       - 'app/**'
 
