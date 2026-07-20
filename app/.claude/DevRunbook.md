@@ -265,7 +265,7 @@ cd app/ios
 
 `testflight.sh`가 하는 일:
 
-1. **API 서버 강제** — 릴리즈는 항상 팀 서버(`https://oneorthree.dev.mooo.com`)로 고정. 셸에 export한 `EXPO_PUBLIC_API_URL`이 로컬 `.env`보다 우선하므로, **개발용 로컬 백엔드 주소가 릴리즈 번들에 박히는 사고를 막는다** (다른 서버로 올리려면 `TESTFLIGHT_API_URL=... ./testflight.sh`).
+1. **API 서버 강제** — 릴리즈는 항상 프로덕션 서버(`https://api.oneorthree.world`)로 고정 (2026-07-20 dev/prod 분리 이후; 이전엔 dev 서버였음). 셸에 export한 `EXPO_PUBLIC_API_URL`이 로컬 `.env`/`.env.production`보다 우선하므로, **개발용 로컬 백엔드 주소가 릴리즈 번들에 박히는 사고를 막는다** (dev 서버로 올리려면 `TESTFLIGHT_API_URL=https://oneorthree.dev.mooo.com ./testflight.sh`).
 2. **Pods 동기화** — `Podfile.lock`↔`Pods/Manifest.lock`이 어긋날 때만 `pod install` (평소엔 건너뜀).
 3. **`bundle exec fastlane beta`** 실행 → 빌드번호 갱신 → archive(`.ipa`) → TestFlight 업로드.
 
@@ -284,7 +284,7 @@ cd app/ios
   ```
 - **"sandbox is not in sync with the `Podfile.lock`"** = 브랜치 전환/라이브러리 추가 후 `pod install`을 안 함. `testflight.sh`가 자동 처리하지만, 수동으로 돌릴 땐 `pod install` 후 `Pod installation complete!`를 확인.
 - **`react-native-fbsdk-next` throw** = `app.config.js`가 `EXPO_PUBLIC_FACEBOOK_APP_ID`가 없으면 플러그인에서 throw. appID가 있을 때만 플러그인을 추가하도록 조건부 처리돼 있어(없어도 빌드는 됨), 값이 비어도 배포는 진행된다.
-- **`.env`가 Release 번들에 인라인됨** = Expo는 빌드 시점의 `EXPO_PUBLIC_*` 값을 번들에 그대로 박는다. `testflight.sh`는 export로 팀 서버를 강제하니 안전하지만, **`fastlane beta`를 직접 돌릴 땐** `app/.env`의 `EXPO_PUBLIC_API_URL`이 팀 서버인지 반드시 확인.
+- **`.env`가 Release 번들에 인라인됨** = Expo는 빌드 시점의 `EXPO_PUBLIC_*` 값을 번들에 그대로 박는다. `testflight.sh`는 export로 프로덕션 서버를 강제하니 안전하지만, **`fastlane beta`를 직접 돌릴 땐** `app/.env.production`의 `EXPO_PUBLIC_API_URL`이 프로덕션 서버인지 반드시 확인. 업로드 전 `strings <archive>/Products/Applications/gromo.app/main.jsbundle | grep -o 'https://[a-z.]*oneorthree[a-z.]*' | sort -u`로 번들에 박힌 주소를 직접 검증할 수 있다.
 - **`node: command not found`**(비대화형/일부 셸) = `testflight.sh`가 `/opt/homebrew/Cellar/node@24/...`를 PATH에 보강해 둠. node 버전이 바뀌면 스크립트 안의 경로도 같이 갱신할 것.
 
 ---
