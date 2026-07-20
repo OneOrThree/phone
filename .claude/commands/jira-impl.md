@@ -80,7 +80,7 @@ allowed-tools: Bash, Read, Grep, Glob, Write, AskUserQuestion, mcp__atlassian__g
 - `<domain>/service/FooService.java` — <추가할 메서드, 예외 처리>
 
 ### migration
-- 불필요 (컬럼 이미 존재) — 또는 `src/main/resources/db/migration/V<N+1>__<desc>.sql` — <변경 내용>
+- 불필요 (컬럼 이미 존재) — 또는 `back/src/main/resources/db/migration/V<N+1>__<desc>.sql` — <변경 내용>
 
 ### 에러
 - 400/401/404 ... — <조건 / 에러코드>

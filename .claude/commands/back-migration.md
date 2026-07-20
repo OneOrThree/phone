@@ -22,8 +22,10 @@ Steps:
    - **Version-collision guard**: another branch may claim the same `V<N+1>` between
      scaffold and merge — git merges duplicate versions without conflict (different
      filenames), but Flyway then fails on boot, and the `ci` profile has Flyway
-     disabled so the PR gate won't catch it. Right before merging, re-scan
-     `origin/main`'s migration dir and renumber to the next free version if taken.
+     disabled so the PR gate won't catch it. Right before merging, run
+     `git fetch origin main` first (a stale local ref defeats the guard), then
+     re-scan `origin/main`'s migration dir and renumber to the next free version
+     if taken.
 4. Update `back/docs/db/schema.dbml` (DBML — the canonical schema doc,
    gitignored/local-only) to reflect the new columns/tables so it stays in sync
    with the current DB state.

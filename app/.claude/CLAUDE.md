@@ -162,20 +162,20 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 
 ### Folders
 
-| Folder                      | Purpose                                    | Examples                                         |
-| --------------------------- | ------------------------------------------ | ------------------------------------------------ |
-| `src/screens/`              | screens + per-feature folders (colocation) | `HomeScreen.tsx`, `focus/`, `league/`            |
-| `src/components/`           | cross-feature UI + app shell               | `TabBar.tsx`, `DrumPicker.tsx`, `PushGate.tsx`   |
-| `src/components/character/` | static character image                     | `CharacterImage.tsx`                             |
-| `src/hooks/`                | cross-feature hooks only                   | `useFocusCategory.ts`                            |
-| `src/mocks/`                | dev API mocking — custom axios adapter, partial (`EXPO_PUBLIC_USE_MOCK=true`) | `handlers.ts`, `fixtures/`      |
-| `src/store/`                | global state (Context API)                 | `UserContext.tsx`, `SubjectContext.tsx`          |
-| `src/services/`             | API / native / external integrations       | `api.ts`, `friendsApi.ts`, `ScreenTimeModule.ts` |
-| `src/constants/`            | design tokens / shared style values        | `theme.ts`, `focusCategories.ts`                 |
-| `src/utils/`                | cross-feature pure utility functions       | `localDate.ts`, `challengeTime.ts`               |
-| `src/types/`                | shared TypeScript types                    | `api.ts`, `storage.ts`, `dto/`                   |
-| `src/assets/`               | static resources                           | images, fonts, SVG                               |
-| `src/legacy/`               | frozen v1 code (reference/restore only)    | `screens/GroupListScreen.tsx`                    |
+| Folder                      | Purpose                                                                       | Examples                                         |
+| --------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------ |
+| `src/screens/`              | screens + per-feature folders (colocation)                                    | `HomeScreen.tsx`, `focus/`, `league/`            |
+| `src/components/`           | cross-feature UI + app shell                                                  | `TabBar.tsx`, `DrumPicker.tsx`, `PushGate.tsx`   |
+| `src/components/character/` | static character image                                                        | `CharacterImage.tsx`                             |
+| `src/hooks/`                | cross-feature hooks only                                                      | `useFocusCategory.ts`                            |
+| `src/mocks/`                | dev API mocking — custom axios adapter, partial (`EXPO_PUBLIC_USE_MOCK=true`) | `handlers.ts`, `fixtures/`                       |
+| `src/store/`                | global state (Context API)                                                    | `UserContext.tsx`, `SubjectContext.tsx`          |
+| `src/services/`             | API / native / external integrations                                          | `api.ts`, `friendsApi.ts`, `ScreenTimeModule.ts` |
+| `src/constants/`            | design tokens / shared style values                                           | `theme.ts`, `focusCategories.ts`                 |
+| `src/utils/`                | cross-feature pure utility functions                                          | `localDate.ts`, `challengeTime.ts`               |
+| `src/types/`                | shared TypeScript types                                                       | `api.ts`, `storage.ts`, `dto/`                   |
+| `src/assets/`               | static resources                                                              | images, fonts, SVG                               |
+| `src/legacy/`               | frozen v1 code (reference/restore only)                                       | `screens/GroupListScreen.tsx`                    |
 
 **배치 규칙 (하이브리드 콜로케이션)** — 파일을 어디에 둘지는 아래 규칙으로 판단한다:
 

@@ -69,8 +69,9 @@ plus each file's `name:`.
   dispatch by SHA) → `prod-rollback.yml` (manual rollback).
 - **API docs**: `api-dog-generate.yml` (OpenAPI generation on `main`/`release`/
   `bfeat|bfix|brefactor` pushes — `bchore` is excluded), `cleanup-api-docs.yml`
-  (cleanup on branch delete — currently fires only for `feat/*` refs, so deleted
-  `b*` branches leave their doc dirs on `gh-pages`; known gap).
+  (cleanup on branch delete — currently a **no-op**: its predicate checks a
+  `refs/heads/` prefix that the `delete` event's `ref` never carries, so no
+  branch deletion is cleaned and doc dirs accumulate on `gh-pages`; known gap).
 - **Observability (manual dispatch)**: `dev-datadog.yml` (Datadog APM toggle),
   `dev-monitor.yml` (Prometheus/Grafana/Loki stack).
 - **Load test**: `loadtest.yml` — manual dispatch with profile/scenario inputs.

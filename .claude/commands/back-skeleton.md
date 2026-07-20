@@ -28,7 +28,9 @@ allowed-tools: Bash, Read, Edit, Write
 @Entity @Table(name = "foo") @Getter @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED) @AllArgsConstructor
 public class Foo {
-    // TODO: PK는 @Id @GeneratedUuidV7 UUID id (common/id — 프로젝트 UUID v7 규칙)
+    // TODO: PK — 독립 서러게이트 키면 @Id @GeneratedUuidV7 UUID id (common/id, 기본 규칙).
+    //       @MapsId 상속 키(GroupJoinCode 등)·자연키·Integer PK(LeagueTierConfig)는
+    //       참고 패턴 파일의 ID 매핑을 그대로 따르고 @GeneratedUuidV7 을 붙이지 않는다.
     // TODO: 필드 목록
 }
 ```
@@ -36,6 +38,7 @@ public class Foo {
 **Repository** — GroupMemberRepository.java 패턴 참고:
 ```java
 public interface FooRepository extends JpaRepository<Foo, UUID> {
+    // ID 제네릭은 엔티티 PK 타입과 일치시킨다 (UUID 기본; LeagueTierConfig 처럼 예외 있음)
     // TODO: 메서드 목록
 }
 ```
@@ -95,7 +98,7 @@ public class FooService {
 - `service/GroupService.java` — fooMethod() 추가
 
 ### migration
-- `src/main/resources/db/migration/V<N+1>__create_foo.sql` — foo 테이블 생성
+- `back/src/main/resources/db/migration/V<N+1>__create_foo.sql` — foo 테이블 생성
 
 ## GROMO-YYY: ...
 ```
