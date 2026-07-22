@@ -40,6 +40,9 @@ export default {
       ],
       // Facebook SDK 플러그인은 appID 가 있을 때만 추가한다.
       // (appID 가 비어 있으면 플러그인이 'missing appID' 로 throw 하므로 미설정 시 skip)
+      // 주의: prebuild 시 이 플러그인이 Info.plist를 단일 값으로 재생성해, 네이티브의
+      // Debug/Release별 변수 치환($(FACEBOOK_APP_ID) — dev/prod 데이터 세트 분리)이 사라진다.
+      // ios/는 수동 관리를 유지하고, prebuild 했다면 Info.plist 3곳(AppID·ClientToken·URL스킴)을 복원할 것.
       ...(facebookAppId
         ? [
             [
