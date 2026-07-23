@@ -24,9 +24,13 @@ services:
       JAVA_OPTS: "-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/datadog/dd-java-agent.jar"
       DD_AGENT_HOST: datadog-agent
       DD_ENV: prod
-      DD_SERVICE: gromo-back         # APM > Services 노출 이름
+      DD_SERVICE: gromo-back-prod    # APM 서비스명 — dev(gromo-back)과 이름 분리
       DD_VERSION: ${IMAGE_TAG}
       DD_TRACE_SAMPLE_RATE: "0.2"    # 20% 샘플
+      DD_RUNTIME_METRICS_ENABLED: "true"                          # JVM 런타임 메트릭(힙·GC) — 대시보드 JVM 위젯용
+      DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED: "true"   # DB 등 inferred 서비스 안 쪼갬 — APM 깔끔
+      DD_GIT_REPOSITORY_URL: "github.com/OneOrThree/phone"        # 트레이스↔소스코드 연결
+      DD_GIT_COMMIT_SHA: ${IMAGE_TAG}                             # 배포 SHA = 소스 커밋
     volumes:
       # 앱 로그(/app/logs: app.log·user-activity.log)를 호스트에 바인딩 — 컨테이너 재생성에도 보존,
       # 라이브 확인은 SSM 세션에서 tail, 유저 로그 S3 적재 파이프라인(590·790)도 이 경로를 본다.

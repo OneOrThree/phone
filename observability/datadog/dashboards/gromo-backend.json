@@ -1,0 +1,320 @@
+{
+  "title": "gromo 백엔드 관측 (APM·JVM·인프라·로그)",
+  "description": "gromo Spring Boot 백엔드 통합 관측 대시보드. env·service 템플릿 변수로 dev/prod 전환. GROMO-927.",
+  "layout_type": "ordered",
+  "reflow_type": "auto",
+  "template_variables": [
+    { "name": "env", "prefix": "env", "available_values": [], "default": "prod" },
+    { "name": "service", "prefix": "service", "available_values": [], "default": "gromo-back" }
+  ],
+  "widgets": [
+    {
+      "definition": {
+        "title": "① 개요 (SLO 핵심 지표)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "Throughput (req/s)",
+              "type": "query_value",
+              "requests": [
+                { "q": "sum:trace.servlet.request.hits{service:$service,env:$env}.as_rate()", "aggregator": "avg" }
+              ],
+              "autoscale": true,
+              "precision": 2
+            }
+          },
+          {
+            "definition": {
+              "title": "에러율 (%)",
+              "type": "query_value",
+              "requests": [
+                { "q": "100 * sum:trace.servlet.request.errors{service:$service,env:$env}.as_count() / sum:trace.servlet.request.hits{service:$service,env:$env}.as_count()", "aggregator": "avg", "conditional_formats": [ { "comparator": ">", "value": 5, "palette": "white_on_red" }, { "comparator": ">", "value": 1, "palette": "white_on_yellow" }, { "comparator": "<=", "value": 1, "palette": "white_on_green" } ] }
+              ],
+              "precision": 2
+            }
+          },
+          {
+            "definition": {
+              "title": "지연 p95 (요청)",
+              "type": "query_value",
+              "requests": [ { "q": "p95:trace.servlet.request{service:$service,env:$env}", "aggregator": "avg" } ],
+              "autoscale": true,
+              "precision": 1
+            }
+          },
+          {
+            "definition": {
+              "title": "지연 p99 (요청)",
+              "type": "query_value",
+              "requests": [ { "q": "p99:trace.servlet.request{service:$service,env:$env}", "aggregator": "avg" } ],
+              "autoscale": true,
+              "precision": 1
+            }
+          },
+          {
+            "definition": {
+              "title": "JVM 힙 사용",
+              "type": "query_value",
+              "requests": [ { "q": "avg:jvm.heap_memory{service:$service,env:$env}", "aggregator": "avg" } ],
+              "autoscale": true,
+              "custom_unit": "B",
+              "precision": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "② APM — 트래픽·지연·에러",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "요청 지연 (p50 / p95 / p99)",
+              "type": "timeseries",
+              "requests": [
+                { "q": "p50:trace.servlet.request{service:$service,env:$env}", "display_type": "line", "style": { "palette": "cool", "line_type": "solid", "line_width": "normal" } },
+                { "q": "p95:trace.servlet.request{service:$service,env:$env}", "display_type": "line", "style": { "palette": "warm", "line_type": "solid", "line_width": "normal" } },
+                { "q": "p99:trace.servlet.request{service:$service,env:$env}", "display_type": "line", "style": { "palette": "orange", "line_type": "solid", "line_width": "thick" } }
+              ],
+              "show_legend": true
+            }
+          },
+          {
+            "definition": {
+              "title": "Throughput vs 에러 (req/s)",
+              "type": "timeseries",
+              "requests": [
+                { "q": "sum:trace.servlet.request.hits{service:$service,env:$env}.as_rate()", "display_type": "bars", "style": { "palette": "cool" } },
+                { "q": "sum:trace.servlet.request.errors{service:$service,env:$env}.as_rate()", "display_type": "bars", "style": { "palette": "warm" } }
+              ],
+              "show_legend": true
+            }
+          },
+          {
+            "definition": {
+              "title": "에러율 (%)",
+              "type": "timeseries",
+              "requests": [
+                { "q": "100 * sum:trace.servlet.request.errors{service:$service,env:$env}.as_count() / sum:trace.servlet.request.hits{service:$service,env:$env}.as_count()", "display_type": "line", "style": { "palette": "warm", "line_width": "thick" } }
+              ],
+              "show_legend": false
+            }
+          },
+          {
+            "definition": {
+              "title": "엔드포인트별 요청수 Top 15",
+              "type": "toplist",
+              "requests": [
+                { "q": "top(sum:trace.servlet.request.hits{service:$service,env:$env} by {resource_name}.as_count(), 15, 'sum', 'desc')" }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "느린 엔드포인트 Top 15 (p95)",
+              "type": "toplist",
+              "requests": [
+                { "q": "top(p95:trace.servlet.request{service:$service,env:$env} by {resource_name}, 15, 'mean', 'desc')" }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "③ DB (APM JDBC 쿼리)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "DB 쿼리 지연 (p95 / p99)",
+              "type": "timeseries",
+              "requests": [
+                { "q": "p95:trace.jdbc.query{env:$env}", "display_type": "line", "style": { "palette": "cool" } },
+                { "q": "p99:trace.jdbc.query{env:$env}", "display_type": "line", "style": { "palette": "orange", "line_width": "thick" } }
+              ],
+              "show_legend": true
+            }
+          },
+          {
+            "definition": {
+              "title": "DB Throughput vs 에러 (req/s)",
+              "type": "timeseries",
+              "requests": [
+                { "q": "sum:trace.jdbc.query.hits{env:$env}.as_rate()", "display_type": "bars", "style": { "palette": "cool" } },
+                { "q": "sum:trace.jdbc.query.errors{env:$env}.as_rate()", "display_type": "bars", "style": { "palette": "warm" } }
+              ],
+              "show_legend": true
+            }
+          },
+          {
+            "definition": {
+              "title": "느린 쿼리 Top 15 (p95)",
+              "type": "toplist",
+              "requests": [
+                { "q": "top(p95:trace.jdbc.query{env:$env} by {resource_name}, 15, 'mean', 'desc')" }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "쿼리 호출량 Top 15",
+              "type": "toplist",
+              "requests": [
+                { "q": "top(sum:trace.jdbc.query.hits{env:$env} by {resource_name}.as_count(), 15, 'sum', 'desc')" }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "④ JVM 런타임",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "힙 메모리 (사용 vs 최대)",
+              "type": "timeseries",
+              "requests": [
+                { "q": "avg:jvm.heap_memory{service:$service,env:$env}", "display_type": "area", "style": { "palette": "cool" } },
+                { "q": "avg:jvm.heap_memory_max{service:$service,env:$env}", "display_type": "line", "style": { "palette": "grey", "line_type": "dashed" } }
+              ],
+              "show_legend": true
+            }
+          },
+          {
+            "definition": {
+              "title": "Non-Heap 메모리",
+              "type": "timeseries",
+              "requests": [ { "q": "avg:jvm.non_heap_memory{service:$service,env:$env}", "display_type": "area", "style": { "palette": "purple" } } ]
+            }
+          },
+          {
+            "definition": {
+              "title": "GC 시간 (minor / major)",
+              "type": "timeseries",
+              "requests": [
+                { "q": "avg:jvm.gc.minor_collection_time{service:$service,env:$env}", "display_type": "bars", "style": { "palette": "cool" } },
+                { "q": "avg:jvm.gc.major_collection_time{service:$service,env:$env}", "display_type": "bars", "style": { "palette": "warm" } }
+              ],
+              "show_legend": true
+            }
+          },
+          {
+            "definition": {
+              "title": "스레드 수",
+              "type": "timeseries",
+              "requests": [ { "q": "avg:jvm.thread_count{service:$service,env:$env}", "display_type": "line", "style": { "palette": "green" } } ]
+            }
+          },
+          {
+            "definition": {
+              "title": "JVM CPU 부하 (process / system)",
+              "type": "timeseries",
+              "requests": [
+                { "q": "avg:jvm.cpu_load.process{service:$service,env:$env}", "display_type": "line", "style": { "palette": "cool" } },
+                { "q": "avg:jvm.cpu_load.system{service:$service,env:$env}", "display_type": "line", "style": { "palette": "grey" } }
+              ],
+              "show_legend": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "⑤ 인프라 (컨테이너·호스트)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "컨테이너 CPU (%)",
+              "type": "timeseries",
+              "requests": [ { "q": "avg:docker.cpu.usage{env:$env} by {container_name}", "display_type": "line" } ],
+              "show_legend": true
+            }
+          },
+          {
+            "definition": {
+              "title": "컨테이너 메모리 RSS",
+              "type": "timeseries",
+              "requests": [ { "q": "avg:docker.mem.rss{env:$env} by {container_name}", "display_type": "area" } ],
+              "show_legend": true
+            }
+          },
+          {
+            "definition": {
+              "title": "호스트 Load (1m)",
+              "type": "timeseries",
+              "requests": [ { "q": "avg:system.load.1{env:$env} by {host}", "display_type": "line" } ]
+            }
+          },
+          {
+            "definition": {
+              "title": "호스트 메모리 사용",
+              "type": "timeseries",
+              "requests": [ { "q": "avg:system.mem.used{env:$env} by {host}", "display_type": "area", "style": { "palette": "cool" } } ]
+            }
+          },
+          {
+            "definition": {
+              "title": "디스크 사용률",
+              "type": "timeseries",
+              "requests": [ { "q": "avg:system.disk.in_use{env:$env} by {host,device}", "display_type": "line" } ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "⑥ 로그",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "로그 볼륨 (status별)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    { "data_source": "logs", "name": "logs", "search": { "query": "env:$env" }, "indexes": [ "*" ], "compute": { "aggregation": "count" }, "group_by": [ { "facet": "status", "limit": 10, "sort": { "aggregation": "count", "order": "desc" } } ] }
+                  ],
+                  "formulas": [ { "formula": "logs" } ],
+                  "display_type": "bars"
+                }
+              ],
+              "show_legend": true
+            }
+          },
+          {
+            "definition": {
+              "title": "에러·경고 로그 스트림",
+              "type": "log_stream",
+              "query": "env:$env status:(error OR warn)",
+              "indexes": [ "*" ],
+              "columns": [ "host", "service", "status" ],
+              "show_date_column": true,
+              "show_message_column": true,
+              "message_display": "expanded-md",
+              "sort": { "column": "time", "order": "desc" }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
