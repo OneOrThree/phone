@@ -193,7 +193,8 @@ function App() {
     } catch {}
     // 대기 중인 태그 편집 동기화 폐기 — 이전 계정의 편집이 다음 계정 토큰으로 실행되지 않게(리뷰 반영)
     abortTagEdits();
-    // 공유 복원 in-flight 폐기 — 재로그인 프로바이더가 이전 계정 스냅샷을 재사용하지 않게(코덱스 P1)
+    // 공유 복원 스냅샷 폐기(캐시+진행 중 조회 무효화) — 재로그인 프로바이더가 이전 계정
+    // 스냅샷을 재사용하지 않게. 아래 multiRemove보다 먼저여야 함(코덱스 리뷰).
     abortFocusRestore();
     // 온보딩 완료 플래그까지 지워 로그아웃 시 온보딩 첫 페이지로 돌아가게 한다.
     await AsyncStorage.multiRemove([
@@ -341,7 +342,8 @@ function App() {
     // 인터셉터가 전역 로그아웃을 발동시켜 방금 로그인한 계정이 풀릴 수 있다(PR 226 리뷰).
     setAccountSwitchHandler(async (prevAccessToken) => {
       abortTagEdits();
-      // 이전 계정 토큰으로 시작된 복원 스냅샷 폐기 — 새 계정 프로바이더 리마운트 전에(코덱스 P1)
+      // 이전 계정 복원 스냅샷 폐기(캐시+진행 중 조회 무효화) — applyStoredSession의 스토리지
+      // 클리어·새 계정 프로바이더 리마운트보다 먼저 실행되는 지점(코덱스 리뷰).
       abortFocusRestore();
       await deleteDeviceToken(prevAccessToken).catch(() => {});
     });
