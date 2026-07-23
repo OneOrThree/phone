@@ -57,7 +57,8 @@ const ScreenTimeModule = {
     return NativeScreenTimeModule.getAuthorizationStatus();
   },
 
-  // 총 스크린 타임 조회 (초 단위)
+  // 총 스크린 타임 조회 (초 단위) — ⚠️ 리포트 익스텐션의 App Group 쓰기가 iOS에 막혀 항상 0(죽은 경로).
+  // 실사용 사용량은 버킷 모니터 경로(getTodayUsageBucketMinutes)로 읽는다.
   getTotalScreenTime: async (): Promise<number> => {
     if (Platform.OS !== 'ios') return 0;
     return NativeScreenTimeModule.getTotalScreenTime();

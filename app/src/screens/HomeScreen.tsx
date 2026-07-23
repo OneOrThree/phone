@@ -51,8 +51,8 @@ import {
 
 // v2 홈 화면 (GROMO-552) — Claude Design "01 홈" 시안 기반.
 // 상단바(닉/순위/티어) + 방+캐릭터 + 오늘 요약 카드. 탭바/FAB는 RootNavigator.
-// 데이터 층은 @/store 훅 재사용. 엔드포인트 미확정 값은 placeholder + TODO.
-// TODO: 순위·티어(리그 API), 집중시간·핸드폰사용(통계/스크린타임), 룸 일러스트, 통계 이동.
+// 데이터 층은 @/store 훅 재사용 — 순위·티어(리그 API)·집중시간(통계)·핸드폰사용(네이티브
+// 리포트)·통계 이동까지 실연동 완료.
 
 // 초 → "N시간 M분" (목표 표시용)
 function hm(totalSeconds: number): string {

@@ -34,7 +34,8 @@ interface Props {
   onClose: () => void;
 }
 
-// mock 스파크(분) — 타 유저는 요일별 데이터가 없어 시안 비율 기반 고정 분값
+// mock 스파크(분) — 아직 시안 비율 기반 고정 분값. 타 유저 요일별 실데이터는
+// getUserStats().heatmap(GROMO-640)으로 확보 가능해져 교체 후보(FriendProfileScreen 배선 참고).
 const MOCK_SPARK = [138, 192, 114, 240, 168, 90, 144];
 const BAR_AREA_H = 64;
 // 스파크 요일 라벨 (월요일 시작)
@@ -65,7 +66,7 @@ export function ProfileSheet({ target, onClose }: Props) {
   const insets = useSafeAreaInsets();
 
   // 친구 버튼 로컬 토글 — 시안은 즉시 '친구 ✓' 전환.
-  // TODO: 실제로는 POST /friends/requests 신청/수락 플로우 — API 연동 시 교체
+  // TODO: POST /friends/requests 실연동으로 교체 — API·연동 사례는 이미 있음(friendsApi·FriendProfileScreen).
   const [isFriend, setIsFriend] = useState(false);
   useEffect(() => {
     if (target) setIsFriend(target.isFriend);

@@ -4,11 +4,9 @@ import type { LeagueMemberResponse, LeagueRankResponse, LeagueTierResponse } fro
 // 타입은 백엔드 DTO(@/types/api)에 맞춰 두어 API 연동 시 fetch 결과로 스왑만 하면 된다.
 // ※ 친구 목록·검색·받은 요청·신청/수락/거절·끊기는 실API 연동 완료(./friendsApi·./useFriends).
 //
-// TODO(API 연동): 화면 데이터 ↔ 엔드포인트 매핑
-//   내 티어/뱃지        → GET /api/v1/league/me/tier      (MY_TIER)
-//   전체 랭킹 목록       → GET /api/v1/league/me/ranking   (RANKING) ※ 시안은 혼합 티어 전체 랭킹
-//   내 순위·승격/강등    → GET /api/v1/league/me/rank      (MY_RANK, result → 연출 트리거)
-//   나만의 랭킹(핀)      → GET /api/v1/pins — 연동 완료(./usePinned·./friendsApi)
+// 리그 API 연동 완료 — 티어/랭킹/내 순위/핀 전부 실데이터(./useLeagueMeta·./useLeagueRanking 등).
+// MY_TIER·MY_RANK·RANKING은 참조 0건 placeholder 잔재(삭제 대상). 살아있는 건
+// RankedMember 타입(프로필 시트 확장 필드)과 TEASER_SUBJECTS(비친구 블러 티저)뿐.
 
 export const MY_USER_ID = 'u-07';
 
@@ -68,9 +66,9 @@ export const RANKING: RankedMember[] = [
   { rank: 10, userId: 'u-10', nickname: '민서', totalFocusSeconds: 725 * 60, tierLevel: 1, exam: '노무사', achievedRate: 0.4, friendCount: 7, streakDays: 0, bestRank: 9, bestWeekMinutes: 980 },
 ];
 
-// ── 프로필 상세(FriendProfile) 비교 통계 — 시안 "프로필 · 친구/비친구" 3분기용 ──
-// subjects는 나와 겹치는 과목만 담는다(이번 주 분값) — 빈 배열이면 "겹치는 과목 없음" 분기.
-// byDay는 월~일 분값. TODO: GET /api/v1/friends/{userId}/compare 백엔드 협의 후 교체
+// ── 프로필 상세(FriendProfile) 비교 타입 + 티저 표본 ──
+// 실제 비교는 실데이터 연동 완료 — 과목별은 getFocusStatsByCategory(period, friends),
+// 요일별은 내 getHeatmap + 상대 getUserStats().heatmap(GROMO-640) 조합. 별도 비교 API 불필요.
 
 export interface SubjectCompare {
   name: string;
@@ -106,8 +104,8 @@ const BASE_PHONE_BY_DAY: CompareByDay = {
   theirs: [108, 198, 126, 162, 144, 216, 180],
 };
 
-// 과목 겹침 분기(시안 "비교 통계 공개") 표본 — 민지노트(mock 랭킹 u-01, 같은 시험 노무사).
-// 실친구는 비교 API가 없어 아직 전원 COMPARE_FALLBACK — 통계 API 연동 시 이 형태로 교체.
+// (미사용) 실데이터 배선 전에 쓰던 비교 mock — PROFILE_COMPARE·COMPARE_FALLBACK·BASE_*_BY_DAY
+// 전부 참조 0건, 삭제 대상.
 export const PROFILE_COMPARE: Record<string, ProfileCompare> = {
   'u-01': {
     subjects: SUBJECTS_NOMUSA,

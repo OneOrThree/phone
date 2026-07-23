@@ -74,9 +74,8 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 
 // v2 새 앱의 뿌리 — 데이터/로직 층(@/store, @/services, @/utils)은 기존 것을 그대로 공유한다.
 // 게이트: 로딩 → (미온보딩 신규유저)온보딩 → 홈 / (온보딩 완료·로그아웃)로그인 → 홈.
-// 온보딩은 로그인이 '마지막' 단계(OnboardingFlow가 내부에서 처리) — 데이터를 먼저 수집하고
-// W15에서 소셜/게스트 로그인(게스트도 /auth/guest로 실제 세션 발급).
-// TODO: 로그아웃/탈퇴 UI를 v2 화면으로 재구현.
+// 온보딩 로그인은 '중간' 단계(OnboardingFlow가 내부에서 처리) — 공감 스텝들 뒤에 소셜/게스트
+// 로그인(게스트도 /auth/guest로 실제 세션 발급)하고, 이후 스텝은 토큰이 필요한 서버 호출을 쓴다.
 
 // v2 온보딩 수집 데이터를 서버로 전송. 로그인 상태에서만(토큰 발급 후) 호출.
 // (1) POST /users/me — 프로필 설정: nickname → nickname,
@@ -90,7 +89,7 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 //     screenTimeGranted === null(아직 안 물어봄)이면 스킵.
 // focusCategory(W4)는 서버 Occupation(19종, GROMO-631)과 전 카테고리 1:1 매핑 —
 // PATCH /users/me/occupation 으로 서버에도 동기화 → 같은 카테고리 리그 랭킹(?category=)·비교 통계 모수.
-// notificationGranted(W13)는 대응 엔드포인트가 알림 설정 전체 객체뿐이라 여기선 미전송(TODO).
+// notificationGranted는 현재 온보딩에서 수집하지 않는다 — 알림 권한 요청은 푸시 등록(services/push.ts)이 유일 지점.
 // 반환: 프로필 등록 결과 — 'ok'가 아니면 호출부가 온보딩 완료 처리를 보류한다(GROMO-617/618).
 async function syncOnboardingToServer(data: V2OnboardingData): Promise<OnboardingCompleteStatus> {
   const body = {
