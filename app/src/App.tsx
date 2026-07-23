@@ -5,8 +5,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
 import { HotUpdater } from '@hot-updater/react-native';
-import { setLogoutHandler, setReloginHandler, getUserIdFromToken, api } from '@/services/api';
-import { setAccountSwitchHandler } from '@/services/auth';
+import { setLogoutHandler, setReloginHandler, getUserIdFromToken } from '@/services/api';
+import { setAccountSwitchHandler, logout } from '@/services/auth';
 import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
 import { todayStr } from '@/utils/localDate';
 import {
@@ -190,7 +190,7 @@ function App() {
     } catch {}
     try {
       const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
-      if (refreshToken) await api.post('/api/v1/auth/logout', { refreshToken });
+      if (refreshToken) await logout(refreshToken);
     } catch {}
     // 대기 중인 태그 편집 동기화 폐기 — 이전 계정의 편집이 다음 계정 토큰으로 실행되지 않게(리뷰 반영)
     abortTagEdits();
