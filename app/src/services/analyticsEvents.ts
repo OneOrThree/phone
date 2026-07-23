@@ -34,6 +34,28 @@ export function logOnboardingStarted(): void {
   logTutorialBegin();
 }
 
+// 온보딩 스텝 이름 — OnboardingFlow 시퀀스 노드와 1:1 (동적 분기 포함).
+export type OnboardingStepName =
+  | 'problem_empathy'
+  | 'together_effect'
+  | 'subject_compare'
+  | 'login'
+  | 'focus_category'
+  | 'subject_edit'
+  | 'screentime_permission'
+  | 'screentime_denied'
+  | 'yesterday_screentime'
+  | 'goal_setting'
+  | 'nickname';
+
+// 스텝 도달(노출) — 전 스텝 커버로 퍼널 이탈 지점을 파악한다(기존 제출/노출 이벤트의 공백 보완).
+// 같은 플로우에서 처음 도달한 스텝만 발행(뒤로가기 재방문 제외 — "어디까지 갔나" 의미 유지).
+// step_index는 런타임 진행 위치 — 동적 분기(과목 편집 삽입)로 유저마다 다를 수 있어 순서 참고용,
+// 스텝 구분·퍼널 단계 정의는 step 파라미터로 한다.
+export function logOnboardingStepViewed(p: { step: OnboardingStepName; step_index: number }): void {
+  track('onboarding_step_viewed', p);
+}
+
 // W2 효과/쇼크 화면 노출
 export function logOnboardingShockViewed(): void {
   track('onboarding_shock_viewed', { step_index: 2 });
