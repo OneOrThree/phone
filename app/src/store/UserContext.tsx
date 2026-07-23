@@ -25,7 +25,6 @@ interface UserContextValue {
   goalSecondsRef: RefObject<number>;
   screenTimeGoalSeconds: number; // 하루 목표 사용시간(핸드폰)
   setScreenTimeGoalSeconds: (v: number) => void;
-  phoneUsageSeconds: number;
 }
 
 interface UserProviderProps {
@@ -39,8 +38,6 @@ interface UserProviderProps {
 }
 
 const UserContext = createContext<UserContextValue | null>(null);
-
-const PHONE_USAGE_SECONDS = 3 * 3600 + 28 * 60; // (미사용) 폰 사용 표시는 네이티브 리포트 뷰로 구현됨 — 소비처 0건, 삭제 대상
 
 export function UserProvider({
   initialNickname,
@@ -87,7 +84,6 @@ export function UserProvider({
         goalSecondsRef,
         screenTimeGoalSeconds,
         setScreenTimeGoalSeconds,
-        phoneUsageSeconds: PHONE_USAGE_SECONDS,
       }}
     >
       {children}
