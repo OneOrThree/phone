@@ -61,7 +61,7 @@
 			<string>Facebook</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>fb990121817063522</string>
+				<string>fb$(FACEBOOK_APP_ID)</string>
 			</array>
 		</dict>
 		<dict>
@@ -76,9 +76,9 @@
 	<key>CFBundleVersion</key>
 	<string>1784537216</string>
 	<key>FacebookAppID</key>
-	<string>990121817063522</string>
+	<string>$(FACEBOOK_APP_ID)</string>
 	<key>FacebookClientToken</key>
-	<string>7ed99476de7a19056835e56b628574bb</string>
+	<string>$(FACEBOOK_CLIENT_TOKEN)</string>
 	<key>FacebookDisplayName</key>
 	<string>gromo</string>
 	<key>SKAdNetworkItems</key>
