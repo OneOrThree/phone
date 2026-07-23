@@ -239,9 +239,10 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 ### Screen Time integration
 
 - **Main-app module**: `ios/gromo/ScreenTimeModule.swift` — `requestAuthorization()`,
-  `getAuthorizationStatus()`, `getTotalScreenTime()` (via App Group).
+  `getAuthorizationStatus()`, 사용량 버킷·목표 모니터링, 집중 실드/Live Activity 등.
 - **Extension**: `ios/screentimereport/` — `TotalActivityReport.swift` (data) +
-  `TotalActivityView.swift` (UI); writes to App Group `UserDefaults`.
+  `TotalActivityView.swift` (UI). (익스텐션 → App Group 쓰기는 iOS가 차단 —
+  `ScreenTime_WorkLog.md` 원인 3 참고.)
 
 ### App Groups
 
