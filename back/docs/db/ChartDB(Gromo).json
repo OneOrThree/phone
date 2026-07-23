@@ -1,0 +1,5333 @@
+{
+ "id": "0",
+ "name": "Gromo",
+ "createdAt": "2026-07-09T14:50:57.824Z",
+ "updatedAt": "2026-07-09T15:08:05.277Z",
+ "databaseType": "postgresql",
+ "tables": [
+  {
+   "id": "281",
+   "name": "occupations",
+   "schema": "public",
+   "x": -367.2947605707846,
+   "y": -199.85699685332258,
+   "fields": [
+    {
+     "id": "282",
+     "name": "code",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "characterMaximumLength": "64",
+     "comments": "Enum occupation name (MIDDLE_SCHOOL 등)"
+    },
+    {
+     "id": "283",
+     "name": "display_name",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "characterMaximumLength": "255",
+     "comments": "표시명 (앱 하드코딩 → 서버 소스오브트루스)"
+    },
+    {
+     "id": "284",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "now()",
+     "comments": "생성 시각"
+    },
+    {
+     "id": "285",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214,
+     "comments": "소프트 딜리트 (시드 교체 여지)"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "286",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "282"
+     ],
+     "createdAt": 1783600916214,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916214,
+   "order": 8,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "cbiql6mxkok0cobs6wuy169gm"
+  },
+  {
+   "id": "218",
+   "name": "default_tags",
+   "schema": "public",
+   "x": -376.23819965381585,
+   "y": -380.1686437326554,
+   "fields": [
+    {
+     "id": "219",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916214
+    },
+    {
+     "id": "220",
+     "name": "name",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "characterMaximumLength": "255",
+     "comments": "태그명 (공부 과목 등) — 검색/인덱스 키. 추후 pg_trgm GIN 검토"
+    },
+    {
+     "id": "221",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "now()",
+     "comments": "생성 시각"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "222",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "219"
+     ],
+     "createdAt": 1783600916214,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916214,
+   "order": 9,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "cbiql6mxkok0cobs6wuy169gm"
+  },
+  {
+   "id": "175",
+   "name": "occupation_default_tags",
+   "schema": "public",
+   "x": -9.597505411266042,
+   "y": -348.522227859391,
+   "fields": [
+    {
+     "id": "176",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916214
+    },
+    {
+     "id": "177",
+     "name": "occupation",
+     "type": {
+      "id": "occupation",
+      "name": "occupation"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "comments": "Enum occupation 재사용 (occupations.code FK)"
+    },
+    {
+     "id": "178",
+     "name": "default_tag_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "comments": "FK → default_tags.id (GROMO-673: name 대체)"
+    },
+    {
+     "id": "513",
+     "name": "sort_order",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "노출 정렬 순서(추천 목록 오름차순)"
+    },
+    {
+     "id": "179",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "now()",
+     "comments": "생성 시각"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "180",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "176"
+     ],
+     "createdAt": 1783600916214,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "181",
+     "name": "idx_occupation_default_tags_occupation_default_tag_id",
+     "unique": true,
+     "fieldIds": [
+      "177",
+      "178"
+     ],
+     "createdAt": 1783600916214,
+     "isPrimaryKey": false,
+     "comments": "중복 시드 방지"
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916214,
+   "order": 10,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "cbiql6mxkok0cobs6wuy169gm"
+  },
+  {
+   "id": "251",
+   "name": "users",
+   "schema": "public",
+   "x": -1176.1136819493752,
+   "y": -3.3507840392972064,
+   "fields": [
+    {
+     "id": "252",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916214
+    },
+    {
+     "id": "253",
+     "name": "is_guest",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "false",
+     "comments": "게스트 계정 여부"
+    },
+    {
+     "id": "254",
+     "name": "nickname",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214,
+     "characterMaximumLength": "255",
+     "comments": "표시 닉네임"
+    },
+    {
+     "id": "255",
+     "name": "country_code",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214,
+     "characterMaximumLength": "2",
+     "comments": "ISO 3166-1 alpha-2 (예: KR, US)"
+    },
+    {
+     "id": "256",
+     "name": "occupation",
+     "type": {
+      "id": "occupation",
+      "name": "occupation"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214,
+     "comments": "유저 직업/신분 (온보딩에서 수집, 가입 시 null)"
+    },
+    {
+     "id": "257",
+     "name": "stat_visibility",
+     "type": {
+      "id": "stat_visibility",
+      "name": "stat_visibility"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "comments": "유저의 개인통계 공개 여부"
+    },
+    {
+     "id": "258",
+     "name": "refresh_token",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214,
+     "characterMaximumLength": "512",
+     "comments": "JWT 리프레시 토큰 (인증)"
+    },
+    {
+     "id": "259",
+     "name": "device_token",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214,
+     "characterMaximumLength": "512",
+     "comments": "FCM registration token (서버 푸시 공용 — 리그·미접속 등). GROMO-528"
+    },
+    {
+     "id": "260",
+     "name": "last_active_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "now()",
+     "comments": "마지막 활동 시각 — 미접속 복귀 푸시(GROMO-578) D+3/7/14 판정. JwtFilter 가 하루 1회 스로틀 갱신. migration v25. 부분 인덱스 idx_users_last_active_at (last_active_at) WHERE is_guest=false AND is_deleted=false — 배치 풀스캔 방지"
+    },
+    {
+     "id": "261",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "now()",
+     "comments": "가입 시각"
+    },
+    {
+     "id": "262",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214
+    },
+    {
+     "id": "263",
+     "name": "is_deleted",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "false",
+     "comments": "회원탈퇴 삭제 대기 플래그 — 동의 보관기간 경과 후 배치 하드 삭제(retention→purge)"
+    },
+    {
+     "id": "514",
+     "name": "tier_level",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "default": "1",
+     "comments": "리그 티어 레벨 1~5 단일 원천(SoT) — CHECK BETWEEN 1 AND 5. 구 current_tier(V2 드롭) 대체. GROMO-814, V12"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "264",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "252"
+     ],
+     "createdAt": 1783600916214,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "265",
+     "name": "idx_users_nickname",
+     "unique": false,
+     "fieldIds": [
+      "254"
+     ],
+     "createdAt": 1783600916214,
+     "isPrimaryKey": false,
+     "type": "gin",
+     "comments": "pg_trgm GIN (gin_trgm_ops) — 닉네임 trgm 검색 GROMO-460"
+    },
+    {
+     "id": "515",
+     "name": "idx_users_occupation",
+     "unique": false,
+     "fieldIds": [
+      "256"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": false,
+     "comments": "CATEGORY 평균 집중 집계가 occupation=? 로 모수 좁힐 때 사용 GROMO-753, V11"
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916214,
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "192",
+   "name": "user_focus_time_settings",
+   "schema": "public",
+   "x": -303.8663683564083,
+   "y": -1359.5201157237948,
+   "fields": [
+    {
+     "id": "193",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "comments": "FK → users.id (1:1)"
+    },
+    {
+     "id": "194",
+     "name": "daily_focus_time_goal_minutes",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "0",
+     "comments": "포커스 목표(분 이상)"
+    },
+    {
+     "id": "195",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214
+    },
+    {
+     "id": "196",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214,
+     "comments": "탈퇴 시각 (소프트 딜리트 감사 로그용)"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "197",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "193"
+     ],
+     "createdAt": 1783600916214,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916214,
+   "order": 1,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "2xs71k9n1lmmssvmskjwfelv8"
+  },
+  {
+   "id": "168",
+   "name": "user_screen_time_settings",
+   "schema": "public",
+   "x": -1274.10059787995,
+   "y": -1375.3696640982134,
+   "fields": [
+    {
+     "id": "169",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "comments": "FK → users.id (1:1)"
+    },
+    {
+     "id": "170",
+     "name": "is_screen_time_permission_granted",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "false",
+     "comments": "iOS 스크린타임 권한 동의 여부"
+    },
+    {
+     "id": "171",
+     "name": "daily_screen_time_goal_minutes",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "0",
+     "comments": "스크린타임 목표(분 이내)"
+    },
+    {
+     "id": "172",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214
+    },
+    {
+     "id": "173",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214,
+     "comments": "탈퇴 시각 (소프트 딜리트 감사 로그용)"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "174",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "169"
+     ],
+     "createdAt": 1783600916214,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916214,
+   "order": 2,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "i8g27cjtsoij5cyc4fmrlb1tf"
+  },
+  {
+   "id": "56",
+   "name": "user_notification_settings",
+   "schema": "public",
+   "x": -2054.9086339398345,
+   "y": -825.1093112275051,
+   "fields": [
+    {
+     "id": "57",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "comments": "FK → users.id (1:1)"
+    },
+    {
+     "id": "58",
+     "name": "notification_enabled",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "true",
+     "comments": "전역 알림 on/off"
+    },
+    {
+     "id": "59",
+     "name": "sound_enabled",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "true",
+     "comments": "알림 소리 on/off"
+    },
+    {
+     "id": "60",
+     "name": "night_mode_enabled",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "false",
+     "comments": "심야 모드 on/off"
+    },
+    {
+     "id": "61",
+     "name": "night_start_time",
+     "type": {
+      "id": "time",
+      "name": "time"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214,
+     "comments": "심야 모드 시작 시각"
+    },
+    {
+     "id": "62",
+     "name": "night_end_time",
+     "type": {
+      "id": "time",
+      "name": "time"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214,
+     "comments": "심야 모드 종료 시각"
+    },
+    {
+     "id": "63",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214
+    },
+    {
+     "id": "64",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214,
+     "comments": "탈퇴 시각 (소프트 딜리트 감사 로그용)"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "65",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "57"
+     ],
+     "createdAt": 1783600916214,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916214,
+   "order": 3,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "0j3co1droi5gwvo3pz3x5fnrr"
+  },
+  {
+   "id": "122",
+   "name": "user_wallets",
+   "schema": "public",
+   "x": -1262.3331969965225,
+   "y": 1015.726630977477,
+   "fields": [
+    {
+     "id": "123",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "comments": "FK → users.id (1:1)"
+    },
+    {
+     "id": "124",
+     "name": "balance",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "default": "0",
+     "comments": "재화 잔액"
+    },
+    {
+     "id": "125",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214
+    },
+    {
+     "id": "126",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916214,
+     "comments": "탈퇴 시각 (소프트 딜리트) — 재화 이력 보존, 하드 삭제 금지"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "127",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "123"
+     ],
+     "createdAt": 1783600916214,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916214,
+   "order": 4,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "lm4lxw9jkpvy83hu2h8dvltua"
+  },
+  {
+   "id": "128",
+   "name": "social_accounts",
+   "schema": "public",
+   "x": -1695.5368132300323,
+   "y": -516.6025935664844,
+   "fields": [
+    {
+     "id": "129",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916214
+    },
+    {
+     "id": "130",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "comments": "FK → users.id"
+    },
+    {
+     "id": "131",
+     "name": "provider",
+     "type": {
+      "id": "provider",
+      "name": "provider"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "comments": "APPLE / GOOGLE / KAKAO / LINE / INSTAGRAM / FACEBOOK"
+    },
+    {
+     "id": "132",
+     "name": "provider_id",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916214,
+     "characterMaximumLength": "255",
+     "comments": "소셜 제공자 측 사용자 식별자"
+    },
+    {
+     "id": "133",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()",
+     "comments": "연동 시각 — 어떤 소셜로 처음 가입했는지 추적(최초 provider 식별)"
+    },
+    {
+     "id": "134",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "연동 해제 시각 (소프트 딜리트)"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "135",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "129"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "136",
+     "name": "idx_social_accounts_provider_provider_id",
+     "unique": true,
+     "fieldIds": [
+      "131",
+      "132"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": false,
+     "comments": "외부 신원 식별키 — provider_id는 제공자 네임스페이스 내에서만 유일하므로 복합 unique"
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 6,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "0j3co1droi5gwvo3pz3x5fnrr"
+  },
+  {
+   "id": "208",
+   "name": "friendships",
+   "schema": "public",
+   "x": -1731.0719734773297,
+   "y": -88.7975117945951,
+   "fields": [
+    {
+     "id": "209",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "210",
+     "name": "from_user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "친구 신청한 유저 (FK → users.id)"
+    },
+    {
+     "id": "211",
+     "name": "to_user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "신청 받은 유저 (FK → users.id)"
+    },
+    {
+     "id": "212",
+     "name": "status",
+     "type": {
+      "id": "friendship_status",
+      "name": "friendship_status"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "PENDING",
+     "comments": "PENDING / ACCEPTED / REJECTED"
+    },
+    {
+     "id": "213",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()",
+     "comments": "신청 시각"
+    },
+    {
+     "id": "214",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "상태 변경(수락/거절) 시각"
+    },
+    {
+     "id": "215",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "친구 삭제 시각 (소프트 딜리트)"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "216",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "209"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "217",
+     "name": "idx_friendships_from_user_id_to_user_id",
+     "unique": false,
+     "fieldIds": [
+      "210",
+      "211"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": false,
+     "comments": "활성 관계 부분 unique(WHERE deleted_at IS NULL)는 마이그레이션 SQL로 적용 — 동일 방향 중복 신청 차단. 양방향(A→B / B→A) 중복은 앱/마이그레이션에서 정규화 처리"
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 12,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "ue1g557urz8eqbtknh4cc1j8n"
+  },
+  {
+   "id": "115",
+   "name": "user_blocks",
+   "schema": "public",
+   "x": -2001.4288211102412,
+   "y": -88.48886442645914,
+   "fields": [
+    {
+     "id": "116",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "117",
+     "name": "blocker_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "차단한 유저 (FK → users.id)"
+    },
+    {
+     "id": "118",
+     "name": "blocked_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "차단당한 유저 (FK → users.id)"
+    },
+    {
+     "id": "119",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()",
+     "comments": "차단 시각"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "120",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "116"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "121",
+     "name": "idx_user_blocks_blocker_id_blocked_id",
+     "unique": true,
+     "fieldIds": [
+      "117",
+      "118"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": false,
+     "comments": "중복 차단 방지"
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 13,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "ue1g557urz8eqbtknh4cc1j8n"
+  },
+  {
+   "id": "295",
+   "name": "pinned_users",
+   "schema": "public",
+   "x": -2003.5353301974324,
+   "y": 109.12242841355072,
+   "fields": [
+    {
+     "id": "296",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "297",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "핀한 유저 (FK → users.id)"
+    },
+    {
+     "id": "298",
+     "name": "pinned_user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "핀된 친구 (FK → users.id)"
+    },
+    {
+     "id": "299",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()",
+     "comments": "핀 시각"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "300",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "296"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "301",
+     "name": "idx_pinned_users_user_id_pinned_user_id",
+     "unique": true,
+     "fieldIds": [
+      "297",
+      "298"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": false,
+     "comments": "같은 친구 중복 핀 차단 (멱등)"
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 14,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "ue1g557urz8eqbtknh4cc1j8n"
+  },
+  {
+   "id": "33",
+   "name": "group_challenges",
+   "schema": "public",
+   "x": 154.37136823728318,
+   "y": 976.2682280901588,
+   "fields": [
+    {
+     "id": "34",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "35",
+     "name": "group_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → groups.id"
+    },
+    {
+     "id": "36",
+     "name": "type",
+     "type": {
+      "id": "challenge_type",
+      "name": "challenge_type"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "TIME_WINDOW / DURATION — 방식에 따라 상세 테이블 1:1"
+    },
+    {
+     "id": "37",
+     "name": "category",
+     "type": {
+      "id": "challenge_category",
+      "name": "challenge_category"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FOCUS / SCREEN_TIME"
+    },
+    {
+     "id": "38",
+     "name": "status",
+     "type": {
+      "id": "challenge_status",
+      "name": "challenge_status"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "ACTIVE",
+     "comments": "챌린지 활성화/비활성화 — 서버에서만 전환 (유저 수정 불가)"
+    },
+    {
+     "id": "39",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()"
+    },
+    {
+     "id": "40",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "삭제 시각 (소프트 딜리트). 콘텐츠 수정 불가 → 수정은 삭제 후 새 row, 옛 내용 보존"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "41",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "34"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 15,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "zkiibq8drkjmga0umyohro0e0"
+  },
+  {
+   "id": "21",
+   "name": "group_challenge_durations",
+   "schema": "public",
+   "x": 158.2141591917001,
+   "y": 1544.0623339335586,
+   "fields": [
+    {
+     "id": "22",
+     "name": "challenge_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → group_challenges.id (1:1). type=DURATION 챌린지만"
+    },
+    {
+     "id": "23",
+     "name": "duration_minutes",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "누적 달성 목표 시간(분)"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "24",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "22"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 16,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "zkiibq8drkjmga0umyohro0e0"
+  },
+  {
+   "id": "42",
+   "name": "group_challenge_windows",
+   "schema": "public",
+   "x": 161.23045837867994,
+   "y": 1358.515574380077,
+   "fields": [
+    {
+     "id": "43",
+     "name": "challenge_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → group_challenges.id (1:1). type=TIME_WINDOW 챌린지만"
+    },
+    {
+     "id": "44",
+     "name": "window_start_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "수행 지정 시간대 시작 (UTC)"
+    },
+    {
+     "id": "45",
+     "name": "window_end_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "수행 지정 시간대 종료 (UTC)"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "46",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "43"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 17,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "zkiibq8drkjmga0umyohro0e0"
+  },
+  {
+   "id": "156",
+   "name": "group_challenge_members",
+   "schema": "public",
+   "x": -257.3748827212684,
+   "y": 943.7704586963916,
+   "fields": [
+    {
+     "id": "157",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "158",
+     "name": "group_challenge_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → group_challenges.id"
+    },
+    {
+     "id": "516",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "FK → users.id"
+    },
+    {
+     "id": "160",
+     "name": "progress_minutes",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "0",
+     "comments": "DURATION: 누적 진행(분) / TIME_WINDOW: 수행 시 채움"
+    },
+    {
+     "id": "161",
+     "name": "is_achieved",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "false",
+     "comments": "목표 달성 여부"
+    },
+    {
+     "id": "162",
+     "name": "achieved_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "달성 확정 시각, null이면 진행 중/미달성"
+    },
+    {
+     "id": "163",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()"
+    },
+    {
+     "id": "164",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "165",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "삭제 시각 (소프트 딜리트)"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "166",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "157"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "517",
+     "name": "idx_group_challenge_members_group_challenge_id_user_id",
+     "unique": true,
+     "fieldIds": [
+      "158",
+      "516"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": false,
+     "comments": "챌린지당 멤버 1행"
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 18,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "zkiibq8drkjmga0umyohro0e0"
+  },
+  {
+   "id": "97",
+   "name": "user_focus_tags",
+   "schema": "public",
+   "x": -296.0350849214045,
+   "y": -799.3268302243517,
+   "fields": [
+    {
+     "id": "98",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "99",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → users.id"
+    },
+    {
+     "id": "100",
+     "name": "default_tag_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → default_tags.id (태그 정체성). 커스텀 태그도 default_tags에 등록 후 참조 → 유저 생성 가능"
+    },
+    {
+     "id": "101",
+     "name": "source_occupation_default_tag_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "nullable — 추천에서 채택 시 출처(어느 직업 추천에서 왔나). 커스텀 태그면 null (FK → occupation_default_tags.id)"
+    },
+    {
+     "id": "102",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()",
+     "comments": "생성 시각"
+    },
+    {
+     "id": "103",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "삭제 시각 (소프트 딜리트) — focus_sessions.focus_tag_id 가 참조하므로 하드 삭제 대신 소프트 딜리트"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "104",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "98"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "105",
+     "name": "idx_user_focus_tags_user_id_default_tag_id",
+     "unique": true,
+     "fieldIds": [
+      "99",
+      "100"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": false,
+     "comments": "동일 태그 중복 채택 방지"
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 11,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "2xs71k9n1lmmssvmskjwfelv8"
+  },
+  {
+   "id": "239",
+   "name": "focus_sessions",
+   "schema": "public",
+   "x": -595.0253873816469,
+   "y": -1083.4448496978555,
+   "fields": [
+    {
+     "id": "240",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "241",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "nullable — 탈퇴 시 null (FK → users.id)"
+    },
+    {
+     "id": "242",
+     "name": "focus_tag_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "nullable — 태그 없는 세션 허용. 참조 태그는 소프트 딜리트(하드 삭제 시 참조 무결성 파손)"
+    },
+    {
+     "id": "243",
+     "name": "daily_focus_stat_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "nullable — 소속 일일 집계 (FK → daily_focus_stats.id)"
+    },
+    {
+     "id": "244",
+     "name": "focus_type",
+     "type": {
+      "id": "focus_type",
+      "name": "focus_type"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "INFINITE / RANGE / POMODORO"
+    },
+    {
+     "id": "245",
+     "name": "started_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "세션 시작 시각"
+    },
+    {
+     "id": "246",
+     "name": "ended_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "세션 종료 시각 — 진행중(라이브) 세션이면 null (GROMO-610)"
+    },
+    {
+     "id": "247",
+     "name": "status",
+     "type": {
+      "id": "focus_session_status",
+      "name": "focus_session_status"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "ACTIVE",
+     "comments": "세션 생명주기 (deleted_at 대체). 라이브 = ACTIVE. 부분 인덱스 idx_focus_sessions_live (user_id, started_at) WHERE status = ACTIVE"
+    },
+    {
+     "id": "248",
+     "name": "total_distraction_seconds",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "0",
+     "comments": "집중 중 이탈 누적 시간(초)"
+    },
+    {
+     "id": "249",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "250",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "240"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 19,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "2xs71k9n1lmmssvmskjwfelv8"
+  },
+  {
+   "id": "47",
+   "name": "focus_session_pomodoros",
+   "schema": "public",
+   "x": -277.70048710101764,
+   "y": -1115.0907382070218,
+   "fields": [
+    {
+     "id": "48",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "전용 PK"
+    },
+    {
+     "id": "49",
+     "name": "focus_session_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → focus_sessions.id (1:1). focus_type = POMODORO 인 세션만"
+    },
+    {
+     "id": "50",
+     "name": "pomodoro_setting_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "nullable — 사용 프리셋 (FK → focus_sessions_pomodoro_setting.id)"
+    },
+    {
+     "id": "51",
+     "name": "focus_minutes",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "뽀모도로 집중(공부) 시간(분) — 1세트 기준"
+    },
+    {
+     "id": "52",
+     "name": "break_minutes",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "뽀모도로 휴식 시간(분) — 1세트 기준"
+    },
+    {
+     "id": "53",
+     "name": "set_count",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "완료 세트 수"
+    },
+    {
+     "id": "54",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()",
+     "comments": "생성 시각"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "55",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "48"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 20,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "2xs71k9n1lmmssvmskjwfelv8"
+  },
+  {
+   "id": "182",
+   "name": "focus_sessions_pomodoro_setting",
+   "schema": "public",
+   "x": 79.72256628513409,
+   "y": -1051.4132539073516,
+   "fields": [
+    {
+     "id": "183",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "184",
+     "name": "name",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "characterMaximumLength": "255",
+     "comments": "프리셋 표시명 (예: 클래식 25/5)"
+    },
+    {
+     "id": "185",
+     "name": "focus_minutes",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "집중 시간(분)"
+    },
+    {
+     "id": "186",
+     "name": "break_minutes",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "휴식 시간(분)"
+    },
+    {
+     "id": "187",
+     "name": "is_default",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "false",
+     "comments": "기본 프리셋 여부 (sort_order 대신)"
+    },
+    {
+     "id": "188",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()",
+     "comments": "생성 시각"
+    },
+    {
+     "id": "189",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "190",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "소프트 딜리트(시드 교체 여지)"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "191",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "183"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 21,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "2xs71k9n1lmmssvmskjwfelv8"
+  },
+  {
+   "id": "83",
+   "name": "groups",
+   "schema": "public",
+   "x": -245.87583641935203,
+   "y": 1394.5435967808855,
+   "fields": [
+    {
+     "id": "84",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "85",
+     "name": "name",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "characterMaximumLength": "50",
+     "default": "",
+     "comments": "그룹 이름"
+    },
+    {
+     "id": "86",
+     "name": "description",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "characterMaximumLength": "200",
+     "comments": "그룹 소개"
+    },
+    {
+     "id": "87",
+     "name": "password",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "characterMaximumLength": "100",
+     "comments": "BCrypt 해시, null이면 공개 그룹"
+    },
+    {
+     "id": "88",
+     "name": "status",
+     "type": {
+      "id": "group_status",
+      "name": "group_status"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "WAITING",
+     "comments": "챌린지 진행중 여부 파악"
+    },
+    {
+     "id": "89",
+     "name": "max_members",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "최대 인원"
+    },
+    {
+     "id": "90",
+     "name": "is_chat_enabled",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "true",
+     "comments": "그룹 채팅 활성화 여부"
+    },
+    {
+     "id": "91",
+     "name": "chat_limit_per_person",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "1인당 채팅 가능한 횟수"
+    },
+    {
+     "id": "92",
+     "name": "invite_permission",
+     "type": {
+      "id": "group_permission_scope",
+      "name": "group_permission_scope"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "OWNER_ONLY",
+     "comments": "초대 권한 범위 (그룹 단위)"
+    },
+    {
+     "id": "93",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()"
+    },
+    {
+     "id": "94",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "95",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "삭제 시각 (소프트 딜리트 감사 로그용)"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "96",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "84"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 22,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "zkiibq8drkjmga0umyohro0e0"
+  },
+  {
+   "id": "231",
+   "name": "group_join_codes",
+   "schema": "public",
+   "x": -245.33138917981069,
+   "y": 1845.3722861015763,
+   "fields": [
+    {
+     "id": "232",
+     "name": "group_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → groups.id (1:1)"
+    },
+    {
+     "id": "233",
+     "name": "code",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "characterMaximumLength": "8",
+     "comments": "참가 코드 (8자 랜덤 영문/숫자). 재발급 시 같은 행 UPDATE"
+    },
+    {
+     "id": "234",
+     "name": "status",
+     "type": {
+      "id": "code_status",
+      "name": "code_status"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "ACTIVE",
+     "comments": "ACTIVE / ENDED"
+    },
+    {
+     "id": "235",
+     "name": "expires_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "만료 시각 (발급 + 24h) — 추후 Redis TTL 로 이관"
+    },
+    {
+     "id": "236",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()",
+     "comments": "발급 시각"
+    },
+    {
+     "id": "237",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "재발급(코드 갱신) 시각"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "238",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "232"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 23,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "zkiibq8drkjmga0umyohro0e0"
+  },
+  {
+   "id": "8",
+   "name": "group_members",
+   "schema": "public",
+   "x": -610.0569019008293,
+   "y": 1007.8839544802933,
+   "fields": [
+    {
+     "id": "9",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "10",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → users.id"
+    },
+    {
+     "id": "11",
+     "name": "group_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → groups.id"
+    },
+    {
+     "id": "12",
+     "name": "role",
+     "type": {
+      "id": "group_member_role",
+      "name": "group_member_role"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "MEMBER",
+     "comments": "방장 여부"
+    },
+    {
+     "id": "13",
+     "name": "status",
+     "type": {
+      "id": "group_member_status",
+      "name": "group_member_status"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "INACTIVE",
+     "comments": "그룹 활동 (챌린지, 포커스) 진행 여부"
+    },
+    {
+     "id": "14",
+     "name": "announcement_permission",
+     "type": {
+      "id": "group_announcement_grant",
+      "name": "group_announcement_grant"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "DISALLOW",
+     "comments": "멤버 단위 공지 작성 권한, 방장은 제외"
+    },
+    {
+     "id": "15",
+     "name": "notification_enabled",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "true",
+     "comments": "그룹 알림 수신 설정 (콕찌르기 등)"
+    },
+    {
+     "id": "16",
+     "name": "is_left",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "false",
+     "comments": "탈퇴 여부 (재가입 허용 → 가입/탈퇴 이력이 행으로 누적)"
+    },
+    {
+     "id": "17",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()",
+     "comments": "가입 시각"
+    },
+    {
+     "id": "18",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215
+    }
+   ],
+   "indexes": [
+    {
+     "id": "19",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "9"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "20",
+     "name": "idx_group_members_user_id_group_id",
+     "unique": false,
+     "fieldIds": [
+      "10",
+      "11"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": false,
+     "comments": "활성 멤버십 부분 unique(WHERE is_left = false)는 마이그레이션 SQL로 적용"
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 24,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "zkiibq8drkjmga0umyohro0e0"
+  },
+  {
+   "id": "310",
+   "name": "group_announcements",
+   "schema": "public",
+   "x": -606.2217343012828,
+   "y": 1466.9394447009963,
+   "fields": [
+    {
+     "id": "311",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "312",
+     "name": "group_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → groups.id"
+    },
+    {
+     "id": "313",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "작성자, 탈퇴 시 null (FK → users.id)"
+    },
+    {
+     "id": "314",
+     "name": "title",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "characterMaximumLength": "100",
+     "comments": "공지 제목"
+    },
+    {
+     "id": "315",
+     "name": "content",
+     "type": {
+      "id": "text",
+      "name": "text"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "공지 본문"
+    },
+    {
+     "id": "316",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()"
+    },
+    {
+     "id": "317",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "삭제 시각 (소프트 딜리트). 콘텐츠 수정 불가 → 수정은 삭제 후 새 row, 옛 내용 보존"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "318",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "311"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 25,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "zkiibq8drkjmga0umyohro0e0"
+  },
+  {
+   "id": "266",
+   "name": "items",
+   "schema": "public",
+   "x": -1261.273678038908,
+   "y": 599.9723457074303,
+   "fields": [
+    {
+     "id": "267",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "268",
+     "name": "name",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "characterMaximumLength": "255",
+     "comments": "아이템 이름"
+    },
+    {
+     "id": "269",
+     "name": "description",
+     "type": {
+      "id": "text",
+      "name": "text"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "아이템 설명"
+    },
+    {
+     "id": "270",
+     "name": "item_type",
+     "type": {
+      "id": "item_type",
+      "name": "item_type"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "EQUIPPABLE / DECORATIVE"
+    },
+    {
+     "id": "271",
+     "name": "slot_type",
+     "type": {
+      "id": "slot_type",
+      "name": "slot_type"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "EQUIPPABLE 전용, DECORATIVE면 null"
+    },
+    {
+     "id": "272",
+     "name": "grade",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "characterMaximumLength": "20",
+     "comments": "아이템 등급 (구 rarity, 추후 Enum 확정)"
+    },
+    {
+     "id": "273",
+     "name": "asset_url",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "characterMaximumLength": "255",
+     "comments": "에셋 URL"
+    },
+    {
+     "id": "274",
+     "name": "payment_type",
+     "type": {
+      "id": "payment_type",
+      "name": "payment_type"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "CURRENCY / PREMIUM / BOTH"
+    },
+    {
+     "id": "275",
+     "name": "currency_price",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "CURRENCY·BOTH 전용, null이면 인게임 재화로 구매 불가"
+    },
+    {
+     "id": "276",
+     "name": "premium_price",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "PREMIUM·BOTH 전용, null이면 현질로 구매 불가"
+    },
+    {
+     "id": "277",
+     "name": "is_active",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "true",
+     "comments": "상점 판매/노출 여부 (false면 신규 구매 불가·숨김). user_items.is_used(착용 여부)와 별개"
+    },
+    {
+     "id": "278",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()",
+     "comments": "생성 시각"
+    },
+    {
+     "id": "279",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215
+    }
+   ],
+   "indexes": [
+    {
+     "id": "280",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "267"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 26,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "lm4lxw9jkpvy83hu2h8dvltua"
+  },
+  {
+   "id": "302",
+   "name": "user_items",
+   "schema": "public",
+   "x": -1653.4709432374125,
+   "y": 535.7564548396173,
+   "fields": [
+    {
+     "id": "303",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "304",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → users.id"
+    },
+    {
+     "id": "305",
+     "name": "item_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → items.id"
+    },
+    {
+     "id": "306",
+     "name": "is_used",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "false",
+     "comments": "현재 장착/사용 중 여부"
+    },
+    {
+     "id": "307",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()",
+     "comments": "획득 시각"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "308",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "303"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "309",
+     "name": "idx_user_items_user_id_item_id",
+     "unique": true,
+     "fieldIds": [
+      "304",
+      "305"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": false
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 28,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "lm4lxw9jkpvy83hu2h8dvltua"
+  },
+  {
+   "id": "75",
+   "name": "character_equipment",
+   "schema": "public",
+   "x": -1654.5350549683283,
+   "y": 767.6008400506828,
+   "fields": [
+    {
+     "id": "76",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "77",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "FK → users.id"
+    },
+    {
+     "id": "78",
+     "name": "user_item_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "장착한 보유 아이템 (FK → user_items.id)"
+    },
+    {
+     "id": "79",
+     "name": "slot_type",
+     "type": {
+      "id": "slot_type",
+      "name": "slot_type"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "장착 슬롯"
+    },
+    {
+     "id": "80",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "now()",
+     "comments": "장착 시각"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "81",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "76"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "82",
+     "name": "idx_character_equipment_user_id_slot_type",
+     "unique": true,
+     "fieldIds": [
+      "77",
+      "79"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": false
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 27,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "lm4lxw9jkpvy83hu2h8dvltua"
+  },
+  {
+   "id": "223",
+   "name": "league_tier_configs",
+   "schema": "public",
+   "x": -316.19299388010074,
+   "y": 583.1323853714814,
+   "fields": [
+    {
+     "id": "224",
+     "name": "tier_level",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "리그 티어 레벨 1~5 (표시명은 앱에서 매핑, 클수록 상위). 하루 구간 ×7 = 주간 임계값: 뽀시래기0~14h/예열14~28h/초집중28~42h/갓생러42~56h/집중정복자56~70h"
+    },
+    {
+     "id": "225",
+     "name": "badge_id",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "티어별 배지 식별자 (앱이 에셋 매핑; slug 값은 Infra 에셋 식별 규칙). GROMO-451"
+    },
+    {
+     "id": "226",
+     "name": "promotion_time",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "승급 임계값(주 단위 초) — 지난주 누적이 이 값 이상이면 다음 티어로 승급. = 현재 티어 상한(다음 티어 하한)"
+    },
+    {
+     "id": "227",
+     "name": "relegation_time",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "강등 임계값(주 단위 초) — 지난주 누적이 이 값 미만이면 이전 티어로 강등. = 현재 티어 하한. (경계 부등호·T1 하한 0·무활동 처리는 league-prd.md §7 미결)"
+    },
+    {
+     "id": "228",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215
+    },
+    {
+     "id": "229",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916215,
+     "comments": "소프트 딜리트"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "230",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "224"
+     ],
+     "createdAt": 1783600916215,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916215,
+   "order": 29,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "vl76rhs43kpw1xrumc6hnmeme"
+  },
+  {
+   "id": "106",
+   "name": "league_arenas",
+   "schema": "public",
+   "x": -317.45115913726556,
+   "y": 277.071922240638,
+   "fields": [
+    {
+     "id": "107",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "아레나 고유 식별자"
+    },
+    {
+     "id": "109",
+     "name": "started_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "comments": "리그 주차 시작(UTC)"
+    },
+    {
+     "id": "110",
+     "name": "status",
+     "type": {
+      "id": "league_arena_status",
+      "name": "league_arena_status"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916215,
+     "default": "ACTIVE",
+     "comments": "ACTIVE / ENDED"
+    },
+    {
+     "id": "111",
+     "name": "ended_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916216,
+     "comments": "마감 시각"
+    },
+    {
+     "id": "112",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "default": "now()"
+    },
+    {
+     "id": "113",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916216
+    }
+   ],
+   "indexes": [
+    {
+     "id": "114",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "107"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "518",
+     "name": "uq_league_arenas_started_at",
+     "unique": true,
+     "fieldIds": [
+      "109"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": false,
+     "comments": "주차당 전역 anchor 1행 — 동시 배치 중복 생성 방지 GROMO-817, V15"
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916216,
+   "order": 30,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "vl76rhs43kpw1xrumc6hnmeme"
+  },
+  {
+   "id": "287",
+   "name": "league_rank_snapshots",
+   "schema": "public",
+   "x": 42.11155145686541,
+   "y": 244.99729740391143,
+   "fields": [
+    {
+     "id": "288",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916216
+    },
+    {
+     "id": "290",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "FK → users.id"
+    },
+    {
+     "id": "291",
+     "name": "rank",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "그날 전역 순위 (index+1)"
+    },
+    {
+     "id": "292",
+     "name": "created_at",
+     "type": {
+      "id": "date",
+      "name": "date"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "스냅샷 KST 날짜 (구 captured_on) — 어제↔오늘 비교 키"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "293",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "288"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "519",
+     "name": "uq_league_rank_snapshots_user_day",
+     "unique": true,
+     "fieldIds": [
+      "290",
+      "292"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": false,
+     "comments": "전역 순위제(V14) — arena_id 제거"
+    },
+    {
+     "id": "520",
+     "name": "idx_league_rank_snapshots_created_at",
+     "unique": false,
+     "fieldIds": [
+      "292"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": false,
+     "comments": "일간 순위 비교 잡 날짜 단일 조회 seek"
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916216,
+   "order": 32,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "vl76rhs43kpw1xrumc6hnmeme"
+  },
+  {
+   "id": "198",
+   "name": "league_weekly_results",
+   "schema": "public",
+   "x": -640.2367598304669,
+   "y": 244.99729740391143,
+   "fields": [
+    {
+     "id": "521",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916216
+    },
+    {
+     "id": "522",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "FK → users.id"
+    },
+    {
+     "id": "523",
+     "name": "week_start_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "정산 대상 주차 시작(UTC)"
+    },
+    {
+     "id": "524",
+     "name": "previous_tier_level",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "정산 전 티어 (CHECK BETWEEN 1 AND 5)"
+    },
+    {
+     "id": "525",
+     "name": "new_tier_level",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "정산 후 티어 (CHECK BETWEEN 1 AND 5)"
+    },
+    {
+     "id": "526",
+     "name": "result",
+     "type": {
+      "id": "league_weekly_result",
+      "name": "league_weekly_result"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "PROMOTED / STAY / RELEGATED (CHECK)"
+    },
+    {
+     "id": "527",
+     "name": "focus_seconds",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "지난주 누적 집중 시간(초) — 승강 판정 근거 (CHECK >= 0)"
+    },
+    {
+     "id": "528",
+     "name": "acknowledged_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916216,
+     "comments": "유저가 결과 확인한 시각 — null이면 미확인(배지 노출)"
+    },
+    {
+     "id": "529",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "정산 기록 시각"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "530",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "521"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "531",
+     "name": "uq_league_weekly_results_user_week",
+     "unique": true,
+     "fieldIds": [
+      "522",
+      "523"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": false
+    },
+    {
+     "id": "532",
+     "name": "idx_league_weekly_results_user_created",
+     "unique": false,
+     "fieldIds": [
+      "522",
+      "529"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": false,
+     "comments": "최근 결과 조회(created_at DESC)"
+    },
+    {
+     "id": "533",
+     "name": "idx_league_weekly_results_week_result",
+     "unique": false,
+     "fieldIds": [
+      "523",
+      "526"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": false
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916216,
+   "order": 31,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "vl76rhs43kpw1xrumc6hnmeme"
+  },
+  {
+   "id": "137",
+   "name": "user_streaks",
+   "schema": "public",
+   "x": -1335.0523143520884,
+   "y": -954.8390316484615,
+   "fields": [
+    {
+     "id": "138",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "FK → users.id"
+    },
+    {
+     "id": "139",
+     "name": "streak_count",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "default": "0",
+     "comments": "현재 연속일"
+    },
+    {
+     "id": "140",
+     "name": "longest_streak_count",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "default": "0",
+     "comments": "최장 연속일"
+    },
+    {
+     "id": "141",
+     "name": "last_session_date",
+     "type": {
+      "id": "date",
+      "name": "date"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916216,
+     "comments": "마지막 집중 날짜"
+    },
+    {
+     "id": "142",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916216
+    },
+    {
+     "id": "143",
+     "name": "deleted_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916216,
+     "comments": "탈퇴 시각 (소프트 딜리트)"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "144",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "138"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916216,
+   "order": 35,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "svix5ssw91uk2ctk64fcqdyah"
+  },
+  {
+   "id": "25",
+   "name": "currency_transactions",
+   "schema": "public",
+   "x": -1656.3985024689225,
+   "y": 999.8886182237009,
+   "fields": [
+    {
+     "id": "26",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916216
+    },
+    {
+     "id": "27",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "FK → users.id"
+    },
+    {
+     "id": "28",
+     "name": "amount",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "양수 = 획득, 음수 = 소비"
+    },
+    {
+     "id": "29",
+     "name": "type",
+     "type": {
+      "id": "currency_type",
+      "name": "currency_type"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "SESSION_COMPLETE / STREAK_BONUS / PURCHASE"
+    },
+    {
+     "id": "30",
+     "name": "idempotency_key",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": true,
+     "nullable": true,
+     "createdAt": 1783600916216,
+     "characterMaximumLength": "255",
+     "comments": "멱등성 키(영속 보루) — 중복 적립/쿠폰 발급 차단. 컨벤션: session:{sessionId} / streak:{userId}:{yyyy-mm-dd} / purchase:{orderId} / coupon:{couponId}. Redis SETNX는 앞단 1차 차단"
+    },
+    {
+     "id": "31",
+     "name": "created_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916216,
+     "comments": "거래 시각"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "32",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "26"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916216,
+   "order": 5,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "lm4lxw9jkpvy83hu2h8dvltua"
+  },
+  {
+   "id": "145",
+   "name": "daily_focus_stats",
+   "schema": "public",
+   "x": -1034.291651413843,
+   "y": -986.631078776805,
+   "fields": [
+    {
+     "id": "146",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916216
+    },
+    {
+     "id": "147",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916216,
+     "comments": "nullable — 탈퇴 유저 익명 보존 (FK → users.id)"
+    },
+    {
+     "id": "148",
+     "name": "date",
+     "type": {
+      "id": "date",
+      "name": "date"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "일별 집계 버킷 날짜 — 현재 UTC 기준(FocusService.statDate = endedAt 을 UTC 로 환산). ticket 803 에서 country_code 존 기준으로 전환 예정"
+    },
+    {
+     "id": "149",
+     "name": "total_focus_seconds",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "default": "0",
+     "comments": "일일 누적 집중 시간(초) — GROMO-642, 분 내림 손실 제거"
+    },
+    {
+     "id": "150",
+     "name": "session_count",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "default": "0",
+     "comments": "일일 세션 수"
+    },
+    {
+     "id": "151",
+     "name": "total_distraction_seconds",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "default": "0",
+     "comments": "일일 이탈 총 시간"
+    },
+    {
+     "id": "152",
+     "name": "is_focus_time_goal_achieved",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "default": "false",
+     "comments": "집중 목표 달성 여부"
+    },
+    {
+     "id": "153",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916216
+    }
+   ],
+   "indexes": [
+    {
+     "id": "154",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "146"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "155",
+     "name": "idx_daily_focus_stats_user_id_date",
+     "unique": true,
+     "fieldIds": [
+      "147",
+      "148"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": false
+    },
+    {
+     "id": "534",
+     "name": "idx_daily_focus_stats_date",
+     "unique": false,
+     "fieldIds": [
+      "148"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": false,
+     "comments": "기간 집계 date BETWEEN range scan (user_id 선행 아님) GROMO-753, V11"
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916216,
+   "order": 33,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "svix5ssw91uk2ctk64fcqdyah"
+  },
+  {
+   "id": "66",
+   "name": "daily_screen_time_stats",
+   "schema": "public",
+   "x": -1064.532968110922,
+   "y": -665.5264653634526,
+   "fields": [
+    {
+     "id": "67",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916216
+    },
+    {
+     "id": "68",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916216,
+     "comments": "nullable — 탈퇴 유저 익명 보존 (FK → users.id)"
+    },
+    {
+     "id": "69",
+     "name": "date",
+     "type": {
+      "id": "date",
+      "name": "date"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "유저 country_code 파생 ZoneId 기준 로컬 날짜 (GROMO-561)"
+    },
+    {
+     "id": "70",
+     "name": "total_screen_time_minutes",
+     "type": {
+      "id": "int",
+      "name": "int"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "default": "0",
+     "comments": "앱 전송 실제 스크린타임(분)"
+    },
+    {
+     "id": "71",
+     "name": "is_screen_time_goal_achieved",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "default": "false",
+     "comments": "스크린타임 목표 달성 여부 (클라 계산값)"
+    },
+    {
+     "id": "535",
+     "name": "is_screen_time_finalized",
+     "type": {
+      "id": "boolean",
+      "name": "boolean"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "default": "false",
+     "comments": "오늘 row 확정 여부 — interim(false)이면 현재 목표로 재계산, final(true)이면 클라 스냅샷 사용. GROMO-805, V10"
+    },
+    {
+     "id": "72",
+     "name": "updated_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916216
+    }
+   ],
+   "indexes": [
+    {
+     "id": "73",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "67"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": true
+    },
+    {
+     "id": "74",
+     "name": "idx_daily_screen_time_stats_user_id_date",
+     "unique": true,
+     "fieldIds": [
+      "68",
+      "69"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": false
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916216,
+   "order": 34,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "svix5ssw91uk2ctk64fcqdyah"
+  },
+  {
+   "id": "1",
+   "name": "notification_sent_logs",
+   "schema": "public",
+   "x": -2034.317025067795,
+   "y": -490.3761744108948,
+   "fields": [
+    {
+     "id": "2",
+     "name": "id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": true,
+     "unique": true,
+     "nullable": false,
+     "createdAt": 1783600916216
+    },
+    {
+     "id": "3",
+     "name": "user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "FK → users.id (수신자)"
+    },
+    {
+     "id": "4",
+     "name": "type",
+     "type": {
+      "id": "varchar",
+      "name": "varchar"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "발송 종류 (현재 'RANK_OVERTAKE')"
+    },
+    {
+     "id": "5",
+     "name": "target_user_id",
+     "type": {
+      "id": "uuid",
+      "name": "uuid"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": true,
+     "createdAt": 1783600916216,
+     "comments": "대상 유저(라이벌) — 추월=대표 라이벌, 없으면 null (nullable, FK → users.id)"
+    },
+    {
+     "id": "6",
+     "name": "sent_at",
+     "type": {
+      "id": "timestamptz",
+      "name": "timestamptz"
+     },
+     "primaryKey": false,
+     "unique": false,
+     "nullable": false,
+     "createdAt": 1783600916216,
+     "comments": "실발송 시각"
+    }
+   ],
+   "indexes": [
+    {
+     "id": "7",
+     "name": "",
+     "unique": true,
+     "fieldIds": [
+      "2"
+     ],
+     "createdAt": 1783600916216,
+     "isPrimaryKey": true
+    }
+   ],
+   "color": "#8eb7ff",
+   "isView": false,
+   "createdAt": 1783600916216,
+   "order": 7,
+   "diagramId": "llkw6yz4vmra",
+   "parentAreaId": "0j3co1droi5gwvo3pz3x5fnrr"
+  }
+ ],
+ "relationships": [
+  {
+   "id": "351",
+   "name": "social_accounts_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "128",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "130",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "361",
+   "name": "user_screen_time_settings_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "168",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "169",
+   "targetFieldId": "252",
+   "sourceCardinality": "one",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "363",
+   "name": "user_wallets_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "122",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "123",
+   "targetFieldId": "252",
+   "sourceCardinality": "one",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "329",
+   "name": "friendships_from_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "208",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "210",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "330",
+   "name": "friendships_to_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "208",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "211",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "360",
+   "name": "user_notification_settings_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "56",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "57",
+   "targetFieldId": "252",
+   "sourceCardinality": "one",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "353",
+   "name": "user_blocks_blocker_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "115",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "117",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "352",
+   "name": "user_blocks_blocked_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "115",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "118",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "336",
+   "name": "group_challenges_group_id_groups_id",
+   "sourceSchema": "public",
+   "sourceTableId": "33",
+   "targetSchema": "public",
+   "targetTableId": "83",
+   "sourceFieldId": "35",
+   "targetFieldId": "84",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "333",
+   "name": "group_challenge_durations_challenge_id_group_challenges_id",
+   "sourceSchema": "public",
+   "sourceTableId": "21",
+   "targetSchema": "public",
+   "targetTableId": "33",
+   "sourceFieldId": "22",
+   "targetFieldId": "34",
+   "sourceCardinality": "one",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "335",
+   "name": "group_challenge_windows_challenge_id_group_challenges_id",
+   "sourceSchema": "public",
+   "sourceTableId": "42",
+   "targetSchema": "public",
+   "targetTableId": "33",
+   "sourceFieldId": "43",
+   "targetFieldId": "34",
+   "sourceCardinality": "one",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "334",
+   "name": "group_challenge_members_group_challenge_id_group_challenges_id",
+   "sourceSchema": "public",
+   "sourceTableId": "156",
+   "targetSchema": "public",
+   "targetTableId": "33",
+   "sourceFieldId": "158",
+   "targetFieldId": "34",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "536",
+   "name": "group_challenge_members_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "156",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "516",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "356",
+   "name": "user_focus_tags_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "97",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "99",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "354",
+   "name": "user_focus_tags_default_tag_id_default_tags_id",
+   "sourceSchema": "public",
+   "sourceTableId": "97",
+   "targetSchema": "public",
+   "targetTableId": "218",
+   "sourceFieldId": "100",
+   "targetFieldId": "219",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "355",
+   "name": "user_focus_tags_source_occupation_default_tag_id_occupation_default_tags_id",
+   "sourceSchema": "public",
+   "sourceTableId": "97",
+   "targetSchema": "public",
+   "targetTableId": "175",
+   "sourceFieldId": "101",
+   "targetFieldId": "176",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "328",
+   "name": "focus_sessions_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "239",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "241",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "327",
+   "name": "focus_sessions_focus_tag_id_user_focus_tags_id",
+   "sourceSchema": "public",
+   "sourceTableId": "239",
+   "targetSchema": "public",
+   "targetTableId": "97",
+   "sourceFieldId": "242",
+   "targetFieldId": "98",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "326",
+   "name": "focus_sessions_daily_focus_stat_id_daily_focus_stats_id",
+   "sourceSchema": "public",
+   "sourceTableId": "239",
+   "targetSchema": "public",
+   "targetTableId": "145",
+   "sourceFieldId": "243",
+   "targetFieldId": "146",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "324",
+   "name": "focus_session_pomodoros_focus_session_id_focus_sessions_id",
+   "sourceSchema": "public",
+   "sourceTableId": "47",
+   "targetSchema": "public",
+   "targetTableId": "239",
+   "sourceFieldId": "49",
+   "targetFieldId": "240",
+   "sourceCardinality": "one",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "325",
+   "name": "focus_session_pomodoros_pomodoro_setting_id_focus_sessions_pomodoro_setting_id",
+   "sourceSchema": "public",
+   "sourceTableId": "47",
+   "targetSchema": "public",
+   "targetTableId": "182",
+   "sourceFieldId": "50",
+   "targetFieldId": "183",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "337",
+   "name": "group_join_codes_group_id_groups_id",
+   "sourceSchema": "public",
+   "sourceTableId": "231",
+   "targetSchema": "public",
+   "targetTableId": "83",
+   "sourceFieldId": "232",
+   "targetFieldId": "84",
+   "sourceCardinality": "one",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "339",
+   "name": "group_members_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "8",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "10",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "338",
+   "name": "group_members_group_id_groups_id",
+   "sourceSchema": "public",
+   "sourceTableId": "8",
+   "targetSchema": "public",
+   "targetTableId": "83",
+   "sourceFieldId": "11",
+   "targetFieldId": "84",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "331",
+   "name": "group_announcements_group_id_groups_id",
+   "sourceSchema": "public",
+   "sourceTableId": "310",
+   "targetSchema": "public",
+   "targetTableId": "83",
+   "sourceFieldId": "312",
+   "targetFieldId": "84",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "332",
+   "name": "group_announcements_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "310",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "313",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "359",
+   "name": "user_items_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "302",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "304",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "358",
+   "name": "user_items_item_id_items_id",
+   "sourceSchema": "public",
+   "sourceTableId": "302",
+   "targetSchema": "public",
+   "targetTableId": "266",
+   "sourceFieldId": "305",
+   "targetFieldId": "267",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "319",
+   "name": "character_equipment_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "75",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "77",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "320",
+   "name": "character_equipment_user_item_id_user_items_id",
+   "sourceSchema": "public",
+   "sourceTableId": "75",
+   "targetSchema": "public",
+   "targetTableId": "302",
+   "sourceFieldId": "78",
+   "targetFieldId": "303",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "344",
+   "name": "league_rank_snapshots_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "287",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "290",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "537",
+   "name": "league_weekly_results_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "198",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "522",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "350",
+   "name": "pinned_users_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "295",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "297",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "349",
+   "name": "pinned_users_pinned_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "295",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "298",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "362",
+   "name": "user_streaks_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "137",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "138",
+   "targetFieldId": "252",
+   "sourceCardinality": "one",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "321",
+   "name": "currency_transactions_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "25",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "27",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "357",
+   "name": "user_focus_time_settings_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "192",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "193",
+   "targetFieldId": "252",
+   "sourceCardinality": "one",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "322",
+   "name": "daily_focus_stats_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "145",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "147",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "323",
+   "name": "daily_screen_time_stats_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "66",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "68",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "346",
+   "name": "notification_sent_logs_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "1",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "3",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "345",
+   "name": "notification_sent_logs_target_user_id_users_id",
+   "sourceSchema": "public",
+   "sourceTableId": "1",
+   "targetSchema": "public",
+   "targetTableId": "251",
+   "sourceFieldId": "5",
+   "targetFieldId": "252",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "364",
+   "name": "users_occupation_occupations_code",
+   "sourceSchema": "public",
+   "sourceTableId": "251",
+   "targetSchema": "public",
+   "targetTableId": "281",
+   "sourceFieldId": "256",
+   "targetFieldId": "282",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "348",
+   "name": "occupation_default_tags_occupation_occupations_code",
+   "sourceSchema": "public",
+   "sourceTableId": "175",
+   "targetSchema": "public",
+   "targetTableId": "281",
+   "sourceFieldId": "177",
+   "targetFieldId": "282",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "347",
+   "name": "occupation_default_tags_default_tag_id_default_tags_id",
+   "sourceSchema": "public",
+   "sourceTableId": "175",
+   "targetSchema": "public",
+   "targetTableId": "218",
+   "sourceFieldId": "178",
+   "targetFieldId": "219",
+   "sourceCardinality": "many",
+   "targetCardinality": "one",
+   "createdAt": 1783600916216,
+   "diagramId": "llkw6yz4vmra"
+  }
+ ],
+ "dependencies": [],
+ "areas": [
+  {
+   "id": "366",
+   "name": "유저 설정",
+   "x": -2095.234427764723,
+   "y": -871.7756529799789,
+   "width": 674,
+   "height": 628,
+   "color": "#8eb7ff",
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "367",
+   "name": "포커스 기능",
+   "x": -653.5955336097264,
+   "y": -1396.5996275202713,
+   "width": 1109,
+   "height": 898,
+   "color": "#b067e9",
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "368",
+   "name": "유저 직업 관련 - 온보딩",
+   "x": -475.2781191915603,
+   "y": -443.2503450838826,
+   "width": 731,
+   "height": 444,
+   "color": "#ff6b8a",
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "369",
+   "name": "스크린타임 기능",
+   "x": -1361.8465505687498,
+   "y": -1436.764608028731,
+   "width": 521,
+   "height": 332,
+   "color": "#ffe374",
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "370",
+   "name": "상점 기능",
+   "x": -1708.017359630497,
+   "y": 478.2325004266264,
+   "width": 711,
+   "height": 806,
+   "color": "#42e0c0",
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "371",
+   "name": "통계 기능",
+   "x": -1361.0912975300555,
+   "y": -1031.219915875676,
+   "width": 648,
+   "height": 652,
+   "color": "#8a61f5",
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "372",
+   "name": "유저 소셜 기능",
+   "x": -2065.166630550956,
+   "y": -167.34856690982366,
+   "width": 619,
+   "height": 503,
+   "color": "#ff6363",
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "373",
+   "name": "리그 기능",
+   "x": -672.6446485957002,
+   "y": 194.01644692323373,
+   "width": 973,
+   "height": 683,
+   "color": "#c05dcf",
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "374",
+   "name": "그룹 기능",
+   "x": -674.5978338381464,
+   "y": 911.2037870338768,
+   "width": 1194,
+   "height": 1201,
+   "color": "#9ef07a",
+   "diagramId": "llkw6yz4vmra"
+  }
+ ],
+ "customTypes": [
+  {
+   "id": "394",
+   "schema": "public",
+   "name": "occupation",
+   "kind": "enum",
+   "values": [
+    "LABOR_ATTORNEY",
+    "PATENT_ATTORNEY",
+    "TAX_ACCOUNTANT",
+    "CPA",
+    "APPRAISER",
+    "CIVIL_SERVANT",
+    "POLICE_FIRE",
+    "ADMIN_EXAM",
+    "CERTIFICATION",
+    "MIDDLE_SCHOOL",
+    "HIGH_SCHOOL",
+    "CSAT",
+    "UNIVERSITY",
+    "JOB_PREP",
+    "ENGLISH_TEST",
+    "CODING",
+    "SELF_DEVELOPMENT",
+    "FOCUS_BUILDING",
+    "ETC"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "398",
+   "schema": "public",
+   "name": "stat_visibility",
+   "kind": "enum",
+   "values": [
+    "FRIENDS",
+    "PUBLIC"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "396",
+   "schema": "public",
+   "name": "provider",
+   "kind": "enum",
+   "values": [
+    "APPLE",
+    "GOOGLE",
+    "KAKAO",
+    "LINE",
+    "INSTAGRAM",
+    "FACEBOOK"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "384",
+   "schema": "public",
+   "name": "friendship_status",
+   "kind": "enum",
+   "values": [
+    "PENDING",
+    "ACCEPTED",
+    "REJECTED"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "377",
+   "schema": "public",
+   "name": "challenge_category",
+   "kind": "enum",
+   "values": [
+    "FOCUS",
+    "SCREEN_TIME"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "379",
+   "schema": "public",
+   "name": "challenge_type",
+   "kind": "enum",
+   "values": [
+    "TIME_WINDOW",
+    "DURATION"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "378",
+   "schema": "public",
+   "name": "challenge_status",
+   "kind": "enum",
+   "values": [
+    "ACTIVE",
+    "INACTIVE"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "383",
+   "schema": "public",
+   "name": "focus_type",
+   "kind": "enum",
+   "values": [
+    "INFINITE",
+    "RANGE",
+    "POMODORO"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "382",
+   "schema": "public",
+   "name": "focus_session_status",
+   "kind": "enum",
+   "values": [
+    "ACTIVE",
+    "COMPLETED",
+    "CANCELED",
+    "AUTO_CLOSED"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "390",
+   "schema": "public",
+   "name": "group_status",
+   "kind": "enum",
+   "values": [
+    "WAITING",
+    "ACTIVE",
+    "ENDED"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "387",
+   "schema": "public",
+   "name": "group_member_role",
+   "kind": "enum",
+   "values": [
+    "OWNER",
+    "MEMBER"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "388",
+   "schema": "public",
+   "name": "group_member_status",
+   "kind": "enum",
+   "values": [
+    "INACTIVE",
+    "CHALLENGE",
+    "FOCUS"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "389",
+   "schema": "public",
+   "name": "group_permission_scope",
+   "kind": "enum",
+   "values": [
+    "OWNER_ONLY",
+    "ALL_MEMBERS"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "385",
+   "schema": "public",
+   "name": "group_announcement_grant",
+   "kind": "enum",
+   "values": [
+    "DISALLOW",
+    "ALLOW"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "380",
+   "schema": "public",
+   "name": "code_status",
+   "kind": "enum",
+   "values": [
+    "ACTIVE",
+    "ENDED"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "386",
+   "schema": "public",
+   "name": "group_invite_status",
+   "kind": "enum",
+   "values": [
+    "PENDING",
+    "ACCEPTED",
+    "DECLINED"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "391",
+   "schema": "public",
+   "name": "item_type",
+   "kind": "enum",
+   "values": [
+    "EQUIPPABLE",
+    "DECORATIVE"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "397",
+   "schema": "public",
+   "name": "slot_type",
+   "kind": "enum",
+   "values": [
+    "HAIR",
+    "TOP",
+    "BOTTOM",
+    "SHOES"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "395",
+   "schema": "public",
+   "name": "payment_type",
+   "kind": "enum",
+   "values": [
+    "CURRENCY",
+    "PREMIUM",
+    "BOTH"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "392",
+   "schema": "public",
+   "name": "league_arena_status",
+   "kind": "enum",
+   "values": [
+    "ACTIVE",
+    "ENDED"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "393",
+   "schema": "public",
+   "name": "league_weekly_result",
+   "kind": "enum",
+   "values": [
+    "PROMOTED",
+    "STAY",
+    "RELEGATED"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "381",
+   "schema": "public",
+   "name": "currency_type",
+   "kind": "enum",
+   "values": [
+    "SESSION_COMPLETE",
+    "STREAK_BONUS",
+    "PURCHASE"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  },
+  {
+   "id": "376",
+   "schema": "public",
+   "name": "bet_type",
+   "kind": "enum",
+   "values": [
+    "CASH",
+    "CURRENCY",
+    "NONE"
+   ],
+   "order": 0,
+   "diagramId": "llkw6yz4vmra"
+  }
+ ],
+ "notes": [
+  {
+   "id": "375",
+   "content": "앱 이름 : 시간 받을 거면 DB 수정하기",
+   "x": -964.8756064463641,
+   "y": -1506.548973130311,
+   "width": 200,
+   "height": 150,
+   "color": "#ffe374"
+  }
+ ]
+}
