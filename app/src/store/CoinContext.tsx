@@ -79,6 +79,11 @@ export function CoinProvider({ children }: { children: ReactNode }) {
     if (!loaded.current) return;
     // 저장 실패는 무시 — 다음 상태 변경 때 자연 재시도된다
     updateOwnedItemsStore((map) => ({ ...map, [bucket]: ownedItemIds })).catch(() => {});
+    // 구 키에도 현재 계정 것을 같이 써(듀얼라이트) OTA 롤백된 구 번들에서도 구매가 보이게
+    // 하고, 소유자 키를 함께 남겨 롤백 중의 구매를 복귀 후 정확한 버킷으로 병합한다
+    // (storageMigration.reconcileLegacyOwnedItems, 코덱스 리뷰).
+    AsyncStorage.setItem(STORAGE_KEYS.ownedItems, JSON.stringify(ownedItemIds)).catch(() => {});
+    AsyncStorage.setItem(STORAGE_KEYS.ownedItemsLegacyOwner, bucket).catch(() => {});
   }, [bucket, ownedItemIds]);
 
   async function addCoins(amount: number) {

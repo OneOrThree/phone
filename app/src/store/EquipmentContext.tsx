@@ -159,6 +159,13 @@ export function EquipmentProvider({ children }: { children: ReactNode }) {
       ...map,
       [bucket]: { equippedItem, equippedFurniture, equippedCostume },
     })).catch(() => {});
+    // 구 키에도 현재 계정 장착 상태를 같이 써(듀얼라이트) OTA 롤백된 구 번들에서 장비가
+    // 유지되게 한다. 장착 '선택'은 그때그때의 상태라, 롤백 중의 변경을 복귀 후 병합하는
+    // 것은 하지 않는다(보유 아이템과 달리 유실이 아니라 되돌림 — 코덱스 리뷰에 사유 명시).
+    AsyncStorage.setItem(
+      STORAGE_KEYS.equipment,
+      JSON.stringify({ equippedItem, equippedFurniture, equippedCostume }),
+    ).catch(() => {});
   }, [bucket, equippedItem, equippedFurniture, equippedCostume]);
 
   function toggleFurniture(item: ItemType) {
