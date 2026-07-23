@@ -21,7 +21,12 @@ import NicknameStep from '@/screens/onboarding/steps/NicknameStep';
 import { hapticLight, hapticMedium } from '@/utils/haptics';
 import { INITIAL_ONBOARDING_DATA, type StepProps, type V2OnboardingData } from './types';
 import type { OnboardingCompleteStatus, OnboardingResult } from './types';
-import { logOnboardingStarted, logOnboardingCompleted } from '@/services/analyticsEvents';
+import {
+  logOnboardingStarted,
+  logOnboardingCompleted,
+  logOnboardingStepViewed,
+} from '@/services/analyticsEvents';
+import type { OnboardingStepName } from '@/services/analyticsEvents';
 
 // v2 신규 유저 온보딩 플로우 컨트롤러.
 // 순서: 스플래시 → 문제공감 → 함께효과 → 과목비교 → [로그인] → 집중카테고리 →
@@ -43,8 +48,14 @@ interface OnboardingFlowProps {
 
 // 플로우 노드 — 입력 스텝 / 중간 로그인 / 마지막 닉네임(가입 확정 지점).
 // subStep: 동적으로 끼어드는 보조 스텝(과목 확인) — 진행바에서 직전 스텝과 같은 칸을 공유한다.
+// name: 스텝 도달 계측(onboarding_step_viewed)용 식별자 — login/nickname 노드는 kind가 곧 이름.
 type FlowNode =
-  | { kind: 'step'; Component: ComponentType<StepProps>; subStep?: boolean }
+  | {
+      kind: 'step';
+      name: OnboardingStepName;
+      Component: ComponentType<StepProps>;
+      subStep?: boolean;
+    }
   | { kind: 'login' }
   | { kind: 'nickname' };
 
@@ -87,22 +98,49 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     // 과목이 있을 때만 '과목 확인' 스텝을 끼운다(추천 과목 없는 카테고리는 건너뜀).
     const hasSubjects = data.subjects.length > 0;
     const denied = data.screenTimeGranted === false;
-    const step = (Component: ComponentType<StepProps>): FlowNode => ({ kind: 'step', Component });
+    const step = (name: OnboardingStepName, Component: ComponentType<StepProps>): FlowNode => ({
+      kind: 'step',
+      name,
+      Component,
+    });
     return [
-      step(ProblemEmpathyStep),
-      step(TogetherEffectStep),
-      step(SubjectCompareStep),
+      step('problem_empathy', ProblemEmpathyStep),
+      step('together_effect', TogetherEffectStep),
+      step('subject_compare', SubjectCompareStep),
       { kind: 'login' },
-      step(FocusCategoryStep),
+      step('focus_category', FocusCategoryStep),
       ...(hasSubjects
-        ? [{ kind: 'step' as const, Component: SubjectEditStep, subStep: true }]
+        ? [
+            {
+              kind: 'step',
+              name: 'subject_edit',
+              Component: SubjectEditStep,
+              subStep: true,
+            } as const,
+          ]
         : []),
-      step(ScreenTimePermissionStep),
-      step(denied ? ScreenTimeDeniedStep : YesterdayScreenTimeStep),
-      step(GoalSettingStep),
+      step('screentime_permission', ScreenTimePermissionStep),
+      denied
+        ? step('screentime_denied', ScreenTimeDeniedStep)
+        : step('yesterday_screentime', YesterdayScreenTimeStep),
+      step('goal_setting', GoalSettingStep),
       { kind: 'nickname' },
     ];
   }, [data.subjects, data.screenTimeGranted]);
+
+  // 스텝 도달 계측(GA4 퍼널) — 스플래시가 끝난 뒤, 이 플로우에서 처음 도달한 스텝만 발행한다.
+  // dedup은 인덱스가 아니라 "스텝 이름" 기준 — 뒤로가기 재방문은 미발행하되, 같은 인덱스가
+  // 다른 스텝으로 교체되는 동적 분기(예: 거부 화면에서 권한 허용 → 전날 스크린타임으로 교체)는
+  // 새 스텝 도달로 정상 발행한다(코덱스 리뷰).
+  const viewedStepsRef = useRef(new Set<OnboardingStepName>());
+  useEffect(() => {
+    if (showSplash) return;
+    const reached = sequence[index];
+    const step = reached.kind === 'step' ? reached.name : reached.kind;
+    if (viewedStepsRef.current.has(step)) return;
+    viewedStepsRef.current.add(step);
+    logOnboardingStepViewed({ step, step_index: index });
+  }, [showSplash, index, sequence]);
 
   // 로그인 노드 위치 — 인증 후 뒤로가기 하한(로그인 이전 화면 복귀 방지)을 계산한다.
   const loginIndex = sequence.findIndex((n) => n.kind === 'login');
