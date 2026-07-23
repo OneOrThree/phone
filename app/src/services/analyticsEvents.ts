@@ -227,9 +227,9 @@ export function logTierGuideViewed(): void {
 // ── 친구(Friend) [C] (GROMO-782) ──
 // 신청·수락·거절·끊기·핀 토글 — API 성공 시에만 발행해 실제 성립한 액션만 센다
 // (409 중복·롤백된 낙관 갱신은 미집계). 대상 식별자는 PII 회피로 미포함.
-export type FriendRequestSource = 'friend_add' | 'friend_profile' | 'profile_sheet';
+export type FriendRequestSource = 'friend_add' | 'friend_profile';
 
-// 친구 신청 발신. request_source: 친구 추가 검색 목록 / 프로필 상세 / 리그 프로필 시트 중 어디서 보냈는지.
+// 친구 신청 발신. request_source: 친구 추가 검색 목록 / 프로필 상세 중 어디서 보냈는지.
 // ('source'는 공통 파라미터(클라/서버 출처 'client')와 이름이 겹쳐 덮어쓰므로 사용 금지)
 export function logFriendRequestSent(p: { request_source: FriendRequestSource }): void {
   track('friend_request_sent', p);

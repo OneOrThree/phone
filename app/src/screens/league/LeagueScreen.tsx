@@ -17,7 +17,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { T, withAlpha } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import { useUser } from '@/store/UserContext';
-import { useFocus } from '@/store/FocusContext';
 import { useLeagueRanking } from './useLeagueRanking';
 import { useGlobalRanking } from './useGlobalRanking';
 import { useLeagueMeta } from './useLeagueMeta';
@@ -32,7 +31,6 @@ import { RankRow } from './components/RankRow';
 import { LiveFocusTime } from './components/LiveFocusTime';
 import { MemberAvatar } from './components/MemberAvatar';
 import { TierBadge } from './components/TierBadge';
-import { ProfileSheet, type ProfileTarget } from './components/ProfileSheet';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { STORAGE_KEYS } from '@/types/storage';
 import {
@@ -70,7 +68,6 @@ export default function LeagueScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
   const [tab, setTab] = useState<TabKey>('league');
-  const [selected, setSelected] = useState<ProfileTarget | null>(null);
   // 현재 선택한 리그 — null이면 기본(내 시험). 제목 드롭다운에서 전체/다른 시험으로 전환
   const [leagueFilter, setLeagueFilter] = useState<string | null>(null);
   const [leagueMenuOpen, setLeagueMenuOpen] = useState(false);
@@ -109,8 +106,9 @@ export default function LeagueScreen() {
       setFocusSeq((n) => n + 1);
     }, []),
   );
-  const { goalSeconds } = useUser();
-  const { todayFocusSeconds } = useFocus();
+  // 내 실 서버 ID — 랭킹 행의 userId는 MY_USER_ID 센티널로 치환돼 있어(useLeagueRanking)
+  // 내 프로필 진입 시 본인 통계 조회용 실 ID가 따로 필요하다.
+  const { userId: myUserId } = useUser();
 
   // 친구 목록·받은 요청 수 — 실데이터(포커스마다 재조회)
   const {
@@ -191,51 +189,39 @@ export default function LeagueScreen() {
     setPinnedOnly((v) => !v);
   }
 
-  // 프로필 진입 — 타인은 프로필 상세(FriendProfile, 친구/비친구 3분기)로 이동하고,
-  // 내 행만 기존 오버레이(개인 기록·실데이터 요약)를 띄운다.
-  // 내 통계는 실데이터(오늘 목표 달성률·오늘 요일 스파크). 일별 기록이 아직 없어
-  // 과거 6일은 0, 스트릭·기록은 mock — TODO: 일별 집중 기록/리그 히스토리 도입 시 실계산.
+  // 프로필 진입 — 내 행/타인 모두 프로필 상세(FriendProfile)로 이동해 포맷을 통일한다(GROMO-940,
+  // 구 ProfileSheet 오버레이 폐기). 내 행은 isMe로 진입해 비교 없이 내 그래프만 표시.
   function openProfile(member: RankedMember) {
     const isMe = member.userId === MY_USER_ID;
     logLeagueProfileOpened({ is_me: isMe });
-    if (!isMe) {
-      // 프로필 순위 = 지금 보고 있는 목록의 순위 그대로 전달 — 서버 프로필 rank(아레나 내 순위)와
-      // 스코프가 달라 숫자가 어긋나므로, 탭한 숫자와 일치시킨다 (GROMO-685).
-      const rank = visibleRanking.indexOf(member) + 1;
+    // 프로필 순위 = 지금 보고 있는 목록의 순위 그대로 전달 — 서버 프로필 rank(아레나 내 순위)와
+    // 스코프가 달라 숫자가 어긋나므로, 탭한 숫자와 일치시킨다 (GROMO-685).
+    const rank = visibleRanking.indexOf(member) + 1;
+    if (isMe) {
+      // 랭킹 행의 userId는 MY_USER_ID 센티널이라 실 서버 ID를 넘긴다 — 본인 통계 조회용.
+      if (!myUserId) return;
       navigation.navigate('FriendProfile', {
-        userId: member.userId,
+        userId: myUserId,
         nickname: member.nickname,
         tierLevel: member.tierLevel,
-        isFriend: friendIds.has(member.userId),
-        // 핀 초기값 — 공유 핀 상태(usePinned)가 로딩된 경우에만 전달(낙관 상태 포함 최신값).
-        // 미로딩이면 undefined로 넘겨 프로필의 GET /pins 재동기화에 맡긴다 — false를 넘기면
-        // 프로필이 확정값으로 믿고 서버 동기화를 건너뛰어 핀한 유저가 꺼짐으로 보인다(PR 291 리뷰 반영).
-        isPinned: pinnedLoaded ? pinned.has(member.userId) : undefined,
+        isFriend: false,
+        isMe: true,
         rank: rank > 0 ? rank : undefined,
         rankLabel: filter,
       });
       return;
     }
-    const goal = goalSeconds ?? 0;
-    const todayRate = goal > 0 ? Math.min(todayFocusSeconds / goal, 1) : 0;
-    const weekdayIdx = (new Date().getDay() + 6) % 7; // 월요일 시작
-    setSelected({
+    navigation.navigate('FriendProfile', {
       userId: member.userId,
       nickname: member.nickname,
       tierLevel: member.tierLevel,
-      seconds: member.totalFocusSeconds,
-      bestRank: member.bestRank,
-      bestWeekMinutes: member.bestWeekMinutes,
-      achievedRate: isMe ? todayRate : member.achievedRate,
-      // 스트릭은 일별 기록 저장소가 생기기 전까지 mock 유지 — TODO: 일별 기록 도입 시 실계산
-      streakDays: member.streakDays,
-      weekSpark: isMe
-        ? Array.from({ length: 7 }, (_, i) =>
-            i === weekdayIdx ? Math.round(todayFocusSeconds / 60) : 0,
-          )
-        : undefined,
-      friendCount: member.friendCount,
       isFriend: friendIds.has(member.userId),
+      // 핀 초기값 — 공유 핀 상태(usePinned)가 로딩된 경우에만 전달(낙관 상태 포함 최신값).
+      // 미로딩이면 undefined로 넘겨 프로필의 GET /pins 재동기화에 맡긴다 — false를 넘기면
+      // 프로필이 확정값으로 믿고 서버 동기화를 건너뛰어 핀한 유저가 꺼짐으로 보인다(PR 291 리뷰 반영).
+      isPinned: pinnedLoaded ? pinned.has(member.userId) : undefined,
+      rank: rank > 0 ? rank : undefined,
+      rankLabel: filter,
     });
   }
 
@@ -687,9 +673,6 @@ export default function LeagueScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-
-      {/* ── 프로필 오버레이 ── */}
-      <ProfileSheet target={selected} onClose={() => setSelected(null)} />
 
       {/* 첫 진입 사용법 안내(GROMO-652) */}
       <TabGuideOverlay storageKey={STORAGE_KEYS.guideLeague} steps={guideSteps} />

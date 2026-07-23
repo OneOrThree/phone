@@ -10,6 +10,7 @@ import { fmtHm } from '@/utils/timeFormat';
 // GROMO-692: 오늘/이번주/이번달 기간 탭 — 같은 개념의 리터럴 중복 선언 대신 서버 기간 타입
 // (StatsPeriod)을 그대로 쓴다(PR 252 리뷰). 겹치는 과목이 없는 기간은 카드 안 빈 상태로
 // 안내해 탭 전환이 막히지 않게 한다.
+// soloMine(GROMO-940): 내 프로필 — 나:나 비교는 무의미해 상대 바·범례를 생략하고 내 바만.
 
 const PERIODS: { key: StatsPeriod; label: string }[] = [
   { key: 'DAY', label: '오늘' },
@@ -22,17 +23,27 @@ interface Props {
   opponentName: string;
   period: StatsPeriod;
   onPeriodChange: (period: StatsPeriod) => void;
+  soloMine?: boolean;
 }
 
 // 시안 상대(보라) 바 색 — 테마 팔레트 밖 시안 고유색
 const THEIRS = T.compare.theirs;
 
-export function SubjectCompareCard({ subjects, opponentName, period, onPeriodChange }: Props) {
-  const max = Math.max(...subjects.flatMap((v) => [v.myMinutes, v.theirMinutes]), 1);
+export function SubjectCompareCard({
+  subjects,
+  opponentName,
+  period,
+  onPeriodChange,
+  soloMine,
+}: Props) {
+  const max = Math.max(
+    ...subjects.flatMap((v) => (soloMine ? [v.myMinutes] : [v.myMinutes, v.theirMinutes])),
+    1,
+  );
   return (
     <View style={s.card}>
       <View style={s.headRow}>
-        <Text style={s.title}>과목별 공부량 비교</Text>
+        <Text style={s.title}>{soloMine ? '과목별 공부량' : '과목별 공부량 비교'}</Text>
         <View style={s.tabRow}>
           {PERIODS.map(({ key, label }) => {
             const on = period === key;
@@ -52,7 +63,9 @@ export function SubjectCompareCard({ subjects, opponentName, period, onPeriodCha
 
       {subjects.length === 0 ? (
         <Text style={s.emptyText}>
-          이 기간엔 겹치는 공부 과목이 없어요. 다른 기간을 골라보세요.
+          {soloMine
+            ? '이 기간엔 공부 기록이 없어요. 다른 기간을 골라보세요.'
+            : '이 기간엔 겹치는 공부 과목이 없어요. 다른 기간을 골라보세요.'}
         </Text>
       ) : (
         subjects.map((subj) => {
@@ -77,23 +90,25 @@ export function SubjectCompareCard({ subjects, opponentName, period, onPeriodCha
                   {fmtHm(subj.myMinutes)}
                 </Text>
               </View>
-              <View style={s.barRow}>
-                <Text style={[s.barWho, s.barWhoTheirs]} allowFontScaling={false}>
-                  상대
-                </Text>
-                <View style={s.track}>
-                  <View style={[s.fill, s.fillTheirs, { width: `${theirsPct}%` }]} />
+              {!soloMine && (
+                <View style={s.barRow}>
+                  <Text style={[s.barWho, s.barWhoTheirs]} allowFontScaling={false}>
+                    상대
+                  </Text>
+                  <View style={s.track}>
+                    <View style={[s.fill, s.fillTheirs, { width: `${theirsPct}%` }]} />
+                  </View>
+                  <Text style={[s.barVal, s.barValTheirs]} allowFontScaling={false}>
+                    {fmtHm(subj.theirMinutes)}
+                  </Text>
                 </View>
-                <Text style={[s.barVal, s.barValTheirs]} allowFontScaling={false}>
-                  {fmtHm(subj.theirMinutes)}
-                </Text>
-              </View>
+              )}
             </View>
           );
         })
       )}
 
-      {subjects.length > 0 ? (
+      {subjects.length > 0 && !soloMine ? (
         <View style={s.legendRow}>
           <View style={s.legendItem}>
             <View style={[s.legendDot, { backgroundColor: T.accent }]} />

@@ -26,10 +26,11 @@ export type V2RootStackParamList = {
     nickname: string;
     tierLevel: number;
     isFriend: boolean;
+    isMe?: boolean; // 내 프로필 — 리그 내 행 탭 진입. 비교(상대 시리즈)·친구/핀 CTA 없이 내 그래프만 (GROMO-940)
     isPinned?: boolean; // 핀 초기값 — 진입 후 서버 핀 목록(GET /pins)으로 재동기화 (핀은 친구 아니어도 가능, GROMO-609)
     rank?: number; // 진입한 랭킹 목록에서의 순위 — 서버 프로필 rank(아레나 내)와 스코프가 달라 목록 값을 그대로 전달, 랭킹 진입에서만 (GROMO-685)
     rankLabel?: string; // 순위 스코프 라벨 — '전체' 또는 직군명
-  }; // 유저 프로필 상세 — 친구/비친구·과목 겹침 여부로 3분기 (친구 그리드·랭킹·친구 추가에서 진입)
+  }; // 유저 프로필 상세 — 내 프로필/친구/비친구·과목 겹침 여부로 분기 (친구 그리드·랭킹·친구 추가·리그 내 행에서 진입)
   TierGuide: undefined; // 티어 5단계 안내 (리그 내 티어 스트립에서 진입)
   LeagueResult: {
     type: 'promote' | 'maintain' | 'demote'; // 연출 텍스트 분기 — 서버 result 매핑(모르는 값은 유지 폴백)

@@ -51,6 +51,8 @@ import { TEASER_SUBJECTS, type CompareByDay, type SubjectCompare } from './mock'
 // 요일별 집중·폰 사용 비교는 내 heatmap + 상대 heatmap 으로 실계산(월~일).
 // 과목별 비교는 by-category?friends=(GROMO-624)로 실비교 — 겹치는 태그만, 겹침 없으면 안내 배너, 미확보 시 블러 티저.
 // 친구 신청/끊기·핀 토글은 실 API(./friendsApi) — 관계는 통계 공개와 별개.
+// isMe(GROMO-940): 리그 내 행 진입 — 같은 포맷을 쓰되 나:나 비교는 무의미해 차트는 내 시리즈만
+// (soloMine), 친구/핀/신청 CTA·관계 재동기화는 생략. 구 ProfileSheet 오버레이를 이 분기로 대체.
 
 const THEIRS_FOCUS = T.compare.theirs;
 const THEIRS_PHONE = T.compare.theirsPhone;
@@ -78,6 +80,7 @@ export default function FriendProfileScreen() {
   // rank(아레나 내 순위)와 달라 목록 값을 그대로 표시한다. 랭킹 외 진입(검색·친구·요청)은
   // 미전달 → 순위 미표시 (GROMO-685).
   const { userId, nickname, tierLevel, rank } = route.params;
+  const isMe = route.params.isMe === true;
 
   // 친구 관계는 진입점 파라미터 + 서버 친구 목록, 핀은 파라미터 + 서버 핀 목록으로 관리(통계 공개와 별개).
   const [isFriend, setIsFriend] = useState(route.params.isFriend);
@@ -142,6 +145,7 @@ export default function FriendProfileScreen() {
   // 핀은 친구 아니어도 가능(GROMO-609)이라 친구 목록의 isPinned가 아닌 핀 목록(GET /pins)으로 판정한다
   // — 친구 목록 기반이면 핀한 비친구가 진입 직후 핀 꺼짐으로 덮인다(GROMO-845).
   useEffect(() => {
+    if (isMe) return; // 내 프로필 — 친구/핀/요청 관계 개념이 없어 재동기화 불필요(GROMO-940)
     let stale = false;
     (async () => {
       const [list, pins, sent] = await Promise.all([
@@ -168,7 +172,7 @@ export default function FriendProfileScreen() {
     return () => {
       stale = true;
     };
-  }, [userId, route.params.isPinned]);
+  }, [userId, route.params.isPinned, isMe]);
 
   // 핀 토글 — 낙관적 갱신, 실패 시 롤백.
   // 반영 중 연타는 무시(직렬화) — POST/DELETE가 동시에 나가면 서버 처리 순서에 따라 화면과
@@ -278,9 +282,12 @@ export default function FriendProfileScreen() {
     (async () => {
       const [mine, theirs] = await Promise.all([
         getFocusStatsByCategory(subjectPeriod).catch(() => null),
-        getFocusStatsByCategory(subjectPeriod, userId).catch(() => null),
+        // 내 프로필 — 상대 조회 생략(비교 없이 내 과목만, GROMO-940)
+        isMe
+          ? Promise.resolve(null)
+          : getFocusStatsByCategory(subjectPeriod, userId).catch(() => null),
       ]);
-      if (!mine || !theirs) {
+      if (!mine || (!isMe && theirs == null)) {
         // 미확보 — 티저 유지. 시작 표시를 지워 탭 재방문·화면 재진입에서 다시 시도한다.
         subjectCompareFetched.current.delete(subjectCompareKey);
         return;
@@ -291,20 +298,26 @@ export default function FriendProfileScreen() {
           .filter((i) => i.tagName != null)
           .map((i) => [i.tagName as string, i.totalFocusMinutes]),
       );
-      const rows: SubjectCompare[] = theirs.items
-        .filter(
-          (i): i is typeof i & { tagName: string } =>
-            i.tagName != null && mineByName.has(i.tagName),
-        )
-        .map((i) => ({
-          name: i.tagName,
-          myMinutes: mineByName.get(i.tagName) ?? 0,
-          theirMinutes: i.totalFocusMinutes,
-        }));
+      // 내 프로필: 내 과목 전부(soloMine 카드가 내 바만 그림 — theirMinutes 미사용 0) /
+      // 타인: 겹치는 과목만 실비교.
+      const rows: SubjectCompare[] = isMe
+        ? mine.items
+            .filter((i): i is typeof i & { tagName: string } => i.tagName != null)
+            .map((i) => ({ name: i.tagName, myMinutes: i.totalFocusMinutes, theirMinutes: 0 }))
+        : (theirs?.items ?? [])
+            .filter(
+              (i): i is typeof i & { tagName: string } =>
+                i.tagName != null && mineByName.has(i.tagName),
+            )
+            .map((i) => ({
+              name: i.tagName,
+              myMinutes: mineByName.get(i.tagName) ?? 0,
+              theirMinutes: i.totalFocusMinutes,
+            }));
       // 키 스코프 캐시라 뒤늦게 도착해도 자기 키에 쓰면 안전 — 언마운트 후 쓰기만 막는다
       setSubjectCompareByKey((prev) => ({ ...prev, [subjectCompareKey]: rows }));
     })();
-  }, [canCompareSubjects, userId, subjectPeriod, subjectCompareKey]);
+  }, [canCompareSubjects, userId, subjectPeriod, subjectCompareKey, isMe]);
 
   // 요약 값 — getUserStats(항상 공개, GROMO-746), 실패 시엔 폴백 조회값 사용.
   const todayFocusMinutes =
@@ -336,16 +349,20 @@ export default function FriendProfileScreen() {
         opponentName={nickname}
         period={subjectPeriod}
         onPeriodChange={setSubjectPeriod}
+        soloMine={isMe}
       />
     </View>
   ) : (
     <View style={s.chartGap}>
-      <ComingSoon note="같은 과목 공부량 비교를 준비하고 있어요">
+      <ComingSoon
+        note={isMe ? '과목별 공부량을 준비하고 있어요' : '같은 과목 공부량 비교를 준비하고 있어요'}
+      >
         <SubjectCompareCard
           subjects={TEASER_SUBJECTS}
           opponentName={nickname}
           period={subjectPeriod}
           onPeriodChange={setSubjectPeriod}
+          soloMine={isMe}
         />
       </ComingSoon>
     </View>
@@ -358,21 +375,24 @@ export default function FriendProfileScreen() {
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>프로필</Text>
-        {/* 핀은 친구 아니어도 가능(GROMO-609) — 친구 여부와 무관하게 항상 노출(GROMO-845) */}
-        <TouchableOpacity
-          style={[s.pinBtn, isPinned && s.pinBtnOn]}
-          onPress={togglePin}
-          activeOpacity={0.7}
-          hitSlop={6}
-        >
-          {/* 리그(RankRow·포디움·칩)와 동일한 압정 아이콘(MaterialCommunityIcons) — Ionicons 핀은 모양이 달라 혼동 */}
-          <MaterialCommunityIcons
-            name={isPinned ? 'pin' : 'pin-outline'}
-            size={16}
-            color={isPinned ? T.white : T.inkSub}
-          />
-        </TouchableOpacity>
+        <Text style={s.headerTitle}>{isMe ? '내 프로필' : '프로필'}</Text>
+        {/* 핀은 친구 아니어도 가능(GROMO-609) — 친구 여부와 무관하게 항상 노출(GROMO-845).
+            내 프로필은 나를 핀할 수 없어 생략(GROMO-940). */}
+        {!isMe && (
+          <TouchableOpacity
+            style={[s.pinBtn, isPinned && s.pinBtnOn]}
+            onPress={togglePin}
+            activeOpacity={0.7}
+            hitSlop={6}
+          >
+            {/* 리그(RankRow·포디움·칩)와 동일한 압정 아이콘(MaterialCommunityIcons) — Ionicons 핀은 모양이 달라 혼동 */}
+            <MaterialCommunityIcons
+              name={isPinned ? 'pin' : 'pin-outline'}
+              size={16}
+              color={isPinned ? T.white : T.inkSub}
+            />
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView
@@ -446,7 +466,8 @@ export default function FriendProfileScreen() {
             {detailVisible ? (
               <>
                 {/* 요일별 집중·폰 사용 비교 — 내 히트맵 vs 상대 히트맵(실데이터).
-                    이번 주(월~일) 기준 — 아직 안 지난 요일은 0으로 표시. */}
+                    이번 주(월~일) 기준 — 아직 안 지난 요일은 0으로 표시.
+                    내 프로필(isMe)은 soloMine으로 내 선만 그린다(GROMO-940). */}
                 <View style={s.chartGap}>
                   <DuoDayChart
                     title="이번 주 요일별 집중시간"
@@ -454,9 +475,11 @@ export default function FriendProfileScreen() {
                     mineColor={T.accent}
                     theirsColor={THEIRS_FOCUS}
                     opponentName={nickname}
+                    soloMine={isMe}
                   />
                 </View>
-                {theirPhoneMeasured ? (
+                {/* 내 프로필은 내 0도 유의미(내 상태는 내가 안다) — 미측정 안내 없이 차트 고정 */}
+                {isMe || theirPhoneMeasured ? (
                   <View style={s.chartGap}>
                     <DuoDayChart
                       title="이번 주 요일별 폰 사용시간"
@@ -464,6 +487,7 @@ export default function FriendProfileScreen() {
                       mineColor={T.accentAlt}
                       theirsColor={THEIRS_PHONE}
                       opponentName={nickname}
+                      soloMine={isMe}
                     />
                   </View>
                 ) : (
@@ -488,6 +512,14 @@ export default function FriendProfileScreen() {
                   </Text>
                 </View>
               </>
+            ) : isMe ? (
+              /* 내 프로필은 잠금 개념이 없음 — 여기 오면 조회 실패뿐이라 불러오기 실패 안내(GROMO-940) */
+              <View style={[s.chartGap, s.noOverlapNote]}>
+                <Ionicons name="people-outline" size={15} color={T.accent} />
+                <Text style={s.noOverlapText}>
+                  통계를 지금 불러오지 못했어요. 잠시 후 다시 들어와주세요.
+                </Text>
+              </View>
             ) : (
               /* 세부 비교 잠금(친구 아님 + 친구공개 대상) — 요약은 위에서 항상 공개(GROMO-746), 차트만 잠금 */
               <View style={s.lockCard}>
@@ -504,24 +536,26 @@ export default function FriendProfileScreen() {
         )}
       </ScrollView>
 
-      {/* ── 하단 고정 CTA — 친구면 끊기(아웃라인), 비친구면 신청(강조) ── */}
-      <View style={[s.ctaWrap, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
-        {isFriend ? (
-          <TouchableOpacity style={s.unfriendBtn} activeOpacity={0.85} onPress={unfriend}>
-            <Ionicons name="person-remove-outline" size={16} color={UNFRIEND_INK} />
-            <Text style={s.unfriendText}>친구 끊기</Text>
-          </TouchableOpacity>
-        ) : requested ? (
-          <View style={s.requestedBtn}>
-            <Text style={s.requestedText}>요청됨</Text>
-          </View>
-        ) : (
-          <TouchableOpacity style={s.requestBtn} activeOpacity={0.85} onPress={requestFriend}>
-            <Ionicons name="person-add" size={17} color={T.white} />
-            <Text style={s.requestText}>친구 신청</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      {/* ── 하단 고정 CTA — 친구면 끊기(아웃라인), 비친구면 신청(강조). 내 프로필이면 생략 ── */}
+      {isMe ? null : (
+        <View style={[s.ctaWrap, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
+          {isFriend ? (
+            <TouchableOpacity style={s.unfriendBtn} activeOpacity={0.85} onPress={unfriend}>
+              <Ionicons name="person-remove-outline" size={16} color={UNFRIEND_INK} />
+              <Text style={s.unfriendText}>친구 끊기</Text>
+            </TouchableOpacity>
+          ) : requested ? (
+            <View style={s.requestedBtn}>
+              <Text style={s.requestedText}>요청됨</Text>
+            </View>
+          ) : (
+            <TouchableOpacity style={s.requestBtn} activeOpacity={0.85} onPress={requestFriend}>
+              <Ionicons name="person-add" size={17} color={T.white} />
+              <Text style={s.requestText}>친구 신청</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
     </SafeAreaView>
   );
 }
