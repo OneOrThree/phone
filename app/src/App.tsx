@@ -208,7 +208,8 @@ function App() {
       STORAGE_KEYS.subjects, // 이전 계정 과목 목록·과목별 오늘 누적이 새 계정에 노출되지 않게(GROMO-677)
       STORAGE_KEYS.focus, // 이전 계정 '오늘 집중' 총합이 새 계정 홈에 남지 않게(GROMO-677)
       STORAGE_KEYS.equipment, // 이전 계정 장비(코스튬·가구)가 새 계정 캐릭터에 노출되지 않게(GROMO-936)
-      STORAGE_KEYS.ownedItems, // 이전 계정 보유 아이템이 새 계정 상점에 노출되지 않게(GROMO-936)
+      // ownedItems는 지우지 않는다 — 아이템 API 부재로 로컬이 유일한 구매 기록이라,
+      // CoinContext가 계정별 맵으로 분리 보관해 누출을 막는다(GROMO-936 코덱스 리뷰).
       // 이전 계정의 축하 기록이 새 계정 축하를 막거나, 예약된 모달이 새 계정에 뜨지 않게(PR 225 리뷰)
       STORAGE_KEYS.focusGoalCelebratedDate,
       STORAGE_KEYS.focusGoalCelebratePending,
@@ -247,8 +248,7 @@ function App() {
         STORAGE_KEYS.focusFirstDone,
         STORAGE_KEYS.subjects,
         STORAGE_KEYS.focus,
-        STORAGE_KEYS.equipment, // 이전 계정 장비·보유 아이템 정리(GROMO-936, 위 handleLogout과 동일)
-        STORAGE_KEYS.ownedItems,
+        STORAGE_KEYS.equipment, // 이전 계정 장비 정리(GROMO-936 — ownedItems는 계정별 맵이라 유지)
         STORAGE_KEYS.focusGoalCelebratedDate,
         STORAGE_KEYS.focusGoalCelebratePending,
         STORAGE_KEYS.screentimeLastRewardedDate,

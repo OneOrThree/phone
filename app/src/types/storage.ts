@@ -9,7 +9,7 @@ export const STORAGE_KEYS = {
   onboardingComplete: 'gromo:onboardingComplete',
   focusCategory: 'gromo:focusCategory',
   equipment: 'gromo:equipment',
-  ownedItems: 'gromo:ownedItems',
+  ownedItems: 'gromo:ownedItems', // 계정별 보유 아이템 맵 { [userId|'guest']: itemId[] } — 아이템 API 부재로 유일한 구매 기록(GROMO-936)
   focus: 'gromo:focus',
   focusLiveSession: 'gromo:focus:liveSession',
   focusFirstDone: 'gromo:focus:firstDone', // 첫 집중 완료 여부 — 결과 화면(603) 변형 분기
