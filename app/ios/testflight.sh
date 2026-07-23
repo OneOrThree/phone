@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
 # gromo iOS → TestFlight 한 방 배포
-# 사용법: ./testflight.sh   (또는 alias 로 등록해서 어디서든 `testflight`)
+# 사용법:
+#   ./testflight.sh           테스트 업로드 (fastlane beta, 태그 없음) — 기본
+#   ./testflight.sh release   심사 제출용 (fastlane release, 빌드번호 커밋·태그·푸시, arelease/* 에서만)
+# (alias 로 등록하면 어디서든 `testflight` / `testflight release`)
 #
 # 하는 일:
 #   1) Pods 가 Podfile.lock 과 어긋났을 때만 pod install (평소엔 건너뜀)
-#   2) fastlane beta 로 빌드 → 서명 → TestFlight 업로드
+#   2) fastlane <레인> 으로 빌드 → 서명 → TestFlight 업로드
 set -euo pipefail
+
+# 레인 선택 (기본 beta). beta/release 만 허용.
+LANE="${1:-beta}"
+if [[ "$LANE" != "beta" && "$LANE" != "release" ]]; then
+  echo "❌ 알 수 없는 레인: $LANE (beta 또는 release 만 가능)" >&2
+  exit 1
+fi
 
 # 스크립트 위치(app/ios)로 이동 → 어디서 실행해도 동작
 cd "$(dirname "$0")"
@@ -27,5 +37,5 @@ else
   pod install
 fi
 
-echo "🚀 fastlane beta → TestFlight 업로드..."
-bundle exec fastlane beta
+echo "🚀 fastlane $LANE → TestFlight 업로드..."
+bundle exec fastlane "$LANE"
