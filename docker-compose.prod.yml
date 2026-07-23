@@ -31,9 +31,8 @@ services:
       # 앱 로그(/app/logs: app.log·user-activity.log)를 호스트에 바인딩 — 컨테이너 재생성에도 보존,
       # 라이브 확인은 SSM 세션에서 tail, 유저 로그 S3 적재 파이프라인(590·790)도 이 경로를 본다.
       - /var/log/springboot:/app/logs
-    depends_on:
-      datadog-agent:                 # 트레이스 수신 agent 먼저 기동
-        condition: service_started
+    # datadog-agent 에 depends_on 을 걸지 않는다 — APM 은 부가 기능이라 agent 가 못 떠도 app 은 정상 기동해야
+    # 한다(트레이서는 agent 미연결 시 트레이스만 드롭). agent 는 배포가 이미 함께 올린다.
     networks: [app-network]
 
   nginx:
