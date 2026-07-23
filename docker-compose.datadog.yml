@@ -17,13 +17,14 @@ services:
       DD_SITE: ${DD_SITE:-us5.datadoghq.com}
       DD_ENV: dev
       DD_HOSTNAME: gromo-dev
-      DD_TAGS: "env:dev service:gromo-back"
+      DD_TAGS: "env:dev service:gromo-back-dev"
       # 로그 수집 — 컨테이너 stdout tail
       DD_LOGS_ENABLED: "true"
       DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
       # APM 수신 — 같은 네트워크의 app 컨테이너가 접속(non-local)
       DD_APM_ENABLED: "true"
       DD_APM_NON_LOCAL_TRAFFIC: "true"
+      DD_DOGSTATSD_NON_LOCAL_TRAFFIC: "true"   # app 컨테이너 DogStatsD(JVM 런타임 메트릭) 수신 — 없으면 JVM 위젯 빈다
       # 비용/노이즈 제어 — 기존 OSS 관측 컨테이너들은 수집 제외 (app/db 는 수집 대상)
       DD_CONTAINER_EXCLUDE: "name:gromo-prometheus name:gromo-grafana name:gromo-loki name:gromo-promtail name:gromo-postgres-exporter name:gromo-node-exporter name:gromo-cadvisor name:gromo-datadog-agent"
     volumes:
@@ -44,13 +45,21 @@ services:
       JAVA_OPTS: "-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/datadog/dd-java-agent.jar"
       DD_AGENT_HOST: datadog-agent
       DD_ENV: dev
-      DD_SERVICE: gromo-back
+      DD_SERVICE: gromo-back-dev
       DD_VERSION: ${IMAGE_TAG:-latest}   # 워크플로우가 IMAGE_TAG=github.sha 주입(미주입 시 latest 폴백)
       # dd-java-agent 가 dd.trace_id/dd.span_id 를 MDC 에 주입. 단 CONSOLE appender 는 텍스트 패턴이고
       # app 자체 trace_id 키를 찍으므로, 완전한 로그↔트레이스 상관은 아직 미완 — JSON 콘솔(별도 datadog
       # 프로파일) 또는 Datadog Grok 로그 파이프라인 필요(Phase 3). 지금은 MDC 주입만 준비해 둔다.
       DD_LOGS_INJECTION: "true"
       DD_TRACE_SAMPLE_RATE: "0.2"      # 비용 제어(dev 저부하)
+      DD_RUNTIME_METRICS_ENABLED: "true"                          # JVM 런타임 메트릭 — prod와 통일
+      DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED: "true"   # inferred 서비스 안 쪼갬 — prod와 통일
+      DD_GIT_REPOSITORY_URL: "github.com/OneOrThree/phone"        # 트레이스↔소스코드 연결
+      DD_GIT_COMMIT_SHA: ${IMAGE_TAG:-latest}                     # 배포 SHA = 소스 커밋
+    labels:                              # 통합 서비스 태그 — app 컨테이너 로그·메트릭을 트레이스 service 와 정렬
+      com.datadoghq.tags.env: "dev"
+      com.datadoghq.tags.service: "gromo-back-dev"
+      com.datadoghq.tags.version: "${IMAGE_TAG:-latest}"
     # base(dev)의 db healthy 의존을 유지하면서 datadog-agent 를 추가 — short-form(list)이 base 의 map 을
     # 덮어써 db 대기가 사라지는 것 방지(fresh 호스트/DB 재생성 중 app 조기기동 실패 회피).
     depends_on:
