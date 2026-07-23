@@ -24,8 +24,8 @@ import { STORAGE_KEYS } from '@/types/storage';
 import type { LoginResult, UserProfile } from '@/types/api';
 
 import { UserProvider } from '@/store/UserContext';
-import { CoinProvider } from '@/store/CoinContext';
-import { EquipmentProvider } from '@/store/EquipmentContext';
+import { CoinProvider, transferOwnedItems } from '@/store/CoinContext';
+import { EquipmentProvider, transferEquipment } from '@/store/EquipmentContext';
 import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
 import { T } from '@/constants/theme';
@@ -133,6 +133,9 @@ function App() {
   // applyStoredSession이 [] effect에서 1회 등록돼 user 클로저가 낡는다 — 현재 userId는 ref로 참조.
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = user?.userId ?? null;
+  // 게스트 → 소셜 전환 판별용 — userId와 같은 이유로 ref(GROMO-936).
+  const currentIsGuestRef = useRef(false);
+  currentIsGuestRef.current = user?.isGuest ?? false;
 
   useEffect(() => {
     (async () => {
@@ -240,6 +243,14 @@ function App() {
     if (currentUserIdRef.current && userId && currentUserIdRef.current !== userId) {
       // 태그 편집 큐 폐기는 여기가 아니라 토큰 저장 직전(auth.ts postAuthSave → setAccountSwitchHandler)에
       // 실행된다 — 이 시점엔 새 토큰이 이미 저장돼 늦다(PR 200 리뷰).
+      // 게스트 → 소셜 전환이면 게스트 UUID 버킷의 로컬 구매·장착 기록을 새 계정으로 인계.
+      // 이전·새 userId를 모두 아는 이 시점에만 수행 — 고정 게스트 버킷 방식은 로그아웃 후에도
+      // 남아 다음 게스트·무관 계정에 누출된다(코덱스 리뷰).
+      if (currentIsGuestRef.current) {
+        const prevUserId = currentUserIdRef.current;
+        await transferOwnedItems(prevUserId, userId);
+        await transferEquipment(prevUserId, userId);
+      }
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.focusCategory,
         STORAGE_KEYS.goalPending,

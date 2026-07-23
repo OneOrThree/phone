@@ -55,12 +55,27 @@ interface SavedEquipment {
 // 보관해 계정 간 누출을 막는다(GROMO-936). 코스튬은 서버가 원본, 가구·아이템은 로컬 전용.
 type EquipmentByUser = Record<string, SavedEquipment>;
 
-// 게스트 세션의 버킷 키 — 로그인(계정 연결) 시 해당 계정으로 인계된다(CoinContext와 동일).
-const GUEST_BUCKET = 'guest';
+// userId(JWT sub)를 디코드하지 못한 비정상 세션의 폴백 버킷 — 정상 경로에선 쓰이지 않는다.
+const FALLBACK_BUCKET = 'unknown';
 
 // 계정 구분 없던 구 형식(SavedEquipment 단일 객체) 여부 — 구 형식은 장비 필드가 최상위에 있다.
 function isLegacyShape(parsed: SavedEquipment | EquipmentByUser): parsed is SavedEquipment {
   return 'equippedItem' in parsed || 'equippedFurniture' in parsed || 'equippedCostume' in parsed;
+}
+
+// 게스트 → 소셜 전환(계정 연결) 시 게스트 UUID 버킷의 장착 상태를 새 계정으로 인계.
+// 새 계정에 이미 장착 상태가 있으면 유지하고 게스트 것은 버린다. 인계를 전환 시점으로
+// 한정하는 이유는 CoinContext.transferOwnedItems 주석 참고(코덱스 리뷰).
+export async function transferEquipment(fromUserId: string, toUserId: string): Promise<void> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.equipment);
+  if (!raw) return;
+  const parsed = JSON.parse(raw) as SavedEquipment | EquipmentByUser;
+  if (isLegacyShape(parsed)) return; // 구 형식은 소유자 불명 — 인계하지 않는다
+  const fromSaved = parsed[fromUserId];
+  if (!fromSaved) return;
+  delete parsed[fromUserId];
+  parsed[toUserId] ??= fromSaved;
+  await AsyncStorage.setItem(STORAGE_KEYS.equipment, JSON.stringify(parsed));
 }
 
 // 서버 장비 슬롯 응답
@@ -70,9 +85,9 @@ interface ServerEquipmentSlot {
 }
 
 export function EquipmentProvider({ children }: { children: ReactNode }) {
-  const { userId, isGuest } = useUser();
-  // 게스트도 실제 UUID JWT를 받으므로 isGuest로 판별해 고정 버킷에 둔다(CoinContext와 동일).
-  const bucket = isGuest ? GUEST_BUCKET : (userId ?? GUEST_BUCKET);
+  const { userId } = useUser();
+  // 게스트도 UUID JWT를 받으므로 userId 버킷만으로 계정이 분리된다(CoinContext와 동일).
+  const bucket = userId ?? FALLBACK_BUCKET;
   const [equippedItem, setEquippedItem] = useState<ItemType | null>(null);
   const [equippedFurniture, setEquippedFurniture] = useState<ItemType[]>([]);
   const [equippedCostume, setEquippedCostume] = useState<CostumeItem[]>([]);
@@ -80,17 +95,11 @@ export function EquipmentProvider({ children }: { children: ReactNode }) {
   const loaded = useRef(false);
 
   useEffect(() => {
-    // 계정별 맵 로드 — 구 형식은 첫 로드 계정 소유로 귀속, 게스트 버킷은 로그인 계정으로 인계
+    // 계정별 맵 로드 — 구 형식은 첫 로드 계정 소유로 귀속
     const loadLocal = AsyncStorage.getItem(STORAGE_KEYS.equipment).then((raw) => {
       if (raw) {
         const parsed = JSON.parse(raw) as SavedEquipment | EquipmentByUser;
         allEquipment.current = isLegacyShape(parsed) ? { [bucket]: parsed } : parsed;
-      }
-      const guestSaved = allEquipment.current[GUEST_BUCKET];
-      if (bucket !== GUEST_BUCKET && guestSaved) {
-        // 자기 버킷이 이미 있으면(기존 계정 재로그인) 게스트 장착 선택은 버린다
-        allEquipment.current[bucket] ??= guestSaved;
-        delete allEquipment.current[GUEST_BUCKET];
       }
       return allEquipment.current[bucket];
     });

@@ -17,14 +17,29 @@ const CoinContext = createContext<CoinContextValue | null>(null);
 // 지우는 대신 계정별로 분리 보관해 계정 간 누출과 구매 기록 소실을 모두 막는다(GROMO-936 리뷰).
 type OwnedItemsByUser = Record<string, string[]>;
 
-// 게스트 세션의 버킷 키 — 로그인(계정 연결) 시 해당 계정으로 인계된다.
-const GUEST_BUCKET = 'guest';
+// userId(JWT sub)를 디코드하지 못한 비정상 세션의 폴백 버킷 — 정상 경로에선 쓰이지 않는다.
+const FALLBACK_BUCKET = 'unknown';
+
+// 게스트 → 소셜 전환(계정 연결) 시 게스트 UUID 버킷의 구매 기록을 새 계정으로 인계(합집합).
+// 고정 'guest' 버킷 대신 전환 시점에만 옮기는 이유: 고정 버킷은 게스트 로그아웃 후에도 남아
+// 다음 게스트·무관한 소셜 계정에 누출된다(코덱스 리뷰). 호출처는 App.applyStoredSession —
+// 이전·새 userId를 모두 아는 유일한 시점이다.
+export async function transferOwnedItems(fromUserId: string, toUserId: string): Promise<void> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.ownedItems);
+  if (!raw) return;
+  const parsed = JSON.parse(raw) as string[] | OwnedItemsByUser;
+  if (Array.isArray(parsed)) return; // 구 형식은 소유자 불명 — 인계하지 않는다
+  const fromItems = parsed[fromUserId];
+  if (!fromItems) return;
+  delete parsed[fromUserId];
+  parsed[toUserId] = Array.from(new Set([...(parsed[toUserId] ?? []), ...fromItems]));
+  await AsyncStorage.setItem(STORAGE_KEYS.ownedItems, JSON.stringify(parsed));
+}
 
 export function CoinProvider({ children }: { children: ReactNode }) {
-  const { userId, isGuest } = useUser();
-  // 게스트도 실제 UUID JWT를 받으므로(auth.ts guestLogin) userId만으론 게스트를 못 가른다.
-  // isGuest로 판별해 고정 버킷에 둬야 소셜 전환(다른 UUID) 시 인계가 동작한다(코덱스 리뷰).
-  const bucket = isGuest ? GUEST_BUCKET : (userId ?? GUEST_BUCKET);
+  const { userId } = useUser();
+  // 게스트도 UUID JWT를 받으므로(auth.ts guestLogin) userId 버킷만으로 계정이 분리된다.
+  const bucket = userId ?? FALLBACK_BUCKET;
   const [coins, setCoins] = useState(0);
   const [ownedItemIds, setOwnedItemIds] = useState<string[]>([]);
   const allOwned = useRef<OwnedItemsByUser>({});
@@ -45,14 +60,6 @@ export function CoinProvider({ children }: { children: ReactNode }) {
         const parsed = JSON.parse(raw) as string[] | OwnedItemsByUser;
         // 계정 구분 없던 구 형식(string[])은 첫 로드 계정 소유로 귀속시켜 유지
         allOwned.current = Array.isArray(parsed) ? { [bucket]: parsed } : parsed;
-      }
-      // 게스트 구매분은 이후 로그인한 계정으로 인계(게스트 → 소셜 계정 연결 흐름)
-      const guestItems = allOwned.current[GUEST_BUCKET];
-      if (bucket !== GUEST_BUCKET && guestItems) {
-        delete allOwned.current[GUEST_BUCKET];
-        allOwned.current[bucket] = Array.from(
-          new Set([...(allOwned.current[bucket] ?? []), ...guestItems]),
-        );
       }
       setOwnedItemIds(allOwned.current[bucket] ?? []);
       loaded.current = true;
