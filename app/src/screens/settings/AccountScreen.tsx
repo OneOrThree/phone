@@ -350,7 +350,7 @@ const s = StyleSheet.create({
   },
   noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, flex: 1, lineHeight: 19 },
 
-  // 모달 — v2 ProfileSheet와 동일한 스크림(전용 토큰 없음) + 중앙 흰 카드
+  // 모달 — 리그 오버레이와 같던 스크림 값(전용 토큰 없음, 원본 ProfileSheet는 GROMO-940에서 폐기) + 중앙 흰 카드
   overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.night.bottom, 0.5) },
   card: {
