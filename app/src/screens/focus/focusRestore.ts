@@ -3,8 +3,8 @@
 // endedAt - startedAt = 그 블록의 집중초. '오늘' 판정은 로컬 정산과 동일하게 종료 시점 기준 —
 // 서버 조회(/focus-session)는 startedAt 필터라 자정 걸친 세션이 잘리므로, 어제 자정부터
 // 받아와 endedAt이 오늘(로컬 자정 이후)인 것만 남긴다(리뷰 반영).
-import { getAllFocusSessions } from '@/services/focusApi';
-import type { FocusSessionResponse } from '@/types/dto/focus';
+import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
+import type { FocusSessionResponse, FocusTagResponse } from '@/types/dto/focus';
 
 export async function fetchTodayFocusSessions(): Promise<FocusSessionResponse[]> {
   const midnight = new Date();
@@ -19,4 +19,30 @@ export async function fetchTodayFocusSessions(): Promise<FocusSessionResponse[]>
 export function sessionFocusSeconds(s: FocusSessionResponse): number {
   const ms = Date.parse(s.endedAt) - Date.parse(s.startedAt);
   return ms > 0 ? Math.floor(ms / 1000) : 0;
+}
+
+// 복원 스냅샷(오늘 세션+태그) 통합 조회(GROMO-920) — Focus·Subject 컨텍스트가 각자 조회하면
+// 같은 요청이 중복되고 '오늘' 판정 시각도 달라져 자정 경계에서 홈 총합·과목별 합이 어긋날 수 있다.
+// 실패는 부분별 null — 세션 조회가 실패해도 태그(과목 목록) 복원은 살리는 기존 동작 유지.
+export interface TodayFocusRestore {
+  sessions: FocusSessionResponse[] | null;
+  tags: FocusTagResponse[] | null;
+}
+
+let restoreInflight: Promise<TodayFocusRestore> | null = null;
+
+// 진행 중 요청(in-flight)만 공유하고 완료되면 비운다 — 영구 캐시면 재로그인 리마운트가
+// 이전 계정 스냅샷을 재사용할 수 있어서다(프로바이더는 로그아웃·계정 전환 시 리마운트됨).
+export function fetchTodayFocusRestore(): Promise<TodayFocusRestore> {
+  if (!restoreInflight) {
+    restoreInflight = Promise.all([
+      fetchTodayFocusSessions().catch(() => null),
+      getFocusTags().catch(() => null),
+    ])
+      .then(([sessions, tags]) => ({ sessions, tags }))
+      .finally(() => {
+        restoreInflight = null;
+      });
+  }
+  return restoreInflight;
 }

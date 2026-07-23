@@ -1,13 +1,11 @@
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
-import { getFocusTags } from '@/services/focusApi';
 import { T } from '@/constants/theme';
 import { todayStr } from '@/utils/localDate';
 import { syncTagCreated, syncTagRenamed, syncTagDeleted } from '@/screens/focus/tagSync';
-import { fetchTodayFocusSessions, sessionFocusSeconds } from '@/screens/focus/focusRestore';
+import { fetchTodayFocusRestore, sessionFocusSeconds } from '@/screens/focus/focusRestore';
 import type { Subject } from '@/screens/focus/types';
-import type { FocusSessionResponse } from '@/types/dto/focus';
 
 // 과목 목록 + 과목별 '오늘' 집중시간을 로컬에 저장·관리하는 store.
 // 집중 세션이 끝나면 해당 과목에 실제 경과 시간을 누적하고, 로컬 날짜가 바뀌면 0으로 리셋한다.
@@ -85,17 +83,19 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
         );
       } else {
         // 로컬 데이터 없음(첫 실행·재로그인) — 서버 태그로 과목 목록 복원(GROMO-677).
-        // 과목별 오늘 누적은 오늘 세션 중 tagId 일치분 합산. 조회 실패(미로그인·오프라인)면 시드 유지.
+        // 과목별 오늘 누적은 오늘 세션 중 tagId 일치분 합산. 태그 조회 실패(미로그인·오프라인)면 시드 유지.
+        // 복원 조회는 FocusContext와 공유 — 같은 스냅샷에서 계산해 자정 경계 불일치 제거(GROMO-920)
         try {
-          const tags = await getFocusTags();
-          if (tags.length === 0) {
+          const { sessions: restored, tags } = await fetchTodayFocusRestore();
+          if (tags === null) {
+            // 태그 조회 실패(미로그인·오프라인) — 기존처럼 시드 유지
+          } else if (tags.length === 0) {
             // 성공 응답의 빈 목록 = 서버에 태그가 없는 계정(과목 전부 삭제 등) —
             // 시드가 부활하지 않게 빈 목록을 그대로 반영한다(리뷰 반영).
             setSubjects([]);
           } else {
-            const sessions = await fetchTodayFocusSessions().catch(
-              () => [] as FocusSessionResponse[],
-            );
+            // 세션 조회만 실패한 경우엔 목록 복원은 살리고 오늘 누적만 0으로(기존 동작 유지)
+            const sessions = restored ?? [];
             setSubjects(
               tags.map((t, i) => ({
                 id: t.tagId,

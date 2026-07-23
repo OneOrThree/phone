@@ -1,8 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
-import { getFocusTags } from '@/services/focusApi';
-import { fetchTodayFocusSessions, sessionFocusSeconds } from '@/screens/focus/focusRestore';
+import { fetchTodayFocusRestore, sessionFocusSeconds } from '@/screens/focus/focusRestore';
 import { todayStr } from '@/utils/localDate';
 
 interface FocusContextValue {
@@ -42,13 +41,16 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         // 이름 변경 전 오늘 세션이 삭제 취급돼 복원 총합이 줄 수 있다. 클라에선 rename/delete 구분 불가 —
         // rename 시 오늘 세션 재연결은 BE 요청으로 등록(app/.docs/be-요청사항.md 7번).
         try {
-          const [sessions, tags] = await Promise.all([fetchTodayFocusSessions(), getFocusTags()]);
-          const activeTagIds = new Set(tags.map((t) => t.tagId));
-          const total = sessions
-            .filter((s) => s.focusTagId === null || activeTagIds.has(s.focusTagId))
-            .reduce((acc, s) => acc + sessionFocusSeconds(s), 0);
-          // 복원 대기 중 들어온 적립분(고아 정산 등)을 덮지 않도록 대입이 아니라 가산(리뷰 반영)
-          if (total > 0) setTodayFocusSeconds((prev) => prev + total);
+          // 복원 조회는 SubjectContext와 공유 — 같은 스냅샷에서 계산해 자정 경계 불일치 제거(GROMO-920)
+          const { sessions, tags } = await fetchTodayFocusRestore();
+          if (sessions && tags) {
+            const activeTagIds = new Set(tags.map((t) => t.tagId));
+            const total = sessions
+              .filter((s) => s.focusTagId === null || activeTagIds.has(s.focusTagId))
+              .reduce((acc, s) => acc + sessionFocusSeconds(s), 0);
+            // 복원 대기 중 들어온 적립분(고아 정산 등)을 덮지 않도록 대입이 아니라 가산(리뷰 반영)
+            if (total > 0) setTodayFocusSeconds((prev) => prev + total);
+          }
         } catch {}
       }
       loaded.current = true;
