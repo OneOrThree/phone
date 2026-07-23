@@ -207,6 +207,8 @@ function App() {
       STORAGE_KEYS.focusFirstDone, // 다음 계정이 '첫 집중 완료' 변형을 정상적으로 보게
       STORAGE_KEYS.subjects, // 이전 계정 과목 목록·과목별 오늘 누적이 새 계정에 노출되지 않게(GROMO-677)
       STORAGE_KEYS.focus, // 이전 계정 '오늘 집중' 총합이 새 계정 홈에 남지 않게(GROMO-677)
+      STORAGE_KEYS.equipment, // 이전 계정 장비(코스튬·가구)가 새 계정 캐릭터에 노출되지 않게(GROMO-936)
+      STORAGE_KEYS.ownedItems, // 이전 계정 보유 아이템이 새 계정 상점에 노출되지 않게(GROMO-936)
       // 이전 계정의 축하 기록이 새 계정 축하를 막거나, 예약된 모달이 새 계정에 뜨지 않게(PR 225 리뷰)
       STORAGE_KEYS.focusGoalCelebratedDate,
       STORAGE_KEYS.focusGoalCelebratePending,
@@ -245,6 +247,8 @@ function App() {
         STORAGE_KEYS.focusFirstDone,
         STORAGE_KEYS.subjects,
         STORAGE_KEYS.focus,
+        STORAGE_KEYS.equipment, // 이전 계정 장비·보유 아이템 정리(GROMO-936, 위 handleLogout과 동일)
+        STORAGE_KEYS.ownedItems,
         STORAGE_KEYS.focusGoalCelebratedDate,
         STORAGE_KEYS.focusGoalCelebratePending,
         STORAGE_KEYS.screentimeLastRewardedDate,
