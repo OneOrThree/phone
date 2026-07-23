@@ -84,9 +84,8 @@ function saveToInbox(msg: FirebaseMessagingTypes.RemoteMessage | null): void {
 let initialNotificationHandled = false;
 
 // 1) FCM 토큰 발급 + 서버 등록. 로그인(토큰 보유) 상태에서만 호출.
-// 권한은 보통 온보딩(NotificationPermissionStep)에서 이미 요청됐으므로 여기선 상태만 확인한다.
-// 단, '이미 계정이 있어요'로 온보딩을 건너뛴 유저는 그 스텝을 거치지 않아 권한이 미결정
-// (NOT_DETERMINED) 상태 → 이 경우에만 1회 요청해 토큰 등록 기회를 준다(중복 프롬프트 없음).
+// 알림 권한 요청은 여기가 유일한 지점 — 미결정(NOT_DETERMINED)일 때만 1회 요청해
+// 토큰 등록 기회를 주고, 이미 결정된 상태면 상태만 확인한다(중복 프롬프트 없음).
 export async function registerPushToken(): Promise<string | null> {
   try {
     let status = await messaging().hasPermission();

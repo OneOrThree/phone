@@ -5,7 +5,7 @@ import * as Notifications from 'expo-notifications';
 
 let scheduledIds: string[] = [];
 
-// 알림 권한은 온보딩(NotificationPermissionStep)에서 한 번만 요청한다.
+// 알림 권한은 푸시 등록(services/push.ts registerPushToken)에서 한 번만 요청한다.
 // 여기선 요청하지 않고, 권한이 있으면 예약된 알림이 뜨고 없으면 조용히 무시된다(이탈 감지는 무관하게 동작).
 
 // 이탈 알림 예약: 나가는 즉시 경고 1회 + 자동종료 시점(endSeconds)에 종료 안내 1회.

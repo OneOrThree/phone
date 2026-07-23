@@ -40,7 +40,7 @@ interface UserProviderProps {
 
 const UserContext = createContext<UserContextValue | null>(null);
 
-const PHONE_USAGE_SECONDS = 3 * 3600 + 28 * 60; // TODO: ScreenTime API 연동
+const PHONE_USAGE_SECONDS = 3 * 3600 + 28 * 60; // (미사용) 폰 사용 표시는 네이티브 리포트 뷰로 구현됨 — 소비처 0건, 삭제 대상
 
 export function UserProvider({
   initialNickname,
