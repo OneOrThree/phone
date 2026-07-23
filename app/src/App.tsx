@@ -10,6 +10,8 @@ import { setAccountSwitchHandler } from '@/services/auth';
 import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
 import { todayStr } from '@/utils/localDate';
 import {
+  setupProfile,
+  getMyProfile,
   updateScreenTimePermission,
   updateOccupation,
   updateProfile,
@@ -100,8 +102,8 @@ async function syncOnboardingToServer(data: V2OnboardingData): Promise<Onboardin
     countryCode: getDeviceCountryCode(),
   };
   try {
-    // 프로필은 온보딩이 일부 필드만 수집해 부분 바디로 보낸다(setupProfile은 전체 필드 요구).
-    await api.post('/api/v1/users/me', body);
+    // 프로필은 온보딩이 수집한 필드만 부분 바디로 보낸다(서버 필수는 nickname뿐).
+    await setupProfile(body);
   } catch (e) {
     // 프로필 등록 실패 — 여기서 완료 처리하면 서버-로컬이 영구 불일치되므로 재입력/재시도 유도.
     if (axios.isAxiosError(e) && e.response?.status === 409) return 'nickname-duplicate';
@@ -153,14 +155,14 @@ function App() {
       const data = JSON.parse(raw) as UserProfile;
       const userId = getUserIdFromToken(data.accessToken ?? '');
       try {
-        const profileRes = await api.get('/api/v1/users/me');
-        const merged = { ...data, ...profileRes.data };
+        const profile = await getMyProfile();
+        const merged = { ...data, ...profile };
         await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
         await backfillFocusCategory(merged); // 준비 시험 복원(GROMO-758)
         setUser({ ...merged, userId });
         // GROMO-663: 기존 유저 백필 — 프로필에 countryCode 없으면 기기 로케일로 1회 PATCH.
         // 앱 진입을 막지 않도록 fire-and-forget(실패 시 다음 실행에 재시도).
-        if (!profileRes.data?.countryCode) {
+        if (!profile.countryCode) {
           const countryCode = getDeviceCountryCode();
           if (countryCode) updateProfile({ countryCode }).catch(() => {});
         }
@@ -255,9 +257,10 @@ function App() {
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
     setOnboarded(true);
     try {
-      const profileRes = await api.get('/api/v1/users/me');
-      await backfillFocusCategory({ ...data, ...profileRes.data }); // 준비 시험 복원(GROMO-758)
-      setUser({ ...data, ...profileRes.data, userId });
+      const profile = await getMyProfile();
+      const merged = { ...data, ...profile };
+      await backfillFocusCategory(merged); // 준비 시험 복원(GROMO-758)
+      setUser({ ...merged, userId });
     } catch {
       setUser({ ...data, userId });
     }
