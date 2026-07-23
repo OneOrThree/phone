@@ -1,0 +1,253 @@
+{
+  "title": "gromo 앱 RUM 관측 (세션·화면·네트워크)",
+  "description": "gromo iOS 앱 실사용자 모니터링 대시보드. env 템플릿 변수로 dev/prod 전환. 에러/크래시는 Sentry 담당(여기 없음). GROMO-928.",
+  "layout_type": "ordered",
+  "reflow_type": "auto",
+  "template_variables": [
+    { "name": "env", "prefix": "env", "available_values": [], "default": "dev" }
+  ],
+  "widgets": [
+    {
+      "definition": {
+        "title": "① 개요 (사용량·시작 성능)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "세션 수 (기간 합)",
+              "type": "query_value",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "query1",
+                      "search": { "query": "@type:session @application.id:44a4f021-ed4d-4134-b59d-63a40e37c2ff $env" },
+                      "compute": { "aggregation": "count" },
+                      "group_by": []
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [{ "formula": "query1" }]
+                }
+              ],
+              "autoscale": true,
+              "precision": 0
+            }
+          },
+          {
+            "definition": {
+              "title": "앱 시작 시간 p75",
+              "type": "query_value",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "query1",
+                      "search": { "query": "@type:action @action.type:application_start @application.id:44a4f021-ed4d-4134-b59d-63a40e37c2ff $env" },
+                      "compute": { "aggregation": "pc75", "metric": "@action.loading_time" },
+                      "group_by": []
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [{ "formula": "query1" }]
+                }
+              ],
+              "autoscale": true,
+              "precision": 1
+            }
+          },
+          {
+            "definition": {
+              "title": "세션 추이",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "query1",
+                      "search": { "query": "@type:session @application.id:44a4f021-ed4d-4134-b59d-63a40e37c2ff $env" },
+                      "compute": { "aggregation": "count" },
+                      "group_by": []
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [{ "formula": "query1" }],
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "JS Long Task 발생 추이 (버벅임 신호)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "query1",
+                      "search": { "query": "@type:long_task @application.id:44a4f021-ed4d-4134-b59d-63a40e37c2ff $env" },
+                      "compute": { "aggregation": "count" },
+                      "group_by": []
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [{ "formula": "query1" }],
+                  "display_type": "bars"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "② 화면 (뷰)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "화면별 방문 수 Top 10",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "query1",
+                      "search": { "query": "@type:view @application.id:44a4f021-ed4d-4134-b59d-63a40e37c2ff $env" },
+                      "compute": { "aggregation": "count" },
+                      "group_by": [
+                        { "facet": "@view.name", "limit": 10, "sort": { "aggregation": "count", "order": "desc" } }
+                      ]
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [{ "formula": "query1" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "화면별 로딩 시간 p75",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "query1",
+                      "search": { "query": "@type:view @application.id:44a4f021-ed4d-4134-b59d-63a40e37c2ff $env" },
+                      "compute": { "aggregation": "pc75", "metric": "@view.loading_time" },
+                      "group_by": [
+                        { "facet": "@view.name", "limit": 10, "sort": { "aggregation": "pc75", "metric": "@view.loading_time", "order": "desc" } }
+                      ]
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [{ "formula": "query1" }]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "③ 네트워크 (리소스 → 백엔드 APM 연결)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "API 응답시간 p95 Top 10 (경로별)",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "query1",
+                      "search": { "query": "@type:resource @resource.type:xhr @application.id:44a4f021-ed4d-4134-b59d-63a40e37c2ff $env" },
+                      "compute": { "aggregation": "pc95", "metric": "@resource.duration" },
+                      "group_by": [
+                        { "facet": "@resource.url_path", "limit": 10, "sort": { "aggregation": "pc95", "metric": "@resource.duration", "order": "desc" } }
+                      ]
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [{ "formula": "query1" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "API 호출량 (경로별 추이)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "query1",
+                      "search": { "query": "@type:resource @resource.type:xhr @application.id:44a4f021-ed4d-4134-b59d-63a40e37c2ff $env" },
+                      "compute": { "aggregation": "count" },
+                      "group_by": [
+                        { "facet": "@resource.url_path", "limit": 10, "sort": { "aggregation": "count", "order": "desc" } }
+                      ]
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [{ "formula": "query1" }],
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "서버 오류 응답 (5xx) 추이",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "query1",
+                      "search": { "query": "@type:resource @resource.status_code:>=500 @application.id:44a4f021-ed4d-4134-b59d-63a40e37c2ff $env" },
+                      "compute": { "aggregation": "count" },
+                      "group_by": []
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [{ "formula": "query1" }],
+                  "display_type": "bars"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "note",
+        "content": "**보는 법**\n- 느린 API를 찾으면: RUM Explorer에서 해당 리소스 클릭 → **Traces 탭**으로 백엔드(gromo-back) 내부 구간까지 이어서 볼 수 있다(dev는 Datadog overlay가 켜져 있을 때만).\n- 에러/크래시는 여기 없음 — **Sentry** 담당(역할 분담, GROMO-928).\n- 세션 샘플링 100% — 사용자 증가 시 `app/src/services/datadog.ts`의 `sessionSampleRate` 조정.",
+        "background_color": "yellow",
+        "font_size": "14",
+        "text_align": "left",
+        "show_tick": false
+      }
+    }
+  ]
+}
