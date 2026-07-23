@@ -21,7 +21,15 @@ For _fastlane_ installation instructions, see [Installing _fastlane_](https://do
 [bundle exec] fastlane ios beta
 ```
 
-빌드(archive) → TestFlight 업로드
+테스트 빌드 → TestFlight 업로드 (태그 없음)
+
+### ios release
+
+```sh
+[bundle exec] fastlane ios release
+```
+
+심사 제출용 빌드 → TestFlight 업로드 + 빌드번호 커밋·태그·푸시 (arelease/* 에서만)
 
 ----
 

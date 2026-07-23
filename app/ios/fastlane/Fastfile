@@ -15,36 +15,64 @@ DIST_PROFILES = {
 
 APP_ID = "com.oneorthree.gromo".freeze
 
-platform :ios do
-  desc "빌드(archive) → TestFlight 업로드"
-  lane :beta do
-    # 1. App Store Connect API Key (.p8) 로 인증 — Apple ID 비번 불필요
-    api_key = app_store_connect_api_key(
-      key_id: ENV.fetch("ASC_KEY_ID"),
-      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
-      key_filepath: ENV.fetch("ASC_KEY_PATH"), # AuthKey_XXXX.p8 경로
-    )
+# App Store Connect API Key (.p8) 로 인증 — Apple ID 비번 불필요.
+def asc_api_key
+  app_store_connect_api_key(
+    key_id: ENV.fetch("ASC_KEY_ID"),
+    issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+    key_filepath: ENV.fetch("ASC_KEY_PATH"), # AuthKey_XXXX.p8 경로
+  )
+end
 
-    # 2. 빌드번호 = 현재 유닉스 타임스탬프 (매번 유일 + 항상 단조 증가)
-    #    이 프로젝트는 GENERATE_INFOPLIST_FILE=YES 라, 바이너리의 CFBundleVersion은
-    #    CURRENT_PROJECT_VERSION(= increment_build_number 가 쓰는 값)에서 나온다.
-    #    (gromo/Info.plist 의 리터럴 CFBundleVersion 값은 빌드 시 이 값으로 덮인다.)
-    #
-    #    "ASC 최신 빌드 + 1" 방식은 두 이유로 계속 -19232("already used") 충돌이 났다:
-    #      (1) CFBundleShortVersionString 이 "$(MARKETING_VERSION)" 문자 그대로라
-    #          latest_testflight_build_number 가 그런 버전을 못 찾고 항상 0을 반환,
-    #      (2) expo prebuild 가 CURRENT_PROJECT_VERSION 을 app.config.js 의 '1'로 되돌려
-    #          매 실행이 1→2 로만 올라가 이미 쓴 번호를 재생성.
-    #    타임스탬프는 ASC 전파 지연/prebuild 리셋과 무관하게 매번 커지므로 충돌이 불가능하다.
-    #    Time.now.to_i(≈17억) < 42.9억(CFBundleVersion 컴포넌트 상한)이라 2106년까지 안전.
-    next_build = Time.now.to_i
-    UI.message("빌드번호(타임스탬프): #{next_build}")
+# 마케팅 버전 = pbxproj 의 MARKETING_VERSION 리터럴 (expo prebuild 가 app.config.js 의 version 에서 채움).
+# Info.plist 의 CFBundleShortVersionString 은 "$(MARKETING_VERSION)" 문자 그대로라 버전 소스로 못 쓴다.
+def marketing_version
+  File.read("gromo.xcodeproj/project.pbxproj")[/MARKETING_VERSION = ([\d.]+)/, 1]
+end
+
+# 빌드번호 결정:
+#  - 1.0.0(잔여 빌드): 유닉스 타임스탬프 유지. 이미 1784550135 까지 써서 Apple 규칙상
+#    같은 버전 내 빌드번호를 더 작은 순차값으로 되돌릴 수 없다.
+#  - 그 외 버전(1.0.1/1.1.0…): ASC 의 해당 버전 최신 빌드번호 + 1 (첫 빌드면 1) — 읽기 쉬운 순차.
+# 과거 "ASC 최신 +1" 방식이 항상 0 을 반환해 -19232("already used") 충돌이 났던 원인은
+# latest_testflight_build_number 에 리터럴("$(MARKETING_VERSION)")이 넘어가서였다 →
+# 실제 버전 문자열(marketing_version)을 version: 으로 명시해 회피한다.
+def compute_build_number(api_key)
+  mv = marketing_version
+  if mv == "1.0.0"
+    n = Time.now.to_i
+    UI.message("빌드번호(1.0.0 타임스탬프): #{n}")
+    n
+  else
+    latest = latest_testflight_build_number(
+      api_key: api_key,
+      app_identifier: APP_ID,
+      version: mv,
+      initial_build_number: 0,
+    )
+    n = latest.to_i + 1
+    UI.message("빌드번호(#{mv} 순차): #{n}")
+    n
+  end
+end
+
+# 어노테이티드 태그 설명 = 직전 앱 태그(app-*) 이후의 커밋 요약을 자동 포함.
+def release_tag_message(tag, build_number)
+  prev = sh("git describe --tags --match 'app-*' --abbrev=0 2>/dev/null || true", log: false).strip
+  range = prev.empty? ? "" : "#{prev}..HEAD"
+  log = sh("git log #{range} --oneline", log: false).strip
+  header = "#{tag} (빌드 #{build_number})"
+  prev.empty? ? "#{header}\n\n#{log}" : "#{header}\n\n직전 태그(#{prev}) 이후 포함 커밋:\n#{log}"
+end
+
+platform :ios do
+  # 공통: 빌드번호 세팅 → archive → TestFlight 업로드. beta/release 가 공유한다.
+  private_lane :build_and_upload do |options|
     increment_build_number(
       xcodeproj: "gromo.xcodeproj",
-      build_number: next_build,
+      build_number: options[:build_number],
     )
-
-    # 3. archive → .ipa (RN/JS 번들은 Xcode 빌드 단계에서 자동 포함)
+    # archive → .ipa (RN/JS 번들은 Xcode 빌드 단계에서 자동 포함)
     build_app(
       workspace: "gromo.xcworkspace",
       scheme: "gromo",
@@ -55,12 +83,45 @@ platform :ios do
         provisioningProfiles: DIST_PROFILES,
       },
     )
-
-    # 4. TestFlight 업로드 (처리 완료까지 대기 안 함)
+    # TestFlight 업로드 (처리 완료까지 대기 안 함)
     upload_to_testflight(
-      api_key: api_key,
+      api_key: options[:api_key],
       app_identifier: APP_ID,
       skip_waiting_for_build_processing: true,
     )
+  end
+
+  desc "테스트 빌드 → TestFlight 업로드 (태그 없음)"
+  lane :beta do
+    api_key = asc_api_key
+    build_and_upload(api_key: api_key, build_number: compute_build_number(api_key))
+  end
+
+  desc "심사 제출용 빌드 → TestFlight 업로드 + 빌드번호 커밋·태그·푸시 (arelease/* 에서만)"
+  lane :release do
+    # 1) 미커밋 변경 금지 — 태그가 항상 '실제 빌드된 코드'를 가리키게 한다.
+    ensure_git_status_clean
+    # 2) arelease/* 브랜치에서만 — 심사 빌드는 릴리즈 유지보수 라인에서 나와야 한다.
+    branch = sh("git rev-parse --abbrev-ref HEAD", log: false).strip
+    unless branch.start_with?("arelease/")
+      UI.user_error!("release 레인은 arelease/* 브랜치에서만 실행할 수 있어요 (현재: #{branch}). 심사 빌드는 릴리즈 라인에서 내보내세요.")
+    end
+
+    api_key = asc_api_key
+    build_number = compute_build_number(api_key)
+
+    # 3) 빌드 + 업로드
+    build_and_upload(api_key: api_key, build_number: build_number)
+
+    # 4) 마무리 — 빌드번호 커밋 → 어노테이티드 태그 → 브랜치·태그 push.
+    #    빌드 산출물(.ipa 등)은 전부 gitignore 라 아래 두 파일만 커밋된다.
+    git_commit(
+      path: ["gromo.xcodeproj/project.pbxproj", "gromo/Info.plist"],
+      message: "GROMO-881 chore: 빌드번호 #{build_number} 반영",
+    )
+    tag = "app-#{marketing_version}-#{build_number}"
+    add_git_tag(tag: tag, message: release_tag_message(tag, build_number))
+    push_to_git_remote(tags: true)
+    UI.success("심사 제출용 빌드 완료 — 빌드번호 #{build_number}, 태그 #{tag} 푸시됨")
   end
 end
