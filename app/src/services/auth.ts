@@ -12,6 +12,7 @@ import LineLogin, { LoginPermission } from '@xmartlabs/react-native-line';
 import { LoginManager, AccessToken, AuthenticationToken } from 'react-native-fbsdk-next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL, api, getUserIdFromToken } from '@/services/api';
+import { getMyProfile } from '@/services/userApi';
 import { logLogin, logSignUp, setIdentityProps, type AuthMethod } from '@/services/analyticsEvents';
 import type { LoginResult } from '@/types/api';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -57,10 +58,8 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
   // 프로필 병합에서 그 값이 우선한다(...profile 이 뒤에 spread).
   let result: LoginResult;
   if (!data.isNewUser) {
-    const profile = await api
-      .get<Record<string, unknown>>('/api/v1/users/me')
-      .then((profileRes) => profileRes.data)
-      .catch(() => ({}) as Record<string, unknown>);
+    // 병합 실패는 무시 — 프로필 필드만 빠질 뿐 로그인 자체는 진행한다(기존 동작 유지).
+    const profile = await getMyProfile().catch(() => ({}));
     result = { isGuest, ...data, ...profile };
   } else {
     result = { isGuest, ...data };
@@ -233,6 +232,11 @@ export async function guestLogin(): Promise<LoginResult> {
   }
   // 게스트는 항상 신규 → 프로필 병합(GET /users/me) 스킵. isGuest=true 로 태깅.
   return postAuthSave({ ...data, isNewUser: true }, true);
+}
+
+// POST /api/v1/auth/logout — 서버 리프레시 토큰 무효화. 로컬 세션 정리는 호출부(App.tsx handleLogout) 담당.
+export async function logout(refreshToken: string): Promise<void> {
+  await api.post('/api/v1/auth/logout', { refreshToken });
 }
 
 // ── 마지막 사용 소셜 provider (GROMO-602) ──

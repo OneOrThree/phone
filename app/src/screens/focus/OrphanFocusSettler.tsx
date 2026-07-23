@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
-import { api } from '@/services/api';
+import { saveFocusSession } from '@/services/focusApi';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
@@ -88,7 +88,7 @@ export function OrphanFocusSettler() {
         totalDistractionSeconds: 0,
       };
       try {
-        await api.post('/api/v1/focus-session', body);
+        await saveFocusSession(body);
       } catch {
         // 업로드 실패 — 대기열(GROMO-614)로 인계해 앱 시작·포그라운드 복귀마다 재시도.
         // 대기열 저장까지 실패하면 레코드를 보존해 다음 실행에서 이 경로가 재시도한다.
