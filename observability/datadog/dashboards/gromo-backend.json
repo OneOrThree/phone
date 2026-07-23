@@ -5,7 +5,7 @@
   "reflow_type": "auto",
   "template_variables": [
     { "name": "env", "prefix": "env", "available_values": [], "default": "prod" },
-    { "name": "service", "prefix": "service", "available_values": [], "default": "gromo-back" }
+    { "name": "service", "prefix": "service", "available_values": [], "default": "gromo-back-prod" }
   ],
   "widgets": [
     {
@@ -291,7 +291,7 @@
                 {
                   "response_format": "timeseries",
                   "queries": [
-                    { "data_source": "logs", "name": "logs", "search": { "query": "env:$env" }, "indexes": [ "*" ], "compute": { "aggregation": "count" }, "group_by": [ { "facet": "status", "limit": 10, "sort": { "aggregation": "count", "order": "desc" } } ] }
+                    { "data_source": "logs", "name": "logs", "search": { "query": "env:$env service:$service" }, "indexes": [ "*" ], "compute": { "aggregation": "count" }, "group_by": [ { "facet": "status", "limit": 10, "sort": { "aggregation": "count", "order": "desc" } } ] }
                   ],
                   "formulas": [ { "formula": "logs" } ],
                   "display_type": "bars"
@@ -304,7 +304,7 @@
             "definition": {
               "title": "에러·경고 로그 스트림",
               "type": "log_stream",
-              "query": "env:$env status:(error OR warn)",
+              "query": "env:$env service:$service status:(error OR warn)",
               "indexes": [ "*" ],
               "columns": [ "host", "service", "status" ],
               "show_date_column": true,

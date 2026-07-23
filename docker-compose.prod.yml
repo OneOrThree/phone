@@ -30,11 +30,15 @@ services:
       DD_RUNTIME_METRICS_ENABLED: "true"                          # JVM 런타임 메트릭(힙·GC) — 대시보드 JVM 위젯용
       DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED: "true"   # DB 등 inferred 서비스 안 쪼갬 — APM 깔끔
       DD_GIT_REPOSITORY_URL: "github.com/OneOrThree/phone"        # 트레이스↔소스코드 연결
-      DD_GIT_COMMIT_SHA: ${IMAGE_TAG}                             # 배포 SHA = 소스 커밋
+      DD_GIT_COMMIT_SHA: ${IMAGE_TAG}                             # 배포 SHA = 소스 커밋 (⚠️ 롤백이 vX.Y.Z 태그면 소스링크만 미동작)
     volumes:
       # 앱 로그(/app/logs: app.log·user-activity.log)를 호스트에 바인딩 — 컨테이너 재생성에도 보존,
       # 라이브 확인은 SSM 세션에서 tail, 유저 로그 S3 적재 파이프라인(590·790)도 이 경로를 본다.
       - /var/log/springboot:/app/logs
+    labels:                              # 통합 서비스 태그 — app 컨테이너 로그·메트릭을 트레이스 service 와 정렬
+      com.datadoghq.tags.env: "prod"
+      com.datadoghq.tags.service: "gromo-back-prod"
+      com.datadoghq.tags.version: "${IMAGE_TAG}"
     # datadog-agent 에 depends_on 을 걸지 않는다 — APM 은 부가 기능이라 agent 가 못 떠도 app 은 정상 기동해야
     # 한다(트레이서는 agent 미연결 시 트레이스만 드롭). agent 는 배포가 이미 함께 올린다.
     networks: [app-network]
@@ -70,11 +74,12 @@ services:
       DD_SITE: ${DD_SITE:-us5.datadoghq.com}
       DD_ENV: prod
       DD_HOSTNAME: gromo-prod
-      DD_TAGS: "env:prod service:gromo-back"
+      DD_TAGS: "env:prod service:gromo-back-prod"
       # 로그 수집 — 컨테이너 stdout tail
       DD_LOGS_ENABLED: "true"
       DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
-      DD_APM_NON_LOCAL_TRAFFIC: "true"   # app 컨테이너에서 오는 트레이스 수신
+      DD_APM_NON_LOCAL_TRAFFIC: "true"       # app 컨테이너에서 오는 트레이스 수신
+      DD_DOGSTATSD_NON_LOCAL_TRAFFIC: "true" # app 컨테이너 DogStatsD(JVM 런타임 메트릭) 수신 — 없으면 JVM 위젯 빈다
       DD_CONTAINER_EXCLUDE: "name:gromo-datadog-agent"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
