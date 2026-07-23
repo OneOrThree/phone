@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { T, withAlpha } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
+import { sendFriendRequest } from '@/services/friendsApi';
+import { logFriendRequestSent } from '@/services/analyticsEvents';
 import CircularGauge from '@/components/CircularGauge';
 import { fmtMinutes, hms } from '../format';
 import { MY_USER_ID } from '../mock';
@@ -65,12 +68,31 @@ function niceAxisMax(maxMinutes: number): number {
 export function ProfileSheet({ target, onClose }: Props) {
   const insets = useSafeAreaInsets();
 
-  // 친구 버튼 로컬 토글 — 시안은 즉시 '친구 ✓' 전환.
-  // TODO: POST /friends/requests 실연동으로 교체 — API·연동 사례는 이미 있음(friendsApi·FriendProfileScreen).
-  const [isFriend, setIsFriend] = useState(false);
+  // 친구 신청 상태 — 성공/409는 '요청됨' 유지, 그 외 실패는 롤백 + 안내 (GROMO-940).
+  // 수락 전이므로 '친구 ✓'가 아닌 '요청됨' 표기(FriendProfileScreen과 동일 의미 체계).
+  const [requested, setRequested] = useState(false);
+  const busy = useRef(false); // 연타 방지
   useEffect(() => {
-    if (target) setIsFriend(target.isFriend);
+    setRequested(false);
   }, [target]);
+
+  async function requestFriend() {
+    if (!target || busy.current) return;
+    busy.current = true;
+    setRequested(true); // 낙관 전환
+    try {
+      await sendFriendRequest(target.userId);
+      logFriendRequestSent({ request_source: 'profile_sheet' }); // 성공 시에만 — 409(중복)는 미발행
+    } catch (e) {
+      // 409 = 이미 친구/이미 보낸 요청 — 요청됨 유지
+      if (!(axios.isAxiosError(e) && e.response?.status === 409)) {
+        setRequested(false); // 롤백
+        Alert.alert('친구 신청 실패', '잠시 후 다시 시도해주세요.');
+      }
+    } finally {
+      busy.current = false;
+    }
+  }
 
   if (!target) return null;
 
@@ -209,18 +231,21 @@ export function ProfileSheet({ target, onClose }: Props) {
             </View>
           </View>
 
-          {/* ── 친구 추가/친구 ✓ 토글 — 내 프로필이면 생략 ── */}
-          {!isMe && (
-            <TouchableOpacity
-              style={[s.actionBtn, isFriend ? s.actionBtnFriend : null]}
-              activeOpacity={0.85}
-              onPress={() => setIsFriend((f) => !f)}
-            >
-              <Text style={[s.actionText, isFriend ? s.actionTextFriend : null]}>
-                {isFriend ? '친구 ✓' : '+ 친구 추가'}
-              </Text>
-            </TouchableOpacity>
-          )}
+          {/* ── 친구 CTA — 내 프로필이면 생략. 이미 친구 '친구 ✓' / 신청 후 '요청됨' / 그 외 신청 버튼 ── */}
+          {!isMe &&
+            (target.isFriend ? (
+              <View style={[s.actionBtn, s.actionBtnFriend]}>
+                <Text style={[s.actionText, s.actionTextFriend]}>친구 ✓</Text>
+              </View>
+            ) : requested ? (
+              <View style={[s.actionBtn, s.actionBtnRequested]}>
+                <Text style={[s.actionText, s.actionTextRequested]}>요청됨</Text>
+              </View>
+            ) : (
+              <TouchableOpacity style={s.actionBtn} activeOpacity={0.85} onPress={requestFriend}>
+                <Text style={s.actionText}>+ 친구 추가</Text>
+              </TouchableOpacity>
+            ))}
         </View>
       </View>
     </Modal>
@@ -388,6 +413,8 @@ const s = StyleSheet.create({
     elevation: 4,
   },
   actionBtnFriend: { backgroundColor: T.greenBg, shadowOpacity: 0 },
+  actionBtnRequested: { backgroundColor: T.track, shadowOpacity: 0 },
   actionText: { ...T.text.body, fontWeight: '700', color: T.white },
   actionTextFriend: { color: T.successInk },
+  actionTextRequested: { color: T.inkSub },
 });
