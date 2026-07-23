@@ -34,15 +34,17 @@ export function triggerLogout(): void {
 
 // 재로그인 핸들러 — 게스트가 설정에서 소셜 로그인해 새 토큰/유저가 저장된 뒤,
 // 로그아웃 없이 앱 인메모리 세션만 새 계정으로 교체할 때 App이 등록해 쓴다.
-let onRelogin: (() => void) | null = null;
+// fromGuest는 호출부(게스트 판별 주체)가 넘긴다 — isGuest 태깅 없는 구 세션도 연동 목록으로
+// 게스트 판별되므로 프로필 플래그만으론 전환을 놓친다(GROMO-936 코덱스 리뷰).
+let onRelogin: ((opts?: { fromGuest?: boolean }) => void) | null = null;
 
-export function setReloginHandler(fn: (() => void) | null): void {
+export function setReloginHandler(fn: ((opts?: { fromGuest?: boolean }) => void) | null): void {
   onRelogin = fn;
 }
 
 // 등록된 재로그인 핸들러를 외부에서 호출(게스트 → 소셜 전환 등).
-export function triggerRelogin(): void {
-  onRelogin?.();
+export function triggerRelogin(opts?: { fromGuest?: boolean }): void {
+  onRelogin?.(opts);
 }
 
 // /api/v1/auth/refresh 응답 형태

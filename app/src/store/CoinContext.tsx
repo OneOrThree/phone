@@ -15,25 +15,38 @@ const CoinContext = createContext<CoinContextValue | null>(null);
 
 // 계정별 보유 아이템 맵. 아이템 API가 없어 로컬이 유일한 구매 기록이므로, 로그아웃 시
 // 지우는 대신 계정별로 분리 보관해 계정 간 누출과 구매 기록 소실을 모두 막는다(GROMO-936 리뷰).
+// 구 키(ownedItems)와 형식이 달라 새 키(:v2)를 쓴다 — OTA 롤백 호환(storageMigration v3 참고).
 type OwnedItemsByUser = Record<string, string[]>;
 
 // userId(JWT sub)를 디코드하지 못한 비정상 세션의 폴백 버킷 — 정상 경로에선 쓰이지 않는다.
 const FALLBACK_BUCKET = 'unknown';
 
+// 보유 아이템 키에 닿는 모든 쓰기를 직렬화하는 큐 — Provider 저장과 전환 인계가 서로의
+// 쓰기를 낡은 스냅샷으로 덮어쓰지 않게, 읽기-수정-쓰기를 한 단위로 순차 실행한다(코덱스 리뷰).
+let ownedItemsWrites: Promise<void> = Promise.resolve();
+function updateOwnedItemsStore(update: (map: OwnedItemsByUser) => OwnedItemsByUser): Promise<void> {
+  ownedItemsWrites = ownedItemsWrites
+    .then(async () => {
+      const raw = await AsyncStorage.getItem(STORAGE_KEYS.ownedItemsV2);
+      const map = raw ? (JSON.parse(raw) as OwnedItemsByUser) : {};
+      await AsyncStorage.setItem(STORAGE_KEYS.ownedItemsV2, JSON.stringify(update(map)));
+    })
+    .catch(() => {}); // 저장 실패로 큐가 멈추지 않게 — 다음 상태 변경 때 다시 저장된다
+  return ownedItemsWrites;
+}
+
 // 게스트 → 소셜 전환(계정 연결) 시 게스트 UUID 버킷의 구매 기록을 새 계정으로 인계(합집합).
 // 고정 'guest' 버킷 대신 전환 시점에만 옮기는 이유: 고정 버킷은 게스트 로그아웃 후에도 남아
 // 다음 게스트·무관한 소셜 계정에 누출된다(코덱스 리뷰). 호출처는 App.applyStoredSession —
 // 이전·새 userId를 모두 아는 유일한 시점이다.
-export async function transferOwnedItems(fromUserId: string, toUserId: string): Promise<void> {
-  const raw = await AsyncStorage.getItem(STORAGE_KEYS.ownedItems);
-  if (!raw) return;
-  const parsed = JSON.parse(raw) as string[] | OwnedItemsByUser;
-  if (Array.isArray(parsed)) return; // 구 형식은 소유자 불명 — 인계하지 않는다
-  const fromItems = parsed[fromUserId];
-  if (!fromItems) return;
-  delete parsed[fromUserId];
-  parsed[toUserId] = Array.from(new Set([...(parsed[toUserId] ?? []), ...fromItems]));
-  await AsyncStorage.setItem(STORAGE_KEYS.ownedItems, JSON.stringify(parsed));
+export function transferOwnedItems(fromUserId: string, toUserId: string): Promise<void> {
+  return updateOwnedItemsStore((map) => {
+    const fromItems = map[fromUserId];
+    if (!fromItems) return map;
+    delete map[fromUserId];
+    map[toUserId] = Array.from(new Set([...(map[toUserId] ?? []), ...fromItems]));
+    return map;
+  });
 }
 
 export function CoinProvider({ children }: { children: ReactNode }) {
@@ -42,7 +55,6 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   const bucket = userId ?? FALLBACK_BUCKET;
   const [coins, setCoins] = useState(0);
   const [ownedItemIds, setOwnedItemIds] = useState<string[]>([]);
-  const allOwned = useRef<OwnedItemsByUser>({});
   const loaded = useRef(false);
 
   // 서버에서 잔액 로드
@@ -54,22 +66,18 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // 보유 아이템은 AsyncStorage 유지 (아이템 API 미구현)
+  // 형식 변환은 storageMigration v3가 Provider 마운트 전에 보장하므로 맵으로 바로 읽는다.
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEYS.ownedItems).then((raw) => {
-      if (raw) {
-        const parsed = JSON.parse(raw) as string[] | OwnedItemsByUser;
-        // 계정 구분 없던 구 형식(string[])은 첫 로드 계정 소유로 귀속시켜 유지
-        allOwned.current = Array.isArray(parsed) ? { [bucket]: parsed } : parsed;
-      }
-      setOwnedItemIds(allOwned.current[bucket] ?? []);
+    AsyncStorage.getItem(STORAGE_KEYS.ownedItemsV2).then((raw) => {
+      const map = raw ? (JSON.parse(raw) as OwnedItemsByUser) : {};
+      setOwnedItemIds(map[bucket] ?? []);
       loaded.current = true;
     });
   }, [bucket]);
 
   useEffect(() => {
     if (!loaded.current) return;
-    allOwned.current = { ...allOwned.current, [bucket]: ownedItemIds };
-    AsyncStorage.setItem(STORAGE_KEYS.ownedItems, JSON.stringify(allOwned.current));
+    updateOwnedItemsStore((map) => ({ ...map, [bucket]: ownedItemIds }));
   }, [bucket, ownedItemIds]);
 
   async function addCoins(amount: number) {

@@ -53,29 +53,37 @@ interface SavedEquipment {
 // 계정별 장비 맵. 로그아웃 시 키를 지우는 방식은 이전 계정 Provider가 마운트된 채 남아
 // 지운 키에 옛 상태를 도로 써넣는 레이스가 있어(코덱스 리뷰), 지우는 대신 계정별로 분리
 // 보관해 계정 간 누출을 막는다(GROMO-936). 코스튬은 서버가 원본, 가구·아이템은 로컬 전용.
+// 구 키(equipment)와 형식이 달라 새 키(:v2)를 쓴다 — OTA 롤백 호환(storageMigration v3 참고).
 type EquipmentByUser = Record<string, SavedEquipment>;
 
 // userId(JWT sub)를 디코드하지 못한 비정상 세션의 폴백 버킷 — 정상 경로에선 쓰이지 않는다.
 const FALLBACK_BUCKET = 'unknown';
 
-// 계정 구분 없던 구 형식(SavedEquipment 단일 객체) 여부 — 구 형식은 장비 필드가 최상위에 있다.
-function isLegacyShape(parsed: SavedEquipment | EquipmentByUser): parsed is SavedEquipment {
-  return 'equippedItem' in parsed || 'equippedFurniture' in parsed || 'equippedCostume' in parsed;
+// 장비 키에 닿는 모든 쓰기를 직렬화하는 큐 — Provider 저장과 전환 인계가 서로의 쓰기를
+// 낡은 스냅샷으로 덮어쓰지 않게, 읽기-수정-쓰기를 한 단위로 순차 실행한다(코덱스 리뷰).
+let equipmentWrites: Promise<void> = Promise.resolve();
+function updateEquipmentStore(update: (map: EquipmentByUser) => EquipmentByUser): Promise<void> {
+  equipmentWrites = equipmentWrites
+    .then(async () => {
+      const raw = await AsyncStorage.getItem(STORAGE_KEYS.equipmentV2);
+      const map = raw ? (JSON.parse(raw) as EquipmentByUser) : {};
+      await AsyncStorage.setItem(STORAGE_KEYS.equipmentV2, JSON.stringify(update(map)));
+    })
+    .catch(() => {}); // 저장 실패로 큐가 멈추지 않게 — 다음 상태 변경 때 다시 저장된다
+  return equipmentWrites;
 }
 
 // 게스트 → 소셜 전환(계정 연결) 시 게스트 UUID 버킷의 장착 상태를 새 계정으로 인계.
 // 새 계정에 이미 장착 상태가 있으면 유지하고 게스트 것은 버린다. 인계를 전환 시점으로
 // 한정하는 이유는 CoinContext.transferOwnedItems 주석 참고(코덱스 리뷰).
-export async function transferEquipment(fromUserId: string, toUserId: string): Promise<void> {
-  const raw = await AsyncStorage.getItem(STORAGE_KEYS.equipment);
-  if (!raw) return;
-  const parsed = JSON.parse(raw) as SavedEquipment | EquipmentByUser;
-  if (isLegacyShape(parsed)) return; // 구 형식은 소유자 불명 — 인계하지 않는다
-  const fromSaved = parsed[fromUserId];
-  if (!fromSaved) return;
-  delete parsed[fromUserId];
-  parsed[toUserId] ??= fromSaved;
-  await AsyncStorage.setItem(STORAGE_KEYS.equipment, JSON.stringify(parsed));
+export function transferEquipment(fromUserId: string, toUserId: string): Promise<void> {
+  return updateEquipmentStore((map) => {
+    const fromSaved = map[fromUserId];
+    if (!fromSaved) return map;
+    delete map[fromUserId];
+    map[toUserId] ??= fromSaved;
+    return map;
+  });
 }
 
 // 서버 장비 슬롯 응답
@@ -91,17 +99,13 @@ export function EquipmentProvider({ children }: { children: ReactNode }) {
   const [equippedItem, setEquippedItem] = useState<ItemType | null>(null);
   const [equippedFurniture, setEquippedFurniture] = useState<ItemType[]>([]);
   const [equippedCostume, setEquippedCostume] = useState<CostumeItem[]>([]);
-  const allEquipment = useRef<EquipmentByUser>({});
   const loaded = useRef(false);
 
   useEffect(() => {
-    // 계정별 맵 로드 — 구 형식은 첫 로드 계정 소유로 귀속
-    const loadLocal = AsyncStorage.getItem(STORAGE_KEYS.equipment).then((raw) => {
-      if (raw) {
-        const parsed = JSON.parse(raw) as SavedEquipment | EquipmentByUser;
-        allEquipment.current = isLegacyShape(parsed) ? { [bucket]: parsed } : parsed;
-      }
-      return allEquipment.current[bucket];
+    // 계정별 맵에서 자기 버킷 로드(형식 변환은 storageMigration v3가 마운트 전에 보장)
+    const loadLocal = AsyncStorage.getItem(STORAGE_KEYS.equipmentV2).then((raw) => {
+      const map = raw ? (JSON.parse(raw) as EquipmentByUser) : {};
+      return map[bucket];
     });
 
     if (!userId) {
@@ -150,11 +154,10 @@ export function EquipmentProvider({ children }: { children: ReactNode }) {
   // furniture/item 로컬 저장 — 자기 버킷만 갱신해 다른 계정 장비를 건드리지 않는다
   useEffect(() => {
     if (!loaded.current) return;
-    allEquipment.current = {
-      ...allEquipment.current,
+    updateEquipmentStore((map) => ({
+      ...map,
       [bucket]: { equippedItem, equippedFurniture, equippedCostume },
-    };
-    AsyncStorage.setItem(STORAGE_KEYS.equipment, JSON.stringify(allEquipment.current));
+    }));
   }, [bucket, equippedItem, equippedFurniture, equippedCostume]);
 
   function toggleFurniture(item: ItemType) {

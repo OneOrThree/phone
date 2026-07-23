@@ -133,9 +133,6 @@ function App() {
   // applyStoredSession이 [] effect에서 1회 등록돼 user 클로저가 낡는다 — 현재 userId는 ref로 참조.
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = user?.userId ?? null;
-  // 게스트 → 소셜 전환 판별용 — userId와 같은 이유로 ref(GROMO-936).
-  const currentIsGuestRef = useRef(false);
-  currentIsGuestRef.current = user?.isGuest ?? false;
 
   useEffect(() => {
     (async () => {
@@ -232,7 +229,7 @@ function App() {
   // 게스트가 설정 화면에서 소셜 로그인하면 auth.ts가 토큰/유저를 이미 저장한다.
   // 로그아웃 없이 저장된 세션을 다시 읽어 인메모리 상태(user)를 새 소셜 계정으로 교체한다.
   // (UserProvider는 아래 key(user.userId)로 리마운트되어 새 userId를 반영한다.)
-  async function applyStoredSession() {
+  async function applyStoredSession(fromGuest: boolean) {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
     if (!raw) return;
     const data = JSON.parse(raw) as UserProfile;
@@ -245,8 +242,10 @@ function App() {
       // 실행된다 — 이 시점엔 새 토큰이 이미 저장돼 늦다(PR 200 리뷰).
       // 게스트 → 소셜 전환이면 게스트 UUID 버킷의 로컬 구매·장착 기록을 새 계정으로 인계.
       // 이전·새 userId를 모두 아는 이 시점에만 수행 — 고정 게스트 버킷 방식은 로그아웃 후에도
-      // 남아 다음 게스트·무관 계정에 누출된다(코덱스 리뷰).
-      if (currentIsGuestRef.current) {
+      // 남아 다음 게스트·무관 계정에 누출된다(코덱스 리뷰). 전환 여부(fromGuest)는 게스트 판별
+      // 주체인 AccountScreen이 넘긴다 — isGuest 태깅 없는 구 세션도 연동 목록 기준으로
+      // 게스트일 수 있어 프로필 플래그만으론 놓친다(코덱스 리뷰).
+      if (fromGuest) {
         const prevUserId = currentUserIdRef.current;
         await transferOwnedItems(prevUserId, userId);
         await transferEquipment(prevUserId, userId);
@@ -345,8 +344,8 @@ function App() {
 
   useEffect(() => {
     setLogoutHandler(handleLogout);
-    setReloginHandler(() => {
-      applyStoredSession();
+    setReloginHandler((opts) => {
+      applyStoredSession(opts?.fromGuest ?? false);
     });
     // 계정이 바뀌는 토큰 교체 직전, 이전 계정 인증이 살아있을 때 뒷정리(PR 200 리뷰 — applyStoredSession은 늦음):
     // 태그 편집 큐 폐기 + 서버 디바이스 토큰 등록 해제(이전 계정 푸시가 이 기기로 오지 않게, PR 224 리뷰).
