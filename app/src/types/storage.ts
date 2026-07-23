@@ -8,7 +8,7 @@ export const STORAGE_KEYS = {
   user: 'gromo:user',
   onboardingComplete: 'gromo:onboardingComplete',
   focusCategory: 'gromo:focusCategory',
-  equipment: 'gromo:equipment',
+  equipment: 'gromo:equipment', // 계정별 장비 맵 { [userId|'guest']: SavedEquipment } — 가구·아이템은 로컬 전용(GROMO-936)
   ownedItems: 'gromo:ownedItems', // 계정별 보유 아이템 맵 { [userId|'guest']: itemId[] } — 아이템 API 부재로 유일한 구매 기록(GROMO-936)
   focus: 'gromo:focus',
   focusLiveSession: 'gromo:focus:liveSession',

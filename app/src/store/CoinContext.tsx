@@ -17,12 +17,14 @@ const CoinContext = createContext<CoinContextValue | null>(null);
 // 지우는 대신 계정별로 분리 보관해 계정 간 누출과 구매 기록 소실을 모두 막는다(GROMO-936 리뷰).
 type OwnedItemsByUser = Record<string, string[]>;
 
-// 게스트(userId 없음)의 버킷 키 — 로그인(계정 연결) 시 해당 계정으로 인계된다.
+// 게스트 세션의 버킷 키 — 로그인(계정 연결) 시 해당 계정으로 인계된다.
 const GUEST_BUCKET = 'guest';
 
 export function CoinProvider({ children }: { children: ReactNode }) {
-  const { userId } = useUser();
-  const bucket = userId ?? GUEST_BUCKET;
+  const { userId, isGuest } = useUser();
+  // 게스트도 실제 UUID JWT를 받으므로(auth.ts guestLogin) userId만으론 게스트를 못 가른다.
+  // isGuest로 판별해 고정 버킷에 둬야 소셜 전환(다른 UUID) 시 인계가 동작한다(코덱스 리뷰).
+  const bucket = isGuest ? GUEST_BUCKET : (userId ?? GUEST_BUCKET);
   const [coins, setCoins] = useState(0);
   const [ownedItemIds, setOwnedItemIds] = useState<string[]>([]);
   const allOwned = useRef<OwnedItemsByUser>({});

@@ -50,6 +50,19 @@ interface SavedEquipment {
   equippedCostume?: CostumeItem[];
 }
 
+// 계정별 장비 맵. 로그아웃 시 키를 지우는 방식은 이전 계정 Provider가 마운트된 채 남아
+// 지운 키에 옛 상태를 도로 써넣는 레이스가 있어(코덱스 리뷰), 지우는 대신 계정별로 분리
+// 보관해 계정 간 누출을 막는다(GROMO-936). 코스튬은 서버가 원본, 가구·아이템은 로컬 전용.
+type EquipmentByUser = Record<string, SavedEquipment>;
+
+// 게스트 세션의 버킷 키 — 로그인(계정 연결) 시 해당 계정으로 인계된다(CoinContext와 동일).
+const GUEST_BUCKET = 'guest';
+
+// 계정 구분 없던 구 형식(SavedEquipment 단일 객체) 여부 — 구 형식은 장비 필드가 최상위에 있다.
+function isLegacyShape(parsed: SavedEquipment | EquipmentByUser): parsed is SavedEquipment {
+  return 'equippedItem' in parsed || 'equippedFurniture' in parsed || 'equippedCostume' in parsed;
+}
+
 // 서버 장비 슬롯 응답
 interface ServerEquipmentSlot {
   slotType: string;
@@ -57,18 +70,35 @@ interface ServerEquipmentSlot {
 }
 
 export function EquipmentProvider({ children }: { children: ReactNode }) {
-  const { userId } = useUser();
+  const { userId, isGuest } = useUser();
+  // 게스트도 실제 UUID JWT를 받으므로 isGuest로 판별해 고정 버킷에 둔다(CoinContext와 동일).
+  const bucket = isGuest ? GUEST_BUCKET : (userId ?? GUEST_BUCKET);
   const [equippedItem, setEquippedItem] = useState<ItemType | null>(null);
   const [equippedFurniture, setEquippedFurniture] = useState<ItemType[]>([]);
   const [equippedCostume, setEquippedCostume] = useState<CostumeItem[]>([]);
+  const allEquipment = useRef<EquipmentByUser>({});
   const loaded = useRef(false);
 
   useEffect(() => {
+    // 계정별 맵 로드 — 구 형식은 첫 로드 계정 소유로 귀속, 게스트 버킷은 로그인 계정으로 인계
+    const loadLocal = AsyncStorage.getItem(STORAGE_KEYS.equipment).then((raw) => {
+      if (raw) {
+        const parsed = JSON.parse(raw) as SavedEquipment | EquipmentByUser;
+        allEquipment.current = isLegacyShape(parsed) ? { [bucket]: parsed } : parsed;
+      }
+      const guestSaved = allEquipment.current[GUEST_BUCKET];
+      if (bucket !== GUEST_BUCKET && guestSaved) {
+        // 자기 버킷이 이미 있으면(기존 계정 재로그인) 게스트 장착 선택은 버린다
+        allEquipment.current[bucket] ??= guestSaved;
+        delete allEquipment.current[GUEST_BUCKET];
+      }
+      return allEquipment.current[bucket];
+    });
+
     if (!userId) {
       // userId 없으면 로컬 데이터로 폴백
-      AsyncStorage.getItem(STORAGE_KEYS.equipment).then((raw) => {
-        if (raw) {
-          const saved = JSON.parse(raw) as SavedEquipment;
+      loadLocal.then((saved) => {
+        if (saved) {
           setEquippedItem(saved.equippedItem ?? null);
           setEquippedFurniture(saved.equippedFurniture ?? []);
           setEquippedCostume(saved.equippedCostume ?? []);
@@ -91,11 +121,8 @@ export function EquipmentProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {
         // 서버 실패 시 로컬 폴백
-        AsyncStorage.getItem(STORAGE_KEYS.equipment).then((raw) => {
-          if (raw) {
-            const saved = JSON.parse(raw) as SavedEquipment;
-            setEquippedCostume(saved.equippedCostume ?? []);
-          }
+        loadLocal.then((saved) => {
+          setEquippedCostume(saved?.equippedCostume ?? []);
         });
       })
       .finally(() => {
@@ -103,23 +130,23 @@ export function EquipmentProvider({ children }: { children: ReactNode }) {
       });
 
     // furniture/item은 여전히 로컬에서 로드
-    AsyncStorage.getItem(STORAGE_KEYS.equipment).then((raw) => {
-      if (raw) {
-        const saved = JSON.parse(raw) as SavedEquipment;
+    loadLocal.then((saved) => {
+      if (saved) {
         setEquippedItem(saved.equippedItem ?? null);
         setEquippedFurniture(saved.equippedFurniture ?? []);
       }
     });
-  }, [userId]);
+  }, [userId, bucket]);
 
-  // furniture/item 로컬 저장
+  // furniture/item 로컬 저장 — 자기 버킷만 갱신해 다른 계정 장비를 건드리지 않는다
   useEffect(() => {
     if (!loaded.current) return;
-    AsyncStorage.setItem(
-      STORAGE_KEYS.equipment,
-      JSON.stringify({ equippedItem, equippedFurniture, equippedCostume }),
-    );
-  }, [equippedItem, equippedFurniture, equippedCostume]);
+    allEquipment.current = {
+      ...allEquipment.current,
+      [bucket]: { equippedItem, equippedFurniture, equippedCostume },
+    };
+    AsyncStorage.setItem(STORAGE_KEYS.equipment, JSON.stringify(allEquipment.current));
+  }, [bucket, equippedItem, equippedFurniture, equippedCostume]);
 
   function toggleFurniture(item: ItemType) {
     setEquippedFurniture((prev) => {
