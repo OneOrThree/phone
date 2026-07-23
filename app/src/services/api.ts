@@ -36,15 +36,19 @@ export function triggerLogout(): void {
 // 로그아웃 없이 앱 인메모리 세션만 새 계정으로 교체할 때 App이 등록해 쓴다.
 // fromGuest는 호출부(게스트 판별 주체)가 넘긴다 — isGuest 태깅 없는 구 세션도 연동 목록으로
 // 게스트 판별되므로 프로필 플래그만으론 전환을 놓친다(GROMO-936 코덱스 리뷰).
-let onRelogin: ((opts?: { fromGuest?: boolean }) => void) | null = null;
+let onRelogin: ((opts?: { fromGuest?: boolean }) => void | Promise<void>) | null = null;
 
-export function setReloginHandler(fn: ((opts?: { fromGuest?: boolean }) => void) | null): void {
+export function setReloginHandler(
+  fn: ((opts?: { fromGuest?: boolean }) => void | Promise<void>) | null,
+): void {
   onRelogin = fn;
 }
 
-// 등록된 재로그인 핸들러를 외부에서 호출(게스트 → 소셜 전환 등).
-export function triggerRelogin(opts?: { fromGuest?: boolean }): void {
-  onRelogin?.(opts);
+// 등록된 재로그인 핸들러를 외부에서 호출(게스트 → 소셜 전환 등). 세션 교체·인계가 끝날
+// 때까지 기다릴 수 있게 Promise를 돌려준다 — 호출부가 그동안 재로그인 UI를 잠가 전환
+// 도중 다른 소셜로 이중 전환이 경합하지 않게 한다(코덱스 리뷰).
+export function triggerRelogin(opts?: { fromGuest?: boolean }): Promise<void> {
+  return Promise.resolve(onRelogin?.(opts));
 }
 
 // /api/v1/auth/refresh 응답 형태

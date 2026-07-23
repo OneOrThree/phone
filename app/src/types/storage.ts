@@ -1,7 +1,8 @@
 // AsyncStorage 키 모음. 문자열 리터럴 오타를 방지하기 위해 한 곳에서 관리한다.
 // 키 네이밍 규칙은 'gromo:xxx' (CLAUDE.md 참고).
 export const STORAGE_KEYS = {
-  storageVersion: 'gromo:storageVersion',
+  storageVersion: 'gromo:storageVersion', // ⚠️ '2' 고정 — 구 번들이 '2' 외 값이면 구 키를 지움(storageMigration 참고)
+  migrationV3: 'gromo:migration:v3', // v3(장비·보유아이템 계정별 맵 전환, GROMO-936) 완료 마커
   deviceId: 'gromo:deviceId',
   accessToken: 'gromo:accessToken',
   refreshToken: 'gromo:refreshToken',

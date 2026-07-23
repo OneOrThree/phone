@@ -128,7 +128,9 @@ export default function AccountScreen() {
       trackAuthSuccess(method, result.isNewUser);
       // 이 화면의 게스트 판별(태깅 || 연동 목록 빈 구 세션)을 전환 신호로 넘긴다 —
       // 프로필 플래그만으론 구 세션 게스트의 로컬 데이터 인계를 놓친다(GROMO-936 코덱스 리뷰).
-      triggerRelogin({ fromGuest: isGuest });
+      // 세션 교체·인계가 끝날 때까지 대기해 busy를 유지 — 전환 도중 다른 소셜 버튼 재탭으로
+      // 이중 전환이 경합하지 않게 한다. 교체 실패는 종전(fire-and-forget)과 동일하게 무시.
+      await triggerRelogin({ fromGuest: isGuest }).catch(() => {});
     } catch (e) {
       const code = (e as { code?: unknown })?.code;
       // 사용자 취소는 조용히 무시(google: SIGN_IN_CANCELLED, apple: ERR_REQUEST_CANCELED 등)

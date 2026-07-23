@@ -3,7 +3,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { getUserIdFromToken } from '@/services/api';
 
-const CURRENT_STORAGE_VERSION = '3';
+// ⚠️ storageVersion 값은 영원히 '2'로 유지한다 — 이미 배포된 구 번들의 마이그레이션이
+// "'2'가 아니면 구 키(ownedItems·equipment)를 삭제"하므로, 값을 올리면 OTA 롤백 시
+// 구 번들이 보존해 둔 구 키를 지워버린다(코덱스 리뷰). v3부터는 버전 대신
+// 마이그레이션별 완료 마커 키(STORAGE_KEYS.migrationV3)로 추적한다.
+const V2_STORAGE_VERSION = '2';
 
 // v2(이전 = 미설정): 숫자 id 캐시 제거. 토큰·로그인 정보는 유지한다.
 // 엔티티 PK가 Long → UUID(string)로 바뀌면서(GROMO-443), 숫자 id가 박힌
@@ -17,6 +21,8 @@ const STALE_NUMERIC_ID_KEYS: string[] = [STORAGE_KEYS.ownedItems, STORAGE_KEYS.e
 //  - 구 형식은 계정 구분이 없어 소유자를 알 수 없다. 마이그레이션 시점에 로그인 세션이
 //    있으면(gromo:user) 그 계정 소유로 귀속하고, 로그아웃 상태면 귀속하지 않고 버린다 —
 //    다음에 로그인하는 무관한 계정이 이전 사용자 데이터를 흡수하지 않게(코덱스 리뷰).
+//  - 멱등성: 대상(:v2) 키가 이미 있으면 그쪽이 최신이므로 건너뛴다 — 부분 성공 후 재시도가
+//    그 사이의 새 구매 기록을 낡은 스냅샷으로 덮어쓰지 않게(코덱스 리뷰).
 async function migrateV3(): Promise<void> {
   const rawUser = await AsyncStorage.getItem(STORAGE_KEYS.user);
   const accessToken = rawUser
@@ -24,34 +30,43 @@ async function migrateV3(): Promise<void> {
     : '';
   const userId = accessToken ? getUserIdFromToken(accessToken) : null;
 
-  const rawOwned = await AsyncStorage.getItem(STORAGE_KEYS.ownedItems);
-  if (rawOwned) {
-    const parsed = JSON.parse(rawOwned) as string[] | Record<string, string[]>;
-    // 개발 중간 빌드가 구 키에 이미 맵을 썼다면 그대로 이전, 구 형식(배열)은 로그인 계정에만 귀속
-    const map = Array.isArray(parsed) ? (userId ? { [userId]: parsed } : null) : parsed;
-    if (map) await AsyncStorage.setItem(STORAGE_KEYS.ownedItemsV2, JSON.stringify(map));
+  if (!(await AsyncStorage.getItem(STORAGE_KEYS.ownedItemsV2))) {
+    const rawOwned = await AsyncStorage.getItem(STORAGE_KEYS.ownedItems);
+    if (rawOwned) {
+      const parsed = JSON.parse(rawOwned) as string[] | Record<string, string[]>;
+      // 개발 중간 빌드가 구 키에 이미 맵을 썼다면 그대로 이전, 구 형식(배열)은 로그인 계정에만 귀속
+      const map = Array.isArray(parsed) ? (userId ? { [userId]: parsed } : null) : parsed;
+      if (map) await AsyncStorage.setItem(STORAGE_KEYS.ownedItemsV2, JSON.stringify(map));
+    }
   }
 
-  const rawEquipment = await AsyncStorage.getItem(STORAGE_KEYS.equipment);
-  if (rawEquipment) {
-    const parsed = JSON.parse(rawEquipment) as Record<string, unknown>;
-    // 구 형식(단일 객체)은 장비 필드가 최상위에 있다 — 옛 형식 지식은 마이그레이션에 동결
-    const isLegacy =
-      'equippedItem' in parsed || 'equippedFurniture' in parsed || 'equippedCostume' in parsed;
-    const map = isLegacy ? (userId ? { [userId]: parsed } : null) : parsed;
-    if (map) await AsyncStorage.setItem(STORAGE_KEYS.equipmentV2, JSON.stringify(map));
+  if (!(await AsyncStorage.getItem(STORAGE_KEYS.equipmentV2))) {
+    const rawEquipment = await AsyncStorage.getItem(STORAGE_KEYS.equipment);
+    if (rawEquipment) {
+      const parsed = JSON.parse(rawEquipment) as Record<string, unknown>;
+      // 구 형식(단일 객체)은 장비 필드가 최상위에 있다 — 옛 형식 지식은 마이그레이션에 동결
+      const isLegacy =
+        'equippedItem' in parsed || 'equippedFurniture' in parsed || 'equippedCostume' in parsed;
+      const map = isLegacy ? (userId ? { [userId]: parsed } : null) : parsed;
+      if (map) await AsyncStorage.setItem(STORAGE_KEYS.equipmentV2, JSON.stringify(map));
+    }
   }
 }
 
 export async function runStorageMigrations(): Promise<void> {
   try {
+    // v2 — 배포된 구 번들과 동일한 판정·기록을 유지해야 한다(위 storageVersion 주석 참고).
     const stored = await AsyncStorage.getItem(STORAGE_KEYS.storageVersion);
-    if (stored === CURRENT_STORAGE_VERSION) return;
-    const version = Number(stored ?? '0');
-    if (version < 2) await AsyncStorage.multiRemove(STALE_NUMERIC_ID_KEYS);
-    if (version < 3) await migrateV3();
-    await AsyncStorage.setItem(STORAGE_KEYS.storageVersion, CURRENT_STORAGE_VERSION);
+    if (stored !== V2_STORAGE_VERSION) {
+      await AsyncStorage.multiRemove(STALE_NUMERIC_ID_KEYS);
+      await AsyncStorage.setItem(STORAGE_KEYS.storageVersion, V2_STORAGE_VERSION);
+    }
+    // v3 — 완료 마커가 없을 때만 실행. 실패하면 마커가 안 남아 다음 실행에서 재시도된다.
+    if (!(await AsyncStorage.getItem(STORAGE_KEYS.migrationV3))) {
+      await migrateV3();
+      await AsyncStorage.setItem(STORAGE_KEYS.migrationV3, '1');
+    }
   } catch {
-    // 마이그레이션 실패는 치명적이지 않음 — 버전 키 미기록 시 다음 실행에서 재시도된다.
+    // 마이그레이션 실패는 치명적이지 않음 — 마커 미기록 시 다음 실행에서 재시도된다.
   }
 }

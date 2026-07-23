@@ -247,8 +247,14 @@ function App() {
       // 게스트일 수 있어 프로필 플래그만으론 놓친다(코덱스 리뷰).
       if (fromGuest) {
         const prevUserId = currentUserIdRef.current;
-        await transferOwnedItems(prevUserId, userId);
-        await transferEquipment(prevUserId, userId);
+        // 인계 실패는 1회 재시도, 그래도 실패하면 전환은 진행한다 — 토큰이 이미 교체돼
+        // 되돌릴 수 없고, 쓰기가 계속 실패하는 상황은 앱 영속성 전체가 깨진 경우다(코덱스 리뷰).
+        await transferOwnedItems(prevUserId, userId)
+          .catch(() => transferOwnedItems(prevUserId, userId))
+          .catch(() => {});
+        await transferEquipment(prevUserId, userId)
+          .catch(() => transferEquipment(prevUserId, userId))
+          .catch(() => {});
       }
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.focusCategory,
@@ -344,9 +350,8 @@ function App() {
 
   useEffect(() => {
     setLogoutHandler(handleLogout);
-    setReloginHandler((opts) => {
-      applyStoredSession(opts?.fromGuest ?? false);
-    });
+    // 반환된 Promise로 호출부(AccountScreen)가 세션 교체 완료까지 대기한다.
+    setReloginHandler((opts) => applyStoredSession(opts?.fromGuest ?? false));
     // 계정이 바뀌는 토큰 교체 직전, 이전 계정 인증이 살아있을 때 뒷정리(PR 200 리뷰 — applyStoredSession은 늦음):
     // 태그 편집 큐 폐기 + 서버 디바이스 토큰 등록 해제(이전 계정 푸시가 이 기기로 오지 않게, PR 224 리뷰).
     // 해제 요청은 넘겨받은 이전 계정 토큰으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401

@@ -63,14 +63,14 @@ const FALLBACK_BUCKET = 'unknown';
 // 낡은 스냅샷으로 덮어쓰지 않게, 읽기-수정-쓰기를 한 단위로 순차 실행한다(코덱스 리뷰).
 let equipmentWrites: Promise<void> = Promise.resolve();
 function updateEquipmentStore(update: (map: EquipmentByUser) => EquipmentByUser): Promise<void> {
-  equipmentWrites = equipmentWrites
-    .then(async () => {
-      const raw = await AsyncStorage.getItem(STORAGE_KEYS.equipmentV2);
-      const map = raw ? (JSON.parse(raw) as EquipmentByUser) : {};
-      await AsyncStorage.setItem(STORAGE_KEYS.equipmentV2, JSON.stringify(update(map)));
-    })
-    .catch(() => {}); // 저장 실패로 큐가 멈추지 않게 — 다음 상태 변경 때 다시 저장된다
-  return equipmentWrites;
+  const run = equipmentWrites.then(async () => {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.equipmentV2);
+    const map = raw ? (JSON.parse(raw) as EquipmentByUser) : {};
+    await AsyncStorage.setItem(STORAGE_KEYS.equipmentV2, JSON.stringify(update(map)));
+  });
+  // 큐는 실패해도 이어지도록 내부에서만 삼키고, 호출자에겐 실패를 그대로 전파한다(코덱스 리뷰).
+  equipmentWrites = run.catch(() => {});
+  return run;
 }
 
 // 게스트 → 소셜 전환(계정 연결) 시 게스트 UUID 버킷의 장착 상태를 새 계정으로 인계.
@@ -154,10 +154,11 @@ export function EquipmentProvider({ children }: { children: ReactNode }) {
   // furniture/item 로컬 저장 — 자기 버킷만 갱신해 다른 계정 장비를 건드리지 않는다
   useEffect(() => {
     if (!loaded.current) return;
+    // 저장 실패는 무시 — 다음 상태 변경 때 자연 재시도된다
     updateEquipmentStore((map) => ({
       ...map,
       [bucket]: { equippedItem, equippedFurniture, equippedCostume },
-    }));
+    })).catch(() => {});
   }, [bucket, equippedItem, equippedFurniture, equippedCostume]);
 
   function toggleFurniture(item: ItemType) {
