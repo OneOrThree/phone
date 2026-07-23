@@ -2,7 +2,8 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V15 (src/main/resources/db/migration). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V16 (src/main/resources/db/migration). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// V16(GROMO-910): 마스터 시드 데이터 — occupations 19 / default_tags 76 / occupation_default_tags 97 / 뽀모도로 프리셋 3 (스키마 변경 없음, 데이터 시드).
 
 // ────────────────────────────────────────────
 // Enums (도메인별 — 테이블 섹션과 동일 순서)
