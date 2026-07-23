@@ -19,10 +19,21 @@ services:
     # SPRING_PROFILES_ACTIVE·JAVA_TOOL_OPTIONS도 SM에서 관리한다.
     env_file:
       - .env.prod
+    # Datadog APM — 내장 dd-java-agent 로드(트레이싱). egd 기본값 유지 + -javaagent 추가.
+    environment:
+      JAVA_OPTS: "-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/datadog/dd-java-agent.jar"
+      DD_AGENT_HOST: datadog-agent
+      DD_ENV: prod
+      DD_SERVICE: gromo-back         # APM > Services 노출 이름
+      DD_VERSION: ${IMAGE_TAG}
+      DD_TRACE_SAMPLE_RATE: "0.2"    # 20% 샘플
     volumes:
       # 앱 로그(/app/logs: app.log·user-activity.log)를 호스트에 바인딩 — 컨테이너 재생성에도 보존,
       # 라이브 확인은 SSM 세션에서 tail, 유저 로그 S3 적재 파이프라인(590·790)도 이 경로를 본다.
       - /var/log/springboot:/app/logs
+    depends_on:
+      datadog-agent:                 # 트레이스 수신 agent 먼저 기동
+        condition: service_started
     networks: [app-network]
 
   nginx:
@@ -60,6 +71,7 @@ services:
       # 로그 수집 — 컨테이너 stdout tail
       DD_LOGS_ENABLED: "true"
       DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
+      DD_APM_NON_LOCAL_TRAFFIC: "true"   # app 컨테이너에서 오는 트레이스 수신
       DD_CONTAINER_EXCLUDE: "name:gromo-datadog-agent"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
