@@ -33,16 +33,28 @@ let restoreInflight: Promise<TodayFocusRestore> | null = null;
 
 // 진행 중 요청(in-flight)만 공유하고 완료되면 비운다 — 영구 캐시면 재로그인 리마운트가
 // 이전 계정 스냅샷을 재사용할 수 있어서다(프로바이더는 로그아웃·계정 전환 시 리마운트됨).
+// 태그 실패는 세션 조회를 기다리지 않고 즉시 확정(코덱스 P2) — 태그 없인 두 컨텍스트 모두
+// 세션을 쓸 수 없는데 느린 세션 조회가 ready(OrphanFocusSettler 대기)를 붙들지 않게.
 export function fetchTodayFocusRestore(): Promise<TodayFocusRestore> {
   if (!restoreInflight) {
-    restoreInflight = Promise.all([
+    const p: Promise<TodayFocusRestore> = Promise.all([
       fetchTodayFocusSessions().catch(() => null),
-      getFocusTags().catch(() => null),
+      getFocusTags(),
     ])
       .then(([sessions, tags]) => ({ sessions, tags }))
+      .catch(() => ({ sessions: null, tags: null }))
       .finally(() => {
-        restoreInflight = null;
+        // abort 후 새로 시작된 in-flight를 지우지 않게 자기 자신일 때만 해제
+        if (restoreInflight === p) restoreInflight = null;
       });
+    restoreInflight = p;
   }
   return restoreInflight;
+}
+
+// 로그아웃·계정 전환 시 공유 중인 복원을 폐기한다(코덱스 P1) — 이전 계정 토큰으로 시작된
+// in-flight를 새 계정 프로바이더가 재사용해 이전 계정 세션·과목이 노출되는 누출 방지.
+// 나가 있는 요청 자체는 중단하지 않는다(응답은 버려짐) — 다음 호출이 새로 조회한다.
+export function abortFocusRestore(): void {
+  restoreInflight = null;
 }
