@@ -26,8 +26,8 @@ import { STORAGE_KEYS } from '@/types/storage';
 import type { LoginResult, UserProfile } from '@/types/api';
 
 import { UserProvider } from '@/store/UserContext';
-import { CoinProvider } from '@/store/CoinContext';
-import { EquipmentProvider } from '@/store/EquipmentContext';
+import { CoinProvider, transferOwnedItems } from '@/store/CoinContext';
+import { EquipmentProvider, transferEquipment } from '@/store/EquipmentContext';
 import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
 import { T } from '@/constants/theme';
@@ -213,6 +213,10 @@ function App() {
       STORAGE_KEYS.focusFirstDone, // 다음 계정이 '첫 집중 완료' 변형을 정상적으로 보게
       STORAGE_KEYS.subjects, // 이전 계정 과목 목록·과목별 오늘 누적이 새 계정에 노출되지 않게(GROMO-677)
       STORAGE_KEYS.focus, // 이전 계정 '오늘 집중' 총합이 새 계정 홈에 남지 않게(GROMO-677)
+      // equipment·ownedItems는 여기서 지우지 않는다 — 지우는 방식은 아직 마운트된 이전
+      // Provider가 지운 키에 도로 써넣는 레이스가 있고, 보유 아이템은 아이템 API 부재로
+      // 로컬이 유일한 구매 기록이다. 각 Context가 계정별 맵으로 분리 보관해 누출을
+      // 막는다(GROMO-936 코덱스 리뷰).
       // 이전 계정의 축하 기록이 새 계정 축하를 막거나, 예약된 모달이 새 계정에 뜨지 않게(PR 225 리뷰)
       STORAGE_KEYS.focusGoalCelebratedDate,
       STORAGE_KEYS.focusGoalCelebratePending,
@@ -231,7 +235,7 @@ function App() {
   // 게스트가 설정 화면에서 소셜 로그인하면 auth.ts가 토큰/유저를 이미 저장한다.
   // 로그아웃 없이 저장된 세션을 다시 읽어 인메모리 상태(user)를 새 소셜 계정으로 교체한다.
   // (UserProvider는 아래 key(user.userId)로 리마운트되어 새 userId를 반영한다.)
-  async function applyStoredSession() {
+  async function applyStoredSession(fromGuest: boolean) {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
     if (!raw) return;
     const data = JSON.parse(raw) as UserProfile;
@@ -242,6 +246,22 @@ function App() {
     if (currentUserIdRef.current && userId && currentUserIdRef.current !== userId) {
       // 태그 편집 큐 폐기는 여기가 아니라 토큰 저장 직전(auth.ts postAuthSave → setAccountSwitchHandler)에
       // 실행된다 — 이 시점엔 새 토큰이 이미 저장돼 늦다(PR 200 리뷰).
+      // 게스트 → 소셜 전환이면 게스트 UUID 버킷의 로컬 구매·장착 기록을 새 계정으로 인계.
+      // 이전·새 userId를 모두 아는 이 시점에만 수행 — 고정 게스트 버킷 방식은 로그아웃 후에도
+      // 남아 다음 게스트·무관 계정에 누출된다(코덱스 리뷰). 전환 여부(fromGuest)는 게스트 판별
+      // 주체인 AccountScreen이 넘긴다 — isGuest 태깅 없는 구 세션도 연동 목록 기준으로
+      // 게스트일 수 있어 프로필 플래그만으론 놓친다(코덱스 리뷰).
+      if (fromGuest) {
+        const prevUserId = currentUserIdRef.current;
+        // 인계 실패는 1회 재시도, 그래도 실패하면 전환은 진행한다 — 토큰이 이미 교체돼
+        // 되돌릴 수 없고, 쓰기가 계속 실패하는 상황은 앱 영속성 전체가 깨진 경우다(코덱스 리뷰).
+        await transferOwnedItems(prevUserId, userId)
+          .catch(() => transferOwnedItems(prevUserId, userId))
+          .catch(() => {});
+        await transferEquipment(prevUserId, userId)
+          .catch(() => transferEquipment(prevUserId, userId))
+          .catch(() => {});
+      }
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.focusCategory,
         STORAGE_KEYS.goalPending,
@@ -251,6 +271,7 @@ function App() {
         STORAGE_KEYS.focusFirstDone,
         STORAGE_KEYS.subjects,
         STORAGE_KEYS.focus,
+        // equipment·ownedItems는 계정별 맵이라 지우지 않는다(GROMO-936, 위 handleLogout 주석 참고)
         STORAGE_KEYS.focusGoalCelebratedDate,
         STORAGE_KEYS.focusGoalCelebratePending,
         STORAGE_KEYS.screentimeLastRewardedDate,
@@ -336,9 +357,8 @@ function App() {
 
   useEffect(() => {
     setLogoutHandler(handleLogout);
-    setReloginHandler(() => {
-      applyStoredSession();
-    });
+    // 반환된 Promise로 호출부(AccountScreen)가 세션 교체 완료까지 대기한다.
+    setReloginHandler((opts) => applyStoredSession(opts?.fromGuest ?? false));
     // 계정이 바뀌는 토큰 교체 직전, 이전 계정 인증이 살아있을 때 뒷정리(PR 200 리뷰 — applyStoredSession은 늦음):
     // 태그 편집 큐 폐기 + 서버 디바이스 토큰 등록 해제(이전 계정 푸시가 이 기기로 오지 않게, PR 224 리뷰).
     // 해제 요청은 넘겨받은 이전 계정 토큰으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401

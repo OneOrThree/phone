@@ -1,15 +1,19 @@
 // AsyncStorage 키 모음. 문자열 리터럴 오타를 방지하기 위해 한 곳에서 관리한다.
 // 키 네이밍 규칙은 'gromo:xxx' (CLAUDE.md 참고).
 export const STORAGE_KEYS = {
-  storageVersion: 'gromo:storageVersion',
+  storageVersion: 'gromo:storageVersion', // ⚠️ '2' 고정 — 구 번들이 '2' 외 값이면 구 키를 지움(storageMigration 참고)
+  migrationV3: 'gromo:migration:v3', // v3(장비·보유아이템 계정별 맵 전환, GROMO-936) 완료 마커
   deviceId: 'gromo:deviceId',
   accessToken: 'gromo:accessToken',
   refreshToken: 'gromo:refreshToken',
   user: 'gromo:user',
   onboardingComplete: 'gromo:onboardingComplete',
   focusCategory: 'gromo:focusCategory',
-  equipment: 'gromo:equipment',
-  ownedItems: 'gromo:ownedItems',
+  equipment: 'gromo:equipment', // (구 키) 단일 SavedEquipment — v3 이후 미사용, OTA 롤백 호환 위해 값 보존(GROMO-936)
+  ownedItems: 'gromo:ownedItems', // (구 키) 단일 string[] — v3 이후 미사용, OTA 롤백 호환 위해 값 보존(GROMO-936)
+  equipmentV2: 'gromo:equipment:v2', // 계정별 장비 맵 { [userId]: SavedEquipment } — 가구·아이템은 로컬 전용(GROMO-936)
+  ownedItemsV2: 'gromo:ownedItems:v2', // 계정별 보유 아이템 맵 { [userId]: itemId[] } — 아이템 API 부재로 유일한 구매 기록(GROMO-936)
+  ownedItemsLegacyOwner: 'gromo:ownedItems:legacyOwner', // 구 키(ownedItems) 듀얼라이트의 소유자 — 롤백 복귀 병합용(GROMO-936)
   focus: 'gromo:focus',
   focusLiveSession: 'gromo:focus:liveSession',
   focusFirstDone: 'gromo:focus:firstDone', // 첫 집중 완료 여부 — 결과 화면(603) 변형 분기
