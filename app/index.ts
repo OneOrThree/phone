@@ -3,6 +3,7 @@ import { registerRootComponent } from 'expo';
 import * as Sentry from '@sentry/react-native';
 import { initializeKakaoSDK } from '@react-native-kakao/core';
 import messaging from '@react-native-firebase/messaging';
+import { initDatadog } from './src/services/datadog';
 
 // Sentry 에러 리포팅 초기화 — 가능한 한 앱 시작 최상단에서 호출해야 한다.
 // DSN은 "에러를 어느 프로젝트로 보낼지" 주소일 뿐 비밀값이 아니므로 코드에 직접 둔다.
@@ -14,6 +15,9 @@ Sentry.init({
   // dev 서버 대상 빌드와 prod 출시 빌드를 Sentry에서 구분하기 위함(GROMO-849).
   environment: process.env.EXPO_PUBLIC_ENV ?? (__DEV__ ? 'dev' : 'prod'),
 });
+
+// Datadog RUM 초기화(GROMO-928) — 성능 관측 전용(에러는 위 Sentry 담당). 키 미설정 시 no-op.
+initDatadog();
 
 // RN Firebase v22 namespaced API deprecation 경고 억제 — 공식 silence 플래그(모듈러 마이그레이션 전까지).
 const g = globalThis as { RNFB_SILENCE_MODULAR_DEPRECATION_WARNINGS?: boolean };

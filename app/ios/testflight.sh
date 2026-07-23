@@ -29,6 +29,20 @@ command -v node >/dev/null 2>&1 || export PATH="/opt/homebrew/Cellar/node@24/24.
 export EXPO_PUBLIC_API_URL="${TESTFLIGHT_API_URL:-https://api.oneorthree.world}"
 echo "🌐 API 서버: $EXPO_PUBLIC_API_URL"
 
+# 환경 태그(EXPO_PUBLIC_ENV)도 API 대상에 맞춰 강제 — 로컬 .env의 dev 값이 릴리즈 번들에
+# 인라인되면 Sentry·GA4·Datadog 태그가 전부 dev로 오염된다(코덱스 리뷰). prod 서버=prod, 그 외=dev.
+if [[ "$EXPO_PUBLIC_API_URL" == "https://api.oneorthree.world" ]]; then
+  export EXPO_PUBLIC_ENV="prod"
+else
+  export EXPO_PUBLIC_ENV="dev"
+fi
+echo "🏷️  ENV 태그: $EXPO_PUBLIC_ENV"
+
+# Datadog RUM 키(GROMO-928) — 전송 주소 성격이라 비밀값 아님. dev/prod 는 RUM env 태그로 구분되므로
+# 단일 RUM 앱(gromo-app) 값을 로컬 .env 상태와 무관하게 항상 빌드에 인라인한다.
+export EXPO_PUBLIC_DATADOG_APPLICATION_ID="44a4f021-ed4d-4134-b59d-63a40e37c2ff"
+export EXPO_PUBLIC_DATADOG_CLIENT_TOKEN="pub851a727c3f95bc795ae8f9a15f5326d4"
+
 # Pods 동기화: lock 이 어긋날 때만 pod install
 if diff -q Podfile.lock Pods/Manifest.lock >/dev/null 2>&1; then
   echo "✅ Pods 동기화됨 — pod install 건너뜀"
