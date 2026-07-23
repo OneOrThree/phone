@@ -129,16 +129,17 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   }, [data.subjects, data.screenTimeGranted]);
 
   // 스텝 도달 계측(GA4 퍼널) — 스플래시가 끝난 뒤, 이 플로우에서 처음 도달한 스텝만 발행한다.
-  // 뒤로가기 재방문·동적 시퀀스 재계산(과목 편집 삽입)으로는 재발행하지 않는다("어디까지 갔나" 유지).
-  const maxViewedIndexRef = useRef(-1);
+  // dedup은 인덱스가 아니라 "스텝 이름" 기준 — 뒤로가기 재방문은 미발행하되, 같은 인덱스가
+  // 다른 스텝으로 교체되는 동적 분기(예: 거부 화면에서 권한 허용 → 전날 스크린타임으로 교체)는
+  // 새 스텝 도달로 정상 발행한다(코덱스 리뷰).
+  const viewedStepsRef = useRef(new Set<OnboardingStepName>());
   useEffect(() => {
-    if (showSplash || index <= maxViewedIndexRef.current) return;
-    maxViewedIndexRef.current = index;
+    if (showSplash) return;
     const reached = sequence[index];
-    logOnboardingStepViewed({
-      step: reached.kind === 'step' ? reached.name : reached.kind,
-      step_index: index,
-    });
+    const step = reached.kind === 'step' ? reached.name : reached.kind;
+    if (viewedStepsRef.current.has(step)) return;
+    viewedStepsRef.current.add(step);
+    logOnboardingStepViewed({ step, step_index: index });
   }, [showSplash, index, sequence]);
 
   // 로그인 노드 위치 — 인증 후 뒤로가기 하한(로그인 이전 화면 복귀 방지)을 계산한다.
