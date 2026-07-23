@@ -89,18 +89,6 @@ class ScreenTimeModule: NSObject {
         }
     }
 
-    // 총 스크린 타임 조회 (App Group을 통해 익스텐션에서 저장된 값 읽기)
-    // ⚠️ Report 익스텐션의 App Group 쓰기가 iOS에 막혀 이 값은 항상 0 (ScreenTime_WorkLog 원인 3) —
-    // 실사용 경로 아님. 사용량은 버킷 모니터(getTodayUsageBucketMinutes)로 읽는다.
-    @objc func getTotalScreenTime(
-        _ resolve: @escaping RCTPromiseResolveBlock,
-        rejecter reject: @escaping RCTPromiseRejectBlock
-    ) {
-        let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
-        let totalDuration = sharedDefaults?.double(forKey: "gromo:screentime:totalDuration") ?? 0
-        resolve(totalDuration)
-    }
-
     // 목표 시간을 App Group에 저장 (익스텐션에서 읽어서 "남은 시간" 계산에 사용)
     // JS에서 await ScreenTimeModule.setGoalSeconds(goalSeconds) 로 호출
     @objc func setGoalSeconds(

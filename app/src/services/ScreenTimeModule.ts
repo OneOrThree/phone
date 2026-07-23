@@ -20,7 +20,6 @@ export interface AppSelectionCounts {
 interface NativeScreenTime {
   requestAuthorization(): Promise<boolean>;
   getAuthorizationStatus(): Promise<AuthorizationStatus>;
-  getTotalScreenTime(): Promise<number>;
   setGoalSeconds(seconds: number): Promise<void>;
   startGoalMonitoring(goalSeconds: number): Promise<boolean>;
   startUsageBucketMonitoring(maxMinutes: number): Promise<boolean>;
@@ -55,13 +54,6 @@ const ScreenTimeModule = {
   getAuthorizationStatus: async (): Promise<AuthorizationStatus> => {
     if (Platform.OS !== 'ios') return 'denied';
     return NativeScreenTimeModule.getAuthorizationStatus();
-  },
-
-  // 총 스크린 타임 조회 (초 단위) — ⚠️ 리포트 익스텐션의 App Group 쓰기가 iOS에 막혀 항상 0(죽은 경로).
-  // 실사용 사용량은 버킷 모니터 경로(getTodayUsageBucketMinutes)로 읽는다.
-  getTotalScreenTime: async (): Promise<number> => {
-    if (Platform.OS !== 'ios') return 0;
-    return NativeScreenTimeModule.getTotalScreenTime();
   },
 
   // 목표 시간을 App Group에 저장 (익스텐션에서 "남은 시간" 계산에 사용)
