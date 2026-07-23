@@ -298,12 +298,15 @@ export default function FriendProfileScreen() {
           .filter((i) => i.tagName != null)
           .map((i) => [i.tagName as string, i.totalFocusMinutes]),
       );
-      // 내 프로필: 내 과목 전부(soloMine 카드가 내 바만 그림 — theirMinutes 미사용 0) /
-      // 타인: 겹치는 과목만 실비교.
+      // 내 프로필: 내 과목 전부(soloMine 카드가 내 바만 그림 — theirMinutes 미사용 0).
+      // 태그 없는 세션 버킷(tagName null)도 통계 화면과 같은 '미분류'로 보존 — 걸러내면
+      // 전부 미분류인 유저가 "기록 없음"으로 보인다(코덱스 리뷰). / 타인: 겹치는 과목만 실비교.
       const rows: SubjectCompare[] = isMe
-        ? mine.items
-            .filter((i): i is typeof i & { tagName: string } => i.tagName != null)
-            .map((i) => ({ name: i.tagName, myMinutes: i.totalFocusMinutes, theirMinutes: 0 }))
+        ? mine.items.map((i) => ({
+            name: i.tagName ?? '미분류',
+            myMinutes: i.totalFocusMinutes,
+            theirMinutes: 0,
+          }))
         : (theirs?.items ?? [])
             .filter(
               (i): i is typeof i & { tagName: string } =>
@@ -327,12 +330,16 @@ export default function FriendProfileScreen() {
   // 타 유저 heatmap은 서버가 최근 7일 고정 반환 — 이번 주(월~) 셀만 걸러 지난주 꼬리를 제거.
   const weekFrom = heatmapRange('WEEK').from;
   const theirWeekCells = (stats?.heatmap ?? []).filter((c) => c.date >= weekFrom);
+  // 내 프로필 — 직접 heatmap 조회(getHeatmap)가 실패해 빈 폴백([])이면 getUserStats(본인)의
+  // heatmap으로 대체한다. 안 그러면 detailVisible(성공한 응답 기준)은 참인데 솔로 차트는 실패한
+  // 소스로 전부 0을 그린다(코덱스 리뷰). 정상적으로 이번 주 기록이 없으면 둘 다 비어 무해.
+  const myWeekCells = isMe && myHeatmap.length === 0 ? theirWeekCells : myHeatmap;
   const focusByDay: CompareByDay = {
-    mine: byWeekday(myHeatmap, (c) => c.totalFocusMinutes),
+    mine: byWeekday(myWeekCells, (c) => c.totalFocusMinutes),
     theirs: byWeekday(theirWeekCells, (c) => c.totalFocusMinutes),
   };
   const phoneByDay: CompareByDay = {
-    mine: byWeekday(myHeatmap, (c) => c.actualScreenTimeMinutes),
+    mine: byWeekday(myWeekCells, (c) => c.actualScreenTimeMinutes),
     theirs: byWeekday(theirWeekCells, (c) => c.actualScreenTimeMinutes),
   };
   // 상대 폰 사용이 이번 주 내내 0이면 미측정(스크린타임 미허용·구버전·미동기화)과 구분 불가 —
@@ -397,7 +404,11 @@ export default function FriendProfileScreen() {
 
       <ScrollView
         style={s.scroll}
-        contentContainerStyle={s.scrollContent}
+        contentContainerStyle={[
+          s.scrollContent,
+          // 내 프로필 — 하단 인셋을 채우던 CTA가 없어 홈 인디케이터 영역만큼 스크롤 여백을 직접 더한다(코덱스 리뷰)
+          isMe && { paddingBottom: insets.bottom + T.space.lg },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {/* ── 아바타·이름·친구 수·티어·전체 랭킹 ── */}
