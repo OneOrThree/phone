@@ -1,6 +1,7 @@
 // 통계 화면(GROMO-604) 포맷·집계 헬퍼. 순수 함수만 — UI/네트워크 없음.
 import { localDateStr, todayStr } from '@/utils/localDate';
 import type { HeatmapCellResponse, StatsPeriod } from '@/types/dto/stats';
+import { FOCUS_COLOR } from './constants';
 
 // 오늘 세션 → 10분 슬롯(0~143 = 24시간×6)별 집중 구간(GROMO-761 시간대별 집중 타임테이블).
 // 슬롯 경계는 시계 기준(정각 정렬 — 예: 3:00~3:10, 3:10~3:20)이고, 세션 구간을 경계로 잘라
@@ -91,6 +92,18 @@ export function weekdayFocusBlocks(
     }
   }
   return out;
+}
+
+// 세션 구간의 과목 색 — 서버 tagId → 태그명 → 로컬 과목 색. 로컬 과목 id는 서버 tagId와 다를 수
+// 있어 이름으로 잇는다. 미분류·매칭 실패는 기본 집중색(오늘 타임테이블·주간 타임라인 공용).
+export function subjectColorForTag(
+  tagId: string | null,
+  tagNames: Map<string, string>,
+  subjects: { name: string; color: string }[],
+): string {
+  const name = tagId ? tagNames.get(tagId) : undefined;
+  const subject = name ? subjects.find((x) => x.name === name) : undefined;
+  return subject?.color ?? FOCUS_COLOR;
 }
 
 // 상단 기간 세그먼트 정의(일/주/월).
@@ -186,8 +199,9 @@ export function heatmapBars(
   return cells.map((c) => ({ label: '오늘', value: pick(c), current: true }));
 }
 
-// 달력 일 번호 — UTC 자정으로 정규화해 DST가 있는 시간대에서도 일수 차이가 정확(StatsScreen과 동일 로직).
-const dayNum = (y: number, monthIdx: number, d: number) =>
+// 달력 일 번호 — UTC 자정으로 정규화해 DST가 있는 시간대에서도 일수 차이가 정확.
+// 첫 시작 시각 집계·해당월 주별 차트(MonthWeeklyChart) 공용.
+export const dayNum = (y: number, monthIdx: number, d: number) =>
   Math.floor(Date.UTC(y, monthIdx, d) / 86400e3);
 
 // 세션 목록 → 일별 첫 세션 시작 시각(로컬 자정 경과 분). key = 'YYYY-MM-DD'(로컬).
