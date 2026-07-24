@@ -63,6 +63,28 @@ class JwtProviderTest {
     }
 
     @Test
+    @DisplayName("Access Token 은 type=access 클레임을 갖는다")
+    void accessTokenHasAccessTypeClaim() {
+        String token = jwtProvider.generateAccessToken(UUID.randomUUID());
+        assertThat(jwtProvider.extractType(token)).isEqualTo(JwtProvider.TYPE_ACCESS);
+    }
+
+    @Test
+    @DisplayName("Refresh Token 은 type=refresh 클레임을 갖는다")
+    void refreshTokenHasRefreshTypeClaim() {
+        String token = jwtProvider.generateRefreshToken(UUID.randomUUID());
+        assertThat(jwtProvider.extractType(token)).isEqualTo(JwtProvider.TYPE_REFRESH);
+    }
+
+    @Test
+    @DisplayName("type 클레임 추가 후에도 userId 추출은 그대로 동작한다")
+    void typeClaimDoesNotBreakUserIdExtraction() {
+        UUID id = UUID.fromString("00000000-0000-0000-0000-000000000099");
+        assertThat(jwtProvider.extractUserId(jwtProvider.generateAccessToken(id))).isEqualTo(id);
+        assertThat(jwtProvider.extractUserId(jwtProvider.generateRefreshToken(id))).isEqualTo(id);
+    }
+
+    @Test
     @DisplayName("secret이 blank이면 생성 시 IllegalStateException 발생")
     void blankSecretThrowsIllegalStateException() {
         assertThatThrownBy(() -> new JwtProvider("   ", 3600L, 2592000L))

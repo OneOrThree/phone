@@ -108,7 +108,9 @@ class AuthServiceTest {
         assertThat(response.isNewUser()).isTrue();
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.refreshToken()).isEqualTo("refresh-token");
-        assertThat(savedUser.getRefreshToken()).isEqualTo("refresh-token");   // setRefreshToken 호출
+        // RT 는 평문이 아니라 SHA-256 해시로 저장돼야 한다 (GROMO-713)
+        assertThat(savedUser.getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex("refresh-token"));
+        assertThat(savedUser.getRefreshTokenHash()).isNotEqualTo("refresh-token");
         verify(userRepository).save(any(User.class));
         verify(socialAccountRepository).save(any(SocialAccount.class));
         verify(appleClient, never()).getProviderId(anyString());              // 라우팅: kakao만 호출
@@ -263,6 +265,7 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
         given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(guestUser));
         given(jwtProvider.generateAccessToken(GUEST_ID)).willReturn("access-token");
@@ -276,7 +279,7 @@ class AuthServiceTest {
         assertThat(response.isNewUser()).isFalse();
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(guestUser.isGuest()).isFalse();
-        assertThat(guestUser.getRefreshToken()).isEqualTo("refresh-token");
+        assertThat(guestUser.getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex("refresh-token"));
         verify(userRepository, never()).save(any(User.class));            // 새 User 생성 금지(재활용)
         verify(socialAccountRepository).save(any(SocialAccount.class));    // 소셜 연동만 새로 부착
         // createUserSideRows 미호출 — 부속 row 는 게스트 생성 시 이미 존재(중복 방지)
@@ -301,6 +304,7 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.of(linkedAccount));
         given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(guestUser));
 
@@ -320,6 +324,7 @@ class AuthServiceTest {
         User savedUser = User.builder().id(USER_ID).build();
         given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
         given(jwtProvider.isTokenValid("deleted-guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("deleted-guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("deleted-guest-jwt")).willReturn(GUEST_ID);
         // 탈퇴 유저는 활성 유저 조회에서 제외돼 게스트 업그레이드 대상이 아니다.
         given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.empty());
@@ -335,6 +340,51 @@ class AuthServiceTest {
         assertThat(response.isNewUser()).isTrue();
         verify(userRepository).findByIdAndIsDeletedFalse(GUEST_ID);
         verify(userRepository, never()).findById(GUEST_ID);
+    }
+
+    @Test
+    @DisplayName("refresh 토큰으로는 게스트 업그레이드를 할 수 없다 — 새 가입으로 처리 (GROMO-714)")
+    void refreshTokenCannotUpgradeGuest() {
+        // given — /auth/* 는 JwtFilter 화이트리스트라 필터 타입 가드를 타지 않는다.
+        // 서명이 유효한 refresh 토큰을 Authorization 헤더로 보내 게스트를 승격시키려는 시도.
+        User savedUser = User.builder().id(USER_ID).build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(jwtProvider.isTokenValid("stolen-rt")).willReturn(true);
+        given(jwtProvider.extractType("stolen-rt")).willReturn(JwtProvider.TYPE_REFRESH);
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.empty());
+        given(userRepository.save(any(User.class))).willReturn(savedUser);
+        given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
+
+        // when
+        SocialLoginResponse response =
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer stolen-rt");
+
+        // then — 타입 가드에서 걸러져 currentUserId 가 null → 업그레이드가 아닌 신규 가입 흐름
+        assertThat(response.isNewUser()).isTrue();
+        verify(jwtProvider, never()).extractUserId("stolen-rt");
+        verify(userRepository, never()).findByIdAndIsDeletedFalse(any(UUID.class));
+    }
+
+    @Test
+    @DisplayName("type 클레임 없는 구 토큰으로는 게스트 업그레이드를 할 수 없다 (fail-closed)")
+    void legacyTokenWithoutTypeCannotUpgradeGuest() {
+        User savedUser = User.builder().id(USER_ID).build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(jwtProvider.isTokenValid("legacy-jwt")).willReturn(true);
+        given(jwtProvider.extractType("legacy-jwt")).willReturn(null);
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.empty());
+        given(userRepository.save(any(User.class))).willReturn(savedUser);
+        given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
+
+        SocialLoginResponse response =
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer legacy-jwt");
+
+        assertThat(response.isNewUser()).isTrue();
+        verify(jwtProvider, never()).extractUserId("legacy-jwt");
     }
 
     // ── guestLogin ────────────────────────────────────────────────────────
@@ -365,7 +415,10 @@ class AuthServiceTest {
     void refreshTokenSuccess() {
         // given
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findByRefreshToken("valid-rt")).willReturn(Optional.of(user));
+        given(jwtProvider.extractType("valid-rt")).willReturn(JwtProvider.TYPE_REFRESH);
+        // 조회 키는 원본 RT 가 아니라 그 해시여야 한다 — 서비스가 해싱을 빠뜨리면 stub 이 매칭되지 않아 실패한다 (GROMO-713)
+        given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("valid-rt")))
+                .willReturn(Optional.of(user));
         given(jwtProvider.generateAccessToken(USER_ID)).willReturn("new-access-token");
 
         // when
@@ -379,6 +432,7 @@ class AuthServiceTest {
     @DisplayName("유효하지 않은 RT → InvalidTokenException")
     void refreshTokenInvalid() {
         // given
+        given(jwtProvider.extractType("bad-rt")).willReturn(JwtProvider.TYPE_REFRESH);
         given(jwtProvider.extractUserId("bad-rt")).willThrow(new JwtException("invalid"));
 
         // when & then
@@ -390,10 +444,48 @@ class AuthServiceTest {
     @DisplayName("DB에 없는 RT → InvalidTokenException")
     void refreshTokenNotFoundInDb() {
         // given
-        given(userRepository.findByRefreshToken("orphan-rt")).willReturn(Optional.empty());
+        given(jwtProvider.extractType("orphan-rt")).willReturn(JwtProvider.TYPE_REFRESH);
+        given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("orphan-rt")))
+                .willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> authService.refreshToken("orphan-rt"))
                 .isInstanceOf(InvalidTokenException.class);
+    }
+
+    @Test
+    @DisplayName("access 토큰으로 갱신 시도 → InvalidTokenException (GROMO-714)")
+    void refreshTokenRejectsAccessType() {
+        // given — refresh 가 아닌 access 타입 토큰
+        given(jwtProvider.extractType("access-token")).willReturn(JwtProvider.TYPE_ACCESS);
+
+        // when & then — 타입 가드에서 막혀 DB 조회까지 가지 않는다
+        assertThatThrownBy(() -> authService.refreshToken("access-token"))
+                .isInstanceOf(InvalidTokenException.class);
+        verify(userRepository, never()).findByRefreshTokenHash(anyString());
+    }
+
+    @Test
+    @DisplayName("type 클레임 없는 구 토큰으로 갱신 시도 → InvalidTokenException (fail-closed)")
+    void refreshTokenRejectsLegacyTokenWithoutType() {
+        // given — 714 이전에 발급돼 type 클레임이 없는 토큰은 extractType 이 null 을 반환한다
+        given(jwtProvider.extractType("legacy-rt")).willReturn(null);
+
+        // when & then
+        assertThatThrownBy(() -> authService.refreshToken("legacy-rt"))
+                .isInstanceOf(InvalidTokenException.class);
+        verify(userRepository, never()).findByRefreshTokenHash(anyString());
+    }
+
+    @Test
+    @DisplayName("access 토큰으로 로그아웃 시도 → InvalidTokenException (GROMO-714)")
+    void logoutRejectsAccessType() {
+        // given
+        given(jwtProvider.extractType("access-token")).willReturn(JwtProvider.TYPE_ACCESS);
+
+        // when & then — 남의 세션을 access 토큰으로 끊을 수 없다
+        assertThatThrownBy(() -> authService.logout("access-token"))
+                .isInstanceOf(InvalidTokenException.class);
+        verify(userRepository, never()).findByRefreshTokenHash(anyString());
     }
 }
