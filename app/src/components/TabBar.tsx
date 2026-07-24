@@ -89,33 +89,37 @@ const ICONS: Record<string, IconPair> = {
   전체: ['menu', 'menu-outline'],
 };
 
+// 렌더 중에 정의하면 렌더마다 새 컴포넌트 타입이 되어 탭 서브트리가 리마운트됨 — TabBar 밖에 둔다
+function Tab({
+  index,
+  state,
+  navigation,
+}: Pick<BottomTabBarProps, 'state' | 'navigation'> & { index: number }) {
+  const route = state.routes[index];
+  if (!route) return <View style={s.tab} />;
+  const focused = state.index === index;
+  const [on, off] = ICONS[route.name] ?? ['ellipse', 'ellipse-outline'];
+  return (
+    <TouchableOpacity
+      style={s.tab}
+      activeOpacity={0.7}
+      onPress={() => {
+        if (!focused) {
+          hapticSelect();
+          navigation.navigate(route.name);
+        }
+      }}
+    >
+      <Ionicons name={focused ? on : off} size={26} color={focused ? T.accent : T.inkMuted} />
+    </TouchableOpacity>
+  );
+}
+
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const rootNav = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const routes = state.routes;
   // 파임 경로는 실제 폭 기준으로 그린다 — onLayout 측정 전에는 배경 생략
   const [barW, setBarW] = useState(0);
-
-  function Tab({ index }: { index: number }) {
-    const route = routes[index];
-    if (!route) return <View style={s.tab} />;
-    const focused = state.index === index;
-    const [on, off] = ICONS[route.name] ?? ['ellipse', 'ellipse-outline'];
-    return (
-      <TouchableOpacity
-        style={s.tab}
-        activeOpacity={0.7}
-        onPress={() => {
-          if (!focused) {
-            hapticSelect();
-            navigation.navigate(route.name);
-          }
-        }}
-      >
-        <Ionicons name={focused ? on : off} size={26} color={focused ? T.accent : T.inkMuted} />
-      </TouchableOpacity>
-    );
-  }
 
   return (
     <View
@@ -142,11 +146,11 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
             <GlassPillFill borderRadius={HIGHLIGHT_H / 2} tintColor="rgba(255,255,255,0.45)" />
           </Animated.View>
         )}
-        <Tab index={0} />
-        <Tab index={1} />
+        <Tab index={0} state={state} navigation={navigation} />
+        <Tab index={1} state={state} navigation={navigation} />
         <View style={s.fabSlot} />
-        <Tab index={2} />
-        <Tab index={3} />
+        <Tab index={2} state={state} navigation={navigation} />
+        <Tab index={3} state={state} navigation={navigation} />
       </View>
 
       {/* 중앙 FAB — 집중 시작 */}

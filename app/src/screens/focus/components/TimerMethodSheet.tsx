@@ -91,9 +91,9 @@ export function TimerMethodSheet({
             style={[
               s.glass,
               glassPill,
+              picked ? s.glassShown : s.glassHidden,
               {
                 height: glassRect.h,
-                opacity: picked ? 1 : 0,
                 transform: [{ translateY: glassRect.y }],
               },
               glassSlide,
@@ -146,4 +146,6 @@ const s = StyleSheet.create({
     top: 0,
     borderRadius: 15,
   },
+  glassShown: { opacity: 1 },
+  glassHidden: { opacity: 0 },
 });

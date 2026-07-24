@@ -309,7 +309,7 @@ export default function MemberCalendarScreen({
 
         {/* 달력 그리드 */}
         {loading ? (
-          <ActivityIndicator size="small" color={T.inkMed} style={{ marginVertical: 20 }} />
+          <ActivityIndicator size="small" color={T.inkMed} style={s.loadingSpinner} />
         ) : (
           <View style={{ gap: CELL_GAP }}>
             {rows.map((row, ri) => (
@@ -397,6 +397,7 @@ export default function MemberCalendarScreen({
 }
 
 const s = StyleSheet.create({
+  loadingSpinner: { marginVertical: 20 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

@@ -26,26 +26,24 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
   }, []);
 
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
+    const sub = AppState.addEventListener('change', async (state) => {
       if (state !== 'active' || !returningFromSettings.current) return;
       returningFromSettings.current = false;
-      void (async () => {
-        // 설정에서 권한을 켜고 돌아왔는지 확인.
-        const status = await ScreenTimeModule.getAuthorizationStatus();
-        if (status !== 'approved') return; // 여전히 미허용 — 이 화면 유지.
-        // 허용됨 → 측정 대상(앱) picker → selection 즉시 승격.
-        try {
-          const counts = await ScreenTimeModule.presentAppPicker();
-          if (counts) {
-            await ScreenTimeModule.promoteSelection();
-            updateRef.current({ screenTimeSelectionConfigured: true });
-          }
-        } catch {
-          // picker 미지원 환경(시뮬레이터 등)은 조용히 무시 — 진행.
+      // 설정에서 권한을 켜고 돌아왔는지 확인.
+      const status = await ScreenTimeModule.getAuthorizationStatus();
+      if (status !== 'approved') return; // 여전히 미허용 — 이 화면 유지.
+      // 허용됨 → 측정 대상(앱) picker → selection 즉시 승격.
+      try {
+        const counts = await ScreenTimeModule.presentAppPicker();
+        if (counts) {
+          await ScreenTimeModule.promoteSelection();
+          updateRef.current({ screenTimeSelectionConfigured: true });
         }
-        // 허용 경로로 전환(이 스텝이 W11 전날 스크린타임으로 자동 교체됨).
-        updateRef.current({ screenTimeGranted: true });
-      })();
+      } catch {
+        // picker 미지원 환경(시뮬레이터 등)은 조용히 무시 — 진행.
+      }
+      // 허용 경로로 전환(이 스텝이 W11 전날 스크린타임으로 자동 교체됨).
+      updateRef.current({ screenTimeGranted: true });
     });
     return () => sub.remove();
   }, []);
