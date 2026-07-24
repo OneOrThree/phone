@@ -108,7 +108,9 @@ class AuthServiceTest {
         assertThat(response.isNewUser()).isTrue();
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.refreshToken()).isEqualTo("refresh-token");
-        assertThat(savedUser.getRefreshToken()).isEqualTo("refresh-token");   // setRefreshToken 호출
+        // RT 는 평문이 아니라 SHA-256 해시로 저장돼야 한다 (GROMO-713)
+        assertThat(savedUser.getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex("refresh-token"));
+        assertThat(savedUser.getRefreshTokenHash()).isNotEqualTo("refresh-token");
         verify(userRepository).save(any(User.class));
         verify(socialAccountRepository).save(any(SocialAccount.class));
         verify(appleClient, never()).getProviderId(anyString());              // 라우팅: kakao만 호출
@@ -276,7 +278,7 @@ class AuthServiceTest {
         assertThat(response.isNewUser()).isFalse();
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(guestUser.isGuest()).isFalse();
-        assertThat(guestUser.getRefreshToken()).isEqualTo("refresh-token");
+        assertThat(guestUser.getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex("refresh-token"));
         verify(userRepository, never()).save(any(User.class));            // 새 User 생성 금지(재활용)
         verify(socialAccountRepository).save(any(SocialAccount.class));    // 소셜 연동만 새로 부착
         // createUserSideRows 미호출 — 부속 row 는 게스트 생성 시 이미 존재(중복 방지)
@@ -365,7 +367,9 @@ class AuthServiceTest {
     void refreshTokenSuccess() {
         // given
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findByRefreshToken("valid-rt")).willReturn(Optional.of(user));
+        // 조회 키는 원본 RT 가 아니라 그 해시여야 한다 — 서비스가 해싱을 빠뜨리면 stub 이 매칭되지 않아 실패한다 (GROMO-713)
+        given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("valid-rt")))
+                .willReturn(Optional.of(user));
         given(jwtProvider.generateAccessToken(USER_ID)).willReturn("new-access-token");
 
         // when
@@ -390,7 +394,8 @@ class AuthServiceTest {
     @DisplayName("DB에 없는 RT → InvalidTokenException")
     void refreshTokenNotFoundInDb() {
         // given
-        given(userRepository.findByRefreshToken("orphan-rt")).willReturn(Optional.empty());
+        given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("orphan-rt")))
+                .willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> authService.refreshToken("orphan-rt"))

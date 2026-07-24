@@ -70,7 +70,7 @@ public class User {
     @Column(length = 512)
     private String deviceToken;
 
-    private String refreshToken;
+    private String refreshTokenHash;
 
     @CreationTimestamp
     private Instant createdAt;

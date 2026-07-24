@@ -31,7 +31,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     // 닉네임 중복 검사 (GROMO-584) — 본인 제외(AndIdNot)로 자기 닉네임 재사용은 허용.
     boolean existsByNicknameAndIdNot(String nickname, UUID id);
 
-    Optional<User> findByRefreshToken(String refreshToken);
+    Optional<User> findByRefreshTokenHash(String hash);
 
     // 닉네임 trgm fuzzy 검색 (NicknameSearchStrategy에서 호출).
     // 전제: pg_trgm 확장 + users.nickname GIN trgm 인덱스 (run-migration-v13.sh).

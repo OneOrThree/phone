@@ -223,7 +223,7 @@ class UserServiceTest {
     @Test
     @DisplayName("탈퇴 성공 → focus·wallet·3 settings 정리 + 소셜연동 삭제·PII 파기·소프트딜리트 (하드삭제 X) GROMO-635")
     void withdrawSuccess() {
-        User user = User.builder().id(USER_ID).nickname("조재영").refreshToken("rt").deviceToken("dt").build();
+        User user = User.builder().id(USER_ID).nickname("조재영").refreshTokenHash("rt-hash").deviceToken("dt").build();
         given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(false);
 
@@ -240,7 +240,7 @@ class UserServiceTest {
         // 소프트딜리트 + PII 파기, 하드 삭제 안 함 (FK 위반 방지)
         assertThat(user.isDeleted()).isTrue();
         assertThat(user.getNickname()).isNull();
-        assertThat(user.getRefreshToken()).isNull();
+        assertThat(user.getRefreshTokenHash()).isNull();
         assertThat(user.getDeviceToken()).isNull();
         verify(userRepository, never()).delete(any());
     }

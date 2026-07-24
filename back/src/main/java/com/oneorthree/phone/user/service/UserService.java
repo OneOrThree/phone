@@ -139,7 +139,7 @@ public class UserService {
         socialAccountRepository.deleteByUserId(userId);   // 소셜 연동 삭제 → 재로그인 차단 + provider_id 파기
         user.setNickname(null);
         user.setDeviceToken(null);
-        user.setRefreshToken(null);
+        user.setRefreshTokenHash(null);
         user.setCountryCode(null);
         user.setDeleted(true);
     }

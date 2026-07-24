@@ -124,6 +124,8 @@ public class AuthService {
      * 헤더가 없거나 Bearer 형식이 아니거나 토큰이 무효면 empty(=신규 가입 흐름). JwtFilter 를 바꾸지 않기 위해
      * 여기서만 optional 파싱한다 — 유효할 때만 파싱하므로 무효 토큰이 로그인 자체를 막지는 않는다.
      */
+    // TODO GROMO-714: 이 메서드는 **변경하지 않는다**(의도적). 게스트는 자신의 access 토큰을 헤더로 보내므로
+    //   타입 가드를 넣으면 게스트→소셜 업그레이드가 깨진다. JwtFilter 화이트리스트 경로라 필터 가드도 타지 않는다.
     private UUID resolveCurrentUserId(String authorizationHeader) {
         if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
             return null;
@@ -192,7 +194,8 @@ public class AuthService {
 
         String accessToken = jwtProvider.generateAccessToken(user.getId());
         String refreshToken = jwtProvider.generateRefreshToken(user.getId());
-        user.setRefreshToken(refreshToken);
+        // RT 원본은 응답으로만 내려가고 DB 에는 해시만 남긴다 — DB 유출 시 재사용 차단 (GROMO-713)
+        user.setRefreshTokenHash(TokenHasher.sha256Hex(refreshToken));
 
         // 신규 유저만 가입 이벤트 발행 — 재활성화 로그인·게스트 업그레이드(isNewUser=false)는 제외
         if (isNewUser) {
@@ -212,7 +215,7 @@ public class AuthService {
 
         String accessToken = jwtProvider.generateAccessToken(newUser.getId());
         String refreshToken = jwtProvider.generateRefreshToken(newUser.getId());
-        newUser.setRefreshToken(refreshToken);
+        newUser.setRefreshTokenHash(TokenHasher.sha256Hex(refreshToken));
 
         // 게스트 생성은 항상 신규 가입
         userActivityEventLogger.log(newUser.getId().toString(), UserActivityEvent.USER_SIGNED_UP,
@@ -223,13 +226,18 @@ public class AuthService {
     }
 
     public TokenRefreshResponse refreshToken(String refreshToken) {
+        // TODO GROMO-714: 이 try 블록 안에서 타입 가드를 추가한다 — refresh 타입만 허용.
+        //   JwtProvider.TYPE_REFRESH 와 jwtProvider.extractType(refreshToken) 이 다르면
+        //   InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN) 을 던진다(access·구 토큰 = null 모두 거부).
+        //   주의: 이 예외를 같은 try 의 catch(JwtException) 가 삼키지 않도록 위치·타입을 확인할 것.
         try {
             jwtProvider.extractUserId(refreshToken);
         } catch (JwtException e) {
             throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
         }
 
-        User user = userRepository.findByRefreshToken(refreshToken)
+        // 조회도 해시로 — 저장과 같은 변환을 거쳐야 매칭된다 (GROMO-713)
+        User user = userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex(refreshToken))
                 .orElseThrow(() -> new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN));
 
         String newAccessToken = jwtProvider.generateAccessToken(user.getId());
@@ -238,16 +246,17 @@ public class AuthService {
 
     @Transactional
     public void logout(String refreshToken) {
+        // TODO GROMO-714: refreshToken() 과 동일한 refresh 타입 가드를 추가한다(access 토큰으로 남의 세션을 끊지 못하게).
         try {
             jwtProvider.extractUserId(refreshToken);
         } catch (JwtException e) {
             throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
         }
 
-        User user = userRepository.findByRefreshToken(refreshToken)
+        User user = userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex(refreshToken))
                 .orElseThrow(() -> new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN));
 
-        user.setRefreshToken(null);
+        user.setRefreshTokenHash(null);
 
         userActivityEventLogger.log(UserActivityEvent.LOGOUT, Map.of());
     }
