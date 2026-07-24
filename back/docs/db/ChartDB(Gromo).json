@@ -347,7 +347,7 @@
     },
     {
      "id": "258",
-     "name": "refresh_token",
+     "name": "refresh_token_hash",
      "type": {
       "id": "varchar",
       "name": "varchar"
@@ -357,7 +357,7 @@
      "nullable": true,
      "createdAt": 1783600916214,
      "characterMaximumLength": "512",
-     "comments": "JWT 리프레시 토큰 (인증)"
+     "comments": "JWT 리프레시 토큰의 SHA-256 해시 (인증) — 평문 저장 금지 GROMO-713"
     },
     {
      "id": "259",
