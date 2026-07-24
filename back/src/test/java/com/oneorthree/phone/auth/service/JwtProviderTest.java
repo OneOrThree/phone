@@ -61,4 +61,18 @@ class JwtProviderTest {
     void invalidTokenReturnsFalse() {
         assertThat(jwtProvider.isTokenValid("bad.token")).isFalse();
     }
+
+    @Test
+    @DisplayName("secret이 blank이면 생성 시 IllegalStateException 발생")
+    void blankSecretThrowsIllegalStateException() {
+        assertThatThrownBy(() -> new JwtProvider("   ", 3600L, 2592000L))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("secret이 null이면 생성 시 IllegalStateException 발생")
+    void nullSecretThrowsIllegalStateException() {
+        assertThatThrownBy(() -> new JwtProvider(null, 3600L, 2592000L))
+                .isInstanceOf(IllegalStateException.class);
+    }
 }
