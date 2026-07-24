@@ -265,6 +265,7 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
         given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(guestUser));
         given(jwtProvider.generateAccessToken(GUEST_ID)).willReturn("access-token");
@@ -303,6 +304,7 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.of(linkedAccount));
         given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(guestUser));
 
@@ -322,6 +324,7 @@ class AuthServiceTest {
         User savedUser = User.builder().id(USER_ID).build();
         given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
         given(jwtProvider.isTokenValid("deleted-guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("deleted-guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("deleted-guest-jwt")).willReturn(GUEST_ID);
         // 탈퇴 유저는 활성 유저 조회에서 제외돼 게스트 업그레이드 대상이 아니다.
         given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.empty());
@@ -337,6 +340,51 @@ class AuthServiceTest {
         assertThat(response.isNewUser()).isTrue();
         verify(userRepository).findByIdAndIsDeletedFalse(GUEST_ID);
         verify(userRepository, never()).findById(GUEST_ID);
+    }
+
+    @Test
+    @DisplayName("refresh 토큰으로는 게스트 업그레이드를 할 수 없다 — 새 가입으로 처리 (GROMO-714)")
+    void refreshTokenCannotUpgradeGuest() {
+        // given — /auth/* 는 JwtFilter 화이트리스트라 필터 타입 가드를 타지 않는다.
+        // 서명이 유효한 refresh 토큰을 Authorization 헤더로 보내 게스트를 승격시키려는 시도.
+        User savedUser = User.builder().id(USER_ID).build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(jwtProvider.isTokenValid("stolen-rt")).willReturn(true);
+        given(jwtProvider.extractType("stolen-rt")).willReturn(JwtProvider.TYPE_REFRESH);
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.empty());
+        given(userRepository.save(any(User.class))).willReturn(savedUser);
+        given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
+
+        // when
+        SocialLoginResponse response =
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer stolen-rt");
+
+        // then — 타입 가드에서 걸러져 currentUserId 가 null → 업그레이드가 아닌 신규 가입 흐름
+        assertThat(response.isNewUser()).isTrue();
+        verify(jwtProvider, never()).extractUserId("stolen-rt");
+        verify(userRepository, never()).findByIdAndIsDeletedFalse(any(UUID.class));
+    }
+
+    @Test
+    @DisplayName("type 클레임 없는 구 토큰으로는 게스트 업그레이드를 할 수 없다 (fail-closed)")
+    void legacyTokenWithoutTypeCannotUpgradeGuest() {
+        User savedUser = User.builder().id(USER_ID).build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(jwtProvider.isTokenValid("legacy-jwt")).willReturn(true);
+        given(jwtProvider.extractType("legacy-jwt")).willReturn(null);
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.empty());
+        given(userRepository.save(any(User.class))).willReturn(savedUser);
+        given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
+
+        SocialLoginResponse response =
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer legacy-jwt");
+
+        assertThat(response.isNewUser()).isTrue();
+        verify(jwtProvider, never()).extractUserId("legacy-jwt");
     }
 
     // ── guestLogin ────────────────────────────────────────────────────────

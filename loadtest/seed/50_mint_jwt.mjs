@@ -27,10 +27,12 @@ const exp = now + EXP_DAYS * 86400;
 const b64u = (s) => Buffer.from(s).toString('base64url');
 const HEADER = b64u(JSON.stringify({ alg: 'HS256' }));
 
-// JwtProvider.buildToken 과 동일 클레임: sub=userId, iat, exp (그 외 없음).
+// JwtProvider.buildToken 과 동일 클레임: sub=userId, type, iat, exp (그 외 없음).
+// type 은 필수 — GROMO-714 이후 JwtFilter 가 access 타입만 통과시키고, 클레임이 없으면(null)
+// fail-closed 로 401 이다. 부하 토큰은 API 호출용이므로 JwtProvider.TYPE_ACCESS 와 같은 "access".
 // 서명 키 계약: Keys.hmacShaKeyFor(secret.getBytes(UTF_8)) = HMAC-SHA256(secret 원문 바이트)
 const mint = (userId) => {
-  const data = `${HEADER}.${b64u(JSON.stringify({ sub: userId, iat: now, exp }))}`;
+  const data = `${HEADER}.${b64u(JSON.stringify({ sub: userId, type: 'access', iat: now, exp }))}`;
   return `${data}.${createHmac('sha256', secret).update(data).digest('base64url')}`;
 };
 

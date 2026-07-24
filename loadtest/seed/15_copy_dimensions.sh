@@ -19,7 +19,7 @@ copy occupations "code,display_name,created_at"
 copy default_tags "id,name,created_at"
 copy occupation_default_tags "id,occupation,sort_order,created_at,default_tag_id"
 copy league_tier_configs "tier_level,arena_size,badge_id,promote_count,relegate_count,relegate_warning_count,created_at"
-copy users "id,is_guest,nickname,country_code,occupation,stat_visibility,device_token,refresh_token,created_at,updated_at,is_deleted,last_active_at"
+copy users "id,is_guest,nickname,country_code,occupation,stat_visibility,device_token,refresh_token_hash,created_at,updated_at,is_deleted,last_active_at"
 copy groups "id,name,description,password,max_members,status,is_chat_enabled,chat_limit_per_person,invite_permission,created_at,deleted_at,version"
 copy items "id,name,item_type,grade,slot_type,payment_type,currency_price,premium_price,asset_url,is_active,created_at"
 

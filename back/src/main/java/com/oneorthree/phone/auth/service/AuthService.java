@@ -124,14 +124,19 @@ public class AuthService {
      * 헤더가 없거나 Bearer 형식이 아니거나 토큰이 무효면 empty(=신규 가입 흐름). JwtFilter 를 바꾸지 않기 위해
      * 여기서만 optional 파싱한다 — 유효할 때만 파싱하므로 무효 토큰이 로그인 자체를 막지는 않는다.
      */
-    // 여기에는 타입 가드를 넣지 않는다 (GROMO-714) — 게스트는 자신의 access 토큰을 헤더로 보내므로
-    // refresh 타입을 요구하면 게스트→소셜 업그레이드가 깨진다. /auth/* 는 JwtFilter 화이트리스트라 필터 가드도 타지 않는다.
+    // access 타입만 인정한다 (GROMO-714) — /auth/* 는 JwtFilter 화이트리스트라 필터의 타입 가드를 타지 않는다.
+    // 여기가 무제한이면 서명만 유효한 refresh 토큰(또는 type 없는 구 토큰)으로도 게스트를 소셜 계정으로 승격시켜
+    // 새 토큰을 받아갈 수 있어, refresh 토큰에 non-refresh 용도가 생기고 fail-closed 컷오버가 뚫린다.
+    // 게스트는 원래 자신의 access 토큰을 헤더로 보내므로 access 를 요구해도 정상 흐름은 그대로다.
     private UUID resolveCurrentUserId(String authorizationHeader) {
         if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
             return null;
         }
         String token = authorizationHeader.substring(7);
         if (!jwtProvider.isTokenValid(token)) {
+            return null;
+        }
+        if (!JwtProvider.TYPE_ACCESS.equals(jwtProvider.extractType(token))) {
             return null;
         }
         return jwtProvider.extractUserId(token);
