@@ -436,7 +436,7 @@ export default function ChallengeTab({ group, groupId }: ChallengeTabProps) {
                 <Text style={s.formBoxTitle}>{formTitle}</Text>
                 <View style={s.timeLabels}>
                   <Text style={s.timeFieldLabel}>시작 시각</Text>
-                  <View style={{ flex: 1 }} />
+                  <View style={s.timeLabelSpacer} />
                   <Text style={s.timeFieldLabel}>종료 시각</Text>
                 </View>
                 <View style={s.timeRow}>
@@ -476,7 +476,7 @@ export default function ChallengeTab({ group, groupId }: ChallengeTabProps) {
             )}
 
             {/* 미션 카테고리 */}
-            <Text style={[s.fieldLabel, { marginTop: 8 }]}>미션 카테고리</Text>
+            <Text style={[s.fieldLabel, s.fieldLabelSpaced]}>미션 카테고리</Text>
             <View style={s.segmentRow}>
               <TouchableOpacity
                 style={[s.segBtn, category === 'FOCUS' && s.segBtnActive]}
@@ -547,6 +547,8 @@ export default function ChallengeTab({ group, groupId }: ChallengeTabProps) {
 const s = StyleSheet.create({
   root: { flex: 1 },
   loader: { marginTop: 60 },
+  timeLabelSpacer: { flex: 1 },
+  fieldLabelSpaced: { marginTop: 8 },
 
   list: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
   listBottom: { height: 100 },

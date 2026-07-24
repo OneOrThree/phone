@@ -147,7 +147,7 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
               style={[
                 s.btn,
                 { backgroundColor: p.bg },
-                p.border ? { borderWidth: 1, borderColor: p.border } : null,
+                p.border ? [s.btnBorder, { borderColor: p.border }] : null,
               ]}
             >
               {loading ? (
@@ -214,6 +214,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: T.space.sm,
   },
+  btnBorder: { borderWidth: 1 },
   btnText: { ...T.text.subtitle },
   // 게스트 버튼 — 소셜과 동급(채움). 중립 톤으로 브랜드색과 구분.
   guestBtn: { backgroundColor: T.sand, marginTop: 2, marginBottom: T.space.lg },

@@ -206,7 +206,11 @@ export function DraggableSubjectRows({
           return (
             <Animated.View
               key={sub.id}
-              style={[s.rowWrap, { top: tops.current[sub.id], zIndex: isDrag ? 10 : 1 }]}
+              style={[
+                s.rowWrap,
+                isDrag ? s.rowWrapDrag : s.rowWrapIdle,
+                { top: tops.current[sub.id] },
+              ]}
             >
               <TouchableOpacity
                 style={[s.row, selected && s.rowSelected, isDrag && s.rowActive]}
@@ -291,6 +295,9 @@ const s = StyleSheet.create({
   flex1: { flex: 1 },
   content: { paddingHorizontal: T.space.xxl, paddingTop: T.space.sm },
   rowWrap: { position: 'absolute', left: 0, right: 0, height: ROW_H },
+  // 드래그 중인 행만 다른 행 위로 떠오르게
+  rowWrapDrag: { zIndex: 10 },
+  rowWrapIdle: { zIndex: 1 },
   row: {
     flex: 1,
     flexDirection: 'row',

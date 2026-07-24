@@ -506,7 +506,7 @@ export default function SettingsScreen({
                   <>
                     <Divider />
                     <View style={s.codeRow}>
-                      <View style={{ flex: 1, gap: 3 }}>
+                      <View style={s.codeInfo}>
                         <Text style={s.codeLabel}>초대 코드</Text>
                         {expired ? (
                           <Text style={s.codeExpired}>만료됨</Text>
@@ -519,7 +519,7 @@ export default function SettingsScreen({
                           </>
                         )}
                       </View>
-                      <View style={{ gap: 8 }}>
+                      <View style={s.codeActions}>
                         {!expired && (
                           <TouchableOpacity onPress={handleShareCode} style={s.shareBtn}>
                             <Text style={s.shareBtnTxt}>공유</Text>
@@ -549,7 +549,7 @@ export default function SettingsScreen({
             <SectionHeader title="초대 코드" />
             <View style={s.card}>
               <View style={s.codeRow}>
-                <View style={{ flex: 1, gap: 3 }}>
+                <View style={s.codeInfo}>
                   <Text style={s.codeLabel}>초대 코드</Text>
                   <Text style={s.codeValue}>{group.code}</Text>
                   {group.codeExpiresAt && (
@@ -776,6 +776,8 @@ export default function SettingsScreen({
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperDark },
   content: { padding: 16 },
+  codeInfo: { flex: 1, gap: 3 },
+  codeActions: { gap: 8 },
   bottomPad: { height: 40 },
 
   sectionHeader: {
