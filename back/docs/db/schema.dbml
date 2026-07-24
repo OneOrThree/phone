@@ -217,7 +217,7 @@ Table users [note: '서비스 사용자 계정 (소셜 로그인 기반, 소프�
 
   stat_visibility                stat_visibility [not null, note: '유저의 개인통계 공개 여부']
 
-  refresh_token                  varchar(512) [note: 'JWT 리프레시 토큰 (인증)']
+  refresh_token_hash             varchar(512) [note: 'JWT 리프레시 토큰의 SHA-256 해시 (인증) — 평문 저장 금지 GROMO-713']
 
   device_token                   varchar(512) [note: 'FCM registration token (서버 푸시 공용 — 리그·미접속 등). GROMO-528']
 

@@ -367,6 +367,7 @@ class AuthServiceTest {
     void refreshTokenSuccess() {
         // given
         User user = User.builder().id(USER_ID).build();
+        given(jwtProvider.extractType("valid-rt")).willReturn(JwtProvider.TYPE_REFRESH);
         // 조회 키는 원본 RT 가 아니라 그 해시여야 한다 — 서비스가 해싱을 빠뜨리면 stub 이 매칭되지 않아 실패한다 (GROMO-713)
         given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("valid-rt")))
                 .willReturn(Optional.of(user));
@@ -383,6 +384,7 @@ class AuthServiceTest {
     @DisplayName("유효하지 않은 RT → InvalidTokenException")
     void refreshTokenInvalid() {
         // given
+        given(jwtProvider.extractType("bad-rt")).willReturn(JwtProvider.TYPE_REFRESH);
         given(jwtProvider.extractUserId("bad-rt")).willThrow(new JwtException("invalid"));
 
         // when & then
@@ -394,11 +396,48 @@ class AuthServiceTest {
     @DisplayName("DB에 없는 RT → InvalidTokenException")
     void refreshTokenNotFoundInDb() {
         // given
+        given(jwtProvider.extractType("orphan-rt")).willReturn(JwtProvider.TYPE_REFRESH);
         given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("orphan-rt")))
                 .willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> authService.refreshToken("orphan-rt"))
                 .isInstanceOf(InvalidTokenException.class);
+    }
+
+    @Test
+    @DisplayName("access 토큰으로 갱신 시도 → InvalidTokenException (GROMO-714)")
+    void refreshTokenRejectsAccessType() {
+        // given — refresh 가 아닌 access 타입 토큰
+        given(jwtProvider.extractType("access-token")).willReturn(JwtProvider.TYPE_ACCESS);
+
+        // when & then — 타입 가드에서 막혀 DB 조회까지 가지 않는다
+        assertThatThrownBy(() -> authService.refreshToken("access-token"))
+                .isInstanceOf(InvalidTokenException.class);
+        verify(userRepository, never()).findByRefreshTokenHash(anyString());
+    }
+
+    @Test
+    @DisplayName("type 클레임 없는 구 토큰으로 갱신 시도 → InvalidTokenException (fail-closed)")
+    void refreshTokenRejectsLegacyTokenWithoutType() {
+        // given — 714 이전에 발급돼 type 클레임이 없는 토큰은 extractType 이 null 을 반환한다
+        given(jwtProvider.extractType("legacy-rt")).willReturn(null);
+
+        // when & then
+        assertThatThrownBy(() -> authService.refreshToken("legacy-rt"))
+                .isInstanceOf(InvalidTokenException.class);
+        verify(userRepository, never()).findByRefreshTokenHash(anyString());
+    }
+
+    @Test
+    @DisplayName("access 토큰으로 로그아웃 시도 → InvalidTokenException (GROMO-714)")
+    void logoutRejectsAccessType() {
+        // given
+        given(jwtProvider.extractType("access-token")).willReturn(JwtProvider.TYPE_ACCESS);
+
+        // when & then — 남의 세션을 access 토큰으로 끊을 수 없다
+        assertThatThrownBy(() -> authService.logout("access-token"))
+                .isInstanceOf(InvalidTokenException.class);
+        verify(userRepository, never()).findByRefreshTokenHash(anyString());
     }
 }

@@ -57,6 +57,14 @@ public class JwtFilter extends OncePerRequestFilter {
             return;
         }
 
+        // access 타입만 통과 (GROMO-714) — 30일 refresh 토큰이 /api/* 를 직접 인증하던 경로를 막아
+        // access 1시간 만료 정책을 실효화한다. 상수를 왼쪽에 둬 type 클레임이 없는 구 토큰(null)도
+        // NPE 없이 거부한다(fail-closed).
+        if (!JwtProvider.TYPE_ACCESS.equals(jwtProvider.extractType(token))) {
+            sendUnauthorized(response);
+            return;
+        }
+
         UUID userId = jwtProvider.extractUserId(token);
 
         // 소프트딜리트(탈퇴) 유저 차단 (GROMO-827) — 서명이 아직 유효한 토큰이라도 is_deleted=true 면 인증 거부.

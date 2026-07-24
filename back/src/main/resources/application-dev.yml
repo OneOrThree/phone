@@ -19,7 +19,9 @@ spring:
 
 jwt:
   secret: ${JWT_SECRET}
-  access-expiration: 3600
+  # dev 전용 장수명 access (GROMO-714) — refresh 토큰의 /api/* 직접 인증이 막히면서 dev 에서 API 를
+  # 찔러볼 때 1시간마다 재발급해야 하는 불편이 생긴다. dev 만 30일로 두고 prod 는 3600(1시간) 유지.
+  access-expiration: 2592000
   refresh-expiration: 2592000
 
 apple:

@@ -14,6 +14,11 @@ import java.util.UUID;
 @Component
 public class JwtProvider {
 
+    public static final String TYPE_ACCESS = "access";
+    public static final String TYPE_REFRESH = "refresh";
+
+    private static final String CLAIM_TYPE = "type";
+
     private final SecretKey secretKey;
     private final long accessExpiration;
     private final long refreshExpiration;
@@ -33,11 +38,27 @@ public class JwtProvider {
     }
 
     public String generateAccessToken(UUID userId) {
-        return buildToken(userId, accessExpiration);
+        return buildToken(userId, accessExpiration, TYPE_ACCESS);
     }
 
     public String generateRefreshToken(UUID userId) {
-        return buildToken(userId, refreshExpiration);
+        return buildToken(userId, refreshExpiration, TYPE_REFRESH);
+    }
+
+    /**
+     * 토큰의 type 클레임을 반환한다 (GROMO-714).
+     *
+     * <p>클레임이 없는 구 토큰은 {@code null} 을 반환한다 — 호출부(JwtFilter·AuthService)가 이를 거부하는
+     * fail-closed 전제이므로 여기서 기본값을 채우지 않는다. 서명·만료가 무효면 JwtException 이 전파되므로
+     * 호출부는 isTokenValid 통과 후에 호출한다.
+     */
+    public String extractType(String token) {
+        return Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .get(CLAIM_TYPE, String.class);
     }
 
     public UUID extractUserId(String token) {
@@ -64,10 +85,11 @@ public class JwtProvider {
         }
     }
 
-    private String buildToken(UUID userId, long expirationSeconds) {
+    private String buildToken(UUID userId, long expirationSeconds, String type) {
         Date now = new Date();
         return Jwts.builder()
                 .subject(userId.toString())
+                .claim(CLAIM_TYPE, type)
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + expirationSeconds * 1000))
                 .signWith(secretKey)

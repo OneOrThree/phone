@@ -124,8 +124,8 @@ public class AuthService {
      * 헤더가 없거나 Bearer 형식이 아니거나 토큰이 무효면 empty(=신규 가입 흐름). JwtFilter 를 바꾸지 않기 위해
      * 여기서만 optional 파싱한다 — 유효할 때만 파싱하므로 무효 토큰이 로그인 자체를 막지는 않는다.
      */
-    // TODO GROMO-714: 이 메서드는 **변경하지 않는다**(의도적). 게스트는 자신의 access 토큰을 헤더로 보내므로
-    //   타입 가드를 넣으면 게스트→소셜 업그레이드가 깨진다. JwtFilter 화이트리스트 경로라 필터 가드도 타지 않는다.
+    // 여기에는 타입 가드를 넣지 않는다 (GROMO-714) — 게스트는 자신의 access 토큰을 헤더로 보내므로
+    // refresh 타입을 요구하면 게스트→소셜 업그레이드가 깨진다. /auth/* 는 JwtFilter 화이트리스트라 필터 가드도 타지 않는다.
     private UUID resolveCurrentUserId(String authorizationHeader) {
         if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
             return null;
@@ -226,12 +226,15 @@ public class AuthService {
     }
 
     public TokenRefreshResponse refreshToken(String refreshToken) {
-        // TODO GROMO-714: 이 try 블록 안에서 타입 가드를 추가한다 — refresh 타입만 허용.
-        //   JwtProvider.TYPE_REFRESH 와 jwtProvider.extractType(refreshToken) 이 다르면
-        //   InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN) 을 던진다(access·구 토큰 = null 모두 거부).
-        //   주의: 이 예외를 같은 try 의 catch(JwtException) 가 삼키지 않도록 위치·타입을 확인할 것.
+        // refresh 타입만 허용 (GROMO-714) — access·구 토큰(type 없음 = null)은 거부한다.
+        // 가드가 try 안에 있어야 extractType 이 만료·서명오류에 던지는 JwtException 도 401 로 변환된다
+        // (InvalidTokenException 은 RuntimeException 이라 아래 catch 에 걸리지 않는다).
         try {
+            if (!JwtProvider.TYPE_REFRESH.equals(jwtProvider.extractType(refreshToken))) {
+                throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+            }
             jwtProvider.extractUserId(refreshToken);
+
         } catch (JwtException e) {
             throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
         }
@@ -246,8 +249,11 @@ public class AuthService {
 
     @Transactional
     public void logout(String refreshToken) {
-        // TODO GROMO-714: refreshToken() 과 동일한 refresh 타입 가드를 추가한다(access 토큰으로 남의 세션을 끊지 못하게).
+        // refreshToken() 과 동일한 refresh 타입 가드 — access 토큰으로 세션을 끊지 못하게 한다 (GROMO-714).
         try {
+            if (!JwtProvider.TYPE_REFRESH.equals(jwtProvider.extractType(refreshToken))) {
+                throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+            }
             jwtProvider.extractUserId(refreshToken);
         } catch (JwtException e) {
             throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
