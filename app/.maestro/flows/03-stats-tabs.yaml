@@ -1,0 +1,48 @@
+# GROMO-947 E2E ③ — 통계 기간 탭 전환 (QA STA-01 축약)
+# 02가 만든 집중 기록이 있는 상태에서 일/주/월 탭이 모두 렌더되는지 확인한다.
+# 지표 '값' 검증은 유닛·컴포넌트 테스트(945·946) 몫 — 여기선 화면 관통만 본다.
+appId: com.oneorthree.gromo
+name: 03-stats-tabs
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: 'home.screen'
+    timeout: 15000
+
+# 오늘 카드 '자세히' → 통계 진입 (기본 일 탭). 첫 진입 스포트라이트 투어를 먼저 닫는다.
+- tapOn:
+    id: 'home.today.detail'
+- extendedWaitUntil:
+    optional: true # 투어는 계정 첫 진입에만 뜬다 — 없으면 그냥 진행
+    visible:
+      id: 'guide.overlay'
+    timeout: 5000
+- repeat:
+    times: 8 # 안전 상한 — 오버레이가 사라지면 즉시 종료
+    while:
+      visible:
+        id: 'guide.overlay'
+    commands:
+      - tapOn:
+          id: 'guide.overlay'
+- extendedWaitUntil:
+    visible:
+      id: 'stats.screen'
+    timeout: 15000
+- assertVisible:
+    id: 'stats.card.total'
+
+# 주 → 월 → 일 순으로 전환하며 카드 렌더 확인
+- tapOn:
+    id: 'stats.tab.week'
+- assertVisible:
+    id: 'stats.card.total'
+- tapOn:
+    id: 'stats.tab.month'
+- assertVisible:
+    id: 'stats.card.total'
+- tapOn:
+    id: 'stats.tab.day'
+- assertVisible:
+    id: 'stats.card.total'

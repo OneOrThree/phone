@@ -1,0 +1,74 @@
+# GROMO-947 E2E ② — 집중 시작→종료→결과 (QA FOC-01 축약)
+# 01이 만든 게스트 계정으로 카운트업 세션을 짧게 돌리고 결과 화면까지 확인한다.
+# 최소 세션 시간 제약 없음(몇 초여도 저장·서버 업로드) — QA 원안의 2분 대기는 불필요.
+appId: com.oneorthree.gromo
+name: 02-focus-session
+---
+- launchApp # clearState 없음 — 01의 계정·온보딩 완료 상태를 이어받는다
+- extendedWaitUntil:
+    visible:
+      id: 'home.screen'
+    timeout: 15000
+
+# FAB → 과목 선택 (첫 진입 코치마크가 화면을 덮으면 먼저 닫는다)
+- tapOn:
+    id: 'tabbar.fab'
+- extendedWaitUntil:
+    optional: true # 코치마크는 계정 첫 진입에만 뜬다 — 없으면 그냥 진행
+    visible:
+      id: 'guide.overlay'
+    timeout: 5000
+- repeat:
+    times: 8 # 안전 상한 — 오버레이가 사라지면 즉시 종료
+    while:
+      visible:
+        id: 'guide.overlay'
+    commands:
+      - tapOn:
+          id: 'guide.overlay'
+- extendedWaitUntil:
+    visible:
+      id: 'focus.category.screen'
+    timeout: 10000
+- tapOn:
+    id: 'focus.subject.item.0'
+
+# 타이머 방식 바텀시트에서 카운트업 선택 — 선택 즉시 세션 시작(별도 시작 버튼 없음)
+- tapOn:
+    id: 'focus.mode.countup'
+# 세션 화면 첫 진입 코치마크 닫기 (타이머는 오버레이 아래서 계속 돈다)
+- extendedWaitUntil:
+    optional: true
+    visible:
+      id: 'guide.overlay'
+    timeout: 5000
+- repeat:
+    times: 8
+    while:
+      visible:
+        id: 'guide.overlay'
+    commands:
+      - tapOn:
+          id: 'guide.overlay'
+- extendedWaitUntil:
+    visible:
+      id: 'focus.session.screen'
+    timeout: 10000
+
+# 몇 초 진행된 뒤 일시정지 → 정지 (정지 확인 절차 없음 — 즉시 결과 화면으로 replace)
+- tapOn:
+    id: 'focus.pause'
+- tapOn:
+    id: 'focus.stop'
+
+# 결과 화면 확인 → 홈 복귀
+- extendedWaitUntil:
+    visible:
+      id: 'focus.result.screen'
+    timeout: 15000
+- tapOn:
+    id: 'focus.result.home'
+- extendedWaitUntil:
+    visible:
+      id: 'home.screen'
+    timeout: 10000

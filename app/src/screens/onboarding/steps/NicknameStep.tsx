@@ -33,6 +33,7 @@ export default function NicknameStep({
 
   return (
     <StepScaffold
+      testID="onboarding.step.nickname"
       titleCenter
       title={'당신의 집중을 도와줄 그로몬이\n도착했어요!'}
       ctaLabel={submitting ? '확인 중…' : '다음'}
@@ -51,6 +52,7 @@ export default function NicknameStep({
       </Text>
       <View style={s.inputRow}>
         <TextInput
+          testID="onboarding.nickname.input"
           value={nickname}
           onChangeText={(t) => update({ nickname: t })}
           placeholder="닉네임을 입력하세요"

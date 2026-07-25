@@ -67,6 +67,8 @@ export function TimerMethodSheet({
         {OPTIONS.map((o) => (
           <TouchableOpacity
             key={o.mode}
+            // Maestro E2E — 대본이 쓰는 카운트업 옵션만 식별(GROMO-947)
+            testID={o.mode === 'countup' ? 'focus.mode.countup' : undefined}
             style={s.row}
             activeOpacity={0.8}
             onPress={() => pick(o.mode)}

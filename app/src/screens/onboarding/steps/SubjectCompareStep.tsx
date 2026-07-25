@@ -45,6 +45,7 @@ export default function SubjectCompareStep({ onNext }: StepProps) {
 
   return (
     <StepScaffold
+      testID="onboarding.step.subjectCompare"
       center
       title={'비교가 아니라,\n어디를 더 채우면 될지'}
       ctaLabel="다음"

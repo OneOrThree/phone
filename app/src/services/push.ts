@@ -87,6 +87,9 @@ let initialNotificationHandled = false;
 // 알림 권한 요청은 여기가 유일한 지점 — 미결정(NOT_DETERMINED)일 때만 1회 요청해
 // 토큰 등록 기회를 주고, 이미 결정된 상태면 상태만 확인한다(중복 프롬프트 없음).
 export async function registerPushToken(): Promise<string | null> {
+  // E2E(Maestro) 빌드는 권한 요청을 건너뛴다(GROMO-947) — 시스템 알럿이 앱 시작~홈 진입
+  // 사이 임의 시점에 떠서 대본을 비결정적으로 깨뜨린다. E2E는 푸시를 검증하지 않는다.
+  if (process.env.EXPO_PUBLIC_E2E === '1') return null;
   try {
     let status = await messaging().hasPermission();
     if (status === messaging.AuthorizationStatus.NOT_DETERMINED) {

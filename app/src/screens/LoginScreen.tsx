@@ -167,6 +167,7 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
         })}
 
         <TouchableOpacity
+          testID="login.guest"
           onPress={runGuest}
           disabled={busy !== null || guestBusy}
           activeOpacity={0.85}

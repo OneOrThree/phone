@@ -362,7 +362,7 @@ export default function FocusResultScreen() {
     .sort((a, b) => b.accumulatedSeconds - a.accumulatedSeconds);
 
   return (
-    <SafeAreaView style={s.root} edges={['top', 'bottom']}>
+    <SafeAreaView testID="focus.result.screen" style={s.root} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
         {/* 헤더 — 축하 문구 */}
         <View style={s.header}>
@@ -548,6 +548,7 @@ export default function FocusResultScreen() {
           canGoBack 가드로 두 번째 탭을 무시한다 */}
       <View style={s.footer}>
         <TouchableOpacity
+          testID="focus.result.home"
           style={s.homeBtn}
           activeOpacity={0.85}
           onPress={() => {

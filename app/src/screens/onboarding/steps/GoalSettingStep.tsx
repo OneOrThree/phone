@@ -29,6 +29,7 @@ export default function GoalSettingStep({ data, update, onNext }: StepProps) {
 
   return (
     <StepScaffold
+      testID="onboarding.step.goal"
       center
       title="목표를 정해볼까요?"
       ctaLabel="다음"

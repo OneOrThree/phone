@@ -55,6 +55,7 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
 
   return (
     <StepScaffold
+      testID="onboarding.step.screentimeDenied"
       center
       header={
         <View style={s.mascot}>

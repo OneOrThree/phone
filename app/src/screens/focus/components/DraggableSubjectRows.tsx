@@ -200,7 +200,7 @@ export function DraggableSubjectRows({
       contentContainerStyle={s.content}
     >
       <View style={{ height: contentH }}>
-        {subjects.map((sub) => {
+        {subjects.map((sub, i) => {
           const selected = sub.id === activeId;
           const isDrag = dragId === sub.id;
           return (
@@ -213,6 +213,7 @@ export function DraggableSubjectRows({
               ]}
             >
               <TouchableOpacity
+                testID={`focus.subject.item.${i}`}
                 style={[s.row, selected && s.rowSelected, isDrag && s.rowActive]}
                 activeOpacity={0.85}
                 onPress={() => onPressRow(sub)}

@@ -17,6 +17,9 @@ interface StepScaffoldProps {
   ctaLabel: string;
   onCta: () => void;
   ctaDisabled?: boolean;
+  testID?: string; // Maestro E2E — 스텝 루트 식별용(GROMO-947)
+  // Maestro E2E — CTA를 스텝별로 구분해야 할 때만 덮어씀(기본 onboarding.cta)
+  ctaTestID?: string;
   // 로딩 연출 등이 끝날 때까지 CTA를 잠시 감출 때 — 자리는 유지해 레이아웃 튐 방지.
   ctaHidden?: boolean;
   secondaryLabel?: string;
@@ -39,6 +42,8 @@ export default function StepScaffold({
   secondaryLabel,
   onSecondary,
   scrollable,
+  testID,
+  ctaTestID,
 }: StepScaffoldProps) {
   const progress = useOnboardingProgress();
   // 안전영역 인셋을 동기적으로 읽어 패딩으로 적용 — 네이티브 SafeAreaView는 스텝 remount마다
@@ -46,6 +51,7 @@ export default function StepScaffold({
   const insets = useSafeAreaInsets();
   return (
     <View
+      testID={testID}
       style={[
         s.root,
         {
@@ -90,6 +96,7 @@ export default function StepScaffold({
 
       <View style={s.footer}>
         <TouchableOpacity
+          testID={ctaTestID ?? 'onboarding.cta'}
           activeOpacity={0.85}
           disabled={ctaDisabled || ctaHidden}
           onPress={onCta}
@@ -101,6 +108,8 @@ export default function StepScaffold({
         <View style={s.secondarySlot}>
           {secondaryLabel ? (
             <TouchableOpacity
+              // Maestro E2E — 보조 액션 공통 식별자(GROMO-947). 스텝당 최대 1개라 고정 이름.
+              testID="onboarding.secondary"
               onPress={onSecondary}
               hitSlop={{ top: 14, bottom: 14, left: 20, right: 20 }}
             >

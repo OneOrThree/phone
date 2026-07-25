@@ -179,7 +179,7 @@ export default function StatsScreen() {
   cards.push({
     key: 'total',
     node: (
-      <View key="total" ref={totalCardRef} collapsable={false}>
+      <View key="total" testID="stats.card.total" ref={totalCardRef} collapsable={false}>
         <SectionCard
           title={
             period === 'DAY'
@@ -486,7 +486,7 @@ export default function StatsScreen() {
   const orderedCards = orderedKeys.flatMap((k) => byKey.get(k) ?? []);
 
   return (
-    <SafeAreaView style={s.root} edges={['top']}>
+    <SafeAreaView testID="stats.screen" style={s.root} edges={['top']}>
       {/* ── 헤더 ── */}
       <View style={s.header}>
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
@@ -505,6 +505,7 @@ export default function StatsScreen() {
             return (
               <TouchableOpacity
                 key={t.key}
+                testID={`stats.tab.${t.key.toLowerCase()}`}
                 style={[s.segBtn, on ? s.segBtnOn : null]}
                 onPress={() => onPeriod(t.key)}
                 activeOpacity={0.8}

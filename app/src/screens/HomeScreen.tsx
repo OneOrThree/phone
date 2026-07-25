@@ -364,7 +364,7 @@ export default function HomeScreen() {
   ];
 
   return (
-    <SafeAreaView style={s.root} edges={['top']}>
+    <SafeAreaView testID="home.screen" style={s.root} edges={['top']}>
       <View style={s.body}>
         {/* 상단바+캐릭터만 스크롤/당김 영역. 오늘 카드(네이티브 리포트)는 스크롤 밖에 고정 —
             바운스에 네이티브 DeviceActivityReport scene이 깨지는 문제 회피. 당기면 리포트는 재계산됨. */}
@@ -437,6 +437,7 @@ export default function HomeScreen() {
                 </View>
               )}
               <TouchableOpacity
+                testID="home.today.detail"
                 style={s.moreBtn}
                 activeOpacity={0.7}
                 onPress={() => {

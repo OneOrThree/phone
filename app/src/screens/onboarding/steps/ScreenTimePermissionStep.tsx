@@ -102,6 +102,9 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
 
   return (
     <StepScaffold
+      testID="onboarding.step.screentime"
+      // Maestro E2E — 권한 요청 CTA는 대본이 개별 식별해야 해서 공통 onboarding.cta 대신 전용 ID
+      ctaTestID="onboarding.screentime.allow"
       header={<ClockIcon />}
       title={'사용 시간을\n정확히 보려면'}
       subtitle="Apple 스크린타임 권한이 필요해요. 이 데이터로 통계를 계산해요."

@@ -8,6 +8,7 @@ import type { StepProps } from '@/screens/onboarding/types';
 export default function TogetherEffectStep({ onNext }: StepProps) {
   return (
     <StepScaffold
+      testID="onboarding.step.together"
       center
       header={
         <View style={s.illust}>
