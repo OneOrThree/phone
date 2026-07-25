@@ -52,6 +52,9 @@ export default {
                 clientToken: facebookClientToken,
                 displayName: 'gromo',
                 scheme: `fb${facebookAppId}`,
+                // 안드로이드 광고ID 수집 — 플러그인 기본값 false면 매니페스트에 false가 박혀
+                // 광고 어트리뷰션이 통째로 죽는다(코덱스 리뷰). iOS는 ATT 동의로 별도 제어.
+                advertiserIDCollectionEnabled: true,
               },
             ],
           ]
