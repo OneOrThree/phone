@@ -1,6 +1,8 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+// google-services.json → 리소스 변환, src/debug(dev)·src/release(prod) 자동 선택 — plugins/withAndroidFirebaseKakao.js가 주입 (GROMO-949)
+apply plugin: "com.google.gms.google-services"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 

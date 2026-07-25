@@ -56,6 +56,9 @@ export default {
             ],
           ]
         : []),
+      // 안드로이드 수동 배선 자가 복구(GROMO-949) — 카카오 maven 저장소·google-services 플러그인·
+      // buildType별 google-services.json 배치를 prebuild 때마다 다시 주입한다. 상세는 플러그인 파일 주석.
+      './plugins/withAndroidFirebaseKakao',
     ],
     slug: 'gromo-kr',
     scheme: 'gromo',

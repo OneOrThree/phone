@@ -9,6 +9,8 @@ buildscript {
     classpath('com.android.tools.build:gradle')
     classpath('com.facebook.react:react-native-gradle-plugin')
     classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
+    // Firebase 설정 처리 — plugins/withAndroidFirebaseKakao.js가 주입 (GROMO-949)
+    classpath('com.google.gms:google-services:4.4.3')
   }
 }
 
@@ -17,7 +19,7 @@ allprojects {
     google()
     mavenCentral()
     maven { url 'https://www.jitpack.io' }
-    // 카카오 안드로이드 SDK는 카카오 전용 저장소에서만 배포됨 (@react-native-kakao 요구사항)
+    // 카카오 SDK 전용 저장소 — plugins/withAndroidFirebaseKakao.js가 주입 (GROMO-949)
     maven { url 'https://devrepo.kakao.com/nexus/content/groups/public/' }
   }
 }

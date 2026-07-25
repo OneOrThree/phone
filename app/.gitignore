@@ -18,11 +18,14 @@ build/
 expo-env.d.ts
 
 # Firebase 설정 파일 (프로젝트별 키 — 커밋 금지, 로컬/EAS secret으로 관리)
-GoogleService-Info.plist
+GoogleService-Info*.plist
 google-services.json
+# dev/prod 원본 보관소 — prebuild 시 플러그인이 android/로 복사 (GROMO-949)
+/firebase/
 # hot-updater
 .env.hotupdater
 .hot-updater/output
 .hot-updater/log
 # supabase CLI가 만드는 로컬 링크 캐시 (프로젝트 ref — 커밋 불필요)
 supabase/.temp/
+

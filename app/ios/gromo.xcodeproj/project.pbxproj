@@ -16,7 +16,6 @@
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		41B4D6C1B3554C6DA6C7F986 /* ScreenTimeModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5608395EE50C46F989410865 /* ScreenTimeModule.swift */; };
 		8B8792C0DAAF303A08360EC1 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB42D6F1E39342F74D28ED89 /* ExpoModulesProvider.swift */; };
-		A26320ACDEA43EE3C1EE41EB /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A15DF4FEEC3153165771F218 /* GoogleService-Info.plist */; };
 		A4776DA72FEFAD560099A6F4 /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A4776DA02FEFAD560099A6F4 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A4776DB22FEFAEAD0099A6F4 /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4776DB12FEFAEAD0099A6F4 /* ManagedSettings.framework */; };
 		A4776DB42FEFAEAD0099A6F4 /* ManagedSettingsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4776DB32FEFAEAD0099A6F4 /* ManagedSettingsUI.framework */; };
@@ -118,7 +117,6 @@
 		5608395EE50C46F989410865 /* ScreenTimeModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScreenTimeModule.swift; path = gromo/ScreenTimeModule.swift; sourceTree = "<group>"; };
 		69E0590C76FD4C3C982B4D57 /* ScreenTimeModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ScreenTimeModule.m; path = gromo/ScreenTimeModule.m; sourceTree = "<group>"; };
 		8D0276BF8624FFD03388406F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = gromo/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		A15DF4FEEC3153165771F218 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		A4776DA02FEFAD560099A6F4 /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A4776DB02FEFAEAD0099A6F4 /* ShieldConfiguration.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShieldConfiguration.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A4776DB12FEFAEAD0099A6F4 /* ManagedSettings.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ManagedSettings.framework; path = System/Library/Frameworks/ManagedSettings.framework; sourceTree = SDKROOT; };
@@ -388,7 +386,6 @@
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				D841E8922A4931B49C1A0BD1 /* Pods */,
 				F3E37517B39DA842D0E4B596 /* ExpoModulesProviders */,
-				A15DF4FEEC3153165771F218 /* GoogleService-Info.plist */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -455,6 +452,7 @@
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
+				D4F9E5C949000000000000A1 /* [Firebase] GoogleService-Info 환경별 복사 */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
 				BC5B6D6E90DD80DA74999583 /* [CP] Embed Pods Frameworks */,
@@ -669,7 +667,6 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				1E7A3EDE7EA827BCAA610C2A /* PrivacyInfo.xcprivacy in Resources */,
-				A26320ACDEA43EE3C1EE41EB /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -937,6 +934,23 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "if [[ -f \"$PODS_ROOT/../.xcode.env\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env\"\nfi\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n# sentry.properties(인증 토큰)도 SENTRY_PROPERTIES 환경변수도 없으면 dSYM 업로드를 건너뛴다 — 토큰 없는 팀원/CI 빌드 보호\nif [ -z \"$SENTRY_PROPERTIES\" ] && [ ! -f \"$PROJECT_DIR/sentry.properties\" ]; then\n  export SENTRY_DISABLE_AUTO_UPLOAD=true\nfi\n\n/bin/sh `${NODE_BINARY:-node} --print \"require('path').dirname(require.resolve('@sentry/react-native/package.json')) + '/scripts/sentry-xcode-debug-files.sh'\"`\n";
+		};
+		D4F9E5C949000000000000A1 /* [Firebase] GoogleService-Info 환경별 복사 */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(PROJECT_DIR)/GoogleService-Info-dev.plist",
+				"$(PROJECT_DIR)/GoogleService-Info-prod.plist",
+			);
+			name = "[Firebase] GoogleService-Info 환경별 복사";
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/GoogleService-Info.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# GROMO-949: 빌드 구성별 Firebase 설정 선택 — Debug=gromo-dev / 그 외(Release)=gromo-prod\nif [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  SRC=\"${PROJECT_DIR}/GoogleService-Info-dev.plist\"\nelse\n  SRC=\"${PROJECT_DIR}/GoogleService-Info-prod.plist\"\nfi\necho \"note: GoogleService-Info <- ${SRC} (${CONFIGURATION})\"\ncp \"${SRC}\" \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/GoogleService-Info.plist\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
