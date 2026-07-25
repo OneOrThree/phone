@@ -15,6 +15,26 @@ API_URL="${E2E_API_URL:-https://oneorthree.dev.mooo.com}"
 # Maestro는 Java 위에서 돈다 — brew openjdk는 keg-only라 PATH에 없어서 직접 지정
 export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk}"
 
+# 실행이 만든 게스트 계정 정리(dev 서버 누적 방지) — 게스트는 앱 UI에 탈퇴 경로가 없어서
+# (계정 설정의 로그아웃·탈퇴는 소셜 유저 분기 전용) 시뮬레이터 앱 컨테이너의 AsyncStorage에서
+# 토큰을 꺼내 탈퇴 API(DELETE /api/v1/users/me)를 직접 호출한다.
+# 스위트가 중간에 실패해도 로그인까지 갔다면 정리된다. 정리 실패는 경고만(관문 판정과 무관).
+cleanup_e2e_account() {
+  local container manifest token code
+  [ -n "${UDID:-}" ] || return 0
+  container=$(xcrun simctl get_app_container "$UDID" com.oneorthree.gromo data 2>/dev/null) || return 0
+  manifest="$container/Library/Application Support/com.oneorthree.gromo/RCTAsyncLocalStorage_V1/manifest.json"
+  [ -f "$manifest" ] || return 0
+  token=$(python3 -c "import json,sys; m=json.load(open(sys.argv[1])); t=m.get('gromo:accessToken'); print(t if t else '')" "$manifest" 2>/dev/null) || return 0
+  [ -n "$token" ] || return 0
+  code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE -H "Authorization: Bearer $token" "$API_URL/api/v1/users/me" || echo 000)
+  if [ "$code" = "204" ] || [ "$code" = "200" ]; then
+    echo "▶︎ [정리] E2E 게스트 계정 탈퇴 완료 (HTTP $code)"
+  else
+    echo "⚠️  [정리] E2E 계정 탈퇴 실패(HTTP $code) — dev 서버에 계정이 남았을 수 있음" >&2
+  fi
+}
+
 if [ "${E2E_SKIP_BUILD:-0}" != "1" ]; then
   echo "▶︎ [1/4] Release 시뮬레이터 빌드 (API: $API_URL)"
   # Release는 .env.production(운영 URL)을 읽으므로, 셸 env가 .env 파일보다 우선하는 성질을
@@ -47,6 +67,8 @@ fi
 echo "▶︎ [3/4] 시뮬레이터 준비 + 앱 설치 ($SIM_NAME)"
 UDID=$(xcrun simctl list devices available | grep -m1 "$SIM_NAME (" | grep -oE '[0-9A-F-]{36}' | head -1)
 [ -n "$UDID" ] || { echo "✗ 시뮬레이터 '$SIM_NAME' 없음 — xcrun simctl list devices 확인" >&2; exit 1; }
+# 어떤 종료 경로든(성공·실패) 이 실행이 만든 계정을 정리한다
+trap cleanup_e2e_account EXIT
 xcrun simctl bootstatus "$UDID" -b # 부팅 대기 (이미 켜져 있으면 즉시 통과)
 # 삭제 후 설치 — 시스템 권한 상태(clearState로 리셋 안 됨)와 이전 실행의 OTA 번들 잔재를
 # 함께 제거해 매 실행을 같은 초기 상태에서 시작한다.
