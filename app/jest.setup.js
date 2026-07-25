@@ -1,8 +1,8 @@
 /* eslint-env jest */
-// jest 공통 셋업(GROMO-948) — 네이티브 모듈이 없는 jest 환경에서 AsyncStorage를
-// 패키지가 제공하는 공식 in-memory mock으로 대체한다(모든 테스트 파일에 적용).
+// jest 공통 셋업(GROMO-946·948) — 네이티브 모듈이 없는 jest 환경에서 AsyncStorage를
+// 패키지가 제공하는 공식 in-memory mock(메모리 Map)으로 대체한다(모든 테스트 파일에 적용).
 // mock 저장소는 워커 프로세스 안에서 유지되므로, 저장소 상태를 쓰는 테스트는
-// beforeEach에서 AsyncStorage.clear()로 직접 비운다.
+// beforeEach/afterEach에서 AsyncStorage.clear()로 직접 비운다.
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
