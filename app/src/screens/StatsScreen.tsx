@@ -506,6 +506,8 @@ export default function StatsScreen() {
               <TouchableOpacity
                 key={t.key}
                 testID={`stats.tab.${t.key.toLowerCase()}`}
+                // 선택 상태를 접근성 트리에 노출 — E2E가 실제 탭 전환을 단언하는 근거(GROMO-947)
+                accessibilityState={{ selected: on }}
                 style={[s.segBtn, on ? s.segBtnOn : null]}
                 onPress={() => onPeriod(t.key)}
                 activeOpacity={0.8}
