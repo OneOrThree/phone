@@ -17,6 +17,8 @@ allprojects {
     google()
     mavenCentral()
     maven { url 'https://www.jitpack.io' }
+    // 카카오 안드로이드 SDK는 카카오 전용 저장소에서만 배포됨 (@react-native-kakao 요구사항)
+    maven { url 'https://devrepo.kakao.com/nexus/content/groups/public/' }
   }
 }
 
