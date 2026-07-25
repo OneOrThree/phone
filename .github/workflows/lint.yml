@@ -41,6 +41,11 @@ jobs:
         run: npm run typecheck
         working-directory: app
 
+      # 유닛 테스트 (GROMO-945) — jest-expo, stats/format 등 순수 함수 테스트
+      - name: Run tests
+        run: npm test
+        working-directory: app
+
       # 팔레트 코드젠 동기화 검증 (GROMO-641) — theme.ts 변경 후 재생성 누락 시 실패
       - name: Check palette codegen sync
         run: npm run gen:palette:check
