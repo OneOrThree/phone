@@ -1000,7 +1000,7 @@ const s = StyleSheet.create({
   setDotOn: { backgroundColor: T.night.gold },
 
   doneGate: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: withAlpha(T.night.bottom, 0.94),
     alignItems: 'center',
     justifyContent: 'center',

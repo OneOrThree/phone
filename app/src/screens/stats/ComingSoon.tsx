@@ -27,7 +27,7 @@ export function ComingSoon({ note, children }: { note?: string; children: ReactN
 const s = StyleSheet.create({
   wrap: { borderRadius: 14, overflow: 'hidden' },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     gap: T.space.sm,

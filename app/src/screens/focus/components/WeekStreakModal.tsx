@@ -47,7 +47,7 @@ export function WeekStreakModal({ visible, onClose }: Props) {
 
 const s = StyleSheet.create({
   overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.night.bottom, 0.5) },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: withAlpha(T.night.bottom, 0.5) },
   card: {
     alignSelf: 'stretch',
     alignItems: 'center',

@@ -840,7 +840,7 @@ const s = StyleSheet.create({
   dotFuture: { opacity: 0.4 },
   // 주간 완성 연출 — 오늘(일요일) ✓ 팝 오버레이(GROMO-667)
   dotPopFill: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderRadius: 15,
     backgroundColor: T.greenDeep,
     alignItems: 'center',

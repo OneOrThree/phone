@@ -40,7 +40,8 @@ problem→cause→fix, build/deploy notes, checklist). Promote it into "Doc navi
 
 ## Stack
 
-- React Native 0.81 / Expo SDK 54 / React 19, written in **TypeScript** (`strict` mode).
+- React Native 0.86 / Expo SDK 57 / React 19, written in **TypeScript** (`strict` mode).
+  최소 지원 iOS **16.4** (SDK 57 요구사항).
 - React Navigation — bottom tab navigator (`홈` / `리그` / `그룹`(커밍순) / `전체`), with
   Stats / UsageDetail / Focus\* / Friend\* / League\* / Settings\* screens registered on the
   root stack (tab bar hidden).
@@ -53,8 +54,8 @@ problem→cause→fix, build/deploy notes, checklist). Promote it into "Doc navi
 | ------------ | --------- | ------------------------ |
 | Node.js      | `24.x`    | `node --version`         |
 | npm          | `10.x`    | `npm --version`          |
-| Expo         | `~54.0.0` | (see package.json)       |
-| React Native | `^0.81.5` | (see package.json)       |
+| Expo         | `^57.0.8` | (see package.json)       |
+| React Native | `0.86.0`  | (see package.json)       |
 | Xcode        | `15.0+`   | `xcode-select --version` |
 | CocoaPods    | `1.14+`   | `pod --version`          |
 
