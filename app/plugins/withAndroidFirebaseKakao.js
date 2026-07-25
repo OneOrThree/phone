@@ -61,6 +61,9 @@ function withAndroidFirebaseKakao(config) {
           fs.mkdirSync(path.dirname(dstPath), { recursive: true });
           fs.copyFileSync(srcPath, dstPath);
         } else {
+          // 원본이 없으면 이전 prebuild가 복사해둔 스테일 사본도 제거 — 낡은 설정(엉뚱한 Firebase
+          // 프로젝트)으로 조용히 빌드되는 걸 막고, gradle이 "파일 없음"으로 명확히 실패하게 한다(코덱스 리뷰).
+          fs.rmSync(dstPath, { force: true });
           console.warn(
             `[withAndroidFirebaseKakao] 원본 없음: ${src} — Firebase 콘솔에서 받아 firebase/에 두세요 (없으면 해당 buildType 빌드 실패)`,
           );
