@@ -6,4 +6,6 @@ module.exports = {
   preset: 'jest-expo',
   // ios/(Pods) 등 대형 폴더 크롤링 방지 — 테스트는 src/ 안에만 둔다
   roots: ['<rootDir>/src'],
+  // 전역 목(AsyncStorage 등) — 컴포넌트·컨텍스트 테스트용(GROMO-946)
+  setupFiles: ['<rootDir>/jest.setup.js'],
 };
