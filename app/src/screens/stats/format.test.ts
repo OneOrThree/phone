@@ -6,9 +6,16 @@ import {
   dayNum,
   firstStartPoints,
   grassLevel,
+  heatmapBars,
+  heatmapRange,
+  mergeCardOrder,
+  rollingWeekRange,
+  subjectColorForTag,
   tenMinuteFocusSlots,
   weekdayFocusBlocks,
 } from './format';
+import { FOCUS_COLOR } from './constants';
+import type { HeatmapCellResponse } from '@/types/dto/stats';
 
 // 고정 '오늘': 2026-07-15(수) 09:00 KST — 주간(월 7/13~일 7/19)·7월 주 분할(6/29 시작, 5주)을 손으로 검증해둔 날짜
 const NOW = new Date('2026-07-15T09:00:00+09:00');
@@ -16,6 +23,10 @@ const NOW = new Date('2026-07-15T09:00:00+09:00');
 beforeAll(() => {
   jest.useFakeTimers();
   jest.setSystemTime(NOW);
+});
+
+afterEach(() => {
+  jest.setSystemTime(NOW); // 시계를 옮긴 테스트가 있어도 기본 '오늘'로 복귀
 });
 
 afterAll(() => {
@@ -256,5 +267,129 @@ describe('grassLevel', () => {
     expect(grassLevel(119)).toBe(3);
     expect(grassLevel(120)).toBe(4);
     expect(grassLevel(600)).toBe(4);
+  });
+});
+
+describe('heatmapRange', () => {
+  test('DAY=오늘 하루, WEEK=이번 주 월요일~오늘, MONTH=이달 1일~오늘', () => {
+    expect(heatmapRange('DAY')).toEqual({ from: '2026-07-15', to: '2026-07-15' });
+    expect(heatmapRange('WEEK')).toEqual({ from: '2026-07-13', to: '2026-07-15' });
+    expect(heatmapRange('MONTH')).toEqual({ from: '2026-07-01', to: '2026-07-15' });
+  });
+
+  test('일요일에도 WEEK 시작은 같은 주 월요일이다 (다음 주로 넘어가지 않음)', () => {
+    jest.setSystemTime(new Date('2026-07-19T09:00:00+09:00')); // 일요일
+    expect(heatmapRange('WEEK')).toEqual({ from: '2026-07-13', to: '2026-07-19' });
+  });
+});
+
+describe('rollingWeekRange', () => {
+  test('오늘 포함 최근 7일 [오늘-6, 오늘]', () => {
+    expect(rollingWeekRange()).toEqual({ from: '2026-07-09', to: '2026-07-15' });
+  });
+
+  test('월 경계를 거슬러 넘어간다 (7/3 → 6/27부터)', () => {
+    jest.setSystemTime(new Date('2026-07-03T09:00:00+09:00'));
+    expect(rollingWeekRange()).toEqual({ from: '2026-06-27', to: '2026-07-03' });
+  });
+});
+
+// 히트맵 셀 생성 헬퍼 — 집중 분만 지정하고 나머지 필드는 기본값
+function cell(date: string, totalFocusMinutes: number): HeatmapCellResponse {
+  return {
+    date,
+    totalFocusMinutes,
+    sessionCount: 1,
+    focusGoalAchieved: false,
+    actualScreenTimeMinutes: 0,
+    screenTimeGoalAchieved: false,
+  };
+}
+
+describe('heatmapBars', () => {
+  const pick = (c: HeatmapCellResponse) => c.totalFocusMinutes;
+
+  test('DAY: 오늘 단일 막대', () => {
+    expect(heatmapBars('DAY', [cell('2026-07-15', 42)], pick)).toEqual([
+      { label: '오늘', value: 42, current: true },
+    ]);
+  });
+
+  test('WEEK: 월~일 7칸 — 없는 날은 0, 오늘 강조, 안 온 요일은 future', () => {
+    const bars = heatmapBars('WEEK', [cell('2026-07-13', 60), cell('2026-07-15', 30)], pick);
+    expect(bars).toEqual([
+      { label: '월', value: 60, current: false, future: false },
+      { label: '화', value: 0, current: false, future: false }, // 지나갔지만 기록 없음 → 0
+      { label: '수', value: 30, current: true, future: false },
+      { label: '목', value: 0, current: false, future: true },
+      { label: '금', value: 0, current: false, future: true },
+      { label: '토', value: 0, current: false, future: true },
+      { label: '일', value: 0, current: false, future: true },
+    ]);
+  });
+
+  test('MONTH: 일 번호 7일 단위 주차 합산, 오늘이 낀 주차 강조', () => {
+    const cells = [
+      cell('2026-07-01', 10), // 1주차(1~7일)
+      cell('2026-07-08', 20), // 2주차(8~14일)
+      cell('2026-07-09', 5), //  2주차 — 같은 주차로 합산
+      cell('2026-07-15', 30), // 3주차(15~21일) = 오늘
+    ];
+    expect(heatmapBars('MONTH', cells, pick)).toEqual([
+      { label: '1주', value: 10, current: false },
+      { label: '2주', value: 25, current: false },
+      { label: '3주', value: 30, current: true },
+    ]);
+  });
+});
+
+describe('subjectColorForTag', () => {
+  const subjects = [{ name: '수학', color: '#123456' }];
+  const tagNames = new Map([
+    ['t1', '수학'],
+    ['t2', '과탐'],
+  ]);
+
+  test('서버 tagId → 태그명 → 같은 이름의 로컬 과목 색', () => {
+    expect(subjectColorForTag('t1', tagNames, subjects)).toBe('#123456');
+  });
+
+  test('미분류(null)·모르는 tagId·과목 매칭 실패는 기본 집중색', () => {
+    expect(subjectColorForTag(null, tagNames, subjects)).toBe(FOCUS_COLOR);
+    expect(subjectColorForTag('unknown', tagNames, subjects)).toBe(FOCUS_COLOR);
+    expect(subjectColorForTag('t2', tagNames, subjects)).toBe(FOCUS_COLOR); // 태그명은 있으나 과목 없음
+  });
+});
+
+describe('mergeCardOrder', () => {
+  test('저장이 없거나 비면 기본 순서 그대로', () => {
+    expect(mergeCardOrder(['a', 'b', 'c'], null)).toEqual(['a', 'b', 'c']);
+    expect(mergeCardOrder(['a', 'b', 'c'], undefined)).toEqual(['a', 'b', 'c']);
+    expect(mergeCardOrder(['a', 'b', 'c'], [])).toEqual(['a', 'b', 'c']);
+  });
+
+  test('카드 구성이 같으면 유저 재배열을 그대로 유지', () => {
+    expect(mergeCardOrder(['a', 'b', 'c'], ['c', 'a', 'b'])).toEqual(['c', 'a', 'b']);
+  });
+
+  test('이제 없는 카드 키(유령 키)는 버린다', () => {
+    expect(mergeCardOrder(['a', 'b', 'c'], ['c', 'x', 'a', 'b'])).toEqual(['c', 'a', 'b']);
+  });
+
+  test('새 카드는 기본 순서상 바로 앞 카드 뒤에 끼운다 — 유저 순서는 안 건드림', () => {
+    // 기본 [a,b,n,c]에서 n이 신규 — 유저 화면의 b 위치를 따라간다
+    expect(mergeCardOrder(['a', 'b', 'n', 'c'], ['c', 'a', 'b'])).toEqual(['c', 'a', 'b', 'n']);
+  });
+
+  test('기본 순서 맨 앞의 새 카드는 맨 앞에 들어간다', () => {
+    expect(mergeCardOrder(['n', 'a', 'b'], ['b', 'a'])).toEqual(['n', 'b', 'a']);
+  });
+
+  test('연속 새 카드는 기본 순서의 상대 순서를 유지한다', () => {
+    expect(mergeCardOrder(['a', 'n1', 'n2', 'b'], ['b', 'a'])).toEqual(['b', 'a', 'n1', 'n2']);
+  });
+
+  test('유령 키 제거와 새 카드 삽입이 동시에 일어나도 안전하다', () => {
+    expect(mergeCardOrder(['a', 'n', 'b'], ['b', 'x', 'a'])).toEqual(['b', 'a', 'n']);
   });
 });
