@@ -356,7 +356,7 @@ const s = StyleSheet.create({
 
   // 모달 — 리그 오버레이와 같던 스크림 값(전용 토큰 없음, 원본 ProfileSheet는 GROMO-940에서 폐기) + 중앙 흰 카드
   overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.night.bottom, 0.5) },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: withAlpha(T.night.bottom, 0.5) },
   card: {
     width: '100%',
     maxWidth: 360,

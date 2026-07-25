@@ -15,7 +15,7 @@ export function SheetShell({ children, onClose }: { children: ReactNode; onClose
 }
 
 const s = StyleSheet.create({
-  dim: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.night.bottom, 0.42) },
+  dim: { ...StyleSheet.absoluteFill, backgroundColor: withAlpha(T.night.bottom, 0.42) },
   panel: {
     position: 'absolute',
     left: 0,

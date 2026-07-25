@@ -162,7 +162,7 @@ export function FocusMenuDrawer({
 }
 
 const s = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.night.bottom, 0.5) },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: withAlpha(T.night.bottom, 0.5) },
   panel: {
     position: 'absolute',
     top: 0,
@@ -183,7 +183,7 @@ const s = StyleSheet.create({
     shadowOffset: { width: -14, height: 0 },
     elevation: 24,
   },
-  panelTint: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.white, 0.6) },
+  panelTint: { ...StyleSheet.absoluteFill, backgroundColor: withAlpha(T.white, 0.6) },
 
   menuHead: {
     flexDirection: 'row',

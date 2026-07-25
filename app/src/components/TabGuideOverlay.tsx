@@ -160,7 +160,7 @@ export function TabGuideOverlay({
             />
           </>
         ) : (
-          <View style={[s.dim, StyleSheet.absoluteFillObject]} />
+          <View style={[s.dim, StyleSheet.absoluteFill]} />
         )}
 
         {/* 캐릭터 + 말풍선 */}

@@ -102,7 +102,7 @@ const s = StyleSheet.create({
   report: { flex: 1 },
   empty: { ...T.text.body, color: T.inkMuted, textAlign: 'center', marginTop: 40 },
   loadingLayer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     gap: T.space.xl,

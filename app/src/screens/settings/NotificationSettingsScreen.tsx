@@ -304,7 +304,7 @@ const s = StyleSheet.create({
 
   // 시각 피커 모달
   overlay: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.night.bottom, 0.5) },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: withAlpha(T.night.bottom, 0.5) },
   sheet: {
     backgroundColor: T.paperLight,
     borderTopLeftRadius: 28,

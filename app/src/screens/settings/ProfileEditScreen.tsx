@@ -206,13 +206,13 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   skinDim: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: T.paperLight,
     opacity: 0.72,
     borderRadius: 16,
   },
   skinBadgeWrap: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },

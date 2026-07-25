@@ -1,4 +1,6 @@
-import Expo
+// SDK 57: 자동 생성 ExpoModulesProvider 가 `internal import Expo` 를 쓰므로
+// public 클래스(AppDelegate: ExpoAppDelegate)가 쓰는 이 import 는 접근수준 명시 필요
+public import Expo
 import FirebaseCore
 import RNLine
 import RNCKakaoUser
@@ -26,7 +28,6 @@ public class AppDelegate: ExpoAppDelegate {
 
     reactNativeDelegate = delegate
     reactNativeFactory = factory
-    bindReactNativeFactory(factory)
 
 #if os(iOS) || os(tvOS)
     window = UIWindow(frame: UIScreen.main.bounds)

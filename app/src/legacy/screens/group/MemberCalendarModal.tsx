@@ -130,11 +130,7 @@ export default function MemberCalendarModal({
   return (
     <Modal visible={visible} transparent={false} animationType="fade" onRequestClose={onClose}>
       <View style={s.container}>
-        <TouchableOpacity
-          style={StyleSheet.absoluteFillObject}
-          activeOpacity={1}
-          onPress={onClose}
-        />
+        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
         <View
           style={[s.sheet, { paddingBottom: Math.max(bottomInset, 16) + 16 }]}
           onStartShouldSetResponder={() => true}
