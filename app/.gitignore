@@ -26,3 +26,6 @@ google-services.json
 .hot-updater/log
 # supabase CLI가 만드는 로컬 링크 캐시 (프로젝트 ref — 커밋 불필요)
 supabase/.temp/
+
+# Maestro E2E 실행 리포트 (scripts/e2e.sh 산출물)
+.maestro/report/

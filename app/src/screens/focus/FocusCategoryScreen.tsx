@@ -227,7 +227,7 @@ export default function FocusCategoryScreen() {
   }
 
   return (
-    <SafeAreaView style={s.root} edges={['top']}>
+    <SafeAreaView testID="focus.category.screen" style={s.root} edges={['top']}>
       <View style={s.header}>
         <TouchableOpacity style={s.backBtn} activeOpacity={0.7} onPress={() => navigation.goBack()}>
           <Ionicons name="chevron-back" size={22} color={T.ink} />

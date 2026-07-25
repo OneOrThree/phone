@@ -127,7 +127,8 @@ export function TabGuideOverlay({
 
   return (
     <Modal transparent statusBarTranslucent animationType="fade" onRequestClose={advance}>
-      <Pressable style={s.flex1} onPress={advance}>
+      {/* Maestro E2E — 코치마크 식별·진행용(GROMO-947). 사라질 때까지 탭해서 닫는다. */}
+      <Pressable testID="guide.overlay" style={s.flex1} onPress={advance}>
         {/* 딤 — 요소 모양(라운드)을 따라 뚫린 컷아웃: cutBw(화면 최대변)만큼 두꺼운 보더가
             구멍 밖 전부를 덮는다(안쪽 모서리 = borderRadius - borderWidth). 구멍 없으면 전체 딤 */}
         {hole ? (

@@ -155,6 +155,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
 
       {/* 중앙 FAB — 집중 시작 */}
       <TouchableOpacity
+        testID="tabbar.fab"
         style={s.fab}
         activeOpacity={0.85}
         onPress={() => {

@@ -61,8 +61,13 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
     onNext();
   };
 
+  // Maestro E2E — 직군 선택 항목 전역 인덱스(그룹 구분 없이 화면 표시 순서, 0부터).
+  // 렌더마다 0으로 초기화되고 항목 렌더 순서대로 증가한다.
+  let categoryItemIndex = 0;
+
   return (
     <StepScaffold
+      testID="onboarding.step.category"
       title="무엇에 집중할까요?"
       subtitle="같은 목표를 가진 사람들과 리그에서 만나요."
       ctaLabel={submitting ? '불러오는 중…' : '다음'}
@@ -98,6 +103,7 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
                   return (
                     <TouchableOpacity
                       key={o.code}
+                      testID={`onboarding.category.item.${categoryItemIndex++}`}
                       activeOpacity={0.85}
                       // 카테고리 변경 시 과목도 리셋 — 이전 카테고리 과목이 남지 않도록.
                       onPress={() => {

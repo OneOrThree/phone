@@ -477,9 +477,13 @@ function OtaUpdateGateScreen({ progress }: { progress: number }) {
 // hot-updater OTA 게이트(GROMO-875) — 릴리즈 빌드 시작 시 새 JS 번들을 확인하고,
 // 있으면 내려받는 동안 준비 화면으로 진입을 막았다가 적용한다. 없으면 즉시 통과.
 // baseURL은 공개 엔드포인트(비밀값 아님). 채널은 네이티브 설정(HOT_UPDATER_CHANNEL=production)을 따른다.
-export default HotUpdater.wrap({
+const OtaWrappedApp = HotUpdater.wrap({
   baseURL: 'https://ohwgkgbhzvnbtxfewosa.supabase.co/functions/v1/update-server',
   updateStrategy: 'appVersion',
   fallbackComponent: OtaUpdateGateScreen,
   // 제네릭 명시 — index.ts의 Sentry.wrap이 요구하는 props 타입(Record<string, unknown>)에 맞춘다.
 })<Record<string, unknown>>(App);
+
+// E2E(Maestro) 빌드는 OTA 게이트를 우회한다(GROMO-947) — 대본 실행 중 스테일 OTA 번들이
+// 내려와 testID 없는 구 JS로 교체되는 오염 방지. EXPO_PUBLIC_E2E는 scripts/e2e.sh가 빌드 시 주입.
+export default process.env.EXPO_PUBLIC_E2E === '1' ? App : OtaWrappedApp;

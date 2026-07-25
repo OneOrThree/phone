@@ -343,8 +343,17 @@ Claude does not open PRs. Instead, write a `.md` draft the user copies into GitH
 
 ## Testing
 
-There are **no automated frontend tests**. Don't assume or claim coverage — verify changes by
-running the app (simulator/device) or an `npx expo export` bundle check.
+- **유닛·컴포넌트 테스트 (jest)**: `npm test` — jest-expo 프리셋, `src/**/*.test.ts(x)` (GROMO-945·946·948).
+  KST 고정(`jest.config.js`), AsyncStorage 공식 mock(`jest.setup.js`). CI(lint.yml)에서도 돈다.
+- **E2E (Maestro)**: `./scripts/e2e.sh` — Release 시뮬 자립 빌드(dev URL 주입·서명 보정) 후
+  `.maestro/flows/` 01→02→03 순서 실행. 01이 게스트 계정을 만들고 02가 집중 기록을 만들며
+  03이 그 기록을 조회하는 체이닝 구조(GROMO-947). 대본 셀렉터는 **testID만** 사용 — 시스템
+  알럿(권한 등)만 문구 매칭 예외. 로컬 배포 전 관문이며 CI에는 연결돼 있지 않다.
+  실행이 만든 게스트 계정은 종료 시 탈퇴 API로 자동 정리된다(게스트는 앱 UI에 탈퇴 경로가
+  없어 e2e.sh가 시뮬 컨테이너의 토큰으로 직접 호출).
+- E2E 빌드 플래그 `EXPO_PUBLIC_E2E=1`(e2e.sh가 주입): hot-updater OTA 게이트 우회(App.tsx) +
+  푸시 권한 요청 스킵(services/push.ts). 운영/일반 빌드엔 영향 없음.
+- 시각 품질(레이아웃·색상)은 자동화로 못 잡는다 — QA 시나리오 수동 테스트 유지.
 
 ---
 

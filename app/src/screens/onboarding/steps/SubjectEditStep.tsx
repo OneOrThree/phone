@@ -15,6 +15,7 @@ export default function SubjectEditStep({ data, onNext }: StepProps) {
 
   return (
     <StepScaffold
+      testID="onboarding.step.subjectEdit"
       title={`${category}${eunNeun(category)} 보통\n이 과목들을 공부해요`}
       ctaLabel="이대로 시작"
       onCta={onNext}

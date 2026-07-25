@@ -18,6 +18,7 @@ const notificationDrop = (order: number) =>
 export default function ProblemEmpathyStep({ onNext }: StepProps) {
   return (
     <StepScaffold
+      testID="onboarding.step.problem"
       center
       title={'이런 순간, \n익숙하지 않으세요?'}
       ctaLabel="공감돼요"

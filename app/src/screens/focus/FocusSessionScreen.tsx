@@ -753,7 +753,7 @@ export default function FocusSessionScreen() {
   ];
 
   return (
-    <View style={s.root}>
+    <View testID="focus.session.screen" style={s.root}>
       <LinearGradient colors={[T.night.top, T.night.bottom]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={s.flex1} edges={['top', 'bottom']}>
         {/* 상단바 — 햄버거만(과목명은 타이머 위 리드아웃으로 이동, 빈 View는 우측 정렬 유지용) */}
@@ -840,10 +840,20 @@ export default function FocusSessionScreen() {
 
         {/* 컨트롤 — 일시정지 / 정지 */}
         <View style={s.controls} ref={controlsRef} collapsable={false}>
-          <TouchableOpacity style={s.ctrlBtn} activeOpacity={0.8} onPress={togglePause}>
+          <TouchableOpacity
+            testID="focus.pause"
+            style={s.ctrlBtn}
+            activeOpacity={0.8}
+            onPress={togglePause}
+          >
             <Ionicons name={paused ? 'play' : 'pause'} size={22} color={T.paperLight} />
           </TouchableOpacity>
-          <TouchableOpacity style={[s.ctrlBtn, s.stopBtn]} activeOpacity={0.8} onPress={stopByUser}>
+          <TouchableOpacity
+            testID="focus.stop"
+            style={[s.ctrlBtn, s.stopBtn]}
+            activeOpacity={0.8}
+            onPress={stopByUser}
+          >
             <Ionicons name="square" size={19} color={T.paperLight} />
           </TouchableOpacity>
         </View>
