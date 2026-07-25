@@ -4,6 +4,7 @@
     "strict": true,
     "allowJs": false,
     "jsx": "react-jsx",
+    "types": ["jest"],
     "paths": {
       "@/*": ["./src/*"]
     }
