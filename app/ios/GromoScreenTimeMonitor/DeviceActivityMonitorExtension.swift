@@ -27,7 +27,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                 sharedDefaults?.set(prevMins, forKey: "gromo:screentime:prevBucketMinutes")
                 sharedDefaults?.set(prevDate, forKey: "gromo:screentime:prevBucketDate")
             }
-            // 30분 버킷 사용량 리셋 (오늘 기준으로 새로 카운트)
+            // 사용량 버킷 리셋 (오늘 기준으로 새로 카운트 — 눈금은 메인 앱 등록이 정함)
             sharedDefaults?.set(0, forKey: "gromo:screentime:usageBucketMinutes")
             sharedDefaults?.set(todayString, forKey: "gromo:screentime:usageBucketDate")
             // 재등록 베이스라인도 새 날 기준으로 리셋(GROMO-871 코드리뷰 P2) — 베이스는 '등록한

@@ -69,14 +69,14 @@ const ScreenTimeModule = {
     return NativeScreenTimeModule.startGoalMonitoring(goalSeconds);
   },
 
-  // 30분 버킷 사용량 모니터링 등록 (maxMinutes까지 30분 간격 threshold).
+  // 15분 버킷 사용량 모니터링 등록 (maxMinutes까지 15분 간격 threshold).
   // 측정 대상 미선택이면 false. 반환값: 등록 성공 여부.
   startUsageBucketMonitoring: async (maxMinutes: number): Promise<boolean> => {
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.startUsageBucketMonitoring(maxMinutes);
   },
 
-  // 오늘의 사용량(분) — Monitor가 기록한 도달 최고 30분 눈금. iOS 외/미측정 시 0.
+  // 오늘의 사용량(분) — Monitor가 기록한 도달 최고 15분 눈금. iOS 외/미측정 시 0.
   getTodayUsageBucketMinutes: async (): Promise<number> => {
     if (Platform.OS !== 'ios') return 0;
     return NativeScreenTimeModule.getTodayUsageBucketMinutes();

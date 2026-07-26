@@ -194,8 +194,8 @@ class ScreenTimeModule: NSObject {
         }
     }
 
-    // 30분 버킷 사용량 모니터링 시작 — 보상 판정(gromo.daily)과 분리된 별도 스케줄.
-    // 하루 스케줄(00:00~23:59)에 30·60·90…분 threshold 이벤트를 촘촘히 박아,
+    // 15분 버킷 사용량 모니터링 시작 — 보상 판정(gromo.daily)과 분리된 별도 스케줄.
+    // 하루 스케줄(00:00~23:59)에 15·30·45…분 threshold 이벤트를 촘촘히 박아,
     // Monitor 익스텐션이 "도달한 최고 눈금(분)"을 App Group에 기록 → 메인 앱이 읽어 사용량 근사치로 표시.
     // (Report 익스텐션의 App Group 쓰기 차단(원인 3)을 우회하는 정석 경로)
     @objc func startUsageBucketMonitoring(
@@ -242,13 +242,14 @@ class ScreenTimeModule: NSObject {
             return
         }
 
-        // 30분 간격 눈금(30,60,…). 이벤트 과다(RAM 6MB)·경계 뭉갬 방지로 900분(15h·30개)로 상한.
+        // 15분 간격 눈금(15,30,…) — 서버 전송 버킷 세분화(GROMO-931, 30분→15분).
+        // 이벤트 과다(Monitor 익스텐션 RAM 6MB)·경계 뭉갬 방지로 900분(15h·60개)로 상한.
         // 웹 도메인 시간은 브라우저 앱 시간에 이미 포함 — 브라우저를 덮는 선택과 함께 걸면 같은
         // 시간이 두 번 세져 버킷이 실사용량(설정 스크린타임)보다 크게 잡힌다. 목표 threshold와
         // 동일하게 카테고리 선택이 있으면 도메인을 제외하고, 개별 앱만 고른 선택은 도메인을
         // 유지한다(혼합 선택 보존, PR 리뷰 반영).
         let bucketWebDomains = selection.categoryTokens.isEmpty ? selection.webDomainTokens : []
-        let step = 30
+        let step = 15
         let maxMinutes = min(max(Int(maxMinutesValue), step), 900)
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
         var m = step
