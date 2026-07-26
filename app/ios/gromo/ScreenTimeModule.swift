@@ -196,7 +196,9 @@ class ScreenTimeModule: NSObject {
 
     // 버킷 디버그 이벤트 로그(개발 확인용, GROMO-931) — Monitor 익스텐션과 같은 App Group 키에
     // 최근 50줄만 유지. 등록/실패 시점을 남겨 익스텐션 콜백 순서와 대조할 수 있게 한다.
+    // Release에선 no-op — 패널이 dev 빌드 전용이라 볼 수 없는 순수 비용이기 때문(코드리뷰 반영).
     private func appendDebugLog(_ line: String) {
+        #if DEBUG
         let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
         let f = DateFormatter()
         f.dateFormat = "MM-dd HH:mm:ss"
@@ -204,6 +206,7 @@ class ScreenTimeModule: NSObject {
         log.append("\(f.string(from: Date())) \(line)")
         if log.count > 50 { log.removeFirst(log.count - 50) }
         defaults?.set(log, forKey: "gromo:screentime:debugEventLog")
+        #endif
     }
 
     // 15분 버킷 사용량 모니터링 시작 — 보상 판정(gromo.daily)과 분리된 별도 스케줄.

@@ -56,6 +56,14 @@ interface NativeScreenTime {
 
 const NativeScreenTimeModule = NativeModules.ScreenTimeModule as NativeScreenTime;
 
+// 네이티브 바이너리가 15분 눈금(GROMO-931) 빌드인지 — 같은 빌드에 추가된
+// getUsageBucketDebugInfo 존재로 판별한다. OTA로 새 JS만 받은 구 바이너리는 여전히 30분
+// 눈금을 등록하므로, 등록 마커가 실제 눈금과 어긋나지 않게 하는 데 쓴다(코드리뷰 반영).
+export const nativeRegistersBucketStep15 = (): boolean =>
+  Platform.OS === 'ios' &&
+  typeof (NativeModules.ScreenTimeModule as NativeScreenTime | undefined)
+    ?.getUsageBucketDebugInfo === 'function';
+
 // iOS 전용 기능이므로 Android에서 호출 시 에러 대신 기본값 반환
 const ScreenTimeModule = {
   // 스크린 타임 접근 권한 요청. 반환값: true(승인) | false(거부)

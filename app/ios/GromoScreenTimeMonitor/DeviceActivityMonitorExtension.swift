@@ -13,13 +13,17 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     // 버킷 디버그 이벤트 로그(개발 확인용, GROMO-931) — 콜백이 언제 무엇을 기록/스킵했는지
     // App Group에 최근 50줄만 남긴다. dev 패널이 표시하며 판정 로직에는 쓰지 않는다.
+    // Release에선 no-op — 패널이 dev 빌드 전용이라 볼 수 없고, 메모리 제약(6MB)이 빡빡한
+    // 익스텐션에 이벤트마다 배열 읽기·쓰기 비용만 얹기 때문(코드리뷰 반영).
     private func appendDebugLog(_ line: String) {
+        #if DEBUG
         let f = DateFormatter()
         f.dateFormat = "MM-dd HH:mm:ss"
         var log = sharedDefaults?.stringArray(forKey: "gromo:screentime:debugEventLog") ?? []
         log.append("\(f.string(from: Date())) \(line)")
         if log.count > 50 { log.removeFirst(log.count - 50) }
         sharedDefaults?.set(log, forKey: "gromo:screentime:debugEventLog")
+        #endif
     }
 
     // 새 날(00:00) 시작 시 활동별 당일 상태 초기화
