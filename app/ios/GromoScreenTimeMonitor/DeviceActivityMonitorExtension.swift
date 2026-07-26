@@ -1,5 +1,6 @@
-import Foundation
 import DeviceActivity
+import FamilyControls
+import Foundation
 
 class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
@@ -26,6 +27,95 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         #endif
     }
 
+    // GROMO-942 스파이크(개발 전용, 실험 후 제거 예정) — "익스텐션 콜백 안에서 startMonitoring
+    // 재등록이 되는가"의 실기기 검증. A안(자정 네이티브 승격, 03-screentime 11절)의 성립 조건.
+    // dev 패널 버튼이 spikeArmed 플래그를 세우고 강제 재등록으로 intervalDidStart를 유발한다.
+    // 별도 활동명(gromo.spike)을 1·2·3분 threshold로 등록해 실측정(gromo.usage.buckets)은
+    // 건드리지 않는다. 플래그는 진입 즉시 해제 — 재귀·중복 실행 방지.
+    private func runBucketSpikeIfArmed() {
+        #if DEBUG
+        guard sharedDefaults?.bool(forKey: "gromo:screentime:spikeArmed") == true else { return }
+        sharedDefaults?.set(false, forKey: "gromo:screentime:spikeArmed")
+        let mode = sharedDefaults?.string(forKey: "gromo:screentime:spikeMode") ?? "separate"
+
+        guard let data = sharedDefaults?.data(forKey: "gromo:goal:selection"),
+              let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data)
+        else {
+            appendDebugLog("spike 중단 — 측정 대상 selection 없음")
+            return
+        }
+
+        var start = DateComponents()
+        start.hour = 0
+        start.minute = 0
+        var end = DateComponents()
+        end.hour = 23
+        end.minute = 59
+        let schedule = DeviceActivitySchedule(intervalStart: start, intervalEnd: end, repeats: true)
+
+        if mode == "self" {
+            // 실험 B — A안의 실제 형태: 자기 자신(gromo.usage.buckets)을 콜백 안에서 재등록.
+            // 메인 앱 등록(startUsageBucketMonitoring)과 동일하게 등록 시각·베이스를 갱신해
+            // 오발화 가드·베이스 합산이 이어지게 한다. stop→start가 이 콜백을 중첩 호출해도
+            // 플래그가 이미 해제돼 재실행되지 않는다(중첩 호출 자체가 로그에 남아 관찰 증거가 됨).
+            let storedDate = sharedDefaults?.string(forKey: "gromo:screentime:usageBucketDate")
+            let base =
+                storedDate == todayString
+                ? (sharedDefaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0) : 0
+            sharedDefaults?.set(
+                Date().timeIntervalSince1970, forKey: "gromo:screentime:bucketRegisteredAt")
+            sharedDefaults?.set(base, forKey: "gromo:screentime:bucketBaseMinutes")
+            sharedDefaults?.set(todayString, forKey: "gromo:screentime:bucketBaseDate")
+
+            let bucketWebDomains = selection.categoryTokens.isEmpty ? selection.webDomainTokens : []
+            var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+            var m = 15
+            while m <= 900 {
+                var threshold = DateComponents()
+                threshold.hour = m / 60
+                threshold.minute = m % 60
+                events[DeviceActivityEvent.Name("gromo.usage.bucket.\(m)")] = DeviceActivityEvent(
+                    applications: selection.applicationTokens,
+                    categories: selection.categoryTokens,
+                    webDomains: bucketWebDomains,
+                    threshold: threshold
+                )
+                m += 15
+            }
+            let center = DeviceActivityCenter()
+            center.stopMonitoring([DeviceActivityName("gromo.usage.buckets")])
+            do {
+                try center.startMonitoring(
+                    DeviceActivityName("gromo.usage.buckets"), during: schedule, events: events)
+                appendDebugLog("spike(self) 콜백 내 자기 재등록 성공(베이스 \(base)) — 이후 15분 눈금 지속 확인")
+            } catch {
+                appendDebugLog("spike(self) 콜백 내 자기 재등록 실패: \(error.localizedDescription)")
+            }
+            return
+        }
+
+        // separate 모드(실험 A·자정 실측) — 별도 활동 gromo.spike를 1·2·3분 threshold로 등록.
+        var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+        for m in 1...3 {
+            var threshold = DateComponents()
+            threshold.minute = m
+            events[DeviceActivityEvent.Name("gromo.spike.threshold.\(m)")] = DeviceActivityEvent(
+                applications: selection.applicationTokens,
+                categories: selection.categoryTokens,
+                webDomains: [],
+                threshold: threshold
+            )
+        }
+        do {
+            try DeviceActivityCenter().startMonitoring(
+                DeviceActivityName("gromo.spike"), during: schedule, events: events)
+            appendDebugLog("spike 콜백 내 startMonitoring 성공 — 대상 앱 1~3분 사용 시 발화 확인")
+        } catch {
+            appendDebugLog("spike 콜백 내 startMonitoring 실패: \(error.localizedDescription)")
+        }
+        #endif
+    }
+
     // 새 날(00:00) 시작 시 활동별 당일 상태 초기화
     override func intervalDidStart(for activity: DeviceActivityName) {
         super.intervalDidStart(for: activity)
@@ -34,6 +124,9 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             // 보상 판정용 초과 플래그 리셋
             sharedDefaults?.set(false, forKey: "gromo:screentime:goalExceededToday")
         case "gromo.usage.buckets":
+            // GROMO-942 스파이크 — 이 콜백이 A안의 승격 실행 지점이므로 여기서 실험을 발사한다.
+            // (스킵 분기보다 앞 — 한낮 유발 호출에서도 실험이 돌게.)
+            runBucketSpikeIfArmed()
             // 이 콜백도 자정만이 아니라 재등록의 startMonitoring으로 한낮에 불릴 수 있다
             // (GROMO-931, intervalDidEnd와 동일 원인). 저장 날짜가 이미 오늘이면 새 날이 아니라
             // 스퓨리어스 호출 — 아래 리셋이 오늘 눈금·재등록 베이스를 지워버리므로 아무것도 안 한다.
@@ -58,6 +151,9 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             sharedDefaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
             sharedDefaults?.set(todayString, forKey: "gromo:screentime:bucketBaseDate")
             appendDebugLog("intervalDidStart 자정 리셋 — 직전 \(prevMins)분(\(prevDate ?? "-")) 보존")
+        case "gromo.spike":
+            // GROMO-942 스파이크 — 콜백 내 등록한 활동의 인터벌이 실제로 시작됐다는 증거
+            appendDebugLog("spike intervalDidStart 수신 — 콜백 내 등록 활동이 살아있음")
         default:
             break
         }
@@ -92,6 +188,8 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             } else {
                 appendDebugLog("intervalDidEnd 스킵 — 기록 없음")
             }
+        case "gromo.spike":
+            appendDebugLog("spike intervalDidEnd 수신")
         default:
             break
         }
@@ -138,6 +236,13 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                 return
             }
             sharedDefaults?.set(true, forKey: "gromo:screentime:goalExceededToday")
+            return
+        }
+
+        // GROMO-942 스파이크 — 콜백 내 등록한 threshold가 실제로 발화하는지 관찰(로그만).
+        let spikePrefix = "gromo.spike.threshold."
+        if name.hasPrefix(spikePrefix), let m = Int(name.dropFirst(spikePrefix.count)) {
+            appendDebugLog("spike 눈금 \(m)분 발화 — 콜백 내 등록이 실제 동작함")
             return
         }
 

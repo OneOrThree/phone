@@ -40,6 +40,7 @@ interface NativeScreenTime {
   getYesterdayUsageBucketMinutes(): Promise<number>;
   getYesterdayResult(): Promise<YesterdayResult>;
   getUsageBucketDebugInfo(): Promise<UsageBucketDebugInfo>;
+  armUsageBucketSpike(mode: string): Promise<boolean>;
   presentAppPicker(): Promise<AppSelectionCounts | null>;
   promoteSelection(): Promise<boolean>;
   presentAllowedAppPicker(): Promise<AppSelectionCounts | null>;
@@ -121,6 +122,14 @@ const ScreenTimeModule = {
   getUsageBucketDebugInfo: async (): Promise<UsageBucketDebugInfo | null> => {
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.getUsageBucketDebugInfo();
+  },
+
+  // GROMO-942 스파이크 arm(개발 전용) — 익스텐션이 다음 intervalDidStart에서 "콜백 내
+  // startMonitoring" 실험을 1회 실행하게 플래그를 세운다. 실험 종료 후 제거 예정.
+  // mode: 'separate'(별도 활동 등록 — 실험 A·자정 실측) | 'self'(자기 재등록 — 실험 B).
+  armUsageBucketSpike: async (mode: 'separate' | 'self'): Promise<boolean> => {
+    if (Platform.OS !== 'ios') return false;
+    return NativeScreenTimeModule.armUsageBucketSpike(mode);
   },
 
   // 측정 대상(앱/카테고리) 선택 picker 표시. 취소 시 null.

@@ -378,6 +378,23 @@ class ScreenTimeModule: NSObject {
         ] as [String: Any])
     }
 
+    // GROMO-942 스파이크 arm(개발 전용, 실험 후 제거 예정) — Monitor 익스텐션이 다음
+    // intervalDidStart에서 "콜백 내 startMonitoring" 실험을 1회 실행하게 플래그를 세운다.
+    // mode: "separate"(별도 활동 gromo.spike 등록 — 실험 A·자정 실측) |
+    //       "self"(gromo.usage.buckets 자기 재등록 — 실험 B, A안의 실제 형태).
+    // dev 패널 버튼이 arm 직후 강제 재등록으로 콜백을 즉시 유발한다(자정 실측은 arm만).
+    @objc func armUsageBucketSpike(
+        _ mode: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        defaults?.set(true, forKey: "gromo:screentime:spikeArmed")
+        defaults?.set(mode as String, forKey: "gromo:screentime:spikeMode")
+        appendDebugLog("spike armed(\(mode)) — 다음 intervalDidStart에서 실험 실행")
+        resolve(true)
+    }
+
     // 어제 날짜의 스크린 타임 목표 달성 결과를 App Group에서 읽어 반환
     // 반환값: "success" | "fail" | nil (어제 결과 없음 — 첫 설치 또는 모니터링 미실행)
     @objc func getYesterdayResult(
