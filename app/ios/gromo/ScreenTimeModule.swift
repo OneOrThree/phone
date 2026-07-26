@@ -194,8 +194,23 @@ class ScreenTimeModule: NSObject {
         }
     }
 
-    // 30분 버킷 사용량 모니터링 시작 — 보상 판정(gromo.daily)과 분리된 별도 스케줄.
-    // 하루 스케줄(00:00~23:59)에 30·60·90…분 threshold 이벤트를 촘촘히 박아,
+    // 버킷 디버그 이벤트 로그(개발 확인용, GROMO-931) — Monitor 익스텐션과 같은 App Group 키에
+    // 최근 50줄만 유지. 등록/실패 시점을 남겨 익스텐션 콜백 순서와 대조할 수 있게 한다.
+    // Release에선 no-op — 패널이 dev 빌드 전용이라 볼 수 없는 순수 비용이기 때문(코드리뷰 반영).
+    private func appendDebugLog(_ line: String) {
+        #if DEBUG
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm:ss"
+        var log = defaults?.stringArray(forKey: "gromo:screentime:debugEventLog") ?? []
+        log.append("\(f.string(from: Date())) \(line)")
+        if log.count > 50 { log.removeFirst(log.count - 50) }
+        defaults?.set(log, forKey: "gromo:screentime:debugEventLog")
+        #endif
+    }
+
+    // 15분 버킷 사용량 모니터링 시작 — 보상 판정(gromo.daily)과 분리된 별도 스케줄.
+    // 하루 스케줄(00:00~23:59)에 15·30·45…분 threshold 이벤트를 촘촘히 박아,
     // Monitor 익스텐션이 "도달한 최고 눈금(분)"을 App Group에 기록 → 메인 앱이 읽어 사용량 근사치로 표시.
     // (Report 익스텐션의 App Group 쓰기 차단(원인 3)을 우회하는 정석 경로)
     @objc func startUsageBucketMonitoring(
@@ -238,17 +253,19 @@ class ScreenTimeModule: NSObject {
                 && selection.categoryTokens.isEmpty
                 && selection.webDomainTokens.isEmpty)
         else {
+            appendDebugLog("버킷 재등록 실패 — 측정 대상 없음")
             resolve(false)
             return
         }
 
-        // 30분 간격 눈금(30,60,…). 이벤트 과다(RAM 6MB)·경계 뭉갬 방지로 900분(15h·30개)로 상한.
+        // 15분 간격 눈금(15,30,…) — 서버 전송 버킷 세분화(GROMO-931, 30분→15분).
+        // 이벤트 과다(Monitor 익스텐션 RAM 6MB)·경계 뭉갬 방지로 900분(15h·60개)로 상한.
         // 웹 도메인 시간은 브라우저 앱 시간에 이미 포함 — 브라우저를 덮는 선택과 함께 걸면 같은
         // 시간이 두 번 세져 버킷이 실사용량(설정 스크린타임)보다 크게 잡힌다. 목표 threshold와
         // 동일하게 카테고리 선택이 있으면 도메인을 제외하고, 개별 앱만 고른 선택은 도메인을
         // 유지한다(혼합 선택 보존, PR 리뷰 반영).
         let bucketWebDomains = selection.categoryTokens.isEmpty ? selection.webDomainTokens : []
-        let step = 30
+        let step = 15
         let maxMinutes = min(max(Int(maxMinutesValue), step), 900)
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
         var m = step
@@ -285,8 +302,10 @@ class ScreenTimeModule: NSObject {
 
         do {
             try center.startMonitoring(activityName, during: schedule, events: events)
+            appendDebugLog("버킷 모니터 등록 — 눈금 \(step)분·베이스 \(baseMinutes)분")
             resolve(true)
         } catch {
+            appendDebugLog("버킷 모니터 등록 실패: \(error.localizedDescription)")
             reject("MONITOR_ERROR", "버킷 모니터링 시작 실패: \(error.localizedDescription)", error)
         }
     }
@@ -337,6 +356,26 @@ class ScreenTimeModule: NSObject {
         }
 
         resolve(result)
+    }
+
+    // 사용량 버킷 측정 상태 디버그 조회(개발용, GROMO-931) — App Group 기록 원본을 그대로 반환.
+    // 전체 탭 dev 패널이 15분 눈금 동작을 실기기에서 확인하는 용도이며 판정 로직에는 쓰지 않는다.
+    @objc func getUsageBucketDebugInfo(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        resolve([
+            "bucketMinutes": defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0,
+            "bucketDate": defaults?.string(forKey: "gromo:screentime:usageBucketDate") ?? "",
+            "baseMinutes": defaults?.integer(forKey: "gromo:screentime:bucketBaseMinutes") ?? 0,
+            "baseDate": defaults?.string(forKey: "gromo:screentime:bucketBaseDate") ?? "",
+            "registeredAt": defaults?.double(forKey: "gromo:screentime:bucketRegisteredAt") ?? 0,
+            "prevBucketMinutes": defaults?.integer(forKey: "gromo:screentime:prevBucketMinutes")
+                ?? 0,
+            "prevBucketDate": defaults?.string(forKey: "gromo:screentime:prevBucketDate") ?? "",
+            "log": defaults?.stringArray(forKey: "gromo:screentime:debugEventLog") ?? [],
+        ] as [String: Any])
     }
 
     // 어제 날짜의 스크린 타임 목표 달성 결과를 App Group에서 읽어 반환

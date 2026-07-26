@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import ScreenTimeModule from '@/services/ScreenTimeModule';
+import ScreenTimeModule, { nativeRegistersBucketStep15 } from '@/services/ScreenTimeModule';
 import { saveScreenTime } from '@/services/screentimeApi';
 import { getHeatmap } from '@/services/statsApi';
 import {
@@ -10,7 +10,7 @@ import { STORAGE_KEYS } from '@/types/storage';
 import type { HeatmapCellResponse } from '@/types/dto/stats';
 import { todayStr, yesterdayStr, localDateStr } from '@/utils/localDate';
 
-// 스크린타임 사용량 서버 동기화(GROMO-633) — 네이티브 30분 버킷 측정값을 POST /screen-time으로
+// 스크린타임 사용량 서버 동기화(GROMO-633) — 네이티브 15분 버킷 측정값을 POST /screen-time으로
 // 올려 daily_screen_time_stats(통계 화면 폰 사용량 지표의 소스)를 채운다.
 // 서버는 (user, reportedAt의 유저 타임존 날짜) 기준 upsert 멱등 — 하루 여러 번 보내면 최신값으로 덮인다.
 //
@@ -35,11 +35,24 @@ interface ScreenTimeSyncState {
   minutes: number;
 }
 
-// 네이티브 버킷 상한(15h = 30분 눈금 × 30개). 목표 초과 사용도 실사용치로 집계해야 하므로
+// 네이티브 버킷 상한(15h = 15분 눈금 × 60개). 목표 초과 사용도 실사용치로 집계해야 하므로
 // 목표값이 아니라 측정 가능 최대치로 등록한다(네이티브가 900으로 클램프).
 export const USAGE_BUCKET_MAX_MINUTES = 900;
 
-// 30분 버킷 모니터링 등록 — 권한 허용 + 측정 대상 선택(App Group selection)이 있어야 성공(없으면 false).
+// 버킷 눈금(분) — 실제 눈금은 네이티브(ScreenTimeModule.swift의 step)가 정하므로 반드시 함께
+// 바꾼다. 여기 값은 아래 등록 시그니처용 — 바뀌면 기존 설치가 새 눈금으로 1회 재등록된다(GROMO-931).
+const USAGE_BUCKET_STEP_MINUTES = 15;
+
+// 등록 시그니처(상한@눈금) — 등록 당시 값과 달라지면 Syncer가 감지해 재등록한다.
+// 실제 등록되는 눈금은 '네이티브 바이너리'가 정한다 — OTA로 새 JS만 받은 구 바이너리는 여전히
+// 30분 눈금을 등록하므로 구 형식('900')을 그대로 써서 마커가 실제 눈금과 어긋나지 않게 하고,
+// 새 바이너리 설치 후 첫 실행이 불일치를 감지해 재등록하게 한다(코드리뷰 반영).
+const usageBucketGrid = (): string =>
+  nativeRegistersBucketStep15()
+    ? `${USAGE_BUCKET_MAX_MINUTES}@${USAGE_BUCKET_STEP_MINUTES}`
+    : String(USAGE_BUCKET_MAX_MINUTES);
+
+// 15분 버킷 모니터링 등록 — 권한 허용 + 측정 대상 선택(App Group selection)이 있어야 성공(없으면 false).
 // threshold 이벤트는 등록 시점의 selection 토큰으로 고정되므로, 측정 대상을 바꾸면(promoteSelection)
 // 반드시 재등록해야 한다. 성공 시 등록 기록을 남겨 Syncer의 1회 등록과 중복되지 않게 하고,
 // 값에는 소유 계정(userId)을 기록한다 — 동기화 이력이 아직 없는 날(첫날 0분·업로드 실패)에도
@@ -50,10 +63,11 @@ export async function registerUsageBucketMonitoring(ownerUserId: string | null):
     if ((await ScreenTimeModule.getAuthorizationStatus()) !== 'approved') return false;
     const ok = await ScreenTimeModule.startUsageBucketMonitoring(USAGE_BUCKET_MAX_MINUTES);
     if (ok) {
-      // 등록 상한도 함께 기록 — 상수 변경 시 Syncer가 감지해 재등록한다(GROMO-871 상한 확장).
+      // 등록 시그니처도 함께 기록 — 값 변경 시 Syncer가 감지해 재등록한다
+      // (GROMO-871 상한 확장 → GROMO-931 눈금 세분화).
       await AsyncStorage.multiSet([
         [STORAGE_KEYS.screentimeBucketMonitorRegistered, ownerUserId ?? '1'],
-        [STORAGE_KEYS.screentimeBucketMonitorMaxMinutes, String(USAGE_BUCKET_MAX_MINUTES)],
+        [STORAGE_KEYS.screentimeBucketMonitorMaxMinutes, usageBucketGrid()],
       ]);
     }
     return ok;
@@ -192,42 +206,29 @@ export async function syncScreenTimeUsage(
       await AsyncStorage.setItem(STORAGE_KEYS.screentimeBucketMonitorRegistered, userId);
       monitorOwner = userId;
     }
-    // 상한 확장 마이그레이션(GROMO-871, 12h→15h) — 등록 당시 상한이 현재 상수와 다르면 재등록해
-    // 새 눈금(900분)을 적용한다. 재등록 직후 iOS의 threshold 연쇄 오발화는 네이티브 등록 시각
-    // 가드가 걸러 안전. 재등록이 당일 누적 카운트를 리셋하는 손실은 1회성으로 감수한다.
-    if (monitorOwner) {
-      const registeredMax = await AsyncStorage.getItem(
-        STORAGE_KEYS.screentimeBucketMonitorMaxMinutes,
-      );
-      if (registeredMax !== String(USAGE_BUCKET_MAX_MINUTES)) {
-        await registerUsageBucketMonitoring(monitorOwner); // 선택 없으면 false → 다음에 재시도
-      }
-    }
   } catch {
     // 등록 실패는 동기화와 무관 — 계속 진행
   }
+  // ⚠️ '눈금 변경 재등록'은 여기서 하지 않는다 — 재등록의 stopMonitoring이 한낮 intervalDidEnd를
+  // 울려 어제 보존값(단일 슬롯)을 오늘 값으로 덮으므로, 아래 '어제분 마감'이 먼저 읽은 뒤에
+  // 수행한다(코드리뷰 반영). 위 최초 등록은 기존 모니터가 없어 중지 콜백이 울리지 않아 안전.
 
-  // 목표 판정 모니터링 등록/재등록 — 미등록이거나 목표가 바뀌었으면. 이게 없으면 gromo.daily가
-  // 안 돌아 getYesterdayResult()가 영영 null → 어제 마감이 분값 근사 폴백으로만 동작한다.
-  // (신규 유저는 목표가 온보딩 W12에서 정해지므로 W10이 아니라 여기서 첫 등록된다.)
-  // 재등록 전에 읽은 등록 목표 = 어제 네이티브 판정에 쓰인 목표. 오늘 목표를 바꿔도 축하 문구가
-  // 어제 기준으로 나오게 보관한다(코드리뷰 P2).
+  // 어제 판정에 쓰인 목표 읽기 — 재등록 '전' 값이어야 오늘 목표를 바꿔도 축하 문구가 어제
+  // 기준으로 나온다(코드리뷰 P2). 목표 모니터링 재등록 자체는 어제분 마감 뒤에서 수행한다.
   let yesterdayGoalSeconds: number | null = null;
+  let registeredGoal: string | null = null;
   try {
-    const registeredGoal = await AsyncStorage.getItem(STORAGE_KEYS.screentimeGoalMonitorSeconds);
+    registeredGoal = await AsyncStorage.getItem(STORAGE_KEYS.screentimeGoalMonitorSeconds);
     yesterdayGoalSeconds = registeredGoal ? Number(registeredGoal) : null;
-    if (goalSeconds > 0 && registeredGoal !== String(goalSeconds)) {
-      await registerGoalMonitoring(goalSeconds); // 선택 없으면 false → 저장 없이 다음에 재시도
-    }
   } catch {
-    // 등록 실패는 동기화와 무관 — 계속 진행
+    // 조회 실패 — 어제 목표 미상으로 진행
   }
 
   const today = todayStr();
   const yesterday = yesterdayStr();
   let last = await readSyncState(userId);
 
-  // 어제분 마감(GROMO-627) — 어제 동기화 기록이 없어도(하루 종일 앱 미실행·첫 30분 미도달)
+  // 어제분 마감(GROMO-627) — 어제 동기화 기록이 없어도(하루 종일 앱 미실행·첫 15분 미도달)
   // Monitor는 앱과 무관하게 판정·최종 눈금을 남기므로 그것만으로 어제 행을 확정한다.
   // 분값은 max(하루 경계에 보존된 전일 최종 눈금, 어제 마지막 동기화 값) — 마지막 포그라운드
   // 이후 늘어난 사용분까지 반영.
@@ -262,7 +263,7 @@ export async function syncScreenTimeUsage(
       }
       // 판정도 사용 기록도 없으면 보낼 것이 없다 — 전송 없이 (읽기 성공 시) 마킹만.
       if (result !== null || finalMinutes > 0) {
-        // 네이티브 판정이 없으면(목표 모니터링 미등록 기간 등) 분값 근사로 폴백 — 30분 눈금이라
+        // 네이티브 판정이 없으면(목표 모니터링 미등록 기간 등) 분값 근사로 폴백 — 15분 눈금이라
         // 목표 직전 초과가 달성으로 후하게 잡힐 수 있고 목표도 오늘 값 기준인 근사지만,
         // 미달성으로 고정해 두는 것보다 정확하다.
         const achieved =
@@ -297,6 +298,37 @@ export async function syncScreenTimeUsage(
     }
   }
 
+  // 눈금 변경 마이그레이션(GROMO-871 상한 12h→15h, GROMO-931 눈금 30분→15분) — 등록 당시
+  // 시그니처가 현재(네이티브가 등록할 눈금)와 다르면 재등록해 새 눈금을 적용한다. 구버전
+  // 마커('720'·'900')도 자연히 걸린다. 반드시 어제분 마감 '뒤'에 수행 — 재등록의 stopMonitoring이
+  // 한낮 intervalDidEnd로 어제 보존값을 덮기 때문(코드리뷰 반영). 재등록 직후 iOS의 threshold
+  // 연쇄 오발화는 네이티브 등록 시각 가드가 걸러 안전하고, 당일 누적 리셋 손실은 1회성으로
+  // 감수한다(베이스 합산으로 보존).
+  try {
+    if (monitorOwner) {
+      const registeredGrid = await AsyncStorage.getItem(
+        STORAGE_KEYS.screentimeBucketMonitorMaxMinutes,
+      );
+      if (registeredGrid !== usageBucketGrid()) {
+        await registerUsageBucketMonitoring(monitorOwner); // 선택 없으면 false → 다음에 재시도
+      }
+    }
+  } catch {
+    // 등록 실패는 동기화와 무관 — 계속 진행
+  }
+
+  // 목표 판정 모니터링 등록/재등록 — 미등록이거나 목표가 바뀌었으면. 이게 없으면 gromo.daily가
+  // 안 돌아 getYesterdayResult()가 영영 null → 어제 마감이 분값 근사 폴백으로만 동작한다.
+  // (신규 유저는 목표가 온보딩 W12에서 정해지므로 W10이 아니라 여기서 첫 등록된다.)
+  // 이것도 어제분 마감 '뒤' — gromo.daily 중지 콜백이 판정 기록(lastResult)을 어지럽힐 수 있다.
+  try {
+    if (goalSeconds > 0 && registeredGoal !== String(goalSeconds)) {
+      await registerGoalMonitoring(goalSeconds); // 선택 없으면 false → 저장 없이 다음에 재시도
+    }
+  } catch {
+    // 등록 실패는 동기화와 무관 — 계속 진행
+  }
+
   // 지난 중간 동기화 행 확정 — 며칠 만의 실행이면 last.date가 어제보다 과거일 수 있다. 그 날의
   // 네이티브 판정·보존 눈금은 이미 다음 날들로 덮여 없으므로, 업로드해 둔 분값 그대로 달성
   // 여부만 근사 확정한다(리뷰 반영 — 영영 미달성으로 남는 것 방지). 달성으로 뒤집히는 경우만
@@ -315,7 +347,7 @@ export async function syncScreenTimeUsage(
     last = null;
   }
 
-  // 오늘 사용량 중간 동기화 — 0이면 스킵: 미측정(선택 없음·첫 30분 미도달)과 구분이 안 되므로
+  // 오늘 사용량 중간 동기화 — 0이면 스킵: 미측정(선택 없음·첫 15분 미도달)과 구분이 안 되므로
   // 서버에 0분 행을 만들지 않는다.
   const minutes = await ScreenTimeModule.getTodayUsageBucketMinutes();
   if (minutes <= 0) return;

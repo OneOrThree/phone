@@ -16,6 +16,19 @@ export interface AppSelectionCounts {
   webDomains: number;
 }
 
+// 사용량 버킷 측정 상태 디버그 정보(개발용, GROMO-931) — App Group 기록 원본.
+// 전체 탭 dev 패널이 15분 눈금 동작 확인에 쓴다. 판정 로직에는 쓰지 않는다.
+export interface UsageBucketDebugInfo {
+  bucketMinutes: number; // 오늘 도달 최고 눈금(재등록 베이스 합산)
+  bucketDate: string; // 눈금이 기록된 날짜 'YYYY-MM-DD'
+  baseMinutes: number; // 재등록 베이스(등록 전 오늘 기록)
+  baseDate: string;
+  registeredAt: number; // 버킷 모니터 등록 시각(epoch 초, 0=기록 없음)
+  prevBucketMinutes: number; // 하루 경계에 보존된 전일 최종 눈금
+  prevBucketDate: string;
+  log: string[]; // 콜백·등록 이벤트 로그(시각+내용, 오래된 순, 최대 50줄)
+}
+
 // Swift 네이티브 모듈 인터페이스 (실기기 iOS에서만 실제 구현 존재)
 interface NativeScreenTime {
   requestAuthorization(): Promise<boolean>;
@@ -26,6 +39,7 @@ interface NativeScreenTime {
   getTodayUsageBucketMinutes(): Promise<number>;
   getYesterdayUsageBucketMinutes(): Promise<number>;
   getYesterdayResult(): Promise<YesterdayResult>;
+  getUsageBucketDebugInfo(): Promise<UsageBucketDebugInfo>;
   presentAppPicker(): Promise<AppSelectionCounts | null>;
   promoteSelection(): Promise<boolean>;
   presentAllowedAppPicker(): Promise<AppSelectionCounts | null>;
@@ -41,6 +55,14 @@ interface NativeScreenTime {
 }
 
 const NativeScreenTimeModule = NativeModules.ScreenTimeModule as NativeScreenTime;
+
+// 네이티브 바이너리가 15분 눈금(GROMO-931) 빌드인지 — 같은 빌드에 추가된
+// getUsageBucketDebugInfo 존재로 판별한다. OTA로 새 JS만 받은 구 바이너리는 여전히 30분
+// 눈금을 등록하므로, 등록 마커가 실제 눈금과 어긋나지 않게 하는 데 쓴다(코드리뷰 반영).
+export const nativeRegistersBucketStep15 = (): boolean =>
+  Platform.OS === 'ios' &&
+  typeof (NativeModules.ScreenTimeModule as NativeScreenTime | undefined)
+    ?.getUsageBucketDebugInfo === 'function';
 
 // iOS 전용 기능이므로 Android에서 호출 시 에러 대신 기본값 반환
 const ScreenTimeModule = {
@@ -69,14 +91,14 @@ const ScreenTimeModule = {
     return NativeScreenTimeModule.startGoalMonitoring(goalSeconds);
   },
 
-  // 30분 버킷 사용량 모니터링 등록 (maxMinutes까지 30분 간격 threshold).
+  // 15분 버킷 사용량 모니터링 등록 (maxMinutes까지 15분 간격 threshold).
   // 측정 대상 미선택이면 false. 반환값: 등록 성공 여부.
   startUsageBucketMonitoring: async (maxMinutes: number): Promise<boolean> => {
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.startUsageBucketMonitoring(maxMinutes);
   },
 
-  // 오늘의 사용량(분) — Monitor가 기록한 도달 최고 30분 눈금. iOS 외/미측정 시 0.
+  // 오늘의 사용량(분) — Monitor가 기록한 도달 최고 15분 눈금. iOS 외/미측정 시 0.
   getTodayUsageBucketMinutes: async (): Promise<number> => {
     if (Platform.OS !== 'ios') return 0;
     return NativeScreenTimeModule.getTodayUsageBucketMinutes();
@@ -93,6 +115,12 @@ const ScreenTimeModule = {
   getYesterdayResult: async (): Promise<YesterdayResult> => {
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.getYesterdayResult();
+  },
+
+  // 사용량 버킷 측정 상태 디버그 조회(개발용) — App Group 기록 원본. iOS 외에는 null.
+  getUsageBucketDebugInfo: async (): Promise<UsageBucketDebugInfo | null> => {
+    if (Platform.OS !== 'ios') return null;
+    return NativeScreenTimeModule.getUsageBucketDebugInfo();
   },
 
   // 측정 대상(앱/카테고리) 선택 picker 표시. 취소 시 null.

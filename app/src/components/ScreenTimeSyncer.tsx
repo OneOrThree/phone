@@ -4,7 +4,7 @@ import { useUser } from '@/store/UserContext';
 import { syncScreenTimeUsage } from '@/services/screentimeSync';
 
 // 스크린타임 사용량 서버 동기화 배선(GROMO-633) — 앱 시작 1회 + 포그라운드 복귀마다.
-// (PendingFocusUploader·PendingGoalApplier와 같은 트리거.) 네이티브 30분 버킷 측정값을
+// (PendingFocusUploader·PendingGoalApplier와 같은 트리거.) 네이티브 15분 버킷 측정값을
 // POST /screen-time으로 올려 통계 화면 폰 사용량 지표를 채운다. 실패는 조용히 무시 —
 // 서버 upsert가 멱등이라 다음 복귀 때 최신값으로 다시 시도된다.
 export function ScreenTimeSyncer() {
