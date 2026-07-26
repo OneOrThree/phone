@@ -19,11 +19,16 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             // 보상 판정용 초과 플래그 리셋
             sharedDefaults?.set(false, forKey: "gromo:screentime:goalExceededToday")
         case "gromo.usage.buckets":
-            // 리셋 전에 직전 날 최종 눈금을 전일 키로 보존(GROMO-633) — intervalDidEnd를 놓친 경우 대비.
-            // 메인 앱의 '어제분 마감 업로드'가 마지막 포그라운드 이후 늘어난 사용분까지 읽을 수 있게 한다.
+            // 이 콜백도 자정만이 아니라 재등록의 startMonitoring으로 한낮에 불릴 수 있다
+            // (GROMO-931, intervalDidEnd와 동일 원인). 저장 날짜가 이미 오늘이면 새 날이 아니라
+            // 스퓨리어스 호출 — 아래 리셋이 오늘 눈금·재등록 베이스를 지워버리므로 아무것도 안 한다.
+            // 진짜 자정 호출은 저장 날짜가 어제(또는 없음)라 기존과 동일하게 리셋 경로를 탄다.
             let prevDate = sharedDefaults?.string(forKey: "gromo:screentime:usageBucketDate")
             let prevMins = sharedDefaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0
-            if let prevDate, prevDate != todayString, prevMins > 0 {
+            if prevDate == todayString { break }
+            // 리셋 전에 직전 날 최종 눈금을 전일 키로 보존(GROMO-633) — intervalDidEnd를 놓친 경우 대비.
+            // 메인 앱의 '어제분 마감 업로드'가 마지막 포그라운드 이후 늘어난 사용분까지 읽을 수 있게 한다.
+            if let prevDate, prevMins > 0 {
                 sharedDefaults?.set(prevMins, forKey: "gromo:screentime:prevBucketMinutes")
                 sharedDefaults?.set(prevDate, forKey: "gromo:screentime:prevBucketDate")
             }
