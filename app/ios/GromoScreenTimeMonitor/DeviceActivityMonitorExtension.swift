@@ -55,11 +55,15 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             sharedDefaults?.set(todayString, forKey: "gromo:screentime:lastResultDate")
             sharedDefaults?.set(false, forKey: "gromo:screentime:goalExceededToday")
         case "gromo.usage.buckets":
-            // 하루 종료(23:59) 시점의 todayString = 방금 끝난 날짜 — 최종 눈금을 전일 키로 보존.
+            // 최종 눈금을 '눈금이 기록된 날짜' 키로 보존. 이 콜백은 자정(23:59)만이 아니라
+            // 재등록의 stopMonitoring으로도 한낮에 불린다(GROMO-931 실기기 확인). 호출 시점의
+            // 현재 날짜로 찍으면 묵은 값이 오늘 값으로 둔갑해 다음날 마감이 어제 최종치로
+            // 오인한다(어제 통계 누락·부풀림). 진짜 자정 호출은 기록 날짜 == 현재 날짜라 동작 동일.
             let mins = sharedDefaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0
-            if mins > 0 {
+            let minsDate = sharedDefaults?.string(forKey: "gromo:screentime:usageBucketDate")
+            if mins > 0, let minsDate {
                 sharedDefaults?.set(mins, forKey: "gromo:screentime:prevBucketMinutes")
-                sharedDefaults?.set(todayString, forKey: "gromo:screentime:prevBucketDate")
+                sharedDefaults?.set(minsDate, forKey: "gromo:screentime:prevBucketDate")
             }
         default:
             break
