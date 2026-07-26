@@ -16,6 +16,18 @@ export interface AppSelectionCounts {
   webDomains: number;
 }
 
+// 사용량 버킷 측정 상태 디버그 정보(개발용, GROMO-931) — App Group 기록 원본.
+// 전체 탭 dev 패널이 15분 눈금 동작 확인에 쓴다. 판정 로직에는 쓰지 않는다.
+export interface UsageBucketDebugInfo {
+  bucketMinutes: number; // 오늘 도달 최고 눈금(재등록 베이스 합산)
+  bucketDate: string; // 눈금이 기록된 날짜 'YYYY-MM-DD'
+  baseMinutes: number; // 재등록 베이스(등록 전 오늘 기록)
+  baseDate: string;
+  registeredAt: number; // 버킷 모니터 등록 시각(epoch 초, 0=기록 없음)
+  prevBucketMinutes: number; // 하루 경계에 보존된 전일 최종 눈금
+  prevBucketDate: string;
+}
+
 // Swift 네이티브 모듈 인터페이스 (실기기 iOS에서만 실제 구현 존재)
 interface NativeScreenTime {
   requestAuthorization(): Promise<boolean>;
@@ -26,6 +38,7 @@ interface NativeScreenTime {
   getTodayUsageBucketMinutes(): Promise<number>;
   getYesterdayUsageBucketMinutes(): Promise<number>;
   getYesterdayResult(): Promise<YesterdayResult>;
+  getUsageBucketDebugInfo(): Promise<UsageBucketDebugInfo>;
   presentAppPicker(): Promise<AppSelectionCounts | null>;
   promoteSelection(): Promise<boolean>;
   presentAllowedAppPicker(): Promise<AppSelectionCounts | null>;
@@ -93,6 +106,12 @@ const ScreenTimeModule = {
   getYesterdayResult: async (): Promise<YesterdayResult> => {
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.getYesterdayResult();
+  },
+
+  // 사용량 버킷 측정 상태 디버그 조회(개발용) — App Group 기록 원본. iOS 외에는 null.
+  getUsageBucketDebugInfo: async (): Promise<UsageBucketDebugInfo | null> => {
+    if (Platform.OS !== 'ios') return null;
+    return NativeScreenTimeModule.getUsageBucketDebugInfo();
   },
 
   // 측정 대상(앱/카테고리) 선택 picker 표시. 취소 시 null.

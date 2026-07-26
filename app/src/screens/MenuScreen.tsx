@@ -1,11 +1,11 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
-import ScreenTimeModule from '@/services/ScreenTimeModule';
+import ScreenTimeModule, { type UsageBucketDebugInfo } from '@/services/ScreenTimeModule';
 import { getStreak } from '@/services/statsApi';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@/store/UserContext';
@@ -52,6 +52,73 @@ function confirmOpenExternal(title: string, url: string) {
   ]);
 }
 
+// epoch 초 → "M/D HH:mm:ss" (dev 패널 등록 시각 표기용)
+function debugTimeLabel(epochSeconds: number): string {
+  const d = new Date(epochSeconds * 1000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+// dev 전용 — 스크린타임 버킷 측정 상태 실시간 패널(GROMO-931 15분 눈금 확인용).
+// App Group 기록(눈금·베이스·등록 시각)과 로컬 마커·업로드 상태를 3초마다 다시 읽는다.
+// 열려 있는 동안만 폴링 — 닫으면 언마운트되며 타이머도 정리된다.
+function BucketDebugPanel() {
+  const [info, setInfo] = useState<UsageBucketDebugInfo | null>(null);
+  const [marker, setMarker] = useState<string | null>(null);
+  const [syncLabel, setSyncLabel] = useState('없음');
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const i = await ScreenTimeModule.getUsageBucketDebugInfo();
+        const m = await AsyncStorage.getItem(STORAGE_KEYS.screentimeBucketMonitorMaxMinutes);
+        const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeSyncState);
+        if (cancelled) return;
+        setInfo(i);
+        setMarker(m);
+        if (raw) {
+          const p = JSON.parse(raw) as { date: string; minutes: number };
+          setSyncLabel(`${p.minutes}분 @ ${p.date}`);
+        } else {
+          setSyncLabel('없음');
+        }
+      } catch {
+        // dev 패널 — 조회 실패는 이전 표시 유지
+      }
+    };
+    load();
+    const timer = setInterval(load, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const rows: [string, string][] = [
+    ['등록 마커', marker ?? '없음 (다음 실행 때 재등록)'],
+    ['등록 시각', info && info.registeredAt > 0 ? debugTimeLabel(info.registeredAt) : '기록 없음'],
+    ['오늘 눈금', info ? `${info.bucketMinutes}분 (${info.bucketDate || '—'})` : '—'],
+    ['재등록 베이스', info ? `${info.baseMinutes}분 (${info.baseDate || '—'})` : '—'],
+    ['어제 보존', info ? `${info.prevBucketMinutes}분 (${info.prevBucketDate || '—'})` : '—'],
+    ['마지막 업로드', syncLabel],
+  ];
+  return (
+    <View style={s.debugPanel}>
+      {rows.map(([k, v]) => (
+        <View key={k} style={s.debugRow}>
+          <Text style={s.debugKey}>{k}</Text>
+          <Text style={s.debugVal}>{v}</Text>
+        </View>
+      ))}
+      <Text style={s.debugHint}>
+        3초마다 자동 갱신 — 측정 대상 앱을 쓰면 &apos;오늘 눈금&apos;이 15분 단위로 올라가야
+        정상이에요
+      </Text>
+    </View>
+  );
+}
+
 export default function MenuScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { nickname, goalSeconds, screenTimeGoalSeconds } = useUser();
@@ -67,6 +134,8 @@ export default function MenuScreen() {
   const [streakDays, setStreakDays] = useState(0);
   // dev 미리보기 — 목표 달성 축하 모달 연출 확인용(__DEV__ 전용).
   const [modalPreview, setModalPreview] = useState<null | 'focus' | 'screentime'>(null);
+  // dev 스크린타임 측정 디버그 패널 열림 여부(__DEV__ 전용, GROMO-931)
+  const [bucketDebugOpen, setBucketDebugOpen] = useState(false);
 
   // 화면 재진입마다 최신값 반영(하위 화면에서 바꾸고 돌아올 수 있으므로).
   useFocusEffect(
@@ -269,6 +338,15 @@ export default function MenuScreen() {
               sub="축하 + 연속 목표달성 연출"
               onPress={() => setModalPreview('focus')}
             />
+            <SettingsRow
+              icon="stats-chart-outline"
+              iconColor={T.accentAlt}
+              iconBg={T.accentAltBg}
+              label="스크린타임 측정 디버그"
+              sub="버킷 기록·등록 상태 실시간 확인"
+              onPress={() => setBucketDebugOpen((v) => !v)}
+            />
+            {bucketDebugOpen ? <BucketDebugPanel /> : null}
           </SettingsSection>
         )}
       </ScrollView>
@@ -338,4 +416,11 @@ const s = StyleSheet.create({
     paddingVertical: 2,
   },
   streakPillText: { ...T.text.caption, fontSize: 10, fontWeight: '700', color: T.accentDeep },
+
+  // dev 스크린타임 측정 디버그 패널(GROMO-931)
+  debugPanel: { paddingVertical: T.space.md, gap: 6 },
+  debugRow: { flexDirection: 'row', justifyContent: 'space-between', gap: T.space.md },
+  debugKey: { ...T.text.caption, color: T.inkMuted },
+  debugVal: { ...T.text.caption, color: T.ink, flexShrink: 1, textAlign: 'right' },
+  debugHint: { ...T.text.caption, color: T.inkFaint, marginTop: 4 },
 });

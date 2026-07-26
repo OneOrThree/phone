@@ -340,6 +340,25 @@ class ScreenTimeModule: NSObject {
         resolve(result)
     }
 
+    // 사용량 버킷 측정 상태 디버그 조회(개발용, GROMO-931) — App Group 기록 원본을 그대로 반환.
+    // 전체 탭 dev 패널이 15분 눈금 동작을 실기기에서 확인하는 용도이며 판정 로직에는 쓰지 않는다.
+    @objc func getUsageBucketDebugInfo(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        resolve([
+            "bucketMinutes": defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0,
+            "bucketDate": defaults?.string(forKey: "gromo:screentime:usageBucketDate") ?? "",
+            "baseMinutes": defaults?.integer(forKey: "gromo:screentime:bucketBaseMinutes") ?? 0,
+            "baseDate": defaults?.string(forKey: "gromo:screentime:bucketBaseDate") ?? "",
+            "registeredAt": defaults?.double(forKey: "gromo:screentime:bucketRegisteredAt") ?? 0,
+            "prevBucketMinutes": defaults?.integer(forKey: "gromo:screentime:prevBucketMinutes")
+                ?? 0,
+            "prevBucketDate": defaults?.string(forKey: "gromo:screentime:prevBucketDate") ?? "",
+        ] as [String: Any])
+    }
+
     // 어제 날짜의 스크린 타임 목표 달성 결과를 App Group에서 읽어 반환
     // 반환값: "success" | "fail" | nil (어제 결과 없음 — 첫 설치 또는 모니터링 미실행)
     @objc func getYesterdayResult(
