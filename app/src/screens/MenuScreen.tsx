@@ -113,6 +113,8 @@ function BucketDebugPanel() {
     ['어제 보존', info ? `${info.prevBucketMinutes}분 (${info.prevBucketDate || '—'})` : '—'],
     ['마지막 업로드', syncLabel],
   ];
+  // 이벤트 로그 — 익스텐션·등록이 남긴 최근 기록(최신순 12줄만 표시)
+  const logLines = (info?.log ?? []).slice(-12).reverse();
   return (
     <View style={s.debugPanel}>
       {rows.map(([k, v]) => (
@@ -121,6 +123,16 @@ function BucketDebugPanel() {
           <Text style={s.debugVal}>{v}</Text>
         </View>
       ))}
+      {logLines.length > 0 ? (
+        <View style={s.debugLogBox}>
+          <Text style={s.debugKey}>이벤트 로그 (최신순)</Text>
+          {logLines.map((line, i) => (
+            <Text key={`${i}-${line}`} style={s.debugLogLine}>
+              {line}
+            </Text>
+          ))}
+        </View>
+      ) : null}
       <TouchableOpacity style={s.debugBtn} onPress={forceReregister} activeOpacity={0.7}>
         <Text style={s.debugBtnText}>버킷 모니터 강제 재등록</Text>
       </TouchableOpacity>
@@ -446,4 +458,6 @@ const s = StyleSheet.create({
     backgroundColor: T.accentAltBg,
   },
   debugBtnText: { ...T.text.caption, fontWeight: '700', color: T.accentAlt },
+  debugLogBox: { marginTop: 6, gap: 2 },
+  debugLogLine: { ...T.text.caption, fontSize: 10, color: T.inkSub },
 });

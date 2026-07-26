@@ -26,6 +26,7 @@ export interface UsageBucketDebugInfo {
   registeredAt: number; // 버킷 모니터 등록 시각(epoch 초, 0=기록 없음)
   prevBucketMinutes: number; // 하루 경계에 보존된 전일 최종 눈금
   prevBucketDate: string;
+  log: string[]; // 콜백·등록 이벤트 로그(시각+내용, 오래된 순, 최대 50줄)
 }
 
 // Swift 네이티브 모듈 인터페이스 (실기기 iOS에서만 실제 구현 존재)

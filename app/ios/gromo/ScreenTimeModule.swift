@@ -194,6 +194,18 @@ class ScreenTimeModule: NSObject {
         }
     }
 
+    // 버킷 디버그 이벤트 로그(개발 확인용, GROMO-931) — Monitor 익스텐션과 같은 App Group 키에
+    // 최근 50줄만 유지. 등록/실패 시점을 남겨 익스텐션 콜백 순서와 대조할 수 있게 한다.
+    private func appendDebugLog(_ line: String) {
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm:ss"
+        var log = defaults?.stringArray(forKey: "gromo:screentime:debugEventLog") ?? []
+        log.append("\(f.string(from: Date())) \(line)")
+        if log.count > 50 { log.removeFirst(log.count - 50) }
+        defaults?.set(log, forKey: "gromo:screentime:debugEventLog")
+    }
+
     // 15분 버킷 사용량 모니터링 시작 — 보상 판정(gromo.daily)과 분리된 별도 스케줄.
     // 하루 스케줄(00:00~23:59)에 15·30·45…분 threshold 이벤트를 촘촘히 박아,
     // Monitor 익스텐션이 "도달한 최고 눈금(분)"을 App Group에 기록 → 메인 앱이 읽어 사용량 근사치로 표시.
@@ -238,6 +250,7 @@ class ScreenTimeModule: NSObject {
                 && selection.categoryTokens.isEmpty
                 && selection.webDomainTokens.isEmpty)
         else {
+            appendDebugLog("버킷 재등록 실패 — 측정 대상 없음")
             resolve(false)
             return
         }
@@ -286,8 +299,10 @@ class ScreenTimeModule: NSObject {
 
         do {
             try center.startMonitoring(activityName, during: schedule, events: events)
+            appendDebugLog("버킷 모니터 등록 — 눈금 \(step)분·베이스 \(baseMinutes)분")
             resolve(true)
         } catch {
+            appendDebugLog("버킷 모니터 등록 실패: \(error.localizedDescription)")
             reject("MONITOR_ERROR", "버킷 모니터링 시작 실패: \(error.localizedDescription)", error)
         }
     }
@@ -356,6 +371,7 @@ class ScreenTimeModule: NSObject {
             "prevBucketMinutes": defaults?.integer(forKey: "gromo:screentime:prevBucketMinutes")
                 ?? 0,
             "prevBucketDate": defaults?.string(forKey: "gromo:screentime:prevBucketDate") ?? "",
+            "log": defaults?.stringArray(forKey: "gromo:screentime:debugEventLog") ?? [],
         ] as [String: Any])
     }
 

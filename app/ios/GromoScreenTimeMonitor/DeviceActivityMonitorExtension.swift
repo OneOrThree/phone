@@ -11,6 +11,17 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         return f.string(from: Date())
     }
 
+    // 버킷 디버그 이벤트 로그(개발 확인용, GROMO-931) — 콜백이 언제 무엇을 기록/스킵했는지
+    // App Group에 최근 50줄만 남긴다. dev 패널이 표시하며 판정 로직에는 쓰지 않는다.
+    private func appendDebugLog(_ line: String) {
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm:ss"
+        var log = sharedDefaults?.stringArray(forKey: "gromo:screentime:debugEventLog") ?? []
+        log.append("\(f.string(from: Date())) \(line)")
+        if log.count > 50 { log.removeFirst(log.count - 50) }
+        sharedDefaults?.set(log, forKey: "gromo:screentime:debugEventLog")
+    }
+
     // 새 날(00:00) 시작 시 활동별 당일 상태 초기화
     override func intervalDidStart(for activity: DeviceActivityName) {
         super.intervalDidStart(for: activity)
@@ -25,7 +36,10 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             // 진짜 자정 호출은 저장 날짜가 어제(또는 없음)라 기존과 동일하게 리셋 경로를 탄다.
             let prevDate = sharedDefaults?.string(forKey: "gromo:screentime:usageBucketDate")
             let prevMins = sharedDefaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0
-            if prevDate == todayString { break }
+            if prevDate == todayString {
+                appendDebugLog("intervalDidStart 스킵 — 당일 한낮 호출(재등록)")
+                break
+            }
             // 리셋 전에 직전 날 최종 눈금을 전일 키로 보존(GROMO-633) — intervalDidEnd를 놓친 경우 대비.
             // 메인 앱의 '어제분 마감 업로드'가 마지막 포그라운드 이후 늘어난 사용분까지 읽을 수 있게 한다.
             if let prevDate, prevMins > 0 {
@@ -39,6 +53,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             // 날'의 등록 전 기록이므로 날이 바뀌면 무효다(아래 합산부의 날짜 검사와 이중 방어).
             sharedDefaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
             sharedDefaults?.set(todayString, forKey: "gromo:screentime:bucketBaseDate")
+            appendDebugLog("intervalDidStart 자정 리셋 — 직전 \(prevMins)분(\(prevDate ?? "-")) 보존")
         default:
             break
         }
@@ -69,6 +84,9 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             if mins > 0, let minsDate {
                 sharedDefaults?.set(mins, forKey: "gromo:screentime:prevBucketMinutes")
                 sharedDefaults?.set(minsDate, forKey: "gromo:screentime:prevBucketDate")
+                appendDebugLog("intervalDidEnd 보존 — \(mins)분@\(minsDate)")
+            } else {
+                appendDebugLog("intervalDidEnd 스킵 — 기록 없음")
             }
         default:
             break
@@ -142,7 +160,10 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             guard isPlausibleUsage(
                 minutes: Double(mins),
                 registeredAtKey: "gromo:screentime:bucketRegisteredAt"
-            ) else { return }
+            ) else {
+                appendDebugLog("눈금 \(mins) 무시 — 오발화 가드")
+                return
+            }
             // 베이스 합산(GROMO-871 코드리뷰 P2) — 재등록 후 눈금(mins)은 '등록 이후' 사용량이라
             // 등록 시점까지의 오늘 기록(베이스)에 더해 하루 누적으로 환산한다. 이게 없으면 재등록
             // 전 최고 눈금에 가려(max 비교) 이후 측정이 하루 종일 무시된다. 베이스 날짜가 오늘이
@@ -155,6 +176,9 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             // 합산값이 (오늘 기준) 기존 최고값보다 크면 갱신 (버킷은 순차 발화지만 방어적으로 max 비교)
             if total > current {
                 sharedDefaults?.set(total, forKey: "gromo:screentime:usageBucketMinutes")
+                appendDebugLog("눈금 \(mins) 발화 → 오늘 \(total)분 기록(베이스 \(base))")
+            } else {
+                appendDebugLog("눈금 \(mins) 발화 — 기존 \(current)분 유지")
             }
             sharedDefaults?.set(todayString, forKey: "gromo:screentime:usageBucketDate")
         }
