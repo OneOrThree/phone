@@ -9,6 +9,7 @@ import ScreenTimeModule, { type UsageBucketDebugInfo } from '@/services/ScreenTi
 import { getStreak } from '@/services/statsApi';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@/store/UserContext';
+import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
 import { STORAGE_KEYS } from '@/types/storage';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
@@ -63,9 +64,18 @@ function debugTimeLabel(epochSeconds: number): string {
 // App Group 기록(눈금·베이스·등록 시각)과 로컬 마커·업로드 상태를 3초마다 다시 읽는다.
 // 열려 있는 동안만 폴링 — 닫으면 언마운트되며 타이머도 정리된다.
 function BucketDebugPanel() {
+  const { userId } = useUser();
   const [info, setInfo] = useState<UsageBucketDebugInfo | null>(null);
   const [marker, setMarker] = useState<string | null>(null);
   const [syncLabel, setSyncLabel] = useState('없음');
+  // 강제 재등록 결과 표시 — Xcode 재설치가 모니터를 끊었을 때 재선택 없이 되살리는 용도.
+  const [reregLabel, setReregLabel] = useState<string | null>(null);
+
+  const forceReregister = async () => {
+    setReregLabel('재등록 중…');
+    const ok = await registerUsageBucketMonitoring(userId).catch(() => false);
+    setReregLabel(ok ? '재등록 성공 — 등록 시각 갱신 확인' : '실패 — 권한·측정 대상 선택 확인');
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -111,9 +121,13 @@ function BucketDebugPanel() {
           <Text style={s.debugVal}>{v}</Text>
         </View>
       ))}
+      <TouchableOpacity style={s.debugBtn} onPress={forceReregister} activeOpacity={0.7}>
+        <Text style={s.debugBtnText}>버킷 모니터 강제 재등록</Text>
+      </TouchableOpacity>
+      {reregLabel ? <Text style={s.debugHint}>{reregLabel}</Text> : null}
       <Text style={s.debugHint}>
         3초마다 자동 갱신 — 측정 대상 앱을 쓰면 &apos;오늘 눈금&apos;이 15분 단위로 올라가야
-        정상이에요
+        정상이에요. Xcode 재설치 후 눈금이 멈추면 위 버튼으로 재등록.
       </Text>
     </View>
   );
@@ -423,4 +437,13 @@ const s = StyleSheet.create({
   debugKey: { ...T.text.caption, color: T.inkMuted },
   debugVal: { ...T.text.caption, color: T.ink, flexShrink: 1, textAlign: 'right' },
   debugHint: { ...T.text.caption, color: T.inkFaint, marginTop: 4 },
+  debugBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: T.space.md,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: T.accentAltBg,
+  },
+  debugBtnText: { ...T.text.caption, fontWeight: '700', color: T.accentAlt },
 });
