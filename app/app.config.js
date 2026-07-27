@@ -23,6 +23,8 @@ export default {
         {
           nativeAppKey: 'af3ff0c5b4fb9cd38b78428b88add65d',
           ios: { handleKakaoOpenUrl: true },
+          // 로그인 후 kakao{앱키}://oauth 복귀 액티비티 — prebuild 재생성 시 Manifest에 자동 주입 (수동 관리 중인 android/에도 동일 설정 반영돼 있음)
+          android: { authCodeHandlerActivity: true },
         },
       ],
       '@react-native-community/datetimepicker',
