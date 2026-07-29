@@ -94,17 +94,6 @@
         "summary": "알림·심야·소리 설정 조회",
         "description": "유저 전역 알림/심야 모드/소리 설정 현재값 조회. 시각은 HH:mm 문자열(미설정 시 null).",
         "operationId": "getNotificationSettings",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -145,17 +134,6 @@
         "summary": "알림·심야·소리 설정 저장",
         "description": "유저 전역 알림/심야 모드/소리 설정 저장. 성공 시 204 반환.",
         "operationId": "updateNotificationSettings",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -187,17 +165,6 @@
         "summary": "디바이스 토큰 등록",
         "description": "앱 시작 시 FCM registration token 을 등록/갱신. 성공 시 204 반환.",
         "operationId": "registerDeviceToken",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -227,17 +194,6 @@
         "summary": "디바이스 토큰 해제",
         "description": "로그아웃/기기 변경 시 호출 — 이전 유저에게 푸시가 오발송되는 것 방지. 성공 시 204 반환.",
         "operationId": "clearDeviceToken",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "204": {
             "description": "해제 성공"
@@ -269,15 +225,6 @@
           {
             "name": "announcementId",
             "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "userId",
-            "in": "query",
             "required": true,
             "schema": {
               "type": "string",
@@ -332,15 +279,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -364,17 +302,6 @@
         "summary": "유저 정보 조회",
         "description": "기존 유저 정보 조회",
         "operationId": "getProfile",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -405,17 +332,6 @@
         "summary": "유저 정보 등록",
         "description": "신규 유저 정보 등록",
         "operationId": "setupProfile",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -445,17 +361,6 @@
         "summary": "회원 탈퇴",
         "description": "개인정보 파기 후 계정 삭제. 방장인 그룹은 위임 후 탈퇴 가능.",
         "operationId": "withdraw",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "204": {
             "description": "탈퇴 완료"
@@ -475,17 +380,6 @@
         "summary": "유저 정보 부분 수정",
         "description": "기존 유저 정보 부분 수정",
         "operationId": "updateProfile",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -517,17 +411,6 @@
         "summary": "TAG 조회",
         "description": "유저별 TAG 조회",
         "operationId": "getTag",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -564,17 +447,6 @@
         "summary": "TAG 초기 등록",
         "description": "TAG, 설명 등록",
         "operationId": "setupTag",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -604,17 +476,6 @@
         "summary": "TAG 수정",
         "description": "TAG 이름 수정. rename 시 옛 태그를 참조하던 과거 세션을 새 태그로 재연결한다(동작 변경, GROMO-754). 직군 프리셋(occupation) 태그는 이름 변경 불가(400).",
         "operationId": "updateTag",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -646,17 +507,6 @@
         "summary": "스크린 타임 저장",
         "description": "매일 23:59 iOS 앱이 당일 스크린타임 달성 여부를 전송. 달성 여부는 iOS에서 계산.",
         "operationId": "saveScreenTime",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -697,15 +547,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "me",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -731,15 +572,6 @@
           {
             "name": "userId",
             "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "me",
-            "in": "query",
             "required": true,
             "schema": {
               "type": "string",
@@ -912,17 +744,6 @@
         "summary": "주간 마감 결과 확인 처리(ack)",
         "description": "GET 으로 받은 결과의 weekStartAt 을 실어 보내면 그 주차 결과를 확인 처리해 다시 노출되지 않게 한다. ack 시점에 최신행을 다시 찾지 않고 이 주차를 대상으로 하므로, 그 사이 배치가 새 주차 결과를 넣어도 유저가 못 본 결과를 삼키지 않는다. 대상 행 없음·이미 확인됨·동시 중복 호출 모두 no-op 이며 멱등하다.",
         "operationId": "acknowledgeLastResult",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -979,17 +800,6 @@
         "summary": "내 그룹 목록 조회",
         "description": "로그인 유저가 참여 중인 그룹 목록 반환.",
         "operationId": "getMyGroups",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -1013,17 +823,6 @@
         "summary": "그룹 생성",
         "description": "그룹 생성 및 참가 코드(3시간 유효) 발급. 생성자는 OWNER로 자동 등록.",
         "operationId": "createGroup",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1085,15 +884,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "requestBody": {
@@ -1137,15 +927,6 @@
           {
             "name": "groupId",
             "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "userId",
-            "in": "query",
             "required": true,
             "schema": {
               "type": "string",
@@ -1199,15 +980,6 @@
           {
             "name": "groupId",
             "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "userId",
-            "in": "query",
             "required": true,
             "schema": {
               "type": "string",
@@ -1268,15 +1040,6 @@
           {
             "name": "groupId",
             "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "userId",
-            "in": "query",
             "required": true,
             "schema": {
               "type": "string",
@@ -1365,15 +1128,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -1434,15 +1188,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "requestBody": {
@@ -1487,15 +1232,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -1521,17 +1257,6 @@
         "summary": "친구 요청 생성",
         "description": "targetUserId에게 친구 요청. 자기자신·중복·이미친구 검증, REJECTED면 재요청으로 재전환.",
         "operationId": "createFriendRequest",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1575,15 +1300,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -1616,15 +1332,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -1649,15 +1356,6 @@
         "description": "기간(from~to, UTC Instant) 필터 + 커서(keyset) 페이지네이션. cursor 생략 시 첫 페이지. 정렬은 id(UUID v7) 내림차순\u003d최신순.",
         "operationId": "getFocusSessions",
         "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
           {
             "name": "from",
             "in": "query",
@@ -1745,17 +1443,6 @@
         "summary": "Focus Session 저장",
         "description": "Focus Session 정보 저장. 완료 후 그날 누적 집중 초·스트릭 인정 여부(GROMO-806)를 함께 반환한다. 기존 빈 바디에 필드를 추가한 additive 변경 — 구버전 앱은 무시한다.",
         "operationId": "saveFocusSession",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1806,17 +1493,6 @@
         "summary": "Focus Session 종료(라이브)",
         "description": "진행 중(endedAt NULL) 세션에 종료 시각을 채워 완료 처리한다. endedAt 생략 시 서버 수신 시각. 완료 시점에 통계·스트릭이 귀속된다. 이미 종료된 세션 재요청은 409.",
         "operationId": "endFocusSession",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1899,17 +1575,6 @@
         "summary": "Focus Session 시작(라이브)",
         "description": "startedAt 만 기록한 진행 중(endedAt NULL) 세션을 생성한다. 생성 세션 id 를 반환해 이후 PATCH /focus-session 으로 종료할 때 참조한다. 통계·스트릭은 종료 시점에 귀속.",
         "operationId": "startFocusSession",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1972,17 +1637,6 @@
         "summary": "장비 장착",
         "description": "장비 장착 요청 처리",
         "operationId": "equip",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2035,17 +1689,6 @@
         "summary": "사용",
         "description": "인게임 재화 감소",
         "operationId": "spendCurrency",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2077,17 +1720,6 @@
         "summary": "적립",
         "description": "인게임 재화 증가",
         "operationId": "earnCurrency",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2554,17 +2186,6 @@
         "summary": "통계 공개 범위 수정",
         "description": "개인 통계 공개 범위(FRIENDS/PUBLIC)를 수정. 성공 시 204 반환.",
         "operationId": "updateStatVisibility",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2596,17 +2217,6 @@
         "summary": "스크린타임 권한 동의 상태 업데이트",
         "description": "iOS Screen Time 권한 부여/취소 시 호출. 성공 시 204 반환.",
         "operationId": "updateScreenTimePermission",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2638,17 +2248,6 @@
         "summary": "스크린타임 목표 수정",
         "description": "일일 스크린타임 목표(분)를 수정. 음수는 400. 성공 시 204 반환.",
         "operationId": "updateScreenTimeGoal",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2680,17 +2279,6 @@
         "summary": "준비 시험 카테고리(occupation) 저장",
         "description": "온보딩에서 선택한 시험 카테고리를 users.occupation 에 저장. 성공 시 204 반환.",
         "operationId": "updateOccupation",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2722,17 +2310,6 @@
         "summary": "집중 시간 목표 수정",
         "description": "일일 집중 시간 목표(분)를 수정. 음수는 400. 성공 시 204 반환.",
         "operationId": "updateFocusTimeGoal",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2781,15 +2358,6 @@
             "schema": {
               "type": "string",
               "format": "date"
-            }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
             }
           }
         ],
@@ -2852,15 +2420,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "requestBody": {
@@ -2901,15 +2460,6 @@
           {
             "name": "groupId",
             "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "userId",
-            "in": "query",
             "required": true,
             "schema": {
               "type": "string",
@@ -2966,15 +2516,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "requestBody": {
@@ -3026,15 +2567,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -3058,17 +2590,6 @@
         "summary": "Focus Session 취소",
         "description": "진행 중(endedAt NULL) 세션을 취소해 status\u003dCANCELED 로 마감한다. 취소 시각은 서버 수신 시각. 통계·스트릭은 귀속하지 않는다. 이미 종료/취소된 세션 재취소는 409(멱등).",
         "operationId": "cancelFocusSession",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3148,15 +2669,6 @@
             "schema": {
               "type": "string",
               "format": "date"
-            }
-          },
-          {
-            "name": "callerId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
             }
           }
         ],
@@ -3245,17 +2757,6 @@
         "summary": "소셜 연동 목록 조회",
         "description": "연동된 소셜 계정 목록 반환. 게스트(연동 0개)는 빈 배열. 인증 없으면 401.",
         "operationId": "getSocialLinks",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -3295,15 +2796,6 @@
         "description": "occupation별 기본(추천) 포커스 태그 목록. occupation 미지정 시 로그인 유저의 저장 occupation 사용. tagId 없음 — 유저가 선택 시 name 을 POST /api/v1/tag 로 넘겨 실제 태그 생성.",
         "operationId": "getDefaultTags",
         "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
           {
             "name": "occupation",
             "in": "query",
@@ -3404,15 +2896,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "callerId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -3471,15 +2954,6 @@
             "name": "friends",
             "in": "query",
             "required": false,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "callerId",
-            "in": "query",
-            "required": true,
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -3569,15 +3043,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "callerId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -3649,15 +3114,6 @@
             "schema": {
               "type": "string",
               "format": "date"
-            }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
             }
           }
         ],
@@ -3739,15 +3195,6 @@
             "name": "friends",
             "in": "query",
             "required": false,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "callerId",
-            "in": "query",
-            "required": true,
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -3841,15 +3288,6 @@
               "type": "string",
               "format": "date"
             }
-          },
-          {
-            "name": "callerId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -3925,15 +3363,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "callerId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -3996,15 +3425,6 @@
             "schema": {
               "type": "string",
               "format": "date"
-            }
-          },
-          {
-            "name": "me",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
             }
           }
         ],
@@ -4143,17 +3563,6 @@
         "summary": "내 현재 리그·티어 조회",
         "description": "users.tier_level에 저장된 현재 티어와 KST 기준 주차 정보를 반환한다.",
         "operationId": "getMyTier",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -4176,17 +3585,6 @@
         "summary": "리그 마감 스케줄 조회",
         "description": "다음 리그 마감(다음 월요일 00:00 KST) 시각과 그때까지 남은 시간(초)을 반환한다. 미배정 유저도 항상 200. 클라이언트 홈·리그 화면의 마감 카운트다운용.",
         "operationId": "getMySchedule",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -4210,15 +3608,6 @@
         "description": "category 미지정: DailyFocusStat 기반 전역 주간 상위 100명 랭킹. category 지정: 같은 occupation 활성 사용자의 전역 주간 상위 100명 랭킹. 각 멤버의 집중 라이브 정보(isFocusing·focusTimeMinutes·focusStartedAt·focusTagName) 포함. date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD, required). 잘못된 category 값·date 누락은 400 INVALID_PARAMETER.",
         "operationId": "getMyRanking",
         "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
           {
             "name": "category",
             "in": "query",
@@ -4296,17 +3685,6 @@
         "summary": "내 순위 조회",
         "description": "DailyFocusStat 기반 현재 전역 주간 순위(assigned·myRank·totalFocusSeconds)를 반환한다. 정산 결과 노출은 이 응답에서 분리되었다.",
         "operationId": "getMyRank",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -4329,17 +3707,6 @@
         "summary": "주간 마감 결과 조회",
         "description": "주간 배치가 남긴 최신 정산 결과 1건을 반환한다. 결과 행이 없으면(미배정/신규 유저) hasResult\u003dfalse. 클라는 리그 탭 첫 진입 시 hasResult \u0026\u0026 !acknowledged 이면 결과 모달을 노출한다.",
         "operationId": "getLastResult",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -4362,17 +3729,6 @@
         "summary": "인벤토리 조회",
         "description": "유저의 보유 아이템 목록 조회",
         "operationId": "getInventory",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -4415,15 +3771,6 @@
           {
             "name": "groupId",
             "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "userId",
-            "in": "query",
             "required": true,
             "schema": {
               "type": "string",
@@ -4507,15 +3854,6 @@
               "type": "string",
               "format": "date"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -4576,15 +3914,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -4625,17 +3954,6 @@
         "summary": "착용 장비 확인",
         "description": "현재 장비 착용 상태를 반환합니다.",
         "operationId": "getEquipment",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -4674,17 +3992,6 @@
         "summary": "잔액 조회",
         "description": "유저의 현재 인게임 잔액 조회",
         "operationId": "getCurrencyBalance",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -4719,17 +4026,6 @@
         "summary": "거래 내역 조회",
         "description": "유저의 거래 내역 조회",
         "operationId": "getCurrencyTransactions",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -4784,15 +4080,6 @@
                 "FACEBOOK"
               ]
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -4823,15 +4110,6 @@
         "description": "TAG 삭제",
         "operationId": "deleteTag",
         "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
           {
             "name": "tagId",
             "in": "path",
@@ -4867,15 +4145,6 @@
           {
             "name": "groupId",
             "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "userId",
-            "in": "query",
             "required": true,
             "schema": {
               "type": "string",
@@ -4925,15 +4194,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -4966,15 +4226,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -4996,15 +4247,6 @@
         "description": "장비 해제 요청 처리",
         "operationId": "unequip",
         "parameters": [
-          {
-            "name": "userId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
           {
             "name": "slotType",
             "in": "path",
