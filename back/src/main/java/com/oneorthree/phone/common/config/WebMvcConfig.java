@@ -1,17 +1,33 @@
 package com.oneorthree.phone.common.config;
 
+import com.oneorthree.phone.common.auth.LoginUserArgumentResolver;
 import com.oneorthree.phone.stats.dto.FocusAverageScope;
 import com.oneorthree.phone.stats.dto.StatsPeriod;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.format.FormatterRegistry;
+import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.util.List;
 
 /**
  * Spring MVC 전역 설정.
  * Converter 등록(소문자 period 파라미터 → StatsPeriod enum 변환 등)을 담당한다.
  */
 @Configuration
+@RequiredArgsConstructor
 public class WebMvcConfig implements WebMvcConfigurer {
+
+    private final LoginUserArgumentResolver loginUserArgumentResolver;
+
+    // 커스텀 리졸버는 내장 리졸버들 *뒤에*, catch-all 앞에서 탐색된다 (GROMO-363).
+    // 이 등록을 빠뜨리면 에러가 아니라 catch-all 이 @LoginUser UUID 를 쿼리 파라미터로 해석해
+    // 조용히 null 이 주입되거나 ?userId= 로 사칭이 가능해진다 — 리졸버 본체만큼 중요한 한 줄이다.
+    @Override
+    public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
+        resolvers.add(loginUserArgumentResolver);
+    }
 
     @Override
     public void addFormatters(FormatterRegistry registry) {

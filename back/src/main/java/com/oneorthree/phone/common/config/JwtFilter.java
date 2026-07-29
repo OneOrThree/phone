@@ -1,6 +1,7 @@
 package com.oneorthree.phone.common.config;
 
 import com.oneorthree.phone.auth.service.JwtProvider;
+import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.service.UserActivityService;
 import jakarta.servlet.FilterChain;
@@ -82,7 +83,9 @@ public class JwtFilter extends OncePerRequestFilter {
             return;
         }
 
-        request.setAttribute("userId", userId);
+        // 인증 통과 — 이후 단계가 쓸 수 있게 userId 를 request 에 심는다 (GROMO-363).
+        // 키 정의는 AuthAttributes 에 있고, 읽는 쪽은 LoginUserArgumentResolver 와 TraceIdFilter 다.
+        request.setAttribute(AuthAttributes.USER_ID, userId);
         // last_active_at 스로틀 갱신 (GROMO-578) — 미접속 복귀 푸시용 부가 데이터.
         // 하루 1회만 실쓰기(WHERE 가드). 갱신 실패가 요청 자체를 막지 않도록 예외 격리(요청은 그대로 진행).
         try {
