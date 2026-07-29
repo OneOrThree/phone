@@ -10,6 +10,6 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 public class EquipRequest {
-    private UUID userId;
+    // 장착 대상은 항상 인증 주체다 — 클라이언트가 대상 유저를 지정할 통로를 두지 않는다 (GROMO-363).
     private UUID itemId;
 }
