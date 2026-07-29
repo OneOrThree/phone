@@ -1,5 +1,6 @@
 package com.oneorthree.phone.group.api;
 
+import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.group.service.GroupAnnouncementService;
 import com.oneorthree.phone.group.service.GroupChallengeService;
 import com.oneorthree.phone.group.service.GroupMemberService;
@@ -25,7 +26,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -64,8 +64,7 @@ public class GroupController {
     @PostMapping("/groups")
     public ResponseEntity<CreateGroupResponse> createGroup(
             @Valid @RequestBody CreateGroupRequest request,
-            HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID userId) {
         return ResponseEntity.status(HttpStatus.CREATED).body(groupService.createGroup(userId, request));
     }
 
@@ -74,8 +73,7 @@ public class GroupController {
             @ApiResponse(responseCode = "200", description = "조회 성공")
     })
     @GetMapping("/groups")
-    public ResponseEntity<List<GroupSummaryResponse>> getMyGroups(HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
+    public ResponseEntity<List<GroupSummaryResponse>> getMyGroups(@LoginUser UUID userId) {
         return ResponseEntity.ok(groupService.getMyGroups(userId));
     }
 
@@ -91,8 +89,7 @@ public class GroupController {
     public ResponseEntity<Void> joinGroup(
             @PathVariable UUID groupId,
             @RequestBody JoinGroupRequest request,
-            HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID userId) {
         groupService.joinGroup(groupId, userId, request);
         return ResponseEntity.noContent().build();
     }
@@ -105,8 +102,7 @@ public class GroupController {
     @GetMapping("/groups/{groupId}/overview")
     public ResponseEntity<GroupOverviewResponse> getGroupOverview(
             @PathVariable UUID groupId,
-            HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID userId) {
         return ResponseEntity.ok(groupService.getGroupOverview(groupId, userId));
     }
 
@@ -128,9 +124,8 @@ public class GroupController {
     @PostMapping("/groups/{groupId}/code")
     public ResponseEntity<RenewGroupCodeResponse> renewGroupCode(
             @PathVariable UUID groupId,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         return ResponseEntity.ok(groupService.renewGroupCode(groupId, userId));
     }
 
@@ -146,9 +141,8 @@ public class GroupController {
     public ResponseEntity<GroupDetailResponse> getGroupDetail(
             @PathVariable UUID groupId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         return ResponseEntity.ok(groupService.getGroupDetail(groupId, userId, date));
     }
 
@@ -163,9 +157,8 @@ public class GroupController {
     public ResponseEntity<Void> createGroupAnnouncement(
             @PathVariable UUID groupId,
             @Valid @RequestBody CreateAnnouncementRequest request,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         groupAnnouncementService.createAnnouncement(groupId, userId, request);
         return ResponseEntity.noContent().build();
     }
@@ -179,9 +172,8 @@ public class GroupController {
     @GetMapping("/groups/{groupId}/announcements")
     public ResponseEntity<List<GroupAnnouncementResponse>> getGroupAnnouncements(
             @PathVariable UUID groupId,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         return ResponseEntity.ok(groupAnnouncementService.getAnnouncements(groupId, userId));
     }
 
@@ -196,9 +188,8 @@ public class GroupController {
     public ResponseEntity<Void> updateGroup(
             @PathVariable UUID groupId,
             @RequestBody UpdateGroupRequest request,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         groupService.updateGroup(groupId, userId, request);
         return ResponseEntity.noContent().build();
     }
@@ -213,9 +204,8 @@ public class GroupController {
     public ResponseEntity<Void> transferOwner(
             @PathVariable UUID groupId,
             @PathVariable UUID targetUserId,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         groupMemberService.transferOwner(groupId, targetUserId, userId);
         return ResponseEntity.noContent().build();
     }
@@ -229,9 +219,8 @@ public class GroupController {
     @GetMapping("/groups/{groupId}/challenges")
     public ResponseEntity<List<GroupChallengeResponse>> getGroupChallenges(
             @PathVariable UUID groupId,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         return ResponseEntity.ok(groupChallengeService.getChallenges(groupId, userId));
     }
 
@@ -247,9 +236,8 @@ public class GroupController {
     public ResponseEntity<CreateChallengeResponse> createGroupChallenge(
             @PathVariable UUID groupId,
             @Valid @RequestBody CreateChallengeRequest request,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         CreateChallengeResponse response = groupChallengeService.createChallenge(groupId, userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -264,9 +252,8 @@ public class GroupController {
     public ResponseEntity<Void> deleteGroupChallenge(
             @PathVariable UUID groupId,
             @PathVariable UUID challengeId,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         groupChallengeService.deleteChallenge(groupId, challengeId, userId);
         return ResponseEntity.noContent().build();
     }
@@ -280,9 +267,8 @@ public class GroupController {
     @GetMapping("/groups/{groupId}/settings")
     public ResponseEntity<GroupSettingsResponse> getGroupSettings(
             @PathVariable UUID groupId,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         return ResponseEntity.ok(groupService.getGroupSettings(groupId, userId));
     }
 
@@ -296,9 +282,8 @@ public class GroupController {
     public ResponseEntity<Void> updateGroupSettings(
             @PathVariable UUID groupId,
             @RequestBody UpdateGroupSettingsRequest request,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         groupService.updateGroupSettings(groupId, userId, request);
         return ResponseEntity.noContent().build();
     }
@@ -314,9 +299,8 @@ public class GroupController {
             @PathVariable UUID groupId,
             @PathVariable UUID announcementId,
             @Valid @RequestBody CreateAnnouncementRequest request,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         groupAnnouncementService.updateAnnouncement(groupId, announcementId, userId, request);
         return ResponseEntity.noContent().build();
     }
@@ -331,9 +315,8 @@ public class GroupController {
     public ResponseEntity<Void> deleteGroupAnnouncement(
             @PathVariable UUID groupId,
             @PathVariable UUID announcementId,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         groupAnnouncementService.deleteAnnouncement(groupId, announcementId, userId);
         return ResponseEntity.noContent().build();
     }
@@ -348,9 +331,8 @@ public class GroupController {
     @DeleteMapping("/groups/{groupId}/members/me")
     public ResponseEntity<Void> withdrawGroup(
             @PathVariable UUID groupId,
-            HttpServletRequest httpServletRequest
+            @LoginUser UUID userId
     ) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
         groupMemberService.withdrawGroup(groupId, userId);
         return ResponseEntity.noContent().build();
     }

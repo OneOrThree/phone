@@ -1,5 +1,6 @@
 package com.oneorthree.phone.user.api;
 
+import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.user.domain.Provider;
 import com.oneorthree.phone.user.dto.DeviceTokenRegisterRequest;
 import com.oneorthree.phone.user.dto.FocusTimeGoalUpdateRequest;
@@ -18,7 +19,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -51,9 +51,8 @@ public class UserController {
     })
     @PostMapping("/users/me")
     public ResponseEntity<Void> setupProfile(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @Valid @RequestBody UserProfileSetupRequest body) {
-        UUID userId = (UUID) request.getAttribute("userId");
         userService.setupProfile(userId, body);
         return ResponseEntity.noContent().build();
     }
@@ -66,9 +65,8 @@ public class UserController {
     })
     @PatchMapping("/users/me")
     public ResponseEntity<Void> updateProfile(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @Valid @RequestBody UserProfileUpdateRequest body) {
-        UUID userId = (UUID) request.getAttribute("userId");
         userService.updateProfile(userId, body);
         return ResponseEntity.noContent().build();
     }
@@ -79,8 +77,7 @@ public class UserController {
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
     @GetMapping("/users/me")
-    public ResponseEntity<UserProfileResponse> getProfile(HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+    public ResponseEntity<UserProfileResponse> getProfile(@LoginUser UUID userId) {
         return ResponseEntity.ok(userService.getProfile(userId));
     }
 
@@ -91,8 +88,7 @@ public class UserController {
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
     @DeleteMapping("/users/me")
-    public ResponseEntity<Void> withdraw(HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+    public ResponseEntity<Void> withdraw(@LoginUser UUID userId) {
         userService.withdraw(userId);
         return ResponseEntity.noContent().build();
     }
@@ -106,8 +102,7 @@ public class UserController {
     @PatchMapping("/users/me/screen-time-permission")
     public ResponseEntity<Void> updateScreenTimePermission(
             @Valid @RequestBody UpdateScreenTimePermissionRequest body,
-            HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID userId) {
         userService.updateScreenTimePermission(userId, body);
         return ResponseEntity.noContent().build();
     }
@@ -121,8 +116,7 @@ public class UserController {
     @PutMapping("/users/me/device-token")
     public ResponseEntity<Void> registerDeviceToken(
             @Valid @RequestBody DeviceTokenRegisterRequest body,
-            HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID userId) {
         userService.registerDeviceToken(userId, body.getDeviceToken());
         return ResponseEntity.noContent().build();
     }
@@ -134,8 +128,7 @@ public class UserController {
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
     @DeleteMapping("/users/me/device-token")
-    public ResponseEntity<Void> clearDeviceToken(HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+    public ResponseEntity<Void> clearDeviceToken(@LoginUser UUID userId) {
         userService.clearDeviceToken(userId);
         return ResponseEntity.noContent().build();
     }
@@ -150,8 +143,7 @@ public class UserController {
     @PutMapping("/users/me/notification-settings")
     public ResponseEntity<Void> updateNotificationSettings(
             @Valid @RequestBody NotificationSettingsRequest body,
-            HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID userId) {
         userService.updateNotificationSettings(userId, body);
         return ResponseEntity.noContent().build();
     }
@@ -164,8 +156,7 @@ public class UserController {
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
     @GetMapping("/users/me/notification-settings")
-    public ResponseEntity<NotificationSettingsResponse> getNotificationSettings(HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+    public ResponseEntity<NotificationSettingsResponse> getNotificationSettings(@LoginUser UUID userId) {
         return ResponseEntity.ok(userService.getNotificationSettings(userId));
     }
 
@@ -179,8 +170,7 @@ public class UserController {
     @PatchMapping("/users/me/screen-time-goal")
     public ResponseEntity<Void> updateScreenTimeGoal(
             @Valid @RequestBody ScreenTimeGoalUpdateRequest body,
-            HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID userId) {
         userService.updateScreenTimeGoal(userId, body.getDailyScreenTimeGoalMinutes());
         return ResponseEntity.noContent().build();
     }
@@ -195,8 +185,7 @@ public class UserController {
     @PatchMapping("/users/me/focus-time-goal")
     public ResponseEntity<Void> updateFocusTimeGoal(
             @Valid @RequestBody FocusTimeGoalUpdateRequest body,
-            HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID userId) {
         userService.updateFocusTimeGoal(userId, body.getDailyFocusTimeGoalMinutes());
         return ResponseEntity.noContent().build();
     }
@@ -211,8 +200,7 @@ public class UserController {
     @PatchMapping("/users/me/occupation")
     public ResponseEntity<Void> updateOccupation(
             @Valid @RequestBody OccupationUpdateRequest body,
-            HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID userId) {
         userService.updateOccupation(userId, body.getOccupation());
         return ResponseEntity.noContent().build();
     }
@@ -227,8 +215,7 @@ public class UserController {
     @PatchMapping("/users/me/stat-visibility")
     public ResponseEntity<Void> updateStatVisibility(
             @Valid @RequestBody StatVisibilityUpdateRequest body,
-            HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID userId) {
         userService.updateStatVisibility(userId, body.statVisibility());
         return ResponseEntity.noContent().build();
     }
@@ -240,8 +227,7 @@ public class UserController {
         @ApiResponse(responseCode = "401", description = "인증 없음")
     })
     @GetMapping("/users/me/social-links")
-    public ResponseEntity<List<SocialLinkResponse>> getSocialLinks(HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+    public ResponseEntity<List<SocialLinkResponse>> getSocialLinks(@LoginUser UUID userId) {
         return ResponseEntity.ok(userService.getSocialLinks(userId));
     }
 
@@ -257,8 +243,7 @@ public class UserController {
     @DeleteMapping("/users/me/social-links/{provider}")
     public ResponseEntity<Void> unlinkSocialAccount(
             @PathVariable Provider provider,
-            HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID userId) {
         userService.unlinkSocialAccount(userId, provider);
         return ResponseEntity.noContent().build();
     }

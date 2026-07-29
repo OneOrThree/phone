@@ -1,5 +1,6 @@
 package com.oneorthree.phone.friend.api;
 
+import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.service.FriendService;
 import org.junit.jupiter.api.DisplayName;
@@ -26,6 +27,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = FriendController.class)
 class FriendControllerTest {
 
+    private static final UUID LOGIN_USER_ID = UUID.fromString("00000000-0000-0000-0000-0000000000ca");
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -47,7 +50,8 @@ class FriendControllerTest {
                 .build();
         given(friendService.getFriends(any(), any())).willReturn(List.of(response));
 
-        mockMvc.perform(get("/api/v1/friends").param("date", "2026-07-03"))
+        mockMvc.perform(get("/api/v1/friends").param("date", "2026-07-03")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].userId").value(targetUserId.toString()))
                 .andExpect(jsonPath("$[0].isFocusing").value(true))  // @JsonProperty로 isFocusing 키 고정 검증
