@@ -32,3 +32,6 @@ supabase/.temp/
 
 # Maestro E2E 실행 리포트 (scripts/e2e.sh 산출물)
 .maestro/report/
+
+# Android 환경별 빌드 자격 파일 (keystore·google-services·비번 — 커밋 금지, 별도 공유)
+android/credentials/

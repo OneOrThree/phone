@@ -99,12 +99,30 @@ android {
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
+    // 환경별 자격 선택 — APP_ENV(dev|prod, 기본 dev) 로 android/credentials/<env>/ 를 고른다.
+    // 해당 폴더의 keystore.properties(서명 키)와 google-services.json(Firebase)을 함께 적용.
+    def appEnv = System.getenv('APP_ENV') ?: (project.findProperty('appEnv') ?: 'dev')
+    def credsDir = new File(rootProject.projectDir, "credentials/${appEnv}")
+    def ksProps = new Properties()
+    def ksPropsFile = new File(credsDir, 'keystore.properties')
+    if (ksPropsFile.exists()) {
+        ksPropsFile.withInputStream { ksProps.load(it) }
+    } else {
+        throw new GradleException("자격 파일 없음: ${ksPropsFile} — android/credentials/${appEnv}/ 를 별도 채널로 받아 배치하세요.")
+    }
+    // 선택된 환경의 google-services.json 을 app/ 로 복사(google-services 플러그인이 읽는 위치)
+    def gsFile = new File(credsDir, 'google-services.json')
+    if (gsFile.exists()) {
+        copy { from gsFile; into projectDir }
+    }
+    println "APP_ENV=${appEnv} → credentials/${appEnv} 적용 (서명: ${ksProps.getProperty('storeFile')})"
+
     signingConfigs {
         debug {
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
+            storeFile new File(credsDir, ksProps.getProperty('storeFile', 'debug.keystore'))
+            storePassword ksProps.getProperty('storePassword', 'android')
+            keyAlias ksProps.getProperty('keyAlias', 'androiddebugkey')
+            keyPassword ksProps.getProperty('keyPassword', 'android')
         }
     }
     buildTypes {
