@@ -3721,7 +3721,7 @@
         }
       }
     },
-    "/api/v1/inventory/{userId}": {
+    "/api/v1/inventory": {
       "get": {
         "tags": [
           "inventory"
@@ -3729,17 +3729,6 @@
         "summary": "인벤토리 조회",
         "description": "유저의 보유 아이템 목록 조회",
         "operationId": "getInventory",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -3957,7 +3946,7 @@
         }
       }
     },
-    "/api/v1/equipment/{userId}": {
+    "/api/v1/equipment": {
       "get": {
         "tags": [
           "equipment"
@@ -3965,17 +3954,6 @@
         "summary": "착용 장비 확인",
         "description": "현재 장비 착용 상태를 반환합니다.",
         "operationId": "getEquipment",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "조회 성공",
@@ -4260,7 +4238,7 @@
         }
       }
     },
-    "/api/v1/equipment/{userId}/{slotType}": {
+    "/api/v1/equipment/{slotType}": {
       "delete": {
         "tags": [
           "equipment"
@@ -4269,15 +4247,6 @@
         "description": "장비 해제 요청 처리",
         "operationId": "unequip",
         "parameters": [
-          {
-            "name": "userId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
           {
             "name": "slotType",
             "in": "path",
@@ -4733,10 +4702,6 @@
       "EquipRequest": {
         "type": "object",
         "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
           "itemId": {
             "type": "string",
             "format": "uuid"
