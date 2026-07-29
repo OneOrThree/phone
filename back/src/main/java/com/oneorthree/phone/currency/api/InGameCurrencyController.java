@@ -1,5 +1,6 @@
 package com.oneorthree.phone.currency.api;
 
+import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.currency.service.InGameCurrencyService;
 import com.oneorthree.phone.currency.dto.CurrencyRequest;
 import com.oneorthree.phone.currency.dto.TransactionsResponse;
@@ -7,7 +8,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,8 +33,7 @@ public class InGameCurrencyController {
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
     @GetMapping("/currency")
-    public ResponseEntity<Integer> getCurrencyBalance(HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+    public ResponseEntity<Integer> getCurrencyBalance(@LoginUser UUID userId) {
         return ResponseEntity.ok(inGameCurrencyService.getCurrencyBalance(userId));
     }
 
@@ -45,8 +44,7 @@ public class InGameCurrencyController {
     })
     @GetMapping("/currency/transactions")
     public ResponseEntity<List<TransactionsResponse>> getCurrencyTransactions(
-            HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID userId) {
         return ResponseEntity.ok(inGameCurrencyService.getCurrencyTransactions(userId));
     }
 
@@ -58,9 +56,8 @@ public class InGameCurrencyController {
     })
     @PostMapping("/currency/earn")
     public ResponseEntity<Void> earnCurrency(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @RequestBody CurrencyRequest body) {
-        UUID userId = (UUID) request.getAttribute("userId");
         inGameCurrencyService.earnCurrency(userId, body.getType(), body.getAmount());
         return ResponseEntity.noContent().build();
     }
@@ -73,9 +70,8 @@ public class InGameCurrencyController {
     })
     @PostMapping("/currency/spend")
     public ResponseEntity<Void> spendCurrency(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @RequestBody CurrencyRequest body) {
-        UUID userId = (UUID) request.getAttribute("userId");
         inGameCurrencyService.spendCurrency(userId, body.getType(), body.getAmount());
         return ResponseEntity.noContent().build();
     }

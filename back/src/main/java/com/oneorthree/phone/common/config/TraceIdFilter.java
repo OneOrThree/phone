@@ -3,6 +3,7 @@ package com.oneorthree.phone.common.config;
 import java.io.IOException;
 import java.util.UUID;
 
+import com.oneorthree.phone.common.auth.AuthAttributes;
 import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -28,7 +29,7 @@ public class TraceIdFilter extends OncePerRequestFilter {
             }
             MDC.put(MDC_TRACE_ID, traceId);
 
-            Object userId = request.getAttribute("userId");
+            Object userId = request.getAttribute(AuthAttributes.USER_ID);
             if (userId != null) {
                 MDC.put(MDC_USER_ID, userId.toString());
             }

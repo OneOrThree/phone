@@ -1,5 +1,6 @@
 package com.oneorthree.phone.league.api;
 
+import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.league.dto.LeagueLastResultAckRequest;
 import com.oneorthree.phone.league.dto.LeagueLastResultResponse;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
@@ -12,7 +13,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -41,8 +41,7 @@ public class LeagueController {
         @ApiResponse(responseCode = "200", description = "조회 성공")
     })
     @GetMapping("/league/me/tier")
-    public ResponseEntity<LeagueTierResponse> getMyTier(HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+    public ResponseEntity<LeagueTierResponse> getMyTier(@LoginUser UUID userId) {
         return ResponseEntity.ok(leagueService.getMyTier(userId));
     }
 
@@ -58,10 +57,9 @@ public class LeagueController {
     })
     @GetMapping("/league/me/ranking")
     public ResponseEntity<List<LeagueMemberResponse>> getMyRanking(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @RequestParam(required = false) Occupation category,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(leagueService.getMyRanking(userId, category, date));
     }
 
@@ -89,8 +87,7 @@ public class LeagueController {
         @ApiResponse(responseCode = "200", description = "조회 성공")
     })
     @GetMapping("/league/me/rank")
-    public ResponseEntity<LeagueRankResponse> getMyRank(HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+    public ResponseEntity<LeagueRankResponse> getMyRank(@LoginUser UUID userId) {
         return ResponseEntity.ok(leagueService.getMyRank(userId));
     }
 
@@ -101,8 +98,7 @@ public class LeagueController {
         @ApiResponse(responseCode = "200", description = "조회 성공")
     })
     @GetMapping("/league/me/schedule")
-    public ResponseEntity<LeagueScheduleResponse> getMySchedule(HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+    public ResponseEntity<LeagueScheduleResponse> getMySchedule(@LoginUser UUID userId) {
         return ResponseEntity.ok(leagueService.getMySchedule(userId));
     }
 
@@ -113,8 +109,7 @@ public class LeagueController {
         @ApiResponse(responseCode = "200", description = "조회 성공")
     })
     @GetMapping("/league/me/last-result")
-    public ResponseEntity<LeagueLastResultResponse> getLastResult(HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+    public ResponseEntity<LeagueLastResultResponse> getLastResult(@LoginUser UUID userId) {
         return ResponseEntity.ok(leagueService.getLastResult(userId));
     }
 
@@ -127,9 +122,8 @@ public class LeagueController {
     })
     @PostMapping("/league/me/last-result/ack")
     public ResponseEntity<Void> acknowledgeLastResult(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @RequestBody LeagueLastResultAckRequest body) {
-        UUID userId = (UUID) request.getAttribute("userId");
         leagueService.acknowledgeLastResult(userId, body.weekStartAt());
         return ResponseEntity.ok().build();
     }

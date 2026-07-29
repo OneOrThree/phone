@@ -1,5 +1,6 @@
 package com.oneorthree.phone.focus.api;
 
+import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.focus.domain.FocusType;
 import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionResponse;
@@ -40,6 +41,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = FocusController.class)
 class FocusControllerTest {
 
+    private static final UUID LOGIN_USER_ID = UUID.fromString("00000000-0000-0000-0000-0000000000ca");
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -60,7 +63,8 @@ class FocusControllerTest {
         mockMvc.perform(get("/api/v1/focus-session")
                         .param("from", "2026-06-01T00:00:00Z")
                         .param("to", "2026-06-30T23:59:59Z")
-                        .param("size", "20"))
+                        .param("size", "20")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].totalDistractionSeconds").value(0))
                 .andExpect(jsonPath("$.hasNext").value(true))
@@ -73,7 +77,8 @@ class FocusControllerTest {
     void getFocusSessionsMissingSizeReturns400() throws Exception {
         mockMvc.perform(get("/api/v1/focus-session")
                         .param("from", "2026-06-01T00:00:00Z")
-                        .param("to", "2026-06-30T23:59:59Z"))
+                        .param("to", "2026-06-30T23:59:59Z")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
@@ -84,7 +89,8 @@ class FocusControllerTest {
         mockMvc.perform(get("/api/v1/focus-session")
                         .param("from", "not-an-instant")
                         .param("to", "2026-06-30T23:59:59Z")
-                        .param("size", "20"))
+                        .param("size", "20")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
@@ -98,7 +104,8 @@ class FocusControllerTest {
                         new OccupationDefaultTagResponse("과제", 1))));
 
         mockMvc.perform(get("/api/v1/tag/defaults")
-                        .param("occupation", "UNIVERSITY"))
+                        .param("occupation", "UNIVERSITY")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.occupation").value("UNIVERSITY"))
                 .andExpect(jsonPath("$.tags[0].name").value("전공 공부"))
@@ -112,7 +119,8 @@ class FocusControllerTest {
     @DisplayName("기본 태그 조회 — occupation enum 에 없는 값 → 400")
     void getDefaultTagsInvalidOccupationReturns400() throws Exception {
         mockMvc.perform(get("/api/v1/tag/defaults")
-                        .param("occupation", "NOT_A_JOB"))
+                        .param("occupation", "NOT_A_JOB")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
@@ -129,7 +137,8 @@ class FocusControllerTest {
                 + "\"totalDistractionSeconds\":0}";
         mockMvc.perform(post("/api/v1/focus-session")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body)
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.dayTotalFocusSeconds").value(660))
                 .andExpect(jsonPath("$.streakQualifiedToday").value(true))
@@ -150,7 +159,8 @@ class FocusControllerTest {
                 + "\"totalDistractionSeconds\":0}";
         mockMvc.perform(patch("/api/v1/focus-session")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body)
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dayTotalFocusSeconds").value(300))
                 .andExpect(jsonPath("$.streakQualifiedToday").value(false))
@@ -169,7 +179,8 @@ class FocusControllerTest {
         String body = "{\"startedAt\":\"2026-06-23T01:00:00Z\",\"focusType\":\"POMODORO\"}";
         mockMvc.perform(post("/api/v1/focus-session/start")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body)
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isCreated())
                 .andDo(print());
 
@@ -186,7 +197,8 @@ class FocusControllerTest {
         String body = "{\"sessionId\":\"" + sessionId + "\"}";
         mockMvc.perform(patch("/api/v1/focus-session/cancel")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body)
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNoContent())
                 .andDo(print());
 

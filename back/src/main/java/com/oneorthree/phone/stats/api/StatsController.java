@@ -1,5 +1,6 @@
 package com.oneorthree.phone.stats.api;
 
+import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusAverageResponse;
 import com.oneorthree.phone.stats.dto.FocusAverageScope;
@@ -14,7 +15,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -46,8 +46,7 @@ public class StatsController {
     public ResponseEntity<List<HeatmapCellResponse>> getHeatmap(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID userId) {
         return ResponseEntity.ok(statsService.getHeatmap(userId, from, to));
     }
 
@@ -67,8 +66,7 @@ public class StatsController {
     public ResponseEntity<StreakResponse> getStreak(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
-            HttpServletRequest request) {
-        UUID callerId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID callerId) {
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
         return ResponseEntity.ok(statsService.getStreak(targetId, date));
     }
@@ -85,8 +83,7 @@ public class StatsController {
     public ResponseEntity<TodayStatsResponse> getTodayStats(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
-            HttpServletRequest request) {
-        UUID callerId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID callerId) {
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
         return ResponseEntity.ok(statsService.getTodayStats(targetId, date));
     }
@@ -105,8 +102,7 @@ public class StatsController {
             @RequestParam StatsPeriod period,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
-            HttpServletRequest request) {
-        UUID callerId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID callerId) {
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
         return ResponseEntity.ok(statsService.getFocusStatsByPeriod(targetId, period, date));
     }
@@ -127,8 +123,7 @@ public class StatsController {
             @RequestParam FocusAverageScope scope,
             @RequestParam StatsPeriod period,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            HttpServletRequest request) {
-        UUID callerId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID callerId) {
         return ResponseEntity.ok(statsService.getFocusAverage(callerId, scope, period, date));
     }
 
@@ -147,8 +142,7 @@ public class StatsController {
             @RequestParam StatsPeriod period,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
-            HttpServletRequest request) {
-        UUID callerId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID callerId) {
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
         return ResponseEntity.ok(statsService.getFocusStatsByCategory(targetId, period, date));
     }
@@ -169,8 +163,7 @@ public class StatsController {
             @RequestParam StatsPeriod period,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
-            HttpServletRequest request) {
-        UUID callerId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID callerId) {
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
         return ResponseEntity.ok(statsService.getScreenTimePeriodStats(targetId, period, date));
     }

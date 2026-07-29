@@ -1,5 +1,6 @@
 package com.oneorthree.phone.focus.api;
 
+import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.focus.dto.FocusSessionCancelRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
@@ -18,7 +19,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -51,8 +51,7 @@ public class FocusController {
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
     @GetMapping("/tag")
-    public ResponseEntity<List<FocusTagResponse>> getTag(HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+    public ResponseEntity<List<FocusTagResponse>> getTag(@LoginUser UUID userId) {
         return ResponseEntity.ok(focusService.getFocusTags(userId));
     }
 
@@ -67,9 +66,8 @@ public class FocusController {
     })
     @GetMapping("/tag/defaults")
     public ResponseEntity<OccupationDefaultTagsResponse> getDefaultTags(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @RequestParam(required = false) Occupation occupation) {
-        UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(focusService.getDefaultTags(userId, occupation));
     }
 
@@ -81,9 +79,8 @@ public class FocusController {
     })
     @PostMapping("/tag")
     public ResponseEntity<Void> setupTag(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @RequestBody FocusTagSetupRequest body) {
-        UUID userId = (UUID) request.getAttribute("userId");
         focusService.setupFocusTag(userId, body);
         return ResponseEntity.noContent().build();
     }
@@ -98,9 +95,8 @@ public class FocusController {
     })
     @PatchMapping("/tag")
     public ResponseEntity<Void> updateTag(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @RequestBody FocusTagUpdateRequest body) {
-        UUID userId = (UUID) request.getAttribute("userId");
         focusService.updateFocusTag(userId, body);
         return ResponseEntity.noContent().build();
     }
@@ -113,9 +109,8 @@ public class FocusController {
     })
     @DeleteMapping("/tag/{tagId}")
     public ResponseEntity<Void> deleteTag(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @PathVariable UUID tagId) {
-        UUID userId = (UUID) request.getAttribute("userId");
         focusService.deleteFocusTag(userId, tagId);
         return ResponseEntity.noContent().build();
     }
@@ -130,9 +125,8 @@ public class FocusController {
     })
     @PostMapping("/focus-session")
     public ResponseEntity<FocusSessionSaveResponse> saveFocusSession(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @Valid @RequestBody FocusSessionRequest body) {
-        UUID userId = (UUID) request.getAttribute("userId");
         FocusSessionSaveResponse response = focusService.saveFocusSession(userId, body);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -148,9 +142,8 @@ public class FocusController {
     })
     @PostMapping("/focus-session/start")
     public ResponseEntity<FocusSessionStartResponse> startFocusSession(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @RequestBody FocusSessionStartRequest body) {
-        UUID userId = (UUID) request.getAttribute("userId");
         FocusSessionStartResponse response = focusService.startFocusSession(userId, body);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -168,9 +161,8 @@ public class FocusController {
     })
     @PatchMapping("/focus-session")
     public ResponseEntity<FocusSessionEndResponse> endFocusSession(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @Valid @RequestBody FocusSessionEndRequest body) {
-        UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(focusService.endFocusSession(userId, body));
     }
 
@@ -187,9 +179,8 @@ public class FocusController {
     })
     @PatchMapping("/focus-session/cancel")
     public ResponseEntity<Void> cancelFocusSession(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @Valid @RequestBody FocusSessionCancelRequest body) {
-        UUID userId = (UUID) request.getAttribute("userId");
         focusService.cancelFocusSession(userId, body);
         return ResponseEntity.noContent().build();
     }
@@ -205,12 +196,11 @@ public class FocusController {
     })
     @GetMapping("/focus-session")
     public ResponseEntity<FocusSessionSliceResponse> getFocusSessions(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @RequestParam Instant from,
             @RequestParam Instant to,
             @RequestParam(required = false) UUID cursor,
             @RequestParam int size) {
-        UUID userId = (UUID) request.getAttribute("userId");
         return ResponseEntity.ok(focusService.getFocusSessions(userId, from, to, cursor, size));
     }
 }
