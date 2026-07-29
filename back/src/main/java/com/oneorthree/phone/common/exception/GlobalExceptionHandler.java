@@ -3,6 +3,7 @@ package com.oneorthree.phone.common.exception;
 import com.oneorthree.phone.analytics.exception.AnalyticsException;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
+import com.oneorthree.phone.common.auth.LoginUserResolutionException;
 import com.oneorthree.phone.currency.exception.CurrencyException;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
@@ -93,6 +94,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ErrorResponse("INVALID_PARAMETER",
                         "요청 파라미터 '" + e.getName() + "' 형식이 올바르지 않습니다."));
+    }
+
+    // @LoginUser 주입 실패 (GROMO-363) — 클라이언트가 재시도해도 고쳐지지 않는 서버 배선 오류라 500 이다.
+    // 원인(어느 핸들러인지)은 로그에만 남기고 응답 본문에는 넣지 않는다 — 내부 클래스·메서드명 노출 방지.
+    @ExceptionHandler(LoginUserResolutionException.class)
+    public ResponseEntity<ErrorResponse> handleLoginUserResolution(LoginUserResolutionException e) {
+        log.error("@LoginUser 주입 실패 — 배선 오류", e);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("LOGIN_USER_RESOLUTION_FAILED", "서버 설정 오류로 요청을 처리하지 못했습니다."));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

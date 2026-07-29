@@ -65,9 +65,11 @@ class LoginUserArgumentResolverTest {
     }
 
     @Test
-    @DisplayName("supportsParameter — @LoginUser 라도 타입이 UUID 가 아니면 false (호출 시점 캐스팅 사고 차단)")
-    void supportsParameter_false_whenLoginUserOnNonUuid() {
-        assertThat(resolver.supportsParameter(parameterOf("loginUserString", String.class))).isFalse();
+    @DisplayName("supportsParameter — 타입이 틀려도 @LoginUser 면 true (내장 catch-all 이 쿼리로 바인딩하는 것을 막는다)")
+    void supportsParameter_true_whenLoginUserOnNonUuid() {
+        // false 를 반환하면 내장 RequestParam 리졸버가 가져가 ?userId= 로 채운다.
+        // 그러면 이 어노테이션이 막으려던 "클라이언트가 준 userId" 경로가 그대로 되열린다.
+        assertThat(resolver.supportsParameter(parameterOf("loginUserString", String.class))).isTrue();
     }
 
     @Test
@@ -88,12 +90,24 @@ class LoginUserArgumentResolverTest {
     }
 
     @Test
-    @DisplayName("resolveArgument — attribute 가 없으면 IllegalStateException, 메시지에 어느 핸들러인지 남긴다")
+    @DisplayName("resolveArgument — attribute 가 없으면 LoginUserResolutionException, 메시지에 어느 핸들러인지 남긴다")
     void resolveArgument_throws_whenAttributeMissing() {
         MethodParameter parameter = parameterOf("loginUserUuid", UUID.class);
 
         assertThatThrownBy(() -> resolver.resolveArgument(parameter, null, webRequestWith(null), null))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(LoginUserResolutionException.class)
                 .hasMessageContaining("loginUserUuid");
+    }
+
+    @Test
+    @DisplayName("resolveArgument — @LoginUser 를 UUID 아닌 타입에 붙이면 예외 (조용한 쿼리 바인딩 대신 큰 소리로 실패)")
+    void resolveArgument_throws_whenParameterTypeIsNotUuid() {
+        UUID userId = UUID.randomUUID();
+        MethodParameter parameter = parameterOf("loginUserString", String.class);
+
+        assertThatThrownBy(() -> resolver.resolveArgument(parameter, null, webRequestWith(userId), null))
+                .isInstanceOf(LoginUserResolutionException.class)
+                .hasMessageContaining("UUID")
+                .hasMessageContaining("loginUserString");
     }
 }
