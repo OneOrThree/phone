@@ -18,8 +18,11 @@ build/
 expo-env.d.ts
 
 # Firebase 설정 파일 (프로젝트별 키 — 커밋 금지, 로컬/EAS secret으로 관리)
+# 활성 파일 + 환경별 원본(-dev/-prod, google-services-*.json) 모두 무시
 GoogleService-Info.plist
+GoogleService-Info-*.plist
 google-services.json
+google-services-*.json
 # hot-updater
 .env.hotupdater
 .hot-updater/output
@@ -29,3 +32,6 @@ supabase/.temp/
 
 # Maestro E2E 실행 리포트 (scripts/e2e.sh 산출물)
 .maestro/report/
+
+# Android 환경별 빌드 자격 파일 (keystore·google-services·비번 — 커밋 금지, 별도 공유)
+android/credentials/

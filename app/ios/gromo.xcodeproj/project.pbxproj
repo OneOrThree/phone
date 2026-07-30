@@ -16,7 +16,6 @@
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		41B4D6C1B3554C6DA6C7F986 /* ScreenTimeModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5608395EE50C46F989410865 /* ScreenTimeModule.swift */; };
 		8B8792C0DAAF303A08360EC1 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB42D6F1E39342F74D28ED89 /* ExpoModulesProvider.swift */; };
-		A26320ACDEA43EE3C1EE41EB /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A15DF4FEEC3153165771F218 /* GoogleService-Info.plist */; };
 		A4776DA72FEFAD560099A6F4 /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A4776DA02FEFAD560099A6F4 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A4776DB22FEFAEAD0099A6F4 /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4776DB12FEFAEAD0099A6F4 /* ManagedSettings.framework */; };
 		A4776DB42FEFAEAD0099A6F4 /* ManagedSettingsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4776DB32FEFAEAD0099A6F4 /* ManagedSettingsUI.framework */; };
@@ -118,7 +117,6 @@
 		5608395EE50C46F989410865 /* ScreenTimeModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScreenTimeModule.swift; path = gromo/ScreenTimeModule.swift; sourceTree = "<group>"; };
 		69E0590C76FD4C3C982B4D57 /* ScreenTimeModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ScreenTimeModule.m; path = gromo/ScreenTimeModule.m; sourceTree = "<group>"; };
 		8D0276BF8624FFD03388406F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = gromo/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		A15DF4FEEC3153165771F218 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		A4776DA02FEFAD560099A6F4 /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A4776DB02FEFAEAD0099A6F4 /* ShieldConfiguration.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShieldConfiguration.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A4776DB12FEFAEAD0099A6F4 /* ManagedSettings.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ManagedSettings.framework; path = System/Library/Frameworks/ManagedSettings.framework; sourceTree = SDKROOT; };
@@ -388,7 +386,6 @@
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				D841E8922A4931B49C1A0BD1 /* Pods */,
 				F3E37517B39DA842D0E4B596 /* ExpoModulesProviders */,
-				A15DF4FEEC3153165771F218 /* GoogleService-Info.plist */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -462,6 +459,7 @@
 				D40D483E2FE111110058301C /* Embed Foundation Extensions */,
 				4261F91123AE239D0B5AB59F /* [CP-User] [RNFB] Core Configuration */,
 				DF907560358940B0B58BF496 /* Upload Debug Symbols to Sentry */,
+				658925CEDCD1D9118A4CB91E /* Firebase 환경별 plist 주입 (Debug=dev / Release=prod) */,
 			);
 			buildRules = (
 			);
@@ -669,7 +667,6 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				1E7A3EDE7EA827BCAA610C2A /* PrivacyInfo.xcprivacy in Resources */,
-				A26320ACDEA43EE3C1EE41EB /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -794,6 +791,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-gromo/expo-configure-project.sh\"\n";
+		};
+		658925CEDCD1D9118A4CB91E /* Firebase 환경별 plist 주입 (Debug=dev / Release=prod) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Firebase 환경별 plist 주입 (Debug=dev / Release=prod)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\n\n# gromo — Firebase 환경별 GoogleService-Info.plist 주입 (수동 관리 native 프로젝트)\n# Debug 빌드 → dev(gromo-dev), 그 외(Release) → prod(gromo-prod)\n# 원본: app/ios/GoogleService-Info-dev.plist / GoogleService-Info-prod.plist (gitignore — 팀원은 별도 전달받아 배치)\nif [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  ENV_NAME=\"dev\"\nelse\n  ENV_NAME=\"prod\"\nfi\n\nSRC=\"${SRCROOT}/GoogleService-Info-${ENV_NAME}.plist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/GoogleService-Info.plist\"\n\nif [ ! -f \"${SRC}\" ]; then\n  echo \"error: Firebase plist 없음 → ${SRC}\" >&2\n  echo \"error: app/ios/ 에 GoogleService-Info-dev.plist / -prod.plist 를 배치하세요 (팀 시크릿).\" >&2\n  exit 1\nfi\n\necho \"note: Firebase(${ENV_NAME}) plist 주입 → GoogleService-Info.plist\"\n/bin/cp \"${SRC}\" \"${DEST}\"\n";
+			showEnvVarsInLog = 0;
 		};
 		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
