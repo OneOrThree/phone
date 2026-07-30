@@ -40,7 +40,7 @@ interface NativeScreenTime {
   getYesterdayUsageBucketMinutes(): Promise<number>;
   getYesterdayResult(): Promise<YesterdayResult>;
   getUsageBucketDebugInfo(): Promise<UsageBucketDebugInfo>;
-  armUsageBucketSpike(mode: string): Promise<boolean>;
+  setPendingSelectionApplyDate(dateString: string): Promise<boolean>;
   presentAppPicker(): Promise<AppSelectionCounts | null>;
   promoteSelection(): Promise<boolean>;
   presentAllowedAppPicker(): Promise<AppSelectionCounts | null>;
@@ -124,12 +124,12 @@ const ScreenTimeModule = {
     return NativeScreenTimeModule.getUsageBucketDebugInfo();
   },
 
-  // GROMO-942 스파이크 arm(개발 전용) — 익스텐션이 다음 intervalDidStart에서 "콜백 내
-  // startMonitoring" 실험을 1회 실행하게 플래그를 세운다. 실험 종료 후 제거 예정.
-  // mode: 'separate'(별도 활동 등록 — 실험 A·자정 실측) | 'self'(자기 재등록 — 실험 B).
-  armUsageBucketSpike: async (mode: 'separate' | 'self'): Promise<boolean> => {
+  // A안(GROMO-942) 측정 대상 변경 '다음날 적용' 예약 — App Group에 적용 예정일을 기록해
+  // 익스텐션 자정 콜백이 승격 여부를 판단하게 한다. dateString은 'YYYY-MM-DD'(로컬, 보통 내일),
+  // 빈 문자열이면 예약 취소. iOS 외에는 no-op.
+  setPendingSelectionApplyDate: async (dateString: string): Promise<boolean> => {
     if (Platform.OS !== 'ios') return false;
-    return NativeScreenTimeModule.armUsageBucketSpike(mode);
+    return NativeScreenTimeModule.setPendingSelectionApplyDate(dateString);
   },
 
   // 측정 대상(앱/카테고리) 선택 picker 표시. 취소 시 null.

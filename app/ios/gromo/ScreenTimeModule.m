@@ -63,7 +63,7 @@ RCT_EXTERN_METHOD(
 )
 
 RCT_EXTERN_METHOD(
-    armUsageBucketSpike:(NSString *)mode
+    setPendingSelectionApplyDate:(NSString *)dateString
     resolver:(RCTPromiseResolveBlock)resolve
     rejecter:(RCTPromiseRejectBlock)reject
 )

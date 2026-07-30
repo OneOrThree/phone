@@ -378,20 +378,22 @@ class ScreenTimeModule: NSObject {
         ] as [String: Any])
     }
 
-    // GROMO-942 스파이크 arm(개발 전용, 실험 후 제거 예정) — Monitor 익스텐션이 다음
-    // intervalDidStart에서 "콜백 내 startMonitoring" 실험을 1회 실행하게 플래그를 세운다.
-    // mode: "separate"(별도 활동 gromo.spike 등록 — 실험 A·자정 실측) |
-    //       "self"(gromo.usage.buckets 자기 재등록 — 실험 B, A안의 실제 형태).
-    // dev 패널 버튼이 arm 직후 강제 재등록으로 콜백을 즉시 유발한다(자정 실측은 arm만).
-    @objc func armUsageBucketSpike(
-        _ mode: NSString,
+    // A안(GROMO-942) — 측정 대상 변경을 '다음날 적용'으로 예약. 설정 화면에서 이미 측정 대상이
+    // 설정된 상태로 변경 시 호출한다. picker가 저장한 pending 선택은 그대로 두고, 적용 예정일만
+    // App Group에 기록해 익스텐션 자정 콜백(promotePendingSelectionIfDue)이 승격 여부를 판단하게
+    // 한다. dateString은 'YYYY-MM-DD'(로컬) — 보통 내일. 빈 문자열이면 예약 취소(키 제거).
+    @objc func setPendingSelectionApplyDate(
+        _ dateString: NSString,
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
-        defaults?.set(true, forKey: "gromo:screentime:spikeArmed")
-        defaults?.set(mode as String, forKey: "gromo:screentime:spikeMode")
-        appendDebugLog("spike armed(\(mode)) — 다음 intervalDidStart에서 실험 실행")
+        let value = dateString as String
+        if value.isEmpty {
+            defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
+        } else {
+            defaults?.set(value, forKey: "gromo:goal:selectionApplyDate")
+        }
         resolve(true)
     }
 

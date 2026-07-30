@@ -77,29 +77,6 @@ function BucketDebugPanel() {
     setReregLabel(ok ? '재등록 성공 — 등록 시각 갱신 확인' : '실패 — 권한·측정 대상 선택 확인');
   };
 
-  // GROMO-942 스파이크 — arm 후 강제 재등록으로 익스텐션 intervalDidStart를 즉시 유발.
-  // 결과는 이벤트 로그로 관찰(spike 등록 성공/실패 → 대상 앱 1~3분 사용 시 spike 눈금 발화).
-  const runSpike = async (mode: 'separate' | 'self') => {
-    setReregLabel('스파이크 arm 중…');
-    const armed = await ScreenTimeModule.armUsageBucketSpike(mode).catch(() => false);
-    if (!armed) {
-      setReregLabel('스파이크 arm 실패');
-      return;
-    }
-    const ok = await registerUsageBucketMonitoring(userId).catch(() => false);
-    setReregLabel(
-      ok ? '스파이크 발사 — 이벤트 로그에서 spike 줄 확인' : '재등록 실패 — 권한·측정 대상 확인',
-    );
-  };
-
-  // 자정 실측 — arm만 하고 재등록하지 않는다. 플래그가 남아 있다가 진짜 자정 콜백에서 실험 실행.
-  const armMidnightSpike = async () => {
-    const armed = await ScreenTimeModule.armUsageBucketSpike('separate').catch(() => false);
-    setReregLabel(
-      armed ? '자정 실측 arm — 내일 아침 로그에서 spike 줄 확인' : '자정 실측 arm 실패',
-    );
-  };
-
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -158,15 +135,6 @@ function BucketDebugPanel() {
       ) : null}
       <TouchableOpacity style={s.debugBtn} onPress={forceReregister} activeOpacity={0.7}>
         <Text style={s.debugBtnText}>버킷 모니터 강제 재등록</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={s.debugBtn} onPress={() => runSpike('separate')} activeOpacity={0.7}>
-        <Text style={s.debugBtnText}>942 실험A — 콜백 내 별도 활동 등록</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={s.debugBtn} onPress={() => runSpike('self')} activeOpacity={0.7}>
-        <Text style={s.debugBtnText}>942 실험B — 콜백 내 자기 재등록</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={s.debugBtn} onPress={armMidnightSpike} activeOpacity={0.7}>
-        <Text style={s.debugBtnText}>942 자정 실측 arm — 재등록 없이 대기</Text>
       </TouchableOpacity>
       {reregLabel ? <Text style={s.debugHint}>{reregLabel}</Text> : null}
       <Text style={s.debugHint}>

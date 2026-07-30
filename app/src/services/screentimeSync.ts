@@ -298,6 +298,29 @@ export async function syncScreenTimeUsage(
     }
   }
 
+  // A안(GROMO-942) 측정 대상 변경 '다음날 적용' 처리 — 익스텐션 자정 콜백이 pending을 승격·버킷
+  // 재등록했거나(대개), 자정을 놓쳐 아직 pending이면 여기서 승격한다. 적용 예정일(로컬)이 도래한
+  // 경우에만. 어제분 마감 '뒤'에 둔다 — 승격이 버킷을 재등록하면 한낮 intervalDidEnd가 어제
+  // 보존값을 건드릴 수 있어서(GROMO-931과 같은 이유). 승격 시 목표 모니터도 새 선택으로 재등록해야
+  // 하므로(익스텐션은 목표를 안 건드림) selectionPromoted로 아래 목표 등록 블록을 강제한다.
+  let selectionPromoted = false;
+  try {
+    const applyDate = await AsyncStorage.getItem(STORAGE_KEYS.selectionApplyDate);
+    if (applyDate && applyDate <= today) {
+      // 익스텐션이 이미 승격했으면 pending이 없어 false, 자정을 놓쳤으면 여기서 승격(true).
+      const promotedNow = await ScreenTimeModule.promoteSelection();
+      if (promotedNow && monitorOwner) {
+        // 익스텐션이 자정을 놓침 → 앱이 버킷을 새 선택으로 재등록(한낮이라 베이스 합산으로 보존).
+        await registerUsageBucketMonitoring(monitorOwner);
+      }
+      selectionPromoted = true; // 승격 여부와 무관하게 목표 모니터는 새 선택으로 재등록
+      await AsyncStorage.removeItem(STORAGE_KEYS.selectionApplyDate);
+      await ScreenTimeModule.setPendingSelectionApplyDate(''); // App Group 예약도 정리(멱등)
+    }
+  } catch {
+    // 승격 실패 — applyDate를 지우지 않았으면 다음 포그라운드에서 자동 재시도
+  }
+
   // 눈금 변경 마이그레이션(GROMO-871 상한 12h→15h, GROMO-931 눈금 30분→15분) — 등록 당시
   // 시그니처가 현재(네이티브가 등록할 눈금)와 다르면 재등록해 새 눈금을 적용한다. 구버전
   // 마커('720'·'900')도 자연히 걸린다. 반드시 어제분 마감 '뒤'에 수행 — 재등록의 stopMonitoring이
@@ -321,8 +344,9 @@ export async function syncScreenTimeUsage(
   // 안 돌아 getYesterdayResult()가 영영 null → 어제 마감이 분값 근사 폴백으로만 동작한다.
   // (신규 유저는 목표가 온보딩 W12에서 정해지므로 W10이 아니라 여기서 첫 등록된다.)
   // 이것도 어제분 마감 '뒤' — gromo.daily 중지 콜백이 판정 기록(lastResult)을 어지럽힐 수 있다.
+  // selectionPromoted면 목표는 그대로여도 측정 대상이 바뀐 것이므로 새 선택으로 강제 재등록한다.
   try {
-    if (goalSeconds > 0 && registeredGoal !== String(goalSeconds)) {
+    if (goalSeconds > 0 && (selectionPromoted || registeredGoal !== String(goalSeconds))) {
       await registerGoalMonitoring(goalSeconds); // 선택 없으면 false → 저장 없이 다음에 재시도
     }
   } catch {
