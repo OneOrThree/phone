@@ -85,8 +85,7 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
         await ScreenTimeModule.promoteSelection();
         // threshold 이벤트는 등록 시점 selection 토큰으로 고정 — 선택 확정 직후
         // 15분 버킷 모니터링을 등록해야 사용량 측정·서버 동기화가 시작된다(GROMO-633).
-        // 목표 판정 모니터링(gromo.daily)은 목표가 W12에서 정해지므로 여기가 아니라
-        // 온보딩 완료 후 첫 실행 때 ScreenTimeSyncer가 등록한다.
+        // 목표 달성 판정은 이 버킷 사용시간으로 한다(GROMO-942, 별도 목표 모니터 없음).
         // 로그인 전이라 소유 계정 미상(null) — Syncer 첫 실행이 현재 계정으로 귀속시킨다.
         await registerUsageBucketMonitoring(null);
         update({ screenTimeSelectionConfigured: true });

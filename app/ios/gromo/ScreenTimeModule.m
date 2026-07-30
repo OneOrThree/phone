@@ -31,8 +31,7 @@ RCT_EXTERN_METHOD(
 )
 
 RCT_EXTERN_METHOD(
-    startGoalMonitoring:(double)goalSecondsValue
-    resolver:(RCTPromiseResolveBlock)resolve
+    stopGoalMonitoring:(RCTPromiseResolveBlock)resolve
     rejecter:(RCTPromiseRejectBlock)reject
 )
 
@@ -49,11 +48,6 @@ RCT_EXTERN_METHOD(
 
 RCT_EXTERN_METHOD(
     getYesterdayUsageBucketMinutes:(RCTPromiseResolveBlock)resolve
-    rejecter:(RCTPromiseRejectBlock)reject
-)
-
-RCT_EXTERN_METHOD(
-    getYesterdayResult:(RCTPromiseResolveBlock)resolve
     rejecter:(RCTPromiseRejectBlock)reject
 )
 
