@@ -26,8 +26,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     /** 티어 정산처럼 실제 User 변경이 필요한 경로의 활성 사용자 엔티티 배치 조회. */
     List<User> findAllByIdInAndIsDeletedFalse(Collection<UUID> ids);
 
-    boolean existsByIdAndIsDeletedFalse(UUID id);
-
     // 인증 hot path 단일 조회 (GROMO-903) — 탈퇴 차단 판정(827)과 활동 갱신 판정(578)을 한 왕복으로 병합.
     // 이전엔 존재 확인(왕복 ①) 직후 오늘 이미 갱신된 유저에게도 UPDATE 트랜잭션(왕복 ②)이 매 요청 붙었다.
     // 왕복 ① 이 이미 그 유저 행을 PK 로 찾으므로, last_active_at 을 함께 읽어오면 왕복을 늘리지 않고 스로틀 판정이 끝난다.
