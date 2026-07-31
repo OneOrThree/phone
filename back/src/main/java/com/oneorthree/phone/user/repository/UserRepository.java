@@ -49,14 +49,15 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     List<User> searchByNicknameTrgm(@Param("q") String q, @Param("limit") int limit);
 
     // last_active_at 스로틀 갱신 (GROMO-578) — JwtFilter 인증 통과 지점에서 호출.
-    // WHERE 의 last_active_at < :startOfTodayKst 가드로 하루 최대 1 row write/유저 (오늘 이미 갱신됐으면 0건 매치=무쓰기).
+    // WHERE 의 last_active_at < :staleBefore 가드로 스로틀 창당 최대 1 row write/유저 (이미 최신이면 0건 매치=무쓰기).
+    // 호출측이 needsTouch 로 이미 걸러 보내므로 이 가드는 동시 요청 레이스의 최종 방어선이다 (GROMO-903).
     // User 엔티티 로드 없이 UPDATE 만 — @Modifying 이라 호출측 @Transactional 필요.
     @Modifying
     @Query("UPDATE User u SET u.lastActiveAt = :now"
-            + " WHERE u.id = :id AND u.lastActiveAt < :startOfTodayKst")
+            + " WHERE u.id = :id AND u.lastActiveAt < :staleBefore")
     int touchLastActiveAt(@Param("id") UUID id,
                           @Param("now") Instant now,
-                          @Param("startOfTodayKst") Instant startOfTodayKst);
+                          @Param("staleBefore") Instant staleBefore);
 
     // 미접속 복귀 푸시 대상 조회 (GROMO-578) — last_active_at 가 [startInclusive, endExclusive) KST 하루 구간에 든 유저.
     // 호출측이 D+3/7/14 각 단계의 KST 캘린더 하루 경계를 주입 → "정확히 N일째" 판정. isGuest·소프트딜리트 유저는 제외.

@@ -27,7 +27,7 @@ import static org.mockito.Mockito.verify;
 
 class JwtFilterTest {
 
-    // 갱신이 필요한(stale) last_active_at — KST 하루 경계 판정 자체는 UserActivityServiceTest 가 검증한다.
+    // 갱신이 필요한(stale) last_active_at — 슬라이딩 창 판정 자체는 UserActivityServiceTest 가 검증한다.
     private static final Instant YESTERDAY = Instant.now().minus(1, ChronoUnit.DAYS);
 
     private final JwtProvider jwtProvider = Mockito.mock(JwtProvider.class);

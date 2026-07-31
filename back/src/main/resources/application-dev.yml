@@ -77,3 +77,10 @@ logging:
     org.hibernate.orm.jdbc.bind: WARN
     org.springframework.web.servlet.DispatcherServlet: WARN
     org.springframework.web.filter: WARN
+
+# 활동 시각(last_active_at) 갱신 스로틀 창 (GROMO-903) — 같은 유저에게 write 를 허용하는 최소 간격.
+# 짧을수록 last_active_at 이 정확해지고 write 가 늘어난다. 이 값만큼 실제 마지막 활동보다 과거일 수 있어
+# 미접속 복귀 푸시의 "정확히 N일째" 판정이 하루 당겨질 수 있다(자정 직후 창 안에 그날 첫 활동을 한 유저).
+app:
+  user-activity:
+    touch-interval: 2h
