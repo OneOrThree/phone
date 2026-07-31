@@ -148,8 +148,8 @@ class LeagueReengagementNotificationServiceTest {
 
         verify(pushNotificationService, times(1)).sendIfAllowed(eq(orphaned), any(), any(), eq(NOW));
         // 회귀 락 — 재참여 경로는 고아 세션을 '집중함'으로 오판하던 신호(startedAt·DailyFocusStat-date)를 쓰지 않는다.
-        // (미스텁이면 pre-fix startedAt 구현도 이 단언을 통과하므로, '호출 안 함'을 명시적으로 검증해 회귀를 고정.)
-        verify(focusSessionRepository, never()).findUserIdsWithSessionStartedBetween(any(), any(), any());
+        // startedAt 쿼리(findUserIdsWithSessionStartedBetween)는 GROMO-851 에서 마지막 호출자가 사라져 삭제됐다
+        // — 이제 컴파일러가 회귀를 막으므로 never() 단언이 필요 없다.
         verify(dailyFocusStatRepository, never()).findUserIdsWithFocusOnDate(any(), any());
     }
 

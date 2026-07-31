@@ -25,6 +25,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -128,7 +129,11 @@ class RankOvertakeNotificationServiceTest {
                         snapshot(bottomId, 2, YESTERDAY),
                         snapshot(r1Id, 3, YESTERDAY),
                         snapshot(r2Id, 4, YESTERDAY)));
-        lenient().when(focusSessionRepository.findUserIdsWithSessionStartedBetween(anyCollection(), any(), any()))
+        // 기본 시나리오는 '오늘 아무도 집중하지 않음' — 고아/취소 세션만 있는 유저도 여기 해당한다 (GROMO-851)
+        lenient().when(focusSessionRepository
+                        .findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
+                .thenReturn(List.of());
+        lenient().when(focusSessionRepository.findUserIdsWithLiveSession(anyCollection(), any()))
                 .thenReturn(List.of());
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(any(), anyList(), any()))
                 .willReturn(List.of());
@@ -164,7 +169,7 @@ class RankOvertakeNotificationServiceTest {
         given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(me, rival));
         given(leagueRankSnapshotRepository.findByCreatedAtAndUserIdIn(eq(YESTERDAY), anyCollection()))
                 .willReturn(List.of(snapshot(meId, 1, YESTERDAY), snapshot(r1Id, 2, YESTERDAY)));
-        given(focusSessionRepository.findUserIdsWithSessionStartedBetween(anyCollection(), any(), any()))
+        given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
                 .willReturn(List.of());
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(any(), anyList(), any()))
                 .willReturn(List.of());
@@ -222,7 +227,7 @@ class RankOvertakeNotificationServiceTest {
                     }
                     return result;
                 });
-        given(focusSessionRepository.findUserIdsWithSessionStartedBetween(anyCollection(), any(), any()))
+        given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
                 .willReturn(List.of());
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(any(), anyList(), any()))
                 .willReturn(List.of());
@@ -278,7 +283,7 @@ class RankOvertakeNotificationServiceTest {
                     }
                     return result;
                 });
-        given(focusSessionRepository.findUserIdsWithSessionStartedBetween(anyCollection(), any(), any()))
+        given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
                 .willReturn(List.of());
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(any(), anyList(), any()))
                 .willReturn(List.of());
@@ -310,7 +315,7 @@ class RankOvertakeNotificationServiceTest {
                 .willReturn(List.of(
                         snapshot(first.getId(), 2, YESTERDAY),
                         snapshot(last.getId(), 1, YESTERDAY)));
-        given(focusSessionRepository.findUserIdsWithSessionStartedBetween(anyCollection(), any(), any()))
+        given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
                 .willReturn(List.of());
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(any(), anyList(), any()))
                 .willReturn(List.of());
@@ -342,15 +347,54 @@ class RankOvertakeNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("오늘 집중한 사용자는 추월 알림을 받지 않는다")
-    void suppressesFocusedToday() {
+    @DisplayName("오늘 완료된 집중 세션이 있는 사용자는 추월 알림을 받지 않는다")
+    void suppressesCompletedFocusToday() {
         setUpDefaultScenario();
-        given(focusSessionRepository.findUserIdsWithSessionStartedBetween(anyCollection(), any(), any()))
+        given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
                 .willReturn(List.of(meId));
 
         service.sendRankOvertakeNotifications(NOW);
 
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+        // 완료 판정 창은 KST 하루 [오늘 0시, 내일 0시) — 절대시각이라 비-KST 유저에도 동일하게 적용된다
+        verify(focusSessionRepository).findUserIdsWithCompletedFocusEndedBetween(
+                anyCollection(),
+                eq(TODAY.atStartOfDay(KST).toInstant()),
+                eq(TODAY.plusDays(1).atStartOfDay(KST).toInstant()));
+    }
+
+    @Test
+    @DisplayName("지금 집중 중(라이브)인 사용자는 추월 알림을 받지 않는다")
+    void suppressesLiveSession() {
+        setUpDefaultScenario();
+        given(focusSessionRepository.findUserIdsWithLiveSession(anyCollection(), any()))
+                .willReturn(List.of(meId));
+
+        service.sendRankOvertakeNotifications(NOW);
+
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+        // 라이브 하한 = now - 12h(ORPHAN_TIMEOUT). 하한이 없으면 스윕 대기 중인 버려진 세션까지 '라이브'로 잡혀 과억제된다
+        verify(focusSessionRepository).findUserIdsWithLiveSession(
+                anyCollection(), eq(NOW.minus(Duration.ofHours(12))));
+    }
+
+    @Test
+    @DisplayName("고아 자동종료 세션만 있는 사용자에게는 추월 알림을 보낸다 (GROMO-851 회귀)")
+    void sendsToUserWithOnlyOrphanSession() {
+        User me = setUpDefaultScenario();
+        // 고아(AUTO_CLOSED)·취소(CANCELED) 세션은 실집중 0분이라 완료·라이브 어느 조회에도 잡히지 않는다.
+        // 과거 startedAt 기준에서는 '오늘 집중함'으로 오판돼 이 유저가 넛지를 받지 못했다.
+        // ⚠️ 이 테스트 자체는 pre-fix 구현도 통과한다(startedAt 스텁이 빈 결과였으므로) — 구조적 회귀 방지는
+        //    startedAt 쿼리를 리포지토리에서 삭제해 컴파일러가 막는 쪽이고, 여기서는 '어떤 신호를 보고
+        //    무엇을 판단하는지'를 인자 검증(위 두 테스트)과 함께 고정한다.
+        given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
+                .willReturn(List.of());
+        given(focusSessionRepository.findUserIdsWithLiveSession(anyCollection(), any()))
+                .willReturn(List.of());
+
+        service.sendRankOvertakeNotifications(NOW);
+
+        verify(pushNotificationService).sendIfAllowed(eq(me), any(), any(), eq(NOW));
     }
 
     @Test
@@ -402,7 +446,7 @@ class RankOvertakeNotificationServiceTest {
                         snapshot(meId, 1, sunday.minusDays(1)),
                         snapshot(bottomId, 2, sunday.minusDays(1)),
                         snapshot(r1Id, 3, sunday.minusDays(1))));
-        given(focusSessionRepository.findUserIdsWithSessionStartedBetween(anyCollection(), any(), any()))
+        given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
                 .willReturn(List.of());
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(any(), anyList(), any()))
                 .willReturn(List.of());
@@ -459,7 +503,7 @@ class RankOvertakeNotificationServiceTest {
         given(leagueRankingQueryRepository.findGlobalRankingPage(
                 monday, monday, null, null, FETCH_SIZE)).willReturn(List.of(row(first, 10), row(second, 0)));
         given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(first, second));
-        given(focusSessionRepository.findUserIdsWithSessionStartedBetween(anyCollection(), any(), any()))
+        given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
                 .willReturn(List.of());
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(any(), anyList(), any()))
                 .willReturn(List.of());
