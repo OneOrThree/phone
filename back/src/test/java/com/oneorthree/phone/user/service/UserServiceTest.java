@@ -4,6 +4,10 @@ import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.friend.domain.Friendship;
+import com.oneorthree.phone.friend.domain.FriendshipStatus;
+import com.oneorthree.phone.friend.repository.FriendshipRepository;
+import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -97,6 +101,12 @@ class UserServiceTest {
 
     @Mock
     private OccupationInfoRepository occupationInfoRepository;
+
+    @Mock
+    private FriendshipRepository friendshipRepository;
+
+    @Mock
+    private PinnedUserRepository pinnedUserRepository;
 
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
@@ -224,7 +234,7 @@ class UserServiceTest {
     @DisplayName("탈퇴 성공 → focus·wallet·3 settings 정리 + 소셜연동 삭제·PII 파기·소프트딜리트 (하드삭제 X) GROMO-635")
     void withdrawSuccess() {
         User user = User.builder().id(USER_ID).nickname("조재영").refreshTokenHash("rt-hash").deviceToken("dt").build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(false);
 
         userService.withdraw(USER_ID);
@@ -237,6 +247,7 @@ class UserServiceTest {
         verify(userFocusTimeSettingsRepository).deleteById(USER_ID);
         verify(userNotificationSettingsRepository).deleteById(USER_ID);
         verify(socialAccountRepository).deleteByUserId(USER_ID);
+        verify(pinnedUserRepository).deleteAllInvolving(USER_ID);
         // 소프트딜리트 + PII 파기, 하드 삭제 안 함 (FK 위반 방지)
         assertThat(user.isDeleted()).isTrue();
         assertThat(user.getNickname()).isNull();
@@ -246,9 +257,47 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("탈퇴 시 친구 관계는 ACCEPTED·PENDING 모두 소프트 삭제된다 (GROMO-801)")
+    void withdrawSoftDeletesFriendships() {
+        User user = User.builder().id(USER_ID).build();
+        User friend = User.builder().id(UUID.fromString("00000000-0000-0000-0000-000000000002")).build();
+        // ACCEPTED = 이미 맺어진 친구, PENDING = 아직 수락 안 된 요청.
+        // PENDING 을 안 끊으면 상대가 나중에 수락해 '탈퇴자와 친구'가 되는 경로가 열린다.
+        Friendship accepted = Friendship.builder()
+                .fromUser(user).toUser(friend).status(FriendshipStatus.ACCEPTED).build();
+        Friendship pending = Friendship.builder()
+                .fromUser(friend).toUser(user).status(FriendshipStatus.PENDING).build();
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(false);
+        given(friendshipRepository.findActiveByUserId(USER_ID)).willReturn(List.of(accepted, pending));
+
+        userService.withdraw(USER_ID);
+
+        assertThat(accepted.getDeletedAt()).isNotNull();
+        assertThat(pending.getDeletedAt()).isNotNull();
+        // 배타 락으로 로드해야 정리 스캔 이후에 낀 친구요청·핀이 정리를 빠져나가지 않는다 (GROMO-801)
+        verify(userRepository).findActiveByIdForUpdate(USER_ID);
+        verify(userRepository, never()).findByIdAndIsDeletedFalse(USER_ID);
+    }
+
+    @Test
+    @DisplayName("탈퇴가 막히면(방장) 친구·핀 정리도 일어나지 않는다 (GROMO-801)")
+    void withdrawHostForbiddenSkipsFriendCleanup() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(true);
+
+        assertThatThrownBy(() -> userService.withdraw(USER_ID))
+                .isInstanceOf(GroupException.class);
+
+        verify(friendshipRepository, never()).findActiveByUserId(any());
+        verify(pinnedUserRepository, never()).deleteAllInvolving(any());
+    }
+
+    @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void withdrawUserNotFound() {
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.withdraw(USER_ID))
                 .isInstanceOf(UserException.class)
@@ -273,7 +322,7 @@ class UserServiceTest {
     @DisplayName("그룹 호스트인 유저 → GroupException(HOST_WITHDRAW), 삭제 안 함")
     void withdrawHostForbidden() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(true);
 
         assertThatThrownBy(() -> userService.withdraw(USER_ID))

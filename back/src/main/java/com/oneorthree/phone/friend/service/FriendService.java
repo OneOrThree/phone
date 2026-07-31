@@ -91,8 +91,8 @@ public class FriendService {
         if (me.equals(targetUserId)) {
             throw new FriendException(FriendErrorCode.SELF_REQUEST);
         }
-        User fromUser = getUser(me);
-        User toUser = getUser(targetUserId);
+        User fromUser = getRelationParticipant(me);
+        User toUser = getRelationParticipant(targetUserId);
 
         List<Friendship> pair = friendshipRepository.findPair(fromUser, toUser);
         for (Friendship f : pair) {
@@ -150,7 +150,7 @@ public class FriendService {
     @Transactional
     public void deleteFriend(UUID me, UUID friendUserId) {
         User meUser = getUser(me);
-        User friendUser = getUser(friendUserId);
+        User friendUser = getAnyUser(friendUserId);   // 탈퇴자와의 잔존 관계도 끊을 수 있어야 한다 (GROMO-801)
         Friendship friendship = friendshipRepository.findAcceptedBetween(meUser, friendUser)
                 .orElseThrow(() -> new FriendException(FriendErrorCode.NOT_FRIEND));
         friendship.softDelete(Instant.now());
@@ -195,8 +195,9 @@ public class FriendService {
         if (me.equals(friendUserId)) {
             throw new FriendException(FriendErrorCode.SELF_PIN);
         }
-        getUser(me);           // 나(me) 존재 검증 — 없으면 FK 위반 500 대신 UserErrorCode.NOT_FOUND(404)
-        getUser(friendUserId); // 대상 유저 존재 검증(없으면 UserErrorCode.NOT_FOUND)
+        // 양쪽 다 활성 검증 + 탈퇴와 직렬화 (GROMO-801) — 없으면 FK 위반 500 대신 NOT_FOUND(404)
+        getRelationParticipant(me);
+        getRelationParticipant(friendUserId);
         // ON CONFLICT DO NOTHING — 동시 핀 요청에도 멱등(중복은 무시), 500 없음.
         pinnedUserRepository.insertIgnoreConflict(UUID_V7.generate(), me, friendUserId);
     }
@@ -204,10 +205,11 @@ public class FriendService {
     // 친구 핀 해제 — 있으면 삭제, 없으면 멱등(204).
     @Transactional
     public void unpinFriend(UUID me, UUID friendUserId) {
-        User meUser = getUser(me);
-        User friendUser = getUser(friendUserId);
-        pinnedUserRepository.findByUserAndPinnedUser(meUser, friendUser)
-                .ifPresent(pinnedUserRepository::delete);
+        getUser(me);
+        getAnyUser(friendUserId);   // 탈퇴자 핀도 해제 가능해야 한다 (GROMO-801)
+        // 벌크 DELETE — 조회 후 remove 하면 탈퇴의 핀 정리와 겹칠 때 0 행 DELETE 로 StaleStateException(500).
+        // 0 행 = 이미 없음이므로 그대로 멱등 성공(204).
+        pinnedUserRepository.deletePin(me, friendUserId);
     }
 
     // 내가 핀한 친구 조회 — 각 친구의 캐릭터 표시정보 + 오늘 집중분 + 진행중 여부 매핑(GROMO-369 재사용).
@@ -248,8 +250,8 @@ public class FriendService {
         User meUser = getUser(me);
         boolean received = "received".equalsIgnoreCase(type);
         List<Friendship> requests = received
-                ? friendshipRepository.findByToUserAndStatus(meUser, FriendshipStatus.PENDING)
-                : friendshipRepository.findByFromUserAndStatus(meUser, FriendshipStatus.PENDING);
+                ? friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING)
+                : friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING);
 
         // GROMO-710: 상대 userId 들을 한 번에 모아 티어 배치 조회(N+1 방지). 티어는 league_arena_users 로만 도출(GROMO-671).
         Map<UUID, Integer> tierLevels = leagueTierLookup.tierLevelsByUserId(requests.stream()
@@ -293,14 +295,38 @@ public class FriendService {
 
     // ── 내부 헬퍼 ──────────────────────────────────────────
 
+    // 활성 유저 조회 — 탈퇴(소프트딜리트) 유저는 없는 유저로 취급 (GROMO-801).
+    // 호출자 본인(me) 확인과 일반 조회에 쓴다.
     private User getUser(UUID userId) {
+        return userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+    }
+
+    // 관계 '생성'(친구 요청·핀)에 참여하는 유저 조회 (GROMO-801) — 활성 검증 + 공유 락.
+    // 활성 검증: findById 를 쓰면 탈퇴자에게 요청이 걸리고, friendships 에 남은 (from,to) 유니크 제약과
+    //           충돌해 500 이 난다.
+    // 공유 락: 탈퇴 트랜잭션의 배타 락과 직렬화해, 정리가 끝난 뒤 새 관계가 끼어드는 레이스를 막는다.
+    // 관계는 두 유저를 묶으므로 대상뿐 아니라 호출자(me) 에도 걸어야 한다 — 한쪽만 잠그면 잠그지 않은 쪽이
+    // 탈퇴 중일 때 그 유저 소유의 유령 관계가 그대로 남는다.
+    // 공유 락끼리는 충돌하지 않아 동시 요청은 병렬 그대로고, 탈퇴(배타 락)하고만 직렬화된다.
+    private User getRelationParticipant(UUID userId) {
+        return userRepository.findActiveByIdForShare(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+    }
+
+    // 관계 '해제'(친구 삭제·핀 해제) 대상 조회 (GROMO-801) — 탈퇴 여부를 보지 않는다.
+    // 활성 검증을 걸면 상대가 탈퇴한 순간 잔존 관계를 영구히 못 지운다. 특히 이 변경 배포 전에 탈퇴해
+    // 정리되지 않은 관계는 사용자가 직접 끊는 것이 유일한 해소 수단이다(백필을 하지 않으므로).
+    // 해제는 관계를 줄이는 방향이라 탈퇴자를 대상으로 허용해도 유령이 늘지 않는다.
+    private User getAnyUser(UUID userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }
 
     // requestId로 PENDING 요청 조회 후 수신자(toUser) 본인인지 검증.
+    // 탈퇴 정리로 soft delete 된 요청은 없는 요청으로 취급 (GROMO-801) — 목록에서 숨긴 것을 변경도 막는다.
     private Friendship getReceivedRequest(UUID me, UUID requestId) {
-        Friendship friendship = friendshipRepository.findById(requestId)
+        Friendship friendship = friendshipRepository.findByIdAndDeletedAtIsNull(requestId)
                 .orElseThrow(() -> new FriendException(FriendErrorCode.REQUEST_NOT_FOUND));
         if (!friendship.getToUser().getId().equals(me)) {
             throw new FriendException(FriendErrorCode.NOT_REQUEST_RECEIVER);
@@ -323,9 +349,9 @@ public class FriendService {
 
     private Set<UUID> collectPendingIds(User meUser) {
         Set<UUID> ids = new HashSet<>();
-        friendshipRepository.findByFromUserAndStatus(meUser, FriendshipStatus.PENDING)
+        friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING)
                 .forEach(f -> ids.add(f.getToUser().getId()));
-        friendshipRepository.findByToUserAndStatus(meUser, FriendshipStatus.PENDING)
+        friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING)
                 .forEach(f -> ids.add(f.getFromUser().getId()));
         return ids;
     }
