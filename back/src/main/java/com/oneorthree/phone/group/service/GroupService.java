@@ -148,10 +148,13 @@ public class GroupService {
         Map<UUID, String> codeByGroupId = groupJoinCodeRepository.findAllById(groupIds).stream()
                 .collect(Collectors.toMap(GroupJoinCode::getGroupId, GroupJoinCode::getCode));
 
+        // 멤버 수도 IN 집계 1회 — 그룹마다 findByGroup(group).size() 로 멤버 엔티티를 로드하던 N+1 제거
+        Map<UUID, Integer> memberCountByGroupId = memberCountsOf(groupIds);
+
         return groupMembers.stream()
                 .map(member -> {
                     Group group = member.getGroup();
-                    int currentMembers = groupMemberRepository.findByGroup(group).size();
+                    int currentMembers = memberCountByGroupId.getOrDefault(group.getId(), 0);
                     String code = codeByGroupId.get(group.getId());
                     return new GroupSummaryResponse(
                             group.getId(),
@@ -177,13 +180,28 @@ public class GroupService {
         if (query == null || query.isBlank()) {
             return List.of();
         }
-        return groupRepository.searchPublicByNameTrgm(query, SEARCH_LIMIT).stream()
-                .map(this::toSearchResponse)
+        List<Group> groups = groupRepository.searchPublicByNameTrgm(query, SEARCH_LIMIT);
+
+        // 멤버 수는 IN 집계 1회 — 결과 그룹마다 findByGroup(group).size() 를 돌던 N+1 제거
+        Map<UUID, Integer> memberCountByGroupId = memberCountsOf(groups.stream().map(Group::getId).toList());
+
+        return groups.stream()
+                .map(group -> toSearchResponse(group, memberCountByGroupId.getOrDefault(group.getId(), 0)))
                 .toList();
     }
 
-    private GroupSearchResponse toSearchResponse(Group group) {
-        int currentMembers = groupMemberRepository.findByGroup(group).size();
+    /** 그룹 id 목록의 멤버 수를 집계 쿼리 1회로 조회한다. 멤버가 0인 그룹은 결과에 없으므로 호출측이 0으로 채운다. */
+    private Map<UUID, Integer> memberCountsOf(List<UUID> groupIds) {
+        if (groupIds.isEmpty()) {
+            return Map.of();
+        }
+        return groupMemberRepository.countByGroupIdIn(groupIds).stream()
+                .collect(Collectors.toMap(
+                        GroupMemberRepository.GroupMemberCount::getGroupId,
+                        count -> (int) count.getMemberCount()));
+    }
+
+    private GroupSearchResponse toSearchResponse(Group group, int currentMembers) {
         return new GroupSearchResponse(
                 group.getId(),
                 group.getName(),

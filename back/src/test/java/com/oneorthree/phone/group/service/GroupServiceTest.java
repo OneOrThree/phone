@@ -166,6 +166,21 @@ class GroupServiceTest {
                 .status(GroupJoinCodeStatus.ACTIVE).expiresAt(expiresAt).build();
     }
 
+    /** 그룹별 멤버 수 IN 집계(countByGroupIdIn) 결과 행 — 목록/검색의 N+1 제거 경로. */
+    private GroupMemberRepository.GroupMemberCount memberCount(UUID groupId, long count) {
+        return new GroupMemberRepository.GroupMemberCount() {
+            @Override
+            public UUID getGroupId() {
+                return groupId;
+            }
+
+            @Override
+            public long getMemberCount() {
+                return count;
+            }
+        };
+    }
+
     /** save()가 id가 채워진 엔티티를 반환하도록 흉내낸다 (서비스가 group.getId()를 사용). */
     private void givenSaveReturnsGroupWithId(UUID id) {
         given(groupRepository.save(any(Group.class)))
@@ -479,8 +494,9 @@ class GroupServiceTest {
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUser(user)).willReturn(List.of(member1, member2));
-        given(groupMemberRepository.findByGroup(group1)).willReturn(List.of(member1));
-        given(groupMemberRepository.findByGroup(group2)).willReturn(List.of(member2));
+        // 멤버 수는 그룹마다가 아니라 IN 집계 1회로 조회한다 (N+1 제거)
+        given(groupMemberRepository.countByGroupIdIn(List.of(GROUP_ID, GROUP_ID_2)))
+                .willReturn(List.of(memberCount(GROUP_ID, 1), memberCount(GROUP_ID_2, 1)));
         // GROMO-672: 요약 응답의 code 는 group_join_codes 일괄 조회(findAllById)로 채운다 — N+1 방지
         given(groupJoinCodeRepository.findAllById(List.of(GROUP_ID, GROUP_ID_2)))
                 .willReturn(List.of(
@@ -575,8 +591,9 @@ class GroupServiceTest {
                 .status(GroupStatus.ACTIVE).password("hashed").build();
 
         given(groupRepository.searchPublicByNameTrgm(query, 20)).willReturn(List.of(groupA, groupB));
-        given(groupMemberRepository.findByGroup(groupA)).willReturn(List.of());
-        given(groupMemberRepository.findByGroup(groupB)).willReturn(List.of());
+        // 멤버 수는 결과 그룹 전체를 IN 집계 1회로 조회한다 (N+1 제거)
+        given(groupMemberRepository.countByGroupIdIn(List.of(GROUP_ID, GROUP_ID_2)))
+                .willReturn(List.of(memberCount(GROUP_ID, 3)));
 
         // when
         List<GroupSearchResponse> result = groupService.searchGroups(query);
@@ -584,7 +601,10 @@ class GroupServiceTest {
         // then
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getGroupId()).isEqualTo(GROUP_ID);
+        assertThat(result.get(0).getCurrentMembers()).isEqualTo(3);
         assertThat(result.get(0).isHasPassword()).isFalse();
+        // 집계 결과에 없는 그룹(멤버 0)은 0으로 채운다
+        assertThat(result.get(1).getCurrentMembers()).isZero();
         assertThat(result.get(1).getGroupId()).isEqualTo(GROUP_ID_2);
         assertThat(result.get(1).isHasPassword()).isTrue();
     }
@@ -615,7 +635,8 @@ class GroupServiceTest {
                 .status(GroupStatus.WAITING).isPrivate(false).build();
 
         given(groupRepository.searchPublicByNameTrgm(query, 20)).willReturn(List.of(publicGroup));
-        given(groupMemberRepository.findByGroup(publicGroup)).willReturn(List.of());
+        given(groupMemberRepository.countByGroupIdIn(List.of(GROUP_ID)))
+                .willReturn(List.of(memberCount(GROUP_ID, 1)));
 
         // when
         List<GroupSearchResponse> result = groupService.searchGroups(query);
