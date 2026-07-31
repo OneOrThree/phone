@@ -27,6 +27,11 @@ import type { V2RootStackParamList } from '@/navigation/types';
 //
 // 시트는 라우트가 아니라 GroupScreen 위의 오버레이다 — 닫기·재조회는 전부 부모 몫이라
 // 여기서는 onClose()/onJoined()만 호출한다(navigationRef 초대 버퍼도 건드리지 않는다).
+//
+// 에러 표현 규칙(그룹 시트 3종 공통 — GroupInviteSheet·NoticeComposeSheet와 같은 기준):
+//   · 시트 안에서 일어난 액션 실패는 **인라인 문구**로 띄운다. 시트가 이미 맥락을 쥐고 있어
+//     Alert를 겹치면 레이어가 두 겹이 되고, 확인을 눌러야 원래 화면으로 돌아온다.
+//   · Alert는 **되돌릴 수 없는 액션의 확인**(참여 확인)과 **계정 전환 유도**(로그인)에만 쓴다.
 
 // 검색 입력 디바운스(ms) — 타이핑 중 과호출 방지(FriendAddScreen과 동일 기준)
 const SEARCH_DEBOUNCE_MS = 350;
@@ -45,6 +50,8 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
   const [searching, setSearching] = useState(false);
   // 참여 중인 그룹 id — 연타로 join이 두 번 나가는 것을 막는다
   const [joiningId, setJoiningId] = useState<string | null>(null);
+  // 참여 실패 문구 — 시트 안에서 인라인으로 띄운다(Alert 아님, 파일 상단 규칙).
+  const [joinError, setJoinError] = useState<string | null>(null);
   // 키보드가 바텀시트를 덮는 문제 보정 — 패널은 하단 고정이라 자체적으로 올라가지 않는다.
   // 자식 끝에 키보드 높이만큼 여백을 깔면 패널 내용이 키보드 위로 올라온다.
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -65,6 +72,8 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
   // 이름 검색 — 디바운스 + 언마운트/재입력 시 이전 응답 무시(FriendAddScreen:66-92 패턴).
   // 빈 문자열이면 호출하지 않고 결과를 비운다.
   useEffect(() => {
+    // 검색어가 바뀌면 직전 참여 실패 문구는 맥락을 잃는다 — 함께 지운다.
+    setJoinError(null);
     if (!q) {
       setResults([]);
       setSearching(false);
@@ -113,6 +122,7 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
   async function join(group: GroupSearchResponse) {
     if (joiningId) return;
     setJoiningId(group.groupId);
+    setJoinError(null);
     try {
       await joinGroup(group.groupId);
       logGroupJoinAttempted({ join_method: 'search' });
@@ -125,18 +135,19 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
           onJoined();
           break;
         case 'ROOM_FULL':
-          Alert.alert('정원이 가득 찼어요', '다른 그룹을 찾아보세요.');
+          setJoinError('정원이 가득 찼어요. 다른 그룹을 찾아보세요.');
           refreshResults();
           break;
         case 'NOT_FOUND':
-          Alert.alert('사라진 그룹이에요', '방장이 그룹을 없앴을 수 있어요.');
+          setJoinError('사라진 그룹이에요. 방장이 그룹을 없앴을 수 있어요.');
           setResults((prev) => prev.filter((r) => r.groupId !== group.groupId));
           break;
+        // 로그인 유도만 Alert로 남긴다 — 시트를 닫고 다른 화면으로 보내는 흐름이라 인라인이 사라진다.
         case 'GUEST_FORBIDDEN':
           goLogin();
           break;
         default:
-          Alert.alert('참여하지 못했어요', '잠시 후 다시 시도해주세요.');
+          setJoinError('참여하지 못했어요. 잠시 후 다시 시도해주세요.');
       }
     } finally {
       setJoiningId(null);
@@ -179,6 +190,8 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
           </TouchableOpacity>
         )}
       </View>
+
+      {joinError !== null && <Text style={s.notice}>{joinError}</Text>}
 
       <ScrollView
         style={s.listScroll}
@@ -257,6 +270,9 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
+  // 참여 실패 인라인 문구 — GroupInviteSheet의 s.notice와 같은 규격
+  notice: { ...T.text.caption, color: T.dangerInk, marginTop: T.space.md },
 
   listScroll: { maxHeight: 320, marginTop: T.space.md },
   list: { gap: T.space.sm, paddingBottom: T.space.xs },
