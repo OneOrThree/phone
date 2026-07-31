@@ -59,7 +59,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -127,13 +129,25 @@ class GroupServiceTest {
     // ── 헬퍼 ──────────────────────────────────────────────────────────────
 
     private CreateGroupRequest durationRequest(String password, Integer maxMembers, Integer durationMinutes) {
-        return new CreateGroupRequest("스터디룸", password, "설명", maxMembers,
-                MissionType.DURATION, MissionCategory.FOCUS, durationMinutes, null, null);
+        return durationRequest(password, maxMembers, durationMinutes, false);
+    }
+
+    private CreateGroupRequest durationRequest(String password, Integer maxMembers, Integer durationMinutes,
+            boolean isPrivate) {
+        return CreateGroupRequest.builder()
+                .name("스터디룸").password(password).description("설명").maxMembers(maxMembers)
+                .isPrivate(isPrivate)
+                .missionType(MissionType.DURATION).missionCategory(MissionCategory.FOCUS)
+                .durationMinutes(durationMinutes)
+                .build();
     }
 
     private CreateGroupRequest timeWindowRequest(Instant windowStart, Instant windowEnd) {
-        return new CreateGroupRequest("스터디룸", null, "설명", 5,
-                MissionType.TIME_WINDOW, MissionCategory.FOCUS, null, windowStart, windowEnd);
+        return CreateGroupRequest.builder()
+                .name("스터디룸").description("설명").maxMembers(5)
+                .missionType(MissionType.TIME_WINDOW).missionCategory(MissionCategory.FOCUS)
+                .windowStart(windowStart).windowEnd(windowEnd)
+                .build();
     }
 
     private User normalUser() {
@@ -219,6 +233,40 @@ class GroupServiceTest {
         verify(groupChallengeDurationRepository).save(durationCaptor.capture());
         assertThat(durationCaptor.getValue().getDurationMinutes()).isEqualTo(60);
         verify(groupChallengeWindowRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("isPrivate=true 생성 → 비공개 그룹으로 저장")
+    void createGroupPrivate() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
+        givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
+
+        // when
+        groupService.createGroup(USER_ID, durationRequest(null, 5, 60, true));
+
+        // then
+        ArgumentCaptor<Group> groupCaptor = ArgumentCaptor.forClass(Group.class);
+        verify(groupRepository).save(groupCaptor.capture());
+        assertThat(groupCaptor.getValue().isPrivate()).isTrue();
+    }
+
+    @Test
+    @DisplayName("isPrivate 미전송(기본값) → 공개 그룹으로 저장")
+    void createGroupDefaultsToPublic() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
+        givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
+
+        // when
+        groupService.createGroup(USER_ID, durationRequest(null, 5, 60));
+
+        // then
+        ArgumentCaptor<Group> groupCaptor = ArgumentCaptor.forClass(Group.class);
+        verify(groupRepository).save(groupCaptor.capture());
+        assertThat(groupCaptor.getValue().isPrivate()).isFalse();
     }
 
     @Test
@@ -424,7 +472,7 @@ class GroupServiceTest {
         Group group1 = Group.builder().id(GROUP_ID).name("그룹A")
                 .maxMembers(5).status(GroupStatus.WAITING).build();
         Group group2 = Group.builder().id(GROUP_ID_2).name("그룹B")
-                .maxMembers(10).status(GroupStatus.ACTIVE).build();
+                .maxMembers(10).status(GroupStatus.ACTIVE).isPrivate(true).build();
 
         GroupMember member1 = GroupMember.builder().user(user).group(group1).role(GroupMemberRole.OWNER).build();
         GroupMember member2 = GroupMember.builder().user(user).group(group2).role(GroupMemberRole.MEMBER).build();
@@ -452,11 +500,13 @@ class GroupServiceTest {
         assertThat(first.getRole()).isEqualTo(GroupMemberRole.OWNER);
         assertThat(first.getCurrentMembers()).isEqualTo(1);
         assertThat(first.getStatus()).isEqualTo(GroupStatus.WAITING);
+        assertThat(first.isPrivate()).isFalse();
 
         GroupSummaryResponse second = result.get(1);
         assertThat(second.getGroupId()).isEqualTo(GROUP_ID_2);
         assertThat(second.getRole()).isEqualTo(GroupMemberRole.MEMBER);
         assertThat(second.getStatus()).isEqualTo(GroupStatus.ACTIVE);
+        assertThat(second.isPrivate()).isTrue();
     }
 
     @Test
@@ -493,8 +543,7 @@ class GroupServiceTest {
         List<GroupSearchResponse> result = groupService.searchGroups(null);
 
         assertThat(result).isEmpty();
-        verify(groupJoinCodeRepository, never()).findByCode(anyString());
-        verify(groupRepository, never()).findByNameContainingIgnoreCase(anyString());
+        verify(groupRepository, never()).searchPublicByNameTrgm(anyString(), anyInt());
     }
 
     @Test
@@ -503,64 +552,16 @@ class GroupServiceTest {
         List<GroupSearchResponse> result = groupService.searchGroups("");
 
         assertThat(result).isEmpty();
-        verify(groupJoinCodeRepository, never()).findByCode(anyString());
-        verify(groupRepository, never()).findByNameContainingIgnoreCase(anyString());
+        verify(groupRepository, never()).searchPublicByNameTrgm(anyString(), anyInt());
     }
 
     @Test
-    @DisplayName("유효한 코드 정확 매칭 → 결과 첫 번째로 반환")
-    void searchGroupsByValidCode() {
-        // given
-        String code = "ABCD1234";
-        Group group = groupWithCode(GROUP_ID, code, null);
+    @DisplayName("공백만 있는 쿼리 → 빈 리스트 반환, 레포지토리 호출 없음")
+    void searchGroupsBlankQuery() {
+        List<GroupSearchResponse> result = groupService.searchGroups("   ");
 
-        given(groupJoinCodeRepository.findByCode(code))
-                .willReturn(Optional.of(joinCodeFor(group, code, Instant.now().plus(1, ChronoUnit.HOURS))));
-        given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of());
-        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
-
-        // when
-        List<GroupSearchResponse> result = groupService.searchGroups(code);
-
-        // then
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getGroupId()).isEqualTo(GROUP_ID);
-    }
-
-    @Test
-    @DisplayName("만료된 코드 → 코드 매칭 제외")
-    void searchGroupsByExpiredCode() {
-        // given
-        String code = "ABCD1234";
-        Group group = groupWithCode(GROUP_ID, code, null);
-
-        given(groupJoinCodeRepository.findByCode(code))
-                .willReturn(Optional.of(joinCodeFor(group, code, Instant.now().minus(1, ChronoUnit.HOURS))));
-        given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of());
-
-        // when
-        List<GroupSearchResponse> result = groupService.searchGroups(code);
-
-        // then
         assertThat(result).isEmpty();
-    }
-
-    @Test
-    @DisplayName("코드 만료 시각 null → 코드 매칭 제외 (lazy null 패턴)")
-    void searchGroupsByNullExpiryCode() {
-        // given
-        String code = "ABCD1234";
-        Group group = groupWithCode(GROUP_ID, code, null);
-
-        given(groupJoinCodeRepository.findByCode(code))
-                .willReturn(Optional.of(joinCodeFor(group, code, null)));
-        given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of());
-
-        // when
-        List<GroupSearchResponse> result = groupService.searchGroups(code);
-
-        // then
-        assertThat(result).isEmpty();
+        verify(groupRepository, never()).searchPublicByNameTrgm(anyString(), anyInt());
     }
 
     @Test
@@ -573,8 +574,7 @@ class GroupServiceTest {
         Group groupB = Group.builder().id(GROUP_ID_2).name("스터디B").maxMembers(10)
                 .status(GroupStatus.ACTIVE).password("hashed").build();
 
-        given(groupJoinCodeRepository.findByCode(query.toUpperCase())).willReturn(Optional.empty());
-        given(groupRepository.findByNameContainingIgnoreCase(query)).willReturn(List.of(groupA, groupB));
+        given(groupRepository.searchPublicByNameTrgm(query, 20)).willReturn(List.of(groupA, groupB));
         given(groupMemberRepository.findByGroup(groupA)).willReturn(List.of());
         given(groupMemberRepository.findByGroup(groupB)).willReturn(List.of());
 
@@ -590,23 +590,41 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("유효 코드 매칭이 이름 검색에도 포함되면 중복 제거")
-    void searchGroupsDeduplicatesCodeAndNameMatch() {
+    @DisplayName("검색은 LIMIT 20 으로 위임한다 — 무제한 반환하지 않는다")
+    void searchGroupsAppliesLimit() {
         // given
-        String code = "ABCD1234";
-        Group group = groupWithCode(GROUP_ID, code, null);
-
-        given(groupJoinCodeRepository.findByCode(code))
-                .willReturn(Optional.of(joinCodeFor(group, code, Instant.now().plus(1, ChronoUnit.HOURS))));
-        given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of(group));
-        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+        String query = "스터디";
+        given(groupRepository.searchPublicByNameTrgm(query, 20)).willReturn(List.of());
 
         // when
-        List<GroupSearchResponse> result = groupService.searchGroups(code);
+        groupService.searchGroups(query);
+
+        // then: is_private=false · deleted_at IS NULL 필터와 LIMIT 은 네이티브 쿼리가 책임진다
+        //   (ci 프로파일은 Flyway 비활성이라 trgm 확장·인덱스가 없어 모킹으로만 검증 가능)
+        ArgumentCaptor<Integer> limitCaptor = ArgumentCaptor.forClass(Integer.class);
+        verify(groupRepository).searchPublicByNameTrgm(eq(query), limitCaptor.capture());
+        assertThat(limitCaptor.getValue()).isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("비공개 그룹은 검색 결과에서 제외된다 — 코드 정확 매칭 분기도 사라졌다")
+    void searchGroupsExcludesPrivateGroups() {
+        // given: 레포지토리(is_private=false 필터)가 공개 그룹만 돌려준다
+        String query = "스터디";
+        Group publicGroup = Group.builder().id(GROUP_ID).name("스터디공개").maxMembers(5)
+                .status(GroupStatus.WAITING).isPrivate(false).build();
+
+        given(groupRepository.searchPublicByNameTrgm(query, 20)).willReturn(List.of(publicGroup));
+        given(groupMemberRepository.findByGroup(publicGroup)).willReturn(List.of());
+
+        // when
+        List<GroupSearchResponse> result = groupService.searchGroups(query);
 
         // then
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getGroupId()).isEqualTo(GROUP_ID);
+        // 참가 코드 체계 폐기(2026-07-31) — 검색은 더 이상 group_join_codes 를 보지 않는다
+        verify(groupJoinCodeRepository, never()).findByCode(anyString());
     }
 
     // ── getGroupOverview ──────────────────────────────────────────────────
@@ -744,30 +762,6 @@ class GroupServiceTest {
         // when & then
         assertThatThrownBy(() -> groupService.getGroupOverview(GROUP_ID, USER_ID))
                 .isInstanceOf(UserException.class);
-    }
-
-    @Test
-    @DisplayName("코드 매칭 첫 번째, 이름 매칭 뒤에 추가")
-    void searchGroupsCodeFirstThenName() {
-        // given
-        String code = "ABCD1234";
-        Group codeGroup = groupWithCode(GROUP_ID, code, null);
-        Group nameGroup = Group.builder().id(GROUP_ID_2).name("ABCD스터디").maxMembers(5)
-                .status(GroupStatus.WAITING).build();
-
-        given(groupJoinCodeRepository.findByCode(code))
-                .willReturn(Optional.of(joinCodeFor(codeGroup, code, Instant.now().plus(1, ChronoUnit.HOURS))));
-        given(groupRepository.findByNameContainingIgnoreCase(code)).willReturn(List.of(nameGroup));
-        given(groupMemberRepository.findByGroup(codeGroup)).willReturn(List.of());
-        given(groupMemberRepository.findByGroup(nameGroup)).willReturn(List.of());
-
-        // when
-        List<GroupSearchResponse> result = groupService.searchGroups(code);
-
-        // then
-        assertThat(result).hasSize(2);
-        assertThat(result.get(0).getGroupId()).isEqualTo(GROUP_ID);
-        assertThat(result.get(1).getGroupId()).isEqualTo(GROUP_ID_2);
     }
 
     // ── renewGroupCode (GROMO-347) ────────────────────────────────────────
@@ -910,6 +904,28 @@ class GroupServiceTest {
         // then
         assertThat(response.getCode()).isNull();
         assertThat(response.getCodeExpiresAt()).isNull();
+        assertThat(response.isPrivate()).isFalse();
+    }
+
+    @Test
+    @DisplayName("비공개 그룹 상세 → isPrivate=true")
+    void getGroupDetailPrivateGroup() {
+        // given
+        User member = userWithNickname(USER_ID, "멤버");
+        Group group = Group.builder().id(GROUP_ID).name("비밀방")
+                .maxMembers(10).status(GroupStatus.WAITING).isPrivate(true).build();
+        GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(member));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(memberRole));
+
+        // when
+        GroupDetailResponse response = groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3));
+
+        // then
+        assertThat(response.isPrivate()).isTrue();
     }
 
     @Test

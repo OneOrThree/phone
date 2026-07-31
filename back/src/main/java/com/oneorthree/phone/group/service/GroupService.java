@@ -49,7 +49,6 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -74,6 +73,9 @@ public class GroupService {
 
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
+
+    /** 그룹 이름 검색 최대 반환 수 — 닉네임 검색(NicknameSearchStrategy)과 동일 값. */
+    private static final int SEARCH_LIMIT = 20;
 
     @Transactional
     public CreateGroupResponse createGroup(UUID userId, CreateGroupRequest request) {
@@ -108,6 +110,7 @@ public class GroupService {
                 .password(hashedPassword)
                 .description(request.getDescription())
                 .maxMembers(request.getMaxMembers() != null ? request.getMaxMembers() : 10)
+                .isPrivate(request.isPrivate())
                 .build());
 
         // GROMO-672: 참가 코드는 1:1 테이블(group_join_codes)에 저장 (발급 + 3시간 유효, ACTIVE)
@@ -157,38 +160,26 @@ public class GroupService {
                             currentMembers,
                             group.getMaxMembers(),
                             member.getRole(),
-                            group.getStatus()
+                            group.getStatus(),
+                            group.isPrivate()
                     );
                 })
                 .toList();
     }
 
-    /*
-    @todo 페이지네이션 필요함 나중에
-    */
+    /**
+     * 공개 그룹 이름 유사도 검색. 비공개 그룹은 초대 링크(groupId)로만 참여하므로 결과에서 제외한다.
+     *
+     * <p>참가 코드 정확 매칭 분기는 코드 체계 폐기(2026-07-31)와 함께 제거됐다.
+     * 무제한 반환(구 findByNameContainingIgnoreCase)도 LIMIT 으로 닫았다 — 커서 페이지네이션은 후속.
+     */
     public List<GroupSearchResponse> searchGroups(String query) {
-        if (query == null || query.isEmpty()) {
+        if (query == null || query.isBlank()) {
             return List.of();
         }
-
-        List<GroupSearchResponse> result = new ArrayList<>();
-
-        // GROMO-672: 코드 정확 매칭은 group_join_codes 기준 (만료 안 된 코드만)
-        Optional<GroupJoinCode> joinCodeByCode = groupJoinCodeRepository.findByCode(query.toUpperCase());
-        if (joinCodeByCode.isPresent()) {
-            GroupJoinCode joinCode = joinCodeByCode.get();
-            if (joinCode.getExpiresAt() != null &&
-                    joinCode.getExpiresAt().isAfter(Instant.now())) {
-                result.add(toSearchResponse(joinCode.getGroup()));
-            }
-        }
-
-        groupRepository.findByNameContainingIgnoreCase(query)
-                .stream()
-                .filter(g -> result.isEmpty() || !g.getId().equals(result.get(0).getGroupId()))
+        return groupRepository.searchPublicByNameTrgm(query, SEARCH_LIMIT).stream()
                 .map(this::toSearchResponse)
-                .forEach(result::add);
-        return result;
+                .toList();
     }
 
     private GroupSearchResponse toSearchResponse(Group group) {
@@ -355,6 +346,7 @@ public class GroupService {
                 .windowEnd(mission.windowEnd())
                 .maxMembers(group.getMaxMembers())
                 .status(group.getStatus())
+                .isPrivate(group.isPrivate())
                 .members(list)
                 .code(joinCode != null ? joinCode.getCode() : null)
                 .codeExpiresAt(joinCode != null ? joinCode.getExpiresAt() : null)
