@@ -31,8 +31,7 @@ RCT_EXTERN_METHOD(
 )
 
 RCT_EXTERN_METHOD(
-    startGoalMonitoring:(double)goalSecondsValue
-    resolver:(RCTPromiseResolveBlock)resolve
+    stopGoalMonitoring:(RCTPromiseResolveBlock)resolve
     rejecter:(RCTPromiseRejectBlock)reject
 )
 
@@ -53,12 +52,13 @@ RCT_EXTERN_METHOD(
 )
 
 RCT_EXTERN_METHOD(
-    getYesterdayResult:(RCTPromiseResolveBlock)resolve
+    getUsageBucketDebugInfo:(RCTPromiseResolveBlock)resolve
     rejecter:(RCTPromiseRejectBlock)reject
 )
 
 RCT_EXTERN_METHOD(
-    getUsageBucketDebugInfo:(RCTPromiseResolveBlock)resolve
+    setPendingSelectionApplyDate:(NSString *)dateString
+    resolver:(RCTPromiseResolveBlock)resolve
     rejecter:(RCTPromiseRejectBlock)reject
 )
 

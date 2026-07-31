@@ -1,5 +1,6 @@
-import Foundation
 import DeviceActivity
+import FamilyControls
+import Foundation
 
 class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
@@ -26,13 +27,86 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         #endif
     }
 
-    // 새 날(00:00) 시작 시 활동별 당일 상태 초기화
+    // A안(GROMO-942) — 측정 대상 변경 '다음날 적용'. picker는 pending에만 저장하고, 실제 활성
+    // 승격 + 버킷 모니터 재등록을 자정 intervalDidStart(앱 없이 돎)에서 수행해 0시에 칼같이
+    // 전환한다(당일 혼합 제거). "익스텐션 콜백 안 startMonitoring 재등록"은 스파이크로 실기기
+    // 검증 완료 — 03-screentime 11절.
+    //  · 승격 조건: pending 존재 + 적용일(applyDate) 도래(없으면 다음 자정이 곧 적용일이라 통과)
+    //  · 목표 달성 판정은 버킷 사용시간으로 일원화(GROMO-942, gromo.daily 폐지)라 여기서 버킷만
+    //    새 선택으로 재등록하면 판정도 자연히 새 대상 기준이 된다.
+    private func promotePendingSelectionIfDue() {
+        guard let pendingData = sharedDefaults?.data(forKey: "gromo:goal:selectionPending") else {
+            return
+        }
+        let applyDate = sharedDefaults?.string(forKey: "gromo:goal:selectionApplyDate")
+        if let applyDate, applyDate > todayString { return } // 아직 적용일 전
+
+        guard let selection = try? JSONDecoder().decode(
+                FamilyActivitySelection.self, from: pendingData),
+              !(selection.applicationTokens.isEmpty
+                && selection.categoryTokens.isEmpty
+                && selection.webDomainTokens.isEmpty)
+        else {
+            // 빈/손상 pending은 정리만
+            sharedDefaults?.removeObject(forKey: "gromo:goal:selectionPending")
+            sharedDefaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
+            appendDebugLog("A안 승격 스킵 — pending 비었음/손상")
+            return
+        }
+
+        // 승격: 활성 = pending, pending·적용일(App Group) 제거. JS쪽 selectionApplyDate 마커는
+        // 앱이 목표 모니터 재등록·정리를 처리하도록 그대로 둔다.
+        sharedDefaults?.set(pendingData, forKey: "gromo:goal:selection")
+        sharedDefaults?.removeObject(forKey: "gromo:goal:selectionPending")
+        sharedDefaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
+
+        // 버킷 모니터를 새 선택으로 재등록 — 자정이라 base=0, 등록시각=now(오발화 가드 기준점).
+        var start = DateComponents()
+        start.hour = 0
+        start.minute = 0
+        var end = DateComponents()
+        end.hour = 23
+        end.minute = 59
+        let schedule = DeviceActivitySchedule(intervalStart: start, intervalEnd: end, repeats: true)
+        let bucketWebDomains = selection.categoryTokens.isEmpty ? selection.webDomainTokens : []
+        var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+        var m = 15
+        while m <= 900 {
+            var threshold = DateComponents()
+            threshold.hour = m / 60
+            threshold.minute = m % 60
+            events[DeviceActivityEvent.Name("gromo.usage.bucket.\(m)")] = DeviceActivityEvent(
+                applications: selection.applicationTokens,
+                categories: selection.categoryTokens,
+                webDomains: bucketWebDomains,
+                threshold: threshold
+            )
+            m += 15
+        }
+        sharedDefaults?.set(
+            Date().timeIntervalSince1970, forKey: "gromo:screentime:bucketRegisteredAt")
+        sharedDefaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
+        sharedDefaults?.set(todayString, forKey: "gromo:screentime:bucketBaseDate")
+        let center = DeviceActivityCenter()
+        center.stopMonitoring([DeviceActivityName("gromo.usage.buckets")])
+        do {
+            try center.startMonitoring(
+                DeviceActivityName("gromo.usage.buckets"), during: schedule, events: events)
+            // 자정 승격+등록 성공을 날짜로 기록 — 앱 백업 경로가 이 값을 보고 '이미 깨끗이 등록됨'을
+            // 판단해 첫 포그라운드에 재등록(자투리 유실)을 건너뛴다(코드리뷰 반영). 실패 시엔 기록하지
+            // 않아 앱이 복구 재등록을 하게 한다.
+            sharedDefaults?.set(todayString, forKey: "gromo:goal:selectionPromotedOkDate")
+            appendDebugLog("A안 자정 승격 — 새 선택으로 버킷 재등록 성공")
+        } catch {
+            appendDebugLog("A안 자정 승격 버킷 재등록 실패: \(error.localizedDescription)")
+        }
+    }
+
+    // 새 날(00:00) 시작 시 활동별 당일 상태 초기화.
+    // (GROMO-942) gromo.daily 목표 판정 모니터는 폐지 — 달성은 앱이 버킷 사용시간으로 판정한다.
     override func intervalDidStart(for activity: DeviceActivityName) {
         super.intervalDidStart(for: activity)
         switch activity.rawValue {
-        case "gromo.daily":
-            // 보상 판정용 초과 플래그 리셋
-            sharedDefaults?.set(false, forKey: "gromo:screentime:goalExceededToday")
         case "gromo.usage.buckets":
             // 이 콜백도 자정만이 아니라 재등록의 startMonitoring으로 한낮에 불릴 수 있다
             // (GROMO-931, intervalDidEnd와 동일 원인). 저장 날짜가 이미 오늘이면 새 날이 아니라
@@ -58,26 +132,19 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             sharedDefaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
             sharedDefaults?.set(todayString, forKey: "gromo:screentime:bucketBaseDate")
             appendDebugLog("intervalDidStart 자정 리셋 — 직전 \(prevMins)분(\(prevDate ?? "-")) 보존")
+            // A안 — 자정 리셋 직후, 대기 중인 측정 대상 변경이 있으면 새 선택으로 승격·재등록.
+            // (한낮 스퓨리어스 호출은 위에서 이미 break 했으므로 여기는 진짜 자정만 도달.)
+            promotePendingSelectionIfDue()
         default:
             break
         }
     }
 
-    // 하루가 끝날 때(자정) 활동별 마감 처리
-    //  · gromo.daily         → 보상 판정 결과 기록(메인 앱이 getYesterdayResult()로 읽음)
-    //  · gromo.usage.buckets → 최종 사용량 눈금을 전일 키로 보존(GROMO-633)
+    // 하루가 끝날 때(자정) 활동별 마감 처리 — gromo.usage.buckets 최종 눈금을 전일 키로 보존(GROMO-633).
+    // (GROMO-942) gromo.daily 목표 판정 마감은 폐지 — 달성은 앱이 버킷 사용시간으로 판정한다.
     override func intervalDidEnd(for activity: DeviceActivityName) {
         super.intervalDidEnd(for: activity)
         switch activity.rawValue {
-        case "gromo.daily":
-            // 오늘 사용량이 목표시간을 넘겼는지 판정
-            // (선택한 앱 누적 사용시간이 threshold 도달 시 eventDidReachThreshold가 플래그를 세움)
-            let exceeded = sharedDefaults?.bool(forKey: "gromo:screentime:goalExceededToday") ?? false
-
-            // 넘겼으면 "fail"(달성 실패), 안 넘겼으면 "success"(달성)
-            sharedDefaults?.set(exceeded ? "fail" : "success", forKey: "gromo:screentime:lastResult")
-            sharedDefaults?.set(todayString, forKey: "gromo:screentime:lastResultDate")
-            sharedDefaults?.set(false, forKey: "gromo:screentime:goalExceededToday")
         case "gromo.usage.buckets":
             // 최종 눈금을 '눈금이 기록된 날짜' 키로 보존. 이 콜백은 자정(23:59)만이 아니라
             // 재등록의 stopMonitoring으로도 한낮에 불린다(GROMO-931 실기기 확인). 호출 시점의
@@ -118,28 +185,11 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         return true
     }
 
-    // threshold 도달 콜백 — 이벤트 이름으로 분기
-    //  · gromo.goal.threshold        → 보상 판정 초과 플래그
-    //  · gromo.usage.bucket.<분>      → 사용량 버킷(도달 최고 눈금) 갱신
+    // threshold 도달 콜백 — gromo.usage.bucket.<분> → 사용량 버킷(도달 최고 눈금) 갱신.
+    // (GROMO-942) gromo.goal.threshold(목표 초과 플래그)는 폐지 — 달성은 앱이 버킷으로 판정한다.
     override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
         super.eventDidReachThreshold(event, activity: activity)
         let name = event.rawValue
-
-        if name == "gromo.goal.threshold" {
-            // 오발화 가드(GROMO-871) — 등록 threshold(초)가 기록돼 있으면 도달 가능 시간인지 검증.
-            // 오발화를 그대로 믿으면 goalExceededToday=true → 그날 목표가 무조건 '실패' 판정된다.
-            let thresholdSeconds =
-                sharedDefaults?.integer(forKey: "gromo:screentime:goalThresholdSeconds") ?? 0
-            if thresholdSeconds > 0,
-               !isPlausibleUsage(
-                   minutes: Double(thresholdSeconds) / 60,
-                   registeredAtKey: "gromo:screentime:goalRegisteredAt"
-               ) {
-                return
-            }
-            sharedDefaults?.set(true, forKey: "gromo:screentime:goalExceededToday")
-            return
-        }
 
         let bucketPrefix = "gromo.usage.bucket."
         if name.hasPrefix(bucketPrefix), let mins = Int(name.dropFirst(bucketPrefix.count)) {

@@ -7,7 +7,6 @@
 import { NativeModules, Platform } from 'react-native';
 
 export type AuthorizationStatus = 'approved' | 'denied' | 'notDetermined';
-export type YesterdayResult = 'success' | 'fail' | null;
 
 // presentAppPicker가 반환하는 선택 개수
 export interface AppSelectionCounts {
@@ -26,6 +25,7 @@ export interface UsageBucketDebugInfo {
   registeredAt: number; // 버킷 모니터 등록 시각(epoch 초, 0=기록 없음)
   prevBucketMinutes: number; // 하루 경계에 보존된 전일 최종 눈금
   prevBucketDate: string;
+  promotedOkDate: string; // 익스텐션이 자정 승격+버킷 등록에 성공한 날짜(백업 재등록 스킵 판단용)
   log: string[]; // 콜백·등록 이벤트 로그(시각+내용, 오래된 순, 최대 50줄)
 }
 
@@ -34,12 +34,12 @@ interface NativeScreenTime {
   requestAuthorization(): Promise<boolean>;
   getAuthorizationStatus(): Promise<AuthorizationStatus>;
   setGoalSeconds(seconds: number): Promise<void>;
-  startGoalMonitoring(goalSeconds: number): Promise<boolean>;
+  stopGoalMonitoring(): Promise<boolean>;
   startUsageBucketMonitoring(maxMinutes: number): Promise<boolean>;
   getTodayUsageBucketMinutes(): Promise<number>;
   getYesterdayUsageBucketMinutes(): Promise<number>;
-  getYesterdayResult(): Promise<YesterdayResult>;
   getUsageBucketDebugInfo(): Promise<UsageBucketDebugInfo>;
+  setPendingSelectionApplyDate(dateString: string): Promise<boolean>;
   presentAppPicker(): Promise<AppSelectionCounts | null>;
   promoteSelection(): Promise<boolean>;
   presentAllowedAppPicker(): Promise<AppSelectionCounts | null>;
@@ -64,6 +64,15 @@ export const nativeRegistersBucketStep15 = (): boolean =>
   typeof (NativeModules.ScreenTimeModule as NativeScreenTime | undefined)
     ?.getUsageBucketDebugInfo === 'function';
 
+// 네이티브 바이너리가 A안(GROMO-942, 측정 대상 '다음날 적용')을 지원하는지 — 같은 빌드에 추가된
+// setPendingSelectionApplyDate 존재로 판별. OTA로 새 JS만 받은 구 바이너리는 이 메서드도, 자정
+// 승격 로직도 없으므로 설정 화면이 '다음날 적용'을 예약하면 영영 적용되지 않는다. 이 경우 설정
+// 화면은 예약 대신 즉시 적용으로 폴백한다(코드리뷰 반영).
+export const nativeSupportsPendingApplyDate = (): boolean =>
+  Platform.OS === 'ios' &&
+  typeof (NativeModules.ScreenTimeModule as NativeScreenTime | undefined)
+    ?.setPendingSelectionApplyDate === 'function';
+
 // iOS 전용 기능이므로 Android에서 호출 시 에러 대신 기본값 반환
 const ScreenTimeModule = {
   // 스크린 타임 접근 권한 요청. 반환값: true(승인) | false(거부)
@@ -84,11 +93,14 @@ const ScreenTimeModule = {
     return NativeScreenTimeModule.setGoalSeconds(seconds);
   },
 
-  // 매일 자정 기준 스크린 타임 목표 달성 모니터링 등록 — 어제 판정(getYesterdayResult)의 소스.
-  // 측정 대상 미선택이면 false. 목표 변경 시 재호출하면 이전 모니터링을 교체한다.
-  startGoalMonitoring: async (goalSeconds: number): Promise<boolean> => {
-    if (Platform.OS !== 'ios') return false;
-    return NativeScreenTimeModule.startGoalMonitoring(goalSeconds);
+  // (GROMO-942) 목표 판정 모니터(gromo.daily) 폐지 — 기존 설치에 남은 등록을 1회 중지하는
+  // 마이그레이션용. 반환 true = "정리 완료(또는 정리할 대상 없음)"로 호출부가 1회 마커를 남긴다.
+  // iOS 외(gromo.daily가 애초에 없음)는 true. **구 바이너리(OTA로 메서드 없음)는 실제로 중지하지
+  // 못하므로 false** — 마커를 안 남겨 새 바이너리 설치 후 재시도되게 한다(코드리뷰 반영).
+  stopGoalMonitoring: async (): Promise<boolean> => {
+    if (Platform.OS !== 'ios') return true;
+    if (typeof NativeScreenTimeModule.stopGoalMonitoring !== 'function') return false;
+    return NativeScreenTimeModule.stopGoalMonitoring();
   },
 
   // 15분 버킷 사용량 모니터링 등록 (maxMinutes까지 15분 간격 threshold).
@@ -111,16 +123,18 @@ const ScreenTimeModule = {
     return NativeScreenTimeModule.getYesterdayUsageBucketMinutes();
   },
 
-  // 어제 목표 달성 결과 조회. 반환값: "success" | "fail" | null
-  getYesterdayResult: async (): Promise<YesterdayResult> => {
-    if (Platform.OS !== 'ios') return null;
-    return NativeScreenTimeModule.getYesterdayResult();
-  },
-
   // 사용량 버킷 측정 상태 디버그 조회(개발용) — App Group 기록 원본. iOS 외에는 null.
   getUsageBucketDebugInfo: async (): Promise<UsageBucketDebugInfo | null> => {
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.getUsageBucketDebugInfo();
+  },
+
+  // A안(GROMO-942) 측정 대상 변경 '다음날 적용' 예약 — App Group에 적용 예정일을 기록해
+  // 익스텐션 자정 콜백이 승격 여부를 판단하게 한다. dateString은 'YYYY-MM-DD'(로컬, 보통 내일),
+  // 빈 문자열이면 예약 취소. iOS 외/구 바이너리(OTA로 메서드 없음)에는 no-op(false).
+  setPendingSelectionApplyDate: async (dateString: string): Promise<boolean> => {
+    if (!nativeSupportsPendingApplyDate()) return false;
+    return NativeScreenTimeModule.setPendingSelectionApplyDate(dateString);
   },
 
   // 측정 대상(앱/카테고리) 선택 picker 표시. 취소 시 null.

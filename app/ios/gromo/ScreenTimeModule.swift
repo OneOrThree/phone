@@ -101,97 +101,19 @@ class ScreenTimeModule: NSObject {
         resolve(nil)
     }
 
-    // 매일 자정 기준으로 스크린 타임 목표 달성 여부를 모니터링 시작
-    // goalSeconds를 threshold로 설정 — 초과하면 Monitor 익스텐션의 eventDidReachThreshold가 호출됨
-    // goalSeconds 변경 시 재호출하면 이전 모니터링을 교체함
-    @objc func startGoalMonitoring(
-        _ goalSecondsValue: Double,
-        resolver resolve: @escaping RCTPromiseResolveBlock,
+    // (GROMO-942) 목표 달성 판정을 버킷 사용시간으로 일원화 — 별도 목표 모니터(gromo.daily)를
+    // 폐지한다. 기존 설치에 남아있는 gromo.daily 등록을 한 번 정리하는 용도(앱이 마이그레이션으로
+    // 1회 호출). 새 등록은 하지 않는다.
+    @objc func stopGoalMonitoring(
+        _ resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         guard #available(iOS 16.0, *) else {
-            resolve(nil)
-            return
-        }
-
-        let center = DeviceActivityCenter()
-        let activityName = DeviceActivityName("gromo.daily")
-
-        var startComponents = DateComponents()
-        startComponents.hour = 0
-        startComponents.minute = 0
-
-        var endComponents = DateComponents()
-        endComponents.hour = 23
-        endComponents.minute = 59
-
-        let schedule = DeviceActivitySchedule(
-            intervalStart: startComponents,
-            intervalEnd: endComponents,
-            repeats: true
-        )
-
-        // 기존 모니터를 먼저 중지 — 선택을 비운 경우에도 옛 대상 측정이 계속 남지 않게
-        // guard보다 앞에서 수행한다(GROMO-633 리뷰 반영).
-        center.stopMonitoring([activityName])
-
-        // App Group에 저장된 "측정 대상"(picker로 선택한 앱/카테고리) 로드
-        // 이게 있어야 threshold 이벤트가 실제로 발화함 (빈 배열이면 발화 안 함)
-        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
-        guard
-            let data = defaults?.data(forKey: "gromo:goal:selection"),
-            let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data),
-            !(selection.applicationTokens.isEmpty
-                && selection.categoryTokens.isEmpty
-                && selection.webDomainTokens.isEmpty)
-        else {
-            // 아직 측정 대상 미선택 → 모니터링 시작 불가 (picker 먼저 띄워야 함)
-            resolve(false)
-            return
-        }
-
-        // 달성 = 목표 '이내'(<=, 서버 분 단위 판정과 동일) — threshold는 '도달(>=) 시 초과 플래그'라
-        // 목표값을 그대로 걸면 정확히 목표에서 멈춘 유저까지 fail로 판정된다. +60초를 초과 판정선으로
-        // 등록해 분 단위 기준 '목표를 넘긴' 경우에만 fail이 되게 한다(GROMO-633 리뷰 반영).
-        let totalSeconds = Int(goalSecondsValue) + 60
-        var threshold = DateComponents()
-        threshold.hour = totalSeconds / 3600
-        threshold.minute = (totalSeconds % 3600) / 60
-        threshold.second = totalSeconds % 60
-
-        // 선택한 앱/카테고리의 누적 사용시간이 threshold(목표시간)에 도달하면
-        // Monitor 익스텐션의 eventDidReachThreshold가 호출됨
-        // 웹 도메인 시간은 브라우저 앱 시간에 이미 포함돼, 브라우저를 덮는 선택과 함께 걸면 같은
-        // 시간이 두 번 세진다(예: 사파리로 유튜브 웹 30분 = 사파리 30분 + youtube.com 30분 → 60분).
-        // 토큰이 불투명해 도메인별 '덮임' 판별은 불가 — 카테고리 선택이 있으면(브라우저가 포함됐을
-        // 가능성이 높음) 도메인을 제외하고, 개별 앱만 고른 선택은 도메인을 유지한다(혼합 선택 보존,
-        // PR 리뷰 반영 — 이때 브라우저 앱을 직접 고른 경우의 중복은 한계로 남는다).
-        let goalWebDomains = selection.categoryTokens.isEmpty ? selection.webDomainTokens : []
-        let event = DeviceActivityEvent(
-            applications: selection.applicationTokens,
-            categories: selection.categoryTokens,
-            webDomains: goalWebDomains,
-            threshold: threshold
-        )
-
-        // 등록 시각·등록 threshold 기록(GROMO-871) — Monitor 익스텐션 오발화 가드의 기준점.
-        // (재)등록 직후 iOS가 threshold 이벤트를 즉시 연쇄 오발화하는 버그가 있어, 익스텐션이
-        // "등록 후 경과 시간보다 큰 사용량은 물리적으로 불가능" 불변식으로 거를 때 읽는다.
-        // startMonitoring 호출 즉시 콜백이 올 수 있으므로 반드시 호출 '전'에 기록한다(코드리뷰 P1).
-        // 시작 실패 시에도 기록이 남지만, 위에서 기존 모니터를 이미 중지해 이벤트가 오지 않아 무해.
-        defaults?.set(Date().timeIntervalSince1970, forKey: "gromo:screentime:goalRegisteredAt")
-        defaults?.set(totalSeconds, forKey: "gromo:screentime:goalThresholdSeconds")
-
-        do {
-            try center.startMonitoring(
-                activityName,
-                during: schedule,
-                events: [DeviceActivityEvent.Name("gromo.goal.threshold"): event]
-            )
             resolve(true)
-        } catch {
-            reject("MONITOR_ERROR", "모니터링 시작 실패: \(error.localizedDescription)", error)
+            return
         }
+        DeviceActivityCenter().stopMonitoring([DeviceActivityName("gromo.daily")])
+        resolve(true)
     }
 
     // 버킷 디버그 이벤트 로그(개발 확인용, GROMO-931) — Monitor 익스텐션과 같은 App Group 키에
@@ -374,37 +296,33 @@ class ScreenTimeModule: NSObject {
             "prevBucketMinutes": defaults?.integer(forKey: "gromo:screentime:prevBucketMinutes")
                 ?? 0,
             "prevBucketDate": defaults?.string(forKey: "gromo:screentime:prevBucketDate") ?? "",
+            // 익스텐션이 자정에 승격+버킷 등록에 성공한 날짜 — 앱 백업 경로의 재등록 스킵 판단용.
+            "promotedOkDate": defaults?.string(forKey: "gromo:goal:selectionPromotedOkDate") ?? "",
             "log": defaults?.stringArray(forKey: "gromo:screentime:debugEventLog") ?? [],
         ] as [String: Any])
     }
 
-    // 어제 날짜의 스크린 타임 목표 달성 결과를 App Group에서 읽어 반환
-    // 반환값: "success" | "fail" | nil (어제 결과 없음 — 첫 설치 또는 모니터링 미실행)
-    @objc func getYesterdayResult(
-        _ resolve: @escaping RCTPromiseResolveBlock,
+    // A안(GROMO-942) — 측정 대상 변경을 '다음날 적용'으로 예약. 설정 화면에서 이미 측정 대상이
+    // 설정된 상태로 변경 시 호출한다. picker가 저장한 pending 선택은 그대로 두고, 적용 예정일만
+    // App Group에 기록해 익스텐션 자정 콜백(promotePendingSelectionIfDue)이 승격 여부를 판단하게
+    // 한다. dateString은 'YYYY-MM-DD'(로컬) — 보통 내일. 빈 문자열이면 예약 취소(키 제거).
+    @objc func setPendingSelectionApplyDate(
+        _ dateString: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
-        let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
-
-        let calendar = Calendar.current
-        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: Date()) else {
-            resolve(nil)
-            return
-        }
-
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let yesterdayStr = formatter.string(from: yesterday)
-
-        let lastResultDate = sharedDefaults?.string(forKey: "gromo:screentime:lastResultDate") ?? ""
-        let lastResult = sharedDefaults?.string(forKey: "gromo:screentime:lastResult") ?? ""
-
-        if lastResultDate == yesterdayStr {
-            resolve(lastResult)
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        let value = dateString as String
+        if value.isEmpty {
+            defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
         } else {
-            resolve(nil)
+            defaults?.set(value, forKey: "gromo:goal:selectionApplyDate")
         }
+        resolve(true)
     }
+
+    // (GROMO-942) getYesterdayResult(어제 목표 달성 네이티브 판정)는 폐지 — 달성은 앱이 버킷
+    // 사용시간으로 판정한다.
 
     // [테스트] FamilyActivityPicker를 띄워 "측정에 포함할 앱/카테고리"를 선택받음
     // 목적: picker 동선 확인 + 선택 결과를 App Group에 저장

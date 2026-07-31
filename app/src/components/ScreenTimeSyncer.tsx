@@ -8,7 +8,7 @@ import { syncScreenTimeUsage } from '@/services/screentimeSync';
 // POST /screen-time으로 올려 통계 화면 폰 사용량 지표를 채운다. 실패는 조용히 무시 —
 // 서버 upsert가 멱등이라 다음 복귀 때 최신값으로 다시 시도된다.
 export function ScreenTimeSyncer() {
-  // 목표초는 목표 판정 모니터링(gromo.daily) 등록과 판정 폴백에 쓴다 — 변경 시 재동기화.
+  // 목표초는 어제분 마감의 달성 판정('버킷 사용시간 ≤ 목표', GROMO-942)에 쓴다 — 변경 시 재동기화.
   const { userId, screenTimeGoalSeconds } = useUser();
 
   useEffect(() => {
