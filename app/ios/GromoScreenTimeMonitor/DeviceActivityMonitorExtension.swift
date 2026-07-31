@@ -92,7 +92,11 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         do {
             try center.startMonitoring(
                 DeviceActivityName("gromo.usage.buckets"), during: schedule, events: events)
-            appendDebugLog("A안 자정 승격 — 새 선택으로 버킷 재등록(목표는 앱이 재등록)")
+            // 자정 승격+등록 성공을 날짜로 기록 — 앱 백업 경로가 이 값을 보고 '이미 깨끗이 등록됨'을
+            // 판단해 첫 포그라운드에 재등록(자투리 유실)을 건너뛴다(코드리뷰 반영). 실패 시엔 기록하지
+            // 않아 앱이 복구 재등록을 하게 한다.
+            sharedDefaults?.set(todayString, forKey: "gromo:goal:selectionPromotedOkDate")
+            appendDebugLog("A안 자정 승격 — 새 선택으로 버킷 재등록 성공")
         } catch {
             appendDebugLog("A안 자정 승격 버킷 재등록 실패: \(error.localizedDescription)")
         }

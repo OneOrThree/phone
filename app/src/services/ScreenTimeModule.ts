@@ -25,6 +25,7 @@ export interface UsageBucketDebugInfo {
   registeredAt: number; // 버킷 모니터 등록 시각(epoch 초, 0=기록 없음)
   prevBucketMinutes: number; // 하루 경계에 보존된 전일 최종 눈금
   prevBucketDate: string;
+  promotedOkDate: string; // 익스텐션이 자정 승격+버킷 등록에 성공한 날짜(백업 재등록 스킵 판단용)
   log: string[]; // 콜백·등록 이벤트 로그(시각+내용, 오래된 순, 최대 50줄)
 }
 
@@ -93,10 +94,12 @@ const ScreenTimeModule = {
   },
 
   // (GROMO-942) 목표 판정 모니터(gromo.daily) 폐지 — 기존 설치에 남은 등록을 1회 중지하는
-  // 마이그레이션용. 새 등록은 없다. iOS 외/구 바이너리(메서드 없음)에는 no-op(true).
+  // 마이그레이션용. 반환 true = "정리 완료(또는 정리할 대상 없음)"로 호출부가 1회 마커를 남긴다.
+  // iOS 외(gromo.daily가 애초에 없음)는 true. **구 바이너리(OTA로 메서드 없음)는 실제로 중지하지
+  // 못하므로 false** — 마커를 안 남겨 새 바이너리 설치 후 재시도되게 한다(코드리뷰 반영).
   stopGoalMonitoring: async (): Promise<boolean> => {
     if (Platform.OS !== 'ios') return true;
-    if (typeof NativeScreenTimeModule.stopGoalMonitoring !== 'function') return true;
+    if (typeof NativeScreenTimeModule.stopGoalMonitoring !== 'function') return false;
     return NativeScreenTimeModule.stopGoalMonitoring();
   },
 

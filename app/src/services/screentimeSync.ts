@@ -33,6 +33,7 @@ interface ScreenTimeSyncState {
   userId: string;
   date: string; // 'YYYY-MM-DD'(로컬) — 이 날짜의 오늘값으로 minutes를 업로드했음
   minutes: number;
+  goalSeconds?: number; // 이 날짜에 유효했던 목표초 — 어제 마감을 '어제 목표'로 판정하기 위함(GROMO-942)
 }
 
 // 네이티브 버킷 상한(15h = 15분 눈금 × 60개). 목표 초과 사용도 실사용치로 집계해야 하므로
@@ -181,8 +182,11 @@ export async function syncScreenTimeUsage(
   // 플래그로 1회만. 신규 설치는 애초에 등록된 적 없어 중지가 no-op이고 플래그만 남는다.
   try {
     if (!(await AsyncStorage.getItem(STORAGE_KEYS.screentimeGoalMonitorStopped))) {
-      await ScreenTimeModule.stopGoalMonitoring();
-      await AsyncStorage.setItem(STORAGE_KEYS.screentimeGoalMonitorStopped, '1');
+      // 실제 중지 성공(true) 시에만 마커 기록 — 구 바이너리(메서드 없음, false)는 새 바이너리
+      // 설치 후 재시도하게 남겨둔다(코드리뷰 반영).
+      if (await ScreenTimeModule.stopGoalMonitoring()) {
+        await AsyncStorage.setItem(STORAGE_KEYS.screentimeGoalMonitorStopped, '1');
+      }
     }
   } catch {
     // 중지 실패는 동기화와 무관 — 플래그 미기록으로 다음에 재시도
@@ -214,6 +218,24 @@ export async function syncScreenTimeUsage(
   const yesterday = yesterdayStr();
   let last = await readSyncState(userId);
 
+  // 측정 시작일 기록(GROMO-942 코드리뷰 P1) — 이 계정으로 측정이 활성인 첫 시점을 남겨, 어제분
+  // 마감이 '어제가 실제 측정된 날인지' 판단하는 앵커로 쓴다(신규 유저의 어제 0분 오달성 방지).
+  // 이미 있으면 덮지 않는다(가장 이른 날 유지). 계정이 바뀌면 새로 기록된다.
+  if (monitorOwner === userId) {
+    try {
+      const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeMeasurementStartDate);
+      const start = raw ? (JSON.parse(raw) as { userId: string; date: string }) : null;
+      if (start?.userId !== userId) {
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.screentimeMeasurementStartDate,
+          JSON.stringify({ userId, date: today }),
+        );
+      }
+    } catch {
+      // 기록 실패는 동기화와 무관 — 계속 진행
+    }
+  }
+
   // 어제분 마감(GROMO-627) — 어제 동기화 기록이 없어도(하루 종일 앱 미실행·첫 15분 미도달)
   // Monitor는 앱과 무관하게 판정·최종 눈금을 남기므로 그것만으로 어제 행을 확정한다.
   // 분값은 max(하루 경계에 보존된 전일 최종 눈금, 어제 마지막 동기화 값) — 마지막 포그라운드
@@ -244,13 +266,29 @@ export async function syncScreenTimeUsage(
       // 목표 달성 판정을 gromo.daily 네이티브 모니터에서 '버킷 사용시간 ≤ 목표'로 일원화(GROMO-942)
       // — 화면에 뜨는 값(버킷)과 판정 근거를 통일하고, gromo.daily 재등록 타이밍 문제(측정 대상
       // 변경 시 목표 전환 갭·한낮 콜백 오염)를 제거한다. 서버는 이미 클라가 보낸 achieved를 신뢰한다.
-      //  · 버킷 0분 = '측정은 켜져 있었고 15분 미만 사용' = 달성으로 취급(측정 활성은 이 블록 진입
-      //    조건이 보장). 버킷이 15분 단위라 경계에서 최대 ~15분 후하나 화면 숫자와 일치한다.
-      //  · 목표는 현재값(goalSeconds) 기준 — 어제 목표가 바뀐 드문 경우만 근사.
+      //  · 목표는 '어제 유효 목표'로 판정한다 — 어제 중간 동기화에 기록해 둔 goalSeconds가 있으면
+      //    그것을, 없으면 현재값으로 폴백. 오늘부터 목표가 바뀌었어도 어제를 어제 기준으로 본다(코드리뷰).
+      //  · 버킷 0분 = '측정 중 15분 미만 사용' = 달성이지만, '어제 실제로 측정된 날'일 때만 그렇게
+      //    본다 — 오늘 처음 측정 시작한 신규 유저의 어제(측정 안 됨)를 0분 달성으로 조작하지 않게,
+      //    측정 시작일(measurementStartDate)이 어제 이하이거나 사용분>0일 때만 마감한다(코드리뷰 P1).
       //  · 목표 미설정(0)이어도 사용량은 기록한다(통계 소스). 이땐 achieved=false 중립.
+      const yesterdayGoalSeconds =
+        last != null && last.date === yesterday && last.goalSeconds != null
+          ? last.goalSeconds
+          : goalSeconds;
+      let measuredYesterday = finalMinutes > 0;
+      if (!measuredYesterday) {
+        try {
+          const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeMeasurementStartDate);
+          const start = raw ? (JSON.parse(raw) as { userId: string; date: string }) : null;
+          measuredYesterday = start != null && start.userId === userId && start.date <= yesterday;
+        } catch {
+          measuredYesterday = false;
+        }
+      }
       const haveFinal = readsOk || (last != null && last.date === yesterday);
-      if (haveFinal && (finalMinutes > 0 || goalSeconds > 0)) {
-        const achieved = goalSeconds > 0 && finalMinutes <= goalSeconds / 60;
+      if (haveFinal && measuredYesterday && (finalMinutes > 0 || yesterdayGoalSeconds > 0)) {
+        const achieved = yesterdayGoalSeconds > 0 && finalMinutes <= yesterdayGoalSeconds / 60;
         // 실패 시 마킹 없이 중단(throw) — 다음 포그라운드에서 마감부터 재시도.
         await saveScreenTime({
           actualScreenTimeMinutes: finalMinutes,
@@ -261,11 +299,11 @@ export async function syncScreenTimeUsage(
         // 마감도 동기화의 일종 — 설정 화면 '마지막 동기화' 표시를 갱신한다.
         await AsyncStorage.setItem(STORAGE_KEYS.screentimeLastSyncedDate, today);
         // 달성이면 어제 달성 축하 예약(GROMO-629) — 오늘 첫 홈 진입에 1회. 판정이 곧 버킷 기준이라
-        // achieved면 바로 예약한다(별도 확정 조건 불필요).
+        // achieved면 바로 예약한다(별도 확정 조건 불필요). 문구 목표는 어제 목표 기준.
         if (achieved) {
           await scheduleYesterdayScreenTimeCelebration(
             yesterday,
-            Math.round(goalSeconds / 60),
+            Math.round(yesterdayGoalSeconds / 60),
           ).catch(() => {});
         }
       }
@@ -287,10 +325,17 @@ export async function syncScreenTimeUsage(
     if (applyDate && applyDate <= today) {
       // 익스텐션이 자정에 승격했으면(pending 없음) promoteSelection은 false, 놓쳤으면 여기서 승격.
       await ScreenTimeModule.promoteSelection();
-      // 승격 주체(익스텐션/앱)와 무관하게 버킷 모니터가 새 선택으로 살아있음을 보장한다 — 익스텐션의
-      // 자정 startMonitoring이 실패했어도(옛 모니터는 이미 중지됨) 여기서 복구(코드리뷰 P1). 베이스
-      // 합산으로 자정 이후 측정값은 보존된다. 재등록 성공 시에만 마커를 지워 실패 시 재시도(코드리뷰 P1).
-      const bucketOk = monitorOwner ? await registerUsageBucketMonitoring(monitorOwner) : false;
+      // 익스텐션이 자정에 승격+버킷 등록에 성공했는지 확인 — 성공했으면(promotedOkDate == applyDate)
+      // 그 깨끗한 자정 등록(base=0)을 건드리지 않는다. 여기서 재등록하면 자정 이후 자투리(최대
+      // 14분)가 유실되기 때문(코드리뷰 반영). 익스텐션이 놓쳤거나(pending 남아 앱이 승격) 자정
+      // startMonitoring이 실패한 경우에만 앱이 복구 재등록한다(옛 모니터는 이미 중지됨).
+      const debug = await ScreenTimeModule.getUsageBucketDebugInfo().catch(() => null);
+      const extPromotedOk = debug?.promotedOkDate === applyDate;
+      const bucketOk = extPromotedOk
+        ? true // 자정 등록이 이미 깨끗함 — 재등록 불필요
+        : monitorOwner
+          ? await registerUsageBucketMonitoring(monitorOwner)
+          : false;
       if (bucketOk) {
         await AsyncStorage.removeItem(STORAGE_KEYS.selectionApplyDate);
         await ScreenTimeModule.setPendingSelectionApplyDate(''); // App Group 예약도 정리(멱등)
@@ -352,5 +397,6 @@ export async function syncScreenTimeUsage(
     reportedAt: localNoonInstant(today),
     isFinal: false, // 오늘 중간 동기화 — 서버는 total만 갱신, 달성 판정·알림 스킵
   });
-  await writeSyncState({ userId, date: today, minutes });
+  // 오늘 유효 목표를 함께 기록 — 내일 어제분 마감이 '어제 목표'로 판정하게 한다(GROMO-942, 코드리뷰).
+  await writeSyncState({ userId, date: today, minutes, goalSeconds });
 }

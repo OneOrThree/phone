@@ -296,6 +296,8 @@ class ScreenTimeModule: NSObject {
             "prevBucketMinutes": defaults?.integer(forKey: "gromo:screentime:prevBucketMinutes")
                 ?? 0,
             "prevBucketDate": defaults?.string(forKey: "gromo:screentime:prevBucketDate") ?? "",
+            // 익스텐션이 자정에 승격+버킷 등록에 성공한 날짜 — 앱 백업 경로의 재등록 스킵 판단용.
+            "promotedOkDate": defaults?.string(forKey: "gromo:goal:selectionPromotedOkDate") ?? "",
             "log": defaults?.stringArray(forKey: "gromo:screentime:debugEventLog") ?? [],
         ] as [String: Any])
     }
