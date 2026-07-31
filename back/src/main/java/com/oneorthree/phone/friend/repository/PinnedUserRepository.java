@@ -37,6 +37,8 @@ public interface PinnedUserRepository extends JpaRepository<PinnedUser, UUID> {
 
     // 회원 탈퇴 — 내가 건 핀·남이 나를 건 핀 양방향 전부 (GROMO-801).
     // pinned_users 에는 소프트딜리트 컬럼이 없어 하드 삭제한다(핀은 이력 가치가 없는 표시용 관계).
-    // 파생 delete 라 엔티티를 로드한 뒤 건별 삭제 — 벌크 @Query 와 달리 영속성 컨텍스트·라이프사이클을 우회하지 않는다.
+    // 두 인자에 같은 userId 를 넣어 호출한다(양방향 대칭) — 파생 메서드 문법상 이 이상 줄일 수 없다.
+    // 파생 delete 는 select 후 건별 remove 라 벌크 @Query 보다 느리지만, 핀은 유저당 소수이고
+    // friendships 정리와 같은 방식(엔티티 경유)으로 맞춰 두는 편이 읽기 쉽다.
     void deleteByUserIdOrPinnedUserId(UUID userId, UUID pinnedUserId);
 }

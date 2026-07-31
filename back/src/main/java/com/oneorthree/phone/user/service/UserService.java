@@ -123,7 +123,9 @@ public class UserService {
 
     @Transactional
     public void withdraw(UUID userId) {
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+        // 배타 락으로 로드 (GROMO-801) — 아래 소셜 관계 정리와 새 관계 생성(친구 요청·핀)을 직렬화한다.
+        // 락이 없으면 READ COMMITTED 에서 정리 스캔 이후·커밋 이전에 낀 요청이 정리를 빠져나가 유령으로 남는다.
+        User user = userRepository.findActiveByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (groupRepository.existsGroupOwnedBy(userId)) {

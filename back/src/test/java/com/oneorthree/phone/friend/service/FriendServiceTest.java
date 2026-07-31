@@ -123,7 +123,7 @@ class FriendServiceTest {
     @DisplayName("친구 요청 생성 — 정상: (me→target) PENDING insert")
     void createRequest_success_insertsPending() {
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
         given(friendshipRepository.findPair(me, target)).willReturn(List.of());
 
         friendService.createRequest(meId, targetId);
@@ -149,7 +149,7 @@ class FriendServiceTest {
     @DisplayName("친구 요청 생성 — 대상 유저 없으면 UserException")
     void createRequest_targetNotFound_throws() {
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> friendService.createRequest(meId, targetId))
                 .isInstanceOf(UserException.class);
@@ -161,7 +161,7 @@ class FriendServiceTest {
         // 탈퇴자는 findByIdAndIsDeletedFalse 에서 빈 결과 → 존재 검증에서 걸린다.
         // findById 를 쓰던 시절엔 여기를 통과해, friendships 에 남아있던 (from,to) 유니크 제약과 충돌해 500 이 났다.
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> friendService.createRequest(meId, targetId))
                 .isInstanceOf(UserException.class)
@@ -173,7 +173,7 @@ class FriendServiceTest {
     @DisplayName("핀 설정 — 탈퇴 유저는 핀할 수 없다 (GROMO-801)")
     void pinFriend_withdrawnTarget_throws() {
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> friendService.pinFriend(meId, targetId))
                 .isInstanceOf(UserException.class)
@@ -185,7 +185,7 @@ class FriendServiceTest {
     @DisplayName("친구 요청 생성 — 이미 PENDING 존재 시 REQUEST_ALREADY_EXISTS")
     void createRequest_pendingExists_throws() {
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
         given(friendshipRepository.findPair(me, target))
                 .willReturn(List.of(friendship(me, target, FriendshipStatus.PENDING)));
 
@@ -199,7 +199,7 @@ class FriendServiceTest {
     @DisplayName("친구 요청 생성 — 이미 ACCEPTED(친구)면 ALREADY_FRIEND")
     void createRequest_alreadyFriend_throws() {
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
         given(friendshipRepository.findPair(me, target))
                 .willReturn(List.of(friendship(me, target, FriendshipStatus.ACCEPTED)));
 
@@ -213,7 +213,7 @@ class FriendServiceTest {
     void createRequest_rejected_reopened() {
         Friendship rejected = friendship(me, target, FriendshipStatus.REJECTED);
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
         given(friendshipRepository.findPair(me, target)).willReturn(List.of(rejected));
 
         friendService.createRequest(meId, targetId);
@@ -226,7 +226,7 @@ class FriendServiceTest {
     @DisplayName("친구 요청 생성 — 신규 요청이면 FRIEND_REQUEST_SENT(reopened=false) 발행")
     void createRequest_new_emitsRequestSent() {
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
         given(friendshipRepository.findPair(me, target)).willReturn(List.of());
 
         friendService.createRequest(meId, targetId);
@@ -240,7 +240,7 @@ class FriendServiceTest {
     void createRequest_reopened_emitsRequestSentWithReopenedTrue() {
         Friendship rejected = friendship(me, target, FriendshipStatus.REJECTED);
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
         given(friendshipRepository.findPair(me, target)).willReturn(List.of(rejected));
 
         friendService.createRequest(meId, targetId);
@@ -253,7 +253,7 @@ class FriendServiceTest {
     @DisplayName("친구 요청 생성 — 검증 실패(이미 PENDING)면 이벤트 미발행")
     void createRequest_pendingExists_doesNotEmit() {
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
         given(friendshipRepository.findPair(me, target))
                 .willReturn(List.of(friendship(me, target, FriendshipStatus.PENDING)));
 
@@ -267,7 +267,7 @@ class FriendServiceTest {
     void createRequest_reverseDirectionPending_throws() {
         Friendship reverse = friendship(target, me, FriendshipStatus.PENDING);
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
         given(friendshipRepository.findPair(me, target)).willReturn(List.of(reverse));
 
         assertThatThrownBy(() -> friendService.createRequest(meId, targetId))
@@ -282,7 +282,7 @@ class FriendServiceTest {
     void acceptRequest_receiver_accepts() {
         UUID requestId = UUID.randomUUID();
         Friendship request = friendship(target, me, FriendshipStatus.PENDING);
-        given(friendshipRepository.findById(requestId)).willReturn(Optional.of(request));
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
 
         friendService.acceptRequest(meId, requestId);
 
@@ -294,7 +294,7 @@ class FriendServiceTest {
     void acceptRequest_emitsFriendAdded() {
         UUID requestId = UUID.randomUUID();
         Friendship request = friendship(target, me, FriendshipStatus.PENDING);
-        given(friendshipRepository.findById(requestId)).willReturn(Optional.of(request));
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
 
         friendService.acceptRequest(meId, requestId);
 
@@ -307,7 +307,7 @@ class FriendServiceTest {
     void acceptRequest_sender_doesNotEmit() {
         UUID requestId = UUID.randomUUID();
         Friendship request = friendship(me, target, FriendshipStatus.PENDING);
-        given(friendshipRepository.findById(requestId)).willReturn(Optional.of(request));
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
 
         assertThatThrownBy(() -> friendService.acceptRequest(meId, requestId))
                 .isInstanceOf(FriendException.class);
@@ -319,7 +319,7 @@ class FriendServiceTest {
     void acceptRequest_sender_throws() {
         UUID requestId = UUID.randomUUID();
         Friendship request = friendship(me, target, FriendshipStatus.PENDING);
-        given(friendshipRepository.findById(requestId)).willReturn(Optional.of(request));
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
 
         assertThatThrownBy(() -> friendService.acceptRequest(meId, requestId))
                 .isInstanceOf(FriendException.class)
@@ -331,7 +331,7 @@ class FriendServiceTest {
     @DisplayName("요청 수락 — 없는 요청이면 REQUEST_NOT_FOUND")
     void acceptRequest_notFound_throws() {
         UUID requestId = UUID.randomUUID();
-        given(friendshipRepository.findById(requestId)).willReturn(Optional.empty());
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> friendService.acceptRequest(meId, requestId))
                 .isInstanceOf(FriendException.class)
@@ -339,11 +339,25 @@ class FriendServiceTest {
     }
 
     @Test
+    @DisplayName("요청 수락 — 탈퇴 정리로 soft delete 된 요청은 REQUEST_NOT_FOUND (GROMO-801)")
+    void acceptRequest_softDeleted_throws() {
+        // 요청 화면을 열어둔 사이 발신자가 탈퇴하면 클라가 들고 있던 requestId 로 수락이 들어올 수 있다.
+        // deletedAt 을 안 보면 200 + FRIEND_ADDED 가 나가고도 친구 목록엔 안 나타나 계약이 어긋난다.
+        UUID requestId = UUID.randomUUID();
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> friendService.acceptRequest(meId, requestId))
+                .isInstanceOf(FriendException.class)
+                .extracting("errorCode").isEqualTo(FriendErrorCode.REQUEST_NOT_FOUND);
+        verify(userActivityEventLogger, never()).log(eq(UserActivityEvent.FRIEND_ADDED), any());
+    }
+
+    @Test
     @DisplayName("요청 거절 — 수신자면 REJECTED로 전이")
     void rejectRequest_receiver_rejects() {
         UUID requestId = UUID.randomUUID();
         Friendship request = friendship(target, me, FriendshipStatus.PENDING);
-        given(friendshipRepository.findById(requestId)).willReturn(Optional.of(request));
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
 
         friendService.rejectRequest(meId, requestId);
 
@@ -357,7 +371,7 @@ class FriendServiceTest {
     void deleteFriend_accepted_softDeletes() {
         Friendship f = friendship(me, target, FriendshipStatus.ACCEPTED);
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.of(target));
+        given(userRepository.findById(targetId)).willReturn(Optional.of(target));
         given(friendshipRepository.findAcceptedBetween(me, target)).willReturn(Optional.of(f));
 
         friendService.deleteFriend(meId, targetId);
@@ -369,12 +383,42 @@ class FriendServiceTest {
     @DisplayName("친구 삭제 — ACCEPTED 관계 없으면 NOT_FRIEND")
     void deleteFriend_notFriend_throws() {
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.of(target));
+        given(userRepository.findById(targetId)).willReturn(Optional.of(target));
         given(friendshipRepository.findAcceptedBetween(me, target)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> friendService.deleteFriend(meId, targetId))
                 .isInstanceOf(FriendException.class)
                 .extracting("errorCode").isEqualTo(FriendErrorCode.NOT_FRIEND);
+    }
+
+    @Test
+    @DisplayName("친구 삭제 — 상대가 탈퇴했어도 잔존 관계를 끊을 수 있다 (GROMO-801)")
+    void deleteFriend_withdrawnCounterpart_stillDeletes() {
+        // 해제는 관계를 줄이는 방향이라 탈퇴자를 대상으로 허용해도 유령이 늘지 않는다.
+        // 반대로 막아버리면 이 변경 배포 전에 탈퇴해 정리되지 않은 관계를 영구히 못 지운다(백필을 하지 않으므로).
+        User withdrawn = User.builder().id(targetId).build();   // 닉네임 파기된 탈퇴자
+        Friendship f = friendship(me, withdrawn, FriendshipStatus.ACCEPTED);
+        given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
+        given(userRepository.findById(targetId)).willReturn(Optional.of(withdrawn));
+        given(friendshipRepository.findAcceptedBetween(me, withdrawn)).willReturn(Optional.of(f));
+
+        friendService.deleteFriend(meId, targetId);
+
+        assertThat(f.getDeletedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("핀 해제 — 상대가 탈퇴했어도 해제할 수 있다 (GROMO-801)")
+    void unpinFriend_withdrawnCounterpart_stillUnpins() {
+        User withdrawn = User.builder().id(targetId).build();
+        PinnedUser pin = PinnedUser.builder().user(me).pinnedUser(withdrawn).build();
+        given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
+        given(userRepository.findById(targetId)).willReturn(Optional.of(withdrawn));
+        given(pinnedUserRepository.findByUserAndPinnedUser(me, withdrawn)).willReturn(Optional.of(pin));
+
+        friendService.unpinFriend(meId, targetId);
+
+        verify(pinnedUserRepository).delete(pin);
     }
 
     // ── getFriends ─────────────────────────────────────────
@@ -539,7 +583,7 @@ class FriendServiceTest {
     @DisplayName("핀 설정 — 대상이 존재하면 친구 아니어도 ON CONFLICT insert 호출(user 핀 통일)")
     void pinFriend_nonFriendTarget_inserts() {
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
 
         friendService.pinFriend(meId, targetId);
 
@@ -561,7 +605,7 @@ class FriendServiceTest {
     @DisplayName("핀 설정 — 대상 유저 없으면 UserException, insert 미호출")
     void pinFriend_userNotFound_throws() {
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> friendService.pinFriend(meId, targetId))
                 .isInstanceOf(UserException.class);
@@ -572,7 +616,7 @@ class FriendServiceTest {
     @DisplayName("핀 해제 — 핀 없으면 멱등(delete 미호출)")
     void unpinFriend_noPin_idempotent() {
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.of(target));
+        given(userRepository.findById(targetId)).willReturn(Optional.of(target));
         given(pinnedUserRepository.findByUserAndPinnedUser(me, target)).willReturn(Optional.empty());
 
         friendService.unpinFriend(meId, targetId);
@@ -651,7 +695,7 @@ class FriendServiceTest {
     @DisplayName("핀 해제 — 핀 있으면 delete")
     void unpinFriend_deletesWhenPresent() {
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
-        given(userRepository.findByIdAndIsDeletedFalse(targetId)).willReturn(Optional.of(target));
+        given(userRepository.findById(targetId)).willReturn(Optional.of(target));
         PinnedUser pin = PinnedUser.builder().user(me).pinnedUser(target).build();
         given(pinnedUserRepository.findByUserAndPinnedUser(me, target)).willReturn(Optional.of(pin));
 

@@ -1,7 +1,9 @@
 package com.oneorthree.phone.user.repository;
 
 import com.oneorthree.phone.user.domain.User;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,6 +20,21 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     // 소프트딜리트(탈퇴) 유저 차단 (GROMO-635) — is_deleted=true 인 유저는 조회/변경 경로에서 제외.
     Optional<User> findByIdAndIsDeletedFalse(UUID id);
+
+    // 탈퇴 트랜잭션의 대상 유저 배타 락 (GROMO-801).
+    // withdraw 는 friendships·pinned_users 를 스캔해 정리한 뒤 is_deleted 를 세우는데, READ COMMITTED 에서
+    // 그 사이 다른 트랜잭션이 아직 커밋 안 된 is_deleted=true 를 못 보고 새 친구요청·핀을 끼워 넣으면
+    // 정리를 통과해 유령 관계가 남는다. 탈퇴 시작 시점에 대상 행을 잠가 관계 생성과 직렬화한다.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM User u WHERE u.id = :id AND u.isDeleted = false")
+    Optional<User> findActiveByIdForUpdate(@Param("id") UUID id);
+
+    // 관계 생성(친구 요청·핀) 대상 유저의 활성 검증 + 공유 락 (GROMO-801).
+    // 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 위 배타 락(탈퇴)하고만 직렬화된다.
+    // 탈퇴가 먼저 커밋되면 잠금 해제 후 조건을 재평가해 is_deleted=true 를 보고 빈 결과가 된다.
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("SELECT u FROM User u WHERE u.id = :id AND u.isDeleted = false")
+    Optional<User> findActiveByIdForShare(@Param("id") UUID id);
 
     @Query("SELECT new com.oneorthree.phone.user.repository.UserTierLevelProjection(u.id, u.tierLevel)"
             + " FROM User u WHERE u.id IN :ids AND u.isDeleted = false")
