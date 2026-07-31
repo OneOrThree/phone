@@ -248,8 +248,8 @@ public class FriendService {
         User meUser = getUser(me);
         boolean received = "received".equalsIgnoreCase(type);
         List<Friendship> requests = received
-                ? friendshipRepository.findByToUserAndStatus(meUser, FriendshipStatus.PENDING)
-                : friendshipRepository.findByFromUserAndStatus(meUser, FriendshipStatus.PENDING);
+                ? friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING)
+                : friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING);
 
         // GROMO-710: 상대 userId 들을 한 번에 모아 티어 배치 조회(N+1 방지). 티어는 league_arena_users 로만 도출(GROMO-671).
         Map<UUID, Integer> tierLevels = leagueTierLookup.tierLevelsByUserId(requests.stream()
@@ -293,8 +293,10 @@ public class FriendService {
 
     // ── 내부 헬퍼 ──────────────────────────────────────────
 
+    // 탈퇴(소프트딜리트) 유저는 없는 유저로 취급 — 친구 요청·핀 대상이 될 수 없다 (GROMO-801).
+    // findById 를 쓰면 탈퇴자에게 요청이 걸리고, friendships 에 남은 (from,to) 유니크 제약과 충돌해 500 이 난다.
     private User getUser(UUID userId) {
-        return userRepository.findById(userId)
+        return userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }
 
@@ -323,9 +325,9 @@ public class FriendService {
 
     private Set<UUID> collectPendingIds(User meUser) {
         Set<UUID> ids = new HashSet<>();
-        friendshipRepository.findByFromUserAndStatus(meUser, FriendshipStatus.PENDING)
+        friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING)
                 .forEach(f -> ids.add(f.getToUser().getId()));
-        friendshipRepository.findByToUserAndStatus(meUser, FriendshipStatus.PENDING)
+        friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING)
                 .forEach(f -> ids.add(f.getFromUser().getId()));
         return ids;
     }

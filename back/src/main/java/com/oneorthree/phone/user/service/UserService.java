@@ -11,6 +11,9 @@ import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.domain.UserWallet;
+import com.oneorthree.phone.friend.domain.Friendship;
+import com.oneorthree.phone.friend.repository.FriendshipRepository;
+import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.user.domain.SocialAccount;
@@ -59,6 +62,8 @@ public class UserService {
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final SocialAccountRepository socialAccountRepository;
     private final OccupationInfoRepository occupationInfoRepository;
+    private final FriendshipRepository friendshipRepository;
+    private final PinnedUserRepository pinnedUserRepository;
     private final UserActivityEventLogger userActivityEventLogger;
 
     @Transactional
@@ -124,6 +129,17 @@ public class UserService {
         if (groupRepository.existsGroupOwnedBy(userId)) {
             throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
         }
+
+        // 소셜 관계 정리 (GROMO-801) — 친구는 소프트딜리트, 핀은 하드 삭제.
+        // 탈퇴 자체는 이 정리가 없어도 성공한다(user row 가 남아 FK 가 유지되므로). 다만 정리하지 않으면
+        // 상대방 화면에 닉네임이 파기된 '유령 친구'가 남고, 탈퇴자의 PENDING 요청을 수락하면 유령과 친구가 된다.
+        // 조회 시점 필터가 아니라 여기서 끊는 이유: friendships 를 읽는 경로가 목록·카운트·요청·검색으로 흩어져 있어
+        // 새 조회가 생길 때마다 필터를 빠뜨릴 위험이 크다. 한 번 끊으면 deletedAt IS NULL 이 이미 걸러준다.
+        Instant now = Instant.now();
+        for (Friendship friendship : friendshipRepository.findActiveByUserId(userId)) {
+            friendship.softDelete(now);
+        }
+        pinnedUserRepository.deleteByUserIdOrPinnedUserId(userId, userId);
 
         focusSessionRepository.nullifyUser(userId);
         dailyFocusStatRepository.nullifyUser(userId);

@@ -13,11 +13,14 @@ import java.util.UUID;
 
 public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
 
-    // 보낸 요청 목록 (sent) — 예: findByFromUserAndStatus(me, PENDING)
-    List<Friendship> findByFromUserAndStatus(User fromUser, FriendshipStatus status);
+    // 보낸 요청 목록 (sent) — 예: findByFromUserAndStatusAndDeletedAtIsNull(me, PENDING)
+    // deletedAt 조건은 탈퇴자 정리분 제외용 (GROMO-801) — 아래 findByToUser… 와 같은 이유.
+    List<Friendship> findByFromUserAndStatusAndDeletedAtIsNull(User fromUser, FriendshipStatus status);
 
-    // 받은 요청 목록 (received) — 예: findByToUserAndStatus(me, PENDING)
-    List<Friendship> findByToUserAndStatus(User toUser, FriendshipStatus status);
+    // 받은 요청 목록 (received) — 예: findByToUserAndStatusAndDeletedAtIsNull(me, PENDING)
+    // 탈퇴 시 PENDING 요청도 deletedAt 이 찍히는데(GROMO-801), 이 목록만 status 파생 조회라
+    // deletedAt 을 안 보면 탈퇴자 요청이 그대로 노출되고 수락 시 유령 친구가 생긴다.
+    List<Friendship> findByToUserAndStatusAndDeletedAtIsNull(User toUser, FriendshipStatus status);
 
     // 방향 고정 단건 조회 — REJECTED → PENDING 재전환 시 (me→target) row 특정용
     Optional<Friendship> findByFromUserAndToUser(User fromUser, User toUser);
@@ -53,4 +56,14 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
             + " AND f.deletedAt IS NULL"
             + " AND (f.fromUser = :me OR f.toUser = :me)")
     long countAcceptedByUser(@Param("me") User me);
+
+    // 회원 탈퇴 정리 대상 — 내가 낀 미삭제 관계 전부, status 무관 (GROMO-801).
+    // ACCEPTED(친구)뿐 아니라 PENDING(대기 중 요청)까지 걷어야 탈퇴자 요청이 상대 목록에 남지 않는다.
+    // 엔티티로 로드해 Friendship.softDelete() 를 태우는 이유는 벌크 @Modifying 이 영속성 컨텍스트를
+    // 우회해(1차 캐시 stale) 도메인 메서드·라이프사이클을 건너뛰기 때문 — 탈퇴 1회당 많아야 수백 건이라
+    // 건별 처리 비용이 무의미하다.
+    @Query("SELECT f FROM Friendship f"
+            + " WHERE f.deletedAt IS NULL"
+            + " AND (f.fromUser.id = :userId OR f.toUser.id = :userId)")
+    List<Friendship> findActiveByUserId(@Param("userId") UUID userId);
 }

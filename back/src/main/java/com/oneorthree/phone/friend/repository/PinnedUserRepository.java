@@ -34,4 +34,9 @@ public interface PinnedUserRepository extends JpaRepository<PinnedUser, UUID> {
     // 내가 핀한 유저 id 집합 — 리그 랭킹 isPinned 후조인용(user 핀 통일, GROMO-609). 소수라 1쿼리로 충분.
     @Query("select p.pinnedUser.id from PinnedUser p where p.user.id = :userId")
     Set<UUID> findPinnedUserIdsByUserId(@Param("userId") UUID userId);
+
+    // 회원 탈퇴 — 내가 건 핀·남이 나를 건 핀 양방향 전부 (GROMO-801).
+    // pinned_users 에는 소프트딜리트 컬럼이 없어 하드 삭제한다(핀은 이력 가치가 없는 표시용 관계).
+    // 파생 delete 라 엔티티를 로드한 뒤 건별 삭제 — 벌크 @Query 와 달리 영속성 컨텍스트·라이프사이클을 우회하지 않는다.
+    void deleteByUserIdOrPinnedUserId(UUID userId, UUID pinnedUserId);
 }
