@@ -70,17 +70,15 @@ export function execRecipe(recipe, u, pools) {
   const params = authParams(u, recipe.endpoint); // endpoint 태그 → per-endpoint 지표
   const m = recipe.method;
 
+  // 응답을 반환 — 호출자가 (endpoint × status) 분류를 남길 수 있게 (실패 원인 규명용).
   if (m === 'GET') {
-    if (recipe.paginate) followCursor(url, params, recipe.paginate.pages || 2, recipe.paginate.cursorField);
-    else http.get(url, params);
-    return;
+    if (recipe.paginate) return followCursor(url, params, recipe.paginate.pages || 2, recipe.paginate.cursorField);
+    return http.get(url, params);
   }
-  if (m === 'DELETE') {
-    http.del(url, null, params);
-    return;
-  }
+  if (m === 'DELETE') return http.del(url, null, params);
   const body = JSON.stringify(build(recipe.body) || {});
-  if (m === 'POST') http.post(url, body, params);
-  else if (m === 'PUT') http.put(url, body, params);
-  else if (m === 'PATCH') http.patch(url, body, params);
+  if (m === 'POST') return http.post(url, body, params);
+  if (m === 'PUT') return http.put(url, body, params);
+  if (m === 'PATCH') return http.patch(url, body, params);
+  return null;
 }
