@@ -71,6 +71,7 @@ public class GroupService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserActivityEventLogger userActivityEventLogger;
 
+    // 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 참가 코드 생성 전용 상수다.
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -114,6 +115,8 @@ public class GroupService {
                 .build());
 
         // GROMO-672: 참가 코드는 1:1 테이블(group_join_codes)에 저장 (발급 + 3시간 유효, ACTIVE)
+        // 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 발급은 계속되지만 조회하는 경로가 없다.
+        // 3시간 상수는 GroupJoinCode#renew 에도 이중 정의돼 있다 — 제거 시 함께 정리할 것.
         groupJoinCodeRepository.save(GroupJoinCode.builder()
                 .group(group)
                 .code(uniqueCode)
@@ -283,6 +286,13 @@ public class GroupService {
                 .build();
     }
 
+    /**
+     * 참가 코드 재발급.
+     *
+     * @deprecated 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 앱이 더 이상 호출하지 않는다.
+     *     엔드포인트를 남겨두는 것은 계약 파괴를 피하기 위함이며, 실제 제거는 후속 정리 티켓에서 다룬다.
+     */
+    @Deprecated
     @Transactional
     public RenewGroupCodeResponse renewGroupCode(UUID groupId, UUID userId) {
         User user = userRepository.findById(userId)
@@ -554,6 +564,13 @@ public class GroupService {
         private static final RepresentativeMission EMPTY = new RepresentativeMission(null, null, null, null, null);
     }
 
+    /**
+     * 8자 참가 코드 생성.
+     *
+     * @deprecated 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31).
+     *     createGroup 이 아직 호출하지만 발급된 코드를 조회하는 경로가 없다. CHARS/RANDOM 도 같이 dead 다.
+     */
+    @Deprecated
     private String generateUniqueCode() {
         StringBuilder sb = new StringBuilder(8);
         for (int i = 0; i < 10; i++) {
