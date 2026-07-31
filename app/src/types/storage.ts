@@ -44,6 +44,7 @@ export const STORAGE_KEYS = {
   screentimeBucketMonitorMaxMinutes: 'gromo:screentime:bucketMonitorMaxMinutes', // 버킷 모니터링 등록 시그니처(상한@눈금) — 변경 감지·재등록용(GROMO-871·931)
   screentimeGoalMonitorStopped: 'gromo:screentime:goalMonitorStopped', // gromo.daily 폐지 1회 중지 완료 플래그(GROMO-942 마이그레이션)
   screentimeMeasurementStartDate: 'gromo:screentime:measurementStartDate', // 측정 시작일 {userId,date} — 신규 유저의 어제 0분 오달성 방지(GROMO-942)
+  screentimeEffectiveGoal: 'gromo:screentime:effectiveGoal', // 그날 유효 목표 {userId,date,goalSeconds} — 어제 마감을 '어제 목표'로 판정(사용량 업로드와 분리, GROMO-942)
   screentimeLastClosedDate: 'gromo:screentime:lastClosedDate', // 어제분 마감 처리 완료 {userId,date} — 같은 날짜 중복 전송 방지(GROMO-627)
   selectionApplyDate: 'gromo:selection:applyDate',
   selectionConfigured: 'gromo:selection:configured',

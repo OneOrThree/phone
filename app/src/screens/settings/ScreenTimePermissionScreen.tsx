@@ -161,7 +161,13 @@ export default function ScreenTimePermissionScreen() {
       if (!monitoring && total === 0) {
         // 빈 선택 — 네이티브가 기존 모니터를 중지하고 등록을 거부한다(threshold는 토큰 없이
         // 발화 불가). 등록 기록을 지워 다음 선택 때 다시 등록되게 하고, 사실대로 안내한다.
-        AsyncStorage.removeItem(STORAGE_KEYS.screentimeBucketMonitorRegistered).catch(() => {});
+        // 측정 시작일·낡은 sync state도 함께 정리 — 안 지우면 이후 미측정 날의 0분이 '측정된
+        // 달성'으로 조작 업로드될 수 있다(코드리뷰 P1).
+        AsyncStorage.multiRemove([
+          STORAGE_KEYS.screentimeBucketMonitorRegistered,
+          STORAGE_KEYS.screentimeMeasurementStartDate,
+          STORAGE_KEYS.screentimeSyncState,
+        ]).catch(() => {});
         Alert.alert(
           '측정 대상 변경됨',
           '측정 대상을 비웠어요 — 사용량 측정과 서버 동기화가 중단돼요. 홈 리포트는 전체 앱 기준으로 표시돼요.',

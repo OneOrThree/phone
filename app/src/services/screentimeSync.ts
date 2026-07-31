@@ -198,8 +198,12 @@ export async function syncScreenTimeUsage(
   // 기록 값 = 모니터 소유 계정. 소유 미상('1' — 구버전/로그인 전 등록)이면 현재 계정으로
   // 귀속시킨다(1기기 1계정 가정) — 어제분 마감의 계정 앵커로 쓰인다.
   let monitorOwner: string | null = null;
+  // 이 sync '전'에 이미 버킷 모니터가 등록돼 있었는지 — 기존 설치는 어제도 측정이 돌았을 수 있어
+  // 측정 시작일을 today가 아니라 어제로 잡는다(코드리뷰 P1: 업그레이드 첫날 어제 손실 방지).
+  let monitorPreexisted = false;
   try {
     monitorOwner = await AsyncStorage.getItem(STORAGE_KEYS.screentimeBucketMonitorRegistered);
+    monitorPreexisted = monitorOwner != null;
     if (!monitorOwner) {
       // 선택 없으면 false → 기록 없이 다음에 재시도
       if (await registerUsageBucketMonitoring(userId)) monitorOwner = userId;
@@ -218,9 +222,25 @@ export async function syncScreenTimeUsage(
   const yesterday = yesterdayStr();
   let last = await readSyncState(userId);
 
+  // 어제 판정에 쓸 '어제 유효 목표'를 사용량 업로드와 분리해 영속한다(GROMO-942 코드리뷰 P1).
+  // 매 sync마다 오늘 유효 목표를 {userId,today,goalSeconds}로 갱신 — 앱을 하루 한 번만 열어도
+  // 그날 목표가 남는다. 아래 어제분 마감은 '갱신 전에 읽은' 이 값(어제분)으로 판정한다.
+  let priorEffectiveGoal: { userId: string; date: string; goalSeconds: number } | null = null;
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeEffectiveGoal);
+    priorEffectiveGoal = raw ? JSON.parse(raw) : null;
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.screentimeEffectiveGoal,
+      JSON.stringify({ userId, date: today, goalSeconds }),
+    );
+  } catch {
+    // 기록 실패는 동기화와 무관 — 계속 진행
+  }
+
   // 측정 시작일 기록(GROMO-942 코드리뷰 P1) — 이 계정으로 측정이 활성인 첫 시점을 남겨, 어제분
   // 마감이 '어제가 실제 측정된 날인지' 판단하는 앵커로 쓴다(신규 유저의 어제 0분 오달성 방지).
-  // 이미 있으면 덮지 않는다(가장 이른 날 유지). 계정이 바뀌면 새로 기록된다.
+  // 이미 있으면 덮지 않는다(가장 이른 날 유지). 기존 설치(monitorPreexisted)는 어제도 측정이
+  // 돌았을 수 있으므로 시작일을 어제로 잡아 업그레이드 첫날 어제를 잃지 않게 한다(코드리뷰 P1).
   if (monitorOwner === userId) {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeMeasurementStartDate);
@@ -228,7 +248,7 @@ export async function syncScreenTimeUsage(
       if (start?.userId !== userId) {
         await AsyncStorage.setItem(
           STORAGE_KEYS.screentimeMeasurementStartDate,
-          JSON.stringify({ userId, date: today }),
+          JSON.stringify({ userId, date: monitorPreexisted ? yesterday : today }),
         );
       }
     } catch {
@@ -266,16 +286,23 @@ export async function syncScreenTimeUsage(
       // 목표 달성 판정을 gromo.daily 네이티브 모니터에서 '버킷 사용시간 ≤ 목표'로 일원화(GROMO-942)
       // — 화면에 뜨는 값(버킷)과 판정 근거를 통일하고, gromo.daily 재등록 타이밍 문제(측정 대상
       // 변경 시 목표 전환 갭·한낮 콜백 오염)를 제거한다. 서버는 이미 클라가 보낸 achieved를 신뢰한다.
-      //  · 목표는 '어제 유효 목표'로 판정한다 — 어제 중간 동기화에 기록해 둔 goalSeconds가 있으면
-      //    그것을, 없으면 현재값으로 폴백. 오늘부터 목표가 바뀌었어도 어제를 어제 기준으로 본다(코드리뷰).
+      //  · 목표는 '어제 유효 목표'로 판정한다 — 사용량과 분리 영속한 effectiveGoal(어제분)을
+      //    우선 쓰고, 없으면 어제 sync state의 goalSeconds, 그것도 없으면 현재값으로 폴백.
+      //    오늘부터 목표가 바뀌었어도 어제를 어제 기준으로 본다(코드리뷰).
       //  · 버킷 0분 = '측정 중 15분 미만 사용' = 달성이지만, '어제 실제로 측정된 날'일 때만 그렇게
       //    본다 — 오늘 처음 측정 시작한 신규 유저의 어제(측정 안 됨)를 0분 달성으로 조작하지 않게,
       //    측정 시작일(measurementStartDate)이 어제 이하이거나 사용분>0일 때만 마감한다(코드리뷰 P1).
       //  · 목표 미설정(0)이어도 사용량은 기록한다(통계 소스). 이땐 achieved=false 중립.
-      const yesterdayGoalSeconds =
-        last != null && last.date === yesterday && last.goalSeconds != null
-          ? last.goalSeconds
-          : goalSeconds;
+      let yesterdayGoalSeconds = goalSeconds;
+      if (
+        priorEffectiveGoal != null &&
+        priorEffectiveGoal.userId === userId &&
+        priorEffectiveGoal.date === yesterday
+      ) {
+        yesterdayGoalSeconds = priorEffectiveGoal.goalSeconds;
+      } else if (last != null && last.date === yesterday && last.goalSeconds != null) {
+        yesterdayGoalSeconds = last.goalSeconds;
+      }
       let measuredYesterday = finalMinutes > 0;
       if (!measuredYesterday) {
         try {
