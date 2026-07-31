@@ -80,10 +80,14 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
     // 이 트랜잭션이 Friendship 을 다시 읽지 않아 1차 캐시 stale 이 실현되지 않는다. 다만 나중에
     // 같은 트랜잭션에서 Friendship 을 읽는 코드가 붙으면 그때 조용히 깨지므로 선제적으로 막아둔다.)
     // 탈퇴 1회당 많아야 수백 건이라 건별 처리 비용은 무의미하다.
-    // 주의: friendships 에는 UNIQUE(from_user_id, to_user_id) 뿐이라 to_user_id 단독 인덱스가 없다.
-    // 아래 OR 의 to_user_id 브랜치는 인덱스를 못 탄다 — findAcceptedByUser 등 기존 OR 조회와 동일한 특성.
+    // 인덱스: from_user_id 브랜치는 UNIQUE(from_user_id, to_user_id) 복합의 선두 컬럼으로,
+    // to_user_id 브랜치는 V17 의 부분 인덱스(to_user_id WHERE deleted_at IS NULL)로 각각 탄다.
+    // 아래 deletedAt IS NULL 이 OR 전체를 감싸는 최상위 AND 여야 그 부분 인덱스가 쓰인다 — 순서를 바꾸지 말 것.
     // 배타 락 — 위 findByIdAndDeletedAtIsNull 과 대칭. 정리 대상 행을 잠가야 수락·거절 트랜잭션과
     // 서로의 UPDATE 를 덮어쓰지 않는다(둘 다 전체 컬럼 UPDATE 라 나중 커밋이 이긴다).
+    // 전제: 격리수준 READ COMMITTED. Postgres 가 잠금 획득 후 조건을 재평가(EvalPlanQual)하므로
+    // 먼저 커밋한 쪽이 이기고 대기하던 쪽은 조용히 빈 결과가 된다. REPEATABLE READ 로 올리면
+    // 재평가 대신 직렬화 실패 예외가 나므로 이 경로들에 재시도가 필요해진다(현재는 없음).
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT f FROM Friendship f"
             + " WHERE f.deletedAt IS NULL"

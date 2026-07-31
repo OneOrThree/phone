@@ -425,15 +425,13 @@ class FriendServiceTest {
     @Test
     @DisplayName("핀 해제 — 상대가 탈퇴했어도 해제할 수 있다 (GROMO-801)")
     void unpinFriend_withdrawnCounterpart_stillUnpins() {
-        User withdrawn = User.builder().id(targetId).build();
-        PinnedUser pin = PinnedUser.builder().user(me).pinnedUser(withdrawn).build();
+        User withdrawn = User.builder().id(targetId).build();   // 닉네임 파기된 탈퇴자
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
         given(userRepository.findById(targetId)).willReturn(Optional.of(withdrawn));
-        given(pinnedUserRepository.findByUserAndPinnedUser(me, withdrawn)).willReturn(Optional.of(pin));
 
         friendService.unpinFriend(meId, targetId);
 
-        verify(pinnedUserRepository).delete(pin);
+        verify(pinnedUserRepository).deletePin(meId, targetId);
     }
 
     // ── getFriends ─────────────────────────────────────────
@@ -628,14 +626,17 @@ class FriendServiceTest {
     }
 
     @Test
-    @DisplayName("핀 해제 — 핀 없으면 멱등(delete 미호출)")
+    @DisplayName("핀 해제 — 핀이 없어도(0행) 예외 없이 멱등 성공 (GROMO-801)")
     void unpinFriend_noPin_idempotent() {
+        // 조회 후 remove 방식이면 탈퇴의 핀 정리와 겹칠 때 0행 DELETE 로 StaleStateException(500) 이 났다.
+        // 벌크 DELETE 는 0행 매치를 정상으로 처리한다.
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
         given(userRepository.findById(targetId)).willReturn(Optional.of(target));
-        given(pinnedUserRepository.findByUserAndPinnedUser(me, target)).willReturn(Optional.empty());
+        given(pinnedUserRepository.deletePin(meId, targetId)).willReturn(0);
 
         friendService.unpinFriend(meId, targetId);
 
+        verify(pinnedUserRepository).deletePin(meId, targetId);
         verify(pinnedUserRepository, never()).delete(any());
     }
 
@@ -707,16 +708,15 @@ class FriendServiceTest {
     }
 
     @Test
-    @DisplayName("핀 해제 — 핀 있으면 delete")
+    @DisplayName("핀 해제 — 핀 있으면 삭제")
     void unpinFriend_deletesWhenPresent() {
         given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
         given(userRepository.findById(targetId)).willReturn(Optional.of(target));
-        PinnedUser pin = PinnedUser.builder().user(me).pinnedUser(target).build();
-        given(pinnedUserRepository.findByUserAndPinnedUser(me, target)).willReturn(Optional.of(pin));
+        given(pinnedUserRepository.deletePin(meId, targetId)).willReturn(1);
 
         friendService.unpinFriend(meId, targetId);
 
-        verify(pinnedUserRepository).delete(pin);
+        verify(pinnedUserRepository).deletePin(meId, targetId);
     }
 
     @Test

@@ -247,7 +247,7 @@ class UserServiceTest {
         verify(userFocusTimeSettingsRepository).deleteById(USER_ID);
         verify(userNotificationSettingsRepository).deleteById(USER_ID);
         verify(socialAccountRepository).deleteByUserId(USER_ID);
-        verify(pinnedUserRepository).deleteByUserIdOrPinnedUserId(USER_ID, USER_ID);
+        verify(pinnedUserRepository).deleteAllInvolving(USER_ID);
         // 소프트딜리트 + PII 파기, 하드 삭제 안 함 (FK 위반 방지)
         assertThat(user.isDeleted()).isTrue();
         assertThat(user.getNickname()).isNull();
@@ -291,7 +291,7 @@ class UserServiceTest {
                 .isInstanceOf(GroupException.class);
 
         verify(friendshipRepository, never()).findActiveByUserId(any());
-        verify(pinnedUserRepository, never()).deleteByUserIdOrPinnedUserId(any(), any());
+        verify(pinnedUserRepository, never()).deleteAllInvolving(any());
     }
 
     @Test

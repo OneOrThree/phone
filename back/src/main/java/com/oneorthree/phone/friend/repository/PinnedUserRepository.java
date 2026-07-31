@@ -37,8 +37,18 @@ public interface PinnedUserRepository extends JpaRepository<PinnedUser, UUID> {
 
     // 회원 탈퇴 — 내가 건 핀·남이 나를 건 핀 양방향 전부 (GROMO-801).
     // pinned_users 에는 소프트딜리트 컬럼이 없어 하드 삭제한다(핀은 이력 가치가 없는 표시용 관계).
-    // 두 인자에 같은 userId 를 넣어 호출한다(양방향 대칭) — 파생 메서드 문법상 이 이상 줄일 수 없다.
-    // 파생 delete 는 select 후 건별 remove 라 벌크 @Query 보다 느리지만, 핀은 유저당 소수이고
-    // friendships 정리와 같은 방식(엔티티 경유)으로 맞춰 두는 편이 읽기 쉽다.
-    void deleteByUserIdOrPinnedUserId(UUID userId, UUID pinnedUserId);
+    //
+    // 파생 delete(select 후 건별 remove)를 쓰지 않는 이유: 같은 핀을 상대가 unpin 하는 것과 탈퇴가 겹치면
+    // 양쪽이 같은 엔티티를 적재한 뒤, 먼저 커밋한 쪽이 행을 지워 나머지 한쪽의 DELETE 가 0 행을 만난다.
+    // Hibernate 는 이걸 StaleStateException 으로 올려 요청 전체를 롤백시킨다 — 멱등해야 할 핀 해제와
+    // 탈퇴가 500 으로 실패한다. 벌크 DELETE 는 0 행 매치를 정상으로 처리하므로 이 경합에 면역이다.
+    // (PinnedUser 는 cascade·라이프사이클 콜백이 없는 단순 매핑이라 벌크로 잃는 것이 없다.)
+    @Modifying
+    @Query("DELETE FROM PinnedUser p WHERE p.user.id = :userId OR p.pinnedUser.id = :userId")
+    int deleteAllInvolving(@Param("userId") UUID userId);
+
+    // 핀 해제 단건 — 위와 같은 이유로 벌크 DELETE. 반환 0 = 이미 없음(멱등, 에러 아님).
+    @Modifying
+    @Query("DELETE FROM PinnedUser p WHERE p.user.id = :userId AND p.pinnedUser.id = :pinnedUserId")
+    int deletePin(@Param("userId") UUID userId, @Param("pinnedUserId") UUID pinnedUserId);
 }

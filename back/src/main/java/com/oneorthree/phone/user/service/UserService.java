@@ -132,17 +132,6 @@ public class UserService {
             throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
         }
 
-        // 소셜 관계 정리 (GROMO-801) — 친구는 소프트딜리트, 핀은 하드 삭제.
-        // 탈퇴 자체는 이 정리가 없어도 성공한다(user row 가 남아 FK 가 유지되므로). 다만 정리하지 않으면
-        // 상대방 화면에 닉네임이 파기된 '유령 친구'가 남고, 탈퇴자의 PENDING 요청을 수락하면 유령과 친구가 된다.
-        // 조회 시점 필터가 아니라 여기서 끊는 이유: friendships 를 읽는 경로가 목록·카운트·요청·검색으로 흩어져 있어
-        // 새 조회가 생길 때마다 필터를 빠뜨릴 위험이 크다. 한 번 끊으면 deletedAt IS NULL 이 이미 걸러준다.
-        Instant now = Instant.now();
-        for (Friendship friendship : friendshipRepository.findActiveByUserId(userId)) {
-            friendship.softDelete(now);
-        }
-        pinnedUserRepository.deleteByUserIdOrPinnedUserId(userId, userId);
-
         focusSessionRepository.nullifyUser(userId);
         dailyFocusStatRepository.nullifyUser(userId);
         dailyScreenTimeStatRepository.nullifyUser(userId);
@@ -150,6 +139,21 @@ public class UserService {
         userScreenTimeSettingsRepository.deleteById(userId);
         userFocusTimeSettingsRepository.deleteById(userId);
         userNotificationSettingsRepository.deleteById(userId);
+
+        // 소셜 관계 정리 (GROMO-801) — 친구는 소프트딜리트, 핀은 하드 삭제.
+        // 탈퇴 자체는 이 정리가 없어도 성공한다(user row 가 남아 FK 가 유지되므로). 다만 정리하지 않으면
+        // 상대방 화면에 닉네임이 파기된 '유령 친구'가 남고, 탈퇴자의 PENDING 요청을 수락하면 유령과 친구가 된다.
+        // 조회 시점 필터가 아니라 여기서 끊는 이유: friendships 를 읽는 경로가 목록·카운트·요청·검색으로 흩어져 있어
+        // 새 조회가 생길 때마다 필터를 빠뜨릴 위험이 크다. 한 번 끊으면 deletedAt IS NULL 이 이미 걸러준다.
+        //
+        // 위치가 메서드 끝인 이유: findActiveByUserId 가 friendships N 행에 배타 락을 건다. 그 유저가 낀 관계의
+        // 동시 수락·거절이 이 락을 기다리므로, 관계와 무관한 정리(nullify·설정 삭제)를 먼저 끝내 락 보유 구간을 줄인다.
+        // 앞의 벌크 쿼리들과는 대상 테이블이 겹치지 않아(auto-flush 미발생) 순서를 바꿔도 결과는 동일하다.
+        Instant now = Instant.now();
+        for (Friendship friendship : friendshipRepository.findActiveByUserId(userId)) {
+            friendship.softDelete(now);
+        }
+        pinnedUserRepository.deleteAllInvolving(userId);
 
         // 개인정보 파기 + 소프트딜리트 (GROMO-635) — 하드 삭제 시 다수 FK(NOT NULL: social_accounts·focus_tags·
         // user_items·currency_transactions·group_members·league_arena_users 등) 위반으로 409(이력 있는 유저 탈퇴 불가).

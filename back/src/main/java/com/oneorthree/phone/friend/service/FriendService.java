@@ -205,10 +205,11 @@ public class FriendService {
     // 친구 핀 해제 — 있으면 삭제, 없으면 멱등(204).
     @Transactional
     public void unpinFriend(UUID me, UUID friendUserId) {
-        User meUser = getUser(me);
-        User friendUser = getAnyUser(friendUserId);   // 탈퇴자 핀도 해제 가능해야 한다 (GROMO-801)
-        pinnedUserRepository.findByUserAndPinnedUser(meUser, friendUser)
-                .ifPresent(pinnedUserRepository::delete);
+        getUser(me);
+        getAnyUser(friendUserId);   // 탈퇴자 핀도 해제 가능해야 한다 (GROMO-801)
+        // 벌크 DELETE — 조회 후 remove 하면 탈퇴의 핀 정리와 겹칠 때 0 행 DELETE 로 StaleStateException(500).
+        // 0 행 = 이미 없음이므로 그대로 멱등 성공(204).
+        pinnedUserRepository.deletePin(me, friendUserId);
     }
 
     // 내가 핀한 친구 조회 — 각 친구의 캐릭터 표시정보 + 오늘 집중분 + 진행중 여부 매핑(GROMO-369 재사용).
