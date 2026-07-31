@@ -28,6 +28,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     boolean existsByIdAndIsDeletedFalse(UUID id);
 
+    // 인증 hot path 단일 조회 (GROMO-903) — 탈퇴 차단 판정(827)과 활동 갱신 판정(578)을 한 왕복으로 병합.
+    // 이전엔 존재 확인(왕복 ①) 직후 오늘 이미 갱신된 유저에게도 UPDATE 트랜잭션(왕복 ②)이 매 요청 붙었다.
+    // 왕복 ① 이 이미 그 유저 행을 PK 로 찾으므로, last_active_at 을 함께 읽어오면 왕복을 늘리지 않고 스로틀 판정이 끝난다.
+    // empty = 없는 유저 or 소프트딜리트 → existsByIdAndIsDeletedFalse 가 false 이던 집합과 동일(=401 신호 불변).
+    // (last_active_at 은 NOT NULL 이라 "행은 있는데 값이 null" 로 empty 가 되는 경우는 없다)
+    @Query("SELECT u.lastActiveAt FROM User u WHERE u.id = :id AND u.isDeleted = false")
+    Optional<Instant> findLastActiveAtIfActive(@Param("id") UUID id);
+
     // 닉네임 중복 검사 (GROMO-584) — 본인 제외(AndIdNot)로 자기 닉네임 재사용은 허용.
     boolean existsByNicknameAndIdNot(String nickname, UUID id);
 

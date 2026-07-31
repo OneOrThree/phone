@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -68,5 +69,19 @@ class UserRepositoryInactiveReturnTest extends RepositoryTestBase {
 
         assertThat(updatedStale).isEqualTo(1); // 어제 값 → 갱신됨
         assertThat(updatedFresh).isZero();      // 오늘 값 → 무쓰기(하루 1회 스로틀)
+    }
+
+    @Test
+    @DisplayName("findLastActiveAtIfActive — 활성 유저는 저장값 반환, 소프트딜리트·미존재 유저는 empty (GROMO-903)")
+    void findLastActiveAtIfActiveReturnsValueOnlyForActiveUser() {
+        Instant lastActiveAt = startOfDayKst(TODAY.minusDays(1)).plusSeconds(3600);
+        User active = save(false, lastActiveAt, false);
+        User deleted = save(false, lastActiveAt, true);
+
+        // 인증 hot path 가 이 한 번의 조회로 "탈퇴 여부"와 "오늘 갱신 필요 여부"를 동시에 얻는다
+        assertThat(userRepository.findLastActiveAtIfActive(active.getId())).contains(lastActiveAt);
+        // empty 두 경우 모두 기존 existsByIdAndIsDeletedFalse=false 와 같은 집합 → 동일하게 401
+        assertThat(userRepository.findLastActiveAtIfActive(deleted.getId())).isEmpty();
+        assertThat(userRepository.findLastActiveAtIfActive(UUID.randomUUID())).isEmpty();
     }
 }
