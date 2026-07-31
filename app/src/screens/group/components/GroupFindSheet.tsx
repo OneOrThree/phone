@@ -1,23 +1,35 @@
-import { StyleSheet, Text } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Keyboard,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
+import { groupErrorCode, joinGroup, searchGroups } from '@/services/groupApi';
+import { logGroupJoinAttempted, logGroupSearchPerformed } from '@/services/analyticsEvents';
+import type { GroupSearchResponse } from '@/types/dto/group';
+import type { V2RootStackParamList } from '@/navigation/types';
 
 // 그룹 찾기 시트 — 명세 docs/app/group-plan.md §6-3.
-// ⚠️ 스켈레톤: SheetShell 껍데기와 props 계약만 있고 검색·참여는 후속 워커(APP-4)가 채운다.
+// 이름으로 공개 그룹을 검색해 바로 참여한다. 비공개방은 서버가 검색에서 제외한다.
 // 선행: 백엔드 P0(is_private + 검색 필터). 그 전에는 비공개방이 검색에 그대로 노출된다(§13-1).
 //
-// 구현 가이드(§6-3):
-//  · 검색 인풋(FriendAddScreen:132-149 관행) + 350ms 디바운스 + stale 플래그로 이전 응답 무시
-//    (FriendAddScreen:66-92 패턴을 그대로 따른다). 빈 문자열이면 호출하지 않고 결과를 비운다.
-//  · searchGroups(query) (@/services/groupApi) → 행: 이름 + n/m + '›'. 공개방만 내려온다.
-//  · 응답 시 logGroupSearchPerformed({ query_length, result_count })
-//  · 행 탭 → 확인 Alert("이 그룹에 참여할까요?") → joinGroup(groupId)
-//    → 성공 시 logGroupJoinAttempted({ join_method: 'search' }) → onJoined() (부모가 닫고 재조회)
-//  · 정원이 찬 그룹(currentMembers >= maxMembers)은 행을 흐리게 + 탭 비활성
-//  · 에러 분기(groupErrorCode, §3-2):
-//      ALREADY_MEMBER → 성공 취급(onJoined) / ROOM_FULL → "정원이 가득 찼어요" + 목록 갱신
-//      NOT_FOUND → "사라진 그룹이에요" + 목록에서 제거 / GUEST_FORBIDDEN → 닫고 로그인 유도
-//  · 결과 없음 문구: "그런 이름의 공개 그룹이 없어요"
+// 시트는 라우트가 아니라 GroupScreen 위의 오버레이다 — 닫기·재조회는 전부 부모 몫이라
+// 여기서는 onClose()/onJoined()만 호출한다(navigationRef 초대 버퍼도 건드리지 않는다).
+
+// 검색 입력 디바운스(ms) — 타이핑 중 과호출 방지(FriendAddScreen과 동일 기준)
+const SEARCH_DEBOUNCE_MS = 350;
 
 export interface GroupFindSheetProps {
   // 딤 탭·취소 — 부모가 시트를 내린다.
@@ -26,23 +38,249 @@ export interface GroupFindSheetProps {
   onJoined: () => void;
 }
 
-// TODO(APP-4, §6-3): props.onJoined는 joinGroup 성공(및 ALREADY_MEMBER) 시에만 호출한다.
-export default function GroupFindSheet(props: GroupFindSheetProps) {
+export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProps) {
+  const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<GroupSearchResponse[]>([]);
+  const [searching, setSearching] = useState(false);
+  // 참여 중인 그룹 id — 연타로 join이 두 번 나가는 것을 막는다
+  const [joiningId, setJoiningId] = useState<string | null>(null);
+  // 키보드가 바텀시트를 덮는 문제 보정 — 패널은 하단 고정이라 자체적으로 올라가지 않는다.
+  // 자식 끝에 키보드 높이만큼 여백을 깔면 패널 내용이 키보드 위로 올라온다.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  const q = query.trim();
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, (e) => setKeyboardHeight(e.endCoordinates.height));
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  // 이름 검색 — 디바운스 + 언마운트/재입력 시 이전 응답 무시(FriendAddScreen:66-92 패턴).
+  // 빈 문자열이면 호출하지 않고 결과를 비운다.
+  useEffect(() => {
+    if (!q) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+    let stale = false;
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const rows = await searchGroups(q);
+        if (!stale) {
+          setResults(rows);
+          logGroupSearchPerformed({ query_length: q.length, result_count: rows.length });
+        }
+      } catch {
+        if (!stale) setResults([]);
+      } finally {
+        if (!stale) setSearching(false);
+      }
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [q]);
+
+  // 참여 실패 후 목록만 조용히 갱신한다(사용자가 친 검색이 아니므로 계측은 쏘지 않는다).
+  const refreshResults = useCallback(async () => {
+    if (!q) return;
+    try {
+      setResults(await searchGroups(q));
+    } catch {
+      // 갱신 실패 시 기존 목록 유지 — 다음 입력에서 다시 시도된다
+    }
+  }, [q]);
+
+  // 게스트는 GroupScreen이 앞단에서 막지만, 서버가 403을 주면 시트를 닫고 로그인으로 보낸다(§5-3).
+  const goLogin = useCallback(() => {
+    onClose();
+    Alert.alert('로그인이 필요해요', '로그인하면 그룹에 참여할 수 있어요.', [
+      { text: '나중에', style: 'cancel' },
+      { text: '로그인하기', onPress: () => navigation.navigate('SettingsAccount') },
+    ]);
+  }, [navigation, onClose]);
+
+  async function join(group: GroupSearchResponse) {
+    if (joiningId) return;
+    setJoiningId(group.groupId);
+    try {
+      await joinGroup(group.groupId);
+      logGroupJoinAttempted({ join_method: 'search' });
+      onJoined();
+    } catch (e) {
+      // status가 아니라 서버 code로 분기한다 — ROOM_FULL·ALREADY_MEMBER가 둘 다 409(§3-2)
+      switch (groupErrorCode(e)) {
+        case 'ALREADY_MEMBER':
+          // 성공 취급 — 이미 멤버이므로 그룹방으로 보낸다(새 가입이 아니라 계측은 미발행)
+          onJoined();
+          break;
+        case 'ROOM_FULL':
+          Alert.alert('정원이 가득 찼어요', '다른 그룹을 찾아보세요.');
+          refreshResults();
+          break;
+        case 'NOT_FOUND':
+          Alert.alert('사라진 그룹이에요', '방장이 그룹을 없앴을 수 있어요.');
+          setResults((prev) => prev.filter((r) => r.groupId !== group.groupId));
+          break;
+        case 'GUEST_FORBIDDEN':
+          goLogin();
+          break;
+        default:
+          Alert.alert('참여하지 못했어요', '잠시 후 다시 시도해주세요.');
+      }
+    } finally {
+      setJoiningId(null);
+    }
+  }
+
+  function confirmJoin(group: GroupSearchResponse) {
+    Keyboard.dismiss();
+    Alert.alert(
+      '이 그룹에 참여할까요?',
+      `${group.name} · ${group.currentMembers}/${group.maxMembers}명`,
+      [
+        { text: '취소', style: 'cancel' },
+        { text: '참여하기', onPress: () => join(group) },
+      ],
+    );
+  }
+
   return (
-    <SheetShell onClose={props.onClose}>
+    <SheetShell onClose={onClose}>
       <Text style={s.title}>그룹 찾기</Text>
-      <Text style={s.placeholder}>이름 검색은 준비 중이에요</Text>
+      <Text style={s.sub}>이름으로 공개 그룹을 찾아 바로 참여할 수 있어요.</Text>
+
+      {/* ── 검색 인풋(FriendAddScreen:132-149 관행) ── */}
+      <View style={s.searchBox}>
+        <Ionicons name="search" size={16} color={T.accent} />
+        <TextInput
+          style={s.searchInput}
+          value={query}
+          onChangeText={setQuery}
+          placeholder="그룹 이름으로 검색"
+          placeholderTextColor={T.inkMuted}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+        />
+        {query.length > 0 && (
+          <TouchableOpacity style={s.clearBtn} onPress={() => setQuery('')} hitSlop={14}>
+            <Ionicons name="close" size={11} color={T.inkMuted} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <ScrollView
+        style={s.listScroll}
+        contentContainerStyle={s.list}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {results.map((r) => {
+          // 정원이 찬 그룹은 흐리게 + 탭 비활성(§6-3)
+          const full = r.currentMembers >= r.maxMembers;
+          const joining = joiningId === r.groupId;
+          return (
+            <TouchableOpacity
+              key={r.groupId}
+              style={[s.row, full && s.rowFull]}
+              activeOpacity={0.85}
+              disabled={full || joiningId !== null}
+              onPress={() => confirmJoin(r)}
+            >
+              <Text style={s.rowName} numberOfLines={1}>
+                {r.name}
+              </Text>
+              <Text style={s.rowCount}>
+                {r.currentMembers}/{r.maxMembers}
+              </Text>
+              {joining ? (
+                <ActivityIndicator size="small" color={T.accent} />
+              ) : full ? (
+                <Text style={s.rowFullTag}>마감</Text>
+              ) : (
+                <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
+              )}
+            </TouchableOpacity>
+          );
+        })}
+
+        {q.length === 0 && <Text style={s.empty}>찾고 싶은 그룹 이름을 입력해보세요</Text>}
+        {q.length > 0 && results.length === 0 && (
+          <Text style={s.empty}>{searching ? '검색 중…' : '그런 이름의 공개 그룹이 없어요'}</Text>
+        )}
+      </ScrollView>
+
+      {/* 키보드 높이만큼 밀어 올린다(패널 자체 paddingBottom과 겹치지 않게 insets 분은 제외하지 않는다) */}
+      {keyboardHeight > 0 && <View style={{ height: keyboardHeight }} />}
     </SheetShell>
   );
 }
 
 const s = StyleSheet.create({
   title: { ...T.text.body, fontWeight: '800', color: T.ink },
-  placeholder: {
+  sub: {
     ...T.text.label,
     fontWeight: '500',
     color: T.inkMuted,
     marginTop: 2,
-    marginBottom: T.space.xxl,
+    marginBottom: T.space.md,
+  },
+
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.sm,
+    backgroundColor: T.paperAlt,
+    borderWidth: 1.5,
+    borderColor: T.accent,
+    borderRadius: 13,
+    paddingHorizontal: T.space.md,
+    height: 46,
+  },
+  searchInput: { ...T.text.label, flex: 1, color: T.ink, padding: 0 },
+  clearBtn: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: T.track,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  listScroll: { maxHeight: 320, marginTop: T.space.md },
+  list: { gap: T.space.sm, paddingBottom: T.space.xs },
+
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.md,
+    backgroundColor: T.paperAlt,
+    borderWidth: 1,
+    borderColor: T.border,
+    borderRadius: 14,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.md,
+  },
+  rowFull: { opacity: 0.45 },
+  rowName: { ...T.text.label, flex: 1, fontWeight: '700', color: T.ink, minWidth: 0 },
+  rowCount: { ...T.text.caption, color: T.inkSub },
+  rowFullTag: { ...T.text.caption, color: T.inkMuted },
+
+  empty: {
+    ...T.text.caption,
+    color: T.inkMuted,
+    textAlign: 'center',
+    paddingVertical: T.space.xxl,
   },
 });
