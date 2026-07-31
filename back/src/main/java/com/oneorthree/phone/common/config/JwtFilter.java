@@ -91,10 +91,13 @@ public class JwtFilter extends OncePerRequestFilter {
         // 키 정의는 AuthAttributes 에 있고, 읽는 쪽은 LoginUserArgumentResolver 와 TraceIdFilter 다.
         request.setAttribute(AuthAttributes.USER_ID, userId);
         // last_active_at 스로틀 갱신 (GROMO-578) — 미접속 복귀 푸시용 부가 데이터.
-        // 판정은 위 조회 결과로 이미 끝났다 — 그날 첫 요청에만 트랜잭션에 진입한다 (GROMO-903).
+        // 판정은 위 조회 결과로 이미 끝났다 — 스로틀 창을 벗어났을 때만 트랜잭션에 진입한다 (GROMO-903).
         // 갱신 실패가 요청 자체를 막지 않도록 예외 격리(요청은 그대로 진행).
+        // orElseThrow: 위 isEmpty 가드를 통과했으므로 값은 항상 존재한다. 비어 있다면 그건 가드가 깨진
+        // 버그이므로 조용히 null 을 흘리지 않고 즉시 드러낸다(needsTouch 의 null fail-safe 는 서비스
+        // public API 로서의 방어일 뿐, 이 호출부에서 기대하는 상태가 아니다).
         Instant now = Instant.now();
-        if (userActivityService.needsTouch(lastActiveAt.orElse(null), now)) {
+        if (userActivityService.needsTouch(lastActiveAt.orElseThrow(), now)) {
             try {
                 userActivityService.touchLastActive(userId, now);
             } catch (Exception e) {
