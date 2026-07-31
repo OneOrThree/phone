@@ -91,8 +91,8 @@ public class FriendService {
         if (me.equals(targetUserId)) {
             throw new FriendException(FriendErrorCode.SELF_REQUEST);
         }
-        User fromUser = getUser(me);
-        User toUser = getActiveTargetForCreate(targetUserId);
+        User fromUser = getRelationParticipant(me);
+        User toUser = getRelationParticipant(targetUserId);
 
         List<Friendship> pair = friendshipRepository.findPair(fromUser, toUser);
         for (Friendship f : pair) {
@@ -195,8 +195,9 @@ public class FriendService {
         if (me.equals(friendUserId)) {
             throw new FriendException(FriendErrorCode.SELF_PIN);
         }
-        getUser(me);                           // 나(me) 존재 검증 — 없으면 FK 위반 500 대신 NOT_FOUND(404)
-        getActiveTargetForCreate(friendUserId); // 대상 활성 검증 + 탈퇴와 직렬화 (GROMO-801)
+        // 양쪽 다 활성 검증 + 탈퇴와 직렬화 (GROMO-801) — 없으면 FK 위반 500 대신 NOT_FOUND(404)
+        getRelationParticipant(me);
+        getRelationParticipant(friendUserId);
         // ON CONFLICT DO NOTHING — 동시 핀 요청에도 멱등(중복은 무시), 500 없음.
         pinnedUserRepository.insertIgnoreConflict(UUID_V7.generate(), me, friendUserId);
     }
@@ -300,11 +301,14 @@ public class FriendService {
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }
 
-    // 관계 '생성'(친구 요청·핀) 대상 조회 (GROMO-801) — 활성 검증 + 공유 락.
+    // 관계 '생성'(친구 요청·핀)에 참여하는 유저 조회 (GROMO-801) — 활성 검증 + 공유 락.
     // 활성 검증: findById 를 쓰면 탈퇴자에게 요청이 걸리고, friendships 에 남은 (from,to) 유니크 제약과
     //           충돌해 500 이 난다.
     // 공유 락: 탈퇴 트랜잭션의 배타 락과 직렬화해, 정리가 끝난 뒤 새 관계가 끼어드는 레이스를 막는다.
-    private User getActiveTargetForCreate(UUID userId) {
+    // 관계는 두 유저를 묶으므로 대상뿐 아니라 호출자(me) 에도 걸어야 한다 — 한쪽만 잠그면 잠그지 않은 쪽이
+    // 탈퇴 중일 때 그 유저 소유의 유령 관계가 그대로 남는다.
+    // 공유 락끼리는 충돌하지 않아 동시 요청은 병렬 그대로고, 탈퇴(배타 락)하고만 직렬화된다.
+    private User getRelationParticipant(UUID userId) {
         return userRepository.findActiveByIdForShare(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }

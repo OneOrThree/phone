@@ -3,7 +3,9 @@ package com.oneorthree.phone.friend.repository;
 import com.oneorthree.phone.friend.domain.Friendship;
 import com.oneorthree.phone.friend.domain.FriendshipStatus;
 import com.oneorthree.phone.user.domain.User;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -29,6 +31,14 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
     // 화면을 열어둔 사이 발신자가 탈퇴하면 클라가 들고 있던 requestId 로 수락을 호출할 수 있는데,
     // deletedAt 을 안 보면 200 + FRIEND_ADDED 이벤트가 나가고도 친구 목록엔 안 나타난다
     // (findAcceptedByUser 는 deletedAt IS NULL 이므로).
+    //
+    // 배타 락이 필요한 이유: deletedAt IS NULL 은 '조회 시점' 조건일 뿐이라 락 없이는 lost update 가 난다.
+    // 수락이 행을 읽은 뒤 탈퇴가 그 행을 soft delete 하고 커밋하면, Friendship 에 @Version·@DynamicUpdate 가
+    // 없어 수락의 더티체킹 UPDATE 가 전체 컬럼을 자기 스냅샷으로 덮어쓴다 → deletedAt 이 다시 null 이 되며
+    // 관계가 ACCEPTED 로 되살아나 탈퇴자 유령 친구가 노출된다.
+    // 락을 잡으면 READ COMMITTED 에서 Postgres 가 잠금 획득 후 조건을 재평가하므로,
+    // 탈퇴가 먼저 커밋된 경우 이 조회가 빈 결과가 되어 REQUEST_NOT_FOUND 로 떨어진다.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Friendship> findByIdAndDeletedAtIsNull(UUID id);
 
     boolean existsByFromUserAndToUser(User fromUser, User toUser);
@@ -72,6 +82,9 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
     // 탈퇴 1회당 많아야 수백 건이라 건별 처리 비용은 무의미하다.
     // 주의: friendships 에는 UNIQUE(from_user_id, to_user_id) 뿐이라 to_user_id 단독 인덱스가 없다.
     // 아래 OR 의 to_user_id 브랜치는 인덱스를 못 탄다 — findAcceptedByUser 등 기존 OR 조회와 동일한 특성.
+    // 배타 락 — 위 findByIdAndDeletedAtIsNull 과 대칭. 정리 대상 행을 잠가야 수락·거절 트랜잭션과
+    // 서로의 UPDATE 를 덮어쓰지 않는다(둘 다 전체 컬럼 UPDATE 라 나중 커밋이 이긴다).
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT f FROM Friendship f"
             + " WHERE f.deletedAt IS NULL"
             + " AND (f.fromUser.id = :userId OR f.toUser.id = :userId)")
