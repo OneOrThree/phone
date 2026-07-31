@@ -1,16 +1,29 @@
 import { StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { CharacterImage } from '@/components/character/CharacterImage';
 
 // 그룹방 멤버 타일(3열 그리드 1칸) — 명세 docs/app/group-plan.md §6-4.
-// ⚠️ 스켈레톤: props 계약 + 최소 표시만 있고 아바타·방장 배지는 후속 워커(APP-5)가 채운다.
+// 아바타 + 닉네임 + 오늘 집중 시간. 방장은 왕관 배지로 구분한다.
 //
-// 구현 가이드(§6-4):
-//  · 아바타는 리그의 MemberAvatar(src/screens/league/components/MemberAvatar.tsx) 재사용 검토.
-//    2개 feature에서 쓰이게 되면 src/components/로 승격한다(app/.claude/CLAUDE.md 콜로케이션 규칙).
-//  · focusTimeMinutes는 null 가능 → '0분' 표기. 60분 이상은 '2시간' 꼴로 축약(리그 fmtMinutes 관행).
-//  · 방장(isOwner)은 왕관/배지 등으로 구분.
-//  · '＋ 초대' 타일은 이 컴포넌트가 아니라 GroupRoomScreen이 그린다 — 정원 초과 비활성 등
-//    그룹 단위 상태에 의존하기 때문.
+// 아바타는 리그의 MemberAvatar와 같은 모양이지만 그 파일을 import하지 않는다 —
+// feature 폴더 간 직접 참조는 콜로케이션 규칙 위반이고(2곳 이상 쓰이면 src/components/로 승격),
+// 승격은 리그 파일을 건드려야 해서 이번 작업 범위 밖이다. 공용 CharacterImage만 재사용한다.
+//
+// '＋ 초대' 타일은 이 컴포넌트가 아니라 GroupRoomScreen이 그린다 — 정원 초과 비활성 등
+// 그룹 단위 상태에 의존하기 때문.
+
+const AVATAR = 44;
+
+// 분 → '0분' / '45분' / '2시간' / '2시간 30분'. focusTimeMinutes는 null 가능 → 0분(§6-4).
+// 리그의 fmtMinutes는 '02:30:00' 디지털 표기라 타일에는 쓰지 않는다(명세 목업이 축약 표기).
+function fmtFocus(minutes: number | null): string {
+  const total = Math.max(0, Math.round(minutes ?? 0));
+  if (total < 60) return `${total}분`;
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return m === 0 ? `${h}시간` : `${h}시간 ${m}분`;
+}
 
 export interface MemberTileProps {
   nickname: string;
@@ -22,12 +35,18 @@ export interface MemberTileProps {
 export default function MemberTile({ nickname, focusTimeMinutes, isOwner }: MemberTileProps) {
   return (
     <View style={s.tile}>
+      <View style={s.avatar}>
+        <CharacterImage size={AVATAR * 0.66} />
+        {isOwner && (
+          <View style={s.crown}>
+            <Ionicons name="ribbon" size={10} color={T.white} />
+          </View>
+        )}
+      </View>
       <Text style={s.name} numberOfLines={1}>
         {nickname}
-        {isOwner ? ' 👑' : ''}
       </Text>
-      {/* TODO(APP-5, §6-4): 분 → '2시간 30분' 축약 표기로 교체 */}
-      <Text style={s.minutes}>{focusTimeMinutes ?? 0}분</Text>
+      <Text style={s.minutes}>{fmtFocus(focusTimeMinutes)}</Text>
     </View>
   );
 }
@@ -36,13 +55,35 @@ const s = StyleSheet.create({
   tile: {
     flex: 1,
     alignItems: 'center',
-    gap: 2,
+    gap: T.space.xs,
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.paperAlt,
     borderRadius: 14,
     paddingVertical: T.space.md,
     paddingHorizontal: T.space.sm,
+  },
+  avatar: {
+    width: AVATAR,
+    height: AVATAR,
+    borderRadius: AVATAR / 2,
+    backgroundColor: T.sand,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'visible',
+  },
+  crown: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: T.accent,
+    borderWidth: 2,
+    borderColor: T.white,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   name: { ...T.text.caption, fontWeight: '700', color: T.ink },
   minutes: { ...T.text.caption, fontWeight: '600', color: T.inkSub },
