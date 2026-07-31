@@ -66,16 +66,8 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // 스케줄러가 조회해 시작+상한으로 종료시각을 채워 '영원히 집중중' 오염을 제거한다.
     List<FocusSession> findByEndedAtIsNullAndStartedAtBefore(Instant threshold);
 
-    // 오늘 집중 여부 판정용(GROMO-579 순위 추월 억제조건 c) — 대상 유저들 중 오늘(KST 하루 구간)
-    // 시작한 세션이 하나라도 있는 유저 id 집합을 반환. startedAt 기준(라이브·소프트딜리트 무관 — '오늘 집중 행동을 했나'만 판단).
-    // 유저별 단건 조회 N+1 금지: 대상 유저 전체를 한 쿼리로 좁혀 in-memory 판정.
-    @Query("SELECT DISTINCT s.user.id FROM FocusSession s "
-            + "WHERE s.user.id IN :userIds AND s.startedAt >= :from AND s.startedAt < :to")
-    List<UUID> findUserIdsWithSessionStartedBetween(@Param("userIds") Collection<UUID> userIds,
-                                                    @Param("from") Instant from,
-                                                    @Param("to") Instant to);
-
-    // 오늘(KST 하루) 완료된 실집중 세션 보유 유저 id — 재참여 '오늘 집중 여부' 판정용(GROMO-841).
+    // 오늘(KST 하루) 완료된 실집중 세션 보유 유저 id — 재참여(GROMO-841)·순위 추월(GROMO-851)
+    // '오늘 집중 여부' 판정용.
     // endedAt 이 [from,to) 에 든 세션만(취소·orphan 자동종료 제외). DailyFocusStat.date(country_code 로컬 버킷)와 달리
     // 절대시각 endedAt 윈도우라 타임존에 견고하고(비-KST 유저도 정확), 자정 넘겨 끝난 세션도 종료일 기준으로 포함된다.
     // (findCompletedSessionsInPeriod 와 동일한 endedAt-윈도우 + status 필터 관례.)
@@ -88,7 +80,8 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
                                                          @Param("from") Instant from,
                                                          @Param("to") Instant to);
 
-    // 지금 집중 중(라이브) 유저 id — 재참여/스트릭 위기 푸시에서 '현재 집중 중'을 대상에서 제외(GROMO-841).
+    // 지금 집중 중(라이브) 유저 id — 재참여/스트릭 위기(GROMO-841)·순위 추월(GROMO-851) 푸시에서
+    // '현재 집중 중'을 대상에서 제외.
     // endedAt IS NULL 이면서 startedAt 이 liveSince 이후인 세션만 본다. startedAt 하한이 없으면 orphan 타임아웃
     // (FocusService.ORPHAN_TIMEOUT, 12h)을 넘겼는데 아직 스윕(GROMO-804) 안 된 미종료 세션(=버려진 세션, 실집중 0)까지
     // '라이브'로 잡혀, 정각 경합(스윕 지연) 시 알림을 과억제한다 → liveSince = now - 12h 로 최근 세션만 라이브로 인정.
