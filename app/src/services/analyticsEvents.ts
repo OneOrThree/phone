@@ -3,7 +3,8 @@
 // 화면/스토어에서는 이 헬퍼만 import해서 쓰고, track()을 직접 부르지 않는다.
 //
 // ⚠️ 서버(MP) 소스 이벤트([S])는 의도적으로 제외한다 — 클라에서 중복 발행하면 GA4에서 이중 집계된다.
-//    (예: focus_session_completed, group_joined 등은 백엔드 Measurement Protocol이 소유)
+//    (예: group_joined, poke_received 등은 백엔드 Measurement Protocol이 소유)
+//    단 focus_session_completed는 서버 미발행으로 클라 소유로 이관(GROMO-1004) — 서버 MP 배선 시 제외할 것.
 // ⚠️ PII 금지: 닉네임/생년월일/원본 식별정보를 이벤트·유저속성으로 보내지 않는다. 파생 비식별값만.
 import { track, setUserProperty } from '@/services/analytics';
 
@@ -103,9 +104,9 @@ export function logOnboardingCompleted(): void {
 }
 
 // ── 집중(Focus) [C] ──
-// 시작·일시정지·재개·메뉴·친구뷰만 클라가 발행한다(순수 클라 인터랙션).
-// 완료(focus_session_completed)는 서버 검증 이벤트([S])이므로 백엔드 MP가 소유 —
-// 클라에서 발행하지 않는다(FocusSessionScreen.finish 주석 참고).
+// 시작·일시정지·재개·완료·포기·메뉴·친구뷰를 클라가 발행한다.
+// 완료(focus_session_completed)는 원래 서버 검증 이벤트([S])였으나 서버가 MP를 발행하지 않아
+// 클라 소유로 이관(GROMO-1004) — 서버 MP 배선에서 이 이벤트를 빼야 이중 집계가 없다.
 export type FocusMode = 'countup' | 'countdown' | 'pomodoro';
 
 // 세션 시작. has_tag: 과목 부착 여부, mode: 타이머 모드, goal_minutes: 목표(카운트다운/뽀모도로).
@@ -127,7 +128,19 @@ export function logFocusSessionResumed(): void {
   track('focus_session_resumed');
 }
 
-// 세션 중도 포기 — 정상 완료 전 이탈/자동종료. reason 예: 'user_exit' | 'leave_timeout'.
+// 세션 정상 완료 — 유저 주도 종료(완주 확인·정지 버튼) 시 모드 무관 발행(GROMO-1004).
+// abandoned(이탈 타임아웃)와 상호배타 — 한 세션은 둘 중 하나만 발행한다.
+// core WAU·활성화 마커(가입 후 첫 완료)·F1-b/F2 완료 칸이 이 이벤트로 계산된다.
+export function logFocusSessionCompleted(p: {
+  mode: FocusMode;
+  focus_minutes: number;
+  has_tag: boolean;
+}): void {
+  track('focus_session_completed', p);
+}
+
+// 세션 중도 포기 — 이탈 타임아웃 자동 종료 전용(reason: 'leave_timeout').
+// 정지 버튼 종료는 completed로 계측한다(GROMO-1004에서 'user_exit' 발행 제거).
 export function logFocusSessionAbandoned(p: { elapsed_seconds: number; reason: string }): void {
   track('focus_session_abandoned', p);
 }
@@ -172,7 +185,7 @@ export function logFocusResultCompareAxisChanged(p: { axis: CompareAxisParam }):
 }
 
 // ── 홈(Home) 인터랙션 [C] ──
-// 홈 화면 진입 + 오늘 요약 조회. focus_session_completed([S])는 여기서 발행하지 않는다.
+// 홈 화면 진입 + 오늘 요약 조회. focus_session_completed는 세션 화면(finish)이 발행 — 여기선 안 한다.
 // 집중 세션 리스트·PIN 친구 UI는 v2 홈(GROMO-552)에 아직 없어, 관련 이벤트는 해당 UI 도입 시 추가한다(GROMO-537).
 export function logHomeViewed(): void {
   track('home_viewed');

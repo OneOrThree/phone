@@ -50,6 +50,7 @@ import {
   logFocusSessionStarted,
   logFocusSessionPaused,
   logFocusSessionResumed,
+  logFocusSessionCompleted,
   logFocusSessionAbandoned,
   logFocusMenuOpened,
   logFocusViewChanged,
@@ -174,6 +175,8 @@ export default function FocusSessionScreen() {
     return () => sub.remove();
   }, []);
   const finishedRef = useRef(false);
+  // 이탈 타임아웃으로 abandoned를 발행한 세션 — finish의 completed 발행과 상호배타 보장(GROMO-1004)
+  const abandonedRef = useRef(false);
   const startedAtRef = useRef(new Date().toISOString());
   // 서버 업로드 정산 마커 — 이미 정산(로컬·코인·서버 업로드)된 집중초/코인, 미정산 구간 시작 시각.
   // 뽀모도로는 집중 블록마다, 그 외 모드는 종료 시 한 번 정산한다.
@@ -203,7 +206,7 @@ export default function FocusSessionScreen() {
 
   // 집중 세션 시작 계측(GROMO-537) — 실제 세션 화면 진입 시 1회.
   // has_tag: 과목 부착 여부(현재 v2는 과목 선택이 필수라 항상 true지만, 계약상 명시). mode: 타이머 모드.
-  // 완료(focus_session_completed)는 서버 검증 이벤트[S]라 클라에서 발행하지 않는다.
+  // 완료(focus_session_completed)는 finish가 발행한다(GROMO-1004 — 서버[S]에서 클라 소유로 이관).
   useEffect(() => {
     // 목표 시간(초→분): 카운트다운=목표, 뽀모도로=집중블록×세트 총 집중분. 카운트업은 목표 없음.
     const goalSecondsForLog =
@@ -512,6 +515,16 @@ export default function FocusSessionScreen() {
     async (completed = sessionRef.current.done) => {
       if (finishedRef.current) return;
       finishedRef.current = true;
+      // 정상 완료 계측(GROMO-1004) — 유저 주도 종료(완주 확인·정지 버튼)는 모드 무관 완료로 센다.
+      // 이탈 타임아웃만 abandoned로 남아 한 세션은 완료/포기 중 하나만 발행된다.
+      // completed 인자(별점 게이트, GROMO-980)와는 별개 기준 — 중도 정지도 계측상으론 완료다.
+      if (!abandonedRef.current) {
+        logFocusSessionCompleted({
+          mode,
+          focus_minutes: Math.round(sessionRef.current.elapsed / 60),
+          has_tag: Boolean(subjectId),
+        });
+      }
       // 세션 종료(완료/취소 공통 경로) — 보고 있던 뷰의 마지막 체류 flush(GROMO-987).
       // 완료 게이트가 이미 발행했다면 건너뛴다 — 게이트를 열어둔 시간이 직전 뷰의 체류로
       // 다시 계상되는 이중 발행 방지(코덱스 리뷰).
@@ -545,6 +558,7 @@ export default function FocusSessionScreen() {
       navigation,
       subjectId,
       subjectName,
+      mode,
     ],
   );
 
@@ -710,6 +724,7 @@ export default function FocusSessionScreen() {
         } else if (away > LEAVE_END_S) {
           // 폴백(실드 없음) — 15초 초과 시 자동 종료(나가기 직전까지만 저장)
           // 정상 완료가 아닌 중도 이탈 종료이므로 abandoned 계측(reason: leave_timeout).
+          abandonedRef.current = true;
           logFocusSessionAbandoned({
             elapsed_seconds: Math.floor(sessionRef.current.elapsed),
             reason: 'leave_timeout',
@@ -770,15 +785,10 @@ export default function FocusSessionScreen() {
     }
   }, [startLiveSession]);
 
-  // 정지 버튼(사용자 수동 종료) — 아직 완료되지 않은 세션을 끝내는 것이므로 abandoned 계측 후 종료.
-  // 카운트다운/뽀모도로 정상 완료는 done 이펙트가 finish를 부르므로 이 경로를 타지 않는다.
+  // 정지 버튼(사용자 수동 종료) — 유저가 직접 마친 세션이므로 모드 무관 completed로 계측한다
+  // (GROMO-1004, abandoned는 이탈 타임아웃 전용 — finish 안에서 발행). completed 인자는 별점
+  // 게이트(GROMO-980) 기준이라 그대로 둔다 — 중도 정지엔 별점창을 띄우지 않는 결정 유지.
   const stopByUser = useCallback(() => {
-    if (!finishedRef.current && !sessionRef.current.done) {
-      logFocusSessionAbandoned({
-        elapsed_seconds: Math.floor(sessionRef.current.elapsed),
-        reason: 'user_exit',
-      });
-    }
     // countup은 done이 없어 정지가 유일한 정상 종료 경로 — 완료로 취급한다(별점 게이트용).
     finish(sessionRef.current.done || mode === 'countup');
   }, [finish, mode]);
