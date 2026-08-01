@@ -139,8 +139,8 @@ export function logFocusSessionCompleted(p: {
   track('focus_session_completed', p);
 }
 
-// 세션 중도 포기 — 이탈 타임아웃 자동 종료 전용(reason: 'leave_timeout').
-// 정지 버튼 종료는 completed로 계측한다(GROMO-1004에서 'user_exit' 발행 제거).
+// 세션 중도 포기 — 이탈 타임아웃 자동 종료('leave_timeout')와 finish를 안 거친 화면 이탈
+// ('system_back' — 안드로이드 시스템 back 등). 정지 버튼 종료는 completed로 계측(GROMO-1004).
 export function logFocusSessionAbandoned(p: { elapsed_seconds: number; reason: string }): void {
   track('focus_session_abandoned', p);
 }

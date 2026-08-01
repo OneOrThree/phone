@@ -424,6 +424,16 @@ export default function FocusSessionScreen() {
       if (!finishedRef.current) {
         cancelLiveSession();
         if (!dwellDoneRef.current) flushViewDwell();
+        // 종결 계측 — finish를 안 거친 이탈도 abandoned로 남긴다(코덱스 리뷰). 안 남기면
+        // 이 세션은 완료/포기 어느 쪽도 안 찍혀 상호배타가 깨진다. 시간 적립은 라이브
+        // 레코드가 남아 다음 실행의 고아 정산이 처리하므로 여기선 계측만 한다.
+        if (!abandonedRef.current && !completedLoggedRef.current) {
+          abandonedRef.current = true;
+          logFocusSessionAbandoned({
+            elapsed_seconds: Math.floor(sessionRef.current.elapsed),
+            reason: 'system_back',
+          });
+        }
       }
     },
     [cancelLiveSession, flushViewDwell],
