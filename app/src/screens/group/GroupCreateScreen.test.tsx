@@ -20,21 +20,29 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
 }));
 
-// 이탈 차단 리스너를 테스트가 직접 굴린다(실제 스택 없이).
+// 화면이 'beforeRemove'로 생성 중 이탈을 막는다 — 스텁이 등록만 삼키면 그 방어가 통째로
+// 검증 밖으로 나가므로, 붙은 핸들러를 잡아 두고 테스트에서 직접 이벤트를 흘려보낸다.
 // jest.mock 팩토리는 mock 접두 변수만 참조할 수 있어 홀더 객체에 담는다.
 const mockNav = {
   goBack: jest.fn(),
   navigate: jest.fn(),
   beforeRemove: null as ((e: { preventDefault: () => void }) => void) | null,
 };
+// 해제 함수는 잡아 둔 핸들러를 비운다 — 언마운트된 화면의 리스너가 살아남으면
+// 다음 테스트가 이미 사라진 화면의 이탈 차단을 검증하게 된다.
+const mockAddListener = jest.fn(
+  (event: string, cb: (e: { preventDefault: () => void }) => void) => {
+    if (event === 'beforeRemove') mockNav.beforeRemove = cb;
+    return () => {
+      if (event === 'beforeRemove') mockNav.beforeRemove = null;
+    };
+  },
+);
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
     goBack: mockNav.goBack,
     navigate: mockNav.navigate,
-    addListener: (event: string, cb: (e: { preventDefault: () => void }) => void) => {
-      if (event === 'beforeRemove') mockNav.beforeRemove = cb;
-      return () => {};
-    },
+    addListener: mockAddListener,
   }),
 }));
 
