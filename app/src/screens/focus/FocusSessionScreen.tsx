@@ -99,8 +99,8 @@ export default function FocusSessionScreen() {
   const pomo = params.pomodoro ?? { focusMin: 25, breakMin: 5, sets: 4 };
 
   const { width } = useWindowDimensions();
-  const { userId } = useUser();
-  const { addFocusSeconds } = useFocus();
+  const { userId, nickname } = useUser();
+  const { addFocusSeconds, todayFocusSeconds } = useFocus();
   const { addCoins } = useCoins();
   const { subjects, addFocusToSubject } = useSubjects();
   // Live Activity 시작 시점에 읽을 과목 목록 — effect 재실행 없이 최신값 참조용
@@ -112,16 +112,19 @@ export default function FocusSessionScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   // 완료 게이트(GROMO-864) — 카운트다운 종료 시 결과 화면 직행 대신 확인을 받는다
   const [doneGate, setDoneGate] = useState(false);
-  // 친구 전체 라이브 상태 — 60초 폴링·포그라운드 복귀 갱신 (09 친구 그리드 실데이터)
-  const { friends: sessionFriends } = useFocusFriends();
-  // 리그(811)·같은 시험(812) 그리드 라이브 멤버 — 내 행 제외(내 모습은 캐릭터 페이지가 담당)
+  // 친구 전체 라이브 상태 — 60초 폴링·포그라운드 복귀 갱신 (09 친구 그리드 실데이터).
+  // pinnedIds는 그리드 3종 공통 핀 우선 정렬용(932) — 리그 그리드도 같은 집합을 쓴다.
+  const { friends: sessionFriends, pinnedIds } = useFocusFriends();
+  // 리그(811)·같은 시험(812) 그리드 라이브 멤버 — 서버의 내 행은 제외하고, 내 셀은 로컬
+  // 타이머 기준으로 그리드가 따로 렌더한다(GROMO-932, 아래 myGridMe) — 중복·시차 방지
   const myCategory = useFocusCategory();
   const myOccupation = occupationForCategory(myCategory);
-  const { members: leagueMembers } = useSessionLeagueMembers({ excludeUserId: userId });
+  const { members: leagueMembers } = useSessionLeagueMembers({ excludeUserId: userId, pinnedIds });
   const { members: examMembers } = useSessionLeagueMembers({
     occupation: myOccupation ?? undefined,
     enabled: myOccupation != null,
     excludeUserId: userId,
+    pinnedIds,
   });
   const [session, setSession] = useState<SessionState>(() => ({
     elapsed: 0,
@@ -185,6 +188,15 @@ export default function FocusSessionScreen() {
   const settledSecondsRef = useRef(0);
   const settledCoinsRef = useRef(0);
   const settleAtRef = useRef(startedAtRef.current);
+  // 내 그리드 셀 오늘 몫 집계(GROMO-932) — todayFocusSeconds는 FocusProvider 마운트 시에만
+  // 날짜를 확인해 세션이 자정을 넘기면 어제 누적이 남는다. 렌더 시점 스냅샷으로 걷어내는
+  // 방식은 백그라운드 리플레이가 첫 렌더 전에 자정 이후 블록을 정산하면 그 몫까지 스냅샷에
+  // 섞여 오늘 몫에서 빠진다(코덱스 리뷰). 그래서 렌더 순서와 무관하게 직접 집계한다:
+  //   세션 전 오늘 몫(마운트 시점 todayFocusSeconds — 날짜가 바뀌면 0)
+  //   + 이 세션이 오늘로 귀속시킨 정산 델타(settleFocusBlock에서 날짜 키로 누적)
+  //   + 미정산 경과(블록은 endedAt 날짜 귀속이라는 정산 규칙대로 통째로 오늘 몫)
+  const gridPreSessionRef = useRef({ day: todayStr(), base: todayFocusSeconds });
+  const gridSettledTodayRef = useRef({ day: todayStr(), seconds: 0 });
   // 서버 라이브 마커 세션(GROMO-873) — 시작 시 진행 중(endedAt NULL) 레코드를 만들어 친구/리그에
   // '집중 중'으로 뜨게 한다. 표시용 마커일 뿐 시간 저장·통계는 기존 완주 저장(POST, settleFocusBlock)이
   // 담당하고, 마커는 블록 정산·세션 종료 시 취소(통계 미귀속)로 닫는다 — 이중 집계 없음. liveIdRef는
@@ -465,6 +477,11 @@ export default function FocusSessionScreen() {
       if (localDateStr(new Date(endedAt)) === todayStr()) {
         addFocusSeconds(delta);
         addFocusToSubject(subjectId, delta);
+        // 내 그리드 셀 오늘 몫에도 같은 귀속 규칙으로 누적 — 리플레이가 렌더 전에 정산해도 안전
+        if (gridSettledTodayRef.current.day !== todayStr()) {
+          gridSettledTodayRef.current = { day: todayStr(), seconds: 0 };
+        }
+        gridSettledTodayRef.current.seconds += delta;
       }
       if (newCoins > 0) addCoins(newCoins);
       // 마커 회전(코덱스 리뷰) — 정산된 블록은 서버 누적(base)에 들어가는데 마커를 그대로 두면
@@ -855,6 +872,20 @@ export default function FocusSessionScreen() {
     },
   ];
 
+  // 내 그리드 셀(GROMO-932) — 오늘 총 집중 = 세션 전 오늘 몫 + 세션의 오늘 정산 몫 + 미정산 경과.
+  // 집계 방식·자정 경계 규칙은 gridPreSessionRef 선언부 주석 참고. 타이머 틱마다 리렌더돼 오른다.
+  const gridDay = todayStr();
+  const myGridMe = {
+    nickname: nickname || '나',
+    // 일시정지·뽀모도로 휴식·완료 게이트에선 비집중 표시 — 그리드의 초록은 isFocusing 의미(코덱스 리뷰)
+    isFocusing: !paused && session.phase === 'focus' && !session.done,
+    totalSeconds:
+      (gridPreSessionRef.current.day === gridDay ? gridPreSessionRef.current.base : 0) +
+      (gridSettledTodayRef.current.day === gridDay ? gridSettledTodayRef.current.seconds : 0) +
+      Math.max(0, Math.floor(session.elapsed) - settledSecondsRef.current),
+    tagName: subjectName,
+  };
+
   return (
     <View testID="focus.session.screen" style={s.root}>
       <LinearGradient colors={[T.night.top, T.night.bottom]} style={StyleSheet.absoluteFill} />
@@ -895,6 +926,8 @@ export default function FocusSessionScreen() {
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
               members={sessionFriends}
+              me={myGridMe}
+              pinnedIds={pinnedIds}
               title="내 친구"
               emptyTitle="아직 친구가 없어요"
               emptySub={'리그 탭에서 친구를 추가하면\n집중할 때 여기서 같이 보여요.'}
@@ -909,6 +942,8 @@ export default function FocusSessionScreen() {
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
               members={examMembers}
+              me={myGridMe}
+              pinnedIds={pinnedIds}
               title={myCategory ? `${myCategory} 리그` : '같은 시험'}
               emptyTitle={
                 myOccupation == null
@@ -925,6 +960,8 @@ export default function FocusSessionScreen() {
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
               members={leagueMembers}
+              me={myGridMe}
+              pinnedIds={pinnedIds}
               title="전체 리그"
               emptyTitle="아직 리그 멤버가 없어요"
               emptySub={'리그에 배정되면 여기서\n같이 공부하는 모습이 보여요.'}
