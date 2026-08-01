@@ -1,7 +1,10 @@
 package com.oneorthree.phone.group.service;
 
+import com.oneorthree.phone.common.analytics.Ga4MeasurementClient;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.domain.Group;
@@ -49,6 +52,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -70,6 +74,8 @@ public class GroupService {
     private final PasswordEncoder passwordEncoder;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserActivityEventLogger userActivityEventLogger;
+    private final GroupInviteLinkRepository groupInviteLinkRepository;
+    private final Ga4MeasurementClient ga4MeasurementClient;
 
     // 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 참가 코드 생성 전용 상수다.
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -269,8 +275,59 @@ public class GroupService {
                 .role(GroupMemberRole.MEMBER)
                 .build());
 
-        // todo: 그룹 들어온 방식 (code, search) 나중에 추가하기
-        userActivityEventLogger.log(UserActivityEvent.GROUP_JOINED, Map.of("group_id", group.getId().toString()));
+        // 7. 어트리뷰션 — 참여 경로(join_method)와 초대 slug 를 두 트랙에 기록한다.
+        //    공유 URL 의 ?g= 는 변조 가능하므로 "링크의 group_id == 참여 그룹" 만이 신뢰 근거다(스펙 §6-3).
+        //    불일치·미존재면 slug 만 버리고 참여 자체는 정상 진행한다 — 초대 어트리뷰션은 부가 정보다.
+        GroupInviteLink invite = resolveInviteAttribution(groupId, request.getInviteSlug());
+        logGroupJoined(group, request, invite);
+        // GA4 group_joined 은 서버 단독 소유 이벤트다(앱이 중복 발행하지 않는다 — 스펙 §4-3 8행).
+        // 전송은 @Async fire-and-forget 이라 이 트랜잭션을 붙잡지 않고, 실패해도 예외가 올라오지 않는다.
+        ga4MeasurementClient.sendAppEvent(
+                request.getAppInstanceId(), "group_joined", ga4JoinParams(group, request, invite));
+    }
+
+    /**
+     * slug → 초대 링크. 링크가 가리키는 그룹이 실제 참여 그룹과 다르면 어트리뷰션을 인정하지 않는다.
+     * slug 가 없으면 조회 자체를 하지 않는다(구버전 앱 요청은 DB 왕복 0회).
+     */
+    private GroupInviteLink resolveInviteAttribution(UUID groupId, String inviteSlug) {
+        if (inviteSlug == null || inviteSlug.isBlank()) {
+            return null;
+        }
+        return groupInviteLinkRepository.findBySlug(inviteSlug)
+                .filter(link -> groupId.equals(link.getGroupId()))
+                .orElse(null);
+    }
+
+    /**
+     * Track2(user-activity) {@code GROUP_JOINED}. 값이 없는 키는 아예 넣지 않는다 —
+     * 빈 값을 채워 넣으면 "구버전 앱이라 안 보냄"과 "검색으로 들어옴"을 구분할 수 없게 된다.
+     */
+    private void logGroupJoined(Group group, JoinGroupRequest request, GroupInviteLink invite) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("group_id", group.getId().toString());
+        if (request.getJoinMethod() != null && !request.getJoinMethod().isBlank()) {
+            payload.put("join_method", request.getJoinMethod());
+        }
+        if (invite != null) {
+            payload.put("invite_slug", invite.getSlug());
+            payload.put("inviter_id", invite.getInviterId().toString());
+        }
+        userActivityEventLogger.log(UserActivityEvent.GROUP_JOINED, payload);
+    }
+
+    /**
+     * GA4 {@code group_joined} 파라미터. Track2 와 키 이름이 일부러 다르다
+     * (GA4 는 {@code slug}, Track2 는 {@code invite_slug} — 스펙 §4-3 / §6-3).
+     * null 값은 GA4 클라이언트가 제거하므로 여기서 분기하지 않는다.
+     */
+    private Map<String, Object> ga4JoinParams(Group group, JoinGroupRequest request, GroupInviteLink invite) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("group_id", group.getId().toString());
+        params.put("join_method", request.getJoinMethod());
+        params.put("slug", invite == null ? null : invite.getSlug());
+        params.put("inviter_present", invite != null);
+        return params;
     }
 
     public GroupOverviewResponse getGroupOverview(UUID groupId, UUID userId) {
