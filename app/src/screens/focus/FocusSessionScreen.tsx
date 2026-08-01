@@ -604,8 +604,17 @@ export default function FocusSessionScreen() {
     prevPhaseRef.current = cur;
     Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
     if (prev === 'focus' && cur === 'break') {
+      // 휴식 동안 알림 크로노미터도 정지(안드로이드, 코드리뷰 반영) — 수동 togglePause만
+      // 배선하면 뽀모도로 휴식마다 잠금화면 경과가 휴식 시간만큼 앞서간다. 네이티브 pause는
+      // 멱등이라 휴식 중 수동 일시정지가 겹쳐도 무해하다.
+      if (Platform.OS === 'android') ScreenTimeModule.pauseFocusActivity().catch(() => {});
       settleFocusBlock();
     } else if (prev === 'break' && cur === 'focus') {
+      // 재개는 실제 집중이 시작될 때만 — 휴식 만료가 일시정지 대기(markerDeferred)로 이어진
+      // 경우엔 togglePause의 재개 분기가 resume을 부른다(여기서 풀면 대기 내내 크로노미터가
+      // 흐른다).
+      if (Platform.OS === 'android' && !pausedRef.current)
+        ScreenTimeModule.resumeFocusActivity().catch(() => {});
       settleAtRef.current = new Date().toISOString();
       if (pausedRef.current) {
         // 휴식 만료 복귀가 다음 블록을 일시정지 대기로 만든 경우 — 지금 열면 대기 내내
@@ -631,6 +640,16 @@ export default function FocusSessionScreen() {
       // 나감 — 타이머가 실제 돌고 있을 때만 이탈로 취급(일시정지·완료 중은 무시)
       if (state === 'background') {
         if (sessionRef.current.done || finishedRef.current || pausedRef.current) return;
+        // 오버레이 권한 설정 왕복(안드로이드, 코드리뷰 반영) — startFocusShield의 1회 안내로
+        // 설정에 간 구간은 이탈로 기록하지 않는다. 이때는 실드가 아직 안 켜져 있어 15초 정책이
+        // "허용하지 않아도 집중은 계속" 안내와 모순되게 세션을 끝내버린다. 진입 시점에 기록
+        // (leftAt) 자체를 안 남기므로 복귀 시 'active' 이벤트와 권한 resolve(플래그 해제)의
+        // 순서 레이스와 무관하게 안전하고, 왕복이 끝난 뒤의 이탈부터는 정상 판정이 재개된다.
+        // 저장만 해두고(왕복 중 강제 종료 대비) 빠진다.
+        if (ScreenTimeModule.isOverlayPermissionTripActive()) {
+          saveLive(sessionRef.current.elapsed);
+          return;
+        }
         leftAtRef.current = Date.now();
         leftPhaseRef.current = sessionRef.current.phase;
         leftSessionRef.current = sessionRef.current; // 리플레이 기준 스냅샷(leftAt과 짝)
@@ -771,7 +790,10 @@ export default function FocusSessionScreen() {
       if (Platform.OS === 'android') ScreenTimeModule.pauseFocusActivity().catch(() => {});
       logFocusSessionPaused({ elapsed_seconds: Math.floor(sessionRef.current.elapsed) });
     } else {
-      if (Platform.OS === 'android') ScreenTimeModule.resumeFocusActivity().catch(() => {});
+      // 휴식 중 수동 재개는 크로노미터를 풀지 않는다 — 휴식 구간은 페이즈 전환이 걸어둔
+      // pause가 유지돼야 하고(코드리뷰 반영), 휴식→집중 전환이 다시 resume한다.
+      if (Platform.OS === 'android' && sessionRef.current.phase === 'focus')
+        ScreenTimeModule.resumeFocusActivity().catch(() => {});
       // 일시정지 대기로 유예해둔 다음 블록 마커 — 실제 집중이 시작되는 재개 시점부터 연다.
       // 정산 기준(settleAt)도 재개 시점으로 — 대기 동안은 경과초가 멈춰 있어 안전(코덱스 리뷰).
       if (markerDeferredRef.current) {
