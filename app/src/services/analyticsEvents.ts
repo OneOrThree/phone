@@ -210,7 +210,11 @@ export function logTodaySummaryViewed(p: { focus_minutes: number }): void {
 }
 
 // 홈 버튼 탭 — 어떤 버튼(button)을 눌러 어디로(destination 라우트) 이동했는지 기록.
-export type HomeButton = 'today_summary_detail' | 'phone_usage' | 'notification_bell';
+export type HomeButton =
+  | 'today_summary_detail'
+  | 'phone_usage'
+  | 'notification_bell'
+  | 'character_change';
 export function logHomeButtonTapped(p: { button: HomeButton; destination: string }): void {
   track('home_button_tapped', p);
 }

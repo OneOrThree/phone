@@ -40,6 +40,7 @@ import type { LoginResult, UserProfile } from '@/types/api';
 import { UserProvider } from '@/store/UserContext';
 import { CoinProvider, transferOwnedItems } from '@/store/CoinContext';
 import { EquipmentProvider, transferEquipment } from '@/store/EquipmentContext';
+import { CharacterProvider, transferCharacter } from '@/store/CharacterContext';
 import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
 import { T } from '@/constants/theme';
@@ -298,6 +299,9 @@ function App() {
         await transferEquipment(prevUserId, userId)
           .catch(() => transferEquipment(prevUserId, userId))
           .catch(() => {});
+        await transferCharacter(prevUserId, userId)
+          .catch(() => transferCharacter(prevUserId, userId))
+          .catch(() => {});
       }
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.focusCategory,
@@ -453,21 +457,23 @@ function App() {
       >
         <CoinProvider>
           <EquipmentProvider>
-            <FocusProvider>
-              <SubjectProvider>
-                {/* 강제 종료된 세션 정산 — 라이브 레코드가 있으면 적립 후 삭제 */}
-                <OrphanFocusSettler />
-                {/* 업로드 실패로 대기열에 남은 집중 세션 재전송(앱 시작·포그라운드 복귀) */}
-                <PendingFocusUploader />
-                {/* 로그인 상태에서 푸시 권한·토큰 등록·수신 배선 */}
-                <PushGate />
-                {/* 예약된 목표('내일부터 적용')가 발효일 지나면 반영 */}
-                <PendingGoalApplier />
-                {/* 스크린타임 사용량 서버 동기화(어제 마감 + 오늘 중간값, 앱 시작·포그라운드 복귀) */}
-                <ScreenTimeSyncer />
-                <RootNavigator />
-              </SubjectProvider>
-            </FocusProvider>
+            <CharacterProvider>
+              <FocusProvider>
+                <SubjectProvider>
+                  {/* 강제 종료된 세션 정산 — 라이브 레코드가 있으면 적립 후 삭제 */}
+                  <OrphanFocusSettler />
+                  {/* 업로드 실패로 대기열에 남은 집중 세션 재전송(앱 시작·포그라운드 복귀) */}
+                  <PendingFocusUploader />
+                  {/* 로그인 상태에서 푸시 권한·토큰 등록·수신 배선 */}
+                  <PushGate />
+                  {/* 예약된 목표('내일부터 적용')가 발효일 지나면 반영 */}
+                  <PendingGoalApplier />
+                  {/* 스크린타임 사용량 서버 동기화(어제 마감 + 오늘 중간값, 앱 시작·포그라운드 복귀) */}
+                  <ScreenTimeSyncer />
+                  <RootNavigator />
+                </SubjectProvider>
+              </FocusProvider>
+            </CharacterProvider>
           </EquipmentProvider>
         </CoinProvider>
       </UserProvider>

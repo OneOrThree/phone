@@ -16,6 +16,7 @@ export interface SubjectMaskResult {
 interface SubjectMaskNativeModule {
   isSupported(): boolean;
   cutout(uri: string): Promise<SubjectMaskResult>;
+  saveCustomCharacter(base64: string): Promise<string>;
 }
 
 const native = requireOptionalNativeModule<SubjectMaskNativeModule>('SubjectMask');
@@ -67,4 +68,15 @@ export async function cutoutSubject(
   } catch {
     return { ...fallback, reason: 'vision_failed' };
   }
+}
+
+// 합성된 오브젝트 캐릭터(팔·다리·눈 포함 투명 PNG)를 기기 Documents에 영구 저장하고
+// 그 file:// 경로를 돌려준다. 작은 아바타·위젯·실드 등 여러 곳에서 이 한 장을 축소해 쓴다.
+// cutout과 달리 폴백이 없다 — 네이티브 저장 없이는 영구 캐릭터를 만들 수 없으므로
+// 네이티브 모듈이 링크되지 않은 빌드에서는 명확히 throw한다.
+export async function saveCustomCharacter(base64: string): Promise<string> {
+  if (!native) {
+    throw new Error('배경 제거 모듈이 없어 커스텀 캐릭터를 저장할 수 없어요.');
+  }
+  return native.saveCustomCharacter(base64);
 }

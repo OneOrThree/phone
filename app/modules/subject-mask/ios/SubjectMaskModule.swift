@@ -24,6 +24,7 @@ private enum SubjectMaskError: Error {
   case noSubject
   case renderFailed
   case encodeFailed
+  case decodeFailed
 }
 
 public class SubjectMaskModule: Module {
@@ -68,6 +69,22 @@ public class SubjectMaskModule: Module {
         result.reason = "vision_failed"
         return result
       }
+    }
+
+    // 합성된 오브젝트 캐릭터(팔·다리·눈까지 구워진 투명 PNG)를 Documents에 영구 저장한다.
+    // 화면에서 captureRef로 캡처한 base64 PNG를 그대로 받아 customCharacter.png 한 장으로 쓴다
+    // (이전 것을 덮어써 항상 1장만 유지). 이건 인앱 캐릭터 원본이라 cutout처럼 축소하지 않는다 —
+    // 작은 아바타·위젯·실드는 이 원본을 각자 크기로 축소해 쓴다.
+    // cutout과 달리 실패 시 폴백하지 않고 throw한다(영구 저장은 성공/실패가 명확해야 한다).
+    AsyncFunction("saveCustomCharacter") { (base64: String) -> String in
+      guard let data = Data(base64Encoded: base64), UIImage(data: data) != nil else {
+        throw SubjectMaskError.decodeFailed
+      }
+      let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+      let file = dir.appendingPathComponent("customCharacter.png")
+      // .atomic: 임시 파일에 쓴 뒤 원자적으로 교체 — 이전 파일을 안전하게 덮어쓴다.
+      try data.write(to: file, options: .atomic)
+      return file.absoluteString
     }
   }
 

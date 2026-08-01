@@ -15,6 +15,7 @@ import FamilyControls  // 스크린 타임 권한 요청에 필요한 Apple 프�
 import DeviceActivity  // DeviceActivityCenter, DeviceActivitySchedule, DeviceActivityEvent
 import ManagedSettings // 집중 세션 중 앱 차단(shield)
 import SwiftUI         // FamilyActivityPicker 표시용
+import WidgetKit       // 캐릭터 스냅샷 변경 시 홈 위젯 타임라인 새로고침
 
 // @objc: Objective-C 런타임에 노출 (React Native 브릿지가 ObjC 기반이라 필요)
 @objc(ScreenTimeModule)
@@ -733,6 +734,9 @@ class ScreenTimeModule: NSObject {
         }
         do {
             try png.write(to: container.appendingPathComponent("focusCharacter.png"))
+            // 스냅샷 파일이 바뀌었으니 홈 위젯 타임라인을 새로고침해 새 캐릭터를 즉시 반영한다.
+            // Live Activity·가림막(실드)은 다음 표시 때 파일을 다시 읽으므로 추가 호출이 필요 없다.
+            WidgetCenter.shared.reloadAllTimelines()
             resolve(true)
         } catch {
             resolve(false)

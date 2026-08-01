@@ -26,16 +26,20 @@ Object.values(SOURCES).forEach((mod) => {
 export function CharacterImage({
   size,
   variant = 'default',
+  sourceUri,
   onLoad,
 }: {
   size: number;
   variant?: CharacterVariant;
+  /** 오브젝트 캐릭터(누끼) URI. 있으면 정적 에셋 대신 이 이미지를 그린다(같은 size·contain 박스).
+   *  없으면 기존 variant 정적 에셋 동작 그대로 — 기존 호출부는 이 prop을 넘기지 않으므로 영향 없음. */
+  sourceUri?: string;
   /** 이미지 표시 완료 콜백 — 축하 모달이 색종이 시작 타이밍을 맞추는 데 쓴다 */
   onLoad?: ImageProps['onLoad'];
 }) {
   return (
     <Image
-      source={SOURCES[variant]}
+      source={sourceUri ? { uri: sourceUri } : SOURCES[variant]}
       style={{ width: size, height: size }}
       resizeMode="contain"
       onLoad={onLoad}

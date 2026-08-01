@@ -63,6 +63,8 @@ export type V2RootStackParamList = {
   SettingsPrivacyPolicy: undefined; // 개인정보 처리방침 (URL 미정 — placeholder)
   SettingsVersion: undefined; // 버전 정보
 
-  // 실험(스파이크) — 오브젝트 캐릭터 PoC. 정식 기능 아님, '전체' 탭 실험 섹션에서 진입.
-  ObjectCharacterSpike: undefined;
+  // 사진에서 캐릭터 만들기 — '전체' 탭 '캐릭터' 섹션에서 진입. 생성 완료 시 커스텀 캐릭터로 저장.
+  CharacterCreate: undefined;
+  // 캐릭터 고르기 — 홈 '캐릭터 바꾸기'에서 진입. 기본 그로몬 / 내 캐릭터(누끼) 중 장착 선택.
+  CharacterSelect: undefined;
 };

@@ -34,6 +34,7 @@ import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { useUser } from '@/store/UserContext';
+import { useCharacter } from '@/store/CharacterContext';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
@@ -108,6 +109,8 @@ export default function FocusSessionScreen() {
   const { addFocusSeconds, todayFocusSeconds } = useFocus();
   const { addCoins } = useCoins();
   const { subjects, addFocusToSubject } = useSubjects();
+  // 장착된 커스텀(누끼) 캐릭터 URI — 있으면 세션·스냅샷 캡처에 반영, 없으면 기존 study 포즈 유지.
+  const { activeSource } = useCharacter();
   // Live Activity 시작 시점에 읽을 과목 목록 — effect 재실행 없이 최신값 참조용
   const subjectsRef = useRef(subjects);
   subjectsRef.current = subjects;
@@ -1009,7 +1012,7 @@ export default function FocusSessionScreen() {
             <View style={s.characterWrap}>
               {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터(공부 집중 = study 캐릭터) */}
               <View ref={charShotRef} collapsable={false}>
-                <CharacterImage size={230} variant="study" />
+                <CharacterImage size={230} variant="study" sourceUri={activeSource ?? undefined} />
               </View>
             </View>
           </View>
