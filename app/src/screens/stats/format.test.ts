@@ -2,6 +2,7 @@
 // 함수들이 내부에서 new Date()(현재 시각)를 쓰므로 fake timers로 '오늘'을 고정한다.
 // 시간대는 jest.config.js에서 Asia/Seoul로 고정 — 세션 시각은 +09:00 오프셋으로 명시한다.
 import {
+  calendarPage,
   dailyFirstStartMinutes,
   dayNum,
   firstStartPoints,
@@ -280,6 +281,49 @@ describe('heatmapRange', () => {
   test('일요일에도 WEEK 시작은 같은 주 월요일이다 (다음 주로 넘어가지 않음)', () => {
     jest.setSystemTime(new Date('2026-07-19T09:00:00+09:00')); // 일요일
     expect(heatmapRange('WEEK')).toEqual({ from: '2026-07-13', to: '2026-07-19' });
+  });
+});
+
+describe('calendarPage', () => {
+  test('WEEK: 이번 주(offset 0)=7월 3주차 월(7/13)~일(7/19), 지난 주(-1)=7월 2주차', () => {
+    const p0 = calendarPage('WEEK', 0);
+    expect(p0.days).toHaveLength(7);
+    expect(p0.days[0]).toBe('2026-07-13');
+    expect(p0.days[6]).toBe('2026-07-19');
+    expect(p0.label).toBe('7월 3주차'); // 7/1(수)이 낀 주(6/29 시작)가 1주차
+    expect(p0.sublabel).toBe('7.13 – 7.19');
+    expect(p0.leadingBlanks).toBe(0);
+    const p1 = calendarPage('WEEK', -1);
+    expect(p1.days[0]).toBe('2026-07-06');
+    expect(p1.label).toBe('7월 2주차');
+  });
+
+  test('WEEK: 월 경계에 걸친 주는 월요일이 속한 달 기준 주차 (6/29 주 = 6월 5주차)', () => {
+    const p = calendarPage('WEEK', -2);
+    expect(p.days[0]).toBe('2026-06-29');
+    expect(p.days[6]).toBe('2026-07-05');
+    expect(p.label).toBe('6월 5주차'); // 6/1이 월요일이라 6월은 정확히 주 단위
+    expect(p.sublabel).toBe('6.29 – 7.5');
+  });
+
+  test('MONTH: 이번 달(offset 0) 1~31일 + 1일 요일 정렬 빈 칸(수요일=2)', () => {
+    const p = calendarPage('MONTH', 0);
+    expect(p.days).toHaveLength(31);
+    expect(p.days[0]).toBe('2026-07-01');
+    expect(p.days[30]).toBe('2026-07-31');
+    expect(p.label).toBe('2026년 7월');
+    expect(p.sublabel).toBe('1일 – 31일');
+    expect(p.leadingBlanks).toBe(2);
+  });
+
+  test('MONTH: 지난 달(-1)=6월(1일이 월요일 → 빈 칸 0), 연 경계(-7)=작년 12월', () => {
+    const p = calendarPage('MONTH', -1);
+    expect(p.days).toHaveLength(30);
+    expect(p.label).toBe('2026년 6월');
+    expect(p.leadingBlanks).toBe(0);
+    const py = calendarPage('MONTH', -7);
+    expect(py.label).toBe('2025년 12월');
+    expect(py.days[0]).toBe('2025-12-01');
   });
 });
 
