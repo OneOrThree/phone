@@ -175,8 +175,10 @@ export default function FocusSessionScreen() {
     return () => sub.remove();
   }, []);
   const finishedRef = useRef(false);
-  // 이탈 타임아웃으로 abandoned를 발행한 세션 — finish의 completed 발행과 상호배타 보장(GROMO-1004)
+  // 이탈 타임아웃으로 abandoned를 발행한 세션 — completed 발행과 상호배타 보장(GROMO-1004)
   const abandonedRef = useRef(false);
+  // completed를 이미 발행했는지 — 완료 게이트와 finish 두 경로의 이중 발행 방지(코덱스 리뷰)
+  const completedLoggedRef = useRef(false);
   const startedAtRef = useRef(new Date().toISOString());
   // 서버 업로드 정산 마커 — 이미 정산(로컬·코인·서버 업로드)된 집중초/코인, 미정산 구간 시작 시각.
   // 뽀모도로는 집중 블록마다, 그 외 모드는 종료 시 한 번 정산한다.
@@ -508,6 +510,19 @@ export default function FocusSessionScreen() {
     ],
   );
 
+  // 정상 완료 계측(GROMO-1004) 1회 발행 — 완료 게이트(done 시점)와 finish(정지 버튼)가 공유한다.
+  // 유저 주도 종료는 모드 무관 완료로 세고, 이탈 타임아웃(abandoned)과 상호배타 — 한 세션은
+  // 둘 중 하나만 발행된다. completed 인자(별점 게이트, GROMO-980)와는 별개 기준.
+  const logCompletedOnce = useCallback(() => {
+    if (completedLoggedRef.current || abandonedRef.current) return;
+    completedLoggedRef.current = true;
+    logFocusSessionCompleted({
+      mode,
+      focus_minutes: Math.round(sessionRef.current.elapsed / 60),
+      has_tag: Boolean(subjectId),
+    });
+  }, [mode, subjectId]);
+
   // 정지/완료 — 남은 집중 블록 정산(적립+서버 업로드) 후 홈으로. 한 번만 실행.
   // completed: 정상 완료 여부(기본 = 세션 done). 결과 화면이 별점 요청(GROMO-980) 게이트로 쓴다 —
   // 중도 이탈(정지·이탈 타임아웃) 세션에 별점창을 띄우면 부정적 순간에 1회 기회가 소모된다(코드리뷰 반영).
@@ -515,16 +530,8 @@ export default function FocusSessionScreen() {
     async (completed = sessionRef.current.done) => {
       if (finishedRef.current) return;
       finishedRef.current = true;
-      // 정상 완료 계측(GROMO-1004) — 유저 주도 종료(완주 확인·정지 버튼)는 모드 무관 완료로 센다.
-      // 이탈 타임아웃만 abandoned로 남아 한 세션은 완료/포기 중 하나만 발행된다.
-      // completed 인자(별점 게이트, GROMO-980)와는 별개 기준 — 중도 정지도 계측상으론 완료다.
-      if (!abandonedRef.current) {
-        logFocusSessionCompleted({
-          mode,
-          focus_minutes: Math.round(sessionRef.current.elapsed / 60),
-          has_tag: Boolean(subjectId),
-        });
-      }
+      // 완료 계측 — 완료 게이트가 이미 발행한 세션(카운트다운/뽀모도로 완주)은 가드로 스킵된다.
+      logCompletedOnce();
       // 세션 종료(완료/취소 공통 경로) — 보고 있던 뷰의 마지막 체류 flush(GROMO-987).
       // 완료 게이트가 이미 발행했다면 건너뛴다 — 게이트를 열어둔 시간이 직전 뷰의 체류로
       // 다시 계상되는 이중 발행 방지(코덱스 리뷰).
@@ -555,10 +562,10 @@ export default function FocusSessionScreen() {
       cancelLiveSession,
       flushPendingCancels,
       flushViewDwell,
+      logCompletedOnce,
       navigation,
       subjectId,
       subjectName,
-      mode,
     ],
   );
 
@@ -594,8 +601,18 @@ export default function FocusSessionScreen() {
     // 가려진 뷰를 보는 게 아니므로 체류에서 제외한다(코덱스 리뷰). finish의 flush는 스킵됨.
     dwellDoneRef.current = true;
     flushViewDwell();
+    // 완료 계측도 게이트 시점에 발행 — 게이트를 띄운 채 앱이 종료되면 finish가 안 불려
+    // 저장된 세션의 완료 이벤트만 유실된다(코덱스 리뷰). finish에서 또 불려도 가드로 no-op.
+    logCompletedOnce();
     Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
-  }, [session.done, doneGate, settleFocusBlock, cancelLiveSession, flushViewDwell]);
+  }, [
+    session.done,
+    doneGate,
+    settleFocusBlock,
+    cancelLiveSession,
+    flushViewDwell,
+    logCompletedOnce,
+  ]);
 
   // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
   // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
