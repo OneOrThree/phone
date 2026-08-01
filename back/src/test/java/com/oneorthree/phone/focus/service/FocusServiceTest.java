@@ -3,6 +3,8 @@ package com.oneorthree.phone.focus.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.util.CountryZoneResolver;
+import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
+import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.focus.domain.DefaultTag;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusSessionStatus;
@@ -37,6 +39,7 @@ import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.service.UserStreakService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -59,10 +62,12 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -106,12 +111,24 @@ class FocusServiceTest {
     @Mock
     private UserStreakService userStreakService;
 
+    @Mock
+    private CurrencyLedgerService currencyLedgerService;
+
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID OTHER_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final UUID TAG_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
 
     private static final Instant START = Instant.parse("2026-06-23T01:00:00Z");
     private static final Instant END = Instant.parse("2026-06-23T02:00:00Z");
+
+    // 서버 지급(currency 폐쇄)이 저장 세션 id 로 멱등키를 만들므로, save 가 id 채워진 엔티티를 돌려주도록
+    // 기본 스텁을 깐다. lenient — save 까지 안 가는 검증 실패 테스트에서 불필요 스텁 예외를 막는다.
+    // id 가 필요한 개별 테스트는 이 스텁을 덮어쓴다.
+    @BeforeEach
+    void stubSessionSaveReturnsEntity() {
+        lenient().when(focusSessionRepository.save(any(FocusSession.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+    }
 
     // GROMO-673: 유저 태그는 이제 UserFocusTag(정체성=defaultTag). id 는 user_focus_tags.id, 이름은 defaultTag.name.
     private static UserFocusTag userFocusTag(UUID id, User user, String name) {
@@ -766,6 +783,120 @@ class FocusServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(FocusErrorCode.FORBIDDEN);
         verify(focusSessionRepository, never()).save(any(FocusSession.class));
+    }
+
+    // ── saveFocusSession — 서버 코인 지급 (currency 폐쇄) ──────────────────
+
+    @Test
+    @DisplayName("세션 저장 → 집중 10초당 1코인 서버 지급(SESSION_COMPLETE, 멱등키 focus:{id}:reward) + 응답 awardedCoins")
+    void saveFocusSessionAwardsCoins() {
+        // given: 1시간(3600초) 세션, 방해 30초 → 집중 3570초 → floor(3570/10) = 357코인
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(focusSessionRepository.save(any(FocusSession.class)))
+                .willAnswer(inv -> FocusSession.builder().id(SESSION_ID).build());
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 30);
+
+        // when
+        FocusSessionSaveResponse response = focusService.saveFocusSession(USER_ID, body);
+
+        // then: 저장 세션 id 기반 멱등키로 원장 지급 + 응답에 지급액
+        verify(currencyLedgerService).credit(user, CurrencyTransactionType.SESSION_COMPLETE, 357,
+                "focus:" + SESSION_ID + ":reward");
+        assertThat(response.awardedCoins()).isEqualTo(357);
+    }
+
+    @Test
+    @DisplayName("집중 10초 미만 세션 저장 → 코인 미지급(credit 미호출) + awardedCoins=0")
+    void saveFocusSessionShortSessionNoAward() {
+        // given: 9초 세션 → floor(9/10) = 0
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(null, START, START.plusSeconds(9), 0);
+
+        // when
+        FocusSessionSaveResponse response = focusService.saveFocusSession(USER_ID, body);
+
+        // then
+        verify(currencyLedgerService, never()).credit(any(), any(), anyInt(), any());
+        assertThat(response.awardedCoins()).isZero();
+    }
+
+    // 공식 테스트 공용 '현재 시각' — 세션 종료보다 충분히 뒤라 미래 클램프가 걸리지 않는 정상 업로드 상황.
+    private static final Instant FORMULA_NOW = Instant.parse("2026-06-24T00:00:00Z");
+
+    @Test
+    @DisplayName("보상 공식 diff — 서버 sessionRewardCoins == 앱 floor(elapsed/10) (방해 0 페이로드 기준)")
+    void sessionRewardCoinsMatchesAppFormula() {
+        // 앱 정본 공식: FocusSessionScreen.settleFocusBlock / OrphanFocusSettler 의 floor(집중초 / 10).
+        // 두 경로 모두 distraction 0 으로 업로드하므로 서버 집중초 = endedAt − startedAt. 경계값으로 고정한다
+        // (43_200초 = 12h 는 지급 캡 경계 — 캡과 앱 공식이 일치하는 마지막 값).
+        long[] elapsedCases = {0, 1, 9, 10, 11, 19, 20, 599, 600, 3599, 3600, 43_200};
+        for (long elapsed : elapsedCases) {
+            int appCoins = (int) (elapsed / 10);
+            int serverCoins = FocusService.sessionRewardCoins(START, START.plusSeconds(elapsed), 0, FORMULA_NOW);
+            assertThat(serverCoins).as("elapsed=%d초", elapsed).isEqualTo(appCoins);
+        }
+    }
+
+    @Test
+    @DisplayName("보상 공식 — 방해시간은 집중초에서 차감, 방해가 구간을 초과하면 0 (음수 방어)")
+    void sessionRewardCoinsSubtractsDistraction() {
+        // 방해 차감: 100초 구간 − 방해 25초 = 집중 75초 → 7코인
+        assertThat(FocusService.sessionRewardCoins(START, START.plusSeconds(100), 25, FORMULA_NOW)).isEqualTo(7);
+        // 방해가 구간 전체를 넘으면(비정상 페이로드) 음수 지급 없이 0
+        assertThat(FocusService.sessionRewardCoins(START, START.plusSeconds(100), 200, FORMULA_NOW)).isZero();
+    }
+
+    @Test
+    @DisplayName("보상 공식 — 미래 endedAt 은 now 로 클램프(미래 시각 조작분 미지급, 소폭 시계 오차는 흡수)")
+    void sessionRewardCoinsClampsFutureEndedAt() {
+        // endedAt 이 now 보다 1시간 미래 → 지급은 [startedAt, now] 구간만 인정
+        Instant now = START.plusSeconds(600);
+        assertThat(FocusService.sessionRewardCoins(START, START.plusSeconds(4200), 0, now)).isEqualTo(60);
+        // 세션 전체가 미래(startedAt > now) → 0 (음수 방어와 동일 경로)
+        assertThat(FocusService.sessionRewardCoins(now.plusSeconds(100), now.plusSeconds(200), 0, now)).isZero();
+    }
+
+    @Test
+    @DisplayName("보상 공식 — 지급 인정 길이는 12h(orphan 상한 정렬) 캡: 위조 장시간 세션 대량 발행 차단")
+    void sessionRewardCoinsCapsAtTwelveHours() {
+        // 30일짜리 위조 세션도 12h(43_200초) = 4_320코인까지만 지급
+        assertThat(FocusService.sessionRewardCoins(START, START.plusSeconds(2_592_000L), 0,
+                START.plusSeconds(2_592_000L))).isEqualTo(4_320);
+        // 캡 직전(43_199초)은 그대로
+        assertThat(FocusService.sessionRewardCoins(START, START.plusSeconds(43_199), 0, FORMULA_NOW))
+                .isEqualTo(4_319);
+    }
+
+    @Test
+    @DisplayName("완료 세션 재업로드(동일 user·구간) → 저장·통계·지급 전부 스킵, 현재 누적으로 응답(awardedCoins=0)")
+    void saveFocusSessionSkipsDuplicateReupload() {
+        // 앱 업로드 대기열이 응답 유실 시 같은 바디를 재전송 — 행 재생성으로 멱등키가 무력화되는 걸 막는 경로.
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.existsByUserAndStartedAtAndEndedAtAndStatus(
+                user, START, END, FocusSessionStatus.COMPLETED)).willReturn(true);
+        given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
+                .willReturn(Optional.of(DailyFocusStat.builder()
+                        .user(user).date(LocalDate.of(2026, 6, 23)).totalFocusSeconds(660).sessionCount(1)
+                        .build()));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
+
+        FocusSessionSaveResponse response = focusService.saveFocusSession(USER_ID, body);
+
+        assertThat(response.dayTotalFocusSeconds()).isEqualTo(660);
+        assertThat(response.streakQualifiedToday()).isTrue();
+        assertThat(response.awardedCoins()).isZero();
+        verify(focusSessionRepository, never()).save(any(FocusSession.class));
+        verify(currencyLedgerService, never()).credit(any(), any(), anyInt(), any());
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
     }
 
     // ── saveFocusSession — 이벤트 payload·스트릭 연동 (GROMO-395) ──────────
