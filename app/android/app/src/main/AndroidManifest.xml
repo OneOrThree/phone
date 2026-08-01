@@ -36,6 +36,13 @@
         <data android:scheme="gromo"/>
       </intent-filter>
     </activity>
+    <!-- 홈 화면 위젯(GROMO-1006) — 오늘 공부시간 상위 2과목 -->
+    <receiver android:name=".widget.StudyWidgetProvider" android:exported="false" android:label="@string/widget_study_label">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+      </intent-filter>
+      <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_study_info"/>
+    </receiver>
     <activity android:name="com.facebook.FacebookActivity" android:configChanges="keyboard|keyboardHidden|screenLayout|screenSize|orientation" android:label="@string/app_name"/>
     <!-- 카카오 로그인 리다이렉트 수신 — 웹/카톡 로그인 후 kakao{앱키}://oauth 로 앱 복귀 (없으면 로그인 완료가 앱에 전달되지 않음) -->
     <activity android:name="com.kakao.sdk.auth.AuthCodeHandlerActivity" android:exported="true">

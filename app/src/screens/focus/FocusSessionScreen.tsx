@@ -29,6 +29,7 @@ import { ensureFocusTagId } from './tagSync';
 import { enqueuePendingFocusUpload } from './pendingFocusUploads';
 import { publishSessionSaveVerdict } from './sessionSaveVerdict';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
+import StudyWidgetModule from '@/services/StudyWidgetModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
@@ -311,6 +312,23 @@ export default function FocusSessionScreen() {
   // 화면을 떠나면 종료. 스냅샷 실패 시 위젯이 기본 마스코트로 폴백한다.
   const charShotRef = useRef<View>(null);
   useEffect(() => {
+    // 안드로이드 — Live Activity 대신 홈 위젯 스냅샷 갱신(GROMO-1006).
+    // 세션 시작 시점 누적값으로 쓰고, 화면을 떠날 때 이번 세션 정산 반영분으로 한 번 더 쓴다.
+    if (Platform.OS === 'android') {
+      const writeWidget = () => {
+        StudyWidgetModule.updateTopSubjects(
+          subjectsRef.current.map((x) => ({
+            name: x.name,
+            seconds: x.accumulatedSeconds,
+            color: x.color,
+          })),
+        ).catch(() => {});
+      };
+      writeWidget();
+      return () => {
+        writeWidget();
+      };
+    }
     let cancelled = false;
     // 캐릭터가 실제로 그려진 뒤 캡처(마운트 직후엔 빈 프레임일 수 있음)
     const t = setTimeout(async () => {
