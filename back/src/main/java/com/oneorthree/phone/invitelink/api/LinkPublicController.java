@@ -1,23 +1,29 @@
 package com.oneorthree.phone.invitelink.api;
 
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.dto.InviteMatchRequest;
+import com.oneorthree.phone.invitelink.dto.InviteMatchResponse;
+import com.oneorthree.phone.invitelink.dto.LandingView;
 import com.oneorthree.phone.invitelink.service.InviteLinkClickService;
+import com.oneorthree.phone.invitelink.service.InviteLinkMatchService;
 import com.oneorthree.phone.invitelink.service.InviteLinkService;
+import com.oneorthree.phone.invitelink.support.ClientIpResolver;
+import com.oneorthree.phone.invitelink.support.InviteLinkUrls;
+import com.oneorthree.phone.invitelink.support.IpHasher;
 import com.oneorthree.phone.invitelink.support.LandingRenderer;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.Optional;
 
 /**
  * 무인증 초대 링크 엔드포인트 — {@code /l/*}.
@@ -35,8 +41,11 @@ public class LinkPublicController {
 
     private final InviteLinkService inviteLinkService;
     private final InviteLinkClickService inviteLinkClickService;
-    private final GroupRepository groupRepository;
+    private final InviteLinkMatchService inviteLinkMatchService;
     private final LandingRenderer landingRenderer;
+    private final InviteLinkUrls inviteLinkUrls;
+    private final ClientIpResolver clientIpResolver;
+    private final IpHasher ipHasher;
 
     /**
      * 초대 랜딩 — <b>항상 200 HTML</b>(계약 ②).
@@ -47,20 +56,28 @@ public class LinkPublicController {
     @Operation(summary = "초대 랜딩", description = "만료·미존재 slug 도 200 HTML(만료 변형)")
     @GetMapping(value = "/l/{slug}", produces = HTML_UTF8)
     public ResponseEntity<String> landing(@PathVariable String slug, HttpServletRequest request) {
-        Optional<GroupInviteLink> link = inviteLinkService.findBySlug(slug);
-        if (link.isEmpty()) {
+        LandingView view = inviteLinkService.resolveLanding(slug);
+        if (view.isExpired()) {
             return html(landingRenderer.renderExpired());
         }
 
-        Optional<Group> group = groupRepository.findById(link.get().getGroupId())
-                .filter(g -> g.getDeletedAt() == null);
-        if (group.isEmpty()) {
-            // 링크는 살아 있지만 그룹이 사라졌다 — 참여시킬 곳이 없으니 만료와 같게 다룬다.
-            return html(landingRenderer.renderExpired());
-        }
+        recordClickQuietly(view.link(), request);
+        return html(landingRenderer.render(view.groupName(), inviteLinkUrls.scheme(view.link())));
+    }
 
-        recordClickQuietly(link.get(), request);
-        return html(landingRenderer.render(group.get().getName(), schemeUrl(link.get())));
+    /**
+     * deferred 매치 — 설치 직후 첫 실행에서 호출한다(계약 ③).
+     *
+     * <p>실패도 200 {@code {"matched": false}} 다. 앱은 "서버 응답을 받았다"를 기준으로 확인 완료
+     * 플래그를 세우므로, 4xx/5xx 로 내려가면 매 실행 재시도가 돈다.
+     */
+    @Operation(summary = "deferred 매치", description = "IP해시+OS+시간창 fingerprint 로 미소진 클릭 1건을 원자적으로 소진")
+    @PostMapping(value = "/l/match", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<InviteMatchResponse> match(
+            @Valid @RequestBody InviteMatchRequest request,
+            HttpServletRequest httpRequest) {
+        String ipHash = ipHasher.hash(clientIpResolver.resolve(httpRequest));
+        return ResponseEntity.ok(inviteLinkMatchService.match(ipHash, request));
     }
 
     /** 랜딩 응답은 기록·분석보다 우선한다 — 클릭 저장이나 GA4 전송이 죽어도 초대는 열려야 한다. */
@@ -70,10 +87,6 @@ public class LinkPublicController {
         } catch (Exception e) {
             log.warn("초대 클릭 기록 실패 — slug={}", link.getSlug(), e);
         }
-    }
-
-    private String schemeUrl(GroupInviteLink link) {
-        return "gromo://join?g=" + link.getGroupId() + "&s=" + link.getSlug();
     }
 
     private ResponseEntity<String> html(String body) {

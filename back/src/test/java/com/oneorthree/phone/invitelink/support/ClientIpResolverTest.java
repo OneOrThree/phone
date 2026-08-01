@@ -4,6 +4,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -13,7 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ClientIpResolverTest {
 
-    private final ClientIpResolver resolver = new ClientIpResolver();
+    private final ClientIpResolver resolver =
+            new ClientIpResolver(List.of("CF-Connecting-IP", "X-Forwarded-For"));
 
     @Test
     @DisplayName("CF-Connecting-IP 가 XFF 보다 우선한다")
@@ -54,6 +57,17 @@ class ClientIpResolverTest {
         request.setRemoteAddr("10.0.0.1");
 
         assertThat(resolver.resolve(request)).isEqualTo("10.0.0.1");
+    }
+
+    @Test
+    @DisplayName("신뢰 헤더 목록을 비우면 헤더를 무시하고 remoteAddr 만 쓴다 — 오리진이 직접 열린 환경용")
+    void emptyTrustListIgnoresHeaders() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("CF-Connecting-IP", "1.1.1.1");
+        request.addHeader("X-Forwarded-For", "9.9.9.9");
+        request.setRemoteAddr("10.0.0.1");
+
+        assertThat(new ClientIpResolver(List.of()).resolve(request)).isEqualTo("10.0.0.1");
     }
 
     @Test

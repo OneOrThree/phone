@@ -19,8 +19,13 @@ import java.util.Locale;
 @Component
 public class UserAgentClassifier {
 
+    // 'bot' 이 slackbot·twitterbot·googlebot 등 대부분을 덮지만, 링크 프리뷰 크롤러 중에는 UA 에
+    // 'bot' 이 아예 없는 것들이 있어(WhatsApp, 네이버 Yeti, Embedly 등) 따로 적는다.
+    // 허용목록(실브라우저 UA만 기록)으로 뒤집지 않는 이유: 인앱브라우저 UA 가 앱·버전마다 제각각이라
+    // 허용목록은 진짜 유저를 조용히 떨어뜨린다 — 여기서는 누락(과소 차단)이 오차의 안전한 방향이다.
     private static final List<String> BOT_MARKERS = List.of(
             "kakaotalk-scrap", "facebookexternalhit", "slackbot", "twitterbot",
+            "whatsapp", "yeti", "embedly", "pinterest", "skypeuripreview",
             "bot", "crawler", "spider");
 
     /** 'ios' | 'android' | 'other'. Android 는 이번 범위 밖이지만 값 자체는 구분해 남긴다. */
