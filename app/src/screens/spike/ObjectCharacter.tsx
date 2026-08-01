@@ -14,16 +14,34 @@ import { T } from '@/constants/theme';
 // AI 없이 전부 코드로 그린다: 팔다리는 react-native-svg 곡선, 눈은 원 2개.
 // 레이어 순서 = 팔다리(뒤) → 오브젝트 이미지 → 눈(앞). 팔다리 시작점이 이미지에 가려져
 // "물건에 팔다리가 달린" 것처럼 보인다.
+//
+// 비율 보정: 모든 치수를 폭이 아니라 **짧은 변(base = min(폭, 높이))** 기준으로 잡는다.
+// 폭 기준으로만 잡으면 키보드처럼 가로로 긴 물건에서 눈이 양끝으로 벌어지고 다리가
+// 몸통보다 길어져 "탁자"가 된다. 얼굴·팔다리는 몸통 두께를 따라가야 생물처럼 보인다.
 
-const ARM = 36; // 좌우 팔이 차지하는 여백(스테이지 폭 = 오브젝트 폭 + ARM*2)
-const LEG = 54; // 오브젝트 아래 다리 길이
-const STROKE = 7; // 팔다리 굵기
+const MAX_ARM = 42; // 팔이 차지할 수 있는 좌우 최대 여백
+const MAX_LEG = 60; // 오브젝트 아래 최대 다리 길이
 
 interface Props {
   uri: string;
   aspect: number; // 오브젝트 가로/세로 비율 (width / height)
   maxWidth: number;
   maxHeight: number;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+// 짧은 변 기준 치수 — 팔다리 길이·선 굵기는 몸통 두께에 비례한다.
+function limbMetrics(objW: number, objH: number) {
+  const base = Math.min(objW, objH);
+  return {
+    base,
+    stroke: clamp(base * 0.05, 4, 8),
+    armLen: clamp(base * 0.3, 18, MAX_ARM),
+    legLen: clamp(base * 0.4, 26, MAX_LEG),
+  };
 }
 
 export function ObjectCharacter({ uri, aspect, maxWidth, maxHeight }: Props) {
@@ -44,48 +62,89 @@ export function ObjectCharacter({ uri, aspect, maxWidth, maxHeight }: Props) {
   }));
 
   const geo = useMemo(() => {
-    // 오브젝트를 팔다리 여백을 뺀 박스 안에 비율 유지로 맞춘다.
-    const boxW = Math.max(80, maxWidth - ARM * 2);
-    const boxH = Math.max(80, maxHeight - LEG);
     const safeAspect = aspect > 0 ? aspect : 1;
-    let objW = boxW;
-    let objH = objW / safeAspect;
-    if (objH > boxH) {
-      objH = boxH;
-      objW = objH * safeAspect;
+
+    // 비율 유지로 주어진 박스에 맞춘다.
+    const fit = (availW: number, availH: number) => {
+      const boxW = Math.max(60, availW);
+      const boxH = Math.max(60, availH);
+      let w = boxW;
+      let h = w / safeAspect;
+      if (h > boxH) {
+        h = boxH;
+        w = h * safeAspect;
+      }
+      return { w, h };
+    };
+
+    // 오브젝트 크기 ↔ 팔다리 길이가 서로를 참조한다(팔다리가 짧아지면 오브젝트가 커지고,
+    // 오브젝트가 커지면 팔다리도 길어진다). 여백을 **줄이는 방향으로만** 갱신해
+    // `무대 = 오브젝트 + 여백 ≤ 화면`이 항상 성립하게 만든다.
+    let armLen = MAX_ARM;
+    let legLen = MAX_LEG;
+    let obj = fit(maxWidth - armLen * 2, maxHeight - legLen);
+    for (let i = 0; i < 2; i += 1) {
+      const m = limbMetrics(obj.w, obj.h);
+      const nextArm = Math.min(armLen, m.armLen);
+      const nextLeg = Math.min(legLen, m.legLen);
+      if (nextArm === armLen && nextLeg === legLen) break;
+      armLen = nextArm;
+      legLen = nextLeg;
+      obj = fit(maxWidth - armLen * 2, maxHeight - legLen);
     }
-    const stageW = objW + ARM * 2;
-    const stageH = objH + LEG;
+    const objW = obj.w;
+    const objH = obj.h;
+    const { base, stroke } = limbMetrics(objW, objH);
 
-    // 팔 — 오브젝트 몸통 중간보다 약간 아래에서 바깥으로 뻗는다.
+    const stageW = objW + armLen * 2;
+    const stageH = objH + legLen;
+    const centerX = armLen + objW / 2;
+
+    // 팔 — 몸통 중간보다 약간 아래에서 바깥으로 뻗는다. 처짐·들림도 팔 길이에 비례.
     const armY = objH * 0.58;
-    const handY = armY - 8;
-    const handLX = ARM * 0.34;
+    const droop = armLen * 0.45;
+    const handY = armY - armLen * 0.22;
+    const handLX = armLen * 0.34;
     const handRX = stageW - handLX;
-    const leftArm = `M ${ARM + 10} ${armY} Q ${ARM - 10} ${armY + 16} ${handLX} ${handY}`;
-    const rightArm = `M ${stageW - ARM - 10} ${armY} Q ${stageW - ARM + 10} ${armY + 16} ${handRX} ${handY}`;
+    const inset = stroke * 1.4; // 시작점을 몸통 안쪽에 넣어 접합부를 이미지로 가린다
+    const leftArm = `M ${armLen + inset} ${armY} Q ${armLen - armLen * 0.28} ${armY + droop} ${handLX} ${handY}`;
+    const rightArm = `M ${stageW - armLen - inset} ${armY} Q ${stageW - armLen + armLen * 0.28} ${armY + droop} ${handRX} ${handY}`;
 
-    // 다리 — 바운딩 박스 하단에서 시작해 바깥으로 살짝 벌어지고 끝에 발이 붙는다.
-    const legTop = objH - 10;
-    const legLX = ARM + objW * 0.34;
-    const legRX = ARM + objW * 0.66;
-    const footY = stageH - 9;
-    const leftLeg = `M ${legLX} ${legTop} Q ${legLX - 8} ${(legTop + footY) / 2} ${legLX - 10} ${footY}`;
-    const rightLeg = `M ${legRX} ${legTop} Q ${legRX + 8} ${(legTop + footY) / 2} ${legRX + 10} ${footY}`;
+    // 다리 — 기본은 폭의 0.34(정사각·세로 물건은 기존 배치 그대로).
+    // 가로로 긴 물건에서만 base*1.6 상한이 걸려 다리가 양끝으로 벌어지는 걸 막는다.
+    // 하한은 두 다리가 겹치지 않을 최소치만.
+    const legSpan = clamp(objW * 0.34, stroke * 4, base * 1.6);
+    const legLX = centerX - legSpan / 2;
+    const legRX = centerX + legSpan / 2;
+    const legTop = objH - stroke * 1.4;
+    // 발(타원)이 무대 아래로 잘리지 않도록 발 크기에서 역산한 높이에 놓는다.
+    const footRX = clamp(legLen * 0.3, 8, 16);
+    const footY = stageH - footRX * 0.45 - 2;
+    const legBow = legLen * 0.18;
+    const leftLeg = `M ${legLX} ${legTop} Q ${legLX - legBow} ${(legTop + footY) / 2} ${legLX - legBow * 1.2} ${footY}`;
+    const rightLeg = `M ${legRX} ${legTop} Q ${legRX + legBow} ${(legTop + footY) / 2} ${legRX + legBow * 1.2} ${footY}`;
 
-    // 눈 — 상단 1/3 지점, 좌우 대칭.
-    const eyeY = objH * 0.34;
-    const eyeR = Math.max(9, Math.min(16, objW * 0.075));
-    const eyeLX = ARM + objW * 0.37;
-    const eyeRX = ARM + objW * 0.63;
-    const mouthY = eyeY + eyeR * 2.1;
-    const mouth = `M ${ARM + objW * 0.44} ${mouthY} Q ${ARM + objW * 0.5} ${mouthY + 9} ${ARM + objW * 0.56} ${mouthY}`;
+    // 얼굴 — 눈 크기는 짧은 변 기준, 간격은 눈 크기 기준으로 상·하한을 건다.
+    // 정사각에 가까우면 기존 배치(0.37/0.63)와 거의 같고, 납작할수록 가운데로 모인다.
+    // 극단적으로 납작한 물건(폭:높이 8:1 이상)에서도 눈·입이 몸통을 넘지 않도록
+    // 하한(7)보다 높이 제약(objH*0.18)을 우선한다.
+    const eyeR = Math.min(clamp(base * 0.11, 7, 18), objH * 0.18);
+    const eyeSpan = clamp(objW * 0.26, eyeR * 2.4, eyeR * 4.2);
+    const eyeLX = centerX - eyeSpan / 2;
+    const eyeRX = centerX + eyeSpan / 2;
+    // 눈·입이 몸통 밖으로 새지 않도록 세로 위치를 몸통 안에 가둔다.
+    const eyeY = clamp(objH * 0.34, eyeR + stroke, objH - eyeR * 3.2);
+    const mouthY = eyeY + eyeR * 2.2;
+    const mouthHalf = eyeR * 0.8;
+    const mouth = `M ${centerX - mouthHalf} ${mouthY} Q ${centerX} ${mouthY + eyeR * 0.7} ${centerX + mouthHalf} ${mouthY}`;
 
     return {
       objW,
       objH,
       stageW,
       stageH,
+      armLen,
+      stroke,
       leftArm,
       rightArm,
       handLX,
@@ -95,7 +154,9 @@ export function ObjectCharacter({ uri, aspect, maxWidth, maxHeight }: Props) {
       rightLeg,
       legLX,
       legRX,
+      legBow,
       footY,
+      footRX,
       eyeY,
       eyeR,
       eyeLX,
@@ -109,8 +170,8 @@ export function ObjectCharacter({ uri, aspect, maxWidth, maxHeight }: Props) {
     [geo.stageW, geo.stageH],
   );
   const imageStyle = useMemo(
-    () => ({ left: ARM, top: 0, width: geo.objW, height: geo.objH }),
-    [geo.objW, geo.objH],
+    () => ({ left: geo.armLen, top: 0, width: geo.objW, height: geo.objH }),
+    [geo.armLen, geo.objW, geo.objH],
   );
 
   return (
@@ -120,35 +181,47 @@ export function ObjectCharacter({ uri, aspect, maxWidth, maxHeight }: Props) {
         <Path
           d={geo.leftArm}
           stroke={T.ink}
-          strokeWidth={STROKE}
+          strokeWidth={geo.stroke}
           strokeLinecap="round"
           fill="none"
         />
         <Path
           d={geo.rightArm}
           stroke={T.ink}
-          strokeWidth={STROKE}
+          strokeWidth={geo.stroke}
           strokeLinecap="round"
           fill="none"
         />
-        <Circle cx={geo.handLX} cy={geo.handY} r={STROKE} fill={T.ink} />
-        <Circle cx={geo.handRX} cy={geo.handY} r={STROKE} fill={T.ink} />
+        <Circle cx={geo.handLX} cy={geo.handY} r={geo.stroke} fill={T.ink} />
+        <Circle cx={geo.handRX} cy={geo.handY} r={geo.stroke} fill={T.ink} />
         <Path
           d={geo.leftLeg}
           stroke={T.ink}
-          strokeWidth={STROKE}
+          strokeWidth={geo.stroke}
           strokeLinecap="round"
           fill="none"
         />
         <Path
           d={geo.rightLeg}
           stroke={T.ink}
-          strokeWidth={STROKE}
+          strokeWidth={geo.stroke}
           strokeLinecap="round"
           fill="none"
         />
-        <Ellipse cx={geo.legLX - 12} cy={geo.footY + 2} rx={14} ry={6} fill={T.ink} />
-        <Ellipse cx={geo.legRX + 12} cy={geo.footY + 2} rx={14} ry={6} fill={T.ink} />
+        <Ellipse
+          cx={geo.legLX - geo.legBow * 1.2 - geo.footRX * 0.2}
+          cy={geo.footY}
+          rx={geo.footRX}
+          ry={geo.footRX * 0.45}
+          fill={T.ink}
+        />
+        <Ellipse
+          cx={geo.legRX + geo.legBow * 1.2 + geo.footRX * 0.2}
+          cy={geo.footY}
+          rx={geo.footRX}
+          ry={geo.footRX * 0.45}
+          fill={T.ink}
+        />
       </Svg>
 
       {/* 오브젝트 — 누끼 PNG(또는 폴백 원본) */}
@@ -174,7 +247,13 @@ export function ObjectCharacter({ uri, aspect, maxWidth, maxHeight }: Props) {
         />
         <Circle cx={geo.eyeLX + 2} cy={geo.eyeY + 1} r={geo.eyeR * 0.45} fill={T.ink} />
         <Circle cx={geo.eyeRX + 2} cy={geo.eyeY + 1} r={geo.eyeR * 0.45} fill={T.ink} />
-        <Path d={geo.mouth} stroke={T.ink} strokeWidth={3} strokeLinecap="round" fill="none" />
+        <Path
+          d={geo.mouth}
+          stroke={T.ink}
+          strokeWidth={Math.max(2, geo.stroke * 0.45)}
+          strokeLinecap="round"
+          fill="none"
+        />
       </Svg>
     </Animated.View>
   );
