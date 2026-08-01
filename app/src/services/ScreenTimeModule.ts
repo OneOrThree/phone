@@ -1,10 +1,14 @@
 // ScreenTimeModule.ts
-// ScreenTimeModule.swift 네이티브 모듈의 JS 래퍼
+// 스크린타임 네이티브 모듈의 JS 래퍼
 //
-// 역할: Swift로 만든 네이티브 모듈을 JS에서 편하게 쓸 수 있게 감싸는 유틸
+// 역할: 네이티브 모듈을 JS에서 편하게 쓸 수 있게 감싸는 유틸
 // NativeModules에서 직접 꺼내 쓰는 것보다 이 파일을 import해서 쓰는 게 깔끔함
+//  - iOS: ScreenTimeModule.swift (구식 브릿지, NativeModules) — 함수 계약 20개 전체 구현
+//  - Android: app/modules/screen-time (Expo 모듈, GROMO-994) — M1 범위(권한·오늘/어제 조회·
+//    목표 저장)만 구현. 나머지 함수는 기존 기본값 가드를 유지한다(M2~M4에서 확장).
 
 import { NativeModules, Platform } from 'react-native';
+import { requireOptionalNativeModule } from 'expo';
 
 export type AuthorizationStatus = 'approved' | 'denied' | 'notDetermined';
 
@@ -56,6 +60,23 @@ interface NativeScreenTime {
 
 const NativeScreenTimeModule = NativeModules.ScreenTimeModule as NativeScreenTime;
 
+// 안드로이드 Expo 모듈 인터페이스(GROMO-994) — M1 범위 함수만 네이티브 구현이 있다.
+// startUsageBucketMonitoring은 예약 개념이 없어 네이티브 없이 TS에서 no-op true(§4 매핑).
+interface AndroidNativeScreenTime {
+  requestAuthorization(): Promise<boolean>;
+  getAuthorizationStatus(): Promise<AuthorizationStatus>;
+  setGoalSeconds(seconds: number): Promise<void>;
+  getTodayUsageBucketMinutes(): Promise<number>;
+  getYesterdayUsageBucketMinutes(): Promise<number>;
+}
+
+// 구 바이너리(OTA로 새 JS만 받아 네이티브 모듈이 없는 경우)는 null — 각 함수가 기존
+// 기본값 가드로 폴백해 크래시 없이 동작한다(iOS의 메서드 존재 판별과 같은 취지).
+const AndroidScreenTime =
+  Platform.OS === 'android'
+    ? requireOptionalNativeModule<AndroidNativeScreenTime>('ScreenTimeModule')
+    : null;
+
 // 네이티브 바이너리가 15분 눈금(GROMO-931) 빌드인지 — 같은 빌드에 추가된
 // getUsageBucketDebugInfo 존재로 판별한다. OTA로 새 JS만 받은 구 바이너리는 여전히 30분
 // 눈금을 등록하므로, 등록 마커가 실제 눈금과 어긋나지 않게 하는 데 쓴다(코드리뷰 반영).
@@ -73,22 +94,28 @@ export const nativeSupportsPendingApplyDate = (): boolean =>
   typeof (NativeModules.ScreenTimeModule as NativeScreenTime | undefined)
     ?.setPendingSelectionApplyDate === 'function';
 
-// iOS 전용 기능이므로 Android에서 호출 시 에러 대신 기본값 반환
+// 플랫폼 라우팅 — iOS는 Swift 브릿지, 안드로이드 M1 범위는 Expo 모듈, 그 외(미구현 함수·
+// 구 바이너리)는 에러 대신 기본값 반환. 화면 코드 호출부는 플랫폼을 몰라도 된다.
 const ScreenTimeModule = {
   // 스크린 타임 접근 권한 요청. 반환값: true(승인) | false(거부)
+  // 안드로이드는 시스템 팝업이 없어 Usage Access 설정을 열고 복귀 시 재확인한 결과로 resolve.
   requestAuthorization: async (): Promise<boolean> => {
+    if (AndroidScreenTime) return AndroidScreenTime.requestAuthorization();
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.requestAuthorization();
   },
 
-  // 현재 권한 상태 확인
+  // 현재 권한 상태 확인 (안드로이드: AppOps 체크 + '설정 보낸 적' 플래그로 notDetermined 구분)
   getAuthorizationStatus: async (): Promise<AuthorizationStatus> => {
+    if (AndroidScreenTime) return AndroidScreenTime.getAuthorizationStatus();
     if (Platform.OS !== 'ios') return 'denied';
     return NativeScreenTimeModule.getAuthorizationStatus();
   },
 
-  // 목표 시간을 App Group에 저장 (익스텐션에서 "남은 시간" 계산에 사용)
+  // 목표 시간 저장 — iOS는 App Group(익스텐션 "남은 시간" 계산용), 안드로이드는 모듈 로컬
+  // 저장만(판정 계산은 M4).
   setGoalSeconds: async (seconds: number): Promise<void> => {
+    if (AndroidScreenTime) return AndroidScreenTime.setGoalSeconds(seconds);
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.setGoalSeconds(seconds);
   },
@@ -105,20 +132,26 @@ const ScreenTimeModule = {
 
   // 15분 버킷 사용량 모니터링 등록 (maxMinutes까지 15분 간격 threshold).
   // 측정 대상 미선택이면 false. 반환값: 등록 성공 여부.
+  // 안드로이드는 조회형이라 예약 개념이 없음 — 모듈이 있으면 no-op true(등록 마커·측정 시작
+  // 앵커는 그대로 유효), 구 바이너리(모듈 없음)는 측정 불가라 false.
   startUsageBucketMonitoring: async (maxMinutes: number): Promise<boolean> => {
+    if (Platform.OS === 'android') return AndroidScreenTime != null;
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.startUsageBucketMonitoring(maxMinutes);
   },
 
-  // 오늘의 사용량(분) — Monitor가 기록한 도달 최고 15분 눈금. iOS 외/미측정 시 0.
+  // 오늘의 사용량(분) — iOS는 Monitor가 기록한 도달 최고 15분 눈금, 안드로이드는 오늘
+  // 0시~지금 queryEvents 정확값. 미측정·미구현 시 0.
   getTodayUsageBucketMinutes: async (): Promise<number> => {
+    if (AndroidScreenTime) return AndroidScreenTime.getTodayUsageBucketMinutes();
     if (Platform.OS !== 'ios') return 0;
     return NativeScreenTimeModule.getTodayUsageBucketMinutes();
   },
 
-  // 어제의 최종 사용량(분) — Monitor가 하루 경계에 보존한 전일 눈금(GROMO-633).
-  // iOS 외/보존 날짜가 어제가 아니면 0.
+  // 어제의 최종 사용량(분) — iOS는 Monitor가 하루 경계에 보존한 전일 눈금(GROMO-633),
+  // 안드로이드는 어제 0시~오늘 0시 queryEvents 정확값(소급 조회). 미측정·미구현 시 0.
   getYesterdayUsageBucketMinutes: async (): Promise<number> => {
+    if (AndroidScreenTime) return AndroidScreenTime.getYesterdayUsageBucketMinutes();
     if (Platform.OS !== 'ios') return 0;
     return NativeScreenTimeModule.getYesterdayUsageBucketMinutes();
   },
