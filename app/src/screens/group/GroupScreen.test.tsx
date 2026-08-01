@@ -58,13 +58,51 @@ jest.mock('@/navigation/navigationRef', () => ({
 }));
 
 // 자식 화면·시트는 콜백만 잠근다 — 각자의 분기는 자기 테스트 파일이 맡는다.
+// 그룹방 목업은 '내 그룹 목록'(onShowGroups)을 **받았을 때만** 렌더한다 — 내장 렌더에서만
+// 전달되는 prop이라, 이 항목의 유무가 곧 진입 경로 계약이다(2차 §0-3).
 jest.mock('./GroupRoomScreen', () => {
-  const { Text: RNText, TouchableOpacity: RNTouchable } = require('react-native');
-  return function MockRoom({ onLeft }: { onLeft: () => void }) {
+  const { Text: RNText, TouchableOpacity: RNTouchable, View: RNView } = require('react-native');
+  return function MockRoom({
+    onLeft,
+    onShowGroups,
+  }: {
+    onLeft: () => void;
+    onShowGroups?: () => void;
+  }) {
     return (
-      <RNTouchable onPress={onLeft}>
-        <RNText>그룹방</RNText>
-      </RNTouchable>
+      <RNView>
+        <RNTouchable onPress={onLeft}>
+          <RNText>그룹방</RNText>
+        </RNTouchable>
+        {onShowGroups ? (
+          <RNTouchable onPress={onShowGroups}>
+            <RNText>내 그룹 목록</RNText>
+          </RNTouchable>
+        ) : null}
+      </RNView>
+    );
+  };
+});
+
+// 목록 본체는 목록 트랙 소관 — 여기서는 배관이 넘기는 groups·onSelect 계약만 잠근다.
+jest.mock('./GroupListScreen', () => {
+  const { Text: RNText, TouchableOpacity: RNTouchable, View: RNView } = require('react-native');
+  return function MockList({
+    groups,
+    onSelect,
+  }: {
+    groups: { groupId: string; name: string }[];
+    onSelect: (groupId: string) => void;
+  }) {
+    return (
+      <RNView>
+        <RNText>{`목록 ${groups.length}건`}</RNText>
+        {groups.map((g) => (
+          <RNTouchable key={g.groupId} onPress={() => onSelect(g.groupId)}>
+            <RNText>{`목록-${g.name}`}</RNText>
+          </RNTouchable>
+        ))}
+      </RNView>
     );
   };
 });
@@ -101,6 +139,7 @@ const mockPeek = peekPendingInvite as jest.MockedFunction<typeof peekPendingInvi
 const mockClear = clearPendingInvite as jest.MockedFunction<typeof clearPendingInvite>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+const GROUP_ID_2 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
 
 function summary(): GroupSummaryResponse {
   return {
@@ -112,6 +151,10 @@ function summary(): GroupSummaryResponse {
     role: 'MEMBER',
     status: 'WAITING',
   };
+}
+
+function otherSummary(): GroupSummaryResponse {
+  return { ...summary(), groupId: GROUP_ID_2, name: '저녁 스터디' };
 }
 
 async function renderScreen() {
@@ -218,6 +261,44 @@ describe('일반 재조회 실패', () => {
     mockGetMyGroups.mockResolvedValueOnce([summary()]);
     await press('다시 시도');
     await waitFor(() => expect(screen.queryByText('목록을 새로고침하지 못했어요')).toBeNull());
+  });
+});
+
+// 2차 배관 — 목록 분기(2차 §0-1·§0-2). 목록 본체가 아니라 **어느 분기가 렌더되고 탭이 어디로 가는지**만 잠근다.
+describe('목록 분기(0/1/N)', () => {
+  test('0건 — 빈 상태(목록도 그룹방도 아니다)', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([]);
+    await renderScreen();
+
+    expect(screen.getByText('함께 집중할 그룹을 만들어보세요')).toBeOnTheScreen();
+    expect(screen.queryByText('목록 0건')).toBeNull();
+    expect(screen.queryByText('그룹방')).toBeNull();
+  });
+
+  test('1건 — 기존대로 내장 그룹방. 목록을 열면 push 없이 그룹방으로 되돌아온다', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+    expect(screen.getByText('그룹방')).toBeOnTheScreen();
+
+    // ⋯ 메뉴 '내 그룹 목록' — 1건이어도 목록을 볼 수 있는 유일한 경로다.
+    await press('내 그룹 목록');
+    expect(screen.getByText('목록 1건')).toBeOnTheScreen();
+
+    // 1건일 때 목록에서 탭하면 스택에 같은 방을 얹지 않는다 — 내장 렌더로 복귀할 뿐이다.
+    await press('목록-아침 6시 집중방');
+    expect(mockNavigate).not.toHaveBeenCalledWith('GroupRoom', { groupId: GROUP_ID });
+    expect(screen.getByText('그룹방')).toBeOnTheScreen();
+  });
+
+  test('2건 이상 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
+    await renderScreen();
+
+    expect(screen.getByText('목록 2건')).toBeOnTheScreen();
+    expect(screen.queryByText('그룹방')).toBeNull(); // 내장 렌더는 1건 전용이다
+
+    await press('목록-저녁 스터디');
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', { groupId: GROUP_ID_2 });
   });
 });
 

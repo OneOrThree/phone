@@ -1,6 +1,8 @@
 // 그룹 모듈 배럴 — 네비게이터 등 호출부는 여기서 import.
-//   import { GroupScreen, GroupCreateScreen, NoticeScreen } from '@/screens/group';
-// 그룹방(GroupRoomScreen)·시트들은 라우트가 아니라 GroupScreen 내부에서만 쓰이므로 내보내지 않는다.
+//   import { GroupScreen, GroupCreateScreen, GroupRoomRouteScreen, NoticeScreen } from '@/screens/group';
+// 그룹방 본체(GroupRoomScreen)·목록(GroupListScreen)·시트들은 라우트가 아니라 GroupScreen 내부
+// 또는 래퍼에서만 쓰이므로 내보내지 않는다 — 라우트로 등록되는 것만 배럴에 둔다.
 export { default as GroupScreen } from './GroupScreen';
 export { default as GroupCreateScreen } from './GroupCreateScreen';
+export { default as GroupRoomRouteScreen } from './GroupRoomRouteScreen';
 export { default as NoticeScreen } from './NoticeScreen';

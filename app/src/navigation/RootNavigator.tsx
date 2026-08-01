@@ -10,7 +10,12 @@ import NotificationsScreen from '@/screens/NotificationsScreen';
 import FocusCategoryScreen from '@/screens/focus/FocusCategoryScreen';
 import FocusSessionScreen from '@/screens/focus/FocusSessionScreen';
 import FocusResultScreen from '@/screens/focus/FocusResultScreen';
-import { GroupScreen, GroupCreateScreen, NoticeScreen } from '@/screens/group';
+import {
+  GroupScreen,
+  GroupCreateScreen,
+  GroupRoomRouteScreen,
+  NoticeScreen,
+} from '@/screens/group';
 import {
   LeagueScreen,
   FriendAddScreen,
@@ -119,8 +124,10 @@ export function RootNavigator() {
           component={LeagueResultScreen}
           options={{ animation: 'fade' }}
         />
-        {/* 그룹(A안) — 진입점은 '그룹' 탭(GroupScreen), 그룹방은 탭 안에서 렌더돼 라우트가 없다 */}
+        {/* 그룹(A안) — 진입점은 '그룹' 탭(GroupScreen). 그룹방은 그룹이 1개면 탭 안에서 렌더되고,
+            목록(2개 이상)에서 탭했을 때만 GroupRoom으로 push 된다(2차) */}
         <Stack.Screen name="GroupCreate" component={GroupCreateScreen} />
+        <Stack.Screen name="GroupRoom" component={GroupRoomRouteScreen} />
         <Stack.Screen name="GroupNotice" component={NoticeScreen} />
         {/* 설정(GROMO-559) — '전체' 탭(MenuScreen) 허브에서 push 되는 하위 화면 */}
         <Stack.Screen name="SettingsProfileEdit" component={ProfileEditScreen} />

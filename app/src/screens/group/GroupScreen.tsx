@@ -15,16 +15,23 @@ import {
   setGroupInviteListener,
 } from '@/navigation/navigationRef';
 import { logGroupViewed } from '@/services/analyticsEvents';
+import GroupListScreen from './GroupListScreen';
 import GroupRoomScreen from './GroupRoomScreen';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
 
-// 그룹 탭 진입점 — 명세 docs/app/group-plan.md §6-1. Fakedoor(GROMO-597)를 대체한다.
+// 그룹 탭 진입점 — 명세 docs/app/group-plan.md §6-1 + 2차 docs/app/group-plan-2.md §0·§3-1.
+// Fakedoor(GROMO-597)를 대체한다.
 //
 //   진입 → isGuest ? [게스트 안내]
-//                  : getMyGroups() → 실패 [에러+재시도] / 빈 배열 [빈 상태] / 1건 이상 <GroupRoomScreen/>
+//                  : getMyGroups() → 실패 [에러+재시도]
+//                                  / 0건            [빈 상태]
+//                                  / 1건            <GroupRoomScreen/> (내장 렌더 — 기존 UX 유지)
+//                                  / 2건 이상·showList <GroupListScreen/>
 //
-// 그룹 1개 전제(§0) — 응답이 여러 건이어도 groups[0]만 쓴다. 목록 화면은 만들지 않는다.
+// 멀티 그룹은 2차에 열렸지만 **1그룹 사용자에게 탭을 하나 더 시키지 않는다**(2차 §0-1) —
+// 그래서 목록은 2건 이상일 때만 기본 화면이 되고, 1건일 땐 그룹방 ⋯ 메뉴의 '내 그룹 목록'
+// (onShowGroups)으로 showList를 세워야 볼 수 있다.
 // 초대 링크로 들어온 경우엔 어느 분기 위에든 GroupInviteSheet를 덮어 띄운다(§6-6).
 
 // 플로팅 탭바가 가리는 하단 여백(리그·홈 화면과 동일 기준)
@@ -39,6 +46,9 @@ export default function GroupScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
+  // 그룹이 1건이어도 목록을 볼 수 있게 하는 장치(2차 §0-3) — 그룹방 ⋯ 메뉴의 '내 그룹 목록'이 세운다.
+  // 2건 이상이면 목록이 기본 화면이라 이 값과 무관하다.
+  const [showList, setShowList] = useState(false);
   // mutation(생성·참여) 직후의 전이 중인가 — 성공한 mutation을 후속 GET 실패가 삼키지 않게 한다.
   // 전이 중에는 기존 빈 상태를 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
   // (그러지 않으면 생성 성공 → GET 실패 시 다시 '그룹 만들기' 빈 화면이 떠 같은 그룹을 또 만든다.)
@@ -148,12 +158,29 @@ export default function GroupScreen() {
 
   // 그룹 나가기 성공 — 재조회를 기다리지 않고 즉시 빈 상태로 되돌린다.
   // (재조회만 믿으면 GET 실패 시 이미 나간 그룹방이 그대로 남는다.)
+  // showList도 함께 내린다 — 마지막 그룹을 나간 뒤 다시 만들었을 때 빈 목록 요청이 남아 있으면
+  // 새 그룹의 그룹방 대신 1건짜리 목록이 뜬다.
   const onLeft = useCallback(() => {
     setGroups([]);
     setError(false);
     setTransitioning(false);
+    setShowList(false);
     fetchGroups();
   }, [fetchGroups]);
+
+  // 목록에서 그룹을 골랐다 — 진입 경로가 둘이라 여기서 분기한다(목록 화면은 navigate 하지 않는다).
+  //  · 1건: 목록은 '잠깐 열어 본' 상태일 뿐이라 내장 그룹방으로 되돌린다(push 하면 같은 방이 겹친다)
+  //  · 2건 이상: 목록이 기본 화면이므로 그룹방을 스택에 push 한다
+  const onSelectGroup = useCallback(
+    (groupId: string) => {
+      if ((groups?.length ?? 0) <= 1) {
+        setShowList(false);
+        return;
+      }
+      navigation.navigate('GroupRoom', { groupId });
+    },
+    [groups, navigation],
+  );
 
   // 그룹 만들기 진입 — 돌아왔을 때의 포커스 재조회를 전이로 취급한다.
   // 만들지 않고 돌아온 경우에도 손해는 없다(조회에 성공하면 그대로 빈 상태로 떨어진다).
@@ -161,6 +188,11 @@ export default function GroupScreen() {
     setTransitioning(true);
     navigation.navigate('GroupCreate');
   }, [navigation]);
+
+  // 찾기 시트는 빈 상태·목록 두 분기에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
+  const findSheet = findOpen ? (
+    <GroupFindSheet onClose={() => setFindOpen(false)} onJoined={onFindJoined} />
+  ) : null;
 
   const inviteSheet = inviteGroupId ? (
     <GroupInviteSheet
@@ -234,11 +266,12 @@ export default function GroupScreen() {
     );
   }
 
-  // 그룹 1개 전제 — 여러 건이 와도 첫 번째만 쓴다(§6-1).
-  const myGroup = groups?.[0];
+  const myGroups = groups ?? [];
 
-  // ── 그룹방 — 가입한 그룹이 있으면 이 화면 안에서 렌더한다(별도 라우트 아님, §6-4) ──
-  if (myGroup) {
+  // ── 그룹방(1건) — 이 화면 안에서 렌더한다(별도 라우트 아님, §6-4). 목록 진입점을 함께 넘긴다 ──
+  // 0건 판정을 먼저 하므로 여기 오면 [0]은 반드시 있다. showList면 아래 목록으로 떨어진다.
+  if (myGroups.length === 1 && !showList) {
+    const myGroup = myGroups[0];
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         {staleNotice}
@@ -248,7 +281,27 @@ export default function GroupScreen() {
           summary={myGroup}
           onLeft={onLeft}
           inviteOpen={!!inviteGroupId}
+          onShowGroups={() => setShowList(true)}
         />
+        {inviteSheet}
+      </SafeAreaView>
+    );
+  }
+
+  // ── 목록(2건 이상 또는 1건에서 '내 그룹 목록'을 연 경우) ──
+  if (myGroups.length > 0) {
+    return (
+      <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
+        {staleNotice}
+        <GroupListScreen
+          groups={myGroups}
+          onSelect={onSelectGroup}
+          onCreate={openCreate}
+          onFind={() => setFindOpen(true)}
+          onRefresh={fetchGroups}
+        />
+        {findSheet}
+>>>>>>> bd711bd0 ([FEAT] 그룹 2차 배관 — 챌린지 API·GroupRoom 라우트·목록 분기 스켈레톤)
         {inviteSheet}
       </SafeAreaView>
     );
@@ -280,7 +333,7 @@ export default function GroupScreen() {
         </TouchableOpacity>
       </View>
 
-      {findOpen && <GroupFindSheet onClose={() => setFindOpen(false)} onJoined={onFindJoined} />}
+      {findSheet}
       {inviteSheet}
     </SafeAreaView>
   );

@@ -73,6 +73,8 @@ export interface GroupRoomScreenProps {
   onLeft: () => void;
   // 초대 시트가 이 화면 위에 떠 있는가 — 떠 있으면 '⋯' 메뉴를 내린다(아래 이펙트 주석 참고).
   inviteOpen?: boolean;
+  // 내장 렌더일 때만 전달 — ⋯ 메뉴 '내 그룹 목록' 진입점, 챌린지 트랙이 배선.
+  onShowGroups?: () => void;
 }
 
 export default function GroupRoomScreen({
