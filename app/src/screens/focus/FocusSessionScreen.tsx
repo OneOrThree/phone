@@ -137,15 +137,36 @@ export default function FocusSessionScreen() {
   const pageRef = useRef(page);
   pageRef.current = page;
   // 뷰 체류 계측(GROMO-987) — 현재 뷰 진입 시각. 페이지 전환·세션 종료 때 직전 뷰의 체류를
-  // 발행하고 기준을 리셋한다. 체류는 벽시계 기준 — 백그라운드 이탈 시간도 '켜놓은 뷰'에 포함.
+  // 발행하고 기준을 리셋한다. 백그라운드 이탈 구간은 화면을 보고 있는 게 아니므로 체류에서
+  // 차감한다(누적 away + 아직 복귀 전인 진행 중 구간까지 — 이탈 타임아웃 종료 flush 대비).
   const viewEnteredAtRef = useRef(Date.now());
+  const dwellAwayMsRef = useRef(0);
+  const dwellLeftAtRef = useRef<number | null>(null);
   const flushViewDwell = useCallback(() => {
-    const dwellSeconds = Math.round((Date.now() - viewEnteredAtRef.current) / 1000);
-    viewEnteredAtRef.current = Date.now();
+    const now = Date.now();
+    const awayMs =
+      dwellAwayMsRef.current + (dwellLeftAtRef.current != null ? now - dwellLeftAtRef.current : 0);
+    const dwellSeconds = Math.max(0, Math.round((now - viewEnteredAtRef.current - awayMs) / 1000));
+    viewEnteredAtRef.current = now;
+    dwellAwayMsRef.current = 0;
+    if (dwellLeftAtRef.current != null) dwellLeftAtRef.current = now;
     logFocusViewChanged({
       view: PAGE_VIEWS[pageRef.current] ?? 'character',
       dwell_seconds: dwellSeconds,
     });
+  }, []);
+  // 체류 시계 일시정지 — 아래 이탈 감지 이펙트보다 먼저 구독해야 복귀 시 away 구간이 먼저
+  // 누적되고, 뒤이은 이탈 타임아웃 finish의 flush가 차감된 값을 읽는다(구독 순서 = 선언 순서).
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background') {
+        if (dwellLeftAtRef.current == null) dwellLeftAtRef.current = Date.now();
+      } else if (state === 'active' && dwellLeftAtRef.current != null) {
+        dwellAwayMsRef.current += Date.now() - dwellLeftAtRef.current;
+        dwellLeftAtRef.current = null;
+      }
+    });
+    return () => sub.remove();
   }, []);
   const finishedRef = useRef(false);
   const startedAtRef = useRef(new Date().toISOString());
