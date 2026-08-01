@@ -390,6 +390,25 @@ class GroupServiceTest {
     }
 
     @Test
+    @DisplayName("DURATION인데 durationMinutes <= 0 → INVALID_MISSION_PARAMS (createChallenge 와 동일 규칙)")
+    void createGroupDurationRejectsNonPositiveMinutes() {
+        // given: 0분·음수 목표는 진행률 판정을 무의미하게 만들어 생성 단계에서 막는다
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+
+        // when & then
+        assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, 0)))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+        assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, -10)))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+        verify(groupRepository, never()).save(any());
+        verify(groupChallengeRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("TIME_WINDOW인데 windowStart/End 없음 → INVALID_MISSION_PARAMS")
     void createGroupTimeWindowMissingRange() {
         // given

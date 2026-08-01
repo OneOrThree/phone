@@ -99,7 +99,10 @@ public class GroupService {
         ensureJoinedGroupLimit(user);
 
         // 2) 미션 타입별 필수값 검증
-        if (request.getMissionType() == MissionType.DURATION && request.getDurationMinutes() == null) {
+        //    durationMinutes 는 createChallenge 와 같은 > 0 규칙 — 0/음수 목표는 진행률 판정("0분도 달성",
+        //    음수는 영원히 미달성)을 무의미하게 만들므로 생성 단계에서 막는다.
+        if (request.getMissionType() == MissionType.DURATION
+                && (request.getDurationMinutes() == null || request.getDurationMinutes() <= 0)) {
             throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
         }
         if (request.getMissionType() == MissionType.TIME_WINDOW

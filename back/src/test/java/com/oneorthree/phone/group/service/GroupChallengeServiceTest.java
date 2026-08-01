@@ -38,6 +38,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -240,6 +241,12 @@ class GroupChallengeServiceTest {
                 .build();
     }
 
+    /** 진행률 대상 필터가 보는 스크린타임 권한 — 전달한 유저만 동의(granted), 나머지는 미동의로 본다. */
+    private void givenScreenTimePermission(UUID... grantedUserIds) {
+        given(userScreenTimeSettingsRepository.findAllById(any())).willReturn(
+                Arrays.stream(grantedUserIds).map(id -> settings(id, true)).toList());
+    }
+
     private void givenDurationDetail(int durationMinutes) {
         given(groupChallengeDurationRepository.findByChallengeIdIn(List.of(CHALLENGE_ID)))
                 .willReturn(List.of(GroupChallengeDuration.builder()
@@ -280,12 +287,13 @@ class GroupChallengeServiceTest {
     @Test
     @DisplayName("SCREEN_TIME/DURATION + date → 목표 이하면 달성, 통계 없는 멤버는 null(판정 불가)")
     void getChallengesFillsScreenTimeProgress() {
-        // given: 목표 60분 · 재영은 50분 사용(달성) · 수빈은 통계 행 없음(판정 불가)
+        // given: 목표 60분 · 둘 다 권한 동의 · 재영은 50분 사용(달성) · 수빈은 통계 행 없음(판정 불가)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         GroupChallenge challenge = durationChallenge(group, MissionCategory.SCREEN_TIME);
         List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
         givenDurationDetail(60);
+        givenScreenTimePermission(USER_ID, OTHER_USER_ID);
         given(dailyScreenTimeStatRepository.findByUserInAndDate(
                 members.stream().map(GroupMember::getUser).toList(), TODAY))
                 .willReturn(List.of(DailyScreenTimeStat.builder()
@@ -304,6 +312,57 @@ class GroupChallengeServiceTest {
     }
 
     @Test
+    @DisplayName("SCREEN_TIME 권한 미동의 멤버는 통계가 남아 있어도 진행률 null (비참여자와 동일 취급)")
+    void getChallengesExcludesScreenTimeNonParticipants() {
+        // given: 재영만 권한 동의 · 수빈은 권한 철회했지만 철회 전 통계 행(30분)이 남아 있음
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.SCREEN_TIME);
+        givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+        givenScreenTimePermission(USER_ID);
+        given(dailyScreenTimeStatRepository.findByUserInAndDate(List.of(user), TODAY))
+                .willReturn(List.of(DailyScreenTimeStat.builder()
+                        .user(user).date(TODAY).totalScreenTimeMinutes(50).build()));
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then: 조회 자체가 권한 동의 멤버로만 나가고, 미동의 멤버는 판정 불가(null)
+        verify(dailyScreenTimeStatRepository).findByUserInAndDate(List.of(user), TODAY);
+        List<ChallengeMemberProgressResponse> progress = result.get(0).getMemberProgress();
+        assertThat(progress.get(0).getProgressMinutes()).isEqualTo(50);
+        assertThat(progress.get(0).getAchieved()).isTrue();
+        assertThat(progress.get(1).getUserId()).isEqualTo(OTHER_USER_ID);
+        assertThat(progress.get(1).getProgressMinutes()).isNull();
+        assertThat(progress.get(1).getAchieved()).isNull();
+    }
+
+    @Test
+    @DisplayName("SCREEN_TIME 권한 동의 멤버가 없으면 통계 조회를 아예 하지 않는다")
+    void getChallengesSkipsScreenTimeQueryWhenNoParticipant() {
+        // given: 두 멤버 모두 권한 미동의
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.SCREEN_TIME);
+        givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+        givenScreenTimePermission();
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then
+        verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
+        List<ChallengeMemberProgressResponse> progress = result.get(0).getMemberProgress();
+        assertThat(progress).hasSize(2);
+        assertThat(progress).allSatisfy(p -> {
+            assertThat(p.getProgressMinutes()).isNull();
+            assertThat(p.getAchieved()).isNull();
+        });
+    }
+
+    @Test
     @DisplayName("SCREEN_TIME 목표 초과 → achieved=false")
     void getChallengesScreenTimeOverGoalIsNotAchieved() {
         // given: 목표 60분인데 90분 사용
@@ -312,6 +371,7 @@ class GroupChallengeServiceTest {
         GroupChallenge challenge = durationChallenge(group, MissionCategory.SCREEN_TIME);
         List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
         givenDurationDetail(60);
+        givenScreenTimePermission(USER_ID, OTHER_USER_ID);
         given(dailyScreenTimeStatRepository.findByUserInAndDate(
                 members.stream().map(GroupMember::getUser).toList(), TODAY))
                 .willReturn(List.of(DailyScreenTimeStat.builder()

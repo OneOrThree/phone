@@ -150,14 +150,33 @@ public class GroupChallengeService {
                                 s -> s.getUser().getId(),
                                 s -> s.getTotalFocusSeconds() / 60))   // GROMO-642: 초→분
                 : Map.of();
-        Map<UUID, Integer> screenTimeMinutes = hasDurationChallenge(challenges, MissionCategory.SCREEN_TIME)
-                ? dailyScreenTimeStatRepository.findByUserInAndDate(users, date).stream()
+
+        // 스크린타임은 권한에 동의한 멤버만 대상 — 권한을 철회한 멤버는 챌린지 비참여자
+        // (canParticipate=false / nonParticipants)이므로, 철회 전에 쌓여 남아 있는 통계 행을
+        // 진행률로 노출하지 않는다(맵에서 빠져 null = 판정 불가).
+        Map<UUID, Integer> screenTimeMinutes = Map.of();
+        if (hasDurationChallenge(challenges, MissionCategory.SCREEN_TIME)) {
+            Set<UUID> grantedUserIds = grantedScreenTimeUserIds(users);
+            List<User> participants = users.stream()
+                    .filter(u -> grantedUserIds.contains(u.getId()))
+                    .toList();
+            if (!participants.isEmpty()) {
+                screenTimeMinutes = dailyScreenTimeStatRepository.findByUserInAndDate(participants, date).stream()
                         .collect(Collectors.toMap(
                                 s -> s.getUser().getId(),
-                                DailyScreenTimeStat::getTotalScreenTimeMinutes))
-                : Map.of();
+                                DailyScreenTimeStat::getTotalScreenTimeMinutes));
+            }
+        }
 
         return new ProgressSnapshot(members, focusMinutes, screenTimeMinutes);
+    }
+
+    /** 스크린타임 권한에 동의한 유저 id 집합 — 비참여자 판정과 진행률 대상 필터가 같은 기준을 쓰도록 공유한다. */
+    private Set<UUID> grantedScreenTimeUserIds(List<User> users) {
+        return userScreenTimeSettingsRepository.findAllById(users.stream().map(User::getId).toList()).stream()
+                .filter(UserScreenTimeSettings::isScreenTimePermissionGranted)
+                .map(UserScreenTimeSettings::getUserId)
+                .collect(Collectors.toSet());
     }
 
     private boolean hasDurationChallenge(List<GroupChallenge> challenges, MissionCategory category) {
@@ -184,6 +203,9 @@ public class GroupChallengeService {
                     UUID memberId = member.getUser().getId();
                     // FOCUS 는 통계가 없으면 "0분 집중"이 사실이지만, SCREEN_TIME 은 데이터 미수집과
                     // "0분 사용"을 구분할 수 없어 null(판정 불가)로 남긴다.
+                    // 한계: null 은 "통계 행 없음/권한 미동의"까지만 덮는다. 앱이 actualScreenTimeMinutes 없이
+                    // 보고하면 ScreenTimeService 가 0 으로 저장해 실제 0분과 구분되지 않는다(쓰기 모델 이슈 —
+                    // 컬럼 nullable 화가 필요해 이 범위 밖).
                     Integer progressMinutes = screenTime
                             ? progress.screenTimeMinutes().get(memberId)
                             : progress.focusMinutes().getOrDefault(memberId, 0);
@@ -278,11 +300,7 @@ public class GroupChallengeService {
             List<User> members = groupMemberRepository.findByGroup(group).stream()
                     .map(GroupMember::getUser)
                     .toList();
-            Set<UUID> grantedUserIds = userScreenTimeSettingsRepository.findAllById(
-                            members.stream().map(User::getId).toList()).stream()
-                    .filter(UserScreenTimeSettings::isScreenTimePermissionGranted)
-                    .map(UserScreenTimeSettings::getUserId)
-                    .collect(Collectors.toSet());
+            Set<UUID> grantedUserIds = grantedScreenTimeUserIds(members);
             nonParticipants = members.stream()
                     .filter(u -> !grantedUserIds.contains(u.getId()))
                     .map(u -> CreateChallengeResponse.NonParticipantDto.builder()
