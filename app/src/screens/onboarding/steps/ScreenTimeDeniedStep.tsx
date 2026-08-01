@@ -5,6 +5,7 @@ import InfoNote, { NoteStrong } from '@/screens/onboarding/components/InfoNote';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
+import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
 import {
   logOnboardingPermissionRequested,
   logOnboardingPermissionResulted,
@@ -39,6 +40,10 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
       const counts = await ScreenTimeModule.presentAppPicker();
       if (counts) {
         await ScreenTimeModule.promoteSelection();
+        // 선택 확정 직후 15분 버킷 모니터링 등록(GROMO-633) — Syncer는 온보딩 완료 후에만
+        // 마운트되므로, 여기서 등록하지 않으면 온보딩 미완주 이탈 시 측정이 시작되지 않는다.
+        // 소유 미상(null)으로 등록 — Syncer 첫 실행이 현재 계정으로 귀속시킨다(요청 스텝과 동일).
+        await registerUsageBucketMonitoring(null);
         updateRef.current({ screenTimeSelectionConfigured: true });
       }
     } catch {
