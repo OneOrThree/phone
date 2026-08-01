@@ -22,7 +22,6 @@ import {
 import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
 import { CardOrderEditor } from './stats/CardOrderEditor';
-import { SubjectProgressList } from '@/components/SubjectProgressList';
 import { STORAGE_KEYS } from '@/types/storage';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { useFocus } from '@/store/FocusContext';
@@ -37,7 +36,7 @@ import { MonthWeeklyChart, pickFocus, pickScreenTime } from './stats/MonthWeekly
 import { FocusTimetableCard } from './stats/FocusTimetableCard';
 import { WeeklyTimetableCard } from './stats/WeeklyTimetableCard';
 import { LongestSessionStat } from './stats/LongestSessionStat';
-import { CategoryDonut } from './stats/CategoryDonut';
+import { CategoryDonut, SubjectDonut } from './stats/CategoryDonut';
 import { DeltaRow } from './stats/DeltaRow';
 import { GoalDayStamps } from './stats/GoalCards';
 import { CalendarCard } from './stats/CalendarCard';
@@ -53,7 +52,7 @@ import { cs } from './stats/cardStyles';
 export default function StatsScreen() {
   const navigation = useNavigation();
   const [period, setPeriod] = useState<StatsPeriod>('WEEK');
-  const { data, loading } = useStatsData(period);
+  const { data, loading, refetch } = useStatsData(period);
   // 일 탭 과목별 카드 — 집중 세션 메뉴 드로어와 동일한 로컬 오늘 누적(SubjectContext) 사용
   const { subjects } = useSubjects();
   // 일 탭 총계도 같은 로컬 소스(홈·드로어와 동일) — 서버 집계(data.focus)는 업로드 지연·재시도 중이면
@@ -232,9 +231,13 @@ export default function StatsScreen() {
           ) : (
             <CalendarCard
               period={period}
-              cells={data.heatmap}
+              cells={data.heatmapFailed ? null : data.heatmap}
               today={data.today}
               elapsedDays={data.screenTime?.elapsedDays ?? null}
+              // 탭 전환 중엔 이전 기간 응답이 남아 있어(예: 월→주) 다른 기간의 집계가 주 캘린더에
+              // 뜰 수 있다 — 응답의 period가 현재 탭과 일치할 때만 사용(코드리뷰 반영)
+              periodTotal={data.focus?.period === period ? data.focus.totalFocusMinutes : null}
+              retryCurrent={refetch}
             />
           )}
         </SectionCard>
@@ -242,8 +245,8 @@ export default function StatsScreen() {
     ),
   });
 
-  // ST2 과목별 공부량 (나) — 총 공부량 바로 아래. 주/월 탭은 도넛(비중), 일 탭은 집중 세션 메뉴
-  // 드로어와 동일한 과목별 현황(로컬 오늘 누적 — 색 점+시간+비율 바, GROMO-762)
+  // ST2 과목별 공부량 (나) — 총 공부량 바로 아래. 전 탭 도넛으로 통일(GROMO-976) —
+  // 주/월은 서버 집계, 일은 집중 세션 메뉴 드로어와 동일한 로컬 오늘 누적(SubjectContext)
   cards.push({
     key: 'category',
     node: (
@@ -263,7 +266,7 @@ export default function StatsScreen() {
               total={data.category?.totalFocusMinutes ?? 0}
             />
           ) : (
-            <SubjectProgressList rows={subjects} />
+            <SubjectDonut rows={subjects} totalSeconds={todayFocusSeconds} />
           )}
         </SectionCard>
       </View>

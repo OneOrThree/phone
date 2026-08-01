@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 어댑티브 아이콘(API 26+) — 전경은 세이프존(중앙 66%)에 아트 배치, 배경은 아이콘 원본 배경색 -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+  <background android:drawable="@color/iconBackground"/>
+  <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+</adaptive-icon>

@@ -124,6 +124,8 @@
 	<string>폰 사용 시간을 측정해 스크린타임 목표 달성 확인과 사용 통계 제공에 사용합니다.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>타임테이블 등 통계 이미지를 사진에 저장하기 위해 필요합니다.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>사진 속 물건으로 캐릭터를 만들기 위해 앨범에서 사진을 고를 때 필요합니다.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSUserTrackingUsageDescription</key>

@@ -1,5 +1,6 @@
 <resources>
   <color name="splashscreen_background">#FFFFFF</color>
-  <color name="iconBackground">#ffffff</color>
+  <!-- 어댑티브 아이콘 배경색 — icon.png 테두리 평균색(보라)과 일치 -->
+  <color name="iconBackground">#9288CB</color>
   <color name="colorPrimary">#023c69</color>
 </resources>

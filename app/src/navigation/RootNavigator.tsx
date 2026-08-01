@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -29,6 +30,7 @@ import {
   PrivacyPolicyScreen,
   VersionInfoScreen,
 } from '@/screens/settings';
+import { SPIKE_ENABLED } from '@/screens/spike/enabled';
 import { TabBar } from '@/components/TabBar';
 import { initAnalytics } from '@/services/analytics';
 import { startDatadogNavigationTracking } from '@/services/datadog';
@@ -46,6 +48,20 @@ type TabParamList = {
 
 const Tab = createBottomTabNavigator<TabParamList>();
 const Stack = createNativeStackNavigator<V2RootStackParamList>();
+
+// 실험(스파이크) 화면은 지연 로드한다. 이 화면은 expo-image-picker 등 네이티브 필수 모듈을
+// top-level import 하므로, 정적 import면 네이티브가 없는 바이너리(이번 네이티브 변경 이전
+// 빌드에 얹힌 OTA 번들 등)에서 부팅 경로가 통째로 죽는다. lazy + 라우트 등록 게이트로
+// 실패 범위를 "스파이크 화면 진입 시"로 좁힌다. 검증이 끝나면 이 블록째 제거한다.
+const ObjectCharacterScreen = lazy(() => import('@/screens/spike/ObjectCharacterScreen'));
+
+function ObjectCharacterSpikeRoute() {
+  return (
+    <Suspense fallback={null}>
+      <ObjectCharacterScreen />
+    </Suspense>
+  );
+}
 
 // 4탭 + 중앙 FAB
 function MainTabs() {
@@ -111,6 +127,11 @@ export function RootNavigator() {
         <Stack.Screen name="SettingsStatVisibility" component={StatVisibilityScreen} />
         <Stack.Screen name="SettingsPrivacyPolicy" component={PrivacyPolicyScreen} />
         <Stack.Screen name="SettingsVersion" component={VersionInfoScreen} />
+        {/* 실험(스파이크) — 오브젝트 캐릭터 PoC. 진입점(MenuScreen)과 같은 플래그로 막아
+             프로드 빌드에는 라우트 자체가 없다. 검증 끝나면 화면째 제거 */}
+        {SPIKE_ENABLED ? (
+          <Stack.Screen name="ObjectCharacterSpike" component={ObjectCharacterSpikeRoute} />
+        ) : null}
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -2,11 +2,12 @@ import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
 import { useLiveFocusClock } from '@/hooks/useLiveFocusClock';
 import { liveTotalSeconds } from '@/utils/liveFocus';
-import { hourMin, hmsCompact } from '../format';
+import { hms } from '../format';
 import { StarAvatar } from './StarAvatar';
 
 // 집중 세션 소셜 그리드 공통 컴포넌트 — 친구(656)·리그(811)·같은 시험(812) 페이지가 공유.
-// 전원 오늘 총 집중시간을 표기하고, 집중중(isFocusing)은 초록 테두리·과목·초 단위 라이브로 구분.
+// 전원 오늘 총 집중시간을 hh:mm:ss로 표기하고(GROMO-929, 비집중은 분 원본이라 초 :00 고정),
+// 집중중(isFocusing)은 초록 테두리·과목·초 단위 라이브로 구분.
 // 아바타 색은 팔레트 순환 — TODO: 캐릭터 장착 정보 렌더 연동 시 교체.
 
 // 그리드 멤버 공통 형태 — SessionFriend(친구)·리그 랭킹 매핑 결과가 모두 이 형태를 만족한다.
@@ -76,10 +77,10 @@ export function LiveFocusGrid({
               </Text>
               {m.isFocusing ? (
                 <Text style={s.timeActive}>
-                  {hmsCompact(liveTotalSeconds(m.focusTimeMinutes * 60, m.focusStartedAt, now))}
+                  {hms(liveTotalSeconds(m.focusTimeMinutes * 60, m.focusStartedAt, now))}
                 </Text>
               ) : (
-                <Text style={s.timeIdle}>{hourMin(m.focusTimeMinutes * 60)}</Text>
+                <Text style={s.timeIdle}>{hms(m.focusTimeMinutes * 60)}</Text>
               )}
               {/* 과목 줄 — 태그 유무와 무관하게 항상 자리를 차지해(없으면 공백) 카드 높이를 통일한다.
                  flexWrap 그리드에서 같은 행 카드가 2줄/3줄로 어긋나는 것 방지 */}

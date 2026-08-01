@@ -53,7 +53,9 @@ public class InGameCurrencyService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        if (type == CurrencyTransactionType.PURCHASE) {
+        // 서버 전용 타입(BET_*)은 클라가 실어 보낼 수 없다 — 통과시키면 임의 금액 발행이 되고,
+        // 원장에서 정산 기입과 구분되지 않아 에스크로·지급 정합 검증이 불가능해진다.
+        if (type == CurrencyTransactionType.PURCHASE || type.isServerOnly()) {
             throw new CurrencyException(CurrencyErrorCode.ILLEGAL_EARN_REASON);
         }
 
