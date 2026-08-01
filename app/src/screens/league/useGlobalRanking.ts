@@ -32,7 +32,8 @@ export function useGlobalRanking() {
       if (seq !== requestSeqRef.current) return;
       setMembers(toRankingMembers(res, userId, myNickname, null));
     } catch {
-      if (seq === requestSeqRef.current) setMembers(null); // 네트워크/인증 실패 → 빈 상태
+      // 일시 실패 시 기존 랭킹 유지 — 당겨서 새로고침 실패로 보이던 목록이 사라지지 않게 한다
+      // (useLeagueRanking과 동일 정책, 코드리뷰 반영). 이전 데이터가 없으면 그대로 빈 상태.
     }
   }, [userId, myNickname]);
 
