@@ -18,6 +18,10 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
     @EntityGraph(attributePaths = "user")
     List<GroupMember> findByGroup(Group group);
 
+    // getMyGroups 가 멤버마다 group.getName()/getMaxMembers()/getStatus()/isPrivate() 를 읽는다.
+    // GroupMember.group 은 LAZY 라 fetch 하지 않으면 그룹 수 N 만큼 SELECT 가 더 나간다 — 멤버 수
+    // 집계를 IN 1회로 줄여도 전체 쿼리는 여전히 N 에 비례했다. 그룹을 함께 로드해 2회로 고정한다.
+    @EntityGraph(attributePaths = "group")
     List<GroupMember> findByUser(User user);
 
     Optional<GroupMember> findByUserAndGroup(User user, Group group);

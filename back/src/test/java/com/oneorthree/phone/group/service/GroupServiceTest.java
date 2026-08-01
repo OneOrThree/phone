@@ -620,7 +620,7 @@ class GroupServiceTest {
         groupService.searchGroups(query);
 
         // then: is_private=false · deleted_at IS NULL 필터와 LIMIT 은 네이티브 쿼리가 책임진다
-        //   (ci 프로파일은 Flyway 비활성이라 trgm 확장·인덱스가 없어 모킹으로만 검증 가능)
+        //   (여기서는 위임 값만 본다 — SQL 자체의 동작은 실 DB 로 GroupRepositoryTest 가 검증한다)
         ArgumentCaptor<Integer> limitCaptor = ArgumentCaptor.forClass(Integer.class);
         verify(groupRepository).searchPublicByNameTrgm(eq(query), limitCaptor.capture());
         assertThat(limitCaptor.getValue()).isEqualTo(20);
@@ -629,7 +629,8 @@ class GroupServiceTest {
     @Test
     @DisplayName("비공개 그룹은 검색 결과에서 제외된다 — 코드 정확 매칭 분기도 사라졌다")
     void searchGroupsExcludesPrivateGroups() {
-        // given: 레포지토리(is_private=false 필터)가 공개 그룹만 돌려준다
+        // given: 레포지토리(is_private=false 필터)가 공개 그룹만 돌려준다.
+        //   그 필터가 실제로 비공개를 거르는지는 GroupRepositoryTest 가 실 DB 로 잠근다 — 여기는 조립만 본다.
         String query = "스터디";
         Group publicGroup = Group.builder().id(GROUP_ID).name("스터디공개").maxMembers(5)
                 .status(GroupStatus.WAITING).isPrivate(false).build();
