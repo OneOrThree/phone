@@ -5,9 +5,9 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupFindSheet from './GroupFindSheet';
-import { joinGroup, searchGroups } from '@/services/groupApi';
+import { getMyGroups, joinGroup, searchGroups } from '@/services/groupApi';
 import { logGroupJoinAttempted, logGroupSearchPerformed } from '@/services/analyticsEvents';
-import type { GroupSearchResponse } from '@/types/dto/group';
+import type { GroupSearchResponse, GroupSummaryResponse } from '@/types/dto/group';
 import { isJoinLocked, resetJoinLock } from '../joinLock';
 
 // SheetShell이 useSafeAreaInsets를 쓴다 — 테스트 트리엔 SafeAreaProvider가 없어 고정값으로 대체한다.
@@ -31,10 +31,12 @@ jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
   searchGroups: jest.fn(),
   joinGroup: jest.fn(),
+  getMyGroups: jest.fn(),
 }));
 
 const mockSearchGroups = searchGroups as jest.MockedFunction<typeof searchGroups>;
 const mockJoinGroup = joinGroup as jest.MockedFunction<typeof joinGroup>;
+const mockGetMyGroups = getMyGroups as jest.MockedFunction<typeof getMyGroups>;
 
 function axiosErrorWith(status: number, code?: string): AxiosError {
   const config = { headers: new AxiosHeaders() };
@@ -55,6 +57,19 @@ function row(over: Partial<GroupSearchResponse> = {}): GroupSearchResponse {
     maxMembers: 5,
     status: 'WAITING',
     hasPassword: false,
+    ...over,
+  };
+}
+
+function summary(over: Partial<GroupSummaryResponse> = {}): GroupSummaryResponse {
+  return {
+    groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55',
+    name: '아침 6시 집중방',
+    code: null,
+    currentMembers: 2,
+    maxMembers: 5,
+    role: 'MEMBER',
+    status: 'WAITING',
     ...over,
   };
 }
@@ -99,6 +114,7 @@ beforeEach(() => {
   jest.useFakeTimers();
   jest.clearAllMocks();
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  mockGetMyGroups.mockResolvedValue([]); // 기본: 소속 그룹 없음(뱃지 없음)
   // 참여 잠금은 모듈 스코프다(joinLock.ts) — 응답을 붙잡아 둔 테스트가 잠금을 쥔 채 끝나면
   // 뒤 테스트의 행이 처음부터 비활성이다. 테스트 사이를 확실히 끊는다.
   resetJoinLock();
@@ -265,6 +281,96 @@ describe('검색', () => {
   });
 });
 
+// 멀티 그룹(2차 §3-3) — 검색 결과에 내 그룹이 섞여 나온다. 그 행은 참여 대상이 아니라 이동 대상이다.
+describe('이미 소속한 그룹', () => {
+  const MY_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+  const OTHER_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8dcc';
+
+  test('참여 중 뱃지가 붙고 탭해도 참여 Alert·joinGroup이 나가지 않는다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary()]);
+    mockSearchGroups.mockResolvedValue([row()]);
+    await renderSheet();
+
+    const name = await searchFor('아침 6시 집중방');
+    expect(screen.getByText('참여 중')).toBeOnTheScreen();
+
+    await act(async () => {
+      fireEvent.press(name);
+    });
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(mockJoinGroup).not.toHaveBeenCalled();
+  });
+
+  // 내 그룹이 2건 이상이면 그룹 탭은 목록을 그리고 있다 — 그룹방을 스택에 올려야 한다.
+  test('내 그룹이 2건 이상이면 시트를 닫고 해당 그룹방으로 이동한다', async () => {
+    mockGetMyGroups.mockResolvedValue([
+      summary(),
+      summary({ groupId: OTHER_GROUP_ID, name: '저녁 스터디' }),
+    ]);
+    mockSearchGroups.mockResolvedValue([row()]);
+    await renderSheet();
+
+    const name = await searchFor('아침 6시 집중방');
+    await act(async () => {
+      fireEvent.press(name);
+    });
+
+    expect(onClose).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', { groupId: MY_GROUP_ID });
+  });
+
+  // 1건이면 그룹 탭이 이미 그 방을 내장 렌더한다 — push 하면 같은 방이 겹친다(배관 결정 6).
+  test('내 그룹이 1건이면 push 대신 부모에게 넘긴다(같은 방이 겹치지 않게)', async () => {
+    mockGetMyGroups.mockResolvedValue([summary()]);
+    mockSearchGroups.mockResolvedValue([row()]);
+    await renderSheet();
+
+    const name = await searchFor('아침 6시 집중방');
+    await act(async () => {
+      fireEvent.press(name);
+    });
+
+    expect(onJoined).toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  // 소속 조회 실패는 뱃지만 포기한다(fail-open) — 탭하면 서버 ALREADY_MEMBER가 같은 곳으로 보낸다.
+  test('소속 조회가 실패하면 뱃지 없이 평소대로 동작한다', async () => {
+    mockGetMyGroups.mockRejectedValue(new Error('network'));
+    mockSearchGroups.mockResolvedValue([row()]);
+    mockJoinGroup.mockRejectedValue(axiosErrorWith(409, 'ALREADY_MEMBER'));
+    await renderSheet();
+
+    const name = await searchFor('아침 6시 집중방');
+    expect(screen.queryByText('참여 중')).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(name);
+    });
+    await confirmJoinAlert();
+
+    await waitFor(() => expect(onJoined).toHaveBeenCalled());
+  });
+
+  // 내 그룹이 정원까지 찼어도 나는 이미 안에 있다 — full 흐림·탭 비활성에 걸리면 못 들어간다.
+  test('정원이 찬 내 그룹도 들어갈 수 있다(참여 중 판정이 정원보다 우선)', async () => {
+    mockGetMyGroups.mockResolvedValue([
+      summary({ currentMembers: 5 }),
+      summary({ groupId: OTHER_GROUP_ID, name: '저녁 스터디' }),
+    ]);
+    mockSearchGroups.mockResolvedValue([row({ currentMembers: 5, maxMembers: 5 })]);
+    await renderSheet();
+
+    const name = await searchFor('아침 6시 집중방');
+    expect(screen.queryByText('정원 가득')).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(name);
+    });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', { groupId: MY_GROUP_ID });
+  });
+});
+
 describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => {
   beforeEach(() => {
     mockSearchGroups.mockResolvedValue([row()]);
@@ -299,6 +405,22 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     ).toBeOnTheScreen();
     expect(mockSearchGroups).toHaveBeenCalledTimes(2); // 최초 검색 + 실패 후 재조회
     expect(logGroupSearchPerformed).toHaveBeenCalledTimes(1); // 재조회는 사용자 검색이 아니다
+  });
+
+  // 2차 신규 — 상한은 그룹이 아니라 내 사정이라, ROOM_FULL과 달리 목록을 재조회하지 않는다.
+  test('GROUP_LIMIT_EXCEEDED — 상한 안내(목록 재조회 없음)', async () => {
+    mockJoinGroup.mockRejectedValue(axiosErrorWith(409, 'GROUP_LIMIT_EXCEEDED'));
+    await renderSheet();
+
+    const name = await searchFor('아침 6시 집중방');
+    await act(async () => {
+      fireEvent.press(name);
+    });
+    await confirmJoinAlert();
+
+    expect(await screen.findByText('참여할 수 있는 그룹 수를 초과했어요')).toBeOnTheScreen();
+    expect(onJoined).not.toHaveBeenCalled();
+    expect(mockSearchGroups).toHaveBeenCalledTimes(1); // 최초 검색뿐
   });
 
   test('NOT_FOUND — 인라인 문구 + 해당 행 제거', async () => {

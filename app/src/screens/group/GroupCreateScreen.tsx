@@ -21,16 +21,20 @@ import axios from 'axios';
 import { T, withAlpha } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { createGroup, groupErrorCode } from '@/services/groupApi';
+import type { MissionCategory } from '@/types/dto/group';
 import { buildInviteLink } from '@/utils/inviteLink';
 import { logGroupCreateStarted, logGroupInviteShared } from '@/services/analyticsEvents';
 
-// 그룹 생성 화면 (root stack 'GroupCreate') — 명세 docs/app/group-plan.md §6-2.
+// 그룹 생성 화면 (root stack 'GroupCreate') — 명세 docs/app/group-plan.md §6-2
+// + 2차 docs/app/group-plan-2.md §3-3(챌린지 종류 개방).
 //
-// 폼 4필드(이름·정원·하루 목표 집중 시간·공개 설정) → createGroup → 비공개면 초대 링크
+// 폼 5필드(이름·정원·챌린지 종류·하루 목표 시간·공개 설정) → createGroup → 비공개면 초대 링크
 // 다이얼로그를 거쳐 goBack. 탭(GroupScreen)이 useFocusEffect로 재조회해 그룹방으로 전환된다.
 //
 // ⚠️ 전송 계약(§3-1):
-//   · missionType 'DURATION' · missionCategory 'FOCUS'는 서버 @NotNull이라 항상 보낸다.
+//   · missionType 'DURATION'·missionCategory는 서버 @NotNull이라 항상 보낸다.
+//     missionCategory는 1차에서 'FOCUS' 고정이었으나 2차에서 세그먼트 선택값이 됐다 —
+//     챌린지가 실동작하면서 대표 챌린지의 종류가 의미를 갖기 때문(2차 §0-5).
 //   · password·description은 절대 보내지 않는다 — 보내는 순간 아무도 못 들어오는 그룹이 된다.
 //   · 응답의 code는 읽지 않는다(참가 코드 개념 폐기 — 초대는 링크가 담당).
 // ⚠️ isPrivate는 백엔드 P1-1(is_private) 배포 전까지 서버가 무시한다(§13-1). 폼은 그대로 둔다.
@@ -40,9 +44,23 @@ const MEMBERS_MIN = 2; // 서버는 1부터 허용하지만 혼자 있는 그룹
 const MEMBERS_MAX = 10;
 const MEMBERS_DEFAULT = 5;
 
-// 하루 목표 집중 시간(분) — 챌린지 UI가 없으므로 대표 챌린지의 durationMinutes를 이 칩으로만 정한다.
+// 하루 목표 시간(분) — 생성 시점의 대표 챌린지 durationMinutes를 이 칩으로 정한다.
+// (그룹을 만든 뒤에는 그룹방의 챌린지 섹션에서 챌린지를 따로 추가한다.)
 const DURATION_OPTIONS = [30, 60, 120, 180] as const;
 const DURATION_DEFAULT = 60;
+
+// 챌린지 종류 세그먼트(2차 §3-3) — 라벨·캡션이 카테고리마다 다르다.
+//  · FOCUS       : 목표 이상 집중하면 달성
+//  · SCREEN_TIME : 목표 이하로 유지하면 달성 + 스크린타임 권한이 없는 멤버는 아예 참여가 안 된다
+// 목표 시간 라벨은 카테고리에서 파생시킨다 — '하루 목표 집중 시간'을 스크린타임에 그대로 쓰면
+// 목표의 의미가 뒤집힌다(이상 ↔ 이하).
+const CATEGORY_OPTIONS = [
+  { value: 'FOCUS', label: '집중 시간', durationLabel: '하루 목표 집중 시간' },
+  { value: 'SCREEN_TIME', label: '스크린타임', durationLabel: '하루 목표 스크린타임' },
+] as const;
+
+// 스크린타임은 권한(FamilyControls)이 없으면 서버가 참여자에서 제외한다 — 고르기 전에 알려준다.
+const SCREEN_TIME_CAPTION = '스크린타임 권한을 허용한 멤버만 참여할 수 있어요';
 
 // '복사했어요' 표시 유지 시간(ms) — 지나면 '링크 복사'로 되돌린다.
 const COPIED_RESET_MS = 2000;
@@ -59,6 +77,7 @@ export default function GroupCreateScreen() {
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
   const [maxMembers, setMaxMembers] = useState(MEMBERS_DEFAULT);
+  const [missionCategory, setMissionCategory] = useState<MissionCategory>('FOCUS');
   const [durationMinutes, setDurationMinutes] = useState<number>(DURATION_DEFAULT);
   const [isPrivate, setIsPrivate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -97,6 +116,9 @@ export default function GroupCreateScreen() {
 
   const trimmedName = name.trim();
   const canSubmit = trimmedName.length > 0 && !submitting;
+  const durationLabel =
+    CATEGORY_OPTIONS.find((c) => c.value === missionCategory)?.durationLabel ??
+    CATEGORY_OPTIONS[0].durationLabel;
 
   function bumpMembers(dir: 1 | -1) {
     setMaxMembers((prev) => Math.max(MEMBERS_MIN, Math.min(MEMBERS_MAX, prev + dir)));
@@ -135,7 +157,7 @@ export default function GroupCreateScreen() {
         name: trimmedName,
         maxMembers,
         missionType: 'DURATION',
-        missionCategory: 'FOCUS',
+        missionCategory,
         durationMinutes,
         isPrivate,
       });
@@ -255,8 +277,33 @@ export default function GroupCreateScreen() {
           </View>
         </View>
 
-        {/* ── 하루 목표 집중 시간 — 칩 ── */}
-        <Text style={s.label}>하루 목표 집중 시간</Text>
+        {/* ── 챌린지 종류 — 세그먼트(공개 설정과 같은 규격) ── */}
+        <Text style={s.label}>챌린지 종류</Text>
+        <View style={s.segment}>
+          {CATEGORY_OPTIONS.map((c) => {
+            const on = missionCategory === c.value;
+            return (
+              <TouchableOpacity
+                key={c.value}
+                style={[s.segBtn, on ? s.segBtnOn : null]}
+                activeOpacity={0.8}
+                onPress={() => setMissionCategory(c.value)}
+              >
+                <Text style={[s.segText, on ? s.segTextOn : null]}>{c.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        {/* 캡션은 스크린타임에만 — 집중 시간은 설명이 필요 없는 기본값이라 빈 줄만 남는다 */}
+        {missionCategory === 'SCREEN_TIME' && (
+          <View style={s.note}>
+            <Ionicons name="phone-portrait" size={15} color={T.accent} style={s.noteIcon} />
+            <Text style={s.noteText}>{SCREEN_TIME_CAPTION}</Text>
+          </View>
+        )}
+
+        {/* ── 하루 목표 시간 — 칩(라벨은 카테고리에서 파생) ── */}
+        <Text style={s.label}>{durationLabel}</Text>
         <View style={s.chips}>
           {DURATION_OPTIONS.map((m) => {
             const on = durationMinutes === m;

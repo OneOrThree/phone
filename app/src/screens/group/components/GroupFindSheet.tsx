@@ -16,14 +16,18 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
-import { groupErrorCode, joinGroup, searchGroups } from '@/services/groupApi';
+import { getMyGroups, groupErrorCode, joinGroup, searchGroups } from '@/services/groupApi';
 import { logGroupJoinAttempted, logGroupSearchPerformed } from '@/services/analyticsEvents';
-import type { GroupSearchResponse } from '@/types/dto/group';
+import type { GroupSearchResponse, GroupSummaryResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
 
-// 그룹 찾기 시트 — 명세 docs/app/group-plan.md §6-3.
+// 그룹 찾기 시트 — 명세 docs/app/group-plan.md §6-3 + 2차 docs/app/group-plan-2.md §3-3.
 // 이름으로 공개 그룹을 검색해 바로 참여한다. 비공개방은 서버가 검색에서 제외한다.
+//
+// 2차에서 멀티 그룹이 열리면서 검색 결과에 **이미 내가 속한 그룹**이 섞여 나온다 —
+// 그 행은 참여 대상이 아니라 이동 대상이라, 마운트 시 getMyGroups()로 소속을 받아 '참여 중'
+// 뱃지를 달고 탭을 그룹방 이동으로 바꾼다(참여 상한은 서버가 GROUP_LIMIT_EXCEEDED로 알려준다).
 // 선행: 백엔드 P0(is_private + 검색 필터). 그 전에는 비공개방이 검색에 그대로 노출된다(§13-1).
 //
 // 시트는 라우트가 아니라 GroupScreen 위의 오버레이다 — 닫기·재조회는 전부 부모 몫이라
@@ -72,8 +76,24 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
   // 키보드가 바텀시트를 덮는 문제 보정 — 패널은 하단 고정이라 자체적으로 올라가지 않는다.
   // 자식 끝에 키보드 높이만큼 여백을 깔면 패널 내용이 키보드 위로 올라온다.
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  // 내가 이미 속한 그룹 — '참여 중' 뱃지와 탭 동작(참여 → 이동)을 가른다.
+  // 조회 실패는 빈 배열로 둔다(fail-open): 뱃지가 안 붙을 뿐, 탭하면 서버가 ALREADY_MEMBER를
+  // 주고 그 분기가 그룹방으로 보낸다. 여기서 막으면 검색 자체가 실패 조회에 인질로 잡힌다.
+  const [myGroups, setMyGroups] = useState<GroupSummaryResponse[]>([]);
 
   const q = query.trim();
+
+  useEffect(() => {
+    let alive = true;
+    getMyGroups()
+      .then((rows) => {
+        if (alive) setMyGroups(rows);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -170,6 +190,22 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
     ]);
   }, [navigation, onClose]);
 
+  // 이미 속한 그룹의 행을 탭했다 — 참여가 아니라 이동이다. 시트를 닫고 그룹방을 연다.
+  // 분기 기준은 GroupScreen.onSelectGroup과 같다(배관 결정 6): 내 그룹이 그거 하나뿐이면
+  // 그룹 탭이 이미 그 방을 내장 렌더하므로 push 하면 같은 방이 겹친다 — 부모에게 넘겨
+  // (onJoined) 재조회만 시키고, 2건 이상일 때만 GroupRoom을 스택에 올린다.
+  const openMyGroup = useCallback(
+    (groupId: string) => {
+      if (myGroups.length <= 1) {
+        onJoined();
+        return;
+      }
+      onClose();
+      navigation.navigate('GroupRoom', { groupId });
+    },
+    [myGroups.length, navigation, onClose, onJoined],
+  );
+
   async function join(group: GroupSearchResponse) {
     // 참여는 앱 전체에서 한 번에 하나만 나간다(joinLock.ts) — 초대 시트의 참여와 같은 잠금을 쓴다.
     // 잠금을 못 잡는 경우: 이 시트가 내려간 뒤에도 살아 있는 앞 요청, 또는 초대 시트가 쥔 잠금.
@@ -214,6 +250,11 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
         case 'ROOM_FULL':
           setJoinError('정원이 가득 찼어요. 다른 그룹을 찾아보세요.');
           refreshResults();
+          break;
+        // 참여 상한 초과(2차) — 그룹 쪽 사정이 아니라 내 사정이라 목록은 그대로 둔다
+        // (재조회해도 같은 결과가 오고, 다른 그룹을 눌러도 똑같이 막힌다).
+        case 'GROUP_LIMIT_EXCEEDED':
+          setJoinError('참여할 수 있는 그룹 수를 초과했어요');
           break;
         case 'NOT_FOUND':
           setJoinError('사라진 그룹이에요. 방장이 그룹을 없앴을 수 있어요.');
@@ -290,8 +331,10 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
         keyboardShouldPersistTaps="handled"
       >
         {results.map((r) => {
+          // 이미 속한 그룹은 정원과 무관하게 들어갈 수 있다 — full 판정보다 먼저 본다.
+          const mine = myGroups.some((g) => g.groupId === r.groupId);
           // 정원이 찬 그룹은 흐리게 + 탭 비활성(§6-3)
-          const full = r.currentMembers >= r.maxMembers;
+          const full = !mine && r.currentMembers >= r.maxMembers;
           const joining = joiningId === r.groupId;
           return (
             <TouchableOpacity
@@ -299,11 +342,12 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
               style={[s.row, full && s.rowFull]}
               activeOpacity={0.85}
               disabled={full || joinLocked}
-              onPress={() => confirmJoin(r)}
+              onPress={() => (mine ? openMyGroup(r.groupId) : confirmJoin(r))}
             >
               <Text style={s.rowName} numberOfLines={1}>
                 {r.name}
               </Text>
+              {mine && <Text style={s.rowJoinedTag}>참여 중</Text>}
               <Text style={s.rowCount}>
                 {r.currentMembers}/{r.maxMembers}
               </Text>
@@ -379,6 +423,16 @@ const s = StyleSheet.create({
   rowName: { ...T.text.label, flex: 1, fontWeight: '700', color: T.ink, minWidth: 0 },
   rowCount: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
   rowFullTag: { ...T.text.caption, color: T.inkMuted },
+  // '참여 중' 뱃지 — 정원 표시(무채색)와 달리 상태 강조라 accent 칩 규격을 쓴다.
+  rowJoinedTag: {
+    ...T.text.caption,
+    color: T.accentDeep,
+    fontWeight: '700',
+    backgroundColor: T.accentBg,
+    borderRadius: 8,
+    paddingHorizontal: T.space.sm,
+    paddingVertical: 2,
+  },
 
   emptyBox: {
     alignItems: 'center',
