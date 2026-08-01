@@ -317,6 +317,7 @@
   var timer = 0;
   var settled = false;
   var leavingByTap = false;
+  var appOpened = false;
 
   function settle() {
     if (settled) return false;
@@ -331,6 +332,7 @@
   // 그 경우는 판정에서 제외한다(복귀 시 상태가 초기화돼 버리는 걸 막는다).
   function onLeave() {
     if (leavingByTap || !settle()) return;
+    appOpened = true;
     body.dataset.state = 'idle';
     status.textContent = '';
   }
@@ -345,8 +347,9 @@
   store.addEventListener('click', markTap);
 
   // 스토어에 다녀와 뒤로가기로 돌아오면(bfcache 복원) 앱은 결국 안 열린 것이다 — 폴백을 다시 세운다.
+  // 단 앱이 실제로 열렸다가 돌아온 경우는 제외한다. 그때 "설치돼 있지 않은 것 같아요" 는 거짓이다.
   window.addEventListener('pageshow', function (e) {
-    if (!e.persisted) return;
+    if (!e.persisted || appOpened) return;
     leavingByTap = false;
     settle();
     body.dataset.state = 'noapp';
