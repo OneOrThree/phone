@@ -254,9 +254,7 @@ export default function AccountScreen() {
           </SettingsSection>
           <View style={s.note}>
             <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />
-            <Text style={s.noteText}>
-              로그인하면 목표·집중 기록·코인이 계정에 안전하게 저장돼요.
-            </Text>
+            <Text style={s.noteText}>로그인하면 목표·집중 기록이 계정에 안전하게 저장돼요.</Text>
           </View>
           <SettingsSection>
             <SettingsRow
@@ -328,7 +326,7 @@ export default function AccountScreen() {
           <View style={s.card}>
             <Text style={s.cardTitle}>정말 떠나시겠어요?</Text>
             <Text style={s.cardBody}>
-              탈퇴하면 쌓아온 집중 기록·코인·티어가 모두 사라지고 되돌릴 수 없어요.
+              탈퇴하면 쌓아온 집중 기록·티어가 모두 사라지고 되돌릴 수 없어요.
             </Text>
             <TouchableOpacity
               style={[s.dangerBtn, withdrawing ? s.btnDisabled : null]}
