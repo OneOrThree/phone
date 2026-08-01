@@ -77,7 +77,7 @@ export function WeeklyTimetableCard() {
   );
 }
 
-const WTT_BODY_H = 220; // 트랙 세로 픽셀
+const WTT_BODY_H = 400; // 트랙 세로 픽셀 — 하루 24시간(0~24)을 담아도 세션 막대가 도톰하게 보이도록(GROMO-975)
 const WTT_MIN_BLOCK = 3; // 아주 짧은 세션도 보이도록 최소 블록 높이
 
 function WeeklyTimetable() {
@@ -135,19 +135,15 @@ function WeeklyTimetable() {
   // 구간의 과목 색 — 공용 헬퍼(subjectColorForTag)로 tagId → 태그명 → 로컬 과목 색 매칭(FocusTimetable과 동일)
   const colorForTag = (tagId: string | null) => subjectColorForTag(tagId, tagNames, subjects);
 
-  // 세로축 범위 — 데이터 최소~최대 시각을 3시간 배수로 맞춰 눈금이 정시가 되게(FirstStartChart와 동일 취지).
-  const minH = Math.min(...blocks.map((b) => b.startMin)) / 60;
-  const maxH = Math.max(...blocks.map((b) => b.endMin)) / 60;
-  let startH = Math.max(0, Math.floor(minH / 3) * 3);
-  let endH = Math.min(24, Math.ceil(maxH / 3) * 3);
-  if (endH - startH < 6) {
-    endH = Math.min(24, startH + 6);
-    startH = Math.max(0, endH - 6);
-  }
-  const span = endH - startH;
-  const px = WTT_BODY_H / span;
+  // 세로축 — 하루 전체 24시간(0~24시) 고정(GROMO-975). 이전엔 데이터 최소~최대 시각만 축에 담아
+  // 하루 중 언제 집중했는지 파악이 어려웠다. 이제 고정된 24h 축 위에 집중 구간을 얹어 시간대를 드러낸다.
+  const startH = 0;
+  const endH = 24;
+  const span = endH - startH; // 24
+  const px = WTT_BODY_H / span; // 시간당 픽셀
   const topOf = (hourFloat: number) => (hourFloat - startH) * px;
 
+  // 3시간 간격 눈금(0·3·6…24)
   const ticks: number[] = [];
   for (let h = startH; h <= endH; h += 3) ticks.push(h);
 
