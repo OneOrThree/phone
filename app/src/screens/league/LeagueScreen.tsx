@@ -91,9 +91,15 @@ export default function LeagueScreen() {
   // 미확인 주간 마감 결과가 있으면 결과 연출로 진입 (GROMO-831) — 포커스마다 last-result 조회
   useLeagueLastResult();
   // 리그 랭킹 실데이터 — 홈 상단바와 공유. 멤버 티어는 서버 응답 실값(GROMO-748).
-  const { ranking, myLeagueLabel, mySeconds, refetch: refetchRanking } = useLeagueRanking();
+  const {
+    ranking,
+    myLeagueLabel,
+    mySeconds,
+    error: rankingError,
+    refetch: refetchRanking,
+  } = useLeagueRanking();
   // '전체' 탭 전용 진짜 전역 랭킹(직군 리스트 재사용 금지 — GROMO-644).
-  const { ranking: globalRanking, refetch: refetchGlobal } = useGlobalRanking();
+  const { ranking: globalRanking, error: globalError, refetch: refetchGlobal } = useGlobalRanking();
 
   // 진입(포커스)마다 증가 — 넛지 노출을 '진입당 1회'로 발화시키는 트리거. 랭킹은 비동기 로드라
   // 포커스 시점엔 myIdx가 아직 -1일 수 있어, 데이터가 채워진 뒤 이 seq 기준으로 딱 1회만 쏜다.
@@ -156,6 +162,8 @@ export default function LeagueScreen() {
   const filter = leagueFilter ?? myLeagueLabel ?? LEAGUE_ALL;
   const isAll = filter === LEAGUE_ALL;
   const visibleRanking = isAll ? globalRanking : ranking.filter((m) => m.exam === filter);
+  // 지금 보는 리스트의 조회 실패 여부 — 전체 탭은 전역 랭킹, 직군 탭은 직군 랭킹 기준 (GROMO-922)
+  const visibleRankingError = isAll ? globalError : rankingError;
   const title = isAll ? '전체 리그' : `${filter} 리그`;
 
   // 전환 가능한 리그 — 전체 + 내 직군(있을 때). 직군 랭킹은 단일 직군이라 라벨은 최대 하나.
@@ -535,9 +543,23 @@ export default function LeagueScreen() {
               </View>
             );
           })}
-          {visibleRanking.length === 0 && (
-            <Text style={s.emptyLeague}>아직 이 리그엔 아무도 없어요</Text>
-          )}
+          {/* 조회 실패 + 보여줄 목록 없음 — "아무도 없는 리그" 빈 상태로 오인되지 않게 에러+재시도로
+               분기 (GROMO-922, 친구 탭 GROMO-621과 동일 패턴). 실패여도 기존 목록이 있으면 유지. */}
+          {visibleRanking.length === 0 &&
+            (visibleRankingError ? (
+              <View style={s.friendErrorWrap}>
+                <Text style={s.emptyLeague}>랭킹을 불러오지 못했어요</Text>
+                <TouchableOpacity
+                  style={s.retryBtn}
+                  activeOpacity={0.8}
+                  onPress={isAll ? refetchGlobal : refetchRanking}
+                >
+                  <Text style={s.retryBtnText}>다시 시도</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <Text style={s.emptyLeague}>아직 이 리그엔 아무도 없어요</Text>
+            ))}
           {pinnedOnly && listRows.length === 0 && (
             <Text style={s.emptyLeague}>랭킹에서 핀을 누르면 여기에 담겨요</Text>
           )}
@@ -1006,7 +1028,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 친구 목록 조회 실패 — 빈 상태와 구분되는 에러 안내 + 재시도 (GROMO-621)
+  // 조회 실패 — 빈 상태와 구분되는 에러 안내 + 재시도 (친구 GROMO-621 · 랭킹 GROMO-922 공용)
   friendErrorWrap: { alignItems: 'center', paddingVertical: T.space.sm },
   retryBtn: {
     backgroundColor: T.accent,
