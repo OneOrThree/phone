@@ -69,6 +69,33 @@ class ScreenTimeModule : Module() {
 
     // iOS saveCharacterSnapshot과 동일한 다운스케일 상한(긴 변 px).
     private const val SNAPSHOT_MAX_SIDE = 256
+
+    // Usage Access 허용 여부 — AppOpsManager.checkOpNoThrow(OPSTR_GET_USAGE_STATS) 기준(§2).
+    // 모듈(권한 상태 API)과 실드 서비스(세션 중 권한 재검증 — 코드리뷰 반영)가 함께 쓴다.
+    internal fun isUsageAccessGranted(context: Context): Boolean {
+      val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+      val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        appOps.unsafeCheckOpNoThrow(
+          AppOpsManager.OPSTR_GET_USAGE_STATS,
+          Process.myUid(),
+          context.packageName,
+        )
+      } else {
+        @Suppress("DEPRECATION")
+        appOps.checkOpNoThrow(
+          AppOpsManager.OPSTR_GET_USAGE_STATS,
+          Process.myUid(),
+          context.packageName,
+        )
+      }
+      // MODE_DEFAULT는 앱옵스 미기록 상태 — 매니페스트 권한 보유 여부로 판정(표준 관례).
+      return if (mode == AppOpsManager.MODE_DEFAULT) {
+        context.checkCallingOrSelfPermission(android.Manifest.permission.PACKAGE_USAGE_STATS) ==
+          PackageManager.PERMISSION_GRANTED
+      } else {
+        mode == AppOpsManager.MODE_ALLOWED
+      }
+    }
   }
 
   private val context: Context
@@ -85,6 +112,20 @@ class ScreenTimeModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ScreenTimeModule")
+
+    // 실드 상실 이벤트(코드리뷰 반영) — 세션 중 권한 회수 등으로 서비스가 실드를 내리면 JS로
+    // 알린다. 화면(FocusSessionScreen)이 구독해 '실드 없는 세션'(15초 이탈 정책)으로 강등한다.
+    Events("onFocusShieldLost")
+
+    OnCreate {
+      FocusSessionService.shieldLostListener = {
+        sendEvent("onFocusShieldLost", emptyMap<String, Any?>())
+      }
+    }
+
+    OnDestroy {
+      FocusSessionService.shieldLostListener = null
+    }
 
     // 현재 권한 상태 — approved / denied / notDetermined (JS AuthorizationStatus와 동일 문자열).
     AsyncFunction("getAuthorizationStatus") {
@@ -258,6 +299,17 @@ class ScreenTimeModule : Module() {
       FocusSessionService.stopTimer()
     }
 
+    // 잠금화면 타이머 일시정지/재개(코드리뷰 반영, 멱등) — 화면의 수동 일시정지에 맞춰
+    // 크로노미터를 멈추고 고정 경과를 표시하며, 재개 시 일시정지 구간만큼 기준 시각을 미뤄
+    // 화면 타이머와 다시 일치시킨다. iOS Live Activity에는 대응 개념이 없다(JS 래퍼가 가드).
+    AsyncFunction("pauseFocusActivity") {
+      FocusSessionService.pauseTimer()
+    }
+
+    AsyncFunction("resumeFocusActivity") {
+      FocusSessionService.resumeTimer()
+    }
+
     // 설정을 다녀온 복귀 감지 — 대기 중인 권한 요청을 실제 상태로 마감한다(§2).
     OnActivityEntersForeground {
       pendingAuthPromise?.let { promise ->
@@ -281,31 +333,8 @@ class ScreenTimeModule : Module() {
     else -> "notDetermined"
   }
 
-  // Usage Access 허용 여부 — AppOpsManager.checkOpNoThrow(OPSTR_GET_USAGE_STATS) 기준(§2).
-  private fun isUsageAccessGranted(): Boolean {
-    val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-    val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      appOps.unsafeCheckOpNoThrow(
-        AppOpsManager.OPSTR_GET_USAGE_STATS,
-        Process.myUid(),
-        context.packageName,
-      )
-    } else {
-      @Suppress("DEPRECATION")
-      appOps.checkOpNoThrow(
-        AppOpsManager.OPSTR_GET_USAGE_STATS,
-        Process.myUid(),
-        context.packageName,
-      )
-    }
-    // MODE_DEFAULT는 앱옵스 미기록 상태 — 매니페스트 권한 보유 여부로 판정(표준 관례).
-    return if (mode == AppOpsManager.MODE_DEFAULT) {
-      context.checkCallingOrSelfPermission(android.Manifest.permission.PACKAGE_USAGE_STATS) ==
-        PackageManager.PERMISSION_GRANTED
-    } else {
-      mode == AppOpsManager.MODE_ALLOWED
-    }
-  }
+  // Usage Access 허용 여부 — 판정 본체는 companion(서비스와 공유, 코드리뷰 반영).
+  private fun isUsageAccessGranted(): Boolean = isUsageAccessGranted(context)
 
   // Usage Access 설정 화면 열기 — 전체 목록 화면(유저가 목록에서 gromo를 찾아 토글, §2).
   // package: Uri로 앱 상세까지 딥링크하는 변형은 문서화되지 않은 동작이라(제조사별 크래시·

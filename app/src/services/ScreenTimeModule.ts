@@ -11,9 +11,11 @@
 //    M3(GROMO-996) — 집중 실드(포그라운드 서비스 폴링 차단)·잠금화면 타이머(chronometer 알림)·
 //    캐릭터 스냅샷·브라우저 허용 토글 라우팅. 어제 결과 판정 등은 M4에서 확장.
 
-import { NativeModules, Platform } from 'react-native';
+import { Alert, NativeModules, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { requireOptionalNativeModule } from 'expo';
 import { presentAndroidAppPicker } from '@/services/androidAppPicker';
+import { STORAGE_KEYS } from '@/types/storage';
 
 export type AuthorizationStatus = 'approved' | 'denied' | 'notDetermined';
 
@@ -98,6 +100,10 @@ interface AndroidNativeScreenTime {
   saveCharacterSnapshot?(base64: string): Promise<boolean>;
   startFocusActivity?(subjectName: string, otherSubjectsJson: string): Promise<boolean>;
   endFocusActivity?(): Promise<void>;
+  pauseFocusActivity?(): Promise<void>;
+  resumeFocusActivity?(): Promise<void>;
+  // Expo 모듈 기본 이벤트 구독(onFocusShieldLost — 세션 중 실드 상실 통지, 코드리뷰 반영)
+  addListener?(eventName: 'onFocusShieldLost', listener: () => void): { remove: () => void };
 }
 
 // 구 바이너리(OTA로 새 JS만 받아 네이티브 모듈이 없는 경우)는 null — 각 함수가 기존
@@ -143,6 +149,33 @@ export const androidAppPickerNative = {
     AndroidScreenTime?.getAllowedPackages?.() ?? Promise.resolve(null),
   setAllowedSelection: (packages: string[]): Promise<void> =>
     AndroidScreenTime?.setAllowedSelection?.(packages) ?? Promise.resolve(),
+};
+
+// 오버레이 권한 1회 안내(안드로이드, 코드리뷰 반영) — 실드의 차단 화면은 '다른 앱 위에 표시'
+// 권한이 있어야 뜨는데, 요청이 어디에도 배선돼 있지 않으면 전원이 조용히 실드 없는 세션으로
+// 강등된다(기본 미허용 권한). 첫 실드 시작 때 한 번만 설정 이동을 안내하고(AsyncStorage 플래그),
+// 거절해도 세션은 그대로 진행한다(기존 강등 설계 유지 — 이후 세션은 조용히 강등).
+const ensureOverlayPermissionOnce = async (): Promise<void> => {
+  if (!AndroidScreenTime?.canDrawOverlays || !AndroidScreenTime.requestOverlayPermission) return;
+  if (await AndroidScreenTime.canDrawOverlays()) return;
+  // Usage Access가 없으면 실드 자체가 불가 — 오버레이 안내를 띄울 이유가 없다.
+  if ((await AndroidScreenTime.getAuthorizationStatus()) !== 'approved') return;
+  const prompted = await AsyncStorage.getItem(STORAGE_KEYS.screentimeOverlayPrompted);
+  if (prompted) return;
+  await AsyncStorage.setItem(STORAGE_KEYS.screentimeOverlayPrompted, '1');
+  const goToSettings = await new Promise<boolean>((resolve) => {
+    Alert.alert(
+      "'다른 앱 위에 표시' 권한이 필요해요",
+      '집중하는 동안 다른 앱을 잠그려면 권한을 허용해 주세요.\n허용하지 않아도 집중은 계속할 수 있어요.',
+      [
+        { text: '나중에', style: 'cancel', onPress: () => resolve(false) },
+        { text: '설정으로 이동', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
+  // 설정 왕복 후 복귀 시 resolve — 허용됐다면 이어지는 startFocusShield가 실드를 켠다.
+  if (goToSettings) await AndroidScreenTime.requestOverlayPermission();
 };
 
 // 플랫폼 라우팅 — iOS는 Swift 브릿지, 안드로이드 M1 범위는 Expo 모듈, 그 외(미구현 함수·
@@ -283,6 +316,11 @@ const ScreenTimeModule = {
   // 이탈 정책)으로 강등된다. 구 바이너리(M3 함수 없음)도 false로 동일 강등.
   startFocusShield: async (subjectName: string): Promise<boolean> => {
     if (Platform.OS === 'android') {
+      // 오버레이 권한이 없으면 1회에 한해 설정 이동을 안내한다(코드리뷰 반영) — 왕복 후에도
+      // 미허용이면 네이티브가 false를 반환해 기존 '실드 없는 세션' 강등을 그대로 탄다.
+      if (typeof AndroidScreenTime?.startFocusShield === 'function') {
+        await ensureOverlayPermissionOnce().catch(() => {});
+      }
       return (await AndroidScreenTime?.startFocusShield?.(subjectName)) ?? false;
     }
     if (Platform.OS !== 'ios') return false;
@@ -358,6 +396,25 @@ const ScreenTimeModule = {
     }
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.endFocusActivity();
+  },
+
+  // 잠금화면 타이머 일시정지/재개(안드로이드 전용, 코드리뷰 반영) — 수동 일시정지 때 알림
+  // 크로노미터가 계속 오르는 문제를 동기화한다. iOS Live Activity·구 바이너리는 no-op(기존 동작).
+  pauseFocusActivity: async (): Promise<void> => {
+    if (Platform.OS === 'android') await AndroidScreenTime?.pauseFocusActivity?.();
+  },
+
+  resumeFocusActivity: async (): Promise<void> => {
+    if (Platform.OS === 'android') await AndroidScreenTime?.resumeFocusActivity?.();
+  },
+
+  // 실드 상실 구독(안드로이드 전용, 코드리뷰 반영) — 세션 중 오버레이·Usage Access 권한 회수로
+  // 네이티브가 실드를 내리면 호출된다. 반환값은 구독 해제 함수. iOS·구 바이너리는 no-op 해제
+  // 함수를 반환한다(화면 코드가 플랫폼 분기 없이 쓰게 한다).
+  subscribeFocusShieldLost: (listener: () => void): (() => void) => {
+    if (Platform.OS !== 'android' || !AndroidScreenTime?.addListener) return () => {};
+    const subscription = AndroidScreenTime.addListener('onFocusShieldLost', listener);
+    return () => subscription.remove();
   },
 
   // ── 오버레이 권한(안드로이드 전용, GROMO-996) ──
