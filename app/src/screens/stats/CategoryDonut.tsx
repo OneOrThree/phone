@@ -130,14 +130,16 @@ export function SubjectDonut({
       frac: x.accumulatedSeconds / denom,
       color: x.color,
       name: x.name,
-      timeLabel: fmtHm(x.accumulatedSeconds / 60),
+      // 초→분은 버림 — fmtHm의 반올림에 맡기면 30초가 00:01로 과대 표기돼
+      // 중앙 HH:MM:SS와 모순된다(코드리뷰 반영)
+      timeLabel: fmtHm(Math.floor(x.accumulatedSeconds / 60)),
     }));
   if (unclassified > 0) {
     segs.push({
       frac: unclassified / denom,
       color: T.inkMuted, // 과목 팔레트와 겹치지 않는 중립 회색
       name: '미분류',
-      timeLabel: fmtHm(unclassified / 60),
+      timeLabel: fmtHm(Math.floor(unclassified / 60)),
     });
   }
   return <DonutBase segs={segs} totalLabel={hms(denom)} />;
