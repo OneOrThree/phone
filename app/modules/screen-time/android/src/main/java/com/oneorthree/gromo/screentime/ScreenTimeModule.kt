@@ -310,6 +310,14 @@ class ScreenTimeModule : Module() {
       FocusSessionService.resumeTimer()
     }
 
+    // 잠금화면 타이머 재동기화(코드리뷰 반영, 멱등) — 화면(JS)이 아는 집중 경과초·일시정지
+    // 상태로 크로노미터 기준을 다시 맞춘다. pause/resume 짝을 못 맞추는 경로(백그라운드
+    // 리플레이로 지난 휴식 경계, 타이머 시작 전 일시정지, 권한 왕복으로 지연된 시작)를
+    // 최종 상태 한 번으로 복구한다. 타이머가 없으면 no-op.
+    AsyncFunction("syncFocusTimerState") { elapsedSeconds: Int, paused: Boolean ->
+      FocusSessionService.syncTimer(elapsedSeconds.toLong(), paused)
+    }
+
     // 설정을 다녀온 복귀 감지 — 대기 중인 권한 요청을 실제 상태로 마감한다(§2).
     OnActivityEntersForeground {
       pendingAuthPromise?.let { promise ->

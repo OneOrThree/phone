@@ -106,6 +106,7 @@ interface AndroidNativeScreenTime {
   endFocusActivity?(): Promise<void>;
   pauseFocusActivity?(): Promise<void>;
   resumeFocusActivity?(): Promise<void>;
+  syncFocusTimerState?(elapsedSeconds: number, paused: boolean): Promise<void>;
   // Expo 모듈 기본 이벤트 구독(onFocusShieldLost — 세션 중 실드 상실 통지, 코드리뷰 반영)
   addListener?(eventName: 'onFocusShieldLost', listener: () => void): { remove: () => void };
 }
@@ -172,6 +173,15 @@ export const androidAppPickerNative = {
 // 기록이 없으면 복귀 판정도 없다. 왕복이 끝나면(플래그 해제) 다음 이탈부터 정상 판정.
 let overlayPermissionTripActive = false;
 
+// 왕복 완료 대기용 promise(코드리뷰 반영) — 왕복 중(앱이 설정으로 백그라운드에 간 동안)의
+// FGS 시작은 안드12+가 거부하므로, 그 사이 요청된 타이머 시작(startFocusActivity)이 이
+// promise를 기다렸다가 포그라운드 복귀 후 시작한다. 왕복이 없을 땐 이미 resolve 상태.
+let overlayPermissionTripPromise: Promise<void> = Promise.resolve();
+
+// 타이머 시작/종료 세대(코드리뷰 반영) — 왕복 대기 중 endFocusActivity(세션 완료·화면 이탈)가
+// 오면 세대가 올라가고, 뒤늦게 깨어난 시작이 이를 확인해 스스로 무효화한다(고아 타이머 방지).
+let focusActivityEpoch = 0;
+
 // 오버레이 권한 1회 안내(안드로이드, 코드리뷰 반영) — 실드의 차단 화면은 '다른 앱 위에 표시'
 // 권한이 있어야 뜨는데, 요청이 어디에도 배선돼 있지 않으면 전원이 조용히 실드 없는 세션으로
 // 강등된다(기본 미허용 권한). 첫 실드 시작 때 한 번만 설정 이동을 안내하고(AsyncStorage 플래그),
@@ -199,8 +209,14 @@ const ensureOverlayPermissionOnce = async (): Promise<void> => {
   // 왕복 동안 플래그를 세워 이탈 판정에서 제외한다(위 설계 주석 참고).
   if (goToSettings) {
     overlayPermissionTripActive = true;
+    const trip = AndroidScreenTime.requestOverlayPermission();
+    // 왕복 종료 대기 지점 — 결과값·에러와 무관하게 '왕복이 끝났다(포그라운드 복귀)'만 알린다.
+    overlayPermissionTripPromise = trip.then(
+      () => {},
+      () => {},
+    );
     try {
-      await AndroidScreenTime.requestOverlayPermission();
+      await trip;
     } finally {
       overlayPermissionTripActive = false;
     }
@@ -415,6 +431,16 @@ const ScreenTimeModule = {
     otherSubjects: { name: string; seconds: number; color: string }[] = [],
   ): Promise<boolean> => {
     if (Platform.OS === 'android') {
+      // 권한 왕복 중이면 시작을 왕복 종료까지 지연(코드리뷰 반영) — 설정으로 백그라운드에 간
+      // 동안의 FGS 시작은 안드12+가 거부해(false) 세션 내내 타이머 역할이 빠진다. 왕복
+      // promise는 포그라운드 복귀(OnActivityEntersForeground)에서 resolve되므로 그 직후의
+      // 시작은 허용된다. 대기 중 세션이 끝났으면(세대 증가) 뒤늦은 시작을 하지 않는다 —
+      // 고아 타이머 알림 방지. 시작 후 경과 보정은 호출부의 syncFocusTimerState가 담당.
+      if (overlayPermissionTripActive) {
+        const epoch = focusActivityEpoch;
+        await overlayPermissionTripPromise;
+        if (epoch !== focusActivityEpoch) return false;
+      }
       return (
         (await AndroidScreenTime?.startFocusActivity?.(
           subjectName,
@@ -429,6 +455,7 @@ const ScreenTimeModule = {
   // 집중 Live Activity 종료(멱등).
   endFocusActivity: async (): Promise<void> => {
     if (Platform.OS === 'android') {
+      focusActivityEpoch += 1; // 왕복 대기 중인 시작이 있으면 무효화(위 세대 설계 주석)
       await AndroidScreenTime?.endFocusActivity?.();
       return;
     }
@@ -444,6 +471,15 @@ const ScreenTimeModule = {
 
   resumeFocusActivity: async (): Promise<void> => {
     if (Platform.OS === 'android') await AndroidScreenTime?.resumeFocusActivity?.();
+  },
+
+  // 잠금화면 타이머 재동기화(안드로이드 전용, 코드리뷰 반영) — 화면이 아는 집중 경과초·
+  // 일시정지 여부로 크로노미터 기준(base)을 다시 맞춘다. pause/resume 짝을 못 맞추는 경로 —
+  // 백그라운드 리플레이로 지난 휴식 경계, 스냅샷 지연 중 일시정지, 권한 왕복으로 지연된
+  // 시작 — 를 최종 상태 한 번으로 복구한다(멱등). iOS Live Activity·구 바이너리는 no-op.
+  syncFocusTimerState: async (elapsedSeconds: number, paused: boolean): Promise<void> => {
+    if (Platform.OS === 'android')
+      await AndroidScreenTime?.syncFocusTimerState?.(elapsedSeconds, paused);
   },
 
   // 실드 상실 구독(안드로이드 전용, 코드리뷰 반영) — 세션 중 오버레이·Usage Access 권한 회수로

@@ -385,7 +385,21 @@ export default function FocusSessionScreen() {
           .sort((a, b) => b.accumulatedSeconds - a.accumulatedSeconds)
           .slice(0, 2)
           .map((x) => ({ name: x.name, seconds: x.accumulatedSeconds, color: x.color }));
-        ScreenTimeModule.startFocusActivity(subjectName, others).catch(() => {});
+        ScreenTimeModule.startFocusActivity(subjectName, others)
+          .then((started) => {
+            // 시작 직후 현재 상태로 재동기화(안드로이드, 코드리뷰 반영) — 스냅샷 지연(0.6~2.1초)
+            // 중 누른 일시정지는 네이티브가 타이머 시작 전이라 무시하고(applyTimerPaused no-op),
+            // 권한 왕복으로 시작이 지연됐다면 그 사이 경과·페이즈도 달라져 있다. 시작이 확정된
+            // 시점의 집중 경과·일시정지 상태(휴식 페이즈 포함)를 한 번에 반영한다.
+            if (started && Platform.OS === 'android') {
+              const cur = sessionRef.current;
+              ScreenTimeModule.syncFocusTimerState(
+                Math.floor(cur.elapsed),
+                pausedRef.current || cur.phase !== 'focus',
+              ).catch(() => {});
+            }
+          })
+          .catch(() => {});
       }
     }, 600);
     return () => {
@@ -735,6 +749,18 @@ export default function FocusSessionScreen() {
           }
           setSession(cur);
           saveLive(cur.elapsed);
+          // 리플레이 경로의 크로노미터 재동기화(안드로이드, 코드리뷰 반영) — 위 루프는 지나온
+          // 페이즈 경계를 직접 처리하고 prevPhaseRef를 최종 페이즈로 세워 전환 effect(pause/
+          // resume 배선)가 돌지 않으므로, 그대로 두면 잠금화면 크로노미터가 리플레이로 지난
+          // 휴식 시간까지 포함한 채 계속 간다. 경계마다 pause/resume을 재연하는 대신 최종 집중
+          // 경과·페이즈로 한 번에 재동기화한다 — 네이티브가 base를 now−경과로 재설정하므로
+          // 지나온 휴식이 몇 번이든 정확하고, 경계를 안 지난 복귀에도 드리프트 보정으로
+          // 무해하다(멱등).
+          if (Platform.OS === 'android')
+            ScreenTimeModule.syncFocusTimerState(
+              Math.floor(cur.elapsed),
+              cur.phase !== 'focus',
+            ).catch(() => {});
         } else if (away > LEAVE_END_S) {
           // 폴백(실드 없음) — 15초 초과 시 자동 종료(나가기 직전까지만 저장)
           // 정상 완료가 아닌 중도 이탈 종료이므로 abandoned 계측(reason: leave_timeout).

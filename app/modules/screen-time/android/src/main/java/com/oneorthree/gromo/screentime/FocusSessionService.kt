@@ -129,6 +129,13 @@ class FocusSessionService : Service() {
 
     fun resumeTimer() = instance?.postTimerPaused(false) ?: Unit
 
+    // 타이머 재동기화(코드리뷰 반영) — JS(화면)가 아는 집중 경과초·일시정지 상태로 크로노미터
+    // 기준을 다시 맞춘다. pause/resume 짝을 못 맞추는 경로(백그라운드 리플레이로 지난 휴식
+    // 경계, 타이머 시작 전 일시정지, 권한 왕복으로 지연된 시작)를 최종 상태 한 번으로 복구한다.
+    // 서비스 없으면 no-op(멱등).
+    fun syncTimer(elapsedSeconds: Long, paused: Boolean) =
+      instance?.postTimerSync(elapsedSeconds, paused) ?: Unit
+
     // 실드 동작 여부 — 차단 화면이 자기 생존 판단(onResume)에, 모듈이 타이머 시작 판단에 쓴다.
     fun isShieldActive(): Boolean = instance?.shieldActive == true
 
@@ -315,9 +322,13 @@ class FocusSessionService : Service() {
     when (role) {
       ROLE_SHIELD -> {
         shieldActive = true
-        // 세션 시작 시점의 포그라운드는 gromo 자신 — 과거 이벤트로 남의 앱을 차단하지 않게
-        // 폴링 커서를 지금으로 리셋한다.
-        lastEventTs = System.currentTimeMillis()
+        // 폴링 커서를 룩백으로 시드(코드리뷰 반영) — 커서를 '지금'으로 리셋하면
+        // startForegroundService~applyStart 사이(기동 큐 대기)에 연 비허용앱의 ACTIVITY_RESUMED를
+        // 첫 폴링이 영영 못 봐, 그 앱에 머무는 동안 실드가 부재한다. 룩백 구간을 시간순으로
+        // 재생하면 마지막 RESUMED = 실제 현재 포그라운드로 수렴하므로, 세션 시작 전의 과거 앱
+        // (그 뒤 gromo RESUMED가 덮는다)을 잘못 차단하지 않고, 이미 처리한 구간과 겹쳐도 같은
+        // 결론이라 중복 처리는 무해하다(멱등).
+        lastEventTs = System.currentTimeMillis() - FIRST_POLL_LOOKBACK_MS
         currentForeground = null
       }
       ROLE_TIMER -> {
@@ -373,6 +384,21 @@ class FocusSessionService : Service() {
       timerStartedAt += System.currentTimeMillis() - timerPausedAt
       timerPausedAt = 0L
     }
+    renotify()
+  }
+
+  private fun postTimerSync(elapsedSeconds: Long, paused: Boolean) {
+    pollHandler.post { applyTimerSync(elapsedSeconds, paused) }
+  }
+
+  // 재동기화 반영(코드리뷰 반영) — pause/resume 이력을 재연하는 대신 base를 now−경과로 재설정
+  // 한다. 리플레이가 몇 번의 휴식 경계를 지났든 최종 경과·일시정지 상태만 맞으면 정확하다.
+  // paused면 buildNotification의 고정 경과 표시가 그대로 elapsedSeconds가 된다.
+  private fun applyTimerSync(elapsedSeconds: Long, paused: Boolean) {
+    if (!timerActive) return
+    val now = System.currentTimeMillis()
+    timerStartedAt = now - elapsedSeconds * 1000L
+    timerPausedAt = if (paused) now else 0L
     renotify()
   }
 
