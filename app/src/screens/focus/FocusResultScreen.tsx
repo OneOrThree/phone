@@ -168,32 +168,38 @@ export default function FocusResultScreen() {
     })();
   }, []);
 
-  // 집중 완료 통계(GROMO-603) — 핵심 지표(이번 주 합계·연속일·요일별)는 한 묶음으로 빠르게,
-  // 비교 3축은 독립 로딩(느린 축이 빠른 축·핵심 지표를 막지 않게).
+  // 집중 완료 통계(GROMO-603) — 세 요청은 각자 도착하는 대로 독립 반영한다. 한 Promise.all로
+  // 묶으면 heatmap이 먼저 와도 주간·스트릭 응답(최대 15s)까지 cellsLoaded/cellsFailed 확정이
+  // 밀려, 연출·별점 게이트가 무관한 요청에 끌려간다(코드리뷰 반영). 비교 3축도 별도 독립 로딩.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const days = thisWeekDates();
-      const [w, st, cells] = await Promise.all([
-        getFocusPeriodStats('WEEK').catch(() => null),
-        getStreak().catch(() => null),
-        getHeatmap(days[0], todayStr()).catch(() => null),
-      ]);
-      if (cancelled) return;
-      setWeek(w);
-      setStreak(st);
-      // heatmap 실패는 '로드됨'으로 치지 않는다 — 빈 데이터로 연출을 판정하면 popped 플래그가
-      // 선기록돼 그 주의 주간 축하가 유실된다(PR 227 리뷰). 실패 시 다음 진입에서 재판정.
-      if (cells) {
-        const map: Record<string, HeatmapCellResponse> = {};
-        for (const c of cells) map[c.date] = c;
-        setCellByDate(map);
-        setCellsLoaded(true);
-      } else {
-        // 확정 실패 — 연출 판정(cellsLoaded 필요)은 재진입까지 없으므로 별점 요청이 대기하지 않게 표시
-        setCellsFailed(true);
-      }
-    })();
+    const days = thisWeekDates();
+    getFocusPeriodStats('WEEK')
+      .catch(() => null)
+      .then((w) => {
+        if (!cancelled) setWeek(w);
+      });
+    getStreak()
+      .catch(() => null)
+      .then((st) => {
+        if (!cancelled) setStreak(st);
+      });
+    getHeatmap(days[0], todayStr())
+      .catch(() => null)
+      .then((cells) => {
+        if (cancelled) return;
+        // heatmap 실패는 '로드됨'으로 치지 않는다 — 빈 데이터로 연출을 판정하면 popped 플래그가
+        // 선기록돼 그 주의 주간 축하가 유실된다(PR 227 리뷰). 실패 시 다음 진입에서 재판정.
+        if (cells) {
+          const map: Record<string, HeatmapCellResponse> = {};
+          for (const c of cells) map[c.date] = c;
+          setCellByDate(map);
+          setCellsLoaded(true);
+        } else {
+          // 확정 실패 — 연출 판정(cellsLoaded 필요)은 재진입까지 없으므로 별점 요청이 대기하지 않게 표시
+          setCellsFailed(true);
+        }
+      });
     return () => {
       cancelled = true;
     };
