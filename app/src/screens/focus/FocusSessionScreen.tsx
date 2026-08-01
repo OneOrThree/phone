@@ -161,7 +161,10 @@ export default function FocusSessionScreen() {
   // 누적되고, 뒤이은 이탈 타임아웃 finish의 flush가 차감된 값을 읽는다(구독 순서 = 선언 순서).
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'background') {
+      // iOS는 알림 센터·앱 전환기 등으로 화면이 가려지면 background 없이 inactive에 머문다 —
+      // 그 시간도 뷰를 보는 게 아니므로 이탈로 취급(코덱스 리뷰). inactive→background로
+      // 이어져도 아래 null 가드로 시작 시각은 처음 한 번만 찍힌다.
+      if (state === 'background' || state === 'inactive') {
         if (dwellLeftAtRef.current == null) dwellLeftAtRef.current = Date.now();
       } else if (state === 'active' && dwellLeftAtRef.current != null) {
         dwellAwayMsRef.current += Date.now() - dwellLeftAtRef.current;
