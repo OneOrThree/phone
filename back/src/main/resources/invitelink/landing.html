@@ -53,7 +53,7 @@
 
   * { box-sizing: border-box; }
 
-  html, body { height: 100%; }
+  html { height: 100%; }
 
   body {
     margin: 0;
@@ -66,14 +66,18 @@
     background-image: linear-gradient(160deg, #3A429E 0%, #4E58BE 55%, #5A65CE 100%);
     -webkit-font-smoothing: antialiased;
     -webkit-text-size-adjust: 100%;
+    min-height: 100%;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
     padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
   }
 
-  .shell { width: 100%; max-width: 420px; }
+  /* justify-content: center 대신 auto 마진으로 세로 가운데를 잡는다.
+     가로 모드·큰 글자·긴 그룹명으로 카드가 뷰포트보다 커지면 center 는 초과분을 위아래로
+     나눠 카드 윗부분을 화면 밖으로 밀어내고, 그 영역은 스크롤로도 못 닿는다.
+     auto 마진은 남는 공간이 없으면 0 으로 풀려서 위에서부터 정상 스크롤된다. */
+  .shell { width: 100%; max-width: 420px; margin: auto 0; }
 
   /* ── 카드 ─────────────────────────────────────────────── */
   .card {
@@ -297,30 +301,43 @@
   var status = document.getElementById('status');
 
   var STORE_FALLBACK = 'gromo가 설치돼 있지 않은 것 같아요. 설치한 뒤 이 링크를 다시 눌러 주세요.';
+  var UNKNOWN_STATE = '이 초대 링크의 상태를 확인할 수 없어요. 친구에게 새 링크를 받아 주세요.';
 
-  // 스토어 링크가 http(s) 가 아니면(미치환·주입) 눌렀을 때 엉뚱한 곳으로 가므로 무력화한다.
-  // 파싱 시점 속성 주입은 서버 이스케이프의 몫이다 — 여기서 되돌릴 수 없다(WS-1 계약).
-  if (!/^https?:\/\//i.test(store.getAttribute('href') || '')) {
-    store.removeAttribute('href');
-    store.setAttribute('aria-disabled', 'true');
+  // 링크를 죽인다. 자동 점프만 막으면 사용자가 직접 눌렀을 때 그대로 실행되므로,
+  // 검증에 실패한 CTA 는 href 자체를 떼어낸다.
+  // (파싱 시점 속성 주입은 서버 이스케이프의 몫 — 여기서 되돌릴 수 없다. WS-1 계약)
+  function disable(el) {
+    el.removeAttribute('href');
+    el.setAttribute('aria-disabled', 'true');
   }
 
-  // 만료 변형은 CSS 로 이미 완성돼 있다. 여기선 자동 점프만 막으면 된다.
-  // 계약값은 "true"/"false". 빈 문자열도 "만료 아님"으로 받아 준다(컨트롤러가 false 를
-  // 빈 값으로 흘릴 수 있어서). 그 밖의 값(미치환 토큰 등)은 판단 불가로 보고 점프하지 않는다 —
-  // 죽은 초대로 앱을 여는 것보다 자동 점프를 포기하는 쪽이 안전하다(수동 탭은 그대로 동작).
-  var expiredFlag = body.dataset.expired;
-  if (expiredFlag !== 'false' && expiredFlag !== '') return;
+  // 스토어 링크가 http(s) 가 아니면(미치환·주입) 눌렀을 때 엉뚱한 곳으로 간다.
+  if (!/^https?:\/\//i.test(store.getAttribute('href') || '')) disable(store);
 
+  // 커스텀 스킴만 허용 — javascript:/data: 나 미치환 토큰이 탭으로 실행되지 않게 한다.
   var scheme = open.getAttribute('href') || '';
+  var schemeOk = /^gromo:\/\/[^\s"']+$/.test(scheme);
+  if (!schemeOk) disable(open);
 
-  // 커스텀 스킴만 허용 — javascript:/data: 값이 흘러들어와도 자동 실행되지 않게 한다.
-  if (!/^gromo:\/\/[^\s"']+$/.test(scheme)) return;
+  // 계약값은 "true"/"false". 빈 문자열도 "만료 아님"으로 받아 준다(컨트롤러가 false 를
+  // 빈 값으로 흘릴 수 있어서). 그 밖의 값(미치환 토큰 등)은 판단 불가다.
+  // 판단 불가일 때 CSS 는 정상 초대처럼 렌더하므로, JS 가 앱 열기 CTA 를 직접 막는다 —
+  // 이미 만료됐을 수 있는 초대로 앱을 여는 것보다 스토어만 남기는 쪽이 안전하다.
+  var expiredFlag = body.dataset.expired;
+  var live = expiredFlag === 'false' || expiredFlag === '';
+
+  if (!live) {
+    disable(open);
+    // 만료(true)는 CSS 가 이미 화면을 바꿔 놨다 — 안내는 판단 불가일 때만 덧붙인다.
+    if (expiredFlag !== 'true') status.textContent = UNKNOWN_STATE;
+    return;
+  }
+  if (!schemeOk) return;
 
   var timer = 0;
   var settled = false;
-  var leavingByTap = false;
   var appOpened = false;
+  var tapSource = '';
 
   function settle() {
     if (settled) return false;
@@ -331,10 +348,15 @@
     return true;
   }
 
-  // 화면이 넘어갔다 = 앱이 열렸다. 단, 사용자가 CTA 를 눌러 나가는 것도 같은 신호라
-  // 그 경우는 판정에서 제외한다(복귀 시 상태가 초기화돼 버리는 걸 막는다).
+  // 화면이 넘어갔다 = 앱이 열렸다.
+  // 단 "어느 CTA 로 나갔는가" 를 구분해야 한다. 자동 점프가 막히는 브라우저에서 사용자가
+  // 직접 '앱에서 열기' 를 눌러 앱이 뜬 경우도 성공인데, 이걸 스토어 이탈과 같이 취급하면
+  // 대기 중인 타이머·bfcache 복원이 "미설치" 를 덮어씌운다.
   function onLeave() {
-    if (leavingByTap || !settle()) return;
+    // 스토어로 나감: 앱이 열린 게 아니므로 성공으로 정리하지 않는다.
+    // 타이머만 멈춰서, 스토어에 있는 동안 화면이 몰래 noapp 으로 바뀌는 걸 막는다.
+    if (tapSource === 'store') { settle(); return; }
+    if (!settle()) return;
     appOpened = true;
     body.dataset.state = 'idle';
     status.textContent = '';
@@ -345,15 +367,14 @@
     if (document.visibilityState === 'hidden') onLeave();
   }
 
-  function markTap() { leavingByTap = true; }
-  open.addEventListener('click', markTap);
-  store.addEventListener('click', markTap);
+  open.addEventListener('click', function () { tapSource = 'open'; });
+  store.addEventListener('click', function () { tapSource = 'store'; });
 
   // 스토어에 다녀와 뒤로가기로 돌아오면(bfcache 복원) 앱은 결국 안 열린 것이다 — 폴백을 다시 세운다.
   // 단 앱이 실제로 열렸다가 돌아온 경우는 제외한다. 그때 "설치돼 있지 않은 것 같아요" 는 거짓이다.
   window.addEventListener('pageshow', function (e) {
     if (!e.persisted || appOpened) return;
-    leavingByTap = false;
+    tapSource = '';
     settle();
     body.dataset.state = 'noapp';
     status.textContent = STORE_FALLBACK;
