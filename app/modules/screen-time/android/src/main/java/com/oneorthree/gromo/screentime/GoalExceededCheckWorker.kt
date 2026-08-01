@@ -71,9 +71,28 @@ class GoalExceededCheckWorker(appContext: Context, params: WorkerParameters) :
       context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     // 알림이 꺼져 있으면 마킹 없이 스킵 — 같은 날 알림을 다시 켜면 다음 주기에 알린다.
     if (!notificationManager.areNotificationsEnabled()) return Result.success()
+    // 채널만 꺼진 경우도 동일하게 마킹 없이 스킵(안드8+, 코드리뷰 반영) — 앱 알림이 켜져
+    // 있어도 이 채널이 꺼져 있으면 notify가 조용히 무시되는데, 그날 '보냄'으로 기록하면
+    // 채널을 다시 켜도 그날은 알림을 받을 수 없다.
+    val channel = ensureChannel(notificationManager)
+    if (channel != null && channel.importance == NotificationManager.IMPORTANCE_NONE) {
+      return Result.success()
+    }
     postNotification(context, notificationManager, goalSeconds)
     prefs.edit().putString(ScreenTimeModule.KEY_GOAL_EXCEEDED_NOTIFIED_DATE, today).apply()
     return Result.success()
+  }
+
+  // 채널 생성(멱등)·실제 상태 조회(안드8+) — createNotificationChannel은 유저가 바꾼 중요도를
+  // 덮지 않으므로, 생성 후 다시 읽어야 '채널만 꺼짐(IMPORTANCE_NONE)'을 알 수 있다.
+  // 안드8 미만은 채널 개념이 없어 null.
+  private fun ensureChannel(notificationManager: NotificationManager): NotificationChannel? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+    val channel =
+      NotificationChannel(CHANNEL_ID, "사용시간 목표", NotificationManager.IMPORTANCE_DEFAULT)
+    channel.description = "목표 사용시간을 넘으면 알려줘요"
+    notificationManager.createNotificationChannel(channel)
+    return notificationManager.getNotificationChannel(CHANNEL_ID)
   }
 
   private fun postNotification(
@@ -82,10 +101,7 @@ class GoalExceededCheckWorker(appContext: Context, params: WorkerParameters) :
     goalSeconds: Int,
   ) {
     val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      val channel =
-        NotificationChannel(CHANNEL_ID, "사용시간 목표", NotificationManager.IMPORTANCE_DEFAULT)
-      channel.description = "목표 사용시간을 넘으면 알려줘요"
-      notificationManager.createNotificationChannel(channel)
+      // 채널은 doWork의 ensureChannel이 이미 생성·확인했다.
       Notification.Builder(context, CHANNEL_ID)
     } else {
       @Suppress("DEPRECATION")

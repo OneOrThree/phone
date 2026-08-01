@@ -233,13 +233,19 @@ export async function syncScreenTimeUsage(
       STORAGE_KEYS.screentimeEffectiveGoal,
       JSON.stringify({ userId, date: today, goalSeconds }),
     );
-    // 네이티브에도 오늘 유효 목표를 전달(GROMO-997) — 안드로이드는 날짜별 스냅샷으로 남겨
-    // 목표 초과 알림(WorkManager 주기 체크)·어제 판정(getYesterdayResult)이 '그날 목표'
-    // 기준으로 동작한다(매 sync 호출이라 앱을 하루 한 번만 열어도 그날 스냅샷이 남는 것도
-    // 위 effectiveGoal과 같은 이유). iOS는 기존 App Group 기록의 동일값 재기록이라 무해.
-    await ScreenTimeModule.setGoalSeconds(goalSeconds);
   } catch {
     // 기록 실패는 동기화와 무관 — 계속 진행
+  }
+  // 네이티브에도 오늘 유효 목표를 전달(GROMO-997) — 안드로이드는 날짜별 스냅샷으로 남겨
+  // 목표 초과 알림(WorkManager 주기 체크)·어제 판정(getYesterdayResult)이 '그날 목표'
+  // 기준으로 동작한다(매 sync 호출이라 앱을 하루 한 번만 열어도 그날 스냅샷이 남는 것도
+  // 위 effectiveGoal과 같은 이유). iOS는 기존 App Group 기록의 동일값 재기록이라 무해.
+  // 위 AsyncStorage 블록과 분리한 독립 가드(코드리뷰 반영) — 저장된 JSON이 깨져 위 catch로
+  // 빠져도 네이티브 목표·워커 갱신은 매 sync 시도돼 스냅샷이 낡은 채 남지 않는다.
+  try {
+    await ScreenTimeModule.setGoalSeconds(goalSeconds);
+  } catch {
+    // 전달 실패는 동기화와 무관 — 다음 sync에서 재시도
   }
 
   // 측정 시작일 기록(GROMO-942 코드리뷰 P1) — 이 계정으로 측정이 활성인 첫 시점을 남겨, 어제분
