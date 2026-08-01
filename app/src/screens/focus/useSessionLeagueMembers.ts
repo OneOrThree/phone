@@ -20,7 +20,7 @@ export function useSessionLeagueMembers({
   pollMs = DEFAULT_POLL_MS,
 }: {
   occupation?: string;
-  /** 내 행 제외용 — 내 집중 모습은 캐릭터 페이지가 담당 */
+  /** 내 행 제외용 — 내 셀은 그리드가 로컬 타이머 기준으로 따로 렌더한다(GROMO-932) */
   excludeUserId?: string | null;
   enabled?: boolean;
   pollMs?: number;

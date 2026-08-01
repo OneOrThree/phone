@@ -98,8 +98,8 @@ export default function FocusSessionScreen() {
   const pomo = params.pomodoro ?? { focusMin: 25, breakMin: 5, sets: 4 };
 
   const { width } = useWindowDimensions();
-  const { userId } = useUser();
-  const { addFocusSeconds } = useFocus();
+  const { userId, nickname } = useUser();
+  const { addFocusSeconds, todayFocusSeconds } = useFocus();
   const { addCoins } = useCoins();
   const { subjects, addFocusToSubject } = useSubjects();
   // Live Activity 시작 시점에 읽을 과목 목록 — effect 재실행 없이 최신값 참조용
@@ -111,9 +111,11 @@ export default function FocusSessionScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   // 완료 게이트(GROMO-864) — 카운트다운 종료 시 결과 화면 직행 대신 확인을 받는다
   const [doneGate, setDoneGate] = useState(false);
-  // 친구 전체 라이브 상태 — 60초 폴링·포그라운드 복귀 갱신 (09 친구 그리드 실데이터)
-  const { friends: sessionFriends } = useFocusFriends();
-  // 리그(811)·같은 시험(812) 그리드 라이브 멤버 — 내 행 제외(내 모습은 캐릭터 페이지가 담당)
+  // 친구 전체 라이브 상태 — 60초 폴링·포그라운드 복귀 갱신 (09 친구 그리드 실데이터).
+  // pinnedIds는 그리드 3종 공통 핀 우선 정렬용(932) — 리그 그리드도 같은 집합을 쓴다.
+  const { friends: sessionFriends, pinnedIds } = useFocusFriends();
+  // 리그(811)·같은 시험(812) 그리드 라이브 멤버 — 서버의 내 행은 제외하고, 내 셀은 로컬
+  // 타이머 기준으로 그리드가 따로 렌더한다(GROMO-932, 아래 myGridMe) — 중복·시차 방지
   const myCategory = useFocusCategory();
   const myOccupation = occupationForCategory(myCategory);
   const { members: leagueMembers } = useSessionLeagueMembers({ excludeUserId: userId });
@@ -818,6 +820,16 @@ export default function FocusSessionScreen() {
     },
   ];
 
+  // 내 그리드 셀(GROMO-932) — 오늘 총 집중 = 정산 누적(todayFocusSeconds) + 진행 세션 미정산 경과.
+  // settleFocusBlock이 두 값을 같은 호출에서 함께 옮기므로 합은 연속이고, 자정 넘긴 블록은
+  // 오늘 누적에 안 들어간다(정산 규칙 그대로). 타이머 틱(setSession)마다 리렌더돼 초 단위로 오른다.
+  const myGridMe = {
+    nickname: nickname || '나',
+    totalSeconds:
+      todayFocusSeconds + Math.max(0, Math.floor(session.elapsed) - settledSecondsRef.current),
+    tagName: subjectName,
+  };
+
   return (
     <View testID="focus.session.screen" style={s.root}>
       <LinearGradient colors={[T.night.top, T.night.bottom]} style={StyleSheet.absoluteFill} />
@@ -858,6 +870,8 @@ export default function FocusSessionScreen() {
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
               members={sessionFriends}
+              me={myGridMe}
+              pinnedIds={pinnedIds}
               title="내 친구"
               emptyTitle="아직 친구가 없어요"
               emptySub={'리그 탭에서 친구를 추가하면\n집중할 때 여기서 같이 보여요.'}
@@ -872,6 +886,8 @@ export default function FocusSessionScreen() {
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
               members={examMembers}
+              me={myGridMe}
+              pinnedIds={pinnedIds}
               title={myCategory ? `${myCategory} 리그` : '같은 시험'}
               emptyTitle={
                 myOccupation == null
@@ -888,6 +904,8 @@ export default function FocusSessionScreen() {
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
               members={leagueMembers}
+              me={myGridMe}
+              pinnedIds={pinnedIds}
               title="전체 리그"
               emptyTitle="아직 리그 멤버가 없어요"
               emptySub={'리그에 배정되면 여기서\n같이 공부하는 모습이 보여요.'}
