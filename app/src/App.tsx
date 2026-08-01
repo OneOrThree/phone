@@ -42,6 +42,7 @@ import { SubjectProvider } from '@/store/SubjectContext';
 import { T } from '@/constants/theme';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { RageTapDetector } from '@/components/RageTapDetector';
+import { AndroidAppPickerHost } from '@/components/AndroidAppPickerHost';
 import { OrphanFocusSettler } from '@/screens/focus/OrphanFocusSettler';
 import { abortTagEdits } from '@/screens/focus/tagSync';
 import { abortFocusRestore } from '@/screens/focus/focusRestore';
@@ -458,7 +459,12 @@ function App() {
   // RageTapDetector — 전역 연타(좌절 신호) 계측. UI 없이 터치 버블링만 관찰(GROMO-782).
   return (
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-      <RageTapDetector>{content}</RageTapDetector>
+      <RageTapDetector>
+        {content}
+        {/* 안드로이드 앱 선택 피커 호스트(GROMO-995) — presentAppPicker 계열이 띄우는 전역 모달.
+            온보딩·홈 어디서 불려도 뜨도록 게이트 밖에 상시 마운트(iOS에선 렌더 없음). */}
+        <AndroidAppPickerHost />
+      </RageTapDetector>
     </SafeAreaProvider>
   );
 }
