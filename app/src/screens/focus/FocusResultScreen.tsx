@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -705,22 +705,28 @@ function CompareCard({
       <View style={s.rowBetween}>
         <Text style={s.cardTitle}>{when} 비교</Text>
         <View style={s.periodRow}>
+          {/* 세그먼트 칩은 탭바와 같은 정책 — 이미 선택된 칩은 재탭해도 아무 일이 없으므로
+              스케일·사운드를 전부 끈다. 작은 칩이라 스케일은 0.94로 준다. */}
           {COMPARE_PERIODS.map(({ key, label }) => {
             const on = period === key;
             return (
-              <TouchableOpacity
+              <PressableScale
                 key={key}
                 style={[s.axisChip, on ? s.axisChipOn : null]}
+                scaleTo={on ? 1 : 0.94}
+                sound={!on}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={label}
                 onPress={() => {
                   // 같은 탭 재탭은 미계측
                   if (key !== period)
                     logFocusResultComparePeriodChanged({ period: PERIOD_PARAM[key] });
                   onPeriodChange(key);
                 }}
-                activeOpacity={0.8}
               >
                 <Text style={[s.axisChipText, on ? s.axisChipTextOn : null]}>{label}</Text>
-              </TouchableOpacity>
+              </PressableScale>
             );
           })}
         </View>
@@ -730,18 +736,22 @@ function CompareCard({
         {(['friends', 'all', 'category'] as CompareAxis[]).map((a) => {
           const on = axis === a;
           return (
-            <TouchableOpacity
+            <PressableScale
               key={a}
               style={[s.axisChip, on ? s.axisChipOn : null]}
+              scaleTo={on ? 1 : 0.94}
+              sound={!on}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={meta[a].chip}
               onPress={() => {
                 // 같은 칩 재탭은 미계측
                 if (a !== axis) logFocusResultCompareAxisChanged({ axis: a });
                 setAxis(a);
               }}
-              activeOpacity={0.8}
             >
               <Text style={[s.axisChipText, on ? s.axisChipTextOn : null]}>{meta[a].chip}</Text>
-            </TouchableOpacity>
+            </PressableScale>
           );
         })}
         {avg != null ? (

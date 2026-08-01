@@ -77,6 +77,17 @@ describe('PressableScale', () => {
     expect(onPress).not.toHaveBeenCalled();
   });
 
+  // disabled를 그대로 넘기는 호출부(카운트다운 시트의 '집중 시작' 등)에서 VoiceOver가
+  // '비활성'까지 읽는지 — RN Pressable이 disabled를 accessibilityState로 승격해준다.
+  test('disabled는 accessibilityState.disabled로 전달된다', async () => {
+    await render(
+      <PressableScale testID="btn" disabled>
+        <Text>집중 시작</Text>
+      </PressableScale>,
+    );
+    expect(screen.getByTestId('btn').props.accessibilityState).toMatchObject({ disabled: true });
+  });
+
   test("기본 accessibilityRole은 'button' — VoiceOver가 버튼으로 읽는다", async () => {
     await render(
       <PressableScale testID="btn">

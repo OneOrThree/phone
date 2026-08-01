@@ -322,11 +322,14 @@ export default function FocusCategoryScreen() {
             {/* 서버에서 내려준 기본(추천) 과목은 이름 변경 불가 — 삭제/등록만 허용(GROMO-855).
                 판정은 현재 카테고리 추천 과목명과의 일치 기준(재로그인 복원 뒤에도 유지됨).
                 추천 목록 도착 전엔 판별 불가라 편집을 숨긴다(defaultsReady). */}
+            {/* 팝오버 메뉴 항목도 행 계열 규칙 — 위 추천 과목 행과 같이 스케일 없이 사운드만 */}
             {defaultsReady && !defaultTags.includes(menuSubject.name) && (
               <>
                 <TouchableOpacity
                   style={s.menuItem}
                   activeOpacity={0.7}
+                  onPressIn={playTapSound}
+                  accessibilityRole="button"
                   onPress={() => editSubject(menuSubject)}
                 >
                   <Ionicons name="pencil" size={14} color={T.inkSub} />
@@ -338,6 +341,8 @@ export default function FocusCategoryScreen() {
             <TouchableOpacity
               style={s.menuItem}
               activeOpacity={0.7}
+              onPressIn={playTapSound}
+              accessibilityRole="button"
               onPress={() => confirmDelete(menuSubject)}
             >
               <Ionicons name="trash" size={14} color={T.accentAlt} />
@@ -358,7 +363,9 @@ export default function FocusCategoryScreen() {
             ]}
           >
             <View style={s.colorRow}>
-              {T.subjectPalette.map((c) => (
+              {/* 색 점은 라벨이 될 텍스트가 없어 VoiceOver가 읽을 게 없었다 — 번호로 라벨을
+                  주고 선택 상태를 함께 알린다. 피드백은 팝오버 메뉴와 같은 사운드만. */}
+              {T.subjectPalette.map((c, i) => (
                 <TouchableOpacity
                   key={c}
                   style={[
@@ -367,6 +374,10 @@ export default function FocusCategoryScreen() {
                     colorSubject.color === c && s.colorDotOn,
                   ]}
                   activeOpacity={0.8}
+                  onPressIn={playTapSound}
+                  accessibilityRole="button"
+                  accessibilityLabel={`색상 ${i + 1}`}
+                  accessibilityState={{ selected: colorSubject.color === c }}
                   onPress={() => {
                     setSubjectColor(colorSubject.id, c);
                     setColorMenu(null);
