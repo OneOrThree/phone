@@ -45,8 +45,13 @@ class GoalExceededCheckWorker(appContext: Context, params: WorkerParameters) :
     }
 
     // 목표 해제(0) 시 주기 취소 — 남겨둬도 목표 없음 no-op이지만 기기를 깨울 이유가 없다.
+    // 이미 게시된 초과 알림도 함께 제거(코드리뷰 반영) — 로그아웃·계정 전환 teardown이 부르는
+    // 경로라, 지우지 않으면 이전 계정의 알림이 로그인 화면·다음 계정에서도 셰이드에 남는다.
     fun cancel(context: Context) {
       WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+      val notificationManager =
+        context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      notificationManager.cancel(NOTIFICATION_ID)
     }
   }
 
