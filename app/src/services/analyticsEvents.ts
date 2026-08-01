@@ -172,6 +172,18 @@ export function logFocusViewChanged(p: { view: FocusViewName; dwell_seconds: num
   track('focus_view_changed', p);
 }
 
+// 집중 화면 방향 — 세로/가로 중 어느 쪽으로 더 오래 집중하는지 집계용(GROMO-973).
+export type FocusOrientation = 'portrait' | 'landscape';
+
+// 방향 전환·세션 종료 시 직전 방향의 체류를 발행 — orientation: 그 방향, dwell_seconds: 체류 초.
+// 뷰 체류(focus_view_changed)와 같은 방식이라 GA4에서 방향별 총 집중 시간을 합산해 비교한다.
+export function logFocusOrientationChanged(p: {
+  orientation: FocusOrientation;
+  dwell_seconds: number;
+}): void {
+  track('focus_orientation_changed', p);
+}
+
 // 비교 축 공용 파라미터 값 — 집중 결과·통계 비교 카드에서 함께 쓴다(GROMO-782).
 export type CompareAxisParam = 'friends' | 'all' | 'category';
 
