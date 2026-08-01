@@ -1,0 +1,23 @@
+-- 그룹 이름 유사도 검색용 GIN 인덱스 (닉네임 검색 idx_users_nickname_trgm 과 동형).
+-- searchPublicByNameTrgm 의 `name % :q` / `ORDER BY name <-> :q` 가 이 인덱스를 탄다.
+-- pg_trgm 확장은 V1__baseline.sql:30 에 이미 있다.
+--
+-- ── V17 에서 분리한 이유 ──────────────────────────────────────────────────────
+-- 마이그레이션 하나 = 트랜잭션 하나다. V17 의 ALTER TABLE ... ADD COLUMN 이 잡는 ACCESS EXCLUSIVE 락은
+-- 트랜잭션이 끝날 때까지 유지되므로, 같은 파일에 인덱스를 두면 GIN 빌드가 끝날 때까지 groups 의
+-- 조회·생성·참여가 전부 대기한다. 상수 default 컬럼 추가 자체는 PG 11+ 에서 즉시 끝나므로,
+-- 컬럼을 먼저 커밋시키고 인덱스를 별도 트랜잭션으로 떼어내면 그 대기가 사라진다.
+--
+-- ── CONCURRENTLY 를 쓰지 않는 이유 ────────────────────────────────────────────
+-- CREATE INDEX CONCURRENTLY + .sql.conf(executeInTransaction=false) 는 이 레포에서 이미 시도했다가
+-- 철회된 조합이다(4a4922f3, GROMO-801). Flyway 는 마이그레이션 구간 내내 별도 커넥션을
+-- 'idle in transaction' 으로 잡고, CIC 는 자기보다 먼저 시작된 모든 트랜잭션의 종료를 기다린다
+-- → 서로 무한 대기. dev/prod 는 부팅 시 Flyway 를 자동 실행하므로 애플리케이션이 기동 중 멈춘다.
+-- (LeagueLegacyMigrationTest 가 V1→LATEST 를 실제로 올리므로 이 교착은 테스트에서도 그대로 재현된다.)
+--
+-- 대신 일반 CREATE INDEX 의 비용을 감수한다. 빌드 동안 groups 쓰기가 막히는 건 맞지만, 이 테이블은
+-- 부하테스트 상정 규모가 5만 행(loadtest/seed/volume.md)이고 대상 컬럼도 varchar(50) 이라
+-- GIN 빌드가 초 단위로 끝난다 — friendships(약 200만 행)에서 CIC 가 필요했던 상황과 규모가 다르다.
+-- 이 전제가 깨질 만큼 groups 가 커지면 인덱스 생성은 마이그레이션이 아니라 운영 절차로 다뤄야 한다.
+CREATE INDEX idx_groups_name_trgm
+    ON public.groups USING gin (name public.gin_trgm_ops);

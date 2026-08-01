@@ -106,7 +106,8 @@ public class GroupController {
         return ResponseEntity.ok(groupService.getGroupOverview(groupId, userId));
     }
 
-    @Operation(summary = "그룹 검색", description = "8자 영숫자면 코드 정확 매칭, 아니면 이름 LIKE 검색. 만료 코드 그룹 제외.")
+    @Operation(summary = "그룹 검색", description = "공개 그룹 이름 유사도(pg_trgm) 검색, 최대 20건."
+            + " 비공개(isPrivate=true)·삭제 그룹은 제외한다. 빈/공백 질의는 빈 배열.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "검색 성공")
     })
@@ -115,7 +116,14 @@ public class GroupController {
         return ResponseEntity.ok(groupService.searchGroups(query));
     }
 
-    @Operation(summary = "초대 코드 갱신", description = "그룹장만 호출 가능. 새 8자 코드 발급 + 유효기간 3시간 갱신.")
+    /**
+     * @deprecated 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 앱이 더 이상 호출하지 않는다.
+     *     계약 파괴를 피하려고 엔드포인트만 남겨둔다. 실제 제거는 후속 정리 티켓.
+     */
+    @Deprecated
+    @Operation(summary = "초대 코드 갱신", deprecated = true,
+            description = "미사용(2026-07-31 폐기) — 참여는 초대 링크(groupId)가 담당한다."
+                    + " 그룹장만 호출 가능. 새 8자 코드 발급 + 유효기간 3시간 갱신.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "갱신 성공"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹장 아님"),
