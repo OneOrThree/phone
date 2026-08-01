@@ -118,7 +118,11 @@ export default function NoticeScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    if (await fetchNotices()) setRefreshing(false);
+    // stale(false) 여부와 무관하게 내린다 — 당겨서 새로고침 중에 작성·수정·삭제의 재조회가
+    // 끼어들면 이 호출은 stale로 끝나는데, 그 후속 조회는 refreshing을 건드리지 않아
+    // RefreshControl이 화면을 다시 열 때까지 계속 돈다(GroupRoomScreen:onRefresh와 같은 판단).
+    await fetchNotices();
+    setRefreshing(false);
   }, [fetchNotices]);
 
   function openCompose(target: GroupAnnouncementResponse | null) {

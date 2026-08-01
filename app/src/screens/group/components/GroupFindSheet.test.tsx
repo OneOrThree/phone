@@ -193,6 +193,37 @@ describe('검색', () => {
     expect(screen.queryByText('검색하지 못했어요')).toBeNull();
   });
 
+  // 이전엔 새 검색어를 쳐도 results를 그대로 뒀다 — 입력창은 B인데 목록엔 A의 행이 활성 상태로
+  // 남아, 디바운스+요청이 끝나기 전에 그 행을 누른 사용자가 B를 검색한 화면에서 A에 참여했다.
+  test('검색어를 바꾸면 이전 결과를 즉시 비운다', async () => {
+    mockSearchGroups
+      .mockResolvedValueOnce([row({ name: '아침 6시 집중방' })])
+      .mockImplementationOnce(() => new Promise<GroupSearchResponse[]>(() => {})); // B 응답을 붙잡아 둔다
+    await renderSheet();
+    const input = screen.getByPlaceholderText('그룹 이름으로 검색');
+
+    await act(async () => {
+      fireEvent.changeText(input, '집중');
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+    });
+    expect(await screen.findByText('아침 6시 집중방')).toBeOnTheScreen();
+
+    // B로 바꾼 직후 — 디바운스도 지나기 전이다.
+    await act(async () => {
+      fireEvent.changeText(input, '스터디');
+    });
+    expect(screen.queryByText('아침 6시 집중방')).toBeNull();
+    expect(screen.getByText('검색 중…')).toBeOnTheScreen();
+
+    // 응답을 기다리는 동안에도 옛 행은 돌아오지 않는다.
+    await act(async () => {
+      jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+    });
+    expect(screen.queryByText('아침 6시 집중방')).toBeNull();
+  });
+
   // 서버는 검색에서 상태·비밀번호를 거르지 않는데 join은 둘 다 통과시키지 않는다(ENDED는
   // 멤버십만 생기는 모순, 비번 그룹은 항상 WRONG_PASSWORD) — 탭할 수 없는 행은 아예 숨긴다.
   test('종료된 그룹과 비밀번호 그룹은 결과에서 제외한다', async () => {

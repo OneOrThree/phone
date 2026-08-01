@@ -383,8 +383,16 @@ export function logGroupViewed(): void {
 export function logGroupTabViewed(p: { tab: string }): void {
   track('group_tab_viewed', p);
 }
-export function logGroupInviteShared(): void {
-  track('group_invite_shared');
+// 초대 링크 공유 — share_method는 경로(클립보드 복사 / OS 공유 시트).
+// ⚠️ confirmed는 **공유가 실제로 완료됐다고 확인됐는가**다. RN Android의 Share.share()는 대상 앱
+//    선택 여부와 무관하게 sharedAction으로 끝나(dismissedAction은 iOS 전용) 취소를 구분할 수 없다 —
+//    안드로이드 공유 시트는 confirmed:false로 보내고, 전환율은 confirmed:true만으로 본다.
+//    (그냥 전부 true로 보내면 시트만 열고 닫은 사용자까지 섞여 안드로이드 지표가 체계적으로 부푼다.)
+export function logGroupInviteShared(p: {
+  share_method: 'copy' | 'share_sheet';
+  confirmed: boolean;
+}): void {
+  track('group_invite_shared', p);
 }
 
 // ── 그룹 Fakedoor [C] ── (GROMO-597)

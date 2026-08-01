@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
+  Platform,
   RefreshControl,
   ScrollView,
   Share,
@@ -219,8 +220,12 @@ export default function GroupRoomScreen({
       const result = await Share.share({
         message: `gromo 그룹 "${name}"에 초대합니다\n${buildInviteLink(groupId)}`,
       });
-      // 취소(dismissedAction)까지 공유로 집계하지 않는다.
-      if (result.action === Share.sharedAction) logGroupInviteShared();
+      // 취소(dismissedAction)까지 공유로 집계하지 않는다 — 단 그 구분은 iOS에서만 가능하다.
+      // 안드로이드는 시트를 그냥 닫아도 sharedAction으로 끝나 완료를 확인할 수 없어
+      // confirmed:false(공유 시도)로 남긴다(analyticsEvents.logGroupInviteShared 주석).
+      if (result.action === Share.sharedAction) {
+        logGroupInviteShared({ share_method: 'share_sheet', confirmed: Platform.OS === 'ios' });
+      }
     } catch {
       // 공유 시트를 못 띄운 경우 — 사용자에게 알릴 것이 없어 조용히 무시한다.
     }

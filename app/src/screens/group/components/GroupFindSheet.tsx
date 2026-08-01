@@ -125,10 +125,12 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
     // 검색어가 바뀌면 직전 참여 실패 문구는 맥락을 잃는다 — 함께 지운다.
     setJoinError(null);
     setSearchError(false);
+    // 이전 검색어의 결과도 즉시 비운다 — 입력창은 B인데 목록에 A의 행이 활성 상태로 남으면,
+    // 디바운스+요청이 끝나기 전에 그 행을 누른 사용자가 B를 검색한 화면에서 A 그룹에 참여한다.
+    setResults([]);
     // 디바운스 타이머가 뜨기 전에 올린다 — 아직 응답이 안 온 이전 요청(주 검색·조용한 갱신)이 여기서 죽는다.
     const seq = ++searchSeqRef.current;
     if (!q) {
-      setResults([]);
       setSearching(false);
       return;
     }

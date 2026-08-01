@@ -4,6 +4,7 @@ import {
   Alert,
   Clipboard,
   Modal,
+  Platform,
   ScrollView,
   Share,
   StyleSheet,
@@ -69,6 +70,20 @@ export default function GroupCreateScreen() {
   // '복사했어요' 되돌리기 타이머 — 언마운트 시 정리한다.
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 생성 요청이 떠 있는 동안인가 — 이탈 차단 리스너가 리렌더 없이 읽어야 해서 state와 별도로 둔다.
+  const submittingRef = useRef(false);
+
+  // 요청 중 이탈 차단 — 뒤로 가도 서버에는 그룹이 만들어진다. 생성자는 OWNER인데 앱에 그룹 삭제도
+  // 방장 위임도 없어(§14) OWNER 탈퇴가 거부되므로, 취소한 줄 아는 그룹에 갇힌다.
+  // 헤더 버튼·제스처·안드로이드 하드웨어 백이 전부 이 이벤트를 지나가므로 여기서 한 번에 막는다.
+  useEffect(
+    () =>
+      navigation.addListener('beforeRemove', (e) => {
+        if (submittingRef.current) e.preventDefault();
+      }),
+    [navigation],
+  );
+
   // 진입 계측 — 폼을 실제로 연 횟수(생성 완료율의 분모).
   useEffect(() => {
     logGroupCreateStarted();
@@ -109,6 +124,7 @@ export default function GroupCreateScreen() {
     // 버튼이 disabled={!canSubmit}라 여기 걸리는 경로는 없다 — 연타 방어로만 남긴다.
     // (예전엔 '그룹 이름을 입력해주세요'를 세웠지만 도달 불가라 화면에 뜬 적이 없다.)
     if (!canSubmit) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setNameError(null);
     try {
@@ -120,6 +136,8 @@ export default function GroupCreateScreen() {
         durationMinutes,
         isPrivate,
       });
+      // 생성이 끝났으므로 이탈 차단을 먼저 푼다 — 아래 goBack()도 beforeRemove를 지나간다.
+      submittingRef.current = false;
       // 비공개는 링크가 유일한 입구라 공유 다이얼로그를 반드시 거친다. 공개는 바로 돌아간다.
       if (isPrivate) {
         setCreatedGroupId(groupId);
@@ -129,6 +147,7 @@ export default function GroupCreateScreen() {
     } catch (e) {
       handleError(e);
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -137,7 +156,7 @@ export default function GroupCreateScreen() {
     if (!createdGroupId) return;
     Clipboard.setString(buildInviteLink(createdGroupId));
     setCopied(true);
-    logGroupInviteShared();
+    logGroupInviteShared({ share_method: 'copy', confirmed: true });
     // 2초 뒤 '링크 복사'로 되돌린다 — 다이얼로그가 닫힐 때까지 고정돼 있으면
     // 두 번째 복사가 가능한지 알 수 없다.
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
@@ -150,7 +169,11 @@ export default function GroupCreateScreen() {
       const result = await Share.share({
         message: `${trimmedName} 그룹에 초대할게요!\n${buildInviteLink(createdGroupId)}`,
       });
-      if (result.action === Share.sharedAction) logGroupInviteShared();
+      // 취소 구분은 iOS에서만 가능하다 — 안드로이드는 시트를 닫아도 sharedAction으로 끝나므로
+      // 완료로 집계하지 않고 confirmed:false(공유 시도)로 남긴다(analyticsEvents 주석).
+      if (result.action === Share.sharedAction) {
+        logGroupInviteShared({ share_method: 'share_sheet', confirmed: Platform.OS === 'ios' });
+      }
     } catch {
       Alert.alert('공유하지 못했어요', '링크 복사로 대신 공유해주세요.');
     }
@@ -160,10 +183,12 @@ export default function GroupCreateScreen() {
     <SafeAreaView style={s.root} edges={['top']} testID="group.create.screen">
       {/* 헤더 — 원형 백버튼 + 좌측 정렬 제목(FriendAddScreen 관행, §5-1) */}
       <View style={s.header}>
+        {/* 생성 요청 중에는 비활성 — 눌러도 beforeRemove가 막으므로 버튼도 함께 잠가 이유를 보여준다 */}
         <TouchableOpacity
-          style={s.backBtn}
+          style={[s.backBtn, submitting ? s.backBtnOff : null]}
           onPress={() => navigation.goBack()}
           activeOpacity={0.7}
+          disabled={submitting}
           accessibilityLabel="뒤로"
         >
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
@@ -342,6 +367,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  backBtnOff: { opacity: 0.5 },
   headerTitle: { ...T.text.heading, fontWeight: '800', color: T.ink },
 
   scroll: { flex: 1 },

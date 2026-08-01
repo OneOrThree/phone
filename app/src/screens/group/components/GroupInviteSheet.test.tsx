@@ -370,6 +370,41 @@ describe('참여 분기', () => {
     expect(mockJoinGroup).toHaveBeenLastCalledWith(OTHER_GROUP_ID);
   });
 
+  // setJoining(true)가 소속 재확인(await) **뒤에** 있었을 땐 재확인이 도는 동안 버튼이 살아 있어,
+  // 같은 프레임의 두 번째 탭이 재조회와 joinGroup을 한 벌 더 띄웠다 — 첫 요청의 성공과 뒤따르는
+  // ALREADY_MEMBER가 각각 onJoined·계측을 불러 부모 콜백과 분석 이벤트가 중복됐다.
+  test('소속 재확인 중의 연타로 참여가 두 번 나가지 않는다', async () => {
+    let resolveMine: (gs: GroupSummaryResponse[]) => void = () => {};
+    mockGetMyGroups
+      .mockRejectedValueOnce(new Error('network')) // 마운트 조회 실패 — 소속을 '모름'으로 남긴다
+      .mockImplementationOnce(
+        () =>
+          new Promise<GroupSummaryResponse[]>((resolve) => {
+            resolveMine = resolve; // 참여 직전 재확인 — 응답을 붙잡아 둔다
+          }),
+      );
+    mockGetGroupOverview.mockResolvedValue(overview());
+    mockJoinGroup.mockResolvedValue(undefined);
+    await renderSheet();
+
+    const btn = await screen.findByTestId('group.invite.join');
+    await act(async () => {
+      fireEvent.press(btn); // 첫 탭 — 소속 재확인에서 멈춘다
+    });
+    await act(async () => {
+      fireEvent.press(btn); // 재확인이 끝나기 전의 두 번째 탭
+    });
+
+    await act(async () => {
+      resolveMine([]);
+    });
+
+    expect(mockGetMyGroups).toHaveBeenCalledTimes(2); // 마운트 1 + 재확인 1 — 연타로 늘지 않는다
+    expect(mockJoinGroup).toHaveBeenCalledTimes(1);
+    expect(onJoined).toHaveBeenCalledTimes(1);
+    expect(logGroupJoinAttempted).toHaveBeenCalledTimes(1);
+  });
+
   test('모르는 code는 공통 문구로 떨어진다(§5-2)', async () => {
     mockJoinGroup.mockRejectedValue(axiosErrorWith(500, 'SOMETHING_NEW'));
     await renderSheet();
