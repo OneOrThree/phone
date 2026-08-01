@@ -159,6 +159,8 @@ export function CalendarCard({ period, cells, today, elapsedDays, periodTotal }:
     const min = c?.totalFocusMinutes ?? 0;
     const lvl = neutral ? 0 : grassLevel(min);
     const dark = lvl >= 3; // 진한 램프 위 텍스트는 흰색으로
+    // 지난 날짜(오늘 이전) 집중 0분은 램프 0단계 대신 흰색 — 기록 없는 날을 빈 칸으로 보이게(오스카 결정)
+    const zeroPast = !neutral && date < todayKey && min <= 0;
     const checks = (focusOkFor(date, c) ? '✓' : '') + (phoneOkFor(date, c) ? '✓' : '');
     return (
       <Pressable
@@ -169,7 +171,7 @@ export function CalendarCard({ period, cells, today, elapsedDays, periodTotal }:
         }}
         style={[
           s.cell,
-          { backgroundColor: neutral ? T.track : CAL_RAMP[lvl] },
+          { backgroundColor: neutral ? T.track : zeroPast ? T.white : CAL_RAMP[lvl] },
           date === todayKey || picked === date ? s.cellRing : null,
         ]}
       >
