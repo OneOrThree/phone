@@ -47,6 +47,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -56,6 +58,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -91,6 +94,13 @@ public class GroupService {
      * 10 은 실사용에서 사실상 무제한이면서 목록 응답 크기를 상수로 묶는 값.
      */
     private static final int MAX_JOINED_GROUPS = 10;
+
+    /**
+     * 계약(스펙 §4-2)에 정의된 join_method 전량 — 앱 {@code GroupJoinMethod} 타입과 1:1.
+     * 새 참여 경로가 계약에 추가되면 여기에도 넣어야 {@code unknown} 으로 뭉개지지 않는다.
+     */
+    private static final Set<String> ALLOWED_JOIN_METHODS = Set.of("code", "search", "invite", "deferred_invite");
+    private static final String UNKNOWN_JOIN_METHOD = "unknown";
 
     @Transactional
     public CreateGroupResponse createGroup(UUID userId, CreateGroupRequest request) {
@@ -278,36 +288,88 @@ public class GroupService {
         // 7. 어트리뷰션 — 참여 경로(join_method)와 초대 slug 를 두 트랙에 기록한다.
         //    공유 URL 의 ?g= 는 변조 가능하므로 "링크의 group_id == 참여 그룹" 만이 신뢰 근거다(스펙 §6-3).
         //    불일치·미존재면 slug 만 버리고 참여 자체는 정상 진행한다 — 초대 어트리뷰션은 부가 정보다.
-        GroupInviteLink invite = resolveInviteAttribution(groupId, request.getInviteSlug());
-        logGroupJoined(group, request, invite);
-        // GA4 group_joined 은 서버 단독 소유 이벤트다(앱이 중복 발행하지 않는다 — 스펙 §4-3 8행).
-        // 전송은 @Async fire-and-forget 이라 이 트랜잭션을 붙잡지 않고, 실패해도 예외가 올라오지 않는다.
-        ga4MeasurementClient.sendAppEvent(
-                request.getAppInstanceId(), "group_joined", ga4JoinParams(group, request, invite));
+        GroupInviteLink invite = resolveInviteAttribution(groupId, userId, request.getInviteSlug());
+        publishJoinAttribution(group, request, invite);
     }
 
     /**
-     * slug → 초대 링크. 링크가 가리키는 그룹이 실제 참여 그룹과 다르면 어트리뷰션을 인정하지 않는다.
-     * slug 가 없으면 조회 자체를 하지 않는다(구버전 앱 요청은 DB 왕복 0회).
+     * slug → 초대 링크. 두 가지를 통과해야 어트리뷰션을 인정한다.
+     *
+     * <ul>
+     *   <li>링크가 가리키는 그룹 == 실제 참여 그룹 (공유 URL 의 {@code ?g=} 변조 흡수)</li>
+     *   <li>초대자 != 참여자 — 링크를 만든 사람이 그룹을 나갔다가 자기 slug 로 재참여하면
+     *       스스로를 초대한 것으로 기록된다. {@code InviteLinkClick.claim} 의 셀프 초대 방지와 같은 규칙.</li>
+     * </ul>
+     *
+     * <p>slug 가 없으면 조회 자체를 하지 않는다(구버전 앱 요청은 DB 왕복 0회).
      */
-    private GroupInviteLink resolveInviteAttribution(UUID groupId, String inviteSlug) {
+    private GroupInviteLink resolveInviteAttribution(UUID groupId, UUID userId, String inviteSlug) {
         if (inviteSlug == null || inviteSlug.isBlank()) {
             return null;
         }
         return groupInviteLinkRepository.findBySlug(inviteSlug)
                 .filter(link -> groupId.equals(link.getGroupId()))
+                .filter(link -> !userId.equals(link.getInviterId()))
                 .orElse(null);
+    }
+
+    /**
+     * 두 트랙(Track2 · GA4)의 참여 이벤트를 <b>커밋 이후에</b> 발행한다.
+     *
+     * <p>{@code save} 는 flush 를 보장하지 않아서 GroupMember INSERT 는 커밋 시점에야 DB 에 닿는다.
+     * {@code group_members} 에는 (user_id, group_id) 유니크 제약이 있어, 동시 참여 요청 둘이
+     * 중복 멤버 검사를 나란히 통과하면 한쪽이 커밋에서 제약 위반으로 롤백된다 — 이때 인라인 발행이었다면
+     * 실제로는 참여하지 못한 유저의 {@code group_joined} 가 이미 두 트랙에 찍힌 뒤다.
+     *
+     * <p>두 트랙을 함께 옮기는 게 핵심이다. 한쪽만 커밋 이후로 미루면 발행 시점이 어긋나서, 나중에
+     * "Track2 엔 있는데 GA4 엔 없다"가 롤백 때문인지 전송 실패 때문인지 구분할 수 없게 된다.
+     *
+     * <p>트랜잭션 동기화가 없는 호출(단위 테스트 등)에서는 즉시 발행한다.
+     */
+    private void publishJoinAttribution(Group group, JoinGroupRequest request, GroupInviteLink invite) {
+        String joinMethod = normalizeJoinMethod(request.getJoinMethod());
+        Runnable emit = () -> {
+            logGroupJoined(group, joinMethod, invite);
+            // GA4 group_joined 은 서버 단독 소유 이벤트다(앱이 중복 발행하지 않는다 — 스펙 §4-3 8행).
+            // 전송은 @Async fire-and-forget 이라 실패해도 예외가 올라오지 않는다.
+            ga4MeasurementClient.sendAppEvent(
+                    request.getAppInstanceId(), "group_joined", ga4JoinParams(group, joinMethod, invite));
+        };
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            emit.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                emit.run();
+            }
+        });
+    }
+
+    /**
+     * 참여 경로를 계약(스펙 §4-2)에 정의된 값으로 좁힌다. 클라이언트가 보내는 임의 문자열을 그대로
+     * 쓰면 퍼널 차원의 카디널리티가 오염돼 GA4·Track2 집계가 못 쓰게 된다.
+     *
+     * <p>미전송(null·blank)은 미전송으로 남긴다 — {@code unknown} 으로 채우면 "구버전 앱이라 안 보냄"과
+     * "클라가 이상한 값을 보냄"이 한 값으로 뭉개진다. 값은 왔는데 모르는 값일 때만 {@code unknown} 이다.
+     */
+    private String normalizeJoinMethod(String rawJoinMethod) {
+        if (rawJoinMethod == null || rawJoinMethod.isBlank()) {
+            return null;
+        }
+        return ALLOWED_JOIN_METHODS.contains(rawJoinMethod) ? rawJoinMethod : UNKNOWN_JOIN_METHOD;
     }
 
     /**
      * Track2(user-activity) {@code GROUP_JOINED}. 값이 없는 키는 아예 넣지 않는다 —
      * 빈 값을 채워 넣으면 "구버전 앱이라 안 보냄"과 "검색으로 들어옴"을 구분할 수 없게 된다.
      */
-    private void logGroupJoined(Group group, JoinGroupRequest request, GroupInviteLink invite) {
+    private void logGroupJoined(Group group, String joinMethod, GroupInviteLink invite) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("group_id", group.getId().toString());
-        if (request.getJoinMethod() != null && !request.getJoinMethod().isBlank()) {
-            payload.put("join_method", request.getJoinMethod());
+        if (joinMethod != null) {
+            payload.put("join_method", joinMethod);
         }
         if (invite != null) {
             payload.put("invite_slug", invite.getSlug());
@@ -319,12 +381,12 @@ public class GroupService {
     /**
      * GA4 {@code group_joined} 파라미터. Track2 와 키 이름이 일부러 다르다
      * (GA4 는 {@code slug}, Track2 는 {@code invite_slug} — 스펙 §4-3 / §6-3).
-     * null 값은 GA4 클라이언트가 제거하므로 여기서 분기하지 않는다.
+     * null 값 제거와 boolean 인코딩은 GA4 클라이언트가 맡으므로 여기서 분기하지 않는다.
      */
-    private Map<String, Object> ga4JoinParams(Group group, JoinGroupRequest request, GroupInviteLink invite) {
+    private Map<String, Object> ga4JoinParams(Group group, String joinMethod, GroupInviteLink invite) {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("group_id", group.getId().toString());
-        params.put("join_method", request.getJoinMethod());
+        params.put("join_method", joinMethod);
         params.put("slug", invite == null ? null : invite.getSlug());
         params.put("inviter_present", invite != null);
         return params;

@@ -127,19 +127,31 @@ public class Ga4MeasurementClientImpl implements Ga4MeasurementClient {
 
     /**
      * 이벤트 1건 조립. {@code env}(dev/prod)는 스펙 §4-3 요구사항이라 호출 지점마다 넣게 두지 않고
-     * 여기서 채운다 — 호출자가 이미 넣었으면 그 값을 존중한다. null 값 파라미터는 GA4 가 거부하므로 제거.
+     * 여기서 채운다 — 호출자가 이미 넣었으면 그 값을 존중한다. null 값 파라미터는 GA4 가 거부하므로 제거,
+     * boolean 은 {@link #encode(Object)} 로 숫자화한다 — 호출자는 자바 값 그대로 넣으면 된다.
      */
     private Map<String, Object> event(String name, Map<String, Object> params) {
         Map<String, Object> merged = new LinkedHashMap<>();
         if (params != null) {
             params.forEach((key, value) -> {
                 if (value != null) {
-                    merged.put(key, value);
+                    merged.put(key, encode(value));
                 }
             });
         }
         merged.putIfAbsent(ENV_PARAM, env);
         return Map.of("name", name, "params", merged);
+    }
+
+    /**
+     * GA4 MP 커스텀 파라미터는 string/number 만 공식 지원한다. JSON boolean 리터럴을 보내면
+     * {@code /mp/collect} 가 2xx 를 주면서 그 파라미터만 조용히 버릴 수 있어 1/0 으로 인코딩한다.
+     */
+    private static Object encode(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool ? 1 : 0;
+        }
+        return value;
     }
 
     /** 전송 + 전면 fail-safe. 어떤 실패도 호출측으로 전파하지 않는다. */

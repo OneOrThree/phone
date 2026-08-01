@@ -110,6 +110,22 @@ class Ga4MeasurementClientImplTest {
     }
 
     @Test
+    @DisplayName("boolean 파라미터는 1/0 으로 인코딩된다 — GA4 MP 커스텀 파라미터는 string/number 만 공식 지원")
+    void encodesBooleanParamsAsNumbers() {
+        mockServer.expect(requestTo(APP_COLLECT_URL))
+                .andExpect(jsonPath("$.events[0].params.inviter_present").value(1))
+                .andExpect(jsonPath("$.events[0].params.matched").value(0))
+                .andRespond(withSuccess());
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("inviter_present", true);
+        params.put("matched", false);
+        client.sendAppEvent("inst1", "group_joined", params);
+
+        mockServer.verify();
+    }
+
+    @Test
     @DisplayName("전송 실패는 예외를 삼키고 WARN 로그만 남긴다")
     void swallowsTransportFailure() {
         mockServer.expect(requestTo(APP_COLLECT_URL))

@@ -53,6 +53,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -1522,6 +1524,82 @@ class GroupServiceTest {
         // then
         verify(groupMemberRepository).save(any(GroupMember.class));
         verify(ga4MeasurementClient).sendAppEvent(isNull(), eq("group_joined"), any());
+    }
+
+    @Test
+    @DisplayName("링크 생성자가 자기 slug 로 재참여하면 셀프 초대 — 어트리뷰션을 버린다")
+    void joinGroupDropsSelfInviteSlug() {
+        // given: 링크의 초대자 == 참여자 (그룹을 나갔다가 자기 링크로 재참여하는 시나리오)
+        Group group = openGroup();
+        givenJoinableGroup(group);
+        given(groupInviteLinkRepository.findBySlug(SLUG))
+                .willReturn(Optional.of(new GroupInviteLink(SLUG, GROUP_ID, USER_ID)));
+
+        // when
+        groupService.joinGroup(GROUP_ID, USER_ID,
+                JoinGroupRequest.builder().joinMethod("invite").inviteSlug(SLUG).appInstanceId("inst-1").build());
+
+        // then: 참여는 정상, 어트리뷰션만 탈락 — InviteLinkClick.claim 의 셀프 초대 방지와 같은 규칙
+        verify(groupMemberRepository).save(any(GroupMember.class));
+        assertThat(capturedActivityPayload()).doesNotContainKeys("invite_slug", "inviter_id");
+        assertThat(capturedGa4Params()).containsEntry("inviter_present", false);
+    }
+
+    @Test
+    @DisplayName("계약 밖 join_method 는 unknown 으로 정규화된다 (퍼널 카디널리티 오염 방지)")
+    void joinGroupNormalizesUnknownJoinMethod() {
+        // given
+        Group group = openGroup();
+        givenJoinableGroup(group);
+
+        // when: 계약(§4-2)에 없는 임의 문자열
+        groupService.joinGroup(GROUP_ID, USER_ID,
+                JoinGroupRequest.builder().joinMethod("totally-made-up").appInstanceId("inst-1").build());
+
+        // then: 두 트랙 모두 unknown
+        assertThat(capturedActivityPayload()).containsEntry("join_method", "unknown");
+        assertThat(capturedGa4Params()).containsEntry("join_method", "unknown");
+    }
+
+    @Test
+    @DisplayName("blank join_method 는 unknown 이 아니라 미전송으로 남는다")
+    void joinGroupKeepsBlankJoinMethodAbsent() {
+        // given
+        Group group = openGroup();
+        givenJoinableGroup(group);
+
+        // when: "구버전 앱이라 안 보냄"과 "모르는 값을 보냄"을 뭉개면 안 된다
+        groupService.joinGroup(GROUP_ID, USER_ID,
+                JoinGroupRequest.builder().joinMethod("  ").appInstanceId("inst-1").build());
+
+        // then
+        assertThat(capturedActivityPayload()).doesNotContainKey("join_method");
+        assertThat(capturedGa4Params()).containsEntry("join_method", null);
+    }
+
+    @Test
+    @DisplayName("트랜잭션 동기화가 활성이면 두 트랙 발행을 커밋 이후로 미룬다 (롤백 시 유령 이벤트 방지)")
+    void joinGroupDefersAttributionUntilAfterCommit() {
+        // given
+        Group group = openGroup();
+        givenJoinableGroup(group);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            // when: 트랜잭션 안 — 아직 어느 트랙도 발행되면 안 된다
+            groupService.joinGroup(GROUP_ID, USER_ID,
+                    JoinGroupRequest.builder().joinMethod("search").appInstanceId("inst-1").build());
+            verify(userActivityEventLogger, never()).log(eq(UserActivityEvent.GROUP_JOINED), any());
+            verify(ga4MeasurementClient, never()).sendAppEvent(anyString(), anyString(), any());
+
+            // when: 커밋 시점 — 등록된 동기화 콜백 트리거
+            TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        // then: 커밋 이후 두 트랙이 함께 발행된다
+        assertThat(capturedActivityPayload()).containsEntry("join_method", "search");
+        assertThat(capturedGa4Params()).containsEntry("join_method", "search");
     }
 
     // ── transferOwner (GROMO-355) ─────────────────────────────────────────
