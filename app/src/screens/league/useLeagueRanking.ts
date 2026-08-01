@@ -94,10 +94,12 @@ export function useLeagueRanking() {
 
   // 리스트(직군 top-100)·리그 라벨·내 권위 주간분을 원자적으로 함께 보관한다.
   // 전체가 null이면 미조회/게스트/실패 → 화면은 빈 상태.
+  // forCategory: 이 데이터를 조회한 시점의 내 카테고리 — 실패 시 유지/폐기 판단 기준(아래 catch).
   const [state, setState] = useState<{
     members: RankedMember[];
     label: string | null;
     mySeconds: number;
+    forCategory: string | null;
   } | null>(null);
   // 요청 시퀀스 — 당겨서 새로고침(GROMO-887)과 포커스 재조회가 겹칠 때, 늦게 온 이전 응답이
   // 최신 상태를 덮지 않게 최신 요청만 반영한다(useFriends 패턴).
@@ -134,9 +136,18 @@ export function useLeagueRanking() {
         label,
         members: toRankingMembers(res, userId, myNickname, label),
         mySeconds: myWeekSeconds,
+        forCategory: myCategory ?? null,
       });
     } catch {
-      if (seq === requestSeqRef.current) setState(null); // 네트워크/인증 실패 → 빈 상태
+      // 일시 실패 시 기존 랭킹 유지 — 당겨서 새로고침 실패로 보이던 목록이 사라지지 않게 한다
+      // (친구 목록과 동일 정책, 코드리뷰 반영). 단 같은 카테고리로 받은 데이터일 때만 —
+      // 시험(카테고리) 변경 후 첫 조회가 실패하면 이전 카테고리 리그가 '내 리그'로 계속 보이므로
+      // 비운다(코드리뷰 반영). 이전 데이터가 없으면 그대로 빈 상태.
+      if (seq === requestSeqRef.current) {
+        setState((prev) =>
+          prev != null && prev.forCategory !== (myCategory ?? null) ? null : prev,
+        );
+      }
     }
   }, [userId, myCategory, myNickname]);
 

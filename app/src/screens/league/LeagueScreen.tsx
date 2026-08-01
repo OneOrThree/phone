@@ -121,21 +121,23 @@ export default function LeagueScreen() {
   } = useFriends();
   const friendIds = new Set(friends.map((f) => f.userId));
 
-  // ── 당겨서 새로고침 (GROMO-887) — 탭별로 그 탭 데이터만 재조회한다. 한 번에 한 탭만 보이므로
-  //    HomeScreen 패턴처럼 refreshing 상태 하나를 공유하고, 스피너는 살짝 늦게 내려 깜빡임을 막는다.
-  const [refreshing, setRefreshing] = useState(false);
+  // ── 당겨서 새로고침 (GROMO-887) — 탭별로 그 탭 데이터만 재조회한다. refreshing 상태도 탭별로
+  //    분리 — 하나를 공유하면 리그 새로고침 중 친구 탭으로 넘어갔을 때 실행된 적 없는 친구 탭에
+  //    가짜 스피너가 돈다(코드리뷰 반영). 스피너는 살짝 늦게 내려 깜빡임을 막는다.
+  const [refreshingLeague, setRefreshingLeague] = useState(false);
+  const [refreshingFriend, setRefreshingFriend] = useState(false);
   // 리그 탭: 티어·마감 + 직군 랭킹 + 전역 랭킹 + 핀을 함께 갱신.
   const onRefreshLeague = useCallback(() => {
-    setRefreshing(true);
+    setRefreshingLeague(true);
     Promise.all([refetchMeta(), refetchRanking(), refetchGlobal(), refetchPinned()]).finally(() =>
-      setTimeout(() => setRefreshing(false), 500),
+      setTimeout(() => setRefreshingLeague(false), 500),
     );
   }, [refetchMeta, refetchRanking, refetchGlobal, refetchPinned]);
   // 친구 탭: 친구 목록·받은 요청 + 핀 배지를 갱신.
   const onRefreshFriend = useCallback(() => {
-    setRefreshing(true);
+    setRefreshingFriend(true);
     Promise.all([refetchFriends(), refetchPinned()]).finally(() =>
-      setTimeout(() => setRefreshing(false), 500),
+      setTimeout(() => setRefreshingFriend(false), 500),
     );
   }, [refetchFriends, refetchPinned]);
 
@@ -329,7 +331,7 @@ export default function LeagueScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
-              refreshing={refreshing}
+              refreshing={refreshingLeague}
               onRefresh={onRefreshLeague}
               tintColor={T.accent}
             />
@@ -559,7 +561,7 @@ export default function LeagueScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
-              refreshing={refreshing}
+              refreshing={refreshingFriend}
               onRefresh={onRefreshFriend}
               tintColor={T.accent}
             />
