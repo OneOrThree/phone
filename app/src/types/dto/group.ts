@@ -10,6 +10,11 @@ export type GroupMemberRole = 'OWNER' | 'MEMBER';
 export type GroupStatus = 'WAITING' | 'ACTIVE' | 'ENDED';
 export type MissionType = 'TIME_WINDOW' | 'DURATION';
 export type MissionCategory = 'FOCUS' | 'SCREEN_TIME';
+// 챌린지 상태 (Java enum GroupChallengeStatus). 앱은 목록을 그대로 그리고 상태로 거르지 않는다.
+// ⚠️ 서버 enum은 ACTIVE·INACTIVE 두 값뿐이다(back GroupChallengeStatus.java, 백 계약 §1 표) —
+//    그룹 자체의 GroupStatus(WAITING|ACTIVE|ENDED)와 값이 다르니 'ENDED'로 헷갈리지 않는다.
+//    유니온이 어긋나 있으면 `status !== 'ENDED'` 같은 필터가 TS를 통과한 채 조용히 no-op이 된다.
+export type GroupChallengeStatus = 'ACTIVE' | 'INACTIVE';
 
 // POST /groups 요청. missionType·missionCategory는 서버 @NotNull이라 챌린지가 범위 밖이어도
 // 반드시 보낸다 — 앱은 'DURATION' + 'FOCUS' 고정으로 채운다(§3-1-2).
@@ -114,4 +119,52 @@ export interface GroupAnnouncementResponse {
 export interface CreateAnnouncementRequest {
   title: string;
   content: string;
+}
+
+// ── 챌린지(2차, docs/back/group-plan-2.md §1 정본) ───────────────────────────
+
+// GET /groups/{id}/challenges 의 멤버별 진행. 두 필드 모두 null이 의미를 갖는다 —
+//   progressMinutes : FOCUS는 통계가 없어도 0 · SCREEN_TIME은 통계가 없으면 null(미집계 '—' 표기)
+//   achieved        : FOCUS는 progress ≥ 목표 · SCREEN_TIME은 progress ≤ 목표, progress가 null이면 null
+// ⚠️ 0과 null을 뭉개면 '0분 집중'과 '스크린타임 미집계'가 같은 칸으로 보인다.
+export interface ChallengeMemberProgress {
+  userId: string;
+  nickname: string;
+  progressMinutes: number | null;
+  achieved: boolean | null;
+}
+
+// GET /groups/{id}/challenges?date — 챌린지 목록(그룹원만). date는 선택.
+// memberProgress는 date를 안 보냈거나 TIME_WINDOW 챌린지면 null이다(서버 미지원 — 백 명세 결정 3).
+export interface GroupChallengeResponse {
+  id: string;
+  missionType: MissionType;
+  missionCategory: MissionCategory;
+  durationMinutes: number | null;
+  windowStart: string | null; // 백엔드 원본 문자열
+  windowEnd: string | null; // 백엔드 원본 문자열
+  status: GroupChallengeStatus;
+  createdAt: string; // ISO 문자열
+  canParticipate: boolean;
+  memberProgress: ChallengeMemberProgress[] | null;
+}
+
+// POST /groups/{id}/challenges — 챌린지 생성(방장만). 앱은 DURATION만 만든다(§3-2) —
+// TIME_WINDOW는 진행률이 서버 미지원이라 생성 경로 자체를 열지 않는다.
+export interface CreateChallengeRequest {
+  missionCategory: MissionCategory;
+  missionType: MissionType; // 'DURATION' 고정
+  durationMinutes: number; // 하루 목표(분)
+}
+
+// POST 응답의 미참여자 — SCREEN_TIME 챌린지에서 스크린타임 권한을 허용하지 않은 멤버.
+export interface CreateChallengeNonParticipant {
+  userId: string;
+  nickname: string;
+}
+
+// POST /groups/{id}/challenges 응답. nonParticipants가 비어 있지 않으면 앱이 안내 Alert를 띄운다.
+export interface CreateChallengeResponse {
+  id: string;
+  nonParticipants: CreateChallengeNonParticipant[];
 }

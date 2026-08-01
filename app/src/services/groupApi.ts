@@ -1,14 +1,18 @@
 // group 도메인 API 래퍼 (GroupController, base /api/v1) — 명세 docs/app/group-plan.md §8.
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
-// 쓰지 않는 엔드포인트(코드 재발급·그룹 수정·설정·챌린지)는 여기에 두지 않는다 — 폐기 개념(§0).
+// 쓰지 않는 엔드포인트(코드 재발급·그룹 수정·설정)는 여기에 두지 않는다 — 폐기 개념(§0).
+// 챌린지 3종은 2차에서 되살렸다(docs/app/group-plan-2.md §1, 계약 정본은 docs/back/group-plan-2.md §1).
 import axios from 'axios';
 import { api } from '@/services/api';
 import { todayStr } from '@/utils/localDate';
 import type {
   CreateAnnouncementRequest,
+  CreateChallengeRequest,
+  CreateChallengeResponse,
   CreateGroupRequest,
   CreateGroupResponse,
   GroupAnnouncementResponse,
+  GroupChallengeResponse,
   GroupDetailResponse,
   GroupOverviewResponse,
   GroupSearchResponse,
@@ -89,6 +93,39 @@ export async function updateAnnouncement(
 // DELETE /api/v1/groups/{groupId}/announcements/{id} — 공지 삭제(방장·권한 멤버만).
 export async function deleteAnnouncement(groupId: string, id: string): Promise<void> {
   await api.delete<void>(`/api/v1/groups/${groupId}/announcements/${id}`);
+}
+
+// GET /api/v1/groups/{groupId}/challenges?date — 챌린지 목록(그룹원만).
+// date는 서버 **선택** 파라미터라 getGroupDetail과 달리 기본값을 채우지 않는다 —
+// date를 보낼 때만 memberProgress가 실리므로(안 보내면 null) 진행률이 필요한 화면이 명시적으로 넘긴다.
+// 멤버 진행률의 기준일이므로 넘길 때는 클라 로컬 날짜(todayStr())를 쓴다.
+export async function getChallenges(
+  groupId: string,
+  date?: string,
+): Promise<GroupChallengeResponse[]> {
+  const { data } = await api.get<GroupChallengeResponse[]>(
+    `/api/v1/groups/${groupId}/challenges`,
+    date ? { params: { date } } : undefined,
+  );
+  return data;
+}
+
+// POST /api/v1/groups/{groupId}/challenges — 챌린지 생성(방장만).
+// SCREEN_TIME이면 응답 nonParticipants에 권한 미허용 멤버가 담겨 온다 — 화면이 안내에 쓴다.
+export async function createChallenge(
+  groupId: string,
+  body: CreateChallengeRequest,
+): Promise<CreateChallengeResponse> {
+  const { data } = await api.post<CreateChallengeResponse>(
+    `/api/v1/groups/${groupId}/challenges`,
+    body,
+  );
+  return data;
+}
+
+// DELETE /api/v1/groups/{groupId}/challenges/{challengeId} — 챌린지 삭제(방장만, 서버는 soft delete).
+export async function deleteChallenge(groupId: string, challengeId: string): Promise<void> {
+  await api.delete<void>(`/api/v1/groups/${groupId}/challenges/${challengeId}`);
 }
 
 // 서버 에러 바디({ code, message })의 code를 뽑는다. axios 에러가 아니거나 바디가 없으면 null.

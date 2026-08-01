@@ -18,12 +18,19 @@ import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
 import { groupErrorCode, joinGroup, searchGroups } from '@/services/groupApi';
 import { logGroupJoinAttempted, logGroupSearchPerformed } from '@/services/analyticsEvents';
-import type { GroupSearchResponse } from '@/types/dto/group';
+import type { GroupSearchResponse, GroupSummaryResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
 
-// 그룹 찾기 시트 — 명세 docs/app/group-plan.md §6-3.
+// 그룹 찾기 시트 — 명세 docs/app/group-plan.md §6-3 + 2차 docs/app/group-plan-2.md §3-3.
 // 이름으로 공개 그룹을 검색해 바로 참여한다. 비공개방은 서버가 검색에서 제외한다.
+//
+// 2차에서 멀티 그룹이 열리면서 검색 결과에 **이미 내가 속한 그룹**이 섞여 나온다 —
+// 그 행은 참여 대상이 아니라 이동 대상이라, '참여 중' 뱃지를 달고 탭을 그룹방 이동으로 바꾼다
+// (참여 상한은 서버가 GROUP_LIMIT_EXCEEDED로 알려준다).
+// ⚠️ 소속 판정은 **부모가 이미 쥔 groups를 그대로 받는다** — 시트가 getMyGroups()를 또 부르던
+//    구조는 왕복이 하나 늘 뿐 아니라 판정 기준이 부모와 둘로 갈렸다(뱃지는 붙는데 부모의 분기는
+//    다른 스냅샷을 보는 어긋남). 이동 분기 자체도 부모의 onOpenGroup 하나로 일원화했다.
 // 선행: 백엔드 P0(is_private + 검색 필터). 그 전에는 비공개방이 검색에 그대로 노출된다(§13-1).
 //
 // 시트는 라우트가 아니라 GroupScreen 위의 오버레이다 — 닫기·재조회는 전부 부모 몫이라
@@ -48,13 +55,24 @@ function isJoinable(r: GroupSearchResponse): boolean {
 }
 
 export interface GroupFindSheetProps {
+  // 내가 참여 중인 그룹 — '참여 중' 뱃지와 탭 동작(참여 → 이동)을 가르는 유일한 기준.
+  // 부모(GroupScreen)의 상태를 그대로 받는다: 시트가 따로 조회하지 않는다.
+  groups: GroupSummaryResponse[];
   // 딤 탭·취소 — 부모가 시트를 내린다.
   onClose: () => void;
   // 참여 성공(ALREADY_MEMBER 포함) — 부모가 시트를 내리고 getMyGroups()를 재조회한다.
   onJoined: () => void;
+  // '참여 중' 행 탭 — 참여가 아니라 이동이다. 부모가 시트를 내리고 1건/N건 분기를 판정한다
+  // (목록 카드 탭과 같은 콜백을 태워, 같은 규칙이 두 군데로 갈리지 않게 한다).
+  onOpenGroup: (groupId: string) => void;
 }
 
-export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProps) {
+export default function GroupFindSheet({
+  groups,
+  onClose,
+  onJoined,
+  onOpenGroup,
+}: GroupFindSheetProps) {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GroupSearchResponse[]>([]);
@@ -215,6 +233,11 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
           setJoinError('정원이 가득 찼어요. 다른 그룹을 찾아보세요.');
           refreshResults();
           break;
+        // 참여 상한 초과(2차) — 그룹 쪽 사정이 아니라 내 사정이라 목록은 그대로 둔다
+        // (재조회해도 같은 결과가 오고, 다른 그룹을 눌러도 똑같이 막힌다).
+        case 'GROUP_LIMIT_EXCEEDED':
+          setJoinError('참여할 수 있는 그룹 수를 초과했어요');
+          break;
         case 'NOT_FOUND':
           setJoinError('사라진 그룹이에요. 방장이 그룹을 없앴을 수 있어요.');
           setResults((prev) => prev.filter((r) => r.groupId !== group.groupId));
@@ -290,8 +313,10 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
         keyboardShouldPersistTaps="handled"
       >
         {results.map((r) => {
+          // 이미 속한 그룹은 정원과 무관하게 들어갈 수 있다 — full 판정보다 먼저 본다.
+          const mine = groups.some((g) => g.groupId === r.groupId);
           // 정원이 찬 그룹은 흐리게 + 탭 비활성(§6-3)
-          const full = r.currentMembers >= r.maxMembers;
+          const full = !mine && r.currentMembers >= r.maxMembers;
           const joining = joiningId === r.groupId;
           return (
             <TouchableOpacity
@@ -299,11 +324,12 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
               style={[s.row, full && s.rowFull]}
               activeOpacity={0.85}
               disabled={full || joinLocked}
-              onPress={() => confirmJoin(r)}
+              onPress={() => (mine ? onOpenGroup(r.groupId) : confirmJoin(r))}
             >
               <Text style={s.rowName} numberOfLines={1}>
                 {r.name}
               </Text>
+              {mine && <Text style={s.rowJoinedTag}>참여 중</Text>}
               <Text style={s.rowCount}>
                 {r.currentMembers}/{r.maxMembers}
               </Text>
@@ -379,6 +405,16 @@ const s = StyleSheet.create({
   rowName: { ...T.text.label, flex: 1, fontWeight: '700', color: T.ink, minWidth: 0 },
   rowCount: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
   rowFullTag: { ...T.text.caption, color: T.inkMuted },
+  // '참여 중' 뱃지 — 정원 표시(무채색)와 달리 상태 강조라 accent 칩 규격을 쓴다.
+  rowJoinedTag: {
+    ...T.text.caption,
+    color: T.accentDeep,
+    fontWeight: '700',
+    backgroundColor: T.accentBg,
+    borderRadius: 8,
+    paddingHorizontal: T.space.sm,
+    paddingVertical: 2,
+  },
 
   emptyBox: {
     alignItems: 'center',

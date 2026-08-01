@@ -42,8 +42,10 @@ export type V2RootStackParamList = {
   }; // 승격/유지/강등 연출 — 리그 탭 포커스 시 미확인 last-result가 있으면 진입 (GROMO-831)
 
   // 그룹(A안, docs/app/group-plan.md §9) — 진입점은 '그룹' 탭(GroupScreen), 아래는 스택 push.
-  // 그룹방은 라우트가 아니라 GroupScreen 안에서 렌더된다(§6-4) — 그룹 1개 전제라 목록이 없다.
   GroupCreate: undefined; // 그룹 생성 (빈 상태 '그룹 만들기'에서 진입)
+  // 그룹방 — 2차에서 라우트로 승격(docs/app/group-plan-2.md §0-2). **내장 렌더와 겸용**이다:
+  // 그룹이 1개면 지금까지처럼 GroupScreen 안에서 렌더하고, 목록(2개 이상)에서 탭했을 때만 push 한다.
+  GroupRoom: { groupId: string };
   GroupNotice: {
     groupId: string;
     canWrite: boolean; // 방장·공지 권한 멤버 여부 — false면 작성/수정/삭제 진입점을 렌더하지 않는다(403 예방)

@@ -5,9 +5,12 @@
 import { AxiosError, AxiosHeaders } from 'axios';
 import {
   createAnnouncement,
+  createChallenge,
   createGroup,
   deleteAnnouncement,
+  deleteChallenge,
   getAnnouncements,
+  getChallenges,
   getGroupDetail,
   getGroupOverview,
   getMyGroups,
@@ -33,6 +36,7 @@ const mockApi = api as unknown as {
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const NOTICE_ID = 'a1';
+const CHALLENGE_ID = 'c1';
 
 // 서버 GlobalExceptionHandler가 내려주는 { code, message } 바디를 실은 axios 에러를 만든다.
 function axiosErrorWith(status: number, data: unknown): AxiosError {
@@ -123,6 +127,34 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
     expect(mockApi.post).toHaveBeenCalledWith(base, body);
     expect(mockApi.put).toHaveBeenCalledWith(`${base}/${NOTICE_ID}`, body);
     expect(mockApi.delete).toHaveBeenCalledWith(`${base}/${NOTICE_ID}`);
+  });
+
+  // 챌린지 3종(2차, docs/back/group-plan-2.md §1) — date는 **선택**이라 공지와 달리 기본값을 채우지 않는다.
+  // date를 보낼 때만 memberProgress가 실려 오므로, 안 보내는 경우 params 자체가 나가면 안 된다.
+  test('GET /{groupId}/challenges — date 없이 부르면 params를 싣지 않는다', async () => {
+    await getChallenges(GROUP_ID);
+    expect(mockApi.get).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/challenges`, undefined);
+  });
+
+  test('GET /{groupId}/challenges — date를 주면 그대로 보낸다(진행률 기준일)', async () => {
+    await getChallenges(GROUP_ID, '2026-08-02');
+    expect(mockApi.get).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/challenges`, {
+      params: { date: '2026-08-02' },
+    });
+  });
+
+  test('POST·DELETE /{groupId}/challenges — 생성 바디를 그대로 보내고 id로 삭제한다', async () => {
+    const body = {
+      missionCategory: 'FOCUS' as const,
+      missionType: 'DURATION' as const,
+      durationMinutes: 60,
+    };
+    await createChallenge(GROUP_ID, body);
+    await deleteChallenge(GROUP_ID, CHALLENGE_ID);
+
+    const base = `/api/v1/groups/${GROUP_ID}/challenges`;
+    expect(mockApi.post).toHaveBeenCalledWith(base, body);
+    expect(mockApi.delete).toHaveBeenCalledWith(`${base}/${CHALLENGE_ID}`);
   });
 });
 

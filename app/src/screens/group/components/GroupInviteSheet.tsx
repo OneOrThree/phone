@@ -4,10 +4,10 @@ import axios from 'axios';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
 import { useUser } from '@/store/UserContext';
-import { getGroupOverview, getMyGroups, groupErrorCode, joinGroup } from '@/services/groupApi';
+import { getGroupOverview, groupErrorCode, joinGroup } from '@/services/groupApi';
 import { logGroupJoinAttempted } from '@/services/analyticsEvents';
 import type { GroupOverviewResponse } from '@/types/dto/group';
-import { acquireJoinLock, joinCompletionCount, releaseJoinLock, useJoinLocked } from '../joinLock';
+import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
 
 // 초대 링크 프리뷰 시트 — 명세 docs/app/group-plan.md §6-6.
 //
@@ -32,9 +32,11 @@ import { acquireJoinLock, joinCompletionCount, releaseJoinLock, useJoinLocked } 
 //  | 404(NOT_FOUND)                | "사라진 그룹이에요"                                       |
 //  | 그 외                         | 그룹명·인원·미션 프리뷰 + '참여하기'                       |
 //
-// 여기에 더해 **그룹 1개 전제(§0)** 를 앱이 지킨다 — 백엔드 joinGroup은 이미 다른 그룹에 속한
-// 유저를 막지 않으므로(GroupService:207-243) 앱이 getMyGroups()로 사전 차단한다.
-// 자동 탈퇴는 시키지 않는다 — "이미 참여 중인 그룹이 있어요. 나가고 참여해주세요."로 안내만 한다.
+// ⚠️ 2차(docs/app/group-plan-2.md §0-6·§3-3)에서 **그룹 1개 전제를 폐기**했다.
+// 1차엔 이 시트가 getMyGroups()로 '이미 다른 그룹에 속함'을 사전 차단하고, 확인이 실패하면
+// 참여까지 막았다(fail-closed). 멀티 그룹이 열린 지금은 그 가드가 전부 오답이라 걷어냈고,
+// 참여 상한은 서버가 판정해 GROUP_LIMIT_EXCEEDED(409)로 알려준다 — 앱은 그 코드만 받아 안내한다.
+// (사전 조회가 사라져 시트가 뜨는 속도도 왕복 한 번만큼 빨라졌다.)
 
 export interface GroupInviteSheetProps {
   // 초대 링크에서 뽑은 그룹 UUID(형식 검증 완료 — parseInviteLink 통과값).
@@ -42,7 +44,10 @@ export interface GroupInviteSheetProps {
   // 닫기(딤 탭·취소·사라진 그룹 확인) — 부모가 시트를 내리고 초대 버퍼를 비운다.
   onClose: () => void;
   // 참여 성공 또는 이미 멤버 — 부모가 시트를 내리고 getMyGroups()를 재조회해 그룹방으로 전환한다.
-  onJoined: () => void;
+  // ⚠️ **실제로 가입된 그룹 id를 인자로 준다** — 이 시트는 key 없이 재사용돼(GroupScreen) 참여 요청이
+  //    떠 있는 동안 두 번째 초대 링크가 도착하면 prop groupId가 갈린다. 부모가 현재 groupId를 목적지로
+  //    삼으면 가입한 그룹이 아니라 나중에 온 그룹으로 보내려다 아무 방도 못 여는 결과가 된다.
+  onJoined: (joinedGroupId: string) => void;
   // 게스트 로그인 유도 — 부모가 **시트만 내리고 초대 버퍼는 남긴 채** 계정 화면으로 보낸다.
   // ⚠️ onClose와 혼용 금지: onClose는 버퍼까지 비워 로그인 후 복귀(§6-6)가 깨진다.
   //    이 시트는 asModal(RN 네이티브 Modal)이라 내리지 않으면 계정 화면 위에 남아 로그인 버튼을 가린다.
@@ -50,11 +55,15 @@ export interface GroupInviteSheetProps {
 }
 
 // 참여를 막는 사유 — 버튼 비활성 + 안내 문구가 함께 결정된다.
-type BlockReason = 'full' | 'otherGroup' | 'password';
+//   full    : 프리뷰에서 미리(정원) · 참여 시 ROOM_FULL로도 세워진다
+//   limit   : 참여 상한 초과(GROUP_LIMIT_EXCEEDED). 서버만 아는 값이라 참여를 눌러야 드러난다 —
+//             같은 초대장에서 다시 눌러도 결과가 같으므로 버튼을 그대로 잠근다.
+//   password: 비밀번호 그룹(레거시) — 앱엔 비번을 받을 입구가 없어 프리뷰에서 미리 막는다.
+type BlockReason = 'full' | 'limit' | 'password';
 
 const BLOCK_TEXT: Record<BlockReason, string> = {
   full: '정원이 가득 찼어요',
-  otherGroup: '이미 참여 중인 그룹이 있어요. 나가고 참여해주세요.',
+  limit: '참여할 수 있는 그룹 수를 초과했어요',
   // 비밀번호는 폐기 개념(§0)이라 앱은 항상 빈 바디로 join한다 — 기존 비번 그룹은 눌러도
   // WRONG_PASSWORD로만 끝나므로, 눌러 보게 두지 말고 이유를 먼저 말한다.
   password: '비밀번호가 걸린 그룹이라 참여할 수 없어요',
@@ -94,6 +103,11 @@ function hhmm(v: string): string {
   return /(\d{2}:\d{2})/.exec(v)?.[1] ?? v;
 }
 
+// 스크린타임 목표는 '이상'이 아니라 '이하'다 — 초대 프리뷰는 참여를 결정하는 유일한 정보 화면이라
+// `목표 · 하루 60분 스크린타임`만 두면 60분을 채우라는 뜻으로 뒤집혀 읽힌다.
+// 문구는 그룹 만들기 폼·챌린지 만들기 시트의 캡션과 같은 뜻으로 맞춘다(카테고리 설명은 세 자리 동일).
+const SCREEN_TIME_HINT = '하루 스크린타임을 목표 이하로 유지하면 달성이에요';
+
 // 미션 한 줄 요약 — 대표 챌린지가 없으면 null(행을 숨긴다).
 function missionLabel(ov: GroupOverviewResponse): string | null {
   const what = ov.missionCategory === 'SCREEN_TIME' ? '스크린타임' : '집중';
@@ -127,13 +141,6 @@ export default function GroupInviteSheet({
   const [guestBlocked, setGuestBlocked] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
-  // 내 그룹 id — undefined는 '아직 모름'(조회 실패). 참여 직전에 한 번 더 확인한다.
-  const myGroupId = useRef<string | null | undefined>(undefined);
-  // 위 값을 읽어 온 시점의 참여 완료 횟수. 그 뒤로 어딘가에서 참여가 끝났다면(찾기 시트에서
-  // 다른 그룹에 가입) 캐시는 낡은 것이라 참여 직전에 다시 확인해야 한다 — 이 시트는 그때
-  // 언마운트되지 않으므로(부모는 초대 버퍼를 그대로 둔다) 낡은 '소속 없음'으로 두 번째 그룹에
-  // 가입해 버릴 수 있다. 조회를 **보내기 전** 값을 찍어야 조회 중에 끝난 참여도 잡힌다.
-  const myGroupSeenAt = useRef(joinCompletionCount());
   // 지금 이 시트가 보고 있는 groupId. 시트는 key 없이 재사용돼(GroupScreen) 두 번째 초대 링크가
   // 도착하면 groupId만 갈린다 — 진행 중이던 참여 요청이 그 뒤에 끝나면 앞 그룹의 결과를
   // 새 프리뷰에 덮어쓰게 되므로, 참여 시작 시점의 groupId와 비교해 최신일 때만 반영한다.
@@ -143,16 +150,6 @@ export default function GroupInviteSheet({
   useEffect(() => {
     joinedRef.current = onJoined;
   }, [onJoined]);
-
-  // 내 그룹 1건 조회. 실패는 undefined('모름')로 남겨 **프리뷰까지는** 막지 않는다(보조 조회).
-  // 참여는 모름 상태에서 허용하지 않는다 — join()의 fail-closed 주석 참고.
-  const fetchMyGroupId = useCallback(
-    () =>
-      getMyGroups()
-        .then((gs) => gs[0]?.groupId ?? null)
-        .catch(() => undefined),
-    [],
-  );
 
   // 프리뷰 조회 — 게스트는 호출 전에 차단한다(서버도 403이지만 왕복을 아낀다, §5-3).
   useEffect(() => {
@@ -175,18 +172,14 @@ export default function GroupInviteSheet({
     // 보여줘야 할 그룹에 게스트 차단 화면이 뜬다.
     setGuestBlocked(false);
     (async () => {
-      const seenAt = joinCompletionCount();
-      const mine = await fetchMyGroupId();
-      if (!alive) return;
-      myGroupId.current = mine;
-      myGroupSeenAt.current = seenAt;
       try {
         const ov = await getGroupOverview(groupId);
         if (!alive) return;
         setOverview(ov);
         // 이미 멤버 — 프리뷰를 보여줄 이유가 없다. 부모가 시트를 내리고 그룹방으로 전환한다.
         if (readIsMember(ov)) {
-          joinedRef.current();
+          // 이 effect가 조회한 그룹을 그대로 넘긴다(alive 가드로 늦은 응답은 이미 버려진다).
+          joinedRef.current(groupId);
           return;
         }
         // 종료된 그룹 — 마지막 멤버가 나가면 서버가 close()로 ENDED로 내린다(Group.java).
@@ -196,9 +189,10 @@ export default function GroupInviteSheet({
           setGone(true);
           return;
         }
-        // 비밀번호 그룹은 앱이 참여시킬 수단이 없다(§0에서 비번 폐기) — 정원·소속보다 먼저 막는다.
+        // 비밀번호 그룹은 앱이 참여시킬 수단이 없다(§0에서 비번 폐기) — 정원보다 먼저 막는다.
+        // ⚠️ '이미 다른 그룹에 속함'(otherGroup) 차단은 2차에서 멀티 그룹이 열리며 사라졌다.
+        //    참여 상한은 서버만 알고, join의 GROUP_LIMIT_EXCEEDED로만 드러난다.
         if (ov.hasPassword) setBlock('password');
-        else if (mine && mine !== groupId) setBlock('otherGroup');
         else if (ov.memberCount >= ov.maxMembers) setBlock('full');
       } catch (e) {
         if (!alive) return;
@@ -211,13 +205,13 @@ export default function GroupInviteSheet({
     return () => {
       alive = false;
     };
-  }, [groupId, isGuest, reloadKey, fetchMyGroupId]);
+  }, [groupId, isGuest, reloadKey]);
 
   const join = useCallback(async () => {
     if (block) return;
-    // 소속 재확인(await)보다 **먼저** 잠근다 — 뒤에서 잠그면 재확인이 도는 동안 버튼이 살아 있어
-    // 연타마다 재조회와 joinGroup이 병렬로 나가고, 첫 요청의 성공과 뒤따르는 ALREADY_MEMBER가
-    // 각각 onJoined·계측을 불러 부모 콜백과 분석 이벤트가 중복된다.
+    // 요청을 띄우기 **전에** 동기적으로 잠근다 — joining(useJoinLocked)은 리렌더 뒤에야 보이므로
+    // 같은 틱의 연타를 막지 못한다. 잠그지 않으면 joinGroup이 병렬로 나가고, 첫 요청의 성공과
+    // 뒤따르는 ALREADY_MEMBER가 각각 onJoined·계측을 불러 부모 콜백과 분석 이벤트가 중복된다.
     // 잠금을 못 잡으면 다른 참여(찾기 시트 포함)가 진행 중이다 — 버튼은 그동안 스피너·비활성이라
     // 여기 걸리는 건 같은 틱의 연타뿐이므로 문구 없이 조용히 돌려보낸다.
     const token = acquireJoinLock();
@@ -228,40 +222,22 @@ export default function GroupInviteSheet({
     const isStale = () => groupIdRef.current !== target;
     setJoinError(null);
     try {
-      // 보조 조회가 실패해 내 그룹 상태를 모르거나(undefined), 조회 이후 다른 곳에서 참여가
-      // 끝나 캐시가 낡았으면 참여 직전에 다시 확인한다(그룹 1개 전제 방어).
-      // 여기서도 실패하면 **막는다(fail-closed)** — 통과시키면 이미 다른 그룹에 있는 사용자가
-      // 두 그룹에 걸치고, 앱은 groups[0]만 보여줘 나머지 한 곳은 나갈 수도 없는 상태로 남는다(§0).
-      if (myGroupId.current === undefined || myGroupSeenAt.current !== joinCompletionCount()) {
-        const seenAt = joinCompletionCount();
-        const mine = await fetchMyGroupId();
-        if (isStale()) return;
-        myGroupId.current = mine;
-        myGroupSeenAt.current = seenAt;
-        if (mine === undefined) {
-          setJoinError('소속 그룹을 확인하지 못했어요. 잠시 후 다시 시도해주세요.');
-          return;
-        }
-        if (mine && mine !== target) {
-          setBlock('otherGroup');
-          return;
-        }
-      }
       // 계측은 **요청 직전**에 쏜다 — 이름 그대로 '시도'이고, 서버가 소유한 group_joined의
       // 분모다. 성공 뒤로 미루면 ROOM_FULL·404·네트워크 실패가 통째로 빠져 전환율이 항상
-      // 100%로 보인다. 위의 사전 차단(소속 미확인·다른 그룹)은 요청을 보내지 않았으니 시도가
-      // 아니다 — 그래서 joinGroup 호출 직전이지 join() 진입 직후가 아니다.
+      // 100%로 보인다. 2차에서 멀티 그룹이 열리며 '이미 다른 그룹에 속함' 사전 차단이 사라져,
+      // 여기까지 온 실행은 곧장 요청으로 이어진다 — 시도 하나에 계측 하나로 맞아떨어진다.
       logGroupJoinAttempted({ join_method: 'invite' });
       await joinGroup(target);
       // 성공만은 세대를 보지 않는다 — 실제로 target에 가입됐으므로 부모가 재조회해 그룹방으로
       // 넘어가야 한다. 여기서 버리면 사용자는 이미 가입한 채 다른 그룹 프리뷰를 계속 보게 된다.
-      joinedRef.current();
+      // 목적지도 현재 prop이 아니라 **이 요청이 겨냥한 target**이다(세대가 갈렸어도 가입된 건 target).
+      joinedRef.current(target);
     } catch (e) {
       const code = groupErrorCode(e);
       // 이미 멤버 — 성공 취급(§3-2). 위와 같은 이유로 세대와 무관하게 넘긴다.
       // (계측은 요청 직전에 이미 나갔다 — 여기서 다시 쏘면 한 번의 시도가 두 번으로 세어진다.)
       if (code === 'ALREADY_MEMBER') {
-        joinedRef.current();
+        joinedRef.current(target);
         return;
       }
       // 나머지는 target 프리뷰에만 의미가 있는 실패다 — 시트가 다른 그룹으로 갈렸으면 버린다.
@@ -269,6 +245,10 @@ export default function GroupInviteSheet({
       switch (code) {
         case 'ROOM_FULL':
           setBlock('full');
+          break;
+        // 참여 상한 초과(2차) — 이 초대장으로는 어차피 못 들어간다. 안내하고 버튼을 잠근다.
+        case 'GROUP_LIMIT_EXCEEDED':
+          setBlock('limit');
           break;
         case 'NOT_FOUND':
           setGone(true);
@@ -288,7 +268,9 @@ export default function GroupInviteSheet({
       // 것은 이 요청뿐이고, 여기서 놓지 않으면 새 프리뷰의 참여 버튼이 영영 잠긴다.
       releaseJoinLock(token);
     }
-  }, [block, fetchMyGroupId, groupId]);
+    // joining(useJoinLocked)은 표시 전용이라 의존성에 넣지 않는다 — 단일 실행 판정은
+    // 모듈 스코프 잠금(joinLock.ts)의 acquire 성공 여부가 한다.
+  }, [block, groupId]);
 
   // ── 게스트 — 조회 없이 로그인 유도(§5-3) ──
   // 이동·시트 내리기는 부모(onLogin)가 한다. 시트는 내려도 초대 버퍼는 살아 있어,
@@ -381,6 +363,9 @@ export default function GroupInviteSheet({
             <Text style={s.metaValue}>{mission}</Text>
           </View>
         )}
+        {!!mission && overview.missionCategory === 'SCREEN_TIME' && (
+          <Text style={s.missionHint}>{SCREEN_TIME_HINT}</Text>
+        )}
       </View>
 
       {!!block && <Text style={s.notice}>{BLOCK_TEXT[block]}</Text>}
@@ -433,6 +418,8 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: T.space.md,
   },
+  // 목표 행 아래 방향 안내 — 그룹 설명(s.groupDesc)과 같은 caption 규격을 쓴다.
+  missionHint: { ...T.text.caption, fontWeight: '500', color: T.inkSub, marginTop: T.space.xs },
   metaLabel: { ...T.text.caption, color: T.inkMuted },
   metaValue: { ...T.text.label, color: T.ink },
   metaValueNum: { ...T.text.label, color: T.ink, fontVariant: ['tabular-nums'] },

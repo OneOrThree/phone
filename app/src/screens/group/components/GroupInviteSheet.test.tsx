@@ -1,16 +1,19 @@
-// GroupInviteSheet 분기 테스트 — 명세 docs/app/group-plan.md §6-6·§11(비공개방 경로).
-// 이 시트는 비공개 그룹의 유일한 입구다. 분기가 하나라도 조용히 뒤집히면 초대가 죽거나
-// (프리뷰가 안 뜸) 그룹 1개 전제가 깨진다(다른 그룹에 겹쳐 가입). §11의 비공개방 7항목 중
-// 링크 수신(실기기)을 뺀 '시트가 무엇을 보여주는가' 부분을 여기서 잠근다.
+// GroupInviteSheet 분기 테스트 — 명세 docs/app/group-plan.md §6-6·§11(비공개방 경로)
+// + 2차 docs/app/group-plan-2.md §3-3(멀티 그룹 개방).
+// 이 시트는 비공개 그룹의 유일한 입구다. 분기가 하나라도 조용히 뒤집히면 초대가 죽는다(프리뷰가 안 뜸).
+// §11의 비공개방 7항목 중 링크 수신(실기기)을 뺀 '시트가 무엇을 보여주는가' 부분을 여기서 잠근다.
 //
-// 네트워크 3종만 목으로 갈아끼우고 groupErrorCode는 실제 구현을 쓴다 —
+// ⚠️ 1차의 '이미 다른 그룹에 소속이면 차단' 계열 케이스는 2차에서 **참여가 허용된다**로 뒤집혔다.
+// 케이스를 지우지 않고 새 동작(참여 허용·상한 초과 분기)으로 갈아 끼워, 가드가 되살아나면 깨지게 둔다.
+//
+// 네트워크 2종만 목으로 갈아끼우고 groupErrorCode는 실제 구현을 쓴다 —
 // code 기반 분기(§3-2)가 실제로 맞물리는지까지 함께 검증하기 위해서다.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupInviteSheet from './GroupInviteSheet';
 import { getGroupOverview, getMyGroups, joinGroup } from '@/services/groupApi';
 import { logGroupJoinAttempted } from '@/services/analyticsEvents';
-import type { GroupOverviewResponse, GroupSummaryResponse } from '@/types/dto/group';
+import type { GroupOverviewResponse } from '@/types/dto/group';
 import { acquireJoinLock, releaseJoinLock, resetJoinLock } from '../joinLock';
 
 // SheetShell이 useSafeAreaInsets를 쓴다 — 테스트 트리엔 SafeAreaProvider가 없어 고정값으로 대체한다.
@@ -41,6 +44,7 @@ const mockGetMyGroups = getMyGroups as jest.MockedFunction<typeof getMyGroups>;
 const mockJoinGroup = joinGroup as jest.MockedFunction<typeof joinGroup>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+// 두 번째 초대 링크 — 시트는 key 없이 재사용돼 groupId만 갈린다(세대 가드 케이스).
 const OTHER_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d99';
 
 // 서버 GlobalExceptionHandler의 { code, message } 바디를 실은 axios 에러.
@@ -75,24 +79,12 @@ function overview(over: Partial<GroupOverviewResponse> = {}): GroupOverviewRespo
   };
 }
 
-function summary(groupId: string): GroupSummaryResponse {
-  return {
-    groupId,
-    name: '다른 그룹',
-    code: null,
-    currentMembers: 1,
-    maxMembers: 5,
-    role: 'MEMBER',
-    status: 'WAITING',
-  };
-}
-
 const onClose = jest.fn();
 const onJoined = jest.fn();
 const onLogin = jest.fn();
 
 // RTL v14의 render는 async다 — 반드시 await한다(안 하면 쿼리가 붙지 않은 thenable이 돌아온다).
-// 마운트 직후 프리뷰 조회(getMyGroups→getGroupOverview) 프라미스까지 흘려보낸다 —
+// 마운트 직후 프리뷰 조회(getGroupOverview) 프라미스까지 흘려보낸다 —
 // act 밖에서 setState가 돌면 경고가 쏟아진다.
 async function renderSheet() {
   const result = await render(
@@ -139,7 +131,8 @@ describe('프리뷰 조회 분기', () => {
     mockGetGroupOverview.mockResolvedValue(overview({ isMember: true }));
     await renderSheet();
 
-    await waitFor(() => expect(onJoined).toHaveBeenCalled());
+    // 목적지도 함께 넘긴다 — 부모는 이 id로 그룹방을 연다.
+    await waitFor(() => expect(onJoined).toHaveBeenCalledWith(GROUP_ID));
     expect(screen.queryByText('참여하기')).toBeNull();
   });
 
@@ -162,42 +155,44 @@ describe('프리뷰 조회 분기', () => {
     expect(mockJoinGroup).not.toHaveBeenCalled();
   });
 
-  test('다른 그룹에 이미 소속이면 참여를 막는다(그룹 1개 전제 §0 — 백엔드가 검사하지 않는다)', async () => {
-    mockGetMyGroups.mockResolvedValue([summary(OTHER_GROUP_ID)]);
+  // 1차의 '이미 다른 그룹에 소속이면 차단'을 대체한 케이스(2차 §0-6).
+  test('다른 그룹에 이미 소속이어도 참여할 수 있다(멀티 그룹 개방)', async () => {
+    mockGetMyGroups.mockResolvedValue([]); // 불려선 안 되지만, 불릴 경우 예전 가드가 살아나게 둔다
     mockGetGroupOverview.mockResolvedValue(overview());
+    mockJoinGroup.mockResolvedValue(undefined);
     await renderSheet();
 
-    expect(
-      await screen.findByText('이미 참여 중인 그룹이 있어요. 나가고 참여해주세요.'),
-    ).toBeOnTheScreen();
+    expect(screen.queryByText('이미 참여 중인 그룹이 있어요. 나가고 참여해주세요.')).toBeNull();
     await press('참여하기');
-    expect(mockJoinGroup).not.toHaveBeenCalled();
-  });
-
-  test('같은 그룹에 이미 소속이면 막지 않는다(자기 그룹 링크를 자기가 열었을 때)', async () => {
-    mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
-    mockGetGroupOverview.mockResolvedValue(overview({ isMember: true }));
-    await renderSheet();
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
+    expect(mockJoinGroup).toHaveBeenCalledWith(GROUP_ID);
   });
 
-  // fail-open이면 이미 A 그룹에 있는 사용자가 B에도 가입돼 앱이 못 보여주는 그룹이 생긴다(§0).
-  test('소속 그룹을 끝내 확인하지 못하면 참여를 막는다(fail-closed)', async () => {
-    mockGetMyGroups.mockRejectedValue(new Error('network'));
+  // 사전 조회는 이제 아예 나가지 않는다 — 남아 있으면 시트가 왕복 한 번만큼 늦게 뜨고,
+  // 그 응답으로 참여를 막던 fail-closed 경로가 되살아날 여지가 생긴다.
+  test('소속 그룹 사전 조회(getMyGroups)를 부르지 않는다', async () => {
     mockGetGroupOverview.mockResolvedValue(overview());
     await renderSheet();
 
-    // 프리뷰까지는 보여준다 — 막는 것은 참여뿐이다.
     expect(await screen.findByText('아침 6시 집중방')).toBeOnTheScreen();
+    expect(mockGetMyGroups).not.toHaveBeenCalled();
+  });
 
+  // 소속 조회가 실패해도 참여가 막히지 않는다(1차 fail-closed 폐기) — 애초에 조회가 없다.
+  test('소속 조회가 실패하는 상황에서도 참여를 막지 않는다', async () => {
+    mockGetMyGroups.mockRejectedValue(new Error('network'));
+    mockGetGroupOverview.mockResolvedValue(overview());
+    mockJoinGroup.mockResolvedValue(undefined);
+    await renderSheet();
+
+    expect(await screen.findByText('아침 6시 집중방')).toBeOnTheScreen();
     await press('참여하기');
 
+    await waitFor(() => expect(onJoined).toHaveBeenCalled());
     expect(
-      await screen.findByText('소속 그룹을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'),
-    ).toBeOnTheScreen();
-    expect(mockJoinGroup).not.toHaveBeenCalled();
-    expect(mockGetMyGroups).toHaveBeenCalledTimes(2); // 마운트 시 1회 + 참여 직전 재확인 1회
+      screen.queryByText('소속 그룹을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'),
+    ).toBeNull();
   });
 
   // 마지막 멤버가 나가면 서버가 그룹을 ENDED로 내린다(Group.close()). 그런데 서버 join은
@@ -271,6 +266,24 @@ describe('프리뷰 조회 분기', () => {
 
     expect(await screen.findByText('매일 06:00~08:30 집중')).toBeOnTheScreen();
   });
+
+  // 스크린타임은 목표의 방향이 집중과 반대다(이하). 이 시트는 참여를 결정하는 유일한 정보
+  // 화면인데 `목표 · 하루 60분 스크린타임` 한 줄뿐이면 60분을 채우라는 뜻으로 뒤집혀 읽힌다.
+  test('스크린타임 그룹은 목표가 이하라는 뜻을 한 줄로 덧붙인다', async () => {
+    mockGetGroupOverview.mockResolvedValue(overview({ missionCategory: 'SCREEN_TIME' }));
+    await renderSheet();
+
+    expect(await screen.findByText('하루 60분 스크린타임')).toBeOnTheScreen();
+    expect(screen.getByText('하루 스크린타임을 목표 이하로 유지하면 달성이에요')).toBeOnTheScreen();
+  });
+
+  test('집중 그룹에는 그 캡션이 붙지 않는다(설명이 필요 없는 기본값)', async () => {
+    mockGetGroupOverview.mockResolvedValue(overview());
+    await renderSheet();
+
+    expect(await screen.findByText('하루 60분 집중')).toBeOnTheScreen();
+    expect(screen.queryByText('하루 스크린타임을 목표 이하로 유지하면 달성이에요')).toBeNull();
+  });
 });
 
 describe('참여 분기', () => {
@@ -307,6 +320,21 @@ describe('참여 분기', () => {
 
     expect(await screen.findByText('정원이 가득 찼어요')).toBeOnTheScreen();
     expect(onJoined).not.toHaveBeenCalled();
+  });
+
+  // 2차 신규 — 멀티 그룹을 열면서 생긴 유일한 참여 상한. 같은 초대장에선 다시 눌러도 결과가
+  // 같으므로 문구만 띄우는 게 아니라 버튼까지 잠근다.
+  test('GROUP_LIMIT_EXCEEDED(409)는 상한 안내 + 참여 버튼을 잠근다', async () => {
+    mockJoinGroup.mockRejectedValue(axiosErrorWith(409, 'GROUP_LIMIT_EXCEEDED'));
+    await renderSheet();
+
+    await press('참여하기');
+
+    expect(await screen.findByText('참여할 수 있는 그룹 수를 초과했어요')).toBeOnTheScreen();
+    expect(onJoined).not.toHaveBeenCalled();
+
+    await press('참여하기'); // 잠겼으므로 두 번째 호출이 나가지 않는다
+    expect(mockJoinGroup).toHaveBeenCalledTimes(1);
   });
 
   test('참여 중 NOT_FOUND는 사라진 그룹으로 전환한다', async () => {
@@ -392,8 +420,8 @@ describe('참여 분기', () => {
   });
 
   // 위 가드는 '늦게 온 응답을 버린다'까지만 한다 — A가 **아직 진행 중일 때** 잠금까지 풀면
-  // B의 참여가 함께 나가고, 서버는 그룹 1개를 강제하지 않아(GroupService:207-243) 둘 다
-  // 성공한다. 그러면 앱은 groups[0]만 보여줘 나머지 한 곳은 나갈 수도 없이 남는다(§0).
+  // B의 참여가 함께 나간다. 2차에서 멀티 그룹이 열려 '두 그룹에 걸침' 자체는 더 이상 사고가
+  // 아니지만, 사용자가 **의도하지 않은** 두 번째 가입이 한 번의 탭으로 나가는 것은 그대로 사고다.
   test('연속 초대 링크 — 앞 그룹의 참여가 끝나기 전에는 새 프리뷰도 참여를 보내지 않는다', async () => {
     let resolveJoin: () => void = () => {};
     mockJoinGroup.mockImplementationOnce(
@@ -438,36 +466,69 @@ describe('참여 분기', () => {
     expect(mockJoinGroup).toHaveBeenLastCalledWith(OTHER_GROUP_ID);
   });
 
-  // setJoining(true)가 소속 재확인(await) **뒤에** 있었을 땐 재확인이 도는 동안 버튼이 살아 있어,
-  // 같은 프레임의 두 번째 탭이 재조회와 joinGroup을 한 벌 더 띄웠다 — 첫 요청의 성공과 뒤따르는
-  // ALREADY_MEMBER가 각각 onJoined·계측을 불러 부모 콜백과 분석 이벤트가 중복됐다.
-  test('소속 재확인 중의 연타로 참여가 두 번 나가지 않는다', async () => {
-    let resolveMine: (gs: GroupSummaryResponse[]) => void = () => {};
-    mockGetMyGroups
-      .mockRejectedValueOnce(new Error('network')) // 마운트 조회 실패 — 소속을 '모름'으로 남긴다
-      .mockImplementationOnce(
-        () =>
-          new Promise<GroupSummaryResponse[]>((resolve) => {
-            resolveMine = resolve; // 참여 직전 재확인 — 응답을 붙잡아 둔다
-          }),
-      );
+  // 성공은 세대를 보지 않고 넘긴다(실제로 가입됐으므로) — 그래서 부모가 목적지를 현재 groupId로
+  // 잡으면 가입한 A 대신 나중에 온 B로 가려다 아무 방도 못 연다. 통지에 **가입된 그룹 id**를 싣는다.
+  test('연속 초대 링크 — 늦게 도착한 앞 그룹의 참여 성공은 그 그룹 id로 통지한다', async () => {
+    let resolveJoin: () => void = () => {};
+    mockJoinGroup.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveJoin = resolve; // 초대 A의 참여 응답을 붙잡아 둔다
+        }),
+    );
     mockGetGroupOverview.mockResolvedValue(overview());
-    mockJoinGroup.mockResolvedValue(undefined);
+    const { rerender } = await renderSheet();
+
+    await press('참여하기');
+
+    // A 응답이 오기 전에 초대 B가 도착한다.
+    mockGetGroupOverview.mockResolvedValue(overview({ id: OTHER_GROUP_ID, name: '저녁 스터디방' }));
+    await act(async () => {
+      rerender(
+        <GroupInviteSheet
+          groupId={OTHER_GROUP_ID}
+          onClose={onClose}
+          onJoined={onJoined}
+          onLogin={onLogin}
+        />,
+      );
+    });
+
+    await act(async () => {
+      resolveJoin();
+    });
+
+    expect(onJoined).toHaveBeenCalledWith(GROUP_ID);
+  });
+
+  // joining(state)만으로 버튼을 잠그면 리렌더 전까지 버튼이 살아 있어, 같은 프레임의 두 번째 탭이
+  // joinGroup을 한 벌 더 띄웠다 — 첫 요청의 성공과 뒤따르는 ALREADY_MEMBER가 각각 onJoined·계측을
+  // 불러 부모 콜백과 분석 이벤트가 중복됐다. 이제 join()이 요청 직전에 ref로 동기 잠근다.
+  // (1차엔 '소속 재확인이 도는 동안'이 그 창이었지만, 2차에서 사전 조회가 사라져 참여 요청 자체의
+  //  왕복이 유일한 창이다 — 잠금 대상만 바뀌었을 뿐 막아야 할 중복은 그대로다.)
+  test('참여 요청이 도는 중의 연타로 참여가 두 번 나가지 않는다', async () => {
+    let resolveJoin: () => void = () => {};
+    mockJoinGroup.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveJoin = resolve; // 첫 참여 응답을 붙잡아 둔다
+        }),
+    );
+    mockGetGroupOverview.mockResolvedValue(overview());
     await renderSheet();
 
     const btn = await screen.findByTestId('group.invite.join');
     await act(async () => {
-      fireEvent.press(btn); // 첫 탭 — 소속 재확인에서 멈춘다
+      fireEvent.press(btn); // 첫 탭 — 참여 응답에서 멈춘다
     });
     await act(async () => {
-      fireEvent.press(btn); // 재확인이 끝나기 전의 두 번째 탭
+      fireEvent.press(btn); // 응답이 오기 전의 두 번째 탭
     });
 
     await act(async () => {
-      resolveMine([]);
+      resolveJoin();
     });
 
-    expect(mockGetMyGroups).toHaveBeenCalledTimes(2); // 마운트 1 + 재확인 1 — 연타로 늘지 않는다
     expect(mockJoinGroup).toHaveBeenCalledTimes(1);
     expect(onJoined).toHaveBeenCalledTimes(1);
     expect(logGroupJoinAttempted).toHaveBeenCalledTimes(1);
@@ -475,8 +536,10 @@ describe('참여 분기', () => {
 
   // 시트 안의 잠금만으로는 **시트를 가로지르는 경합**을 못 막았다 — 찾기 시트에서 A 참여가
   // 진행 중일 때 초대 링크가 도착하면 GroupScreen이 찾기 시트를 내리고 이 시트를 여는데,
-  // 언마운트는 진행 중인 요청을 취소하지 않으므로 B 참여가 함께 나가 두 그룹에 걸쳤다(§0).
-  // 아래 두 테스트가 그 창의 앞뒤(진행 중 / 끝난 직후)를 각각 잠근다.
+  // 언마운트는 진행 중인 요청을 취소하지 않으므로 B 참여가 함께 나가 두 요청이 겹쳤다.
+  // (1차엔 여기에 '잠금이 풀리면 캐시한 소속을 재확인한다' 케이스가 하나 더 붙어 있었다 —
+  //  그 재확인은 그룹 1개 전제를 지키려던 것이고, 2차에서 전제 자체가 폐기돼 함께 사라졌다.
+  //  참여 상한은 이제 서버의 GROUP_LIMIT_EXCEEDED만 판정한다. 직렬화 자체는 그대로 남는다.)
   test('찾기 시트의 참여가 진행 중이면 초대 참여 버튼이 잠긴다', async () => {
     const foreign = acquireJoinLock(); // 찾기 시트가 A 참여를 보낸 상태
     await renderSheet();
@@ -493,25 +556,6 @@ describe('참여 분기', () => {
       releaseJoinLock(foreign!);
     });
     expect(await screen.findByText('참여하기')).toBeOnTheScreen();
-  });
-
-  test('다른 곳의 참여가 끝나면 캐시한 소속을 다시 확인한다', async () => {
-    const foreign = acquireJoinLock();
-    await renderSheet(); // 이 시점의 getMyGroups는 아직 '소속 없음'
-
-    // 찾기 시트가 다른 그룹(A) 참여에 성공하고 잠금을 놓는다. 이 시트는 부모가 초대 버퍼를
-    // 그대로 두므로 언마운트되지 않는다 — 캐시한 '소속 없음'을 믿고 B에 가입하면 두 그룹에 걸친다.
-    mockGetMyGroups.mockResolvedValue([summary(OTHER_GROUP_ID)]);
-    await act(async () => {
-      releaseJoinLock(foreign!);
-    });
-
-    await press('참여하기');
-
-    expect(mockJoinGroup).not.toHaveBeenCalled();
-    expect(
-      await screen.findByText('이미 참여 중인 그룹이 있어요. 나가고 참여해주세요.'),
-    ).toBeOnTheScreen();
   });
 
   test('모르는 code는 공통 문구로 떨어진다(§5-2)', async () => {
