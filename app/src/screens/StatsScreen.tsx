@@ -22,7 +22,6 @@ import {
 import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
 import { CardOrderEditor } from './stats/CardOrderEditor';
-import { SubjectProgressList } from '@/components/SubjectProgressList';
 import { STORAGE_KEYS } from '@/types/storage';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { useFocus } from '@/store/FocusContext';
@@ -37,7 +36,7 @@ import { MonthWeeklyChart, pickFocus, pickScreenTime } from './stats/MonthWeekly
 import { FocusTimetableCard } from './stats/FocusTimetableCard';
 import { WeeklyTimetableCard } from './stats/WeeklyTimetableCard';
 import { LongestSessionStat } from './stats/LongestSessionStat';
-import { CategoryDonut } from './stats/CategoryDonut';
+import { CategoryDonut, SubjectDonut } from './stats/CategoryDonut';
 import { DeltaRow } from './stats/DeltaRow';
 import { GoalDayStamps } from './stats/GoalCards';
 import { CalendarCard } from './stats/CalendarCard';
@@ -246,8 +245,8 @@ export default function StatsScreen() {
     ),
   });
 
-  // ST2 과목별 공부량 (나) — 총 공부량 바로 아래. 주/월 탭은 도넛(비중), 일 탭은 집중 세션 메뉴
-  // 드로어와 동일한 과목별 현황(로컬 오늘 누적 — 색 점+시간+비율 바, GROMO-762)
+  // ST2 과목별 공부량 (나) — 총 공부량 바로 아래. 전 탭 도넛으로 통일(GROMO-976) —
+  // 주/월은 서버 집계, 일은 집중 세션 메뉴 드로어와 동일한 로컬 오늘 누적(SubjectContext)
   cards.push({
     key: 'category',
     node: (
@@ -267,7 +266,7 @@ export default function StatsScreen() {
               total={data.category?.totalFocusMinutes ?? 0}
             />
           ) : (
-            <SubjectProgressList rows={subjects} />
+            <SubjectDonut rows={subjects} />
           )}
         </SectionCard>
       </View>
