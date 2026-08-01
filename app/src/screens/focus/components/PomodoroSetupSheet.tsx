@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { PomodoroConfig } from '../types';
 import { SheetShell } from '@/components/SheetShell';
+import { PressableScale } from '@/components/PressableScale';
 
 // 05 뽀모도로 설정 — 집중/휴식/세트를 스텝퍼로 조절 후 집중 시작.
 interface Field {
@@ -64,9 +65,9 @@ export function PomodoroSetupSheet({
         ))}
       </View>
 
-      <TouchableOpacity style={s.startBtn} activeOpacity={0.85} onPress={() => onStart(config)}>
+      <PressableScale style={s.startBtn} haptic="light" onPress={() => onStart(config)}>
         <Text style={s.startText}>집중 시작</Text>
-      </TouchableOpacity>
+      </PressableScale>
     </SheetShell>
   );
 }

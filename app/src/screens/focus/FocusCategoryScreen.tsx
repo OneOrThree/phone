@@ -21,6 +21,7 @@ import { occupationForCategory } from '@/constants/focusCategories';
 import { getDefaultTags } from '@/services/focusApi';
 import { STORAGE_KEYS } from '@/types/storage';
 import { TabGuideOverlay } from '@/components/TabGuideOverlay';
+import { PressableScale } from '@/components/PressableScale';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, PomodoroConfig, Subject } from './types';
 import { DraggableSubjectRows } from './components/DraggableSubjectRows';
@@ -229,9 +230,15 @@ export default function FocusCategoryScreen() {
   return (
     <SafeAreaView testID="focus.category.screen" style={s.root} edges={['top']}>
       <View style={s.header}>
-        <TouchableOpacity style={s.backBtn} activeOpacity={0.7} onPress={() => navigation.goBack()}>
+        {/* 뒤로가기는 취소 동작이라 소리를 내지 않는다 — 눌림 스케일만 */}
+        <PressableScale
+          style={s.backBtn}
+          scaleTo={0.9}
+          sound={false}
+          onPress={() => navigation.goBack()}
+        >
           <Ionicons name="chevron-back" size={22} color={T.ink} />
-        </TouchableOpacity>
+        </PressableScale>
       </View>
 
       <Text style={s.title}>무엇에 집중할까요?</Text>
@@ -253,10 +260,10 @@ export default function FocusCategoryScreen() {
         }}
         footer={
           <>
-            <TouchableOpacity style={s.addBtn} activeOpacity={0.8} onPress={handleAddSubject}>
+            <PressableScale style={s.addBtn} onPress={handleAddSubject}>
               <Ionicons name="add" size={16} color={T.inkMuted} />
               <Text style={s.addText}>새 과목 추가</Text>
-            </TouchableOpacity>
+            </PressableScale>
             {/* 추천 과목 유도 — 탭하면 바로 과목으로 추가되고 목록에서 사라진다.
                 헤더 탭으로 접기/펼치기(상태는 AsyncStorage에 저장) */}
             {recommended.length > 0 && (

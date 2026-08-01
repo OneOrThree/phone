@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { cubicBezier } from 'react-native-reanimated';
 import { T } from '@/constants/theme';
+import { PressableScale } from '@/components/PressableScale';
 import { STORAGE_KEYS } from '@/types/storage';
 import { getFocusPeriodStats, getStreak, getHeatmap, getTodayStats } from '@/services/statsApi';
 import type {
@@ -578,27 +579,27 @@ export default function FocusResultScreen() {
           fade 전환 중 더블 탭이 들어오면 스택이 이미 비워져 POP_TO_TOP 미처리 경고가 나서
           canGoBack 가드로 두 번째 탭을 무시한다 */}
       <View style={s.footer}>
-        <TouchableOpacity
+        <PressableScale
           testID="focus.result.home"
           style={s.homeBtn}
-          activeOpacity={0.85}
+          haptic="light"
           onPress={() => {
             if (navigation.canGoBack()) navigation.popToTop();
           }}
         >
           <Text style={s.homeText}>홈으로</Text>
-        </TouchableOpacity>
+        </PressableScale>
         {/* 스택: Main → FocusCategory → FocusResult(세션을 replace) — 새 화면을 쌓지 않고
             아래 깔린 기존 과목 선택으로 goBack(중복 스택 방지, 리뷰 반영) */}
-        <TouchableOpacity
+        <PressableScale
           style={s.againBtn}
-          activeOpacity={0.85}
+          haptic="light"
           onPress={() => {
             if (navigation.canGoBack()) navigation.goBack();
           }}
         >
           <Text style={s.againText}>다시 집중</Text>
-        </TouchableOpacity>
+        </PressableScale>
       </View>
 
       {/* 주간 스트릭 완성 연출(GROMO-667) — ✓ 팝 뒤 축하 모달(종이폭죽은 모달 안에서 동시에) */}

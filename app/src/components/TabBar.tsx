@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,7 +9,7 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
 import { GlassPillFill, isLiquidGlassSupported } from '@/components/liquidGlass';
-import { hapticLight, hapticSelect } from '@/utils/haptics';
+import { PressableScale } from '@/components/PressableScale';
 import type { V2RootStackParamList } from '@/navigation/types';
 
 // 커스텀 탭바 — Claude Design "01 홈" 시안: 글래스 바 + 4탭 + 중앙 FAB(집중 시작).
@@ -100,18 +100,18 @@ function Tab({
   const focused = state.index === index;
   const [on, off] = ICONS[route.name] ?? ['ellipse', 'ellipse-outline'];
   return (
-    <TouchableOpacity
+    // 이미 선택된 탭은 아무 동작이 없으므로 햅틱·사운드도 끈다(눌림 스케일만 남김)
+    <PressableScale
       style={s.tab}
-      activeOpacity={0.7}
+      scaleTo={0.9}
+      haptic={focused ? false : 'select'}
+      sound={!focused}
       onPress={() => {
-        if (!focused) {
-          hapticSelect();
-          navigation.navigate(route.name);
-        }
+        if (!focused) navigation.navigate(route.name);
       }}
     >
       <Ionicons name={focused ? on : off} size={26} color={focused ? T.accent : T.inkMuted} />
-    </TouchableOpacity>
+    </PressableScale>
   );
 }
 
@@ -154,20 +154,18 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
       </View>
 
       {/* 중앙 FAB — 집중 시작 */}
-      <TouchableOpacity
+      <PressableScale
         testID="tabbar.fab"
         style={s.fab}
-        activeOpacity={0.85}
-        onPress={() => {
-          hapticLight();
-          rootNav.navigate('FocusCategory');
-        }}
+        scaleTo={0.94}
+        haptic="light"
+        onPress={() => rootNav.navigate('FocusCategory')}
       >
         <View style={s.fabInner}>
           {/* ▶ 재생(시작) 아이콘 — 삼각형이 왼쪽으로 치우쳐 보여서 살짝 오른쪽 보정 */}
           <Ionicons name="play" size={26} color={T.white} style={s.playIcon} />
         </View>
-      </TouchableOpacity>
+      </PressableScale>
     </View>
   );
 }

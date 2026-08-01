@@ -29,6 +29,7 @@ import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { PressableScale } from '@/components/PressableScale';
 import { fabWindowRect } from '@/components/TabBar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -470,17 +471,17 @@ export default function HomeScreen() {
                 </View>
               </View>
             </View>
-            <TouchableOpacity
+            <PressableScale
               style={s.settingsBtn}
+              scaleTo={0.92}
               onPress={() => {
                 logHomeButtonTapped({ button: 'notification_bell', destination: 'Notifications' });
                 navigation.navigate('Notifications');
               }}
-              activeOpacity={0.8}
             >
               <Ionicons name="notifications-outline" size={19} color={T.ink} />
               {hasNotifications && <View style={s.notifDot} />}
-            </TouchableOpacity>
+            </PressableScale>
           </View>
 
           {/* ── 방 + 캐릭터 ── */}
@@ -507,10 +508,10 @@ export default function HomeScreen() {
                   <Text style={s.streakChipText}>연속 공부 {streakDays}일</Text>
                 </View>
               )}
-              <TouchableOpacity
+              <PressableScale
                 testID="home.today.detail"
                 style={s.moreBtn}
-                activeOpacity={0.7}
+                scaleTo={0.94}
                 onPress={() => {
                   logHomeButtonTapped({ button: 'today_summary_detail', destination: 'Stats' });
                   navigation.navigate('Stats');
@@ -518,7 +519,7 @@ export default function HomeScreen() {
               >
                 <Text style={s.more}>자세히</Text>
                 <Ionicons name="chevron-forward" size={11} color={T.accent} />
-              </TouchableOpacity>
+              </PressableScale>
             </View>
           </View>
 

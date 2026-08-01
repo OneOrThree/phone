@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { T } from '@/constants/theme';
 import { DrumPicker } from '@/components/DrumPicker';
 import { SheetShell } from '@/components/SheetShell';
+import { PressableScale } from '@/components/PressableScale';
 
 // 04 카운트다운 설정 — 시/분 휠로 목표 시간을 정하고 집중 시작.
 const MAX_HOURS = 12; // 상한 12시간 — 12시간 선택 시 분은 0 고정
@@ -50,14 +51,14 @@ export function CountdownSetupSheet({
         </View>
       </View>
 
-      <TouchableOpacity
+      <PressableScale
         style={[s.startBtn, goalSeconds === 0 && s.startBtnDisabled]}
-        activeOpacity={0.85}
+        haptic="light"
         disabled={goalSeconds === 0}
         onPress={() => onStart(goalSeconds)}
       >
         <Text style={s.startText}>집중 시작</Text>
-      </TouchableOpacity>
+      </PressableScale>
     </SheetShell>
   );
 }
