@@ -219,8 +219,8 @@
      어긋난다(WCAG 1.3.2). 채움(fill) 전환만으로 승격을 알린다. */
 
   /* ── 만료 변형 ──────────────────────────────────────────
-     JS 없이 CSS 만으로 확정된다(JS 차단 환경 대비). CSS 자체가 벗겨지는 환경에서는
-     양쪽 카피가 함께 보이는데, 그 경우 만료 문구가 먼저 오도록 마크업 순서를 잡았다.
+     JS 없이 CSS 만으로 확정된다(JS 차단 환경 대비). CSS 자체가 벗겨지면 양쪽 카피가 함께
+     보이므로, 만료 문구가 먼저 읽히도록 마크업 순서를 잡았다(본문 주석 참고).
      그룹명은 숨긴다 — 존재하지 않는 slug 도 만료 랜딩으로 오기 때문에(스펙 §4-2)
      이름이 빈 「」 로 렌더될 수 있다. 대신 eyebrow 를 남겨 카드 골격을 유지한다. */
   body[data-expired="true"] .group-name,
@@ -260,15 +260,18 @@
 <body data-expired="{{expired}}" data-state="idle">
   <main class="shell">
     <div class="card">
-      <span class="eyebrow"><span class="eyebrow-live">그룹 초대</span><span class="eyebrow-expired">만료된 초대</span></span>
+      <!-- 각 쌍은 "만료 카피가 먼저" 순서다. CSS 가 벗겨지는 환경(리더 모드 등)에서는 양쪽이
+           함께 보이는데, 그때 만료 안내가 정상 초대 문구보다 먼저 읽혀야 한다.
+           CSS 선택자는 소스 순서에 의존하지 않으므로 일반 브라우저 렌더에는 영향이 없다. -->
+      <span class="eyebrow"><span class="eyebrow-expired">만료된 초대</span><span class="eyebrow-live">그룹 초대</span></span>
 
+      <h1 class="expired-title">만료된 초대예요</h1>
       <h1 class="group-name">
         <span class="bracket">「</span>{{groupName}}<span class="bracket">」</span>
       </h1>
-      <h1 class="expired-title">만료된 초대예요</h1>
 
-      <p class="lede">앱을 열면 바로 이 그룹에 들어가요.</p>
       <p class="lede expired-lede">이 초대 링크는 더 이상 쓸 수 없어요.<br>친구에게 새 링크를 받아 주세요.</p>
+      <p class="lede">앱을 열면 바로 이 그룹에 들어가요.</p>
 
       <div class="bars" aria-hidden="true">
         <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
