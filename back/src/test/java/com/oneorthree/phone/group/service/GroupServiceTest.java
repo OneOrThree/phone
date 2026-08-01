@@ -119,6 +119,11 @@ class GroupServiceTest {
     @Mock
     private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
 
+    // 내기 조립은 GroupBetService 가 맡는다. Map 반환이라 스텁 없이도 빈 맵이 나와
+    // (Mockito 기본값) 내기와 무관한 이 테스트들은 bet/lastSettledBet 을 null 로 본다.
+    @Mock
+    private GroupBetService groupBetService;
+
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID GROUP_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000002");

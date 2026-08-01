@@ -1,6 +1,7 @@
 package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.group.domain.Group;
+import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
@@ -12,9 +13,12 @@ import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
 import com.oneorthree.phone.group.dto.CreateChallengeRequest;
 import com.oneorthree.phone.group.dto.CreateChallengeResponse;
+import com.oneorthree.phone.group.dto.GroupBetResponse;
+import com.oneorthree.phone.group.dto.GroupBetResultResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
@@ -60,6 +64,8 @@ public class GroupChallengeService {
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
+    private final GroupBetService groupBetService;
+    private final GroupChallengeBetRepository groupChallengeBetRepository;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
@@ -105,6 +111,11 @@ public class GroupChallengeService {
         // 멤버·일별 통계도 챌린지 루프 밖에서 한 번씩만 로드한다(챌린지 수 × 멤버 수의 N+1 방지).
         ProgressSnapshot progress = loadProgressSnapshot(group, challenges, date);
 
+        // 내기(오늘 것 + 지난 정산 1건)도 챌린지 목록 전체를 IN 절로 한 번에 읽는다.
+        Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
+                challengeIds, date, userId, myAchievedByChallengeId(challenges, durations, progress, userId));
+        Map<UUID, GroupBetResultResponse> lastSettledBets = groupBetService.loadLastSettledBets(challengeIds);
+
         return challenges.stream()
                 .map(c -> {
                     GroupChallengeDuration duration = durations.get(c.getId());
@@ -121,9 +132,34 @@ public class GroupChallengeService {
                             .status(c.getStatus())
                             .createdAt(c.getCreatedAt())
                             .memberProgress(memberProgressOf(c, duration, progress))
+                            .bet(bets.get(c.getId()))
+                            .lastSettledBet(lastSettledBets.get(c.getId()))
                             .build();
                 })
                 .toList();
+    }
+
+    /**
+     * 챌린지별 "나는 지금 이미 달성했는가" — 내기 참가 가능 판정({@code myAchievedNow})용.
+     *
+     * <p>내기는 FOCUS + DURATION 챌린지에만 걸리므로 그 조합만 계산한다. 이미 로드해 둔 진행률
+     * 스냅샷을 재사용해 통계 조회가 늘지 않는다(진행률 미계산이면 빈 맵 → 판정 없음).
+     */
+    private Map<UUID, Boolean> myAchievedByChallengeId(
+            List<GroupChallenge> challenges,
+            Map<UUID, GroupChallengeDuration> durations,
+            ProgressSnapshot progress,
+            UUID userId) {
+        if (progress == null) {
+            return Map.of();
+        }
+        int myFocusMinutes = progress.focusMinutes().getOrDefault(userId, 0);
+        return challenges.stream()
+                .filter(c -> c.getType() == MissionType.DURATION && c.getCategory() == MissionCategory.FOCUS)
+                .filter(c -> durations.containsKey(c.getId()))
+                .collect(Collectors.toMap(
+                        GroupChallenge::getId,
+                        c -> myFocusMinutes >= durations.get(c.getId()).getDurationMinutes()));
     }
 
     /**
@@ -350,9 +386,18 @@ public class GroupChallengeService {
         }
 
         // 이미 삭제된 챌린지는 조회 단계에서 걸러져 NOT_FOUND — 중복 DELETE 가 404 로 떨어진다.
+        // 행을 잠그고 읽는 이유는 아래 OPEN 내기 가드를 내기 개설과 직렬화하기 위해서다 —
+        // 락이 없으면 검사와 softDelete 사이에 다른 그룹원의 개설이 끼어들 수 있다.
         GroupChallenge groupChallenge = groupChallengeRepository
-                .findByIdAndGroupAndDeletedAtIsNull(challengeId, group)
+                .findByIdAndGroupAndDeletedAtIsNullForUpdate(challengeId, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        // 챌린지를 지우면 목록 조회(deletedAt IS NULL)에서 빠져 그 내기가 앱에서 보이지 않게 된다 —
+        // 판돈은 에스크로된 채 묶여 있고 정산 배치는 그대로 돌기 때문에 "사라진 내기에 돈이 걸린" 상태가
+        // 된다. 정산이 끝날 때까지는 삭제를 막는다(다음날 배치 이후엔 지울 수 있다).
+        if (groupChallengeBetRepository.existsByChallengeIdAndStatus(challengeId, GroupBetStatus.OPEN)) {
+            throw new GroupException(GroupErrorCode.CHALLENGE_HAS_OPEN_BET);
+        }
 
         groupChallenge.softDelete();
     }
