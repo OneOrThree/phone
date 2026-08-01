@@ -85,6 +85,40 @@ async function doRefreshAccessToken(): Promise<string> {
   return data.accessToken;
 }
 
+// JWT payload의 만료시각(exp, 초 단위)을 ms로 디코드. 실패 시 null.
+function getTokenExpMs(token: string): number | null {
+  try {
+    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = JSON.parse(atob(payload)) as { exp?: number };
+    return typeof decoded.exp === 'number' ? decoded.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+// 만료 판정 여유 — 전송·서버 검증 사이 시차로 아슬아슬한 토큰이 서버에서 만료 처리되는 것 방지.
+const TOKEN_EXP_MARGIN_MS = 30_000;
+
+// 저장된 access 토큰을 유효한 상태로 보장해 반환 — 만료·임박이면 갱신 후 새 토큰을 준다.
+// 게스트→소셜 승격(GROMO-962)처럼 인터셉터 없는 bare 요청에 토큰을 실을 때 사용한다:
+// 만료 토큰을 그대로 보내면 백엔드가 "토큰 없음"과 동일 취급해 조용히 새 계정을 만든다(코덱스 리뷰).
+// 갱신은 401 인터셉터와 같은 single-flight를 공유하므로 동시 갱신(리프레시 토큰 rotate) 경합이 없다.
+// exp 디코드 실패도 갱신 경로로 보낸다 — 무효일 수 있는 토큰을 그대로 싣는 것보다 안전.
+// 토큰이 없거나 갱신 실패(리프레시 토큰까지 만료)면 null — 호출부는 토큰 없이 진행한다.
+export async function getFreshAccessToken(): Promise<string | null> {
+  const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+  if (!token) return null;
+  const expMs = getTokenExpMs(token);
+  if (expMs !== null && expMs - Date.now() > TOKEN_EXP_MARGIN_MS) {
+    return token;
+  }
+  try {
+    return await refreshAccessToken();
+  } catch {
+    return null;
+  }
+}
+
 // 모든 백엔드 호출은 이 인스턴스를 통한다 (fetch 직접 사용 금지).
 // - 요청 인터셉터: JWT 자동 주입
 // - 응답 인터셉터: 401 시 토큰 갱신 후 1회 재시도, 실패하면 로그아웃

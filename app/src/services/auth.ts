@@ -11,7 +11,7 @@ import {
 import LineLogin, { LoginPermission } from '@xmartlabs/react-native-line';
 import { LoginManager, AccessToken, AuthenticationToken } from 'react-native-fbsdk-next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL, api, getUserIdFromToken } from '@/services/api';
+import { API_URL, api, getFreshAccessToken, getUserIdFromToken } from '@/services/api';
 import { getMyProfile } from '@/services/userApi';
 import { logLogin, logSignUp, setIdentityProps, type AuthMethod } from '@/services/analyticsEvents';
 import type { LoginResult } from '@/types/api';
@@ -46,8 +46,10 @@ export function setAccountSwitchHandler(
 // Authorization 헤더로 실어 보낸다. 백엔드는 유효한 게스트 access JWT가 오면 새 User를 만들지 않고
 // 게스트 계정을 소셜로 승격해 닉네임·서버 데이터를 보존한다(ticket 585). 비게스트·무효 토큰은
 // 서버가 무시하고 기존 로그인 흐름을 타므로 항상 실어도 안전하다.
+// 만료·임박 토큰은 갱신을 거친다(getFreshAccessToken) — 만료 토큰을 그대로 보내면 백엔드가
+// "토큰 없음"과 동일 취급해 조용히 새 계정을 만들어 버그가 재발한다(코드리뷰 반영).
 async function guestUpgradeHeaders(): Promise<{ Authorization: string } | undefined> {
-  const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+  const token = await getFreshAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : undefined;
 }
 
