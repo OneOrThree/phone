@@ -85,6 +85,12 @@ export default {
     },
     android: {
       package: 'com.oneorthree.gromo',
+      // 어댑티브 아이콘(prebuild 시 네이티브 반영) — 전경은 세이프존(중앙 66%)에 아트를 두고
+      // 여백은 투명, 배경색은 icon.png 테두리 평균색(보라). 수동 관리 중인 android/ res에도 동일 반영돼 있음.
+      adaptiveIcon: {
+        foregroundImage: './src/assets/adaptive-icon.png',
+        backgroundColor: '#9288CB',
+      },
     },
     web: {
       bundler: 'metro',
