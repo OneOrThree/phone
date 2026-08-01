@@ -1,17 +1,30 @@
-// GroupRoomScreen 조회 견고화 테스트 — 명세 docs/app/group-plan.md §6-4.
+// GroupRoomScreen 조회 견고화 + 챌린지 섹션 테스트 — 명세 docs/app/group-plan.md §6-4,
+// docs/app/group-plan-2.md §3-2.
 //
-// 여기서 잠그는 것 두 가지:
-//  1) 상세와 공지의 실패를 **각각** 다룬다. 예전엔 상세 재조회 실패가 groups 데이터가 있으면
+// 여기서 잠그는 것:
+//  1) 상세·공지·챌린지의 실패를 **각각** 다룬다. 예전엔 상세 재조회 실패가 groups 데이터가 있으면
 //     화면에 아무 흔적도 남기지 않았고(오래된 멤버·인원을 그대로 봄), 공지 실패는 []로 뭉개져
 //     '아직 공지가 없어요'가 떴다 — 작성 권한자는 이미 있는 공지를 또 등록했다.
+//     챌린지도 같은 규격을 따른다(실패를 '없음'으로 위장하지 않는다).
 //  2) 포그라운드 복귀. 그룹 탭이 포커스된 채 백그라운드에 있다 자정을 넘겨 돌아오면
 //     useFocusEffect가 다시 돌지 않아 '오늘 집중분'이 전날 값으로 남았다.
+//  3) ⋯ 메뉴의 '내 그룹 목록'은 **onShowGroups를 받았을 때만** 렌더한다 —
+//     라우트로 push된 그룹방은 이미 목록에서 들어온 화면이라 되돌아가는 항목이 중복이다(2차 §0-3).
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { AppState, type AppStateStatus } from 'react-native';
+import { Alert, AppState, type AppStateStatus } from 'react-native';
 import GroupRoomScreen from './GroupRoomScreen';
-import { getAnnouncements, getGroupDetail } from '@/services/groupApi';
+import {
+  deleteChallenge,
+  getAnnouncements,
+  getChallenges,
+  getGroupDetail,
+} from '@/services/groupApi';
 import { todayStr } from '@/utils/localDate';
-import type { GroupAnnouncementResponse, GroupDetailResponse } from '@/types/dto/group';
+import type {
+  GroupAnnouncementResponse,
+  GroupChallengeResponse,
+  GroupDetailResponse,
+} from '@/types/dto/group';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -49,6 +62,8 @@ jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
   getGroupDetail: jest.fn(),
   getAnnouncements: jest.fn(),
+  getChallenges: jest.fn(),
+  deleteChallenge: jest.fn(),
   withdrawGroup: jest.fn(),
 }));
 
@@ -57,6 +72,8 @@ jest.mock('@/utils/localDate', () => ({ todayStr: jest.fn(() => '2026-08-01') })
 
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
 const mockGetAnnouncements = getAnnouncements as jest.MockedFunction<typeof getAnnouncements>;
+const mockGetChallenges = getChallenges as jest.MockedFunction<typeof getChallenges>;
+const mockDeleteChallenge = deleteChallenge as jest.MockedFunction<typeof deleteChallenge>;
 const mockTodayStr = todayStr as jest.MockedFunction<typeof todayStr>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
@@ -98,8 +115,25 @@ function notice(over: Partial<GroupAnnouncementResponse> = {}): GroupAnnouncemen
   };
 }
 
-async function renderRoom() {
-  const result = await render(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
+function challenge(over: Partial<GroupChallengeResponse> = {}): GroupChallengeResponse {
+  return {
+    id: 'c1',
+    missionType: 'DURATION',
+    missionCategory: 'FOCUS',
+    durationMinutes: 60,
+    windowStart: null,
+    windowEnd: null,
+    status: 'ACTIVE',
+    createdAt: '2026-08-01T06:00:00',
+    canParticipate: true,
+    memberProgress: [{ userId: 'me', nickname: '나', progressMinutes: 30, achieved: false }],
+    ...over,
+  };
+}
+
+// onShowGroups를 넘기면 '내장 렌더'(탭 안) — 안 넘기면 라우트 진입이다(2차 §0-3).
+async function renderRoom(props: { onShowGroups?: () => void } = {}) {
+  const result = await render(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} {...props} />);
   await act(async () => {});
   return result;
 }
@@ -145,6 +179,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockFocusEntries.length = 0;
   mockTodayStr.mockReturnValue('2026-08-01');
+  // 챌린지는 대부분의 케이스에서 관심사가 아니다 — 빈 목록을 기본값으로 깔아 둔다.
+  mockGetChallenges.mockResolvedValue([]);
   appStateHandler = null;
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
     appStateHandler = handler as (state: AppStateStatus) => void;
@@ -293,5 +329,117 @@ describe('포그라운드 복귀', () => {
     mockTodayStr.mockReturnValue('2026-08-02');
     await foreground();
     expect(mockGetGroupDetail).toHaveBeenLastCalledWith(GROUP_ID, '2026-08-02');
+  });
+});
+
+describe('챌린지 섹션', () => {
+  test('상세·공지와 같은 date로 함께 조회하고 카드를 그린다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+
+    // ⚠️ date를 넘겨야만 memberProgress가 실려 온다(2차 배관 결정 1) — 진행 리스트의 전제다.
+    expect(mockGetChallenges).toHaveBeenCalledWith(GROUP_ID, '2026-08-01');
+    expect(screen.getByText('하루 60분 집중')).toBeOnTheScreen();
+    expect(screen.getByText('30/60분')).toBeOnTheScreen();
+  });
+
+  test('챌린지만 실패하면 "챌린지 없음"으로 위장하지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockRejectedValueOnce(new Error('network'));
+    await renderRoom();
+
+    // 방의 뼈대(상세)와 공지 섹션은 그대로 뜬다.
+    expect(screen.getByText('아침 6시 집중방')).toBeOnTheScreen();
+    expect(screen.getByText('챌린지를 불러오지 못했어요')).toBeOnTheScreen();
+    expect(screen.queryByText('아직 챌린지가 없어요')).toBeNull();
+    // 만들기 진입점도 세우지 않는다 — 서버에 이미 있는 챌린지면 중복 생성으로 튕긴다.
+    expect(screen.queryByText('챌린지 만들기')).toBeNull();
+  });
+
+  test('갱신만 실패하면 기존 카드를 유지한 채 알린다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValueOnce([challenge()]);
+    await renderRoom();
+    expect(screen.getByText('하루 60분 집중')).toBeOnTheScreen();
+
+    mockGetChallenges.mockRejectedValueOnce(new Error('network'));
+    await focus();
+
+    expect(screen.getByText('하루 60분 집중')).toBeOnTheScreen();
+    expect(screen.getByText('챌린지를 새로고침하지 못했어요')).toBeOnTheScreen();
+  });
+
+  test('0건이면 방장에게만 만들기 진입점을 준다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    await renderRoom();
+    expect(screen.getByText('아직 챌린지가 없어요')).toBeOnTheScreen();
+    expect(screen.getByText('챌린지 만들기')).toBeOnTheScreen();
+
+    // 일반 멤버로 바꿔 다시 그린다 — 만들기는 방장 전용이라 시트를 열 자리 자체가 없어야 한다.
+    mockGetGroupDetail.mockResolvedValue(
+      detail({
+        members: [
+          { userId: 'me', nickname: '나', role: 'MEMBER', focusTimeMinutes: 30 },
+          { userId: 'u2', nickname: '수빈', role: 'OWNER', focusTimeMinutes: 60 },
+        ],
+      }),
+    );
+    await focus();
+    expect(screen.getByText('아직 챌린지가 없어요')).toBeOnTheScreen();
+    expect(screen.queryByText('챌린지 만들기')).toBeNull();
+    expect(screen.queryByTestId('group.challenge.add')).toBeNull();
+  });
+
+  test('방장이 카드를 롱프레스해 삭제하면 목록을 재조회한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    mockDeleteChallenge.mockResolvedValue(undefined);
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.challenge.card.c1'), 'longPress');
+    });
+    await act(async () => {
+      alertSpy.mock.calls[0][2]?.find((b) => b.text === '삭제')?.onPress?.();
+    });
+
+    expect(mockDeleteChallenge).toHaveBeenCalledWith(GROUP_ID, 'c1');
+    // 삭제 후 재조회 — 최초 1회 + 삭제 후 1회.
+    await waitFor(() => expect(mockGetChallenges).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('⋯ 메뉴 — 내 그룹 목록', () => {
+  test('내장 렌더(onShowGroups 전달)에서만 항목이 보이고, 탭하면 콜백이 불린다', async () => {
+    const onShowGroups = jest.fn();
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    await renderRoom({ onShowGroups });
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
+    });
+    await press('내 그룹 목록');
+    expect(onShowGroups).toHaveBeenCalled();
+  });
+
+  test('라우트 진입(onShowGroups 미전달)에선 항목을 숨긴다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
+    });
+    // 메뉴 자체는 열려 있다 — '그룹 나가기'는 두 경로 모두에 있다.
+    expect(screen.getByText('그룹 나가기')).toBeOnTheScreen();
+    expect(screen.queryByText('내 그룹 목록')).toBeNull();
   });
 });

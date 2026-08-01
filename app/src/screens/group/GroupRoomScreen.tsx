@@ -20,7 +20,9 @@ import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
 import { useUser } from '@/store/UserContext';
 import {
+  deleteChallenge,
   getAnnouncements,
+  getChallenges,
   getGroupDetail,
   groupErrorCode,
   withdrawGroup,
@@ -30,24 +32,28 @@ import { buildInviteLink } from '@/utils/inviteLink';
 import { todayStr } from '@/utils/localDate';
 import type {
   GroupAnnouncementResponse,
+  GroupChallengeResponse,
   GroupDetailMemberResponse,
   GroupDetailResponse,
   GroupSummaryResponse,
 } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { fmtNoticeDate } from './noticeDate';
+import ChallengeCard from './components/ChallengeCard';
+import ChallengeComposeSheet from './components/ChallengeComposeSheet';
 import MemberTile from './components/MemberTile';
 
 // 그룹방 — 명세 docs/app/group-plan.md §6-4.
 //
-// 형태: 탭 셸 없는 단일 ScrollView. **별도 라우트가 아니라 GroupScreen 안에서 렌더된다**
-//      (그룹 1개 전제라 목록 화면이 없다 — §0).
+// 형태: 탭 셸 없는 단일 ScrollView. **탭 안 내장 렌더와 라우트 진입을 겸한다** —
+//      그룹이 1개면 지금까지처럼 GroupScreen 안에서, 2개 이상이면 목록에서 push 된다(2차 §0-1·§0-2).
 // 레이아웃: 헤더(이름 · 비공개 자물쇠 · n/m · ⋯) → 초대 링크 카드 → 공지(최근 3건 + 모두보기)
-//          → 멤버 3열 그리드(MemberTile + '＋ 초대' 타일)
+//          → 챌린지(2차 §3-2) → 멤버 3열 그리드(MemberTile + '＋ 초대' 타일)
 //
 // ❌ detail.code · codeExpiresAt은 읽지 않는다 — 코드 개념 폐기(§3-1-5).
 
-// 플로팅 탭바가 가리는 하단 여백(§5-1 — 탭 화면 공통 기준)
+// 플로팅 탭바가 가리는 하단 여백(§5-1 — 탭 화면 공통 기준).
+// ⚠️ 내장 렌더에서만 더한다 — 라우트로 push된 그룹방엔 탭바가 없어 74pt가 그냥 빈 바닥으로 남는다.
 const TAB_BAR_SPACE = 74;
 // 멤버 그리드 열 수
 const COLS = 3;
@@ -73,7 +79,9 @@ export interface GroupRoomScreenProps {
   onLeft: () => void;
   // 초대 시트가 이 화면 위에 떠 있는가 — 떠 있으면 '⋯' 메뉴를 내린다(아래 이펙트 주석 참고).
   inviteOpen?: boolean;
-  // 내장 렌더일 때만 전달 — ⋯ 메뉴 '내 그룹 목록' 진입점, 챌린지 트랙이 배선.
+  // 내장 렌더(탭 안)일 때만 전달 — ⋯ 메뉴 '내 그룹 목록' 진입점(2차 §0-3).
+  // 라우트 진입은 이미 목록에서 들어온 화면이라 미전달 → 항목이 숨는다.
+  // 이 prop의 유무가 곧 '내장 렌더인가'라서 하단 탭바 여백 판정에도 함께 쓴다.
   onShowGroups?: () => void;
 }
 
@@ -82,6 +90,7 @@ export default function GroupRoomScreen({
   summary,
   onLeft,
   inviteOpen,
+  onShowGroups,
 }: GroupRoomScreenProps) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
@@ -91,11 +100,15 @@ export default function GroupRoomScreen({
   // null = 아직 한 번도 못 받음. '공지 없음(빈 배열)'과 '공지 조회 실패'를 구분한다 —
   // 실패를 []로 뭉개면 이미 있는 공지가 사라진 자리에 '아직 공지가 없어요'가 떠서 같은 공지를 또 쓴다.
   const [notices, setNotices] = useState<GroupAnnouncementResponse[] | null>(null);
+  // 공지와 같은 규격 — null = 아직 한 번도 못 받음. '챌린지 없음'과 '조회 실패'를 구분한다.
+  const [challenges, setChallenges] = useState<GroupChallengeResponse[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [noticeError, setNoticeError] = useState(false);
+  const [challengeError, setChallengeError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
   // 요청 시퀀스 — 당겨서 새로고침 중 '다시 시도'를 누르거나 연타하면 reload()·onRefresh()가
@@ -107,17 +120,20 @@ export default function GroupRoomScreen({
   // 마지막으로 성공한 조회의 기준 날짜. 자정을 넘겨 복귀하면 '오늘 집중분'이 전날 값이라 강제 재조회한다.
   const loadedDateRef = useRef<string | null>(null);
 
-  // 상세 + 공지 병렬 조회. 두 요청의 실패를 **각각** 다룬다(allSettled) —
-  // 상세 실패는 기존 방 데이터를 보존한 채 배너로, 공지 실패는 공지 섹션에서만 알린다.
-  // date는 멤버 '오늘 집중분'의 기준일이라 여기서 직접 만들어 보관까지 한다(§3-1-1).
+  // 상세 + 공지 + 챌린지 병렬 조회. 세 요청의 실패를 **각각** 다룬다(allSettled) —
+  // 상세 실패는 기존 방 데이터를 보존한 채 배너로, 공지·챌린지 실패는 각 섹션에서만 알린다.
+  // date는 멤버 '오늘 집중분'과 챌린지 진행률의 기준일이라 여기서 직접 만들어 보관까지 한다(§3-1-1).
+  // ⚠️ getChallenges는 date를 **넘길 때만** memberProgress가 실려 온다(2차 배관 결정 1) —
+  //    진행 리스트가 이 섹션의 본체라 반드시 넘긴다.
   // 반환값: 이 호출이 아직 최신인가(늦게 끝난 요청이 로딩 플래그를 되돌리지 않게).
   const load = useCallback(async (): Promise<boolean> => {
     const seq = ++requestSeqRef.current;
     const date = todayStr();
     setError(false);
-    const [detailResult, noticeResult] = await Promise.allSettled([
+    const [detailResult, noticeResult, challengeResult] = await Promise.allSettled([
       getGroupDetail(groupId, date),
       getAnnouncements(groupId),
+      getChallenges(groupId, date),
     ]);
     if (seq !== requestSeqRef.current) return false;
 
@@ -141,6 +157,13 @@ export default function GroupRoomScreen({
       setNoticeError(false);
     } else {
       setNoticeError(true); // 기존 공지는 그대로 둔다
+    }
+
+    if (challengeResult.status === 'fulfilled') {
+      setChallenges(challengeResult.value);
+      setChallengeError(false);
+    } else {
+      setChallengeError(true); // 기존 챌린지는 그대로 둔다
     }
     return true;
   }, [groupId, onLeft]);
@@ -196,8 +219,8 @@ export default function GroupRoomScreen({
 
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(§6-4).
   const me = userId ? detail?.members.find((m) => m.userId === userId) : undefined;
-  const canWriteNotice =
-    me?.role === 'OWNER' || (!!userId && !!detail?.noticeGrantedUserIds.includes(userId));
+  const isOwner = me?.role === 'OWNER';
+  const canWriteNotice = isOwner || (!!userId && !!detail?.noticeGrantedUserIds.includes(userId));
 
   const name = detail?.name ?? summary?.name ?? '내 그룹';
   const memberCount = detail?.members.length ?? summary?.currentMembers ?? 0;
@@ -225,6 +248,24 @@ export default function GroupRoomScreen({
   const openNotice = useCallback(() => {
     navigation.navigate('GroupNotice', { groupId, canWrite: canWriteNotice });
   }, [navigation, groupId, canWriteNotice]);
+
+  // 챌린지 삭제 — 확인 Alert는 카드가 이미 거쳤다(ChallengeCard). 여기선 호출과 재조회만 한다.
+  // 서버가 soft delete로 바꿔 이미 지워진 챌린지를 또 지우면 NOT_FOUND가 오는데,
+  // 목록에서 사라지는 결과는 같으므로 성공과 똑같이 재조회로 끝낸다.
+  const onDeleteChallenge = useCallback(
+    async (challengeId: string) => {
+      try {
+        await deleteChallenge(groupId, challengeId);
+      } catch (e) {
+        if (groupErrorCode(e) !== 'NOT_FOUND') {
+          Alert.alert('챌린지를 삭제하지 못했어요', '잠시 후 다시 시도해주세요.');
+          return;
+        }
+      }
+      load();
+    },
+    [groupId, load],
+  );
 
   const doLeave = useCallback(async () => {
     if (leaving) return;
@@ -289,6 +330,9 @@ export default function GroupRoomScreen({
   // '＋ 초대' 타일까지 한 흐름으로 배치하려고 셀 배열로 만든 뒤 3개씩 잘라 행으로 그린다.
   const members = detail?.members ?? [];
   const noticeList = notices ?? [];
+  const challengeList = challenges ?? [];
+  // 탭바 여백은 내장 렌더에서만 — onShowGroups를 받는가가 곧 '탭 안에 있는가'다(§0-3 계약).
+  const bottomSpace = insets.bottom + (onShowGroups ? TAB_BAR_SPACE : 0) + T.space.md;
   const cells: GridCell[] = [
     ...members.map((m): GridCell => ({ kind: 'member', member: m })),
     { kind: 'invite' },
@@ -299,10 +343,7 @@ export default function GroupRoomScreen({
     <>
       <ScrollView
         style={s.scroll}
-        contentContainerStyle={[
-          s.content,
-          { paddingBottom: insets.bottom + TAB_BAR_SPACE + T.space.md },
-        ]}
+        contentContainerStyle={[s.content, { paddingBottom: bottomSpace }]}
         showsVerticalScrollIndicator={false}
         testID="group.room.scroll"
         refreshControl={
@@ -417,6 +458,60 @@ export default function GroupRoomScreen({
           </View>
         )}
 
+        {/* ── 챌린지(2차 §3-2) — 공지 아래·멤버 그리드 위 ── */}
+        <View style={s.sectionHead}>
+          <Text style={s.sectionTitle}>챌린지</Text>
+          {isOwner && (
+            <TouchableOpacity
+              style={s.addBtn}
+              activeOpacity={0.7}
+              onPress={() => setComposeOpen(true)}
+              hitSlop={12}
+              accessibilityLabel="챌린지 만들기"
+              testID="group.challenge.add"
+            >
+              <Ionicons name="add" size={16} color={T.accent} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* 공지와 같은 규격 — 한 번도 못 받은 채 실패면 '없음'으로 위장하지 않고 재시도를 세운다.
+            이 상태에선 만들기 진입도 막는다(서버에 이미 있는 챌린지를 중복 생성하면 409로 튕긴다). */}
+        {challenges === null && challengeError ? (
+          <View style={s.emptyNotice}>
+            <Text style={s.emptyNoticeText}>챌린지를 불러오지 못했어요</Text>
+            <TouchableOpacity style={s.writeBtn} activeOpacity={0.85} onPress={reload}>
+              <Text style={s.writeText}>다시 시도</Text>
+            </TouchableOpacity>
+          </View>
+        ) : challengeList.length === 0 ? (
+          <View style={s.emptyNotice}>
+            <Text style={s.emptyNoticeText}>아직 챌린지가 없어요</Text>
+            {isOwner && (
+              <TouchableOpacity
+                style={s.writeBtn}
+                activeOpacity={0.85}
+                onPress={() => setComposeOpen(true)}
+              >
+                <Text style={s.writeText}>챌린지 만들기</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : (
+          <View style={s.noticeList}>
+            {/* 목록은 있는데 갱신만 실패 — 기존 카드를 그대로 두고 한 줄로 알린다. */}
+            {challengeError && <Text style={s.bannerText}>챌린지를 새로고침하지 못했어요</Text>}
+            {challengeList.map((c) => (
+              <ChallengeCard
+                key={c.id}
+                challenge={c}
+                isOwner={!!isOwner}
+                onDelete={onDeleteChallenge}
+              />
+            ))}
+          </View>
+        )}
+
         {/* ── 멤버 ── */}
         <View style={s.sectionHead}>
           <Text style={s.sectionTitle}>멤버</Text>
@@ -463,11 +558,37 @@ export default function GroupRoomScreen({
       {menuOpen && !inviteOpen && (
         <SheetShell onClose={() => setMenuOpen(false)} asModal>
           <Text style={s.menuTitle}>{name}</Text>
+          {/* '내 그룹 목록'은 내장 렌더에서만 — 라우트 진입은 이미 목록에서 들어온 화면이다(§0-3) */}
+          {!!onShowGroups && (
+            <TouchableOpacity
+              style={s.menuItem}
+              activeOpacity={0.7}
+              onPress={() => {
+                setMenuOpen(false);
+                onShowGroups();
+              }}
+            >
+              <Ionicons name="list-outline" size={18} color={T.ink} />
+              <Text style={s.menuText}>내 그룹 목록</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity style={s.menuItem} activeOpacity={0.7} onPress={confirmLeave}>
             <Ionicons name="exit-outline" size={18} color={T.accentAlt} />
             <Text style={s.menuDanger}>그룹 나가기</Text>
           </TouchableOpacity>
         </SheetShell>
+      )}
+
+      {/* ── 챌린지 만들기 시트(방장만) ── */}
+      {composeOpen && (
+        <ChallengeComposeSheet
+          groupId={groupId}
+          onClose={() => setComposeOpen(false)}
+          onCreated={() => {
+            setComposeOpen(false);
+            load();
+          }}
+        />
       )}
     </>
   );
@@ -556,6 +677,15 @@ const s = StyleSheet.create({
   // '모두보기' — 홈의 '자세히' 링크와 같은 규격(label + chevron 11). 터치 타깃은 hitSlop 12로 보강.
   moreRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   moreLink: { ...T.text.label, color: T.accent },
+  // 섹션 헤더의 '+' — 헤더 ⋯ 버튼(34)보다 한 단 작은 원형. 터치 타깃은 hitSlop 12로 보강.
+  addBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: T.accentBg,
+  },
 
   noticeList: { gap: T.space.sm },
   noticeCard: {
