@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Linking } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, AppState, Linking } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -85,6 +85,19 @@ export default function ScreenTimePermissionScreen() {
     }, []),
   );
 
+  // iOS 설정(거부됨 카드 탭)을 다녀와도 이 화면은 포커스가 유지돼 위 useFocusEffect가 재실행되지
+  // 않는다 — 앱이 다시 활성화될 때 권한 상태를 재조회해 배지·탭 동작이 낡은 '거부됨'으로 남지
+  // 않게 한다(온보딩 ScreenTimeDeniedStep과 동일 수명주기, 코드리뷰 반영).
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      ScreenTimeModule.getAuthorizationStatus()
+        .then((st) => setStatus(st))
+        .catch(() => {});
+    });
+    return () => sub.remove();
+  }, []);
+
   // notDetermined 상태 카드 탭 — 시스템 권한창 → 서버 반영 → 상태 재조회.
   // 허용되면 완료 알럿 없이 바로 앱 피커로 이어 측정 대상 설정까지 한 흐름으로 끝낸다(GROMO-978).
   async function requestPermission() {
@@ -125,6 +138,9 @@ export default function ScreenTimePermissionScreen() {
         );
         return;
       }
+      // 직전 await(권한 요청 경로에선 서버 반영까지 최대 15초) 동안 뒤로가기·강제 로그아웃으로
+      // 화면을 떠났을 수 있다 — 피커가 엉뚱한 화면 위에 뜨지 않게 포커스를 확인한다(코드리뷰 반영).
+      if (!navigation.isFocused()) return;
       const counts = await ScreenTimeModule.presentAppPicker();
       if (!counts) return; // 피커 취소 — picker가 pending에 저장, 여기서 취소면 저장 없음
       const total = counts.applications + counts.categories + counts.webDomains;
