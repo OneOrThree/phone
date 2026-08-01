@@ -24,15 +24,25 @@ import { CAL_RAMP, WEEK_DAYS } from './constants';
 
 interface Props {
   period: 'WEEK' | 'MONTH';
-  cells: HeatmapCellResponse[]; // 현재 기간(오프셋 0) heatmap — useStatsData 공유
+  // 현재 기간(오프셋 0) heatmap — useStatsData 공유. null=조회 실패 — 빈 데이터([])와 구분해
+  // 실패를 '전부 0:00'으로 그리지 않고 과거 페이지와 같은 에러 처리로 보낸다(코드리뷰 반영).
+  cells: HeatmapCellResponse[] | null;
   today: TodayStatsResponse | null; // 오늘 라이브 판정·목표 미설정 판별
   elapsedDays: number | null; // 가입 전 날짜 중립 처리(현재 기간 기준 — 서버가 가입일로 클램프)
   // 현재 기간 총 집중 분(서버 기간 집계 — useStatsData 공유). 일별 내림 합산은 하루 최대 59초씩
   // 잘려 총 집중시간 카드와 어긋날 수 있어 집계값을 우선 쓴다(코드리뷰 반영). null=조회 실패.
   periodTotal: number | null;
+  retryCurrent: () => void; // 현재 기간 재조회(useStatsData refetch) — 오프셋 0 실패 시 '다시 시도'
 }
 
-export function CalendarCard({ period, cells, today, elapsedDays, periodTotal }: Props) {
+export function CalendarCard({
+  period,
+  cells,
+  today,
+  elapsedDays,
+  periodTotal,
+  retryCurrent,
+}: Props) {
   const [offset, setOffset] = useState(0); // 0=이번 기간, -1=지난 기간 …
   const [picked, setPicked] = useState<string | null>(null); // 탭한 날짜 — 하단 정보줄
   // 과거 기간 heatmap 캐시(기간 첫 날짜 키). 실패는 캐시하지 않는다 — 빈 데이터로 캐시하면
@@ -55,13 +65,15 @@ export function CalendarCard({ period, cells, today, elapsedDays, periodTotal }:
   const todayKey = todayStr();
   const page = calendarPage(period, offset);
   const pageKey = page.days[0];
-  const shown = offset === 0 ? cells : pastCells[pageKey];
-  const noData = offset < 0 && shown == null; // 로딩·실패 — 셀 값(0:00)·체크를 지어내지 않는다
-  const failed = noData && failedKeys.has(pageKey);
+  const shown = offset === 0 ? (cells ?? undefined) : pastCells[pageKey];
+  const noData = shown == null; // 로딩·실패 — 셀 값(0:00)·체크를 지어내지 않는다
+  // 현재 기간 실패는 부모(useStatsData)가 판정, 과거 페이지는 카드 자체 실패 기록으로 판정
+  const failed = noData && (offset === 0 ? cells == null : failedKeys.has(pageKey));
   const loading = noData && !failed;
 
   // 과거 기간 heatmap 조회 — 오프셋을 빠르게 넘겨도 응답은 버리지 않고 캐시에 쌓는다.
-  // 기간 총합(집계 API)도 함께 조회하되, 총합 실패는 페이지 실패로 치지 않는다(셀 합산 폴백).
+  // 기간 총합(집계 API)은 보조 지표(실패 시 셀 합산 폴백)라 독립 반영 — heatmap이 먼저 와도
+  // 총합 응답을 기다리느라 캘린더가 로딩에 갇히지 않게 한다(코드리뷰 반영).
   useEffect(() => {
     if (offset === 0) return;
     const p = calendarPage(period, offset);
@@ -71,13 +83,16 @@ export function CalendarCard({ period, cells, today, elapsedDays, periodTotal }:
     const last = p.days[p.days.length - 1];
     const cap = todayStr();
     const anchor = last > cap ? cap : last; // 기간 마지막 날(미래 방지 클램프) — 집계 기준일 겸용
-    const totalPromise = getFocusPeriodStats(period, undefined, anchor).catch(() => null);
+    getFocusPeriodStats(period, undefined, anchor)
+      .then((stats) => {
+        if (mountedRef.current)
+          setPastTotals((prev) => ({ ...prev, [key]: stats.totalFocusMinutes }));
+      })
+      .catch(() => {}); // 총합 실패는 페이지 실패로 치지 않는다(셀 합산 폴백)
     getHeatmap(key, anchor)
-      .then(async (res) => {
-        const stats = await totalPromise;
+      .then((res) => {
         if (!mountedRef.current) return;
         setPastCells((prev) => ({ ...prev, [key]: res }));
-        if (stats != null) setPastTotals((prev) => ({ ...prev, [key]: stats.totalFocusMinutes }));
         setFailedKeys((prev) => {
           if (!prev.has(key)) return prev;
           const next = new Set(prev);
@@ -93,8 +108,12 @@ export function CalendarCard({ period, cells, today, elapsedDays, periodTotal }:
       });
   }, [offset, period, retrySeq]);
 
-  // 실패 페이지 재시도 — 실패 표시를 지우고 조회 이펙트를 다시 돌린다
+  // 실패 페이지 재시도 — 현재 기간은 부모 재조회, 과거 페이지는 실패 표시를 지우고 이펙트 재실행
   const retryPage = () => {
+    if (offset === 0) {
+      retryCurrent();
+      return;
+    }
     setFailedKeys((prev) => {
       const next = new Set(prev);
       next.delete(pageKey);
