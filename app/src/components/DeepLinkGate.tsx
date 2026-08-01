@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Linking } from 'react-native';
 import { navigateToDeepLink } from '@/navigation/navigationRef';
+import { runDeferredInviteMatchOnce } from '@/services/deferredInvite';
 
 // 외부 링크 수신(그룹 초대 — docs/app/group-plan.md §6-6). UI가 없는 앱 셸 컴포넌트다.
 // expo-linking 없이 RN 내장 Linking으로 충분하다. 실제 매핑(league/focus/home/join)은
@@ -18,6 +19,19 @@ import { navigateToDeepLink } from '@/navigation/navigationRef';
 // (푸시의 initialNotificationHandled와 같은 방어 — services/push.ts)
 let initialUrlHandled = false;
 
+// 설치 후 초대 복원(deferred deep link, 초대 링크 스펙 §7-5)도 여기서 띄운다.
+//
+// ⚠️ **초기 URL 판정이 끝난 뒤에** 호출해야 한다. deferredInvite는 "직접 링크가 이미 버퍼에
+//    있으면 서버 매치를 건너뛴다"로 레이스를 푸는데, getInitialURL()이 비동기라 App.tsx에서
+//    나란히 쏘면 버퍼가 아직 비어 있는 순간에 판정이 돌아 UL로 들어온 확실한 초대를
+//    확률적 매치 결과가 덮을 수 있다. 초기 URL의 소유자가 이 컴포넌트이므로 순서도 여기서 잠근다.
+//    (fire-and-forget — 앱 진입은 이 요청을 절대 기다리지 않는다.)
+function startDeferredInviteMatch(): void {
+  runDeferredInviteMatchOnce().catch(() => {
+    // 서비스가 이미 모든 실패를 삼키지만, 호출부에서도 unhandled rejection을 만들지 않는다.
+  });
+}
+
 export function DeepLinkGate(): null {
   useEffect(() => {
     if (!initialUrlHandled) {
@@ -28,7 +42,11 @@ export function DeepLinkGate(): null {
         })
         .catch(() => {
           // 초기 URL 조회 실패는 무시 — 링크 없이 일반 실행으로 진행.
-        });
+        })
+        .finally(startDeferredInviteMatch);
+    } else {
+      // 재마운트(계정 전환 등) — 초기 URL은 이미 소비됐다. 서비스 자체가 1회성이라 중복은 무해하다.
+      startDeferredInviteMatch();
     }
     const sub = Linking.addEventListener('url', ({ url }) => navigateToDeepLink(url));
     return () => sub.remove();

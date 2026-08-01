@@ -54,6 +54,8 @@ export const STORAGE_KEYS = {
   lastAuthProvider: 'gromo:auth:lastProvider', // 마지막 사용 소셜 provider — 재로그인 '최근 사용' 배지(로그아웃 유지·탈퇴 초기화)
   storeReviewAccessDays: 'gromo:storeReview:accessDays', // 앱 접속 누적일 { count, lastDate } — 하루 첫 접속마다 count+1(GROMO-980)
   storeReviewRequested: 'gromo:storeReview:requested', // 별점 요청창 노출 완료 마커('1') — 1회만 노출(GROMO-980)
+  deferredInviteChecked: 'gromo:deferredInvite:checked', // 설치 후 deferred 매치 조회 완료 마커('1') — 서버 응답을 받았을 때만 기록(초대 링크 스펙 §7-5)
+  inviteAttribution: 'gromo:deferredInvite:attribution', // 복원한 초대 {slug, groupId, claimed} — 로그인 직후 claim 호출에 쓴다
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];
