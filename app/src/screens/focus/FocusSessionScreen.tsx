@@ -733,7 +733,7 @@ export default function FocusSessionScreen() {
       character: require('@/assets/character_study.png'),
     },
     {
-      text: '화면을 옆으로 넘겨봐 —\n친구·내 리그·같은 시험 준비생들이 공부하는 모습을 볼 수 있어.',
+      text: '화면을 옆으로 넘겨봐 —\n친구·같은 시험 준비생·전체 리그가 공부하는 모습을 볼 수 있어.',
       character: require('@/assets/character_happy.png'),
       anchor: dotsRef,
     },
@@ -771,7 +771,7 @@ export default function FocusSessionScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* 페이저 — [캐릭터] ↔ [친구 그리드(656)] ↔ [내 리그(811)] ↔ [같은 시험(812)] */}
+        {/* 페이저 — [캐릭터] ↔ [내 친구(656)] ↔ [내 리그=같은 시험(812)] ↔ [전체 리그(811)] (순서 변경: 985) */}
         <ScrollView
           horizontal
           pagingEnabled
@@ -803,14 +803,6 @@ export default function FocusSessionScreen() {
           </View>
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
-              members={leagueMembers}
-              title="전체 리그"
-              emptyTitle="아직 리그 멤버가 없어요"
-              emptySub={'리그에 배정되면 여기서\n같이 공부하는 모습이 보여요.'}
-            />
-          </View>
-          <View style={[s.page, { width }]}>
-            <LiveFocusGrid
               members={examMembers}
               title={myCategory ? `${myCategory} 리그` : '같은 시험'}
               emptyTitle={
@@ -823,6 +815,14 @@ export default function FocusSessionScreen() {
                   ? '준비 시험을 설정하면\n같은 시험 준비생들이 여기 보여요.'
                   : '곧 같은 목표의 유저들이\n여기에 모여요.'
               }
+            />
+          </View>
+          <View style={[s.page, { width }]}>
+            <LiveFocusGrid
+              members={leagueMembers}
+              title="전체 리그"
+              emptyTitle="아직 리그 멤버가 없어요"
+              emptySub={'리그에 배정되면 여기서\n같이 공부하는 모습이 보여요.'}
             />
           </View>
         </ScrollView>
