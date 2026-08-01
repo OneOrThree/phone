@@ -9,6 +9,7 @@ import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
 import com.oneorthree.phone.group.dto.CreateChallengeRequest;
 import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
@@ -19,6 +20,9 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
+import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
+import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserErrorCode;
@@ -30,6 +34,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -53,10 +58,18 @@ public class GroupChallengeService {
     private final GroupChallengeDurationRepository groupChallengeDurationRepository;
     private final GroupChallengeWindowRepository groupChallengeWindowRepository;
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
+    private final DailyFocusStatRepository dailyFocusStatRepository;
+    private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
-    public List<GroupChallengeResponse> getChallenges(UUID groupId, UUID userId) {
+    /**
+     * 그룹 챌린지 목록. {@code date} 를 주면 멤버별 당일 진행률({@code memberProgress})을 함께 채운다.
+     *
+     * @param date 클라 로컬 타임존 기준 오늘(그룹 상세의 focusTimeMinutes 와 같은 의미).
+     *             null 이면 진행률을 계산하지 않는다(기존 클라이언트 호환).
+     */
+    public List<GroupChallengeResponse> getChallenges(UUID groupId, UUID userId, LocalDate date) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -89,6 +102,9 @@ public class GroupChallengeService {
                 .findByChallengeIdIn(challengeIds).stream()
                 .collect(Collectors.toMap(GroupChallengeWindow::getChallengeId, Function.identity()));
 
+        // 멤버·일별 통계도 챌린지 루프 밖에서 한 번씩만 로드한다(챌린지 수 × 멤버 수의 N+1 방지).
+        ProgressSnapshot progress = loadProgressSnapshot(group, challenges, date);
+
         return challenges.stream()
                 .map(c -> {
                     GroupChallengeDuration duration = durations.get(c.getId());
@@ -104,9 +120,91 @@ public class GroupChallengeService {
                                     || screenTimePermissionGranted)
                             .status(c.getStatus())
                             .createdAt(c.getCreatedAt())
+                            .memberProgress(memberProgressOf(c, duration, progress))
                             .build();
                 })
                 .toList();
+    }
+
+    /**
+     * 진행률 계산에 필요한 멤버·일별 통계를 배치 로드한다. {@code date} 가 없으면 null 을 반환해
+     * 호출측이 {@code memberProgress = null}(미계산)로 응답하게 한다.
+     *
+     * <p>통계는 실제로 그 카테고리의 DURATION 챌린지가 있을 때만 조회한다 — FOCUS 챌린지만 있는 그룹이
+     * 스크린타임 테이블을 훑지 않도록.
+     */
+    private ProgressSnapshot loadProgressSnapshot(Group group, List<GroupChallenge> challenges, LocalDate date) {
+        if (date == null) {
+            return null;
+        }
+
+        List<GroupMember> members = groupMemberRepository.findByGroup(group);
+        List<User> users = members.stream().map(GroupMember::getUser).toList();
+        if (users.isEmpty()) {
+            return new ProgressSnapshot(members, Map.of(), Map.of());
+        }
+
+        Map<UUID, Integer> focusMinutes = hasDurationChallenge(challenges, MissionCategory.FOCUS)
+                ? dailyFocusStatRepository.findByUserInAndDate(users, date).stream()
+                        .collect(Collectors.toMap(
+                                s -> s.getUser().getId(),
+                                s -> s.getTotalFocusSeconds() / 60))   // GROMO-642: 초→분
+                : Map.of();
+        Map<UUID, Integer> screenTimeMinutes = hasDurationChallenge(challenges, MissionCategory.SCREEN_TIME)
+                ? dailyScreenTimeStatRepository.findByUserInAndDate(users, date).stream()
+                        .collect(Collectors.toMap(
+                                s -> s.getUser().getId(),
+                                DailyScreenTimeStat::getTotalScreenTimeMinutes))
+                : Map.of();
+
+        return new ProgressSnapshot(members, focusMinutes, screenTimeMinutes);
+    }
+
+    private boolean hasDurationChallenge(List<GroupChallenge> challenges, MissionCategory category) {
+        return challenges.stream()
+                .anyMatch(c -> c.getType() == MissionType.DURATION && c.getCategory() == category);
+    }
+
+    /**
+     * 챌린지 하나에 대한 멤버별 진행률. 진행률 미계산(date 없음)·TIME_WINDOW·상세 행 유실이면 null 이다.
+     *
+     * <p>TIME_WINDOW 는 시간대 내 세션 대조가 필요해 이번 범위에서 제외했다(명세 결정 3).
+     */
+    private List<ChallengeMemberProgressResponse> memberProgressOf(
+            GroupChallenge challenge, GroupChallengeDuration duration, ProgressSnapshot progress) {
+        if (progress == null || challenge.getType() != MissionType.DURATION || duration == null) {
+            return null;
+        }
+
+        boolean screenTime = challenge.getCategory() == MissionCategory.SCREEN_TIME;
+        int goalMinutes = duration.getDurationMinutes();
+
+        return progress.members().stream()
+                .map(member -> {
+                    UUID memberId = member.getUser().getId();
+                    // FOCUS 는 통계가 없으면 "0분 집중"이 사실이지만, SCREEN_TIME 은 데이터 미수집과
+                    // "0분 사용"을 구분할 수 없어 null(판정 불가)로 남긴다.
+                    Integer progressMinutes = screenTime
+                            ? progress.screenTimeMinutes().get(memberId)
+                            : progress.focusMinutes().getOrDefault(memberId, 0);
+                    Boolean achieved = progressMinutes == null
+                            ? null
+                            : (screenTime ? progressMinutes <= goalMinutes : progressMinutes >= goalMinutes);
+                    return ChallengeMemberProgressResponse.builder()
+                            .userId(memberId)
+                            .nickname(member.getUser().getNickname())
+                            .progressMinutes(progressMinutes)
+                            .achieved(achieved)
+                            .build();
+                })
+                .toList();
+    }
+
+    /** 진행률 계산용 배치 로드 결과 — 그룹 멤버 전원과 userId → 당일 분 맵(통계 없는 유저는 키 없음). */
+    private record ProgressSnapshot(
+            List<GroupMember> members,
+            Map<UUID, Integer> focusMinutes,
+            Map<UUID, Integer> screenTimeMinutes) {
     }
 
     @Transactional

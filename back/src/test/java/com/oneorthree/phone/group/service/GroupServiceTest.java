@@ -1080,7 +1080,7 @@ class GroupServiceTest {
                         .challengeId(CHALLENGE_ID).durationMinutes(60).build()));
 
         // when
-        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID);
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, null);
 
         // then
         assertThat(result).hasSize(1);
@@ -1101,7 +1101,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1112,7 +1112,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
-        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1124,7 +1124,7 @@ class GroupServiceTest {
         given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID_99, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID_99, USER_ID, null))
                 .isInstanceOf(GroupException.class);
     }
 

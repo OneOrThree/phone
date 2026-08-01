@@ -9,6 +9,7 @@ import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
 import com.oneorthree.phone.group.dto.CreateChallengeRequest;
 import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
@@ -19,6 +20,10 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
+import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
+import com.oneorthree.phone.stats.domain.DailyFocusStat;
+import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -32,6 +37,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -81,9 +87,17 @@ class GroupChallengeServiceTest {
     @Mock
     private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
 
+    @Mock
+    private DailyFocusStatRepository dailyFocusStatRepository;
+
+    @Mock
+    private DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
+
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID CHALLENGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
+    private static final UUID OTHER_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
+    private static final LocalDate TODAY = LocalDate.of(2026, 8, 1);
 
     private User member() {
         return User.builder().id(USER_ID).nickname("재영").isGuest(false).build();
@@ -149,7 +163,7 @@ class GroupChallengeServiceTest {
                 .willReturn(Optional.of(settings(USER_ID, false))); // 권한 미동의
 
         // when
-        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID);
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, null);
 
         // then
         assertThat(result).hasSize(2);
@@ -177,7 +191,7 @@ class GroupChallengeServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(guest()));
 
         // when & then
-        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.GUEST_FORBIDDEN);
@@ -194,10 +208,168 @@ class GroupChallengeServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.MEMBER_ONLY);
+    }
+
+    // ── getChallenges: 멤버별 진행률(memberProgress) ────────────────────────
+
+    /** 진행률 테스트 공통 셋업 — 멤버 2인(재영/수빈) 그룹에서 챌린지 하나를 조회한다. */
+    private List<GroupMember> givenGroupWithTwoMembers(Group group, User user, GroupChallenge challenge) {
+        User other = User.builder().id(OTHER_USER_ID).nickname("수빈").isGuest(false).build();
+        List<GroupMember> members = List.of(
+                groupMemberOf(user, group, GroupMemberRole.OWNER),
+                groupMemberOf(other, group, GroupMemberRole.MEMBER));
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(members.get(0)));
+        given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
+                .willReturn(List.of(challenge));
+        given(groupMemberRepository.findByGroup(group)).willReturn(members);
+        return members;
+    }
+
+    private GroupChallenge durationChallenge(Group group, MissionCategory category) {
+        return GroupChallenge.builder()
+                .id(CHALLENGE_ID).group(group)
+                .type(MissionType.DURATION).category(category)
+                .status(GroupChallengeStatus.ACTIVE)
+                .build();
+    }
+
+    private void givenDurationDetail(int durationMinutes) {
+        given(groupChallengeDurationRepository.findByChallengeIdIn(List.of(CHALLENGE_ID)))
+                .willReturn(List.of(GroupChallengeDuration.builder()
+                        .challengeId(CHALLENGE_ID)
+                        .durationMinutes(durationMinutes)
+                        .build()));
+    }
+
+    @Test
+    @DisplayName("FOCUS/DURATION + date → 집중 분 집계, 통계 없는 멤버는 0분·미달성")
+    void getChallengesFillsFocusProgress() {
+        // given: 목표 60분 · 재영은 정확히 60분(경계) · 수빈은 통계 행 없음
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.FOCUS);
+        List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+        given(dailyFocusStatRepository.findByUserInAndDate(
+                members.stream().map(GroupMember::getUser).toList(), TODAY))
+                .willReturn(List.of(DailyFocusStat.builder()
+                        .user(user).date(TODAY).totalFocusSeconds(3600).build()));   // 60분
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then: 목표와 같으면 달성(>=), 통계 없는 멤버는 0분·미달성 (null 아님)
+        List<ChallengeMemberProgressResponse> progress = result.get(0).getMemberProgress();
+        assertThat(progress).hasSize(2);
+        assertThat(progress.get(0).getUserId()).isEqualTo(USER_ID);
+        assertThat(progress.get(0).getNickname()).isEqualTo("재영");
+        assertThat(progress.get(0).getProgressMinutes()).isEqualTo(60);
+        assertThat(progress.get(0).getAchieved()).isTrue();
+        assertThat(progress.get(1).getUserId()).isEqualTo(OTHER_USER_ID);
+        assertThat(progress.get(1).getProgressMinutes()).isZero();
+        assertThat(progress.get(1).getAchieved()).isFalse();
+    }
+
+    @Test
+    @DisplayName("SCREEN_TIME/DURATION + date → 목표 이하면 달성, 통계 없는 멤버는 null(판정 불가)")
+    void getChallengesFillsScreenTimeProgress() {
+        // given: 목표 60분 · 재영은 50분 사용(달성) · 수빈은 통계 행 없음(판정 불가)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.SCREEN_TIME);
+        List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+        given(dailyScreenTimeStatRepository.findByUserInAndDate(
+                members.stream().map(GroupMember::getUser).toList(), TODAY))
+                .willReturn(List.of(DailyScreenTimeStat.builder()
+                        .user(user).date(TODAY).totalScreenTimeMinutes(50).build()));
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then: SCREEN_TIME 은 "적을수록 달성"(<=), 데이터 없음은 0분이 아니라 null 로 남긴다
+        List<ChallengeMemberProgressResponse> progress = result.get(0).getMemberProgress();
+        assertThat(progress).hasSize(2);
+        assertThat(progress.get(0).getProgressMinutes()).isEqualTo(50);
+        assertThat(progress.get(0).getAchieved()).isTrue();
+        assertThat(progress.get(1).getProgressMinutes()).isNull();
+        assertThat(progress.get(1).getAchieved()).isNull();
+    }
+
+    @Test
+    @DisplayName("SCREEN_TIME 목표 초과 → achieved=false")
+    void getChallengesScreenTimeOverGoalIsNotAchieved() {
+        // given: 목표 60분인데 90분 사용
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.SCREEN_TIME);
+        List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+        given(dailyScreenTimeStatRepository.findByUserInAndDate(
+                members.stream().map(GroupMember::getUser).toList(), TODAY))
+                .willReturn(List.of(DailyScreenTimeStat.builder()
+                        .user(user).date(TODAY).totalScreenTimeMinutes(90).build()));
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then
+        ChallengeMemberProgressResponse mine = result.get(0).getMemberProgress().get(0);
+        assertThat(mine.getProgressMinutes()).isEqualTo(90);
+        assertThat(mine.getAchieved()).isFalse();
+    }
+
+    @Test
+    @DisplayName("TIME_WINDOW 챌린지는 date 를 줘도 memberProgress = null (진행률 미지원)")
+    void getChallengesTimeWindowHasNoProgress() {
+        // given
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(CHALLENGE_ID).group(group)
+                .type(MissionType.TIME_WINDOW).category(MissionCategory.FOCUS)
+                .status(GroupChallengeStatus.ACTIVE)
+                .build();
+        givenGroupWithTwoMembers(group, user, challenge);
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then: 진행률은 비우고, DURATION 챌린지가 없으니 통계도 조회하지 않는다
+        assertThat(result.get(0).getMemberProgress()).isNull();
+        verify(dailyFocusStatRepository, never()).findByUserInAndDate(any(), any());
+        verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
+    }
+
+    @Test
+    @DisplayName("date 없이 조회 → memberProgress = null, 멤버·통계 조회 자체를 하지 않는다")
+    void getChallengesWithoutDateSkipsProgress() {
+        // given: date 를 보내지 않는 기존 클라이언트
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.FOCUS);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
+                .willReturn(List.of(challenge));
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, null);
+
+        // then
+        assertThat(result.get(0).getMemberProgress()).isNull();
+        verify(groupMemberRepository, never()).findByGroup(group);
+        verify(dailyFocusStatRepository, never()).findByUserInAndDate(any(), any());
+        verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
     }
 
     // ── createChallenge ───────────────────────────────────────────────────

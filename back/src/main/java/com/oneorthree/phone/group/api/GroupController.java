@@ -218,18 +218,22 @@ public class GroupController {
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(summary = "그룹 챌린지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환.")
+    @Operation(summary = "그룹 챌린지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환. 삭제된 챌린지는 제외."
+            + " date(선택, 클라 로컬 타임존 기준 오늘)를 주면 멤버별 당일 진행률(memberProgress)을 함께 반환한다"
+            + " — date 미전달 또는 TIME_WINDOW 챌린지면 memberProgress 는 null.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
+            @ApiResponse(responseCode = "400", description = "date 형식 오류"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
             @ApiResponse(responseCode = "404", description = "그룹 없음")
     })
     @GetMapping("/groups/{groupId}/challenges")
     public ResponseEntity<List<GroupChallengeResponse>> getGroupChallenges(
             @PathVariable UUID groupId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @LoginUser UUID userId
     ) {
-        return ResponseEntity.ok(groupChallengeService.getChallenges(groupId, userId));
+        return ResponseEntity.ok(groupChallengeService.getChallenges(groupId, userId, date));
     }
 
     @Operation(summary = "그룹 챌린지 생성", description = "OWNER만 생성 가능. 성공 시 201 반환.")
