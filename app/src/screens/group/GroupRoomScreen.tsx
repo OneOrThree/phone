@@ -379,7 +379,6 @@ export default function GroupRoomScreen({
         testID="group.room.scroll"
         contentContainerStyle={[s.content, { paddingBottom: bottomSpace }]}
         showsVerticalScrollIndicator={false}
-        testID="group.room.scroll"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={T.accent} />
         }

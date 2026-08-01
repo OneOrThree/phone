@@ -371,7 +371,6 @@ export default function GroupScreen() {
           onBack={backToRoom}
         />
         {findSheet}
->>>>>>> bd711bd0 ([FEAT] 그룹 2차 배관 — 챌린지 API·GroupRoom 라우트·목록 분기 스켈레톤)
         {inviteSheet}
       </SafeAreaView>
     );

@@ -44,7 +44,7 @@ const mockGetMyGroups = getMyGroups as jest.MockedFunction<typeof getMyGroups>;
 const mockJoinGroup = joinGroup as jest.MockedFunction<typeof joinGroup>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
-// 두 번째 초대 링크가 도착한 상황(세대 가드)을 만들 때 쓰는 다른 그룹 id.
+// 두 번째 초대 링크 — 시트는 key 없이 재사용돼 groupId만 갈린다(세대 가드 케이스).
 const OTHER_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d99';
 
 // 서버 GlobalExceptionHandler의 { code, message } 바디를 실은 axios 에러.
