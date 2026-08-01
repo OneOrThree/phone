@@ -51,7 +51,6 @@ export const STORAGE_KEYS = {
   selectionCounts: 'gromo:selection:counts',
   selectionPendingCounts: 'gromo:selection:pendingCounts',
   statsCardOrder: 'gromo:stats:cardOrder', // 통계 카드 순서(탭별) — { DAY: [key...], WEEK: [...], MONTH: [...] }
-  groupNotifyRequested: 'gromo:group:notifyRequested', // 그룹 fakedoor '알림 받기' 신청 여부(중복 방지)
   lastAuthProvider: 'gromo:auth:lastProvider', // 마지막 사용 소셜 provider — 재로그인 '최근 사용' 배지(로그아웃 유지·탈퇴 초기화)
   storeReviewAccessDays: 'gromo:storeReview:accessDays', // 앱 접속 누적일 { count, lastDate } — 하루 첫 접속마다 count+1(GROMO-980)
   storeReviewRequested: 'gromo:storeReview:requested', // 별점 요청창 노출 완료 마커('1') — 1회만 노출(GROMO-980)

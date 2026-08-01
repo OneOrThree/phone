@@ -10,7 +10,7 @@ import NotificationsScreen from '@/screens/NotificationsScreen';
 import FocusCategoryScreen from '@/screens/focus/FocusCategoryScreen';
 import FocusSessionScreen from '@/screens/focus/FocusSessionScreen';
 import FocusResultScreen from '@/screens/focus/FocusResultScreen';
-import GroupComingSoonScreen from '@/screens/group/GroupComingSoonScreen';
+import { GroupScreen, GroupCreateScreen, NoticeScreen } from '@/screens/group';
 import {
   LeagueScreen,
   FriendAddScreen,
@@ -38,7 +38,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import { navigationRef, flushPendingDeepLink } from '@/navigation/navigationRef';
 
 // 메인 네비게이터 — 시안 "메인 4탭 + 중앙 FAB" 구조.
-// 그룹 탭은 준비중(Fakedoor) 화면(GROMO-597), 나머지는 구현 완료. 데이터 층은 @/store 공유.
+// 그룹 탭은 A안 실기능(docs/app/group-plan.md) — Fakedoor(GROMO-597)를 걷어냈다. 데이터 층은 @/store 공유.
 type TabParamList = {
   홈: undefined;
   리그: undefined;
@@ -69,13 +69,16 @@ function MainTabs() {
     <Tab.Navigator screenOptions={{ headerShown: false }} tabBar={(props) => <TabBar {...props} />}>
       <Tab.Screen name="홈" component={HomeScreen} />
       <Tab.Screen name="리그" component={LeagueScreen} />
-      <Tab.Screen name="그룹" component={GroupComingSoonScreen} />
+      <Tab.Screen name="그룹" component={GroupScreen} />
       <Tab.Screen name="전체" component={MenuScreen} />
     </Tab.Navigator>
   );
 }
 
 export function RootNavigator() {
+  // 외부 링크 수신은 이 컴포넌트가 하지 않는다 — 인증된 user가 있을 때만 렌더되는 트리라
+  // 로그인 전에 도착한 초대 링크를 놓친다. 구독은 App.tsx 루트의 <DeepLinkGate/>가 맡고,
+  // 여기서는 컨테이너 준비 후 버퍼를 흘려보내는 일(onReady)만 한다(§6-6).
   return (
     <NavigationContainer
       ref={navigationRef}
@@ -116,6 +119,9 @@ export function RootNavigator() {
           component={LeagueResultScreen}
           options={{ animation: 'fade' }}
         />
+        {/* 그룹(A안) — 진입점은 '그룹' 탭(GroupScreen), 그룹방은 탭 안에서 렌더돼 라우트가 없다 */}
+        <Stack.Screen name="GroupCreate" component={GroupCreateScreen} />
+        <Stack.Screen name="GroupNotice" component={NoticeScreen} />
         {/* 설정(GROMO-559) — '전체' 탭(MenuScreen) 허브에서 push 되는 하위 화면 */}
         <Stack.Screen name="SettingsProfileEdit" component={ProfileEditScreen} />
         <Stack.Screen name="SettingsOccupation" component={OccupationScreen} />

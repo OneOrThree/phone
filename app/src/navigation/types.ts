@@ -41,6 +41,14 @@ export type V2RootStackParamList = {
     weekStartAt: string; // ack 대상 주차(ISO) — 화면 닫힐 때 확인 처리
   }; // 승격/유지/강등 연출 — 리그 탭 포커스 시 미확인 last-result가 있으면 진입 (GROMO-831)
 
+  // 그룹(A안, docs/app/group-plan.md §9) — 진입점은 '그룹' 탭(GroupScreen), 아래는 스택 push.
+  // 그룹방은 라우트가 아니라 GroupScreen 안에서 렌더된다(§6-4) — 그룹 1개 전제라 목록이 없다.
+  GroupCreate: undefined; // 그룹 생성 (빈 상태 '그룹 만들기'에서 진입)
+  GroupNotice: {
+    groupId: string;
+    canWrite: boolean; // 방장·공지 권한 멤버 여부 — false면 작성/수정/삭제 진입점을 렌더하지 않는다(403 예방)
+  }; // 공지 목록 (그룹방 '모두보기'·공지 카드에서 진입)
+
   // 설정(GROMO-559) — 허브는 '전체' 탭(MenuScreen), 하위 화면은 아래 스택에서 push.
   SettingsProfileEdit: undefined; // 프로필 편집 (닉네임 · 스킨[준비중])
   SettingsOccupation: undefined; // 준비 시험 변경 (focusCategory)

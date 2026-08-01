@@ -397,13 +397,25 @@ export function logGroupViewed(): void {
 export function logGroupTabViewed(p: { tab: string }): void {
   track('group_tab_viewed', p);
 }
-export function logGroupInviteShared(): void {
-  track('group_invite_shared');
+// 초대 링크 공유 — share_method는 경로(클립보드 복사 / OS 공유 시트).
+// ⚠️ confirmed는 **공유가 실제로 완료됐다고 확인됐는가**다. RN Android의 Share.share()는 대상 앱
+//    선택 여부와 무관하게 sharedAction으로 끝나(dismissedAction은 iOS 전용) 취소를 구분할 수 없다 —
+//    안드로이드 공유 시트는 confirmed:false로 보내고, 전환율은 confirmed:true만으로 본다.
+//    (그냥 전부 true로 보내면 시트만 열고 닫은 사용자까지 섞여 안드로이드 지표가 체계적으로 부푼다.)
+export function logGroupInviteShared(p: {
+  share_method: 'copy' | 'share_sheet';
+  confirmed: boolean;
+}): void {
+  track('group_invite_shared', p);
 }
 
 // ── 그룹 Fakedoor [C] ── (GROMO-597)
 // 실기능 미구현 준비중 화면의 수요 측정. 기존 group_viewed와 분리 —
 // 미래에 실제 그룹 기능이 켜지면 group_viewed가 실조회를 뜻하게 되므로 지표 오염을 막는다.
+//
+// ⚠️ 발행 중단(2026-08-01) — 실기능 전환으로 GroupComingSoonScreen이 삭제되면서 호출부가 0이 됐다.
+//    과거 Fakedoor 구간의 지표 정의를 대시보드 쪽에서 되짚을 수 있게 함수만 남긴다.
+//    (기존 설치본의 AsyncStorage 'gromo:group:notifyRequested' 값은 정리 경로가 없어 남는다 — 무해.)
 export function logGroupFakedoorViewed(): void {
   track('group_fakedoor_viewed'); // 그룹 탭 진입(수요 측정 핵심)
 }
