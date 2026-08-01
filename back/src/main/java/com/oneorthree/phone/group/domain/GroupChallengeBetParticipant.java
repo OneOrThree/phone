@@ -66,4 +66,30 @@ public class GroupChallengeBetParticipant {
         this.achieved = achieved;
         this.payout = payout;
     }
+
+    /**
+     * id 기반 동등성 — 저장 전(id null)인 엔티티는 자기 자신 외 어떤 객체와도 같지 않다.
+     * 비교 상대의 id 는 필드가 아니라 getter 로 읽는다 — Hibernate 프록시는 필드가 비어 있어도
+     * getter 호출로 초기화되기 때문이다.
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof GroupChallengeBetParticipant other)) {
+            return false;
+        }
+        return id != null && id.equals(other.getId());
+    }
+
+    /**
+     * 클래스 상수 해시 — id 기반 해시는 persist 시점에 값이 바뀌어 Set 에 먼저 넣은 엔티티를
+     * 잃어버린다. getClass() 가 아니라 클래스 리터럴을 쓰는 것도 같은 이유다(프록시는 서브클래스라
+     * getClass() 해시가 원본과 달라진다).
+     */
+    @Override
+    public int hashCode() {
+        return GroupChallengeBetParticipant.class.hashCode();
+    }
 }
