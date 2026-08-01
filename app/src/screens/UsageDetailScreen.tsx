@@ -1,8 +1,9 @@
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
+import ScreenTimeAnalyzingOverlay from '@/components/ScreenTimeAnalyzingOverlay';
 import { T } from '@/constants/theme';
 
 // 앱별/카테고리별 사용시간 상세 — 홈 "핸드폰 사용" 탭 시 탭 위로 push되는 스택 화면.
@@ -20,10 +21,15 @@ export default function UsageDetailScreen() {
         <View style={s.back} />
       </View>
       <View style={s.body}>
-        {/* 리포트 콜드스타트가 느려 뒤에 스피너 → 뜨면 리포트가 덮음 */}
-        <ActivityIndicator style={s.loading} size="large" color={T.accent} />
         {ScreenTimeReportView ? (
-          <ScreenTimeReportView reportContext="Total Activity" style={s.report} />
+          <>
+            {/* 캐릭터 분석 연출을 리포트 뒤에 깔아둔다. 콜드스타트 동안엔 네이티브 리포트
+                배경이 투명(호스팅 뷰 .clear)이라 뒤로 캐릭터가 비쳐 보이고, 리포트가 다
+                그려지면 불투명 배경(#F4F5F8)이 캐릭터를 덮는다. 로드 완료 신호가 JS로 오지
+                않으므로 타이머로 걷는 대신 이 레이어링으로 정확한 시점에 전환한다. */}
+            <ScreenTimeAnalyzingOverlay />
+            <ScreenTimeReportView reportContext="Total Activity" style={s.report} />
+          </>
         ) : (
           <Text style={s.empty}>iOS 기기에서만 볼 수 있어요</Text>
         )}
@@ -45,7 +51,6 @@ const s = StyleSheet.create({
   back: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   title: { ...T.text.subtitle, color: T.ink },
   body: { flex: 1 },
-  loading: { position: 'absolute', top: 44, left: 0, right: 0 },
   report: { flex: 1 },
   empty: { ...T.text.body, color: T.inkMuted, textAlign: 'center', marginTop: 44 },
 });
