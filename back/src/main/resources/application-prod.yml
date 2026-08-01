@@ -70,3 +70,14 @@ logging:
 app:
   user-activity:
     touch-interval: 2h
+
+# GA4 Measurement Protocol 서버 이벤트 (초대 링크 퍼널, 스펙 §6-2) — prod 만 실전송.
+# dev/local 은 이 블록을 두지 않아 ga4.enabled 미설정 → no-op 구현이 뜬다(분석 노이즈·시크릿 노출 방지).
+# 시크릿 4종은 Secrets Manager(oneorthree/phone)에서 env 로 주입. 미주입이어도 기동은 막지 않고
+# 전송 시 WARN 만 남긴다 — 분석 배선 누락이 서비스 기동을 세우면 안 되기 때문(FCM 의 fail-fast 와 대비).
+ga4:
+  enabled: true
+  firebase-app-id: ${GA4_FIREBASE_APP_ID:}
+  app-api-secret: ${GA4_APP_API_SECRET:}
+  web-measurement-id: ${GA4_WEB_MEASUREMENT_ID:}
+  web-api-secret: ${GA4_WEB_API_SECRET:}
