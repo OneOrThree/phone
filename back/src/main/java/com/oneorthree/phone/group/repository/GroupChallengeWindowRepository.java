@@ -18,11 +18,13 @@ public interface GroupChallengeWindowRepository extends JpaRepository<GroupChall
 
     // 동일 그룹·카테고리의 ACTIVE TIME_WINDOW 챌린지와 [start, end) 가 겹치는지 (맞닿음(끝==시작)은 허용).
     // window 상세 행 존재 자체가 type=TIME_WINDOW 를 의미하므로(CTI) 별도 type 조건은 두지 않는다.
+    // 삭제된 챌린지의 상세 행은 남아 있으므로 c.deletedAt IS NULL 을 빼면 삭제한 시간대를 다시 못 만든다.
     @Query("SELECT COUNT(w) > 0 FROM GroupChallengeWindow w"
             + " JOIN w.challenge c"
             + " WHERE c.group = :group"
             + " AND c.category = :category"
             + " AND c.status = 'ACTIVE'"
+            + " AND c.deletedAt IS NULL"
             + " AND w.windowStartAt < :end"
             + " AND w.windowEndAt > :start")
     boolean existsOverlappingTimeWindow(

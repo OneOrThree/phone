@@ -56,11 +56,6 @@ export function logOnboardingStepViewed(p: { step: OnboardingStepName; step_inde
   track('onboarding_step_viewed', p);
 }
 
-// W2 효과/쇼크 화면 노출
-export function logOnboardingShockViewed(): void {
-  track('onboarding_shock_viewed', { step_index: 2 });
-}
-
 // W4 집중 카테고리(목표) 선택 제출 🆕
 export function logOnboardingFocusCategorySubmitted(): void {
   track('onboarding_focus_category_submitted', { step_index: 4 });
@@ -153,9 +148,15 @@ export function logFocusMenuOpened(): void {
   track('focus_menu_opened');
 }
 
-// 집중 화면에서 친구 그리드 페이지로 스와이프해 노출.
-export function logFocusFriendsViewed(): void {
-  track('focus_friends_viewed');
+// 집중 세션 페이저 뷰 식별자 — 페이지 인덱스가 아니라 뷰 정체성 기준(GROMO-987).
+// 스와이프 순서가 바뀌어도(985) 값은 불변이어야 GA4 측정기준이 오염되지 않는다.
+export type FocusViewName = 'character' | 'friends' | 'my_league' | 'all_league';
+
+// 집중 세션 페이저 뷰 전환/세션 종료 시 발행 — "집중 중 어떤 뷰를 켜놓고 공부하나"(GROMO-987).
+// view: 직전까지 보던 뷰, dwell_seconds: 그 뷰의 체류 초. 기존 focus_friends_viewed를 대체한다
+// (친구 뷰 노출은 view='friends'로 분해 조회). GA4에 view 측정기준·dwell_seconds 지표 등록 필요.
+export function logFocusViewChanged(p: { view: FocusViewName; dwell_seconds: number }): void {
+  track('focus_view_changed', p);
 }
 
 // 비교 축 공용 파라미터 값 — 집중 결과·통계 비교 카드에서 함께 쓴다(GROMO-782).

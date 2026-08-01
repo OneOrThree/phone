@@ -164,6 +164,41 @@ class InGameCurrencyServiceTest {
         verify(currencyTransactionRepository, never()).save(any());
     }
 
+    @Test
+    @DisplayName("적립 사유가 서버 전용(BET_*) → CurrencyException(ILLEGAL_EARN_REASON), 재화 미발행")
+    void earnCurrencyRejectsServerOnlyTypes() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        // 클라가 내기 타입을 실어 보내면 임의 금액 발행이 되고, 원장에서 정산 기입과 구분되지 않는다.
+        for (CurrencyTransactionType type : CurrencyTransactionType.values()) {
+            if (!type.isServerOnly()) {
+                continue;
+            }
+            assertThatThrownBy(() -> inGameCurrencyService.earnCurrency(USER_ID, type, 1_000))
+                    .isInstanceOf(CurrencyException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(CurrencyErrorCode.ILLEGAL_EARN_REASON);
+        }
+        verify(currencyTransactionRepository, never()).save(any());
+        verify(userWalletRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("사용 사유가 서버 전용(BET_*) → CurrencyException(ILLEGAL_SPEND_REASON)")
+    void spendCurrencyRejectsServerOnlyTypes() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        // spend 는 PURCHASE 만 허용하므로 BET_* 는 원래 걸리지만, 그 성질을 테스트로 못 박아 둔다.
+        assertThatThrownBy(() ->
+                inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.BET_STAKE, 30))
+                .isInstanceOf(CurrencyException.class)
+                .extracting("errorCode")
+                .isEqualTo(CurrencyErrorCode.ILLEGAL_SPEND_REASON);
+        verify(currencyTransactionRepository, never()).save(any());
+    }
+
     // ── spendCurrency ─────────────────────────────────────────────────────
 
     @Test

@@ -52,7 +52,8 @@ import {
   logFocusSessionResumed,
   logFocusSessionAbandoned,
   logFocusMenuOpened,
-  logFocusFriendsViewed,
+  logFocusViewChanged,
+  type FocusViewName,
 } from '@/services/analyticsEvents';
 
 // 06/07/08 집중 세션(세로) + 09 친구 그리드(좌우 페이저) + 10/11 메뉴 드로어.
@@ -76,6 +77,10 @@ const FOCUS_TYPE_BY_MODE: Record<FocusTimerMode, FocusType> = {
   countdown: 'RANGE',
   pomodoro: 'POMODORO',
 };
+// 페이지 인덱스 → 뷰 정체성(GROMO-987) — 아래 페이저 JSX의 렌더 순서와 반드시 일치시킬 것.
+// 계측(focus_view_changed)은 인덱스가 아니라 이 뷰 이름으로 발행한다 — 스와이프 순서가
+// 또 바뀌어도(985 참고) 이 배열만 함께 고치면 GA4 측정기준 값은 그대로 유지된다.
+const PAGE_VIEWS: FocusViewName[] = ['character', 'friends', 'my_league', 'all_league'];
 
 interface SessionState {
   elapsed: number; // 실제 집중 초(적립 기준) — 뽀모도로는 집중 블록만 누적
@@ -129,6 +134,45 @@ export default function FocusSessionScreen() {
   sessionRef.current = session;
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  // 뷰 체류 계측(GROMO-987) — 현재 뷰 진입 시각. 페이지 전환·세션 종료 때 직전 뷰의 체류를
+  // 발행하고 기준을 리셋한다. 백그라운드 이탈 구간은 화면을 보고 있는 게 아니므로 체류에서
+  // 차감한다(누적 away + 아직 복귀 전인 진행 중 구간까지 — 이탈 타임아웃 종료 flush 대비).
+  const viewEnteredAtRef = useRef(Date.now());
+  const dwellAwayMsRef = useRef(0);
+  const dwellLeftAtRef = useRef<number | null>(null);
+  // 완료 게이트에서 마지막 체류를 이미 발행했는지 — finish/언마운트의 재발행을 막는다(코덱스 리뷰)
+  const dwellDoneRef = useRef(false);
+  const flushViewDwell = useCallback(() => {
+    const now = Date.now();
+    const awayMs =
+      dwellAwayMsRef.current + (dwellLeftAtRef.current != null ? now - dwellLeftAtRef.current : 0);
+    const dwellSeconds = Math.max(0, Math.round((now - viewEnteredAtRef.current - awayMs) / 1000));
+    viewEnteredAtRef.current = now;
+    dwellAwayMsRef.current = 0;
+    if (dwellLeftAtRef.current != null) dwellLeftAtRef.current = now;
+    logFocusViewChanged({
+      view: PAGE_VIEWS[pageRef.current] ?? 'character',
+      dwell_seconds: dwellSeconds,
+    });
+  }, []);
+  // 체류 시계 일시정지 — 아래 이탈 감지 이펙트보다 먼저 구독해야 복귀 시 away 구간이 먼저
+  // 누적되고, 뒤이은 이탈 타임아웃 finish의 flush가 차감된 값을 읽는다(구독 순서 = 선언 순서).
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      // iOS는 알림 센터·앱 전환기 등으로 화면이 가려지면 background 없이 inactive에 머문다 —
+      // 그 시간도 뷰를 보는 게 아니므로 이탈로 취급(코덱스 리뷰). inactive→background로
+      // 이어져도 아래 null 가드로 시작 시각은 처음 한 번만 찍힌다.
+      if (state === 'background' || state === 'inactive') {
+        if (dwellLeftAtRef.current == null) dwellLeftAtRef.current = Date.now();
+      } else if (state === 'active' && dwellLeftAtRef.current != null) {
+        dwellAwayMsRef.current += Date.now() - dwellLeftAtRef.current;
+        dwellLeftAtRef.current = null;
+      }
+    });
+    return () => sub.remove();
+  }, []);
   const finishedRef = useRef(false);
   const startedAtRef = useRef(new Date().toISOString());
   // 서버 업로드 정산 마커 — 이미 정산(로컬·코인·서버 업로드)된 집중초/코인, 미정산 구간 시작 시각.
@@ -326,8 +370,11 @@ export default function FocusSessionScreen() {
       }
       if (!cancelled) {
         // 잠금화면에 보여줄 다른 과목들의 누적 집중 시간(세션 중 불변이라 시작 시점 값으로 고정)
+        // 공부시간 내림차순 상위 2과목만 전달 — 위젯 표시 상한(2개)과 동일(GROMO-930)
         const others = subjectsRef.current
           .filter((x) => x.id !== subjectId)
+          .sort((a, b) => b.accumulatedSeconds - a.accumulatedSeconds)
+          .slice(0, 2)
           .map((x) => ({ name: x.name, seconds: x.accumulatedSeconds, color: x.color }));
         ScreenTimeModule.startFocusActivity(subjectName, others).catch(() => {});
       }
@@ -365,12 +412,16 @@ export default function FocusSessionScreen() {
 
   // finish를 거치지 않는 언마운트(안드로이드 시스템 back 등)에서도 마커를 닫는다 — 안 닫으면
   // 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다(코덱스 리뷰). 정상 종료는 finish/완료
-  // 게이트가 이미 취소했으므로 no-op(라이브 참조가 비어 있음).
+  // 게이트가 이미 취소했으므로 no-op(라이브 참조가 비어 있음). 마지막 뷰 체류도 같은 조건으로
+  // flush — finish 경로는 이미 발행했으므로 여기서 또 발행하면 이중 계측이다(GROMO-987).
   useEffect(
     () => () => {
-      if (!finishedRef.current) cancelLiveSession();
+      if (!finishedRef.current) {
+        cancelLiveSession();
+        if (!dwellDoneRef.current) flushViewDwell();
+      }
     },
-    [cancelLiveSession],
+    [cancelLiveSession, flushViewDwell],
   );
 
   // 집중 블록 증분 정산 — 마지막 정산 이후 쌓인 집중초(delta)를 로컬·과목·코인에 적립하고
@@ -461,6 +512,10 @@ export default function FocusSessionScreen() {
     async (completed = sessionRef.current.done) => {
       if (finishedRef.current) return;
       finishedRef.current = true;
+      // 세션 종료(완료/취소 공통 경로) — 보고 있던 뷰의 마지막 체류 flush(GROMO-987).
+      // 완료 게이트가 이미 발행했다면 건너뛴다 — 게이트를 열어둔 시간이 직전 뷰의 체류로
+      // 다시 계상되는 이중 발행 방지(코덱스 리뷰).
+      if (!dwellDoneRef.current) flushViewDwell();
       // 정상 종료 — 실드·Live Activity 해제
       ScreenTimeModule.stopFocusShield().catch(() => {});
       ScreenTimeModule.endFocusActivity().catch(() => {});
@@ -482,7 +537,15 @@ export default function FocusSessionScreen() {
         navigation.replace('FocusResult', { focusSeconds, subjectId, subjectName, completed });
       }
     },
-    [settleFocusBlock, cancelLiveSession, flushPendingCancels, navigation, subjectId, subjectName],
+    [
+      settleFocusBlock,
+      cancelLiveSession,
+      flushPendingCancels,
+      flushViewDwell,
+      navigation,
+      subjectId,
+      subjectName,
+    ],
   );
 
   // 완료 게이트는 이미 세션을 정산하고 라이브 레코드를 제거한 상태다. Android 하드웨어
@@ -513,8 +576,12 @@ export default function FocusSessionScreen() {
     // 게이트에 머문 시간만큼 친구 화면에 '집중 중'이 이어져 보인다(코덱스 리뷰). finish에서
     // 또 불려도 라이브 참조가 비어 no-op.
     cancelLiveSession();
+    // 마지막 뷰 체류도 게이트가 화면을 덮는 지금 발행 — 확인을 누를 때까지 열어둔 시간은
+    // 가려진 뷰를 보는 게 아니므로 체류에서 제외한다(코덱스 리뷰). finish의 flush는 스킵됨.
+    dwellDoneRef.current = true;
+    flushViewDwell();
     Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
-  }, [session.done, doneGate, settleFocusBlock, cancelLiveSession]);
+  }, [session.done, doneGate, settleFocusBlock, cancelLiveSession, flushViewDwell]);
 
   // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
   // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
@@ -718,8 +785,8 @@ export default function FocusSessionScreen() {
 
   function onScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
     const next = Math.round(e.nativeEvent.contentOffset.x / width);
-    // 친구 그리드(page 1)로 처음 넘어올 때만 노출 계측(왕복 스팸 방지). 데이터 갱신은 훅 폴링이 담당.
-    if (next === 1 && page !== 1) logFocusFriendsViewed();
+    // 페이지 전환 시 직전 뷰의 체류를 발행(GROMO-987). 같은 페이지로 되돌아온 스크롤은 미계측.
+    if (next !== page) flushViewDwell();
     setPage(next);
   }
 
@@ -733,7 +800,7 @@ export default function FocusSessionScreen() {
       character: require('@/assets/character_study.png'),
     },
     {
-      text: '화면을 옆으로 넘겨봐 —\n친구·내 리그·같은 시험 준비생들이 공부하는 모습을 볼 수 있어.',
+      text: '화면을 옆으로 넘겨봐 —\n친구·같은 시험 준비생·전체 리그가 공부하는 모습을 볼 수 있어.',
       character: require('@/assets/character_happy.png'),
       anchor: dotsRef,
     },
@@ -771,7 +838,8 @@ export default function FocusSessionScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* 페이저 — [캐릭터] ↔ [친구 그리드(656)] ↔ [내 리그(811)] ↔ [같은 시험(812)] */}
+        {/* 페이저 — [캐릭터] ↔ [내 친구(656)] ↔ [내 리그=같은 시험(812)] ↔ [전체 리그(811)] (순서 변경: 985)
+            순서를 바꾸면 상단 PAGE_VIEWS(뷰 체류 계측, GROMO-987)도 반드시 같이 고칠 것 */}
         <ScrollView
           horizontal
           pagingEnabled
@@ -803,14 +871,6 @@ export default function FocusSessionScreen() {
           </View>
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
-              members={leagueMembers}
-              title="전체 리그"
-              emptyTitle="아직 리그 멤버가 없어요"
-              emptySub={'리그에 배정되면 여기서\n같이 공부하는 모습이 보여요.'}
-            />
-          </View>
-          <View style={[s.page, { width }]}>
-            <LiveFocusGrid
               members={examMembers}
               title={myCategory ? `${myCategory} 리그` : '같은 시험'}
               emptyTitle={
@@ -823,6 +883,14 @@ export default function FocusSessionScreen() {
                   ? '준비 시험을 설정하면\n같은 시험 준비생들이 여기 보여요.'
                   : '곧 같은 목표의 유저들이\n여기에 모여요.'
               }
+            />
+          </View>
+          <View style={[s.page, { width }]}>
+            <LiveFocusGrid
+              members={leagueMembers}
+              title="전체 리그"
+              emptyTitle="아직 리그 멤버가 없어요"
+              emptySub={'리그에 배정되면 여기서\n같이 공부하는 모습이 보여요.'}
             />
           </View>
         </ScrollView>

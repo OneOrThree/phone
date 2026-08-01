@@ -158,6 +158,15 @@ Enum currency_type {          // 재화 변동 유형 (구 currency_reason)
   SESSION_COMPLETE
   STREAK_BONUS
   PURCHASE
+  BET_STAKE                   // 그룹 챌린지 내기 판돈 차감(에스크로) — 서버 주도
+  BET_PAYOUT                  // 내기 정산 승자 분배금 지급 — 서버 주도
+  BET_REFUND                  // 승자 0명 내기의 전원 환불 — 서버 주도
+}
+
+Enum group_bet_status {       // 그룹 챌린지 내기 상태 (group_challenge_bets.status)
+  OPEN                        // 참가 가능(당일). 일 배치가 정산 대상으로 훑는 유일한 상태
+  SETTLED                     // 정산 완료 — 승자에게 분배
+  REFUNDED                    // 승자 0명 → 전원 환불로 종료
 }
 
 // 기타 (미사용 — 테이블/기능 미구현)
@@ -385,6 +394,44 @@ Table group_challenge_members [note: '그룹 챌린지 멤버별 진행·달성 
   }
 }
 
+Table group_challenge_bets [note: '그룹 챌린지 내기 (FOCUS+DURATION 챌린지만). 챌린지당·날짜당 1개. 그룹원 누구나 개설하고 개설자는 자동 참가한다. 판돈은 서버 허용값 {10,30,50,100}. migration V19'] {
+  id              uuid             [pk]
+
+  group_id        uuid             [not null, note: 'FK → groups.id (조회 시 그룹 스코프 검증용 비정규화)']
+  challenge_id    uuid             [not null, note: 'FK → group_challenges.id']
+  creator_user_id uuid             [not null, note: 'FK → users.id — 개설자(자동 참가)']
+
+  stake           integer          [not null, note: '1인 판돈(재화). pot = stake × 참가자 수']
+  bet_date        date             [not null, note: '내기 대상 날짜(KST). 개설/참가는 오늘만 가능']
+
+  status          group_bet_status [not null, note: 'OPEN / SETTLED / REFUNDED']
+  settled_at      timestamptz      [note: '정산 시각 (배치 확정). OPEN 이면 null']
+
+  created_at      timestamptz      [not null, default: `now()`]
+  updated_at      timestamptz      [not null]
+
+  indexes {
+    (challenge_id, bet_date) [unique, note: '챌린지당·날짜당 내기 1개 — 동시 개설의 최후 방어선']
+    (status, bet_date) [note: '일 배치(04:00 KST)의 status=OPEN AND bet_date < 오늘 스캔']
+  }
+}
+
+Table group_challenge_bet_participants [note: '내기 참가자. 판돈은 참가 즉시 차감(에스크로)되고 achieved/payout 은 정산 시 기록된다. migration V19'] {
+  id         uuid        [pk]
+
+  bet_id     uuid        [not null, note: 'FK → group_challenge_bets.id']
+  user_id    uuid        [not null, note: 'FK → users.id']
+
+  achieved   boolean     [note: '정산 시 기록 — daily_focus_stats(bet_date) 분 ≥ 챌린지 duration_minutes. 정산 전이면 null']
+  payout     integer     [note: '정산 시 기록 — 승자 분배금(패자 0) 또는 승자 0명일 때의 환불금. 정산 전이면 null']
+
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (bet_id, user_id) [unique, note: '내기당 참가 1행 — 중복 참가 방어']
+  }
+}
+
 // ────────────────────────────────────────────
 // 3. 포커스 (집중 기록)
 // ────────────────────────────────────────────
@@ -458,7 +505,9 @@ Table groups [note: '스터디/챌린지 그룹'] {
   name             varchar(50)           [not null, default: '', note: '그룹 이름']
   description      varchar(200)          [note: '그룹 소개']
 
-  password         varchar(100)          [note: 'BCrypt 해시, null이면 공개 그룹']
+  password         varchar(100)          [note: '레거시 BCrypt 해시(참여 시 확인). 공개/비공개와 무관 — 공개 여부는 is_private 가 결정']
+
+  is_private       boolean               [not null, default: false, note: 'true면 이름 검색에서 제외되고 초대 링크(groupId)로만 참여 (V17)']
 
   status           group_status          [not null, default: 'WAITING', note: '챌린지 진행중 여부 파악']
 
@@ -472,6 +521,12 @@ Table groups [note: '스터디/챌린지 그룹'] {
   created_at                     timestamptz [not null, default: `now()`]
   updated_at                     timestamptz
   deleted_at                     timestamptz [note: '삭제 시각 (소프트 딜리트 감사 로그용)']
+
+  indexes {
+    // 공개 그룹 이름 fuzzy 검색용 GIN 트라이그램 인덱스 (V18, 닉네임 검색과 동형)
+    //   전제 확장: CREATE EXTENSION pg_trgm  /  쿼리: name % :q ORDER BY name <-> :q
+    name [type: gin, name: 'idx_groups_name_trgm', note: 'pg_trgm GIN (gin_trgm_ops) — 그룹 이름 trgm 검색, V18']
+  }
 }
 
 Table group_join_codes [note: '그룹 참가 코드 (groups에서 분리, 1:1). 발급·만료·재발급 관리. 추후 활성 코드 검증·만료를 Redis(TTL)로 이관 가능 — 이 테이블이 캐시 계층 경계'] {
@@ -671,10 +726,10 @@ Table currency_transactions [note: '재화 획득/소비 거래 내역'] {
 
   user_id         uuid            [not null, note: 'FK → users.id']
 
-  amount          integer         [not null, note: '양수 = 획득, 음수 = 소비']
-  type            currency_type   [not null, note: 'SESSION_COMPLETE / STREAK_BONUS / PURCHASE']
+  amount          integer         [not null, note: '변동 절대값(항상 양수). 증감 방향은 type 이 정한다 — 코드가 EARN/SPEND 를 type 별로 고정 (BET_STAKE=차감, BET_PAYOUT/BET_REFUND=지급)']
+  type            currency_type   [not null, note: 'SESSION_COMPLETE / STREAK_BONUS / PURCHASE / BET_STAKE / BET_PAYOUT / BET_REFUND']
 
-  idempotency_key varchar(255)    [unique, note: '멱등성 키(영속 보루) — 중복 적립/쿠폰 발급 차단. 컨벤션: session:{sessionId} / streak:{userId}:{yyyy-mm-dd} / purchase:{orderId} / coupon:{couponId}. Redis SETNX는 앞단 1차 차단']
+  idempotency_key varchar(255)    [unique, note: '멱등성 키(영속 보루) — 중복 적립/쿠폰 발급 차단. 컨벤션: session:{sessionId} / streak:{userId}:{yyyy-mm-dd} / purchase:{orderId} / coupon:{couponId} / bet:{betId}:stake|payout|refund:{userId}(V19 서버 주도 경로가 첫 실배선). Redis SETNX는 앞단 1차 차단']
 
   created_at   timestamptz     [note: '거래 시각']
 }
@@ -754,6 +809,13 @@ Ref: group_challenge_durations.challenge_id - group_challenges.id
 Ref: group_challenge_windows.challenge_id - group_challenges.id
 Ref: group_challenge_members.group_challenge_id > group_challenges.id
 Ref: group_challenge_members.user_id > users.id
+
+// 챌린지 내기 (V19)
+Ref: group_challenge_bets.group_id > groups.id
+Ref: group_challenge_bets.challenge_id > group_challenges.id
+Ref: group_challenge_bets.creator_user_id > users.id
+Ref: group_challenge_bet_participants.bet_id > group_challenge_bets.id
+Ref: group_challenge_bet_participants.user_id > users.id
 
 // 포커스
 Ref: user_focus_tags.user_id > users.id

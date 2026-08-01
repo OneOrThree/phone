@@ -89,6 +89,20 @@ class ScreenTimeModule: NSObject {
         }
     }
 
+    // 기기(시스템) 다크모드 설정 조회 — "dark" | "light" 반환 (GROMO-934)
+    // 앱은 Info.plist UIUserInterfaceStyle=Light로 라이트 고정이라 RN Appearance가 항상 light지만,
+    // 시스템이 띄우는 스크린타임 권한창은 기기 설정을 따른다. 권한창 복제본(리허설 안내)의
+    // 외형을 실제 창과 맞추기 위해 앱 오버라이드의 영향을 받지 않는 UIScreen 트레이트에서 읽는다.
+    @objc func getSystemColorScheme(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.main.async {
+            let style = UIScreen.main.traitCollection.userInterfaceStyle
+            resolve(style == .dark ? "dark" : "light")
+        }
+    }
+
     // 목표 시간을 App Group에 저장 (익스텐션에서 읽어서 "남은 시간" 계산에 사용)
     // JS에서 await ScreenTimeModule.setGoalSeconds(goalSeconds) 로 호출
     @objc func setGoalSeconds(
