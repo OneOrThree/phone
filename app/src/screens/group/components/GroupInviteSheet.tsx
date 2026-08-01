@@ -76,8 +76,20 @@ function readIsMember(ov: GroupOverviewResponse): boolean {
   return ov.isMember ?? ov.member ?? false;
 }
 
-// 'HH:mm:ss' · ISO 등 서버 시각 문자열에서 HH:mm만 뽑는다. 형식이 다르면 원문 유지.
+// 서버 시각 문자열 → 화면에 쓸 'HH:mm'.
+// windowStart/windowEnd는 GroupChallengeWindow가 **UTC Instant**로 들고 있어 ISO 문자열로 내려온다
+// ("2026-08-01T00:00:00Z"). 문자열을 그대로 자르면 KST(UTC+9)에서 9시간 어긋난 목표가 보이므로
+// 날짜가 붙은 ISO 값은 Date로 파싱해 기기 로컬 시각으로 옮긴다.
+// 날짜 없는 벽시계 문자열('09:00:00' — 구 계약)은 Date 파싱이 엔진마다 달라 파싱하지 않고
+// 기존대로 HH:mm만 뽑는다. 어느 쪽도 아니면 원문 유지.
 function hhmm(v: string): string {
+  if (/\d{4}-\d{2}-\d{2}/.test(v)) {
+    const d = new Date(v);
+    if (!Number.isNaN(d.getTime())) {
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+  }
   return /(\d{2}:\d{2})/.exec(v)?.[1] ?? v;
 }
 

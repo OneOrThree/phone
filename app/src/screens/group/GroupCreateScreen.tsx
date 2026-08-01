@@ -63,8 +63,11 @@ export default function GroupCreateScreen() {
   const [isPrivate, setIsPrivate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // 생성 성공한 비공개 그룹 id — 값이 있으면 초대 링크 다이얼로그가 뜬다(§6-2 3번).
-  const [createdGroupId, setCreatedGroupId] = useState<string | null>(null);
+  // 생성 성공한 비공개 그룹 — 값이 있으면 초대 링크 다이얼로그가 뜬다(§6-2 3번).
+  // 이름을 id와 **함께** 들고 있는 이유: 요청이 떠 있는 동안에도 이름 입력은 열려 있어서,
+  // 공유 문구가 현재 입력값을 읽으면 서버에 만들어진 이름과 다른 이름으로 초대장이 나간다.
+  // 서버로 보낸 그 이름을 그대로 굳혀 둔다.
+  const [created, setCreated] = useState<{ id: string; name: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
   // '복사했어요' 되돌리기 타이머 — 언마운트 시 정리한다.
@@ -140,7 +143,7 @@ export default function GroupCreateScreen() {
       submittingRef.current = false;
       // 비공개는 링크가 유일한 입구라 공유 다이얼로그를 반드시 거친다. 공개는 바로 돌아간다.
       if (isPrivate) {
-        setCreatedGroupId(groupId);
+        setCreated({ id: groupId, name: trimmedName });
       } else {
         navigation.goBack();
       }
@@ -153,8 +156,8 @@ export default function GroupCreateScreen() {
   }
 
   function copyLink() {
-    if (!createdGroupId) return;
-    Clipboard.setString(buildInviteLink(createdGroupId));
+    if (!created) return;
+    Clipboard.setString(buildInviteLink(created.id));
     setCopied(true);
     logGroupInviteShared({ share_method: 'copy', confirmed: true });
     // 2초 뒤 '링크 복사'로 되돌린다 — 다이얼로그가 닫힐 때까지 고정돼 있으면
@@ -164,10 +167,11 @@ export default function GroupCreateScreen() {
   }
 
   async function shareLink() {
-    if (!createdGroupId) return;
+    if (!created) return;
     try {
       const result = await Share.share({
-        message: `${trimmedName} 그룹에 초대할게요!\n${buildInviteLink(createdGroupId)}`,
+        // 이름은 현재 입력값이 아니라 생성 요청에 실어 보낸 값 — 둘이 갈리면 초대 문구가 거짓말이 된다.
+        message: `${created.name} 그룹에 초대할게요!\n${buildInviteLink(created.id)}`,
       });
       // 취소 구분은 iOS에서만 가능하다 — 안드로이드는 시트를 닫아도 sharedAction으로 끝나므로
       // 완료로 집계하지 않고 confirmed:false(공유 시도)로 남긴다(analyticsEvents 주석).
@@ -316,7 +320,7 @@ export default function GroupCreateScreen() {
 
       {/* 초대 링크 다이얼로그 — 비공개방은 링크 없이는 아무도 못 들어오므로 생성 직후 반드시 띄운다(§6-2) */}
       <Modal
-        visible={createdGroupId !== null}
+        visible={created !== null}
         transparent
         animationType="fade"
         onRequestClose={() => navigation.goBack()}

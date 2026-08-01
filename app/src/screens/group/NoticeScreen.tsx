@@ -141,6 +141,16 @@ export default function NoticeScreen() {
     fetchNotices();
   }, [fetchNotices]);
 
+  // 수정하려던 공지가 이미 없어진 경우(다른 관리자가 먼저 삭제) — 시트를 닫고 목록을 다시 맞춘다.
+  // 시트에 문구만 띄우면 이 화면은 포커스 재조회가 없어 사라진 카드가 남고 같은 수정을 반복하게
+  // 된다(삭제 404를 재조회로 맞추는 confirmDelete와 같은 규칙).
+  const onEditingGone = useCallback(() => {
+    setComposeOpen(false);
+    setEditing(null);
+    fetchNotices();
+    Alert.alert('공지 수정 실패', '이미 삭제된 공지예요.');
+  }, [fetchNotices]);
+
   function confirmDelete(notice: GroupAnnouncementResponse) {
     // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
     Alert.alert('공지 삭제', `${notice.title} 공지를 삭제할까요?`, [
@@ -210,8 +220,22 @@ export default function NoticeScreen() {
         editing={editing}
         onClose={closeCompose}
         onSaved={onSaved}
+        onEditingGone={onEditingGone}
       />
     ) : null;
+
+  // 에러 + 다시 시도 블록 — 최초 조회 실패(전면)와 '목록이 빈 채로 재조회가 실패한' 경우가 같이 쓴다.
+  function errorState(msg: string) {
+    return (
+      <View style={s.center}>
+        <Text style={s.emptyTitle}>{msg}</Text>
+        <Text style={s.emptyDesc}>잠시 후 다시 시도해주세요.</Text>
+        <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => fetchNotices()}>
+          <Text style={s.retryText}>다시 시도</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   // ── 최초 로딩 — 중앙 스피너(§5-4). 새로고침은 RefreshControl이 맡는다. ──
   if (notices === null && errorMsg === null) {
@@ -230,13 +254,7 @@ export default function NoticeScreen() {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.notice.screen">
         {header}
-        <View style={s.center}>
-          <Text style={s.emptyTitle}>{errorMsg}</Text>
-          <Text style={s.emptyDesc}>잠시 후 다시 시도해주세요.</Text>
-          <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => fetchNotices()}>
-            <Text style={s.retryText}>다시 시도</Text>
-          </TouchableOpacity>
-        </View>
+        {errorState(errorMsg)}
       </SafeAreaView>
     );
   }
@@ -263,12 +281,23 @@ export default function NoticeScreen() {
         // 그대로 무음이 된다 — 공지를 쓰고 재조회가 실패하면 방금 쓴 공지가 목록에 없고 알림도 없어
         // 사용자가 같은 공지를 다시 등록한다. 리스트 상단 인라인 배너로 알린다
         // (GroupFindSheet의 s.notice와 같은 규격 — 시트 안 액션 실패는 인라인이라는 규칙과 동일).
-        ListHeaderComponent={errorMsg !== null ? <Text style={s.notice}>{errorMsg}</Text> : null}
+        // 목록이 비어 있을 때는 배너 대신 빈 상태 자리를 에러+재시도가 통째로 대신한다.
+        ListHeaderComponent={
+          errorMsg !== null && list.length > 0 ? <Text style={s.notice}>{errorMsg}</Text> : null
+        }
+        // 빈 목록 + 재조회 실패는 '공지가 없다'가 아니라 '모른다'다 — 첫 공지 등록 직후 재조회가
+        // 실패한 상황에서 '등록된 공지가 없어요 / 첫 공지를 남겨보세요'를 그대로 두면 방금 올린
+        // 공지를 한 번 더 쓰게 된다. 이때는 에러+다시 시도로 바꿔 재조회 쪽으로 유도한다.
+        // (FAB은 남긴다 — 목록을 못 읽은 게 곧 쓰지 말라는 뜻은 아니다.)
         ListEmptyComponent={
-          <View style={s.center}>
-            <Text style={s.emptyTitle}>등록된 공지가 없어요</Text>
-            {canWrite && <Text style={s.emptyDesc}>+ 버튼으로 첫 공지를 남겨보세요</Text>}
-          </View>
+          errorMsg !== null ? (
+            errorState(errorMsg)
+          ) : (
+            <View style={s.center}>
+              <Text style={s.emptyTitle}>등록된 공지가 없어요</Text>
+              {canWrite && <Text style={s.emptyDesc}>+ 버튼으로 첫 공지를 남겨보세요</Text>}
+            </View>
+          )
         }
         renderItem={({ item }) =>
           canWrite ? (

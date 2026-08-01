@@ -250,6 +250,23 @@ describe('프리뷰 조회 분기', () => {
     expect(screen.getByText('2/5명')).toBeOnTheScreen();
     expect(screen.getByText('하루 60분 집중')).toBeOnTheScreen();
   });
+
+  // windowStart/windowEnd는 서버가 UTC Instant로 들고 있어 ISO 문자열로 온다.
+  // 문자열을 그대로 자르면 KST 기기에서 9시간 어긋난 시간대가 초대장에 찍힌다.
+  // (jest.config.js가 TZ=Asia/Seoul을 고정하므로 이 기대값이 곧 KST 변환 검증이다.)
+  test('시간대 미션은 UTC 원문이 아니라 기기 로컬 시각으로 보여준다', async () => {
+    mockGetGroupOverview.mockResolvedValue(
+      overview({
+        missionType: 'TIME_WINDOW',
+        durationMinutes: null,
+        windowStart: '2026-08-01T21:00:00Z',
+        windowEnd: '2026-08-01T23:30:00Z',
+      }),
+    );
+    await renderSheet();
+
+    expect(await screen.findByText('매일 06:00~08:30 집중')).toBeOnTheScreen();
+  });
 });
 
 describe('참여 분기', () => {
