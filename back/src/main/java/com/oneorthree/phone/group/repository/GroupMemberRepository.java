@@ -26,6 +26,11 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
 
     Optional<GroupMember> findByUserAndGroup(User user, Group group);
 
+    // 초대 링크 발급(invitelink 도메인)의 멤버십 검증용. 판정 기준은 findByUserAndGroup 을 쓰는 기존
+    // 호출부와 같다 — 행이 있으면 멤버(탈퇴는 withdrawGroup 이 행을 지운다). 검증만 필요한 자리에서
+    // User·Group 엔티티를 로드하지 않으려고 id 로 존재만 묻는다.
+    boolean existsByGroupIdAndUserId(UUID groupId, UUID userId);
+
     // 멀티 그룹 상한(MAX_JOINED_GROUPS) 검사용. 탈퇴는 행을 삭제하므로(withdrawGroup) 별도 제외 조건이
     // 없고, 이는 findByUser(=내 그룹 목록)와 같은 모수다 — 목록에 보이는 수와 상한이 어긋나지 않는다.
     long countByUser(User user);

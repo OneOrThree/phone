@@ -9,6 +9,7 @@ import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.friend.exception.FriendException;
+import com.oneorthree.phone.invitelink.exception.InviteLinkException;
 import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.stats.exception.StatsException;
 import com.oneorthree.phone.user.exception.UserException;
@@ -59,6 +60,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(GroupException.class)
     public ResponseEntity<ErrorResponse> handleGroup(GroupException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(InviteLinkException.class)
+    public ResponseEntity<ErrorResponse> handleInviteLink(InviteLinkException e) {
         return ResponseEntity.status(e.getErrorCode().getStatus())
                 .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
     }

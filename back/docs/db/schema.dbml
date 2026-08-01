@@ -432,6 +432,46 @@ Table group_challenge_bet_participants [note: '내기 참가자. 판돈은 참�
   }
 }
 
+Table group_invite_links [note: '그룹 초대 링크 원장: slug → (그룹, 초대자). (그룹, 초대자)당 1링크를 재사용한다(멱등 발급). 공유 URL = https://link.oneorthree.world/l/{slug}?g={group_id}. migration V21'] {
+  id         uuid        [pk]
+
+  slug       varchar(12) [not null, unique, note: '초대 링크 식별자. 생성 규칙은 8자(혼동 문자 제외 알파벳 23456789abcdefghjkmnpqrstuvwxyz), 규칙 변경 여지로 컬럼은 12']
+  group_id   uuid        [not null, note: 'FK → groups.id — 링크가 가리키는 그룹']
+  inviter_id uuid        [not null, note: 'FK → users.id — 누가 데려왔나(어트리뷰션 앵커)']
+
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (group_id, inviter_id) [unique, note: '멱등 발급의 최후 방어선 — 동시 발급 레이스 포함']
+  }
+}
+
+Table invite_link_clicks [note: '초대 링크 클릭 + 매치(설치 기기 연결) + claim(유저 연결) 상태. 별도 install 테이블 없이 클릭 행 하나가 상태 전이를 전부 가진다. migration V21'] {
+  id                uuid        [pk]
+
+  link_id           uuid        [not null, note: 'FK → group_invite_links.id']
+
+  ip_hash           varchar(64) [not null, note: 'SHA-256(ip + LINK_IP_SALT) hex 64자 — 원본 IP 는 저장하지 않는다']
+  os                varchar(16) [not null, note: "'ios' | 'android' | 'other' (Android 는 범위 외, 컬럼 여지만)"]
+  user_agent        varchar(512)
+  clicked_at        timestamptz [not null, default: `now()`]
+
+  matched           boolean     [not null, default: false, note: '매치 소진 플래그 — true 면 재매치 불가(재설치 방어선)']
+  matched_at        timestamptz
+  matched_device_id varchar(64) [note: '앱 자체 device_id']
+  app_instance_id   varchar(64) [note: 'GA4 앱스트림 결합용 Firebase app_instance_id']
+
+  claimed_user_id   uuid        [note: 'nullable — 가입/로그인 후 유저 연결 (FK → users.id, 최초 1회만 기록)']
+  claimed_at        timestamptz
+
+  indexes {
+    (ip_hash, os, clicked_at) [note: '매치 검색 전용 부분 인덱스 (WHERE matched = false) — 소진된 클릭은 인덱스에서도 제외']
+    (link_id) [note: '링크별 클릭/매치 집계']
+    (matched_device_id, matched_at) [note: '매치 재시도 멱등(기기별 기존 매치 조회) 전용 부분 인덱스 (WHERE matched = true)']
+  }
+}
+
 // ────────────────────────────────────────────
 // 3. 포커스 (집중 기록)
 // ────────────────────────────────────────────
@@ -833,6 +873,12 @@ Ref: group_members.user_id > users.id
 Ref: group_members.group_id > groups.id
 Ref: group_announcements.group_id > groups.id
 Ref: group_announcements.user_id > users.id
+
+// 초대 링크 (V21)
+Ref: group_invite_links.group_id > groups.id
+Ref: group_invite_links.inviter_id > users.id
+Ref: invite_link_clicks.link_id > group_invite_links.id
+Ref: invite_link_clicks.claimed_user_id > users.id
 
 // 아이템 / 캐릭터
 Ref: user_items.user_id > users.id
