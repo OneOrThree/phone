@@ -306,6 +306,38 @@
         }
       }
     },
+    "/l/match": {
+      "post": {
+        "tags": [
+          "InviteLink(public)"
+        ],
+        "summary": "deferred 매치",
+        "description": "IP해시+OS+시간창 fingerprint 로 미소진 클릭 1건을 원자적으로 소진",
+        "operationId": "match",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteMatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteMatchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/me": {
       "get": {
         "tags": [
@@ -4571,6 +4603,45 @@
           "content",
           "title"
         ]
+      },
+      "InviteMatchRequest": {
+        "type": "object",
+        "properties": {
+          "os": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "ios|android|other"
+          },
+          "deviceId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 0
+          },
+          "appInstanceId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "deviceId",
+          "os"
+        ]
+      },
+      "InviteMatchResponse": {
+        "type": "object",
+        "properties": {
+          "matched": {
+            "type": "boolean"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       },
       "UserProfileSetupRequest": {
         "type": "object",
