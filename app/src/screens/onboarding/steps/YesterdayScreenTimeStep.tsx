@@ -44,24 +44,31 @@ export default function YesterdayScreenTimeStep({ onNext }: StepProps) {
   // 분석 연출 — 진행바가 2초간 리니어하게 차오르고, 끝나면 로딩 레이어를 걷고 CTA를 노출한다.
   const [analyzed, setAnalyzed] = useState(analyzedThisSession);
   const progress = useSharedValue(0);
-  // 안드로이드 어제 사용시간(분) — 조회 전 null이면 '–' 표시.
+  // 안드로이드 어제 사용시간(분) — 조회 전·조회 실패 시 null이면 '–' 표시.
   const [androidYesterdayMinutes, setAndroidYesterdayMinutes] = useState<number | null>(null);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
     ScreenTimeModule.getYesterdayUsageBucketMinutes()
-      .then(setAndroidYesterdayMinutes)
-      .catch(() => setAndroidYesterdayMinutes(0));
+      .then((m) => {
+        setAndroidYesterdayMinutes(m);
+        logOnboardingScreentimeViewed({ has_data: true });
+      })
+      .catch(() => {
+        // 조회 실패(OEM 서비스 오류·요청 중 권한 회수 등) — 0분으로 조작하지 않고 null 유지
+        // → 기존 미확인('–') 표시를 그대로 탄다. 계측도 데이터 없음으로 남긴다(코드리뷰 반영).
+        logOnboardingScreentimeViewed({ has_data: false });
+      });
   }, []);
 
   // 전날 스크린타임 요약 노출 계측 — 진입당 1회.
   // has_data: 실제 사용 분은 익스텐션 안에서만 그려져 JS로 넘어오지 않으므로(완료 감지 불필요),
   // 네이티브 리포트 뷰가 렌더 가능한지로 판정한다(iOS 실기기+모듈=데이터 표시 가능).
-  // 안드로이드는 조회값을 직접 그리므로 항상 데이터 있음으로 계측한다.
+  // 안드로이드는 조회 성공/실패가 JS에서 판별되므로 위 조회 effect에서 결과에 따라 계측한다.
   useEffect(() => {
-    logOnboardingScreentimeViewed({
-      has_data: Platform.OS === 'android' || !!ScreenTimeReportView,
-    });
+    if (Platform.OS !== 'android') {
+      logOnboardingScreentimeViewed({ has_data: !!ScreenTimeReportView });
+    }
     if (analyzedThisSession) return;
     progress.value = withSequence(
       withTiming(0.9, { duration: FILL_MS, easing: Easing.linear }),

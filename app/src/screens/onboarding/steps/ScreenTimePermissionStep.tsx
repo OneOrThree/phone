@@ -22,9 +22,16 @@ import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
 // 열고, 앱 복귀 시 네이티브가 허용 여부를 재확인해 requestAuthorization이 resolve된다.
 // 측정 대상 picker는 M2 전이라 없음 — 전체 앱 측정이 기본이다.
 
+// 안드로이드 고지 정확성(코드리뷰 반영) — 앱별 상세 기록은 기기에만 저장되지만, 하루 사용시간
+// 합계는 통계·목표 판정을 위해 서버로 전송된다(screentimeSync). '서버 미전송'은 허위 고지라
+// 실제 동작 그대로 알린다.
 const PERKS =
   Platform.OS === 'android'
-    ? ['하루 사용 시간 자동 측정', '어제와 오늘 사용시간 비교', '기기에서만 처리 · 서버 미전송']
+    ? [
+        '하루 사용 시간 자동 측정',
+        '어제와 오늘 사용시간 비교',
+        '앱별 기록은 기기에만 저장 · 하루 합계만 서버 전송',
+      ]
     : ['앱별 사용 시간', '카테고리별 분류', '기기에서만 처리 · 서버 미전송'];
 
 function ClockIcon() {

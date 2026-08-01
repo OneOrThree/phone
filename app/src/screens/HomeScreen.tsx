@@ -24,7 +24,10 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
-import ScreenTimeModule, { type AuthorizationStatus } from '@/services/ScreenTimeModule';
+import ScreenTimeModule, {
+  androidNativeModuleAvailable,
+  type AuthorizationStatus,
+} from '@/services/ScreenTimeModule';
 import { updateScreenTimePermission } from '@/services/userApi';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
@@ -151,8 +154,11 @@ function PhoneUsageRow({
 }) {
   // 표시 수단이 있는 플랫폼(iOS 네이티브 뷰·안드로이드 모듈)만 권한 분기 — 그 외는 래퍼가
   // 항상 'denied'를 반환하므로 제외해 기존 placeholder('–')와 행 탭 동작을 유지한다.
+  // 구 안드로이드 바이너리(OTA로 새 JS만·모듈 없음)는 CTA를 눌러도 설정을 못 열므로
+  // 모듈 가용일 때만 M1 UI를 그린다(코드리뷰 반영).
   const needsPermission =
-    (ScreenTimeReportView != null || Platform.OS === 'android') &&
+    (ScreenTimeReportView != null ||
+      (Platform.OS === 'android' && androidNativeModuleAvailable())) &&
     (authStatus === 'notDetermined' || authStatus === 'denied');
   // 안드로이드 목표 대비 진행률 — iOS는 네이티브 뷰가 계산해 그린다.
   const androidPct =
@@ -190,7 +196,7 @@ function PhoneUsageRow({
             goalSeconds={goalSeconds}
             style={s.usageReport}
           />
-        ) : Platform.OS === 'android' ? (
+        ) : Platform.OS === 'android' && androidNativeModuleAvailable() ? (
           // 안드로이드 — 조회값(분)으로 값+목표 진행 바를 직접 그린다(GROMO-994).
           <>
             <View style={s.valueRow}>
