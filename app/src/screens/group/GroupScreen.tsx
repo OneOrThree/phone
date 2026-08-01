@@ -20,6 +20,7 @@ import {
   clearPendingInvite,
   peekPendingInvite,
   setGroupInviteListener,
+  type PendingInvite,
 } from '@/navigation/navigationRef';
 import { logGroupViewed } from '@/services/analyticsEvents';
 import GroupListScreen from './GroupListScreen';
@@ -67,14 +68,15 @@ export default function GroupScreen() {
   //  · 마운트 시 peekPendingInvite() — 콜드 스타트에서 화면보다 링크가 먼저 도착한 경우를 이어받는다.
   //    게스트가 링크로 들어와 로그인하면 앱 트리가 리마운트되는데, 버퍼가 남아 있어 같은 그룹으로 복귀한다.
   //  · 버퍼를 비우는 곳은 여기뿐 — 시트가 닫히거나(onClose) 참여가 끝났을 때(onJoined)만 clear.
-  const [inviteGroupId, setInviteGroupId] = useState<string | null>(() => peekPendingInvite());
+  // 버퍼가 slug·entry까지 들고 온다(초대 링크 스펙 §7-3) — 시트가 6b 이벤트·join 어트리뷰션에 쓴다.
+  const [invite, setInvite] = useState<PendingInvite | null>(() => peekPendingInvite());
 
   useEffect(() => {
-    setGroupInviteListener((groupId) => {
+    setGroupInviteListener((next) => {
       // 초대 시트와 찾기 시트는 상호 배타 — 둘 다 SheetShell이라 겹치면 딤이 2겹으로 포개진다.
       // 링크로 들어온 초대가 우선(사용자가 방금 밖에서 받은 맥락)이라 찾기 시트를 내린다.
       setFindOpen(false);
-      setInviteGroupId(groupId);
+      setInvite(next);
     });
     return () => setGroupInviteListener(null);
   }, []);
@@ -91,7 +93,7 @@ export default function GroupScreen() {
     wasGuestRef.current = isGuest;
     if (!wasGuest || isGuest) return;
     const pending = peekPendingInvite();
-    if (pending) setInviteGroupId(pending);
+    if (pending) setInvite(pending);
   }, [isGuest]);
 
   // 요청 시퀀스 — 포커스마다 조회가 나가므로 탭을 빠르게 오가면 이전 응답이 늦게 도착해
@@ -143,7 +145,7 @@ export default function GroupScreen() {
 
   const closeInvite = useCallback(() => {
     clearPendingInvite();
-    setInviteGroupId(null);
+    setInvite(null);
   }, []);
 
   // 게스트 초대 → 로그인 유도(§6-6). **시트만 내리고 초대 버퍼는 남긴다** —
@@ -151,7 +153,7 @@ export default function GroupScreen() {
   // clearPendingInvite를 부르는 closeInvite와 절대 혼용하지 않는다(버퍼를 지우면 초대가 증발한다).
   // 시트를 내리는 이유는 RN 네이티브 Modal이라 계정 화면 위에 그대로 남아 로그인 버튼을 가리기 때문이다.
   const onInviteLogin = useCallback(() => {
-    setInviteGroupId(null);
+    setInvite(null);
     navigation.navigate('SettingsAccount');
   }, [navigation]);
 
@@ -159,9 +161,9 @@ export default function GroupScreen() {
   // ⚠️ 목적지를 ref로 옮긴 뒤에 버퍼를 비운다. 그러지 않으면 이미 두 그룹 이상인 사용자가
   //    초대 링크를 열었을 때(참여 성공·이미 멤버 모두 이 콜백을 탄다) 재조회 후 목록만 떠서
   //    링크가 가리킨 방으로 못 간다 — 목적지 소비는 아래 useEffect가 맡는다.
-  // ⚠️ 목적지는 현재 inviteGroupId가 아니라 **시트가 알려준 실제 가입 그룹**이다. 참여 요청이 떠 있는
-  //    동안 두 번째 초대 링크가 도착하면 시트의 groupId(=inviteGroupId)만 갈리는데, 시트는 성공을
-  //    세대와 무관하게 통지한다(가입은 실제로 일어났으므로). 여기서 inviteGroupId를 쓰면 가입한 A 대신
+  // ⚠️ 목적지는 현재 invite.groupId가 아니라 **시트가 알려준 실제 가입 그룹**이다. 참여 요청이 떠 있는
+  //    동안 두 번째 초대 링크가 도착하면 시트의 groupId(=invite.groupId)만 갈리는데, 시트는 성공을
+  //    세대와 무관하게 통지한다(가입은 실제로 일어났으므로). 여기서 invite.groupId를 쓰면 가입한 A 대신
   //    나중에 온 B로 가려다, B가 아직 내 목록에 없어 아무 방도 열지 못한다.
   const onInviteJoined = useCallback(
     (joinedGroupId: string) => {
@@ -264,9 +266,11 @@ export default function GroupScreen() {
     />
   ) : null;
 
-  const inviteSheet = inviteGroupId ? (
+  const inviteSheet = invite ? (
     <GroupInviteSheet
-      groupId={inviteGroupId}
+      groupId={invite.groupId}
+      slug={invite.slug}
+      entry={invite.entry}
       onClose={closeInvite}
       onJoined={onInviteJoined}
       onLogin={onInviteLogin}
@@ -353,7 +357,7 @@ export default function GroupScreen() {
           groupId={myGroup.groupId}
           summary={myGroup}
           onLeft={onLeft}
-          inviteOpen={!!inviteGroupId}
+          inviteOpen={!!invite}
           onShowGroups={() => setShowList(true)}
         />
         {inviteSheet}

@@ -12,7 +12,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupInviteSheet from './GroupInviteSheet';
 import { getGroupOverview, getMyGroups, joinGroup } from '@/services/groupApi';
-import { logGroupJoinAttempted } from '@/services/analyticsEvents';
+import { logGroupInviteSheetViewed, logGroupJoinAttempted } from '@/services/analyticsEvents';
 import type { GroupOverviewResponse } from '@/types/dto/group';
 import { acquireJoinLock, releaseJoinLock, resetJoinLock } from '../joinLock';
 
@@ -29,6 +29,7 @@ jest.mock('@/store/UserContext', () => ({
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupJoinAttempted: jest.fn(),
+  logGroupInviteSheetViewed: jest.fn(),
 }));
 
 // groupErrorCode는 실제 구현을 남긴다(§3-2 code 분기까지 검증).
@@ -46,6 +47,9 @@ const mockJoinGroup = joinGroup as jest.MockedFunction<typeof joinGroup>;
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 // 두 번째 초대 링크 — 시트는 key 없이 재사용돼 groupId만 갈린다(세대 가드 케이스).
 const OTHER_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d99';
+// 초대 링크 slug(초대 링크 스펙 §4-1) — 어트리뷰션 앵커.
+const SLUG = 'ab23cd45';
+const OTHER_SLUG = 'mn67pq89';
 
 // 서버 GlobalExceptionHandler의 { code, message } 바디를 실은 axios 에러.
 function axiosErrorWith(status: number, code?: string): AxiosError {
@@ -86,9 +90,16 @@ const onLogin = jest.fn();
 // RTL v14의 render는 async다 — 반드시 await한다(안 하면 쿼리가 붙지 않은 thenable이 돌아온다).
 // 마운트 직후 프리뷰 조회(getGroupOverview) 프라미스까지 흘려보낸다 —
 // act 밖에서 setState가 돌면 경고가 쏟아진다.
-async function renderSheet() {
+async function renderSheet(props?: { slug?: string | null; entry?: 'link' | 'deferred' }) {
   const result = await render(
-    <GroupInviteSheet groupId={GROUP_ID} onClose={onClose} onJoined={onJoined} onLogin={onLogin} />,
+    <GroupInviteSheet
+      groupId={GROUP_ID}
+      slug={props?.slug === undefined ? SLUG : props.slug}
+      entry={props?.entry ?? 'link'}
+      onClose={onClose}
+      onJoined={onJoined}
+      onLogin={onLogin}
+    />,
   );
   await act(async () => {});
   return result;
@@ -298,8 +309,32 @@ describe('참여 분기', () => {
     await press('참여하기');
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
-    expect(mockJoinGroup).toHaveBeenCalledWith(GROUP_ID);
-    expect(logGroupJoinAttempted).toHaveBeenCalledWith({ join_method: 'invite' });
+    expect(logGroupJoinAttempted).toHaveBeenCalledWith({ join_method: 'invite', slug: SLUG });
+  });
+
+  // entry가 join_method를 가른다(초대 링크 스펙 §4-3 7) — 설치 후 복원된 초대는 deferred_invite.
+  test('entry=deferred면 join_method=deferred_invite로 계측한다', async () => {
+    mockJoinGroup.mockResolvedValue(undefined);
+    await renderSheet({ entry: 'deferred' });
+
+    await press('참여하기');
+
+    await waitFor(() => expect(onJoined).toHaveBeenCalled());
+    expect(logGroupJoinAttempted).toHaveBeenCalledWith({
+      join_method: 'deferred_invite',
+      slug: SLUG,
+    });
+  });
+
+  // 구형 링크(§4-1 gromo://join?g=…)는 slug가 없다 — 파라미터를 비워 보낸다(빈 문자열 금지).
+  test('slug가 null이면 계측 파라미터에서 slug를 뺀다', async () => {
+    mockJoinGroup.mockResolvedValue(undefined);
+    await renderSheet({ slug: null });
+
+    await press('참여하기');
+
+    await waitFor(() => expect(onJoined).toHaveBeenCalled());
+    expect(logGroupJoinAttempted).toHaveBeenCalledWith({ join_method: 'invite', slug: undefined });
   });
 
   test('ALREADY_MEMBER(409)는 성공 취급 — 링크를 두 번 눌러도 막히지 않는다', async () => {
@@ -309,7 +344,7 @@ describe('참여 분기', () => {
     await press('참여하기');
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
-    expect(logGroupJoinAttempted).toHaveBeenCalledWith({ join_method: 'invite' });
+    expect(logGroupJoinAttempted).toHaveBeenCalledWith({ join_method: 'invite', slug: SLUG });
   });
 
   test('ROOM_FULL(409)은 같은 409라도 code로 갈려 참여를 막는다', async () => {
@@ -369,6 +404,8 @@ describe('참여 분기', () => {
       rerender(
         <GroupInviteSheet
           groupId={OTHER_GROUP_ID}
+          slug={OTHER_SLUG}
+          entry="link"
           onClose={onClose}
           onJoined={onJoined}
           onLogin={onLogin}
@@ -400,6 +437,8 @@ describe('참여 분기', () => {
       rerender(
         <GroupInviteSheet
           groupId={OTHER_GROUP_ID}
+          slug={OTHER_SLUG}
+          entry="link"
           onClose={onClose}
           onJoined={onJoined}
           onLogin={onLogin}
@@ -441,6 +480,8 @@ describe('참여 분기', () => {
       rerender(
         <GroupInviteSheet
           groupId={OTHER_GROUP_ID}
+          slug={OTHER_SLUG}
+          entry="link"
           onClose={onClose}
           onJoined={onJoined}
           onLogin={onLogin}
@@ -487,6 +528,8 @@ describe('참여 분기', () => {
       rerender(
         <GroupInviteSheet
           groupId={OTHER_GROUP_ID}
+          slug={OTHER_SLUG}
+          entry="link"
           onClose={onClose}
           onJoined={onJoined}
           onLogin={onLogin}
@@ -567,5 +610,61 @@ describe('참여 분기', () => {
     expect(
       await screen.findByText('참여하지 못했어요. 잠시 후 다시 시도해주세요.'),
     ).toBeOnTheScreen();
+  });
+});
+
+// ── 6b group_invite_sheet_viewed (초대 링크 스펙 §4-3) ──────────────────────────
+// 퍼널의 '초대장을 실제로 봤다' 칸이다. 조회 성공만 세면 게스트·404·정원초과 구간이 통째로
+// 사라져 클릭→가입 전환율이 부풀어 보인다 — 마운트 기준이라는 것을 여기서 잠근다.
+describe('초대 시트 노출 계측', () => {
+  test('마운트 시 group_id·slug·entry와 함께 1회 발행한다', async () => {
+    mockGetGroupOverview.mockResolvedValue(overview());
+    await renderSheet();
+
+    expect(logGroupInviteSheetViewed).toHaveBeenCalledTimes(1);
+    expect(logGroupInviteSheetViewed).toHaveBeenCalledWith({
+      group_id: GROUP_ID,
+      slug: SLUG,
+      entry: 'link',
+    });
+  });
+
+  test('게스트는 조회를 건너뛰지만 노출은 계측된다', async () => {
+    mockIsGuest = true;
+    await renderSheet();
+
+    expect(mockGetGroupOverview).not.toHaveBeenCalled();
+    expect(logGroupInviteSheetViewed).toHaveBeenCalledWith({
+      group_id: GROUP_ID,
+      slug: SLUG,
+      entry: 'link',
+    });
+  });
+
+  // 시트는 key 없이 재사용된다 — 두 번째 초대 링크는 새 초대장이므로 다시 세야 한다.
+  test('연속 초대 링크로 groupId가 갈리면 다시 발행한다', async () => {
+    mockGetGroupOverview.mockResolvedValue(overview());
+    const { rerender } = await renderSheet();
+
+    mockGetGroupOverview.mockResolvedValue(overview({ id: OTHER_GROUP_ID, name: '저녁 스터디방' }));
+    await act(async () => {
+      rerender(
+        <GroupInviteSheet
+          groupId={OTHER_GROUP_ID}
+          slug={OTHER_SLUG}
+          entry="deferred"
+          onClose={onClose}
+          onJoined={onJoined}
+          onLogin={onLogin}
+        />,
+      );
+    });
+
+    expect(logGroupInviteSheetViewed).toHaveBeenCalledTimes(2);
+    expect(logGroupInviteSheetViewed).toHaveBeenLastCalledWith({
+      group_id: OTHER_GROUP_ID,
+      slug: OTHER_SLUG,
+      entry: 'deferred',
+    });
   });
 });

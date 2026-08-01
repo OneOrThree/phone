@@ -5,7 +5,7 @@ import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
 import { useUser } from '@/store/UserContext';
 import { getGroupOverview, groupErrorCode, joinGroup } from '@/services/groupApi';
-import { logGroupJoinAttempted } from '@/services/analyticsEvents';
+import { logGroupInviteSheetViewed, logGroupJoinAttempted } from '@/services/analyticsEvents';
 import type { GroupOverviewResponse } from '@/types/dto/group';
 import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
 
@@ -41,6 +41,12 @@ import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
 export interface GroupInviteSheetProps {
   // 초대 링크에서 뽑은 그룹 UUID(형식 검증 완료 — parseInviteLink 통과값).
   groupId: string;
+  // 초대 링크 slug — 어트리뷰션 앵커(초대 링크 스펙 §4-1). 구형 링크로 들어오면 null.
+  // 6b 이벤트·group_join_attempted·joinGroup 어트리뷰션에 그대로 실어 보낸다.
+  slug: string | null;
+  // 이 시트가 열린 경로 — 'link'(링크로 직행) | 'deferred'(설치 후 서버 매치로 복원).
+  // join_method가 여기서 갈린다(invite / deferred_invite).
+  entry: 'link' | 'deferred';
   // 닫기(딤 탭·취소·사라진 그룹 확인) — 부모가 시트를 내리고 초대 버퍼를 비운다.
   onClose: () => void;
   // 참여 성공 또는 이미 멤버 — 부모가 시트를 내리고 getMyGroups()를 재조회해 그룹방으로 전환한다.
@@ -122,6 +128,8 @@ function missionLabel(ov: GroupOverviewResponse): string | null {
 
 export default function GroupInviteSheet({
   groupId,
+  slug,
+  entry,
   onClose,
   onJoined,
   onLogin,
@@ -150,6 +158,15 @@ export default function GroupInviteSheet({
   useEffect(() => {
     joinedRef.current = onJoined;
   }, [onJoined]);
+
+  // 6b group_invite_sheet_viewed(초대 링크 스펙 §4-3) — 시트가 실제로 화면에 올라간 시점.
+  // 조회 완료가 아니라 **마운트**를 기준으로 삼는다: 게스트 로그인 유도·404·정원 초과도 전부
+  // 사용자에게 보인 초대장이고, 조회 성공만 세면 실패 구간이 퍼널에서 통째로 사라진다.
+  // groupId가 갈리면(두 번째 초대 링크 도착) 새 초대장이므로 다시 발행한다 — 시트는 key 없이
+  // 재사용돼(GroupScreen) 마운트가 한 번뿐이라, 의존성으로 세대를 잡지 않으면 두 번째가 유실된다.
+  useEffect(() => {
+    logGroupInviteSheetViewed({ group_id: groupId, slug: slug ?? undefined, entry });
+  }, [groupId, slug, entry]);
 
   // 프리뷰 조회 — 게스트는 호출 전에 차단한다(서버도 403이지만 왕복을 아낀다, §5-3).
   useEffect(() => {
@@ -226,7 +243,12 @@ export default function GroupInviteSheet({
       // 분모다. 성공 뒤로 미루면 ROOM_FULL·404·네트워크 실패가 통째로 빠져 전환율이 항상
       // 100%로 보인다. 2차에서 멀티 그룹이 열리며 '이미 다른 그룹에 속함' 사전 차단이 사라져,
       // 여기까지 온 실행은 곧장 요청으로 이어진다 — 시도 하나에 계측 하나로 맞아떨어진다.
-      logGroupJoinAttempted({ join_method: 'invite' });
+      // join_method는 entry로 갈린다(스펙 §4-3 7) — 'deferred_invite'는 미설치→설치 후
+      // 서버 매치로 복원된 초대다. slug는 구형 링크면 없다.
+      logGroupJoinAttempted({
+        join_method: entry === 'deferred' ? 'deferred_invite' : 'invite',
+        slug: slug ?? undefined,
+      });
       await joinGroup(target);
       // 성공만은 세대를 보지 않는다 — 실제로 target에 가입됐으므로 부모가 재조회해 그룹방으로
       // 넘어가야 한다. 여기서 버리면 사용자는 이미 가입한 채 다른 그룹 프리뷰를 계속 보게 된다.
