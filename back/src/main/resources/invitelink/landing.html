@@ -355,7 +355,18 @@
   function onLeave() {
     // 스토어로 나감: 앱이 열린 게 아니므로 성공으로 정리하지 않는다.
     // 타이머만 멈춰서, 스토어에 있는 동안 화면이 몰래 noapp 으로 바뀌는 걸 막는다.
-    if (tapSource === 'store') { settle(); return; }
+    // 다만 'opening' 인 채로 두면 안 된다 — 네이티브 App Store 로 완전히 전환됐다가
+    // 앱 스위처로 돌아오는 경로는 bfcache pageshow 가 안 떠서 갱신 기회가 없고,
+    // "여는 중" 펄스가 사실과 다르게 계속 돌아간다. 중립 상태로 접어 둔다.
+    // (이미 noapp 이면 그대로 — 스토어 CTA 승격을 되돌릴 이유가 없다.)
+    if (tapSource === 'store') {
+      settle();
+      if (body.dataset.state === 'opening') {
+        body.dataset.state = 'idle';
+        status.textContent = '';
+      }
+      return;
+    }
     if (!settle()) return;
     appOpened = true;
     body.dataset.state = 'idle';
