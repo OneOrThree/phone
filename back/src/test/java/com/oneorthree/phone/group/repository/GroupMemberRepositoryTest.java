@@ -88,4 +88,26 @@ class GroupMemberRepositoryTest extends RepositoryTestBase {
         assertThat(members).extracting(member -> member.getGroup().getName())
                 .containsExactlyInAnyOrder("A", "B");
     }
+
+    @Test
+    @DisplayName("countByUser → findByUser 와 같은 모수(내 소속 그룹 수). 다른 유저의 소속은 세지 않는다")
+    void countByUserCountsOnlyOwnMemberships() {
+        // given: 나는 2개 그룹, 남은 1개 그룹에 소속
+        User me = userRepository.save(User.builder().nickname("나").build());
+        User other = userRepository.save(User.builder().nickname("남").build());
+        Group groupA = groupRepository.save(Group.builder().name("A").maxMembers(10).build());
+        Group groupB = groupRepository.save(Group.builder().name("B").maxMembers(10).build());
+        Group groupC = groupRepository.save(Group.builder().name("C").maxMembers(10).build());
+
+        groupMemberRepository.save(GroupMember.builder().user(me).group(groupA).build());
+        groupMemberRepository.save(GroupMember.builder().user(me).group(groupB).build());
+        groupMemberRepository.save(GroupMember.builder().user(other).group(groupC).build());
+        groupMemberRepository.flush();
+
+        // then: 상한 검사(countByUser)와 목록(findByUser)이 어긋나면 "목록엔 9개인데 가입 불가"가 된다
+        assertThat(groupMemberRepository.countByUser(me)).isEqualTo(2L);
+        assertThat(groupMemberRepository.countByUser(me))
+                .isEqualTo(groupMemberRepository.findByUser(me).size());
+        assertThat(groupMemberRepository.countByUser(other)).isEqualTo(1L);
+    }
 }

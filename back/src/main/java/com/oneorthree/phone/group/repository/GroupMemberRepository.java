@@ -26,6 +26,10 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
 
     Optional<GroupMember> findByUserAndGroup(User user, Group group);
 
+    // 멀티 그룹 상한(MAX_JOINED_GROUPS) 검사용. 탈퇴는 행을 삭제하므로(withdrawGroup) 별도 제외 조건이
+    // 없고, 이는 findByUser(=내 그룹 목록)와 같은 모수다 — 목록에 보이는 수와 상한이 어긋나지 않는다.
+    long countByUser(User user);
+
     // 그룹별 멤버 수 일괄 집계 — 목록/검색이 그룹마다 findByGroup(group).size() 로 엔티티를 통째로
     // 로드하던 N+1 을 IN 집계 1회로 대체한다. 멤버가 0인 그룹은 행 자체가 없으므로 호출측이 0으로 채운다.
     @Query("SELECT gm.group.id AS groupId, COUNT(gm) AS memberCount FROM GroupMember gm"
