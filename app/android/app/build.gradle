@@ -3,6 +3,13 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 // Firebase(RNFB) 초기화 — android/app/google-services.json 필요 (원본: app/firebase/)
 apply plugin: "com.google.gms.google-services"
+// Sentry 소스맵 업로드(GROMO-993) — 릴리즈 JS 번들 태스크에 업로드 훅을 건다.
+// 토큰 파일(android/sentry.properties — 생성법: sentry.properties.example)이 있을 때만 훅을 걸어,
+// 없으면 빌드는 그대로 진행되고 업로드만 빠진다(iOS pbxproj 빌드 페이즈의 가드와 동일 효과).
+// 릴리즈 빌드는 scripts/android-release.sh 로 — Datadog 등 EXPO_PUBLIC_* 키 인라인까지 처리한다.
+if (new File(rootDir, "sentry.properties").exists()) {
+    apply from: new File(["node", "--print", "require.resolve('@sentry/react-native/package.json')"].execute(null, rootDir).text.trim(), "../sentry.gradle")
+}
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 

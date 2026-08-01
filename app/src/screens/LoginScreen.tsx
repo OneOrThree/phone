@@ -1,5 +1,13 @@
 import { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ActivityIndicator,
+  StyleSheet,
+  Alert,
+  Platform,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   kakaoLogin,
@@ -31,7 +39,7 @@ interface LoginScreenProps {
   isOnboarding?: boolean;
 }
 
-const PROVIDERS: {
+const ALL_PROVIDERS: {
   method: Method;
   label: string;
   fn: () => Promise<LoginResult>;
@@ -50,6 +58,9 @@ const PROVIDERS: {
     border: T.border,
   },
 ];
+
+// 애플 로그인은 expo-apple-authentication이 iOS 전용 — 안드로이드에선 버튼 미노출(GROMO-998).
+const PROVIDERS = ALL_PROVIDERS.filter((p) => p.method !== 'apple' || Platform.OS === 'ios');
 
 export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps) {
   const [busy, setBusy] = useState<Method | null>(null);

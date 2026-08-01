@@ -81,10 +81,19 @@ export default {
         // 공유 시트 '이미지 저장'(타임테이블 공유) — 네이티브 plist와 동기 유지(prebuild 시 유실 방지, 리뷰 반영)
         NSPhotoLibraryAddUsageDescription:
           '타임테이블 등 통계 이미지를 사진에 저장하기 위해 필요합니다.',
+        // 앨범에서 사진 고르기(오브젝트 캐릭터 스파이크) — 네이티브 plist와 동기 유지
+        NSPhotoLibraryUsageDescription:
+          '사진 속 물건으로 캐릭터를 만들기 위해 앨범에서 사진을 고를 때 필요합니다.',
       },
     },
     android: {
       package: 'com.oneorthree.gromo',
+      // 어댑티브 아이콘(prebuild 시 네이티브 반영) — 전경은 세이프존(중앙 66%)에 아트를 두고
+      // 여백은 투명, 배경색은 icon.png 테두리 평균색(보라). 수동 관리 중인 android/ res에도 동일 반영돼 있음.
+      adaptiveIcon: {
+        foregroundImage: './src/assets/adaptive-icon.png',
+        backgroundColor: '#9288CB',
+      },
     },
     web: {
       bundler: 'metro',

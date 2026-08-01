@@ -49,7 +49,6 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -72,8 +71,20 @@ public class GroupService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserActivityEventLogger userActivityEventLogger;
 
+    // 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 참가 코드 생성 전용 상수다.
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
+
+    /** 그룹 이름 검색 최대 반환 수 — 닉네임 검색(NicknameSearchStrategy)과 동일 값. */
+    private static final int SEARCH_LIMIT = 20;
+
+    /**
+     * 한 유저가 동시에 소속될 수 있는 그룹 수 상한.
+     *
+     * <p>내 그룹 목록(getMyGroups)이 무페이지네이션이라 무제한 가입은 그대로 abuse 표면이 된다.
+     * 10 은 실사용에서 사실상 무제한이면서 목록 응답 크기를 상수로 묶는 값.
+     */
+    private static final int MAX_JOINED_GROUPS = 10;
 
     @Transactional
     public CreateGroupResponse createGroup(UUID userId, CreateGroupRequest request) {
@@ -84,8 +95,14 @@ public class GroupService {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }
 
+        // 1-1) 소속 그룹 수 상한 — 생성도 곧 가입이므로 참가와 같은 기준으로 막는다
+        ensureJoinedGroupLimit(user);
+
         // 2) 미션 타입별 필수값 검증
-        if (request.getMissionType() == MissionType.DURATION && request.getDurationMinutes() == null) {
+        //    durationMinutes 는 createChallenge 와 같은 > 0 규칙 — 0/음수 목표는 진행률 판정("0분도 달성",
+        //    음수는 영원히 미달성)을 무의미하게 만들므로 생성 단계에서 막는다.
+        if (request.getMissionType() == MissionType.DURATION
+                && (request.getDurationMinutes() == null || request.getDurationMinutes() <= 0)) {
             throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
         }
         if (request.getMissionType() == MissionType.TIME_WINDOW
@@ -108,9 +125,12 @@ public class GroupService {
                 .password(hashedPassword)
                 .description(request.getDescription())
                 .maxMembers(request.getMaxMembers() != null ? request.getMaxMembers() : 10)
+                .isPrivate(request.isPrivate())
                 .build());
 
         // GROMO-672: 참가 코드는 1:1 테이블(group_join_codes)에 저장 (발급 + 3시간 유효, ACTIVE)
+        // 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 발급은 계속되지만 조회하는 경로가 없다.
+        // 3시간 상수는 GroupJoinCode#renew 에도 이중 정의돼 있다 — 제거 시 함께 정리할 것.
         groupJoinCodeRepository.save(GroupJoinCode.builder()
                 .group(group)
                 .code(uniqueCode)
@@ -145,10 +165,13 @@ public class GroupService {
         Map<UUID, String> codeByGroupId = groupJoinCodeRepository.findAllById(groupIds).stream()
                 .collect(Collectors.toMap(GroupJoinCode::getGroupId, GroupJoinCode::getCode));
 
+        // 멤버 수도 IN 집계 1회 — 그룹마다 findByGroup(group).size() 로 멤버 엔티티를 로드하던 N+1 제거
+        Map<UUID, Integer> memberCountByGroupId = memberCountsOf(groupIds);
+
         return groupMembers.stream()
                 .map(member -> {
                     Group group = member.getGroup();
-                    int currentMembers = groupMemberRepository.findByGroup(group).size();
+                    int currentMembers = memberCountByGroupId.getOrDefault(group.getId(), 0);
                     String code = codeByGroupId.get(group.getId());
                     return new GroupSummaryResponse(
                             group.getId(),
@@ -157,42 +180,45 @@ public class GroupService {
                             currentMembers,
                             group.getMaxMembers(),
                             member.getRole(),
-                            group.getStatus()
+                            group.getStatus(),
+                            group.isPrivate()
                     );
                 })
                 .toList();
     }
 
-    /*
-    @todo 페이지네이션 필요함 나중에
-    */
+    /**
+     * 공개 그룹 이름 유사도 검색. 비공개 그룹은 초대 링크(groupId)로만 참여하므로 결과에서 제외한다.
+     *
+     * <p>참가 코드 정확 매칭 분기는 코드 체계 폐기(2026-07-31)와 함께 제거됐다.
+     * 무제한 반환(구 findByNameContainingIgnoreCase)도 LIMIT 으로 닫았다 — 커서 페이지네이션은 후속.
+     */
     public List<GroupSearchResponse> searchGroups(String query) {
-        if (query == null || query.isEmpty()) {
+        if (query == null || query.isBlank()) {
             return List.of();
         }
+        List<Group> groups = groupRepository.searchPublicByNameTrgm(query, SEARCH_LIMIT);
 
-        List<GroupSearchResponse> result = new ArrayList<>();
+        // 멤버 수는 IN 집계 1회 — 결과 그룹마다 findByGroup(group).size() 를 돌던 N+1 제거
+        Map<UUID, Integer> memberCountByGroupId = memberCountsOf(groups.stream().map(Group::getId).toList());
 
-        // GROMO-672: 코드 정확 매칭은 group_join_codes 기준 (만료 안 된 코드만)
-        Optional<GroupJoinCode> joinCodeByCode = groupJoinCodeRepository.findByCode(query.toUpperCase());
-        if (joinCodeByCode.isPresent()) {
-            GroupJoinCode joinCode = joinCodeByCode.get();
-            if (joinCode.getExpiresAt() != null &&
-                    joinCode.getExpiresAt().isAfter(Instant.now())) {
-                result.add(toSearchResponse(joinCode.getGroup()));
-            }
-        }
-
-        groupRepository.findByNameContainingIgnoreCase(query)
-                .stream()
-                .filter(g -> result.isEmpty() || !g.getId().equals(result.get(0).getGroupId()))
-                .map(this::toSearchResponse)
-                .forEach(result::add);
-        return result;
+        return groups.stream()
+                .map(group -> toSearchResponse(group, memberCountByGroupId.getOrDefault(group.getId(), 0)))
+                .toList();
     }
 
-    private GroupSearchResponse toSearchResponse(Group group) {
-        int currentMembers = groupMemberRepository.findByGroup(group).size();
+    /** 그룹 id 목록의 멤버 수를 집계 쿼리 1회로 조회한다. 멤버가 0인 그룹은 결과에 없으므로 호출측이 0으로 채운다. */
+    private Map<UUID, Integer> memberCountsOf(List<UUID> groupIds) {
+        if (groupIds.isEmpty()) {
+            return Map.of();
+        }
+        return groupMemberRepository.countByGroupIdIn(groupIds).stream()
+                .collect(Collectors.toMap(
+                        GroupMemberRepository.GroupMemberCount::getGroupId,
+                        count -> (int) count.getMemberCount()));
+    }
+
+    private GroupSearchResponse toSearchResponse(Group group, int currentMembers) {
         return new GroupSearchResponse(
                 group.getId(),
                 group.getName(),
@@ -220,6 +246,10 @@ public class GroupService {
         if (groupMemberRepository.findByUserAndGroup(user, group).isPresent()) {
             throw new GroupException(GroupErrorCode.ALREADY_MEMBER);
         }
+
+        // 3-1. 소속 그룹 수 상한 → GROUP_LIMIT_EXCEEDED
+        // (이미 멤버인 경우는 위에서 ALREADY_MEMBER 로 끝나므로 상한에 걸리지 않는다)
+        ensureJoinedGroupLimit(user);
 
         // 4. 정원 확인 → ROOM_FULL
         if (group.getMaxMembers() <= groupMemberRepository.findByGroup(group).size()) {
@@ -274,6 +304,13 @@ public class GroupService {
                 .build();
     }
 
+    /**
+     * 참가 코드 재발급.
+     *
+     * @deprecated 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 앱이 더 이상 호출하지 않는다.
+     *     엔드포인트를 남겨두는 것은 계약 파괴를 피하기 위함이며, 실제 제거는 후속 정리 티켓에서 다룬다.
+     */
+    @Deprecated
     @Transactional
     public RenewGroupCodeResponse renewGroupCode(UUID groupId, UUID userId) {
         User user = userRepository.findById(userId)
@@ -355,6 +392,7 @@ public class GroupService {
                 .windowEnd(mission.windowEnd())
                 .maxMembers(group.getMaxMembers())
                 .status(group.getStatus())
+                .isPrivate(group.isPrivate())
                 .members(list)
                 .code(joinCode != null ? joinCode.getCode() : null)
                 .codeExpiresAt(joinCode != null ? joinCode.getExpiresAt() : null)
@@ -473,6 +511,21 @@ public class GroupService {
         }
     }
 
+    /**
+     * 유저가 이미 {@link #MAX_JOINED_GROUPS} 개 그룹에 소속돼 있으면 409({@code GROUP_LIMIT_EXCEEDED}).
+     * 모수는 getMyGroups 와 같은 group_members 행 수다(탈퇴는 행 삭제라 자연 제외).
+     *
+     * <p>동시성: count → insert 사이에 락이 없어 동시 요청이 상한을 1~2 개 넘길 수 있다(TOCTOU).
+     * 바로 아래 ROOM_FULL 검사도 같은 count-then-insert 패턴이고, 이 상한은 보안 경계가 아니라
+     * 응답 크기를 묶는 소프트 캡이라 의도적으로 수용한다 — 버그가 아니라 결정이다. 엄격히 막으려면
+     * 유저 행 잠금이나 DB 제약이 필요한데, 그 비용(유저 행 경합)이 초과 1~2 개보다 크다고 봤다.
+     */
+    private void ensureJoinedGroupLimit(User user) {
+        if (groupMemberRepository.countByUser(user) >= MAX_JOINED_GROUPS) {
+            throw new GroupException(GroupErrorCode.GROUP_LIMIT_EXCEEDED);
+        }
+    }
+
     /** 공지 작성 권한(ALLOW)을 가진 멤버 id 목록 — 방장은 컬럼과 무관하게 항상 가능하므로 제외한다. */
     private List<UUID> noticeGrantedUserIds(List<GroupMember> members) {
         return members.stream()
@@ -544,6 +597,13 @@ public class GroupService {
         private static final RepresentativeMission EMPTY = new RepresentativeMission(null, null, null, null, null);
     }
 
+    /**
+     * 8자 참가 코드 생성.
+     *
+     * @deprecated 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31).
+     *     createGroup 이 아직 호출하지만 발급된 코드를 조회하는 경로가 없다. CHARS/RANDOM 도 같이 dead 다.
+     */
+    @Deprecated
     private String generateUniqueCode() {
         StringBuilder sb = new StringBuilder(8);
         for (int i = 0; i < 10; i++) {
