@@ -181,5 +181,21 @@ export function useLeagueRanking() {
         1
       : null;
 
-  return { ranking, me, myLeagueLabel, myMinutes, mySeconds, myLeagueRank, error, refetch };
+  // 조회 '의도' 라벨 — 카테고리에서 직접 파생하므로 조회 성패와 무관하게 확정된다. 실패로
+  // myLeagueLabel을 못 받았을 때도 화면이 '내 리그'가 무엇인지 알 수 있게 노출한다(GROMO-922
+  // 코드리뷰 반영). 빈 성공의 전역 폴백(GROMO-657) label=null과 달리 직군 미배정일 때만 null.
+  const intendedLeagueLabel =
+    occupationForCategory(myCategory) != null ? (myCategory ?? null) : null;
+
+  return {
+    ranking,
+    me,
+    myLeagueLabel,
+    intendedLeagueLabel,
+    myMinutes,
+    mySeconds,
+    myLeagueRank,
+    error,
+    refetch,
+  };
 }
