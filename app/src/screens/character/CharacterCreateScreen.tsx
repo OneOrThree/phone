@@ -23,6 +23,7 @@ import {
   type SubjectMaskResult,
 } from '@/services/subjectMask';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
+import { useUser } from '@/store/UserContext';
 import { T } from '@/constants/theme';
 
 // 사진에서 캐릭터 만들기 화면 — 앨범/카메라로 사물 사진을 얻으면 온디바이스 누끼(Vision) 후
@@ -45,10 +46,16 @@ interface Props {
 export default function CharacterCreateScreen({ onComplete }: Props) {
   const navigation = useNavigation<NativeStackNavigationProp<never>>();
   const { width } = useWindowDimensions();
+  // 이 화면은 로그인 후 메뉴에서 진입하므로 UserProvider 안 — userId를 안전하게 얻을 수 있다.
+  const { userId } = useUser();
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [result, setResult] = useState<SubjectMaskResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 오브젝트 이미지 디코드 완료 여부 — cutout 반환 즉시 phase는 ready가 되지만 <Image>가
+  // 아직 디코딩 중일 수 있어, 그 전에 저장하면 captureRef가 사진 물체가 빠진 채로 굽는다.
+  // 새 결과·회전으로 uri가 바뀌면 false로 리셋하고 ObjectCharacter onLoad에서 다시 true로.
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   // 합성 미리보기를 감싸는 컨테이너 — 저장 시 이 View를 통째로 캡처해 PNG로 굽는다.
   const captureViewRef = useRef<View>(null);
@@ -59,6 +66,7 @@ export default function CharacterCreateScreen({ onComplete }: Props) {
   // 얻은 사진(앨범/카메라 공통)을 같은 누끼 흐름에 태운다.
   const runCutout = useCallback(async (asset: ImagePicker.ImagePickerAsset) => {
     setPhase('working');
+    setImageLoaded(false); // 새 물체 이미지 — 디코드 완료 전까지 저장 잠금
     const cut = await cutoutSubject(asset.uri, {
       width: asset.width ?? 0,
       height: asset.height ?? 0,
@@ -107,6 +115,7 @@ export default function CharacterCreateScreen({ onComplete }: Props) {
       context.rotate(90);
       const image = await context.renderAsync();
       const out = await image.saveAsync({ format: SaveFormat.PNG });
+      setImageLoaded(false); // 회전된 새 이미지 — 디코드 완료 전까지 저장 잠금
       setResult((prev) =>
         prev ? { ...prev, uri: out.uri, width: out.width, height: out.height } : prev,
       );
@@ -121,7 +130,8 @@ export default function CharacterCreateScreen({ onComplete }: Props) {
     setPhase('saving');
     try {
       const base64 = await captureRef(captureViewRef, { format: 'png', result: 'base64' });
-      const uri = await saveCustomCharacter(base64);
+      // userId를 넘겨 유저별 파일로 저장 — 한 기기 두 계정이 서로 덮어쓰지 않게 한다.
+      const uri = await saveCustomCharacter(base64, userId);
       // 생성 즉시 위젯 반영 — 방금 구운 base64를 App Group 스냅샷에도 전파해, 다음 집중 세션까지
       // 안 기다리고 홈 위젯이 바로 갱신되게 한다. 스냅샷은 비필수라 실패해도 저장/onComplete를
       // 막지 않게 삼킨다(집중 화면이 스냅샷을 비필수로 다루는 것과 동일).
@@ -141,10 +151,13 @@ export default function CharacterCreateScreen({ onComplete }: Props) {
       setError('캐릭터를 저장하지 못했어요. 다시 시도해 주세요.');
       setPhase('ready');
     }
-  }, [result, onComplete, navigation]);
+  }, [result, onComplete, navigation, userId]);
 
   const aspect = result && result.height > 0 ? result.width / result.height : 1;
   const saving = phase === 'saving';
+  // 처리 중(working)엔 result에 이전 값이 남아 액션이 보이지만 미리보기는 스피너다 —
+  // 이때 저장하면 captureRef가 언마운트된 타깃을 잡아 실패하므로 회전·재선택·저장을 모두 잠근다.
+  const busy = phase === 'working' || saving;
 
   return (
     <SettingsScaffold
@@ -177,6 +190,7 @@ export default function CharacterCreateScreen({ onComplete }: Props) {
                   aspect={aspect}
                   maxWidth={stageWidth}
                   maxHeight={STAGE_HEIGHT - 90}
+                  onLoad={() => setImageLoaded(true)}
                 />
               </View>
             ) : (
@@ -206,7 +220,7 @@ export default function CharacterCreateScreen({ onComplete }: Props) {
                 <TouchableOpacity
                   style={s.tool}
                   onPress={rotate}
-                  disabled={saving}
+                  disabled={busy}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="refresh-outline" size={20} color={T.ink} />
@@ -215,7 +229,7 @@ export default function CharacterCreateScreen({ onComplete }: Props) {
                 <TouchableOpacity
                   style={s.tool}
                   onPress={pick}
-                  disabled={saving}
+                  disabled={busy}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="images-outline" size={20} color={T.ink} />
@@ -224,7 +238,7 @@ export default function CharacterCreateScreen({ onComplete }: Props) {
                 <TouchableOpacity
                   style={s.tool}
                   onPress={takePhoto}
-                  disabled={saving}
+                  disabled={busy}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="camera-outline" size={20} color={T.ink} />
@@ -232,10 +246,11 @@ export default function CharacterCreateScreen({ onComplete }: Props) {
                 </TouchableOpacity>
               </View>
 
+              {/* 저장 — 처리 중(busy)이거나 이미지 디코드 완료 전(imageLoaded=false)엔 잠근다 */}
               <TouchableOpacity
-                style={[s.primary, saving && s.primaryDisabled]}
+                style={[s.primary, (busy || !imageLoaded) && s.primaryDisabled]}
                 onPress={save}
-                disabled={saving}
+                disabled={busy || !imageLoaded}
                 activeOpacity={0.85}
               >
                 {saving ? (

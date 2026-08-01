@@ -72,20 +72,41 @@ public class SubjectMaskModule: Module {
     }
 
     // 합성된 오브젝트 캐릭터(팔·다리·눈까지 구워진 투명 PNG)를 Documents에 영구 저장한다.
-    // 화면에서 captureRef로 캡처한 base64 PNG를 그대로 받아 customCharacter.png 한 장으로 쓴다
-    // (이전 것을 덮어써 항상 1장만 유지). 이건 인앱 캐릭터 원본이라 cutout처럼 축소하지 않는다 —
+    // 화면에서 captureRef로 캡처한 base64 PNG를 그대로 받아 유저별 파일 한 장으로 쓴다
+    // (이전 것을 덮어써 유저당 1장만 유지). 이건 인앱 캐릭터 원본이라 cutout처럼 축소하지 않는다 —
     // 작은 아바타·위젯·실드는 이 원본을 각자 크기로 축소해 쓴다.
     // cutout과 달리 실패 시 폴백하지 않고 throw한다(영구 저장은 성공/실패가 명확해야 한다).
-    AsyncFunction("saveCustomCharacter") { (base64: String) -> String in
+    //
+    // userId: 한 기기에 두 계정이 각각 누끼 캐릭터를 만들면 파일이 공유돼 서로 덮어써
+    // 계정 전환 시 남의 캐릭터가 뜬다(CharacterContext는 계정별인데 파일이 공유됨). 이를 막기 위해
+    // userId가 있으면 유저별 파일명으로 저장한다 — 원자적 쓰기라 그 유저의 이전 파일만 교체된다.
+    // userId가 nil/빈값이면 기존 단일 파일명(customCharacter.png)으로 폴백한다(하위호환).
+    AsyncFunction("saveCustomCharacter") { (base64: String, userId: String?) -> String in
       guard let data = Data(base64Encoded: base64), UIImage(data: data) != nil else {
         throw SubjectMaskError.decodeFailed
       }
       let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-      let file = dir.appendingPathComponent("customCharacter.png")
-      // .atomic: 임시 파일에 쓴 뒤 원자적으로 교체 — 이전 파일을 안전하게 덮어쓴다.
+      let file = dir.appendingPathComponent(SubjectMaskModule.customCharacterFileName(userId: userId))
+      // .atomic: 임시 파일에 쓴 뒤 원자적으로 교체 — 그 유저의 이전 파일만 안전하게 덮어쓴다.
       try data.write(to: file, options: .atomic)
       return file.absoluteString
     }
+  }
+
+  // MARK: - 유저별 캐릭터 파일명
+
+  // 유저별 캐릭터 파일명을 만든다. userId가 없거나 빈 값이면 기존 단일 파일명으로 폴백(하위호환).
+  // 파일명엔 영숫자·하이픈·언더스코어만 남긴다 — JWT sub UUID는 원래 안전하지만 방어적으로 정제하고,
+  // 정제 후 비면(비ASCII만 있던 경우) 폴백해 잘못된 파일명으로 저장 실패하는 일을 막는다.
+  private static func customCharacterFileName(userId: String?) -> String {
+    guard let userId = userId, !userId.isEmpty else {
+      return "customCharacter.png"
+    }
+    let allowed = CharacterSet(
+      charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+    let safe = String(userId.unicodeScalars.filter { allowed.contains($0) })
+    guard !safe.isEmpty else { return "customCharacter.png" }
+    return "customCharacter_\(safe).png"
   }
 
   // MARK: - 이미지 로딩
