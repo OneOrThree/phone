@@ -22,3 +22,19 @@ export function screenTimeGoalReward(limitMinutes: number): number {
   if (limitMinutes <= 420) return 20;
   return 10;
 }
+
+// 리그 승급 보너스 — 승급한(도달한) 티어 레벨별 고정. 2(예열)+50·3(초집중)+100·4(갓생러)+200·5(정복자)+500, 그 외 0.
+export function leaguePromotionReward(tierLevel: number): number {
+  switch (tierLevel) {
+    case 2:
+      return 50;
+    case 3:
+      return 100;
+    case 4:
+      return 200;
+    case 5:
+      return 500;
+    default:
+      return 0;
+  }
+}

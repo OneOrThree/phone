@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { T, withAlpha } from '@/constants/theme';
 import { CURRENCY } from '@/constants/currency';
+import { leaguePromotionReward } from '@/utils/currencyRewards';
 import { tierByLevel } from '@/constants/tiers';
 import { ackLastResult } from '@/services/leagueApi';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -45,8 +46,13 @@ export default function LeagueResultScreen() {
   const route = useRoute<RouteProp<V2RootStackParamList, 'LeagueResult'>>();
   const { type, fromLevel, toLevel, weekHours, weekStartAt, promotionBonusCoins } = route.params;
   const cfg = TYPE_CFG[type];
-  // 승급 보상 시간조각 — 승급(promote)이고 서버가 보상을 실어 보낸 경우에만 배지 표기.
-  const showBonus = type === 'promote' && (promotionBonusCoins ?? 0) > 0;
+  // 승급 보상 시간조각 — 서버가 실어 보낸 값(promotionBonusCoins)을 우선 쓰되, 아직 서버가 안 보내면
+  // 도달 티어(toLevel)로 같은 공식(utils/currencyRewards)을 클라에서 계산해 폴백한다(BE 머지 전에도 표기).
+  const bonusCoins =
+    promotionBonusCoins && promotionBonusCoins > 0
+      ? promotionBonusCoins
+      : leaguePromotionReward(toLevel);
+  const showBonus = type === 'promote' && bonusCoins > 0;
 
   // 닫힐 때(CTA·제스처 모두 unmount 경유) 확인 처리 — 실패하면 리그 탭 재포커스 때
   // useLeagueLastResult가 미확인 상태를 감지해 재노출 없이 ack만 재시도한다(멱등)
@@ -292,7 +298,7 @@ export default function LeagueResultScreen() {
         {showBonus ? (
           <Animated.View style={[s.bonusBadge, lineStyle(line3)]}>
             <Text style={s.bonusText}>
-              +{(promotionBonusCoins ?? 0).toLocaleString()} {CURRENCY.label}
+              +{bonusCoins.toLocaleString()} {CURRENCY.label}
             </Text>
           </Animated.View>
         ) : null}
