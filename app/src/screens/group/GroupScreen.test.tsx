@@ -84,15 +84,22 @@ jest.mock('./GroupRoomScreen', () => {
   };
 });
 
-// 목록 본체는 목록 트랙 소관 — 여기서는 배관이 넘기는 groups·onSelect 계약만 잠근다.
+// 목록 본체(카드·CTA 규격)는 GroupListScreen.test.tsx가 맡는다 —
+// 여기서는 GroupScreen이 넘기는 5개 prop이 각각 어떤 전이로 이어지는지만 잠근다.
 jest.mock('./GroupListScreen', () => {
   const { Text: RNText, TouchableOpacity: RNTouchable, View: RNView } = require('react-native');
   return function MockList({
     groups,
     onSelect,
+    onCreate,
+    onFind,
+    onRefresh,
   }: {
     groups: { groupId: string; name: string }[];
     onSelect: (groupId: string) => void;
+    onCreate: () => void;
+    onFind: () => void;
+    onRefresh: () => Promise<void>;
   }) {
     return (
       <RNView>
@@ -102,6 +109,15 @@ jest.mock('./GroupListScreen', () => {
             <RNText>{`목록-${g.name}`}</RNText>
           </RNTouchable>
         ))}
+        <RNTouchable onPress={onCreate}>
+          <RNText>목록-만들기</RNText>
+        </RNTouchable>
+        <RNTouchable onPress={onFind}>
+          <RNText>목록-찾기</RNText>
+        </RNTouchable>
+        <RNTouchable onPress={() => onRefresh()}>
+          <RNText>목록-새로고침</RNText>
+        </RNTouchable>
       </RNView>
     );
   };
@@ -140,6 +156,7 @@ const mockClear = clearPendingInvite as jest.MockedFunction<typeof clearPendingI
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const GROUP_ID_2 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
+const GROUP_ID_3 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d77';
 
 function summary(): GroupSummaryResponse {
   return {
@@ -155,6 +172,10 @@ function summary(): GroupSummaryResponse {
 
 function otherSummary(): GroupSummaryResponse {
   return { ...summary(), groupId: GROUP_ID_2, name: '저녁 스터디' };
+}
+
+function thirdSummary(): GroupSummaryResponse {
+  return { ...summary(), groupId: GROUP_ID_3, name: '주말 모각공' };
 }
 
 async function renderScreen() {
@@ -299,6 +320,52 @@ describe('목록 분기(0/1/N)', () => {
 
     await press('목록-저녁 스터디');
     expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', { groupId: GROUP_ID_2 });
+  });
+
+  test('당겨서 새로고침으로 1건이 되면 목록을 접고 내장 그룹방으로 돌아간다', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
+    await renderScreen();
+    expect(mockGetMyGroups).toHaveBeenCalledTimes(1);
+
+    // 다른 기기에서 한 그룹을 나간 뒤 새로고침한 상황.
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await press('목록-새로고침');
+
+    expect(mockGetMyGroups).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('그룹방')).toBeOnTheScreen();
+    expect(screen.queryByText('목록 1건')).toBeNull();
+  });
+});
+
+// 목록의 하단 CTA 2개 — 빈 상태와 같은 동작으로 이어져야 한다(2차 §3-1).
+// 목록은 스스로 navigate·시트 오픈을 하지 않으므로, 배선을 쥔 쪽이 GroupScreen임을 여기서 잠근다.
+describe('목록의 만들기·찾기 진입점', () => {
+  test('그룹 만들기 — GroupCreate로 보내고 돌아온 뒤 재조회 결과가 반영된다', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
+    await renderScreen();
+
+    await press('목록-만들기');
+    expect(mockNavigate).toHaveBeenCalledWith('GroupCreate');
+
+    // 만들고 돌아오면 포커스 재조회가 새 그룹을 목록에 얹는다.
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary(), thirdSummary()]);
+    await refocus();
+    expect(screen.getByText('목록 3건')).toBeOnTheScreen();
+  });
+
+  test('그룹 찾기 — 시트를 열고 참여가 끝나면 재조회로 목록에 반영한다', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
+    await renderScreen();
+    expect(screen.queryByText('찾기-참여완료')).toBeNull();
+
+    await press('목록-찾기');
+    expect(screen.getByText('찾기-참여완료')).toBeOnTheScreen();
+
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary(), thirdSummary()]);
+    await press('찾기-참여완료');
+
+    expect(screen.getByText('목록 3건')).toBeOnTheScreen();
+    expect(screen.queryByText('찾기-참여완료')).toBeNull(); // 시트는 닫힌다
   });
 });
 
