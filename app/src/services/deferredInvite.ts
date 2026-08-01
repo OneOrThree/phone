@@ -121,6 +121,12 @@ async function matchOnce(): Promise<void> {
     // 보관 실패는 claim(어트리뷰션 연결)만 못 하게 할 뿐 — 초대 시트는 그대로 띄운다.
   }
 
+  // 요청이 나가 있던 사이(최대 5초) 직접 링크가 버퍼를 선점했을 수 있다 — 사용자가 방금
+  // 명시적으로 누른 링크를 확률적 매치 결과로 덮지 않는다("직접 링크가 항상 이긴다").
+  // attribution 은 위에서 이미 보관했다: 설치 전 클릭이라는 사실 자체는 유효해서
+  // 로그인 직후 claim(유저 연결, 스펙 §2-3 ③)은 그대로 진행돼야 한다.
+  if (peekPendingInvite()) return;
+
   // 여기부터는 링크로 들어온 초대와 **완전히 같은 체인**이다(버퍼 → GroupScreen → 초대 시트).
   // entry='deferred'가 6b 이벤트와 join_method(deferred_invite)를 가른다.
   notifyGroupInvite({ groupId: attribution.groupId, slug: attribution.slug, entry: 'deferred' });

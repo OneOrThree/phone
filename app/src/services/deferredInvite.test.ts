@@ -119,6 +119,27 @@ describe('runDeferredInviteMatchOnce', () => {
     expect(await AsyncStorage.getItem(STORAGE_KEYS.deferredInviteChecked)).toBe('1');
   });
 
+  // match 요청이 나가 있던 사이(최대 5초) 사용자가 직접 링크로 복귀한 경우 —
+  // 뒤늦게 돌아온 확률적 매치가 방금 누른 확실한 링크를 덮으면 안 된다.
+  // 단 attribution 은 보관한다: 설치 전 클릭 사실은 유효하므로 claim(유저 연결)은 진행된다.
+  test('응답 대기 중 직접 링크가 버퍼를 선점하면 deferred 초대는 버린다', async () => {
+    mockPost.mockImplementation(async () => {
+      // 요청이 나가 있는 동안 직접 링크가 도착한 상황을 재현한다.
+      mockPeek.mockReturnValue({ groupId: GROUP_ID, slug: 'direct88', entry: 'link' });
+      return { data: { matched: true, slug: SLUG, groupId: GROUP_ID } };
+    });
+
+    await runDeferredInviteMatchOnce();
+
+    expect(notifyGroupInvite).not.toHaveBeenCalled();
+    expect(await getStoredInviteAttribution()).toEqual({
+      slug: SLUG,
+      groupId: GROUP_ID,
+      claimed: false,
+    });
+    expect(await AsyncStorage.getItem(STORAGE_KEYS.deferredInviteChecked)).toBe('1');
+  });
+
   // 앱 시작 경로가 두 번 도는 경우(재마운트·핫리로드)에도 요청은 한 번만 나가야 한다.
   test('같은 실행에서 동시에 두 번 불려도 요청은 한 번만 나간다', async () => {
     mockPost.mockResolvedValue({ data: { matched: false } });
