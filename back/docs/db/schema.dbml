@@ -458,7 +458,9 @@ Table groups [note: '스터디/챌린지 그룹'] {
   name             varchar(50)           [not null, default: '', note: '그룹 이름']
   description      varchar(200)          [note: '그룹 소개']
 
-  password         varchar(100)          [note: 'BCrypt 해시, null이면 공개 그룹']
+  password         varchar(100)          [note: '레거시 BCrypt 해시(참여 시 확인). 공개/비공개와 무관 — 공개 여부는 is_private 가 결정']
+
+  is_private       boolean               [not null, default: false, note: 'true면 이름 검색에서 제외되고 초대 링크(groupId)로만 참여 (V17)']
 
   status           group_status          [not null, default: 'WAITING', note: '챌린지 진행중 여부 파악']
 
@@ -472,6 +474,12 @@ Table groups [note: '스터디/챌린지 그룹'] {
   created_at                     timestamptz [not null, default: `now()`]
   updated_at                     timestamptz
   deleted_at                     timestamptz [note: '삭제 시각 (소프트 딜리트 감사 로그용)']
+
+  indexes {
+    // 공개 그룹 이름 fuzzy 검색용 GIN 트라이그램 인덱스 (V18, 닉네임 검색과 동형)
+    //   전제 확장: CREATE EXTENSION pg_trgm  /  쿼리: name % :q ORDER BY name <-> :q
+    name [type: gin, name: 'idx_groups_name_trgm', note: 'pg_trgm GIN (gin_trgm_ops) — 그룹 이름 trgm 검색, V18']
+  }
 }
 
 Table group_join_codes [note: '그룹 참가 코드 (groups에서 분리, 1:1). 발급·만료·재발급 관리. 추후 활성 코드 검증·만료를 Redis(TTL)로 이관 가능 — 이 테이블이 캐시 계층 경계'] {
