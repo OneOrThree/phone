@@ -115,20 +115,29 @@ function challenge(over: Partial<GroupChallengeResponse> = {}): GroupChallengeRe
   };
 }
 
-function sheet(mode: 'create' | 'join', over: Partial<GroupChallengeResponse> = {}) {
+function sheet(
+  mode: 'create' | 'join',
+  over: Partial<GroupChallengeResponse> = {},
+  myAchieved = false,
+) {
   return (
     <BetSheet
       groupId={GROUP_ID}
       challenge={challenge(over)}
       mode={mode}
+      myAchieved={myAchieved}
       onClose={onClose}
       onDone={onDone}
     />
   );
 }
 
-async function renderSheet(mode: 'create' | 'join', over: Partial<GroupChallengeResponse> = {}) {
-  const result = await render(sheet(mode, over));
+async function renderSheet(
+  mode: 'create' | 'join',
+  over: Partial<GroupChallengeResponse> = {},
+  myAchieved = false,
+) {
+  const result = await render(sheet(mode, over, myAchieved));
   await act(async () => {});
   return result;
 }
@@ -182,6 +191,23 @@ describe('개설 모드', () => {
     expect(screen.getByTestId('group.bet.balance')).toHaveTextContent('100');
     // 시트를 열 때 서버 잔액을 다시 받는다 — 판돈 차감·정산 지급은 서버가 하기 때문이다.
     expect(mockRefresh).toHaveBeenCalled();
+  });
+
+  // 개설자는 자동 참가라(계약 §2-1) 달성자는 **개설도** 서버가 거절한다(BET_ALREADY_ACHIEVED).
+  // 참가 모드와 같은 잠금을 개설에도 건다 — 근거만 다르다(내기가 없어 진행률에서 파생한 myAchieved).
+  // 문구는 카드의 개설 차단 사유와 같은 문장이다 — 참가 문구를 쓰면 참가 버튼이 없는 자리에서
+  // 무엇이 막혔는지 말해 주지 못한다.
+  test('열어 둔 사이 목표를 달성하면 CTA를 잠그고 개설 사유를 적는다', async () => {
+    const { rerender } = await renderSheet('create');
+    expect(screen.getByText('내기 열기')).toBeOnTheScreen();
+
+    await act(async () => {
+      rerender(sheet('create', {}, true));
+    });
+
+    expect(screen.getByText('이미 오늘 목표를 달성해서 내기를 열 수 없어요')).toBeOnTheScreen();
+    await submit();
+    expect(mockCreateBet).not.toHaveBeenCalled();
   });
 
   // 숫자만 있으면 VoiceOver는 "10 30 50 100"이라고만 읽는다 — 무엇을 고르는 자리인지도,

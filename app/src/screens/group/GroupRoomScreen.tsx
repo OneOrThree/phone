@@ -84,8 +84,15 @@ function staleBetSheetAlert(
   challenge: GroupChallengeResponse,
 ): [string, string] | null {
   const live = challenge.bet ?? null;
-  // 개설 시트의 진입 조건은 '아직 내기가 없다' — 그새 열렸으면 개설은 반드시 실패한다.
+  // 개설 시트의 진입 조건은 두 가지다(ChallengeCard의 betOpenable · bet === null) —
+  // 둘 중 하나라도 최신 챌린지에서 깨지면 닫는다.
   if (sheet.mode === 'create') {
+    // 끝난 챌린지에는 새로 돈을 걸 수 없다 — 카드가 진입점을 막는 기준과 같다.
+    // 서버 개설 경로는 상태를 보지 않아 그대로 열리므로, 여기서 막지 않으면 앱이 종료로
+    // 취급하는 챌린지에 판돈만 빠져나간 내기가 생긴다.
+    if (challenge.status !== 'ACTIVE') {
+      return ['끝난 챌린지예요', '종료된 챌린지에는 내기를 열 수 없어요.'];
+    }
     return live === null
       ? null
       : ['이미 오늘 내기가 열려 있어요', '최신 상태예요. 참가하려면 다시 열어주세요.'];
@@ -306,6 +313,11 @@ export default function GroupRoomScreen({
     betSheet !== null && challenges !== null
       ? (challenges.find((c) => c.id === betSheet.challengeId) ?? null)
       : null;
+  // 개설 시트의 달성 잠금 근거 — 내기가 없는 챌린지엔 bet.myAchievedNow가 없어 진행률에서 파생한다
+  // (카드의 개설 진입점이 쓰는 계산 그대로). null(미판정)은 달성으로 세지 않는다.
+  const betMyAchieved =
+    !!userId &&
+    !!betChallenge?.memberProgress?.some((p) => p.userId === userId && p.achieved === true);
 
   // 시트가 가리키던 대상이 사라졌으면 닫는다 — 없는 챌린지의 낡은 화면으로 돈을 걸 수는 없다.
   // 시트를 연 근거(모드의 진입 조건)가 최신 챌린지에서 깨진 경우도 같다(staleBetSheetAlert).
@@ -761,6 +773,7 @@ export default function GroupRoomScreen({
           groupId={groupId}
           challenge={betChallenge}
           mode={betSheet.mode}
+          myAchieved={betMyAchieved}
           onClose={() => setBetSheet(null)}
           onDone={() => {
             setBetSheet(null);

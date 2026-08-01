@@ -59,6 +59,9 @@ const BALANCE_UNKNOWN = '—';
 const BALANCE_FAILED_CAPTION = '잔액을 불러오지 못했어요';
 // 이미 달성 — 카드의 진입 차단 사유와 **같은 문장**을 쓴다(같은 사실을 두 자리에서 달리 말하지 않는다).
 const BET_ACHIEVED_CAPTION = '이미 오늘 목표를 달성해서 참가할 수 없어요';
+// 개설도 같은 사실로 막히지만(개설자는 자동 참가라 서버가 BET_ALREADY_ACHIEVED로 거절한다)
+// 막히는 동작이 달라 문장을 따로 둔다 — 카드의 BET_ACHIEVED_CREATE_CAPTION과 같은 문장이다.
+const BET_ACHIEVED_CREATE_CAPTION = '이미 오늘 목표를 달성해서 내기를 열 수 없어요';
 // 전송 중 — 딤 탭·백을 막는 대신(F10) 멈춘 화면이 아님을 한 줄로 알린다.
 const SUBMITTING_CAPTION = '처리 중이에요…';
 
@@ -72,13 +75,25 @@ export interface BetSheetProps {
   // 내기를 걸 챌린지 — 요약 라벨·challengeId·현재 내기(참가 모드의 판돈·팟·참가자)를 여기서 읽는다.
   challenge: GroupChallengeResponse;
   mode: BetSheetMode;
+  // 내가 오늘 목표를 이미 달성했는가 — **개설 모드**의 잠금 근거다.
+  // 참가 모드는 서버가 준 bet.myAchievedNow를 쓰지만, 내기가 없는 챌린지엔 bet 자체가 없어
+  // 이 사실을 실어 올 자리가 없다. 부모(GroupRoomScreen)가 challenge.memberProgress에서
+  // 파생해 내려준다 — 카드의 개설 진입점이 쓰는 근거와 같은 값이다.
+  myAchieved: boolean;
   // 딤 탭·취소 — 부모가 시트를 내린다.
   onClose: () => void;
   // 성공(또는 성공과 같게 취급하는 상태) — 부모가 시트를 내리고 챌린지를 재조회한다.
   onDone: () => void;
 }
 
-export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: BetSheetProps) {
+export default function BetSheet({
+  groupId,
+  challenge,
+  mode,
+  myAchieved,
+  onClose,
+  onDone,
+}: BetSheetProps) {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { coins, coinsLoaded, coinsVersion, refresh } = useCoins();
   const [stake, setStake] = useState<number>(STAKE_DEFAULT);
@@ -109,10 +124,13 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
     shortage <= 0;
   const serverInsufficient =
     insufficientVerdict !== null && amount >= insufficientVerdict.stake && !balanceOverridesVerdict;
-  // 시트를 연 뒤 목표를 달성했다면(부모가 살아 있는 challenge를 갈아 끼운다) 참가는 반드시
-  // 거절된다(BET_ALREADY_ACHIEVED) — 카드가 진입 시점에 쓰는 기준을 시트도 끝까지 민다.
-  // 시트를 닫지는 않는다: 팟·참가자를 보고 있는 화면을 걷을 이유는 없어 CTA만 잠그고 사유를 적는다.
-  const achievedBlocked = !isCreate && bet?.myAchievedNow === true;
+  // 시트를 연 뒤 목표를 달성했다면(부모가 살아 있는 challenge를 갈아 끼운다) 참가도 개설도 반드시
+  // 거절된다(BET_ALREADY_ACHIEVED — 개설자는 자동 참가라 같은 가드에 걸린다) — 카드가 진입
+  // 시점에 쓰는 기준을 시트도 끝까지 민다. 근거만 모드별로 다르다: 참가는 서버가 준 내기의
+  // myAchievedNow, 개설은 내기가 없어 부모가 진행률에서 파생해 준 myAchieved다.
+  // 시트를 닫지는 않는다: 팟·참가자(개설은 고른 판돈)를 보고 있는 화면을 걷을 이유는 없어
+  // CTA만 잠그고 사유를 적는다.
+  const achievedBlocked = isCreate ? myAchieved : bet?.myAchievedNow === true;
   // 참가 모드인데 내기가 없다 = 카드가 열어 줄 수 없는 조합(부모가 막는다). 방어적으로 CTA만 잠근다.
   const disabled =
     submitting ||
@@ -333,8 +351,10 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
       {/* 서버가 확정한 부족. 잔액을 다시 받아 부족분(N)까지 알게 되면 CTA 라벨이 규격대로
           `코인이 부족해요 (N 필요)`를 말하므로(§1), 같은 문장을 두 번 적지 않는다. */}
       {serverInsufficient && !insufficient && <Text style={s.error}>코인이 부족해요</Text>}
-      {/* 잠긴 CTA에는 사유가 붙어야 한다 — 카드가 쓰는 문장 그대로다. */}
-      {achievedBlocked && <Text style={s.error}>{BET_ACHIEVED_CAPTION}</Text>}
+      {/* 잠긴 CTA에는 사유가 붙어야 한다 — 카드가 쓰는 문장 그대로(모드별로 갈린다). */}
+      {achievedBlocked && (
+        <Text style={s.error}>{isCreate ? BET_ACHIEVED_CREATE_CAPTION : BET_ACHIEVED_CAPTION}</Text>
+      )}
       {errorMsg !== null && <Text style={s.error}>{errorMsg}</Text>}
 
       <TouchableOpacity

@@ -760,6 +760,61 @@ describe('내기 배선', () => {
     expect(mockCreateBet).not.toHaveBeenCalled();
   });
 
+  // 개설 진입점의 나머지 한 축 — 끝난 챌린지엔 새로 돈을 걸 수 없다(카드의 betOpenable).
+  // 서버 개설 경로는 챌린지 상태를 보지 않아 그대로 성립한다 — 막지 않으면 앱이 종료로 취급하는
+  // 챌린지에 판돈만 빠져나간 내기가 남는다. 참가 쪽 상태 검사와 대칭이다.
+  test('개설 시트를 연 사이 챌린지가 끝나면 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+
+    await press('내기 걸기');
+    expect(screen.getByText('내기 열기')).toBeOnTheScreen();
+
+    mockGetChallenges.mockResolvedValue([challenge({ status: 'INACTIVE' })]);
+    await foreground();
+
+    await waitFor(() => expect(screen.queryByText('내기 열기')).toBeNull());
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '끝난 챌린지예요',
+      '종료된 챌린지에는 내기를 열 수 없어요.',
+    );
+    expect(mockCreateBet).not.toHaveBeenCalled();
+  });
+
+  // 달성 전이는 시트를 닫지 않는다 — 고른 판돈을 보고 있는 화면을 걷을 이유가 없어 CTA만 잠근다.
+  // 내기가 없는 챌린지엔 bet.myAchievedNow가 없어, 화면이 진행률에서 파생해 시트로 내려준다.
+  test('개설 시트를 연 사이 내가 목표를 달성하면 CTA만 잠근다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+
+    await press('내기 걸기');
+    expect(screen.getByText('내기 열기')).toBeOnTheScreen();
+
+    // 집중 세션이 끝나 오늘 목표를 채웠다 — 서버는 이제 개설도 거절한다(BET_ALREADY_ACHIEVED).
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        memberProgress: [{ userId: 'me', nickname: '나', progressMinutes: 60, achieved: true }],
+      }),
+    ]);
+    await foreground();
+
+    // 카드와 시트가 **같은 문장**으로 같은 사실을 말한다(그래서 2개다).
+    await waitFor(() =>
+      expect(screen.getAllByText('이미 오늘 목표를 달성해서 내기를 열 수 없어요')).toHaveLength(2),
+    );
+    // 시트는 닫지 않는다 — 고른 판돈을 보고 있는 화면을 걷지 않고 CTA만 잠근다.
+    expect(screen.getByText('내기 열기')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.submit'));
+    });
+    expect(mockCreateBet).not.toHaveBeenCalled();
+  });
+
   test('시트가 가리키던 챌린지가 사라지면 시트를 닫는다', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);
