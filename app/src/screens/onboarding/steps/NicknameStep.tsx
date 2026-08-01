@@ -63,8 +63,12 @@ export default function NicknameStep({
           autoCorrect={false}
           editable={!submitting}
         />
-        {/* 글자 수 카운터 — 색 처리는 아래 검증 안내와 동일한 validLength 규칙을 따른다. */}
-        <Text style={[s.counter, nickname.length > 0 && !validLength ? s.counterError : null]}>
+        {/* 글자 수 카운터 — 색 처리는 아래 검증 안내와 동일한 validLength 규칙을 따른다.
+            표시 전용이라 터치는 통과시켜 입력창 탭을 막지 않는다. */}
+        <Text
+          pointerEvents="none"
+          style={[s.counter, nickname.length > 0 && !validLength ? s.counterError : null]}
+        >
           {nickname.length}/{NICK_MAX}
         </Text>
       </View>
