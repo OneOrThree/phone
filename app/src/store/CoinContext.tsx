@@ -18,9 +18,14 @@ interface CoinContextValue {
   // 넷(진짜 0 · 최초 로드 실패 · refresh 실패 · 응답 전)이 같은 숫자로 뭉개지면 화면이 사용자의
   // 재산에 대해 거짓을 말한다(3차 리뷰 F1). 잔액으로 사용자를 잠그는 화면은 이 값을 먼저 본다.
   coinsLoaded: boolean;
+  // 지금 쥔 잔액이 **몇 번째로 받아 온 값인가**(성공한 조회마다 +1). 소비자가 '이 잔액이 내가 아는
+  // 어떤 사건보다 나중에 도착한 값인가'를 판정하는 데 쓴다 — 서버가 내린 판정(BetSheet의
+  // INSUFFICIENT_CURRENCY 승격)을 풀어도 되는지는 값의 크기가 아니라 **도착 순서**로 갈린다.
+  coinsVersion: number;
   // 서버 잔액 재조회. 마운트 1회 로드만으로는 **서버가 깎은 잔액**(그룹 내기 판돈 차감·정산 지급)이
   // 앱에 영영 반영되지 않는다 — 잔액을 보여 주는 화면이 열릴 때 직접 부른다(3차 내기 시트).
   // 실패해도 throw하지 않는다(호출처가 try/catch를 두지 않아도 되게) — 대신 coinsLoaded가 false로 돌아간다.
+  // 겹쳐 불러도 **마지막 호출의 결과만** 반영된다(아래 refreshSeqRef).
   refresh: () => Promise<void>;
   addCoins: (amount: number) => Promise<void>;
   isOwned: (itemId: string) => boolean;
@@ -72,18 +77,28 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   const [coins, setCoins] = useState(0);
   // 초기값이 false인 것이 핵심이다 — 응답 전의 0을 '0코인'으로 읽는 화면이 없어야 한다.
   const [coinsLoaded, setCoinsLoaded] = useState(false);
+  const [coinsVersion, setCoinsVersion] = useState(0);
   const [ownedItemIds, setOwnedItemIds] = useState<string[]>([]);
   const loaded = useRef(false);
+  // 조회 시퀀스 — refresh는 여러 곳에서 겹쳐 불린다(시트 오픈 + 성공 직후 + 인라인 재시도).
+  // 순서를 지키지 않으면 **차감 전 잔액**을 실은 늦은 응답이 차감 후 잔액을 덮어써, 화면이
+  // 재산을 과대 표시하고 부족 검사를 잘못 통과시킨다(코덱스 리뷰). 최신 호출의 결과만 반영한다.
+  const refreshSeqRef = useRef(0);
 
   // 서버에서 잔액 로드. 실패해도 던지지 않는다 — 잔액은 화면을 막을 값이 아니고,
   // 다음 refresh(시트 오픈 등)에서 자연 재시도된다. 다만 **조용히 삼키지는 않는다**:
   // coinsLoaded를 false로 되돌려 '지금 쥔 값은 못 믿는다'를 소비자가 알 수 있게 한다(F1).
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeqRef.current;
     try {
       const res = await api.get<number>('/api/v1/currency');
+      // 뒤이어 시작된 조회가 있으면 이 응답은 이미 낡았다 — 실패 처리도 마찬가지로 건너뛴다.
+      if (seq !== refreshSeqRef.current) return;
       setCoins(res.data);
       setCoinsLoaded(true);
+      setCoinsVersion((v) => v + 1);
     } catch {
+      if (seq !== refreshSeqRef.current) return;
       setCoinsLoaded(false);
     }
   }, []);
@@ -135,7 +150,9 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <CoinContext.Provider value={{ coins, coinsLoaded, refresh, addCoins, isOwned, buyItem }}>
+    <CoinContext.Provider
+      value={{ coins, coinsLoaded, coinsVersion, refresh, addCoins, isOwned, buyItem }}
+    >
       {children}
     </CoinContext.Provider>
   );

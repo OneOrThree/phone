@@ -67,7 +67,12 @@ jest.mock('@/services/analyticsEvents', () => ({
 
 // 내기 시트가 잔액을 읽는다(CoinContext) — 테스트 트리엔 Provider가 없어 훅을 대체한다.
 jest.mock('@/store/CoinContext', () => ({
-  useCoins: () => ({ coins: 100, refresh: jest.fn(async () => {}) }),
+  useCoins: () => ({
+    coins: 100,
+    coinsLoaded: true,
+    coinsVersion: 1,
+    refresh: jest.fn(async () => {}),
+  }),
 }));
 
 jest.mock('@/services/groupApi', () => ({
@@ -648,6 +653,107 @@ describe('내기 배선', () => {
     expect(mockJoinBet).not.toHaveBeenCalled();
   });
 
+  // betId만 비교하면 **같은 내기의 상태 전이**를 놓친다 — 시트는 계속 돈을 쓰는 CTA를 세운 채
+  // BET_CLOSED·BET_ALREADY_JOINED를 받게 된다. 모드의 진입 조건이 최신 객체에서도 성립하는지 본다.
+  test('참가하려던 내기가 마감되면 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const openBet = {
+      betId: 'b7',
+      stake: 30,
+      pot: 30,
+      myJoined: false,
+      myAchievedNow: false,
+      participants: [{ userId: 'u2', nickname: '수빈' }],
+    };
+    mockGetChallenges.mockResolvedValue([
+      challenge({ bet: { ...openBet, status: 'OPEN' as const } }),
+    ]);
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.join.c1'));
+    });
+    expect(screen.getByText('참가하기')).toBeOnTheScreen();
+
+    // 자정 정산이 돌았다 — 같은 betId지만 이제 참가할 수 없다.
+    mockGetChallenges.mockResolvedValue([
+      challenge({ bet: { ...openBet, status: 'SETTLED' as const } }),
+    ]);
+    await foreground();
+
+    await waitFor(() => expect(screen.queryByText('참가하기')).toBeNull());
+    expect(alertSpy).toHaveBeenLastCalledWith('마감된 내기예요', '이미 마감돼 참가할 수 없어요.');
+    expect(mockJoinBet).not.toHaveBeenCalled();
+  });
+
+  test('다른 기기에서 이미 참가했으면 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const openBet = {
+      betId: 'b7',
+      stake: 30,
+      pot: 30,
+      status: 'OPEN' as const,
+      myAchievedNow: false,
+      participants: [{ userId: 'u2', nickname: '수빈' }],
+    };
+    mockGetChallenges.mockResolvedValue([challenge({ bet: { ...openBet, myJoined: false } })]);
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.join.c1'));
+    });
+    expect(screen.getByText('참가하기')).toBeOnTheScreen();
+
+    mockGetChallenges.mockResolvedValue([challenge({ bet: { ...openBet, myJoined: true } })]);
+    await foreground();
+
+    await waitFor(() => expect(screen.queryByText('참가하기')).toBeNull());
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '이미 참가한 내기예요',
+      '최신 상태로 새로고침했어요.',
+    );
+    expect(mockJoinBet).not.toHaveBeenCalled();
+  });
+
+  // 개설 시트의 진입 조건은 '아직 내기가 없다' — 그새 누가 열었으면 개설은 BET_ALREADY_EXISTS로
+  // 반드시 실패한다. 실패를 겪게 하는 대신 닫고 참가로 다시 들어오게 한다.
+  test('개설 시트를 연 사이 내기가 열리면 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+
+    await press('내기 걸기');
+    expect(screen.getByText('내기 열기')).toBeOnTheScreen();
+
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        bet: {
+          betId: 'b9',
+          stake: 50,
+          pot: 50,
+          status: 'OPEN',
+          myJoined: false,
+          myAchievedNow: false,
+          participants: [{ userId: 'u2', nickname: '수빈' }],
+        },
+      }),
+    ]);
+    await foreground();
+
+    await waitFor(() => expect(screen.queryByText('내기 열기')).toBeNull());
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '이미 오늘 내기가 열려 있어요',
+      '최신 상태예요. 참가하려면 다시 열어주세요.',
+    );
+    expect(mockCreateBet).not.toHaveBeenCalled();
+  });
+
   test('시트가 가리키던 챌린지가 사라지면 시트를 닫는다', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);
@@ -699,6 +805,41 @@ describe('내기 배선', () => {
     await act(async () => {
       finishReload([challenge({ bet: null })]);
     });
+    await press('내기 걸기');
+    expect(screen.getByText('내기 열기')).toBeOnTheScreen();
+  });
+
+  // load()는 allSettled라 챌린지만 실패해도 정상 resolve한다 — 그걸로 잠금을 풀면 판돈은 이미
+  // 빠졌는데 '내기 이전' 카드의 진입점이 다시 열려 같은 요청을 반복하고 서버 오류를 보게 된다.
+  test('개설 후 챌린지 재조회가 실패하면 잠금을 유지하고, 다음 성공에서 푼다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    mockCreateBet.mockResolvedValue({ betId: 'b1' });
+    await renderRoom();
+
+    // 개설 직후의 재조회만 실패시킨다.
+    mockGetChallenges.mockRejectedValueOnce(new Error('network'));
+
+    await press('내기 걸기');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.submit'));
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText('챌린지를 새로고침하지 못했어요')).toBeOnTheScreen(),
+    );
+    // 카드는 아직 '내기 이전' 모습이다 — 진입점은 잠긴 채여야 한다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.create.c1'));
+    });
+    expect(screen.queryByText('내기 열기')).toBeNull();
+    expect(mockCreateBet).toHaveBeenCalledTimes(1);
+
+    // 다음 성공한 재조회가 잠금을 푼다(당겨서 새로고침·포커스·포그라운드 복귀).
+    mockGetChallenges.mockResolvedValue([challenge({ bet: null })]);
+    await foreground();
+
     await press('내기 걸기');
     expect(screen.getByText('내기 열기')).toBeOnTheScreen();
   });

@@ -30,7 +30,12 @@ import { categoryLabel, missionLabel } from './challengeLabel';
 //   · coinsLoaded === true  : 그 값으로 부족분까지 계산해 **누르기 전에** 막는다.
 //   · 서버가 부족을 확정(INSUFFICIENT_CURRENCY)하면 그 판정을 앱 상태로 승격해 CTA를 잠근다 —
 //     refresh가 실패해 낡은 큰 잔액이 남아 있어도 "이 판돈으로는 안 된다"는 이미 확정이다.
-//     판돈을 바꾸면 다른 금액에 대한 판정이므로 해제한다.
+//     판정은 **그 판돈 이상**에 유효하다(10이 안 되면 30·50·100도 안 된다) — 더 낮은 금액으로
+//     내려갈 때만 근거가 사라진다(코덱스 리뷰). 해제 조건은 하나 더 있다: 판정 **이후에 도착한**
+//     권위 있는 잔액이 낼 수 있다고 말하면 푼다(클로드 리뷰) — 시트를 열어 둔 사이 코인이 들어와도
+//     참가 모드는 판돈을 바꿀 방법이 없어(칩이 없다) 영영 잠긴 채로 남기 때문이다.
+//     '이후에 도착한'을 coinsVersion으로 판정하는 이유: 판정 직후의 잔액은 아직 낡은 값이라
+//     크기만 보면 판정이 스스로를 즉시 풀어 버린다.
 //
 // 에러 표현(그룹 시트 3종 공통 규칙 + 이 시트의 예외):
 //   · 다시 시도해 볼 만한 실패(잔액 부족·알 수 없는 오류)는 **인라인 문구**. 시트를 열어 둔다.
@@ -73,12 +78,16 @@ export interface BetSheetProps {
 
 export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: BetSheetProps) {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { coins, coinsLoaded, refresh } = useCoins();
+  const { coins, coinsLoaded, coinsVersion, refresh } = useCoins();
   const [stake, setStake] = useState<number>(STAKE_DEFAULT);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // 서버가 확정한 잔액 부족(F3). 잔액을 다시 못 받아도 이 판돈이 안 된다는 사실은 이미 정해졌다.
-  const [serverInsufficient, setServerInsufficient] = useState(false);
+  // '어느 판돈에서, 어느 잔액 버전에서' 확정됐는지까지 쥔다 — 해제 조건이 그 둘로 갈린다(위 주석).
+  const [insufficientVerdict, setInsufficientVerdict] = useState<{
+    stake: number;
+    coinsVersion: number;
+  } | null>(null);
   // 게스트 차단 — 시트를 로그인 안내로 갈아 끼운다(GroupInviteSheet의 게스트 경로와 같은 형태).
   const [guestBlocked, setGuestBlocked] = useState(false);
 
@@ -90,6 +99,14 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
   const shortage = amount - coins;
   // 잔액을 모르면 부족 판정 자체를 하지 않는다 — 모르는 값으로 사용자를 잠그지 않는다(F1).
   const insufficient = coinsLoaded && shortage > 0;
+  // 판정 이후에 도착한 잔액이 '낼 수 있다'고 말하는가 — 그때만 서버 판정을 푼다.
+  const balanceOverridesVerdict =
+    insufficientVerdict !== null &&
+    coinsLoaded &&
+    coinsVersion > insufficientVerdict.coinsVersion &&
+    shortage <= 0;
+  const serverInsufficient =
+    insufficientVerdict !== null && amount >= insufficientVerdict.stake && !balanceOverridesVerdict;
   // 참가 모드인데 내기가 없다 = 카드가 열어 줄 수 없는 조합(부모가 막는다). 방어적으로 CTA만 잠근다.
   const disabled = submitting || insufficient || serverInsufficient || (!isCreate && bet === null);
 
@@ -102,12 +119,6 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
   function failAndReload(title: string, message: string) {
     Alert.alert(title, message);
     onDone();
-  }
-
-  // 판돈을 바꾸면 서버 판정은 **다른 금액에 대한 것**이 되므로 해제한다(F3).
-  function pickStake(v: number) {
-    setStake(v);
-    setServerInsufficient(false);
   }
 
   async function submit() {
@@ -138,7 +149,11 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
           return;
         // 누가 먼저 열었는지는 앱이 알 수 없다 — 내 성공 직후의 재진입일 수도 있다(F6).
         // 사실 범위 안에서만 말한다.
+        // 그 '내가 먼저 열었을' 가능성 때문에 잔액도 다시 받는다(코덱스 리뷰) — 응답만 타임아웃되고
+        // 서버에선 개설이 성립했다면 판돈은 이미 빠졌는데 전역 잔액은 차감 전 값으로 남는다.
+        // 남이 먼저 연 경우라면 재조회는 같은 값을 다시 확인할 뿐이라 무해하다.
         case 'BET_ALREADY_EXISTS':
+          refresh();
           failAndReload('이미 오늘 내기가 열려 있어요', '최신 상태로 새로고침할게요.');
           return;
         case 'BET_ALREADY_ACHIEVED':
@@ -167,9 +182,10 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
           setGuestBlocked(true);
           break;
         // 서버가 센 잔액이 앱과 다르다 — 다시 받아 부족분을 적고, 판정 자체는 서버 것을 그대로 쓴다.
+        // 판정 시점의 잔액 버전을 함께 남긴다 — 이 판정을 푸는 건 그보다 **나중에 도착한** 잔액뿐이다.
         case 'INSUFFICIENT_CURRENCY':
           refresh();
-          setServerInsufficient(true);
+          setInsufficientVerdict({ stake: amount, coinsVersion });
           break;
         default:
           setErrorMsg(
@@ -240,18 +256,22 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
       {isCreate ? (
         <>
           <Text style={s.label}>판돈</Text>
+          {/* 전송 중에는 판돈을 못 바꾼다(코덱스 리뷰) — 10을 보낸 뒤 100을 누르면 서버엔 10이
+              간 채 화면의 선택만 100이 되어, 사용자는 자기가 100을 걸었다고 오인한다.
+              고른 칩만 남기고 나머지를 흐려 '지금 나간 금액'이 무엇인지 화면에 못 박는다. */}
           <View style={s.chips}>
             {STAKE_OPTIONS.map((v) => {
               const on = stake === v;
               return (
                 <TouchableOpacity
                   key={v}
-                  style={[s.chip, on ? s.chipOn : null]}
+                  style={[s.chip, on ? s.chipOn : null, submitting && !on ? s.chipOff : null]}
                   activeOpacity={0.8}
-                  onPress={() => pickStake(v)}
+                  disabled={submitting}
+                  onPress={() => setStake(v)}
                   // 숫자만 읽히면 무엇을 고르는 자리인지·무엇이 골라졌는지 알 수 없다(F9).
                   accessibilityRole="button"
-                  accessibilityState={{ selected: on }}
+                  accessibilityState={{ selected: on, disabled: submitting }}
                   accessibilityLabel={`판돈 ${v}코인`}
                   testID={`group.bet.stake.${v}`}
                 >
@@ -373,6 +393,8 @@ const s = StyleSheet.create({
     borderColor: T.chipBorder,
   },
   chipOn: { backgroundColor: T.accentBg, borderColor: T.accent },
+  // 전송 중 — 고르지 않은 칩만 흐려서 '이미 확정된 금액'을 남긴다(CTA off와 같은 0.5).
+  chipOff: { opacity: 0.5 },
   chipText: { ...T.text.label, color: T.inkSub, fontVariant: ['tabular-nums'] },
   chipTextOn: { color: T.accentDeep, fontWeight: '700' },
 

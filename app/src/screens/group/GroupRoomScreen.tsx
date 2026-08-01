@@ -72,6 +72,31 @@ function chunk<Item>(items: Item[], size: number): Item[][] {
   return rows;
 }
 
+// 열어 둔 내기 시트가 **최신 챌린지에서도 성립하는가**. 성립하지 않으면 알림 문구를 돌려준다
+// (닫는 판단은 호출부). betId만 비교하면 같은 내기가 마감되거나(SETTLED·REFUNDED) 다른 기기에서
+// 내가 참가한 전이를 놓쳐, 시트는 계속 돈을 쓰는 CTA를 세운 채 BET_CLOSED·BET_ALREADY_JOINED를
+// 받는다. 개설 시트가 열린 사이 남이 내기를 연 경우(BET_ALREADY_EXISTS)도 같다(코덱스 리뷰).
+// ⚠️ myAchievedNow 전이는 여기서 닫지 않는다 — 참가는 막아야 하지만 팟·참가자를 보고 있는
+//    시트를 통째로 걷을 이유는 없어, 시트가 CTA만 잠그고 사유를 적는다(BetSheet.achievedBlocked).
+function staleBetSheetAlert(
+  sheet: { mode: BetSheetMode; betId: string | null },
+  challenge: GroupChallengeResponse,
+): [string, string] | null {
+  const live = challenge.bet ?? null;
+  // 개설 시트의 진입 조건은 '아직 내기가 없다' — 그새 열렸으면 개설은 반드시 실패한다.
+  if (sheet.mode === 'create') {
+    return live === null
+      ? null
+      : ['이미 오늘 내기가 열려 있어요', '최신 상태예요. 참가하려면 다시 열어주세요.'];
+  }
+  if (live === null || live.betId !== sheet.betId) {
+    return ['내기가 바뀌었어요', '최신 내기로 다시 열어주세요.'];
+  }
+  if (live.status !== 'OPEN') return ['마감된 내기예요', '이미 마감돼 참가할 수 없어요.'];
+  if (live.myJoined) return ['이미 참가한 내기예요', '최신 상태로 새로고침했어요.'];
+  return null;
+}
+
 export interface GroupRoomScreenProps {
   groupId: string;
   // 탭 진입점이 가진 요약(getMyGroups[0]) — 상세 응답 도착 전 헤더를 먼저 그리는 용도(선택).
@@ -184,6 +209,11 @@ export default function GroupRoomScreen({
     if (challengeResult.status === 'fulfilled') {
       setChallenges(challengeResult.value);
       setChallengeError(false);
+      // 내기 진입 잠금은 **최신 챌린지가 실제로 반영된 순간**에만 푼다(코덱스 리뷰).
+      // load() 자체는 allSettled라 챌린지만 실패해도 정상 resolve하므로, 호출부의 finally로 풀면
+      // 판돈은 빠졌는데 카드는 '내기 이전'인 채 진입점이 다시 열려 같은 요청을 반복하게 된다.
+      // 실패하면 잠금을 유지하고, 다음 성공(당겨서 새로고침·포커스·포그라운드 복귀)이 푼다.
+      setBetBusy(false);
     } else {
       setChallengeError(true); // 기존 챌린지는 그대로 둔다
     }
@@ -250,7 +280,7 @@ export default function GroupRoomScreen({
       : null;
 
   // 시트가 가리키던 대상이 사라졌으면 닫는다 — 없는 챌린지의 낡은 화면으로 돈을 걸 수는 없다.
-  // 참가 모드에서 내기가 다른 내기로 갈린 경우(자정을 넘겨 새 날짜의 내기가 열림)도 같다.
+  // 시트를 연 근거(모드의 진입 조건)가 최신 챌린지에서 깨진 경우도 같다(staleBetSheetAlert).
   // 조용히 바꿔 끼우지 않고 닫아서 **다시 열게** 한다 — 보고 있던 판돈·팟이 소리 없이 달라지면
   // 사용자는 자기가 확인한 값으로 걸었다고 믿는다.
   useEffect(() => {
@@ -259,10 +289,10 @@ export default function GroupRoomScreen({
       setBetSheet(null);
       return;
     }
-    if (betSheet.mode === 'join' && (betChallenge.bet?.betId ?? null) !== betSheet.betId) {
-      setBetSheet(null);
-      Alert.alert('내기가 바뀌었어요', '최신 내기로 다시 열어주세요.');
-    }
+    const stale = staleBetSheetAlert(betSheet, betChallenge);
+    if (stale === null) return;
+    setBetSheet(null);
+    Alert.alert(stale[0], stale[1]);
   }, [betSheet, challenges, betChallenge]);
 
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(§6-4).
@@ -707,8 +737,9 @@ export default function GroupRoomScreen({
           onDone={() => {
             setBetSheet(null);
             // 재조회가 끝날 때까지 진입점을 잠근다 — 그전의 카드는 아직 내기 이전 모습이다(F6).
+            // 잠금을 푸는 쪽은 load()의 **챌린지 성공 분기**다(위 주석).
             setBetBusy(true);
-            load().finally(() => setBetBusy(false));
+            load();
           }}
         />
       )}

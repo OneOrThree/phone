@@ -47,11 +47,18 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 // 잔액은 CoinContext가 정본 — Provider 대신 훅을 대체해 잔액·미상 여부와 refresh 호출을 직접 본다.
+// coinsVersion은 '이 잔액이 몇 번째로 받아 온 값인가' — 서버 부족 판정을 풀어도 되는지의 기준이다.
 let mockCoins = 100;
 let mockCoinsLoaded = true;
+let mockCoinsVersion = 1;
 const mockRefresh = jest.fn(async () => {});
 jest.mock('@/store/CoinContext', () => ({
-  useCoins: () => ({ coins: mockCoins, coinsLoaded: mockCoinsLoaded, refresh: mockRefresh }),
+  useCoins: () => ({
+    coins: mockCoins,
+    coinsLoaded: mockCoinsLoaded,
+    coinsVersion: mockCoinsVersion,
+    refresh: mockRefresh,
+  }),
 }));
 
 const mockCreateBet = createBet as jest.MockedFunction<typeof createBet>;
@@ -108,16 +115,20 @@ function challenge(over: Partial<GroupChallengeResponse> = {}): GroupChallengeRe
   };
 }
 
-async function renderSheet(mode: 'create' | 'join', over: Partial<GroupChallengeResponse> = {}) {
-  const result = await render(
+function sheet(mode: 'create' | 'join', over: Partial<GroupChallengeResponse> = {}) {
+  return (
     <BetSheet
       groupId={GROUP_ID}
       challenge={challenge(over)}
       mode={mode}
       onClose={onClose}
       onDone={onDone}
-    />,
+    />
   );
+}
+
+async function renderSheet(mode: 'create' | 'join', over: Partial<GroupChallengeResponse> = {}) {
+  const result = await render(sheet(mode, over));
   await act(async () => {});
   return result;
 }
@@ -132,6 +143,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockCoins = 100;
   mockCoinsLoaded = true;
+  mockCoinsVersion = 1;
   mockCreateBet.mockResolvedValue({ betId: BET_ID });
   mockJoinBet.mockResolvedValue(undefined);
 });
@@ -314,12 +326,27 @@ describe('에러 분기', () => {
     expect(screen.queryByText('코인이 부족해요')).toBeNull();
   });
 
-  test('INSUFFICIENT_CURRENCY — 판돈을 바꾸면 서버 판정이 풀린다', async () => {
+  // 판정은 **그 판돈 이상**에 유효하다 — 50을 못 내는 지갑이 100을 낼 수는 없다.
+  // 판돈을 바꿨다고 무조건 풀면, 잔액 재조회가 늦거나 실패해 낡은 큰 잔액이 남은 상황에서
+  // 서버가 이미 불가능하다고 확정한 더 큰 금액을 반복 전송하게 된다.
+  test('INSUFFICIENT_CURRENCY — 판돈을 올리면 판정이 유지되고, 내리면 풀린다', async () => {
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(400, 'INSUFFICIENT_CURRENCY'));
     await renderSheet('create');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.stake.50'));
+    });
     await submit();
+    expect(mockCreateBet).toHaveBeenCalledTimes(1);
 
-    // 판돈이 달라지면 앞선 400은 다른 금액에 대한 판정이라 더 이상 근거가 아니다.
+    // 더 큰 판돈 — 앞선 판정이 그대로 근거다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.stake.100'));
+    });
+    expect(screen.getByText('코인이 부족해요')).toBeOnTheScreen();
+    await submit();
+    expect(mockCreateBet).toHaveBeenCalledTimes(1);
+
+    // 더 낮은 판돈 — 400은 다른(더 큰) 금액에 대한 판정이라 더 이상 근거가 아니다.
     await act(async () => {
       fireEvent.press(screen.getByTestId('group.bet.stake.30'));
     });
@@ -330,6 +357,30 @@ describe('에러 분기', () => {
       stake: 30,
       date: '2026-08-01',
     });
+  });
+
+  // 참가 모드는 판돈 칩이 없어 '판돈을 바꾸는' 해제 경로 자체가 없다 — 판정 이후에 도착한
+  // 권위 있는 잔액이 낼 수 있다고 말하면 풀어야 시트를 닫았다 여는 것 말고도 길이 생긴다.
+  test('INSUFFICIENT_CURRENCY — 판정 뒤에 받은 잔액이 낼 수 있다고 하면 풀린다', async () => {
+    mockJoinBet.mockRejectedValueOnce(axiosErrorWith(400, 'INSUFFICIENT_CURRENCY'));
+    const { rerender } = await renderSheet('join', { bet: bet() });
+    await submit();
+
+    // 잔액 재조회는 아직 낡은 값(100)을 쥐고 있다 — 크기만 보면 낼 수 있어 보여도 잠근 채 둔다.
+    expect(screen.getByText('코인이 부족해요')).toBeOnTheScreen();
+    await submit();
+    expect(mockJoinBet).toHaveBeenCalledTimes(1);
+
+    // 집중 세션 보상이 들어와 **새 잔액**이 도착했다(버전이 올랐다).
+    mockCoins = 200;
+    mockCoinsVersion = 2;
+    await act(async () => {
+      rerender(sheet('join', { bet: bet() }));
+    });
+
+    expect(screen.queryByText('코인이 부족해요')).toBeNull();
+    await submit();
+    expect(mockJoinBet).toHaveBeenCalledTimes(2);
   });
 
   // 누가 먼저 열었는지는 앱이 알 수 없다 — 성공 직후 재조회 전에 다시 누른 **본인**일 수도 있다.
@@ -344,6 +395,18 @@ describe('에러 분기', () => {
       '최신 상태로 새로고침할게요.',
     );
     expect(onDone).toHaveBeenCalled();
+  });
+
+  // 응답만 타임아웃되고 서버에선 개설이 성립했을 수 있다 — 그 경우 판돈은 이미 빠졌는데
+  // 전역 잔액은 차감 전 값으로 남는다. 남이 먼저 연 경우엔 같은 값을 다시 확인할 뿐이라 무해하다.
+  test('BET_ALREADY_EXISTS — 잔액도 다시 받는다', async () => {
+    jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_ALREADY_EXISTS'));
+    await renderSheet('create');
+    mockRefresh.mockClear();
+    await submit();
+
+    expect(mockRefresh).toHaveBeenCalled();
   });
 
   test('BET_ALREADY_ACHIEVED — 카드와 같은 사유 문구로 알리고 닫는다', async () => {
@@ -466,5 +529,40 @@ describe('전송 중', () => {
       finish({ betId: BET_ID });
     });
     expect(onDone).toHaveBeenCalled();
+  });
+
+  // 10을 보낸 뒤 100을 누를 수 있으면, 서버엔 10이 간 채 화면의 마지막 선택만 100이 된다 —
+  // 성공 후 사용자는 자기가 100을 걸었다고 오인한다. 금액이 확정된 뒤엔 칩을 잠근다.
+  test('전송 중에는 판돈을 바꿀 수 없다', async () => {
+    let finish: (v: { betId: string }) => void = () => {};
+    mockCreateBet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await renderSheet('create');
+    await submit();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.stake.100'));
+    });
+    expect(screen.getByTestId('group.bet.stake.100')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: false, disabled: true }),
+    );
+    expect(screen.getByTestId('group.bet.stake.10')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: true }),
+    );
+
+    await act(async () => {
+      finish({ betId: BET_ID });
+    });
+    // 나간 금액도 처음 고른 10 그대로다.
+    expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
+      stake: 10,
+      date: '2026-08-01',
+    });
   });
 });

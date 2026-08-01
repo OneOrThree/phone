@@ -7,6 +7,9 @@
 //     화면이 알 수 있다. 이게 없으면 '못 받은 잔액 0'과 '진짜 0코인'이 같은 값이 되고,
 //     코인을 가진 사용자가 `코인이 부족해요`를 보며 내기를 못 건다.
 //  3) 성공하면 서버 값이 그대로 실리고 coinsLoaded가 켜진다.
+//  4) 겹쳐 부른 조회는 **마지막 것만** 반영한다. 시트 오픈 refresh가 떠 있는 채 내기가 성립해
+//     두 번째 refresh가 돌면, 늦게 도착한 차감 전 잔액이 차감 후 잔액을 덮어써 화면이 재산을
+//     과대 표시하고 부족 검사를 잘못 통과시킨다(코덱스 리뷰).
 import { act, render, screen } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import { CoinProvider, useCoins } from './CoinContext';
@@ -23,12 +26,13 @@ const mockGet = api.get as jest.MockedFunction<typeof api.get>;
 let refreshFn: () => Promise<void> = async () => {};
 
 function Probe() {
-  const { coins, coinsLoaded, refresh } = useCoins();
+  const { coins, coinsLoaded, coinsVersion, refresh } = useCoins();
   refreshFn = refresh;
   return (
     <>
       <Text testID="coins">{coins}</Text>
       <Text testID="loaded">{coinsLoaded ? 'yes' : 'no'}</Text>
+      <Text testID="version">{coinsVersion}</Text>
     </>
   );
 }
@@ -97,5 +101,88 @@ describe('refresh', () => {
     // 값 자체는 남겨 두되(마지막으로 알던 잔액), 믿을 수 없다는 사실을 표시한다.
     expect(screen.getByTestId('coins')).toHaveTextContent('500');
     expect(screen.getByTestId('loaded')).toHaveTextContent('no');
+  });
+
+  test('성공한 조회마다 잔액 버전이 오른다', async () => {
+    mockGet.mockResolvedValue({ data: 500 } as never);
+    await renderProvider();
+    expect(screen.getByTestId('version')).toHaveTextContent('1');
+
+    await act(async () => {
+      await refreshFn();
+    });
+    expect(screen.getByTestId('version')).toHaveTextContent('2');
+
+    // 실패는 새 잔액이 아니다 — 버전은 그대로여야 '이 판정 이후에 받은 값인가'를 물을 수 있다.
+    mockGet.mockRejectedValueOnce(new Error('network'));
+    await act(async () => {
+      await refreshFn();
+    });
+    expect(screen.getByTestId('version')).toHaveTextContent('2');
+  });
+
+  // 시트 오픈 refresh(A)가 떠 있는 채 내기가 성립해 refresh(B)가 돈다 — B(차감 후 470)가 먼저
+  // 도착해도 A(차감 전 500)가 늦게 도착하면 잔액이 500으로 되살아난다. 최신 호출만 반영한다.
+  test('늦게 도착한 이전 조회는 최신 잔액을 덮지 않는다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 0 } as never);
+    await renderProvider();
+
+    let finishA: (v: { data: number }) => void = () => {};
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishA = resolve as (v: { data: number }) => void;
+        }) as never,
+    );
+    let pendingA: Promise<void> = Promise.resolve();
+    await act(async () => {
+      pendingA = refreshFn();
+    });
+
+    // 판돈이 빠진 뒤의 잔액 — 나중에 시작한 B가 먼저 도착한다.
+    mockGet.mockResolvedValueOnce({ data: 470 } as never);
+    await act(async () => {
+      await refreshFn();
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('470');
+
+    // 이제야 도착한 A의 차감 전 잔액 — 버려야 한다.
+    await act(async () => {
+      finishA({ data: 500 });
+      await pendingA;
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('470');
+    expect(screen.getByTestId('version')).toHaveTextContent('2');
+  });
+
+  // 실패도 마찬가지다 — 늦게 실패한 A가 coinsLoaded를 false로 되돌리면, 방금 받은 B의 잔액이
+  // 멀쩡한데도 화면이 '미상'으로 떨어져 부족 판정을 못 하게 된다.
+  test('늦게 실패한 이전 조회는 최신 잔액을 미상으로 되돌리지 않는다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 0 } as never);
+    await renderProvider();
+
+    let failA: (e: Error) => void = () => {};
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          failA = reject;
+        }) as never,
+    );
+    let pendingA: Promise<void> = Promise.resolve();
+    await act(async () => {
+      pendingA = refreshFn();
+    });
+
+    mockGet.mockResolvedValueOnce({ data: 470 } as never);
+    await act(async () => {
+      await refreshFn();
+    });
+
+    await act(async () => {
+      failA(new Error('network'));
+      await pendingA;
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('470');
+    expect(screen.getByTestId('loaded')).toHaveTextContent('yes');
   });
 });
