@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -107,6 +107,14 @@ export default function BetSheet({
   } | null>(null);
   // 게스트 차단 — 시트를 로그인 안내로 갈아 끼운다(GroupInviteSheet의 게스트 경로와 같은 형태).
   const [guestBlocked, setGuestBlocked] = useState(false);
+  // 판정에 남길 잔액 버전은 **오류가 도착한 시점**의 최신 값이어야 한다. submit 클로저가 캡처한
+  // coinsVersion은 제출을 시작한 렌더의 값이라, 요청이 나가 있는 사이 도착한 잔액(시트 오픈 때
+  // 시작한 조회가 늦게 끝난 경우 — 차감 전이라 '낼 수 있다'고 말한다)이 판정보다 **먼저**
+  // 도착했는데도 '판정 이후'로 세어져 CTA를 즉시 다시 열고 같은 400만 반복하게 된다(코덱스 리뷰).
+  const coinsVersionRef = useRef(coinsVersion);
+  useEffect(() => {
+    coinsVersionRef.current = coinsVersion;
+  }, [coinsVersion]);
 
   const bet = challenge.bet ?? null;
   const label = missionLabel(challenge) ?? categoryLabel(challenge);
@@ -217,9 +225,11 @@ export default function BetSheet({
           break;
         // 서버가 센 잔액이 앱과 다르다 — 다시 받아 부족분을 적고, 판정 자체는 서버 것을 그대로 쓴다.
         // 판정 시점의 잔액 버전을 함께 남긴다 — 이 판정을 푸는 건 그보다 **나중에 도착한** 잔액뿐이다.
+        // 버전은 클로저가 아니라 ref에서 읽는다(위 coinsVersionRef 주석) — '지금 도착한 판정'의
+        // 기준 시점은 제출을 시작한 렌더가 아니라 400을 받은 이 순간이다.
         case 'INSUFFICIENT_CURRENCY':
           refresh();
-          setInsufficientVerdict({ stake: amount, coinsVersion });
+          setInsufficientVerdict({ stake: amount, coinsVersion: coinsVersionRef.current });
           break;
         // 계약(§2-1·§2-2)의 나머지 코드는 앱이 보내는 조합에서 도달할 수 없어 분기를 두지 않는다:
         // BET_FOCUS_ONLY는 카드가 FOCUS·DURATION에만 진입점을 열고(ChallengeCard.betSupported),

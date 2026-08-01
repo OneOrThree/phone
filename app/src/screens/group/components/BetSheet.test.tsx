@@ -425,6 +425,41 @@ describe('에러 분기', () => {
     expect(mockJoinBet).toHaveBeenCalledTimes(2);
   });
 
+  // 판정을 푸는 기준은 '판정보다 **나중에** 도착한 잔액'이다 — 요청이 나가 있는 사이 도착한
+  // 잔액은 서버 판정보다 앞선 값이라 근거가 될 수 없다. 판정 시점을 제출 렌더의 클로저로 재면
+  // 그 잔액이 '판정 이후'로 세어져 CTA가 곧바로 다시 열리고 같은 400만 반복한다.
+  test('INSUFFICIENT_CURRENCY — 요청 중에 도착한 잔액으로는 판정이 풀리지 않는다', async () => {
+    let rejectJoin: (e: unknown) => void = () => {};
+    mockJoinBet.mockReturnValueOnce(
+      new Promise<void>((_, reject) => {
+        rejectJoin = reject;
+      }),
+    );
+    const { rerender } = await renderSheet('join', { bet: bet() });
+
+    // 제출했지만 응답은 아직 오지 않았다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.submit'));
+    });
+    expect(mockJoinBet).toHaveBeenCalledTimes(1);
+
+    // 시트를 열 때 시작한 잔액 조회가 그제서야 끝났다 — 차감 전 값이라 '낼 수 있다'고 말한다.
+    mockCoins = 100;
+    mockCoinsVersion = 2;
+    await act(async () => {
+      rerender(sheet('join', { bet: bet() }));
+    });
+
+    // 그 뒤에 서버가 부족을 확정한다 — 방금 도착한 잔액보다 **나중**의 사실이다.
+    await act(async () => {
+      rejectJoin(axiosErrorWith(400, 'INSUFFICIENT_CURRENCY'));
+    });
+
+    expect(screen.getByText('코인이 부족해요')).toBeOnTheScreen();
+    await submit();
+    expect(mockJoinBet).toHaveBeenCalledTimes(1);
+  });
+
   // 누가 먼저 열었는지는 앱이 알 수 없다 — 성공 직후 재조회 전에 다시 누른 **본인**일 수도 있다.
   test('BET_ALREADY_EXISTS — 사실 범위 안에서만 알리고 닫는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});

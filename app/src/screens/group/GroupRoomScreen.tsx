@@ -84,9 +84,16 @@ function staleBetSheetAlert(
   challenge: GroupChallengeResponse,
 ): [string, string] | null {
   const live = challenge.bet ?? null;
-  // 개설 시트의 진입 조건은 두 가지다(ChallengeCard의 betOpenable · bet === null) —
-  // 둘 중 하나라도 최신 챌린지에서 깨지면 닫는다.
+  // 개설 시트의 진입 조건은 세 가지다(ChallengeCard의 betKnown · betOpenable · bet === null) —
+  // 하나라도 최신 챌린지에서 깨지면 닫는다.
   if (sheet.mode === 'create') {
+    // 이 서버가 내기를 아는가 — 필드가 **아예 없는** 응답은 '내기가 없다'가 아니라 구버전
+    // 서버다(ChallengeCard.betKnown과 같은 판정). 순차 배포 중 신버전 응답으로 시트를 연 뒤
+    // 구버전에 붙으면 undefined가 null로 뭉개져 시트가 그대로 남고, 없는 엔드포인트로
+    // 개설 요청만 나간다 — 카드는 이미 진입점을 숨긴 상태다(코덱스 리뷰).
+    if (challenge.bet === undefined) {
+      return ['내기를 열 수 없어요', '지금은 내기를 이용할 수 없어요. 잠시 후 다시 시도해주세요.'];
+    }
     // 끝난 챌린지에는 새로 돈을 걸 수 없다 — 카드가 진입점을 막는 기준과 같다.
     // 서버 개설 경로는 상태를 보지 않아 그대로 열리므로, 여기서 막지 않으면 앱이 종료로
     // 취급하는 챌린지에 판돈만 빠져나간 내기가 생긴다.
@@ -97,8 +104,16 @@ function staleBetSheetAlert(
       ? null
       : ['이미 오늘 내기가 열려 있어요', '최신 상태예요. 참가하려면 다시 열어주세요.'];
   }
+  // 참가 모드에서는 구버전 응답(undefined)도 이 검사에 함께 걸린다 — live가 null로 뭉개지면서
+  // '내기가 바뀌었어요'로 닫히기 때문에 따로 분기를 두지 않는다.
   if (live === null || live.betId !== sheet.betId) {
     return ['내기가 바뀌었어요', '최신 내기로 다시 열어주세요.'];
+  }
+  // 참가 진입점도 카드에서 betOpenable을 함께 요구한다(bet.status === 'OPEN' && betOpenable) —
+  // 내기만 OPEN인 채 챌린지가 INACTIVE로 바뀌면 카드의 참가 행은 사라지는데 열린 시트만 판돈
+  // 차감 요청을 보낼 수 있다. 개설 쪽 상태 검사와 대칭으로 막는다(코덱스 리뷰).
+  if (challenge.status !== 'ACTIVE') {
+    return ['끝난 챌린지예요', '종료된 챌린지의 내기에는 참가할 수 없어요.'];
   }
   if (live.status !== 'OPEN') return ['마감된 내기예요', '이미 마감돼 참가할 수 없어요.'];
   if (live.myJoined) return ['이미 참가한 내기예요', '최신 상태로 새로고침했어요.'];

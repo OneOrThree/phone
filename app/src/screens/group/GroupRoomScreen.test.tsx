@@ -784,6 +784,64 @@ describe('내기 배선', () => {
     expect(mockCreateBet).not.toHaveBeenCalled();
   });
 
+  // 참가 진입점도 카드에서 챌린지 상태(betOpenable)를 함께 요구한다 — 내기만 OPEN인 채 챌린지가
+  // 끝나면 카드의 참가 행은 사라지는데 열린 시트만 판돈 차감 요청을 보낼 수 있다.
+  test('참가 시트를 연 사이 챌린지가 끝나면 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const openBet = {
+      betId: 'b7',
+      stake: 30,
+      pot: 30,
+      status: 'OPEN' as const,
+      myJoined: false,
+      myAchievedNow: false,
+      participants: [{ userId: 'u2', nickname: '수빈' }],
+    };
+    mockGetChallenges.mockResolvedValue([challenge({ bet: openBet })]);
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.join.c1'));
+    });
+    expect(screen.getByText('참가하기')).toBeOnTheScreen();
+
+    // 내기는 그대로 OPEN인데 챌린지만 끝났다 — 카드 기준으로는 이미 참가할 수 없는 자리다.
+    mockGetChallenges.mockResolvedValue([challenge({ status: 'INACTIVE', bet: openBet })]);
+    await foreground();
+
+    await waitFor(() => expect(screen.queryByText('참가하기')).toBeNull());
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '끝난 챌린지예요',
+      '종료된 챌린지의 내기에는 참가할 수 없어요.',
+    );
+    expect(mockJoinBet).not.toHaveBeenCalled();
+  });
+
+  // 순차 배포 — 내기를 아는 서버로 시트를 연 뒤 구버전 서버(bet 필드 생략)에 붙으면, undefined를
+  // null로 뭉갠 채 두면 없는 엔드포인트로 개설 요청만 나간다. 카드는 이미 진입점을 숨긴 상태다.
+  test('개설 시트를 연 사이 서버가 내기를 모르는 응답을 주면 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+
+    await press('내기 걸기');
+    expect(screen.getByText('내기 열기')).toBeOnTheScreen();
+
+    mockGetChallenges.mockResolvedValue([challenge({ bet: undefined })]);
+    await foreground();
+
+    await waitFor(() => expect(screen.queryByText('내기 열기')).toBeNull());
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '내기를 열 수 없어요',
+      '지금은 내기를 이용할 수 없어요. 잠시 후 다시 시도해주세요.',
+    );
+    expect(mockCreateBet).not.toHaveBeenCalled();
+  });
+
   // 달성 전이는 시트를 닫지 않는다 — 고른 판돈을 보고 있는 화면을 걷을 이유가 없어 CTA만 잠근다.
   // 내기가 없는 챌린지엔 bet.myAchievedNow가 없어, 화면이 진행률에서 파생해 시트로 내려준다.
   test('개설 시트를 연 사이 내가 목표를 달성하면 CTA만 잠근다', async () => {
