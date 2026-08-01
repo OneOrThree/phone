@@ -16,6 +16,7 @@ import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
 import { SettingsSection, SettingsRow } from '@/screens/settings/components/SettingsList';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { SPIKE_ENABLED } from '@/screens/spike/enabled';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 
@@ -343,11 +344,10 @@ export default function MenuScreen() {
           />
         </SettingsSection>
 
-        {/* 실험(스파이크) — 오브젝트 캐릭터 PoC 진입점. 프로드 빌드 차단이 기본이고,
-             실기기 QA용 Release 빌드는 EXPO_PUBLIC_ENABLE_SPIKE=1로 열어준다
-             (spike-device.command가 켠다 — 번들 시점에 인라인되는 값이라 런타임 주입 불가).
+        {/* 실험(스파이크) — 오브젝트 캐릭터 PoC 진입점. 노출 조건은 RootNavigator의 라우트
+             등록과 같은 SPIKE_ENABLED를 쓴다(@/screens/spike/enabled).
              검증이 끝나면 이 섹션째 제거한다. */}
-        {(__DEV__ || process.env.EXPO_PUBLIC_ENABLE_SPIKE === '1') && (
+        {SPIKE_ENABLED && (
           <SettingsSection title="실험 (스파이크)">
             <SettingsRow
               icon="cube-outline"
