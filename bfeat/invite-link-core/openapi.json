@@ -49,6 +49,10 @@
       "description": "인게임 재화 관련 API"
     },
     {
+      "name": "InviteLink",
+      "description": "그룹 초대 링크"
+    },
+    {
       "name": "inventory",
       "description": "인벤토리 관련 API (조회, 수령)"
     },
@@ -915,6 +919,39 @@
           },
           "409": {
             "description": "정원 초과 / 이미 참여"
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{groupId}/invite-link": {
+      "post": {
+        "tags": [
+          "InviteLink"
+        ],
+        "summary": "초대 링크 발급",
+        "description": "(그룹, 로그인 유저)당 1개를 재사용하는 멱등 발급",
+        "operationId": "issueInviteLink",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueInviteLinkResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -4706,6 +4743,17 @@
         "type": "object",
         "properties": {
           "password": {
+            "type": "string"
+          }
+        }
+      },
+      "IssueInviteLinkResponse": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "url": {
             "type": "string"
           }
         }
