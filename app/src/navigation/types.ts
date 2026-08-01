@@ -19,6 +19,7 @@ export type V2RootStackParamList = {
     focusSeconds: number; // 이번 세션 집중 초
     subjectId: string;
     subjectName: string;
+    completed: boolean; // 정상 완료 여부 — 중도 이탈(정지·이탈 타임아웃) 세션은 별점 요청 스킵(GROMO-980)
   }; // 집중 결과 화면 — 세션 종료 후 (GROMO-603)
   FriendAdd: undefined; // 친구 추가/검색 (리그 친구 탭에서 진입)
   FriendProfile: {

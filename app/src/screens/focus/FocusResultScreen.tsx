@@ -104,7 +104,7 @@ function thisWeekDates(): string[] {
 export default function FocusResultScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { params } = useRoute<RouteProp<V2RootStackParamList, 'FocusResult'>>();
-  const { focusSeconds, subjectName } = params;
+  const { focusSeconds, subjectName, completed } = params;
   const { subjects } = useSubjects();
   // 목표 달성 판정용(GROMO-630) — 로컬 누적(오늘 전체)·로컬 목표. 서버 조회가 늦거나 실패해도 판정 가능.
   const { todayFocusSeconds } = useFocus();
@@ -116,6 +116,8 @@ export default function FocusResultScreen() {
   const [cellByDate, setCellByDate] = useState<Record<string, HeatmapCellResponse>>({});
   // heatmap 도착 여부 — 연출 판정(667)은 주간 데이터가 온 뒤 1회만 수행한다(오판 방지)
   const [cellsLoaded, setCellsLoaded] = useState(false);
+  // heatmap 확정 실패 — 별점 요청(980)은 성공/실패가 확정된 뒤에만 발화한다(아래 effect 참고)
+  const [cellsFailed, setCellsFailed] = useState(false);
   // 비교 3축(GROMO-755) — 평균 집계 API(753) 단일 호출. 오늘/이번 주 기간 탭(692와 동일 패턴)
   // × 축별 캐시: 탭 왕복 시 재조회 없이 즉시 전환, 축별 독립 도착은 유지.
   // 축 값 undefined = 로딩 중, avg null = 미확보(count 0 = 집계 대상 없음 / -1 = 조회 실패)
@@ -187,6 +189,9 @@ export default function FocusResultScreen() {
         for (const c of cells) map[c.date] = c;
         setCellByDate(map);
         setCellsLoaded(true);
+      } else {
+        // 확정 실패 — 연출 판정(cellsLoaded 필요)은 재진입까지 없으므로 별점 요청이 대기하지 않게 표시
+        setCellsFailed(true);
       }
     })();
     return () => {
@@ -260,21 +265,24 @@ export default function FocusResultScreen() {
   const [weekModalVisible, setWeekModalVisible] = useState(false);
   const celebrationStarted = useRef(false);
 
-  // 별점 요청(GROMO-980) — 집중 세션 완료(긍정적 순간)에 조건 충족 시 1회 노출(코드리뷰 P2 반영).
-  // 주간 스트릭 축하 모달과 겹치면 OS가 별점창을 못 띄우고도 maybeRequestReview가 영구 마커를
-  // 소모해 '단 한 번의 기회'가 낭비된다. 그래서 축하 판정이 끝난 뒤(heatmap 도착 후 판정창이
-  // 지난 시점) 모달이 안 떠 있을 때만 요청하고, 스트릭 축하 세션이면 이번엔 스킵해 다음 완료에 재시도.
+  // 별점 요청(GROMO-980) — 집중 세션 '정상 완료'(긍정적 순간)에 조건 충족 시 1회 노출.
+  // 중도 이탈(정지·이탈 타임아웃) 세션은 요청하지 않는다 — 부정적 순간에 영구 마커('단 한 번의
+  // 기회')가 소모된다(코드리뷰 반영). 주간 스트릭 축하 모달과 겹칠 때도 마찬가지라, heatmap이
+  // 성공/실패로 확정된 뒤에만 발화한다 — 고정 폴백 타이머는 API 타임아웃(15s)보다 짧아, 늦게 온
+  // 응답이 주간 축하 모달을 열어 별점창과 겹치는 레이스가 있었다(코드리뷰 반영).
   const weekModalVisibleRef = useRef(false);
   weekModalVisibleRef.current = weekModalVisible;
   useEffect(() => {
-    // heatmap 도착 시 축하 판정창은 최대 1.2s(팝 종료) — 그 뒤(1.6s)에 확인. 미도착(모달 없음)이면 더 길게.
-    const delay = cellsLoaded ? 1600 : 4000;
+    if (!completed) return; // 중도 이탈 세션 — 요청 스킵(다음 정상 완료 때 재시도)
+    if (!cellsLoaded && !cellsFailed) return; // heatmap 미확정 — 확정 후 재실행
+    // 도착 시 축하 판정창은 최대 1.2s(팝 종료) — 그 뒤(1.6s)에 확인. 실패면 연출 자체가 없어 짧게.
+    const delay = cellsLoaded ? 1600 : 400;
     const timer = setTimeout(() => {
       if (weekModalVisibleRef.current) return; // 스트릭 축하 노출 중 → 스킵(다음 완료 때 재시도)
       maybeRequestReview();
     }, delay);
     return () => clearTimeout(timer);
-  }, [cellsLoaded]);
+  }, [completed, cellsLoaded, cellsFailed]);
   // 세션 저장 응답의 서버 판정 구독(GROMO-807) — 업로드가 fire-and-forget이라 결과 화면 진입
   // 후에 도착할 수 있고, 도착하면 구독으로 재렌더된다. 오늘 날짜 판정만 유효(자정 넘김 방어).
   const rawVerdict = useSyncExternalStore(subscribeSessionSaveVerdict, getSessionSaveVerdict);
