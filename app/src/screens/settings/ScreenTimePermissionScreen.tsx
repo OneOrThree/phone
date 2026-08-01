@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, AppState, Linking } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  AppState,
+  Linking,
+  Platform,
+} from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -7,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import ScreenTimeModule, {
   type AuthorizationStatus,
   nativeSupportsPendingApplyDate,
+  androidSupportsBatteryException,
 } from '@/services/ScreenTimeModule';
 import { updateScreenTimePermission } from '@/services/userApi';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
@@ -65,6 +75,11 @@ export default function ScreenTimePermissionScreen() {
   // A안(GROMO-942) — 측정 대상 변경이 '내일 적용'으로 예약돼 있으면 측정 대상 행에 배지로 표시.
   // 예약 적용일이 아직 미래(내일)일 때만 노출 — 자정에 승격되면 ScreenTimeSyncer가 마커를 지운다.
   const [pendingApply, setPendingApply] = useState(false);
+  // 배터리 최적화 예외 여부(안드로이드 전용, GROMO-997) — null은 조회 전. 예외가 아니면
+  // 제조사 절전이 백그라운드 측정·목표 초과 알림을 지연/차단할 수 있어 행으로 안내한다.
+  const [batteryExempt, setBatteryExempt] = useState<boolean | null>(null);
+  // 안드로이드 + M4 바이너리에서만 배터리 행 노출 — 구 바이너리(OTA)에선 눌러도 동작이 없다.
+  const showBatteryRow = Platform.OS === 'android' && androidSupportsBatteryException();
 
   // 재진입마다 권한 상태·마지막 동기화 최신값 반영(iOS 설정에서 바꾸고 돌아올 수 있으므로).
   useFocusEffect(
@@ -79,10 +94,15 @@ export default function ScreenTimePermissionScreen() {
       AsyncStorage.getItem(STORAGE_KEYS.selectionApplyDate)
         .then((d) => !cancelled && setPendingApply(!!d && d > ymd(new Date())))
         .catch(() => !cancelled && setPendingApply(false));
+      if (showBatteryRow) {
+        ScreenTimeModule.isIgnoringBatteryOptimizations()
+          .then((exempt) => !cancelled && setBatteryExempt(exempt))
+          .catch(() => !cancelled && setBatteryExempt(null));
+      }
       return () => {
         cancelled = true;
       };
-    }, []),
+    }, [showBatteryRow]),
   );
 
   // iOS 설정(거부됨 카드 탭)을 다녀와도 이 화면은 포커스가 유지돼 위 useFocusEffect가 재실행되지
@@ -94,9 +114,15 @@ export default function ScreenTimePermissionScreen() {
       ScreenTimeModule.getAuthorizationStatus()
         .then((st) => setStatus(st))
         .catch(() => {});
+      // 배터리 최적화는 시스템 설정에서 독립적으로 바꿀 수 있어 복귀 때 함께 재조회한다.
+      if (showBatteryRow) {
+        ScreenTimeModule.isIgnoringBatteryOptimizations()
+          .then(setBatteryExempt)
+          .catch(() => {});
+      }
     });
     return () => sub.remove();
-  }, []);
+  }, [showBatteryRow]);
 
   // notDetermined 상태 카드 탭 — 시스템 권한창 → 서버 반영 → 상태 재조회.
   // 허용되면 완료 알럿 없이 바로 앱 피커로 이어 측정 대상 설정까지 한 흐름으로 끝낸다(GROMO-978).
@@ -197,6 +223,27 @@ export default function ScreenTimePermissionScreen() {
     }
   }
 
+  // 배터리 최적화 제외 요청(안드로이드, GROMO-997) — 시스템 최적화 설정 목록으로 딥링크하고
+  // 복귀 시 반영된 상태로 배지를 갱신한다. 목록에서 gromo를 찾아 '최적화 안 함'으로 바꾸는
+  // UX라, 이동 전에 안내를 한 번 거친다. 개별 앱 요청 다이얼로그는 Play 민감 권한이라 안 쓴다.
+  function requestBatteryException() {
+    Alert.alert(
+      '배터리 최적화 제외',
+      "설정 목록에서 gromo를 찾아 '최적화 안 함'으로 바꿔 주세요. 백그라운드 측정과 목표 초과 알림이 끊기지 않아요.",
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '설정으로 이동',
+          onPress: () => {
+            ScreenTimeModule.requestIgnoreBatteryOptimizations()
+              .then(setBatteryExempt)
+              .catch(() => {});
+          },
+        },
+      ],
+    );
+  }
+
   const badge = badgeMeta(status);
 
   // 상태 카드 탭 — 권한 상태별 단일 진입점(GROMO-978). 하단 '권한 요청' 버튼은 제거.
@@ -256,6 +303,25 @@ export default function ScreenTimePermissionScreen() {
           valueColor={T.accentDeep}
           onPress={editScreenTimeTargets}
         />
+        {/* 배터리 최적화 제외(안드로이드 전용, GROMO-997) — 제외 안 하면 제조사 절전이
+            백그라운드 측정·목표 초과 알림을 지연/차단할 수 있어 여기서 안내한다. 이미 제외돼
+            있어도 행은 유지 — 시스템 설정에서 언제든 다시 켤 수 있는 상태 표시 역할. */}
+        {showBatteryRow ? (
+          <SettingsRow
+            icon="battery-charging-outline"
+            iconColor={T.successInk}
+            iconBg={T.successBg}
+            label="배터리 최적화 제외"
+            sub={
+              batteryExempt
+                ? '백그라운드 측정이 절전의 영향을 덜 받아요'
+                : '끊김 없는 측정을 위해 최적화 대상에서 제외해 주세요'
+            }
+            value={batteryExempt === null ? undefined : batteryExempt ? '제외됨' : '필요'}
+            valueColor={batteryExempt ? T.successInk : T.dangerInk}
+            onPress={requestBatteryException}
+          />
+        ) : null}
       </SettingsSection>
 
       {/* 남는 공간 밀어내기 — 아래 안내문들을 화면 하단에 정렬 */}
