@@ -181,17 +181,30 @@ public class GroupChallengeService {
 
     private boolean hasDurationChallenge(List<GroupChallenge> challenges, MissionCategory category) {
         return challenges.stream()
-                .anyMatch(c -> c.getType() == MissionType.DURATION && c.getCategory() == category);
+                .anyMatch(c -> isProgressTarget(c) && c.getCategory() == category);
     }
 
     /**
-     * 챌린지 하나에 대한 멤버별 진행률. 진행률 미계산(date 없음)·TIME_WINDOW·상세 행 유실이면 null 이다.
+     * 진행률 계산 대상인가 — ACTIVE 인 DURATION 챌린지만.
+     *
+     * <p>INACTIVE 는 이미 끝난 챌린지다(V2 마이그레이션이 레거시 {@code ENDED} 행을 INACTIVE 로 보존).
+     * 조회한 날짜의 "현재" 통계를 끝난 챌린지 목표와 대조하면 과거 챌린지의 진행률·달성 여부가 매일
+     * 바뀌어 보이므로 계산하지 않는다. 챌린지에 활동 기간(ended_at)이 없어 당시 진행률을 복원할 수도 없다.
+     */
+    private boolean isProgressTarget(GroupChallenge challenge) {
+        return challenge.getType() == MissionType.DURATION
+                && challenge.getStatus() == GroupChallengeStatus.ACTIVE;
+    }
+
+    /**
+     * 챌린지 하나에 대한 멤버별 진행률. 진행률 미계산(date 없음)·TIME_WINDOW·INACTIVE·상세 행 유실이면
+     * null 이다.
      *
      * <p>TIME_WINDOW 는 시간대 내 세션 대조가 필요해 이번 범위에서 제외했다(명세 결정 3).
      */
     private List<ChallengeMemberProgressResponse> memberProgressOf(
             GroupChallenge challenge, GroupChallengeDuration duration, ProgressSnapshot progress) {
-        if (progress == null || challenge.getType() != MissionType.DURATION || duration == null) {
+        if (progress == null || !isProgressTarget(challenge) || duration == null) {
             return null;
         }
 

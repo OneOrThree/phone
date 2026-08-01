@@ -409,6 +409,29 @@ class GroupChallengeServiceTest {
     }
 
     @Test
+    @DisplayName("INACTIVE(종료된) 챌린지는 date 를 줘도 memberProgress = null, 통계도 조회하지 않는다")
+    void getChallengesInactiveChallengeHasNoProgress() {
+        // given: V2 마이그레이션이 레거시 ENDED 를 옮겨 둔 INACTIVE DURATION 챌린지
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(CHALLENGE_ID).group(group)
+                .type(MissionType.DURATION).category(MissionCategory.FOCUS)
+                .status(GroupChallengeStatus.INACTIVE)
+                .build();
+        givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then: 끝난 챌린지에 당일 통계를 대조하면 과거 진행률이 매일 바뀌므로 계산 자체를 하지 않는다
+        assertThat(result.get(0).getMemberProgress()).isNull();
+        verify(dailyFocusStatRepository, never()).findByUserInAndDate(any(), any());
+        verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
+    }
+
+    @Test
     @DisplayName("date 없이 조회 → memberProgress = null, 멤버·통계 조회 자체를 하지 않는다")
     void getChallengesWithoutDateSkipsProgress() {
         // given: date 를 보내지 않는 기존 클라이언트
