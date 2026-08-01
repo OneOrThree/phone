@@ -22,6 +22,7 @@ import { fmtMinutes, fmtHm, axisCeil, fmtAxis } from '@/utils/timeFormat';
 import { hms } from './format';
 import { fetchFocusAverage, fetchFriendsAverage } from '@/services/compareAverages';
 import { readPendingCelebration, schedulePendingCelebration } from '@/services/goalCelebration';
+import { maybeRequestReview } from '@/services/storeReview';
 import { WeekStreakModal } from './components/WeekStreakModal';
 import { useFocus } from '@/store/FocusContext';
 import { useUser } from '@/store/UserContext';
@@ -258,6 +259,22 @@ export default function FocusResultScreen() {
   // 주간 완성 추가 연출 — 축하 모달(종이폭죽은 모달 오버레이 안에서 동시에). ✓ 팝은 todayPop 담당.
   const [weekModalVisible, setWeekModalVisible] = useState(false);
   const celebrationStarted = useRef(false);
+
+  // 별점 요청(GROMO-980) — 집중 세션 완료(긍정적 순간)에 조건 충족 시 1회 노출(코드리뷰 P2 반영).
+  // 주간 스트릭 축하 모달과 겹치면 OS가 별점창을 못 띄우고도 maybeRequestReview가 영구 마커를
+  // 소모해 '단 한 번의 기회'가 낭비된다. 그래서 축하 판정이 끝난 뒤(heatmap 도착 후 판정창이
+  // 지난 시점) 모달이 안 떠 있을 때만 요청하고, 스트릭 축하 세션이면 이번엔 스킵해 다음 완료에 재시도.
+  const weekModalVisibleRef = useRef(false);
+  weekModalVisibleRef.current = weekModalVisible;
+  useEffect(() => {
+    // heatmap 도착 시 축하 판정창은 최대 1.2s(팝 종료) — 그 뒤(1.6s)에 확인. 미도착(모달 없음)이면 더 길게.
+    const delay = cellsLoaded ? 1600 : 4000;
+    const timer = setTimeout(() => {
+      if (weekModalVisibleRef.current) return; // 스트릭 축하 노출 중 → 스킵(다음 완료 때 재시도)
+      maybeRequestReview();
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [cellsLoaded]);
   // 세션 저장 응답의 서버 판정 구독(GROMO-807) — 업로드가 fire-and-forget이라 결과 화면 진입
   // 후에 도착할 수 있고, 도착하면 구독으로 재렌더된다. 오늘 날짜 판정만 유효(자정 넘김 방어).
   const rawVerdict = useSyncExternalStore(subscribeSessionSaveVerdict, getSessionSaveVerdict);
