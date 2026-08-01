@@ -390,6 +390,10 @@ export function logGroupInviteShared(): void {
 // ── 그룹 Fakedoor [C] ── (GROMO-597)
 // 실기능 미구현 준비중 화면의 수요 측정. 기존 group_viewed와 분리 —
 // 미래에 실제 그룹 기능이 켜지면 group_viewed가 실조회를 뜻하게 되므로 지표 오염을 막는다.
+//
+// ⚠️ 발행 중단(2026-08-01) — 실기능 전환으로 GroupComingSoonScreen이 삭제되면서 호출부가 0이 됐다.
+//    과거 Fakedoor 구간의 지표 정의를 대시보드 쪽에서 되짚을 수 있게 함수만 남긴다.
+//    (기존 설치본의 AsyncStorage 'gromo:group:notifyRequested' 값은 정리 경로가 없어 남는다 — 무해.)
 export function logGroupFakedoorViewed(): void {
   track('group_fakedoor_viewed'); // 그룹 탭 진입(수요 측정 핵심)
 }

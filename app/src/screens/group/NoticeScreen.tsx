@@ -199,7 +199,7 @@ export default function NoticeScreen() {
   // ── 최초 로딩 — 중앙 스피너(§5-4). 새로고침은 RefreshControl이 맡는다. ──
   if (notices === null && errorMsg === null) {
     return (
-      <SafeAreaView style={s.root} edges={['top']}>
+      <SafeAreaView style={s.root} edges={['top']} testID="group.notice.screen">
         {header}
         <View style={s.center}>
           <ActivityIndicator color={T.accent} />
@@ -211,7 +211,7 @@ export default function NoticeScreen() {
   // ── 에러 + 다시 시도 ──
   if (notices === null && errorMsg !== null) {
     return (
-      <SafeAreaView style={s.root} edges={['top']}>
+      <SafeAreaView style={s.root} edges={['top']} testID="group.notice.screen">
         {header}
         <View style={s.center}>
           <Text style={s.emptyTitle}>{errorMsg}</Text>
@@ -227,7 +227,7 @@ export default function NoticeScreen() {
   const list = notices ?? [];
 
   return (
-    <SafeAreaView style={s.root} edges={['top']}>
+    <SafeAreaView style={s.root} edges={['top']} testID="group.notice.screen">
       {header}
 
       <FlatList
@@ -275,6 +275,7 @@ export default function NoticeScreen() {
           activeOpacity={0.85}
           onPress={() => openCompose(null)}
           accessibilityLabel="공지 쓰기"
+          testID="group.notice.compose"
         >
           <Ionicons name="add" size={28} color={T.white} />
         </TouchableOpacity>

@@ -113,7 +113,7 @@ export default function GroupScreen() {
   // ── 게스트 — 호출 없이 로그인 유도(§5-3) ──
   if (isGuest) {
     return (
-      <SafeAreaView style={s.root} edges={['top']}>
+      <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         <View style={[s.body, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
           <CharacterImage size={140} />
           <Text style={s.title}>로그인하고 그룹을 시작해요</Text>
@@ -136,7 +136,7 @@ export default function GroupScreen() {
   // ── 최초 로딩 — 중앙 스피너(§5-4). 재조회(포커스) 때는 기존 화면을 유지한다. ──
   if (groups === null && loading) {
     return (
-      <SafeAreaView style={s.root} edges={['top']}>
+      <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         <View style={s.center}>
           <ActivityIndicator color={T.accent} />
         </View>
@@ -148,7 +148,7 @@ export default function GroupScreen() {
   // ── 에러 + 다시 시도 ──
   if (groups === null && error) {
     return (
-      <SafeAreaView style={s.root} edges={['top']}>
+      <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         <View style={[s.body, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
           <Text style={s.title}>그룹을 불러오지 못했어요</Text>
           <Text style={s.desc}>잠시 후 다시 시도해주세요.</Text>
@@ -167,7 +167,7 @@ export default function GroupScreen() {
   // ── 그룹방 — 가입한 그룹이 있으면 이 화면 안에서 렌더한다(별도 라우트 아님, §6-4) ──
   if (myGroup) {
     return (
-      <SafeAreaView style={s.root} edges={['top']}>
+      <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         <GroupRoomScreen groupId={myGroup.groupId} summary={myGroup} onLeft={fetchGroups} />
         {inviteSheet}
       </SafeAreaView>
@@ -176,7 +176,7 @@ export default function GroupScreen() {
 
   // ── 빈 상태 ──
   return (
-    <SafeAreaView style={s.root} edges={['top']}>
+    <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
       <View style={[s.body, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
         <CharacterImage size={140} />
         <Text style={s.title}>함께 집중할 그룹을 만들어보세요</Text>
@@ -185,6 +185,7 @@ export default function GroupScreen() {
           style={s.primaryBtn}
           activeOpacity={0.85}
           onPress={() => navigation.navigate('GroupCreate')}
+          testID="group.create.entry"
         >
           <Text style={s.primaryText}>그룹 만들기</Text>
         </TouchableOpacity>
@@ -192,6 +193,7 @@ export default function GroupScreen() {
           style={s.outlineBtn}
           activeOpacity={0.85}
           onPress={() => setFindOpen(true)}
+          testID="group.find.entry"
         >
           <Text style={s.outlineText}>그룹 찾기</Text>
         </TouchableOpacity>

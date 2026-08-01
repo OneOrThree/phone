@@ -306,6 +306,7 @@ export default function GroupInviteSheet({ groupId, onClose, onJoined }: GroupIn
         activeOpacity={0.85}
         disabled={!!block || joining}
         onPress={join}
+        testID="group.invite.join"
       >
         {joining ? (
           <ActivityIndicator color={T.white} />

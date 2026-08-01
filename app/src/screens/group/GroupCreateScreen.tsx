@@ -106,10 +106,9 @@ export default function GroupCreateScreen() {
   }
 
   async function submit() {
-    if (!canSubmit) {
-      if (trimmedName.length === 0) setNameError('그룹 이름을 입력해주세요');
-      return;
-    }
+    // 버튼이 disabled={!canSubmit}라 여기 걸리는 경로는 없다 — 연타 방어로만 남긴다.
+    // (예전엔 '그룹 이름을 입력해주세요'를 세웠지만 도달 불가라 화면에 뜬 적이 없다.)
+    if (!canSubmit) return;
     setSubmitting(true);
     setNameError(null);
     try {
@@ -158,7 +157,7 @@ export default function GroupCreateScreen() {
   }
 
   return (
-    <SafeAreaView style={s.root} edges={['top']}>
+    <SafeAreaView style={s.root} edges={['top']} testID="group.create.screen">
       {/* 헤더 — 원형 백버튼 + 좌측 정렬 제목(FriendAddScreen 관행, §5-1) */}
       <View style={s.header}>
         <TouchableOpacity
@@ -280,6 +279,7 @@ export default function GroupCreateScreen() {
           activeOpacity={0.85}
           disabled={!canSubmit}
           onPress={submit}
+          testID="group.create.submit"
         >
           {submitting ? (
             <ActivityIndicator color={T.white} />

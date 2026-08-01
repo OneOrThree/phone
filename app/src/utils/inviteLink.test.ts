@@ -21,6 +21,16 @@ describe('parseInviteLink', () => {
     expect(parseInviteLink(`gromo://join?g=${GROUP_ID}`)).toBe(GROUP_ID);
   });
 
+  // iOS·카톡 인앱 브라우저가 URL을 정규화하며 슬래시를 바꾸는 경우 대비(§11 실기기 미검증 구간).
+  test('슬래시 변형(gromo://join/? · gromo:///join?)도 받는다', () => {
+    expect(parseInviteLink(`gromo://join/?g=${GROUP_ID}`)).toBe(GROUP_ID);
+    expect(parseInviteLink(`gromo:///join?g=${GROUP_ID}`)).toBe(GROUP_ID);
+  });
+
+  test('경로가 join으로 시작만 하는 다른 스킴 링크는 null', () => {
+    expect(parseInviteLink(`gromo://joinery?g=${GROUP_ID}`)).toBeNull();
+  });
+
   test('다른 파라미터가 섞여 있어도 g를 찾는다', () => {
     expect(parseInviteLink(`gromo://join?from=kakao&g=${GROUP_ID}`)).toBe(GROUP_ID);
   });
