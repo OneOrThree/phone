@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta property="og:title" content="gromo 그룹 「{{groupName}}」에 초대받았어요">
+<title>gromo 초대</title>
+</head>
+<body>
+<!-- 스텁 템플릿 — WS-5 가 같은 경로를 프로덕션 품질(OG 이미지·카피·스타일)로 교체한다.
+     치환 변수는 이 4개뿐이다(계약 §4-4): {{groupName}} {{schemeUrl}} {{storeUrl}} {{expired}} -->
+<p data-expired="{{expired}}">「{{groupName}}」 그룹 초대</p>
+<a id="open" href="{{schemeUrl}}">앱에서 열기</a>
+<a id="store" href="{{storeUrl}}">App Store에서 받기</a>
+<script>
+  // 설치돼 있으면 스킴이 앱을 연다. 미설치면 iOS 에서 조용히 실패하므로 스토어 버튼이 남는다.
+  if (document.querySelector('p').dataset.expired !== 'true') {
+    location.href = document.getElementById('open').href;
+  }
+</script>
+</body>
+</html>
