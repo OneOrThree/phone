@@ -64,6 +64,12 @@ export function UserProvider({
     setGoalSecondsState(v);
   }, []);
 
+  // 게스트→소셜 연동처럼 리마운트 없이 세션 프로필이 갱신되는 경우(userId 동일 → key 미변경)
+  // 서버 닉네임으로 동기화한다. 프로필 편집(setNickname)은 initialNickname을 바꾸지 않아 안전.
+  useEffect(() => {
+    setNickname(initialNickname ?? '');
+  }, [initialNickname]);
+
   // GA4 User-ID / 게스트 여부 연결 (분석 식별의 단일 지점).
   // userId는 로그인/게스트 진입 시 1회 정해지고, 로그아웃 시 트리가 리마운트된다.
   useEffect(() => {
