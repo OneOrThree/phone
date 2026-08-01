@@ -29,6 +29,7 @@ import {
 import { clearInbox } from '@/services/notificationInbox';
 import { recordAccessDay } from '@/services/storeReview';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
+import { invalidateNativeGoalWrites } from '@/services/screentimeSync';
 import { occupationForCategory, categoryForOccupation } from '@/constants/focusCategories';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { runStorageMigrations } from '@/utils/storageMigration';
@@ -225,6 +226,9 @@ function App() {
     // 목표로 초과 알림이 계속 뜬다. 구 바이너리(네이티브 모듈 없음)는 래퍼가 no-op이라 안전.
     // iOS는 로그아웃이 App Group 목표를 건드리지 않는 기존 동작 유지.
     if (Platform.OS === 'android') {
+      // in-flight sync 무효화(세대 증가) — 진행 중이던 syncScreenTimeUsage가 아래 0 쓰기
+      // '뒤'에 완료되며 이전 계정 목표·워커를 복원하지 않게, 반드시 0 쓰기 전에 호출한다.
+      invalidateNativeGoalWrites();
       await ScreenTimeModule.setGoalSeconds(0).catch(() => {});
     }
     // 온보딩 완료 플래그까지 지워 로그아웃 시 온보딩 첫 페이지로 돌아가게 한다.
@@ -310,6 +314,8 @@ function App() {
       // 안드로이드 네이티브 목표·워커도 로그아웃과 같은 이유로 해제(GROMO-997 코드리뷰) —
       // 새 계정 목표는 다음 sync의 setGoalSeconds가 다시 전달한다.
       if (Platform.OS === 'android') {
+        // in-flight sync 무효화 — handleLogout과 같은 이유로 0 쓰기 전에 세대를 올린다.
+        invalidateNativeGoalWrites();
         await ScreenTimeModule.setGoalSeconds(0).catch(() => {});
       }
     }

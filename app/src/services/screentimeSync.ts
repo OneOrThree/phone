@@ -40,6 +40,20 @@ interface ScreenTimeSyncState {
 // 목표값이 아니라 측정 가능 최대치로 등록한다(네이티브가 900으로 클램프).
 export const USAGE_BUCKET_MAX_MINUTES = 900;
 
+// 네이티브 목표 쓰기 세대(epoch) — 로그아웃·계정 전환 teardown이 올린다(GROMO-997 코드리뷰).
+// in-flight sync가 teardown의 setGoalSeconds(0) '뒤'에 완료되면 이전 계정의 목표 스냅샷을
+// 도로 쓰고 초과 알림 워커를 재예약해버리는 레이스가 있다: sync는 시작 시 세대를 캡처하고,
+// 네이티브 목표 쓰기 직전에 세대가 그대로일 때만 쓴다. 계정이 바뀌면 새 sync(새 세대)가
+// 새 계정 목표를 다시 전달하므로 스킵해도 잃는 것이 없다.
+let nativeGoalWriteEpoch = 0;
+
+// 계정 teardown(로그아웃·계정 전환)이 setGoalSeconds(0)을 쓰기 '직전'에 호출 — 진행 중인
+// sync의 네이티브 목표 쓰기를 무효화한다. 반드시 0 쓰기 '전'이어야 한다: 뒤에 올리면
+// 구세대 sync가 그 사이에 0을 덮어쓰는 창이 남는다.
+export function invalidateNativeGoalWrites(): void {
+  nativeGoalWriteEpoch += 1;
+}
+
 // 버킷 눈금(분) — 실제 눈금은 네이티브(ScreenTimeModule.swift의 step)가 정하므로 반드시 함께
 // 바꾼다. 여기 값은 아래 등록 시그니처용 — 바뀌면 기존 설치가 새 눈금으로 1회 재등록된다(GROMO-931).
 const USAGE_BUCKET_STEP_MINUTES = 15;
@@ -175,6 +189,8 @@ export async function syncScreenTimeUsage(
   goalSeconds: number,
 ): Promise<void> {
   if (!userId) return; // 게스트 — 서버 통계 대상 아님
+  // 세대 캡처 — 아래 네이티브 목표 쓰기가 teardown 이후의 stale 쓰기인지 판별하는 기준.
+  const goalWriteEpoch = nativeGoalWriteEpoch;
   if ((await ScreenTimeModule.getAuthorizationStatus()) !== 'approved') return;
 
   // gromo.daily 폐지 마이그레이션(GROMO-942) — 기존 설치에 남아있는 목표 판정 모니터를 1회 중지한다.
@@ -242,8 +258,12 @@ export async function syncScreenTimeUsage(
   // 위 effectiveGoal과 같은 이유). iOS는 기존 App Group 기록의 동일값 재기록이라 무해.
   // 위 AsyncStorage 블록과 분리한 독립 가드(코드리뷰 반영) — 저장된 JSON이 깨져 위 catch로
   // 빠져도 네이티브 목표·워커 갱신은 매 sync 시도돼 스냅샷이 낡은 채 남지 않는다.
+  // 세대 확인(코드리뷰 반영) — 이 sync가 진행되는 동안 로그아웃·계정 전환 teardown이
+  // setGoalSeconds(0)을 썼다면(세대 증가) 여기서 쓰면 이전 계정 목표를 복원하는 stale 쓰기다.
   try {
-    await ScreenTimeModule.setGoalSeconds(goalSeconds);
+    if (goalWriteEpoch === nativeGoalWriteEpoch) {
+      await ScreenTimeModule.setGoalSeconds(goalSeconds);
+    }
   } catch {
     // 전달 실패는 동기화와 무관 — 다음 sync에서 재시도
   }
