@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import { CURRENCY } from '@/constants/currency';
+import { focusGoalReward, screenTimeGoalReward } from '@/utils/currencyRewards';
 import { useLeagueRanking } from '@/screens/league/useLeagueRanking';
 import { useLeagueMeta } from '@/screens/league/useLeagueMeta';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -623,6 +624,12 @@ export default function HomeScreen() {
         visible={goalCelebration != null}
         goalStreakDays={goalCelebration?.days ?? 1}
         goalMinutes={goalCelebration?.goalMinutes}
+        // 목표 분으로 지급액을 계산해 +N ⏳ 표기(서버 지급과 동일 공식 미러 — utils/currencyRewards)
+        rewardCoins={
+          goalCelebration?.goalMinutes != null
+            ? focusGoalReward(goalCelebration.goalMinutes)
+            : undefined
+        }
         onClose={closeGoalCelebration}
       />
 
@@ -632,6 +639,12 @@ export default function HomeScreen() {
         visible={screenTimeCelebration != null && goalCelebration == null}
         streakDays={screenTimeCelebration?.days ?? 1}
         goalMinutes={screenTimeCelebration?.goalMinutes}
+        // 사용 상한(분)으로 지급액을 계산해 +N ⏳ 표기(서버 지급과 동일 공식 미러)
+        rewardCoins={
+          screenTimeCelebration?.goalMinutes != null
+            ? screenTimeGoalReward(screenTimeCelebration.goalMinutes)
+            : undefined
+        }
         onClose={closeScreenTimeCelebration}
       />
 
