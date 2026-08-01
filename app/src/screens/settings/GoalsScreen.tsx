@@ -27,11 +27,6 @@ const USAGE_MIN_MINUTES = 30;
 const USAGE_MAX_MINUTES = 12 * 60;
 const USAGE_STEP = 5;
 
-// 초 → step 단위 스냅 + [하한, 상한] 클램프한 '목표 분'.
-function toGoalMinutes(seconds: number, min: number, max: number, step: number): number {
-  return snapClamp(seconds / 60, min, max, step);
-}
-
 // 분 → step 단위 스냅 + [하한, 상한] 클램프.
 function snapClamp(minutes: number, min: number, max: number, step: number): number {
   const snapped = Math.round(minutes / step) * step;
@@ -115,19 +110,22 @@ export default function GoalsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { userId, goalSeconds, screenTimeGoalSeconds } = useUser();
 
-  // 오늘 적용 중인 목표(비교 기준) — 저장해도 이 값은 안 바뀐다(내일 발효).
-  const activeFocusMin = useMemo(
-    () => toGoalMinutes(goalSeconds, FOCUS_MIN_MINUTES, FOCUS_MAX_MINUTES, FOCUS_STEP),
-    [goalSeconds],
-  );
+  // 오늘 적용 중인 목표(비교·표시 기준) — 저장해도 이 값은 안 바뀐다(내일 발효).
+  // 스냅하지 않은 실제 값을 쓴다: 구(1분 단위) 목표를 5분 스냅하면 피커 초기값과 같아져
+  // '변경 없음'으로 오인되고, 스냅값으로 바꾸는 저장이 영영 불가능해진다(리뷰 반영).
+  const activeFocusMin = useMemo(() => Math.round(goalSeconds / 60), [goalSeconds]);
   const activeUsageMin = useMemo(
-    () => toGoalMinutes(screenTimeGoalSeconds, USAGE_MIN_MINUTES, USAGE_MAX_MINUTES, USAGE_STEP),
+    () => Math.round(screenTimeGoalSeconds / 60),
     [screenTimeGoalSeconds],
   );
 
-  // 피커 상태 — 초기엔 현재 목표, 예약이 있으면 예약값으로 덮어씀(아래 effect).
-  const [focusMinutes, setFocusMinutes] = useState(activeFocusMin);
-  const [usageMinutes, setUsageMinutes] = useState(activeUsageMin);
+  // 피커 상태 — 초기엔 현재 목표(5분 단위 스냅), 예약이 있으면 예약값으로 덮어씀(아래 effect).
+  const [focusMinutes, setFocusMinutes] = useState(() =>
+    snapClamp(activeFocusMin, FOCUS_MIN_MINUTES, FOCUS_MAX_MINUTES, FOCUS_STEP),
+  );
+  const [usageMinutes, setUsageMinutes] = useState(() =>
+    snapClamp(activeUsageMin, USAGE_MIN_MINUTES, USAGE_MAX_MINUTES, USAGE_STEP),
+  );
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
 
