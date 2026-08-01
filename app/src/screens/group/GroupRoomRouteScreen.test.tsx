@@ -47,7 +47,7 @@ jest.mock('@/store/UserContext', () => ({
 // refresh는 **한 개를 계속 돌려준다** — 렌더마다 새 함수를 주면 load→reload 신원이 흔들려
 // 이 파일이 잠그려는 '콜백 신원 고정'이 목 때문에 깨진다(실제 Provider도 useCallback으로 고정한다).
 jest.mock('@/store/CoinContext', () => {
-  const refresh = jest.fn();
+  const refresh = jest.fn(async () => true);
   const latestCoinsVersion = () => 1;
   return {
     useCoins: () => ({

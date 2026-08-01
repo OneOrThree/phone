@@ -205,6 +205,20 @@ export default function BetSheet({
               : '이미 마감돼 참가할 수 없어요.',
           );
           return;
+        // 챌린지가 이미 비활성이다(GROMO-1025) — 시트의 마지막 성공 조회 이후 종료됐거나,
+        // 재조회 실패로 낡은 ACTIVE 스냅샷을 보고 있던 경우다. 이 시트에서 재시도해도 영원히
+        // 같은 실패라 닫고 재조회한다. 문구는 staleBetSheetAlert의 같은 사실 분기와 같은 문장이다.
+        // ⚠️ 현재 서버는 이 코드를 **개설(createBet)에서만** 던진다 — joinBet은 챌린지 상태를
+        //    보지 않는다(GroupBetService). 참가 분기는 도달 불가능한 선제 방어다: switch가 모드
+        //    공용이고, 서버가 참가에도 같은 검사를 추가하면 그대로 대비된다(클로드 리뷰).
+        case 'BET_CHALLENGE_INACTIVE':
+          failAndReload(
+            '끝난 챌린지예요',
+            isCreate
+              ? '종료된 챌린지에는 내기를 열 수 없어요.'
+              : '종료된 챌린지의 내기에는 참가할 수 없어요.',
+          );
+          return;
         // 사라진 챌린지에 계속 걸어 봐야 결과는 같다 — 닫고 부모가 목록을 다시 받는다.
         case 'NOT_FOUND':
           failAndReload('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
