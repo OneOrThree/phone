@@ -101,6 +101,9 @@ export function useLeagueRanking() {
     mySeconds: number;
     forCategory: string | null;
   } | null>(null);
+  // 마지막 조회 실패 여부 — 실패가 "리그에 아무도 없음" 빈 상태로 오인되지 않게 UI에서 구분
+  // (GROMO-922, 친구 목록 GROMO-621과 동일 패턴)
+  const [error, setError] = useState(false);
   // 요청 시퀀스 — 당겨서 새로고침(GROMO-887)과 포커스 재조회가 겹칠 때, 늦게 온 이전 응답이
   // 최신 상태를 덮지 않게 최신 요청만 반영한다(useFriends 패턴).
   const requestSeqRef = useRef(0);
@@ -109,6 +112,7 @@ export function useLeagueRanking() {
   const refetch = useCallback(async () => {
     if (!userId) {
       setState(null);
+      setError(false); // 게스트는 빈 상태가 정상 — 실패 안내를 띄우지 않는다
       return;
     }
     // 카테고리 저장값을 아직 읽는 중(undefined) — 확정(null/string) 후 한 번만 조회한다.
@@ -138,6 +142,7 @@ export function useLeagueRanking() {
         mySeconds: myWeekSeconds,
         forCategory: myCategory ?? null,
       });
+      setError(false);
     } catch {
       // 일시 실패 시 기존 랭킹 유지 — 당겨서 새로고침 실패로 보이던 목록이 사라지지 않게 한다
       // (친구 목록과 동일 정책, 코드리뷰 반영). 단 같은 카테고리로 받은 데이터일 때만 —
@@ -147,6 +152,7 @@ export function useLeagueRanking() {
         setState((prev) =>
           prev != null && prev.forCategory !== (myCategory ?? null) ? null : prev,
         );
+        setError(true);
       }
     }
   }, [userId, myCategory, myNickname]);
@@ -175,5 +181,21 @@ export function useLeagueRanking() {
         1
       : null;
 
-  return { ranking, me, myLeagueLabel, myMinutes, mySeconds, myLeagueRank, refetch };
+  // 조회 '의도' 라벨 — 카테고리에서 직접 파생하므로 조회 성패와 무관하게 확정된다. 실패로
+  // myLeagueLabel을 못 받았을 때도 화면이 '내 리그'가 무엇인지 알 수 있게 노출한다(GROMO-922
+  // 코드리뷰 반영). 빈 성공의 전역 폴백(GROMO-657) label=null과 달리 직군 미배정일 때만 null.
+  const intendedLeagueLabel =
+    occupationForCategory(myCategory) != null ? (myCategory ?? null) : null;
+
+  return {
+    ranking,
+    me,
+    myLeagueLabel,
+    intendedLeagueLabel,
+    myMinutes,
+    mySeconds,
+    myLeagueRank,
+    error,
+    refetch,
+  };
 }
