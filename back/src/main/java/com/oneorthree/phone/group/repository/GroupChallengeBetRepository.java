@@ -2,7 +2,9 @@ package com.oneorthree.phone.group.repository;
 
 import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -24,6 +26,30 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
     /** 참가 진입점 — 내기 id 와 그룹 스코프를 함께 검증한다(남의 그룹 내기에 참가 불가). */
     Optional<GroupChallengeBet> findByIdAndGroupId(UUID id, UUID groupId);
 
+    /**
+     * 내기 행 잠금 조회 — 참가자 목록을 읽고 돈을 움직이는 경로(정산·탈퇴 연동)의 직렬화 지점.
+     *
+     * <p>정산은 "참가자를 읽고 → 계산하고 → 지급"하는데, 그 사이에 탈퇴 연동이 참가 행을 지우고
+     * 환불하면 정산의 낡은 스냅샷이 탈퇴자에게 지급까지 해 이중 지급이 된다. status CAS 는 상태
+     * 전이만 잠글 뿐 <b>참가자 읽기</b>는 못 지키므로, 두 경로 모두 이 잠금 조회로 시작해 내기
+     * 단위로 완전히 직렬화한다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT b FROM GroupChallengeBet b WHERE b.id = :id")
+    Optional<GroupChallengeBet> findByIdForUpdate(@Param("id") UUID id);
+
+    /**
+     * 그룹 탈퇴 연동 대상 — 이 그룹에서 유저가 참가 중인 OPEN 내기 id. 실제 처리는 id 별로
+     * {@link #findByIdForUpdate} 잠금 후 재검증한다(이 조회와 잠금 사이에 정산이 끝났을 수 있다).
+     * id 오름차순 고정은 여러 내기를 잠글 때의 데드락 예방이다.
+     */
+    @Query("SELECT b.id FROM GroupChallengeBet b, GroupChallengeBetParticipant p "
+            + "WHERE p.bet = b AND b.group.id = :groupId AND p.user.id = :userId "
+            + "AND b.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN ORDER BY b.id")
+    List<UUID> findOpenBetIdsByGroupIdAndParticipantUserId(
+            @Param("groupId") UUID groupId,
+            @Param("userId") UUID userId);
+
     /** 조회 조립용 — 챌린지 목록의 해당 날짜 내기를 IN 절 1회로 배치 로드한다(N+1 방지). */
     List<GroupChallengeBet> findByChallengeIdInAndBetDate(Collection<UUID> challengeIds, LocalDate betDate);
 
@@ -36,15 +62,22 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
      *
      * <p>(challenge_id, bet_date) 유니크 제약이 있어 동률이 없으므로 선택은 항상 결정적이다.
      * JPQL 로는 표현할 수 없어 네이티브 쿼리로 둔다.
+     *
+     * <p>status 는 정산 결과 3종만 허용 목록으로 명시한다 — {@code <> 'OPEN'} 이면 CANCELED(취소)가
+     * "지난 내기"로 노출되는데, 구앱은 CANCELED 를 몰라 정산 결과처럼 오표시한다. 취소는 결과가
+     * 아니라 없던 일이므로 이 줄에 나올 자격 자체가 없다.
      */
     @Query(value = "SELECT DISTINCT ON (b.challenge_id) b.* FROM group_challenge_bets b "
-            + "WHERE b.challenge_id IN (:challengeIds) AND b.status <> 'OPEN' "
+            + "WHERE b.challenge_id IN (:challengeIds) "
+            + "AND b.status IN ('SETTLED', 'REFUNDED', 'FORFEITED') "
             + "ORDER BY b.challenge_id, b.bet_date DESC", nativeQuery = true)
     List<GroupChallengeBet> findLatestSettledByChallengeIds(
             @Param("challengeIds") Collection<UUID> challengeIds);
 
     /**
-     * 정산 게이트 — {@code OPEN} 인 내기만 종료 상태로 <b>원자적으로</b> 전이시킨다(compare-and-set).
+     * 종료 게이트 — {@code OPEN} 인 내기만 종료 상태로 <b>원자적으로</b> 전이시킨다(compare-and-set).
+     * 정산(SETTLED/FORFEITED)뿐 아니라 취소(CANCELED — 명시적 취소·그룹 탈퇴 연동)도 같은 게이트를
+     * 지난다 — 어느 경로든 전이에 성공한 트랜잭션 하나만 돈을 움직인다.
      *
      * <p>스케줄러(04:00)와 수동 트리거({@code POST /groups/bets/settle})가 겹쳐도 이 UPDATE 에
      * 성공한 트랜잭션 하나만 지급을 적용한다 — 뒤에 온 트랜잭션은 행 락에서 대기하다가 앞이 커밋되면

@@ -160,6 +160,141 @@ public class GroupBetService {
         log.info("내기 참가 — betId={}, userId={}, stake={}", betId, userId, bet.getStake());
     }
 
+    // ── 취소 / 그룹 탈퇴 연동 ────────────────────────────────────────────
+
+    /**
+     * 내기 취소 — 개설자 본인이면서 참가자가 개설자 1명뿐인 OPEN 내기만 가능하다. 판돈은 환불된다.
+     *
+     * <p>타인이 참가한 내기를 취소로 무를 수 있으면 "질 것 같으면 무르기"가 되므로 단독일 때만
+     * 허용한다. 상태 전이는 정산과 같은 CAS 게이트를 지난다 — 검증과 전이 사이에 정산 배치가
+     * 먼저 끝냈으면 CAS 가 0행을 돌려주고, 이 취소는 {@code BET_NOT_OPEN} 으로 거절된다(환불 없음).
+     * 환불 멱등키가 정산 환불과 같은 포맷({@code bet:{betId}:refund:{userId}})이라 어떤 경로로든
+     * 이중 환불은 원장 유니크가 최후 방어한다.
+     */
+    @Transactional
+    public void cancelBet(UUID groupId, UUID betId, UUID userId) {
+        User user = requireActiveUser(userId);
+        requireGroupMembership(user, groupId);
+
+        GroupChallengeBet bet = groupChallengeBetRepository.findByIdAndGroupId(betId, groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
+        if (!bet.getCreatorUser().getId().equals(userId)) {
+            throw new GroupException(GroupErrorCode.BET_CANCEL_FORBIDDEN);
+        }
+        List<GroupChallengeBetParticipant> participants =
+                groupChallengeBetParticipantRepository.findByBetIdIn(List.of(betId));
+        if (participants.stream().anyMatch(p -> !p.getUser().getId().equals(userId))) {
+            throw new GroupException(GroupErrorCode.BET_CANCEL_HAS_OTHERS);
+        }
+        // 이미 종료된 내기(이중 취소 포함)의 이른 거절. 레이스는 아래 CAS 가 최종 판정한다.
+        if (!bet.isOpen()) {
+            throw new GroupException(GroupErrorCode.BET_NOT_OPEN);
+        }
+
+        int claimed = groupChallengeBetRepository.compareAndSetSettled(
+                betId, GroupBetStatus.CANCELED, Instant.now());
+        if (claimed == 0) {
+            throw new GroupException(GroupErrorCode.BET_NOT_OPEN);
+        }
+        currencyLedgerService.credit(user, CurrencyTransactionType.BET_REFUND, bet.getStake(),
+                GroupBetSettler.payoutKey(betId, userId, true));
+
+        log.info("내기 취소 — betId={}, challengeId={}, userId={}, stake={} 환불",
+                betId, bet.getChallenge().getId(), userId, bet.getStake());
+    }
+
+    /**
+     * 그룹 탈퇴 연동 — 탈퇴자가 참가 중인 OPEN 내기에서 빼고 판돈을 환불한다.
+     * {@link GroupMemberService#withdrawGroup} 가 탈퇴와 <b>같은 트랜잭션</b>에서 호출한다
+     * (탈퇴만 되고 판돈이 묶이는 반쪽 상태 방지).
+     *
+     * <ul>
+     *   <li>탈퇴자가 개설자 → 내기 전체 취소(CANCELED) + 전원 환불</li>
+     *   <li>탈퇴자가 일반 참가자 → 참가 행 삭제 + 본인 환불. 남은 참가자가 개설자 1명뿐이면
+     *       자동 취소 + 개설자 환불(혼자 남은 내기는 성립하지 않는다)</li>
+     * </ul>
+     *
+     * <p>내기마다 행 잠금(FOR UPDATE)으로 시작한다 — 정산 배치({@link GroupBetSettler})와 같은
+     * 잠금을 잡으므로 "정산이 참가자를 읽는 사이에 여기가 행을 지우고 환불"하는 이중 지급 레이스가
+     * 원천 차단된다. 잠금 후 status 재확인에서 이미 종료된 내기는 건드리지 않는다(정산 결과 존중).
+     */
+    @Transactional
+    public void releaseFromOpenBets(User user, Group group) {
+        List<UUID> betIds = groupChallengeBetRepository
+                .findOpenBetIdsByGroupIdAndParticipantUserId(group.getId(), user.getId());
+        for (UUID betId : betIds) {
+            GroupChallengeBet bet = groupChallengeBetRepository.findByIdForUpdate(betId)
+                    .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
+            if (!bet.isOpen()) {
+                continue;   // 대상 조회와 잠금 사이에 정산·취소가 먼저 끝났다 — 이미 돈이 정리된 판이다.
+            }
+            List<GroupChallengeBetParticipant> participants =
+                    groupChallengeBetParticipantRepository.findByBetIdIn(List.of(betId));
+            if (bet.getCreatorUser().getId().equals(user.getId())) {
+                cancelAndRefundAll(bet, participants);
+                continue;
+            }
+            detachAndRefund(bet, participants, user);
+        }
+    }
+
+    /** 개설자 탈퇴 — 내기 전체를 취소하고 전원(개설자 포함) 환불한다. */
+    private void cancelAndRefundAll(GroupChallengeBet bet, List<GroupChallengeBetParticipant> participants) {
+        claimCanceled(bet);
+        participants.forEach(p -> refundStake(bet, p.getUser()));
+        log.info("내기 자동 취소 — 개설자 그룹 탈퇴. betId={}, creatorId={}, 환불 {}명",
+                bet.getId(), bet.getCreatorUser().getId(), participants.size());
+    }
+
+    /** 일반 참가자 탈퇴 — 참가 행 삭제 + 본인 환불. 개설자 혼자 남으면 자동 취소까지. */
+    private void detachAndRefund(
+            GroupChallengeBet bet, List<GroupChallengeBetParticipant> participants, User leaver) {
+        participants.stream()
+                .filter(p -> p.getUser().getId().equals(leaver.getId()))
+                .forEach(groupChallengeBetParticipantRepository::delete);
+        refundStake(bet, leaver);
+        log.info("내기 참가 해제 — 그룹 탈퇴. betId={}, userId={}, stake={} 환불",
+                bet.getId(), leaver.getId(), bet.getStake());
+
+        List<GroupChallengeBetParticipant> remaining = participants.stream()
+                .filter(p -> !p.getUser().getId().equals(leaver.getId()))
+                .toList();
+        boolean creatorAlone = remaining.size() == 1
+                && remaining.get(0).getUser().getId().equals(bet.getCreatorUser().getId());
+        if (creatorAlone) {
+            claimCanceled(bet);
+            refundStake(bet, remaining.get(0).getUser());
+            log.info("내기 자동 취소 — 참가자 이탈로 개설자 단독. betId={}, creatorId={}",
+                    bet.getId(), bet.getCreatorUser().getId());
+        }
+    }
+
+    /**
+     * CANCELED 전이 — 정산과 같은 CAS 게이트. 호출 전에 행 잠금 + OPEN 재확인을 거쳤으므로
+     * 실패는 게이트 계약이 깨졌다는 뜻이다(예외로 전체 롤백).
+     */
+    private void claimCanceled(GroupChallengeBet bet) {
+        int claimed = groupChallengeBetRepository.compareAndSetSettled(
+                bet.getId(), GroupBetStatus.CANCELED, Instant.now());
+        if (claimed == 0) {
+            throw new IllegalStateException("행 잠금 아래에서 CANCELED 전이 실패 — betId=" + bet.getId());
+        }
+    }
+
+    /**
+     * 판돈 환불 — 정산 환불과 같은 멱등키 포맷이라 같은 유저에게 어떤 경로로든 두 번 환불되지 않는다.
+     * 앱 탈퇴자(지갑 삭제)는 지급 대상에서 뺀다 — {@link GroupBetSettler} 의 지급 스킵과 같은 이유다.
+     */
+    private void refundStake(GroupChallengeBet bet, User user) {
+        if (user.isDeleted()) {
+            log.warn("내기 환불 스킵 — 탈퇴한 유저라 지갑이 없다. betId={}, userId={}, stake={}",
+                    bet.getId(), user.getId(), bet.getStake());
+            return;
+        }
+        currencyLedgerService.credit(user, CurrencyTransactionType.BET_REFUND, bet.getStake(),
+                GroupBetSettler.payoutKey(bet.getId(), user.getId(), true));
+    }
+
     /** 참가 행 생성 + 판돈 차감(에스크로). 개설자 자동 참가와 일반 참가가 같은 경로를 탄다. */
     private void stakeIn(GroupChallengeBet bet, User user) {
         groupChallengeBetParticipantRepository.save(GroupChallengeBetParticipant.builder()
@@ -201,6 +336,7 @@ public class GroupBetService {
             UUID challengeId = bet.getChallenge().getId();
             result.put(challengeId, GroupBetResponse.builder()
                     .betId(bet.getId())
+                    .creatorUserId(bet.getCreatorUser().getId())
                     .stake(bet.getStake())
                     .pot(bet.getStake() * participants.size())
                     .status(bet.getStatus())
