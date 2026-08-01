@@ -27,12 +27,19 @@ const DEFAULT_MESSAGE = '그로모가 사용자님의\n사용시간을 분석하
 type Props = {
   // 분석 문구 오버라이드(기본: DEFAULT_MESSAGE).
   message?: string;
+  // 리포트가 위를 덮은 뒤 true — 접근성 트리에서 숨겨 스크린리더가 완료된 리포트 위에서
+  // "분석 중"을 계속 읽지 않게 한다. 시각 레이어(뒤에 깔린 캐릭터)는 그대로 둔다.
+  // (레이어를 언마운트하지 않고 홈 상세에서 리포트가 늦게 떠도 빈 화면이 안 보이게 하기 위함.)
+  covered?: boolean;
 };
 
 // 캐릭터 + "분석하고 있어요" 문구 + 진행바 로딩 연출(absoluteFill 레이어).
 // 온보딩 '어제 스크린타임'(YesterdayScreenTimeStep)과 홈 '핸드폰 사용' 상세(UsageDetailScreen)
 // 에서 공용으로 쓴다. 이 컴포넌트는 연출만 담당하고, 레이어를 걷는 시점은 각 화면이 정한다.
-export default function ScreenTimeAnalyzingOverlay({ message = DEFAULT_MESSAGE }: Props) {
+export default function ScreenTimeAnalyzingOverlay({
+  message = DEFAULT_MESSAGE,
+  covered = false,
+}: Props) {
   const progress = useSharedValue(0);
 
   useEffect(() => {
@@ -45,7 +52,11 @@ export default function ScreenTimeAnalyzingOverlay({ message = DEFAULT_MESSAGE }
   const fill = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
 
   return (
-    <View style={s.layer}>
+    <View
+      style={s.layer}
+      accessibilityElementsHidden={covered}
+      importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
+    >
       <Text style={s.message}>{message}</Text>
       <Image
         source={require('@/assets/character_study.png')}
