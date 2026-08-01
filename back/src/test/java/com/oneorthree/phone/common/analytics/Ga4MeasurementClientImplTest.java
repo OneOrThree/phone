@@ -147,6 +147,26 @@ class Ga4MeasurementClientImplTest {
     }
 
     @Test
+    @DisplayName("blank app_instance_id 도 미전송으로 다룬다 — 클라이언트가 빈 문자열을 보내는 경우")
+    void skipsAppEventWithBlankInstanceId() {
+        client.sendAppEvent("  ", "group_joined", Map.of("group_id", "g-1"));
+
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("호출자가 env 를 이미 넣었으면 그 값을 존중한다 — 중앙 주입은 미설정일 때만")
+    void respectsCallerProvidedEnv() {
+        mockServer.expect(requestTo(APP_COLLECT_URL))
+                .andExpect(jsonPath("$.events[0].params.env").value("dev"))
+                .andRespond(withSuccess());
+
+        client.sendAppEvent("inst1", "group_joined", Map.of("env", "dev"));
+
+        mockServer.verify();
+    }
+
+    @Test
     @DisplayName("시크릿이 비어 있으면 전송하지 않는다 — 배선 누락은 WARN 으로만 드러낸다")
     void skipsWhenSecretsMissing() {
         Ga4Properties empty = new Ga4Properties();
