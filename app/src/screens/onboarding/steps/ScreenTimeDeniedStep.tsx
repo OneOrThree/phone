@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Linking, AppState } from 'react-native';
+import { View, Text, StyleSheet, Linking, AppState, Platform } from 'react-native';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import InfoNote, { NoteStrong } from '@/screens/onboarding/components/InfoNote';
 import { CharacterImage } from '@/components/character/CharacterImage';
@@ -13,6 +13,8 @@ import type { StepProps } from '@/screens/onboarding/types';
 //   iOS는 스크린타임 권한 창 직접 딥링크를 공개 API로 지원하지 않음(비공개 App-Prefs 스킴은 리젝 사유).
 // 설정에서 권한을 켜고 돌아오면(AppState active) 이를 감지해 측정 앱 picker를 띄우고,
 //   screenTimeGranted=true로 전환 → 이 스텝이 허용 경로(W11 전날 스크린타임)로 자동 교체된다.
+// 안드로이드(GROMO-994): requestAuthorization이 Usage Access 설정 딥링크 + 복귀 재확인까지
+//   담당한다 — resolve 결과가 허용이면 바로 허용 경로로 전환(AppState 감지·picker 불필요).
 export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
   // update는 매 렌더 새 함수라 ref로 최신값만 참조(리스너는 1회만 등록).
   const updateRef = useRef(update);
@@ -49,6 +51,16 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
   }, []);
 
   const openSettings = () => {
+    if (Platform.OS === 'android') {
+      // Usage Access 설정 딥링크 — 복귀 시 네이티브가 재확인한 결과로 resolve된다(GROMO-994).
+      // 허용이면 이 스텝이 W11 전날 스크린타임으로 자동 교체된다. 측정 앱 picker는 M2 전이라 없음.
+      ScreenTimeModule.requestAuthorization()
+        .then((granted) => {
+          if (granted) updateRef.current({ screenTimeGranted: true });
+        })
+        .catch(() => {});
+      return;
+    }
     returningFromSettings.current = true;
     Linking.openSettings();
   };
