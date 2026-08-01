@@ -11,17 +11,26 @@ import android.app.usage.UsageStatsManager
 //  1. 화면 꺼짐  — SCREEN_NON_INTERACTIVE에서 열린 구간 전부 마감(안 하면 잠든 밤새 카운트).
 //  2. 자정 걸친 구간 — 조회 구간 앞에 LOOKBACK 여유를 두고 이벤트를 읽되, 누적은 [begin, end)로
 //     클리핑해 날짜별로 쪼갠다(전날 밤에 RESUMED된 채 이어지는 사용도 오늘분만 계산).
-//  3. 스플릿 스크린 — 두 앱이 동시에 RESUMED면 각자 구간을 독립 누적하는 '합산' 정의를 쓴다
-//     (iOS 스크린타임 앱과 같은 계열 — 동시 사용 구간은 앱 수만큼 계산됨).
+//  3. 스플릿 스크린 — 서로 다른 앱이 동시에 RESUMED면 각자 구간을 독립 누적하는 '합산' 정의를
+//     쓴다(iOS 스크린타임 앱과 같은 계열 — 동시 사용 구간은 앱 수만큼 계산됨). 단 같은 앱의
+//     다중 액티비티(멀티 인스턴스·PIP)가 겹치는 구간은 패키지별 union으로 한 번만 센다(코드리뷰 반영).
 //  4. 이벤트 보존기간 — 원본 이벤트는 수일 수준만 보관(기기별 상이). 구간에 앱 라이프사이클
 //     이벤트가 하나도 없으면 queryUsageStats(INTERVAL_DAILY) 근사 폴백으로 대체한다.
 //  5. 재부팅 — DEVICE_SHUTDOWN에서 열린 구간을 마감한다. 재부팅 결측(이벤트 공백)으로 값이
 //     줄어드는 케이스는 JS 쪽 '기존값 유지' 로직(max(보존값, 마지막 동기화값))에 맡긴다.
+//
+// 수용 한계: LOOKBACK(24h)보다 먼저 시작해 조회 구간 끝까지 이벤트를 하나도 안 남긴 세션
+// (24시간 이상 화면 꺼짐·앱 전환 없이 연속 포그라운드)은 신호가 전혀 없어 재구성에서 빠진다.
+// 현실적으론 화면 꺼짐(SCREEN_NON_INTERACTIVE)이 그 전에 끼어 거의 발생하지 않는다. 대안
+// (재구성값을 항상 근사 폴백과 max 비교)은 INTERVAL_DAILY 버킷 경계 흔들림으로 과대 집계
+// (리그 랭킹에서 유저에게 유리) 위험이 있어 채택하지 않았다(코드리뷰 반영).
 internal object UsageSessionCalculator {
 
   // 자정 걸친 구간 소급용 조회 여유 — 구간 시작 전에 RESUMED된 채 이어지는 사용을 잡는다.
-  // 12시간이면 단일 앱을 이벤트 없이 연속 사용하는 현실적 최대치를 넉넉히 덮는다.
-  private const val LOOKBACK_MS = 12L * 60 * 60 * 1000
+  // 24시간이면 구간 시작 전 하루 전체를 덮어, 종료 이벤트조차 없이 계속 열려 있는 장시간
+  // 세션(스플릿 스크린 한쪽 등)의 시작 RESUMED도 놓치지 않는다(코드리뷰 반영. 이벤트
+  // 보존기간은 수일 수준이라 24시간 소급은 안전).
+  private const val LOOKBACK_MS = 24L * 60 * 60 * 1000
 
   // [begin, end) 구간의 포그라운드 사용시간(ms) 합계.
   // selection이 null/빈 집합이면 전체 앱을 측정한다(M2 피커 전 기본 — §8 selection 키 구조).
@@ -41,19 +50,29 @@ internal object UsageSessionCalculator {
     // 이번 스캔에서 한 번이라도 RESUMED를 본 키 — 미매칭 종료(아래) 판별용. close 뒤에 오는
     // STOPPED(정상 시퀀스)를 '시작을 못 본 세션'과 구분한다.
     val everOpened = HashSet<String>()
-    var totalMs = 0L
+    // 마감된 구간은 바로 합산하지 않고 패키지별 [start, end) 목록으로 모아 마지막에 union 후
+    // 합산한다 — 같은 패키지의 다중 액티비티(멀티 인스턴스·PIP)가 동시에 열려 있으면 겹치는
+    // 벽시계 구간이 액티비티 수만큼 중복 합산되기 때문(코드리뷰 반영). 서로 다른 패키지는
+    // 각자 합산되는 스플릿 스크린 정의(엣지 3) 그대로다.
+    val closedByPkg = HashMap<String, MutableList<LongArray>>()
     var sawLifecycleEventInRange = false
-    // 미매칭 종료 이벤트 — 룩백(12h)보다 먼저 시작된 세션이 구간 안에서 끝난 경우, RESUMED가
+    // 미매칭 종료 이벤트 — 룩백(24h)보다 먼저 시작된 세션이 구간 안에서 끝난 경우, RESUMED가
     // 조회 범위 밖이라 close가 더할 구간이 없어 그 세션의 오늘분이 통째로 빠진다. 이때는
     // 커버리지 불완전으로 보고 근사 폴백과 비교한다(코드리뷰 반영).
     var sawUnmatchedTerminalInRange = false
     val event = UsageEvents.Event()
 
-    // 구간 마감 — [begin, end)와 겹치는 부분만 누적(자정 걸친 구간의 날짜별 분할이 여기서 끝난다).
+    // 구간 마감 — [begin, end)로 클리핑해(자정 걸친 구간의 날짜별 분할) 패키지별 목록에 적재.
+    // 키는 "패키지/클래스"고 패키지명에 '/'가 없으므로 substringBefore로 패키지를 복원한다.
     fun close(key: String, at: Long) {
       val started = openedAt.remove(key) ?: return
-      val overlap = minOf(at, end) - maxOf(started, begin)
-      if (overlap > 0) totalMs += overlap
+      val clippedStart = maxOf(started, begin)
+      val clippedEnd = minOf(at, end)
+      if (clippedEnd > clippedStart) {
+        closedByPkg
+          .getOrPut(key.substringBefore('/')) { mutableListOf() }
+          .add(longArrayOf(clippedStart, clippedEnd))
+      }
     }
 
     while (events.hasNextEvent()) {
@@ -107,6 +126,27 @@ internal object UsageSessionCalculator {
     }
     // 아직 열려 있는 구간(지금 쓰는 중)은 end 시각으로 마감(§3 의사코드).
     openedAt.keys.toList().forEach { close(it, end) }
+
+    // 패키지별 구간 union 합산 — 시작 시각 정렬 후, 다음 구간의 시작이 현재 병합 구간의 끝
+    // 이하면(겹침·인접) 끝만 늘려 병합하고, 넘어서면(분리) 병합 구간을 확정·합산한다.
+    // 검산: 중첩 [10,100)+[20,50)→90 · 인접 [10,20)+[20,30)→20 · 분리 [10,20)+[30,40)→10+10.
+    var totalMs = 0L
+    for (intervals in closedByPkg.values) {
+      intervals.sortBy { it[0] }
+      var mergedStart = intervals[0][0]
+      var mergedEnd = intervals[0][1]
+      for (i in 1 until intervals.size) {
+        val next = intervals[i]
+        if (next[0] <= mergedEnd) {
+          if (next[1] > mergedEnd) mergedEnd = next[1]
+        } else {
+          totalMs += mergedEnd - mergedStart
+          mergedStart = next[0]
+          mergedEnd = next[1]
+        }
+      }
+      totalMs += mergedEnd - mergedStart
+    }
 
     // 미매칭 종료를 본 구간 — 재구성 합계는 부분합(잃은 세션 존재 확정)이므로 근사 폴백과
     // 비교해 큰 쪽을 쓴다. 폴백은 버킷 경계 흔들림으로 오히려 적게 나올 수도 있어 max가 안전.
