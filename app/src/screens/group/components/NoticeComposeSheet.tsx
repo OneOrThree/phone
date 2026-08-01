@@ -85,7 +85,9 @@ export default function NoticeComposeSheet({
 
   async function save() {
     // 저장 중 중복 탭 방지 — 이중 등록은 되돌릴 방법이 없다.
-    if (!canSave) return;
+    // canSave(state 파생)만으로는 같은 틱의 연타를 못 막는다 — 두 press가 모두 이전 렌더의
+    // canSave=true를 읽는다. ref는 동기라 첫 호출이 세운 잠금을 두 번째가 즉시 본다.
+    if (!canSave || submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
     setErrorMsg(null);
