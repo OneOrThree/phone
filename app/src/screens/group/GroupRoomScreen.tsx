@@ -77,7 +77,8 @@ export interface GroupRoomScreenProps {
   summary?: GroupSummaryResponse;
   // 그룹 나가기 성공 시 호출 — 부모(GroupScreen)가 재조회해 빈 상태로 되돌린다.
   onLeft: () => void;
-  // 초대 시트가 이 화면 위에 떠 있는가 — 떠 있으면 '⋯' 메뉴를 내린다(아래 이펙트 주석 참고).
+  // 초대 시트가 이 화면 위에 떠 있는가 — 떠 있으면 이 화면이 소유한 시트('⋯' 메뉴·챌린지
+  // 만들기)를 모두 내린다(아래 이펙트 주석 참고).
   inviteOpen?: boolean;
   // 내장 렌더(탭 안)일 때만 전달 — ⋯ 메뉴 '그룹 전환·추가' 진입점(2차 §0-3).
   // 라우트 진입은 이미 목록에서 들어온 화면이라 미전달 → 항목이 숨는다.
@@ -206,11 +207,16 @@ export default function GroupRoomScreen({
     return () => sub.remove();
   }, [reload]);
 
-  // 초대 링크가 도착하면 '⋯' 메뉴를 내린다 — 초대 시트와 이 메뉴는 둘 다 SheetShell asModal(RN
-  // 네이티브 Modal)이라 동시에 뜨면 딤이 2겹으로 포개진다. GroupScreen이 링크 수신 시 찾기 시트를
-  // 내리는 것과 같은 배타 처리이고, 링크로 들어온 초대가 우선이라 이쪽 메뉴를 접는다.
+  // 초대 링크가 도착하면 이 화면이 소유한 시트를 전부 내린다 — 초대 시트와 이 시트들은 모두
+  // SheetShell asModal(RN 네이티브 Modal)이라 동시에 뜨면 딤이 2겹으로 포개지고, 플랫폼별 모달
+  // 표시 순서에 따라 초대 프리뷰가 가려질 수도 있다. GroupScreen이 링크 수신 시 찾기 시트를
+  // 내리는 것과 같은 배타 처리이고, 링크로 들어온 초대가 우선이라 이쪽을 접는다.
+  // 챌린지 만들기 시트도 같이 내린다 — 폼은 세그먼트·칩 2필드(기본값 있음)라 다시 여는 비용이
+  // 거의 없고, 자유 입력이 없어 되돌릴 수 없는 손실이 생기지 않는다.
   useEffect(() => {
-    if (inviteOpen) setMenuOpen(false);
+    if (!inviteOpen) return;
+    setMenuOpen(false);
+    setComposeOpen(false);
   }, [inviteOpen]);
 
   // 당겨서 새로고침 — 스피너는 **무조건** 내린다. '최신 응답일 때만' 내리면
@@ -627,7 +633,9 @@ export default function GroupRoomScreen({
       )}
 
       {/* ── 챌린지 만들기 시트(방장만) ── */}
-      {composeOpen && (
+      {/* '⋯' 메뉴와 같은 이유로 inviteOpen까지 본다 — 위 이펙트는 렌더 뒤에 돌아 한 프레임 동안
+          두 Modal이 겹친다. */}
+      {composeOpen && !inviteOpen && (
         <ChallengeComposeSheet
           groupId={groupId}
           existingCategories={existingCategories}

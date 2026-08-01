@@ -278,7 +278,7 @@ describe('당겨서 새로고침', () => {
   });
 });
 
-describe("초대 시트 ↔ '⋯' 메뉴 배타(§6-6)", () => {
+describe('초대 시트 ↔ 그룹방 시트 배타(§6-6)', () => {
   test('초대 링크가 도착하면 메뉴를 내린다 — asModal 두 개가 겹쳐 딤이 2겹이 되지 않게', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);
@@ -300,6 +300,31 @@ describe("초대 시트 ↔ '⋯' 메뉴 배타(§6-6)", () => {
       rerender(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
     });
     expect(screen.queryByText('그룹 나가기')).toBeNull();
+  });
+
+  test('초대 링크가 도착하면 챌린지 만들기 시트도 내린다 — 메뉴와 같은 배타 규칙', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([]);
+    const { rerender } = await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.add'));
+    });
+    // '챌린지 만들기'는 헤더 ＋ 의 접근성 라벨과도 겹친다 — 시트 안에만 있는 CTA로 판정한다.
+    expect(screen.getByTestId('group.challenge.submit')).toBeOnTheScreen();
+
+    // 딥링크로 초대가 도착 — 작성 시트와 초대 시트가 동시에 뜨면 딤이 2겹이 된다.
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} inviteOpen />);
+    });
+    expect(screen.queryByTestId('group.challenge.submit')).toBeNull();
+
+    // 초대 시트가 닫혀도 되살아나지 않는다(가리기만 한 게 아니라 state까지 내려간다).
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
+    });
+    expect(screen.queryByTestId('group.challenge.submit')).toBeNull();
   });
 });
 
