@@ -20,12 +20,6 @@ export const cs = StyleSheet.create({
   // 캡처 이미지 배경(투명 PNG 방지) + 좌우 여백 — 음수 마진으로 상쇄해 화면 레이아웃은 그대로,
   // 저장되는 이미지에만 여백이 생긴다(LineChart의 DOT_PAD 확장과 같은 기법)
   ttShot: { backgroundColor: T.white, paddingHorizontal: T.space.lg, marginHorizontal: -16 },
-  // 월 달력 그리드 — 공부 잔디(월)·목표 달성(월) 공용: 한 줄 7칸(작은 정사각형), 블록 가운데 정렬
-  monthGrass: { gap: T.space.sm, marginTop: T.space.xs, alignSelf: 'center' },
-  monthGrassRow: { flexDirection: 'row', gap: T.space.sm },
-  monthGrassCell: { width: 24, height: 24, borderRadius: 6 },
-  // 탭한 잔디 칸 강조·정보줄(GROMO-849)
-  grassCellOn: { borderWidth: 2, borderColor: T.ink },
-  grassPickInfo: { ...T.text.caption, color: T.ink, alignSelf: 'center', marginTop: T.space.sm },
+  // 카드 하단 안내 문구(타임테이블·최장 세션·첫 시작 차트 공용)
   grassHint: { ...T.text.caption, color: T.inkMuted, marginTop: T.space.md },
 });

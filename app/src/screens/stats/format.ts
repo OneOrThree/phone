@@ -160,6 +160,60 @@ export function rollingWeekRange(): { from: string; to: string } {
   return { from: localDateStr(from), to: todayStr() };
 }
 
+// 주/월 캘린더(GROMO-974) 한 페이지 — 그리드가 그릴 날짜 목록과 내비게이션 라벨.
+export interface CalendarPage {
+  days: string[]; // 'YYYY-MM-DD' — 주=월~일 7일, 월=1일~말일
+  label: string; // '7월 3주차' | '2026년 7월'
+  sublabel: string; // '7.13 – 7.19' | '1일 – 31일'
+  leadingBlanks: number; // 월 그리드 앞쪽 빈 칸 수(1일 요일 정렬, 월=0..일=6). 주는 항상 0
+}
+
+// offset: 0=이번 기간, -1=지난 기간 … (미래 넘김 없음 — 양수는 쓰지 않는다).
+// 주차 라벨은 그 주 월요일이 속한 달 기준, 1일이 낀 주(월요일 시작)가 1주차.
+export function calendarPage(period: 'WEEK' | 'MONTH', offset: number): CalendarPage {
+  const now = new Date();
+  if (period === 'WEEK') {
+    const dow = now.getDay(); // 0=일..6=토
+    const monday = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + (dow === 0 ? -6 : 1 - dow) + offset * 7,
+    );
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      return localDateStr(d);
+    });
+    const first = new Date(monday.getFullYear(), monday.getMonth(), 1);
+    const week1Monday = new Date(first);
+    week1Monday.setDate(first.getDate() - ((first.getDay() + 6) % 7));
+    const nth =
+      (dayNum(monday.getFullYear(), monday.getMonth(), monday.getDate()) -
+        dayNum(week1Monday.getFullYear(), week1Monday.getMonth(), week1Monday.getDate())) /
+        7 +
+      1;
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    return {
+      days,
+      label: `${monday.getMonth() + 1}월 ${nth}주차`,
+      sublabel: `${monday.getMonth() + 1}.${monday.getDate()} – ${sunday.getMonth() + 1}.${sunday.getDate()}`,
+      leadingBlanks: 0,
+    };
+  }
+  const first = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+  const lastDay = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  const days = Array.from({ length: lastDay }, (_, i) =>
+    localDateStr(new Date(first.getFullYear(), first.getMonth(), i + 1)),
+  );
+  return {
+    days,
+    label: `${first.getFullYear()}년 ${first.getMonth() + 1}월`,
+    sublabel: `1일 – ${lastDay}일`,
+    leadingBlanks: (first.getDay() + 6) % 7, // 월=0..일=6
+  };
+}
+
 // 막대/점 1개(집중/폰 사용 공용).
 export interface StatBar {
   label: string;
@@ -302,7 +356,7 @@ export function mergeCardOrder(defaults: string[], stored?: string[] | null): st
   return result;
 }
 
-// 집중 분 → 잔디 강도 0..4 (칸 색 진하기).
+// 집중 분 → 캘린더 셀 강도 0..4 (칸 색 진하기 — 구 잔디 강도, GROMO-974에서 캘린더가 승계).
 export function grassLevel(minutes: number): number {
   if (minutes <= 0) return 0;
   if (minutes < 30) return 1;

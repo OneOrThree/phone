@@ -39,14 +39,14 @@ import { WeeklyTimetableCard } from './stats/WeeklyTimetableCard';
 import { LongestSessionStat } from './stats/LongestSessionStat';
 import { CategoryDonut } from './stats/CategoryDonut';
 import { DeltaRow } from './stats/DeltaRow';
-import { GoalDayStamps, GoalWeekDots, GoalMonthGrid } from './stats/GoalCards';
-import { WeekGrassRow, MonthGrassGrid } from './stats/GrassCards';
-import { GRASS, FOCUS_COLOR, PHONE_COLOR } from './stats/constants';
+import { GoalDayStamps } from './stats/GoalCards';
+import { CalendarCard } from './stats/CalendarCard';
+import { FOCUS_COLOR, PHONE_COLOR } from './stats/constants';
 import { cs } from './stats/cardStyles';
 
 // v2 내 통계 화면(GROMO-604) — 홈 '오늘' 카드의 '자세히'에서 진입.
-// 상단 고정 필터(기간 일/주/월) 아래로 ST1~ST9 지표 스크롤.
-// 실데이터: 집중시간·폰사용·전대비·목표달성·잔디·총공부량(나)·과목별(나)·비교(친구/전체/같은 카테고리).
+// 상단 고정 필터(기간 일/주/월) 아래로 ST1~ST8 지표 스크롤.
+// 실데이터: 집중시간·폰사용·전대비·캘린더(목표달성+잔디 통합, GROMO-974)·총공부량(나)·과목별(나)·비교(친구/전체/같은 카테고리).
 // 준비 중: 합격자 — 소스 미비로 스텁.
 // 이 파일은 화면 조립(카드 목록·순서·투어·헤더)만 담당 — 카드 컴포넌트는 stats/ 하위 파일로 분리(GROMO-923).
 
@@ -214,9 +214,9 @@ export default function StatsScreen() {
     ),
   });
 
-  // ST8 목표 달성(재도입) — 일=오늘 2목표 스탬프, 주=요일별 달성 도트, 월=달력 그리드.
-  // 구 'goal' 카드는 2026-07-11 제거됐고 그 저장 키는 mergeCardOrder가 걸러냄 — 새 키 'goalAchieve'라
-  // 옛 위치가 되살아나지 않는다. 일=today(오늘 2목표), 주/월=heatmap 달성일 집계.
+  // ST8 목표 달성 — 일=오늘 2목표 스탬프 유지. 주/월은 캘린더로 전환(GROMO-974) — 목표 달성
+  // 색 채우기(도트·그리드)와 공부 잔디를 캘린더 하나로 통합(셀 배경=집중 강도, 체크=달성 목표 수).
+  // 카드 키는 'goalAchieve' 유지 — 유저가 저장한 카드 순서를 깨지 않기 위함(GROMO-762).
   // 기본 위치: 모든 탭에서 총 집중시간 바로 아래.
   cards.push({
     key: 'goalAchieve',
@@ -224,23 +224,14 @@ export default function StatsScreen() {
       <View key="goalAchieve" ref={goalCardRef} collapsable={false}>
         <SectionCard
           title={
-            period === 'DAY'
-              ? '오늘 목표 달성'
-              : period === 'WEEK'
-                ? '이번 주 목표 달성'
-                : `${month}월 목표 달성`
+            period === 'DAY' ? '오늘 목표 달성' : period === 'WEEK' ? '주간 캘린더' : '월간 캘린더'
           }
         >
           {period === 'DAY' ? (
             <GoalDayStamps today={data.today} />
-          ) : period === 'WEEK' ? (
-            <GoalWeekDots
-              cells={data.heatmap}
-              today={data.today}
-              elapsedDays={data.screenTime?.elapsedDays ?? null}
-            />
           ) : (
-            <GoalMonthGrid
+            <CalendarCard
+              period={period}
               cells={data.heatmap}
               today={data.today}
               elapsedDays={data.screenTime?.elapsedDays ?? null}
@@ -440,41 +431,8 @@ export default function StatsScreen() {
     ),
   });
 
-  // ST9 공부 잔디 (Streak) — 일 탭에선 숨김(하루 데이터로는 잔디가 무의미)
-  if (period !== 'DAY') {
-    cards.push({
-      key: 'grass',
-      node: (
-        <SectionCard key="grass" title="공부 잔디">
-          <View style={s.streakRow}>
-            <View style={s.streakItem}>
-              <Text style={s.streakValue}>{data.streak?.currentStreak ?? 0}일</Text>
-              <Text style={s.streakLabel}>연속</Text>
-            </View>
-            <View style={s.streakDivider} />
-            <View style={s.streakItem}>
-              <Text style={s.streakValue}>{data.streak?.longestStreak ?? 0}일</Text>
-              <Text style={s.streakLabel}>최장</Text>
-            </View>
-          </View>
-          {/* 주 탭은 월~일 7칸 한 줄, 월 탭은 해당 월 전체 날짜 7칸씩 그리드 */}
-          {period === 'WEEK' ? (
-            <WeekGrassRow cells={data.heatmap} />
-          ) : (
-            <MonthGrassGrid cells={data.heatmap} />
-          )}
-          {/* 강도 범례 — 시안의 '적음→많음' 4단계(빈 칸 제외, GROMO-849) */}
-          <View style={s.grassLegend}>
-            <Text style={s.grassLegendText}>적음</Text>
-            {GRASS.slice(1).map((c) => (
-              <View key={c} style={[s.grassLegendCell, { backgroundColor: c }]} />
-            ))}
-            <Text style={s.grassLegendText}>많음</Text>
-          </View>
-        </SectionCard>
-      ),
-    });
-  }
+  // (구 ST9 공부 잔디 카드는 GROMO-974에서 주/월 캘린더에 통합·삭제 — 'grass' 저장 키는
+  //  mergeCardOrder가 걸러낸다)
 
   // 저장된 순서 적용 — 저장이 없거나 이후 새 카드가 생겼으면 기본 순서에 병합
   const orderedKeys = mergeCardOrder(
@@ -584,21 +542,4 @@ const s = StyleSheet.create({
   segTextOn: { color: T.ink },
 
   loader: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-
-  // 스트릭 + 잔디(공부 잔디 카드 본문 — 그리드는 GrassCards가 담당)
-  streakRow: { flexDirection: 'row', alignItems: 'center', marginBottom: T.space.lg },
-  streakItem: { flex: 1, alignItems: 'center', gap: 2 },
-  streakDivider: { width: 1, height: 28, backgroundColor: T.divider },
-  streakValue: { ...T.text.stat, color: T.ink },
-  streakLabel: { ...T.text.caption, color: T.inkMuted },
-  // 잔디 강도 범례 — 적음→많음(빈 칸 제외 4단계, GROMO-849)
-  grassLegend: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'center',
-    gap: T.space.xs,
-    marginTop: T.space.md,
-  },
-  grassLegendCell: { width: 12, height: 12, borderRadius: 4 },
-  grassLegendText: { ...T.text.caption, fontSize: 10, color: T.inkMuted },
 });

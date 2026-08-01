@@ -1,0 +1,336 @@
+// 주/월 캘린더 카드(GROMO-974) — 목표 달성 카드(주 도트·월 그리드)와 공부 잔디 카드를 캘린더 하나로 통합.
+// 셀 배경 = 집중시간 강도(인디고 램프 CAL_RAMP), 셀 안에 날짜·집중시간, 그 아래 초록 체크 = 달성한
+// 목표 수(집중·폰 사용 각 1개, 최대 2개). ‹ ›로 이전 주/월 넘겨보기 — 과거 기간 heatmap은 카드가
+// 직접 조회해 오프셋별로 캐시한다(현재 기간은 useStatsData가 준 cells 재사용).
+// 내비게이션 화살표는 기간 라벨 양옆(중앙) 배치 — 카드 오른쪽 위 순서 드래그 핸들(CardOrderEditor)과
+// 겹치지 않게 한다.
+import { useEffect, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  TouchableOpacity,
+  ActivityIndicator,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { T, withAlpha } from '@/constants/theme';
+import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
+import { getHeatmap } from '@/services/statsApi';
+import { todayStr } from '@/utils/localDate';
+import { fmtHm } from '@/utils/timeFormat';
+import { calendarPage, grassLevel } from './format';
+import { CAL_RAMP, WEEK_DAYS } from './constants';
+
+interface Props {
+  period: 'WEEK' | 'MONTH';
+  cells: HeatmapCellResponse[]; // 현재 기간(오프셋 0) heatmap — useStatsData 공유
+  today: TodayStatsResponse | null; // 오늘 라이브 판정·목표 미설정 판별
+  elapsedDays: number | null; // 가입 전 날짜 중립 처리(현재 기간 기준 — 서버가 가입일로 클램프)
+}
+
+export function CalendarCard({ period, cells, today, elapsedDays }: Props) {
+  const [offset, setOffset] = useState(0); // 0=이번 기간, -1=지난 기간 …
+  const [picked, setPicked] = useState<string | null>(null); // 탭한 날짜 — 하단 정보줄
+  // 과거 기간 heatmap 캐시(기간 첫 날짜 키). 실패도 []로 캐시해 무한 재시도 방지 — 화면 재진입 시
+  // 리마운트(CardOrderEditor key=period)로 초기화되므로 다음 진입에 다시 시도된다.
+  const [pastCells, setPastCells] = useState<Record<string, HeatmapCellResponse[]>>({});
+  const requestedRef = useRef<Set<string>>(new Set()); // 조회 중 재요청 방지
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
+
+  const todayKey = todayStr();
+  const page = calendarPage(period, offset);
+  const pageKey = page.days[0];
+  const shown = offset === 0 ? cells : pastCells[pageKey];
+  const loading = offset < 0 && shown == null;
+
+  // 과거 기간 heatmap 조회 — 오프셋을 빠르게 넘겨도 응답은 버리지 않고 캐시에 쌓는다
+  useEffect(() => {
+    if (offset === 0) return;
+    const p = calendarPage(period, offset);
+    const key = p.days[0];
+    if (requestedRef.current.has(key)) return;
+    requestedRef.current.add(key);
+    const last = p.days[p.days.length - 1];
+    const cap = todayStr();
+    getHeatmap(key, last > cap ? cap : last)
+      .then((res) => {
+        if (mountedRef.current) setPastCells((prev) => ({ ...prev, [key]: res }));
+      })
+      .catch(() => {
+        if (mountedRef.current) setPastCells((prev) => ({ ...prev, [key]: [] }));
+      });
+  }, [offset, period]);
+
+  const byDate = new Map((shown ?? []).map((c) => [c.date, c]));
+  const totalMin = page.days.reduce((sum, d) => sum + (byDate.get(d)?.totalFocusMinutes ?? 0), 0);
+
+  // 가입 전 날짜 중립 처리 — elapsedDays가 현재 주/월 기준이라 오프셋 0에서만 판정(GoalCards 역산 로직 승계).
+  // 과거 기간은 판정 근거가 없어 기록 없는 날(0분)로만 보인다.
+  const now = new Date();
+  const todayCol = (now.getDay() + 6) % 7; // 0=월..6=일
+  const preJoinCount =
+    offset === 0 && elapsedDays != null
+      ? period === 'WEEK'
+        ? Math.max(0, todayCol + 1 - elapsedDays)
+        : Math.max(0, now.getDate() - elapsedDays)
+      : 0;
+  const prejoinDates = new Set(page.days.filter((_, i) => i < preJoinCount));
+
+  // 목표 미설정이면 체크를 그리지 않는다 — 폰 '0분=달성' 규칙이 미설정에도 ✓를 만들 수 있어
+  // 플래그와 별도 가드가 필요(GoalCards 로직 승계). today 조회 실패 시엔 설정된 것으로 간주.
+  const focusGoalSet = today == null || today.focus.goalMinutes > 0;
+  const phoneGoalSet = today == null || today.screenTime.goalMinutes > 0;
+
+  // 집중 달성 — 오늘은 라이브 판정(달성 즉시 ✓, 미달은 진행 중이라 표시 없음), 과거는 heatmap 플래그.
+  const focusOkFor = (date: string, c: HeatmapCellResponse | undefined): boolean =>
+    focusGoalSet &&
+    (date === todayKey && today != null
+      ? today.focus.goalAchieved
+      : (c?.focusGoalAchieved ?? false));
+  // 폰 달성 — 오늘은 다음날 마감까지 미판정(표시 없음). 과거는 플래그 또는 0분(미동기화 날 포함) 달성.
+  const phoneOkFor = (date: string, c: HeatmapCellResponse | undefined): boolean =>
+    date !== todayKey &&
+    phoneGoalSet &&
+    c != null &&
+    (c.screenTimeGoalAchieved || c.actualScreenTimeMinutes === 0);
+
+  // 7칸 행으로 슬롯 분할 — 월은 1일 요일 정렬용 앞 빈 칸 + 마지막 행 채움 빈 칸
+  const slots: (string | null)[] = [
+    ...Array.from({ length: page.leadingBlanks }, () => null),
+    ...page.days,
+  ];
+  while (slots.length % 7 !== 0) slots.push(null);
+  const rows: (string | null)[][] = [];
+  for (let i = 0; i < slots.length; i += 7) rows.push(slots.slice(i, i + 7));
+
+  const renderCell = (date: string | null, idx: number) => {
+    if (date == null) return <View key={`blank-${idx}`} style={s.cell} />;
+    const c = byDate.get(date);
+    const future = date > todayKey; // 'YYYY-MM-DD' 문자열 비교 = 날짜 비교
+    const neutral = future || prejoinDates.has(date);
+    const min = c?.totalFocusMinutes ?? 0;
+    const lvl = neutral ? 0 : grassLevel(min);
+    const dark = lvl >= 3; // 진한 램프 위 텍스트는 흰색으로
+    const checks = (focusOkFor(date, c) ? '✓' : '') + (phoneOkFor(date, c) ? '✓' : '');
+    return (
+      <Pressable
+        key={date}
+        onPress={() => {
+          if (neutral) return; // 미래·가입 전 무반응(기존 잔디·목표 그리드와 동일)
+          setPicked(picked === date ? null : date);
+        }}
+        style={[
+          s.cell,
+          { backgroundColor: neutral ? T.track : CAL_RAMP[lvl] },
+          date === todayKey || picked === date ? s.cellRing : null,
+        ]}
+      >
+        <Text
+          allowFontScaling={false}
+          style={[s.cellDate, dark ? s.cellDateOnDark : null, neutral ? s.cellDateNeutral : null]}
+        >
+          {Number(date.slice(8, 10))}
+        </Text>
+        {!neutral && (
+          <>
+            <Text
+              allowFontScaling={false}
+              style={[s.cellTime, dark ? s.cellTimeOnDark : min <= 0 ? s.cellTimeZero : null]}
+            >
+              {fmtHm(min)}
+            </Text>
+            {/* 체크 줄은 빈 날도 고정 높이로 유지 — 셀끼리 날짜·시간 세로 위치를 맞춘다 */}
+            <Text allowFontScaling={false} style={s.cellChecks}>
+              {checks}
+            </Text>
+          </>
+        )}
+      </Pressable>
+    );
+  };
+
+  // 탭한 날 정보줄 — 날짜·집중(달성 마크)·폰(달성 마크)·세션 수. 오늘 폰 판정은 다음날 확정이라
+  // 마크 없음, 오늘 집중 미달도 '진행 중'이라 ✗를 찍지 않는다(캘린더 체크와 동일 판정).
+  const pickedInfo = (() => {
+    if (picked == null) return null;
+    const c = byDate.get(picked);
+    const [y, m, d] = picked.split('-').map(Number);
+    const dow = WEEK_DAYS[(new Date(y, m - 1, d).getDay() + 6) % 7];
+    const isToday = picked === todayKey;
+    const min = c?.totalFocusMinutes ?? 0;
+    const sessions = c?.sessionCount ?? 0;
+    // 서버가 초→분 내림해 0분이어도 세션이 있을 수 있어 '1분 미만'으로 구분(기존 잔디 정보줄 승계)
+    const focusText = min > 0 ? fmtHm(min) : sessions > 0 ? '1분 미만' : fmtHm(0);
+    const focusOk = focusOkFor(picked, c);
+    return {
+      head: `${m}월 ${d}일 (${dow}) · 집중 ${focusText}`,
+      focusMark: !focusGoalSet ? null : focusOk ? true : isToday ? null : false,
+      phone: ` · 폰 ${fmtHm(c?.actualScreenTimeMinutes ?? 0)}`,
+      phoneMark: !phoneGoalSet || isToday ? null : phoneOkFor(picked, c),
+      tail: ` · 세션 ${sessions}회`,
+    };
+  })();
+
+  return (
+    <View>
+      {/* ── 기간 내비게이션: ‹ 라벨 › 중앙 그룹 ── */}
+      <View style={s.nav}>
+        <TouchableOpacity
+          style={s.navBtn}
+          onPress={() => {
+            setOffset((o) => o - 1);
+            setPicked(null);
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="chevron-back" size={15} color={T.inkSub} />
+        </TouchableOpacity>
+        <View style={s.navCenter}>
+          <Text style={s.navLabel}>{page.label}</Text>
+          <Text style={s.navSub} allowFontScaling={false}>
+            {page.sublabel}
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={s.navBtn}
+          disabled={offset === 0}
+          onPress={() => {
+            setOffset((o) => Math.min(0, o + 1));
+            setPicked(null);
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="chevron-forward" size={15} color={offset === 0 ? T.inkFaint : T.inkSub} />
+        </TouchableOpacity>
+      </View>
+
+      <Text style={s.total} allowFontScaling={false}>
+        총 집중 {Math.floor(totalMin / 60)}시간 {totalMin % 60}분
+      </Text>
+
+      {/* ── 요일 헤더 ── */}
+      <View style={s.dowRow}>
+        {WEEK_DAYS.map((d, i) => (
+          <Text key={d} allowFontScaling={false} style={[s.dowText, i === 6 ? s.dowSun : null]}>
+            {d}
+          </Text>
+        ))}
+      </View>
+
+      {/* ── 캘린더 그리드 — 셀 사이 1px 흰 선(gap) ── */}
+      <View>
+        <View style={s.grid}>
+          {rows.map((row, ri) => (
+            <View key={ri} style={s.row}>
+              {row.map((date, ci) => renderCell(date, ri * 7 + ci))}
+            </View>
+          ))}
+        </View>
+        {loading ? (
+          <View style={s.loadingOverlay}>
+            <ActivityIndicator color={T.accent} />
+          </View>
+        ) : null}
+      </View>
+
+      {pickedInfo != null && (
+        <View style={s.pickbar}>
+          <Text allowFontScaling={false} style={s.pickText}>
+            {pickedInfo.head}
+            {pickedInfo.focusMark != null && (
+              <Text style={pickedInfo.focusMark ? s.pickOk : s.pickMiss}>
+                {pickedInfo.focusMark ? ' ✓' : ' ✗'}
+              </Text>
+            )}
+            {pickedInfo.phone}
+            {pickedInfo.phoneMark != null && (
+              <Text style={pickedInfo.phoneMark ? s.pickOk : s.pickMiss}>
+                {pickedInfo.phoneMark ? ' ✓' : ' ✗'}
+              </Text>
+            )}
+            {pickedInfo.tail}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  nav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: T.space.md,
+  },
+  navBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: T.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navCenter: { alignItems: 'center', minWidth: 96 },
+  navLabel: { ...T.text.label, color: T.ink },
+  navSub: { ...T.text.caption, fontSize: 11, color: T.inkMuted },
+  total: {
+    ...T.text.caption,
+    fontSize: 12,
+    color: T.inkMuted,
+    alignSelf: 'center',
+    marginTop: T.space.xs,
+    marginBottom: T.space.md,
+  },
+  dowRow: { flexDirection: 'row', gap: 1, marginBottom: T.space.xs },
+  dowText: { flex: 1, textAlign: 'center', ...T.text.caption, fontSize: 10, color: T.inkFaint },
+  dowSun: { color: T.accentAlt },
+  grid: { gap: 1 },
+  row: { flexDirection: 'row', gap: 1 },
+  // 투명 테두리를 항상 깔아 오늘/선택 링이 켜져도 내용이 밀리지 않게 한다
+  cell: {
+    flex: 1,
+    aspectRatio: 40 / 46,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  cellRing: { borderColor: T.ink },
+  cellDate: { fontSize: 12, fontWeight: '700', color: T.ink },
+  cellDateOnDark: { color: T.white },
+  cellDateNeutral: { color: T.inkFaint },
+  cellTime: { fontSize: 9, fontWeight: '600', color: T.inkSub },
+  cellTimeOnDark: { color: withAlpha(T.white, 0.92) },
+  cellTimeZero: { color: T.inkFaint },
+  cellChecks: { fontSize: 9, fontWeight: '900', color: T.greenDeep, height: 11 },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickbar: {
+    marginTop: T.space.sm,
+    paddingVertical: T.space.sm,
+    paddingHorizontal: T.space.md,
+    backgroundColor: T.paperAlt,
+    borderRadius: 10,
+  },
+  pickText: { ...T.text.caption, fontSize: 12, color: T.ink, textAlign: 'center' },
+  pickOk: { color: T.greenDeep, fontWeight: '900' },
+  pickMiss: { color: T.dangerInk, fontWeight: '900' },
+});

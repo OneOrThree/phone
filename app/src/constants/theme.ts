@@ -72,8 +72,8 @@ export const T = {
   // 비교 지표 색 — 나(accent) vs 상대(퍼플)·평균(중립). 겹침 비교 바에서 구분용.
   compare: { theirs: '#9A6FB0', theirsPhone: '#B08FC4', avg: '#C4C8D4' },
 
-  // 잔디 히트맵 램프 — 빈칸(인디고 틴트) → 진한 초록. 집중량 강도별.
-  grass: ['#EEF0FB', '#DCE8CE', '#B9D3A0', '#8FB86F', '#4E9B5C'],
+  // 통계 캘린더 강도 램프 — 빈칸(인디고 틴트) → 진한 인디고(accent). 집중량 강도별(GROMO-974, 구 잔디 초록 램프 대체).
+  calendarRamp: ['#EEF0FB', '#D9DDF5', '#B4BAEC', '#8A93E0', '#5E6AD2'],
 
   // 아바타 배경 팔레트 — 친구 그리드 로테이션(6색, 구분용).
   avatarPalette: ['#5E6AD2', '#9A6FB0', '#5B8A6A', '#7A8AA0', '#6A9AA0', '#B0607A'],
