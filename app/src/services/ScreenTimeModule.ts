@@ -4,11 +4,15 @@
 // 역할: 네이티브 모듈을 JS에서 편하게 쓸 수 있게 감싸는 유틸
 // NativeModules에서 직접 꺼내 쓰는 것보다 이 파일을 import해서 쓰는 게 깔끔함
 //  - iOS: ScreenTimeModule.swift (구식 브릿지, NativeModules) — 함수 계약 20개 전체 구현
-//  - Android: app/modules/screen-time (Expo 모듈, GROMO-994) — M1 범위(권한·오늘/어제 조회·
-//    목표 저장)만 구현. 나머지 함수는 기존 기본값 가드를 유지한다(M2~M4에서 확장).
+//  - Android: app/modules/screen-time (Expo 모듈, GROMO-994) — M1(권한·오늘/어제 조회·목표
+//    저장) + M2(GROMO-995, 앱 선택 피커: 측정 대상·집중 허용앱) 범위 구현. 피커 UI는 네이티브가
+//    아니라 RN 화면(AndroidAppPickerHost)이라, presentAppPicker 계열은 androidAppPicker 브릿지로
+//    호스트 모달을 띄우고 선택 결과로 resolve한다 — 호출부 계약은 iOS와 동일.
+//    나머지 함수(실드·Live Activity 등)는 기존 기본값 가드를 유지한다(M3~M4에서 확장).
 
 import { NativeModules, Platform } from 'react-native';
 import { requireOptionalNativeModule } from 'expo';
+import { presentAndroidAppPicker } from '@/services/androidAppPicker';
 
 export type AuthorizationStatus = 'approved' | 'denied' | 'notDetermined';
 
@@ -60,14 +64,30 @@ interface NativeScreenTime {
 
 const NativeScreenTimeModule = NativeModules.ScreenTimeModule as NativeScreenTime;
 
-// 안드로이드 Expo 모듈 인터페이스(GROMO-994) — M1 범위 함수만 네이티브 구현이 있다.
+// 안드로이드 설치 앱 항목(GROMO-995) — 피커 목록 표시용.
+// iconUri: 네이티브가 캐시 디렉토리에 구운 PNG의 file:// URI(생성 실패 시 빈 문자열 —
+// 화면이 이니셜 폴백을 그린다).
+export interface AndroidInstalledApp {
+  packageName: string;
+  label: string;
+  iconUri: string;
+}
+
+// 안드로이드 Expo 모듈 인터페이스(GROMO-994·995) — M1·M2 범위 함수만 네이티브 구현이 있다.
 // startUsageBucketMonitoring은 예약 개념이 없어 네이티브 없이 TS에서 no-op true(§4 매핑).
+// M2 함수들은 옵셔널 — OTA로 새 JS만 받은 M1 바이너리엔 없으므로 호출 전 존재를 확인한다.
 interface AndroidNativeScreenTime {
   requestAuthorization(): Promise<boolean>;
   getAuthorizationStatus(): Promise<AuthorizationStatus>;
   setGoalSeconds(seconds: number): Promise<void>;
   getTodayUsageBucketMinutes(): Promise<number>;
   getYesterdayUsageBucketMinutes(): Promise<number>;
+  getInstalledApps?(): Promise<AndroidInstalledApp[]>;
+  getSelectionPackages?(): Promise<string[] | null>;
+  setPendingSelection?(packages: string[]): Promise<void>;
+  promoteSelection?(): Promise<boolean>;
+  getAllowedPackages?(): Promise<string[] | null>;
+  setAllowedSelection?(packages: string[]): Promise<void>;
 }
 
 // 구 바이너리(OTA로 새 JS만 받아 네이티브 모듈이 없는 경우)는 null — 각 함수가 기존
@@ -93,6 +113,27 @@ export const nativeSupportsPendingApplyDate = (): boolean =>
   Platform.OS === 'ios' &&
   typeof (NativeModules.ScreenTimeModule as NativeScreenTime | undefined)
     ?.setPendingSelectionApplyDate === 'function';
+
+// 안드로이드 바이너리가 M2 앱 피커(GROMO-995) 빌드인지 — 같은 빌드에 추가된 getInstalledApps
+// 존재로 판별. OTA로 새 JS만 받은 M1 바이너리는 피커를 띄울 수 없어 기존 기본값으로 폴백한다.
+const androidSupportsAppPicker = (): boolean =>
+  typeof AndroidScreenTime?.getInstalledApps === 'function';
+
+// 안드로이드 피커 호스트(AndroidAppPickerHost) 전용 내부 API — 화면 코드는 쓰지 말 것.
+// 저장 계약(iOS와 1:1): 측정 대상은 pending 저장(승격은 호출부의 promoteSelection),
+// 집중 허용앱은 즉시 저장. 구 바이너리(M2 함수 없음)는 조회 null·저장 no-op.
+export const androidAppPickerNative = {
+  getInstalledApps: (): Promise<AndroidInstalledApp[]> =>
+    AndroidScreenTime?.getInstalledApps?.() ?? Promise.resolve([]),
+  getSelectionPackages: (): Promise<string[] | null> =>
+    AndroidScreenTime?.getSelectionPackages?.() ?? Promise.resolve(null),
+  setPendingSelection: (packages: string[]): Promise<void> =>
+    AndroidScreenTime?.setPendingSelection?.(packages) ?? Promise.resolve(),
+  getAllowedPackages: (): Promise<string[] | null> =>
+    AndroidScreenTime?.getAllowedPackages?.() ?? Promise.resolve(null),
+  setAllowedSelection: (packages: string[]): Promise<void> =>
+    AndroidScreenTime?.setAllowedSelection?.(packages) ?? Promise.resolve(),
+};
 
 // 플랫폼 라우팅 — iOS는 Swift 브릿지, 안드로이드 M1 범위는 Expo 모듈, 그 외(미구현 함수·
 // 구 바이너리)는 에러 대신 기본값 반환. 화면 코드 호출부는 플랫폼을 몰라도 된다.
@@ -171,13 +212,22 @@ const ScreenTimeModule = {
   },
 
   // 측정 대상(앱/카테고리) 선택 picker 표시. 취소 시 null.
+  // 안드로이드(GROMO-995): 자체 RN 피커(측정 모드) — 선택은 네이티브 pending에 저장되고,
+  // iOS와 같은 계약으로 호출부가 promoteSelection으로 승격한다. 구 바이너리는 null(기존 기본값).
   presentAppPicker: async (): Promise<AppSelectionCounts | null> => {
+    if (Platform.OS === 'android') {
+      return androidSupportsAppPicker() ? presentAndroidAppPicker('measurement') : null;
+    }
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.presentAppPicker();
   },
 
   // 대기 중인 측정 대상을 활성으로 승격 (다음날 적용 시점에 호출)
+  // 안드로이드는 조회형이라 승격 즉시 오늘 하루 전체가 새 기준으로 소급 재계산된다(03 문서 §4.4).
   promoteSelection: async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return AndroidScreenTime?.promoteSelection?.() ?? false;
+    }
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.promoteSelection();
   },
@@ -186,19 +236,33 @@ const ScreenTimeModule = {
 
   // 집중 중 허용앱 선택 picker. 즉시 저장·적용. 취소 시 null.
   // ⚠️ 실드 예외는 개별 앱 토큰만 지원 — 카테고리 선택은 차단 예외로 무시됨.
+  // 안드로이드(GROMO-995): 자체 RN 피커(허용 모드) — 완료 시 즉시 저장, 실드(M3)가 이 목록을 읽는다.
   presentAllowedAppPicker: async (): Promise<AppSelectionCounts | null> => {
+    if (Platform.OS === 'android') {
+      return androidSupportsAppPicker() ? presentAndroidAppPicker('allowed') : null;
+    }
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.presentAllowedAppPicker();
   },
 
   // 허용앱 관리 화면(현재 목록 + 추가/삭제 피커). 완료 시 저장·적용. 스와이프 취소 불가.
+  // 안드로이드는 피커가 곧 관리 화면(현재 선택 프리로드 + 추가/해제)이라 허용 모드 피커로
+  // 통합한다. iOS 관리 화면과 달리 취소(null)가 가능하지만 호출부는 이미 null을 처리한다.
   presentAllowedAppManager: async (): Promise<AppSelectionCounts | null> => {
+    if (Platform.OS === 'android') {
+      return androidSupportsAppPicker() ? presentAndroidAppPicker('allowed') : null;
+    }
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.presentAllowedAppManager();
   },
 
   // 저장된 허용앱 선택 개수. 미설정이면 null.
+  // 안드로이드는 패키지명 배열 길이 — 카테고리·웹도메인 개념이 없어 0 고정(계약 형태 유지).
   getAllowedSelectionCounts: async (): Promise<AppSelectionCounts | null> => {
+    if (Platform.OS === 'android') {
+      const packages = (await AndroidScreenTime?.getAllowedPackages?.()) ?? null;
+      return packages ? { applications: packages.length, categories: 0, webDomains: 0 } : null;
+    }
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.getAllowedSelectionCounts();
   },
