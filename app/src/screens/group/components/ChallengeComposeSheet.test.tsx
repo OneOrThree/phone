@@ -10,7 +10,7 @@ import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import ChallengeComposeSheet from './ChallengeComposeSheet';
 import { createChallenge } from '@/services/groupApi';
-import type { MissionCategory } from '@/types/dto/group';
+import type { CreateChallengeResponse, MissionCategory } from '@/types/dto/group';
 
 // SheetShell이 useSafeAreaInsets를 쓴다 — 테스트 트리엔 SafeAreaProvider가 없어 고정값으로 대체한다.
 jest.mock('react-native-safe-area-context', () => ({
@@ -152,6 +152,33 @@ describe('실패', () => {
     mockCreateChallenge.mockResolvedValueOnce({ id: 'c1', nonParticipants: [] });
     await press('만들기');
     expect(onCreated).toHaveBeenCalled();
+  });
+
+  // 서버는 활성 챌린지를 조회한 뒤 삽입하는 check-then-insert이고 (그룹, 카테고리, 활성) 유니크
+  // 제약이 없다 — 요청이 두 번 나가면 중복 활성 챌린지가 실제로 저장될 수 있다. state는 리렌더
+  // 뒤에야 보이므로, 같은 틱의 두 번째 탭은 ref 잠금으로만 막힌다.
+  test('같은 틱에 연타해도 생성 요청은 한 번만 나간다', async () => {
+    let settle: (v: CreateChallengeResponse) => void = () => {};
+    mockCreateChallenge.mockReturnValue(
+      new Promise<CreateChallengeResponse>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    await renderSheet();
+    const btn = await screen.findByText('만들기');
+    // 두 탭을 한 act 안에 묶는다 — 사이에 리렌더가 끼면 disabled·spinner가 먼저 서서 잠금이 없어도
+    // 두 번째 탭이 막히고, 회귀를 못 잡는 테스트가 된다(RNTL이 내부 act를 겹쳐 경고를 한 줄 남긴다).
+    await act(async () => {
+      fireEvent.press(btn);
+      fireEvent.press(btn);
+    });
+
+    expect(mockCreateChallenge).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      settle({ id: 'c1', nonParticipants: [] });
+    });
+    expect(onCreated).toHaveBeenCalledTimes(1);
   });
 
   test('사라진 그룹(NOT_FOUND)은 전용 문구로 알린다', async () => {

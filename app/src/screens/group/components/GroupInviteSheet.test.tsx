@@ -131,7 +131,8 @@ describe('프리뷰 조회 분기', () => {
     mockGetGroupOverview.mockResolvedValue(overview({ isMember: true }));
     await renderSheet();
 
-    await waitFor(() => expect(onJoined).toHaveBeenCalled());
+    // 목적지도 함께 넘긴다 — 부모는 이 id로 그룹방을 연다.
+    await waitFor(() => expect(onJoined).toHaveBeenCalledWith(GROUP_ID));
     expect(screen.queryByText('참여하기')).toBeNull();
   });
 
@@ -463,6 +464,41 @@ describe('참여 분기', () => {
     });
     await press('참여하기');
     expect(mockJoinGroup).toHaveBeenLastCalledWith(OTHER_GROUP_ID);
+  });
+
+  // 성공은 세대를 보지 않고 넘긴다(실제로 가입됐으므로) — 그래서 부모가 목적지를 현재 groupId로
+  // 잡으면 가입한 A 대신 나중에 온 B로 가려다 아무 방도 못 연다. 통지에 **가입된 그룹 id**를 싣는다.
+  test('연속 초대 링크 — 늦게 도착한 앞 그룹의 참여 성공은 그 그룹 id로 통지한다', async () => {
+    let resolveJoin: () => void = () => {};
+    mockJoinGroup.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveJoin = resolve; // 초대 A의 참여 응답을 붙잡아 둔다
+        }),
+    );
+    mockGetGroupOverview.mockResolvedValue(overview());
+    const { rerender } = await renderSheet();
+
+    await press('참여하기');
+
+    // A 응답이 오기 전에 초대 B가 도착한다.
+    mockGetGroupOverview.mockResolvedValue(overview({ id: OTHER_GROUP_ID, name: '저녁 스터디방' }));
+    await act(async () => {
+      rerender(
+        <GroupInviteSheet
+          groupId={OTHER_GROUP_ID}
+          onClose={onClose}
+          onJoined={onJoined}
+          onLogin={onLogin}
+        />,
+      );
+    });
+
+    await act(async () => {
+      resolveJoin();
+    });
+
+    expect(onJoined).toHaveBeenCalledWith(GROUP_ID);
   });
 
   // joining(state)만으로 버튼을 잠그면 리렌더 전까지 버튼이 살아 있어, 같은 프레임의 두 번째 탭이

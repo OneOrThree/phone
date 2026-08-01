@@ -356,7 +356,10 @@ describe('챌린지 섹션', () => {
     expect(screen.getByText('챌린지를 불러오지 못했어요')).toBeOnTheScreen();
     expect(screen.queryByText('아직 챌린지가 없어요')).toBeNull();
     // 만들기 진입점도 세우지 않는다 — 서버에 이미 있는 챌린지면 중복 생성으로 튕긴다.
+    // 빈 상태의 '챌린지 만들기'뿐 아니라 **헤더의 ＋도 함께** 막아야 한다. 하나만 막으면
+    // existingCategories가 빈 배열인 채 시트가 열려 이미 있는 종류를 고를 수 있게 된다.
     expect(screen.queryByText('챌린지 만들기')).toBeNull();
+    expect(screen.queryByTestId('group.challenge.add')).toBeNull();
   });
 
   test('갱신만 실패하면 기존 카드를 유지한 채 알린다', async () => {
@@ -388,6 +391,7 @@ describe('챌린지 섹션', () => {
     expect(screen.getByText('챌린지를 불러오지 못했어요')).toBeOnTheScreen();
     expect(screen.queryByText('아직 챌린지가 없어요')).toBeNull();
     expect(screen.queryByText('챌린지 만들기')).toBeNull();
+    expect(screen.queryByTestId('group.challenge.add')).toBeNull();
   });
 
   test('0건이면 방장에게만 만들기 진입점을 준다', async () => {

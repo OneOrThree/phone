@@ -499,7 +499,10 @@ export default function GroupRoomScreen({
         {/* ── 챌린지(2차 §3-2) — 공지 아래·멤버 그리드 위 ── */}
         <View style={s.sectionHead}>
           <Text style={s.sectionTitle}>챌린지</Text>
-          {isOwner && (
+          {/* 조회 실패 중에는 이 진입점도 함께 막는다 — 아래 빈 상태의 '만들기'만 막으면
+              existingCategories가 빈 배열인 채로 시트가 열려, 서버에 이미 있는 종류를 고를 수
+              있게 되고 생성은 ACTIVE_CHALLENGE_EXISTS로 확정 실패한다. */}
+          {isOwner && !challengeFailed && (
             <TouchableOpacity
               style={s.addBtn}
               activeOpacity={0.7}

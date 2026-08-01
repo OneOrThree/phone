@@ -159,11 +159,18 @@ export default function GroupScreen() {
   // ⚠️ 목적지를 ref로 옮긴 뒤에 버퍼를 비운다. 그러지 않으면 이미 두 그룹 이상인 사용자가
   //    초대 링크를 열었을 때(참여 성공·이미 멤버 모두 이 콜백을 탄다) 재조회 후 목록만 떠서
   //    링크가 가리킨 방으로 못 간다 — 목적지 소비는 아래 useEffect가 맡는다.
-  const onInviteJoined = useCallback(() => {
-    pendingRoomIdRef.current = inviteGroupId;
-    closeInvite();
-    fetchAfterMutation();
-  }, [closeInvite, fetchAfterMutation, inviteGroupId]);
+  // ⚠️ 목적지는 현재 inviteGroupId가 아니라 **시트가 알려준 실제 가입 그룹**이다. 참여 요청이 떠 있는
+  //    동안 두 번째 초대 링크가 도착하면 시트의 groupId(=inviteGroupId)만 갈리는데, 시트는 성공을
+  //    세대와 무관하게 통지한다(가입은 실제로 일어났으므로). 여기서 inviteGroupId를 쓰면 가입한 A 대신
+  //    나중에 온 B로 가려다, B가 아직 내 목록에 없어 아무 방도 열지 못한다.
+  const onInviteJoined = useCallback(
+    (joinedGroupId: string) => {
+      pendingRoomIdRef.current = joinedGroupId;
+      closeInvite();
+      fetchAfterMutation();
+    },
+    [closeInvite, fetchAfterMutation],
+  );
 
   // 초대 목적지 소비 — 목록을 새로 받은 시점에만 판정한다(참여 직후 목록엔 그 그룹이 들어 있다).
   //  · 2건 이상: 기본 화면이 목록이므로 그룹방을 push 한다(목록 카드 탭과 같은 분기)

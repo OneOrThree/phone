@@ -161,12 +161,24 @@ jest.mock('./components/GroupFindSheet', () => {
   };
 });
 
+// 참여 완료가 알리는 그룹 id — 기본은 지금 시트가 보고 있는 groupId다. 참여 요청이 떠 있는 동안
+// 두 번째 초대 링크가 도착하면 시트의 groupId만 갈리고 **먼저 뜬 요청의 성공**이 뒤늦게 통지되는데,
+// 그 경우를 재현하려고 여기서 다른 id를 주입한다(실제 시트는 요청 시작 시 캡처한 target을 넘긴다).
+let mockJoinedIdOverride: string | null = null;
 jest.mock('./components/GroupInviteSheet', () => {
   const { Text: RNText, TouchableOpacity: RNTouchable, View: RNView } = require('react-native');
-  return function MockInvite({ onJoined, onLogin }: { onJoined: () => void; onLogin: () => void }) {
+  return function MockInvite({
+    groupId,
+    onJoined,
+    onLogin,
+  }: {
+    groupId: string;
+    onJoined: (joinedGroupId: string) => void;
+    onLogin: () => void;
+  }) {
     return (
       <RNView>
-        <RNTouchable onPress={onJoined}>
+        <RNTouchable onPress={() => onJoined(mockJoinedIdOverride ?? groupId)}>
           <RNText>초대-참여완료</RNText>
         </RNTouchable>
         <RNTouchable onPress={onLogin}>
@@ -245,6 +257,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockIsGuest = false;
   mockPendingInvite = null;
+  mockJoinedIdOverride = null;
   mockPeek.mockImplementation(() => mockPendingInvite);
 });
 
@@ -555,6 +568,21 @@ describe('초대 링크 목적지(onInviteJoined)', () => {
 
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(screen.getByText('목록 2건')).toBeOnTheScreen();
+  });
+
+  // 초대 A로 참여 요청을 띄운 뒤 초대 B 링크가 도착하면 시트의 groupId는 B로 갈리는데, A의 성공은
+  // 그 뒤에 통지된다(시트는 성공을 세대와 무관하게 넘긴다 — 실제로 가입됐기 때문). 목적지를 현재
+  // inviteGroupId(B)로 잡으면 아직 내 목록에 없는 B로 가려다 아무 방도 열지 못한다.
+  test('참여 요청 중 새 초대가 도착해도 실제로 가입된 그룹방으로 보낸다', async () => {
+    mockPendingInvite = GROUP_ID_3; // 나중에 도착한 초대 B — 아직 가입 전이라 목록에 없다
+    mockJoinedIdOverride = GROUP_ID_2; // 먼저 띄운 참여 요청이 겨냥한 초대 A
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
+    await press('초대-참여완료');
+
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', { groupId: GROUP_ID_2 });
   });
 });
 

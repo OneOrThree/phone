@@ -44,7 +44,10 @@ export interface GroupInviteSheetProps {
   // 닫기(딤 탭·취소·사라진 그룹 확인) — 부모가 시트를 내리고 초대 버퍼를 비운다.
   onClose: () => void;
   // 참여 성공 또는 이미 멤버 — 부모가 시트를 내리고 getMyGroups()를 재조회해 그룹방으로 전환한다.
-  onJoined: () => void;
+  // ⚠️ **실제로 가입된 그룹 id를 인자로 준다** — 이 시트는 key 없이 재사용돼(GroupScreen) 참여 요청이
+  //    떠 있는 동안 두 번째 초대 링크가 도착하면 prop groupId가 갈린다. 부모가 현재 groupId를 목적지로
+  //    삼으면 가입한 그룹이 아니라 나중에 온 그룹으로 보내려다 아무 방도 못 여는 결과가 된다.
+  onJoined: (joinedGroupId: string) => void;
   // 게스트 로그인 유도 — 부모가 **시트만 내리고 초대 버퍼는 남긴 채** 계정 화면으로 보낸다.
   // ⚠️ onClose와 혼용 금지: onClose는 버퍼까지 비워 로그인 후 복귀(§6-6)가 깨진다.
   //    이 시트는 asModal(RN 네이티브 Modal)이라 내리지 않으면 계정 화면 위에 남아 로그인 버튼을 가린다.
@@ -175,7 +178,8 @@ export default function GroupInviteSheet({
         setOverview(ov);
         // 이미 멤버 — 프리뷰를 보여줄 이유가 없다. 부모가 시트를 내리고 그룹방으로 전환한다.
         if (readIsMember(ov)) {
-          joinedRef.current();
+          // 이 effect가 조회한 그룹을 그대로 넘긴다(alive 가드로 늦은 응답은 이미 버려진다).
+          joinedRef.current(groupId);
           return;
         }
         // 종료된 그룹 — 마지막 멤버가 나가면 서버가 close()로 ENDED로 내린다(Group.java).
@@ -226,13 +230,14 @@ export default function GroupInviteSheet({
       await joinGroup(target);
       // 성공만은 세대를 보지 않는다 — 실제로 target에 가입됐으므로 부모가 재조회해 그룹방으로
       // 넘어가야 한다. 여기서 버리면 사용자는 이미 가입한 채 다른 그룹 프리뷰를 계속 보게 된다.
-      joinedRef.current();
+      // 목적지도 현재 prop이 아니라 **이 요청이 겨냥한 target**이다(세대가 갈렸어도 가입된 건 target).
+      joinedRef.current(target);
     } catch (e) {
       const code = groupErrorCode(e);
       // 이미 멤버 — 성공 취급(§3-2). 위와 같은 이유로 세대와 무관하게 넘긴다.
       // (계측은 요청 직전에 이미 나갔다 — 여기서 다시 쏘면 한 번의 시도가 두 번으로 세어진다.)
       if (code === 'ALREADY_MEMBER') {
-        joinedRef.current();
+        joinedRef.current(target);
         return;
       }
       // 나머지는 target 프리뷰에만 의미가 있는 실패다 — 시트가 다른 그룹으로 갈렸으면 버린다.

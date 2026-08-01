@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
@@ -83,6 +83,13 @@ export default function ChallengeComposeSheet({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // 생성 단일 실행 잠금 — submitting(state)은 리렌더 뒤에야 보이므로 같은 틱의 연타를 막지 못한다.
+  // 서버(GroupChallengeService)는 활성 챌린지를 조회한 뒤 삽입하는 check-then-insert이고
+  // group_challenges에 (그룹, 카테고리, 활성) 유니크 제약이 없어, 두 요청이 나란히 검사를 통과하면
+  // 중복 활성 챌린지가 실제로 저장된다. 요청을 띄우기 전에 여기서 동기적으로 잠근다
+  // (GroupInviteSheet의 joinLock과 같은 패턴).
+  const submitLock = useRef(false);
+
   // 만들 수 있는 카테고리가 하나도 없다 — 세그먼트를 전부 잠그고 CTA도 막는다.
   const allTaken = CATEGORY_OPTIONS.every((o) => existingCategories.includes(o.value));
   const durationLabel =
@@ -90,8 +97,9 @@ export default function ChallengeComposeSheet({
     CATEGORY_OPTIONS[0].durationLabel;
 
   async function submit() {
-    // 생성 중 중복 탭 방지 — 서버가 중복을 막긴 하지만 두 번째 요청은 에러 문구만 남긴다.
-    if (submitting || allTaken) return;
+    // 생성 중 중복 탭 방지 — 판정은 ref로만 한다(submitting은 스피너·disabled 표시 전용).
+    if (submitLock.current || allTaken) return;
+    submitLock.current = true;
     setSubmitting(true);
     setErrorMsg(null);
     try {
@@ -106,6 +114,8 @@ export default function ChallengeComposeSheet({
       }
       onCreated();
     } catch (e) {
+      // 실패했을 때만 잠금을 푼다 — 성공 경로는 onCreated가 시트를 닫으므로 잠긴 채 끝낸다.
+      submitLock.current = false;
       setErrorMsg(createErrorMessage(e));
       setSubmitting(false);
     }
