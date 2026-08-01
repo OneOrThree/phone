@@ -88,23 +88,23 @@ class MatchTest extends InviteLinkTestSupport {
     }
 
     @Test
-    @DisplayName("동시 매치 2건이 한 클릭을 두 번 소진하지 못한다 — 정확히 하나만 성공")
+    @DisplayName("서로 다른 두 기기의 동시 매치가 한 클릭을 두 번 소진하지 못한다 — 정확히 하나만 성공")
     void concurrentMatchConsumesClickOnce() throws Exception {
         hitLanding(link.getSlug(), CLICK_IP);
         String ipHash = ipHasher.hash(CLICK_IP);
 
         // MockMvc 를 두 스레드에서 쓰지 않고 서비스를 직접 호출한다 — 검증 대상은 HTTP 계층이 아니라
         // 락이 걸린 트랜잭션이고, 프록시를 통한 호출이라 스레드마다 트랜잭션이 따로 열린다.
+        // 기기 id 는 서로 다르게 둔다 — 같은 기기의 중복 호출은 재시도 멱등이 같은 결과를 돌려주는 게
+        // 정답이라(retriedMatchIsIdempotent), 이중 소진 방지는 "다른 두 기기가 한 클릭을 다툰다"로 잠근다.
         CyclicBarrier barrier = new CyclicBarrier(2);
-        Callable<InviteMatchResponse> attempt = () -> {
-            barrier.await(5, TimeUnit.SECONDS);
-            return inviteLinkMatchService.match(ipHash, new InviteMatchRequest("ios", "d1", "a1"));
-        };
+        Callable<InviteMatchResponse> first = matchAttempt(barrier, ipHash, "d1");
+        Callable<InviteMatchResponse> second = matchAttempt(barrier, ipHash, "d2");
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             List<Future<InviteMatchResponse>> futures =
-                    List.of(executor.submit(attempt), executor.submit(attempt));
+                    List.of(executor.submit(first), executor.submit(second));
             long matched = futures.stream().map(this::get).filter(InviteMatchResponse::matched).count();
 
             assertThat(matched).isEqualTo(1);
@@ -112,6 +112,49 @@ class MatchTest extends InviteLinkTestSupport {
             executor.shutdownNow();
         }
 
+        assertThat(onlyClickOf(link).isMatched()).isTrue();
+    }
+
+    private Callable<InviteMatchResponse> matchAttempt(CyclicBarrier barrier, String ipHash, String deviceId) {
+        return () -> {
+            barrier.await(5, TimeUnit.SECONDS);
+            return inviteLinkMatchService.match(ipHash, new InviteMatchRequest("ios", deviceId, "a1"));
+        };
+    }
+
+    @Test
+    @DisplayName("같은 기기의 재시도는 같은 결과를 돌려주고 클릭을 추가로 소진하지 않는다")
+    void retriedMatchIsIdempotent() throws Exception {
+        // 같은 fingerprint 로 클릭 2건 — 응답 유실 재시도가 두 번째 클릭까지 소진하면 안 된다.
+        hitLanding(link.getSlug(), CLICK_IP);
+        hitLanding(link.getSlug(), CLICK_IP);
+
+        match(CLICK_IP, "d1", "a1")
+                .andExpect(jsonPath("$.matched").value(true))
+                .andExpect(jsonPath("$.slug").value(link.getSlug()));
+        match(CLICK_IP, "d1", "a1")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.matched").value(true))
+                .andExpect(jsonPath("$.slug").value(link.getSlug()));
+
+        long consumed = clickRepository.findByLinkId(link.getId()).stream()
+                .filter(InviteLinkClick::isMatched).count();
+        assertThat(consumed).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("그룹이 종료(ENDED)된 링크의 클릭은 매치 실패다 — 클릭은 소진해 죽은 후보로 남기지 않는다")
+    void endedGroupClickIsNotMatched() throws Exception {
+        hitLanding(link.getSlug(), CLICK_IP);
+        group.close();
+        groupRepository.save(group);
+
+        match(CLICK_IP, "d1", "a1")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.matched").value(false))
+                .andExpect(jsonPath("$.slug").doesNotExist());
+
+        // 소진하지 않으면 이 죽은 클릭이 계속 1순위 후보로 남아 뒤의 유효 후보를 가린다
         assertThat(onlyClickOf(link).isMatched()).isTrue();
     }
 

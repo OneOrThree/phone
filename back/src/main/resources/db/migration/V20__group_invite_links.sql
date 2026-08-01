@@ -41,3 +41,8 @@ CREATE INDEX idx_invite_clicks_match
     WHERE matched = FALSE;
 
 CREATE INDEX idx_invite_clicks_link ON public.invite_link_clicks (link_id);
+
+-- 매치 재시도 멱등(기기별 기존 매치 조회) 전용 — /l/match 는 호출마다 이 조회를 먼저 탄다.
+CREATE INDEX idx_invite_clicks_device
+    ON public.invite_link_clicks (matched_device_id, matched_at DESC)
+    WHERE matched = TRUE;

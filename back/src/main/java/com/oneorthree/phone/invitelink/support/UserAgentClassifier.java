@@ -37,6 +37,12 @@ public class UserAgentClassifier {
         if (ua.contains("iphone") || ua.contains("ipad") || ua.contains("ipod")) {
             return "ios";
         }
+        // 데스크톱 모드 iPadOS — UA 에 iPad 대신 Macintosh 가 실리지만, 진짜 Mac Safari 와 달리 WebKit
+        // 토큰 "Mobile/…" 이 남는다. other 로 두면 설치 후 앱이 보내는 os=ios 와 어긋나 매치가 항상 실패한다.
+        // (Mobile 토큰까지 없는 완전 데스크톱형 iPad UA 는 Mac 과 구분 불가 — 그건 other 로 남는 한계다.)
+        if (ua.contains("macintosh") && ua.contains("mobile")) {
+            return "ios";
+        }
         if (ua.contains("android")) {
             return "android";
         }
@@ -44,8 +50,10 @@ public class UserAgentClassifier {
     }
 
     public boolean isBot(String userAgent) {
-        if (userAgent == null) {
-            return false;
+        // UA 를 아예 안 보내는 건 브라우저가 아니다 — 실브라우저·인앱브라우저는 예외 없이 UA 를 보내므로,
+        // 봇 취급해도 진짜 유저를 떨어뜨리지 않고 curl 류 스크립트의 유령 클릭만 걸러진다.
+        if (userAgent == null || userAgent.isBlank()) {
+            return true;
         }
         String ua = userAgent.toLowerCase(Locale.ROOT);
         return BOT_MARKERS.stream().anyMatch(ua::contains);

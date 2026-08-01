@@ -2,12 +2,23 @@ package com.oneorthree.phone.invitelink;
 
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.service.InviteLinkMatchService;
 import com.oneorthree.phone.user.domain.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
+
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -22,6 +33,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 초대자 본인의 claim 은 무시한다(셀프 초대로 보상을 파먹는 경로를 미리 막는다).
  */
 class ClaimTest extends InviteLinkTestSupport {
+
+    @Autowired
+    InviteLinkMatchService inviteLinkMatchService;
 
     private Group group;
     private User inviter;
@@ -47,6 +61,31 @@ class ClaimTest extends InviteLinkTestSupport {
 
         claim(latecomer).andExpect(status().isOk());
         assertThat(onlyClickOf(link).getClaimedUserId()).isEqualTo(joiner.getId());
+    }
+
+    @Test
+    @DisplayName("동시 claim 2건 중 정확히 한 명만 기록된다 — lost update 로 앞사람이 덮이지 않는다")
+    void concurrentClaimRecordsExactlyOneUser() throws Exception {
+        matchedClick();
+        User first = newUser("동시유저1");
+        User second = newUser("동시유저2");
+
+        // MockMvc 대신 서비스를 직접 부른다 — 검증 대상은 HTTP 계층이 아니라 락이 걸린 트랜잭션이고,
+        // 프록시 호출이라 스레드마다 트랜잭션이 따로 열린다(MatchTest 의 동시 매치 테스트와 같은 구도).
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<Boolean>> futures = List.of(
+                    executor.submit(claimAttempt(barrier, first.getId())),
+                    executor.submit(claimAttempt(barrier, second.getId())));
+            long recorded = futures.stream().map(this::get).filter(Boolean::booleanValue).count();
+
+            assertThat(recorded).isEqualTo(1);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(onlyClickOf(link).getClaimedUserId()).isIn(first.getId(), second.getId());
     }
 
     @Test
@@ -104,5 +143,20 @@ class ClaimTest extends InviteLinkTestSupport {
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", bearer(user))
                 .content("{\"slug\":\"" + link.getSlug() + "\"}"));
+    }
+
+    private Callable<Boolean> claimAttempt(CyclicBarrier barrier, UUID userId) {
+        return () -> {
+            barrier.await(5, TimeUnit.SECONDS);
+            return inviteLinkMatchService.claim(link.getSlug(), userId);
+        };
+    }
+
+    private Boolean get(Future<Boolean> future) {
+        try {
+            return future.get(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new IllegalStateException("동시 claim 호출이 실패했습니다", e);
+        }
     }
 }

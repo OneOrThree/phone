@@ -468,6 +468,7 @@ Table invite_link_clicks [note: '초대 링크 클릭 + 매치(설치 기기 연
   indexes {
     (ip_hash, os, clicked_at) [note: '매치 검색 전용 부분 인덱스 (WHERE matched = false) — 소진된 클릭은 인덱스에서도 제외']
     (link_id) [note: '링크별 클릭/매치 집계']
+    (matched_device_id, matched_at) [note: '매치 재시도 멱등(기기별 기존 매치 조회) 전용 부분 인덱스 (WHERE matched = true)']
   }
 }
 

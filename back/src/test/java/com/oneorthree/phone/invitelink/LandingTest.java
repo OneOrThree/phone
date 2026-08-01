@@ -81,6 +81,9 @@ class LandingTest extends InviteLinkTestSupport {
         assertThat(body).contains("만료된 초대예요");
         // 만료여도 스토어 버튼은 남는다 — 여기까지 온 사람은 이미 설치 의향이 있는 유입이다
         assertThat(body).contains("apps.apple.com");
+        // OG 제목의 그룹명 자리가 비면 「」 처럼 깨진 미리보기가 퍼진다 — 중립 명칭으로 채워져야 한다
+        assertThat(body).doesNotContain("「」");
+        assertThat(body).contains("그로모 그룹");
         assertThat(clickRepository.findAll()).isEmpty();
     }
 
@@ -96,6 +99,20 @@ class LandingTest extends InviteLinkTestSupport {
 
         assertThat(body).contains("data-expired=\"true\"");
         assertThat(clickRepository.findByLinkId(orphan.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("그룹이 종료(ENDED)돼도 만료로 다룬다 — 방은 남아 있지만 아무도 못 들어간다")
+    void endedGroupIsExpired() throws Exception {
+        GroupInviteLink stale = newLink("ended123", newEndedGroup("끝난방"), inviter);
+
+        String body = mockMvc.perform(get("/l/{slug}", stale.getSlug())
+                        .header("User-Agent", IPHONE_UA))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).contains("data-expired=\"true\"");
+        assertThat(clickRepository.findByLinkId(stale.getId())).isEmpty();
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.oneorthree.phone.invitelink.service;
 
 import com.oneorthree.phone.group.domain.Group;
+import com.oneorthree.phone.group.domain.GroupStatus;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
@@ -44,7 +45,7 @@ public class InviteLinkService {
     private final InviteLinkGa4Events ga4Events;
 
     public IssueInviteLinkResponse issue(UUID groupId, UUID userId) {
-        // 삭제된 그룹은 없는 그룹과 같게 다룬다 — 랜딩(만료 처리)과 판정 기준을 맞춘다.
+        // 삭제·종료된 그룹은 없는 그룹과 같게 다룬다 — 랜딩(만료 처리)·매치와 판정 기준을 맞춘다.
         if (findActiveGroup(groupId).isEmpty()) {
             throw new InviteLinkException(InviteLinkErrorCode.GROUP_NOT_FOUND);
         }
@@ -89,8 +90,17 @@ public class InviteLinkService {
                 .orElseGet(LandingView::expired);
     }
 
-    private Optional<Group> findActiveGroup(UUID groupId) {
-        return groupRepository.findById(groupId).filter(group -> group.getDeletedAt() == null);
+    /**
+     * 초대 관점에서 살아 있는 그룹 — 소프트 삭제뿐 아니라 종료({@code ENDED})도 걸러낸다.
+     *
+     * <p>마지막 멤버 탈퇴는 그룹을 삭제하지 않고 {@code status=ENDED} 로만 전이하는데
+     * ({@code Group.close()}), 앱은 ENDED 그룹의 참여를 막는다. {@code deletedAt} 만 보면
+     * 아무도 못 들어가는 방의 초대가 유효 랜딩으로 렌더링된다. 발급·랜딩·매치가 모두 이 판정을
+     * 공유하도록 package-private 로 연다.
+     */
+    Optional<Group> findActiveGroup(UUID groupId) {
+        return groupRepository.findById(groupId)
+                .filter(group -> group.getDeletedAt() == null && group.getStatus() != GroupStatus.ENDED);
     }
 
     private String generateUniqueSlug() {

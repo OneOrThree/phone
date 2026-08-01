@@ -27,6 +27,8 @@ public class LandingRenderer {
 
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{(\\w+)}}");
     private static final String TEMPLATE_PATH = "invitelink/landing.html";
+    /** 만료 랜딩의 {@code {{groupName}}} 대체 문자열 — 그룹명을 잃은 자리에 들어가는 중립 명칭. */
+    private static final String EXPIRED_GROUP_NAME = "그로모 그룹";
 
     private final String template;
     private final String storeUrl;
@@ -51,7 +53,8 @@ public class LandingRenderer {
      */
     public String renderExpired() {
         return render(Map.of(
-                "groupName", "",
+                // 빈 문자열을 넣으면 OG 제목이 「」 처럼 깨진 채 미리보기로 퍼진다 — 중립 명칭으로 채운다.
+                "groupName", EXPIRED_GROUP_NAME,
                 "schemeUrl", "",
                 "storeUrl", storeUrl,
                 "expired", "true"));

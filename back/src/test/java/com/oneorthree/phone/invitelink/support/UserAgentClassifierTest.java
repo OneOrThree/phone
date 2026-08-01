@@ -53,9 +53,25 @@ class UserAgentClassifierTest {
     }
 
     @Test
-    @DisplayName("UA 가 없으면 other 이고 봇도 아니다")
-    void nullUserAgentIsOtherAndNotBot() {
+    @DisplayName("데스크톱 모드 iPadOS(Macintosh + Mobile 토큰)는 ios 로 정규화한다")
+    void classifiesDesktopModeIpadAsIos() {
+        // iPadOS 는 '데스크톱 웹사이트 요청' 이 기본이라 UA 에 iPad 대신 Macintosh 가 실린다.
+        // other 로 두면 설치 후 앱이 보내는 os=ios 와 어긋나 iPad 유저의 매치가 항상 실패한다.
+        assertThat(classifier.classify(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15"
+                        + " (KHTML, like Gecko) Mobile/15E148")).isEqualTo("ios");
+        // 진짜 Mac Safari(Mobile 토큰 없음)는 여전히 other 다.
+        assertThat(classifier.classify(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15"
+                        + " (KHTML, like Gecko) Version/17.0 Safari/605.1.15")).isEqualTo("other");
+    }
+
+    @Test
+    @DisplayName("UA 가 없거나 비어 있으면 봇이다 — 실브라우저는 UA 를 반드시 보낸다")
+    void missingUserAgentIsBot() {
+        assertThat(classifier.isBot(null)).isTrue();
+        assertThat(classifier.isBot("  ")).isTrue();
+        // classify 는 방어적으로 other 를 유지한다(기록 경로는 isBot 이 먼저 걸러 도달하지 않는다).
         assertThat(classifier.classify(null)).isEqualTo("other");
-        assertThat(classifier.isBot(null)).isFalse();
     }
 }

@@ -66,7 +66,9 @@ public abstract class InviteLinkTestSupport extends IntegrationTestBase {
         clickRepository.deleteAll(clickRepository.findAll());
         inviteLinkRepository.deleteAll(inviteLinkRepository.findAll());
         groupMemberRepository.deleteAll(members);
-        groupRepository.deleteAll(groups);
+        // 그룹은 id 로 지운다 — @Version 낙관락이 있어, 테스트가 그룹을 갱신(예: 종료 전이)하면
+        // 추적 리스트의 인스턴스가 stale 이 되어 엔티티 merge 삭제가 StaleObjectStateException 을 던진다.
+        groupRepository.deleteAllById(groups.stream().map(Group::getId).toList());
         userRepository.deleteAll(users);
         members.clear();
         groups.clear();
@@ -82,6 +84,13 @@ public abstract class InviteLinkTestSupport extends IntegrationTestBase {
     /** 소프트 삭제된 그룹 — 링크는 살아 있는데 참여할 방이 사라진 상황을 만든다. */
     protected Group newDeletedGroup(String name) {
         return saveGroup(Group.builder().name(name).deletedAt(Instant.now()).build());
+    }
+
+    /** 종료(ENDED)된 그룹 — 마지막 멤버 탈퇴 후처럼 방 행은 남아 있지만 아무도 못 들어가는 상황을 만든다. */
+    protected Group newEndedGroup(String name) {
+        Group group = Group.builder().name(name).build();
+        group.close();
+        return saveGroup(group);
     }
 
     private Group saveGroup(Group group) {

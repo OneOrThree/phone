@@ -92,6 +92,18 @@ class InviteLinkIssueTest extends InviteLinkTestSupport {
     }
 
     @Test
+    @DisplayName("종료(ENDED)된 그룹도 404 — 아무도 못 들어가는 방의 초대장을 찍어내지 않는다")
+    void endedGroupIsNotFound() throws Exception {
+        Group ended = newEndedGroup("끝난방");
+        joinGroup(inviter, ended);
+
+        mockMvc.perform(post("/api/v1/groups/{groupId}/invite-link", ended.getId())
+                        .header("Authorization", bearer(inviter)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
+    }
+
+    @Test
     @DisplayName("토큰 없이는 발급할 수 없다 — 401")
     void requiresAuthentication() throws Exception {
         mockMvc.perform(post("/api/v1/groups/{groupId}/invite-link", group.getId()))
