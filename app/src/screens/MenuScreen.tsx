@@ -16,6 +16,7 @@ import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
 import { SettingsSection, SettingsRow } from '@/screens/settings/components/SettingsList';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { SPIKE_ENABLED } from '@/screens/spike/enabled';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 
@@ -342,6 +343,22 @@ export default function MenuScreen() {
             onPress={() => navigation.navigate('SettingsVersion')}
           />
         </SettingsSection>
+
+        {/* 실험(스파이크) — 오브젝트 캐릭터 PoC 진입점. 노출 조건은 RootNavigator의 라우트
+             등록과 같은 SPIKE_ENABLED를 쓴다(@/screens/spike/enabled).
+             검증이 끝나면 이 섹션째 제거한다. */}
+        {SPIKE_ENABLED && (
+          <SettingsSection title="실험 (스파이크)">
+            <SettingsRow
+              icon="cube-outline"
+              iconColor={T.accentAlt}
+              iconBg={T.accentAltBg}
+              label="내 물건 캐릭터 (실험)"
+              sub="사진 속 물건에 팔다리를 달아본다"
+              onPress={() => navigation.navigate('ObjectCharacterSpike')}
+            />
+          </SettingsSection>
+        )}
 
         {/* 개발 전용 — 연출 디자인 확인용 임시 진입점(__DEV__ 빌드에만 노출).
              리그 결과 미리보기는 실데이터 연결(GROMO-831)로 제거 — 결과 화면은
