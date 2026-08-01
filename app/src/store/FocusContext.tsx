@@ -1,8 +1,17 @@
-import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type ReactNode,
+} from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { fetchTodayFocusRestore, sessionFocusSeconds } from '@/screens/focus/focusRestore';
 import { todayStr } from '@/utils/localDate';
+import { subscribeDayChange } from '@/utils/dayChange';
 
 interface FocusContextValue {
   todayFocusSeconds: number;
@@ -24,6 +33,23 @@ export function FocusProvider({ children }: { children: ReactNode }) {
   const [todayFocusSeconds, setTodayFocusSeconds] = useState(0);
   const [ready, setReady] = useState(false);
   const loaded = useRef(false);
+  // 지금 메모리의 todayFocusSeconds가 속한 로컬 날짜 — SubjectContext와 같은 롤오버 기준(코드리뷰 반영).
+  // 과목별 스토어만 자정에 리셋되면 홈·통계의 '오늘 집중' 총합은 어제 값이 남아 서로 어긋난다.
+  const dayRef = useRef(todayStr());
+
+  // 자정 롤오버 — 날짜가 바뀌었으면 '오늘 집중' 총합을 0으로 리셋.
+  // SubjectContext와 같은 경계(날짜 경계 신호·적립 직전·저장 직전)에서 호출해 두 스토어를 함께 넘긴다.
+  const rolloverIfNeeded = useCallback(() => {
+    if (dayRef.current === todayStr()) return;
+    dayRef.current = todayStr();
+    setTodayFocusSeconds(0);
+  }, []);
+
+  // 공유 날짜 경계 신호 구독(코드리뷰 반영) — 앱이 활성인 채 자정을 넘긴 뒤 과목만 바뀌는
+  // 경우(이름변경·색·순서 등)엔 이 스토어로 오는 AppState 전환·적립이 없어 어제 총합이 남았다.
+  // SubjectContext와 같은 신호(dayChange)를 구독해 같은 경계에서 함께 리셋한다(기존 개별
+  // AppState 리스너 대체). 이 스토어는 플랫폼 공통이라 iOS 홈·통계 총합에도 동일 적용.
+  useEffect(() => subscribeDayChange(rolloverIfNeeded), [rolloverIfNeeded]);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.focus).then(async (raw) => {
@@ -53,6 +79,8 @@ export function FocusProvider({ children }: { children: ReactNode }) {
           }
         } catch {}
       }
+      // 로드가 오늘 기준으로 리셋·복원을 끝냈으므로 여기서 롤오버 기준 날짜를 잡는다
+      dayRef.current = todayStr();
       loaded.current = true;
       setReady(true);
     });
@@ -60,6 +88,12 @@ export function FocusProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!loaded.current) return;
+    // 쓰기 직전에도 날짜 검증 — 자정을 넘긴 뒤의 변경이 어제 총합을 오늘 날짜 도장으로
+    // 저장하지 않게(코드리뷰 반영). 롤오버만 하고 리턴 — 리셋된 값으로 이 effect가 다시 돈다.
+    if (dayRef.current !== todayStr()) {
+      rolloverIfNeeded();
+      return;
+    }
     AsyncStorage.setItem(
       STORAGE_KEYS.focus,
       JSON.stringify({
@@ -67,9 +101,11 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         date: todayStr(),
       }),
     );
-  }, [todayFocusSeconds]);
+  }, [todayFocusSeconds, rolloverIfNeeded]);
 
   function addFocusSeconds(seconds: number) {
+    // 자정을 넘긴 뒤 첫 적립이면 어제 총합을 먼저 0으로 — 리셋 없이 더하면 어제+오늘이 섞인다
+    rolloverIfNeeded();
     setTodayFocusSeconds((prev) => prev + seconds);
   }
 

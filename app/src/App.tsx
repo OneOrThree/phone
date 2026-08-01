@@ -26,6 +26,7 @@ import {
   deleteDeviceToken,
 } from '@/services/userApi';
 import { clearInbox } from '@/services/notificationInbox';
+import StudyWidgetModule from '@/services/StudyWidgetModule';
 import { recordAccessDay } from '@/services/storeReview';
 import { occupationForCategory, categoryForOccupation } from '@/constants/focusCategories';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
@@ -251,6 +252,9 @@ function App() {
     // 알림 보관함 정리 — multiRemove가 아니라 보관함 쓰기 큐를 태워, 직전에 수신된 푸시의
     // 저장이 옛 목록을 도로 써넣는 레이스를 막는다(PR 224 리뷰).
     await clearInbox();
+    // 안드로이드 홈 위젯 스냅샷 초기화 — 위젯이 읽는 네이티브 SharedPreferences는 위
+    // multiRemove로 안 지워져 이전 계정 과목·공부시간이 런처에 남는다(GROMO-1006 코드리뷰 반영).
+    StudyWidgetModule.updateTopSubjects([]).catch(() => {});
     setOnboardingFocusGoalSeconds(null);
     setOnboardingScreenTimeGoalSeconds(null);
     setOnboarded(false);
@@ -303,6 +307,9 @@ function App() {
         STORAGE_KEYS.screentimeCelebratePending,
       ]);
       await clearInbox(); // 보관함은 쓰기 큐로 정리(위 handleLogout과 동일 이유)
+      // 홈 위젯도 이전 계정 데이터 정리(위 handleLogout과 동일) — 새 계정 값은
+      // SubjectProvider 리마운트 복원이 다시 채운다
+      StudyWidgetModule.updateTopSubjects([]).catch(() => {});
     }
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
     setOnboarded(true);

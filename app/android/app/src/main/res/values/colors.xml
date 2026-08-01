@@ -3,4 +3,11 @@
   <!-- 어댑티브 아이콘 배경색 — icon.png 테두리 평균색(보라)과 일치 -->
   <color name="iconBackground">#9288CB</color>
   <color name="colorPrimary">#023c69</color>
+  <!-- 홈 위젯(GROMO-1006) — theme.ts 팔레트 대응. iOS 잠금화면 위젯(GROMO-868)과 같이 라이트 톤 고정 -->
+  <color name="widget_paper">#FFFFFF</color>
+  <color name="widget_ink">#1C1E22</color>
+  <color name="widget_ink_sub">#667085</color>
+  <color name="widget_chip_bg">#F1F2F8</color>
+  <color name="widget_chip_border">#E3E5EE</color>
+  <color name="widget_accent">#5E6AD2</color>
 </resources>

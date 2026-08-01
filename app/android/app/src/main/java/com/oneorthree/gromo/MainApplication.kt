@@ -15,6 +15,8 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ExpoReactHostFactory
 
+import com.oneorthree.gromo.widget.StudyWidgetPackage
+
 class MainApplication : Application(), ReactApplication {
 
   override val reactHost: ReactHost by lazy {
@@ -24,6 +26,8 @@ class MainApplication : Application(), ReactApplication {
         PackageList(this).packages.apply {
           // Packages that cannot be autolinked yet can be added manually here, for example:
           // add(MyReactNativePackage())
+          // 홈 위젯 데이터 브리지(GROMO-1006) — 수동 등록
+          add(StudyWidgetPackage())
         },
       jsBundleFilePath = HotUpdater.getJSBundleFile(applicationContext),
     )
