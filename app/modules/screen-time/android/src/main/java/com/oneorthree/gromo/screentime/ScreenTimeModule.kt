@@ -16,9 +16,11 @@ import expo.modules.kotlin.modules.ModuleDefinition
 import java.util.Calendar
 
 // 안드로이드 스크린타임 측정 코어(GROMO-994) — iOS ScreenTimeModule.swift의 안드로이드 대응.
-// JS 계약(services/ScreenTimeModule.ts 20개) 중 M1 범위만 구현한다:
-//   권한(requestAuthorization·getAuthorizationStatus) + 오늘/어제 사용시간 조회 + 목표 저장.
-// 앱 선택 피커(M2)·집중 실드/타이머 알림(M3)·어제 결과 판정(M4)은 후속 티켓.
+// JS 계약(services/ScreenTimeModule.ts 20개) 중 M1+M2 범위를 구현한다:
+//   M1 — 권한(requestAuthorization·getAuthorizationStatus) + 오늘/어제 사용시간 조회 + 목표 저장.
+//   M2(GROMO-995) — 앱 선택 피커 지원: 설치 앱 목록 조회 + 측정 대상(pending 2단계)·집중
+//   허용앱(즉시 저장) 선택 저장. 피커 UI 자체는 RN(AndroidAppPickerHost)이 그린다.
+// 집중 실드/타이머 알림(M3)·어제 결과 판정(M4)은 후속 티켓.
 //
 // iOS와의 구조 차이(03-스크린타임-구현 §0·§2):
 //  - 측정: UsageStatsManager로 사용 기록을 직접 조회한다 — 익스텐션·App Group·threshold 예약 불필요.
@@ -35,10 +37,13 @@ class ScreenTimeModule : Module() {
     private const val KEY_GOAL_SECONDS = "goalSeconds"
 
     // 측정 대상 패키지명 집합 — iOS의 selection/pending 2단계 키 구조와 1:1(§8).
-    // M1은 피커가 없어 항상 미설정 = 전체 앱 측정. M2 피커가 이 키에 저장·승격한다.
+    // 미설정 = 전체 앱 측정. 피커(M2)가 pending에 저장하고 promoteSelection이 활성으로 승격한다.
     private const val KEY_SELECTION_PACKAGES = "selectionPackages"
-    @Suppress("unused") // M2 피커의 '다음날 적용' 대기 선택 저장 자리 — 키 구조 예약.
     private const val KEY_PENDING_SELECTION_PACKAGES = "pendingSelectionPackages"
+
+    // 집중 허용앱 패키지명 집합 — iOS gromo:focus:allowedSelection과 1:1. pending 없이 즉시
+    // 저장(§8 1단계). 실드(M3)가 이 키를 허용 목록으로 읽는다.
+    private const val KEY_FOCUS_ALLOWED_PACKAGES = "focusAllowedSelectionPackages"
   }
 
   private val context: Context
@@ -95,6 +100,50 @@ class ScreenTimeModule : Module() {
       usageMinutes(startOfDay(-1), startOfDay(0))
     }
 
+    // ── 앱 선택 피커(M2, GROMO-995) — UI는 RN(AndroidAppPickerHost), 여기는 목록·저장만 ──
+
+    // 설치 앱(런처 앱) 목록 — [{ packageName, label, iconUri }]. AsyncFunction은 모듈 백그라운드
+    // 큐에서 돌아 아이콘 캐시 생성(첫 호출)이 UI를 막지 않는다.
+    AsyncFunction("getInstalledApps") {
+      InstalledAppCatalog.launcherApps(context)
+    }
+
+    // 측정 대상 선택 조회 — 피커 프리로드용. 아직 승격 전인 대기(pending)가 있으면 그게 최신
+    // 선택이라 활성분보다 우선한다(iOS presentAppPicker 프리로드와 동일 규칙). 미설정이면 null.
+    AsyncFunction("getSelectionPackages") {
+      packagesOrNull(KEY_PENDING_SELECTION_PACKAGES) ?: packagesOrNull(KEY_SELECTION_PACKAGES)
+    }
+
+    // 측정 대상 선택을 대기(pending)에 저장 — 활성 반영은 promoteSelection이 한다(§4.4 2단계).
+    AsyncFunction("setPendingSelection") { packages: List<String> ->
+      prefs.edit().putStringSet(KEY_PENDING_SELECTION_PACKAGES, packages.toSet()).apply()
+    }
+
+    // 대기 측정 대상을 활성으로 승격 — true(승격함) | false(대기 없음). iOS와 동일 계약.
+    // 안드로이드는 조회형이라 승격 즉시 오늘 하루 전체가 새 기준으로 소급 재계산된다(§4.4).
+    AsyncFunction("promoteSelection") {
+      val pending = prefs.getStringSet(KEY_PENDING_SELECTION_PACKAGES, null)
+      if (pending == null) {
+        false
+      } else {
+        prefs.edit()
+          .putStringSet(KEY_SELECTION_PACKAGES, HashSet(pending))
+          .remove(KEY_PENDING_SELECTION_PACKAGES)
+          .apply()
+        true
+      }
+    }
+
+    // 집중 허용앱 조회 — 미설정이면 null(호출부가 '미설정'과 '0개 허용'을 구분한다).
+    AsyncFunction("getAllowedPackages") {
+      packagesOrNull(KEY_FOCUS_ALLOWED_PACKAGES)
+    }
+
+    // 집중 허용앱 저장 — pending 없이 즉시 적용(iOS 허용앱 피커와 동일 1단계).
+    AsyncFunction("setAllowedSelection") { packages: List<String> ->
+      prefs.edit().putStringSet(KEY_FOCUS_ALLOWED_PACKAGES, packages.toSet()).apply()
+    }
+
     // 설정을 다녀온 복귀 감지 — 대기 중인 권한 요청을 실제 AppOps 상태로 마감한다(§2).
     OnActivityEntersForeground {
       pendingAuthPromise?.let { promise ->
@@ -103,6 +152,10 @@ class ScreenTimeModule : Module() {
       }
     }
   }
+
+  // 저장된 패키지 집합 → 리스트(미설정 null). getStringSet 반환 집합은 수정 금지 계약이라 복사한다.
+  private fun packagesOrNull(key: String): List<String>? =
+    prefs.getStringSet(key, null)?.toList()
 
   private fun currentStatus(): String = when {
     isUsageAccessGranted() -> "approved"
