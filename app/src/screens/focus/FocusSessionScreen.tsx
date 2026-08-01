@@ -106,7 +106,7 @@ export default function FocusSessionScreen() {
   const isLandscape = width > height;
   const { userId, nickname } = useUser();
   const { addFocusSeconds, todayFocusSeconds } = useFocus();
-  const { addCoins } = useCoins();
+  const { addCoins, reconcileSessionAward } = useCoins();
   const { subjects, addFocusToSubject } = useSubjects();
   // Live Activity 시작 시점에 읽을 과목 목록 — effect 재실행 없이 최신값 참조용
   const subjectsRef = useRef(subjects);
@@ -532,6 +532,9 @@ export default function FocusSessionScreen() {
             // 저장 성공 — 서버 스트릭 판정을 결과 화면에 전달(GROMO-807). 결과 화면이 먼저 떠 있어도
             // 구독으로 갱신된다.
             (res) => {
+              // 서버 지급액으로 낙관 가산 정정(B5a) — 코인은 all-time이라 아래 스트릭 판정과
+              // 달리 날짜 가드 없이 항상 반영한다. 구서버(awardedCoins 없음)면 낙관 유지.
+              reconcileSessionAward(newCoins, res?.awardedCoins);
               // 리플레이가 자정을 넘겨 어제 날짜(endedAt)의 블록을 저장한 응답이면 발행하지
               // 않는다 — 판정의 '그날 누적'이 어제 기준이라 오늘 판정을 오염시키고, 단조증가
               // 가드에 걸려 오늘의 진짜 판정까지 막는다(대기열 flush 미발행과 같은 규칙, 코덱스 리뷰).
@@ -549,6 +552,7 @@ export default function FocusSessionScreen() {
       addFocusSeconds,
       addFocusToSubject,
       addCoins,
+      reconcileSessionAward,
       cancelLiveSession,
       subjectId,
       subjectName,

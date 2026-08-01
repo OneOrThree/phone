@@ -22,7 +22,7 @@ import { cancelStaleCompletionNotifications } from './completionNotification';
 // 복원이 네트워크를 기다리는 동안 적립하면 뒤늦은 복원 스냅샷이 적립분을 덮는다(GROMO-677 리뷰).
 export function OrphanFocusSettler() {
   const { addFocusSeconds, ready: focusReady } = useFocus();
-  const { addCoins } = useCoins();
+  const { addCoins, reconcileSessionAward } = useCoins();
   const { addFocusToSubject, ready: subjectsReady } = useSubjects();
   const { userId } = useUser();
   const ran = useRef(false);
@@ -64,6 +64,10 @@ export function OrphanFocusSettler() {
       }
       // 로컬 적립은 1회만 — 중복 적립 방지로 적립 전에 먼저 마킹해 되쓴다.
       // 레코드는 업로드/인계가 끝나기 전까지 지우지 않는다(먼저 지우면 실패 시 기록이 영구 유실).
+      // 재시도 런(이전 실행에서 이미 마킹)이면 낙관 가산이 이번 실행 메모리에 없다 — 아래
+      // 서버 지급 정정에서 낙관분을 0으로 계산해야 지급액이 통째로 반영된다.
+      const settledInPreviousRun = rec.settledLocally === true;
+      const coins = Math.floor(focused / 10);
       let stored = raw;
       if (!rec.settledLocally) {
         rec = { ...rec, settledLocally: true };
@@ -76,7 +80,6 @@ export function OrphanFocusSettler() {
           addFocusSeconds(focused);
           addFocusToSubject(rec.subjectId, focused);
         }
-        const coins = Math.floor(focused / 10);
         if (coins > 0) addCoins(coins);
       }
       const body = {
@@ -88,7 +91,11 @@ export function OrphanFocusSettler() {
         totalDistractionSeconds: 0,
       };
       try {
-        await saveFocusSession(body);
+        const res = await saveFocusSession(body);
+        // 서버 지급액으로 낙관 가산 정정(B5a — 서버가 정본). 구서버(필드 없음)면 낙관 유지.
+        // 서버는 endedAt−startedAt으로 집중초를 재계산하므로 rec.elapsed 기반 낙관치와
+        // 어긋날 수 있다 — 그 차이도 여기서 흡수된다.
+        reconcileSessionAward(settledInPreviousRun ? 0 : coins, res?.awardedCoins);
       } catch {
         // 업로드 실패 — 대기열(GROMO-614)로 인계해 앱 시작·포그라운드 복귀마다 재시도.
         // 대기열 저장까지 실패하면 레코드를 보존해 다음 실행에서 이 경로가 재시도한다.
@@ -105,7 +112,15 @@ export function OrphanFocusSettler() {
         await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
       }
     })().catch(() => {});
-  }, [userId, focusReady, subjectsReady, addFocusSeconds, addCoins, addFocusToSubject]);
+  }, [
+    userId,
+    focusReady,
+    subjectsReady,
+    addFocusSeconds,
+    addCoins,
+    reconcileSessionAward,
+    addFocusToSubject,
+  ]);
 
   return null;
 }

@@ -48,6 +48,10 @@ export interface FocusSessionRequest {
 export interface FocusSessionSaveResponse {
   dayTotalFocusSeconds: number; // 이 세션 반영 후 그날 누적 집중 초
   streakQualifiedToday: boolean; // 그날 누적이 스트릭 기준(하루 10분) 이상인지 — 서버 확정 판정
+  // 이 세션 저장으로 서버가 지급한 코인 수(집중 10초당 1코인, B5a 서버 지급 전환) — 잔액 정본.
+  // ⚠️ optional인 이유: 구버전 서버는 이 필드가 없다 — 소비처(CoinContext.reconcileSessionAward)는
+  // 숫자일 때만 낙관 가산을 정정하고, 없으면 기존 낙관 계산을 유지한다.
+  awardedCoins?: number;
 }
 
 // GET /focus-session content 항목 — 집중 세션 단건.
