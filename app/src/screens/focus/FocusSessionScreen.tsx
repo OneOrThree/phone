@@ -648,6 +648,10 @@ export default function FocusSessionScreen() {
   // 앞서 있어, 복귀 리플레이의 경계 시각(leftAt + i초)이 그만큼 당겨진다(코덱스 리뷰).
   // 리플레이는 이 스냅샷에서 시작하고, 복귀 시 setSession이 전진분을 통째로 덮어쓴다.
   const leftSessionRef = useRef<SessionState | null>(null);
+  // 오버레이 권한 설정 왕복의 백그라운드 진입 시각(안드로이드, 코드리뷰 반영) — 왕복은 이탈로
+  // 기록하지 않지만(leftAt 미기록), 복귀 시 이 값으로 왕복한 실제 시간을 재 서버 업로드 경계를
+  // 그만큼 앞당긴다(아래 active 분기 참고). 왕복이 아닌 이탈과 상호배타(둘 중 하나만 세워진다).
+  const overlayTripLeftAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -659,8 +663,10 @@ export default function FocusSessionScreen() {
         // "허용하지 않아도 집중은 계속" 안내와 모순되게 세션을 끝내버린다. 진입 시점에 기록
         // (leftAt) 자체를 안 남기므로 복귀 시 'active' 이벤트와 권한 resolve(플래그 해제)의
         // 순서 레이스와 무관하게 안전하고, 왕복이 끝난 뒤의 이탈부터는 정상 판정이 재개된다.
-        // 저장만 해두고(왕복 중 강제 종료 대비) 빠진다.
+        // 저장만 해두고(왕복 중 강제 종료 대비) 빠진다. 백그라운드 진입 시각은 잡아둬 복귀 시
+        // 왕복 시간만큼 서버 업로드 경계(settleAtRef)를 앞당긴다(아래 active 분기).
         if (ScreenTimeModule.isOverlayPermissionTripActive()) {
+          overlayTripLeftAtRef.current = Date.now();
           saveLive(sessionRef.current.elapsed);
           return;
         }
@@ -676,6 +682,24 @@ export default function FocusSessionScreen() {
         // 남은 타이머/뽀모도로 페이즈와 결과 화면을 복구할 수 없다. 실제 완료를 복구할 수 없는
         // 알림이 발송되지 않도록 백그라운드 경계 알림은 예약하지 않는다(코덱스 리뷰).
         return;
+      }
+      // 오버레이 권한 왕복 복귀(안드로이드, 코드리뷰 반영) — 왕복 구간은 JS 타이머가 멈춰 로컬
+      // session.elapsed엔 빠지지만, settleFocusBlock은 settleAtRef~endedAt을 업로드하고 서버 통계는
+      // endedAt−startedAt이라 그 시간이 집중으로 잡혀 로컬과 어긋난다. 왕복한 실제 시간만큼 업로드
+      // 경계(settleAtRef)를 앞당겨 서버 구간에서도 왕복을 제외한다 — 로컬 elapsed·잠금화면
+      // 크로노미터(둘 다 elapsed 기준이라 이미 왕복 제외)와 정합. 왕복은 leftAt을 안 남겨
+      // fast-forward·자동종료와 무관하므로, 경계만 밀고 아래 이탈 판정은 그대로 통과시킨다.
+      // 플래그(isOverlayPermissionTripActive) 대신 진입 시각 ref로 재므로 복귀 시 active 이벤트와
+      // 플래그 해제의 순서 레이스와 무관하다.
+      if (state === 'active' && overlayTripLeftAtRef.current != null) {
+        const tripAway = Date.now() - overlayTripLeftAtRef.current;
+        overlayTripLeftAtRef.current = null;
+        if (tripAway > 0) {
+          settleAtRef.current = new Date(
+            new Date(settleAtRef.current).getTime() + tripAway,
+          ).toISOString();
+          saveLive(sessionRef.current.elapsed); // 밀린 경계로 고아 레코드도 갱신
+        }
       }
       if (state !== 'active' || leftAtRef.current == null) return;
 
