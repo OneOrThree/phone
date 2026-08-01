@@ -56,11 +56,6 @@ export function logOnboardingStepViewed(p: { step: OnboardingStepName; step_inde
   track('onboarding_step_viewed', p);
 }
 
-// W2 효과/쇼크 화면 노출
-export function logOnboardingShockViewed(): void {
-  track('onboarding_shock_viewed', { step_index: 2 });
-}
-
 // W4 집중 카테고리(목표) 선택 제출 🆕
 export function logOnboardingFocusCategorySubmitted(): void {
   track('onboarding_focus_category_submitted', { step_index: 4 });
