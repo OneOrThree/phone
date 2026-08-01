@@ -25,13 +25,17 @@ import java.util.concurrent.Executor;
 public class AsyncConfig {
 
     /**
-     * GA4 전송 전용 executor. 코어 1·최대 2·큐 500 — 분석 이벤트는 유실돼도 서비스에 영향이 없으므로
+     * GA4 전송 전용 executor. 코어=최대=2·큐 500 — 분석 이벤트는 유실돼도 서비스에 영향이 없으므로
      * 큐 포화 시 예외를 던지지 않고 WARN 로그만 남기고 드롭한다(DiscardPolicy + 로깅).
+     *
+     * <p>코어와 최대를 같은 값으로 둔다. {@code ThreadPoolTaskExecutor} 는 표준 {@code ThreadPoolExecutor}
+     * 규칙대로 <b>큐가 가득 찬 뒤에야</b> 코어를 넘는 스레드를 만들기 때문에, 코어 1·최대 2 로 두면
+     * 큐 500 이 밀리기 전까지 두 번째 스레드가 영영 뜨지 않는다 — 설정만 있고 동작하지 않는 값이 된다.
      */
     @Bean("ga4Executor")
     public Executor ga4Executor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(1);
+        executor.setCorePoolSize(2);
         executor.setMaxPoolSize(2);
         executor.setQueueCapacity(500);
         executor.setThreadNamePrefix("ga4-");

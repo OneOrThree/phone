@@ -1428,7 +1428,7 @@ class GroupServiceTest {
 
         // when
         groupService.joinGroup(GROUP_ID, USER_ID,
-                new JoinGroupRequest(null, "deferred_invite", SLUG, "inst-1"));
+                JoinGroupRequest.builder().joinMethod("deferred_invite").inviteSlug(SLUG).appInstanceId("inst-1").build());
 
         // then: 참여 자체는 성공
         verify(groupMemberRepository).save(any(GroupMember.class));
@@ -1459,7 +1459,7 @@ class GroupServiceTest {
 
         // when
         groupService.joinGroup(GROUP_ID, USER_ID,
-                new JoinGroupRequest(null, "invite", SLUG, "inst-1"));
+                JoinGroupRequest.builder().joinMethod("invite").inviteSlug(SLUG).appInstanceId("inst-1").build());
 
         // then: 참여는 정상, 어트리뷰션만 탈락
         verify(groupMemberRepository).save(any(GroupMember.class));
@@ -1481,7 +1481,7 @@ class GroupServiceTest {
 
         // when
         groupService.joinGroup(GROUP_ID, USER_ID,
-                new JoinGroupRequest(null, "invite", SLUG, "inst-1"));
+                JoinGroupRequest.builder().joinMethod("invite").inviteSlug(SLUG).appInstanceId("inst-1").build());
 
         // then
         verify(groupMemberRepository).save(any(GroupMember.class));
@@ -1517,7 +1517,7 @@ class GroupServiceTest {
                 .willReturn(Optional.of(new GroupInviteLink(SLUG, GROUP_ID, INVITER_ID)));
 
         // when
-        groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest(null, "invite", SLUG, null));
+        groupService.joinGroup(GROUP_ID, USER_ID, JoinGroupRequest.builder().joinMethod("invite").inviteSlug(SLUG).build());
 
         // then
         verify(groupMemberRepository).save(any(GroupMember.class));
