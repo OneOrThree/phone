@@ -1,31 +1,15 @@
 package com.oneorthree.phone.invitelink;
 
-import com.oneorthree.phone.auth.service.JwtProvider;
-import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
-import com.oneorthree.phone.invitelink.domain.InviteLinkClick;
-import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
-import com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository;
 import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.repository.UserRepository;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -37,27 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 최초 1회만 기록하고(뒤늦은 다른 유저의 claim 이 앞사람을 덮으면 어트리뷰션이 뒤집힌다),
  * 초대자 본인의 claim 은 무시한다(셀프 초대로 보상을 파먹는 경로를 미리 막는다).
  */
-@AutoConfigureMockMvc
-class ClaimTest extends IntegrationTestBase {
-
-    private static final String IPHONE_UA =
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15";
-    private static final String CLICK_IP = "1.2.3.4";
-
-    @Autowired
-    MockMvc mockMvc;
-    @Autowired
-    JwtProvider jwtProvider;
-    @Autowired
-    UserRepository userRepository;
-    @Autowired
-    GroupRepository groupRepository;
-    @Autowired
-    GroupInviteLinkRepository inviteLinkRepository;
-    @Autowired
-    InviteLinkClickRepository clickRepository;
-
-    private final List<User> users = new ArrayList<>();
+class ClaimTest extends InviteLinkTestSupport {
 
     private Group group;
     private User inviter;
@@ -65,18 +29,9 @@ class ClaimTest extends IntegrationTestBase {
 
     @BeforeEach
     void setUp() {
-        group = groupRepository.save(Group.builder().name("스터디").build());
+        group = newGroup("스터디");
         inviter = newUser("초대자");
-        link = inviteLinkRepository.save(new GroupInviteLink("cl23cd45", group.getId(), inviter.getId()));
-    }
-
-    @AfterEach
-    void tearDown() {
-        clickRepository.deleteAll(clickRepository.findAll());
-        inviteLinkRepository.deleteAll(inviteLinkRepository.findAll());
-        groupRepository.delete(group);
-        userRepository.deleteAll(users);
-        users.clear();
+        link = newLink("cl23cd45", group, inviter);
     }
 
     @Test
@@ -87,11 +42,11 @@ class ClaimTest extends IntegrationTestBase {
         User latecomer = newUser("나중사람");
 
         claim(joiner).andExpect(status().isOk());
-        assertThat(onlyClick().getClaimedUserId()).isEqualTo(joiner.getId());
-        assertThat(onlyClick().getClaimedAt()).isNotNull();
+        assertThat(onlyClickOf(link).getClaimedUserId()).isEqualTo(joiner.getId());
+        assertThat(onlyClickOf(link).getClaimedAt()).isNotNull();
 
         claim(latecomer).andExpect(status().isOk());
-        assertThat(onlyClick().getClaimedUserId()).isEqualTo(joiner.getId());
+        assertThat(onlyClickOf(link).getClaimedUserId()).isEqualTo(joiner.getId());
     }
 
     @Test
@@ -101,7 +56,7 @@ class ClaimTest extends IntegrationTestBase {
 
         claim(inviter).andExpect(status().isOk());
 
-        assertThat(onlyClick().getClaimedUserId()).isNull();
+        assertThat(onlyClickOf(link).getClaimedUserId()).isNull();
     }
 
     @Test
@@ -136,10 +91,7 @@ class ClaimTest extends IntegrationTestBase {
 
     /** 랜딩 클릭 → 매치까지 진행된 상태(= claim 대상이 존재하는 상태)를 만든다. */
     private void matchedClick() throws Exception {
-        mockMvc.perform(get("/l/{slug}", link.getSlug())
-                        .header("User-Agent", IPHONE_UA)
-                        .header("CF-Connecting-IP", CLICK_IP))
-                .andExpect(status().isOk());
+        hitLanding(link.getSlug(), CLICK_IP);
         mockMvc.perform(post("/l/match")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("CF-Connecting-IP", CLICK_IP)
@@ -147,27 +99,10 @@ class ClaimTest extends IntegrationTestBase {
                 .andExpect(jsonPath("$.matched").value(true));
     }
 
-    private InviteLinkClick onlyClick() {
-        List<InviteLinkClick> clicks = clickRepository.findByLinkId(link.getId());
-        assertThat(clicks).hasSize(1);
-        return clicks.get(0);
-    }
-
     private ResultActions claim(User user) throws Exception {
         return mockMvc.perform(post("/api/v1/invite-links/claim")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", bearer(user))
                 .content("{\"slug\":\"" + link.getSlug() + "\"}"));
-    }
-
-    private User newUser(String nickname) {
-        User user = userRepository.save(
-                User.builder().nickname(nickname + UUID.randomUUID()).isGuest(false).build());
-        users.add(user);
-        return user;
-    }
-
-    private String bearer(User user) {
-        return "Bearer " + jwtProvider.generateAccessToken(user.getId());
     }
 }

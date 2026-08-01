@@ -77,7 +77,15 @@ public class InviteLinkClick {
         this.matched = false;
     }
 
-    /** 설치 기기와 연결하며 클릭을 소진한다. 호출측이 비관적 락 안에서 부르는 것이 전제다. */
+    /**
+     * 설치 기기와 연결하며 클릭을 소진한다.
+     *
+     * <p><b>전제: 호출측이 비관적 락을 쥐고 있어야 한다.</b> 이 메서드 자체는 아무것도 검사하지 않으므로,
+     * 락 없이 부르면 동시 요청이 같은 클릭을 둘 다 소진해 한 번의 클릭이 두 기기에 매치된다.
+     * 유일한 정상 호출 경로는
+     * {@code InviteLinkClickRepository.findFirstByIpHashAndOsAndMatchedFalse…}(PESSIMISTIC_WRITE)
+     * 로 잠근 행을 넘겨받는 {@code InviteLinkMatchService.match} 다. 새 호출부를 만들지 말 것.
+     */
     public void markMatched(String deviceId, String appInstanceId) {
         this.matched = true;
         this.matchedAt = Instant.now();

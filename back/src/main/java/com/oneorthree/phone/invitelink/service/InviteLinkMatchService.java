@@ -1,6 +1,5 @@
 package com.oneorthree.phone.invitelink.service;
 
-import com.oneorthree.phone.common.analytics.Ga4MeasurementClient;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.domain.InviteLinkClick;
 import com.oneorthree.phone.invitelink.dto.InviteMatchRequest;
@@ -9,6 +8,7 @@ import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
 import com.oneorthree.phone.invitelink.exception.InviteLinkException;
 import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
 import com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository;
+import com.oneorthree.phone.invitelink.support.InviteLinkGa4Events;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -16,13 +16,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * deferred 매치 — "설치 직후 첫 실행"에서 클릭을 되찾아 초대 맥락을 복원한다.
+ * deferred 매치 — "설치 직후 첫 실행"에서 클릭을 되찾아 초대 맥락을 복원한다. claim 도 함께 소유한다.
  *
  * <p>퍼널 전체에서 <b>유일한 확률 구간</b>이다(IP해시 + OS + 시간창 fingerprint). Apple 은 개별
  * 단위 deferred deep link 채널을 의도적으로 제공하지 않으므로 업계(Branch 등)와 같은 방식을 쓴다.
@@ -38,28 +36,27 @@ public class InviteLinkMatchService {
 
     private final InviteLinkClickRepository clickRepository;
     private final GroupInviteLinkRepository inviteLinkRepository;
-    private final Ga4MeasurementClient ga4Client;
+    private final InviteLinkGa4Events ga4Events;
     private final int matchWindowHours;
-    private final String env;
 
     public InviteLinkMatchService(
             InviteLinkClickRepository clickRepository,
             GroupInviteLinkRepository inviteLinkRepository,
-            Ga4MeasurementClient ga4Client,
-            @Value("${link.match-window-hours}") int matchWindowHours,
-            @Value("${spring.profiles.active:local}") String env) {
+            InviteLinkGa4Events ga4Events,
+            @Value("${link.match-window-hours}") int matchWindowHours) {
         this.clickRepository = clickRepository;
         this.inviteLinkRepository = inviteLinkRepository;
-        this.ga4Client = ga4Client;
+        this.ga4Events = ga4Events;
         this.matchWindowHours = matchWindowHours;
-        this.env = env;
     }
 
     /**
      * 후보 클릭 1건을 원자적으로 소진하고 slug·groupId 를 복원한다.
      *
-     * <p>조회는 {@code PESSIMISTIC_WRITE} 다. 잠그지 않으면 동시에 들어온 두 요청이 같은 클릭을 읽고
-     * 둘 다 소진해, 한 번의 클릭이 두 기기에 매치된다.
+     * <p>조회는 {@code PESSIMISTIC_WRITE} + {@code SKIP LOCKED} 다. 잠그지 않으면 동시에 들어온 두
+     * 요청이 같은 클릭을 읽고 둘 다 소진해, 한 번의 클릭이 두 기기에 매치된다. SKIP LOCKED 를 함께
+     * 쓰는 이유는 공유 Wi-Fi(같은 fingerprint)에서 후보가 여러 건 쌓였을 때다 — 그냥 기다리면
+     * 잠긴 행이 풀린 뒤 조건에서 탈락해 "다음 후보가 남아 있는데도 매치 실패"가 된다.
      */
     @Transactional
     public InviteMatchResponse match(String ipHash, InviteMatchRequest request) {
@@ -68,24 +65,22 @@ public class InviteLinkMatchService {
                 .findFirstByIpHashAndOsAndMatchedFalseAndClickedAtAfterOrderByClickedAtDesc(
                         ipHash, request.os(), cutoff);
 
-        if (candidate.isEmpty()) {
-            sendMatchEvent(request, false, null, null);
-            return InviteMatchResponse.notMatched();
-        }
+        Optional<GroupInviteLink> link = candidate.flatMap(click -> {
+            Optional<GroupInviteLink> found = inviteLinkRepository.findById(click.getLinkId());
+            if (found.isEmpty()) {
+                // FK 가 보장하므로 도달하지 않는다. 그래도 클릭을 소진하지 않고 빠져나가 다음 기회를 남긴다.
+                log.warn("매치 후보의 링크를 찾을 수 없음 — clickId={}", click.getId());
+                return Optional.empty();
+            }
+            click.markMatched(request.deviceId(), request.appInstanceId());
+            return found;
+        });
 
-        InviteLinkClick click = candidate.get();
-        Optional<GroupInviteLink> link = inviteLinkRepository.findById(click.getLinkId());
-        if (link.isEmpty()) {
-            // FK 가 보장하므로 도달하지 않는다. 그래도 클릭을 소진하지 않고 빠져나가 다음 기회를 남긴다.
-            log.warn("매치 후보의 링크를 찾을 수 없음 — clickId={}", click.getId());
-            sendMatchEvent(request, false, null, null);
-            return InviteMatchResponse.notMatched();
-        }
+        // 실패도 발행한다 — 클릭 대비 매치율이 퍼널의 핵심 지표라 분모가 필요하다.
+        ga4Events.matchResolved(request, link.orElse(null));
 
-        click.markMatched(request.deviceId(), request.appInstanceId());
-        GroupInviteLink matchedLink = link.get();
-        sendMatchEvent(request, true, matchedLink.getSlug(), matchedLink.getGroupId().toString());
-        return InviteMatchResponse.matched(matchedLink.getSlug(), matchedLink.getGroupId());
+        return link.map(matched -> InviteMatchResponse.matched(matched.getSlug(), matched.getGroupId()))
+                .orElseGet(InviteMatchResponse::notMatched);
     }
 
     /**
@@ -112,25 +107,6 @@ public class InviteLinkMatchService {
 
         if (!click.get().claim(userId, link.getInviterId())) {
             log.debug("claim no-op — slug={} userId={} (셀프 초대이거나 이미 claim 됨)", slug, userId);
-        }
-    }
-
-    private void sendMatchEvent(InviteMatchRequest request, boolean matched, String slug, String groupId) {
-        Map<String, Object> params = new HashMap<>();
-        params.put("matched", matched);
-        params.put("matched_by", "ip_os_window");
-        params.put("env", env);
-        if (slug != null) {
-            params.put("slug", slug);
-            params.put("group_id", groupId);
-        }
-
-        if (request.appInstanceId() != null && !request.appInstanceId().isBlank()) {
-            // 앱스트림으로 보내야 이후 앱 SDK 이벤트와 같은 유저 타임라인으로 결합된다.
-            ga4Client.sendAppEvent(request.appInstanceId(), "invite_match_resolved", params);
-        } else {
-            // app_instance_id 를 못 받은 기기 — 최소한 이벤트는 남기되 device_id 를 합성 client_id 로 쓴다.
-            ga4Client.sendWebEvent(request.deviceId(), "invite_match_resolved", params);
         }
     }
 }

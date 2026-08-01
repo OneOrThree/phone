@@ -1,20 +1,18 @@
 package com.oneorthree.phone.invitelink.service;
 
-import com.oneorthree.phone.common.analytics.Ga4MeasurementClient;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.domain.InviteLinkClick;
 import com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository;
 import com.oneorthree.phone.invitelink.support.ClientIpResolver;
+import com.oneorthree.phone.invitelink.support.InviteLinkGa4Events;
 import com.oneorthree.phone.invitelink.support.IpHasher;
 import com.oneorthree.phone.invitelink.support.UserAgentClassifier;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * 랜딩 클릭 기록 — deferred 매치의 후보를 만드는 유일한 지점.
@@ -22,8 +20,13 @@ import java.util.Map;
  * <p>여기서 남긴 행 하나가 "설치 후 첫 실행" 때 fingerprint(IP해시 + OS)로 되찾아진다.
  * 그래서 <b>봇 클릭을 남기지 않는 것</b>이 단순한 위생 문제가 아니다 — 남기면 스크레이퍼 IP 로
  * 찍힌 미소진 클릭이 매치 후보가 돼 엉뚱한 사람에게 초대장이 뜬다.
+ *
+ * <p>메서드 수준 {@code @Transactional} 을 일부러 두지 않는다. 쓰기는 클릭 INSERT 하나뿐이라
+ * 리포지토리 자체 트랜잭션으로 충분하고, 경계를 넓혀두면 나중에 여기 붙는 외부 호출(GA4 실구현 등)이
+ * DB 트랜잭션 안으로 딸려 들어간다.
  */
 @Service
+@RequiredArgsConstructor
 @Slf4j
 public class InviteLinkClickService {
 
@@ -33,23 +36,7 @@ public class InviteLinkClickService {
     private final ClientIpResolver clientIpResolver;
     private final IpHasher ipHasher;
     private final UserAgentClassifier userAgentClassifier;
-    private final Ga4MeasurementClient ga4Client;
-    private final String env;
-
-    public InviteLinkClickService(
-            InviteLinkClickRepository clickRepository,
-            ClientIpResolver clientIpResolver,
-            IpHasher ipHasher,
-            UserAgentClassifier userAgentClassifier,
-            Ga4MeasurementClient ga4Client,
-            @Value("${spring.profiles.active:local}") String env) {
-        this.clickRepository = clickRepository;
-        this.clientIpResolver = clientIpResolver;
-        this.ipHasher = ipHasher;
-        this.userAgentClassifier = userAgentClassifier;
-        this.ga4Client = ga4Client;
-        this.env = env;
-    }
+    private final InviteLinkGa4Events ga4Events;
 
     /**
      * 클릭 1건을 기록하고 GA4 웹스트림 이벤트를 발행한다. 봇이면 아무것도 하지 않는다.
@@ -68,14 +55,7 @@ public class InviteLinkClickService {
         InviteLinkClick click = clickRepository.save(
                 new InviteLinkClick(link.getId(), ipHash, os, truncate(userAgent)));
 
-        Map<String, Object> params = new HashMap<>();
-        params.put("slug", link.getSlug());
-        params.put("group_id", link.getGroupId().toString());
-        params.put("os", os);
-        params.put("referer_host", refererHost(request));
-        params.put("env", env);
-        // 웹 클릭은 익명이라 붙일 app_instance_id 가 없다 — 클릭 id 를 합성 client_id 로 쓴다.
-        ga4Client.sendWebEvent(click.getId().toString(), "invite_link_clicked", params);
+        ga4Events.linkClicked(link, click.getId(), os, refererHost(request));
     }
 
     private String truncate(String userAgent) {

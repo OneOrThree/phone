@@ -1,24 +1,12 @@
 package com.oneorthree.phone.invitelink;
 
-import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.domain.InviteLinkClick;
-import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
-import com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository;
 import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.repository.UserRepository;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.test.web.servlet.MockMvc;
-
-import java.util.List;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -35,23 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 그걸 클릭으로 남기면 클릭 수가 부풀 뿐 아니라 <b>스크레이퍼 IP 의 미소진 클릭</b>이 매치 후보로
  * 남아 엉뚱한 설치에 붙는다.
  */
-@AutoConfigureMockMvc
-class LandingTest extends IntegrationTestBase {
-
-    private static final String IPHONE_UA =
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15";
-    private static final String KAKAO_SCRAPER_UA = "facebookexternalhit/1.1; kakaotalk-scrap/1.0;";
-
-    @Autowired
-    MockMvc mockMvc;
-    @Autowired
-    UserRepository userRepository;
-    @Autowired
-    GroupRepository groupRepository;
-    @Autowired
-    GroupInviteLinkRepository inviteLinkRepository;
-    @Autowired
-    InviteLinkClickRepository clickRepository;
+class LandingTest extends InviteLinkTestSupport {
 
     private Group group;
     private User inviter;
@@ -59,18 +31,9 @@ class LandingTest extends IntegrationTestBase {
 
     @BeforeEach
     void setUp() {
-        group = groupRepository.save(Group.builder().name("스터디").build());
-        inviter = userRepository.save(
-                User.builder().nickname("초대자" + UUID.randomUUID()).isGuest(false).build());
-        link = inviteLinkRepository.save(new GroupInviteLink("ab23cd45", group.getId(), inviter.getId()));
-    }
-
-    @AfterEach
-    void tearDown() {
-        clickRepository.deleteAll(clickRepository.findAll());
-        inviteLinkRepository.deleteAll(inviteLinkRepository.findAll());
-        groupRepository.delete(group);
-        userRepository.delete(inviter);
+        group = newGroup("스터디");
+        inviter = newUser("초대자");
+        link = newLink("ab23cd45", group, inviter);
     }
 
     @Test
@@ -78,7 +41,7 @@ class LandingTest extends IntegrationTestBase {
     void servesHtmlAndRecordsClick() throws Exception {
         String body = mockMvc.perform(get("/l/{slug}", link.getSlug())
                         .header("User-Agent", IPHONE_UA)
-                        .header("CF-Connecting-IP", "1.2.3.4"))
+                        .header("CF-Connecting-IP", CLICK_IP))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith("text/html"))
                 .andReturn().getResponse().getContentAsString();
@@ -86,12 +49,10 @@ class LandingTest extends IntegrationTestBase {
         assertThat(body).contains("스터디");
         assertThat(body).contains("gromo://join?g=" + group.getId() + "&s=" + link.getSlug());
 
-        List<InviteLinkClick> clicks = clickRepository.findByLinkId(link.getId());
-        assertThat(clicks).hasSize(1);
-        InviteLinkClick click = clicks.get(0);
+        InviteLinkClick click = onlyClickOf(link);
         assertThat(click.getIpHash()).hasSize(64).matches("[0-9a-f]+");
         // 원본 IP 가 어떤 컬럼에도 남지 않는다
-        assertThat(click.getIpHash()).doesNotContain("1.2.3.4");
+        assertThat(click.getIpHash()).doesNotContain(CLICK_IP);
         assertThat(click.getOs()).isEqualTo("ios");
         assertThat(click.isMatched()).isFalse();
     }
@@ -101,7 +62,7 @@ class LandingTest extends IntegrationTestBase {
     void doesNotRecordBotClicks() throws Exception {
         mockMvc.perform(get("/l/{slug}", link.getSlug())
                         .header("User-Agent", KAKAO_SCRAPER_UA)
-                        .header("CF-Connecting-IP", "1.2.3.4"))
+                        .header("CF-Connecting-IP", CLICK_IP))
                 .andExpect(status().isOk());
 
         assertThat(clickRepository.findByLinkId(link.getId())).isEmpty();
@@ -123,21 +84,31 @@ class LandingTest extends IntegrationTestBase {
     }
 
     @Test
+    @DisplayName("그룹이 삭제됐으면 만료로 다룬다 — 참여시킬 곳이 없다")
+    void deletedGroupIsExpired() throws Exception {
+        GroupInviteLink orphan = newLink("gone1234", newDeletedGroup("사라진방"), inviter);
+
+        String body = mockMvc.perform(get("/l/{slug}", orphan.getSlug())
+                        .header("User-Agent", IPHONE_UA))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).contains("data-expired=\"true\"");
+        assertThat(clickRepository.findByLinkId(orphan.getId())).isEmpty();
+    }
+
+    @Test
     @DisplayName("그룹명은 HTML 이스케이프된다 — 그룹명이 곧 XSS 입력구다")
     void escapesGroupName() throws Exception {
-        Group evil = groupRepository.save(Group.builder().name("<script>alert(1)</script>").build());
-        inviteLinkRepository.save(new GroupInviteLink("xssslug1", evil.getId(), inviter.getId()));
+        Group evil = newGroup("<script>alert(1)</script>");
+        GroupInviteLink evilLink = newLink("xssslug1", evil, inviter);
 
-        String body = mockMvc.perform(get("/l/{slug}", "xssslug1")
+        String body = mockMvc.perform(get("/l/{slug}", evilLink.getSlug())
                         .header("User-Agent", IPHONE_UA))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(body).doesNotContain("<script>alert(1)</script>");
         assertThat(body).contains("&lt;script&gt;");
-
-        clickRepository.deleteAll(clickRepository.findAll());
-        inviteLinkRepository.deleteAll(inviteLinkRepository.findAll());
-        groupRepository.delete(evil);
     }
 }

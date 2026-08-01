@@ -1,14 +1,14 @@
 package com.oneorthree.phone.invitelink.api;
 
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.dto.InviteMatchRequest;
 import com.oneorthree.phone.invitelink.dto.InviteMatchResponse;
+import com.oneorthree.phone.invitelink.dto.LandingView;
 import com.oneorthree.phone.invitelink.service.InviteLinkClickService;
 import com.oneorthree.phone.invitelink.service.InviteLinkMatchService;
 import com.oneorthree.phone.invitelink.service.InviteLinkService;
 import com.oneorthree.phone.invitelink.support.ClientIpResolver;
+import com.oneorthree.phone.invitelink.support.InviteLinkUrls;
 import com.oneorthree.phone.invitelink.support.IpHasher;
 import com.oneorthree.phone.invitelink.support.LandingRenderer;
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,8 +24,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.Optional;
 
 /**
  * 무인증 초대 링크 엔드포인트 — {@code /l/*}.
@@ -44,8 +42,8 @@ public class LinkPublicController {
     private final InviteLinkService inviteLinkService;
     private final InviteLinkClickService inviteLinkClickService;
     private final InviteLinkMatchService inviteLinkMatchService;
-    private final GroupRepository groupRepository;
     private final LandingRenderer landingRenderer;
+    private final InviteLinkUrls inviteLinkUrls;
     private final ClientIpResolver clientIpResolver;
     private final IpHasher ipHasher;
 
@@ -58,20 +56,13 @@ public class LinkPublicController {
     @Operation(summary = "초대 랜딩", description = "만료·미존재 slug 도 200 HTML(만료 변형)")
     @GetMapping(value = "/l/{slug}", produces = HTML_UTF8)
     public ResponseEntity<String> landing(@PathVariable String slug, HttpServletRequest request) {
-        Optional<GroupInviteLink> link = inviteLinkService.findBySlug(slug);
-        if (link.isEmpty()) {
+        LandingView view = inviteLinkService.resolveLanding(slug);
+        if (view.isExpired()) {
             return html(landingRenderer.renderExpired());
         }
 
-        Optional<Group> group = groupRepository.findById(link.get().getGroupId())
-                .filter(g -> g.getDeletedAt() == null);
-        if (group.isEmpty()) {
-            // 링크는 살아 있지만 그룹이 사라졌다 — 참여시킬 곳이 없으니 만료와 같게 다룬다.
-            return html(landingRenderer.renderExpired());
-        }
-
-        recordClickQuietly(link.get(), request);
-        return html(landingRenderer.render(group.get().getName(), schemeUrl(link.get())));
+        recordClickQuietly(view.link(), request);
+        return html(landingRenderer.render(view.groupName(), inviteLinkUrls.scheme(view.link())));
     }
 
     /**
@@ -96,10 +87,6 @@ public class LinkPublicController {
         } catch (Exception e) {
             log.warn("초대 클릭 기록 실패 — slug={}", link.getSlug(), e);
         }
-    }
-
-    private String schemeUrl(GroupInviteLink link) {
-        return "gromo://join?g=" + link.getGroupId() + "&s=" + link.getSlug();
     }
 
     private ResponseEntity<String> html(String body) {

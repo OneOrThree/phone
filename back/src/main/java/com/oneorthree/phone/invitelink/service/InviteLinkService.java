@@ -1,26 +1,27 @@
 package com.oneorthree.phone.invitelink.service;
 
-import com.oneorthree.phone.common.analytics.Ga4MeasurementClient;
+import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.dto.IssueInviteLinkResponse;
+import com.oneorthree.phone.invitelink.dto.LandingView;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
 import com.oneorthree.phone.invitelink.exception.InviteLinkException;
 import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
+import com.oneorthree.phone.invitelink.support.InviteLinkGa4Events;
+import com.oneorthree.phone.invitelink.support.InviteLinkUrls;
 import com.oneorthree.phone.invitelink.support.SlugGenerator;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * 초대 링크 발급 — (그룹, 초대자)당 1링크를 만들고 재사용한다.
+ * 초대 링크 발급·조회 — (그룹, 초대자)당 1링크를 만들고 재사용한다.
  *
  * <p><b>왜 {@code @Transactional} 이 없나</b>: 동시 발급이 UNIQUE(group_id, inviter_id) 를 때렸을 때
  * "상대가 먼저 만든 링크를 재조회해 돌려준다" 가 정답인데, 하나의 트랜잭션 안에서 제약 위반이 나면
@@ -28,6 +29,7 @@ import java.util.UUID;
  * 각자의 트랜잭션(리포지토리 기본)으로 두면 실패한 INSERT 만 롤백되고 재조회는 깨끗한 트랜잭션에서 돈다.
  */
 @Service
+@RequiredArgsConstructor
 @Slf4j
 public class InviteLinkService {
 
@@ -38,29 +40,12 @@ public class InviteLinkService {
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final SlugGenerator slugGenerator;
-    private final Ga4MeasurementClient ga4Client;
-    private final String baseUrl;
-    private final String env;
-
-    public InviteLinkService(
-            GroupInviteLinkRepository inviteLinkRepository,
-            GroupRepository groupRepository,
-            GroupMemberRepository groupMemberRepository,
-            SlugGenerator slugGenerator,
-            Ga4MeasurementClient ga4Client,
-            @Value("${link.base-url}") String baseUrl,
-            @Value("${spring.profiles.active:local}") String env) {
-        this.inviteLinkRepository = inviteLinkRepository;
-        this.groupRepository = groupRepository;
-        this.groupMemberRepository = groupMemberRepository;
-        this.slugGenerator = slugGenerator;
-        this.ga4Client = ga4Client;
-        this.baseUrl = baseUrl;
-        this.env = env;
-    }
+    private final InviteLinkUrls inviteLinkUrls;
+    private final InviteLinkGa4Events ga4Events;
 
     public IssueInviteLinkResponse issue(UUID groupId, UUID userId) {
-        if (!groupRepository.existsById(groupId)) {
+        // 삭제된 그룹은 없는 그룹과 같게 다룬다 — 랜딩(만료 처리)과 판정 기준을 맞춘다.
+        if (findActiveGroup(groupId).isEmpty()) {
             throw new InviteLinkException(InviteLinkErrorCode.GROUP_NOT_FOUND);
         }
         if (!groupMemberRepository.existsByGroupIdAndUserId(groupId, userId)) {
@@ -83,13 +68,29 @@ public class InviteLinkService {
         }
 
         // 최초 생성일 때만 발행한다 — 공유 버튼을 열 번 눌러도 '링크 생성'은 한 번이어야 퍼널이 맞는다.
-        sendLinkCreatedEvent(link);
+        ga4Events.linkCreated(link);
         return toResponse(link);
     }
 
-    /** slug 로 링크를 찾는다. 랜딩·매치·claim 이 공유하는 조회 경로다. */
-    public Optional<GroupInviteLink> findBySlug(String slug) {
-        return inviteLinkRepository.findBySlug(slug);
+    /**
+     * 랜딩에 필요한 것을 한 번에 판정한다 — 없는 slug·사라진 그룹은 모두 "만료"로 접힌다.
+     *
+     * <p>컨트롤러가 링크·그룹 조회와 삭제 판정을 직접 하지 않도록 여기서 닫는다.
+     */
+    public LandingView resolveLanding(String slug) {
+        Optional<GroupInviteLink> link = inviteLinkRepository.findBySlug(slug);
+        if (link.isEmpty()) {
+            return LandingView.expired();
+        }
+
+        // 링크는 살아 있지만 그룹이 사라진 경우 — 참여시킬 곳이 없으니 만료와 같게 다룬다.
+        return findActiveGroup(link.get().getGroupId())
+                .map(group -> new LandingView(link.get(), group.getName()))
+                .orElseGet(LandingView::expired);
+    }
+
+    private Optional<Group> findActiveGroup(UUID groupId) {
+        return groupRepository.findById(groupId).filter(group -> group.getDeletedAt() == null);
     }
 
     private String generateUniqueSlug() {
@@ -103,21 +104,7 @@ public class InviteLinkService {
         throw new InviteLinkException(InviteLinkErrorCode.SLUG_GENERATION_FAILED);
     }
 
-    private void sendLinkCreatedEvent(GroupInviteLink link) {
-        // appInstanceId 를 알 수 없는 서버 발화라 합성 client_id(링크 id)로 웹스트림에 보낸다.
-        // 이벤트명·파라미터는 스펙 §4-3 표 그대로다.
-        Map<String, Object> params = new HashMap<>();
-        params.put("slug", link.getSlug());
-        params.put("group_id", link.getGroupId().toString());
-        params.put("env", env);
-        ga4Client.sendWebEvent(link.getId().toString(), "invite_link_created", params);
-    }
-
     private IssueInviteLinkResponse toResponse(GroupInviteLink link) {
-        return new IssueInviteLinkResponse(link.getSlug(), buildUrl(link));
-    }
-
-    private String buildUrl(GroupInviteLink link) {
-        return baseUrl + "/l/" + link.getSlug() + "?g=" + link.getGroupId();
+        return new IssueInviteLinkResponse(link.getSlug(), inviteLinkUrls.universalLink(link));
     }
 }
