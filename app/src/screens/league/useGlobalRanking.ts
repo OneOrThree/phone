@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useUser } from '@/store/UserContext';
 import { getGlobalRanking } from '@/services/leagueApi';
@@ -15,29 +15,33 @@ export function useGlobalRanking() {
 
   // 서버 멤버 원본. null이면 미조회/게스트/실패.
   const [members, setMembers] = useState<RankedMember[] | null>(null);
+  // 요청 시퀀스 — 당겨서 새로고침(GROMO-887)과 포커스 재조회가 겹칠 때, 늦게 온 이전 응답이
+  // 최신 상태를 덮지 않게 최신 요청만 반영한다(useFriends 패턴).
+  const requestSeqRef = useRef(0);
+
+  // 전역 랭킹 재조회 — 포커스 effect와 당겨서 새로고침(GROMO-887)이 공유한다.
+  const refetch = useCallback(async () => {
+    if (!userId) {
+      setMembers(null);
+      return;
+    }
+    const seq = ++requestSeqRef.current;
+    try {
+      const res = await getGlobalRanking();
+      // 이 응답을 기다리는 동안 더 새로운 요청이 시작됐으면 stale 결과라 버린다
+      if (seq !== requestSeqRef.current) return;
+      setMembers(toRankingMembers(res, userId, myNickname, null));
+    } catch {
+      if (seq === requestSeqRef.current) setMembers(null); // 네트워크/인증 실패 → 빈 상태
+    }
+  }, [userId, myNickname]);
 
   useFocusEffect(
     useCallback(() => {
-      if (!userId) {
-        setMembers(null);
-        return;
-      }
-      let cancelled = false;
-      (async () => {
-        try {
-          const res = await getGlobalRanking();
-          if (cancelled) return;
-          setMembers(toRankingMembers(res, userId, myNickname, null));
-        } catch {
-          if (!cancelled) setMembers(null); // 네트워크/인증 실패 → 빈 상태
-        }
-      })();
-      return () => {
-        cancelled = true;
-      };
-    }, [userId, myNickname]),
+      refetch();
+    }, [refetch]),
   );
 
-  // 데이터 없으면 빈 배열.
-  return members ?? [];
+  // 데이터 없으면 빈 배열. refetch는 당겨서 새로고침(GROMO-887)용.
+  return { ranking: members ?? [], refetch };
 }

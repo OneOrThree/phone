@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { useUser } from '@/store/UserContext';
@@ -99,47 +99,51 @@ export function useLeagueRanking() {
     label: string | null;
     mySeconds: number;
   } | null>(null);
+  // 요청 시퀀스 — 당겨서 새로고침(GROMO-887)과 포커스 재조회가 겹칠 때, 늦게 온 이전 응답이
+  // 최신 상태를 덮지 않게 최신 요청만 반영한다(useFriends 패턴).
+  const requestSeqRef = useRef(0);
+
+  // 직군 랭킹·내 주간분 재조회 — 포커스 effect와 당겨서 새로고침(GROMO-887)이 공유한다.
+  const refetch = useCallback(async () => {
+    if (!userId) {
+      setState(null);
+      return;
+    }
+    // 카테고리 저장값을 아직 읽는 중(undefined) — 확정(null/string) 후 한 번만 조회한다.
+    // 로딩 순간을 무직군으로 오판해 전역 랭킹을 먼저 그렸다가 다시 그리는 이중 조회 방지.
+    if (myCategory === undefined) return;
+    const seq = ++requestSeqRef.current;
+    try {
+      // 직군 top-100(표시용 리스트)과 내 주간 집중초(세션 합산 권위 값)를 병렬 조회한다.
+      const occupation = occupationForCategory(myCategory);
+      const [occRanking, myWeekSeconds] = await Promise.all([
+        getMyRanking(occupation ?? undefined),
+        fetchMyWeekSeconds(),
+      ]);
+      let res = occRanking;
+      let label: string | null = occupation != null ? (myCategory ?? null) : null;
+      // 직군 랭킹이 비면(신규·직군 미설정, GROMO-657) 전역 랭킹으로 폴백해 화면이 비지 않게 한다.
+      // 전역 랭킹은 혼합 직군이라 라벨을 붙이지 않는다(전체 리그로 정직하게 표기).
+      if (res.length === 0) {
+        res = await getGlobalRanking();
+        label = null;
+      }
+      // 이 응답을 기다리는 동안 더 새로운 요청이 시작됐으면 stale 결과라 버린다
+      if (seq !== requestSeqRef.current) return;
+      setState({
+        label,
+        members: toRankingMembers(res, userId, myNickname, label),
+        mySeconds: myWeekSeconds,
+      });
+    } catch {
+      if (seq === requestSeqRef.current) setState(null); // 네트워크/인증 실패 → 빈 상태
+    }
+  }, [userId, myCategory, myNickname]);
 
   useFocusEffect(
     useCallback(() => {
-      if (!userId) {
-        setState(null);
-        return;
-      }
-      // 카테고리 저장값을 아직 읽는 중(undefined) — 확정(null/string) 후 한 번만 조회한다.
-      // 로딩 순간을 무직군으로 오판해 전역 랭킹을 먼저 그렸다가 다시 그리는 이중 조회 방지.
-      if (myCategory === undefined) return;
-      let cancelled = false;
-      (async () => {
-        try {
-          // 직군 top-100(표시용 리스트)과 내 주간 집중초(세션 합산 권위 값)를 병렬 조회한다.
-          const occupation = occupationForCategory(myCategory);
-          const [occRanking, myWeekSeconds] = await Promise.all([
-            getMyRanking(occupation ?? undefined),
-            fetchMyWeekSeconds(),
-          ]);
-          let res = occRanking;
-          let label: string | null = occupation != null ? (myCategory ?? null) : null;
-          // 직군 랭킹이 비면(신규·직군 미설정, GROMO-657) 전역 랭킹으로 폴백해 화면이 비지 않게 한다.
-          // 전역 랭킹은 혼합 직군이라 라벨을 붙이지 않는다(전체 리그로 정직하게 표기).
-          if (res.length === 0) {
-            res = await getGlobalRanking();
-            label = null;
-          }
-          if (cancelled) return;
-          setState({
-            label,
-            members: toRankingMembers(res, userId, myNickname, label),
-            mySeconds: myWeekSeconds,
-          });
-        } catch {
-          if (!cancelled) setState(null); // 네트워크/인증 실패 → 빈 상태
-        }
-      })();
-      return () => {
-        cancelled = true;
-      };
-    }, [userId, myCategory, myNickname]),
+      refetch();
+    }, [refetch]),
   );
 
   // 데이터 없으면 빈 배열.
@@ -160,5 +164,5 @@ export function useLeagueRanking() {
         1
       : null;
 
-  return { ranking, me, myLeagueLabel, myMinutes, mySeconds, myLeagueRank };
+  return { ranking, me, myLeagueLabel, myMinutes, mySeconds, myLeagueRank, refetch };
 }

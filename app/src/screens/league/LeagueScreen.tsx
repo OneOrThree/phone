@@ -3,6 +3,7 @@ import {
   Image,
   LayoutAnimation,
   Modal,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -75,7 +76,7 @@ export default function LeagueScreen() {
   const [pinnedOnly, setPinnedOnly] = useState(false);
   // 핀 실데이터 — 포커스마다 서버(GET /pins) 재조회 + 낙관적 토글(./usePinned).
   // 프로필 상세·친구 탭과 같은 서버 상태를 공유해 화면 간 불일치가 없다.
-  const { pinned, togglePin, loaded: pinnedLoaded } = usePinned();
+  const { pinned, togglePin, loaded: pinnedLoaded, refetch: refetchPinned } = usePinned();
 
   const listRef = useRef<ScrollView>(null);
   // 랭킹 리스트 안 내 행의 y — 스트립 탭/진입 자동 스크롤 목적지
@@ -86,13 +87,13 @@ export default function LeagueScreen() {
   const pendingScrollToMe = useRef(true);
 
   // 내 티어·마감 스케줄 실데이터 (GROMO-538) — 티어 조회는 여기 한 곳에서만.
-  const { tier, deadlineLabel } = useLeagueMeta();
+  const { tier, deadlineLabel, refetch: refetchMeta } = useLeagueMeta();
   // 미확인 주간 마감 결과가 있으면 결과 연출로 진입 (GROMO-831) — 포커스마다 last-result 조회
   useLeagueLastResult();
   // 리그 랭킹 실데이터 — 홈 상단바와 공유. 멤버 티어는 서버 응답 실값(GROMO-748).
-  const { ranking, myLeagueLabel, mySeconds } = useLeagueRanking();
+  const { ranking, myLeagueLabel, mySeconds, refetch: refetchRanking } = useLeagueRanking();
   // '전체' 탭 전용 진짜 전역 랭킹(직군 리스트 재사용 금지 — GROMO-644).
-  const globalRanking = useGlobalRanking();
+  const { ranking: globalRanking, refetch: refetchGlobal } = useGlobalRanking();
 
   // 진입(포커스)마다 증가 — 넛지 노출을 '진입당 1회'로 발화시키는 트리거. 랭킹은 비동기 로드라
   // 포커스 시점엔 myIdx가 아직 -1일 수 있어, 데이터가 채워진 뒤 이 seq 기준으로 딱 1회만 쏜다.
@@ -119,6 +120,24 @@ export default function LeagueScreen() {
     refetch: refetchFriends,
   } = useFriends();
   const friendIds = new Set(friends.map((f) => f.userId));
+
+  // ── 당겨서 새로고침 (GROMO-887) — 탭별로 그 탭 데이터만 재조회한다. 한 번에 한 탭만 보이므로
+  //    HomeScreen 패턴처럼 refreshing 상태 하나를 공유하고, 스피너는 살짝 늦게 내려 깜빡임을 막는다.
+  const [refreshing, setRefreshing] = useState(false);
+  // 리그 탭: 티어·마감 + 직군 랭킹 + 전역 랭킹 + 핀을 함께 갱신.
+  const onRefreshLeague = useCallback(() => {
+    setRefreshing(true);
+    Promise.all([refetchMeta(), refetchRanking(), refetchGlobal(), refetchPinned()]).finally(() =>
+      setTimeout(() => setRefreshing(false), 500),
+    );
+  }, [refetchMeta, refetchRanking, refetchGlobal, refetchPinned]);
+  // 친구 탭: 친구 목록·받은 요청 + 핀 배지를 갱신.
+  const onRefreshFriend = useCallback(() => {
+    setRefreshing(true);
+    Promise.all([refetchFriends(), refetchPinned()]).finally(() =>
+      setTimeout(() => setRefreshing(false), 500),
+    );
+  }, [refetchFriends, refetchPinned]);
 
   // GROMO-658: 친구 그리드 정렬 — 핀한 친구 우선, 같은 그룹 안에선 오늘 집중 시간 내림차순.
   // 핀 여부는 배지와 동일 기준(공유 핀 상태 usePinned 우선, 미로딩 시 응답 isPinned 폴백)으로
@@ -308,6 +327,13 @@ export default function LeagueScreen() {
           stickyHeaderIndices={showPodium ? [1] : [0]}
           contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_SPACE + 16 }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefreshLeague}
+              tintColor={T.accent}
+            />
+          }
         >
           {/* ── Top3 포디움 (2위·1위·3위 배치, 1위 가운데 상단) ── */}
           {showPodium && (
@@ -531,6 +557,13 @@ export default function LeagueScreen() {
           style={s.list}
           contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_SPACE + 20 }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefreshFriend}
+              tintColor={T.accent}
+            />
+          }
         >
           <TouchableOpacity
             style={s.addCard}
