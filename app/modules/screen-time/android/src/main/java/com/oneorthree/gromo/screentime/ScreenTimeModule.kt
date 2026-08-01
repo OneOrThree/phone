@@ -287,7 +287,13 @@ class ScreenTimeModule : Module() {
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
       // 알림이 꺼져 있으면 타이머를 보여줄 방법이 없다 — 실드가 돌고 있지 않다면 보이지 않는
       // 서비스를 상주시킬 이유가 없으므로 시작하지 않는다(실드 중이면 서비스가 이미 필요).
-      if (!notificationManager.areNotificationsEnabled() && !FocusSessionService.isShieldActive()) {
+      // 패키지 전역 설정(areNotificationsEnabled)뿐 아니라 집중 세션 채널만 IMPORTANCE_NONE으로
+      // 끈 경우(전역은 true여도 크로노미터가 억제됨)도 함께 확인한다(코드리뷰 반영). 채널이 꺼져
+      // 타이머 전용 시작을 막으면 false를 반환해 호출부(JS)가 크로노미터 부재를 인지한다 — 지금은
+      // syncFocusTimerState 생략(무해)에 그치고, 유저에게 채널 재활성을 안내하는 UX는 후속(M4).
+      val canShowTimer = notificationManager.areNotificationsEnabled() &&
+        FocusSessionService.isNotificationChannelEnabled(context)
+      if (!canShowTimer && !FocusSessionService.isShieldActive()) {
         false
       } else {
         FocusSessionService.startTimer(context, subjectName)

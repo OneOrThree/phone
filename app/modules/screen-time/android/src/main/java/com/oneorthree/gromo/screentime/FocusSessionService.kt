@@ -58,10 +58,12 @@ class FocusSessionService : Service() {
 
     @Volatile private var cancelledGeneration = 0
 
-    // 기동 중 보류된 타이머 재동기화(코드리뷰 반영) — 실드 없이 타이머만으로 새 서비스를 띄우면
-    // dispatchStart가 startForegroundService 직후 true를 반환해, 화면이 곧바로 부른 syncTimer가
-    // instance(onCreate) 배정 전이라 조용히 버려진다. 스냅샷 지연 중 일시정지했다면 이후 ROLE_TIMER
-    // 시작이 '진행 중' 크로노미터로 떠 어긋난다. 시작 세대와 함께 적재했다가 applyStart가 타이머를
+    // 타이머 역할 활성 전 보류된 재동기화(코드리뷰 반영) — 실드 없이 타이머만으로 새 서비스를
+    // 띄우면 dispatchStart가 startForegroundService 직후 true를 반환해, 화면이 곧바로 부른 syncTimer가
+    // 타이머 역할이 서기 전에 도착한다. 보류 기준은 'instance 유무'가 아니라 '타이머 역할 활성 여부'다:
+    // (1) onCreate 전(instance 없음)은 companion syncTimer가, (2) onCreate 후~applyStart(ROLE_TIMER)
+    // 전 구간은 applyTimerSync가 여기 적재한다. 버리면 스냅샷 지연 중 누른 일시정지·지연된 경과가
+    // 사라져 크로노미터가 0부터 '진행 중'으로 뜬다. 시작 세대와 함께 적재했다가 applyStart가 타이머를
     // 세운 직후 소비한다(세대 불일치 = 그새 endFocusActivity면 폐기).
     private data class PendingTimerSync(
       val elapsedSeconds: Long,
@@ -74,6 +76,32 @@ class FocusSessionService : Service() {
     // 실드 상실 통지(코드리뷰 반영) — 세션 중 권한 회수 등으로 서비스가 실드를 내리면 모듈이
     // 이 콜백으로 JS(onFocusShieldLost 이벤트)에 전파한다. 모듈 생성/파괴 시 배선/해제.
     @Volatile internal var shieldLostListener: (() -> Unit)? = null
+
+    // 폴백 차단 액티비티 표시 확인 세대(코드리뷰 반영, 안드15) — 오버레이 addView 실패 시 폴백으로
+    // 띄우는 차단 액티비티의 서비스發 startActivity는 안드15에서 예외 없이 조용히 거부될 수 있다.
+    // 실행분마다 세대를 올려 두고, 액티비티가 onResume(=실제 표시)에 도달하면 ackFallbackActivityShown
+    // 이 그 세대를 표시됨으로 기록한다. 짧은 타임아웃 내 미도착이면 무소음 거부로 보고 강등한다.
+    // 정상 표시 후 닫힘은 ack가 먼저 와 세대가 일치하므로 강등하지 않는다(레이스 구분). 실행/ack는
+    // 모두 메인 스레드라 세대 증감이 직렬화되고, 타임아웃 판정만 pollHandler에서 읽는다(@Volatile).
+    @Volatile private var fallbackLaunchGeneration = 0
+
+    @Volatile private var fallbackShownGeneration = 0
+
+    // FocusBlockActivity.onResume이 호출 — 폴백 액티비티가 실제로 표시됐음을 서비스에 알린다.
+    fun ackFallbackActivityShown() {
+      fallbackShownGeneration = fallbackLaunchGeneration
+    }
+
+    // 집중 세션 채널이 잠금화면 알림을 띄울 수 있는 상태인지(코드리뷰 반영) — 유저가 앱 알림은 켠
+    // 채 이 채널만 IMPORTANCE_NONE으로 끄면 areNotificationsEnabled()는 true여도 크로노미터가
+    // 억제된다. 타이머 전용 시작 판단이 이를 확인해 보이지 않는 서비스를 상주시키지 않는다.
+    // 채널 미생성(서비스가 아직 안 뜸)은 유저가 끈 적 없으므로 표시 가능으로 본다.
+    fun isNotificationChannelEnabled(context: Context): Boolean {
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+      val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      val channel = nm.getNotificationChannel(CHANNEL_ID) ?: return true
+      return channel.importance != NotificationManager.IMPORTANCE_NONE
+    }
 
     private const val CHANNEL_ID = "focus_session"
     private const val NOTIFICATION_ID = 996
@@ -94,6 +122,9 @@ class FocusSessionService : Service() {
     private const val RENOTIFY_INTERVAL_MS = 30_000L
     // 폴백 차단 액티비티 연속 실행 방지 — 실행 직후 전환 애니메이션 중 중복 실행을 막는다.
     private const val BLOCK_RELAUNCH_DEBOUNCE_MS = 2_000L
+    // 폴백 액티비티 표시 확인 타임아웃(코드리뷰 반영) — 이 안에 onResume ack가 없으면 안드15
+    // 무소음 거부로 본다. 디바운스(2초)보다 짧아, 타임아웃 대기 중 재실행으로 세대가 바뀌지 않는다.
+    private const val FALLBACK_ACK_TIMEOUT_MS = 1_500L
     // 첫 폴링에서 현재 포그라운드 앱을 시드하기 위한 과거 조회 폭.
     private const val FIRST_POLL_LOOKBACK_MS = 60_000L
 
@@ -426,7 +457,14 @@ class FocusSessionService : Service() {
   // 한다. 리플레이가 몇 번의 휴식 경계를 지났든 최종 경과·일시정지 상태만 맞으면 정확하다.
   // paused면 buildNotification의 고정 경과 표시가 그대로 elapsedSeconds가 된다.
   private fun applyTimerSync(elapsedSeconds: Long, paused: Boolean) {
-    if (!timerActive) return
+    if (!timerActive) {
+      // 타이머 역할 활성 전(코드리뷰 반영) — instance가 배정됐어도(onCreate 후) onStartCommand가
+      // ROLE_TIMER를 큐잉하기 전이면 여기 도달한다. 버리지 말고 시작 세대와 함께 적재해,
+      // applyStart(ROLE_TIMER)가 역할을 세운 직후 소비하게 한다(보류/적용을 '역할 활성' 기준으로
+      // 통일). 세대 불일치 = 그새 endFocusActivity면 consume/onStartCommand에서 폐기된다.
+      pendingTimerSync = PendingTimerSync(elapsedSeconds, paused, startedGeneration)
+      return
+    }
     val now = System.currentTimeMillis()
     timerStartedAt = now - elapsedSeconds * 1000L
     timerPausedAt = if (paused) now else 0L
@@ -559,18 +597,32 @@ class FocusSessionService : Service() {
   // 폴백: 차단 액티비티 실행(메인 스레드 전용) — 오버레이 addView가 거부된 경우만 시도한다.
   // 안드10~14에선 SYSTEM_ALERT_WINDOW 보유가 백그라운드 액티비티 시작의 예외 조건이라 동작할
   // 수 있다. 이마저 실패하면 실드를 내리고 전파한다(조용한 무한 재시도 금지 — 코드리뷰 반영).
+  //
+  // 안드15 무소음 거부 감지(코드리뷰 반영) — 안드15에선 보이는 오버레이 없이 서비스發 startActivity가
+  // 예외 없이 조용히 거부될 수 있어, 예외 경로만으로는 실패를 못 잡는다(차단 못 하는데 shieldActive가
+  // true로 남아 JS가 자리 비운 시간을 집중으로 크레딧). 그래서 실행분마다 세대를 올리고, 액티비티가
+  // onResume(=실제 표시)에서 ackFallbackActivityShown을 부르길 짧은 타임아웃 동안 기다린다. 미도착이면
+  // 표시 실패로 보고 강등한다. 정상 표시 후 닫힘(돌아가기·실드 종료)은 ack가 먼저 와 세대가 일치하므로
+  // 강등하지 않는다. 타임아웃(1.5초) < 디바운스(2초)라 대기 중 재실행으로 세대가 바뀌지 않는다.
   private fun launchBlockActivityFallback() {
     val now = SystemClock.elapsedRealtime()
     if (now - lastFallbackLaunchAt < BLOCK_RELAUNCH_DEBOUNCE_MS) return
     lastFallbackLaunchAt = now
+    val generation = ++fallbackLaunchGeneration
     val intent = Intent(this, FocusBlockActivity::class.java)
       .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     try {
       startActivity(intent)
     } catch (_: Exception) {
-      // 실행 제약 — 차단을 집행할 수단이 전무하다. 실드 없는 세션 정책(15초 룰)으로 강등.
+      // 실행 제약(예외 발생) — 차단을 집행할 수단이 전무하다. 실드 없는 세션 정책(15초 룰)으로 강등.
       pollHandler.post { downgradeShield() }
+      return
     }
+    // 예외 없이 반환됐어도 실제로 떴는지는 미지수 — ack 미도착 시 강등한다.
+    pollHandler.postDelayed(
+      { if (shieldActive && fallbackShownGeneration != generation) downgradeShield() },
+      FALLBACK_ACK_TIMEOUT_MS,
+    )
   }
 
   // 실드 강등(코드리뷰 반영, pollHandler 스레드 전용) — 집행 불능(권한 회수·차단 수단 전부

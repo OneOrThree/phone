@@ -27,6 +27,9 @@ class FocusBlockActivity : Activity() {
 
   override fun onResume() {
     super.onResume()
+    // 폴백 액티비티가 실제로 표시됐음을 서비스에 알린다(코드리뷰 반영, 안드15 무소음 거부 감지) —
+    // 서비스發 startActivity가 예외 없이 거부되면 이 ack가 안 와, 서비스가 타임아웃 후 실드를 강등한다.
+    FocusSessionService.ackFallbackActivityShown()
     // 실드가 이미 꺼졌는데 남아 있는 차단 화면(서비스 강제 종료 직후 등)은 스스로 닫는다.
     if (!FocusSessionService.isShieldActive()) finish()
   }
