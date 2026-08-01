@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, Alert } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
@@ -48,15 +48,8 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
     setRequesting(true);
     try {
       const status = await ScreenTimeModule.getAuthorizationStatus();
-      if (status === 'denied') {
-        // 이미 거부됨 — 시스템 재요청 불가. 설정으로 안내.
-        Alert.alert('권한이 꺼져 있어요', '설정 > 스크린 타임에서 권한을 켜주세요.', [
-          { text: '취소', style: 'cancel' },
-          { text: '설정 열기', onPress: () => Linking.openSettings() },
-        ]);
-        return;
-      }
-      // approved면 재요청 창 안 뜸(그대로 통과), notDetermined면 실제 권한창 표시.
+      // approved면 재요청 창 안 뜸(그대로 통과), notDetermined/denied면 실제 권한창 표시.
+      //   denied여도 requestAuthorization 재호출로 시트가 다시 뜬다(GROMO-971 — 설정 앱 안내 제거).
       logOnboardingPermissionRequested();
       const granted = status === 'approved' ? true : await ScreenTimeModule.requestAuthorization();
       logOnboardingPermissionResulted({ granted });
