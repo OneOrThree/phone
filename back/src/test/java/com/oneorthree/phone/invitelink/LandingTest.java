@@ -81,9 +81,9 @@ class LandingTest extends InviteLinkTestSupport {
         assertThat(body).contains("만료된 초대예요");
         // 만료여도 스토어 버튼은 남는다 — 여기까지 온 사람은 이미 설치 의향이 있는 유입이다
         assertThat(body).contains("apps.apple.com");
-        // OG 제목의 그룹명 자리가 비면 「」 처럼 깨진 미리보기가 퍼진다 — 중립 명칭으로 채워져야 한다
-        assertThat(body).doesNotContain("「」");
-        assertThat(body).contains("그로모 그룹");
+        // OG 제목의 그룹명 자리가 비면 「」 처럼 깨진 미리보기가 퍼진다 — 중립 명칭으로 채워져야 한다.
+        // (전역 doesNotContain("「」") 은 안 된다 — WS-5 템플릿의 CSS 주석에 설명용 리터럴이 있다.)
+        assertThat(body).contains("「그로모 그룹」");
         assertThat(clickRepository.findAll()).isEmpty();
     }
 

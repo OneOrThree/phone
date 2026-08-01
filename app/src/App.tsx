@@ -33,6 +33,7 @@ import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { runStorageMigrations } from '@/utils/storageMigration';
 import { markOtaSplashShown } from '@/utils/otaGate';
 import { preloadTapSound } from '@/utils/sound';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { LoginResult, UserProfile } from '@/types/api';
 
@@ -189,6 +190,12 @@ function App() {
   // 버튼 탭 효과음 프리로드 — 첫 탭에서 플레이어를 만들면 재생이 눈에 띄게 늦는다.
   useEffect(() => {
     preloadTapSound();
+  }, []);
+
+  // 앱 전역 세로 고정(GROMO-973) — 집중 세션 화면만 가로를 허용하고 나머지는 세로로 잠근다.
+  // (집중 화면이 가로를 열고, 화면을 벗어날 때 다시 PORTRAIT_UP으로 되돌린다.)
+  useEffect(() => {
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
   }, []);
 
   // ATT(추적 동의) 팝업 — 홈 진입 시점 1회(기존 유저는 앱 시작, 신규 유저는 온보딩 완료 직후).
