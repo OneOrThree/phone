@@ -326,8 +326,11 @@ export default function FocusSessionScreen() {
       }
       if (!cancelled) {
         // 잠금화면에 보여줄 다른 과목들의 누적 집중 시간(세션 중 불변이라 시작 시점 값으로 고정)
+        // 공부시간 내림차순 상위 2과목만 전달 — 위젯 표시 상한(2개)과 동일(GROMO-930)
         const others = subjectsRef.current
           .filter((x) => x.id !== subjectId)
+          .sort((a, b) => b.accumulatedSeconds - a.accumulatedSeconds)
+          .slice(0, 2)
           .map((x) => ({ name: x.name, seconds: x.accumulatedSeconds, color: x.color }));
         ScreenTimeModule.startFocusActivity(subjectName, others).catch(() => {});
       }
