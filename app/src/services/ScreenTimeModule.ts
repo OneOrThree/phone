@@ -8,6 +8,9 @@ import { NativeModules, Platform } from 'react-native';
 
 export type AuthorizationStatus = 'approved' | 'denied' | 'notDetermined';
 
+// 기기(시스템) 다크모드 설정 — 권한창 복제본 외형 분기용(GROMO-934)
+export type SystemColorScheme = 'light' | 'dark';
+
 // presentAppPicker가 반환하는 선택 개수
 export interface AppSelectionCounts {
   applications: number;
@@ -33,6 +36,7 @@ export interface UsageBucketDebugInfo {
 interface NativeScreenTime {
   requestAuthorization(): Promise<boolean>;
   getAuthorizationStatus(): Promise<AuthorizationStatus>;
+  getSystemColorScheme(): Promise<SystemColorScheme>;
   setGoalSeconds(seconds: number): Promise<void>;
   stopGoalMonitoring(): Promise<boolean>;
   startUsageBucketMonitoring(maxMinutes: number): Promise<boolean>;
@@ -85,6 +89,15 @@ const ScreenTimeModule = {
   getAuthorizationStatus: async (): Promise<AuthorizationStatus> => {
     if (Platform.OS !== 'ios') return 'denied';
     return NativeScreenTimeModule.getAuthorizationStatus();
+  },
+
+  // 기기(시스템) 다크모드 설정 조회 — 앱이 라이트 고정(Info.plist)이라 RN Appearance는 항상
+  // light. 시스템 권한창 복제본(GROMO-934)의 외형 분기에 쓴다. iOS 외/구 바이너리(OTA로
+  // 메서드 없음)는 'dark' 폴백 — 실기기로 확인된 외형 기준이고, 틀려도 안내 내용은 유효하다.
+  getSystemColorScheme: async (): Promise<SystemColorScheme> => {
+    if (Platform.OS !== 'ios') return 'dark';
+    if (typeof NativeScreenTimeModule.getSystemColorScheme !== 'function') return 'dark';
+    return NativeScreenTimeModule.getSystemColorScheme();
   },
 
   // 목표 시간을 App Group에 저장 (익스텐션에서 "남은 시간" 계산에 사용)
