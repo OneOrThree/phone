@@ -409,6 +409,17 @@ export function logGroupInviteShared(p: {
   track('group_invite_shared', p);
 }
 
+// ── 그룹 챌린지 내기(3차) [C] ── (docs/app/group-bet-plan.md §2)
+// 내기 개설·참가는 서버 MP 이벤트가 아직 없어 클라가 소유한다([S]로 이관되면 여기서 지운다).
+// **API 성공 시에만** 발행한다 — 잔액 부족·중복으로 튕긴 시도까지 세면 실제 성립한 내기 수가 부푼다.
+// stake는 판돈 금액(서버 허용값 {10,30,50,100}) — 금액대별 참여율을 보는 유일한 축이다.
+export function logGroupBetCreated(p: { stake: number }): void {
+  track('group_bet_created', p);
+}
+export function logGroupBetJoined(p: { stake: number }): void {
+  track('group_bet_joined', p);
+}
+
 // ── 그룹 Fakedoor [C] ── (GROMO-597)
 // 실기능 미구현 준비중 화면의 수요 측정. 기존 group_viewed와 분리 —
 // 미래에 실제 그룹 기능이 켜지면 group_viewed가 실조회를 뜻하게 되므로 지표 오염을 막는다.

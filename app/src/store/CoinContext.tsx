@@ -1,4 +1,12 @@
-import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/services/api';
 import { useUser } from './UserContext';
@@ -6,6 +14,9 @@ import { STORAGE_KEYS } from '@/types/storage';
 
 interface CoinContextValue {
   coins: number;
+  // 서버 잔액 재조회. 마운트 1회 로드만으로는 **서버가 깎은 잔액**(그룹 내기 판돈 차감·정산 지급)이
+  // 앱에 영영 반영되지 않는다 — 잔액을 보여 주는 화면이 열릴 때 직접 부른다(3차 내기 시트).
+  refresh: () => Promise<void>;
   addCoins: (amount: number) => Promise<void>;
   isOwned: (itemId: string) => boolean;
   buyItem: (itemId: string, price: number) => Promise<boolean>;
@@ -57,13 +68,20 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   const [ownedItemIds, setOwnedItemIds] = useState<string[]>([]);
   const loaded = useRef(false);
 
-  // 서버에서 잔액 로드
-  useEffect(() => {
-    api
-      .get<number>('/api/v1/currency')
-      .then((res) => setCoins(res.data))
-      .catch(() => {});
+  // 서버에서 잔액 로드. 실패는 조용히 무시한다 — 잔액은 화면을 막을 값이 아니고,
+  // 다음 refresh(시트 오픈 등)에서 자연 재시도된다.
+  const refresh = useCallback(async () => {
+    try {
+      const res = await api.get<number>('/api/v1/currency');
+      setCoins(res.data);
+    } catch {
+      // 무시
+    }
   }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   // 보유 아이템은 AsyncStorage 유지 (아이템 API 미구현)
   // 형식 변환은 storageMigration v3가 Provider 마운트 전에 보장하므로 맵으로 바로 읽는다.
@@ -108,7 +126,7 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <CoinContext.Provider value={{ coins, addCoins, isOwned, buyItem }}>
+    <CoinContext.Provider value={{ coins, refresh, addCoins, isOwned, buyItem }}>
       {children}
     </CoinContext.Provider>
   );

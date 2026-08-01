@@ -5,6 +5,7 @@
 import { AxiosError, AxiosHeaders } from 'axios';
 import {
   createAnnouncement,
+  createBet,
   createChallenge,
   createGroup,
   deleteAnnouncement,
@@ -15,6 +16,7 @@ import {
   getGroupOverview,
   getMyGroups,
   groupErrorCode,
+  joinBet,
   joinGroup,
   searchGroups,
   updateAnnouncement,
@@ -37,6 +39,7 @@ const mockApi = api as unknown as {
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const NOTICE_ID = 'a1';
 const CHALLENGE_ID = 'c1';
+const BET_ID = 'b1';
 
 // 서버 GlobalExceptionHandler가 내려주는 { code, message } 바디를 실은 axios 에러를 만든다.
 function axiosErrorWith(status: number, data: unknown): AxiosError {
@@ -155,6 +158,22 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
     const base = `/api/v1/groups/${GROUP_ID}/challenges`;
     expect(mockApi.post).toHaveBeenCalledWith(base, body);
     expect(mockApi.delete).toHaveBeenCalledWith(`${base}/${CHALLENGE_ID}`);
+  });
+
+  // 내기 2종(3차, docs/back/group-bet-plan.md §2) — 개설은 챌린지 하위 경로,
+  // 참가는 **그룹 하위**(betId만으로 찾는다)라 경로 모양이 다르다. 오타는 런타임 404로만 드러난다.
+  test('POST /{groupId}/challenges/{challengeId}/bets — 판돈·날짜를 그대로 보낸다', async () => {
+    await createBet(GROUP_ID, CHALLENGE_ID, { stake: 30, date: '2026-08-01' });
+    expect(mockApi.post).toHaveBeenCalledWith(
+      `/api/v1/groups/${GROUP_ID}/challenges/${CHALLENGE_ID}/bets`,
+      { stake: 30, date: '2026-08-01' },
+    );
+  });
+
+  // joinGroup과 같은 이유 — 바디를 생략하면 서버가 415를 준다.
+  test('POST /{groupId}/bets/{betId}/join — 빈 바디를 반드시 싣는다', async () => {
+    await joinBet(GROUP_ID, BET_ID);
+    expect(mockApi.post).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/bets/${BET_ID}/join`, {});
   });
 });
 
