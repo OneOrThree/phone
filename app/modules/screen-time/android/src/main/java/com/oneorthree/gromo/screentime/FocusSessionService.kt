@@ -61,6 +61,19 @@ class FocusSessionService : Service() {
 
     @Volatile private var cancelledGeneration = 0
 
+    // 기동 중 보류된 타이머 재동기화(코드리뷰 반영) — 실드 없이 타이머만으로 새 서비스를 띄우면
+    // dispatchStart가 startForegroundService 직후 true를 반환해, 화면이 곧바로 부른 syncTimer가
+    // instance(onCreate) 배정 전이라 조용히 버려진다. 스냅샷 지연 중 일시정지했다면 이후 ROLE_TIMER
+    // 시작이 '진행 중' 크로노미터로 떠 어긋난다. 시작 세대와 함께 적재했다가 applyStart가 타이머를
+    // 세운 직후 소비한다(세대 불일치 = 그새 endFocusActivity면 폐기).
+    private data class PendingTimerSync(
+      val elapsedSeconds: Long,
+      val paused: Boolean,
+      val generation: Int,
+    )
+
+    @Volatile private var pendingTimerSync: PendingTimerSync? = null
+
     // 실드 상실 통지(코드리뷰 반영) — 세션 중 권한 회수 등으로 서비스가 실드를 내리면 모듈이
     // 이 콜백으로 JS(onFocusShieldLost 이벤트)에 전파한다. 모듈 생성/파괴 시 배선/해제.
     @Volatile internal var shieldLostListener: (() -> Unit)? = null
@@ -141,8 +154,15 @@ class FocusSessionService : Service() {
     // 기준을 다시 맞춘다. pause/resume 짝을 못 맞추는 경로(백그라운드 리플레이로 지난 휴식
     // 경계, 타이머 시작 전 일시정지, 권한 왕복으로 지연된 시작)를 최종 상태 한 번으로 복구한다.
     // 서비스 없으면 no-op(멱등).
-    fun syncTimer(elapsedSeconds: Long, paused: Boolean) =
-      instance?.postTimerSync(elapsedSeconds, paused) ?: Unit
+    fun syncTimer(elapsedSeconds: Long, paused: Boolean) {
+      val running = instance
+      if (running != null) {
+        running.postTimerSync(elapsedSeconds, paused)
+      } else {
+        // 아직 onCreate 전(기동 중) — 버려지지 않게 시작 세대와 함께 적재했다가 applyStart가 소비.
+        pendingTimerSync = PendingTimerSync(elapsedSeconds, paused, startedGeneration)
+      }
+    }
 
     // 실드 동작 여부 — 차단 화면이 자기 생존 판단(onResume)에, 모듈이 타이머 시작 판단에 쓴다.
     fun isShieldActive(): Boolean = instance?.shieldActive == true
@@ -294,6 +314,8 @@ class FocusSessionService : Service() {
     // 기동 중 취소 확인(코드리뷰 반영) — startForegroundService와 onCreate 사이에 stop이 온
     // 기동이면 역할을 켜지 않고, FGS 계약(startForeground)만 지킨 채 즉시 내린다.
     if (cancelledGeneration >= startedGeneration) {
+      // 취소된 기동 — 이 기동에 실렸던 보류 sync도 함께 폐기(고아 재동기화 방지, 코드리뷰 반영).
+      pendingTimerSync = null
       stopForegroundCompat()
       stopSelf()
       return START_NOT_STICKY
@@ -356,6 +378,15 @@ class FocusSessionService : Service() {
         timerStartedAt = System.currentTimeMillis()
         otherSubjects = parseOtherSubjects(otherSubjectsJson)
         timerPausedAt = 0L
+        // 기동 중 보류된 재동기화 소비(코드리뷰 반영) — 이 서비스를 띄운 세대의 것만 반영한다
+        // (세대 불일치면 그새 세션이 끝났다가 새로 시작된 것이므로 폐기). 스냅샷 지연 중 누른
+        // 일시정지·왕복으로 지연된 경과를 타이머 시작 직후 한 번에 맞춘다.
+        pendingTimerSync?.let { pending ->
+          pendingTimerSync = null
+          if (pending.generation == startedGeneration) {
+            applyTimerSync(pending.elapsedSeconds, pending.paused)
+          }
+        }
       }
     }
     renotify()
