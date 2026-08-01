@@ -153,6 +153,11 @@ export default function NoticeScreen() {
             await deleteAnnouncement(groupId, notice.id);
             fetchNotices();
           } catch (e) {
+            // NOT_FOUND는 '다른 관리자가 먼저 지웠다'는 뜻이라 결과가 삭제 성공과 같다.
+            // 문구만 띄우고 끝내면 이 화면은 포커스 재조회가 없어 사라진 카드가 목록에 그대로
+            // 남고, 사용자는 당겨서 새로고침하기 전까지 같은 카드를 계속 열어 지우려 든다.
+            // (그룹 자체가 사라진 404여도 재조회가 '사라진 그룹이에요.'로 화면을 맞춰 준다.)
+            if (groupErrorCode(e) === 'NOT_FOUND') fetchNotices();
             Alert.alert('삭제 실패', deleteErrorMessage(e));
           }
         },

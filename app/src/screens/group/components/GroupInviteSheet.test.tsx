@@ -364,8 +364,55 @@ describe('참여 분기', () => {
     });
 
     expect(screen.queryByText('정원이 가득 찼어요')).toBeNull();
-    // B는 그대로 참여 가능한 상태다.
+    // B는 그대로 참여 가능한 상태다(A가 끝났으므로 잠금이 풀려 있다).
     mockJoinGroup.mockResolvedValueOnce(undefined);
+    await press('참여하기');
+    expect(mockJoinGroup).toHaveBeenLastCalledWith(OTHER_GROUP_ID);
+  });
+
+  // 위 가드는 '늦게 온 응답을 버린다'까지만 한다 — A가 **아직 진행 중일 때** 잠금까지 풀면
+  // B의 참여가 함께 나가고, 서버는 그룹 1개를 강제하지 않아(GroupService:207-243) 둘 다
+  // 성공한다. 그러면 앱은 groups[0]만 보여줘 나머지 한 곳은 나갈 수도 없이 남는다(§0).
+  test('연속 초대 링크 — 앞 그룹의 참여가 끝나기 전에는 새 프리뷰도 참여를 보내지 않는다', async () => {
+    let resolveJoin: () => void = () => {};
+    mockJoinGroup.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveJoin = resolve; // 초대 A의 참여 응답을 붙잡아 둔다
+        }),
+    );
+    const { rerender } = await renderSheet();
+
+    await press('참여하기');
+    expect(mockJoinGroup).toHaveBeenCalledTimes(1);
+
+    // A 응답이 오기 전에 초대 B가 도착한다.
+    mockGetGroupOverview.mockResolvedValue(overview({ id: OTHER_GROUP_ID, name: '저녁 스터디방' }));
+    await act(async () => {
+      rerender(
+        <GroupInviteSheet
+          groupId={OTHER_GROUP_ID}
+          onClose={onClose}
+          onJoined={onJoined}
+          onLogin={onLogin}
+        />,
+      );
+    });
+    expect(await screen.findByText('저녁 스터디방')).toBeOnTheScreen();
+
+    // A가 멤버십을 바꾸는 중이라 B의 버튼은 잠긴 채(스피너) 뜬다 — 눌러도 요청이 나가지 않는다.
+    expect(screen.queryByText('참여하기')).toBeNull();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.invite.join'));
+    });
+    expect(mockJoinGroup).toHaveBeenCalledTimes(1);
+    expect(mockJoinGroup).toHaveBeenLastCalledWith(GROUP_ID);
+
+    // A가 끝나면 잠금이 풀린다 — 세대가 갈렸어도 여기서 풀지 않으면 B가 영영 잠긴다.
+    mockJoinGroup.mockResolvedValueOnce(undefined);
+    await act(async () => {
+      resolveJoin();
+    });
     await press('참여하기');
     expect(mockJoinGroup).toHaveBeenLastCalledWith(OTHER_GROUP_ID);
   });

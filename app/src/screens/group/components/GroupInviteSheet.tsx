@@ -150,10 +150,12 @@ export default function GroupInviteSheet({
     setFailed(false);
     setJoinError(null);
     setBlock(null);
-    // 진행 중이던 이전 그룹의 참여 요청이 남아 있어도 새 프리뷰의 버튼은 눌릴 수 있어야 한다
-    // (아래 join()이 세대 가드로 늦은 응답을 버린다).
-    joinLock.current = false;
-    setJoining(false);
+    // 진행 중이던 이전 그룹의 참여 요청은 **끝날 때까지 잠근 채로 둔다**. 여기서 풀면 초대 A가
+    // 멤버십을 바꾸는 동안 B의 참여 버튼이 살아나는데, 서버 joinGroup은 그룹 1개를 강제하지
+    // 않으므로(GroupService:207-243) 두 요청이 모두 성공해 두 그룹에 걸친다 — 앱은 groups[0]만
+    // 보여주므로 나머지 한 곳은 들어가지도 나가지도 못하는 상태로 남는다(§0).
+    // 잠금은 join()의 finally가 **세대와 무관하게** 풀어 준다 — 여기서 안 풀어도 갇히지 않는다.
+    setJoining(joinLock.current);
     // guestBlocked도 함께 되돌린다 — 시트는 key 없이 재사용돼(GroupScreen) 두 번째 초대 링크가
     // 도착하면 groupId만 바뀐다. 앞 그룹에서 GUEST_FORBIDDEN으로 세운 값이 남으면 정상 프리뷰를
     // 보여줘야 할 그룹에 게스트 차단 화면이 뜬다.
@@ -224,16 +226,20 @@ export default function GroupInviteSheet({
           return;
         }
       }
-      await joinGroup(target);
+      // 계측은 **요청 직전**에 쏜다 — 이름 그대로 '시도'이고, 서버가 소유한 group_joined의
+      // 분모다. 성공 뒤로 미루면 ROOM_FULL·404·네트워크 실패가 통째로 빠져 전환율이 항상
+      // 100%로 보인다. 위의 사전 차단(소속 미확인·다른 그룹)은 요청을 보내지 않았으니 시도가
+      // 아니다 — 그래서 joinGroup 호출 직전이지 join() 진입 직후가 아니다.
       logGroupJoinAttempted({ join_method: 'invite' });
+      await joinGroup(target);
       // 성공만은 세대를 보지 않는다 — 실제로 target에 가입됐으므로 부모가 재조회해 그룹방으로
       // 넘어가야 한다. 여기서 버리면 사용자는 이미 가입한 채 다른 그룹 프리뷰를 계속 보게 된다.
       joinedRef.current();
     } catch (e) {
       const code = groupErrorCode(e);
       // 이미 멤버 — 성공 취급(§3-2). 위와 같은 이유로 세대와 무관하게 넘긴다.
+      // (계측은 요청 직전에 이미 나갔다 — 여기서 다시 쏘면 한 번의 시도가 두 번으로 세어진다.)
       if (code === 'ALREADY_MEMBER') {
-        logGroupJoinAttempted({ join_method: 'invite' });
         joinedRef.current();
         return;
       }
@@ -257,12 +263,11 @@ export default function GroupInviteSheet({
           setJoinError('참여하지 못했어요. 잠시 후 다시 시도해주세요.');
       }
     } finally {
-      // 늦게 끝난 이전 그룹의 요청이 새 프리뷰의 진행 상태·잠금을 건드리지 않게 한다
-      // (세대가 갈렸으면 새 프리뷰 쪽 이펙트가 이미 둘 다 풀어 뒀다).
-      if (!isStale()) {
-        joinLock.current = false;
-        setJoining(false);
-      }
+      // 세대가 갈렸어도 반드시 푼다 — 프리뷰 이펙트는 더 이상 잠금을 풀지 않으므로(위 주석)
+      // 이 잠금을 쥔 것은 이 요청뿐이고, 여기서 놓지 않으면 새 프리뷰의 참여 버튼이 영영 잠긴다.
+      // 진행 중인 요청은 언제나 하나뿐이라 joining을 내리는 것도 새 프리뷰와 충돌하지 않는다.
+      joinLock.current = false;
+      setJoining(false);
     }
   }, [block, fetchMyGroupId, groupId]);
 

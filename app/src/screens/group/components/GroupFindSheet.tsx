@@ -175,15 +175,20 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
     setJoiningId(group.groupId);
     setJoinError(null);
     try {
-      await joinGroup(group.groupId);
+      // 계측은 **요청 직전**에 쏜다 — 이름 그대로 '시도'이고, 서버가 소유한 group_joined의
+      // 분모다. 성공 뒤로 미루면 ROOM_FULL·404·네트워크 실패가 통째로 빠져 전환율이 항상
+      // 100%로 보인다(GroupInviteSheet.join()과 같은 기준).
       logGroupJoinAttempted({ join_method: 'search' });
+      await joinGroup(group.groupId);
       onJoined();
     } catch (e) {
       // status가 아니라 서버 code로 분기한다 — ROOM_FULL·ALREADY_MEMBER가 둘 다 409(§3-2)
       const code = groupErrorCode(e);
       // 아래 둘은 화면 상태가 아니라 **실제 소속·계정 상태**의 결과라 검색 세대와 무관하게 처리한다.
       if (code === 'ALREADY_MEMBER') {
-        // 성공 취급 — 이미 멤버이므로 그룹방으로 보낸다(새 가입이 아니라 계측은 미발행)
+        // 성공 취급 — 이미 멤버이므로 그룹방으로 보낸다.
+        // (시도 계측은 요청 직전에 이미 나갔다 — 여기서 되돌릴 수단은 없고, 되돌릴 이유도 없다.
+        //  실제 가입 여부는 서버가 소유한 group_joined가 말한다.)
         onJoined();
         return;
       }

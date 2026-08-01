@@ -313,7 +313,7 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     expect(screen.queryByText('아침 6시 집중방')).toBeNull();
   });
 
-  test('ALREADY_MEMBER는 성공 취급 — 계측 없이 그룹방으로 보낸다', async () => {
+  test('ALREADY_MEMBER는 성공 취급 — 그룹방으로 보낸다(시도 계측은 한 번만)', async () => {
     mockJoinGroup.mockRejectedValue(axiosErrorWith(409, 'ALREADY_MEMBER'));
     await renderSheet();
 
@@ -324,7 +324,25 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     await confirmJoinAlert();
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
-    expect(logGroupJoinAttempted).not.toHaveBeenCalled();
+    expect(logGroupJoinAttempted).toHaveBeenCalledTimes(1); // 요청 직전 1회 — 실패 분기가 더하지 않는다
+  });
+
+  // group_join_attempted는 서버 소유 group_joined의 분모다 — 성공에서만 쏘면 실패한 시도가
+  // 통째로 빠져 전환율이 언제나 100%가 된다.
+  test('참여가 실패해도 시도 계측은 남는다', async () => {
+    mockJoinGroup.mockRejectedValue(axiosErrorWith(409, 'ROOM_FULL'));
+    await renderSheet();
+
+    const name = await searchFor('아침 6시 집중방');
+    await act(async () => {
+      fireEvent.press(name);
+    });
+    await confirmJoinAlert();
+
+    expect(
+      await screen.findByText('정원이 가득 찼어요. 다른 그룹을 찾아보세요.'),
+    ).toBeOnTheScreen();
+    expect(logGroupJoinAttempted).toHaveBeenCalledWith({ join_method: 'search' });
   });
 
   test('모르는 code는 공통 문구로 떨어진다(§5-2)', async () => {
