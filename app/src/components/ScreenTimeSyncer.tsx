@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { useUser } from '@/store/UserContext';
 import { syncScreenTimeUsage } from '@/services/screentimeSync';
+import { mirrorNotificationPreferencesToNative } from '@/services/ScreenTimeModule';
 
 // 스크린타임 사용량 서버 동기화 배선(GROMO-633) — 앱 시작 1회 + 포그라운드 복귀마다.
 // (PendingFocusUploader·PendingGoalApplier와 같은 트리거.) 네이티브 15분 버킷 측정값을
@@ -15,6 +16,10 @@ export function ScreenTimeSyncer() {
     // 포그라운드 이벤트 연타 시 동시 실행 방지 — 진행 중이면 이번 트리거는 건너뛴다.
     let inFlight = false;
     const run = () => {
+      // 인앱 알림 설정을 네이티브로 미러(GROMO-997 코드리뷰) — 안드로이드 목표 초과 워커가
+      // notify 전에 '알림 받기'·'소리'·'심야 방해 금지'를 존중하게. 사용량 동기화와 독립이라
+      // (게스트·권한 미허용에도 무해한 no-op) inFlight 가드 밖에서 매 트리거마다 호출한다.
+      mirrorNotificationPreferencesToNative().catch(() => {});
       if (inFlight) return;
       inFlight = true;
       syncScreenTimeUsage(userId, screenTimeGoalSeconds)

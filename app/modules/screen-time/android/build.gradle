@@ -12,3 +12,9 @@ android {
     versionName "1.0.0"
   }
 }
+
+dependencies {
+  // WorkManager — 목표 초과 주기 체크(GROMO-997, GoalExceededCheckWorker). 15분 최소 주기
+  // 제약의 표준 백그라운드 스케줄러로, 재부팅 후에도 등록을 스스로 복원한다.
+  implementation "androidx.work:work-runtime:2.10.2"
+}

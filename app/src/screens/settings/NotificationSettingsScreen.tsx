@@ -14,6 +14,7 @@ import {
 } from '@/screens/settings/components/SettingsList';
 import { DrumPicker } from '@/components/DrumPicker';
 import { getMyProfile, updateNotificationSettings } from '@/services/userApi';
+import ScreenTimeModule from '@/services/ScreenTimeModule';
 import type { NotificationSettingsRequest } from '@/types/dto/user';
 import { STORAGE_KEYS } from '@/types/storage';
 import { T, withAlpha } from '@/constants/theme';
@@ -139,6 +140,10 @@ export default function NotificationSettingsScreen() {
       nightEndTime: next.nightEndTime,
     };
     AsyncStorage.setItem(STORAGE_KEYS.notificationSettings, JSON.stringify(body)).catch(() => {});
+    // 인앱 알림 설정을 네이티브로 미러(GROMO-997 코드리뷰) — 안드로이드 목표 초과 워커가
+    // '알림 받기'·'소리'·'심야 방해 금지'를 즉시 존중하게(iOS·구 바이너리는 no-op). 실패는
+    // 무해 — 앱 시작 시 미러가 재시도한다.
+    ScreenTimeModule.setNotificationPreferences(body).catch(() => {});
     (async () => {
       try {
         await updateNotificationSettings(body);

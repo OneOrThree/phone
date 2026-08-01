@@ -1,7 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+  <!-- 집중 실드·타이머(GROMO-996) — 포그라운드 서비스(안드14+는 specialUse 타입 신고 필수) -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
   <uses-permission android:name="android.permission.INTERNET"/>
   <!-- 스크린타임 측정(GROMO-994) — Usage Access 특수 권한. 시스템 팝업이 없어 설정 토글로만 허용된다 -->
   <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions"/>
+  <!-- 알림 런타임 권한(안드13+) — 집중 타이머 상시 알림·FCM 푸시 겸용. 요청은 기존 푸시 경로(registerPushToken)가 담당 -->
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" tools:replace="android:maxSdkVersion"/>
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
@@ -17,6 +22,11 @@
     <intent>
       <action android:name="android.intent.action.MAIN"/>
       <category android:name="android.intent.category.LAUNCHER"/>
+    </intent>
+    <!-- 집중 실드(GROMO-996) — 차단 예외로 항상 허용할 홈 런처 식별용 -->
+    <intent>
+      <action android:name="android.intent.action.MAIN"/>
+      <category android:name="android.intent.category.HOME"/>
     </intent>
   </queries>
   <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="true" android:theme="@style/AppTheme" android:supportsRtl="true" android:enableOnBackInvokedCallback="false">
@@ -43,6 +53,14 @@
         <data android:scheme="gromo"/>
       </intent-filter>
     </activity>
+    <!-- 집중 세션 포그라운드 서비스(GROMO-996) — 실드 폴링 + 잠금화면 타이머 알림.
+         안드14+ FGS 타입 신고: 시스템 차단 API가 없어 폴링+차단 화면으로 집중 모드를 구현하는 specialUse -->
+    <service android:name="com.oneorthree.gromo.screentime.FocusSessionService" android:exported="false" android:foregroundServiceType="specialUse">
+      <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="focus_session_app_blocking_and_timer"/>
+    </service>
+    <!-- 집중 차단 화면(GROMO-996) — 비허용앱 위에 뜨는 가림막(iOS ShieldConfiguration 대응).
+         별도 태스크(taskAffinity)로 gromo 본 태스크와 분리하고 최근 앱 목록에서 제외 -->
+    <activity android:name="com.oneorthree.gromo.screentime.FocusBlockActivity" android:exported="false" android:excludeFromRecents="true" android:launchMode="singleInstance" android:taskAffinity="com.oneorthree.gromo.focusblock" android:screenOrientation="portrait" android:theme="@style/AppTheme"/>
     <activity android:name="com.facebook.FacebookActivity" android:configChanges="keyboard|keyboardHidden|screenLayout|screenSize|orientation" android:label="@string/app_name"/>
     <!-- 카카오 로그인 리다이렉트 수신 — 웹/카톡 로그인 후 kakao{앱키}://oauth 로 앱 복귀 (없으면 로그인 완료가 앱에 전달되지 않음) -->
     <activity android:name="com.kakao.sdk.auth.AuthCodeHandlerActivity" android:exported="true">

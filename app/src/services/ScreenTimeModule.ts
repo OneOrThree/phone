@@ -8,13 +8,23 @@
 //    저장) + M2(GROMO-995, 앱 선택 피커: 측정 대상·집중 허용앱) 범위 구현. 피커 UI는 네이티브가
 //    아니라 RN 화면(AndroidAppPickerHost)이라, presentAppPicker 계열은 androidAppPicker 브릿지로
 //    호스트 모달을 띄우고 선택 결과로 resolve한다 — 호출부 계약은 iOS와 동일.
-//    나머지 함수(실드·Live Activity 등)는 기존 기본값 가드를 유지한다(M3~M4에서 확장).
+//    M3(GROMO-996) — 집중 실드(포그라운드 서비스 폴링 차단)·잠금화면 타이머(chronometer 알림)·
+//    캐릭터 스냅샷·브라우저 허용 토글 라우팅.
+//    M4(GROMO-997) — 어제 결과 계산(getYesterdayResult)·목표 초과 알림(setGoalSeconds가
+//    날짜 스냅샷 저장 + WorkManager 주기 등록)·배터리 최적화 예외 플로우 라우팅.
 
-import { NativeModules, Platform } from 'react-native';
+import { Alert, NativeModules, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { requireOptionalNativeModule } from 'expo';
 import { presentAndroidAppPicker } from '@/services/androidAppPicker';
+import { getMyProfile } from '@/services/userApi';
+import { STORAGE_KEYS } from '@/types/storage';
+import type { NotificationSettingsRequest } from '@/types/dto/user';
 
 export type AuthorizationStatus = 'approved' | 'denied' | 'notDetermined';
+
+// 어제 목표 달성 결과 — null은 판정 불가(결과 없음).
+export type YesterdayResult = 'success' | 'fail' | null;
 
 // 기기(시스템) 다크모드 설정 — 권한창 복제본 외형 분기용(GROMO-934)
 export type SystemColorScheme = 'light' | 'dark';
@@ -77,21 +87,45 @@ export interface AndroidInstalledApp {
   iconUri: string;
 }
 
-// 안드로이드 Expo 모듈 인터페이스(GROMO-994·995) — M1·M2 범위 함수만 네이티브 구현이 있다.
+// 안드로이드 Expo 모듈 인터페이스(GROMO-994·995·996·997) — M1~M4 범위 함수만 네이티브 구현이 있다.
 // startUsageBucketMonitoring은 예약 개념이 없어 네이티브 없이 TS에서 no-op true(§4 매핑).
-// M2 함수들은 옵셔널 — OTA로 새 JS만 받은 M1 바이너리엔 없으므로 호출 전 존재를 확인한다.
+// M2 이후 함수들은 옵셔널 — OTA로 새 JS만 받은 구 바이너리엔 없으므로 호출 전 존재를 확인한다.
 interface AndroidNativeScreenTime {
   requestAuthorization(): Promise<boolean>;
   getAuthorizationStatus(): Promise<AuthorizationStatus>;
   setGoalSeconds(seconds: number): Promise<void>;
   getTodayUsageBucketMinutes(): Promise<number>;
   getYesterdayUsageBucketMinutes(): Promise<number>;
+  getYesterdayResult?(): Promise<string | null>;
+  isIgnoringBatteryOptimizations?(): Promise<boolean>;
+  requestIgnoreBatteryOptimizations?(): Promise<boolean>;
   getInstalledApps?(): Promise<AndroidInstalledApp[]>;
   getSelectionPackages?(): Promise<string[] | null>;
   setPendingSelection?(packages: string[]): Promise<void>;
   promoteSelection?(): Promise<boolean>;
   getAllowedPackages?(): Promise<string[] | null>;
   setAllowedSelection?(packages: string[]): Promise<void>;
+  canDrawOverlays?(): Promise<boolean>;
+  requestOverlayPermission?(): Promise<boolean>;
+  startFocusShield?(subjectName: string): Promise<boolean>;
+  stopFocusShield?(): Promise<void>;
+  setFocusAllowSafariWeb?(allowed: boolean): Promise<void>;
+  getFocusAllowSafariWeb?(): Promise<boolean>;
+  saveCharacterSnapshot?(base64: string): Promise<boolean>;
+  startFocusActivity?(subjectName: string, otherSubjectsJson: string): Promise<boolean>;
+  endFocusActivity?(): Promise<void>;
+  pauseFocusActivity?(): Promise<void>;
+  resumeFocusActivity?(): Promise<void>;
+  syncFocusTimerState?(elapsedSeconds: number, paused: boolean): Promise<void>;
+  setNotificationPreferences?(
+    enabled: boolean,
+    soundEnabled: boolean,
+    quietEnabled: boolean,
+    quietStart: string,
+    quietEnd: string,
+  ): Promise<void>;
+  // Expo 모듈 기본 이벤트 구독(onFocusShieldLost — 세션 중 실드 상실 통지, 코드리뷰 반영)
+  addListener?(eventName: 'onFocusShieldLost', listener: () => void): { remove: () => void };
 }
 
 // 구 바이너리(OTA로 새 JS만 받아 네이티브 모듈이 없는 경우)는 null — 각 함수가 기존
@@ -128,6 +162,12 @@ export const nativeSupportsPendingApplyDate = (): boolean =>
 const androidSupportsAppPicker = (): boolean =>
   typeof AndroidScreenTime?.getInstalledApps === 'function';
 
+// 안드로이드 바이너리가 M4(GROMO-997) 빌드인지 — 같은 빌드에 추가된
+// isIgnoringBatteryOptimizations 존재로 판별. OTA로 새 JS만 받은 구 바이너리에선 설정의
+// 배터리 최적화 행을 숨긴다(눌러도 아무 일도 없는 행을 노출하지 않기 위함).
+export const androidSupportsBatteryException = (): boolean =>
+  typeof AndroidScreenTime?.isIgnoringBatteryOptimizations === 'function';
+
 // 안드로이드 피커 호스트(AndroidAppPickerHost) 전용 내부 API — 화면 코드는 쓰지 말 것.
 // 저장 계약(iOS와 1:1): 측정 대상은 pending 저장(승격은 호출부의 promoteSelection),
 // 집중 허용앱은 즉시 저장. 구 바이너리(M2 함수 없음)는 조회 null·저장 no-op.
@@ -142,6 +182,68 @@ export const androidAppPickerNative = {
     AndroidScreenTime?.getAllowedPackages?.() ?? Promise.resolve(null),
   setAllowedSelection: (packages: string[]): Promise<void> =>
     AndroidScreenTime?.setAllowedSelection?.(packages) ?? Promise.resolve(),
+};
+
+// 오버레이 권한 설정 왕복 중 표시(코드리뷰 반영) — 아래 1회 안내에서 '설정으로 이동'을 누르면
+// 앱이 백그라운드로 가는데, 이때는 실드가 아직 안 켜져 있어(shielded=false) FocusSessionScreen의
+// 이탈 판정이 15초 뒤 세션을 끝내버린다 — "허용하지 않아도 집중은 계속할 수 있어요" 안내와 모순.
+// 이 왕복 구간을 이탈 계산에서 제외하도록 화면에 노출한다(isOverlayPermissionTripActive).
+//
+// 레이스 설계: 플래그는 설정 딥링크(네이티브 호출) '직전'에 세워지므로 그로 인한 AppState
+// 'background' 이벤트보다 항상 먼저다. 복귀 시엔 'active' 이벤트와 requestOverlayPermission
+// resolve(플래그 해제)의 순서를 보장할 수 없지만, 화면 쪽이 '백그라운드 진입 시점'에 이 플래그를
+// 읽어 이탈 기록(leftAt) 자체를 남기지 않는 방식이라 복귀 순서와 무관하게 안전하다 —
+// 기록이 없으면 복귀 판정도 없다. 왕복이 끝나면(플래그 해제) 다음 이탈부터 정상 판정.
+let overlayPermissionTripActive = false;
+
+// 왕복 완료 대기용 promise(코드리뷰 반영) — 왕복 중(앱이 설정으로 백그라운드에 간 동안)의
+// FGS 시작은 안드12+가 거부하므로, 그 사이 요청된 타이머 시작(startFocusActivity)이 이
+// promise를 기다렸다가 포그라운드 복귀 후 시작한다. 왕복이 없을 땐 이미 resolve 상태.
+let overlayPermissionTripPromise: Promise<void> = Promise.resolve();
+
+// 타이머 시작/종료 세대(코드리뷰 반영) — 왕복 대기 중 endFocusActivity(세션 완료·화면 이탈)가
+// 오면 세대가 올라가고, 뒤늦게 깨어난 시작이 이를 확인해 스스로 무효화한다(고아 타이머 방지).
+let focusActivityEpoch = 0;
+
+// 오버레이 권한 1회 안내(안드로이드, 코드리뷰 반영) — 실드의 차단 화면은 '다른 앱 위에 표시'
+// 권한이 있어야 뜨는데, 요청이 어디에도 배선돼 있지 않으면 전원이 조용히 실드 없는 세션으로
+// 강등된다(기본 미허용 권한). 첫 실드 시작 때 한 번만 설정 이동을 안내하고(AsyncStorage 플래그),
+// 거절해도 세션은 그대로 진행한다(기존 강등 설계 유지 — 이후 세션은 조용히 강등).
+const ensureOverlayPermissionOnce = async (): Promise<void> => {
+  if (!AndroidScreenTime?.canDrawOverlays || !AndroidScreenTime.requestOverlayPermission) return;
+  if (await AndroidScreenTime.canDrawOverlays()) return;
+  // Usage Access가 없으면 실드 자체가 불가 — 오버레이 안내를 띄울 이유가 없다.
+  if ((await AndroidScreenTime.getAuthorizationStatus()) !== 'approved') return;
+  const prompted = await AsyncStorage.getItem(STORAGE_KEYS.screentimeOverlayPrompted);
+  if (prompted) return;
+  await AsyncStorage.setItem(STORAGE_KEYS.screentimeOverlayPrompted, '1');
+  const goToSettings = await new Promise<boolean>((resolve) => {
+    Alert.alert(
+      "'다른 앱 위에 표시' 권한이 필요해요",
+      '집중하는 동안 다른 앱을 잠그려면 권한을 허용해 주세요.\n허용하지 않아도 집중은 계속할 수 있어요.',
+      [
+        { text: '나중에', style: 'cancel', onPress: () => resolve(false) },
+        { text: '설정으로 이동', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
+  // 설정 왕복 후 복귀 시 resolve — 허용됐다면 이어지는 startFocusShield가 실드를 켠다.
+  // 왕복 동안 플래그를 세워 이탈 판정에서 제외한다(위 설계 주석 참고).
+  if (goToSettings) {
+    overlayPermissionTripActive = true;
+    const trip = AndroidScreenTime.requestOverlayPermission();
+    // 왕복 종료 대기 지점 — 결과값·에러와 무관하게 '왕복이 끝났다(포그라운드 복귀)'만 알린다.
+    overlayPermissionTripPromise = trip.then(
+      () => {},
+      () => {},
+    );
+    try {
+      await trip;
+    } finally {
+      overlayPermissionTripActive = false;
+    }
+  }
 };
 
 // 플랫폼 라우팅 — iOS는 Swift 브릿지, 안드로이드 M1 범위는 Expo 모듈, 그 외(미구현 함수·
@@ -171,8 +273,8 @@ const ScreenTimeModule = {
     return NativeScreenTimeModule.getSystemColorScheme();
   },
 
-  // 목표 시간 저장 — iOS는 App Group(익스텐션 "남은 시간" 계산용), 안드로이드는 모듈 로컬
-  // 저장만(판정 계산은 M4).
+  // 목표 시간 저장 — iOS는 App Group(익스텐션 "남은 시간" 계산용), 안드로이드(GROMO-997)는
+  // 현재값 + 오늘 날짜 스냅샷 저장('그날 목표' 판정용) + 목표 초과 체크 주기(WorkManager) 등록.
   setGoalSeconds: async (seconds: number): Promise<void> => {
     if (AndroidScreenTime) return AndroidScreenTime.setGoalSeconds(seconds);
     if (Platform.OS !== 'ios') return;
@@ -213,6 +315,19 @@ const ScreenTimeModule = {
     if (AndroidScreenTime) return AndroidScreenTime.getYesterdayUsageBucketMinutes();
     if (Platform.OS !== 'ios') return 0;
     return NativeScreenTimeModule.getYesterdayUsageBucketMinutes();
+  },
+
+  // 어제 목표 달성 결과 — 'success' | 'fail' | null(판정 불가). iOS 네이티브 판정은 달성을
+  // 앱이 버킷 사용시간으로 판정하는 GROMO-942 일원화로 폐지돼 항상 null이고, 어제 마감·축하
+  // 흐름(screentimeSync)도 이 함수 없이 동작한다(휴면 계약). 안드로이드(GROMO-997)는 과거
+  // 조회가 되므로 '어제 사용시간 vs 그날 목표 스냅샷'을 네이티브가 계산해 계약을 채워 둔다 —
+  // 초과 판정선은 목표+60초 관용(정확히 목표에서 멈춘 유저 보호, iOS 구 threshold 규칙 동일).
+  getYesterdayResult: async (): Promise<YesterdayResult> => {
+    if (Platform.OS === 'android') {
+      const result = (await AndroidScreenTime?.getYesterdayResult?.()) ?? null;
+      return result === 'success' || result === 'fail' ? result : null;
+    }
+    return null;
   },
 
   // 사용량 버킷 측정 상태 디버그 조회(개발용) — App Group 기록 원본. iOS 외에는 null.
@@ -286,50 +401,265 @@ const ScreenTimeModule = {
   },
 
   // 집중 세션 실드 켜기 — 허용앱 외 전부 차단. 반환값: 적용 여부(권한 없으면 false).
+  // 안드로이드(GROMO-996): 포그라운드 서비스 폴링 차단(03 문서 §5). 사용 정보 접근·오버레이
+  // 권한이 없으면 네이티브가 false — 호출부는 iOS 권한 없음과 같은 '실드 없는 세션'(15초
+  // 이탈 정책)으로 강등된다. 구 바이너리(M3 함수 없음)도 false로 동일 강등.
   startFocusShield: async (subjectName: string): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      // 오버레이 권한이 없으면 1회에 한해 설정 이동을 안내한다(코드리뷰 반영) — 왕복 후에도
+      // 미허용이면 네이티브가 false를 반환해 기존 '실드 없는 세션' 강등을 그대로 탄다.
+      if (typeof AndroidScreenTime?.startFocusShield === 'function') {
+        await ensureOverlayPermissionOnce().catch(() => {});
+      }
+      return (await AndroidScreenTime?.startFocusShield?.(subjectName)) ?? false;
+    }
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.startFocusShield(subjectName);
   },
 
   // 집중 세션 실드 끄기 — 세션 정지·고아 세션 정리 시 호출(멱등).
   stopFocusShield: async (): Promise<void> => {
+    if (Platform.OS === 'android') {
+      await AndroidScreenTime?.stopFocusShield?.();
+      return;
+    }
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.stopFocusShield();
   },
 
   // 집중 중 사파리·웹 허용 여부 저장 — 실드 중이면 즉시 반영(GROMO-866).
+  // 안드로이드는 주요 브라우저 패키지(Chrome 등) 허용 토글로 대응 — 실드 서비스가 폴링마다
+  // 다시 읽어 세션 중에도 1~2초 안에 반영된다(§4 매핑).
   setFocusAllowSafariWeb: async (allowed: boolean): Promise<void> => {
+    if (Platform.OS === 'android') {
+      await AndroidScreenTime?.setFocusAllowSafariWeb?.(allowed);
+      return;
+    }
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.setFocusAllowSafariWeb(allowed);
   },
 
   // 저장된 사파리·웹 허용 여부 조회 (미설정 = false = 차단이 기본).
   getFocusAllowSafariWeb: async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (await AndroidScreenTime?.getFocusAllowSafariWeb?.()) ?? false;
+    }
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.getFocusAllowSafariWeb();
   },
 
   // 캐릭터 스냅샷(base64 PNG)을 App Group에 저장 — Live Activity·가림막이 읽어 표시.
+  // 안드로이드는 같은 앱이라 내부 저장소(filesDir)로 충분 — 차단 화면이 읽는다(§4 간소화).
   saveCharacterSnapshot: async (base64: string): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (await AndroidScreenTime?.saveCharacterSnapshot?.(base64)) ?? false;
+    }
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.saveCharacterSnapshot(base64);
   },
 
   // 집중 Live Activity(다이나믹 아일랜드/잠금화면) 시작. 실패해도 세션엔 영향 없음.
   // otherSubjects: 현재 과목 외 과목들의 누적 집중 시간 — 잠금화면에 정적 표시.
+  // 안드로이드(GROMO-996): 실드와 같은 포그라운드 서비스의 ongoing 알림 + chronometer로
+  // 상단바·잠금화면 실시간 타이머(§6). otherSubjects는 확장 알림의 커스텀 레이아웃에 최대
+  // 2개(iOS Live Activity와 동일 상한) 표시한다(GROMO-997).
   startFocusActivity: async (
     subjectName: string,
     otherSubjects: { name: string; seconds: number; color: string }[] = [],
   ): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      // 권한 왕복 중이면 시작을 왕복 종료까지 지연(코드리뷰 반영) — 설정으로 백그라운드에 간
+      // 동안의 FGS 시작은 안드12+가 거부해(false) 세션 내내 타이머 역할이 빠진다. 왕복
+      // promise는 포그라운드 복귀(OnActivityEntersForeground)에서 resolve되므로 그 직후의
+      // 시작은 허용된다. 대기 중 세션이 끝났으면(세대 증가) 뒤늦은 시작을 하지 않는다 —
+      // 고아 타이머 알림 방지. 시작 후 경과 보정은 호출부의 syncFocusTimerState가 담당.
+      if (overlayPermissionTripActive) {
+        const epoch = focusActivityEpoch;
+        await overlayPermissionTripPromise;
+        if (epoch !== focusActivityEpoch) return false;
+      }
+      return (
+        (await AndroidScreenTime?.startFocusActivity?.(
+          subjectName,
+          JSON.stringify(otherSubjects),
+        )) ?? false
+      );
+    }
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.startFocusActivity(subjectName, JSON.stringify(otherSubjects));
   },
 
   // 집중 Live Activity 종료(멱등).
   endFocusActivity: async (): Promise<void> => {
+    if (Platform.OS === 'android') {
+      focusActivityEpoch += 1; // 왕복 대기 중인 시작이 있으면 무효화(위 세대 설계 주석)
+      await AndroidScreenTime?.endFocusActivity?.();
+      return;
+    }
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.endFocusActivity();
   },
+
+  // 잠금화면 타이머 일시정지/재개(안드로이드 전용, 코드리뷰 반영) — 수동 일시정지 때 알림
+  // 크로노미터가 계속 오르는 문제를 동기화한다. iOS Live Activity·구 바이너리는 no-op(기존 동작).
+  pauseFocusActivity: async (): Promise<void> => {
+    if (Platform.OS === 'android') await AndroidScreenTime?.pauseFocusActivity?.();
+  },
+
+  resumeFocusActivity: async (): Promise<void> => {
+    if (Platform.OS === 'android') await AndroidScreenTime?.resumeFocusActivity?.();
+  },
+
+  // 잠금화면 타이머 재동기화(안드로이드 전용, 코드리뷰 반영) — 화면이 아는 집중 경과초·
+  // 일시정지 여부로 크로노미터 기준(base)을 다시 맞춘다. pause/resume 짝을 못 맞추는 경로 —
+  // 백그라운드 리플레이로 지난 휴식 경계, 스냅샷 지연 중 일시정지, 권한 왕복으로 지연된
+  // 시작 — 를 최종 상태 한 번으로 복구한다(멱등). iOS Live Activity·구 바이너리는 no-op.
+  syncFocusTimerState: async (elapsedSeconds: number, paused: boolean): Promise<void> => {
+    if (Platform.OS === 'android')
+      await AndroidScreenTime?.syncFocusTimerState?.(elapsedSeconds, paused);
+  },
+
+  // 실드 상실 구독(안드로이드 전용, 코드리뷰 반영) — 세션 중 오버레이·Usage Access 권한 회수로
+  // 네이티브가 실드를 내리면 호출된다. 반환값은 구독 해제 함수. iOS·구 바이너리는 no-op 해제
+  // 함수를 반환한다(화면 코드가 플랫폼 분기 없이 쓰게 한다).
+  subscribeFocusShieldLost: (listener: () => void): (() => void) => {
+    if (Platform.OS !== 'android' || !AndroidScreenTime?.addListener) return () => {};
+    const subscription = AndroidScreenTime.addListener('onFocusShieldLost', listener);
+    return () => subscription.remove();
+  },
+
+  // 오버레이 권한 설정 왕복 중인지(안드로이드 전용, 코드리뷰 반영) — startFocusShield의 1회
+  // 안내로 설정에 간 구간. FocusSessionScreen이 백그라운드 진입 시점에 읽어, 이 구간은 이탈로
+  // 기록하지 않는다(위 overlayPermissionTripActive 설계 주석 참고). iOS는 항상 false.
+  isOverlayPermissionTripActive: (): boolean => overlayPermissionTripActive,
+
+  // ── 오버레이 권한(안드로이드 전용, GROMO-996) ──
+  // 실드의 차단 화면을 서비스에서 띄우기 위한 SYSTEM_ALERT_WINDOW 상태 확인/설정 딥링크.
+  // Usage Access처럼 시스템 팝업이 없는 설정 토글 권한이라 왕복 후 재확인으로 resolve한다.
+  // iOS에는 대응 개념이 없어 항상 true(권한 문제 없음) — 호출부가 플랫폼 분기 없이 쓰게 한다.
+
+  // 오버레이 권한 보유 여부.
+  canDrawOverlays: async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (await AndroidScreenTime?.canDrawOverlays?.()) ?? false;
+    }
+    return Platform.OS === 'ios';
+  },
+
+  // 오버레이 권한 설정 딥링크 — 설정 왕복 후 허용 여부로 resolve.
+  requestOverlayPermission: async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (await AndroidScreenTime?.requestOverlayPermission?.()) ?? false;
+    }
+    return Platform.OS === 'ios';
+  },
+
+  // ── 배터리 최적화 예외(안드로이드 전용, GROMO-997) ──
+  // 제조사 절전·Doze가 백그라운드 측정(목표 초과 체크)·집중 FGS를 죽이는 걸 완화하는 안내용.
+  // 개별 앱 요청 다이얼로그 권한(REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)은 Play 민감 권한이라
+  // 쓰지 않고 최적화 설정 목록으로만 딥링크한다 — 유저가 목록에서 gromo를 찾아 바꾸는 UX.
+  // iOS에는 대응 개념이 없어 항상 true(문제 없음) — 호출부가 플랫폼 분기 없이 쓰게 한다.
+
+  // 배터리 최적화 예외 여부. 구 바이너리(M4 함수 없음)는 false(안내 유지)로 폴백.
+  isIgnoringBatteryOptimizations: async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (await AndroidScreenTime?.isIgnoringBatteryOptimizations?.()) ?? false;
+    }
+    return Platform.OS === 'ios';
+  },
+
+  // 배터리 최적화 설정 딥링크 — 설정 왕복 후 예외 여부로 resolve.
+  requestIgnoreBatteryOptimizations: async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (await AndroidScreenTime?.requestIgnoreBatteryOptimizations?.()) ?? false;
+    }
+    return Platform.OS === 'ios';
+  },
+
+  // ── 인앱 알림 설정 미러(안드로이드 전용, GROMO-997 코드리뷰) ──
+  // 목표 초과 워커(GoalExceededCheckWorker)가 OS 권한·채널뿐 아니라 인앱 '알림 받기'·'소리'·
+  // '심야 방해 금지'까지 존중하게, JS가 값을 네이티브 prefs로 복제한다. iOS엔 대응 워커가 없고
+  // 구 바이너리(M4 함수 없음)는 no-op — 둘 다 무해(항상 no-op이라 반환은 void).
+  setNotificationPreferences: async (prefs: NotificationSettingsRequest): Promise<void> => {
+    if (Platform.OS !== 'android') return;
+    await AndroidScreenTime?.setNotificationPreferences?.(
+      prefs.notificationEnabled,
+      prefs.soundEnabled,
+      prefs.nightModeEnabled,
+      prefs.nightStartTime ?? '22:00',
+      prefs.nightEndTime ?? '08:00',
+    );
+  },
 };
+
+// 계정 teardown·프로필 부재 시 쓰는 안전한 기본 — 알림 off로 두어, 새 계정의 실제 값이
+// 프로필에서 미러될 때까지 이전 계정의 미러값이 남지 않게 한다(옵트아웃 안전 우선).
+const NOTIF_PREFS_OFF: NotificationSettingsRequest = {
+  notificationEnabled: false,
+  soundEnabled: false,
+  nightModeEnabled: false,
+  nightStartTime: '22:00',
+  nightEndTime: '08:00',
+};
+
+// 인앱 알림 설정을 네이티브로 미러(GROMO-997 코드리뷰) — 앱 시작·포그라운드 복귀·계정 전환
+// (ScreenTimeSyncer 리마운트) 시 호출한다. NotificationSettingsScreen이 서버 조회·설정 변경분을
+// 이 캐시(STORAGE_KEYS.notificationSettings)에 써두므로, 유저가 설정 화면을 다시 열지 않아도
+// 목표 초과 워커가 최신 인앱 설정을 존중한다.
+//
+// 캐시가 없을 때(새 설치·계정 전환 직후)가 핵심 — 예전엔 조기 리턴해 네이티브 기본값(알림 on)
+// 이나 이전 계정의 미러값이 그대로 남아, 서버에서 알림을 끈 유저가 목표 알림을 받을 수 있었다
+// (코드리뷰 P1). 이제 캐시가 없으면 서버 프로필을 읽어 실제 값으로 미러하고, 그 값을 캐시에도
+// 채워 다음 미러가 재조회 없이 쓰게 한다. 프로필 조회에 실패하면 알림 off로 리셋해 이전 계정
+// 미러값이 남지 않게 한다. iOS·구 바이너리(M4 함수 없음)는 no-op이라 무해하다.
+export async function mirrorNotificationPreferencesToNative(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  let cached: Partial<NotificationSettingsRequest> | null = null;
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.notificationSettings);
+    if (raw) cached = JSON.parse(raw) as Partial<NotificationSettingsRequest>;
+  } catch {
+    // 캐시 읽기·파싱 실패 → 아래 서버 프로필 폴백으로
+  }
+  if (cached) {
+    await ScreenTimeModule.setNotificationPreferences({
+      notificationEnabled: cached.notificationEnabled ?? true,
+      soundEnabled: cached.soundEnabled ?? true,
+      nightModeEnabled: cached.nightModeEnabled ?? false,
+      nightStartTime: cached.nightStartTime ?? '22:00',
+      nightEndTime: cached.nightEndTime ?? '08:00',
+    }).catch(() => {});
+    return;
+  }
+  // 캐시가 없거나 깨졌으면 서버 프로필을 읽어 미러한다.
+  try {
+    const p = await getMyProfile();
+    const body: NotificationSettingsRequest = {
+      notificationEnabled: p.notificationEnabled ?? true,
+      soundEnabled: p.soundEnabled ?? true,
+      nightModeEnabled: p.nightModeEnabled ?? false,
+      nightStartTime: p.nightStartTime ?? '22:00',
+      nightEndTime: p.nightEndTime ?? '08:00',
+    };
+    // 다음 미러·설정 화면이 재조회 없이 쓰도록 캐시에도 반영.
+    await AsyncStorage.setItem(STORAGE_KEYS.notificationSettings, JSON.stringify(body)).catch(
+      () => {},
+    );
+    await ScreenTimeModule.setNotificationPreferences(body);
+  } catch {
+    // 프로필 조회 실패 → 알림 off로 리셋(이전 계정 미러값이 남지 않게). 다음 미러가 재시도.
+    await ScreenTimeModule.setNotificationPreferences(NOTIF_PREFS_OFF).catch(() => {});
+  }
+}
+
+// 계정 teardown(로그아웃·계정 전환) 시 네이티브 알림 설정을 안전한 기본(알림 off)으로 리셋
+// (GROMO-997 코드리뷰) — teardown이 notificationSettings 캐시를 지워도 네이티브 미러엔 이전
+// 계정 값이 남아, 새 계정이 목표를 걸면 워커가 이전 계정 설정으로 판단할 수 있다. off로 리셋해
+// 두면 새 계정의 실제 값이 다음 미러(프로필 조회)에서 채워질 때까지 옵트아웃이 유지된다.
+// iOS·구 바이너리는 no-op.
+export async function resetNativeNotificationPreferences(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  await ScreenTimeModule.setNotificationPreferences(NOTIF_PREFS_OFF).catch(() => {});
+}
 
 export default ScreenTimeModule;

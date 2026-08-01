@@ -350,6 +350,15 @@ export default function FocusSessionScreen() {
     },
     [],
   );
+  // 세션 중 실드 상실(안드로이드, 코드리뷰 반영) — 오버레이 권한 회수 등으로 네이티브가 실드를
+  // 내리면 이벤트로 알려온다. 실드 표시를 내려 이후 이탈은 기존 15초 정책(실드 없는 세션)을 탄다.
+  useEffect(
+    () =>
+      ScreenTimeModule.subscribeFocusShieldLost(() => {
+        shieldedRef.current = false;
+      }),
+    [],
+  );
 
   // Live Activity(다이나믹 아일랜드) — 캐릭터 스냅샷을 App Group에 저장한 뒤 시작.
   // 화면을 떠나면 종료. 스냅샷 실패 시 위젯이 기본 마스코트로 폴백한다.
@@ -376,7 +385,21 @@ export default function FocusSessionScreen() {
           .sort((a, b) => b.accumulatedSeconds - a.accumulatedSeconds)
           .slice(0, 2)
           .map((x) => ({ name: x.name, seconds: x.accumulatedSeconds, color: x.color }));
-        ScreenTimeModule.startFocusActivity(subjectName, others).catch(() => {});
+        ScreenTimeModule.startFocusActivity(subjectName, others)
+          .then((started) => {
+            // 시작 직후 현재 상태로 재동기화(안드로이드, 코드리뷰 반영) — 스냅샷 지연(0.6~2.1초)
+            // 중 누른 일시정지는 네이티브가 타이머 시작 전이라 무시하고(applyTimerPaused no-op),
+            // 권한 왕복으로 시작이 지연됐다면 그 사이 경과·페이즈도 달라져 있다. 시작이 확정된
+            // 시점의 집중 경과·일시정지 상태(휴식 페이즈 포함)를 한 번에 반영한다.
+            if (started && Platform.OS === 'android') {
+              const cur = sessionRef.current;
+              ScreenTimeModule.syncFocusTimerState(
+                Math.floor(cur.elapsed),
+                pausedRef.current || cur.phase !== 'focus',
+              ).catch(() => {});
+            }
+          })
+          .catch(() => {});
       }
     }, 600);
     return () => {
@@ -595,8 +618,17 @@ export default function FocusSessionScreen() {
     prevPhaseRef.current = cur;
     Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
     if (prev === 'focus' && cur === 'break') {
+      // 휴식 동안 알림 크로노미터도 정지(안드로이드, 코드리뷰 반영) — 수동 togglePause만
+      // 배선하면 뽀모도로 휴식마다 잠금화면 경과가 휴식 시간만큼 앞서간다. 네이티브 pause는
+      // 멱등이라 휴식 중 수동 일시정지가 겹쳐도 무해하다.
+      if (Platform.OS === 'android') ScreenTimeModule.pauseFocusActivity().catch(() => {});
       settleFocusBlock();
     } else if (prev === 'break' && cur === 'focus') {
+      // 재개는 실제 집중이 시작될 때만 — 휴식 만료가 일시정지 대기(markerDeferred)로 이어진
+      // 경우엔 togglePause의 재개 분기가 resume을 부른다(여기서 풀면 대기 내내 크로노미터가
+      // 흐른다).
+      if (Platform.OS === 'android' && !pausedRef.current)
+        ScreenTimeModule.resumeFocusActivity().catch(() => {});
       settleAtRef.current = new Date().toISOString();
       if (pausedRef.current) {
         // 휴식 만료 복귀가 다음 블록을 일시정지 대기로 만든 경우 — 지금 열면 대기 내내
@@ -616,12 +648,28 @@ export default function FocusSessionScreen() {
   // 앞서 있어, 복귀 리플레이의 경계 시각(leftAt + i초)이 그만큼 당겨진다(코덱스 리뷰).
   // 리플레이는 이 스냅샷에서 시작하고, 복귀 시 setSession이 전진분을 통째로 덮어쓴다.
   const leftSessionRef = useRef<SessionState | null>(null);
+  // 오버레이 권한 설정 왕복의 백그라운드 진입 시각(안드로이드, 코드리뷰 반영) — 왕복은 이탈로
+  // 기록하지 않지만(leftAt 미기록), 복귀 시 이 값으로 왕복한 실제 시간을 재 서버 업로드 경계를
+  // 그만큼 앞당긴다(아래 active 분기 참고). 왕복이 아닌 이탈과 상호배타(둘 중 하나만 세워진다).
+  const overlayTripLeftAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       // 나감 — 타이머가 실제 돌고 있을 때만 이탈로 취급(일시정지·완료 중은 무시)
       if (state === 'background') {
         if (sessionRef.current.done || finishedRef.current || pausedRef.current) return;
+        // 오버레이 권한 설정 왕복(안드로이드, 코드리뷰 반영) — startFocusShield의 1회 안내로
+        // 설정에 간 구간은 이탈로 기록하지 않는다. 이때는 실드가 아직 안 켜져 있어 15초 정책이
+        // "허용하지 않아도 집중은 계속" 안내와 모순되게 세션을 끝내버린다. 진입 시점에 기록
+        // (leftAt) 자체를 안 남기므로 복귀 시 'active' 이벤트와 권한 resolve(플래그 해제)의
+        // 순서 레이스와 무관하게 안전하고, 왕복이 끝난 뒤의 이탈부터는 정상 판정이 재개된다.
+        // 저장만 해두고(왕복 중 강제 종료 대비) 빠진다. 백그라운드 진입 시각은 잡아둬 복귀 시
+        // 왕복 시간만큼 서버 업로드 경계(settleAtRef)를 앞당긴다(아래 active 분기).
+        if (ScreenTimeModule.isOverlayPermissionTripActive()) {
+          overlayTripLeftAtRef.current = Date.now();
+          saveLive(sessionRef.current.elapsed);
+          return;
+        }
         leftAtRef.current = Date.now();
         leftPhaseRef.current = sessionRef.current.phase;
         leftSessionRef.current = sessionRef.current; // 리플레이 기준 스냅샷(leftAt과 짝)
@@ -634,6 +682,24 @@ export default function FocusSessionScreen() {
         // 남은 타이머/뽀모도로 페이즈와 결과 화면을 복구할 수 없다. 실제 완료를 복구할 수 없는
         // 알림이 발송되지 않도록 백그라운드 경계 알림은 예약하지 않는다(코덱스 리뷰).
         return;
+      }
+      // 오버레이 권한 왕복 복귀(안드로이드, 코드리뷰 반영) — 왕복 구간은 JS 타이머가 멈춰 로컬
+      // session.elapsed엔 빠지지만, settleFocusBlock은 settleAtRef~endedAt을 업로드하고 서버 통계는
+      // endedAt−startedAt이라 그 시간이 집중으로 잡혀 로컬과 어긋난다. 왕복한 실제 시간만큼 업로드
+      // 경계(settleAtRef)를 앞당겨 서버 구간에서도 왕복을 제외한다 — 로컬 elapsed·잠금화면
+      // 크로노미터(둘 다 elapsed 기준이라 이미 왕복 제외)와 정합. 왕복은 leftAt을 안 남겨
+      // fast-forward·자동종료와 무관하므로, 경계만 밀고 아래 이탈 판정은 그대로 통과시킨다.
+      // 플래그(isOverlayPermissionTripActive) 대신 진입 시각 ref로 재므로 복귀 시 active 이벤트와
+      // 플래그 해제의 순서 레이스와 무관하다.
+      if (state === 'active' && overlayTripLeftAtRef.current != null) {
+        const tripAway = Date.now() - overlayTripLeftAtRef.current;
+        overlayTripLeftAtRef.current = null;
+        if (tripAway > 0) {
+          settleAtRef.current = new Date(
+            new Date(settleAtRef.current).getTime() + tripAway,
+          ).toISOString();
+          saveLive(sessionRef.current.elapsed); // 밀린 경계로 고아 레코드도 갱신
+        }
       }
       if (state !== 'active' || leftAtRef.current == null) return;
 
@@ -707,6 +773,18 @@ export default function FocusSessionScreen() {
           }
           setSession(cur);
           saveLive(cur.elapsed);
+          // 리플레이 경로의 크로노미터 재동기화(안드로이드, 코드리뷰 반영) — 위 루프는 지나온
+          // 페이즈 경계를 직접 처리하고 prevPhaseRef를 최종 페이즈로 세워 전환 effect(pause/
+          // resume 배선)가 돌지 않으므로, 그대로 두면 잠금화면 크로노미터가 리플레이로 지난
+          // 휴식 시간까지 포함한 채 계속 간다. 경계마다 pause/resume을 재연하는 대신 최종 집중
+          // 경과·페이즈로 한 번에 재동기화한다 — 네이티브가 base를 now−경과로 재설정하므로
+          // 지나온 휴식이 몇 번이든 정확하고, 경계를 안 지난 복귀에도 드리프트 보정으로
+          // 무해하다(멱등).
+          if (Platform.OS === 'android')
+            ScreenTimeModule.syncFocusTimerState(
+              Math.floor(cur.elapsed),
+              cur.phase !== 'focus',
+            ).catch(() => {});
         } else if (away > LEAVE_END_S) {
           // 폴백(실드 없음) — 15초 초과 시 자동 종료(나가기 직전까지만 저장)
           // 정상 완료가 아닌 중도 이탈 종료이므로 abandoned 계측(reason: leave_timeout).
@@ -757,8 +835,15 @@ export default function FocusSessionScreen() {
     const next = !pausedRef.current;
     setPaused(next);
     if (next) {
+      // 알림 크로노미터도 함께 정지(안드로이드, 코드리뷰 반영) — JS 타이머만 멈추면 잠금화면
+      // 경과가 일시정지 시간만큼 앞서간다. iOS Live Activity는 대응 개념이 없어 기존 동작 유지.
+      if (Platform.OS === 'android') ScreenTimeModule.pauseFocusActivity().catch(() => {});
       logFocusSessionPaused({ elapsed_seconds: Math.floor(sessionRef.current.elapsed) });
     } else {
+      // 휴식 중 수동 재개는 크로노미터를 풀지 않는다 — 휴식 구간은 페이즈 전환이 걸어둔
+      // pause가 유지돼야 하고(코드리뷰 반영), 휴식→집중 전환이 다시 resume한다.
+      if (Platform.OS === 'android' && sessionRef.current.phase === 'focus')
+        ScreenTimeModule.resumeFocusActivity().catch(() => {});
       // 일시정지 대기로 유예해둔 다음 블록 마커 — 실제 집중이 시작되는 재개 시점부터 연다.
       // 정산 기준(settleAt)도 재개 시점으로 — 대기 동안은 경과초가 멈춰 있어 안전(코덱스 리뷰).
       if (markerDeferredRef.current) {
