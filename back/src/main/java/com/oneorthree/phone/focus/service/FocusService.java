@@ -595,6 +595,11 @@ public class FocusService {
         if (statDate.isBefore(today.minusDays(1)) || statDate.isAfter(today)) {
             return 0;
         }
+        // 목표치 상한 방어(코드리뷰 R4) — 비현실적 목표(예: Integer.MAX_VALUE)는 달성 판정의 goal*60 이
+        // 32비트 오버플로로 음수가 돼 빈 세션도 '달성'으로 오판정될 수 있다. 현실 최대(24h)를 넘으면 지급하지 않는다.
+        if (goalMinutes > 24 * 60) {
+            return 0;
+        }
         int reward = CurrencyRewardPolicy.focusGoalReward(goalMinutes);
         if (reward > 0) {
             currencyLedgerService.credit(user, CurrencyTransactionType.FOCUS_GOAL, reward,
