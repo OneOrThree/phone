@@ -18,11 +18,6 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
 }));
 
-const mockNavigate = jest.fn();
-jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: mockNavigate }),
-}));
-
 let mockIsGuest = false;
 jest.mock('@/store/UserContext', () => ({
   useUser: () => ({ isGuest: mockIsGuest }),
@@ -93,13 +88,14 @@ function summary(groupId: string): GroupSummaryResponse {
 
 const onClose = jest.fn();
 const onJoined = jest.fn();
+const onLogin = jest.fn();
 
 // RTL v14의 render는 async다 — 반드시 await한다(안 하면 쿼리가 붙지 않은 thenable이 돌아온다).
 // 마운트 직후 프리뷰 조회(getMyGroups→getGroupOverview) 프라미스까지 흘려보낸다 —
 // act 밖에서 setState가 돌면 경고가 쏟아진다.
 async function renderSheet() {
   const result = await render(
-    <GroupInviteSheet groupId={GROUP_ID} onClose={onClose} onJoined={onJoined} />,
+    <GroupInviteSheet groupId={GROUP_ID} onClose={onClose} onJoined={onJoined} onLogin={onLogin} />,
   );
   await act(async () => {});
   return result;
@@ -127,9 +123,11 @@ describe('프리뷰 조회 분기', () => {
     expect(screen.getByText('로그인하면 그룹에 참여할 수 있어요')).toBeOnTheScreen();
     expect(mockGetGroupOverview).not.toHaveBeenCalled();
 
-    // 로그인으로 보내되 시트를 닫지 않는다 — 초대 버퍼가 살아 있어야 로그인 후 같은 그룹으로 복귀한다(§6-6).
+    // 이동·시트 내리기는 부모(onLogin)의 몫이다. 이 시트는 RN 네이티브 Modal이라
+    // 그대로 두면 계정 화면 위에 남아 소셜 로그인 버튼을 가린다(로그인 자체가 불가능해진다).
+    // 대신 onClose는 부르지 않는다 — onClose는 초대 버퍼까지 비워 로그인 후 복귀(§6-6)를 깬다.
     await press('로그인하고 참여하기');
-    expect(mockNavigate).toHaveBeenCalledWith('SettingsAccount');
+    expect(onLogin).toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
   });
 
@@ -178,6 +176,24 @@ describe('프리뷰 조회 분기', () => {
     await renderSheet();
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
+  });
+
+  // fail-open이면 이미 A 그룹에 있는 사용자가 B에도 가입돼 앱이 못 보여주는 그룹이 생긴다(§0).
+  test('소속 그룹을 끝내 확인하지 못하면 참여를 막는다(fail-closed)', async () => {
+    mockGetMyGroups.mockRejectedValue(new Error('network'));
+    mockGetGroupOverview.mockResolvedValue(overview());
+    await renderSheet();
+
+    // 프리뷰까지는 보여준다 — 막는 것은 참여뿐이다.
+    expect(await screen.findByText('아침 6시 집중방')).toBeOnTheScreen();
+
+    await press('참여하기');
+
+    expect(
+      await screen.findByText('소속 그룹을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'),
+    ).toBeOnTheScreen();
+    expect(mockJoinGroup).not.toHaveBeenCalled();
+    expect(mockGetMyGroups).toHaveBeenCalledTimes(2); // 마운트 시 1회 + 참여 직전 재확인 1회
   });
 
   test('404는 사라진 그룹으로 안내한다', async () => {

@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import axios from 'axios';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
@@ -9,7 +7,6 @@ import { useUser } from '@/store/UserContext';
 import { getGroupOverview, getMyGroups, groupErrorCode, joinGroup } from '@/services/groupApi';
 import { logGroupJoinAttempted } from '@/services/analyticsEvents';
 import type { GroupOverviewResponse } from '@/types/dto/group';
-import type { V2RootStackParamList } from '@/navigation/types';
 
 // 초대 링크 프리뷰 시트 — 명세 docs/app/group-plan.md §6-6.
 //
@@ -21,6 +18,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 //     → GroupScreen이 리스너/peekPendingInvite로 받아 이 시트를 groupId와 함께 렌더
 //   ⚠️ 버퍼 수명은 GroupScreen이 관리한다(onClose/onJoined에서 clearPendingInvite 호출).
 //      **이 파일 안에서 navigationRef의 버퍼를 직접 만지지 않는다** — 게스트 로그인 후 복귀가 깨진다.
+//      로그인 유도는 onLogin(시트만 내림, 버퍼 유지)이라 onClose(버퍼 삭제)와 역할이 다르다.
 //
 // 상태 분기(§6-6) — 프리뷰 판정은 getGroupOverview(groupId) 한 번으로 끝낸다.
 //   (상세 getGroupDetail은 그룹원만이라 참여 전에 부르면 403 — §3-1-4)
@@ -43,6 +41,10 @@ export interface GroupInviteSheetProps {
   onClose: () => void;
   // 참여 성공 또는 이미 멤버 — 부모가 시트를 내리고 getMyGroups()를 재조회해 그룹방으로 전환한다.
   onJoined: () => void;
+  // 게스트 로그인 유도 — 부모가 **시트만 내리고 초대 버퍼는 남긴 채** 계정 화면으로 보낸다.
+  // ⚠️ onClose와 혼용 금지: onClose는 버퍼까지 비워 로그인 후 복귀(§6-6)가 깨진다.
+  //    이 시트는 asModal(RN 네이티브 Modal)이라 내리지 않으면 계정 화면 위에 남아 로그인 버튼을 가린다.
+  onLogin: () => void;
 }
 
 // 참여를 막는 사유 — 버튼 비활성 + 안내 문구가 함께 결정된다.
@@ -87,8 +89,12 @@ function missionLabel(ov: GroupOverviewResponse): string | null {
   return null;
 }
 
-export default function GroupInviteSheet({ groupId, onClose, onJoined }: GroupInviteSheetProps) {
-  const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+export default function GroupInviteSheet({
+  groupId,
+  onClose,
+  onJoined,
+  onLogin,
+}: GroupInviteSheetProps) {
   const { isGuest } = useUser();
 
   const [overview, setOverview] = useState<GroupOverviewResponse | null>(null);
@@ -110,7 +116,8 @@ export default function GroupInviteSheet({ groupId, onClose, onJoined }: GroupIn
     joinedRef.current = onJoined;
   }, [onJoined]);
 
-  // 내 그룹 1건 조회. 실패는 undefined로 남겨 프리뷰를 막지 않는다(보조 조회).
+  // 내 그룹 1건 조회. 실패는 undefined('모름')로 남겨 **프리뷰까지는** 막지 않는다(보조 조회).
+  // 참여는 모름 상태에서 허용하지 않는다 — join()의 fail-closed 주석 참고.
   const fetchMyGroupId = useCallback(
     () =>
       getMyGroups()
@@ -163,10 +170,15 @@ export default function GroupInviteSheet({ groupId, onClose, onJoined }: GroupIn
     if (joining || block) return;
     setJoinError(null);
     // 보조 조회가 실패해 내 그룹 상태를 모르면 참여 직전에 다시 확인한다(그룹 1개 전제 방어).
-    // 여기서도 실패하면 막지 않는다 — 초대 참여를 네트워크 사정으로 죽이지 않는 쪽을 택한다.
+    // 여기서도 실패하면 **막는다(fail-closed)** — 통과시키면 이미 다른 그룹에 있는 사용자가
+    // 두 그룹에 걸치고, 앱은 groups[0]만 보여줘 나머지 한 곳은 나갈 수도 없는 상태로 남는다(§0).
     if (myGroupId.current === undefined) {
       const mine = await fetchMyGroupId();
       myGroupId.current = mine;
+      if (mine === undefined) {
+        setJoinError('소속 그룹을 확인하지 못했어요. 잠시 후 다시 시도해주세요.');
+        return;
+      }
       if (mine && mine !== groupId) {
         setBlock('otherGroup');
         return;
@@ -201,19 +213,15 @@ export default function GroupInviteSheet({ groupId, onClose, onJoined }: GroupIn
     }
   }, [block, fetchMyGroupId, groupId, joining]);
 
-  // 로그인 유도 — 시트를 닫지 않는다. 로그인하면 앱이 재부팅되고 초대 버퍼가 남아 있어
-  // GroupScreen이 같은 그룹으로 이 시트를 다시 띄운다(§6-6 QA: 게스트 링크 진입).
-  const goLogin = useCallback(() => {
-    navigation.navigate('SettingsAccount');
-  }, [navigation]);
-
   // ── 게스트 — 조회 없이 로그인 유도(§5-3) ──
+  // 이동·시트 내리기는 부모(onLogin)가 한다. 시트는 내려도 초대 버퍼는 살아 있어,
+  // 로그인으로 앱 트리가 리마운트되면 GroupScreen이 같은 그룹으로 이 시트를 다시 띄운다(§6-6).
   if (isGuest || guestBlocked) {
     return (
       <SheetShell onClose={onClose} asModal>
         <Text style={s.title}>로그인하면 그룹에 참여할 수 있어요</Text>
         <Text style={s.desc}>로그인한 뒤 이 초대장이 다시 열려요.</Text>
-        <TouchableOpacity style={s.primaryBtn} activeOpacity={0.85} onPress={goLogin}>
+        <TouchableOpacity style={s.primaryBtn} activeOpacity={0.85} onPress={onLogin}>
           <Text style={s.primaryText}>로그인하고 참여하기</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.ghostBtn} activeOpacity={0.7} onPress={onClose}>

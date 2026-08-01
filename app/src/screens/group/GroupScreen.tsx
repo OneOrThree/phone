@@ -39,6 +39,10 @@ export default function GroupScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
+  // mutation(생성·참여) 직후의 전이 중인가 — 성공한 mutation을 후속 GET 실패가 삼키지 않게 한다.
+  // 전이 중에는 기존 빈 상태를 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
+  // (그러지 않으면 생성 성공 → GET 실패 시 다시 '그룹 만들기' 빈 화면이 떠 같은 그룹을 또 만든다.)
+  const [transitioning, setTransitioning] = useState(false);
 
   // ── 초대 링크 수신(§6-6) ──────────────────────────────────────────────
   // 시트는 라우트가 아니라 이 화면 위의 오버레이라, 링크 수신은 navigationRef의 모듈 버퍼 +
@@ -73,6 +77,8 @@ export default function GroupScreen() {
       const rows = await getMyGroups();
       if (seq !== requestSeqRef.current) return;
       setGroups(rows);
+      // 최신 목록을 받은 시점에만 전이가 끝난다 — 실패 때 풀면 빈 상태로 되돌아간다.
+      setTransitioning(false);
     } catch {
       if (seq !== requestSeqRef.current) return;
       setError(true);
@@ -81,11 +87,21 @@ export default function GroupScreen() {
     }
   }, [isGuest]);
 
+  // mutation 성공 직후의 재조회 — 결과가 올 때까지(또는 실패가 확정될 때까지) 빈 상태를 렌더하지 않는다.
+  const fetchAfterMutation = useCallback(() => {
+    setTransitioning(true);
+    fetchGroups();
+  }, [fetchGroups]);
+
   // 포커스마다 재조회 — 생성/참여 직후(스택 pop·시트 닫힘) 그룹방으로 즉시 전환된다. 진입 계측도 여기서.
+  // cleanup에서 시퀀스를 올려 진행 중이던 요청을 무효화한다 — 화면을 떠난 뒤 setState가 도는 것을 막는다.
   useFocusEffect(
     useCallback(() => {
       logGroupViewed();
       fetchGroups();
+      return () => {
+        requestSeqRef.current++;
+      };
     }, [fetchGroups]),
   );
 
@@ -94,21 +110,63 @@ export default function GroupScreen() {
     setInviteGroupId(null);
   }, []);
 
+  // 게스트 초대 → 로그인 유도(§6-6). **시트만 내리고 초대 버퍼는 남긴다** —
+  // 로그인하면 앱 트리가 리마운트되고 peekPendingInvite()가 같은 그룹 프리뷰를 다시 띄운다.
+  // clearPendingInvite를 부르는 closeInvite와 절대 혼용하지 않는다(버퍼를 지우면 초대가 증발한다).
+  // 시트를 내리는 이유는 RN 네이티브 Modal이라 계정 화면 위에 그대로 남아 로그인 버튼을 가리기 때문이다.
+  const onInviteLogin = useCallback(() => {
+    setInviteGroupId(null);
+    navigation.navigate('SettingsAccount');
+  }, [navigation]);
+
   // 초대로 참여 완료 — 버퍼를 비우고 재조회해 그룹방으로 전환한다.
   const onInviteJoined = useCallback(() => {
     closeInvite();
-    fetchGroups();
-  }, [closeInvite, fetchGroups]);
+    fetchAfterMutation();
+  }, [closeInvite, fetchAfterMutation]);
 
   // 검색으로 참여 완료 — 시트를 닫고 재조회.
   const onFindJoined = useCallback(() => {
     setFindOpen(false);
+    fetchAfterMutation();
+  }, [fetchAfterMutation]);
+
+  // 그룹 나가기 성공 — 재조회를 기다리지 않고 즉시 빈 상태로 되돌린다.
+  // (재조회만 믿으면 GET 실패 시 이미 나간 그룹방이 그대로 남는다.)
+  const onLeft = useCallback(() => {
+    setGroups([]);
+    setError(false);
+    setTransitioning(false);
     fetchGroups();
   }, [fetchGroups]);
 
+  // 그룹 만들기 진입 — 돌아왔을 때의 포커스 재조회를 전이로 취급한다.
+  // 만들지 않고 돌아온 경우에도 손해는 없다(조회에 성공하면 그대로 빈 상태로 떨어진다).
+  const openCreate = useCallback(() => {
+    setTransitioning(true);
+    navigation.navigate('GroupCreate');
+  }, [navigation]);
+
   const inviteSheet = inviteGroupId ? (
-    <GroupInviteSheet groupId={inviteGroupId} onClose={closeInvite} onJoined={onInviteJoined} />
+    <GroupInviteSheet
+      groupId={inviteGroupId}
+      onClose={closeInvite}
+      onJoined={onInviteJoined}
+      onLogin={onInviteLogin}
+    />
   ) : null;
+
+  // 기존 데이터가 있는 재조회 실패 — 화면을 갈아엎지 않고 인라인 배너로 알린다.
+  // 무음으로 두면 방금 만든/참여한 그룹이 없는 화면을 보고 같은 동작을 반복하게 된다.
+  const staleNotice =
+    error && !transitioning && groups !== null ? (
+      <View style={s.banner}>
+        <Text style={s.bannerText}>목록을 새로고침하지 못했어요</Text>
+        <TouchableOpacity onPress={() => fetchGroups()} hitSlop={12} activeOpacity={0.7}>
+          <Text style={s.bannerRetry}>다시 시도</Text>
+        </TouchableOpacity>
+      </View>
+    ) : null;
 
   // ── 게스트 — 호출 없이 로그인 유도(§5-3) ──
   if (isGuest) {
@@ -133,8 +191,8 @@ export default function GroupScreen() {
     );
   }
 
-  // ── 최초 로딩 — 중앙 스피너(§5-4). 재조회(포커스) 때는 기존 화면을 유지한다. ──
-  if (groups === null && loading) {
+  // ── 최초 로딩·전이 로딩 — 중앙 스피너(§5-4). 일반 재조회(포커스) 때는 기존 화면을 유지한다. ──
+  if ((groups === null || transitioning) && loading) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         <View style={s.center}>
@@ -145,8 +203,8 @@ export default function GroupScreen() {
     );
   }
 
-  // ── 에러 + 다시 시도 ──
-  if (groups === null && error) {
+  // ── 에러 + 다시 시도 — 목록을 한 번도 못 받았거나, mutation 전이가 실패로 끝난 경우 ──
+  if ((groups === null || transitioning) && error) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         <View style={[s.body, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
@@ -168,7 +226,8 @@ export default function GroupScreen() {
   if (myGroup) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
-        <GroupRoomScreen groupId={myGroup.groupId} summary={myGroup} onLeft={fetchGroups} />
+        {staleNotice}
+        <GroupRoomScreen groupId={myGroup.groupId} summary={myGroup} onLeft={onLeft} />
         {inviteSheet}
       </SafeAreaView>
     );
@@ -177,6 +236,7 @@ export default function GroupScreen() {
   // ── 빈 상태 ──
   return (
     <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
+      {staleNotice}
       <View style={[s.body, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
         <CharacterImage size={140} />
         <Text style={s.title}>함께 집중할 그룹을 만들어보세요</Text>
@@ -184,7 +244,7 @@ export default function GroupScreen() {
         <TouchableOpacity
           style={s.primaryBtn}
           activeOpacity={0.85}
-          onPress={() => navigation.navigate('GroupCreate')}
+          onPress={openCreate}
           testID="group.create.entry"
         >
           <Text style={s.primaryText}>그룹 만들기</Text>
@@ -258,4 +318,16 @@ const s = StyleSheet.create({
     backgroundColor: T.accent,
   },
   retryText: { ...T.text.label, color: T.white },
+
+  // 재조회 실패 인라인 배너 — 문구는 그룹 화면 공통 s.notice 규격(caption/dangerInk),
+  // 재시도 링크는 '모두보기'와 같은 accent 링크 규격을 쓴다(§G-4).
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: T.space.xl,
+    paddingTop: T.space.sm,
+  },
+  bannerText: { ...T.text.caption, color: T.dangerInk },
+  bannerRetry: { ...T.text.caption, color: T.accent },
 });
