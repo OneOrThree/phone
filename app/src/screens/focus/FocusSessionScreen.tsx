@@ -483,7 +483,8 @@ export default function FocusSessionScreen() {
       if (!finishedRef.current) {
         cancelLiveSession();
         if (!dwellDoneRef.current) {
-          flushViewDwell();
+          // 가로면 세로 페이저는 가려진 상태 — 뷰 flush를 건너뛰고 방향 체류만 발행(코덱스 리뷰)
+          if (orientationRef.current !== 'landscape') flushViewDwell();
           flushOrientationDwell();
         }
         // 종결 계측 — finish를 안 거친 이탈도 abandoned로 남긴다(코덱스 리뷰). 안 남기면
@@ -615,7 +616,8 @@ export default function FocusSessionScreen() {
       // 마지막 뷰·방향 체류를 함께 발행(GROMO-973/987). 완료 게이트가 이미 발행했다면 둘 다
       // 건너뛴다 — 게이트를 열어둔 시간이 직전 뷰/방향의 체류로 다시 계상되는 이중 발행 방지(코덱스 리뷰).
       if (!dwellDoneRef.current) {
-        flushViewDwell();
+        // 가로면 세로 페이저는 가려진 상태 — 뷰 flush를 건너뛰고 방향 체류만 발행(코덱스 리뷰)
+        if (orientationRef.current !== 'landscape') flushViewDwell();
         flushOrientationDwell();
       }
       // 정상 종료 — 실드·Live Activity 해제
@@ -683,7 +685,9 @@ export default function FocusSessionScreen() {
     // 마지막 뷰·방향 체류도 게이트가 화면을 덮는 지금 발행 — 확인을 누를 때까지 열어둔 시간은
     // 가려진 뷰를 보거나 방향을 유지하는 게 아니므로 체류에서 제외한다(코덱스 리뷰). finish의 flush는 스킵됨.
     dwellDoneRef.current = true;
-    flushViewDwell();
+    // 가로에선 세로 페이저가 가려져 있고 마지막 페이지 체류는 가로 진입 때 이미 발행됐다 — 여기서 또
+    // flush하면 리셋된 character 페이지의 0초 체류가 발행된다(코덱스 리뷰). 방향 체류만 발행한다.
+    if (orientationRef.current !== 'landscape') flushViewDwell();
     flushOrientationDwell();
     // 완료 계측도 게이트 시점에 발행 — 게이트를 띄운 채 앱이 종료되면 finish가 안 불려
     // 저장된 세션의 완료 이벤트만 유실된다(코덱스 리뷰). finish에서 또 불려도 가드로 no-op.
@@ -916,6 +920,9 @@ export default function FocusSessionScreen() {
   // 멈춘다(GROMO-987). 가로는 세로 ScrollView를 언마운트하므로, 그동안 흐른 시간을 그대로 두면
   // 마지막 페이지(character/friends/league)의 체류로 발행돼 focus_view_changed가 오염된다(코덱스 리뷰).
   useEffect(() => {
+    // iOS 전용 기능 — 비-iOS(데스크톱 웹·안드 대화면/멀티윈도우)에선 창이 가로로 넓어도 세로
+    // 페이저가 그대로 보이므로, 이 이펙트가 돌면 보이는 페이저를 '가려짐'으로 잘못 표시한다(코덱스 리뷰).
+    if (!LANDSCAPE_ENABLED) return;
     const next = isLandscape ? 'landscape' : 'portrait';
     if (orientationRef.current === next) return;
     // 완료 게이트가 이미 마지막 뷰·방향 체류를 발행했다면(dwellDoneRef), 강제 세로 복귀는
