@@ -85,32 +85,40 @@ export default function NoticeScreen() {
   // 최신 목록을 덮을 수 있다. 최신 요청의 결과만 반영한다(useFriends.ts의 requestSeqRef 패턴).
   const requestSeqRef = useRef(0);
 
-  const fetchNotices = useCallback(async () => {
+  // 반환값: 이 호출이 아직 최신인가(늦게 끝난 요청이 새로고침 표시를 되돌리지 않게).
+  const fetchNotices = useCallback(async (): Promise<boolean> => {
     const seq = ++requestSeqRef.current;
     setErrorMsg(null);
     try {
       // 서버 정렬(createdAt DESC)을 그대로 신뢰한다.
       const rows = await getAnnouncements(groupId);
-      if (seq !== requestSeqRef.current) return;
+      if (seq !== requestSeqRef.current) return false;
       setNotices(rows);
     } catch (e) {
-      if (seq !== requestSeqRef.current) return;
+      if (seq !== requestSeqRef.current) return false;
       setErrorMsg(listErrorMessage(e));
     }
+    return true;
   }, [groupId]);
 
   useEffect(() => {
     logGroupTabViewed({ tab: 'notice' });
   }, []);
 
+  // cleanup에서 시퀀스를 올려 진행 중이던 요청을 무효화한다(언마운트 뒤 setState 방지).
   useEffect(() => {
     fetchNotices();
+    return () => {
+      // 노드 참조가 아니라 요청 카운터라 cleanup 시점의 값을 그대로 올리는 게 맞다
+      // (react-hooks/exhaustive-deps의 ref 경고는 DOM 노드 ref를 겨냥한 것).
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      requestSeqRef.current++;
+    };
   }, [fetchNotices]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchNotices();
-    setRefreshing(false);
+    if (await fetchNotices()) setRefreshing(false);
   }, [fetchNotices]);
 
   function openCompose(target: GroupAnnouncementResponse | null) {

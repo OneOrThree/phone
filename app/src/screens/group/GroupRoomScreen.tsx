@@ -1,7 +1,8 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   RefreshControl,
   ScrollView,
   Share,
@@ -25,6 +26,7 @@ import {
 } from '@/services/groupApi';
 import { logGroupInviteShared } from '@/services/analyticsEvents';
 import { buildInviteLink } from '@/utils/inviteLink';
+import { todayStr } from '@/utils/localDate';
 import type {
   GroupAnnouncementResponse,
   GroupDetailMemberResponse,
@@ -87,62 +89,101 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
   const { userId } = useUser();
 
   const [detail, setDetail] = useState<GroupDetailResponse | null>(null);
-  const [notices, setNotices] = useState<GroupAnnouncementResponse[]>([]);
+  // null = 아직 한 번도 못 받음. '공지 없음(빈 배열)'과 '공지 조회 실패'를 구분한다 —
+  // 실패를 []로 뭉개면 이미 있는 공지가 사라진 자리에 '아직 공지가 없어요'가 떠서 같은 공지를 또 쓴다.
+  const [notices, setNotices] = useState<GroupAnnouncementResponse[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [noticeError, setNoticeError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
   // 요청 시퀀스 — 당겨서 새로고침 중 '다시 시도'를 누르거나 연타하면 reload()·onRefresh()가
   // 같은 load()를 각자 부른다. 늦게 도착한 이전 응답이 최신 응답을 덮지 않게 최신 것만 반영한다
-  // (useFriends.ts의 requestSeqRef와 같은 패턴). 언마운트 후 setState도 함께 막힌다.
+  // (useFriends.ts의 requestSeqRef와 같은 패턴). 포커스 cleanup·언마운트에서도 올려 무효화한다.
   const requestSeqRef = useRef(0);
+  // 화면이 포커스돼 있는가 — 포그라운드 복귀 시 재조회 여부 판정에 쓴다(탭 화면은 언마운트되지 않는다).
+  const focusedRef = useRef(false);
+  // 마지막으로 성공한 조회의 기준 날짜. 자정을 넘겨 복귀하면 '오늘 집중분'이 전날 값이라 강제 재조회한다.
+  const loadedDateRef = useRef<string | null>(null);
 
-  // 상세 + 공지 병렬 조회. 공지는 실패해도 방을 비우지 않는다(빈 목록으로 떨어뜨림) —
-  // 방의 뼈대는 상세 응답이다. date는 groupApi가 todayStr()을 붙인다(§3-1-1).
-  const load = useCallback(async () => {
+  // 상세 + 공지 병렬 조회. 두 요청의 실패를 **각각** 다룬다(allSettled) —
+  // 상세 실패는 기존 방 데이터를 보존한 채 배너로, 공지 실패는 공지 섹션에서만 알린다.
+  // date는 멤버 '오늘 집중분'의 기준일이라 여기서 직접 만들어 보관까지 한다(§3-1-1).
+  // 반환값: 이 호출이 아직 최신인가(늦게 끝난 요청이 로딩 플래그를 되돌리지 않게).
+  const load = useCallback(async (): Promise<boolean> => {
     const seq = ++requestSeqRef.current;
+    const date = todayStr();
     setError(false);
-    try {
-      const [d, list] = await Promise.all([
-        getGroupDetail(groupId),
-        getAnnouncements(groupId).catch(() => [] as GroupAnnouncementResponse[]),
-      ]);
-      if (seq !== requestSeqRef.current) return;
-      setDetail(d);
-      setNotices(list);
-    } catch (e) {
-      if (seq !== requestSeqRef.current) return;
+    const [detailResult, noticeResult] = await Promise.allSettled([
+      getGroupDetail(groupId, date),
+      getAnnouncements(groupId),
+    ]);
+    if (seq !== requestSeqRef.current) return false;
+
+    if (detailResult.status === 'fulfilled') {
+      setDetail(detailResult.value);
+      loadedDateRef.current = date;
+    } else {
       // 이미 그룹이 사라졌거나 내가 멤버가 아니면 방을 잡고 있을 이유가 없다 —
-      // 부모가 재조회해 빈 상태로 되돌린다(§3-2).
-      const code = groupErrorCode(e);
+      // 부모가 빈 상태로 되돌린다(§3-2).
+      const code = groupErrorCode(detailResult.reason);
       if (code === 'MEMBER_ONLY' || code === 'NOT_FOUND') {
+        // 부모가 이 화면을 내린다 — 로딩 플래그를 되돌릴 대상이 없으므로 최신 아님으로 반환한다.
         onLeft();
-        return;
+        return false;
       }
       setError(true);
     }
+
+    if (noticeResult.status === 'fulfilled') {
+      setNotices(noticeResult.value);
+      setNoticeError(false);
+    } else {
+      setNoticeError(true); // 기존 공지는 그대로 둔다
+    }
+    return true;
   }, [groupId, onLeft]);
 
   // 최초 진입·재시도 — 스피너를 세우고 조회한다(당겨서 새로고침은 RefreshControl이 표시).
   const reload = useCallback(() => {
     setLoading(true);
-    load().finally(() => setLoading(false));
+    load().then((fresh) => {
+      if (fresh) setLoading(false);
+    });
   }, [load]);
 
   // 포커스마다 재조회 — 공지를 쓰고(GroupNotice는 루트 스택 push라 이 화면이 언마운트되지 않는다)
   // 돌아왔을 때 공지 카드·멤버별 오늘 집중분이 옛 데이터로 남는 문제를 닫는다.
   // 마운트 1회 useEffect였을 땐 당겨서 새로고침 말고는 반영 경로가 없었다.
+  // cleanup에서 시퀀스를 올려 진행 중이던 요청을 무효화한다(화면을 떠난 뒤 setState·onLeft 방지).
   useFocusEffect(
     useCallback(() => {
+      focusedRef.current = true;
       reload();
+      return () => {
+        focusedRef.current = false;
+        requestSeqRef.current++;
+      };
     }, [reload]),
   );
 
+  // 포그라운드 복귀 — 포커스는 유지된 채라 useFocusEffect가 다시 돌지 않는다.
+  // 화면이 떠 있으면 재조회하고, 자정을 넘겼으면 포커스 여부와 무관하게 새 date로 다시 부른다.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      if (focusedRef.current || loadedDateRef.current !== todayStr()) reload();
+    });
+    return () => sub.remove();
+  }, [reload]);
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    load().finally(() => setRefreshing(false));
+    load().then((fresh) => {
+      if (fresh) setRefreshing(false);
+    });
   }, [load]);
 
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(§6-4).
@@ -235,6 +276,7 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
   // 멤버 순서는 서버가 준 그대로 둔다(앱에서 재정렬하지 않음).
   // '＋ 초대' 타일까지 한 흐름으로 배치하려고 셀 배열로 만든 뒤 3개씩 잘라 행으로 그린다.
   const members = detail?.members ?? [];
+  const noticeList = notices ?? [];
   const cells: GridCell[] = [
     ...members.map((m): GridCell => ({ kind: 'member', member: m })),
     { kind: 'invite' },
@@ -254,6 +296,16 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={T.accent} />
         }
       >
+        {/* ── 재조회 실패 배너 — 기존 데이터를 지우지 않고 '지금 보는 값이 옛것'임을 알린다 ── */}
+        {error && !!detail && (
+          <View style={s.banner}>
+            <Text style={s.bannerText}>최신 정보를 불러오지 못했어요</Text>
+            <TouchableOpacity onPress={reload} hitSlop={12} activeOpacity={0.7}>
+              <Text style={s.bannerRetry}>다시 시도</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* ── 헤더 ── */}
         <View style={s.header}>
           <View style={s.headerLeft}>
@@ -301,7 +353,7 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
         {/* ── 공지 ── */}
         <View style={s.sectionHead}>
           <Text style={s.sectionTitle}>공지</Text>
-          {notices.length > 0 && (
+          {noticeList.length > 0 && (
             <TouchableOpacity
               style={s.moreRow}
               activeOpacity={0.7}
@@ -314,7 +366,16 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
           )}
         </View>
 
-        {notices.length === 0 ? (
+        {/* 공지를 한 번도 못 받은 채 실패 — '없음'과 구분해서 알린다. 이 상태에선 작성 진입을 막는다
+            (서버엔 이미 공지가 있는데 없다고 보고 같은 공지를 또 쓰는 것을 예방). */}
+        {notices === null && noticeError ? (
+          <View style={s.emptyNotice}>
+            <Text style={s.emptyNoticeText}>공지를 불러오지 못했어요</Text>
+            <TouchableOpacity style={s.writeBtn} activeOpacity={0.85} onPress={reload}>
+              <Text style={s.writeText}>다시 시도</Text>
+            </TouchableOpacity>
+          </View>
+        ) : noticeList.length === 0 ? (
           <View style={s.emptyNotice}>
             <Text style={s.emptyNoticeText}>아직 공지가 없어요</Text>
             {canWriteNotice && (
@@ -325,7 +386,9 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
           </View>
         ) : (
           <View style={s.noticeList}>
-            {notices.slice(0, NOTICE_PREVIEW).map((n) => (
+            {/* 목록은 있는데 갱신만 실패 — 기존 공지를 그대로 두고 한 줄로 알린다. */}
+            {noticeError && <Text style={s.bannerText}>공지를 새로고침하지 못했어요</Text>}
+            {noticeList.slice(0, NOTICE_PREVIEW).map((n) => (
               <TouchableOpacity
                 key={n.id}
                 style={s.noticeCard}
@@ -415,6 +478,12 @@ const s = StyleSheet.create({
     backgroundColor: T.accent,
   },
   retryText: { ...T.text.label, color: T.white },
+
+  // 재조회 실패 인라인 배너 — 문구는 그룹 화면 공통 s.notice 규격(caption/dangerInk),
+  // 재시도 링크는 '모두보기'와 같은 accent 링크 규격(§G-4).
+  banner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  bannerText: { ...T.text.caption, color: T.dangerInk },
+  bannerRetry: { ...T.text.caption, color: T.accent },
 
   // 헤더 블록만 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다.
   // content는 16(T.space.lg)이라 차이 4pt를 여기서 더한다(리그도 헤더 xl / 리스트 lg).

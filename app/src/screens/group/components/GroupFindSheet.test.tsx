@@ -1,7 +1,7 @@
 // GroupFindSheet 검색·참여 분기 테스트 — 명세 docs/app/group-plan.md §6-3·§11(공개방 경로).
 // 특히 참여 실패 표현이 Alert가 아니라 **인라인**이라는 규칙(파일 상단 주석)을 여기서 잠근다 —
 // Alert로 되돌아가면 시트 위에 레이어가 두 겹이 되고 §11의 '정원 찬 그룹' 확인이 어긋난다.
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupFindSheet from './GroupFindSheet';
@@ -61,32 +61,47 @@ function row(over: Partial<GroupSearchResponse> = {}): GroupSearchResponse {
 const onClose = jest.fn();
 const onJoined = jest.fn();
 
+// 검색 디바운스(350ms)와 같은 값 — 가짜 타이머를 이만큼 감아 검색을 발화시킨다.
+const SEARCH_DEBOUNCE_MS = 350;
+
 // RTL v14의 render는 async다 — 반드시 await한다.
-function renderSheet() {
-  return render(<GroupFindSheet onClose={onClose} onJoined={onJoined} />);
+async function renderSheet() {
+  const result = await render(<GroupFindSheet onClose={onClose} onJoined={onJoined} />);
+  await act(async () => {});
+  return result;
 }
 
-// 검색어를 넣고 디바운스(350ms)가 지나 결과가 뜰 때까지 기다린다.
-//
-// ⚠️ 이 파일에서는 act()를 쓰지 않는다(GroupInviteSheet.test.tsx와 다른 점).
-//    디바운스 setTimeout이 살아 있는 상태에서 act가 돌면 RTL v14의 auto-cleanup과 어긋나
-//    **다음 테스트의 render가 빈 트리를 낸다**(5건 동시 실패로 확인). 그 대가로 검색 이펙트발
-//    act 경고가 콘솔에 몇 줄 남는다 — 실패가 아니라 의도한 트레이드오프다.
+// 검색어를 넣고 디바운스가 지나 결과가 뜰 때까지 기다린다.
+// 가짜 타이머 + act로 디바운스 발화와 그 뒤 setState를 전부 act 안에 가둔다 —
+// 실시간 타이머로 두면 검색 이펙트발 act 경고가 콘솔에 쌓여, 진짜 '언마운트 후 업데이트' 경고가
+// 섞여 들어와도 알아채지 못한다.
 async function searchFor(name: string) {
-  fireEvent.changeText(screen.getByPlaceholderText('그룹 이름으로 검색'), '집중');
+  await act(async () => {
+    fireEvent.changeText(screen.getByPlaceholderText('그룹 이름으로 검색'), '집중');
+  });
+  await act(async () => {
+    jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+  });
   return screen.findByText(name);
 }
 
 // 참여 확인 Alert의 '참여하기' 버튼을 눌러준다(확인 Alert는 규칙상 그대로 유지된다).
-function confirmJoinAlert() {
+async function confirmJoinAlert() {
   const alertMock = Alert.alert as jest.MockedFunction<typeof Alert.alert>;
   const buttons = alertMock.mock.calls.at(-1)?.[2];
-  buttons?.find((b) => b.text === '참여하기')?.onPress?.();
+  await act(async () => {
+    buttons?.find((b) => b.text === '참여하기')?.onPress?.();
+  });
 }
 
 beforeEach(() => {
+  jest.useFakeTimers();
   jest.clearAllMocks();
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+});
+
+afterEach(() => {
+  jest.useRealTimers();
 });
 
 describe('검색', () => {
@@ -103,6 +118,56 @@ describe('검색', () => {
 
     await searchFor('아침 6시 집중방');
     expect(logGroupSearchPerformed).toHaveBeenCalledWith({ query_length: 2, result_count: 1 });
+  });
+
+  // 참여 실패 후의 조용한 갱신에는 예전엔 토큰이 없었다 — 늦게 끝난 A 갱신이 setResults를 해서
+  // 입력창은 B인데 목록은 A가 됐고, 사용자는 자기가 찾지도 않은 그룹을 탭할 수 있었다.
+  test('늦게 도착한 이전 검색어의 조용한 갱신이 새 검색 결과를 덮지 않는다', async () => {
+    const rowA = row({ name: '아침 6시 집중방' });
+    const rowB = row({ groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8dbb', name: '저녁 스터디' });
+    let resolveStaleRefresh: (rows: GroupSearchResponse[]) => void = () => {};
+
+    mockSearchGroups
+      .mockResolvedValueOnce([rowA]) // 검색어 A
+      .mockImplementationOnce(
+        () =>
+          new Promise<GroupSearchResponse[]>((resolve) => {
+            resolveStaleRefresh = resolve; // ROOM_FULL 뒤의 A 갱신 — 응답을 잡아 둔다
+          }),
+      )
+      .mockResolvedValueOnce([rowB]); // 검색어 B
+    mockJoinGroup.mockRejectedValue(axiosErrorWith(409, 'ROOM_FULL'));
+
+    await renderSheet();
+    const input = screen.getByPlaceholderText('그룹 이름으로 검색');
+
+    await act(async () => {
+      fireEvent.changeText(input, '집중');
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByText('아침 6시 집중방'));
+    });
+    await confirmJoinAlert();
+    expect(screen.getByText('정원이 가득 찼어요. 다른 그룹을 찾아보세요.')).toBeOnTheScreen();
+
+    // A 갱신이 도착하기 전에 사용자가 B를 친다.
+    await act(async () => {
+      fireEvent.changeText(input, '스터디');
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+    });
+    expect(screen.getByText('저녁 스터디')).toBeOnTheScreen();
+
+    // 뒤늦게 도착한 A 갱신 — 무시돼야 한다.
+    await act(async () => {
+      resolveStaleRefresh([rowA]);
+    });
+    expect(screen.getByText('저녁 스터디')).toBeOnTheScreen();
+    expect(screen.queryByText('아침 6시 집중방')).toBeNull();
   });
 
   test('정원이 찬 그룹은 정원 가득 표시 + 탭 비활성(§6-3)', async () => {
@@ -126,8 +191,11 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     mockJoinGroup.mockResolvedValue(undefined);
     await renderSheet();
 
-    fireEvent.press(await searchFor('아침 6시 집중방'));
-    confirmJoinAlert();
+    const name = await searchFor('아침 6시 집중방');
+    await act(async () => {
+      fireEvent.press(name);
+    });
+    await confirmJoinAlert();
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
     expect(logGroupJoinAttempted).toHaveBeenCalledWith({ join_method: 'search' });
@@ -137,8 +205,11 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     mockJoinGroup.mockRejectedValue(axiosErrorWith(409, 'ROOM_FULL'));
     await renderSheet();
 
-    fireEvent.press(await searchFor('아침 6시 집중방'));
-    confirmJoinAlert();
+    const name = await searchFor('아침 6시 집중방');
+    await act(async () => {
+      fireEvent.press(name);
+    });
+    await confirmJoinAlert();
 
     expect(
       await screen.findByText('정원이 가득 찼어요. 다른 그룹을 찾아보세요.'),
@@ -151,8 +222,11 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     mockJoinGroup.mockRejectedValue(axiosErrorWith(404, 'NOT_FOUND'));
     await renderSheet();
 
-    fireEvent.press(await searchFor('아침 6시 집중방'));
-    confirmJoinAlert();
+    const name = await searchFor('아침 6시 집중방');
+    await act(async () => {
+      fireEvent.press(name);
+    });
+    await confirmJoinAlert();
 
     expect(
       await screen.findByText('사라진 그룹이에요. 방장이 그룹을 없앴을 수 있어요.'),
@@ -164,8 +238,11 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     mockJoinGroup.mockRejectedValue(axiosErrorWith(409, 'ALREADY_MEMBER'));
     await renderSheet();
 
-    fireEvent.press(await searchFor('아침 6시 집중방'));
-    confirmJoinAlert();
+    const name = await searchFor('아침 6시 집중방');
+    await act(async () => {
+      fireEvent.press(name);
+    });
+    await confirmJoinAlert();
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
     expect(logGroupJoinAttempted).not.toHaveBeenCalled();
@@ -175,8 +252,11 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     mockJoinGroup.mockRejectedValue(axiosErrorWith(500, 'SOMETHING_NEW'));
     await renderSheet();
 
-    fireEvent.press(await searchFor('아침 6시 집중방'));
-    confirmJoinAlert();
+    const name = await searchFor('아침 6시 집중방');
+    await act(async () => {
+      fireEvent.press(name);
+    });
+    await confirmJoinAlert();
 
     expect(
       await screen.findByText('참여하지 못했어요. 잠시 후 다시 시도해주세요.'),
@@ -187,8 +267,11 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     mockJoinGroup.mockRejectedValue(axiosErrorWith(403, 'GUEST_FORBIDDEN'));
     await renderSheet();
 
-    fireEvent.press(await searchFor('아침 6시 집중방'));
-    confirmJoinAlert();
+    const name = await searchFor('아침 6시 집중방');
+    await act(async () => {
+      fireEvent.press(name);
+    });
+    await confirmJoinAlert();
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(Alert.alert).toHaveBeenLastCalledWith(

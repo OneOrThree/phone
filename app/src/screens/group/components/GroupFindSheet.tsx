@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -69,46 +69,61 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
     };
   }, []);
 
-  // 이름 검색 — 디바운스 + 언마운트/재입력 시 이전 응답 무시(FriendAddScreen:66-92 패턴).
+  // 검색 시퀀스 — **주 검색과 조용한 갱신이 같은 카운터를 쓴다**.
+  // 갱신에 토큰이 없으면(검색어 A 참여 실패 → refresh(A) 중 사용자가 B 입력) 늦게 온 A 응답이
+  // B 결과를 덮어 입력창과 목록이 어긋난다. 검색어가 바뀌는 즉시 시퀀스를 올려 전부 무효화한다.
+  const searchSeqRef = useRef(0);
+
+  // 언마운트(시트 닫힘·링크 수신) 시에도 시퀀스를 올려 진행 중 요청의 setState를 막는다.
+  useEffect(
+    () => () => {
+      searchSeqRef.current++;
+    },
+    [],
+  );
+
+  // 실제 검색 호출. measure=true는 사용자가 친 검색(계측·로딩 표시 대상),
+  // false는 참여 실패 후의 조용한 갱신이다.
+  const runSearch = useCallback(async (target: string, seq: number, measure: boolean) => {
+    try {
+      const rows = await searchGroups(target);
+      if (seq !== searchSeqRef.current) return;
+      setResults(rows);
+      if (measure)
+        logGroupSearchPerformed({ query_length: target.length, result_count: rows.length });
+    } catch {
+      if (seq !== searchSeqRef.current) return;
+      // 주 검색 실패는 목록을 비우고, 조용한 갱신 실패는 기존 목록을 유지한다(다음 입력에서 재시도).
+      if (measure) setResults([]);
+    } finally {
+      if (measure && seq === searchSeqRef.current) setSearching(false);
+    }
+  }, []);
+
+  // 이름 검색 — 디바운스 + 재입력/언마운트 시 이전 응답 무시(FriendAddScreen:66-92 패턴).
   // 빈 문자열이면 호출하지 않고 결과를 비운다.
   useEffect(() => {
     // 검색어가 바뀌면 직전 참여 실패 문구는 맥락을 잃는다 — 함께 지운다.
     setJoinError(null);
+    // 디바운스 타이머가 뜨기 전에 올린다 — 아직 응답이 안 온 이전 요청(주 검색·조용한 갱신)이 여기서 죽는다.
+    const seq = ++searchSeqRef.current;
     if (!q) {
       setResults([]);
       setSearching(false);
       return;
     }
-    let stale = false;
     setSearching(true);
-    const timer = setTimeout(async () => {
-      try {
-        const rows = await searchGroups(q);
-        if (!stale) {
-          setResults(rows);
-          logGroupSearchPerformed({ query_length: q.length, result_count: rows.length });
-        }
-      } catch {
-        if (!stale) setResults([]);
-      } finally {
-        if (!stale) setSearching(false);
-      }
-    }, SEARCH_DEBOUNCE_MS);
-    return () => {
-      stale = true;
-      clearTimeout(timer);
-    };
-  }, [q]);
+    const timer = setTimeout(() => runSearch(q, seq, true), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [q, runSearch]);
 
   // 참여 실패 후 목록만 조용히 갱신한다(사용자가 친 검색이 아니므로 계측은 쏘지 않는다).
-  const refreshResults = useCallback(async () => {
+  // 시퀀스는 올리지 않고 **현재 검색어의 세대 번호를 그대로 쓴다** — 같은 검색어의 결과라
+  // 주 검색과 서로 덮어도 어긋나지 않고, 검색어가 바뀌면 그 즉시 함께 무효화된다.
+  const refreshResults = useCallback(() => {
     if (!q) return;
-    try {
-      setResults(await searchGroups(q));
-    } catch {
-      // 갱신 실패 시 기존 목록 유지 — 다음 입력에서 다시 시도된다
-    }
-  }, [q]);
+    runSearch(q, searchSeqRef.current, false);
+  }, [q, runSearch]);
 
   // 게스트는 GroupScreen이 앞단에서 막지만, 서버가 403을 주면 시트를 닫고 로그인으로 보낸다(§5-3).
   const goLogin = useCallback(() => {
