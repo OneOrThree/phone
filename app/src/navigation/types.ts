@@ -51,4 +51,7 @@ export type V2RootStackParamList = {
   SettingsStatVisibility: undefined; // 통계 공개 범위
   SettingsPrivacyPolicy: undefined; // 개인정보 처리방침 (URL 미정 — placeholder)
   SettingsVersion: undefined; // 버전 정보
+
+  // 실험(스파이크) — 오브젝트 캐릭터 PoC. 정식 기능 아님, '전체' 탭 실험 섹션에서 진입.
+  ObjectCharacterSpike: undefined;
 };

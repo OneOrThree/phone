@@ -343,6 +343,19 @@ export default function MenuScreen() {
           />
         </SettingsSection>
 
+        {/* 실험(스파이크) — 오브젝트 캐릭터 PoC 진입점. 실기기 QA를 Release 빌드로도 할 수
+             있어야 해서 __DEV__로 감싸지 않는다. 검증이 끝나면 이 섹션째 제거한다. */}
+        <SettingsSection title="실험 (스파이크)">
+          <SettingsRow
+            icon="cube-outline"
+            iconColor={T.accentAlt}
+            iconBg={T.accentAltBg}
+            label="내 물건 캐릭터 (실험)"
+            sub="사진 속 물건에 팔다리를 달아본다"
+            onPress={() => navigation.navigate('ObjectCharacterSpike')}
+          />
+        </SettingsSection>
+
         {/* 개발 전용 — 연출 디자인 확인용 임시 진입점(__DEV__ 빌드에만 노출).
              리그 결과 미리보기는 실데이터 연결(GROMO-831)로 제거 — 결과 화면은
              리그 탭 포커스 시 미확인 last-result가 있을 때만 뜬다 */}

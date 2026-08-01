@@ -29,6 +29,7 @@ import {
   PrivacyPolicyScreen,
   VersionInfoScreen,
 } from '@/screens/settings';
+import ObjectCharacterScreen from '@/screens/spike/ObjectCharacterScreen';
 import { TabBar } from '@/components/TabBar';
 import { initAnalytics } from '@/services/analytics';
 import { startDatadogNavigationTracking } from '@/services/datadog';
@@ -111,6 +112,8 @@ export function RootNavigator() {
         <Stack.Screen name="SettingsStatVisibility" component={StatVisibilityScreen} />
         <Stack.Screen name="SettingsPrivacyPolicy" component={PrivacyPolicyScreen} />
         <Stack.Screen name="SettingsVersion" component={VersionInfoScreen} />
+        {/* 실험(스파이크) — 오브젝트 캐릭터 PoC. 검증 끝나면 화면째 제거 */}
+        <Stack.Screen name="ObjectCharacterSpike" component={ObjectCharacterScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
