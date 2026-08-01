@@ -22,6 +22,7 @@ import { fmtMinutes, fmtHm, axisCeil, fmtAxis } from '@/utils/timeFormat';
 import { hms } from './format';
 import { fetchFocusAverage, fetchFriendsAverage } from '@/services/compareAverages';
 import { readPendingCelebration, schedulePendingCelebration } from '@/services/goalCelebration';
+import { maybeRequestReview } from '@/services/storeReview';
 import { WeekStreakModal } from './components/WeekStreakModal';
 import { useFocus } from '@/store/FocusContext';
 import { useUser } from '@/store/UserContext';
@@ -163,6 +164,15 @@ export default function FocusResultScreen() {
       setFirstTime(done == null);
       if (done == null) AsyncStorage.setItem(STORAGE_KEYS.focusFirstDone, '1').catch(() => {});
     })();
+  }, []);
+
+  // 별점 요청(GROMO-980) — 집중 세션 완료(긍정적 순간)에 조건 충족 시 1회 노출.
+  // 결과·축하 연출을 먼저 보여준 뒤 겹치지 않도록 잠깐 늦춰 호출한다(내부에서 7일·1회 조건 판정).
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      maybeRequestReview();
+    }, 2500);
+    return () => clearTimeout(timer);
   }, []);
 
   // 집중 완료 통계(GROMO-603) — 핵심 지표(이번 주 합계·연속일·요일별)는 한 묶음으로 빠르게,

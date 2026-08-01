@@ -1,5 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, ActivityIndicator, StyleSheet, Image } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  ActivityIndicator,
+  StyleSheet,
+  Image,
+  AppState,
+} from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -18,6 +26,7 @@ import {
   deleteDeviceToken,
 } from '@/services/userApi';
 import { clearInbox } from '@/services/notificationInbox';
+import { recordAccessDay } from '@/services/storeReview';
 import { occupationForCategory, categoryForOccupation } from '@/constants/focusCategories';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { runStorageMigrations } from '@/utils/storageMigration';
@@ -179,6 +188,16 @@ function App() {
   useEffect(() => {
     if (onboarded) syncAdTracking();
   }, [onboarded]);
+
+  // 앱 접속 누적일 기록(GROMO-980) — 별점 요청 조건(누적 7일)용. 앱 시작 + 포그라운드 복귀마다
+  // 호출하되 하루 1회만 증가한다(자정을 넘겨 복귀하는 세션도 그날치로 반영).
+  useEffect(() => {
+    recordAccessDay();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') recordAccessDay();
+    });
+    return () => sub.remove();
+  }, []);
 
   async function handleLogout() {
     // 서버 디바이스 토큰 등록 해제 — 이전 계정 푸시가 이 기기로 계속 발송되지 않게(PR 224 리뷰).
