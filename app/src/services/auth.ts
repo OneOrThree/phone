@@ -42,6 +42,26 @@ export function setAccountSwitchHandler(
   accountSwitchHandler = handler;
 }
 
+// 게스트→소셜 업그레이드 트리거(GROMO-962) — 저장된 access 토큰이 있으면 소셜 로그인 요청의
+// Authorization 헤더로 실어 보낸다. 백엔드는 유효한 게스트 access JWT가 오면 새 User를 만들지 않고
+// 게스트 계정을 소셜로 승격해 닉네임·서버 데이터를 보존한다(ticket 585). 비게스트·무효 토큰은
+// 서버가 무시하고 기존 로그인 흐름을 타므로 항상 실어도 안전하다.
+async function guestUpgradeHeaders(): Promise<{ Authorization: string } | undefined> {
+  const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+  return token ? { Authorization: `Bearer ${token}` } : undefined;
+}
+
+// 소셜 로그인 실패 응답 → Error. 서버 에러 코드(code)를 함께 실어 화면에서 분기할 수 있게 한다
+// (예: 게스트가 이미 연동된 소셜로 업그레이드 시도 → 409 SOCIAL_ACCOUNT_ALREADY_LINKED, GROMO-962).
+function toAuthError(e: unknown, fallback: string): Error {
+  if (!axios.isAxiosError(e)) {
+    return new Error(fallback);
+  }
+  const body = e.response?.data as { code?: string; message?: string } | undefined;
+  const error = new Error(body?.message ?? fallback);
+  return body?.code ? Object.assign(error, { code: body.code }) : error;
+}
+
 // 토큰 저장 + (기존 유저면) 프로필 병합 — 모든 소셜 로그인 공통 후처리.
 async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<LoginResult> {
   // 다른 계정으로 갈아타는 로그인이면 새 토큰 저장 전에 계정 전환 훅 실행(같은 userId 재로그인은 통과)
@@ -72,15 +92,14 @@ export async function kakaoLogin(): Promise<LoginResult> {
   const kakaoToken = await login();
   let data: AuthResponse;
   try {
-    const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/kakao`, {
-      token: kakaoToken.accessToken,
-    });
+    const res = await axios.post<AuthResponse>(
+      `${API_URL}/api/v1/auth/kakao`,
+      { token: kakaoToken.accessToken },
+      { headers: await guestUpgradeHeaders() },
+    );
     data = res.data;
   } catch (e) {
-    const msg = axios.isAxiosError(e)
-      ? ((e.response?.data as AuthResponse | undefined)?.message ?? '로그인 실패')
-      : '로그인 실패';
-    throw new Error(msg);
+    throw toAuthError(e, '로그인 실패');
   }
   return postAuthSave(data, false);
 }
@@ -94,15 +113,14 @@ export async function appleLogin(): Promise<LoginResult> {
   });
   let data: AuthResponse;
   try {
-    const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/apple`, {
-      identityToken: credential.identityToken,
-    });
+    const res = await axios.post<AuthResponse>(
+      `${API_URL}/api/v1/auth/apple`,
+      { identityToken: credential.identityToken },
+      { headers: await guestUpgradeHeaders() },
+    );
     data = res.data;
   } catch (e) {
-    const msg = axios.isAxiosError(e)
-      ? ((e.response?.data as AuthResponse | undefined)?.message ?? 'Apple 로그인 실패')
-      : 'Apple 로그인 실패';
-    throw new Error(msg);
+    throw toAuthError(e, 'Apple 로그인 실패');
   }
   return postAuthSave(data, false);
 }
@@ -127,15 +145,14 @@ export async function googleLogin(): Promise<LoginResult> {
   }
   let data: AuthResponse;
   try {
-    const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/google`, {
-      token: idToken,
-    });
+    const res = await axios.post<AuthResponse>(
+      `${API_URL}/api/v1/auth/google`,
+      { token: idToken },
+      { headers: await guestUpgradeHeaders() },
+    );
     data = res.data;
   } catch (e) {
-    const msg = axios.isAxiosError(e)
-      ? ((e.response?.data as AuthResponse | undefined)?.message ?? 'Google 로그인 실패')
-      : 'Google 로그인 실패';
-    throw new Error(msg);
+    throw toAuthError(e, 'Google 로그인 실패');
   }
   return postAuthSave(data, false);
 }
@@ -167,15 +184,14 @@ export async function lineLogin(): Promise<LoginResult> {
   const accessToken = result.accessToken.accessToken;
   let data: AuthResponse;
   try {
-    const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/line`, {
-      token: accessToken,
-    });
+    const res = await axios.post<AuthResponse>(
+      `${API_URL}/api/v1/auth/line`,
+      { token: accessToken },
+      { headers: await guestUpgradeHeaders() },
+    );
     data = res.data;
   } catch (e) {
-    const msg = axios.isAxiosError(e)
-      ? ((e.response?.data as AuthResponse | undefined)?.message ?? 'LINE 로그인 실패')
-      : 'LINE 로그인 실패';
-    throw new Error(msg);
+    throw toAuthError(e, 'LINE 로그인 실패');
   }
   return postAuthSave(data, false);
 }
@@ -202,15 +218,14 @@ export async function facebookLogin(): Promise<LoginResult> {
   }
   let data: AuthResponse;
   try {
-    const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/facebook`, {
-      token,
-    });
+    const res = await axios.post<AuthResponse>(
+      `${API_URL}/api/v1/auth/facebook`,
+      { token },
+      { headers: await guestUpgradeHeaders() },
+    );
     data = res.data;
   } catch (e) {
-    const msg = axios.isAxiosError(e)
-      ? ((e.response?.data as AuthResponse | undefined)?.message ?? 'Facebook 로그인 실패')
-      : 'Facebook 로그인 실패';
-    throw new Error(msg);
+    throw toAuthError(e, 'Facebook 로그인 실패');
   }
   return postAuthSave(data, false);
 }

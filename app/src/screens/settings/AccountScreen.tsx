@@ -142,6 +142,14 @@ export default function AccountScreen() {
       ) {
         return;
       }
+      // 이미 다른 계정에 연동된 소셜로 업그레이드 시도 → 백엔드가 409로 거부, 게스트 유지(GROMO-962)
+      if (code === 'SOCIAL_ACCOUNT_ALREADY_LINKED') {
+        Alert.alert(
+          '연동할 수 없어요',
+          '이미 다른 계정에 연결된 소셜 계정이에요. 다른 소셜 계정으로 다시 시도해 주세요.',
+        );
+        return;
+      }
       Alert.alert('로그인 실패', e instanceof Error ? e.message : '다시 시도해 주세요.');
     } finally {
       setBusy(null);
