@@ -118,11 +118,12 @@ export default function FocusSessionScreen() {
   // 타이머 기준으로 그리드가 따로 렌더한다(GROMO-932, 아래 myGridMe) — 중복·시차 방지
   const myCategory = useFocusCategory();
   const myOccupation = occupationForCategory(myCategory);
-  const { members: leagueMembers } = useSessionLeagueMembers({ excludeUserId: userId });
+  const { members: leagueMembers } = useSessionLeagueMembers({ excludeUserId: userId, pinnedIds });
   const { members: examMembers } = useSessionLeagueMembers({
     occupation: myOccupation ?? undefined,
     enabled: myOccupation != null,
     excludeUserId: userId,
+    pinnedIds,
   });
   const [session, setSession] = useState<SessionState>(() => ({
     elapsed: 0,
@@ -823,10 +824,24 @@ export default function FocusSessionScreen() {
   // 내 그리드 셀(GROMO-932) — 오늘 총 집중 = 정산 누적(todayFocusSeconds) + 진행 세션 미정산 경과.
   // settleFocusBlock이 두 값을 같은 호출에서 함께 옮기므로 합은 연속이고, 자정 넘긴 블록은
   // 오늘 누적에 안 들어간다(정산 규칙 그대로). 타이머 틱(setSession)마다 리렌더돼 초 단위로 오른다.
+  //
+  // 자정 경계(코덱스 리뷰) — todayFocusSeconds는 FocusProvider 마운트 시에만 날짜를 확인해
+  // 세션이 자정을 넘기면 어제 누적이 그대로 남는다. 날짜가 바뀌는 순간의 값을 스냅샷해 두고
+  // 이후 증가분만 오늘 몫으로 계상한다. 진행 중 세션의 미정산 경과는 통째로 오늘 몫 —
+  // 블록은 endedAt 날짜에 귀속된다는 정산 규칙과 같은 기준이다(이 블록의 정산도 오늘로 잡힌다).
+  const gridDayRef = useRef(todayStr());
+  const gridStaleBaseRef = useRef(0);
+  if (todayStr() !== gridDayRef.current) {
+    gridDayRef.current = todayStr();
+    gridStaleBaseRef.current = todayFocusSeconds;
+  }
   const myGridMe = {
     nickname: nickname || '나',
+    // 일시정지·뽀모도로 휴식·완료 게이트에선 비집중 표시 — 그리드의 초록은 isFocusing 의미(코덱스 리뷰)
+    isFocusing: !paused && session.phase === 'focus' && !session.done,
     totalSeconds:
-      todayFocusSeconds + Math.max(0, Math.floor(session.elapsed) - settledSecondsRef.current),
+      Math.max(0, todayFocusSeconds - gridStaleBaseRef.current) +
+      Math.max(0, Math.floor(session.elapsed) - settledSecondsRef.current),
     tagName: subjectName,
   };
 

@@ -26,6 +26,7 @@ export interface LiveGridMember {
 // totalSeconds는 부모(세션 화면)가 타이머 틱마다 다시 계산해 내려줘 초 단위로 오른다.
 export interface LiveGridMe {
   nickname: string;
+  isFocusing: boolean; // 로컬 타이머 진행 여부 — 일시정지·뽀모도로 휴식이면 false(비집중 표시)
   totalSeconds: number; // 오늘 총 집중 초 (정산 누적 + 진행 세션 미정산 경과)
   tagName: string | null; // 현재 세션 과목
 }
@@ -113,12 +114,13 @@ export function LiveFocusGrid({
         <View style={s.grid}>
           {cells.map((c) =>
             c.kind === 'me' ? (
-              // 내 셀(GROMO-932) — 집중 중 초록. 시간은 부모가 틱마다 계산한 값 그대로
-              // (멤버들의 공용 시계 미사용 — 일시정지·뽀모도로 휴식이면 로컬 값이 멈추는 게 맞다).
+              // 내 셀(GROMO-932) — 시간은 부모가 틱마다 계산한 값 그대로(멤버들의 공용 시계
+              // 미사용 — 일시정지·뽀모도로 휴식이면 로컬 값이 멈추는 게 맞다). 집중 표시도
+              // 로컬 상태(isFocusing)를 따라 멤버와 동일하게 초록/비집중을 오간다(코덱스 리뷰).
               // '나' 배지는 리그 포디움과 같은 패턴, 아바타가 overflow hidden이라 형제로 겹쳐 올린다
-              <View key="me" style={s.cell}>
+              <View key="me" style={[s.cell, !c.me.isFocusing && s.cellOff]}>
                 <View>
-                  <View style={[s.avatar, s.avatarActive]}>
+                  <View style={[s.avatar, c.me.isFocusing ? s.avatarActive : s.avatarIdle]}>
                     <StarAvatar color={T.night.gold} size={50} />
                   </View>
                   <View style={s.meBadge} pointerEvents="none">
@@ -130,9 +132,11 @@ export function LiveFocusGrid({
                 <Text style={s.name} numberOfLines={1}>
                   {c.me.nickname}
                 </Text>
-                <Text style={s.timeActive}>{hms(c.me.totalSeconds)}</Text>
+                <Text style={c.me.isFocusing ? s.timeActive : s.timeIdle}>
+                  {hms(c.me.totalSeconds)}
+                </Text>
                 <Text style={s.tag} numberOfLines={1}>
-                  {c.me.tagName ?? ' '}
+                  {c.me.isFocusing && c.me.tagName != null ? c.me.tagName : ' '}
                 </Text>
               </View>
             ) : (

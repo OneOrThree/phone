@@ -28,7 +28,13 @@ export function useFocusFriends(pollMs: number = DEFAULT_POLL_MS) {
     try {
       const [roster, pinned] = await Promise.all([fetchFriends(), fetchPinnedFriends()]);
       const liveById = new Map(pinned.map((p) => [p.userId, p]));
-      setPinnedIds(new Set(pinned.map((p) => p.userId)));
+      // 내용이 같으면 기존 Set 유지 — 매 폴링마다 참조가 바뀌면 pinnedIds에 의존하는
+      // 리그 훅(useSessionLeagueMembers)의 refetch가 불필요하게 같이 돈다(코덱스 리뷰 후속)
+      setPinnedIds((prev) => {
+        const next = new Set(pinned.map((p) => p.userId));
+        if (prev.size === next.size && [...next].every((id) => prev.has(id))) return prev;
+        return next;
+      });
       setFriends(
         roster.map((f) => ({
           userId: f.userId,
