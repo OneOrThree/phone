@@ -20,9 +20,11 @@ import type { MissionCategory } from '@/types/dto/group';
 const DURATION_OPTIONS = [30, 60, 120, 180] as const;
 const DURATION_DEFAULT = 60;
 
-const CATEGORY_OPTIONS: { value: MissionCategory; label: string }[] = [
-  { value: 'FOCUS', label: '집중 시간' },
-  { value: 'SCREEN_TIME', label: '스크린타임' },
+// durationLabel까지 카테고리에서 파생시킨다 — 그룹 만들기 화면과 같은 문구다(같은 값을
+// 고르는 두 자리가 달라 보이면 안 된다는 이 파일의 전제를 라벨에도 적용).
+const CATEGORY_OPTIONS: { value: MissionCategory; label: string; durationLabel: string }[] = [
+  { value: 'FOCUS', label: '집중 시간', durationLabel: '하루 목표 집중 시간' },
+  { value: 'SCREEN_TIME', label: '스크린타임', durationLabel: '하루 목표 스크린타임' },
 ];
 
 // 카테고리에 따라 목표의 뜻이 뒤집힌다(집중은 이상, 스크린타임은 이하) — 캡션으로 못 박는다.
@@ -34,14 +36,21 @@ const CATEGORY_CAPTION: Record<MissionCategory, string> = {
 // SCREEN_TIME 생성 후 미참여자가 있을 때의 안내 — 생성 자체는 성공이므로 실패로 보이게 쓰지 않는다.
 const NON_PARTICIPANT_MESSAGE = '일부 멤버는 스크린타임 권한이 없어 참여할 수 없어요';
 
+// 이미 있는 카테고리를 고를 수 없는 이유 — 세그먼트 아래 한 줄로 알린다.
+const TAKEN_CAPTION = '이미 있는 종류는 기존 챌린지를 삭제해야 다시 만들 수 있어요';
+const ALL_TAKEN_CAPTION = '모든 종류의 챌린지가 이미 있어요';
+
 // 생성 실패 문구 — HTTP status가 아니라 서버 code로 분기하고, 모르는 code는 공통 문구(§5-2).
-// 중복 생성 등 앱이 별도 안내를 만들 수 없는 code는 일부러 공통 문구로 떨어뜨린다.
 function createErrorMessage(e: unknown): string {
   switch (groupErrorCode(e)) {
     case 'NOT_FOUND':
       return '사라진 그룹이에요.';
     case 'MEMBER_ONLY':
       return '그룹원만 이용할 수 있어요.';
+    // 그룹 생성이 대표 챌린지를 항상 하나 만들기 때문에 이 충돌은 예외가 아니라 기본 상태다 —
+    // 공통 문구로 떨어뜨리면 "다시 시도"를 반복해도 영원히 같은 실패만 본다.
+    case 'ACTIVE_CHALLENGE_EXISTS':
+      return '이미 같은 종류의 챌린지가 있어요. 기존 챌린지를 삭제하고 만들어주세요.';
     default:
       return '챌린지를 만들지 못했어요. 잠시 후 다시 시도해주세요.';
   }
@@ -49,6 +58,9 @@ function createErrorMessage(e: unknown): string {
 
 export interface ChallengeComposeSheetProps {
   groupId: string;
+  // 이 그룹에 이미 있는(ACTIVE) 챌린지의 카테고리 — 부모가 challenges에서 파생해 넘긴다.
+  // 서버가 같은 카테고리 중복을 409로 막으므로, 애초에 실패할 조합을 고를 수 없게 한다.
+  existingCategories: MissionCategory[];
   onClose: () => void;
   // 생성 성공 — 부모가 시트를 닫고 챌린지 목록을 재조회한다.
   onCreated: () => void;
@@ -56,17 +68,30 @@ export interface ChallengeComposeSheetProps {
 
 export default function ChallengeComposeSheet({
   groupId,
+  existingCategories,
   onClose,
   onCreated,
 }: ChallengeComposeSheetProps) {
-  const [missionCategory, setMissionCategory] = useState<MissionCategory>('FOCUS');
+  // 초기 선택은 **비어 있는** 카테고리 — 기본값 FOCUS를 고수하면 대표 챌린지와 항상 충돌한다.
+  // 둘 다 차 있으면 아무거나 둬도 만들 수 없으므로(아래에서 CTA를 막는다) 첫 항목으로 둔다.
+  const [missionCategory, setMissionCategory] = useState<MissionCategory>(
+    () =>
+      CATEGORY_OPTIONS.find((o) => !existingCategories.includes(o.value))?.value ??
+      CATEGORY_OPTIONS[0].value,
+  );
   const [durationMinutes, setDurationMinutes] = useState<number>(DURATION_DEFAULT);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // 만들 수 있는 카테고리가 하나도 없다 — 세그먼트를 전부 잠그고 CTA도 막는다.
+  const allTaken = CATEGORY_OPTIONS.every((o) => existingCategories.includes(o.value));
+  const durationLabel =
+    CATEGORY_OPTIONS.find((c) => c.value === missionCategory)?.durationLabel ??
+    CATEGORY_OPTIONS[0].durationLabel;
+
   async function submit() {
     // 생성 중 중복 탭 방지 — 서버가 중복을 막긴 하지만 두 번째 요청은 에러 문구만 남긴다.
-    if (submitting) return;
+    if (submitting || allTaken) return;
     setSubmitting(true);
     setErrorMsg(null);
     try {
@@ -95,21 +120,28 @@ export default function ChallengeComposeSheet({
       <Text style={s.label}>챌린지 종류</Text>
       <View style={s.segment}>
         {CATEGORY_OPTIONS.map((opt) => {
-          const on = missionCategory === opt.value;
+          const taken = existingCategories.includes(opt.value);
+          const on = !taken && missionCategory === opt.value;
           return (
             <TouchableOpacity
               key={opt.value}
               style={[s.segBtn, on ? s.segBtnOn : null]}
               activeOpacity={0.8}
+              disabled={taken}
               onPress={() => setMissionCategory(opt.value)}
             >
-              <Text style={[s.segText, on ? s.segTextOn : null]}>{opt.label}</Text>
+              <Text style={[s.segText, on ? s.segTextOn : null, taken ? s.segTextOff : null]}>
+                {opt.label}
+              </Text>
             </TouchableOpacity>
           );
         })}
       </View>
+      {existingCategories.length > 0 && (
+        <Text style={s.takenCaption}>{allTaken ? ALL_TAKEN_CAPTION : TAKEN_CAPTION}</Text>
+      )}
 
-      <Text style={s.label}>하루 목표</Text>
+      <Text style={s.label}>{durationLabel}</Text>
       <View style={s.chips}>
         {DURATION_OPTIONS.map((m) => {
           const on = durationMinutes === m;
@@ -139,9 +171,9 @@ export default function ChallengeComposeSheet({
       {errorMsg !== null && <Text style={s.error}>{errorMsg}</Text>}
 
       <TouchableOpacity
-        style={[s.submitBtn, submitting && s.submitBtnOff]}
+        style={[s.submitBtn, (submitting || allTaken) && s.submitBtnOff]}
         activeOpacity={0.85}
-        disabled={submitting}
+        disabled={submitting || allTaken}
         onPress={submit}
         testID="group.challenge.submit"
       >
@@ -186,6 +218,9 @@ const s = StyleSheet.create({
   },
   segText: { ...T.text.label, color: T.inkSub },
   segTextOn: { color: T.ink, fontWeight: '700' },
+  // 이미 있는 카테고리 — 고를 수 없다는 것을 색으로 먼저 알린다(터치는 disabled로 막았다).
+  segTextOff: { color: T.inkFaint, fontWeight: '500' },
+  takenCaption: { ...T.text.caption, fontWeight: '500', color: T.inkMuted, marginTop: T.space.sm },
 
   chips: { flexDirection: 'row', gap: T.space.sm },
   chip: {

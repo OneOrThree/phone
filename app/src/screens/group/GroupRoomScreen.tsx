@@ -79,10 +79,14 @@ export interface GroupRoomScreenProps {
   onLeft: () => void;
   // 초대 시트가 이 화면 위에 떠 있는가 — 떠 있으면 '⋯' 메뉴를 내린다(아래 이펙트 주석 참고).
   inviteOpen?: boolean;
-  // 내장 렌더(탭 안)일 때만 전달 — ⋯ 메뉴 '내 그룹 목록' 진입점(2차 §0-3).
+  // 내장 렌더(탭 안)일 때만 전달 — ⋯ 메뉴 '그룹 전환·추가' 진입점(2차 §0-3).
   // 라우트 진입은 이미 목록에서 들어온 화면이라 미전달 → 항목이 숨는다.
   // 이 prop의 유무가 곧 '내장 렌더인가'라서 하단 탭바 여백 판정에도 함께 쓴다.
   onShowGroups?: () => void;
+  // 라우트로 push된 경우에만 전달 — 헤더 좌측에 원형 백버튼을 세운다.
+  // 루트 스택이 headerShown:false라 네이티브 헤더가 없고, 탭바도 없어
+  // 미전달이면 목록으로 돌아갈 명시 경로가 0개가 된다(앱 관행: 스택 화면은 백버튼 자가 렌더).
+  onBack?: () => void;
 }
 
 export default function GroupRoomScreen({
@@ -91,6 +95,7 @@ export default function GroupRoomScreen({
   onLeft,
   inviteOpen,
   onShowGroups,
+  onBack,
 }: GroupRoomScreenProps) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
@@ -208,13 +213,12 @@ export default function GroupRoomScreen({
     if (inviteOpen) setMenuOpen(false);
   }, [inviteOpen]);
 
+  // 당겨서 새로고침 — 스피너는 **무조건** 내린다. '최신 응답일 때만' 내리면
+  // 진행 중 다른 조회(포그라운드 복귀·삭제 후 재조회 등)가 끼어들어 seq가 밀리는 순간
+  // 내릴 주체가 사라져 스피너가 영구히 돈다. 늦게 끝난 요청이 내려도 사용자 피해는 없다.
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    // fresh 여부와 무관하게 내린다 — 당겨서 새로고침 중에 탭 포커스 복귀·포그라운드 복귀의
-    // reload()가 끼어들면 이 호출은 stale(fresh=false)로 끝나는데, 최신 reload()는 loading만
-    // 해제하므로 fresh일 때만 내리면 RefreshControl이 영원히 돈다.
-    // stale로 끝났다는 건 더 새로운 조회가 진행 중이라는 뜻이라, 표시는 그쪽 스피너가 맡는다.
-    load().then(() => setRefreshing(false));
+    load().finally(() => setRefreshing(false));
   }, [load]);
 
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(§6-4).
@@ -331,6 +335,15 @@ export default function GroupRoomScreen({
   const members = detail?.members ?? [];
   const noticeList = notices ?? [];
   const challengeList = challenges ?? [];
+  // 만들기 시트가 '이미 있는 종류'를 못 고르게 하는 근거 — 서버는 같은 카테고리의 ACTIVE 챌린지가
+  // 있으면 409로 튕긴다. 종료된 챌린지는 다시 만들 수 있으므로 ACTIVE만 센다.
+  const existingCategories = challengeList
+    .filter((c) => c.status === 'ACTIVE')
+    .map((c) => c.missionCategory);
+  // 섹션 실패 표시는 '한 번도 못 받음'뿐 아니라 '빈 목록 + 갱신 실패'에도 세운다 —
+  // 빈 상태 문구가 뜨면 서버 상태를 못 받았다는 사실이 화면에서 완전히 사라진다.
+  const noticeFailed = noticeError && noticeList.length === 0;
+  const challengeFailed = challengeError && challengeList.length === 0;
   // 탭바 여백은 내장 렌더에서만 — onShowGroups를 받는가가 곧 '탭 안에 있는가'다(§0-3 계약).
   const bottomSpace = insets.bottom + (onShowGroups ? TAB_BAR_SPACE : 0) + T.space.md;
   const cells: GridCell[] = [
@@ -343,6 +356,7 @@ export default function GroupRoomScreen({
     <>
       <ScrollView
         style={s.scroll}
+        testID="group.room.scroll"
         contentContainerStyle={[s.content, { paddingBottom: bottomSpace }]}
         showsVerticalScrollIndicator={false}
         testID="group.room.scroll"
@@ -362,6 +376,17 @@ export default function GroupRoomScreen({
 
         {/* ── 헤더 ── */}
         <View style={s.header}>
+          {/* 라우트 진입에서만 — 규격은 그룹 만들기·공지 화면의 원형 백버튼과 같다(§5-1) */}
+          {!!onBack && (
+            <TouchableOpacity
+              style={s.backBtn}
+              onPress={onBack}
+              activeOpacity={0.7}
+              accessibilityLabel="뒤로"
+            >
+              <Ionicons name="chevron-back" size={18} color={T.inkSub} />
+            </TouchableOpacity>
+          )}
           <View style={s.headerLeft}>
             <Text style={s.title} numberOfLines={1}>
               {name}
@@ -420,11 +445,14 @@ export default function GroupRoomScreen({
           )}
         </View>
 
-        {/* 공지를 한 번도 못 받은 채 실패 — '없음'과 구분해서 알린다. 이 상태에선 작성 진입을 막는다
-            (서버엔 이미 공지가 있는데 없다고 보고 같은 공지를 또 쓰는 것을 예방). */}
-        {notices === null && noticeError ? (
+        {/* 공지를 못 받은 채 목록이 비어 있음 — '없음'과 구분해서 알린다(문구·아이콘 모두 danger).
+            이 상태에선 작성 진입을 막는다(서버엔 이미 공지가 있는데 없다고 보고 또 쓰는 것을 예방). */}
+        {noticeFailed ? (
           <View style={s.emptyNotice}>
-            <Text style={s.emptyNoticeText}>공지를 불러오지 못했어요</Text>
+            <View style={s.emptyErrorRow}>
+              <Ionicons name="alert-circle-outline" size={15} color={T.dangerInk} />
+              <Text style={s.emptyErrorText}>공지를 불러오지 못했어요</Text>
+            </View>
             <TouchableOpacity style={s.writeBtn} activeOpacity={0.85} onPress={reload}>
               <Text style={s.writeText}>다시 시도</Text>
             </TouchableOpacity>
@@ -475,11 +503,14 @@ export default function GroupRoomScreen({
           )}
         </View>
 
-        {/* 공지와 같은 규격 — 한 번도 못 받은 채 실패면 '없음'으로 위장하지 않고 재시도를 세운다.
+        {/* 공지와 같은 규격 — 목록이 빈 채 실패면 '없음'으로 위장하지 않고 재시도를 세운다.
             이 상태에선 만들기 진입도 막는다(서버에 이미 있는 챌린지를 중복 생성하면 409로 튕긴다). */}
-        {challenges === null && challengeError ? (
+        {challengeFailed ? (
           <View style={s.emptyNotice}>
-            <Text style={s.emptyNoticeText}>챌린지를 불러오지 못했어요</Text>
+            <View style={s.emptyErrorRow}>
+              <Ionicons name="alert-circle-outline" size={15} color={T.dangerInk} />
+              <Text style={s.emptyErrorText}>챌린지를 불러오지 못했어요</Text>
+            </View>
             <TouchableOpacity style={s.writeBtn} activeOpacity={0.85} onPress={reload}>
               <Text style={s.writeText}>다시 시도</Text>
             </TouchableOpacity>
@@ -506,6 +537,7 @@ export default function GroupRoomScreen({
                 key={c.id}
                 challenge={c}
                 isOwner={!!isOwner}
+                myUserId={userId}
                 onDelete={onDeleteChallenge}
               />
             ))}
@@ -558,7 +590,9 @@ export default function GroupRoomScreen({
       {menuOpen && !inviteOpen && (
         <SheetShell onClose={() => setMenuOpen(false)} asModal>
           <Text style={s.menuTitle}>{name}</Text>
-          {/* '내 그룹 목록'은 내장 렌더에서만 — 라우트 진입은 이미 목록에서 들어온 화면이다(§0-3) */}
+          {/* 내장 렌더에서만 — 라우트 진입은 이미 목록에서 들어온 화면이다(§0-3).
+              라벨은 '목록 보기'가 아니라 실제 기능(전환·만들기·찾기의 허브)에 맞춘다 —
+              그룹이 1개인 사용자에게 두 번째 그룹으로 가는 유일한 입구가 여기다. */}
           {!!onShowGroups && (
             <TouchableOpacity
               style={s.menuItem}
@@ -568,8 +602,8 @@ export default function GroupRoomScreen({
                 onShowGroups();
               }}
             >
-              <Ionicons name="list-outline" size={18} color={T.ink} />
-              <Text style={s.menuText}>내 그룹 목록</Text>
+              <Ionicons name="swap-horizontal" size={18} color={T.ink} />
+              <Text style={s.menuText}>그룹 전환·추가</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity style={s.menuItem} activeOpacity={0.7} onPress={confirmLeave}>
@@ -583,6 +617,7 @@ export default function GroupRoomScreen({
       {composeOpen && (
         <ChallengeComposeSheet
           groupId={groupId}
+          existingCategories={existingCategories}
           onClose={() => setComposeOpen(false)}
           onCreated={() => {
             setComposeOpen(false);
@@ -627,6 +662,18 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: T.space.xs,
+  },
+  // 라우트 진입의 백버튼 — 그룹 만들기·공지 화면과 같은 32/r16/white/border 규격.
+  backBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: T.space.sm,
   },
   headerLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   title: { ...T.text.title, color: T.ink, flexShrink: 1 },
@@ -710,6 +757,10 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.lg,
   },
   emptyNoticeText: { ...T.text.caption, fontWeight: '500', color: T.inkMuted },
+  // 조회 실패는 빈 상태와 같은 컨테이너를 쓰되 색·아이콘으로 갈라 놓는다 —
+  // 읽어야만 구분되면 '아직 없음'과 '못 받음'이 같은 화면으로 보인다. 에러 색은 앱 관행대로 dangerInk.
+  emptyErrorRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
+  emptyErrorText: { ...T.text.caption, color: T.dangerInk },
   writeBtn: {
     height: 40,
     paddingHorizontal: T.space.xl,

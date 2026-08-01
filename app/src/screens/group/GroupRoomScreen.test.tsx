@@ -8,7 +8,7 @@
 //     챌린지도 같은 규격을 따른다(실패를 '없음'으로 위장하지 않는다).
 //  2) 포그라운드 복귀. 그룹 탭이 포커스된 채 백그라운드에 있다 자정을 넘겨 돌아오면
 //     useFocusEffect가 다시 돌지 않아 '오늘 집중분'이 전날 값으로 남았다.
-//  3) ⋯ 메뉴의 '내 그룹 목록'은 **onShowGroups를 받았을 때만** 렌더한다 —
+//  3) ⋯ 메뉴의 '그룹 전환·추가'는 **onShowGroups를 받았을 때만** 렌더한다 —
 //     라우트로 push된 그룹방은 이미 목록에서 들어온 화면이라 되돌아가는 항목이 중복이다(2차 §0-3).
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert, AppState, type AppStateStatus } from 'react-native';
@@ -249,32 +249,32 @@ describe('당겨서 새로고침', () => {
   // 새로고침 중에 포커스 복귀·포그라운드 복귀의 reload()가 끼어들면 이 호출은 stale로 끝나는데,
   // 예전엔 fresh일 때만 refreshing을 내려서 RefreshControl이 영원히 돌았다(최신 reload()는
   // loading만 해제한다). 사용자에겐 '새로고침이 끝나지 않는 화면'으로 보인다.
-  test('새로고침 도중 새 조회가 끼어들어도 인디케이터가 풀린다', async () => {
-    let resolvePull: (d: GroupDetailResponse) => void = () => {};
-    mockGetGroupDetail
-      .mockResolvedValueOnce(detail()) // 최초 진입
-      .mockImplementationOnce(
-        () =>
-          new Promise<GroupDetailResponse>((resolve) => {
-            resolvePull = resolve; // 당겨서 새로고침 — 응답을 잡아 둔다
-          }),
-      )
-      .mockResolvedValue(detail()); // 끼어든 재조회
+  test('진행 중 다른 조회가 끼어들어도 스피너는 내려간다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);
     await renderRoom();
 
+    // 새로고침 응답을 붙잡아 둔다.
+    let release: (v: GroupDetailResponse) => void = () => {};
+    mockGetGroupDetail.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
     await act(async () => {
       refreshControl().props.onRefresh();
     });
     expect(refreshControl().props.refreshing).toBe(true);
 
-    // 응답 전에 포그라운드 복귀가 새 조회를 시작한다 — 여기서 새로고침 호출이 stale이 된다.
+    // 포그라운드 복귀가 끼어들어 요청 시퀀스를 올린다 → 원래 새로고침은 '최신 아님'이 된다.
+    // 예전엔 여기서 스피너를 내릴 주체가 사라져 영구히 돌았다.
     await foreground();
     await act(async () => {
-      resolvePull(detail());
+      release(detail());
     });
 
-    expect(refreshControl().props.refreshing).toBe(false);
+    await waitFor(() => expect(refreshControl().props.refreshing).toBe(false));
   });
 });
 
@@ -373,6 +373,23 @@ describe('챌린지 섹션', () => {
     expect(screen.getByText('챌린지를 새로고침하지 못했어요')).toBeOnTheScreen();
   });
 
+  test('빈 목록에서 갱신이 실패하면 빈 상태가 아니라 실패를 보여준다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    // 첫 조회는 []로 성공 — challenges가 null이 아니게 된다.
+    mockGetChallenges.mockResolvedValueOnce([]);
+    await renderRoom();
+    expect(screen.getByText('아직 챌린지가 없어요')).toBeOnTheScreen();
+
+    mockGetChallenges.mockRejectedValueOnce(new Error('network'));
+    await focus();
+
+    // 예전엔 '아직 챌린지가 없어요' + 만들기 버튼이 그대로 떠서 실패한 흔적이 화면에 없었다.
+    expect(screen.getByText('챌린지를 불러오지 못했어요')).toBeOnTheScreen();
+    expect(screen.queryByText('아직 챌린지가 없어요')).toBeNull();
+    expect(screen.queryByText('챌린지 만들기')).toBeNull();
+  });
+
   test('0건이면 방장에게만 만들기 진입점을 준다', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);
@@ -416,7 +433,7 @@ describe('챌린지 섹션', () => {
   });
 });
 
-describe('⋯ 메뉴 — 내 그룹 목록', () => {
+describe('⋯ 메뉴 — 그룹 전환·추가', () => {
   test('내장 렌더(onShowGroups 전달)에서만 항목이 보이고, 탭하면 콜백이 불린다', async () => {
     const onShowGroups = jest.fn();
     mockGetGroupDetail.mockResolvedValue(detail());
@@ -426,7 +443,7 @@ describe('⋯ 메뉴 — 내 그룹 목록', () => {
     await act(async () => {
       fireEvent.press(screen.getByLabelText('그룹 메뉴'));
     });
-    await press('내 그룹 목록');
+    await press('그룹 전환·추가');
     expect(onShowGroups).toHaveBeenCalled();
   });
 
@@ -440,6 +457,6 @@ describe('⋯ 메뉴 — 내 그룹 목록', () => {
     });
     // 메뉴 자체는 열려 있다 — '그룹 나가기'는 두 경로 모두에 있다.
     expect(screen.getByText('그룹 나가기')).toBeOnTheScreen();
-    expect(screen.queryByText('내 그룹 목록')).toBeNull();
+    expect(screen.queryByText('그룹 전환·추가')).toBeNull();
   });
 });
