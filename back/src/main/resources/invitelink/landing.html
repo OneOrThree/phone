@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>gromo 그룹 「{{groupName}}」에 초대받았어요</title>
+
+<!--
+  초대 랜딩 (WS-5). 치환 변수는 스펙 §4-4 계약의 4개뿐이다 — 아래 설명에서는 치환을 피하려고
+  중괄호를 뺀 이름으로 적는다(본문에는 계약 표기 그대로 들어간다):
+    groupName  그룹명. HTML 이스케이프 필수 — og:title 은 속성 컨텍스트라 " 도 반드시 이스케이프할 것
+    schemeUrl  gromo://join?g=…&s=…
+    storeUrl   App Store 링크
+    expired    "true" 면 만료 변형
+  새 치환 변수를 추가하지 말 것 (컨트롤러는 WS-1 소유).
+
+  외부 CDN·빌드 도구 없음. CSS 는 전부 인라인 — 카톡 인앱브라우저에서 왕복 1회로 끝내는 게
+  이 페이지의 유일한 성능 목표다. 서버 정적 파일은 OG 이미지 하나뿐.
+-->
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="gromo">
+<meta property="og:title" content="gromo 그룹 「{{groupName}}」에 초대받았어요">
+<meta property="og:description" content="같이 공부하자! 집중 시간을 기록하고 그룹으로 함께 겨뤄요.">
+<meta property="og:image" content="https://link.oneorthree.world/link/og-invite.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="gromo — 같이 공부하자">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light only">
+
+<style>
+  /* 다크모드 무시(정적 페이지) — 인앱브라우저의 강제 반전을 막는다 */
+  :root {
+    color-scheme: light only;
+    --indigo: #5E6AD2;
+    --indigo-deep: #4A53B8;
+    --indigo-tint: #EEF0FB;
+    --ink: #1C1E22;
+    --ink-sub: #667085;
+    --ink-muted: #9AA0A8;
+    --line: #EAEBEE;
+    --paper: #FFFFFF;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    /* 시스템 폰트만 사용 — 웹폰트 요청 0회 */
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+                 "Pretendard", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--indigo-deep);
+    background-image: linear-gradient(160deg, #3A429E 0%, #5E6AD2 52%, #6E79DD 100%);
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
+  }
+
+  .shell { width: 100%; max-width: 420px; }
+
+  /* ── 카드 ─────────────────────────────────────────────── */
+  .card {
+    background: var(--paper);
+    border-radius: 24px;
+    padding: 36px 24px 24px;
+    box-shadow: 0 18px 48px rgba(20, 24, 64, .28);
+    text-align: center;
+  }
+
+  /* 시그니처: 그룹방 문패. 초대는 "방"으로 들어오라는 말이라 이름을 가장 크게 둔다. */
+  .eyebrow {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .14em;
+    color: var(--indigo);
+    background: var(--indigo-tint);
+    border-radius: 999px;
+    padding: 7px 14px;
+  }
+
+  .group-name {
+    margin: 18px 0 0;
+    font-size: 30px;
+    line-height: 1.28;
+    font-weight: 800;
+    letter-spacing: -.02em;
+    /* 긴 그룹명도 카드를 밀지 않게 */
+    overflow-wrap: anywhere;
+  }
+
+  .group-name .bracket { color: var(--ink-muted); font-weight: 600; }
+
+  .lede {
+    margin: 12px 0 0;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--ink-sub);
+  }
+
+  /* ── 주간 집중 막대 — OG 이미지와 같은 마크로 페이지와 미리보기를 잇는다 ── */
+  .bars {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 7px;
+    height: 44px;
+    margin: 26px 0 4px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 0;
+  }
+  .bars i {
+    display: block;
+    width: 8px;
+    border-radius: 999px;
+    background: #DDE0F3;
+    transform-origin: bottom;
+  }
+  .bars i:nth-child(1) { height: 30%; }
+  .bars i:nth-child(2) { height: 58%; }
+  .bars i:nth-child(3) { height: 40%; }
+  .bars i:nth-child(4) { height: 78%; }
+  .bars i:nth-child(5) { height: 48%; }
+  .bars i:nth-child(6) { height: 100%; background: var(--indigo); }
+  .bars i:nth-child(7) { height: 62%; }
+
+  /* ── CTA ─────────────────────────────────────────────── */
+  .actions { margin-top: 22px; display: grid; gap: 10px; }
+
+  .btn {
+    display: block;
+    width: 100%;
+    padding: 17px 16px;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 700;
+    text-decoration: none;
+    text-align: center;
+    letter-spacing: -.01em;
+    transition: transform .12s ease, background-color .18s ease, color .18s ease,
+                border-color .18s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn:active { transform: scale(.985); }
+  .btn:focus-visible { outline: 3px solid var(--indigo-deep); outline-offset: 3px; }
+
+  .btn-primary { background: var(--indigo); color: #fff; box-shadow: 0 6px 16px rgba(94, 106, 210, .34); }
+  .btn-ghost   { background: #fff; color: var(--ink-sub); border: 1px solid var(--line); box-shadow: none; }
+
+  .status {
+    margin: 14px 0 0;
+    min-height: 18px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ink-muted);
+  }
+
+  .foot {
+    margin: 18px 0 0;
+    text-align: center;
+    font-size: 12px;
+    letter-spacing: .04em;
+    color: rgba(255, 255, 255, .72);
+  }
+
+  /* ── 상태 1: 스킴 점프 시도 중 ───────────────────────────── */
+  body[data-state="opening"] .status::after {
+    content: "";
+    display: inline-block;
+    width: 5px; height: 5px;
+    margin-left: 6px;
+    border-radius: 50%;
+    background: var(--indigo);
+    animation: pulse 1s ease-in-out infinite;
+    vertical-align: middle;
+  }
+  @keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+
+  /* ── 상태 2: 1.5s 내 이탈 없음 = 앱 미설치 판정 → 스토어 CTA 승격 ── */
+  body[data-state="noapp"] #cta-store { background: var(--indigo); color: #fff;
+                                        border-color: transparent;
+                                        box-shadow: 0 6px 16px rgba(94, 106, 210, .34); }
+  body[data-state="noapp"] #cta-open  { background: #fff; color: var(--ink-sub);
+                                        border: 1px solid var(--line); box-shadow: none; }
+  /* 스토어를 위로 올려 손가락이 먼저 닿는 자리에 둔다 */
+  body[data-state="noapp"] #cta-store { order: -1; }
+
+  /* ── 만료 변형: JS 없이 CSS만으로 확정된다(스크레이퍼·JS 차단 환경 대비) ── */
+  body[data-expired="true"] .eyebrow,
+  body[data-expired="true"] .group-name,
+  body[data-expired="true"] .bars,
+  body[data-expired="true"] .status { display: none; }
+  /* :not() 으로 명시 — 같은 특이도 규칙이 순서에 의존해 서로를 덮는 걸 피한다 */
+  body[data-expired="true"] .lede:not(.expired-lede) { display: none; }
+  body[data-expired="true"] .expired-title,
+  body[data-expired="true"] .expired-lede { display: block; }
+  body[data-expired="true"] #cta-open { display: none; }
+  body[data-expired="true"] #cta-store { background: var(--indigo); color: #fff;
+                                         border-color: transparent;
+                                         box-shadow: 0 6px 16px rgba(94, 106, 210, .34); }
+  .expired-title {
+    display: none;
+    margin: 18px 0 0;
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -.02em;
+  }
+  .expired-lede { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+
+<body data-expired="{{expired}}" data-state="idle">
+  <main class="shell">
+    <div class="card">
+      <span class="eyebrow">그룹 초대</span>
+
+      <h1 class="group-name">
+        <span class="bracket">「</span>{{groupName}}<span class="bracket">」</span>
+      </h1>
+      <h1 class="expired-title">만료된 초대예요</h1>
+
+      <p class="lede">함께 집중하고, 공부한 시간을 겨뤄요.</p>
+      <p class="lede expired-lede">이 초대 링크는 더 이상 쓸 수 없어요.<br>gromo를 설치하고 새 초대를 받아 보세요.</p>
+
+      <div class="bars" aria-hidden="true">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
+
+      <div class="actions">
+        <a class="btn btn-primary" id="cta-open" href="{{schemeUrl}}">앱에서 열기</a>
+        <a class="btn btn-ghost" id="cta-store" href="{{storeUrl}}">App Store에서 받기</a>
+      </div>
+
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </div>
+
+    <p class="foot">gromo · 함께 공부하는 시간 기록</p>
+  </main>
+
+<script>
+(function () {
+  var body = document.body;
+  var expired = body.dataset.expired === 'true';
+
+  // 만료 변형은 CSS 만으로 완성돼 있다(JS 차단 환경에서도 동일). 여기선 점프만 막으면 된다.
+  if (expired) return;
+
+  var open = document.getElementById('cta-open');
+  var status = document.getElementById('status');
+  var scheme = open.getAttribute('href');
+
+  // 자리표시자가 치환되지 않은 상태(스텁 렌더·직접 파일 열람)에서는 점프하지 않는다.
+  if (!scheme || scheme.indexOf('{{') === 0) return;
+
+  // 백그라운드 프리렌더에서는 점프가 조용히 소모되므로 보일 때만 시도한다.
+  if (document.visibilityState !== 'visible') return;
+
+  var settled = false;
+
+  function settle() {
+    if (settled) return false;
+    settled = true;
+    clearTimeout(timer);
+    document.removeEventListener('visibilitychange', onVisibility);
+    window.removeEventListener('pagehide', onLeave);
+    return true;
+  }
+
+  // 화면이 넘어갔다 = 앱이 열렸다. 상태를 되돌려 복귀 시 "미설치" 오판을 남기지 않는다.
+  function onLeave() {
+    if (!settle()) return;
+    body.dataset.state = 'idle';
+    status.textContent = '';
+  }
+
+  // visibilitychange 는 hidden 으로 바뀔 때만 이탈로 친다(복귀 시에도 발화하므로).
+  function onVisibility() {
+    if (document.visibilityState === 'hidden') onLeave();
+  }
+
+  document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('pagehide', onLeave);
+
+  body.dataset.state = 'opening';
+  status.textContent = 'gromo 앱을 여는 중';
+
+  // 스킴 점프 1회 — iOS 는 앱이 없으면 조용히 실패한다.
+  try { window.location.href = scheme; } catch (e) { /* 무시하고 폴백으로 */ }
+
+  // 1.5s 안에 이탈이 없으면 미설치로 판정하고 스토어 CTA 를 승격한다.
+  var timer = setTimeout(function () {
+    if (settled) return;
+    settle();
+    body.dataset.state = 'noapp';
+    status.textContent = '앱이 열리지 않았어요. 설치 후 다시 열어 주세요.';
+  }, 1500);
+})();
+</script>
+</body>
+</html>
