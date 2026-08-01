@@ -5086,6 +5086,10 @@
           "awardedCoins": {
             "type": "integer",
             "format": "int32"
+          },
+          "goalRewardCoins": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -5197,7 +5201,10 @@
               "PURCHASE",
               "BET_STAKE",
               "BET_PAYOUT",
-              "BET_REFUND"
+              "BET_REFUND",
+              "FOCUS_GOAL",
+              "SCREEN_TIME_GOAL",
+              "LEAGUE_TIER_BONUS"
             ]
           }
         }
@@ -6117,6 +6124,10 @@
           },
           "acknowledged": {
             "type": "boolean"
+          },
+          "promotionBonusCoins": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -6743,7 +6754,10 @@
               "PURCHASE",
               "BET_STAKE",
               "BET_PAYOUT",
-              "BET_REFUND"
+              "BET_REFUND",
+              "FOCUS_GOAL",
+              "SCREEN_TIME_GOAL",
+              "LEAGUE_TIER_BONUS"
             ]
           },
           "createdAt": {
