@@ -106,6 +106,8 @@ export default {
         // Screen Time(FamilyControls) 권한 사용 목적 — 시스템 팝업엔 안 뜨지만 심사 대비 명시
         NSFamilyControlsUsageDescription:
           '폰 사용 시간을 측정해 스크린타임 목표 달성 확인과 사용 통계 제공에 사용합니다.',
+        // 카메라로 사진 찍어 캐릭터 만들기(오브젝트 캐릭터) — 네이티브 plist와 동기 유지
+        NSCameraUsageDescription: '사진을 찍어 나만의 캐릭터를 만들 때 카메라를 사용해요.',
         // 공유 시트 '이미지 저장'(타임테이블 공유) — 네이티브 plist와 동기 유지(prebuild 시 유실 방지, 리뷰 반영)
         NSPhotoLibraryAddUsageDescription:
           '타임테이블 등 통계 이미지를 사진에 저장하기 위해 필요합니다.',
