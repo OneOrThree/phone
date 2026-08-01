@@ -144,7 +144,9 @@ public class GroupBetService {
         User user = requireActiveUser(userId);
         requireGroupMembership(user, groupId);
 
-        GroupChallengeBet bet = groupChallengeBetRepository.findByIdAndGroupId(betId, groupId)
+        // 행 잠금 — "OPEN 확인 → 참가 행 삽입 + 차감"이 check-then-act 라, 잠금 없이는 그 사이에
+        // 취소(명시적·탈퇴 자동)가 끼어들어 방금 종료된 내기에 참가자의 판돈이 묶인다 (PR #427 리뷰).
+        GroupChallengeBet bet = groupChallengeBetRepository.findByIdAndGroupIdForUpdate(betId, groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
         // 정산됐거나(status≠OPEN) 날짜가 지난 내기는 닫힌 것으로 본다. 배치가 돌기 전(04:00 KST 이전)의
         // 전일자 내기가 여기 걸린다 — status 만으로는 못 막는 구간이라 날짜도 함께 본다.
@@ -166,17 +168,18 @@ public class GroupBetService {
      * 내기 취소 — 개설자 본인이면서 참가자가 개설자 1명뿐인 OPEN 내기만 가능하다. 판돈은 환불된다.
      *
      * <p>타인이 참가한 내기를 취소로 무를 수 있으면 "질 것 같으면 무르기"가 되므로 단독일 때만
-     * 허용한다. 상태 전이는 정산과 같은 CAS 게이트를 지난다 — 검증과 전이 사이에 정산 배치가
-     * 먼저 끝냈으면 CAS 가 0행을 돌려주고, 이 취소는 {@code BET_NOT_OPEN} 으로 거절된다(환불 없음).
-     * 환불 멱등키가 정산 환불과 같은 포맷({@code bet:{betId}:refund:{userId}})이라 어떤 경로로든
-     * 이중 환불은 원장 유니크가 최후 방어한다.
+     * 허용한다. 진입 조회가 행 잠금이라 참가(joinBet)와 직렬화된다 — 잠금 없이는 "단독 확인 →
+     * 취소" 사이에 참가가 끼어들어 방금 취소된 내기에 참가자의 판돈이 묶인다. 상태 전이는 정산과
+     * 같은 CAS 게이트를 지난다 — 검증과 전이 사이에 정산 배치가 먼저 끝냈으면 CAS 가 0행을
+     * 돌려주고, 이 취소는 {@code BET_NOT_OPEN} 으로 거절된다(환불 없음). 환불 멱등키가 정산 환불과
+     * 같은 포맷({@code bet:{betId}:refund:{userId}})이라 이중 환불은 원장 유니크가 최후 방어한다.
      */
     @Transactional
     public void cancelBet(UUID groupId, UUID betId, UUID userId) {
         User user = requireActiveUser(userId);
         requireGroupMembership(user, groupId);
 
-        GroupChallengeBet bet = groupChallengeBetRepository.findByIdAndGroupId(betId, groupId)
+        GroupChallengeBet bet = groupChallengeBetRepository.findByIdAndGroupIdForUpdate(betId, groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
         if (!bet.getCreatorUser().getId().equals(userId)) {
             throw new GroupException(GroupErrorCode.BET_CANCEL_FORBIDDEN);
@@ -214,9 +217,10 @@ public class GroupBetService {
      *       자동 취소 + 개설자 환불(혼자 남은 내기는 성립하지 않는다)</li>
      * </ul>
      *
-     * <p>내기마다 행 잠금(FOR UPDATE)으로 시작한다 — 정산 배치({@link GroupBetSettler})와 같은
-     * 잠금을 잡으므로 "정산이 참가자를 읽는 사이에 여기가 행을 지우고 환불"하는 이중 지급 레이스가
-     * 원천 차단된다. 잠금 후 status 재확인에서 이미 종료된 내기는 건드리지 않는다(정산 결과 존중).
+     * <p>내기마다 행 잠금(FOR UPDATE)으로 시작한다 — 정산 배치({@link GroupBetSettler})·참가
+     * ({@link #joinBet})와 같은 잠금을 잡으므로 "정산이 참가자를 읽는 사이의 행 삭제·환불"이나
+     * "단독 확인 → 자동 취소 사이의 참가 끼어들기" 같은 레이스가 원천 차단된다. 잠금 후 status
+     * 재확인에서 이미 종료된 내기는 건드리지 않는다(정산 결과 존중).
      */
     @Transactional
     public void releaseFromOpenBets(User user, Group group) {

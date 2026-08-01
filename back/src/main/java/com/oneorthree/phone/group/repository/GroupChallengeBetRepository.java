@@ -23,8 +23,17 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
     /** 챌린지 삭제 가드 — 진행 중(OPEN) 내기가 걸려 있는 챌린지는 지울 수 없다. */
     boolean existsByChallengeIdAndStatus(UUID challengeId, GroupBetStatus status);
 
-    /** 참가 진입점 — 내기 id 와 그룹 스코프를 함께 검증한다(남의 그룹 내기에 참가 불가). */
-    Optional<GroupChallengeBet> findByIdAndGroupId(UUID id, UUID groupId);
+    /**
+     * 참가·취소 진입점 — 내기 id 와 그룹 스코프를 함께 검증하며(남의 그룹 내기에 참가·취소 불가),
+     * 행을 잠근다. 참가는 "OPEN 확인 → 참가 행 삽입 + 차감"의 check-then-act 라 잠금 없이는 취소
+     * (명시적·탈퇴 자동)와 겹칠 때 방금 종료된 내기에 판돈이 묶일 수 있다 — 돈이 움직이는 경로는
+     * 전부 같은 내기 행 잠금({@link #findByIdForUpdate})으로 직렬화한다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT b FROM GroupChallengeBet b WHERE b.id = :id AND b.group.id = :groupId")
+    Optional<GroupChallengeBet> findByIdAndGroupIdForUpdate(
+            @Param("id") UUID id,
+            @Param("groupId") UUID groupId);
 
     /**
      * 내기 행 잠금 조회 — 참가자 목록을 읽고 돈을 움직이는 경로(정산·탈퇴 연동)의 직렬화 지점.

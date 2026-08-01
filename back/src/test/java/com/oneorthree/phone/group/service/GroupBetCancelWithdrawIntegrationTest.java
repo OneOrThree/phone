@@ -34,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -280,6 +281,66 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
         assertThat(refunds + payouts).isEqualTo(1);
         assertThat(finalStatus == GroupBetStatus.CANCELED ? refunds : payouts).isEqualTo(1);
         assertThat(balanceOf(creator)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
+    }
+
+    @Test
+    @DisplayName("참가 ↔ 취소 동시 실행 — 행 잠금 직렬화로 '취소된 내기에 판돈이 묶이는' 상태가 없다")
+    void joinAndCancelRaceNeverStrandsStake() throws Exception {
+        User creator = memberUser("개설자", GroupMemberRole.MEMBER);
+        User joiner = memberUser("참가자", GroupMemberRole.MEMBER);
+        // joinBet 은 "KST 오늘"만 허용한다 — 시스템 존이 아니라 서비스와 같은 KST 로 오늘을 잡는다.
+        LocalDate betDate = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        GroupChallengeBet bet = openBet(creator, betDate);
+        participant(bet, creator);
+        // 참가 가드(이미 달성 차단)를 지나도록 미달성 상태를 만들어 둔다.
+        focusStat(joiner, betDate, 0);
+
+        CyclicBarrier startTogether = new CyclicBarrier(2);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> joinCall = pool.submit(() -> {
+                await(startTogether);
+                try {
+                    groupBetService.joinBet(group.getId(), bet.getId(), joiner.getId());
+                } catch (GroupException e) {
+                    // 취소가 먼저 끝났으면 BET_CLOSED 로 거절되는 것이 정상이다.
+                    assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.BET_CLOSED);
+                }
+            });
+            Future<?> cancelCall = pool.submit(() -> {
+                await(startTogether);
+                try {
+                    groupBetService.cancelBet(group.getId(), bet.getId(), creator.getId());
+                } catch (GroupException e) {
+                    // 참가가 먼저 끝났으면 단독 조건이 깨져 거절되는 것이 정상이다.
+                    assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.BET_CANCEL_HAS_OTHERS);
+                }
+            });
+            joinCall.get(30, TimeUnit.SECONDS);
+            cancelCall.get(30, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // 유효한 종착지는 둘뿐이다: (a) 참가 승 — OPEN 유지, 2명, 취소 거절(환불 없음)
+        // (b) 취소 승 — CANCELED, 개설자만, 참가자는 차감 자체가 없다.
+        // 잠금이 없으면 "CANCELED 인데 참가자 2명·참가자 판돈 차감됨"이라는 세 번째 상태가 생긴다.
+        GroupBetStatus finalStatus = statusOf(bet);
+        long joinerStakes = countOf(joiner, CurrencyTransactionType.BET_STAKE);
+        if (finalStatus == GroupBetStatus.OPEN) {
+            assertThat(participantsOf(bet)).hasSize(2);
+            assertThat(joinerStakes).isEqualTo(1);
+            assertThat(countOf(creator, CurrencyTransactionType.BET_REFUND)).isZero();
+            assertThat(balanceOf(joiner)).isEqualTo(BALANCE_AFTER_STAKE - STAKE);
+        } else {
+            assertThat(finalStatus).isEqualTo(GroupBetStatus.CANCELED);
+            assertThat(participantsOf(bet))
+                    .extracting(p -> p.getUser().getId())
+                    .containsExactly(creator.getId());
+            assertThat(joinerStakes).isZero();
+            assertThat(balanceOf(joiner)).isEqualTo(BALANCE_AFTER_STAKE);
+            assertThat(countOf(creator, CurrencyTransactionType.BET_REFUND)).isEqualTo(1);
+        }
     }
 
     // ── 그룹 탈퇴 연동 ──────────────────────────────────────────────────
