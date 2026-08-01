@@ -9,6 +9,7 @@ import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupJoinCodeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -384,6 +385,25 @@ class GroupServiceTest {
         // when & then
         assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, null)))
                 .isInstanceOf(GroupException.class);
+        verify(groupRepository, never()).save(any());
+        verify(groupChallengeRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("DURATION인데 durationMinutes <= 0 → INVALID_MISSION_PARAMS (createChallenge 와 동일 규칙)")
+    void createGroupDurationRejectsNonPositiveMinutes() {
+        // given: 0분·음수 목표는 진행률 판정을 무의미하게 만들어 생성 단계에서 막는다
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+
+        // when & then
+        assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, 0)))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+        assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, -10)))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
         verify(groupRepository, never()).save(any());
         verify(groupChallengeRepository, never()).save(any());
     }
@@ -1072,14 +1092,15 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
-        given(groupChallengeRepository.findByGroupOrderByCreatedAtDesc(group)).willReturn(List.of(challenge));
+        given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
+                .willReturn(List.of(challenge));
         // GROMO-674: durationMinutes 는 CTI 상세 배치 조회로 채워진다
         given(groupChallengeDurationRepository.findByChallengeIdIn(List.of(CHALLENGE_ID)))
                 .willReturn(List.of(GroupChallengeDuration.builder()
                         .challengeId(CHALLENGE_ID).durationMinutes(60).build()));
 
         // when
-        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID);
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, null);
 
         // then
         assertThat(result).hasSize(1);
@@ -1100,7 +1121,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1111,7 +1132,7 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
-        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1123,7 +1144,7 @@ class GroupServiceTest {
         given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID_99, USER_ID))
+        assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID_99, USER_ID, null))
                 .isInstanceOf(GroupException.class);
     }
 
@@ -1274,6 +1295,80 @@ class GroupServiceTest {
         // when & then
         assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
                 .isInstanceOf(UserException.class);
+    }
+
+    // ── 멀티 그룹 상한 (MAX_JOINED_GROUPS = 10) ─────────────────────────────
+
+    @Test
+    @DisplayName("소속 9개에서 참가 → 10번째까지는 허용(경계)")
+    void joinGroupAllowedAtNinthGroup() {
+        // given: 이미 9개 소속 → 이번 참가로 10개
+        User user = normalUser();
+        Group group = openGroup();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.countByUser(user)).willReturn(9L);
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+
+        // when
+        groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest());
+
+        // then
+        verify(groupMemberRepository).save(any(GroupMember.class));
+    }
+
+    @Test
+    @DisplayName("소속 10개에서 참가 → GROUP_LIMIT_EXCEEDED(409)")
+    void joinGroupRejectedAtLimit() {
+        // given: 상한(10) 도달
+        User user = normalUser();
+        Group group = openGroup();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.countByUser(user)).willReturn(10L);
+
+        // when & then: 앱이 code 문자열로 분기하므로 에러 코드까지 고정한다
+        assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.GROUP_LIMIT_EXCEEDED);
+        verify(groupMemberRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("이미 멤버인 그룹은 상한과 무관하게 ALREADY_MEMBER 로 끝난다")
+    void joinGroupAlreadyMemberTakesPrecedenceOverLimit() {
+        // given: 10개 소속이면서 그중 한 곳에 다시 참가 시도 — 소속 수가 늘지 않으므로 상한 사유가 아니다
+        User user = normalUser();
+        Group group = openGroup();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(GroupMember.builder().user(user).group(group).build()));
+
+        // when & then
+        assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.ALREADY_MEMBER);
+    }
+
+    @Test
+    @DisplayName("소속 10개에서 그룹 생성 → GROUP_LIMIT_EXCEEDED (생성도 곧 가입이므로 같은 상한)")
+    void createGroupRejectedAtLimit() {
+        // given
+        User user = normalUser();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupMemberRepository.countByUser(user)).willReturn(10L);
+
+        // when & then
+        assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, 30)))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.GROUP_LIMIT_EXCEEDED);
+        verify(groupRepository, never()).save(any(Group.class));
     }
 
     // ── transferOwner (GROMO-355) ─────────────────────────────────────────

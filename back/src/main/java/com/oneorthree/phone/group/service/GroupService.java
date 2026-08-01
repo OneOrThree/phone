@@ -78,6 +78,14 @@ public class GroupService {
     /** 그룹 이름 검색 최대 반환 수 — 닉네임 검색(NicknameSearchStrategy)과 동일 값. */
     private static final int SEARCH_LIMIT = 20;
 
+    /**
+     * 한 유저가 동시에 소속될 수 있는 그룹 수 상한.
+     *
+     * <p>내 그룹 목록(getMyGroups)이 무페이지네이션이라 무제한 가입은 그대로 abuse 표면이 된다.
+     * 10 은 실사용에서 사실상 무제한이면서 목록 응답 크기를 상수로 묶는 값.
+     */
+    private static final int MAX_JOINED_GROUPS = 10;
+
     @Transactional
     public CreateGroupResponse createGroup(UUID userId, CreateGroupRequest request) {
         // 1) 게스트 검증
@@ -87,8 +95,14 @@ public class GroupService {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }
 
+        // 1-1) 소속 그룹 수 상한 — 생성도 곧 가입이므로 참가와 같은 기준으로 막는다
+        ensureJoinedGroupLimit(user);
+
         // 2) 미션 타입별 필수값 검증
-        if (request.getMissionType() == MissionType.DURATION && request.getDurationMinutes() == null) {
+        //    durationMinutes 는 createChallenge 와 같은 > 0 규칙 — 0/음수 목표는 진행률 판정("0분도 달성",
+        //    음수는 영원히 미달성)을 무의미하게 만들므로 생성 단계에서 막는다.
+        if (request.getMissionType() == MissionType.DURATION
+                && (request.getDurationMinutes() == null || request.getDurationMinutes() <= 0)) {
             throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
         }
         if (request.getMissionType() == MissionType.TIME_WINDOW
@@ -232,6 +246,10 @@ public class GroupService {
         if (groupMemberRepository.findByUserAndGroup(user, group).isPresent()) {
             throw new GroupException(GroupErrorCode.ALREADY_MEMBER);
         }
+
+        // 3-1. 소속 그룹 수 상한 → GROUP_LIMIT_EXCEEDED
+        // (이미 멤버인 경우는 위에서 ALREADY_MEMBER 로 끝나므로 상한에 걸리지 않는다)
+        ensureJoinedGroupLimit(user);
 
         // 4. 정원 확인 → ROOM_FULL
         if (group.getMaxMembers() <= groupMemberRepository.findByGroup(group).size()) {
@@ -490,6 +508,21 @@ public class GroupService {
                             member.disallowAnnouncement();
                         }
                     });
+        }
+    }
+
+    /**
+     * 유저가 이미 {@link #MAX_JOINED_GROUPS} 개 그룹에 소속돼 있으면 409({@code GROUP_LIMIT_EXCEEDED}).
+     * 모수는 getMyGroups 와 같은 group_members 행 수다(탈퇴는 행 삭제라 자연 제외).
+     *
+     * <p>동시성: count → insert 사이에 락이 없어 동시 요청이 상한을 1~2 개 넘길 수 있다(TOCTOU).
+     * 바로 아래 ROOM_FULL 검사도 같은 count-then-insert 패턴이고, 이 상한은 보안 경계가 아니라
+     * 응답 크기를 묶는 소프트 캡이라 의도적으로 수용한다 — 버그가 아니라 결정이다. 엄격히 막으려면
+     * 유저 행 잠금이나 DB 제약이 필요한데, 그 비용(유저 행 경합)이 초과 1~2 개보다 크다고 봤다.
+     */
+    private void ensureJoinedGroupLimit(User user) {
+        if (groupMemberRepository.countByUser(user) >= MAX_JOINED_GROUPS) {
+            throw new GroupException(GroupErrorCode.GROUP_LIMIT_EXCEEDED);
         }
     }
 

@@ -58,4 +58,14 @@ public class GroupChallenge {
 
     @Column(name = "deleted_at")
     private Instant deletedAt;
+
+    /**
+     * 삭제 마킹(soft delete). 하드 딜리트는 CTI 상세(durations/windows)의 challenge_id FK 를 위반하고
+     * 이력도 잃으므로 쓰지 않는다. 이미 삭제된 챌린지는 조회 단계에서 걸러지므로 여기서는 멱등하게 둔다.
+     */
+    public void softDelete() {
+        if (deletedAt == null) {
+            this.deletedAt = Instant.now();
+        }
+    }
 }
