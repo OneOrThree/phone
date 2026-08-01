@@ -1,0 +1,91 @@
+// 탭바 피드백 정책 + 접근성 테스트 — "선택된 탭은 아무 반응도 없다"는 규칙을 고정한다.
+// (동작이 없는 버튼에 소리·햅틱·스케일이 남으면 피드백 언어가 어긋난다)
+import { fireEvent, render, screen } from '@testing-library/react-native';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { TabBar } from './TabBar';
+import { playTapSound } from '@/utils/sound';
+import { hapticSelect } from '@/utils/haptics';
+
+jest.mock('@/utils/sound', () => ({ playTapSound: jest.fn(), preloadTapSound: jest.fn() }));
+jest.mock('@/utils/haptics', () => ({
+  hapticLight: jest.fn(),
+  hapticMedium: jest.fn(),
+  hapticSelect: jest.fn(),
+}));
+// 네비게이션 컨테이너·세이프에어리어 없이 탭바만 떼어 렌더한다
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: jest.fn() }),
+}));
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+}));
+// 네이티브 리퀴드 글래스는 jest에서 로드할 수 없다 — 폴백 경로로 고정
+jest.mock('@/components/liquidGlass', () => ({
+  isLiquidGlassSupported: false,
+  GlassPillFill: () => null,
+}));
+
+const ROUTE_NAMES = ['홈', '리그', '그룹', '전체'] as const;
+
+const navigate = jest.fn();
+
+async function renderTabBar(focusedIndex: number) {
+  const props = {
+    state: {
+      index: focusedIndex,
+      routes: ROUTE_NAMES.map((name) => ({ key: `${name}-key`, name })),
+    },
+    navigation: { navigate },
+  } as unknown as BottomTabBarProps;
+  return await render(<TabBar {...props} />);
+}
+
+beforeEach(() => jest.clearAllMocks());
+
+describe('TabBar 피드백 정책', () => {
+  test('선택되지 않은 탭은 소리·햅틱이 난다', async () => {
+    await renderTabBar(0);
+    fireEvent(screen.getByTestId('tabbar.tab.리그'), 'pressIn');
+    expect(playTapSound).toHaveBeenCalledTimes(1);
+    expect(hapticSelect).toHaveBeenCalledTimes(1);
+  });
+
+  test('이미 선택된 탭은 소리·햅틱이 나지 않는다', async () => {
+    await renderTabBar(0);
+    fireEvent(screen.getByTestId('tabbar.tab.홈'), 'pressIn');
+    expect(playTapSound).not.toHaveBeenCalled();
+    expect(hapticSelect).not.toHaveBeenCalled();
+  });
+
+  test('비선택 탭을 누르면 해당 라우트로 이동한다', async () => {
+    await renderTabBar(0);
+    fireEvent.press(screen.getByTestId('tabbar.tab.전체'));
+    expect(navigate).toHaveBeenCalledWith('전체');
+  });
+
+  test('선택된 탭을 다시 눌러도 이동하지 않는다', async () => {
+    await renderTabBar(0);
+    fireEvent.press(screen.getByTestId('tabbar.tab.홈'));
+    expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('TabBar 접근성', () => {
+  test('탭 역할·선택 상태·레이블을 노출한다', async () => {
+    await renderTabBar(1);
+    const selected = screen.getByTestId('tabbar.tab.리그');
+    const unselected = screen.getByTestId('tabbar.tab.홈');
+
+    expect(selected.props.accessibilityRole).toBe('tab');
+    expect(selected.props.accessibilityLabel).toBe('리그');
+    expect(selected.props.accessibilityState).toEqual(expect.objectContaining({ selected: true }));
+    expect(unselected.props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: false }),
+    );
+  });
+
+  test('중앙 FAB는 버튼 역할 기본값을 갖는다', async () => {
+    await renderTabBar(0);
+    expect(screen.getByTestId('tabbar.fab').props.accessibilityRole).toBe('button');
+  });
+});

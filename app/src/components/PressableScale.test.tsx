@@ -1,6 +1,7 @@
 // PressableScale 컴포넌트 테스트 — 눌림 피드백(햅틱·사운드)의 발화 조건.
 // 스케일 애니메이션은 UI 스레드 값이라 단위 테스트로 검증하지 않고, 부수효과만 본다.
-import { Text } from 'react-native';
+import { createRef } from 'react';
+import { Text, type View } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { PressableScale } from './PressableScale';
 import { playTapSound } from '@/utils/sound';
@@ -58,6 +59,35 @@ describe('PressableScale', () => {
     fireEvent(screen.getByTestId('btn'), 'pressIn');
     expect(hapticLight).toHaveBeenCalledTimes(1);
     expect(hapticSelect).not.toHaveBeenCalled();
+  });
+
+  test("기본 accessibilityRole은 'button' — VoiceOver가 버튼으로 읽는다", async () => {
+    await render(
+      <PressableScale testID="btn">
+        <Text>확인</Text>
+      </PressableScale>,
+    );
+    expect(screen.getByTestId('btn').props.accessibilityRole).toBe('button');
+  });
+
+  test('호출부가 accessibilityRole을 덮어쓸 수 있다', async () => {
+    await render(
+      <PressableScale testID="btn" accessibilityRole="tab">
+        <Text>홈</Text>
+      </PressableScale>,
+    );
+    expect(screen.getByTestId('btn').props.accessibilityRole).toBe('tab');
+  });
+
+  test('ref가 호스트 뷰로 전달된다(팝오버·드로어 앵커 measureInWindow용)', async () => {
+    const ref = createRef<View>();
+    await render(
+      <PressableScale testID="btn" ref={ref}>
+        <Text>메뉴</Text>
+      </PressableScale>,
+    );
+    expect(ref.current).not.toBeNull();
+    expect(typeof ref.current?.measureInWindow).toBe('function');
   });
 
   test('호출부의 onPressIn도 함께 실행된다(피드백이 기존 핸들러를 가리지 않음)', async () => {
