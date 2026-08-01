@@ -95,7 +95,9 @@ describe('parseInviteLink — 기존 방어 로직 유지', () => {
 
   // 죽은 랜딩(github.io)은 이번 규격에서 빠졌다 — 살려두면 서버가 모르는 링크를 계속 받는다.
   test('구 웹 랜딩(github.io) 링크는 더 이상 받지 않는다', () => {
-    expect(parseInviteLink(`https://oneorthree.github.io/phone/join.html?g=${GROUP_ID}`)).toBeNull();
+    expect(
+      parseInviteLink(`https://oneorthree.github.io/phone/join.html?g=${GROUP_ID}`),
+    ).toBeNull();
   });
 });
 

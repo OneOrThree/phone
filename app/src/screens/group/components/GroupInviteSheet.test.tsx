@@ -32,6 +32,10 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupInviteSheetViewed: jest.fn(),
 }));
 
+// GA4 앱스트림 기기 식별자 — join 어트리뷰션에 실려 서버 group_joined와 같은 타임라인을 만든다.
+jest.mock('@/services/analytics', () => ({ getAppInstanceId: jest.fn(async () => 'inst-1') }));
+const mockGetAppInstanceId = jest.requireMock('@/services/analytics').getAppInstanceId as jest.Mock;
+
 // groupErrorCode는 실제 구현을 남긴다(§3-2 code 분기까지 검증).
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
@@ -177,7 +181,7 @@ describe('프리뷰 조회 분기', () => {
     await press('참여하기');
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
-    expect(mockJoinGroup).toHaveBeenCalledWith(GROUP_ID);
+    expect(mockJoinGroup).toHaveBeenCalledWith(GROUP_ID, expect.any(Object));
   });
 
   // 사전 조회는 이제 아예 나가지 않는다 — 남아 있으면 시트가 왕복 한 번만큼 늦게 뜨고,
@@ -310,10 +314,16 @@ describe('참여 분기', () => {
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
     expect(logGroupJoinAttempted).toHaveBeenCalledWith({ join_method: 'invite', slug: SLUG });
+    // 서버가 소유한 group_joined([S])의 재료 — 세 값이 함께 가야 퍼널이 slug 단위로 이어진다.
+    expect(mockJoinGroup).toHaveBeenCalledWith(GROUP_ID, {
+      joinMethod: 'invite',
+      inviteSlug: SLUG,
+      appInstanceId: 'inst-1',
+    });
   });
 
   // entry가 join_method를 가른다(초대 링크 스펙 §4-3 7) — 설치 후 복원된 초대는 deferred_invite.
-  test('entry=deferred면 join_method=deferred_invite로 계측한다', async () => {
+  test('entry=deferred면 join_method=deferred_invite로 계측하고 그대로 전송한다', async () => {
     mockJoinGroup.mockResolvedValue(undefined);
     await renderSheet({ entry: 'deferred' });
 
@@ -324,10 +334,14 @@ describe('참여 분기', () => {
       join_method: 'deferred_invite',
       slug: SLUG,
     });
+    expect(mockJoinGroup).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ joinMethod: 'deferred_invite' }),
+    );
   });
 
   // 구형 링크(§4-1 gromo://join?g=…)는 slug가 없다 — 파라미터를 비워 보낸다(빈 문자열 금지).
-  test('slug가 null이면 계측 파라미터에서 slug를 뺀다', async () => {
+  test('slug가 null이면 계측·전송 모두에서 slug를 뺀다', async () => {
     mockJoinGroup.mockResolvedValue(undefined);
     await renderSheet({ slug: null });
 
@@ -335,6 +349,25 @@ describe('참여 분기', () => {
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
     expect(logGroupJoinAttempted).toHaveBeenCalledWith({ join_method: 'invite', slug: undefined });
+    expect(mockJoinGroup).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ inviteSlug: undefined }),
+    );
+  });
+
+  // app_instance_id 조회는 네이티브 모듈에 의존한다 — 없으면 어트리뷰션만 약해지고 참여는 진행된다.
+  test('app_instance_id를 못 얻어도 참여는 그대로 진행한다', async () => {
+    mockGetAppInstanceId.mockResolvedValueOnce(null);
+    mockJoinGroup.mockResolvedValue(undefined);
+    await renderSheet();
+
+    await press('참여하기');
+
+    await waitFor(() => expect(onJoined).toHaveBeenCalled());
+    expect(mockJoinGroup).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ appInstanceId: undefined }),
+    );
   });
 
   test('ALREADY_MEMBER(409)는 성공 취급 — 링크를 두 번 눌러도 막히지 않는다', async () => {
@@ -455,7 +488,7 @@ describe('참여 분기', () => {
     // B는 그대로 참여 가능한 상태다(A가 끝났으므로 잠금이 풀려 있다).
     mockJoinGroup.mockResolvedValueOnce(undefined);
     await press('참여하기');
-    expect(mockJoinGroup).toHaveBeenLastCalledWith(OTHER_GROUP_ID);
+    expect(mockJoinGroup).toHaveBeenLastCalledWith(OTHER_GROUP_ID, expect.any(Object));
   });
 
   // 위 가드는 '늦게 온 응답을 버린다'까지만 한다 — A가 **아직 진행 중일 때** 잠금까지 풀면
@@ -496,7 +529,7 @@ describe('참여 분기', () => {
       fireEvent.press(screen.getByTestId('group.invite.join'));
     });
     expect(mockJoinGroup).toHaveBeenCalledTimes(1);
-    expect(mockJoinGroup).toHaveBeenLastCalledWith(GROUP_ID);
+    expect(mockJoinGroup).toHaveBeenLastCalledWith(GROUP_ID, expect.any(Object));
 
     // A가 끝나면 잠금이 풀린다 — 세대가 갈렸어도 여기서 풀지 않으면 B가 영영 잠긴다.
     mockJoinGroup.mockResolvedValueOnce(undefined);
@@ -504,7 +537,7 @@ describe('참여 분기', () => {
       resolveJoin();
     });
     await press('참여하기');
-    expect(mockJoinGroup).toHaveBeenLastCalledWith(OTHER_GROUP_ID);
+    expect(mockJoinGroup).toHaveBeenLastCalledWith(OTHER_GROUP_ID, expect.any(Object));
   });
 
   // 성공은 세대를 보지 않고 넘긴다(실제로 가입됐으므로) — 그래서 부모가 목적지를 현재 groupId로

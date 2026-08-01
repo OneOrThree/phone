@@ -15,6 +15,7 @@ import axios from 'axios';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '@/services/api';
+import { claimInviteLink } from '@/services/inviteLinkApi';
 import { getAppInstanceId, getDeviceId } from '@/services/analytics';
 import { notifyGroupInvite, peekPendingInvite } from '@/navigation/navigationRef';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -135,6 +136,25 @@ export async function getStoredInviteAttribution(): Promise<InviteAttribution | 
     return { slug: parsed.slug, groupId: parsed.groupId, claimed: parsed.claimed === true };
   } catch {
     return null;
+  }
+}
+
+// 로그인/가입 직후 1회 — 복원한 초대 slug를 우리 user_id에 붙인다(스펙 §2-3 ③·§4-2 ④).
+// 배선 지점은 services/auth.ts 의 postAuthSave 한 곳뿐이다(소셜 5종·게스트·게스트→소셜 승격이
+// 전부 그 함수로 합류하는 토큰 저장 완료 시점).
+//
+// 그룹 참여 **전**에 붙이는 이유: 결정론 결합이 가능한 가장 이른 시점이라, 가입만 하고 그룹엔
+// 안 들어간 유저도 초대자와 이어진다(추후 초대 보상의 기반 — 보상 트리거는 이번 범위 밖).
+// 실패는 전부 삼킨다 — 어트리뷰션은 부가 정보이고, 로그인 흐름을 절대 막지 않는다.
+// claimed 를 세우지 않으므로 다음 로그인에서 자동 재시도된다(서버도 멱등).
+export async function claimStoredInviteAttribution(): Promise<void> {
+  try {
+    const attribution = await getStoredInviteAttribution();
+    if (!attribution || attribution.claimed) return;
+    await claimInviteLink(attribution.slug);
+    await markInviteAttributionClaimed();
+  } catch {
+    // 네트워크 실패·404(SLUG_NOT_FOUND) 모두 무시.
   }
 }
 

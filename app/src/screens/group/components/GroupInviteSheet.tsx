@@ -6,6 +6,7 @@ import { SheetShell } from '@/components/SheetShell';
 import { useUser } from '@/store/UserContext';
 import { getGroupOverview, groupErrorCode, joinGroup } from '@/services/groupApi';
 import { logGroupInviteSheetViewed, logGroupJoinAttempted } from '@/services/analyticsEvents';
+import { getAppInstanceId } from '@/services/analytics';
 import type { GroupOverviewResponse } from '@/types/dto/group';
 import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
 
@@ -245,11 +246,17 @@ export default function GroupInviteSheet({
       // 여기까지 온 실행은 곧장 요청으로 이어진다 — 시도 하나에 계측 하나로 맞아떨어진다.
       // join_method는 entry로 갈린다(스펙 §4-3 7) — 'deferred_invite'는 미설치→설치 후
       // 서버 매치로 복원된 초대다. slug는 구형 링크면 없다.
-      logGroupJoinAttempted({
-        join_method: entry === 'deferred' ? 'deferred_invite' : 'invite',
-        slug: slug ?? undefined,
+      const joinMethod = entry === 'deferred' ? 'deferred_invite' : 'invite';
+      logGroupJoinAttempted({ join_method: joinMethod, slug: slug ?? undefined });
+      // 서버가 group_joined([S])를 이 값들로 발행한다(스펙 §4-3 8) — appInstanceId가 있어야
+      // 서버 이벤트가 앱 SDK 이벤트와 같은 유저 타임라인에 붙는다(§2-3 ②).
+      // 조회 실패는 null 이고, 그때는 필드를 빼고 보낸다(어트리뷰션만 약해질 뿐 참여는 진행).
+      const appInstanceId = await getAppInstanceId();
+      await joinGroup(target, {
+        joinMethod,
+        inviteSlug: slug ?? undefined,
+        appInstanceId: appInstanceId ?? undefined,
       });
-      await joinGroup(target);
       // 성공만은 세대를 보지 않는다 — 실제로 target에 가입됐으므로 부모가 재조회해 그룹방으로
       // 넘어가야 한다. 여기서 버리면 사용자는 이미 가입한 채 다른 그룹 프리뷰를 계속 보게 된다.
       // 목적지도 현재 prop이 아니라 **이 요청이 겨냥한 target**이다(세대가 갈렸어도 가입된 건 target).
@@ -292,7 +299,9 @@ export default function GroupInviteSheet({
     }
     // joining(useJoinLocked)은 표시 전용이라 의존성에 넣지 않는다 — 단일 실행 판정은
     // 모듈 스코프 잠금(joinLock.ts)의 acquire 성공 여부가 한다.
-  }, [block, groupId]);
+    // slug·entry는 groupId와 한 몸으로 갈리는 값이라 실질적으로 groupId에 종속이지만,
+    // 어트리뷰션이 앞 초대장의 값으로 굳는 사고를 막으려 의존성에 그대로 둔다.
+  }, [block, groupId, slug, entry]);
 
   // ── 게스트 — 조회 없이 로그인 유도(§5-3) ──
   // 이동·시트 내리기는 부모(onLogin)가 한다. 시트는 내려도 초대 버퍼는 살아 있어,

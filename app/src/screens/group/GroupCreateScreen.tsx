@@ -206,9 +206,7 @@ export default function GroupCreateScreen() {
 
   // 서버 발급 링크 확보 — 실패하면 안내하고 null. 앱이 링크를 조립하던 폴백은 폐기했다
   // (slug 없는 주소는 서버가 모르는 링크라 404로 끝난다 — 초대 링크 스펙 §7-4).
-  async function resolveInviteLink(
-    groupId: string,
-  ): Promise<{ slug: string; url: string } | null> {
+  async function resolveInviteLink(groupId: string): Promise<{ slug: string; url: string } | null> {
     if (inviteRef.current) return inviteRef.current;
     try {
       const issued = await issueInviteLink(groupId);

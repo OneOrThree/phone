@@ -7,14 +7,18 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  claimStoredInviteAttribution,
   getStoredInviteAttribution,
   markInviteAttributionClaimed,
   runDeferredInviteMatchOnce,
 } from './deferredInvite';
 import { notifyGroupInvite, peekPendingInvite } from '@/navigation/navigationRef';
+import { claimInviteLink } from '@/services/inviteLinkApi';
 import { STORAGE_KEYS } from '@/types/storage';
 
 jest.mock('@/services/api', () => ({ API_URL: 'https://api.test' }));
+
+jest.mock('@/services/inviteLinkApi', () => ({ claimInviteLink: jest.fn(async () => {}) }));
 
 jest.mock('@/services/analytics', () => ({
   getDeviceId: jest.fn(async () => 'device-1'),
@@ -148,5 +152,52 @@ describe('attribution 보관', () => {
   test('저장값이 깨져 있으면 null로 흘린다', async () => {
     await AsyncStorage.setItem(STORAGE_KEYS.inviteAttribution, '{oops');
     expect(await getStoredInviteAttribution()).toBeNull();
+  });
+});
+
+// 로그인/가입 직후 1회 — auth.ts(postAuthSave)가 부르는 지점의 계약(스펙 §2-3 ③·§4-2 ④).
+describe('claimStoredInviteAttribution', () => {
+  const mockClaim = claimInviteLink as jest.MockedFunction<typeof claimInviteLink>;
+
+  async function storeAttribution(claimed: boolean): Promise<void> {
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.inviteAttribution,
+      JSON.stringify({ slug: SLUG, groupId: GROUP_ID, claimed }),
+    );
+  }
+
+  test('미claim 초대가 있으면 slug로 1회 호출하고 claimed를 세운다', async () => {
+    await storeAttribution(false);
+
+    await claimStoredInviteAttribution();
+
+    expect(mockClaim).toHaveBeenCalledWith(SLUG);
+    expect(await getStoredInviteAttribution()).toEqual({
+      slug: SLUG,
+      groupId: GROUP_ID,
+      claimed: true,
+    });
+  });
+
+  test('이미 claim된 초대는 다시 호출하지 않는다(재로그인마다 반복 금지)', async () => {
+    await storeAttribution(true);
+
+    await claimStoredInviteAttribution();
+
+    expect(mockClaim).not.toHaveBeenCalled();
+  });
+
+  test('복원한 초대가 없으면 아무 것도 하지 않는다(대다수 유저의 경로)', async () => {
+    await claimStoredInviteAttribution();
+    expect(mockClaim).not.toHaveBeenCalled();
+  });
+
+  // 어트리뷰션 때문에 로그인이 막히면 안 된다 — 실패는 삼키고 claimed도 세우지 않는다(재시도 여지).
+  test('claim 실패는 던지지 않고 claimed도 세우지 않는다', async () => {
+    await storeAttribution(false);
+    mockClaim.mockRejectedValueOnce(new Error('network'));
+
+    await expect(claimStoredInviteAttribution()).resolves.toBeUndefined();
+    expect((await getStoredInviteAttribution())?.claimed).toBe(false);
   });
 });
