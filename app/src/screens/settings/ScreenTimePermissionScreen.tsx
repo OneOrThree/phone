@@ -19,8 +19,9 @@ import { STORAGE_KEYS } from '@/types/storage';
 import { T } from '@/constants/theme';
 
 // SET · 스크린타임 권한 관리 화면(SettingsScreenTimePermission).
-// 권한 상태 배지 + 수집 항목 안내 + 기기내 처리 안내 + '측정 대상 앱 설정'(기존 MenuScreen 이식) + iOS 설정 이동.
-// 스크린타임은 iOS 전용 기능이라 실기기에서만 실제 동작하고, 그 외에선 배지·버튼이 무해하게 표시된다.
+// 권한 상태 배지 + 수집 항목 안내 + 기기내 처리 안내 + '측정 대상 앱 설정'(기존 MenuScreen 이식).
+// 상태 카드가 권한 상태별 단일 진입점(GROMO-978): 요청 필요→권한 요청(허용 시 바로 앱 피커),
+// 허용됨→앱 피커, 거부됨→iOS 설정 이동. 스크린타임은 iOS 전용이라 실기기에서만 실제 동작한다.
 
 // 로컬(기기 시간대) 기준 'YYYY-MM-DD'.
 function ymd(d: Date): string {
@@ -84,7 +85,8 @@ export default function ScreenTimePermissionScreen() {
     }, []),
   );
 
-  // notDetermined 상태에서만 노출 — 시스템 권한창 → 서버 반영 → 상태 재조회.
+  // notDetermined 상태 카드 탭 — 시스템 권한창 → 서버 반영 → 상태 재조회.
+  // 허용되면 완료 알럿 없이 바로 앱 피커로 이어 측정 대상 설정까지 한 흐름으로 끝낸다(GROMO-978).
   async function requestPermission() {
     if (requesting) return;
     setRequesting(true);
@@ -97,12 +99,11 @@ export default function ScreenTimePermissionScreen() {
       }
       const st = await ScreenTimeModule.getAuthorizationStatus();
       setStatus(st);
-      Alert.alert(
-        granted ? '권한이 켜졌어요' : '권한이 꺼져 있어요',
-        granted
-          ? '이제 사용시간 통계가 동작해요.'
-          : 'iOS 설정 > 스크린 타임에서 다시 켤 수 있어요.',
-      );
+      if (granted) {
+        await editScreenTimeTargets();
+      } else {
+        Alert.alert('권한이 꺼져 있어요', 'iOS 설정 > 스크린 타임에서 다시 켤 수 있어요.');
+      }
     } catch (e) {
       Alert.alert('권한 처리 실패', e instanceof Error ? e.message : String(e));
     } finally {
@@ -182,41 +183,42 @@ export default function ScreenTimePermissionScreen() {
 
   const badge = badgeMeta(status);
 
-  // 하단 고정 버튼 — 권한 미요청 상태에서만 '권한 요청' 노출.
-  // 'iOS 설정에서 관리' 버튼은 제거 — 상태 카드 탭으로 이동(GROMO-848).
-  const footer =
-    status === 'notDetermined' ? (
-      <TouchableOpacity
-        style={[s.primaryBtn, requesting ? s.btnDisabled : null]}
-        activeOpacity={0.85}
-        disabled={requesting}
-        onPress={requestPermission}
-      >
-        <Text style={s.primaryBtnText}>{requesting ? '요청 중…' : '권한 요청'}</Text>
-      </TouchableOpacity>
-    ) : undefined;
+  // 상태 카드 탭 — 권한 상태별 단일 진입점(GROMO-978). 하단 '권한 요청' 버튼은 제거.
+  // 요청 필요→권한 요청(허용 시 바로 앱 피커), 허용됨→앱 피커, 거부됨·확인 중→iOS 설정.
+  function onStatusCardPress() {
+    if (status === 'notDetermined') {
+      requestPermission();
+    } else if (status === 'approved') {
+      editScreenTimeTargets();
+    } else {
+      Linking.openSettings();
+    }
+  }
+
+  // 상태 카드 부제 — 탭했을 때 무슨 일이 일어나는지 상태별로 안내.
+  const statusSub =
+    status === 'notDetermined'
+      ? requesting
+        ? '권한 요청 중…'
+        : '탭해서 스크린타임 접근을 허용해 주세요'
+      : status === 'denied'
+        ? 'iOS 설정에서 다시 켤 수 있어요'
+        : lastSynced
+          ? `마지막 동기화 · ${lastSynced}`
+          : null;
 
   return (
     // stretch — 스페이서로 안내문(수집 항목·기기내 처리)을 화면 하단에 붙이되,
     // 작은 기기·큰 글씨로 콘텐츠가 넘치면 스크롤로 전환된다(코덱스 리뷰, PR 301)
-    <SettingsScaffold
-      title="스크린타임 관리"
-      onBack={() => navigation.goBack()}
-      footer={footer}
-      stretch
-    >
-      {/* 상태 카드 — 권한 배지 + 마지막 동기화. 탭하면 iOS 설정으로 이동 */}
-      <TouchableOpacity
-        style={s.statusCard}
-        activeOpacity={0.8}
-        onPress={() => Linking.openSettings()}
-      >
+    <SettingsScaffold title="스크린타임 관리" onBack={() => navigation.goBack()} stretch>
+      {/* 상태 카드 — 권한 배지 + 상태별 안내. 탭 동작은 onStatusCardPress 참고 */}
+      <TouchableOpacity style={s.statusCard} activeOpacity={0.8} onPress={onStatusCardPress}>
         <View style={s.iconBox}>
           <Ionicons name="phone-portrait-outline" size={20} color={T.accentDeep} />
         </View>
         <View style={s.flex1}>
           <Text style={s.statusTitle}>스크린타임 접근</Text>
-          {lastSynced ? <Text style={s.statusSub}>{`마지막 동기화 · ${lastSynced}`}</Text> : null}
+          {statusSub ? <Text style={s.statusSub}>{statusSub}</Text> : null}
         </View>
         <View style={[s.badge, { backgroundColor: badge.bg }]}>
           <Text style={[s.badgeText, { color: badge.color }]}>{badge.label}</Text>
@@ -310,15 +312,4 @@ const s = StyleSheet.create({
   noteHead: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   noteStrong: { ...T.text.label, color: T.ink },
   noteBody: { ...T.text.caption, color: T.inkSub, lineHeight: 19, marginTop: T.space.sm },
-
-  // 하단 버튼
-  primaryBtn: {
-    height: 54,
-    borderRadius: 16,
-    backgroundColor: T.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryBtnText: { ...T.text.subtitle, color: T.white },
-  btnDisabled: { opacity: 0.5 },
 });
