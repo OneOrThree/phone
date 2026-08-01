@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T, withAlpha } from '@/constants/theme';
 import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
 import { getHeatmap } from '@/services/statsApi';
-import { todayStr } from '@/utils/localDate';
+import { localDateStr, todayStr } from '@/utils/localDate';
 import { fmtHm } from '@/utils/timeFormat';
 import { calendarPage, grassLevel } from './format';
 import { CAL_RAMP, WEEK_DAYS } from './constants';
@@ -71,35 +71,38 @@ export function CalendarCard({ period, cells, today, elapsedDays }: Props) {
   const byDate = new Map((shown ?? []).map((c) => [c.date, c]));
   const totalMin = page.days.reduce((sum, d) => sum + (byDate.get(d)?.totalFocusMinutes ?? 0), 0);
 
-  // 가입 전 날짜 중립 처리 — elapsedDays가 현재 주/월 기준이라 오프셋 0에서만 판정(GoalCards 역산 로직 승계).
-  // 과거 기간은 판정 근거가 없어 기록 없는 날(0분)로만 보인다.
+  // 가입 경계 — 서버 elapsedDays는 가입일로 클램프되므로 현재 기간 경과일보다 작으면 가입일을
+  // 정확히 역산할 수 있고(joinKey), 같으면 '가입이 현재 기간 시작 이전'이라는 사실만 안다(경계 미상).
+  // joinKey를 알면 모든 페이지에서 가입 전 날짜를 중립 처리 — 서버가 요청 범위 전체를 0분 셀로
+  // 채워 과거 페이지의 가입 전 날짜가 '0분=달성'으로 보이는 문제 방지(코드리뷰 반영).
   const now = new Date();
   const todayCol = (now.getDay() + 6) % 7; // 0=월..6=일
-  const preJoinCount =
-    offset === 0 && elapsedDays != null
-      ? period === 'WEEK'
-        ? Math.max(0, todayCol + 1 - elapsedDays)
-        : Math.max(0, now.getDate() - elapsedDays)
-      : 0;
-  const prejoinDates = new Set(page.days.filter((_, i) => i < preJoinCount));
+  const periodElapsed = period === 'WEEK' ? todayCol + 1 : now.getDate();
+  const joinKey =
+    elapsedDays != null && elapsedDays < periodElapsed
+      ? localDateStr(new Date(now.getFullYear(), now.getMonth(), now.getDate() - (elapsedDays - 1)))
+      : null;
+  // '확실히 가입 이후' 하한 — 경계 미상이면 현재 기간 시작. 이보다 이전 날짜는 멤버십을 알 수
+  // 없어 '0분=달성' 폴백을 적용하지 않는다(저장된 확정 플래그만 신뢰).
+  const membershipFloor = joinKey ?? calendarPage(period, 0).days[0];
+  const isPrejoin = (date: string) => joinKey != null && date < joinKey;
 
-  // 목표 미설정이면 체크를 그리지 않는다 — 폰 '0분=달성' 규칙이 미설정에도 ✓를 만들 수 있어
-  // 플래그와 별도 가드가 필요(GoalCards 로직 승계). today 조회 실패 시엔 설정된 것으로 간주.
+  // 목표 미설정 판별 — 저장된 달성 플래그(true)는 오늘 설정과 무관하게 표시한다(서버가 과거 확정
+  // 플래그를 보존 — 목표 해제 시 과거 기록이 사라지면 안 됨, 코드리뷰 반영). 이 게이트는
+  // ① 폰 '0분=달성' 폴백 ② 정보줄의 미달 ✗ 표시에만 쓴다. today 조회 실패 시엔 설정된 것으로 간주.
   const focusGoalSet = today == null || today.focus.goalMinutes > 0;
   const phoneGoalSet = today == null || today.screenTime.goalMinutes > 0;
 
   // 집중 달성 — 오늘은 라이브 판정(달성 즉시 ✓, 미달은 진행 중이라 표시 없음), 과거는 heatmap 플래그.
   const focusOkFor = (date: string, c: HeatmapCellResponse | undefined): boolean =>
-    focusGoalSet &&
-    (date === todayKey && today != null
-      ? today.focus.goalAchieved
-      : (c?.focusGoalAchieved ?? false));
-  // 폰 달성 — 오늘은 다음날 마감까지 미판정(표시 없음). 과거는 플래그 또는 0분(미동기화 날 포함) 달성.
+    date === todayKey && today != null ? today.focus.goalAchieved : (c?.focusGoalAchieved ?? false);
+  // 폰 달성 — 오늘은 다음날 마감까지 미판정(표시 없음). 과거는 저장 플래그, 또는 확실히 가입
+  // 이후인 날의 0분(미동기화 날 포함 — 서버 기간 통계 'row 없는 날=0분=달성'과 의미 일치).
   const phoneOkFor = (date: string, c: HeatmapCellResponse | undefined): boolean =>
     date !== todayKey &&
-    phoneGoalSet &&
     c != null &&
-    (c.screenTimeGoalAchieved || c.actualScreenTimeMinutes === 0);
+    (c.screenTimeGoalAchieved ||
+      (phoneGoalSet && date >= membershipFloor && c.actualScreenTimeMinutes === 0));
 
   // 7칸 행으로 슬롯 분할 — 월은 1일 요일 정렬용 앞 빈 칸 + 마지막 행 채움 빈 칸
   const slots: (string | null)[] = [
@@ -114,7 +117,7 @@ export function CalendarCard({ period, cells, today, elapsedDays }: Props) {
     if (date == null) return <View key={`blank-${idx}`} style={s.cell} />;
     const c = byDate.get(date);
     const future = date > todayKey; // 'YYYY-MM-DD' 문자열 비교 = 날짜 비교
-    const neutral = future || prejoinDates.has(date);
+    const neutral = future || isPrejoin(date);
     const min = c?.totalFocusMinutes ?? 0;
     const lvl = neutral ? 0 : grassLevel(min);
     const dark = lvl >= 3; // 진한 램프 위 텍스트는 흰색으로
@@ -171,9 +174,10 @@ export function CalendarCard({ period, cells, today, elapsedDays }: Props) {
     const focusOk = focusOkFor(picked, c);
     return {
       head: `${m}월 ${d}일 (${dow}) · 집중 ${focusText}`,
-      focusMark: !focusGoalSet ? null : focusOk ? true : isToday ? null : false,
+      // 달성(true)은 항상 표시, 미달 ✗는 오늘·목표 미설정이면 숨김(과거 목표 미설정일 ✗ 오표시 방지)
+      focusMark: focusOk ? true : isToday || !focusGoalSet ? null : false,
       phone: ` · 폰 ${fmtHm(c?.actualScreenTimeMinutes ?? 0)}`,
-      phoneMark: !phoneGoalSet || isToday ? null : phoneOkFor(picked, c),
+      phoneMark: phoneOkFor(picked, c) ? true : isToday || !phoneGoalSet ? null : false,
       tail: ` · 세션 ${sessions}회`,
     };
   })();
