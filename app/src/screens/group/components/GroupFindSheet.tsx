@@ -167,7 +167,7 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
   }
 
   return (
-    <SheetShell onClose={onClose}>
+    <SheetShell onClose={onClose} asModal>
       <Text style={s.title}>그룹 찾기</Text>
       <Text style={s.sub}>이름으로 공개 그룹을 찾아 바로 참여할 수 있어요.</Text>
 

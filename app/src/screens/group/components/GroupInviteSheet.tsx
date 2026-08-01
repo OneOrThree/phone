@@ -59,6 +59,17 @@ function isGone(e: unknown): boolean {
   return axios.isAxiosError(e) && e.response?.status === 404;
 }
 
+// '이미 이 그룹의 멤버인가' 판정 — 와이어 키 두 개를 함께 흡수한다.
+//   현재 서버는 Jackson이 boolean 게터의 'is'를 떼서 `member`로 내려주고(§7 DTO 주석),
+//   백엔드가 @JsonProperty("isMember")를 붙이면 `isMember`로 바뀐다.
+//   이 시트는 비공개방의 유일한 입구라 어느 쪽이 와도 같은 분기를 타야 한다 —
+//   앱/서버 배포 순서가 어긋나도(앱 선배포/후배포 모두) 동작이 변하지 않게 두 키를 다 본다.
+// 이 판정이 틀어지면: 이미 멤버가 자기 링크를 열었을 때 참여 프리뷰가 뜨고,
+// 정원이 찬 그룹이면 자기 방인데 '정원이 가득 찼어요'로 막힌다.
+function readIsMember(ov: GroupOverviewResponse): boolean {
+  return ov.isMember ?? ov.member ?? false;
+}
+
 // 'HH:mm:ss' · ISO 등 서버 시각 문자열에서 HH:mm만 뽑는다. 형식이 다르면 원문 유지.
 function hhmm(v: string): string {
   return /(\d{2}:\d{2})/.exec(v)?.[1] ?? v;
@@ -129,7 +140,7 @@ export default function GroupInviteSheet({ groupId, onClose, onJoined }: GroupIn
         if (!alive) return;
         setOverview(ov);
         // 이미 멤버 — 프리뷰를 보여줄 이유가 없다. 부모가 시트를 내리고 그룹방으로 전환한다.
-        if (ov.isMember) {
+        if (readIsMember(ov)) {
           joinedRef.current();
           return;
         }
@@ -199,7 +210,7 @@ export default function GroupInviteSheet({ groupId, onClose, onJoined }: GroupIn
   // ── 게스트 — 조회 없이 로그인 유도(§5-3) ──
   if (isGuest || guestBlocked) {
     return (
-      <SheetShell onClose={onClose}>
+      <SheetShell onClose={onClose} asModal>
         <Text style={s.title}>로그인하면 그룹에 참여할 수 있어요</Text>
         <Text style={s.desc}>로그인한 뒤 이 초대장이 다시 열려요.</Text>
         <TouchableOpacity style={s.primaryBtn} activeOpacity={0.85} onPress={goLogin}>
@@ -215,7 +226,7 @@ export default function GroupInviteSheet({ groupId, onClose, onJoined }: GroupIn
   // ── 404 — 사라진 그룹 ──
   if (gone) {
     return (
-      <SheetShell onClose={onClose}>
+      <SheetShell onClose={onClose} asModal>
         <Text style={s.title}>사라진 그룹이에요</Text>
         <Text style={s.desc}>초대 링크가 만료됐거나 그룹이 없어졌어요.</Text>
         <TouchableOpacity style={s.primaryBtn} activeOpacity={0.85} onPress={onClose}>
@@ -228,7 +239,7 @@ export default function GroupInviteSheet({ groupId, onClose, onJoined }: GroupIn
   // ── 조회 실패 — 다시 시도 ──
   if (failed) {
     return (
-      <SheetShell onClose={onClose}>
+      <SheetShell onClose={onClose} asModal>
         <Text style={s.title}>초대장을 열지 못했어요</Text>
         <Text style={s.desc}>잠시 후 다시 시도해주세요.</Text>
         <TouchableOpacity
@@ -246,9 +257,9 @@ export default function GroupInviteSheet({ groupId, onClose, onJoined }: GroupIn
   }
 
   // ── 로딩 · isMember 처리 직후(부모가 곧 시트를 내린다) ──
-  if (loading || !overview || overview.isMember) {
+  if (loading || !overview || readIsMember(overview)) {
     return (
-      <SheetShell onClose={onClose}>
+      <SheetShell onClose={onClose} asModal>
         <View style={s.loadingBox}>
           <ActivityIndicator color={T.accent} />
         </View>
@@ -260,7 +271,7 @@ export default function GroupInviteSheet({ groupId, onClose, onJoined }: GroupIn
 
   // ── 프리뷰 ──
   return (
-    <SheetShell onClose={onClose}>
+    <SheetShell onClose={onClose} asModal>
       <Text style={s.title}>그룹 초대장이 도착했어요</Text>
       <Text style={s.desc}>함께 집중할 그룹이에요. 참여하면 바로 시작할 수 있어요.</Text>
 

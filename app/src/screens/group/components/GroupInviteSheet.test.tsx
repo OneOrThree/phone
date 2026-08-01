@@ -141,6 +141,16 @@ describe('프리뷰 조회 분기', () => {
     expect(screen.queryByText('참여하기')).toBeNull();
   });
 
+  // 와이어 레벨 회귀 — 지금 서버는 Jackson이 'is'를 떼서 `member` 키로 내려준다.
+  // 앱이 isMember만 읽으면 이 분기가 통째로 죽어 프리뷰가 그대로 뜬다(§6-6 표 위반).
+  test('서버가 isMember 대신 member 키로 내려줘도 같은 분기를 탄다', async () => {
+    mockGetGroupOverview.mockResolvedValue(overview({ isMember: undefined, member: true }));
+    await renderSheet();
+
+    await waitFor(() => expect(onJoined).toHaveBeenCalled());
+    expect(screen.queryByText('참여하기')).toBeNull();
+  });
+
   test('정원이 찬 그룹은 안내 + 참여 차단', async () => {
     mockGetGroupOverview.mockResolvedValue(overview({ memberCount: 5, maxMembers: 5 }));
     await renderSheet();

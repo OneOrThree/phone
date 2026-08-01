@@ -65,7 +65,14 @@ export interface GroupOverviewResponse {
   memberCount: number;
   status: GroupStatus;
   hasPassword: boolean; // 무시
-  isMember: boolean;
+  // ⚠️ 와이어 키가 두 개다 — 반드시 readIsMember()로 읽는다(GroupInviteSheet).
+  //   백엔드 GroupOverviewResponse는 record가 아니라 Lombok @Getter 일반 클래스라,
+  //   Jackson이 boolean 게터의 'is'를 떼고 직렬화한다 → 실제 JSON 키가 `member`로 나간다.
+  //   (같은 문제를 FriendResponse·GroupSummaryResponse는 @JsonProperty로 이미 고쳐 뒀다.)
+  //   백엔드가 @JsonProperty("isMember")를 붙이면 키가 `isMember`로 바뀌므로 둘 다 받는다 —
+  //   앱/서버 배포 순서와 무관하게 동작해야 하기 때문.
+  isMember?: boolean;
+  member?: boolean;
 }
 
 // GET /groups/{id} 멤버 항목. focusTimeMinutes는 date 기준 '오늘 집중분'(null 가능 → 0분 표기).

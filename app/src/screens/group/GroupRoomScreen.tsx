@@ -362,7 +362,7 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
 
       {/* ── '⋯' 액션시트 ── */}
       {menuOpen && (
-        <SheetShell onClose={() => setMenuOpen(false)}>
+        <SheetShell onClose={() => setMenuOpen(false)} asModal>
           <Text style={s.menuTitle}>{name}</Text>
           <TouchableOpacity style={s.menuItem} activeOpacity={0.7} onPress={confirmLeave}>
             <Ionicons name="exit-outline" size={18} color={T.accentAlt} />
