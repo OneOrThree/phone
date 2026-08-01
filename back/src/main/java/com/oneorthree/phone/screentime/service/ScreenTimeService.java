@@ -156,7 +156,10 @@ public class ScreenTimeService {
         // 과거 날짜마다 선언을 심어 지급을 긁을 수 있다. 정상 지급 창을 오늘·어제로 한정한다(스크린타임 최종
         // 리포트는 익일 도착이라 어제까지 허용). 서버검증 측정 기반 완전 방어는 별도 후속.
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
-        if (date.isBefore(LocalDate.now(zone).minusDays(1))) {
+        LocalDate today = LocalDate.now(zone);
+        // 지급 창 = [어제, 오늘]. 오래된 과거뿐 아니라 미래 날짜(reportedAt 위조)도 거부한다 — 하한만 두면
+        // 미래 날짜마다 달성을 선언해 채굴할 수 있다(코드리뷰 R3).
+        if (date.isBefore(today.minusDays(1)) || date.isAfter(today)) {
             return;
         }
         int limitMinutes = userScreenTimeSettingsRepository.findById(user.getId())

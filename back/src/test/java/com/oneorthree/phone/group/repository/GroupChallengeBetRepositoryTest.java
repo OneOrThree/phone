@@ -42,7 +42,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p><b>ci 프로파일 주의</b>: 스키마는 Flyway 가 아니라 엔티티 create-drop 으로 만들어진다
  * ({@code application-ci.yml}). 유니크 제약은 엔티티에 선언돼 있어 그대로 생성되지만
  * {@code currency_transactions} 의 type CHECK 는 마이그레이션에만 있다 — 그래서 CHECK 테스트는
- * V19 파일에서 ALTER 문을 직접 읽어 적용한 뒤 검증한다(마이그레이션 SQL 자체를 검증하는 셈).
+ * V22(currency 사유 CHECK) 파일에서 ALTER 문을 직접 읽어 적용한 뒤 검증한다(마이그레이션 SQL 자체를 검증하는 셈).
  */
 class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
 
@@ -218,7 +218,7 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("V20 의 type CHECK — 등록된 모든 사유(재화 보상 3종 포함)는 통과, 미등록 값은 거절된다")
+    @DisplayName("V22 의 type CHECK — 등록된 모든 사유(재화 보상 3종 포함)는 통과, 미등록 값은 거절된다")
     void migrationTypeCheckAcceptsBetTypesAndRejectsUnknown() {
         applyTypeCheckFromMigration();
 
@@ -232,7 +232,7 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
     }
 
     /**
-     * V20 의 ALTER 문(type CHECK 재작성 = DROP + ADD)을 <b>파일에서 읽어 그대로</b> 실행한다 —
+     * V22 의 ALTER 문(type CHECK 재작성 = DROP + ADD)을 <b>파일에서 읽어 그대로</b> 실행한다 —
      * 이 테스트가 검증하는 것은 CHECK 식의 사본이 아니라 마이그레이션 원본이다.
      *
      * <p>ci 스키마는 create-drop 이지만 {@code currency_transactions_type_check} 는 이미 존재한다
@@ -247,7 +247,7 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
                 .toList();
 
         assertThat(alters)
-                .as("V20 의 type CHECK 재작성은 DROP + ADD 두 문이어야 한다")
+                .as("V22 의 type CHECK 재작성은 DROP + ADD 두 문이어야 한다")
                 .hasSize(2);
         alters.forEach(jdbcTemplate::execute);
     }

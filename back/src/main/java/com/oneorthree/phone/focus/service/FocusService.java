@@ -589,7 +589,10 @@ public class FocusService {
         // (오프라인 늦은 업로드·자정 경계 허용) 그보다 오래된 날짜의 대량 채굴을 차단한다. 세션 자체의
         // 신뢰 검증(라이브 마커 대조 등)은 별도 후속 — #417 세션 위조방어와 정합.
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
-        if (statDate.isBefore(LocalDate.now(zone).minusDays(1))) {
+        LocalDate today = LocalDate.now(zone);
+        // 지급 창 = [어제, 오늘]. 오래된 과거뿐 아니라 미래 날짜(endedAt 위조)도 거부한다 — 하한만 두면
+        // 미래 날짜마다 위조 세션을 심어 채굴할 수 있다(코드리뷰 R3).
+        if (statDate.isBefore(today.minusDays(1)) || statDate.isAfter(today)) {
             return 0;
         }
         int reward = CurrencyRewardPolicy.focusGoalReward(goalMinutes);
