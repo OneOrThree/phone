@@ -49,6 +49,10 @@
       "description": "인게임 재화 관련 API"
     },
     {
+      "name": "InviteLink",
+      "description": "그룹 초대 링크"
+    },
+    {
       "name": "inventory",
       "description": "인벤토리 관련 API (조회, 수령)"
     },
@@ -61,8 +65,16 @@
       "description": "클라 이벤트 수집 API (Track 2 로그 합류)"
     },
     {
+      "name": "WellKnown",
+      "description": "Universal Links 연결 파일"
+    },
+    {
       "name": "ScreenTime",
       "description": "스크린 타임 목표 달성 저장 API"
+    },
+    {
+      "name": "InviteLink(public)",
+      "description": "무인증 초대 링크 — 랜딩·deferred 매치"
     },
     {
       "name": "Group Bet",
@@ -294,6 +306,38 @@
           },
           "404": {
             "description": "그룹 없음 / 공지 없음"
+          }
+        }
+      }
+    },
+    "/l/match": {
+      "post": {
+        "tags": [
+          "InviteLink(public)"
+        ],
+        "summary": "deferred 매치",
+        "description": "IP해시+OS+시간창 fingerprint 로 미소진 클릭 1건을 원자적으로 소진",
+        "operationId": "match",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteMatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteMatchResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -765,6 +809,31 @@
         }
       }
     },
+    "/api/v1/invite-links/claim": {
+      "post": {
+        "tags": [
+          "InviteLink"
+        ],
+        "summary": "초대 claim",
+        "description": "가입/로그인 직후 1회. 이미 claim 됐거나 셀프 초대면 no-op 200",
+        "operationId": "claim",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimInviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/inventory/grant": {
       "post": {
         "tags": [
@@ -915,6 +984,39 @@
           },
           "409": {
             "description": "정원 초과 / 이미 참여"
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{groupId}/invite-link": {
+      "post": {
+        "tags": [
+          "InviteLink"
+        ],
+        "summary": "초대 링크 발급",
+        "description": "(그룹, 로그인 유저)당 1개를 재사용하는 멱등 발급",
+        "operationId": "issueInviteLink",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueInviteLinkResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1883,8 +1985,8 @@
         "tags": [
           "currency"
         ],
-        "summary": "적립",
-        "description": "인게임 재화 증가",
+        "summary": "적립 (폐쇄 — no-op)",
+        "description": "currency 폐쇄: 클라 주도 적립은 코인 민팅 악용 벡터라 무효화됐다. 세션 보상은 세션 저장(POST /api/v1/focus-session)에서 서버가 직접 지급하고 awardedCoins 로 응답한다. 구앱 호환을 위해 204 는 유지하되 잔액·원장에 아무것도 반영하지 않는다.",
         "operationId": "earnCurrency",
         "requestBody": {
           "content": {
@@ -1898,13 +2000,7 @@
         },
         "responses": {
           "204": {
-            "description": "적립 성공"
-          },
-          "400": {
-            "description": "유효하지 않은 요청"
-          },
-          "404": {
-            "description": "유저 없음"
+            "description": "no-op 성공(항상 — 잔액 무변화)"
           }
         }
       }
@@ -2784,6 +2880,38 @@
           },
           "409": {
             "description": "이미 종료/취소된 세션"
+          }
+        }
+      }
+    },
+    "/l/{slug}": {
+      "get": {
+        "tags": [
+          "InviteLink(public)"
+        ],
+        "summary": "초대 랜딩",
+        "description": "만료·미존재 slug 도 200 HTML(만료 변형)",
+        "operationId": "landing",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/html;charset\u003dUTF-8": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }
@@ -4222,6 +4350,28 @@
         }
       }
     },
+    "/.well-known/apple-app-site-association": {
+      "get": {
+        "tags": [
+          "WellKnown"
+        ],
+        "summary": "AASA 서빙",
+        "description": "application/json, 리다이렉트 없음",
+        "operationId": "appleAppSiteAssociation",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/me/social-links/{provider}": {
       "delete": {
         "tags": [
@@ -4499,6 +4649,45 @@
           "title"
         ]
       },
+      "InviteMatchRequest": {
+        "type": "object",
+        "properties": {
+          "os": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "ios|android|other"
+          },
+          "deviceId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 0
+          },
+          "appInstanceId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "deviceId",
+          "os"
+        ]
+      },
+      "InviteMatchResponse": {
+        "type": "object",
+        "properties": {
+          "matched": {
+            "type": "boolean"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "UserProfileSetupRequest": {
         "type": "object",
         "properties": {
@@ -4616,6 +4805,19 @@
           }
         }
       },
+      "ClaimInviteRequest": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "maxLength": 12,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      },
       "GrantItemRequest": {
         "type": "object",
         "properties": {
@@ -4706,6 +4908,26 @@
         "type": "object",
         "properties": {
           "password": {
+            "type": "string"
+          },
+          "joinMethod": {
+            "type": "string"
+          },
+          "inviteSlug": {
+            "type": "string"
+          },
+          "appInstanceId": {
+            "type": "string"
+          }
+        }
+      },
+      "IssueInviteLinkResponse": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "url": {
             "type": "string"
           }
         }
@@ -4860,6 +5082,10 @@
           },
           "streakQualifiedToday": {
             "type": "boolean"
+          },
+          "awardedCoins": {
+            "type": "integer",
+            "format": "int32"
           },
           "goalRewardCoins": {
             "type": "integer",
