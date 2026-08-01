@@ -49,7 +49,15 @@ export function setAccountSwitchHandler(
 // 만료·임박 토큰은 갱신을 거친다(getFreshAccessToken) — 만료 토큰을 그대로 보내면 백엔드가
 // "토큰 없음"과 동일 취급해 조용히 새 계정을 만들어 버그가 재발한다(코드리뷰 반영).
 async function guestUpgradeHeaders(): Promise<{ Authorization: string } | undefined> {
-  const token = await getFreshAccessToken();
+  let token: string | null;
+  try {
+    token = await getFreshAccessToken();
+  } catch {
+    // 갱신 실패를 헤더 생략으로 계속하면 일시적 오류(네트워크·서버 5xx)에도 새 계정이 만들어져
+    // 게스트 데이터가 영구히 버려진다 — 업그레이드를 중단하고 재시도를 유도한다(코드리뷰 반영).
+    // 이 에러는 소셜 함수들의 try 밖(guestUpgradeHeaders 호출 시점)에서 던져져 그대로 화면에 전달된다.
+    throw new Error('세션 갱신에 실패했어요. 잠시 후 다시 시도해 주세요.');
+  }
   return token ? { Authorization: `Bearer ${token}` } : undefined;
 }
 
@@ -92,12 +100,13 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
 
 export async function kakaoLogin(): Promise<LoginResult> {
   const kakaoToken = await login();
+  const headers = await guestUpgradeHeaders();
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(
       `${API_URL}/api/v1/auth/kakao`,
       { token: kakaoToken.accessToken },
-      { headers: await guestUpgradeHeaders() },
+      { headers },
     );
     data = res.data;
   } catch (e) {
@@ -113,12 +122,13 @@ export async function appleLogin(): Promise<LoginResult> {
       AppleAuthentication.AppleAuthenticationScope.EMAIL,
     ],
   });
+  const headers = await guestUpgradeHeaders();
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(
       `${API_URL}/api/v1/auth/apple`,
       { identityToken: credential.identityToken },
-      { headers: await guestUpgradeHeaders() },
+      { headers },
     );
     data = res.data;
   } catch (e) {
@@ -145,12 +155,13 @@ export async function googleLogin(): Promise<LoginResult> {
   if (!idToken) {
     throw new Error('Google idToken을 가져오지 못했습니다.');
   }
+  const headers = await guestUpgradeHeaders();
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(
       `${API_URL}/api/v1/auth/google`,
       { token: idToken },
-      { headers: await guestUpgradeHeaders() },
+      { headers },
     );
     data = res.data;
   } catch (e) {
@@ -184,12 +195,13 @@ export async function lineLogin(): Promise<LoginResult> {
     ),
   ]);
   const accessToken = result.accessToken.accessToken;
+  const headers = await guestUpgradeHeaders();
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(
       `${API_URL}/api/v1/auth/line`,
       { token: accessToken },
-      { headers: await guestUpgradeHeaders() },
+      { headers },
     );
     data = res.data;
   } catch (e) {
@@ -218,12 +230,13 @@ export async function facebookLogin(): Promise<LoginResult> {
   if (!token) {
     throw new Error('Facebook 토큰을 가져오지 못했습니다.');
   }
+  const headers = await guestUpgradeHeaders();
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(
       `${API_URL}/api/v1/auth/facebook`,
       { token },
-      { headers: await guestUpgradeHeaders() },
+      { headers },
     );
     data = res.data;
   } catch (e) {

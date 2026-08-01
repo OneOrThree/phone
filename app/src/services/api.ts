@@ -104,7 +104,9 @@ const TOKEN_EXP_MARGIN_MS = 30_000;
 // 만료 토큰을 그대로 보내면 백엔드가 "토큰 없음"과 동일 취급해 조용히 새 계정을 만든다(코덱스 리뷰).
 // 갱신은 401 인터셉터와 같은 single-flight를 공유하므로 동시 갱신(리프레시 토큰 rotate) 경합이 없다.
 // exp 디코드 실패도 갱신 경로로 보낸다 — 무효일 수 있는 토큰을 그대로 싣는 것보다 안전.
-// 토큰이 없거나 갱신 실패(리프레시 토큰까지 만료)면 null — 호출부는 토큰 없이 진행한다.
+// null은 저장된 토큰이 없을 때만. 갱신 실패는 삼키지 않고 그대로 던진다 — 일시적 오류(네트워크·
+// 서버 5xx)까지 "토큰 없음"으로 계속하면 돌이킬 수 없는 오동작(게스트 승격 대신 새 계정 생성)이
+// 되므로, 중단·재시도는 호출부가 결정한다(코드리뷰 반영).
 export async function getFreshAccessToken(): Promise<string | null> {
   const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
   if (!token) return null;
@@ -112,11 +114,7 @@ export async function getFreshAccessToken(): Promise<string | null> {
   if (expMs !== null && expMs - Date.now() > TOKEN_EXP_MARGIN_MS) {
     return token;
   }
-  try {
-    return await refreshAccessToken();
-  } catch {
-    return null;
-  }
+  return refreshAccessToken();
 }
 
 // 모든 백엔드 호출은 이 인스턴스를 통한다 (fetch 직접 사용 금지).
