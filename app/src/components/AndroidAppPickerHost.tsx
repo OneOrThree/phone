@@ -87,7 +87,9 @@ const AppRow = memo(function AppRow({
 
 export function AndroidAppPickerHost() {
   const [request, setRequest] = useState<PickerRequest | null>(null);
-  const [apps, setApps] = useState<AndroidInstalledApp[] | null>(null); // null = 로딩 중
+  const [apps, setApps] = useState<AndroidInstalledApp[] | null>(null); // null = 로딩 중·로드 실패
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0); // 재시도 버튼이 로드 이펙트를 다시 돌리는 트리거
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
   const [saving, setSaving] = useState(false);
@@ -102,6 +104,7 @@ export function AndroidAppPickerHost() {
       if (requestRef.current) return Promise.resolve(null);
       return new Promise((resolve) => {
         setApps(null);
+        setLoadFailed(false);
         setQuery('');
         setSelected(new Set());
         setSaving(false);
@@ -138,13 +141,22 @@ export function AndroidAppPickerHost() {
         setSelected(new Set(initial));
         setApps(list);
       } catch {
-        if (!cancelled) setApps([]);
+        // 로드 실패를 빈 목록으로 취급하면 허용 모드에서 완료 시 기존 허용앱이 빈 셋으로
+        // 덮어써진다 — 명시적 실패 상태로 두고(apps는 null 유지 = 저장 비활성) 재시도만 허용.
+        if (!cancelled) setLoadFailed(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [request]);
+  }, [request, loadAttempt]);
+
+  // 로드 실패 재시도 — 실패 상태를 걷고 로드 이펙트를 다시 돌린다.
+  function retryLoad() {
+    setLoadFailed(false);
+    setApps(null);
+    setLoadAttempt((n) => n + 1);
+  }
 
   const filtered = useMemo(() => {
     if (!apps) return [];
@@ -181,6 +193,14 @@ export function AndroidAppPickerHost() {
     setRequest(null);
   }
 
+  // 취소 마감(뒤로가기·닫기 버튼) — 저장 중엔 무시한다. 저장 도중 취소(null)로 resolve되면
+  // 네이티브 저장은 계속 진행되는데 호출부는 취소로 처리해(측정 모드 promoteSelection 스킵,
+  // 허용 모드 화면 개수 불일치) 결과가 실제 저장 상태와 어긋난다.
+  function dismiss() {
+    if (saving) return;
+    close(null);
+  }
+
   // 완료 — 모드별 저장 후 iOS와 같은 형태의 개수로 resolve(카테고리·웹도메인 없음 = 0 고정).
   async function confirm() {
     if (!request || saving) return;
@@ -203,15 +223,19 @@ export function AndroidAppPickerHost() {
   if (Platform.OS !== 'android' || !request) return null;
 
   const copy = COPY[request.mode];
-  const confirmDisabled = saving || (request.mode === 'measurement' && selected.size === 0);
+  // apps == null(로딩 중·로드 실패)엔 저장을 막는다 — 실제 저장분을 못 본 채 완료하면
+  // 허용 모드에서 기존 선택이 빈 셋으로 덮어써진다.
+  const confirmDisabled =
+    saving || apps == null || (request.mode === 'measurement' && selected.size === 0);
 
   return (
-    <Modal visible animationType="slide" onRequestClose={() => close(null)}>
+    <Modal visible animationType="slide" onRequestClose={dismiss}>
       <SafeAreaView style={s.root} edges={['top', 'bottom']}>
         {/* 헤더 — 닫기(취소) + 제목 (SettingsScaffold 상단 바와 같은 골격) */}
         <View style={s.bar}>
           <TouchableOpacity
-            onPress={() => close(null)}
+            onPress={dismiss}
+            disabled={saving}
             style={s.closeBtn}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
@@ -256,8 +280,15 @@ export function AndroidAppPickerHost() {
           ) : null}
         </View>
 
-        {/* 목록 */}
-        {apps == null ? (
+        {/* 목록 — 로드 실패는 빈 목록과 구분해 에러+재시도로 분기(리그 화면과 동일 패턴) */}
+        {loadFailed ? (
+          <View style={s.errorWrap}>
+            <Text style={s.errorText}>앱 목록을 불러오지 못했어요</Text>
+            <TouchableOpacity style={s.retryBtn} activeOpacity={0.8} onPress={retryLoad}>
+              <Text style={s.retryBtnText}>다시 시도</Text>
+            </TouchableOpacity>
+          </View>
+        ) : apps == null ? (
           <View style={s.loading}>
             <ActivityIndicator size="large" color={T.accent} />
           </View>
@@ -350,6 +381,16 @@ const s = StyleSheet.create({
 
   // 목록
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // 로드 실패 안내 + 재시도 (LeagueScreen friendErrorWrap·retryBtn과 동일 스타일)
+  errorWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: T.space.md },
+  errorText: { ...T.text.caption, color: T.inkMuted },
+  retryBtn: {
+    backgroundColor: T.accent,
+    borderRadius: 999,
+    paddingHorizontal: T.space.xl,
+    paddingVertical: T.space.sm,
+  },
+  retryBtnText: { ...T.text.caption, fontWeight: '700', color: T.white },
   list: { flex: 1 },
   listContent: { paddingHorizontal: T.space.xl, paddingBottom: T.space.md },
   row: {
