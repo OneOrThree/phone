@@ -5,6 +5,7 @@
 // 내기 2종은 3차(docs/app/group-bet-plan.md §2, 계약 정본은 docs/back/group-bet-plan.md §2).
 import axios from 'axios';
 import { api } from '@/services/api';
+import type { GroupJoinMethod } from '@/services/analyticsEvents';
 import { todayStr } from '@/utils/localDate';
 import type {
   CreateAnnouncementRequest,
@@ -42,9 +43,26 @@ export async function searchGroups(query: string): Promise<GroupSearchResponse[]
   return data;
 }
 
-// POST /api/v1/groups/{groupId}/join — 그룹 참여. 코드·비밀번호를 폐기했으므로 항상 빈 바디다(§0).
-export async function joinGroup(groupId: string): Promise<void> {
-  await api.post<void>(`/api/v1/groups/${groupId}/join`, {});
+// POST /api/v1/groups/{groupId}/join — 그룹 참여. 코드·비밀번호는 폐기 개념이라 보내지 않는다(§0).
+//
+// 어트리뷰션 3필드는 전부 optional 이다(초대 링크 스펙 §4-2 '기존 API 확장') — 서버가 아직
+// 안 받는 구버전이어도, 앱이 안 보내는 경로(검색 참여)여도 그대로 동작해야 한다.
+// 없으면 예전과 똑같이 빈 바디 `{}`를 보낸다 — 생략하면 서버가 415를 준다(§2-2).
+export interface JoinAttribution {
+  joinMethod: GroupJoinMethod;
+  inviteSlug?: string;
+  appInstanceId?: string;
+}
+
+export async function joinGroup(groupId: string, attribution?: JoinAttribution): Promise<void> {
+  const body: Record<string, string> = {};
+  if (attribution) {
+    body.joinMethod = attribution.joinMethod;
+    // 값이 없는 키는 아예 싣지 않는다 — null 을 보내면 서버 검증이 '빈 slug'로 볼 여지가 생긴다.
+    if (attribution.inviteSlug) body.inviteSlug = attribution.inviteSlug;
+    if (attribution.appInstanceId) body.appInstanceId = attribution.appInstanceId;
+  }
+  await api.post<void>(`/api/v1/groups/${groupId}/join`, body);
 }
 
 // GET /api/v1/groups/{groupId}/overview — 무권한 공개 조회(참여 여부 무관, isMember 포함).

@@ -29,7 +29,7 @@ import {
   withdrawGroup,
 } from '@/services/groupApi';
 import { logGroupInviteShared } from '@/services/analyticsEvents';
-import { buildInviteLink } from '@/utils/inviteLink';
+import { issueInviteLink } from '@/services/inviteLinkApi';
 import { todayStr } from '@/utils/localDate';
 import type {
   GroupAnnouncementResponse,
@@ -401,17 +401,33 @@ export default function GroupRoomScreen({
   const isPrivate = detail?.isPrivate ?? summary?.isPrivate ?? false;
   const isFull = maxMembers > 0 && memberCount >= maxMembers;
 
-  // 초대 — 외부로 나가는 링크는 항상 https 웹 링크다(§5-5).
+  // 초대 — 링크는 **서버가 발급한 url 만** 쓴다(초대 링크 스펙 §4-2 ①·§7-4).
+  // 앱이 조립하던 시절의 로컬 링크는 폐기했다: slug 는 어트리뷰션 원장이라 서버만 만들 수 있고,
+  // 발급을 건너뛰면 클릭·설치·가입이 어느 링크에서 왔는지 영영 알 수 없다.
+  // 발급은 멱등이라 같은 그룹·같은 사람이 여러 번 눌러도 링크가 늘어나지 않는다.
   const onInvite = useCallback(async () => {
+    let invite: { slug: string; url: string };
+    try {
+      invite = await issueInviteLink(groupId);
+    } catch {
+      // 폴백 링크는 두지 않는다 — slug 없는 링크는 서버가 모르는 주소라 404로 끝난다.
+      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해주세요.');
+      return;
+    }
     try {
       const result = await Share.share({
-        message: `gromo 그룹 "${name}"에 초대합니다\n${buildInviteLink(groupId)}`,
+        message: `gromo 그룹 "${name}"에 초대합니다\n${invite.url}`,
       });
       // 취소(dismissedAction)까지 공유로 집계하지 않는다 — 단 그 구분은 iOS에서만 가능하다.
       // 안드로이드는 시트를 그냥 닫아도 sharedAction으로 끝나 완료를 확인할 수 없어
       // confirmed:false(공유 시도)로 남긴다(analyticsEvents.logGroupInviteShared 주석).
       if (result.action === Share.sharedAction) {
-        logGroupInviteShared({ share_method: 'share_sheet', confirmed: Platform.OS === 'ios' });
+        logGroupInviteShared({
+          share_method: 'share_sheet',
+          confirmed: Platform.OS === 'ios',
+          slug: invite.slug,
+          group_id: groupId,
+        });
       }
     } catch {
       // 공유 시트를 못 띄운 경우 — 사용자에게 알릴 것이 없어 조용히 무시한다.

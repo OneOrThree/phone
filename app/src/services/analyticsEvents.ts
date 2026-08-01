@@ -392,7 +392,8 @@ export function logNudgeTapped(p: { type: NudgeType }): void {
 
 // ── 그룹(Group) [C] ── (event-logging-design.md §5.D)
 // created/joined/left 등 서버 검증 이벤트([S])는 백엔드 MP 소유 — 클라 미발행.
-export type GroupJoinMethod = 'code' | 'search' | 'invite';
+// 'deferred_invite' = 미설치 상태에서 링크를 누르고 설치 후 복원된 초대(초대 링크 스펙 §4-3).
+export type GroupJoinMethod = 'code' | 'search' | 'invite' | 'deferred_invite';
 
 export function logGroupCreateStarted(): void {
   track('group_create_started');
@@ -400,7 +401,8 @@ export function logGroupCreateStarted(): void {
 export function logGroupSearchPerformed(p: { query_length: number; result_count: number }): void {
   track('group_search_performed', p);
 }
-export function logGroupJoinAttempted(p: { join_method: GroupJoinMethod }): void {
+// 참여 시도 — slug는 초대 링크 경로로 들어온 경우에만 실린다(검색 참여엔 없음).
+export function logGroupJoinAttempted(p: { join_method: GroupJoinMethod; slug?: string }): void {
   track('group_join_attempted', p);
 }
 export function logGroupViewed(): void {
@@ -417,8 +419,34 @@ export function logGroupTabViewed(p: { tab: string }): void {
 export function logGroupInviteShared(p: {
   share_method: 'copy' | 'share_sheet';
   confirmed: boolean;
+  slug: string;
+  group_id: string;
 }): void {
   track('group_invite_shared', p);
+}
+
+// ── 그룹 초대 링크 퍼널 [C] ── (초대 링크 스펙 §4-3 표 6a·6b)
+// 이 표는 이벤트별 발행 주체가 한 곳뿐인 것이 계약이다 — invite_link_created(1)·
+// invite_link_clicked(3)·invite_match_resolved(5)·group_joined(8)은 **서버 MP 소유**라
+// 여기에 함수를 만들지 않는다(만드는 순간 이중 집계가 된다).
+
+// 6a. 설치 유저가 링크로 앱에 직행 — Universal Link 또는 랜딩의 스킴 점프.
+// slug는 구형 링크(§4-1)로 들어오면 없다.
+export function logInviteLinkOpened(p: {
+  group_id: string;
+  slug?: string;
+  via: 'universal_link' | 'scheme';
+}): void {
+  track('invite_link_opened', p);
+}
+
+// 6b. 초대 시트 노출 — entry로 직행(link)과 설치 후 복원(deferred)을 가른다.
+export function logGroupInviteSheetViewed(p: {
+  group_id: string;
+  slug?: string;
+  entry: 'link' | 'deferred';
+}): void {
+  track('group_invite_sheet_viewed', p);
 }
 
 // ── 그룹 챌린지 내기(3차) [C] ── (docs/app/group-bet-plan.md §2)

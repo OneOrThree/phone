@@ -13,6 +13,7 @@ import { Alert, Share } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupCreateScreen from './GroupCreateScreen';
 import { createGroup } from '@/services/groupApi';
+import { issueInviteLink } from '@/services/inviteLinkApi';
 import type { CreateGroupResponse } from '@/types/dto/group';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -50,6 +51,7 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupCreateStarted: jest.fn(),
   logGroupInviteShared: jest.fn(),
 }));
+const { logGroupInviteShared } = jest.requireMock('@/services/analyticsEvents');
 
 // groupErrorCode는 실제 구현을 남긴다(§3-2 code 분기까지 검증).
 jest.mock('@/services/groupApi', () => ({
@@ -57,9 +59,15 @@ jest.mock('@/services/groupApi', () => ({
   createGroup: jest.fn(),
 }));
 
+// 초대 링크는 서버 발급분만 쓴다(초대 링크 스펙 §4-2 ①) — 앱은 링크를 조립하지 않는다.
+jest.mock('@/services/inviteLinkApi', () => ({ issueInviteLink: jest.fn() }));
+
 const mockCreateGroup = createGroup as jest.MockedFunction<typeof createGroup>;
+const mockIssueInviteLink = issueInviteLink as jest.MockedFunction<typeof issueInviteLink>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+const SLUG = 'ab23cd45';
+const INVITE_URL = `https://link.oneorthree.world/l/${SLUG}?g=${GROUP_ID}`;
 
 // 서버 GlobalExceptionHandler의 { code, message } 바디를 실은 axios 에러.
 function axiosErrorWith(status: number, code?: string): AxiosError {
@@ -99,6 +107,7 @@ beforeEach(() => {
   jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   mockCreateGroup.mockResolvedValue({ groupId: GROUP_ID, code: 'ignored' });
+  mockIssueInviteLink.mockResolvedValue({ slug: SLUG, url: INVITE_URL });
 });
 
 describe('챌린지 종류 세그먼트(2차 §3-3)', () => {
@@ -242,6 +251,62 @@ describe('요청이 떠 있는 구간(§6-2)', () => {
     expect(Share.share).not.toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining('저녁 10시') }),
     );
+  });
+
+  // 링크는 서버 발급분만 나간다(초대 링크 스펙 §7-4). 앱이 조립하던 구 링크는 실제로 404였고,
+  // slug 가 없으면 클릭·설치·가입이 어느 초대에서 왔는지 서버가 영영 알 수 없다.
+  test('공유 링크는 서버가 발급한 url 을 그대로 쓴다', async () => {
+    await renderScreen();
+    await typeName('아침 6시 집중방');
+    await press('비공개');
+    await press('만들기');
+
+    await press('공유하기');
+
+    expect(mockIssueInviteLink).toHaveBeenCalledWith(GROUP_ID);
+    expect(Share.share).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining(INVITE_URL) }),
+    );
+    expect(logGroupInviteShared).toHaveBeenCalledWith({
+      share_method: 'share_sheet',
+      confirmed: expect.any(Boolean),
+      slug: SLUG,
+      group_id: GROUP_ID,
+    });
+  });
+
+  // 발급은 서버에서 멱등이지만, 같은 다이얼로그에서 복사·공유를 오갈 때 왕복을 반복할 이유가 없다.
+  test('복사와 공유는 발급을 한 번만 하고 같은 링크를 쓴다', async () => {
+    await renderScreen();
+    await typeName('아침 6시 집중방');
+    await press('비공개');
+    await press('만들기');
+
+    await press('링크 복사');
+    await press('공유하기');
+
+    expect(mockIssueInviteLink).toHaveBeenCalledTimes(1);
+    expect(logGroupInviteShared).toHaveBeenCalledWith({
+      share_method: 'copy',
+      confirmed: true,
+      slug: SLUG,
+      group_id: GROUP_ID,
+    });
+  });
+
+  // 폴백 링크는 없다 — 발급이 실패하면 공유할 주소 자체가 없으므로 시트를 띄우지 않고 알린다.
+  test('발급 실패면 공유 시트를 띄우지 않고 안내한다(폴백 링크 없음)', async () => {
+    mockIssueInviteLink.mockRejectedValueOnce(new Error('network'));
+    await renderScreen();
+    await typeName('아침 6시 집중방');
+    await press('비공개');
+    await press('만들기');
+
+    await press('공유하기');
+
+    expect(Share.share).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith('초대 링크를 만들지 못했어요', expect.any(String));
+    expect(logGroupInviteShared).not.toHaveBeenCalled();
   });
 
   test('생성 요청이 떠 있는 동안에는 이탈을 막는다', async () => {

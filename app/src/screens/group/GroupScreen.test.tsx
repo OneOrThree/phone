@@ -258,7 +258,11 @@ beforeEach(() => {
   mockIsGuest = false;
   mockPendingInvite = null;
   mockJoinedIdOverride = null;
-  mockPeek.mockImplementation(() => mockPendingInvite);
+  // 버퍼는 이제 {groupId, slug, entry} 를 들고 온다(초대 링크 스펙 §7-3). 이 화면의 관심사는
+  // 여전히 groupId 하나라, 테스트는 groupId만 지정하고 나머지는 여기서 감싼다.
+  mockPeek.mockImplementation(() =>
+    mockPendingInvite ? { groupId: mockPendingInvite, slug: null, entry: 'link' } : null,
+  );
 });
 
 // spyOn으로 만든 스파이만 되돌린다 — jest.mock 모듈 목에는 영향이 없다.

@@ -72,6 +72,9 @@ interface FirebaseAnalytics {
   setUserProperty(name: string, value: string | null): Promise<void>;
   setDefaultEventParameters(params: Record<string, string | number> | null): Promise<void>;
   setAnalyticsCollectionEnabled(enabled: boolean): Promise<void>;
+  // GA4 앱스트림의 기기 식별자 — 서버가 Measurement Protocol 이벤트를 이 값으로 발행하면
+  // 앱 SDK 이벤트와 같은 유저 타임라인으로 결합된다(초대 링크 스펙 §2-3 ②).
+  getAppInstanceId(): Promise<string | null>;
 }
 
 // 네이티브 Firebase Analytics 인스턴스. 모듈이 링크 안 됐으면 null로 폴백(no-op).
@@ -119,6 +122,24 @@ export async function initAnalytics(): Promise<void> {
   // GoogleService-Info.plist의 IS_ANALYTICS_ENABLED=false 대비, 런타임에서 수집을 명시적으로 켠다.
   a.setAnalyticsCollectionEnabled(true).catch(() => {});
   a.setDefaultEventParameters(COMMON_PARAMS).catch(() => {});
+}
+
+// 설치 단위 device_id — deferred 매치(services/deferredInvite.ts)가 서버에 보내는 값이다.
+// 이벤트 공통 파라미터와 **같은 값**이어야 서버 클릭 행과 GA4 스트림이 같은 기기를 가리킨다.
+export async function getDeviceId(): Promise<string> {
+  return resolveDeviceId();
+}
+
+// GA4 앱스트림 기기 식별자. 네이티브 모듈이 없거나 조회가 실패하면 null —
+// 서버는 이 값이 없으면 웹스트림 폴백으로 이벤트를 발행한다(스펙 §4-2 ③).
+export async function getAppInstanceId(): Promise<string | null> {
+  const a = getAnalytics();
+  if (!a) return null;
+  try {
+    return await a.getAppInstanceId();
+  } catch {
+    return null;
+  }
 }
 
 // 커스텀 이벤트 발행. 공통 파라미터를 자동 부착한다.
