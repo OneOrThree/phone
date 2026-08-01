@@ -11,7 +11,7 @@
 //  3) ⋯ 메뉴의 '그룹 전환·추가'는 **onShowGroups를 받았을 때만** 렌더한다 —
 //     라우트로 push된 그룹방은 이미 목록에서 들어온 화면이라 되돌아가는 항목이 중복이다(2차 §0-3).
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Alert, AppState, type AppStateStatus } from 'react-native';
+import { Alert, AppState, Share, type AppStateStatus } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupRoomScreen from './GroupRoomScreen';
 import {
@@ -64,6 +64,13 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupBetCreated: jest.fn(),
   logGroupBetJoined: jest.fn(),
 }));
+const { logGroupInviteShared } = jest.requireMock('@/services/analyticsEvents');
+
+// 초대 링크는 서버 발급분만 쓴다(초대 링크 스펙 §4-2 ①).
+jest.mock('@/services/inviteLinkApi', () => ({ issueInviteLink: jest.fn() }));
+const mockIssueInviteLink = jest.requireMock('@/services/inviteLinkApi')
+  .issueInviteLink as jest.Mock;
+const SLUG = 'ab23cd45';
 
 // 내기 시트가 잔액을 읽고(CoinContext) 화면이 정산 감지 시 잔액을 다시 받는다 —
 // 테스트 트리엔 Provider가 없어 훅을 대체하고, refresh는 호출을 세기 위해 한 개를 공유한다.
@@ -101,6 +108,7 @@ const mockJoinBet = joinBet as jest.MockedFunction<typeof joinBet>;
 const mockTodayStr = todayStr as jest.MockedFunction<typeof todayStr>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+const INVITE_URL = `https://link.oneorthree.world/l/${SLUG}?g=${GROUP_ID}`;
 const onLeft = jest.fn();
 
 let appStateHandler: ((state: AppStateStatus) => void) | null = null;
@@ -221,6 +229,8 @@ beforeEach(() => {
   mockTodayStr.mockReturnValue('2026-08-01');
   // 챌린지는 대부분의 케이스에서 관심사가 아니다 — 빈 목록을 기본값으로 깔아 둔다.
   mockGetChallenges.mockResolvedValue([]);
+  mockIssueInviteLink.mockResolvedValue({ slug: SLUG, url: INVITE_URL });
+  jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
   appStateHandler = null;
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
     appStateHandler = handler as (state: AppStateStatus) => void;
@@ -1211,5 +1221,42 @@ describe('⋯ 메뉴 — 그룹 전환·추가', () => {
     // 메뉴 자체는 열려 있다 — '그룹 나가기'는 두 경로 모두에 있다.
     expect(screen.getByText('그룹 나가기')).toBeOnTheScreen();
     expect(screen.queryByText('그룹 전환·추가')).toBeNull();
+  });
+});
+
+// ── 초대 링크 공유(초대 링크 스펙 §4-2 ①·§7-4) ─────────────────────────────────
+// 링크는 서버가 발급한 url 만 나간다. 앱이 조립하던 구 링크(github.io)는 실제로 404였고,
+// slug 가 빠지면 클릭→설치→가입이 어느 초대에서 왔는지 서버가 영영 이을 수 없다.
+describe('초대 링크 공유', () => {
+  test('서버 발급 url 로 공유하고 slug·group_id 를 함께 계측한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    await renderRoom();
+
+    await press('초대 링크로 친구 부르기');
+
+    expect(mockIssueInviteLink).toHaveBeenCalledWith(GROUP_ID);
+    expect(Share.share).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining(INVITE_URL) }),
+    );
+    expect(logGroupInviteShared).toHaveBeenCalledWith({
+      share_method: 'share_sheet',
+      confirmed: expect.any(Boolean),
+      slug: SLUG,
+      group_id: GROUP_ID,
+    });
+  });
+
+  test('발급 실패면 공유 시트를 띄우지 않고 안내한다(폴백 링크 없음)', async () => {
+    mockIssueInviteLink.mockRejectedValueOnce(new Error('network'));
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    await renderRoom();
+
+    await press('초대 링크로 친구 부르기');
+
+    expect(Share.share).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith('초대 링크를 만들지 못했어요', expect.any(String));
+    expect(logGroupInviteShared).not.toHaveBeenCalled();
   });
 });
