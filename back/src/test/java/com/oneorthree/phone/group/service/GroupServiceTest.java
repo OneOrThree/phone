@@ -1,6 +1,10 @@
 package com.oneorthree.phone.group.service;
 
+import com.oneorthree.phone.common.analytics.Ga4MeasurementClient;
+import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupJoinCode;
 import com.oneorthree.phone.group.domain.GroupJoinCodeStatus;
@@ -54,6 +58,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -63,6 +68,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -123,6 +129,12 @@ class GroupServiceTest {
     // (Mockito 기본값) 내기와 무관한 이 테스트들은 bet/lastSettledBet 을 null 로 본다.
     @Mock
     private GroupBetService groupBetService;
+
+    @Mock
+    private GroupInviteLinkRepository groupInviteLinkRepository;
+
+    @Mock
+    private Ga4MeasurementClient ga4MeasurementClient;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -1374,6 +1386,142 @@ class GroupServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.GROUP_LIMIT_EXCEEDED);
         verify(groupRepository, never()).save(any(Group.class));
+    }
+
+    // ── joinGroup 초대 어트리뷰션 (초대 링크) ────────────────────────────────
+
+    private static final UUID INVITER_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
+    private static final String SLUG = "ab23cd45";
+
+    /** 참여가 성공 경로를 타도록 공통 스텁을 깐다. */
+    private User givenJoinableGroup(Group group) {
+        User user = normalUser();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(group.getId())).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+        return user;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> capturedActivityPayload() {
+        ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(userActivityEventLogger).log(eq(UserActivityEvent.GROUP_JOINED), captor.capture());
+        return captor.getValue();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> capturedGa4Params() {
+        ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(ga4MeasurementClient).sendAppEvent(anyString(), eq("group_joined"), captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    @DisplayName("유효한 slug 로 참여 → Track2·GA4 양쪽에 어트리뷰션이 기록된다")
+    void joinGroupRecordsInviteAttribution() {
+        // given
+        Group group = openGroup();
+        givenJoinableGroup(group);
+        given(groupInviteLinkRepository.findBySlug(SLUG))
+                .willReturn(Optional.of(new GroupInviteLink(SLUG, GROUP_ID, INVITER_ID)));
+
+        // when
+        groupService.joinGroup(GROUP_ID, USER_ID,
+                new JoinGroupRequest(null, "deferred_invite", SLUG, "inst-1"));
+
+        // then: 참여 자체는 성공
+        verify(groupMemberRepository).save(any(GroupMember.class));
+
+        // Track2 — invite_slug/inviter_id 기록
+        assertThat(capturedActivityPayload())
+                .containsEntry("group_id", GROUP_ID.toString())
+                .containsEntry("join_method", "deferred_invite")
+                .containsEntry("invite_slug", SLUG)
+                .containsEntry("inviter_id", INVITER_ID.toString());
+
+        // GA4 — 키 이름은 slug(스펙 §4-3), inviter_present true
+        assertThat(capturedGa4Params())
+                .containsEntry("group_id", GROUP_ID.toString())
+                .containsEntry("join_method", "deferred_invite")
+                .containsEntry("slug", SLUG)
+                .containsEntry("inviter_present", true);
+    }
+
+    @Test
+    @DisplayName("slug 가 다른 그룹의 링크면 slug 만 버리고 참여는 성공한다 (?g= 변조 흡수)")
+    void joinGroupDropsSlugWhenGroupMismatches() {
+        // given: 링크는 GROUP_ID_2 를 가리키는데 참여 대상은 GROUP_ID
+        Group group = openGroup();
+        givenJoinableGroup(group);
+        given(groupInviteLinkRepository.findBySlug(SLUG))
+                .willReturn(Optional.of(new GroupInviteLink(SLUG, GROUP_ID_2, INVITER_ID)));
+
+        // when
+        groupService.joinGroup(GROUP_ID, USER_ID,
+                new JoinGroupRequest(null, "invite", SLUG, "inst-1"));
+
+        // then: 참여는 정상, 어트리뷰션만 탈락
+        verify(groupMemberRepository).save(any(GroupMember.class));
+        assertThat(capturedActivityPayload())
+                .containsEntry("join_method", "invite")
+                .doesNotContainKeys("invite_slug", "inviter_id");
+        assertThat(capturedGa4Params())
+                .containsEntry("inviter_present", false)
+                .containsEntry("slug", null);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 slug 도 참여를 막지 않는다")
+    void joinGroupDropsUnknownSlug() {
+        // given
+        Group group = openGroup();
+        givenJoinableGroup(group);
+        given(groupInviteLinkRepository.findBySlug(SLUG)).willReturn(Optional.empty());
+
+        // when
+        groupService.joinGroup(GROUP_ID, USER_ID,
+                new JoinGroupRequest(null, "invite", SLUG, "inst-1"));
+
+        // then
+        verify(groupMemberRepository).save(any(GroupMember.class));
+        assertThat(capturedActivityPayload()).doesNotContainKeys("invite_slug", "inviter_id");
+    }
+
+    @Test
+    @DisplayName("slug 없는 구버전 요청은 그대로 동작하고 링크 조회도 하지 않는다 (하위호환)")
+    void joinGroupWithoutSlugStaysBackwardCompatible() {
+        // given
+        Group group = openGroup();
+        givenJoinableGroup(group);
+
+        // when: 구버전 앱이 보내던 형태 그대로
+        groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest());
+
+        // then
+        verify(groupMemberRepository).save(any(GroupMember.class));
+        verify(groupInviteLinkRepository, never()).findBySlug(anyString());
+        // join_method 는 넣지 않는다 — "미전송"과 "search 로 들어옴"을 구분하기 위해
+        assertThat(capturedActivityPayload())
+                .containsEntry("group_id", GROUP_ID.toString())
+                .doesNotContainKeys("join_method", "invite_slug", "inviter_id");
+    }
+
+    @Test
+    @DisplayName("app_instance_id 가 없어도 참여는 성공한다 — 전송 스킵 판단은 GA4 클라이언트 몫")
+    void joinGroupSucceedsWithoutAppInstanceId() {
+        // given
+        Group group = openGroup();
+        givenJoinableGroup(group);
+        given(groupInviteLinkRepository.findBySlug(SLUG))
+                .willReturn(Optional.of(new GroupInviteLink(SLUG, GROUP_ID, INVITER_ID)));
+
+        // when
+        groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest(null, "invite", SLUG, null));
+
+        // then
+        verify(groupMemberRepository).save(any(GroupMember.class));
+        verify(ga4MeasurementClient).sendAppEvent(isNull(), eq("group_joined"), any());
     }
 
     // ── transferOwner (GROMO-355) ─────────────────────────────────────────

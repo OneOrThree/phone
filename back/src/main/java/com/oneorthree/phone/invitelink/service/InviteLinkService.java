@@ -1,6 +1,8 @@
 package com.oneorthree.phone.invitelink.service;
 
 import com.oneorthree.phone.common.analytics.Ga4MeasurementClient;
+import com.oneorthree.phone.common.logging.UserActivityEvent;
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
@@ -39,6 +41,7 @@ public class InviteLinkService {
     private final GroupMemberRepository groupMemberRepository;
     private final SlugGenerator slugGenerator;
     private final Ga4MeasurementClient ga4Client;
+    private final UserActivityEventLogger userActivityEventLogger;
     private final String baseUrl;
     private final String env;
 
@@ -48,6 +51,7 @@ public class InviteLinkService {
             GroupMemberRepository groupMemberRepository,
             SlugGenerator slugGenerator,
             Ga4MeasurementClient ga4Client,
+            UserActivityEventLogger userActivityEventLogger,
             @Value("${link.base-url}") String baseUrl,
             @Value("${spring.profiles.active:local}") String env) {
         this.inviteLinkRepository = inviteLinkRepository;
@@ -55,6 +59,7 @@ public class InviteLinkService {
         this.groupMemberRepository = groupMemberRepository;
         this.slugGenerator = slugGenerator;
         this.ga4Client = ga4Client;
+        this.userActivityEventLogger = userActivityEventLogger;
         this.baseUrl = baseUrl;
         this.env = env;
     }
@@ -84,6 +89,9 @@ public class InviteLinkService {
 
         // 최초 생성일 때만 발행한다 — 공유 버튼을 열 번 눌러도 '링크 생성'은 한 번이어야 퍼널이 맞는다.
         sendLinkCreatedEvent(link);
+        // Track2(user-activity)는 GA4 와 별개로 서버 이벤트를 전량 병행 기록한다(스펙 §4-3 말미).
+        userActivityEventLogger.log(UserActivityEvent.INVITE_LINK_CREATED,
+                Map.of("slug", link.getSlug(), "group_id", link.getGroupId().toString()));
         return toResponse(link);
     }
 
