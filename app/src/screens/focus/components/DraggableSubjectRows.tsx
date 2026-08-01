@@ -9,6 +9,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 import { hmsCompact } from '../format';
@@ -45,6 +46,9 @@ export function DraggableSubjectRows({
   onOpenMenu,
   footer,
 }: Props) {
+  // 화면이 SafeAreaView edges={['top']}이라 하단 인셋은 여기서 직접 챙긴다 —
+  // 없으면 끝까지 스크롤해도 footer(새 과목 추가)가 홈 인디케이터에 가려 잘린다(GROMO-886).
+  const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0); // 현재 스크롤 오프셋
   const viewportH = useRef(0); // 스크롤 보이는 높이
@@ -197,7 +201,7 @@ export function DraggableSubjectRows({
           listTop.current = y;
         });
       }}
-      contentContainerStyle={s.content}
+      contentContainerStyle={[s.content, { paddingBottom: insets.bottom + T.space.lg }]}
     >
       <View style={{ height: contentH }}>
         {subjects.map((sub, i) => {
