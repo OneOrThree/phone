@@ -8,11 +8,17 @@
 <!--
   초대 랜딩 (WS-5). 치환 변수는 스펙 §4-4 계약의 4개뿐이다 — 아래 설명에서는 치환을 피하려고
   중괄호를 뺀 이름으로 적는다(본문에는 계약 표기 그대로 들어간다):
-    groupName  그룹명. HTML 이스케이프 필수 — og:title 은 속성 컨텍스트라 " 도 반드시 이스케이프할 것
+    groupName  그룹명
     schemeUrl  gromo://join?g=…&s=…
     storeUrl   App Store 링크
-    expired    "true" 면 만료 변형
+    expired    "true" 면 만료 변형, 그 외("false"/빈 값)는 정상
   새 치환 변수를 추가하지 말 것 (컨트롤러는 WS-1 소유).
+
+  ⚠ 이스케이프 요구사항 (WS-1) — 네 값 모두 **속성(attribute) 안전** 이스케이프가 필요하다.
+  groupName 은 og:title/title 의 content="…" 안에, schemeUrl·storeUrl 은 href="…" 안에 들어간다.
+  텍스트 전용 이스케이프(&lt; &gt; &amp; 만)로는 " 하나에 속성이 닫히고 임의 속성이 주입된다.
+  파싱 시점 주입은 이 템플릿에서 되돌릴 수 없다 — 서버에서 막아야 한다.
+  (템플릿은 방어 가능한 범위만 담당한다: 자동 점프 전 스킴 화이트리스트, 스토어 링크 http(s) 검사.)
 
   외부 CDN·빌드 도구 없음. CSS 는 전부 인라인 — 카톡 인앱브라우저에서 왕복 1회로 끝내는 게
   이 페이지의 유일한 성능 목표다. 서버 정적 파일은 OG 이미지 하나뿐.
@@ -21,8 +27,8 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="gromo">
 <meta property="og:title" content="gromo 그룹 「{{groupName}}」에 초대받았어요">
-<meta property="og:description" content="같이 공부하자! 집중 시간을 기록하고 그룹으로 함께 겨뤄요.">
-<meta property="og:image" content="https://link.oneorthree.world/link/og-invite.png">
+<meta property="og:description" content="집중한 시간을 기록하고, 그룹으로 함께 겨뤄요.">
+<meta property="og:image" content="https://link.oneorthree.world/link/og-invite-v1.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="gromo — 같이 공부하자">
@@ -41,6 +47,7 @@
     --ink-sub: #667085;
     --ink-muted: #9AA0A8;
     --line: #EAEBEE;
+    --track: #F1F2F6;
     --paper: #FFFFFF;
   }
 
@@ -55,7 +62,8 @@
                  "Pretendard", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
     color: var(--ink);
     background: var(--indigo-deep);
-    background-image: linear-gradient(160deg, #3A429E 0%, #5E6AD2 52%, #6E79DD 100%);
+    /* 아래쪽 스톱을 밝게 두면 그 위의 흰 12px 푸터가 대비 4.5:1 을 못 넘긴다 — 하단을 눌러 둔다 */
+    background-image: linear-gradient(160deg, #3A429E 0%, #4E58BE 55%, #5A65CE 100%);
     -webkit-font-smoothing: antialiased;
     -webkit-text-size-adjust: 100%;
     display: flex;
@@ -81,11 +89,13 @@
     display: inline-block;
     font-size: 12px;
     font-weight: 700;
-    letter-spacing: .14em;
-    color: var(--indigo);
+    /* 한글에 라틴 스몰캡스식 넓은 자간을 주면 글자가 풀어져 보인다 — 최소만 */
+    letter-spacing: .02em;
+    /* --indigo 는 이 틴트 위에서 4.1:1 로 12px 기준 미달 — 한 단계 진하게 */
+    color: var(--indigo-deep);
     background: var(--indigo-tint);
     border-radius: 999px;
-    padding: 7px 14px;
+    padding: 8px 14px;
   }
 
   .group-name {
@@ -94,7 +104,9 @@
     line-height: 1.28;
     font-weight: 800;
     letter-spacing: -.02em;
-    /* 긴 그룹명도 카드를 밀지 않게 */
+    /* 한글은 기본이 음절 단위 줄바꿈이라 "4시간"이 "4시/간"으로 쪼개진다 — 어절 단위로 묶는다.
+       overflow-wrap 은 띄어쓰기 없는 초장문 그룹명용 탈출구로만 남긴다. */
+    word-break: keep-all;
     overflow-wrap: anywhere;
   }
 
@@ -105,18 +117,19 @@
     font-size: 15px;
     line-height: 1.6;
     color: var(--ink-sub);
+    word-break: keep-all;
   }
 
   /* ── 주간 집중 막대 — OG 이미지와 같은 마크로 페이지와 미리보기를 잇는다 ── */
+  /* 데이터 차트로 오독되면 "이 그룹의 기록"으로 보인다 — 기준선을 빼고 높이를 줄여
+     구분 장식으로만 읽히게 하고, 주 CTA 가 엄지 영역에서 밀려나지 않게 한다 */
   .bars {
     display: flex;
     align-items: flex-end;
     justify-content: center;
     gap: 7px;
-    height: 44px;
-    margin: 26px 0 4px;
-    border-bottom: 1px solid var(--line);
-    padding-bottom: 0;
+    height: 26px;
+    margin: 22px 0 2px;
   }
   .bars i {
     display: block;
@@ -134,7 +147,8 @@
   .bars i:nth-child(7) { height: 62%; }
 
   /* ── CTA ─────────────────────────────────────────────── */
-  .actions { margin-top: 22px; display: grid; gap: 10px; }
+  /* gap 이 좁으면 같은 크기 버튼 2개가 세그먼티드 컨트롤처럼 붙어 보인다 */
+  .actions { margin-top: 22px; display: grid; gap: 14px; }
 
   .btn {
     display: block;
@@ -150,8 +164,17 @@
                 border-color .18s ease;
     -webkit-tap-highlight-color: transparent;
   }
-  .btn:active { transform: scale(.985); }
+  /* 1.5% 축소는 휴대폰에서 지각되지 않는다 — 눌린 게 보이는 값으로 */
+  .btn:active { transform: scale(.97); }
   .btn:focus-visible { outline: 3px solid var(--indigo-deep); outline-offset: 3px; }
+  /* 인디고로 채워진 버튼 위에서는 같은 인디고 링이 안 보인다 — 흰 링 + 바깥 인디고 링 */
+  .btn-primary:focus-visible,
+  body[data-state="noapp"] #cta-store:focus-visible,
+  body[data-expired="true"] #cta-store:focus-visible {
+    outline-color: #fff;
+    outline-offset: -5px;
+    box-shadow: 0 0 0 3px var(--indigo-deep);
+  }
 
   .btn-primary { background: var(--indigo); color: #fff; box-shadow: 0 6px 16px rgba(94, 106, 210, .34); }
   .btn-ghost   { background: #fff; color: var(--ink-sub); border: 1px solid var(--line); box-shadow: none; }
@@ -161,15 +184,15 @@
     min-height: 18px;
     font-size: 13px;
     line-height: 1.5;
-    color: var(--ink-muted);
+    /* 폴백 안내를 싣는 줄이라 --ink-muted(흰 배경 대비 2.6:1) 로는 부족 — AA 통과하는 톤으로 */
+    color: var(--ink-sub);
   }
 
   .foot {
     margin: 18px 0 0;
     text-align: center;
     font-size: 12px;
-    letter-spacing: .04em;
-    color: rgba(255, 255, 255, .72);
+    color: rgba(255, 255, 255, .9);
   }
 
   /* ── 상태 1: 스킴 점프 시도 중 ───────────────────────────── */
@@ -191,29 +214,41 @@
                                         box-shadow: 0 6px 16px rgba(94, 106, 210, .34); }
   body[data-state="noapp"] #cta-open  { background: #fff; color: var(--ink-sub);
                                         border: 1px solid var(--line); box-shadow: none; }
-  /* 스토어를 위로 올려 손가락이 먼저 닿는 자리에 둔다 */
-  body[data-state="noapp"] #cta-store { order: -1; }
+  /* 버튼 순서는 바꾸지 않는다. 로드 1.5초 뒤 = 사용자가 위 버튼을 읽고 누르려는 순간이라
+     그때 자리를 바꾸면 오터치가 난다. CSS order 는 시각 순서만 바꿔 DOM·탭 순서와도
+     어긋난다(WCAG 1.3.2). 채움(fill) 전환만으로 승격을 알린다. */
 
-  /* ── 만료 변형: JS 없이 CSS만으로 확정된다(스크레이퍼·JS 차단 환경 대비) ── */
-  body[data-expired="true"] .eyebrow,
+  /* ── 만료 변형 ──────────────────────────────────────────
+     JS 없이 CSS 만으로 확정된다(JS 차단 환경 대비). CSS 자체가 벗겨지는 환경에서는
+     양쪽 카피가 함께 보이는데, 그 경우 만료 문구가 먼저 오도록 마크업 순서를 잡았다.
+     그룹명은 숨긴다 — 존재하지 않는 slug 도 만료 랜딩으로 오기 때문에(스펙 §4-2)
+     이름이 빈 「」 로 렌더될 수 있다. 대신 eyebrow 를 남겨 카드 골격을 유지한다. */
   body[data-expired="true"] .group-name,
-  body[data-expired="true"] .bars,
-  body[data-expired="true"] .status { display: none; }
+  body[data-expired="true"] .bars { display: none; }
   /* :not() 으로 명시 — 같은 특이도 규칙이 순서에 의존해 서로를 덮는 걸 피한다 */
   body[data-expired="true"] .lede:not(.expired-lede) { display: none; }
-  body[data-expired="true"] .expired-title,
   body[data-expired="true"] .expired-lede { display: block; }
+  /* status 는 자리를 비워두되 접어버리진 않는다 — 카드 아래 여백이 다른 상태와 같아야
+     "덜 그려진 화면"으로 읽히지 않는다 */
+  body[data-expired="true"] .status { visibility: hidden; }
+  body[data-expired="true"] .eyebrow { color: var(--ink-sub); background: var(--track); }
+  body[data-expired="true"] .eyebrow-live { display: none; }
+  body[data-expired="true"] .eyebrow-expired { display: inline; }
+  body[data-expired="true"] .expired-title { display: block; }
+  .eyebrow-expired { display: none; }
+  .expired-title {
+    display: none;
+    /* eyebrow 를 남겨 두므로 .group-name 과 같은 리듬을 쓴다 */
+    margin: 18px 0 0;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -.02em;
+    word-break: keep-all;
+  }
   body[data-expired="true"] #cta-open { display: none; }
   body[data-expired="true"] #cta-store { background: var(--indigo); color: #fff;
                                          border-color: transparent;
                                          box-shadow: 0 6px 16px rgba(94, 106, 210, .34); }
-  .expired-title {
-    display: none;
-    margin: 18px 0 0;
-    font-size: 24px;
-    font-weight: 800;
-    letter-spacing: -.02em;
-  }
   .expired-lede { display: none; }
 
   @media (prefers-reduced-motion: reduce) {
@@ -225,15 +260,15 @@
 <body data-expired="{{expired}}" data-state="idle">
   <main class="shell">
     <div class="card">
-      <span class="eyebrow">그룹 초대</span>
+      <span class="eyebrow"><span class="eyebrow-live">그룹 초대</span><span class="eyebrow-expired">만료된 초대</span></span>
 
       <h1 class="group-name">
         <span class="bracket">「</span>{{groupName}}<span class="bracket">」</span>
       </h1>
       <h1 class="expired-title">만료된 초대예요</h1>
 
-      <p class="lede">함께 집중하고, 공부한 시간을 겨뤄요.</p>
-      <p class="lede expired-lede">이 초대 링크는 더 이상 쓸 수 없어요.<br>gromo를 설치하고 새 초대를 받아 보세요.</p>
+      <p class="lede">앱을 열면 바로 이 그룹에 들어가요.</p>
+      <p class="lede expired-lede">이 초대 링크는 더 이상 쓸 수 없어요.<br>친구에게 새 링크를 받아 주세요.</p>
 
       <div class="bars" aria-hidden="true">
         <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
@@ -244,7 +279,8 @@
         <a class="btn btn-ghost" id="cta-store" href="{{storeUrl}}">App Store에서 받기</a>
       </div>
 
-      <p class="status" id="status" role="status" aria-live="polite"></p>
+      <!-- JS 가 막힌 환경에서도 빈 띠로 남지 않도록 기본 문구를 넣어 둔다(스크립트가 덮어씀) -->
+      <p class="status" id="status" role="status" aria-live="polite">앱이 설치돼 있으면 ‘앱에서 열기’로 바로 들어가요.</p>
     </div>
 
     <p class="foot">gromo · 함께 공부하는 시간 기록</p>
@@ -253,22 +289,34 @@
 <script>
 (function () {
   var body = document.body;
-  var expired = body.dataset.expired === 'true';
-
-  // 만료 변형은 CSS 만으로 완성돼 있다(JS 차단 환경에서도 동일). 여기선 점프만 막으면 된다.
-  if (expired) return;
-
+  var store = document.getElementById('cta-store');
   var open = document.getElementById('cta-open');
   var status = document.getElementById('status');
-  var scheme = open.getAttribute('href');
 
-  // 자리표시자가 치환되지 않은 상태(스텁 렌더·직접 파일 열람)에서는 점프하지 않는다.
-  if (!scheme || scheme.indexOf('{{') === 0) return;
+  var STORE_FALLBACK = 'gromo가 설치돼 있지 않은 것 같아요. 설치한 뒤 이 링크를 다시 눌러 주세요.';
 
-  // 백그라운드 프리렌더에서는 점프가 조용히 소모되므로 보일 때만 시도한다.
-  if (document.visibilityState !== 'visible') return;
+  // 스토어 링크가 http(s) 가 아니면(미치환·주입) 눌렀을 때 엉뚱한 곳으로 가므로 무력화한다.
+  // 파싱 시점 속성 주입은 서버 이스케이프의 몫이다 — 여기서 되돌릴 수 없다(WS-1 계약).
+  if (!/^https?:\/\//i.test(store.getAttribute('href') || '')) {
+    store.removeAttribute('href');
+    store.setAttribute('aria-disabled', 'true');
+  }
 
+  // 만료 변형은 CSS 로 이미 완성돼 있다. 여기선 자동 점프만 막으면 된다.
+  // 계약값은 "true"/"false". 빈 문자열도 "만료 아님"으로 받아 준다(컨트롤러가 false 를
+  // 빈 값으로 흘릴 수 있어서). 그 밖의 값(미치환 토큰 등)은 판단 불가로 보고 점프하지 않는다 —
+  // 죽은 초대로 앱을 여는 것보다 자동 점프를 포기하는 쪽이 안전하다(수동 탭은 그대로 동작).
+  var expiredFlag = body.dataset.expired;
+  if (expiredFlag !== 'false' && expiredFlag !== '') return;
+
+  var scheme = open.getAttribute('href') || '';
+
+  // 커스텀 스킴만 허용 — javascript:/data: 값이 흘러들어와도 자동 실행되지 않게 한다.
+  if (!/^gromo:\/\/[^\s"']+$/.test(scheme)) return;
+
+  var timer = 0;
   var settled = false;
+  var leavingByTap = false;
 
   function settle() {
     if (settled) return false;
@@ -279,34 +327,62 @@
     return true;
   }
 
-  // 화면이 넘어갔다 = 앱이 열렸다. 상태를 되돌려 복귀 시 "미설치" 오판을 남기지 않는다.
+  // 화면이 넘어갔다 = 앱이 열렸다. 단, 사용자가 CTA 를 눌러 나가는 것도 같은 신호라
+  // 그 경우는 판정에서 제외한다(복귀 시 상태가 초기화돼 버리는 걸 막는다).
   function onLeave() {
-    if (!settle()) return;
+    if (leavingByTap || !settle()) return;
     body.dataset.state = 'idle';
     status.textContent = '';
   }
 
-  // visibilitychange 는 hidden 으로 바뀔 때만 이탈로 친다(복귀 시에도 발화하므로).
+  // visibilitychange 는 복귀 시에도 발화하므로 hidden 으로 바뀔 때만 이탈로 친다.
   function onVisibility() {
     if (document.visibilityState === 'hidden') onLeave();
   }
 
-  document.addEventListener('visibilitychange', onVisibility);
-  window.addEventListener('pagehide', onLeave);
+  function markTap() { leavingByTap = true; }
+  open.addEventListener('click', markTap);
+  store.addEventListener('click', markTap);
 
-  body.dataset.state = 'opening';
-  status.textContent = 'gromo 앱을 여는 중';
-
-  // 스킴 점프 1회 — iOS 는 앱이 없으면 조용히 실패한다.
-  try { window.location.href = scheme; } catch (e) { /* 무시하고 폴백으로 */ }
-
-  // 1.5s 안에 이탈이 없으면 미설치로 판정하고 스토어 CTA 를 승격한다.
-  var timer = setTimeout(function () {
-    if (settled) return;
+  // 스토어에 다녀와 뒤로가기로 돌아오면(bfcache 복원) 앱은 결국 안 열린 것이다 — 폴백을 다시 세운다.
+  window.addEventListener('pageshow', function (e) {
+    if (!e.persisted) return;
+    leavingByTap = false;
     settle();
     body.dataset.state = 'noapp';
-    status.textContent = '앱이 열리지 않았어요. 설치 후 다시 열어 주세요.';
-  }, 1500);
+    status.textContent = STORE_FALLBACK;
+  });
+
+  function attempt() {
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onLeave);
+
+    body.dataset.state = 'opening';
+    status.textContent = 'gromo 앱을 여는 중';
+
+    // 스킴 점프 1회. iOS 는 앱이 없으면 조용히 실패하고, 그 실패는 비동기라
+    // 여기서 잡히지 않는다 — 판정은 아래 타이머가 한다.
+    window.location.href = scheme;
+
+    // 1.5s 안에 이탈이 없으면 미설치로 판정하고 스토어 CTA 를 승격한다.
+    timer = setTimeout(function () {
+      if (!settle()) return;
+      body.dataset.state = 'noapp';
+      status.textContent = STORE_FALLBACK;
+    }, 1500);
+  }
+
+  if (document.visibilityState === 'visible') {
+    attempt();
+  } else {
+    // 링크 미리보기·백그라운드 프리렌더로 열리면 점프가 조용히 소모된다.
+    // 그냥 return 하면 페이지가 영원히 죽으므로, 처음 보이는 순간 한 번만 재시도한다.
+    document.addEventListener('visibilitychange', function armOnce() {
+      if (document.visibilityState !== 'visible') return;
+      document.removeEventListener('visibilitychange', armOnce);
+      attempt();
+    });
+  }
 })();
 </script>
 </body>
