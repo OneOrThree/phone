@@ -7,7 +7,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,12 +29,28 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class GroupBetSettlementService {
 
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
+    /** 그레이스 4시간 — 스케줄 배치가 04:00 KST 에 도는 이유와 같은 값이다. */
+    private static final int SETTLEMENT_GRACE_HOURS = 4;
+
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final GroupBetSettler groupBetSettler;
 
-    /** KST 오늘 이전(bet_date &lt; 오늘)의 OPEN 내기를 전건 정산한다. */
+    /** 그레이스가 지난 날짜까지의 OPEN 내기를 전건 정산한다. */
     public GroupBetSettlementSummaryResponse settleDueBets() {
-        return settleDueBets(GroupBetService.today());
+        return settleDueBets(settlementDateAt(Instant.now()));
+    }
+
+    /**
+     * 정산 기준일 — "그레이스(4h)가 이미 끝난 날"까지만 대상으로 잡기 위해 현재 시각에서 4시간을 뺀
+     * KST 날짜를 쓴다. 04:00 KST 정각에 도는 스케줄러에게는 그냥 오늘이라 동작이 그대로지만,
+     * 수동 트리거(GroupBetBatchController)를 00:00~04:00 사이에 호출해도 전일자 내기를 그레이스가
+     * 끝나기 전에 앞당겨 정산하지 않는다 — 정산은 되돌릴 수 없어 늦게 올라온 집중 기록이 누락된 채
+     * 지급이 확정돼 버리기 때문이다 (PR #381 리뷰).
+     */
+    static LocalDate settlementDateAt(Instant now) {
+        return LocalDate.ofInstant(now.minus(SETTLEMENT_GRACE_HOURS, ChronoUnit.HOURS), KST);
     }
 
     /**

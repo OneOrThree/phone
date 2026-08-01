@@ -10,6 +10,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -97,5 +98,38 @@ class GroupBetSettlementServiceTest {
         assertThat(summary.failedCount()).isEqualTo(1);
         assertThat(summary.settledCount()).isEqualTo(1);
         assertThat(summary.skippedCount()).isZero();
+    }
+
+    // ── 정산 기준일(그레이스 4h) ─────────────────────────────────────────
+    // 수동 트리거가 00:00~04:00 KST 에 호출돼도 그레이스가 안 끝난 전일자를 앞당겨 정산하면 안 된다.
+
+    @Test
+    @DisplayName("04:00 KST 정각(스케줄 시각)의 기준일은 그날 — 전일자가 대상이 된다")
+    void settlementDateAtCutoffIsToday() {
+        // 2026-08-02 04:00 KST = 2026-08-01 19:00 UTC
+        Instant cutoff = Instant.parse("2026-08-01T19:00:00Z");
+
+        assertThat(GroupBetSettlementService.settlementDateAt(cutoff))
+                .isEqualTo(LocalDate.of(2026, 8, 2));
+    }
+
+    @Test
+    @DisplayName("03:59 KST 수동 호출의 기준일은 전날 — 전일자 내기는 그레이스가 끝날 때까지 제외된다")
+    void settlementDateBeforeCutoffIsYesterday() {
+        // 2026-08-02 03:59 KST = 2026-08-01 18:59 UTC
+        Instant beforeCutoff = Instant.parse("2026-08-01T18:59:00Z");
+
+        assertThat(GroupBetSettlementService.settlementDateAt(beforeCutoff))
+                .isEqualTo(LocalDate.of(2026, 8, 1));
+    }
+
+    @Test
+    @DisplayName("낮 시간 수동 호출은 오늘이 기준일 — 평소 QA 사용은 그대로다")
+    void settlementDateDuringDayIsToday() {
+        // 2026-08-02 14:00 KST = 2026-08-02 05:00 UTC
+        Instant midday = Instant.parse("2026-08-02T05:00:00Z");
+
+        assertThat(GroupBetSettlementService.settlementDateAt(midday))
+                .isEqualTo(LocalDate.of(2026, 8, 2));
     }
 }

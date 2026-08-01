@@ -25,8 +25,10 @@ public class GroupBetBatchController {
     private final GroupBetSettlementService groupBetSettlementService;
 
     @Operation(summary = "내기 일 정산 배치 수동 실행",
-            description = "bet_date 가 KST 오늘 이전인 OPEN 내기를 전건 정산한다. 이미 정산된 내기는 스킵되므로"
-                    + " 반복 호출해도 이중 지급이 없다. 실패 건은 그 내기만 롤백되고 failedCount 로 집계된다.")
+            description = "그레이스 4시간이 끝난 날짜까지의 OPEN 내기를 전건 정산한다(스케줄 배치와 같은 기준일)."
+                    + " 00:00~04:00 KST 에 호출해도 전일자 내기는 그레이스가 끝날 때까지 대상에서 빠진다."
+                    + " 이미 정산된 내기는 스킵되므로 반복 호출해도 이중 지급이 없다."
+                    + " 실패 건은 그 내기만 롤백되고 failedCount 로 집계된다.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "배치 실행 성공(대상 0건 포함)")
     })
