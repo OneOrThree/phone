@@ -55,6 +55,8 @@ jobs:
           echo "APPLE_CLIENT_ID=$(echo $SECRET | jq -r '.APPLE_CLIENT_ID')" >> $GITHUB_ENV
           echo "FCM_PROJECT_ID=$(echo $SECRET | jq -r '.FCM_PROJECT_ID')" >> $GITHUB_ENV
           echo "FCM_SERVICE_ACCOUNT_JSON=$(echo $SECRET | jq -r '.FCM_SERVICE_ACCOUNT_JSON')" >> $GITHUB_ENV
+          # 누끼 유해 이미지 모더레이션 (GROMO-1048) — 이 워크플로도 app 을 재기동하므로 키가 비지 않게 함께 로드
+          echo "OPENAI_API_KEY=$(echo $SECRET | jq -r '.OPENAI_API_KEY')" >> $GITHUB_ENV
           # DD_API_KEY·DD_SITE 는 job env(GitHub 시크릿)에서 주입 — 여기서 로드하지 않음.
 
       - name: Datadog 스택 ${{ inputs.action }}

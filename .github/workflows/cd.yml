@@ -43,6 +43,8 @@ jobs:
           # FCM 발송 (GROMO-528) — 서비스 계정 JSON 은 base64 인코딩 문자열로 저장돼 있음 (시크릿 선등록 완료)
           echo "FCM_PROJECT_ID=$(echo $SECRET | jq -r '.FCM_PROJECT_ID')" >> $GITHUB_ENV
           echo "FCM_SERVICE_ACCOUNT_JSON=$(echo $SECRET | jq -r '.FCM_SERVICE_ACCOUNT_JSON')" >> $GITHUB_ENV
+          # 누끼 유해 이미지 모더레이션 (GROMO-1048) — OpenAI omni-moderation 서버 게이트(1044)용 키
+          echo "OPENAI_API_KEY=$(echo $SECRET | jq -r '.OPENAI_API_KEY')" >> $GITHUB_ENV
 
       - name: Docker Buildx 설정
         uses: docker/setup-buildx-action@v3
