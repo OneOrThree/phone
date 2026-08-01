@@ -113,10 +113,15 @@ android {
         // 자격 파일 없는 로컬·CI 환경이 깨지지 않게 한다.
         logger.warn("자격 파일 없음: ${ksPropsFile} — 기본 debug 서명으로 폴백. 실제 빌드엔 android/credentials/${appEnv}/ 를 별도 채널로 받아 배치하세요.")
     }
-    // 선택된 환경의 google-services.json 을 app/ 로 복사(google-services 플러그인이 읽는 위치)
+    // 선택된 환경의 google-services.json 을 app/ 로 복사(google-services 플러그인이 읽는 위치).
+    // 소스가 없으면 이전 환경에서 복사돼 남아 있는 파일을 제거해, 다른 환경의 Firebase 자격이
+    // 조용히 포장되는 것을 막는다 — Firebase가 필요한 빌드는 google-services 플러그인 단계에서 실패한다.
     def gsFile = new File(credsDir, 'google-services.json')
+    def gsDest = new File(projectDir, 'google-services.json')
     if (gsFile.exists()) {
         copy { from gsFile; into projectDir }
+    } else if (gsDest.delete()) {
+        logger.warn("google-services.json 없음: ${gsFile} — 이전 환경에서 복사된 ${gsDest} 를 제거했습니다. Firebase가 필요한 빌드는 credentials/${appEnv}/ 에 파일을 배치하세요.")
     }
 
     // 릴리즈 서명 — android/keystore.properties(gitignored, 템플릿: keystore.properties.example)가 있으면
