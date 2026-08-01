@@ -17,6 +17,7 @@ import { Alert, NativeModules, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { requireOptionalNativeModule } from 'expo';
 import { presentAndroidAppPicker } from '@/services/androidAppPicker';
+import { getMyProfile } from '@/services/userApi';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { NotificationSettingsRequest } from '@/types/dto/user';
 
@@ -591,27 +592,74 @@ const ScreenTimeModule = {
   },
 };
 
-// 캐시된 인앱 알림 설정을 네이티브로 미러(GROMO-997 코드리뷰) — 앱 시작·포그라운드 복귀 시
-// ScreenTimeSyncer가 호출한다. NotificationSettingsScreen이 서버 조회·설정 변경분을 이 캐시
-// (STORAGE_KEYS.notificationSettings)에 써두므로, 유저가 설정 화면을 다시 열지 않아도 목표
-// 초과 워커가 최신 인앱 설정을 존중한다. 저장된 값이 없으면(첫 실행) 네이티브 기본값(알림 on·
-// 소리 on·심야 off)이 안전한 기본이라 미러를 건너뛴다.
+// 계정 teardown·프로필 부재 시 쓰는 안전한 기본 — 알림 off로 두어, 새 계정의 실제 값이
+// 프로필에서 미러될 때까지 이전 계정의 미러값이 남지 않게 한다(옵트아웃 안전 우선).
+const NOTIF_PREFS_OFF: NotificationSettingsRequest = {
+  notificationEnabled: false,
+  soundEnabled: false,
+  nightModeEnabled: false,
+  nightStartTime: '22:00',
+  nightEndTime: '08:00',
+};
+
+// 인앱 알림 설정을 네이티브로 미러(GROMO-997 코드리뷰) — 앱 시작·포그라운드 복귀·계정 전환
+// (ScreenTimeSyncer 리마운트) 시 호출한다. NotificationSettingsScreen이 서버 조회·설정 변경분을
+// 이 캐시(STORAGE_KEYS.notificationSettings)에 써두므로, 유저가 설정 화면을 다시 열지 않아도
+// 목표 초과 워커가 최신 인앱 설정을 존중한다.
+//
+// 캐시가 없을 때(새 설치·계정 전환 직후)가 핵심 — 예전엔 조기 리턴해 네이티브 기본값(알림 on)
+// 이나 이전 계정의 미러값이 그대로 남아, 서버에서 알림을 끈 유저가 목표 알림을 받을 수 있었다
+// (코드리뷰 P1). 이제 캐시가 없으면 서버 프로필을 읽어 실제 값으로 미러하고, 그 값을 캐시에도
+// 채워 다음 미러가 재조회 없이 쓰게 한다. 프로필 조회에 실패하면 알림 off로 리셋해 이전 계정
+// 미러값이 남지 않게 한다. iOS·구 바이너리(M4 함수 없음)는 no-op이라 무해하다.
 export async function mirrorNotificationPreferencesToNative(): Promise<void> {
   if (Platform.OS !== 'android') return;
+  let cached: Partial<NotificationSettingsRequest> | null = null;
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.notificationSettings);
-    if (!raw) return;
-    const cached = JSON.parse(raw) as Partial<NotificationSettingsRequest>;
+    if (raw) cached = JSON.parse(raw) as Partial<NotificationSettingsRequest>;
+  } catch {
+    // 캐시 읽기·파싱 실패 → 아래 서버 프로필 폴백으로
+  }
+  if (cached) {
     await ScreenTimeModule.setNotificationPreferences({
       notificationEnabled: cached.notificationEnabled ?? true,
       soundEnabled: cached.soundEnabled ?? true,
       nightModeEnabled: cached.nightModeEnabled ?? false,
       nightStartTime: cached.nightStartTime ?? '22:00',
       nightEndTime: cached.nightEndTime ?? '08:00',
-    });
-  } catch {
-    // 미러 실패는 무해 — 다음 앱 시작·설정 변경에서 재시도
+    }).catch(() => {});
+    return;
   }
+  // 캐시가 없거나 깨졌으면 서버 프로필을 읽어 미러한다.
+  try {
+    const p = await getMyProfile();
+    const body: NotificationSettingsRequest = {
+      notificationEnabled: p.notificationEnabled ?? true,
+      soundEnabled: p.soundEnabled ?? true,
+      nightModeEnabled: p.nightModeEnabled ?? false,
+      nightStartTime: p.nightStartTime ?? '22:00',
+      nightEndTime: p.nightEndTime ?? '08:00',
+    };
+    // 다음 미러·설정 화면이 재조회 없이 쓰도록 캐시에도 반영.
+    await AsyncStorage.setItem(STORAGE_KEYS.notificationSettings, JSON.stringify(body)).catch(
+      () => {},
+    );
+    await ScreenTimeModule.setNotificationPreferences(body);
+  } catch {
+    // 프로필 조회 실패 → 알림 off로 리셋(이전 계정 미러값이 남지 않게). 다음 미러가 재시도.
+    await ScreenTimeModule.setNotificationPreferences(NOTIF_PREFS_OFF).catch(() => {});
+  }
+}
+
+// 계정 teardown(로그아웃·계정 전환) 시 네이티브 알림 설정을 안전한 기본(알림 off)으로 리셋
+// (GROMO-997 코드리뷰) — teardown이 notificationSettings 캐시를 지워도 네이티브 미러엔 이전
+// 계정 값이 남아, 새 계정이 목표를 걸면 워커가 이전 계정 설정으로 판단할 수 있다. off로 리셋해
+// 두면 새 계정의 실제 값이 다음 미러(프로필 조회)에서 채워질 때까지 옵트아웃이 유지된다.
+// iOS·구 바이너리는 no-op.
+export async function resetNativeNotificationPreferences(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  await ScreenTimeModule.setNotificationPreferences(NOTIF_PREFS_OFF).catch(() => {});
 }
 
 export default ScreenTimeModule;

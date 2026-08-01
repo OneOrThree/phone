@@ -286,10 +286,9 @@ class ScreenTimeModule : Module() {
 
     // 배터리 최적화 설정 딥링크 — Usage Access와 같은 왕복 계약(복귀 시 재확인 결과로 resolve).
     AsyncFunction("requestIgnoreBatteryOptimizations") { promise: Promise ->
-      if (isIgnoringBatteryOptimizations()) {
-        promise.resolve(true)
-        return@AsyncFunction
-      }
+      // 이미 예외 상태여도 항상 최적화 설정 목록을 연다(코드리뷰 반영) — 설정 행이 '다시
+      // 확인·변경'용으로 탭 가능하게 남아 있어, 예외일 때 조기 리턴하면 유저가 '설정으로
+      // 이동'을 눌러도 화면이 안 바뀐다. 복귀 시 재확인 결과로 resolve하는 계약은 그대로다.
       // 직전 요청이 아직 대기 중이면(연타 등) 현재 상태로 먼저 마감하고 새 요청으로 교체.
       pendingBatteryPromise?.resolve(isIgnoringBatteryOptimizations())
       pendingBatteryPromise = promise

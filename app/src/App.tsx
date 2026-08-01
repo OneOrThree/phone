@@ -28,7 +28,7 @@ import {
 } from '@/services/userApi';
 import { clearInbox } from '@/services/notificationInbox';
 import { recordAccessDay } from '@/services/storeReview';
-import ScreenTimeModule from '@/services/ScreenTimeModule';
+import ScreenTimeModule, { resetNativeNotificationPreferences } from '@/services/ScreenTimeModule';
 import { invalidateNativeGoalWrites } from '@/services/screentimeSync';
 import { occupationForCategory, categoryForOccupation } from '@/constants/focusCategories';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
@@ -230,6 +230,10 @@ function App() {
       // 0 쓰기 '뒤'에 완료되며 이전 계정 목표·워커를 복원하지 않게, 반드시 0 쓰기 전에 호출한다.
       invalidateNativeGoalWrites();
       await ScreenTimeModule.setGoalSeconds(0).catch(() => {});
+      // 네이티브 알림 설정 미러도 함께 리셋(GROMO-997 코드리뷰 P1) — 위 캐시(notificationSettings)만
+      // 지우면 네이티브엔 이전 계정 값이 남아, 새 계정이 목표를 걸면 워커가 이전 설정으로 판단할
+      // 수 있다. 새 계정의 실제 값은 로그인 후 미러(프로필 조회)가 다시 채운다.
+      await resetNativeNotificationPreferences();
     }
     // 온보딩 완료 플래그까지 지워 로그아웃 시 온보딩 첫 페이지로 돌아가게 한다.
     await AsyncStorage.multiRemove([
@@ -317,6 +321,9 @@ function App() {
         // in-flight sync 무효화 — handleLogout과 같은 이유로 0 쓰기 전에 토큰 카운터를 올린다.
         invalidateNativeGoalWrites();
         await ScreenTimeModule.setGoalSeconds(0).catch(() => {});
+        // 네이티브 알림 설정 미러도 리셋(handleLogout과 같은 이유) — 새 계정 실제 값은 다음
+        // 미러(프로필 조회)가 채운다.
+        await resetNativeNotificationPreferences();
       }
     }
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
