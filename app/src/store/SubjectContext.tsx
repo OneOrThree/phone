@@ -1,5 +1,15 @@
-import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type ReactNode,
+} from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import StudyWidgetModule from '@/services/StudyWidgetModule';
 import { STORAGE_KEYS } from '@/types/storage';
 import { T } from '@/constants/theme';
 import { todayStr } from '@/utils/localDate';
@@ -54,6 +64,24 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
   const [subjects, setSubjects] = useState<Subject[]>(SEED);
   const [ready, setReady] = useState(false);
   const loaded = useRef(false);
+  // 지금 메모리의 accumulatedSeconds가 속한 로컬 날짜. 날짜 리셋이 로드 시점에만 있으면
+  // 앱을 켠 채 자정을 넘길 때 어제 누적이 오늘 값처럼 남는다(코드리뷰 반영) — 이 ref로 롤오버 판정.
+  const dayRef = useRef(todayStr());
+
+  // 자정 롤오버 — 날짜가 바뀌었으면 과목별 '오늘' 누적만 0으로 리셋(목록·이름·색·순서 유지).
+  // 포그라운드 복귀와 적립 직전에 호출해, 어제 값이 오늘로 표시·적산되는 걸 막는다.
+  const rolloverIfNeeded = useCallback(() => {
+    if (dayRef.current === todayStr()) return;
+    dayRef.current = todayStr();
+    setSubjects((prev) => prev.map((x) => ({ ...x, accumulatedSeconds: 0 })));
+  }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') rolloverIfNeeded();
+    });
+    return () => sub.remove();
+  }, [rolloverIfNeeded]);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.subjects).then(async (raw) => {
@@ -112,6 +140,8 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
           }
         } catch {}
       }
+      // 로드가 오늘 기준으로 리셋·복원을 끝냈으므로 여기서 롤오버 기준 날짜를 잡는다
+      dayRef.current = todayStr();
       loaded.current = true;
       setReady(true);
     });
@@ -120,6 +150,12 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!loaded.current) return;
     AsyncStorage.setItem(STORAGE_KEYS.subjects, JSON.stringify({ date: todayStr(), subjects }));
+    // 안드로이드 홈 위젯 스냅샷도 같은 시점에 갱신(GROMO-1006). 화면 언마운트 타이밍에 쓰면
+    // 마지막 정산 setState와 화면 교체가 한 배치로 묶여 정산 전 값이 기록된다(코드리뷰 반영) —
+    // 스토어는 화면 교체 후에도 살아 있어 커밋된 최신값으로 쓴다. iOS·구 바이너리는 래퍼가 no-op.
+    StudyWidgetModule.updateTopSubjects(
+      subjects.map((x) => ({ name: x.name, seconds: x.accumulatedSeconds, color: x.color })),
+    ).catch(() => {});
   }, [subjects]);
 
   function addSubject(name: string) {
@@ -169,6 +205,8 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
 
   function addFocusToSubject(id: string, seconds: number) {
     if (seconds <= 0) return;
+    // 자정을 넘긴 뒤 첫 적립이면 어제 누적을 먼저 0으로 — 리셋 없이 더하면 어제+오늘이 섞인다
+    rolloverIfNeeded();
     setSubjects((prev) =>
       prev.map((x) =>
         x.id === id ? { ...x, accumulatedSeconds: x.accumulatedSeconds + seconds } : x,
