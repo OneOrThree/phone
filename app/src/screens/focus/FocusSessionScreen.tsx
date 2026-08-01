@@ -52,7 +52,8 @@ import {
   logFocusSessionResumed,
   logFocusSessionAbandoned,
   logFocusMenuOpened,
-  logFocusFriendsViewed,
+  logFocusViewChanged,
+  type FocusViewName,
 } from '@/services/analyticsEvents';
 
 // 06/07/08 집중 세션(세로) + 09 친구 그리드(좌우 페이저) + 10/11 메뉴 드로어.
@@ -76,6 +77,10 @@ const FOCUS_TYPE_BY_MODE: Record<FocusTimerMode, FocusType> = {
   countdown: 'RANGE',
   pomodoro: 'POMODORO',
 };
+// 페이지 인덱스 → 뷰 정체성(GROMO-987) — 아래 페이저 JSX의 렌더 순서와 반드시 일치시킬 것.
+// 계측(focus_view_changed)은 인덱스가 아니라 이 뷰 이름으로 발행한다 — 스와이프 순서가
+// 또 바뀌어도(985 참고) 이 배열만 함께 고치면 GA4 측정기준 값은 그대로 유지된다.
+const PAGE_VIEWS: FocusViewName[] = ['character', 'friends', 'my_league', 'all_league'];
 
 interface SessionState {
   elapsed: number; // 실제 집중 초(적립 기준) — 뽀모도로는 집중 블록만 누적
@@ -129,6 +134,19 @@ export default function FocusSessionScreen() {
   sessionRef.current = session;
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  // 뷰 체류 계측(GROMO-987) — 현재 뷰 진입 시각. 페이지 전환·세션 종료 때 직전 뷰의 체류를
+  // 발행하고 기준을 리셋한다. 체류는 벽시계 기준 — 백그라운드 이탈 시간도 '켜놓은 뷰'에 포함.
+  const viewEnteredAtRef = useRef(Date.now());
+  const flushViewDwell = useCallback(() => {
+    const dwellSeconds = Math.round((Date.now() - viewEnteredAtRef.current) / 1000);
+    viewEnteredAtRef.current = Date.now();
+    logFocusViewChanged({
+      view: PAGE_VIEWS[pageRef.current] ?? 'character',
+      dwell_seconds: dwellSeconds,
+    });
+  }, []);
   const finishedRef = useRef(false);
   const startedAtRef = useRef(new Date().toISOString());
   // 서버 업로드 정산 마커 — 이미 정산(로컬·코인·서버 업로드)된 집중초/코인, 미정산 구간 시작 시각.
@@ -368,12 +386,16 @@ export default function FocusSessionScreen() {
 
   // finish를 거치지 않는 언마운트(안드로이드 시스템 back 등)에서도 마커를 닫는다 — 안 닫으면
   // 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다(코덱스 리뷰). 정상 종료는 finish/완료
-  // 게이트가 이미 취소했으므로 no-op(라이브 참조가 비어 있음).
+  // 게이트가 이미 취소했으므로 no-op(라이브 참조가 비어 있음). 마지막 뷰 체류도 같은 조건으로
+  // flush — finish 경로는 이미 발행했으므로 여기서 또 발행하면 이중 계측이다(GROMO-987).
   useEffect(
     () => () => {
-      if (!finishedRef.current) cancelLiveSession();
+      if (!finishedRef.current) {
+        cancelLiveSession();
+        flushViewDwell();
+      }
     },
-    [cancelLiveSession],
+    [cancelLiveSession, flushViewDwell],
   );
 
   // 집중 블록 증분 정산 — 마지막 정산 이후 쌓인 집중초(delta)를 로컬·과목·코인에 적립하고
@@ -464,6 +486,8 @@ export default function FocusSessionScreen() {
     async (completed = sessionRef.current.done) => {
       if (finishedRef.current) return;
       finishedRef.current = true;
+      // 세션 종료(완료/취소 공통 경로) — 보고 있던 뷰의 마지막 체류 flush(GROMO-987)
+      flushViewDwell();
       // 정상 종료 — 실드·Live Activity 해제
       ScreenTimeModule.stopFocusShield().catch(() => {});
       ScreenTimeModule.endFocusActivity().catch(() => {});
@@ -485,7 +509,15 @@ export default function FocusSessionScreen() {
         navigation.replace('FocusResult', { focusSeconds, subjectId, subjectName, completed });
       }
     },
-    [settleFocusBlock, cancelLiveSession, flushPendingCancels, navigation, subjectId, subjectName],
+    [
+      settleFocusBlock,
+      cancelLiveSession,
+      flushPendingCancels,
+      flushViewDwell,
+      navigation,
+      subjectId,
+      subjectName,
+    ],
   );
 
   // 완료 게이트는 이미 세션을 정산하고 라이브 레코드를 제거한 상태다. Android 하드웨어
@@ -721,8 +753,8 @@ export default function FocusSessionScreen() {
 
   function onScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
     const next = Math.round(e.nativeEvent.contentOffset.x / width);
-    // 친구 그리드(page 1)로 처음 넘어올 때만 노출 계측(왕복 스팸 방지). 데이터 갱신은 훅 폴링이 담당.
-    if (next === 1 && page !== 1) logFocusFriendsViewed();
+    // 페이지 전환 시 직전 뷰의 체류를 발행(GROMO-987). 같은 페이지로 되돌아온 스크롤은 미계측.
+    if (next !== page) flushViewDwell();
     setPage(next);
   }
 
@@ -774,7 +806,8 @@ export default function FocusSessionScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* 페이저 — [캐릭터] ↔ [내 친구(656)] ↔ [내 리그=같은 시험(812)] ↔ [전체 리그(811)] (순서 변경: 985) */}
+        {/* 페이저 — [캐릭터] ↔ [내 친구(656)] ↔ [내 리그=같은 시험(812)] ↔ [전체 리그(811)] (순서 변경: 985)
+            순서를 바꾸면 상단 PAGE_VIEWS(뷰 체류 계측, GROMO-987)도 반드시 같이 고칠 것 */}
         <ScrollView
           horizontal
           pagingEnabled
