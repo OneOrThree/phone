@@ -6,3 +6,14 @@
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
+
+// expo-audio(탭 효과음) — 네이티브 오디오 세션이 없는 jest 환경에서 createAudioPlayer가 터진다.
+// 재생 호출 여부만 검증하면 되므로 플레이어를 빈 스텁으로 대체한다.
+jest.mock('expo-audio', () => ({
+  createAudioPlayer: jest.fn(() => ({
+    volume: 1,
+    play: jest.fn(),
+    seekTo: jest.fn(() => Promise.resolve()),
+  })),
+  setAudioModeAsync: jest.fn(() => Promise.resolve()),
+}));

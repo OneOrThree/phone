@@ -31,6 +31,7 @@ import { occupationForCategory, categoryForOccupation } from '@/constants/focusC
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { runStorageMigrations } from '@/utils/storageMigration';
 import { markOtaSplashShown } from '@/utils/otaGate';
+import { preloadTapSound } from '@/utils/sound';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { LoginResult, UserProfile } from '@/types/api';
 
@@ -181,6 +182,11 @@ function App() {
       }
       setLoading(false);
     })();
+  }, []);
+
+  // 버튼 탭 효과음 프리로드 — 첫 탭에서 플레이어를 만들면 재생이 눈에 띄게 늦는다.
+  useEffect(() => {
+    preloadTapSound();
   }, []);
 
   // ATT(추적 동의) 팝업 — 홈 진입 시점 1회(기존 유저는 앱 시작, 신규 유저는 온보딩 완료 직후).

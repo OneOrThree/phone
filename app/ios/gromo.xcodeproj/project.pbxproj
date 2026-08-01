@@ -794,6 +794,7 @@
 		};
 		658925CEDCD1D9118A4CB91E /* Firebase 환경별 plist 주입 (Debug=dev / Release=prod) */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
