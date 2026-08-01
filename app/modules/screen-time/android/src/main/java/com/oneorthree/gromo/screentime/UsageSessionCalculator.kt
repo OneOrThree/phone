@@ -13,8 +13,8 @@ import android.app.usage.UsageStatsManager
 //     클리핑해 날짜별로 쪼갠다(전날 밤에 RESUMED된 채 이어지는 사용도 오늘분만 계산).
 //  3. 스플릿 스크린 — 두 앱이 동시에 RESUMED면 각자 구간을 독립 누적하는 '합산' 정의를 쓴다
 //     (iOS 스크린타임 앱과 같은 계열 — 동시 사용 구간은 앱 수만큼 계산됨).
-//  4. 이벤트 보존기간 — 원본 이벤트는 수일 수준만 보관(기기별 상이). 구간에 이벤트가 하나도
-//     없으면 queryUsageStats(INTERVAL_DAILY) 근사 폴백으로 대체한다.
+//  4. 이벤트 보존기간 — 원본 이벤트는 수일 수준만 보관(기기별 상이). 구간에 앱 라이프사이클
+//     이벤트가 하나도 없으면 queryUsageStats(INTERVAL_DAILY) 근사 폴백으로 대체한다.
 //  5. 재부팅 — DEVICE_SHUTDOWN에서 열린 구간을 마감한다. 재부팅 결측(이벤트 공백)으로 값이
 //     줄어드는 케이스는 JS 쪽 '기존값 유지' 로직(max(보존값, 마지막 동기화값))에 맡긴다.
 internal object UsageSessionCalculator {
@@ -39,7 +39,7 @@ internal object UsageSessionCalculator {
     // 이후 사용분을 잃는다. 같은 앱의 액티비티 전환은 PAUSED 후 RESUMED라 이중 계산도 없다.
     val openedAt = HashMap<String, Long>() // "패키지/클래스" → RESUMED 시각
     var totalMs = 0L
-    var sawEventInRange = false
+    var sawLifecycleEventInRange = false
     val event = UsageEvents.Event()
 
     // 구간 마감 — [begin, end)와 겹치는 부분만 누적(자정 걸친 구간의 날짜별 분할이 여기서 끝난다).
@@ -51,7 +51,16 @@ internal object UsageSessionCalculator {
 
     while (events.hasNextEvent()) {
       events.getNextEvent(event)
-      if (event.timeStamp in begin until end) sawEventInRange = true
+      // 폴백 판정 — 세션 재구성에 실제 쓰는 앱 라이프사이클 이벤트(RESUMED/PAUSED/STOPPED)가
+      // 구간 안에 있을 때만 '보존기간이 이 구간을 덮는다'로 본다. USER_INTERACTION·설정 변경 등
+      // 무관 이벤트만 있는 구간(예: 구간 전에 시작돼 이어지는 장시간 세션)은 재구성이 불가능해
+      // 근사 폴백이 살아야 한다(코드리뷰 반영). SCREEN_NON_INTERACTIVE 등 기기 전역 이벤트는
+      // 앱 사용 없이도 발생하므로 커버리지 증거로 치지 않는다.
+      val isLifecycleEvent =
+        event.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
+          event.eventType == UsageEvents.Event.ACTIVITY_PAUSED ||
+          event.eventType == UsageEvents.Event.ACTIVITY_STOPPED
+      if (isLifecycleEvent && event.timeStamp in begin until end) sawLifecycleEventInRange = true
       when (event.eventType) {
         // ACTIVITY_RESUMED(=구 MOVE_TO_FOREGROUND, 값 1) — API 29 미만 기기의 구 이벤트도 같은 값.
         UsageEvents.Event.ACTIVITY_RESUMED -> {
@@ -77,9 +86,10 @@ internal object UsageSessionCalculator {
     // 아직 열려 있는 구간(지금 쓰는 중)은 end 시각으로 마감(§3 의사코드).
     openedAt.keys.toList().forEach { close(it, end) }
 
-    // 엣지 4 — 구간 안에 이벤트가 아예 없으면 보존기간을 벗어난 소급 조회로 보고 근사 폴백.
+    // 엣지 4 — 구간 안에 앱 라이프사이클 이벤트가 아예 없으면 재구성 불가(보존기간 초과
+    // 소급 조회·구간 전에 시작된 장시간 세션)로 보고 근사 폴백.
     // (기기를 안 써서 이벤트가 없는 날도 폴백을 타지만 그 경우 폴백도 0이라 결과는 같다.)
-    if (!sawEventInRange && totalMs == 0L) {
+    if (!sawLifecycleEventInRange && totalMs == 0L) {
       return dailyStatsFallbackMillis(usageStatsManager, selection, begin, end)
     }
     return totalMs

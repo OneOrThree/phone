@@ -97,6 +97,11 @@ const AndroidScreenTime =
     ? requireOptionalNativeModule<AndroidNativeScreenTime>('ScreenTimeModule')
     : null;
 
+// 안드로이드 네이티브 스크린타임 모듈 가용 여부 — OTA로 새 JS만 받은 구 바이너리는 모듈이
+// 없어 false. 이 경우 requestAuthorization도 설정 화면을 못 열므로, 화면 쪽은 권한 CTA 같은
+// M1 UI 대신 M1 이전 placeholder를 유지해야 한다(코드리뷰 반영).
+export const androidNativeModuleAvailable = (): boolean => AndroidScreenTime != null;
+
 // 네이티브 바이너리가 15분 눈금(GROMO-931) 빌드인지 — 같은 빌드에 추가된
 // getUsageBucketDebugInfo 존재로 판별한다. OTA로 새 JS만 받은 구 바이너리는 여전히 30분
 // 눈금을 등록하므로, 등록 마커가 실제 눈금과 어긋나지 않게 하는 데 쓴다(코드리뷰 반영).
