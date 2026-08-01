@@ -142,6 +142,8 @@ export default function FocusSessionScreen() {
   const viewEnteredAtRef = useRef(Date.now());
   const dwellAwayMsRef = useRef(0);
   const dwellLeftAtRef = useRef<number | null>(null);
+  // 완료 게이트에서 마지막 체류를 이미 발행했는지 — finish/언마운트의 재발행을 막는다(코덱스 리뷰)
+  const dwellDoneRef = useRef(false);
   const flushViewDwell = useCallback(() => {
     const now = Date.now();
     const awayMs =
@@ -413,7 +415,7 @@ export default function FocusSessionScreen() {
     () => () => {
       if (!finishedRef.current) {
         cancelLiveSession();
-        flushViewDwell();
+        if (!dwellDoneRef.current) flushViewDwell();
       }
     },
     [cancelLiveSession, flushViewDwell],
@@ -507,8 +509,10 @@ export default function FocusSessionScreen() {
     async (completed = sessionRef.current.done) => {
       if (finishedRef.current) return;
       finishedRef.current = true;
-      // 세션 종료(완료/취소 공통 경로) — 보고 있던 뷰의 마지막 체류 flush(GROMO-987)
-      flushViewDwell();
+      // 세션 종료(완료/취소 공통 경로) — 보고 있던 뷰의 마지막 체류 flush(GROMO-987).
+      // 완료 게이트가 이미 발행했다면 건너뛴다 — 게이트를 열어둔 시간이 직전 뷰의 체류로
+      // 다시 계상되는 이중 발행 방지(코덱스 리뷰).
+      if (!dwellDoneRef.current) flushViewDwell();
       // 정상 종료 — 실드·Live Activity 해제
       ScreenTimeModule.stopFocusShield().catch(() => {});
       ScreenTimeModule.endFocusActivity().catch(() => {});
@@ -569,8 +573,12 @@ export default function FocusSessionScreen() {
     // 게이트에 머문 시간만큼 친구 화면에 '집중 중'이 이어져 보인다(코덱스 리뷰). finish에서
     // 또 불려도 라이브 참조가 비어 no-op.
     cancelLiveSession();
+    // 마지막 뷰 체류도 게이트가 화면을 덮는 지금 발행 — 확인을 누를 때까지 열어둔 시간은
+    // 가려진 뷰를 보는 게 아니므로 체류에서 제외한다(코덱스 리뷰). finish의 flush는 스킵됨.
+    dwellDoneRef.current = true;
+    flushViewDwell();
     Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
-  }, [session.done, doneGate, settleFocusBlock, cancelLiveSession]);
+  }, [session.done, doneGate, settleFocusBlock, cancelLiveSession, flushViewDwell]);
 
   // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
   // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
