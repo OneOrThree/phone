@@ -51,7 +51,7 @@ jest.mock('@react-navigation/native', () => ({
 let mockCoins = 100;
 let mockCoinsLoaded = true;
 let mockCoinsVersion = 1;
-const mockRefresh = jest.fn(async () => {});
+const mockRefresh = jest.fn(async () => true);
 // latestCoinsVersion()은 **렌더를 거치지 않은** 최신 버전이다 — 목에서도 그 성질을 그대로 둔다.
 // (mockCoinsVersion을 바꾸고 rerender하지 않으면, 렌더된 coinsVersion은 낡고 이 함수만 최신이 된다 —
 //  실제 CoinContext에서 잔액 응답이 적용된 직후~다음 렌더 사이의 창과 같은 상태다.)
@@ -381,6 +381,7 @@ describe('에러 분기', () => {
     // 400과 함께 도착하는 실제 잔액(다른 기기에서 이미 썼다) — 그제서야 부족분을 계산할 수 있다.
     mockRefresh.mockImplementationOnce(async () => {
       mockCoins = 5;
+      return true;
     });
     await submit();
 
@@ -575,6 +576,36 @@ describe('에러 분기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '오늘 내기만 열 수 있어요',
       '날짜가 바뀌었어요. 새로고침 후 다시 시도해주세요.',
+    );
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  // 챌린지 비활성은 이 시트에서 재시도해도 영원히 같은 실패다(GROMO-1025) — 예전엔 switch에
+  // 분기가 없어 default('잠시 후 다시 시도')로 떨어지고 시트도 남아, 같은 영구 실패를 반복했다.
+  test('BET_CHALLENGE_INACTIVE(개설) — 끝난 챌린지를 알리고 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CHALLENGE_INACTIVE'));
+    await renderSheet('create');
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '끝난 챌린지예요',
+      '종료된 챌린지에는 내기를 열 수 없어요.',
+    );
+    expect(onDone).toHaveBeenCalled();
+    expect(screen.queryByText('내기를 열지 못했어요. 잠시 후 다시 시도해주세요.')).toBeNull();
+  });
+
+  // 참가도 같은 코드로 막힌다 — 문구만 staleBetSheetAlert의 참가 분기와 같은 문장으로 갈린다.
+  test('BET_CHALLENGE_INACTIVE(참가) — 끝난 챌린지를 알리고 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockJoinBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CHALLENGE_INACTIVE'));
+    await renderSheet('join', { bet: bet() });
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '끝난 챌린지예요',
+      '종료된 챌린지의 내기에는 참가할 수 없어요.',
     );
     expect(onDone).toHaveBeenCalled();
   });

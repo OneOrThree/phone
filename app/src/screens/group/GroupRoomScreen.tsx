@@ -300,10 +300,21 @@ export default function GroupRoomScreen({
       setBetBusy(false);
       // 서버가 내 내기를 정산했으면 잔액도 함께 맞춘다 — 카드는 당첨·환불을 말하는데 전역 잔액만
       // 정산 전 값으로 남는 상태를 여기서 닫는다(위 settledBetSignature 주석).
+      // ⚠️ 서명 확정은 잔액 동기화 **성공 뒤**다(GROMO-1024) — 먼저 확정하면 refreshCoins가
+      //    일시 실패했을 때(throw 없이 coinsLoaded만 내려간다) 이후 조회가 전부 같은 서명으로
+      //    판단해 영구히 재시도하지 않는다. 실패하면 이전 서명을 유지해, 다음 성공 조회
+      //    (포커스·포그라운드 복귀·당겨서 새로고침)가 같은 변화를 다시 감지해 동기화를 재시도한다.
       const signature = settledBetSignature(challengeResult.value, userId ?? null);
       const previous = settledSigRef.current;
-      settledSigRef.current = signature;
-      if (previous !== null && previous !== signature) refreshCoins();
+      if (previous === null || previous === signature) {
+        settledSigRef.current = signature;
+      } else {
+        const synced = await refreshCoins();
+        // 동기화를 기다리는 사이 새 조회·그룹 전환이 끼어들었으면 이 서명은 이미 낡았다 —
+        // 확정하지 않고 '최신 아님'으로 끝낸다(끼어든 조회가 자기 서명으로 다시 판단한다).
+        if (seq !== requestSeqRef.current) return false;
+        if (synced) settledSigRef.current = signature;
+      }
     } else {
       setChallengeError(true); // 기존 챌린지는 그대로 둔다
     }
@@ -430,6 +441,10 @@ export default function GroupRoomScreen({
       try {
         await deleteChallenge(groupId, challengeId);
       } catch (e) {
+        // 전환 전 그룹의 삭제 실패가 늦게 도착하면 무시 — 지금 보고 있는 다른 그룹 화면 위에
+        // 이전 그룹의 실패 안내를 띄우지 않는다(onDone·onCreated와 같은 가드, GROMO-1027).
+        // 재조회도 시작하지 않는다(load 내부 가드와 같은 결론을 여기서 먼저 낸다).
+        if (renderedGroupIdRef.current !== groupId) return;
         const code = groupErrorCode(e);
         // 진행 중인 내기가 있으면 서버가 삭제를 막는다(백 계약 CHALLENGE_HAS_OPEN_BET, 409) —
         // 이미 판돈을 걷어 둔 내기를 챌린지와 함께 지우면 돈이 갈 곳을 잃기 때문이다.
@@ -455,21 +470,22 @@ export default function GroupRoomScreen({
       await withdrawGroup(groupId);
       onLeft();
     } catch (e) {
-      switch (groupErrorCode(e)) {
-        case 'HOST_WITHDRAW':
-          // 방장 위임 UI가 없으므로 안내로 끝낸다(알려진 제약 §14).
-          Alert.alert(
-            '방장은 나갈 수 없어요',
-            '그룹을 이어갈 사람에게 방장을 넘겨야 해요.\n방장 넘기기는 준비 중이에요.',
-          );
-          break;
-        case 'NOT_FOUND':
-        case 'MEMBER_ONLY':
-          // 이미 빠져 있는 상태 — 성공과 같게 취급한다.
-          onLeft();
-          break;
-        default:
-          Alert.alert('그룹 나가기 실패', '잠시 후 다시 시도해주세요.');
+      const code = groupErrorCode(e);
+      if (code === 'NOT_FOUND' || code === 'MEMBER_ONLY') {
+        // 이미 빠져 있는 상태 — 성공과 같게 취급한다. onLeft는 그룹 무관 전역 재조회라
+        // 그룹 전환 뒤에 늦게 도착해도 안전하다(성공 경로와 같은 이유로 가드하지 않는다).
+        onLeft();
+      } else if (renderedGroupIdRef.current !== groupId) {
+        // 전환 전 그룹의 나가기 실패가 늦게 도착 — 지금 보고 있는 다른 그룹 화면 위에
+        // 이전 그룹의 실패 안내를 띄우지 않는다(onDone·onCreated와 같은 가드, GROMO-1028).
+      } else if (code === 'HOST_WITHDRAW') {
+        // 방장 위임 UI가 없으므로 안내로 끝낸다(알려진 제약 §14).
+        Alert.alert(
+          '방장은 나갈 수 없어요',
+          '그룹을 이어갈 사람에게 방장을 넘겨야 해요.\n방장 넘기기는 준비 중이에요.',
+        );
+      } else {
+        Alert.alert('그룹 나가기 실패', '잠시 후 다시 시도해주세요.');
       }
     } finally {
       setLeaving(false);
@@ -729,7 +745,11 @@ export default function GroupRoomScreen({
                 isOwner={!!isOwner}
                 myUserId={userId}
                 onDelete={onDeleteChallenge}
-                betLocked={betBusy}
+                // 재조회 실패 중에는 내기 진입도 함께 잠근다(GROMO-1026) — 지금 카드는 낡은
+                // 스냅샷이라, 그 팟·참가자를 보고 돈을 거는 요청을 서버는 정상 수락해 버린다.
+                // 오류 응답 분기로는 못 잡는 '잘못된 사전 표시'라 진입 자체를 막고,
+                // 다음 성공 조회(setChallengeError(false))가 다시 연다.
+                betLocked={betBusy || challengeError}
                 onOpenBet={(mode) =>
                   setBetSheet({ challengeId: c.id, mode, betId: c.bet?.betId ?? null })
                 }

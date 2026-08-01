@@ -23,7 +23,7 @@ jest.mock('./UserContext', () => ({ useUser: () => ({ userId: 'u1' }) }));
 const mockGet = api.get as jest.MockedFunction<typeof api.get>;
 
 // refresh를 테스트가 직접 부르기 위해 훅을 밖으로 꺼내 둔다.
-let refreshFn: () => Promise<void> = async () => {};
+let refreshFn: () => Promise<boolean> = async () => false;
 // 렌더를 거치지 않고 읽는 '지금 이 순간의 버전' — 비동기 콜백(BetSheet의 400 처리)이 쓰는 값이다.
 let latestVersionFn: () => number = () => 0;
 
@@ -85,9 +85,10 @@ describe('refresh', () => {
     // 초기값 0이 화면에 남지만 loaded가 false라 '0코인'으로 읽히지 않는다.
     expect(screen.getByTestId('loaded')).toHaveTextContent('no');
 
-    // 호출처가 try/catch 없이 부른다 — 여기서 새면 안 된다.
+    // 호출처가 try/catch 없이 부른다 — 여기서 새면 안 되고, 실패는 반환값 false로 말한다.
+    mockGet.mockRejectedValueOnce(new Error('network'));
     await act(async () => {
-      await expect(refreshFn()).resolves.toBeUndefined();
+      await expect(refreshFn()).resolves.toBe(false);
     });
   });
 
@@ -162,7 +163,7 @@ describe('refresh', () => {
           finishA = resolve as (v: { data: number }) => void;
         }) as never,
     );
-    let pendingA: Promise<void> = Promise.resolve();
+    let pendingA: Promise<boolean> = Promise.resolve(false);
     await act(async () => {
       pendingA = refreshFn();
     });
@@ -175,9 +176,11 @@ describe('refresh', () => {
     expect(screen.getByTestId('coins')).toHaveTextContent('470');
 
     // 이제야 도착한 A의 차감 전 잔액 — 버려야 한다.
+    // HTTP는 성공했어도 반영되지 않았으므로 반환은 false다(GROMO-1024) — true로 치면
+    // 'B가 실패했는데 A 덕에 동기화됐다'는 거짓 확정의 근거가 될 수 있다.
     await act(async () => {
       finishA({ data: 500 });
-      await pendingA;
+      await expect(pendingA).resolves.toBe(false);
     });
     expect(screen.getByTestId('coins')).toHaveTextContent('470');
     expect(screen.getByTestId('version')).toHaveTextContent('2');
@@ -196,7 +199,7 @@ describe('refresh', () => {
           failA = reject;
         }) as never,
     );
-    let pendingA: Promise<void> = Promise.resolve();
+    let pendingA: Promise<boolean> = Promise.resolve(false);
     await act(async () => {
       pendingA = refreshFn();
     });
@@ -212,5 +215,26 @@ describe('refresh', () => {
     });
     expect(screen.getByTestId('coins')).toHaveTextContent('470');
     expect(screen.getByTestId('loaded')).toHaveTextContent('yes');
+  });
+
+  // 반환값 계약(GROMO-1024) — 소비자(GroupRoomScreen)는 '잔액 동기화 성공'을 확인한 뒤에만
+  // 정산 서명을 확정한다. 반환이 거짓말하면(실패·미반영을 true로) 서명이 확정돼 이후 조회가
+  // 같은 서명으로 판단하고, 잔액 재동기화 재시도가 영구히 소멸한다.
+  test('반영에 성공하면 true, 실패하면 false를 반환한다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 500 } as never);
+    await renderProvider();
+
+    mockGet.mockResolvedValueOnce({ data: 470 } as never);
+    let result = false;
+    await act(async () => {
+      result = await refreshFn();
+    });
+    expect(result).toBe(true);
+
+    mockGet.mockRejectedValueOnce(new Error('network'));
+    await act(async () => {
+      result = await refreshFn();
+    });
+    expect(result).toBe(false);
   });
 });
