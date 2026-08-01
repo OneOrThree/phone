@@ -7,7 +7,6 @@ import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Base64
@@ -75,6 +74,10 @@ class ScreenTimeModule : Module() {
 
     // iOS saveCharacterSnapshot과 동일한 다운스케일 상한(긴 변 px).
     private const val SNAPSHOT_MAX_SIDE = 256
+
+    // Usage Access 허용 여부 — 모듈(권한 상태 API)과 실드 서비스(세션 중 권한 재검증 —
+    // 코드리뷰 반영)가 함께 쓴다. 판정 본체는 목표 초과 워커와도 공용인 UsageAccess(M4).
+    internal fun isUsageAccessGranted(context: Context): Boolean = UsageAccess.isGranted(context)
   }
 
   private val context: Context
@@ -94,6 +97,20 @@ class ScreenTimeModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ScreenTimeModule")
+
+    // 실드 상실 이벤트(코드리뷰 반영) — 세션 중 권한 회수 등으로 서비스가 실드를 내리면 JS로
+    // 알린다. 화면(FocusSessionScreen)이 구독해 '실드 없는 세션'(15초 이탈 정책)으로 강등한다.
+    Events("onFocusShieldLost")
+
+    OnCreate {
+      FocusSessionService.shieldLostListener = {
+        sendEvent("onFocusShieldLost", emptyMap<String, Any?>())
+      }
+    }
+
+    OnDestroy {
+      FocusSessionService.shieldLostListener = null
+    }
 
     // 현재 권한 상태 — approved / denied / notDetermined (JS AuthorizationStatus와 동일 문자열).
     AsyncFunction("getAuthorizationStatus") {
@@ -308,6 +325,17 @@ class ScreenTimeModule : Module() {
     // 잠금화면 타이머 종료(멱등) — 실드도 꺼져 있으면 서비스가 스스로 내려간다.
     AsyncFunction("endFocusActivity") {
       FocusSessionService.stopTimer()
+    }
+
+    // 잠금화면 타이머 일시정지/재개(코드리뷰 반영, 멱등) — 화면의 수동 일시정지에 맞춰
+    // 크로노미터를 멈추고 고정 경과를 표시하며, 재개 시 일시정지 구간만큼 기준 시각을 미뤄
+    // 화면 타이머와 다시 일치시킨다. iOS Live Activity에는 대응 개념이 없다(JS 래퍼가 가드).
+    AsyncFunction("pauseFocusActivity") {
+      FocusSessionService.pauseTimer()
+    }
+
+    AsyncFunction("resumeFocusActivity") {
+      FocusSessionService.resumeTimer()
     }
 
     // 설정을 다녀온 복귀 감지 — 대기 중인 권한 요청을 실제 상태로 마감한다(§2).

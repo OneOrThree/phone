@@ -306,6 +306,15 @@ export default function FocusSessionScreen() {
     },
     [],
   );
+  // 세션 중 실드 상실(안드로이드, 코드리뷰 반영) — 오버레이 권한 회수 등으로 네이티브가 실드를
+  // 내리면 이벤트로 알려온다. 실드 표시를 내려 이후 이탈은 기존 15초 정책(실드 없는 세션)을 탄다.
+  useEffect(
+    () =>
+      ScreenTimeModule.subscribeFocusShieldLost(() => {
+        shieldedRef.current = false;
+      }),
+    [],
+  );
 
   // Live Activity(다이나믹 아일랜드) — 캐릭터 스냅샷을 App Group에 저장한 뒤 시작.
   // 화면을 떠나면 종료. 스냅샷 실패 시 위젯이 기본 마스코트로 폴백한다.
@@ -690,8 +699,12 @@ export default function FocusSessionScreen() {
     const next = !pausedRef.current;
     setPaused(next);
     if (next) {
+      // 알림 크로노미터도 함께 정지(안드로이드, 코드리뷰 반영) — JS 타이머만 멈추면 잠금화면
+      // 경과가 일시정지 시간만큼 앞서간다. iOS Live Activity는 대응 개념이 없어 기존 동작 유지.
+      if (Platform.OS === 'android') ScreenTimeModule.pauseFocusActivity().catch(() => {});
       logFocusSessionPaused({ elapsed_seconds: Math.floor(sessionRef.current.elapsed) });
     } else {
+      if (Platform.OS === 'android') ScreenTimeModule.resumeFocusActivity().catch(() => {});
       // 일시정지 대기로 유예해둔 다음 블록 마커 — 실제 집중이 시작되는 재개 시점부터 연다.
       // 정산 기준(settleAt)도 재개 시점으로 — 대기 동안은 경과초가 멈춰 있어 안전(코덱스 리뷰).
       if (markerDeferredRef.current) {

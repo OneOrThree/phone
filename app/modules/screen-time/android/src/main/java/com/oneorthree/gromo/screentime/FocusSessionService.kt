@@ -14,22 +14,27 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.graphics.Color
+import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import android.provider.Settings
 import android.provider.Telephony
 import android.telecom.TelecomManager
+import android.text.format.DateUtils
 import android.view.View
+import android.view.WindowManager
 import android.widget.RemoteViews
 import org.json.JSONArray
 
 // 집중 세션 포그라운드 서비스(GROMO-996, 03-스크린타임-구현 §5·§6) — 두 역할을 겸한다:
 //  1. 실드(ROLE_SHIELD): 1~2초 간격 queryEvents 폴링으로 현재 포그라운드 앱을 감지해,
-//     허용앱 외 앱이면 차단 화면(FocusBlockActivity)을 최상단에 띄운다. 안드로이드엔
+//     허용앱 외 앱이면 차단 오버레이(FocusBlockContentView)를 최상단에 띄운다. 안드로이드엔
 //     iOS ManagedSettings 같은 시스템 차단 API가 없어 직접 지키는 방식이다.
 //     접근성 서비스는 쓰지 않는다(Play '장애 지원 외 목적' 심사 리스크 — §5).
 //  2. 타이머(ROLE_TIMER): ongoing 알림 + setUsesChronometer로 상단바·잠금화면에 경과
@@ -48,6 +53,17 @@ class FocusSessionService : Service() {
     // 실행 중 인스턴스 — 모듈이 서비스에 명령을 전달하는 통로. 프로세스가 죽으면 서비스도
     // 함께 죽으므로(START_NOT_STICKY) '인스턴스 없음 = 서비스 없음'이 성립한다.
     @Volatile private var instance: FocusSessionService? = null
+
+    // 기동 중 취소 가드(코드리뷰 반영) — startForegroundService 직후 onCreate 전에 stop이 오면
+    // instance가 null이라 no-op이 되고, 큐에 남은 시작이 그대로 진행돼 실드가 영구 잔존한다.
+    // 시작/취소 세대를 기록해 onStartCommand가 '취소된 기동'을 확인하면 즉시 내린다.
+    @Volatile private var startedGeneration = 0
+
+    @Volatile private var cancelledGeneration = 0
+
+    // 실드 상실 통지(코드리뷰 반영) — 세션 중 권한 회수 등으로 서비스가 실드를 내리면 모듈이
+    // 이 콜백으로 JS(onFocusShieldLost 이벤트)에 전파한다. 모듈 생성/파괴 시 배선/해제.
+    @Volatile internal var shieldLostListener: (() -> Unit)? = null
 
     private const val CHANNEL_ID = "focus_session"
     private const val NOTIFICATION_ID = 996
@@ -70,7 +86,7 @@ class FocusSessionService : Service() {
     private const val TIMER_TICK_INTERVAL_MS = 30_000L
     // 알림 주기 재게시 간격(안드14+ 스와이프 완화의 보조 수단).
     private const val RENOTIFY_INTERVAL_MS = 30_000L
-    // 차단 화면 연속 실행 방지 — 실행 직후 전환 애니메이션 중 중복 실행을 막는다.
+    // 폴백 차단 액티비티 연속 실행 방지 — 실행 직후 전환 애니메이션 중 중복 실행을 막는다.
     private const val BLOCK_RELAUNCH_DEBOUNCE_MS = 2_000L
     // 첫 폴링에서 현재 포그라운드 앱을 시드하기 위한 과거 조회 폭.
     private const val FIRST_POLL_LOOKBACK_MS = 60_000L
@@ -99,10 +115,27 @@ class FocusSessionService : Service() {
     fun startTimer(context: Context, subjectName: String, otherSubjectsJson: String): Boolean =
       dispatchStart(context, ROLE_TIMER, subjectName, otherSubjectsJson)
 
-    // 역할 끄기 — 서비스가 없으면 no-op(멱등 — 고아 세션 정리 등 어디서 불려도 안전).
-    fun stopShield() = instance?.postStop(ROLE_SHIELD) ?: Unit
+    // 역할 끄기 — 서비스가 있으면 역할만 내린다(멱등 — 고아 세션 정리 등 어디서 불려도 안전).
+    fun stopShield() = requestStop(ROLE_SHIELD)
 
-    fun stopTimer() = instance?.postStop(ROLE_TIMER) ?: Unit
+    fun stopTimer() = requestStop(ROLE_TIMER)
+
+    private fun requestStop(role: String) {
+      val running = instance
+      if (running != null) {
+        running.postStop(role)
+      } else {
+        // 서비스 없음 — 아직 onCreate 전(기동 중)일 수 있으므로 진행 중 세대를 취소로 마감해,
+        // 뒤늦게 뜬 서비스가 onStartCommand에서 스스로 내리게 한다(코드리뷰 반영).
+        cancelledGeneration = startedGeneration
+      }
+    }
+
+    // 타이머 일시정지/재개(코드리뷰 반영) — 화면의 수동 일시정지와 알림 크로노미터를 동기화한다.
+    // 서비스 없으면 no-op(멱등).
+    fun pauseTimer() = instance?.postTimerPaused(true) ?: Unit
+
+    fun resumeTimer() = instance?.postTimerPaused(false) ?: Unit
 
     // 실드 동작 여부 — 차단 화면이 자기 생존 판단(onResume)에, 모듈이 타이머 시작 판단에 쓴다.
     fun isShieldActive(): Boolean = instance?.shieldActive == true
@@ -123,6 +156,8 @@ class FocusSessionService : Service() {
         .putExtra(EXTRA_SUBJECT, subjectName)
         .putExtra(EXTRA_OTHER_SUBJECTS, otherSubjectsJson)
       return try {
+        // 기동 세대 갱신 — 이 시작 이후에 온 stop만 이 기동을 취소할 수 있다(코드리뷰 반영).
+        startedGeneration += 1
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
           context.startForegroundService(intent)
         } else {
@@ -151,6 +186,10 @@ class FocusSessionService : Service() {
   // (iOS Live Activity와 동일 전제). 타이머 시작 때 파싱해 두고 종료 때 비운다.
   @Volatile private var otherSubjects: List<OtherSubject> = emptyList()
 
+  // 타이머 일시정지 시각(0 = 진행 중, 코드리뷰 반영) — 일시정지 중엔 크로노미터 대신 고정
+  // 경과를 표시하고, 재개 시 일시정지 구간만큼 timerStartedAt을 미뤄 화면 타이머와 다시 맞춘다.
+  @Volatile private var timerPausedAt = 0L
+
   @Volatile private var lastNotifyAt = 0L
 
   private lateinit var pollThread: HandlerThread
@@ -159,7 +198,16 @@ class FocusSessionService : Service() {
   // 폴링 상태(pollHandler 스레드 전용) — 마지막으로 처리한 이벤트 시각과 현재 포그라운드 앱.
   private var lastEventTs = 0L
   private var currentForeground: String? = null
-  private var lastBlockLaunchAt = 0L
+
+  // 차단 오버레이(코드리뷰 반영, 안드15 대응) — 뷰 참조·추가/제거는 메인 스레드 전용이고,
+  // visible 플래그만 폴링 스레드가 중복 post 방지용으로 읽는다.
+  private val mainHandler = Handler(Looper.getMainLooper())
+  private var blockOverlayView: View? = null
+
+  @Volatile private var blockOverlayVisible = false
+
+  // 오버레이 실패 시 폴백(차단 액티비티)의 연속 실행 방지 — 메인 스레드 전용.
+  private var lastFallbackLaunchAt = 0L
 
   private val notificationManager: NotificationManager
     get() = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -201,7 +249,11 @@ class FocusSessionService : Service() {
   // 틱 루프 — 실드 중엔 폴링 간격(1.5초), 타이머 전용이면 재게시 간격(30초)으로 돈다.
   private val tickRunnable = object : Runnable {
     override fun run() {
-      if (shieldActive) pollAndBlock()
+      if (shieldActive) {
+        // 세션 중 권한 재검증(코드리뷰 반영) — 집행 수단이 사라졌는데 조용히 재시도만 반복하면
+        // JS가 '실드 중'으로 믿고 자리 비운 시간을 집중으로 인정한다. 즉시 내리고 전파한다.
+        if (canEnforceShield()) pollAndBlock() else downgradeShield()
+      }
       if (SystemClock.elapsedRealtime() - lastNotifyAt >= RENOTIFY_INTERVAL_MS) renotify()
       pollHandler.postDelayed(
         this,
@@ -232,6 +284,13 @@ class FocusSessionService : Service() {
     } else {
       startForeground(NOTIFICATION_ID, notification)
     }
+    // 기동 중 취소 확인(코드리뷰 반영) — startForegroundService와 onCreate 사이에 stop이 온
+    // 기동이면 역할을 켜지 않고, FGS 계약(startForeground)만 지킨 채 즉시 내린다.
+    if (cancelledGeneration >= startedGeneration) {
+      stopForegroundCompat()
+      stopSelf()
+      return START_NOT_STICKY
+    }
     val role = intent?.getStringExtra(EXTRA_ROLE)
     val subject = intent?.getStringExtra(EXTRA_SUBJECT)
     if (role != null && subject != null) {
@@ -253,6 +312,7 @@ class FocusSessionService : Service() {
   override fun onDestroy() {
     instance = null
     FocusBlockActivity.closeIfShowing()
+    hideBlockOverlay() // 서비스 종료 시 오버레이 잔존(leak) 금지 — 어떤 종료 경로든 확실히 제거
     try {
       unregisterReceiver(renotifyReceiver)
     } catch (_: Exception) {
@@ -275,7 +335,6 @@ class FocusSessionService : Service() {
     when (role) {
       ROLE_SHIELD -> {
         shieldActive = true
-        lastBlockLaunchAt = 0L
         // 세션 시작 시점의 포그라운드는 gromo 자신 — 과거 이벤트로 남의 앱을 차단하지 않게
         // 폴링 커서를 지금으로 리셋한다.
         lastEventTs = System.currentTimeMillis()
@@ -285,6 +344,7 @@ class FocusSessionService : Service() {
         timerActive = true
         timerStartedAt = System.currentTimeMillis()
         otherSubjects = parseOtherSubjects(otherSubjectsJson)
+        timerPausedAt = 0L
       }
     }
     renotify()
@@ -296,6 +356,7 @@ class FocusSessionService : Service() {
       ROLE_SHIELD -> {
         shieldActive = false
         FocusBlockActivity.closeIfShowing()
+        hideBlockOverlay()
       }
       ROLE_TIMER -> {
         timerActive = false
@@ -303,17 +364,40 @@ class FocusSessionService : Service() {
       }
     }
     if (!shieldActive && !timerActive) {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        stopForeground(STOP_FOREGROUND_REMOVE)
-      } else {
-        @Suppress("DEPRECATION")
-        stopForeground(true)
-      }
+      stopForegroundCompat()
       stopSelf()
     } else {
       renotify()
       restartTick()
     }
+  }
+
+  private fun stopForegroundCompat() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      stopForeground(STOP_FOREGROUND_REMOVE)
+    } else {
+      @Suppress("DEPRECATION")
+      stopForeground(true)
+    }
+  }
+
+  private fun postTimerPaused(paused: Boolean) {
+    pollHandler.post { applyTimerPaused(paused) }
+  }
+
+  // 일시정지/재개 반영(코드리뷰 반영) — 멱등. 재개 시 일시정지 구간만큼 시작 시각(base)을 미뤄
+  // 크로노미터가 화면 경과와 다시 일치하게 한다.
+  private fun applyTimerPaused(paused: Boolean) {
+    if (!timerActive) return
+    if (paused) {
+      if (timerPausedAt != 0L) return
+      timerPausedAt = System.currentTimeMillis()
+    } else {
+      if (timerPausedAt == 0L) return
+      timerStartedAt += System.currentTimeMillis() - timerPausedAt
+      timerPausedAt = 0L
+    }
+    renotify()
   }
 
   // 역할이 바뀌면 틱 간격도 바뀌므로 대기 중인 틱을 버리고 즉시 한 번 돈다.
@@ -345,15 +429,17 @@ class FocusSessionService : Service() {
       }
     }
 
-    val foreground = currentForeground ?: return
-    if (foreground == packageName) return
-    // 이벤트 결측 대비 이중 확인 — 화면이 꺼져 있으면 차단할 것도 없다.
+    // 차단 판정 — 비허용앱이 떠 있으면 오버레이를 표시/유지하고, 허용앱·gromo 복귀나 화면
+    // 꺼짐이면 내린다. 오버레이는 액티비티와 달리 포그라운드 앱을 바꾸지 않으므로(차단된 앱이
+    // 오버레이 아래에 그대로 떠 있다) 폴링이 표시 상태를 직접 관리한다(코드리뷰 반영).
+    val foreground = currentForeground
     val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-    if (!powerManager.isInteractive) return
-    if (isAllowed(foreground)) return
-    if (now - lastBlockLaunchAt < BLOCK_RELAUNCH_DEBOUNCE_MS) return
-    lastBlockLaunchAt = now
-    launchBlockActivity()
+    val shouldBlock = foreground != null &&
+      foreground != packageName &&
+      // 이벤트 결측 대비 이중 확인 — 화면이 꺼져 있으면 차단할 것도 없다.
+      powerManager.isInteractive &&
+      !isAllowed(foreground)
+    if (shouldBlock) showBlockOverlay() else hideBlockOverlay()
   }
 
   // 허용 여부 — 유저 허용앱(prefs)은 폴링마다 다시 읽어 세션 중 변경(허용앱 편집·브라우저
@@ -367,18 +453,105 @@ class FocusSessionService : Service() {
     return allowBrowsers && pkg in browserAllowedPackages
   }
 
-  // 차단 화면 실행 — 서비스(백그라운드)에서의 액티비티 시작은 안드10+에서 제한되지만,
-  // SYSTEM_ALERT_WINDOW(오버레이) 권한 보유가 예외 조건이라 가능하다. 모듈이 실드 시작 전에
-  // 오버레이 권한을 확인하므로 여기 도달하면 보통 성공한다 — 세션 중 권한을 끈 경우만 실패.
-  private fun launchBlockActivity() {
+  // ── 차단 오버레이(코드리뷰 반영 — 03 문서 §5) ──
+  // 안드15(API 35)에선 SYSTEM_ALERT_WINDOW 권한만으로는 서비스發 startActivity가 거부된다
+  // ('보이는 오버레이 창'이 있어야 예외 적용 — 예외 없이 조용히 무시돼 catch로도 못 잡는다).
+  // 그래서 차단 화면 자체를 WindowManager 풀스크린 오버레이로 띄운다. 레이아웃은 폴백
+  // 액티비티(FocusBlockActivity)와 공유한다(FocusBlockContentView).
+
+  private val windowManager: WindowManager
+    get() = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+
+  private fun showBlockOverlay() {
+    if (blockOverlayVisible) return // 이미 표시 중 — 매 폴링의 중복 post 방지
+    mainHandler.post {
+      if (blockOverlayView != null || !shieldActive) return@post
+      val view = FocusBlockContentView.build(this) { returnToAppFromOverlay() }
+      try {
+        windowManager.addView(view, overlayLayoutParams())
+        blockOverlayView = view
+        blockOverlayVisible = true
+      } catch (_: Exception) {
+        // addView 거부(권한 회수 등) — 구식 경로(차단 액티비티)로 폴백. 권한이 실제로
+        // 사라진 경우라면 다음 틱의 재검증(canEnforceShield)이 실드를 내린다.
+        launchBlockActivityFallback()
+      }
+    }
+  }
+
+  private fun hideBlockOverlay() {
+    mainHandler.post {
+      val view = blockOverlayView ?: return@post
+      blockOverlayView = null
+      blockOverlayVisible = false
+      try {
+        windowManager.removeView(view)
+      } catch (_: Exception) {
+        // 이미 제거됐거나 창이 무효 — 종료 흐름을 막지 않는다.
+      }
+    }
+  }
+
+  private fun overlayLayoutParams(): WindowManager.LayoutParams {
+    val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+    } else {
+      @Suppress("DEPRECATION")
+      WindowManager.LayoutParams.TYPE_PHONE
+    }
+    return WindowManager.LayoutParams(
+      WindowManager.LayoutParams.MATCH_PARENT,
+      WindowManager.LayoutParams.MATCH_PARENT,
+      type,
+      // 버튼 탭은 받되(터치 가능) 키 포커스는 뺏지 않는다 — 풀스크린이라 뒤 앱은 어차피 가려진다.
+      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+      PixelFormat.OPAQUE,
+    )
+  }
+
+  // 오버레이의 'gromo로 돌아가기' — 우리 오버레이가 보이는 동안의 startActivity는 SAW 예외로
+  // 허용된다(안드15 포함). 실행 후 오버레이를 내려 gromo 화면을 가리지 않게 한다.
+  private fun returnToAppFromOverlay() {
+    try {
+      packageManager.getLaunchIntentForPackage(packageName)
+        ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        ?.let { startActivity(it) }
+    } catch (_: Exception) {
+      // 실행 거부 — 오버레이까지 내리면 차단이 풀리므로 유지한 채 둔다.
+      return
+    }
+    hideBlockOverlay()
+  }
+
+  // 폴백: 차단 액티비티 실행(메인 스레드 전용) — 오버레이 addView가 거부된 경우만 시도한다.
+  // 안드10~14에선 SYSTEM_ALERT_WINDOW 보유가 백그라운드 액티비티 시작의 예외 조건이라 동작할
+  // 수 있다. 이마저 실패하면 실드를 내리고 전파한다(조용한 무한 재시도 금지 — 코드리뷰 반영).
+  private fun launchBlockActivityFallback() {
+    val now = SystemClock.elapsedRealtime()
+    if (now - lastFallbackLaunchAt < BLOCK_RELAUNCH_DEBOUNCE_MS) return
+    lastFallbackLaunchAt = now
     val intent = Intent(this, FocusBlockActivity::class.java)
       .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     try {
       startActivity(intent)
     } catch (_: Exception) {
-      // 실행 제약에 걸리면 차단은 포기 — 다음 폴링에서 재시도한다(크래시 없는 강등).
+      // 실행 제약 — 차단을 집행할 수단이 전무하다. 실드 없는 세션 정책(15초 룰)으로 강등.
+      pollHandler.post { downgradeShield() }
     }
   }
+
+  // 실드 강등(코드리뷰 반영, pollHandler 스레드 전용) — 집행 불능(권한 회수·차단 수단 전부
+  // 실패) 시 실드 역할을 내리고 JS로 전파한다. 화면(FocusSessionScreen)이 이벤트를 받아
+  // '실드 없는 세션'(15초 이탈 정책)으로 강등한다. 타이머 역할이 살아 있으면 서비스는 유지된다.
+  private fun downgradeShield() {
+    if (!shieldActive) return
+    applyStop(ROLE_SHIELD)
+    shieldLostListener?.invoke()
+  }
+
+  // 실드 집행 가능 여부 — 오버레이(차단 화면 표시)와 Usage Access(포그라운드 감지) 둘 다 필요.
+  private fun canEnforceShield(): Boolean =
+    Settings.canDrawOverlays(this) && ScreenTimeModule.isUsageAccessGranted(this)
 
   // ── 타이머 알림(§6) ──
 
@@ -416,13 +589,24 @@ class FocusSessionService : Service() {
       .setDeleteIntent(renotifyPendingIntent())
     launchAppPendingIntent()?.let { builder.setContentIntent(it) }
     if (timerActive) {
-      builder
-        .setContentTitle("$subjectName 집중 중이에요")
-        .setWhen(timerStartedAt)
-        .setShowWhen(true)
-        .setUsesChronometer(true)
-      if (shieldActive) builder.setContentText("허용한 앱 외에는 잠깐 잠겨 있어요")
-      applyExpandedSubjectsView(builder)
+      if (timerPausedAt > 0L) {
+        // 일시정지 중(코드리뷰 반영) — 크로노미터는 세워 둘 수 없으므로 고정 경과 표시로
+        // 대체한다. 재개 시 applyTimerPaused가 base를 재조정해 다시 크로노미터로 돌아온다.
+        // 확장 과목 뷰(GROMO-997)도 크로노미터 기반이라 일시정지 중엔 표준 알림만 쓴다.
+        val elapsedSeconds = ((timerPausedAt - timerStartedAt) / 1000L).coerceAtLeast(0L)
+        builder
+          .setContentTitle("$subjectName 집중을 잠깐 멈췄어요")
+          .setContentText("지금까지 ${DateUtils.formatElapsedTime(elapsedSeconds)} 집중했어요")
+          .setShowWhen(false)
+      } else {
+        builder
+          .setContentTitle("$subjectName 집중 중이에요")
+          .setWhen(timerStartedAt)
+          .setShowWhen(true)
+          .setUsesChronometer(true)
+        if (shieldActive) builder.setContentText("허용한 앱 외에는 잠깐 잠겨 있어요")
+        applyExpandedSubjectsView(builder)
+      }
     } else {
       builder
         .setContentTitle("집중 세션을 지키고 있어요")
