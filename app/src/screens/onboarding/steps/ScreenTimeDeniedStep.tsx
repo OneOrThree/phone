@@ -23,6 +23,8 @@ import type { StepProps } from '@/screens/onboarding/types';
 //   돌아오면(AppState active) 이를 감지해 같은 허용 처리를 태운다.
 // 허용되면 측정 앱 picker를 띄우고 screenTimeGranted=true로 전환
 //   → 이 스텝이 허용 경로(W11 전날 스크린타임)로 자동 교체된다.
+// 안드로이드(GROMO-994): 시스템 권한창·리허설 오버레이 없이 requestAuthorization이 Usage Access
+//   설정 딥링크 + 복귀 재확인까지 담당한다 — resolve 결과가 허용이면 바로 허용 경로로 전환된다.
 export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
   // update는 매 렌더 새 함수라 ref로 최신값만 참조(리스너는 1회만 등록).
   const updateRef = useRef(update);
@@ -74,6 +76,16 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
   }, [completeApproved]);
 
   const openSettings = () => {
+    if (Platform.OS === 'android') {
+      // Usage Access 설정 딥링크 — 복귀 시 네이티브가 재확인한 결과로 resolve된다(GROMO-994).
+      // 허용이면 이 스텝이 W11 전날 스크린타임으로 자동 교체된다. 측정 앱 picker는 M2 전이라 없음.
+      ScreenTimeModule.requestAuthorization()
+        .then((granted) => {
+          if (granted) updateRef.current({ screenTimeGranted: true });
+        })
+        .catch(() => {});
+      return;
+    }
     returningFromSettings.current = true;
     Linking.openSettings();
   };

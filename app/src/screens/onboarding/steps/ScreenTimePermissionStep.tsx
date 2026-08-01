@@ -22,8 +22,22 @@ import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
 //   → 폰 전체 사용시간을 보려면 picker에서 '전체 선택' 권장. 선택 없으면 전체 앱으로 fallback.
 // 거부 시 시안상 09a(제한 상태)·09b(수동 입력)로 분기(OnboardingFlow가 삽입).
 // iOS 시스템 권한 시트·picker 시트는 OS/네이티브가 띄움(여기선 안 그림).
+//
+// 안드로이드(GROMO-994): Usage Access는 시스템 팝업이 없는 특수 권한 — CTA가 설정 화면을
+// 열고, 앱 복귀 시 네이티브가 허용 여부를 재확인해 requestAuthorization이 resolve된다.
+// 측정 대상 picker는 M2 전이라 없음 — 전체 앱 측정이 기본이다.
 
-const PERKS = ['앱별 사용 시간', '카테고리별 분류', '기기에서만 처리 · 서버 미전송'];
+// 안드로이드 고지 정확성(코드리뷰 반영) — 앱별 상세 기록은 기기에만 저장되지만, 하루 사용시간
+// 합계는 통계·목표 판정을 위해 서버로 전송된다(screentimeSync). '서버 미전송'은 허위 고지라
+// 실제 동작 그대로 알린다.
+const PERKS =
+  Platform.OS === 'android'
+    ? [
+        '하루 사용 시간 자동 측정',
+        '어제와 오늘 사용시간 비교',
+        '앱별 기록은 기기에만 저장 · 하루 합계만 서버 전송',
+      ]
+    : ['앱별 사용 시간', '카테고리별 분류', '기기에서만 처리 · 서버 미전송'];
 
 function ClockIcon() {
   return (
@@ -58,6 +72,17 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
     if (requesting) return;
     setRequesting(true);
     try {
+      if (Platform.OS === 'android') {
+        // Usage Access 설정으로 딥링크 → 복귀 시 재확인 결과가 resolve된다(GROMO-994).
+        // denied여도 설정을 다시 열 수 있어 iOS의 '재요청 불가' 알럿 분기가 필요 없다.
+        logOnboardingPermissionRequested();
+        const granted = await ScreenTimeModule.requestAuthorization();
+        logOnboardingPermissionResulted({ granted });
+        update({ screenTimeGranted: granted });
+        // 측정 대상 picker는 M2 — 그 전까지는 전체 앱 측정이 기본이라 선택 없이 진행한다.
+        onNext();
+        return;
+      }
       const status = await ScreenTimeModule.getAuthorizationStatus();
       if (status === 'approved') {
         // approved면 재요청 창 안 뜸(그대로 통과).
@@ -148,8 +173,18 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
         ctaTestID="onboarding.screentime.allow"
         header={<ClockIcon />}
         title={'사용 시간을\n정확히 보려면'}
-        subtitle="Apple 스크린타임 권한이 필요해요. 이 데이터로 통계를 계산해요."
-        ctaLabel={requesting ? '요청 중…' : '권한 허용하기'}
+        subtitle={
+          Platform.OS === 'android'
+            ? '사용 정보 접근 권한이 필요해요. 이 데이터로 통계를 계산해요.'
+            : 'Apple 스크린타임 권한이 필요해요. 이 데이터로 통계를 계산해요.'
+        }
+        ctaLabel={
+          requesting
+            ? '요청 중…'
+            : Platform.OS === 'android'
+              ? '설정에서 허용하기'
+              : '권한 허용하기'
+        }
         ctaDisabled={requesting}
         onCta={allow}
         secondaryLabel="나중에 할게요"
@@ -164,6 +199,7 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
           ))}
         </View>
       </StepScaffold>
+      {/* iOS 전용 권한창 리허설(GROMO-934) — 안드로이드는 시스템 팝업이 없어 guideVisible이 켜지지 않는다. */}
       <ScreenTimeGuideOverlay
         visible={guideVisible}
         scheme={scheme}

@@ -3,6 +3,7 @@ import {
   Alert,
   AppState,
   Image,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -23,7 +24,10 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
-import ScreenTimeModule, { type AuthorizationStatus } from '@/services/ScreenTimeModule';
+import ScreenTimeModule, {
+  androidNativeModuleAvailable,
+  type AuthorizationStatus,
+} from '@/services/ScreenTimeModule';
 import { updateScreenTimePermission } from '@/services/userApi';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
@@ -127,10 +131,11 @@ function MetricRow({
   );
 }
 
-// 핸드폰 사용 행 — 값+진행 바를 네이티브 Home Usage 리포트 뷰가 그린다.
+// 핸드폰 사용 행 — 값+진행 바를 iOS는 네이티브 Home Usage 리포트 뷰가 그린다.
 // (실사용시간은 원인 3으로 JS에 못 넘어와, 익스텐션 뷰를 임베드해야만 자정~현재 정확값 표시)
 // goalSeconds prop → App Group에 기록 → 익스텐션이 목표 대비 바를 그림.
-// iOS 외/네이티브 뷰 없음 → placeholder.
+// 안드로이드(GROMO-994)는 조회값이 JS로 그대로 넘어오므로 usageMinutes로 직접 그린다.
+// 그 외(네이티브 뷰·모듈 없음) → placeholder.
 // 권한 미허용(notDetermined/denied) 시 리포트가 데이터 없이 '00'으로 그려져 거짓 0분처럼
 // 보이므로 숫자+바 대신 권한 켜기 안내로 교체한다(GROMO-986). 분기 기준은 권한 상태 —
 // approved 유저의 실제 0분은 정상 00:00 유지. null(조회 전)은 리포트 유지(허용 유저 깜빡임 방지).
@@ -138,19 +143,28 @@ function PhoneUsageRow({
   goalSeconds,
   refresh,
   authStatus,
+  usageMinutes,
   onPress,
   onEnablePermission,
 }: {
   goalSeconds: number;
   refresh: number;
   authStatus: AuthorizationStatus | null;
+  usageMinutes: number | null; // 안드로이드 조회값(분) — iOS는 네이티브 뷰가 그려서 미사용
   onPress: () => void;
   onEnablePermission: () => void;
 }) {
-  // iOS 외(네이티브 뷰 없음)는 래퍼가 항상 'denied'를 반환하므로 권한 분기에서 제외 —
-  // 기존 placeholder('–')와 행 탭 동작(상세 이동)을 그대로 유지한다.
+  // 표시 수단이 있는 플랫폼(iOS 네이티브 뷰·안드로이드 모듈)만 권한 분기 — 그 외는 래퍼가
+  // 항상 'denied'를 반환하므로 제외해 기존 placeholder('–')와 행 탭 동작을 유지한다.
+  // 구 안드로이드 바이너리(OTA로 새 JS만·모듈 없음)는 CTA를 눌러도 설정을 못 열므로
+  // 모듈 가용일 때만 M1 UI를 그린다(코드리뷰 반영).
   const needsPermission =
-    ScreenTimeReportView != null && (authStatus === 'notDetermined' || authStatus === 'denied');
+    (ScreenTimeReportView != null ||
+      (Platform.OS === 'android' && androidNativeModuleAvailable())) &&
+    (authStatus === 'notDetermined' || authStatus === 'denied');
+  // 안드로이드 목표 대비 진행률 — iOS는 네이티브 뷰가 계산해 그린다.
+  const androidPct =
+    goalSeconds > 0 && usageMinutes != null ? Math.min((usageMinutes * 60) / goalSeconds, 1) : 0;
   return (
     <View style={s.metricRow}>
       <View style={[s.metricIcon, { backgroundColor: T.accentBg }]}>
@@ -163,29 +177,44 @@ function PhoneUsageRow({
           </Text>
           <Ionicons name="chevron-forward" size={12} color={T.inkMuted} />
         </View>
-        {ScreenTimeReportView ? (
-          needsPermission ? (
-            // 권한 미허용 — 안내 문구 + 권한 켜기 CTA. 탭은 아래 행 전체 오버레이가 받는다.
-            <View style={s.permissionWrap}>
-              <Text style={s.permissionText} allowFontScaling={false}>
-                스크린타임 권한을 켜면{'\n'}오늘 사용시간을 볼 수 있어요.
+        {needsPermission ? (
+          // 권한 미허용 — 안내 문구 + 권한 켜기 CTA. 탭은 아래 행 전체 오버레이가 받는다.
+          <View style={s.permissionWrap}>
+            <Text style={s.permissionText} allowFontScaling={false}>
+              스크린타임 권한을 켜면{'\n'}오늘 사용시간을 볼 수 있어요.
+            </Text>
+            <View style={s.permissionBtn}>
+              <Text style={s.permissionBtnText} allowFontScaling={false}>
+                권한 켜기
               </Text>
-              <View style={s.permissionBtn}>
-                <Text style={s.permissionBtnText} allowFontScaling={false}>
-                  권한 켜기
-                </Text>
-              </View>
             </View>
-          ) : (
-            // key에 goalSeconds+refresh → 목표 변경/홈 포커스 시 리마운트되어 최신값으로 재계산됨
-            // (DeviceActivityReport는 prop 변경만으로는 재계산 안 하고, 실시간 갱신도 아니라서)
-            <ScreenTimeReportView
-              key={`goal-${goalSeconds}-r${refresh}`}
-              reportContext="Home Usage"
-              goalSeconds={goalSeconds}
-              style={s.usageReport}
-            />
-          )
+          </View>
+        ) : ScreenTimeReportView ? (
+          // key에 goalSeconds+refresh → 목표 변경/홈 포커스 시 리마운트되어 최신값으로 재계산됨
+          // (DeviceActivityReport는 prop 변경만으로는 재계산 안 하고, 실시간 갱신도 아니라서)
+          <ScreenTimeReportView
+            key={`goal-${goalSeconds}-r${refresh}`}
+            reportContext="Home Usage"
+            goalSeconds={goalSeconds}
+            style={s.usageReport}
+          />
+        ) : Platform.OS === 'android' && androidNativeModuleAvailable() ? (
+          // 안드로이드 — 조회값(분)으로 값+목표 진행 바를 직접 그린다(GROMO-994).
+          <>
+            <View style={s.valueRow}>
+              <Text style={s.metricValue} allowFontScaling={false}>
+                {usageMinutes == null ? '–' : hm(usageMinutes * 60)}
+              </Text>
+              <Text style={s.goalText} allowFontScaling={false} numberOfLines={1}>
+                목표 {hm(goalSeconds)}
+              </Text>
+            </View>
+            <View style={s.track}>
+              <View
+                style={[s.fill, { width: `${androidPct * 100}%`, backgroundColor: T.accent }]}
+              />
+            </View>
+          </>
         ) : (
           <Text style={s.metricValue}>–</Text>
         )}
@@ -217,6 +246,19 @@ export default function HomeScreen() {
   const [reportRefresh, setReportRefresh] = useState(0);
   // 스크린타임 권한 상태(GROMO-986) — 미허용이면 사용 행을 권한 안내로 교체. null=조회 전.
   const [screenTimeAuth, setScreenTimeAuth] = useState<AuthorizationStatus | null>(null);
+  // 안드로이드 오늘 사용시간(분, GROMO-994) — 네이티브 뷰가 없어 모듈 조회값으로 직접 그린다.
+  // 홈 포커스·당겨서 새로고침(reportRefresh)마다 재조회. null=조회 전('–' 표시).
+  const [androidUsageMinutes, setAndroidUsageMinutes] = useState<number | null>(null);
+  useEffect(() => {
+    if (Platform.OS !== 'android' || screenTimeAuth !== 'approved') return;
+    let cancelled = false;
+    ScreenTimeModule.getTodayUsageBucketMinutes()
+      .then((m) => !cancelled && setAndroidUsageMinutes(m))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [screenTimeAuth, reportRefresh]);
   // 권한 요청 중복 방지 — 시스템 권한 시트가 떠 있는 동안 재탭 무시(UI 변화 없어 ref면 충분).
   const permissionRequestingRef = useRef(false);
   // 오늘 요약(서버 stats/today). null이면 미조회/게스트/실패 → 로컬 FocusContext 값으로 폴백.
@@ -540,6 +582,7 @@ export default function HomeScreen() {
             goalSeconds={screenTimeGoalSeconds}
             refresh={reportRefresh}
             authStatus={screenTimeAuth}
+            usageMinutes={androidUsageMinutes}
             onPress={() => {
               logHomeButtonTapped({ button: 'phone_usage', destination: 'UsageDetail' });
               navigation.navigate('UsageDetail');
