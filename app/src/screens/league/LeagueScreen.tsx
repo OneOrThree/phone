@@ -161,9 +161,12 @@ export default function LeagueScreen() {
   // 현재 리그 — 기본은 내 직군, 드롭다운 선택이 있으면 그 리그.
   // '전체'는 진짜 전역 랭킹(globalRanking), 직군은 내 직군 랭킹을 라벨로 필터한다(GROMO-644).
   // 직군 조회가 실패해 라벨을 못 받았을 땐 의도 라벨로 내 리그를 유지한다 — 전역 조회 성공에
-  // 묻혀 직군 실패가 조용히 전체 리그로 대체되지 않게(GROMO-922 코드리뷰 반영). 빈 성공의
-  // 전역 폴백(GROMO-657)은 error가 아니라서 기존대로 전체 리그.
-  const myLabel = myLeagueLabel ?? (rankingError ? intendedLeagueLabel : null);
+  // 묻혀 직군 실패가 조용히 전체 리그로 대체되지 않게(GROMO-922 코드리뷰 반영). 단 유지된
+  // 목록이 하나도 없을 때만 — 전역 폴백(GROMO-657) 목록을 실패 후에도 유지 중이면(label=null·
+  // exam='') 의도 라벨로 필터하는 순간 전부 걸러져 멀쩡한 목록이 실패 안내로 바뀐다(코드리뷰
+  // 반영). 빈 성공의 전역 폴백 자체는 error가 아니라서 기존대로 전체 리그.
+  const myLabel =
+    myLeagueLabel ?? (rankingError && ranking.length === 0 ? intendedLeagueLabel : null);
   const filter = leagueFilter ?? myLabel ?? LEAGUE_ALL;
   const isAll = filter === LEAGUE_ALL;
   const visibleRanking = isAll ? globalRanking : ranking.filter((m) => m.exam === filter);
