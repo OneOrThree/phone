@@ -43,3 +43,10 @@ jwt:
   secret: ci-test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256
   access-expiration: 3600
   refresh-expiration: 2592000
+
+# 초대 링크 — 테스트가 URL 형식을 문자열로 단정하므로 고정값이어야 한다.
+link:
+  base-url: https://link.test
+  match-window-hours: 3
+  ip-salt: ci-test-salt
+  store-ios-url: https://apps.apple.com/kr/app/id0000000000

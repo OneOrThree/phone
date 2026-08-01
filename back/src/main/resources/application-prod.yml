@@ -70,3 +70,11 @@ logging:
 app:
   user-activity:
     touch-interval: 2h
+
+# 그룹 초대 링크 (deferred deep link). ip-salt 는 Secrets Manager(gromo/prod/env)에서 주입한다 —
+# salt 가 바뀌면 그 시점 이전 클릭은 매치되지 않으므로 값 교체는 배포와 함께 신중히.
+link:
+  base-url: ${LINK_BASE_URL:https://link.oneorthree.world}
+  match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
+  ip-salt: ${LINK_IP_SALT}
+  store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/id0000000000}
