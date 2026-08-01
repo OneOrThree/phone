@@ -455,37 +455,35 @@ export default function FocusSessionScreen() {
   );
 
   // 정지/완료 — 남은 집중 블록 정산(적립+서버 업로드) 후 홈으로. 한 번만 실행.
-  const finish = useCallback(async () => {
-    if (finishedRef.current) return;
-    finishedRef.current = true;
-    // 정상 종료 — 실드·Live Activity 해제
-    ScreenTimeModule.stopFocusShield().catch(() => {});
-    ScreenTimeModule.endFocusActivity().catch(() => {});
-    // 라이브 레코드 제거를 먼저 시도하되, 실패해도 정산은 계속한다(GROMO-615).
-    // 제거 실패로 정산까지 건너뛰면 적립·서버 업로드가 통째로 빠진다(보상 유실).
-    // 제거는 settleFocusBlock 안에서 한 번 더 시도되고, 그래도 레코드가 남으면
-    // 다음 실행의 고아 정산이 마지막 저장분만큼 이중 적립될 수 있으나 미적립보다 낫다.
-    await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
-    try {
-      settleFocusBlock();
-      // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).
-      cancelLiveSession();
-      // 화면을 떠나기 전 마지막 재시도 — 회전 중 실패해 쌓인 취소가 있으면 지금 정리(코덱스 리뷰)
-      flushPendingCancels();
-    } finally {
-      // 정산 성공 여부와 무관하게 화면은 반드시 빠져나간다 —
-      // 집중 결과 화면(GROMO-598)으로 replace, 길이 무관 항상 결과 화면을 보여준다.
-      const focusSeconds = Math.floor(sessionRef.current.elapsed);
-      navigation.replace('FocusResult', { focusSeconds, subjectId, subjectName });
-    }
-  }, [
-    settleFocusBlock,
-    cancelLiveSession,
-    flushPendingCancels,
-    navigation,
-    subjectId,
-    subjectName,
-  ]);
+  // completed: 정상 완료 여부(기본 = 세션 done). 결과 화면이 별점 요청(GROMO-980) 게이트로 쓴다 —
+  // 중도 이탈(정지·이탈 타임아웃) 세션에 별점창을 띄우면 부정적 순간에 1회 기회가 소모된다(코드리뷰 반영).
+  const finish = useCallback(
+    async (completed = sessionRef.current.done) => {
+      if (finishedRef.current) return;
+      finishedRef.current = true;
+      // 정상 종료 — 실드·Live Activity 해제
+      ScreenTimeModule.stopFocusShield().catch(() => {});
+      ScreenTimeModule.endFocusActivity().catch(() => {});
+      // 라이브 레코드 제거를 먼저 시도하되, 실패해도 정산은 계속한다(GROMO-615).
+      // 제거 실패로 정산까지 건너뛰면 적립·서버 업로드가 통째로 빠진다(보상 유실).
+      // 제거는 settleFocusBlock 안에서 한 번 더 시도되고, 그래도 레코드가 남으면
+      // 다음 실행의 고아 정산이 마지막 저장분만큼 이중 적립될 수 있으나 미적립보다 낫다.
+      await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+      try {
+        settleFocusBlock();
+        // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).
+        cancelLiveSession();
+        // 화면을 떠나기 전 마지막 재시도 — 회전 중 실패해 쌓인 취소가 있으면 지금 정리(코덱스 리뷰)
+        flushPendingCancels();
+      } finally {
+        // 정산 성공 여부와 무관하게 화면은 반드시 빠져나간다 —
+        // 집중 결과 화면(GROMO-598)으로 replace, 길이 무관 항상 결과 화면을 보여준다.
+        const focusSeconds = Math.floor(sessionRef.current.elapsed);
+        navigation.replace('FocusResult', { focusSeconds, subjectId, subjectName, completed });
+      }
+    },
+    [settleFocusBlock, cancelLiveSession, flushPendingCancels, navigation, subjectId, subjectName],
+  );
 
   // 완료 게이트는 이미 세션을 정산하고 라이브 레코드를 제거한 상태다. Android 하드웨어
   // 뒤로가기가 스택을 pop하면 결과 화면의 스트릭/목표 연출을 건너뛰므로 확인과 같은 경로로 보낸다.
@@ -714,8 +712,9 @@ export default function FocusSessionScreen() {
         reason: 'user_exit',
       });
     }
-    finish();
-  }, [finish]);
+    // countup은 done이 없어 정지가 유일한 정상 종료 경로 — 완료로 취급한다(별점 게이트용).
+    finish(sessionRef.current.done || mode === 'countup');
+  }, [finish, mode]);
 
   function onScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
     const next = Math.round(e.nativeEvent.contentOffset.x / width);
@@ -883,7 +882,8 @@ export default function FocusSessionScreen() {
               ? `${subjectName} ${pomo.sets}세트를 모두 마쳤어요.`
               : `${subjectName} 집중을 끝까지 해냈어요.`}
           </Text>
-          <TouchableOpacity style={s.doneGateBtn} activeOpacity={0.8} onPress={finish}>
+          {/* onPress에 finish를 직접 넘기면 제스처 이벤트가 completed 인자로 들어간다 — 래핑 필수 */}
+          <TouchableOpacity style={s.doneGateBtn} activeOpacity={0.8} onPress={() => finish()}>
             <Text style={s.doneGateBtnText}>확인</Text>
           </TouchableOpacity>
         </View>
