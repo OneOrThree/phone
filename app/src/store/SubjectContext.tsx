@@ -7,12 +7,12 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
-import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import StudyWidgetModule from '@/services/StudyWidgetModule';
 import { STORAGE_KEYS } from '@/types/storage';
 import { T } from '@/constants/theme';
 import { todayStr } from '@/utils/localDate';
+import { subscribeDayChange } from '@/utils/dayChange';
 import { syncTagCreated, syncTagRenamed, syncTagDeleted } from '@/screens/focus/tagSync';
 import { fetchTodayFocusRestore, sessionFocusSeconds } from '@/screens/focus/focusRestore';
 import type { Subject } from '@/screens/focus/types';
@@ -69,19 +69,17 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
   const dayRef = useRef(todayStr());
 
   // 자정 롤오버 — 날짜가 바뀌었으면 과목별 '오늘' 누적만 0으로 리셋(목록·이름·색·순서 유지).
-  // 포그라운드 복귀와 적립 직전에 호출해, 어제 값이 오늘로 표시·적산되는 걸 막는다.
+  // 날짜 경계 신호(아래 구독)와 적립·저장 직전에 호출해, 어제 값이 오늘로 표시·적산되는 걸 막는다.
   const rolloverIfNeeded = useCallback(() => {
     if (dayRef.current === todayStr()) return;
     dayRef.current = todayStr();
     setSubjects((prev) => prev.map((x) => ({ ...x, accumulatedSeconds: 0 })));
   }, []);
 
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') rolloverIfNeeded();
-    });
-    return () => sub.remove();
-  }, [rolloverIfNeeded]);
+  // 공유 날짜 경계 신호 구독(코드리뷰 반영) — 포그라운드 복귀뿐 아니라 앱이 활성인 채
+  // 자정을 넘기는 경우도 자정 타이머로 감지한다. FocusContext와 같은 신호를 구독해
+  // 두 스토어가 항상 같은 경계에서 함께 넘어간다(기존 개별 AppState 리스너 대체).
+  useEffect(() => subscribeDayChange(rolloverIfNeeded), [rolloverIfNeeded]);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.subjects).then(async (raw) => {

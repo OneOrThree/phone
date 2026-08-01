@@ -1,5 +1,6 @@
 package com.oneorthree.gromo.widget
 
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -12,6 +13,7 @@ import android.widget.RemoteViews
 import com.oneorthree.gromo.MainActivity
 import com.oneorthree.gromo.R
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import org.json.JSONArray
@@ -30,6 +32,28 @@ class StudyWidgetProvider : AppWidgetProvider() {
     for (id in appWidgetIds) {
       appWidgetManager.updateAppWidget(id, buildRemoteViews(context))
     }
+    // 주기 갱신 때마다 자정 알람도 재예약 — 재부팅으로 알람이 비워져도 다음 주기에 복구된다
+    scheduleMidnightUpdate(context)
+  }
+
+  override fun onEnabled(context: Context) {
+    super.onEnabled(context)
+    scheduleMidnightUpdate(context)
+  }
+
+  override fun onDisabled(context: Context) {
+    super.onDisabled(context)
+    // 마지막 위젯이 제거되면 자정 알람도 정리
+    cancelMidnightUpdate(context)
+  }
+
+  override fun onReceive(context: Context, intent: Intent) {
+    super.onReceive(context, intent)
+    if (intent.action == ACTION_MIDNIGHT_UPDATE) {
+      // 자정 경계 — 스냅샷 날짜가 어제가 됐으므로 다시 그리면 빈 상태로 돌아간다.
+      // updateAll이 다음 자정 재예약까지 수행한다.
+      updateAll(context)
+    }
   }
 
   companion object {
@@ -38,15 +62,54 @@ class StudyWidgetProvider : AppWidgetProvider() {
     const val KEY_SUBJECTS_JSON = "top_subjects_json"
     // 스냅샷이 기록된 로컬 날짜(yyyy-MM-dd) — 오늘 여부 판정용
     const val KEY_DATE = "snapshot_date"
+    // 자정 경계 갱신용 자체 액션(코드리뷰 반영) — 1시간 주기 갱신은 자정에 정렬돼 있지 않고
+    // OS가 지연시킬 수도 있어, 자정 전에 렌더된 RemoteViews가 새날에도 어제 과목을 계속 보여준다.
+    const val ACTION_MIDNIGHT_UPDATE = "com.oneorthree.gromo.widget.ACTION_MIDNIGHT_UPDATE"
 
     // 모듈이 스냅샷 저장 직후 호출 — 배치된 모든 위젯 인스턴스를 즉시 다시 그린다.
     fun updateAll(context: Context) {
       val manager = AppWidgetManager.getInstance(context)
       val ids = manager.getAppWidgetIds(ComponentName(context, StudyWidgetProvider::class.java))
+      if (ids.isEmpty()) return
       for (id in ids) {
         manager.updateAppWidget(id, buildRemoteViews(context))
       }
+      // 데이터 쓰기 갱신 경로에서도 자정 알람을 재예약해 항상 살아 있게 유지
+      scheduleMidnightUpdate(context)
     }
+
+    // 다음 로컬 자정에 위젯 갱신 브로드캐스트를 예약한다.
+    // SCHEDULE_EXACT_ALARM(플레이 민감 권한)은 쓰지 않는다 — inexact AlarmManager.set()이면 충분하고
+    // 몇 분 지연은 수용한다(날짜 넘김 표시 보정 용도). RTC(비웨이크업)라 잠든 기기를 깨우지 않고,
+    // 기기가 깨어날 때 밀린 알람이 전달돼 그때 갱신된다.
+    // 같은 PendingIntent(요청코드 0)를 재사용하므로 여러 경로에서 겹쳐 예약해도 알람은 항상 1개.
+    // 타임존·시간 변경(ACTION_TIMEZONE_CHANGED 등) 전용 리시버는 두지 않았다 — 1시간 주기
+    // 갱신(onUpdate)이 매번 재예약하므로 늦어도 다음 주기에 새 자정 기준으로 보정된다(판단 기록).
+    fun scheduleMidnightUpdate(context: Context) {
+      val alarm = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+      val next = Calendar.getInstance().apply {
+        add(Calendar.DAY_OF_YEAR, 1)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        // 자정 직후 몇 초 여유 — 발화 시점의 로컬 날짜 판정이 확실히 새날이 되게
+        set(Calendar.SECOND, 5)
+        set(Calendar.MILLISECOND, 0)
+      }
+      alarm.set(AlarmManager.RTC, next.timeInMillis, midnightPendingIntent(context))
+    }
+
+    fun cancelMidnightUpdate(context: Context) {
+      val alarm = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+      alarm.cancel(midnightPendingIntent(context))
+    }
+
+    private fun midnightPendingIntent(context: Context): PendingIntent =
+      PendingIntent.getBroadcast(
+        context,
+        0,
+        Intent(context, StudyWidgetProvider::class.java).apply { action = ACTION_MIDNIGHT_UPDATE },
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+      )
 
     // 로컬 날짜 문자열 — minSdk가 java.time 미보장 구간이라 SimpleDateFormat 사용
     fun localDateString(): String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())

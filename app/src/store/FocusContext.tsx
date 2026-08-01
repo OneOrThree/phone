@@ -7,11 +7,11 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
-import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { fetchTodayFocusRestore, sessionFocusSeconds } from '@/screens/focus/focusRestore';
 import { todayStr } from '@/utils/localDate';
+import { subscribeDayChange } from '@/utils/dayChange';
 
 interface FocusContextValue {
   todayFocusSeconds: number;
@@ -38,19 +38,18 @@ export function FocusProvider({ children }: { children: ReactNode }) {
   const dayRef = useRef(todayStr());
 
   // 자정 롤오버 — 날짜가 바뀌었으면 '오늘 집중' 총합을 0으로 리셋.
-  // SubjectContext와 같은 경계(포그라운드 복귀·적립 직전·저장 직전)에서 호출해 두 스토어를 함께 넘긴다.
+  // SubjectContext와 같은 경계(날짜 경계 신호·적립 직전·저장 직전)에서 호출해 두 스토어를 함께 넘긴다.
   const rolloverIfNeeded = useCallback(() => {
     if (dayRef.current === todayStr()) return;
     dayRef.current = todayStr();
     setTodayFocusSeconds(0);
   }, []);
 
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') rolloverIfNeeded();
-    });
-    return () => sub.remove();
-  }, [rolloverIfNeeded]);
+  // 공유 날짜 경계 신호 구독(코드리뷰 반영) — 앱이 활성인 채 자정을 넘긴 뒤 과목만 바뀌는
+  // 경우(이름변경·색·순서 등)엔 이 스토어로 오는 AppState 전환·적립이 없어 어제 총합이 남았다.
+  // SubjectContext와 같은 신호(dayChange)를 구독해 같은 경계에서 함께 리셋한다(기존 개별
+  // AppState 리스너 대체). 이 스토어는 플랫폼 공통이라 iOS 홈·통계 총합에도 동일 적용.
+  useEffect(() => subscribeDayChange(rolloverIfNeeded), [rolloverIfNeeded]);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.focus).then(async (raw) => {
