@@ -147,6 +147,67 @@ export interface GroupChallengeResponse {
   createdAt: string; // ISO 문자열
   canParticipate: boolean;
   memberProgress: ChallengeMemberProgress[] | null;
+  // ── 내기(3차, docs/back/group-bet-plan.md §2-3) ──
+  // 백엔드가 병행 구현 중이라 **아직 필드 자체가 없는 서버**가 존재한다(배포 순서 무관 동작이 원칙,
+  // GroupSummaryResponse.isPrivate와 같은 관행) — 그래서 optional이면서 null도 받는다.
+  bet?: GroupChallengeBet | null; // 해당 date의 내기. 없으면 null
+  lastSettledBet?: LastSettledBet | null; // 가장 최근 정산 내기(카드 '지난 내기' 1줄용)
+}
+
+// ── 내기(3차) — 계약 정본 docs/back/group-bet-plan.md §2 ─────────────────────
+// ⚠️ 판돈은 서버 허용값 {10,30,50,100}만이고 내기는 챌린지당·날짜당 1개다(백 명세 결정 8).
+// ⚠️ 내기는 FOCUS 챌린지만 가능하다(백 명세 결정 3 — 스크린타임 달성은 클라 신뢰라 돈을 걸 수 없다).
+
+// 내기 상태. OPEN=참가 가능 · SETTLED=정산 완료 · REFUNDED=승자 0명이라 전원 환불.
+export type GroupBetStatus = 'OPEN' | 'SETTLED' | 'REFUNDED';
+
+// 내기 참가자(진행 중 내기) — 닉네임만 쓴다.
+export interface GroupChallengeBetParticipant {
+  userId: string;
+  nickname: string;
+}
+
+// 오늘(조회 date)의 내기. myAchievedNow는 '지금 이미 목표를 달성했나' —
+// 달성 확정 후의 무위험 참가를 서버가 막으므로(BET_ALREADY_ACHIEVED) 앱은 미리 버튼을 잠근다.
+export interface GroupChallengeBet {
+  betId: string;
+  stake: number;
+  pot: number; // 판돈 × 참가자 수
+  status: GroupBetStatus;
+  myJoined: boolean;
+  myAchievedNow: boolean;
+  participants: GroupChallengeBetParticipant[];
+}
+
+// 정산된 내기의 인별 결과. payout은 **받은 금액**(승자 분배금 or 환불금)이지 손익이 아니다 —
+// 화면에서 ±로 보이려면 판돈을 빼야 한다(payout - stake).
+// ⚠️ 두 필드 모두 nullable이다(계약 §3, 서버 Boolean/Integer) — 정산 전·정산 부분 실패면 null이다.
+//    ChallengeMemberProgress와 같은 규칙으로 **null과 0을 뭉개지 않는다**: null을 0으로 읽으면
+//    아직 판정되지 않은 참가자가 '미달성 · -30'(판돈을 잃은 것처럼) 보인다.
+export interface LastSettledBetResult {
+  userId: string;
+  nickname: string;
+  achieved: boolean | null;
+  payout: number | null;
+}
+
+// 이 챌린지의 가장 최근 정산 내기(카드 하단 '지난 내기' 1줄 + 탭 시 결과 상세).
+export interface LastSettledBet {
+  betDate: string; // 'YYYY-MM-DD'
+  stake: number;
+  pot: number;
+  status: GroupBetStatus;
+  results: LastSettledBetResult[];
+}
+
+// POST /groups/{groupId}/challenges/{challengeId}/bets — 내기 개설(개설자 자동 참가·판돈 즉시 차감).
+export interface CreateBetRequest {
+  stake: number; // 10|30|50|100 — 그 외는 서버가 BET_INVALID_STAKE
+  date: string; // 'YYYY-MM-DD' (클라 로컬 날짜)
+}
+
+export interface CreateBetResponse {
+  betId: string;
 }
 
 // POST /groups/{id}/challenges — 챌린지 생성(방장만). 앱은 DURATION만 만든다(§3-2) —

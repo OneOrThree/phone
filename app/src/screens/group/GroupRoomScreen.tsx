@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
 import { useUser } from '@/store/UserContext';
+import { useCoins } from '@/store/CoinContext';
 import {
   deleteChallenge,
   getAnnouncements,
@@ -39,7 +40,8 @@ import type {
 } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { fmtNoticeDate } from './noticeDate';
-import ChallengeCard from './components/ChallengeCard';
+import BetSheet from './components/BetSheet';
+import ChallengeCard, { type BetSheetMode } from './components/ChallengeCard';
 import ChallengeComposeSheet from './components/ChallengeComposeSheet';
 import MemberTile from './components/MemberTile';
 
@@ -69,6 +71,75 @@ function chunk<Item>(items: Item[], size: number): Item[][] {
   const rows: Item[][] = [];
   for (let i = 0; i < items.length; i += size) rows.push(items.slice(i, i + size));
   return rows;
+}
+
+// 열어 둔 내기 시트가 **최신 챌린지에서도 성립하는가**. 성립하지 않으면 알림 문구를 돌려준다
+// (닫는 판단은 호출부). betId만 비교하면 같은 내기가 마감되거나(SETTLED·REFUNDED) 다른 기기에서
+// 내가 참가한 전이를 놓쳐, 시트는 계속 돈을 쓰는 CTA를 세운 채 BET_CLOSED·BET_ALREADY_JOINED를
+// 받는다. 개설 시트가 열린 사이 남이 내기를 연 경우(BET_ALREADY_EXISTS)도 같다(코덱스 리뷰).
+// ⚠️ myAchievedNow 전이는 여기서 닫지 않는다 — 참가는 막아야 하지만 팟·참가자를 보고 있는
+//    시트를 통째로 걷을 이유는 없어, 시트가 CTA만 잠그고 사유를 적는다(BetSheet.achievedBlocked).
+function staleBetSheetAlert(
+  sheet: { mode: BetSheetMode; betId: string | null },
+  challenge: GroupChallengeResponse,
+): [string, string] | null {
+  const live = challenge.bet ?? null;
+  // 개설 시트의 진입 조건은 세 가지다(ChallengeCard의 betKnown · betOpenable · bet === null) —
+  // 하나라도 최신 챌린지에서 깨지면 닫는다.
+  if (sheet.mode === 'create') {
+    // 이 서버가 내기를 아는가 — 필드가 **아예 없는** 응답은 '내기가 없다'가 아니라 구버전
+    // 서버다(ChallengeCard.betKnown과 같은 판정). 순차 배포 중 신버전 응답으로 시트를 연 뒤
+    // 구버전에 붙으면 undefined가 null로 뭉개져 시트가 그대로 남고, 없는 엔드포인트로
+    // 개설 요청만 나간다 — 카드는 이미 진입점을 숨긴 상태다(코덱스 리뷰).
+    if (challenge.bet === undefined) {
+      return ['내기를 열 수 없어요', '지금은 내기를 이용할 수 없어요. 잠시 후 다시 시도해주세요.'];
+    }
+    // 끝난 챌린지에는 새로 돈을 걸 수 없다 — 카드가 진입점을 막는 기준과 같다.
+    // 서버 개설 경로는 상태를 보지 않아 그대로 열리므로, 여기서 막지 않으면 앱이 종료로
+    // 취급하는 챌린지에 판돈만 빠져나간 내기가 생긴다.
+    if (challenge.status !== 'ACTIVE') {
+      return ['끝난 챌린지예요', '종료된 챌린지에는 내기를 열 수 없어요.'];
+    }
+    return live === null
+      ? null
+      : ['이미 오늘 내기가 열려 있어요', '최신 상태예요. 참가하려면 다시 열어주세요.'];
+  }
+  // 참가 모드에서는 구버전 응답(undefined)도 이 검사에 함께 걸린다 — live가 null로 뭉개지면서
+  // '내기가 바뀌었어요'로 닫히기 때문에 따로 분기를 두지 않는다.
+  if (live === null || live.betId !== sheet.betId) {
+    return ['내기가 바뀌었어요', '최신 내기로 다시 열어주세요.'];
+  }
+  // 참가 진입점도 카드에서 betOpenable을 함께 요구한다(bet.status === 'OPEN' && betOpenable) —
+  // 내기만 OPEN인 채 챌린지가 INACTIVE로 바뀌면 카드의 참가 행은 사라지는데 열린 시트만 판돈
+  // 차감 요청을 보낼 수 있다. 개설 쪽 상태 검사와 대칭으로 막는다(코덱스 리뷰).
+  if (challenge.status !== 'ACTIVE') {
+    return ['끝난 챌린지예요', '종료된 챌린지의 내기에는 참가할 수 없어요.'];
+  }
+  if (live.status !== 'OPEN') return ['마감된 내기예요', '이미 마감돼 참가할 수 없어요.'];
+  if (live.myJoined) return ['이미 참가한 내기예요', '최신 상태로 새로고침했어요.'];
+  return null;
+}
+
+// '내가 참가한 내기가 정산됐다'는 사건을 챌린지 목록에서 읽어낸다 — 정산은 서버(04:00 배치)가
+// 하므로 앱이 알 수 있는 신호는 lastSettledBet이 새로 생기거나 다른 내기로 바뀌는 것뿐이다.
+// 앱을 켜 둔 채 정산이 돌면 카드엔 결과가 뜨는데 전역 잔액은 정산 전 값으로 남아, 지급된 코인을
+// 상점에서 쓰지 못한다(CoinContext.buyItem이 클라 잔액으로 먼저 막는다 — 코덱스 리뷰).
+// 내 결과가 없는 정산은 잔액을 건드리지 않으므로 서명에 넣지 않는다(불필요한 재조회 방지).
+// ⚠️ 서명에 **내 결과의 achieved·payout까지** 넣는다(코덱스 리뷰). 계약상 payout은 null일 수 있어
+//    (부분 정산 실패) 같은 내기가 'payout 없음 → 있음'으로 두 번 도착할 수 있는데, 챌린지·날짜·
+//    상태만 서명하면 두 응답이 같은 사건으로 뭉개져 지급이 확정된 순간을 놓친다 — 카드엔 지급액이
+//    떠도 전역 잔액과 상점의 선행 검사는 정산 전 값에 머문다.
+function settledBetSignature(challenges: GroupChallengeResponse[], userId: string | null): string {
+  return challenges
+    .map((c) => {
+      const last = c.lastSettledBet ?? null;
+      if (last === null || !userId) return '';
+      const mine = last.results.find((r) => r.userId === userId);
+      if (mine === undefined) return '';
+      // null(미확정)과 0(확정된 0코인)은 다른 사실이라 같은 글자로 뭉개지 않는다.
+      return `${c.id}:${last.betDate}:${last.status}:${mine.achieved ?? '?'}:${mine.payout ?? '?'}`;
+    })
+    .join('|');
 }
 
 export interface GroupRoomScreenProps {
@@ -101,6 +172,8 @@ export default function GroupRoomScreen({
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { userId } = useUser();
+  // 잔액은 CoinContext가 정본이다 — 여기서는 '서버가 정산했다'를 감지했을 때만 다시 받는다.
+  const { refresh: refreshCoins } = useCoins();
 
   const [detail, setDetail] = useState<GroupDetailResponse | null>(null);
   // null = 아직 한 번도 못 받음. '공지 없음(빈 배열)'과 '공지 조회 실패'를 구분한다 —
@@ -115,6 +188,21 @@ export default function GroupRoomScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+  // 내기 시트(3차) — 어떤 챌린지를 어떤 모드로 열었나. 내기 데이터는 challenges 응답에 이미
+  // 실려 있으므로(계약 §2-3) 시트를 열려고 추가 조회를 하지 않는다.
+  // ⚠️ challenge **객체를 쥐지 않는다**(3차 리뷰 F2) — 포커스·포그라운드 복귀가 돌린 load()가
+  //    challenges를 통째로 갈아도 시트의 복사본은 열었을 때 값 그대로 남아, 낡은 팟·참가자를 보고
+  //    돈을 걸게 된다. id만 쥐고 렌더 시점에 **살아 있는 배열에서** 파생한다.
+  //    betId는 '열었을 때의 그 내기인가'를 보기 위한 것이다(자정을 넘겨 다른 날짜 내기로 갈리는 경우).
+  const [betSheet, setBetSheet] = useState<{
+    challengeId: string;
+    mode: BetSheetMode;
+    betId: string | null;
+  } | null>(null);
+  // 내기 성공 직후 재조회가 도는 동안 카드의 내기 진입점을 잠근다(F6) — 그 창의 카드는 아직
+  // '내기 이전' 모습이라 다시 누르면 같은 내기를 또 열려 한다. 시트가 한 번에 하나뿐이라
+  // 챌린지별 플래그 대신 화면 단위 하나로 둔다.
+  const [betBusy, setBetBusy] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
   // 요청 시퀀스 — 당겨서 새로고침 중 '다시 시도'를 누르거나 연타하면 reload()·onRefresh()가
@@ -125,6 +213,39 @@ export default function GroupRoomScreen({
   const focusedRef = useRef(false);
   // 마지막으로 성공한 조회의 기준 날짜. 자정을 넘겨 복귀하면 '오늘 집중분'이 전날 값이라 강제 재조회한다.
   const loadedDateRef = useRef<string | null>(null);
+  // 직전 조회에서 본 '내 정산 내기' 서명(settledBetSignature). null = 아직 한 번도 못 받음 —
+  // 첫 조회는 비교 대상이 없어 재조회하지 않는다(마운트 시 CoinContext가 이미 잔액을 받는다).
+  const settledSigRef = useRef<string | null>(null);
+
+  // 이 화면이 지금 그리고 있는 그룹. 내장 렌더(GroupScreen의 1건 분기)는 목록 재조회 결과가
+  // A 한 건에서 B 한 건으로 바뀌어도 **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
+  // (다른 계정 기기에서 A에서 빠지고 B에 들어간 경우 등) — 그러면 A의 챌린지·시트가 남은 채
+  // mutation만 B의 groupId로 나가 NOT_FOUND 같은 영구 실패가 되고, B 조회가 실패하면 A의
+  // 화면이 그대로 유지된다(코덱스 리뷰).
+  // 이펙트가 아니라 **렌더 중에** 되돌리는 이유: 이펙트는 커밋 뒤라 'A의 데이터 + B의 groupId'가
+  // 한 프레임 실제로 그려지고, 그 프레임의 시트에서 누른 요청이 곧 이 버그다. React가 공식으로
+  // 허용하는 '프롭이 바뀌면 렌더 중 상태 조정' 패턴이다(자식은 커밋되지 않고 즉시 다시 렌더된다).
+  const renderedGroupIdRef = useRef(groupId);
+  if (renderedGroupIdRef.current !== groupId) {
+    renderedGroupIdRef.current = groupId;
+    // 진행 중인 이전 그룹의 응답을 무효화한다 — 늦게 도착해 새 그룹의 화면을 덮지 않게.
+    requestSeqRef.current++;
+    loadedDateRef.current = null;
+    // 새 그룹의 첫 서명은 비교 대상이 없다 — 이전 그룹의 서명과 비교하면 남의 정산으로 잔액을 다시 받는다.
+    settledSigRef.current = null;
+    setDetail(null);
+    setNotices(null);
+    setChallenges(null);
+    setBetSheet(null);
+    setBetBusy(false);
+    setMenuOpen(false);
+    setComposeOpen(false);
+    setLeaving(false);
+    setError(false);
+    setNoticeError(false);
+    setChallengeError(false);
+    setLoading(true);
+  }
 
   // 상세 + 공지 + 챌린지 병렬 조회. 세 요청의 실패를 **각각** 다룬다(allSettled) —
   // 상세 실패는 기존 방 데이터를 보존한 채 배너로, 공지·챌린지 실패는 각 섹션에서만 알린다.
@@ -133,6 +254,10 @@ export default function GroupRoomScreen({
   //    진행 리스트가 이 섹션의 본체라 반드시 넘긴다.
   // 반환값: 이 호출이 아직 최신인가(늦게 끝난 요청이 로딩 플래그를 되돌리지 않게).
   const load = useCallback(async (): Promise<boolean> => {
+    // 전환 **전** 렌더에서 캡처된 클로저가 늦게 실행되면(내기 onDone·챌린지 생성/삭제의 응답 후
+    // 재조회) 이 groupId는 이전 그룹이다 — 그대로 진행하면 seq만 올려 새 그룹의 진행 중 조회를
+    // 무효화하고 이전 그룹 데이터를 새 화면에 되씌운다. 시작조차 하지 않는다(코덱스 리뷰).
+    if (renderedGroupIdRef.current !== groupId) return false;
     const seq = ++requestSeqRef.current;
     const date = todayStr();
     setError(false);
@@ -168,11 +293,22 @@ export default function GroupRoomScreen({
     if (challengeResult.status === 'fulfilled') {
       setChallenges(challengeResult.value);
       setChallengeError(false);
+      // 내기 진입 잠금은 **최신 챌린지가 실제로 반영된 순간**에만 푼다(코덱스 리뷰).
+      // load() 자체는 allSettled라 챌린지만 실패해도 정상 resolve하므로, 호출부의 finally로 풀면
+      // 판돈은 빠졌는데 카드는 '내기 이전'인 채 진입점이 다시 열려 같은 요청을 반복하게 된다.
+      // 실패하면 잠금을 유지하고, 다음 성공(당겨서 새로고침·포커스·포그라운드 복귀)이 푼다.
+      setBetBusy(false);
+      // 서버가 내 내기를 정산했으면 잔액도 함께 맞춘다 — 카드는 당첨·환불을 말하는데 전역 잔액만
+      // 정산 전 값으로 남는 상태를 여기서 닫는다(위 settledBetSignature 주석).
+      const signature = settledBetSignature(challengeResult.value, userId ?? null);
+      const previous = settledSigRef.current;
+      settledSigRef.current = signature;
+      if (previous !== null && previous !== signature) refreshCoins();
     } else {
       setChallengeError(true); // 기존 챌린지는 그대로 둔다
     }
     return true;
-  }, [groupId, onLeft]);
+  }, [groupId, onLeft, userId, refreshCoins]);
 
   // 최초 진입·재시도 — 스피너를 세우고 조회한다(당겨서 새로고침은 RefreshControl이 표시).
   const reload = useCallback(() => {
@@ -227,6 +363,33 @@ export default function GroupRoomScreen({
     load().finally(() => setRefreshing(false));
   }, [load]);
 
+  // 시트가 그릴 챌린지 — **살아 있는 배열에서 파생**한다(F2). 배경 재조회가 반영된 최신 팟·참가자다.
+  const betChallenge =
+    betSheet !== null && challenges !== null
+      ? (challenges.find((c) => c.id === betSheet.challengeId) ?? null)
+      : null;
+  // 개설 시트의 달성 잠금 근거 — 내기가 없는 챌린지엔 bet.myAchievedNow가 없어 진행률에서 파생한다
+  // (카드의 개설 진입점이 쓰는 계산 그대로). null(미판정)은 달성으로 세지 않는다.
+  const betMyAchieved =
+    !!userId &&
+    !!betChallenge?.memberProgress?.some((p) => p.userId === userId && p.achieved === true);
+
+  // 시트가 가리키던 대상이 사라졌으면 닫는다 — 없는 챌린지의 낡은 화면으로 돈을 걸 수는 없다.
+  // 시트를 연 근거(모드의 진입 조건)가 최신 챌린지에서 깨진 경우도 같다(staleBetSheetAlert).
+  // 조용히 바꿔 끼우지 않고 닫아서 **다시 열게** 한다 — 보고 있던 판돈·팟이 소리 없이 달라지면
+  // 사용자는 자기가 확인한 값으로 걸었다고 믿는다.
+  useEffect(() => {
+    if (betSheet === null || challenges === null) return;
+    if (betChallenge === null) {
+      setBetSheet(null);
+      return;
+    }
+    const stale = staleBetSheetAlert(betSheet, betChallenge);
+    if (stale === null) return;
+    setBetSheet(null);
+    Alert.alert(stale[0], stale[1]);
+  }, [betSheet, challenges, betChallenge]);
+
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(§6-4).
   const me = userId ? detail?.members.find((m) => m.userId === userId) : undefined;
   const isOwner = me?.role === 'OWNER';
@@ -267,7 +430,15 @@ export default function GroupRoomScreen({
       try {
         await deleteChallenge(groupId, challengeId);
       } catch (e) {
-        if (groupErrorCode(e) !== 'NOT_FOUND') {
+        const code = groupErrorCode(e);
+        // 진행 중인 내기가 있으면 서버가 삭제를 막는다(백 계약 CHALLENGE_HAS_OPEN_BET, 409) —
+        // 이미 판돈을 걷어 둔 내기를 챌린지와 함께 지우면 돈이 갈 곳을 잃기 때문이다.
+        // 공통 문구로 떨어뜨리면 '잠시 후 다시 시도'를 반복해도 정산 전까진 영원히 같은 실패다.
+        if (code === 'CHALLENGE_HAS_OPEN_BET') {
+          Alert.alert('챌린지를 삭제할 수 없어요', '진행 중인 내기가 있어 삭제할 수 없어요.');
+          return;
+        }
+        if (code !== 'NOT_FOUND') {
           Alert.alert('챌린지를 삭제하지 못했어요', '잠시 후 다시 시도해주세요.');
           return;
         }
@@ -558,6 +729,10 @@ export default function GroupRoomScreen({
                 isOwner={!!isOwner}
                 myUserId={userId}
                 onDelete={onDeleteChallenge}
+                betLocked={betBusy}
+                onOpenBet={(mode) =>
+                  setBetSheet({ challengeId: c.id, mode, betId: c.bet?.betId ?? null })
+                }
               />
             ))}
           </View>
@@ -641,7 +816,31 @@ export default function GroupRoomScreen({
           existingCategories={existingCategories}
           onClose={() => setComposeOpen(false)}
           onCreated={() => {
+            // 전환 전 그룹의 시트가 늦게 완료를 알리면 무시 — 새 그룹의 시트 상태를 건드리거나
+            // 이전 그룹의 재조회를 시작하지 않는다(load 내부 가드와 같은 이유).
+            if (renderedGroupIdRef.current !== groupId) return;
             setComposeOpen(false);
+            load();
+          }}
+        />
+      )}
+
+      {/* ── 내기 시트(개설·참가, 3차 §1) ── */}
+      {betSheet !== null && betChallenge !== null && (
+        <BetSheet
+          groupId={groupId}
+          challenge={betChallenge}
+          mode={betSheet.mode}
+          myAchieved={betMyAchieved}
+          onClose={() => setBetSheet(null)}
+          onDone={() => {
+            // 전환 전 그룹의 시트가 늦게 완료를 알리면 무시 — betBusy를 새 그룹 화면에 걸면
+            // 풀어 줄 load()가 없어(내부 가드로 단락) 진입점이 영구히 잠긴다(코덱스 리뷰).
+            if (renderedGroupIdRef.current !== groupId) return;
+            setBetSheet(null);
+            // 재조회가 끝날 때까지 진입점을 잠근다 — 그전의 카드는 아직 내기 이전 모습이다(F6).
+            // 잠금을 푸는 쪽은 load()의 **챌린지 성공 분기**다(위 주석).
+            setBetBusy(true);
             load();
           }}
         />

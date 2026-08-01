@@ -2,11 +2,14 @@
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
 // 쓰지 않는 엔드포인트(코드 재발급·그룹 수정·설정)는 여기에 두지 않는다 — 폐기 개념(§0).
 // 챌린지 3종은 2차에서 되살렸다(docs/app/group-plan-2.md §1, 계약 정본은 docs/back/group-plan-2.md §1).
+// 내기 2종은 3차(docs/app/group-bet-plan.md §2, 계약 정본은 docs/back/group-bet-plan.md §2).
 import axios from 'axios';
 import { api } from '@/services/api';
 import { todayStr } from '@/utils/localDate';
 import type {
   CreateAnnouncementRequest,
+  CreateBetRequest,
+  CreateBetResponse,
   CreateChallengeRequest,
   CreateChallengeResponse,
   CreateGroupRequest,
@@ -126,6 +129,27 @@ export async function createChallenge(
 // DELETE /api/v1/groups/{groupId}/challenges/{challengeId} — 챌린지 삭제(방장만, 서버는 soft delete).
 export async function deleteChallenge(groupId: string, challengeId: string): Promise<void> {
   await api.delete<void>(`/api/v1/groups/${groupId}/challenges/${challengeId}`);
+}
+
+// POST /api/v1/groups/{groupId}/challenges/{challengeId}/bets — 내기 개설(그룹원 누구나).
+// 개설자는 자동 참가하고 판돈이 즉시 차감된다(에스크로) — 계약 docs/back/group-bet-plan.md §2-1.
+// date는 내기의 기준일이라 클라 로컬 날짜를 그대로 싣는다(챌린지 진행률 기준일과 같은 날).
+export async function createBet(
+  groupId: string,
+  challengeId: string,
+  body: CreateBetRequest,
+): Promise<CreateBetResponse> {
+  const { data } = await api.post<CreateBetResponse>(
+    `/api/v1/groups/${groupId}/challenges/${challengeId}/bets`,
+    body,
+  );
+  return data;
+}
+
+// POST /api/v1/groups/{groupId}/bets/{betId}/join — 내기 참가(판돈 차감), 204.
+// 바디는 항상 {} 다 — joinGroup과 같은 이유로 생략하면 서버가 415를 준다(§2-2).
+export async function joinBet(groupId: string, betId: string): Promise<void> {
+  await api.post<void>(`/api/v1/groups/${groupId}/bets/${betId}/join`, {});
 }
 
 // 서버 에러 바디({ code, message })의 code를 뽑는다. axios 에러가 아니거나 바디가 없으면 null.

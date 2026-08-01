@@ -1,4 +1,12 @@
-import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/services/api';
 import { useUser } from './UserContext';
@@ -6,6 +14,25 @@ import { STORAGE_KEYS } from '@/types/storage';
 
 interface CoinContextValue {
   coins: number;
+  // 서버 잔액을 **한 번이라도 받아 왔는가**. false면 coins(0)는 '0코인'이 아니라 '아직 모름'이다 —
+  // 넷(진짜 0 · 최초 로드 실패 · refresh 실패 · 응답 전)이 같은 숫자로 뭉개지면 화면이 사용자의
+  // 재산에 대해 거짓을 말한다(3차 리뷰 F1). 잔액으로 사용자를 잠그는 화면은 이 값을 먼저 본다.
+  coinsLoaded: boolean;
+  // 지금 쥔 잔액이 **몇 번째로 받아 온 값인가**(성공한 조회마다 +1). 소비자가 '이 잔액이 내가 아는
+  // 어떤 사건보다 나중에 도착한 값인가'를 판정하는 데 쓴다 — 서버가 내린 판정(BetSheet의
+  // INSUFFICIENT_CURRENCY 승격)을 풀어도 되는지는 값의 크기가 아니라 **도착 순서**로 갈린다.
+  coinsVersion: number;
+  // **지금 이 순간의** coinsVersion. 잔액 응답을 적용하는 그 자리에서 동기로 오르므로, 렌더를
+  // 거치지 않고도 최신 값을 읽는다 — coinsVersion(state)은 응답 적용 직후~다음 렌더 사이에
+  // 한 틱 낡아 있고, 소비자가 effect로 따로 미러링해도 그 틈은 그대로 남는다(코덱스 리뷰).
+  // 비동기 콜백(예: BetSheet의 INSUFFICIENT_CURRENCY 도착 시점)에서 '이 사건이 몇 번째 잔액
+  // 이후인가'를 기록할 때 쓴다. 렌더에서는 쓰지 않는다 — ref는 다시 그리지 않는다.
+  latestCoinsVersion: () => number;
+  // 서버 잔액 재조회. 마운트 1회 로드만으로는 **서버가 깎은 잔액**(그룹 내기 판돈 차감·정산 지급)이
+  // 앱에 영영 반영되지 않는다 — 잔액을 보여 주는 화면이 열릴 때 직접 부른다(3차 내기 시트).
+  // 실패해도 throw하지 않는다(호출처가 try/catch를 두지 않아도 되게) — 대신 coinsLoaded가 false로 돌아간다.
+  // 겹쳐 불러도 **마지막 호출의 결과만** 반영된다(아래 refreshSeqRef).
+  refresh: () => Promise<void>;
   addCoins: (amount: number) => Promise<void>;
   isOwned: (itemId: string) => boolean;
   buyItem: (itemId: string, price: number) => Promise<boolean>;
@@ -54,16 +81,42 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   // 게스트도 UUID JWT를 받으므로(auth.ts guestLogin) userId 버킷만으로 계정이 분리된다.
   const bucket = userId ?? FALLBACK_BUCKET;
   const [coins, setCoins] = useState(0);
+  // 초기값이 false인 것이 핵심이다 — 응답 전의 0을 '0코인'으로 읽는 화면이 없어야 한다.
+  const [coinsLoaded, setCoinsLoaded] = useState(false);
+  const [coinsVersion, setCoinsVersion] = useState(0);
   const [ownedItemIds, setOwnedItemIds] = useState<string[]>([]);
   const loaded = useRef(false);
+  // 조회 시퀀스 — refresh는 여러 곳에서 겹쳐 불린다(시트 오픈 + 성공 직후 + 인라인 재시도).
+  // 순서를 지키지 않으면 **차감 전 잔액**을 실은 늦은 응답이 차감 후 잔액을 덮어써, 화면이
+  // 재산을 과대 표시하고 부족 검사를 잘못 통과시킨다(코덱스 리뷰). 최신 호출의 결과만 반영한다.
+  const refreshSeqRef = useRef(0);
+  // coinsVersion의 정본. state는 이 값의 사본이다 — 응답을 적용하는 자리에서 함께 올려
+  // 소비자가 렌더를 기다리지 않고도 최신 버전을 읽게 한다(위 latestCoinsVersion 주석).
+  const coinsVersionRef = useRef(0);
+  const latestCoinsVersion = useCallback(() => coinsVersionRef.current, []);
 
-  // 서버에서 잔액 로드
-  useEffect(() => {
-    api
-      .get<number>('/api/v1/currency')
-      .then((res) => setCoins(res.data))
-      .catch(() => {});
+  // 서버에서 잔액 로드. 실패해도 던지지 않는다 — 잔액은 화면을 막을 값이 아니고,
+  // 다음 refresh(시트 오픈 등)에서 자연 재시도된다. 다만 **조용히 삼키지는 않는다**:
+  // coinsLoaded를 false로 되돌려 '지금 쥔 값은 못 믿는다'를 소비자가 알 수 있게 한다(F1).
+  const refresh = useCallback(async () => {
+    const seq = ++refreshSeqRef.current;
+    try {
+      const res = await api.get<number>('/api/v1/currency');
+      // 뒤이어 시작된 조회가 있으면 이 응답은 이미 낡았다 — 실패 처리도 마찬가지로 건너뛴다.
+      if (seq !== refreshSeqRef.current) return;
+      setCoins(res.data);
+      setCoinsLoaded(true);
+      coinsVersionRef.current += 1;
+      setCoinsVersion(coinsVersionRef.current);
+    } catch {
+      if (seq !== refreshSeqRef.current) return;
+      setCoinsLoaded(false);
+    }
   }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   // 보유 아이템은 AsyncStorage 유지 (아이템 API 미구현)
   // 형식 변환은 storageMigration v3가 Provider 마운트 전에 보장하므로 맵으로 바로 읽는다.
@@ -108,7 +161,18 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <CoinContext.Provider value={{ coins, addCoins, isOwned, buyItem }}>
+    <CoinContext.Provider
+      value={{
+        coins,
+        coinsLoaded,
+        coinsVersion,
+        latestCoinsVersion,
+        refresh,
+        addCoins,
+        isOwned,
+        buyItem,
+      }}
+    >
       {children}
     </CoinContext.Provider>
   );

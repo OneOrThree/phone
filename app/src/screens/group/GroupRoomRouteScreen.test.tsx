@@ -43,6 +43,23 @@ jest.mock('@/store/UserContext', () => ({
   useUser: () => ({ userId: 'me' }),
 }));
 
+// 그룹방이 정산 감지 시 잔액을 다시 받는다(CoinContext) — 테스트 트리엔 Provider가 없다.
+// refresh는 **한 개를 계속 돌려준다** — 렌더마다 새 함수를 주면 load→reload 신원이 흔들려
+// 이 파일이 잠그려는 '콜백 신원 고정'이 목 때문에 깨진다(실제 Provider도 useCallback으로 고정한다).
+jest.mock('@/store/CoinContext', () => {
+  const refresh = jest.fn();
+  const latestCoinsVersion = () => 1;
+  return {
+    useCoins: () => ({
+      coins: 100,
+      coinsLoaded: true,
+      coinsVersion: 1,
+      latestCoinsVersion,
+      refresh,
+    }),
+  };
+});
+
 jest.mock('@/services/analyticsEvents', () => ({ logGroupInviteShared: jest.fn() }));
 
 jest.mock('@/services/groupApi', () => ({
