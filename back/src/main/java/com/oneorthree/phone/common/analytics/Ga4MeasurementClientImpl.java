@@ -4,12 +4,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriBuilder;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +40,14 @@ public class Ga4MeasurementClientImpl implements Ga4MeasurementClient {
     private static final String COLLECT_PATH = "/mp/collect";
     private static final String ENV_PARAM = "env";
 
+    /**
+     * 전송 타임아웃. 기본값(무제한)에 맡기면 GA4 가 응답을 물고 있을 때 ga4Executor 스레드 1~2개가
+     * 그대로 잠기고 큐 500 이 조용히 차오른다 — 유저 흐름은 막히지 않지만 이벤트가 통째로 유실된다.
+     * 짧게 끊고 버리는 편이 분석 데이터에 낫다.
+     */
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(3);
+
     private final RestClient restClient;
     private final Ga4Properties properties;
     private final String env;
@@ -48,7 +58,20 @@ public class Ga4MeasurementClientImpl implements Ga4MeasurementClient {
             @Value("${spring.profiles.active:local}") String env) {
         this.properties = properties;
         this.env = env;
-        this.restClient = RestClient.builder().baseUrl(GA4_BASE_URL).build();
+
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(CONNECT_TIMEOUT);
+        requestFactory.setReadTimeout(READ_TIMEOUT);
+        this.restClient = RestClient.builder().baseUrl(GA4_BASE_URL).requestFactory(requestFactory).build();
+
+        // 배선 누락은 기동 시점에 한 번 크게 알린다. 이벤트마다 WARN 을 찍으면 참여가 몰릴 때
+        // 로그가 그 경고로 뒤덮여 정작 봐야 할 것을 가린다(전송 시점 로그는 debug 로 낮춰 둔다).
+        if (isBlank(properties.getFirebaseAppId()) || isBlank(properties.getAppApiSecret())) {
+            log.warn("GA4 앱스트림 시크릿 미설정 — GA4_FIREBASE_APP_ID/GA4_APP_API_SECRET 확인 필요. 앱스트림 이벤트는 전송되지 않는다");
+        }
+        if (isBlank(properties.getWebMeasurementId()) || isBlank(properties.getWebApiSecret())) {
+            log.warn("GA4 웹스트림 시크릿 미설정 — GA4_WEB_MEASUREMENT_ID/GA4_WEB_API_SECRET 확인 필요. 웹스트림 이벤트는 전송되지 않는다");
+        }
     }
 
     /**
@@ -63,7 +86,8 @@ public class Ga4MeasurementClientImpl implements Ga4MeasurementClient {
             return;
         }
         if (isBlank(properties.getFirebaseAppId()) || isBlank(properties.getAppApiSecret())) {
-            log.warn("GA4 앱스트림 설정 누락 — GA4_FIREBASE_APP_ID/GA4_APP_API_SECRET 확인 필요 (event={})", name);
+            // 배선 누락은 기동 시 WARN 으로 이미 알렸다 — 여기서 또 찍으면 이벤트마다 로그가 쌓인다
+            log.debug("GA4 앱스트림 미전송 — 시크릿 미설정 (event={})", name);
             return;
         }
         Map<String, Object> body = new LinkedHashMap<>();
@@ -88,7 +112,7 @@ public class Ga4MeasurementClientImpl implements Ga4MeasurementClient {
             return;
         }
         if (isBlank(properties.getWebMeasurementId()) || isBlank(properties.getWebApiSecret())) {
-            log.warn("GA4 웹스트림 설정 누락 — GA4_WEB_MEASUREMENT_ID/GA4_WEB_API_SECRET 확인 필요 (event={})", name);
+            log.debug("GA4 웹스트림 미전송 — 시크릿 미설정 (event={})", name);
             return;
         }
         Map<String, Object> body = new LinkedHashMap<>();
