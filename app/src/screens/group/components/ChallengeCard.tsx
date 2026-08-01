@@ -71,6 +71,10 @@ export interface ChallengeCardProps {
   // 내기 시트 진입 — 시트 상태·API·재조회는 전부 부모가 쥔다(카드는 표현만).
   // 미전달이면 내기 영역 자체를 그리지 않는다 — 눌러도 아무 일이 없는 버튼을 세우지 않기 위해서다.
   onOpenBet?: (mode: BetSheetMode) => void;
+  // 내기 진입점 잠금 — 부모가 성공 직후 재조회하는 동안 켠다. 그 창에서 카드는 아직 '내기 이전'
+  // 모습이라 다시 누르면 같은 내기를 또 열려 하고, 서버가 BET_ALREADY_EXISTS로 튕긴다(3차 리뷰 F6).
+  // 영역 자체는 그대로 둔다 — 사라졌다 나타나면 방금 한 일이 취소된 것처럼 보인다.
+  betLocked?: boolean;
 }
 
 export default function ChallengeCard({
@@ -79,6 +83,7 @@ export default function ChallengeCard({
   myUserId,
   onDelete,
   onOpenBet,
+  betLocked,
 }: ChallengeCardProps) {
   const label = missionLabel(challenge);
   const progress = challenge.memberProgress;
@@ -99,26 +104,36 @@ export default function ChallengeCard({
   // 내기를 걸 수 있는 카드인가 — FOCUS · DURATION만이다(백 명세 결정 3).
   // SCREEN_TIME 달성은 클라 신뢰라 돈을 걸 수 없고, TIME_WINDOW는 서버가 진행률 자체를 안 준다.
   // 지원하지 않는 카드에는 '지난 내기'까지 포함해 **아무것도** 그리지 않는다.
+  // openBet은 const라 아래 betSupported 안에서 좁혀진 타입이 그대로 유지된다 — 진입점마다 `?.`를
+  // 또 붙이면 '없을 수도 있다'는 잘못된 신호가 남는다.
+  const openBet = onOpenBet;
   const betSupported =
-    !!onOpenBet && challenge.missionCategory === 'FOCUS' && challenge.missionType === 'DURATION';
+    !!openBet && challenge.missionCategory === 'FOCUS' && challenge.missionType === 'DURATION';
   const bet = challenge.bet ?? null;
   // 서버가 participants를 빠뜨려도 카드가 죽지 않게 — 인원 수는 표시용일 뿐이다.
   const betMembers = bet?.participants?.length ?? 0;
   const lastBet = challenge.lastSettledBet ?? null;
   const lastResults = lastBet?.results ?? [];
-  const lastAchieved = lastResults.filter((r) => r.achieved).length;
+  // achieved는 3상이다(계약 §3) — null(미판정)을 미달성으로 세면 달성 인원이 과소 집계된다.
+  const lastAchieved = lastResults.filter((r) => r.achieved === true).length;
 
   // 지난 내기 결과 상세 — 카드 안에 인별 표를 펼치면 오늘 진행 리스트와 뒤엉킨다.
   // payout은 '받은 금액'이라 그대로 쓰면 판돈을 낸 사실이 지워진다 → 손익(payout - stake)으로 적는다.
   function showLastBet() {
     if (!lastBet) return;
     const lines = lastResults.map((r) => {
+      // 미판정(정산 전·부분 실패) — 0으로 뭉개면 '판돈을 잃었다'로 읽힌다(진행 리스트 '—'와 같은 규칙).
+      if (r.payout === null || r.achieved === null) return `${r.nickname} · 미판정`;
       const delta = r.payout - lastBet.stake;
       return `${r.nickname} · ${r.achieved ? '달성' : '미달성'} · ${delta > 0 ? '+' : ''}${delta}`;
     });
+    // 전원 환불은 '0명 달성 · 전원 미달성 · 0'만 보면 판돈을 잃은 것으로 읽힌다 —
+    // 몰수가 없다는 것이 이 기능 신뢰의 핵심 규칙이라 첫 줄에 못 박는다(F8).
+    const head =
+      lastBet.status === 'REFUNDED' ? ['달성한 사람이 없어 전원 환불됐어요'] : ([] as string[]);
     Alert.alert(
       `지난 내기 (${mmdd(lastBet.betDate)})`,
-      [`판돈 ${lastBet.stake} · 팟 ${lastBet.pot}`, ...lines].join('\n'),
+      [...head, `판돈 ${lastBet.stake} · 팟 ${lastBet.pot}`, ...lines].join('\n'),
     );
   }
 
@@ -206,12 +221,14 @@ export default function ChallengeCard({
           {bet === null ? (
             // ① 아직 내기가 없다 — 아웃라인 소형 버튼. 카드 본체(진행 리스트)보다 약하게 둔다.
             <TouchableOpacity
-              style={s.betCreateBtn}
+              style={[s.betCreateBtn, betLocked && s.betCreateBtnOff]}
               activeOpacity={0.8}
-              onPress={() => onOpenBet?.('create')}
+              disabled={betLocked}
+              onPress={() => openBet('create')}
+              accessibilityRole="button"
               testID={`group.bet.create.${challenge.id}`}
             >
-              <Text style={s.betCreateText}>내기 걸기</Text>
+              <Text style={[s.betCreateText, betLocked && s.betCreateTextOff]}>내기 걸기</Text>
             </TouchableOpacity>
           ) : bet.myJoined ? (
             // ③ 내가 참여 중 — 판돈·팟·인원. '참여 중' 칩은 아직 열려 있는 내기에만 붙인다
@@ -227,13 +244,18 @@ export default function ChallengeCard({
             //    이미 오늘 목표를 달성했으면 서버가 거절하므로(BET_ALREADY_ACHIEVED) 미리 잠근다.
             <>
               <TouchableOpacity
-                style={[s.betRow, s.betJoinRow, bet.myAchievedNow && s.betJoinRowOff]}
+                style={[
+                  s.betRow,
+                  s.betJoinRow,
+                  (bet.myAchievedNow || betLocked) && s.betJoinRowOff,
+                ]}
                 activeOpacity={0.85}
-                disabled={bet.myAchievedNow}
-                onPress={() => onOpenBet?.('join')}
+                disabled={bet.myAchievedNow || betLocked}
+                onPress={() => openBet('join')}
+                accessibilityRole="button"
                 testID={`group.bet.join.${challenge.id}`}
               >
-                <Text style={[s.betText, bet.myAchievedNow && s.betTextOff]}>
+                <Text style={[s.betText, (bet.myAchievedNow || betLocked) && s.betTextOff]}>
                   🪙 판돈 {bet.stake} · {betMembers}명 참여 중 — 참가하기
                 </Text>
               </TouchableOpacity>
@@ -356,7 +378,9 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  betCreateBtnOff: { borderColor: T.border },
   betCreateText: { ...T.text.caption, color: T.accent },
+  betCreateTextOff: { color: T.inkMuted },
   betRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   // 참가 진입 행 — 누를 수 있는 자리라 배경 칩으로 버튼임을 알린다.
   betJoinRow: {

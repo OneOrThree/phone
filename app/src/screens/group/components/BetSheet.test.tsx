@@ -8,6 +8,9 @@
 //  3) 에러 분기. 재시도 가능한 실패(잔액)와 재시도해도 같은 실패(이미 있음·이미 달성·마감)를
 //     가른다 — 후자를 시트에 붙잡아 두면 같은 실패만 반복한다.
 //  4) BET_ALREADY_JOINED는 **성공 취급**이다(원하던 상태에 이미 도달했다).
+//  5) 잔액 3상(3차 리뷰 F1·F3). '못 받은 잔액'으로 부족을 단정하면 코인을 가진 사용자가 영영
+//     내기를 못 걸고, 서버가 부족을 확정했는데 CTA가 열려 있으면 같은 400만 반복한다.
+//  6) 재시도로 절대 안 풀리는 실패(사라진 챌린지·비멤버·게스트)를 '잠시 후 다시 시도'로 말하지 않는다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
@@ -37,11 +40,18 @@ jest.mock('@/services/analyticsEvents', () => ({
 // 날짜 경계를 테스트가 직접 고정한다(개설 전송값의 date).
 jest.mock('@/utils/localDate', () => ({ todayStr: jest.fn(() => '2026-08-01') }));
 
-// 잔액은 CoinContext가 정본 — Provider 대신 훅을 대체해 잔액과 refresh 호출을 직접 본다.
+// 게스트 안내가 계정 설정으로 보낸다 — 시트가 직접 네비게이션을 쥔다(GroupFindSheet와 같은 관행).
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: mockNavigate }),
+}));
+
+// 잔액은 CoinContext가 정본 — Provider 대신 훅을 대체해 잔액·미상 여부와 refresh 호출을 직접 본다.
 let mockCoins = 100;
+let mockCoinsLoaded = true;
 const mockRefresh = jest.fn(async () => {});
 jest.mock('@/store/CoinContext', () => ({
-  useCoins: () => ({ coins: mockCoins, refresh: mockRefresh }),
+  useCoins: () => ({ coins: mockCoins, coinsLoaded: mockCoinsLoaded, refresh: mockRefresh }),
 }));
 
 const mockCreateBet = createBet as jest.MockedFunction<typeof createBet>;
@@ -121,6 +131,7 @@ async function submit() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockCoins = 100;
+  mockCoinsLoaded = true;
   mockCreateBet.mockResolvedValue({ betId: BET_ID });
   mockJoinBet.mockResolvedValue(undefined);
 });
@@ -159,6 +170,21 @@ describe('개설 모드', () => {
     expect(screen.getByTestId('group.bet.balance')).toHaveTextContent('100');
     // 시트를 열 때 서버 잔액을 다시 받는다 — 판돈 차감·정산 지급은 서버가 하기 때문이다.
     expect(mockRefresh).toHaveBeenCalled();
+  });
+
+  // 숫자만 있으면 VoiceOver는 "10 30 50 100"이라고만 읽는다 — 무엇을 고르는 자리인지도,
+  // 무엇이 골라졌는지도 알 수 없다. 바로 위 '내 코인'과 값이 겹치면 더 모호하다(F9).
+  test('판돈 칩은 단위와 선택 상태까지 읽힌다', async () => {
+    await renderSheet('create');
+
+    const chip10 = screen.getByTestId('group.bet.stake.10');
+    expect(chip10).toHaveProp('accessibilityRole', 'button');
+    expect(chip10).toHaveProp('accessibilityLabel', '판돈 10코인');
+    expect(chip10).toHaveProp('accessibilityState', expect.objectContaining({ selected: true }));
+    expect(screen.getByTestId('group.bet.stake.50')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: false }),
+    );
   });
 });
 
@@ -222,8 +248,44 @@ describe('잔액 부족', () => {
   });
 });
 
+// 잔액 '미상'(F1) — 못 받은 잔액의 초기값 0을 '0코인'으로 읽으면, 코인 500을 가진 사용자가
+// `코인이 부족해요 (10 필요)`를 보며 영영 내기를 못 건다. 모르는 값으로 사용자를 잠그지 않는다.
+describe('잔액 미상', () => {
+  test('잔액을 못 받았으면 숫자를 지어내지 않고 부족 판정도 하지 않는다', async () => {
+    mockCoinsLoaded = false;
+    mockCoins = 0;
+    await renderSheet('create');
+
+    expect(screen.getByTestId('group.bet.balance')).toHaveTextContent('—');
+    expect(screen.getByText('잔액을 불러오지 못했어요')).toBeOnTheScreen();
+    // CTA는 열어 둔다 — 판정은 서버(INSUFFICIENT_CURRENCY)에 맡긴다.
+    expect(screen.getByText('내기 열기')).toBeOnTheScreen();
+    await submit();
+    expect(mockCreateBet).toHaveBeenCalled();
+  });
+
+  test('인라인 재시도로 잔액을 다시 받는다', async () => {
+    mockCoinsLoaded = false;
+    await renderSheet('create');
+    mockRefresh.mockClear();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.balance.retry'));
+    });
+    expect(mockRefresh).toHaveBeenCalled();
+  });
+
+  test('잔액을 받은 뒤에는 미상 안내가 사라진다', async () => {
+    await renderSheet('create');
+    expect(screen.getByTestId('group.bet.balance')).toHaveTextContent('100');
+    expect(screen.queryByText('잔액을 불러오지 못했어요')).toBeNull();
+  });
+});
+
 describe('에러 분기', () => {
-  test('INSUFFICIENT_CURRENCY — 시트를 열어 둔 채 인라인으로 알리고 잔액을 다시 받는다', async () => {
+  // 서버 판정을 앱 상태로 승격한다 — refresh가 실패해 낡은 큰 잔액이 남아 있어도
+  // "이 판돈으로는 안 된다"는 이미 확정이다. 안 잠그면 같은 400만 무한 반복한다(F3).
+  test('INSUFFICIENT_CURRENCY — 인라인으로 알리고 CTA를 잠근다', async () => {
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(400, 'INSUFFICIENT_CURRENCY'));
     await renderSheet('create');
     mockRefresh.mockClear();
@@ -233,20 +295,53 @@ describe('에러 분기', () => {
     expect(mockRefresh).toHaveBeenCalled();
     expect(onDone).not.toHaveBeenCalled();
 
-    // 실패 후에도 다시 시도할 수 있어야 한다(submitting이 걸려 있으면 안 된다).
+    // 같은 판돈으로 또 눌러도 나가지 않는다.
     await submit();
-    expect(mockCreateBet).toHaveBeenCalledTimes(2);
+    expect(mockCreateBet).toHaveBeenCalledTimes(1);
   });
 
-  test('BET_ALREADY_EXISTS — 알리고 닫는다(카드 상태가 이미 낡았다)', async () => {
+  test('INSUFFICIENT_CURRENCY — 잔액을 다시 받으면 부족분까지 적는다', async () => {
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(400, 'INSUFFICIENT_CURRENCY'));
+    await renderSheet('create');
+    // 400과 함께 도착하는 실제 잔액(다른 기기에서 이미 썼다) — 그제서야 부족분을 계산할 수 있다.
+    mockRefresh.mockImplementationOnce(async () => {
+      mockCoins = 5;
+    });
+    await submit();
+
+    // 부족분은 CTA 라벨이 규격대로 들고 있다(§1) — 같은 문장을 인라인에 또 적지 않는다.
+    expect(screen.getByText('코인이 부족해요 (5 필요)')).toBeOnTheScreen();
+    expect(screen.queryByText('코인이 부족해요')).toBeNull();
+  });
+
+  test('INSUFFICIENT_CURRENCY — 판돈을 바꾸면 서버 판정이 풀린다', async () => {
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(400, 'INSUFFICIENT_CURRENCY'));
+    await renderSheet('create');
+    await submit();
+
+    // 판돈이 달라지면 앞선 400은 다른 금액에 대한 판정이라 더 이상 근거가 아니다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.stake.30'));
+    });
+    expect(screen.queryByText('코인이 부족해요')).toBeNull();
+
+    await submit();
+    expect(mockCreateBet).toHaveBeenLastCalledWith(GROUP_ID, CHALLENGE_ID, {
+      stake: 30,
+      date: '2026-08-01',
+    });
+  });
+
+  // 누가 먼저 열었는지는 앱이 알 수 없다 — 성공 직후 재조회 전에 다시 누른 **본인**일 수도 있다.
+  test('BET_ALREADY_EXISTS — 사실 범위 안에서만 알리고 닫는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_ALREADY_EXISTS'));
     await renderSheet('create');
     await submit();
 
     expect(alertSpy).toHaveBeenCalledWith(
-      '이미 오늘 내기가 있어요',
-      '다른 그룹원이 먼저 내기를 열었어요.',
+      '이미 오늘 내기가 열려 있어요',
+      '최신 상태로 새로고침할게요.',
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -264,7 +359,7 @@ describe('에러 분기', () => {
     expect(onDone).toHaveBeenCalled();
   });
 
-  test('BET_CLOSED — 마감을 알리고 닫는다', async () => {
+  test('BET_CLOSED(참가) — 마감을 알리고 닫는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockJoinBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CLOSED'));
     await renderSheet('join', { bet: bet() });
@@ -272,6 +367,61 @@ describe('에러 분기', () => {
 
     expect(alertSpy).toHaveBeenCalledWith('마감된 내기예요', '이미 마감돼 참가할 수 없어요.');
     expect(onDone).toHaveBeenCalled();
+  });
+
+  // 같은 코드가 개설에선 'date가 오늘(KST)이 아니다'라는 뜻이다(계약 §4) —
+  // 아직 만들지도 않은 내기에 "이미 마감돼 참가할 수 없어요"는 뜻이 통하지 않는다.
+  test('BET_CLOSED(개설) — 날짜 문제로 말한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CLOSED'));
+    await renderSheet('create');
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '오늘 내기만 열 수 있어요',
+      '날짜가 바뀌었어요. 새로고침 후 다시 시도해주세요.',
+    );
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  test('NOT_FOUND — 사라진 챌린지를 알리고 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
+    await renderSheet('create');
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  test('MEMBER_ONLY — 그룹원만 이용할 수 있다고 알리고 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockJoinBet.mockRejectedValueOnce(axiosErrorWith(403, 'MEMBER_ONLY'));
+    await renderSheet('join', { bet: bet() });
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '그룹원만 이용할 수 있어요',
+      '그룹에서 나갔거나 더 이상 멤버가 아니에요.',
+    );
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  // 게스트는 재화를 쓸 수 없다 — '잠시 후 다시 시도'는 거짓이라 로그인 안내로 갈아 끼운다.
+  test('GUEST_FORBIDDEN — 로그인 안내로 바뀌고 계정 설정으로 보낸다', async () => {
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(403, 'GUEST_FORBIDDEN'));
+    await renderSheet('create');
+    await submit();
+
+    expect(screen.getByText('로그인하면 내기에 참여할 수 있어요')).toBeOnTheScreen();
+    expect(screen.queryByTestId('group.bet.submit')).toBeNull();
+    expect(onDone).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.login'));
+    });
+    expect(onClose).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('SettingsAccount');
   });
 
   test('BET_ALREADY_JOINED — 성공 취급(계측은 발행하지 않는다)', async () => {
@@ -293,5 +443,28 @@ describe('에러 분기', () => {
 
     expect(screen.getByText('참가하지 못했어요. 잠시 후 다시 시도해주세요.')).toBeOnTheScreen();
     expect(onDone).not.toHaveBeenCalled();
+  });
+});
+
+// 전송 중엔 CTA도 딤 탭도 막혀 있다(언마운트 방지) — 최대 15초(axios 타임아웃) 동안
+// 멈춘 화면으로 보이지 않게 진행 중임을 한 줄로 알린다(F10).
+describe('전송 중', () => {
+  test('처리 중 안내를 세우고 끝나면 걷는다', async () => {
+    let finish: (v: { betId: string }) => void = () => {};
+    mockCreateBet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await renderSheet('create');
+    await submit();
+
+    expect(screen.getByText('처리 중이에요…')).toBeOnTheScreen();
+
+    await act(async () => {
+      finish({ betId: BET_ID });
+    });
+    expect(onDone).toHaveBeenCalled();
   });
 });

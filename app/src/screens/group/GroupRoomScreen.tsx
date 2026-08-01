@@ -118,10 +118,19 @@ export default function GroupRoomScreen({
   const [composeOpen, setComposeOpen] = useState(false);
   // 내기 시트(3차) — 어떤 챌린지를 어떤 모드로 열었나. 내기 데이터는 challenges 응답에 이미
   // 실려 있으므로(계약 §2-3) 시트를 열려고 추가 조회를 하지 않는다.
+  // ⚠️ challenge **객체를 쥐지 않는다**(3차 리뷰 F2) — 포커스·포그라운드 복귀가 돌린 load()가
+  //    challenges를 통째로 갈아도 시트의 복사본은 열었을 때 값 그대로 남아, 낡은 팟·참가자를 보고
+  //    돈을 걸게 된다. id만 쥐고 렌더 시점에 **살아 있는 배열에서** 파생한다.
+  //    betId는 '열었을 때의 그 내기인가'를 보기 위한 것이다(자정을 넘겨 다른 날짜 내기로 갈리는 경우).
   const [betSheet, setBetSheet] = useState<{
-    challenge: GroupChallengeResponse;
+    challengeId: string;
     mode: BetSheetMode;
+    betId: string | null;
   } | null>(null);
+  // 내기 성공 직후 재조회가 도는 동안 카드의 내기 진입점을 잠근다(F6) — 그 창의 카드는 아직
+  // '내기 이전' 모습이라 다시 누르면 같은 내기를 또 열려 한다. 시트가 한 번에 하나뿐이라
+  // 챌린지별 플래그 대신 화면 단위 하나로 둔다.
+  const [betBusy, setBetBusy] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
   // 요청 시퀀스 — 당겨서 새로고침 중 '다시 시도'를 누르거나 연타하면 reload()·onRefresh()가
@@ -234,6 +243,28 @@ export default function GroupRoomScreen({
     load().finally(() => setRefreshing(false));
   }, [load]);
 
+  // 시트가 그릴 챌린지 — **살아 있는 배열에서 파생**한다(F2). 배경 재조회가 반영된 최신 팟·참가자다.
+  const betChallenge =
+    betSheet !== null && challenges !== null
+      ? (challenges.find((c) => c.id === betSheet.challengeId) ?? null)
+      : null;
+
+  // 시트가 가리키던 대상이 사라졌으면 닫는다 — 없는 챌린지의 낡은 화면으로 돈을 걸 수는 없다.
+  // 참가 모드에서 내기가 다른 내기로 갈린 경우(자정을 넘겨 새 날짜의 내기가 열림)도 같다.
+  // 조용히 바꿔 끼우지 않고 닫아서 **다시 열게** 한다 — 보고 있던 판돈·팟이 소리 없이 달라지면
+  // 사용자는 자기가 확인한 값으로 걸었다고 믿는다.
+  useEffect(() => {
+    if (betSheet === null || challenges === null) return;
+    if (betChallenge === null) {
+      setBetSheet(null);
+      return;
+    }
+    if (betSheet.mode === 'join' && (betChallenge.bet?.betId ?? null) !== betSheet.betId) {
+      setBetSheet(null);
+      Alert.alert('내기가 바뀌었어요', '최신 내기로 다시 열어주세요.');
+    }
+  }, [betSheet, challenges, betChallenge]);
+
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(§6-4).
   const me = userId ? detail?.members.find((m) => m.userId === userId) : undefined;
   const isOwner = me?.role === 'OWNER';
@@ -274,7 +305,15 @@ export default function GroupRoomScreen({
       try {
         await deleteChallenge(groupId, challengeId);
       } catch (e) {
-        if (groupErrorCode(e) !== 'NOT_FOUND') {
+        const code = groupErrorCode(e);
+        // 진행 중인 내기가 있으면 서버가 삭제를 막는다(백 계약 CHALLENGE_HAS_OPEN_BET, 409) —
+        // 이미 판돈을 걷어 둔 내기를 챌린지와 함께 지우면 돈이 갈 곳을 잃기 때문이다.
+        // 공통 문구로 떨어뜨리면 '잠시 후 다시 시도'를 반복해도 정산 전까진 영원히 같은 실패다.
+        if (code === 'CHALLENGE_HAS_OPEN_BET') {
+          Alert.alert('챌린지를 삭제할 수 없어요', '진행 중인 내기가 있어 삭제할 수 없어요.');
+          return;
+        }
+        if (code !== 'NOT_FOUND') {
           Alert.alert('챌린지를 삭제하지 못했어요', '잠시 후 다시 시도해주세요.');
           return;
         }
@@ -565,7 +604,10 @@ export default function GroupRoomScreen({
                 isOwner={!!isOwner}
                 myUserId={userId}
                 onDelete={onDeleteChallenge}
-                onOpenBet={(mode) => setBetSheet({ challenge: c, mode })}
+                betLocked={betBusy}
+                onOpenBet={(mode) =>
+                  setBetSheet({ challengeId: c.id, mode, betId: c.bet?.betId ?? null })
+                }
               />
             ))}
           </View>
@@ -656,15 +698,17 @@ export default function GroupRoomScreen({
       )}
 
       {/* ── 내기 시트(개설·참가, 3차 §1) ── */}
-      {betSheet !== null && (
+      {betSheet !== null && betChallenge !== null && (
         <BetSheet
           groupId={groupId}
-          challenge={betSheet.challenge}
+          challenge={betChallenge}
           mode={betSheet.mode}
           onClose={() => setBetSheet(null)}
           onDone={() => {
             setBetSheet(null);
-            load();
+            // 재조회가 끝날 때까지 진입점을 잠근다 — 그전의 카드는 아직 내기 이전 모습이다(F6).
+            setBetBusy(true);
+            load().finally(() => setBetBusy(false));
           }}
         />
       )}

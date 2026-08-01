@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
@@ -8,6 +10,7 @@ import { logGroupBetCreated, logGroupBetJoined } from '@/services/analyticsEvent
 import { useCoins } from '@/store/CoinContext';
 import { todayStr } from '@/utils/localDate';
 import type { GroupChallengeResponse } from '@/types/dto/group';
+import type { V2RootStackParamList } from '@/navigation/types';
 import type { BetSheetMode } from './ChallengeCard';
 import { categoryLabel, missionLabel } from './challengeLabel';
 
@@ -20,6 +23,14 @@ import { categoryLabel, missionLabel } from './challengeLabel';
 //    판돈 차감·정산 지급은 **서버가** 하므로 앱의 마운트 시점 잔액은 이미 낡아 있을 수 있고,
 //    낡은 잔액으로 CTA를 열어 주면 INSUFFICIENT_CURRENCY로만 실패를 알게 된다.
 // ⚠️ 성공·중복(BET_ALREADY_JOINED) 뒤에도 refresh() — 판돈이 빠진 잔액을 곧바로 맞춘다.
+//
+// 잔액 3상(3차 리뷰 F1·F3) — '모르는 값으로 사용자를 잠그지 않는다'가 원칙이다:
+//   · coinsLoaded === false : **미상**. 잔액 자리는 '—', 부족 판정을 하지 않고 CTA는 열어 둔다.
+//     판정은 서버에 맡긴다(서버가 400 INSUFFICIENT_CURRENCY로 확정해 준다). 인라인 재시도 한 줄을 둔다.
+//   · coinsLoaded === true  : 그 값으로 부족분까지 계산해 **누르기 전에** 막는다.
+//   · 서버가 부족을 확정(INSUFFICIENT_CURRENCY)하면 그 판정을 앱 상태로 승격해 CTA를 잠근다 —
+//     refresh가 실패해 낡은 큰 잔액이 남아 있어도 "이 판돈으로는 안 된다"는 이미 확정이다.
+//     판돈을 바꾸면 다른 금액에 대한 판정이므로 해제한다.
 //
 // 에러 표현(그룹 시트 3종 공통 규칙 + 이 시트의 예외):
 //   · 다시 시도해 볼 만한 실패(잔액 부족·알 수 없는 오류)는 **인라인 문구**. 시트를 열어 둔다.
@@ -38,6 +49,12 @@ const CREATE_NOTE =
   '오늘 목표를 달성한 사람끼리 팟을 나눠 가져요. 아무도 달성 못 하면 전액 환불돼요.';
 const JOIN_NOTE = '참가하면 판돈이 바로 빠져나가요. 오늘 목표를 달성해야 팟을 나눠 가져요.';
 
+// 잔액 미상 — 값 자리는 '—'(진행 리스트의 미집계 표기와 같은 규칙), 사유와 재시도는 한 줄로 둔다.
+const BALANCE_UNKNOWN = '—';
+const BALANCE_FAILED_CAPTION = '잔액을 불러오지 못했어요';
+// 전송 중 — 딤 탭·백을 막는 대신(F10) 멈춘 화면이 아님을 한 줄로 알린다.
+const SUBMITTING_CAPTION = '처리 중이에요…';
+
 // 잔액 부족 — CTA 라벨이 부족분을 직접 들고 있다(legacy ShopScreen의 '부족 (N 더 필요)' 규격).
 function shortageLabel(shortage: number): string {
   return `코인이 부족해요 (${shortage} 필요)`;
@@ -55,10 +72,15 @@ export interface BetSheetProps {
 }
 
 export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: BetSheetProps) {
-  const { coins, refresh } = useCoins();
+  const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  const { coins, coinsLoaded, refresh } = useCoins();
   const [stake, setStake] = useState<number>(STAKE_DEFAULT);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // 서버가 확정한 잔액 부족(F3). 잔액을 다시 못 받아도 이 판돈이 안 된다는 사실은 이미 정해졌다.
+  const [serverInsufficient, setServerInsufficient] = useState(false);
+  // 게스트 차단 — 시트를 로그인 안내로 갈아 끼운다(GroupInviteSheet의 게스트 경로와 같은 형태).
+  const [guestBlocked, setGuestBlocked] = useState(false);
 
   const bet = challenge.bet ?? null;
   const label = missionLabel(challenge) ?? categoryLabel(challenge);
@@ -66,9 +88,10 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
   // 참가 모드의 판돈은 개설자가 이미 정했다 — 고를 수 없다.
   const amount = isCreate ? stake : (bet?.stake ?? 0);
   const shortage = amount - coins;
-  const insufficient = shortage > 0;
+  // 잔액을 모르면 부족 판정 자체를 하지 않는다 — 모르는 값으로 사용자를 잠그지 않는다(F1).
+  const insufficient = coinsLoaded && shortage > 0;
   // 참가 모드인데 내기가 없다 = 카드가 열어 줄 수 없는 조합(부모가 막는다). 방어적으로 CTA만 잠근다.
-  const disabled = submitting || insufficient || (!isCreate && bet === null);
+  const disabled = submitting || insufficient || serverInsufficient || (!isCreate && bet === null);
 
   // 시트를 열 때 서버 잔액을 다시 받는다(§0-3).
   useEffect(() => {
@@ -81,6 +104,12 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
     onDone();
   }
 
+  // 판돈을 바꾸면 서버 판정은 **다른 금액에 대한 것**이 되므로 해제한다(F3).
+  function pickStake(v: number) {
+    setStake(v);
+    setServerInsufficient(false);
+  }
+
   async function submit() {
     if (disabled) return;
     setSubmitting(true);
@@ -90,7 +119,9 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
         await createBet(groupId, challenge.id, { stake: amount, date: todayStr() });
         logGroupBetCreated({ stake: amount });
       } else {
-        if (bet === null) return;
+        // 도달할 수 없는 조합이지만(위 disabled 가드), 도달하면 공통 문구로 떨어뜨린다 —
+        // 그냥 return하면 submitting이 true로 남아 시트가 영영 잠긴다(F12).
+        if (bet === null) throw new Error('bet is missing');
         await joinBet(groupId, bet.betId);
         logGroupBetJoined({ stake: amount });
       }
@@ -105,19 +136,40 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
           refresh();
           onDone();
           return;
+        // 누가 먼저 열었는지는 앱이 알 수 없다 — 내 성공 직후의 재진입일 수도 있다(F6).
+        // 사실 범위 안에서만 말한다.
         case 'BET_ALREADY_EXISTS':
-          failAndReload('이미 오늘 내기가 있어요', '다른 그룹원이 먼저 내기를 열었어요.');
+          failAndReload('이미 오늘 내기가 열려 있어요', '최신 상태로 새로고침할게요.');
           return;
         case 'BET_ALREADY_ACHIEVED':
           failAndReload('참가할 수 없어요', '이미 오늘 목표를 달성해서 참가할 수 없어요');
           return;
+        // 같은 코드가 두 뜻이다(계약 §4) — 참가는 '이미 마감', 개설은 'date가 오늘(KST)이 아님'.
+        // 아직 만들지도 않은 내기에 "이미 마감돼 참가할 수 없어요"는 뜻이 통하지 않는다(F4).
         case 'BET_CLOSED':
-          failAndReload('마감된 내기예요', '이미 마감돼 참가할 수 없어요.');
+          failAndReload(
+            isCreate ? '오늘 내기만 열 수 있어요' : '마감된 내기예요',
+            isCreate
+              ? '날짜가 바뀌었어요. 새로고침 후 다시 시도해주세요.'
+              : '이미 마감돼 참가할 수 없어요.',
+          );
           return;
-        // 서버가 센 잔액이 앱과 다르다 — 다시 받아 CTA가 실제 잔액으로 판정하게 한다.
+        // 사라진 챌린지에 계속 걸어 봐야 결과는 같다 — 닫고 부모가 목록을 다시 받는다.
+        case 'NOT_FOUND':
+          failAndReload('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
+          return;
+        // 그룹에서 빠졌다 — 재시도로 풀리지 않는다. 부모가 재조회하면서 방 자체를 정리한다.
+        case 'MEMBER_ONLY':
+          failAndReload('그룹원만 이용할 수 있어요', '그룹에서 나갔거나 더 이상 멤버가 아니에요.');
+          return;
+        // 게스트는 재화가 없다 — '잠시 후 다시 시도'는 거짓이라 로그인 안내로 갈아 끼운다(F5).
+        case 'GUEST_FORBIDDEN':
+          setGuestBlocked(true);
+          break;
+        // 서버가 센 잔액이 앱과 다르다 — 다시 받아 부족분을 적고, 판정 자체는 서버 것을 그대로 쓴다.
         case 'INSUFFICIENT_CURRENCY':
           refresh();
-          setErrorMsg('코인이 부족해요');
+          setServerInsufficient(true);
           break;
         default:
           setErrorMsg(
@@ -130,6 +182,31 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
     }
   }
 
+  // ── 게스트 — 내기는 재화를 쓰는 기능이라 로그인 전에는 열리지 않는다(§5-3의 게스트 안내 규격) ──
+  // 문구·버튼 규격은 GroupInviteSheet의 게스트 화면 그대로다.
+  if (guestBlocked) {
+    return (
+      <SheetShell onClose={onClose} asModal>
+        <Text style={s.title}>로그인하면 내기에 참여할 수 있어요</Text>
+        <Text style={s.sub}>게스트는 코인을 쓸 수 없어요.</Text>
+        <TouchableOpacity
+          style={s.submitBtn}
+          activeOpacity={0.85}
+          onPress={() => {
+            onClose();
+            navigation.navigate('SettingsAccount');
+          }}
+          testID="group.bet.login"
+        >
+          <Text style={s.submitText}>로그인하러 가기</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.ghostBtn} activeOpacity={0.7} onPress={onClose}>
+          <Text style={s.ghostText}>다음에 할게요</Text>
+        </TouchableOpacity>
+      </SheetShell>
+    );
+  }
+
   return (
     // 전송 중에는 딤 탭으로 닫히지 않게 막는다(요청이 떠 있는 상태에서의 언마운트 방지).
     <SheetShell onClose={submitting ? () => {} : onClose} asModal>
@@ -138,10 +215,27 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
 
       <View style={s.balance}>
         <Text style={s.balanceLabel}>내 코인</Text>
-        <Text style={s.balanceValue} testID="group.bet.balance">
-          {coins}
+        {/* 미상이면 숫자를 지어내지 않는다 — 0을 적으면 화면이 사용자의 재산을 거짓으로 말한다(F1). */}
+        <Text style={[s.balanceValue, !coinsLoaded && s.balanceUnknown]} testID="group.bet.balance">
+          {coinsLoaded ? coins : BALANCE_UNKNOWN}
         </Text>
       </View>
+
+      {/* 잔액을 못 받았다 — 사유와 재시도를 한 줄로. CTA는 잠그지 않고 서버 판정에 맡긴다. */}
+      {!coinsLoaded && (
+        <View style={s.balanceRetryRow}>
+          <Text style={s.balanceRetryText}>{BALANCE_FAILED_CAPTION}</Text>
+          <TouchableOpacity
+            onPress={() => refresh()}
+            hitSlop={12}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            testID="group.bet.balance.retry"
+          >
+            <Text style={s.balanceRetryLink}>다시 시도</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {isCreate ? (
         <>
@@ -154,7 +248,11 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
                   key={v}
                   style={[s.chip, on ? s.chipOn : null]}
                   activeOpacity={0.8}
-                  onPress={() => setStake(v)}
+                  onPress={() => pickStake(v)}
+                  // 숫자만 읽히면 무엇을 고르는 자리인지·무엇이 골라졌는지 알 수 없다(F9).
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={`판돈 ${v}코인`}
                   testID={`group.bet.stake.${v}`}
                 >
                   <Text style={[s.chipText, on ? s.chipTextOn : null]}>{v}</Text>
@@ -192,6 +290,9 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
         <Text style={s.noteText}>{isCreate ? CREATE_NOTE : JOIN_NOTE}</Text>
       </View>
 
+      {/* 서버가 확정한 부족. 잔액을 다시 받아 부족분(N)까지 알게 되면 CTA 라벨이 규격대로
+          `코인이 부족해요 (N 필요)`를 말하므로(§1), 같은 문장을 두 번 적지 않는다. */}
+      {serverInsufficient && !insufficient && <Text style={s.error}>코인이 부족해요</Text>}
       {errorMsg !== null && <Text style={s.error}>{errorMsg}</Text>}
 
       <TouchableOpacity
@@ -209,6 +310,10 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
           </Text>
         )}
       </TouchableOpacity>
+
+      {/* 전송 중엔 CTA도 딤 탭도 막혀 있다 — 최대 15초(axios 타임아웃) 동안 멈춘 화면으로
+          보이지 않게 한 줄 세운다. 닫기를 열어 주는 쪽은 AbortController가 필요해 더 두껍다(F10). */}
+      {submitting && <Text style={s.submittingCaption}>{SUBMITTING_CAPTION}</Text>}
     </SheetShell>
   );
 }
@@ -235,6 +340,18 @@ const s = StyleSheet.create({
     color: T.accentDeep,
     fontVariant: ['tabular-nums'],
   },
+  // 미상 '—' — 실제 값과 같은 무게로 두면 0코인과 구분되지 않는다(진행 리스트 progressNone과 같은 규칙).
+  balanceUnknown: { color: T.inkFaint },
+
+  // 잔액 조회 실패 한 줄 — 문구는 danger, 재시도는 accent 링크(그룹 화면 공통 배너 규격).
+  balanceRetryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: T.space.sm,
+  },
+  balanceRetryText: { ...T.text.caption, color: T.dangerInk },
+  balanceRetryLink: { ...T.text.caption, color: T.accent },
 
   label: {
     ...T.text.caption,
@@ -313,4 +430,22 @@ const s = StyleSheet.create({
   },
   submitBtnOff: { opacity: 0.5 },
   submitText: { ...T.text.subtitle, color: T.white },
+  // 전송 중 안내 — CTA 바로 아래 가운데 한 줄.
+  submittingCaption: {
+    ...T.text.caption,
+    fontWeight: '500',
+    color: T.inkMuted,
+    textAlign: 'center',
+    marginTop: T.space.sm,
+  },
+
+  // 게스트 안내의 보조 버튼 — GroupInviteSheet의 ghost 규격 그대로.
+  ghostBtn: {
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: T.space.xs,
+    marginBottom: T.space.xs,
+  },
+  ghostText: { ...T.text.label, color: T.inkSub },
 });

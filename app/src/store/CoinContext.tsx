@@ -14,8 +14,13 @@ import { STORAGE_KEYS } from '@/types/storage';
 
 interface CoinContextValue {
   coins: number;
+  // 서버 잔액을 **한 번이라도 받아 왔는가**. false면 coins(0)는 '0코인'이 아니라 '아직 모름'이다 —
+  // 넷(진짜 0 · 최초 로드 실패 · refresh 실패 · 응답 전)이 같은 숫자로 뭉개지면 화면이 사용자의
+  // 재산에 대해 거짓을 말한다(3차 리뷰 F1). 잔액으로 사용자를 잠그는 화면은 이 값을 먼저 본다.
+  coinsLoaded: boolean;
   // 서버 잔액 재조회. 마운트 1회 로드만으로는 **서버가 깎은 잔액**(그룹 내기 판돈 차감·정산 지급)이
   // 앱에 영영 반영되지 않는다 — 잔액을 보여 주는 화면이 열릴 때 직접 부른다(3차 내기 시트).
+  // 실패해도 throw하지 않는다(호출처가 try/catch를 두지 않아도 되게) — 대신 coinsLoaded가 false로 돌아간다.
   refresh: () => Promise<void>;
   addCoins: (amount: number) => Promise<void>;
   isOwned: (itemId: string) => boolean;
@@ -65,17 +70,21 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   // 게스트도 UUID JWT를 받으므로(auth.ts guestLogin) userId 버킷만으로 계정이 분리된다.
   const bucket = userId ?? FALLBACK_BUCKET;
   const [coins, setCoins] = useState(0);
+  // 초기값이 false인 것이 핵심이다 — 응답 전의 0을 '0코인'으로 읽는 화면이 없어야 한다.
+  const [coinsLoaded, setCoinsLoaded] = useState(false);
   const [ownedItemIds, setOwnedItemIds] = useState<string[]>([]);
   const loaded = useRef(false);
 
-  // 서버에서 잔액 로드. 실패는 조용히 무시한다 — 잔액은 화면을 막을 값이 아니고,
-  // 다음 refresh(시트 오픈 등)에서 자연 재시도된다.
+  // 서버에서 잔액 로드. 실패해도 던지지 않는다 — 잔액은 화면을 막을 값이 아니고,
+  // 다음 refresh(시트 오픈 등)에서 자연 재시도된다. 다만 **조용히 삼키지는 않는다**:
+  // coinsLoaded를 false로 되돌려 '지금 쥔 값은 못 믿는다'를 소비자가 알 수 있게 한다(F1).
   const refresh = useCallback(async () => {
     try {
       const res = await api.get<number>('/api/v1/currency');
       setCoins(res.data);
+      setCoinsLoaded(true);
     } catch {
-      // 무시
+      setCoinsLoaded(false);
     }
   }, []);
 
@@ -126,7 +135,7 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <CoinContext.Provider value={{ coins, refresh, addCoins, isOwned, buyItem }}>
+    <CoinContext.Provider value={{ coins, coinsLoaded, refresh, addCoins, isOwned, buyItem }}>
       {children}
     </CoinContext.Provider>
   );

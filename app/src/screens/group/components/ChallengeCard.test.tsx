@@ -73,13 +73,14 @@ function lastSettledBet(over: Partial<LastSettledBet> = {}): LastSettledBet {
 }
 
 // 내기 영역은 onOpenBet을 받은 카드에만 그린다 — 부모가 시트를 쥐지 않으면 진입점도 없다.
-async function renderCard(over: Partial<GroupChallengeResponse> = {}) {
+async function renderCard(over: Partial<GroupChallengeResponse> = {}, betLocked = false) {
   return render(
     <ChallengeCard
       challenge={challenge(over)}
       isOwner={false}
       onDelete={onDelete}
       onOpenBet={onOpenBet}
+      betLocked={betLocked}
     />,
   );
 }
@@ -407,6 +408,38 @@ describe('내기 영역 4상', () => {
     );
     expect(screen.queryByText('내기 걸기')).toBeNull();
   });
+
+  // 부모가 성공 직후 재조회하는 동안(betLocked) 카드는 아직 '내기 이전' 모습이다 —
+  // 그 창에서 다시 누르면 같은 내기를 또 열려 하고 서버가 BET_ALREADY_EXISTS로 튕긴다(F6).
+  test('betLocked면 개설·참가 진입점이 눌리지 않는다(영역은 남는다)', async () => {
+    await renderCard({ bet: null }, true);
+    expect(screen.getByText('내기 걸기')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.create.${CHALLENGE_ID}`));
+    });
+    expect(onOpenBet).not.toHaveBeenCalled();
+
+    await renderCard({ bet: bet() }, true);
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.join.${CHALLENGE_ID}`));
+    });
+    expect(onOpenBet).not.toHaveBeenCalled();
+  });
+
+  // 스크린리더는 자리를 이름으로 읽는다 — role이 없으면 '내기 걸기'가 그냥 글자로만 읽힌다(F9).
+  test('내기 진입점 2종은 버튼으로 읽힌다', async () => {
+    await renderCard({ bet: null });
+    expect(screen.getByTestId(`group.bet.create.${CHALLENGE_ID}`)).toHaveProp(
+      'accessibilityRole',
+      'button',
+    );
+
+    await renderCard({ bet: bet() });
+    expect(screen.getByTestId(`group.bet.join.${CHALLENGE_ID}`)).toHaveProp(
+      'accessibilityRole',
+      'button',
+    );
+  });
 });
 
 describe('지난 내기', () => {
@@ -435,6 +468,64 @@ describe('지난 내기', () => {
   test('지난 내기가 없으면 캡션을 붙이지 않는다', async () => {
     await renderCard({ bet: null, lastSettledBet: null });
     expect(screen.queryByText(/지난 내기/)).toBeNull();
+  });
+
+  // 전원 환불(승자 0명)은 '미달성 · 0'만 보면 판돈을 잃은 것으로 읽힌다 —
+  // 몰수가 없다는 것이 이 기능 신뢰의 핵심 규칙인데 화면이 한 번도 말하지 않았다(F8).
+  test('REFUNDED면 전원 환불을 첫 줄에 못 박는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await renderCard({
+      bet: null,
+      lastSettledBet: lastSettledBet({
+        status: 'REFUNDED',
+        results: [
+          { userId: 'u1', nickname: '재영', achieved: false, payout: 30 },
+          { userId: 'u2', nickname: '수빈', achieved: false, payout: 30 },
+        ],
+      }),
+    });
+
+    expect(screen.getByText('지난 내기(7/31): 2명 중 0명 달성')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '지난 내기 (7/31)',
+      // 환불이라 손익은 0이다 — 그 0이 '잃었다'가 아니라 '돌려받았다'라는 걸 첫 줄이 말한다.
+      [
+        '달성한 사람이 없어 전원 환불됐어요',
+        '판돈 30 · 팟 90',
+        '재영 · 미달성 · 0',
+        '수빈 · 미달성 · 0',
+      ].join('\n'),
+    );
+  });
+
+  // 계약 §3은 achieved·payout을 nullable로 둔다(정산 전·부분 실패) —
+  // null을 0으로 읽으면 아직 판정되지 않은 참가자가 '미달성 · -30'(판돈을 잃음)으로 보인다(F7).
+  test('미판정(null) 참가자는 손익 대신 미판정으로 적고 달성 집계에서도 뺀다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await renderCard({
+      bet: null,
+      lastSettledBet: lastSettledBet({
+        results: [
+          { userId: 'u1', nickname: '재영', achieved: true, payout: 60 },
+          { userId: 'u2', nickname: '수빈', achieved: null, payout: null },
+        ],
+      }),
+    });
+
+    // null을 달성으로도 미달성으로도 세지 않는다.
+    expect(screen.getByText('지난 내기(7/31): 2명 중 1명 달성')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '지난 내기 (7/31)',
+      ['판돈 30 · 팟 90', '재영 · 달성 · +30', '수빈 · 미판정'].join('\n'),
+    );
   });
 });
 

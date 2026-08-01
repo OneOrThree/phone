@@ -12,6 +12,7 @@
 //     라우트로 push된 그룹방은 이미 목록에서 들어온 화면이라 되돌아가는 항목이 중복이다(2차 §0-3).
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert, AppState, type AppStateStatus } from 'react-native';
+import { AxiosError, AxiosHeaders } from 'axios';
 import GroupRoomScreen from './GroupRoomScreen';
 import {
   createBet,
@@ -95,6 +96,18 @@ const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const onLeft = jest.fn();
 
 let appStateHandler: ((state: AppStateStatus) => void) | null = null;
+
+// 서버 에러 바디({ code })를 실은 axios 에러 — 화면은 status가 아니라 code로 분기한다(§3-2).
+function axiosErrorWith(status: number, code: string): AxiosError {
+  const config = { headers: new AxiosHeaders() };
+  return new AxiosError('request failed', 'ERR_BAD_REQUEST', config, null, {
+    status,
+    statusText: '',
+    headers: {},
+    config,
+    data: { code, message: '...' },
+  });
+}
 
 function detail(over: Partial<GroupDetailResponse> = {}): GroupDetailResponse {
   return {
@@ -475,6 +488,31 @@ describe('챌린지 섹션', () => {
     // 삭제 후 재조회 — 최초 1회 + 삭제 후 1회.
     await waitFor(() => expect(mockGetChallenges).toHaveBeenCalledTimes(2));
   });
+
+  // 진행 중인 내기가 있으면 서버가 삭제를 막는다(CHALLENGE_HAS_OPEN_BET) — 이미 걷어 둔 판돈이
+  // 갈 곳을 잃기 때문이다. 공통 문구로 떨어뜨리면 정산 전까진 영원히 같은 실패만 반복한다.
+  test('진행 중인 내기가 있으면 삭제 불가 사유를 그대로 알린다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    mockDeleteChallenge.mockRejectedValueOnce(axiosErrorWith(409, 'CHALLENGE_HAS_OPEN_BET'));
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.challenge.card.c1'), 'longPress');
+    });
+    await act(async () => {
+      alertSpy.mock.calls[0][2]?.find((b) => b.text === '삭제')?.onPress?.();
+    });
+
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '챌린지를 삭제할 수 없어요',
+      '진행 중인 내기가 있어 삭제할 수 없어요.',
+    );
+    // 실패했으므로 목록을 다시 받지 않는다(카드는 그대로 살아 있다).
+    expect(mockGetChallenges).toHaveBeenCalledTimes(1);
+  });
 });
 
 // 내기(3차) — 화면이 하는 일은 시트 상태 보유와 성공 후 재조회뿐이다(§2).
@@ -532,6 +570,137 @@ describe('내기 배선', () => {
 
     expect(mockJoinBet).toHaveBeenCalledWith(GROUP_ID, 'b7');
     await waitFor(() => expect(mockGetChallenges).toHaveBeenCalledTimes(2));
+  });
+
+  // 시트가 challenge **객체 스냅샷**을 쥐면 배경 재조회(포커스·포그라운드 복귀)와 어긋난다 —
+  // 팟 60·2명을 보며 30코인을 거는데 실제로는 팟 120·4명이다. 조용히 틀린 정보로 돈을 쓴다(F2).
+  test('시트가 열린 채 재조회되면 최신 팟·참가자가 시트에 반영된다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const openBet = {
+      betId: 'b7',
+      stake: 30,
+      status: 'OPEN' as const,
+      myJoined: false,
+      myAchievedNow: false,
+    };
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        bet: { ...openBet, pot: 60, participants: [{ userId: 'u2', nickname: '수빈' }] },
+      }),
+    ]);
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.join.c1'));
+    });
+    expect(screen.getByText('참가자 1명')).toBeOnTheScreen();
+
+    // 알림을 보고 돌아왔다 — 그 사이 두 명이 더 참가했다.
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        bet: {
+          ...openBet,
+          pot: 120,
+          participants: [
+            { userId: 'u2', nickname: '수빈' },
+            { userId: 'u3', nickname: '민지' },
+            { userId: 'u4', nickname: '지훈' },
+          ],
+        },
+      }),
+    ]);
+    await foreground();
+
+    expect(await screen.findByText('참가자 3명')).toBeOnTheScreen();
+    expect(screen.getByText('민지')).toBeOnTheScreen();
+  });
+
+  // 자정을 넘겨 복귀하면 서버는 **다른 날짜의 새 내기**를 준다 — 열었을 때의 betId로 참가하면
+  // BET_CLOSED로 튕긴다. 판돈이 소리 없이 바뀌는 것도 막아야 해서 닫고 다시 열게 한다.
+  test('참가하려던 내기가 다른 내기로 갈리면 닫고 재진입을 유도한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const openBet = {
+      stake: 30,
+      pot: 30,
+      status: 'OPEN' as const,
+      myJoined: false,
+      myAchievedNow: false,
+      participants: [{ userId: 'u2', nickname: '수빈' }],
+    };
+    mockGetChallenges.mockResolvedValue([challenge({ bet: { ...openBet, betId: 'b7' } })]);
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.join.c1'));
+    });
+    expect(screen.getByText('참가하기')).toBeOnTheScreen();
+
+    mockGetChallenges.mockResolvedValue([
+      challenge({ bet: { ...openBet, betId: 'b8', stake: 100 } }),
+    ]);
+    await foreground();
+
+    await waitFor(() => expect(screen.queryByText('참가하기')).toBeNull());
+    expect(alertSpy).toHaveBeenLastCalledWith('내기가 바뀌었어요', '최신 내기로 다시 열어주세요.');
+    expect(mockJoinBet).not.toHaveBeenCalled();
+  });
+
+  test('시트가 가리키던 챌린지가 사라지면 시트를 닫는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+
+    await press('내기 걸기');
+    expect(screen.getByText('내기 열기')).toBeOnTheScreen();
+
+    // 방장이 챌린지를 지웠다 — 없는 챌린지의 낡은 화면으로 돈을 걸게 둘 수 없다.
+    mockGetChallenges.mockResolvedValue([]);
+    await foreground();
+
+    await waitFor(() => expect(screen.queryByText('내기 열기')).toBeNull());
+  });
+
+  // 성공 후 재조회 전 카드는 아직 '내기 걸기'다 — 다시 누르면 409가 나고,
+  // "다른 그룹원이 먼저 열었어요"라는 **거짓** 안내를 본다. 재진입 자체를 막는다(F6).
+  test('개설 성공 후 재조회가 끝날 때까지 내기 진입점을 잠근다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    mockCreateBet.mockResolvedValue({ betId: 'b1' });
+
+    // 재조회를 테스트가 붙잡아 '느린 회선'의 창을 만든다.
+    let finishReload: (v: GroupChallengeResponse[]) => void = () => {};
+    await renderRoom();
+    mockGetChallenges.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReload = resolve;
+        }),
+    );
+
+    await press('내기 걸기');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.submit'));
+    });
+
+    // 시트는 닫혔고 카드는 아직 내기 이전 모습이다 — 그래도 눌리지 않아야 한다.
+    expect(screen.queryByText('내기 열기')).toBeNull();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.create.c1'));
+    });
+    expect(screen.queryByText('내기 열기')).toBeNull();
+    expect(mockCreateBet).toHaveBeenCalledTimes(1);
+
+    // 재조회가 끝나면 다시 열린다.
+    await act(async () => {
+      finishReload([challenge({ bet: null })]);
+    });
+    await press('내기 걸기');
+    expect(screen.getByText('내기 열기')).toBeOnTheScreen();
   });
 });
 

@@ -181,11 +181,14 @@ export interface GroupChallengeBet {
 
 // 정산된 내기의 인별 결과. payout은 **받은 금액**(승자 분배금 or 환불금)이지 손익이 아니다 —
 // 화면에서 ±로 보이려면 판돈을 빼야 한다(payout - stake).
+// ⚠️ 두 필드 모두 nullable이다(계약 §3, 서버 Boolean/Integer) — 정산 전·정산 부분 실패면 null이다.
+//    ChallengeMemberProgress와 같은 규칙으로 **null과 0을 뭉개지 않는다**: null을 0으로 읽으면
+//    아직 판정되지 않은 참가자가 '미달성 · -30'(판돈을 잃은 것처럼) 보인다.
 export interface LastSettledBetResult {
   userId: string;
   nickname: string;
-  achieved: boolean;
-  payout: number;
+  achieved: boolean | null;
+  payout: number | null;
 }
 
 // 이 챌린지의 가장 최근 정산 내기(카드 하단 '지난 내기' 1줄 + 탭 시 결과 상세).
