@@ -4,8 +4,10 @@ import type { AudioPlayer } from 'expo-audio';
 // utils/haptics.ts 와 같은 철학으로 모든 에러를 조용히 삼키고 fire-and-forget으로 쓴다.
 //
 // ⚠️ expo-audio는 네이티브 모듈이다 — 이 JS를 expo-audio가 없는 구 바이너리에 OTA로
-// 내보내면 크래시한다. **JS-only OTA 금지, 새 바이너리 필수**(hot-updater는 appVersion
-// 전략이라 네이티브 버전을 올려 새 빌드로 배포해야 안전하다).
+// 내보내면 크래시한다. hot-updater가 appVersion 전략이라 **네이티브 버전을 올려야**
+// 구/신 바이너리를 구분해 타기팅할 수 있어서, 이 기능과 함께 앱 버전을 1.0.0 → 1.0.1로
+// 올렸다(app.config.js·iOS MARKETING_VERSION·Android versionName). 1.0.0 대상 OTA로는
+// 이 번들을 내보내지 말 것.
 // 그래도 최후 방어로 expo-audio를 최상위 import가 아닌 **지연 require**로 잡는다 —
 // 모듈이 없으면 import 시점 부팅 크래시 대신 "소리만 안 나는 상태"로 격하된다.
 //

@@ -12,7 +12,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
-import { hapticLight } from '@/utils/haptics';
 import { playTapSound } from '@/utils/sound';
 import { hmsCompact } from '../format';
 import type { Subject } from '../types';
@@ -222,13 +221,11 @@ export function DraggableSubjectRows({
                 testID={`focus.subject.item.${i}`}
                 style={[s.row, selected && s.rowSelected, isDrag && s.rowActive]}
                 activeOpacity={0.85}
-                // 행 계열은 스케일 없이 사운드만(+집중 시작 CTA라 가벼운 햅틱까지) —
-                // transform은 드래그 PanResponder의 좌표 계산과 간섭한다.
-                // 발화 시점은 PressableScale과 맞춰 press-in.
-                onPressIn={() => {
-                  playTapSound();
-                  hapticLight();
-                }}
+                // 행 계열은 스케일 없이 사운드만 — transform은 드래그 PanResponder의 좌표
+                // 계산과 간섭하고, 같은 터치 영역이 롱프레스 메뉴·순서 드래그도 받으므로
+                // 햅틱을 주면 '주요 CTA' 신호가 잘못 나간다(집중 시작 햅틱은 방식 선택 시트의
+                // 시작 버튼에만). 발화 시점은 PressableScale과 맞춰 press-in.
+                onPressIn={playTapSound}
                 onPress={() => onPressRow(sub)}
                 // 행 길게 누르기 — ⋮ 위치를 앵커로 이름편집/삭제 팝오버
                 onLongPress={() =>

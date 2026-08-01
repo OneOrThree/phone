@@ -61,6 +61,22 @@ describe('PressableScale', () => {
     expect(hapticSelect).not.toHaveBeenCalled();
   });
 
+  // 동작이 없는 버튼은 피드백도 없어야 한다는 규칙(탭바의 '선택된 탭'·결과 화면의 전환 중 CTA)이
+  // disabled 하나로 성립하는지 고정한다 — 호출부는 이 계약에 기대어 disabled만 내린다.
+  test('disabled면 눌러도 사운드·햅틱이 나가지 않는다', async () => {
+    const onPress = jest.fn();
+    await render(
+      <PressableScale testID="btn" haptic="light" disabled onPress={onPress}>
+        <Text>홈으로</Text>
+      </PressableScale>,
+    );
+    await fireEvent(screen.getByTestId('btn'), 'pressIn');
+    await fireEvent.press(screen.getByTestId('btn'));
+    expect(playTapSound).not.toHaveBeenCalled();
+    expect(hapticLight).not.toHaveBeenCalled();
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
   test("기본 accessibilityRole은 'button' — VoiceOver가 버튼으로 읽는다", async () => {
     await render(
       <PressableScale testID="btn">

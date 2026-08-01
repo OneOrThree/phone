@@ -9,9 +9,17 @@ import { AccessibilityInfo } from 'react-native';
 //
 // 구독은 모듈 단위로 1개만 두고 컴포넌트들이 같은 스냅샷을 공유한다 —
 // 화면에 뜬 버튼 수만큼 네이티브 리스너가 붙는 걸 막는다.
+//
+// 초기값은 **미확정(null)** 에서 시작한다. RN은 이 설정의 동기 getter를 주지 않아
+// isReduceMotionEnabled()가 resolve되기 전 구간이 존재하는데, 그 사이를 false(=애니메이션 켬)로
+// 두면 '동작 줄이기'를 켠 사용자가 첫 탭에서 스케일 애니메이션을 보게 된다.
+// 그래서 미확정 구간은 **보수적으로 '켜짐'** 으로 읽는다 — 첫 프레임 애니메이션을 잃는 쪽이
+// 접근성 설정을 어기는 것보다 낫다.
+// 또 네이티브 리스너는 한번 붙으면 떼지 않는다. 구독자가 0이 되는 사이에 설정이 바뀌면
+// 다음 마운트에서 다시 비동기 조회가 끝날 때까지 낡은 값을 쓰게 되기 때문이다(리스너는 앱당 1개).
 
-let enabled = false;
-let nativeSub: { remove: () => void } | null = null;
+let enabled: boolean | null = null;
+let initialized = false;
 const listeners = new Set<() => void>();
 
 function setEnabled(next: boolean): void {
@@ -20,28 +28,32 @@ function setEnabled(next: boolean): void {
   listeners.forEach((notify) => notify());
 }
 
+function init(): void {
+  if (initialized) return;
+  initialized = true;
+  AccessibilityInfo.isReduceMotionEnabled()
+    .then(setEnabled)
+    .catch(() => {
+      // 조회 실패 시엔 미확정을 유지하지 않고 false로 확정한다 —
+      // 값을 영영 못 읽는 기기에서 애니메이션이 통째로 사라지는 편이 더 나쁘다.
+      setEnabled(false);
+    });
+  AccessibilityInfo.addEventListener('reduceMotionChanged', setEnabled);
+}
+
 function subscribe(onStoreChange: () => void): () => void {
+  init();
   listeners.add(onStoreChange);
-  if (listeners.size === 1) {
-    // 첫 구독자에서만 현재값 조회 + 변경 구독을 시작한다
-    AccessibilityInfo.isReduceMotionEnabled()
-      .then(setEnabled)
-      .catch(() => {});
-    nativeSub = AccessibilityInfo.addEventListener('reduceMotionChanged', setEnabled);
-  }
   return () => {
     listeners.delete(onStoreChange);
-    if (listeners.size === 0) {
-      nativeSub?.remove();
-      nativeSub = null;
-    }
   };
 }
 
-function getSnapshot(): boolean {
+function getSnapshot(): boolean | null {
   return enabled;
 }
 
 export function useReduceMotion(): boolean {
-  return useSyncExternalStore(subscribe, getSnapshot);
+  // null(미확정) → true: 확정 전에는 애니메이션을 생략한다
+  return useSyncExternalStore(subscribe, getSnapshot) ?? true;
 }

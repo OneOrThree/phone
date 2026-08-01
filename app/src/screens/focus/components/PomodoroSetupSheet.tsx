@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { PomodoroConfig } from '../types';
@@ -49,17 +49,30 @@ export function PomodoroSetupSheet({
         {FIELDS.map((f) => (
           <View key={f.key} style={s.row}>
             <Text style={s.rowLabel}>{f.label}</Text>
+            {/* 스텝퍼도 일반 버튼 규칙(스케일+사운드) — 다만 반복해서 누르는 조절 버튼이라
+                햅틱은 주지 않는다(집중 시작 CTA와 무게가 같아져 버린다).
+                작은 아이콘 버튼이라 기본 0.97은 잘 안 보여 0.9로 준다. */}
             <View style={s.stepper}>
-              <TouchableOpacity style={s.stepBtn} activeOpacity={0.7} onPress={() => bump(f, -1)}>
+              <PressableScale
+                style={s.stepBtn}
+                scaleTo={0.9}
+                accessibilityLabel={`${f.label} 줄이기`}
+                onPress={() => bump(f, -1)}
+              >
                 <Ionicons name="remove" size={18} color={T.inkSub} />
-              </TouchableOpacity>
+              </PressableScale>
               <Text style={s.stepValue}>
                 {config[f.key]}
                 {f.unit}
               </Text>
-              <TouchableOpacity style={s.stepBtn} activeOpacity={0.7} onPress={() => bump(f, 1)}>
+              <PressableScale
+                style={s.stepBtn}
+                scaleTo={0.9}
+                accessibilityLabel={`${f.label} 늘리기`}
+                onPress={() => bump(f, 1)}
+              >
                 <Ionicons name="add" size={18} color={T.inkSub} />
-              </TouchableOpacity>
+              </PressableScale>
             </View>
           </View>
         ))}
