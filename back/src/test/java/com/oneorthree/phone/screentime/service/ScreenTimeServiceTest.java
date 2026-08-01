@@ -3,12 +3,14 @@ package com.oneorthree.phone.screentime.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
+import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,6 +57,12 @@ class ScreenTimeServiceTest {
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
 
+    @Mock
+    private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
+
+    @Mock
+    private CurrencyLedgerService currencyLedgerService;
+
     // 재시도 래퍼(saveScreenTime)가 위임하는 self 프록시. 본 로직 테스트는 saveScreenTimeTx 를 직접 호출하므로
     // 여기 self 는 재시도 분기 테스트에서만 스텁된다.
     @Mock
@@ -65,7 +73,8 @@ class ScreenTimeServiceTest {
     @BeforeEach
     void setUp() {
         screenTimeService = new ScreenTimeService(userRepository, dailyScreenTimeStatRepository,
-                notificationPort, userActivityEventLogger, self);
+                notificationPort, userActivityEventLogger, userScreenTimeSettingsRepository,
+                currencyLedgerService, self);
     }
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");

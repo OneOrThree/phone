@@ -5,6 +5,7 @@ import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
+import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusSessionStatus;
 import com.oneorthree.phone.focus.domain.FocusType;
@@ -71,9 +72,10 @@ public class FocusService {
     // GROMO-806: 스트릭 인정 최소 누적 집중 시간(초) = 10분. 그날 누적이 이 값 이상일 때만 스트릭을 갱신한다.
     private static final int STREAK_MIN_SECONDS = 600;
 
-    // currency 폐쇄(서버 지급 전환): 세션 보상 = 집중 10초당 1코인. 앱 공식(FocusSessionScreen.settleFocusBlock
-    // 의 floor(elapsed/10)·OrphanFocusSettler 의 floor(focused/10)) 포팅 — 값 변경 시 앱 공식과 함께 바꿔야 한다.
-    private static final int SESSION_REWARD_UNIT_SECONDS = 10;
+    // currency 폐쇄(서버 지급 전환): 세션 보상 = 집중 60초(1분)당 1코인. 앱은 floor(elapsed/10)로 적립했으나
+    // (FocusSessionScreen.settleFocusBlock·OrphanFocusSettler), 서버 지급률은 오스카 결정으로 1분당 1코인으로
+    // 조정했다(앱의 10초 단위에서 의도적 분기). 지급률 변경 시 관련 단위 테스트 기대값도 함께 바꿔야 한다.
+    private static final int SESSION_REWARD_UNIT_SECONDS = 60;
 
     // 보상 인정 세션 길이 상한 — ORPHAN_TIMEOUT(12h)과 정렬. 정상 앱 세션은 이보다 길 수 없고(강제종료 세션도
     // 12h 상한으로 자동 마감), 위조 장시간 세션(startedAt 을 과거로 조작한 POST)의 대량 지급을 여기서 자른다.
@@ -281,7 +283,7 @@ public class FocusService {
                     userId, body.getStartedAt(), body.getEndedAt());
             int dayTotal = dailyFocusStatRepository.findByUserAndDate(user, statDate)
                     .map(DailyFocusStat::getTotalFocusSeconds).orElse(0);
-            return new FocusSessionSaveResponse(dayTotal, dayTotal >= STREAK_MIN_SECONDS, 0);
+            return new FocusSessionSaveResponse(dayTotal, dayTotal >= STREAK_MIN_SECONDS, 0, 0);
         }
 
         // GROMO-733: POST 는 완료(종료 시각 포함) 통째 저장 — status=COMPLETED 로 세팅해 'ACTIVE 로 남던' 부정합을 교정한다.
@@ -310,22 +312,22 @@ public class FocusService {
         // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 실어 준다(additive — 구버전 앱은 무시).
         RecordCompletionResult result = recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
                 body.getTotalDistractionSeconds(), statDate);
+        // 세션 지급액(#417)·목표 지급액(이 브랜치)을 함께 실어 준다(additive) — 클라가 획득 코인을 즉시 노출.
         return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
-                awardedCoins);
+                awardedCoins, result.goalRewardCoins());
     }
 
     /**
-     * 세션 보상 코인 계산 — 앱 보상 공식의 서버 포팅(currency 폐쇄).
+     * 세션 보상 코인 계산 — 집중초를 지급 단위로 내림(currency 폐쇄).
      *
-     * <p><b>앱 공식(정본)</b>: {@code FocusSessionScreen.settleFocusBlock} 이 세션 누적 집중초 기준
-     * {@code floor(elapsed / 10)} 코인을 블록 단위 차분으로 적립하고, {@code OrphanFocusSettler} 도
-     * {@code floor(focused / 10)} 로 동일하다. 두 경로 모두 이 POST 저장 API 로 블록 구간을 업로드하며
-     * 방해시간(distraction)을 0 으로 보낸다 — elapsed 는 집중 타이머 카운터라 방해시간이 애초에 빠져 있다.
+     * <p><b>지급률</b>: 집중 60초(1분)당 1코인 = {@code floor(집중초 / 60)}. 앱은 원래
+     * {@code floor(elapsed / 10)}(FocusSessionScreen.settleFocusBlock·OrphanFocusSettler)로 블록 단위 차분
+     * 적립했으나, 서버 지급률은 오스카 결정으로 1분당 1코인으로 조정했다(앱의 10초 단위에서 의도적 분기).
      *
      * <p><b>서버 근사</b>: 서버가 아는 집중초 = (endedAt − startedAt) − totalDistractionSeconds.
-     * 앱은 블록마다 settleAt 마커를 회전시켜(브레이크 구간 제외) 구간 벽시계 ≈ 집중초 이므로,
-     * distraction 0 인 앱 페이로드에서 이 공식은 앱의 floor(elapsed/10) 와 일치한다(디프 단위 테스트로 고정).
-     * 뽀모도로 다블록 세션은 블록별 내림이라 앱 누적 내림 대비 최대 (블록수−1) 코인 적게 줄 수 있다 — 수용.
+     * 앱은 블록마다 settleAt 마커를 회전시켜(브레이크 구간 제외) 구간 벽시계 ≈ 집중초 이고, 앱 페이로드는
+     * 방해시간(distraction)을 0 으로 보낸다 — elapsed 는 집중 타이머 카운터라 방해시간이 애초에 빠져 있다.
+     * 뽀모도로 다블록 세션은 세션 구간 단위 내림이라 블록별 누적 내림과 코인 수가 소폭 다를 수 있다 — 수용.
      *
      * <p><b>위조 방어(지급에만 적용, 저장·통계는 불변)</b>: endedAt 이 미래면 now 로 클램프해 미래 시각 조작분을
      * 지급에서 제외하고(정상 클라의 소폭 시계 오차는 자연 흡수), 지급 인정 길이를
@@ -515,6 +517,9 @@ public class FocusService {
         // GROMO-642: 초 단위 누적(세션별 분 내림 제거 — 30초×10=300초 정확). goal(분)은 *60 초로 비교.
         int addedSeconds = (int) Duration.between(startedAt, endedAt).getSeconds();
 
+        // 집중 목표 달성 지급액 — 아래 false→true 전이에서만 채워진다(전이 없으면 0).
+        int goalRewardCoins = 0;
+
         // UPDATE-UPDATE lost update 방지(누적 연산): 비관적 쓰기 잠금으로 동시 세션 저장 시 += 누락 차단
         // INSERT-INSERT 동시 삽입은 unique(user_id, date) 제약이 정합성 보장(오염 없음, 실패 건은 클라 재시도)
         // GROMO-806: 스트릭 게이트·응답 필드용 — 이 세션 반영 후 그날 누적 집중 초.
@@ -535,6 +540,7 @@ public class FocusService {
                     stat.setFocusTimeGoalAchieved(true);
                     // false→true 전이 순간 1회 발행 — 영속 플래그가 하루 1회를 보장 (GROMO-395)
                     logDailyFocusGoalAchieved(statDate, stat.getTotalFocusSeconds() / 60, goal);
+                    goalRewardCoins = creditFocusGoal(user, userId, goal, statDate);
                 }
             }
         } else {
@@ -555,6 +561,7 @@ public class FocusService {
             if (goalAchieved) {
                 // 신규 row 가 곧바로 달성 = false→true 전이와 동일 — 1회 발행 (GROMO-395)
                 logDailyFocusGoalAchieved(statDate, addedSeconds / 60, goal);
+                goalRewardCoins = creditFocusGoal(user, userId, goal, statDate);
             }
         }
 
@@ -567,7 +574,38 @@ public class FocusService {
             userStreakService.updateOnSessionComplete(user, statDate);
         }
 
-        return new RecordCompletionResult(dayTotalFocusSeconds, streakQualifiedToday);
+        return new RecordCompletionResult(dayTotalFocusSeconds, streakQualifiedToday, goalRewardCoins);
+    }
+
+    /**
+     * 집중 목표 달성 지급(GROMO-395) — 목표 달성 false→true 전이 순간 1회. 목표 분 기준으로 금액을 산정하고
+     * 멱등키 {@code focusGoal:{userId}:{statDate}}(하루 1회) 로 세션 저장 트랜잭션에 함께 기입한다.
+     *
+     * @return 지급액(공식상 0 이면 지급 없이 0)
+     */
+    private int creditFocusGoal(User user, UUID userId, int goalMinutes, LocalDate statDate) {
+        // 위조 채굴 방어(코드리뷰) — POST /focus-session 은 클라가 보낸 startedAt/endedAt 을 신뢰하므로,
+        // 과거 날짜마다 목표 길이 세션을 위조 제출해 지급을 긁을 수 있다. 정상 지급 창을 오늘·어제로 한정해
+        // (오프라인 늦은 업로드·자정 경계 허용) 그보다 오래된 날짜의 대량 채굴을 차단한다. 세션 자체의
+        // 신뢰 검증(라이브 마커 대조 등)은 별도 후속 — #417 세션 위조방어와 정합.
+        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        LocalDate today = LocalDate.now(zone);
+        // 지급 창 = [어제, 오늘]. 오래된 과거뿐 아니라 미래 날짜(endedAt 위조)도 거부한다 — 하한만 두면
+        // 미래 날짜마다 위조 세션을 심어 채굴할 수 있다(코드리뷰 R3).
+        if (statDate.isBefore(today.minusDays(1)) || statDate.isAfter(today)) {
+            return 0;
+        }
+        // 목표치 상한 방어(코드리뷰 R4) — 비현실적 목표(예: Integer.MAX_VALUE)는 달성 판정의 goal*60 이
+        // 32비트 오버플로로 음수가 돼 빈 세션도 '달성'으로 오판정될 수 있다. 현실 최대(24h)를 넘으면 지급하지 않는다.
+        if (goalMinutes > 24 * 60) {
+            return 0;
+        }
+        int reward = CurrencyRewardPolicy.focusGoalReward(goalMinutes);
+        if (reward > 0) {
+            currencyLedgerService.credit(user, CurrencyTransactionType.FOCUS_GOAL, reward,
+                    "focusGoal:" + userId + ":" + statDate);
+        }
+        return reward;
     }
 
     /**
@@ -575,8 +613,10 @@ public class FocusService {
      *
      * @param dayTotalFocusSeconds  이 세션 반영 후 그날(statDate) 누적 집중 초
      * @param streakQualifiedToday  그날 누적이 스트릭 인정 기준(10분) 이상이라 스트릭을 갱신했는지
+     * @param goalRewardCoins       이 세션으로 집중 목표를 처음 달성(false→true)했을 때의 지급액(전이 없으면 0)
      */
-    public record RecordCompletionResult(int dayTotalFocusSeconds, boolean streakQualifiedToday) {
+    public record RecordCompletionResult(int dayTotalFocusSeconds, boolean streakQualifiedToday,
+                                         int goalRewardCoins) {
     }
 
     /** 일일 집중 목표 달성(false→true 전이) 이벤트 발행 — date 는 ISO(country_code 존 로컬 날짜, GROMO-803). */

@@ -4,13 +4,18 @@ import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
 import com.oneorthree.phone.common.util.CountryZoneResolver;
+import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
+import com.oneorthree.phone.currency.service.CurrencyLedgerService;
+import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -33,6 +38,8 @@ public class ScreenTimeService {
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final ScreenTimeNotificationPort notificationPort;
     private final UserActivityEventLogger userActivityEventLogger;
+    private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
+    private final CurrencyLedgerService currencyLedgerService;
 
     // 자기 자신 프록시 — 동시 첫 저장 유니크 위반 시 새 트랜잭션으로 재시도하기 위함 (@Lazy 로 순환 주입 방지).
     private final ScreenTimeService self;
@@ -41,11 +48,15 @@ public class ScreenTimeService {
                              DailyScreenTimeStatRepository dailyScreenTimeStatRepository,
                              ScreenTimeNotificationPort notificationPort,
                              UserActivityEventLogger userActivityEventLogger,
+                             UserScreenTimeSettingsRepository userScreenTimeSettingsRepository,
+                             CurrencyLedgerService currencyLedgerService,
                              @Lazy ScreenTimeService self) {
         this.userRepository = userRepository;
         this.dailyScreenTimeStatRepository = dailyScreenTimeStatRepository;
         this.notificationPort = notificationPort;
         this.userActivityEventLogger = userActivityEventLogger;
+        this.userScreenTimeSettingsRepository = userScreenTimeSettingsRepository;
+        this.currencyLedgerService = currencyLedgerService;
         this.self = self;
     }
 
@@ -125,7 +136,42 @@ public class ScreenTimeService {
         //    interim 은 flag 를 true 로 세우지 않으므로 첫 마감은 항상 wasAchieved=false 를 보고 발사한다.
         //    마감 재시도(네이티브 읽기 미완료 시 앱이 재업로드)는 이미 true 인 flag 를 만나 재발사하지 않는다(날짜별 멱등).
         if (finalReport && clientAchieved && !wasAchieved) {
+            // 재화 지급(GROMO-395)은 이 정산 트랜잭션 안에서 처리한다 — 아래 emitGoalAchievedAfterCommit 은
+            // 롤백돼도 취소 불가한 알림/이벤트라 커밋 이후로 미루지만, 지급은 원장 정합을 위해 트랜잭션에 함께 묶는다.
+            creditScreenTimeGoal(user, date);
             emitGoalAchievedAfterCommit(userId, date, actualMinutes);
+        }
+    }
+
+    /**
+     * 스크린타임 목표 달성 지급(GROMO-395) — 목표 달성 false→true 전이 순간 1회. 사용 상한(분)이 빡셀수록
+     * 큰 금액을 산정하고 멱등키 {@code stGoal:{userId}:{date}}(날짜별 1회) 로 정산 트랜잭션에 함께 기입한다.
+     *
+     * <p>상한은 현재 설정({@link UserScreenTimeSettings#getDailyScreenTimeGoalMinutes()})을 쓴다 — 달성 판정은
+     * 클라(당시 목표)를 신뢰하지만 서버는 과거 날짜의 당시 상한을 몰라 현재값으로 근사한다. 상한 미설정(≤0)이면
+     * 지급하지 않는다(공식은 0 을 최상위 구간으로 처리하므로 미설정 유저 과지급을 막기 위한 가드).
+     */
+    private void creditScreenTimeGoal(User user, LocalDate date) {
+        // 위조 채굴 방어(코드리뷰) — 달성 판정은 클라 선언(achieved·isFinal·reportedAt)을 신뢰하므로,
+        // 과거 날짜마다 선언을 심어 지급을 긁을 수 있다. 정상 지급 창을 오늘·어제로 한정한다(스크린타임 최종
+        // 리포트는 익일 도착이라 어제까지 허용). 서버검증 측정 기반 완전 방어는 별도 후속.
+        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        LocalDate today = LocalDate.now(zone);
+        // 지급 창 = [어제, 오늘]. 오래된 과거뿐 아니라 미래 날짜(reportedAt 위조)도 거부한다 — 하한만 두면
+        // 미래 날짜마다 달성을 선언해 채굴할 수 있다(코드리뷰 R3).
+        if (date.isBefore(today.minusDays(1)) || date.isAfter(today)) {
+            return;
+        }
+        int limitMinutes = userScreenTimeSettingsRepository.findById(user.getId())
+                .map(UserScreenTimeSettings::getDailyScreenTimeGoalMinutes)
+                .orElse(0);
+        if (limitMinutes <= 0) {
+            return;
+        }
+        int reward = CurrencyRewardPolicy.screenTimeGoalReward(limitMinutes);
+        if (reward > 0) {
+            currencyLedgerService.credit(user, CurrencyTransactionType.SCREEN_TIME_GOAL, reward,
+                    "stGoal:" + user.getId() + ":" + date);
         }
     }
 
