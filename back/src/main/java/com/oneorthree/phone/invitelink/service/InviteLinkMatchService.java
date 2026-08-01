@@ -68,10 +68,14 @@ public class InviteLinkMatchService {
         // 재시도 멱등 — 이 기기가 창 안에서 이미 매치했다면 새 클릭을 소진하지 않고 같은 결과를 돌려준다.
         // 응답 유실로 앱이 재시도할 때 설치 1건이 클릭 여러 건을 소진하는 것을 막는다.
         // GA4 는 재발행하지 않는다(§4-3 이중 집계 금지 — 최초 매치가 이미 보냈다).
-        Optional<InviteMatchResponse> replay = findRecentMatch(request.deviceId(), cutoff);
-        if (replay.isPresent()) {
+        Optional<InviteLinkClick> prior = clickRepository
+                .findFirstByMatchedDeviceIdAndMatchedAtAfterOrderByMatchedAtDesc(request.deviceId(), cutoff);
+        if (prior.isPresent()) {
+            // 기기당 매치는 1회다. 기존 매치의 그룹이 그 사이 죽었어도 후보 소진 경로로 떨어지지 않고
+            // 여기서 실패로 끝낸다 — 떨어뜨리면 재시도가 같은 fingerprint 의 "다른 링크" 클릭(남의 클릭일
+            // 수 있다)을 두 번째로 소진해, "재시도는 같은 결과"라는 멱등 계약이 새 매치를 만들게 된다.
             log.debug("매치 재시도 — 기존 결과 재반환 deviceId={}", request.deviceId());
-            return replay.get();
+            return replayResponse(prior.get());
         }
 
         Optional<InviteLinkClick> candidate = clickRepository
@@ -103,16 +107,12 @@ public class InviteLinkMatchService {
                 .orElseGet(InviteMatchResponse::notMatched);
     }
 
-    /**
-     * 이 기기의 기존 매치를 같은 응답으로 복원한다. 링크의 그룹이 그 사이 삭제·종료됐으면 빈 값 —
-     * 그 경우 아래 소진 경로로 떨어지는데, 클릭은 이미 소진돼 있어 자연히 매치 실패로 수렴한다.
-     */
-    private Optional<InviteMatchResponse> findRecentMatch(String deviceId, Instant cutoff) {
-        return clickRepository
-                .findFirstByMatchedDeviceIdAndMatchedAtAfterOrderByMatchedAtDesc(deviceId, cutoff)
-                .flatMap(click -> inviteLinkRepository.findById(click.getLinkId()))
-                .flatMap(link -> inviteLinkService.findActiveGroup(link.getGroupId())
-                        .map(group -> InviteMatchResponse.matched(link.getSlug(), link.getGroupId())));
+    /** 기존 매치를 같은 응답으로 복원한다. 링크의 그룹이 그 사이 삭제·종료됐으면 매치 실패 응답이다. */
+    private InviteMatchResponse replayResponse(InviteLinkClick prior) {
+        return inviteLinkRepository.findById(prior.getLinkId())
+                .filter(link -> inviteLinkService.findActiveGroup(link.getGroupId()).isPresent())
+                .map(link -> InviteMatchResponse.matched(link.getSlug(), link.getGroupId()))
+                .orElseGet(InviteMatchResponse::notMatched);
     }
 
     /**

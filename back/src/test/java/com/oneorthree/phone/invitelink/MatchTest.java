@@ -143,6 +143,26 @@ class MatchTest extends InviteLinkTestSupport {
     }
 
     @Test
+    @DisplayName("기존 매치의 그룹이 죽어도 재시도는 다른 링크의 클릭을 소진하지 않는다 — 기기당 매치 1회")
+    void retryAfterGroupDeathDoesNotConsumeOtherClicks() throws Exception {
+        hitLanding(link.getSlug(), CLICK_IP);
+        match(CLICK_IP, "d1", "a1").andExpect(jsonPath("$.matched").value(true));
+
+        // 그 사이 그룹이 종료되고, 같은 fingerprint 로 "다른 링크"의 새 클릭이 쌓인다(공유 Wi-Fi 시나리오)
+        group.close();
+        groupRepository.save(group);
+        GroupInviteLink other = newLink("other456", newGroup("다른방"), newUser("다른초대자"));
+        hitLanding(other.getSlug(), CLICK_IP);
+
+        // 재시도는 실패 응답으로 끝나야 한다 — 후보 소진 경로로 떨어지면 남의 클릭을 훔친다
+        match(CLICK_IP, "d1", "a1")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.matched").value(false));
+
+        assertThat(onlyClickOf(other).isMatched()).isFalse();
+    }
+
+    @Test
     @DisplayName("그룹이 종료(ENDED)된 링크의 클릭은 매치 실패다 — 클릭은 소진해 죽은 후보로 남기지 않는다")
     void endedGroupClickIsNotMatched() throws Exception {
         hitLanding(link.getSlug(), CLICK_IP);
