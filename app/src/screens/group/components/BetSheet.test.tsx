@@ -596,7 +596,9 @@ describe('에러 분기', () => {
     expect(screen.queryByText('내기를 열지 못했어요. 잠시 후 다시 시도해주세요.')).toBeNull();
   });
 
-  // 참가도 같은 코드로 막힌다 — 문구만 staleBetSheetAlert의 참가 분기와 같은 문장으로 갈린다.
+  // 참가 분기는 **선제 방어**다 — 현재 서버는 이 코드를 개설(createBet)에서만 던지고 joinBet은
+  // 챌린지 상태를 보지 않는다(클로드 리뷰). switch가 모드 공용이라 함께 커버해 두고, 서버가
+  // 참가에도 같은 검사를 추가하는 날 문구(staleBetSheetAlert 참가 분기와 같은 문장)까지 대비한다.
   test('BET_CHALLENGE_INACTIVE(참가) — 끝난 챌린지를 알리고 닫는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockJoinBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CHALLENGE_INACTIVE'));
