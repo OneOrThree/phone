@@ -294,6 +294,21 @@ class ScreenTimeModule: NSObject {
         resolve(result)
     }
 
+    // 버킷 발화 타임라인 조회 — Monitor 익스텐션이 threshold 발화마다 App Group 키
+    // "usageBucketEvents:{yyyy-MM-dd}"(기기 로컬 날짜)에 기록한 [{bucket, firedAt}] 배열을 반환.
+    // bucket = 발화 시점의 하루 누적 환산분(단조 증가), firedAt = epoch 초. 기록이 없으면 빈 배열.
+    // JS(A4)가 창 경계(A~B시)의 버킷 차로 창 내 사용분을 계산하는 데 쓴다(±15분 눈금 오차).
+    // 익스텐션이 오늘+어제 2일만 보존하므로 그 밖의 dayKey는 자연히 빈 배열이 된다.
+    @objc func getUsageBucketEvents(
+        _ dayKey: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        let events = defaults?.array(forKey: "usageBucketEvents:\(dayKey)") as? [[String: Any]]
+        resolve(events ?? [])
+    }
+
     // 사용량 버킷 측정 상태 디버그 조회(개발용, GROMO-931) — App Group 기록 원본을 그대로 반환.
     // 전체 탭 dev 패널이 15분 눈금 동작을 실기기에서 확인하는 용도이며 판정 로직에는 쓰지 않는다.
     @objc func getUsageBucketDebugInfo(

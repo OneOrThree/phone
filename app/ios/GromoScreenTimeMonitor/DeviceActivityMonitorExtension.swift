@@ -27,6 +27,55 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         #endif
     }
 
+    // ── 버킷 발화 타임라인 (그룹 챌린지 SCREEN_TIME×TIME_WINDOW 창 측정용) ──
+    // threshold 발화마다 {bucket(하루 누적 환산분), firedAt(epochSec)}를 날짜 키에 append.
+    // 메인 앱(A4)이 창 경계(A~B시)의 버킷 차로 창 내 사용분을 근사 계산해 서버에 보고한다.
+    //  · bucket은 원시 눈금(mins)이 아니라 '베이스+눈금' 하루 누적 환산값 — 재등록으로 눈금이
+    //    리셋돼도 하루 안에서 단조 증가라, A4의 max-누적 해석과 정확히 호환된다(리셋 마커 불필요).
+    //  · 날짜 키는 기존 버킷 보존 로직과 동일하게 기기 로컬 날짜(todayString) 기준.
+    //  · 오발화 가드를 통과하고 최고 눈금을 실제 갱신한 발화만 기록 — 연쇄 오발화·중복 발화가
+    //    타임라인을 오염시키지 않게 한다(기록 조건 = usageBucketMinutes 갱신 조건과 동일).
+    private static let bucketEventsKeyPrefix = "usageBucketEvents:"
+    private static let bucketEventDatesKey = "usageBucketEventDates"
+    private static let bucketEventsMaxCount = 96
+
+    private func appendBucketEvent(totalMinutes: Int) {
+        let key = Self.bucketEventsKeyPrefix + todayString
+        var events = sharedDefaults?.array(forKey: key) as? [[String: Any]] ?? []
+        events.append(["bucket": totalMinutes, "firedAt": Int(Date().timeIntervalSince1970)])
+        if events.count > Self.bucketEventsMaxCount {
+            events.removeFirst(events.count - Self.bucketEventsMaxCount)
+        }
+        sharedDefaults?.set(events, forKey: key)
+        // 날짜 인덱스 유지 — UserDefaults는 키 나열이 안 되므로, 하루 경계 정리가 지울 대상을
+        // 알 수 있게 이벤트가 존재하는 날짜 목록을 함께 기록한다.
+        var dates = sharedDefaults?.stringArray(forKey: Self.bucketEventDatesKey) ?? []
+        if !dates.contains(todayString) {
+            dates.append(todayString)
+            sharedDefaults?.set(dates, forKey: Self.bucketEventDatesKey)
+        }
+    }
+
+    // 어제보다 오래된 발화 타임라인 키 제거 — 오늘+어제 2일만 보존.
+    // 전일 최종 눈금 보존과 같은 위치(하루 경계 콜백)에서 호출하며, 한낮 스퓨리어스 호출에도
+    // 안전(오늘·어제는 항상 남긴다). 며칠 꺼져 있던 기기도 인덱스로 잔여 키를 전부 정리한다.
+    private func cleanupOldBucketEvents() {
+        guard let dates = sharedDefaults?.stringArray(forKey: Self.bucketEventDatesKey),
+              !dates.isEmpty else { return }
+        guard let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date()) else {
+            return
+        }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        let yesterdayString = f.string(from: yesterday)
+        let kept = dates.filter { $0 >= yesterdayString }
+        if kept.count == dates.count { return }
+        for date in dates where date < yesterdayString {
+            sharedDefaults?.removeObject(forKey: Self.bucketEventsKeyPrefix + date)
+        }
+        sharedDefaults?.set(kept, forKey: Self.bucketEventDatesKey)
+    }
+
     // A안(GROMO-942) — 측정 대상 변경 '다음날 적용'. picker는 pending에만 저장하고, 실제 활성
     // 승격 + 버킷 모니터 재등록을 자정 intervalDidStart(앱 없이 돎)에서 수행해 0시에 칼같이
     // 전환한다(당일 혼합 제거). "익스텐션 콜백 안 startMonitoring 재등록"은 스파이크로 실기기
@@ -132,6 +181,8 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             sharedDefaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
             sharedDefaults?.set(todayString, forKey: "gromo:screentime:bucketBaseDate")
             appendDebugLog("intervalDidStart 자정 리셋 — 직전 \(prevMins)분(\(prevDate ?? "-")) 보존")
+            // 발화 타임라인도 하루 경계에서 정리 — 오늘+어제 2일만 보존(전일 눈금 보존과 같은 위치)
+            cleanupOldBucketEvents()
             // A안 — 자정 리셋 직후, 대기 중인 측정 대상 변경이 있으면 새 선택으로 승격·재등록.
             // (한낮 스퓨리어스 호출은 위에서 이미 break 했으므로 여기는 진짜 자정만 도달.)
             promotePendingSelectionIfDue()
@@ -159,6 +210,8 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             } else {
                 appendDebugLog("intervalDidEnd 스킵 — 기록 없음")
             }
+            // 발화 타임라인 전일 키 정리 — 자정 콜백을 놓친 경우의 보조 경로(멱등·오늘/어제 보존)
+            cleanupOldBucketEvents()
         default:
             break
         }
@@ -209,6 +262,8 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                 // 지난 날 잔여값이 오늘 날짜로 남지 않게 한다(남으면 다음 max 비교에서 다시 래칫).
                 sharedDefaults?.set(0, forKey: "gromo:screentime:usageBucketMinutes")
                 sharedDefaults?.set(todayString, forKey: "gromo:screentime:usageBucketDate")
+                // 자정 콜백을 놓친 새 날 첫 이벤트 — 발화 타임라인 전일 키 정리도 여기서 복구
+                cleanupOldBucketEvents()
             }
             // 오발화 가드(GROMO-871) — 물리적으로 도달 불가능한 눈금이면 기록하지 않는다.
             guard isPlausibleUsage(
@@ -230,6 +285,8 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             // 합산값이 (오늘 기준) 기존 최고값보다 크면 갱신 (버킷은 순차 발화지만 방어적으로 max 비교)
             if total > current {
                 sharedDefaults?.set(total, forKey: "gromo:screentime:usageBucketMinutes")
+                // 발화 타임라인 append — 최고 눈금을 실제 갱신한 발화만(가드 통과 후) 기록
+                appendBucketEvent(totalMinutes: total)
                 appendDebugLog("눈금 \(mins) 발화 → 오늘 \(total)분 기록(베이스 \(base))")
             } else {
                 appendDebugLog("눈금 \(mins) 발화 — 기존 \(current)분 유지")
