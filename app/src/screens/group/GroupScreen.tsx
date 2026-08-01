@@ -62,6 +62,21 @@ export default function GroupScreen() {
     return () => setGroupInviteListener(null);
   }, []);
 
+  // 게스트 → 로그인 전환에서 초대 이어받기.
+  // 위 useState 초기화는 **마운트 1회**라 앱 트리가 리마운트될 때만 버퍼를 다시 읽는다. 그런데
+  // App.tsx의 applyStoredSession은 로그인 전후 userId가 같은 경우(게스트 계정에 소셜 provider를
+  // 연결)를 따로 분기하고, 그때는 <UserProvider key={userId}>가 그대로라 리마운트가 없다.
+  // isGuest는 prop 파생이라 리마운트 없이 갱신되지만 버퍼를 다시 읽을 계기가 없어 초대가 조용히
+  // 증발한다 — 전환 자체를 감지해 이어받는다(리마운트 경로에선 전환이 안 잡혀 무해).
+  const wasGuestRef = useRef(isGuest);
+  useEffect(() => {
+    const wasGuest = wasGuestRef.current;
+    wasGuestRef.current = isGuest;
+    if (!wasGuest || isGuest) return;
+    const pending = peekPendingInvite();
+    if (pending) setInviteGroupId(pending);
+  }, [isGuest]);
+
   // 요청 시퀀스 — 포커스마다 조회가 나가므로 탭을 빠르게 오가면 이전 응답이 늦게 도착해
   // 최신 목록을 덮을 수 있다(생성/참여 직후 빈 상태로 되돌아 보이는 형태).
   // 최신 요청의 결과만 반영한다(useFriends.ts의 requestSeqRef와 같은 패턴).
@@ -227,7 +242,13 @@ export default function GroupScreen() {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         {staleNotice}
-        <GroupRoomScreen groupId={myGroup.groupId} summary={myGroup} onLeft={onLeft} />
+        {/* inviteOpen — 초대 시트가 뜨면 그룹방의 '⋯' 메뉴를 내린다(둘 다 asModal이라 딤이 겹친다). */}
+        <GroupRoomScreen
+          groupId={myGroup.groupId}
+          summary={myGroup}
+          onLeft={onLeft}
+          inviteOpen={!!inviteGroupId}
+        />
         {inviteSheet}
       </SafeAreaView>
     );

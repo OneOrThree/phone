@@ -138,6 +138,10 @@ export default function GroupInviteSheet({
     setFailed(false);
     setJoinError(null);
     setBlock(null);
+    // guestBlocked도 함께 되돌린다 — 시트는 key 없이 재사용돼(GroupScreen) 두 번째 초대 링크가
+    // 도착하면 groupId만 바뀐다. 앞 그룹에서 GUEST_FORBIDDEN으로 세운 값이 남으면 정상 프리뷰를
+    // 보여줘야 할 그룹에 게스트 차단 화면이 뜬다.
+    setGuestBlocked(false);
     (async () => {
       const mine = await fetchMyGroupId();
       if (!alive) return;

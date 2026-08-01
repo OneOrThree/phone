@@ -204,6 +204,31 @@ describe('상세·공지 오류 분리', () => {
   });
 });
 
+describe("초대 시트 ↔ '⋯' 메뉴 배타(§6-6)", () => {
+  test('초대 링크가 도착하면 메뉴를 내린다 — asModal 두 개가 겹쳐 딤이 2겹이 되지 않게', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const { rerender } = await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
+    });
+    expect(screen.getByText('그룹 나가기')).toBeOnTheScreen();
+
+    // 딥링크로 초대가 도착 — 부모(GroupScreen)가 초대 시트를 띄우며 inviteOpen을 세운다.
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} inviteOpen />);
+    });
+    expect(screen.queryByText('그룹 나가기')).toBeNull();
+
+    // 초대 시트가 닫혀도 메뉴가 되살아나지 않는다(가리기만 한 게 아니라 state까지 내려간다).
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
+    });
+    expect(screen.queryByText('그룹 나가기')).toBeNull();
+  });
+});
+
 describe('포그라운드 복귀', () => {
   test('화면이 떠 있으면 active 전환마다 재조회한다', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());

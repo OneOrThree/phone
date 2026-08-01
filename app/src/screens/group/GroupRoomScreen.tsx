@@ -81,9 +81,16 @@ export interface GroupRoomScreenProps {
   summary?: GroupSummaryResponse;
   // 그룹 나가기 성공 시 호출 — 부모(GroupScreen)가 재조회해 빈 상태로 되돌린다.
   onLeft: () => void;
+  // 초대 시트가 이 화면 위에 떠 있는가 — 떠 있으면 '⋯' 메뉴를 내린다(아래 이펙트 주석 참고).
+  inviteOpen?: boolean;
 }
 
-export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomScreenProps) {
+export default function GroupRoomScreen({
+  groupId,
+  summary,
+  onLeft,
+  inviteOpen,
+}: GroupRoomScreenProps) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { userId } = useUser();
@@ -178,6 +185,13 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
     });
     return () => sub.remove();
   }, [reload]);
+
+  // 초대 링크가 도착하면 '⋯' 메뉴를 내린다 — 초대 시트와 이 메뉴는 둘 다 SheetShell asModal(RN
+  // 네이티브 Modal)이라 동시에 뜨면 딤이 2겹으로 포개진다. GroupScreen이 링크 수신 시 찾기 시트를
+  // 내리는 것과 같은 배타 처리이고, 링크로 들어온 초대가 우선이라 이쪽 메뉴를 접는다.
+  useEffect(() => {
+    if (inviteOpen) setMenuOpen(false);
+  }, [inviteOpen]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -446,7 +460,8 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
       {/* ── '⋯' 액션시트 ── */}
       {/* '닫기' 행은 두지 않는다 — 앱의 SheetShell 시트 4종 모두 딤 탭으로만 닫고,
           아이콘 없는 행이라 위 행과 글자 시작선도 어긋났다. */}
-      {menuOpen && (
+      {/* inviteOpen까지 함께 보는 이유: 위 이펙트는 렌더 뒤에 돌아 한 프레임 동안 두 Modal이 겹친다. */}
+      {menuOpen && !inviteOpen && (
         <SheetShell onClose={() => setMenuOpen(false)} asModal>
           <Text style={s.menuTitle}>{name}</Text>
           <TouchableOpacity style={s.menuItem} activeOpacity={0.7} onPress={confirmLeave}>

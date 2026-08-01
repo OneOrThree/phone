@@ -235,4 +235,24 @@ describe('게스트 초대 로그인(§6-6)', () => {
     // 버퍼는 살아 있어야 로그인 후 리마운트에서 같은 그룹 프리뷰로 복귀한다.
     expect(mockClear).not.toHaveBeenCalled();
   });
+
+  // App.tsx의 applyStoredSession은 로그인 전후 userId가 같은 경우(계정 연결)를 따로 분기한다 —
+  // 그때는 <UserProvider key={userId}>가 그대로라 리마운트가 없고, 마운트 1회 peek에만 기대면
+  // 버퍼에 초대가 남아 있는데도 시트가 다시 뜨지 않는다.
+  test('리마운트 없이 게스트→로그인으로 바뀌어도 같은 초대로 복귀한다', async () => {
+    mockIsGuest = true;
+    mockPendingInvite = GROUP_ID;
+    const { rerender } = await renderScreen();
+
+    await press('초대-로그인');
+    expect(screen.queryByText('초대-참여완료')).toBeNull();
+
+    mockIsGuest = false;
+    mockGetMyGroups.mockResolvedValue([]);
+    await act(async () => {
+      rerender(<GroupScreen />);
+    });
+
+    expect(await screen.findByText('초대-참여완료')).toBeOnTheScreen();
+  });
 });

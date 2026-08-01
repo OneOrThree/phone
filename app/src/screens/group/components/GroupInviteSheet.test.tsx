@@ -285,6 +285,31 @@ describe('참여 분기', () => {
     expect(await screen.findByText('로그인하면 그룹에 참여할 수 있어요')).toBeOnTheScreen();
   });
 
+  // 시트는 key 없이 재사용된다(GroupScreen) — groupId만 바뀌므로 이전 그룹의 차단 상태가
+  // 남으면 정상 프리뷰를 보여줘야 할 그룹에 게스트 차단 화면이 뜬다.
+  test('연속 초대 링크 — groupId가 바뀌면 GUEST_FORBIDDEN 차단이 따라오지 않는다', async () => {
+    mockJoinGroup.mockRejectedValue(axiosErrorWith(403, 'GUEST_FORBIDDEN'));
+    const { rerender } = await renderSheet();
+
+    await press('참여하기');
+    expect(await screen.findByText('로그인하면 그룹에 참여할 수 있어요')).toBeOnTheScreen();
+
+    mockGetGroupOverview.mockResolvedValue(overview({ id: OTHER_GROUP_ID, name: '저녁 스터디방' }));
+    await act(async () => {
+      rerender(
+        <GroupInviteSheet
+          groupId={OTHER_GROUP_ID}
+          onClose={onClose}
+          onJoined={onJoined}
+          onLogin={onLogin}
+        />,
+      );
+    });
+
+    expect(await screen.findByText('저녁 스터디방')).toBeOnTheScreen();
+    expect(screen.queryByText('로그인하면 그룹에 참여할 수 있어요')).toBeNull();
+  });
+
   test('모르는 code는 공통 문구로 떨어진다(§5-2)', async () => {
     mockJoinGroup.mockRejectedValue(axiosErrorWith(500, 'SOMETHING_NEW'));
     await renderSheet();
