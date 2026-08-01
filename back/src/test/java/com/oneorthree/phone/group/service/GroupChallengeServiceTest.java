@@ -1,6 +1,7 @@
 package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.group.domain.Group;
+import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
@@ -15,6 +16,7 @@ import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
@@ -93,6 +95,16 @@ class GroupChallengeServiceTest {
 
     @Mock
     private DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
+
+    // 내기 조립은 GroupBetService 가 맡는다. Map 반환이라 스텁 없이도 빈 맵이 나와
+    // (Mockito 기본값) 내기와 무관한 이 테스트들은 bet/lastSettledBet 을 null 로 본다.
+    @Mock
+    private GroupBetService groupBetService;
+
+    // 삭제 가드(진행 중 내기 확인) 전용. 스텁이 없으면 false = "진행 중 내기 없음" 이라
+    // 기존 삭제 테스트들은 그대로 통과한다.
+    @Mock
+    private GroupChallengeBetRepository groupChallengeBetRepository;
 
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -744,7 +756,7 @@ class GroupChallengeServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
         GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group).build();
-        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(CHALLENGE_ID, group))
+        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
                 .willReturn(Optional.of(challenge));
 
         // when
@@ -804,6 +816,53 @@ class GroupChallengeServiceTest {
     }
 
     @Test
+    @DisplayName("진행 중(OPEN) 내기가 걸려 있으면 삭제 거절 → GroupException(CHALLENGE_HAS_OPEN_BET)")
+    void deleteChallengeRejectedWhenOpenBetExists() {
+        // given: OWNER + 챌린지 존재 + 그 챌린지에 오늘자 OPEN 내기
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group).build();
+        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
+                .willReturn(Optional.of(challenge));
+        given(groupChallengeBetRepository.existsByChallengeIdAndStatus(CHALLENGE_ID, GroupBetStatus.OPEN))
+                .willReturn(true);
+
+        // when & then: 판돈이 묶인 내기가 조회에서 사라지지 않도록 409 로 막는다
+        assertThatThrownBy(() -> groupChallengeService.deleteChallenge(GROUP_ID, CHALLENGE_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_HAS_OPEN_BET);
+        assertThat(challenge.getDeletedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("정산이 끝난 내기만 있으면 삭제 허용 — OPEN 이 아닌 이력은 삭제를 막지 않는다")
+    void deleteChallengeAllowedWhenBetsAreSettled() {
+        // given: OWNER + 챌린지 존재 + OPEN 내기 없음(정산 완료 이력만 있는 상태)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group).build();
+        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
+                .willReturn(Optional.of(challenge));
+        given(groupChallengeBetRepository.existsByChallengeIdAndStatus(CHALLENGE_ID, GroupBetStatus.OPEN))
+                .willReturn(false);
+
+        // when
+        groupChallengeService.deleteChallenge(GROUP_ID, CHALLENGE_ID, USER_ID);
+
+        // then
+        assertThat(challenge.getDeletedAt()).isNotNull();
+    }
+
+    @Test
     @DisplayName("챌린지 없음 → GroupException(NOT_FOUND)")
     void deleteChallengeNotFound() {
         // given: OWNER 지만 챌린지 없음
@@ -813,7 +872,7 @@ class GroupChallengeServiceTest {
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
-        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(CHALLENGE_ID, group))
+        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
                 .willReturn(Optional.empty());
 
         // when & then

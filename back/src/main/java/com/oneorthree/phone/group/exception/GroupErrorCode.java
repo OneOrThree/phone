@@ -25,6 +25,16 @@ public enum GroupErrorCode {
     GROUP_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "참여할 수 있는 그룹 수를 초과했어요"),
     NOTICE_FORBIDDEN(HttpStatus.FORBIDDEN, "공지 작성/수정/삭제 권한이 없습니다."),
 
+    // 챌린지 내기 — 앱이 응답의 code 문자열(BET_*)로 분기한다. 이름 변경 금지.
+    BET_FOCUS_ONLY(HttpStatus.BAD_REQUEST, "집중 시간 챌린지에만 내기를 걸 수 있어요"),
+    BET_INVALID_STAKE(HttpStatus.BAD_REQUEST, "선택할 수 없는 판돈이에요"),
+    BET_NOT_FOUND(HttpStatus.NOT_FOUND, "내기를 찾을 수 없어요"),
+    BET_ALREADY_EXISTS(HttpStatus.CONFLICT, "오늘 이 챌린지에는 이미 내기가 있어요"),
+    BET_CLOSED(HttpStatus.CONFLICT, "참가할 수 있는 시간이 지났어요"),
+    BET_ALREADY_JOINED(HttpStatus.CONFLICT, "이미 참가한 내기예요"),
+    BET_ALREADY_ACHIEVED(HttpStatus.CONFLICT, "이미 목표를 달성해서 참가할 수 없어요"),
+    CHALLENGE_HAS_OPEN_BET(HttpStatus.CONFLICT, "진행 중인 내기가 있어 삭제할 수 없어요"),
+
     // 서버 에러
     CODE_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "현재 참여 인원보다 적게 정원을 설정할 수 없습니다.");
 
