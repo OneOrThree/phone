@@ -308,11 +308,28 @@ export default function GroupRoomScreen({
     ]);
   }, [name, doLeave]);
 
+  // 라우트 진입의 백버튼 — 헤더뿐 아니라 상세 도착 **전**(로딩·에러) 분기에도 세운다.
+  // 이 화면엔 네이티브 헤더도 탭바도 없어, 첫 조회가 도는 동안·실패했을 때 백버튼이 없으면
+  // 목록으로 돌아갈 명시 경로가 0개가 된다(iOS는 시스템 뒤로가기도 없다).
+  const backButton = onBack ? (
+    <TouchableOpacity
+      style={s.backBtn}
+      onPress={onBack}
+      activeOpacity={0.7}
+      accessibilityLabel="뒤로"
+    >
+      <Ionicons name="chevron-back" size={18} color={T.inkSub} />
+    </TouchableOpacity>
+  ) : null;
+
   // ── 최초 로딩 — 중앙 스피너(§5-4) ──
   if (loading && !detail) {
     return (
-      <View style={s.center}>
-        <ActivityIndicator color={T.accent} />
+      <View style={s.fill}>
+        {!!backButton && <View style={s.backRow}>{backButton}</View>}
+        <View style={s.center}>
+          <ActivityIndicator color={T.accent} />
+        </View>
       </View>
     );
   }
@@ -320,12 +337,15 @@ export default function GroupRoomScreen({
   // ── 에러 + 다시 시도 ──
   if (error && !detail) {
     return (
-      <View style={s.center}>
-        <Text style={s.errorTitle}>그룹을 불러오지 못했어요</Text>
-        <Text style={s.errorDesc}>잠시 후 다시 시도해주세요.</Text>
-        <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={reload}>
-          <Text style={s.retryText}>다시 시도</Text>
-        </TouchableOpacity>
+      <View style={s.fill}>
+        {!!backButton && <View style={s.backRow}>{backButton}</View>}
+        <View style={s.center}>
+          <Text style={s.errorTitle}>그룹을 불러오지 못했어요</Text>
+          <Text style={s.errorDesc}>잠시 후 다시 시도해주세요.</Text>
+          <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={reload}>
+            <Text style={s.retryText}>다시 시도</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -377,16 +397,7 @@ export default function GroupRoomScreen({
         {/* ── 헤더 ── */}
         <View style={s.header}>
           {/* 라우트 진입에서만 — 규격은 그룹 만들기·공지 화면의 원형 백버튼과 같다(§5-1) */}
-          {!!onBack && (
-            <TouchableOpacity
-              style={s.backBtn}
-              onPress={onBack}
-              activeOpacity={0.7}
-              accessibilityLabel="뒤로"
-            >
-              <Ionicons name="chevron-back" size={18} color={T.inkSub} />
-            </TouchableOpacity>
-          )}
+          {backButton}
           <View style={s.headerLeft}>
             <Text style={s.title} numberOfLines={1}>
               {name}
@@ -632,7 +643,11 @@ export default function GroupRoomScreen({
 const s = StyleSheet.create({
   scroll: { flex: 1 },
   content: { padding: T.space.lg, gap: T.space.md },
+  // 로딩·에러 분기의 바깥 컨테이너 — 백버튼 줄과 중앙 블록을 위아래로 쌓는다.
+  fill: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: T.space.xxl },
+  // 백버튼만 있는 줄 — 좌우 20은 헤더(content lg + header xs)와 같은 시작선이다.
+  backRow: { flexDirection: 'row', paddingHorizontal: T.space.xl, paddingTop: T.space.lg },
   // 화면 전체를 차지하는 에러/빈 상태 헤드라인은 T.text.title(26/800) — 그룹 탭·리그와 같은 위계.
   // 카드 안 빈 상태(emptyNoticeText)는 caption을 유지한다.
   errorTitle: { ...T.text.title, color: T.ink, textAlign: 'center' },

@@ -104,6 +104,30 @@ describe('라우트 진입 계약', () => {
     expect(mockGoBack).toHaveBeenCalled();
   });
 
+  // 백버튼이 정상 헤더에만 있으면, 첫 조회가 도는 동안·실패했을 때 화면에 남는 건
+  // 스피너 또는 '다시 시도'뿐이다 — 네이티브 헤더도 탭바도 없어 탈출구가 0개가 된다.
+  test('상세 도착 전(로딩)에도 백버튼이 있다', async () => {
+    // 영원히 끝나지 않는 상세 조회 — 로딩 분기에 머문다.
+    mockGetGroupDetail.mockReturnValue(new Promise<GroupDetailResponse>(() => {}));
+    await renderRoute();
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('뒤로'));
+    });
+    expect(mockGoBack).toHaveBeenCalled();
+  });
+
+  test('상세 조회가 실패해도 백버튼이 남는다', async () => {
+    mockGetGroupDetail.mockRejectedValue(new Error('network'));
+    await renderRoute();
+    expect(screen.getByText('그룹을 불러오지 못했어요')).toBeOnTheScreen();
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('뒤로'));
+    });
+    expect(mockGoBack).toHaveBeenCalled();
+  });
+
   test('⋯ 메뉴에 그룹 전환·추가를 노출하지 않는다(onShowGroups 미전달)', async () => {
     await renderRoute();
 

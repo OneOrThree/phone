@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  BackHandler,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -92,6 +99,10 @@ export default function GroupScreen() {
   // 최신 요청의 결과만 반영한다(useFriends.ts의 requestSeqRef와 같은 패턴).
   const requestSeqRef = useRef(0);
 
+  // 초대 링크가 가리킨 그룹방 — 참여(또는 '이미 멤버') 판정 뒤 재조회가 끝날 때까지 목적지를 들고 있는다.
+  // 재조회 결과가 2건 이상이면 기본 화면이 목록이라, 이 값을 잃으면 초대 링크가 '목록 열기'로 전락한다.
+  const pendingRoomIdRef = useRef<string | null>(null);
+
   // 내 그룹 조회. 게스트는 호출 전에 차단한다(서버도 403이지만 왕복을 아낀다 — §5-3).
   const fetchGroups = useCallback(async () => {
     if (isGuest) return;
@@ -144,11 +155,29 @@ export default function GroupScreen() {
     navigation.navigate('SettingsAccount');
   }, [navigation]);
 
-  // 초대로 참여 완료 — 버퍼를 비우고 재조회해 그룹방으로 전환한다.
+  // 초대로 참여 완료 — 버퍼를 비우고 재조회해 **그 초대장이 가리킨** 그룹방으로 전환한다.
+  // ⚠️ 목적지를 ref로 옮긴 뒤에 버퍼를 비운다. 그러지 않으면 이미 두 그룹 이상인 사용자가
+  //    초대 링크를 열었을 때(참여 성공·이미 멤버 모두 이 콜백을 탄다) 재조회 후 목록만 떠서
+  //    링크가 가리킨 방으로 못 간다 — 목적지 소비는 아래 useEffect가 맡는다.
   const onInviteJoined = useCallback(() => {
+    pendingRoomIdRef.current = inviteGroupId;
     closeInvite();
     fetchAfterMutation();
-  }, [closeInvite, fetchAfterMutation]);
+  }, [closeInvite, fetchAfterMutation, inviteGroupId]);
+
+  // 초대 목적지 소비 — 목록을 새로 받은 시점에만 판정한다(참여 직후 목록엔 그 그룹이 들어 있다).
+  //  · 2건 이상: 기본 화면이 목록이므로 그룹방을 push 한다(목록 카드 탭과 같은 분기)
+  //  · 1건 이하: 내장 그룹방이 곧 그 그룹이라 push 하지 않고 열려 있던 목록만 접는다
+  // 목록에 목적지가 없으면(참여가 실제로 반영되지 않음) 아무 데도 보내지 않고 소비만 한다 —
+  // 남겨 두면 이후 아무 재조회에서나 뒤늦게 튀어 나간다.
+  useEffect(() => {
+    const target = pendingRoomIdRef.current;
+    if (target === null || groups === null) return;
+    pendingRoomIdRef.current = null;
+    if (!groups.some((g) => g.groupId === target)) return;
+    if (groups.length > 1) navigation.navigate('GroupRoom', { groupId: target });
+    else setShowList(false);
+  }, [groups, navigation]);
 
   // 검색으로 참여 완료 — 시트를 닫고 재조회.
   const onFindJoined = useCallback(() => {
@@ -201,6 +230,21 @@ export default function GroupScreen() {
   }, [navigation]);
 
   const myGroups = groups ?? [];
+
+  // 1건에서 '잠깐 열어 본' 목록은 스택 라우트가 아니라 이 화면의 로컬 상태(showList)라,
+  // 헤더 백버튼만으론 Android 시스템 뒤로가기를 받을 수 없다 — 그대로 두면 탭 네비게이터의
+  // 기본 동작을 타 다른 탭으로 가거나 앱을 빠져나가고, 방금 떠난 내장 그룹방으로 못 돌아온다.
+  // 이 목록이 떠 있는 동안만 이벤트를 소비한다(iOS에선 no-op). 2건 이상의 기본 목록은
+  // 탭의 첫 화면이라 되돌아갈 곳이 없으므로 손대지 않는다 — 헤더 백버튼 조건과 같은 기준이다.
+  const tempListOpen = showList && myGroups.length === 1;
+  useEffect(() => {
+    if (!tempListOpen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setShowList(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [tempListOpen]);
 
   // 찾기 시트는 빈 상태·목록 두 분기에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
   // 소속 판정 기준(groups)은 여기서 내려준다 — 시트가 따로 조회하면 부모와 스냅샷이 갈린다.

@@ -5,6 +5,7 @@
 // 에러 UI는 groups===null일 때만 그렸다 → 기존 []가 남아 다시 '그룹 만들기' 빈 화면이 떴고,
 // 사용자는 방금 만든 그룹을 또 만들었다(백엔드는 다중 가입을 막지 않는다). 탈퇴는 그 반대로
 // 재조회가 실패하면 이미 나간 그룹방이 그대로 남았다.
+import { BackHandler, type HardwareBackPressEvent } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
@@ -225,11 +226,31 @@ async function press(label: string) {
   });
 }
 
+// 시스템 뒤로가기 구독을 가로채 핸들러를 직접 호출한다 — BackHandler 구현이 플랫폼마다
+// 다르고(iOS는 no-op 스텁) jest-expo는 두 플랫폼 프로젝트로 다 돌려서, 실제 구현에 기대면 안 된다.
+function spyBackHandler() {
+  const remove = jest.fn();
+  const add = jest
+    .spyOn(BackHandler, 'addEventListener')
+    .mockReturnValue({ remove } as ReturnType<typeof BackHandler.addEventListener>);
+  return {
+    add,
+    remove,
+    // 등록된 핸들러를 눌러 본다 — 반환값이 곧 '이벤트를 소비했는가'다.
+    press: () => add.mock.calls[0][1]({ type: 'hardwareBackPress' } as HardwareBackPressEvent),
+  };
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockIsGuest = false;
   mockPendingInvite = null;
   mockPeek.mockImplementation(() => mockPendingInvite);
+});
+
+// spyOn으로 만든 스파이만 되돌린다 — jest.mock 모듈 목에는 영향이 없다.
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 describe('mutation 성공 뒤 재조회만 실패한 경우', () => {
@@ -456,6 +477,84 @@ describe('목록 백버튼(showList)', () => {
 
     expect(screen.getByText('목록 2건')).toBeOnTheScreen();
     expect(screen.queryByText('목록-뒤로')).toBeNull();
+  });
+});
+
+// 임시 목록은 스택 라우트가 아니라 로컬 상태(showList)라, 헤더 백버튼만으론 Android
+// 시스템 뒤로가기를 못 받는다 — 그대로 두면 탭 네비게이터 기본 동작으로 탭을 벗어난다.
+describe('임시 목록의 시스템 뒤로가기', () => {
+  test('1건에서 연 목록에서만 이벤트를 소비해 그룹방으로 되돌린다', async () => {
+    const back = spyBackHandler();
+
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+    // 내장 그룹방에선 가로챌 이유가 없다(탭의 첫 화면이다).
+    expect(back.add).not.toHaveBeenCalled();
+
+    await press('내 그룹 목록');
+    expect(back.add).toHaveBeenCalledWith('hardwareBackPress', expect.any(Function));
+
+    let consumed: boolean | null | undefined;
+    await act(async () => {
+      consumed = back.press();
+    });
+
+    // true를 돌려주지 않으면 탭 네비게이터 기본 동작으로 흘러 다른 탭/앱 종료가 된다.
+    expect(consumed).toBe(true);
+    expect(screen.getByText('그룹방')).toBeOnTheScreen();
+    expect(screen.queryByText('목록 1건')).toBeNull();
+    // 목록을 접었으면 구독도 정리한다.
+    expect(back.remove).toHaveBeenCalled();
+  });
+
+  test('2건 이상의 기본 목록에서는 가로채지 않는다(되돌아갈 곳이 없다)', async () => {
+    const back = spyBackHandler();
+
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
+    await renderScreen();
+
+    expect(screen.getByText('목록 2건')).toBeOnTheScreen();
+    expect(back.add).not.toHaveBeenCalled();
+  });
+});
+
+// 초대 링크는 '그룹 탭 열기'가 아니라 **특정 그룹방**을 가리킨다. 이미 두 그룹 이상인
+// 사용자는 재조회 뒤 기본 화면이 목록이라, 목적지를 들고 있지 않으면 링크가 목록에서 끝난다.
+describe('초대 링크 목적지(onInviteJoined)', () => {
+  test('재조회 결과가 2건 이상이면 초대가 가리킨 그룹방으로 push 한다', async () => {
+    mockPendingInvite = GROUP_ID_2;
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
+    await press('초대-참여완료');
+
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', { groupId: GROUP_ID_2 });
+    expect(mockClear).toHaveBeenCalled(); // 참여가 끝났으므로 초대 버퍼는 비운다
+  });
+
+  test('1건이면 내장 그룹방이 곧 그 그룹이라 push 하지 않는다', async () => {
+    mockPendingInvite = GROUP_ID;
+    mockGetMyGroups.mockResolvedValueOnce([]);
+    await renderScreen();
+
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await press('초대-참여완료');
+
+    expect(mockNavigate).not.toHaveBeenCalledWith('GroupRoom', { groupId: GROUP_ID });
+    expect(screen.getByText('그룹방')).toBeOnTheScreen();
+  });
+
+  test('재조회 목록에 없는 그룹이면 아무 데도 보내지 않는다(참여 미반영)', async () => {
+    mockPendingInvite = GROUP_ID_3;
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
+    await press('초대-참여완료');
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getByText('목록 2건')).toBeOnTheScreen();
   });
 });
 
