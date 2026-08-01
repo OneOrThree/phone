@@ -1103,6 +1103,60 @@ describe('그룹 전환(같은 인스턴스에 다른 groupId)', () => {
     expect(mockJoinBet).not.toHaveBeenCalled();
   });
 
+  // 전환 시 초기화(위 테스트)가 있어도, 전환 **전** 렌더에서 캡처된 내기 완료 콜백은 응답이
+  // 늦게 도착하면 그대로 실행된다 — 가드가 없으면 이전 그룹의 load()가 seq를 올려 새 그룹의
+  // 진행 중 조회를 무효화하고 이전 그룹 데이터를 새 화면에 되씌운다(코덱스 리뷰).
+  test('전환 전 그룹의 내기 참가가 늦게 성공해도 이전 그룹을 재조회하지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        bet: {
+          betId: 'b7',
+          stake: 30,
+          pot: 30,
+          status: 'OPEN' as const,
+          myJoined: false,
+          myAchievedNow: false,
+          participants: [{ userId: 'u2', nickname: '수빈' }],
+        },
+      }),
+    ]);
+    let resolveJoin: () => void = () => {};
+    mockJoinBet.mockReturnValue(
+      new Promise((resolve) => {
+        resolveJoin = () => resolve(undefined);
+      }),
+    );
+    const { rerender } = await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.join.c1'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.submit'));
+    });
+
+    // 참가 응답이 오기 전에 그룹 B로 전환 — B의 조회는 pending으로 둬, 뒤이은 재조회가
+    // 덮어써진 화면을 걷어 주기를 기대할 수 없는 상태로 만든다.
+    mockGetGroupDetail.mockReturnValue(new Promise(() => {}));
+    mockGetChallenges.mockReturnValue(new Promise(() => {}));
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={OTHER_GROUP_ID} onLeft={onLeft} />);
+    });
+    mockGetGroupDetail.mockClear();
+    mockGetChallenges.mockClear();
+
+    // 이제야 A의 참가 응답이 도착한다 — 전환 전 렌더에서 캡처된 onDone이 실행되는 순간.
+    await act(async () => {
+      resolveJoin();
+    });
+
+    // 이전 그룹으로의 재조회가 시작되지 않아야 한다(시작되면 B의 진행 중 조회까지 무효화된다).
+    expect(mockGetGroupDetail).not.toHaveBeenCalled();
+    expect(mockGetChallenges).not.toHaveBeenCalled();
+  });
+
   test('새 그룹의 첫 정산 서명으로는 잔액을 다시 받지 않는다', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);

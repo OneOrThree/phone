@@ -254,6 +254,10 @@ export default function GroupRoomScreen({
   //    진행 리스트가 이 섹션의 본체라 반드시 넘긴다.
   // 반환값: 이 호출이 아직 최신인가(늦게 끝난 요청이 로딩 플래그를 되돌리지 않게).
   const load = useCallback(async (): Promise<boolean> => {
+    // 전환 **전** 렌더에서 캡처된 클로저가 늦게 실행되면(내기 onDone·챌린지 생성/삭제의 응답 후
+    // 재조회) 이 groupId는 이전 그룹이다 — 그대로 진행하면 seq만 올려 새 그룹의 진행 중 조회를
+    // 무효화하고 이전 그룹 데이터를 새 화면에 되씌운다. 시작조차 하지 않는다(코덱스 리뷰).
+    if (renderedGroupIdRef.current !== groupId) return false;
     const seq = ++requestSeqRef.current;
     const date = todayStr();
     setError(false);
@@ -812,6 +816,9 @@ export default function GroupRoomScreen({
           existingCategories={existingCategories}
           onClose={() => setComposeOpen(false)}
           onCreated={() => {
+            // 전환 전 그룹의 시트가 늦게 완료를 알리면 무시 — 새 그룹의 시트 상태를 건드리거나
+            // 이전 그룹의 재조회를 시작하지 않는다(load 내부 가드와 같은 이유).
+            if (renderedGroupIdRef.current !== groupId) return;
             setComposeOpen(false);
             load();
           }}
@@ -827,6 +834,9 @@ export default function GroupRoomScreen({
           myAchieved={betMyAchieved}
           onClose={() => setBetSheet(null)}
           onDone={() => {
+            // 전환 전 그룹의 시트가 늦게 완료를 알리면 무시 — betBusy를 새 그룹 화면에 걸면
+            // 풀어 줄 load()가 없어(내부 가드로 단락) 진입점이 영구히 잠긴다(코덱스 리뷰).
+            if (renderedGroupIdRef.current !== groupId) return;
             setBetSheet(null);
             // 재조회가 끝날 때까지 진입점을 잠근다 — 그전의 카드는 아직 내기 이전 모습이다(F6).
             // 잠금을 푸는 쪽은 load()의 **챌린지 성공 분기**다(위 주석).
