@@ -100,7 +100,7 @@ export default function ScreenTimePermissionScreen() {
       Alert.alert(
         granted ? '권한이 켜졌어요' : '권한이 꺼져 있어요',
         granted
-          ? '이제 사용시간 통계와 자동 코인이 동작해요.'
+          ? '이제 사용시간 통계가 동작해요.'
           : 'iOS 설정 > 스크린 타임에서 다시 켤 수 있어요.',
       );
     } catch (e) {
@@ -262,7 +262,7 @@ export default function ScreenTimePermissionScreen() {
           <Text style={s.noteStrong}>기기에서만 처리 · 서버 미전송</Text>
         </View>
         <Text style={s.noteBody}>
-          권한을 끄면 사용시간 통계·자동 코인이 멈춰요. iOS 설정 앱에서도 바꿀 수 있어요.
+          권한을 끄면 사용시간 통계가 멈춰요. iOS 설정 앱에서도 바꿀 수 있어요.
         </Text>
       </View>
     </SettingsScaffold>
