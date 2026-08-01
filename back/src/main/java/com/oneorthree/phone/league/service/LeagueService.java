@@ -2,12 +2,14 @@ package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
+import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
 import com.oneorthree.phone.league.dto.LeagueLastResultResponse;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
@@ -185,8 +187,12 @@ public class LeagueService {
                         result.getPreviousTierLevel(),
                         result.getNewTierLevel(),
                         result.getFocusSeconds(),
-                        result.getAcknowledgedAt() != null))
-                .orElseGet(() -> new LeagueLastResultResponse(false, null, null, null, null, null, false));
+                        result.getAcknowledgedAt() != null,
+                        // 승급이면 배치가 지급한 승급 보너스와 동일 공식(승급 후 티어)으로 산정, 그 외 0
+                        result.getResult() == LeagueWeeklyResultType.PROMOTED
+                                ? CurrencyRewardPolicy.leaguePromotionReward(result.getNewTierLevel())
+                                : 0))
+                .orElseGet(() -> new LeagueLastResultResponse(false, null, null, null, null, null, false, 0));
     }
 
     /**

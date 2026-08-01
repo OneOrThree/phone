@@ -233,7 +233,7 @@ class LeagueControllerTest {
     void getLastResultReturns200() throws Exception {
         given(leagueService.getLastResult(any()))
                 .willReturn(new LeagueLastResultResponse(true,
-                        Instant.parse("2026-06-15T00:00:00Z"), "PROMOTED", 2, 3, 50400, false));
+                        Instant.parse("2026-06-15T00:00:00Z"), "PROMOTED", 2, 3, 50400, false, 100));
 
         mockMvc.perform(get("/api/v1/league/me/last-result")
                         .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
@@ -252,7 +252,7 @@ class LeagueControllerTest {
     @DisplayName("주간 마감 결과 조회 - 결과 없음 → 200 hasResult=false, 나머지 필드 null/false")
     void getLastResultNoneReturns200() throws Exception {
         given(leagueService.getLastResult(any()))
-                .willReturn(new LeagueLastResultResponse(false, null, null, null, null, null, false));
+                .willReturn(new LeagueLastResultResponse(false, null, null, null, null, null, false, 0));
 
         mockMvc.perform(get("/api/v1/league/me/last-result")
                         .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))

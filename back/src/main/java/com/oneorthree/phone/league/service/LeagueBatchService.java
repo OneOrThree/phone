@@ -1,5 +1,8 @@
 package com.oneorthree.phone.league.service;
 
+import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
+import com.oneorthree.phone.currency.service.CurrencyLedgerService;
+import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
 import com.oneorthree.phone.league.domain.LeagueArena;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
@@ -46,6 +49,7 @@ public class LeagueBatchService {
     private final UserRepository userRepository;
     private final LeagueWeek leagueWeek;
     private final EntityManager entityManager;
+    private final CurrencyLedgerService currencyLedgerService;
 
     @Transactional
     public LeagueBatchSummaryResponse runWeeklyBatch() {
@@ -141,6 +145,15 @@ public class LeagueBatchService {
             case STAY -> previousTierLevel;
         };
         user.setTierLevel(newTierLevel);
+        if (result == LeagueWeeklyResultType.PROMOTED) {
+            // 승급 보너스 지급(GROMO-395) — 승급(PROMOTED)일 때만. 승급 후 티어 레벨로 금액을 산정하고
+            // 멱등키 league:{weekStartAt}:{userId}(주차·유저 유니크 재사용)로 이 정산 트랜잭션에 함께 기입한다.
+            int bonus = CurrencyRewardPolicy.leaguePromotionReward(newTierLevel);
+            if (bonus > 0) {
+                currencyLedgerService.credit(user, CurrencyTransactionType.LEAGUE_TIER_BONUS, bonus,
+                        "league:" + previousWeekStart + ":" + user.getId());
+            }
+        }
         return LeagueWeeklyResult.builder()
                 .user(user)
                 .weekStartAt(previousWeekStart)

@@ -8,9 +8,11 @@ package com.oneorthree.phone.focus.dto;
  *
  * @param dayTotalFocusSeconds 이 세션 반영 후 그날 누적 집중 초
  * @param streakQualifiedToday 그날 누적이 스트릭 인정 기준(10분) 이상이라 스트릭이 인정됐는지
+ * @param goalRewardCoins      이 세션으로 집중 목표를 처음 달성했을 때의 지급액(전이 없으면 0)
  */
 public record FocusSessionSaveResponse(
         int dayTotalFocusSeconds,
-        boolean streakQualifiedToday
+        boolean streakQualifiedToday,
+        int goalRewardCoins
 ) {
 }

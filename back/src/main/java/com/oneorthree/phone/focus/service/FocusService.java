@@ -3,6 +3,9 @@ package com.oneorthree.phone.focus.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.util.CountryZoneResolver;
+import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
+import com.oneorthree.phone.currency.service.CurrencyLedgerService;
+import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusSessionStatus;
 import com.oneorthree.phone.focus.domain.FocusType;
@@ -76,6 +79,7 @@ public class FocusService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserStreakService userStreakService;
+    private final CurrencyLedgerService currencyLedgerService;
 
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         User user = userRepository.findById(userId)
@@ -269,7 +273,9 @@ public class FocusService {
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
         RecordCompletionResult result = recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
                 body.getTotalDistractionSeconds(), statDate(body.getEndedAt(), zone));
-        return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday());
+        // 목표 지급액도 함께 실어 준다(additive) — 클라가 획득 코인을 즉시 노출.
+        return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
+                result.goalRewardCoins());
     }
 
     /**
@@ -448,6 +454,9 @@ public class FocusService {
         // GROMO-642: 초 단위 누적(세션별 분 내림 제거 — 30초×10=300초 정확). goal(분)은 *60 초로 비교.
         int addedSeconds = (int) Duration.between(startedAt, endedAt).getSeconds();
 
+        // 집중 목표 달성 지급액 — 아래 false→true 전이에서만 채워진다(전이 없으면 0).
+        int goalRewardCoins = 0;
+
         // UPDATE-UPDATE lost update 방지(누적 연산): 비관적 쓰기 잠금으로 동시 세션 저장 시 += 누락 차단
         // INSERT-INSERT 동시 삽입은 unique(user_id, date) 제약이 정합성 보장(오염 없음, 실패 건은 클라 재시도)
         // GROMO-806: 스트릭 게이트·응답 필드용 — 이 세션 반영 후 그날 누적 집중 초.
@@ -468,6 +477,7 @@ public class FocusService {
                     stat.setFocusTimeGoalAchieved(true);
                     // false→true 전이 순간 1회 발행 — 영속 플래그가 하루 1회를 보장 (GROMO-395)
                     logDailyFocusGoalAchieved(statDate, stat.getTotalFocusSeconds() / 60, goal);
+                    goalRewardCoins = creditFocusGoal(user, userId, goal, statDate);
                 }
             }
         } else {
@@ -488,6 +498,7 @@ public class FocusService {
             if (goalAchieved) {
                 // 신규 row 가 곧바로 달성 = false→true 전이와 동일 — 1회 발행 (GROMO-395)
                 logDailyFocusGoalAchieved(statDate, addedSeconds / 60, goal);
+                goalRewardCoins = creditFocusGoal(user, userId, goal, statDate);
             }
         }
 
@@ -500,7 +511,22 @@ public class FocusService {
             userStreakService.updateOnSessionComplete(user, statDate);
         }
 
-        return new RecordCompletionResult(dayTotalFocusSeconds, streakQualifiedToday);
+        return new RecordCompletionResult(dayTotalFocusSeconds, streakQualifiedToday, goalRewardCoins);
+    }
+
+    /**
+     * 집중 목표 달성 지급(GROMO-395) — 목표 달성 false→true 전이 순간 1회. 목표 분 기준으로 금액을 산정하고
+     * 멱등키 {@code focusGoal:{userId}:{statDate}}(하루 1회) 로 세션 저장 트랜잭션에 함께 기입한다.
+     *
+     * @return 지급액(공식상 0 이면 지급 없이 0)
+     */
+    private int creditFocusGoal(User user, UUID userId, int goalMinutes, LocalDate statDate) {
+        int reward = CurrencyRewardPolicy.focusGoalReward(goalMinutes);
+        if (reward > 0) {
+            currencyLedgerService.credit(user, CurrencyTransactionType.FOCUS_GOAL, reward,
+                    "focusGoal:" + userId + ":" + statDate);
+        }
+        return reward;
     }
 
     /**
@@ -508,8 +534,10 @@ public class FocusService {
      *
      * @param dayTotalFocusSeconds  이 세션 반영 후 그날(statDate) 누적 집중 초
      * @param streakQualifiedToday  그날 누적이 스트릭 인정 기준(10분) 이상이라 스트릭을 갱신했는지
+     * @param goalRewardCoins       이 세션으로 집중 목표를 처음 달성(false→true)했을 때의 지급액(전이 없으면 0)
      */
-    public record RecordCompletionResult(int dayTotalFocusSeconds, boolean streakQualifiedToday) {
+    public record RecordCompletionResult(int dayTotalFocusSeconds, boolean streakQualifiedToday,
+                                         int goalRewardCoins) {
     }
 
     /** 일일 집중 목표 달성(false→true 전이) 이벤트 발행 — date 는 ISO(country_code 존 로컬 날짜, GROMO-803). */

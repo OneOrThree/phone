@@ -15,7 +15,9 @@ import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserWalletRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -52,6 +54,8 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     LeagueWeeklyResultRepository leagueWeeklyResultRepository;
     @Autowired
     UserRepository userRepository;
+    @Autowired
+    UserWalletRepository userWalletRepository;
     @Autowired
     DailyFocusStatRepository dailyFocusStatRepository;
     @Autowired
@@ -241,11 +245,14 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     }
 
     private User saveUser(String nickname, int tierLevel, boolean deleted) {
-        return userRepository.save(User.builder()
+        User user = userRepository.save(User.builder()
                 .nickname(nickname)
                 .tierLevel(tierLevel)
                 .isDeleted(deleted)
                 .build());
+        // 승급 보너스 지급(credit)은 지갑을 전제로 하므로 프로덕션처럼 유저별 지갑을 함께 만든다.
+        userWalletRepository.save(UserWallet.builder().userId(user.getId()).build());
+        return user;
     }
 
     private void saveStat(User user, LocalDate date, int seconds) {

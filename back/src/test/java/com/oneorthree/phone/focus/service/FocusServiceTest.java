@@ -3,6 +3,7 @@ package com.oneorthree.phone.focus.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.util.CountryZoneResolver;
+import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.focus.domain.DefaultTag;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusSessionStatus;
@@ -105,6 +106,9 @@ class FocusServiceTest {
 
     @Mock
     private UserStreakService userStreakService;
+
+    @Mock
+    private CurrencyLedgerService currencyLedgerService;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID OTHER_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");

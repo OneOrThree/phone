@@ -131,7 +131,7 @@ class FocusControllerTest {
     @DisplayName("POST /focus-session → 201 + body(dayTotalFocusSeconds·streakQualifiedToday)")
     void saveFocusSessionReturns201WithBody() throws Exception {
         given(focusService.saveFocusSession(any(), any()))
-                .willReturn(new FocusSessionSaveResponse(660, true));
+                .willReturn(new FocusSessionSaveResponse(660, true, 0));
 
         String body = "{\"startedAt\":\"2026-06-23T01:00:00Z\",\"endedAt\":\"2026-06-23T01:11:00Z\","
                 + "\"totalDistractionSeconds\":0}";
