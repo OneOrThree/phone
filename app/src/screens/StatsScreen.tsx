@@ -235,6 +235,7 @@ export default function StatsScreen() {
               cells={data.heatmap}
               today={data.today}
               elapsedDays={data.screenTime?.elapsedDays ?? null}
+              periodTotal={data.focus?.totalFocusMinutes ?? null}
             />
           )}
         </SectionCard>

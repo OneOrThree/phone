@@ -16,7 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { T, withAlpha } from '@/constants/theme';
 import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
-import { getHeatmap } from '@/services/statsApi';
+import { getFocusPeriodStats, getHeatmap } from '@/services/statsApi';
 import { localDateStr, todayStr } from '@/utils/localDate';
 import { fmtHm } from '@/utils/timeFormat';
 import { calendarPage, grassLevel } from './format';
@@ -27,14 +27,22 @@ interface Props {
   cells: HeatmapCellResponse[]; // 현재 기간(오프셋 0) heatmap — useStatsData 공유
   today: TodayStatsResponse | null; // 오늘 라이브 판정·목표 미설정 판별
   elapsedDays: number | null; // 가입 전 날짜 중립 처리(현재 기간 기준 — 서버가 가입일로 클램프)
+  // 현재 기간 총 집중 분(서버 기간 집계 — useStatsData 공유). 일별 내림 합산은 하루 최대 59초씩
+  // 잘려 총 집중시간 카드와 어긋날 수 있어 집계값을 우선 쓴다(코드리뷰 반영). null=조회 실패.
+  periodTotal: number | null;
 }
 
-export function CalendarCard({ period, cells, today, elapsedDays }: Props) {
+export function CalendarCard({ period, cells, today, elapsedDays, periodTotal }: Props) {
   const [offset, setOffset] = useState(0); // 0=이번 기간, -1=지난 기간 …
   const [picked, setPicked] = useState<string | null>(null); // 탭한 날짜 — 하단 정보줄
-  // 과거 기간 heatmap 캐시(기간 첫 날짜 키). 실패도 []로 캐시해 무한 재시도 방지 — 화면 재진입 시
-  // 리마운트(CardOrderEditor key=period)로 초기화되므로 다음 진입에 다시 시도된다.
+  // 과거 기간 heatmap 캐시(기간 첫 날짜 키). 실패는 캐시하지 않는다 — 빈 데이터로 캐시하면
+  // 일시 에러가 '전부 0:00'인 진짜 기록처럼 보이고 재시도도 막힌다(코드리뷰 반영).
   const [pastCells, setPastCells] = useState<Record<string, HeatmapCellResponse[]>>({});
+  // 과거 기간 총 집중 분(기간 집계 API — periodTotal과 같은 소스). 실패한 페이지는 키 없음 → 셀 합산 폴백.
+  const [pastTotals, setPastTotals] = useState<Record<string, number>>({});
+  // 조회 실패한 페이지 — 에러 안내 + 재시도 버튼으로 분기(위 캐시 정책과 세트)
+  const [failedKeys, setFailedKeys] = useState<Set<string>>(new Set());
+  const [retrySeq, setRetrySeq] = useState(0); // 재시도 버튼이 조회 이펙트를 다시 돌리는 트리거
   const requestedRef = useRef<Set<string>>(new Set()); // 조회 중 재요청 방지
   const mountedRef = useRef(true);
   useEffect(
@@ -48,9 +56,12 @@ export function CalendarCard({ period, cells, today, elapsedDays }: Props) {
   const page = calendarPage(period, offset);
   const pageKey = page.days[0];
   const shown = offset === 0 ? cells : pastCells[pageKey];
-  const loading = offset < 0 && shown == null;
+  const noData = offset < 0 && shown == null; // 로딩·실패 — 셀 값(0:00)·체크를 지어내지 않는다
+  const failed = noData && failedKeys.has(pageKey);
+  const loading = noData && !failed;
 
-  // 과거 기간 heatmap 조회 — 오프셋을 빠르게 넘겨도 응답은 버리지 않고 캐시에 쌓는다
+  // 과거 기간 heatmap 조회 — 오프셋을 빠르게 넘겨도 응답은 버리지 않고 캐시에 쌓는다.
+  // 기간 총합(집계 API)도 함께 조회하되, 총합 실패는 페이지 실패로 치지 않는다(셀 합산 폴백).
   useEffect(() => {
     if (offset === 0) return;
     const p = calendarPage(period, offset);
@@ -59,17 +70,43 @@ export function CalendarCard({ period, cells, today, elapsedDays }: Props) {
     requestedRef.current.add(key);
     const last = p.days[p.days.length - 1];
     const cap = todayStr();
-    getHeatmap(key, last > cap ? cap : last)
-      .then((res) => {
-        if (mountedRef.current) setPastCells((prev) => ({ ...prev, [key]: res }));
+    const anchor = last > cap ? cap : last; // 기간 마지막 날(미래 방지 클램프) — 집계 기준일 겸용
+    const totalPromise = getFocusPeriodStats(period, undefined, anchor).catch(() => null);
+    getHeatmap(key, anchor)
+      .then(async (res) => {
+        const stats = await totalPromise;
+        if (!mountedRef.current) return;
+        setPastCells((prev) => ({ ...prev, [key]: res }));
+        if (stats != null) setPastTotals((prev) => ({ ...prev, [key]: stats.totalFocusMinutes }));
+        setFailedKeys((prev) => {
+          if (!prev.has(key)) return prev;
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
       })
       .catch(() => {
-        if (mountedRef.current) setPastCells((prev) => ({ ...prev, [key]: [] }));
+        if (!mountedRef.current) return;
+        // 실패는 캐시하지 않고 요청 기록을 지워 재시도가 같은 키를 다시 조회할 수 있게 한다
+        requestedRef.current.delete(key);
+        setFailedKeys((prev) => new Set(prev).add(key));
       });
-  }, [offset, period]);
+  }, [offset, period, retrySeq]);
+
+  // 실패 페이지 재시도 — 실패 표시를 지우고 조회 이펙트를 다시 돌린다
+  const retryPage = () => {
+    setFailedKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(pageKey);
+      return next;
+    });
+    setRetrySeq((n) => n + 1);
+  };
 
   const byDate = new Map((shown ?? []).map((c) => [c.date, c]));
-  const totalMin = page.days.reduce((sum, d) => sum + (byDate.get(d)?.totalFocusMinutes ?? 0), 0);
+  const summedMin = page.days.reduce((sum, d) => sum + (byDate.get(d)?.totalFocusMinutes ?? 0), 0);
+  // 헤더 총합 — 서버 기간 집계(초 합산 후 1회 내림) 우선, 미확보 시 셀 합산 폴백(코드리뷰 반영)
+  const totalMin = (offset === 0 ? periodTotal : pastTotals[pageKey]) ?? summedMin;
 
   // 가입 경계 — 서버 elapsedDays는 가입일로 클램프되므로 현재 기간 경과일보다 작으면 가입일을
   // 정확히 역산할 수 있고(joinKey), 같으면 '가입이 현재 기간 시작 이전'이라는 사실만 안다(경계 미상).
@@ -117,7 +154,8 @@ export function CalendarCard({ period, cells, today, elapsedDays }: Props) {
     if (date == null) return <View key={`blank-${idx}`} style={s.cell} />;
     const c = byDate.get(date);
     const future = date > todayKey; // 'YYYY-MM-DD' 문자열 비교 = 날짜 비교
-    const neutral = future || isPrejoin(date);
+    // 로딩·실패(noData) 중엔 전 셀 중립 — 없는 데이터를 '0:00·달성'처럼 지어내지 않는다(코드리뷰 반영)
+    const neutral = future || isPrejoin(date) || noData;
     const min = c?.totalFocusMinutes ?? 0;
     const lvl = neutral ? 0 : grassLevel(min);
     const dark = lvl >= 3; // 진한 램프 위 텍스트는 흰색으로
@@ -216,7 +254,7 @@ export function CalendarCard({ period, cells, today, elapsedDays }: Props) {
       </View>
 
       <Text style={s.total} allowFontScaling={false}>
-        총 집중 {Math.floor(totalMin / 60)}시간 {totalMin % 60}분
+        {noData ? '총 집중 —' : `총 집중 ${Math.floor(totalMin / 60)}시간 ${totalMin % 60}분`}
       </Text>
 
       {/* ── 요일 헤더 ── */}
@@ -240,6 +278,14 @@ export function CalendarCard({ period, cells, today, elapsedDays }: Props) {
         {loading ? (
           <View style={s.loadingOverlay}>
             <ActivityIndicator color={T.accent} />
+          </View>
+        ) : null}
+        {failed ? (
+          <View style={[s.loadingOverlay, s.errorOverlay]}>
+            <Text style={s.errorText}>불러오지 못했어요</Text>
+            <TouchableOpacity style={s.retryBtn} activeOpacity={0.8} onPress={retryPage}>
+              <Text style={s.retryText}>다시 시도</Text>
+            </TouchableOpacity>
           </View>
         ) : null}
       </View>
@@ -327,6 +373,17 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // 조회 실패 안내 — 중립 셀 위에 읽히도록 반투명 배경 + 재시도 버튼(친구 목록 에러 패턴 축소판)
+  errorOverlay: { backgroundColor: withAlpha(T.white, 0.75) },
+  errorText: { ...T.text.caption, fontSize: 12, color: T.inkSub },
+  retryBtn: {
+    marginTop: T.space.sm,
+    backgroundColor: T.accent,
+    borderRadius: 999,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.xs,
+  },
+  retryText: { ...T.text.caption, fontWeight: '700', color: T.white },
   pickbar: {
     marginTop: T.space.sm,
     paddingVertical: T.space.sm,
