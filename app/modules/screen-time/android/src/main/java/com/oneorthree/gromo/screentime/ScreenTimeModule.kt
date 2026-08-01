@@ -147,6 +147,11 @@ class ScreenTimeModule : Module() {
         GoalExceededCheckWorker.ensureScheduled(context)
       } else {
         GoalExceededCheckWorker.cancel(context)
+        // 목표 해제 = 계정 정리 경로이기도 하다(App handleLogout → setGoalSeconds(0)) — '오늘
+        // 알림 보냄' 마커를 지워, 같은 날 다른 계정이 로그인해 목표를 걸어도 알림이 눌리지
+        // 않게 한다(코드리뷰 반영). 같은 계정이 재설정하는 경우 하루 2회가 될 수 있으나
+        // 목표를 다시 건 시점의 재알림은 자연스러운 동작이다.
+        prefs.edit().remove(KEY_GOAL_EXCEEDED_NOTIFIED_DATE).apply()
       }
     }
 
