@@ -48,7 +48,16 @@ jest.mock('@/store/UserContext', () => ({
 // 이 파일이 잠그려는 '콜백 신원 고정'이 목 때문에 깨진다(실제 Provider도 useCallback으로 고정한다).
 jest.mock('@/store/CoinContext', () => {
   const refresh = jest.fn();
-  return { useCoins: () => ({ coins: 100, coinsLoaded: true, coinsVersion: 1, refresh }) };
+  const latestCoinsVersion = () => 1;
+  return {
+    useCoins: () => ({
+      coins: 100,
+      coinsLoaded: true,
+      coinsVersion: 1,
+      latestCoinsVersion,
+      refresh,
+    }),
+  };
 });
 
 jest.mock('@/services/analyticsEvents', () => ({ logGroupInviteShared: jest.fn() }));

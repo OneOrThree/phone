@@ -1,5 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -95,7 +103,7 @@ export default function BetSheet({
   onDone,
 }: BetSheetProps) {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { coins, coinsLoaded, coinsVersion, refresh } = useCoins();
+  const { coins, coinsLoaded, coinsVersion, latestCoinsVersion, refresh } = useCoins();
   const [stake, setStake] = useState<number>(STAKE_DEFAULT);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -107,15 +115,6 @@ export default function BetSheet({
   } | null>(null);
   // 게스트 차단 — 시트를 로그인 안내로 갈아 끼운다(GroupInviteSheet의 게스트 경로와 같은 형태).
   const [guestBlocked, setGuestBlocked] = useState(false);
-  // 판정에 남길 잔액 버전은 **오류가 도착한 시점**의 최신 값이어야 한다. submit 클로저가 캡처한
-  // coinsVersion은 제출을 시작한 렌더의 값이라, 요청이 나가 있는 사이 도착한 잔액(시트 오픈 때
-  // 시작한 조회가 늦게 끝난 경우 — 차감 전이라 '낼 수 있다'고 말한다)이 판정보다 **먼저**
-  // 도착했는데도 '판정 이후'로 세어져 CTA를 즉시 다시 열고 같은 400만 반복하게 된다(코덱스 리뷰).
-  const coinsVersionRef = useRef(coinsVersion);
-  useEffect(() => {
-    coinsVersionRef.current = coinsVersion;
-  }, [coinsVersion]);
-
   const bet = challenge.bet ?? null;
   const label = missionLabel(challenge) ?? categoryLabel(challenge);
   const isCreate = mode === 'create';
@@ -225,11 +224,16 @@ export default function BetSheet({
           break;
         // 서버가 센 잔액이 앱과 다르다 — 다시 받아 부족분을 적고, 판정 자체는 서버 것을 그대로 쓴다.
         // 판정 시점의 잔액 버전을 함께 남긴다 — 이 판정을 푸는 건 그보다 **나중에 도착한** 잔액뿐이다.
-        // 버전은 클로저가 아니라 ref에서 읽는다(위 coinsVersionRef 주석) — '지금 도착한 판정'의
-        // 기준 시점은 제출을 시작한 렌더가 아니라 400을 받은 이 순간이다.
+        // 버전은 클로저(coinsVersion)가 아니라 CoinContext의 latestCoinsVersion()에서 읽는다.
+        // 클로저는 제출을 시작한 렌더의 값이라, 요청이 나가 있는 사이 도착한 잔액(시트 오픈 때
+        // 시작한 조회가 늦게 끝난 경우 — 차감 전이라 '낼 수 있다'고 말한다)이 판정보다 **먼저**
+        // 도착했는데도 '판정 이후'로 세어져 CTA를 즉시 다시 열고 같은 400만 반복한다.
+        // 이 시트가 effect로 미러링한 ref도 같은 문제가 남는다 — 잔액이 적용된 직후 다음 렌더·
+        // passive effect 전에 이 catch가 돌면 한 틱 낡은 값을 쓴다. 그래서 응답 적용과 **동시에**
+        // 오르는 정본을 직접 읽는다(코덱스 리뷰).
         case 'INSUFFICIENT_CURRENCY':
           refresh();
-          setInsufficientVerdict({ stake: amount, coinsVersion: coinsVersionRef.current });
+          setInsufficientVerdict({ stake: amount, coinsVersion: latestCoinsVersion() });
           break;
         // 계약(§2-1·§2-2)의 나머지 코드는 앱이 보내는 조합에서 도달할 수 없어 분기를 두지 않는다:
         // BET_FOCUS_ONLY는 카드가 FOCUS·DURATION에만 진입점을 열고(ChallengeCard.betSupported),
@@ -343,13 +347,23 @@ export default function BetSheet({
           </View>
 
           <Text style={s.label}>참가자 {bet?.participants?.length ?? 0}명</Text>
-          <View style={s.participants}>
+          {/* 참가자는 최대 10명이고 닉네임 길이·접근성 글꼴에 따라 줄 수가 늘어난다. 시트 패널은
+              하단 고정 absolute라 높이 제한이 없으면 작은 화면에서 제목·내 코인 같은 위쪽 내용이
+              화면 밖으로 밀려 확인할 수 없게 된다(코덱스 리뷰) — 이 영역만 스크롤로 가둔다.
+              시트 본문 전체가 아니라 참가자 영역만 가두는 이유: 판돈·팟·CTA는 항상 보여야 한다. */}
+          <ScrollView
+            style={s.participantsScroll}
+            contentContainerStyle={s.participants}
+            // 시트 자체는 스크롤 뷰가 아니지만, 안드로이드에서 중첩 제스처를 막지 않게 함께 켠다.
+            nestedScrollEnabled
+            testID="group.bet.participants"
+          >
             {(bet?.participants ?? []).map((p) => (
               <Text key={p.userId} style={s.participant} numberOfLines={1}>
                 {p.nickname}
               </Text>
             ))}
-          </View>
+          </ScrollView>
         </>
       )}
 
@@ -465,6 +479,10 @@ const s = StyleSheet.create({
   statLabel: { ...T.text.caption, fontWeight: '500', color: T.inkMuted },
   statValue: { ...T.text.subtitle, color: T.ink, fontVariant: ['tabular-nums'] },
 
+  // 참가자 칩 3줄분(칩 높이 26 × 3 + 줄 간격 2 × 8)이 기본 상한 — 그 이상은 스크롤한다.
+  // flexGrow:0을 함께 두는 이유: ScrollView는 기본이 flex:1이라 시트 안에서 남은 높이를
+  // 다 차지해 버려, 참가자가 한 줄뿐일 때도 빈 공간이 생긴다.
+  participantsScroll: { maxHeight: 94, flexGrow: 0 },
   participants: { flexDirection: 'row', flexWrap: 'wrap', gap: T.space.sm },
   participant: {
     ...T.text.caption,

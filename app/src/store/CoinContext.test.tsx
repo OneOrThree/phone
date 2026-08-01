@@ -24,10 +24,13 @@ const mockGet = api.get as jest.MockedFunction<typeof api.get>;
 
 // refresh를 테스트가 직접 부르기 위해 훅을 밖으로 꺼내 둔다.
 let refreshFn: () => Promise<void> = async () => {};
+// 렌더를 거치지 않고 읽는 '지금 이 순간의 버전' — 비동기 콜백(BetSheet의 400 처리)이 쓰는 값이다.
+let latestVersionFn: () => number = () => 0;
 
 function Probe() {
-  const { coins, coinsLoaded, coinsVersion, refresh } = useCoins();
+  const { coins, coinsLoaded, coinsVersion, latestCoinsVersion, refresh } = useCoins();
   refreshFn = refresh;
+  latestVersionFn = latestCoinsVersion;
   return (
     <>
       <Text testID="coins">{coins}</Text>
@@ -119,6 +122,31 @@ describe('refresh', () => {
       await refreshFn();
     });
     expect(screen.getByTestId('version')).toHaveTextContent('2');
+  });
+
+  // 버전을 읽는 쪽(BetSheet의 INSUFFICIENT_CURRENCY 처리)은 렌더 사이에 끼어드는 비동기
+  // 콜백이다 — state를 미러링해 읽으면 응답 적용 직후~다음 렌더 사이에 한 틱 낡은 값을 쥔다.
+  // 그래서 버전의 정본은 응답을 적용하는 그 자리에서 오르고, latestCoinsVersion()이 그걸 준다.
+  test('최신 잔액 버전은 응답을 적용하는 순간 오른다', async () => {
+    mockGet.mockResolvedValue({ data: 500 } as never);
+    await renderProvider();
+    expect(latestVersionFn()).toBe(1);
+
+    mockGet.mockResolvedValueOnce({ data: 470 } as never);
+    let versionAtResponse = 0;
+    await act(async () => {
+      await refreshFn();
+      versionAtResponse = latestVersionFn();
+    });
+    expect(versionAtResponse).toBe(2);
+    expect(screen.getByTestId('version')).toHaveTextContent('2');
+
+    // 실패는 새 잔액이 아니다 — state와 같은 규칙으로 멈춰 있어야 한다.
+    mockGet.mockRejectedValueOnce(new Error('network'));
+    await act(async () => {
+      await refreshFn();
+    });
+    expect(latestVersionFn()).toBe(2);
   });
 
   // 시트 오픈 refresh(A)가 떠 있는 채 내기가 성립해 refresh(B)가 돈다 — B(차감 후 470)가 먼저

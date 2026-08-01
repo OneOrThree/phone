@@ -12,7 +12,7 @@
 //     내기를 못 걸고, 서버가 부족을 확정했는데 CTA가 열려 있으면 같은 400만 반복한다.
 //  6) 재시도로 절대 안 풀리는 실패(사라진 챌린지·비멤버·게스트)를 '잠시 후 다시 시도'로 말하지 않는다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import BetSheet from './BetSheet';
 import { createBet, joinBet } from '@/services/groupApi';
@@ -52,11 +52,15 @@ let mockCoins = 100;
 let mockCoinsLoaded = true;
 let mockCoinsVersion = 1;
 const mockRefresh = jest.fn(async () => {});
+// latestCoinsVersion()은 **렌더를 거치지 않은** 최신 버전이다 — 목에서도 그 성질을 그대로 둔다.
+// (mockCoinsVersion을 바꾸고 rerender하지 않으면, 렌더된 coinsVersion은 낡고 이 함수만 최신이 된다 —
+//  실제 CoinContext에서 잔액 응답이 적용된 직후~다음 렌더 사이의 창과 같은 상태다.)
 jest.mock('@/store/CoinContext', () => ({
   useCoins: () => ({
     coins: mockCoins,
     coinsLoaded: mockCoinsLoaded,
     coinsVersion: mockCoinsVersion,
+    latestCoinsVersion: () => mockCoinsVersion,
     refresh: mockRefresh,
   }),
 }));
@@ -262,6 +266,23 @@ describe('참가 모드', () => {
     expect(screen.getByText('재영')).toBeOnTheScreen();
     expect(screen.getByText('수빈')).toBeOnTheScreen();
   });
+
+  // 정원(10명)이 다 차고 접근성 글꼴이 크면 칩이 여러 줄로 늘어난다 — 시트 패널은 하단 고정이라
+  // 높이 제한이 없으면 위쪽(제목·내 코인)이 화면 밖으로 밀린다(코덱스 리뷰). 참가자 영역만
+  // 높이가 묶인 스크롤 영역이어야 하고, 그 안에서 전원을 볼 수 있어야 한다.
+  test('참가자가 정원까지 차도 목록은 높이가 묶인 스크롤 영역에 담긴다', async () => {
+    const participants = Array.from({ length: 10 }, (_, i) => ({
+      userId: `u${i}`,
+      nickname: `아주그럴듯하게긴닉네임${i}`,
+    }));
+    await renderSheet('join', { bet: bet({ participants }) });
+
+    const list = screen.getByTestId('group.bet.participants');
+    expect(list.type).toBe('RCTScrollView');
+    expect(StyleSheet.flatten(list.props.style)).toMatchObject({ maxHeight: expect.any(Number) });
+    expect(screen.getByText('참가자 10명')).toBeOnTheScreen();
+    expect(screen.getByText('아주그럴듯하게긴닉네임9')).toBeOnTheScreen();
+  });
 });
 
 describe('잔액 부족', () => {
@@ -453,6 +474,40 @@ describe('에러 분기', () => {
     // 그 뒤에 서버가 부족을 확정한다 — 방금 도착한 잔액보다 **나중**의 사실이다.
     await act(async () => {
       rejectJoin(axiosErrorWith(400, 'INSUFFICIENT_CURRENCY'));
+    });
+
+    expect(screen.getByText('코인이 부족해요')).toBeOnTheScreen();
+    await submit();
+    expect(mockJoinBet).toHaveBeenCalledTimes(1);
+  });
+
+  // 위 테스트의 더 좁은 창 — 잔액이 CoinContext에 **적용은 됐는데 이 시트가 아직 다시 그려지지
+  // 않은** 순간에 400이 도착하는 경우다. 시트가 effect로 버전을 미러링하면 그 값은 한 틱 낡아,
+  // 판정이 방금 도착한 잔액보다 **이전** 것으로 기록되고 다음 렌더에서 스스로 풀린다(코덱스 리뷰).
+  test('INSUFFICIENT_CURRENCY — 렌더 전에 적용된 잔액도 판정보다 앞선 것으로 센다', async () => {
+    let rejectJoin: (e: unknown) => void = () => {};
+    mockJoinBet.mockReturnValueOnce(
+      new Promise<void>((_, reject) => {
+        rejectJoin = reject;
+      }),
+    );
+    const { rerender } = await renderSheet('join', { bet: bet() });
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.submit'));
+    });
+
+    // 시트 오픈 조회가 끝나 Context에는 새 잔액이 실렸다 — **rerender하지 않는다**(아직 렌더 전).
+    mockCoins = 100;
+    mockCoinsVersion = 2;
+
+    await act(async () => {
+      rejectJoin(axiosErrorWith(400, 'INSUFFICIENT_CURRENCY'));
+    });
+
+    // 이제 그 잔액이 화면에 반영된다 — 판정과 같은 버전이라 판정을 뒤집지 못한다.
+    await act(async () => {
+      rerender(sheet('join', { bet: bet() }));
     });
 
     expect(screen.getByText('코인이 부족해요')).toBeOnTheScreen();

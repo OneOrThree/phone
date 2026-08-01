@@ -125,13 +125,19 @@ function staleBetSheetAlert(
 // 앱을 켜 둔 채 정산이 돌면 카드엔 결과가 뜨는데 전역 잔액은 정산 전 값으로 남아, 지급된 코인을
 // 상점에서 쓰지 못한다(CoinContext.buyItem이 클라 잔액으로 먼저 막는다 — 코덱스 리뷰).
 // 내 결과가 없는 정산은 잔액을 건드리지 않으므로 서명에 넣지 않는다(불필요한 재조회 방지).
+// ⚠️ 서명에 **내 결과의 achieved·payout까지** 넣는다(코덱스 리뷰). 계약상 payout은 null일 수 있어
+//    (부분 정산 실패) 같은 내기가 'payout 없음 → 있음'으로 두 번 도착할 수 있는데, 챌린지·날짜·
+//    상태만 서명하면 두 응답이 같은 사건으로 뭉개져 지급이 확정된 순간을 놓친다 — 카드엔 지급액이
+//    떠도 전역 잔액과 상점의 선행 검사는 정산 전 값에 머문다.
 function settledBetSignature(challenges: GroupChallengeResponse[], userId: string | null): string {
   return challenges
     .map((c) => {
       const last = c.lastSettledBet ?? null;
       if (last === null || !userId) return '';
-      if (!last.results.some((r) => r.userId === userId)) return '';
-      return `${c.id}:${last.betDate}:${last.status}`;
+      const mine = last.results.find((r) => r.userId === userId);
+      if (mine === undefined) return '';
+      // null(미확정)과 0(확정된 0코인)은 다른 사실이라 같은 글자로 뭉개지 않는다.
+      return `${c.id}:${last.betDate}:${last.status}:${mine.achieved ?? '?'}:${mine.payout ?? '?'}`;
     })
     .join('|');
 }
@@ -210,6 +216,36 @@ export default function GroupRoomScreen({
   // 직전 조회에서 본 '내 정산 내기' 서명(settledBetSignature). null = 아직 한 번도 못 받음 —
   // 첫 조회는 비교 대상이 없어 재조회하지 않는다(마운트 시 CoinContext가 이미 잔액을 받는다).
   const settledSigRef = useRef<string | null>(null);
+
+  // 이 화면이 지금 그리고 있는 그룹. 내장 렌더(GroupScreen의 1건 분기)는 목록 재조회 결과가
+  // A 한 건에서 B 한 건으로 바뀌어도 **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
+  // (다른 계정 기기에서 A에서 빠지고 B에 들어간 경우 등) — 그러면 A의 챌린지·시트가 남은 채
+  // mutation만 B의 groupId로 나가 NOT_FOUND 같은 영구 실패가 되고, B 조회가 실패하면 A의
+  // 화면이 그대로 유지된다(코덱스 리뷰).
+  // 이펙트가 아니라 **렌더 중에** 되돌리는 이유: 이펙트는 커밋 뒤라 'A의 데이터 + B의 groupId'가
+  // 한 프레임 실제로 그려지고, 그 프레임의 시트에서 누른 요청이 곧 이 버그다. React가 공식으로
+  // 허용하는 '프롭이 바뀌면 렌더 중 상태 조정' 패턴이다(자식은 커밋되지 않고 즉시 다시 렌더된다).
+  const renderedGroupIdRef = useRef(groupId);
+  if (renderedGroupIdRef.current !== groupId) {
+    renderedGroupIdRef.current = groupId;
+    // 진행 중인 이전 그룹의 응답을 무효화한다 — 늦게 도착해 새 그룹의 화면을 덮지 않게.
+    requestSeqRef.current++;
+    loadedDateRef.current = null;
+    // 새 그룹의 첫 서명은 비교 대상이 없다 — 이전 그룹의 서명과 비교하면 남의 정산으로 잔액을 다시 받는다.
+    settledSigRef.current = null;
+    setDetail(null);
+    setNotices(null);
+    setChallenges(null);
+    setBetSheet(null);
+    setBetBusy(false);
+    setMenuOpen(false);
+    setComposeOpen(false);
+    setLeaving(false);
+    setError(false);
+    setNoticeError(false);
+    setChallengeError(false);
+    setLoading(true);
+  }
 
   // 상세 + 공지 + 챌린지 병렬 조회. 세 요청의 실패를 **각각** 다룬다(allSettled) —
   // 상세 실패는 기존 방 데이터를 보존한 채 배너로, 공지·챌린지 실패는 각 섹션에서만 알린다.

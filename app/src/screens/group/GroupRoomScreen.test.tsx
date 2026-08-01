@@ -73,6 +73,7 @@ jest.mock('@/store/CoinContext', () => ({
     coins: 100,
     coinsLoaded: true,
     coinsVersion: 1,
+    latestCoinsVersion: () => 1,
     refresh: mockRefreshCoins,
   }),
 }));
@@ -1019,6 +1020,113 @@ describe('내기 배선', () => {
       }),
     ]);
     await foreground();
+
+    expect(mockRefreshCoins).not.toHaveBeenCalled();
+  });
+
+  // 계약상 payout은 null일 수 있다(부분 정산 실패) — 복구 작업이 같은 내기의 payout만 채우면
+  // 챌린지·날짜·상태는 그대로다. 서명이 그 셋뿐이면 두 응답이 같은 사건으로 뭉개져 **지급이
+  // 확정된 순간**을 놓치고, 카드엔 지급액이 뜨는데 잔액은 정산 전 값에 머문다(코덱스 리뷰).
+  test('같은 내기라도 내 지급액이 채워지면 잔액을 다시 받는다', async () => {
+    const settling = (payout: number | null) =>
+      challenge({
+        lastSettledBet: {
+          betDate: '2026-07-31',
+          stake: 30,
+          pot: 60,
+          status: 'SETTLED' as const,
+          results: [{ userId: 'me', nickname: '나', achieved: true, payout }],
+        },
+      });
+
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+
+    // 정산은 됐는데 지급이 아직 안 실린 응답이 먼저 도착한다.
+    mockGetChallenges.mockResolvedValue([settling(null)]);
+    await foreground();
+    mockRefreshCoins.mockClear();
+
+    // 복구 작업이 payout만 채웠다 — 이때가 잔액이 실제로 바뀐 순간이다.
+    mockGetChallenges.mockResolvedValue([settling(60)]);
+    await foreground();
+
+    await waitFor(() => expect(mockRefreshCoins).toHaveBeenCalled());
+  });
+});
+
+// 내장 렌더(GroupScreen의 1건 분기)는 그룹이 A 한 건에서 B 한 건으로 바뀌어도 같은 인스턴스를
+// 재사용한다 — 이전 그룹의 화면이 남은 채 mutation만 새 groupId로 나가면 영구 실패가 된다.
+describe('그룹 전환(같은 인스턴스에 다른 groupId)', () => {
+  const OTHER_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
+
+  test('groupId가 바뀌면 열린 내기 시트와 이전 그룹의 화면을 즉시 버린다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        bet: {
+          betId: 'b7',
+          stake: 30,
+          pot: 30,
+          status: 'OPEN' as const,
+          myJoined: false,
+          myAchievedNow: false,
+          participants: [{ userId: 'u2', nickname: '수빈' }],
+        },
+      }),
+    ]);
+    const { rerender } = await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.join.c1'));
+    });
+    expect(screen.getByText('참가하기')).toBeOnTheScreen();
+
+    // 새 그룹의 응답은 **아직 하나도 오지 않았다** — 재조회가 낡은 화면을 걷어 주기를 기대할 수
+    // 없는 상태로 두고, 전환 그 자체만으로 시트와 이전 그룹 데이터가 사라지는지 본다.
+    mockGetGroupDetail.mockReturnValueOnce(new Promise(() => {}));
+    mockGetChallenges.mockReturnValueOnce(new Promise(() => {}));
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={OTHER_GROUP_ID} onLeft={onLeft} />);
+    });
+
+    expect(screen.queryByText('참가하기')).toBeNull();
+    expect(screen.queryByTestId('group.bet.join.c1')).toBeNull();
+    expect(screen.queryByText('아침 6시 집중방')).toBeNull();
+
+    // 조회는 새 groupId로 나간다 — 시트가 남아 있었다면 이 id로 참가 요청이 갔을 자리다.
+    expect(mockGetGroupDetail).toHaveBeenLastCalledWith(OTHER_GROUP_ID, '2026-08-01');
+    expect(mockGetChallenges).toHaveBeenLastCalledWith(OTHER_GROUP_ID, '2026-08-01');
+    expect(mockJoinBet).not.toHaveBeenCalled();
+  });
+
+  test('새 그룹의 첫 정산 서명으로는 잔액을 다시 받지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    // 이전 그룹에서는 내 정산 결과를 이미 본 상태다.
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        lastSettledBet: {
+          betDate: '2026-07-31',
+          stake: 30,
+          pot: 60,
+          status: 'SETTLED' as const,
+          results: [{ userId: 'me', nickname: '나', achieved: true, payout: 60 }],
+        },
+      }),
+    ]);
+    const { rerender } = await renderRoom();
+    mockRefreshCoins.mockClear();
+
+    // 새 그룹엔 정산 내역이 없다 — 서명이 '달라졌다'고 세면 남의 그룹 때문에 잔액을 다시 받는다.
+    mockGetGroupDetail.mockResolvedValue(detail({ id: OTHER_GROUP_ID }));
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={OTHER_GROUP_ID} onLeft={onLeft} />);
+    });
 
     expect(mockRefreshCoins).not.toHaveBeenCalled();
   });

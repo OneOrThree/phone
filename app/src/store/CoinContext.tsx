@@ -22,6 +22,12 @@ interface CoinContextValue {
   // 어떤 사건보다 나중에 도착한 값인가'를 판정하는 데 쓴다 — 서버가 내린 판정(BetSheet의
   // INSUFFICIENT_CURRENCY 승격)을 풀어도 되는지는 값의 크기가 아니라 **도착 순서**로 갈린다.
   coinsVersion: number;
+  // **지금 이 순간의** coinsVersion. 잔액 응답을 적용하는 그 자리에서 동기로 오르므로, 렌더를
+  // 거치지 않고도 최신 값을 읽는다 — coinsVersion(state)은 응답 적용 직후~다음 렌더 사이에
+  // 한 틱 낡아 있고, 소비자가 effect로 따로 미러링해도 그 틈은 그대로 남는다(코덱스 리뷰).
+  // 비동기 콜백(예: BetSheet의 INSUFFICIENT_CURRENCY 도착 시점)에서 '이 사건이 몇 번째 잔액
+  // 이후인가'를 기록할 때 쓴다. 렌더에서는 쓰지 않는다 — ref는 다시 그리지 않는다.
+  latestCoinsVersion: () => number;
   // 서버 잔액 재조회. 마운트 1회 로드만으로는 **서버가 깎은 잔액**(그룹 내기 판돈 차감·정산 지급)이
   // 앱에 영영 반영되지 않는다 — 잔액을 보여 주는 화면이 열릴 때 직접 부른다(3차 내기 시트).
   // 실패해도 throw하지 않는다(호출처가 try/catch를 두지 않아도 되게) — 대신 coinsLoaded가 false로 돌아간다.
@@ -84,6 +90,10 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   // 순서를 지키지 않으면 **차감 전 잔액**을 실은 늦은 응답이 차감 후 잔액을 덮어써, 화면이
   // 재산을 과대 표시하고 부족 검사를 잘못 통과시킨다(코덱스 리뷰). 최신 호출의 결과만 반영한다.
   const refreshSeqRef = useRef(0);
+  // coinsVersion의 정본. state는 이 값의 사본이다 — 응답을 적용하는 자리에서 함께 올려
+  // 소비자가 렌더를 기다리지 않고도 최신 버전을 읽게 한다(위 latestCoinsVersion 주석).
+  const coinsVersionRef = useRef(0);
+  const latestCoinsVersion = useCallback(() => coinsVersionRef.current, []);
 
   // 서버에서 잔액 로드. 실패해도 던지지 않는다 — 잔액은 화면을 막을 값이 아니고,
   // 다음 refresh(시트 오픈 등)에서 자연 재시도된다. 다만 **조용히 삼키지는 않는다**:
@@ -96,7 +106,8 @@ export function CoinProvider({ children }: { children: ReactNode }) {
       if (seq !== refreshSeqRef.current) return;
       setCoins(res.data);
       setCoinsLoaded(true);
-      setCoinsVersion((v) => v + 1);
+      coinsVersionRef.current += 1;
+      setCoinsVersion(coinsVersionRef.current);
     } catch {
       if (seq !== refreshSeqRef.current) return;
       setCoinsLoaded(false);
@@ -151,7 +162,16 @@ export function CoinProvider({ children }: { children: ReactNode }) {
 
   return (
     <CoinContext.Provider
-      value={{ coins, coinsLoaded, coinsVersion, refresh, addCoins, isOwned, buyItem }}
+      value={{
+        coins,
+        coinsLoaded,
+        coinsVersion,
+        latestCoinsVersion,
+        refresh,
+        addCoins,
+        isOwned,
+        buyItem,
+      }}
     >
       {children}
     </CoinContext.Provider>
