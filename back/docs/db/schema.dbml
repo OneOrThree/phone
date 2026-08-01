@@ -432,7 +432,7 @@ Table group_challenge_bet_participants [note: '내기 참가자. 판돈은 참�
   }
 }
 
-Table group_invite_links [note: '그룹 초대 링크 원장: slug → (그룹, 초대자). (그룹, 초대자)당 1링크를 재사용한다(멱등 발급). 공유 URL = https://link.oneorthree.world/l/{slug}?g={group_id}. migration V20'] {
+Table group_invite_links [note: '그룹 초대 링크 원장: slug → (그룹, 초대자). (그룹, 초대자)당 1링크를 재사용한다(멱등 발급). 공유 URL = https://link.oneorthree.world/l/{slug}?g={group_id}. migration V21'] {
   id         uuid        [pk]
 
   slug       varchar(12) [not null, unique, note: '초대 링크 식별자. 생성 규칙은 8자(혼동 문자 제외 알파벳 23456789abcdefghjkmnpqrstuvwxyz), 규칙 변경 여지로 컬럼은 12']
@@ -447,7 +447,7 @@ Table group_invite_links [note: '그룹 초대 링크 원장: slug → (그룹, 
   }
 }
 
-Table invite_link_clicks [note: '초대 링크 클릭 + 매치(설치 기기 연결) + claim(유저 연결) 상태. 별도 install 테이블 없이 클릭 행 하나가 상태 전이를 전부 가진다. migration V20'] {
+Table invite_link_clicks [note: '초대 링크 클릭 + 매치(설치 기기 연결) + claim(유저 연결) 상태. 별도 install 테이블 없이 클릭 행 하나가 상태 전이를 전부 가진다. migration V21'] {
   id                uuid        [pk]
 
   link_id           uuid        [not null, note: 'FK → group_invite_links.id']
@@ -874,7 +874,7 @@ Ref: group_members.group_id > groups.id
 Ref: group_announcements.group_id > groups.id
 Ref: group_announcements.user_id > users.id
 
-// 초대 링크 (V20)
+// 초대 링크 (V21)
 Ref: group_invite_links.group_id > groups.id
 Ref: group_invite_links.inviter_id > users.id
 Ref: invite_link_clicks.link_id > group_invite_links.id
