@@ -2,6 +2,7 @@ import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { ChallengeMemberProgress, GroupChallengeResponse } from '@/types/dto/group';
+import { categoryLabel, missionLabel } from './challengeLabel';
 
 // 챌린지 카드(그룹방 챌린지 섹션 1장) — 명세 docs/app/group-plan-2.md §3-2.
 //
@@ -27,24 +28,15 @@ const UNMEASURED_CAPTION = '— 는 아직 집계되지 않았어요';
 const NO_PROGRESS_CAPTION = '이 챌린지는 진행률을 표시하지 않아요';
 // 롱프레스 삭제는 발견 가능성이 0이다 — 방장에게만 한 줄로 알린다.
 const DELETE_HINT_CAPTION = '길게 눌러 삭제';
+// 이미 오늘 목표를 채운 사람은 참가할 수 없다(무위험 참가 차단 — 백 명세 결정 7).
+// 버튼만 잠그면 왜 안 눌리는지 알 방법이 없어 사유를 한 줄로 적는다.
+const BET_ACHIEVED_CAPTION = '이미 오늘 목표를 달성해서 참가할 수 없어요';
 
-// 'HH:mm:ss' · ISO 등 서버 시각 문자열에서 HH:mm만 뽑는다. 형식이 다르면 원문 유지.
-// (GroupInviteSheet의 같은 헬퍼를 파일 내 복사 — 공용 유틸로 추출하지 않는다, §3-2)
-function hhmm(v: string): string {
-  return /(\d{2}:\d{2})/.exec(v)?.[1] ?? v;
-}
-
-// 미션 한 줄 요약 — 값이 모자라면 null(라벨 자리에 미션 종류만 남긴다).
-// GroupInviteSheet.missionLabel의 분기 로직을 챌린지 DTO에 맞춰 복사한 것이다.
-function missionLabel(c: GroupChallengeResponse): string | null {
-  const what = c.missionCategory === 'SCREEN_TIME' ? '스크린타임' : '집중';
-  if (c.missionType === 'DURATION' && c.durationMinutes) {
-    return `하루 ${c.durationMinutes}분 ${what}`;
-  }
-  if (c.missionType === 'TIME_WINDOW' && c.windowStart && c.windowEnd) {
-    return `매일 ${hhmm(c.windowStart)}~${hhmm(c.windowEnd)} ${what}`;
-  }
-  return null;
+// 'YYYY-MM-DD' → '7/31'. 캡션 한 줄에 연도까지 넣을 자리가 없고, '지난 내기'는 늘 최근 며칠이다.
+// 형식이 다르면 원문을 그대로 둔다(서버가 다른 포맷을 주면 깨진 날짜보다 원문이 낫다).
+function mmdd(betDate: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(betDate);
+  return m ? `${Number(m[2])}/${Number(m[3])}` : betDate;
 }
 
 // 멤버 한 명의 진행 표기 — 위 3상 규칙 그대로.
@@ -64,6 +56,9 @@ function progressA11y(p: ChallengeMemberProgress, durationMinutes: number | null
     : `${p.nickname} ${p.progressMinutes}분`;
 }
 
+// 내기 시트를 어떤 모드로 열 것인가 — 개설(아직 내기 없음) / 참가(OPEN 내기에 합류).
+export type BetSheetMode = 'create' | 'join';
+
 export interface ChallengeCardProps {
   challenge: GroupChallengeResponse;
   // 내가 방장인가 — 롱프레스 삭제 진입점을 여는 조건.
@@ -73,6 +68,9 @@ export interface ChallengeCardProps {
   myUserId?: string | null;
   // 삭제 확인까지 끝난 뒤 호출 — 부모(GroupRoomScreen)가 API를 부르고 재조회한다.
   onDelete: (challengeId: string) => void;
+  // 내기 시트 진입 — 시트 상태·API·재조회는 전부 부모가 쥔다(카드는 표현만).
+  // 미전달이면 내기 영역 자체를 그리지 않는다 — 눌러도 아무 일이 없는 버튼을 세우지 않기 위해서다.
+  onOpenBet?: (mode: BetSheetMode) => void;
 }
 
 export default function ChallengeCard({
@@ -80,6 +78,7 @@ export default function ChallengeCard({
   isOwner,
   myUserId,
   onDelete,
+  onOpenBet,
 }: ChallengeCardProps) {
   const label = missionLabel(challenge);
   const progress = challenge.memberProgress;
@@ -96,6 +95,32 @@ export default function ChallengeCard({
     challenge.missionCategory === 'SCREEN_TIME' &&
     !!rows &&
     rows.some((p) => p.progressMinutes === null);
+
+  // 내기를 걸 수 있는 카드인가 — FOCUS · DURATION만이다(백 명세 결정 3).
+  // SCREEN_TIME 달성은 클라 신뢰라 돈을 걸 수 없고, TIME_WINDOW는 서버가 진행률 자체를 안 준다.
+  // 지원하지 않는 카드에는 '지난 내기'까지 포함해 **아무것도** 그리지 않는다.
+  const betSupported =
+    !!onOpenBet && challenge.missionCategory === 'FOCUS' && challenge.missionType === 'DURATION';
+  const bet = challenge.bet ?? null;
+  // 서버가 participants를 빠뜨려도 카드가 죽지 않게 — 인원 수는 표시용일 뿐이다.
+  const betMembers = bet?.participants?.length ?? 0;
+  const lastBet = challenge.lastSettledBet ?? null;
+  const lastResults = lastBet?.results ?? [];
+  const lastAchieved = lastResults.filter((r) => r.achieved).length;
+
+  // 지난 내기 결과 상세 — 카드 안에 인별 표를 펼치면 오늘 진행 리스트와 뒤엉킨다.
+  // payout은 '받은 금액'이라 그대로 쓰면 판돈을 낸 사실이 지워진다 → 손익(payout - stake)으로 적는다.
+  function showLastBet() {
+    if (!lastBet) return;
+    const lines = lastResults.map((r) => {
+      const delta = r.payout - lastBet.stake;
+      return `${r.nickname} · ${r.achieved ? '달성' : '미달성'} · ${delta > 0 ? '+' : ''}${delta}`;
+    });
+    Alert.alert(
+      `지난 내기 (${mmdd(lastBet.betDate)})`,
+      [`판돈 ${lastBet.stake} · 팟 ${lastBet.pot}`, ...lines].join('\n'),
+    );
+  }
 
   // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
   function confirmDelete() {
@@ -129,7 +154,7 @@ export default function ChallengeCard({
         <Text style={s.label} numberOfLines={1}>
           {/* 폴백은 문장이 아니라 세그먼트와 같은 '카테고리 명사' 자리다 — 고르는 자리의 명칭과 맞춘다.
               (문장 안에서는 `하루 60분 집중`처럼 짧은 쪽을 쓴다) */}
-          {label ?? (challenge.missionCategory === 'SCREEN_TIME' ? '스크린타임' : '집중 시간')}
+          {label ?? categoryLabel(challenge)}
         </Text>
       </View>
 
@@ -174,6 +199,72 @@ export default function ChallengeCard({
       )}
 
       {hasUnmeasured && <Text style={s.caption}>{UNMEASURED_CAPTION}</Text>}
+
+      {/* ── 내기 영역(3차 §1) — 진행 리스트 아래, 방장 힌트 위 ── */}
+      {betSupported && (
+        <View style={s.betArea}>
+          {bet === null ? (
+            // ① 아직 내기가 없다 — 아웃라인 소형 버튼. 카드 본체(진행 리스트)보다 약하게 둔다.
+            <TouchableOpacity
+              style={s.betCreateBtn}
+              activeOpacity={0.8}
+              onPress={() => onOpenBet?.('create')}
+              testID={`group.bet.create.${challenge.id}`}
+            >
+              <Text style={s.betCreateText}>내기 걸기</Text>
+            </TouchableOpacity>
+          ) : bet.myJoined ? (
+            // ③ 내가 참여 중 — 판돈·팟·인원. '참여 중' 칩은 아직 열려 있는 내기에만 붙인다
+            //    (정산이 끝난 내기에 '참여 중'을 달면 지금도 진행 중인 것으로 읽힌다).
+            <View style={s.betRow}>
+              <Text style={s.betText}>
+                🪙 판돈 {bet.stake} · 팟 {bet.pot} · {betMembers}명 참여
+              </Text>
+              {bet.status === 'OPEN' && <Text style={s.betJoinedTag}>참여 중</Text>}
+            </View>
+          ) : bet.status === 'OPEN' ? (
+            // ② 열려 있는데 나는 미참가 — 행 전체가 참가 진입점.
+            //    이미 오늘 목표를 달성했으면 서버가 거절하므로(BET_ALREADY_ACHIEVED) 미리 잠근다.
+            <>
+              <TouchableOpacity
+                style={[s.betRow, s.betJoinRow, bet.myAchievedNow && s.betJoinRowOff]}
+                activeOpacity={0.85}
+                disabled={bet.myAchievedNow}
+                onPress={() => onOpenBet?.('join')}
+                testID={`group.bet.join.${challenge.id}`}
+              >
+                <Text style={[s.betText, bet.myAchievedNow && s.betTextOff]}>
+                  🪙 판돈 {bet.stake} · {betMembers}명 참여 중 — 참가하기
+                </Text>
+              </TouchableOpacity>
+              {bet.myAchievedNow && <Text style={s.caption}>{BET_ACHIEVED_CAPTION}</Text>}
+            </>
+          ) : (
+            // 계약 밖 조합(마감·정산됐는데 나는 미참가) — 상태만 그대로 적고 진입점은 두지 않는다.
+            <View style={s.betRow}>
+              <Text style={[s.betText, s.betTextOff]}>
+                🪙 판돈 {bet.stake} · 팟 {bet.pot} · {betMembers}명 참여
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* 지난 내기 1줄 — 탭하면 인별 결과 Alert(§0-4). 결과 전용 화면은 만들지 않는다. */}
+      {betSupported && lastBet !== null && (
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={showLastBet}
+          hitSlop={8}
+          accessibilityRole="button"
+          testID={`group.bet.last.${challenge.id}`}
+        >
+          <Text style={s.betLastCaption}>
+            지난 내기({mmdd(lastBet.betDate)}): {lastResults.length}명 중 {lastAchieved}명 달성
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {isOwner && <Text style={s.hint}>{DELETE_HINT_CAPTION}</Text>}
     </TouchableOpacity>
   );
@@ -247,6 +338,54 @@ const s = StyleSheet.create({
     paddingVertical: 1,
     overflow: 'hidden',
   },
+  // ── 내기 영역 — 진행 리스트와 같은 구분선 규격으로 한 칸 더 갈라 놓는다.
+  betArea: {
+    marginTop: T.space.xs,
+    paddingTop: T.space.sm,
+    borderTopWidth: 1,
+    borderTopColor: T.divider,
+  },
+  // '내기 걸기' — 아웃라인 소형 버튼. 카드의 주 내용(진행 리스트)보다 약한 위계라 채우지 않는다.
+  betCreateBtn: {
+    alignSelf: 'flex-start',
+    height: 32,
+    paddingHorizontal: T.space.md,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: T.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  betCreateText: { ...T.text.caption, color: T.accent },
+  betRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
+  // 참가 진입 행 — 누를 수 있는 자리라 배경 칩으로 버튼임을 알린다.
+  betJoinRow: {
+    backgroundColor: T.accentBg,
+    borderRadius: 10,
+    paddingVertical: T.space.sm,
+    paddingHorizontal: T.space.md,
+  },
+  betJoinRowOff: { backgroundColor: T.track },
+  betText: { ...T.text.caption, color: T.inkSub, flexShrink: 1 },
+  betTextOff: { color: T.inkMuted, fontWeight: '500' },
+  // '참여 중' 칩 — GroupFindSheet의 같은 뱃지 규격(accent 칩).
+  betJoinedTag: {
+    ...T.text.caption,
+    color: T.accentDeep,
+    fontWeight: '700',
+    backgroundColor: T.accentBg,
+    borderRadius: 8,
+    paddingHorizontal: T.space.sm,
+    paddingVertical: 2,
+  },
+  // 지난 내기 1줄 — 지난 일이라 캡션보다 옅게, 그러나 탭 가능한 자리라 밑줄로 알린다.
+  betLastCaption: {
+    ...T.text.caption,
+    fontWeight: '500',
+    color: T.inkMuted,
+    textDecorationLine: 'underline',
+  },
+
   // 방장 전용 삭제 힌트 — 카드 하단 한 줄. 캡션보다 더 옅게 둬 내용과 섞이지 않게 한다.
   hint: { ...T.text.caption, fontWeight: '500', color: T.inkFaint },
 });

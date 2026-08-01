@@ -9,10 +9,16 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import ChallengeCard from './ChallengeCard';
 import { T } from '@/constants/theme';
-import type { ChallengeMemberProgress, GroupChallengeResponse } from '@/types/dto/group';
+import type {
+  ChallengeMemberProgress,
+  GroupChallengeBet,
+  GroupChallengeResponse,
+  LastSettledBet,
+} from '@/types/dto/group';
 
 const CHALLENGE_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
 const onDelete = jest.fn();
+const onOpenBet = jest.fn();
 
 function progress(over: Partial<ChallengeMemberProgress> = {}): ChallengeMemberProgress {
   return { userId: 'u1', nickname: '재영', progressMinutes: 32, achieved: false, ...over };
@@ -32,6 +38,50 @@ function challenge(over: Partial<GroupChallengeResponse> = {}): GroupChallengeRe
     memberProgress: [progress()],
     ...over,
   };
+}
+
+function bet(over: Partial<GroupChallengeBet> = {}): GroupChallengeBet {
+  return {
+    betId: 'b1',
+    stake: 30,
+    pot: 90,
+    status: 'OPEN',
+    myJoined: false,
+    myAchievedNow: false,
+    participants: [
+      { userId: 'u1', nickname: '재영' },
+      { userId: 'u2', nickname: '수빈' },
+      { userId: 'u3', nickname: '민지' },
+    ],
+    ...over,
+  };
+}
+
+function lastSettledBet(over: Partial<LastSettledBet> = {}): LastSettledBet {
+  return {
+    betDate: '2026-07-31',
+    stake: 30,
+    pot: 90,
+    status: 'SETTLED',
+    results: [
+      { userId: 'u1', nickname: '재영', achieved: true, payout: 45 },
+      { userId: 'u2', nickname: '수빈', achieved: true, payout: 45 },
+      { userId: 'u3', nickname: '민지', achieved: false, payout: 0 },
+    ],
+    ...over,
+  };
+}
+
+// 내기 영역은 onOpenBet을 받은 카드에만 그린다 — 부모가 시트를 쥐지 않으면 진입점도 없다.
+async function renderCard(over: Partial<GroupChallengeResponse> = {}) {
+  return render(
+    <ChallengeCard
+      challenge={challenge(over)}
+      isOwner={false}
+      onDelete={onDelete}
+      onOpenBet={onOpenBet}
+    />,
+  );
 }
 
 beforeEach(() => {
@@ -271,6 +321,120 @@ describe('캡션', () => {
       />,
     );
     expect(screen.getByText('스크린타임 권한이 없어 참여할 수 없어요')).toBeOnTheScreen();
+  });
+});
+
+// 내기 영역 4상 — 명세 docs/app/group-bet-plan.md §1.
+// 상태를 하나라도 잘못 그리면 사용자가 **돈을 잃는다**: 없는 내기를 참가로 보이면 헛탭이고,
+// 참여 중을 참가 가능으로 보이면 두 번 걸려 하고, 달성자에게 참가를 열면 서버가 거절할 요청만 만든다.
+describe('내기 영역 4상', () => {
+  test('① 내기가 없으면 개설 진입점만 둔다', async () => {
+    await renderCard({ bet: null });
+
+    const btn = screen.getByText('내기 걸기');
+    await act(async () => {
+      fireEvent.press(btn);
+    });
+    expect(onOpenBet).toHaveBeenCalledWith('create');
+  });
+
+  test('② OPEN인데 미참가면 참가 행 — 판돈·인원·참가하기를 한 줄로 적는다', async () => {
+    await renderCard({ bet: bet() });
+
+    const row = screen.getByText('🪙 판돈 30 · 3명 참여 중 — 참가하기');
+    expect(row).toBeOnTheScreen();
+    expect(screen.queryByText('내기 걸기')).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.join.${CHALLENGE_ID}`));
+    });
+    expect(onOpenBet).toHaveBeenCalledWith('join');
+  });
+
+  test('③ 이미 오늘 목표를 달성했으면 참가를 막고 사유를 적는다', async () => {
+    await renderCard({ bet: bet({ myAchievedNow: true }) });
+
+    expect(screen.getByText('이미 오늘 목표를 달성해서 참가할 수 없어요')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.join.${CHALLENGE_ID}`));
+    });
+    // 눌러도 시트가 열리지 않는다 — 서버가 BET_ALREADY_ACHIEVED로 거절할 요청이다.
+    expect(onOpenBet).not.toHaveBeenCalled();
+  });
+
+  test('④ 참여 중이면 팟까지 보여 주고 참가 진입점을 없앤다', async () => {
+    await renderCard({ bet: bet({ myJoined: true }) });
+
+    expect(screen.getByText('🪙 판돈 30 · 팟 90 · 3명 참여')).toBeOnTheScreen();
+    expect(screen.getByText('참여 중')).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.queryByText('내기 걸기')).toBeNull();
+  });
+
+  test('정산이 끝난 내기에는 참여 중 칩을 달지 않는다', async () => {
+    await renderCard({ bet: bet({ myJoined: true, status: 'SETTLED' }) });
+
+    expect(screen.getByText('🪙 판돈 30 · 팟 90 · 3명 참여')).toBeOnTheScreen();
+    expect(screen.queryByText('참여 중')).toBeNull();
+  });
+
+  // 서버가 필드를 아직 안 내려주는 배포 구간(백 워커 병행 구현) — undefined도 '내기 없음'이다.
+  test('bet 필드가 아예 없어도 개설 진입점으로 떨어진다', async () => {
+    await renderCard();
+    expect(screen.getByText('내기 걸기')).toBeOnTheScreen();
+  });
+
+  test('내기를 지원하지 않는 카드(SCREEN_TIME·TIME_WINDOW)에는 아무것도 그리지 않는다', async () => {
+    await renderCard({ missionCategory: 'SCREEN_TIME', bet: null, lastSettledBet: null });
+    expect(screen.queryByText('내기 걸기')).toBeNull();
+
+    await renderCard({
+      missionType: 'TIME_WINDOW',
+      durationMinutes: null,
+      windowStart: '09:00:00',
+      windowEnd: '11:00:00',
+      memberProgress: null,
+      bet: null,
+      lastSettledBet: lastSettledBet(),
+    });
+    expect(screen.queryByText('내기 걸기')).toBeNull();
+    expect(screen.queryByText(/지난 내기/)).toBeNull();
+  });
+
+  test('onOpenBet을 받지 않으면 내기 영역 자체가 없다', async () => {
+    await render(
+      <ChallengeCard challenge={challenge({ bet: null })} isOwner onDelete={onDelete} />,
+    );
+    expect(screen.queryByText('내기 걸기')).toBeNull();
+  });
+});
+
+describe('지난 내기', () => {
+  test('캡션 1줄에 날짜·달성 인원을 적는다', async () => {
+    await renderCard({ bet: null, lastSettledBet: lastSettledBet() });
+    expect(screen.getByText('지난 내기(7/31): 3명 중 2명 달성')).toBeOnTheScreen();
+  });
+
+  test('탭하면 인별 결과를 Alert로 펼친다 — payout은 손익(±)으로 환산한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await renderCard({ bet: null, lastSettledBet: lastSettledBet() });
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '지난 내기 (7/31)',
+      // payout 45 - 판돈 30 = +15. 받은 금액(45)을 그대로 적으면 판돈을 낸 사실이 지워진다.
+      ['판돈 30 · 팟 90', '재영 · 달성 · +15', '수빈 · 달성 · +15', '민지 · 미달성 · -30'].join(
+        '\n',
+      ),
+    );
+  });
+
+  test('지난 내기가 없으면 캡션을 붙이지 않는다', async () => {
+    await renderCard({ bet: null, lastSettledBet: null });
+    expect(screen.queryByText(/지난 내기/)).toBeNull();
   });
 });
 

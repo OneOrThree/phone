@@ -14,10 +14,12 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { Alert, AppState, type AppStateStatus } from 'react-native';
 import GroupRoomScreen from './GroupRoomScreen';
 import {
+  createBet,
   deleteChallenge,
   getAnnouncements,
   getChallenges,
   getGroupDetail,
+  joinBet,
 } from '@/services/groupApi';
 import { todayStr } from '@/utils/localDate';
 import type {
@@ -56,7 +58,16 @@ jest.mock('@/store/UserContext', () => ({
   useUser: () => ({ userId: 'me' }),
 }));
 
-jest.mock('@/services/analyticsEvents', () => ({ logGroupInviteShared: jest.fn() }));
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupInviteShared: jest.fn(),
+  logGroupBetCreated: jest.fn(),
+  logGroupBetJoined: jest.fn(),
+}));
+
+// 내기 시트가 잔액을 읽는다(CoinContext) — 테스트 트리엔 Provider가 없어 훅을 대체한다.
+jest.mock('@/store/CoinContext', () => ({
+  useCoins: () => ({ coins: 100, refresh: jest.fn(async () => {}) }),
+}));
 
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
@@ -65,6 +76,8 @@ jest.mock('@/services/groupApi', () => ({
   getChallenges: jest.fn(),
   deleteChallenge: jest.fn(),
   withdrawGroup: jest.fn(),
+  createBet: jest.fn(),
+  joinBet: jest.fn(),
 }));
 
 // 날짜 경계를 테스트가 직접 옮긴다.
@@ -74,6 +87,8 @@ const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroup
 const mockGetAnnouncements = getAnnouncements as jest.MockedFunction<typeof getAnnouncements>;
 const mockGetChallenges = getChallenges as jest.MockedFunction<typeof getChallenges>;
 const mockDeleteChallenge = deleteChallenge as jest.MockedFunction<typeof deleteChallenge>;
+const mockCreateBet = createBet as jest.MockedFunction<typeof createBet>;
+const mockJoinBet = joinBet as jest.MockedFunction<typeof joinBet>;
 const mockTodayStr = todayStr as jest.MockedFunction<typeof todayStr>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
@@ -458,6 +473,64 @@ describe('챌린지 섹션', () => {
 
     expect(mockDeleteChallenge).toHaveBeenCalledWith(GROUP_ID, 'c1');
     // 삭제 후 재조회 — 최초 1회 + 삭제 후 1회.
+    await waitFor(() => expect(mockGetChallenges).toHaveBeenCalledTimes(2));
+  });
+});
+
+// 내기(3차) — 화면이 하는 일은 시트 상태 보유와 성공 후 재조회뿐이다(§2).
+// 내기 데이터는 challenges 응답에 이미 실려 있어 **추가 조회가 없어야** 한다.
+describe('내기 배선', () => {
+  test('카드에서 내기를 열어 개설하면 시트가 닫히고 챌린지를 재조회한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    mockCreateBet.mockResolvedValue({ betId: 'b1' });
+    await renderRoom();
+
+    await press('내기 걸기');
+    // 시트가 떴다 — 개설 모드 CTA.
+    expect(screen.getByText('내기 열기')).toBeOnTheScreen();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.submit'));
+    });
+
+    expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, 'c1', {
+      stake: 10,
+      date: '2026-08-01',
+    });
+    // 성공 후 재조회 — 최초 1회 + 개설 후 1회.
+    await waitFor(() => expect(mockGetChallenges).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('내기 열기')).toBeNull();
+  });
+
+  test('참가 진입은 그 카드의 betId로 이어진다(추가 조회 없음)', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        bet: {
+          betId: 'b7',
+          stake: 30,
+          pot: 30,
+          status: 'OPEN',
+          myJoined: false,
+          myAchievedNow: false,
+          participants: [{ userId: 'u2', nickname: '수빈' }],
+        },
+      }),
+    ]);
+    mockJoinBet.mockResolvedValue(undefined);
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.join.c1'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.submit'));
+    });
+
+    expect(mockJoinBet).toHaveBeenCalledWith(GROUP_ID, 'b7');
     await waitFor(() => expect(mockGetChallenges).toHaveBeenCalledTimes(2));
   });
 });

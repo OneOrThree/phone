@@ -39,7 +39,8 @@ import type {
 } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { fmtNoticeDate } from './noticeDate';
-import ChallengeCard from './components/ChallengeCard';
+import BetSheet from './components/BetSheet';
+import ChallengeCard, { type BetSheetMode } from './components/ChallengeCard';
 import ChallengeComposeSheet from './components/ChallengeComposeSheet';
 import MemberTile from './components/MemberTile';
 
@@ -115,6 +116,12 @@ export default function GroupRoomScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+  // 내기 시트(3차) — 어떤 챌린지를 어떤 모드로 열었나. 내기 데이터는 challenges 응답에 이미
+  // 실려 있으므로(계약 §2-3) 시트를 열려고 추가 조회를 하지 않는다.
+  const [betSheet, setBetSheet] = useState<{
+    challenge: GroupChallengeResponse;
+    mode: BetSheetMode;
+  } | null>(null);
   const [leaving, setLeaving] = useState(false);
 
   // 요청 시퀀스 — 당겨서 새로고침 중 '다시 시도'를 누르거나 연타하면 reload()·onRefresh()가
@@ -558,6 +565,7 @@ export default function GroupRoomScreen({
                 isOwner={!!isOwner}
                 myUserId={userId}
                 onDelete={onDeleteChallenge}
+                onOpenBet={(mode) => setBetSheet({ challenge: c, mode })}
               />
             ))}
           </View>
@@ -642,6 +650,20 @@ export default function GroupRoomScreen({
           onClose={() => setComposeOpen(false)}
           onCreated={() => {
             setComposeOpen(false);
+            load();
+          }}
+        />
+      )}
+
+      {/* ── 내기 시트(개설·참가, 3차 §1) ── */}
+      {betSheet !== null && (
+        <BetSheet
+          groupId={groupId}
+          challenge={betSheet.challenge}
+          mode={betSheet.mode}
+          onClose={() => setBetSheet(null)}
+          onDone={() => {
+            setBetSheet(null);
             load();
           }}
         />
