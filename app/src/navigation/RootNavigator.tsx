@@ -6,6 +6,7 @@ import StatsScreen from '@/screens/StatsScreen';
 import MenuScreen from '@/screens/MenuScreen';
 import UsageDetailScreen from '@/screens/UsageDetailScreen';
 import NotificationsScreen from '@/screens/NotificationsScreen';
+import CurrencyHistoryScreen from '@/screens/currency/CurrencyHistoryScreen';
 import FocusCategoryScreen from '@/screens/focus/FocusCategoryScreen';
 import FocusSessionScreen from '@/screens/focus/FocusSessionScreen';
 import FocusResultScreen from '@/screens/focus/FocusResultScreen';
@@ -88,6 +89,8 @@ export function RootNavigator() {
         <Stack.Screen name="UsageDetail" component={UsageDetailScreen} />
         {/* 알림 보관함(GROMO-661) — 홈 우측 상단 종에서 진입 */}
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
+        {/* 시간조각(재화) 거래 내역 — '전체' 탭 잔액 행에서 진입 */}
+        <Stack.Screen name="CurrencyHistory" component={CurrencyHistoryScreen} />
         {/* 집중 플로우 — FAB → 과목선택 → 세션 (탭 위 push) */}
         <Stack.Screen name="FocusCategory" component={FocusCategoryScreen} />
         <Stack.Screen

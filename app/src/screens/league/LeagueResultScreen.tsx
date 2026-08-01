@@ -14,6 +14,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { T, withAlpha } from '@/constants/theme';
+import { CURRENCY } from '@/constants/currency';
 import { tierByLevel } from '@/constants/tiers';
 import { ackLastResult } from '@/services/leagueApi';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -42,8 +43,10 @@ const TYPE_CFG = {
 export default function LeagueResultScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<V2RootStackParamList, 'LeagueResult'>>();
-  const { type, fromLevel, toLevel, weekHours, weekStartAt } = route.params;
+  const { type, fromLevel, toLevel, weekHours, weekStartAt, promotionBonusCoins } = route.params;
   const cfg = TYPE_CFG[type];
+  // 승급 보상 시간조각 — 승급(promote)이고 서버가 보상을 실어 보낸 경우에만 배지 표기.
+  const showBonus = type === 'promote' && (promotionBonusCoins ?? 0) > 0;
 
   // 닫힐 때(CTA·제스처 모두 unmount 경유) 확인 처리 — 실패하면 리그 탭 재포커스 때
   // useLeagueLastResult가 미확인 상태를 감지해 재노출 없이 ack만 재시도한다(멱등)
@@ -285,6 +288,15 @@ export default function LeagueResultScreen() {
           </View>
         </View>
 
+        {/* 승급 보상 시간조각 배지 — 하단 안내와 같은 등장 애니메이션(line3) */}
+        {showBonus ? (
+          <Animated.View style={[s.bonusBadge, lineStyle(line3)]}>
+            <Text style={s.bonusText}>
+              +{(promotionBonusCoins ?? 0).toLocaleString()} {CURRENCY.label}
+            </Text>
+          </Animated.View>
+        ) : null}
+
         {/* 다음 티어까지 한 줄 안내 — CTA 바로 위 */}
         <Animated.Text style={[s.goalHint, lineStyle(line3)]}>
           {nextUp == null ? (
@@ -369,6 +381,17 @@ const s = StyleSheet.create({
     marginBottom: T.space.md,
   },
   goalStrong: { fontWeight: '800', color: T.night.gold },
+
+  // 승급 보상 시간조각 배지(+N 시간조각) — 골드 pill(다크 배경 대비)
+  bonusBadge: {
+    alignSelf: 'center',
+    backgroundColor: withAlpha(T.night.gold, 0.16),
+    borderRadius: 999,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.sm,
+    marginBottom: T.space.md,
+  },
+  bonusText: { ...T.text.label, fontWeight: '800', color: T.night.gold },
 
   cta: {
     height: 56,

@@ -10,6 +10,7 @@ import { getStreak } from '@/services/statsApi';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@/store/UserContext';
 import { useCharacter } from '@/store/CharacterContext';
+import { useCoins, useRefreshCoinsOnFocus } from '@/store/CoinContext';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
 import { STORAGE_KEYS } from '@/types/storage';
 import { CharacterImage } from '@/components/character/CharacterImage';
@@ -22,6 +23,7 @@ import { SettingsSection, SettingsRow } from '@/screens/settings/components/Sett
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
+import { CURRENCY } from '@/constants/currency';
 
 // v2 '전체' 탭 = 설정 허브(SET·앱 설정). 프로필 헤더 + 시안 행 그룹 + 광고 배너.
 // 실제 동작(목표 편집·허용앱·스크린타임·로그아웃 등)은 각 하위 화면(settings/*)이 담당하고,
@@ -205,6 +207,9 @@ export default function MenuScreen() {
   // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
   const { activeSource } = useCharacter();
   const insets = useSafeAreaInsets();
+  // 시간조각(재화) 잔액 — 프로필 아래 행. 포커스 시 서버 잔액 재조회(내기 차감·정산 반영).
+  const { coins, coinsLoaded } = useCoins();
+  useRefreshCoinsOnFocus();
 
   // 허브 행 우측 요약값 — 준비 시험 / 허용앱 개수 / 스크린타임 권한 상태.
   const [category, setCategory] = useState<string | null>(null); // 준비 시험(focusCategory)
@@ -302,6 +307,18 @@ export default function MenuScreen() {
           </View>
           <Ionicons name="chevron-forward" size={18} color={T.inkMuted} />
         </TouchableOpacity>
+
+        {/* 시간조각(재화) 잔액 — 탭하면 거래 내역(CurrencyHistory). 포커스 시 잔액 refresh */}
+        <SettingsSection>
+          <SettingsRow
+            icon="hourglass-outline"
+            iconColor={T.accentDeep}
+            iconBg={T.accentBg}
+            label={CURRENCY.label}
+            value={coinsLoaded ? `${coins.toLocaleString()}개` : '–'}
+            onPress={() => navigation.navigate('CurrencyHistory')}
+          />
+        </SettingsSection>
 
         {/* 섹션·순서(GROMO-848) — 자주 쓰는 행이 위(개인 목표), 1회성·드문 행이 아래(계정·문서·버전).
              아이콘 색 기준: 섹션마다 한 색 — 목표·집중=인디고, 알림·공개=초록, 계정·정보=중립 회색. */}
@@ -477,12 +494,14 @@ export default function MenuScreen() {
             visible={modalPreview === 'screentime'}
             streakDays={5}
             goalMinutes={180}
+            rewardCoins={30}
             onClose={() => setModalPreview(null)}
           />
           <GoalCelebrationModal
             visible={modalPreview === 'focus'}
             goalStreakDays={5}
             goalMinutes={120}
+            rewardCoins={30}
             onClose={() => setModalPreview(null)}
           />
           {/* 챌린지 결과 모달은 visible prop 없이 조건부 렌더 방식이다(그룹방과 같은 사용법) */}
