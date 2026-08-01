@@ -19,6 +19,7 @@ import {
   subjectMaskReasonLabel,
   type SubjectMaskResult,
 } from '@/services/subjectMask';
+import { moderateImage } from '@/services/characterApi';
 import { T } from '@/constants/theme';
 
 // 캐릭터 생성기(자립 컴포넌트) — 앨범/카메라로 사물 사진을 얻으면 온디바이스 누끼(Vision) 후
@@ -33,7 +34,7 @@ import { T } from '@/constants/theme';
 const STAGE_HEIGHT = 340; // 캐릭터가 서는 무대 높이
 const DESK_EMOJI = ['📚', '☕️', '✏️'];
 
-type Phase = 'idle' | 'working' | 'ready' | 'saving';
+type Phase = 'idle' | 'working' | 'ready' | 'checking' | 'saving';
 
 interface Props {
   // 저장 완료 시 만들어진 커스텀 캐릭터의 file:// 경로를 넘긴다.
@@ -122,12 +123,31 @@ export default function CharacterCreator({ onSaved, userId }: Props) {
   }, [result]);
 
   // 저장 — 합성 미리보기를 캡처해 투명 PNG로 굽고 영구 저장한 뒤 경로를 onSaved로 돌려준다.
+  // 단, 저장 전 서버 모더레이션(필수 관문)을 통과해야 한다. 막히면 저장·onSaved 하지 않는다.
   const save = useCallback(async () => {
     if (!result) return;
-    setPhase('saving');
+    setError(null);
+    setPhase('checking');
     try {
+      // 1) 합성본 캡처 — 서버 모더레이션과 저장에 같은 base64를 쓴다.
       const base64 = await captureRef(captureViewRef, { format: 'png', result: 'base64' });
-      // userId를 넘겨 유저별 파일로 저장 — 한 기기 두 계정이 서로 덮어쓰지 않게 한다.
+
+      // 2) 서버 모더레이션(필수 게이트) — 통과해야만 저장한다. 검사 불가(unavailable)는 fail-safe로
+      //    차단하되, "위반 차단"과 "확인 실패"를 안내 문구로 구분한다.
+      const verdict = await moderateImage(base64);
+      if (verdict.unavailable) {
+        setError('지금은 확인이 어려워요. 잠시 후 다시 시도해 주세요.');
+        setPhase('ready');
+        return;
+      }
+      if (!verdict.allowed) {
+        setError('이 사진으로는 캐릭터를 만들 수 없어요.');
+        setPhase('ready');
+        return;
+      }
+
+      // 3) 통과 → 기존 저장 흐름. userId를 넘겨 유저별 파일로 저장 — 한 기기 두 계정이 서로 덮어쓰지 않게 한다.
+      setPhase('saving');
       const uri = await saveCustomCharacter(base64, userId);
       // 위젯·실드가 읽는 App Group 스냅샷(focusCharacter.png)은 여기서 발행하지 않는다 —
       // '생성'은 '장착'이 아니라(생성 후에도 choice는 default 유지) 여기서 발행하면 미장착 커스텀이
@@ -141,10 +161,10 @@ export default function CharacterCreator({ onSaved, userId }: Props) {
   }, [result, onSaved, userId]);
 
   const aspect = result && result.height > 0 ? result.width / result.height : 1;
-  const saving = phase === 'saving';
-  // 처리 중(working)엔 result에 이전 값이 남아 액션이 보이지만 미리보기는 스피너다 —
-  // 이때 저장하면 captureRef가 언마운트된 타깃을 잡아 실패하므로 회전·재선택·저장을 모두 잠근다.
-  const busy = phase === 'working' || saving;
+  // 처리 중(working)엔 result에 이전 값이 남아 액션이 보이지만 미리보기는 스피너라, 이때 저장하면
+  // captureRef가 언마운트된 타깃을 잡아 실패한다. 검사(checking)·저장(saving)도 마찬가지로
+  // 도구·저장 버튼을 잠근다.
+  const busy = phase === 'working' || phase === 'checking' || phase === 'saving';
 
   return (
     <View style={s.flex1}>
@@ -229,10 +249,12 @@ export default function CharacterCreator({ onSaved, userId }: Props) {
               disabled={busy || !imageLoaded}
               activeOpacity={0.85}
             >
-              {saving ? (
+              {busy ? (
                 <>
                   <ActivityIndicator color={T.white} />
-                  <Text style={s.primaryText}>저장 중…</Text>
+                  <Text style={s.primaryText}>
+                    {phase === 'checking' ? '검사 중…' : '저장 중…'}
+                  </Text>
                 </>
               ) : (
                 <>
