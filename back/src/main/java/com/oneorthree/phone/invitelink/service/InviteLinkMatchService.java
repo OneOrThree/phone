@@ -5,6 +5,8 @@ import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.domain.InviteLinkClick;
 import com.oneorthree.phone.invitelink.dto.InviteMatchRequest;
 import com.oneorthree.phone.invitelink.dto.InviteMatchResponse;
+import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
+import com.oneorthree.phone.invitelink.exception.InviteLinkException;
 import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
 import com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +19,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * deferred 매치 — "설치 직후 첫 실행"에서 클릭을 되찾아 초대 맥락을 복원한다.
@@ -83,6 +86,33 @@ public class InviteLinkMatchService {
         GroupInviteLink matchedLink = link.get();
         sendMatchEvent(request, true, matchedLink.getSlug(), matchedLink.getGroupId().toString());
         return InviteMatchResponse.matched(matchedLink.getSlug(), matchedLink.getGroupId());
+    }
+
+    /**
+     * 가입/로그인한 유저를 초대 클릭에 붙인다 (계약 ④).
+     *
+     * <p>결정론 결합이 가능한 <b>가장 이른 시점</b>이라 여기서 붙인다 — "가입만 하고 그룹 참여는 안 한"
+     * 유저도 초대자와 이어져 추후 초대 보상의 기반이 된다(보상 트리거 자체는 이번 범위 밖).
+     *
+     * <p>멱등이다. 이미 claim 됐거나, 초대자 본인이거나, 붙일 클릭이 없어도 조용히 200 이다 —
+     * 앱이 재시도해도 안전해야 하고, 실패로 내리면 로그인 직후 흐름에 불필요한 에러가 얹힌다.
+     */
+    @Transactional
+    public void claim(String slug, UUID userId) {
+        GroupInviteLink link = inviteLinkRepository.findBySlug(slug)
+                .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.SLUG_NOT_FOUND));
+
+        Optional<InviteLinkClick> click = clickRepository
+                .findFirstByLinkIdAndMatchedTrueAndClaimedUserIdIsNullOrderByMatchedAtDesc(link.getId());
+        if (click.isEmpty()) {
+            // 링크 직행(Universal Link)으로 들어온 유저는 클릭 행이 없을 수 있다 — 붙일 곳이 없을 뿐 오류가 아니다.
+            log.debug("claim 대상 클릭 없음 — slug={}", slug);
+            return;
+        }
+
+        if (!click.get().claim(userId, link.getInviterId())) {
+            log.debug("claim no-op — slug={} userId={} (셀프 초대이거나 이미 claim 됨)", slug, userId);
+        }
     }
 
     private void sendMatchEvent(InviteMatchRequest request, boolean matched, String slug, String groupId) {
