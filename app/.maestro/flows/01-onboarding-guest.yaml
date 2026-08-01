@@ -68,6 +68,9 @@ name: 01-onboarding-guest
     timeout: 15000
 - tapOn:
     id: 'onboarding.screentime.allow'
+# GROMO-934 리허설 오버레이 — 복제창의 '계속'이 실제 권한 요청을 트리거한다.
+- tapOn:
+    id: 'onboarding.screentime.guide.continue'
 - tapOn:
     text: '허용 안 함|Don.t Allow'
 - extendedWaitUntil:
