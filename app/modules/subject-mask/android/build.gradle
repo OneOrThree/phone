@@ -1,0 +1,21 @@
+// 안드로이드 피사체 누끼 로컬 Expo 모듈(오브젝트 캐릭터 정식화) — settings.gradle의 expo
+// autolinking이 app/modules/ 를 기본 검색 경로로 스캔해 자동 포함한다(screen-time 모듈과 동일 구조).
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+android {
+  namespace "com.oneorthree.gromo.subjectmask"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // ML Kit Subject Segmentation(GMS 번들 변형) — foregroundBitmap으로 온디바이스 누끼.
+  // 최초 1회 모델 선다운로드는 AndroidManifest의 DEPENDENCIES meta-data가 트리거한다.
+  // (google() 저장소는 루트 build.gradle의 allprojects에서 이미 선언됨.)
+  implementation 'com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1'
+}
