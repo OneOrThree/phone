@@ -3,6 +3,8 @@ package com.oneorthree.phone.focus.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.util.CountryZoneResolver;
+import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
+import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusSessionStatus;
 import com.oneorthree.phone.focus.domain.FocusType;
@@ -67,6 +69,10 @@ public class FocusService {
     // GROMO-806: 스트릭 인정 최소 누적 집중 시간(초) = 10분. 그날 누적이 이 값 이상일 때만 스트릭을 갱신한다.
     private static final int STREAK_MIN_SECONDS = 600;
 
+    // currency 폐쇄(서버 지급 전환): 세션 보상 = 집중 10초당 1코인. 앱 공식(FocusSessionScreen.settleFocusBlock
+    // 의 floor(elapsed/10)·OrphanFocusSettler 의 floor(focused/10)) 포팅 — 값 변경 시 앱 공식과 함께 바꿔야 한다.
+    private static final int SESSION_REWARD_UNIT_SECONDS = 10;
+
     private final UserFocusTagRepository userFocusTagRepository;
     private final DefaultTagRepository defaultTagRepository;
     private final OccupationDefaultTagRepository occupationDefaultTagRepository;
@@ -76,6 +82,7 @@ public class FocusService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserStreakService userStreakService;
+    private final CurrencyLedgerService currencyLedgerService;
 
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         User user = userRepository.findById(userId)
@@ -255,7 +262,7 @@ public class FocusService {
 
         // GROMO-733: POST 는 완료(종료 시각 포함) 통째 저장 — status=COMPLETED 로 세팅해 'ACTIVE 로 남던' 부정합을 교정한다.
         // focusType 은 null 이면 INFINITE 기본(엔티티 @Builder.Default 정합, 하위호환).
-        focusSessionRepository.save(FocusSession.builder()
+        FocusSession saved = focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .focusTag(tag)
                 .status(FocusSessionStatus.COMPLETED)
@@ -265,11 +272,41 @@ public class FocusService {
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
                 .build());
 
+        // currency 폐쇄(서버 지급 전환): 세션 보상을 서버가 직접 지급한다. 앱의 /currency/earn 호출은 no-op 이 됐고
+        // (구앱: 저장 시 서버 지급 + earn no-op / 신앱: 저장 시 서버 지급 + earn 미호출 → 어느 조합도 정확히 1회),
+        // 멱등키(focus:{sessionId}:reward)가 같은 세션 행에 대한 이중 지급을 원장 차원에서 차단한다.
+        // 지갑 변경·원장 기입은 이 저장 트랜잭션에 함께 묶인다(credit 전파 REQUIRED).
+        int awardedCoins = sessionRewardCoins(body.getStartedAt(), body.getEndedAt(),
+                body.getTotalDistractionSeconds());
+        if (awardedCoins > 0) {
+            currencyLedgerService.credit(user, CurrencyTransactionType.SESSION_COMPLETE, awardedCoins,
+                    "focus:" + saved.getId() + ":reward");
+        }
+
         // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 실어 준다(additive — 구버전 앱은 무시).
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
         RecordCompletionResult result = recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
                 body.getTotalDistractionSeconds(), statDate(body.getEndedAt(), zone));
-        return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday());
+        return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
+                awardedCoins);
+    }
+
+    /**
+     * 세션 보상 코인 계산 — 앱 보상 공식의 서버 포팅(currency 폐쇄).
+     *
+     * <p><b>앱 공식(정본)</b>: {@code FocusSessionScreen.settleFocusBlock} 이 세션 누적 집중초 기준
+     * {@code floor(elapsed / 10)} 코인을 블록 단위 차분으로 적립하고, {@code OrphanFocusSettler} 도
+     * {@code floor(focused / 10)} 로 동일하다. 두 경로 모두 이 POST 저장 API 로 블록 구간을 업로드하며
+     * 방해시간(distraction)을 0 으로 보낸다 — elapsed 는 집중 타이머 카운터라 방해시간이 애초에 빠져 있다.
+     *
+     * <p><b>서버 근사</b>: 서버가 아는 집중초 = (endedAt − startedAt) − totalDistractionSeconds.
+     * 앱은 블록마다 settleAt 마커를 회전시켜(브레이크 구간 제외) 구간 벽시계 ≈ 집중초 이므로,
+     * distraction 0 인 앱 페이로드에서 이 공식은 앱의 floor(elapsed/10) 와 일치한다(디프 단위 테스트로 고정).
+     * 뽀모도로 다블록 세션은 블록별 내림이라 앱 누적 내림 대비 최대 (블록수−1) 코인 적게 줄 수 있다 — 수용.
+     */
+    static int sessionRewardCoins(Instant startedAt, Instant endedAt, int totalDistractionSeconds) {
+        long focusedSeconds = Duration.between(startedAt, endedAt).getSeconds() - totalDistractionSeconds;
+        return (int) Math.max(0, focusedSeconds / SESSION_REWARD_UNIT_SECONDS);
     }
 
     /**
