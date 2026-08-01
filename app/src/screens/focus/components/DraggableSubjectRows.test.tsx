@@ -15,6 +15,16 @@ jest.mock('@/utils/haptics', () => ({
 }));
 // 네이티브 리퀴드 글래스는 jest에서 로드할 수 없다 — 선택 연출 스타일만 빈 값으로 고정
 jest.mock('@/components/liquidGlass', () => ({ glassSlide: {}, glassPill: {} }));
+// 컴포넌트가 useSafeAreaInsets를 직접 쓴다(GROMO-886 footer 인셋) — Provider 없이 렌더하는
+// 테스트 관행(GroupScreen.test.tsx)대로 훅만 고정값으로 목킹한다.
+jest.mock('react-native-safe-area-context', () => {
+  const { View: RNView } = require('react-native');
+  return {
+    ...jest.requireActual('react-native-safe-area-context'),
+    useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
+    SafeAreaView: RNView,
+  };
+});
 
 const SUBJECTS: Subject[] = [{ id: 's1', name: '수학', accumulatedSeconds: 90, color: '#FFB4A2' }];
 
