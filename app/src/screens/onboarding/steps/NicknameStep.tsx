@@ -63,6 +63,14 @@ export default function NicknameStep({
           autoCorrect={false}
           editable={!submitting}
         />
+        {/* 글자 수 카운터 — 색 처리는 아래 검증 안내와 동일한 validLength 규칙을 따른다.
+            표시 전용이라 터치는 통과시켜 입력창 탭을 막지 않는다. */}
+        <Text
+          pointerEvents="none"
+          style={[s.counter, nickname.length > 0 && !validLength ? s.counterError : null]}
+        >
+          {nickname.length}/{NICK_MAX}
+        </Text>
       </View>
       {/* 검증 안내 — 서버 실패 메시지 > 형식 가이드 > 기본 힌트 순. */}
       {serverError ? (
@@ -100,10 +108,13 @@ const s = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: T.accent,
     paddingHorizontal: T.space.lg,
+    paddingRight: 60, // 우측 글자 수 카운터 자리 확보
     ...T.text.subtitle,
     color: T.ink,
   },
   inputError: { borderColor: T.dangerInk },
+  counter: { ...T.text.caption, color: T.inkMuted, position: 'absolute', right: T.space.lg },
+  counterError: { color: T.dangerInk },
   errorText: {
     ...T.text.caption,
     color: T.dangerInk,
