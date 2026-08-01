@@ -38,8 +38,15 @@ internal object UsageSessionCalculator {
     // (A PAUSED → B RESUMED → A STOPPED)에서 A의 STOPPED가 B의 열린 구간을 닫아버려
     // 이후 사용분을 잃는다. 같은 앱의 액티비티 전환은 PAUSED 후 RESUMED라 이중 계산도 없다.
     val openedAt = HashMap<String, Long>() // "패키지/클래스" → RESUMED 시각
+    // 이번 스캔에서 한 번이라도 RESUMED를 본 키 — 미매칭 종료(아래) 판별용. close 뒤에 오는
+    // STOPPED(정상 시퀀스)를 '시작을 못 본 세션'과 구분한다.
+    val everOpened = HashSet<String>()
     var totalMs = 0L
     var sawLifecycleEventInRange = false
+    // 미매칭 종료 이벤트 — 룩백(12h)보다 먼저 시작된 세션이 구간 안에서 끝난 경우, RESUMED가
+    // 조회 범위 밖이라 close가 더할 구간이 없어 그 세션의 오늘분이 통째로 빠진다. 이때는
+    // 커버리지 불완전으로 보고 근사 폴백과 비교한다(코드리뷰 반영).
+    var sawUnmatchedTerminalInRange = false
     val event = UsageEvents.Event()
 
     // 구간 마감 — [begin, end)와 겹치는 부분만 누적(자정 걸친 구간의 날짜별 분할이 여기서 끝난다).
@@ -67,13 +74,28 @@ internal object UsageSessionCalculator {
           val pkg = event.packageName ?: continue
           if (!selection.isNullOrEmpty() && pkg !in selection) continue
           // 덮어쓰기 — 닫힘 이벤트 결측 후 재-RESUMED된 경우 과대 계상보다 보수적 계산을 택한다.
-          openedAt["$pkg/${event.className}"] = event.timeStamp
+          val key = "$pkg/${event.className}"
+          openedAt[key] = event.timeStamp
+          everOpened.add(key)
         }
         // ACTIVITY_PAUSED(=구 MOVE_TO_BACKGROUND, 값 2) 뒤에 ACTIVITY_STOPPED(23)가 이어져도
         // remove 기반이라 두 번째는 자연히 무시된다.
         UsageEvents.Event.ACTIVITY_PAUSED,
         UsageEvents.Event.ACTIVITY_STOPPED,
-        -> close("${event.packageName}/${event.className}", event.timeStamp)
+        -> {
+          val pkg = event.packageName
+          val key = "$pkg/${event.className}"
+          if (
+            pkg != null &&
+            key !in openedAt &&
+            key !in everOpened &&
+            (selection.isNullOrEmpty() || pkg in selection) &&
+            event.timeStamp in begin until end
+          ) {
+            sawUnmatchedTerminalInRange = true
+          }
+          close(key, event.timeStamp)
+        }
         // 화면 꺼짐·기기 종료 — 열린 구간 전부 마감(엣지 1·5).
         UsageEvents.Event.SCREEN_NON_INTERACTIVE,
         UsageEvents.Event.DEVICE_SHUTDOWN,
@@ -86,6 +108,11 @@ internal object UsageSessionCalculator {
     // 아직 열려 있는 구간(지금 쓰는 중)은 end 시각으로 마감(§3 의사코드).
     openedAt.keys.toList().forEach { close(it, end) }
 
+    // 미매칭 종료를 본 구간 — 재구성 합계는 부분합(잃은 세션 존재 확정)이므로 근사 폴백과
+    // 비교해 큰 쪽을 쓴다. 폴백은 버킷 경계 흔들림으로 오히려 적게 나올 수도 있어 max가 안전.
+    if (sawUnmatchedTerminalInRange) {
+      return maxOf(totalMs, dailyStatsFallbackMillis(usageStatsManager, selection, begin, end))
+    }
     // 엣지 4 — 구간 안에 앱 라이프사이클 이벤트가 아예 없으면 재구성 불가(보존기간 초과
     // 소급 조회·구간 전에 시작된 장시간 세션)로 보고 근사 폴백.
     // (기기를 안 써서 이벤트가 없는 날도 폴백을 타지만 그 경우 폴백도 0이라 결과는 같다.)
