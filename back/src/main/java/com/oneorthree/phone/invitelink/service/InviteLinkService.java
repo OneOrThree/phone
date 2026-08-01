@@ -74,8 +74,9 @@ public class InviteLinkService {
         // 최초 생성일 때만 발행한다 — 공유 버튼을 열 번 눌러도 '링크 생성'은 한 번이어야 퍼널이 맞는다.
         ga4Events.linkCreated(link);
         // Track2(user-activity)는 GA4 와 별개로 서버 이벤트를 전량 병행 기록한다(스펙 §4-3 말미).
+        // 키는 invite_slug — Track2 는 GROUP_JOINED 와 같은 차원명을 쓰고, slug 는 GA4 쪽 키다.
         userActivityEventLogger.log(UserActivityEvent.INVITE_LINK_CREATED,
-                Map.of("slug", link.getSlug(), "group_id", link.getGroupId().toString()));
+                Map.of("invite_slug", link.getSlug(), "group_id", link.getGroupId().toString()));
         return toResponse(link);
     }
 
