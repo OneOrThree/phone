@@ -37,6 +37,9 @@ export function FocusTimetableCard() {
     if (sharing) return;
     setSharing(true);
     try {
+      // 워터마크(sharing 중에만 렌더)가 화면에 커밋·페인트된 뒤 캡처 — setState 직후엔
+      // 아직 반영 전이라 두 프레임 대기(GROMO-1014)
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const uri = await captureRef(shotRef, {
         format: 'png',
         quality: 1,
@@ -64,6 +67,8 @@ export function FocusTimetableCard() {
       {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게 */}
       <View ref={shotRef} collapsable={false} style={cs.ttShot}>
         <FocusTimetable />
+        {/* 공유 워터마크 — 공유 순간에만 렌더되어 캡처 이미지에만 담긴다(GROMO-1014) */}
+        {sharing && <Text style={cs.shareWatermark}>gromo</Text>}
       </View>
       {/* 공유하기 — 카드 하단 오른쪽. 헤더(우측 상단)에 두면 순서 편집 드래그 핸들과 겹친다.
           shotRef 밖이라 캡처 이미지에는 안 담긴다 */}
@@ -127,51 +132,48 @@ function FocusTimetable() {
   const legendSubjects = subjects.filter((x) => usedNames.has(x.name));
 
   return (
-    <View>
-      <View style={s.ttLayout}>
-        {/* 범례 칼럼은 비어도 자리를 유지 — 격자 크기가 범례 유무와 무관하게 고정되도록 */}
-        <View style={s.ttLegendCol}>
-          {legendSubjects.map((sub) => (
-            <View key={sub.id} style={s.ttLegendRow}>
-              <View style={[s.ttLegendDot, { backgroundColor: sub.color }]} />
-              <Text style={s.ttLegendText} numberOfLines={1} allowFontScaling={false}>
-                {sub.name}
-              </Text>
-            </View>
-          ))}
-        </View>
-        <View style={s.ttGrid}>
-          {TIMETABLE_HOURS.map((hour) => (
-            <View key={hour} style={s.ttRow}>
-              <Text style={s.ttHourLabel} allowFontScaling={false}>
-                {hour}
-              </Text>
-              {Array.from({ length: 6 }, (_, i) => {
-                const segments = slots[hour * 6 + i];
-                return (
-                  <View key={i} style={s.ttCell}>
-                    {/* 슬롯 내 실제 집중 위치 그대로 칠함 — 3:35~3:45 집중이면 3:30 칸 오른쪽 절반 */}
-                    {segments.map((seg, j) => (
-                      <View
-                        key={j}
-                        style={[
-                          s.ttCellFill,
-                          {
-                            backgroundColor: colorForTag(seg.tagId),
-                            left: `${seg.start * 100}%`,
-                            width: `${(seg.end - seg.start) * 100}%`,
-                          },
-                        ]}
-                      />
-                    ))}
-                  </View>
-                );
-              })}
-            </View>
-          ))}
-        </View>
+    <View style={s.ttLayout}>
+      {/* 범례 칼럼은 비어도 자리를 유지 — 격자 크기가 범례 유무와 무관하게 고정되도록 */}
+      <View style={s.ttLegendCol}>
+        {legendSubjects.map((sub) => (
+          <View key={sub.id} style={s.ttLegendRow}>
+            <View style={[s.ttLegendDot, { backgroundColor: sub.color }]} />
+            <Text style={s.ttLegendText} numberOfLines={1} allowFontScaling={false}>
+              {sub.name}
+            </Text>
+          </View>
+        ))}
       </View>
-      <Text style={cs.grassHint}>한 칸 = 10분 · 집중한 과목 색으로 칠해져요</Text>
+      <View style={s.ttGrid}>
+        {TIMETABLE_HOURS.map((hour) => (
+          <View key={hour} style={s.ttRow}>
+            <Text style={s.ttHourLabel} allowFontScaling={false}>
+              {hour}
+            </Text>
+            {Array.from({ length: 6 }, (_, i) => {
+              const segments = slots[hour * 6 + i];
+              return (
+                <View key={i} style={s.ttCell}>
+                  {/* 슬롯 내 실제 집중 위치 그대로 칠함 — 3:35~3:45 집중이면 3:30 칸 오른쪽 절반 */}
+                  {segments.map((seg, j) => (
+                    <View
+                      key={j}
+                      style={[
+                        s.ttCellFill,
+                        {
+                          backgroundColor: colorForTag(seg.tagId),
+                          left: `${seg.start * 100}%`,
+                          width: `${(seg.end - seg.start) * 100}%`,
+                        },
+                      ]}
+                    />
+                  ))}
+                </View>
+              );
+            })}
+          </View>
+        ))}
+      </View>
     </View>
   );
 }

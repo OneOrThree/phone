@@ -22,4 +22,11 @@ export const cs = StyleSheet.create({
   ttShot: { backgroundColor: T.white, paddingHorizontal: T.space.lg, marginHorizontal: -16 },
   // 카드 하단 안내 문구(타임테이블·최장 세션·첫 시작 차트 공용)
   grassHint: { ...T.text.caption, color: T.inkMuted, marginTop: T.space.md },
+  // 공유 캡처 전용 워터마크 — 공유 순간에만 렌더되어 저장 이미지 하단에 서비스 출처를 남긴다(GROMO-1014)
+  shareWatermark: {
+    ...T.text.caption,
+    color: T.inkMuted,
+    textAlign: 'center',
+    marginTop: T.space.md,
+  },
 });

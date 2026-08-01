@@ -34,6 +34,9 @@ export function WeeklyTimetableCard() {
     if (sharing) return;
     setSharing(true);
     try {
+      // 워터마크(sharing 중에만 렌더)가 화면에 커밋·페인트된 뒤 캡처 — setState 직후엔
+      // 아직 반영 전이라 두 프레임 대기(FocusTimetableCard와 동일, GROMO-1014)
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const uri = await captureRef(shotRef, {
         format: 'png',
         quality: 1,
@@ -56,10 +59,12 @@ export function WeeklyTimetableCard() {
   };
 
   return (
-    <SectionCard title="요일별 집중 타임라인">
+    <SectionCard title="요일별 타임테이블">
       {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게 */}
       <View ref={shotRef} collapsable={false} style={cs.ttShot}>
         <WeeklyTimetable />
+        {/* 공유 워터마크 — 공유 순간에만 렌더되어 캡처 이미지에만 담긴다(GROMO-1014) */}
+        {sharing && <Text style={cs.shareWatermark}>gromo</Text>}
       </View>
       {/* 공유하기 — 카드 하단 오른쪽('오늘 타임테이블'과 동일). 헤더에 두면 상시 드래그 핸들과 겹친다.
           shotRef 밖이라 캡처 이미지에는 안 담긴다 */}
