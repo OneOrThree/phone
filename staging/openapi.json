@@ -65,6 +65,10 @@
       "description": "스크린 타임 목표 달성 저장 API"
     },
     {
+      "name": "Group Bet",
+      "description": "그룹 챌린지 내기 (개설/참가). 조회는 챌린지 목록 API 의 bet/lastSettledBet 필드"
+    },
+    {
       "name": "notification-test",
       "description": "테스트 푸시 발송 (local/dev/staging 전용 — 인증·필터 미적용)"
     },
@@ -1130,6 +1134,145 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{groupId}/challenges/{challengeId}/bets": {
+      "post": {
+        "tags": [
+          "Group Bet"
+        ],
+        "summary": "챌린지 내기 개설",
+        "description": "그룹원 누구나 개설 가능. 개설자는 자동 참가하고 판돈이 즉시 차감된다(에스크로). 대상은 FOCUS + DURATION 챌린지뿐이며, date 는 KST 오늘, stake 는 10/30/50/100 만 허용. 개설 시점에 이미 목표를 달성했으면 거절된다.",
+        "operationId": "createBet",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "challengeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "개설 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateBetResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "BET_FOCUS_ONLY(집중 챌린지 아님) / BET_INVALID_STAKE / INSUFFICIENT_CURRENCY",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateBetResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "게스트 / 그룹원 아님",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateBetResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음 / 챌린지 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateBetResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "BET_ALREADY_EXISTS / BET_ALREADY_ACHIEVED / BET_CLOSED(date 가 오늘이 아님)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateBetResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{groupId}/bets/{betId}/join": {
+      "post": {
+        "tags": [
+          "Group Bet"
+        ],
+        "summary": "챌린지 내기 참가",
+        "description": "빈 바디. 판돈이 즉시 차감된다. OPEN 이고 bet_date 가 KST 오늘인 내기만 참가 가능하며, 이미 목표를 달성했으면 거절된다(무위험 참가 차단).",
+        "operationId": "joinBet",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "betId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "참가 성공"
+          },
+          "400": {
+            "description": "INSUFFICIENT_CURRENCY"
+          },
+          "403": {
+            "description": "게스트 / 그룹원 아님"
+          },
+          "404": {
+            "description": "그룹 없음 / BET_NOT_FOUND"
+          },
+          "409": {
+            "description": "BET_CLOSED / BET_ALREADY_JOINED / BET_ALREADY_ACHIEVED"
           }
         }
       }
@@ -4641,6 +4784,32 @@
           }
         }
       },
+      "CreateBetRequest": {
+        "type": "object",
+        "properties": {
+          "stake": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "date",
+          "stake"
+        ]
+      },
+      "CreateBetResponse": {
+        "type": "object",
+        "properties": {
+          "betId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "FriendRequestCreateRequest": {
         "type": "object",
         "properties": {
@@ -4799,7 +4968,10 @@
             "enum": [
               "SESSION_COMPLETE",
               "STREAK_BONUS",
-              "PURCHASE"
+              "PURCHASE",
+              "BET_STAKE",
+              "BET_PAYOUT",
+              "BET_REFUND"
             ]
           }
         }
@@ -5986,6 +6158,105 @@
           }
         }
       },
+      "GroupBetParticipantResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          }
+        }
+      },
+      "GroupBetResponse": {
+        "type": "object",
+        "properties": {
+          "betId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stake": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pot": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "SETTLED",
+              "REFUNDED"
+            ]
+          },
+          "myJoined": {
+            "type": "boolean"
+          },
+          "myAchievedNow": {
+            "type": "boolean"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupBetParticipantResponse"
+            }
+          }
+        }
+      },
+      "GroupBetResultParticipantResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "achieved": {
+            "type": "boolean"
+          },
+          "payout": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "GroupBetResultResponse": {
+        "type": "object",
+        "properties": {
+          "betDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "stake": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pot": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "SETTLED",
+              "REFUNDED"
+            ]
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupBetResultParticipantResponse"
+            }
+          }
+        }
+      },
       "GroupChallengeResponse": {
         "type": "object",
         "properties": {
@@ -6036,6 +6307,12 @@
             "items": {
               "$ref": "#/components/schemas/ChallengeMemberProgressResponse"
             }
+          },
+          "bet": {
+            "$ref": "#/components/schemas/GroupBetResponse"
+          },
+          "lastSettledBet": {
+            "$ref": "#/components/schemas/GroupBetResultResponse"
           }
         }
       },
@@ -6237,7 +6514,10 @@
             "enum": [
               "SESSION_COMPLETE",
               "STREAK_BONUS",
-              "PURCHASE"
+              "PURCHASE",
+              "BET_STAKE",
+              "BET_PAYOUT",
+              "BET_REFUND"
             ]
           },
           "createdAt": {
