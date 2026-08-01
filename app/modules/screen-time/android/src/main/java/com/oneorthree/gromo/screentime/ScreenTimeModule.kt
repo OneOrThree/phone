@@ -1,26 +1,35 @@
 package com.oneorthree.gromo.screentime
 
 import android.app.AppOpsManager
+import android.app.NotificationManager
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
+import android.util.Base64
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import java.io.File
+import java.io.FileOutputStream
 import java.util.Calendar
 
 // 안드로이드 스크린타임 측정 코어(GROMO-994) — iOS ScreenTimeModule.swift의 안드로이드 대응.
-// JS 계약(services/ScreenTimeModule.ts 20개) 중 M1+M2 범위를 구현한다:
+// JS 계약(services/ScreenTimeModule.ts 20개) 중 M1~M3 범위를 구현한다:
 //   M1 — 권한(requestAuthorization·getAuthorizationStatus) + 오늘/어제 사용시간 조회 + 목표 저장.
 //   M2(GROMO-995) — 앱 선택 피커 지원: 설치 앱 목록 조회 + 측정 대상(pending 2단계)·집중
 //   허용앱(즉시 저장) 선택 저장. 피커 UI 자체는 RN(AndroidAppPickerHost)이 그린다.
-// 집중 실드/타이머 알림(M3)·어제 결과 판정(M4)은 후속 티켓.
+//   M3(GROMO-996) — 집중 실드·잠금화면 타이머: 포그라운드 서비스(FocusSessionService) 시작/
+//   종료 + 차단 화면용 캐릭터 스냅샷·과목명 저장 + 브라우저 허용 토글 + 오버레이 권한 플로우.
+// 어제 결과 판정(getYesterdayResult)·목표 초과 알림(M4)은 후속 티켓.
 //
 // iOS와의 구조 차이(03-스크린타임-구현 §0·§2):
 //  - 측정: UsageStatsManager로 사용 기록을 직접 조회한다 — 익스텐션·App Group·threshold 예약 불필요.
@@ -28,7 +37,9 @@ import java.util.Calendar
 //    'notDetermined' 개념이 없어 "설정에 보낸 적" 로컬 플래그로 denied와 구분한다.
 class ScreenTimeModule : Module() {
   companion object {
-    private const val PREFS_NAME = "gromo_screen_time"
+    // 서비스(FocusSessionService)·차단 화면(FocusBlockActivity)이 함께 읽는 이름/키는
+    // internal — 리터럴 중복으로 키가 어긋나는 사고를 막는다(M3).
+    internal const val PREFS_NAME = "gromo_screen_time"
 
     // '설정 보낸 적' 플래그 — notDetermined(안 보냄)/denied(보냈는데 미허용) 구분(§2).
     private const val KEY_SENT_TO_SETTINGS = "sentToUsageAccessSettings"
@@ -43,7 +54,21 @@ class ScreenTimeModule : Module() {
 
     // 집중 허용앱 패키지명 집합 — iOS gromo:focus:allowedSelection과 1:1. pending 없이 즉시
     // 저장(§8 1단계). 실드(M3)가 이 키를 허용 목록으로 읽는다.
-    private const val KEY_FOCUS_ALLOWED_PACKAGES = "focusAllowedSelectionPackages"
+    internal const val KEY_FOCUS_ALLOWED_PACKAGES = "focusAllowedSelectionPackages"
+
+    // 집중 실드 표시용 과목명(M3) — 차단 화면 부제가 읽는다(iOS gromo:focus:shieldSubject 대응).
+    internal const val KEY_FOCUS_SHIELD_SUBJECT = "focusShieldSubject"
+
+    // 집중 중 브라우저 허용 토글(M3) — iOS '사파리·웹 허용'(gromo:focus:allowSafariWeb)의
+    // 안드로이드 대응. 켜면 실드가 주요 브라우저 패키지를 허용 목록에 얹는다(03 문서 §4).
+    internal const val KEY_FOCUS_ALLOW_BROWSERS = "focusAllowBrowsers"
+
+    // 캐릭터 스냅샷 파일명(M3) — filesDir에 저장하고 차단 화면이 읽는다. iOS는 익스텐션과
+    // 공유하려 App Group에 뒀지만 안드로이드는 같은 앱이라 내부 저장소로 충분(§4 간소화).
+    internal const val SNAPSHOT_FILE_NAME = "focusCharacter.png"
+
+    // iOS saveCharacterSnapshot과 동일한 다운스케일 상한(긴 변 px).
+    private const val SNAPSHOT_MAX_SIDE = 256
   }
 
   private val context: Context
@@ -54,6 +79,9 @@ class ScreenTimeModule : Module() {
 
   // 설정 복귀를 기다리는 requestAuthorization — 복귀(OnActivityEntersForeground) 시 재확인 후 resolve.
   private var pendingAuthPromise: Promise? = null
+
+  // 설정 복귀를 기다리는 requestOverlayPermission(M3) — Usage Access와 같은 왕복 계약.
+  private var pendingOverlayPromise: Promise? = null
 
   override fun definition() = ModuleDefinition {
     Name("ScreenTimeModule")
@@ -144,11 +172,101 @@ class ScreenTimeModule : Module() {
       prefs.edit().putStringSet(KEY_FOCUS_ALLOWED_PACKAGES, packages.toSet()).apply()
     }
 
-    // 설정을 다녀온 복귀 감지 — 대기 중인 권한 요청을 실제 AppOps 상태로 마감한다(§2).
+    // ── 집중 실드·잠금화면 타이머(M3, GROMO-996 — 03 문서 §5·§6) ──
+
+    // 오버레이 권한 상태 — 서비스가 차단 화면을 띄우려면 필수(안드10+ 백그라운드 액티비티
+    // 시작 제약의 예외 조건). Usage Access처럼 시스템 팝업 없는 설정 토글 특수 권한이다.
+    AsyncFunction("canDrawOverlays") {
+      Settings.canDrawOverlays(context)
+    }
+
+    // 오버레이 권한 설정 딥링크 — 복귀(OnActivityEntersForeground) 시 재확인한 결과로 resolve.
+    // Usage Access와 달리 package Uri 딥링크가 문서화된 공식 동작이라 앱 상세로 바로 연다.
+    AsyncFunction("requestOverlayPermission") { promise: Promise ->
+      if (Settings.canDrawOverlays(context)) {
+        promise.resolve(true)
+        return@AsyncFunction
+      }
+      // 직전 요청이 아직 대기 중이면(연타 등) 현재 상태로 먼저 마감하고 새 요청으로 교체.
+      pendingOverlayPromise?.resolve(Settings.canDrawOverlays(context))
+      pendingOverlayPromise = promise
+      try {
+        openOverlaySettings()
+      } catch (_: Exception) {
+        pendingOverlayPromise = null
+        promise.resolve(false)
+      }
+    }
+
+    // 집중 실드 켜기 — 포그라운드 서비스가 폴링으로 비허용앱을 차단한다(§5). 차단을 실제로
+    // 집행할 수 없는 상태(사용 정보 접근·오버레이 권한 부재)면 false — 호출부(JS)가 iOS의
+    // 권한 없음과 동일하게 '실드 없는 세션'(15초 이탈 정책 + 이탈 알림)으로 강등한다.
+    // 반쪽짜리 차단(감지만 되고 화면은 못 띄움)을 켜 두는 것보다 기존 강등 경로가 안전하다.
+    AsyncFunction("startFocusShield") { subjectName: String ->
+      if (!isUsageAccessGranted() || !Settings.canDrawOverlays(context)) {
+        false
+      } else {
+        // 차단 화면 부제가 읽을 과목명 — iOS의 App Group 기록 대응.
+        prefs.edit().putString(KEY_FOCUS_SHIELD_SUBJECT, subjectName).apply()
+        FocusSessionService.startShield(context, subjectName)
+      }
+    }
+
+    // 집중 실드 끄기 — 세션 정지·고아 세션 정리 시 호출(멱등 — 서비스 없으면 no-op).
+    AsyncFunction("stopFocusShield") {
+      FocusSessionService.stopShield()
+      // 스냅샷 제거 — 남겨두면 다음 세션 시작 후 새 스냅샷 저장 전(~2초)까지 차단 화면에
+      // 직전 세션의 캐릭터가 노출된다(iOS stopFocusShield와 동일한 정리).
+      File(context.filesDir, SNAPSHOT_FILE_NAME).delete()
+    }
+
+    // 집중 중 브라우저 허용 여부 저장 — 서비스가 폴링마다 prefs를 다시 읽으므로 실드 중에도
+    // 1~2초 안에 반영된다(iOS setFocusAllowSafariWeb의 라이브 반영 대응).
+    AsyncFunction("setFocusAllowSafariWeb") { allowed: Boolean ->
+      prefs.edit().putBoolean(KEY_FOCUS_ALLOW_BROWSERS, allowed).apply()
+    }
+
+    // 저장된 브라우저 허용 여부 조회 (미설정 = false = 차단이 기본 — iOS와 동일).
+    AsyncFunction("getFocusAllowSafariWeb") {
+      prefs.getBoolean(KEY_FOCUS_ALLOW_BROWSERS, false)
+    }
+
+    // 캐릭터 스냅샷(base64 PNG) 저장 — 차단 화면이 표시한다. iOS와 동일하게 긴 변 256px로
+    // 다운스케일해 저장한다(익스텐션 메모리 예산 같은 제약은 없지만 파일 크기·디코딩 부담 축소).
+    AsyncFunction("saveCharacterSnapshot") { base64: String ->
+      saveSnapshot(base64)
+    }
+
+    // 잠금화면 타이머 시작 — iOS Live Activity 대응(§6). 같은 포그라운드 서비스의 ongoing
+    // 알림 + chronometer가 상단바·잠금화면에서 초를 실시간으로 올린다. 실드 없는 세션도 동작.
+    // otherSubjectsJson(다른 과목 목록)은 표준 알림엔 자리가 없어 아직 안 쓴다(커스텀 알림
+    // 레이아웃 — M4). 계약 유지를 위해 파라미터만 받는다.
+    AsyncFunction("startFocusActivity") { subjectName: String, otherSubjectsJson: String ->
+      val notificationManager =
+        context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      // 알림이 꺼져 있으면 타이머를 보여줄 방법이 없다 — 실드가 돌고 있지 않다면 보이지 않는
+      // 서비스를 상주시킬 이유가 없으므로 시작하지 않는다(실드 중이면 서비스가 이미 필요).
+      if (!notificationManager.areNotificationsEnabled() && !FocusSessionService.isShieldActive()) {
+        false
+      } else {
+        FocusSessionService.startTimer(context, subjectName)
+      }
+    }
+
+    // 잠금화면 타이머 종료(멱등) — 실드도 꺼져 있으면 서비스가 스스로 내려간다.
+    AsyncFunction("endFocusActivity") {
+      FocusSessionService.stopTimer()
+    }
+
+    // 설정을 다녀온 복귀 감지 — 대기 중인 권한 요청을 실제 상태로 마감한다(§2).
     OnActivityEntersForeground {
       pendingAuthPromise?.let { promise ->
         pendingAuthPromise = null
         promise.resolve(isUsageAccessGranted())
+      }
+      pendingOverlayPromise?.let { promise ->
+        pendingOverlayPromise = null
+        promise.resolve(Settings.canDrawOverlays(context))
       }
     }
   }
@@ -201,6 +319,50 @@ class ScreenTimeModule : Module() {
       intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       context.startActivity(intent)
     }
+  }
+
+  // 오버레이 권한 설정 화면 열기 — 앱 상세 토글(M3).
+  private fun openOverlaySettings() {
+    val intent = Intent(
+      Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+      Uri.parse("package:${context.packageName}"),
+    )
+    val activity = appContext.currentActivity
+    if (activity != null) {
+      activity.startActivity(intent)
+    } else {
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      context.startActivity(intent)
+    }
+  }
+
+  // 캐릭터 스냅샷 저장(M3) — base64 디코드 → 긴 변 256px 다운스케일 → filesDir PNG.
+  // 실패는 false로만 알린다(iOS와 동일 — 스냅샷 없이도 차단 화면은 텍스트로 동작).
+  private fun saveSnapshot(base64: String): Boolean = try {
+    val bytes = Base64.decode(base64, Base64.DEFAULT)
+    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    if (bitmap == null) {
+      false
+    } else {
+      val longest = maxOf(bitmap.width, bitmap.height)
+      val output = if (longest > SNAPSHOT_MAX_SIDE) {
+        val ratio = SNAPSHOT_MAX_SIDE.toFloat() / longest
+        Bitmap.createScaledBitmap(
+          bitmap,
+          (bitmap.width * ratio).toInt().coerceAtLeast(1),
+          (bitmap.height * ratio).toInt().coerceAtLeast(1),
+          true,
+        )
+      } else {
+        bitmap
+      }
+      FileOutputStream(File(context.filesDir, SNAPSHOT_FILE_NAME)).use { stream ->
+        output.compress(Bitmap.CompressFormat.PNG, 100, stream)
+      }
+      true
+    }
+  } catch (_: Exception) {
+    false
   }
 
   // [begin, end) 구간 사용시간(분) — 세션 재구성 계산(UsageSessionCalculator).
