@@ -37,7 +37,8 @@ import type { LoginResult } from '@/types/api';
 import { T, withAlpha } from '@/constants/theme';
 
 // 계정 설정 화면 — 소셜 로그인/연동 + 로그아웃 + 회원 탈퇴.
-// 게스트(useUser().isGuest === true)일 땐 카카오·애플·구글 '로그인' 버튼을 띄워 계정 전환을 유도하고,
+// 게스트(useUser().isGuest === true)일 땐 카카오·애플·구글 '로그인' 버튼으로 계정 전환을 유도하되
+// 회원 탈퇴는 게스트에게도 노출하고(게스트도 서버 User가 생성됨 — GROMO-963),
 // 소셜 로그인 완료 상태일 땐 지금 연동된 계정만 보여주고 다른 소셜 로그인은 감춘다.
 // 게스트 판별은 로그인 시점 태깅(isGuest)이 우선이고, 값이 소셜(false)이면 연동 목록으로 최종 확정한다
 // (구 세션·정확성 대비). 게스트가 로그인하면 auth.ts가 세션을 저장하고 triggerRelogin으로 재부팅한다.
@@ -227,7 +228,10 @@ export default function AccountScreen() {
   return (
     <SettingsScaffold title="계정 설정" onBack={() => navigation.goBack()}>
       {isGuest ? (
-        // 게스트 — 카카오·애플·구글 로그인 버튼으로 계정 전환 유도.
+        // 게스트 — 카카오·애플·구글 로그인 버튼으로 계정 전환 유도 + 회원 탈퇴(GROMO-963).
+        // 게스트도 서버에 실제 User가 생성되므로 계정 삭제 경로가 필요(Apple 심사 요건).
+        // 로그아웃은 노출하지 않는다 — 게스트 세션은 로그아웃하면 계정 복구가 불가능해서
+        // 사실상 탈퇴와 같으므로, 명시적 파괴 동작인 탈퇴만 제공한다.
         <>
           <SettingsSection title="소셜 로그인">
             {PROVIDERS.map((p) => (
@@ -254,6 +258,16 @@ export default function AccountScreen() {
               로그인하면 목표·집중 기록·코인이 계정에 안전하게 저장돼요.
             </Text>
           </View>
+          <SettingsSection>
+            <SettingsRow
+              icon="person-remove-outline"
+              iconColor={T.accentAlt}
+              iconBg={T.accentAltBg}
+              label="회원 탈퇴"
+              danger
+              onPress={() => setWithdrawOpen(true)}
+            />
+          </SettingsSection>
         </>
       ) : (
         // 소셜 유저 — 지금 연동된 계정만 표시(다른 소셜 로그인은 감춤) + 로그아웃·회원 탈퇴.
