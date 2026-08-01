@@ -149,6 +149,14 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!loaded.current) return;
+    // 쓰기 직전에도 날짜 검증(코드리뷰 반영) — 앱이 켜진 채(AppState 전환 없이) 자정을 넘긴 뒤
+    // 이름변경·삭제·순서·색 변경처럼 rolloverIfNeeded를 안 거치는 변경이 오면, 어제 누적이
+    // 오늘 날짜 도장으로 저장·스냅샷된다. 여기선 롤오버만 하고 리턴 — 리셋된 subjects로
+    // 이 effect가 다시 돌며 최신값을 기록한다.
+    if (dayRef.current !== todayStr()) {
+      rolloverIfNeeded();
+      return;
+    }
     AsyncStorage.setItem(STORAGE_KEYS.subjects, JSON.stringify({ date: todayStr(), subjects }));
     // 안드로이드 홈 위젯 스냅샷도 같은 시점에 갱신(GROMO-1006). 화면 언마운트 타이밍에 쓰면
     // 마지막 정산 setState와 화면 교체가 한 배치로 묶여 정산 전 값이 기록된다(코드리뷰 반영) —
@@ -156,7 +164,7 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
     StudyWidgetModule.updateTopSubjects(
       subjects.map((x) => ({ name: x.name, seconds: x.accumulatedSeconds, color: x.color })),
     ).catch(() => {});
-  }, [subjects]);
+  }, [subjects, rolloverIfNeeded]);
 
   function addSubject(name: string) {
     const id = newSubjectId();

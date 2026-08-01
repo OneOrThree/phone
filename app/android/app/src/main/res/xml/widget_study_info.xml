@@ -2,11 +2,15 @@
 <!-- 홈 위젯 메타데이터(GROMO-1006) — 3x2 셀 기본, 홈 화면 전용.
      갱신은 데이터 저장 시 명시 갱신(StudyWidgetProvider.updateAll)이 주 경로.
      updatePeriodMillis는 보수적으로 1시간 — 자정이 지나 스냅샷이 묵으면
-     다음 주기 갱신에서 빈 상태로 되돌리는 보정용(OS 최소 제약 30분). -->
+     다음 주기 갱신에서 빈 상태로 되돌리는 보정용(OS 최소 제약 30분).
+     minResizeWidth는 레이아웃 설계 폭인 minWidth와 동일하게(코드리뷰 반영) —
+     행 하나가 패딩(루트 14×2+행 10×2=48dp)·고정폭(점 8+여백 7+8=23dp)·
+     타이머 00:00:00(13sp bold ≈55dp)만으로 ~126dp를 쓰므로 110dp에선 반드시 잘린다.
+     180dp면 과목명에 ~54dp(한글 약 4자)가 남는다. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="180dp"
     android:minHeight="110dp"
-    android:minResizeWidth="110dp"
+    android:minResizeWidth="180dp"
     android:minResizeHeight="110dp"
     android:targetCellWidth="3"
     android:targetCellHeight="2"
