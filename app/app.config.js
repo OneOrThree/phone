@@ -62,12 +62,19 @@ export default {
     slug: 'gromo-kr',
     scheme: 'gromo',
     version: '1.0.1',
-    orientation: 'portrait',
+    // 집중 화면(GROMO-973)만 가로를 허용하려면 네이티브 orientation 목록에 landscape가 있어야 한다.
+    // 'portrait'로 두면 prebuild가 iOS Info.plist의 landscape 항목을 지워 기능이 무력화된다(코덱스 리뷰).
+    // 앱 전역은 런타임 전역 세로 잠금(App.tsx)과 안드로이드 JS 게이트로 세로를 유지한다.
+    orientation: 'default',
     userInterfaceStyle: 'light',
     newArchEnabled: true,
     assetBundlePatterns: ['**/*', 'src/assets/models/*'],
     ios: {
       supportsTablet: true,
+      // iPad 멀티태스킹(Split View)에선 expo-screen-orientation 잠금이 무시돼, 집중 완료 시
+      // 세로 전환이 실패하고 정지 버튼이 없는 가로 화면에 갇힌다(코덱스 리뷰). 전체화면을 요구해
+      // 방향 잠금이 정상 동작하게 한다 — 대신 iPad 화면 분할(Split View)은 미지원.
+      requireFullScreen: true,
       bundleIdentifier: 'com.oneorthree.gromo',
       buildNumber: '1',
       infoPlist: {
