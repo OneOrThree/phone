@@ -62,12 +62,21 @@ export default {
     slug: 'gromo-kr',
     scheme: 'gromo',
     version: '1.0.1',
+    // 앱 전역은 세로. 안드로이드 prebuild가 매니페스트를 세로로 잠그도록 top-level은 'portrait'로
+    // 둔다('default'는 안드로이드를 screenOrientation="unspecified"로 풀어버림, 코덱스 리뷰).
+    // iOS만 집중 화면(GROMO-973)에서 가로가 필요한데, 아래 ios.infoPlist.UISupportedInterfaceOrientations를
+    // 직접 지정하면 Expo orientation mod의 속성 가드가 이 값을 존중해(prebuild 경고만 남음) iOS는
+    // 4방향을 유지한다. iOS 런타임은 App.tsx 전역 세로 잠금으로 집중 화면 밖에서 세로를 지킨다.
     orientation: 'portrait',
     userInterfaceStyle: 'light',
     newArchEnabled: true,
     assetBundlePatterns: ['**/*', 'src/assets/models/*'],
     ios: {
       supportsTablet: true,
+      // iPad 멀티태스킹(Split View)에선 expo-screen-orientation 잠금이 무시돼, 집중 완료 시
+      // 세로 전환이 실패하고 정지 버튼이 없는 가로 화면에 갇힌다(코덱스 리뷰). 전체화면을 요구해
+      // 방향 잠금이 정상 동작하게 한다 — 대신 iPad 화면 분할(Split View)은 미지원.
+      requireFullScreen: true,
       bundleIdentifier: 'com.oneorthree.gromo',
       buildNumber: '1',
       // Universal Links(그룹 초대 링크) — 정본은 ios/gromo/gromo.entitlements 다.
@@ -76,6 +85,21 @@ export default {
       associatedDomains: ['applinks:link.oneorthree.world'],
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
+        // 집중 화면(GROMO-973)만 가로 허용 — iPhone·iPad 모두 4방향 명시. 이 값이 있으면 Expo
+        // orientation mod(top-level 'portrait')가 이 키를 건드리지 않는다(속성 가드). 안드로이드는
+        // top-level 'portrait'로 세로 유지되고, iOS만 여기서 가로를 더한다(코덱스 리뷰).
+        UISupportedInterfaceOrientations: [
+          'UIInterfaceOrientationPortrait',
+          'UIInterfaceOrientationPortraitUpsideDown',
+          'UIInterfaceOrientationLandscapeLeft',
+          'UIInterfaceOrientationLandscapeRight',
+        ],
+        'UISupportedInterfaceOrientations~ipad': [
+          'UIInterfaceOrientationPortrait',
+          'UIInterfaceOrientationPortraitUpsideDown',
+          'UIInterfaceOrientationLandscapeLeft',
+          'UIInterfaceOrientationLandscapeRight',
+        ],
         // Firebase 자동 화면추적 끄기 — RN에선 네이티브 뷰컨트롤러명(RNSScreen 등)만 잡혀 노이즈.
         // 화면 계측은 우리가 발행하는 커스텀 이벤트로만 관리한다.
         FirebaseAutomaticScreenReportingEnabled: false,

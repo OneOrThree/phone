@@ -25,7 +25,12 @@ function digitsFor(seconds: number, format: 'hhmmss' | 'mmss'): string {
   if (format === 'mmss') {
     return pad2(Math.floor(s / 60)) + pad2(s % 60);
   }
-  return pad2(Math.floor(s / 3600)) + pad2(Math.floor((s % 3600) / 60)) + pad2(s % 60);
+  // 시계는 6칸 고정이라 시(hour)는 2자리까지만 — 카운트업이 100시간을 넘으면 pad2가 3자리를
+  // 내며 뒤 자리가 밀린다(100:00:00 → 10:00:00). 99:59:59로 클램프해 자릿수를 고정한다(코덱스 리뷰).
+  const clamped = Math.min(s, 99 * 3600 + 59 * 60 + 59);
+  return (
+    pad2(Math.floor(clamped / 3600)) + pad2(Math.floor((clamped % 3600) / 60)) + pad2(clamped % 60)
+  );
 }
 
 interface DigitProps {
