@@ -113,7 +113,8 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         challenges.forEach(c -> groupChallengeDurationRepository.findById(c.getId())
                 .ifPresent(groupChallengeDurationRepository::delete));
         groupChallengeRepository.deleteAll(challenges);
-        users.forEach(u -> userWalletRepository.deleteById(u.getId()));
+        // 탈퇴자 픽스처는 지갑이 없다 — deleteById 대신 존재할 때만 지운다.
+        users.forEach(u -> userWalletRepository.findById(u.getId()).ifPresent(userWalletRepository::delete));
         userRepository.deleteAll(users);
         groupRepository.delete(group);
 
@@ -143,6 +144,17 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         User user = userRepository.save(User.builder().nickname(nickname).isGuest(false).build());
         userWalletRepository.save(UserWallet.builder()
                 .userId(user.getId()).balance(BALANCE_AFTER_STAKE).build());
+        users.add(user);
+        return user;
+    }
+
+    /**
+     * 탈퇴 후의 참가자 — user 행은 소프트딜리트로 남고 지갑은 삭제된 상태다
+     * ({@code UserService.withdraw}). 참가 행은 FK 때문에 그대로 남아 정산 대상에 계속 잡힌다.
+     */
+    private User withdrawnUser(String nickname) {
+        User user = userRepository.save(
+                User.builder().nickname(nickname).isGuest(false).isDeleted(true).build());
         users.add(user);
         return user;
     }
@@ -386,6 +398,37 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         // 달성자 0명 → 환불
         assertThat(statusOf(bet)).isEqualTo(GroupBetStatus.REFUNDED);
         assertThat(balanceOf(noStat)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
+    }
+
+    @Test
+    @DisplayName("탈퇴한 참가자가 껴 있어도 나머지는 환불된다 — 지갑 없는 참가자에 롤백되면 판돈이 영구히 묶인다")
+    void settlesEvenWhenAParticipantHasWithdrawn() {
+        User staying = stakedUser("잔류");
+        User withdrawn = withdrawnUser("탈퇴자");
+        GroupChallengeBet bet = openBet(challenge);
+        participant(bet, staying, 10);
+        // 탈퇴 시 daily_focus_stats 는 nullifyUser 로 익명화되므로 통계 행이 남지 않는다.
+        groupChallengeBetParticipantRepository.save(
+                GroupChallengeBetParticipant.builder().bet(bet).user(withdrawn).build());
+
+        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(today);
+
+        // 달성자 0명 → 환불. 탈퇴자 지급에서 터지면 이 건 전체가 롤백돼 OPEN 으로 남고,
+        // 다음 날 배치도 같은 지점에서 실패해 잔류 참가자의 판돈이 영구히 묶인다.
+        assertThat(summary.refundedCount()).isEqualTo(1);
+        assertThat(summary.failedCount()).isZero();
+        assertThat(statusOf(bet)).isEqualTo(GroupBetStatus.REFUNDED);
+        assertThat(balanceOf(staying)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
+        assertThat(transactionsOf(staying, CurrencyTransactionType.BET_REFUND)).hasSize(1);
+        // 탈퇴자에게는 원장 기입도 없다 — 돌려줄 지갑이 이미 없다.
+        assertThat(transactionsOf(withdrawn, CurrencyTransactionType.BET_REFUND)).isEmpty();
+        assertThat(userWalletRepository.findById(withdrawn.getId())).isEmpty();
+        // 참가 행에는 계산된 몫이 그대로 기록된다(분배 계산의 근거 보존).
+        assertThat(participantsOf(bet))
+                .extracting(p -> p.getUser().getId(), GroupChallengeBetParticipant::getPayout)
+                .containsExactlyInAnyOrder(
+                        tuple(staying.getId(), STAKE),
+                        tuple(withdrawn.getId(), STAKE));
     }
 
     @Test

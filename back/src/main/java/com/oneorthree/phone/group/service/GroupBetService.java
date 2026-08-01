@@ -8,6 +8,7 @@ import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
+import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.dto.CreateBetRequest;
@@ -105,6 +106,13 @@ public class GroupBetService {
         GroupChallenge challenge = groupChallengeRepository
                 .findByIdAndGroupAndDeletedAtIsNullForUpdate(challengeId, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        // 종료된 챌린지에는 돈을 걸 수 없다. deleted_at 만으로는 부족하다 — V2 마이그레이션이 레거시
+        // ENDED 챌린지를 INACTIVE 로 이관해 뒀고(삭제는 아니라 목록에도 그대로 뜬다), 중복 검사는
+        // ACTIVE 만 보므로 같은 그룹에 활성 챌린지와 INACTIVE 챌린지가 공존한다. 그 id 로 개설하면
+        // 아무도 진행하지 않는 챌린지에 판돈이 묶인다 (PR #381 리뷰).
+        if (challenge.getStatus() != GroupChallengeStatus.ACTIVE) {
+            throw new GroupException(GroupErrorCode.BET_CHALLENGE_INACTIVE);
+        }
         if (challenge.getCategory() != MissionCategory.FOCUS || challenge.getType() != MissionType.DURATION) {
             throw new GroupException(GroupErrorCode.BET_FOCUS_ONLY);
         }

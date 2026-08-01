@@ -10,6 +10,7 @@ import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
+import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.MissionCategory;
@@ -279,6 +280,26 @@ class GroupBetServiceTest {
                 groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(30, today())))
                 .isInstanceOf(GroupException.class)
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_FOCUS_ONLY);
+        assertNoStakeCharged();
+    }
+
+    @Test
+    @DisplayName("INACTIVE 챌린지 → BET_CHALLENGE_INACTIVE — 레거시 ENDED(V2 이관) 챌린지에 판돈이 묶이면 안 된다")
+    void createBetRejectsInactiveChallenge() {
+        givenMember();
+        // 삭제된 것도 아니고(deleted_at null) 타입도 FOCUS/DURATION 이라 다른 가드는 전부 통과한다.
+        givenChallenge(GroupChallenge.builder()
+                .id(CHALLENGE_ID)
+                .group(group())
+                .category(MissionCategory.FOCUS)
+                .type(MissionType.DURATION)
+                .status(GroupChallengeStatus.INACTIVE)
+                .build());
+
+        assertThatThrownBy(() ->
+                groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(30, today())))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_CHALLENGE_INACTIVE);
         assertNoStakeCharged();
     }
 

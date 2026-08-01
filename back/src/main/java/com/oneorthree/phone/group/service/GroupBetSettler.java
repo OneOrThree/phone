@@ -13,6 +13,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.user.domain.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -142,10 +143,25 @@ public class GroupBetSettler {
         for (GroupBetPayoutCalculator.Payout payout : distribution.payouts()) {
             GroupChallengeBetParticipant participant = byUserId.get(payout.userId());
             participant.recordSettlement(payout.achieved(), payout.amount());
-            if (payout.amount() > 0) {
-                currencyLedgerService.credit(participant.getUser(), type, payout.amount(),
-                        payoutKey(bet.getId(), payout.userId(), refunded));
+            if (payout.amount() <= 0) {
+                continue;
             }
+            User user = participant.getUser();
+            if (user.isDeleted()) {
+                // 탈퇴자는 지갑이 이미 삭제돼 있다(UserService.withdraw 가 user 행은 남기고
+                // user_wallets 만 지운다 — 참가 행은 FK 때문에 그대로 남는다). 그대로 credit 하면
+                // 지갑 조회가 NOT_FOUND 로 터지고 트랜잭션 전체가 롤백돼, 앞서 처리한 다른 참가자의
+                // 지급까지 되돌아가고 내기가 OPEN 에 갇힌다 — 다음 날 배치도 같은 지점에서 실패하므로
+                // 나머지 참가자의 판돈이 영구히 묶인다(PR #381 리뷰). 지급 대상에서만 빼고 정산은
+                // 끝낸다. 탈퇴 시점에 잔액 전체가 이미 소멸했으므로 돌려줄 지갑 자체가 없다.
+                // 참가 행에는 계산된 몫을 그대로 남긴다 — 분배 계산의 근거(합 = 팟)는 보존하고,
+                // 실제 이동 여부는 원장(currency_transactions)이 단일 진실이다.
+                log.warn("내기 지급 스킵 — 탈퇴한 참가자라 지갑이 없다. betId={}, userId={}, amount={}",
+                        bet.getId(), payout.userId(), payout.amount());
+                continue;
+            }
+            currencyLedgerService.credit(user, type, payout.amount(),
+                    payoutKey(bet.getId(), payout.userId(), refunded));
         }
     }
 

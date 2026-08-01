@@ -33,6 +33,7 @@ public enum GroupErrorCode {
     BET_CLOSED(HttpStatus.CONFLICT, "참가할 수 있는 시간이 지났어요"),
     BET_ALREADY_JOINED(HttpStatus.CONFLICT, "이미 참가한 내기예요"),
     BET_ALREADY_ACHIEVED(HttpStatus.CONFLICT, "이미 목표를 달성해서 참가할 수 없어요"),
+    BET_CHALLENGE_INACTIVE(HttpStatus.CONFLICT, "종료된 챌린지에는 내기를 걸 수 없어요"),
     CHALLENGE_HAS_OPEN_BET(HttpStatus.CONFLICT, "진행 중인 내기가 있어 삭제할 수 없어요"),
 
     // 서버 에러
