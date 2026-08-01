@@ -48,6 +48,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 그룹 챌린지 내기의 개설·참가와 조회용 조립.
@@ -272,21 +273,30 @@ public class GroupBetService {
         participants.stream()
                 .filter(p -> p.getUser().getId().equals(leaver.getId()))
                 .forEach(groupChallengeBetParticipantRepository::delete);
-        refundStake(bet, leaver);
-        log.info("내기 참가 해제 — 그룹 탈퇴. betId={}, userId={}, stake={} 환불",
-                bet.getId(), leaver.getId(), bet.getStake());
 
         List<GroupChallengeBetParticipant> remaining = participants.stream()
                 .filter(p -> !p.getUser().getId().equals(leaver.getId()))
                 .toList();
         boolean creatorAlone = remaining.size() == 1
                 && remaining.get(0).getUser().getId().equals(bet.getCreatorUser().getId());
-        if (creatorAlone) {
-            claimCanceled(bet);
-            refundStake(bet, remaining.get(0).getUser());
-            log.info("내기 자동 취소 — 참가자 이탈로 개설자 단독. betId={}, creatorId={}",
-                    bet.getId(), bet.getCreatorUser().getId());
+        if (!creatorAlone) {
+            refundStake(bet, leaver);
+            log.info("내기 참가 해제 — 그룹 탈퇴. betId={}, userId={}, stake={} 환불",
+                    bet.getId(), leaver.getId(), bet.getStake());
+            return;
         }
+
+        // 자동 취소 — 탈퇴자·개설자 환불 2건도 userId 오름차순으로 고정한다. "탈퇴자 먼저" 고정이면
+        // 탈퇴자 UUID 가 더 클 때 지갑 잠금이 내림차순이 되어, 오름차순으로 도는 다른 지갑-다중
+        // 경로(전원 환불·정산 지급·반대 방향 탈퇴)와 교차 데드락이 성립한다 (PR #427 리뷰).
+        claimCanceled(bet);
+        Stream.of(leaver, remaining.get(0).getUser())
+                .sorted(Comparator.comparing(User::getId))
+                .forEach(u -> refundStake(bet, u));
+        log.info("내기 참가 해제 — 그룹 탈퇴. betId={}, userId={}, stake={} 환불",
+                bet.getId(), leaver.getId(), bet.getStake());
+        log.info("내기 자동 취소 — 참가자 이탈로 개설자 단독. betId={}, creatorId={}",
+                bet.getId(), bet.getCreatorUser().getId());
     }
 
     /**
