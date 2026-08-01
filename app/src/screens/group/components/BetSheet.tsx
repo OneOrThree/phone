@@ -57,6 +57,8 @@ const JOIN_NOTE = '참가하면 판돈이 바로 빠져나가요. 오늘 목표�
 // 잔액 미상 — 값 자리는 '—'(진행 리스트의 미집계 표기와 같은 규칙), 사유와 재시도는 한 줄로 둔다.
 const BALANCE_UNKNOWN = '—';
 const BALANCE_FAILED_CAPTION = '잔액을 불러오지 못했어요';
+// 이미 달성 — 카드의 진입 차단 사유와 **같은 문장**을 쓴다(같은 사실을 두 자리에서 달리 말하지 않는다).
+const BET_ACHIEVED_CAPTION = '이미 오늘 목표를 달성해서 참가할 수 없어요';
 // 전송 중 — 딤 탭·백을 막는 대신(F10) 멈춘 화면이 아님을 한 줄로 알린다.
 const SUBMITTING_CAPTION = '처리 중이에요…';
 
@@ -107,8 +109,17 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
     shortage <= 0;
   const serverInsufficient =
     insufficientVerdict !== null && amount >= insufficientVerdict.stake && !balanceOverridesVerdict;
+  // 시트를 연 뒤 목표를 달성했다면(부모가 살아 있는 challenge를 갈아 끼운다) 참가는 반드시
+  // 거절된다(BET_ALREADY_ACHIEVED) — 카드가 진입 시점에 쓰는 기준을 시트도 끝까지 민다.
+  // 시트를 닫지는 않는다: 팟·참가자를 보고 있는 화면을 걷을 이유는 없어 CTA만 잠그고 사유를 적는다.
+  const achievedBlocked = !isCreate && bet?.myAchievedNow === true;
   // 참가 모드인데 내기가 없다 = 카드가 열어 줄 수 없는 조합(부모가 막는다). 방어적으로 CTA만 잠근다.
-  const disabled = submitting || insufficient || serverInsufficient || (!isCreate && bet === null);
+  const disabled =
+    submitting ||
+    insufficient ||
+    serverInsufficient ||
+    achievedBlocked ||
+    (!isCreate && bet === null);
 
   // 시트를 열 때 서버 잔액을 다시 받는다(§0-3).
   useEffect(() => {
@@ -173,6 +184,11 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
         case 'NOT_FOUND':
           failAndReload('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
           return;
+        // 챌린지가 아니라 **내기 자체**가 없다(계약 §2-2의 BET_NOT_FOUND — 404, 참가 경로).
+        // 공통 문구('잠시 후 다시 시도')로 떨어뜨리면 영원히 같은 실패를 재시도하게 된다.
+        case 'BET_NOT_FOUND':
+          failAndReload('사라진 내기예요', '이미 없어진 내기예요. 최신 상태로 새로고침할게요.');
+          return;
         // 그룹에서 빠졌다 — 재시도로 풀리지 않는다. 부모가 재조회하면서 방 자체를 정리한다.
         case 'MEMBER_ONLY':
           failAndReload('그룹원만 이용할 수 있어요', '그룹에서 나갔거나 더 이상 멤버가 아니에요.');
@@ -187,6 +203,10 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
           refresh();
           setInsufficientVerdict({ stake: amount, coinsVersion });
           break;
+        // 계약(§2-1·§2-2)의 나머지 코드는 앱이 보내는 조합에서 도달할 수 없어 분기를 두지 않는다:
+        // BET_FOCUS_ONLY는 카드가 FOCUS·DURATION에만 진입점을 열고(ChallengeCard.betSupported),
+        // BET_INVALID_STAKE는 판돈이 칩의 허용값 {10,30,50,100}으로만 나가기 때문이다.
+        // 도달했다면 서버 계약이 바뀐 것이라 '알 수 없는 오류'로 말하는 편이 사실에 가깝다.
         default:
           setErrorMsg(
             isCreate
@@ -313,6 +333,8 @@ export default function BetSheet({ groupId, challenge, mode, onClose, onDone }: 
       {/* 서버가 확정한 부족. 잔액을 다시 받아 부족분(N)까지 알게 되면 CTA 라벨이 규격대로
           `코인이 부족해요 (N 필요)`를 말하므로(§1), 같은 문장을 두 번 적지 않는다. */}
       {serverInsufficient && !insufficient && <Text style={s.error}>코인이 부족해요</Text>}
+      {/* 잠긴 CTA에는 사유가 붙어야 한다 — 카드가 쓰는 문장 그대로다. */}
+      {achievedBlocked && <Text style={s.error}>{BET_ACHIEVED_CAPTION}</Text>}
       {errorMsg !== null && <Text style={s.error}>{errorMsg}</Text>}
 
       <TouchableOpacity

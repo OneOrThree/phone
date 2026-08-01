@@ -212,6 +212,22 @@ describe('참가 모드', () => {
     expect(screen.queryByTestId('group.bet.stake.50')).toBeNull();
   });
 
+  // 시트는 **살아 있는 challenge**를 받는다(부모가 매 렌더 파생) — 열어 둔 사이 내가 목표를
+  // 달성하면 서버는 참가를 거절한다(BET_ALREADY_ACHIEVED). 카드가 진입 시점에 막는 것과 같은
+  // 기준을 시트도 끝까지 밀어, 눌러서 실패로 알게 되지 않도록 한다.
+  test('열어 둔 사이 목표를 달성하면 CTA를 잠그고 사유를 적는다', async () => {
+    const { rerender } = await renderSheet('join', { bet: bet() });
+    expect(screen.getByText('참가하기')).toBeOnTheScreen();
+
+    await act(async () => {
+      rerender(sheet('join', { bet: bet({ myAchievedNow: true }) }));
+    });
+
+    expect(screen.getByText('이미 오늘 목표를 달성해서 참가할 수 없어요')).toBeOnTheScreen();
+    await submit();
+    expect(mockJoinBet).not.toHaveBeenCalled();
+  });
+
   test('판돈·현재 팟·참가자 목록을 보여준다', async () => {
     await renderSheet('join', { bet: bet() });
     expect(screen.getByText('30')).toBeOnTheScreen();
@@ -454,6 +470,21 @@ describe('에러 분기', () => {
     await submit();
 
     expect(alertSpy).toHaveBeenCalledWith('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  // 챌린지가 아니라 **내기**가 사라진 코드다(계약 §2-2 BET_NOT_FOUND) — 공통 문구로 떨어뜨리면
+  // 영원히 같은 실패를 '잠시 후 다시 시도'하라고 말하게 된다.
+  test('BET_NOT_FOUND — 사라진 내기를 알리고 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockJoinBet.mockRejectedValueOnce(axiosErrorWith(404, 'BET_NOT_FOUND'));
+    await renderSheet('join', { bet: bet() });
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '사라진 내기예요',
+      '이미 없어진 내기예요. 최신 상태로 새로고침할게요.',
+    );
     expect(onDone).toHaveBeenCalled();
   });
 
