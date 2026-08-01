@@ -2,7 +2,7 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V15 (src/main/resources/db/migration). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V22 (src/main/resources/db/migration). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 
 // ────────────────────────────────────────────
 // Enums (도메인별 — 테이블 섹션과 동일 순서)
@@ -628,6 +628,21 @@ Table character_equipment [note: '유저 캐릭터 장착 상태 (슬롯별 1개
   }
 }
 
+Table character_generation [note: '누끼(캐릭터) 생성 이력 (append-only). 쿼터 판정용 — 가입 후 7일 무제한 → 이후 롤링 7일 내 2회. GROMO-1045, V22'] {
+  id          uuid        [pk]
+
+  user_id     uuid        [not null, note: 'FK → users.id']
+
+  created_at  timestamptz [not null, note: '생성 시각 — 롤링 7일 윈도우 판정 기준']
+
+  client_generation_id uuid [note: '클라 멱등키(옵션, nullable) — 재시도 시 (user_id, client_generation_id) 중복 무시로 슬롯 중복 소비 방지. V22']
+
+  indexes {
+    (user_id, created_at) [name: 'idx_character_generation_user_created_at', note: '창 내 count·슬롯 오프셋 행 조회']
+    (user_id, client_generation_id) [unique, name: 'uq_character_generation_client_id', note: '멱등키 부분 유니크 — WHERE client_generation_id IS NOT NULL (키 있을 때만). V22']
+  }
+}
+
 // ────────────────────────────────────────────
 // 6. 리그
 // ────────────────────────────────────────────
@@ -839,6 +854,7 @@ Ref: user_items.user_id > users.id
 Ref: user_items.item_id > items.id
 Ref: character_equipment.user_id > users.id
 Ref: character_equipment.user_item_id > user_items.id
+Ref: character_generation.user_id > users.id
 
 // 리그
 // league_arenas: tier_level FK 제거(V14) — 독립 앵커 테이블. league_arena_users: DROP(V14).

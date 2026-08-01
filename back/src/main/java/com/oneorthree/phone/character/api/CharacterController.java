@@ -1,6 +1,7 @@
 package com.oneorthree.phone.character.api;
 
 import com.oneorthree.phone.character.dto.CharacterQuotaResponse;
+import com.oneorthree.phone.character.dto.RecordGenerationRequest;
 import com.oneorthree.phone.character.service.CharacterGenerationService;
 import com.oneorthree.phone.common.auth.LoginUser;
 import io.swagger.v3.oas.annotations.Operation;
@@ -11,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -36,13 +38,17 @@ public class CharacterController {
     }
 
     @Operation(summary = "생성 1건 기록",
-            description = "클라가 이미지 저장에 성공한 뒤 호출. 생성 1건을 기록하고 갱신된 쿼터를 반환.")
+            description = "클라가 이미지 저장에 성공한 뒤 호출. 생성 1건을 기록하고 갱신된 쿼터를 반환. "
+                    + "body 는 옵션 — clientGenerationId(멱등키)를 보내면 재시도 시 슬롯 중복 소비를 막는다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "기록 성공(갱신된 쿼터 반환)"),
             @ApiResponse(responseCode = "404", description = "유저 없음")
     })
     @PostMapping("/character/generation")
-    public ResponseEntity<CharacterQuotaResponse> recordGeneration(@LoginUser UUID userId) {
-        return ResponseEntity.ok(characterGenerationService.recordGeneration(userId));
+    public ResponseEntity<CharacterQuotaResponse> recordGeneration(
+            @LoginUser UUID userId,
+            @RequestBody(required = false) RecordGenerationRequest request) {
+        UUID clientGenerationId = request == null ? null : request.clientGenerationId();
+        return ResponseEntity.ok(characterGenerationService.recordGeneration(userId, clientGenerationId));
     }
 }

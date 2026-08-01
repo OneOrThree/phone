@@ -2,6 +2,7 @@ package com.oneorthree.phone.character.domain;
 
 import com.oneorthree.phone.common.id.GeneratedUuidV7;
 import com.oneorthree.phone.user.domain.User;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
@@ -49,4 +50,11 @@ public class CharacterGeneration {
 
     @CreationTimestamp
     private Instant createdAt;
+
+    /**
+     * 클라 멱등키(옵션) — 재시도 시 같은 생성이 2슬롯을 소비하지 않도록 (user_id, client_generation_id) 중복을 무시한다.
+     * null 이면 멱등 없이 그대로 기록(키를 안 보내는 현행 클라 하위호환). 부분 유니크 인덱스는 V22 마이그레이션에 있다.
+     */
+    @Column(name = "client_generation_id")
+    private UUID clientGenerationId;
 }
