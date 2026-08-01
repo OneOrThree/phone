@@ -100,6 +100,11 @@ function hhmm(v: string): string {
   return /(\d{2}:\d{2})/.exec(v)?.[1] ?? v;
 }
 
+// 스크린타임 목표는 '이상'이 아니라 '이하'다 — 초대 프리뷰는 참여를 결정하는 유일한 정보 화면이라
+// `목표 · 하루 60분 스크린타임`만 두면 60분을 채우라는 뜻으로 뒤집혀 읽힌다.
+// 문구는 그룹 만들기 폼·챌린지 만들기 시트의 캡션과 같은 뜻으로 맞춘다(카테고리 설명은 세 자리 동일).
+const SCREEN_TIME_HINT = '하루 스크린타임을 목표 이하로 유지하면 달성이에요';
+
 // 미션 한 줄 요약 — 대표 챌린지가 없으면 null(행을 숨긴다).
 function missionLabel(ov: GroupOverviewResponse): string | null {
   const what = ov.missionCategory === 'SCREEN_TIME' ? '스크린타임' : '집중';
@@ -353,6 +358,9 @@ export default function GroupInviteSheet({
             <Text style={s.metaValue}>{mission}</Text>
           </View>
         )}
+        {!!mission && overview.missionCategory === 'SCREEN_TIME' && (
+          <Text style={s.missionHint}>{SCREEN_TIME_HINT}</Text>
+        )}
       </View>
 
       {!!block && <Text style={s.notice}>{BLOCK_TEXT[block]}</Text>}
@@ -405,6 +413,8 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: T.space.md,
   },
+  // 목표 행 아래 방향 안내 — 그룹 설명(s.groupDesc)과 같은 caption 규격을 쓴다.
+  missionHint: { ...T.text.caption, fontWeight: '500', color: T.inkSub, marginTop: T.space.xs },
   metaLabel: { ...T.text.caption, color: T.inkMuted },
   metaValue: { ...T.text.label, color: T.ink },
   metaValueNum: { ...T.text.label, color: T.ink, fontVariant: ['tabular-nums'] },

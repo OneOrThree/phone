@@ -44,6 +44,10 @@ const MEMBERS_MIN = 2; // 서버는 1부터 허용하지만 혼자 있는 그룹
 const MEMBERS_MAX = 10;
 const MEMBERS_DEFAULT = 5;
 
+// 한 사람이 참여할 수 있는 그룹 수 상한 — 서버 판정값(GROUP_LIMIT_EXCEEDED)이라 앱은 사전에 막지 않고
+// 에러 안내 문구에만 쓴다(§0-6).
+const GROUP_LIMIT = 10;
+
 // 하루 목표 시간(분) — 생성 시점의 대표 챌린지 durationMinutes를 이 칩으로 정한다.
 // (그룹을 만든 뒤에는 그룹방의 챌린지 섹션에서 챌린지를 따로 추가한다.)
 const DURATION_OPTIONS = [30, 60, 120, 180] as const;
@@ -59,8 +63,17 @@ const CATEGORY_OPTIONS = [
   { value: 'SCREEN_TIME', label: '스크린타임', durationLabel: '하루 목표 스크린타임' },
 ] as const;
 
-// 스크린타임은 권한(FamilyControls)이 없으면 서버가 참여자에서 제외한다 — 고르기 전에 알려준다.
-const SCREEN_TIME_CAPTION = '스크린타임 권한을 허용한 멤버만 참여할 수 있어요';
+// 스크린타임은 (a) 목표의 방향이 집중과 반대이고(이하), (b) 권한(FamilyControls)이 없으면
+// 서버가 참여자에서 제외한다 — 둘 다 고르기 전에 알려준다.
+// 방향 문장을 앞에 두는 이유: '하루 목표 스크린타임 60분'만 보면 "60분을 채워라"로도 읽힌다.
+// 문구는 챌린지 만들기 시트(ChallengeComposeSheet CATEGORY_CAPTION)와 같은 뜻으로 맞춘다 —
+// 같은 값을 고르는 두 자리가 다른 설명을 주면 안 된다.
+const SCREEN_TIME_CAPTION =
+  '하루 스크린타임을 목표 이하로 유지하면 달성이에요. 스크린타임 권한을 허용한 멤버만 참여할 수 있어요';
+
+// 목표 시간은 '대표 챌린지 하나'의 값일 뿐이라, 여기서 못 고른 종류는 영영 못 만드는 것으로 읽힌다.
+// 그룹방에 추가 경로가 있다는 사실을 폼에서 미리 알려 선택 부담을 덜어 준다.
+const DURATION_HINT_CAPTION = '만든 뒤 그룹방에서 챌린지를 더 추가할 수 있어요';
 
 // '복사했어요' 표시 유지 시간(ms) — 지나면 '링크 복사'로 되돌린다.
 const COPIED_RESET_MS = 2000;
@@ -132,6 +145,15 @@ export default function GroupCreateScreen() {
           { text: '나중에', style: 'cancel' },
           { text: '로그인하기', onPress: () => navigation.navigate('SettingsAccount') },
         ]);
+        return;
+      // 참여 상한은 참가뿐 아니라 **생성 경로에도** 걸린다(서버 ensureJoinedGroupLimit).
+      // 공통 문구로 떨어뜨리면 '잠시 후 다시 시도'가 되는데, 시간이 지나도 절대 풀리지 않는
+      // 조건이라 사용자가 재시도만 반복한다 — 상한이라는 사실과 숫자를 그대로 알려준다.
+      case 'GROUP_LIMIT_EXCEEDED':
+        Alert.alert(
+          '더 이상 만들 수 없어요',
+          `참여할 수 있는 그룹 수를 초과했어요(최대 ${GROUP_LIMIT}개)`,
+        );
         return;
       default: {
         const status = axios.isAxiosError(e) ? e.response?.status : undefined;
@@ -319,6 +341,9 @@ export default function GroupCreateScreen() {
             );
           })}
         </View>
+        {/* 캡션은 note 박스가 아니라 맨살 한 줄 — 위아래 note(스크린타임·공개 설정)와 겹치면
+            폼이 안내 박스로만 채워진다. 여기 정보는 '경고'가 아니라 '안심'이라 톤도 한 단계 약하다. */}
+        <Text style={s.hint}>{DURATION_HINT_CAPTION}</Text>
 
         {/* ── 공개 설정 — 세그먼트 + 캡션(참여 경로가 갈린다) ── */}
         <Text style={s.label}>공개 설정</Text>
@@ -532,6 +557,9 @@ const s = StyleSheet.create({
   },
   noteIcon: { marginTop: 2 },
   noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, flex: 1, lineHeight: 19 },
+
+  // 보조 안내 한 줄 — note 박스보다 약한 톤(무채색 caption, 배경 없음).
+  hint: { ...T.text.caption, color: T.inkMuted, marginTop: T.space.sm, lineHeight: 18 },
 
   // 화면 CTA = 52 / r16 (그룹 3화면 공통 규격). marginTop 28은 8pt 그리드 밖이라 토큰으로 내렸다.
   submitBtn: {

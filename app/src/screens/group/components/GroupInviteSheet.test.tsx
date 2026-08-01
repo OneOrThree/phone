@@ -265,6 +265,24 @@ describe('프리뷰 조회 분기', () => {
 
     expect(await screen.findByText('매일 06:00~08:30 집중')).toBeOnTheScreen();
   });
+
+  // 스크린타임은 목표의 방향이 집중과 반대다(이하). 이 시트는 참여를 결정하는 유일한 정보
+  // 화면인데 `목표 · 하루 60분 스크린타임` 한 줄뿐이면 60분을 채우라는 뜻으로 뒤집혀 읽힌다.
+  test('스크린타임 그룹은 목표가 이하라는 뜻을 한 줄로 덧붙인다', async () => {
+    mockGetGroupOverview.mockResolvedValue(overview({ missionCategory: 'SCREEN_TIME' }));
+    await renderSheet();
+
+    expect(await screen.findByText('하루 60분 스크린타임')).toBeOnTheScreen();
+    expect(screen.getByText('하루 스크린타임을 목표 이하로 유지하면 달성이에요')).toBeOnTheScreen();
+  });
+
+  test('집중 그룹에는 그 캡션이 붙지 않는다(설명이 필요 없는 기본값)', async () => {
+    mockGetGroupOverview.mockResolvedValue(overview());
+    await renderSheet();
+
+    expect(await screen.findByText('하루 60분 집중')).toBeOnTheScreen();
+    expect(screen.queryByText('하루 스크린타임을 목표 이하로 유지하면 달성이에요')).toBeNull();
+  });
 });
 
 describe('참여 분기', () => {

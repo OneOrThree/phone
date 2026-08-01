@@ -11,7 +11,10 @@ export type GroupStatus = 'WAITING' | 'ACTIVE' | 'ENDED';
 export type MissionType = 'TIME_WINDOW' | 'DURATION';
 export type MissionCategory = 'FOCUS' | 'SCREEN_TIME';
 // 챌린지 상태 (Java enum GroupChallengeStatus). 앱은 목록을 그대로 그리고 상태로 거르지 않는다.
-export type GroupChallengeStatus = 'ACTIVE' | 'ENDED';
+// ⚠️ 서버 enum은 ACTIVE·INACTIVE 두 값뿐이다(back GroupChallengeStatus.java, 백 계약 §1 표) —
+//    그룹 자체의 GroupStatus(WAITING|ACTIVE|ENDED)와 값이 다르니 'ENDED'로 헷갈리지 않는다.
+//    유니온이 어긋나 있으면 `status !== 'ENDED'` 같은 필터가 TS를 통과한 채 조용히 no-op이 된다.
+export type GroupChallengeStatus = 'ACTIVE' | 'INACTIVE';
 
 // POST /groups 요청. missionType·missionCategory는 서버 @NotNull이라 챌린지가 범위 밖이어도
 // 반드시 보낸다 — 앱은 'DURATION' + 'FOCUS' 고정으로 채운다(§3-1-2).

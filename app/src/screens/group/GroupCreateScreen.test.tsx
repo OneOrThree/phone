@@ -9,7 +9,8 @@
 //   1) 그 사이 이름을 고치면 초대 문구가 실제 그룹 이름과 갈린다 → 요청에 실어 보낸 이름을 굳힌다
 //   2) 그 사이 이탈하면 취소한 줄 아는 그룹에 OWNER로 갇힌다(§14 — 삭제·위임 UI가 없다)
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Share } from 'react-native';
+import { Alert, Share } from 'react-native';
+import { AxiosError, AxiosHeaders } from 'axios';
 import GroupCreateScreen from './GroupCreateScreen';
 import { createGroup } from '@/services/groupApi';
 import type { CreateGroupResponse } from '@/types/dto/group';
@@ -52,6 +53,18 @@ const mockCreateGroup = createGroup as jest.MockedFunction<typeof createGroup>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 
+// 서버 GlobalExceptionHandler의 { code, message } 바디를 실은 axios 에러.
+function axiosErrorWith(status: number, code?: string): AxiosError {
+  const config = { headers: new AxiosHeaders() };
+  return new AxiosError('request failed', 'ERR_BAD_REQUEST', config, null, {
+    status,
+    statusText: '',
+    headers: {},
+    config,
+    data: code ? { code, message: '...' } : undefined,
+  });
+}
+
 async function renderScreen() {
   const result = await render(<GroupCreateScreen />);
   await act(async () => {});
@@ -76,6 +89,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockNav.beforeRemove = null;
   jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
+  jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   mockCreateGroup.mockResolvedValue({ groupId: GROUP_ID, code: 'ignored' });
 });
 
@@ -110,9 +124,12 @@ describe('챌린지 종류 세그먼트(2차 §3-3)', () => {
 
   // 권한이 없는 멤버는 서버가 챌린지 참여자에서 빼 버린다 — 고르기 전에 알려주지 않으면
   // 방장은 '왜 절반이 빠졌는지' 모른 채 그룹을 만든다.
-  test('캡션은 스크린타임을 고른 동안에만 뜬다', async () => {
+  // 캡션에는 **목표의 방향(이하)** 도 함께 들어간다 — 이 문장이 빠지면 '하루 목표 스크린타임
+  // 60분'이 "60분을 채워라"로 뒤집혀 읽힌다(챌린지 만들기 시트는 이미 알려주는 정보다).
+  test('캡션은 스크린타임을 고른 동안에만 뜨고, 목표가 이하라는 뜻을 함께 알려준다', async () => {
     await renderScreen();
-    const caption = '스크린타임 권한을 허용한 멤버만 참여할 수 있어요';
+    const caption =
+      '하루 스크린타임을 목표 이하로 유지하면 달성이에요. 스크린타임 권한을 허용한 멤버만 참여할 수 있어요';
 
     expect(screen.queryByText(caption)).toBeNull();
 
@@ -121,6 +138,18 @@ describe('챌린지 종류 세그먼트(2차 §3-3)', () => {
 
     await press('집중 시간');
     expect(screen.queryByText(caption)).toBeNull();
+  });
+
+  // 폼에서 고르는 목표는 '대표 챌린지 하나'뿐이라, 여기서 못 고른 종류를 영영 못 만드는 것으로
+  // 읽힐 수 있다 — 추가 경로가 있다는 사실을 카테고리와 무관하게 항상 노출한다.
+  test('목표 시간 아래에 그룹방에서 챌린지를 더 추가할 수 있다는 안내가 항상 뜬다', async () => {
+    await renderScreen();
+    const hint = '만든 뒤 그룹방에서 챌린지를 더 추가할 수 있어요';
+
+    expect(screen.getByText(hint)).toBeOnTheScreen();
+
+    await press('스크린타임');
+    expect(screen.getByText(hint)).toBeOnTheScreen();
   });
 
   // 목표는 FOCUS면 '이상', SCREEN_TIME이면 '이하'다 — 라벨이 고정이면 의미가 뒤집힌다.
@@ -229,5 +258,49 @@ describe('요청이 떠 있는 구간(§6-2)', () => {
     mockNav.beforeRemove?.(after);
     expect(after.preventDefault).not.toHaveBeenCalled();
     expect(mockNav.goBack).toHaveBeenCalled();
+  });
+});
+
+// 백 계약은 **생성·참가 양쪽 모두** 상한 10을 검사한다(GroupService.ensureJoinedGroupLimit).
+// 초대·찾기 시트는 이미 분기를 갖고 있었지만 생성 경로만 빠져 있었다 — 409는 status 400도 아니라
+// 공통 문구 '잠시 후 다시 시도'로 떨어졌고, 시간이 지나도 절대 풀리지 않는 조건이라
+// 사용자는 서버 장애로 이해하고 재시도만 반복했다.
+describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
+  test('GROUP_LIMIT_EXCEEDED — 상한 안내 Alert(공통 실패 문구가 아니다)', async () => {
+    mockCreateGroup.mockRejectedValue(axiosErrorWith(409, 'GROUP_LIMIT_EXCEEDED'));
+    await renderScreen();
+    await typeName('아침 6시 집중방');
+
+    await press('만들기');
+
+    expect(Alert.alert).toHaveBeenCalledWith(
+      '더 이상 만들 수 없어요',
+      '참여할 수 있는 그룹 수를 초과했어요(최대 10개)',
+    );
+    expect(Alert.alert).not.toHaveBeenCalledWith('그룹을 만들지 못했어요', expect.any(String));
+  });
+
+  test('모르는 code는 공통 문구로 떨어진다', async () => {
+    mockCreateGroup.mockRejectedValue(axiosErrorWith(500, 'SOMETHING_NEW'));
+    await renderScreen();
+    await typeName('아침 6시 집중방');
+
+    await press('만들기');
+
+    expect(Alert.alert).toHaveBeenCalledWith(
+      '그룹을 만들지 못했어요',
+      '잠시 후 다시 시도해주세요.',
+    );
+  });
+
+  test('400은 이름 필드를 짚어준다(Alert 아님)', async () => {
+    mockCreateGroup.mockRejectedValue(axiosErrorWith(400));
+    await renderScreen();
+    await typeName('아침 6시 집중방');
+
+    await press('만들기');
+
+    expect(screen.getByText('그룹 이름을 다시 확인해주세요')).toBeOnTheScreen();
+    expect(Alert.alert).not.toHaveBeenCalled();
   });
 });
