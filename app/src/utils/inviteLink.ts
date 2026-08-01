@@ -37,7 +37,15 @@ export function parseInviteLink(url: string): string | null {
     const eq = part.indexOf('=');
     if (eq < 0) continue;
     if (part.slice(0, eq) !== 'g') continue;
-    const raw = decodeURIComponent(part.slice(eq + 1));
+    // 손상된 percent-encoding('%', '%zz' 등)은 decodeURIComponent가 URIError를 던진다.
+    // 실행 중 링크 수신(Linking 'url' 콜백)엔 예외 경계가 없어 그대로 두면 앱이 죽는다 —
+    // 잘못된 링크는 조용히 무시한다(§11).
+    let raw: string;
+    try {
+      raw = decodeURIComponent(part.slice(eq + 1));
+    } catch {
+      return null;
+    }
     return UUID_RE.test(raw) ? raw : null;
   }
   return null;

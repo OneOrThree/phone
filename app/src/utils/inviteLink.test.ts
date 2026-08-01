@@ -43,6 +43,14 @@ describe('parseInviteLink', () => {
     expect(parseInviteLink('gromo://join?g=abc')).toBeNull();
   });
 
+  // decodeURIComponent가 URIError를 던지는 입력 — 실행 중 링크 수신 콜백엔 예외 경계가 없어
+  // 던지면 그대로 앱이 죽는다. 잘못된 링크는 조용히 무시한다(§11).
+  test('손상된 percent-encoding은 예외 대신 null', () => {
+    expect(parseInviteLink('gromo://join?g=%')).toBeNull();
+    expect(parseInviteLink('gromo://join?g=%zz')).toBeNull();
+    expect(parseInviteLink('gromo://join?g=%E0%A4%A')).toBeNull();
+  });
+
   test('g 파라미터가 없으면 null', () => {
     expect(parseInviteLink('gromo://join?x=1')).toBeNull();
   });

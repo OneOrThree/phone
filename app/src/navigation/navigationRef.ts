@@ -54,9 +54,18 @@ export function navigateToDeepLink(link: string): void {
     pendingLink = link; // 컨테이너 준비 전 → 버퍼링
     return;
   }
-  // 경로만 잘라 쓰되 원본 link는 그대로 넘긴다 — 예전엔 split(/[/?#]/)로 쿼리를 버려서
-  // ?g=<uuid>를 읽을 수 없었다(§6-6-2). 파싱 규격의 단일 소스는 @/utils/inviteLink.
-  const path = link.replace(/^gromo:\/\//i, '').split(/[/?#]/)[0];
+  // 초대 링크 판정은 **파서를 먼저** 태운다 — 파싱 규격의 단일 소스는 @/utils/inviteLink이고,
+  // 파서가 받아주는 슬래시 변형(gromo:///join?g=…)을 여기서 경로 문자열로 다시 자르면
+  // 첫 세그먼트가 빈 문자열이 되어 'join'에 닿지 못한다.
+  const inviteGroupId = parseInviteLink(link);
+  if (inviteGroupId) {
+    navigationRef.navigate('Main', { screen: '그룹' } as never);
+    notifyGroupInvite(inviteGroupId);
+    return;
+  }
+
+  // 나머지 매핑은 경로만 잘라 쓴다. 선행 슬래시 수는 정규화한다(gromo:///league도 리그로).
+  const path = link.replace(/^gromo:\/\/+/i, '').split(/[/?#]/)[0];
   switch (path) {
     case 'league':
       navigationRef.navigate('Main', { screen: '리그' } as never);
@@ -67,16 +76,9 @@ export function navigateToDeepLink(link: string): void {
     case 'home':
       navigationRef.navigate('Main', { screen: '홈' } as never);
       break;
-    case 'join': {
-      // 그룹 초대 링크. 형식이 아니면(잘못된 g·g 없음) 조용히 무시한다 — 크래시·오동작 금지(§11).
-      const groupId = parseInviteLink(link);
-      if (!groupId) break;
-      navigationRef.navigate('Main', { screen: '그룹' } as never);
-      notifyGroupInvite(groupId);
-      break;
-    }
     default:
-      // 알 수 없는 링크는 무시(홈 유지). TODO: 딥링크 확장 시 케이스 추가.
+      // 알 수 없는 링크와 형식이 깨진 초대 링크(잘못된 g·g 없음)는 조용히 무시한다(§11).
+      // TODO: 딥링크 확장 시 케이스 추가.
       break;
   }
 }
