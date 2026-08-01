@@ -21,7 +21,12 @@ public class GroupSummaryResponse {
     GroupMemberRole role;
     GroupStatus status;
 
-    // 공개/비공개 — boolean isXxx 는 Jackson이 "is"를 떼고 직렬화하므로 JSON 키를 isPrivate 로 고정
-    @JsonProperty("isPrivate")
+    // 공개/비공개. JSON 키 고정은 아래 명시적 getter 가 담당한다(사유는 GroupOverviewResponse#isMember).
     boolean isPrivate;
+
+    /** {@code isPrivate} 키를 만드는 유일한 접근자 — 필드 애노테이션이면 private 키가 함께 나간다. */
+    @JsonProperty("isPrivate")
+    public boolean isPrivate() {
+        return isPrivate;
+    }
 }

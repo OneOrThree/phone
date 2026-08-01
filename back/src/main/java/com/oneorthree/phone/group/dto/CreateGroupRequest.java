@@ -1,6 +1,8 @@
 package com.oneorthree.phone.group.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import jakarta.validation.constraints.Max;
@@ -41,7 +43,13 @@ public class CreateGroupRequest {
 
     // 공개/비공개 — 미전송이면 false(공개). 비공개 그룹은 검색에서 제외되고 초대 링크로만 참여한다.
     // boolean isXxx 는 Jackson이 "is"를 떼고 매핑 → JSON 키를 isPrivate 로 고정
+    //
+    // nulls = FAIL 은 "미전송"과 "명시적 null"을 갈라놓는다. 미전송은 구 앱 호환을 위해 false(공개)로
+    // 두지만, "isPrivate": null 은 클라이언트 직렬화 결함이지 공개 의사가 아니다 — primitive 기본
+    // coercion 에 맡기면 조용히 false 로 내려앉아 비공개로 만들려던 방이 검색 가능한 공개방이 된다.
+    // (필드가 mutator 라 여기 붙인다. FAIL → InvalidNullException → HttpMessageNotReadable → 400)
     @JsonProperty("isPrivate")
+    @JsonSetter(nulls = Nulls.FAIL)
     private boolean isPrivate;
 
     @NotNull
