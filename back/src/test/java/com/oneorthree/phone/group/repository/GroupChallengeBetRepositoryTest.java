@@ -46,7 +46,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
 
-    private static final String MIGRATION_PATH = "db/migration/V19__group_challenge_bets.sql";
+    private static final String MIGRATION_PATH = "db/migration/V20__currency_transaction_reward_types.sql";
 
     @Autowired
     GroupChallengeBetRepository groupChallengeBetRepository;
@@ -218,7 +218,7 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("V19 의 type CHECK — BET_STAKE/BET_PAYOUT/BET_REFUND 는 통과, 미등록 값은 거절된다")
+    @DisplayName("V20 의 type CHECK — 등록된 모든 사유(재화 보상 3종 포함)는 통과, 미등록 값은 거절된다")
     void migrationTypeCheckAcceptsBetTypesAndRejectsUnknown() {
         applyTypeCheckFromMigration();
 
@@ -232,7 +232,7 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
     }
 
     /**
-     * V19 의 ALTER 문(type CHECK 재작성 = DROP + ADD)을 <b>파일에서 읽어 그대로</b> 실행한다 —
+     * V20 의 ALTER 문(type CHECK 재작성 = DROP + ADD)을 <b>파일에서 읽어 그대로</b> 실행한다 —
      * 이 테스트가 검증하는 것은 CHECK 식의 사본이 아니라 마이그레이션 원본이다.
      *
      * <p>ci 스키마는 create-drop 이지만 {@code currency_transactions_type_check} 는 이미 존재한다
@@ -247,7 +247,7 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
                 .toList();
 
         assertThat(alters)
-                .as("V19 의 type CHECK 재작성은 DROP + ADD 두 문이어야 한다")
+                .as("V20 의 type CHECK 재작성은 DROP + ADD 두 문이어야 한다")
                 .hasSize(2);
         alters.forEach(jdbcTemplate::execute);
     }
