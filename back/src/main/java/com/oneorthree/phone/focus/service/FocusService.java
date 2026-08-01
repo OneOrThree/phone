@@ -521,6 +521,14 @@ public class FocusService {
      * @return 지급액(공식상 0 이면 지급 없이 0)
      */
     private int creditFocusGoal(User user, UUID userId, int goalMinutes, LocalDate statDate) {
+        // 위조 채굴 방어(코드리뷰) — POST /focus-session 은 클라가 보낸 startedAt/endedAt 을 신뢰하므로,
+        // 과거 날짜마다 목표 길이 세션을 위조 제출해 지급을 긁을 수 있다. 정상 지급 창을 오늘·어제로 한정해
+        // (오프라인 늦은 업로드·자정 경계 허용) 그보다 오래된 날짜의 대량 채굴을 차단한다. 세션 자체의
+        // 신뢰 검증(라이브 마커 대조 등)은 별도 후속 — #417 세션 위조방어와 정합.
+        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        if (statDate.isBefore(LocalDate.now(zone).minusDays(1))) {
+            return 0;
+        }
         int reward = CurrencyRewardPolicy.focusGoalReward(goalMinutes);
         if (reward > 0) {
             currencyLedgerService.credit(user, CurrencyTransactionType.FOCUS_GOAL, reward,

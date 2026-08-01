@@ -152,6 +152,13 @@ public class ScreenTimeService {
      * 지급하지 않는다(공식은 0 을 최상위 구간으로 처리하므로 미설정 유저 과지급을 막기 위한 가드).
      */
     private void creditScreenTimeGoal(User user, LocalDate date) {
+        // 위조 채굴 방어(코드리뷰) — 달성 판정은 클라 선언(achieved·isFinal·reportedAt)을 신뢰하므로,
+        // 과거 날짜마다 선언을 심어 지급을 긁을 수 있다. 정상 지급 창을 오늘·어제로 한정한다(스크린타임 최종
+        // 리포트는 익일 도착이라 어제까지 허용). 서버검증 측정 기반 완전 방어는 별도 후속.
+        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        if (date.isBefore(LocalDate.now(zone).minusDays(1))) {
+            return;
+        }
         int limitMinutes = userScreenTimeSettingsRepository.findById(user.getId())
                 .map(UserScreenTimeSettings::getDailyScreenTimeGoalMinutes)
                 .orElse(0);
