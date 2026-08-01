@@ -378,8 +378,34 @@
     if (document.visibilityState === 'hidden') onLeave();
   }
 
-  open.addEventListener('click', function () { tapSource = 'open'; });
+  // 이탈 감지를 건다. onTimeout 은 1.5s 안에 아무 일도 안 일어났을 때의 처리.
+  function arm(onTimeout) {
+    settled = false;
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onLeave);
+    timer = setTimeout(function () {
+      if (!settle()) return;
+      onTimeout();
+    }, 1500);
+  }
+
   store.addEventListener('click', function () { tapSource = 'store'; });
+
+  open.addEventListener('click', function () {
+    tapSource = 'open';
+    // 아직 감지 중이면 그대로 둔다 — 이미 걸린 주기가 결과를 판정한다.
+    if (!settled) return;
+    // 타임아웃이 이미 리스너를 떼어낸 뒤의 수동 탭이다. 이 상태로 두면 앱이 실제로 열려도
+    // 감지할 수단이 없어 appOpened 가 false 로 남고, 복귀(bfcache) 시 "미설치" 로 오판한다.
+    // 제스처 없는 자동 점프가 항상 막히는 브라우저에서는 이 경로가 사실상 기본이다.
+    // 같은 감지 주기를 다시 걸고, 아무 일도 없으면 원래 화면으로 되돌린다.
+    var prevState = body.dataset.state;
+    var prevStatus = status.textContent;
+    arm(function () {
+      body.dataset.state = prevState;
+      status.textContent = prevStatus;
+    });
+  });
 
   // 스토어에 다녀와 뒤로가기로 돌아오면(bfcache 복원) 앱은 결국 안 열린 것이다 — 폴백을 다시 세운다.
   // 단 앱이 실제로 열렸다가 돌아온 경우는 제외한다. 그때 "설치돼 있지 않은 것 같아요" 는 거짓이다.
@@ -392,22 +418,18 @@
   });
 
   function attempt() {
-    document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('pagehide', onLeave);
-
     body.dataset.state = 'opening';
     status.textContent = 'gromo 앱을 여는 중';
 
-    // 스킴 점프 1회. iOS 는 앱이 없으면 조용히 실패하고, 그 실패는 비동기라
-    // 여기서 잡히지 않는다 — 판정은 아래 타이머가 한다.
-    window.location.href = scheme;
-
     // 1.5s 안에 이탈이 없으면 미설치로 판정하고 스토어 CTA 를 승격한다.
-    timer = setTimeout(function () {
-      if (!settle()) return;
+    arm(function () {
       body.dataset.state = 'noapp';
       status.textContent = STORE_FALLBACK;
-    }, 1500);
+    });
+
+    // 스킴 점프 1회. iOS 는 앱이 없으면 조용히 실패하고, 그 실패는 비동기라
+    // 여기서 잡히지 않는다 — 판정은 위 타이머가 한다.
+    window.location.href = scheme;
   }
 
   if (document.visibilityState === 'visible') {
