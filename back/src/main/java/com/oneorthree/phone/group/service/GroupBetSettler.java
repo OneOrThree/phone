@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -150,7 +151,12 @@ public class GroupBetSettler {
             return;
         }
 
-        for (GroupBetPayoutCalculator.Payout payout : distribution.payouts()) {
+        // 지급은 userId 오름차순 — 여러 지갑을 만지는 경로(탈퇴 연동의 전원 환불 포함)끼리
+        // 지갑 잠금 순서를 맞춰 두기 위한 고정이다.
+        List<GroupBetPayoutCalculator.Payout> ordered = distribution.payouts().stream()
+                .sorted(Comparator.comparing(GroupBetPayoutCalculator.Payout::userId))
+                .toList();
+        for (GroupBetPayoutCalculator.Payout payout : ordered) {
             GroupChallengeBetParticipant participant = byUserId.get(payout.userId());
             participant.recordSettlement(payout.achieved(), payout.amount());
             if (payout.amount() <= 0) {

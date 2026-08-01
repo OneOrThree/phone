@@ -37,6 +37,8 @@ public enum GroupErrorCode {
     CHALLENGE_HAS_OPEN_BET(HttpStatus.CONFLICT, "진행 중인 내기가 있어 삭제할 수 없어요"),
     BET_CANCEL_FORBIDDEN(HttpStatus.FORBIDDEN, "내기는 개설자만 취소할 수 있어요"),
     BET_CANCEL_HAS_OTHERS(HttpStatus.CONFLICT, "다른 참가자가 있어 취소할 수 없어요"),
+    // BET_CLOSED(참가 마감 — 날짜 경과 포함)와 구분되는 취소 전용 코드: "내기가 OPEN 이 아니다"만
+    // 뜻한다(이중 취소·정산과의 CAS 레이스 패배). 앱 취소 버튼이 별도 문구로 분기한다.
     BET_NOT_OPEN(HttpStatus.CONFLICT, "이미 종료된 내기예요"),
 
     // 동시성 — 낙관락(@Version: Group 정원·UserWallet 잔액) 충돌의 전역 폴백(GlobalExceptionHandler).

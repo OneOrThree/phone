@@ -39,7 +39,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -199,8 +201,7 @@ public class GroupBetService {
         if (claimed == 0) {
             throw new GroupException(GroupErrorCode.BET_NOT_OPEN);
         }
-        currencyLedgerService.credit(user, CurrencyTransactionType.BET_REFUND, bet.getStake(),
-                GroupBetSettler.payoutKey(betId, userId, true));
+        refundStake(bet, user);
 
         log.info("내기 취소 — betId={}, challengeId={}, userId={}, stake={} 환불",
                 betId, bet.getChallenge().getId(), userId, bet.getStake());
@@ -226,26 +227,41 @@ public class GroupBetService {
     public void releaseFromOpenBets(User user, Group group) {
         List<UUID> betIds = groupChallengeBetRepository
                 .findOpenBetIdsByGroupIdAndParticipantUserId(group.getId(), user.getId());
+
+        // 1단계: 대상 내기 행을 id 오름차순으로 전부 잠근다 — 지갑 쓰기 없이 잠금만. 내기 하나를
+        // 정리(지갑 쓰기)한 채로 다음 내기 잠금을 기다리면, 그 내기를 이미 잠근 참가/정산이 이쪽이
+        // 쥔 지갑을 기다리는 AB-BA 데드락이 된다. 모든 경로의 잠금 순서를 "내기 행(전부) → 지갑"으로
+        // 고정하기 위해 잠금 확보를 먼저 끝낸다. 잠금 시점에 이미 종료된 내기는 정산 결과를 존중해
+        // 제외한다(대상 조회와 잠금 사이에 정산·취소가 먼저 끝난 판).
+        List<GroupChallengeBet> lockedOpenBets = new ArrayList<>();
         for (UUID betId : betIds) {
-            GroupChallengeBet bet = groupChallengeBetRepository.findByIdForUpdate(betId)
-                    .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
-            if (!bet.isOpen()) {
-                continue;   // 대상 조회와 잠금 사이에 정산·취소가 먼저 끝났다 — 이미 돈이 정리된 판이다.
-            }
+            groupChallengeBetRepository.findByIdForUpdate(betId)
+                    .filter(GroupChallengeBet::isOpen)
+                    .ifPresent(lockedOpenBets::add);
+        }
+
+        // 2단계: 잠금이 전부 확보된 뒤에만 돈을 움직인다(참가 해제·환불·자동 취소).
+        for (GroupChallengeBet bet : lockedOpenBets) {
             List<GroupChallengeBetParticipant> participants =
-                    groupChallengeBetParticipantRepository.findByBetIdIn(List.of(betId));
+                    groupChallengeBetParticipantRepository.findByBetIdIn(List.of(bet.getId()));
             if (bet.getCreatorUser().getId().equals(user.getId())) {
                 cancelAndRefundAll(bet, participants);
-                continue;
+            } else {
+                detachAndRefund(bet, participants, user);
             }
-            detachAndRefund(bet, participants, user);
         }
     }
 
-    /** 개설자 탈퇴 — 내기 전체를 취소하고 전원(개설자 포함) 환불한다. */
+    /**
+     * 개설자 탈퇴 — 내기 전체를 취소하고 전원(개설자 포함) 환불한다.
+     * 환불은 userId 오름차순 — 여러 지갑을 만지는 경로(정산 지급 포함)끼리 지갑 잠금 순서를
+     * 맞춰 두기 위한 고정이다.
+     */
     private void cancelAndRefundAll(GroupChallengeBet bet, List<GroupChallengeBetParticipant> participants) {
         claimCanceled(bet);
-        participants.forEach(p -> refundStake(bet, p.getUser()));
+        participants.stream()
+                .sorted(Comparator.comparing(p -> p.getUser().getId()))
+                .forEach(p -> refundStake(bet, p.getUser()));
         log.info("내기 자동 취소 — 개설자 그룹 탈퇴. betId={}, creatorId={}, 환불 {}명",
                 bet.getId(), bet.getCreatorUser().getId(), participants.size());
     }
@@ -281,6 +297,9 @@ public class GroupBetService {
         int claimed = groupChallengeBetRepository.compareAndSetSettled(
                 bet.getId(), GroupBetStatus.CANCELED, Instant.now());
         if (claimed == 0) {
+            // 이 롤백은 그룹 탈퇴 트랜잭션 전체를 되돌린다(탈퇴만 되고 판돈이 묶이는 반쪽 상태 방지).
+            // 잠금 규율이 지켜지는 한 도달 불가한 분기라, 도달했다면 잠금 코드가 깨진 것이다.
+            log.error("CANCELED 전이 실패 — 행 잠금 규율 위반 의심. betId={}, status 재확인 필요", bet.getId());
             throw new IllegalStateException("행 잠금 아래에서 CANCELED 전이 실패 — betId=" + bet.getId());
         }
     }
@@ -295,8 +314,12 @@ public class GroupBetService {
                     bet.getId(), user.getId(), bet.getStake());
             return;
         }
-        currencyLedgerService.credit(user, CurrencyTransactionType.BET_REFUND, bet.getStake(),
-                GroupBetSettler.payoutKey(bet.getId(), user.getId(), true));
+        boolean applied = currencyLedgerService.credit(user, CurrencyTransactionType.BET_REFUND,
+                bet.getStake(), GroupBetSettler.payoutKey(bet.getId(), user.getId(), true));
+        if (!applied) {
+            // CAS 로 전이를 유일하게 가져간 뒤의 호출이라 멱등키 선점은 정상 흐름에 없다 — 흔적을 남긴다.
+            log.warn("내기 환불 스킵 — 멱등키 선점됨(이례). betId={}, userId={}", bet.getId(), user.getId());
+        }
     }
 
     /** 참가 행 생성 + 판돈 차감(에스크로). 개설자 자동 참가와 일반 참가가 같은 경로를 탄다. */
