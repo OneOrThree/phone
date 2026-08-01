@@ -40,6 +40,23 @@ interface ScreenTimeSyncState {
 // 목표값이 아니라 측정 가능 최대치로 등록한다(네이티브가 900으로 클램프).
 export const USAGE_BUCKET_MAX_MINUTES = 900;
 
+// 네이티브 목표 쓰기 토큰 — '마지막 등록자만 쓴다'(GROMO-997 코드리뷰). 겹치는 쓰기 레이스가
+// 둘 있다: (1) 로그아웃·계정 전환 teardown의 setGoalSeconds(0) '뒤'에 in-flight sync가 완료돼
+// 이전 계정 목표·초과 알림 워커를 복원, (2) 목표 변경(PendingGoalApplier)으로 새 sync가
+// 시작됐는데 늦게 끝난 구 sync가 새 목표를 옛값으로 덮음. 두 경우 모두 '나중에 시작한 쪽이
+// 최신'이므로 카운터 하나로 처리한다 — sync는 진입 시 카운터를 올려 자기 토큰을 등록하고,
+// 네이티브 목표 쓰기 직전에 자기 토큰이 여전히 최신일 때만 쓴다. teardown은 카운터만 올려
+// (자기 등록 없이) 진행 중인 모든 sync의 쓰기를 무효화한 뒤 0을 쓴다. 스킵된 최신 목표는
+// 다음 sync(새 토큰)가 다시 전달하므로 잃는 것이 없다.
+let nativeGoalWriteToken = 0;
+
+// 계정 teardown(로그아웃·계정 전환)이 setGoalSeconds(0)을 쓰기 '직전'에 호출 — 카운터만 올려
+// 진행 중인 sync의 네이티브 목표 쓰기를 전부 무효화한다. 반드시 0 쓰기 '전'이어야 한다:
+// 뒤에 올리면 구 토큰 sync가 그 사이에 0을 덮어쓰는 창이 남는다.
+export function invalidateNativeGoalWrites(): void {
+  nativeGoalWriteToken += 1;
+}
+
 // 버킷 눈금(분) — 실제 눈금은 네이티브(ScreenTimeModule.swift의 step)가 정하므로 반드시 함께
 // 바꾼다. 여기 값은 아래 등록 시그니처용 — 바뀌면 기존 설치가 새 눈금으로 1회 재등록된다(GROMO-931).
 const USAGE_BUCKET_STEP_MINUTES = 15;
@@ -175,6 +192,9 @@ export async function syncScreenTimeUsage(
   goalSeconds: number,
 ): Promise<void> {
   if (!userId) return; // 게스트 — 서버 통계 대상 아님
+  // 자기 토큰 등록(첫 await 전 동기 실행 — 시작 순서 = 등록 순서) — 이후 새 sync나 teardown이
+  // 카운터를 올리면 이 호출의 네이티브 목표 쓰기는 stale로 스킵된다(마지막 등록자만 쓴다).
+  const myGoalWriteToken = ++nativeGoalWriteToken;
   if ((await ScreenTimeModule.getAuthorizationStatus()) !== 'approved') return;
 
   // gromo.daily 폐지 마이그레이션(GROMO-942) — 기존 설치에 남아있는 목표 판정 모니터를 1회 중지한다.
@@ -235,6 +255,21 @@ export async function syncScreenTimeUsage(
     );
   } catch {
     // 기록 실패는 동기화와 무관 — 계속 진행
+  }
+  // 네이티브에도 오늘 유효 목표를 전달(GROMO-997) — 안드로이드는 날짜별 스냅샷으로 남겨
+  // 목표 초과 알림(WorkManager 주기 체크)·어제 판정(getYesterdayResult)이 '그날 목표'
+  // 기준으로 동작한다(매 sync 호출이라 앱을 하루 한 번만 열어도 그날 스냅샷이 남는 것도
+  // 위 effectiveGoal과 같은 이유). iOS는 기존 App Group 기록의 동일값 재기록이라 무해.
+  // 위 AsyncStorage 블록과 분리한 독립 가드(코드리뷰 반영) — 저장된 JSON이 깨져 위 catch로
+  // 빠져도 네이티브 목표·워커 갱신은 매 sync 시도돼 스냅샷이 낡은 채 남지 않는다.
+  // 토큰 확인(코드리뷰 반영) — 이 sync가 진행되는 동안 teardown이 0을 썼거나(로그아웃·계정
+  // 전환) 더 새 sync가 등록됐다면(목표 변경) 여기서 쓰는 건 최신 목표를 덮는 stale 쓰기다.
+  try {
+    if (myGoalWriteToken === nativeGoalWriteToken) {
+      await ScreenTimeModule.setGoalSeconds(goalSeconds);
+    }
+  } catch {
+    // 전달 실패는 동기화와 무관 — 다음 sync에서 재시도
   }
 
   // 측정 시작일 기록(GROMO-942 코드리뷰 P1) — 이 계정으로 측정이 활성인 첫 시점을 남겨, 어제분

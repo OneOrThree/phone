@@ -9,15 +9,22 @@
 //    아니라 RN 화면(AndroidAppPickerHost)이라, presentAppPicker 계열은 androidAppPicker 브릿지로
 //    호스트 모달을 띄우고 선택 결과로 resolve한다 — 호출부 계약은 iOS와 동일.
 //    M3(GROMO-996) — 집중 실드(포그라운드 서비스 폴링 차단)·잠금화면 타이머(chronometer 알림)·
-//    캐릭터 스냅샷·브라우저 허용 토글 라우팅. 어제 결과 판정 등은 M4에서 확장.
+//    캐릭터 스냅샷·브라우저 허용 토글 라우팅.
+//    M4(GROMO-997) — 어제 결과 계산(getYesterdayResult)·목표 초과 알림(setGoalSeconds가
+//    날짜 스냅샷 저장 + WorkManager 주기 등록)·배터리 최적화 예외 플로우 라우팅.
 
 import { Alert, NativeModules, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { requireOptionalNativeModule } from 'expo';
 import { presentAndroidAppPicker } from '@/services/androidAppPicker';
+import { getMyProfile } from '@/services/userApi';
 import { STORAGE_KEYS } from '@/types/storage';
+import type { NotificationSettingsRequest } from '@/types/dto/user';
 
 export type AuthorizationStatus = 'approved' | 'denied' | 'notDetermined';
+
+// 어제 목표 달성 결과 — null은 판정 불가(결과 없음).
+export type YesterdayResult = 'success' | 'fail' | null;
 
 // 기기(시스템) 다크모드 설정 — 권한창 복제본 외형 분기용(GROMO-934)
 export type SystemColorScheme = 'light' | 'dark';
@@ -80,15 +87,18 @@ export interface AndroidInstalledApp {
   iconUri: string;
 }
 
-// 안드로이드 Expo 모듈 인터페이스(GROMO-994·995·996) — M1~M3 범위 함수만 네이티브 구현이 있다.
+// 안드로이드 Expo 모듈 인터페이스(GROMO-994·995·996·997) — M1~M4 범위 함수만 네이티브 구현이 있다.
 // startUsageBucketMonitoring은 예약 개념이 없어 네이티브 없이 TS에서 no-op true(§4 매핑).
-// M2·M3 함수들은 옵셔널 — OTA로 새 JS만 받은 구 바이너리엔 없으므로 호출 전 존재를 확인한다.
+// M2 이후 함수들은 옵셔널 — OTA로 새 JS만 받은 구 바이너리엔 없으므로 호출 전 존재를 확인한다.
 interface AndroidNativeScreenTime {
   requestAuthorization(): Promise<boolean>;
   getAuthorizationStatus(): Promise<AuthorizationStatus>;
   setGoalSeconds(seconds: number): Promise<void>;
   getTodayUsageBucketMinutes(): Promise<number>;
   getYesterdayUsageBucketMinutes(): Promise<number>;
+  getYesterdayResult?(): Promise<string | null>;
+  isIgnoringBatteryOptimizations?(): Promise<boolean>;
+  requestIgnoreBatteryOptimizations?(): Promise<boolean>;
   getInstalledApps?(): Promise<AndroidInstalledApp[]>;
   getSelectionPackages?(): Promise<string[] | null>;
   setPendingSelection?(packages: string[]): Promise<void>;
@@ -107,6 +117,13 @@ interface AndroidNativeScreenTime {
   pauseFocusActivity?(): Promise<void>;
   resumeFocusActivity?(): Promise<void>;
   syncFocusTimerState?(elapsedSeconds: number, paused: boolean): Promise<void>;
+  setNotificationPreferences?(
+    enabled: boolean,
+    soundEnabled: boolean,
+    quietEnabled: boolean,
+    quietStart: string,
+    quietEnd: string,
+  ): Promise<void>;
   // Expo 모듈 기본 이벤트 구독(onFocusShieldLost — 세션 중 실드 상실 통지, 코드리뷰 반영)
   addListener?(eventName: 'onFocusShieldLost', listener: () => void): { remove: () => void };
 }
@@ -144,6 +161,12 @@ export const nativeSupportsPendingApplyDate = (): boolean =>
 // 존재로 판별. OTA로 새 JS만 받은 M1 바이너리는 피커를 띄울 수 없어 기존 기본값으로 폴백한다.
 const androidSupportsAppPicker = (): boolean =>
   typeof AndroidScreenTime?.getInstalledApps === 'function';
+
+// 안드로이드 바이너리가 M4(GROMO-997) 빌드인지 — 같은 빌드에 추가된
+// isIgnoringBatteryOptimizations 존재로 판별. OTA로 새 JS만 받은 구 바이너리에선 설정의
+// 배터리 최적화 행을 숨긴다(눌러도 아무 일도 없는 행을 노출하지 않기 위함).
+export const androidSupportsBatteryException = (): boolean =>
+  typeof AndroidScreenTime?.isIgnoringBatteryOptimizations === 'function';
 
 // 안드로이드 피커 호스트(AndroidAppPickerHost) 전용 내부 API — 화면 코드는 쓰지 말 것.
 // 저장 계약(iOS와 1:1): 측정 대상은 pending 저장(승격은 호출부의 promoteSelection),
@@ -250,8 +273,8 @@ const ScreenTimeModule = {
     return NativeScreenTimeModule.getSystemColorScheme();
   },
 
-  // 목표 시간 저장 — iOS는 App Group(익스텐션 "남은 시간" 계산용), 안드로이드는 모듈 로컬
-  // 저장만(판정 계산은 M4).
+  // 목표 시간 저장 — iOS는 App Group(익스텐션 "남은 시간" 계산용), 안드로이드(GROMO-997)는
+  // 현재값 + 오늘 날짜 스냅샷 저장('그날 목표' 판정용) + 목표 초과 체크 주기(WorkManager) 등록.
   setGoalSeconds: async (seconds: number): Promise<void> => {
     if (AndroidScreenTime) return AndroidScreenTime.setGoalSeconds(seconds);
     if (Platform.OS !== 'ios') return;
@@ -292,6 +315,19 @@ const ScreenTimeModule = {
     if (AndroidScreenTime) return AndroidScreenTime.getYesterdayUsageBucketMinutes();
     if (Platform.OS !== 'ios') return 0;
     return NativeScreenTimeModule.getYesterdayUsageBucketMinutes();
+  },
+
+  // 어제 목표 달성 결과 — 'success' | 'fail' | null(판정 불가). iOS 네이티브 판정은 달성을
+  // 앱이 버킷 사용시간으로 판정하는 GROMO-942 일원화로 폐지돼 항상 null이고, 어제 마감·축하
+  // 흐름(screentimeSync)도 이 함수 없이 동작한다(휴면 계약). 안드로이드(GROMO-997)는 과거
+  // 조회가 되므로 '어제 사용시간 vs 그날 목표 스냅샷'을 네이티브가 계산해 계약을 채워 둔다 —
+  // 초과 판정선은 목표+60초 관용(정확히 목표에서 멈춘 유저 보호, iOS 구 threshold 규칙 동일).
+  getYesterdayResult: async (): Promise<YesterdayResult> => {
+    if (Platform.OS === 'android') {
+      const result = (await AndroidScreenTime?.getYesterdayResult?.()) ?? null;
+      return result === 'success' || result === 'fail' ? result : null;
+    }
+    return null;
   },
 
   // 사용량 버킷 측정 상태 디버그 조회(개발용) — App Group 기록 원본. iOS 외에는 null.
@@ -425,7 +461,8 @@ const ScreenTimeModule = {
   // 집중 Live Activity(다이나믹 아일랜드/잠금화면) 시작. 실패해도 세션엔 영향 없음.
   // otherSubjects: 현재 과목 외 과목들의 누적 집중 시간 — 잠금화면에 정적 표시.
   // 안드로이드(GROMO-996): 실드와 같은 포그라운드 서비스의 ongoing 알림 + chronometer로
-  // 상단바·잠금화면 실시간 타이머(§6). otherSubjects는 표준 알림에 자리가 없어 미표시(M4).
+  // 상단바·잠금화면 실시간 타이머(§6). otherSubjects는 확장 알림의 커스텀 레이아웃에 최대
+  // 2개(iOS Live Activity와 동일 상한) 표시한다(GROMO-997).
   startFocusActivity: async (
     subjectName: string,
     otherSubjects: { name: string; seconds: number; color: string }[] = [],
@@ -516,6 +553,113 @@ const ScreenTimeModule = {
     }
     return Platform.OS === 'ios';
   },
+
+  // ── 배터리 최적화 예외(안드로이드 전용, GROMO-997) ──
+  // 제조사 절전·Doze가 백그라운드 측정(목표 초과 체크)·집중 FGS를 죽이는 걸 완화하는 안내용.
+  // 개별 앱 요청 다이얼로그 권한(REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)은 Play 민감 권한이라
+  // 쓰지 않고 최적화 설정 목록으로만 딥링크한다 — 유저가 목록에서 gromo를 찾아 바꾸는 UX.
+  // iOS에는 대응 개념이 없어 항상 true(문제 없음) — 호출부가 플랫폼 분기 없이 쓰게 한다.
+
+  // 배터리 최적화 예외 여부. 구 바이너리(M4 함수 없음)는 false(안내 유지)로 폴백.
+  isIgnoringBatteryOptimizations: async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (await AndroidScreenTime?.isIgnoringBatteryOptimizations?.()) ?? false;
+    }
+    return Platform.OS === 'ios';
+  },
+
+  // 배터리 최적화 설정 딥링크 — 설정 왕복 후 예외 여부로 resolve.
+  requestIgnoreBatteryOptimizations: async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (await AndroidScreenTime?.requestIgnoreBatteryOptimizations?.()) ?? false;
+    }
+    return Platform.OS === 'ios';
+  },
+
+  // ── 인앱 알림 설정 미러(안드로이드 전용, GROMO-997 코드리뷰) ──
+  // 목표 초과 워커(GoalExceededCheckWorker)가 OS 권한·채널뿐 아니라 인앱 '알림 받기'·'소리'·
+  // '심야 방해 금지'까지 존중하게, JS가 값을 네이티브 prefs로 복제한다. iOS엔 대응 워커가 없고
+  // 구 바이너리(M4 함수 없음)는 no-op — 둘 다 무해(항상 no-op이라 반환은 void).
+  setNotificationPreferences: async (prefs: NotificationSettingsRequest): Promise<void> => {
+    if (Platform.OS !== 'android') return;
+    await AndroidScreenTime?.setNotificationPreferences?.(
+      prefs.notificationEnabled,
+      prefs.soundEnabled,
+      prefs.nightModeEnabled,
+      prefs.nightStartTime ?? '22:00',
+      prefs.nightEndTime ?? '08:00',
+    );
+  },
 };
+
+// 계정 teardown·프로필 부재 시 쓰는 안전한 기본 — 알림 off로 두어, 새 계정의 실제 값이
+// 프로필에서 미러될 때까지 이전 계정의 미러값이 남지 않게 한다(옵트아웃 안전 우선).
+const NOTIF_PREFS_OFF: NotificationSettingsRequest = {
+  notificationEnabled: false,
+  soundEnabled: false,
+  nightModeEnabled: false,
+  nightStartTime: '22:00',
+  nightEndTime: '08:00',
+};
+
+// 인앱 알림 설정을 네이티브로 미러(GROMO-997 코드리뷰) — 앱 시작·포그라운드 복귀·계정 전환
+// (ScreenTimeSyncer 리마운트) 시 호출한다. NotificationSettingsScreen이 서버 조회·설정 변경분을
+// 이 캐시(STORAGE_KEYS.notificationSettings)에 써두므로, 유저가 설정 화면을 다시 열지 않아도
+// 목표 초과 워커가 최신 인앱 설정을 존중한다.
+//
+// 캐시가 없을 때(새 설치·계정 전환 직후)가 핵심 — 예전엔 조기 리턴해 네이티브 기본값(알림 on)
+// 이나 이전 계정의 미러값이 그대로 남아, 서버에서 알림을 끈 유저가 목표 알림을 받을 수 있었다
+// (코드리뷰 P1). 이제 캐시가 없으면 서버 프로필을 읽어 실제 값으로 미러하고, 그 값을 캐시에도
+// 채워 다음 미러가 재조회 없이 쓰게 한다. 프로필 조회에 실패하면 알림 off로 리셋해 이전 계정
+// 미러값이 남지 않게 한다. iOS·구 바이너리(M4 함수 없음)는 no-op이라 무해하다.
+export async function mirrorNotificationPreferencesToNative(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  let cached: Partial<NotificationSettingsRequest> | null = null;
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.notificationSettings);
+    if (raw) cached = JSON.parse(raw) as Partial<NotificationSettingsRequest>;
+  } catch {
+    // 캐시 읽기·파싱 실패 → 아래 서버 프로필 폴백으로
+  }
+  if (cached) {
+    await ScreenTimeModule.setNotificationPreferences({
+      notificationEnabled: cached.notificationEnabled ?? true,
+      soundEnabled: cached.soundEnabled ?? true,
+      nightModeEnabled: cached.nightModeEnabled ?? false,
+      nightStartTime: cached.nightStartTime ?? '22:00',
+      nightEndTime: cached.nightEndTime ?? '08:00',
+    }).catch(() => {});
+    return;
+  }
+  // 캐시가 없거나 깨졌으면 서버 프로필을 읽어 미러한다.
+  try {
+    const p = await getMyProfile();
+    const body: NotificationSettingsRequest = {
+      notificationEnabled: p.notificationEnabled ?? true,
+      soundEnabled: p.soundEnabled ?? true,
+      nightModeEnabled: p.nightModeEnabled ?? false,
+      nightStartTime: p.nightStartTime ?? '22:00',
+      nightEndTime: p.nightEndTime ?? '08:00',
+    };
+    // 다음 미러·설정 화면이 재조회 없이 쓰도록 캐시에도 반영.
+    await AsyncStorage.setItem(STORAGE_KEYS.notificationSettings, JSON.stringify(body)).catch(
+      () => {},
+    );
+    await ScreenTimeModule.setNotificationPreferences(body);
+  } catch {
+    // 프로필 조회 실패 → 알림 off로 리셋(이전 계정 미러값이 남지 않게). 다음 미러가 재시도.
+    await ScreenTimeModule.setNotificationPreferences(NOTIF_PREFS_OFF).catch(() => {});
+  }
+}
+
+// 계정 teardown(로그아웃·계정 전환) 시 네이티브 알림 설정을 안전한 기본(알림 off)으로 리셋
+// (GROMO-997 코드리뷰) — teardown이 notificationSettings 캐시를 지워도 네이티브 미러엔 이전
+// 계정 값이 남아, 새 계정이 목표를 걸면 워커가 이전 계정 설정으로 판단할 수 있다. off로 리셋해
+// 두면 새 계정의 실제 값이 다음 미러(프로필 조회)에서 채워질 때까지 옵트아웃이 유지된다.
+// iOS·구 바이너리는 no-op.
+export async function resetNativeNotificationPreferences(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  await ScreenTimeModule.setNotificationPreferences(NOTIF_PREFS_OFF).catch(() => {});
+}
 
 export default ScreenTimeModule;
