@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { cubicBezier } from 'react-native-reanimated';
 import { T } from '@/constants/theme';
+import { PressableScale } from '@/components/PressableScale';
 import { STORAGE_KEYS } from '@/types/storage';
 import { getFocusPeriodStats, getStreak, getHeatmap, getTodayStats } from '@/services/statsApi';
 import type {
@@ -269,6 +270,9 @@ export default function FocusResultScreen() {
   const [todayPop, setTodayPop] = useState(false);
   // 주간 완성 추가 연출 — 축하 모달(종이폭죽은 모달 오버레이 안에서 동시에). ✓ 팝은 todayPop 담당.
   const [weekModalVisible, setWeekModalVisible] = useState(false);
+  // 하단 CTA로 화면을 떠나는 중 — fade 전환 동안 두 버튼을 비활성화해 두 번째 탭이
+  // 동작 없이 피드백만 내는 것을 막는다(아래 footer 주석 참고).
+  const [leaving, setLeaving] = useState(false);
   const celebrationStarted = useRef(false);
 
   // 별점 요청(GROMO-980) — 집중 세션 '정상 완료'(긍정적 순간)에 조건 충족 시 1회 노출.
@@ -576,29 +580,37 @@ export default function FocusResultScreen() {
 
       {/* 하단 CTA — 홈으로 / 다시 집중.
           fade 전환 중 더블 탭이 들어오면 스택이 이미 비워져 POP_TO_TOP 미처리 경고가 나서
-          canGoBack 가드로 두 번째 탭을 무시한다 */}
+          canGoBack 가드로 두 번째 탭을 무시한다. 가드만 두면 두 번째 탭이 아무 동작도 없이
+          스케일·사운드·햅틱만 내므로(탭바의 '선택된 탭은 무반응' 규칙과 어긋남),
+          첫 내비게이션 직후 두 버튼을 disabled로 내려 피드백까지 함께 막는다. */}
       <View style={s.footer}>
-        <TouchableOpacity
+        <PressableScale
           testID="focus.result.home"
           style={s.homeBtn}
-          activeOpacity={0.85}
+          haptic="light"
+          disabled={leaving}
           onPress={() => {
-            if (navigation.canGoBack()) navigation.popToTop();
+            if (!navigation.canGoBack()) return;
+            setLeaving(true);
+            navigation.popToTop();
           }}
         >
           <Text style={s.homeText}>홈으로</Text>
-        </TouchableOpacity>
+        </PressableScale>
         {/* 스택: Main → FocusCategory → FocusResult(세션을 replace) — 새 화면을 쌓지 않고
             아래 깔린 기존 과목 선택으로 goBack(중복 스택 방지, 리뷰 반영) */}
-        <TouchableOpacity
+        <PressableScale
           style={s.againBtn}
-          activeOpacity={0.85}
+          haptic="light"
+          disabled={leaving}
           onPress={() => {
-            if (navigation.canGoBack()) navigation.goBack();
+            if (!navigation.canGoBack()) return;
+            setLeaving(true);
+            navigation.goBack();
           }}
         >
           <Text style={s.againText}>다시 집중</Text>
-        </TouchableOpacity>
+        </PressableScale>
       </View>
 
       {/* 주간 스트릭 완성 연출(GROMO-667) — ✓ 팝 뒤 축하 모달(종이폭죽은 모달 안에서 동시에) */}
@@ -693,22 +705,28 @@ function CompareCard({
       <View style={s.rowBetween}>
         <Text style={s.cardTitle}>{when} 비교</Text>
         <View style={s.periodRow}>
+          {/* 세그먼트 칩은 탭바와 같은 정책 — 이미 선택된 칩은 재탭해도 아무 일이 없으므로
+              스케일·사운드를 전부 끈다. 작은 칩이라 스케일은 0.94로 준다. */}
           {COMPARE_PERIODS.map(({ key, label }) => {
             const on = period === key;
             return (
-              <TouchableOpacity
+              <PressableScale
                 key={key}
                 style={[s.axisChip, on ? s.axisChipOn : null]}
+                scaleTo={on ? 1 : 0.94}
+                sound={!on}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={label}
                 onPress={() => {
                   // 같은 탭 재탭은 미계측
                   if (key !== period)
                     logFocusResultComparePeriodChanged({ period: PERIOD_PARAM[key] });
                   onPeriodChange(key);
                 }}
-                activeOpacity={0.8}
               >
                 <Text style={[s.axisChipText, on ? s.axisChipTextOn : null]}>{label}</Text>
-              </TouchableOpacity>
+              </PressableScale>
             );
           })}
         </View>
@@ -718,18 +736,22 @@ function CompareCard({
         {(['friends', 'all', 'category'] as CompareAxis[]).map((a) => {
           const on = axis === a;
           return (
-            <TouchableOpacity
+            <PressableScale
               key={a}
               style={[s.axisChip, on ? s.axisChipOn : null]}
+              scaleTo={on ? 1 : 0.94}
+              sound={!on}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={meta[a].chip}
               onPress={() => {
                 // 같은 칩 재탭은 미계측
                 if (a !== axis) logFocusResultCompareAxisChanged({ axis: a });
                 setAxis(a);
               }}
-              activeOpacity={0.8}
             >
               <Text style={[s.axisChipText, on ? s.axisChipTextOn : null]}>{meta[a].chip}</Text>
-            </TouchableOpacity>
+            </PressableScale>
           );
         })}
         {avg != null ? (

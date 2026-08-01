@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
+import { playTapSound } from '@/utils/sound';
 import { hmsCompact } from '../format';
 import type { Subject } from '../types';
 import { glassSlide, glassPill } from '@/components/liquidGlass';
@@ -220,6 +221,11 @@ export function DraggableSubjectRows({
                 testID={`focus.subject.item.${i}`}
                 style={[s.row, selected && s.rowSelected, isDrag && s.rowActive]}
                 activeOpacity={0.85}
+                // 행 계열은 스케일 없이 사운드만 — transform은 드래그 PanResponder의 좌표
+                // 계산과 간섭하고, 같은 터치 영역이 롱프레스 메뉴·순서 드래그도 받으므로
+                // 햅틱을 주면 '주요 CTA' 신호가 잘못 나간다(집중 시작 햅틱은 방식 선택 시트의
+                // 시작 버튼에만). 발화 시점은 PressableScale과 맞춰 press-in.
+                onPressIn={playTapSound}
                 onPress={() => onPressRow(sub)}
                 // 행 길게 누르기 — ⋮ 위치를 앵커로 이름편집/삭제 팝오버
                 onLongPress={() =>
@@ -246,11 +252,16 @@ export function DraggableSubjectRows({
                   <TouchableOpacity
                     hitSlop={6}
                     activeOpacity={0.7}
+                    // 중첩 터처블이라 부모 행의 onPressIn이 오지 않는다 — 실제 동작이 있는
+                    // 버튼이므로 여기서 직접 사운드를 낸다(행 계열이라 스케일·햅틱은 없음)
+                    onPressIn={playTapSound}
                     onPress={() =>
                       chipRefs.current[sub.id]?.measureInWindow((x, y, w, h) =>
                         onOpenColor(sub.id, { x, y, w, h }),
                       )
                     }
+                    accessibilityRole="button"
+                    accessibilityLabel={`${sub.name} 대표색 변경`}
                     style={[s.colorChip, { backgroundColor: sub.color }]}
                   />
                 </View>
@@ -266,11 +277,16 @@ export function DraggableSubjectRows({
                   <TouchableOpacity
                     hitSlop={8}
                     activeOpacity={0.6}
+                    // 같은 이유로 사운드만 — 이 영역은 PanResponder(순서 드래그)도 받으므로
+                    // transform(스케일)을 얹으면 드래그 좌표 계산과 간섭한다
+                    onPressIn={playTapSound}
                     onPress={() =>
                       dotRefs.current[sub.id]?.measureInWindow((x, y, w, h) =>
                         onOpenMenu(sub.id, { x, y, w, h }),
                       )
                     }
+                    accessibilityRole="button"
+                    accessibilityLabel={`${sub.name} 메뉴`}
                   >
                     <Ionicons name="ellipsis-vertical" size={16} color={T.inkMuted} />
                   </TouchableOpacity>

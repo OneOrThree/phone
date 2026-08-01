@@ -29,10 +29,12 @@ import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { PressableScale } from '@/components/PressableScale';
 import { fabWindowRect } from '@/components/TabBar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { todayStr } from '@/utils/localDate';
+import { playTapSound } from '@/utils/sound';
 import { getTodayStats, getStreak } from '@/services/statsApi';
 import { hasUnread, subscribeInbox } from '@/services/notificationInbox';
 import {
@@ -189,10 +191,13 @@ function PhoneUsageRow({
         )}
       </View>
       {/* 투명 터치 레이어 — 네이티브 뷰 위에서도 탭 감지 → 앱별 상세 오버레이.
-          권한 미허용 시엔 행 전체가 권한 요청 탭 타깃이 된다. */}
+          권한 미허용 시엔 행 전체가 권한 요청 탭 타깃이 된다.
+          행 계열 규칙대로 스케일 없이 사운드만: transform을 걸면 네이티브 리포트 뷰가
+          같이 찌그러지지만, 그건 스케일만 빼야 할 이유지 소리까지 뺄 이유는 아니다. */}
       <TouchableOpacity
         style={StyleSheet.absoluteFill}
         activeOpacity={0.6}
+        onPressIn={playTapSound}
         onPress={needsPermission ? onEnablePermission : onPress}
         accessibilityLabel={needsPermission ? '스크린타임 권한 켜기' : '핸드폰 앱별 사용시간 보기'}
       />
@@ -470,17 +475,17 @@ export default function HomeScreen() {
                 </View>
               </View>
             </View>
-            <TouchableOpacity
+            <PressableScale
               style={s.settingsBtn}
+              scaleTo={0.92}
               onPress={() => {
                 logHomeButtonTapped({ button: 'notification_bell', destination: 'Notifications' });
                 navigation.navigate('Notifications');
               }}
-              activeOpacity={0.8}
             >
               <Ionicons name="notifications-outline" size={19} color={T.ink} />
               {hasNotifications && <View style={s.notifDot} />}
-            </TouchableOpacity>
+            </PressableScale>
           </View>
 
           {/* ── 방 + 캐릭터 ── */}
@@ -507,10 +512,10 @@ export default function HomeScreen() {
                   <Text style={s.streakChipText}>연속 공부 {streakDays}일</Text>
                 </View>
               )}
-              <TouchableOpacity
+              <PressableScale
                 testID="home.today.detail"
                 style={s.moreBtn}
-                activeOpacity={0.7}
+                scaleTo={0.94}
                 onPress={() => {
                   logHomeButtonTapped({ button: 'today_summary_detail', destination: 'Stats' });
                   navigation.navigate('Stats');
@@ -518,7 +523,7 @@ export default function HomeScreen() {
               >
                 <Text style={s.more}>자세히</Text>
                 <Ionicons name="chevron-forward" size={11} color={T.accent} />
-              </TouchableOpacity>
+              </PressableScale>
             </View>
           </View>
 

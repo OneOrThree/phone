@@ -61,7 +61,7 @@ export default {
     ],
     slug: 'gromo-kr',
     scheme: 'gromo',
-    version: '1.0.0',
+    version: '1.0.1',
     orientation: 'portrait',
     userInterfaceStyle: 'light',
     newArchEnabled: true,
@@ -94,6 +94,10 @@ export default {
         foregroundImage: './src/assets/adaptive-icon.png',
         backgroundColor: '#9288CB',
       },
+      // Play 는 같은 versionCode 재업로드를 거부한다 — 네이티브 버전(expo-audio 포함)을 새로
+      // 올리려면 versionName 과 함께 반드시 올릴 것. iOS 는 fastlane 이 빌드번호를 자동 증가시키지만
+      // Android 는 자동화가 없어 이 값이 유일한 출처다(android/app/build.gradle 과 동기 유지).
+      versionCode: 2,
     },
     web: {
       bundler: 'metro',
