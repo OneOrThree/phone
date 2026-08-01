@@ -74,7 +74,8 @@ public class GroupChallengeService {
                 .map(UserScreenTimeSettings::isScreenTimePermissionGranted)
                 .orElse(false);
 
-        List<GroupChallenge> challenges = groupChallengeRepository.findByGroupOrderByCreatedAtDesc(group);
+        List<GroupChallenge> challenges =
+                groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group);
         if (challenges.isEmpty()) {
             return List.of();
         }
@@ -143,7 +144,7 @@ public class GroupChallengeService {
         }
 
         if (request.getMissionType() == MissionType.DURATION) {
-            if (groupChallengeRepository.existsByGroupAndCategoryAndTypeAndStatus(
+            if (groupChallengeRepository.existsByGroupAndCategoryAndTypeAndStatusAndDeletedAtIsNull(
                     group, request.getMissionCategory(), MissionType.DURATION, GroupChallengeStatus.ACTIVE)) {
                 throw new GroupException(GroupErrorCode.ACTIVE_CHALLENGE_EXISTS);
             }
@@ -219,10 +220,12 @@ public class GroupChallengeService {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
 
-        GroupChallenge groupChallenge = groupChallengeRepository.findByIdAndGroup(challengeId, group)
+        // 이미 삭제된 챌린지는 조회 단계에서 걸러져 NOT_FOUND — 중복 DELETE 가 404 로 떨어진다.
+        GroupChallenge groupChallenge = groupChallengeRepository
+                .findByIdAndGroupAndDeletedAtIsNull(challengeId, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
-        groupChallengeRepository.delete(groupChallenge);
+        groupChallenge.softDelete();
     }
 
     // TIME_WINDOW 상세의 Instant를 UTC 기준 "HH:mm:ss" 문자열로 변환 (time_zone 컬럼 제거에 따라 UTC 고정).

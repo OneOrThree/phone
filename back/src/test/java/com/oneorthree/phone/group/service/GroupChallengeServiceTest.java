@@ -129,7 +129,7 @@ class GroupChallengeServiceTest {
                 .category(MissionCategory.SCREEN_TIME)
                 .status(GroupChallengeStatus.ACTIVE)
                 .build();
-        given(groupChallengeRepository.findByGroupOrderByCreatedAtDesc(group))
+        given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
                 .willReturn(List.of(focus, screenTime));
 
         // CTI 상세는 challengeId IN 배치 로드로 조회된다
@@ -431,7 +431,7 @@ class GroupChallengeServiceTest {
         given(request.getMissionType()).willReturn(MissionType.DURATION);
         given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
         given(request.getDurationMinutes()).willReturn(30);
-        given(groupChallengeRepository.existsByGroupAndCategoryAndTypeAndStatus(
+        given(groupChallengeRepository.existsByGroupAndCategoryAndTypeAndStatusAndDeletedAtIsNull(
                 group, MissionCategory.FOCUS, MissionType.DURATION, GroupChallengeStatus.ACTIVE))
                 .willReturn(true);
 
@@ -479,7 +479,7 @@ class GroupChallengeServiceTest {
     // ── deleteChallenge ───────────────────────────────────────────────────
 
     @Test
-    @DisplayName("챌린지 삭제 성공 → delete 호출")
+    @DisplayName("챌린지 삭제 성공 → 하드 딜리트가 아니라 deletedAt 마킹")
     void deleteChallengeSuccess() {
         // given: OWNER + 해당 그룹의 챌린지 존재
         User user = member();
@@ -489,14 +489,45 @@ class GroupChallengeServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
         GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group).build();
-        given(groupChallengeRepository.findByIdAndGroup(CHALLENGE_ID, group))
+        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(CHALLENGE_ID, group))
                 .willReturn(Optional.of(challenge));
 
         // when
         groupChallengeService.deleteChallenge(GROUP_ID, CHALLENGE_ID, USER_ID);
 
-        // then
-        verify(groupChallengeRepository).delete(challenge);
+        // then: 행은 남고 deleted_at 만 채워진다 (CTI 상세 FK 보호 + 이력 보존)
+        assertThat(challenge.getDeletedAt()).isNotNull();
+        verify(groupChallengeRepository, never()).delete(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("삭제 후 재생성 → 중복 검사가 삭제분을 제외하므로 같은 카테고리로 다시 만들 수 있다")
+    void recreateAfterSoftDeleteIsAllowed() {
+        // given: 방금 삭제한 것과 같은 FOCUS/DURATION 챌린지를 다시 생성.
+        // 중복 검사는 deletedAt IS NULL 조건이 붙은 exists 라 삭제분이 잡히지 않는다(스텁 기본값 false).
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getMissionType()).willReturn(MissionType.DURATION);
+        given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
+        given(request.getDurationMinutes()).willReturn(30);
+        GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .type(MissionType.DURATION).category(MissionCategory.FOCUS)
+                .status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.save(any(GroupChallenge.class))).willReturn(saved);
+
+        // when
+        CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        // then: ACTIVE_CHALLENGE_EXISTS 없이 새 챌린지가 저장된다
+        assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
+        verify(groupChallengeRepository).existsByGroupAndCategoryAndTypeAndStatusAndDeletedAtIsNull(
+                group, MissionCategory.FOCUS, MissionType.DURATION, GroupChallengeStatus.ACTIVE);
     }
 
     @Test
@@ -527,7 +558,8 @@ class GroupChallengeServiceTest {
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
-        given(groupChallengeRepository.findByIdAndGroup(CHALLENGE_ID, group)).willReturn(Optional.empty());
+        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(CHALLENGE_ID, group))
+                .willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.deleteChallenge(GROUP_ID, CHALLENGE_ID, USER_ID))

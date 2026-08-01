@@ -1072,7 +1072,8 @@ class GroupServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
-        given(groupChallengeRepository.findByGroupOrderByCreatedAtDesc(group)).willReturn(List.of(challenge));
+        given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
+                .willReturn(List.of(challenge));
         // GROMO-674: durationMinutes 는 CTI 상세 배치 조회로 채워진다
         given(groupChallengeDurationRepository.findByChallengeIdIn(List.of(CHALLENGE_ID)))
                 .willReturn(List.of(GroupChallengeDuration.builder()
