@@ -119,8 +119,8 @@ enum Palette {
     /// #C4C8D4
     static let avg = rgb(0xC4C8D4)
   }
-  /// #EEF0FB · #DCE8CE · #B9D3A0 · #8FB86F · #4E9B5C
-  static let grass: [Color] = [rgb(0xEEF0FB), rgb(0xDCE8CE), rgb(0xB9D3A0), rgb(0x8FB86F), rgb(0x4E9B5C)]
+  /// #EEF0FB · #D9DDF5 · #B4BAEC · #8A93E0 · #5E6AD2
+  static let calendarRamp: [Color] = [rgb(0xEEF0FB), rgb(0xD9DDF5), rgb(0xB4BAEC), rgb(0x8A93E0), rgb(0x5E6AD2)]
   /// #5E6AD2 · #9A6FB0 · #5B8A6A · #7A8AA0 · #6A9AA0 · #B0607A
   static let avatarPalette: [Color] = [rgb(0x5E6AD2), rgb(0x9A6FB0), rgb(0x5B8A6A), rgb(0x7A8AA0), rgb(0x6A9AA0), rgb(0xB0607A)]
   /// #7FA06A · #6E8FB0 · #5E6AD2 · #9C7BB0
