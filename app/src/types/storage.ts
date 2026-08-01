@@ -56,6 +56,7 @@ export const STORAGE_KEYS = {
   storeReviewRequested: 'gromo:storeReview:requested', // 별점 요청창 노출 완료 마커('1') — 1회만 노출(GROMO-980)
   deferredInviteChecked: 'gromo:deferredInvite:checked', // 설치 후 deferred 매치 조회 완료 마커('1') — 서버 응답을 받았을 때만 기록(초대 링크 스펙 §7-5)
   inviteAttribution: 'gromo:deferredInvite:attribution', // 복원한 초대 {slug, groupId, claimed} — 로그인 직후 claim 호출에 쓴다
+  challengeResultSeen: 'gromo:challengeResult', // 챌린지 결과 모달 1회 노출 마커 프리픽스 — 실제 키는 `:{challengeId}:{date}`를 붙인다(challengeResult.ts가 조립·정리)
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];
