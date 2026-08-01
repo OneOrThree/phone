@@ -266,7 +266,7 @@ export default function StatsScreen() {
               total={data.category?.totalFocusMinutes ?? 0}
             />
           ) : (
-            <SubjectDonut rows={subjects} />
+            <SubjectDonut rows={subjects} totalSeconds={todayFocusSeconds} />
           )}
         </SectionCard>
       </View>

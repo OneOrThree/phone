@@ -107,25 +107,40 @@ export function CategoryDonut({
 }
 
 // 일 탭(GROMO-976) — 집중 세션 메뉴 드로어와 동일한 로컬 오늘 누적(SubjectContext).
-// 총합·비중 모두 과목별 합 기준(도넛 안에서 합=100% 보장). 0초 과목은 범례에서 제외.
+// 0초 과목은 범례에서 제외. 범례 시간은 주/월과 같은 HH:MM — HH:MM:SS(8자)는 최소 지원 폭
+// 375pt에서 과목명 자리를 다 먹는다(코드리뷰 반영). 중앙 총합만 총계 카드와 같은 HH:MM:SS.
 export function SubjectDonut({
   rows,
+  totalSeconds,
 }: {
   rows: { id: string; name: string; color: string; accumulatedSeconds: number }[];
+  totalSeconds: number; // 총계 카드와 동일한 오늘 전체 집중 초(todayFocusSeconds)
 }) {
-  const totalSeconds = rows.reduce((a, x) => a + x.accumulatedSeconds, 0);
-  if (totalSeconds <= 0) {
+  const subjectSum = rows.reduce((a, x) => a + x.accumulatedSeconds, 0);
+  // 재로그인 복원 시 태그 미귀속 세션은 전체 총합에만 있고 과목엔 못 얹힌다(SubjectContext 주석)
+  // — 차이를 '미분류' 구간으로 그려 위 총계 카드와 총합이 어긋나지 않게 한다(코드리뷰 반영).
+  const unclassified = Math.max(0, totalSeconds - subjectSum);
+  const denom = subjectSum + unclassified;
+  if (denom <= 0) {
     return <Text style={cs.emptyText}>아직 기록된 집중시간이 없어요</Text>;
   }
   const segs = rows
     .filter((x) => x.accumulatedSeconds > 0)
     .map((x) => ({
-      frac: x.accumulatedSeconds / totalSeconds,
+      frac: x.accumulatedSeconds / denom,
       color: x.color,
       name: x.name,
-      timeLabel: hms(x.accumulatedSeconds),
+      timeLabel: fmtHm(x.accumulatedSeconds / 60),
     }));
-  return <DonutBase segs={segs} totalLabel={hms(totalSeconds)} />;
+  if (unclassified > 0) {
+    segs.push({
+      frac: unclassified / denom,
+      color: T.inkMuted, // 과목 팔레트와 겹치지 않는 중립 회색
+      name: '미분류',
+      timeLabel: fmtHm(unclassified / 60),
+    });
+  }
+  return <DonutBase segs={segs} totalLabel={hms(denom)} />;
 }
 
 const s = StyleSheet.create({
