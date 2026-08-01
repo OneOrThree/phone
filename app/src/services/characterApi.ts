@@ -38,3 +38,45 @@ export async function moderateImage(base64: string): Promise<ModerationResult> {
     return { allowed: false, flaggedCategories: [], unavailable: true };
   }
 }
+
+// 캐릭터 생성 쿼터 응답 원형(서버 계약, GROMO-1045).
+interface CharacterQuotaApiResponse {
+  unlimited: boolean;
+  remaining: number | null;
+  resetAt: string | null;
+}
+
+export interface CharacterQuota {
+  // 무제한 사용자면 true — 이때 remaining/resetAt은 null이다.
+  unlimited: boolean;
+  // 이번 주기에 남은 생성 횟수. unlimited면 null.
+  remaining: number | null;
+  // 쿼터가 초기화되는 시각(ISO 문자열). unlimited면 null.
+  resetAt: string | null;
+}
+
+// 남은 캐릭터 생성 횟수를 조회한다. 모더레이션과 달리 쿼터는 '안전'이 아니라 '제한'이라,
+// 조회 실패(네트워크·타임아웃·비2xx)를 throw하지 않고 null을 돌려준다 — 인프라 이슈로
+// 생성을 막지 않도록 호출부가 fail-open(생성 허용)으로 처리하게 한다.
+export async function getCharacterQuota(): Promise<CharacterQuota | null> {
+  try {
+    const { data } = await api.get<CharacterQuotaApiResponse>('/api/v1/character/quota');
+    return {
+      unlimited: data.unlimited === true,
+      remaining: data.remaining ?? null,
+      resetAt: data.resetAt ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// 캐릭터 생성 1건을 서버에 기록한다(저장 성공 후 호출). best-effort — 실패해도 저장 흐름을
+// 막지 않도록 조용히 삼킨다.
+export async function recordCharacterGeneration(): Promise<void> {
+  try {
+    await api.post('/api/v1/character/generation');
+  } catch {
+    /* 기록 실패는 무시 */
+  }
+}
