@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   ScrollView,
   Image,
   StyleSheet,
@@ -894,17 +893,21 @@ export default function FocusSessionScreen() {
         {/* 상단바 — 햄버거만(과목명은 타이머 위 리드아웃으로 이동, 빈 View는 우측 정렬 유지용) */}
         <View style={s.topBar}>
           <View />
-          <TouchableOpacity
+          {/* 같은 화면의 일시정지·정지와 피드백을 맞춘다(햅틱만 제외 — 주요 CTA가 아니라서).
+              ref는 드로어 앵커 측정용 — Animated.createAnimatedComponent(Pressable)도
+              호스트 뷰로 ref를 넘겨서 measureInWindow가 그대로 동작한다. */}
+          <PressableScale
             style={s.hamburger}
-            activeOpacity={0.8}
+            scaleTo={0.9}
             ref={hamburgerRef}
+            accessibilityLabel="집중 메뉴 열기"
             onPress={() => {
               logFocusMenuOpened();
               setDrawerOpen(true);
             }}
           >
             <Ionicons name="menu" size={18} color={T.paperLight} />
-          </TouchableOpacity>
+          </PressableScale>
         </View>
 
         {/* 페이저 — [캐릭터] ↔ [내 친구(656)] ↔ [내 리그=같은 시험(812)] ↔ [전체 리그(811)] (순서 변경: 985)

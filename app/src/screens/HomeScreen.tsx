@@ -34,6 +34,7 @@ import { fabWindowRect } from '@/components/TabBar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { todayStr } from '@/utils/localDate';
+import { playTapSound } from '@/utils/sound';
 import { getTodayStats, getStreak } from '@/services/statsApi';
 import { hasUnread, subscribeInbox } from '@/services/notificationInbox';
 import {
@@ -190,10 +191,13 @@ function PhoneUsageRow({
         )}
       </View>
       {/* 투명 터치 레이어 — 네이티브 뷰 위에서도 탭 감지 → 앱별 상세 오버레이.
-          권한 미허용 시엔 행 전체가 권한 요청 탭 타깃이 된다. */}
+          권한 미허용 시엔 행 전체가 권한 요청 탭 타깃이 된다.
+          행 계열 규칙대로 스케일 없이 사운드만: transform을 걸면 네이티브 리포트 뷰가
+          같이 찌그러지지만, 그건 스케일만 빼야 할 이유지 소리까지 뺄 이유는 아니다. */}
       <TouchableOpacity
         style={StyleSheet.absoluteFill}
         activeOpacity={0.6}
+        onPressIn={playTapSound}
         onPress={needsPermission ? onEnablePermission : onPress}
         accessibilityLabel={needsPermission ? '스크린타임 권한 켜기' : '핸드폰 앱별 사용시간 보기'}
       />

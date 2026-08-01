@@ -22,6 +22,7 @@ import { getDefaultTags } from '@/services/focusApi';
 import { STORAGE_KEYS } from '@/types/storage';
 import { TabGuideOverlay } from '@/components/TabGuideOverlay';
 import { PressableScale } from '@/components/PressableScale';
+import { playTapSound } from '@/utils/sound';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, PomodoroConfig, Subject } from './types';
 import { DraggableSubjectRows } from './components/DraggableSubjectRows';
@@ -268,9 +269,11 @@ export default function FocusCategoryScreen() {
                 헤더 탭으로 접기/펼치기(상태는 AsyncStorage에 저장) */}
             {recommended.length > 0 && (
               <View style={s.recoSection}>
+                {/* 행 계열 규칙 — 스케일 없이 사운드만(발화 시점은 PressableScale과 동일한 press-in) */}
                 <TouchableOpacity
                   style={s.recoHeader}
                   activeOpacity={0.7}
+                  onPressIn={playTapSound}
                   onPress={toggleRecoHidden}
                 >
                   <Text style={s.recoLabel}>{category} 추천 과목</Text>
@@ -286,6 +289,7 @@ export default function FocusCategoryScreen() {
                       key={name}
                       style={s.recoRow}
                       activeOpacity={0.8}
+                      onPressIn={playTapSound}
                       onPress={() => {
                         cancelPendingMethodSheet(); // 추천 추가 중 예약 시트 발화 방지
                         addSubject(name);

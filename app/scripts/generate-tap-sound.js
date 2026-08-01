@@ -76,7 +76,12 @@ function buildWav() {
     const v = sampleAt(i, totalSamples);
     // 클리핑 방어 후 16-bit 정수로
     const clamped = Math.max(-1, Math.min(1, v));
-    buffer.writeInt16LE(Math.round(clamped * 32767), 44 + i * bytesPerSample);
+    const pcm = Math.round(clamped * 32767);
+    // 프레임당 CHANNELS개 샘플을 인터리브해서 쓴다 — 오프셋에 CHANNELS를 반영해야
+    // CHANNELS를 2로 바꿨을 때 뒤쪽 절반이 0으로 남은 WAV가 조용히 생기지 않는다.
+    for (let c = 0; c < CHANNELS; c += 1) {
+      buffer.writeInt16LE(pcm, 44 + (i * CHANNELS + c) * bytesPerSample);
+    }
   }
   return buffer;
 }
@@ -87,7 +92,8 @@ function main() {
   fs.writeFileSync(OUTPUT_PATH, wav);
   console.log(
     `생성 완료: ${path.relative(process.cwd(), OUTPUT_PATH)} ` +
-      `(${SAMPLE_RATE}Hz mono ${BITS_PER_SAMPLE}bit, ${DURATION_MS}ms, ${wav.length}B)`,
+      `(${SAMPLE_RATE}Hz ${CHANNELS === 1 ? 'mono' : `${CHANNELS}ch`} ${BITS_PER_SAMPLE}bit, ` +
+      `${DURATION_MS}ms, ${wav.length}B)`,
   );
 }
 

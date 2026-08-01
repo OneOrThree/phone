@@ -100,12 +100,17 @@ function Tab({
   const focused = state.index === index;
   const [on, off] = ICONS[route.name] ?? ['ellipse', 'ellipse-outline'];
   return (
-    // 이미 선택된 탭은 아무 동작이 없으므로 햅틱·사운드도 끈다(눌림 스케일만 남김)
+    // 이미 선택된 탭은 아무 동작이 없으므로 피드백을 전부 끈다 — 스케일까지 끄지 않으면
+    // "눌리긴 했는데 아무 일도 안 일어난다"가 되어 피드백 언어가 어긋난다.
     <PressableScale
+      testID={`tabbar.tab.${route.name}`}
       style={s.tab}
-      scaleTo={0.9}
+      scaleTo={focused ? 1 : 0.9}
       haptic={focused ? false : 'select'}
       sound={!focused}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: focused }}
+      accessibilityLabel={route.name}
       onPress={() => {
         if (!focused) navigation.navigate(route.name);
       }}

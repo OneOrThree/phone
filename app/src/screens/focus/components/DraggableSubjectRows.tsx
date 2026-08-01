@@ -12,6 +12,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
+import { hapticLight } from '@/utils/haptics';
+import { playTapSound } from '@/utils/sound';
 import { hmsCompact } from '../format';
 import type { Subject } from '../types';
 import { glassSlide, glassPill } from '@/components/liquidGlass';
@@ -220,6 +222,13 @@ export function DraggableSubjectRows({
                 testID={`focus.subject.item.${i}`}
                 style={[s.row, selected && s.rowSelected, isDrag && s.rowActive]}
                 activeOpacity={0.85}
+                // 행 계열은 스케일 없이 사운드만(+집중 시작 CTA라 가벼운 햅틱까지) —
+                // transform은 드래그 PanResponder의 좌표 계산과 간섭한다.
+                // 발화 시점은 PressableScale과 맞춰 press-in.
+                onPressIn={() => {
+                  playTapSound();
+                  hapticLight();
+                }}
                 onPress={() => onPressRow(sub)}
                 // 행 길게 누르기 — ⋮ 위치를 앵커로 이름편집/삭제 팝오버
                 onLongPress={() =>
