@@ -48,7 +48,8 @@ export function UserProvider({
   initialIsNewUser,
   children,
 }: UserProviderProps) {
-  const [nickname, setNickname] = useState(initialNickname ?? '익명');
+  // 서버가 준 값 그대로 사용 — 로컬 '익명' fallback은 닉네임 유실을 가리므로 두지 않는다(GROMO-964)
+  const [nickname, setNickname] = useState(initialNickname ?? '');
   const [userId] = useState<string | null>(initialUserId ?? null);
   const isGuest = initialIsGuest ?? false;
   const [isNewUser, setIsNewUser] = useState(initialIsNewUser ?? false);
