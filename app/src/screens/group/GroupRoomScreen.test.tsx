@@ -65,13 +65,15 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupBetJoined: jest.fn(),
 }));
 
-// 내기 시트가 잔액을 읽는다(CoinContext) — 테스트 트리엔 Provider가 없어 훅을 대체한다.
+// 내기 시트가 잔액을 읽고(CoinContext) 화면이 정산 감지 시 잔액을 다시 받는다 —
+// 테스트 트리엔 Provider가 없어 훅을 대체하고, refresh는 호출을 세기 위해 한 개를 공유한다.
+const mockRefreshCoins = jest.fn(async () => {});
 jest.mock('@/store/CoinContext', () => ({
   useCoins: () => ({
     coins: 100,
     coinsLoaded: true,
     coinsVersion: 1,
-    refresh: jest.fn(async () => {}),
+    refresh: mockRefreshCoins,
   }),
 }));
 
@@ -160,6 +162,10 @@ function challenge(over: Partial<GroupChallengeResponse> = {}): GroupChallengeRe
     createdAt: '2026-08-01T06:00:00',
     canParticipate: true,
     memberProgress: [{ userId: 'me', nickname: '나', progressMinutes: 30, achieved: false }],
+    // 내기를 아는 서버는 내기가 없을 때 null을 명시로 내려준다 — 필드 자체가 없는 응답은
+    // '구버전 서버'라 카드가 내기 영역을 아예 그리지 않는다(ChallengeCard.betKnown).
+    bet: null,
+    lastSettledBet: null,
     ...over,
   };
 }
@@ -842,6 +848,66 @@ describe('내기 배선', () => {
 
     await press('내기 걸기');
     expect(screen.getByText('내기 열기')).toBeOnTheScreen();
+  });
+
+  // 정산은 서버 배치(04:00)가 한다 — 앱을 켜 둔 채 정산이 돌면 카드엔 당첨·환불 결과가 뜨는데
+  // 전역 잔액만 정산 전 값으로 남아, 지급받은 코인을 상점에서 쓸 수 없다(코덱스 리뷰).
+  test('내 내기가 정산돼 돌아오면 코인 잔액도 다시 받는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+
+    // 첫 조회는 비교 대상이 없어 재조회하지 않는다(마운트 시 CoinContext가 이미 받는다).
+    mockRefreshCoins.mockClear();
+    await foreground();
+    expect(mockRefreshCoins).not.toHaveBeenCalled();
+
+    // 배치가 돌았다 — 내 결과가 실린 정산 내기가 새로 도착한다.
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        lastSettledBet: {
+          betDate: '2026-07-31',
+          stake: 30,
+          pot: 60,
+          status: 'SETTLED',
+          results: [
+            { userId: 'me', nickname: '나', achieved: true, payout: 60 },
+            { userId: 'u2', nickname: '수빈', achieved: false, payout: 0 },
+          ],
+        },
+      }),
+    ]);
+    await foreground();
+
+    await waitFor(() => expect(mockRefreshCoins).toHaveBeenCalled());
+  });
+
+  test('내가 없는 내기의 정산으로는 잔액을 다시 받지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+    mockRefreshCoins.mockClear();
+
+    // 남들끼리 건 내기가 정산됐다 — 내 잔액은 움직이지 않았으므로 조회할 이유가 없다.
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        lastSettledBet: {
+          betDate: '2026-07-31',
+          stake: 30,
+          pot: 60,
+          status: 'SETTLED',
+          results: [
+            { userId: 'u2', nickname: '수빈', achieved: true, payout: 60 },
+            { userId: 'u3', nickname: '민지', achieved: false, payout: 0 },
+          ],
+        },
+      }),
+    ]);
+    await foreground();
+
+    expect(mockRefreshCoins).not.toHaveBeenCalled();
   });
 });
 

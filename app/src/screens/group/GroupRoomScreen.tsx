@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
 import { useUser } from '@/store/UserContext';
+import { useCoins } from '@/store/CoinContext';
 import {
   deleteChallenge,
   getAnnouncements,
@@ -97,6 +98,22 @@ function staleBetSheetAlert(
   return null;
 }
 
+// '내가 참가한 내기가 정산됐다'는 사건을 챌린지 목록에서 읽어낸다 — 정산은 서버(04:00 배치)가
+// 하므로 앱이 알 수 있는 신호는 lastSettledBet이 새로 생기거나 다른 내기로 바뀌는 것뿐이다.
+// 앱을 켜 둔 채 정산이 돌면 카드엔 결과가 뜨는데 전역 잔액은 정산 전 값으로 남아, 지급된 코인을
+// 상점에서 쓰지 못한다(CoinContext.buyItem이 클라 잔액으로 먼저 막는다 — 코덱스 리뷰).
+// 내 결과가 없는 정산은 잔액을 건드리지 않으므로 서명에 넣지 않는다(불필요한 재조회 방지).
+function settledBetSignature(challenges: GroupChallengeResponse[], userId: string | null): string {
+  return challenges
+    .map((c) => {
+      const last = c.lastSettledBet ?? null;
+      if (last === null || !userId) return '';
+      if (!last.results.some((r) => r.userId === userId)) return '';
+      return `${c.id}:${last.betDate}:${last.status}`;
+    })
+    .join('|');
+}
+
 export interface GroupRoomScreenProps {
   groupId: string;
   // 탭 진입점이 가진 요약(getMyGroups[0]) — 상세 응답 도착 전 헤더를 먼저 그리는 용도(선택).
@@ -127,6 +144,8 @@ export default function GroupRoomScreen({
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { userId } = useUser();
+  // 잔액은 CoinContext가 정본이다 — 여기서는 '서버가 정산했다'를 감지했을 때만 다시 받는다.
+  const { refresh: refreshCoins } = useCoins();
 
   const [detail, setDetail] = useState<GroupDetailResponse | null>(null);
   // null = 아직 한 번도 못 받음. '공지 없음(빈 배열)'과 '공지 조회 실패'를 구분한다 —
@@ -166,6 +185,9 @@ export default function GroupRoomScreen({
   const focusedRef = useRef(false);
   // 마지막으로 성공한 조회의 기준 날짜. 자정을 넘겨 복귀하면 '오늘 집중분'이 전날 값이라 강제 재조회한다.
   const loadedDateRef = useRef<string | null>(null);
+  // 직전 조회에서 본 '내 정산 내기' 서명(settledBetSignature). null = 아직 한 번도 못 받음 —
+  // 첫 조회는 비교 대상이 없어 재조회하지 않는다(마운트 시 CoinContext가 이미 잔액을 받는다).
+  const settledSigRef = useRef<string | null>(null);
 
   // 상세 + 공지 + 챌린지 병렬 조회. 세 요청의 실패를 **각각** 다룬다(allSettled) —
   // 상세 실패는 기존 방 데이터를 보존한 채 배너로, 공지·챌린지 실패는 각 섹션에서만 알린다.
@@ -214,11 +236,17 @@ export default function GroupRoomScreen({
       // 판돈은 빠졌는데 카드는 '내기 이전'인 채 진입점이 다시 열려 같은 요청을 반복하게 된다.
       // 실패하면 잠금을 유지하고, 다음 성공(당겨서 새로고침·포커스·포그라운드 복귀)이 푼다.
       setBetBusy(false);
+      // 서버가 내 내기를 정산했으면 잔액도 함께 맞춘다 — 카드는 당첨·환불을 말하는데 전역 잔액만
+      // 정산 전 값으로 남는 상태를 여기서 닫는다(위 settledBetSignature 주석).
+      const signature = settledBetSignature(challengeResult.value, userId ?? null);
+      const previous = settledSigRef.current;
+      settledSigRef.current = signature;
+      if (previous !== null && previous !== signature) refreshCoins();
     } else {
       setChallengeError(true); // 기존 챌린지는 그대로 둔다
     }
     return true;
-  }, [groupId, onLeft]);
+  }, [groupId, onLeft, userId, refreshCoins]);
 
   // 최초 진입·재시도 — 스피너를 세우고 조회한다(당겨서 새로고침은 RefreshControl이 표시).
   const reload = useCallback(() => {

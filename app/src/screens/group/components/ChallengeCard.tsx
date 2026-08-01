@@ -31,6 +31,10 @@ const DELETE_HINT_CAPTION = '길게 눌러 삭제';
 // 이미 오늘 목표를 채운 사람은 참가할 수 없다(무위험 참가 차단 — 백 명세 결정 7).
 // 버튼만 잠그면 왜 안 눌리는지 알 방법이 없어 사유를 한 줄로 적는다.
 const BET_ACHIEVED_CAPTION = '이미 오늘 목표를 달성해서 참가할 수 없어요';
+// 개설자는 자동 참가라(계약 §2-1) 달성자는 **개설도** 거절된다(BET_ALREADY_ACHIEVED, 409).
+// 같은 사실이지만 막히는 동작이 달라 문장을 따로 둔다 — '참가할 수 없어요'는 참가 버튼이 없는
+// 카드에서 무엇이 막혔는지 말해 주지 못한다.
+const BET_ACHIEVED_CREATE_CAPTION = '이미 오늘 목표를 달성해서 내기를 열 수 없어요';
 
 // 'YYYY-MM-DD' → '7/31'. 캡션 한 줄에 연도까지 넣을 자리가 없고, '지난 내기'는 늘 최근 며칠이다.
 // 형식이 다르면 원문을 그대로 둔다(서버가 다른 포맷을 주면 깨진 날짜보다 원문이 낫다).
@@ -107,9 +111,30 @@ export default function ChallengeCard({
   // openBet은 const라 아래 betSupported 안에서 좁혀진 타입이 그대로 유지된다 — 진입점마다 `?.`를
   // 또 붙이면 '없을 수도 있다'는 잘못된 신호가 남는다.
   const openBet = onOpenBet;
+  // 이 서버가 내기를 아는가 — `bet` 필드가 **아예 없는** 응답은 '내기가 없다'가 아니라 '내기를
+  // 모르는 구버전 서버'다(DTO에서 optional인 이유). undefined를 null로 뭉개면 순차 배포 구간 내내
+  // 모든 카드에 눌러도 없는 엔드포인트로 나가 실패만 하는 '내기 걸기'가 선다(코덱스 리뷰).
+  // 내기를 아는 서버는 없을 때 null을 **명시로** 내려준다(백 GroupChallengeResponse는 NON_NULL
+  // 생략을 쓰지 않는다) — 백엔드가 그 DTO에 @JsonInclude(NON_NULL)을 붙이면 이 판정이 깨진다.
+  const betKnown = challenge.bet !== undefined;
   const betSupported =
-    !!openBet && challenge.missionCategory === 'FOCUS' && challenge.missionType === 'DURATION';
+    !!openBet &&
+    betKnown &&
+    challenge.missionCategory === 'FOCUS' &&
+    challenge.missionType === 'DURATION';
   const bet = challenge.bet ?? null;
+  // 끝난 챌린지에는 **새로 돈을 걸 수 없다** — 앱은 INACTIVE를 종료로 취급하는데(만들기 시트의
+  // 중복 판정도 ACTIVE만 센다) 서버 개설 경로는 상태를 보지 않으므로, 진입점을 여는 쪽이 막는다
+  // (코덱스 리뷰). 이미 걸린 내기·지난 내기는 그대로 읽힌다 — 막는 건 돈이 나가는 자리뿐이다.
+  const betOpenable = challenge.status === 'ACTIVE';
+  // 내가 오늘 목표를 이미 달성했는가 — 개설 진입점을 잠그는 근거다. 참가 분기는 서버가 준
+  // bet.myAchievedNow를 쓰지만, 내기가 없는 카드엔 bet 자체가 없어 내 진행 행에서 읽는다.
+  // 서버의 개설 가드와 판정 근거가 같다(둘 다 당일 집중분 ≥ 목표분).
+  // null(미판정)은 달성으로 세지 않는다 — 진행 리스트의 3상 규칙 그대로다.
+  const myAchieved =
+    !!myUserId && !!progress?.some((p) => p.userId === myUserId && p.achieved === true);
+  // 개설 진입점을 잠그는 이유 2가지(재조회 중 · 이미 달성) — 잠금 표시는 같고 사유만 다르다.
+  const createBlocked = !!betLocked || myAchieved;
   // 서버가 participants를 빠뜨려도 카드가 죽지 않게 — 인원 수는 표시용일 뿐이다.
   const betMembers = bet?.participants?.length ?? 0;
   const lastBet = challenge.lastSettledBet ?? null;
@@ -215,21 +240,29 @@ export default function ChallengeCard({
 
       {hasUnmeasured && <Text style={s.caption}>{UNMEASURED_CAPTION}</Text>}
 
-      {/* ── 내기 영역(3차 §1) — 진행 리스트 아래, 방장 힌트 위 ── */}
-      {betSupported && (
+      {/* ── 내기 영역(3차 §1) — 진행 리스트 아래, 방장 힌트 위 ──
+          끝난 챌린지에 내기가 하나도 없으면 영역 자체를 두지 않는다 — 열 수 없는 자리에
+          구분선만 남기면 무엇이 빠졌는지 알 수 없는 빈칸이 된다. */}
+      {betSupported && (bet !== null || betOpenable) && (
         <View style={s.betArea}>
           {bet === null ? (
             // ① 아직 내기가 없다 — 아웃라인 소형 버튼. 카드 본체(진행 리스트)보다 약하게 둔다.
-            <TouchableOpacity
-              style={[s.betCreateBtn, betLocked && s.betCreateBtnOff]}
-              activeOpacity={0.8}
-              disabled={betLocked}
-              onPress={() => openBet('create')}
-              accessibilityRole="button"
-              testID={`group.bet.create.${challenge.id}`}
-            >
-              <Text style={[s.betCreateText, betLocked && s.betCreateTextOff]}>내기 걸기</Text>
-            </TouchableOpacity>
+            //    이미 달성했으면 개설도 서버가 거절하므로(BET_ALREADY_ACHIEVED) 미리 잠그고 사유를 적는다.
+            <>
+              <TouchableOpacity
+                style={[s.betCreateBtn, createBlocked && s.betCreateBtnOff]}
+                activeOpacity={0.8}
+                disabled={createBlocked}
+                onPress={() => openBet('create')}
+                accessibilityRole="button"
+                testID={`group.bet.create.${challenge.id}`}
+              >
+                <Text style={[s.betCreateText, createBlocked && s.betCreateTextOff]}>
+                  내기 걸기
+                </Text>
+              </TouchableOpacity>
+              {myAchieved && <Text style={s.caption}>{BET_ACHIEVED_CREATE_CAPTION}</Text>}
+            </>
           ) : bet.myJoined ? (
             // ③ 내가 참여 중 — 판돈·팟·인원. '참여 중' 칩은 아직 열려 있는 내기에만 붙인다
             //    (정산이 끝난 내기에 '참여 중'을 달면 지금도 진행 중인 것으로 읽힌다).
@@ -239,7 +272,7 @@ export default function ChallengeCard({
               </Text>
               {bet.status === 'OPEN' && <Text style={s.betJoinedTag}>참여 중</Text>}
             </View>
-          ) : bet.status === 'OPEN' ? (
+          ) : bet.status === 'OPEN' && betOpenable ? (
             // ② 열려 있는데 나는 미참가 — 행 전체가 참가 진입점.
             //    이미 오늘 목표를 달성했으면 서버가 거절하므로(BET_ALREADY_ACHIEVED) 미리 잠근다.
             <>
@@ -262,7 +295,8 @@ export default function ChallengeCard({
               {bet.myAchievedNow && <Text style={s.caption}>{BET_ACHIEVED_CAPTION}</Text>}
             </>
           ) : (
-            // 계약 밖 조합(마감·정산됐는데 나는 미참가) — 상태만 그대로 적고 진입점은 두지 않는다.
+            // 진입점을 열 수 없는 조합(마감·정산됐는데 나는 미참가 / 끝난 챌린지에 열린 내기가
+            // 남아 있음) — 상태만 그대로 적고 누를 자리는 두지 않는다.
             <View style={s.betRow}>
               <Text style={[s.betText, s.betTextOff]}>
                 🪙 판돈 {bet.stake} · 팟 {bet.pot} · {betMembers}명 참여

@@ -379,10 +379,82 @@ describe('내기 영역 4상', () => {
     expect(screen.queryByText('참여 중')).toBeNull();
   });
 
-  // 서버가 필드를 아직 안 내려주는 배포 구간(백 워커 병행 구현) — undefined도 '내기 없음'이다.
-  test('bet 필드가 아예 없어도 개설 진입점으로 떨어진다', async () => {
+  // 서버가 필드를 아직 안 내려주는 배포 구간(백 워커 병행 구현) — undefined는 '내기 없음'이
+  // 아니라 '내기를 모르는 서버'다. 없는 엔드포인트로 나가 계속 실패할 버튼을 세우지 않는다(코덱스 리뷰).
+  test('bet 필드가 아예 없는 서버에서는 내기 영역을 그리지 않는다', async () => {
     await renderCard();
-    expect(screen.getByText('내기 걸기')).toBeOnTheScreen();
+    expect(screen.queryByText('내기 걸기')).toBeNull();
+    expect(screen.queryByTestId(`group.bet.create.${CHALLENGE_ID}`)).toBeNull();
+
+    // 같은 서버가 지난 내기도 내려주지 못하므로 '지난 내기' 줄도 없다.
+    await renderCard({ lastSettledBet: undefined });
+    expect(screen.queryByText(/지난 내기/)).toBeNull();
+  });
+
+  // 앱은 INACTIVE를 '끝난 챌린지'로 본다(만들기 시트의 중복 판정도 ACTIVE만 센다). 서버 개설
+  // 경로는 상태를 보지 않아 요청이 그대로 성립하므로, 진입점을 여는 카드가 막아야 한다(코덱스 리뷰).
+  test('끝난 챌린지(INACTIVE)에는 개설 진입점을 두지 않는다', async () => {
+    await renderCard({ status: 'INACTIVE', bet: null, lastSettledBet: null });
+    expect(screen.queryByText('내기 걸기')).toBeNull();
+
+    // 열린 내기가 남아 있어도 참가로 들어가지 못한다 — 상태만 읽힌다.
+    await renderCard({ status: 'INACTIVE', bet: bet(), lastSettledBet: null });
+    expect(screen.queryByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.getByText('🪙 판돈 30 · 팟 90 · 3명 참여')).toBeOnTheScreen();
+
+    // 지난 내기(읽기 전용)는 끝난 챌린지에서도 그대로 보여 준다.
+    await renderCard({ status: 'INACTIVE', bet: null, lastSettledBet: lastSettledBet() });
+    expect(screen.getByText('지난 내기(7/31): 3명 중 2명 달성')).toBeOnTheScreen();
+  });
+
+  // 개설자는 자동 참가라 달성자는 개설도 서버가 거절한다(계약 §2-1 BET_ALREADY_ACHIEVED).
+  // 내기가 없는 카드엔 myAchievedNow가 없으므로 내 진행 행에서 읽는다.
+  test('이미 달성했으면 개설 진입점도 잠그고 사유를 적는다', async () => {
+    await render(
+      <ChallengeCard
+        challenge={challenge({
+          bet: null,
+          memberProgress: [
+            progress({ userId: 'u1', nickname: '재영', progressMinutes: 60, achieved: true }),
+            progress({ userId: 'u2', nickname: '수빈', progressMinutes: 10, achieved: false }),
+          ],
+        })}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+      />,
+    );
+
+    expect(screen.getByText('이미 오늘 목표를 달성해서 내기를 열 수 없어요')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.create.${CHALLENGE_ID}`));
+    });
+    expect(onOpenBet).not.toHaveBeenCalled();
+  });
+
+  test('남이 달성한 것으로는 내 개설 진입점을 잠그지 않는다', async () => {
+    await render(
+      <ChallengeCard
+        challenge={challenge({
+          bet: null,
+          memberProgress: [
+            progress({ userId: 'u1', nickname: '재영', progressMinutes: 10, achieved: false }),
+            progress({ userId: 'u2', nickname: '수빈', progressMinutes: 60, achieved: true }),
+          ],
+        })}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+      />,
+    );
+
+    expect(screen.queryByText('이미 오늘 목표를 달성해서 내기를 열 수 없어요')).toBeNull();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.create.${CHALLENGE_ID}`));
+    });
+    expect(onOpenBet).toHaveBeenCalledWith('create');
   });
 
   test('내기를 지원하지 않는 카드(SCREEN_TIME·TIME_WINDOW)에는 아무것도 그리지 않는다', async () => {
