@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenTimeModule, {
   type AuthorizationStatus,
+  androidNativeModuleAvailable,
   nativeSupportsPendingApplyDate,
   androidSupportsBatteryException,
 } from '@/services/ScreenTimeModule';
@@ -31,7 +32,7 @@ import { T } from '@/constants/theme';
 // SET · 스크린타임 권한 관리 화면(SettingsScreenTimePermission).
 // 권한 상태 배지 + 수집 항목 안내 + 기기내 처리 안내 + '측정 대상 앱 설정'(기존 MenuScreen 이식).
 // 상태 카드가 권한 상태별 단일 진입점(GROMO-978): 요청 필요→권한 요청(허용 시 바로 앱 피커),
-// 허용됨→앱 피커, 거부됨→iOS 설정 이동. 스크린타임은 iOS 전용이라 실기기에서만 실제 동작한다.
+// 허용됨→앱 피커, 거부됨→iOS는 설정 이동, 안드로이드는 Usage Access 재요청(GROMO-994).
 
 // 로컬(기기 시간대) 기준 'YYYY-MM-DD'.
 function ymd(d: Date): string {
@@ -150,6 +151,28 @@ export default function ScreenTimePermissionScreen() {
     }
   }
 
+  // 거부됨 상태 카드 탭(안드로이드) — 앱 상세 설정(Linking.openSettings)에선 Usage Access를
+  // 켤 수 없다. 홈·온보딩과 같이 requestAuthorization이 사용 정보 접근 목록 딥링크 + 복귀
+  // 재확인까지 담당하고, 그 결과로 배지 상태를 갱신한다(코드리뷰 반영).
+  async function reopenAndroidUsageAccess() {
+    if (requesting) return;
+    setRequesting(true);
+    try {
+      const granted = await ScreenTimeModule.requestAuthorization();
+      try {
+        await updateScreenTimePermission({ granted });
+      } catch {
+        // 서버 반영 실패는 조용히 무시 — 기기 권한 상태가 진실.
+      }
+      const st = await ScreenTimeModule.getAuthorizationStatus();
+      setStatus(st);
+    } catch (e) {
+      Alert.alert('권한 처리 실패', e instanceof Error ? e.message : String(e));
+    } finally {
+      setRequesting(false);
+    }
+  }
+
   // 스크린타임 측정 대상(앱/카테고리) 재선택 — A안(GROMO-942) '다음날 적용'.
   // 이미 측정 중인 상태에서 비어있지 않은 새 대상으로 바꾸면 즉시 반영하지 않고 내일로 예약한다
   // (당일 혼합 합산·자투리 유실 방지). 실제 승격·재등록은 자정에 익스텐션이 처리하고, 앱은
@@ -247,12 +270,16 @@ export default function ScreenTimePermissionScreen() {
   const badge = badgeMeta(status);
 
   // 상태 카드 탭 — 권한 상태별 단일 진입점(GROMO-978). 하단 '권한 요청' 버튼은 제거.
-  // 요청 필요→권한 요청(허용 시 바로 앱 피커), 허용됨→앱 피커, 거부됨·확인 중→iOS 설정.
+  // 요청 필요→권한 요청(허용 시 바로 앱 피커), 허용됨→앱 피커, 거부됨·확인 중→iOS는 설정
+  // 이동, 안드로이드는 Usage Access 재요청(코드리뷰 반영). 구 안드로이드 바이너리(OTA로 새
+  // JS만·모듈 없음)는 요청이 설정을 못 열므로 기존 앱 상세 설정 이동을 유지한다.
   function onStatusCardPress() {
     if (status === 'notDetermined') {
       requestPermission();
     } else if (status === 'approved') {
       editScreenTimeTargets();
+    } else if (Platform.OS === 'android' && androidNativeModuleAvailable()) {
+      reopenAndroidUsageAccess();
     } else {
       Linking.openSettings();
     }
@@ -265,7 +292,9 @@ export default function ScreenTimePermissionScreen() {
         ? '권한 요청 중…'
         : '탭해서 스크린타임 접근을 허용해 주세요'
       : status === 'denied'
-        ? 'iOS 설정에서 다시 켤 수 있어요'
+        ? Platform.OS === 'android' && androidNativeModuleAvailable()
+          ? '탭해서 사용 정보 접근을 다시 허용해 주세요'
+          : 'iOS 설정에서 다시 켤 수 있어요'
         : lastSynced
           ? `마지막 동기화 · ${lastSynced}`
           : null;

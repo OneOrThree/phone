@@ -174,6 +174,18 @@ export const androidAppPickerNative = {
     AndroidScreenTime?.setAllowedSelection?.(packages) ?? Promise.resolve(),
 };
 
+// 오버레이 권한 설정 왕복 중 표시(코드리뷰 반영) — 아래 1회 안내에서 '설정으로 이동'을 누르면
+// 앱이 백그라운드로 가는데, 이때는 실드가 아직 안 켜져 있어(shielded=false) FocusSessionScreen의
+// 이탈 판정이 15초 뒤 세션을 끝내버린다 — "허용하지 않아도 집중은 계속할 수 있어요" 안내와 모순.
+// 이 왕복 구간을 이탈 계산에서 제외하도록 화면에 노출한다(isOverlayPermissionTripActive).
+//
+// 레이스 설계: 플래그는 설정 딥링크(네이티브 호출) '직전'에 세워지므로 그로 인한 AppState
+// 'background' 이벤트보다 항상 먼저다. 복귀 시엔 'active' 이벤트와 requestOverlayPermission
+// resolve(플래그 해제)의 순서를 보장할 수 없지만, 화면 쪽이 '백그라운드 진입 시점'에 이 플래그를
+// 읽어 이탈 기록(leftAt) 자체를 남기지 않는 방식이라 복귀 순서와 무관하게 안전하다 —
+// 기록이 없으면 복귀 판정도 없다. 왕복이 끝나면(플래그 해제) 다음 이탈부터 정상 판정.
+let overlayPermissionTripActive = false;
+
 // 오버레이 권한 1회 안내(안드로이드, 코드리뷰 반영) — 실드의 차단 화면은 '다른 앱 위에 표시'
 // 권한이 있어야 뜨는데, 요청이 어디에도 배선돼 있지 않으면 전원이 조용히 실드 없는 세션으로
 // 강등된다(기본 미허용 권한). 첫 실드 시작 때 한 번만 설정 이동을 안내하고(AsyncStorage 플래그),
@@ -198,7 +210,15 @@ const ensureOverlayPermissionOnce = async (): Promise<void> => {
     );
   });
   // 설정 왕복 후 복귀 시 resolve — 허용됐다면 이어지는 startFocusShield가 실드를 켠다.
-  if (goToSettings) await AndroidScreenTime.requestOverlayPermission();
+  // 왕복 동안 플래그를 세워 이탈 판정에서 제외한다(위 설계 주석 참고).
+  if (goToSettings) {
+    overlayPermissionTripActive = true;
+    try {
+      await AndroidScreenTime.requestOverlayPermission();
+    } finally {
+      overlayPermissionTripActive = false;
+    }
+  }
 };
 
 // 플랫폼 라우팅 — iOS는 Swift 브릿지, 안드로이드 M1 범위는 Expo 모듈, 그 외(미구현 함수·
@@ -462,6 +482,11 @@ const ScreenTimeModule = {
     const subscription = AndroidScreenTime.addListener('onFocusShieldLost', listener);
     return () => subscription.remove();
   },
+
+  // 오버레이 권한 설정 왕복 중인지(안드로이드 전용, 코드리뷰 반영) — startFocusShield의 1회
+  // 안내로 설정에 간 구간. FocusSessionScreen이 백그라운드 진입 시점에 읽어, 이 구간은 이탈로
+  // 기록하지 않는다(위 overlayPermissionTripActive 설계 주석 참고). iOS는 항상 false.
+  isOverlayPermissionTripActive: (): boolean => overlayPermissionTripActive,
 
   // ── 오버레이 권한(안드로이드 전용, GROMO-996) ──
   // 실드의 차단 화면을 서비스에서 띄우기 위한 SYSTEM_ALERT_WINDOW 상태 확인/설정 딥링크.
