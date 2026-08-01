@@ -12,7 +12,8 @@ import type { GroupOverviewResponse } from '@/types/dto/group';
 //
 // 이 시트가 뜨는 경로(1단계에서 배선 완료):
 //   랜딩(§12) → gromo://join?g=<uuid>
-//     → RootNavigator의 Linking 수신(getInitialURL / addEventListener)
+//     → DeepLinkGate의 Linking 수신(getInitialURL / addEventListener) — App.tsx 루트,
+//       인증 분기 밖이라 로그인 전에 도착한 링크도 받는다
 //     → navigationRef.navigateToDeepLink() 의 'join' 케이스가 parseInviteLink로 groupId 추출
 //     → 그룹 탭으로 이동 + 모듈 버퍼에 저장 & 리스너 통지(navigationRef.notifyGroupInvite)
 //     → GroupScreen이 리스너/peekPendingInvite로 받아 이 시트를 groupId와 함께 렌더
