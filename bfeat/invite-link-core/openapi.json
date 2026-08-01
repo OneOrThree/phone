@@ -69,6 +69,10 @@
       "description": "스크린 타임 목표 달성 저장 API"
     },
     {
+      "name": "InviteLink(public)",
+      "description": "무인증 초대 링크 — 랜딩·deferred 매치"
+    },
+    {
       "name": "Group Bet",
       "description": "그룹 챌린지 내기 (개설/참가). 조회는 챌린지 목록 API 의 bet/lastSettledBet 필드"
     },
@@ -2821,6 +2825,38 @@
           },
           "409": {
             "description": "이미 종료/취소된 세션"
+          }
+        }
+      }
+    },
+    "/l/{slug}": {
+      "get": {
+        "tags": [
+          "InviteLink(public)"
+        ],
+        "summary": "초대 랜딩",
+        "description": "만료·미존재 slug 도 200 HTML(만료 변형)",
+        "operationId": "landing",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/html;charset\u003dUTF-8": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }
