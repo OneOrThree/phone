@@ -129,6 +129,11 @@ async function foreground() {
   });
 }
 
+// 당겨서 새로고침 컨트롤 — RTL v14엔 UNSAFE_getByType이 없어 스크롤뷰의 prop으로 집는다.
+function refreshControl(): { props: { refreshing: boolean; onRefresh: () => void } } {
+  return screen.getByTestId('group.room.scroll').props.refreshControl;
+}
+
 async function press(label: string) {
   const el = await screen.findByText(label);
   await act(async () => {
@@ -201,6 +206,39 @@ describe('상세·공지 오류 분리', () => {
 
     expect(screen.getByText('오늘 6시에 모여요')).toBeOnTheScreen();
     expect(screen.getByText('공지를 새로고침하지 못했어요')).toBeOnTheScreen();
+  });
+});
+
+describe('당겨서 새로고침', () => {
+  // 새로고침 중에 포커스 복귀·포그라운드 복귀의 reload()가 끼어들면 이 호출은 stale로 끝나는데,
+  // 예전엔 fresh일 때만 refreshing을 내려서 RefreshControl이 영원히 돌았다(최신 reload()는
+  // loading만 해제한다). 사용자에겐 '새로고침이 끝나지 않는 화면'으로 보인다.
+  test('새로고침 도중 새 조회가 끼어들어도 인디케이터가 풀린다', async () => {
+    let resolvePull: (d: GroupDetailResponse) => void = () => {};
+    mockGetGroupDetail
+      .mockResolvedValueOnce(detail()) // 최초 진입
+      .mockImplementationOnce(
+        () =>
+          new Promise<GroupDetailResponse>((resolve) => {
+            resolvePull = resolve; // 당겨서 새로고침 — 응답을 잡아 둔다
+          }),
+      )
+      .mockResolvedValue(detail()); // 끼어든 재조회
+    mockGetAnnouncements.mockResolvedValue([]);
+    await renderRoom();
+
+    await act(async () => {
+      refreshControl().props.onRefresh();
+    });
+    expect(refreshControl().props.refreshing).toBe(true);
+
+    // 응답 전에 포그라운드 복귀가 새 조회를 시작한다 — 여기서 새로고침 호출이 stale이 된다.
+    await foreground();
+    await act(async () => {
+      resolvePull(detail());
+    });
+
+    expect(refreshControl().props.refreshing).toBe(false);
   });
 });
 

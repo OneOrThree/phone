@@ -195,9 +195,11 @@ export default function GroupRoomScreen({
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    load().then((fresh) => {
-      if (fresh) setRefreshing(false);
-    });
+    // fresh 여부와 무관하게 내린다 — 당겨서 새로고침 중에 탭 포커스 복귀·포그라운드 복귀의
+    // reload()가 끼어들면 이 호출은 stale(fresh=false)로 끝나는데, 최신 reload()는 loading만
+    // 해제하므로 fresh일 때만 내리면 RefreshControl이 영원히 돈다.
+    // stale로 끝났다는 건 더 새로운 조회가 진행 중이라는 뜻이라, 표시는 그쪽 스피너가 맡는다.
+    load().then(() => setRefreshing(false));
   }, [load]);
 
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(§6-4).
@@ -306,6 +308,7 @@ export default function GroupRoomScreen({
           { paddingBottom: insets.bottom + TAB_BAR_SPACE + T.space.md },
         ]}
         showsVerticalScrollIndicator={false}
+        testID="group.room.scroll"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={T.accent} />
         }

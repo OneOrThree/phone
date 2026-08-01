@@ -48,11 +48,14 @@ export interface GroupInviteSheetProps {
 }
 
 // 참여를 막는 사유 — 버튼 비활성 + 안내 문구가 함께 결정된다.
-type BlockReason = 'full' | 'otherGroup';
+type BlockReason = 'full' | 'otherGroup' | 'password';
 
 const BLOCK_TEXT: Record<BlockReason, string> = {
   full: '정원이 가득 찼어요',
   otherGroup: '이미 참여 중인 그룹이 있어요. 나가고 참여해주세요.',
+  // 비밀번호는 폐기 개념(§0)이라 앱은 항상 빈 바디로 join한다 — 기존 비번 그룹은 눌러도
+  // WRONG_PASSWORD로만 끝나므로, 눌러 보게 두지 말고 이유를 먼저 말한다.
+  password: '비밀번호가 걸린 그룹이라 참여할 수 없어요',
 };
 
 // 404 판정 — 에러 바디의 code가 원칙이지만(§3-2), 바디 없는 404도 '사라진 그룹'으로 본다.
@@ -110,6 +113,10 @@ export default function GroupInviteSheet({
 
   // 내 그룹 id — undefined는 '아직 모름'(조회 실패). 참여 직전에 한 번 더 확인한다.
   const myGroupId = useRef<string | null | undefined>(undefined);
+  // 지금 이 시트가 보고 있는 groupId. 시트는 key 없이 재사용돼(GroupScreen) 두 번째 초대 링크가
+  // 도착하면 groupId만 갈린다 — 진행 중이던 참여 요청이 그 뒤에 끝나면 앞 그룹의 결과를
+  // 새 프리뷰에 덮어쓰게 되므로, 참여 시작 시점의 groupId와 비교해 최신일 때만 반영한다.
+  const groupIdRef = useRef(groupId);
   // 조회 완료 시점에 부모 콜백을 부르므로, 콜백 신원 변화로 재조회가 돌지 않게 ref로 잡는다.
   const joinedRef = useRef(onJoined);
   useEffect(() => {
@@ -128,6 +135,7 @@ export default function GroupInviteSheet({
 
   // 프리뷰 조회 — 게스트는 호출 전에 차단한다(서버도 403이지만 왕복을 아낀다, §5-3).
   useEffect(() => {
+    groupIdRef.current = groupId;
     if (isGuest) {
       setLoading(false);
       return;
@@ -138,6 +146,9 @@ export default function GroupInviteSheet({
     setFailed(false);
     setJoinError(null);
     setBlock(null);
+    // 진행 중이던 이전 그룹의 참여 요청이 남아 있어도 새 프리뷰의 버튼은 눌릴 수 있어야 한다
+    // (아래 join()이 세대 가드로 늦은 응답을 버린다).
+    setJoining(false);
     // guestBlocked도 함께 되돌린다 — 시트는 key 없이 재사용돼(GroupScreen) 두 번째 초대 링크가
     // 도착하면 groupId만 바뀐다. 앞 그룹에서 GUEST_FORBIDDEN으로 세운 값이 남으면 정상 프리뷰를
     // 보여줘야 할 그룹에 게스트 차단 화면이 뜬다.
@@ -155,7 +166,16 @@ export default function GroupInviteSheet({
           joinedRef.current();
           return;
         }
-        if (mine && mine !== groupId) setBlock('otherGroup');
+        // 종료된 그룹 — 마지막 멤버가 나가면 서버가 close()로 ENDED로 내린다(Group.java).
+        // 그런데 서버 join은 상태를 보지 않아, 그냥 두면 ENDED 그룹에 멤버십만 생기는 모순
+        // 데이터가 만들어진다. 사용자 입장에선 이미 없어진 방이라 404와 같은 화면으로 끝낸다.
+        if (ov.status === 'ENDED') {
+          setGone(true);
+          return;
+        }
+        // 비밀번호 그룹은 앱이 참여시킬 수단이 없다(§0에서 비번 폐기) — 정원·소속보다 먼저 막는다.
+        if (ov.hasPassword) setBlock('password');
+        else if (mine && mine !== groupId) setBlock('otherGroup');
         else if (ov.memberCount >= ov.maxMembers) setBlock('full');
       } catch (e) {
         if (!alive) return;
@@ -172,34 +192,45 @@ export default function GroupInviteSheet({
 
   const join = useCallback(async () => {
     if (joining || block) return;
+    // 이 요청이 겨냥한 그룹. 응답이 오기 전에 두 번째 초대 링크가 도착하면 groupId가 갈리는데,
+    // 그때 이 결과(정원·404·오류 문구)를 그대로 반영하면 **다른 그룹의 프리뷰**가 오염된다.
+    const target = groupId;
+    const isStale = () => groupIdRef.current !== target;
     setJoinError(null);
     // 보조 조회가 실패해 내 그룹 상태를 모르면 참여 직전에 다시 확인한다(그룹 1개 전제 방어).
     // 여기서도 실패하면 **막는다(fail-closed)** — 통과시키면 이미 다른 그룹에 있는 사용자가
     // 두 그룹에 걸치고, 앱은 groups[0]만 보여줘 나머지 한 곳은 나갈 수도 없는 상태로 남는다(§0).
     if (myGroupId.current === undefined) {
       const mine = await fetchMyGroupId();
+      if (isStale()) return;
       myGroupId.current = mine;
       if (mine === undefined) {
         setJoinError('소속 그룹을 확인하지 못했어요. 잠시 후 다시 시도해주세요.');
         return;
       }
-      if (mine && mine !== groupId) {
+      if (mine && mine !== target) {
         setBlock('otherGroup');
         return;
       }
     }
     setJoining(true);
     try {
-      await joinGroup(groupId);
+      await joinGroup(target);
       logGroupJoinAttempted({ join_method: 'invite' });
+      // 성공만은 세대를 보지 않는다 — 실제로 target에 가입됐으므로 부모가 재조회해 그룹방으로
+      // 넘어가야 한다. 여기서 버리면 사용자는 이미 가입한 채 다른 그룹 프리뷰를 계속 보게 된다.
       joinedRef.current();
     } catch (e) {
-      switch (groupErrorCode(e)) {
-        // 이미 멤버 — 성공 취급(§3-2). 링크로 들어온 참여 시도이므로 계측도 동일하게 남긴다.
-        case 'ALREADY_MEMBER':
-          logGroupJoinAttempted({ join_method: 'invite' });
-          joinedRef.current();
-          return;
+      const code = groupErrorCode(e);
+      // 이미 멤버 — 성공 취급(§3-2). 위와 같은 이유로 세대와 무관하게 넘긴다.
+      if (code === 'ALREADY_MEMBER') {
+        logGroupJoinAttempted({ join_method: 'invite' });
+        joinedRef.current();
+        return;
+      }
+      // 나머지는 target 프리뷰에만 의미가 있는 실패다 — 시트가 다른 그룹으로 갈렸으면 버린다.
+      if (isStale()) return;
+      switch (code) {
         case 'ROOM_FULL':
           setBlock('full');
           break;
@@ -209,11 +240,16 @@ export default function GroupInviteSheet({
         case 'GUEST_FORBIDDEN':
           setGuestBlocked(true);
           break;
+        // overview가 hasPassword를 안 실어 준 경우의 뒷문 — 공통 문구 대신 이유를 말한다.
+        case 'WRONG_PASSWORD':
+          setBlock('password');
+          break;
         default:
           setJoinError('참여하지 못했어요. 잠시 후 다시 시도해주세요.');
       }
     } finally {
-      setJoining(false);
+      // 늦게 끝난 이전 그룹의 요청이 새 프리뷰의 진행 상태를 건드리지 않게 한다.
+      if (!isStale()) setJoining(false);
     }
   }, [block, fetchMyGroupId, groupId, joining]);
 

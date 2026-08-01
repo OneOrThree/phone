@@ -170,6 +170,54 @@ describe('검색', () => {
     expect(screen.queryByText('아침 6시 집중방')).toBeNull();
   });
 
+  // 실패를 빈 목록으로 뭉개면 '그런 이름의 공개 그룹이 없어요'가 떠서, 실제로 있는 그룹을
+  // 찾는 사용자가 이름이 틀렸다고 오인하고 검색을 포기한다.
+  test('조회 실패는 결과 없음과 구분한다 — 안내 + 다시 시도로 복구된다', async () => {
+    mockSearchGroups.mockRejectedValueOnce(new Error('network')).mockResolvedValueOnce([row()]);
+    await renderSheet();
+
+    await act(async () => {
+      fireEvent.changeText(screen.getByPlaceholderText('그룹 이름으로 검색'), '집중');
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+    });
+
+    expect(await screen.findByText('검색하지 못했어요')).toBeOnTheScreen();
+    expect(screen.queryByText('그런 이름의 공개 그룹이 없어요')).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(screen.getByText('다시 시도'));
+    });
+    expect(await screen.findByText('아침 6시 집중방')).toBeOnTheScreen();
+    expect(screen.queryByText('검색하지 못했어요')).toBeNull();
+  });
+
+  // 서버는 검색에서 상태·비밀번호를 거르지 않는데 join은 둘 다 통과시키지 않는다(ENDED는
+  // 멤버십만 생기는 모순, 비번 그룹은 항상 WRONG_PASSWORD) — 탭할 수 없는 행은 아예 숨긴다.
+  test('종료된 그룹과 비밀번호 그룹은 결과에서 제외한다', async () => {
+    mockSearchGroups.mockResolvedValue([
+      row({ name: '아침 6시 집중방' }),
+      row({
+        groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d11',
+        name: '끝난 집중방',
+        status: 'ENDED',
+      }),
+      row({
+        groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d22',
+        name: '비번 집중방',
+        hasPassword: true,
+      }),
+    ]);
+    await renderSheet();
+
+    await searchFor('아침 6시 집중방');
+    expect(screen.queryByText('끝난 집중방')).toBeNull();
+    expect(screen.queryByText('비번 집중방')).toBeNull();
+    // 계측 result_count는 화면에 실제로 뜬 개수를 따른다
+    expect(logGroupSearchPerformed).toHaveBeenCalledWith({ query_length: 2, result_count: 1 });
+  });
+
   test('정원이 찬 그룹은 정원 가득 표시 + 탭 비활성(§6-3)', async () => {
     mockSearchGroups.mockResolvedValue([row({ currentMembers: 5, maxMembers: 5 })]);
     await renderSheet();
@@ -261,6 +309,53 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     expect(
       await screen.findByText('참여하지 못했어요. 잠시 후 다시 시도해주세요.'),
     ).toBeOnTheScreen();
+  });
+
+  // 참여 요청에도 검색 세대가 필요하다 — 없으면 늦게 온 A의 ROOM_FULL이 B 화면에 문구를 띄우고,
+  // 뒤이은 refreshResults가 B의 세대 번호를 달고 A를 다시 조회해 B 결과를 정상 요청처럼 덮는다.
+  test('검색어가 바뀐 뒤 도착한 참여 실패는 새 검색 화면에 반영되지 않는다', async () => {
+    const rowA = row({ name: '아침 6시 집중방' });
+    const rowB = row({ groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8dbb', name: '저녁 스터디' });
+    let rejectJoin: (e: unknown) => void = () => {};
+
+    mockSearchGroups.mockResolvedValueOnce([rowA]).mockResolvedValueOnce([rowB]);
+    mockJoinGroup.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectJoin = reject; // A의 참여 응답을 붙잡아 둔다
+        }),
+    );
+
+    await renderSheet();
+    const input = screen.getByPlaceholderText('그룹 이름으로 검색');
+
+    await act(async () => {
+      fireEvent.changeText(input, '집중');
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByText('아침 6시 집중방'));
+    });
+    await confirmJoinAlert();
+
+    // A 응답이 오기 전에 검색어를 B로 바꾼다.
+    await act(async () => {
+      fireEvent.changeText(input, '스터디');
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+    });
+    expect(screen.getByText('저녁 스터디')).toBeOnTheScreen();
+
+    await act(async () => {
+      rejectJoin(axiosErrorWith(409, 'ROOM_FULL'));
+    });
+
+    expect(screen.queryByText('정원이 가득 찼어요. 다른 그룹을 찾아보세요.')).toBeNull();
+    expect(screen.getByText('저녁 스터디')).toBeOnTheScreen();
+    expect(mockSearchGroups).toHaveBeenCalledTimes(2); // A 갱신(refreshResults)이 나가지 않았다
   });
 
   test('GUEST_FORBIDDEN만 예외 — 시트를 닫고 로그인 유도 Alert를 띄운다', async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -36,6 +36,16 @@ import type { V2RootStackParamList } from '@/navigation/types';
 // 검색 입력 디바운스(ms) — 타이핑 중 과호출 방지(FriendAddScreen과 동일 기준)
 const SEARCH_DEBOUNCE_MS = 350;
 
+// 목록에 남길 수 있는 그룹인가 — 탭해도 반드시 실패하는 그룹은 애초에 보여주지 않는다.
+//  · ENDED: 마지막 멤버가 나가면 서버가 그룹을 close()한다(Group.java). 그런데 검색도 join도
+//    상태를 보지 않아서, 그대로 두면 종료된 그룹에 멤버십만 생기는 모순 데이터가 만들어진다.
+//  · hasPassword: 비밀번호는 폐기 개념(§0)이라 앱은 항상 빈 바디로 join한다 — 기존 비번 그룹은
+//    탭할 때마다 WRONG_PASSWORD로만 끝나고 화면에는 공통 실패 문구밖에 뜨지 않는다.
+// 서버가 이 두 가지를 직접 걸러 주면 이 필터는 무해한 이중 방어로 남는다.
+function isJoinable(r: GroupSearchResponse): boolean {
+  return r.status !== 'ENDED' && !r.hasPassword;
+}
+
 export interface GroupFindSheetProps {
   // 딤 탭·취소 — 부모가 시트를 내린다.
   onClose: () => void;
@@ -48,6 +58,9 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GroupSearchResponse[]>([]);
   const [searching, setSearching] = useState(false);
+  // 조회 실패 — '결과 없음'과 반드시 구분한다. 실패를 빈 목록으로 뭉개면 실제로 있는 그룹을
+  // 찾는 사용자가 '그런 이름의 공개 그룹이 없어요'를 보고 이름이 틀렸다고 오인한다.
+  const [searchError, setSearchError] = useState(false);
   // 참여 중인 그룹 id — 연타로 join이 두 번 나가는 것을 막는다
   const [joiningId, setJoiningId] = useState<string | null>(null);
   // 참여 실패 문구 — 시트 안에서 인라인으로 띄운다(Alert 아님, 파일 상단 규칙).
@@ -86,15 +99,21 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
   // false는 참여 실패 후의 조용한 갱신이다.
   const runSearch = useCallback(async (target: string, seq: number, measure: boolean) => {
     try {
-      const rows = await searchGroups(target);
+      const rows = (await searchGroups(target)).filter(isJoinable);
       if (seq !== searchSeqRef.current) return;
       setResults(rows);
+      setSearchError(false);
+      // 계측 result_count는 **화면에 실제로 뜬 개수**다 — 걸러낸 그룹까지 세면 검색 품질 지표가 부푼다.
       if (measure)
         logGroupSearchPerformed({ query_length: target.length, result_count: rows.length });
     } catch {
       if (seq !== searchSeqRef.current) return;
-      // 주 검색 실패는 목록을 비우고, 조용한 갱신 실패는 기존 목록을 유지한다(다음 입력에서 재시도).
-      if (measure) setResults([]);
+      // 주 검색 실패는 목록을 비우고 실패 상태를 세운다. 조용한 갱신 실패는 기존 목록을
+      // 그대로 두고 조용히 넘어간다(사용자가 시작한 조회가 아니라 알릴 것이 없다).
+      if (measure) {
+        setResults([]);
+        setSearchError(true);
+      }
     } finally {
       if (measure && seq === searchSeqRef.current) setSearching(false);
     }
@@ -105,6 +124,7 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
   useEffect(() => {
     // 검색어가 바뀌면 직전 참여 실패 문구는 맥락을 잃는다 — 함께 지운다.
     setJoinError(null);
+    setSearchError(false);
     // 디바운스 타이머가 뜨기 전에 올린다 — 아직 응답이 안 온 이전 요청(주 검색·조용한 갱신)이 여기서 죽는다.
     const seq = ++searchSeqRef.current;
     if (!q) {
@@ -125,6 +145,16 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
     runSearch(q, searchSeqRef.current, false);
   }, [q, runSearch]);
 
+  // 조회 실패 후의 수동 재시도 — 검색어를 바꿔야만 다시 시도할 수 있으면 복구 경로가 없다.
+  // 새 세대로 올려 진행 중인 이전 요청을 무효화한다(디바운스 없이 즉시 발화).
+  const retrySearch = useCallback(() => {
+    if (!q) return;
+    const seq = ++searchSeqRef.current;
+    setSearchError(false);
+    setSearching(true);
+    runSearch(q, seq, true);
+  }, [q, runSearch]);
+
   // 게스트는 GroupScreen이 앞단에서 막지만, 서버가 403을 주면 시트를 닫고 로그인으로 보낸다(§5-3).
   const goLogin = useCallback(() => {
     onClose();
@@ -136,6 +166,10 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
 
   async function join(group: GroupSearchResponse) {
     if (joiningId) return;
+    // 참여 요청도 **검색 세대를 캡처한다**. 응답을 기다리는 동안 사용자가 검색어를 바꿀 수 있는데,
+    // 그때 늦게 도착한 A의 실패를 그대로 반영하면 A용 오류 문구가 B 화면에 뜨고, refreshResults가
+    // B의 세대 번호로 A를 다시 조회해 유효한 요청처럼 B 결과를 덮는다.
+    const seq = searchSeqRef.current;
     setJoiningId(group.groupId);
     setJoinError(null);
     try {
@@ -144,11 +178,21 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
       onJoined();
     } catch (e) {
       // status가 아니라 서버 code로 분기한다 — ROOM_FULL·ALREADY_MEMBER가 둘 다 409(§3-2)
-      switch (groupErrorCode(e)) {
-        case 'ALREADY_MEMBER':
-          // 성공 취급 — 이미 멤버이므로 그룹방으로 보낸다(새 가입이 아니라 계측은 미발행)
-          onJoined();
-          break;
+      const code = groupErrorCode(e);
+      // 아래 둘은 화면 상태가 아니라 **실제 소속·계정 상태**의 결과라 검색 세대와 무관하게 처리한다.
+      if (code === 'ALREADY_MEMBER') {
+        // 성공 취급 — 이미 멤버이므로 그룹방으로 보낸다(새 가입이 아니라 계측은 미발행)
+        onJoined();
+        return;
+      }
+      // 로그인 유도만 Alert로 남긴다 — 시트를 닫고 다른 화면으로 보내는 흐름이라 인라인이 사라진다.
+      if (code === 'GUEST_FORBIDDEN') {
+        goLogin();
+        return;
+      }
+      // 나머지는 '그 검색어의 그 행'에서만 의미가 있는 실패다 — 세대가 바뀌었으면 조용히 버린다.
+      if (seq !== searchSeqRef.current) return;
+      switch (code) {
         case 'ROOM_FULL':
           setJoinError('정원이 가득 찼어요. 다른 그룹을 찾아보세요.');
           refreshResults();
@@ -156,10 +200,6 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
         case 'NOT_FOUND':
           setJoinError('사라진 그룹이에요. 방장이 그룹을 없앴을 수 있어요.');
           setResults((prev) => prev.filter((r) => r.groupId !== group.groupId));
-          break;
-        // 로그인 유도만 Alert로 남긴다 — 시트를 닫고 다른 화면으로 보내는 흐름이라 인라인이 사라진다.
-        case 'GUEST_FORBIDDEN':
-          goLogin();
           break;
         default:
           setJoinError('참여하지 못했어요. 잠시 후 다시 시도해주세요.');
@@ -177,6 +217,24 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
       { text: '취소', style: 'cancel' },
       { text: '참여하기', onPress: () => join(group) },
     ]);
+  }
+
+  // 목록이 비었을 때의 안내 — 입력 전 / 검색 중 / 조회 실패 / 결과 없음을 각각 다르게 말한다.
+  let emptyNotice: ReactNode = null;
+  if (!q) {
+    emptyNotice = <Text style={s.emptyText}>찾고 싶은 그룹 이름을 입력해보세요</Text>;
+  } else if (results.length === 0) {
+    if (searching) emptyNotice = <Text style={s.emptyText}>검색 중…</Text>;
+    else if (searchError)
+      emptyNotice = (
+        <>
+          <Text style={s.emptyText}>검색하지 못했어요</Text>
+          <TouchableOpacity onPress={retrySearch} hitSlop={12} activeOpacity={0.7}>
+            <Text style={s.emptyRetry}>다시 시도</Text>
+          </TouchableOpacity>
+        </>
+      );
+    else emptyNotice = <Text style={s.emptyText}>그런 이름의 공개 그룹이 없어요</Text>;
   }
 
   return (
@@ -241,10 +299,7 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
           );
         })}
 
-        {q.length === 0 && <Text style={s.empty}>찾고 싶은 그룹 이름을 입력해보세요</Text>}
-        {q.length > 0 && results.length === 0 && (
-          <Text style={s.empty}>{searching ? '검색 중…' : '그런 이름의 공개 그룹이 없어요'}</Text>
-        )}
+        {emptyNotice !== null && <View style={s.emptyBox}>{emptyNotice}</View>}
       </ScrollView>
 
       {/* 키보드 높이만큼 밀어 올린다(패널 자체 paddingBottom과 겹치지 않게 insets 분은 제외하지 않는다) */}
@@ -306,10 +361,12 @@ const s = StyleSheet.create({
   rowCount: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
   rowFullTag: { ...T.text.caption, color: T.inkMuted },
 
-  empty: {
-    ...T.text.caption,
-    color: T.inkMuted,
-    textAlign: 'center',
+  emptyBox: {
+    alignItems: 'center',
+    gap: T.space.sm,
     paddingVertical: T.space.xxl,
   },
+  emptyText: { ...T.text.caption, color: T.inkMuted, textAlign: 'center' },
+  // 재시도 링크는 그룹 화면 공통 accent 링크 규격(§G-4 — GroupScreen 배너와 같은 값)
+  emptyRetry: { ...T.text.caption, color: T.accent },
 });

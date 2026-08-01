@@ -196,6 +196,27 @@ describe('프리뷰 조회 분기', () => {
     expect(mockGetMyGroups).toHaveBeenCalledTimes(2); // 마운트 시 1회 + 참여 직전 재확인 1회
   });
 
+  // 마지막 멤버가 나가면 서버가 그룹을 ENDED로 내린다(Group.close()). 그런데 서버 join은
+  // 상태를 보지 않아, 그대로 두면 종료된 그룹에 멤버십만 생기는 모순 데이터가 만들어진다.
+  test('종료된(ENDED) 그룹은 사라진 그룹과 같이 끝낸다', async () => {
+    mockGetGroupOverview.mockResolvedValue(overview({ status: 'ENDED' }));
+    await renderSheet();
+
+    expect(await screen.findByText('사라진 그룹이에요')).toBeOnTheScreen();
+    expect(screen.queryByText('참여하기')).toBeNull();
+  });
+
+  // 비밀번호는 폐기 개념(§0)이라 앱은 항상 빈 바디로 join한다 — 기존 비번 그룹을 그냥 두면
+  // 눌러도 WRONG_PASSWORD로만 끝나고 화면엔 공통 실패 문구밖에 뜨지 않는다.
+  test('비밀번호가 걸린 그룹은 이유를 밝히고 참여를 막는다', async () => {
+    mockGetGroupOverview.mockResolvedValue(overview({ hasPassword: true }));
+    await renderSheet();
+
+    expect(await screen.findByText('비밀번호가 걸린 그룹이라 참여할 수 없어요')).toBeOnTheScreen();
+    await press('참여하기');
+    expect(mockJoinGroup).not.toHaveBeenCalled();
+  });
+
   test('404는 사라진 그룹으로 안내한다', async () => {
     mockGetGroupOverview.mockRejectedValue(axiosErrorWith(404, 'NOT_FOUND'));
     await renderSheet();
@@ -308,6 +329,45 @@ describe('참여 분기', () => {
 
     expect(await screen.findByText('저녁 스터디방')).toBeOnTheScreen();
     expect(screen.queryByText('로그인하면 그룹에 참여할 수 있어요')).toBeNull();
+  });
+
+  // 프리뷰 조회에는 alive 가드가 있지만 참여 요청에는 없었다 — 초대 A의 참여가 진행 중일 때
+  // 초대 B 링크가 도착하면 groupId만 갈리므로, 늦게 온 A의 ROOM_FULL이 B 프리뷰를 차단했다.
+  test('연속 초대 링크 — 늦게 도착한 앞 그룹의 참여 실패가 새 프리뷰를 막지 않는다', async () => {
+    let rejectJoin: (e: unknown) => void = () => {};
+    mockJoinGroup.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectJoin = reject; // 초대 A의 참여 응답을 붙잡아 둔다
+        }),
+    );
+    const { rerender } = await renderSheet();
+
+    await press('참여하기');
+
+    // A 응답이 오기 전에 초대 B가 도착한다.
+    mockGetGroupOverview.mockResolvedValue(overview({ id: OTHER_GROUP_ID, name: '저녁 스터디방' }));
+    await act(async () => {
+      rerender(
+        <GroupInviteSheet
+          groupId={OTHER_GROUP_ID}
+          onClose={onClose}
+          onJoined={onJoined}
+          onLogin={onLogin}
+        />,
+      );
+    });
+    expect(await screen.findByText('저녁 스터디방')).toBeOnTheScreen();
+
+    await act(async () => {
+      rejectJoin(axiosErrorWith(409, 'ROOM_FULL'));
+    });
+
+    expect(screen.queryByText('정원이 가득 찼어요')).toBeNull();
+    // B는 그대로 참여 가능한 상태다.
+    mockJoinGroup.mockResolvedValueOnce(undefined);
+    await press('참여하기');
+    expect(mockJoinGroup).toHaveBeenLastCalledWith(OTHER_GROUP_ID);
   });
 
   test('모르는 code는 공통 문구로 떨어진다(§5-2)', async () => {

@@ -33,6 +33,7 @@ import { SubjectProvider } from '@/store/SubjectContext';
 import { T } from '@/constants/theme';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { RageTapDetector } from '@/components/RageTapDetector';
+import { DeepLinkGate } from '@/components/DeepLinkGate';
 import { OrphanFocusSettler } from '@/screens/focus/OrphanFocusSettler';
 import { abortTagEdits } from '@/screens/focus/tagSync';
 import { abortFocusRestore } from '@/screens/focus/focusRestore';
@@ -437,8 +438,11 @@ function App() {
   // SafeAreaProvider 루트 — v2 LoginScreen 등 NavigationContainer 밖 화면도 SafeAreaView 사용 가능.
   // initialMetrics: 첫 프레임부터 안전영역 인셋을 확정해 콜드스타트 레이아웃 점프(하단 CTA 튐) 방지.
   // RageTapDetector — 전역 연타(좌절 신호) 계측. UI 없이 터치 버블링만 관찰(GROMO-782).
+  // DeepLinkGate — 딥링크(그룹 초대) 수신. **인증 분기 밖**에 둔다: 로그인·온보딩 화면에서
+  // 누른 초대 링크도 버퍼에 담겨야 로그인 후 같은 그룹 프리뷰로 이어진다(§6-6).
   return (
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <DeepLinkGate />
       <RageTapDetector>{content}</RageTapDetector>
     </SafeAreaProvider>
   );

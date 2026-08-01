@@ -1,5 +1,3 @@
-import { useEffect } from 'react';
-import { Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -35,11 +33,7 @@ import { TabBar } from '@/components/TabBar';
 import { initAnalytics } from '@/services/analytics';
 import { startDatadogNavigationTracking } from '@/services/datadog';
 import type { V2RootStackParamList } from '@/navigation/types';
-import {
-  navigationRef,
-  flushPendingDeepLink,
-  navigateToDeepLink,
-} from '@/navigation/navigationRef';
+import { navigationRef, flushPendingDeepLink } from '@/navigation/navigationRef';
 
 // 메인 네비게이터 — 시안 "메인 4탭 + 중앙 FAB" 구조.
 // 그룹 탭은 A안 실기능(docs/app/group-plan.md) — Fakedoor(GROMO-597)를 걷어냈다. 데이터 층은 @/store 공유.
@@ -66,23 +60,9 @@ function MainTabs() {
 }
 
 export function RootNavigator() {
-  // 외부 링크 수신(그룹 초대 — docs/app/group-plan.md §6-6). expo-linking 없이 RN 내장 Linking으로 충분하다.
-  //  · 콜드 스타트: getInitialURL() — 컨테이너가 아직 준비 전이면 navigateToDeepLink가 버퍼링하고
-  //    onReady의 flushPendingDeepLink()가 흘려보낸다.
-  //  · 실행 중: addEventListener('url') — 언마운트 시 remove().
-  // 실제 매핑(league/focus/home/join)은 @/navigation/navigationRef가 단독으로 책임진다.
-  useEffect(() => {
-    Linking.getInitialURL()
-      .then((url) => {
-        if (url) navigateToDeepLink(url);
-      })
-      .catch(() => {
-        // 초기 URL 조회 실패는 무시 — 링크 없이 일반 실행으로 진행.
-      });
-    const sub = Linking.addEventListener('url', ({ url }) => navigateToDeepLink(url));
-    return () => sub.remove();
-  }, []);
-
+  // 외부 링크 수신은 이 컴포넌트가 하지 않는다 — 인증된 user가 있을 때만 렌더되는 트리라
+  // 로그인 전에 도착한 초대 링크를 놓친다. 구독은 App.tsx 루트의 <DeepLinkGate/>가 맡고,
+  // 여기서는 컨테이너 준비 후 버퍼를 흘려보내는 일(onReady)만 한다(§6-6).
   return (
     <NavigationContainer
       ref={navigationRef}
