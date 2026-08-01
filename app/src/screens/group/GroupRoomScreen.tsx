@@ -35,6 +35,7 @@ import type {
   GroupSummaryResponse,
 } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { fmtNoticeDate } from './noticeDate';
 import MemberTile from './components/MemberTile';
 
 // 그룹방 — 명세 docs/app/group-plan.md §6-4.
@@ -52,18 +53,6 @@ const TAB_BAR_SPACE = 74;
 const COLS = 3;
 // 공지 섹션에 노출하는 최근 공지 수(나머지는 '모두보기')
 const NOTICE_PREVIEW = 3;
-
-// ISO 시각 → '오늘' / '어제' / 'n일 전' / '7월 29일'. 공지 카드 캡션용(§6-4 목업).
-function fmtNoticeDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const days = Math.floor((startOf(new Date()) - startOf(d)) / 86400000);
-  if (days <= 0) return '오늘';
-  if (days === 1) return '어제';
-  if (days < 7) return `${days}일 전`;
-  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
-}
 
 // 멤버 그리드 한 칸 — 멤버 타일 또는 마지막의 '＋ 초대' 타일.
 type GridCell = { kind: 'member'; member: GroupDetailMemberResponse } | { kind: 'invite' };

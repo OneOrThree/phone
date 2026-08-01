@@ -7,6 +7,7 @@ import { useUser } from '@/store/UserContext';
 import { getGroupOverview, getMyGroups, groupErrorCode, joinGroup } from '@/services/groupApi';
 import { logGroupJoinAttempted } from '@/services/analyticsEvents';
 import type { GroupOverviewResponse } from '@/types/dto/group';
+import { acquireJoinLock, joinCompletionCount, releaseJoinLock, useJoinLocked } from '../joinLock';
 
 // 초대 링크 프리뷰 시트 — 명세 docs/app/group-plan.md §6-6.
 //
@@ -118,7 +119,9 @@ export default function GroupInviteSheet({
   const [gone, setGone] = useState(false); // 404 — 사라진 그룹
   const [failed, setFailed] = useState(false); // 그 외 조회 실패 — 다시 시도
   const [block, setBlock] = useState<BlockReason | null>(null);
-  const [joining, setJoining] = useState(false);
+  // 참여 진행 표시(스피너·비활성)는 **전역 잠금**에서 파생시킨다 — 이 시트가 보낸 요청이든
+  // 찾기 시트가 보낸 요청이든, 참여가 하나라도 떠 있으면 여기서 또 보낼 수 없다(joinLock.ts).
+  const joining = useJoinLocked();
   const [joinError, setJoinError] = useState<string | null>(null);
   // 서버가 GUEST_FORBIDDEN을 준 경우(로그인 시점 태깅이 어긋난 구 세션) 게스트 화면으로 떨어뜨린다.
   const [guestBlocked, setGuestBlocked] = useState(false);
@@ -126,13 +129,15 @@ export default function GroupInviteSheet({
 
   // 내 그룹 id — undefined는 '아직 모름'(조회 실패). 참여 직전에 한 번 더 확인한다.
   const myGroupId = useRef<string | null | undefined>(undefined);
+  // 위 값을 읽어 온 시점의 참여 완료 횟수. 그 뒤로 어딘가에서 참여가 끝났다면(찾기 시트에서
+  // 다른 그룹에 가입) 캐시는 낡은 것이라 참여 직전에 다시 확인해야 한다 — 이 시트는 그때
+  // 언마운트되지 않으므로(부모는 초대 버퍼를 그대로 둔다) 낡은 '소속 없음'으로 두 번째 그룹에
+  // 가입해 버릴 수 있다. 조회를 **보내기 전** 값을 찍어야 조회 중에 끝난 참여도 잡힌다.
+  const myGroupSeenAt = useRef(joinCompletionCount());
   // 지금 이 시트가 보고 있는 groupId. 시트는 key 없이 재사용돼(GroupScreen) 두 번째 초대 링크가
   // 도착하면 groupId만 갈린다 — 진행 중이던 참여 요청이 그 뒤에 끝나면 앞 그룹의 결과를
   // 새 프리뷰에 덮어쓰게 되므로, 참여 시작 시점의 groupId와 비교해 최신일 때만 반영한다.
   const groupIdRef = useRef(groupId);
-  // 참여 단일 실행 잠금 — joining(state)은 리렌더 뒤에야 보이므로 같은 틱의 연타를 막지 못한다.
-  // 참여 시작~종료를 동기적으로 잠그는 건 이 ref고, joining은 표시(스피너·disabled) 전용이다.
-  const joinLock = useRef(false);
   // 조회 완료 시점에 부모 콜백을 부르므로, 콜백 신원 변화로 재조회가 돌지 않게 ref로 잡는다.
   const joinedRef = useRef(onJoined);
   useEffect(() => {
@@ -162,20 +167,19 @@ export default function GroupInviteSheet({
     setFailed(false);
     setJoinError(null);
     setBlock(null);
-    // 진행 중이던 이전 그룹의 참여 요청은 **끝날 때까지 잠근 채로 둔다**. 여기서 풀면 초대 A가
-    // 멤버십을 바꾸는 동안 B의 참여 버튼이 살아나는데, 서버 joinGroup은 그룹 1개를 강제하지
-    // 않으므로(GroupService:207-243) 두 요청이 모두 성공해 두 그룹에 걸친다 — 앱은 groups[0]만
-    // 보여주므로 나머지 한 곳은 들어가지도 나가지도 못하는 상태로 남는다(§0).
-    // 잠금은 join()의 finally가 **세대와 무관하게** 풀어 준다 — 여기서 안 풀어도 갇히지 않는다.
-    setJoining(joinLock.current);
+    // 진행 중이던 이전 그룹의 참여 요청은 **끝날 때까지 잠근 채로 둔다**(joinLock.ts). 여기서 풀면
+    // 초대 A가 멤버십을 바꾸는 동안 B의 참여 버튼이 살아나 두 요청이 모두 성공한다 — 잠금이 이제
+    // 모듈 스코프라 groupId가 갈려도 그대로 유지되고, join()의 finally가 반드시 풀어 준다.
     // guestBlocked도 함께 되돌린다 — 시트는 key 없이 재사용돼(GroupScreen) 두 번째 초대 링크가
     // 도착하면 groupId만 바뀐다. 앞 그룹에서 GUEST_FORBIDDEN으로 세운 값이 남으면 정상 프리뷰를
     // 보여줘야 할 그룹에 게스트 차단 화면이 뜬다.
     setGuestBlocked(false);
     (async () => {
+      const seenAt = joinCompletionCount();
       const mine = await fetchMyGroupId();
       if (!alive) return;
       myGroupId.current = mine;
+      myGroupSeenAt.current = seenAt;
       try {
         const ov = await getGroupOverview(groupId);
         if (!alive) return;
@@ -210,25 +214,30 @@ export default function GroupInviteSheet({
   }, [groupId, isGuest, reloadKey, fetchMyGroupId]);
 
   const join = useCallback(async () => {
-    if (joinLock.current || block) return;
+    if (block) return;
+    // 소속 재확인(await)보다 **먼저** 잠근다 — 뒤에서 잠그면 재확인이 도는 동안 버튼이 살아 있어
+    // 연타마다 재조회와 joinGroup이 병렬로 나가고, 첫 요청의 성공과 뒤따르는 ALREADY_MEMBER가
+    // 각각 onJoined·계측을 불러 부모 콜백과 분석 이벤트가 중복된다.
+    // 잠금을 못 잡으면 다른 참여(찾기 시트 포함)가 진행 중이다 — 버튼은 그동안 스피너·비활성이라
+    // 여기 걸리는 건 같은 틱의 연타뿐이므로 문구 없이 조용히 돌려보낸다.
+    const token = acquireJoinLock();
+    if (!token) return;
     // 이 요청이 겨냥한 그룹. 응답이 오기 전에 두 번째 초대 링크가 도착하면 groupId가 갈리는데,
     // 그때 이 결과(정원·404·오류 문구)를 그대로 반영하면 **다른 그룹의 프리뷰**가 오염된다.
     const target = groupId;
     const isStale = () => groupIdRef.current !== target;
-    // 소속 재확인(await)보다 **먼저** 잠근다 — 뒤에서 잠그면 재확인이 도는 동안 버튼이 살아 있어
-    // 연타마다 재조회와 joinGroup이 병렬로 나가고, 첫 요청의 성공과 뒤따르는 ALREADY_MEMBER가
-    // 각각 onJoined·계측을 불러 부모 콜백과 분석 이벤트가 중복된다.
-    joinLock.current = true;
-    setJoining(true);
     setJoinError(null);
     try {
-      // 보조 조회가 실패해 내 그룹 상태를 모르면 참여 직전에 다시 확인한다(그룹 1개 전제 방어).
+      // 보조 조회가 실패해 내 그룹 상태를 모르거나(undefined), 조회 이후 다른 곳에서 참여가
+      // 끝나 캐시가 낡았으면 참여 직전에 다시 확인한다(그룹 1개 전제 방어).
       // 여기서도 실패하면 **막는다(fail-closed)** — 통과시키면 이미 다른 그룹에 있는 사용자가
       // 두 그룹에 걸치고, 앱은 groups[0]만 보여줘 나머지 한 곳은 나갈 수도 없는 상태로 남는다(§0).
-      if (myGroupId.current === undefined) {
+      if (myGroupId.current === undefined || myGroupSeenAt.current !== joinCompletionCount()) {
+        const seenAt = joinCompletionCount();
         const mine = await fetchMyGroupId();
         if (isStale()) return;
         myGroupId.current = mine;
+        myGroupSeenAt.current = seenAt;
         if (mine === undefined) {
           setJoinError('소속 그룹을 확인하지 못했어요. 잠시 후 다시 시도해주세요.');
           return;
@@ -275,11 +284,9 @@ export default function GroupInviteSheet({
           setJoinError('참여하지 못했어요. 잠시 후 다시 시도해주세요.');
       }
     } finally {
-      // 세대가 갈렸어도 반드시 푼다 — 프리뷰 이펙트는 더 이상 잠금을 풀지 않으므로(위 주석)
-      // 이 잠금을 쥔 것은 이 요청뿐이고, 여기서 놓지 않으면 새 프리뷰의 참여 버튼이 영영 잠긴다.
-      // 진행 중인 요청은 언제나 하나뿐이라 joining을 내리는 것도 새 프리뷰와 충돌하지 않는다.
-      joinLock.current = false;
-      setJoining(false);
+      // 세대가 갈렸어도 반드시 푼다 — 프리뷰 이펙트는 잠금을 풀지 않으므로(위 주석) 이 잠금을 쥔
+      // 것은 이 요청뿐이고, 여기서 놓지 않으면 새 프리뷰의 참여 버튼이 영영 잠긴다.
+      releaseJoinLock(token);
     }
   }, [block, fetchMyGroupId, groupId]);
 

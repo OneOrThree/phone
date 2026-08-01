@@ -80,6 +80,11 @@ export default function NoticeScreen() {
   // 시트는 작성·수정 공용이다 — editing이 null이면 새 공지, 있으면 그 공지를 고친다.
   const [composeOpen, setComposeOpen] = useState(false);
   const [editing, setEditing] = useState<GroupAnnouncementResponse | null>(null);
+  // 등록 성공 직후의 재조회가 끝나기 전인가 — 그 구간에는 빈 상태 안내를 세우지 않는다.
+  // (등록은 성공했는데 목록은 아직 []라, 느린 GET 동안 '등록된 공지가 없어요'가 다시 떠서
+  //  방금 올린 공지가 사라진 줄 알고 같은 공지를 또 쓰게 된다. 조회 실패 분기는 GET이 끝난
+  //  뒤에만 이 자리를 대신하므로 조회 **중**은 여전히 빈 상태였다.)
+  const [transitioning, setTransitioning] = useState(false);
 
   // 요청 시퀀스 — 당겨서 새로고침·작성 직후 재조회·'다시 시도'가 겹치면 늦게 도착한 이전 응답이
   // 최신 목록을 덮을 수 있다. 최신 요청의 결과만 반영한다(useFriends.ts의 requestSeqRef 패턴).
@@ -98,6 +103,10 @@ export default function NoticeScreen() {
       if (seq !== requestSeqRef.current) return false;
       setErrorMsg(listErrorMessage(e));
     }
+    // 성공이든 실패든 **최신 조회가 끝나면** 전이도 끝난다 — 실패는 아래 에러+다시 시도가
+    // 빈 상태 자리를 대신하므로 여기서 더 붙잡을 이유가 없다. 반대로 stale로 끝난 호출에서
+    // 풀면(더 새로운 조회가 진행 중) 그 조회가 도착하기 전에 빈 상태가 다시 뜬다.
+    setTransitioning(false);
     return true;
   }, [groupId]);
 
@@ -138,6 +147,8 @@ export default function NoticeScreen() {
   const onSaved = useCallback(() => {
     setComposeOpen(false);
     setEditing(null);
+    // 서버에는 이미 공지가 있다 — 재조회가 끝날 때까지 빈 상태를 세우지 않는다(transitioning 주석).
+    setTransitioning(true);
     fetchNotices();
   }, [fetchNotices]);
 
@@ -288,10 +299,15 @@ export default function NoticeScreen() {
         // 빈 목록 + 재조회 실패는 '공지가 없다'가 아니라 '모른다'다 — 첫 공지 등록 직후 재조회가
         // 실패한 상황에서 '등록된 공지가 없어요 / 첫 공지를 남겨보세요'를 그대로 두면 방금 올린
         // 공지를 한 번 더 쓰게 된다. 이때는 에러+다시 시도로 바꿔 재조회 쪽으로 유도한다.
+        // 재조회가 **아직 도는 중**(transitioning)일 때도 같은 이유로 빈 상태를 세우지 않는다.
         // (FAB은 남긴다 — 목록을 못 읽은 게 곧 쓰지 말라는 뜻은 아니다.)
         ListEmptyComponent={
           errorMsg !== null ? (
             errorState(errorMsg)
+          ) : transitioning ? (
+            <View style={s.center}>
+              <ActivityIndicator color={T.accent} />
+            </View>
           ) : (
             <View style={s.center}>
               <Text style={s.emptyTitle}>등록된 공지가 없어요</Text>

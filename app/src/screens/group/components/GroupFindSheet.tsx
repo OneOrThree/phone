@@ -20,6 +20,7 @@ import { groupErrorCode, joinGroup, searchGroups } from '@/services/groupApi';
 import { logGroupJoinAttempted, logGroupSearchPerformed } from '@/services/analyticsEvents';
 import type { GroupSearchResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
 
 // 그룹 찾기 시트 — 명세 docs/app/group-plan.md §6-3.
 // 이름으로 공개 그룹을 검색해 바로 참여한다. 비공개방은 서버가 검색에서 제외한다.
@@ -61,8 +62,11 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
   // 조회 실패 — '결과 없음'과 반드시 구분한다. 실패를 빈 목록으로 뭉개면 실제로 있는 그룹을
   // 찾는 사용자가 '그런 이름의 공개 그룹이 없어요'를 보고 이름이 틀렸다고 오인한다.
   const [searchError, setSearchError] = useState(false);
-  // 참여 중인 그룹 id — 연타로 join이 두 번 나가는 것을 막는다
+  // 참여 중인 그룹 id — 어느 행에 스피너를 그릴지만 정한다. 연타·중복 실행을 막는 것은
+  // 전역 잠금(joinLock.ts)이고, 이 값은 리렌더 뒤에야 보여 같은 틱의 두 번째 탭을 못 막는다.
   const [joiningId, setJoiningId] = useState<string | null>(null);
+  // 앱 어딘가에서 참여가 진행 중인가 — 이 시트의 요청이든 초대 시트의 요청이든 행을 잠근다.
+  const joinLocked = useJoinLocked();
   // 참여 실패 문구 — 시트 안에서 인라인으로 띄운다(Alert 아님, 파일 상단 규칙).
   const [joinError, setJoinError] = useState<string | null>(null);
   // 키보드가 바텀시트를 덮는 문제 보정 — 패널은 하단 고정이라 자체적으로 올라가지 않는다.
@@ -167,7 +171,14 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
   }, [navigation, onClose]);
 
   async function join(group: GroupSearchResponse) {
-    if (joiningId) return;
+    // 참여는 앱 전체에서 한 번에 하나만 나간다(joinLock.ts) — 초대 시트의 참여와 같은 잠금을 쓴다.
+    // 잠금을 못 잡는 경우: 이 시트가 내려간 뒤에도 살아 있는 앞 요청, 또는 초대 시트가 쥔 잠금.
+    // 확인 Alert를 거쳐 들어오므로 사용자는 무언가 눌렀다고 믿는다 — 조용히 삼키지 않고 알린다.
+    const token = acquireJoinLock();
+    if (!token) {
+      setJoinError('참여를 처리하는 중이에요. 잠시 후 다시 시도해주세요.');
+      return;
+    }
     // 참여 요청도 **검색 세대를 캡처한다**. 응답을 기다리는 동안 사용자가 검색어를 바꿀 수 있는데,
     // 그때 늦게 도착한 A의 실패를 그대로 반영하면 A용 오류 문구가 B 화면에 뜨고, refreshResults가
     // B의 세대 번호로 A를 다시 조회해 유효한 요청처럼 B 결과를 덮는다.
@@ -212,6 +223,7 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
           setJoinError('참여하지 못했어요. 잠시 후 다시 시도해주세요.');
       }
     } finally {
+      releaseJoinLock(token);
       setJoiningId(null);
     }
   }
@@ -286,7 +298,7 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
               key={r.groupId}
               style={[s.row, full && s.rowFull]}
               activeOpacity={0.85}
-              disabled={full || joiningId !== null}
+              disabled={full || joinLocked}
               onPress={() => confirmJoin(r)}
             >
               <Text style={s.rowName} numberOfLines={1}>

@@ -8,6 +8,7 @@ import GroupFindSheet from './GroupFindSheet';
 import { joinGroup, searchGroups } from '@/services/groupApi';
 import { logGroupJoinAttempted, logGroupSearchPerformed } from '@/services/analyticsEvents';
 import type { GroupSearchResponse } from '@/types/dto/group';
+import { isJoinLocked, resetJoinLock } from '../joinLock';
 
 // SheetShell이 useSafeAreaInsets를 쓴다 — 테스트 트리엔 SafeAreaProvider가 없어 고정값으로 대체한다.
 jest.mock('react-native-safe-area-context', () => ({
@@ -98,6 +99,9 @@ beforeEach(() => {
   jest.useFakeTimers();
   jest.clearAllMocks();
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  // 참여 잠금은 모듈 스코프다(joinLock.ts) — 응답을 붙잡아 둔 테스트가 잠금을 쥔 채 끝나면
+  // 뒤 테스트의 행이 처음부터 비활성이다. 테스트 사이를 확실히 끊는다.
+  resetJoinLock();
 });
 
 afterEach(() => {
@@ -405,6 +409,32 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     expect(screen.queryByText('정원이 가득 찼어요. 다른 그룹을 찾아보세요.')).toBeNull();
     expect(screen.getByText('저녁 스터디')).toBeOnTheScreen();
     expect(mockSearchGroups).toHaveBeenCalledTimes(2); // A 갱신(refreshResults)이 나가지 않았다
+  });
+
+  // 이 시트의 참여는 **전역 잠금**을 쥔다(joinLock.ts). 초대 링크가 도착하면 부모가 이 시트를
+  // 내리고 초대 시트를 여는데, 언마운트가 진행 중인 요청을 취소하지는 않는다 — 잠금이 남아
+  // 있어야 새 시트의 참여가 함께 나가 두 그룹에 걸치는 일을 막는다(§0).
+  test('참여 요청이 떠 있는 동안 전역 잠금을 쥔다 — 시트를 내려도 유지된다', async () => {
+    let resolveJoin: () => void = () => {};
+    mockJoinGroup.mockImplementation(() => new Promise<void>((res) => (resolveJoin = () => res())));
+    const { unmount } = await renderSheet();
+
+    const name = await searchFor('아침 6시 집중방');
+    await act(async () => {
+      fireEvent.press(name);
+    });
+    await confirmJoinAlert();
+    expect(isJoinLocked()).toBe(true);
+
+    await act(async () => {
+      unmount(); // 초대 링크 수신 → 부모가 찾기 시트를 내린다
+    });
+    expect(isJoinLocked()).toBe(true); // 요청은 아직 살아 있다
+
+    await act(async () => {
+      resolveJoin();
+    });
+    expect(isJoinLocked()).toBe(false);
   });
 
   test('GUEST_FORBIDDEN만 예외 — 시트를 닫고 로그인 유도 Alert를 띄운다', async () => {

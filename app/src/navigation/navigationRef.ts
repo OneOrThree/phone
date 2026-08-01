@@ -85,8 +85,19 @@ export function navigateToDeepLink(link: string): void {
 
 // NavigationContainer onReady에서 호출 — 준비 전에 도착한 링크를 1회 흘려보낸다.
 export function flushPendingDeepLink(): void {
-  if (!pendingLink) return;
-  const link = pendingLink;
-  pendingLink = null;
-  navigateToDeepLink(link);
+  if (pendingLink) {
+    const link = pendingLink;
+    pendingLink = null;
+    navigateToDeepLink(link);
+    return;
+  }
+  // 링크는 이미 소비됐는데 초대 버퍼만 남아 있는 경우 = **컨테이너가 새로 만들어졌다**.
+  // 게스트가 초대 시트에서 소셜 로그인하면 userId가 바뀌어 <UserProvider key={userId}>가 갈리고
+  // RootNavigator가 통째로 다시 마운트되는데, 새 탭 네비게이터는 홈부터 시작하고 그룹 탭은
+  // 포커스 전까지 마운트되지 않는다(lazy) — GroupScreen이 peekPendingInvite()로 버퍼를 이어받을
+  // 기회 자체가 없어 "로그인하면 이 초대장이 다시 열려요"라는 안내가 깨진다(§6-6).
+  // 여기서 그룹 탭으로 옮겨 주면 화면이 마운트되며 같은 그룹 프리뷰가 다시 뜬다.
+  if (pendingInviteGroupId && navigationRef.isReady()) {
+    navigationRef.navigate('Main', { screen: '그룹' } as never);
+  }
 }

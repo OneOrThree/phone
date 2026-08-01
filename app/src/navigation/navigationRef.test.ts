@@ -4,6 +4,7 @@
 // 여기서는 링크 → (탭 이동 + 초대 버퍼) 까지의 실제 배선을 잠근다.
 import {
   clearPendingInvite,
+  flushPendingDeepLink,
   navigateToDeepLink,
   navigationRef,
   peekPendingInvite,
@@ -51,6 +52,39 @@ describe('초대 링크', () => {
     expect(navigate).not.toHaveBeenCalled();
     expect(inviteListener).not.toHaveBeenCalled();
     expect(peekPendingInvite()).toBeNull();
+  });
+});
+
+// 컨테이너 onReady에서 도는 flush — 준비 전 링크를 흘려보내는 일 외에,
+// **네비게이터가 새로 만들어진 경우**(게스트→소셜 로그인으로 userId가 바뀌어 UserProvider가
+// 리마운트) 살아남은 초대 버퍼를 그룹 탭으로 데려가는 일까지 한다. 새 탭 네비게이터는 홈부터
+// 시작하고 그룹 탭은 포커스 전까지 마운트되지 않아, 그러지 않으면 초대장이 다시 열리지 않는다.
+describe('컨테이너 준비(onReady)', () => {
+  test('준비 전에 도착한 링크는 그대로 흘려보낸다', () => {
+    jest.spyOn(navigationRef, 'isReady').mockReturnValue(false);
+    navigateToDeepLink(`gromo://join?g=${GROUP_ID}`);
+    expect(navigate).not.toHaveBeenCalled();
+
+    jest.spyOn(navigationRef, 'isReady').mockReturnValue(true);
+    flushPendingDeepLink();
+
+    expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
+    expect(peekPendingInvite()).toBe(GROUP_ID);
+  });
+
+  test('링크는 이미 소비됐고 초대 버퍼만 남았으면 그룹 탭으로 데려간다(네비게이터 재마운트)', () => {
+    navigateToDeepLink(`gromo://join?g=${GROUP_ID}`); // 로그인 전 세션에서 수신·소비됨
+    navigate.mockClear();
+
+    flushPendingDeepLink(); // 로그인 후 새 컨테이너의 onReady
+
+    expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
+    expect(peekPendingInvite()).toBe(GROUP_ID); // 버퍼는 GroupScreen이 이어받을 때까지 남는다
+  });
+
+  test('보류된 링크·초대가 없으면 아무 데도 가지 않는다(일반 실행)', () => {
+    flushPendingDeepLink();
+    expect(navigate).not.toHaveBeenCalled();
   });
 });
 

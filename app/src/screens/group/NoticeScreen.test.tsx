@@ -210,6 +210,51 @@ describe('빈 목록 + 재조회 실패', () => {
   });
 });
 
+// 위 테스트는 GET이 **실패로 끝난 뒤**만 잠근다 — 등록 성공 후 조회가 도는 **동안**에는
+// notices가 아직 []이고 errorMsg도 없어 빈 상태가 그대로 다시 떴다. 느린 GET에서 방금 올린
+// 공지가 사라진 줄 알고 같은 공지를 한 번 더 등록하게 되는 창이다.
+describe('등록 직후 재조회 중', () => {
+  test('조회가 끝날 때까지 빈 상태 안내를 세우지 않는다', async () => {
+    let resolveRefetch: (rows: GroupAnnouncementResponse[]) => void = () => {};
+    mockGetAnnouncements.mockResolvedValueOnce([]).mockImplementationOnce(
+      () =>
+        new Promise<GroupAnnouncementResponse[]>((resolve) => {
+          resolveRefetch = resolve; // 등록 후 재조회 응답을 붙잡아 둔다
+        }),
+    );
+    mockCreateAnnouncement.mockResolvedValueOnce(undefined);
+    await renderScreen();
+
+    expect(screen.getByText('등록된 공지가 없어요')).toBeOnTheScreen();
+
+    await openCompose();
+    await fillCompose('공지 제목', '공지 본문');
+    await press('등록하기');
+
+    // 재조회가 도는 동안 — '없어요 / 첫 공지를 남겨보세요'가 다시 뜨면 안 된다.
+    await waitFor(() => expect(mockGetAnnouncements).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('등록된 공지가 없어요')).toBeNull();
+    expect(screen.queryByText('+ 버튼으로 첫 공지를 남겨보세요')).toBeNull();
+
+    await act(async () => {
+      resolveRefetch([notice()]);
+    });
+    expect(await screen.findByText('오늘 6시에 모여요')).toBeOnTheScreen();
+  });
+
+  test('조회 결과가 정말 비어 있으면 그때 빈 상태로 돌아온다', async () => {
+    mockGetAnnouncements.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    mockCreateAnnouncement.mockResolvedValueOnce(undefined);
+    await renderScreen();
+
+    await openCompose();
+    await fillCompose('공지 제목', '공지 본문');
+    await press('등록하기');
+
+    expect(await screen.findByText('등록된 공지가 없어요')).toBeOnTheScreen();
+  });
+});
+
 describe('삭제', () => {
   test('삭제 404도 목록을 다시 맞춘다(r3에서 잠근 규칙)', async () => {
     mockGetAnnouncements.mockResolvedValueOnce([notice()]).mockResolvedValueOnce([]);

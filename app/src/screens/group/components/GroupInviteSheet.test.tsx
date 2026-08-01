@@ -11,6 +11,7 @@ import GroupInviteSheet from './GroupInviteSheet';
 import { getGroupOverview, getMyGroups, joinGroup } from '@/services/groupApi';
 import { logGroupJoinAttempted } from '@/services/analyticsEvents';
 import type { GroupOverviewResponse, GroupSummaryResponse } from '@/types/dto/group';
+import { acquireJoinLock, releaseJoinLock, resetJoinLock } from '../joinLock';
 
 // SheetShell이 useSafeAreaInsets를 쓴다 — 테스트 트리엔 SafeAreaProvider가 없어 고정값으로 대체한다.
 jest.mock('react-native-safe-area-context', () => ({
@@ -113,6 +114,9 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockIsGuest = false;
   mockGetMyGroups.mockResolvedValue([]); // 기본: 소속 그룹 없음
+  // 참여 잠금은 모듈 스코프다(joinLock.ts) — 한 테스트가 잠금을 쥔 채 끝나면 뒤 테스트의
+  // 참여 버튼이 처음부터 잠겨 있다. 테스트 사이를 확실히 끊는다.
+  resetJoinLock();
 });
 
 describe('프리뷰 조회 분기', () => {
@@ -467,6 +471,47 @@ describe('참여 분기', () => {
     expect(mockJoinGroup).toHaveBeenCalledTimes(1);
     expect(onJoined).toHaveBeenCalledTimes(1);
     expect(logGroupJoinAttempted).toHaveBeenCalledTimes(1);
+  });
+
+  // 시트 안의 잠금만으로는 **시트를 가로지르는 경합**을 못 막았다 — 찾기 시트에서 A 참여가
+  // 진행 중일 때 초대 링크가 도착하면 GroupScreen이 찾기 시트를 내리고 이 시트를 여는데,
+  // 언마운트는 진행 중인 요청을 취소하지 않으므로 B 참여가 함께 나가 두 그룹에 걸쳤다(§0).
+  // 아래 두 테스트가 그 창의 앞뒤(진행 중 / 끝난 직후)를 각각 잠근다.
+  test('찾기 시트의 참여가 진행 중이면 초대 참여 버튼이 잠긴다', async () => {
+    const foreign = acquireJoinLock(); // 찾기 시트가 A 참여를 보낸 상태
+    await renderSheet();
+
+    expect(await screen.findByText('아침 6시 집중방')).toBeOnTheScreen();
+    expect(screen.queryByText('참여하기')).toBeNull(); // 스피너 — 버튼은 비활성
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.invite.join'));
+    });
+    expect(mockJoinGroup).not.toHaveBeenCalled();
+
+    // A가 끝나면 이 버튼도 함께 살아난다(잠금 구독) — 그러지 않으면 초대가 영영 못 눌린다.
+    await act(async () => {
+      releaseJoinLock(foreign!);
+    });
+    expect(await screen.findByText('참여하기')).toBeOnTheScreen();
+  });
+
+  test('다른 곳의 참여가 끝나면 캐시한 소속을 다시 확인한다', async () => {
+    const foreign = acquireJoinLock();
+    await renderSheet(); // 이 시점의 getMyGroups는 아직 '소속 없음'
+
+    // 찾기 시트가 다른 그룹(A) 참여에 성공하고 잠금을 놓는다. 이 시트는 부모가 초대 버퍼를
+    // 그대로 두므로 언마운트되지 않는다 — 캐시한 '소속 없음'을 믿고 B에 가입하면 두 그룹에 걸친다.
+    mockGetMyGroups.mockResolvedValue([summary(OTHER_GROUP_ID)]);
+    await act(async () => {
+      releaseJoinLock(foreign!);
+    });
+
+    await press('참여하기');
+
+    expect(mockJoinGroup).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText('이미 참여 중인 그룹이 있어요. 나가고 참여해주세요.'),
+    ).toBeOnTheScreen();
   });
 
   test('모르는 code는 공통 문구로 떨어진다(§5-2)', async () => {
