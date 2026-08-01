@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Alert,
+  AppState,
   Image,
   RefreshControl,
   ScrollView,
@@ -21,6 +23,8 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
+import ScreenTimeModule, { type AuthorizationStatus } from '@/services/ScreenTimeModule';
+import { updateScreenTimePermission } from '@/services/userApi';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
@@ -125,15 +129,26 @@ function MetricRow({
 // (실사용시간은 원인 3으로 JS에 못 넘어와, 익스텐션 뷰를 임베드해야만 자정~현재 정확값 표시)
 // goalSeconds prop → App Group에 기록 → 익스텐션이 목표 대비 바를 그림.
 // iOS 외/네이티브 뷰 없음 → placeholder.
+// 권한 미허용(notDetermined/denied) 시 리포트가 데이터 없이 '00'으로 그려져 거짓 0분처럼
+// 보이므로 숫자+바 대신 권한 켜기 안내로 교체한다(GROMO-986). 분기 기준은 권한 상태 —
+// approved 유저의 실제 0분은 정상 00:00 유지. null(조회 전)은 리포트 유지(허용 유저 깜빡임 방지).
 function PhoneUsageRow({
   goalSeconds,
   refresh,
+  authStatus,
   onPress,
+  onEnablePermission,
 }: {
   goalSeconds: number;
   refresh: number;
+  authStatus: AuthorizationStatus | null;
   onPress: () => void;
+  onEnablePermission: () => void;
 }) {
+  // iOS 외(네이티브 뷰 없음)는 래퍼가 항상 'denied'를 반환하므로 권한 분기에서 제외 —
+  // 기존 placeholder('–')와 행 탭 동작(상세 이동)을 그대로 유지한다.
+  const needsPermission =
+    ScreenTimeReportView != null && (authStatus === 'notDetermined' || authStatus === 'denied');
   return (
     <View style={s.metricRow}>
       <View style={[s.metricIcon, { backgroundColor: T.accentBg }]}>
@@ -147,24 +162,39 @@ function PhoneUsageRow({
           <Ionicons name="chevron-forward" size={12} color={T.inkMuted} />
         </View>
         {ScreenTimeReportView ? (
-          // key에 goalSeconds+refresh → 목표 변경/홈 포커스 시 리마운트되어 최신값으로 재계산됨
-          // (DeviceActivityReport는 prop 변경만으로는 재계산 안 하고, 실시간 갱신도 아니라서)
-          <ScreenTimeReportView
-            key={`goal-${goalSeconds}-r${refresh}`}
-            reportContext="Home Usage"
-            goalSeconds={goalSeconds}
-            style={s.usageReport}
-          />
+          needsPermission ? (
+            // 권한 미허용 — 안내 문구 + 권한 켜기 CTA. 탭은 아래 행 전체 오버레이가 받는다.
+            <View style={s.permissionWrap}>
+              <Text style={s.permissionText} allowFontScaling={false}>
+                스크린타임 권한을 켜면{'\n'}오늘 사용시간을 볼 수 있어요.
+              </Text>
+              <View style={s.permissionBtn}>
+                <Text style={s.permissionBtnText} allowFontScaling={false}>
+                  권한 켜기
+                </Text>
+              </View>
+            </View>
+          ) : (
+            // key에 goalSeconds+refresh → 목표 변경/홈 포커스 시 리마운트되어 최신값으로 재계산됨
+            // (DeviceActivityReport는 prop 변경만으로는 재계산 안 하고, 실시간 갱신도 아니라서)
+            <ScreenTimeReportView
+              key={`goal-${goalSeconds}-r${refresh}`}
+              reportContext="Home Usage"
+              goalSeconds={goalSeconds}
+              style={s.usageReport}
+            />
+          )
         ) : (
           <Text style={s.metricValue}>–</Text>
         )}
       </View>
-      {/* 투명 터치 레이어 — 네이티브 뷰 위에서도 탭 감지 → 앱별 상세 오버레이 */}
+      {/* 투명 터치 레이어 — 네이티브 뷰 위에서도 탭 감지 → 앱별 상세 오버레이.
+          권한 미허용 시엔 행 전체가 권한 요청 탭 타깃이 된다. */}
       <TouchableOpacity
         style={StyleSheet.absoluteFill}
         activeOpacity={0.6}
-        onPress={onPress}
-        accessibilityLabel="핸드폰 앱별 사용시간 보기"
+        onPress={needsPermission ? onEnablePermission : onPress}
+        accessibilityLabel={needsPermission ? '스크린타임 권한 켜기' : '핸드폰 앱별 사용시간 보기'}
       />
     </View>
   );
@@ -180,6 +210,10 @@ export default function HomeScreen() {
 
   // 홈이 포커스될 때마다 사용량 리포트를 리마운트 → 최신값으로 재계산(묵은 값 방지).
   const [reportRefresh, setReportRefresh] = useState(0);
+  // 스크린타임 권한 상태(GROMO-986) — 미허용이면 사용 행을 권한 안내로 교체. null=조회 전.
+  const [screenTimeAuth, setScreenTimeAuth] = useState<AuthorizationStatus | null>(null);
+  // 권한 요청 중복 방지 — 시스템 권한 시트가 떠 있는 동안 재탭 무시(UI 변화 없어 ref면 충분).
+  const permissionRequestingRef = useRef(false);
   // 오늘 요약(서버 stats/today). null이면 미조회/게스트/실패 → 로컬 FocusContext 값으로 폴백.
   const [todayStats, setTodayStats] = useState<TodayStatsResponse | null>(null);
   // 연속 공부 일수(하루 10분 스트릭, GROMO-630) — 0이면 칩 생략.
@@ -260,12 +294,49 @@ export default function HomeScreen() {
     [checkScreenTimeCelebration],
   );
 
+  // 권한 켜기 CTA(GROMO-986) — 설정앱 이동 없이 시스템 권한창 재요청(971 방식 공유).
+  // FamilyControls는 denied 상태여도 requestAuthorization 재호출로 권한 시트가 다시 뜬다.
+  // 승인되면 상태 갱신으로 리포트가 새로 마운트되어 숫자+바가 즉시 보인다.
+  const requestScreenTimePermission = useCallback(async () => {
+    if (permissionRequestingRef.current) return;
+    permissionRequestingRef.current = true;
+    try {
+      const granted = await ScreenTimeModule.requestAuthorization();
+      try {
+        await updateScreenTimePermission({ granted });
+      } catch {
+        // 서버 반영 실패는 조용히 무시 — 기기 권한 상태가 진실(설정 화면과 동일).
+      }
+      setScreenTimeAuth(await ScreenTimeModule.getAuthorizationStatus());
+    } catch (e) {
+      Alert.alert('권한 처리 실패', e instanceof Error ? e.message : String(e));
+    } finally {
+      permissionRequestingRef.current = false;
+    }
+  }, []);
+
+  // 앱 포그라운드 복귀 시 권한 상태 재조회(GROMO-986) — iOS 설정에서 직접 켜고 돌아온 경우
+  // 홈 포커스가 유지된 채라 useFocusEffect가 다시 돌지 않으므로 별도로 갱신한다.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      ScreenTimeModule.getAuthorizationStatus()
+        .then(setScreenTimeAuth)
+        .catch(() => {});
+    });
+    return () => sub.remove();
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       setReportRefresh((r) => r + 1);
       // 홈 진입 계측(GROMO-537) — 홈 포커스마다 1회.
       logHomeViewed();
       let cancelled = false;
+      // 스크린타임 권한 상태 재조회(GROMO-986) — 다른 화면(설정 등)에서 바뀐 상태를 복귀 시 반영.
+      ScreenTimeModule.getAuthorizationStatus()
+        .then((st) => !cancelled && setScreenTimeAuth(st))
+        .catch(() => {});
       // 오늘 요약 조회 후 실제 표시값 기준으로 노출 계측.
       refetchTodayStats().then((focusMinutes) => {
         if (!cancelled) logTodaySummaryViewed({ focus_minutes: focusMinutes });
@@ -463,10 +534,12 @@ export default function HomeScreen() {
           <PhoneUsageRow
             goalSeconds={screenTimeGoalSeconds}
             refresh={reportRefresh}
+            authStatus={screenTimeAuth}
             onPress={() => {
               logHomeButtonTapped({ button: 'phone_usage', destination: 'UsageDetail' });
               navigation.navigate('UsageDetail');
             }}
+            onEnablePermission={requestScreenTimePermission}
           />
         </View>
       </View>
@@ -624,6 +697,22 @@ const s = StyleSheet.create({
   metricValue: { ...T.text.stat, color: T.ink },
   goalText: { ...T.text.caption, color: T.inkMuted },
   usageReport: { width: '100%', height: 50, marginTop: 1 },
+  // 권한 미허용 안내(GROMO-986) — 리포트(높이 50) 자리를 그대로 차지해 카드 레이아웃 유지
+  permissionWrap: {
+    minHeight: 50,
+    marginTop: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.md,
+  },
+  permissionText: { ...T.text.caption, color: T.inkSub, flex: 1, lineHeight: 17 },
+  permissionBtn: {
+    backgroundColor: T.accent,
+    borderRadius: 999,
+    paddingHorizontal: T.space.md,
+    paddingVertical: T.space.sm,
+  },
+  permissionBtnText: { ...T.text.label, color: T.white },
   track: {
     height: 6,
     borderRadius: 3,
