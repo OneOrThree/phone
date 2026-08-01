@@ -32,15 +32,29 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     // 메인 앱(A4)이 창 경계(A~B시)의 버킷 차로 창 내 사용분을 근사 계산해 서버에 보고한다.
     //  · bucket은 원시 눈금(mins)이 아니라 '베이스+눈금' 하루 누적 환산값 — 재등록으로 눈금이
     //    리셋돼도 하루 안에서 단조 증가라, A4의 max-누적 해석과 정확히 호환된다(리셋 마커 불필요).
-    //  · 날짜 키는 기존 버킷 보존 로직과 동일하게 기기 로컬 날짜(todayString) 기준.
+    //  · 날짜 키는 기기 로컬 타임존 기준(하루 경계는 기존 버킷 보존 로직과 동일), 표기는
+    //    그레고리력 고정(gregorianDayString) — JS가 보내는 dayKey와 로케일 무관하게 일치.
     //  · 오발화 가드를 통과하고 최고 눈금을 실제 갱신한 발화만 기록 — 연쇄 오발화·중복 발화가
     //    타임라인을 오염시키지 않게 한다(기록 조건 = usageBucketMinutes 갱신 조건과 동일).
     private static let bucketEventsKeyPrefix = "usageBucketEvents:"
     private static let bucketEventDatesKey = "usageBucketEventDates"
     private static let bucketEventsMaxCount = 96
 
+    // 타임라인 키 전용 날짜 문자열 — 그레고리력·POSIX 고정. JS(A4)가 브리지에 보내는 dayKey는
+    // localDate.ts의 getFullYear() 기반이라 항상 그레고리력이므로, 키 생성도 기기 로케일
+    // 캘린더(태국 불력 등)와 무관하게 고정해 교차 불일치를 막는다(@claude 리뷰 반영).
+    // 타임존은 기기 로컬 그대로 — 날짜 경계는 기존 todayString(리셋 판정용)과 동일하다.
+    private func gregorianDayString(for date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
+    }
+
     private func appendBucketEvent(totalMinutes: Int) {
-        let key = Self.bucketEventsKeyPrefix + todayString
+        let day = gregorianDayString(for: Date())
+        let key = Self.bucketEventsKeyPrefix + day
         var events = sharedDefaults?.array(forKey: key) as? [[String: Any]] ?? []
         events.append(["bucket": totalMinutes, "firedAt": Int(Date().timeIntervalSince1970)])
         if events.count > Self.bucketEventsMaxCount {
@@ -50,8 +64,8 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         // 날짜 인덱스 유지 — UserDefaults는 키 나열이 안 되므로, 하루 경계 정리가 지울 대상을
         // 알 수 있게 이벤트가 존재하는 날짜 목록을 함께 기록한다.
         var dates = sharedDefaults?.stringArray(forKey: Self.bucketEventDatesKey) ?? []
-        if !dates.contains(todayString) {
-            dates.append(todayString)
+        if !dates.contains(day) {
+            dates.append(day)
             sharedDefaults?.set(dates, forKey: Self.bucketEventDatesKey)
         }
     }
@@ -65,9 +79,8 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         guard let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date()) else {
             return
         }
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        let yesterdayString = f.string(from: yesterday)
+        // 키가 그레고리력 고정이므로 정리 기준 날짜도 같은 포맷터로 만든다(비교 정합)
+        let yesterdayString = gregorianDayString(for: yesterday)
         let kept = dates.filter { $0 >= yesterdayString }
         if kept.count == dates.count { return }
         for date in dates where date < yesterdayString {
