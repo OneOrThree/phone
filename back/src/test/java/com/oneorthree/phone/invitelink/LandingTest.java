@@ -78,7 +78,8 @@ class LandingTest extends InviteLinkTestSupport {
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(body).contains("data-expired=\"true\"");
-        // 만료여도 스토어 버튼은 남는다
+        assertThat(body).contains("만료된 초대예요");
+        // 만료여도 스토어 버튼은 남는다 — 여기까지 온 사람은 이미 설치 의향이 있는 유입이다
         assertThat(body).contains("apps.apple.com");
         assertThat(clickRepository.findAll()).isEmpty();
     }
