@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { getMyRanking } from '@/services/leagueApi';
 import type { LiveGridMember } from './components/LiveFocusGrid';
@@ -29,10 +29,15 @@ export function useSessionLeagueMembers({
   pollMs?: number;
 }) {
   const [members, setMembers] = useState<LiveGridMember[]>([]);
+  // 요청 세대 — 진입 직후 핀 로드로 refetch가 갈아타면(핀 미반영 요청 → 핀 반영 요청) 늦게
+  // 도착한 구세대 응답이 최신 결과를 덮어쓰지 않게 폐기한다(코덱스 리뷰)
+  const requestSeqRef = useRef(0);
 
   const refetch = useCallback(async () => {
+    const seq = ++requestSeqRef.current;
     try {
       const res = await getMyRanking(occupation);
+      if (seq !== requestSeqRef.current) return;
       // 핀 멤버는 상한 컷 전에 선별(코덱스 리뷰) — 상한 밖 순위(13위~)의 핀이 슬라이스에
       // 잘려 그리드의 핀 우선 정렬이 무효가 되는 것 방지. [핀 전원, 나머지 상위권] 순으로
       // 합친 뒤 상한을 적용한다(최종 표시 순서는 그리드가 다시 정렬).
