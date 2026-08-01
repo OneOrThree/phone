@@ -70,6 +70,10 @@ export default {
       supportsTablet: true,
       bundleIdentifier: 'com.oneorthree.gromo',
       buildNumber: '1',
+      // Universal Links(그룹 초대 링크) — 정본은 ios/gromo/gromo.entitlements 다.
+      // ios/ 는 커밋된 prebuilt 이고 prebuild 를 돌리지 않으므로 이 값은 문서화 패리티용이며,
+      // 실제 서명에 들어가는 것은 entitlements 파일 쪽이다. 둘을 항상 같이 고칠 것.
+      associatedDomains: ['applinks:link.oneorthree.world'],
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
         // Firebase 자동 화면추적 끄기 — RN에선 네이티브 뷰컨트롤러명(RNSScreen 등)만 잡혀 노이즈.

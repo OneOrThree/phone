@@ -8,6 +8,14 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<!-- Universal Links — https://link.oneorthree.world/l/{slug} 를 앱이 직접 연다(초대 링크 스펙 §4-1).
+	     서버가 /.well-known/apple-app-site-association 을 서빙하고, Apple CDN 전파에 24~48h 걸린다.
+	     ⚠️ ios/ 는 커밋된 prebuilt 라 이 파일이 정본이다 — app.config.js 의 associatedDomains 는
+	        문서화 패리티일 뿐 prebuild 로 재생성하지 않는다(expo prebuild 금지). -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:link.oneorthree.world</string>
+	</array>
 	<key>com.apple.developer.family-controls</key>
 	<true/>
 	<key>com.apple.security.application-groups</key>
