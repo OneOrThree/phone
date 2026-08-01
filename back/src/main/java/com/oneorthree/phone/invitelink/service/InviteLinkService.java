@@ -1,5 +1,7 @@
 package com.oneorthree.phone.invitelink.service;
 
+import com.oneorthree.phone.common.logging.UserActivityEvent;
+import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupStatus;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -18,6 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -43,6 +46,7 @@ public class InviteLinkService {
     private final SlugGenerator slugGenerator;
     private final InviteLinkUrls inviteLinkUrls;
     private final InviteLinkGa4Events ga4Events;
+    private final UserActivityEventLogger userActivityEventLogger;
 
     public IssueInviteLinkResponse issue(UUID groupId, UUID userId) {
         // 삭제·종료된 그룹은 없는 그룹과 같게 다룬다 — 랜딩(만료 처리)·매치와 판정 기준을 맞춘다.
@@ -70,6 +74,10 @@ public class InviteLinkService {
 
         // 최초 생성일 때만 발행한다 — 공유 버튼을 열 번 눌러도 '링크 생성'은 한 번이어야 퍼널이 맞는다.
         ga4Events.linkCreated(link);
+        // Track2(user-activity)는 GA4 와 별개로 서버 이벤트를 전량 병행 기록한다(스펙 §4-3 말미).
+        // 키는 invite_slug — Track2 는 GROUP_JOINED 와 같은 차원명을 쓰고, slug 는 GA4 쪽 키다.
+        userActivityEventLogger.log(UserActivityEvent.INVITE_LINK_CREATED,
+                Map.of("invite_slug", link.getSlug(), "group_id", link.getGroupId().toString()));
         return toResponse(link);
     }
 
