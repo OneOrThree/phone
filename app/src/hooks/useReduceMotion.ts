@@ -20,6 +20,10 @@ import { AccessibilityInfo } from 'react-native';
 
 let enabled: boolean | null = null;
 let initialized = false;
+// 이벤트로 최신 값을 한 번이라도 받았는지. 초기 조회는 비동기라 그 사이에 온 이벤트보다
+// **늦게** 완료될 수 있고, 그러면 낡은 조회 결과가 최신 설정을 덮어쓴다.
+// 이벤트가 항상 더 최신이므로, 한 번 받은 뒤에는 초기 조회 응답을 폐기한다.
+let observedFromEvent = false;
 const listeners = new Set<() => void>();
 
 function setEnabled(next: boolean): void {
@@ -28,17 +32,30 @@ function setEnabled(next: boolean): void {
   listeners.forEach((notify) => notify());
 }
 
+function onNativeChange(next: boolean): void {
+  observedFromEvent = true;
+  setEnabled(next);
+}
+
+function applyInitialQuery(next: boolean): void {
+  // 이벤트가 이미 값을 확정했으면 뒤늦게 도착한 초기 조회는 버린다
+  if (observedFromEvent) return;
+  setEnabled(next);
+}
+
 function init(): void {
   if (initialized) return;
   initialized = true;
+  // 조회보다 구독을 먼저 건다 — 조회가 도는 동안 바뀐 설정도 놓치지 않게
+  AccessibilityInfo.addEventListener('reduceMotionChanged', onNativeChange);
   AccessibilityInfo.isReduceMotionEnabled()
-    .then(setEnabled)
+    .then(applyInitialQuery)
     .catch(() => {
       // 조회 실패 시엔 미확정을 유지하지 않고 false로 확정한다 —
       // 값을 영영 못 읽는 기기에서 애니메이션이 통째로 사라지는 편이 더 나쁘다.
-      setEnabled(false);
+      // (이때도 이벤트로 받은 값이 있으면 그쪽이 우선)
+      applyInitialQuery(false);
     });
-  AccessibilityInfo.addEventListener('reduceMotionChanged', setEnabled);
 }
 
 function subscribe(onStoreChange: () => void): () => void {
