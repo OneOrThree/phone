@@ -84,3 +84,12 @@ logging:
 app:
   user-activity:
     touch-interval: 2h
+
+# 그룹 초대 링크 (deferred deep link). base-url 은 실제 링크 도메인 — 앱·랜딩·AASA 가 이 값을 전제한다.
+# ip-salt 는 클릭 IP 해시용 비밀값(원본 IP 는 저장하지 않는다) — dev 는 기본값, prod 는 Secrets Manager.
+link:
+  base-url: ${LINK_BASE_URL:https://oneorthree.dev.mooo.com}
+  match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
+  ip-salt: ${LINK_IP_SALT:dev-salt}
+  # P7(App Store 숫자 id) 수령 전까지 env 로 오버라이드한다.
+  store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/id0000000000}

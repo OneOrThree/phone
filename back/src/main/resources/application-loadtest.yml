@@ -80,3 +80,10 @@ logging:
     org.hibernate.orm.jdbc.bind: WARN
     org.springframework.web.servlet.DispatcherServlet: WARN
     org.springframework.web.filter: WARN
+
+# 초대 링크 — 부하 시나리오가 /l/* 를 때리지 않아도 컨텍스트 기동에 필요하다.
+link:
+  base-url: ${LINK_BASE_URL:https://oneorthree.dev.mooo.com}
+  match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
+  ip-salt: ${LINK_IP_SALT:loadtest-salt}
+  store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/id0000000000}

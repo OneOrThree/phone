@@ -32,7 +32,12 @@ interface CoinContextValue {
   // 앱에 영영 반영되지 않는다 — 잔액을 보여 주는 화면이 열릴 때 직접 부른다(3차 내기 시트).
   // 실패해도 throw하지 않는다(호출처가 try/catch를 두지 않아도 되게) — 대신 coinsLoaded가 false로 돌아간다.
   // 겹쳐 불러도 **마지막 호출의 결과만** 반영된다(아래 refreshSeqRef).
-  refresh: () => Promise<void>;
+  // 반환값: **이 호출의 잔액이 실제로 반영됐는가**(GROMO-1024) — '동기화 성공'을 확인해야만 진행할
+  // 수 있는 소비자(GroupRoomScreen의 정산 서명 확정)가 쓴다. 시퀀스 가드에 걸린 무효 호출은
+  // 실패가 아니지만 false다 — 이 호출의 응답은 버려졌고, 대신 반영된 뒤이은 호출의 성패를
+  // 여기서 대신 말해 줄 수 없기 때문이다(무효를 true로 치면 뒤이은 호출이 실패했을 때
+  // '동기화됐다'는 거짓 확정이 된다). 재시도로 이어져도 손해가 없는 방향으로 보수한다.
+  refresh: () => Promise<boolean>;
   addCoins: (amount: number) => Promise<void>;
   isOwned: (itemId: string) => boolean;
   buyItem: (itemId: string, price: number) => Promise<boolean>;
@@ -98,19 +103,22 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   // 서버에서 잔액 로드. 실패해도 던지지 않는다 — 잔액은 화면을 막을 값이 아니고,
   // 다음 refresh(시트 오픈 등)에서 자연 재시도된다. 다만 **조용히 삼키지는 않는다**:
   // coinsLoaded를 false로 되돌려 '지금 쥔 값은 못 믿는다'를 소비자가 알 수 있게 한다(F1).
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<boolean> => {
     const seq = ++refreshSeqRef.current;
     try {
       const res = await api.get<number>('/api/v1/currency');
       // 뒤이어 시작된 조회가 있으면 이 응답은 이미 낡았다 — 실패 처리도 마찬가지로 건너뛴다.
-      if (seq !== refreshSeqRef.current) return;
+      // 반영되지 않았으므로 성공이라 말하지 않는다(위 인터페이스 주석 — 무효 ≠ 성공).
+      if (seq !== refreshSeqRef.current) return false;
       setCoins(res.data);
       setCoinsLoaded(true);
       coinsVersionRef.current += 1;
       setCoinsVersion(coinsVersionRef.current);
+      return true;
     } catch {
-      if (seq !== refreshSeqRef.current) return;
+      if (seq !== refreshSeqRef.current) return false;
       setCoinsLoaded(false);
+      return false;
     }
   }, []);
 

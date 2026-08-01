@@ -11,7 +11,7 @@
 //  3) ⋯ 메뉴의 '그룹 전환·추가'는 **onShowGroups를 받았을 때만** 렌더한다 —
 //     라우트로 push된 그룹방은 이미 목록에서 들어온 화면이라 되돌아가는 항목이 중복이다(2차 §0-3).
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Alert, AppState, type AppStateStatus } from 'react-native';
+import { Alert, AppState, Share, type AppStateStatus } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupRoomScreen from './GroupRoomScreen';
 import {
@@ -21,6 +21,7 @@ import {
   getChallenges,
   getGroupDetail,
   joinBet,
+  withdrawGroup,
 } from '@/services/groupApi';
 import { todayStr } from '@/utils/localDate';
 import type {
@@ -64,10 +65,18 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupBetCreated: jest.fn(),
   logGroupBetJoined: jest.fn(),
 }));
+const { logGroupInviteShared } = jest.requireMock('@/services/analyticsEvents');
+
+// 초대 링크는 서버 발급분만 쓴다(초대 링크 스펙 §4-2 ①).
+jest.mock('@/services/inviteLinkApi', () => ({ issueInviteLink: jest.fn() }));
+const mockIssueInviteLink = jest.requireMock('@/services/inviteLinkApi')
+  .issueInviteLink as jest.Mock;
+const SLUG = 'ab23cd45';
 
 // 내기 시트가 잔액을 읽고(CoinContext) 화면이 정산 감지 시 잔액을 다시 받는다 —
 // 테스트 트리엔 Provider가 없어 훅을 대체하고, refresh는 호출을 세기 위해 한 개를 공유한다.
-const mockRefreshCoins = jest.fn(async () => {});
+// 반환값은 '잔액이 실제로 반영됐는가'(GROMO-1024) — 기본은 성공이고, 실패 케이스가 직접 바꾼다.
+const mockRefreshCoins = jest.fn(async () => true);
 jest.mock('@/store/CoinContext', () => ({
   useCoins: () => ({
     coins: 100,
@@ -96,11 +105,13 @@ const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroup
 const mockGetAnnouncements = getAnnouncements as jest.MockedFunction<typeof getAnnouncements>;
 const mockGetChallenges = getChallenges as jest.MockedFunction<typeof getChallenges>;
 const mockDeleteChallenge = deleteChallenge as jest.MockedFunction<typeof deleteChallenge>;
+const mockWithdrawGroup = withdrawGroup as jest.MockedFunction<typeof withdrawGroup>;
 const mockCreateBet = createBet as jest.MockedFunction<typeof createBet>;
 const mockJoinBet = joinBet as jest.MockedFunction<typeof joinBet>;
 const mockTodayStr = todayStr as jest.MockedFunction<typeof todayStr>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+const INVITE_URL = `https://link.oneorthree.world/l/${SLUG}?g=${GROUP_ID}`;
 const onLeft = jest.fn();
 
 let appStateHandler: ((state: AppStateStatus) => void) | null = null;
@@ -221,6 +232,8 @@ beforeEach(() => {
   mockTodayStr.mockReturnValue('2026-08-01');
   // 챌린지는 대부분의 케이스에서 관심사가 아니다 — 빈 목록을 기본값으로 깔아 둔다.
   mockGetChallenges.mockResolvedValue([]);
+  mockIssueInviteLink.mockResolvedValue({ slug: SLUG, url: INVITE_URL });
+  jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
   appStateHandler = null;
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
     appStateHandler = handler as (state: AppStateStatus) => void;
@@ -1055,6 +1068,66 @@ describe('내기 배선', () => {
 
     await waitFor(() => expect(mockRefreshCoins).toHaveBeenCalled());
   });
+
+  // 서명을 먼저 확정하면 refresh가 일시 실패해도(throw 없이 coinsLoaded만 내려간다) 이후
+  // 조회가 전부 같은 서명으로 판단해 **영구히** 재시도하지 않는다 — 카드엔 지급 결과가 뜨는데
+  // 잔액은 정산 전 값으로 남는다(GROMO-1024). 확정은 동기화 성공 뒤여야 한다.
+  test('정산 감지 후 잔액 동기화가 실패하면 다음 조회가 다시 시도한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+    mockRefreshCoins.mockClear();
+
+    // 배치가 돌았다 — 내 결과가 실린 정산 내기가 도착하는데, 하필 잔액 조회가 실패한다.
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        lastSettledBet: {
+          betDate: '2026-07-31',
+          stake: 30,
+          pot: 60,
+          status: 'SETTLED',
+          results: [{ userId: 'me', nickname: '나', achieved: true, payout: 60 }],
+        },
+      }),
+    ]);
+    mockRefreshCoins.mockResolvedValueOnce(false);
+    await foreground();
+    expect(mockRefreshCoins).toHaveBeenCalledTimes(1);
+
+    // 같은 정산 응답이 다시 온다 — 서명이 확정되지 않았으므로 같은 변화로 다시 감지해 재시도한다.
+    await foreground();
+    expect(mockRefreshCoins).toHaveBeenCalledTimes(2);
+
+    // 이번엔 성공했다(기본 목 true) — 서명이 확정돼 더는 재시도하지 않는다.
+    await foreground();
+    expect(mockRefreshCoins).toHaveBeenCalledTimes(2);
+  });
+
+  // 갱신 실패 중의 카드는 낡은 스냅샷이다 — 그 팟·참가자를 보고 보내는 참가를 서버는 정상
+  // 수락하므로, 오류 분기로는 잘못된 사전 표시를 바로잡을 수 없다. 진입 자체를 막는다(GROMO-1026).
+  test('챌린지 갱신 실패 중에는 낡은 카드로 내기 시트를 열 수 없다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+
+    // 포그라운드 복귀의 챌린지 갱신만 실패 — 기존 카드는 남고 배너가 뜬다.
+    mockGetChallenges.mockRejectedValueOnce(new Error('network'));
+    await foreground();
+    expect(screen.getByText('챌린지를 새로고침하지 못했어요')).toBeOnTheScreen();
+
+    // 카드는 보이지만 내기 진입은 잠겨 있어야 한다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.create.c1'));
+    });
+    expect(screen.queryByText('내기 열기')).toBeNull();
+
+    // 다음 성공 조회가 잠금을 푼다.
+    await foreground();
+    await press('내기 걸기');
+    expect(screen.getByText('내기 열기')).toBeOnTheScreen();
+  });
 });
 
 // 내장 렌더(GroupScreen의 1건 분기)는 그룹이 A 한 건에서 B 한 건으로 바뀌어도 같은 인스턴스를
@@ -1184,6 +1257,193 @@ describe('그룹 전환(같은 인스턴스에 다른 groupId)', () => {
 
     expect(mockRefreshCoins).not.toHaveBeenCalled();
   });
+
+  // 1024의 서명 확정은 refreshCoins()를 **기다린 뒤**라 새 비동기 창이 생겼다 — 대기 중 그룹이
+  // 바뀌면 전환 리셋(서명 null)이 먼저 일어나고, 늦은 확정이 이전 그룹의 서명을 되살리면 새
+  // 그룹의 다음 조회가 '남의 정산'과 비교해 잔액을 다시 받는다. 확정 전 seq 재검사가 막는다.
+  test('잔액 동기화 대기 중 그룹이 바뀌면 늦은 서명 확정이 새 그룹을 오염시키지 않는다', async () => {
+    const settled = (payout: number | null) =>
+      challenge({
+        lastSettledBet: {
+          betDate: '2026-07-31',
+          stake: 30,
+          pot: 60,
+          status: 'SETTLED' as const,
+          results: [{ userId: 'me', nickname: '나', achieved: true, payout }],
+        },
+      });
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    // 첫 조회 — 지급 미확정 정산이 실려 온다(서명의 비교 기준이 된다).
+    mockGetChallenges.mockResolvedValue([settled(null)]);
+    const { rerender } = await renderRoom();
+    mockRefreshCoins.mockClear();
+
+    // 지급이 채워졌다 — 정산 감지로 잔액 동기화가 시작되는데, 응답을 붙잡아 둔다.
+    let finishRefresh: (ok: boolean) => void = () => {};
+    mockRefreshCoins.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+    mockGetChallenges.mockResolvedValue([settled(60)]);
+    await foreground();
+    expect(mockRefreshCoins).toHaveBeenCalledTimes(1);
+
+    // 동기화가 떠 있는 채 그룹 B로 전환 — B의 첫 조회는 자기 정산을 싣고 정상 완료된다
+    // (첫 서명은 비교 대상이 없어 잔액을 받지 않는 것이 규칙이다).
+    mockGetGroupDetail.mockResolvedValue(detail({ id: OTHER_GROUP_ID }));
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        id: 'c9',
+        lastSettledBet: {
+          betDate: '2026-07-31',
+          stake: 50,
+          pot: 100,
+          status: 'SETTLED' as const,
+          results: [{ userId: 'me', nickname: '나', achieved: false, payout: 0 }],
+        },
+      }),
+    ]);
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={OTHER_GROUP_ID} onLeft={onLeft} />);
+    });
+
+    // 이제야 A의 동기화가 성공으로 끝난다 — 낡은 확정은 버려져야 한다.
+    await act(async () => {
+      finishRefresh(true);
+    });
+
+    // B의 같은 응답을 다시 받아도 잔액을 받지 않아야 한다 — 늦은 확정이 A의 서명을 심어 뒀다면
+    // B의 서명과 달라 '정산 변화'로 오인해 여기서 한 번 더 불렸을 것이다.
+    await foreground();
+    expect(mockRefreshCoins).toHaveBeenCalledTimes(1);
+  });
+
+  // 삭제 실패 Alert는 groupId를 보지 않았다 — 응답 전에 그룹이 바뀌면 B 화면 위에 A의 삭제
+  // 실패 안내가 뜬다(GROMO-1027). onDone·onCreated와 같은 가드로 무시해야 한다.
+  test('전환 전 그룹의 챌린지 삭제가 늦게 실패해도 새 화면에 Alert를 띄우지 않는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    let rejectDelete: (e: unknown) => void = () => {};
+    mockDeleteChallenge.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectDelete = reject;
+      }),
+    );
+    const { rerender } = await renderRoom();
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.challenge.card.c1'), 'longPress');
+    });
+    await act(async () => {
+      alertSpy.mock.calls[0][2]?.find((b) => b.text === '삭제')?.onPress?.();
+    });
+
+    // 응답 전에 그룹 B로 전환 — B의 조회는 pending으로 둔다(재조회가 걷어 주기를 기대하지 않는다).
+    mockGetGroupDetail.mockReturnValue(new Promise(() => {}));
+    mockGetChallenges.mockReturnValue(new Promise(() => {}));
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={OTHER_GROUP_ID} onLeft={onLeft} />);
+    });
+    alertSpy.mockClear();
+    mockGetChallenges.mockClear();
+
+    // 이제야 A의 삭제 실패가 도착한다 — B 화면 위엔 아무것도 띄우지 않고, 재조회도 시작하지 않는다.
+    await act(async () => {
+      rejectDelete(axiosErrorWith(409, 'CHALLENGE_HAS_OPEN_BET'));
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(mockGetChallenges).not.toHaveBeenCalled();
+  });
+
+  // 나가기 실패 Alert도 같은 패턴의 잔여 변형이다(GROMO-1028) — 성공 경로(onLeft)는 그룹 무관
+  // 전역 재조회라 안전하지만, HOST_WITHDRAW·default의 Alert는 B 화면 위에 A의 실패를 말한다.
+  test('전환 전 그룹의 나가기가 늦게 실패해도 새 화면에 Alert를 띄우지 않는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    let rejectWithdraw: (e: unknown) => void = () => {};
+    mockWithdrawGroup.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectWithdraw = reject;
+      }),
+    );
+    const { rerender } = await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
+    });
+    await press('그룹 나가기');
+    // 확인 Alert의 '나가기'를 눌러 요청을 보낸다.
+    await act(async () => {
+      alertSpy.mock.calls[0][2]?.find((b) => b.text === '나가기')?.onPress?.();
+    });
+
+    // 응답 전에 그룹 B로 전환.
+    mockGetGroupDetail.mockReturnValue(new Promise(() => {}));
+    mockGetChallenges.mockReturnValue(new Promise(() => {}));
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={OTHER_GROUP_ID} onLeft={onLeft} />);
+    });
+    alertSpy.mockClear();
+
+    await act(async () => {
+      rejectWithdraw(axiosErrorWith(409, 'HOST_WITHDRAW'));
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(onLeft).not.toHaveBeenCalled();
+  });
+});
+
+describe('그룹 나가기', () => {
+  // 전환 가드(GROMO-1028)가 정상 경로의 안내까지 삼키지 않는지 — 화면이 그대로면 사유를 말해야 한다.
+  test('방장이 나가려다 실패하면 위임 안내를 띄운다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(409, 'HOST_WITHDRAW'));
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
+    });
+    await press('그룹 나가기');
+    await act(async () => {
+      alertSpy.mock.calls[0][2]?.find((b) => b.text === '나가기')?.onPress?.();
+    });
+
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '방장은 나갈 수 없어요',
+      '그룹을 이어갈 사람에게 방장을 넘겨야 해요.\n방장 넘기기는 준비 중이에요.',
+    );
+    expect(onLeft).not.toHaveBeenCalled();
+  });
+
+  // NOT_FOUND·MEMBER_ONLY는 '이미 빠져 있음' — Alert가 아니라 성공과 같은 정리(onLeft)다.
+  // 이 분기는 전환 가드보다 앞에 있어 전환 뒤에 도착해도 실행된다(onLeft는 그룹 무관 전역 재조회).
+  test('이미 빠져 있으면 성공과 같게 부모를 정리한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(403, 'MEMBER_ONLY'));
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
+    });
+    await press('그룹 나가기');
+    await act(async () => {
+      alertSpy.mock.calls[0][2]?.find((b) => b.text === '나가기')?.onPress?.();
+    });
+
+    expect(onLeft).toHaveBeenCalled();
+    // 확인 Alert(나갈까요?) 이후 추가 Alert는 없다.
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('⋯ 메뉴 — 그룹 전환·추가', () => {
@@ -1211,5 +1471,42 @@ describe('⋯ 메뉴 — 그룹 전환·추가', () => {
     // 메뉴 자체는 열려 있다 — '그룹 나가기'는 두 경로 모두에 있다.
     expect(screen.getByText('그룹 나가기')).toBeOnTheScreen();
     expect(screen.queryByText('그룹 전환·추가')).toBeNull();
+  });
+});
+
+// ── 초대 링크 공유(초대 링크 스펙 §4-2 ①·§7-4) ─────────────────────────────────
+// 링크는 서버가 발급한 url 만 나간다. 앱이 조립하던 구 링크(github.io)는 실제로 404였고,
+// slug 가 빠지면 클릭→설치→가입이 어느 초대에서 왔는지 서버가 영영 이을 수 없다.
+describe('초대 링크 공유', () => {
+  test('서버 발급 url 로 공유하고 slug·group_id 를 함께 계측한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    await renderRoom();
+
+    await press('초대 링크로 친구 부르기');
+
+    expect(mockIssueInviteLink).toHaveBeenCalledWith(GROUP_ID);
+    expect(Share.share).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining(INVITE_URL) }),
+    );
+    expect(logGroupInviteShared).toHaveBeenCalledWith({
+      share_method: 'share_sheet',
+      confirmed: expect.any(Boolean),
+      slug: SLUG,
+      group_id: GROUP_ID,
+    });
+  });
+
+  test('발급 실패면 공유 시트를 띄우지 않고 안내한다(폴백 링크 없음)', async () => {
+    mockIssueInviteLink.mockRejectedValueOnce(new Error('network'));
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    await renderRoom();
+
+    await press('초대 링크로 친구 부르기');
+
+    expect(Share.share).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith('초대 링크를 만들지 못했어요', expect.any(String));
+    expect(logGroupInviteShared).not.toHaveBeenCalled();
   });
 });

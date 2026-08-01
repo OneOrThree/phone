@@ -9,6 +9,7 @@ import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.friend.exception.FriendException;
+import com.oneorthree.phone.invitelink.exception.InviteLinkException;
 import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.stats.exception.StatsException;
 import com.oneorthree.phone.user.exception.UserException;
@@ -59,6 +60,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(GroupException.class)
     public ResponseEntity<ErrorResponse> handleGroup(GroupException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(InviteLinkException.class)
+    public ResponseEntity<ErrorResponse> handleInviteLink(InviteLinkException e) {
         return ResponseEntity.status(e.getErrorCode().getStatus())
                 .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
     }
@@ -129,12 +136,14 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("DATA_INTEGRITY_VIOLATION", "요청이 기존 데이터와 충돌합니다."));
     }
 
-    /*
-    @todo 낙관적락 exception 추후 분기 필요
-     */
+    // 낙관락(@Version — Group 정원·UserWallet 잔액) 충돌 → 409 CONCURRENT_UPDATE.
+    // 예전엔 ROOM_FULL 로 응답했는데, 내기 참가·정산이 같은 지갑을 두고 경합하는 경로가 생기면서
+    // 그룹 참가와 무관한 충돌까지 "정원 초과"로 보이는 오매핑이 됐다 — 전용 재시도 코드로 분리.
+    // 트랜잭션은 이미 전체 롤백된 상태라 재시도하면 풀린다.
     @ExceptionHandler(OptimisticLockingFailureException.class)
     public ResponseEntity<ErrorResponse> handleOptimisticLock(OptimisticLockingFailureException e) {
-        return ResponseEntity.status(GroupErrorCode.ROOM_FULL.getStatus())
-                .body(new ErrorResponse(GroupErrorCode.ROOM_FULL.name(), GroupErrorCode.ROOM_FULL.getMessage()));
+        return ResponseEntity.status(GroupErrorCode.CONCURRENT_UPDATE.getStatus())
+                .body(new ErrorResponse(GroupErrorCode.CONCURRENT_UPDATE.name(),
+                        GroupErrorCode.CONCURRENT_UPDATE.getMessage()));
     }
 }

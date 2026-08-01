@@ -14,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL, api, getFreshAccessToken, getUserIdFromToken } from '@/services/api';
 import { getMyProfile } from '@/services/userApi';
 import { logLogin, logSignUp, setIdentityProps, type AuthMethod } from '@/services/analyticsEvents';
+import { claimStoredInviteAttribution } from '@/services/deferredInvite';
 import type { LoginResult } from '@/types/api';
 import { STORAGE_KEYS } from '@/types/storage';
 
@@ -95,6 +96,10 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
     result = { isGuest, ...data };
   }
   await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(result));
+  // 토큰 저장이 끝난 지금이 **결정론적 결합이 가능한 가장 이른 시점**이다(초대 링크 스펙 §2-3 ③).
+  // 소셜 5종·게스트·게스트→소셜 승격이 전부 이 함수로 합류하므로 배선은 여기 한 곳뿐이다.
+  // 실패는 서비스가 삼킨다 — 어트리뷰션 때문에 로그인이 막히면 안 된다.
+  await claimStoredInviteAttribution();
   return result;
 }
 

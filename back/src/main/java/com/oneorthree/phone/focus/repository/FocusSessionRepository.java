@@ -1,6 +1,7 @@
 package com.oneorthree.phone.focus.repository;
 
 import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.domain.FocusSessionStatus;
 import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.user.domain.User;
 import org.springframework.data.domain.Pageable;
@@ -41,6 +42,12 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
                                              @Param("to") Instant to,
                                              @Param("cursor") UUID cursor,
                                              Pageable pageable);
+
+    // currency 폐쇄(서버 지급): 완료 저장 재업로드 멱등 판정 — 같은 (user, startedAt, endedAt) 완료 세션 존재 여부.
+    // 앱 업로드 대기열(pendingFocusUploads)이 응답 유실 시 동일 바디를 재전송하는데, 매 POST 가 새 행을 만들면
+    // 세션 행 기반 멱등키(focus:{id}:reward)가 재생성돼 이중 지급이 된다 — insert 전에 이걸로 걸러 스킵한다.
+    boolean existsByUserAndStartedAtAndEndedAtAndStatus(User user, Instant startedAt, Instant endedAt,
+                                                        FocusSessionStatus status);
 
     // 진행 중(미종료) 세션 — 핀 친구 isFocusing 판정용. endedAt IS NULL.
     List<FocusSession> findByUserInAndEndedAtIsNull(Collection<User> users);

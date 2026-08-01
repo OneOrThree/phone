@@ -116,72 +116,22 @@ class InGameCurrencyServiceTest {
                 .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
-    // ── earnCurrency ──────────────────────────────────────────────────────
+    // ── earnCurrency (currency 폐쇄 — no-op) ──────────────────────────────
 
     @Test
-    @DisplayName("적립 성공 → wallet 잔액 증가 + SESSION_COMPLETE 거래 저장")
-    void earnCurrencySuccess() {
-        User user = User.builder().id(USER_ID).build();
-        UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(100).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
-
-        inGameCurrencyService.earnCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, 50);
-
-        assertThat(wallet.getBalance()).isEqualTo(150);
-
-        ArgumentCaptor<CurrencyTransaction> captor = ArgumentCaptor.forClass(CurrencyTransaction.class);
-        verify(currencyTransactionRepository).save(captor.capture());
-        CurrencyTransaction saved = captor.getValue();
-        assertThat(saved.getType()).isEqualTo(CurrencyTransactionType.SESSION_COMPLETE);
-        assertThat(saved.getAmount()).isEqualTo(50);
-    }
-
-    @Test
-    @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND), save 미호출")
-    void earnCurrencyUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
-
-        assertThatThrownBy(() ->
-                inGameCurrencyService.earnCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, 50))
-                .isInstanceOf(UserException.class)
-                .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
-        verify(currencyTransactionRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("적립 사유가 PURCHASE → CurrencyException(ILLEGAL_EARN_REASON)")
-    void earnCurrencyIllegalReason() {
-        User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-
-        assertThatThrownBy(() ->
-                inGameCurrencyService.earnCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 50))
-                .isInstanceOf(CurrencyException.class)
-                .extracting("errorCode")
-                .isEqualTo(CurrencyErrorCode.ILLEGAL_EARN_REASON);
-        verify(currencyTransactionRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("적립 사유가 서버 전용(BET_*) → CurrencyException(ILLEGAL_EARN_REASON), 재화 미발행")
-    void earnCurrencyRejectsServerOnlyTypes() {
-        User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-
-        // 클라가 내기 타입을 실어 보내면 임의 금액 발행이 되고, 원장에서 정산 기입과 구분되지 않는다.
+    @DisplayName("적립은 no-op — 어떤 타입·금액이어도 잔액·원장 무변화, 예외 없음(구앱 fire-and-forget 호환)")
+    void earnCurrencyIsNoOp() {
+        // 클라 주도 적립은 코인 민팅 악용 벡터라 폐쇄됐다. 세션 보상은 세션 저장에서 서버가 직접 지급하므로
+        // 여기서는 서버 전용(BET_*)·PURCHASE·음수 금액까지 전부 조용히 무시돼야 한다(로그만).
         for (CurrencyTransactionType type : CurrencyTransactionType.values()) {
-            if (!type.isServerOnly()) {
-                continue;
-            }
-            assertThatThrownBy(() -> inGameCurrencyService.earnCurrency(USER_ID, type, 1_000))
-                    .isInstanceOf(CurrencyException.class)
-                    .extracting("errorCode")
-                    .isEqualTo(CurrencyErrorCode.ILLEGAL_EARN_REASON);
+            inGameCurrencyService.earnCurrency(USER_ID, type, 1_000);
         }
+        inGameCurrencyService.earnCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, 0);
+        inGameCurrencyService.earnCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, -10);
+
         verify(currencyTransactionRepository, never()).save(any());
         verify(userWalletRepository, never()).findById(any());
+        verify(userRepository, never()).findById(any());
     }
 
     @Test
@@ -262,24 +212,6 @@ class InGameCurrencyServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(CurrencyErrorCode.INSUFFICIENT_CURRENCY);
         assertThat(wallet.getBalance()).isEqualTo(50);
-        verify(currencyTransactionRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("적립 금액이 0 이하 → IllegalArgumentException, 거래 미기록")
-    void earnCurrencyNonPositiveAmount() {
-        User user = User.builder().id(USER_ID).build();
-        UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(100).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
-
-        assertThatThrownBy(() ->
-                inGameCurrencyService.earnCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, 0))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() ->
-                inGameCurrencyService.earnCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, -10))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThat(wallet.getBalance()).isEqualTo(100);
         verify(currencyTransactionRepository, never()).save(any());
     }
 

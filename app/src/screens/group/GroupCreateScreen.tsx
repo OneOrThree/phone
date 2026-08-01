@@ -22,7 +22,7 @@ import { T, withAlpha } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { createGroup, groupErrorCode } from '@/services/groupApi';
 import type { MissionCategory } from '@/types/dto/group';
-import { buildInviteLink } from '@/utils/inviteLink';
+import { issueInviteLink } from '@/services/inviteLinkApi';
 import { logGroupCreateStarted, logGroupInviteShared } from '@/services/analyticsEvents';
 
 // 그룹 생성 화면 (root stack 'GroupCreate') — 명세 docs/app/group-plan.md §6-2
@@ -104,6 +104,11 @@ export default function GroupCreateScreen() {
 
   // '복사했어요' 되돌리기 타이머 — 언마운트 시 정리한다.
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 서버가 발급한 초대 링크(초대 링크 스펙 §4-2 ①) — 복사·공유가 같은 값을 쓴다.
+  // 발급은 서버에서 멱등이지만 왕복을 아끼려 첫 요청 결과를 캐시한다. 실패는 캐시하지 않아
+  // 다음 탭에서 다시 시도된다(일시적 네트워크 오류로 다이얼로그가 영영 죽지 않게).
+  const inviteRef = useRef<{ slug: string; url: string } | null>(null);
 
   // 생성 요청이 떠 있는 동안인가 — 이탈 차단 리스너가 리렌더 없이 읽어야 해서 state와 별도로 둔다.
   const submittingRef = useRef(false);
@@ -199,11 +204,32 @@ export default function GroupCreateScreen() {
     }
   }
 
-  function copyLink() {
+  // 서버 발급 링크 확보 — 실패하면 안내하고 null. 앱이 링크를 조립하던 폴백은 폐기했다
+  // (slug 없는 주소는 서버가 모르는 링크라 404로 끝난다 — 초대 링크 스펙 §7-4).
+  async function resolveInviteLink(groupId: string): Promise<{ slug: string; url: string } | null> {
+    if (inviteRef.current) return inviteRef.current;
+    try {
+      const issued = await issueInviteLink(groupId);
+      inviteRef.current = issued;
+      return issued;
+    } catch {
+      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해주세요.');
+      return null;
+    }
+  }
+
+  async function copyLink() {
     if (!created) return;
-    Clipboard.setString(buildInviteLink(created.id));
+    const invite = await resolveInviteLink(created.id);
+    if (!invite) return;
+    Clipboard.setString(invite.url);
     setCopied(true);
-    logGroupInviteShared({ share_method: 'copy', confirmed: true });
+    logGroupInviteShared({
+      share_method: 'copy',
+      confirmed: true,
+      slug: invite.slug,
+      group_id: created.id,
+    });
     // 2초 뒤 '링크 복사'로 되돌린다 — 다이얼로그가 닫힐 때까지 고정돼 있으면
     // 두 번째 복사가 가능한지 알 수 없다.
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
@@ -212,15 +238,22 @@ export default function GroupCreateScreen() {
 
   async function shareLink() {
     if (!created) return;
+    const invite = await resolveInviteLink(created.id);
+    if (!invite) return;
     try {
       const result = await Share.share({
         // 이름은 현재 입력값이 아니라 생성 요청에 실어 보낸 값 — 둘이 갈리면 초대 문구가 거짓말이 된다.
-        message: `${created.name} 그룹에 초대할게요!\n${buildInviteLink(created.id)}`,
+        message: `${created.name} 그룹에 초대할게요!\n${invite.url}`,
       });
       // 취소 구분은 iOS에서만 가능하다 — 안드로이드는 시트를 닫아도 sharedAction으로 끝나므로
       // 완료로 집계하지 않고 confirmed:false(공유 시도)로 남긴다(analyticsEvents 주석).
       if (result.action === Share.sharedAction) {
-        logGroupInviteShared({ share_method: 'share_sheet', confirmed: Platform.OS === 'ios' });
+        logGroupInviteShared({
+          share_method: 'share_sheet',
+          confirmed: Platform.OS === 'ios',
+          slug: invite.slug,
+          group_id: created.id,
+        });
       }
     } catch {
       Alert.alert('공유하지 못했어요', '링크 복사로 대신 공유해주세요.');

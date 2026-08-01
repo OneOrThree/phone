@@ -46,7 +46,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
 
-    private static final String MIGRATION_PATH = "db/migration/V20__currency_transaction_reward_types.sql";
+    private static final String MIGRATION_PATH = "db/migration/V22__currency_transaction_reward_types.sql";
 
     @Autowired
     GroupChallengeBetRepository groupChallengeBetRepository;

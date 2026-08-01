@@ -42,6 +42,7 @@ import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.service.UserStreakService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
@@ -57,6 +58,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -69,6 +71,16 @@ public class FocusService {
 
     // GROMO-806: 스트릭 인정 최소 누적 집중 시간(초) = 10분. 그날 누적이 이 값 이상일 때만 스트릭을 갱신한다.
     private static final int STREAK_MIN_SECONDS = 600;
+
+    // currency 폐쇄(서버 지급 전환): 세션 보상 = 집중 60초(1분)당 1코인. 앱은 floor(elapsed/10)로 적립했으나
+    // (FocusSessionScreen.settleFocusBlock·OrphanFocusSettler), 서버 지급률은 오스카 결정으로 1분당 1코인으로
+    // 조정했다(앱의 10초 단위에서 의도적 분기). 지급률 변경 시 관련 단위 테스트 기대값도 함께 바꿔야 한다.
+    private static final int SESSION_REWARD_UNIT_SECONDS = 60;
+
+    // 보상 인정 세션 길이 상한 — ORPHAN_TIMEOUT(12h)과 정렬. 정상 앱 세션은 이보다 길 수 없고(강제종료 세션도
+    // 12h 상한으로 자동 마감), 위조 장시간 세션(startedAt 을 과거로 조작한 POST)의 대량 지급을 여기서 자른다.
+    // 세션 저장·통계는 종전대로 수용(클라 신뢰 기존 정책) — 상한은 '지급'에만 적용한다.
+    private static final long MAX_REWARDED_SESSION_SECONDS = ORPHAN_TIMEOUT.toSeconds();
 
     private final UserFocusTagRepository userFocusTagRepository;
     private final DefaultTagRepository defaultTagRepository;
@@ -256,10 +268,27 @@ public class FocusService {
         }
 
         UserFocusTag tag = resolveOwnedTag(userId, body.getFocusTagId());
+        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        LocalDate statDate = statDate(body.getEndedAt(), zone);
+
+        // 재업로드 멱등(서버 지급 전환의 이중 지급 방어): 앱 업로드 대기열(pendingFocusUploads)은 응답이 유실되면
+        // 서버가 이미 커밋한 세션을 같은 바디로 재전송한다. 매 POST 가 새 행을 만들면 행 기반 멱등키가 재생성돼
+        // 지급·통계가 중복되므로, 같은 (user, 구간) 완료 세션이 있으면 저장·통계·지급 전부를 스킵하고
+        // 현재 상태만 응답한다(재시도 클라는 성공 응답을 받아 대기열에서 제거). 유니크 제약이 없어 완전 동시
+        // 요청 레이스는 남지만, 대기열 재시도는 순차 실행이라 실효 경로는 이걸로 닫힌다.
+        boolean duplicated = focusSessionRepository.existsByUserAndStartedAtAndEndedAtAndStatus(
+                user, body.getStartedAt(), body.getEndedAt(), FocusSessionStatus.COMPLETED);
+        if (duplicated) {
+            log.info("완료 세션 재업로드 스킵 — 동일 구간 세션 존재. userId={}, startedAt={}, endedAt={}",
+                    userId, body.getStartedAt(), body.getEndedAt());
+            int dayTotal = dailyFocusStatRepository.findByUserAndDate(user, statDate)
+                    .map(DailyFocusStat::getTotalFocusSeconds).orElse(0);
+            return new FocusSessionSaveResponse(dayTotal, dayTotal >= STREAK_MIN_SECONDS, 0, 0);
+        }
 
         // GROMO-733: POST 는 완료(종료 시각 포함) 통째 저장 — status=COMPLETED 로 세팅해 'ACTIVE 로 남던' 부정합을 교정한다.
         // focusType 은 null 이면 INFINITE 기본(엔티티 @Builder.Default 정합, 하위호환).
-        focusSessionRepository.save(FocusSession.builder()
+        FocusSession saved = focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .focusTag(tag)
                 .status(FocusSessionStatus.COMPLETED)
@@ -269,13 +298,47 @@ public class FocusService {
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
                 .build());
 
+        // currency 폐쇄(서버 지급 전환): 세션 보상을 서버가 직접 지급한다. 앱의 /currency/earn 호출은 no-op 이 됐고
+        // (구앱: 저장 시 서버 지급 + earn no-op / 신앱: 저장 시 서버 지급 + earn 미호출 → 어느 조합도 정확히 1회),
+        // 멱등키(focus:{sessionId}:reward)가 같은 세션 행에 대한 이중 지급을, 위의 재업로드 스킵이 행 재생성을 막는다.
+        // 지갑 변경·원장 기입은 이 저장 트랜잭션에 함께 묶인다(credit 전파 REQUIRED).
+        int awardedCoins = sessionRewardCoins(body.getStartedAt(), body.getEndedAt(),
+                body.getTotalDistractionSeconds(), Instant.now());
+        if (awardedCoins > 0) {
+            currencyLedgerService.credit(user, CurrencyTransactionType.SESSION_COMPLETE, awardedCoins,
+                    "focus:" + saved.getId() + ":reward");
+        }
+
         // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 실어 준다(additive — 구버전 앱은 무시).
-        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
         RecordCompletionResult result = recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
-                body.getTotalDistractionSeconds(), statDate(body.getEndedAt(), zone));
-        // 목표 지급액도 함께 실어 준다(additive) — 클라가 획득 코인을 즉시 노출.
+                body.getTotalDistractionSeconds(), statDate);
+        // 세션 지급액(#417)·목표 지급액(이 브랜치)을 함께 실어 준다(additive) — 클라가 획득 코인을 즉시 노출.
         return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
-                result.goalRewardCoins());
+                awardedCoins, result.goalRewardCoins());
+    }
+
+    /**
+     * 세션 보상 코인 계산 — 집중초를 지급 단위로 내림(currency 폐쇄).
+     *
+     * <p><b>지급률</b>: 집중 60초(1분)당 1코인 = {@code floor(집중초 / 60)}. 앱은 원래
+     * {@code floor(elapsed / 10)}(FocusSessionScreen.settleFocusBlock·OrphanFocusSettler)로 블록 단위 차분
+     * 적립했으나, 서버 지급률은 오스카 결정으로 1분당 1코인으로 조정했다(앱의 10초 단위에서 의도적 분기).
+     *
+     * <p><b>서버 근사</b>: 서버가 아는 집중초 = (endedAt − startedAt) − totalDistractionSeconds.
+     * 앱은 블록마다 settleAt 마커를 회전시켜(브레이크 구간 제외) 구간 벽시계 ≈ 집중초 이고, 앱 페이로드는
+     * 방해시간(distraction)을 0 으로 보낸다 — elapsed 는 집중 타이머 카운터라 방해시간이 애초에 빠져 있다.
+     * 뽀모도로 다블록 세션은 세션 구간 단위 내림이라 블록별 누적 내림과 코인 수가 소폭 다를 수 있다 — 수용.
+     *
+     * <p><b>위조 방어(지급에만 적용, 저장·통계는 불변)</b>: endedAt 이 미래면 now 로 클램프해 미래 시각 조작분을
+     * 지급에서 제외하고(정상 클라의 소폭 시계 오차는 자연 흡수), 지급 인정 길이를
+     * {@link #MAX_REWARDED_SESSION_SECONDS}(12h, orphan 상한과 정렬)로 캡해 과거 startedAt 조작으로 만든
+     * 위조 장시간 세션의 대량 발행을 차단한다. 정상 앱 세션은 어느 클램프에도 걸리지 않는다.
+     */
+    static int sessionRewardCoins(Instant startedAt, Instant endedAt, int totalDistractionSeconds, Instant now) {
+        Instant effectiveEnd = endedAt.isAfter(now) ? now : endedAt;
+        long focusedSeconds = Duration.between(startedAt, effectiveEnd).getSeconds() - totalDistractionSeconds;
+        long rewardedSeconds = Math.min(focusedSeconds, MAX_REWARDED_SESSION_SECONDS);
+        return (int) Math.max(0, rewardedSeconds / SESSION_REWARD_UNIT_SECONDS);
     }
 
     /**

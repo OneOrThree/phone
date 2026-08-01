@@ -208,7 +208,9 @@ export default function GroupFindSheet({
       // 분모다. 성공 뒤로 미루면 ROOM_FULL·404·네트워크 실패가 통째로 빠져 전환율이 항상
       // 100%로 보인다(GroupInviteSheet.join()과 같은 기준).
       logGroupJoinAttempted({ join_method: 'search' });
-      await joinGroup(group.groupId);
+      // 서버가 소유한 group_joined([S])도 유입 경로를 알아야 초대 퍼널과 검색 유입을 가를 수 있다
+      // (초대 링크 스펙 §4-3 8). 이 경로엔 초대 slug가 없다.
+      await joinGroup(group.groupId, { joinMethod: 'search' });
       onJoined();
     } catch (e) {
       // status가 아니라 서버 code로 분기한다 — ROOM_FULL·ALREADY_MEMBER가 둘 다 409(§3-2)
