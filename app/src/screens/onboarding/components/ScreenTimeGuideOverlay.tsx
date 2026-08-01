@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { Modal, View, Text, TouchableOpacity, Animated, StyleSheet } from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
 import type { SystemColorScheme } from '@/services/ScreenTimeModule';
@@ -39,6 +39,33 @@ const ALERT_COLORS = {
   },
 } as const;
 
+// 모달 '해제 완료'를 기다리는 훅 — setVisible(false)는 해제를 예약할 뿐이라, 곧바로 네이티브
+// picker를 띄우면 해제 중인 모달 위에서 present돼 picker가 유실될 수 있다(코드리뷰 P1).
+// hideAndWait()는 Modal onDismiss까지 대기하고, 콜백이 안 오는 이상 상황엔 800ms 폴백으로
+// 풀어 온보딩이 멈추지 않게 한다. onDismissed는 오버레이의 onDismissed prop에 연결한다.
+export function useGuideDismissal(setVisible: (visible: boolean) => void) {
+  const resolverRef = useRef<(() => void) | null>(null);
+  const onDismissed = useCallback(() => {
+    resolverRef.current?.();
+    resolverRef.current = null;
+  }, []);
+  const hideAndWait = useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        resolverRef.current = resolve;
+        setVisible(false);
+        setTimeout(() => {
+          if (resolverRef.current === resolve) {
+            resolverRef.current = null;
+            resolve();
+          }
+        }, 800);
+      }),
+    [setVisible],
+  );
+  return { onDismissed, hideAndWait };
+}
+
 interface Props {
   visible: boolean;
   scheme: SystemColorScheme;
@@ -46,9 +73,17 @@ interface Props {
   requesting: boolean;
   // 복제본 '계속' 탭 — 실제 권한 요청을 이어간다.
   onConfirm: () => void;
+  // Modal 해제 완료 콜백(iOS) — useGuideDismissal의 onDismissed를 연결.
+  onDismissed?: () => void;
 }
 
-export default function ScreenTimeGuideOverlay({ visible, scheme, requesting, onConfirm }: Props) {
+export default function ScreenTimeGuideOverlay({
+  visible,
+  scheme,
+  requesting,
+  onConfirm,
+  onDismissed,
+}: Props) {
   const c = ALERT_COLORS[scheme];
   // '허용 안 함'(오답) 탭 → 좌우 흔들림 (진행 없음)
   const shakeX = useRef(new Animated.Value(0)).current;
@@ -62,7 +97,13 @@ export default function ScreenTimeGuideOverlay({ visible, scheme, requesting, on
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={() => {}}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => {}}
+      onDismiss={onDismissed}
+    >
       <View style={s.dim}>
         {requesting ? null : (
           <>

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Alert, Linking, AppState, Platform } from 'react-native';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import InfoNote, { NoteStrong } from '@/screens/onboarding/components/InfoNote';
-import ScreenTimeGuideOverlay from '@/screens/onboarding/components/ScreenTimeGuideOverlay';
+import ScreenTimeGuideOverlay, {
+  useGuideDismissal,
+} from '@/screens/onboarding/components/ScreenTimeGuideOverlay';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import ScreenTimeModule, { type SystemColorScheme } from '@/services/ScreenTimeModule';
@@ -32,6 +34,8 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
   // 권한창 리허설 오버레이(GROMO-934) — 재요청도 실제 창이 뜨므로 요청 스텝과 동일 안내.
   const [guideVisible, setGuideVisible] = useState(false);
   const [scheme, setScheme] = useState<SystemColorScheme>('dark');
+  // 모달 해제 '완료'를 기다렸다가 picker를 띄우기 위한 훅(코드리뷰 P1 — 해제 중 present 유실 방지).
+  const { onDismissed, hideAndWait } = useGuideDismissal(setGuideVisible);
 
   // 스크린타임 요약 스텝 노출 계측 — 거부 분기라 데이터 없음(has_data:false). 진입당 1회.
   useEffect(() => {
@@ -80,7 +84,7 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
     if (requesting) return;
     if (Platform.OS !== 'ios') {
       // 시스템 권한창이 없는 환경 — 안내 없이 바로 요청 경로.
-      await doRetry();
+      await doRetry(false);
       return;
     }
     setScheme(await ScreenTimeModule.getSystemColorScheme());
@@ -88,15 +92,21 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
   };
 
   // 오버레이 '계속' 탭 — 실제 재요청. 요청 중엔 오버레이가 딤만 남겨 시스템 창 뒤 배경을 유지.
-  const doRetry = async () => {
+  const doRetry = async (guideShown: boolean) => {
     if (requesting) return;
     setRequesting(true);
     try {
       logOnboardingPermissionRequested();
       const granted = await ScreenTimeModule.requestAuthorization();
-      setGuideVisible(false);
       logOnboardingPermissionResulted({ granted });
-      if (granted) await completeApproved();
+      if (granted) {
+        // 허용 → picker(completeApproved)는 가이드 모달이 완전히 내려간 뒤에 — 해제 중인
+        // 모달 위에서 present하면 picker가 같이 내려가거나 안 뜰 수 있다(코드리뷰 P1).
+        if (guideShown) await hideAndWait();
+        await completeApproved();
+        return;
+      }
+      setGuideVisible(false);
       // 다시 거부하면 이 화면 유지 — '이대로 계속하기'로 진행 가능.
     } catch {
       // 재요청 자체가 불가한 상태(기기 제한 등) — 설정 앱 이동으로 폴백.
@@ -141,7 +151,8 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
         visible={guideVisible}
         scheme={scheme}
         requesting={requesting}
-        onConfirm={doRetry}
+        onConfirm={() => doRetry(true)}
+        onDismissed={onDismissed}
       />
     </>
   );

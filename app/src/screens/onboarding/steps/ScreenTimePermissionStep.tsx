@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { View, Text, StyleSheet, Alert, Platform } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
-import ScreenTimeGuideOverlay from '@/screens/onboarding/components/ScreenTimeGuideOverlay';
+import ScreenTimeGuideOverlay, {
+  useGuideDismissal,
+} from '@/screens/onboarding/components/ScreenTimeGuideOverlay';
 import { T } from '@/constants/theme';
 import {
   logOnboardingPermissionRequested,
@@ -48,6 +50,8 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
   // 권한창 리허설 오버레이(GROMO-934) — CTA 탭 시 표시, 복제본 '계속'이 실제 요청을 이어간다.
   const [guideVisible, setGuideVisible] = useState(false);
   const [scheme, setScheme] = useState<SystemColorScheme>('dark');
+  // 모달 해제 '완료'를 기다렸다가 picker를 띄우기 위한 훅(코드리뷰 P1 — 해제 중 present 유실 방지).
+  const { onDismissed, hideAndWait } = useGuideDismissal(setGuideVisible);
 
   // CTA — 이미 승인이면 재요청 창이 안 뜨므로 안내 없이 통과, 미승인이면 오버레이부터.
   async function allow() {
@@ -66,7 +70,7 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
       }
       if (Platform.OS !== 'ios') {
         // 시스템 권한창이 없는 환경 — 안내 없이 바로 요청(항상 거부 반환) 경로.
-        await requestAndProceed();
+        await requestAndProceed(false);
         return;
       }
       // notDetermined/denied → 실제 권한창이 뜬다(denied여도 재호출로 시트가 다시 뜸, GROMO-971).
@@ -86,7 +90,7 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
     if (requesting) return;
     setRequesting(true);
     try {
-      await requestAndProceed();
+      await requestAndProceed(true);
     } catch (e) {
       setGuideVisible(false);
       Alert.alert('권한 요청 실패', e instanceof Error ? e.message : String(e));
@@ -96,17 +100,19 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
   }
 
   // 실제 권한 요청 + 결과 처리 — 요청 중엔 오버레이가 딤만 남겨 시스템 창 뒤 배경을 유지한다.
-  async function requestAndProceed() {
+  async function requestAndProceed(guideShown: boolean) {
     logOnboardingPermissionRequested();
     const granted = await ScreenTimeModule.requestAuthorization();
-    setGuideVisible(false);
     logOnboardingPermissionResulted({ granted });
     update({ screenTimeGranted: granted });
     if (!granted) {
+      setGuideVisible(false);
       onNext(); // 거부 → OnboardingFlow가 09a(제한)/09b(수동입력) 삽입
       return;
     }
-    // 권한 허용 → 곧바로 측정 대상(앱) 선택 picker.
+    // 권한 허용 → 측정 대상(앱) 선택 picker. 가이드 모달이 완전히 내려간 뒤에 띄운다 —
+    // 해제 중인 모달 위에서 present하면 picker가 같이 내려가거나 안 뜰 수 있다(코드리뷰 P1).
+    if (guideShown) await hideAndWait();
     await pickTargets();
     onNext();
   }
@@ -163,6 +169,7 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
         scheme={scheme}
         requesting={requesting}
         onConfirm={confirmGuide}
+        onDismissed={onDismissed}
       />
     </>
   );
