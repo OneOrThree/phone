@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
-import Slider from '@/screens/onboarding/components/Slider';
+import { DurationDrumPicker } from '@/components/DurationDrumPicker';
 import { T } from '@/constants/theme';
 import { formatDuration } from '@/screens/onboarding/format';
 import { logOnboardingGoalSubmitted } from '@/services/analyticsEvents';
@@ -9,8 +9,9 @@ import type { StepProps, V2OnboardingData } from '@/screens/onboarding/types';
 
 // W12 · 목표 설정 — 하루 집중 목표(dailyFocusMinutes) + 하루 스크린타임 목표(usageGoalMinutes)를 한 화면에서.
 // 기존 FocusGoalStep·UsageGoalStep을 병합. rec는 초기 기본값으로만 쓰고 화면에 배지는 없다.
-const FOCUS = { min: 30, max: 1440, step: 10, rec: 720 }; // 최대 24시간, 기본 12시간
-const SCREEN = { min: 30, max: 480, step: 10, rec: 240 }; // 기본 4시간 이하
+// 입력은 드럼(휠) 피커 · 5분 단위 — 설정의 개인 목표 수정과 동일한 UI (GROMO-969).
+const FOCUS = { min: 30, max: 1440, rec: 720 }; // 최대 24시간, 기본 12시간
+const SCREEN = { min: 30, max: 480, rec: 240 }; // 기본 4시간 이하
 
 export default function GoalSettingStep({ data, update, onNext }: StepProps) {
   const focusMin = data.dailyFocusMinutes ?? FOCUS.rec;
@@ -31,6 +32,7 @@ export default function GoalSettingStep({ data, update, onNext }: StepProps) {
     <StepScaffold
       testID="onboarding.step.goal"
       center
+      scrollable
       title="목표를 정해볼까요?"
       ctaLabel="다음"
       onCta={() => {
@@ -49,10 +51,9 @@ export default function GoalSettingStep({ data, update, onNext }: StepProps) {
               <Text style={s.value}>{formatDuration(focusMin)}</Text>
             </View>
           </View>
-          <Slider
-            min={FOCUS.min}
-            max={FOCUS.max}
-            step={FOCUS.step}
+          <DurationDrumPicker
+            minMinutes={FOCUS.min}
+            maxMinutes={FOCUS.max}
             value={focusMin}
             onChange={(m) => update({ dailyFocusMinutes: m })}
           />
@@ -65,10 +66,9 @@ export default function GoalSettingStep({ data, update, onNext }: StepProps) {
               <Text style={s.value}>{formatDuration(screenMin)} 이하</Text>
             </View>
           </View>
-          <Slider
-            min={SCREEN.min}
-            max={SCREEN.max}
-            step={SCREEN.step}
+          <DurationDrumPicker
+            minMinutes={SCREEN.min}
+            maxMinutes={SCREEN.max}
             value={screenMin}
             onChange={(m) => update({ usageGoalMinutes: m })}
           />
