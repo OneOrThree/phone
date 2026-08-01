@@ -5,12 +5,14 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Build
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
 // 목표 초과 실시간 알림(GROMO-997, 03-스크린타임-구현 §7 'WorkManager 옵션') — 15분 주기
@@ -21,7 +23,10 @@ import java.util.concurrent.TimeUnit
 // 플래그만 기록했고 그마저 GROMO-942로 폐지됐다. 안드로이드는 조회형이라 저비용으로 가능해
 // 추가하는 개선이며, 문구는 앱 로컬 알림 톤(해요체·이모지 없음)을 따른다.
 //
-// 조용한 no-op 조건: 오늘 이미 알림 · 권한 없음 · 목표 미설정 · 판정선 미도달 · 알림 꺼짐.
+// 조용한 no-op 조건: 오늘 이미 알림 · 사용정보 권한 없음 · 목표 미설정 · 판정선 미도달 ·
+// 알림 불가(인앱 '알림 받기' 옵트아웃 · OS 알림/채널 꺼짐 · 심야 방해 금지 시간대).
+// 알림 가용성은 사용시간 조회(24h 이벤트 스캔) '전'에 확인해, 못 띄우는 상태면 스캔 없이
+// 조기 리턴한다 — 알림 불가한데 매 15분 풀스캔하는 배터리 낭비를 없앤다(코드리뷰 반영).
 // WorkManager 주기는 Doze·제조사 절전에 밀릴 수 있어 알림이 '초과 직후'가 아니라 '초과 후
 // 다음 실행'에 뜬다 — 배터리 최적화 예외 안내(설정 화면)와 같이 가는 이유.
 class GoalExceededCheckWorker(appContext: Context, params: WorkerParameters) :
@@ -29,6 +34,9 @@ class GoalExceededCheckWorker(appContext: Context, params: WorkerParameters) :
   companion object {
     private const val WORK_NAME = "gromoGoalExceededCheck"
     private const val CHANNEL_ID = "screen_time_goal"
+    // 무음 채널(코드리뷰 반영) — 안드8+는 소리가 채널 속성이라 개별 알림에서 끌 수 없다. 인앱
+    // '소리'를 끄면 IMPORTANCE_LOW(소리 없음, FocusSessionService와 동일 패턴) 채널로 게시한다.
+    private const val CHANNEL_ID_SILENT = "screen_time_goal_silent"
     private const val NOTIFICATION_ID = 997
 
     // gromo 인디고(T.accent #5E6AD2) — FocusSessionService 알림과 동일한 강조색.
@@ -65,6 +73,30 @@ class GoalExceededCheckWorker(appContext: Context, params: WorkerParameters) :
     }
     if (!UsageAccess.isGranted(context)) return Result.success()
     val goalSeconds = ScreenTimeGoals.goalSecondsOn(prefs, today) ?: return Result.success()
+
+    // ── 알림 가용성 게이트(코드리뷰 반영) — 사용시간 조회(usageMillis, 24h 이벤트 스캔) '전'에
+    // 확인한다. 알림을 못 띄우는 상태면 스캔 없이 조기 리턴해 배터리 낭비를 없앤다(P2). 어느
+    // 경우든 '오늘 보냄' 마킹을 남기지 않는다 — 상태가 풀리면(설정 재활성·심야 종료) 그날 안에
+    // 다음 주기가 다시 알린다. 마킹하면 그날은 영영 못 받는다.
+    val notificationManager =
+      context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    // 인앱 '알림 받기' 옵트아웃(P1) — OS 알림은 켜져 있어도 유저가 앱 안에서 끈 경우.
+    if (!prefs.getBoolean(ScreenTimeModule.KEY_NOTIF_ENABLED, true)) return Result.success()
+    // OS 알림 꺼짐.
+    if (!notificationManager.areNotificationsEnabled()) return Result.success()
+    // 인앱 '소리(알림음)' 토글(P1) — 미설정 기본은 소리 켜짐. 안드8+는 소리가 채널 속성이라
+    // 소리/무음 채널을 나눠 쓰므로, 아래 '채널 꺼짐' 검사도 실제로 게시할 채널을 대상으로 한다.
+    val soundEnabled = prefs.getBoolean(ScreenTimeModule.KEY_NOTIF_SOUND_ENABLED, true)
+    // 채널만 꺼진 경우(안드8+) — 앱 알림이 켜져 있어도 게시할 채널이 꺼져 있으면 notify가 조용히
+    // 무시된다. 생성 후 다시 읽어 IMPORTANCE_NONE이면 스킵.
+    val channel = ensureChannel(notificationManager, soundEnabled)
+    if (channel != null && channel.importance == NotificationManager.IMPORTANCE_NONE) {
+      return Result.success()
+    }
+    // 인앱 '심야 방해 금지' 시간대(P1) — '지금은 불가, 나중에 가능'이라 마킹 없이 스킵한다.
+    if (isInQuietHours(prefs)) return Result.success()
+
+    // 위 게이트를 모두 통과 — 이제서야 사용시간을 조회한다(위 배터리 게이트 주석 참고).
     val usageMillis = ScreenTimeGoals.usageMillis(
       context,
       prefs,
@@ -72,43 +104,73 @@ class GoalExceededCheckWorker(appContext: Context, params: WorkerParameters) :
       System.currentTimeMillis(),
     )
     if (!ScreenTimeGoals.isExceeded(usageMillis, goalSeconds)) return Result.success()
-    val notificationManager =
-      context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    // 알림이 꺼져 있으면 마킹 없이 스킵 — 같은 날 알림을 다시 켜면 다음 주기에 알린다.
-    if (!notificationManager.areNotificationsEnabled()) return Result.success()
-    // 채널만 꺼진 경우도 동일하게 마킹 없이 스킵(안드8+, 코드리뷰 반영) — 앱 알림이 켜져
-    // 있어도 이 채널이 꺼져 있으면 notify가 조용히 무시되는데, 그날 '보냄'으로 기록하면
-    // 채널을 다시 켜도 그날은 알림을 받을 수 없다.
-    val channel = ensureChannel(notificationManager)
-    if (channel != null && channel.importance == NotificationManager.IMPORTANCE_NONE) {
-      return Result.success()
-    }
-    postNotification(context, notificationManager, goalSeconds)
+
+    postNotification(context, notificationManager, goalSeconds, soundEnabled)
     prefs.edit().putString(ScreenTimeModule.KEY_GOAL_EXCEEDED_NOTIFIED_DATE, today).apply()
     return Result.success()
   }
 
+  // 인앱 '심야 방해 금지' 시간대인지(코드리뷰 반영) — 자정 걸침(예: 22:00~08:00) 포함. quiet가
+  // 꺼져 있거나('심야 방해 금지' off) 시각 문자열이 어긋나면 방해 금지 아님(false).
+  private fun isInQuietHours(prefs: SharedPreferences): Boolean {
+    if (!prefs.getBoolean(ScreenTimeModule.KEY_NOTIF_QUIET_ENABLED, false)) return false
+    val start = parseMinutes(prefs.getString(ScreenTimeModule.KEY_NOTIF_QUIET_START, null))
+      ?: return false
+    val end = parseMinutes(prefs.getString(ScreenTimeModule.KEY_NOTIF_QUIET_END, null))
+      ?: return false
+    if (start == end) return false // 길이 0 구간 = 방해 금지 시간대 없음
+    val calendar = Calendar.getInstance()
+    val now = calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
+    return if (start < end) {
+      now >= start && now < end // 같은 날 안의 구간(예: 09:00~18:00)
+    } else {
+      now >= start || now < end // 자정 걸침(예: 22:00~08:00) — 시작 이후이거나 종료 이전
+    }
+  }
+
+  // 'HH:mm' → 자정 기준 분(0..1439). 형식·범위가 어긋나면 null(방해 금지 판정을 건너뛴다).
+  private fun parseMinutes(time: String?): Int? {
+    if (time == null) return null
+    val parts = time.split(":")
+    if (parts.size != 2) return null
+    val hour = parts[0].toIntOrNull() ?: return null
+    val minute = parts[1].toIntOrNull() ?: return null
+    if (hour !in 0..23 || minute !in 0..59) return null
+    return hour * 60 + minute
+  }
+
   // 채널 생성(멱등)·실제 상태 조회(안드8+) — createNotificationChannel은 유저가 바꾼 중요도를
   // 덮지 않으므로, 생성 후 다시 읽어야 '채널만 꺼짐(IMPORTANCE_NONE)'을 알 수 있다.
-  // 안드8 미만은 채널 개념이 없어 null.
-  private fun ensureChannel(notificationManager: NotificationManager): NotificationChannel? {
+  // 인앱 '소리'에 따라 소리 채널(IMPORTANCE_DEFAULT)/무음 채널(IMPORTANCE_LOW)을 나눠 만들고,
+  // 실제로 게시할 채널을 반환한다. 안드8 미만은 채널 개념이 없어 null.
+  private fun ensureChannel(
+    notificationManager: NotificationManager,
+    soundEnabled: Boolean,
+  ): NotificationChannel? {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
-    val channel =
-      NotificationChannel(CHANNEL_ID, "사용시간 목표", NotificationManager.IMPORTANCE_DEFAULT)
+    val channelId = if (soundEnabled) CHANNEL_ID else CHANNEL_ID_SILENT
+    val importance =
+      if (soundEnabled) NotificationManager.IMPORTANCE_DEFAULT else NotificationManager.IMPORTANCE_LOW
+    val name = if (soundEnabled) "사용시간 목표" else "사용시간 목표 (무음)"
+    val channel = NotificationChannel(channelId, name, importance)
     channel.description = "목표 사용시간을 넘으면 알려줘요"
     notificationManager.createNotificationChannel(channel)
-    return notificationManager.getNotificationChannel(CHANNEL_ID)
+    return notificationManager.getNotificationChannel(channelId)
   }
 
   private fun postNotification(
     context: Context,
     notificationManager: NotificationManager,
     goalSeconds: Int,
+    soundEnabled: Boolean,
   ) {
     val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      // 채널은 doWork의 ensureChannel이 이미 생성·확인했다.
-      Notification.Builder(context, CHANNEL_ID)
+      // 채널은 doWork의 ensureChannel이 이미 생성·확인했다. 인앱 '소리' 설정에 따라 소리/무음
+      // 채널로 게시한다(안드8+는 소리가 채널 속성이라 개별 알림에서 못 끈다).
+      Notification.Builder(context, if (soundEnabled) CHANNEL_ID else CHANNEL_ID_SILENT)
     } else {
+      // 안드8 미만은 소리가 빌더 속성이지만 현재도 설정하지 않아 기본 무음이라, 인앱 '소리'
+      // 설정과 무관하게 무음을 유지한다(기존 동작 보존 — 대상 사용자층이 사실상 없다).
       @Suppress("DEPRECATION")
       Notification.Builder(context).setPriority(Notification.PRIORITY_DEFAULT)
     }

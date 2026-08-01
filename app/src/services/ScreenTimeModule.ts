@@ -18,6 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { requireOptionalNativeModule } from 'expo';
 import { presentAndroidAppPicker } from '@/services/androidAppPicker';
 import { STORAGE_KEYS } from '@/types/storage';
+import type { NotificationSettingsRequest } from '@/types/dto/user';
 
 export type AuthorizationStatus = 'approved' | 'denied' | 'notDetermined';
 
@@ -115,6 +116,13 @@ interface AndroidNativeScreenTime {
   pauseFocusActivity?(): Promise<void>;
   resumeFocusActivity?(): Promise<void>;
   syncFocusTimerState?(elapsedSeconds: number, paused: boolean): Promise<void>;
+  setNotificationPreferences?(
+    enabled: boolean,
+    soundEnabled: boolean,
+    quietEnabled: boolean,
+    quietStart: string,
+    quietEnd: string,
+  ): Promise<void>;
   // Expo 모듈 기본 이벤트 구독(onFocusShieldLost — 세션 중 실드 상실 통지, 코드리뷰 반영)
   addListener?(eventName: 'onFocusShieldLost', listener: () => void): { remove: () => void };
 }
@@ -566,6 +574,44 @@ const ScreenTimeModule = {
     }
     return Platform.OS === 'ios';
   },
+
+  // ── 인앱 알림 설정 미러(안드로이드 전용, GROMO-997 코드리뷰) ──
+  // 목표 초과 워커(GoalExceededCheckWorker)가 OS 권한·채널뿐 아니라 인앱 '알림 받기'·'소리'·
+  // '심야 방해 금지'까지 존중하게, JS가 값을 네이티브 prefs로 복제한다. iOS엔 대응 워커가 없고
+  // 구 바이너리(M4 함수 없음)는 no-op — 둘 다 무해(항상 no-op이라 반환은 void).
+  setNotificationPreferences: async (prefs: NotificationSettingsRequest): Promise<void> => {
+    if (Platform.OS !== 'android') return;
+    await AndroidScreenTime?.setNotificationPreferences?.(
+      prefs.notificationEnabled,
+      prefs.soundEnabled,
+      prefs.nightModeEnabled,
+      prefs.nightStartTime ?? '22:00',
+      prefs.nightEndTime ?? '08:00',
+    );
+  },
 };
+
+// 캐시된 인앱 알림 설정을 네이티브로 미러(GROMO-997 코드리뷰) — 앱 시작·포그라운드 복귀 시
+// ScreenTimeSyncer가 호출한다. NotificationSettingsScreen이 서버 조회·설정 변경분을 이 캐시
+// (STORAGE_KEYS.notificationSettings)에 써두므로, 유저가 설정 화면을 다시 열지 않아도 목표
+// 초과 워커가 최신 인앱 설정을 존중한다. 저장된 값이 없으면(첫 실행) 네이티브 기본값(알림 on·
+// 소리 on·심야 off)이 안전한 기본이라 미러를 건너뛴다.
+export async function mirrorNotificationPreferencesToNative(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.notificationSettings);
+    if (!raw) return;
+    const cached = JSON.parse(raw) as Partial<NotificationSettingsRequest>;
+    await ScreenTimeModule.setNotificationPreferences({
+      notificationEnabled: cached.notificationEnabled ?? true,
+      soundEnabled: cached.soundEnabled ?? true,
+      nightModeEnabled: cached.nightModeEnabled ?? false,
+      nightStartTime: cached.nightStartTime ?? '22:00',
+      nightEndTime: cached.nightEndTime ?? '08:00',
+    });
+  } catch {
+    // 미러 실패는 무해 — 다음 앱 시작·설정 변경에서 재시도
+  }
+}
 
 export default ScreenTimeModule;

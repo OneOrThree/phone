@@ -51,6 +51,15 @@ class ScreenTimeModule : Module() {
     // 목표 초과 알림을 보낸 날짜(M4) — 하루 1회 중복 방지(GoalExceededCheckWorker).
     internal const val KEY_GOAL_EXCEEDED_NOTIFIED_DATE = "goalExceededNotifiedDate"
 
+    // 인앱 알림 설정 미러(M4 코드리뷰) — JS NotificationSettingsScreen이 저장하는 값을 네이티브로
+    // 복제한다. 목표 초과 워커(GoalExceededCheckWorker)가 OS 권한·채널뿐 아니라 인앱 '알림 받기'·
+    // '소리'·'심야 방해 금지'까지 존중하게 하기 위함. iOS엔 대응 워커가 없어 미러 대상이 아니다.
+    internal const val KEY_NOTIF_ENABLED = "notificationEnabled"
+    internal const val KEY_NOTIF_SOUND_ENABLED = "notificationSoundEnabled"
+    internal const val KEY_NOTIF_QUIET_ENABLED = "notificationQuietEnabled"
+    internal const val KEY_NOTIF_QUIET_START = "notificationQuietStart" // 'HH:mm'
+    internal const val KEY_NOTIF_QUIET_END = "notificationQuietEnd" // 'HH:mm'
+
     // 측정 대상 패키지명 집합 — iOS의 selection/pending 2단계 키 구조와 1:1(§8).
     // 미설정 = 전체 앱 측정. 피커(M2)가 pending에 저장하고 promoteSelection이 활성으로 승격한다.
     // 활성 키는 목표 초과 워커의 사용시간 계산(ScreenTimeGoals.usageMillis)도 읽는다(M4).
@@ -153,6 +162,26 @@ class ScreenTimeModule : Module() {
         // 목표를 다시 건 시점의 재알림은 자연스러운 동작이다.
         prefs.edit().remove(KEY_GOAL_EXCEEDED_NOTIFIED_DATE).apply()
       }
+    }
+
+    // 인앱 알림 설정 저장(M4 코드리뷰) — JS가 앱 시작·설정 변경 시 미러한다. 목표 초과 워커가
+    // notify 전에 읽어 '알림 받기' 옵트아웃이면 건너뛰고, '심야 방해 금지' 시간대면 건너뛰며,
+    // '소리'가 꺼져 있으면 무음으로 게시한다. 안드로이드 전용 — iOS엔 대응 워커가 없다.
+    // quietStart·quietEnd는 'HH:mm'(로컬). 자정 걸침(예: 22:00~08:00) 계산은 워커가 처리한다.
+    AsyncFunction("setNotificationPreferences") {
+        enabled: Boolean,
+        soundEnabled: Boolean,
+        quietEnabled: Boolean,
+        quietStart: String,
+        quietEnd: String,
+      ->
+      prefs.edit()
+        .putBoolean(KEY_NOTIF_ENABLED, enabled)
+        .putBoolean(KEY_NOTIF_SOUND_ENABLED, soundEnabled)
+        .putBoolean(KEY_NOTIF_QUIET_ENABLED, quietEnabled)
+        .putString(KEY_NOTIF_QUIET_START, quietStart)
+        .putString(KEY_NOTIF_QUIET_END, quietEnd)
+        .apply()
     }
 
     // 오늘 사용시간(분) — 오늘 0시~지금. 이름의 Bucket은 iOS 15분 눈금의 흔적으로,
