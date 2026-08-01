@@ -20,6 +20,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { PressableScale } from '@/components/PressableScale';
 import { T, withAlpha } from '@/constants/theme';
@@ -45,6 +46,7 @@ import { occupationForCategory } from '@/constants/focusCategories';
 import { useSessionLeagueMembers } from './useSessionLeagueMembers';
 import { LiveFocusGrid } from './components/LiveFocusGrid';
 import { FocusMenuDrawer } from './components/FocusMenuDrawer';
+import { FocusLandscape } from './FocusLandscape';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import {
   logFocusSessionStarted,
@@ -54,6 +56,7 @@ import {
   logFocusSessionAbandoned,
   logFocusMenuOpened,
   logFocusViewChanged,
+  logFocusOrientationChanged,
   type FocusViewName,
 } from '@/services/analyticsEvents';
 
@@ -98,7 +101,9 @@ export default function FocusSessionScreen() {
   const goal = params.goalSeconds ?? 25 * 60;
   const pomo = params.pomodoro ?? { focusMin: 25, breakMin: 5, sets: 4 };
 
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  // 가로 판별 — 방향 전환에 따라 렌더만 분기한다(세션 로직은 방향과 무관, GROMO-973).
+  const isLandscape = width > height;
   const { userId, nickname } = useUser();
   const { addFocusSeconds, todayFocusSeconds } = useFocus();
   const { addCoins } = useCoins();
@@ -158,6 +163,20 @@ export default function FocusSessionScreen() {
     if (dwellLeftAtRef.current != null) dwellLeftAtRef.current = now;
     logFocusViewChanged({
       view: PAGE_VIEWS[pageRef.current] ?? 'character',
+      dwell_seconds: dwellSeconds,
+    });
+  }, []);
+  // 방향 체류 계측(GROMO-973) — 세로/가로 각각 얼마나 오래 집중하는지. 방향 전환·세션 종료 때
+  // 직전 방향의 체류를 발행한다(뷰 체류와 같은 방식). 방향 전환은 포그라운드에서만 일어나므로
+  // (화면을 보며 폰을 돌린다) away 차감은 생략한다.
+  const orientationRef = useRef<'portrait' | 'landscape'>('portrait');
+  const orientEnteredAtRef = useRef(Date.now());
+  const flushOrientationDwell = useCallback(() => {
+    const now = Date.now();
+    const dwellSeconds = Math.max(0, Math.round((now - orientEnteredAtRef.current) / 1000));
+    orientEnteredAtRef.current = now;
+    logFocusOrientationChanged({
+      orientation: orientationRef.current,
       dwell_seconds: dwellSeconds,
     });
   }, []);
@@ -436,6 +455,7 @@ export default function FocusSessionScreen() {
       if (!finishedRef.current) {
         cancelLiveSession();
         if (!dwellDoneRef.current) flushViewDwell();
+        flushOrientationDwell();
         // 종결 계측 — finish를 안 거친 이탈도 abandoned로 남긴다(코덱스 리뷰). 안 남기면
         // 이 세션은 완료/포기 어느 쪽도 안 찍혀 상호배타가 깨진다. 시간 적립은 라이브
         // 레코드가 남아 다음 실행의 고아 정산이 처리하므로 여기선 계측만 한다.
@@ -448,7 +468,7 @@ export default function FocusSessionScreen() {
         }
       }
     },
-    [cancelLiveSession, flushViewDwell],
+    [cancelLiveSession, flushViewDwell, flushOrientationDwell],
   );
 
   // 집중 블록 증분 정산 — 마지막 정산 이후 쌓인 집중초(delta)를 로컬·과목·코인에 적립하고
@@ -563,6 +583,8 @@ export default function FocusSessionScreen() {
       // 완료 게이트가 이미 발행했다면 건너뛴다 — 게이트를 열어둔 시간이 직전 뷰의 체류로
       // 다시 계상되는 이중 발행 방지(코덱스 리뷰).
       if (!dwellDoneRef.current) flushViewDwell();
+      // 마지막 방향 체류도 발행(GROMO-973) — finish는 1회, 이탈(언마운트)은 finishedRef로 스킵돼 중복 없음.
+      flushOrientationDwell();
       // 정상 종료 — 실드·Live Activity 해제
       ScreenTimeModule.stopFocusShield().catch(() => {});
       ScreenTimeModule.endFocusActivity().catch(() => {});
@@ -589,6 +611,7 @@ export default function FocusSessionScreen() {
       cancelLiveSession,
       flushPendingCancels,
       flushViewDwell,
+      flushOrientationDwell,
       logCompletedOnce,
       navigation,
       subjectId,
@@ -837,6 +860,38 @@ export default function FocusSessionScreen() {
     finish(sessionRef.current.done || mode === 'countup');
   }, [finish, mode]);
 
+  // 화면 방향 제어(GROMO-973) — 이 화면에 있는 동안만 가로 회전을 허용(자동 회전)하고,
+  // 화면을 벗어나면 다시 세로로 고정한다. 앱의 다른 화면은 App.tsx의 전역 세로 잠금을 따른다.
+  useEffect(() => {
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.DEFAULT).catch(() => {});
+    return () => {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+    };
+  }, []);
+
+  // 완료 시엔 세로로 되돌린다 — 완료 게이트(확인)는 세로 화면에만 있어 가로에선 안 보인다.
+  useEffect(() => {
+    if (session.done) {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+    }
+  }, [session.done]);
+
+  // 세로↔가로 전환 시 직전 방향의 체류를 발행(GROMO-973). 방향 전환·세션 종료가 발행 지점.
+  useEffect(() => {
+    const next = isLandscape ? 'landscape' : 'portrait';
+    if (orientationRef.current === next) return;
+    flushOrientationDwell();
+    orientationRef.current = next;
+  }, [isLandscape, flushOrientationDwell]);
+
+  // 회전 버튼 — 세로에선 가로로 고정, 가로에선 자유 회전으로 풀어(들고 있는 방향대로) 세로 복귀.
+  const goLandscape = useCallback(() => {
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+  }, []);
+  const goPortrait = useCallback(() => {
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.DEFAULT).catch(() => {});
+  }, []);
+
   function onScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
     const next = Math.round(e.nativeEvent.contentOffset.x / width);
     // 페이지 전환 시 직전 뷰의 체류를 발행(GROMO-987). 같은 페이지로 되돌아온 스크롤은 미계측.
@@ -886,13 +941,44 @@ export default function FocusSessionScreen() {
     tagName: subjectName,
   };
 
+  // 가로 — 플립 시계만 크게 보는 컴팩트 뷰(GROMO-973). 세션 상태·타이머는 위 훅들이 그대로 굴린다.
+  // 자릿수는 세션 최대 길이로 판정 — 1시간 이상(뽀모도로가 시간 단위인 경우 포함)이면 HH:MM:SS, 아니면 MM:SS.
+  const landscapeFormat: 'hhmmss' | 'mmss' =
+    mode === 'countup'
+      ? 'hhmmss'
+      : (mode === 'countdown' ? goal : Math.max(pomo.focusMin, pomo.breakMin) * 60) >= 3600
+        ? 'hhmmss'
+        : 'mmss';
+  if (isLandscape) {
+    return (
+      <FocusLandscape
+        mode={mode}
+        format={landscapeFormat}
+        displaySeconds={session.display}
+        phase={session.phase}
+        setIndex={session.setIndex}
+        sets={pomo.sets}
+        subjectName={subjectName}
+        onRotatePortrait={goPortrait}
+      />
+    );
+  }
+
   return (
     <View testID="focus.session.screen" style={s.root}>
       <LinearGradient colors={[T.night.top, T.night.bottom]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={s.flex1} edges={['top', 'bottom']}>
-        {/* 상단바 — 햄버거만(과목명은 타이머 위 리드아웃으로 이동, 빈 View는 우측 정렬 유지용) */}
+        {/* 상단바 — 좌측 회전 버튼(→가로, GROMO-973) · 우측 햄버거 메뉴 */}
         <View style={s.topBar}>
-          <View />
+          <PressableScale
+            style={s.hamburger}
+            scaleTo={0.9}
+            haptic="light"
+            accessibilityLabel="가로 화면으로 전환"
+            onPress={goLandscape}
+          >
+            <Ionicons name="phone-landscape-outline" size={20} color={T.paperLight} />
+          </PressableScale>
           {/* 같은 화면의 일시정지·정지와 피드백을 맞춘다(햅틱만 제외 — 주요 CTA가 아니라서).
               ref는 드로어 앵커 측정용 — Animated.createAnimatedComponent(Pressable)도
               호스트 뷰로 ref를 넘겨서 measureInWindow가 그대로 동작한다. */}
