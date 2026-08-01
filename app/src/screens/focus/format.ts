@@ -17,11 +17,3 @@ export function hmsCompact(totalSeconds: number): string {
   const m = Math.floor((s % 3600) / 60);
   return `${h}:${pad(m)}:${pad(s % 60)}`;
 }
-
-// H:MM (친구 그리드 경과·메뉴 진행표시) — 예: 1:42, 0:58
-export function hourMin(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(totalSeconds));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return `${h}:${pad(m)}`;
-}

@@ -32,17 +32,26 @@ const TIMETABLE_HOURS = Array.from({ length: 24 }, (_, i) => (i + 6) % 24);
 export function FocusTimetableCard() {
   const shotRef = useRef<View>(null);
   const [sharing, setSharing] = useState(false);
+  // 캡처 전용 상태 — 워터마크 렌더 조건. sharing은 공유 시트가 닫혀야 풀리므로 그걸 쓰면
+  // 시트가 카드를 다 가리지 않을 때(iPad 팝오버 등) 워터마크가 계속 노출된다(PR 386 리뷰 반영)
+  const [capturing, setCapturing] = useState(false);
 
   const onShare = async () => {
     if (sharing) return;
     setSharing(true);
+    setCapturing(true);
     try {
+      // 워터마크(capturing 중에만 렌더)가 화면에 커밋·페인트된 뒤 캡처 — setState 직후엔
+      // 아직 반영 전이라 두 프레임 대기(GROMO-1014)
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const uri = await captureRef(shotRef, {
         format: 'png',
         quality: 1,
         // 공유 파일명 — 예: 260711_타임테이블.png (사진 저장 시엔 이름이 남지 않음)
         fileName: `${todayStr().slice(2).replace(/-/g, '')}_타임테이블`,
       });
+      // 캡처 직후 워터마크 제거 — 공유 시트가 떠 있는 동안 카드에 남지 않게
+      setCapturing(false);
       // Android Share는 url을 무시하고 message 기반이라 플랫폼별 페이로드(현재 iOS 전용 앱이지만 방어, 리뷰 반영)
       const result = await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
       // 시트만 열고 닫으면 completed=false — 탭 대비 실공유 전환을 구분(GROMO-782).
@@ -55,6 +64,8 @@ export function FocusTimetableCard() {
     } catch {
       // 캡처 실패·공유 취소 — 무시
     } finally {
+      // 캡처 실패 시에도 워터마크 정리(성공 경로에선 이미 false — 멱등)
+      setCapturing(false);
       setSharing(false);
     }
   };
@@ -64,6 +75,8 @@ export function FocusTimetableCard() {
       {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게 */}
       <View ref={shotRef} collapsable={false} style={cs.ttShot}>
         <FocusTimetable />
+        {/* 공유 워터마크 — 캡처 순간에만 렌더되어 캡처 이미지에만 담긴다(GROMO-1014) */}
+        {capturing && <Text style={cs.shareWatermark}>gromo</Text>}
       </View>
       {/* 공유하기 — 카드 하단 오른쪽. 헤더(우측 상단)에 두면 순서 편집 드래그 핸들과 겹친다.
           shotRef 밖이라 캡처 이미지에는 안 담긴다 */}
@@ -127,51 +140,48 @@ function FocusTimetable() {
   const legendSubjects = subjects.filter((x) => usedNames.has(x.name));
 
   return (
-    <View>
-      <View style={s.ttLayout}>
-        {/* 범례 칼럼은 비어도 자리를 유지 — 격자 크기가 범례 유무와 무관하게 고정되도록 */}
-        <View style={s.ttLegendCol}>
-          {legendSubjects.map((sub) => (
-            <View key={sub.id} style={s.ttLegendRow}>
-              <View style={[s.ttLegendDot, { backgroundColor: sub.color }]} />
-              <Text style={s.ttLegendText} numberOfLines={1} allowFontScaling={false}>
-                {sub.name}
-              </Text>
-            </View>
-          ))}
-        </View>
-        <View style={s.ttGrid}>
-          {TIMETABLE_HOURS.map((hour) => (
-            <View key={hour} style={s.ttRow}>
-              <Text style={s.ttHourLabel} allowFontScaling={false}>
-                {hour}
-              </Text>
-              {Array.from({ length: 6 }, (_, i) => {
-                const segments = slots[hour * 6 + i];
-                return (
-                  <View key={i} style={s.ttCell}>
-                    {/* 슬롯 내 실제 집중 위치 그대로 칠함 — 3:35~3:45 집중이면 3:30 칸 오른쪽 절반 */}
-                    {segments.map((seg, j) => (
-                      <View
-                        key={j}
-                        style={[
-                          s.ttCellFill,
-                          {
-                            backgroundColor: colorForTag(seg.tagId),
-                            left: `${seg.start * 100}%`,
-                            width: `${(seg.end - seg.start) * 100}%`,
-                          },
-                        ]}
-                      />
-                    ))}
-                  </View>
-                );
-              })}
-            </View>
-          ))}
-        </View>
+    <View style={s.ttLayout}>
+      {/* 범례 칼럼은 비어도 자리를 유지 — 격자 크기가 범례 유무와 무관하게 고정되도록 */}
+      <View style={s.ttLegendCol}>
+        {legendSubjects.map((sub) => (
+          <View key={sub.id} style={s.ttLegendRow}>
+            <View style={[s.ttLegendDot, { backgroundColor: sub.color }]} />
+            <Text style={s.ttLegendText} numberOfLines={1} allowFontScaling={false}>
+              {sub.name}
+            </Text>
+          </View>
+        ))}
       </View>
-      <Text style={cs.grassHint}>한 칸 = 10분 · 집중한 과목 색으로 칠해져요</Text>
+      <View style={s.ttGrid}>
+        {TIMETABLE_HOURS.map((hour) => (
+          <View key={hour} style={s.ttRow}>
+            <Text style={s.ttHourLabel} allowFontScaling={false}>
+              {hour}
+            </Text>
+            {Array.from({ length: 6 }, (_, i) => {
+              const segments = slots[hour * 6 + i];
+              return (
+                <View key={i} style={s.ttCell}>
+                  {/* 슬롯 내 실제 집중 위치 그대로 칠함 — 3:35~3:45 집중이면 3:30 칸 오른쪽 절반 */}
+                  {segments.map((seg, j) => (
+                    <View
+                      key={j}
+                      style={[
+                        s.ttCellFill,
+                        {
+                          backgroundColor: colorForTag(seg.tagId),
+                          left: `${seg.start * 100}%`,
+                          width: `${(seg.end - seg.start) * 100}%`,
+                        },
+                      ]}
+                    />
+                  ))}
+                </View>
+              );
+            })}
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
