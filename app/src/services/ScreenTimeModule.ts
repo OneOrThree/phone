@@ -8,7 +8,8 @@
 //    저장) + M2(GROMO-995, 앱 선택 피커: 측정 대상·집중 허용앱) 범위 구현. 피커 UI는 네이티브가
 //    아니라 RN 화면(AndroidAppPickerHost)이라, presentAppPicker 계열은 androidAppPicker 브릿지로
 //    호스트 모달을 띄우고 선택 결과로 resolve한다 — 호출부 계약은 iOS와 동일.
-//    나머지 함수(실드·Live Activity 등)는 기존 기본값 가드를 유지한다(M3~M4에서 확장).
+//    M3(GROMO-996) — 집중 실드(포그라운드 서비스 폴링 차단)·잠금화면 타이머(chronometer 알림)·
+//    캐릭터 스냅샷·브라우저 허용 토글 라우팅. 어제 결과 판정 등은 M4에서 확장.
 
 import { NativeModules, Platform } from 'react-native';
 import { requireOptionalNativeModule } from 'expo';
@@ -73,9 +74,9 @@ export interface AndroidInstalledApp {
   iconUri: string;
 }
 
-// 안드로이드 Expo 모듈 인터페이스(GROMO-994·995) — M1·M2 범위 함수만 네이티브 구현이 있다.
+// 안드로이드 Expo 모듈 인터페이스(GROMO-994·995·996) — M1~M3 범위 함수만 네이티브 구현이 있다.
 // startUsageBucketMonitoring은 예약 개념이 없어 네이티브 없이 TS에서 no-op true(§4 매핑).
-// M2 함수들은 옵셔널 — OTA로 새 JS만 받은 M1 바이너리엔 없으므로 호출 전 존재를 확인한다.
+// M2·M3 함수들은 옵셔널 — OTA로 새 JS만 받은 구 바이너리엔 없으므로 호출 전 존재를 확인한다.
 interface AndroidNativeScreenTime {
   requestAuthorization(): Promise<boolean>;
   getAuthorizationStatus(): Promise<AuthorizationStatus>;
@@ -88,6 +89,15 @@ interface AndroidNativeScreenTime {
   promoteSelection?(): Promise<boolean>;
   getAllowedPackages?(): Promise<string[] | null>;
   setAllowedSelection?(packages: string[]): Promise<void>;
+  canDrawOverlays?(): Promise<boolean>;
+  requestOverlayPermission?(): Promise<boolean>;
+  startFocusShield?(subjectName: string): Promise<boolean>;
+  stopFocusShield?(): Promise<void>;
+  setFocusAllowSafariWeb?(allowed: boolean): Promise<void>;
+  getFocusAllowSafariWeb?(): Promise<boolean>;
+  saveCharacterSnapshot?(base64: string): Promise<boolean>;
+  startFocusActivity?(subjectName: string, otherSubjectsJson: string): Promise<boolean>;
+  endFocusActivity?(): Promise<void>;
 }
 
 // 구 바이너리(OTA로 새 JS만 받아 네이티브 모듈이 없는 경우)는 null — 각 함수가 기존
@@ -268,49 +278,107 @@ const ScreenTimeModule = {
   },
 
   // 집중 세션 실드 켜기 — 허용앱 외 전부 차단. 반환값: 적용 여부(권한 없으면 false).
+  // 안드로이드(GROMO-996): 포그라운드 서비스 폴링 차단(03 문서 §5). 사용 정보 접근·오버레이
+  // 권한이 없으면 네이티브가 false — 호출부는 iOS 권한 없음과 같은 '실드 없는 세션'(15초
+  // 이탈 정책)으로 강등된다. 구 바이너리(M3 함수 없음)도 false로 동일 강등.
   startFocusShield: async (subjectName: string): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (await AndroidScreenTime?.startFocusShield?.(subjectName)) ?? false;
+    }
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.startFocusShield(subjectName);
   },
 
   // 집중 세션 실드 끄기 — 세션 정지·고아 세션 정리 시 호출(멱등).
   stopFocusShield: async (): Promise<void> => {
+    if (Platform.OS === 'android') {
+      await AndroidScreenTime?.stopFocusShield?.();
+      return;
+    }
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.stopFocusShield();
   },
 
   // 집중 중 사파리·웹 허용 여부 저장 — 실드 중이면 즉시 반영(GROMO-866).
+  // 안드로이드는 주요 브라우저 패키지(Chrome 등) 허용 토글로 대응 — 실드 서비스가 폴링마다
+  // 다시 읽어 세션 중에도 1~2초 안에 반영된다(§4 매핑).
   setFocusAllowSafariWeb: async (allowed: boolean): Promise<void> => {
+    if (Platform.OS === 'android') {
+      await AndroidScreenTime?.setFocusAllowSafariWeb?.(allowed);
+      return;
+    }
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.setFocusAllowSafariWeb(allowed);
   },
 
   // 저장된 사파리·웹 허용 여부 조회 (미설정 = false = 차단이 기본).
   getFocusAllowSafariWeb: async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (await AndroidScreenTime?.getFocusAllowSafariWeb?.()) ?? false;
+    }
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.getFocusAllowSafariWeb();
   },
 
   // 캐릭터 스냅샷(base64 PNG)을 App Group에 저장 — Live Activity·가림막이 읽어 표시.
+  // 안드로이드는 같은 앱이라 내부 저장소(filesDir)로 충분 — 차단 화면이 읽는다(§4 간소화).
   saveCharacterSnapshot: async (base64: string): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (await AndroidScreenTime?.saveCharacterSnapshot?.(base64)) ?? false;
+    }
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.saveCharacterSnapshot(base64);
   },
 
   // 집중 Live Activity(다이나믹 아일랜드/잠금화면) 시작. 실패해도 세션엔 영향 없음.
   // otherSubjects: 현재 과목 외 과목들의 누적 집중 시간 — 잠금화면에 정적 표시.
+  // 안드로이드(GROMO-996): 실드와 같은 포그라운드 서비스의 ongoing 알림 + chronometer로
+  // 상단바·잠금화면 실시간 타이머(§6). otherSubjects는 표준 알림에 자리가 없어 미표시(M4).
   startFocusActivity: async (
     subjectName: string,
     otherSubjects: { name: string; seconds: number; color: string }[] = [],
   ): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (
+        (await AndroidScreenTime?.startFocusActivity?.(
+          subjectName,
+          JSON.stringify(otherSubjects),
+        )) ?? false
+      );
+    }
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.startFocusActivity(subjectName, JSON.stringify(otherSubjects));
   },
 
   // 집중 Live Activity 종료(멱등).
   endFocusActivity: async (): Promise<void> => {
+    if (Platform.OS === 'android') {
+      await AndroidScreenTime?.endFocusActivity?.();
+      return;
+    }
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.endFocusActivity();
+  },
+
+  // ── 오버레이 권한(안드로이드 전용, GROMO-996) ──
+  // 실드의 차단 화면을 서비스에서 띄우기 위한 SYSTEM_ALERT_WINDOW 상태 확인/설정 딥링크.
+  // Usage Access처럼 시스템 팝업이 없는 설정 토글 권한이라 왕복 후 재확인으로 resolve한다.
+  // iOS에는 대응 개념이 없어 항상 true(권한 문제 없음) — 호출부가 플랫폼 분기 없이 쓰게 한다.
+
+  // 오버레이 권한 보유 여부.
+  canDrawOverlays: async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (await AndroidScreenTime?.canDrawOverlays?.()) ?? false;
+    }
+    return Platform.OS === 'ios';
+  },
+
+  // 오버레이 권한 설정 딥링크 — 설정 왕복 후 허용 여부로 resolve.
+  requestOverlayPermission: async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      return (await AndroidScreenTime?.requestOverlayPermission?.()) ?? false;
+    }
+    return Platform.OS === 'ios';
   },
 };
 
