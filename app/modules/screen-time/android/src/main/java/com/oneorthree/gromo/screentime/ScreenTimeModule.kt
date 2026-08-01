@@ -1,17 +1,14 @@
 package com.oneorthree.gromo.screentime
 
-import android.app.AppOpsManager
 import android.app.NotificationManager
-import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
-import android.os.Process
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.Base64
 import expo.modules.kotlin.Promise
@@ -20,7 +17,6 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.File
 import java.io.FileOutputStream
-import java.util.Calendar
 
 // 안드로이드 스크린타임 측정 코어(GROMO-994) — iOS ScreenTimeModule.swift의 안드로이드 대응.
 // JS 계약(services/ScreenTimeModule.ts 20개) 중 M1~M3 범위를 구현한다:
@@ -29,7 +25,9 @@ import java.util.Calendar
 //   허용앱(즉시 저장) 선택 저장. 피커 UI 자체는 RN(AndroidAppPickerHost)이 그린다.
 //   M3(GROMO-996) — 집중 실드·잠금화면 타이머: 포그라운드 서비스(FocusSessionService) 시작/
 //   종료 + 차단 화면용 캐릭터 스냅샷·과목명 저장 + 브라우저 허용 토글 + 오버레이 권한 플로우.
-// 어제 결과 판정(getYesterdayResult)·목표 초과 알림(M4)은 후속 티켓.
+//   M4(GROMO-997) — 목표 판정·다듬기: 어제 결과 계산(getYesterdayResult — 어제 사용 vs 그날
+//   목표 스냅샷, 목표+60초 관용) + 목표 초과 알림(GoalExceededCheckWorker) + 확장 알림의 다른
+//   과목 목록 + 배터리 최적화 예외 안내 플로우. 판정·스냅샷 규칙은 ScreenTimeGoals 참고.
 //
 // iOS와의 구조 차이(03-스크린타임-구현 §0·§2):
 //  - 측정: UsageStatsManager로 사용 기록을 직접 조회한다 — 익스텐션·App Group·threshold 예약 불필요.
@@ -44,12 +42,20 @@ class ScreenTimeModule : Module() {
     // '설정 보낸 적' 플래그 — notDetermined(안 보냄)/denied(보냈는데 미허용) 구분(§2).
     private const val KEY_SENT_TO_SETTINGS = "sentToUsageAccessSettings"
 
-    // 사용시간 목표(초) — M1은 저장만. 판정(getYesterdayResult)은 M4에서 이 값(날짜별 스냅샷)으로 계산.
-    private const val KEY_GOAL_SECONDS = "goalSeconds"
+    // 사용시간 목표(초) 현재값 — 판정은 아래 날짜별 스냅샷으로 한다(M4, ScreenTimeGoals).
+    internal const val KEY_GOAL_SECONDS = "goalSeconds"
+
+    // 날짜별 목표 스냅샷(M4) — {"YYYY-MM-DD": 초} JSON. setGoalSeconds가 기록하고 어제 판정·
+    // 목표 초과 워커가 '그날 등록돼 있던 목표'를 읽는다(§7 — iOS 등록 시점 값 기준과 동작 일치).
+    internal const val KEY_GOAL_SECONDS_BY_DATE = "goalSecondsByDate"
+
+    // 목표 초과 알림을 보낸 날짜(M4) — 하루 1회 중복 방지(GoalExceededCheckWorker).
+    internal const val KEY_GOAL_EXCEEDED_NOTIFIED_DATE = "goalExceededNotifiedDate"
 
     // 측정 대상 패키지명 집합 — iOS의 selection/pending 2단계 키 구조와 1:1(§8).
     // 미설정 = 전체 앱 측정. 피커(M2)가 pending에 저장하고 promoteSelection이 활성으로 승격한다.
-    private const val KEY_SELECTION_PACKAGES = "selectionPackages"
+    // 활성 키는 목표 초과 워커의 사용시간 계산(ScreenTimeGoals.usageMillis)도 읽는다(M4).
+    internal const val KEY_SELECTION_PACKAGES = "selectionPackages"
     private const val KEY_PENDING_SELECTION_PACKAGES = "pendingSelectionPackages"
 
     // 집중 허용앱 패키지명 집합 — iOS gromo:focus:allowedSelection과 1:1. pending 없이 즉시
@@ -83,6 +89,9 @@ class ScreenTimeModule : Module() {
   // 설정 복귀를 기다리는 requestOverlayPermission(M3) — Usage Access와 같은 왕복 계약.
   private var pendingOverlayPromise: Promise? = null
 
+  // 설정 복귀를 기다리는 requestIgnoreBatteryOptimizations(M4) — 같은 왕복 계약.
+  private var pendingBatteryPromise: Promise? = null
+
   override fun definition() = ModuleDefinition {
     Name("ScreenTimeModule")
 
@@ -112,9 +121,16 @@ class ScreenTimeModule : Module() {
       }
     }
 
-    // 사용시간 목표(초) 저장 — iOS의 App Group 기록 대응. M1은 저장만 한다.
+    // 사용시간 목표(초) 저장 — iOS의 App Group 기록 대응. 현재값과 함께 오늘 날짜 스냅샷을
+    // 남겨(M4, ScreenTimeGoals) 어제 판정·목표 초과 체크가 '그날 목표' 기준으로 동작하게 하고,
+    // 목표가 있으면 초과 체크 주기(WorkManager 15분)를 걸어 둔다(해제 시 취소).
     AsyncFunction("setGoalSeconds") { seconds: Int ->
-      prefs.edit().putInt(KEY_GOAL_SECONDS, seconds).apply()
+      ScreenTimeGoals.recordSnapshot(prefs, seconds)
+      if (seconds > 0) {
+        GoalExceededCheckWorker.ensureScheduled(context)
+      } else {
+        GoalExceededCheckWorker.cancel(context)
+      }
     }
 
     // 오늘 사용시간(분) — 오늘 0시~지금. 이름의 Bucket은 iOS 15분 눈금의 흔적으로,
@@ -126,6 +142,15 @@ class ScreenTimeModule : Module() {
     // 어제 사용시간(분) — 어제 0시~오늘 0시.
     AsyncFunction("getYesterdayUsageBucketMinutes") {
       usageMinutes(startOfDay(-1), startOfDay(0))
+    }
+
+    // 어제 목표 달성 결과(M4, §7) — "success" | "fail" | null(판정 불가). iOS 구 계약
+    // (자정 모니터가 남긴 판정 읽기, GROMO-942로 휴면)의 안드로이드 대응인데, 과거 조회가
+    // 되므로 '어제 사용시간 vs 그날 목표 스냅샷' 계산으로 대체한다. 초과 판정선은 목표+60초
+    // (정확히 목표에서 멈춘 유저 보호 — ScreenTimeGoals 관용 규칙).
+    // null: 권한 없음 · 어제 이하 목표 스냅샷 없음(첫 설치·목표 해제) — iOS의 '결과 없음(nil)'.
+    AsyncFunction("getYesterdayResult") {
+      yesterdayResult()
     }
 
     // ── 앱 선택 피커(M2, GROMO-995) — UI는 RN(AndroidAppPickerHost), 여기는 목록·저장만 ──
@@ -198,6 +223,33 @@ class ScreenTimeModule : Module() {
       }
     }
 
+    // ── 배터리 최적화 예외(M4) — 제조사 절전이 백그라운드 측정(목표 초과 워커)·집중 FGS를
+    // 죽이는 걸 완화하는 안내용. 개별 앱 요청 다이얼로그(REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)는
+    // Play 민감 권한이라 쓰지 않고, 최적화 설정 목록(ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+    // 으로만 보낸다 — 유저가 목록에서 gromo를 찾아 '최적화 안 함'으로 바꾸는 UX. ──
+
+    // 배터리 최적화 예외 여부 — true면 Doze·앱 대기의 영향을 덜 받는다.
+    AsyncFunction("isIgnoringBatteryOptimizations") {
+      isIgnoringBatteryOptimizations()
+    }
+
+    // 배터리 최적화 설정 딥링크 — Usage Access와 같은 왕복 계약(복귀 시 재확인 결과로 resolve).
+    AsyncFunction("requestIgnoreBatteryOptimizations") { promise: Promise ->
+      if (isIgnoringBatteryOptimizations()) {
+        promise.resolve(true)
+        return@AsyncFunction
+      }
+      // 직전 요청이 아직 대기 중이면(연타 등) 현재 상태로 먼저 마감하고 새 요청으로 교체.
+      pendingBatteryPromise?.resolve(isIgnoringBatteryOptimizations())
+      pendingBatteryPromise = promise
+      try {
+        openBatteryOptimizationSettings()
+      } catch (_: Exception) {
+        pendingBatteryPromise = null
+        promise.resolve(false)
+      }
+    }
+
     // 집중 실드 켜기 — 포그라운드 서비스가 폴링으로 비허용앱을 차단한다(§5). 차단을 실제로
     // 집행할 수 없는 상태(사용 정보 접근·오버레이 권한 부재)면 false — 호출부(JS)가 iOS의
     // 권한 없음과 동일하게 '실드 없는 세션'(15초 이탈 정책 + 이탈 알림)으로 강등한다.
@@ -239,8 +291,8 @@ class ScreenTimeModule : Module() {
 
     // 잠금화면 타이머 시작 — iOS Live Activity 대응(§6). 같은 포그라운드 서비스의 ongoing
     // 알림 + chronometer가 상단바·잠금화면에서 초를 실시간으로 올린다. 실드 없는 세션도 동작.
-    // otherSubjectsJson(다른 과목 목록)은 표준 알림엔 자리가 없어 아직 안 쓴다(커스텀 알림
-    // 레이아웃 — M4). 계약 유지를 위해 파라미터만 받는다.
+    // otherSubjectsJson([{ name, seconds, color }])은 확장 알림의 다른 과목 목록으로 표시한다
+    // (M4 커스텀 알림 레이아웃 — 파싱·표시는 FocusSessionService).
     AsyncFunction("startFocusActivity") { subjectName: String, otherSubjectsJson: String ->
       val notificationManager =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -249,7 +301,7 @@ class ScreenTimeModule : Module() {
       if (!notificationManager.areNotificationsEnabled() && !FocusSessionService.isShieldActive()) {
         false
       } else {
-        FocusSessionService.startTimer(context, subjectName)
+        FocusSessionService.startTimer(context, subjectName, otherSubjectsJson)
       }
     }
 
@@ -268,6 +320,10 @@ class ScreenTimeModule : Module() {
         pendingOverlayPromise = null
         promise.resolve(Settings.canDrawOverlays(context))
       }
+      pendingBatteryPromise?.let { promise ->
+        pendingBatteryPromise = null
+        promise.resolve(isIgnoringBatteryOptimizations())
+      }
     }
   }
 
@@ -282,28 +338,33 @@ class ScreenTimeModule : Module() {
   }
 
   // Usage Access 허용 여부 — AppOpsManager.checkOpNoThrow(OPSTR_GET_USAGE_STATS) 기준(§2).
-  private fun isUsageAccessGranted(): Boolean {
-    val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-    val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      appOps.unsafeCheckOpNoThrow(
-        AppOpsManager.OPSTR_GET_USAGE_STATS,
-        Process.myUid(),
-        context.packageName,
-      )
+  // 판정 본체는 목표 초과 워커와 공용인 UsageAccess로 분리했다(M4).
+  private fun isUsageAccessGranted(): Boolean = UsageAccess.isGranted(context)
+
+  // 어제 목표 달성 결과 계산(M4) — getYesterdayResult 본체. 규칙은 정의부 주석·ScreenTimeGoals 참고.
+  private fun yesterdayResult(): String? {
+    if (!isUsageAccessGranted()) return null
+    val goalSeconds = ScreenTimeGoals.goalSecondsOn(prefs, ScreenTimeGoals.dateString(-1))
+      ?: return null
+    val usageMillis = ScreenTimeGoals.usageMillis(context, prefs, startOfDay(-1), startOfDay(0))
+    return if (ScreenTimeGoals.isExceeded(usageMillis, goalSeconds)) "fail" else "success"
+  }
+
+  // 배터리 최적화 예외 여부(M4) — Doze·앱 대기에서 백그라운드 동작이 덜 죽는 상태.
+  private fun isIgnoringBatteryOptimizations(): Boolean {
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    return powerManager.isIgnoringBatteryOptimizations(context.packageName)
+  }
+
+  // 배터리 최적화 설정 목록 열기(M4) — 개별 앱 다이얼로그(Play 민감 권한)는 쓰지 않는다.
+  private fun openBatteryOptimizationSettings() {
+    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+    val activity = appContext.currentActivity
+    if (activity != null) {
+      activity.startActivity(intent)
     } else {
-      @Suppress("DEPRECATION")
-      appOps.checkOpNoThrow(
-        AppOpsManager.OPSTR_GET_USAGE_STATS,
-        Process.myUid(),
-        context.packageName,
-      )
-    }
-    // MODE_DEFAULT는 앱옵스 미기록 상태 — 매니페스트 권한 보유 여부로 판정(표준 관례).
-    return if (mode == AppOpsManager.MODE_DEFAULT) {
-      context.checkCallingOrSelfPermission(android.Manifest.permission.PACKAGE_USAGE_STATS) ==
-        PackageManager.PERMISSION_GRANTED
-    } else {
-      mode == AppOpsManager.MODE_ALLOWED
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      context.startActivity(intent)
     }
   }
 
@@ -365,26 +426,14 @@ class ScreenTimeModule : Module() {
     false
   }
 
-  // [begin, end) 구간 사용시간(분) — 세션 재구성 계산(UsageSessionCalculator).
-  // 권한이 없으면 0 (호출부는 권한 확인 후 호출하는 게 기본 흐름).
+  // [begin, end) 구간 사용시간(분) — 세션 재구성 계산(활성 selection 필터 포함 —
+  // ScreenTimeGoals.usageMillis). 권한이 없으면 0 (호출부는 권한 확인 후 호출하는 게 기본 흐름).
   private fun usageMinutes(begin: Long, end: Long): Int {
     if (!isUsageAccessGranted()) return 0
-    val usageStatsManager =
-      context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-    // M2 전에는 selection 미설정 = 전체 앱 측정(빈 집합도 동일 취급 — §8 기본).
-    val selection = prefs.getStringSet(KEY_SELECTION_PACKAGES, null)
-    val millis = UsageSessionCalculator.foregroundMillis(usageStatsManager, selection, begin, end)
-    return (millis / 60_000L).toInt()
+    return (ScreenTimeGoals.usageMillis(context, prefs, begin, end) / 60_000L).toInt()
   }
 
-  // 로컬 자정 기준 하루 시작 시각(ms). offsetDays: 0=오늘, -1=어제. DST 보정은 Calendar가 처리.
-  private fun startOfDay(offsetDays: Int): Long {
-    val calendar = Calendar.getInstance()
-    calendar.add(Calendar.DAY_OF_YEAR, offsetDays)
-    calendar.set(Calendar.HOUR_OF_DAY, 0)
-    calendar.set(Calendar.MINUTE, 0)
-    calendar.set(Calendar.SECOND, 0)
-    calendar.set(Calendar.MILLISECOND, 0)
-    return calendar.timeInMillis
-  }
+  // 로컬 자정 기준 하루 시작 시각(ms). offsetDays: 0=오늘, -1=어제. 본체는 워커와 공용인
+  // ScreenTimeGoals로 이동(M4).
+  private fun startOfDay(offsetDays: Int): Long = ScreenTimeGoals.startOfDayMillis(offsetDays)
 }

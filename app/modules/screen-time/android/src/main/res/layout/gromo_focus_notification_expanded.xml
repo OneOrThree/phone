@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 집중 알림 확장 뷰(GROMO-997, 03-스크린타임-구현 §6) - DecoratedCustomViewStyle의
+     setCustomBigContentView로 붙는 본문. collapsed는 표준 템플릿(chronometer)을 그대로 쓰고,
+     확장 시에만 이 레이아웃으로 다른 과목 목록을 보여준다(iOS Live Activity otherSubjects 대응).
+     RemoteViews 제약: 시스템 UI가 인플레이트하므로 보장 뷰(LinearLayout·TextView·Chronometer)만
+     쓰고, 모든 문구·색은 코드(FocusSessionService)가 채운다(리소스 문자열 없이 코드 문구로
+     통일한 기존 알림 문구 방식과 일치). 텍스트 스타일은 프레임워크 Notification 스타일을 써서
+     라이트/다크 모두 시스템이 맞는 잉크색을 고르게 한다. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+  <TextView
+      android:id="@+id/gromo_focus_title"
+      style="@android:style/TextAppearance.Material.Notification.Title"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:singleLine="true"
+      android:ellipsize="end" />
+
+  <Chronometer
+      android:id="@+id/gromo_focus_chronometer"
+      style="@android:style/TextAppearance.Material.Notification"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="2dp" />
+
+  <!-- 실드 중일 때만 표시 - 표준 알림의 contentText와 같은 문구를 코드가 채운다 -->
+  <TextView
+      android:id="@+id/gromo_focus_locked"
+      style="@android:style/TextAppearance.Material.Notification"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="2dp"
+      android:singleLine="true"
+      android:ellipsize="end" />
+
+  <!-- 다른 과목 행 2개(iOS Live Activity와 동일 상한) - 색 점 + 과목명 + 누적 시간.
+       개수만큼만 코드가 VISIBLE로 켠다 -->
+  <LinearLayout
+      android:id="@+id/gromo_focus_row1"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="6dp"
+      android:gravity="center_vertical"
+      android:orientation="horizontal"
+      android:visibility="gone">
+
+    <TextView
+        android:id="@+id/gromo_focus_row1_dot"
+        style="@android:style/TextAppearance.Material.Notification"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="10sp" />
+
+    <TextView
+        android:id="@+id/gromo_focus_row1_name"
+        style="@android:style/TextAppearance.Material.Notification"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="6dp"
+        android:singleLine="true"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/gromo_focus_row1_time"
+        style="@android:style/TextAppearance.Material.Notification"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:singleLine="true" />
+  </LinearLayout>
+
+  <LinearLayout
+      android:id="@+id/gromo_focus_row2"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="4dp"
+      android:gravity="center_vertical"
+      android:orientation="horizontal"
+      android:visibility="gone">
+
+    <TextView
+        android:id="@+id/gromo_focus_row2_dot"
+        style="@android:style/TextAppearance.Material.Notification"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="10sp" />
+
+    <TextView
+        android:id="@+id/gromo_focus_row2_name"
+        style="@android:style/TextAppearance.Material.Notification"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="6dp"
+        android:singleLine="true"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/gromo_focus_row2_time"
+        style="@android:style/TextAppearance.Material.Notification"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:singleLine="true" />
+  </LinearLayout>
+</LinearLayout>

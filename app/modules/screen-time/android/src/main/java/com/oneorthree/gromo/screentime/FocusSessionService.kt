@@ -13,6 +13,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -22,6 +23,9 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Telephony
 import android.telecom.TelecomManager
+import android.view.View
+import android.widget.RemoteViews
+import org.json.JSONArray
 
 // 집중 세션 포그라운드 서비스(GROMO-996, 03-스크린타임-구현 §5·§6) — 두 역할을 겸한다:
 //  1. 실드(ROLE_SHIELD): 1~2초 간격 queryEvents 폴링으로 현재 포그라운드 앱을 감지해,
@@ -53,8 +57,12 @@ class FocusSessionService : Service() {
 
     private const val EXTRA_ROLE = "role"
     private const val EXTRA_SUBJECT = "subjectName"
+    private const val EXTRA_OTHER_SUBJECTS = "otherSubjectsJson"
     private const val ROLE_SHIELD = "shield"
     private const val ROLE_TIMER = "timer"
+
+    // 확장 알림에 보여줄 다른 과목 상한 — iOS Live Activity(prefix(2))와 동일(GROMO-997).
+    private const val MAX_OTHER_SUBJECTS = 2
 
     // 실드 폴링 간격 — §5 수용 한계(차단까지 1~2초 지연)가 이 값에서 나온다.
     private const val SHIELD_POLL_INTERVAL_MS = 1_500L
@@ -84,11 +92,12 @@ class FocusSessionService : Service() {
 
     // 실드 켜기 — 서비스가 없으면 FGS로 시작, 있으면 실행 중 인스턴스에 역할만 추가.
     fun startShield(context: Context, subjectName: String): Boolean =
-      dispatchStart(context, ROLE_SHIELD, subjectName)
+      dispatchStart(context, ROLE_SHIELD, subjectName, null)
 
     // 타이머 켜기 — 실드와 독립(실드 없는 세션도 타이머는 뜬다).
-    fun startTimer(context: Context, subjectName: String): Boolean =
-      dispatchStart(context, ROLE_TIMER, subjectName)
+    // otherSubjectsJson: 현재 과목 외 과목들의 누적 시간 — 확장 알림에 표시(GROMO-997).
+    fun startTimer(context: Context, subjectName: String, otherSubjectsJson: String): Boolean =
+      dispatchStart(context, ROLE_TIMER, subjectName, otherSubjectsJson)
 
     // 역할 끄기 — 서비스가 없으면 no-op(멱등 — 고아 세션 정리 등 어디서 불려도 안전).
     fun stopShield() = instance?.postStop(ROLE_SHIELD) ?: Unit
@@ -98,15 +107,21 @@ class FocusSessionService : Service() {
     // 실드 동작 여부 — 차단 화면이 자기 생존 판단(onResume)에, 모듈이 타이머 시작 판단에 쓴다.
     fun isShieldActive(): Boolean = instance?.shieldActive == true
 
-    private fun dispatchStart(context: Context, role: String, subjectName: String): Boolean {
+    private fun dispatchStart(
+      context: Context,
+      role: String,
+      subjectName: String,
+      otherSubjectsJson: String?,
+    ): Boolean {
       val running = instance
       if (running != null) {
-        running.postStart(role, subjectName)
+        running.postStart(role, subjectName, otherSubjectsJson)
         return true
       }
       val intent = Intent(context, FocusSessionService::class.java)
         .putExtra(EXTRA_ROLE, role)
         .putExtra(EXTRA_SUBJECT, subjectName)
+        .putExtra(EXTRA_OTHER_SUBJECTS, otherSubjectsJson)
       return try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
           context.startForegroundService(intent)
@@ -131,6 +146,10 @@ class FocusSessionService : Service() {
 
   // 타이머 시작 시각(벽시계) — setWhen + setUsesChronometer 기준점.
   @Volatile private var timerStartedAt = 0L
+
+  // 확장 알림에 표시할 다른 과목 목록(GROMO-997) — 세션 중 불변이라 정적 표시로도 정확
+  // (iOS Live Activity와 동일 전제). 타이머 시작 때 파싱해 두고 종료 때 비운다.
+  @Volatile private var otherSubjects: List<OtherSubject> = emptyList()
 
   @Volatile private var lastNotifyAt = 0L
 
@@ -215,7 +234,9 @@ class FocusSessionService : Service() {
     }
     val role = intent?.getStringExtra(EXTRA_ROLE)
     val subject = intent?.getStringExtra(EXTRA_SUBJECT)
-    if (role != null && subject != null) postStart(role, subject)
+    if (role != null && subject != null) {
+      postStart(role, subject, intent.getStringExtra(EXTRA_OTHER_SUBJECTS))
+    }
     return START_NOT_STICKY
   }
 
@@ -241,15 +262,15 @@ class FocusSessionService : Service() {
     super.onDestroy()
   }
 
-  private fun postStart(role: String, subject: String) {
-    pollHandler.post { applyStart(role, subject) }
+  private fun postStart(role: String, subject: String, otherSubjectsJson: String?) {
+    pollHandler.post { applyStart(role, subject, otherSubjectsJson) }
   }
 
   fun postStop(role: String) {
     pollHandler.post { applyStop(role) }
   }
 
-  private fun applyStart(role: String, subject: String) {
+  private fun applyStart(role: String, subject: String, otherSubjectsJson: String?) {
     subjectName = subject
     when (role) {
       ROLE_SHIELD -> {
@@ -263,6 +284,7 @@ class FocusSessionService : Service() {
       ROLE_TIMER -> {
         timerActive = true
         timerStartedAt = System.currentTimeMillis()
+        otherSubjects = parseOtherSubjects(otherSubjectsJson)
       }
     }
     renotify()
@@ -275,7 +297,10 @@ class FocusSessionService : Service() {
         shieldActive = false
         FocusBlockActivity.closeIfShowing()
       }
-      ROLE_TIMER -> timerActive = false
+      ROLE_TIMER -> {
+        timerActive = false
+        otherSubjects = emptyList()
+      }
     }
     if (!shieldActive && !timerActive) {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -397,6 +422,7 @@ class FocusSessionService : Service() {
         .setShowWhen(true)
         .setUsesChronometer(true)
       if (shieldActive) builder.setContentText("허용한 앱 외에는 잠깐 잠겨 있어요")
+      applyExpandedSubjectsView(builder)
     } else {
       builder
         .setContentTitle("집중 세션을 지키고 있어요")
@@ -404,6 +430,81 @@ class FocusSessionService : Service() {
     }
     return builder.build()
   }
+
+  // 다른 과목 목록 확장 뷰(GROMO-997, §6) — iOS Live Activity의 otherSubjects 대응.
+  // collapsed는 표준 템플릿의 chronometer를 그대로 유지하려고 setCustomBigContentView만 지정
+  // (DecoratedCustomViewStyle이 앱 아이콘·이름 헤더를 표준대로 그린다). 확장 뷰의 경과 시간은
+  // RemoteViews Chronometer로 동일하게 실시간이다. RemoteViews는 시스템 UI가 인플레이트하는
+  // 제약이 있어 보장 뷰만 쓴 단순 레이아웃이고, 구성 실패는 삼켜 표준 알림으로 폴백한다.
+  private fun applyExpandedSubjectsView(builder: Notification.Builder) {
+    val subjects = otherSubjects
+    if (subjects.isEmpty()) return
+    try {
+      val views = RemoteViews(packageName, R.layout.gromo_focus_notification_expanded)
+      views.setTextViewText(R.id.gromo_focus_title, "$subjectName 집중 중이에요")
+      // Chronometer base는 elapsedRealtime 기준 — 벽시계 시작 시각을 변환한다.
+      val base = SystemClock.elapsedRealtime() - (System.currentTimeMillis() - timerStartedAt)
+      views.setChronometer(R.id.gromo_focus_chronometer, base, null, true)
+      views.setViewVisibility(R.id.gromo_focus_locked, if (shieldActive) View.VISIBLE else View.GONE)
+      if (shieldActive) {
+        views.setTextViewText(R.id.gromo_focus_locked, "허용한 앱 외에는 잠깐 잠겨 있어요")
+      }
+      val rowIds = intArrayOf(R.id.gromo_focus_row1, R.id.gromo_focus_row2)
+      val dotIds = intArrayOf(R.id.gromo_focus_row1_dot, R.id.gromo_focus_row2_dot)
+      val nameIds = intArrayOf(R.id.gromo_focus_row1_name, R.id.gromo_focus_row2_name)
+      val timeIds = intArrayOf(R.id.gromo_focus_row1_time, R.id.gromo_focus_row2_time)
+      for (i in rowIds.indices) {
+        val subject = subjects.getOrNull(i)
+        if (subject == null) {
+          views.setViewVisibility(rowIds[i], View.GONE)
+          continue
+        }
+        views.setViewVisibility(rowIds[i], View.VISIBLE)
+        views.setTextViewText(dotIds[i], "●")
+        views.setTextColor(dotIds[i], subject.color)
+        views.setTextViewText(nameIds[i], subject.name)
+        views.setTextViewText(timeIds[i], hmsString(subject.seconds))
+      }
+      builder
+        .setStyle(Notification.DecoratedCustomViewStyle())
+        .setCustomBigContentView(views)
+    } catch (_: Exception) {
+      // 커스텀 뷰 구성 실패 — 표준 알림 그대로(다른 과목 목록만 빠진다).
+    }
+  }
+
+  // 잠금화면 타이머의 다른 과목 목록 파싱 — [{ name, seconds, color }] JSON(계약은
+  // startFocusActivity 참고). 손상·형식 불일치는 빈 목록(표준 알림)으로 강등한다.
+  private fun parseOtherSubjects(json: String?): List<OtherSubject> {
+    if (json.isNullOrBlank()) return emptyList()
+    return try {
+      val array = JSONArray(json)
+      (0 until minOf(array.length(), MAX_OTHER_SUBJECTS)).mapNotNull { i ->
+        val item = array.optJSONObject(i) ?: return@mapNotNull null
+        val name = item.optString("name")
+        if (name.isEmpty()) return@mapNotNull null
+        OtherSubject(name, item.optInt("seconds"), parseSubjectColor(item.optString("color")))
+      }
+    } catch (_: Exception) {
+      emptyList()
+    }
+  }
+
+  // "#RRGGBB" → 색상. 파싱 실패 시 앱 포인트색 — iOS Live Activity colorFromHex와 동일 폴백.
+  private fun parseSubjectColor(hex: String): Int = try {
+    Color.parseColor(hex)
+  } catch (_: Exception) {
+    ACCENT_COLOR
+  }
+
+  // 누적 시간 표기 — iOS Live Activity hmsString("%02d:%02d:%02d")과 동일.
+  private fun hmsString(seconds: Int): String {
+    val s = maxOf(0, seconds)
+    return String.format(java.util.Locale.US, "%02d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+  }
+
+  // 확장 알림 한 행 — 과목 색 점 + 이름 + 누적 초.
+  private data class OtherSubject(val name: String, val seconds: Int, val color: Int)
 
   // 알림 탭 → gromo(세션 화면) 복귀.
   private fun launchAppPendingIntent(): PendingIntent? {
