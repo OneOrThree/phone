@@ -203,7 +203,8 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
 
   const confirmLeave = useCallback(() => {
     setMenuOpen(false);
-    Alert.alert('그룹 나가기', `'${name}'에서 나갈까요?`, [
+    // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
+    Alert.alert('그룹 나가기', `${name}에서 나갈까요?`, [
       { text: '취소', style: 'cancel' },
       { text: '나가기', style: 'destructive', onPress: () => doLeave() },
     ]);
@@ -299,10 +300,16 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
 
         {/* ── 공지 ── */}
         <View style={s.sectionHead}>
-          <Text style={s.sectionTitle}>📌 공지</Text>
+          <Text style={s.sectionTitle}>공지</Text>
           {notices.length > 0 && (
-            <TouchableOpacity activeOpacity={0.7} onPress={openNotice}>
+            <TouchableOpacity
+              style={s.moreRow}
+              activeOpacity={0.7}
+              onPress={openNotice}
+              hitSlop={12}
+            >
               <Text style={s.moreLink}>모두보기</Text>
+              <Ionicons name="chevron-forward" size={11} color={T.accent} />
             </TouchableOpacity>
           )}
         </View>
@@ -374,19 +381,14 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
       </ScrollView>
 
       {/* ── '⋯' 액션시트 ── */}
+      {/* '닫기' 행은 두지 않는다 — 앱의 SheetShell 시트 4종 모두 딤 탭으로만 닫고,
+          아이콘 없는 행이라 위 행과 글자 시작선도 어긋났다. */}
       {menuOpen && (
         <SheetShell onClose={() => setMenuOpen(false)} asModal>
           <Text style={s.menuTitle}>{name}</Text>
           <TouchableOpacity style={s.menuItem} activeOpacity={0.7} onPress={confirmLeave}>
             <Ionicons name="exit-outline" size={18} color={T.accentAlt} />
             <Text style={s.menuDanger}>그룹 나가기</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={s.menuItem}
-            activeOpacity={0.7}
-            onPress={() => setMenuOpen(false)}
-          >
-            <Text style={s.menuText}>닫기</Text>
           </TouchableOpacity>
         </SheetShell>
       )}
@@ -398,23 +400,33 @@ const s = StyleSheet.create({
   scroll: { flex: 1 },
   content: { padding: T.space.lg, gap: T.space.md },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: T.space.xxl },
-  errorTitle: { ...T.text.subtitle, color: T.ink, textAlign: 'center' },
+  // 화면 전체를 차지하는 에러/빈 상태 헤드라인은 T.text.title(26/800) — 그룹 탭·리그와 같은 위계.
+  // 카드 안 빈 상태(emptyNoticeText)는 caption을 유지한다.
+  errorTitle: { ...T.text.title, color: T.ink, textAlign: 'center' },
   errorDesc: { ...T.text.body, color: T.inkSub, marginTop: T.space.xs, textAlign: 'center' },
+  // 인라인 재시도 = 48 / r16 / px xxl — 그룹 탭·공지 화면과 같은 값(§G-4)
   retryBtn: {
     marginTop: T.space.lg,
-    height: 44,
+    height: 48,
     paddingHorizontal: T.space.xxl,
-    borderRadius: 14,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: T.accent,
   },
   retryText: { ...T.text.label, color: T.white },
 
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  // 헤더 블록만 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다.
+  // content는 16(T.space.lg)이라 차이 4pt를 여기서 더한다(리그도 헤더 xl / 리스트 lg).
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: T.space.xs,
+  },
   headerLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
-  title: { ...T.text.heading, color: T.ink, flexShrink: 1 },
-  count: { ...T.text.caption, color: T.inkSub },
+  title: { ...T.text.title, color: T.ink, flexShrink: 1 },
+  count: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
   moreBtn: {
     width: 34,
     height: 34,
@@ -426,11 +438,12 @@ const s = StyleSheet.create({
     borderColor: T.border,
   },
 
+  // 카드 표면은 T.paperAlt — 화면 배경이 흰 캔버스(T.paperLight)로 바뀌어 T.white 카드는 묻힌다.
   inviteCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: T.space.md,
-    backgroundColor: T.white,
+    backgroundColor: T.paperAlt,
     borderWidth: 1,
     borderColor: T.border,
     borderRadius: 16,
@@ -457,11 +470,13 @@ const s = StyleSheet.create({
     marginTop: T.space.xs,
   },
   sectionTitle: { ...T.text.label, color: T.ink },
-  moreLink: { ...T.text.caption, color: T.link },
+  // '모두보기' — 홈의 '자세히' 링크와 같은 규격(label + chevron 11). 터치 타깃은 hitSlop 12로 보강.
+  moreRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  moreLink: { ...T.text.label, color: T.accent },
 
   noticeList: { gap: T.space.sm },
   noticeCard: {
-    backgroundColor: T.white,
+    backgroundColor: T.paperAlt,
     borderWidth: 1,
     borderColor: T.border,
     borderRadius: 14,
@@ -474,7 +489,7 @@ const s = StyleSheet.create({
   emptyNotice: {
     alignItems: 'center',
     gap: T.space.md,
-    backgroundColor: T.white,
+    backgroundColor: T.paperAlt,
     borderWidth: 1,
     borderColor: T.border,
     borderRadius: 14,

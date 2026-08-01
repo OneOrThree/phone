@@ -210,7 +210,7 @@ describe('프리뷰 조회 분기', () => {
     await renderSheet();
 
     expect(await screen.findByText('아침 6시 집중방')).toBeOnTheScreen();
-    expect(screen.getByText('2 / 5명')).toBeOnTheScreen();
+    expect(screen.getByText('2/5명')).toBeOnTheScreen();
     expect(screen.getByText('하루 60분 집중')).toBeOnTheScreen();
   });
 });

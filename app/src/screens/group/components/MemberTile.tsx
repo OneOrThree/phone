@@ -52,13 +52,14 @@ export default function MemberTile({ nickname, focusTimeMinutes, isOwner }: Memb
 }
 
 const s = StyleSheet.create({
+  // 그룹방 카드 표면과 같은 T.paperAlt — 그룹 탭 배경이 흰 캔버스라 T.white 타일은 묻힌다.
   tile: {
     flex: 1,
     alignItems: 'center',
     gap: T.space.xs,
-    backgroundColor: T.white,
+    backgroundColor: T.paperAlt,
     borderWidth: 1,
-    borderColor: T.paperAlt,
+    borderColor: T.border,
     borderRadius: 14,
     paddingVertical: T.space.md,
     paddingHorizontal: T.space.sm,

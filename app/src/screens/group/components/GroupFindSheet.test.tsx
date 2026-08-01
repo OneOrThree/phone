@@ -105,12 +105,12 @@ describe('검색', () => {
     expect(logGroupSearchPerformed).toHaveBeenCalledWith({ query_length: 2, result_count: 1 });
   });
 
-  test('정원이 찬 그룹은 마감 표시 + 탭 비활성(§6-3)', async () => {
+  test('정원이 찬 그룹은 정원 가득 표시 + 탭 비활성(§6-3)', async () => {
     mockSearchGroups.mockResolvedValue([row({ currentMembers: 5, maxMembers: 5 })]);
     await renderSheet();
 
     const name = await searchFor('아침 6시 집중방');
-    expect(screen.getByText('마감')).toBeOnTheScreen();
+    expect(screen.getByText('정원 가득')).toBeOnTheScreen();
 
     fireEvent.press(name);
     expect(Alert.alert).not.toHaveBeenCalled(); // 확인 Alert 자체가 뜨지 않는다

@@ -286,8 +286,8 @@ export default function GroupInviteSheet({ groupId, onClose, onJoined }: GroupIn
         )}
         <View style={s.metaRow}>
           <Text style={s.metaLabel}>인원</Text>
-          <Text style={s.metaValue}>
-            {overview.memberCount} / {overview.maxMembers}명
+          <Text style={s.metaValueNum}>
+            {overview.memberCount}/{overview.maxMembers}명
           </Text>
         </View>
         {!!mission && (
@@ -310,7 +310,7 @@ export default function GroupInviteSheet({ groupId, onClose, onJoined }: GroupIn
         {joining ? (
           <ActivityIndicator color={T.white} />
         ) : (
-          <Text style={[s.primaryText, !!block && s.primaryTextOff]}>참여하기</Text>
+          <Text style={s.primaryText}>참여하기</Text>
         )}
       </TouchableOpacity>
       <TouchableOpacity style={s.ghostBtn} activeOpacity={0.7} onPress={onClose}>
@@ -349,6 +349,7 @@ const s = StyleSheet.create({
   },
   metaLabel: { ...T.text.caption, color: T.inkMuted },
   metaValue: { ...T.text.label, color: T.ink },
+  metaValueNum: { ...T.text.label, color: T.ink, fontVariant: ['tabular-nums'] },
 
   notice: { ...T.text.caption, color: T.dangerInk, marginTop: T.space.md },
 
@@ -360,9 +361,9 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginTop: T.space.lg,
   },
-  primaryBtnOff: { backgroundColor: T.chipBg },
+  // 버튼 비활성은 앱 다수파대로 opacity 하나로 표현한다(토큰 스왑은 카드/타일 상태 표현에만).
+  primaryBtnOff: { opacity: 0.5 },
   primaryText: { ...T.text.subtitle, color: T.white },
-  primaryTextOff: { color: T.inkMuted },
   ghostBtn: {
     height: 44,
     alignItems: 'center',

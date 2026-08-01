@@ -152,8 +152,8 @@ export default function GroupScreen() {
         <View style={[s.body, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
           <Text style={s.title}>그룹을 불러오지 못했어요</Text>
           <Text style={s.desc}>잠시 후 다시 시도해주세요.</Text>
-          <TouchableOpacity style={s.primaryBtn} activeOpacity={0.85} onPress={() => fetchGroups()}>
-            <Text style={s.primaryText}>다시 시도</Text>
+          <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => fetchGroups()}>
+            <Text style={s.retryText}>다시 시도</Text>
           </TouchableOpacity>
         </View>
         {inviteSheet}
@@ -204,7 +204,9 @@ export default function GroupScreen() {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: T.bg },
+  // 탭 화면은 흰 캔버스 — 홈·리그·전체와 같은 배경이라야 탭 전환에서 배경이 튀지 않는다.
+  // (그룹의 스택 화면 GroupCreate·GroupNotice는 FriendAdd·알림과 같은 T.bg를 유지한다.)
+  root: { flex: 1, backgroundColor: T.paperLight },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   body: {
     flex: 1,
@@ -220,10 +222,11 @@ const s = StyleSheet.create({
     marginBottom: T.space.xxl,
     textAlign: 'center',
   },
+  // 화면 CTA = 52 / r16 (그룹 3화면 공통 규격 — 시트 CTA와도 반경이 맞는다)
   primaryBtn: {
     alignSelf: 'stretch',
     height: 52,
-    borderRadius: 14,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: T.accent,
@@ -232,7 +235,7 @@ const s = StyleSheet.create({
   outlineBtn: {
     alignSelf: 'stretch',
     height: 52,
-    borderRadius: 14,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: T.space.md,
@@ -241,4 +244,16 @@ const s = StyleSheet.create({
     borderColor: T.border,
   },
   outlineText: { ...T.text.subtitle, color: T.ink },
+
+  // 인라인 재시도 = 48 / r16 / px xxl — 그룹방·공지 화면과 같은 값을 쓴다(§G-4).
+  // 화면 CTA(52/stretch)와 구분해 "조회 실패 복구"라는 역할을 규격으로 드러낸다.
+  retryBtn: {
+    height: 48,
+    paddingHorizontal: T.space.xxl,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: T.accent,
+  },
+  retryText: { ...T.text.label, color: T.white },
 });

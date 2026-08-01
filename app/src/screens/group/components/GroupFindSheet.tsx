@@ -156,14 +156,12 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
 
   function confirmJoin(group: GroupSearchResponse) {
     Keyboard.dismiss();
-    Alert.alert(
-      '이 그룹에 참여할까요?',
-      `${group.name} · ${group.currentMembers}/${group.maxMembers}명`,
-      [
-        { text: '취소', style: 'cancel' },
-        { text: '참여하기', onPress: () => join(group) },
-      ],
-    );
+    // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 인용부호는 쓰지 않는다.
+    // 정원은 이미 행에 n/m으로 붙어 있어 문구에서 반복하지 않는다.
+    Alert.alert('그룹 참여', `${group.name}에 참여할까요?`, [
+      { text: '취소', style: 'cancel' },
+      { text: '참여하기', onPress: () => join(group) },
+    ]);
   }
 
   return (
@@ -220,7 +218,7 @@ export default function GroupFindSheet({ onClose, onJoined }: GroupFindSheetProp
               {joining ? (
                 <ActivityIndicator size="small" color={T.accent} />
               ) : full ? (
-                <Text style={s.rowFullTag}>마감</Text>
+                <Text style={s.rowFullTag}>정원 가득</Text>
               ) : (
                 <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
               )}
@@ -290,7 +288,7 @@ const s = StyleSheet.create({
   },
   rowFull: { opacity: 0.45 },
   rowName: { ...T.text.label, flex: 1, fontWeight: '700', color: T.ink, minWidth: 0 },
-  rowCount: { ...T.text.caption, color: T.inkSub },
+  rowCount: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
   rowFullTag: { ...T.text.caption, color: T.inkMuted },
 
   empty: {

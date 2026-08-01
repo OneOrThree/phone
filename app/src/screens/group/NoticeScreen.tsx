@@ -30,6 +30,10 @@ import NoticeComposeSheet from './components/NoticeComposeSheet';
 // · 작성/수정/삭제 진입점은 route.params.canWrite === false면 아예 렌더하지 않는다 —
 //   NOTICE_FORBIDDEN(403)은 화면에서 예방하는 게 원칙이다(§3-2).
 
+// 작성 FAB 규격 — 리스트 하단 여백을 여기서 파생시킨다(FAB에 마지막 카드가 가리지 않게).
+const FAB_SIZE = 56;
+const FAB_BOTTOM = T.space.xl;
+
 type NoticeRoute = RouteProp<V2RootStackParamList, 'GroupNotice'>;
 
 // '7월 29일' 표기(§6-5 시안). 파싱 실패한 값은 조용히 비운다.
@@ -126,7 +130,8 @@ export default function NoticeScreen() {
   }, [fetchNotices]);
 
   function confirmDelete(notice: GroupAnnouncementResponse) {
-    Alert.alert('공지 삭제', `"${notice.title}" 공지를 삭제할까요?`, [
+    // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
+    Alert.alert('공지 삭제', `${notice.title} 공지를 삭제할까요?`, [
       { text: '취소', style: 'cancel' },
       {
         text: '삭제',
@@ -155,7 +160,9 @@ export default function NoticeScreen() {
   function renderCardBody(notice: GroupAnnouncementResponse) {
     return (
       <>
-        <Text style={s.cardTitle}>{notice.title}</Text>
+        <Text style={s.cardTitle} numberOfLines={2}>
+          {notice.title}
+        </Text>
         <Text style={s.cardContent} numberOfLines={3}>
           {notice.content}
         </Text>
@@ -166,7 +173,12 @@ export default function NoticeScreen() {
 
   const header = (
     <View style={s.header}>
-      <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+      <TouchableOpacity
+        style={s.backBtn}
+        onPress={() => navigation.goBack()}
+        activeOpacity={0.7}
+        accessibilityLabel="뒤로"
+      >
         <Ionicons name="chevron-back" size={18} color={T.inkSub} />
       </TouchableOpacity>
       <Text style={s.headerTitle}>공지</Text>
@@ -223,7 +235,7 @@ export default function NoticeScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={[
           s.listContent,
-          { paddingBottom: insets.bottom + 96 },
+          { paddingBottom: insets.bottom + FAB_BOTTOM + FAB_SIZE + T.space.xl },
           list.length === 0 && s.listEmptyContent,
         ]}
         showsVerticalScrollIndicator={false}
@@ -259,9 +271,10 @@ export default function NoticeScreen() {
 
       {canWrite && (
         <TouchableOpacity
-          style={[s.fab, { bottom: insets.bottom + T.space.xl }]}
+          style={[s.fab, { bottom: insets.bottom + FAB_BOTTOM }]}
           activeOpacity={0.85}
           onPress={() => openCompose(null)}
+          accessibilityLabel="공지 쓰기"
         >
           <Ionicons name="add" size={28} color={T.white} />
         </TouchableOpacity>
@@ -300,23 +313,25 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: T.space.xxl,
   },
-  emptyTitle: { ...T.text.subtitle, color: T.ink, textAlign: 'center' },
+  // 화면 전체를 차지하는 에러/빈 상태 헤드라인은 T.text.title(26/800) — 그룹 3화면 공통 위계.
+  emptyTitle: { ...T.text.title, color: T.ink, textAlign: 'center' },
   emptyDesc: {
     ...T.text.body,
     color: T.inkSub,
     marginTop: T.space.sm,
     textAlign: 'center',
   },
+  // 인라인 재시도 = 48 / r16 / px xxl — 그룹 탭·그룹방과 같은 값(§G-4)
   retryBtn: {
     height: 48,
     paddingHorizontal: T.space.xxl,
-    borderRadius: 14,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: T.accent,
     marginTop: T.space.xl,
   },
-  retryText: { ...T.text.subtitle, color: T.white },
+  retryText: { ...T.text.label, color: T.white },
 
   // 재조회 실패 인라인 배너 — GroupFindSheet의 s.notice와 같은 규격
   notice: { ...T.text.caption, color: T.dangerInk },
@@ -339,9 +354,9 @@ const s = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: T.space.xl,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: FAB_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: T.accent,

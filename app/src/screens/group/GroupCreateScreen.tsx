@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -43,6 +43,9 @@ const MEMBERS_DEFAULT = 5;
 const DURATION_OPTIONS = [30, 60, 120, 180] as const;
 const DURATION_DEFAULT = 60;
 
+// '복사했어요' 표시 유지 시간(ms) — 지나면 '링크 복사'로 되돌린다.
+const COPIED_RESET_MS = 2000;
+
 // 공개 설정은 단순 옵션이 아니라 참여 경로를 가르는 스위치다 — 캡션을 항상 함께 노출한다(§6-2).
 const VISIBILITY_CAPTION = {
   public: '누구나 그룹 이름을 검색해 들어올 수 있어요',
@@ -63,9 +66,15 @@ export default function GroupCreateScreen() {
   const [createdGroupId, setCreatedGroupId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // '복사했어요' 되돌리기 타이머 — 언마운트 시 정리한다.
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // 진입 계측 — 폼을 실제로 연 횟수(생성 완료율의 분모).
   useEffect(() => {
     logGroupCreateStarted();
+    return () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    };
   }, []);
 
   const trimmedName = name.trim();
@@ -130,6 +139,10 @@ export default function GroupCreateScreen() {
     Clipboard.setString(buildInviteLink(createdGroupId));
     setCopied(true);
     logGroupInviteShared();
+    // 2초 뒤 '링크 복사'로 되돌린다 — 다이얼로그가 닫힐 때까지 고정돼 있으면
+    // 두 번째 복사가 가능한지 알 수 없다.
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = setTimeout(() => setCopied(false), COPIED_RESET_MS);
   }
 
   async function shareLink() {
@@ -148,7 +161,12 @@ export default function GroupCreateScreen() {
     <SafeAreaView style={s.root} edges={['top']}>
       {/* 헤더 — 원형 백버튼 + 좌측 정렬 제목(FriendAddScreen 관행, §5-1) */}
       <View style={s.header}>
-        <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={s.backBtn}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.7}
+          accessibilityLabel="뒤로"
+        >
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
         </TouchableOpacity>
         <Text style={s.headerTitle}>그룹 만들기</Text>
@@ -192,6 +210,7 @@ export default function GroupCreateScreen() {
               activeOpacity={0.7}
               disabled={maxMembers <= MEMBERS_MIN}
               onPress={() => bumpMembers(-1)}
+              accessibilityLabel="정원 줄이기"
             >
               <Ionicons name="remove" size={18} color={T.inkSub} />
             </TouchableOpacity>
@@ -201,6 +220,7 @@ export default function GroupCreateScreen() {
               activeOpacity={0.7}
               disabled={maxMembers >= MEMBERS_MAX}
               onPress={() => bumpMembers(1)}
+              accessibilityLabel="정원 늘리기"
             >
               <Ionicons name="add" size={18} color={T.inkSub} />
             </TouchableOpacity>
@@ -345,7 +365,8 @@ const s = StyleSheet.create({
     borderColor: T.border,
     borderRadius: 13,
     paddingHorizontal: T.space.md,
-    height: 50,
+    // 46 = 찾기 시트 검색 인풋·FriendAddScreen과 같은 값(앱 내 유일하게 50이던 것을 맞춤)
+    height: 46,
   },
   inputBoxError: { borderColor: T.dangerInk, backgroundColor: T.dangerBg },
   input: { ...T.text.label, flex: 1, color: T.ink, padding: 0 },
@@ -374,7 +395,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepBtnOff: { opacity: 0.4 },
+  stepBtnOff: { opacity: 0.5 },
   stepValue: {
     ...T.text.label,
     minWidth: 52,
@@ -435,15 +456,16 @@ const s = StyleSheet.create({
   noteIcon: { marginTop: 2 },
   noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, flex: 1, lineHeight: 19 },
 
+  // 화면 CTA = 52 / r16 (그룹 3화면 공통 규격). marginTop 28은 8pt 그리드 밖이라 토큰으로 내렸다.
   submitBtn: {
     height: 52,
-    borderRadius: 14,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: T.accent,
-    marginTop: 28,
+    marginTop: T.space.xxl,
   },
-  submitBtnOff: { opacity: 0.4 },
+  submitBtnOff: { opacity: 0.5 },
   submitText: { ...T.text.subtitle, color: T.white },
 
   // 초대 링크 다이얼로그 — 탈퇴 확인 모달과 같은 스크림·카드 규격
