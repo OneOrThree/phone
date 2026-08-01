@@ -17,6 +17,10 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 //   onCreate  : () => void   '그룹 만들기' — GroupScreen이 전이 상태를 세우고 GroupCreate로 push
 //   onFind    : () => void   '그룹 찾기' — GroupScreen이 GroupFindSheet를 연다
 //   onRefresh : () => Promise<void>  당겨서 새로고침. 조회 실패 배너는 GroupScreen이 이미 그린다
+//   onBack?   : () => void   **있을 때만** 헤더 좌측에 원형 백버튼을 그린다.
+//               그룹이 1건인데 그룹방 ⋯ 메뉴로 '잠깐 열어 본' 목록에만 전달된다 — 그 상태에선
+//               되돌아갈 길이 카드 탭뿐이라 목록이 탭에 눌러앉는다. 2건 이상의 기본 목록은
+//               그룹 탭의 첫 화면이라 미전달(백버튼 없음)이 정상이다.
 //
 // 렌더는 SafeAreaView 없이 컨텐츠만 — 탭 셸(SafeAreaView·배경)은 GroupScreen이 감싼다.
 // 빈 배열은 다루지 않는다: 0건은 GroupScreen이 빈 상태로 가로채므로 여기 오지 않는다.
@@ -30,6 +34,7 @@ export interface GroupListScreenProps {
   onCreate: () => void;
   onFind: () => void;
   onRefresh: () => Promise<void>;
+  onBack?: () => void;
 }
 
 export default function GroupListScreen({
@@ -38,6 +43,7 @@ export default function GroupListScreen({
   onCreate,
   onFind,
   onRefresh,
+  onBack,
 }: GroupListScreenProps) {
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
@@ -64,6 +70,18 @@ export default function GroupListScreen({
   return (
     <View style={s.root} testID="group.list">
       <View style={s.header}>
+        {/* 백버튼 규격은 그룹 스택 화면(GroupCreateScreen·NoticeScreen)의 s.backBtn과 같은 32/r16 */}
+        {onBack && (
+          <TouchableOpacity
+            style={s.backBtn}
+            onPress={onBack}
+            activeOpacity={0.7}
+            accessibilityLabel="뒤로"
+            testID="group.list.back"
+          >
+            <Ionicons name="chevron-back" size={18} color={T.inkSub} />
+          </TouchableOpacity>
+        )}
         <Text style={s.headerTitle}>내 그룹</Text>
       </View>
 
@@ -142,12 +160,27 @@ const s = StyleSheet.create({
   root: { flex: 1 },
 
   // 헤더는 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다(공지 화면과 같은 값).
+  // 백버튼이 없을 땐 gap이 붙어도 자식이 하나라 시작선이 그대로다.
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.md,
     paddingHorizontal: T.space.xl,
     paddingTop: T.space.sm,
     paddingBottom: T.space.md,
   },
   headerTitle: { ...T.text.title, color: T.ink },
+  // 그룹 스택 화면(GroupCreateScreen s.backBtn)과 같은 규격 — 32/r16/white/border
+  backBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   listContent: { paddingHorizontal: T.space.xl, paddingBottom: T.space.md, gap: T.space.md },
 

@@ -34,10 +34,11 @@ const onSelect = jest.fn();
 const onCreate = jest.fn();
 const onFind = jest.fn();
 const onRefresh = jest.fn<Promise<void>, []>();
+const onBack = jest.fn();
 
 // render는 반드시 await 한다 — React 19 + RNTL 14에서는 렌더가 비동기라
 // 동기 호출만 하면 screen이 채워지지 않는다(그룹 테스트 3종 공통 관행).
-async function renderList(groups: GroupSummaryResponse[]) {
+async function renderList(groups: GroupSummaryResponse[], back?: () => void) {
   return await render(
     <GroupListScreen
       groups={groups}
@@ -45,6 +46,7 @@ async function renderList(groups: GroupSummaryResponse[]) {
       onCreate={onCreate}
       onFind={onFind}
       onRefresh={onRefresh}
+      onBack={back}
     />,
   );
 }
@@ -112,6 +114,22 @@ describe('콜백', () => {
 
     await press('group.list.find');
     expect(onFind).toHaveBeenCalledTimes(1);
+  });
+
+  // 그룹 1건에서 ⋯ 메뉴로 '잠깐 열어 본' 목록은 되돌아갈 길이 카드 탭뿐이었다 —
+  // 백버튼이 없으면 목록이 그룹 탭에 눌러앉는다(탭을 옮겼다 와도 안 풀린다).
+  // 반대로 2건 이상의 기본 목록에 백버튼이 생기면 갈 곳 없는 버튼이 된다.
+  test('onBack을 받았을 때만 헤더 백버튼을 그린다', async () => {
+    await renderList([group()], onBack);
+
+    await press('group.list.back');
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  test('onBack이 없으면 백버튼 자체가 없다(기본 목록)', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+
+    expect(screen.queryByTestId('group.list.back')).toBeNull();
   });
 
   test('당겨서 새로고침 — 조회가 끝날 때까지만 인디케이터를 세운다', async () => {

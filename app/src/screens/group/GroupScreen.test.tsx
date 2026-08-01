@@ -94,16 +94,24 @@ jest.mock('./GroupListScreen', () => {
     onCreate,
     onFind,
     onRefresh,
+    onBack,
   }: {
     groups: { groupId: string; name: string }[];
     onSelect: (groupId: string) => void;
     onCreate: () => void;
     onFind: () => void;
     onRefresh: () => Promise<void>;
+    onBack?: () => void;
   }) {
     return (
       <RNView>
         <RNText>{`목록 ${groups.length}건`}</RNText>
+        {/* 백버튼은 '잠깐 열어 본 목록'에만 전달된다 — 유무 자체가 계약이다(U#10) */}
+        {onBack ? (
+          <RNTouchable onPress={onBack}>
+            <RNText>목록-뒤로</RNText>
+          </RNTouchable>
+        ) : null}
         {groups.map((g) => (
           <RNTouchable key={g.groupId} onPress={() => onSelect(g.groupId)}>
             <RNText>{`목록-${g.name}`}</RNText>
@@ -123,13 +131,31 @@ jest.mock('./GroupListScreen', () => {
   };
 });
 
+// 찾기 시트는 소속 판정을 스스로 하지 않는다(2차 리뷰 C#8) — 부모가 내린 groups를 그대로 쓰고,
+// '참여 중' 행 탭은 onOpenGroup으로만 나간다(1건/N건 분기는 GroupScreen이 쥔다, C#7).
 jest.mock('./components/GroupFindSheet', () => {
-  const { Text: RNText, TouchableOpacity: RNTouchable } = require('react-native');
-  return function MockFind({ onJoined }: { onJoined: () => void }) {
+  const { Text: RNText, TouchableOpacity: RNTouchable, View: RNView } = require('react-native');
+  return function MockFind({
+    groups,
+    onJoined,
+    onOpenGroup,
+  }: {
+    groups: { groupId: string; name: string }[];
+    onJoined: () => void;
+    onOpenGroup: (groupId: string) => void;
+  }) {
     return (
-      <RNTouchable onPress={onJoined}>
-        <RNText>찾기-참여완료</RNText>
-      </RNTouchable>
+      <RNView>
+        <RNText>{`찾기-소속 ${groups.length}건`}</RNText>
+        <RNTouchable onPress={onJoined}>
+          <RNText>찾기-참여완료</RNText>
+        </RNTouchable>
+        {groups.map((g) => (
+          <RNTouchable key={g.groupId} onPress={() => onOpenGroup(g.groupId)}>
+            <RNText>{`찾기-이동-${g.name}`}</RNText>
+          </RNTouchable>
+        ))}
+      </RNView>
     );
   };
 });
@@ -366,6 +392,70 @@ describe('목록의 만들기·찾기 진입점', () => {
 
     expect(screen.getByText('목록 3건')).toBeOnTheScreen();
     expect(screen.queryByText('찾기-참여완료')).toBeNull(); // 시트는 닫힌다
+  });
+});
+
+// 2차 리뷰 C#7·C#8 — '참여 중' 행 탭의 분기를 시트에서 회수했다.
+// 예전엔 시트가 자체 스냅샷으로 1건/N건을 판정하고 1건이면 onJoined(재조회)만 불렀는데,
+// showList는 아무도 안 내려 **자기 그룹을 눌렀는데 스피너 뒤에 다시 목록**이 뜨는 사각이 있었다.
+describe('찾기 시트의 참여 중 행(onOpenGroup)', () => {
+  test('소속 판정 기준을 부모가 내려준다(시트는 따로 조회하지 않는다)', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
+    await renderScreen();
+
+    await press('목록-찾기');
+    expect(screen.getByText('찾기-소속 2건')).toBeOnTheScreen();
+  });
+
+  test('1건 + 목록을 연 상태 — 목록을 접고 내장 그룹방으로 되돌아온다(push 없음)', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+
+    // 1건 사용자가 그룹방 ⋯ → '내 그룹 목록' → 하단 '그룹 찾기'로 들어간 상태.
+    await press('내 그룹 목록');
+    await press('목록-찾기');
+    expect(screen.getByText('찾기-소속 1건')).toBeOnTheScreen();
+
+    await press('찾기-이동-아침 6시 집중방');
+
+    expect(screen.getByText('그룹방')).toBeOnTheScreen(); // 목록으로 되돌아오지 않는다
+    expect(screen.queryByText('목록 1건')).toBeNull();
+    expect(screen.queryByText('찾기-참여완료')).toBeNull(); // 시트도 닫힌다
+    expect(mockNavigate).not.toHaveBeenCalledWith('GroupRoom', { groupId: GROUP_ID });
+  });
+
+  test('2건 이상 — 시트를 닫고 GroupRoom으로 push 한다', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
+    await renderScreen();
+
+    await press('목록-찾기');
+    await press('찾기-이동-저녁 스터디');
+
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', { groupId: GROUP_ID_2 });
+    expect(screen.queryByText('찾기-참여완료')).toBeNull();
+  });
+});
+
+// U#10 — 1건에서 '잠깐 열어 본' 목록은 되돌아갈 길이 카드 탭뿐이라 탭에 눌러앉았다.
+describe('목록 백버튼(showList)', () => {
+  test('1건에서 연 목록에만 onBack이 내려가고, 누르면 그룹방으로 돌아온다', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+
+    await press('내 그룹 목록');
+    expect(screen.getByText('목록 1건')).toBeOnTheScreen();
+
+    await press('목록-뒤로');
+    expect(screen.getByText('그룹방')).toBeOnTheScreen();
+    expect(screen.queryByText('목록 1건')).toBeNull();
+  });
+
+  test('2건 이상의 기본 목록에는 백버튼을 주지 않는다(갈 곳이 없다)', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
+    await renderScreen();
+
+    expect(screen.getByText('목록 2건')).toBeOnTheScreen();
+    expect(screen.queryByText('목록-뒤로')).toBeNull();
   });
 });
 

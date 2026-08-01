@@ -182,6 +182,17 @@ export default function GroupScreen() {
     [groups, navigation],
   );
 
+  // 찾기 시트의 '참여 중' 행 탭 — 참여가 아니라 이동이라 목록 카드 탭과 같은 분기를 그대로 탄다.
+  // (시트가 자체 판정을 갖고 있던 시절엔 1건+목록 상태에서 목록으로 되돌아오는 사각이 있었다 —
+  //  분기를 여기 하나로 모아 showList 처리까지 한 곳에서 끝낸다.)
+  const onOpenGroup = useCallback(
+    (groupId: string) => {
+      setFindOpen(false);
+      onSelectGroup(groupId);
+    },
+    [onSelectGroup],
+  );
+
   // 그룹 만들기 진입 — 돌아왔을 때의 포커스 재조회를 전이로 취급한다.
   // 만들지 않고 돌아온 경우에도 손해는 없다(조회에 성공하면 그대로 빈 상태로 떨어진다).
   const openCreate = useCallback(() => {
@@ -189,9 +200,17 @@ export default function GroupScreen() {
     navigation.navigate('GroupCreate');
   }, [navigation]);
 
+  const myGroups = groups ?? [];
+
   // 찾기 시트는 빈 상태·목록 두 분기에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
+  // 소속 판정 기준(groups)은 여기서 내려준다 — 시트가 따로 조회하면 부모와 스냅샷이 갈린다.
   const findSheet = findOpen ? (
-    <GroupFindSheet onClose={() => setFindOpen(false)} onJoined={onFindJoined} />
+    <GroupFindSheet
+      groups={myGroups}
+      onClose={() => setFindOpen(false)}
+      onJoined={onFindJoined}
+      onOpenGroup={onOpenGroup}
+    />
   ) : null;
 
   const inviteSheet = inviteGroupId ? (
@@ -238,8 +257,13 @@ export default function GroupScreen() {
     );
   }
 
-  // ── 최초 로딩·전이 로딩 — 중앙 스피너(§5-4). 일반 재조회(포커스) 때는 기존 화면을 유지한다. ──
-  if ((groups === null || transitioning) && loading) {
+  // ── 최초 로딩 — 중앙 스피너(§5-4). 목록을 한 번이라도 받았으면 절대 갈아끼우지 않는다. ──
+  // 전이(생성 화면 왕복·참여 직후)도 여기서 제외한다: 만들지 않고 그냥 돌아와도 보고 있던
+  // 그룹방/목록이 통째로 스피너로 바뀌어 화면이 깜빡였다. 그룹방(GroupRoomScreen)의
+  // 'loading && !detail' 정책과 같은 기준으로 맞춘다.
+  // transitioning의 원래 목적(성공한 mutation을 후속 GET 실패가 삼키는 것 방지)은
+  // 아래 **에러 가드**에 그대로 남아 있어 지켜진다.
+  if (groups === null && loading) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         <View style={s.center}>
@@ -266,8 +290,6 @@ export default function GroupScreen() {
     );
   }
 
-  const myGroups = groups ?? [];
-
   // ── 그룹방(1건) — 이 화면 안에서 렌더한다(별도 라우트 아님, §6-4). 목록 진입점을 함께 넘긴다 ──
   // 0건 판정을 먼저 하므로 여기 오면 [0]은 반드시 있다. showList면 아래 목록으로 떨어진다.
   if (myGroups.length === 1 && !showList) {
@@ -290,6 +312,9 @@ export default function GroupScreen() {
 
   // ── 목록(2건 이상 또는 1건에서 '내 그룹 목록'을 연 경우) ──
   if (myGroups.length > 0) {
+    // 1건에서 '잠깐 열어 본' 목록은 되돌아갈 길이 카드 탭뿐이었다 — 그 경우에만 헤더 백버튼을
+    // 준다(스택 화면 관행과 같은 규격). 2건 이상의 기본 목록은 탭의 첫 화면이라 백버튼이 없다.
+    const backToRoom = showList && myGroups.length <= 1 ? () => setShowList(false) : undefined;
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         {staleNotice}
@@ -299,6 +324,7 @@ export default function GroupScreen() {
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
           onRefresh={fetchGroups}
+          onBack={backToRoom}
         />
         {findSheet}
 >>>>>>> bd711bd0 ([FEAT] 그룹 2차 배관 — 챌린지 API·GroupRoom 라우트·목록 분기 스켈레톤)
