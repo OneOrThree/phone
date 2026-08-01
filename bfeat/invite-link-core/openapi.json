@@ -4915,6 +4915,15 @@
         "properties": {
           "password": {
             "type": "string"
+          },
+          "joinMethod": {
+            "type": "string"
+          },
+          "inviteSlug": {
+            "type": "string"
+          },
+          "appInstanceId": {
+            "type": "string"
           }
         }
       },
