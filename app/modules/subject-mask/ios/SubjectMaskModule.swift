@@ -75,24 +75,34 @@ public class SubjectMaskModule: Module {
 
   // URI를 읽어 방향(EXIF)을 펴고 최대 변 1600px로 줄인 UIImage를 만든다.
   // Vision은 방향 메타데이터를 그대로 따라가지 않으므로 여기서 정규화해두는 편이 안전하다.
+  //
+  // 축소를 UIImage 디코드 이후가 아니라 ImageIO 디코드 단계에서 한다: 48MP 사진·파노라마를
+  // 원본 해상도로 풀 디코드하면 원본 버퍼 + 축소본 + Vision/PNG 버퍼가 겹쳐 메모리가 치솟고,
+  // jetsam 종료는 Swift·JS의 catch로 잡을 수 없어 폴백 자체가 불가능하다.
   private static func loadNormalizedImage(uri: String, maxSide: CGFloat = 1600) -> UIImage? {
-    guard let url = URL(string: uri), let data = try? Data(contentsOf: url),
-      let image = UIImage(data: data)
+    guard let url = URL(string: uri),
+      let source = CGImageSourceCreateWithURL(
+        url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
     else {
       return nil
     }
-    let w = image.size.width
-    let h = image.size.height
-    guard w > 0, h > 0 else { return nil }
 
-    let ratio = min(1, maxSide / max(w, h))
-    let target = CGSize(width: (w * ratio).rounded(), height: (h * ratio).rounded())
-    let format = UIGraphicsImageRendererFormat.default()
-    format.scale = 1
-    format.opaque = false
-    return UIGraphicsImageRenderer(size: target, format: format).image { _ in
-      image.draw(in: CGRect(origin: .zero, size: target))
+    // ThumbnailFromImageAlways: 내장 썸네일이 있어도 원본에서 만들게 해 화질을 보장.
+    // WithTransform: EXIF 방향을 픽셀에 반영 — 별도 정규화 렌더링이 필요 없어진다.
+    // MaxPixelSize는 긴 변 기준이며, 원본이 이보다 작으면 확대하지 않는다.
+    let options: [CFString: Any] = [
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceShouldCacheImmediately: true,
+      kCGImageSourceThumbnailMaxPixelSize: Int(maxSide),
+    ]
+    guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+      thumbnail.width > 0, thumbnail.height > 0
+    else {
+      return nil
     }
+    // scale 1로 만들어 size가 곧 픽셀 크기가 되게 한다(결과 width/height를 그대로 JS로 넘김).
+    return UIImage(cgImage: thumbnail, scale: 1, orientation: .up)
   }
 
   // MARK: - 누끼
@@ -125,12 +135,28 @@ public class SubjectMaskModule: Module {
       throw SubjectMaskError.encodeFailed
     }
 
-    let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("subject-mask", isDirectory: true)
-    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let dir = try preparedCacheDirectory()
     let file = dir.appendingPathComponent("cutout-\(UUID().uuidString).png")
     try png.write(to: file, options: .atomic)
 
     return (file, CGSize(width: output.width, height: output.height))
+  }
+
+  // MARK: - 캐시
+
+  // 누끼 PNG를 둘 캐시 디렉토리를 만들고, 그 안의 이전 결과를 지운다.
+  // 화면은 항상 마지막 결과 1장만 쓰므로 '다시 선택'을 반복해도 파일이 쌓이지 않게 한다
+  // (Caches는 iOS가 언젠가 비워주긴 하지만 시점을 앱이 통제할 수 없다).
+  private static func preparedCacheDirectory() throws -> URL {
+    let fm = FileManager.default
+    let dir = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("subject-mask", isDirectory: true)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+    let stale = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+    for file in stale {
+      try? fm.removeItem(at: file)
+    }
+    return dir
   }
 }
