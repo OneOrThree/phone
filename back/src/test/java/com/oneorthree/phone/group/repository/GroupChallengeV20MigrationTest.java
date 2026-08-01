@@ -77,6 +77,25 @@ class GroupChallengeV20MigrationTest {
     }
 
     @Test
+    @DisplayName("created_at 동률이면 id 큰 쪽(UUID v7 = 시간순 후행)이 살아남는다")
+    void breaksCreatedAtTiesByLargerId() {
+        migrate(MigrationVersion.fromVersion("19"));
+        JdbcTemplate jdbcTemplate = jdbcTemplate();
+        insertGroup(jdbcTemplate);
+        // Postgres 의 uuid 비교는 byte-wise 라 값이 자명한 id 로 순서를 고정한다
+        UUID smaller = UUID.fromString("00000000-0000-7000-8000-000000000001");
+        UUID larger = UUID.fromString("00000000-0000-7000-8000-000000000002");
+        Instant sameCreatedAt = daysAgo(1);
+        insertChallenge(jdbcTemplate, smaller, "DURATION", "FOCUS", sameCreatedAt);
+        insertChallenge(jdbcTemplate, larger, "DURATION", "FOCUS", sameCreatedAt);
+
+        migrate(MigrationVersion.LATEST);
+
+        assertThat(softDeleted(jdbcTemplate, smaller)).isTrue();
+        assertThat(softDeleted(jdbcTemplate, larger)).isFalse();
+    }
+
+    @Test
     @DisplayName("프로덕션식 — status CHECK 이름이 자동명과 달라도 드롭되고 FORFEITED/CANCELED 가 열린다")
     void expandsBetStatusDomainNameAgnostically() {
         migrate(MigrationVersion.fromVersion("19"));
@@ -161,7 +180,10 @@ class GroupChallengeV20MigrationTest {
     }
 
     private UUID insertChallenge(JdbcTemplate jdbcTemplate, String type, String category, Instant createdAt) {
-        UUID id = UUID.randomUUID();
+        return insertChallenge(jdbcTemplate, UUID.randomUUID(), type, category, createdAt);
+    }
+
+    private UUID insertChallenge(JdbcTemplate jdbcTemplate, UUID id, String type, String category, Instant createdAt) {
         jdbcTemplate.update(
                 "INSERT INTO group_challenges (id, group_id, type, category, status, created_at)"
                         + " VALUES (?, ?, ?, ?, 'ACTIVE', ?)",
