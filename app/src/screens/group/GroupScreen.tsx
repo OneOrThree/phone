@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -49,21 +49,35 @@ export default function GroupScreen() {
   const [inviteGroupId, setInviteGroupId] = useState<string | null>(() => peekPendingInvite());
 
   useEffect(() => {
-    setGroupInviteListener((groupId) => setInviteGroupId(groupId));
+    setGroupInviteListener((groupId) => {
+      // 초대 시트와 찾기 시트는 상호 배타 — 둘 다 SheetShell이라 겹치면 딤이 2겹으로 포개진다.
+      // 링크로 들어온 초대가 우선(사용자가 방금 밖에서 받은 맥락)이라 찾기 시트를 내린다.
+      setFindOpen(false);
+      setInviteGroupId(groupId);
+    });
     return () => setGroupInviteListener(null);
   }, []);
+
+  // 요청 시퀀스 — 포커스마다 조회가 나가므로 탭을 빠르게 오가면 이전 응답이 늦게 도착해
+  // 최신 목록을 덮을 수 있다(생성/참여 직후 빈 상태로 되돌아 보이는 형태).
+  // 최신 요청의 결과만 반영한다(useFriends.ts의 requestSeqRef와 같은 패턴).
+  const requestSeqRef = useRef(0);
 
   // 내 그룹 조회. 게스트는 호출 전에 차단한다(서버도 403이지만 왕복을 아낀다 — §5-3).
   const fetchGroups = useCallback(async () => {
     if (isGuest) return;
+    const seq = ++requestSeqRef.current;
     setLoading(true);
     setError(false);
     try {
-      setGroups(await getMyGroups());
+      const rows = await getMyGroups();
+      if (seq !== requestSeqRef.current) return;
+      setGroups(rows);
     } catch {
+      if (seq !== requestSeqRef.current) return;
       setError(true);
     } finally {
-      setLoading(false);
+      if (seq === requestSeqRef.current) setLoading(false);
     }
   }, [isGuest]);
 

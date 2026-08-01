@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -77,12 +77,20 @@ export default function NoticeScreen() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [editing, setEditing] = useState<GroupAnnouncementResponse | null>(null);
 
+  // 요청 시퀀스 — 당겨서 새로고침·작성 직후 재조회·'다시 시도'가 겹치면 늦게 도착한 이전 응답이
+  // 최신 목록을 덮을 수 있다. 최신 요청의 결과만 반영한다(useFriends.ts의 requestSeqRef 패턴).
+  const requestSeqRef = useRef(0);
+
   const fetchNotices = useCallback(async () => {
+    const seq = ++requestSeqRef.current;
     setErrorMsg(null);
     try {
       // 서버 정렬(createdAt DESC)을 그대로 신뢰한다.
-      setNotices(await getAnnouncements(groupId));
+      const rows = await getAnnouncements(groupId);
+      if (seq !== requestSeqRef.current) return;
+      setNotices(rows);
     } catch (e) {
+      if (seq !== requestSeqRef.current) return;
       setErrorMsg(listErrorMessage(e));
     }
   }, [groupId]);
@@ -222,6 +230,11 @@ export default function NoticeScreen() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={T.accent} />
         }
+        // 목록이 이미 있는 상태의 재조회 실패는 전면 에러 화면 조건(notices === null)에 걸리지 않아
+        // 그대로 무음이 된다 — 공지를 쓰고 재조회가 실패하면 방금 쓴 공지가 목록에 없고 알림도 없어
+        // 사용자가 같은 공지를 다시 등록한다. 리스트 상단 인라인 배너로 알린다
+        // (GroupFindSheet의 s.notice와 같은 규격 — 시트 안 액션 실패는 인라인이라는 규칙과 동일).
+        ListHeaderComponent={errorMsg !== null ? <Text style={s.notice}>{errorMsg}</Text> : null}
         ListEmptyComponent={
           <View style={s.center}>
             <Text style={s.emptyTitle}>등록된 공지가 없어요</Text>
@@ -304,6 +317,9 @@ const s = StyleSheet.create({
     marginTop: T.space.xl,
   },
   retryText: { ...T.text.subtitle, color: T.white },
+
+  // 재조회 실패 인라인 배너 — GroupFindSheet의 s.notice와 같은 규격
+  notice: { ...T.text.caption, color: T.dangerInk },
 
   listContent: { paddingHorizontal: T.space.xl, paddingTop: T.space.xs, gap: T.space.md },
   listEmptyContent: { flexGrow: 1 },

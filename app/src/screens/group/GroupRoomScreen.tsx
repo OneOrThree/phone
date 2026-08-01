@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
@@ -94,18 +94,26 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
   const [menuOpen, setMenuOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
+  // 요청 시퀀스 — 당겨서 새로고침 중 '다시 시도'를 누르거나 연타하면 reload()·onRefresh()가
+  // 같은 load()를 각자 부른다. 늦게 도착한 이전 응답이 최신 응답을 덮지 않게 최신 것만 반영한다
+  // (useFriends.ts의 requestSeqRef와 같은 패턴). 언마운트 후 setState도 함께 막힌다.
+  const requestSeqRef = useRef(0);
+
   // 상세 + 공지 병렬 조회. 공지는 실패해도 방을 비우지 않는다(빈 목록으로 떨어뜨림) —
   // 방의 뼈대는 상세 응답이다. date는 groupApi가 todayStr()을 붙인다(§3-1-1).
   const load = useCallback(async () => {
+    const seq = ++requestSeqRef.current;
     setError(false);
     try {
       const [d, list] = await Promise.all([
         getGroupDetail(groupId),
         getAnnouncements(groupId).catch(() => [] as GroupAnnouncementResponse[]),
       ]);
+      if (seq !== requestSeqRef.current) return;
       setDetail(d);
       setNotices(list);
     } catch (e) {
+      if (seq !== requestSeqRef.current) return;
       // 이미 그룹이 사라졌거나 내가 멤버가 아니면 방을 잡고 있을 이유가 없다 —
       // 부모가 재조회해 빈 상태로 되돌린다(§3-2).
       const code = groupErrorCode(e);
@@ -123,9 +131,14 @@ export default function GroupRoomScreen({ groupId, summary, onLeft }: GroupRoomS
     load().finally(() => setLoading(false));
   }, [load]);
 
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  // 포커스마다 재조회 — 공지를 쓰고(GroupNotice는 루트 스택 push라 이 화면이 언마운트되지 않는다)
+  // 돌아왔을 때 공지 카드·멤버별 오늘 집중분이 옛 데이터로 남는 문제를 닫는다.
+  // 마운트 1회 useEffect였을 땐 당겨서 새로고침 말고는 반영 경로가 없었다.
+  useFocusEffect(
+    useCallback(() => {
+      reload();
+    }, [reload]),
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
