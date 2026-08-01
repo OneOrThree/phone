@@ -1248,6 +1248,69 @@ describe('그룹 전환(같은 인스턴스에 다른 groupId)', () => {
     expect(mockRefreshCoins).not.toHaveBeenCalled();
   });
 
+  // 1024의 서명 확정은 refreshCoins()를 **기다린 뒤**라 새 비동기 창이 생겼다 — 대기 중 그룹이
+  // 바뀌면 전환 리셋(서명 null)이 먼저 일어나고, 늦은 확정이 이전 그룹의 서명을 되살리면 새
+  // 그룹의 다음 조회가 '남의 정산'과 비교해 잔액을 다시 받는다. 확정 전 seq 재검사가 막는다.
+  test('잔액 동기화 대기 중 그룹이 바뀌면 늦은 서명 확정이 새 그룹을 오염시키지 않는다', async () => {
+    const settled = (payout: number | null) =>
+      challenge({
+        lastSettledBet: {
+          betDate: '2026-07-31',
+          stake: 30,
+          pot: 60,
+          status: 'SETTLED' as const,
+          results: [{ userId: 'me', nickname: '나', achieved: true, payout }],
+        },
+      });
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    // 첫 조회 — 지급 미확정 정산이 실려 온다(서명의 비교 기준이 된다).
+    mockGetChallenges.mockResolvedValue([settled(null)]);
+    const { rerender } = await renderRoom();
+    mockRefreshCoins.mockClear();
+
+    // 지급이 채워졌다 — 정산 감지로 잔액 동기화가 시작되는데, 응답을 붙잡아 둔다.
+    let finishRefresh: (ok: boolean) => void = () => {};
+    mockRefreshCoins.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+    mockGetChallenges.mockResolvedValue([settled(60)]);
+    await foreground();
+    expect(mockRefreshCoins).toHaveBeenCalledTimes(1);
+
+    // 동기화가 떠 있는 채 그룹 B로 전환 — B의 첫 조회는 자기 정산을 싣고 정상 완료된다
+    // (첫 서명은 비교 대상이 없어 잔액을 받지 않는 것이 규칙이다).
+    mockGetGroupDetail.mockResolvedValue(detail({ id: OTHER_GROUP_ID }));
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        id: 'c9',
+        lastSettledBet: {
+          betDate: '2026-07-31',
+          stake: 50,
+          pot: 100,
+          status: 'SETTLED' as const,
+          results: [{ userId: 'me', nickname: '나', achieved: false, payout: 0 }],
+        },
+      }),
+    ]);
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={OTHER_GROUP_ID} onLeft={onLeft} />);
+    });
+
+    // 이제야 A의 동기화가 성공으로 끝난다 — 낡은 확정은 버려져야 한다.
+    await act(async () => {
+      finishRefresh(true);
+    });
+
+    // B의 같은 응답을 다시 받아도 잔액을 받지 않아야 한다 — 늦은 확정이 A의 서명을 심어 뒀다면
+    // B의 서명과 달라 '정산 변화'로 오인해 여기서 한 번 더 불렸을 것이다.
+    await foreground();
+    expect(mockRefreshCoins).toHaveBeenCalledTimes(1);
+  });
+
   // 삭제 실패 Alert는 groupId를 보지 않았다 — 응답 전에 그룹이 바뀌면 B 화면 위에 A의 삭제
   // 실패 안내가 뜬다(GROMO-1027). onDone·onCreated와 같은 가드로 무시해야 한다.
   test('전환 전 그룹의 챌린지 삭제가 늦게 실패해도 새 화면에 Alert를 띄우지 않는다', async () => {
