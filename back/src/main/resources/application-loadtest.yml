@@ -86,4 +86,4 @@ link:
   base-url: ${LINK_BASE_URL:https://oneorthree.dev.mooo.com}
   match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
   ip-salt: ${LINK_IP_SALT:loadtest-salt}
-  store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/id0000000000}
+  store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679}
