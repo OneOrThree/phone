@@ -686,7 +686,6 @@ public class GroupService {
 
     // ── GROMO-674: 그룹 미션 정보는 group_challenges(+CTI 상세)가 소유 ──────────────
 
-    /** 그룹 생성 시 대표 챌린지(status=ACTIVE) + type별 상세(Duration/Window) 행을 저장한다. */
     /** 대표 챌린지(최신 ACTIVE, 미삭제) + type별 상세에서 상세/오버뷰 응답의 미션 필드를 채운다. */
     private RepresentativeMission resolveRepresentativeMission(Group group) {
         return groupChallengeRepository
