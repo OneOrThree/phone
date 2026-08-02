@@ -307,10 +307,18 @@ export default function BetSheet({
           refresh();
           setInsufficientVerdict({ stake: amount, coinsVersion: latestCoinsVersion() });
           break;
+        // 게이트 확대(전 조합 허용)가 아직 배포되지 않은 서버는 FOCUS×DURATION 밖의 내기를
+        // 이 코드로 거절한다(구 GroupBetService). 앱이 진입점을 먼저 열어 둔 배포 공백기의
+        // 실존 경로라 분기를 둔다 — default의 '잠시 후 다시 시도'는 이 서버에선 영원히 거짓이다
+        // (클로드 리뷰). 게이트 확대 배포 후엔 자연히 도달 불가가 된다.
+        case 'BET_FOCUS_ONLY':
+          failAndReload(
+            '아직 내기를 걸 수 없는 챌린지예요',
+            '지금은 하루 목표 집중 챌린지에만 내기를 걸 수 있어요. 서버 업데이트 후 열 수 있어요.',
+          );
+          return;
         // 계약의 나머지 코드는 앱이 보내는 조합에서 도달할 수 없어 분기를 두지 않는다:
         // BET_INVALID_STAKE는 판돈이 칩의 허용값 {10,30,50,100}으로만 나가기 때문이다.
-        // (BET_FOCUS_ONLY 게이트는 계약에서 제거됐다 — 전 조합 허용. 목표분 없는 창 챌린지만
-        //  카드가 진입점을 닫는다: ChallengeCard.betSupported.)
         // 도달했다면 서버 계약이 바뀐 것이라 '알 수 없는 오류'로 말하는 편이 사실에 가깝다.
         default:
           setErrorMsg(

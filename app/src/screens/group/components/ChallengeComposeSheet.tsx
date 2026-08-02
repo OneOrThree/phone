@@ -212,6 +212,8 @@ export default function ChallengeComposeSheet({
   }
 
   // 창 시각 커밋 — 시작 ≥ 종료가 되는 선택은 거부한다(휠이 제자리로 돌아간다).
+  // 자정 걸침 창은 v1 범위 밖이다 — 서버도 windowEnd.isAfter(windowStart)를 강제해
+  // 400(INVALID_MISSION_PARAMS)으로 거절한다(GroupChallengeService.createChallenge 검증).
   // 커밋 후 현재 목표분이 창보다 길어지면 들어가는 가장 큰 칩으로 당긴다 —
   // 잠긴 칩이 선택된 채 CTA만 막히는 상태를 만들지 않는다.
   function commitWindow(start: number, end: number) {

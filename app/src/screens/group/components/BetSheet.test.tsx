@@ -854,6 +854,22 @@ describe('SCREEN_TIME 내기', () => {
     );
   });
 
+  // 게이트 확대(전 조합 허용)가 아직 배포되지 않은 서버는 FOCUS×DURATION 밖 내기를
+  // BET_FOCUS_ONLY로 거절한다 — 앱이 진입점을 먼저 연 배포 공백기의 실존 경로다.
+  // default('잠시 후 다시 시도')로 떨어뜨리면 영원한 실패에 재시도를 권하게 된다.
+  test('구서버 BET_FOCUS_ONLY는 전용 문구로 알리고 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(400, 'BET_FOCUS_ONLY'));
+    await renderSheet('create', { missionCategory: 'SCREEN_TIME' });
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '아직 내기를 걸 수 없는 챌린지예요',
+      '지금은 하루 목표 집중 챌린지에만 내기를 걸 수 있어요. 서버 업데이트 후 열 수 있어요.',
+    );
+    expect(onDone).toHaveBeenCalled();
+  });
+
   // 계약 §2 "카드·시트 안내 문구 필수" — 15분 눈금 측정 위로 코인이 움직인다는 사실을
   // 돈이 나가기 전에 고지한다. FOCUS 내기에는 붙이지 않는다(측정 문제가 없다).
   test('SCREEN_TIME 내기에만 측정 한계 고지가 붙는다', async () => {
