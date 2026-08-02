@@ -25,7 +25,7 @@ const native = requireOptionalNativeModule<SubjectMaskNativeModule>('SubjectMask
 const REASON_LABEL: Record<string, string> = {
   ios17_required: 'iOS 17부터 배경 제거가 돼요. 지금은 원본 사진 그대로예요.',
   no_subject: '사진에서 물건을 찾지 못했어요. 배경이 단순한 사진이 잘 돼요.',
-  vision_failed: '배경 제거에 실패했어요(시뮬레이터는 미지원). 원본 사진으로 보여줄게요.',
+  vision_failed: '배경 제거에 실패했어요. 원본 사진으로 보여줄게요.',
   load_failed: '사진을 읽지 못했어요. 원본 사진으로 보여줄게요.',
   unavailable: '이 빌드에는 배경 제거 모듈이 없어요. 원본 사진으로 보여줄게요.',
   // 안드로이드(ML Kit) 전용 사유

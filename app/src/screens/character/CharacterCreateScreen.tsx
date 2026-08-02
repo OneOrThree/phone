@@ -192,8 +192,7 @@ export default function CharacterCreateScreen({ onComplete }: Props) {
         {error ? <Text style={s.notice}>{error}</Text> : null}
         {!supported && !error ? (
           <Text style={s.notice}>
-            이 기기·빌드에서는 배경 제거가 지원되지 않아요(iOS 17+ 실기기 필요). 원본 사진 그대로
-            보여줄게요.
+            이 기기·빌드에서는 배경 제거가 지원되지 않아요. 원본 사진 그대로 보여줄게요.
           </Text>
         ) : null}
         {result?.cutout ? <Text style={s.ok}>배경 제거 성공 — 온디바이스 처리</Text> : null}
