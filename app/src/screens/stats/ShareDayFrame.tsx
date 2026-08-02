@@ -53,11 +53,13 @@ export function ShareDayFrame({
         {children}
         {capturing && (
           <View style={cs.shareDayMascot}>
+            {/* 게이트(onCharReady)는 onLoad에만 건다. 로드 실패 시 CharacterImage가 기본 에셋으로
+                폴백하는데, onError에 걸면 폴백이 '그려지기 전'에 풀려 전환 중간 프레임이 캡처될 수
+                있다. 폴백이 실제 그려질 때 onLoad가 오고, 그마저 늦으면 훅의 타임아웃이 받는다. */}
             <CharacterImage
               size={DAY_CHAR_SIZE}
               sourceUri={activeSource ?? undefined}
               onLoad={onCharReady}
-              onError={onCharReady}
             />
           </View>
         )}

@@ -28,11 +28,12 @@ export function ShareBrandFooter({
   if (!visible) return null;
   return (
     <View style={cs.shareBrandBand}>
+      {/* 게이트(onCharReady)는 onLoad에만 — 로드 실패 시 폴백 기본 에셋이 실제 그려질 때 풀린다
+          (onError에 걸면 폴백 페인트 전에 풀려 전환 중간 프레임이 캡처될 수 있음). ShareDayFrame과 동일. */}
       <CharacterImage
         size={BRAND_CHAR_SIZE}
         sourceUri={activeSource ?? undefined}
         onLoad={onCharReady}
-        onError={onCharReady}
       />
       <View style={cs.shareBrandTextCol}>
         <Text style={cs.shareWordmark} allowFontScaling={false}>

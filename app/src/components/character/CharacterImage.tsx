@@ -29,17 +29,15 @@ export function CharacterImage({
   variant = 'default',
   sourceUri,
   onLoad,
-  onError,
 }: {
   size: number;
   variant?: CharacterVariant;
   /** 오브젝트 캐릭터(누끼) URI. 있으면 정적 에셋 대신 이 이미지를 그린다(같은 size·contain 박스).
    *  없으면 기존 variant 정적 에셋 동작 그대로 — 기존 호출부는 이 prop을 넘기지 않으므로 영향 없음. */
   sourceUri?: string;
-  /** 이미지 표시 완료 콜백 — 축하 모달이 색종이 시작 타이밍을 맞추는 데 쓴다 */
+  /** 이미지 표시 완료 콜백 — 축하 모달의 색종이 타이밍·공유 캡처 게이트 등에 쓴다. 로드 실패 시엔
+   *  기본 에셋으로 폴백되고, 그 폴백이 그려질 때 이 콜백이 온다(실패 순간이 아니라 폴백 페인트 시점). */
   onLoad?: ImageProps['onLoad'];
-  /** 이미지 로드 실패 콜백 — 공유 캡처가 로드 실패 시에도 진행하도록 게이트를 푸는 데 쓴다(GROMO-1070). */
-  onError?: ImageProps['onError'];
 }) {
   // sourceUri(누끼) 로드 실패 시 기본 에셋으로 폴백 — 만료/삭제된 URI가 빈/깨진 박스로 그려지는 걸 막는다.
   // 공유 이미지뿐 아니라 홈·집중 화면 등 sourceUri 사용처 전반이 함께 폴백된다(GROMO-1070 리뷰 반영).
@@ -55,10 +53,7 @@ export function CharacterImage({
       style={{ width: size, height: size }}
       resizeMode="contain"
       onLoad={onLoad}
-      onError={(e) => {
-        setFailed(true);
-        onError?.(e);
-      }}
+      onError={() => setFailed(true)}
     />
   );
 }
