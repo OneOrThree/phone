@@ -1797,6 +1797,25 @@ describe('챌린지 결과 모달(A3)', () => {
       );
     });
 
+    // 방이 이미 떠 있는 채로 같은 그룹의 다른 챌린지 푸시를 탭하면 라우트 파라미터만 갈리고
+    // 포커스는 유지된다 — useFocusEffect가 다시 돌지 않아 새 지목이 처리될 계기가 없다.
+    test('같은 방에서 지목만 바뀌면 스스로 재조회해 모달을 연다', async () => {
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      // 첫 진입에는 결과가 없다 — 모달이 뜰 이유가 없는 상태에서 시작한다.
+      challengesByDate({});
+      const { rerender } = await renderWithFocus('c1');
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+      // 두 번째 푸시가 도착해 파라미터만 갈린다. 포커스·포그라운드 이벤트는 일부러 굴리지 않는다.
+      challengesByDate({ '2026-07-31': [settled({ id: 'c2' })] });
+      await act(async () => {
+        rerender(<GroupRoomScreen groupId={GROUP_ID} focusChallengeId="c2" onLeft={onLeft} />);
+      });
+
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    });
+
     test('지목이 없으면(목록 탭 진입) 기존 1회 가드가 그대로 막는다', async () => {
       await AsyncStorage.setItem('gromo:challengeResult:c1:2026-07-31', '1');
       mockGetGroupDetail.mockResolvedValue(detail());

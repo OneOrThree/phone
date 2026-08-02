@@ -246,6 +246,11 @@ export default function GroupRoomScreen({
   // 다른 챌린지 푸시를 탭) 다시 무장한다.
   const focusPendingRef = useRef<string | null>(null);
   const focusKeyRef = useRef<string | null>(null);
+  // 지목 변경을 재조회로 잇기 위한 직전 값 — 아래 이펙트 주석 참고.
+  const focusSeenRef = useRef<{ groupId: string; challengeId?: string }>({
+    groupId,
+    challengeId: focusChallengeId,
+  });
 
   // 이 화면이 지금 그리고 있는 그룹. 이미 스택에 있는 'GroupRoom' 라우트로 다시 navigate 하면
   // (React Navigation이 params만 병합해) **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
@@ -444,6 +449,19 @@ export default function GroupRoomScreen({
       };
     }, [reload]),
   );
+
+  // 지목이 바뀌면 재조회한다(GROMO-1088, 코덱스 리뷰) — 이 방이 이미 떠 있는 채로 **같은 그룹의
+  // 다른 챌린지** 푸시를 탭하면 라우트 파라미터만 갈리고 포커스는 유지돼 useFocusEffect가 다시
+  // 돌지 않는다. 그러면 새 지목이 다음 수동 새로고침까지 전혀 처리되지 않는다.
+  // (백그라운드에서 탭한 경우는 AppState 복귀가 재조회를 부르지만, 포그라운드 탭엔 그 계기가 없다.)
+  // ⚠️ 그룹이 함께 바뀌었으면 발사하지 않는다 — load 신원이 갈려 useFocusEffect가 이미 다시 돈다.
+  useEffect(() => {
+    const prev = focusSeenRef.current;
+    focusSeenRef.current = { groupId, challengeId: focusChallengeId };
+    if (prev.groupId !== groupId) return;
+    if (prev.challengeId === focusChallengeId || !focusChallengeId) return;
+    reload();
+  }, [groupId, focusChallengeId, reload]);
 
   // 포그라운드 복귀 — 포커스는 유지된 채라 useFocusEffect가 다시 돌지 않는다.
   // 화면이 떠 있으면 재조회하고, 자정을 넘겼으면 포커스 여부와 무관하게 새 date로 다시 부른다.

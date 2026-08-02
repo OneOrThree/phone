@@ -149,11 +149,21 @@ function navigateToGroup(groupId: string | null, challengeId: string | null): vo
   navigationRef.navigate('Main', { screen: '그룹' } as never);
   if (!groupId) return;
   // 목록 조회 실패는 삼킨다 — 그룹 탭까지는 이미 갔다.
-  pushGroupRoom(groupId, challengeId).catch(() => {});
+  pushGroupRoom(++groupLinkSeq, groupId, challengeId).catch(() => {});
 }
 
-async function pushGroupRoom(groupId: string, challengeId: string | null): Promise<void> {
+// 그룹 딥링크 요청 세대 — 알림을 연달아 탭하면 각 링크가 독립적인 getMyGroups()를 띄운다.
+// 먼저 시작한 조회가 늦게 끝나면 **나중에 탭한 방이 열린 뒤 이전 방으로 되돌아간다**(코덱스 리뷰).
+// 화면들이 쓰는 requestSeqRef와 같은 방식으로, 최신 링크의 조회만 이동을 완료하게 한다.
+let groupLinkSeq = 0;
+
+async function pushGroupRoom(
+  seq: number,
+  groupId: string,
+  challengeId: string | null,
+): Promise<void> {
   const groups = await getMyGroups();
+  if (seq !== groupLinkSeq) return; // 더 늦게 탭한 링크가 이미 이동을 맡았다
   if (!navigationRef.isReady()) return;
   if (!groups.some((g) => g.groupId === groupId)) return;
   // challengeId는 **없어도 키를 싣는다** — 이미 스택에 있는 GroupRoom으로 다시 navigate 하면

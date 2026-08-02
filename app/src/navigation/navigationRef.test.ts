@@ -205,6 +205,39 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     });
   });
 
+  // 알림을 연달아 탭하면 각 링크가 독립적인 목록 조회를 띄운다 — 먼저 시작한 조회가 늦게
+  // 끝나면 나중에 탭한 방이 열린 뒤 이전 방으로 되돌아간다(코덱스 리뷰).
+  test('먼저 탭한 링크의 늦은 조회가 나중에 탭한 이동을 덮지 않는다', async () => {
+    const OTHER_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
+    const rows = [summary(GROUP_ID), summary(OTHER_ID)];
+    let resolveFirst: ((v: unknown) => void) | undefined;
+    mockGetMyGroups
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
+      .mockResolvedValueOnce(rows);
+
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}&challenge=${CHALLENGE_ID}`); // 첫 번째 탭
+    navigateToDeepLink(`gromo://group?g=${OTHER_ID}`); // 두 번째 탭 — 이쪽이 최신
+    await flushAsync();
+
+    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+      groupId: OTHER_ID,
+      challengeId: undefined,
+    });
+
+    // 이제 첫 번째 조회가 뒤늦게 끝난다 — 최신이 아니므로 이동하지 않는다.
+    resolveFirst?.(rows);
+    await flushAsync();
+
+    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+      groupId: OTHER_ID,
+      challengeId: undefined,
+    });
+    expect(navigate).not.toHaveBeenCalledWith('GroupRoom', {
+      groupId: GROUP_ID,
+      challengeId: CHALLENGE_ID,
+    });
+  });
+
   test('내 그룹이 아니면(푸시 후 탈퇴) 그룹 탭까지만 간다', async () => {
     mockGetMyGroups.mockResolvedValue([summary('other-1'), summary('other-2')]);
     navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
