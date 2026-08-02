@@ -39,6 +39,9 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
   // 서버 모더레이션이 '검사 불가(unavailable)'로 막힌 적이 있는지. 이때만 온보딩 갇힘을 피하려
   // 캐릭터 없이 다음으로 넘어가게 열어 준다(정상 상황의 '체험 필수'는 그대로).
   const [moderationUnavailable, setModerationUnavailable] = useState(false);
+  // 생성기를 한 번 열었다가 X로 닫아 체험을 포기한 적이 있는지. 누끼(온디바이스/서버)가 실패해도
+  // 온보딩에 갇히지 않도록, 이때는 캐릭터를 못 만들었어도 '다음'을 열어 준다(저장 안 함 → 기본 그로몬 유지).
+  const [creatorDismissed, setCreatorDismissed] = useState(false);
   const created = !!data.cutoutCharacterUri;
 
   // 유저별 파일 저장용 userId. 온보딩은 Provider 밖이라 useUser를 못 쓰고, 로그인 스텝이 누끼보다
@@ -66,6 +69,12 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
     setModalOpen(false);
   };
 
+  // 생성기 X(닫기) — 모달을 닫고, 못 만들었어도 넘어갈 수 있게 '다음'을 연다.
+  const closeCreator = () => {
+    setModalOpen(false);
+    setCreatorDismissed(true);
+  };
+
   return (
     <StepScaffold
       testID="onboarding.step.cutout_experience"
@@ -74,10 +83,11 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
       // 작은 화면(SE 등)에서 가이드+만들기 버튼이 뷰포트를 넘겨 잘리지 않게 스크롤 허용(스킵 불가 스텝).
       scrollable
       ctaLabel="다음"
-      // 만들어(cutoutCharacterUri 생성) 체험을 완료해야 다음으로. 단, 만들기 불가 기기(canSkip)와
-      // 서버 모더레이션 '검사 불가'(moderationUnavailable, 백엔드 미배포·장애 등)는 영구 차단을
-      // 막기 위해 그냥 통과시킨다(그 사진은 저장하지 않아 기본 그로몬 유지). 능동 스킵 버튼은 두지 않는다.
-      ctaDisabled={!created && !canSkip && !moderationUnavailable}
+      // 만들어(cutoutCharacterUri 생성) 체험을 완료해야 다음으로. 단, 만들기 불가 기기(canSkip),
+      // 서버 모더레이션 '검사 불가'(moderationUnavailable, 백엔드 미배포·장애 등), 그리고 생성기를
+      // 열었다가 X로 닫아 포기한 경우(creatorDismissed, 누끼 실패 대비)는 영구 차단을 막기 위해 그냥
+      // 통과시킨다(그 사진은 저장하지 않아 기본 그로몬 유지). 능동 스킵 버튼은 두지 않는다.
+      ctaDisabled={!created && !canSkip && !moderationUnavailable && !creatorDismissed}
       onCta={onNext}
     >
       <View style={s.guides}>
@@ -112,21 +122,20 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
               지금은 확인이 어려워요. 나중에 메뉴에서 ‘사진에서 캐릭터 만들기’로 만들 수 있어요.
               지금은 넘어가도 괜찮아요.
             </Text>
+          ) : creatorDismissed ? (
+            // 생성기를 열었다가 닫은 경우 — 지금 안 만들어도 넘어갈 수 있게 안내한다.
+            <Text style={s.hint}>지금 안 만들어도 괜찮아요. 나중에 홈에서 만들 수 있어요.</Text>
           ) : (
             <Text style={s.hint}>먼저 캐릭터를 만들어 주세요.</Text>
           )}
 
           {/* 생성기 — NavigationContainer가 필요 없는 RN Modal로 띄운다. 닫기는 상단 X 버튼. */}
-          <Modal
-            visible={modalOpen}
-            animationType="slide"
-            onRequestClose={() => setModalOpen(false)}
-          >
+          <Modal visible={modalOpen} animationType="slide" onRequestClose={closeCreator}>
             <SafeAreaView style={s.modalRoot} edges={['top', 'bottom']}>
               <View style={s.modalBar}>
                 <Text style={s.modalTitle}>사진에서 캐릭터 만들기</Text>
                 <TouchableOpacity
-                  onPress={() => setModalOpen(false)}
+                  onPress={closeCreator}
                   style={s.modalClose}
                   hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
