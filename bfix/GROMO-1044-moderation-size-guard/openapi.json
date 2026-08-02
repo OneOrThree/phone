@@ -2043,7 +2043,7 @@
             }
           },
           "400": {
-            "description": "image 누락, 또는 chunked 요청의 base64 크기 초과(@Size)",
+            "description": "image 누락, 또는 base64 크기가 @Size(10MiB) 초과(전송방식 무관)",
             "content": {
               "*/*": {
                 "schema": {
