@@ -75,7 +75,12 @@ public class WindowFocusAggregator {
         return endDate.atTime(end).atZone(KST).toInstant();
     }
 
-    private static LocalTime timeOfDay(Instant instant) {
+    /**
+     * 창 Instant 의 의미 있는 부분 — UTC 시각(time-of-day). 생성 검증·겹침 판정({@code GroupChallengeService})·
+     * 집계 경계(여기)·응답 "HH:mm:ss" 변환이 전부 이 <b>단일 기준</b>을 쓴다 — 한쪽만 바뀌어 조용히
+     * 갈라지지 않도록 공용으로 노출한다(PR #438 리뷰).
+     */
+    public static LocalTime timeOfDay(Instant instant) {
         return LocalTime.ofInstant(instant, ZoneOffset.UTC);
     }
 }

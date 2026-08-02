@@ -46,7 +46,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -629,8 +628,8 @@ public class GroupChallengeService {
         return timeOfDay(instant).format(TIME_FORMATTER);
     }
 
-    // 창 Instant 의 의미 있는 부분 — UTC 시각(time-of-day). 응답 변환과 창 검증·겹침 판정이 같은 기준을 쓴다.
+    // 창 시각 추출은 WindowFocusAggregator.timeOfDay 단일 기준을 공유한다(검증·겹침·집계·응답 변환 동일).
     private static LocalTime timeOfDay(Instant instant) {
-        return LocalTime.ofInstant(instant, ZoneOffset.UTC);
+        return WindowFocusAggregator.timeOfDay(instant);
     }
 }
