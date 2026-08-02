@@ -58,8 +58,8 @@ class SubjectMaskModule : Module() {
     // 합성된 오브젝트 캐릭터(팔·다리·눈까지 구워진 투명 PNG)를 앱 내부 저장소에 영구 저장한다.
     // 화면에서 캡처한 base64 PNG를 그대로 받아 customCharacter.png 한 장으로 덮어쓴다(항상 1장 유지).
     // cutout과 달리 실패 시 폴백하지 않고 throw한다(영구 저장은 성공/실패가 명확해야 한다).
-    AsyncFunction("saveCustomCharacter") Coroutine { base64: String ->
-      saveCustomCharacter(base64)
+    AsyncFunction("saveCustomCharacter") Coroutine { base64: String, userId: String? ->
+      saveCustomCharacter(base64, userId)
     }
   }
 
@@ -148,7 +148,10 @@ class SubjectMaskModule : Module() {
 
   // MARK: - 영구 저장
 
-  private suspend fun saveCustomCharacter(base64: String): String = withContext(Dispatchers.IO) {
+  // userId: 한 기기에 두 계정이 각각 누끼 캐릭터를 만들면 파일이 공유돼 서로 덮어써지므로
+  // (iOS와 동일) userId별 파일명으로 저장한다. JS 래퍼가 (base64, userId ?? null) 2인자로 부르며,
+  // 인자 수가 네이티브 선언과 맞아야 Expo가 호출을 거부하지 않는다. userId가 없으면 단일 파일명 폴백.
+  private suspend fun saveCustomCharacter(base64: String, userId: String?): String = withContext(Dispatchers.IO) {
     val bytes = try {
       Base64.decode(base64, Base64.DEFAULT)
     } catch (e: IllegalArgumentException) {
@@ -158,17 +161,27 @@ class SubjectMaskModule : Module() {
     val probe = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: throw SubjectMaskDecodeException()
     probe.recycle()
 
-    // filesDir = 앱 내부 영구 저장소(iOS Documents 대응). 이전 파일을 덮어써 항상 1장만 유지한다.
+    // filesDir = 앱 내부 영구 저장소(iOS Documents 대응). 유저별 파일이라 그 유저의 이전 파일만 교체된다.
     // 임시 파일에 먼저 쓴 뒤 원자적으로 rename한다 — 쓰기 도중 죽거나 저장이 실패해도 이전
     // 캐릭터가 부분/빈 파일로 깨지지 않게 한다(iOS .atomic 쓰기 대응).
-    val file = File(context.filesDir, "customCharacter.png")
-    val tmp = File(context.filesDir, "customCharacter.png.tmp")
+    val fileName = customCharacterFileName(userId)
+    val file = File(context.filesDir, fileName)
+    val tmp = File(context.filesDir, "$fileName.tmp")
     FileOutputStream(tmp).use { it.write(bytes) }
     if (!tmp.renameTo(file)) {
       tmp.delete()
       throw SubjectMaskSaveException()
     }
     Uri.fromFile(file).toString()
+  }
+
+  // 유저별 캐릭터 파일명 — userId가 없거나 빈 값이면 단일 파일명으로 폴백(하위호환, iOS와 동일).
+  // 영숫자·하이픈·언더스코어만 남겨 방어적으로 정제하고, 정제 후 비면(비ASCII만 있던 경우) 폴백해
+  // 잘못된 파일명으로 저장 실패하는 일을 막는다.
+  private fun customCharacterFileName(userId: String?): String {
+    if (userId.isNullOrEmpty()) return "customCharacter.png"
+    val safe = userId.filter { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '-' || it == '_' }
+    return if (safe.isEmpty()) "customCharacter.png" else "customCharacter_$safe.png"
   }
 
   // 누끼 PNG를 캐시에 저장하고 file:// 절대경로를 돌려준다. 화면은 항상 마지막 1장만 쓰므로
