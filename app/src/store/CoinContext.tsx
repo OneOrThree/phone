@@ -109,24 +109,32 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   // 소비자가 렌더를 기다리지 않고도 최신 버전을 읽게 한다(위 latestCoinsVersion 주석).
   const coinsVersionRef = useRef(0);
   const latestCoinsVersion = useCallback(() => coinsVersionRef.current, []);
+  // 서버 지급 정정(reconcileSessionAward)의 세대 — 정정이 반영될 때마다 오른다. 정정 **이전에
+  // 시작된** 조회의 응답은 그 스냅샷이 지급 전인지 후인지 모호하다: 지급 전 잔액이면 방금 정정한
+  // 보상을 지우고(보상 증발), 지급 후 잔액이면 정정과 겹쳐 이중 표시가 된다(코덱스 리뷰 P1 —
+  // 콜드 스타트의 마운트 refresh × 고아 정산 동시 실행). 세대가 다르면 응답을 버린다 —
+  // 시퀀스 가드(위)는 조회끼리의 순서만 지켜 주므로 이 모호성은 따로 막아야 한다.
+  const awardEpochRef = useRef(0);
 
   // 서버에서 잔액 로드. 실패해도 던지지 않는다 — 잔액은 화면을 막을 값이 아니고,
   // 다음 refresh(시트 오픈 등)에서 자연 재시도된다. 다만 **조용히 삼키지는 않는다**:
   // coinsLoaded를 false로 되돌려 '지금 쥔 값은 못 믿는다'를 소비자가 알 수 있게 한다(F1).
   const refresh = useCallback(async (): Promise<boolean> => {
     const seq = ++refreshSeqRef.current;
+    const epoch = awardEpochRef.current;
     try {
       const res = await api.get<number>('/api/v1/currency');
-      // 뒤이어 시작된 조회가 있으면 이 응답은 이미 낡았다 — 실패 처리도 마찬가지로 건너뛴다.
+      // 뒤이어 시작된 조회가 있거나(seq) 조회 시작 후 서버 지급 정정이 반영됐으면(epoch)
+      // 이 응답은 이미 낡았다 — 실패 처리도 마찬가지로 건너뛴다.
       // 반영되지 않았으므로 성공이라 말하지 않는다(위 인터페이스 주석 — 무효 ≠ 성공).
-      if (seq !== refreshSeqRef.current) return false;
+      if (seq !== refreshSeqRef.current || epoch !== awardEpochRef.current) return false;
       setCoins(res.data);
       setCoinsLoaded(true);
       coinsVersionRef.current += 1;
       setCoinsVersion(coinsVersionRef.current);
       return true;
     } catch {
-      if (seq !== refreshSeqRef.current) return false;
+      if (seq !== refreshSeqRef.current || epoch !== awardEpochRef.current) return false;
       setCoinsLoaded(false);
       return false;
     }
@@ -165,6 +173,10 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   // 덮어쓰면 아직 저장 안 된 다른 블록의 낙관 가산이 지워진다. 차액 방식은 블록별로 독립이다.
   function reconcileSessionAward(optimisticAmount: number, awardedCoins: number | undefined) {
     if (typeof awardedCoins !== 'number') return;
+    // 서버가 이 세션의 지급을 확정했다 — 이보다 먼저 시작된 조회의 스냅샷은 지급 전/후가
+    // 모호하므로 세대를 올려 무효화한다(위 awardEpochRef 주석). diff가 0이어도 올린다 —
+    // 모호성은 차액 크기가 아니라 '지급이 끼어들었다'는 사실에서 온다.
+    awardEpochRef.current += 1;
     const diff = awardedCoins - optimisticAmount;
     if (diff !== 0) setCoins((prev) => prev + diff);
   }

@@ -304,6 +304,85 @@ describe('세션 보상 — 서버 지급 전환', () => {
     expect(screen.getByTestId('coins')).toHaveTextContent('109');
   });
 
+  // 콜드 스타트 경합(코덱스 리뷰 P1) — 마운트 refresh가 떠 있는 채 고아 정산이 서버 지급을
+  // 정정하면, 그 조회의 스냅샷은 지급 전/후가 모호하다. 지급 전 잔액이면 방금 정정한 보상을
+  // 지우고(증발), 지급 후 잔액이면 정정과 겹쳐 이중 표시된다. 정정 이전에 시작된 조회는 버린다.
+  test('정정 전에 시작된 조회의 응답은 정정을 덮지 않는다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 100 } as never);
+    await renderProvider();
+
+    // 지급 전 잔액(100)을 물고 늘어지는 조회 A — 응답 전에 고아 정산의 지급 정정이 끼어든다.
+    let finishA: (v: { data: number }) => void = () => {};
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishA = resolve as (v: { data: number }) => void;
+        }) as never,
+    );
+    let pendingA: Promise<boolean> = Promise.resolve(false);
+    await act(async () => {
+      pendingA = refreshFn();
+    });
+
+    // 고아 재시도 런의 지급 반영 — 낙관분 없이 +7 (서버 잔액은 이제 107).
+    await act(async () => {
+      reconcileFn(0, 7);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+
+    // A가 이제야 지급 전 스냅샷(100)을 들고 도착 — 반영하면 보상이 증발한다. 버려야 한다.
+    await act(async () => {
+      finishA({ data: 100 });
+      await expect(pendingA).resolves.toBe(false);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+  });
+
+  test('정정 전에 시작된 조회가 지급 후 잔액을 들고 와도 이중 표시되지 않는다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 100 } as never);
+    await renderProvider();
+
+    let finishA: (v: { data: number }) => void = () => {};
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishA = resolve as (v: { data: number }) => void;
+        }) as never,
+    );
+    await act(async () => {
+      refreshFn();
+    });
+
+    await act(async () => {
+      reconcileFn(0, 7); // 화면 107
+    });
+
+    // A의 스냅샷이 하필 지급 후(107)였다면 — 반영해도 같은 값이지만, 반영을 허용하는 순간
+    // '정정 +7'과 '조회 107'의 순서 조합에 따라 114가 될 수 있는 구조가 된다. 일괄 폐기가 안전.
+    await act(async () => {
+      finishA({ data: 107 });
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+  });
+
+  test('정정 이후에 시작된 조회는 정상 반영된다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 100 } as never);
+    await renderProvider();
+
+    await act(async () => {
+      reconcileFn(0, 7);
+    });
+
+    // 정정 뒤 새로 시작한 조회 — 서버 정본(107)이 그대로 실려야 한다(영구 폐기 아님).
+    mockGet.mockResolvedValueOnce({ data: 107 } as never);
+    let result = false;
+    await act(async () => {
+      result = await refreshFn();
+    });
+    expect(result).toBe(true);
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+  });
+
   // 정정은 차액 방식이다 — 뽀모도로처럼 블록 저장이 겹칠 때 전체 잔액을 덮어쓰면 아직 저장
   // 안 된 다른 블록의 낙관 가산이 지워진다. 블록별 정정이 서로를 건드리지 않아야 한다.
   test('겹친 블록들의 정정은 서로의 낙관 가산을 지우지 않는다', async () => {
