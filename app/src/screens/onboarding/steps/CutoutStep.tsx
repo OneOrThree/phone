@@ -67,6 +67,8 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
       testID="onboarding.step.cutout_experience"
       title={'내 물건으로\n캐릭터를 만들어 볼까요?'}
       subtitle="사진 한 장이면 나만의 캐릭터가 완성돼요."
+      // 작은 화면(SE 등)에서 가이드+만들기 버튼이 뷰포트를 넘겨 잘리지 않게 스크롤 허용(스킵 불가 스텝).
+      scrollable
       ctaLabel="다음"
       // 만들어(cutoutCharacterUri 생성) 체험을 완료해야 다음으로. 단, 만들기 불가 기기(canSkip)는
       // 영구 차단을 막기 위해 그냥 통과시킨다. 능동 스킵 버튼은 두지 않는다.

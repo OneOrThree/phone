@@ -19,7 +19,6 @@ import {
   subjectMaskReasonLabel,
   type SubjectMaskResult,
 } from '@/services/subjectMask';
-import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { T } from '@/constants/theme';
 
 // 캐릭터 생성기(자립 컴포넌트) — 앨범/카메라로 사물 사진을 얻으면 온디바이스 누끼(Vision) 후
@@ -130,16 +129,10 @@ export default function CharacterCreator({ onSaved, userId }: Props) {
       const base64 = await captureRef(captureViewRef, { format: 'png', result: 'base64' });
       // userId를 넘겨 유저별 파일로 저장 — 한 기기 두 계정이 서로 덮어쓰지 않게 한다.
       const uri = await saveCustomCharacter(base64, userId);
-      // 생성 즉시 위젯 반영 — 방금 구운 base64를 App Group 스냅샷에도 전파해, 다음 집중 세션까지
-      // 안 기다리고 홈 위젯이 바로 갱신되게 한다. 스냅샷은 비필수라 실패해도 저장/onSaved를
-      // 막지 않게 삼킨다(집중 화면이 스냅샷을 비필수로 다루는 것과 동일).
-      // 참고: 이건 '생성' 시 반영이다. 선택 화면에서 재생성 없이 기본↔커스텀 '장착만' 전환할 때의
-      //       즉시 반영은 후속 작업이며, 그 경우엔 다음 집중 세션에 갱신된다.
-      try {
-        await ScreenTimeModule.saveCharacterSnapshot(base64);
-      } catch {
-        /* 스냅샷 전파 실패는 무시 */
-      }
+      // 위젯·실드가 읽는 App Group 스냅샷(focusCharacter.png)은 여기서 발행하지 않는다 —
+      // '생성'은 '장착'이 아니라(생성 후에도 choice는 default 유지) 여기서 발행하면 미장착 커스텀이
+      // 위젯·실드에 먼저 떠 버린다(코드리뷰). 스냅샷은 집중 세션이 장착된 캐릭터로 갱신하며,
+      // 장착 즉시 반영은 후속 작업이다.
       onSaved(uri);
     } catch {
       setError('캐릭터를 저장하지 못했어요. 다시 시도해 주세요.');
