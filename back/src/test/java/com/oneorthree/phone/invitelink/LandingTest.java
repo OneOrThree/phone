@@ -48,6 +48,9 @@ class LandingTest extends InviteLinkTestSupport {
 
         assertThat(body).contains("스터디");
         assertThat(body).contains("gromo://join?g=" + group.getId() + "&s=" + link.getSlug());
+        // OG 이미지는 환경별 자기 도메인(ci: link.base-url=https://link.test)의 절대 URL 이어야 한다 —
+        // 도메인이 하드코딩되면 dev 발급 링크의 미리보기가 미배포 prod 이미지를 가리켜 깨진다.
+        assertThat(body).contains("property=\"og:image\" content=\"https://link.test/link/og-invite-v1.png\"");
 
         InviteLinkClick click = onlyClickOf(link);
         assertThat(click.getIpHash()).hasSize(64).matches("[0-9a-f]+");
@@ -84,6 +87,8 @@ class LandingTest extends InviteLinkTestSupport {
         // OG 제목의 그룹명 자리가 비면 「」 처럼 깨진 미리보기가 퍼진다 — 중립 명칭으로 채워져야 한다.
         // (전역 doesNotContain("「」") 은 안 된다 — WS-5 템플릿의 CSS 주석에 설명용 리터럴이 있다.)
         assertThat(body).contains("「그로모 그룹」");
+        // 만료 변형도 미리보기로 퍼진다 — OG 이미지 자리가 비면 안 된다.
+        assertThat(body).contains("property=\"og:image\" content=\"https://link.test/link/og-invite-v1.png\"");
         assertThat(clickRepository.findAll()).isEmpty();
     }
 
