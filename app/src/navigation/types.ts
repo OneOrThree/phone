@@ -51,6 +51,20 @@ export type V2RootStackParamList = {
     canWrite: boolean; // 방장·공지 권한 멤버 여부 — false면 작성/수정/삭제 진입점을 렌더하지 않는다(403 예방)
   }; // 공지 목록 (그룹방 '모두보기'·공지 카드에서 진입)
 
+  // 그룹 운영(3차) — 모두 방장 전용. 그룹방 ⋯ 메뉴 '그룹 설정' → GroupSettings(관리 허브)에서
+  // 아래 세 화면으로 갈라진다. 멤버십이 바뀌면(위임·강퇴·탈퇴) 복귀 시 상태를 재동기화한다.
+  GroupSettings: { groupId: string }; // A-1 관리 허브 — 이름/소개/정원/공개설정 수정 + 위임·멤버관리·공지권한 진입
+  GroupMemberManage: { groupId: string }; // A-3 멤버 관리(강퇴)
+  GroupOwnerTransfer: {
+    groupId: string;
+    // A-2 위임 진입 경로 — 위임 성공 뒤 동작이 갈린다.
+    //   settings : 위임만 하고 허브로 복귀
+    //   withdraw : 위임 직후 그룹 나가기까지 실행(방장 탈퇴 경로)
+    //   account  : 계정 탈퇴 흐름 — 위임만 하고 계정 화면으로 복귀(그룹 수만큼 반복)
+    source: 'settings' | 'withdraw' | 'account';
+  }; // A-2 방장 위임(멤버 선택)
+  GroupNoticePermission: { groupId: string }; // A-4 공지 작성 권한 관리(멤버별 토글)
+
   // 설정(GROMO-559) — 허브는 '전체' 탭(MenuScreen), 하위 화면은 아래 스택에서 push.
   SettingsProfileEdit: undefined; // 프로필 편집 (닉네임 · 스킨[준비중])
   SettingsOccupation: undefined; // 준비 시험 변경 (focusCategory)

@@ -135,11 +135,22 @@ afterEach(() => {
 });
 
 describe('검색', () => {
-  test('빈 검색어는 서버를 부르지 않는다(디바운스 이전 안내 문구만)', async () => {
+  // A-10: 시트가 열리면 빈 쿼리로 공개방 기본 목록을 부른다 — 검색어를 치기 전에도 볼 것이 있다.
+  // 서버가 빈 쿼리를 '공개방 최신순 상위 10개'로 응답하므로 검색과 같은 경로(searchGroups)로 처리한다.
+  test('빈 검색어(시트 열림)에 공개방 기본 목록을 부른다', async () => {
+    mockSearchGroups.mockResolvedValue([row({ name: '공개 모각공' })]);
     await renderSheet();
 
-    expect(screen.getByText('찾고 싶은 그룹 이름을 입력해보세요')).toBeOnTheScreen();
-    await waitFor(() => expect(mockSearchGroups).not.toHaveBeenCalled());
+    // 마운트 직후 q=''로 검색 이펙트가 돌아 디바운스 뒤 공개방 목록을 부른다.
+    await act(async () => {
+      jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+    });
+
+    // 빈 쿼리로 searchGroups가 호출되고 그 결과(기본 목록)가 렌더된다.
+    expect(await screen.findByText('공개 모각공')).toBeOnTheScreen();
+    expect(mockSearchGroups).toHaveBeenCalledWith('');
+    // 빈 쿼리는 사용자가 친 검색이 아니라 계측(logGroupSearchPerformed)을 쏘지 않는다.
+    expect(logGroupSearchPerformed).not.toHaveBeenCalled();
   });
 
   test('결과 도착 시 계측을 1회 쏜다(query_length·result_count)', async () => {

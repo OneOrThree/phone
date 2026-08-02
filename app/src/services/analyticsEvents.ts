@@ -397,7 +397,8 @@ export function logNudgeTapped(p: { type: NudgeType }): void {
 // ── 그룹(Group) [C] ── (event-logging-design.md §5.D)
 // created/joined/left 등 서버 검증 이벤트([S])는 백엔드 MP 소유 — 클라 미발행.
 // 'deferred_invite' = 미설치 상태에서 링크를 누르고 설치 후 복원된 초대(초대 링크 스펙 §4-3).
-export type GroupJoinMethod = 'code' | 'search' | 'invite' | 'deferred_invite';
+// C-1: 참가 코드는 폐기됐다(§0) — 'code'는 발행되지 않던 데드 값이라 제거. 검색·초대·복원 초대만 남긴다.
+export type GroupJoinMethod = 'search' | 'invite' | 'deferred_invite';
 
 export function logGroupCreateStarted(): void {
   track('group_create_started');
@@ -412,8 +413,35 @@ export function logGroupJoinAttempted(p: { join_method: GroupJoinMethod; slug?: 
 export function logGroupViewed(): void {
   track('group_viewed');
 }
+// 그룹방(방) 방문 — group_viewed(그룹 탭 진입)와 구분해 실제 그룹방 진입/로드 성공을 센다.
+// group_id로 어느 방인지 구분(불투명 식별자라 PII 아님).
+export function logGroupRoomViewed(p: { group_id: string }): void {
+  track('group_room_viewed', p);
+}
 export function logGroupTabViewed(p: { tab: string }): void {
   track('group_tab_viewed', p);
+}
+
+// ── 그룹 운영(3차) ── 설정 저장·방장 위임·강퇴·공지권한 (API 성공 시에만 발행).
+// group_id는 불투명 식별자라 PII 아님. 아직 서버 MP 이벤트가 없어 클라가 소유한다.
+// A-1: 설정 저장 성공. fields는 실제로 바뀐 필드('name'|'description'|'maxMembers'|'isPrivate').
+export function logGroupSettingsUpdated(p: { group_id: string; fields: string[] }): void {
+  track('group_settings_updated', p);
+}
+// A-2: 방장 위임 성공. source는 위임을 시작한 경로.
+export function logGroupOwnerTransferred(p: {
+  group_id: string;
+  source: 'settings' | 'withdraw' | 'account';
+}): void {
+  track('group_owner_transferred', p);
+}
+// A-3: 멤버 강퇴 성공.
+export function logGroupMemberKicked(p: { group_id: string }): void {
+  track('group_member_kicked', p);
+}
+// A-4: 공지 권한 토글 저장 성공. granted는 이번 변경의 방향(허용/회수).
+export function logGroupNoticeGrantChanged(p: { group_id: string; granted: boolean }): void {
+  track('group_notice_grant_changed', p);
 }
 // 초대 링크 공유 — share_method는 경로(클립보드 복사 / OS 공유 시트).
 // ⚠️ confirmed는 **공유가 실제로 완료됐다고 확인됐는가**다. RN Android의 Share.share()는 대상 앱
@@ -464,19 +492,8 @@ export function logGroupBetJoined(p: { stake: number }): void {
   track('group_bet_joined', p);
 }
 
-// ── 그룹 Fakedoor [C] ── (GROMO-597)
-// 실기능 미구현 준비중 화면의 수요 측정. 기존 group_viewed와 분리 —
-// 미래에 실제 그룹 기능이 켜지면 group_viewed가 실조회를 뜻하게 되므로 지표 오염을 막는다.
-//
-// ⚠️ 발행 중단(2026-08-01) — 실기능 전환으로 GroupComingSoonScreen이 삭제되면서 호출부가 0이 됐다.
-//    과거 Fakedoor 구간의 지표 정의를 대시보드 쪽에서 되짚을 수 있게 함수만 남긴다.
-//    (기존 설치본의 AsyncStorage 'gromo:group:notifyRequested' 값은 정리 경로가 없어 남는다 — 무해.)
-export function logGroupFakedoorViewed(): void {
-  track('group_fakedoor_viewed'); // 그룹 탭 진입(수요 측정 핵심)
-}
-export function logGroupNotifyRequested(): void {
-  track('group_notify_requested'); // '출시되면 알림 받기' 탭(강한 수요 신호)
-}
+// C-1: 그룹 Fakedoor 계측(group_fakedoor_viewed·group_notify_requested)은 실기능 전환으로
+// 호출부가 0이 된 지 오래라 제거했다(GROMO-597 Fakedoor 종료). 과거 구간 지표는 대시보드에 이미 적재돼 있다.
 
 // ── 챌린지(Challenge) [C] ── (event-logging-design.md §5.E)
 // created/joined/completed/deleted 등 확정 이벤트는 서버([S]) 소유 — 진입만 클라.

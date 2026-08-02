@@ -16,6 +16,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import { SettingsSection, SettingsRow } from '@/screens/settings/components/SettingsList';
 import { getSocialLinks, unlinkSocialAccount, withdraw } from '@/services/userApi';
+import { getMyGroups } from '@/services/groupApi';
 import { triggerLogout, triggerRelogin } from '@/services/api';
 import {
   kakaoLogin,
@@ -33,6 +34,7 @@ import {
   logWithdrawalConfirmed,
 } from '@/services/analyticsEvents';
 import type { Provider, SocialLinkResponse } from '@/types/dto/user';
+import type { GroupSummaryResponse } from '@/types/dto/group';
 import type { LoginResult } from '@/types/api';
 import { T, withAlpha } from '@/constants/theme';
 
@@ -210,7 +212,37 @@ export default function AccountScreen() {
       const status = axios.isAxiosError(e) ? e.response?.status : undefined;
       setWithdrawOpen(false);
       if (status === 400) {
-        Alert.alert('탈퇴할 수 없어요', '그룹 방장은 위임 후 탈퇴할 수 있어요.');
+        // A-2: 방장으로 남아 있는 그룹이 있어 탈퇴가 막혔다. 위임이 필요한 그룹으로 유도한다.
+        // 1인 소유 그룹은 서버가 탈퇴와 함께 자동 종료하므로 위임 대상이 아니다 — 다중 멤버 소유 그룹만
+        // 남는다. 그룹이 여러 개면 하나씩 위임하고 다시 탈퇴를 눌러 반복한다(그룹 수만큼).
+        let ownedGroups: GroupSummaryResponse[] = [];
+        try {
+          ownedGroups = (await getMyGroups()).filter(
+            (g) => g.role === 'OWNER' && g.currentMembers > 1,
+          );
+        } catch {
+          // 목록 조회 실패는 아래 일반 안내로 떨어뜨린다.
+        }
+        if (ownedGroups.length > 0) {
+          const target = ownedGroups[0];
+          Alert.alert(
+            '먼저 방장을 넘겨주세요',
+            `방장으로 있는 그룹이 ${ownedGroups.length}개 있어요.\n"${target.name}"의 방장을 넘기고 다시 탈퇴해 주세요.`,
+            [
+              { text: '나중에', style: 'cancel' },
+              {
+                text: '방장 넘기러 가기',
+                onPress: () =>
+                  navigation.navigate('GroupOwnerTransfer', {
+                    groupId: target.groupId,
+                    source: 'account',
+                  }),
+              },
+            ],
+          );
+        } else {
+          Alert.alert('탈퇴할 수 없어요', '그룹 방장은 위임 후 탈퇴할 수 있어요.');
+        }
       } else {
         Alert.alert('오류', '회원 탈퇴에 실패했어요. 잠시 후 다시 시도해 주세요.');
       }

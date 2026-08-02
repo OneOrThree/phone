@@ -28,7 +28,7 @@ import {
   groupErrorCode,
   withdrawGroup,
 } from '@/services/groupApi';
-import { logGroupInviteShared } from '@/services/analyticsEvents';
+import { logGroupInviteShared, logGroupRoomViewed } from '@/services/analyticsEvents';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import { todayStr } from '@/utils/localDate';
 import type {
@@ -63,7 +63,9 @@ const COLS = 3;
 const NOTICE_PREVIEW = 3;
 
 // 멤버 그리드 한 칸 — 멤버 타일 또는 마지막의 '＋ 초대' 타일.
-type GridCell = { kind: 'member'; member: GroupDetailMemberResponse } | { kind: 'invite' };
+type GridCell =
+  | { kind: 'member'; member: GroupDetailMemberResponse; rank: number }
+  | { kind: 'invite' };
 
 // 리스트를 n개씩 잘라 행 배열로 만든다(3열 그리드 — flexWrap 대신 행 단위로 그려
 // 마지막 행에도 같은 폭이 유지되게 한다).
@@ -216,6 +218,9 @@ export default function GroupRoomScreen({
   // 직전 조회에서 본 '내 정산 내기' 서명(settledBetSignature). null = 아직 한 번도 못 받음 —
   // 첫 조회는 비교 대상이 없어 재조회하지 않는다(마운트 시 CoinContext가 이미 잔액을 받는다).
   const settledSigRef = useRef<string | null>(null);
+  // 그룹방 방문 계측(group_room_viewed)을 그룹당 1회로 묶는 기준 — 마지막으로 발행한 groupId.
+  // 새로고침·포그라운드 복귀 재조회·같은 방 재포커스에선 재발행하지 않고, 그룹을 바꾸면 다시 발행한다.
+  const roomViewedGroupIdRef = useRef<string | null>(null);
 
   // 이 화면이 지금 그리고 있는 그룹. 내장 렌더(GroupScreen의 1건 분기)는 목록 재조회 결과가
   // A 한 건에서 B 한 건으로 바뀌어도 **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
@@ -271,6 +276,11 @@ export default function GroupRoomScreen({
     if (detailResult.status === 'fulfilled') {
       setDetail(detailResult.value);
       loadedDateRef.current = date;
+      // 그룹방이 실제로 보여진(상세 로드 성공) 순간 방문을 계측한다 — 그룹당 1회.
+      if (roomViewedGroupIdRef.current !== groupId) {
+        roomViewedGroupIdRef.current = groupId;
+        logGroupRoomViewed({ group_id: groupId });
+      }
     } else {
       // 이미 그룹이 사라졌거나 내가 멤버가 아니면 방을 잡고 있을 이유가 없다 —
       // 부모가 빈 상태로 되돌린다(§3-2).
@@ -449,6 +459,14 @@ export default function GroupRoomScreen({
     navigation.navigate('GroupNotice', { groupId, canWrite: canWriteNotice });
   }, [navigation, groupId, canWriteNotice]);
 
+  // 전환 뒤 늦게 도착한 실패 Alert가 지금 보고 있는 다른 그룹 화면 위에 뜨는 것을 막는다
+  // (A-7, GROMO-1027·1028). 액션을 건 그룹(targetGroupId)이 여전히 화면에 떠 있을 때만 Alert를 낸다 —
+  // renderedGroupIdRef는 렌더 중 groupId 리셋과 같은 기준(지금 그리고 있는 그룹).
+  const alertIfCurrent = useCallback((targetGroupId: string, title: string, message: string) => {
+    if (renderedGroupIdRef.current !== targetGroupId) return;
+    Alert.alert(title, message);
+  }, []);
+
   // 챌린지 삭제 — 확인 Alert는 카드가 이미 거쳤다(ChallengeCard). 여기선 호출과 재조회만 한다.
   // 서버가 soft delete로 바꿔 이미 지워진 챌린지를 또 지우면 NOT_FOUND가 오는데,
   // 목록에서 사라지는 결과는 같으므로 성공과 똑같이 재조회로 끝낸다.
@@ -466,17 +484,18 @@ export default function GroupRoomScreen({
         // 이미 판돈을 걷어 둔 내기를 챌린지와 함께 지우면 돈이 갈 곳을 잃기 때문이다.
         // 공통 문구로 떨어뜨리면 '잠시 후 다시 시도'를 반복해도 정산 전까진 영원히 같은 실패다.
         if (code === 'CHALLENGE_HAS_OPEN_BET') {
-          Alert.alert('챌린지를 삭제할 수 없어요', '진행 중인 내기가 있어 삭제할 수 없어요.');
+          // 전환 뒤 늦게 온 실패는 지금 보는 그룹 위에 띄우지 않는다(A-7).
+          alertIfCurrent(groupId, '챌린지를 삭제할 수 없어요', '진행 중인 내기가 있어 삭제할 수 없어요.');
           return;
         }
         if (code !== 'NOT_FOUND') {
-          Alert.alert('챌린지를 삭제하지 못했어요', '잠시 후 다시 시도해주세요.');
+          alertIfCurrent(groupId, '챌린지를 삭제하지 못했어요', '잠시 후 다시 시도해주세요.');
           return;
         }
       }
       load();
     },
-    [groupId, load],
+    [groupId, load, alertIfCurrent],
   );
 
   const doLeave = useCallback(async () => {
@@ -486,27 +505,37 @@ export default function GroupRoomScreen({
       await withdrawGroup(groupId);
       onLeft();
     } catch (e) {
-      const code = groupErrorCode(e);
-      if (code === 'NOT_FOUND' || code === 'MEMBER_ONLY') {
-        // 이미 빠져 있는 상태 — 성공과 같게 취급한다. onLeft는 그룹 무관 전역 재조회라
-        // 그룹 전환 뒤에 늦게 도착해도 안전하다(성공 경로와 같은 이유로 가드하지 않는다).
-        onLeft();
-      } else if (renderedGroupIdRef.current !== groupId) {
-        // 전환 전 그룹의 나가기 실패가 늦게 도착 — 지금 보고 있는 다른 그룹 화면 위에
-        // 이전 그룹의 실패 안내를 띄우지 않는다(onDone·onCreated와 같은 가드, GROMO-1028).
-      } else if (code === 'HOST_WITHDRAW') {
-        // 방장 위임 UI가 없으므로 안내로 끝낸다(알려진 제약 §14).
-        Alert.alert(
-          '방장은 나갈 수 없어요',
-          '그룹을 이어갈 사람에게 방장을 넘겨야 해요.\n방장 넘기기는 준비 중이에요.',
-        );
-      } else {
-        Alert.alert('그룹 나가기 실패', '잠시 후 다시 시도해주세요.');
+      switch (groupErrorCode(e)) {
+        case 'HOST_WITHDRAW':
+          // A-2: 방장은 바로 나갈 수 없다 — 위임 화면으로 유도한다(위임 성공 직후 자동 나가기까지).
+          // 전환 뒤 늦게 온 실패는 지금 보는 그룹 위에 띄우지 않는다(A-7 가드: 렌더 중인 그룹일 때만).
+          if (renderedGroupIdRef.current === groupId) {
+            Alert.alert(
+              '방장은 바로 나갈 수 없어요',
+              '그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.',
+              [
+                { text: '취소', style: 'cancel' },
+                {
+                  text: '방장 넘기고 나가기',
+                  onPress: () =>
+                    navigation.navigate('GroupOwnerTransfer', { groupId, source: 'withdraw' }),
+                },
+              ],
+            );
+          }
+          break;
+        case 'NOT_FOUND':
+        case 'MEMBER_ONLY':
+          // 이미 빠져 있는 상태 — 성공과 같게 취급한다.
+          onLeft();
+          break;
+        default:
+          alertIfCurrent(groupId, '그룹 나가기 실패', '잠시 후 다시 시도해주세요.');
       }
     } finally {
       setLeaving(false);
     }
-  }, [groupId, leaving, onLeft]);
+  }, [groupId, leaving, onLeft, alertIfCurrent, navigation]);
 
   const confirmLeave = useCallback(() => {
     setMenuOpen(false);
@@ -576,7 +605,8 @@ export default function GroupRoomScreen({
   // 탭바 여백은 내장 렌더에서만 — onShowGroups를 받는가가 곧 '탭 안에 있는가'다(§0-3 계약).
   const bottomSpace = insets.bottom + (onShowGroups ? TAB_BAR_SPACE : 0) + T.space.md;
   const cells: GridCell[] = [
-    ...members.map((m): GridCell => ({ kind: 'member', member: m })),
+    // rank는 서버 정렬 순서(누적 집중 내림차순) 그대로 — 앱에서 재정렬하지 않는다(리더보드).
+    ...members.map((m, i): GridCell => ({ kind: 'member', member: m, rank: i + 1 })),
     { kind: 'invite' },
   ];
   const memberRows = chunk(cells, COLS);
@@ -800,6 +830,8 @@ export default function GroupRoomScreen({
                     key={cell.member.userId}
                     nickname={cell.member.nickname}
                     focusTimeMinutes={cell.member.focusTimeMinutes}
+                    totalFocusMinutes={cell.member.totalFocusMinutes}
+                    rank={cell.rank}
                     isOwner={cell.member.role === 'OWNER'}
                   />
                 ),
@@ -834,6 +866,20 @@ export default function GroupRoomScreen({
             >
               <Ionicons name="swap-horizontal" size={18} color={T.ink} />
               <Text style={s.menuText}>그룹 전환·추가</Text>
+            </TouchableOpacity>
+          )}
+          {/* 그룹 설정(방장 전용) — 이름·소개·정원·공개설정 수정 + 위임·멤버관리·공지권한 허브(A-1) */}
+          {isOwner && (
+            <TouchableOpacity
+              style={s.menuItem}
+              activeOpacity={0.7}
+              onPress={() => {
+                setMenuOpen(false);
+                navigation.navigate('GroupSettings', { groupId });
+              }}
+            >
+              <Ionicons name="settings-outline" size={18} color={T.ink} />
+              <Text style={s.menuText}>그룹 설정</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity style={s.menuItem} activeOpacity={0.7} onPress={confirmLeave}>

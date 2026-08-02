@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  BackHandler,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -24,22 +17,20 @@ import {
 } from '@/navigation/navigationRef';
 import { logGroupViewed } from '@/services/analyticsEvents';
 import GroupListScreen from './GroupListScreen';
-import GroupRoomScreen from './GroupRoomScreen';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
 
-// 그룹 탭 진입점 — 명세 docs/app/group-plan.md §6-1 + 2차 docs/app/group-plan-2.md §0·§3-1.
-// Fakedoor(GROMO-597)를 대체한다.
+// 그룹 탭 진입점 — 명세 docs/app/group-plan.md §6-1 + 2차 docs/app/group-plan-2.md §0·§3-1
+// + 3차 A-9(D22) "1개부터 목록 먼저". Fakedoor(GROMO-597)를 대체한다.
 //
 //   진입 → isGuest ? [게스트 안내]
 //                  : getMyGroups() → 실패 [에러+재시도]
-//                                  / 0건            [빈 상태]
-//                                  / 1건            <GroupRoomScreen/> (내장 렌더 — 기존 UX 유지)
-//                                  / 2건 이상·showList <GroupListScreen/>
+//                                  / 0건      [빈 상태]
+//                                  / 1건 이상 <GroupListScreen/> (항상 목록이 기본 화면)
 //
-// 멀티 그룹은 2차에 열렸지만 **1그룹 사용자에게 탭을 하나 더 시키지 않는다**(2차 §0-1) —
-// 그래서 목록은 2건 이상일 때만 기본 화면이 되고, 1건일 땐 그룹방 ⋯ 메뉴의 '내 그룹 목록'
-// (onShowGroups)으로 showList를 세워야 볼 수 있다.
+// 3차 전까진 소속이 1건이면 그룹방을 이 화면에 내장 렌더했지만, A-9에서 **소속이 1개든
+// 여러 개든 항상 목록을 먼저 보여주는** 것으로 통일했다 — 목록 카드를 탭하면 소속 수와
+// 무관하게 GroupRoom 라우트로 push 한다(내장 렌더·showList 분기 제거).
 // 초대 링크로 들어온 경우엔 어느 분기 위에든 GroupInviteSheet를 덮어 띄운다(§6-6).
 
 // 플로팅 탭바가 가리는 하단 여백(리그·홈 화면과 동일 기준)
@@ -54,9 +45,6 @@ export default function GroupScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
-  // 그룹이 1건이어도 목록을 볼 수 있게 하는 장치(2차 §0-3) — 그룹방 ⋯ 메뉴의 '내 그룹 목록'이 세운다.
-  // 2건 이상이면 목록이 기본 화면이라 이 값과 무관하다.
-  const [showList, setShowList] = useState(false);
   // mutation(생성·참여) 직후의 전이 중인가 — 성공한 mutation을 후속 GET 실패가 삼키지 않게 한다.
   // 전이 중에는 기존 빈 상태를 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
   // (그러지 않으면 생성 성공 → GET 실패 시 다시 '그룹 만들기' 빈 화면이 떠 같은 그룹을 또 만든다.)
@@ -102,7 +90,7 @@ export default function GroupScreen() {
   const requestSeqRef = useRef(0);
 
   // 초대 링크가 가리킨 그룹방 — 참여(또는 '이미 멤버') 판정 뒤 재조회가 끝날 때까지 목적지를 들고 있는다.
-  // 재조회 결과가 2건 이상이면 기본 화면이 목록이라, 이 값을 잃으면 초대 링크가 '목록 열기'로 전락한다.
+  // 재조회하면 목록이 기본 화면이라(A-9), 이 값을 잃으면 초대 링크가 '목록 열기'로 전락한다.
   const pendingRoomIdRef = useRef<string | null>(null);
 
   // 내 그룹 조회. 게스트는 호출 전에 차단한다(서버도 403이지만 왕복을 아낀다 — §5-3).
@@ -158,8 +146,8 @@ export default function GroupScreen() {
   }, [navigation]);
 
   // 초대로 참여 완료 — 버퍼를 비우고 재조회해 **그 초대장이 가리킨** 그룹방으로 전환한다.
-  // ⚠️ 목적지를 ref로 옮긴 뒤에 버퍼를 비운다. 그러지 않으면 이미 두 그룹 이상인 사용자가
-  //    초대 링크를 열었을 때(참여 성공·이미 멤버 모두 이 콜백을 탄다) 재조회 후 목록만 떠서
+  // ⚠️ 목적지를 ref로 옮긴 뒤에 버퍼를 비운다. 그러지 않으면 초대 링크를 열었을 때(참여 성공·
+  //    이미 멤버 모두 이 콜백을 탄다) 재조회 후 목록만 떠서(A-9에서 목록이 항상 기본 화면)
   //    링크가 가리킨 방으로 못 간다 — 목적지 소비는 아래 useEffect가 맡는다.
   // ⚠️ 목적지는 현재 invite.groupId가 아니라 **시트가 알려준 실제 가입 그룹**이다. 참여 요청이 떠 있는
   //    동안 두 번째 초대 링크가 도착하면 시트의 groupId(=invite.groupId)만 갈리는데, 시트는 성공을
@@ -175,8 +163,7 @@ export default function GroupScreen() {
   );
 
   // 초대 목적지 소비 — 목록을 새로 받은 시점에만 판정한다(참여 직후 목록엔 그 그룹이 들어 있다).
-  //  · 2건 이상: 기본 화면이 목록이므로 그룹방을 push 한다(목록 카드 탭과 같은 분기)
-  //  · 1건 이하: 내장 그룹방이 곧 그 그룹이라 push 하지 않고 열려 있던 목록만 접는다
+  // A-9 이후 목록이 항상 기본 화면이라 소속 수와 무관하게 그룹방을 push 한다(목록 카드 탭과 같은 분기).
   // 목록에 목적지가 없으면(참여가 실제로 반영되지 않음) 아무 데도 보내지 않고 소비만 한다 —
   // 남겨 두면 이후 아무 재조회에서나 뒤늦게 튀어 나간다.
   useEffect(() => {
@@ -184,8 +171,7 @@ export default function GroupScreen() {
     if (target === null || groups === null) return;
     pendingRoomIdRef.current = null;
     if (!groups.some((g) => g.groupId === target)) return;
-    if (groups.length > 1) navigation.navigate('GroupRoom', { groupId: target });
-    else setShowList(false);
+    navigation.navigate('GroupRoom', { groupId: target });
   }, [groups, navigation]);
 
   // 검색으로 참여 완료 — 시트를 닫고 재조회.
@@ -194,35 +180,16 @@ export default function GroupScreen() {
     fetchAfterMutation();
   }, [fetchAfterMutation]);
 
-  // 그룹 나가기 성공 — 재조회를 기다리지 않고 즉시 빈 상태로 되돌린다.
-  // (재조회만 믿으면 GET 실패 시 이미 나간 그룹방이 그대로 남는다.)
-  // showList도 함께 내린다 — 마지막 그룹을 나간 뒤 다시 만들었을 때 빈 목록 요청이 남아 있으면
-  // 새 그룹의 그룹방 대신 1건짜리 목록이 뜬다.
-  const onLeft = useCallback(() => {
-    setGroups([]);
-    setError(false);
-    setTransitioning(false);
-    setShowList(false);
-    fetchGroups();
-  }, [fetchGroups]);
-
-  // 목록에서 그룹을 골랐다 — 진입 경로가 둘이라 여기서 분기한다(목록 화면은 navigate 하지 않는다).
-  //  · 1건: 목록은 '잠깐 열어 본' 상태일 뿐이라 내장 그룹방으로 되돌린다(push 하면 같은 방이 겹친다)
-  //  · 2건 이상: 목록이 기본 화면이므로 그룹방을 스택에 push 한다
+  // 목록에서 그룹을 골랐다 — A-9 이후 목록이 항상 기본 화면이라 소속 수와 무관하게 그룹방을
+  // 스택에 push 한다(목록 화면은 스스로 navigate 하지 않고 이 콜백에 위임한다).
   const onSelectGroup = useCallback(
     (groupId: string) => {
-      if ((groups?.length ?? 0) <= 1) {
-        setShowList(false);
-        return;
-      }
       navigation.navigate('GroupRoom', { groupId });
     },
-    [groups, navigation],
+    [navigation],
   );
 
-  // 찾기 시트의 '참여 중' 행 탭 — 참여가 아니라 이동이라 목록 카드 탭과 같은 분기를 그대로 탄다.
-  // (시트가 자체 판정을 갖고 있던 시절엔 1건+목록 상태에서 목록으로 되돌아오는 사각이 있었다 —
-  //  분기를 여기 하나로 모아 showList 처리까지 한 곳에서 끝낸다.)
+  // 찾기 시트의 '참여 중' 행 탭 — 참여가 아니라 이동이라 목록 카드 탭과 같은 분기(그룹방 push)를 탄다.
   const onOpenGroup = useCallback(
     (groupId: string) => {
       setFindOpen(false);
@@ -239,21 +206,6 @@ export default function GroupScreen() {
   }, [navigation]);
 
   const myGroups = groups ?? [];
-
-  // 1건에서 '잠깐 열어 본' 목록은 스택 라우트가 아니라 이 화면의 로컬 상태(showList)라,
-  // 헤더 백버튼만으론 Android 시스템 뒤로가기를 받을 수 없다 — 그대로 두면 탭 네비게이터의
-  // 기본 동작을 타 다른 탭으로 가거나 앱을 빠져나가고, 방금 떠난 내장 그룹방으로 못 돌아온다.
-  // 이 목록이 떠 있는 동안만 이벤트를 소비한다(iOS에선 no-op). 2건 이상의 기본 목록은
-  // 탭의 첫 화면이라 되돌아갈 곳이 없으므로 손대지 않는다 — 헤더 백버튼 조건과 같은 기준이다.
-  const tempListOpen = showList && myGroups.length === 1;
-  useEffect(() => {
-    if (!tempListOpen) return;
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      setShowList(false);
-      return true;
-    });
-    return () => sub.remove();
-  }, [tempListOpen]);
 
   // 찾기 시트는 빈 상태·목록 두 분기에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
   // 소속 판정 기준(groups)은 여기서 내려준다 — 시트가 따로 조회하면 부모와 스냅샷이 갈린다.
@@ -345,31 +297,10 @@ export default function GroupScreen() {
     );
   }
 
-  // ── 그룹방(1건) — 이 화면 안에서 렌더한다(별도 라우트 아님, §6-4). 목록 진입점을 함께 넘긴다 ──
-  // 0건 판정을 먼저 하므로 여기 오면 [0]은 반드시 있다. showList면 아래 목록으로 떨어진다.
-  if (myGroups.length === 1 && !showList) {
-    const myGroup = myGroups[0];
-    return (
-      <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
-        {staleNotice}
-        {/* inviteOpen — 초대 시트가 뜨면 그룹방의 '⋯' 메뉴를 내린다(둘 다 asModal이라 딤이 겹친다). */}
-        <GroupRoomScreen
-          groupId={myGroup.groupId}
-          summary={myGroup}
-          onLeft={onLeft}
-          inviteOpen={!!invite}
-          onShowGroups={() => setShowList(true)}
-        />
-        {inviteSheet}
-      </SafeAreaView>
-    );
-  }
-
-  // ── 목록(2건 이상 또는 1건에서 '내 그룹 목록'을 연 경우) ──
+  // ── 목록(1건 이상) — A-9: 소속 수와 무관하게 항상 목록이 기본 화면이다. ──
+  // 0건 판정은 아래 빈 상태가 맡으므로 여기 오면 최소 1건이다. 카드 탭 → onSelectGroup에서
+  // GroupRoom 라우트로 push 한다. 목록이 탭의 첫 화면이라 헤더 백버튼(onBack)은 두지 않는다.
   if (myGroups.length > 0) {
-    // 1건에서 '잠깐 열어 본' 목록은 되돌아갈 길이 카드 탭뿐이었다 — 그 경우에만 헤더 백버튼을
-    // 준다(스택 화면 관행과 같은 규격). 2건 이상의 기본 목록은 탭의 첫 화면이라 백버튼이 없다.
-    const backToRoom = showList && myGroups.length <= 1 ? () => setShowList(false) : undefined;
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         {staleNotice}
@@ -379,7 +310,6 @@ export default function GroupScreen() {
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
           onRefresh={fetchGroups}
-          onBack={backToRoom}
         />
         {findSheet}
         {inviteSheet}

@@ -60,7 +60,7 @@ jest.mock('@/store/CoinContext', () => {
   };
 });
 
-jest.mock('@/services/analyticsEvents', () => ({ logGroupInviteShared: jest.fn() }));
+jest.mock('@/services/analyticsEvents', () => ({ logGroupInviteShared: jest.fn(), logGroupRoomViewed: jest.fn() }));
 
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
@@ -92,7 +92,7 @@ function detail(): GroupDetailResponse {
     code: null,
     codeExpiresAt: null,
     noticeGrantedUserIds: [],
-    members: [{ userId: 'me', nickname: '나', role: 'OWNER', focusTimeMinutes: 30 }],
+    members: [{ userId: 'me', nickname: '나', role: 'OWNER', focusTimeMinutes: 30, totalFocusMinutes: 30 }],
   };
 }
 

@@ -64,6 +64,7 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupInviteShared: jest.fn(),
   logGroupBetCreated: jest.fn(),
   logGroupBetJoined: jest.fn(),
+  logGroupRoomViewed: jest.fn(),
 }));
 const { logGroupInviteShared } = jest.requireMock('@/services/analyticsEvents');
 
@@ -145,8 +146,8 @@ function detail(over: Partial<GroupDetailResponse> = {}): GroupDetailResponse {
     codeExpiresAt: null,
     noticeGrantedUserIds: [],
     members: [
-      { userId: 'me', nickname: '나', role: 'OWNER', focusTimeMinutes: 30 },
-      { userId: 'u2', nickname: '수빈', role: 'MEMBER', focusTimeMinutes: 60 },
+      { userId: 'me', nickname: '나', role: 'OWNER', focusTimeMinutes: 30, totalFocusMinutes: 30 },
+      { userId: 'u2', nickname: '수빈', role: 'MEMBER', focusTimeMinutes: 60, totalFocusMinutes: 60 },
     ],
     ...over,
   };
@@ -483,8 +484,8 @@ describe('챌린지 섹션', () => {
     mockGetGroupDetail.mockResolvedValue(
       detail({
         members: [
-          { userId: 'me', nickname: '나', role: 'MEMBER', focusTimeMinutes: 30 },
-          { userId: 'u2', nickname: '수빈', role: 'OWNER', focusTimeMinutes: 60 },
+          { userId: 'me', nickname: '나', role: 'MEMBER', focusTimeMinutes: 30, totalFocusMinutes: 30 },
+          { userId: 'u2', nickname: '수빈', role: 'OWNER', focusTimeMinutes: 60, totalFocusMinutes: 60 },
         ],
       }),
     );
@@ -1416,9 +1417,11 @@ describe('그룹 나가기', () => {
       alertSpy.mock.calls[0][2]?.find((b) => b.text === '나가기')?.onPress?.();
     });
 
+    // A-2: 위임 화면으로 유도하는 새 안내 — '방장 넘기고 나가기' 버튼이 GroupOwnerTransfer 로 보낸다.
     expect(alertSpy).toHaveBeenLastCalledWith(
-      '방장은 나갈 수 없어요',
-      '그룹을 이어갈 사람에게 방장을 넘겨야 해요.\n방장 넘기기는 준비 중이에요.',
+      '방장은 바로 나갈 수 없어요',
+      '그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.',
+      expect.arrayContaining([expect.objectContaining({ text: '방장 넘기고 나가기' })]),
     );
     expect(onLeft).not.toHaveBeenCalled();
   });

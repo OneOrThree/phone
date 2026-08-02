@@ -42,7 +42,7 @@ problem→cause→fix, build/deploy notes, checklist). Promote it into "Doc navi
 
 - React Native 0.86 / Expo SDK 57 / React 19, written in **TypeScript** (`strict` mode).
   최소 지원 iOS **16.4** (SDK 57 요구사항).
-- React Navigation — bottom tab navigator (`홈` / `리그` / `그룹`(커밍순) / `전체`), with
+- React Navigation — bottom tab navigator (`홈` / `리그` / `그룹` / `전체`), with
   Stats / UsageDetail / Focus\* / Friend\* / League\* / Settings\* screens registered on the
   root stack (tab bar hidden).
 - AsyncStorage for local persistence; Kakao + Apple login; JWT auth.
@@ -200,7 +200,7 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 
 ### Navigation
 
-- Visible bottom tabs (via the custom `TabBar`): `홈` | `리그` | `그룹`(커밍순) | `전체`.
+- Visible bottom tabs (via the custom `TabBar`): `홈` | `리그` | `그룹` | `전체`.
 - Root-stack screens (tab bar hidden, reached via navigation): `Stats`, `UsageDetail`,
   `FocusCategory`/`FocusSession`/`FocusResult`, `FriendAdd`/`FriendProfile`/`TierGuide`/
   `LeagueResult`, `Settings*` 계열.
