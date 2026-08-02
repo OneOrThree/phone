@@ -12,6 +12,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { CURRENCY } from '@/constants/currency';
+import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { getCurrencyTransactions } from '@/services/currencyApi';
 import type { CurrencyTransaction, CurrencyTransactionType } from '@/types/dto/currency';
 import { useCoins, useRefreshCoinsOnFocus } from '@/store/CoinContext';
@@ -92,8 +93,10 @@ export default function CurrencyHistoryScreen() {
 
       {/* 현재 잔액 요약 */}
       <View style={s.balanceCard}>
-        <Text style={s.balanceLabel}>
-          {CURRENCY.icon} 지금 가진 {CURRENCY.label}
+        {/* 중첩 아이콘은 부모 문자열에 합쳐져 글리프로 읽히므로 라벨은 이 <Text>에 단다. */}
+        <Text style={s.balanceLabel} accessibilityLabel={`지금 가진 ${CURRENCY.label}`}>
+          {/* 아이콘 색은 감싸는 라벨(T.inkSub)에 맞춘다 — 다른 자리도 옆 글자 색을 따라간다. */}
+          <CurrencyIcon size={14} color={T.inkSub} /> 지금 가진 {CURRENCY.label}
         </Text>
         <Text style={s.balanceValue}>{coinsLoaded ? `${coins.toLocaleString()}개` : '–'}</Text>
       </View>
@@ -109,7 +112,8 @@ export default function CurrencyHistoryScreen() {
         </View>
       ) : transactions.length === 0 ? (
         <View style={s.center}>
-          <Text style={s.stateEmoji}>{CURRENCY.icon}</Text>
+          {/* 빈 상태 — 에러 상태(cloud-offline-outline)와 같은 크기·색 계열로 맞춘다 */}
+          <CurrencyIcon size={30} color={T.inkFaint} decorative />
           <Text style={s.stateText}>아직 {CURRENCY.label} 내역이 없어요.</Text>
         </View>
       ) : (
@@ -127,9 +131,14 @@ export default function CurrencyHistoryScreen() {
                   <Text style={s.rowLabel}>{reasonLabel(item.type)}</Text>
                   <Text style={s.rowDate}>{txDateLabel(item.createdAt)}</Text>
                 </View>
-                <Text style={[s.rowAmount, isSpend ? s.rowAmountSpend : s.rowAmountEarn]}>
+                <Text
+                  style={[s.rowAmount, isSpend ? s.rowAmountSpend : s.rowAmountEarn]}
+                  // 부호 기호(−/+)와 중첩 아이콘은 그대로 읽히지 않아 말로 풀어 준다.
+                  accessibilityLabel={`${isSpend ? '사용' : '적립'} ${item.amount.toLocaleString()} ${CURRENCY.label}`}
+                >
                   {sign}
-                  {item.amount.toLocaleString()} {CURRENCY.icon}
+                  {item.amount.toLocaleString()}{' '}
+                  <CurrencyIcon size={16} color={isSpend ? T.dangerInk : T.successInk} />
                 </Text>
               </View>
             );
@@ -174,7 +183,6 @@ const s = StyleSheet.create({
 
   // 상태(로딩·빈·에러) 공통
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: T.space.md },
-  stateEmoji: { fontSize: 34 },
   stateText: { ...T.text.label, color: T.inkMuted, textAlign: 'center', lineHeight: 20 },
 
   // 리스트
