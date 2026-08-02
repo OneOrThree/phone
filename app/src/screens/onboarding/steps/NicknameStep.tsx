@@ -1,13 +1,11 @@
 import { View, Text, TextInput, StyleSheet } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
-import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import { logOnboardingNicknameSubmitted } from '@/services/analyticsEvents';
 import type { StepProps } from '@/screens/onboarding/types';
 
-// 닉네임·캐릭터 — 온보딩 마지막 스텝(목표 설정 뒤). 입력 후 곧바로 가입 확정을 트리거한다.
-// 캐릭터 '도착' 연출 + 닉네임 입력. 캐릭터 커스터마이즈는 이 화면 범위 밖(표시만).
+// 닉네임 — 온보딩 마지막 스텝(캐릭터 소개·누끼 체험 뒤). 입력 후 곧바로 가입 확정을 트리거한다.
+// 캐릭터 첫 노출은 앞선 character_intro 스텝이 전담 — 이 화면은 이름 입력만 받는다.
 // 중복 검증: 실시간 중복확인 API가 서버에 없어(중간 로그인은 마쳤지만) 여기선 형식(2~10자,
 // 프로필 편집과 동일)만 검사하고, 실제 중복은 가입 확정(POST /users/me → 409
 // NICKNAME_DUPLICATE) 시점에 확정된다. 서버 검증에 실패하면 OnboardingFlow가 이 화면을
@@ -35,7 +33,7 @@ export default function NicknameStep({
     <StepScaffold
       testID="onboarding.step.nickname"
       titleCenter
-      title={'당신의 집중을 도와줄 그로몬이\n도착했어요!'}
+      title={'앞으로 어떤 이름으로\n불러드릴까요?'}
       ctaLabel={submitting ? '확인 중…' : '다음'}
       ctaDisabled={!validLength || !!submitting}
       onCta={() => {
@@ -44,9 +42,6 @@ export default function NicknameStep({
         onNext();
       }}
     >
-      <LinearGradient colors={[T.paperLight, T.caramel]} style={s.stage}>
-        <CharacterImage size={172} />
-      </LinearGradient>
       <Text style={s.label}>
         닉네임 <Text style={s.labelEn}>Nickname</Text>
       </Text>
@@ -89,15 +84,6 @@ export default function NicknameStep({
 }
 
 const s = StyleSheet.create({
-  stage: {
-    height: 230,
-    borderRadius: 24,
-    marginTop: T.space.xl,
-    marginBottom: T.space.xxl,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   label: { ...T.text.caption, color: T.ink, marginBottom: T.space.sm },
   labelEn: { color: T.inkMuted, fontWeight: '500' },
   inputRow: { position: 'relative', justifyContent: 'center' },

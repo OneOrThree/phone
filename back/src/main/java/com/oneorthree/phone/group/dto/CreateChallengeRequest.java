@@ -15,7 +15,9 @@ public class CreateChallengeRequest {
     private MissionCategory missionCategory;
     @NotNull
     private MissionType missionType;
+    // DURATION: 하루 목표 분(필수) · TIME_WINDOW: 창 내 목표 분(필수, 0 < x ≤ 창 길이 분).
     private Integer durationMinutes;
+    // TIME_WINDOW 전용 — UTC 시각(time-of-day)만 의미. 시작 > 종료는 자정 걸침 창으로 허용.
     private Instant windowStart;
     private Instant windowEnd;
 }

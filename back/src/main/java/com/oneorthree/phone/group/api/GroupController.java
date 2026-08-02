@@ -21,6 +21,7 @@ import com.oneorthree.phone.group.dto.RenewGroupCodeResponse;
 import com.oneorthree.phone.group.dto.GroupSettingsResponse;
 import com.oneorthree.phone.group.dto.UpdateGroupRequest;
 import com.oneorthree.phone.group.dto.UpdateGroupSettingsRequest;
+import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -237,7 +238,9 @@ public class GroupController {
 
     @Operation(summary = "그룹 챌린지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환. 삭제된 챌린지는 제외."
             + " date(선택, 클라 로컬 타임존 기준 오늘)를 주면 멤버별 당일 진행률(memberProgress)을 함께 반환한다"
-            + " — date 미전달 또는 TIME_WINDOW 챌린지면 memberProgress 는 null.")
+            + " — date 미전달, 목표(durationMinutes) 없는 창 챌린지, INACTIVE 면 memberProgress 는 null."
+            + " TIME_WINDOW 는 date(KST) 의 창 기준 — FOCUS 는 세션 클리핑 실측(달성 판정만 5분 관용치),"
+            + " SCREEN_TIME 은 클라 보고값(미보고 = null).")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "400", description = "date 형식 오류"),
@@ -253,13 +256,15 @@ public class GroupController {
         return ResponseEntity.ok(groupChallengeService.getChallenges(groupId, userId, date));
     }
 
-    @Operation(summary = "그룹 챌린지 생성", description = "OWNER만 생성 가능. 성공 시 201 반환.")
+    @Operation(summary = "그룹 챌린지 생성", description = "OWNER만 생성 가능. 성공 시 201 반환."
+            + " TIME_WINDOW 는 durationMinutes(창 내 목표 분, 0 < x ≤ 창 길이) 필수 — 자정 걸침 창(시작 > 종료) 허용.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "챌린지 생성 성공"),
-            @ApiResponse(responseCode = "400", description = "파라미터 누락 / 유효하지 않은 타임존 / windowStart >= windowEnd"),
+            @ApiResponse(responseCode = "400", description = "파라미터 누락 / TIME_WINDOW durationMinutes 누락·범위 위반"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
             @ApiResponse(responseCode = "404", description = "그룹 없음"),
-            @ApiResponse(responseCode = "409", description = "같은 카테고리에 활성 챌린지 이미 존재")
+            @ApiResponse(responseCode = "409", description = "카테고리×타입 활성 중복(CHALLENGE_DUPLICATE)"
+                    + " / 다른 카테고리 창형과 시간대 겹침(CHALLENGE_WINDOW_OVERLAP)")
     })
     @PostMapping("/groups/{groupId}/challenges")
     public ResponseEntity<CreateChallengeResponse> createGroupChallenge(
@@ -269,6 +274,27 @@ public class GroupController {
     ) {
         CreateChallengeResponse response = groupChallengeService.createChallenge(groupId, userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @Operation(summary = "스크린타임 창 사용분 보고", description = "SCREEN_TIME×TIME_WINDOW 챌린지의 날짜별"
+            + " 창 내 사용분 업로드. 그룹원만. (챌린지, 유저, 날짜)당 1행 upsert — 중간 보고 허용, 마지막 값 승리."
+            + " 값은 클라 신뢰(±15분 눈금 오차).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "보고 성공"),
+            @ApiResponse(responseCode = "400", description = "필수 필드 누락 / SCREEN_TIME×TIME_WINDOW 챌린지 아님"
+                    + " / usedMinutes 범위(0~1440) 위반"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음")
+    })
+    @PutMapping("/groups/{groupId}/challenges/{challengeId}/window-usage")
+    public ResponseEntity<Void> reportChallengeWindowUsage(
+            @PathVariable UUID groupId,
+            @PathVariable UUID challengeId,
+            @Valid @RequestBody WindowUsageReportRequest request,
+            @LoginUser UUID userId
+    ) {
+        groupChallengeService.reportWindowUsage(groupId, challengeId, userId, request);
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(summary = "그룹 챌린지 삭제", description = "OWNER만 삭제 가능. 성공 시 204 반환.")

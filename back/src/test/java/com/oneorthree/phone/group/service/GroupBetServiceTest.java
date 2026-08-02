@@ -17,6 +17,7 @@ import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.dto.CreateBetRequest;
 import com.oneorthree.phone.group.dto.CreateBetResponse;
+import com.oneorthree.phone.group.dto.GroupBetResponse;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
@@ -40,6 +41,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -108,6 +110,7 @@ class GroupBetServiceTest {
     private static final UUID CHALLENGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
     private static final UUID BET_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID OTHER_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
     private static final int GOAL_MINUTES = 120;
 
@@ -368,7 +371,7 @@ class GroupBetServiceTest {
     @DisplayName("참가 성공 → 참가 행 생성 + 판돈 차감")
     void joinBetChargesStake() {
         givenMember();
-        given(groupChallengeBetRepository.findByIdAndGroupId(BET_ID, GROUP_ID))
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
                 .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
         given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
                 .willReturn(false);
@@ -386,7 +389,7 @@ class GroupBetServiceTest {
     @DisplayName("없는 내기(또는 남의 그룹 내기) → BET_NOT_FOUND")
     void joinBetRejectsUnknownBet() {
         givenMember();
-        given(groupChallengeBetRepository.findByIdAndGroupId(BET_ID, GROUP_ID))
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
                 .willReturn(Optional.empty());
 
         assertThatThrownBy(() -> groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID))
@@ -399,7 +402,7 @@ class GroupBetServiceTest {
     @DisplayName("이미 정산된 내기 → BET_CLOSED")
     void joinBetRejectsSettledBet() {
         givenMember();
-        given(groupChallengeBetRepository.findByIdAndGroupId(BET_ID, GROUP_ID))
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
                 .willReturn(Optional.of(bet(GroupBetStatus.SETTLED, today())));
 
         assertThatThrownBy(() -> groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID))
@@ -412,7 +415,7 @@ class GroupBetServiceTest {
     @DisplayName("전일자 내기는 아직 OPEN 이어도 마감 → BET_CLOSED (배치가 돌기 전 04:00 이전 구간)")
     void joinBetRejectsYesterdayBetStillOpen() {
         givenMember();
-        given(groupChallengeBetRepository.findByIdAndGroupId(BET_ID, GROUP_ID))
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
                 .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today().minusDays(1))));
 
         assertThatThrownBy(() -> groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID))
@@ -425,7 +428,7 @@ class GroupBetServiceTest {
     @DisplayName("중복 참가 → BET_ALREADY_JOINED, 이중 차감 없음")
     void joinBetRejectsDuplicateJoin() {
         givenMember();
-        given(groupChallengeBetRepository.findByIdAndGroupId(BET_ID, GROUP_ID))
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
                 .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
         given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
                 .willReturn(true);
@@ -440,7 +443,7 @@ class GroupBetServiceTest {
     @DisplayName("이미 목표를 달성한 뒤 참가 → BET_ALREADY_ACHIEVED (무위험 참가 차단)")
     void joinBetRejectsAlreadyAchieved() {
         givenMember();
-        given(groupChallengeBetRepository.findByIdAndGroupId(BET_ID, GROUP_ID))
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
                 .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
         given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
                 .willReturn(false);
@@ -457,7 +460,7 @@ class GroupBetServiceTest {
     @DisplayName("잔액 부족 → INSUFFICIENT_CURRENCY 전파 (트랜잭션 롤백으로 참가 행도 남지 않는다)")
     void joinBetPropagatesInsufficientCurrency() {
         givenMember();
-        given(groupChallengeBetRepository.findByIdAndGroupId(BET_ID, GROUP_ID))
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
                 .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
         given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
                 .willReturn(false);
@@ -471,11 +474,145 @@ class GroupBetServiceTest {
                 .hasFieldOrPropertyWithValue("errorCode", CurrencyErrorCode.INSUFFICIENT_CURRENCY);
     }
 
+    // ── 취소 ────────────────────────────────────────────────────────────
+
+    private GroupChallengeBetParticipant participantOf(GroupChallengeBet target, UUID participantUserId) {
+        return GroupChallengeBetParticipant.builder()
+                .bet(target)
+                .user(User.builder().id(participantUserId).isGuest(false).build())
+                .build();
+    }
+
+    /** 환불이 한 푼도 나가지 않았음을 단언한다 — 취소 거절 경로의 필수 조건. */
+    private void assertNoRefundIssued() {
+        verify(currencyLedgerService, never()).credit(any(), any(), anyInt(), anyString());
+    }
+
+    @Test
+    @DisplayName("취소 성공 — CAS 로 CANCELED 전이 + 판돈 환불(멱등키 bet:{betId}:refund:{userId})")
+    void cancelBetRefundsStake() {
+        givenMember();
+        GroupChallengeBet bet = bet(GroupBetStatus.OPEN, today());
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
+                .willReturn(Optional.of(bet));
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(participantOf(bet, USER_ID)));
+        given(groupChallengeBetRepository.compareAndSetSettled(
+                eq(BET_ID), eq(GroupBetStatus.CANCELED), any())).willReturn(1);
+
+        groupBetService.cancelBet(GROUP_ID, BET_ID, USER_ID);
+
+        verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
+                eq("bet:" + BET_ID + ":refund:" + USER_ID));
+    }
+
+    @Test
+    @DisplayName("개설자가 아니면 → BET_CANCEL_FORBIDDEN, 환불 없음")
+    void cancelBetRejectsNonCreator() {
+        givenMember();
+        GroupChallengeBet bet = GroupChallengeBet.builder()
+                .id(BET_ID)
+                .group(group())
+                .challenge(focusChallenge())
+                .creatorUser(User.builder().id(OTHER_USER_ID).isGuest(false).build())
+                .stake(30)
+                .betDate(today())
+                .status(GroupBetStatus.OPEN)
+                .build();
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
+                .willReturn(Optional.of(bet));
+
+        assertThatThrownBy(() -> groupBetService.cancelBet(GROUP_ID, BET_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_CANCEL_FORBIDDEN);
+        assertNoRefundIssued();
+    }
+
+    @Test
+    @DisplayName("타인이 참가한 내기 → BET_CANCEL_HAS_OTHERS — '질 것 같으면 무르기' 차단")
+    void cancelBetRejectsWhenOthersJoined() {
+        givenMember();
+        GroupChallengeBet bet = bet(GroupBetStatus.OPEN, today());
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
+                .willReturn(Optional.of(bet));
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(participantOf(bet, USER_ID), participantOf(bet, OTHER_USER_ID)));
+
+        assertThatThrownBy(() -> groupBetService.cancelBet(GROUP_ID, BET_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_CANCEL_HAS_OTHERS);
+        assertNoRefundIssued();
+    }
+
+    @Test
+    @DisplayName("이미 종료된 내기(이중 취소 포함) → BET_NOT_OPEN, 환불 없음")
+    void cancelBetRejectsClosedBet() {
+        givenMember();
+        GroupChallengeBet bet = bet(GroupBetStatus.CANCELED, today());
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
+                .willReturn(Optional.of(bet));
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(participantOf(bet, USER_ID)));
+
+        assertThatThrownBy(() -> groupBetService.cancelBet(GROUP_ID, BET_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_NOT_OPEN);
+        assertNoRefundIssued();
+    }
+
+    @Test
+    @DisplayName("검증과 전이 사이에 정산이 먼저 끝나면(CAS 0행) → BET_NOT_OPEN, 환불 없음")
+    void cancelBetRejectsWhenSettlementWinsRace() {
+        givenMember();
+        GroupChallengeBet bet = bet(GroupBetStatus.OPEN, today());
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
+                .willReturn(Optional.of(bet));
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(participantOf(bet, USER_ID)));
+        given(groupChallengeBetRepository.compareAndSetSettled(
+                eq(BET_ID), eq(GroupBetStatus.CANCELED), any())).willReturn(0);
+
+        assertThatThrownBy(() -> groupBetService.cancelBet(GROUP_ID, BET_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_NOT_OPEN);
+        assertNoRefundIssued();
+    }
+
+    @Test
+    @DisplayName("없는 내기(또는 남의 그룹 내기) 취소 → BET_NOT_FOUND")
+    void cancelBetRejectsUnknownBet() {
+        givenMember();
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> groupBetService.cancelBet(GROUP_ID, BET_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_NOT_FOUND);
+        assertNoRefundIssued();
+    }
+
+    // ── 조회 조립 ────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("오늘의 내기 응답에 creatorUserId 가 실린다 — 앱 취소 버튼 판정용(additive)")
+    void loadCurrentBetsCarriesCreatorUserId() {
+        GroupChallengeBet bet = bet(GroupBetStatus.OPEN, today());
+        given(groupChallengeBetRepository.findByChallengeIdInAndBetDate(List.of(CHALLENGE_ID), today()))
+                .willReturn(List.of(bet));
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(participantOf(bet, USER_ID)));
+
+        Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
+                List.of(CHALLENGE_ID), today(), USER_ID, Map.of());
+
+        assertThat(bets.get(CHALLENGE_ID).getCreatorUserId()).isEqualTo(USER_ID);
+    }
+
     @Test
     @DisplayName("집중 기록이 아예 없으면 0분으로 보고 참가를 허용한다")
     void joinBetTreatsMissingStatAsZeroMinutes() {
         givenMember();
-        given(groupChallengeBetRepository.findByIdAndGroupId(BET_ID, GROUP_ID))
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
                 .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
         given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
                 .willReturn(false);

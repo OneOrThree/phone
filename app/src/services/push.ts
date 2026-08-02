@@ -9,7 +9,9 @@ import { navigateToDeepLink } from '@/navigation/navigationRef';
 import {
   logNotificationOpened,
   logNotificationPermissionResult,
+  logPushOpened,
   type NotificationType,
+  type PushOpenedType,
 } from '@/services/analyticsEvents';
 
 // 포그라운드에서도 배너를 띄운다(iOS는 기본적으로 포그라운드 알림을 표시하지 않음).
@@ -35,9 +37,22 @@ async function putDeviceToken(deviceToken: string): Promise<void> {
 }
 
 // 서버 payload의 data.link(예: 'gromo://league')에서 딥링크 문자열을 뽑는다.
+// 창 종료 푸시(B4, type='CHALLENGE_WINDOW_END')가 link 없이 data.groupId만 실어 보내는 경우도
+// 받는다 — 그룹 딥링크(gromo://group?g=…)로 합성해 같은 라우팅(navigateToDeepLink)을 태운다(A3).
 function linkFromData(data?: Record<string, unknown>): string | null {
   const link = data?.link;
-  return typeof link === 'string' ? link : null;
+  if (typeof link === 'string') return link;
+  const groupId = data?.groupId;
+  if (rawTypeFromData(data) === 'CHALLENGE_WINDOW_END' && typeof groupId === 'string') {
+    return `gromo://group?g=${groupId}`;
+  }
+  return null;
+}
+
+// 정산 결과/창 종료 푸시 타입(계약 §2 push_opened) — 그 외는 null(이벤트 생략).
+function pushOpenedTypeFromData(data?: Record<string, unknown>): PushOpenedType | null {
+  const raw = rawTypeFromData(data);
+  return raw === 'BET_RESULT' || raw === 'CHALLENGE_WINDOW_END' ? raw : null;
 }
 
 // payload의 type/category에서 알림 유형을 뽑는다. 알 수 없으면 null(이벤트 생략).
@@ -144,6 +159,8 @@ export function setupPushListeners(): () => void {
       saveToInbox(msg);
       const type = notificationTypeFromData(msg?.data);
       if (type) logNotificationOpened({ type }); // 백그라운드 탭으로 앱 복귀
+      const opened = pushOpenedTypeFromData(msg?.data);
+      if (opened) logPushOpened({ type: opened }); // 정산 결과/창 종료 푸시(계약 §2)
       const link = linkFromData(msg?.data);
       if (link) navigateToDeepLink(link);
     }),
@@ -168,6 +185,8 @@ export async function handleInitialNotification(): Promise<void> {
     saveToInbox(msg);
     const type = notificationTypeFromData(msg?.data);
     if (type) logNotificationOpened({ type }); // 종료 상태에서 탭으로 콜드스타트
+    const opened = pushOpenedTypeFromData(msg?.data);
+    if (opened) logPushOpened({ type: opened }); // 정산 결과/창 종료 푸시(계약 §2)
     const link = linkFromData(msg?.data);
     if (link) navigateToDeepLink(link);
   } catch {

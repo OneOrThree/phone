@@ -38,7 +38,7 @@ class GroupBetBatchControllerTest {
     @DisplayName("올바른 관리자 키 → 정산 서비스가 실행되고 요약이 반환된다")
     void correctKeyRunsSettlement() {
         GroupBetSettlementSummaryResponse summary =
-                new GroupBetSettlementSummaryResponse(LocalDate.of(2026, 8, 2), 0, 0, 0, 0, 0, 1L);
+                new GroupBetSettlementSummaryResponse(LocalDate.of(2026, 8, 2), 0, 0, 0, 0, 0, 0, 1L);
         given(settlementService.settleDueBets()).willReturn(summary);
 
         ResponseEntity<GroupBetSettlementSummaryResponse> response =

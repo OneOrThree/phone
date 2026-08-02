@@ -10,8 +10,9 @@
 //     useFocusEffect가 다시 돌지 않아 '오늘 집중분'이 전날 값으로 남았다.
 //  3) ⋯ 메뉴의 '그룹 전환·추가'는 **onShowGroups를 받았을 때만** 렌더한다 —
 //     라우트로 push된 그룹방은 이미 목록에서 들어온 화면이라 되돌아가는 항목이 중복이다(2차 §0-3).
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { Alert, AppState, Share, type AppStateStatus } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupRoomScreen from './GroupRoomScreen';
 import {
@@ -64,8 +65,12 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupInviteShared: jest.fn(),
   logGroupBetCreated: jest.fn(),
   logGroupBetJoined: jest.fn(),
+  logGroupChallengeResultShown: jest.fn(),
+  logGroupChallengeResultClosed: jest.fn(),
 }));
-const { logGroupInviteShared } = jest.requireMock('@/services/analyticsEvents');
+const { logGroupInviteShared, logGroupChallengeResultShown } = jest.requireMock(
+  '@/services/analyticsEvents',
+);
 
 // 초대 링크는 서버 발급분만 쓴다(초대 링크 스펙 §4-2 ①).
 jest.mock('@/services/inviteLinkApi', () => ({ issueInviteLink: jest.fn() }));
@@ -98,8 +103,13 @@ jest.mock('@/services/groupApi', () => ({
   joinBet: jest.fn(),
 }));
 
-// 날짜 경계를 테스트가 직접 옮긴다.
-jest.mock('@/utils/localDate', () => ({ todayStr: jest.fn(() => '2026-08-01') }));
+// 날짜 경계를 테스트가 직접 옮긴다. localDateStr은 결과 후보의 createdAt 판정이 실제로 돌게
+// 실물을 쓴다(challengeResult.ts).
+jest.mock('@/utils/localDate', () => ({
+  todayStr: jest.fn(() => '2026-08-01'),
+  yesterdayStr: jest.fn(() => '2026-07-31'),
+  localDateStr: jest.requireActual('@/utils/localDate').localDateStr,
+}));
 
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
 const mockGetAnnouncements = getAnnouncements as jest.MockedFunction<typeof getAnnouncements>;
@@ -109,6 +119,7 @@ const mockWithdrawGroup = withdrawGroup as jest.MockedFunction<typeof withdrawGr
 const mockCreateBet = createBet as jest.MockedFunction<typeof createBet>;
 const mockJoinBet = joinBet as jest.MockedFunction<typeof joinBet>;
 const mockTodayStr = todayStr as jest.MockedFunction<typeof todayStr>;
+const mockYesterdayStr = jest.requireMock('@/utils/localDate').yesterdayStr as jest.Mock;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const INVITE_URL = `https://link.oneorthree.world/l/${SLUG}?g=${GROUP_ID}`;
@@ -226,10 +237,13 @@ async function press(label: string) {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.clearAllMocks();
+  // 결과 모달 1회 가드가 파일 안 테스트끼리 새지 않게 비운다(공식 mock은 인메모리 영속).
+  await AsyncStorage.clear();
   mockFocusEntries.length = 0;
   mockTodayStr.mockReturnValue('2026-08-01');
+  mockYesterdayStr.mockReturnValue('2026-07-31');
   // 챌린지는 대부분의 케이스에서 관심사가 아니다 — 빈 목록을 기본값으로 깔아 둔다.
   mockGetChallenges.mockResolvedValue([]);
   mockIssueInviteLink.mockResolvedValue({ slug: SLUG, url: INVITE_URL });
@@ -510,8 +524,8 @@ describe('챌린지 섹션', () => {
     });
 
     expect(mockDeleteChallenge).toHaveBeenCalledWith(GROUP_ID, 'c1');
-    // 삭제 후 재조회 — 최초 1회 + 삭제 후 1회.
-    await waitFor(() => expect(mockGetChallenges).toHaveBeenCalledTimes(2));
+    // 삭제 후 재조회 — 조회 1회당 오늘+어제 2콜(A3): 최초 2콜 + 삭제 후 2콜.
+    await waitFor(() => expect(mockGetChallenges).toHaveBeenCalledTimes(4));
   });
 
   // 진행 중인 내기가 있으면 서버가 삭제를 막는다(CHALLENGE_HAS_OPEN_BET) — 이미 걷어 둔 판돈이
@@ -535,8 +549,8 @@ describe('챌린지 섹션', () => {
       '챌린지를 삭제할 수 없어요',
       '진행 중인 내기가 있어 삭제할 수 없어요.',
     );
-    // 실패했으므로 목록을 다시 받지 않는다(카드는 그대로 살아 있다).
-    expect(mockGetChallenges).toHaveBeenCalledTimes(1);
+    // 실패했으므로 목록을 다시 받지 않는다(카드는 그대로 살아 있다) — 최초 조회의 오늘+어제 2콜뿐.
+    expect(mockGetChallenges).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -562,8 +576,8 @@ describe('내기 배선', () => {
       stake: 10,
       date: '2026-08-01',
     });
-    // 성공 후 재조회 — 최초 1회 + 개설 후 1회.
-    await waitFor(() => expect(mockGetChallenges).toHaveBeenCalledTimes(2));
+    // 성공 후 재조회 — 조회 1회당 오늘+어제 2콜(A3): 최초 2콜 + 개설 후 2콜.
+    await waitFor(() => expect(mockGetChallenges).toHaveBeenCalledTimes(4));
     expect(screen.queryByText('내기 열기')).toBeNull();
   });
 
@@ -594,7 +608,8 @@ describe('내기 배선', () => {
     });
 
     expect(mockJoinBet).toHaveBeenCalledWith(GROUP_ID, 'b7');
-    await waitFor(() => expect(mockGetChallenges).toHaveBeenCalledTimes(2));
+    // 조회 1회당 오늘+어제 2콜(A3): 최초 2콜 + 참가 후 재조회 2콜.
+    await waitFor(() => expect(mockGetChallenges).toHaveBeenCalledTimes(4));
   });
 
   // 시트가 challenge **객체 스냅샷**을 쥐면 배경 재조회(포커스·포그라운드 복귀)와 어긋난다 —
@@ -1171,8 +1186,9 @@ describe('그룹 전환(같은 인스턴스에 다른 groupId)', () => {
     expect(screen.queryByText('아침 6시 집중방')).toBeNull();
 
     // 조회는 새 groupId로 나간다 — 시트가 남아 있었다면 이 id로 참가 요청이 갔을 자리다.
+    // (챌린지는 오늘+어제 2콜이라 Last 대신 인자 매칭으로 본다 — A3)
     expect(mockGetGroupDetail).toHaveBeenLastCalledWith(OTHER_GROUP_ID, '2026-08-01');
-    expect(mockGetChallenges).toHaveBeenLastCalledWith(OTHER_GROUP_ID, '2026-08-01');
+    expect(mockGetChallenges).toHaveBeenCalledWith(OTHER_GROUP_ID, '2026-08-01');
     expect(mockJoinBet).not.toHaveBeenCalled();
   });
 
@@ -1508,5 +1524,181 @@ describe('초대 링크 공유', () => {
     expect(Share.share).not.toHaveBeenCalled();
     expect(Alert.alert).toHaveBeenCalledWith('초대 링크를 만들지 못했어요', expect.any(String));
     expect(logGroupInviteShared).not.toHaveBeenCalled();
+  });
+});
+
+// ── 챌린지 결과 모달(A3) — 계약 contract.md §2 "앱 UI 계약", 확정 정책 "결과 노출" 3행 ────
+// 소스는 신규 API가 아니라 어제 date의 챌린지 재조회다(판정은 조회-시 계산). 여기서 잠그는 것:
+//  1) 1회 가드 — 같은 결과(챌린지×날짜)는 다음 조회에서 다시 뜨지 않는다.
+//  2) 그룹 전환 중 억제 — 이전 그룹의 결과가 새 그룹 화면 위에 남지 않는다.
+//  3) achieved=null은 '집계 중'으로 표시하고, 전원 null이면 아예 띄우지 않는다(가드를 태우면
+//     확정 결과를 영영 못 보여준다).
+//  4) 창형 당일 결과 선택 — 오늘 창이 끝났으면 어제가 아니라 오늘 date 결과를 쓴다.
+describe('챌린지 결과 모달(A3)', () => {
+  // 어제부터 있던 챌린지 — createdAt이 기준일보다 뒤면 후보에서 제외되므로 이틀 전으로 둔다.
+  const oldChallenge = (over: Partial<GroupChallengeResponse> = {}) =>
+    challenge({ createdAt: '2026-07-30T06:00:00', ...over });
+
+  // date별 응답 분기 — 오늘/어제 콜이 서로 다른 결과를 실어 온다.
+  function challengesByDate(map: Record<string, GroupChallengeResponse[]>) {
+    mockGetChallenges.mockImplementation(async (_gid, date) => map[date ?? ''] ?? []);
+  }
+
+  test('어제 결과가 있으면 모달을 띄우고, 같은 결과는 다시 띄우지 않는다(1회 가드)', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    challengesByDate({
+      '2026-08-01': [oldChallenge()],
+      '2026-07-31': [
+        oldChallenge({
+          memberProgress: [
+            { userId: 'me', nickname: '나', progressMinutes: 70, achieved: true },
+            { userId: 'u2', nickname: '수빈', progressMinutes: 20, achieved: false },
+          ],
+          // 어제 내기가 걸려 있었다 — 금액 없이 정산 안내 한 줄만 붙는다.
+          bet: {
+            betId: 'b1',
+            stake: 30,
+            pot: 60,
+            status: 'OPEN',
+            myJoined: true,
+            myAchievedNow: true,
+            participants: [
+              { userId: 'me', nickname: '나' },
+              { userId: 'u2', nickname: '수빈' },
+            ],
+          },
+        }),
+      ],
+    });
+    await renderRoom();
+
+    // 내 결과(달성) 헤드라인 + 명단 + 내기 정산 안내. 금액은 어디에도 없다.
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    expect(screen.getByText('목표를 달성했어요!')).toBeOnTheScreen();
+    expect(screen.getByText('7/31 결과')).toBeOnTheScreen();
+    expect(screen.getByText('달성 1')).toBeOnTheScreen();
+    expect(screen.getByText('미달성 1')).toBeOnTheScreen();
+    expect(screen.getByText('내기 코인은 정산 후 알림으로 알려드려요')).toBeOnTheScreen();
+    expect(logGroupChallengeResultShown).toHaveBeenCalledWith({
+      mission_type: 'DURATION',
+      mission_category: 'FOCUS',
+      achieved: true,
+      achiever_count: 1,
+      member_count: 2,
+    });
+
+    // 닫으면 사라진다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challengeResult.close'));
+    });
+    expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+    // 다음 조회(재포커스)가 같은 결과를 받아도 다시 띄우지 않는다 — 1회 가드.
+    await blur();
+    await focus();
+    expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+    expect(logGroupChallengeResultShown).toHaveBeenCalledTimes(1);
+  });
+
+  test('그룹이 바뀌면 떠 있던 결과 모달을 즉시 접는다(전환 중 억제)', async () => {
+    const OTHER_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    challengesByDate({
+      '2026-07-31': [
+        oldChallenge({
+          memberProgress: [{ userId: 'me', nickname: '나', progressMinutes: 70, achieved: true }],
+        }),
+      ],
+    });
+    const { rerender } = await renderRoom();
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+
+    // 새 그룹의 응답은 아직 없다 — 전환 그 자체만으로 모달이 접혀야 한다.
+    mockGetGroupDetail.mockReturnValue(new Promise(() => {}));
+    mockGetChallenges.mockReturnValue(new Promise(() => {}));
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={OTHER_GROUP_ID} onLeft={onLeft} />);
+    });
+
+    expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+  });
+
+  test('achieved=null 멤버는 집계 중으로 표시하고, 전원 null이면 띄우지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    // 전원 null(스크린타임 전원 미보고) — 지금 가드를 태우면 확정 결과를 영영 못 본다.
+    challengesByDate({
+      '2026-07-31': [
+        oldChallenge({
+          missionCategory: 'SCREEN_TIME',
+          memberProgress: [
+            { userId: 'me', nickname: '나', progressMinutes: null, achieved: null },
+            { userId: 'u2', nickname: '수빈', progressMinutes: null, achieved: null },
+          ],
+        }),
+      ],
+    });
+    await renderRoom();
+    expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+    // 내 보고가 도착해 하나라도 확정되면 그때 띄운다 — null 멤버는 '집계 중' 명단에 남는다.
+    challengesByDate({
+      '2026-07-31': [
+        oldChallenge({
+          missionCategory: 'SCREEN_TIME',
+          memberProgress: [
+            { userId: 'me', nickname: '나', progressMinutes: 30, achieved: true },
+            { userId: 'u2', nickname: '수빈', progressMinutes: null, achieved: null },
+          ],
+        }),
+      ],
+    });
+    await blur();
+    await focus();
+
+    const modal = await screen.findByTestId('group.challengeResult');
+    expect(within(modal).getByText('집계 중 1')).toBeOnTheScreen();
+    // 멤버 그리드에도 같은 닉네임이 있다 — 모달 안에서만 찾는다.
+    expect(within(modal).getByText('수빈')).toBeOnTheScreen();
+  });
+
+  test('창형은 오늘 창이 끝났으면 어제가 아니라 오늘 date 결과를 쓴다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    // 창은 00:00에 끝났다(테스트 실행 시각과 무관하게 항상 지난 시각) — 오늘 판정이 확정된 상태.
+    const windowChallenge = (over: Partial<GroupChallengeResponse>) =>
+      oldChallenge({
+        missionType: 'TIME_WINDOW',
+        durationMinutes: null,
+        windowStart: '00:00:00',
+        windowEnd: '00:00:00',
+        ...over,
+      });
+    challengesByDate({
+      // 오늘 결과 = 달성 / 어제 결과 = 미달성 — 어느 쪽을 골랐는지 헤드라인으로 판별된다.
+      '2026-08-01': [
+        windowChallenge({
+          memberProgress: [{ userId: 'me', nickname: '나', progressMinutes: 60, achieved: true }],
+        }),
+      ],
+      '2026-07-31': [
+        windowChallenge({
+          memberProgress: [{ userId: 'me', nickname: '나', progressMinutes: 0, achieved: false }],
+        }),
+      ],
+    });
+    await renderRoom();
+
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    expect(screen.getByText('목표를 달성했어요!')).toBeOnTheScreen();
+    expect(screen.getByText('8/1 결과')).toBeOnTheScreen();
+
+    // 닫아도 어제 결과가 이어서 뜨지 않는다 — 당일 결과가 어제 결과를 **대체**한다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challengeResult.close'));
+    });
+    expect(screen.queryByTestId('group.challengeResult')).toBeNull();
   });
 });

@@ -15,6 +15,15 @@ import { logInviteLinkOpened } from '@/services/analyticsEvents';
 
 jest.mock('@/services/analyticsEvents', () => ({ logInviteLinkOpened: jest.fn() }));
 
+// 그룹 딥링크(창 종료 푸시)의 1개/2개+ 분기가 목록 조회에 매달린다 — 네트워크 없이 목으로 준다.
+jest.mock('@/services/groupApi', () => ({ getMyGroups: jest.fn() }));
+const mockGetMyGroups = jest.requireMock('@/services/groupApi').getMyGroups as jest.Mock;
+
+// navigateToDeepLink의 group 분기는 목록 조회를 비동기로 기다린다 — 마이크로태스크를 비운다.
+async function flushAsync() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const SLUG = 'ab23cd45';
 
@@ -124,6 +133,58 @@ describe('컨테이너 준비(onReady)', () => {
   test('보류된 링크·초대가 없으면 아무 데도 가지 않는다(일반 실행)', () => {
     flushPendingDeepLink();
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+// 창 종료 푸시 딥링크(gromo://group?g={groupId}, 계약 §2 B4→A3) — GroupScreen의 진입 분기와
+// 같은 규칙: 그룹 1개면 탭 이동으로 끝(내장 그룹방이 곧 그 그룹), 2개 이상이면 그룹방을 push.
+describe('그룹 딥링크(창 종료 푸시)', () => {
+  const summary = (groupId: string) => ({ groupId }) as never;
+
+  test('그룹이 1개면 그룹 탭 이동으로 끝난다(내장 그룹방이 곧 그 그룹)', async () => {
+    mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
+    await flushAsync();
+
+    expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
+    expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
+  });
+
+  test('그룹이 2개 이상이면 그룹방을 push 한다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary('other-1'), summary(GROUP_ID)]);
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
+    await flushAsync();
+
+    expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
+    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', { groupId: GROUP_ID });
+  });
+
+  test('내 그룹이 아니면(푸시 후 탈퇴) 그룹 탭까지만 간다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary('other-1'), summary('other-2')]);
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
+    await flushAsync();
+
+    expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
+    expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
+  });
+
+  test('목록 조회가 실패해도 그룹 탭 이동은 유지된다(폴백)', async () => {
+    mockGetMyGroups.mockRejectedValue(new Error('network'));
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
+    await flushAsync();
+
+    expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
+  test('g가 없거나 UUID가 아니면 조회 없이 그룹 탭 이동만 한다', async () => {
+    navigateToDeepLink('gromo://group');
+    navigateToDeepLink('gromo://group?g=abc');
+    await flushAsync();
+
+    expect(navigate).toHaveBeenCalledTimes(2);
+    expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
+    expect(mockGetMyGroups).not.toHaveBeenCalled();
   });
 });
 

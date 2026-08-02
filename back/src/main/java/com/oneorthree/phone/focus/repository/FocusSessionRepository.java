@@ -154,6 +154,36 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
             + "WHERE s.id = :id AND s.endedAt IS NULL")
     int cancelSessionIfActive(@Param("id") UUID id, @Param("canceledAt") Instant canceledAt);
 
+    /**
+     * 창(TIME_WINDOW) 클리핑 집계 — [winStart, winEnd) 와 겹치는 완료 세션의 겹침 길이(초) 합을 유저별로 구한다.
+     *
+     * <p>세션을 창 경계로 클리핑(LEAST/GREATEST)해 겹친 구간만 계수한다. ACTIVE(미종료)는 ended_at IS NULL
+     * 로, CANCELED·AUTO_CLOSED 는 status 로 제외 — findCompletedSessionsInPeriod 등 다른 집계 쿼리와 동일
+     * 관례. 창 판정은 세션 겹침 길이 기준이라 방해시간(total_distraction_seconds)은 차감하지 않는다
+     * (daily_focus_stats.total_focus_seconds 도 startedAt~endedAt 원시 길이 누적으로 미차감 — 동일 기준).
+     * LEAST/GREATEST + EXTRACT(EPOCH) 조합은 JPQL 로 표현할 수 없어 네이티브로 둔다
+     * (그룹 챌린지 WindowFocusAggregator 전용).
+     */
+    @Query(value = "SELECT s.user_id AS \"userId\", "
+            + "CAST(SUM(EXTRACT(EPOCH FROM (LEAST(s.ended_at, :winEnd) - GREATEST(s.started_at, :winStart)))) "
+            + "AS bigint) AS \"overlapSeconds\" "
+            + "FROM focus_sessions s "
+            + "WHERE s.user_id IN (:userIds) "
+            + "AND s.status NOT IN ('CANCELED', 'AUTO_CLOSED') "
+            + "AND s.ended_at IS NOT NULL "
+            + "AND s.ended_at > :winStart AND s.started_at < :winEnd "
+            + "GROUP BY s.user_id", nativeQuery = true)
+    List<WindowFocusOverlap> sumOverlapSecondsInWindow(@Param("userIds") Collection<UUID> userIds,
+                                                       @Param("winStart") Instant winStart,
+                                                       @Param("winEnd") Instant winEnd);
+
+    /** {@link #sumOverlapSecondsInWindow} 네이티브 프로젝션 — 유저별 창 겹침 초. */
+    interface WindowFocusOverlap {
+        UUID getUserId();
+
+        long getOverlapSeconds();
+    }
+
     // 태그 rename 세션 재연결(GROMO-754) — 옛(소프트삭제) 태그를 참조하던 세션 전부를 새로 채택한 태그로 재지정한다.
     // rename = 옛 UserFocusTag softDelete + 새 이름 재채택(GROMO-673)이라, 재연결 없으면 과거 세션이 소프트삭제 태그를
     // 계속 참조해 by-category 통계에서 '미분류'로 강등된다. 날짜 조건 없이 전체기간을 옮긴다(총량 불변, 귀속만 이동).

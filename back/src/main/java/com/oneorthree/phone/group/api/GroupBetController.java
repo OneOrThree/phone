@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -69,6 +70,28 @@ public class GroupBetController {
             @LoginUser UUID userId
     ) {
         groupBetService.joinBet(groupId, betId, userId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "챌린지 내기 취소",
+            description = "개설자 본인 && 참가자가 개설자 1명뿐 && OPEN 일 때만 취소할 수 있다."
+                    + " 판돈은 환불된다. 정산 배치와 겹치면 CAS 게이트에서 한쪽만 이긴다"
+                    + " (정산이 먼저면 BET_NOT_OPEN).")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "취소 성공 (판돈 환불)"),
+        @ApiResponse(responseCode = "403",
+                description = "게스트 / 그룹원 아님 / BET_CANCEL_FORBIDDEN(개설자 아님)"),
+        @ApiResponse(responseCode = "404", description = "그룹 없음 / BET_NOT_FOUND"),
+        @ApiResponse(responseCode = "409",
+                description = "BET_CANCEL_HAS_OTHERS(타 참가자 존재) / BET_NOT_OPEN(이미 종료·이중 취소)")
+    })
+    @DeleteMapping("/groups/{groupId}/bets/{betId}")
+    public ResponseEntity<Void> cancelBet(
+            @PathVariable UUID groupId,
+            @PathVariable UUID betId,
+            @LoginUser UUID userId
+    ) {
+        groupBetService.cancelBet(groupId, betId, userId);
         return ResponseEntity.noContent().build();
     }
 }

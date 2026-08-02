@@ -30,6 +30,7 @@ public class GroupMemberService {
     private final GroupMemberRepository groupMemberRepository;
     private final UserRepository userRepository;
     private final UserActivityEventLogger userActivityEventLogger;
+    private final GroupBetService groupBetService;
 
     @Transactional
     public void transferOwner(UUID groupId, UUID targetUserId, UUID userId) {
@@ -103,11 +104,17 @@ public class GroupMemberService {
 
         // A-0 소프트삭제: 행을 지우지 않고 이탈 마킹(leave). findByGroup 은 활성만 세므로 마지막 1인 판정 유지.
         List<GroupMember> groupMembers = groupMemberRepository.findByGroup(group);
+        if (groupMembers.size() > 1 && groupMember.getRole() == GroupMemberRole.OWNER) {
+            throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
+        }
+
+        // 탈퇴가 확정된 뒤, 같은 트랜잭션에서 OPEN 내기부터 정리한다(참가 해제·환불·자동 취소).
+        // 별도 트랜잭션이면 "탈퇴는 됐는데 판돈은 묶인" 반쪽 상태가 생길 수 있다.
+        groupBetService.releaseFromOpenBets(user, group);
+
         if (groupMembers.size() == 1) {
             groupMember.leave();
             group.close();
-        } else if (groupMembers.size() > 1 && groupMember.getRole() == GroupMemberRole.OWNER) {
-            throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
         } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
             groupMember.leave();
         }

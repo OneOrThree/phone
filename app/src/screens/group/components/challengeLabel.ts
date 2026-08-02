@@ -16,7 +16,11 @@ export function missionLabel(c: GroupChallengeResponse): string | null {
     return `하루 ${c.durationMinutes}분 ${what}`;
   }
   if (c.missionType === 'TIME_WINDOW' && c.windowStart && c.windowEnd) {
-    return `매일 ${hhmm(c.windowStart)}~${hhmm(c.windowEnd)} ${what}`;
+    // 창 목표분(V20 additive)이 있으면 함께 적는다 — 창 시각만 적으면 '그 시간 내내'로 읽힌다.
+    // 없으면(구 창 챌린지·구서버) 기존 문장 그대로 — 목표를 지어내지 않는다.
+    return c.durationMinutes
+      ? `매일 ${hhmm(c.windowStart)}~${hhmm(c.windowEnd)} ${c.durationMinutes}분 ${what}`
+      : `매일 ${hhmm(c.windowStart)}~${hhmm(c.windowEnd)} ${what}`;
   }
   return null;
 }

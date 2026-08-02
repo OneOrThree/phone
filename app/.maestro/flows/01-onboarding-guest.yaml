@@ -87,6 +87,18 @@ name: 01-onboarding-guest
 - tapOn:
     id: 'onboarding.cta'
 
+# W13 캐릭터 소개 — 기본 그로몬 소개, 그냥 진행
+- assertVisible:
+    id: 'onboarding.step.character_intro'
+- tapOn:
+    id: 'onboarding.cta'
+
+# W13.5 누끼 체험 — 사진 선택은 자동화 불가라 E2E 빌드에선 CTA가 활성(스킵 허용, EXPO_PUBLIC_E2E).
+- assertVisible:
+    id: 'onboarding.step.cutout_experience'
+- tapOn:
+    id: 'onboarding.cta'
+
 # W15 닉네임 — 중복(409) 회피를 위해 랜덤 숫자 접미사
 - assertVisible:
     id: 'onboarding.step.nickname'

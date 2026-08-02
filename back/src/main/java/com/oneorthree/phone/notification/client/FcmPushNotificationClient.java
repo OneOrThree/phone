@@ -108,7 +108,8 @@ public class FcmPushNotificationClient implements PushNotificationPort {
         Map<String, Object> fcmMessage = new LinkedHashMap<>();
         fcmMessage.put("token", deviceToken);
         fcmMessage.put("notification", Map.of("title", message.title(), "body", message.body()));
-        fcmMessage.put("data", Map.of("link", message.link()));
+        // data = 추가 키(type·groupId 등) + link. 종전 트리거는 추가 키가 없어 {"link": …} 그대로다.
+        fcmMessage.put("data", message.toDataPayload());
         if (message.soundEnabled()) {
             fcmMessage.put("apns", Map.of("payload", Map.of("aps", Map.of("sound", "default"))));
         }

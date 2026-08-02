@@ -39,6 +39,17 @@ public enum GroupErrorCode {
     BET_ALREADY_ACHIEVED(HttpStatus.CONFLICT, "이미 목표를 달성해서 참가할 수 없어요"),
     BET_CHALLENGE_INACTIVE(HttpStatus.CONFLICT, "종료된 챌린지에는 내기를 걸 수 없어요"),
     CHALLENGE_HAS_OPEN_BET(HttpStatus.CONFLICT, "진행 중인 내기가 있어 삭제할 수 없어요"),
+    BET_CANCEL_FORBIDDEN(HttpStatus.FORBIDDEN, "내기는 개설자만 취소할 수 있어요"),
+    BET_CANCEL_HAS_OTHERS(HttpStatus.CONFLICT, "다른 참가자가 있어 취소할 수 없어요"),
+    // BET_CLOSED(참가 마감 — 날짜 경과 포함)와 구분되는 취소 전용 코드: "내기가 OPEN 이 아니다"만
+    // 뜻한다(이중 취소·정산과의 CAS 레이스 패배). 앱 취소 버튼이 별도 문구로 분기한다.
+    BET_NOT_OPEN(HttpStatus.CONFLICT, "이미 종료된 내기예요"),
+
+    // 챌린지 생성 충돌 — 앱이 응답의 code 문자열로 분기한다. 이름 변경 금지.
+    // 활성 챌린지는 (카테고리, 타입)당 1개 — V20 부분 유니크 인덱스가 강제한다.
+    CHALLENGE_DUPLICATE(HttpStatus.CONFLICT, "이미 같은 종류의 챌린지가 진행 중이에요"),
+    // 포커스 창형과 스크린타임 창형의 시간대 교차 금지 — 같은 시간대 행동 하나로 내기 2개 중복 보상 차단.
+    CHALLENGE_WINDOW_OVERLAP(HttpStatus.CONFLICT, "겹치는 시간대의 챌린지가 이미 있어요"),
 
     // 동시성 — 낙관락(@Version: Group 정원·UserWallet 잔액) 충돌의 전역 폴백(GlobalExceptionHandler).
     // 트랜잭션 전체가 롤백된 일시 충돌이라 클라이언트가 재시도하면 풀린다. 구앱은 이 코드를 모르므로
