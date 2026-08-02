@@ -94,7 +94,8 @@ export default function CurrencyHistoryScreen() {
       {/* 현재 잔액 요약 */}
       <View style={s.balanceCard}>
         <Text style={s.balanceLabel}>
-          <CurrencyIcon size={14} /> 지금 가진 {CURRENCY.label}
+          {/* 아이콘 색은 감싸는 라벨(T.inkSub)에 맞춘다 — 다른 자리도 옆 글자 색을 따라간다. */}
+          <CurrencyIcon size={14} color={T.inkSub} /> 지금 가진 {CURRENCY.label}
         </Text>
         <Text style={s.balanceValue}>{coinsLoaded ? `${coins.toLocaleString()}개` : '–'}</Text>
       </View>
