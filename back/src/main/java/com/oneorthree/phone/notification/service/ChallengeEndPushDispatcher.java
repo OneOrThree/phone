@@ -47,7 +47,7 @@ import java.util.stream.Collectors;
 class ChallengeEndPushDispatcher {
 
     /**
-     * 한 번에 훑는 챌린지 수 — 멤버·알림설정·발송이력 조회의 IN 목록 길이를 묶어 두기 위한 것이다.
+     * 한 번에 훑는 <b>그룹</b> 수 — 멤버·알림설정·발송이력 조회의 IN 목록 길이를 묶어 두기 위한 것이다.
      * 일 마감 배치는 활성 일 목표 챌린지 <b>전건</b>을 대상으로 하므로 그룹 수가 늘면 그대로 커진다.
      */
     private static final int CHUNK_SIZE = 200;
@@ -74,14 +74,24 @@ class ChallengeEndPushDispatcher {
      */
     PushDispatchSummaryResponse dispatch(List<GroupChallenge> endedChallenges, String pushType,
             PushCopy copy, Instant dedupSince, Instant now, long startedAtMillis) {
+        // 그룹당 종료 챌린지 묶음 — 대표(딥링크에 실을 챌린지)가 흔들리지 않게 생성순으로 정렬한다.
+        // createdAt 은 영속화 시점에 채워지므로 방어적으로 null 을 뒤로 민다.
+        Map<UUID, List<GroupChallenge>> challengesByGroupId = endedChallenges.stream()
+                .sorted(Comparator.comparing(GroupChallenge::getCreatedAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .collect(Collectors.groupingBy(challenge -> challenge.getGroup().getId(),
+                        LinkedHashMap::new, Collectors.toList()));
+        // 청크는 <b>그룹</b> 단위로 자른다 — 챌린지 단위로 자르면 한 그룹의 종료 챌린지가 청크 경계에
+        // 갈려 (유저 × 그룹) 1건 묶음이 깨지고 같은 유저에게 두 번 나간다.
+        List<UUID> groupIds = List.copyOf(challengesByGroupId.keySet());
+
         int target = 0;
         int sent = 0;
         int deduped = 0;
         int skipped = 0;
-        for (int from = 0; from < endedChallenges.size(); from += CHUNK_SIZE) {
-            List<GroupChallenge> chunk =
-                    endedChallenges.subList(from, Math.min(from + CHUNK_SIZE, endedChallenges.size()));
-            Counts counts = dispatchChunk(chunk, pushType, copy, dedupSince, now);
+        for (int from = 0; from < groupIds.size(); from += CHUNK_SIZE) {
+            List<UUID> chunk = groupIds.subList(from, Math.min(from + CHUNK_SIZE, groupIds.size()));
+            Counts counts = dispatchChunk(chunk, challengesByGroupId, pushType, copy, dedupSince, now);
             target += counts.target();
             sent += counts.sent();
             deduped += counts.deduped();
@@ -91,19 +101,12 @@ class ChallengeEndPushDispatcher {
                 target, sent, deduped, skipped, System.currentTimeMillis() - startedAtMillis);
     }
 
-    private Counts dispatchChunk(List<GroupChallenge> chunk, String pushType, PushCopy copy,
+    private Counts dispatchChunk(List<UUID> groupIds,
+            Map<UUID, List<GroupChallenge>> challengesByGroupId, String pushType, PushCopy copy,
             Instant dedupSince, Instant now) {
-        // 그룹당 종료 챌린지 묶음 — 대표(딥링크에 실을 챌린지)가 흔들리지 않게 생성순으로 정렬한다.
-        // createdAt 은 영속화 시점에 채워지므로 방어적으로 null 을 뒤로 민다.
-        Map<UUID, List<GroupChallenge>> challengesByGroupId = chunk.stream()
-                .sorted(Comparator.comparing(GroupChallenge::getCreatedAt,
-                        Comparator.nullsLast(Comparator.naturalOrder())))
-                .collect(Collectors.groupingBy(challenge -> challenge.getGroup().getId(),
-                        LinkedHashMap::new, Collectors.toList()));
-
         // 탈퇴한 유저는 발송 대상이 아니다(멤버 행은 남는다).
         Map<UUID, List<User>> usersByGroupId = groupMemberRepository
-                .findByGroupIdIn(challengesByGroupId.keySet()).stream()
+                .findByGroupIdIn(groupIds).stream()
                 .filter(member -> !member.getUser().isDeleted())
                 .collect(Collectors.groupingBy(member -> member.getGroup().getId(),
                         Collectors.mapping(GroupMember::getUser, Collectors.toList())));
@@ -124,9 +127,9 @@ class ChallengeEndPushDispatcher {
         int deduped = 0;
         int skipped = 0;
         List<NotificationSentLog> newLogs = new ArrayList<>();
-        for (Map.Entry<UUID, List<GroupChallenge>> entry : challengesByGroupId.entrySet()) {
-            List<GroupChallenge> ended = entry.getValue();
-            for (User user : usersByGroupId.getOrDefault(entry.getKey(), List.of())) {
+        for (UUID groupId : groupIds) {
+            List<GroupChallenge> ended = challengesByGroupId.get(groupId);
+            for (User user : usersByGroupId.getOrDefault(groupId, List.of())) {
                 target++;
                 List<GroupChallenge> pending = ended.stream()
                         .filter(challenge -> !alreadySent.contains(new SentKey(user.getId(), challenge.getId())))
