@@ -14,8 +14,10 @@ import java.util.UUID;
  *   <li>팟 = 판돈 × 참가자 수 (참가 시점에 전액 차감돼 있으므로 팟은 이미 에스크로된 돈이다)</li>
  *   <li>달성자끼리 균등 분배. 나누어떨어지지 않는 <b>잔여는 진행분이 가장 큰 승자</b>에게 몰아준다
  *       (동률이면 userId 오름차순 첫 승자) — 증발시키면 팟이 새고, 팟에 남기면 갈 곳이 없다</li>
- *   <li>달성자 0명이면 전원에게 판돈을 그대로 환불한다({@code REFUNDED})</li>
- *   <li>어느 경로든 {@code sum(payout) == pot} 이어야 한다 — 깨지면 계산 버그이므로 예외를 던져
+ *   <li>달성자 0명이면 <b>팟 전액 몰수</b>({@code FORFEITED}) — 전원 payout 0. 환불로 되돌리면
+ *       "아무도 안 하면 본전"이라 내기의 긴장감이 사라진다(2026-08-02 확정 정책)</li>
+ *   <li>불변식은 status 별이다: {@code SETTLED → sum(payout) == pot},
+ *       {@code FORFEITED → sum(payout) == 0}. 깨지면 계산 버그이므로 예외를 던져
  *       해당 내기 트랜잭션을 롤백시킨다</li>
  * </ul>
  */
@@ -45,7 +47,7 @@ public final class GroupBetPayoutCalculator {
     /**
      * @param stake   1인 판돈
      * @param entries 참가자별 달성 판정 (최소 1명)
-     * @throws IllegalStateException 참가자가 없거나 {@code sum(payout) != pot} 인 경우
+     * @throws IllegalStateException 참가자가 없거나 status 별 분배 불변식이 깨진 경우
      */
     public static Distribution distribute(int stake, List<Entry> entries) {
         if (entries.isEmpty()) {
@@ -55,22 +57,24 @@ public final class GroupBetPayoutCalculator {
         int pot = stake * entries.size();
         List<Entry> winners = entries.stream().filter(Entry::achieved).toList();
 
-        GroupBetStatus status = winners.isEmpty() ? GroupBetStatus.REFUNDED : GroupBetStatus.SETTLED;
+        GroupBetStatus status = winners.isEmpty() ? GroupBetStatus.FORFEITED : GroupBetStatus.SETTLED;
         List<Payout> payouts = winners.isEmpty()
-                ? refundAll(stake, entries)
+                ? forfeitAll(entries)
                 : share(pot, entries, winners);
 
         int total = payouts.stream().mapToInt(Payout::amount).sum();
-        if (total != pot) {
-            throw new IllegalStateException(
-                    "내기 분배 불변식 위반 — sum(payout)=" + total + ", pot=" + pot);
+        int expected = status == GroupBetStatus.FORFEITED ? 0 : pot;
+        if (total != expected) {
+            throw new IllegalStateException("내기 분배 불변식 위반 — status=" + status
+                    + ", sum(payout)=" + total + ", pot=" + pot);
         }
         return new Distribution(status, pot, payouts);
     }
 
-    private static List<Payout> refundAll(int stake, List<Entry> entries) {
+    /** 승자 0명 — 전원 payout 0. 팟은 아무에게도 가지 않고 소멸한다(에스크로에서 회수 불가). */
+    private static List<Payout> forfeitAll(List<Entry> entries) {
         return entries.stream()
-                .map(e -> new Payout(e.userId(), false, stake))
+                .map(e -> new Payout(e.userId(), false, 0))
                 .toList();
     }
 

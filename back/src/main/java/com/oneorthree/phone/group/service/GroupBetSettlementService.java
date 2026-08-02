@@ -62,19 +62,19 @@ public class GroupBetSettlementService {
                 .findIdsByStatusAndBetDateBefore(GroupBetStatus.OPEN, today);
 
         int settled = 0;
-        int refunded = 0;
+        int forfeited = 0;
         int skipped = 0;
         int failed = 0;
         for (UUID betId : targets) {
             try {
                 // 대상으로 집은 뒤 다른 실행(스케줄러 ↔ 수동 트리거)이 먼저 정산했을 수 있다.
-                // 그때는 최종 상태만 SETTLED/REFUNDED 일 뿐 이 호출은 지급을 안 했으므로 스킵으로 센다
+                // 그때는 최종 상태만 종료 상태일 뿐 이 호출은 지급을 안 했으므로 스킵으로 센다
                 // — 안 그러면 동시 실행 양쪽이 같은 내기를 각자 성과로 세어 요약·지표가 부풀려진다.
                 GroupBetSettler.SettleResult result = groupBetSettler.settle(betId);
                 if (!result.applied()) {
                     skipped++;
-                } else if (result.status() == GroupBetStatus.REFUNDED) {
-                    refunded++;
+                } else if (result.status() == GroupBetStatus.FORFEITED) {
+                    forfeited++;
                 } else if (result.status() == GroupBetStatus.SETTLED) {
                     settled++;
                 }
@@ -86,10 +86,11 @@ public class GroupBetSettlementService {
         }
 
         long elapsedMillis = System.currentTimeMillis() - startedAtMillis;
-        log.info("내기 일 배치 완료 — settledBefore={}, 대상={}, 분배={}, 환불={}, 스킵={}, 실패={}, "
+        log.info("내기 일 배치 완료 — settledBefore={}, 대상={}, 분배={}, 몰수={}, 스킵={}, 실패={}, "
                 + "elapsedMillis={}",
-                today, targets.size(), settled, refunded, skipped, failed, elapsedMillis);
+                today, targets.size(), settled, forfeited, skipped, failed, elapsedMillis);
+        // refundedCount 는 몰수 룰 도입 이후 정산이 만들지 않는 레거시 버킷 — 항상 0 으로 내보낸다.
         return new GroupBetSettlementSummaryResponse(
-                today, targets.size(), settled, refunded, skipped, failed, elapsedMillis);
+                today, targets.size(), settled, forfeited, 0, skipped, failed, elapsedMillis);
     }
 }

@@ -17,8 +17,9 @@ import static org.assertj.core.api.Assertions.tuple;
 /**
  * 분배 엔진 단위 테스트 — 돈이 새거나 불어나지 않는지가 전부다.
  *
- * <p>모든 케이스에서 {@code sum(payout) == pot} 을 확인한다. 잔여(나머지) 배분·동률 결정성·
- * 승자 0명 환불·단독 참가처럼 규칙이 갈리는 지점을 각각 고정한다.
+ * <p>모든 케이스에서 status 별 불변식({@code SETTLED → sum(payout) == pot},
+ * {@code FORFEITED → sum(payout) == 0})을 확인한다. 잔여(나머지) 배분·동률 결정성·
+ * 승자 0명 몰수·단독 참가처럼 규칙이 갈리는 지점을 각각 고정한다.
  */
 class GroupBetPayoutCalculatorTest {
 
@@ -34,10 +35,12 @@ class GroupBetPayoutCalculatorTest {
                         GroupBetPayoutCalculator.Payout::amount));
     }
 
-    private void assertPotConserved(GroupBetPayoutCalculator.Distribution distribution) {
+    /** status 별 불변식 — SETTLED 는 팟 보존, FORFEITED 는 지급 합 0(팟 전액 소멸). */
+    private void assertInvariantHolds(GroupBetPayoutCalculator.Distribution distribution) {
         int total = distribution.payouts().stream()
                 .mapToInt(GroupBetPayoutCalculator.Payout::amount).sum();
-        assertThat(total).isEqualTo(distribution.pot());
+        int expected = distribution.status() == GroupBetStatus.FORFEITED ? 0 : distribution.pot();
+        assertThat(total).isEqualTo(expected);
     }
 
     @Test
@@ -53,7 +56,7 @@ class GroupBetPayoutCalculatorTest {
         assertThat(distribution.pot()).isEqualTo(90);
         assertThat(amountsOf(distribution)).containsExactlyInAnyOrderEntriesOf(
                 Map.of(U1, 45, U2, 45, U3, 0));
-        assertPotConserved(distribution);
+        assertInvariantHolds(distribution);
     }
 
     @Test
@@ -69,7 +72,7 @@ class GroupBetPayoutCalculatorTest {
         assertThat(distribution.pot()).isEqualTo(40);
         assertThat(amountsOf(distribution)).containsExactlyInAnyOrderEntriesOf(
                 Map.of(U1, 13, U2, 14, U3, 13, U4, 0));   // U2 가 최다 진행분
-        assertPotConserved(distribution);
+        assertInvariantHolds(distribution);
     }
 
     @Test
@@ -84,21 +87,21 @@ class GroupBetPayoutCalculatorTest {
 
         assertThat(amountsOf(distribution)).containsExactlyInAnyOrderEntriesOf(
                 Map.of(U1, 14, U2, 13, U3, 13, U4, 0));   // 동률 → 가장 작은 U1
-        assertPotConserved(distribution);
+        assertInvariantHolds(distribution);
     }
 
     @Test
-    @DisplayName("달성자 0명이면 REFUNDED — 전원에게 판돈 그대로 환불")
-    void refundsEveryoneWhenNoWinner() {
+    @DisplayName("달성자 0명이면 FORFEITED — 전원 payout 0, 팟 전액 소멸(환불 없음)")
+    void forfeitsEveryoneWhenNoWinner() {
         GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(50, List.of(
                 new GroupBetPayoutCalculator.Entry(U1, 10, false),
                 new GroupBetPayoutCalculator.Entry(U2, 0, false)));
 
-        assertThat(distribution.status()).isEqualTo(GroupBetStatus.REFUNDED);
+        assertThat(distribution.status()).isEqualTo(GroupBetStatus.FORFEITED);
         assertThat(distribution.pot()).isEqualTo(100);
-        assertThat(amountsOf(distribution)).containsExactlyInAnyOrderEntriesOf(Map.of(U1, 50, U2, 50));
+        assertThat(amountsOf(distribution)).containsExactlyInAnyOrderEntriesOf(Map.of(U1, 0, U2, 0));
         assertThat(distribution.payouts()).allMatch(p -> !p.achieved());
-        assertPotConserved(distribution);
+        assertInvariantHolds(distribution);
     }
 
     @Test
@@ -109,18 +112,18 @@ class GroupBetPayoutCalculatorTest {
 
         assertThat(distribution.status()).isEqualTo(GroupBetStatus.SETTLED);
         assertThat(amountsOf(distribution)).containsExactlyInAnyOrderEntriesOf(Map.of(U1, 100));
-        assertPotConserved(distribution);
+        assertInvariantHolds(distribution);
     }
 
     @Test
-    @DisplayName("단독 참가 미달성 — 승자 0명 규칙에 따라 환불된다(몰수 아님)")
-    void soloParticipantFailedIsRefunded() {
+    @DisplayName("단독 참가 미달성 — 승자 0명 규칙 그대로 몰수된다(판돈 소멸)")
+    void soloParticipantFailedIsForfeited() {
         GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(100, List.of(
                 new GroupBetPayoutCalculator.Entry(U1, 0, false)));
 
-        assertThat(distribution.status()).isEqualTo(GroupBetStatus.REFUNDED);
-        assertThat(amountsOf(distribution)).containsExactlyInAnyOrderEntriesOf(Map.of(U1, 100));
-        assertPotConserved(distribution);
+        assertThat(distribution.status()).isEqualTo(GroupBetStatus.FORFEITED);
+        assertThat(amountsOf(distribution)).containsExactlyInAnyOrderEntriesOf(Map.of(U1, 0));
+        assertInvariantHolds(distribution);
     }
 
     @Test
@@ -144,8 +147,8 @@ class GroupBetPayoutCalculatorTest {
     }
 
     @Test
-    @DisplayName("참가자 수·달성자 수를 바꿔가며 팟 보존 불변식이 항상 성립한다")
-    void potIsAlwaysConserved() {
+    @DisplayName("참가자 수·달성자 수를 바꿔가며 status 별 분배 불변식이 항상 성립한다")
+    void invariantAlwaysHolds() {
         List<UUID> users = List.of(U1, U2, U3, U4);
         for (int stake : List.of(10, 30, 50, 100)) {
             for (int size = 1; size <= users.size(); size++) {
@@ -154,7 +157,7 @@ class GroupBetPayoutCalculatorTest {
                     for (int i = 0; i < size; i++) {
                         entries.add(new GroupBetPayoutCalculator.Entry(users.get(i), i * 10, i < winners));
                     }
-                    assertPotConserved(GroupBetPayoutCalculator.distribute(stake, entries));
+                    assertInvariantHolds(GroupBetPayoutCalculator.distribute(stake, entries));
                 }
             }
         }
