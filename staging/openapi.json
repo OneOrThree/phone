@@ -93,6 +93,10 @@
       "description": "인증 관련 API"
     },
     {
+      "name": "character",
+      "description": "캐릭터 커스터마이징 API"
+    },
+    {
       "name": "focus",
       "description": "focus 세션 관련 API (태그, 포커스 타임 등)"
     },
@@ -2005,6 +2009,58 @@
         "responses": {
           "204": {
             "description": "no-op 성공(항상 — 잔액 무변화)"
+          }
+        }
+      }
+    },
+    "/api/v1/character/moderation": {
+      "post": {
+        "tags": [
+          "character"
+        ],
+        "summary": "누끼 이미지 유해성 검사",
+        "description": "누끼 저장 직전 이미지를 OpenAI omni-moderation 으로 검사합니다. 이미지는 저장하지 않고 검사만 합니다. allowed\u003dfalse 면 유해로 판정된 것이며, 검사 실패 시 안전하게 차단합니다.",
+        "operationId": "moderate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageModerationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "검사 완료 — allowed 로 통과/거부 구분",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageModerationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "image 누락 또는 크기 초과",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageModerationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageModerationResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -5283,6 +5339,33 @@
               "SCREEN_TIME_GOAL",
               "LEAGUE_TIER_BONUS"
             ]
+          }
+        }
+      },
+      "ImageModerationRequest": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": "string",
+            "maxLength": 10485760,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "image"
+        ]
+      },
+      "ImageModerationResponse": {
+        "type": "object",
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          },
+          "flaggedCategories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
