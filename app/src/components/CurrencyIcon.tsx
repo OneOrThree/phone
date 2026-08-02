@@ -10,11 +10,17 @@ import { CURRENCY } from '@/constants/currency';
 // 접근성(코드리뷰 반영): 이모지 ⏳는 스크린리더가 읽어 주지만 아이콘 폰트는 사설 영역 글리프라
 // 그대로 두면 '+100 획득!'처럼 무엇을 얻었는지 알 수 없게 된다. 그래서 기본으로 '시간조각'이라는
 // 이름을 붙이고, 옆 글자가 이미 그 단어를 말하는 자리에서만 decorative로 뺀다.
+//
+// ⚠️ 아래 props는 이 아이콘이 **형제 요소로 놓인 자리에서만** 먹는다(홈 잔액 칩·내역 빈 상태).
+// <Text> 안에 중첩하면 RN이 NativeVirtualText로 렌더해 부모의 attributed string에 합쳐 버리므로
+// 자식의 accessibilityLabel·accessibilityElementsHidden이 모두 무시된다(Text.js의 virtual text
+// 분기). 중첩해 쓰는 자리는 **감싸는 <Text>에 문장 단위 accessibilityLabel을 직접 달아야 한다** —
+// 내역 행 금액·집중 결과 배지·축하 모달 2종·잔액 라벨이 그렇게 되어 있다.
 
 interface CurrencyIconProps {
   size?: number;
   color?: string;
-  // 옆 글자에 이미 '시간조각'이 들어 있는 자리(잔액 라벨·빈 상태)에 true —
+  // 옆 글자에 이미 '시간조각'이 들어 있는 자리(내역 빈 상태)에 true —
   // 스크린리더가 같은 말을 두 번 읽지 않게 아이콘을 접근성 트리에서 뺀다.
   decorative?: boolean;
 }

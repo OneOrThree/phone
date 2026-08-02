@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { cubicBezier } from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 import { CurrencyIcon } from '@/components/CurrencyIcon';
+import { CURRENCY } from '@/constants/currency';
 import { PressableScale } from '@/components/PressableScale';
 import { STORAGE_KEYS } from '@/types/storage';
 import { getFocusPeriodStats, getStreak, getHeatmap, getTodayStats } from '@/services/statsApi';
@@ -412,7 +413,11 @@ export default function FocusResultScreen() {
           {/* 획득 시간조각 — 저장 응답 도착 시 "+N 모래시계" 팝(스트릭 ✓와 같은 checkPop 재사용) */}
           {rewardCoins > 0 ? (
             <Animated.View style={[s.coinBadge, checkPop]}>
-              <Text style={s.coinBadgeText}>
+              {/* 중첩 아이콘은 부모 문자열에 합쳐져 글리프로 읽히므로 라벨은 이 <Text>에 단다. */}
+              <Text
+                style={s.coinBadgeText}
+                accessibilityLabel={`${CURRENCY.label} ${rewardCoins.toLocaleString()} 획득`}
+              >
                 +{rewardCoins.toLocaleString()} <CurrencyIcon size={14} />
               </Text>
             </Animated.View>

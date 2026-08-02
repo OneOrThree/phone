@@ -6,6 +6,7 @@ import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst
 import { useCharacter } from '@/store/CharacterContext';
 import { T, withAlpha } from '@/constants/theme';
 import { CurrencyIcon } from '@/components/CurrencyIcon';
+import { CURRENCY } from '@/constants/currency';
 
 // 스크린타임 목표 달성 축하 모달(GROMO-629) — 어제 사용 시간이 목표 이내였으면 그날 첫 홈 진입에
 // 1회 노출. 목표 보상으로 지급된 시간조각을 rewardCoins로 받아 +N 한 줄로 표시한다(>0일 때만) —
@@ -78,7 +79,11 @@ export function ScreenTimeCelebrationModal({
           {/* 목표 보상 시간조각 — 호출자가 넘긴 rewardCoins>0일 때만 */}
           {(rewardCoins ?? 0) > 0 ? (
             <View style={s.coinBox}>
-              <Text style={s.coinText}>
+              {/* 중첩 아이콘은 부모 문자열에 합쳐져 글리프로 읽히므로 라벨은 이 <Text>에 단다. */}
+              <Text
+                style={s.coinText}
+                accessibilityLabel={`${CURRENCY.label} ${rewardCoins?.toLocaleString()} 획득!`}
+              >
                 +{rewardCoins?.toLocaleString()} <CurrencyIcon size={14} /> 획득!
               </Text>
             </View>
