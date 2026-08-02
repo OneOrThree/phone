@@ -1,21 +1,11 @@
 // 주 탭 요일별 집중 타임라인(GROMO-778) — 요일(열)×세로 시간축. 세션을 날짜별로 분할해 해당 요일
 // 칼럼에 과목 색 블록으로 그린다. 색 매핑(tagId→태그명→과목색)·조회 패턴은 '오늘 타임테이블'(FocusTimetable)과 동일.
-import { useCallback, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-  Share,
-  Platform,
-} from 'react-native';
-import { captureRef } from 'react-native-view-shot';
+import { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import Svg, { Line } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
-import { logStatsShared } from '@/services/analyticsEvents';
 import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
 import type { FocusSessionResponse } from '@/types/dto/focus';
 import { useSubjects } from '@/store/SubjectContext';
@@ -24,55 +14,30 @@ import { subjectColorForTag, weekdayFocusBlocks, type WeekFocusBlock } from './f
 import { SectionCard } from './SectionCard';
 import { WEEK_DAYS } from './constants';
 import { cs } from './cardStyles';
+import { ShareBrandFooter } from './ShareBrandFooter';
+import { useTimetableShareCapture } from './useTimetableShareCapture';
 
 // 주간 타임라인 카드 — '오늘 타임테이블'(FocusTimetableCard)과 동일하게 공유하기(캡처→Share) 버튼 제공(GROMO-778).
 export function WeeklyTimetableCard() {
-  const shotRef = useRef<View>(null);
-  const [sharing, setSharing] = useState(false);
-  // 캡처 전용 상태 — 워터마크 렌더 조건. sharing을 쓰면 공유 시트가 떠 있는 동안 워터마크가
-  // 카드에 계속 노출된다(FocusTimetableCard와 동일, PR 386 리뷰 반영)
-  const [capturing, setCapturing] = useState(false);
-
-  const onShare = async () => {
-    if (sharing) return;
-    setSharing(true);
-    setCapturing(true);
-    try {
-      // 워터마크(capturing 중에만 렌더)가 화면에 커밋·페인트된 뒤 캡처 — setState 직후엔
-      // 아직 반영 전이라 두 프레임 대기(FocusTimetableCard와 동일, GROMO-1014)
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const uri = await captureRef(shotRef, {
-        format: 'png',
-        quality: 1,
-        // 공유 파일명 — 예: 260716_주간타임라인.png (사진 저장 시엔 이름이 남지 않음)
-        fileName: `${todayStr().slice(2).replace(/-/g, '')}_주간타임라인`,
-      });
-      // 캡처 직후 워터마크 제거 — 공유 시트가 떠 있는 동안 카드에 남지 않게
-      setCapturing(false);
-      // Android Share는 url을 무시하고 message 기반이라 플랫폼별 페이로드(현재 iOS 전용 앱이지만 방어)
-      const result = await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
-      // 시트만 열고 닫으면 completed=false — 탭 대비 실공유 전환을 구분(GROMO-782).
-      // Android는 항상 sharedAction으로 resolve라 completed를 iOS에서만 인정(FocusTimetableCard와 동일).
-      logStatsShared({
-        card: 'weekly_timeline',
-        completed: Platform.OS === 'ios' && result.action === Share.sharedAction,
-      });
-    } catch {
-      // 캡처 실패·공유 취소 — 무시
-    } finally {
-      // 캡처 실패 시에도 워터마크 정리(성공 경로에선 이미 false — 멱등)
-      setCapturing(false);
-      setSharing(false);
-    }
-  };
+  // 공유 파일명 — 예: 260716_주간타임라인.png (사진 저장 시엔 이름이 남지 않음)
+  const makeFileName = useCallback(
+    () => `${todayStr().slice(2).replace(/-/g, '')}_주간타임라인`,
+    [],
+  );
+  // 캡처→정사각 레터박스→공유 로직은 일/주 공용 훅이 담당(FocusTimetableCard와 동일, GROMO-1070)
+  const { shotRef, innerRef, sharing, capturing, frameStyle, innerStyle, onCharReady, onShare } =
+    useTimetableShareCapture({ card: 'weekly_timeline', makeFileName });
 
   return (
     <SectionCard title="요일별 타임테이블">
-      {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게 */}
-      <View ref={shotRef} collapsable={false} style={cs.ttShot}>
-        <WeeklyTimetable />
-        {/* 공유 워터마크 — 캡처 순간에만 렌더되어 캡처 이미지에만 담긴다(GROMO-1014) */}
-        {capturing && <Text style={cs.shareWatermark}>gromo</Text>}
+      {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게. 캡처 시엔 정사각(frameStyle)으로 레터박스 */}
+      <View ref={shotRef} collapsable={false} style={[cs.ttShot, frameStyle]}>
+        {/* 캡처 내용 래퍼 — 정사각 안에서 자연 너비 유지(innerStyle)해 양옆 흰 여백이 생기게 */}
+        <View ref={innerRef} collapsable={false} style={innerStyle}>
+          <WeeklyTimetable />
+          {/* 공유 브랜드 밴드 — 캡처 순간에만 본문 아래에 렌더되어 캡처 이미지에만 담긴다(GROMO-1070) */}
+          <ShareBrandFooter visible={capturing} onCharReady={onCharReady} />
+        </View>
       </View>
       {/* 공유하기 — 카드 하단 오른쪽('오늘 타임테이블'과 동일). 헤더에 두면 상시 드래그 핸들과 겹친다.
           shotRef 밖이라 캡처 이미지에는 안 담긴다 */}
