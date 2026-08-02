@@ -36,6 +36,9 @@ const GUIDES: { icon: IconName; text: string }[] = [
 
 export default function CutoutStep({ data, update, onNext }: StepProps) {
   const [modalOpen, setModalOpen] = useState(false);
+  // 서버 모더레이션이 '검사 불가(unavailable)'로 막힌 적이 있는지. 이때만 온보딩 갇힘을 피하려
+  // 캐릭터 없이 다음으로 넘어가게 열어 준다(정상 상황의 '체험 필수'는 그대로).
+  const [moderationUnavailable, setModerationUnavailable] = useState(false);
   const created = !!data.cutoutCharacterUri;
 
   // 유저별 파일 저장용 userId. 온보딩은 Provider 밖이라 useUser를 못 쓰고, 로그인 스텝이 누끼보다
@@ -59,6 +62,7 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
   // 캐시버스트 쿼리를 붙여 매 저장마다 키를 바꾼다(CharacterCreateRoute와 동일한 처리).
   const handleSaved = (uri: string) => {
     update({ cutoutCharacterUri: `${uri}?t=${Date.now()}` });
+    setModerationUnavailable(false);
     setModalOpen(false);
   };
 
@@ -70,9 +74,10 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
       // 작은 화면(SE 등)에서 가이드+만들기 버튼이 뷰포트를 넘겨 잘리지 않게 스크롤 허용(스킵 불가 스텝).
       scrollable
       ctaLabel="다음"
-      // 만들어(cutoutCharacterUri 생성) 체험을 완료해야 다음으로. 단, 만들기 불가 기기(canSkip)는
-      // 영구 차단을 막기 위해 그냥 통과시킨다. 능동 스킵 버튼은 두지 않는다.
-      ctaDisabled={!created && !canSkip}
+      // 만들어(cutoutCharacterUri 생성) 체험을 완료해야 다음으로. 단, 만들기 불가 기기(canSkip)와
+      // 서버 모더레이션 '검사 불가'(moderationUnavailable, 백엔드 미배포·장애 등)는 영구 차단을
+      // 막기 위해 그냥 통과시킨다(그 사진은 저장하지 않아 기본 그로몬 유지). 능동 스킵 버튼은 두지 않는다.
+      ctaDisabled={!created && !canSkip && !moderationUnavailable}
       onCta={onNext}
     >
       <View style={s.guides}>
@@ -101,6 +106,12 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
               <CharacterImage size={64} sourceUri={data.cutoutCharacterUri} />
               <Text style={s.doneText}>이 캐릭터로 만들었어요.</Text>
             </View>
+          ) : moderationUnavailable ? (
+            // 검사 불가로 지금은 못 만드는 경우 — 갇히지 않게 안내하고 다음으로 넘어갈 수 있게 한다.
+            <Text style={s.hint}>
+              지금은 확인이 어려워요. 나중에 메뉴에서 ‘사진에서 캐릭터 만들기’로 만들 수 있어요.
+              지금은 넘어가도 괜찮아요.
+            </Text>
           ) : (
             <Text style={s.hint}>먼저 캐릭터를 만들어 주세요.</Text>
           )}
@@ -123,7 +134,11 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
                 </TouchableOpacity>
               </View>
               <View style={s.modalBody}>
-                <CharacterCreator userId={userId} onSaved={handleSaved} />
+                <CharacterCreator
+                  userId={userId}
+                  onSaved={handleSaved}
+                  onUnavailable={() => setModerationUnavailable(true)}
+                />
               </View>
             </SafeAreaView>
           </Modal>

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
@@ -42,9 +42,12 @@ interface Props {
   // 유저별 파일로 저장하기 위한 userId(JWT sub). 이 컴포넌트는 context-free라 직접 얻지 못하므로
   // 감싸는 쪽(설정 화면=useUser / 온보딩=토큰 디코드)이 넘긴다. 없으면 단일 파일명으로 폴백한다.
   userId?: string | null;
+  // 서버 모더레이션이 '검사 불가(unavailable)'로 막았을 때 알린다(선택). 온보딩처럼 저장을
+  // 강제하는 화면이, 검사 불가일 때만 다른 진행 경로(스킵 등)를 열어 갇힘을 피하게 하기 위함.
+  onUnavailable?: () => void;
 }
 
-export default function CharacterCreator({ onSaved, userId }: Props) {
+export default function CharacterCreator({ onSaved, userId, onUnavailable }: Props) {
   const { width } = useWindowDimensions();
 
   const [phase, setPhase] = useState<Phase>('idle');
@@ -57,6 +60,17 @@ export default function CharacterCreator({ onSaved, userId }: Props) {
 
   // 합성 미리보기를 감싸는 컨테이너 — 저장 시 이 View를 통째로 캡처해 PNG로 굽는다.
   const captureViewRef = useRef<View>(null);
+
+  // 언마운트(온보딩 모달 X·설정 뒤로가기)로 화면이 사라졌는지. 저장은 검사(최대 15초)→저장 순인데,
+  // 그 사이 창을 닫아도 promise는 계속 돈다. 취소 시 뒤늦게 저장·onSaved가 실행돼 "닫았는데 등록됨"이
+  // 되지 않도록, await 지점마다 이 ref로 확인해 이후 부수효과를 건너뛴다.
+  const activeRef = useRef(true);
+  useEffect(() => {
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+    };
+  }, []);
 
   const supported = useMemo(() => isSubjectMaskSupported(), []);
   const stageWidth = width - T.space.xl * 2 - T.space.xl;
@@ -135,9 +149,13 @@ export default function CharacterCreator({ onSaved, userId }: Props) {
       // 2) 서버 모더레이션(필수 게이트) — 통과해야만 저장한다. 검사 불가(unavailable)는 fail-safe로
       //    차단하되, "위반 차단"과 "확인 실패"를 안내 문구로 구분한다.
       const verdict = await moderateImage(base64);
+      // 검사 도중 창을 닫았으면(언마운트) 이후 아무 것도 하지 않는다.
+      if (!activeRef.current) return;
       if (verdict.unavailable) {
         setError('지금은 확인이 어려워요. 잠시 후 다시 시도해 주세요.');
         setPhase('ready');
+        // 저장을 강제하는 화면(온보딩)이 갇히지 않게, 검사 불가만 별도로 알린다.
+        onUnavailable?.();
         return;
       }
       if (!verdict.allowed) {
@@ -149,6 +167,8 @@ export default function CharacterCreator({ onSaved, userId }: Props) {
       // 3) 통과 → 기존 저장 흐름. userId를 넘겨 유저별 파일로 저장 — 한 기기 두 계정이 서로 덮어쓰지 않게 한다.
       setPhase('saving');
       const uri = await saveCustomCharacter(base64, userId);
+      // 저장 도중 창을 닫았으면(언마운트) onSaved를 건너뛴다 — 닫힌 화면에 캐릭터가 뒤늦게 붙는 걸 막는다.
+      if (!activeRef.current) return;
       // 위젯·실드가 읽는 App Group 스냅샷(focusCharacter.png)은 여기서 발행하지 않는다 —
       // '생성'은 '장착'이 아니라(생성 후에도 choice는 default 유지) 여기서 발행하면 미장착 커스텀이
       // 위젯·실드에 먼저 떠 버린다(코드리뷰). 스냅샷은 집중 세션이 장착된 캐릭터로 갱신하며,
@@ -158,7 +178,7 @@ export default function CharacterCreator({ onSaved, userId }: Props) {
       setError('캐릭터를 저장하지 못했어요. 다시 시도해 주세요.');
       setPhase('ready');
     }
-  }, [result, onSaved, userId]);
+  }, [result, onSaved, userId, onUnavailable]);
 
   const aspect = result && result.height > 0 ? result.width / result.height : 1;
   // 처리 중(working)엔 result에 이전 값이 남아 액션이 보이지만 미리보기는 스피너라, 이때 저장하면
