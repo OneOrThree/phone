@@ -117,6 +117,17 @@ class LandingRendererTest {
         assertThat(html).contains("<span class=\"bracket\">「</span>{{storeUrl}}");
     }
 
+    @Test
+    @DisplayName("초대자 닉네임에 든 자리표시자도 다시 치환되지 않는다 — 닉네임은 사용자 입력이다")
+    void substitutesInviterNameInSinglePass() {
+        String html = renderer(REAL_STORE_URL).render("스터디", "{{storeUrl}}", SCHEME_URL);
+
+        assertThat(html).contains("<span class=\"name\">{{storeUrl}}</span>님이 초대했어요");
+        // 닉네임을 거쳐 서버가 완성하는 pageTitle 도 같은 불변식을 지켜야 한다
+        assertThat(html).contains("<title>{{storeUrl}}님이 gromo 그룹 「스터디」에 초대했어요</title>");
+        assertThat(html).contains(REAL_STORE_URL);
+    }
+
     private static LandingRenderer renderer(String storeUrl) {
         return new LandingRenderer(storeUrl, BASE_URL);
     }
