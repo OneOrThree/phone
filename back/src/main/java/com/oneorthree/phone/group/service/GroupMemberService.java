@@ -58,6 +58,38 @@ public class GroupMemberService {
         targetGroupMember.promoteToOwner();
     }
 
+    /** 멤버 강퇴 (A-3) — OWNER 전용. 소프트삭제 + KICKED 마커로 재참여를 막는다. 본인은 강퇴 불가. */
+    @Transactional
+    public void kickMember(UUID groupId, UUID targetUserId, UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        // 요청자는 활성 OWNER 여야 한다
+        groupMemberRepository.findByUserAndGroup(user, group)
+                .filter(m -> m.getRole() == GroupMemberRole.OWNER)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_OWNER));
+
+        // 본인 강퇴 불가 — 방장은 위임 후 탈퇴, 멤버는 나가기를 쓴다
+        if (userId.equals(targetUserId)) {
+            throw new GroupException(GroupErrorCode.CANNOT_KICK_SELF);
+        }
+
+        User targetUser = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        GroupMember target = groupMemberRepository.findByUserAndGroup(targetUser, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        // 강퇴 마킹. 진행 중 내기 판돈은 건드리지 않는다(지갑 생존 → 정산 시 정상 지급/환불, 엔진 무변경).
+        target.kick();
+        userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
+    }
+
     @Transactional
     public void withdrawGroup(UUID groupId, UUID userId) {
         User user = userRepository.findById(userId)
@@ -70,6 +102,7 @@ public class GroupMemberService {
         GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
 
+        // A-0 소프트삭제: 행을 지우지 않고 이탈 마킹(leave). findByGroup 은 활성만 세므로 마지막 1인 판정 유지.
         List<GroupMember> groupMembers = groupMemberRepository.findByGroup(group);
         if (groupMembers.size() > 1 && groupMember.getRole() == GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
@@ -80,10 +113,10 @@ public class GroupMemberService {
         groupBetService.releaseFromOpenBets(user, group);
 
         if (groupMembers.size() == 1) {
-            groupMemberRepository.delete(groupMember);
+            groupMember.leave();
             group.close();
         } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
-            groupMemberRepository.delete(groupMember);
+            groupMember.leave();
         }
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
     }

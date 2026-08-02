@@ -123,7 +123,10 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
         groupChallengeDurationRepository.findById(challenge.getId())
                 .ifPresent(groupChallengeDurationRepository::delete);
         groupChallengeRepository.delete(challenge);
-        groupMemberRepository.deleteAll(groupMemberRepository.findByGroup(group));
+        // A-0 소프트삭제 이후 findByGroup 은 활성 멤버만 돌려주므로, 탈퇴(withdrawGroup)로 is_left=true 가
+        // 된 행이 남아 아래 유저 삭제에서 FK 를 위반한다 — users 로 직접 훑어 소프트삭제 행까지 지운다.
+        users.forEach(u -> groupMemberRepository.findAnyByUserAndGroup(u, group)
+                .ifPresent(groupMemberRepository::delete));
         users.forEach(u -> userWalletRepository.findById(u.getId()).ifPresent(userWalletRepository::delete));
         userRepository.deleteAll(users);
         groupRepository.delete(group);

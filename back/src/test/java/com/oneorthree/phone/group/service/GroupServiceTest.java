@@ -37,7 +37,9 @@ import com.oneorthree.phone.group.dto.CreateGroupRequest;
 import com.oneorthree.phone.group.dto.CreateGroupResponse;
 import com.oneorthree.phone.group.dto.GroupAnnouncementResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
+import com.oneorthree.phone.group.dto.GroupDetailMemberResponse;
 import com.oneorthree.phone.group.dto.GroupDetailResponse;
+import com.oneorthree.phone.group.dto.UpdateGroupRequest;
 import com.oneorthree.phone.group.dto.GroupSearchResponse;
 import com.oneorthree.phone.group.dto.GroupOverviewResponse;
 import com.oneorthree.phone.group.dto.GroupSettingsResponse;
@@ -66,12 +68,17 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
+import org.springframework.test.util.ReflectionTestUtils;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -148,6 +155,8 @@ class GroupServiceTest {
 
     // ── 헬퍼 ──────────────────────────────────────────────────────────────
 
+    // D18: 그룹 생성 요청은 더 이상 미션(챌린지) 필드를 담지 않는다 — durationMinutes 인자는
+    // 호출부 시그니처 호환을 위해 남겨두되(생성 자체엔 영향 없음) 요청 바디엔 반영하지 않는다.
     private CreateGroupRequest durationRequest(String password, Integer maxMembers, Integer durationMinutes) {
         return durationRequest(password, maxMembers, durationMinutes, false);
     }
@@ -157,16 +166,6 @@ class GroupServiceTest {
         return CreateGroupRequest.builder()
                 .name("스터디룸").password(password).description("설명").maxMembers(maxMembers)
                 .isPrivate(isPrivate)
-                .missionType(MissionType.DURATION).missionCategory(MissionCategory.FOCUS)
-                .durationMinutes(durationMinutes)
-                .build();
-    }
-
-    private CreateGroupRequest timeWindowRequest(Instant windowStart, Instant windowEnd) {
-        return CreateGroupRequest.builder()
-                .name("스터디룸").description("설명").maxMembers(5)
-                .missionType(MissionType.TIME_WINDOW).missionCategory(MissionCategory.FOCUS)
-                .windowStart(windowStart).windowEnd(windowEnd)
                 .build();
     }
 
@@ -255,18 +254,9 @@ class GroupServiceTest {
         verify(groupMemberRepository).save(memberCaptor.capture());
         assertThat(memberCaptor.getValue().getRole()).isEqualTo(GroupMemberRole.OWNER);
 
-        // GROMO-674: 미션 정보는 groups 컬럼 대신 대표 챌린지 + duration 상세로 저장
-        ArgumentCaptor<GroupChallenge> challengeCaptor = ArgumentCaptor.forClass(GroupChallenge.class);
-        verify(groupChallengeRepository).save(challengeCaptor.capture());
-        GroupChallenge savedChallenge = challengeCaptor.getValue();
-        assertThat(savedChallenge.getGroup().getId()).isEqualTo(GROUP_SAVE_ID);
-        assertThat(savedChallenge.getType()).isEqualTo(MissionType.DURATION);
-        assertThat(savedChallenge.getCategory()).isEqualTo(MissionCategory.FOCUS);
-        assertThat(savedChallenge.getStatus()).isEqualTo(GroupChallengeStatus.ACTIVE);
-
-        ArgumentCaptor<GroupChallengeDuration> durationCaptor = ArgumentCaptor.forClass(GroupChallengeDuration.class);
-        verify(groupChallengeDurationRepository).save(durationCaptor.capture());
-        assertThat(durationCaptor.getValue().getDurationMinutes()).isEqualTo(60);
+        // D18: 그룹 생성 시 대표 챌린지를 만들지 않는다 — 챌린지 저장이 일어나지 않아야 한다.
+        verify(groupChallengeRepository, never()).save(any());
+        verify(groupChallengeDurationRepository, never()).save(any());
         verify(groupChallengeWindowRepository, never()).save(any());
     }
 
@@ -302,32 +292,6 @@ class GroupServiceTest {
         ArgumentCaptor<Group> groupCaptor = ArgumentCaptor.forClass(Group.class);
         verify(groupRepository).save(groupCaptor.capture());
         assertThat(groupCaptor.getValue().isPrivate()).isFalse();
-    }
-
-    @Test
-    @DisplayName("TIME_WINDOW 생성 → 대표 챌린지 + window 상세 저장, duration 상세는 저장 안 함")
-    void createGroupTimeWindowSavesWindowDetail() {
-        // given
-        Instant start = Instant.parse("2026-07-10T13:00:00Z");
-        Instant end = Instant.parse("2026-07-10T15:00:00Z");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
-        givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
-
-        // when
-        groupService.createGroup(USER_ID, timeWindowRequest(start, end));
-
-        // then
-        ArgumentCaptor<GroupChallenge> challengeCaptor = ArgumentCaptor.forClass(GroupChallenge.class);
-        verify(groupChallengeRepository).save(challengeCaptor.capture());
-        assertThat(challengeCaptor.getValue().getType()).isEqualTo(MissionType.TIME_WINDOW);
-        assertThat(challengeCaptor.getValue().getStatus()).isEqualTo(GroupChallengeStatus.ACTIVE);
-
-        ArgumentCaptor<GroupChallengeWindow> windowCaptor = ArgumentCaptor.forClass(GroupChallengeWindow.class);
-        verify(groupChallengeWindowRepository).save(windowCaptor.capture());
-        assertThat(windowCaptor.getValue().getWindowStartAt()).isEqualTo(start);
-        assertThat(windowCaptor.getValue().getWindowEndAt()).isEqualTo(end);
-        verify(groupChallengeDurationRepository, never()).save(any());
     }
 
     @Test
@@ -393,52 +357,8 @@ class GroupServiceTest {
                 .isInstanceOf(GroupException.class);
     }
 
-    // ── 미션 파라미터 검증 ────────────────────────────────────────────────
-
-    @Test
-    @DisplayName("DURATION인데 durationMinutes 없음 → INVALID_MISSION_PARAMS")
-    void createGroupDurationMissingMinutes() {
-        // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-
-        // when & then
-        assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, null)))
-                .isInstanceOf(GroupException.class);
-        verify(groupRepository, never()).save(any());
-        verify(groupChallengeRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("DURATION인데 durationMinutes <= 0 → INVALID_MISSION_PARAMS (createChallenge 와 동일 규칙)")
-    void createGroupDurationRejectsNonPositiveMinutes() {
-        // given: 0분·음수 목표는 진행률 판정을 무의미하게 만들어 생성 단계에서 막는다
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-
-        // when & then
-        assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, 0)))
-                .isInstanceOf(GroupException.class)
-                .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
-        assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, -10)))
-                .isInstanceOf(GroupException.class)
-                .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
-        verify(groupRepository, never()).save(any());
-        verify(groupChallengeRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("TIME_WINDOW인데 windowStart/End 없음 → INVALID_MISSION_PARAMS")
-    void createGroupTimeWindowMissingRange() {
-        // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-
-        // when & then
-        assertThatThrownBy(() -> groupService.createGroup(USER_ID, timeWindowRequest(Instant.now(), null)))
-                .isInstanceOf(GroupException.class);
-        verify(groupRepository, never()).save(any());
-        verify(groupChallengeRepository, never()).save(any());
-    }
+    // D18: 그룹 생성 단계의 미션 파라미터 검증(INVALID_MISSION_PARAMS)은 폐지됐다 —
+    // 미션은 그룹 생성이 아니라 그룹방의 챌린지 생성 API가 검증한다(GroupChallengeService).
 
     // ── 참가 코드 생성 ────────────────────────────────────────────────────
 
@@ -593,30 +513,130 @@ class GroupServiceTest {
     // ── searchGroups ──────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("null 쿼리 → 빈 리스트 반환, 레포지토리 호출 없음")
-    void searchGroupsNullQuery() {
+    @DisplayName("null 쿼리 → 공개방 기본 목록(findTopPublicGroups) 반환, trgm 미호출 (A-10)")
+    void searchGroupsNullQueryReturnsTopPublic() {
+        // given: 검색어 없이 시트 열림 → 서버가 공개방 최신순 상위 10개를 준다
+        Group publicGroup = Group.builder().id(GROUP_ID).name("공개스터디").maxMembers(5)
+                .status(GroupStatus.WAITING).build();
+        given(groupRepository.findTopPublicGroups(10)).willReturn(List.of(publicGroup));
+        given(groupMemberRepository.countByGroupIdIn(List.of(GROUP_ID)))
+                .willReturn(List.of(memberCount(GROUP_ID, 2)));
+
+        // when
         List<GroupSearchResponse> result = groupService.searchGroups(null);
 
-        assertThat(result).isEmpty();
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getGroupId()).isEqualTo(GROUP_ID);
+        assertThat(result.get(0).getCurrentMembers()).isEqualTo(2);
         verify(groupRepository, never()).searchPublicByNameTrgm(anyString(), anyInt());
     }
 
     @Test
-    @DisplayName("빈 문자열 쿼리 → 빈 리스트 반환, 레포지토리 호출 없음")
-    void searchGroupsEmptyQuery() {
-        List<GroupSearchResponse> result = groupService.searchGroups("");
+    @DisplayName("빈 문자열 쿼리 → 기본 목록 조회(findTopPublicGroups), trgm 미호출 (A-10)")
+    void searchGroupsEmptyQueryUsesDefaultList() {
+        groupService.searchGroups("");
 
-        assertThat(result).isEmpty();
+        verify(groupRepository).findTopPublicGroups(10);
         verify(groupRepository, never()).searchPublicByNameTrgm(anyString(), anyInt());
     }
 
     @Test
-    @DisplayName("공백만 있는 쿼리 → 빈 리스트 반환, 레포지토리 호출 없음")
-    void searchGroupsBlankQuery() {
-        List<GroupSearchResponse> result = groupService.searchGroups("   ");
+    @DisplayName("공백만 있는 쿼리 → 기본 목록 조회(findTopPublicGroups), trgm 미호출 (A-10)")
+    void searchGroupsBlankQueryUsesDefaultList() {
+        groupService.searchGroups("   ");
 
-        assertThat(result).isEmpty();
+        verify(groupRepository).findTopPublicGroups(10);
         verify(groupRepository, never()).searchPublicByNameTrgm(anyString(), anyInt());
+    }
+
+    // ── updateGroup 공개/비밀 전환 (A-1) ──────────────────────────────────
+
+    @Test
+    @DisplayName("OWNER 가 공개→비밀 전환 → group.isPrivate 반영 (A-1)")
+    void updateGroupChangesIsPrivate() {
+        User owner = userWithNickname(USER_ID, "방장");
+        Group group = Group.builder().id(GROUP_ID).name("그룹").maxMembers(10)
+                .status(GroupStatus.WAITING).isPrivate(false).build();
+        GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+
+        // UpdateGroupRequest 는 빌더/세터가 없어 필드만 리플렉션으로 세팅
+        UpdateGroupRequest request = new UpdateGroupRequest();
+        ReflectionTestUtils.setField(request, "isPrivate", Boolean.TRUE);
+
+        groupService.updateGroup(GROUP_ID, USER_ID, request);
+
+        assertThat(group.isPrivate()).isTrue();
+    }
+
+    @Test
+    @DisplayName("OWNER 아니면 공개/비밀 수정 불가 → NOT_OWNER, 값 불변 (A-1)")
+    void updateGroupIsPrivateRejectsNonOwner() {
+        User member = userWithNickname(USER_ID, "멤버");
+        Group group = Group.builder().id(GROUP_ID).name("그룹").maxMembers(10)
+                .status(GroupStatus.WAITING).isPrivate(false).build();
+        GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(member));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
+
+        UpdateGroupRequest request = new UpdateGroupRequest();
+        ReflectionTestUtils.setField(request, "isPrivate", Boolean.TRUE);
+
+        assertThatThrownBy(() -> groupService.updateGroup(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.NOT_OWNER);
+        assertThat(group.isPrivate()).isFalse();
+    }
+
+    // ── getGroupDetail 멤버 리더보드 정렬 (A-8) ───────────────────────────
+
+    @Test
+    @DisplayName("멤버 목록은 전체 누적 집중시간 내림차순으로 서버 정렬된다 (A-8)")
+    void getGroupDetailSortsMembersByTotalFocusDesc() {
+        UUID uMid = UUID.fromString("00000000-0000-0000-0000-0000000000a2");
+        UUID uTop = UUID.fromString("00000000-0000-0000-0000-0000000000a3");
+        User me = userWithNickname(USER_ID, "나");     // 누적 낮음
+        User mid = userWithNickname(uMid, "중간");
+        User top = userWithNickname(uTop, "최상");
+        Group group = Group.builder().id(GROUP_ID).name("그룹").maxMembers(10)
+                .status(GroupStatus.WAITING).build();
+        GroupMember gmMe = GroupMember.builder().user(me).group(group).role(GroupMemberRole.OWNER).build();
+        GroupMember gmMid = GroupMember.builder().user(mid).group(group).role(GroupMemberRole.MEMBER).build();
+        GroupMember gmTop = GroupMember.builder().user(top).group(group).role(GroupMemberRole.MEMBER).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(me));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(me, group)).willReturn(Optional.of(gmMe));
+        // 삽입 순서는 누적과 무관(정렬 자체를 검증) — 나(낮음)·중간·최상 순으로 넣는다
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(gmMe, gmMid, gmTop));
+        // 목 행은 given() 밖에서 먼저 조립한다 — willReturn 인자 안에서 focusTotal 이 중첩 스터빙하면
+        // Mockito UnfinishedStubbingException 이 난다.
+        List<DailyFocusStatRepository.UserFocusTotal> rows = List.of(
+                focusTotal(USER_ID, 60),     // 1분
+                focusTotal(uMid, 600),       // 10분
+                focusTotal(uTop, 6000));     // 100분
+        given(dailyFocusStatRepository.sumTotalFocusSecondsByUserIdIn(anyList())).willReturn(rows);
+
+        GroupDetailResponse response =
+                groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3));
+
+        assertThat(response.getMembers()).extracting(GroupDetailMemberResponse::getNickname)
+                .containsExactly("최상", "중간", "나");
+        assertThat(response.getMembers().get(0).getTotalFocusMinutes()).isEqualTo(100);
+        assertThat(response.getMembers().get(2).getTotalFocusMinutes()).isEqualTo(1);
+    }
+
+    /** A-8 누적 집중 배치 조회 결과 행(UserFocusTotal 프로젝션) 목 생성 헬퍼. */
+    private DailyFocusStatRepository.UserFocusTotal focusTotal(UUID userId, long seconds) {
+        DailyFocusStatRepository.UserFocusTotal row = mock(DailyFocusStatRepository.UserFocusTotal.class);
+        given(row.getUserId()).willReturn(userId);
+        given(row.getTotalSeconds()).willReturn(seconds);
+        return row;
     }
 
     @Test
@@ -1264,6 +1284,54 @@ class GroupServiceTest {
     }
 
     @Test
+    @DisplayName("자진 탈퇴자 재가입 → 기존 행 되살리기(rejoin), 신규 저장 없음 (A-0)")
+    void joinGroupResurrectsLeftMember() {
+        // given: 과거 자진 탈퇴(LEFT)한 이탈 행이 존재
+        User user = normalUser();
+        Group group = openGroup();
+        GroupMember left = GroupMember.builder()
+                .user(user).group(group).role(GroupMemberRole.MEMBER).build();
+        left.leave();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.findAnyByUserAndGroup(user, group)).willReturn(Optional.of(left));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+
+        // when
+        groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest());
+
+        // then: 기존 행이 활성으로 복원되고, 신규 insert 는 없다(유니크 제약 회피)
+        assertThat(left.isLeft()).isFalse();
+        assertThat(left.getRole()).isEqualTo(GroupMemberRole.MEMBER);
+        verify(groupMemberRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("강퇴된 유저 재가입 → KICKED_CANNOT_REJOIN, 저장 없음 (A-0)")
+    void joinGroupRejectsKickedMember() {
+        // given: 과거 강퇴(KICKED)된 이탈 행이 존재
+        User user = normalUser();
+        Group group = openGroup();
+        GroupMember kicked = GroupMember.builder()
+                .user(user).group(group).role(GroupMemberRole.MEMBER).build();
+        kicked.kick();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.findAnyByUserAndGroup(user, group)).willReturn(Optional.of(kicked));
+
+        // when & then
+        assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.KICKED_CANNOT_REJOIN);
+        verify(groupMemberRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("정원 초과 → ROOM_FULL")
     void joinGroupRoomFull() {
         // given
@@ -1721,17 +1789,17 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("설정 조회 → noticeGrantedUserIds 는 announcement_permission=ALLOW 멤버만 (방장 제외)")
-    void getGroupSettingsNoticeGrantedFromMembers() {
+    @DisplayName("A-4 설정 조회 → announcementGrants 는 전 멤버(방장 포함) + granted(방장·ALLOW=true)")
+    void getGroupSettingsReturnsAnnouncementGrants() {
         // given: 방장 + ALLOW 멤버 + DISALLOW(기본값) 멤버
+        UUID plainId = UUID.fromString("00000000-0000-0000-0000-000000000003");
         User owner = userWithNickname(USER_ID, "방장");
         User granted = userWithNickname(TARGET_USER_ID, "허용멤버");
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember ownerMember = ownerMemberOf(owner, group);
         GroupMember grantedMember = memberWithPermission(granted, group, GroupAnnouncementGrant.ALLOW);
         GroupMember plainMember = memberWithPermission(
-                userWithNickname(UUID.fromString("00000000-0000-0000-0000-000000000003"), "일반멤버"),
-                group, GroupAnnouncementGrant.DISALLOW);
+                userWithNickname(plainId, "일반멤버"), group, GroupAnnouncementGrant.DISALLOW);
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
@@ -1742,71 +1810,56 @@ class GroupServiceTest {
         // when
         GroupSettingsResponse response = groupService.getGroupSettings(GROUP_ID, USER_ID);
 
-        // then: ALLOW 멤버만 포함
-        assertThat(response.getNoticeGrantedUserIds()).containsExactly(TARGET_USER_ID);
+        // then: 전 멤버 포함, granted → 방장=true, ALLOW=true, DISALLOW=false + 닉네임 조인
+        assertThat(response.getAnnouncementGrants())
+                .extracting(GroupSettingsResponse.AnnouncementGrant::getUserId,
+                        GroupSettingsResponse.AnnouncementGrant::getNickname,
+                        GroupSettingsResponse.AnnouncementGrant::isGranted)
+                .containsExactlyInAnyOrder(
+                        tuple(USER_ID, "방장", true),
+                        tuple(TARGET_USER_ID, "허용멤버", true),
+                        tuple(plainId, "일반멤버", false));
     }
 
     @Test
-    @DisplayName("설정 변경(noticeGrantedUserIds) → 대상 멤버 ALLOW, 미포함 멤버 회수, 방장 불변")
-    void updateGroupSettingsRewiresAnnouncementPermission() {
-        // given: 방장 + 부여 대상(DISALLOW) + 회수 대상(기존 ALLOW)
+    @DisplayName("A-4 설정 변경(announcementGrants) → 항목별 granted 반영, 미포함 멤버 불변, 방장 무시")
+    void updateGroupSettingsAppliesAnnouncementGrants() {
+        // given: 방장 + 부여 대상(DISALLOW→true) + 회수 대상(ALLOW→false) + 미포함 멤버(ALLOW 유지)
+        UUID revokeeId = UUID.fromString("00000000-0000-0000-0000-000000000003");
+        UUID untouchedId = UUID.fromString("00000000-0000-0000-0000-000000000004");
         User owner = userWithNickname(USER_ID, "방장");
         User grantee = userWithNickname(TARGET_USER_ID, "부여대상");
-        User revokee = userWithNickname(UUID.fromString("00000000-0000-0000-0000-000000000003"), "회수대상");
+        User revokee = userWithNickname(revokeeId, "회수대상");
+        User untouched = userWithNickname(untouchedId, "미포함");
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember ownerMember = ownerMemberOf(owner, group);
         GroupMember granteeMember = memberWithPermission(grantee, group, GroupAnnouncementGrant.DISALLOW);
         GroupMember revokeeMember = memberWithPermission(revokee, group, GroupAnnouncementGrant.ALLOW);
+        GroupMember untouchedMember = memberWithPermission(untouched, group, GroupAnnouncementGrant.ALLOW);
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByGroup(group))
-                .willReturn(List.of(ownerMember, granteeMember, revokeeMember));
+                .willReturn(List.of(ownerMember, granteeMember, revokeeMember, untouchedMember));
 
-        UpdateGroupSettingsRequest request =
-                new UpdateGroupSettingsRequest(null, null, null, List.of(TARGET_USER_ID));
+        UpdateGroupSettingsRequest request = new UpdateGroupSettingsRequest(List.of(
+                new UpdateGroupSettingsRequest.AnnouncementGrant(TARGET_USER_ID, true),
+                new UpdateGroupSettingsRequest.AnnouncementGrant(revokeeId, false)));
 
         // when
         groupService.updateGroupSettings(GROUP_ID, USER_ID, request);
 
-        // then: 목록에 있으면 ALLOW, 없으면 DISALLOW, 방장은 role 로 항상 가능하므로 컬럼 불변
+        // then: 항목대로 반영, 미포함 멤버 불변, 방장은 role 로 항상 가능하므로 컬럼 무시
         assertThat(granteeMember.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.ALLOW);
         assertThat(revokeeMember.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.DISALLOW);
+        assertThat(untouchedMember.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.ALLOW);
         assertThat(ownerMember.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.DISALLOW);
     }
 
     @Test
-    @DisplayName("설정 변경(noticeGrantedUserIds=빈 리스트) → 전원 회수, 방장 불변")
-    void updateGroupSettingsEmptyNoticeGrantedRevokesAll() {
-        // given: 방장 + ALLOW 멤버 2명 (빈 리스트 = 전원 초기화 케이스, PR #178 리뷰)
-        User owner = userWithNickname(USER_ID, "방장");
-        User memberA = userWithNickname(TARGET_USER_ID, "멤버A");
-        User memberB = userWithNickname(UUID.fromString("00000000-0000-0000-0000-000000000003"), "멤버B");
-        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
-        GroupMember ownerMember = ownerMemberOf(owner, group);
-        GroupMember allowA = memberWithPermission(memberA, group, GroupAnnouncementGrant.ALLOW);
-        GroupMember allowB = memberWithPermission(memberB, group, GroupAnnouncementGrant.ALLOW);
-
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
-        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember, allowA, allowB));
-
-        UpdateGroupSettingsRequest request = new UpdateGroupSettingsRequest(null, null, null, List.of());
-
-        // when
-        groupService.updateGroupSettings(GROUP_ID, USER_ID, request);
-
-        // then: 전 멤버 DISALLOW 회수, 방장은 컬럼 불변(role 로 항상 가능)
-        assertThat(allowA.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.DISALLOW);
-        assertThat(allowB.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.DISALLOW);
-        assertThat(ownerMember.getAnnouncementPermission()).isEqualTo(GroupAnnouncementGrant.DISALLOW);
-    }
-
-    @Test
-    @DisplayName("설정 변경(noticeGrantedUserIds=null) → 공지 권한 미변경, 나머지 설정만 반영")
-    void updateGroupSettingsNullNoticeGrantedKeepsPermissions() {
+    @DisplayName("A-4 설정 변경(announcementGrants=빈 리스트) → 미변경(findByGroup 미호출)")
+    void updateGroupSettingsEmptyGrantsNoChange() {
         // given
         User owner = userWithNickname(USER_ID, "방장");
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
@@ -1816,15 +1869,34 @@ class GroupServiceTest {
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
 
-        UpdateGroupSettingsRequest request = new UpdateGroupSettingsRequest(false, 10, null, null);
+        UpdateGroupSettingsRequest request = new UpdateGroupSettingsRequest(List.of());
 
         // when
         groupService.updateGroupSettings(GROUP_ID, USER_ID, request);
 
-        // then: 멤버 권한 일괄 반영 없음(findByGroup 미호출) + 채팅 설정 반영
+        // then: 빈 리스트 = 미변경 → 멤버 일괄 조회 자체가 없다
         verify(groupMemberRepository, never()).findByGroup(group);
-        assertThat(group.isChatEnabled()).isFalse();
-        assertThat(group.getChatLimitPerPerson()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("A-4 설정 변경(announcementGrants=null) → 미변경(findByGroup 미호출)")
+    void updateGroupSettingsNullGrantsNoChange() {
+        // given
+        User owner = userWithNickname(USER_ID, "방장");
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember ownerMember = ownerMemberOf(owner, group);
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+
+        UpdateGroupSettingsRequest request = new UpdateGroupSettingsRequest(null);
+
+        // when
+        groupService.updateGroupSettings(GROUP_ID, USER_ID, request);
+
+        // then: null = 미변경 → 멤버 일괄 조회 자체가 없다
+        verify(groupMemberRepository, never()).findByGroup(group);
     }
 
     @Test

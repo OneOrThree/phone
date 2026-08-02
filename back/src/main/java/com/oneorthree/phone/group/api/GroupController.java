@@ -219,6 +219,23 @@ public class GroupController {
         return ResponseEntity.noContent().build();
     }
 
+    @Operation(summary = "멤버 강퇴", description = "현재 OWNER만 호출 가능. 대상 멤버를 강퇴(재참여 차단). 본인은 강퇴 불가.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "강퇴 성공"),
+            @ApiResponse(responseCode = "400", description = "본인 강퇴 시도"),
+            @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음 / 대상 멤버 없음")
+    })
+    @DeleteMapping("/groups/{groupId}/members/{targetUserId}")
+    public ResponseEntity<Void> kickMember(
+            @PathVariable UUID groupId,
+            @PathVariable UUID targetUserId,
+            @LoginUser UUID userId
+    ) {
+        groupMemberService.kickMember(groupId, targetUserId, userId);
+        return ResponseEntity.noContent().build();
+    }
+
     @Operation(summary = "그룹 챌린지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환. 삭제된 챌린지는 제외."
             + " date(선택, 클라 로컬 타임존 기준 오늘)를 주면 멤버별 당일 진행률(memberProgress)을 함께 반환한다"
             + " — date 미전달, 목표(durationMinutes) 없는 창 챌린지, INACTIVE 면 memberProgress 는 null."

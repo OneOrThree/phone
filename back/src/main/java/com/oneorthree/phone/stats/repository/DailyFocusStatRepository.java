@@ -103,4 +103,19 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
             @Param("occupation") Occupation occupation,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);
+
+    /**
+     * userId 집합의 전체 기간 누적 집중 초 합계를 유저별로 배치 조회한다 (A-8 그룹방 리더보드).
+     * 집중 기록이 없는 유저는 결과 행이 없으므로 호출측이 0으로 채운다.
+     */
+    @Query("SELECT d.user.id AS userId, COALESCE(SUM(d.totalFocusSeconds), 0) AS totalSeconds "
+            + "FROM DailyFocusStat d WHERE d.user.id IN :userIds GROUP BY d.user.id")
+    List<UserFocusTotal> sumTotalFocusSecondsByUserIdIn(@Param("userIds") Collection<UUID> userIds);
+
+    /** {@link #sumTotalFocusSecondsByUserIdIn} 결과 행 — 유저 id 와 전체 누적 집중 초. */
+    interface UserFocusTotal {
+        UUID getUserId();
+
+        long getTotalSeconds();
+    }
 }
