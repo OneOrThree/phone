@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
@@ -98,14 +98,19 @@ export default function GroupSettingsScreen() {
     }
   }, [groupId]);
 
-  useEffect(() => {
-    load();
-    return () => {
-      // 노드 참조가 아니라 요청 카운터라 cleanup 시점 값을 그대로 올리는 게 맞다(NoticeScreen 주석).
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      requestSeqRef.current++;
-    };
-  }, [load]);
+  // 포커스마다 재조회 — 위임(GroupOwnerTransfer)·강퇴(GroupMemberManage)·공지권한에서 돌아오면
+  // 멤버십/정원이 바뀌어 있을 수 있다. 스택은 뒤로가기 시 이 화면을 언마운트하지 않고 재사용하므로,
+  // 마운트 1회 조회로 두면 방장을 넘긴 직후에도 isOwner가 stale하게 true로 남아 편집·관리 폼이
+  // 그대로 노출된다(3차 리뷰). blur cleanup에서 시퀀스를 올려 진행 중이던 조회를 무효화한다
+  // (GroupScreen·GroupRoomScreen과 같은 패턴).
+  useFocusEffect(
+    useCallback(() => {
+      load();
+      return () => {
+        requestSeqRef.current++;
+      };
+    }, [load]),
+  );
 
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(GroupRoomScreen과 동일).
   const me = userId ? detail?.members.find((m) => m.userId === userId) : undefined;

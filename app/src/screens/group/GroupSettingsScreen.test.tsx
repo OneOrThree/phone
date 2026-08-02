@@ -26,9 +26,16 @@ const mockNavigate = jest.fn();
 // 실제 useNavigation/useRoute는 렌더마다 같은 객체를 준다 — 매번 새 객체를 주면 신원이 흔들린다.
 const mockNavigation = { goBack: mockGoBack, navigate: mockNavigate };
 const mockRoute = { params: { groupId: GROUP_ID } };
+// useFocusEffect 콜백을 홀더에 캡처해, 위임/강퇴 화면에서 돌아오는 '재포커스'를 테스트가 수동 트리거한다.
+const mockFocus: { cb: null | (() => void | (() => void)) } = { cb: null };
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => mockNavigation,
   useRoute: () => mockRoute,
+  useFocusEffect: (cb: () => void | (() => void)) => {
+    const { useEffect } = require('react');
+    mockFocus.cb = cb;
+    useEffect(() => cb(), [cb]);
+  },
 }));
 
 // userId를 바꿔 방어적 권한 체크를 검증할 수 있게 홀더 객체에 담는다(jest.mock 팩토리 제약).
@@ -231,5 +238,30 @@ describe('방어적 권한 체크', () => {
     expect(screen.queryByTestId('group.settings.save')).toBeNull();
     // 백버튼은 남는다(탈출 경로).
     expect(screen.getByLabelText('뒤로')).toBeOnTheScreen();
+  });
+
+  test('같은 세션에서 방장을 넘긴 뒤 허브로 돌아오면(재포커스 재조회) 폼이 사라진다', async () => {
+    // 최초: 내가 OWNER → 편집 폼·저장 버튼이 보인다.
+    await renderScreen();
+    expect(screen.getByTestId('group.settings.save')).toBeOnTheScreen();
+
+    // 위임 화면에서 방장을 넘기고 goBack — 서버 상세에선 내 role이 MEMBER로 바뀌어 있다.
+    mockGetGroupDetail.mockResolvedValue(
+      detail({
+        members: [
+          { userId: 'me', nickname: '나', role: 'MEMBER', focusTimeMinutes: 30, totalFocusMinutes: 30 },
+          { userId: 'u2', nickname: '친구', role: 'OWNER', focusTimeMinutes: 10, totalFocusMinutes: 20 },
+        ],
+      }),
+    );
+    // 스택 화면은 뒤로가기 시 언마운트되지 않으므로, 재포커스 재조회로만 권한이 갱신된다.
+    await act(async () => {
+      mockFocus.cb?.();
+    });
+    await act(async () => {});
+
+    // stale OWNER로 남지 않고 권한 안내로 바뀐다 — 편집 폼·저장 버튼이 사라진다.
+    expect(screen.getByText('방장만 접근할 수 있어요')).toBeOnTheScreen();
+    expect(screen.queryByTestId('group.settings.save')).toBeNull();
   });
 });
