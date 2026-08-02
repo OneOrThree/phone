@@ -28,11 +28,14 @@ const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const SLUG = 'ab23cd45';
 
 const navigate = jest.spyOn(navigationRef, 'navigate');
+const currentRoute = jest.spyOn(navigationRef, 'getCurrentRoute');
 const inviteListener = jest.fn();
 
 beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(navigationRef, 'isReady').mockReturnValue(true);
+  // 지연 이동 가드가 읽는 현재 화면 — 기본은 '딥링크가 옮겨 둔 그룹 탭에 그대로 있다'.
+  currentRoute.mockReturnValue({ key: '그룹-1', name: '그룹' });
   navigate.mockImplementation(() => {});
   clearPendingInvite();
   setGroupInviteListener(inviteListener);
@@ -258,6 +261,50 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
     // FriendAdd는 파라미터 없이 부르므로 라우트 이름만 본다.
     expect(navigate.mock.lastCall?.[0]).toBe(expectedRoute);
+  });
+
+  // 후속 딥링크는 세대 가드가 잡지만, 사용자가 **스스로** 탭을 옮긴 경우는 잡지 못한다 —
+  // 조회 완료가 사용자가 고른 화면 위에 그룹방을 덮어쓴다(코덱스 리뷰).
+  test('조회를 기다리는 사이 사용자가 다른 탭으로 가면 이동을 포기한다', async () => {
+    let resolveGroups: ((v: unknown) => void) | undefined;
+    mockGetMyGroups.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveGroups = resolve)),
+    );
+
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}&challenge=${CHALLENGE_ID}`);
+    // 사용자가 홈 탭을 직접 눌렀다 — 딥링크가 아니라 일반 이동이라 세대는 그대로다.
+    currentRoute.mockReturnValue({ key: '홈-1', name: '홈' });
+    resolveGroups?.([summary(GROUP_ID)]);
+    await flushAsync();
+
+    expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
+  });
+
+  test('이미 그룹방이 열려 있는 상태는 같은 흐름으로 보고 이동을 마친다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
+    currentRoute.mockReturnValue({ key: 'GroupRoom-1', name: 'GroupRoom' });
+
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}&challenge=${CHALLENGE_ID}`);
+    await flushAsync();
+
+    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+      groupId: GROUP_ID,
+      challengeId: CHALLENGE_ID,
+    });
+  });
+
+  // 현재 화면을 못 읽는 경우(구버전 ref·초기화 중)엔 기존대로 이동한다 — 가드는 확신할 때만 막는다.
+  test('현재 화면을 읽지 못하면 기존대로 이동한다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
+    currentRoute.mockReturnValue(undefined);
+
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
+    await flushAsync();
+
+    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+      groupId: GROUP_ID,
+      challengeId: undefined,
+    });
   });
 
   test('내 그룹이 아니면(푸시 후 탈퇴) 그룹 탭까지만 간다', async () => {

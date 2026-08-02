@@ -56,7 +56,6 @@ function pick(args: {
   today?: GroupChallengeResponse[] | null;
   yesterday?: GroupChallengeResponse[] | null;
   now?: Date;
-  focusChallengeId?: string | null;
 }): ChallengeResultCandidate[] {
   return pickChallengeResults({
     today: args.today ?? null,
@@ -65,7 +64,6 @@ function pick(args: {
     yesterdayDate: YESTERDAY,
     now: args.now ?? NOW,
     myUserId: 'me',
-    focusChallengeId: args.focusChallengeId ?? null,
   });
 }
 
@@ -120,40 +118,10 @@ describe('pickChallengeResults — 어제 결과', () => {
     expect(out).toHaveLength(0);
   });
 
+  // 딥링크가 지목해도 마찬가지다 — 서버가 INACTIVE 챌린지의 memberProgress를 항상 null로
+  // 내려주므로(GroupChallengeService.isProgressTarget) 상태 필터를 열어도 후보가 되지 않는다.
   test('INACTIVE 챌린지는 제외한다', () => {
     const out = pick({ yesterday: [challenge({ status: 'INACTIVE' })] });
-    expect(out).toHaveLength(0);
-  });
-
-  // GROMO-1088 — 종료 푸시가 지목한 챌린지만 상태 필터를 넘는다. 종료 푸시는 정의상 끝난
-  // 챌린지를 가리키므로, 서버가 종료를 INACTIVE 전이로 표현하면 예외 없이는 모달이 못 뜬다.
-  test('딥링크가 지목한 챌린지는 INACTIVE여도 후보가 된다', () => {
-    const out = pick({
-      yesterday: [challenge({ status: 'INACTIVE' })],
-      focusChallengeId: 'c1',
-    });
-    expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ challengeId: 'c1', date: YESTERDAY });
-  });
-
-  test('지목한 챌린지가 아니면 INACTIVE는 그대로 제외한다', () => {
-    const out = pick({
-      yesterday: [challenge({ id: 'c1', status: 'INACTIVE' }), challenge({ id: 'c2' })],
-      focusChallengeId: 'c9',
-    });
-    expect(out.map((c) => c.challengeId)).toEqual(['c2']);
-  });
-
-  test('지목해도 판정이 하나도 없으면 후보를 만들지 않는다(집계 전 — 다음 조회가 이어받는다)', () => {
-    const out = pick({
-      yesterday: [
-        challenge({
-          status: 'INACTIVE',
-          memberProgress: [{ userId: 'me', nickname: '나', progressMinutes: null, achieved: null }],
-        }),
-      ],
-      focusChallengeId: 'c1',
-    });
     expect(out).toHaveLength(0);
   });
 

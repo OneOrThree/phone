@@ -164,6 +164,16 @@ function navigateToGroup(seq: number, groupId: string | null, challengeId: strin
   pushGroupRoom(seq, groupId, challengeId).catch(() => {});
 }
 
+// 지연 이동을 계속해도 되는가 — 딥링크는 그룹 탭으로 먼저 옮겨 두고 목록 조회를 기다리는데,
+// 그 사이 사용자가 **스스로** 다른 탭·화면으로 옮겼으면 조회 완료가 그 화면 위에 그룹방을
+// 덮어쓴다(코덱스 리뷰). 후속 딥링크는 세대 가드가 잡지만 일반 탭 이동은 잡지 못한다.
+// 판정은 **확신할 때만** 부정한다 — 현재 화면을 못 읽으면(구버전 ref·초기화 중) 기존대로 이동한다.
+// 그룹 탭('그룹')과 이미 열려 있는 그룹방('GroupRoom')은 같은 흐름으로 본다.
+function isStillInGroupFlow(): boolean {
+  const current = navigationRef.getCurrentRoute?.()?.name;
+  return current === undefined || current === '그룹' || current === 'GroupRoom';
+}
+
 async function pushGroupRoom(
   seq: number,
   groupId: string,
@@ -172,6 +182,7 @@ async function pushGroupRoom(
   const groups = await getMyGroups();
   if (seq !== groupLinkSeq) return; // 더 늦게 탭한 링크가 이미 이동을 맡았다
   if (!navigationRef.isReady()) return;
+  if (!isStillInGroupFlow()) return; // 사용자가 조회를 기다리는 사이 스스로 다른 화면으로 갔다
   if (!groups.some((g) => g.groupId === groupId)) return;
   // challengeId는 **없어도 키를 싣는다** — 이미 스택에 있는 GroupRoom으로 다시 navigate 하면
   // 파라미터가 병합될 수 있어, 키를 빼면 직전 딥링크의 challengeId가 남아 엉뚱한 결과 모달이

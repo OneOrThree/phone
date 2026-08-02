@@ -393,8 +393,6 @@ export default function GroupRoomScreen({
         todayDate: date,
         yesterdayDate: yesterday,
         myUserId: userId ?? null,
-        // 종료 푸시가 지목한 챌린지는 INACTIVE여도 후보로 만든다(challengeResult.ts 주석).
-        focusChallengeId: focusPendingRef.current,
       });
       if (candidates.length > 0) {
         const unseen = await filterUnseenChallengeResults(candidates);

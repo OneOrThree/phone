@@ -84,6 +84,13 @@ function toCandidate(
 // 오늘·어제 챌린지 조회 결과에서 모달 후보를 고른다(가드 반영 전 — 순수 계산).
 // 어느 한쪽 조회가 실패했으면 null로 받는다 — 성공한 쪽만으로 가능한 후보를 만든다(화면 무영향 원칙).
 // 순서: 어제 결과 → 오늘(창 종료) 결과 — 오래된 소식부터 읽게 한다.
+//
+// ⚠️ INACTIVE(끝난) 챌린지는 지목(딥링크) 여부와 무관하게 후보가 되지 않는다. 서버가 INACTIVE
+//    챌린지의 memberProgress를 **항상 null로 내려주기 때문**이다(GroupChallengeService.
+//    isProgressTarget — "끝난 챌린지 목표와 오늘 통계를 대조하면 과거 결과가 매일 바뀌어 보이고,
+//    ended_at이 없어 당시 진행률을 복원할 수도 없다"). 여기서 상태 필터만 열어 줘도 toCandidate가
+//    progress 없는 항목을 곧바로 버려 아무 효과가 없다(코덱스 리뷰). 종료 푸시가 가리키는 결과는
+//    챌린지가 아직 ACTIVE인 동안 확정돼야 한다(창형이 그렇게 동작한다).
 export function pickChallengeResults(args: {
   today: GroupChallengeResponse[] | null;
   yesterday: GroupChallengeResponse[] | null;
@@ -91,31 +98,15 @@ export function pickChallengeResults(args: {
   yesterdayDate: string;
   now?: Date;
   myUserId: string | null;
-  // 챌린지 종료 푸시가 지목한 챌린지(GROMO-1088) — 이 하나만 **종료(INACTIVE) 상태여도** 후보로
-  // 만든다. 평소 INACTIVE를 거르는 이유는 "끝난 챌린지의 결과를 뒤늦게 들이밀지 않는다"이지만,
-  // 종료 푸시는 정의상 끝난 챌린지를 가리키고 사용자가 그 알림을 직접 탭했다. 서버가 종료를
-  // 상태 전이로 표현하면(W3 재량) 이 예외가 없을 때 모달이 영영 뜨지 않는다.
-  focusChallengeId?: string | null;
 }): ChallengeResultCandidate[] {
-  const {
-    today,
-    yesterday,
-    todayDate,
-    yesterdayDate,
-    now = new Date(),
-    myUserId,
-    focusChallengeId = null,
-  } = args;
+  const { today, yesterday, todayDate, yesterdayDate, now = new Date(), myUserId } = args;
   const nowSec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
-  // 상태 필터 — 딥링크가 지목한 챌린지만 통과시킨다(위 focusChallengeId 주석).
-  const statusOk = (c: GroupChallengeResponse) =>
-    c.status === 'ACTIVE' || c.id === focusChallengeId;
 
   // 오늘 창이 이미 끝난 창형 — 오늘 date 결과. 자정에 걸친 창(start > end)은 계약 밖이라
   // end 시각만으로 판정한다(창은 하루 안에서 끝나는 것이 생성 규칙).
   const todayByChallenge = new Map<string, ChallengeResultCandidate>();
   for (const c of today ?? []) {
-    if (!statusOk(c) || c.missionType !== 'TIME_WINDOW') continue;
+    if (c.status !== 'ACTIVE' || c.missionType !== 'TIME_WINDOW') continue;
     const endSec = windowEndSeconds(c.windowEnd);
     if (endSec === null || nowSec <= endSec) continue;
     const candidate = toCandidate(c, todayDate, myUserId);
@@ -124,7 +115,7 @@ export function pickChallengeResults(args: {
 
   const out: ChallengeResultCandidate[] = [];
   for (const c of yesterday ?? []) {
-    if (!statusOk(c)) continue;
+    if (c.status !== 'ACTIVE') continue;
     if (todayByChallenge.has(c.id)) continue; // 창형 당일 결과가 있으면 그쪽을 쓴다(대체)
     const candidate = toCandidate(c, yesterdayDate, myUserId);
     if (candidate) out.push(candidate);

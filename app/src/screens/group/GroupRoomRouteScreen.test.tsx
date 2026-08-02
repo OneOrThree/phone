@@ -185,10 +185,11 @@ describe('라우트 진입 계약', () => {
               durationMinutes: 60,
               windowStart: null,
               windowEnd: null,
-              // 종료된 챌린지도 지목되면 열린다 — 종료 푸시는 정의상 끝난 챌린지를 가리킨다.
-              status: 'INACTIVE',
+              // 결과가 확정된 시점에도 챌린지는 ACTIVE다(창형이 그렇게 동작한다) —
+              // INACTIVE는 서버가 memberProgress를 null로 내려 후보가 되지 않는다.
+              status: 'ACTIVE',
               createdAt: '2026-07-30T06:00:00',
-              canParticipate: false,
+              canParticipate: true,
               memberProgress: [
                 { userId: 'me', nickname: '나', progressMinutes: 70, achieved: true },
               ],

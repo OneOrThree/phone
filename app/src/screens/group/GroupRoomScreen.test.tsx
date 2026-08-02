@@ -1722,14 +1722,18 @@ describe('챌린지 결과 모달(A3)', () => {
       expect(screen.getByText('7월 31일 결과')).toBeOnTheScreen();
     });
 
-    test('종료(INACTIVE)된 챌린지도 지목되면 모달을 연다', async () => {
+    // 서버가 INACTIVE 챌린지의 memberProgress를 항상 null로 내려주므로(GroupChallengeService.
+    // isProgressTarget) 끝난 챌린지는 지목해도 후보가 되지 않는다 — 앱이 열어 줄 수 없는 상태다.
+    test('종료(INACTIVE)된 챌린지는 지목해도 열리지 않는다', async () => {
       mockGetGroupDetail.mockResolvedValue(detail());
       mockGetAnnouncements.mockResolvedValue([]);
-      challengesByDate({ '2026-07-31': [settled({ status: 'INACTIVE' })] });
+      challengesByDate({
+        '2026-07-31': [settled({ status: 'INACTIVE', memberProgress: null })],
+      });
 
       await renderWithFocus('c1');
 
-      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
     });
 
     test('닫은 뒤 재조회에서 다시 뜨지 않는다(1회 소비 + 노출 가드)', async () => {
