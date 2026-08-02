@@ -47,7 +47,8 @@ import java.util.stream.Collectors;
  * 자정을 걸치는 창은 D 시작 ~ D+1 종료로 전개된다. 그래서 감지 후보 날짜를 어제·오늘 둘로 잡는다.
  *
  * <p>dedup: (user_id, type={@code CHALLENGE_WINDOW_END}, target_user_id={@code challengeId}) +
- * <b>당일(KST) sent_at</b>. 매일 반복되는 창이라 날짜를 끊지 않으면 이튿날 발송까지 막힌다.
+ * <b>당일(KST) sent_at</b>(단, 감지 폭만큼은 자정 너머까지 — {@link #alreadySentUserIds} 참고).
+ * 매일 반복되는 창이라 날짜를 끊지 않으면 이튿날 발송까지 막힌다.
  */
 @Slf4j
 @Service
@@ -178,13 +179,22 @@ public class ChallengeWindowEndNotificationService {
     }
 
     /**
-     * 오늘(KST) 이미 이 챌린지의 창 종료 푸시를 받은 유저. 기존 인덱스(user_id, type, sent_at)를 타도록
-     * 유저 집합 + 당일 구간으로 조회하고 target_user_id 는 메모리에서 접는다.
+     * 이미 이 챌린지의 이번 창 종료 푸시를 받은 유저. 기존 인덱스(user_id, type, sent_at)를 타도록
+     * 유저 집합 + 구간으로 조회하고 target_user_id 는 메모리에서 접는다.
+     *
+     * <p>구간은 당일(KST) 00:00 이되, <b>감지 폭만큼은 자정 너머까지</b> 본다. 하나의 창 종료는 감지
+     * 폭(30분)이 크론 주기(15분)보다 넓어 보통 연속 두 틱에 걸쳐 잡히는데, 종료 시각이 23:30~24:00 이면
+     * 그 두 틱이 자정을 사이에 두고 하루씩 갈린다 — 당일 00:00 으로만 끊으면 자정 뒤 틱이 자정 전에
+     * 남긴 기록을 못 보고 <b>전원에게 두 번</b> 보낸다(@claude 리뷰 지적). 창은 매일 반복이라 직전
+     * 발생은 24시간 전이므로, 30분을 더 거슬러 올라가도 어제 발송분을 오늘 dedup 으로 잘못 집는 일은
+     * 없다.
      */
     private Set<UUID> alreadySentUserIds(UUID challengeId, List<UUID> userIds, Instant now) {
         Instant startOfTodayKst = LocalDate.ofInstant(now, KST).atStartOfDay(KST).toInstant();
+        Instant detectionFloor = now.minus(RECENTLY_ENDED_WINDOW);
+        Instant since = detectionFloor.isBefore(startOfTodayKst) ? detectionFloor : startOfTodayKst;
         return notificationSentLogRepository.findByTypeAndUserIdInSince(
-                        NotificationSentLog.TYPE_CHALLENGE_WINDOW_END, userIds, startOfTodayKst)
+                        NotificationSentLog.TYPE_CHALLENGE_WINDOW_END, userIds, since)
                 .stream()
                 .filter(sentLog -> challengeId.equals(sentLog.getTargetUserId()))
                 .map(NotificationSentLog::getUserId)
