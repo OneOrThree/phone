@@ -31,8 +31,9 @@ public class CharacterModerationController {
                     + "검사만 합니다. allowed=false 면 유해로 판정된 것이며, 검사 실패 시 안전하게 차단합니다.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "검사 완료 — allowed 로 통과/거부 구분"),
-        @ApiResponse(responseCode = "400", description = "image 누락 또는 크기 초과"),
-        @ApiResponse(responseCode = "401", description = "인증 없음")
+        @ApiResponse(responseCode = "400", description = "image 누락, 또는 chunked 요청의 base64 크기 초과(@Size)"),
+        @ApiResponse(responseCode = "401", description = "인증 없음"),
+        @ApiResponse(responseCode = "413", description = "요청 본문(Content-Length)이 한도 초과 — 역직렬화 전 차단")
     })
     @PostMapping("/character/moderation")
     public ResponseEntity<ImageModerationResponse> moderate(

@@ -24,9 +24,12 @@ import java.io.IOException;
 @Slf4j
 public class ModerationRequestSizeFilter extends OncePerRequestFilter {
 
-    // ImageModerationRequest 의 @Size(max = 10MB) 와 맞추되 JSON 봉투(`{"image":"..."}`)·escape 여유로
-    // 1KB 만 더한 상한. 정상 10MB 이미지는 통과하고, 그보다 큰 본문만 역직렬화 전에 끊는다.
-    static final long MAX_BODY_BYTES = 10L * 1024 * 1024 + 1024;
+    // ImageModerationRequest 의 @Size 는 디코드된 base64 '문자열 길이'(≈10MiB)를 재지만, 이 필터가 보는
+    // Content-Length 는 '와이어 바이트'다. JSON 직렬화가 base64 의 '/' 를 '\/' 로 이스케이프하면 와이어가
+    // 문자열보다 커지므로(base64 의 '/' 비중 ~1.6% → 최대 수백 KB 증가), @Size 를 통과할 정상 요청이 좁은
+    // 한도에 걸려 413 이 나는 걸 막기 위해 와이어 한도를 별도로 넉넉히(12MiB) 둔다. 실제 이미지 크기는
+    // @Size 가 10MiB 로 정밀 차단하고, 이 필터는 그보다 훨씬 큰 본문만 역직렬화 전에 끊는다.
+    static final long MAX_WIRE_BYTES = 12L * 1024 * 1024;
 
     @Override
     protected void doFilterInternal(
@@ -36,8 +39,8 @@ public class ModerationRequestSizeFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
 
         long contentLength = request.getContentLengthLong();
-        if (contentLength > MAX_BODY_BYTES) {
-            log.warn("모더레이션 요청 본문 초과 차단 — contentLength={} (상한 {})", contentLength, MAX_BODY_BYTES);
+        if (contentLength > MAX_WIRE_BYTES) {
+            log.warn("모더레이션 요청 본문 초과 차단 — contentLength={} (상한 {})", contentLength, MAX_WIRE_BYTES);
             response.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             response.getWriter().write("{\"error\":\"PAYLOAD_TOO_LARGE\"}");
