@@ -1,6 +1,7 @@
 package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.group.domain.GroupBetStatus;
+import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.dto.GroupBetSettlementSummaryResponse;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -16,8 +17,11 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 /**
  * 배치 요약 집계 단위 테스트 — "몇 건을 실제로 정산했는가"를 정확히 세는지만 본다.
@@ -101,36 +105,73 @@ class GroupBetSettlementServiceTest {
         assertThat(summary.skippedCount()).isZero();
     }
 
-    // ── 정산 기준일(그레이스 4h) ─────────────────────────────────────────
-    // 수동 트리거가 00:00~04:00 KST 에 호출돼도 그레이스가 안 끝난 전일자를 앞당겨 정산하면 안 된다.
+    // ── 카테고리 분리(크론 2회) ──────────────────────────────────────────
+    // 01:00 은 FOCUS, 12:00 은 SCREEN_TIME 만 집는다 — 스크린타임을 01:00 에 집으면 아침 보고 전이라
+    // 미보고=미달성 억울 패배가 양산된다.
 
     @Test
-    @DisplayName("04:00 KST 정각(스케줄 시각)의 기준일은 그날 — 전일자가 대상이 된다")
+    @DisplayName("카테고리를 주면 그 카테고리 대상만 조회한다 — 전체 조회는 타지 않는다")
+    void settlesOnlyRequestedCategory() {
+        UUID focusBet = UUID.randomUUID();
+        given(groupChallengeBetRepository.findIdsByStatusAndBetDateBeforeAndCategory(
+                GroupBetStatus.OPEN, TODAY, MissionCategory.FOCUS)).willReturn(List.of(focusBet));
+        given(groupBetSettler.settle(focusBet))
+                .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.SETTLED, true));
+
+        GroupBetSettlementSummaryResponse summary =
+                groupBetSettlementService.settleDueBets(TODAY, MissionCategory.FOCUS);
+
+        assertThat(summary.targetCount()).isEqualTo(1);
+        assertThat(summary.settledCount()).isEqualTo(1);
+        verify(groupChallengeBetRepository, never())
+                .findIdsByStatusAndBetDateBefore(any(), any());
+    }
+
+    @Test
+    @DisplayName("카테고리가 null 이면 전 카테고리 — 수동 트리거의 기본 동작")
+    void settlesAllCategoriesWhenUnspecified() {
+        UUID betId = UUID.randomUUID();
+        givenTargets(betId);
+        given(groupBetSettler.settle(betId))
+                .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.FORFEITED, true));
+
+        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(TODAY, null);
+
+        assertThat(summary.forfeitedCount()).isEqualTo(1);
+        verify(groupChallengeBetRepository, never())
+                .findIdsByStatusAndBetDateBeforeAndCategory(any(), any(), any());
+    }
+
+    // ── 정산 기준일(그레이스 1h) ─────────────────────────────────────────
+    // 수동 트리거가 00:00~01:00 KST 에 호출돼도 그레이스가 안 끝난 전일자를 앞당겨 정산하면 안 된다.
+
+    @Test
+    @DisplayName("01:00 KST 정각(FOCUS 스케줄 시각)의 기준일은 그날 — 전일자가 대상이 된다")
     void settlementDateAtCutoffIsToday() {
-        // 2026-08-02 04:00 KST = 2026-08-01 19:00 UTC
-        Instant cutoff = Instant.parse("2026-08-01T19:00:00Z");
+        // 2026-08-02 01:00 KST = 2026-08-01 16:00 UTC
+        Instant cutoff = Instant.parse("2026-08-01T16:00:00Z");
 
         assertThat(GroupBetSettlementService.settlementDateAt(cutoff))
                 .isEqualTo(LocalDate.of(2026, 8, 2));
     }
 
     @Test
-    @DisplayName("03:59 KST 수동 호출의 기준일은 전날 — 전일자 내기는 그레이스가 끝날 때까지 제외된다")
+    @DisplayName("00:59 KST 수동 호출의 기준일은 전날 — 전일자 내기는 그레이스가 끝날 때까지 제외된다")
     void settlementDateBeforeCutoffIsYesterday() {
-        // 2026-08-02 03:59 KST = 2026-08-01 18:59 UTC
-        Instant beforeCutoff = Instant.parse("2026-08-01T18:59:00Z");
+        // 2026-08-02 00:59 KST = 2026-08-01 15:59 UTC
+        Instant beforeCutoff = Instant.parse("2026-08-01T15:59:00Z");
 
         assertThat(GroupBetSettlementService.settlementDateAt(beforeCutoff))
                 .isEqualTo(LocalDate.of(2026, 8, 1));
     }
 
     @Test
-    @DisplayName("낮 시간 수동 호출은 오늘이 기준일 — 평소 QA 사용은 그대로다")
-    void settlementDateDuringDayIsToday() {
-        // 2026-08-02 14:00 KST = 2026-08-02 05:00 UTC
-        Instant midday = Instant.parse("2026-08-02T05:00:00Z");
+    @DisplayName("12:00 KST(SCREEN_TIME 스케줄 시각)의 기준일도 그날 — 그레이스가 한참 지난 시각이다")
+    void settlementDateAtNoonIsToday() {
+        // 2026-08-02 12:00 KST = 2026-08-02 03:00 UTC
+        Instant noon = Instant.parse("2026-08-02T03:00:00Z");
 
-        assertThat(GroupBetSettlementService.settlementDateAt(midday))
+        assertThat(GroupBetSettlementService.settlementDateAt(noon))
                 .isEqualTo(LocalDate.of(2026, 8, 2));
     }
 }

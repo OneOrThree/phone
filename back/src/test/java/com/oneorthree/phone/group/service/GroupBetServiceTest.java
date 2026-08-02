@@ -9,8 +9,8 @@ import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
-import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
+import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.MissionCategory;
@@ -22,12 +22,9 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.stats.domain.DailyFocusStat;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -38,8 +35,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -61,9 +60,9 @@ import static org.mockito.Mockito.verify;
 /**
  * 내기 개설·참가 가드 단위 테스트.
  *
- * <p>돈이 걸리는 경로라 "거절되어야 할 때 확실히 거절되는가"가 핵심이다 — FOCUS+DURATION 제한,
- * 허용 판돈, 오늘 날짜, 중복 개설/참가, 이미 달성(무위험 참가), 마감, 잔액 부족.
- * 거절 시 <b>판돈이 차감되지 않는지</b>까지 함께 본다.
+ * <p>돈이 걸리는 경로라 "거절되어야 할 때 확실히 거절되는가"가 핵심이다 — 목표 없는 챌린지,
+ * 허용 판돈, 오늘 날짜, 창 마감, 중복 개설/참가, 카테고리별 참가 가드(FOCUS 이미 달성 /
+ * SCREEN_TIME 이미 초과), 잔액 부족. 거절 시 <b>판돈이 차감되지 않는지</b>까지 함께 본다.
  *
  * <p>분배 규칙은 {@link GroupBetPayoutCalculatorTest}, 정산 멱등은
  * {@code GroupBetSettlementIntegrationTest} 가 맡는다.
@@ -90,19 +89,21 @@ class GroupBetServiceTest {
     private GroupChallengeRepository groupChallengeRepository;
 
     @Mock
-    private GroupChallengeDurationRepository groupChallengeDurationRepository;
-
-    @Mock
     private GroupChallengeBetRepository groupChallengeBetRepository;
 
     @Mock
     private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
 
     @Mock
-    private DailyFocusStatRepository dailyFocusStatRepository;
-
-    @Mock
     private CurrencyLedgerService currencyLedgerService;
+
+    /**
+     * 조합별 판정 소스는 {@link GroupBetJudge} 가 쥔다 — 여기서는 그 결과를 받아 <b>어떤 가드로
+     * 갈라지는지</b>만 본다(소스 자체의 정확성은 {@code GroupBetCategorySettlementIntegrationTest}).
+     * 단, {@code isAchieved} 는 정적 순수 함수라 스텁 없이 실제 규칙(관용치 포함)이 그대로 돈다.
+     */
+    @Mock
+    private GroupBetJudge groupBetJudge;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
@@ -172,17 +173,52 @@ class GroupBetServiceTest {
                 .willReturn(Optional.of(challenge));
     }
 
-    private void givenGoalMinutes() {
-        given(groupChallengeDurationRepository.findById(CHALLENGE_ID))
-                .willReturn(Optional.of(GroupChallengeDuration.builder()
-                        .challengeId(CHALLENGE_ID).durationMinutes(GOAL_MINUTES).build()));
+    /** 일 목표(DURATION) 대상. 카테고리만 갈아끼워 4조합의 절반을 만든다. */
+    private GroupBetJudge.Target durationTarget(MissionCategory category) {
+        return new GroupBetJudge.Target(challenge(category, MissionType.DURATION), GOAL_MINUTES, null);
     }
 
-    /** 내기 날짜의 내 집중 기록. 목표(120분) 대비 달성/미달성을 만든다. */
-    private void givenFocusMinutes(LocalDate date, int minutes) {
-        given(dailyFocusStatRepository.findByUserIdInAndDate(List.of(USER_ID), date))
-                .willReturn(List.of(DailyFocusStat.builder()
-                        .user(member()).date(date).totalFocusSeconds(minutes * 60).build()));
+    /** 창 목표(TIME_WINDOW) 대상 — 창 시각은 판정에 안 쓰이고(마감은 아래 스텁) 목표분만 의미가 있다. */
+    private GroupBetJudge.Target windowTarget(MissionCategory category) {
+        GroupChallenge windowChallenge = challenge(category, MissionType.TIME_WINDOW);
+        return new GroupBetJudge.Target(windowChallenge, GOAL_MINUTES, GroupChallengeWindow.builder()
+                .challengeId(CHALLENGE_ID)
+                .challenge(windowChallenge)
+                .windowStartAt(Instant.parse("1970-01-01T09:00:00Z"))
+                .windowEndAt(Instant.parse("1970-01-01T12:00:00Z"))
+                .durationMinutes(GOAL_MINUTES)
+                .build());
+    }
+
+    /**
+     * 판정 소스 스텁 — 대상 해석 + 창 마감 시각 + 내 진행분.
+     *
+     * @param closesAt 창 마감(창형만). null 이면 DURATION 처럼 마감 검사가 없다
+     * @param minutes  내 진행분. null 이면 데이터 없음(FOCUS=0분, SCREEN_TIME=미보고)
+     */
+    private void givenTarget(GroupBetJudge.Target target, Instant closesAt, Integer minutes) {
+        given(groupBetJudge.resolve(any())).willReturn(Optional.of(target));
+        lenient().when(groupBetJudge.windowClosesAt(eq(target), any()))
+                .thenReturn(Optional.ofNullable(closesAt));
+        lenient().when(groupBetJudge.progressMinutes(eq(target), any(), any()))
+                .thenReturn(minutes == null ? Map.of() : Map.of(USER_ID, minutes));
+    }
+
+    /** 기존 내기의 기본 조합(FOCUS × DURATION) + 내 집중 분. */
+    private GroupBetJudge.Target givenFocusDuration(Integer myFocusMinutes) {
+        GroupBetJudge.Target target = durationTarget(MissionCategory.FOCUS);
+        givenTarget(target, null, myFocusMinutes);
+        return target;
+    }
+
+    /** 아직 안 끝난 창. */
+    private Instant oneHourLater() {
+        return Instant.now().plus(1, ChronoUnit.HOURS);
+    }
+
+    /** 이미 끝난 창. */
+    private Instant oneHourAgo() {
+        return Instant.now().minus(1, ChronoUnit.HOURS);
     }
 
     private GroupChallengeBet bet(GroupBetStatus status, LocalDate betDate) {
@@ -210,8 +246,7 @@ class GroupBetServiceTest {
     void createBetChargesStakeAndAutoJoinsCreator() {
         givenMember();
         givenChallenge(focusChallenge());
-        givenGoalMinutes();
-        givenFocusMinutes(today(), 10);
+        givenFocusDuration(10);
         given(groupChallengeBetRepository.existsByChallengeIdAndBetDate(CHALLENGE_ID, today()))
                 .willReturn(false);
         given(groupChallengeBetRepository.save(any())).willReturn(bet(GroupBetStatus.OPEN, today()));
@@ -261,28 +296,79 @@ class GroupBetServiceTest {
     }
 
     @Test
-    @DisplayName("SCREEN_TIME 챌린지 → BET_FOCUS_ONLY — 클라 신뢰 달성에는 돈을 걸 수 없다")
-    void createBetRejectsScreenTimeChallenge() {
+    @DisplayName("SCREEN_TIME 챌린지에도 내기를 걸 수 있다 — BET_FOCUS_ONLY 게이트 제거(전 조합 허용)")
+    void createBetAllowsScreenTimeChallenge() {
         givenMember();
-        givenChallenge(challenge(MissionCategory.SCREEN_TIME, MissionType.DURATION));
+        GroupChallenge screenTime = challenge(MissionCategory.SCREEN_TIME, MissionType.DURATION);
+        givenChallenge(screenTime);
+        givenTarget(durationTarget(MissionCategory.SCREEN_TIME), null, GOAL_MINUTES - 10);
+        given(groupChallengeBetRepository.existsByChallengeIdAndBetDate(CHALLENGE_ID, today()))
+                .willReturn(false);
+        given(groupChallengeBetRepository.save(any())).willReturn(bet(GroupBetStatus.OPEN, today()));
+
+        groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(30, today()));
+
+        verify(currencyLedgerService)
+                .debit(any(), eq(CurrencyTransactionType.BET_STAKE), eq(30), anyString());
+    }
+
+    @Test
+    @DisplayName("창 목표분이 있는 TIME_WINDOW 챌린지에도 걸 수 있다 — 창이 아직 안 끝났으면 개설 성공")
+    void createBetAllowsTimeWindowChallengeBeforeWindowCloses() {
+        givenMember();
+        givenChallenge(challenge(MissionCategory.FOCUS, MissionType.TIME_WINDOW));
+        givenTarget(windowTarget(MissionCategory.FOCUS), oneHourLater(), 0);
+        given(groupChallengeBetRepository.existsByChallengeIdAndBetDate(CHALLENGE_ID, today()))
+                .willReturn(false);
+        given(groupChallengeBetRepository.save(any())).willReturn(bet(GroupBetStatus.OPEN, today()));
+
+        groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(30, today()));
+
+        verify(currencyLedgerService)
+                .debit(any(), eq(CurrencyTransactionType.BET_STAKE), eq(30), anyString());
+    }
+
+    @Test
+    @DisplayName("목표분 없는 구 창 챌린지 → INVALID_MISSION_PARAMS — 판정 불가라 돈을 걸 수 없다")
+    void createBetRejectsChallengeWithoutGoal() {
+        givenMember();
+        givenChallenge(challenge(MissionCategory.FOCUS, MissionType.TIME_WINDOW));
+        given(groupBetJudge.resolve(any())).willReturn(Optional.empty());
 
         assertThatThrownBy(() ->
                 groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(30, today())))
                 .isInstanceOf(GroupException.class)
-                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_FOCUS_ONLY);
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.INVALID_MISSION_PARAMS);
         assertNoStakeCharged();
     }
 
     @Test
-    @DisplayName("TIME_WINDOW 챌린지 → BET_FOCUS_ONLY — 달성 판정 자체가 아직 없다")
-    void createBetRejectsTimeWindowChallenge() {
+    @DisplayName("오늘 창이 이미 끝난 뒤 개설 → BET_CLOSED — 결과가 정해진 판에 올라타기 차단")
+    void createBetRejectsAfterWindowClosed() {
         givenMember();
         givenChallenge(challenge(MissionCategory.FOCUS, MissionType.TIME_WINDOW));
+        givenTarget(windowTarget(MissionCategory.FOCUS), oneHourAgo(), 0);
 
         assertThatThrownBy(() ->
                 groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(30, today())))
                 .isInstanceOf(GroupException.class)
-                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_FOCUS_ONLY);
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_CLOSED);
+        assertNoStakeCharged();
+    }
+
+    @Test
+    @DisplayName("스크린타임 개설 시점에 이미 목표 초과 → BET_ALREADY_FAILED — 질 게 정해진 판돈 투입 차단")
+    void createBetRejectsWhenScreenTimeGoalAlreadyExceeded() {
+        givenMember();
+        givenChallenge(challenge(MissionCategory.SCREEN_TIME, MissionType.DURATION));
+        givenTarget(durationTarget(MissionCategory.SCREEN_TIME), null, GOAL_MINUTES + 1);
+        given(groupChallengeBetRepository.existsByChallengeIdAndBetDate(CHALLENGE_ID, today()))
+                .willReturn(false);
+
+        assertThatThrownBy(() ->
+                groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(30, today())))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_ALREADY_FAILED);
         assertNoStakeCharged();
     }
 
@@ -311,7 +397,7 @@ class GroupBetServiceTest {
     void createBetRejectsDuplicateForSameChallengeAndDate() {
         givenMember();
         givenChallenge(focusChallenge());
-        givenGoalMinutes();
+        givenFocusDuration(10);
         given(groupChallengeBetRepository.existsByChallengeIdAndBetDate(CHALLENGE_ID, today()))
                 .willReturn(true);
 
@@ -327,10 +413,9 @@ class GroupBetServiceTest {
     void createBetRejectsWhenGoalAlreadyAchieved() {
         givenMember();
         givenChallenge(focusChallenge());
-        givenGoalMinutes();
+        givenFocusDuration(GOAL_MINUTES);   // 목표와 동일 = 달성
         given(groupChallengeBetRepository.existsByChallengeIdAndBetDate(CHALLENGE_ID, today()))
                 .willReturn(false);
-        givenFocusMinutes(today(), GOAL_MINUTES);   // 목표와 동일 = 달성
 
         assertThatThrownBy(() ->
                 groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(30, today())))
@@ -375,8 +460,7 @@ class GroupBetServiceTest {
                 .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
         given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
                 .willReturn(false);
-        givenGoalMinutes();
-        givenFocusMinutes(today(), 30);
+        givenFocusDuration(30);
 
         groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID);
 
@@ -447,13 +531,106 @@ class GroupBetServiceTest {
                 .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
         given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
                 .willReturn(false);
-        givenGoalMinutes();
-        givenFocusMinutes(today(), GOAL_MINUTES + 5);
+        givenFocusDuration(GOAL_MINUTES + 5);
 
         assertThatThrownBy(() -> groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID))
                 .isInstanceOf(GroupException.class)
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_ALREADY_ACHIEVED);
         assertNoStakeCharged();
+    }
+
+    @Test
+    @DisplayName("창형 참가 — 오늘 창이 이미 끝났으면 BET_CLOSED (날짜는 오늘이라 날짜 가드로는 못 막는다)")
+    void joinBetRejectsAfterWindowClosed() {
+        givenMember();
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
+                .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
+        given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
+                .willReturn(false);
+        givenTarget(windowTarget(MissionCategory.FOCUS), oneHourAgo(), 0);
+
+        assertThatThrownBy(() -> groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_CLOSED);
+        assertNoStakeCharged();
+    }
+
+    @Test
+    @DisplayName("FOCUS 창형 참가 — 관용치(5분) 안쪽까지 도달했으면 이미 달성이라 BET_ALREADY_ACHIEVED")
+    void joinBetRejectsWindowFocusAchievedWithinTolerance() {
+        givenMember();
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
+                .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
+        given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
+                .willReturn(false);
+        // 목표 120분, 관용치 5분 → 115분이면 이미 달성 판정이다(카드·정산과 같은 기준).
+        givenTarget(windowTarget(MissionCategory.FOCUS), oneHourLater(), GOAL_MINUTES - 5);
+
+        assertThatThrownBy(() -> groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_ALREADY_ACHIEVED);
+        assertNoStakeCharged();
+    }
+
+    @Test
+    @DisplayName("FOCUS 창형 참가 — 관용치 경계 바로 바깥(6분 모자람)은 아직 미달성이라 참가 허용")
+    void joinBetAllowsWindowFocusJustOutsideTolerance() {
+        givenMember();
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
+                .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
+        given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
+                .willReturn(false);
+        givenTarget(windowTarget(MissionCategory.FOCUS), oneHourLater(), GOAL_MINUTES - 6);
+
+        groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID);
+
+        verify(currencyLedgerService).debit(any(), eq(CurrencyTransactionType.BET_STAKE), eq(30), anyString());
+    }
+
+    @Test
+    @DisplayName("스크린타임 참가 — 목표와 같은 사용분(경계 직전)은 잠정 달성이라 참가를 허용한다")
+    void joinBetAllowsScreenTimeExactlyAtGoal() {
+        givenMember();
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
+                .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
+        given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
+                .willReturn(false);
+        givenTarget(durationTarget(MissionCategory.SCREEN_TIME), null, GOAL_MINUTES);
+
+        groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID);
+
+        verify(currencyLedgerService).debit(any(), eq(CurrencyTransactionType.BET_STAKE), eq(30), anyString());
+    }
+
+    @Test
+    @DisplayName("스크린타임 참가 — 목표를 1분이라도 넘겼으면 패배 확정이라 BET_ALREADY_FAILED")
+    void joinBetRejectsScreenTimeJustOverGoal() {
+        givenMember();
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
+                .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
+        given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
+                .willReturn(false);
+        givenTarget(durationTarget(MissionCategory.SCREEN_TIME), null, GOAL_MINUTES + 1);
+
+        assertThatThrownBy(() -> groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_ALREADY_FAILED);
+        assertNoStakeCharged();
+    }
+
+    @Test
+    @DisplayName("스크린타임 창형 참가 — 아직 보고가 없으면(미보고) 참가를 막지 않는다")
+    void joinBetAllowsScreenTimeWindowWithoutReport() {
+        givenMember();
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
+                .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
+        given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
+                .willReturn(false);
+        givenTarget(windowTarget(MissionCategory.SCREEN_TIME), oneHourLater(), null);
+
+        groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID);
+
+        verify(currencyLedgerService).debit(any(), eq(CurrencyTransactionType.BET_STAKE), eq(30), anyString());
     }
 
     @Test
@@ -464,8 +641,7 @@ class GroupBetServiceTest {
                 .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
         given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
                 .willReturn(false);
-        givenGoalMinutes();
-        givenFocusMinutes(today(), 0);
+        givenFocusDuration(0);
         willThrow(new CurrencyException(CurrencyErrorCode.INSUFFICIENT_CURRENCY))
                 .given(currencyLedgerService).debit(any(), any(), anyInt(), anyString());
 
@@ -616,9 +792,7 @@ class GroupBetServiceTest {
                 .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
         given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
                 .willReturn(false);
-        givenGoalMinutes();
-        given(dailyFocusStatRepository.findByUserIdInAndDate(List.of(USER_ID), today()))
-                .willReturn(List.of());
+        givenFocusDuration(null);
 
         groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID);
 

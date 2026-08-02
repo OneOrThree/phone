@@ -2,6 +2,7 @@ package com.oneorthree.phone.group.repository;
 
 import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
+import com.oneorthree.phone.group.domain.MissionCategory;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -138,4 +139,17 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
     List<GroupChallengeBet> findByStatusInAndSettledAtSince(
             @Param("statuses") Collection<GroupBetStatus> statuses,
             @Param("since") Instant since);
+
+    /**
+     * 카테고리별 일 배치 대상 — 정산 크론이 2회(FOCUS 01:00 · SCREEN_TIME 12:00)로 나뉘어 돌기 때문에
+     * 대상 선정도 챌린지 카테고리로 갈라야 한다. 스크린타임 내기를 01:00 에 집으면 "어제 마감 보고가
+     * 아침 첫 앱 실행에 올라온다"는 전제가 깨져 미보고=미달성 패배가 양산된다.
+     */
+    @Query("SELECT b.id FROM GroupChallengeBet b JOIN b.challenge c "
+            + "WHERE b.status = :status AND b.betDate < :beforeDate AND c.category = :category "
+            + "ORDER BY b.betDate, b.id")
+    List<UUID> findIdsByStatusAndBetDateBeforeAndCategory(
+            @Param("status") GroupBetStatus status,
+            @Param("beforeDate") LocalDate beforeDate,
+            @Param("category") MissionCategory category);
 }

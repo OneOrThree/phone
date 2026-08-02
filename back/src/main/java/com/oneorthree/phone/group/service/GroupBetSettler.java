@@ -5,14 +5,10 @@ import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
-import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
-import com.oneorthree.phone.stats.domain.DailyFocusStat;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,16 +29,19 @@ import java.util.UUID;
  * 로는 프록시를 타지 않아 건별 트랜잭션이 성립하지 않기 때문이다. 한 건이 불변식 위반으로 터져도
  * 그 건만 롤백되고 나머지 정산은 계속된다.
  *
- * <p><b>달성 판정의 근거는 {@code daily_focus_stats}</b> 다 — 챌린지 카드가 보여주는 진행률과 같은
+ * <p><b>달성 판정은 {@link GroupBetJudge} 가 조합별로 한다</b> — 챌린지 카드가 보여주는 진행률과 같은
  * 소스·같은 날짜 버킷(세션 종료 시각의 유저 존 로컬 날짜, GROMO-803)을 쓴다. 정산이 화면과 다른
- * 기준으로 판정하면 "내 카드엔 달성인데 돈은 못 받았다"가 되므로 버킷을 일부러 맞춘 것이다. 여기서
- * 오는 두 가지 성질은 알려진 수용 사항이다: ① 자정을 걸친 세션은 종료일 버킷으로 가므로 그날 내기엔
- * 잡히지 않는다(카드 진행률도 동일), ② 이 통계는 클라가 올린 세션 시각을 그대로 누적하므로 위조
- * 여지가 남는데, 리그·스트릭·재화 적립이 모두 공유하는 플랫폼 차원의 신뢰 전제라 별도 티켓에서 다룬다.
- * 무위험 참가(이미 달성 후 참가)는 개설·참가 단계에서 {@code BET_ALREADY_ACHIEVED} 로 막는다.
+ * 기준으로 판정하면 "내 카드엔 달성인데 돈은 못 받았다"가 되므로 소스를 일부러 맞춘 것이다. 여기서
+ * 오는 성질들은 알려진 수용 사항이다: ① 자정을 걸친 세션은 종료일 버킷으로 가므로 그날 내기엔
+ * 잡히지 않는다(카드 진행률도 동일), ② FOCUS 통계는 클라가 올린 세션 시각을 그대로 누적하고
+ * SCREEN_TIME 은 아예 클라 보고값이라 위조 여지가 남는데, 리그·스트릭·재화 적립이 공유하는 플랫폼
+ * 차원의 신뢰 전제라 별도 티켓에서 다룬다(스크린타임 내기는 리스크 수용이 확정 정책), ③ SCREEN_TIME
+ * 은 미보고를 <b>미달성</b>으로 확정한다 — 정산은 마감돼야 하기 때문이다.
+ * 무위험 참가는 개설·참가 단계에서 {@code BET_ALREADY_ACHIEVED}(FOCUS) ·
+ * {@code BET_ALREADY_FAILED}(SCREEN_TIME) 로 막는다.
  *
- * <p>정산은 배치 시각(04:00 KST)에 마감된다 — 그 뒤에 도착한 지난 날짜 기록은 반영되지 않는다.
- * 4시간의 그레이스가 그 창을 좁히는 장치이고, 마감 자체는 어떤 정산에도 필요한 성질이다.
+ * <p>정산은 배치 시각(FOCUS 01:00 · SCREEN_TIME 12:00 KST)에 마감된다 — 그 뒤에 도착한 지난 날짜
+ * 기록은 반영되지 않는다. 마감 자체는 어떤 정산에도 필요한 성질이다.
  *
  * <p>재실행·동시 실행 방어는 4중이다: ① 첫 조회가 내기 행 잠금(FOR UPDATE)이라 같은 내기를 만지는
  * 경로(동시 정산·그룹 탈퇴 연동의 참가 행 삭제/환불)와 통째로 직렬화된다, ② 내기 {@code status} 가
@@ -57,9 +56,8 @@ public class GroupBetSettler {
 
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
-    private final GroupChallengeDurationRepository groupChallengeDurationRepository;
-    private final DailyFocusStatRepository dailyFocusStatRepository;
     private final CurrencyLedgerService currencyLedgerService;
+    private final GroupBetJudge groupBetJudge;
 
     /**
      * 정산 결과.
@@ -98,22 +96,27 @@ public class GroupBetSettler {
             throw new IllegalStateException("참가자 없는 내기 — betId=" + betId);
         }
 
-        int goalMinutes = groupChallengeDurationRepository.findById(bet.getChallenge().getId())
-                .map(GroupChallengeDuration::getDurationMinutes)
+        // 상세(duration/window) 유실이면 목표를 몰라 정산할 수 없다 — 이 건만 롤백시킨다.
+        GroupBetJudge.Target target = groupBetJudge.resolve(bet.getChallenge())
                 .orElseThrow(() -> new IllegalStateException(
-                        "DURATION 상세 유실 — 목표를 몰라 정산할 수 없다. betId=" + betId));
+                        "챌린지 목표 유실 — 목표를 몰라 정산할 수 없다. betId=" + betId));
 
-        Map<UUID, Integer> focusMinutes = focusMinutesOf(participants, bet);
+        List<User> users = participants.stream().map(GroupChallengeBetParticipant::getUser).toList();
+        Map<UUID, Integer> progressMinutes = groupBetJudge.progressMinutes(target, bet.getBetDate(), users);
         List<GroupBetPayoutCalculator.Entry> entries = participants.stream()
                 .map(p -> {
                     UUID userId = p.getUser().getId();
-                    int minutes = focusMinutes.getOrDefault(userId, 0);
-                    return new GroupBetPayoutCalculator.Entry(userId, minutes, minutes >= goalMinutes);
+                    Integer minutes = progressMinutes.get(userId);
+                    // 잔여 배분의 성과 비교값 — 값이 없으면 0. SCREEN_TIME 미보고는 어차피 미달성이라
+                    // 승자 목록에 들지 않으므로 이 0 이 잔여 배분을 왜곡하지 않는다.
+                    return new GroupBetPayoutCalculator.Entry(userId,
+                            minutes == null ? 0 : minutes,
+                            GroupBetJudge.isAchieved(target, minutes));
                 })
                 .toList();
 
-        GroupBetPayoutCalculator.Distribution distribution =
-                GroupBetPayoutCalculator.distribute(bet.getStake(), entries);
+        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(
+                bet.getStake(), GroupBetJudge.remainderRule(target), entries);
 
         // 여기까지는 전부 읽기다 — 돈이 움직이기 직전에 상태 전이를 원자적으로 잠근다.
         // 스케줄러와 수동 트리거가 동시에 같은 내기를 집어도 CAS 에 성공한 쪽만 지급을 적용한다.
@@ -129,8 +132,9 @@ public class GroupBetSettler {
 
         apply(bet, participants, distribution);
 
-        log.info("내기 정산 완료 — betId={}, betDate={}, status={}, pot={}, 참가자={}",
-                betId, bet.getBetDate(), distribution.status(), distribution.pot(), participants.size());
+        log.info("내기 정산 완료 — betId={}, betDate={}, category={}, type={}, status={}, pot={}, 참가자={}",
+                betId, bet.getBetDate(), target.category(), bet.getChallenge().getType(),
+                distribution.status(), distribution.pot(), participants.size());
         return new SettleResult(distribution.status(), true);
     }
 
@@ -179,17 +183,6 @@ public class GroupBetSettler {
             currencyLedgerService.credit(user, CurrencyTransactionType.BET_PAYOUT, payout.amount(),
                     payoutKey(bet.getId(), payout.userId(), false));
         }
-    }
-
-    /** 내기 날짜의 참가자별 집중 분. 통계 행이 없으면 "0분 집중"이 사실이므로 키를 만들지 않는다. */
-    private Map<UUID, Integer> focusMinutesOf(
-            List<GroupChallengeBetParticipant> participants, GroupChallengeBet bet) {
-        List<UUID> userIds = participants.stream().map(p -> p.getUser().getId()).toList();
-        Map<UUID, Integer> minutes = new HashMap<>();
-        for (DailyFocusStat stat : dailyFocusStatRepository.findByUserIdInAndDate(userIds, bet.getBetDate())) {
-            minutes.merge(stat.getUser().getId(), stat.getTotalFocusSeconds() / 60, Integer::max);
-        }
-        return minutes;
     }
 
     /** 멱등키 컨벤션 — 지급/환불. 판돈 차감 키는 {@link GroupBetService#stakeKey}. */
