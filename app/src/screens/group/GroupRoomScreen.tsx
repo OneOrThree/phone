@@ -156,6 +156,9 @@ function settledBetSignature(challenges: GroupChallengeResponse[], userId: strin
 
 export interface GroupRoomScreenProps {
   groupId: string;
+  // 챌린지 종료 푸시가 지목한 챌린지(GROMO-1088) — 진입 직후 이 챌린지의 결과 모달을 자동으로 연다.
+  // 딥링크 진입에만 실린다(목록 탭 진입은 undefined). 자세한 규칙은 아래 focusPendingRef 주석.
+  focusChallengeId?: string;
   // 탭 진입점이 가진 요약(getMyGroups[0]) — 상세 응답 도착 전 헤더를 먼저 그리는 용도(선택).
   summary?: GroupSummaryResponse;
   // 그룹 나가기 성공 시 호출 — 부모(GroupScreen)가 재조회해 빈 상태로 되돌린다.
@@ -171,6 +174,7 @@ export interface GroupRoomScreenProps {
 
 export default function GroupRoomScreen({
   groupId,
+  focusChallengeId,
   summary,
   onLeft,
   inviteOpen,
@@ -232,6 +236,16 @@ export default function GroupRoomScreen({
   // 지금 떠 있는 결과 모달의 노출 시각·키 — dwell_ms 계산과 노출 이벤트/가드 1회 실행용.
   const resultShownAtRef = useRef<number | null>(null);
   const resultShownKeyRef = useRef<string | null>(null);
+  // ── 챌린지 종료 푸시가 지목한 결과(GROMO-1088) ──
+  // focusPendingRef = 아직 큐에 올리지 못한 대상. 큐에 실린 순간 비운다(1회 소비) —
+  // 비우지 않으면 포커스·포그라운드 복귀·당겨서 새로고침이 부르는 재조회마다 사용자가 닫은
+  // 모달이 다시 뜬다(1회 가드를 일부러 건너뛰는 대상이라 가드가 막아 주지 못한다).
+  // 반대로 **아직 결과가 없으면(집계 전) 소비하지 않는다** — 창형은 앱 진입이 사용분 업로드를
+  // 트리거하는 구조라 진입 직후엔 전원 미확정일 수 있고, 그때는 다음 조회가 이어받아야 한다.
+  // focusKeyRef = 지금 무장한 대상의 신원(그룹+챌린지). 라우트 파라미터가 갈리면(같은 방에서
+  // 다른 챌린지 푸시를 탭) 다시 무장한다.
+  const focusPendingRef = useRef<string | null>(null);
+  const focusKeyRef = useRef<string | null>(null);
 
   // 이 화면이 지금 그리고 있는 그룹. 이미 스택에 있는 'GroupRoom' 라우트로 다시 navigate 하면
   // (React Navigation이 params만 병합해) **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
@@ -265,6 +279,14 @@ export default function GroupRoomScreen({
     setNoticeError(false);
     setChallengeError(false);
     setLoading(true);
+  }
+
+  // 딥링크 대상 무장 — 렌더 중 조정(위 groupId 리셋과 같은 패턴). 그룹이 바뀌어도 신원이 갈리므로
+  // 이전 그룹의 챌린지를 새 방에서 찾는 일은 없다.
+  const focusKey = focusChallengeId ? `${groupId}:${focusChallengeId}` : null;
+  if (focusKeyRef.current !== focusKey) {
+    focusKeyRef.current = focusKey;
+    focusPendingRef.current = focusChallengeId ?? null;
   }
 
   // 상세 + 공지 + 챌린지 병렬 조회. 세 요청의 실패를 **각각** 다룬다(allSettled) —
@@ -366,19 +388,33 @@ export default function GroupRoomScreen({
         todayDate: date,
         yesterdayDate: yesterday,
         myUserId: userId ?? null,
+        // 종료 푸시가 지목한 챌린지는 INACTIVE여도 후보로 만든다(challengeResult.ts 주석).
+        focusChallengeId: focusPendingRef.current,
       });
       if (candidates.length > 0) {
         const unseen = await filterUnseenChallengeResults(candidates);
         // 가드 조회를 기다리는 사이 새 조회·그룹 전환이 끼어들었으면 이 결과는 낡았다.
         if (seq !== requestSeqRef.current) return false;
+        // 푸시가 지목한 챌린지는 **1회 가드를 건너뛰고** 큐 앞자리에 세운다(GROMO-1088) —
+        // 사용자가 알림을 직접 탭한 명시적 요청이라, 앱을 먼저 열어 이미 본 결과여도 응해야 한다.
+        // 후보에 없으면(아직 집계 전·판정 미확정) 소비하지 않고 다음 조회로 넘긴다.
+        const focusId = focusPendingRef.current;
+        const focused = focusId ? candidates.filter((c) => c.challengeId === focusId) : [];
+        if (focused.length > 0) focusPendingRef.current = null;
+        const next = [
+          ...focused,
+          ...unseen.filter(
+            (c) => !focused.some((f) => f.challengeId === c.challengeId && f.date === c.date),
+          ),
+        ];
         setResultQueue((prev) => {
           // 떠 있는 모달(맨 앞)은 유지한다 — 노출 마커 기록 전에 재조회가 끼어들어도
           // 보고 있던 결과가 사라지거나, 닫은 뒤 같은 결과가 또 뜨지 않게 한다.
           const head = prev[0];
-          if (!head) return unseen;
+          if (!head) return next;
           return [
             head,
-            ...unseen.filter((c) => c.challengeId !== head.challengeId || c.date !== head.date),
+            ...next.filter((c) => c.challengeId !== head.challengeId || c.date !== head.date),
           ];
         });
       }

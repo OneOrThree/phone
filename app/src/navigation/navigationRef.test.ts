@@ -136,18 +136,23 @@ describe('컨테이너 준비(onReady)', () => {
   });
 });
 
-// 창 종료 푸시 딥링크(gromo://group?g={groupId}, 계약 §2 B4→A3) — GroupScreen의 진입 분기와
-// 같은 규칙: 그룹 1개면 탭 이동으로 끝(내장 그룹방이 곧 그 그룹), 2개 이상이면 그룹방을 push.
-describe('그룹 딥링크(창 종료 푸시)', () => {
+// 그룹 푸시 딥링크(gromo://group?g={groupId}[&challenge={challengeId}], 계약 §2) —
+// GroupScreen의 목록 카드 탭과 같은 규칙: A-9 이후 소속 수와 무관하게 그룹방을 push 한다
+// (그룹 탭의 기본 화면은 항상 목록이라, 1그룹이라고 탭 이동에서 멈추면 방에 못 들어간다).
+describe('그룹 딥링크(챌린지 종료 푸시)', () => {
   const summary = (groupId: string) => ({ groupId }) as never;
+  const CHALLENGE_ID = '0198aa11-2b3c-7d4e-8f50-6a7b8c9d0e1f';
 
-  test('그룹이 1개면 그룹 탭 이동으로 끝난다(내장 그룹방이 곧 그 그룹)', async () => {
+  test('그룹이 1개여도 그룹방을 push 한다(A-9 이후 목록이 기본 화면)', async () => {
     mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
     navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
     await flushAsync();
 
     expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
-    expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
+    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+      groupId: GROUP_ID,
+      challengeId: undefined,
+    });
   });
 
   test('그룹이 2개 이상이면 그룹방을 push 한다', async () => {
@@ -156,7 +161,48 @@ describe('그룹 딥링크(창 종료 푸시)', () => {
     await flushAsync();
 
     expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
-    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', { groupId: GROUP_ID });
+    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+      groupId: GROUP_ID,
+      challengeId: undefined,
+    });
+  });
+
+  // GROMO-1088 — challenge가 실려 있으면 그룹방이 그 챌린지의 결과 모달을 연다.
+  test.each([
+    ['1그룹', [GROUP_ID]],
+    ['다중 그룹', ['other-1', GROUP_ID]],
+  ])('%s 사용자에게도 challenge 파라미터를 그룹방까지 흘린다', async (_label, ids) => {
+    mockGetMyGroups.mockResolvedValue(ids.map(summary));
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}&challenge=${CHALLENGE_ID}`);
+    await flushAsync();
+
+    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+      groupId: GROUP_ID,
+      challengeId: CHALLENGE_ID,
+    });
+  });
+
+  test('challenge가 UUID가 아니면 무시하고 그룹방까지만 간다(모달 없음)', async () => {
+    mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}&challenge=abc`);
+    await flushAsync();
+
+    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+      groupId: GROUP_ID,
+      challengeId: undefined,
+    });
+  });
+
+  // g 뒤에 파라미터가 붙어도 기존 파싱이 깨지지 않는다(계약 §2의 룩어헤드 근거).
+  test('challenge가 뒤따라도 g는 그대로 잘라낸다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}&challenge=${CHALLENGE_ID}#frag`);
+    await flushAsync();
+
+    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+      groupId: GROUP_ID,
+      challengeId: CHALLENGE_ID,
+    });
   });
 
   test('내 그룹이 아니면(푸시 후 탈퇴) 그룹 탭까지만 간다', async () => {
@@ -201,6 +247,12 @@ describe('기존 매핑(푸시가 쓰는 중)', () => {
   test('gromo://focus → 과목 선택 화면', () => {
     navigateToDeepLink('gromo://focus');
     expect(navigate).toHaveBeenCalledWith('FocusCategory');
+  });
+
+  // 친구 푸시(티켓 1090)가 발행하는 링크를 받는 배선 — 계약 §2.
+  test.each(['gromo://friends', 'gromo:///friends'])('%s → 친구 추가 화면', (link) => {
+    navigateToDeepLink(link);
+    expect(navigate).toHaveBeenCalledWith('FriendAdd');
   });
 
   test('모르는 경로는 무시한다', () => {

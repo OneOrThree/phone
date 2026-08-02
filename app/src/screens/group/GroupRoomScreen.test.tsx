@@ -1691,4 +1691,121 @@ describe('챌린지 결과 모달(A3)', () => {
     });
     expect(screen.queryByTestId('group.challengeResult')).toBeNull();
   });
+
+  // ── 챌린지 종료 푸시 딥링크(GROMO-1088) ──
+  // 푸시를 탭해서 들어온 경우 focusChallengeId가 실린다. 사용자가 알림을 직접 누른 명시적
+  // 요청이라 1회 가드와 상태 필터를 넘어서 열되, 화면 안에서 **한 번만** 소비돼야 한다.
+  describe('종료 푸시가 지목한 챌린지(focusChallengeId)', () => {
+    const settled = (over: Partial<GroupChallengeResponse> = {}) =>
+      oldChallenge({
+        memberProgress: [{ userId: 'me', nickname: '나', progressMinutes: 70, achieved: true }],
+        ...over,
+      });
+
+    async function renderWithFocus(challengeId: string) {
+      const result = await render(
+        <GroupRoomScreen groupId={GROUP_ID} focusChallengeId={challengeId} onLeft={onLeft} />,
+      );
+      await act(async () => {});
+      return result;
+    }
+
+    test('이미 본 결과(1회 가드 기록됨)여도 모달을 연다', async () => {
+      await AsyncStorage.setItem('gromo:challengeResult:c1:2026-07-31', '1');
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      challengesByDate({ '2026-07-31': [settled()] });
+
+      await renderWithFocus('c1');
+
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+      expect(screen.getByText('7월 31일 결과')).toBeOnTheScreen();
+    });
+
+    test('종료(INACTIVE)된 챌린지도 지목되면 모달을 연다', async () => {
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      challengesByDate({ '2026-07-31': [settled({ status: 'INACTIVE' })] });
+
+      await renderWithFocus('c1');
+
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    });
+
+    test('닫은 뒤 재조회에서 다시 뜨지 않는다(1회 소비 + 노출 가드)', async () => {
+      await AsyncStorage.setItem('gromo:challengeResult:c1:2026-07-31', '1');
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      challengesByDate({ '2026-07-31': [settled()] });
+
+      await renderWithFocus('c1');
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('group.challengeResult.close'));
+      });
+
+      await blur();
+      await focus();
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+      await foreground();
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+    });
+
+    test('아직 집계 전이면 소비하지 않고 다음 조회가 이어받는다', async () => {
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      // 창형은 앱 진입이 사용분 업로드를 트리거한다 — 진입 직후엔 전원 미확정일 수 있다.
+      challengesByDate({
+        '2026-07-31': [
+          settled({
+            memberProgress: [
+              { userId: 'me', nickname: '나', progressMinutes: null, achieved: null },
+            ],
+          }),
+        ],
+      });
+
+      await renderWithFocus('c1');
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+      // 보고가 도착해 판정이 확정된 뒤의 재조회 — 지목이 살아 있어 그때 뜬다.
+      challengesByDate({ '2026-07-31': [settled()] });
+      await blur();
+      await focus();
+
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    });
+
+    test('지목한 결과를 큐 앞자리에 세운다(다른 결과보다 먼저)', async () => {
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      challengesByDate({
+        '2026-07-31': [
+          settled({ id: 'c-other', missionCategory: 'SCREEN_TIME' }),
+          settled({ id: 'c-target' }),
+        ],
+      });
+
+      await renderWithFocus('c-target');
+
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+      // 어느 후보가 먼저 떴는지는 노출 이벤트의 카테고리로 판별한다(라벨은 겹칠 수 있다).
+      expect(logGroupChallengeResultShown).toHaveBeenCalledTimes(1);
+      expect(logGroupChallengeResultShown).toHaveBeenCalledWith(
+        expect.objectContaining({ mission_category: 'FOCUS' }),
+      );
+    });
+
+    test('지목이 없으면(목록 탭 진입) 기존 1회 가드가 그대로 막는다', async () => {
+      await AsyncStorage.setItem('gromo:challengeResult:c1:2026-07-31', '1');
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      challengesByDate({ '2026-07-31': [settled()] });
+
+      await renderRoom();
+
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+    });
+  });
 });

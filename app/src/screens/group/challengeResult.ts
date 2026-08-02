@@ -91,15 +91,31 @@ export function pickChallengeResults(args: {
   yesterdayDate: string;
   now?: Date;
   myUserId: string | null;
+  // 챌린지 종료 푸시가 지목한 챌린지(GROMO-1088) — 이 하나만 **종료(INACTIVE) 상태여도** 후보로
+  // 만든다. 평소 INACTIVE를 거르는 이유는 "끝난 챌린지의 결과를 뒤늦게 들이밀지 않는다"이지만,
+  // 종료 푸시는 정의상 끝난 챌린지를 가리키고 사용자가 그 알림을 직접 탭했다. 서버가 종료를
+  // 상태 전이로 표현하면(W3 재량) 이 예외가 없을 때 모달이 영영 뜨지 않는다.
+  focusChallengeId?: string | null;
 }): ChallengeResultCandidate[] {
-  const { today, yesterday, todayDate, yesterdayDate, now = new Date(), myUserId } = args;
+  const {
+    today,
+    yesterday,
+    todayDate,
+    yesterdayDate,
+    now = new Date(),
+    myUserId,
+    focusChallengeId = null,
+  } = args;
   const nowSec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+  // 상태 필터 — 딥링크가 지목한 챌린지만 통과시킨다(위 focusChallengeId 주석).
+  const statusOk = (c: GroupChallengeResponse) =>
+    c.status === 'ACTIVE' || c.id === focusChallengeId;
 
   // 오늘 창이 이미 끝난 창형 — 오늘 date 결과. 자정에 걸친 창(start > end)은 계약 밖이라
   // end 시각만으로 판정한다(창은 하루 안에서 끝나는 것이 생성 규칙).
   const todayByChallenge = new Map<string, ChallengeResultCandidate>();
   for (const c of today ?? []) {
-    if (c.status !== 'ACTIVE' || c.missionType !== 'TIME_WINDOW') continue;
+    if (!statusOk(c) || c.missionType !== 'TIME_WINDOW') continue;
     const endSec = windowEndSeconds(c.windowEnd);
     if (endSec === null || nowSec <= endSec) continue;
     const candidate = toCandidate(c, todayDate, myUserId);
@@ -108,7 +124,7 @@ export function pickChallengeResults(args: {
 
   const out: ChallengeResultCandidate[] = [];
   for (const c of yesterday ?? []) {
-    if (c.status !== 'ACTIVE') continue;
+    if (!statusOk(c)) continue;
     if (todayByChallenge.has(c.id)) continue; // 창형 당일 결과가 있으면 그쪽을 쓴다(대체)
     const candidate = toCandidate(c, yesterdayDate, myUserId);
     if (candidate) out.push(candidate);

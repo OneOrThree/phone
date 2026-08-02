@@ -65,7 +65,7 @@ export function notifyGroupInvite(invite: PendingInvite): void {
 
 // gromo://<path>?<query> 형태의 딥링크를 화면 이동으로 매핑한다.
 // 매핑: league→리그 탭 / focus→집중 과목선택 / home→홈 탭 (스펙 GROMO-393, 푸시가 쓰는 중) +
-//       join→그룹 탭 + 초대 프리뷰(§6-6).
+//       join→그룹 탭 + 초대 프리뷰(§6-6) + group→그룹방(+결과 모달) + friends→친구 추가.
 export function navigateToDeepLink(link: string): void {
   if (!navigationRef.isReady()) {
     pendingLink = link; // 컨테이너 준비 전 → 버퍼링
@@ -102,9 +102,14 @@ export function navigateToDeepLink(link: string): void {
       navigationRef.navigate('Main', { screen: '홈' } as never);
       break;
     case 'group':
-      // 창 종료 푸시 딥링크(gromo://group?g={groupId}, 계약 §2 B4→A3) — 먼저 그룹 탭으로
-      // 이동해 두고(조회 실패 폴백), 그룹이 2개 이상이면 그룹방을 스택에 push 한다.
-      navigateToGroup(readGroupParam(link));
+      // 그룹 푸시 딥링크(gromo://group?g={groupId}[&challenge={challengeId}]) — 먼저 그룹 탭으로
+      // 이동해 두고(조회 실패 폴백), 내 그룹이 맞으면 그룹방을 스택에 push 한다.
+      // challenge가 실려 있으면 그룹방이 그 챌린지의 결과 모달을 자동으로 연다(GROMO-1088).
+      navigateToGroup(readGroupParam(link), readChallengeParam(link));
+      break;
+    case 'friends':
+      // 친구 요청/수락 푸시(gromo://friends) — 친구 추가 화면으로 보낸다(티켓 1090이 발행).
+      navigationRef.navigate('FriendAdd');
       break;
     default:
       // 알 수 없는 링크와 형식이 깨진 초대 링크(잘못된 g·g 없음)는 조용히 무시한다(§11).
@@ -113,32 +118,48 @@ export function navigateToDeepLink(link: string): void {
   }
 }
 
-// 그룹 딥링크의 g 파라미터(UUID) — 형식이 어긋나면 null(그룹 탭 이동만 하고 끝낸다).
-function readGroupParam(link: string): string | null {
-  const m = /[?&]g=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=[&#]|$)/i.exec(
-    link,
-  );
+// UUID 파라미터를 링크에서 잘라낸다 — 뒤에 다른 파라미터가 이어져도(`…&challenge=…`)
+// 룩어헤드 `(?=[&#]|$)`가 값의 끝을 고정해 준다. 형식이 어긋나면 null.
+function readUuidParam(link: string, name: string): string | null {
+  const m = new RegExp(
+    `[?&]${name}=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=[&#]|$)`,
+    'i',
+  ).exec(link);
   return m ? m[1] : null;
 }
 
-// 창 종료 푸시의 그룹 화면 진입 — GroupScreen의 진입 분기(§0-1·§0-2)와 같은 규칙을 쓴다:
-//   · 그룹 1개: 그룹 탭의 내장 그룹방이 곧 그 그룹 — 탭 이동으로 끝(추가 push 없음)
-//   · 2개 이상: 탭 기본 화면이 목록이라 그룹방을 push 한다
-// 몇 개인지는 이 계층이 모르는 상태라 목록을 직접 받는다. 조회가 실패하거나 내 그룹이 아니면
-// (푸시 수신 후 탈퇴 등) 이미 이동해 둔 그룹 탭이 폴백이다.
-// 그룹방 진입 자체가 재조회를 트리거해(useFocusEffect) 창 종료 결과 모달로 이어진다(A3).
-function navigateToGroup(groupId: string | null): void {
-  navigationRef.navigate('Main', { screen: '그룹' } as never);
-  if (!groupId) return;
-  // 목록 조회 실패는 삼킨다 — 그룹 탭까지는 이미 갔다. 1그룹 사용자는 그대로 그 방이다.
-  pushGroupRoomIfMulti(groupId).catch(() => {});
+// 그룹 딥링크의 g 파라미터(UUID) — 형식이 어긋나면 null(그룹 탭 이동만 하고 끝낸다).
+function readGroupParam(link: string): string | null {
+  return readUuidParam(link, 'g');
 }
 
-async function pushGroupRoomIfMulti(groupId: string): Promise<void> {
+// 챌린지 종료 푸시의 challenge 파라미터(UUID, 계약 §2) — 결과 모달을 열 대상이다.
+// 없거나 형식이 어긋나면 null: 모달 없이 그룹방까지만 간다(기존 동작 유지).
+function readChallengeParam(link: string): string | null {
+  return readUuidParam(link, 'challenge');
+}
+
+// 그룹 푸시의 그룹 화면 진입 — GroupScreen의 목록 카드 탭(onSelectGroup)과 **같은 분기**를 쓴다:
+// A-9(3차) 이후 소속이 1개든 여러 개든 그룹 탭의 기본 화면은 목록이고, 그룹방은 라우트 push로만
+// 열린다(내장 렌더 폐지 — GroupScreen.tsx §A-9 주석). 그래서 소속 수를 보지 않고 push 한다.
+// 내 그룹인지는 확인한다 — 목록을 직접 받아, 조회가 실패하거나 내 그룹이 아니면(푸시 수신 후
+// 탈퇴 등) 이미 이동해 둔 그룹 탭이 폴백이다.
+// 그룹방 진입 자체가 재조회를 트리거해(useFocusEffect) 챌린지 결과 모달로 이어진다(A3).
+function navigateToGroup(groupId: string | null, challengeId: string | null): void {
+  navigationRef.navigate('Main', { screen: '그룹' } as never);
+  if (!groupId) return;
+  // 목록 조회 실패는 삼킨다 — 그룹 탭까지는 이미 갔다.
+  pushGroupRoom(groupId, challengeId).catch(() => {});
+}
+
+async function pushGroupRoom(groupId: string, challengeId: string | null): Promise<void> {
   const groups = await getMyGroups();
   if (!navigationRef.isReady()) return;
   if (!groups.some((g) => g.groupId === groupId)) return;
-  if (groups.length > 1) navigationRef.navigate('GroupRoom', { groupId });
+  // challengeId는 **없어도 키를 싣는다** — 이미 스택에 있는 GroupRoom으로 다시 navigate 하면
+  // 파라미터가 병합될 수 있어, 키를 빼면 직전 딥링크의 challengeId가 남아 엉뚱한 결과 모달이
+  // 다시 뜬다(새 챌린지 등록 푸시처럼 challenge 없는 링크가 뒤따르는 경우).
+  navigationRef.navigate('GroupRoom', { groupId, challengeId: challengeId ?? undefined });
 }
 
 // NavigationContainer onReady에서 호출 — 준비 전에 도착한 링크를 1회 흘려보낸다.
