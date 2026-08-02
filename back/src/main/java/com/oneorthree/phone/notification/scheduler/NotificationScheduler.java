@@ -1,5 +1,8 @@
 package com.oneorthree.phone.notification.scheduler;
 
+import com.oneorthree.phone.group.service.GroupBetFreezeMonitor;
+import com.oneorthree.phone.notification.service.BetResultNotificationService;
+import com.oneorthree.phone.notification.service.ChallengeWindowEndNotificationService;
 import com.oneorthree.phone.notification.service.InactiveReturnNotificationService;
 import com.oneorthree.phone.notification.service.LeagueNotificationService;
 import com.oneorthree.phone.notification.service.LeagueReengagementNotificationService;
@@ -23,6 +26,9 @@ public class NotificationScheduler {
     private final InactiveReturnNotificationService inactiveReturnNotificationService;
     private final RankOvertakeNotificationService rankOvertakeNotificationService;
     private final LeagueReengagementNotificationService leagueReengagementNotificationService;
+    private final BetResultNotificationService betResultNotificationService;
+    private final ChallengeWindowEndNotificationService challengeWindowEndNotificationService;
+    private final GroupBetFreezeMonitor groupBetFreezeMonitor;
 
     // 주간 결과 알림 — 정산 배치(월 00시)와 유저 발표를 분리해 월 07시 발송 — 조용한 시간(기본 23–07) 종료 시각과 정합
     // TODO: 멀티 인스턴스 배포 시 분산 락 필요 (티켓 565) — LeagueScheduler 와 동일
@@ -119,6 +125,43 @@ public class NotificationScheduler {
             leagueReengagementNotificationService.sendStreakAtRisk();
         } catch (Exception e) {
             log.error("스트릭 위기 푸시 스케줄 실패", e);
+        }
+    }
+
+    // 내기 정산 결과 푸시 (B4) — 08:00 · 13:00 KST 2회. 정산은 01:00(FOCUS)·12:00(SCREEN_TIME)에
+    // 도는데 01:00 은 조용한 시간(기본 23–07) 한복판이라 발송을 08:00 으로 미루고, 13:00 이 12:00
+    // 정산분을 잇는다. 같은 정산분을 두 번 훑어도 sent_log dedup 때문에 이중 발송은 없다.
+    @Scheduled(cron = "0 0 8 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 13 * * *", zone = "Asia/Seoul")
+    public void sendBetResultNotifications() {
+        try {
+            betResultNotificationService.sendBetResultNotifications();
+        } catch (Exception e) {
+            log.error("내기 정산 결과 푸시 스케줄 실패", e);
+        }
+    }
+
+    // 스크린타임 창형 챌린지 창 종료 푸시 (B4) — 15분 간격. 창이 끝난 직후 복귀를 유도해야 그 진입이
+    // 창 사용분 업로드를 트리거하므로(A4) 시각 고정 크론으로는 못 잡는다. 심야 창은 조용한 시간
+    // 필터에서 스킵되는 것을 수용한다(계약 §2).
+    @Scheduled(cron = "0 */15 * * * *", zone = "Asia/Seoul")
+    public void sendChallengeWindowEndNotifications() {
+        try {
+            challengeWindowEndNotificationService.sendWindowEndNotifications();
+        } catch (Exception e) {
+            log.error("챌린지 창 종료 푸시 스케줄 실패", e);
+        }
+    }
+
+    // 판돈 동결 감지 (B4 ops) — 09:00 KST. 정산 배치가 조용히 죽으면 에스크로된 판돈이 묶인 채
+    // 아무 로그도 남지 않는다. 유저 발송이 아니라 운영 로그지만, 크론 트리거를 한곳에 모으는 이 파일의
+    // 역할(트리거/로직 분리)에 맞춰 여기에 둔다 — 로직은 group 도메인의 GroupBetFreezeMonitor 소유.
+    @Scheduled(cron = "0 0 9 * * *", zone = "Asia/Seoul")
+    public void detectFrozenBets() {
+        try {
+            groupBetFreezeMonitor.detectFrozenBets();
+        } catch (Exception e) {
+            log.error("판돈 동결 감지 스케줄 실패", e);
         }
     }
 }
