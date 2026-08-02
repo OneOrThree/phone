@@ -14,8 +14,10 @@ import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.friend.domain.Friendship;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
+import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.user.domain.SocialAccount;
 import com.oneorthree.phone.user.domain.StatVisibility;
 import com.oneorthree.phone.user.exception.UserErrorCode;
@@ -57,6 +59,7 @@ public class UserService {
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final GroupRepository groupRepository;
+    private final GroupMemberRepository groupMemberRepository;
     private final FocusSessionRepository focusSessionRepository;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
@@ -127,6 +130,15 @@ public class UserService {
         // 락이 없으면 READ COMMITTED 에서 정리 스캔 이후·커밋 이전에 낀 요청이 정리를 빠져나가 유령으로 남는다.
         User user = userRepository.findActiveByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+
+        // A-2: 계정 탈퇴 시 방장으로 남은 그룹 처리. 혼자 있는(활성 멤버 1명) 소유 그룹은 자동
+        // 종료(ENDED)하고, 다른 멤버가 남은 소유 그룹이 있으면 위임이 필요하므로 아래에서 막는다.
+        for (GroupMember ownerMembership : groupMemberRepository.findActiveOwnerMembershipsByUserId(userId)) {
+            if (groupMemberRepository.findByGroup(ownerMembership.getGroup()).size() <= 1) {
+                ownerMembership.leave();
+                ownerMembership.getGroup().close();
+            }
+        }
 
         if (groupRepository.existsGroupOwnedBy(userId)) {
             throw new GroupException(GroupErrorCode.HOST_WITHDRAW);

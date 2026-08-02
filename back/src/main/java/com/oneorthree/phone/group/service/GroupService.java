@@ -54,6 +54,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -86,6 +87,8 @@ public class GroupService {
 
     /** 그룹 이름 검색 최대 반환 수 — 닉네임 검색(NicknameSearchStrategy)과 동일 값. */
     private static final int SEARCH_LIMIT = 20;
+    // A-10: 검색어 입력 전 기본 목록에 노출할 공개방 수
+    private static final int DEFAULT_LIST_LIMIT = 10;
 
     /**
      * 한 유저가 동시에 소속될 수 있는 그룹 수 상한.
@@ -113,18 +116,6 @@ public class GroupService {
 
         // 1-1) 소속 그룹 수 상한 — 생성도 곧 가입이므로 참가와 같은 기준으로 막는다
         ensureJoinedGroupLimit(user);
-
-        // 2) 미션 타입별 필수값 검증
-        //    durationMinutes 는 createChallenge 와 같은 > 0 규칙 — 0/음수 목표는 진행률 판정("0분도 달성",
-        //    음수는 영원히 미달성)을 무의미하게 만들므로 생성 단계에서 막는다.
-        if (request.getMissionType() == MissionType.DURATION
-                && (request.getDurationMinutes() == null || request.getDurationMinutes() <= 0)) {
-            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
-        }
-        if (request.getMissionType() == MissionType.TIME_WINDOW
-                && (request.getWindowStart() == null || request.getWindowEnd() == null)) {
-            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
-        }
 
         // 3) 유니크 코드 생성 (충돌 시 만료 여부 확인 후 재사용 or 재시도)
         String uniqueCode = generateUniqueCode();
@@ -154,8 +145,7 @@ public class GroupService {
                 .expiresAt(Instant.now().plus(3, ChronoUnit.HOURS))
                 .build());
 
-        // 5-1) 대표 GroupChallenge + type별 상세(CTI) 저장
-        createRepresentativeChallenge(group, request);
+        // D18: 그룹 생성 시 대표 챌린지를 만들지 않는다 — 챌린지는 그룹방 '챌린지 생성'으로 별도 생성한다.
 
         // GroupMember(OWNER) 저장
         groupMemberRepository.save(GroupMember.builder()
@@ -210,10 +200,10 @@ public class GroupService {
      * 무제한 반환(구 findByNameContainingIgnoreCase)도 LIMIT 으로 닫았다 — 커서 페이지네이션은 후속.
      */
     public List<GroupSearchResponse> searchGroups(String query) {
-        if (query == null || query.isBlank()) {
-            return List.of();
-        }
-        List<Group> groups = groupRepository.searchPublicByNameTrgm(query, SEARCH_LIMIT);
+        // A-10: 검색어가 비면 공개방 최신순 상위 10개(기본 목록), 있으면 trgm 검색.
+        List<Group> groups = (query == null || query.isBlank())
+                ? groupRepository.findTopPublicGroups(DEFAULT_LIST_LIMIT)
+                : groupRepository.searchPublicByNameTrgm(query, SEARCH_LIMIT);
 
         // 멤버 수는 IN 집계 1회 — 결과 그룹마다 findByGroup(group).size() 를 돌던 N+1 제거
         Map<UUID, Integer> memberCountByGroupId = memberCountsOf(groups.stream().map(Group::getId).toList());
@@ -258,16 +248,23 @@ public class GroupService {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
-        // 3. 이미 멤버 확인 → ALREADY_MEMBER
+        // 3. 이미 활성 멤버 → ALREADY_MEMBER
         if (groupMemberRepository.findByUserAndGroup(user, group).isPresent()) {
             throw new GroupException(GroupErrorCode.ALREADY_MEMBER);
         }
 
+        // 3-0. 과거 이탈 행(A-0 소프트삭제) 확인 — 강퇴자는 재참여 차단, 자진 탈퇴자는 아래 6에서 행을 되살린다.
+        //      (활성 행은 위에서 걸러졌으니, 존재한다면 반드시 이탈(is_left) 행이다.)
+        Optional<GroupMember> priorMembership = groupMemberRepository.findAnyByUserAndGroup(user, group);
+        if (priorMembership.isPresent() && priorMembership.get().isKicked()) {
+            throw new GroupException(GroupErrorCode.KICKED_CANNOT_REJOIN);
+        }
+
         // 3-1. 소속 그룹 수 상한 → GROUP_LIMIT_EXCEEDED
-        // (이미 멤버인 경우는 위에서 ALREADY_MEMBER 로 끝나므로 상한에 걸리지 않는다)
+        // (활성 멤버는 위 ALREADY_MEMBER 로 끝나므로 상한에 걸리지 않는다. 재가입은 활성 카운트가 늘어 상한 적용)
         ensureJoinedGroupLimit(user);
 
-        // 4. 정원 확인 → ROOM_FULL
+        // 4. 정원 확인 → ROOM_FULL (활성 멤버만 카운트)
         if (group.getMaxMembers() <= groupMemberRepository.findByGroup(group).size()) {
             throw new GroupException(GroupErrorCode.ROOM_FULL);
         }
@@ -278,12 +275,16 @@ public class GroupService {
             throw new GroupException(GroupErrorCode.WRONG_PASSWORD);
         }
 
-        // 6. GroupMember 저장 (role = MEMBER)
-        groupMemberRepository.save(GroupMember.builder()
-                .user(user)
-                .group(group)
-                .role(GroupMemberRole.MEMBER)
-                .build());
+        // 6. 자진 탈퇴자 재가입이면 기존 행 되살리기(유니크 제약 회피), 아니면 신규 저장 (role = MEMBER)
+        if (priorMembership.isPresent()) {
+            priorMembership.get().rejoin();
+        } else {
+            groupMemberRepository.save(GroupMember.builder()
+                    .user(user)
+                    .group(group)
+                    .role(GroupMemberRole.MEMBER)
+                    .build());
+        }
 
         // 7. 어트리뷰션 — 참여 경로(join_method)와 초대 slug 를 두 트랙에 기록한다.
         //    공유 URL 의 ?g= 는 변조 가능하므로 "링크의 group_id == 참여 그룹" 만이 신뢰 근거다(스펙 §6-3).
@@ -479,13 +480,27 @@ public class GroupService {
                         s -> s.getUser().getId(),
                         s -> s.getTotalFocusSeconds() / 60   // GROMO-642: 초→분
                 )));
+        // A-8: 멤버별 전체 누적 집중시간(분) — 리더보드 정렬용 배치 집계
+        List<UUID> memberUserIds = users.stream().map(User::getId).toList();
+        Map<UUID, Integer> totalFocusMap = memberUserIds.isEmpty() ? Map.of()
+                : dailyFocusStatRepository.sumTotalFocusSecondsByUserIdIn(memberUserIds).stream()
+                        .collect(Collectors.toMap(
+                                DailyFocusStatRepository.UserFocusTotal::getUserId,
+                                t -> (int) (t.getTotalSeconds() / 60)));
+
         List<GroupDetailMemberResponse> list = groupMembers.stream()
                 .map(m -> GroupDetailMemberResponse.builder()
                         .userId(m.getUser().getId())
                         .nickname(m.getUser().getNickname())
                         .role(m.getRole())
                         .focusTimeMinutes(focusMap.getOrDefault(m.getUser().getId(), 0))
+                        .totalFocusMinutes(totalFocusMap.getOrDefault(m.getUser().getId(), 0))
                         .build())
+                // A-8: 누적 집중시간 내림차순, 동점은 닉네임 오름차순 (서버 정렬 — 클라 재정렬 없음)
+                .sorted(Comparator
+                        .comparingInt(GroupDetailMemberResponse::getTotalFocusMinutes).reversed()
+                        .thenComparing(GroupDetailMemberResponse::getNickname,
+                                Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
 
         // GROMO-676: 공지 권한은 group_members.announcement_permission 기준 (방장 제외)
@@ -560,6 +575,11 @@ public class GroupService {
         if (request.getDescription() != null) {
             group.updateDescription(request.getDescription());
         }
+
+        // A-1: 공개/비밀 전환 (이름 변경은 trgm GIN 인덱스가 자동 반영, 별도 처리 불필요)
+        if (request.getIsPrivate() != null) {
+            group.updateIsPrivate(request.getIsPrivate());
+        }
     }
 
     public GroupSettingsResponse getGroupSettings(UUID groupId, UUID userId) {
@@ -578,14 +598,20 @@ public class GroupService {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
 
-        // GROMO-676: 공지 권한은 group_members.announcement_permission 기준 (방장 제외)
-        List<UUID> grantedUserIds = noticeGrantedUserIds(groupMemberRepository.findByGroup(group));
+        // A-4: 전 활성 멤버의 공지 작성 권한 뷰. 방장은 항상 granted=true(토글 불가),
+        // 그 외 멤버는 announcement_permission=ALLOW 여부로 granted 를 채운다.
+        List<GroupSettingsResponse.AnnouncementGrant> announcementGrants =
+                groupMemberRepository.findByGroup(group).stream()
+                        .map(m -> GroupSettingsResponse.AnnouncementGrant.builder()
+                                .userId(m.getUser().getId())
+                                .nickname(m.getUser().getNickname())
+                                .granted(m.getRole() == GroupMemberRole.OWNER
+                                        || m.getAnnouncementPermission() == GroupAnnouncementGrant.ALLOW)
+                                .build())
+                        .toList();
 
         return GroupSettingsResponse.builder()
-                .chatEnabled(group.isChatEnabled())
-                .chatLimitPerPerson(group.getChatLimitPerPerson())
-                .invitePermission(group.getInvitePermission())
-                .noticeGrantedUserIds(grantedUserIds)
+                .announcementGrants(announcementGrants)
                 .build();
     }
 
@@ -608,20 +634,24 @@ public class GroupService {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
 
-        group.updateSettings(
-                request.getChatEnabled(),
-                request.getChatLimitPerPerson(),
-                request.getInvitePermission()
-        );
-
-        // GROMO-676: 공지 권한 부여/회수 — group_members.announcement_permission 로 일괄 반영.
-        // null = 미변경, 빈 리스트 = 권한 초기화(방장만), 목록에 없는 멤버는 회수, 비멤버 id 는 무시.
-        if (request.getNoticeGrantedUserIds() != null) {
-            List<UUID> granteeIds = request.getNoticeGrantedUserIds();
+        // A-4: 공지 권한 부여/회수 — announcementGrants 의 각 항목을 granted 대로 반영(항목별 upsert).
+        // null·빈 리스트 = 미변경, 목록에 없는 멤버는 그대로 유지, 방장/비멤버 id 는 무시.
+        List<UpdateGroupSettingsRequest.AnnouncementGrant> grants = request.getAnnouncementGrants();
+        if (grants != null && !grants.isEmpty()) {
+            Map<UUID, Boolean> grantByUserId = grants.stream()
+                    .filter(g -> g.getUserId() != null)
+                    .collect(Collectors.toMap(
+                            UpdateGroupSettingsRequest.AnnouncementGrant::getUserId,
+                            UpdateGroupSettingsRequest.AnnouncementGrant::isGranted,
+                            (a, b) -> b));
             groupMemberRepository.findByGroup(group).stream()
                     .filter(member -> member.getRole() != GroupMemberRole.OWNER)
                     .forEach(member -> {
-                        if (granteeIds.contains(member.getUser().getId())) {
+                        Boolean granted = grantByUserId.get(member.getUser().getId());
+                        if (granted == null) {
+                            return;   // 요청에 없는 멤버는 미변경
+                        }
+                        if (granted) {
                             member.allowAnnouncement();
                         } else {
                             member.disallowAnnouncement();
@@ -657,29 +687,6 @@ public class GroupService {
     // ── GROMO-674: 그룹 미션 정보는 group_challenges(+CTI 상세)가 소유 ──────────────
 
     /** 그룹 생성 시 대표 챌린지(status=ACTIVE) + type별 상세(Duration/Window) 행을 저장한다. */
-    private void createRepresentativeChallenge(Group group, CreateGroupRequest request) {
-        GroupChallenge challenge = GroupChallenge.builder()
-                .group(group)
-                .type(request.getMissionType())
-                .category(request.getMissionCategory())
-                .status(GroupChallengeStatus.ACTIVE)
-                .build();
-        groupChallengeRepository.save(challenge);
-
-        if (request.getMissionType() == MissionType.DURATION) {
-            groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                    .challenge(challenge)
-                    .durationMinutes(request.getDurationMinutes())
-                    .build());
-        } else if (request.getMissionType() == MissionType.TIME_WINDOW) {
-            groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
-                    .challenge(challenge)
-                    .windowStartAt(request.getWindowStart())
-                    .windowEndAt(request.getWindowEnd())
-                    .build());
-        }
-    }
-
     /** 대표 챌린지(최신 ACTIVE, 미삭제) + type별 상세에서 상세/오버뷰 응답의 미션 필드를 채운다. */
     private RepresentativeMission resolveRepresentativeMission(Group group) {
         return groupChallengeRepository

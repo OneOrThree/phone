@@ -3,20 +3,15 @@ package com.oneorthree.phone.group.dto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
-import com.oneorthree.phone.group.domain.MissionCategory;
-import com.oneorthree.phone.group.domain.MissionType;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-
-import java.time.Instant;
 
 // 전체 인자 생성자를 public 으로 열지 않는다(빌더 전용, private): 공개돼 있으면 Jackson 이 그 생성자를
 // properties creator 로 잡아 미전송 primitive 파라미터를 null 로 넘기고
@@ -52,13 +47,6 @@ public class CreateGroupRequest {
     @JsonSetter(nulls = Nulls.FAIL)
     private boolean isPrivate;
 
-    @NotNull
-    private MissionType missionType;
-
-    @NotNull
-    private MissionCategory missionCategory;
-
-    private Integer durationMinutes;
-    private Instant windowStart;
-    private Instant windowEnd;
+    // D18: 그룹 생성 시 챌린지(미션)를 정하지 않는다 — 챌린지는 그룹방에서 별도 생성한다.
+    // 기존 missionType/missionCategory/durationMinutes/windowStart/windowEnd 필드는 제거됐다.
 }

@@ -600,14 +600,14 @@ Table group_members [note: '그룹 멤버십 (역할 · 활동상태 · 알림 �
   announcement_permission group_announcement_grant [not null, default: 'DISALLOW', note: '멤버 단위 공지 작성 권한, 방장은 제외']
   notification_enabled boolean           [not null, default: true, note: '그룹 알림 수신 설정 (콕찌르기 등)']
 
-  is_left              boolean           [not null, default: false, note: '탈퇴 여부 (재가입 허용 → 가입/탈퇴 이력이 행으로 누적)']
+  is_left              boolean           [not null, default: false, note: 'A-0 소프트삭제: 활성=false, 탈퇴/강퇴=true. 재가입은 이 행을 되살림(rejoin)']
+  left_reason          varchar(10)       [null, note: 'A-0(V20) 이탈 사유: null(활성)·LEFT(자진, 재가입 허용)·KICKED(강퇴, 재가입 차단). CHECK IN (LEFT,KICKED)']
 
   created_at           timestamptz       [not null, default: `now()`, note: '가입 시각']
   updated_at           timestamptz
   indexes {
-    // 재가입 허용: 단순 unique 불가. 활성 멤버십만 1개 보장하는 부분 unique는 마이그레이션에서:
-    //   CREATE UNIQUE INDEX ... ON group_members (user_id, group_id) WHERE is_left = false;
-    (user_id, group_id) [note: '활성 멤버십 부분 unique(WHERE is_left = false)는 마이그레이션 SQL로 적용']
+    // (user,group) 전체 unique — 멤버십은 1행. 재가입은 신규 삽입이 아니라 기존 행 rejoin(is_left=false로 복원).
+    (user_id, group_id) [unique, note: '멤버십 1행 보장. 자진 탈퇴자 재가입=행 되살리기, 강퇴자=거절']
   }
 }
 

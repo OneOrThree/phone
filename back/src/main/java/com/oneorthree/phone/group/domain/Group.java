@@ -95,6 +95,11 @@ public class Group {
         this.description = description;
     }
 
+    /** 공개/비밀 전환 (A-1) — 비밀방은 검색 제외, 초대 링크 전용. */
+    public void updateIsPrivate(boolean isPrivate) {
+        this.isPrivate = isPrivate;
+    }
+
     public void updateSettings(Boolean chatEnabled, Integer chatLimitPerPerson,
             GroupPermissionScope invitePermission) {
         if (chatEnabled != null) {

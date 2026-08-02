@@ -8,8 +8,13 @@ import com.oneorthree.phone.friend.domain.Friendship;
 import com.oneorthree.phone.friend.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
+import com.oneorthree.phone.group.domain.Group;
+import com.oneorthree.phone.group.domain.GroupMember;
+import com.oneorthree.phone.group.domain.GroupMemberRole;
+import com.oneorthree.phone.group.domain.GroupStatus;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.domain.Occupation;
@@ -110,6 +115,9 @@ class UserServiceTest {
 
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
+
+    @Mock
+    private GroupMemberRepository groupMemberRepository;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
@@ -316,6 +324,32 @@ class UserServiceTest {
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("A-2 혼자 있는 소유 그룹은 탈퇴와 함께 자동 종료(ENDED)되고 탈퇴가 성공한다")
+    void withdrawAutoEndsSoloOwnedGroup() {
+        User user = User.builder().id(USER_ID).build();
+        Group soloGroup = Group.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000aa"))
+                .status(GroupStatus.WAITING).build();
+        GroupMember ownerMembership = GroupMember.builder()
+                .user(user).group(soloGroup).role(GroupMemberRole.OWNER).build();
+
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(groupMemberRepository.findActiveOwnerMembershipsByUserId(USER_ID))
+                .willReturn(List.of(ownerMembership));
+        // 활성 멤버가 방장 1명뿐 → 자동 종료 대상
+        given(groupMemberRepository.findByGroup(soloGroup)).willReturn(List.of(ownerMembership));
+        // 자동 종료 후엔 활성 OWNER 행이 남지 않는다
+        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(false);
+
+        userService.withdraw(USER_ID);
+
+        // 그룹은 ENDED, 방장 멤버십은 이탈 처리 → 탈퇴는 성공(소프트딜리트)
+        assertThat(soloGroup.getStatus()).isEqualTo(GroupStatus.ENDED);
+        assertThat(ownerMembership.isLeft()).isTrue();
+        assertThat(user.isDeleted()).isTrue();
+        verify(socialAccountRepository).deleteByUserId(USER_ID);
     }
 
     @Test
