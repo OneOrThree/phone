@@ -47,6 +47,8 @@ export type OnboardingStepName =
   | 'screentime_denied'
   | 'yesterday_screentime'
   | 'goal_setting'
+  | 'character_intro'
+  | 'cutout_experience'
   | 'nickname';
 
 // 스텝 도달(노출) — 전 스텝 커버로 퍼널 이탈 지점을 파악한다(기존 제출/노출 이벤트의 공백 보완).

@@ -44,6 +44,17 @@ export function isSubjectMaskSupported(): boolean {
   }
 }
 
+// 누끼 캐릭터를 저장할 수 있는 네이티브가 링크돼 있는지. isSubjectMaskSupported()의 iOS17+ 판정과
+// 별개다 — 배경 제거(cutout)는 iOS17+가 필요하지만, 저장(saveCustomCharacter)은 모듈만 있으면
+// iOS16.4에서도 원본으로 동작한다. 반대로 저장 불가한 빌드(안드로이드·구 바이너리 OTA)에선
+// 온보딩이 이 경우를 스킵할 수 있게 이 판정을 따로 노출한다.
+// ⚠️ native!=null만으론 부족하다 — 구 스파이크 OTA 바이너리는 isSupported·cutout만 노출하고
+// saveCustomCharacter가 없어, 그것만 보면 저장 불가 기기를 '가능'으로 오판해 온보딩이 다시 막힌다.
+// 저장 함수 자체의 존재까지 확인한다.
+export function isSubjectMaskModuleAvailable(): boolean {
+  return native != null && typeof native.saveCustomCharacter === 'function';
+}
+
 // 사진 URI → 누끼 결과. 어떤 실패에서도 throw하지 않고 원본으로 폴백한다.
 export async function cutoutSubject(
   uri: string,

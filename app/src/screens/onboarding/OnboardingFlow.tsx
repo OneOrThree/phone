@@ -17,6 +17,8 @@ import YesterdayScreenTimeStep, {
   resetAnalyzeIntro,
 } from '@/screens/onboarding/steps/YesterdayScreenTimeStep';
 import GoalSettingStep from '@/screens/onboarding/steps/GoalSettingStep';
+import CharacterIntroStep from '@/screens/onboarding/steps/CharacterIntroStep';
+import CutoutStep from '@/screens/onboarding/steps/CutoutStep';
 import NicknameStep from '@/screens/onboarding/steps/NicknameStep';
 import { hapticLight, hapticMedium } from '@/utils/haptics';
 import { INITIAL_ONBOARDING_DATA, type StepProps, type V2OnboardingData } from './types';
@@ -124,6 +126,10 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         ? step('screentime_denied', ScreenTimeDeniedStep)
         : step('yesterday_screentime', YesterdayScreenTimeStep),
       step('goal_setting', GoalSettingStep),
+      // 캐릭터 소개 → 누끼 체험 → 닉네임. 소개에서 기본 그로몬을 처음 만나고, 체험에서
+      // 내 물건으로 캐릭터를 한 번 만들어 본 뒤(스킵 불가), 마지막에 이름을 짓는다.
+      step('character_intro', CharacterIntroStep),
+      step('cutout_experience', CutoutStep),
       { kind: 'nickname' },
     ];
   }, [data.subjects, data.screenTimeGranted]);

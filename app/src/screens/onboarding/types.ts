@@ -13,6 +13,9 @@ export interface V2OnboardingData {
   screenTimeGranted: boolean | null; // 스크린타임 권한 결과 (null=아직 안 물어봄)
   screenTimeSelectionConfigured: boolean; // 측정 대상(앱) picker 완료 여부
   nickname: string; // 닉네임·캐릭터 화면
+  // 누끼 체험(CutoutStep)에서 만든 캐릭터 file:// 경로(캐시버스트 쿼리 포함) — 완료 시 App이
+  // CharacterContext에 시드한다(자동 장착은 안 함). 미완료면 undefined.
+  cutoutCharacterUri?: string;
   usageGoalMinutes: number | null; // 하루 스크린타임 목표(60~600분)
   dailyFocusMinutes: number | null; // 하루 집중 목표(30~600분)
   notificationGranted: boolean | null; // 알림 권한 결과 (null=아직 안 물어봄) — 현재 플로우 미수집(스텝 보류)

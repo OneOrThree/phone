@@ -139,6 +139,8 @@ function App() {
   const [onboardingScreenTimeGoalSeconds, setOnboardingScreenTimeGoalSeconds] = useState<
     number | null
   >(null);
+  // 온보딩 누끼 체험에서 만든 캐릭터 경로 — CharacterProvider가 하이드레이션 시 시드한다(장착은 안 함).
+  const [onboardingCutoutUri, setOnboardingCutoutUri] = useState<string | null>(null);
   // applyStoredSession이 [] effect에서 1회 등록돼 user 클로저가 낡는다 — 현재 userId는 ref로 참조.
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = user?.userId ?? null;
@@ -258,6 +260,7 @@ function App() {
     StudyWidgetModule.updateTopSubjects([]).catch(() => {});
     setOnboardingFocusGoalSeconds(null);
     setOnboardingScreenTimeGoalSeconds(null);
+    setOnboardingCutoutUri(null);
     setOnboarded(false);
     setUser(null);
   }
@@ -374,6 +377,8 @@ function App() {
       // 집중·사용시간 목표(W12) 보관.
       setOnboardingFocusGoalSeconds(data.dailyFocusMinutes ? data.dailyFocusMinutes * 60 : null);
       setOnboardingScreenTimeGoalSeconds(data.usageGoalMinutes ? data.usageGoalMinutes * 60 : null);
+      // 누끼 체험(W13.5)에서 만든 캐릭터 보관 — CharacterProvider가 새 계정 버킷에 시드한다.
+      setOnboardingCutoutUri(data.cutoutCharacterUri ?? null);
     }
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
     setOnboarded(true);
@@ -448,7 +453,7 @@ function App() {
       >
         <CoinProvider>
           <EquipmentProvider>
-            <CharacterProvider>
+            <CharacterProvider initialCustomUri={onboardingCutoutUri ?? undefined}>
               <FocusProvider>
                 <SubjectProvider>
                   {/* 강제 종료된 세션 정산 — 라이브 레코드가 있으면 적립 후 삭제 */}
