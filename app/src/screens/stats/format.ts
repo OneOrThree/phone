@@ -118,7 +118,8 @@ export function periodKey(period: StatsPeriod): 'day' | 'week' | 'month' {
   return period === 'DAY' ? 'day' : period === 'WEEK' ? 'week' : 'month';
 }
 
-const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
+// 요일 라벨(일=0..토=6) — 첫 시작 차트·공유 이미지 날짜 헤더 등 공용.
+export const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
 
 // 이번 주 월~일 7일의 로컬 날짜 키('YYYY-MM-DD') — 요일별 차트들이 남은 요일까지 미리 그릴 때 공용.
 function weekDateKeys(): string[] {
