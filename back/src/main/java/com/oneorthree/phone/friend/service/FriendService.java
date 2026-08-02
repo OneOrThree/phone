@@ -134,7 +134,8 @@ public class FriendService {
 
     // 요청 생성 후처리 — 신규 insert·REJECTED 재전환 두 경로 모두 1회씩, reopened 로 구분.
     // 활동 로그(즉시)와 푸시 이벤트(커밋 이후 소비)를 함께 낸다. 재전환도 수신자 입장에선 새 요청이라
-    // 두 경로 모두 알린다 — 도배는 발송 측 dedup(24h)이 접는다(GROMO-1090).
+    // 두 경로 모두 알린다 — 발송 측 dedup 은 동시 reopen 경합만 접고, 재요청 도배 억제는 요청
+    // 쿨다운(티켓 475)의 몫이다(GROMO-1090).
     private void onRequestCreated(UUID me, UUID targetUserId, boolean reopened) {
         userActivityEventLogger.log(UserActivityEvent.FRIEND_REQUEST_SENT,
                 Map.of("to_user_id", targetUserId.toString(), "reopened", reopened));

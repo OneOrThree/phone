@@ -139,7 +139,7 @@ public class FriendNotificationService {
     /**
      * 최근 {@link #DEDUP_WINDOW} 안에 같은 (수신자, type, 상대) 조합으로 발송한 적이 있는지.
      * 인덱스를 타는 기존 조회(type + 유저 + 구간)를 그대로 쓰고 상대 판정만 메모리에서 접는다 —
-     * 한 유저의 24시간치 친구 알림이라 건수가 극소수다.
+     * 한 유저의 10분치 친구 알림이라 건수가 극소수다.
      */
     private boolean alreadySent(UUID recipientId, UUID counterpartId, String type, Instant now) {
         return notificationSentLogRepository
