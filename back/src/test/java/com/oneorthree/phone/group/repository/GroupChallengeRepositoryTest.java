@@ -141,21 +141,21 @@ class GroupChallengeRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("existsOverlappingTimeWindow — 삭제된 챌린지의 시간대는 겹침 판정에서 제외된다")
-    void overlapCheckExcludesSoftDeleted() {
-        // given: 09~18시 TIME_WINDOW 챌린지
+    @DisplayName("findActiveByGroupForUpdate — 삭제 마킹된 챌린지의 창은 겹침 검사 대상에서 빠진다")
+    void activeWindowLookupExcludesSoftDeleted() {
+        // given: 09~18시 TIME_WINDOW 챌린지 (window 상세 행은 삭제 후에도 그대로 남는다)
         Group group = saveGroup();
         GroupChallenge challenge = saveWindowChallenge(group, WINDOW_START, WINDOW_END);
         groupChallengeWindowRepository.flush();
-        assertThat(groupChallengeWindowRepository.existsOverlappingTimeWindow(
-                group, MissionCategory.FOCUS, WINDOW_START, WINDOW_END)).isTrue();
+        assertThat(groupChallengeWindowRepository.findActiveByGroupForUpdate(group))
+                .extracting(GroupChallengeWindow::getChallengeId)
+                .containsExactly(challenge.getId());
 
-        // when: 삭제 마킹 (window 상세 행은 그대로 남는다)
+        // when: 삭제 마킹
         challenge.softDelete();
         groupChallengeRepository.flush();
 
-        // then: 같은 시간대를 다시 만들 수 있다
-        assertThat(groupChallengeWindowRepository.existsOverlappingTimeWindow(
-                group, MissionCategory.FOCUS, WINDOW_START, WINDOW_END)).isFalse();
+        // then: 대상에서 빠져 같은 시간대를 다시 만들 수 있다
+        assertThat(groupChallengeWindowRepository.findActiveByGroupForUpdate(group)).isEmpty();
     }
 }
