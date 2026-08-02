@@ -16,6 +16,7 @@ import com.oneorthree.phone.group.dto.CreateChallengeRequest;
 import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
 import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
+import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
@@ -41,6 +42,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.Instant;
@@ -122,6 +124,11 @@ class GroupChallengeServiceTest {
     // static 실제 로직이라 관용치 경계가 이 테스트에서 그대로 검증된다.
     @Mock
     private WindowFocusAggregator windowFocusAggregator;
+
+    // 챌린지 개설 알림(GROMO-1089) 이벤트 발행처. 발송은 알림 도메인이 AFTER_COMMIT 으로 받으므로
+    // 여기서는 "무엇을 발행했는가" 만 검증한다.
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -825,6 +832,65 @@ class GroupChallengeServiceTest {
         assertThat(durationCaptor.getValue().getChallenge()).isEqualTo(saved);
         assertThat(durationCaptor.getValue().getDurationMinutes()).isEqualTo(30);
         verify(groupChallengeWindowRepository, never()).save(any(GroupChallengeWindow.class));
+    }
+
+    @Test
+    @DisplayName("챌린지 생성 성공 → 개설 알림 이벤트를 (챌린지·그룹·개설자) 로 발행")
+    void createChallengePublishesCreatedEvent() {
+        // given: DURATION 생성 성공 경로와 동일
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getMissionType()).willReturn(MissionType.DURATION);
+        given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
+        given(request.getDurationMinutes()).willReturn(30);
+
+        GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .type(MissionType.DURATION).category(MissionCategory.FOCUS)
+                .status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
+
+        // when
+        groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        // then: 발송이 아니라 이벤트만 — 실제 푸시는 커밋 이후 알림 도메인이 맡는다
+        ArgumentCaptor<GroupChallengeCreatedEvent> eventCaptor =
+                ArgumentCaptor.forClass(GroupChallengeCreatedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue()).isEqualTo(
+                new GroupChallengeCreatedEvent(CHALLENGE_ID, GROUP_ID, USER_ID));
+    }
+
+    @Test
+    @DisplayName("챌린지 생성 실패(중복) → 개설 알림 이벤트를 발행하지 않음")
+    void createChallengeDoesNotPublishEventOnFailure() {
+        // given: 같은 (카테고리, 타입) 활성 챌린지가 이미 있어 사전 검사에서 강하
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getMissionType()).willReturn(MissionType.DURATION);
+        given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
+        given(request.getDurationMinutes()).willReturn(30);
+        given(groupChallengeRepository.existsByGroupAndCategoryAndTypeAndStatusAndDeletedAtIsNull(
+                group, MissionCategory.FOCUS, MissionType.DURATION, GroupChallengeStatus.ACTIVE))
+                .willReturn(true);
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_DUPLICATE);
+        verify(eventPublisher, never()).publishEvent(any(GroupChallengeCreatedEvent.class));
     }
 
     @Test

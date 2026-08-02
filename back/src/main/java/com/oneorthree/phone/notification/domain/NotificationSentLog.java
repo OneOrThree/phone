@@ -54,6 +54,14 @@ public class NotificationSentLog {
      */
     public static final String TYPE_CHALLENGE_WINDOW_END = "CHALLENGE_WINDOW_END";
 
+    /**
+     * 발송 종류 — 그룹에 새 챌린지가 등록됐을 때의 그룹원 알림(GROMO-1089).
+     * {@code target_user_id} 에 <b>챌린지 id</b> 를 담아 (user_id, type, target_user_id) 조합으로
+     * "이 유저에게 이 챌린지 개설 알림을 이미 보냈는지"를 판정한다. 챌린지 개설은 1회성이라
+     * 정상 흐름에서는 중복이 없고, 이 dedup 은 이벤트 재발행·재시도에 대한 안전망이다.
+     */
+    public static final String TYPE_CHALLENGE_CREATED = "CHALLENGE_CREATED";
+
     @Id
     @GeneratedUuidV7
     private UUID id;
