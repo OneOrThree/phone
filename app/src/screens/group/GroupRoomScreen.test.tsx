@@ -1128,8 +1128,8 @@ describe('내기 배선', () => {
   });
 });
 
-// 내장 렌더(GroupScreen의 1건 분기)는 그룹이 A 한 건에서 B 한 건으로 바뀌어도 같은 인스턴스를
-// 재사용한다 — 이전 그룹의 화면이 남은 채 mutation만 새 groupId로 나가면 영구 실패가 된다.
+// 이미 스택에 있는 'GroupRoom' 라우트로 다시 navigate 하면(params 병합) 같은 인스턴스가 다른
+// groupId로 재사용된다 — 이전 그룹의 화면이 남은 채 mutation만 새 groupId로 나가면 영구 실패가 된다.
 describe('그룹 전환(같은 인스턴스에 다른 groupId)', () => {
   const OTHER_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
 

@@ -47,8 +47,9 @@ import MemberTile from './components/MemberTile';
 
 // 그룹방 — 명세 docs/app/group-plan.md §6-4.
 //
-// 형태: 탭 셸 없는 단일 ScrollView. **탭 안 내장 렌더와 라우트 진입을 겸한다** —
-//      그룹이 1개면 지금까지처럼 GroupScreen 안에서, 2개 이상이면 목록에서 push 된다(2차 §0-1·§0-2).
+// 형태: 탭 셸 없는 단일 ScrollView. 라우트 진입 전용이다 — 목록(GroupScreen)에서 그룹을 고르면
+//      GroupRoom 라우트로 push 되고 GroupRoomRouteScreen이 이 컴포넌트를 감싼다
+//      (A-9: 소속 수와 무관하게 목록이 기본 화면, 1건 내장 렌더는 폐지).
 // 레이아웃: 헤더(이름 · 비공개 자물쇠 · n/m · ⋯) → 초대 링크 카드 → 공지(최근 3건 + 모두보기)
 //          → 챌린지(2차 §3-2) → 멤버 3열 그리드(MemberTile + '＋ 초대' 타일)
 //
@@ -214,9 +215,9 @@ export default function GroupRoomScreen({
   // 새로고침·포그라운드 복귀 재조회·같은 방 재포커스에선 재발행하지 않고, 그룹을 바꾸면 다시 발행한다.
   const roomViewedGroupIdRef = useRef<string | null>(null);
 
-  // 이 화면이 지금 그리고 있는 그룹. 내장 렌더(GroupScreen의 1건 분기)는 목록 재조회 결과가
-  // A 한 건에서 B 한 건으로 바뀌어도 **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
-  // (다른 계정 기기에서 A에서 빠지고 B에 들어간 경우 등) — 그러면 A의 챌린지·시트가 남은 채
+  // 이 화면이 지금 그리고 있는 그룹. 이미 스택에 있는 'GroupRoom' 라우트로 다시 navigate 하면
+  // (React Navigation이 params만 병합해) **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
+  // (A 방을 보다 B 방 초대/딥링크로 같은 라우트에 재진입한 경우 등) — 그러면 A의 챌린지·시트가 남은 채
   // mutation만 B의 groupId로 나가 NOT_FOUND 같은 영구 실패가 되고, B 조회가 실패하면 A의
   // 화면이 그대로 유지된다(코덱스 리뷰).
   // 이펙트가 아니라 **렌더 중에** 되돌리는 이유: 이펙트는 커밋 뒤라 'A의 데이터 + B의 groupId'가
