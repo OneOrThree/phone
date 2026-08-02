@@ -1,13 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  ActivityIndicator,
-  StyleSheet,
-  Image,
-  AppState,
-} from 'react-native';
+import { Text, TextInput, AppState } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -37,12 +29,13 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { LoginResult, UserProfile } from '@/types/api';
 
+import BrandSplash from '@/components/BrandSplash';
 import { UserProvider } from '@/store/UserContext';
 import { CoinProvider, transferOwnedItems } from '@/store/CoinContext';
 import { EquipmentProvider, transferEquipment } from '@/store/EquipmentContext';
+import { CharacterProvider, transferCharacter } from '@/store/CharacterContext';
 import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
-import { T } from '@/constants/theme';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { RageTapDetector } from '@/components/RageTapDetector';
 import { DeepLinkGate } from '@/components/DeepLinkGate';
@@ -298,6 +291,9 @@ function App() {
         await transferEquipment(prevUserId, userId)
           .catch(() => transferEquipment(prevUserId, userId))
           .catch(() => {});
+        await transferCharacter(prevUserId, userId)
+          .catch(() => transferCharacter(prevUserId, userId))
+          .catch(() => {});
       }
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.focusCategory,
@@ -414,11 +410,10 @@ function App() {
 
   let content;
   if (loading) {
-    content = (
-      <View style={s.loading}>
-        <ActivityIndicator size="large" color={T.ink} />
-      </View>
-    );
+    // 프로필 대기 화면 — OTA 준비 화면(OtaUpdateGateScreen)과 같은 비주얼로 통일해
+    // 두 로딩이 끊김 없이 이어져 보이게 한다(GROMO-1029). 이 단계엔 진행%가 없어
+    // OTA와 같은 응원 문구만 고정 노출(퍼센트만 빠짐).
+    content = <BrandSplash caption="오늘 집중도 화이팅!!" />;
   } else if (!user) {
     content = onboarded ? (
       // 온보딩 완료한 재방문 유저(로그아웃 상태) → 바로 로그인.
@@ -453,21 +448,23 @@ function App() {
       >
         <CoinProvider>
           <EquipmentProvider>
-            <FocusProvider>
-              <SubjectProvider>
-                {/* 강제 종료된 세션 정산 — 라이브 레코드가 있으면 적립 후 삭제 */}
-                <OrphanFocusSettler />
-                {/* 업로드 실패로 대기열에 남은 집중 세션 재전송(앱 시작·포그라운드 복귀) */}
-                <PendingFocusUploader />
-                {/* 로그인 상태에서 푸시 권한·토큰 등록·수신 배선 */}
-                <PushGate />
-                {/* 예약된 목표('내일부터 적용')가 발효일 지나면 반영 */}
-                <PendingGoalApplier />
-                {/* 스크린타임 사용량 서버 동기화(어제 마감 + 오늘 중간값, 앱 시작·포그라운드 복귀) */}
-                <ScreenTimeSyncer />
-                <RootNavigator />
-              </SubjectProvider>
-            </FocusProvider>
+            <CharacterProvider>
+              <FocusProvider>
+                <SubjectProvider>
+                  {/* 강제 종료된 세션 정산 — 라이브 레코드가 있으면 적립 후 삭제 */}
+                  <OrphanFocusSettler />
+                  {/* 업로드 실패로 대기열에 남은 집중 세션 재전송(앱 시작·포그라운드 복귀) */}
+                  <PendingFocusUploader />
+                  {/* 로그인 상태에서 푸시 권한·토큰 등록·수신 배선 */}
+                  <PushGate />
+                  {/* 예약된 목표('내일부터 적용')가 발효일 지나면 반영 */}
+                  <PendingGoalApplier />
+                  {/* 스크린타임 사용량 서버 동기화(어제 마감 + 오늘 중간값, 앱 시작·포그라운드 복귀) */}
+                  <ScreenTimeSyncer />
+                  <RootNavigator />
+                </SubjectProvider>
+              </FocusProvider>
+            </CharacterProvider>
           </EquipmentProvider>
         </CoinProvider>
       </UserProvider>
@@ -487,34 +484,16 @@ function App() {
   );
 }
 
-const s = StyleSheet.create({
-  loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: T.paper },
-  // OTA 준비 화면 — OnboardingSplash(캐릭터+GROMO 워드마크)와 같은 구성
-  updatingChar: { width: 220, height: 220 },
-  updatingBrand: { ...T.text.display, color: T.ink, letterSpacing: 4, marginTop: T.space.sm },
-  updatingText: { marginTop: T.space.lg, fontSize: 14, color: T.inkSub },
-});
-
 // OTA 준비 화면 — 온보딩 진입 스플래시와 같은 구성(캐릭터+GROMO)에 응원 문구,
-// 다운로드 중임은 퍼센트로만 표시. 노출 기록은 렌더 도중이 아니라 커밋(마운트) 후에
-// 남긴다 — 커밋되지 않고 버려진 렌더가 온보딩 스플래시를 잘못 스킵시키지 않도록(코드리뷰 P2).
+// 다운로드 중임은 퍼센트로만 표시(BrandSplash 공통 비주얼 재사용, GROMO-1029). 노출 기록은
+// 렌더 도중이 아니라 커밋(마운트) 후에 남긴다 — 커밋되지 않고 버려진 렌더가 온보딩 스플래시를
+// 잘못 스킵시키지 않도록(코드리뷰 P2).
 function OtaUpdateGateScreen({ progress }: { progress: number }) {
   useEffect(() => {
     markOtaSplashShown();
   }, []);
-  return (
-    <View style={s.loading}>
-      <Image
-        source={require('@/assets/character_hi.png')}
-        style={s.updatingChar}
-        resizeMode="contain"
-      />
-      <Text style={s.updatingBrand}>GROMO</Text>
-      <Text style={s.updatingText}>
-        오늘 집중도 화이팅!!{progress > 0 ? ` ${Math.round(progress * 100)}%` : ''}
-      </Text>
-    </View>
-  );
+  const caption = `오늘 집중도 화이팅!!${progress > 0 ? ` ${Math.round(progress * 100)}%` : ''}`;
+  return <BrandSplash caption={caption} />;
 }
 
 // hot-updater OTA 게이트(GROMO-875) — 릴리즈 빌드 시작 시 새 JS 번들을 확인하고,

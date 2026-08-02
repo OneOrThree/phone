@@ -23,6 +23,7 @@ import { useLeagueMeta } from '@/screens/league/useLeagueMeta';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
+import { useCharacter } from '@/store/CharacterContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import ScreenTimeModule, {
   androidNativeModuleAvailable,
@@ -239,6 +240,8 @@ export default function HomeScreen() {
   const { nickname, userId, goalSeconds, screenTimeGoalSeconds } = useUser();
   // 오늘 공부 집중 = 실제 세션 누적(FocusContext). 집중 세션 정지 시 반영됨.
   const { todayFocusSeconds } = useFocus();
+  // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
+  const { activeSource } = useCharacter();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
@@ -499,7 +502,7 @@ export default function HomeScreen() {
           <View style={s.topBar}>
             <View style={s.profileRow}>
               <View style={s.avatar}>
-                <CharacterImage size={38} />
+                <CharacterImage size={38} sourceUri={activeSource ?? undefined} />
               </View>
               <View>
                 <View style={s.nameRow}>
@@ -532,7 +535,19 @@ export default function HomeScreen() {
 
           {/* ── 방 + 캐릭터 ── */}
           <View style={s.room}>
-            <CharacterImage size={216} />
+            <CharacterImage size={216} sourceUri={activeSource ?? undefined} />
+            {/* 캐릭터 바꾸기 — 알림 벨과 같은 패턴(계측 + navigate). 은은한 pill 스타일 */}
+            <PressableScale
+              style={s.changeCharBtn}
+              scaleTo={0.96}
+              onPress={() => {
+                logHomeButtonTapped({ button: 'character_change', destination: 'CharacterSelect' });
+                navigation.navigate('CharacterSelect');
+              }}
+            >
+              <Ionicons name="brush-outline" size={14} color={T.accent} />
+              <Text style={s.changeCharText}>캐릭터 바꾸기</Text>
+            </PressableScale>
           </View>
         </ScrollView>
 
@@ -679,6 +694,18 @@ const s = StyleSheet.create({
 
   // 방 + 캐릭터 — 가운데를 채우고, 카드를 하단으로 밀어냄
   room: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: T.space.xs },
+  // 캐릭터 바꾸기 pill — 캐릭터 바로 아래, 은은한 인디고 틴트
+  changeCharBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.xs,
+    marginTop: T.space.md,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.sm,
+    borderRadius: 999,
+    backgroundColor: T.accentBg,
+  },
+  changeCharText: { ...T.text.label, color: T.accent },
 
   // 오늘 카드
   card: {

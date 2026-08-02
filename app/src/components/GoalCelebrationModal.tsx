@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Modal, InteractionManager } f
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
+import { useCharacter } from '@/store/CharacterContext';
 import { T, withAlpha } from '@/constants/theme';
 
 // 포커스 목표 달성 축하 모달(GROMO-630) — 오늘 누적 집중이 목표를 처음 채운 순간 결과 화면에서
@@ -30,6 +31,8 @@ export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onC
   // 프레임이 밀리면 시간 기준 애니메이션이 건너뛰어 "이미 떨어진 상태"로 보이는 것 방지.
   const [charReady, setCharReady] = useState(false);
   const [uiIdle, setUiIdle] = useState(false);
+  // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
+  const { activeSource } = useCharacter();
   useEffect(() => {
     if (!visible) return;
     const task = InteractionManager.runAfterInteractions(() => setUiIdle(true));
@@ -52,7 +55,11 @@ export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onC
               연속 목표달성 <Text style={s.streakDays}>{goalStreakDays}일</Text>
             </Text>
           </View>
-          <CharacterImage size={104} onLoad={() => setCharReady(true)} />
+          <CharacterImage
+            size={104}
+            sourceUri={activeSource ?? undefined}
+            onLoad={() => setCharReady(true)}
+          />
           <Text style={s.title}>
             {goalMinutes ? `${goalLabel(goalMinutes)} 집중 목표 달성!` : '오늘 목표 달성!'}
           </Text>

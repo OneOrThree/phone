@@ -14,8 +14,9 @@ import java.time.Instant;
  * @param result            정산 결과 enum name(PROMOTED/STAY/RELEGATED, 결과 없음이면 null)
  * @param previousTierLevel 정산 전 티어(결과 없음이면 null)
  * @param newTierLevel      정산 후 티어(결과 없음이면 null)
- * @param focusSeconds      해당 주차 집중 시간(초, 결과 없음이면 null)
- * @param acknowledged      확인 처리 여부(acknowledgedAt != null)
+ * @param focusSeconds       해당 주차 집중 시간(초, 결과 없음이면 null)
+ * @param acknowledged       확인 처리 여부(acknowledgedAt != null)
+ * @param promotionBonusCoins 승급(PROMOTED) 시 지급된 승급 보너스 코인(승급이 아니거나 결과 없음이면 0)
  */
 public record LeagueLastResultResponse(
         boolean hasResult,
@@ -24,6 +25,7 @@ public record LeagueLastResultResponse(
         Integer previousTierLevel,
         Integer newTierLevel,
         Integer focusSeconds,
-        boolean acknowledged
+        boolean acknowledged,
+        int promotionBonusCoins
 ) {
 }

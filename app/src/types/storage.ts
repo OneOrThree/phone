@@ -14,6 +14,7 @@ export const STORAGE_KEYS = {
   equipmentV2: 'gromo:equipment:v2', // 계정별 장비 맵 { [userId]: SavedEquipment } — 가구·아이템은 로컬 전용(GROMO-936)
   ownedItemsV2: 'gromo:ownedItems:v2', // 계정별 보유 아이템 맵 { [userId]: itemId[] } — 아이템 API 부재로 유일한 구매 기록(GROMO-936)
   ownedItemsLegacyOwner: 'gromo:ownedItems:legacyOwner', // 구 키(ownedItems) 듀얼라이트의 소유자 — 롤백 복귀 병합용(GROMO-936)
+  character: 'gromo:character:v1', // 계정별 캐릭터 선택 맵 { [userId]: { choice, customUri, createdAt } } — 오브젝트 캐릭터(누끼)
   focus: 'gromo:focus',
   focusLiveSession: 'gromo:focus:liveSession',
   focusFirstDone: 'gromo:focus:firstDone', // 첫 집중 완료 여부 — 결과 화면(603) 변형 분기

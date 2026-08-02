@@ -788,9 +788,9 @@ class FocusServiceTest {
     // ── saveFocusSession — 서버 코인 지급 (currency 폐쇄) ──────────────────
 
     @Test
-    @DisplayName("세션 저장 → 집중 10초당 1코인 서버 지급(SESSION_COMPLETE, 멱등키 focus:{id}:reward) + 응답 awardedCoins")
+    @DisplayName("세션 저장 → 집중 60초(1분)당 1코인 서버 지급(SESSION_COMPLETE, 멱등키 focus:{id}:reward) + 응답 awardedCoins")
     void saveFocusSessionAwardsCoins() {
-        // given: 1시간(3600초) 세션, 방해 30초 → 집중 3570초 → floor(3570/10) = 357코인
+        // given: 1시간(3600초) 세션, 방해 30초 → 집중 3570초 → floor(3570/60) = 59코인
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
@@ -804,21 +804,21 @@ class FocusServiceTest {
         FocusSessionSaveResponse response = focusService.saveFocusSession(USER_ID, body);
 
         // then: 저장 세션 id 기반 멱등키로 원장 지급 + 응답에 지급액
-        verify(currencyLedgerService).credit(user, CurrencyTransactionType.SESSION_COMPLETE, 357,
+        verify(currencyLedgerService).credit(user, CurrencyTransactionType.SESSION_COMPLETE, 59,
                 "focus:" + SESSION_ID + ":reward");
-        assertThat(response.awardedCoins()).isEqualTo(357);
+        assertThat(response.awardedCoins()).isEqualTo(59);
     }
 
     @Test
-    @DisplayName("집중 10초 미만 세션 저장 → 코인 미지급(credit 미호출) + awardedCoins=0")
+    @DisplayName("집중 60초(1분) 미만 세션 저장 → 코인 미지급(credit 미호출) + awardedCoins=0")
     void saveFocusSessionShortSessionNoAward() {
-        // given: 9초 세션 → floor(9/10) = 0
+        // given: 59초 세션 → floor(59/60) = 0
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionRequest body = new FocusSessionRequest(null, START, START.plusSeconds(9), 0);
+        FocusSessionRequest body = new FocusSessionRequest(null, START, START.plusSeconds(59), 0);
 
         // when
         FocusSessionSaveResponse response = focusService.saveFocusSession(USER_ID, body);
@@ -832,24 +832,24 @@ class FocusServiceTest {
     private static final Instant FORMULA_NOW = Instant.parse("2026-06-24T00:00:00Z");
 
     @Test
-    @DisplayName("보상 공식 diff — 서버 sessionRewardCoins == 앱 floor(elapsed/10) (방해 0 페이로드 기준)")
+    @DisplayName("보상 공식 — 서버 sessionRewardCoins == floor(집중초/60) (1분당 1코인, 방해 0 페이로드 기준)")
     void sessionRewardCoinsMatchesAppFormula() {
-        // 앱 정본 공식: FocusSessionScreen.settleFocusBlock / OrphanFocusSettler 의 floor(집중초 / 10).
-        // 두 경로 모두 distraction 0 으로 업로드하므로 서버 집중초 = endedAt − startedAt. 경계값으로 고정한다
-        // (43_200초 = 12h 는 지급 캡 경계 — 캡과 앱 공식이 일치하는 마지막 값).
-        long[] elapsedCases = {0, 1, 9, 10, 11, 19, 20, 599, 600, 3599, 3600, 43_200};
+        // 서버 지급률: floor(집중초 / 60) = 1분당 1코인. 앱은 원래 floor(집중초/10)로 적립했으나 서버 지급률은
+        // 오스카 결정으로 1분당 1코인으로 분기했다. distraction 0 페이로드에서 서버 집중초 = endedAt − startedAt.
+        // 60초 단위 경계값(59/60/61, 119/120)으로 내림을 고정하고, 43_200초(12h)는 지급 캡 경계다.
+        long[] elapsedCases = {0, 1, 59, 60, 61, 119, 120, 599, 600, 3599, 3600, 43_200};
         for (long elapsed : elapsedCases) {
-            int appCoins = (int) (elapsed / 10);
+            int expectedCoins = (int) (elapsed / 60);
             int serverCoins = FocusService.sessionRewardCoins(START, START.plusSeconds(elapsed), 0, FORMULA_NOW);
-            assertThat(serverCoins).as("elapsed=%d초", elapsed).isEqualTo(appCoins);
+            assertThat(serverCoins).as("elapsed=%d초", elapsed).isEqualTo(expectedCoins);
         }
     }
 
     @Test
     @DisplayName("보상 공식 — 방해시간은 집중초에서 차감, 방해가 구간을 초과하면 0 (음수 방어)")
     void sessionRewardCoinsSubtractsDistraction() {
-        // 방해 차감: 100초 구간 − 방해 25초 = 집중 75초 → 7코인
-        assertThat(FocusService.sessionRewardCoins(START, START.plusSeconds(100), 25, FORMULA_NOW)).isEqualTo(7);
+        // 방해 차감: 100초 구간 − 방해 25초 = 집중 75초 → floor(75/60) = 1코인
+        assertThat(FocusService.sessionRewardCoins(START, START.plusSeconds(100), 25, FORMULA_NOW)).isEqualTo(1);
         // 방해가 구간 전체를 넘으면(비정상 페이로드) 음수 지급 없이 0
         assertThat(FocusService.sessionRewardCoins(START, START.plusSeconds(100), 200, FORMULA_NOW)).isZero();
     }
@@ -857,9 +857,9 @@ class FocusServiceTest {
     @Test
     @DisplayName("보상 공식 — 미래 endedAt 은 now 로 클램프(미래 시각 조작분 미지급, 소폭 시계 오차는 흡수)")
     void sessionRewardCoinsClampsFutureEndedAt() {
-        // endedAt 이 now 보다 1시간 미래 → 지급은 [startedAt, now] 구간만 인정
+        // endedAt 이 now 보다 1시간 미래 → 지급은 [startedAt, now] 구간(600초)만 인정 → floor(600/60) = 10코인
         Instant now = START.plusSeconds(600);
-        assertThat(FocusService.sessionRewardCoins(START, START.plusSeconds(4200), 0, now)).isEqualTo(60);
+        assertThat(FocusService.sessionRewardCoins(START, START.plusSeconds(4200), 0, now)).isEqualTo(10);
         // 세션 전체가 미래(startedAt > now) → 0 (음수 방어와 동일 경로)
         assertThat(FocusService.sessionRewardCoins(now.plusSeconds(100), now.plusSeconds(200), 0, now)).isZero();
     }
@@ -867,12 +867,12 @@ class FocusServiceTest {
     @Test
     @DisplayName("보상 공식 — 지급 인정 길이는 12h(orphan 상한 정렬) 캡: 위조 장시간 세션 대량 발행 차단")
     void sessionRewardCoinsCapsAtTwelveHours() {
-        // 30일짜리 위조 세션도 12h(43_200초) = 4_320코인까지만 지급
+        // 30일짜리 위조 세션도 12h(43_200초) = floor(43_200/60) = 720코인까지만 지급
         assertThat(FocusService.sessionRewardCoins(START, START.plusSeconds(2_592_000L), 0,
-                START.plusSeconds(2_592_000L))).isEqualTo(4_320);
-        // 캡 직전(43_199초)은 그대로
+                START.plusSeconds(2_592_000L))).isEqualTo(720);
+        // 캡 직전(43_199초)은 그대로 → floor(43_199/60) = 719
         assertThat(FocusService.sessionRewardCoins(START, START.plusSeconds(43_199), 0, FORMULA_NOW))
-                .isEqualTo(4_319);
+                .isEqualTo(719);
     }
 
     @Test

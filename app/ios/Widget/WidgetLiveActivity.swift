@@ -8,6 +8,7 @@
 import ActivityKit
 import WidgetKit
 import SwiftUI
+import UIKit
 
 // 집중 세션 Live Activity(GROMO-553) — 세션 중 허용앱을 쓰는 동안
 // 다이나믹 아일랜드/잠금화면에 집중 타이머 + 캐릭터를 표시한다.
@@ -46,16 +47,39 @@ private let diCream = Palette.night.cream
 private let diMuted = Palette.night.muted
 private let diGold = Palette.night.gold
 
-// 캐릭터 이미지 뷰 — 위젯 번들 에셋(character.imageset, 512px 축소본)을 직접 사용.
-// App Group 스냅샷(captureRef) 경로는 배경이 불투명해지는 문제가 있어 쓰지 않는다.
+// App Group 공유 컨테이너 ID — 실드/메인 앱과 동일하게 focusCharacter.png를 여기서 읽는다.
+private let appGroupId = "group.com.oneorthree.gromo"
+
+// 캐릭터 이미지 뷰 — 세션 시작 시 메인 앱이 App Group 컨테이너에 저장한 커스텀 캐릭터
+// (focusCharacter.png, captureRef로 구운 투명 PNG)를 우선 사용하고, 없으면 위젯 번들 기본
+// 마스코트(character.imageset, 512px 축소본)로 폴백한다.
+// 파일 경로 취득은 실드(ShieldConfigurationExtension.focusShield)의 읽기 방식을 그대로 따른다.
 private struct CharacterView: View {
     let size: CGFloat
 
+    // App Group 컨테이너의 커스텀 캐릭터 스냅샷(있으면). 매 렌더마다 읽지만 파일이 작고
+    // Live Activity 렌더 빈도가 낮아 부담이 없다(실드도 표시 때마다 같은 파일을 읽는다).
+    private var snapshot: UIImage? {
+        guard let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupId
+        ) else { return nil }
+        let path = container.appendingPathComponent("focusCharacter.png").path
+        return UIImage(contentsOfFile: path)
+    }
+
     var body: some View {
-        Image("character")
-            .resizable()
-            .scaledToFit()
-            .frame(width: size, height: size)
+        Group {
+            if let snapshot {
+                Image(uiImage: snapshot)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Image("character")
+                    .resizable()
+                    .scaledToFit()
+            }
+        }
+        .frame(width: size, height: size)
     }
 }
 

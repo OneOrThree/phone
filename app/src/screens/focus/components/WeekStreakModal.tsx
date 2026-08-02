@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
+import { useCharacter } from '@/store/CharacterContext';
 import { T, withAlpha } from '@/constants/theme';
 import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
 
@@ -16,6 +17,8 @@ interface Props {
 export function WeekStreakModal({ visible, onClose }: Props) {
   // 카드 위치·폭(오버레이 좌표) — 컨페티가 카드를 장애물로 취급할 때 사용. 최초 1회만 기록.
   const [cardRect, setCardRect] = useState<ConfettiObstacle | null>(null);
+  // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
+  const { activeSource } = useCharacter();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.overlay}>
@@ -27,7 +30,7 @@ export function WeekStreakModal({ visible, onClose }: Props) {
             setCardRect((prev) => prev ?? { x, y, width });
           }}
         >
-          <CharacterImage size={104} />
+          <CharacterImage size={104} sourceUri={activeSource ?? undefined} />
           <Text style={s.title}>이번 주 스트릭 완성! 🎉</Text>
           <Text style={s.sub}>월요일부터 일요일까지 하루도 빠짐없이 채웠어요</Text>
           <View style={s.weekBox}>

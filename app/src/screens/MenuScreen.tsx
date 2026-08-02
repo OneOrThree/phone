@@ -9,6 +9,7 @@ import ScreenTimeModule, { type UsageBucketDebugInfo } from '@/services/ScreenTi
 import { getStreak } from '@/services/statsApi';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@/store/UserContext';
+import { useCharacter } from '@/store/CharacterContext';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
 import { STORAGE_KEYS } from '@/types/storage';
 import { CharacterImage } from '@/components/character/CharacterImage';
@@ -16,7 +17,6 @@ import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
 import { SettingsSection, SettingsRow } from '@/screens/settings/components/SettingsList';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
-import { SPIKE_ENABLED } from '@/screens/spike/enabled';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 
@@ -149,6 +149,8 @@ function BucketDebugPanel() {
 export default function MenuScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { nickname, goalSeconds, screenTimeGoalSeconds } = useUser();
+  // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
+  const { activeSource } = useCharacter();
   const insets = useSafeAreaInsets();
 
   // 허브 행 우측 요약값 — 준비 시험 / 허용앱 개수 / 스크린타임 권한 상태.
@@ -224,7 +226,7 @@ export default function MenuScreen() {
           ref={profileRef}
         >
           <View style={s.avatar}>
-            <CharacterImage size={44} />
+            <CharacterImage size={44} sourceUri={activeSource ?? undefined} />
           </View>
           <View style={s.flex1}>
             <View style={s.nameRow}>
@@ -293,6 +295,17 @@ export default function MenuScreen() {
           </SettingsSection>
         </View>
 
+        <SettingsSection title="캐릭터">
+          <SettingsRow
+            icon="cube-outline"
+            iconColor={T.accentAlt}
+            iconBg={T.accentAltBg}
+            label="사진에서 캐릭터 만들기"
+            sub="내 물건에 팔다리를 달아 캐릭터로"
+            onPress={() => navigation.navigate('CharacterCreate')}
+          />
+        </SettingsSection>
+
         <SettingsSection title="알림 · 공개">
           <SettingsRow
             icon="notifications-outline"
@@ -343,22 +356,6 @@ export default function MenuScreen() {
             onPress={() => navigation.navigate('SettingsVersion')}
           />
         </SettingsSection>
-
-        {/* 실험(스파이크) — 오브젝트 캐릭터 PoC 진입점. 노출 조건은 RootNavigator의 라우트
-             등록과 같은 SPIKE_ENABLED를 쓴다(@/screens/spike/enabled).
-             검증이 끝나면 이 섹션째 제거한다. */}
-        {SPIKE_ENABLED && (
-          <SettingsSection title="실험 (스파이크)">
-            <SettingsRow
-              icon="cube-outline"
-              iconColor={T.accentAlt}
-              iconBg={T.accentAltBg}
-              label="내 물건 캐릭터 (실험)"
-              sub="사진 속 물건에 팔다리를 달아본다"
-              onPress={() => navigation.navigate('ObjectCharacterSpike')}
-            />
-          </SettingsSection>
-        )}
 
         {/* 개발 전용 — 연출 디자인 확인용 임시 진입점(__DEV__ 빌드에만 노출).
              리그 결과 미리보기는 실데이터 연결(GROMO-831)로 제거 — 결과 화면은
