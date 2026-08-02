@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -97,6 +98,24 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
     quota != null && !quota.unlimited && (quota.remaining ?? 0) > 0
       ? `이번 주 ${quota.remaining}번 남았어요`
       : null;
+
+  // 차단(쿼터 소진) 상태로 화면을 켜둔 채 resetAt을 넘기면(예: 밤새 백그라운드) 마운트 1회
+  // 조회만으론 새로 초기화된 쿼터를 못 받아 계속 차단 뷰에 머문다. 앱이 다시 활성화될 때
+  // 재조회해 자동으로 풀리게 한다(스피너로 되돌리지 않게 quotaLoading은 건드리지 않는다).
+  useEffect(() => {
+    if (!blocked) return;
+    let alive = true;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      getCharacterQuota().then((q) => {
+        if (alive) setQuota(q);
+      });
+    });
+    return () => {
+      alive = false;
+      sub.remove();
+    };
+  }, [blocked]);
 
   // 합성 미리보기를 감싸는 컨테이너 — 저장 시 이 View를 통째로 캡처해 PNG로 굽는다.
   const captureViewRef = useRef<View>(null);

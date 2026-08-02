@@ -55,12 +55,19 @@ export interface CharacterQuota {
   resetAt: string | null;
 }
 
+// 쿼터 조회는 UI 게이트(로딩 스피너)를 잡고 있어, 서버가 느리거나 닿지 않을 때 공용 15초
+// 타임아웃까지 기다리면 fail-open이어도 사용자가 최대 15초 갇힌다. 짧은 전용 타임아웃으로
+// 조기에 포기(→ null → 생성 허용)한다.
+const QUOTA_TIMEOUT_MS = 4000;
+
 // 남은 캐릭터 생성 횟수를 조회한다. 모더레이션과 달리 쿼터는 '안전'이 아니라 '제한'이라,
 // 조회 실패(네트워크·타임아웃·비2xx)를 throw하지 않고 null을 돌려준다 — 인프라 이슈로
 // 생성을 막지 않도록 호출부가 fail-open(생성 허용)으로 처리하게 한다.
 export async function getCharacterQuota(): Promise<CharacterQuota | null> {
   try {
-    const { data } = await api.get<CharacterQuotaApiResponse>('/api/v1/character/quota');
+    const { data } = await api.get<CharacterQuotaApiResponse>('/api/v1/character/quota', {
+      timeout: QUOTA_TIMEOUT_MS,
+    });
     return {
       unlimited: data.unlimited === true,
       remaining: data.remaining ?? null,
