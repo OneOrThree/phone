@@ -537,16 +537,18 @@ describe('에러 분기', () => {
     expect(mockJoinBet).toHaveBeenCalledTimes(1);
   });
 
-  // 누가 먼저 열었는지는 앱이 알 수 없다 — 성공 직후 재조회 전에 다시 누른 **본인**일 수도 있다.
-  test('BET_ALREADY_EXISTS — 사실 범위 안에서만 알리고 닫는다', async () => {
+  // 누가 먼저 열었는지는 앱이 알 수 없다 — 성공 직후 재조회 전에 다시 누른 **본인**일 수도,
+  // **취소·정산된 내기의 같은 날 재개설**(v1 불가 확정 — 유니크가 행을 남긴다)일 수도 있다.
+  // '이미 열려 있어요'만 말하면 취소 직후엔 재조회해도 내기가 안 보여 거짓말이 된다.
+  test('BET_ALREADY_EXISTS — 진행 중·재개설 불가 두 사실을 모두 덮는 문구로 알리고 닫는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_ALREADY_EXISTS'));
     await renderSheet('create');
     await submit();
 
     expect(alertSpy).toHaveBeenCalledWith(
-      '이미 오늘 내기가 열려 있어요',
-      '최신 상태로 새로고침할게요.',
+      '오늘은 내기를 열 수 없어요',
+      '이미 오늘 내기가 있어요. 진행 중이면 새로고침 후 참가할 수 있고, 취소했거나 끝난 내기는 오늘 다시 열 수 없어요.',
     );
     expect(onDone).toHaveBeenCalled();
   });
