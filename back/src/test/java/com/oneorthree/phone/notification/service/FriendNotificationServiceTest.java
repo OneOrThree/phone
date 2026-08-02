@@ -33,7 +33,7 @@ import static org.mockito.Mockito.verify;
  * 친구 요청·수락 푸시의 <b>대상 확정·문구·dedup·기록</b> 단위 테스트 (GROMO-1090).
  *
  * <p>여기서 잠그는 성질은 넷이다: ① 알림이 "모르는 쪽"에게 가는가(요청은 받은 쪽, 수락은 보냈던 쪽),
- * ② 딥링크·{@code data.type} 이 계약값 그대로인가, ③ 같은 상대에게 24시간 안에 두 번 나가지 않는가,
+ * ② 딥링크·{@code data.type} 이 계약값 그대로인가, ③ 같은 상대에게 dedup 창 안에서 두 번 나가지 않는가,
  * ④ 실제 발송이 성사된 건만 sent_log 에 남는가(quiet hours 스킵을 발송으로 오기록하지 않기).
  */
 @ExtendWith(MockitoExtension.class)
@@ -139,7 +139,7 @@ class FriendNotificationServiceTest {
     @Test
     @DisplayName("발송 스킵(알림 off·토큰 없음·quiet hours)이면 sent_log 를 남기지 않는다")
     void notifyFriendRequest_skipped_doesNotWriteSentLog() {
-        // 스킵을 기록하면 dedup 이 "이미 보냈다"로 오판해, 알림을 다시 켠 뒤에도 24시간 동안 못 받는다.
+        // 스킵을 기록하면 dedup 이 "이미 보냈다"로 오판해, 알림을 다시 켠 직후의 발송을 잘못 막는다.
         givenBothUsersExist();
         givenNoPreviousSend(NotificationSentLog.TYPE_FRIEND_REQUEST);
         given(pushNotificationService.sendIfAllowed(any(User.class), any(), any(PushMessage.class), eq(NOW)))
@@ -151,7 +151,7 @@ class FriendNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("dedup — 같은 상대에게 24시간 안에 이미 보냈으면 재발송하지 않는다")
+    @DisplayName("dedup — 같은 상대에게 방금(창 안에) 보냈으면 재발송하지 않는다")
     void notifyFriendRequest_alreadySent_skips() {
         givenBothUsersExist();
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(
@@ -181,8 +181,8 @@ class FriendNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("dedup 조회창은 now - 24시간")
-    void notifyFriendRequest_looksBack24Hours() {
+    @DisplayName("dedup 조회창은 now - 10분 — 더 길면 별개의 재요청 알림까지 삼킨다")
+    void notifyFriendRequest_looksBack10Minutes() {
         givenBothUsersExist();
         givenNoPreviousSend(NotificationSentLog.TYPE_FRIEND_REQUEST);
 
@@ -191,7 +191,7 @@ class FriendNotificationServiceTest {
         ArgumentCaptor<Instant> since = ArgumentCaptor.forClass(Instant.class);
         verify(notificationSentLogRepository).findByTypeAndUserIdInSince(
                 eq(NotificationSentLog.TYPE_FRIEND_REQUEST), eq(List.of(RECIPIENT_ID)), since.capture());
-        assertThat(since.getValue()).isEqualTo(NOW.minus(Duration.ofHours(24)));
+        assertThat(since.getValue()).isEqualTo(NOW.minus(Duration.ofMinutes(10)));
     }
 
     @Test
@@ -243,7 +243,7 @@ class FriendNotificationServiceTest {
                 .userId(RECIPIENT_ID)
                 .type(type)
                 .targetUserId(targetUserId)
-                .sentAt(NOW.minus(Duration.ofHours(1)))
+                .sentAt(NOW.minus(Duration.ofMinutes(1)))
                 .build();
     }
 }
