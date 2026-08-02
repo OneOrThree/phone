@@ -119,8 +119,8 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
           ) : moderationUnavailable ? (
             // 검사 불가로 지금은 못 만드는 경우 — 갇히지 않게 안내하고 다음으로 넘어갈 수 있게 한다.
             <Text style={s.hint}>
-              지금은 확인이 어려워요. 나중에 메뉴에서 ‘사진에서 캐릭터 만들기’로 만들 수 있어요.
-              지금은 넘어가도 괜찮아요.
+              지금은 확인이 어려워요. 나중에 홈에서 ‘캐릭터 바꾸기’로 만들 수 있어요. 지금은
+              넘어가도 괜찮아요.
             </Text>
           ) : creatorDismissed ? (
             // 생성기를 열었다가 닫은 경우 — 지금 안 만들어도 넘어갈 수 있게 안내한다.
