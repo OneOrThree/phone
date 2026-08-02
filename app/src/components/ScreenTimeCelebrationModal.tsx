@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Modal, InteractionManager } f
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
+import { useCharacter } from '@/store/CharacterContext';
 import { T, withAlpha } from '@/constants/theme';
 
 // 스크린타임 목표 달성 축하 모달(GROMO-629) — 어제 사용 시간이 목표 이내였으면 그날 첫 홈 진입에
@@ -29,6 +30,8 @@ export function ScreenTimeCelebrationModal({ visible, streakDays, goalMinutes, o
   // 색종이는 캐릭터가 그려지고 UI가 한가해진 뒤 시작(GROMO-848) — GoalCelebrationModal과 동일 가드
   const [charReady, setCharReady] = useState(false);
   const [uiIdle, setUiIdle] = useState(false);
+  // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
+  const { activeSource } = useCharacter();
   useEffect(() => {
     if (!visible) return;
     const task = InteractionManager.runAfterInteractions(() => setUiIdle(true));
@@ -51,7 +54,11 @@ export function ScreenTimeCelebrationModal({ visible, streakDays, goalMinutes, o
               연속 목표달성 <Text style={s.streakDays}>{streakDays}일</Text>
             </Text>
           </View>
-          <CharacterImage size={104} onLoad={() => setCharReady(true)} />
+          <CharacterImage
+            size={104}
+            sourceUri={activeSource ?? undefined}
+            onLoad={() => setCharReady(true)}
+          />
           <Text style={s.title}>어제 핸드폰 사용 시간 목표를 달성했군요!</Text>
           <Text style={s.sub}>
             {goalMinutes

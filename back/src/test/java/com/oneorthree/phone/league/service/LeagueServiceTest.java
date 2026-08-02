@@ -17,6 +17,7 @@ import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.league.exception.LeagueException;
+import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
@@ -76,6 +77,9 @@ class LeagueServiceTest {
 
     @Mock
     private FocusLiveInfoLookup focusLiveInfoLookup;
+
+    @Mock
+    private CurrencyTransactionRepository currencyTransactionRepository;
 
     @Spy
     private LeagueWeek leagueWeek = new LeagueWeek();
@@ -450,6 +454,8 @@ class LeagueServiceTest {
     void getLastResultUnacknowledged() {
         given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
                 .willReturn(Optional.of(weeklyResult(PREVIOUS_WEEK_START, LeagueWeeklyResultType.PROMOTED)));
+        given(currencyTransactionRepository.existsByIdempotencyKey(
+                "league:" + PREVIOUS_WEEK_START + ":" + USER_ID)).willReturn(true);
 
         LeagueLastResultResponse response = leagueService.getLastResult(USER_ID);
 
@@ -460,6 +466,8 @@ class LeagueServiceTest {
         assertThat(response.newTierLevel()).isEqualTo(3);
         assertThat(response.focusSeconds()).isEqualTo(200);
         assertThat(response.acknowledged()).isFalse();
+        // 승급 보너스는 원장에 실제 지급(멱등키)이 있을 때만 보고 — tier 3 도달 → +100
+        assertThat(response.promotionBonusCoins()).isEqualTo(100);
     }
 
     @Test

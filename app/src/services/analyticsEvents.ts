@@ -210,7 +210,11 @@ export function logTodaySummaryViewed(p: { focus_minutes: number }): void {
 }
 
 // 홈 버튼 탭 — 어떤 버튼(button)을 눌러 어디로(destination 라우트) 이동했는지 기록.
-export type HomeButton = 'today_summary_detail' | 'phone_usage' | 'notification_bell';
+export type HomeButton =
+  | 'today_summary_detail'
+  | 'phone_usage'
+  | 'notification_bell'
+  | 'character_change';
 export function logHomeButtonTapped(p: { button: HomeButton; destination: string }): void {
   track('home_button_tapped', p);
 }
@@ -485,6 +489,20 @@ export function logGroupChallengeResultClosed(p: { dwell_ms: number }): void {
 export type PushOpenedType = 'BET_RESULT' | 'CHALLENGE_WINDOW_END';
 export function logPushOpened(p: { type: PushOpenedType }): void {
   track('push_opened', p);
+}
+
+// ── 스크린타임 창 사용분 보고 [C] ── (그룹 챌린지 확장 배치 A4, contract.md §계측)
+// SCREEN_TIME×TIME_WINDOW 챌린지의 창 사용분 업로드(screentimeSync) 계측.
+// reported는 **업로드 API 성공 시에만** 발행한다 — 실패 재시도까지 세면 보고 수가 부푼다.
+// is_final: 창 종료 후 최종 보고 여부(false = 창 진행 중 중간 보고).
+export function logScreentimeWindowReported(p: { minutes: number; is_final: boolean }): void {
+  track('screentime_window_reported', p);
+}
+
+// 구 바이너리 가드(getUsageBucketEvents 미지원)에 걸려 창 사용분 업로드를 전체 스킵할 때 —
+// 세션당 1회만(발행 가드는 호출부 screentimeSync가 잡는다). 업데이트 유도 필요 규모 측정용.
+export function logScreentimeWindowUnsupported(): void {
+  track('screentime_window_unsupported');
 }
 
 // ── 그룹 Fakedoor [C] ── (GROMO-597)

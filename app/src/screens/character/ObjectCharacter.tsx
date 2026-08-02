@@ -27,6 +27,8 @@ interface Props {
   aspect: number; // 오브젝트 가로/세로 비율 (width / height)
   maxWidth: number;
   maxHeight: number;
+  // 오브젝트 이미지 디코드 완료 콜백 — 상위가 이 시점 전 저장(captureRef)을 막는 데 쓴다.
+  onLoad?: () => void;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -44,7 +46,7 @@ function limbMetrics(objW: number, objH: number) {
   };
 }
 
-export function ObjectCharacter({ uri, aspect, maxWidth, maxHeight }: Props) {
+export function ObjectCharacter({ uri, aspect, maxWidth, maxHeight, onLoad }: Props) {
   // 숨쉬기 — 위아래로 살짝 늘었다 줄었다. 스파이크라 애니메이션은 이거 하나만.
   const breath = useSharedValue(0);
   useEffect(() => {
@@ -225,7 +227,7 @@ export function ObjectCharacter({ uri, aspect, maxWidth, maxHeight }: Props) {
       </Svg>
 
       {/* 오브젝트 — 누끼 PNG(또는 폴백 원본) */}
-      <Image source={{ uri }} style={[s.object, imageStyle]} resizeMode="contain" />
+      <Image source={{ uri }} style={[s.object, imageStyle]} resizeMode="contain" onLoad={onLoad} />
 
       {/* 앞 레이어 — 눈·입 */}
       <Svg style={StyleSheet.absoluteFill} width={geo.stageW} height={geo.stageH}>

@@ -2,12 +2,15 @@ package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
+import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
+import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
 import com.oneorthree.phone.league.dto.LeagueLastResultResponse;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
@@ -46,6 +49,7 @@ public class LeagueService {
     private final LeagueRankingQueryRepository leagueRankingQueryRepository;
     private final LeagueTierConfigRepository leagueTierConfigRepository;
     private final LeagueWeeklyResultRepository leagueWeeklyResultRepository;
+    private final CurrencyTransactionRepository currencyTransactionRepository;
     private final UserRepository userRepository;
     private final UserActivityEventLogger userActivityEventLogger;
     private final PinnedUserRepository pinnedUserRepository;
@@ -185,8 +189,15 @@ public class LeagueService {
                         result.getPreviousTierLevel(),
                         result.getNewTierLevel(),
                         result.getFocusSeconds(),
-                        result.getAcknowledgedAt() != null))
-                .orElseGet(() -> new LeagueLastResultResponse(false, null, null, null, null, null, false));
+                        result.getAcknowledgedAt() != null,
+                        // 승급 보너스 — 배치가 실제로 원장에 지급(멱등키 league:{주차}:{uid})한 경우에만 보고한다.
+                        // 배포 전 승급 결과는 그 지급이 없어 오보고를 막는다(코드리뷰 반영). 산정은 배치와 동일 공식.
+                        result.getResult() == LeagueWeeklyResultType.PROMOTED
+                                && currencyTransactionRepository.existsByIdempotencyKey(
+                                        "league:" + result.getWeekStartAt() + ":" + userId)
+                                ? CurrencyRewardPolicy.leaguePromotionReward(result.getNewTierLevel())
+                                : 0))
+                .orElseGet(() -> new LeagueLastResultResponse(false, null, null, null, null, null, false, 0));
     }
 
     /**

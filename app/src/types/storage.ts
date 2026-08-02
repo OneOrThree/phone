@@ -14,6 +14,7 @@ export const STORAGE_KEYS = {
   equipmentV2: 'gromo:equipment:v2', // 계정별 장비 맵 { [userId]: SavedEquipment } — 가구·아이템은 로컬 전용(GROMO-936)
   ownedItemsV2: 'gromo:ownedItems:v2', // 계정별 보유 아이템 맵 { [userId]: itemId[] } — 아이템 API 부재로 유일한 구매 기록(GROMO-936)
   ownedItemsLegacyOwner: 'gromo:ownedItems:legacyOwner', // 구 키(ownedItems) 듀얼라이트의 소유자 — 롤백 복귀 병합용(GROMO-936)
+  character: 'gromo:character:v1', // 계정별 캐릭터 선택 맵 { [userId]: { choice, customUri, createdAt } } — 오브젝트 캐릭터(누끼)
   focus: 'gromo:focus',
   focusLiveSession: 'gromo:focus:liveSession',
   focusFirstDone: 'gromo:focus:firstDone', // 첫 집중 완료 여부 — 결과 화면(603) 변형 분기
@@ -46,6 +47,7 @@ export const STORAGE_KEYS = {
   screentimeMeasurementStartDate: 'gromo:screentime:measurementStartDate', // 측정 시작일 {userId,date} — 신규 유저의 어제 0분 오달성 방지(GROMO-942)
   screentimeEffectiveGoal: 'gromo:screentime:effectiveGoal', // 그날 유효 목표 {userId,date,goalSeconds} — 어제 마감을 '어제 목표'로 판정(사용량 업로드와 분리, GROMO-942)
   screentimeLastClosedDate: 'gromo:screentime:lastClosedDate', // 어제분 마감 처리 완료 {userId,date} — 같은 날짜 중복 전송 방지(GROMO-627)
+  screentimeWindowReports: 'gromo:screentime:windowReports', // 창 사용분 보고 상태 {userId,finals,last} — 최종 보고 1회·무변화 스킵(챌린지 확장 A4)
   selectionApplyDate: 'gromo:selection:applyDate',
   selectionConfigured: 'gromo:selection:configured',
   selectionCounts: 'gromo:selection:counts',

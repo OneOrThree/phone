@@ -19,6 +19,13 @@ public class GroupBetResponse {
 
     private UUID betId;
 
+    /**
+     * 개설자 — 앱이 취소 버튼(개설자 본인 && 단독 참가 && OPEN)을 판정하는 데 쓴다.
+     * additive 필드이며 {@code @JsonInclude(NON_NULL)} 은 금지 — 앱은 bet 필드의
+     * undefined/null 을 구분하는 3상 로직이라 직렬화 형태가 흔들리면 안 된다.
+     */
+    private UUID creatorUserId;
+
     /** 1인 판돈. */
     private int stake;
 

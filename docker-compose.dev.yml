@@ -17,6 +17,9 @@ services:
       # FCM 발송 (GROMO-528) — dev 프로파일 = FCM 구현 활성, 시크릿 미등록 시 fail-fast 기동 실패
       FCM_PROJECT_ID: ${FCM_PROJECT_ID}
       FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON}
+      # 누끼 유해 이미지 모더레이션 (GROMO-1048) — OpenAI omni-moderation 서버 게이트(1044)가 읽는 키.
+      # 미주입 시 서버는 fail-closed(전체 차단)로 동작하므로 dev 컨테이너에 반드시 주입한다.
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     depends_on:
       db:
         condition: service_healthy

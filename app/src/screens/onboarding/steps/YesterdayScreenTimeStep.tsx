@@ -1,28 +1,13 @@
 import { useEffect, useState } from 'react';
-import { View, Text, Image, StyleSheet, Platform } from 'react-native';
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withSequence,
-  withTiming,
-} from 'react-native-reanimated';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
+import ScreenTimeAnalyzingOverlay, { ANALYZE_MS } from '@/components/ScreenTimeAnalyzingOverlay';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { T } from '@/constants/theme';
 import { formatDuration } from '@/screens/onboarding/format';
 import { logOnboardingScreentimeViewed } from '@/services/analyticsEvents';
 import type { StepProps } from '@/screens/onboarding/types';
-
-// 분석 연출 타이밍 — 기본 2초에 90%까지 리니어하게 찬 뒤, 마지막에 잠깐 멈춰
-// 네이티브 리포트가 그려질 시간을 번다(가드). 익스텐션 내부 렌더라 로드 완료 신호가
-// JS로 오지 않아 시간으로만 버틸 수 있다 — 리포트가 늦게 뜨는 케이스 완화 목적.
-const FILL_MS = 2000; // 0 → 90%
-const HOLD_MS = 900; // 90%에서 멈춤(가드 타임)
-const FINISH_MS = 300; // 90% → 100%
-const ANALYZE_MS = FILL_MS + HOLD_MS + FINISH_MS;
 
 // 분석 연출은 온보딩 플로우 진입당 1회만 — 뒤로 갔다 다시 진입해도 반복하지 않는다.
 // 모듈 전역이라 JS 번들이 사는 동안 유지되므로, 온보딩 재진입(디버그 초기화 등) 시
@@ -41,9 +26,8 @@ export function resetAnalyzeIntro() {
 // 안드로이드(GROMO-994): 네이티브 리포트 뷰 대신 모듈 조회값(어제 총 사용시간)을 직접 그린다.
 // 앱별 상세는 M2(피커·패키지 조회)에서 확장.
 export default function YesterdayScreenTimeStep({ onNext }: StepProps) {
-  // 분석 연출 — 진행바가 2초간 리니어하게 차오르고, 끝나면 로딩 레이어를 걷고 CTA를 노출한다.
+  // 분석 연출 — 진행바가 채워지고 끝나면 로딩 레이어를 걷고 CTA를 노출한다.
   const [analyzed, setAnalyzed] = useState(analyzedThisSession);
-  const progress = useSharedValue(0);
   // 안드로이드 어제 사용시간(분) — 조회 전·조회 실패 시 null이면 '–' 표시.
   const [androidYesterdayMinutes, setAndroidYesterdayMinutes] = useState<number | null>(null);
 
@@ -61,27 +45,23 @@ export default function YesterdayScreenTimeStep({ onNext }: StepProps) {
       });
   }, []);
 
-  // 전날 스크린타임 요약 노출 계측 — 진입당 1회.
+  // 전날 스크린타임 요약 노출 계측(진입당 1회) + 분석 연출 종료 타이머.
   // has_data: 실제 사용 분은 익스텐션 안에서만 그려져 JS로 넘어오지 않으므로(완료 감지 불필요),
   // 네이티브 리포트 뷰가 렌더 가능한지로 판정한다(iOS 실기기+모듈=데이터 표시 가능).
   // 안드로이드는 조회 성공/실패가 JS에서 판별되므로 위 조회 effect에서 결과에 따라 계측한다.
+  // 연출은 세션 내 1회만 노출(뒤로 갔다 재진입해도 반복 안 함) — ANALYZE_MS 뒤 로딩 레이어를
+  // 걷고 CTA를 노출한다. (홈 상세와 달리 온보딩은 리포트가 아니라 CTA를 띄워야 하므로 타이머로 건다.)
   useEffect(() => {
     if (Platform.OS !== 'android') {
       logOnboardingScreentimeViewed({ has_data: !!ScreenTimeReportView });
     }
     if (analyzedThisSession) return;
-    progress.value = withSequence(
-      withTiming(0.9, { duration: FILL_MS, easing: Easing.linear }),
-      withDelay(HOLD_MS, withTiming(1, { duration: FINISH_MS, easing: Easing.out(Easing.cubic) })),
-    );
     const timer = setTimeout(() => {
       analyzedThisSession = true;
       setAnalyzed(true);
     }, ANALYZE_MS);
     return () => clearTimeout(timer);
-  }, [progress]);
-
-  const fill = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
+  }, []);
 
   return (
     <StepScaffold
@@ -106,22 +86,8 @@ export default function YesterdayScreenTimeStep({ onNext }: StepProps) {
         ) : (
           <Text style={s.empty}>iOS 기기에서만 볼 수 있어요</Text>
         )}
-        {/* 분석 연출이 끝날 때까지 리포트를 로딩 레이어로 덮는다 — 진행바 100% 후 걷힘. */}
-        {(ScreenTimeReportView || Platform.OS === 'android') && !analyzed ? (
-          <View style={s.loadingLayer}>
-            <Text style={s.analyzingText}>
-              그로모가 사용자님의{'\n'}사용시간을 분석하고 있어요!
-            </Text>
-            <Image
-              source={require('@/assets/character_study.png')}
-              style={s.character}
-              resizeMode="contain"
-            />
-            <View style={s.progressTrack}>
-              <Animated.View style={[s.progressFill, fill]} />
-            </View>
-          </View>
-        ) : null}
+        {/* 분석 연출이 끝날 때까지(ANALYZE_MS) 리포트를 로딩 레이어로 덮는다 — 위 타이머로 걷힘. */}
+        {!analyzed ? <ScreenTimeAnalyzingOverlay /> : null}
       </View>
     </StepScaffold>
   );
@@ -145,23 +111,4 @@ const s = StyleSheet.create({
   androidLabel: { ...T.text.label, color: T.inkMuted },
   androidValue: { ...T.text.title, color: T.ink },
   androidHint: { ...T.text.caption, color: T.inkFaint },
-  loadingLayer: {
-    ...StyleSheet.absoluteFill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: T.space.xl,
-    backgroundColor: T.paper,
-  },
-  analyzingText: { ...T.text.heading, color: T.ink, textAlign: 'center', lineHeight: 28 },
-  character: { width: 170, height: 200 },
-  // 왼쪽→오른쪽으로 차오르는 분석 진행바.
-  progressTrack: {
-    alignSelf: 'stretch',
-    marginHorizontal: T.space.xxl,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: T.caramel,
-    overflow: 'hidden',
-  },
-  progressFill: { height: '100%', borderRadius: 4, backgroundColor: T.accent },
 });

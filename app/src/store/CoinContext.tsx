@@ -38,7 +38,17 @@ interface CoinContextValue {
   // 여기서 대신 말해 줄 수 없기 때문이다(무효를 true로 치면 뒤이은 호출이 실패했을 때
   // '동기화됐다'는 거짓 확정이 된다). 재시도로 이어져도 손해가 없는 방향으로 보수한다.
   refresh: () => Promise<boolean>;
-  addCoins: (amount: number) => Promise<void>;
+  // 세션 보상 낙관 가산 — 로컬 잔액만 올린다. 서버 지급은 세션 저장(POST /focus-session)이
+  // 트랜잭션으로 수행하므로(B5a 서버 전환) 여기서 서버를 부르지 않는다 — 예전의
+  // /currency/earn 호출(클라가 금액을 정하는 fire-and-forget 적립)은 내기 코인 민팅 악용
+  // 벡터라 서버가 no-op으로 폐쇄했고, 클라 호출도 제거했다. 서버와의 정합은
+  // reconcileSessionAward(저장 응답)와 기존 refresh 지점들이 잡는다.
+  addCoins: (amount: number) => void;
+  // 세션 저장 응답의 서버 지급액(awardedCoins)으로 낙관 가산을 정정한다 — 서버가 정본.
+  // optimisticAmount = 이 세션에 대해 **이번 실행에서** addCoins로 미리 올린 값(없으면 0).
+  // awardedCoins가 숫자가 아니면(구버전 서버 빈 바디) 정정하지 않고 낙관 계산을 유지한다 —
+  // 앱-서버 보상 공식이 어긋나 잔차가 남아도 다음 refresh(서버 잔액 재조회)가 교정한다.
+  reconcileSessionAward: (optimisticAmount: number, awardedCoins: number | undefined) => void;
   isOwned: (itemId: string) => boolean;
   buyItem: (itemId: string, price: number) => Promise<boolean>;
 }
@@ -99,24 +109,32 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   // 소비자가 렌더를 기다리지 않고도 최신 버전을 읽게 한다(위 latestCoinsVersion 주석).
   const coinsVersionRef = useRef(0);
   const latestCoinsVersion = useCallback(() => coinsVersionRef.current, []);
+  // 서버 지급 정정(reconcileSessionAward)의 세대 — 정정이 반영될 때마다 오른다. 정정 **이전에
+  // 시작된** 조회의 응답은 그 스냅샷이 지급 전인지 후인지 모호하다: 지급 전 잔액이면 방금 정정한
+  // 보상을 지우고(보상 증발), 지급 후 잔액이면 정정과 겹쳐 이중 표시가 된다(코덱스 리뷰 P1 —
+  // 콜드 스타트의 마운트 refresh × 고아 정산 동시 실행). 세대가 다르면 응답을 버린다 —
+  // 시퀀스 가드(위)는 조회끼리의 순서만 지켜 주므로 이 모호성은 따로 막아야 한다.
+  const awardEpochRef = useRef(0);
 
   // 서버에서 잔액 로드. 실패해도 던지지 않는다 — 잔액은 화면을 막을 값이 아니고,
   // 다음 refresh(시트 오픈 등)에서 자연 재시도된다. 다만 **조용히 삼키지는 않는다**:
   // coinsLoaded를 false로 되돌려 '지금 쥔 값은 못 믿는다'를 소비자가 알 수 있게 한다(F1).
   const refresh = useCallback(async (): Promise<boolean> => {
     const seq = ++refreshSeqRef.current;
+    const epoch = awardEpochRef.current;
     try {
       const res = await api.get<number>('/api/v1/currency');
-      // 뒤이어 시작된 조회가 있으면 이 응답은 이미 낡았다 — 실패 처리도 마찬가지로 건너뛴다.
+      // 뒤이어 시작된 조회가 있거나(seq) 조회 시작 후 서버 지급 정정이 반영됐으면(epoch)
+      // 이 응답은 이미 낡았다 — 실패 처리도 마찬가지로 건너뛴다.
       // 반영되지 않았으므로 성공이라 말하지 않는다(위 인터페이스 주석 — 무효 ≠ 성공).
-      if (seq !== refreshSeqRef.current) return false;
+      if (seq !== refreshSeqRef.current || epoch !== awardEpochRef.current) return false;
       setCoins(res.data);
       setCoinsLoaded(true);
       coinsVersionRef.current += 1;
       setCoinsVersion(coinsVersionRef.current);
       return true;
     } catch {
-      if (seq !== refreshSeqRef.current) return false;
+      if (seq !== refreshSeqRef.current || epoch !== awardEpochRef.current) return false;
       setCoinsLoaded(false);
       return false;
     }
@@ -147,9 +165,20 @@ export function CoinProvider({ children }: { children: ReactNode }) {
     AsyncStorage.setItem(STORAGE_KEYS.ownedItemsLegacyOwner, bucket).catch(() => {});
   }, [bucket, ownedItemIds]);
 
-  async function addCoins(amount: number) {
+  function addCoins(amount: number) {
     setCoins((prev) => prev + amount);
-    api.post('/api/v1/currency/earn', { amount, reason: 'SESSION_COMPLETE' }).catch(() => {});
+  }
+
+  // 차액만 반영한다(전체 재조회 아님) — 뽀모도로처럼 블록 저장이 여러 건 겹칠 때 전체 잔액을
+  // 덮어쓰면 아직 저장 안 된 다른 블록의 낙관 가산이 지워진다. 차액 방식은 블록별로 독립이다.
+  function reconcileSessionAward(optimisticAmount: number, awardedCoins: number | undefined) {
+    if (typeof awardedCoins !== 'number') return;
+    // 서버가 이 세션의 지급을 확정했다 — 이보다 먼저 시작된 조회의 스냅샷은 지급 전/후가
+    // 모호하므로 세대를 올려 무효화한다(위 awardEpochRef 주석). diff가 0이어도 올린다 —
+    // 모호성은 차액 크기가 아니라 '지급이 끼어들었다'는 사실에서 온다.
+    awardEpochRef.current += 1;
+    const diff = awardedCoins - optimisticAmount;
+    if (diff !== 0) setCoins((prev) => prev + diff);
   }
 
   function isOwned(itemId: string) {
@@ -159,7 +188,9 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   async function buyItem(itemId: string, price: number) {
     if (coins < price) return false;
     try {
-      await api.post('/api/v1/currency/spend', { amount: price, reason: 'PURCHASE' });
+      // 서버 CurrencyRequest 정식 필드는 type이다(671에서 reason → type 리네임, 구 페이로드는
+      // @JsonAlias("reason") 흡수로만 동작) — 정식 필드로 정리해 alias 의존을 끊는다.
+      await api.post('/api/v1/currency/spend', { amount: price, type: 'PURCHASE' });
       setCoins((prev) => prev - price);
       setOwnedItemIds((prev) => [...prev, itemId]);
       return true;
@@ -177,6 +208,7 @@ export function CoinProvider({ children }: { children: ReactNode }) {
         latestCoinsVersion,
         refresh,
         addCoins,
+        reconcileSessionAward,
         isOwned,
         buyItem,
       }}

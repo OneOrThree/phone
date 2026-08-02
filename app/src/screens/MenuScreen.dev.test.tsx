@@ -31,6 +31,17 @@ jest.mock('@/store/UserContext', () => ({
   }),
 }));
 
+// 프로필 헤더가 캐릭터(누끼) 소스를 읽는다 — 테스트 트리엔 Provider가 없다.
+jest.mock('@/store/CharacterContext', () => ({
+  useCharacter: () => ({
+    choice: 'default',
+    customUri: null,
+    setChoice: jest.fn(),
+    setCustomUri: jest.fn(),
+    activeSource: null,
+  }),
+}));
+
 jest.mock('@/services/statsApi', () => ({ getStreak: jest.fn(async () => ({ current: 3 })) }));
 jest.mock('@/services/screentimeSync', () => ({
   registerUsageBucketMonitoring: jest.fn(async () => true),
