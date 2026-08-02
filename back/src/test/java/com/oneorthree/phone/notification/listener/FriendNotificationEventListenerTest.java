@@ -46,13 +46,14 @@ class FriendNotificationEventListenerTest {
 
     private static final UUID RECIPIENT_ID = UUID.randomUUID();
     private static final UUID COUNTERPART_ID = UUID.randomUUID();
+    private static final UUID REQUEST_ID = UUID.randomUUID();
 
     @Test
     @DisplayName("요청 이벤트 → 수신자·상대 순서 그대로 발송 위임")
     void onFriendRequestSent_delegates() {
-        listener.onFriendRequestSent(new FriendRequestSentEvent(RECIPIENT_ID, COUNTERPART_ID));
+        listener.onFriendRequestSent(new FriendRequestSentEvent(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID));
 
-        verify(friendNotificationService).notifyFriendRequest(RECIPIENT_ID, COUNTERPART_ID);
+        verify(friendNotificationService).notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID);
     }
 
     @Test
@@ -81,10 +82,11 @@ class FriendNotificationEventListenerTest {
     @DisplayName("발송이 실패해도 예외를 밖으로 던지지 않는다 — 커밋된 친구 요청을 500 으로 뒤집지 않기 위해")
     void sendFailure_isIsolated() {
         willThrow(new IllegalStateException("FCM 장애"))
-                .given(friendNotificationService).notifyFriendRequest(RECIPIENT_ID, COUNTERPART_ID);
+                .given(friendNotificationService).notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID);
 
         assertThatCode(() -> listener.onFriendRequestSent(
-                new FriendRequestSentEvent(RECIPIENT_ID, COUNTERPART_ID))).doesNotThrowAnyException();
+                new FriendRequestSentEvent(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID)))
+                .doesNotThrowAnyException();
     }
 
     private void assertAsyncOnPushExecutor(String methodName, Class<?> eventType)

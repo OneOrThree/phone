@@ -1,6 +1,9 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
+import com.oneorthree.phone.friend.domain.Friendship;
+import com.oneorthree.phone.friend.domain.FriendshipStatus;
+import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.domain.User;
@@ -65,6 +68,7 @@ public class FriendNotificationService {
      */
     static final Duration DEDUP_WINDOW = Duration.ofMinutes(1);
 
+    private final FriendshipRepository friendshipRepository;
     private final UserRepository userRepository;
     private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final NotificationSentLogRepository notificationSentLogRepository;
@@ -72,14 +76,34 @@ public class FriendNotificationService {
 
     /** 친구 요청 도착 알림 — 수신자는 요청을 받은 유저. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void notifyFriendRequest(UUID receiverUserId, UUID senderUserId) {
-        notifyFriendRequest(receiverUserId, senderUserId, Instant.now());
+    public void notifyFriendRequest(UUID requestId, UUID receiverUserId, UUID senderUserId) {
+        notifyFriendRequest(requestId, receiverUserId, senderUserId, Instant.now());
     }
 
     /** 시각 주입 진입점(테스트) — dedup 창 경계를 고정해 검증하기 위한 오버로드. */
-    void notifyFriendRequest(UUID receiverUserId, UUID senderUserId, Instant now) {
+    void notifyFriendRequest(UUID requestId, UUID receiverUserId, UUID senderUserId, Instant now) {
+        // 발송은 큐를 거치므로 요청 생성 시점과 여기 사이에 간격이 있다. 그 사이 수신자가 이미
+        // 수락·거절했다면 "새 친구 요청" 은 거짓이고, 눌러서 들어가도 목록이 비어 있다(@codex 리뷰).
+        if (!isStillPending(requestId)) {
+            log.debug("이미 처리된 친구 요청 — 발송 생략, requestId={}", requestId);
+            return;
+        }
         send(receiverUserId, senderUserId, NotificationSentLog.TYPE_FRIEND_REQUEST,
                 REQUEST_TITLE, REQUEST_BODY_SUFFIX, now);
+    }
+
+    /**
+     * 요청이 아직 상대의 조치를 기다리는 상태인지. 삭제(탈퇴 정리)된 행도 없는 요청으로 본다.
+     *
+     * <p>수락 알림에는 같은 검사를 걸지 않는다 — 수락은 <b>이미 일어난 사실</b>의 통보라 그 뒤 친구가
+     * 끊겨도 문구가 거짓이 되지 않지만, 요청 알림은 <b>지금 처리해야 할 일</b>을 가리키기 때문에 상태가
+     * 바뀌면 그대로 거짓이 된다.
+     */
+    private boolean isStillPending(UUID requestId) {
+        return friendshipRepository.findByIdAndDeletedAtIsNull(requestId)
+                .map(Friendship::getStatus)
+                .filter(FriendshipStatus.PENDING::equals)
+                .isPresent();
     }
 
     /** 친구 요청 수락 알림 — 수신자는 요청을 보냈던 유저. */

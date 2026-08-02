@@ -125,6 +125,7 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
     @DisplayName("수락이 커밋되면 요청을 보냈던 쪽에 발송 기록이 남는다")
     void acceptRequest_committed_sendsToRequester() {
         friendService.createRequest(sender.getId(), receiver.getId());
+        awaitNotificationsDrained();
 
         friendService.acceptRequest(receiver.getId(), pendingRequestId());
         awaitNotificationsDrained();
@@ -143,6 +144,7 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
         // acceptRequest 는 현재 상태를 검사하지 않고 ACCEPTED 를 덮어쓴다. 이벤트 발행을 실제 상태
         // 전이로 제한하지 않으면 클라 재시도·연타가 그대로 두 번째 푸시가 된다(@codex 리뷰).
         friendService.createRequest(sender.getId(), receiver.getId());
+        awaitNotificationsDrained();
         UUID requestId = pendingRequestId();
 
         friendService.acceptRequest(receiver.getId(), requestId);
@@ -155,7 +157,10 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
     @Test
     @DisplayName("거절은 어느 쪽에도 알리지 않는다")
     void rejectRequest_sendsNothing() {
+        // 요청 푸시를 먼저 비운다 — 발송이 비동기라, 비우지 않으면 거절이 먼저 커밋돼 요청 푸시가
+        // "이미 처리된 요청" 으로 생략될 수 있다(그 자체는 정상 동작이지만 아래 단정이 흔들린다).
         friendService.createRequest(sender.getId(), receiver.getId());
+        awaitNotificationsDrained();
 
         friendService.rejectRequest(receiver.getId(), pendingRequestId());
         awaitNotificationsDrained();

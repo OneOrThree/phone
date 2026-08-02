@@ -282,7 +282,12 @@ class FriendServiceTest {
 
         // 수신자 = 요청을 받은 쪽(target), 문구에 쓸 상대 = 보낸 쪽(me). 뒤바뀌면 자기가 보낸 요청을
         // 자기가 받는 푸시가 나간다.
-        verify(eventPublisher).publishEvent(new FriendRequestSentEvent(targetId, meId));
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertThat(captor.getValue()).isInstanceOfSatisfying(FriendRequestSentEvent.class, event -> {
+            assertThat(event.receiverUserId()).isEqualTo(targetId);
+            assertThat(event.senderUserId()).isEqualTo(meId);
+        });
     }
 
     @Test
@@ -296,7 +301,13 @@ class FriendServiceTest {
 
         friendService.createRequest(meId, targetId);
 
-        verify(eventPublisher).publishEvent(new FriendRequestSentEvent(targetId, meId));
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertThat(captor.getValue()).isInstanceOfSatisfying(FriendRequestSentEvent.class, event -> {
+            // 재전환은 기존 행을 되살리므로 그 행의 id 가 실려야 한다 — 소비 측이 상태를 다시 본다.
+            assertThat(event.requestId()).isEqualTo(rejected.getId());
+            assertThat(event.receiverUserId()).isEqualTo(targetId);
+        });
     }
 
     @Test

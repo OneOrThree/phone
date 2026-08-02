@@ -42,7 +42,8 @@ public class FriendNotificationEventListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onFriendRequestSent(FriendRequestSentEvent event) {
         try {
-            friendNotificationService.notifyFriendRequest(event.receiverUserId(), event.senderUserId());
+            friendNotificationService.notifyFriendRequest(
+                    event.requestId(), event.receiverUserId(), event.senderUserId());
         } catch (Exception e) {
             log.warn("친구 요청 푸시 실패 — receiverUserId={}", event.receiverUserId(), e);
         }

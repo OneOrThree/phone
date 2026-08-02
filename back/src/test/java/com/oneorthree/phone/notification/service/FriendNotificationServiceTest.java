@@ -1,6 +1,9 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
+import com.oneorthree.phone.friend.domain.Friendship;
+import com.oneorthree.phone.friend.domain.FriendshipStatus;
+import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.domain.User;
@@ -42,7 +45,10 @@ class FriendNotificationServiceTest {
     private static final Instant NOW = Instant.parse("2026-08-03T03:00:00Z"); // KST 12:00
     private static final UUID RECIPIENT_ID = UUID.randomUUID();
     private static final UUID COUNTERPART_ID = UUID.randomUUID();
+    private static final UUID REQUEST_ID = UUID.randomUUID();
 
+    @Mock
+    private FriendshipRepository friendshipRepository;
     @Mock
     private UserRepository userRepository;
     @Mock
@@ -69,6 +75,12 @@ class FriendNotificationServiceTest {
                 .willReturn(Optional.of(user(COUNTERPART_ID, "보낸사람")));
     }
 
+    /** 요청이 아직 처리되지 않은(PENDING) 상태 — 요청 알림 경로의 전제. */
+    private void givenRequestStillPending() {
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(REQUEST_ID))
+                .willReturn(Optional.of(Friendship.builder().status(FriendshipStatus.PENDING).build()));
+    }
+
     private void givenNoPreviousSend(String type) {
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(eq(type), anyList(), any(Instant.class)))
                 .willReturn(List.of());
@@ -83,12 +95,13 @@ class FriendNotificationServiceTest {
     @Test
     @DisplayName("친구 요청 — 받은 쪽에게 상대 닉네임 문구 + gromo://friends 딥링크로 발송")
     void notifyFriendRequest_sendsToReceiver() {
+        givenRequestStillPending();
         givenBothUsersExist();
         givenNoPreviousSend(NotificationSentLog.TYPE_FRIEND_REQUEST);
         given(pushNotificationService.sendIfAllowed(any(User.class), any(), any(PushMessage.class), eq(NOW)))
                 .willReturn(true);
 
-        service.notifyFriendRequest(RECIPIENT_ID, COUNTERPART_ID, NOW);
+        service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
         PushMessage message = captureSentMessage();
         assertThat(message.title()).isEqualTo(FriendNotificationService.REQUEST_TITLE);
@@ -120,12 +133,13 @@ class FriendNotificationServiceTest {
     @Test
     @DisplayName("발송 성사 시 sent_log 에 (수신자, type, 상대) 기록 — dedup 소스가 이 행뿐이다")
     void notifyFriendRequest_sent_writesSentLog() {
+        givenRequestStillPending();
         givenBothUsersExist();
         givenNoPreviousSend(NotificationSentLog.TYPE_FRIEND_REQUEST);
         given(pushNotificationService.sendIfAllowed(any(User.class), any(), any(PushMessage.class), eq(NOW)))
                 .willReturn(true);
 
-        service.notifyFriendRequest(RECIPIENT_ID, COUNTERPART_ID, NOW);
+        service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
         ArgumentCaptor<NotificationSentLog> captor = ArgumentCaptor.forClass(NotificationSentLog.class);
         verify(notificationSentLogRepository).save(captor.capture());
@@ -139,13 +153,14 @@ class FriendNotificationServiceTest {
     @Test
     @DisplayName("발송 스킵(알림 off·토큰 없음·quiet hours)이면 sent_log 를 남기지 않는다")
     void notifyFriendRequest_skipped_doesNotWriteSentLog() {
+        givenRequestStillPending();
         // 스킵을 기록하면 dedup 이 "이미 보냈다"로 오판해, 알림을 다시 켠 직후의 발송을 잘못 막는다.
         givenBothUsersExist();
         givenNoPreviousSend(NotificationSentLog.TYPE_FRIEND_REQUEST);
         given(pushNotificationService.sendIfAllowed(any(User.class), any(), any(PushMessage.class), eq(NOW)))
                 .willReturn(false);
 
-        service.notifyFriendRequest(RECIPIENT_ID, COUNTERPART_ID, NOW);
+        service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
         verify(notificationSentLogRepository, never()).save(any());
     }
@@ -153,12 +168,13 @@ class FriendNotificationServiceTest {
     @Test
     @DisplayName("dedup — 같은 상대에게 방금(창 안에) 보냈으면 재발송하지 않는다")
     void notifyFriendRequest_alreadySent_skips() {
+        givenRequestStillPending();
         givenBothUsersExist();
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(
                 eq(NotificationSentLog.TYPE_FRIEND_REQUEST), anyList(), any(Instant.class)))
                 .willReturn(List.of(sentLog(NotificationSentLog.TYPE_FRIEND_REQUEST, COUNTERPART_ID)));
 
-        service.notifyFriendRequest(RECIPIENT_ID, COUNTERPART_ID, NOW);
+        service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
         verify(notificationSentLogRepository, never()).save(any());
@@ -167,6 +183,7 @@ class FriendNotificationServiceTest {
     @Test
     @DisplayName("dedup — 다른 상대에게 보낸 기록은 이번 발송을 막지 않는다")
     void notifyFriendRequest_sentToOtherCounterpart_stillSends() {
+        givenRequestStillPending();
         // 조회가 (수신자, type, 구간)까지만 좁히므로 상대 판정이 빠지면 A 의 요청 하나가 B·C 의 요청까지 삼킨다.
         givenBothUsersExist();
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(
@@ -175,7 +192,7 @@ class FriendNotificationServiceTest {
         given(pushNotificationService.sendIfAllowed(any(User.class), any(), any(PushMessage.class), eq(NOW)))
                 .willReturn(true);
 
-        service.notifyFriendRequest(RECIPIENT_ID, COUNTERPART_ID, NOW);
+        service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
         verify(pushNotificationService).sendIfAllowed(any(), any(), any(), eq(NOW));
     }
@@ -183,10 +200,11 @@ class FriendNotificationServiceTest {
     @Test
     @DisplayName("dedup 조회창은 now - 1분 — 더 길면 별개의 재요청 알림까지 삼킨다")
     void notifyFriendRequest_looksBack1Minute() {
+        givenRequestStillPending();
         givenBothUsersExist();
         givenNoPreviousSend(NotificationSentLog.TYPE_FRIEND_REQUEST);
 
-        service.notifyFriendRequest(RECIPIENT_ID, COUNTERPART_ID, NOW);
+        service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
         ArgumentCaptor<Instant> since = ArgumentCaptor.forClass(Instant.class);
         verify(notificationSentLogRepository).findByTypeAndUserIdInSince(
@@ -195,11 +213,35 @@ class FriendNotificationServiceTest {
     }
 
     @Test
+    @DisplayName("큐에서 대기하는 사이 요청이 처리됐으면 발송하지 않는다 — 목록이 빈 푸시를 막는다")
+    void notifyFriendRequest_alreadyHandled_skips() {
+        // 발송은 큐를 거치므로 생성 시점과 간격이 있다. 그 사이 수락·거절되면 "새 친구 요청" 은 거짓이다.
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(REQUEST_ID))
+                .willReturn(Optional.of(Friendship.builder().status(FriendshipStatus.ACCEPTED).build()));
+
+        service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
+
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+        verify(notificationSentLogRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("요청 행이 사라졌으면(탈퇴 정리 등) 발송하지 않는다")
+    void notifyFriendRequest_requestGone_skips() {
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(REQUEST_ID)).willReturn(Optional.empty());
+
+        service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
+
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("수신자가 탈퇴했으면 발송하지 않는다")
     void notifyFriendRequest_withdrawnRecipient_skips() {
+        givenRequestStillPending();
         given(userRepository.findByIdAndIsDeletedFalse(RECIPIENT_ID)).willReturn(Optional.empty());
 
-        service.notifyFriendRequest(RECIPIENT_ID, COUNTERPART_ID, NOW);
+        service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
         verify(notificationSentLogRepository, never()).save(any());
@@ -208,11 +250,12 @@ class FriendNotificationServiceTest {
     @Test
     @DisplayName("상대가 사라졌으면 문구를 만들 수 없으므로 발송하지 않는다")
     void notifyFriendRequest_counterpartGone_skips() {
+        givenRequestStillPending();
         given(userRepository.findByIdAndIsDeletedFalse(RECIPIENT_ID))
                 .willReturn(Optional.of(user(RECIPIENT_ID, "받는사람")));
         given(userRepository.findById(COUNTERPART_ID)).willReturn(Optional.empty());
 
-        service.notifyFriendRequest(RECIPIENT_ID, COUNTERPART_ID, NOW);
+        service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
     }
@@ -220,6 +263,7 @@ class FriendNotificationServiceTest {
     @Test
     @DisplayName("소리 설정 off 면 무음으로 발송한다")
     void notifyFriendRequest_soundDisabled_sendsSilently() {
+        givenRequestStillPending();
         given(userRepository.findByIdAndIsDeletedFalse(RECIPIENT_ID))
                 .willReturn(Optional.of(user(RECIPIENT_ID, "받는사람")));
         given(userRepository.findById(COUNTERPART_ID))
@@ -232,7 +276,7 @@ class FriendNotificationServiceTest {
                         .build()));
         givenNoPreviousSend(NotificationSentLog.TYPE_FRIEND_REQUEST);
 
-        service.notifyFriendRequest(RECIPIENT_ID, COUNTERPART_ID, NOW);
+        service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
         assertThat(captureSentMessage().soundEnabled()).isFalse();
     }
