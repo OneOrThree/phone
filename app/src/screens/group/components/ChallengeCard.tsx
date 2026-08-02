@@ -1,6 +1,17 @@
+import { useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import {
+  BET_CANCEL_FORBIDDEN,
+  BET_CANCEL_HAS_OTHERS,
+  BET_NOT_OPEN,
+  cancelBet,
+  challengeGroupId,
+  groupErrorCode,
+} from '@/services/groupApi';
+import { logGroupBetCanceled } from '@/services/analyticsEvents';
+import { useCoins } from '@/store/CoinContext';
 import type { ChallengeMemberProgress, GroupChallengeResponse } from '@/types/dto/group';
 import { categoryLabel, missionLabel } from './challengeLabel';
 
@@ -14,12 +25,17 @@ import { categoryLabel, missionLabel } from './challengeLabel';
 //     progressMinutes 값  → '32/60분'  (FOCUS는 목표까지 얼마나 채웠나, SCREEN_TIME은 예산을 얼마나 썼나)
 //     progressMinutes null→ '—'        (SCREEN_TIME 미집계 — '0분 썼다'와 완전히 다른 뜻이다)
 //
-// memberProgress 자체가 null이면 리스트 대신 한 줄 캡션을 둔다 — 서버가 TIME_WINDOW 챌린지의
-// 진행률을 지원하지 않기 때문(백 명세 결정 3). 앱은 DURATION만 만들지만 1차·수기 데이터로
-// 서버에 존재할 수 있고, 아무 설명 없이 비우면 '아무도 안 했다'로 읽힌다.
+// memberProgress 자체가 null이면 리스트 대신 한 줄 캡션을 둔다 — 신서버(V20+)는 창(TIME_WINDOW)
+// 진행률도 채워 주지만, 구서버·목표분 없는 구 창 챌린지는 여전히 null을 준다.
+// 아무 설명 없이 비우면 '아무도 안 했다'로 읽힌다.
 
 // SCREEN_TIME 챌린지는 '많이 할수록 좋은' 집중과 반대 방향이라 카드에 뜻을 한 줄 적는다(§3-2).
 const SCREEN_TIME_CAPTION = '오늘 스크린타임을 목표 이하로 유지해요';
+// SCREEN_TIME 창(TIME_WINDOW) 카드의 측정 한계 고지 — 계약이 문구까지 고정했다
+// (contract.md §2 "카드·시트 안내 문구 필수"). 15분 눈금 버킷 측정이라 오차·누락이 구조적이고,
+// 이 판정 위로 코인이 움직일 수 있어(내기) 카드에도 상시 노출한다.
+const WINDOW_MEASURE_CAPTION =
+  '사용 시간은 15분 단위로 집계돼 오차가 있을 수 있어요. 앱 버전이나 기기 상태에 따라 집계가 늦거나 누락될 수 있어요';
 // 서버가 canParticipate=false를 준 경우 — 스크린타임 권한이 없어 이 그룹에서 집계가 안 된다.
 const NO_PERMISSION_CAPTION = '스크린타임 권한이 없어 참여할 수 없어요';
 // '—'가 실제로 뜬 SCREEN_TIME 카드에만 — 기호만 봐서는 0분인지 값이 없는 건지 알 수 없다.
@@ -35,6 +51,13 @@ const BET_ACHIEVED_CAPTION = '이미 오늘 목표를 달성해서 참가할 수
 // 같은 사실이지만 막히는 동작이 달라 문장을 따로 둔다 — '참가할 수 없어요'는 참가 버튼이 없는
 // 카드에서 무엇이 막혔는지 말해 주지 못한다.
 const BET_ACHIEVED_CREATE_CAPTION = '이미 오늘 목표를 달성해서 내기를 열 수 없어요';
+// SCREEN_TIME은 차단 방향이 반대다(계약 §2 참가 가드 행) — 달성은 하루/창이 끝나야 확정이라
+// '잠정 달성'은 참가를 막지 않고, **이미 목표를 초과해 확정 패배**한 사람만 막는다
+// (BET_ALREADY_FAILED — 질 게 확정된 판돈 투입 방지). 문장도 방향에 맞춘다.
+const BET_FAILED_CAPTION = '이미 목표를 초과해서 참가할 수 없어요';
+const BET_FAILED_CREATE_CAPTION = '이미 목표를 초과해서 내기를 열 수 없어요';
+// 취소 직후의 자리 표시 — 영역을 그냥 비우면 방금 한 일이 사라진 것처럼 보인다(betLocked와 같은 이유).
+const BET_CANCELED_CAPTION = '내기를 취소했어요. 판돈은 잔액으로 돌아왔어요';
 
 // 'YYYY-MM-DD' → '7/31'. 캡션 한 줄에 연도까지 넣을 자리가 없고, '지난 내기'는 늘 최근 며칠이다.
 // 형식이 다르면 원문을 그대로 둔다(서버가 다른 포맷을 주면 깨진 날짜보다 원문이 낫다).
@@ -89,6 +112,18 @@ export default function ChallengeCard({
   onOpenBet,
   betLocked,
 }: ChallengeCardProps) {
+  // 내기 취소(개설자 단독·OPEN)의 API·잔액 갱신을 카드가 직접 쥔다 — 시트(BetSheet)는 참가자
+  // 상태에선 부모(GroupRoomScreen)의 stale 검사가 즉시 닫아 버려 진입 자체가 불가능하고,
+  // 부모는 A3 전유라 이 배치에서 콜백을 늘릴 수 없다(README §파일 소유권). groupId도 같은 이유로
+  // prop이 아니라 groupApi의 조회 캐시(challengeGroupId)에서 역참조한다.
+  const { refresh: refreshCoins } = useCoins();
+  const [cancelBusy, setCancelBusy] = useState(false);
+  // 취소 성공의 낙관 반영 — 부모 재조회를 트리거할 콜백이 없어(위 주석) 다음 자연 재조회(포커스
+  // 복귀·당겨서 새로고침)까지는 카드가 스스로 '취소됨'을 그린다. betId를 쥐므로 재조회가 늦게
+  // 도착해 같은(이미 취소된) 내기를 다시 내려줘도 표시가 되돌아가지 않는다.
+  const [canceledBetId, setCanceledBetId] = useState<string | null>(null);
+  const cancelLock = useRef(false);
+
   const label = missionLabel(challenge);
   const progress = challenge.memberProgress;
   // 내 행을 맨 위로 — 10명이면 닉네임을 눈으로 훑어야 내 진행률을 찾는다(리그 화면의 isMe 관행).
@@ -105,9 +140,9 @@ export default function ChallengeCard({
     !!rows &&
     rows.some((p) => p.progressMinutes === null);
 
-  // 내기를 걸 수 있는 카드인가 — FOCUS · DURATION만이다(백 명세 결정 3).
-  // SCREEN_TIME 달성은 클라 신뢰라 돈을 걸 수 없고, TIME_WINDOW는 서버가 진행률 자체를 안 준다.
-  // 지원하지 않는 카드에는 '지난 내기'까지 포함해 **아무것도** 그리지 않는다.
+  // 내기를 걸 수 있는 카드인가 — DURATION 전부 + 목표분 있는 TIME_WINDOW(계약 §2 내기 게이트,
+  // 카테고리 제한 제거 — SCREEN_TIME도 리스크 수용으로 허용됐다). 목표분 없는 창 챌린지는
+  // 판정 자체가 불가라 제외한다. 지원하지 않는 카드에는 '지난 내기'까지 **아무것도** 그리지 않는다.
   // openBet은 const라 아래 betSupported 안에서 좁혀진 타입이 그대로 유지된다 — 진입점마다 `?.`를
   // 또 붙이면 '없을 수도 있다'는 잘못된 신호가 남는다.
   const openBet = onOpenBet;
@@ -117,26 +152,103 @@ export default function ChallengeCard({
   // 내기를 아는 서버는 없을 때 null을 **명시로** 내려준다(백 GroupChallengeResponse는 NON_NULL
   // 생략을 쓰지 않는다) — 백엔드가 그 DTO에 @JsonInclude(NON_NULL)을 붙이면 이 판정이 깨진다.
   const betKnown = challenge.bet !== undefined;
+  const isWindow = challenge.missionType === 'TIME_WINDOW';
+  const isScreenTime = challenge.missionCategory === 'SCREEN_TIME';
   const betSupported =
     !!openBet &&
     betKnown &&
-    challenge.missionCategory === 'FOCUS' &&
-    challenge.missionType === 'DURATION';
+    (challenge.missionType === 'DURATION' || (isWindow && challenge.durationMinutes != null));
   const bet = challenge.bet ?? null;
   // 끝난 챌린지에는 **새로 돈을 걸 수 없다** — 앱은 INACTIVE를 종료로 취급하는데(만들기 시트의
   // 중복 판정도 ACTIVE만 센다) 서버 개설 경로는 상태를 보지 않으므로, 진입점을 여는 쪽이 막는다
   // (코덱스 리뷰). 이미 걸린 내기·지난 내기는 그대로 읽힌다 — 막는 건 돈이 나가는 자리뿐이다.
   const betOpenable = challenge.status === 'ACTIVE';
-  // 내가 오늘 목표를 이미 달성했는가 — 개설 진입점을 잠그는 근거다. 참가 분기는 서버가 준
-  // bet.myAchievedNow를 쓰지만, 내기가 없는 카드엔 bet 자체가 없어 내 진행 행에서 읽는다.
-  // 서버의 개설 가드와 판정 근거가 같다(둘 다 당일 집중분 ≥ 목표분).
-  // null(미판정)은 달성으로 세지 않는다 — 진행 리스트의 3상 규칙 그대로다.
-  const myAchieved =
-    !!myUserId && !!progress?.some((p) => p.userId === myUserId && p.achieved === true);
-  // 개설 진입점을 잠그는 이유 2가지(재조회 중 · 이미 달성) — 잠금 표시는 같고 사유만 다르다.
-  const createBlocked = !!betLocked || myAchieved;
+  // 내가 지금 내기에 들어갈 수 없는 상태인가 — 개설·참가 진입점을 잠그는 근거다. 서버 가드와
+  // 판정 근거를 맞춘다(계약 §2 참가 가드 행 — 카테고리별로 방향이 반대다):
+  //   FOCUS       : 이미 달성(achieved === true) → 무위험 참가라 차단(BET_ALREADY_ACHIEVED)
+  //   SCREEN_TIME : 이미 목표 초과(achieved === false) → 확정 패배라 차단(BET_ALREADY_FAILED).
+  //                 achieved === true는 '잠정 달성'(지금까지 이하 유지)일 뿐이라 잠그면
+  //                 사실상 전원이 잠긴다 — 절대 차단 근거로 쓰지 않는다.
+  // null(미판정·미집계)은 어느 쪽으로도 세지 않는다 — 진행 리스트의 3상 규칙 그대로다.
+  const myProgressRow = myUserId ? progress?.find((p) => p.userId === myUserId) : undefined;
+  const myBlockedNow = isScreenTime
+    ? myProgressRow?.achieved === false
+    : myProgressRow?.achieved === true;
+  // 잠금 사유 문장 — 카테고리에 따라 막힌 방향이 다르다(위 주석).
+  const blockedCaption = isScreenTime ? BET_FAILED_CAPTION : BET_ACHIEVED_CAPTION;
+  const blockedCreateCaption = isScreenTime
+    ? BET_FAILED_CREATE_CAPTION
+    : BET_ACHIEVED_CREATE_CAPTION;
+  // 개설 진입점을 잠그는 이유 2가지(재조회 중 · 이미 확정) — 잠금 표시는 같고 사유만 다르다.
+  const createBlocked = !!betLocked || myBlockedNow;
+  // 참가 진입점 잠금 — FOCUS는 서버가 준 bet.myAchievedNow(이미 달성), SCREEN_TIME은 내 진행
+  // 행의 확정 패배다. 스크린타임의 myAchievedNow는 표시용 잠정값이라 잠금에 쓰지 않는다(DTO 주석).
+  const joinBlockedNow = isScreenTime ? myBlockedNow : bet?.myAchievedNow === true;
   // 서버가 participants를 빠뜨려도 카드가 죽지 않게 — 인원 수는 표시용일 뿐이다.
   const betMembers = bet?.participants?.length ?? 0;
+  // 내가 방금 취소한 내기인가 — 낙관 반영(위 state 주석).
+  const betCanceledByMe = bet !== null && bet.betId === canceledBetId;
+  // 취소 가능 조건(계약 §2) — 내가 개설자 && 참가자가 나(개설자) 1명뿐 && OPEN.
+  // creatorUserId가 없으면(구서버) 개설자를 알 수 없으므로 진입점을 그리지 않는다 —
+  // 눌러 봐야 404/403으로 끝나는 버튼을 세우지 않는다(betKnown과 같은 원칙).
+  const cancelable =
+    bet !== null &&
+    !betCanceledByMe &&
+    bet.status === 'OPEN' &&
+    bet.myJoined &&
+    bet.creatorUserId !== undefined &&
+    !!myUserId &&
+    bet.creatorUserId === myUserId &&
+    betMembers === 1;
+
+  // 취소 실행 — 검증은 서버가 정본이다(레이스로 조건이 깨졌으면 에러 코드로 돌아온다).
+  async function doCancelBet(betId: string, stake: number, participantsCount: number) {
+    // 같은 틱 연타 방지 — state(cancelBusy)는 리렌더 뒤에야 보인다(ComposeSheet.submitLock 관행).
+    if (cancelLock.current) return;
+    cancelLock.current = true;
+    setCancelBusy(true);
+    const groupId = challengeGroupId(challenge.id);
+    try {
+      if (groupId === null) throw new Error('unknown groupId'); // 캐시 미적중 — 공통 문구로.
+      await cancelBet(groupId, betId);
+      // 성공 시에만 발행(내기 계측 공통 규칙) — 환불 반영은 서버가 정본이라 잔액을 다시 받는다.
+      logGroupBetCanceled({ stake, participants_count: participantsCount });
+      refreshCoins();
+      setCanceledBetId(betId);
+    } catch (e) {
+      switch (groupErrorCode(e)) {
+        // 세 코드 모두 이 카드 상태로는 재시도해도 같은 결과다 — 사실만 알리고, 화면 정리는
+        // 다음 자연 재조회에 맡긴다(취소 버튼은 조건이 깨진 최신 응답이 오면 스스로 사라진다).
+        case BET_CANCEL_FORBIDDEN:
+          Alert.alert('취소할 수 없어요', '내기를 연 사람만 취소할 수 있어요.');
+          break;
+        case BET_CANCEL_HAS_OTHERS:
+          Alert.alert('취소할 수 없어요', '다른 참가자가 있어 취소할 수 없어요.');
+          break;
+        case BET_NOT_OPEN:
+          Alert.alert('취소할 수 없어요', '이미 정산됐거나 닫힌 내기예요.');
+          break;
+        default:
+          Alert.alert('내기를 취소하지 못했어요', '잠시 후 다시 시도해주세요.');
+      }
+    } finally {
+      cancelLock.current = false;
+      setCancelBusy(false);
+    }
+  }
+
+  // 확인 한 겹 — 돈이 되돌아오는 동작이지만 내기 자체가 사라지므로 삭제와 같은 규격을 쓴다.
+  function confirmCancelBet() {
+    if (!cancelable || bet === null) return;
+    Alert.alert('내기 취소', `판돈 ${bet.stake}코인을 돌려받고 내기를 닫을까요?`, [
+      { text: '아니요', style: 'cancel' },
+      {
+        text: '취소하기',
+        style: 'destructive',
+        onPress: () => doCancelBet(bet.betId, bet.stake, betMembers),
+      },
+    ]);
+  }
   const lastBet = challenge.lastSettledBet ?? null;
   const lastResults = lastBet?.results ?? [];
   // achieved는 3상이다(계약 §3) — null(미판정)을 미달성으로 세면 달성 인원이 과소 집계된다.
@@ -152,10 +264,16 @@ export default function ChallengeCard({
       const delta = r.payout - lastBet.stake;
       return `${r.nickname} · ${r.achieved ? '달성' : '미달성'} · ${delta > 0 ? '+' : ''}${delta}`;
     });
-    // 전원 환불은 '0명 달성 · 전원 미달성 · 0'만 보면 판돈을 잃은 것으로 읽힌다 —
-    // 몰수가 없다는 것이 이 기능 신뢰의 핵심 규칙이라 첫 줄에 못 박는다(F8).
+    // 승자 0명의 결말이 상태로 갈린다 — 구 룰(V19 이전)은 전원 환불(REFUNDED), 현 룰은 전액
+    // 몰수(FORFEITED, 계약 확정 정책). '0명 달성 · 전원 미달성'만 보면 어느 쪽인지 알 수 없어
+    // 첫 줄에 못 박는다(F8). CANCELED는 서버가 lastSettledBet에서 걸러 준다 — 모르는 상태는
+    // 머리글 없이 인별 줄만 그대로 그린다(else 강하).
     const head =
-      lastBet.status === 'REFUNDED' ? ['달성한 사람이 없어 전원 환불됐어요'] : ([] as string[]);
+      lastBet.status === 'REFUNDED'
+        ? ['달성한 사람이 없어 전원 환불됐어요']
+        : lastBet.status === 'FORFEITED'
+          ? ['아무도 달성하지 못해 판돈이 소멸됐어요']
+          : ([] as string[]);
     Alert.alert(
       `지난 내기 (${mmdd(lastBet.betDate)})`,
       [...head, `판돈 ${lastBet.stake} · 팟 ${lastBet.pot}`, ...lines].join('\n'),
@@ -198,9 +316,10 @@ export default function ChallengeCard({
         </Text>
       </View>
 
-      {challenge.missionCategory === 'SCREEN_TIME' && (
-        <Text style={s.caption}>{SCREEN_TIME_CAPTION}</Text>
-      )}
+      {/* SCREEN_TIME 뜻 한 줄 — 창(TIME_WINDOW) 카드는 라벨이 이미 시간대·목표를 말하므로
+          '오늘 …' 문장 대신 측정 한계 고지(계약 필수 문구)를 세운다. */}
+      {isScreenTime && !isWindow && <Text style={s.caption}>{SCREEN_TIME_CAPTION}</Text>}
+      {isScreenTime && isWindow && <Text style={s.caption}>{WINDOW_MEASURE_CAPTION}</Text>}
       {!challenge.canParticipate && <Text style={s.warn}>{NO_PERMISSION_CAPTION}</Text>}
 
       {rows === null && <Text style={s.caption}>{NO_PROGRESS_CAPTION}</Text>}
@@ -245,9 +364,14 @@ export default function ChallengeCard({
           구분선만 남기면 무엇이 빠졌는지 알 수 없는 빈칸이 된다. */}
       {betSupported && (bet !== null || betOpenable) && (
         <View style={s.betArea}>
-          {bet === null ? (
+          {betCanceledByMe ? (
+            // ⓪ 방금 내가 취소했다(낙관 반영) — 영역을 비우면 방금 한 일이 사라진 것처럼 보인다.
+            //    다음 자연 재조회가 서버 상태(내기 없음)로 갈아 끼운다.
+            <Text style={s.caption}>{BET_CANCELED_CAPTION}</Text>
+          ) : bet === null ? (
             // ① 아직 내기가 없다 — 아웃라인 소형 버튼. 카드 본체(진행 리스트)보다 약하게 둔다.
-            //    이미 달성했으면 개설도 서버가 거절하므로(BET_ALREADY_ACHIEVED) 미리 잠그고 사유를 적는다.
+            //    이미 확정된 사람(FOCUS 달성·SCREEN_TIME 초과)은 개설도 서버가 거절하므로
+            //    (BET_ALREADY_ACHIEVED · BET_ALREADY_FAILED) 미리 잠그고 사유를 적는다.
             <>
               <TouchableOpacity
                 style={[s.betCreateBtn, createBlocked && s.betCreateBtnOff]}
@@ -261,38 +385,49 @@ export default function ChallengeCard({
                   내기 걸기
                 </Text>
               </TouchableOpacity>
-              {myAchieved && <Text style={s.caption}>{BET_ACHIEVED_CREATE_CAPTION}</Text>}
+              {myBlockedNow && <Text style={s.caption}>{blockedCreateCaption}</Text>}
             </>
           ) : bet.myJoined ? (
             // ③ 내가 참여 중 — 판돈·팟·인원. '참여 중' 칩은 아직 열려 있는 내기에만 붙인다
             //    (정산이 끝난 내기에 '참여 중'을 달면 지금도 진행 중인 것으로 읽힌다).
+            //    내가 개설자이고 아직 나 혼자인 OPEN 내기에만 취소 진입점을 붙인다(계약 §2).
             <View style={s.betRow}>
               <Text style={s.betText}>
                 🪙 판돈 {bet.stake} · 팟 {bet.pot} · {betMembers}명 참여
               </Text>
               {bet.status === 'OPEN' && <Text style={s.betJoinedTag}>참여 중</Text>}
+              {cancelable && (
+                <TouchableOpacity
+                  style={[s.betCancelBtn, cancelBusy && s.betCancelBtnOff]}
+                  activeOpacity={0.8}
+                  disabled={cancelBusy}
+                  onPress={confirmCancelBet}
+                  accessibilityRole="button"
+                  accessibilityLabel="내기 취소"
+                  testID={`group.bet.cancel.${challenge.id}`}
+                >
+                  <Text style={s.betCancelText}>취소</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : bet.status === 'OPEN' && betOpenable ? (
             // ② 열려 있는데 나는 미참가 — 행 전체가 참가 진입점.
-            //    이미 오늘 목표를 달성했으면 서버가 거절하므로(BET_ALREADY_ACHIEVED) 미리 잠근다.
+            //    이미 확정된 사람은 서버가 거절하므로(FOCUS는 BET_ALREADY_ACHIEVED,
+            //    SCREEN_TIME은 BET_ALREADY_FAILED) 미리 잠근다.
             <>
               <TouchableOpacity
-                style={[
-                  s.betRow,
-                  s.betJoinRow,
-                  (bet.myAchievedNow || betLocked) && s.betJoinRowOff,
-                ]}
+                style={[s.betRow, s.betJoinRow, (joinBlockedNow || betLocked) && s.betJoinRowOff]}
                 activeOpacity={0.85}
-                disabled={bet.myAchievedNow || betLocked}
+                disabled={joinBlockedNow || betLocked}
                 onPress={() => openBet('join')}
                 accessibilityRole="button"
                 testID={`group.bet.join.${challenge.id}`}
               >
-                <Text style={[s.betText, (bet.myAchievedNow || betLocked) && s.betTextOff]}>
+                <Text style={[s.betText, (joinBlockedNow || betLocked) && s.betTextOff]}>
                   🪙 판돈 {bet.stake} · {betMembers}명 참여 중 — 참가하기
                 </Text>
               </TouchableOpacity>
-              {bet.myAchievedNow && <Text style={s.caption}>{BET_ACHIEVED_CAPTION}</Text>}
+              {joinBlockedNow && <Text style={s.caption}>{blockedCaption}</Text>}
             </>
           ) : (
             // 진입점을 열 수 없는 조합(마감·정산됐는데 나는 미참가 / 끝난 챌린지에 열린 내기가
@@ -426,6 +561,18 @@ const s = StyleSheet.create({
   betJoinRowOff: { backgroundColor: T.track },
   betText: { ...T.text.caption, color: T.inkSub, flexShrink: 1 },
   betTextOff: { color: T.inkMuted, fontWeight: '500' },
+  // 내기 취소 — 소형 아웃라인. 돈이 되돌아오는 파괴 동작이라 danger 잉크로 구분한다.
+  betCancelBtn: {
+    height: 26,
+    paddingHorizontal: T.space.sm,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: T.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  betCancelBtnOff: { opacity: 0.5 },
+  betCancelText: { ...T.text.caption, color: T.dangerInk, fontWeight: '600' },
   // '참여 중' 칩 — GroupFindSheet의 같은 뱃지 규격(accent 칩).
   betJoinedTag: {
     ...T.text.caption,
