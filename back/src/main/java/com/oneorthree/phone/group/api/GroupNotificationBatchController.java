@@ -4,6 +4,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.service.BetResultNotificationService;
+import com.oneorthree.phone.notification.service.ChallengeDurationEndNotificationService;
 import com.oneorthree.phone.notification.service.ChallengeWindowEndNotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -24,10 +25,10 @@ import java.security.MessageDigest;
  * 그룹 챌린지 푸시 수동 트리거(B4) — QA/운영 검증용, prod 미노출.
  *
  * <p>{@link GroupBetBatchController} 와 같은 관행이다: 프로파일 게이팅 + 관리자 키
- * ({@code X-Batch-Admin-Key} ↔ 환경변수 {@code BATCH_ADMIN_KEY}). 이 두 엔드포인트는 실제 FCM
+ * ({@code X-Batch-Admin-Key} ↔ 환경변수 {@code BATCH_ADMIN_KEY}). 이 엔드포인트들은 실제 FCM
  * 발송을 일으키므로(유저 단말에 알림이 뜬다) 정산 트리거와 같은 수준으로 잠근다.
  *
- * <p>두 트리거 모두 dedup 을 우회하지 않는다 — 재호출하면 sentCount 0 / dedupedCount 로 잡히는 것이
+ * <p>어느 트리거도 dedup 을 우회하지 않는다 — 재호출하면 sentCount 0 / dedupedCount 로 잡히는 것이
  * 정상이며, 그것이 dedup 이 살아 있다는 QA 확인 지점이다.
  */
 @Tag(name = "group-notification-batch",
@@ -42,15 +43,18 @@ public class GroupNotificationBatchController {
 
     private final BetResultNotificationService betResultNotificationService;
     private final ChallengeWindowEndNotificationService challengeWindowEndNotificationService;
+    private final ChallengeDurationEndNotificationService challengeDurationEndNotificationService;
     private final String batchAdminKey;
 
     // 키 미설정은 기동 실패가 아니라 503 응답으로 처리한다(GroupBetBatchController 와 동일).
     public GroupNotificationBatchController(
             BetResultNotificationService betResultNotificationService,
             ChallengeWindowEndNotificationService challengeWindowEndNotificationService,
+            ChallengeDurationEndNotificationService challengeDurationEndNotificationService,
             @Value("${BATCH_ADMIN_KEY:}") String batchAdminKey) {
         this.betResultNotificationService = betResultNotificationService;
         this.challengeWindowEndNotificationService = challengeWindowEndNotificationService;
+        this.challengeDurationEndNotificationService = challengeDurationEndNotificationService;
         this.batchAdminKey = batchAdminKey;
     }
 
@@ -73,7 +77,7 @@ public class GroupNotificationBatchController {
     }
 
     @Operation(summary = "챌린지 창 종료 푸시 수동 실행",
-            description = "스크린타임 창형(SCREEN_TIME × TIME_WINDOW) 활성 챌린지 중 오늘 창 종료가"
+            description = "창형(TIME_WINDOW) 활성 챌린지 중 오늘 창 종료가"
                     + " 최근 30분 안에 지난 건을 찾아 그룹원 전원에게 '결과 확인' 푸시를 보낸다(승패 미포함)."
                     + " 창 종료 직후가 아니면 대상 0건이 정상이다 — 아무 때나 발송시키는 트리거가 아니라"
                     + " 15분 크론과 같은 판정을 즉시 돌려보는 트리거다."
@@ -89,6 +93,25 @@ public class GroupNotificationBatchController {
             @RequestHeader(value = ADMIN_KEY_HEADER, required = false) String adminKey) {
         requireAdminKey(adminKey);
         return ResponseEntity.ok(challengeWindowEndNotificationService.sendWindowEndNotifications());
+    }
+
+    @Operation(summary = "일 목표형 챌린지 하루 마감 푸시 수동 실행",
+            description = "일 목표형(DURATION) 활성 챌린지의 그룹원에게 '어제 결과 확인' 푸시를 보낸다"
+                    + " (승패 미포함). 스케줄러 09:00 KST 잡과 같은 판정이며, 회차 경계가 자정이라"
+                    + " 호출 시각의 KST 날짜 기준 '어제' 회차가 대상이다."
+                    + " 같은 회차는 유저당 1회만 나간다(dedup) — 재호출 시 sentCount=0, dedupedCount>0 이 정상."
+                    + " 한 그룹에 마감된 챌린지가 여러 건이어도 푸시는 그룹당 1건이다."
+                    + " X-Batch-Admin-Key 헤더에 관리자 키(환경변수 BATCH_ADMIN_KEY)를 실어야 한다.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "실행 성공(대상 0건 포함)"),
+        @ApiResponse(responseCode = "403", description = "관리자 키 누락/불일치 (BATCH_KEY_INVALID)"),
+        @ApiResponse(responseCode = "503", description = "서버에 관리자 키 미설정 (BATCH_KEY_NOT_CONFIGURED)")
+    })
+    @PostMapping("/groups/challenges/notify-duration-end")
+    public ResponseEntity<PushDispatchSummaryResponse> notifyChallengeDurationEnd(
+            @RequestHeader(value = ADMIN_KEY_HEADER, required = false) String adminKey) {
+        requireAdminKey(adminKey);
+        return ResponseEntity.ok(challengeDurationEndNotificationService.sendDurationEndNotifications());
     }
 
     // 상수 시간 비교 — String.equals 는 첫 불일치에서 끊겨 응답 시간으로 키가 새는 여지가 있다

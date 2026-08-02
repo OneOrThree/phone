@@ -4,6 +4,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.service.BetResultNotificationService;
+import com.oneorthree.phone.notification.service.ChallengeDurationEndNotificationService;
 import com.oneorthree.phone.notification.service.ChallengeWindowEndNotificationService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,7 +19,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * 푸시 수동 트리거의 관리자 키 게이트 — {@link GroupBetBatchControllerTest} 와 같은 3분기를 본다.
- * 이 두 엔드포인트는 실제 단말에 알림을 띄우므로 키 검증이 발송보다 먼저인지까지 잠근다.
+ * 이 엔드포인트들은 실제 단말에 알림을 띄우므로 키 검증이 발송보다 먼저인지까지 잠근다.
  */
 class GroupNotificationBatchControllerTest {
 
@@ -28,10 +29,13 @@ class GroupNotificationBatchControllerTest {
             mock(BetResultNotificationService.class);
     private final ChallengeWindowEndNotificationService challengeWindowEndNotificationService =
             mock(ChallengeWindowEndNotificationService.class);
+    private final ChallengeDurationEndNotificationService challengeDurationEndNotificationService =
+            mock(ChallengeDurationEndNotificationService.class);
 
     private GroupNotificationBatchController controllerWithKey(String configuredKey) {
         return new GroupNotificationBatchController(
-                betResultNotificationService, challengeWindowEndNotificationService, configuredKey);
+                betResultNotificationService, challengeWindowEndNotificationService,
+                challengeDurationEndNotificationService, configuredKey);
     }
 
     @Test
@@ -61,6 +65,19 @@ class GroupNotificationBatchControllerTest {
     }
 
     @Test
+    @DisplayName("올바른 키 → 일 목표형 마감 푸시가 실행되고 요약이 반환된다")
+    void correctKeyRunsDurationEndPush() {
+        PushDispatchSummaryResponse summary = new PushDispatchSummaryResponse(2, 2, 0, 0, 3L);
+        given(challengeDurationEndNotificationService.sendDurationEndNotifications()).willReturn(summary);
+
+        ResponseEntity<PushDispatchSummaryResponse> response =
+                controllerWithKey(CONFIGURED_KEY).notifyChallengeDurationEnd(CONFIGURED_KEY);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(summary);
+    }
+
+    @Test
     @DisplayName("헤더 누락·키 불일치 → BATCH_KEY_INVALID(403), 발송 서비스는 호출되지 않는다")
     void invalidKeyRejected() {
         GroupNotificationBatchController controller = controllerWithKey(CONFIGURED_KEY);
@@ -73,8 +90,13 @@ class GroupNotificationBatchControllerTest {
                 .isInstanceOf(GroupException.class)
                 .extracting(e -> ((GroupException) e).getErrorCode())
                 .isEqualTo(GroupErrorCode.BATCH_KEY_INVALID);
+        assertThatThrownBy(() -> controller.notifyChallengeDurationEnd("wrong-key"))
+                .isInstanceOf(GroupException.class)
+                .extracting(e -> ((GroupException) e).getErrorCode())
+                .isEqualTo(GroupErrorCode.BATCH_KEY_INVALID);
         assertThat(GroupErrorCode.BATCH_KEY_INVALID.getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
-        verifyNoInteractions(betResultNotificationService, challengeWindowEndNotificationService);
+        verifyNoInteractions(betResultNotificationService, challengeWindowEndNotificationService,
+                challengeDurationEndNotificationService);
     }
 
     @Test
@@ -88,6 +110,7 @@ class GroupNotificationBatchControllerTest {
                 .isEqualTo(GroupErrorCode.BATCH_KEY_NOT_CONFIGURED);
         assertThat(GroupErrorCode.BATCH_KEY_NOT_CONFIGURED.getStatus())
                 .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-        verifyNoInteractions(betResultNotificationService, challengeWindowEndNotificationService);
+        verifyNoInteractions(betResultNotificationService, challengeWindowEndNotificationService,
+                challengeDurationEndNotificationService);
     }
 }

@@ -28,6 +28,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -45,6 +47,8 @@ import static org.mockito.Mockito.verify;
  *
  * <p>{@link WindowFocusAggregator} 는 목이 아니라 실물을 쓴다 — 창 경계 해석(KST 앵커·자정 걸침)이
  * 진행률·정산과 같은 소스여야 한다는 것이 계약이라, 목으로 흉내 내면 그 정합을 못 지킨다.
+ * {@link ChallengeEndPushDispatcher} 도 실물이다 — 발송 단위(그룹당 1건)·dedup 이 이 서비스의
+ * 동작 계약이라 목으로 걷어내면 검증할 것이 남지 않는다.
  */
 @ExtendWith(MockitoExtension.class)
 class ChallengeWindowEndNotificationServiceTest {
@@ -74,11 +78,12 @@ class ChallengeWindowEndNotificationServiceTest {
         return new ChallengeWindowEndNotificationService(
                 groupChallengeRepository,
                 groupChallengeWindowRepository,
-                groupMemberRepository,
-                userNotificationSettingsRepository,
-                notificationSentLogRepository,
-                pushNotificationService,
-                new WindowFocusAggregator(null));
+                new WindowFocusAggregator(null),
+                new ChallengeEndPushDispatcher(
+                        groupMemberRepository,
+                        userNotificationSettingsRepository,
+                        notificationSentLogRepository,
+                        pushNotificationService));
     }
 
     private static Group group() {
@@ -86,12 +91,17 @@ class ChallengeWindowEndNotificationServiceTest {
     }
 
     private static GroupChallenge challenge() {
+        return challenge(MissionCategory.SCREEN_TIME);
+    }
+
+    private static GroupChallenge challenge(MissionCategory category) {
         return GroupChallenge.builder()
                 .id(UUID.randomUUID())
                 .group(group())
-                .category(MissionCategory.SCREEN_TIME)
+                .category(category)
                 .type(MissionType.TIME_WINDOW)
                 .status(GroupChallengeStatus.ACTIVE)
+                .createdAt(Instant.EPOCH)
                 .build();
     }
 
@@ -111,16 +121,20 @@ class ChallengeWindowEndNotificationServiceTest {
     }
 
     private void givenChallenge(GroupChallenge challenge, GroupChallengeWindow window) {
-        given(groupChallengeRepository.findActiveByCategoryAndType(
-                GroupChallengeStatus.ACTIVE, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW))
-                .willReturn(List.of(challenge));
+        givenChallenges(List.of(challenge), List.of(window));
+    }
+
+    private void givenChallenges(List<GroupChallenge> challenges, List<GroupChallengeWindow> windows) {
+        given(groupChallengeRepository.findActiveByType(
+                GroupChallengeStatus.ACTIVE, MissionType.TIME_WINDOW))
+                .willReturn(challenges);
         given(groupChallengeWindowRepository.findByChallengeIdIn(anyCollection()))
-                .willReturn(List.of(window));
+                .willReturn(windows);
     }
 
     private void givenMembers(GroupChallenge challenge, User... users) {
-        given(groupMemberRepository.findByGroup(challenge.getGroup())).willReturn(
-                List.of(users).stream()
+        given(groupMemberRepository.findByGroupIdIn(anyCollection())).willReturn(
+                Arrays.stream(users)
                         .map(user -> GroupMember.builder().id(UUID.randomUUID())
                                 .group(challenge.getGroup()).user(user).build())
                         .toList());
@@ -169,6 +183,48 @@ class ChallengeWindowEndNotificationServiceTest {
     }
 
     @Test
+    @DisplayName("포커스 창형 챌린지도 대상이다 — 창 종료 감지는 카테고리를 가리지 않는다")
+    void sendsForFocusWindowChallenge() {
+        GroupChallenge challenge = challenge(MissionCategory.FOCUS);
+        givenChallenge(challenge, window(challenge, utcTimeOf(9, 0), utcTimeOf(12, 0)));
+        User member = user(UUID.randomUUID());
+        givenMembers(challenge, member);
+        givenNoSentLogs();
+        givenNoSettings();
+        given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(true);
+
+        PushDispatchSummaryResponse summary =
+                service().sendWindowEndNotifications(kst(2026, 8, 2, 12, 5));
+
+        assertThat(summary.sentCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("한 그룹에서 두 창형이 같이 끝나면 푸시는 1건, 발송 이력은 두 챌린지 모두에 남는다")
+    void collapsesSimultaneousEndsWithinGroup() {
+        GroupChallenge screenTime = challenge(MissionCategory.SCREEN_TIME);
+        GroupChallenge focus = challenge(MissionCategory.FOCUS);
+        givenChallenges(List.of(screenTime, focus),
+                List.of(window(screenTime, utcTimeOf(9, 0), utcTimeOf(12, 0)),
+                        window(focus, utcTimeOf(10, 0), utcTimeOf(12, 0))));
+        User member = user(UUID.randomUUID());
+        givenMembers(screenTime, member);
+        givenNoSentLogs();
+        givenNoSettings();
+        given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(true);
+
+        PushDispatchSummaryResponse summary =
+                service().sendWindowEndNotifications(kst(2026, 8, 2, 12, 5));
+
+        assertThat(summary.targetCount()).isEqualTo(1);
+        assertThat(summary.sentCount()).isEqualTo(1);
+        verify(pushNotificationService).sendIfAllowed(any(), any(), any(), any());
+        assertThat(savedLogs())
+                .extracting(NotificationSentLog::getTargetUserId)
+                .containsExactlyInAnyOrder(screenTime.getId(), focus.getId());
+    }
+
+    @Test
     @DisplayName("창이 아직 안 끝났으면 대상 0건 — 그룹원 조회조차 하지 않는다")
     void skipsWhenWindowStillOpen() {
         GroupChallenge challenge = challenge();
@@ -178,7 +234,7 @@ class ChallengeWindowEndNotificationServiceTest {
                 service().sendWindowEndNotifications(kst(2026, 8, 2, 11, 59));
 
         assertThat(summary.targetCount()).isZero();
-        verify(groupMemberRepository, never()).findByGroup(any());
+        verify(groupMemberRepository, never()).findByGroupIdIn(anyCollection());
     }
 
     @Test
@@ -259,7 +315,7 @@ class ChallengeWindowEndNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("문구는 승패를 담지 않고, payload 에 딥링크·type·groupId 가 실린다")
+    @DisplayName("문구는 승패를 담지 않고, 딥링크에 결과 모달용 challenge 가 붙는다")
     void composesResultCheckMessage() {
         GroupChallenge challenge = challenge();
         givenChallenge(challenge, window(challenge, utcTimeOf(9, 0), utcTimeOf(12, 0)));
@@ -276,16 +332,19 @@ class ChallengeWindowEndNotificationServiceTest {
         PushMessage message = captor.getValue();
         assertThat(message.title()).isEqualTo("챌린지가 끝났어요!");
         assertThat(message.body()).isEqualTo("결과를 확인해보세요");
-        assertThat(message.link()).isEqualTo("gromo://group?g=" + GROUP_ID);
+        // 앱 파서(readGroupParam)는 UUID 뒤 룩어헤드로 g 를 잘라내므로 &challenge= 를 붙여도 안전하다(계약 §2).
+        assertThat(message.link())
+                .isEqualTo("gromo://group?g=" + GROUP_ID + "&challenge=" + challenge.getId());
         assertThat(message.data()).containsEntry("type", "CHALLENGE_WINDOW_END")
-                .containsEntry("groupId", GROUP_ID.toString());
+                .containsEntry("groupId", GROUP_ID.toString())
+                .containsEntry("challengeId", challenge.getId().toString());
     }
 
     @Test
-    @DisplayName("활성 스크린타임 창형 챌린지가 없으면 창 조회조차 하지 않는다")
+    @DisplayName("활성 창형 챌린지가 없으면 창 조회조차 하지 않는다")
     void returnsEmptyWhenNoActiveChallenges() {
-        given(groupChallengeRepository.findActiveByCategoryAndType(
-                GroupChallengeStatus.ACTIVE, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW))
+        given(groupChallengeRepository.findActiveByType(
+                GroupChallengeStatus.ACTIVE, MissionType.TIME_WINDOW))
                 .willReturn(List.of());
 
         PushDispatchSummaryResponse summary =
@@ -293,5 +352,13 @@ class ChallengeWindowEndNotificationServiceTest {
 
         assertThat(summary.targetCount()).isZero();
         verify(groupChallengeWindowRepository, never()).findByChallengeIdIn(anyCollection());
+    }
+
+    /** 발송 이력으로 저장된 행 — saveAll 인자를 모아서 돌려준다. */
+    private List<NotificationSentLog> savedLogs() {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<NotificationSentLog>> captor = ArgumentCaptor.forClass(List.class);
+        verify(notificationSentLogRepository).saveAll(captor.capture());
+        return new ArrayList<>(captor.getValue());
     }
 }
