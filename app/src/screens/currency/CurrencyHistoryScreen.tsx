@@ -95,7 +95,7 @@ export default function CurrencyHistoryScreen() {
       <View style={s.balanceCard}>
         <Text style={s.balanceLabel}>
           {/* 아이콘 색은 감싸는 라벨(T.inkSub)에 맞춘다 — 다른 자리도 옆 글자 색을 따라간다. */}
-          <CurrencyIcon size={14} color={T.inkSub} /> 지금 가진 {CURRENCY.label}
+          <CurrencyIcon size={14} color={T.inkSub} decorative /> 지금 가진 {CURRENCY.label}
         </Text>
         <Text style={s.balanceValue}>{coinsLoaded ? `${coins.toLocaleString()}개` : '–'}</Text>
       </View>
@@ -112,7 +112,7 @@ export default function CurrencyHistoryScreen() {
       ) : transactions.length === 0 ? (
         <View style={s.center}>
           {/* 빈 상태 — 에러 상태(cloud-offline-outline)와 같은 크기·색 계열로 맞춘다 */}
-          <CurrencyIcon size={30} color={T.inkFaint} />
+          <CurrencyIcon size={30} color={T.inkFaint} decorative />
           <Text style={s.stateText}>아직 {CURRENCY.label} 내역이 없어요.</Text>
         </View>
       ) : (
