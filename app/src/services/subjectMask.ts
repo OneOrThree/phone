@@ -44,6 +44,14 @@ export function isSubjectMaskSupported(): boolean {
   }
 }
 
+// 네이티브 모듈이 링크돼 있는지(=저장 가능 여부). isSubjectMaskSupported()의 iOS17+ 판정과 별개다.
+// 배경 제거(cutout)는 iOS17+가 필요하지만, 저장(saveCustomCharacter)은 모듈만 링크돼 있으면
+// iOS16.4에서도 원본으로 동작한다. 반대로 모듈 자체가 없는 빌드(안드로이드·구 바이너리 OTA)에선
+// 저장이 불가하므로, 온보딩이 이 경우를 스킵할 수 있게 이 판정을 따로 노출한다.
+export function isSubjectMaskModuleAvailable(): boolean {
+  return native != null;
+}
+
 // 사진 URI → 누끼 결과. 어떤 실패에서도 throw하지 않고 원본으로 폴백한다.
 export async function cutoutSubject(
   uri: string,

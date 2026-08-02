@@ -1,11 +1,15 @@
 import type { ComponentProps } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import CharacterCreator from '@/screens/character/CharacterCreator';
+import { isSubjectMaskModuleAvailable } from '@/services/subjectMask';
+import { getUserIdFromToken } from '@/services/api';
+import { STORAGE_KEYS } from '@/types/storage';
 import { T } from '@/constants/theme';
 import type { StepProps } from '@/screens/onboarding/types';
 
@@ -34,6 +38,22 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const created = !!data.cutoutCharacterUri;
 
+  // 유저별 파일 저장용 userId. 온보딩은 Provider 밖이라 useUser를 못 쓰고, 로그인 스텝이 누끼보다
+  // 앞서 있어 이 시점엔 토큰이 이미 저장돼 있다 — 저장된 토큰의 JWT sub를 그대로 쓴다. 이 값을
+  // 생성기에 넘겨 한 기기 두 계정이 서로의 캐릭터 파일을 덮어쓰지 않게 한다.
+  const [userId, setUserId] = useState<string | null>(null);
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.accessToken).then((token) => {
+      setUserId(token ? getUserIdFromToken(token) : null);
+    });
+  }, []);
+
+  // 만들기 가능 여부 = 저장(saveCustomCharacter)을 지원하는 네이티브 모듈이 링크됐는가.
+  // 모듈이 없는 빌드(안드로이드·구 바이너리 OTA)에선 만들기 자체가 불가하므로, 온보딩이 영구
+  // 차단되지 않도록 그냥 통과시킨다(기본 그로몬 유지). E2E 빌드도 사진 선택 자동화가 불가능해 통과 허용.
+  const canCreate = isSubjectMaskModuleAvailable();
+  const canSkip = !canCreate || process.env.EXPO_PUBLIC_E2E === '1';
+
   // 생성기가 저장 경로를 돌려주면 온보딩 데이터에 담고 Modal을 닫는다. 저장 경로는 고정 파일이라
   // 그대로 두면 RN <Image>가 URI를 캐시 키로 잡아 '다시 만들어보기' 미리보기가 옛 이미지로 남는다.
   // 캐시버스트 쿼리를 붙여 매 저장마다 키를 바꾼다(CharacterCreateRoute와 동일한 처리).
@@ -48,8 +68,9 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
       title={'내 물건으로\n캐릭터를 만들어 볼까요?'}
       subtitle="사진 한 장이면 나만의 캐릭터가 완성돼요."
       ctaLabel="다음"
-      // 스킵 불가 — 캐릭터를 만들어(cutoutCharacterUri 생성) 체험을 완료해야 다음으로. 능동 스킵 버튼 없음.
-      ctaDisabled={!created}
+      // 만들어(cutoutCharacterUri 생성) 체험을 완료해야 다음으로. 단, 만들기 불가 기기(canSkip)는
+      // 영구 차단을 막기 위해 그냥 통과시킨다. 능동 스킵 버튼은 두지 않는다.
+      ctaDisabled={!created && !canSkip}
       onCta={onNext}
     >
       <View style={s.guides}>
@@ -61,43 +82,56 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
         ))}
       </View>
 
-      <TouchableOpacity
-        testID="onboarding.cutout.create"
-        style={s.makeBtn}
-        activeOpacity={0.85}
-        onPress={() => setModalOpen(true)}
-      >
-        <Ionicons name="camera-outline" size={20} color={T.accent} />
-        <Text style={s.makeText}>{created ? '다시 만들어보기' : '내 물건으로 만들어보기'}</Text>
-      </TouchableOpacity>
+      {canCreate ? (
+        <>
+          <TouchableOpacity
+            testID="onboarding.cutout.create"
+            style={s.makeBtn}
+            activeOpacity={0.85}
+            onPress={() => setModalOpen(true)}
+          >
+            <Ionicons name="camera-outline" size={20} color={T.accent} />
+            <Text style={s.makeText}>{created ? '다시 만들어보기' : '내 물건으로 만들어보기'}</Text>
+          </TouchableOpacity>
 
-      {created ? (
-        <View style={s.doneRow}>
-          <CharacterImage size={64} sourceUri={data.cutoutCharacterUri} />
-          <Text style={s.doneText}>이 캐릭터로 만들었어요.</Text>
-        </View>
+          {created ? (
+            <View style={s.doneRow}>
+              <CharacterImage size={64} sourceUri={data.cutoutCharacterUri} />
+              <Text style={s.doneText}>이 캐릭터로 만들었어요.</Text>
+            </View>
+          ) : (
+            <Text style={s.hint}>먼저 캐릭터를 만들어 주세요.</Text>
+          )}
+
+          {/* 생성기 — NavigationContainer가 필요 없는 RN Modal로 띄운다. 닫기는 상단 X 버튼. */}
+          <Modal
+            visible={modalOpen}
+            animationType="slide"
+            onRequestClose={() => setModalOpen(false)}
+          >
+            <SafeAreaView style={s.modalRoot} edges={['top', 'bottom']}>
+              <View style={s.modalBar}>
+                <Text style={s.modalTitle}>사진에서 캐릭터 만들기</Text>
+                <TouchableOpacity
+                  onPress={() => setModalOpen(false)}
+                  style={s.modalClose}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                >
+                  <Ionicons name="close" size={24} color={T.ink} />
+                </TouchableOpacity>
+              </View>
+              <View style={s.modalBody}>
+                <CharacterCreator userId={userId} onSaved={handleSaved} />
+              </View>
+            </SafeAreaView>
+          </Modal>
+        </>
       ) : (
-        <Text style={s.hint}>먼저 캐릭터를 만들어 주세요.</Text>
+        // 만들기 불가 기기 — 만들기 버튼 대신 안내만 띄우고 '다음'으로 통과시킨다(기본 그로몬 유지).
+        <Text style={s.hint}>
+          이 기기에서는 캐릭터 만들기가 아직 지원되지 않아요. 나중에 홈에서 만들 수 있어요.
+        </Text>
       )}
-
-      {/* 생성기 — NavigationContainer가 필요 없는 RN Modal로 띄운다. 닫기는 상단 X 버튼. */}
-      <Modal visible={modalOpen} animationType="slide" onRequestClose={() => setModalOpen(false)}>
-        <SafeAreaView style={s.modalRoot} edges={['top', 'bottom']}>
-          <View style={s.modalBar}>
-            <Text style={s.modalTitle}>사진에서 캐릭터 만들기</Text>
-            <TouchableOpacity
-              onPress={() => setModalOpen(false)}
-              style={s.modalClose}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            >
-              <Ionicons name="close" size={24} color={T.ink} />
-            </TouchableOpacity>
-          </View>
-          <View style={s.modalBody}>
-            <CharacterCreator onSaved={handleSaved} />
-          </View>
-        </SafeAreaView>
-      </Modal>
     </StepScaffold>
   );
 }
