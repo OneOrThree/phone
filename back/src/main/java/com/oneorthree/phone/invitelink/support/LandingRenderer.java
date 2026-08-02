@@ -13,7 +13,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 랜딩 HTML 렌더러 — classpath 템플릿의 자리표시자 4개를 채운다.
+ * 랜딩 HTML 렌더러 — classpath 템플릿의 자리표시자 다섯 개를 채운다.
  *
  * <p>Thymeleaf 를 들이지 않는 이유는 이 페이지가 서버 렌더링 화면 중 유일한 한 장이고,
  * 치환 대상이 {@code {{groupName}} {{schemeUrl}} {{storeUrl}} {{ogImageUrl}} {{expired}}}
