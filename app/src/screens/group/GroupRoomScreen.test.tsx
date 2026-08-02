@@ -1797,6 +1797,53 @@ describe('챌린지 결과 모달(A3)', () => {
       );
     });
 
+    // 시트에 가려 아직 뜨지 못한 결과가 큐 맨 앞을 붙들면, 그 사이 탭한 지목이 뒤로 밀려
+    // 시트를 닫았을 때 사용자가 누른 결과가 아니라 무관한 결과가 먼저 열린다(코덱스 리뷰).
+    test('시트에 가려 대기 중인 결과보다 새 지목을 앞세운다', async () => {
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      // 초대 시트가 떠 있어 결과 모달이 눌려 있는 상태로 시작한다.
+      challengesByDate({
+        '2026-07-31': [settled({ id: 'c-other', missionCategory: 'SCREEN_TIME' })],
+      });
+      const { rerender } = await render(
+        <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} inviteOpen />,
+      );
+      await act(async () => {});
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+      // 시트가 떠 있는 사이 다른 챌린지 알림을 탭했다 — 파라미터만 갈린다.
+      challengesByDate({
+        '2026-07-31': [
+          settled({ id: 'c-other', missionCategory: 'SCREEN_TIME' }),
+          settled({ id: 'c-target' }),
+        ],
+      });
+      await act(async () => {
+        rerender(
+          <GroupRoomScreen
+            groupId={GROUP_ID}
+            focusChallengeId="c-target"
+            onLeft={onLeft}
+            inviteOpen
+          />,
+        );
+      });
+
+      // 시트를 닫으면 사용자가 탭한 결과가 먼저 열려야 한다.
+      await act(async () => {
+        rerender(
+          <GroupRoomScreen groupId={GROUP_ID} focusChallengeId="c-target" onLeft={onLeft} />,
+        );
+      });
+
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+      expect(logGroupChallengeResultShown).toHaveBeenCalledTimes(1);
+      expect(logGroupChallengeResultShown).toHaveBeenCalledWith(
+        expect.objectContaining({ mission_category: 'FOCUS' }),
+      );
+    });
+
     // 방이 이미 떠 있는 채로 같은 그룹의 다른 챌린지 푸시를 탭하면 라우트 파라미터만 갈리고
     // 포커스는 유지된다 — useFocusEffect가 다시 돌지 않아 새 지목이 처리될 계기가 없다.
     test('같은 방에서 지목만 바뀌면 스스로 재조회해 모달을 연다', async () => {

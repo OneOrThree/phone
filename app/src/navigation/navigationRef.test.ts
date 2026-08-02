@@ -238,6 +238,28 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     });
   });
 
+  // 세대는 그룹 링크뿐 아니라 **모든** 딥링크에서 올라간다 — 그러지 않으면 진행 중인 그룹 조회가
+  // 뒤늦게 끝나며 나중에 탭한 홈·친구 화면 위에 그룹방을 다시 연다(코덱스 리뷰).
+  test.each([
+    ['홈 링크', 'gromo://home', 'Main'],
+    ['친구 링크', 'gromo://friends', 'FriendAdd'],
+    ['g가 깨진 그룹 링크', 'gromo://group?g=abc', 'Main'],
+  ])('진행 중인 그룹 조회를 %s가 무효화한다', async (_label, nextLink, expectedRoute) => {
+    let resolveFirst: ((v: unknown) => void) | undefined;
+    mockGetMyGroups.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveFirst = resolve)),
+    );
+
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}&challenge=${CHALLENGE_ID}`);
+    navigateToDeepLink(nextLink); // 보관함에서 다른 알림을 탭했다
+    resolveFirst?.([summary(GROUP_ID)]); // 먼저 시작한 조회가 뒤늦게 끝난다
+    await flushAsync();
+
+    expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
+    // FriendAdd는 파라미터 없이 부르므로 라우트 이름만 본다.
+    expect(navigate.mock.lastCall?.[0]).toBe(expectedRoute);
+  });
+
   test('내 그룹이 아니면(푸시 후 탈퇴) 그룹 탭까지만 간다', async () => {
     mockGetMyGroups.mockResolvedValue([summary('other-1'), summary('other-2')]);
     navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);

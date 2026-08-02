@@ -11,6 +11,12 @@ export const navigationRef = createNavigationContainerRef<V2RootStackParamList>(
 
 let pendingLink: string | null = null;
 
+// 딥링크 요청 세대 — 그룹 링크는 getMyGroups()를 기다렸다 그룹방을 push 한다. 그 사이 다른
+// 딥링크가 도착하면 먼저 시작한 조회가 늦게 끝나며 **최신 목적지 위에 옛 방을 다시 연다.**
+// navigateToDeepLink 진입마다 올려서, 진행 중인 조회는 자기 세대가 최신일 때만 이동을 완료한다
+// (화면들이 쓰는 requestSeqRef와 같은 방식).
+let groupLinkSeq = 0;
+
 // ── 그룹 초대 링크 수신 계약 (docs/app/group-plan.md §6-6) ───────────────────────────
 // 초대 프리뷰(GroupInviteSheet)는 **라우트가 아니라 GroupScreen 안의 오버레이**라 navigate()로 띄울 수
 // 없다. 그래서 groupId를 여기 모듈 버퍼에 두고, 마운트된 GroupScreen이 리스너로 받아 시트를 연다.
@@ -71,6 +77,12 @@ export function navigateToDeepLink(link: string): void {
     pendingLink = link; // 컨테이너 준비 전 → 버퍼링
     return;
   }
+  // 새 딥링크는 **종류·파라미터 유효성과 무관하게** 진행 중인 그룹 목록 조회를 무효화한다
+  // (코덱스 리뷰). 그룹 링크를 탭해 조회가 도는 동안 보관함에서 home·friends나 g가 깨진 링크를
+  // 다시 탭하면, 세대를 여기서 올리지 않을 경우 먼저 시작한 조회가 뒤늦게 끝나며 최신 목적지
+  // 위에 그룹방을 다시 열어 버린다.
+  const seq = ++groupLinkSeq;
+
   // 초대 링크 판정은 **파서를 먼저** 태운다 — 파싱 규격의 단일 소스는 @/utils/inviteLink이고,
   // 파서가 받아주는 슬래시 변형(gromo:///join?g=…)을 여기서 경로 문자열로 다시 자르면
   // 첫 세그먼트가 빈 문자열이 되어 'join'에 닿지 못한다.
@@ -105,7 +117,7 @@ export function navigateToDeepLink(link: string): void {
       // 그룹 푸시 딥링크(gromo://group?g={groupId}[&challenge={challengeId}]) — 먼저 그룹 탭으로
       // 이동해 두고(조회 실패 폴백), 내 그룹이 맞으면 그룹방을 스택에 push 한다.
       // challenge가 실려 있으면 그룹방이 그 챌린지의 결과 모달을 자동으로 연다(GROMO-1088).
-      navigateToGroup(readGroupParam(link), readChallengeParam(link));
+      navigateToGroup(seq, readGroupParam(link), readChallengeParam(link));
       break;
     case 'friends':
       // 친구 요청/수락 푸시(gromo://friends) — 친구 추가 화면으로 보낸다(티켓 1090이 발행).
@@ -145,17 +157,12 @@ function readChallengeParam(link: string): string | null {
 // 내 그룹인지는 확인한다 — 목록을 직접 받아, 조회가 실패하거나 내 그룹이 아니면(푸시 수신 후
 // 탈퇴 등) 이미 이동해 둔 그룹 탭이 폴백이다.
 // 그룹방 진입 자체가 재조회를 트리거해(useFocusEffect) 챌린지 결과 모달로 이어진다(A3).
-function navigateToGroup(groupId: string | null, challengeId: string | null): void {
+function navigateToGroup(seq: number, groupId: string | null, challengeId: string | null): void {
   navigationRef.navigate('Main', { screen: '그룹' } as never);
   if (!groupId) return;
   // 목록 조회 실패는 삼킨다 — 그룹 탭까지는 이미 갔다.
-  pushGroupRoom(++groupLinkSeq, groupId, challengeId).catch(() => {});
+  pushGroupRoom(seq, groupId, challengeId).catch(() => {});
 }
-
-// 그룹 딥링크 요청 세대 — 알림을 연달아 탭하면 각 링크가 독립적인 getMyGroups()를 띄운다.
-// 먼저 시작한 조회가 늦게 끝나면 **나중에 탭한 방이 열린 뒤 이전 방으로 되돌아간다**(코덱스 리뷰).
-// 화면들이 쓰는 requestSeqRef와 같은 방식으로, 최신 링크의 조회만 이동을 완료하게 한다.
-let groupLinkSeq = 0;
 
 async function pushGroupRoom(
   seq: number,

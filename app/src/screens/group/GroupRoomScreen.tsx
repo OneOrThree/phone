@@ -415,8 +415,14 @@ export default function GroupRoomScreen({
         setResultQueue((prev) => {
           // 떠 있는 모달(맨 앞)은 유지한다 — 노출 마커 기록 전에 재조회가 끼어들어도
           // 보고 있던 결과가 사라지거나, 닫은 뒤 같은 결과가 또 뜨지 않게 한다.
+          // ⚠️ 유지하는 것은 **실제로 떠 있는** 모달뿐이다(코덱스 리뷰). 다른 시트(⋯ 메뉴·만들기·
+          //    내기·초대)에 가려 대기 중인 결과까지 맨 앞에 붙들면, 그 사이 탭한 지목이 뒤로 밀려
+          //    시트를 닫았을 때 사용자가 누른 결과가 아니라 무관한 결과가 먼저 열린다.
+          //    '떠 있는가'의 기준은 노출 이펙트가 세우고 닫을 때 비우는 resultShownKeyRef다.
+          //    가려져 있던 결과는 노출 마커가 없어 unseen에 그대로 남으므로 next에서 잃지 않는다.
           const head = prev[0];
           if (!head) return next;
+          if (resultShownKeyRef.current !== `${head.challengeId}:${head.date}`) return next;
           return [
             head,
             ...next.filter((c) => c.challengeId !== head.challengeId || c.date !== head.date),
