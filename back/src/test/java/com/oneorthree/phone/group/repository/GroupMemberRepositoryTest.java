@@ -110,4 +110,31 @@ class GroupMemberRepositoryTest extends RepositoryTestBase {
                 .isEqualTo(groupMemberRepository.findByUser(me).size());
         assertThat(groupMemberRepository.countByUser(other)).isEqualTo(1L);
     }
+
+    @Test
+    @DisplayName("existsByGroupIdAndUserId → 활성 멤버만 true, 탈퇴/강퇴(is_left)는 비멤버로 본다")
+    void existsByGroupIdAndUserIdExcludesLeftMembers() {
+        // given: 같은 그룹의 활성 1명 · 자진 탈퇴 1명 · 강퇴 1명, 그리고 가입한 적 없는 외부인
+        Group group = groupRepository.save(Group.builder().name("방").maxMembers(10).build());
+        User active = userRepository.save(User.builder().nickname("활성").build());
+        User left = userRepository.save(User.builder().nickname("탈퇴").build());
+        User kicked = userRepository.save(User.builder().nickname("강퇴").build());
+        User outsider = userRepository.save(User.builder().nickname("외부인").build());
+
+        groupMemberRepository.save(GroupMember.builder().user(active).group(group).build());
+        GroupMember leftMember = GroupMember.builder().user(left).group(group).build();
+        leftMember.leave();
+        groupMemberRepository.save(leftMember);
+        GroupMember kickedMember = GroupMember.builder().user(kicked).group(group).build();
+        kickedMember.kick();
+        groupMemberRepository.save(kickedMember);
+        groupMemberRepository.flush();
+
+        // then: A-0 소프트삭제로 행은 남지만, 초대 링크 발급 검증(InviteLinkService)은 활성만 통과해야 한다 —
+        //   필터가 빠지면 나간/강퇴된 유저가 계속 그 그룹의 초대 링크를 발급할 수 있다(회귀).
+        assertThat(groupMemberRepository.existsByGroupIdAndUserId(group.getId(), active.getId())).isTrue();
+        assertThat(groupMemberRepository.existsByGroupIdAndUserId(group.getId(), left.getId())).isFalse();
+        assertThat(groupMemberRepository.existsByGroupIdAndUserId(group.getId(), kicked.getId())).isFalse();
+        assertThat(groupMemberRepository.existsByGroupIdAndUserId(group.getId(), outsider.getId())).isFalse();
+    }
 }

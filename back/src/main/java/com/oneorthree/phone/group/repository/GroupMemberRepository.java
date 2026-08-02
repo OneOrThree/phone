@@ -33,10 +33,13 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
     @Query("SELECT gm FROM GroupMember gm WHERE gm.user = :user AND gm.group = :group AND gm.isLeft = false")
     Optional<GroupMember> findByUserAndGroup(@Param("user") User user, @Param("group") Group group);
 
-    // 초대 링크 발급(invitelink 도메인)의 멤버십 검증용. 판정 기준은 findByUserAndGroup 을 쓰는 기존
-    // 호출부와 같다 — 행이 있으면 멤버(탈퇴는 withdrawGroup 이 행을 지운다). 검증만 필요한 자리에서
-    // User·Group 엔티티를 로드하지 않으려고 id 로 존재만 묻는다.
-    boolean existsByGroupIdAndUserId(UUID groupId, UUID userId);
+    // 초대 링크 발급(invitelink 도메인)의 멤버십 검증용 — 활성 멤버(is_left=false)만 멤버로 본다.
+    // A-0 소프트삭제 이후 탈퇴/강퇴는 행을 지우지 않고 is_left=true 로 마킹만 하므로, 필터 없이
+    // 존재만 물으면 나간/강퇴된 유저가 여전히 '멤버'로 잡혀 초대 링크를 계속 발급할 수 있다 —
+    // 다른 활성 조회(findByUserAndGroup 등)와 같은 기준(is_left=false)으로 맞춘다.
+    @Query("SELECT COUNT(gm) > 0 FROM GroupMember gm "
+            + "WHERE gm.group.id = :groupId AND gm.user.id = :userId AND gm.isLeft = false")
+    boolean existsByGroupIdAndUserId(@Param("groupId") UUID groupId, @Param("userId") UUID userId);
 
     // 재가입 로직 전용 — 소프트삭제 행 포함 전체. 유니크(user,group) 제약상 재삽입 불가라, 자진 탈퇴자
     // 재가입은 이 행을 되살리고(rejoin), 강퇴자는 거절한다.
