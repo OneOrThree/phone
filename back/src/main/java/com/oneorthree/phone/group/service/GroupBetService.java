@@ -470,6 +470,18 @@ public class GroupBetService {
      * 창형(TIME_WINDOW) 마감 — 오늘 창이 이미 끝났으면 개설·참가를 막는다. 창이 끝난 뒤에 걸면 결과가
      * 이미 정해진 판에 올라타는 것이라 DURATION 의 "당일 자정 전"과 같은 성격의 가드다. DURATION 은
      * 창이 없어 날짜 검사만으로 충분하다(마감 코드도 {@code BET_CLOSED} 로 같다).
+     *
+     * <p><b>자정 걸침 창에서는 이 가드가 도달하지 않는다</b>(PR #446 리뷰). 예로 22:00~01:00 창의
+     * 날짜 D 창은 {@code D+1 01:00} 에 끝나는데, 이 가드는 호출자가 이미 {@code betDate == 오늘} 을
+     * 확인한 뒤에만 실행되므로 "오늘"인 동안 {@code now} 는 항상 그 종료 시각보다 이르다. 실질 마감은
+     * 자정에 {@code today()} 가 넘어가면서 앞의 날짜 게이트가 대신 처리한다 — 즉 자정 걸침 창은
+     * 마지막 1시간(00:00~01:00) 동안 새 개설·참가를 받지 않는다.
+     *
+     * <p>일부러 그대로 둔다. ① 더 일찍 닫는 쪽이라 "결과가 정해진 판에 올라타기"는 여전히 불가능하고
+     * (자금 안전 방향), ② 마지막 1시간을 열려면 {@code betDate} 가 어제인 내기를 허용해야 하는데
+     * 이는 "betDate = KST 오늘"이라는 계약 공통 규칙과 01:00 정산 배치의 대상 선정 전제를 동시에
+     * 흔든다. 같은 시각 판정(집계)은 창 전체를 그대로 쓰므로 이미 참가한 사람의 판정에는 영향이 없다.
+     * 실제 경계값은 {@code GroupBetJudgeIntegrationTest} 가 실 DB 로 고정한다.
      */
     private void requireWindowStillOpen(GroupBetJudge.Target target, LocalDate date) {
         Optional<Instant> closesAt = groupBetJudge.windowClosesAt(target, date);
