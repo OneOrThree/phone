@@ -124,7 +124,7 @@ class BetResultNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("승자에게는 받은 금액이, 패자에게는 잃은 판돈이 실린 문구가 나간다")
+    @DisplayName("승자에게는 받은 금액이, 패자에게는 잃은 참가비가 실린 문구가 나간다")
     void composesWinnerAndLoserBodies() {
         GroupChallengeBet settled = bet(GroupBetStatus.SETTLED, 50);
         User winner = user(UUID.randomUUID());
@@ -143,7 +143,7 @@ class BetResultNotificationServiceTest {
         assertThat(summary.dedupedCount()).isZero();
         assertThat(capturedMessages()).extracting(PushMessage::body).containsExactlyInAnyOrder(
                 "내기에서 이겼어요! +100코인 🎉",
-                "아쉬워요 — 목표 미달성으로 판돈 50코인을 잃었어요");
+                "아쉬워요 — 목표 미달성으로 참가비 50코인을 잃었어요");
     }
 
     @Test
@@ -162,7 +162,7 @@ class BetResultNotificationServiceTest {
         service.sendBetResultNotifications(NOW);
 
         assertThat(capturedMessages()).extracting(PushMessage::body)
-                .containsOnly("아무도 목표를 달성하지 못해 판돈이 소멸됐어요");
+                .containsOnly("아무도 목표를 달성하지 못해 참가비가 소멸됐어요");
     }
 
     @Test
