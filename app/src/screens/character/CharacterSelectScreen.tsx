@@ -22,12 +22,15 @@ export default function CharacterSelectScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { choice, customUri, setChoice } = useCharacter();
 
-  // 화면 안에서만 쓰는 선택 상태 — 진입 시엔 지금 장착된 캐릭터를 고른 것으로 시작한다.
-  // 'custom'인데 누끼가 사라진 비정상 상태는 기본 그로몬으로 잡아, 아무것도 안 골라진
-  // 상태가 생기지 않게 한다(그래서 '장착하기'는 항상 누를 수 있다).
-  const [selected, setSelected] = useState<CharacterChoice>(
-    choice === 'custom' && customUri != null ? 'custom' : 'default',
-  );
+  // 지금 실제로 장착된 캐릭터. 'custom'인데 누끼가 사라진 비정상 상태는 기본 그로몬으로 잡는다.
+  const equipped: CharacterChoice = choice === 'custom' && customUri != null ? 'custom' : 'default';
+
+  // 화면 안에서만 쓰는 선택 상태 — 사용자가 카드를 탭하기 전까지는 null이고, 그동안은 위의
+  // 장착값을 그대로 따라간다. useState 초기값으로 스냅샷을 뜨면 CharacterContext가 AsyncStorage를
+  // 아직 못 읽은 시점에 마운트됐을 때 'default'로 굳어, 그대로 '장착하기'를 누르면 사용자의
+  // 누끼 캐릭터가 조용히 해제된다. 아무것도 안 골라진 상태는 생기지 않으므로 '장착하기'는 항상 활성.
+  const [picked, setPicked] = useState<CharacterChoice | null>(null);
+  const selected = picked ?? equipped;
 
   const goCreate = useCallback(() => navigation.navigate('CharacterCreate'), [navigation]);
 
@@ -67,7 +70,7 @@ export default function CharacterSelectScreen() {
         <PressableScale
           style={[s.card, defaultSelected && s.cardSelected]}
           scaleTo={0.97}
-          onPress={() => setSelected('default')}
+          onPress={() => setPicked('default')}
         >
           {defaultSelected ? (
             <View style={s.checkBadge}>
@@ -85,7 +88,7 @@ export default function CharacterSelectScreen() {
           <PressableScale
             style={[s.card, customSelected && s.cardSelected]}
             scaleTo={0.97}
-            onPress={() => setSelected('custom')}
+            onPress={() => setPicked('custom')}
           >
             {customSelected ? (
               <View style={s.checkBadge}>
