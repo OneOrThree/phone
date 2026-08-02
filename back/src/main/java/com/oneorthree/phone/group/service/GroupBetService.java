@@ -40,6 +40,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -471,11 +472,10 @@ public class GroupBetService {
      * 창이 없어 날짜 검사만으로 충분하다(마감 코드도 {@code BET_CLOSED} 로 같다).
      */
     private void requireWindowStillOpen(GroupBetJudge.Target target, LocalDate date) {
-        groupBetJudge.windowClosesAt(target, date)
-                .filter(closesAt -> !Instant.now().isBefore(closesAt))
-                .ifPresent(closesAt -> {
-                    throw new GroupException(GroupErrorCode.BET_CLOSED);
-                });
+        Optional<Instant> closesAt = groupBetJudge.windowClosesAt(target, date);
+        if (closesAt.isPresent() && !Instant.now().isBefore(closesAt.get())) {
+            throw new GroupException(GroupErrorCode.BET_CLOSED);
+        }
     }
 
     /**
