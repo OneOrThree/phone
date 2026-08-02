@@ -26,11 +26,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.lang.reflect.Method;
 import java.time.Instant;
@@ -84,25 +81,19 @@ class ChallengeCreatedNotificationServiceTest {
     @InjectMocks
     private ChallengeCreatedNotificationService service;
 
-    // ── 배선(커밋 이후·비동기) ────────────────────────────────────────────
+    // ── 트랜잭션 경계 ─────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("리스너는 AFTER_COMMIT + REQUIRES_NEW 로 배선된다 → 생성 롤백 시 발송되지 않는다")
-    void listenerIsWiredAfterCommit() throws NoSuchMethodException {
-        // 커밋 전 미발송은 스프링 트랜잭션 이벤트 배선이 보장한다. 롤백 시나리오를 목으로 흉내 낼 수는
-        // 없으므로(목에는 트랜잭션이 없다) "그 배선이 맞게 걸려 있는가" 를 계약으로 고정한다.
-        Method listener = ChallengeCreatedNotificationService.class
-                .getMethod("onChallengeCreated", GroupChallengeCreatedEvent.class);
+    @DisplayName("발송 본체는 REQUIRES_NEW 로 연다 → 종료 중인 원 트랜잭션에 합류해 쓰기가 사라지지 않는다")
+    void sendOpensItsOwnTransaction() throws NoSuchMethodException {
+        // 무효 토큰 정리(더티체킹)와 발송 로그 저장이 트랜잭션 밖으로 새면 조용히 유실된다.
+        // 목에는 트랜잭션이 없어 재현할 수 없으므로 경계 선언 자체를 계약으로 고정한다.
+        Method send = ChallengeCreatedNotificationService.class.getMethod(
+                "sendCreatedNotifications", GroupChallengeCreatedEvent.class, Instant.class);
 
-        assertThat(listener.getAnnotation(TransactionalEventListener.class)).isNotNull();
-        assertThat(listener.getAnnotation(TransactionalEventListener.class).phase())
-                .isEqualTo(TransactionPhase.AFTER_COMMIT);
-        // AFTER_COMMIT 에는 원 트랜잭션이 이미 끝나 있어 무효 토큰 정리(더티체킹)에 새 트랜잭션이 필요하다.
-        assertThat(listener.getAnnotation(Transactional.class)).isNotNull();
-        assertThat(listener.getAnnotation(Transactional.class).propagation())
+        assertThat(send.getAnnotation(Transactional.class)).isNotNull();
+        assertThat(send.getAnnotation(Transactional.class).propagation())
                 .isEqualTo(Propagation.REQUIRES_NEW);
-        // FCM 은 유저 1명당 blocking 호출이라 요청 스레드에서 떼어낸다.
-        assertThat(listener.getAnnotation(Async.class)).isNotNull();
     }
 
     // ── 대상 선정 ────────────────────────────────────────────────────────

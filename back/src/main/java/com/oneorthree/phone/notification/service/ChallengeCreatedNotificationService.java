@@ -13,7 +13,6 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.service.WindowFocusAggregator;
-import com.oneorthree.phone.notification.config.NotificationAsyncConfig;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.domain.User;
@@ -21,12 +20,9 @@ import com.oneorthree.phone.user.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -51,11 +47,8 @@ import java.util.stream.Collectors;
  *
  * <p><b>크론이 아니라 이벤트</b>다. 창 종료(CHALLENGE_WINDOW_END)·내기 정산(BET_RESULT)은 "시간이
  * 지나서" 발생하지만 개설은 유저 행위라 즉시성이 중요하다. 다만 생성 트랜잭션이 롤백됐는데 알림만
- * 나가면 안 되므로 {@link TransactionPhase#AFTER_COMMIT} 으로 받는다.
- *
- * <p>발송은 {@code @Async} 로 요청 스레드에서 떼어낸다(사유는 {@link NotificationAsyncConfig}).
- * AFTER_COMMIT 시점엔 원 트랜잭션이 이미 끝났고 무효 토큰 정리(더티체킹)에 쓰기 트랜잭션이
- * 필요하므로 {@link Propagation#REQUIRES_NEW} 로 새 트랜잭션을 연다.
+ * 나가면 안 되므로 커밋 이후에 받는다 — 그 배선(커밋 이후·비동기)은
+ * {@code notification.listener.ChallengeCreatedNotificationListener} 가 갖는다.
  *
  * <p>dedup: (user_id, type={@code CHALLENGE_CREATED}, target_user_id={@code challengeId}).
  * 개설은 1회성이라 정상 흐름에서는 중복이 없고, 이벤트 재발행·재시도에 대한 안전망이다.
@@ -72,9 +65,14 @@ public class ChallengeCreatedNotificationService {
     static final String PUSH_TYPE = NotificationSentLog.TYPE_CHALLENGE_CREATED;
 
     /**
-     * dedup 조회 하한을 챌린지 생성 시각보다 이만큼 앞당긴다. 이 챌린지에 대한 발송 로그는 생성
-     * 이후에만 생길 수 있으므로 원래는 생성 시각으로 충분하지만, 서버가 여러 대일 때 생성 시각과
-     * 발송 시각이 서로 다른 인스턴스 시계에서 찍혀 역전될 수 있어 여유를 둔다.
+     * dedup 조회 하한을 챌린지 생성 시각보다 이만큼 앞당긴다.
+     *
+     * <p>정확한 하한은 챌린지 생성 시각이다 — 이 챌린지의 발송 로그는 챌린지보다 먼저 생길 수 없다.
+     * 이 여유분은 <b>순수한 방어값</b>이다. 지금은 커밋한 인스턴스가 그대로 발송해 생성 시각
+     * ({@code @CreationTimestamp})과 발송 시각이 같은 JVM 시계에서 찍히지만, 나중에 재시도·백필이
+     * 다른 인스턴스에서 돌면 미세한 시계 차로 하한이 어긋날 수 있다. 조회 결과는 어차피
+     * {@code target_user_id} 로 한 번 더 거르므로 하한을 넓혀도 오탐은 없고 스캔 범위만 조금 는다
+     * (@claude 리뷰 — 원래 주석이 다중 인스턴스를 현재 동작인 양 적어 두어 근거를 바로잡았다).
      */
     static final Duration DEDUP_LOOKBACK_MARGIN = Duration.ofMinutes(5);
 
@@ -89,29 +87,17 @@ public class ChallengeCreatedNotificationService {
     private final PushNotificationService pushNotificationService;
 
     /**
-     * 챌린지 생성 커밋 이후 진입점.
+     * 발송 본체. 진입점(커밋 이후·비동기)은 {@code ChallengeCreatedNotificationListener} 가 맡는다.
      *
-     * <p>예외를 밖으로 흘리지 않는다 — 여기서 터져도 챌린지 생성은 이미 성사된 사실이고, 별도
-     * 스레드라 호출측에 전달할 곳도 없다. 유저 단위 실패는 {@link #sendToMembers} 안에서 격리한다.
-     */
-    @Async(NotificationAsyncConfig.PUSH_EXECUTOR)
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void onChallengeCreated(GroupChallengeCreatedEvent event) {
-        try {
-            sendCreatedNotifications(event, Instant.now());
-        } catch (RuntimeException e) {
-            log.warn("챌린지 개설 푸시 처리 실패 — challengeId={}, groupId={}",
-                    event.challengeId(), event.groupId(), e);
-        }
-    }
-
-    /**
-     * 발송 본체 — 리스너 배선(비동기·트랜잭션 경계)과 분리해 단위 테스트에서 직접 부른다.
+     * <p>{@link Propagation#REQUIRES_NEW} — 무효 토큰 정리(더티체킹)와 발송 로그 저장에 쓰기
+     * 트랜잭션이 필요한데, 이 메서드는 원 트랜잭션이 <b>커밋을 마친 뒤</b> 불린다. 비동기 경계를
+     * 넘어 별도 스레드에서 도는 것이 정상 경로라 이미 열린 트랜잭션이 없지만, 혹시 커밋 스레드에서
+     * 그대로 불리더라도 종료 중인 트랜잭션에 합류해 쓰기가 조용히 사라지지 않도록 새로 연다.
      *
      * @return 실제 발송된 건수
      */
-    int sendCreatedNotifications(GroupChallengeCreatedEvent event, Instant now) {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public int sendCreatedNotifications(GroupChallengeCreatedEvent event, Instant now) {
         GroupChallenge challenge = groupChallengeRepository.findById(event.challengeId()).orElse(null);
         if (challenge == null || challenge.getDeletedAt() != null) {
             // 커밋 직후 곧바로 삭제된 경우 — 없는 챌린지를 알리지 않는다.
