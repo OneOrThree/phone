@@ -141,9 +141,9 @@ function WeeklyTimetable() {
       </View>
     );
   }
-  if (blocks.length === 0) {
-    return <Text style={cs.emptyText}>아직 기록이 없어요</Text>;
-  }
+  // 기록이 없어도 표(요일 헤더 + 24시간 격자)는 그대로 그린다(GROMO-1082) — 텍스트로 대체하면
+  // 이번 주에 아무 기록이 없다는 사실이 표로 보이지 않고, '불러오기 실패'와도 구분되지 않는다.
+  // 안내 문구는 표를 가리지 않게 아래에 캡션으로 덧붙인다.
 
   // 구간의 과목 색 — 공용 헬퍼(subjectColorForTag)로 tagId → 태그명 → 로컬 과목 색 매칭(FocusTimetable과 동일)
   const colorForTag = (tagId: string | null) => subjectColorForTag(tagId, tagNames, subjects);
@@ -253,6 +253,8 @@ function WeeklyTimetable() {
           )}
         </View>
       </View>
+      {/* 빈 상태 안내 — 표는 띄운 채 캡션만 덧붙인다(GROMO-1082). 기록이 있으면 범례가 대신 뜬다 */}
+      {blocks.length === 0 && <Text style={cs.grassHint}>아직 기록이 없어요</Text>}
       {/* 범례 */}
       {legendSubjects.length > 0 && (
         <View style={s.wttLegend}>
