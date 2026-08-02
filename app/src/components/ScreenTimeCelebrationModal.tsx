@@ -5,10 +5,10 @@ import { CharacterImage } from '@/components/character/CharacterImage';
 import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
 import { useCharacter } from '@/store/CharacterContext';
 import { T, withAlpha } from '@/constants/theme';
-import { CURRENCY } from '@/constants/currency';
+import { CurrencyIcon } from '@/components/CurrencyIcon';
 
 // 스크린타임 목표 달성 축하 모달(GROMO-629) — 어제 사용 시간이 목표 이내였으면 그날 첫 홈 진입에
-// 1회 노출. 목표 보상으로 지급된 시간조각을 rewardCoins로 받아 +N ⏳ 한 줄로 표시한다(>0일 때만) —
+// 1회 노출. 목표 보상으로 지급된 시간조각을 rewardCoins로 받아 +N 한 줄로 표시한다(>0일 때만) —
 // 값은 호출자가 넘긴다. 모양은 포커스 목표 축하(GoalCelebrationModal)와 동일, 문구만 스크린타임용.
 // '연속 목표달성'만 표시한다.
 interface Props {
@@ -79,7 +79,7 @@ export function ScreenTimeCelebrationModal({
           {(rewardCoins ?? 0) > 0 ? (
             <View style={s.coinBox}>
               <Text style={s.coinText}>
-                +{rewardCoins?.toLocaleString()} {CURRENCY.icon} 획득!
+                +{rewardCoins?.toLocaleString()} <CurrencyIcon size={14} /> 획득!
               </Text>
             </View>
           ) : null}

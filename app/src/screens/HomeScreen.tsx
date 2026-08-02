@@ -18,7 +18,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
-import { CURRENCY } from '@/constants/currency';
 import { focusGoalReward, screenTimeGoalReward } from '@/utils/currencyRewards';
 import { useLeagueRanking } from '@/screens/league/useLeagueRanking';
 import { useLeagueMeta } from '@/screens/league/useLeagueMeta';
@@ -37,6 +36,7 @@ import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { PressableScale } from '@/components/PressableScale';
 import { fabWindowRect } from '@/components/TabBar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -568,11 +568,10 @@ export default function HomeScreen() {
               오늘 <Text style={s.cardTitleSub}>Today</Text>
             </Text>
             <View style={s.cardHeaderRight}>
-              {/* 시간조각 잔액 칩 — 폭이 빠듯해 라벨 생략(⏳ N). 미로드 시 중립 플레이스홀더(⏳ –) */}
+              {/* 시간조각 잔액 칩 — 폭이 빠듯해 라벨 생략(모래시계 N). 미로드 시 중립 플레이스홀더(모래시계 –) */}
               <View style={s.streakChip}>
-                <Text style={s.streakChipText}>
-                  {CURRENCY.icon} {coinsLoaded ? coins.toLocaleString() : '–'}
-                </Text>
+                <CurrencyIcon size={11} />
+                <Text style={s.streakChipText}>{coinsLoaded ? coins.toLocaleString() : '–'}</Text>
               </View>
               {/* 연속 공부(GROMO-630) — 하루 10분 스트릭. 0일이면 생략 */}
               {streakDays > 0 && (

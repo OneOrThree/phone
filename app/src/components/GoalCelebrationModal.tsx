@@ -5,10 +5,10 @@ import { CharacterImage } from '@/components/character/CharacterImage';
 import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
 import { useCharacter } from '@/store/CharacterContext';
 import { T, withAlpha } from '@/constants/theme';
-import { CURRENCY } from '@/constants/currency';
+import { CurrencyIcon } from '@/components/CurrencyIcon';
 
 // 포커스 목표 달성 축하 모달(GROMO-630) — 오늘 누적 집중이 목표를 처음 채운 순간 결과 화면에서
-// 1회 노출. 목표 보상으로 지급된 시간조각을 rewardCoins로 받아 +N ⏳ 한 줄로 표시한다(>0일 때만).
+// 1회 노출. 목표 보상으로 지급된 시간조각을 rewardCoins로 받아 +N 한 줄로 표시한다(>0일 때만).
 // 값은 호출자가 넘긴다 — 지급이 없거나 아직 안 정해졌으면 줄을 숨겨 축하 + 스트릭만 남는다.
 // '연속 목표달성' 표기는 '연속 공부'(하루 10분 스트릭)와 다른 개념이라 이 모달에는 섞지 않는다.
 interface Props {
@@ -77,7 +77,7 @@ export function GoalCelebrationModal({
           {(rewardCoins ?? 0) > 0 ? (
             <View style={s.coinBox}>
               <Text style={s.coinText}>
-                +{rewardCoins?.toLocaleString()} {CURRENCY.icon} 획득!
+                +{rewardCoins?.toLocaleString()} <CurrencyIcon size={14} /> 획득!
               </Text>
             </View>
           ) : null}
