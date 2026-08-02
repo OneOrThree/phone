@@ -14,6 +14,9 @@ import { STORAGE_KEYS } from '@/types/storage';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
+import ChallengeResultModal from '@/screens/group/components/ChallengeResultModal';
+import type { ChallengeResultCandidate } from '@/screens/group/challengeResult';
+import { yesterdayStr } from '@/utils/localDate';
 import { SettingsSection, SettingsRow } from '@/screens/settings/components/SettingsList';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { SPIKE_ENABLED } from '@/screens/spike/enabled';
@@ -52,6 +55,56 @@ function confirmOpenExternal(title: string, url: string) {
       },
     },
   ]);
+}
+
+// dev 미리보기 — 챌린지 결과 모달(A3)의 내 결과 3분기 연출을 실데이터 없이 확인한다.
+// 결과 모달은 '종료된 챌린지 + 미노출 가드'가 동시에 성립할 때만 뜨는 화면이라, 그냥 두면
+// 하루에 한 번·특정 시각에만 볼 수 있어 디자인 확인이 사실상 불가능하다(리그 결과 미리보기를
+// 뒀던 이유와 같다).
+// ⚠️ 미리보기는 **모달 컴포넌트만** 띄운다 — 1회 노출 가드(markChallengeResultSeen)와 GA4
+//    발행은 GroupRoomScreen이 쥐고 있어, 여기서 아무리 열어도 실사용 가드·지표를 오염시키지 않는다.
+type ChallengeResultPreviewKind = 'challengeAchieved' | 'challengeFailed' | 'challengePending';
+
+function challengeResultPreview(kind: ChallengeResultPreviewKind): ChallengeResultCandidate {
+  // 날짜는 실제 노출과 같은 '어제' — 모달의 'M/D 결과' 표기가 실전과 같은 모양으로 보인다.
+  const base = {
+    challengeId: `preview-${kind}`,
+    date: yesterdayStr(),
+    missionType: 'DURATION' as const,
+    missionCategory: 'FOCUS' as const,
+    label: '하루 60분 집중',
+    memberCount: 4,
+    // 내기가 걸렸던 결과로 둔다 — 정산 안내 한 줄까지 함께 확인해야 하기 때문.
+    hadBet: true,
+  };
+  if (kind === 'challengeAchieved') {
+    return {
+      ...base,
+      achievers: ['나', '수빈', '민지'],
+      failed: ['지훈'],
+      pending: [],
+      myAchieved: true,
+    };
+  }
+  if (kind === 'challengeFailed') {
+    return {
+      ...base,
+      achievers: ['수빈', '민지'],
+      failed: ['나', '지훈'],
+      pending: [],
+      myAchieved: false,
+    };
+  }
+  // 집계 중 — 스크린타임은 클라 보고가 도착해야 확정돼 3상이 실제로 섞인다(계약 §2).
+  return {
+    ...base,
+    missionCategory: 'SCREEN_TIME',
+    label: '하루 120분 스크린타임',
+    achievers: ['수빈'],
+    failed: ['지훈'],
+    pending: ['나', '민지'],
+    myAchieved: null,
+  };
 }
 
 // epoch 초 → "M/D HH:mm:ss" (dev 패널 등록 시각 표기용)
@@ -159,8 +212,10 @@ export default function MenuScreen() {
   );
   // 연속 공부 일수(하루 10분 스트릭, GROMO-630) — 0이면 pill 생략.
   const [streakDays, setStreakDays] = useState(0);
-  // dev 미리보기 — 목표 달성 축하 모달 연출 확인용(__DEV__ 전용).
-  const [modalPreview, setModalPreview] = useState<null | 'focus' | 'screentime'>(null);
+  // dev 미리보기 — 목표 달성 축하 모달 + 챌린지 결과 모달 연출 확인용(__DEV__ 전용).
+  const [modalPreview, setModalPreview] = useState<
+    null | 'focus' | 'screentime' | ChallengeResultPreviewKind
+  >(null);
   // dev 스크린타임 측정 디버그 패널 열림 여부(__DEV__ 전용, GROMO-931)
   const [bucketDebugOpen, setBucketDebugOpen] = useState(false);
 
@@ -382,6 +437,30 @@ export default function MenuScreen() {
               onPress={() => setModalPreview('focus')}
             />
             <SettingsRow
+              icon="trophy-outline"
+              iconColor={T.accentAlt}
+              iconBg={T.accentAltBg}
+              label="챌린지 결과 모달 — 달성"
+              sub="그룹 챌린지 결과 발표 연출(내 결과: 달성)"
+              onPress={() => setModalPreview('challengeAchieved')}
+            />
+            <SettingsRow
+              icon="sad-outline"
+              iconColor={T.accentAlt}
+              iconBg={T.accentAltBg}
+              label="챌린지 결과 모달 — 미달성"
+              sub="같은 연출의 미달성 분기"
+              onPress={() => setModalPreview('challengeFailed')}
+            />
+            <SettingsRow
+              icon="hourglass-outline"
+              iconColor={T.accentAlt}
+              iconBg={T.accentAltBg}
+              label="챌린지 결과 모달 — 집계 중"
+              sub="스크린타임 미보고 3상(달성·미달성·집계 중) 혼재"
+              onPress={() => setModalPreview('challengePending')}
+            />
+            <SettingsRow
               icon="stats-chart-outline"
               iconColor={T.accentAlt}
               iconBg={T.accentAltBg}
@@ -409,6 +488,13 @@ export default function MenuScreen() {
             goalMinutes={120}
             onClose={() => setModalPreview(null)}
           />
+          {/* 챌린지 결과 모달은 visible prop 없이 조건부 렌더 방식이다(그룹방과 같은 사용법) */}
+          {modalPreview !== null && modalPreview !== 'focus' && modalPreview !== 'screentime' && (
+            <ChallengeResultModal
+              result={challengeResultPreview(modalPreview)}
+              onClose={() => setModalPreview(null)}
+            />
+          )}
         </>
       )}
 
