@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { cubicBezier } from 'react-native-reanimated';
 import { T } from '@/constants/theme';
+import { CURRENCY } from '@/constants/currency';
 import { PressableScale } from '@/components/PressableScale';
 import { STORAGE_KEYS } from '@/types/storage';
 import { getFocusPeriodStats, getStreak, getHeatmap, getTodayStats } from '@/services/statsApi';
@@ -297,6 +298,9 @@ export default function FocusResultScreen() {
   // 후에 도착할 수 있고, 도착하면 구독으로 재렌더된다. 오늘 날짜 판정만 유효(자정 넘김 방어).
   const rawVerdict = useSyncExternalStore(subscribeSessionSaveVerdict, getSessionSaveVerdict);
   const verdict = rawVerdict?.date === today ? rawVerdict : null;
+  // 획득 시간조각(재화) — 세션 저장 응답 기준(GROMO 재화). 목표 보너스(goalRewardCoins>0)도 합산.
+  // 응답 도착 전이거나 서버 미지급이면 0 → 배지 미표기.
+  const rewardCoins = (verdict?.awardedCoins ?? 0) + Math.max(verdict?.goalRewardCoins ?? 0, 0);
   // 방금 끝낸 세션은 업로드 직후라 서버 집계(week·heatmap)에 아직 없을 수 있다(리뷰 반영).
   // 오늘 값은 max(서버 집계, 방금 세션 분, 저장 응답의 그날 누적)로 바닥을 깔고, 주간 합계에도
   // 그 차이만큼 더해 결과 화면이 0/이전 값으로 보이지 않게 한다(이중 집계 없음 — max라 서버
@@ -405,6 +409,14 @@ export default function FocusResultScreen() {
           <Text style={s.sub}>
             {firstTime ? '오늘 첫 걸음을 뗐어요 🎉' : `${subjectName} · 꾸준함이 쌓이고 있어요`}
           </Text>
+          {/* 획득 시간조각 — 저장 응답 도착 시 +N ⏳ 팝(스트릭 ✓와 같은 checkPop 재사용) */}
+          {rewardCoins > 0 ? (
+            <Animated.View style={[s.coinBadge, checkPop]}>
+              <Text style={s.coinBadgeText}>
+                +{rewardCoins.toLocaleString()} {CURRENCY.icon}
+              </Text>
+            </Animated.View>
+          ) : null}
         </View>
 
         {/* 이번 집중 — 과목명 큰 글씨 + 00:00:00, 바로 아래 과목별 누적 집중(로컬) */}
@@ -808,6 +820,16 @@ const s = StyleSheet.create({
   header: { gap: T.space.xs, paddingVertical: T.space.xs },
   title: { ...T.text.stat, color: T.ink },
   sub: { ...T.text.label, fontWeight: '500', color: T.inkSub },
+  // 획득 시간조각 배지(+N ⏳)
+  coinBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: T.accentBg,
+    borderRadius: 999,
+    paddingHorizontal: T.space.md,
+    paddingVertical: T.space.xs,
+    marginTop: T.space.xs,
+  },
+  coinBadgeText: { ...T.text.label, fontWeight: '800', color: T.accentDeep },
 
   card: {
     backgroundColor: T.white,

@@ -7,7 +7,10 @@
 //     롱프레스 오탭으로 챌린지가 사라지면 되돌릴 방법이 없다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
+import { AxiosError, AxiosHeaders } from 'axios';
 import ChallengeCard from './ChallengeCard';
+import { cancelBet, challengeGroupId } from '@/services/groupApi';
+import { logGroupBetCanceled } from '@/services/analyticsEvents';
 import { T } from '@/constants/theme';
 import type {
   ChallengeMemberProgress,
@@ -16,9 +19,41 @@ import type {
   LastSettledBet,
 } from '@/types/dto/group';
 
+// 카드가 내기 취소의 API·계측을 직접 쥔다(부모 GroupRoomScreen이 A3 전유라 콜백을 못 늘린 흡수) —
+// groupErrorCode는 실제 구현을 남긴다(취소 에러 code 분기까지 검증).
+jest.mock('@/services/groupApi', () => ({
+  ...jest.requireActual('@/services/groupApi'),
+  cancelBet: jest.fn(),
+  challengeGroupId: jest.fn(),
+}));
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupBetCanceled: jest.fn(),
+  logGroupChallengeDeleted: jest.fn(),
+}));
+// 잔액은 CoinContext가 정본 — 취소 성공 후 환불 반영을 위한 refresh 호출만 본다.
+const mockRefreshCoins = jest.fn(async () => true);
+jest.mock('@/store/CoinContext', () => ({
+  useCoins: () => ({ refresh: mockRefreshCoins }),
+}));
+
+const mockCancelBet = cancelBet as jest.MockedFunction<typeof cancelBet>;
+const mockChallengeGroupId = challengeGroupId as jest.MockedFunction<typeof challengeGroupId>;
+
+const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const CHALLENGE_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
 const onDelete = jest.fn();
 const onOpenBet = jest.fn();
+
+function axiosErrorWith(status: number, code?: string): AxiosError {
+  const config = { headers: new AxiosHeaders() };
+  return new AxiosError('request failed', 'ERR_BAD_REQUEST', config, null, {
+    status,
+    statusText: '',
+    headers: {},
+    config,
+    data: code ? { code, message: '...' } : undefined,
+  });
+}
 
 function progress(over: Partial<ChallengeMemberProgress> = {}): ChallengeMemberProgress {
   return { userId: 'u1', nickname: '재영', progressMinutes: 32, achieved: false, ...over };
@@ -87,6 +122,8 @@ async function renderCard(over: Partial<GroupChallengeResponse> = {}, betLocked 
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockCancelBet.mockResolvedValue(undefined);
+  mockChallengeGroupId.mockReturnValue(GROUP_ID);
 });
 
 describe('미션 라벨', () => {
@@ -124,6 +161,28 @@ describe('미션 라벨', () => {
     expect(screen.queryByText('재영')).toBeNull();
     // 대신 왜 비어 있는지 한 줄로 알린다(그냥 비우면 '아무도 안 했다'로 읽히는 건 마찬가지다).
     expect(screen.getByText('이 챌린지는 진행률을 표시하지 않아요')).toBeOnTheScreen();
+  });
+
+  test('TIME_WINDOW에 창 목표분(V20)이 있으면 라벨에 함께 적고 진행률도 그린다', async () => {
+    await render(
+      <ChallengeCard
+        challenge={challenge({
+          missionType: 'TIME_WINDOW',
+          durationMinutes: 90,
+          windowStart: '09:00:00',
+          windowEnd: '11:00:00',
+          memberProgress: [
+            progress({ userId: 'u1', nickname: '재영', progressMinutes: 30, achieved: false }),
+          ],
+        })}
+        isOwner={false}
+        onDelete={onDelete}
+      />,
+    );
+    expect(screen.getByText('매일 09:00~11:00 90분 집중')).toBeOnTheScreen();
+    // 신서버(V20+)는 창 클리핑 진행률을 채워 준다 — 일형과 같은 3상 규칙으로 그린다.
+    expect(screen.getByText('30/90분')).toBeOnTheScreen();
+    expect(screen.queryByText('이 챌린지는 진행률을 표시하지 않아요')).toBeNull();
   });
 
   test('라벨을 못 만들면 세그먼트와 같은 카테고리 명칭으로 떨어진다', async () => {
@@ -323,6 +382,37 @@ describe('캡션', () => {
     );
     expect(screen.getByText('스크린타임 권한이 없어 참여할 수 없어요')).toBeOnTheScreen();
   });
+
+  // SCREEN_TIME 창 카드의 측정 한계 고지는 계약 필수 문구다(contract.md §2 — 15분 눈금 측정
+  // 위로 코인이 움직인다). 일형 카드에는 붙이지 않는다 — 일형은 일일 통계라 눈금 문제가 없다.
+  test('SCREEN_TIME 창 카드에는 측정 한계 캡션을, 일형에는 붙이지 않는다', async () => {
+    const MEASURE =
+      '사용 시간은 15분 단위로 집계돼 오차가 있을 수 있어요. 앱 버전이나 기기 상태에 따라 집계가 늦거나 누락될 수 있어요';
+    await render(
+      <ChallengeCard
+        challenge={challenge({
+          missionCategory: 'SCREEN_TIME',
+          missionType: 'TIME_WINDOW',
+          durationMinutes: 60,
+          windowStart: '09:00:00',
+          windowEnd: '11:00:00',
+          memberProgress: null,
+        })}
+        isOwner={false}
+        onDelete={onDelete}
+      />,
+    );
+    expect(screen.getByText(MEASURE)).toBeOnTheScreen();
+
+    await render(
+      <ChallengeCard
+        challenge={challenge({ missionCategory: 'SCREEN_TIME' })}
+        isOwner={false}
+        onDelete={onDelete}
+      />,
+    );
+    expect(screen.queryByText(MEASURE)).toBeNull();
+  });
 });
 
 // 내기 영역 4상 — 명세 docs/app/group-bet-plan.md §1.
@@ -457,10 +547,44 @@ describe('내기 영역 4상', () => {
     expect(onOpenBet).toHaveBeenCalledWith('create');
   });
 
-  test('내기를 지원하지 않는 카드(SCREEN_TIME·TIME_WINDOW)에는 아무것도 그리지 않는다', async () => {
-    await renderCard({ missionCategory: 'SCREEN_TIME', bet: null, lastSettledBet: null });
-    expect(screen.queryByText('내기 걸기')).toBeNull();
+  // 내기 게이트는 전 조합이다(계약 §2 — 카테고리 제한 제거). 목표분 없는 창 챌린지만
+  // 판정 자체가 불가라 진입점을 닫는다.
+  test('betSupported 4조합 — DURATION 전부·목표분 있는 창은 열리고, 목표분 없는 창만 닫힌다', async () => {
+    // ① FOCUS × DURATION (현행)
+    await renderCard({ bet: null, lastSettledBet: null });
+    expect(screen.getByText('내기 걸기')).toBeOnTheScreen();
 
+    // ③ SCREEN_TIME × DURATION (신규 허용)
+    await renderCard({ missionCategory: 'SCREEN_TIME', bet: null, lastSettledBet: null });
+    expect(screen.getByText('내기 걸기')).toBeOnTheScreen();
+
+    // ② FOCUS × TIME_WINDOW + 목표분 (신규)
+    await renderCard({
+      missionType: 'TIME_WINDOW',
+      durationMinutes: 60,
+      windowStart: '09:00:00',
+      windowEnd: '11:00:00',
+      memberProgress: null,
+      bet: null,
+      lastSettledBet: null,
+    });
+    expect(screen.getByText('내기 걸기')).toBeOnTheScreen();
+
+    // ④ SCREEN_TIME × TIME_WINDOW + 목표분 (신규)
+    await renderCard({
+      missionCategory: 'SCREEN_TIME',
+      missionType: 'TIME_WINDOW',
+      durationMinutes: 60,
+      windowStart: '09:00:00',
+      windowEnd: '11:00:00',
+      memberProgress: null,
+      bet: null,
+      lastSettledBet: null,
+    });
+    expect(screen.getByText('내기 걸기')).toBeOnTheScreen();
+  });
+
+  test('목표분 없는 창 챌린지에는 지난 내기까지 아무것도 그리지 않는다', async () => {
     await renderCard({
       missionType: 'TIME_WINDOW',
       durationMinutes: null,
@@ -472,6 +596,101 @@ describe('내기 영역 4상', () => {
     });
     expect(screen.queryByText('내기 걸기')).toBeNull();
     expect(screen.queryByText(/지난 내기/)).toBeNull();
+  });
+
+  // SCREEN_TIME의 차단 방향은 반대다(계약 §2) — achieved===true는 '잠정 달성'(지금까지 이하
+  // 유지)이라 잠그면 하루 시작 직후 사실상 전원이 잠긴다. 막는 건 확정 패배(초과)뿐이다.
+  test('SCREEN_TIME은 myAchievedNow(잠정 달성)로 참가를 잠그지 않는다', async () => {
+    await render(
+      <ChallengeCard
+        challenge={challenge({
+          missionCategory: 'SCREEN_TIME',
+          bet: bet({ myAchievedNow: true }),
+          memberProgress: [
+            progress({ userId: 'u1', nickname: '재영', progressMinutes: 10, achieved: true }),
+          ],
+        })}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.join.${CHALLENGE_ID}`));
+    });
+    expect(onOpenBet).toHaveBeenCalledWith('join');
+    expect(screen.queryByText('이미 오늘 목표를 달성해서 참가할 수 없어요')).toBeNull();
+  });
+
+  test('SCREEN_TIME은 이미 목표를 초과(확정 패배)했을 때 참가·개설을 잠근다', async () => {
+    // 참가 — 내 진행 행 achieved===false(초과)면 잠그고 사유를 적는다.
+    await render(
+      <ChallengeCard
+        challenge={challenge({
+          missionCategory: 'SCREEN_TIME',
+          bet: bet(),
+          memberProgress: [
+            progress({ userId: 'u1', nickname: '재영', progressMinutes: 90, achieved: false }),
+          ],
+        })}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+      />,
+    );
+    expect(screen.getByText('이미 목표를 초과해서 참가할 수 없어요')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.join.${CHALLENGE_ID}`));
+    });
+    expect(onOpenBet).not.toHaveBeenCalled();
+
+    // 개설 — 같은 근거로 잠근다(개설자는 자동 참가라 서버도 BET_ALREADY_FAILED로 거절한다).
+    await render(
+      <ChallengeCard
+        challenge={challenge({
+          missionCategory: 'SCREEN_TIME',
+          bet: null,
+          memberProgress: [
+            progress({ userId: 'u1', nickname: '재영', progressMinutes: 90, achieved: false }),
+          ],
+        })}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+      />,
+    );
+    expect(screen.getByText('이미 목표를 초과해서 내기를 열 수 없어요')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.create.${CHALLENGE_ID}`));
+    });
+    expect(onOpenBet).not.toHaveBeenCalled();
+  });
+
+  // FOCUS의 미달성(achieved===false)은 아직 기회가 있는 상태다 — SCREEN_TIME 잠금 근거를
+  // 그대로 옮겨 쓰면 집중을 시작도 안 한 사람이 전부 잠긴다.
+  test('FOCUS는 achieved=false(아직 미달성)로 잠그지 않는다', async () => {
+    await render(
+      <ChallengeCard
+        challenge={challenge({
+          bet: null,
+          memberProgress: [
+            progress({ userId: 'u1', nickname: '재영', progressMinutes: 10, achieved: false }),
+          ],
+        })}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.create.${CHALLENGE_ID}`));
+    });
+    expect(onOpenBet).toHaveBeenCalledWith('create');
   });
 
   test('onOpenBet을 받지 않으면 내기 영역 자체가 없다', async () => {
@@ -574,6 +793,37 @@ describe('지난 내기', () => {
     );
   });
 
+  // 몰수(FORFEITED)는 현 룰의 승자 0명 결말이다(계약 확정 정책 — REFUNDED는 V19 이전 이력).
+  // '전원 미달성 · -30'만 보면 환불(구 룰)로 오독할 수 있다 — 소멸됐다는 사실을 첫 줄이 말한다.
+  test('FORFEITED면 판돈 소멸을 첫 줄에 못 박는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await renderCard({
+      bet: null,
+      lastSettledBet: lastSettledBet({
+        status: 'FORFEITED',
+        results: [
+          { userId: 'u1', nickname: '재영', achieved: false, payout: 0 },
+          { userId: 'u2', nickname: '수빈', achieved: false, payout: 0 },
+        ],
+      }),
+    });
+
+    expect(screen.getByText('지난 내기(7/31): 2명 중 0명 달성')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '지난 내기 (7/31)',
+      [
+        '아무도 달성하지 못해 판돈이 소멸됐어요',
+        '판돈 30 · 팟 90',
+        '재영 · 미달성 · -30',
+        '수빈 · 미달성 · -30',
+      ].join('\n'),
+    );
+  });
+
   // 계약 §3은 achieved·payout을 nullable로 둔다(정산 전·부분 실패) —
   // null을 0으로 읽으면 아직 판정되지 않은 참가자가 '미달성 · -30'(판돈을 잃음)으로 보인다(F7).
   test('미판정(null) 참가자는 손익 대신 미판정으로 적고 달성 집계에서도 뺀다', async () => {
@@ -638,5 +888,128 @@ describe('방장 삭제', () => {
 
     expect(alertSpy).not.toHaveBeenCalled();
     expect(onDelete).not.toHaveBeenCalled();
+  });
+});
+
+// 내기 취소(계약 §2) — 개설자 본인 && 참가자가 개설자 1명뿐 && OPEN일 때만.
+// 진입점이 카드에 사는 이유: 참여 중(myJoined) 상태에선 부모(GroupRoomScreen)의 stale 검사가
+// 내기 시트를 즉시 닫아 버려 시트에 취소를 둘 수 없고, 부모는 A3 전유라 콜백을 못 늘린다.
+describe('내기 취소', () => {
+  // 취소 가능한 표준 상태 — 내가 개설자, 나 혼자, OPEN.
+  const cancelableBet = () =>
+    bet({
+      myJoined: true,
+      creatorUserId: 'u1',
+      participants: [{ userId: 'u1', nickname: '재영' }],
+      pot: 30,
+    });
+
+  function renderJoined(betOver: Partial<GroupChallengeBet> = {}) {
+    return render(
+      <ChallengeCard
+        challenge={challenge({ bet: { ...cancelableBet(), ...betOver } })}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+      />,
+    );
+  }
+
+  test('개설자 단독·OPEN이면 취소 버튼이 보인다', async () => {
+    await renderJoined();
+    expect(screen.getByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeOnTheScreen();
+  });
+
+  test('노출 조건이 하나라도 깨지면 취소 버튼을 그리지 않는다', async () => {
+    // 다른 참가자가 있다 — 취소 불가(판돈이 남의 돈까지 걷혀 있다).
+    await renderJoined({
+      participants: [
+        { userId: 'u1', nickname: '재영' },
+        { userId: 'u2', nickname: '수빈' },
+      ],
+    });
+    expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+
+    // 내가 개설자가 아니다.
+    await renderJoined({ creatorUserId: 'u2' });
+    expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+
+    // OPEN이 아니다(이미 정산됨).
+    await renderJoined({ status: 'SETTLED' });
+    expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+
+    // creatorUserId를 모르는 구서버 — 개설자를 판정할 수 없어 진입점을 세우지 않는다.
+    await renderJoined({ creatorUserId: undefined });
+    expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('확인 Alert를 거쳐 취소 API를 부르고, 잔액 재조회·계측·자리 표시까지 잇는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await renderJoined();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.cancel.${CHALLENGE_ID}`));
+    });
+    // 확인 전에는 아무것도 하지 않는다 — 돈이 걸린 동작이라 한 겹 거친다.
+    expect(mockCancelBet).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith(
+      '내기 취소',
+      '판돈 30코인을 돌려받고 내기를 닫을까요?',
+      expect.anything(),
+    );
+
+    const buttons = alertSpy.mock.calls[0][2];
+    await act(async () => {
+      buttons?.find((b) => b.text === '취소하기')?.onPress?.();
+    });
+
+    // groupId는 카드 prop이 아니라 groupApi 조회 캐시에서 역참조한다.
+    expect(mockCancelBet).toHaveBeenCalledWith(GROUP_ID, 'b1');
+    // 환불된 잔액은 서버가 정본 — 다시 받는다.
+    expect(mockRefreshCoins).toHaveBeenCalled();
+    // 성공 시에만 발행(내기 계측 공통 규칙).
+    expect(logGroupBetCanceled).toHaveBeenCalledWith({ stake: 30, participants_count: 1 });
+    // 영역을 비우지 않고 방금 한 일을 말한다 — 다음 자연 재조회가 서버 상태로 갈아 끼운다.
+    expect(screen.getByText('내기를 취소했어요. 판돈은 잔액으로 돌아왔어요')).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('실패는 code별 전용 문구로 알리고 계측을 발행하지 않는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCancelBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CANCEL_HAS_OTHERS'));
+    await renderJoined();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.cancel.${CHALLENGE_ID}`));
+    });
+    const buttons = alertSpy.mock.calls[0][2];
+    await act(async () => {
+      buttons?.find((b) => b.text === '취소하기')?.onPress?.();
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '취소할 수 없어요',
+      '다른 참가자가 있어 취소할 수 없어요.',
+    );
+    expect(logGroupBetCanceled).not.toHaveBeenCalled();
+    // 실패했으므로 자리 표시로 갈아 끼우지 않는다 — 내기는 그대로 살아 있다.
+    expect(screen.queryByText('내기를 취소했어요. 판돈은 잔액으로 돌아왔어요')).toBeNull();
+  });
+
+  test('BET_NOT_OPEN은 이미 닫힌 내기라는 사실을 그대로 말한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCancelBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_NOT_OPEN'));
+    await renderJoined();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.cancel.${CHALLENGE_ID}`));
+    });
+    const buttons = alertSpy.mock.calls[0][2];
+    await act(async () => {
+      buttons?.find((b) => b.text === '취소하기')?.onPress?.();
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith('취소할 수 없어요', '이미 정산됐거나 닫힌 내기예요.');
   });
 });

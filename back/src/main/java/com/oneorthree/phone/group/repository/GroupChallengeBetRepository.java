@@ -124,6 +124,23 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
             @Param("beforeDate") LocalDate beforeDate);
 
     /**
+     * 정산 결과 푸시(B4) 대상 — 최근 정산이 끝난 내기. 상태는 호출측이 (SETTLED, FORFEITED) 로 넘긴다
+     * (CANCELED 는 결과가 아니라 없던 일이라 발송 대상이 아니다).
+     *
+     * <p>"직전 발송 이후" 를 상태로 들고 있지 않고 최근 구간을 통째로 다시 훑는 이유는, 발송 여부의
+     * 단일 소스가 {@code NotificationSentLog} dedup 이기 때문이다 — 08:00·13:00 두 크론이 겹쳐 돌아도
+     * 이미 보낸 건은 dedup 에서 빠지고, 앞선 실행에서 발송이 실패한 건은 다음 실행이 자연히 재시도한다.
+     *
+     * <p>group·challenge 를 함께 fetch 한다 — 딥링크에 groupId 가 필요해 건마다 프록시를 깨우면
+     * 정산 건수만큼 SELECT 가 더 나간다.
+     */
+    @Query("SELECT b FROM GroupChallengeBet b JOIN FETCH b.group JOIN FETCH b.challenge "
+            + "WHERE b.status IN :statuses AND b.settledAt >= :since ORDER BY b.settledAt, b.id")
+    List<GroupChallengeBet> findByStatusInAndSettledAtSince(
+            @Param("statuses") Collection<GroupBetStatus> statuses,
+            @Param("since") Instant since);
+
+    /**
      * 카테고리별 일 배치 대상 — 정산 크론이 2회(FOCUS 01:00 · SCREEN_TIME 12:00)로 나뉘어 돌기 때문에
      * 대상 선정도 챌린지 카테고리로 갈라야 한다. 스크린타임 내기를 01:00 에 집으면 "어제 마감 보고가
      * 아침 첫 앱 실행에 올라온다"는 전제가 깨져 미보고=미달성 패배가 양산된다.

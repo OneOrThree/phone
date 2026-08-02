@@ -453,15 +453,67 @@ export function logGroupInviteSheetViewed(p: {
   track('group_invite_sheet_viewed', p);
 }
 
-// ── 그룹 챌린지 내기(3차) [C] ── (docs/app/group-bet-plan.md §2)
+// ── 그룹 챌린지 내기(3차·확장) [C] ── (docs/app/challenge-impl-2026-08/contract.md §계측)
 // 내기 개설·참가는 서버 MP 이벤트가 아직 없어 클라가 소유한다([S]로 이관되면 여기서 지운다).
 // **API 성공 시에만** 발행한다 — 잔액 부족·중복으로 튕긴 시도까지 세면 실제 성립한 내기 수가 부푼다.
 // stake는 판돈 금액(서버 허용값 {10,30,50,100}) — 금액대별 참여율을 보는 유일한 축이다.
-export function logGroupBetCreated(p: { stake: number }): void {
+// mission_type/mission_category는 확장 배치의 스크린타임·창 내기 채택률 측정 축(계측 표 A2 행) —
+// 값은 서버 enum 문자열 그대로(DURATION|TIME_WINDOW · FOCUS|SCREEN_TIME).
+export type ChallengeMissionParams = {
+  mission_type: 'DURATION' | 'TIME_WINDOW';
+  mission_category: 'FOCUS' | 'SCREEN_TIME';
+};
+export function logGroupBetCreated(p: { stake: number } & ChallengeMissionParams): void {
   track('group_bet_created', p);
 }
-export function logGroupBetJoined(p: { stake: number }): void {
+export function logGroupBetJoined(p: { stake: number } & ChallengeMissionParams): void {
   track('group_bet_joined', p);
+}
+// 내기 취소(개설자 단독·OPEN) 성공 — participants_count는 취소 시점 참가자 수(계약상 항상 1이어야
+// 하지만, 서버 가드가 바뀌어도 지표가 사실을 말하게 실측값을 싣는다).
+export function logGroupBetCanceled(p: { stake: number; participants_count: number }): void {
+  track('group_bet_canceled', p);
+}
+
+// ── 그룹 챌린지 생성·삭제 [C] ── (contract.md §계측 — 퍼널 '챌린지 생성 → 내기 개설 → …' 선두)
+// 서버 MP의 그룹 이벤트는 group_joined뿐이라(백 GroupService ga4) 클라 소유가 맞다 —
+// challenge_create_started(진입)와 달리 이 둘은 **API 성공 시에만** 발행한다.
+// has_window: TIME_WINDOW 여부의 명시 축(형식상 mission_type과 중복이지만 계측 표의 계약이다).
+export function logGroupChallengeCreated(
+  p: { duration_minutes: number; has_window: boolean } & ChallengeMissionParams,
+): void {
+  track('group_challenge_created', p);
+}
+// 삭제 성공 — 발행 지점은 groupApi.deleteChallenge(호출부가 id만 넘겨 메타는 API 층 캐시로 해결).
+export function logGroupChallengeDeleted(p: ChallengeMissionParams): void {
+  track('group_challenge_deleted', p);
+}
+
+// ── 그룹 챌린지 결과(확장 배치 A3) [C] ── (challenge-impl-2026-08/contract.md §2 계측 표)
+// 퍼널 "챌린지 생성 → 내기 → **결과 확인** → 재참여"의 결과 확인 칸. API 이벤트가 아니라
+// 모달 노출/닫기라 클라 소유가 자연스럽다.
+// achieved는 **내 결과**다 — null(집계 중)이면 파라미터를 싣지 않는다(sanitize가 undefined 생략).
+export function logGroupChallengeResultShown(p: {
+  mission_type: string;
+  mission_category: string;
+  achieved?: boolean;
+  achiever_count: number;
+  member_count: number;
+}): void {
+  track('group_challenge_result_shown', p);
+}
+
+// 결과 모달 닫기 — dwell_ms는 노출부터 닫기까지 체류(ms). 결과를 읽는지 바로 넘기는지 본다.
+export function logGroupChallengeResultClosed(p: { dwell_ms: number }): void {
+  track('group_challenge_result_closed', p);
+}
+
+// 정산 결과/창 종료 푸시 탭 → 앱 진입(계약 §2 계측 표 push_opened).
+// 기존 notification_opened는 소문자 4종(poke/report/challenge/rank_change) 전용이라 이 두 타입을
+// 세지 못한다 — 타입 집합이 겹치지 않아 이중 집계 없이 별도 이벤트로 계약에 고정됐다.
+export type PushOpenedType = 'BET_RESULT' | 'CHALLENGE_WINDOW_END';
+export function logPushOpened(p: { type: PushOpenedType }): void {
+  track('push_opened', p);
 }
 
 // ── 스크린타임 창 사용분 보고 [C] ── (그룹 챌린지 확장 배치 A4, contract.md §계측)

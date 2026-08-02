@@ -12,6 +12,11 @@ export interface SessionSaveVerdict {
   date: string; // 수신한 로컬 날짜(YYYY-MM-DD) — 자정을 넘긴 잔존 판정이 다음 날로 새지 않게 소비처에서 대조
   dayTotalFocusSeconds: number;
   streakQualifiedToday: boolean;
+  // 이 세션 저장으로 지급된 시간조각(서버 응답). 결과 화면 +N ⏳ 연출용. 미구현/미도착 시 undefined.
+  // ⚠️ 뽀모도로는 블록마다 저장돼 응답이 여러 번 오지만, 아래 단조증가 가드로 '가장 큰 누적'을 실은
+  // 응답만 남는다 — 즉 여기 재화도 그 응답 1건 기준이라 블록별 합산이 아니다(BE 지급 설계에 맞춰 재검토).
+  awardedCoins?: number;
+  goalRewardCoins?: number; // 목표 달성 보너스 시간조각(>0일 때만 표기)
 }
 
 let current: SessionSaveVerdict | null = null;
@@ -42,6 +47,8 @@ export function publishSessionSaveVerdict(res: FocusSessionSaveResponse): void {
     date: todayStr(),
     dayTotalFocusSeconds: res.dayTotalFocusSeconds,
     streakQualifiedToday: res.streakQualifiedToday,
+    awardedCoins: res.awardedCoins,
+    goalRewardCoins: res.goalRewardCoins,
   };
   if (
     current &&

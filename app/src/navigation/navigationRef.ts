@@ -5,6 +5,7 @@ import { createNavigationContainerRef } from '@react-navigation/native';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { parseInviteLink } from '@/utils/inviteLink';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
+import { getMyGroups } from '@/services/groupApi';
 
 export const navigationRef = createNavigationContainerRef<V2RootStackParamList>();
 
@@ -100,11 +101,44 @@ export function navigateToDeepLink(link: string): void {
     case 'home':
       navigationRef.navigate('Main', { screen: '홈' } as never);
       break;
+    case 'group':
+      // 창 종료 푸시 딥링크(gromo://group?g={groupId}, 계약 §2 B4→A3) — 먼저 그룹 탭으로
+      // 이동해 두고(조회 실패 폴백), 그룹이 2개 이상이면 그룹방을 스택에 push 한다.
+      navigateToGroup(readGroupParam(link));
+      break;
     default:
       // 알 수 없는 링크와 형식이 깨진 초대 링크(잘못된 g·g 없음)는 조용히 무시한다(§11).
       // TODO: 딥링크 확장 시 케이스 추가.
       break;
   }
+}
+
+// 그룹 딥링크의 g 파라미터(UUID) — 형식이 어긋나면 null(그룹 탭 이동만 하고 끝낸다).
+function readGroupParam(link: string): string | null {
+  const m = /[?&]g=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=[&#]|$)/i.exec(
+    link,
+  );
+  return m ? m[1] : null;
+}
+
+// 창 종료 푸시의 그룹 화면 진입 — GroupScreen의 진입 분기(§0-1·§0-2)와 같은 규칙을 쓴다:
+//   · 그룹 1개: 그룹 탭의 내장 그룹방이 곧 그 그룹 — 탭 이동으로 끝(추가 push 없음)
+//   · 2개 이상: 탭 기본 화면이 목록이라 그룹방을 push 한다
+// 몇 개인지는 이 계층이 모르는 상태라 목록을 직접 받는다. 조회가 실패하거나 내 그룹이 아니면
+// (푸시 수신 후 탈퇴 등) 이미 이동해 둔 그룹 탭이 폴백이다.
+// 그룹방 진입 자체가 재조회를 트리거해(useFocusEffect) 창 종료 결과 모달로 이어진다(A3).
+function navigateToGroup(groupId: string | null): void {
+  navigationRef.navigate('Main', { screen: '그룹' } as never);
+  if (!groupId) return;
+  // 목록 조회 실패는 삼킨다 — 그룹 탭까지는 이미 갔다. 1그룹 사용자는 그대로 그 방이다.
+  pushGroupRoomIfMulti(groupId).catch(() => {});
+}
+
+async function pushGroupRoomIfMulti(groupId: string): Promise<void> {
+  const groups = await getMyGroups();
+  if (!navigationRef.isReady()) return;
+  if (!groups.some((g) => g.groupId === groupId)) return;
+  if (groups.length > 1) navigationRef.navigate('GroupRoom', { groupId });
 }
 
 // NavigationContainer onReady에서 호출 — 준비 전에 도착한 링크를 1회 흘려보낸다.

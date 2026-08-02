@@ -135,11 +135,14 @@ export interface ChallengeMemberProgress {
 }
 
 // GET /groups/{id}/challenges?date — 챌린지 목록(그룹원만). date는 선택.
-// memberProgress는 date를 안 보냈거나 TIME_WINDOW 챌린지면 null이다(서버 미지원 — 백 명세 결정 3).
+// memberProgress는 date를 안 보내면 null이다. TIME_WINDOW도 신서버(V20+)는 창 클리핑 진행률을
+// 채워 주지만, 구서버·창 목표분 없는 기존 창 챌린지는 여전히 null일 수 있다 — null 캡션 유지.
 export interface GroupChallengeResponse {
   id: string;
   missionType: MissionType;
   missionCategory: MissionCategory;
+  // DURATION은 하루 목표(분). TIME_WINDOW도 신서버는 창 목표분을 채워 준다(additive) —
+  // null인 창 챌린지는 목표가 없어 판정 불가·내기 불가다(카드 betSupported 판정에 쓴다).
   durationMinutes: number | null;
   windowStart: string | null; // 백엔드 원본 문자열
   windowEnd: string | null; // 백엔드 원본 문자열
@@ -154,12 +157,16 @@ export interface GroupChallengeResponse {
   lastSettledBet?: LastSettledBet | null; // 가장 최근 정산 내기(카드 '지난 내기' 1줄용)
 }
 
-// ── 내기(3차) — 계약 정본 docs/back/group-bet-plan.md §2 ─────────────────────
+// ── 내기(3차·확장) — 계약 정본 docs/app/challenge-impl-2026-08/contract.md §2 ──
 // ⚠️ 판돈은 서버 허용값 {10,30,50,100}만이고 내기는 챌린지당·날짜당 1개다(백 명세 결정 8).
-// ⚠️ 내기는 FOCUS 챌린지만 가능하다(백 명세 결정 3 — 스크린타임 달성은 클라 신뢰라 돈을 걸 수 없다).
+// 내기 대상은 전 조합이다 — FOCUS·SCREEN_TIME × DURATION·TIME_WINDOW(창은 목표분 있는 것만).
+// SCREEN_TIME 달성은 클라 신뢰 데이터지만 리스크 수용으로 확대됐다(계약 확정 정책).
 
-// 내기 상태. OPEN=참가 가능 · SETTLED=정산 완료 · REFUNDED=승자 0명이라 전원 환불.
-export type GroupBetStatus = 'OPEN' | 'SETTLED' | 'REFUNDED';
+// 내기 상태. OPEN=참가 가능 · SETTLED=정산 완료 · REFUNDED=구 룰의 전원 환불(V19 이전 이력)
+// · FORFEITED=승자 0명 전액 몰수·소멸 · CANCELED=개설자 단독 취소(판돈 환불).
+// ⚠️ CANCELED는 lastSettledBet에 실리지 않는다(서버가 걸러 준다 — 구앱 오표시 방지).
+//    모르는 status가 와도 화면이 죽지 않게 각 화면은 else 강하를 유지한다.
+export type GroupBetStatus = 'OPEN' | 'SETTLED' | 'REFUNDED' | 'FORFEITED' | 'CANCELED';
 
 // 내기 참가자(진행 중 내기) — 닉네임만 쓴다.
 export interface GroupChallengeBetParticipant {
@@ -168,7 +175,10 @@ export interface GroupChallengeBetParticipant {
 }
 
 // 오늘(조회 date)의 내기. myAchievedNow는 '지금 이미 목표를 달성했나' —
-// 달성 확정 후의 무위험 참가를 서버가 막으므로(BET_ALREADY_ACHIEVED) 앱은 미리 버튼을 잠근다.
+// FOCUS는 달성 확정 후의 무위험 참가를 서버가 막으므로(BET_ALREADY_ACHIEVED) 앱이 미리 버튼을 잠근다.
+// ⚠️ SCREEN_TIME의 myAchievedNow는 '잠정 달성'(지금까지 목표 이하 유지 중)이라 **표시용**이다 —
+//    하루/창이 끝나야 확정되므로 참가를 잠그는 근거로 쓰면 안 된다(계약 §2 참가 가드 행).
+//    스크린타임의 참가 차단 근거는 반대 방향(이미 목표 초과 = 확정 실패, BET_ALREADY_FAILED)이다.
 export interface GroupChallengeBet {
   betId: string;
   stake: number;
@@ -177,6 +187,10 @@ export interface GroupChallengeBet {
   myJoined: boolean;
   myAchievedNow: boolean;
   participants: GroupChallengeBetParticipant[];
+  // 개설자 userId — 앱 취소 버튼(개설자 단독·OPEN일 때만) 판정용(계약 §2 additive 필드).
+  // ⚠️ optional인 이유: 이 필드를 모르는 구서버가 존재한다(GroupChallengeResponse.bet과 같은 관행).
+  //    undefined면 개설자를 알 수 없으므로 취소 진입점을 그리지 않는다 — 없는 기능을 세우지 않는다.
+  creatorUserId?: string;
 }
 
 // 정산된 내기의 인별 결과. payout은 **받은 금액**(승자 분배금 or 환불금)이지 손익이 아니다 —
@@ -210,12 +224,17 @@ export interface CreateBetResponse {
   betId: string;
 }
 
-// POST /groups/{id}/challenges — 챌린지 생성(방장만). 앱은 DURATION만 만든다(§3-2) —
-// TIME_WINDOW는 진행률이 서버 미지원이라 생성 경로 자체를 열지 않는다.
+// POST /groups/{id}/challenges — 챌린지 생성(방장만). DURATION·TIME_WINDOW 둘 다 만든다
+// (계약 §2 — V20부터 창 판정·창 목표분을 서버가 지원한다).
+// TIME_WINDOW일 때 durationMinutes는 **필수**다(0 < x ≤ 창 길이, 위반 INVALID_MISSION_PARAMS).
 export interface CreateChallengeRequest {
   missionCategory: MissionCategory;
-  missionType: MissionType; // 'DURATION' 고정
-  durationMinutes: number; // 하루 목표(분)
+  missionType: MissionType;
+  durationMinutes: number; // 하루/창 목표(분)
+  // TIME_WINDOW 전용 — ISO-8601 Instant 문자열. 서버는 이 값을 KST 시각(time-of-day) 앵커로
+  // 해석한다(계약 설계 보정 — '매일 반복 시간대'). 앱은 +09:00 오프셋을 명시해 보낸다.
+  windowStart?: string;
+  windowEnd?: string;
 }
 
 // POST 응답의 미참여자 — SCREEN_TIME 챌린지에서 스크린타임 권한을 허용하지 않은 멤버.

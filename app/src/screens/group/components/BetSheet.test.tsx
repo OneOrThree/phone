@@ -35,6 +35,14 @@ jest.mock('@/services/groupApi', () => ({
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupBetCreated: jest.fn(),
   logGroupBetJoined: jest.fn(),
+  logGroupChallengeDeleted: jest.fn(),
+}));
+
+// SCREEN_TIME의 차단 판정(이미 목표 초과)은 시트가 내 진행 행에서 직접 읽는다 — userId 정본은
+// UserContext다(부모가 내려주는 myAchieved prop은 FOCUS 의미로 이미 배선돼 있다).
+let mockUserId: string | null = 'u1';
+jest.mock('@/store/UserContext', () => ({
+  useUser: () => ({ userId: mockUserId }),
 }));
 
 // 날짜 경계를 테스트가 직접 고정한다(개설 전송값의 date).
@@ -157,6 +165,7 @@ beforeEach(() => {
   mockCoins = 100;
   mockCoinsLoaded = true;
   mockCoinsVersion = 1;
+  mockUserId = 'u1';
   mockCreateBet.mockResolvedValue({ betId: BET_ID });
   mockJoinBet.mockResolvedValue(undefined);
 });
@@ -170,7 +179,11 @@ describe('개설 모드', () => {
       stake: 10,
       date: '2026-08-01',
     });
-    expect(logGroupBetCreated).toHaveBeenCalledWith({ stake: 10 });
+    expect(logGroupBetCreated).toHaveBeenCalledWith({
+      stake: 10,
+      mission_type: 'DURATION',
+      mission_category: 'FOCUS',
+    });
     expect(onDone).toHaveBeenCalled();
   });
 
@@ -185,7 +198,11 @@ describe('개설 모드', () => {
       stake: 50,
       date: '2026-08-01',
     });
-    expect(logGroupBetCreated).toHaveBeenCalledWith({ stake: 50 });
+    expect(logGroupBetCreated).toHaveBeenCalledWith({
+      stake: 50,
+      mission_type: 'DURATION',
+      mission_category: 'FOCUS',
+    });
   });
 
   test('챌린지 요약과 내 코인을 함께 보여준다', async () => {
@@ -236,7 +253,11 @@ describe('참가 모드', () => {
     await submit();
 
     expect(mockJoinBet).toHaveBeenCalledWith(GROUP_ID, BET_ID);
-    expect(logGroupBetJoined).toHaveBeenCalledWith({ stake: 30 });
+    expect(logGroupBetJoined).toHaveBeenCalledWith({
+      stake: 30,
+      mission_type: 'DURATION',
+      mission_category: 'FOCUS',
+    });
     expect(onDone).toHaveBeenCalled();
     // 참가 모드는 판돈을 고르는 자리가 아니다 — 개설자가 정한 값을 받아들일 뿐이다.
     expect(screen.queryByTestId('group.bet.stake.50')).toBeNull();
@@ -516,16 +537,18 @@ describe('에러 분기', () => {
     expect(mockJoinBet).toHaveBeenCalledTimes(1);
   });
 
-  // 누가 먼저 열었는지는 앱이 알 수 없다 — 성공 직후 재조회 전에 다시 누른 **본인**일 수도 있다.
-  test('BET_ALREADY_EXISTS — 사실 범위 안에서만 알리고 닫는다', async () => {
+  // 누가 먼저 열었는지는 앱이 알 수 없다 — 성공 직후 재조회 전에 다시 누른 **본인**일 수도,
+  // **취소·정산된 내기의 같은 날 재개설**(v1 불가 확정 — 유니크가 행을 남긴다)일 수도 있다.
+  // '이미 열려 있어요'만 말하면 취소 직후엔 재조회해도 내기가 안 보여 거짓말이 된다.
+  test('BET_ALREADY_EXISTS — 진행 중·재개설 불가 두 사실을 모두 덮는 문구로 알리고 닫는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_ALREADY_EXISTS'));
     await renderSheet('create');
     await submit();
 
     expect(alertSpy).toHaveBeenCalledWith(
-      '이미 오늘 내기가 열려 있어요',
-      '최신 상태로 새로고침할게요.',
+      '오늘은 내기를 열 수 없어요',
+      '이미 오늘 내기가 있어요. 진행 중이면 새로고침 후 참가할 수 있고, 취소했거나 끝난 내기는 오늘 다시 열 수 없어요.',
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -744,5 +767,151 @@ describe('전송 중', () => {
       stake: 10,
       date: '2026-08-01',
     });
+  });
+});
+
+// ── 확장 배치(계약 contract.md §2) — SCREEN_TIME·창 내기 · 몰수 고지 ──────────────
+// SCREEN_TIME의 차단 방향은 FOCUS와 반대다: achieved===true는 '잠정 달성'(지금까지 이하 유지)
+// 이라 잠그면 하루 시작 직후 사실상 전원이 잠기고, 막아야 하는 건 확정 패배(이미 초과)뿐이다.
+describe('SCREEN_TIME 내기', () => {
+  const stProgress = (achieved: boolean | null) => [
+    { userId: 'u1', nickname: '재영', progressMinutes: 30, achieved },
+  ];
+
+  test('잠정 달성(myAchievedNow·myAchieved)으로는 참가·개설을 잠그지 않는다', async () => {
+    // 참가 — 서버가 myAchievedNow:true(잠정)를 줘도 CTA는 열려 있다.
+    await renderSheet('join', {
+      missionCategory: 'SCREEN_TIME',
+      bet: bet({ myAchievedNow: true }),
+      memberProgress: stProgress(true),
+    });
+    await submit();
+    expect(mockJoinBet).toHaveBeenCalledWith(GROUP_ID, BET_ID);
+
+    // 개설 — 부모가 FOCUS 의미로 파생한 myAchieved:true(잠정 달성)도 잠그지 않는다.
+    await renderSheet(
+      'create',
+      { missionCategory: 'SCREEN_TIME', memberProgress: stProgress(true) },
+      true,
+    );
+    await submit();
+    expect(mockCreateBet).toHaveBeenCalled();
+  });
+
+  test('이미 목표를 초과(확정 패배)했으면 CTA를 잠그고 사유를 적는다', async () => {
+    // 참가 — 내 진행 행 achieved===false(초과)가 근거다.
+    await renderSheet('join', {
+      missionCategory: 'SCREEN_TIME',
+      bet: bet(),
+      memberProgress: stProgress(false),
+    });
+    expect(screen.getByText('이미 목표를 초과해서 참가할 수 없어요')).toBeOnTheScreen();
+    await submit();
+    expect(mockJoinBet).not.toHaveBeenCalled();
+
+    // 개설 — 같은 근거, 개설 문장.
+    await renderSheet('create', {
+      missionCategory: 'SCREEN_TIME',
+      memberProgress: stProgress(false),
+    });
+    expect(screen.getByText('이미 목표를 초과해서 내기를 열 수 없어요')).toBeOnTheScreen();
+    await submit();
+    expect(mockCreateBet).not.toHaveBeenCalled();
+  });
+
+  test('미집계(null)는 어느 쪽으로도 잠그지 않는다 — 3상 규칙', async () => {
+    await renderSheet('join', {
+      missionCategory: 'SCREEN_TIME',
+      bet: bet(),
+      memberProgress: stProgress(null),
+    });
+    await submit();
+    expect(mockJoinBet).toHaveBeenCalled();
+  });
+
+  // 레이스로 클라 잠금을 지나쳐도 서버가 확정 판정으로 거절한다(409 BET_ALREADY_FAILED) —
+  // 이 시트에서 재시도해도 오늘은 영원히 같은 실패라 닫고 재조회한다.
+  test('BET_ALREADY_FAILED는 Alert로 알리고 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockJoinBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_ALREADY_FAILED'));
+    await renderSheet('join', { missionCategory: 'SCREEN_TIME', bet: bet() });
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '참가할 수 없어요',
+      '이미 목표를 초과해서 참가할 수 없어요',
+    );
+    expect(onDone).toHaveBeenCalled();
+
+    // 개설 경로는 개설 문장으로 갈린다.
+    alertSpy.mockClear();
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_ALREADY_FAILED'));
+    await renderSheet('create', { missionCategory: 'SCREEN_TIME' });
+    await submit();
+    expect(alertSpy).toHaveBeenCalledWith(
+      '내기를 열 수 없어요',
+      '이미 목표를 초과해서 내기를 열 수 없어요',
+    );
+  });
+
+  // 게이트 확대(전 조합 허용)가 아직 배포되지 않은 서버는 FOCUS×DURATION 밖 내기를
+  // BET_FOCUS_ONLY로 거절한다 — 앱이 진입점을 먼저 연 배포 공백기의 실존 경로다.
+  // default('잠시 후 다시 시도')로 떨어뜨리면 영원한 실패에 재시도를 권하게 된다.
+  test('구서버 BET_FOCUS_ONLY는 전용 문구로 알리고 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(400, 'BET_FOCUS_ONLY'));
+    await renderSheet('create', { missionCategory: 'SCREEN_TIME' });
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '아직 내기를 걸 수 없는 챌린지예요',
+      '지금은 하루 목표 집중 챌린지에만 내기를 걸 수 있어요. 서버 업데이트 후 열 수 있어요.',
+    );
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  // 계약 §2 "카드·시트 안내 문구 필수" — 15분 눈금 측정 위로 코인이 움직인다는 사실을
+  // 돈이 나가기 전에 고지한다. FOCUS 내기에는 붙이지 않는다(측정 문제가 없다).
+  test('SCREEN_TIME 내기에만 측정 한계 고지가 붙는다', async () => {
+    await renderSheet('create', { missionCategory: 'SCREEN_TIME' });
+    expect(
+      screen.getByText(/스크린타임은 15분 단위로 집계돼 오차가 있을 수 있어요/),
+    ).toBeOnTheScreen();
+
+    await renderSheet('create');
+    expect(screen.queryByText(/스크린타임은 15분 단위로 집계돼/)).toBeNull();
+  });
+});
+
+describe('몰수 고지·창 내기 문구', () => {
+  // 승자 0명 = 전액 소멸(계약 확정 정책). 구 문구 '전액 환불돼요'가 남아 있으면 화면이
+  // 거짓을 말한다 — 개설·참가 모두에서 몰수를 고지한다.
+  test('개설·참가 노트가 몰수 룰을 말한다', async () => {
+    await renderSheet('create');
+    expect(screen.getByText(/아무도 달성하지 못하면 판돈은 사라져요/)).toBeOnTheScreen();
+    expect(screen.queryByText(/전액 환불돼요/)).toBeNull();
+
+    await renderSheet('join', { bet: bet() });
+    expect(screen.getByText(/아무도 달성하지 못하면 판돈은 사라져요/)).toBeOnTheScreen();
+  });
+
+  // 창 내기의 BET_CLOSED(개설)는 '날짜가 바뀌었다'가 아니라 '오늘 창이 끝났다'다(계약 §2 —
+  // now ≥ 오늘 창 endAt). 일형 문구를 그대로 내면 원인(시간대 종료)을 말해 주지 못한다.
+  test('창 챌린지의 BET_CLOSED 개설 실패는 창 종료 문구로 알린다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CLOSED'));
+    await renderSheet('create', {
+      missionType: 'TIME_WINDOW',
+      durationMinutes: 60,
+      windowStart: '09:00:00',
+      windowEnd: '11:00:00',
+    });
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '내기를 열 수 있는 시간이 지났어요',
+      '오늘 시간대가 끝나 내기를 열 수 없어요. 내일 다시 열 수 있어요.',
+    );
+    expect(onDone).toHaveBeenCalled();
   });
 });

@@ -5,14 +5,17 @@ import { CharacterImage } from '@/components/character/CharacterImage';
 import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
 import { useCharacter } from '@/store/CharacterContext';
 import { T, withAlpha } from '@/constants/theme';
+import { CURRENCY } from '@/constants/currency';
 
 // 포커스 목표 달성 축하 모달(GROMO-630) — 오늘 누적 집중이 목표를 처음 채운 순간 결과 화면에서
-// 1회 노출. 코인/재화 지급 없음(목표 보상 = 축하 + 스트릭 정책). 표시는 '연속 목표달성'만 —
-// '연속 공부'(하루 10분 스트릭)와는 다른 개념이라 이 모달에는 섞지 않는다.
+// 1회 노출. 목표 보상으로 지급된 시간조각을 rewardCoins로 받아 +N ⏳ 한 줄로 표시한다(>0일 때만).
+// 값은 호출자가 넘긴다 — 지급이 없거나 아직 안 정해졌으면 줄을 숨겨 축하 + 스트릭만 남는다.
+// '연속 목표달성' 표기는 '연속 공부'(하루 10분 스트릭)와 다른 개념이라 이 모달에는 섞지 않는다.
 interface Props {
   visible: boolean;
   goalStreakDays: number; // 오늘 포함 연속 목표달성 일수
   goalMinutes?: number; // 달성한 목표 시간(분) — 제목에 "N시간 집중 목표 달성!" 표기
+  rewardCoins?: number; // 목표 보상 시간조각 — >0일 때만 +N ⏳ 표기
   onClose: () => void;
 }
 
@@ -25,7 +28,13 @@ function goalLabel(minutes: number): string {
   return `${m}분`;
 }
 
-export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onClose }: Props) {
+export function GoalCelebrationModal({
+  visible,
+  goalStreakDays,
+  goalMinutes,
+  rewardCoins,
+  onClose,
+}: Props) {
   const [cardRect, setCardRect] = useState<ConfettiObstacle | null>(null);
   // 색종이는 캐릭터가 그려지고 UI가 한가해진 뒤 시작(GROMO-848) — 등장 직후 로딩 잭으로
   // 프레임이 밀리면 시간 기준 애니메이션이 건너뛰어 "이미 떨어진 상태"로 보이는 것 방지.
@@ -64,6 +73,14 @@ export function GoalCelebrationModal({ visible, goalStreakDays, goalMinutes, onC
             {goalMinutes ? `${goalLabel(goalMinutes)} 집중 목표 달성!` : '오늘 목표 달성!'}
           </Text>
           <Text style={s.sub}>내일도 힘내서 목표 달성해요!</Text>
+          {/* 목표 보상 시간조각 — 호출자가 넘긴 rewardCoins>0일 때만 */}
+          {(rewardCoins ?? 0) > 0 ? (
+            <View style={s.coinBox}>
+              <Text style={s.coinText}>
+                +{rewardCoins?.toLocaleString()} {CURRENCY.icon} 획득!
+              </Text>
+            </View>
+          ) : null}
           <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={onClose}>
             <Text style={s.ctaText}>좋아요!</Text>
           </TouchableOpacity>
@@ -100,6 +117,15 @@ const s = StyleSheet.create({
   },
   streakText: { ...T.text.label, fontWeight: '600', color: T.accentDeep },
   streakDays: { fontWeight: '800' },
+  // 목표 보상 시간조각 pill(+N ⏳)
+  coinBox: {
+    backgroundColor: T.accentBg,
+    borderRadius: 999,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.sm,
+    marginTop: T.space.xs,
+  },
+  coinText: { ...T.text.label, fontWeight: '800', color: T.accentDeep },
   cta: {
     alignSelf: 'stretch',
     backgroundColor: T.accent,
