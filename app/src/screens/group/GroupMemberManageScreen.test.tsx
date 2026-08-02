@@ -176,9 +176,7 @@ describe('멤버 관리(강퇴)', () => {
 
   test('강퇴 대상이 없으면(본인/방장뿐) 빈 상태 문구를 세운다', async () => {
     mockGetGroupDetail.mockResolvedValue(
-      detail([
-        member({ userId: 'me', nickname: '나', role: 'OWNER' }),
-      ]),
+      detail([member({ userId: 'me', nickname: '나', role: 'OWNER' })]),
     );
     await renderScreen();
 

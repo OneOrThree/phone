@@ -126,7 +126,12 @@ const s = StyleSheet.create({
   rankText: { ...T.text.caption, fontSize: 10, fontWeight: '800', color: T.white },
   name: { ...T.text.caption, fontWeight: '700', color: T.ink },
   // 누적(리더보드 지표) — 강조 수치 색(accentDeep)으로 오늘분과 위계를 가른다.
-  total: { ...T.text.caption, fontWeight: '800', color: T.accentDeep, fontVariant: ['tabular-nums'] },
+  total: {
+    ...T.text.caption,
+    fontWeight: '800',
+    color: T.accentDeep,
+    fontVariant: ['tabular-nums'],
+  },
   // 오늘분(보조) — 흐린 색·기본 두께로 뒤로 물린다.
   today: { ...T.text.caption, fontWeight: '500', color: T.inkMuted },
 });

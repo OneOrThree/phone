@@ -14,12 +14,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { useUser } from '@/store/UserContext';
-import {
-  getGroupDetail,
-  groupErrorCode,
-  transferOwner,
-  withdrawGroup,
-} from '@/services/groupApi';
+import { getGroupDetail, groupErrorCode, transferOwner, withdrawGroup } from '@/services/groupApi';
 import { logGroupOwnerTransferred } from '@/services/analyticsEvents';
 import type { GroupDetailMemberResponse, GroupDetailResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';

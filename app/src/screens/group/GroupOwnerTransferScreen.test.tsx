@@ -106,7 +106,9 @@ async function mountAndSelect(targetUserId: string) {
 // 확인 Alert('방장 넘기기')의 '넘기기' 액션을 직접 눌러 위임을 확정한다.
 async function confirmTransfer(alertSpy: jest.SpyInstance) {
   await act(async () => {
-    await alertSpy.mock.calls[0][2]?.find((b: { text?: string }) => b.text === '넘기기')?.onPress?.();
+    await alertSpy.mock.calls[0][2]
+      ?.find((b: { text?: string }) => b.text === '넘기기')
+      ?.onPress?.();
   });
 }
 

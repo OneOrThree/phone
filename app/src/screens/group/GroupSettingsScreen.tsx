@@ -199,12 +199,7 @@ export default function GroupSettingsScreen() {
     testID: string,
   ) {
     return (
-      <TouchableOpacity
-        style={s.navRow}
-        activeOpacity={0.7}
-        onPress={onPress}
-        testID={testID}
-      >
+      <TouchableOpacity style={s.navRow} activeOpacity={0.7} onPress={onPress} testID={testID}>
         <View style={s.navIcon}>
           <Ionicons name={icon} size={17} color={T.accent} />
         </View>
@@ -348,11 +343,7 @@ export default function GroupSettingsScreen() {
           onPress={save}
           testID="group.settings.save"
         >
-          {saving ? (
-            <ActivityIndicator color={T.white} />
-          ) : (
-            <Text style={s.submitText}>저장</Text>
-          )}
+          {saving ? <ActivityIndicator color={T.white} /> : <Text style={s.submitText}>저장</Text>}
         </TouchableOpacity>
 
         {/* ── 관리 진입 섹션 ── */}

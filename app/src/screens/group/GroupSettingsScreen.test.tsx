@@ -76,7 +76,13 @@ function detail(over: Partial<GroupDetailResponse> = {}): GroupDetailResponse {
     noticeGrantedUserIds: [],
     members: [
       { userId: 'me', nickname: '나', role: 'OWNER', focusTimeMinutes: 30, totalFocusMinutes: 30 },
-      { userId: 'u2', nickname: '친구', role: 'MEMBER', focusTimeMinutes: 10, totalFocusMinutes: 20 },
+      {
+        userId: 'u2',
+        nickname: '친구',
+        role: 'MEMBER',
+        focusTimeMinutes: 10,
+        totalFocusMinutes: 20,
+      },
     ],
     ...over,
   };
@@ -146,7 +152,10 @@ describe('저장 — 바뀐 필드만 PATCH(부분 수정)', () => {
     });
     await press('group.settings.save');
 
-    expect(mockUpdateGroup).toHaveBeenCalledWith(GROUP_ID, { name: '저녁 스터디', isPrivate: true });
+    expect(mockUpdateGroup).toHaveBeenCalledWith(GROUP_ID, {
+      name: '저녁 스터디',
+      isPrivate: true,
+    });
     expect(mockLog).toHaveBeenCalledWith({ group_id: GROUP_ID, fields: ['name', 'isPrivate'] });
   });
 
@@ -226,8 +235,20 @@ describe('방어적 권한 체크', () => {
     mockGetGroupDetail.mockResolvedValue(
       detail({
         members: [
-          { userId: 'me', nickname: '나', role: 'MEMBER', focusTimeMinutes: 0, totalFocusMinutes: 0 },
-          { userId: 'u2', nickname: '친구', role: 'OWNER', focusTimeMinutes: 10, totalFocusMinutes: 20 },
+          {
+            userId: 'me',
+            nickname: '나',
+            role: 'MEMBER',
+            focusTimeMinutes: 0,
+            totalFocusMinutes: 0,
+          },
+          {
+            userId: 'u2',
+            nickname: '친구',
+            role: 'OWNER',
+            focusTimeMinutes: 10,
+            totalFocusMinutes: 20,
+          },
         ],
       }),
     );
@@ -249,8 +270,20 @@ describe('방어적 권한 체크', () => {
     mockGetGroupDetail.mockResolvedValue(
       detail({
         members: [
-          { userId: 'me', nickname: '나', role: 'MEMBER', focusTimeMinutes: 30, totalFocusMinutes: 30 },
-          { userId: 'u2', nickname: '친구', role: 'OWNER', focusTimeMinutes: 10, totalFocusMinutes: 20 },
+          {
+            userId: 'me',
+            nickname: '나',
+            role: 'MEMBER',
+            focusTimeMinutes: 30,
+            totalFocusMinutes: 30,
+          },
+          {
+            userId: 'u2',
+            nickname: '친구',
+            role: 'OWNER',
+            focusTimeMinutes: 10,
+            totalFocusMinutes: 20,
+          },
         ],
       }),
     );

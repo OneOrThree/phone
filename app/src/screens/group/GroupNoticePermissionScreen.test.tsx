@@ -45,7 +45,9 @@ const mockGetGroupSettings = getGroupSettings as jest.MockedFunction<typeof getG
 const mockUpdateGroupSettings = updateGroupSettings as jest.MockedFunction<
   typeof updateGroupSettings
 >;
-const mockLog = logGroupNoticeGrantChanged as jest.MockedFunction<typeof logGroupNoticeGrantChanged>;
+const mockLog = logGroupNoticeGrantChanged as jest.MockedFunction<
+  typeof logGroupNoticeGrantChanged
+>;
 
 function settings(): GroupSettingsResponse {
   return {
