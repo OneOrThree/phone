@@ -50,17 +50,20 @@ public class FriendNotificationService {
     /**
      * dedup 조회창 — (수신자, type, 상대) 조합으로 이 기간 안에 이미 보냈으면 다시 보내지 않는다.
      *
-     * <p>여기서 접어야 하는 중복은 <b>한 번의 사용자 행동이 두 번의 발송이 되는</b> 경우뿐이다:
-     * 수락은 상태를 검사하지 않고 {@code PENDING → ACCEPTED} 를 덮어써서 연타·재시도가 그대로 두 번째
-     * 이벤트가 되고, 요청은 거절 후 재요청이 같은 행을 되살리는(reopen) 더티 업데이트라 동시 호출 둘이
-     * 나란히 통과해 이벤트를 두 번 낼 수 있다. 둘 다 초 단위로 붙어서 일어난다.
+     * <p>여기서 남은 중복 경로는 <b>같은 행동이 동시에 두 번 처리되는</b> 경합뿐이다. 순차 재시도는
+     * 발행 지점에서 이미 막았다 — 요청은 PENDING 이 있으면 409 로 걸리고, 수락은 실제 상태 전이일
+     * 때만 이벤트를 낸다. 남는 것은 {@code reopen}(버전 없는 더티 업데이트) 동시 호출 둘이 나란히
+     * 통과하는 경우이고, 이건 초 단위로 붙어서 일어난다.
      *
-     * <p>그래서 창을 <b>짧게</b> 잡는다. 길게 잡으면(예: 24시간) 거절 뒤 상대가 다시 보낸 요청처럼
-     * <b>별개의 사용자 행동</b>까지 같은 키로 삼켜 통보가 통째로 사라진다(@claude 리뷰 지적). 재요청
-     * 도배를 눌러야 한다면 그건 발송 dedup 이 아니라 요청 쿨다운(티켓 475)의 몫이다.
-     * 조회는 기존 인덱스 (user_id, type, sent_at) 를 그대로 탄다.
+     * <p>그래서 창을 <b>1분</b>까지 좁혔다. 창이 길면 거절 뒤 상대가 다시 보낸 요청처럼 <b>별개의
+     * 사용자 행동</b>까지 같은 키로 삼켜 통보가 사라진다(@claude·@codex 공통 지적). 1분이면 삼키는
+     * 범위가 "동시에 처리된 같은 행동"으로 좁혀진다. 재요청 도배 억제는 발송 dedup 이 아니라 요청
+     * 쿨다운(티켓 475)의 몫이다. 조회는 기존 인덱스 (user_id, type, sent_at) 를 그대로 탄다.
+     *
+     * <p><b>한계</b>: 판정과 기록 사이가 원자적이지 않다(유니크 제약 없음 — 제약 추가는 스키마 변경).
+     * 정확히 동시에 도착한 경합 둘은 여전히 각각 발송될 수 있다. 결과가 중복 푸시 1건이라 감수한다.
      */
-    static final Duration DEDUP_WINDOW = Duration.ofMinutes(10);
+    static final Duration DEDUP_WINDOW = Duration.ofMinutes(1);
 
     private final UserRepository userRepository;
     private final UserNotificationSettingsRepository userNotificationSettingsRepository;
@@ -139,7 +142,7 @@ public class FriendNotificationService {
     /**
      * 최근 {@link #DEDUP_WINDOW} 안에 같은 (수신자, type, 상대) 조합으로 발송한 적이 있는지.
      * 인덱스를 타는 기존 조회(type + 유저 + 구간)를 그대로 쓰고 상대 판정만 메모리에서 접는다 —
-     * 한 유저의 10분치 친구 알림이라 건수가 극소수다.
+     * 한 유저의 1분치 친구 알림이라 건수가 극소수다.
      */
     private boolean alreadySent(UUID recipientId, UUID counterpartId, String type, Instant now) {
         return notificationSentLogRepository

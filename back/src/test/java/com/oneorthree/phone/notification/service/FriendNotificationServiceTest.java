@@ -181,8 +181,8 @@ class FriendNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("dedup 조회창은 now - 10분 — 더 길면 별개의 재요청 알림까지 삼킨다")
-    void notifyFriendRequest_looksBack10Minutes() {
+    @DisplayName("dedup 조회창은 now - 1분 — 더 길면 별개의 재요청 알림까지 삼킨다")
+    void notifyFriendRequest_looksBack1Minute() {
         givenBothUsersExist();
         givenNoPreviousSend(NotificationSentLog.TYPE_FRIEND_REQUEST);
 
@@ -191,7 +191,7 @@ class FriendNotificationServiceTest {
         ArgumentCaptor<Instant> since = ArgumentCaptor.forClass(Instant.class);
         verify(notificationSentLogRepository).findByTypeAndUserIdInSince(
                 eq(NotificationSentLog.TYPE_FRIEND_REQUEST), eq(List.of(RECIPIENT_ID)), since.capture());
-        assertThat(since.getValue()).isEqualTo(NOW.minus(Duration.ofMinutes(10)));
+        assertThat(since.getValue()).isEqualTo(NOW.minus(Duration.ofMinutes(1)));
     }
 
     @Test
@@ -243,7 +243,7 @@ class FriendNotificationServiceTest {
                 .userId(RECIPIENT_ID)
                 .type(type)
                 .targetUserId(targetUserId)
-                .sentAt(NOW.minus(Duration.ofMinutes(1)))
+                .sentAt(NOW.minus(Duration.ofSeconds(5)))
                 .build();
     }
 }

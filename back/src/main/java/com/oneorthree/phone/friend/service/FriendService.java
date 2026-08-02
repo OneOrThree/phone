@@ -146,13 +146,19 @@ public class FriendService {
     @Transactional
     public void acceptRequest(UUID me, UUID requestId) {
         Friendship friendship = getReceivedRequest(me, requestId);
+        // 이 호출이 실제로 상태를 바꾼 것인지 먼저 본다 — 아래 알림 발행 조건 (GROMO-1090).
+        boolean alreadyAccepted = friendship.getStatus() == FriendshipStatus.ACCEPTED;
         friendship.accept();
         UUID requesterId = friendship.getFromUser().getId();
         userActivityEventLogger.log(UserActivityEvent.FRIEND_ADDED,
                 Map.of("request_id", requestId.toString(),
                         "from_user_id", requesterId.toString()));
         // 수락 사실은 보낸 쪽만 모른다 — 그쪽에만 알린다 (GROMO-1090). 발송은 커밋 이후.
-        eventPublisher.publishEvent(new FriendRequestAcceptedEvent(requesterId, me));
+        // 이미 ACCEPTED 인 요청에 수락이 또 들어와도(이 API 는 상태를 검사하지 않는다) 알리지 않는다 —
+        // 늦게 도착한 재시도까지 발송 측 dedup 창에 기대면 창이 짧을수록 중복이 새 나간다(@codex 리뷰).
+        if (!alreadyAccepted) {
+            eventPublisher.publishEvent(new FriendRequestAcceptedEvent(requesterId, me));
+        }
     }
 
     // 요청 거절 — 수신자(toUser)만 가능. PENDING → REJECTED.

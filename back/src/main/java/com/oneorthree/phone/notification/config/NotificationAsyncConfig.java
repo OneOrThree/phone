@@ -19,6 +19,15 @@ import java.util.concurrent.Executor;
  * <p>그래서 전용 풀로 격리한다. {@code @EnableAsync} 는 {@code common/config/AsyncConfig} 가
  * 이미 켜 두었고(GA4 전송), 여기서는 빈만 추가한다 — GA4 풀은 드롭 정책이 걸린 분석 전용이라
  * 공유하지 않는다. 두 executor 가 공존하므로 {@code @Async} 는 <b>반드시 이름을 지정</b>해야 한다.
+ *
+ * <p><b>친구 요청·수락 알림(GROMO-1090)도 이 풀을 쓴다.</b> 같은 문제를 각자 풀던 두 브랜치가
+ * 만나면서 하나로 합쳤다(같은 관심사에 풀을 둘 두면 "내 푸시가 어느 풀에 있나"가 갈린다).
+ * 친구 알림 쪽에는 격리해야 할 이유가 하나 더 있다: 그쪽 발송은 커밋 이후
+ * ({@code @TransactionalEventListener(AFTER_COMMIT)}) 시작되는데, 그 시점엔 바깥 트랜잭션의 JDBC
+ * 리소스가 아직 정리되기 전이라 요청 스레드에서 이어서 발송하면 발송용 트랜잭션이 <b>두 번째
+ * 커넥션</b>을 요구한다 — 요청 하나가 커넥션 두 개를 물어 동시 요청이 풀 크기에 닿는 순간 서로를
+ * 기다리며 멈춘다({@code FriendPushConnectionUsageTest} 가 풀 크기 1로 실증). 다른 스레드로
+ * 넘기면 바깥 커넥션이 먼저 반납돼 이 교착이 성립하지 않는다.
  */
 @Slf4j
 @Configuration

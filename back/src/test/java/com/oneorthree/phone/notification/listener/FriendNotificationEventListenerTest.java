@@ -2,6 +2,7 @@ package com.oneorthree.phone.notification.listener;
 
 import com.oneorthree.phone.friend.event.FriendRequestAcceptedEvent;
 import com.oneorthree.phone.friend.event.FriendRequestSentEvent;
+import com.oneorthree.phone.notification.config.NotificationAsyncConfig;
 import com.oneorthree.phone.notification.service.FriendNotificationService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
@@ -28,8 +30,11 @@ import static org.mockito.Mockito.verify;
  * 기반 단위 테스트로는 드러나지 않는다(리스너를 직접 호출하면 언제나 발송된다). 그래서 발송 시점을
  * 결정하는 애노테이션 자체를 검증한다.
  *
- * <p>② <b>예외 격리</b> — {@code afterCommit} 콜백의 예외는 커밋을 호출한 쪽까지 전파되므로,
- * 알림 실패가 이미 커밋된 친구 요청 API 를 500 으로 뒤집으면 안 된다.
+ * <p>② <b>비동기 발송</b> — {@code afterCommit} 은 바깥 트랜잭션의 커넥션이 반납되기 전에 돈다.
+ * 요청 스레드에서 그대로 발송하면 요청 하나가 커넥션 두 개를 물어 풀을 고갈시킨다(@codex 리뷰 P1,
+ * {@code FriendPushConnectionUsageTest} 가 실증). 그래서 전용 executor 로 넘기는 것이 계약이다.
+ *
+ * <p>③ <b>예외 격리</b> — 알림 실패가 이미 커밋된 친구 요청 API 를 깨뜨리면 안 된다.
  */
 @ExtendWith(MockitoExtension.class)
 class FriendNotificationEventListenerTest {
@@ -66,6 +71,13 @@ class FriendNotificationEventListenerTest {
     }
 
     @Test
+    @DisplayName("두 핸들러 모두 전용 executor 로 비동기 — 요청 스레드가 커넥션을 두 개 물지 않는다")
+    void handlersAreAsyncOnPushExecutor() throws NoSuchMethodException {
+        assertAsyncOnPushExecutor("onFriendRequestSent", FriendRequestSentEvent.class);
+        assertAsyncOnPushExecutor("onFriendRequestAccepted", FriendRequestAcceptedEvent.class);
+    }
+
+    @Test
     @DisplayName("발송이 실패해도 예외를 밖으로 던지지 않는다 — 커밋된 친구 요청을 500 으로 뒤집지 않기 위해")
     void sendFailure_isIsolated() {
         willThrow(new IllegalStateException("FCM 장애"))
@@ -73,6 +85,16 @@ class FriendNotificationEventListenerTest {
 
         assertThatCode(() -> listener.onFriendRequestSent(
                 new FriendRequestSentEvent(RECIPIENT_ID, COUNTERPART_ID))).doesNotThrowAnyException();
+    }
+
+    private void assertAsyncOnPushExecutor(String methodName, Class<?> eventType)
+            throws NoSuchMethodException {
+        Async annotation = FriendNotificationEventListener.class
+                .getMethod(methodName, eventType)
+                .getAnnotation(Async.class);
+        assertThat(annotation).as("%s 는 @Async 여야 한다", methodName).isNotNull();
+        // 분석 이벤트용 ga4Executor 로 새면 정책이 다른 풀(유실 허용)에 알림이 실린다.
+        assertThat(annotation.value()).isEqualTo(NotificationAsyncConfig.PUSH_EXECUTOR);
     }
 
     private void assertAfterCommit(String methodName, Class<?> eventType) throws NoSuchMethodException {

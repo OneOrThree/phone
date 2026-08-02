@@ -429,6 +429,33 @@ class FriendServiceTest {
     }
 
     @Test
+    @DisplayName("요청 수락 — 이미 수락된 요청이면 푸시 이벤트를 다시 내지 않는다 (GROMO-1090)")
+    void acceptRequest_alreadyAccepted_doesNotPublishPushEvent() {
+        // 이 API 는 상태를 검사하지 않고 ACCEPTED 를 덮어쓴다. 발행을 실제 상태 전이로 묶지 않으면
+        // 뒤늦게 도착한 재시도가 그대로 두 번째 푸시가 된다(발송 측 dedup 창은 짧다).
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(target, me, FriendshipStatus.ACCEPTED);
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
+
+        friendService.acceptRequest(meId, requestId);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    @DisplayName("요청 수락 — 거절했던 요청을 뒤늦게 수락하면 알린다 (실제 상태 전이)")
+    void acceptRequest_previouslyRejected_publishesPushEvent() {
+        // ACCEPTED 가 아니었다면 전이가 맞다 — REJECTED → ACCEPTED 도 보낸 쪽은 모르는 사실이다.
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(target, me, FriendshipStatus.REJECTED);
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
+
+        friendService.acceptRequest(meId, requestId);
+
+        verify(eventPublisher).publishEvent(new FriendRequestAcceptedEvent(targetId, meId));
+    }
+
+    @Test
     @DisplayName("요청 수락 — 수신자가 아니면 푸시 이벤트도 미발행 (GROMO-1090)")
     void acceptRequest_sender_doesNotPublishPushEvent() {
         UUID requestId = UUID.randomUUID();

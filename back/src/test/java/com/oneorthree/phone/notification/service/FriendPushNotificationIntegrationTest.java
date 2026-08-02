@@ -5,6 +5,7 @@ import com.oneorthree.phone.friend.domain.Friendship;
 import com.oneorthree.phone.friend.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.friend.service.FriendService;
+import com.oneorthree.phone.notification.config.NotificationAsyncConfig;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.domain.User;
@@ -16,6 +17,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -24,6 +27,8 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -54,6 +59,9 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
     NotificationSentLogRepository notificationSentLogRepository;
     @Autowired
     PlatformTransactionManager transactionManager;
+    @Autowired
+    @Qualifier(NotificationAsyncConfig.PUSH_EXECUTOR)
+    Executor pushExecutor;
 
     private final List<User> users = new ArrayList<>();
 
@@ -85,6 +93,7 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
     @DisplayName("친구 요청이 커밋되면 받은 쪽에 발송 기록이 남는다")
     void createRequest_committed_sendsToReceiver() {
         friendService.createRequest(sender.getId(), receiver.getId());
+        awaitNotificationsDrained();
 
         List<NotificationSentLog> logs = sentLogs(NotificationSentLog.TYPE_FRIEND_REQUEST);
         assertThat(logs).singleElement()
@@ -98,11 +107,15 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
     @DisplayName("친구 요청이 롤백되면 알림이 나가지 않는다 — 요청도 알림도 없다")
     void createRequest_rolledBack_sendsNothing() {
         // 요청 자체가 없던 일이 됐는데 알림만 나가면, 받은 쪽은 목록에 없는 요청의 푸시를 받는다.
+        long submittedBefore = submittedNotificationTasks();
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             friendService.createRequest(sender.getId(), receiver.getId());
             status.setRollbackOnly();
         });
 
+        // 발송 작업 제출은 커밋 스레드에서 동기로 일어난다 — 롤백이면 제출 자체가 없어야 하고,
+        // 이 단정은 대기 없이도 성립한다(뒤늦게 제출될 여지가 없다).
+        assertThat(submittedNotificationTasks()).isEqualTo(submittedBefore);
         assertThat(friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(
                 sender, FriendshipStatus.PENDING)).isEmpty();
         assertThat(sentLogs(NotificationSentLog.TYPE_FRIEND_REQUEST)).isEmpty();
@@ -114,6 +127,7 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
         friendService.createRequest(sender.getId(), receiver.getId());
 
         friendService.acceptRequest(receiver.getId(), pendingRequestId());
+        awaitNotificationsDrained();
 
         List<NotificationSentLog> logs = sentLogs(NotificationSentLog.TYPE_FRIEND_ACCEPTED);
         assertThat(logs).singleElement()
@@ -124,15 +138,16 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("같은 수락이 두 번 들어와도 발송은 한 번뿐이다 (dedup)")
+    @DisplayName("같은 수락이 두 번 들어와도 발송은 한 번뿐이다 — 두 번째는 상태 전이가 아니다")
     void acceptRequest_twice_sendsOnce() {
-        // acceptRequest 는 현재 상태를 검사하지 않고 ACCEPTED 를 덮어쓴다 — 클라 재시도·연타가
-        // 그대로 두 번째 이벤트가 되므로 dedup 이 유일한 방어다.
+        // acceptRequest 는 현재 상태를 검사하지 않고 ACCEPTED 를 덮어쓴다. 이벤트 발행을 실제 상태
+        // 전이로 제한하지 않으면 클라 재시도·연타가 그대로 두 번째 푸시가 된다(@codex 리뷰).
         friendService.createRequest(sender.getId(), receiver.getId());
         UUID requestId = pendingRequestId();
 
         friendService.acceptRequest(receiver.getId(), requestId);
         friendService.acceptRequest(receiver.getId(), requestId);
+        awaitNotificationsDrained();
 
         assertThat(sentLogs(NotificationSentLog.TYPE_FRIEND_ACCEPTED)).hasSize(1);
     }
@@ -143,6 +158,7 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
         friendService.createRequest(sender.getId(), receiver.getId());
 
         friendService.rejectRequest(receiver.getId(), pendingRequestId());
+        awaitNotificationsDrained();
 
         assertThat(sentLogs(NotificationSentLog.TYPE_FRIEND_ACCEPTED)).isEmpty();
         // 요청 시점의 1건 외에 늘어나지 않는다
@@ -176,6 +192,28 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
                 sender, FriendshipStatus.PENDING);
         assertThat(pending).hasSize(1);
         return pending.get(0).getId();
+    }
+
+    /** 제출된 발송 작업이 전부 끝날 때까지 기다린다. 제출은 커밋 스레드에서 동기로 일어나 경합이 없다. */
+    private void awaitNotificationsDrained() {
+        ThreadPoolExecutor pool = ((ThreadPoolTaskExecutor) pushExecutor).getThreadPoolExecutor();
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (pool.getCompletedTaskCount() < pool.getTaskCount()
+                && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("발송 대기 중 인터럽트", e);
+            }
+        }
+        assertThat(pool.getCompletedTaskCount())
+                .as("5초 안에 발송 작업이 끝나야 한다")
+                .isEqualTo(pool.getTaskCount());
+    }
+
+    private long submittedNotificationTasks() {
+        return ((ThreadPoolTaskExecutor) pushExecutor).getThreadPoolExecutor().getTaskCount();
     }
 
     private List<NotificationSentLog> sentLogs(String type) {
