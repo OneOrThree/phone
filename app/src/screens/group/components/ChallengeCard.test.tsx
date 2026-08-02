@@ -19,6 +19,10 @@ import type {
   LastSettledBet,
 } from '@/types/dto/group';
 
+// 첫 렌더가 RN 모듈을 콜드 로드하는 무거운 스위트라 CI 러너에선 기본 5s를 넘겨 flaky timeout이 났다 —
+// 로직이 아니라 콜드 스타트 지연이므로 이 파일 한정으로 타임아웃을 넉넉히 준다.
+jest.setTimeout(20000);
+
 // 카드가 내기 취소의 API·계측을 직접 쥔다(부모 GroupRoomScreen이 A3 전유라 콜백을 못 늘린 흡수) —
 // groupErrorCode는 실제 구현을 남긴다(취소 에러 code 분기까지 검증).
 jest.mock('@/services/groupApi', () => ({
