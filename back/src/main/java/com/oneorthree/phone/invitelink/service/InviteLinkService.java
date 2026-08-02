@@ -15,6 +15,8 @@ import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
 import com.oneorthree.phone.invitelink.support.InviteLinkGa4Events;
 import com.oneorthree.phone.invitelink.support.InviteLinkUrls;
 import com.oneorthree.phone.invitelink.support.SlugGenerator;
+import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -43,6 +45,7 @@ public class InviteLinkService {
     private final GroupInviteLinkRepository inviteLinkRepository;
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
+    private final UserRepository userRepository;
     private final SlugGenerator slugGenerator;
     private final InviteLinkUrls inviteLinkUrls;
     private final InviteLinkGa4Events ga4Events;
@@ -94,8 +97,20 @@ public class InviteLinkService {
 
         // 링크는 살아 있지만 그룹이 사라진 경우 — 참여시킬 곳이 없으니 만료와 같게 다룬다.
         return findActiveGroup(link.get().getGroupId())
-                .map(group -> new LandingView(link.get(), group.getName()))
+                .map(group -> new LandingView(link.get(), group.getName(), inviterNickname(link.get())))
                 .orElseGet(LandingView::expired);
+    }
+
+    /**
+     * 랜딩 카드·미리보기 제목에 실을 초대자 닉네임 (GROMO-1085).
+     *
+     * <p>탈퇴(soft delete)·닉네임 미설정(게스트)이면 {@code null} 이고, 랜딩은 초대자 없는 문구로 접힌다 —
+     * "누가 불렀는가"는 링크를 누를 이유를 더해 주는 정보지 초대 성립의 조건이 아니다.
+     */
+    private String inviterNickname(GroupInviteLink link) {
+        return userRepository.findByIdAndIsDeletedFalse(link.getInviterId())
+                .map(User::getNickname)
+                .orElse(null);
     }
 
     /**

@@ -62,7 +62,8 @@ public class LinkPublicController {
         }
 
         recordClickQuietly(view.link(), request);
-        return html(landingRenderer.render(view.groupName(), inviteLinkUrls.scheme(view.link())));
+        return html(landingRenderer.render(
+                view.groupName(), view.inviterName(), inviteLinkUrls.scheme(view.link())));
     }
 
     /**
