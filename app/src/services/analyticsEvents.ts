@@ -464,6 +464,33 @@ export function logGroupBetJoined(p: { stake: number }): void {
   track('group_bet_joined', p);
 }
 
+// ── 그룹 챌린지 결과(확장 배치 A3) [C] ── (challenge-impl-2026-08/contract.md §2 계측 표)
+// 퍼널 "챌린지 생성 → 내기 → **결과 확인** → 재참여"의 결과 확인 칸. API 이벤트가 아니라
+// 모달 노출/닫기라 클라 소유가 자연스럽다.
+// achieved는 **내 결과**다 — null(집계 중)이면 파라미터를 싣지 않는다(sanitize가 undefined 생략).
+export function logGroupChallengeResultShown(p: {
+  mission_type: string;
+  mission_category: string;
+  achieved?: boolean;
+  achiever_count: number;
+  member_count: number;
+}): void {
+  track('group_challenge_result_shown', p);
+}
+
+// 결과 모달 닫기 — dwell_ms는 노출부터 닫기까지 체류(ms). 결과를 읽는지 바로 넘기는지 본다.
+export function logGroupChallengeResultClosed(p: { dwell_ms: number }): void {
+  track('group_challenge_result_closed', p);
+}
+
+// 정산 결과/창 종료 푸시 탭 → 앱 진입(계약 §2 계측 표 push_opened).
+// 기존 notification_opened는 소문자 4종(poke/report/challenge/rank_change) 전용이라 이 두 타입을
+// 세지 못한다 — 타입 집합이 겹치지 않아 이중 집계 없이 별도 이벤트로 계약에 고정됐다.
+export type PushOpenedType = 'BET_RESULT' | 'CHALLENGE_WINDOW_END';
+export function logPushOpened(p: { type: PushOpenedType }): void {
+  track('push_opened', p);
+}
+
 // ── 스크린타임 창 사용분 보고 [C] ── (그룹 챌린지 확장 배치 A4, contract.md §계측)
 // SCREEN_TIME×TIME_WINDOW 챌린지의 창 사용분 업로드(screentimeSync) 계측.
 // reported는 **업로드 API 성공 시에만** 발행한다 — 실패 재시도까지 세면 보고 수가 부푼다.

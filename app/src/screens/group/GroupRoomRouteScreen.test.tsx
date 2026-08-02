@@ -60,7 +60,11 @@ jest.mock('@/store/CoinContext', () => {
   };
 });
 
-jest.mock('@/services/analyticsEvents', () => ({ logGroupInviteShared: jest.fn() }));
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupInviteShared: jest.fn(),
+  logGroupChallengeResultShown: jest.fn(),
+  logGroupChallengeResultClosed: jest.fn(),
+}));
 
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
@@ -70,7 +74,11 @@ jest.mock('@/services/groupApi', () => ({
   withdrawGroup: jest.fn(),
 }));
 
-jest.mock('@/utils/localDate', () => ({ todayStr: jest.fn(() => '2026-08-01') }));
+jest.mock('@/utils/localDate', () => ({
+  todayStr: jest.fn(() => '2026-08-01'),
+  yesterdayStr: jest.fn(() => '2026-07-31'),
+  localDateStr: jest.requireActual('@/utils/localDate').localDateStr,
+}));
 
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
 const mockGetAnnouncements = getAnnouncements as jest.MockedFunction<typeof getAnnouncements>;
