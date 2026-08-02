@@ -13,9 +13,10 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
-import { createBet, groupErrorCode, joinBet } from '@/services/groupApi';
+import { BET_ALREADY_FAILED, createBet, groupErrorCode, joinBet } from '@/services/groupApi';
 import { logGroupBetCreated, logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
+import { useUser } from '@/store/UserContext';
 import { todayStr } from '@/utils/localDate';
 import type { GroupChallengeResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -58,9 +59,16 @@ const STAKE_OPTIONS = [10, 30, 50, 100] as const;
 // 가장 덜 잃는 쪽이어야 한다(챌린지 목표분 칩의 '가운데 기본값'과 기준이 다른 이유).
 const STAKE_DEFAULT = STAKE_OPTIONS[0];
 
+// 몰수 룰(계약 확정 정책) — 승자 0명이면 환불이 아니라 **전액 소멸**이다. 돈이 걸리는 자리라
+// 개설·참가 양쪽 모두에서 고지한다(구 문구 '전액 환불돼요'는 V19 룰 — 그대로 두면 거짓말이 된다).
 const CREATE_NOTE =
-  '오늘 목표를 달성한 사람끼리 팟을 나눠 가져요. 아무도 달성 못 하면 전액 환불돼요.';
-const JOIN_NOTE = '참가하면 판돈이 바로 빠져나가요. 오늘 목표를 달성해야 팟을 나눠 가져요.';
+  '오늘 목표를 달성한 사람끼리 팟을 나눠 가져요. 아무도 달성하지 못하면 판돈은 사라져요.';
+const JOIN_NOTE =
+  '참가하면 판돈이 바로 빠져나가요. 오늘 목표를 달성해야 팟을 나눠 가져요. 아무도 달성하지 못하면 판돈은 사라져요.';
+// SCREEN_TIME 내기의 측정 한계 고지(계약 §2 "카드·시트 안내 문구 필수") — 15분 눈금 측정 위로
+// 코인이 움직인다는 사실을 돈이 나가기 전에 알린다.
+const SCREEN_TIME_BET_NOTE =
+  '스크린타임은 15분 단위로 집계돼 오차가 있을 수 있어요. 집계가 늦거나 누락되면 미달성으로 판정될 수 있어요.';
 
 // 잔액 미상 — 값 자리는 '—'(진행 리스트의 미집계 표기와 같은 규칙), 사유와 재시도는 한 줄로 둔다.
 const BALANCE_UNKNOWN = '—';
@@ -70,6 +78,10 @@ const BET_ACHIEVED_CAPTION = '이미 오늘 목표를 달성해서 참가할 수
 // 개설도 같은 사실로 막히지만(개설자는 자동 참가라 서버가 BET_ALREADY_ACHIEVED로 거절한다)
 // 막히는 동작이 달라 문장을 따로 둔다 — 카드의 BET_ACHIEVED_CREATE_CAPTION과 같은 문장이다.
 const BET_ACHIEVED_CREATE_CAPTION = '이미 오늘 목표를 달성해서 내기를 열 수 없어요';
+// SCREEN_TIME은 차단 방향이 반대다(계약 §2 참가 가드 행 — BET_ALREADY_FAILED) —
+// '이미 달성'이 아니라 '이미 목표 초과(확정 패배)'가 막는다. 카드와 같은 문장이다.
+const BET_FAILED_CAPTION = '이미 목표를 초과해서 참가할 수 없어요';
+const BET_FAILED_CREATE_CAPTION = '이미 목표를 초과해서 내기를 열 수 없어요';
 // 전송 중 — 딤 탭·백을 막는 대신(F10) 멈춘 화면이 아님을 한 줄로 알린다.
 const SUBMITTING_CAPTION = '처리 중이에요…';
 
@@ -104,6 +116,10 @@ export default function BetSheet({
 }: BetSheetProps) {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { coins, coinsLoaded, coinsVersion, latestCoinsVersion, refresh } = useCoins();
+  // SCREEN_TIME의 차단 판정(이미 목표 초과)은 부모가 내려주지 않아 — myAchieved prop은 FOCUS
+  // 의미(이미 달성)로 이미 배선돼 있고 부모(GroupRoomScreen)는 A3 전유다 — 내 진행 행을
+  // 시트가 직접 읽는다. 카드의 myBlockedNow와 같은 근거·같은 3상 규칙이다.
+  const { userId } = useUser();
   const [stake, setStake] = useState<number>(STAKE_DEFAULT);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -131,13 +147,26 @@ export default function BetSheet({
     shortage <= 0;
   const serverInsufficient =
     insufficientVerdict !== null && amount >= insufficientVerdict.stake && !balanceOverridesVerdict;
-  // 시트를 연 뒤 목표를 달성했다면(부모가 살아 있는 challenge를 갈아 끼운다) 참가도 개설도 반드시
-  // 거절된다(BET_ALREADY_ACHIEVED — 개설자는 자동 참가라 같은 가드에 걸린다) — 카드가 진입
-  // 시점에 쓰는 기준을 시트도 끝까지 민다. 근거만 모드별로 다르다: 참가는 서버가 준 내기의
-  // myAchievedNow, 개설은 내기가 없어 부모가 진행률에서 파생해 준 myAchieved다.
-  // 시트를 닫지는 않는다: 팟·참가자(개설은 고른 판돈)를 보고 있는 화면을 걷을 이유는 없어
-  // CTA만 잠그고 사유를 적는다.
-  const achievedBlocked = isCreate ? myAchieved : bet?.myAchievedNow === true;
+  // 시트를 연 뒤 상태가 확정됐다면(부모가 살아 있는 challenge를 갈아 끼운다) 참가도 개설도 반드시
+  // 거절된다 — 카드가 진입 시점에 쓰는 기준을 시트도 끝까지 민다. 시트를 닫지는 않는다:
+  // 팟·참가자(개설은 고른 판돈)를 보고 있는 화면을 걷을 이유는 없어 CTA만 잠그고 사유를 적는다.
+  // 근거는 카테고리·모드별로 갈린다(카드 myBlockedNow·joinBlockedNow와 동일):
+  //   FOCUS 개설  : 부모가 진행률에서 파생해 준 myAchieved(이미 달성 — BET_ALREADY_ACHIEVED)
+  //   FOCUS 참가  : 서버가 준 내기의 myAchievedNow(같은 가드)
+  //   SCREEN_TIME : 내 진행 행의 achieved === false(이미 목표 초과 — BET_ALREADY_FAILED).
+  //                 myAchievedNow·myAchieved는 '잠정 달성'이라 차단 근거로 쓰지 않는다 —
+  //                 하루가 끝나야 확정되는 값으로 잠그면 사실상 전원이 잠긴다(계약 §2).
+  const isScreenTime = challenge.missionCategory === 'SCREEN_TIME';
+  const isWindowChallenge = challenge.missionType === 'TIME_WINDOW';
+  const myFailedNow =
+    isScreenTime &&
+    !!userId &&
+    challenge.memberProgress?.find((p) => p.userId === userId)?.achieved === false;
+  const achievedBlocked = isScreenTime
+    ? myFailedNow
+    : isCreate
+      ? myAchieved
+      : bet?.myAchievedNow === true;
   // 참가 모드인데 내기가 없다 = 카드가 열어 줄 수 없는 조합(부모가 막는다). 방어적으로 CTA만 잠근다.
   const disabled =
     submitting ||
@@ -164,13 +193,21 @@ export default function BetSheet({
     try {
       if (isCreate) {
         await createBet(groupId, challenge.id, { stake: amount, date: todayStr() });
-        logGroupBetCreated({ stake: amount });
+        logGroupBetCreated({
+          stake: amount,
+          mission_type: challenge.missionType,
+          mission_category: challenge.missionCategory,
+        });
       } else {
         // 도달할 수 없는 조합이지만(위 disabled 가드), 도달하면 공통 문구로 떨어뜨린다 —
         // 그냥 return하면 submitting이 true로 남아 시트가 영영 잠긴다(F12).
         if (bet === null) throw new Error('bet is missing');
         await joinBet(groupId, bet.betId);
-        logGroupBetJoined({ stake: amount });
+        logGroupBetJoined({
+          stake: amount,
+          mission_type: challenge.missionType,
+          mission_category: challenge.missionCategory,
+        });
       }
       // 판돈이 빠진 잔액을 곧바로 맞춘다(응답을 기다리지 않는다 — 시트는 이미 닫힌다).
       refresh();
@@ -188,20 +225,41 @@ export default function BetSheet({
         // 그 '내가 먼저 열었을' 가능성 때문에 잔액도 다시 받는다(코덱스 리뷰) — 응답만 타임아웃되고
         // 서버에선 개설이 성립했다면 판돈은 이미 빠졌는데 전역 잔액은 차감 전 값으로 남는다.
         // 남이 먼저 연 경우라면 재조회는 같은 값을 다시 확인할 뿐이라 무해하다.
+        // ⚠️ 취소·정산된 내기도 이 코드로 온다(챌린지·날짜 유니크가 행을 남긴다 — 같은 날 재개설은
+        //    v1 불가 확정, 백로그 1051). 그 경우 재조회 후에도 화면에 내기가 없어 '이미 열려
+        //    있어요'는 거짓말이 된다 — 두 사실을 모두 덮는 문장으로 말한다.
         case 'BET_ALREADY_EXISTS':
           refresh();
-          failAndReload('이미 오늘 내기가 열려 있어요', '최신 상태로 새로고침할게요.');
+          failAndReload(
+            '오늘은 내기를 열 수 없어요',
+            '이미 오늘 내기가 있어요. 진행 중이면 새로고침 후 참가할 수 있고, 취소했거나 끝난 내기는 오늘 다시 열 수 없어요.',
+          );
           return;
         case 'BET_ALREADY_ACHIEVED':
           failAndReload('참가할 수 없어요', '이미 오늘 목표를 달성해서 참가할 수 없어요');
           return;
-        // 같은 코드가 두 뜻이다(계약 §4) — 참가는 '이미 마감', 개설은 'date가 오늘(KST)이 아님'.
+        // SCREEN_TIME의 반대 방향 가드(계약 §2) — 이미 목표를 초과해 확정 패배한 사람의 판돈
+        // 투입을 서버가 막는다. 이 시트에서 재시도해도 오늘은 영원히 같은 실패다 — 닫고 재조회한다.
+        case BET_ALREADY_FAILED:
+          failAndReload(
+            isCreate ? '내기를 열 수 없어요' : '참가할 수 없어요',
+            isCreate ? BET_FAILED_CREATE_CAPTION : BET_FAILED_CAPTION,
+          );
+          return;
+        // 같은 코드가 세 뜻이다(계약 §2·§4) — 참가는 '이미 마감', 개설은 'date가 오늘(KST)이
+        // 아님', **창 내기의 개설·참가는 '오늘 창이 이미 끝남'**(now ≥ 오늘 창 endAt).
         // 아직 만들지도 않은 내기에 "이미 마감돼 참가할 수 없어요"는 뜻이 통하지 않는다(F4).
         case 'BET_CLOSED':
           failAndReload(
-            isCreate ? '오늘 내기만 열 수 있어요' : '마감된 내기예요',
             isCreate
-              ? '날짜가 바뀌었어요. 새로고침 후 다시 시도해주세요.'
+              ? isWindowChallenge
+                ? '내기를 열 수 있는 시간이 지났어요'
+                : '오늘 내기만 열 수 있어요'
+              : '마감된 내기예요',
+            isCreate
+              ? isWindowChallenge
+                ? '오늘 시간대가 끝나 내기를 열 수 없어요. 내일 다시 열 수 있어요.'
+                : '날짜가 바뀌었어요. 새로고침 후 다시 시도해주세요.'
               : '이미 마감돼 참가할 수 없어요.',
           );
           return;
@@ -249,8 +307,17 @@ export default function BetSheet({
           refresh();
           setInsufficientVerdict({ stake: amount, coinsVersion: latestCoinsVersion() });
           break;
-        // 계약(§2-1·§2-2)의 나머지 코드는 앱이 보내는 조합에서 도달할 수 없어 분기를 두지 않는다:
-        // BET_FOCUS_ONLY는 카드가 FOCUS·DURATION에만 진입점을 열고(ChallengeCard.betSupported),
+        // 게이트 확대(전 조합 허용)가 아직 배포되지 않은 서버는 FOCUS×DURATION 밖의 내기를
+        // 이 코드로 거절한다(구 GroupBetService). 앱이 진입점을 먼저 열어 둔 배포 공백기의
+        // 실존 경로라 분기를 둔다 — default의 '잠시 후 다시 시도'는 이 서버에선 영원히 거짓이다
+        // (클로드 리뷰). 게이트 확대 배포 후엔 자연히 도달 불가가 된다.
+        case 'BET_FOCUS_ONLY':
+          failAndReload(
+            '아직 내기를 걸 수 없는 챌린지예요',
+            '지금은 하루 목표 집중 챌린지에만 내기를 걸 수 있어요. 서버 업데이트 후 열 수 있어요.',
+          );
+          return;
+        // 계약의 나머지 코드는 앱이 보내는 조합에서 도달할 수 없어 분기를 두지 않는다:
         // BET_INVALID_STAKE는 판돈이 칩의 허용값 {10,30,50,100}으로만 나가기 때문이다.
         // 도달했다면 서버 계약이 바뀐 것이라 '알 수 없는 오류'로 말하는 편이 사실에 가깝다.
         default:
@@ -383,15 +450,27 @@ export default function BetSheet({
 
       <View style={s.note}>
         <Ionicons name="information-circle-outline" size={15} color={T.accent} style={s.noteIcon} />
-        <Text style={s.noteText}>{isCreate ? CREATE_NOTE : JOIN_NOTE}</Text>
+        <Text style={s.noteText}>
+          {isCreate ? CREATE_NOTE : JOIN_NOTE}
+          {/* SCREEN_TIME은 측정 한계 고지를 한 줄 잇는다(계약 필수 문구) — 돈이 나가기 전이 마지막 고지 자리다. */}
+          {isScreenTime ? `\n${SCREEN_TIME_BET_NOTE}` : ''}
+        </Text>
       </View>
 
       {/* 서버가 확정한 부족. 잔액을 다시 받아 부족분(N)까지 알게 되면 CTA 라벨이 규격대로
           `코인이 부족해요 (N 필요)`를 말하므로(§1), 같은 문장을 두 번 적지 않는다. */}
       {serverInsufficient && !insufficient && <Text style={s.error}>코인이 부족해요</Text>}
-      {/* 잠긴 CTA에는 사유가 붙어야 한다 — 카드가 쓰는 문장 그대로(모드별로 갈린다). */}
+      {/* 잠긴 CTA에는 사유가 붙어야 한다 — 카드가 쓰는 문장 그대로(카테고리·모드별로 갈린다). */}
       {achievedBlocked && (
-        <Text style={s.error}>{isCreate ? BET_ACHIEVED_CREATE_CAPTION : BET_ACHIEVED_CAPTION}</Text>
+        <Text style={s.error}>
+          {isScreenTime
+            ? isCreate
+              ? BET_FAILED_CREATE_CAPTION
+              : BET_FAILED_CAPTION
+            : isCreate
+              ? BET_ACHIEVED_CREATE_CAPTION
+              : BET_ACHIEVED_CAPTION}
+        </Text>
       )}
       {errorMsg !== null && <Text style={s.error}>{errorMsg}</Text>}
 

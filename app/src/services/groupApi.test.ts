@@ -4,6 +4,8 @@
 // method/path도 함께 잠근다 — 오타 하나가 런타임 404로만 드러나고 타입 검사에는 걸리지 않는다.
 import { AxiosError, AxiosHeaders } from 'axios';
 import {
+  cancelBet,
+  challengeGroupId,
   createAnnouncement,
   createBet,
   createChallenge,
@@ -23,10 +25,17 @@ import {
   withdrawGroup,
 } from './groupApi';
 import { api } from '@/services/api';
+import { logGroupChallengeDeleted } from '@/services/analyticsEvents';
 import { todayStr } from '@/utils/localDate';
 
 jest.mock('@/services/api', () => ({
   api: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
+}));
+
+// 삭제 계측(group_challenge_deleted)은 groupApi가 발행 지점이다 — 파이어베이스 네이티브 모듈이
+// jest에 없기도 하고, '언제 발행되는가'를 여기서 직접 검증한다.
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupChallengeDeleted: jest.fn(),
 }));
 
 const mockApi = api as unknown as {
@@ -174,6 +183,79 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
   test('POST /{groupId}/bets/{betId}/join — 빈 바디를 반드시 싣는다', async () => {
     await joinBet(GROUP_ID, BET_ID);
     expect(mockApi.post).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/bets/${BET_ID}/join`, {});
+  });
+
+  // 취소(확장 배치, contract.md §2) — 개설자 단독·OPEN일 때만 서버가 수락하고 판돈을 환불한다.
+  test('DELETE /{groupId}/bets/{betId} — 내기 취소', async () => {
+    await cancelBet(GROUP_ID, BET_ID);
+    expect(mockApi.delete).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/bets/${BET_ID}`);
+  });
+
+  // TIME_WINDOW 생성(확장 배치) — 창 시각·목표분이 additive로 실린다.
+  test('POST /{groupId}/challenges — 창 생성 바디(windowStart/End)를 그대로 보낸다', async () => {
+    const body = {
+      missionCategory: 'FOCUS' as const,
+      missionType: 'TIME_WINDOW' as const,
+      durationMinutes: 60,
+      windowStart: '2026-08-02T09:00:00+09:00',
+      windowEnd: '2026-08-02T12:00:00+09:00',
+    };
+    await createChallenge(GROUP_ID, body);
+    expect(mockApi.post).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/challenges`, body);
+  });
+});
+
+// 챌린지 메타 캐시 — 삭제 계측(파라미터 포함 발행)과 카드 취소의 groupId 역참조가 이 캐시에 기댄다.
+describe('챌린지 메타 캐시', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockApi.delete.mockResolvedValue({ data: undefined });
+  });
+
+  function challengeRow(id: string) {
+    return {
+      id,
+      missionType: 'TIME_WINDOW',
+      missionCategory: 'SCREEN_TIME',
+      durationMinutes: 60,
+      windowStart: '09:00:00',
+      windowEnd: '11:00:00',
+      status: 'ACTIVE',
+      createdAt: '2026-08-01T06:00:00',
+      canParticipate: true,
+      memberProgress: null,
+      bet: null,
+      lastSettledBet: null,
+    };
+  }
+
+  test('목록 조회가 채운 메타로 삭제 성공 시에만 계측을 발행한다', async () => {
+    mockApi.get.mockResolvedValue({ data: [challengeRow(CHALLENGE_ID)] });
+    await getChallenges(GROUP_ID);
+
+    // 실패한 삭제는 발행하지 않는다 — 실제 삭제 수만 센다.
+    mockApi.delete.mockRejectedValueOnce(new Error('network'));
+    await expect(deleteChallenge(GROUP_ID, CHALLENGE_ID)).rejects.toThrow();
+    expect(logGroupChallengeDeleted).not.toHaveBeenCalled();
+
+    await deleteChallenge(GROUP_ID, CHALLENGE_ID);
+    expect(logGroupChallengeDeleted).toHaveBeenCalledWith({
+      mission_type: 'TIME_WINDOW',
+      mission_category: 'SCREEN_TIME',
+    });
+  });
+
+  test('캐시에 없는 챌린지 삭제는 계측을 생략한다(반쪽 이벤트 방지)', async () => {
+    await deleteChallenge(GROUP_ID, 'unknown-challenge');
+    expect(mockApi.delete).toHaveBeenCalled();
+    expect(logGroupChallengeDeleted).not.toHaveBeenCalled();
+  });
+
+  test('challengeGroupId — 마지막으로 목록을 내려준 그룹을 돌려주고, 모르면 null', async () => {
+    mockApi.get.mockResolvedValue({ data: [challengeRow(CHALLENGE_ID)] });
+    await getChallenges(GROUP_ID);
+    expect(challengeGroupId(CHALLENGE_ID)).toBe(GROUP_ID);
+    expect(challengeGroupId('unknown-challenge')).toBeNull();
   });
 });
 
