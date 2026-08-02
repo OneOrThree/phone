@@ -96,6 +96,10 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     }
 
     private GroupChallenge screenTimeWindowChallenge() {
+        return screenTimeWindowChallenge(LocalTime.of(9, 0), LocalTime.of(12, 0));
+    }
+
+    private GroupChallenge screenTimeWindowChallenge(LocalTime start, LocalTime end) {
         GroupChallenge challenge = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group)
                 .category(MissionCategory.SCREEN_TIME)
@@ -104,8 +108,8 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
         // 창 Instant 는 UTC 시각(time-of-day)만 의미를 갖고, 날짜 D 의 실제 창은 D(KST)에 얹는다.
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(challenge)
-                .windowStartAt(Instant.EPOCH.plusSeconds(LocalTime.of(9, 0).toSecondOfDay()))
-                .windowEndAt(Instant.EPOCH.plusSeconds(LocalTime.of(12, 0).toSecondOfDay()))
+                .windowStartAt(Instant.EPOCH.plusSeconds(start.toSecondOfDay()))
+                .windowEndAt(Instant.EPOCH.plusSeconds(end.toSecondOfDay()))
                 .durationMinutes(60)
                 .build());
         return challenge;
@@ -213,6 +217,31 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
                 challengeWindowEndNotificationService.sendWindowEndNotifications(NOW);
         assertThat(second.sentCount()).isZero();
         assertThat(second.dedupedCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("창 종료 푸시 — 감지 틱이 자정을 걸쳐도 dedup 이 유지된다(23:40 종료)")
+    void windowEndDedupsAcrossMidnightTicks() {
+        // 종료 23:40 은 감지 폭(30분) 때문에 23:45 틱과 00:00 틱 두 번 잡힌다 — 두 틱이 KST 날짜를
+        // 가르므로, dedup 구간을 "당일 00:00" 으로만 끊으면 자정 뒤 틱이 전원에게 재발송한다.
+        // 기본 quiet hours(23–07)가 가리는 시간대라, 커스텀 야간모드(01–06)를 켠 유저로 재현한다.
+        List.of(winner, loser).forEach(user -> userNotificationSettingsRepository.save(
+                UserNotificationSettings.builder()
+                        .userId(user.getId())
+                        .nightModeEnabled(true)
+                        .nightStartTime(LocalTime.of(1, 0))
+                        .nightEndTime(LocalTime.of(6, 0))
+                        .build()));
+        screenTimeWindowChallenge(LocalTime.of(20, 40), LocalTime.of(23, 40));
+
+        PushDispatchSummaryResponse beforeMidnight = challengeWindowEndNotificationService
+                .sendWindowEndNotifications(DAY.atTime(23, 45).atZone(KST).toInstant());
+        assertThat(beforeMidnight.sentCount()).isEqualTo(2);
+
+        PushDispatchSummaryResponse afterMidnight = challengeWindowEndNotificationService
+                .sendWindowEndNotifications(DAY.plusDays(1).atStartOfDay(KST).toInstant());
+        assertThat(afterMidnight.sentCount()).isZero();
+        assertThat(afterMidnight.dedupedCount()).isEqualTo(2);
     }
 
     @Test
