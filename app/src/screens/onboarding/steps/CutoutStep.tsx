@@ -24,14 +24,14 @@ import type { StepProps } from '@/screens/onboarding/types';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
-// 안내 3가지(해요체) — ① 직접 해보기 ② 나중에 홈에서 장착 ③ 친구에게 보여주기 예고.
+// 안내 3가지(해요체) — ① 직접 해보기 ② 홈에서 장착 ③ 함께 집중 기능 예고.
 const GUIDES: { icon: IconName; text: string }[] = [
   { icon: 'sparkles-outline', text: '이렇게 사진 속 물건으로 캐릭터를 만들 수 있어요.' },
+  { icon: 'home-outline', text: '만든 캐릭터는 홈에서 바꿔 장착할 수 있어요.' },
   {
-    icon: 'home-outline',
-    text: '만든 캐릭터는 나중에 홈에서 바꿔 장착할 수 있어요. 기본은 그로몬이에요.',
+    icon: 'people-outline',
+    text: '앱 내에서 내가 만든 캐릭터로 다른 사람들과 같이 집중할 수 있는 기능은 준비중이에요',
   },
-  { icon: 'people-outline', text: '친구에게 내 캐릭터를 보여주는 기능도 곧 만나요.' },
 ];
 
 export default function CutoutStep({ data, update, onNext }: StepProps) {
@@ -78,7 +78,7 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
   return (
     <StepScaffold
       testID="onboarding.step.cutout_experience"
-      title={'내 물건으로\n캐릭터를 만들어 볼까요?'}
+      title={'내가 찍은 사진으로 내 캐릭터를 만들 수 있어요!'}
       subtitle="사진 한 장이면 나만의 캐릭터가 완성돼요."
       // 작은 화면(SE 등)에서 가이드+만들기 버튼이 뷰포트를 넘겨 잘리지 않게 스크롤 허용(스킵 불가 스텝).
       scrollable
