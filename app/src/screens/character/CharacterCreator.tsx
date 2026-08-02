@@ -213,12 +213,9 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
       // '생성'은 '장착'이 아니라(생성 후에도 choice는 default 유지) 여기서 발행하면 미장착 커스텀이
       // 위젯·실드에 먼저 떠 버린다(코드리뷰). 스냅샷은 집중 세션이 장착된 캐릭터로 갱신하며,
       // 장착 즉시 반영은 후속 작업이다.
-      // 저장 성공 → 생성 1건을 서버 쿼터에 기록(best-effort). 실패해도 저장/onSaved를 막지 않는다.
-      try {
-        await recordCharacterGeneration();
-      } catch {
-        /* 기록 실패는 무시 */
-      }
+      // 저장 성공 → 생성 1건을 서버 쿼터에 기록(best-effort). 네트워크 지연·타임아웃이 완료를
+      // 막지 않도록 await 하지 않고 발사만 한다(함수 내부에서 실패를 이미 삼킨다).
+      recordCharacterGeneration().catch(() => {});
       onSaved(uri);
     } catch {
       setError('캐릭터를 저장하지 못했어요. 다시 시도해 주세요.');
