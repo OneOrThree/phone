@@ -77,6 +77,10 @@ public class OpenAiModerationClient {
         }
 
         Result result = response.results().get(0);
+        // flagged 누락(null)은 판정 불명 — fail-closed 정책상 통과시키지 않고 예외로 차단한다.
+        if (result.flagged() == null) {
+            throw new IllegalStateException("OpenAI 모더레이션 응답에 flagged 판정이 없습니다.");
+        }
         return new OpenAiModerationResult(result.flagged(), extractFlaggedCategories(result.categories()));
     }
 
@@ -109,7 +113,7 @@ public class OpenAiModerationClient {
     record OpenAiModerationResponse(List<Result> results) {
     }
 
-    /** results[0] — flagged 와 카테고리별 boolean 맵. */
-    record Result(boolean flagged, Map<String, Boolean> categories) {
+    /** results[0] — flagged 와 카테고리별 boolean 맵. flagged 는 누락 판별을 위해 nullable 로 둔다. */
+    record Result(Boolean flagged, Map<String, Boolean> categories) {
     }
 }
