@@ -160,12 +160,20 @@ public class GroupChallengeService {
     }
 
     /**
-     * 챌린지별 "나는 지금 이미 달성했는가" — 내기 참가 가능 판정({@code myAchievedNow})용.
+     * 챌린지별 "나는 지금 달성 상태인가" — 내기 UI 표시({@code myAchievedNow})용. 4조합 전부 계산한다.
      *
-     * <p>FOCUS 챌린지만 계산한다 — DURATION 은 일 통계, TIME_WINDOW(목표 있는 창)는 창 클리핑 집계 기준으로,
-     * 둘 다 서버 데이터라 "달성"이 확정 의미다. SCREEN_TIME 은 하루/창이 끝나야 확정되는 잠정 상태라 같은
-     * 의미로 계산할 수 없다(참가 가드도 반대 방향 {@code BET_ALREADY_FAILED} — 내기 게이트 확대 범위(B2b)).
-     * 이미 로드해 둔 진행률 스냅샷을 재사용해 통계 조회가 늘지 않는다(진행률 미계산이면 빈 맵 → 판정 없음).
+     * <p><b>카테고리마다 의미가 다르다</b>:
+     * <ul>
+     *   <li><b>FOCUS</b> = <b>확정</b> 달성. DURATION 은 일 통계, TIME_WINDOW 는 창 클리핑 집계(5분
+     *       관용치) 기준이고 둘 다 서버 데이터라 한 번 달성하면 뒤집히지 않는다. 그래서 내기 참가
+     *       가드가 이 의미 그대로 {@code BET_ALREADY_ACHIEVED} 로 무위험 참가를 막는다</li>
+     *   <li><b>SCREEN_TIME</b> = <b>잠정</b> 달성(현재 보고값 ≤ 목표). 하루/창이 끝나야 확정되므로
+     *       이후 사용으로 얼마든지 뒤집힌다 — <b>표시용일 뿐 참가 차단 근거가 아니다</b>(참가 가드는
+     *       반대 방향으로 "이미 초과 = 확정 패배"만 {@code BET_ALREADY_FAILED} 로 막는다,
+     *       {@link GroupBetService#requireEligibleToStake})</li>
+     * </ul>
+     *
+     * <p>이미 로드해 둔 진행률 스냅샷을 재사용해 통계 조회가 늘지 않는다(진행률 미계산이면 빈 맵 → 판정 없음).
      */
     private Map<UUID, Boolean> myAchievedByChallengeId(
             List<GroupChallenge> challenges,
@@ -176,27 +184,58 @@ public class GroupChallengeService {
         if (progress == null) {
             return Map.of();
         }
-        int myFocusMinutes = progress.focusMinutes().getOrDefault(userId, 0);
         Map<UUID, Boolean> achieved = new LinkedHashMap<>();
         for (GroupChallenge challenge : challenges) {
-            if (challenge.getCategory() != MissionCategory.FOCUS) {
+            Integer goalMinutes = goalMinutesOf(challenge, durations, windows);
+            if (goalMinutes == null) {
                 continue;
             }
-            if (challenge.getType() == MissionType.DURATION && durations.containsKey(challenge.getId())) {
-                achieved.put(challenge.getId(),
-                        myFocusMinutes >= durations.get(challenge.getId()).getDurationMinutes());
-            } else if (challenge.getType() == MissionType.TIME_WINDOW) {
-                GroupChallengeWindow window = windows.get(challenge.getId());
-                if (window != null && window.getDurationMinutes() != null) {
-                    int windowMinutes = progress.windowFocusMinutes()
-                            .getOrDefault(challenge.getId(), Map.of())
-                            .getOrDefault(userId, 0);
-                    achieved.put(challenge.getId(),
-                            WindowFocusAggregator.isAchieved(windowMinutes, window.getDurationMinutes()));
-                }
-            }
+            Integer myMinutes = myProgressMinutes(challenge, progress, userId);
+            achieved.put(challenge.getId(), isMyAchieved(challenge, myMinutes, goalMinutes));
         }
         return achieved;
+    }
+
+    /** 판정에 쓸 목표 분 — 상세 행이 없거나 창 목표분이 비었으면 null(판정 대상 아님). */
+    private Integer goalMinutesOf(GroupChallenge challenge, Map<UUID, GroupChallengeDuration> durations,
+            Map<UUID, GroupChallengeWindow> windows) {
+        if (challenge.getType() == MissionType.DURATION) {
+            GroupChallengeDuration duration = durations.get(challenge.getId());
+            return duration != null ? duration.getDurationMinutes() : null;
+        }
+        GroupChallengeWindow window = windows.get(challenge.getId());
+        return window != null ? window.getDurationMinutes() : null;
+    }
+
+    /**
+     * 내 진행 분 — 조합별 소스에서 꺼낸다. <b>null 은 "데이터 없음"</b>이고 그 의미는 카테고리마다 다르다:
+     * FOCUS 는 0분이 사실이라 여기서 0 으로 접고, SCREEN_TIME 은 미보고(권한 철회·구 바이너리 포함)라
+     * 그대로 null 로 남긴다 — 0 으로 접으면 미보고가 "0분 사용 = 달성"으로 뒤집힌다.
+     */
+    private Integer myProgressMinutes(GroupChallenge challenge, ProgressSnapshot progress, UUID userId) {
+        boolean screenTime = challenge.getCategory() == MissionCategory.SCREEN_TIME;
+        if (challenge.getType() == MissionType.TIME_WINDOW) {
+            Map<UUID, Integer> byUser = screenTime
+                    ? progress.windowUsageMinutes().getOrDefault(challenge.getId(), Map.of())
+                    : progress.windowFocusMinutes().getOrDefault(challenge.getId(), Map.of());
+            return screenTime ? byUser.get(userId) : byUser.getOrDefault(userId, 0);
+        }
+        return screenTime
+                ? progress.screenTimeMinutes().get(userId)
+                : progress.focusMinutes().getOrDefault(userId, 0);
+    }
+
+    /** 달성 판정 — 카드 진행률({@link #memberProgressOf})과 <b>같은 규칙</b>이다(소스가 갈리면 안 된다). */
+    private boolean isMyAchieved(GroupChallenge challenge, Integer myMinutes, int goalMinutes) {
+        if (myMinutes == null) {
+            return false;
+        }
+        if (challenge.getCategory() == MissionCategory.SCREEN_TIME) {
+            return myMinutes <= goalMinutes;
+        }
+        return challenge.getType() == MissionType.TIME_WINDOW
+                ? WindowFocusAggregator.isAchieved(myMinutes, goalMinutes)
+                : myMinutes >= goalMinutes;
     }
 
     /**

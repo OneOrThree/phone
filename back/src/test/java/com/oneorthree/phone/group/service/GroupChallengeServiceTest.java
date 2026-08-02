@@ -415,6 +415,158 @@ class GroupChallengeServiceTest {
         assertThat(mine.getAchieved()).isFalse();
     }
 
+    // ── myAchievedNow (내기 UI 표시값) ───────────────────────────────────
+    // FOCUS 는 "확정 달성"(참가 가드 BET_ALREADY_ACHIEVED 의 근거), SCREEN_TIME 은 "잠정 달성"
+    // (표시용 — 참가 차단은 반대 방향 BET_ALREADY_FAILED 가 한다)이라 의미가 다르다.
+
+    /** loadCurrentBets 로 넘어간 myAchievedNow 맵을 캡처한다 — 내기 응답에 실릴 값 그대로다. */
+    private Map<UUID, Boolean> capturedMyAchieved() {
+        ArgumentCaptor<Map<UUID, Boolean>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(groupBetService).loadCurrentBets(any(), any(), any(), captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    @DisplayName("SCREEN_TIME/DURATION — 사용분이 목표 이하면 myAchievedNow=true (잠정 달성)")
+    void myAchievedNowIsProvisionalForScreenTimeDuration() {
+        // given: 목표 60분 · 내 사용 50분 = 잠정 달성(하루가 끝나야 확정이라 뒤집힐 수 있다)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.SCREEN_TIME);
+        List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+        givenScreenTimePermission(USER_ID, OTHER_USER_ID);
+        given(dailyScreenTimeStatRepository.findByUserInAndDate(
+                members.stream().map(GroupMember::getUser).toList(), TODAY))
+                .willReturn(List.of(DailyScreenTimeStat.builder()
+                        .user(user).date(TODAY).totalScreenTimeMinutes(50).build()));
+
+        // when
+        groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then
+        assertThat(capturedMyAchieved()).containsEntry(CHALLENGE_ID, true);
+    }
+
+    @Test
+    @DisplayName("SCREEN_TIME/DURATION — 목표를 초과했으면 myAchievedNow=false (참가 가드가 막을 상태)")
+    void myAchievedNowIsFalseWhenScreenTimeOverGoal() {
+        // given: 목표 60분인데 90분 사용 — 확정 패배라 참가는 BET_ALREADY_FAILED 로 막힌다
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.SCREEN_TIME);
+        List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+        givenScreenTimePermission(USER_ID, OTHER_USER_ID);
+        given(dailyScreenTimeStatRepository.findByUserInAndDate(
+                members.stream().map(GroupMember::getUser).toList(), TODAY))
+                .willReturn(List.of(DailyScreenTimeStat.builder()
+                        .user(user).date(TODAY).totalScreenTimeMinutes(90).build()));
+
+        // when
+        groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then
+        assertThat(capturedMyAchieved()).containsEntry(CHALLENGE_ID, false);
+    }
+
+    @Test
+    @DisplayName("SCREEN_TIME — 미보고는 myAchievedNow=false. '0분 사용 = 달성' 으로 뒤집으면 안 된다")
+    void myAchievedNowIsFalseWhenScreenTimeUnreported() {
+        // given: 권한은 동의했지만 통계 행이 없다(미보고). FOCUS 였다면 "0분"이 사실이지만
+        // 스크린타임에서 0 으로 접으면 "한 번도 안 썼으니 달성"이라는 거짓이 된다.
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.SCREEN_TIME);
+        List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+        givenScreenTimePermission(USER_ID, OTHER_USER_ID);
+        given(dailyScreenTimeStatRepository.findByUserInAndDate(
+                members.stream().map(GroupMember::getUser).toList(), TODAY))
+                .willReturn(List.of());
+
+        // when
+        groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then
+        assertThat(capturedMyAchieved()).containsEntry(CHALLENGE_ID, false);
+    }
+
+    @Test
+    @DisplayName("SCREEN_TIME/TIME_WINDOW — 창 보고값이 목표 이하면 myAchievedNow=true (경계 포함)")
+    void myAchievedNowIsProvisionalForScreenTimeWindow() {
+        // given: 창 목표 100분 · 내 보고 100분(경계) — 카드 진행률과 같은 소스·같은 규칙(<=)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = windowChallenge(group, MissionCategory.SCREEN_TIME);
+        givenGroupWithTwoMembers(group, user, challenge);
+        givenWindowDetail(100);
+        given(groupChallengeMemberRepository.findByGroupChallengeIdInAndUsageDate(List.of(CHALLENGE_ID), TODAY))
+                .willReturn(List.of(GroupChallengeMember.builder()
+                        .groupChallenge(challenge).user(user).progressMinutes(100).usageDate(TODAY).build()));
+
+        // when
+        groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then
+        assertThat(capturedMyAchieved()).containsEntry(CHALLENGE_ID, true);
+    }
+
+    @Test
+    @DisplayName("SCREEN_TIME/TIME_WINDOW — 창 보고가 없으면(구 바이너리) myAchievedNow=false")
+    void myAchievedNowIsFalseWhenWindowUsageUnreported() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = windowChallenge(group, MissionCategory.SCREEN_TIME);
+        givenGroupWithTwoMembers(group, user, challenge);
+        givenWindowDetail(100);
+        given(groupChallengeMemberRepository.findByGroupChallengeIdInAndUsageDate(List.of(CHALLENGE_ID), TODAY))
+                .willReturn(List.of());
+
+        // when
+        groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then
+        assertThat(capturedMyAchieved()).containsEntry(CHALLENGE_ID, false);
+    }
+
+    @Test
+    @DisplayName("FOCUS/DURATION 의 확정 달성 판정은 그대로다 — 회귀")
+    void myAchievedNowStillConfirmedForFocusDuration() {
+        // given: 목표 60분 · 내 집중 60분(경계 달성, >=)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.FOCUS);
+        List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+        given(dailyFocusStatRepository.findByUserInAndDate(
+                members.stream().map(GroupMember::getUser).toList(), TODAY))
+                .willReturn(List.of(DailyFocusStat.builder()
+                        .user(user).date(TODAY).totalFocusSeconds(60 * 60).build()));
+
+        // when
+        groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then
+        assertThat(capturedMyAchieved()).containsEntry(CHALLENGE_ID, true);
+    }
+
+    @Test
+    @DisplayName("목표분 없는 구 창 챌린지는 myAchievedNow 자체를 채우지 않는다 — 내기 대상이 아니다")
+    void myAchievedNowSkipsChallengeWithoutGoal() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = windowChallenge(group, MissionCategory.SCREEN_TIME);
+        givenGroupWithTwoMembers(group, user, challenge);
+        givenWindowDetail(null);
+
+        // when
+        groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then
+        assertThat(capturedMyAchieved()).doesNotContainKey(CHALLENGE_ID);
+    }
+
     @Test
     @DisplayName("창 상세 행이 유실된 TIME_WINDOW 챌린지는 date 를 줘도 memberProgress = null")
     void getChallengesTimeWindowHasNoProgress() {
