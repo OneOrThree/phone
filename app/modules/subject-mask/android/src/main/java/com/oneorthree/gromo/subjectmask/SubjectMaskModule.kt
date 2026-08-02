@@ -89,7 +89,13 @@ class SubjectMaskModule : Module() {
       // ML Kit은 원본 캔버스 크기 그대로(피사체 밖은 투명)를 주므로, 피사체 알파 경계로 잘라
       // 크기를 실제 물체에 맞춘다(iOS croppedToInstancesExtent 대응). 안 자르면 JS로 넘어간
       // 크기가 여백을 포함해, 화면에서 눈·팔·다리가 물체에서 떠 버린다.
+      // foreground가 전부 투명(불투명 픽셀 0 = 피사체 미검출)이면 crop이 null — 원본 폴백(no_subject).
+      // 안 그러면 빈 캔버스에 팔다리·눈만 얹힌 결과를 cutout:true로 저장하게 된다.
       val cropped = cropToAlphaBounds(foreground)
+      if (cropped == null) {
+        foreground.recycle()
+        return@withContext resultMap(uri, orientedWidth, orientedHeight, false, "no_subject")
+      }
       val outWidth = cropped.width
       val outHeight = cropped.height
       val outUri = savePng(cropped) // savePng이 cropped를 recycle한다.
@@ -112,7 +118,7 @@ class SubjectMaskModule : Module() {
   // ML Kit foregroundBitmap은 원본 캔버스 크기 그대로(피사체 밖은 투명)라, 피사체가 사진을 꽉
   // 채우지 않으면 투명 여백이 붙는다. 불투명(알파≠0) 픽셀의 경계 사각형으로 잘라 크기를 물체에
   // 맞춘 새 비트맵을 돌려준다. 잘라낸 경우 원본은 recycle한다.
-  private fun cropToAlphaBounds(src: Bitmap): Bitmap {
+  private fun cropToAlphaBounds(src: Bitmap): Bitmap? {
     val width = src.width
     val height = src.height
     val pixels = IntArray(width * height)
@@ -135,10 +141,11 @@ class SubjectMaskModule : Module() {
       }
     }
 
-    // 불투명 픽셀이 없거나(경계 미검출) 이미 꽉 차 있으면 그대로 둔다.
-    if (maxX < minX || maxY < minY) return src
+    // 불투명 픽셀이 하나도 없으면(피사체 미검출) null — 호출측이 no_subject 원본 폴백을 타게 한다.
+    if (maxX < minX || maxY < minY) return null
     val cropW = maxX - minX + 1
     val cropH = maxY - minY + 1
+    // 이미 꽉 차 있으면(여백 없음) 그대로 둔다.
     if (cropW == width && cropH == height) return src
 
     val cropped = Bitmap.createBitmap(src, minX, minY, cropW, cropH)
