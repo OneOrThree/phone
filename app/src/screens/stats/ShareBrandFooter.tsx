@@ -32,6 +32,7 @@ export function ShareBrandFooter({
         size={BRAND_CHAR_SIZE}
         sourceUri={activeSource ?? undefined}
         onLoad={onCharReady}
+        onError={onCharReady}
       />
       <View style={cs.shareBrandTextCol}>
         <Text style={cs.shareWordmark} allowFontScaling={false}>

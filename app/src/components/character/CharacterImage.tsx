@@ -28,6 +28,7 @@ export function CharacterImage({
   variant = 'default',
   sourceUri,
   onLoad,
+  onError,
 }: {
   size: number;
   variant?: CharacterVariant;
@@ -36,6 +37,8 @@ export function CharacterImage({
   sourceUri?: string;
   /** 이미지 표시 완료 콜백 — 축하 모달이 색종이 시작 타이밍을 맞추는 데 쓴다 */
   onLoad?: ImageProps['onLoad'];
+  /** 이미지 로드 실패 콜백 — 공유 캡처가 로드 실패 시에도 진행하도록 게이트를 푸는 데 쓴다(GROMO-1070). */
+  onError?: ImageProps['onError'];
 }) {
   return (
     <Image
@@ -43,6 +46,7 @@ export function CharacterImage({
       style={{ width: size, height: size }}
       resizeMode="contain"
       onLoad={onLoad}
+      onError={onError}
     />
   );
 }

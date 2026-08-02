@@ -19,43 +19,27 @@ import { useTimetableShareCapture } from './useTimetableShareCapture';
 
 const TIMETABLE_HOURS = Array.from({ length: 24 }, (_, i) => (i + 6) % 24);
 
-// 오늘 총 집중시간(초) — 세션 길이(종료-시작) 합산. 진행 중(종료 없음)·이상치는 건너뛴다(GROMO-1070).
-function sessionsTotalSeconds(sessions: { startedAt: string; endedAt: string | null }[]): number {
-  return sessions.reduce((sum, ses) => {
-    if (!ses.endedAt) return sum;
-    const start = Date.parse(ses.startedAt);
-    const end = Date.parse(ses.endedAt);
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return sum;
-    return sum + (end - start) / 1000;
-  }, 0);
-}
-
 // 타임테이블 카드(일) — 헤더에 공유 버튼. 카드 내용(범례+격자)을 이미지로 캡처해
 // iOS 공유 시트로 내보낸다(react-native-view-shot, GROMO-762).
 export function FocusTimetableCard() {
   // 공유 파일명 — 예: 260711_타임테이블.png (사진 저장 시엔 이름이 남지 않음)
   const makeFileName = useCallback(() => `${todayStr().slice(2).replace(/-/g, '')}_타임테이블`, []);
   // 캡처→정사각 레터박스→공유 로직은 일/주 공용 훅이 담당(GROMO-1070)
-  const { shotRef, innerRef, sharing, capturing, frameStyle, innerStyle, onCharReady, onShare } =
+  const { shotRef, sharing, capturing, captureStyle, onCharReady, onShare } =
     useTimetableShareCapture({ card: 'timetable', makeFileName });
-  // 오늘 총 집중시간(초) — 캡처 이미지 좌측에 표시. FocusTimetable이 세션 조회 후 보고한다.
-  const [totalSeconds, setTotalSeconds] = useState(0);
+  // 데이터 로드 완료 여부 — 로딩 중(격자 스피너)에 공유하면 빈 이미지가 캡처되므로,
+  // 로드 전엔 공유 버튼을 막는다(GROMO-1070 리뷰 반영).
+  const [ready, setReady] = useState(false);
+  const handleLoaded = useCallback(() => setReady(true), []);
 
   return (
     <SectionCard title="오늘 타임테이블">
-      {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게. 캡처 시엔 정사각(frameStyle)으로 레터박스 */}
-      <View ref={shotRef} collapsable={false} style={[cs.ttShot, frameStyle]}>
-        {/* 캡처 내용 래퍼 — 정사각 안에서 자연 너비 유지(innerStyle)해 양옆 흰 여백이 생기게 */}
-        <View ref={innerRef} collapsable={false} style={innerStyle}>
-          {/* 일 카드 캡처 레이아웃 — 평소엔 격자만, 캡처 땐 상단 날짜 + 좌측 캐릭터/총집중시간/gromo(GROMO-1070) */}
-          <ShareDayFrame
-            capturing={capturing}
-            totalSeconds={totalSeconds}
-            onCharReady={onCharReady}
-          >
-            <FocusTimetable onTotalSecondsChange={setTotalSeconds} />
-          </ShareDayFrame>
-        </View>
+      {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게. 캡처 시엔 사방 소여백(captureStyle) */}
+      <View ref={shotRef} collapsable={false} style={[cs.ttShot, captureStyle]}>
+        {/* 일 카드 캡처 레이아웃 — 평소엔 격자만, 캡처 땐 상단 헤더(날짜·gromo) + 왼쪽 하단 마스코트(GROMO-1070) */}
+        <ShareDayFrame capturing={capturing} onCharReady={onCharReady}>
+          <FocusTimetable onLoaded={handleLoaded} />
+        </ShareDayFrame>
       </View>
       {/* 공유하기 — 카드 하단 오른쪽. 헤더(우측 상단)에 두면 순서 편집 드래그 핸들과 겹친다.
           shotRef 밖이라 캡처 이미지에는 안 담긴다 */}
@@ -64,7 +48,7 @@ export function FocusTimetableCard() {
         onPress={onShare}
         hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
         activeOpacity={0.7}
-        disabled={sharing}
+        disabled={sharing || !ready}
       >
         <Text style={cs.shareBtnText}>공유하기</Text>
         <Ionicons name="share-outline" size={15} color={T.inkSub} />
@@ -73,12 +57,7 @@ export function FocusTimetableCard() {
   );
 }
 
-function FocusTimetable({
-  onTotalSecondsChange,
-}: {
-  // 오늘 총 집중시간(초)을 상위(카드)에 보고 — 공유 캡처 좌측 표시용(GROMO-1070)
-  onTotalSecondsChange?: (sec: number) => void;
-}) {
+function FocusTimetable({ onLoaded }: { onLoaded?: () => void }) {
   const { subjects } = useSubjects();
   const [slots, setSlots] = useState<FocusSlotSegment[][] | null>(null);
   // 서버 tagId → 태그명 (과목 색 매칭용). 로컬 과목 id는 서버 tagId와 다를 수 있어 이름으로 잇는다.
@@ -96,13 +75,13 @@ function FocusTimetable({
         if (cancelled) return;
         setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
         setSlots(tenMinuteFocusSlots(sessions));
-        // 오늘 총 집중시간 — 공유 이미지 좌측(캐릭터 아래)에 HH:MM:SS로 표시(GROMO-1070)
-        onTotalSecondsChange?.(sessionsTotalSeconds(sessions));
+        // 데이터 로드 완료 신호 — 카드가 공유 버튼을 열어준다(GROMO-1070 리뷰 반영)
+        onLoaded?.();
       })();
       return () => {
         cancelled = true;
       };
-    }, [onTotalSecondsChange]),
+    }, [onLoaded]),
   );
 
   if (slots === null) {

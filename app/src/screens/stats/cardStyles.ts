@@ -52,23 +52,23 @@ export const cs = StyleSheet.create({
     marginTop: 2,
   },
 
-  // ── 일 카드 공유 캡처 레이아웃(GROMO-1070) — 상단 날짜 / 격자(전체 폭) / 왼쪽 하단 브랜드 마크.
+  // ── 일 카드 공유 캡처 레이아웃(GROMO-1070) — 상단 헤더(좌 날짜/우 gromo) / 격자 / 왼쪽 하단 마스코트.
   //    평소엔 chrome를 display:'none'으로 숨겨 화면 카드엔 격자만 보이고, 캡처 순간에만 드러난다.
   hidden: { display: 'none' },
-  // 날짜 헤더 — 캡처 이미지 상단(예: "2026년 7월 30일 (목)")
-  shareDateHeader: { ...T.text.heading, color: T.ink, marginBottom: T.space.md },
-  // 격자 컨테이너 — 브랜드 마크를 absolute로 겹치기 위한 기준(relative).
-  shareDayBody: { position: 'relative' },
-  // 왼쪽 하단 브랜드 마크 — 범례(과목명) 열의 빈 아래 공간에 겹쳐 놓는다. 캐릭터 + gromo +
-  // 총집중시간, 왼쪽 정렬. absolute라 격자 높이를 늘리지 않아 '덧붙인 블록' 느낌이 없다.
-  shareDayBrand: { position: 'absolute', left: 0, bottom: 0, alignItems: 'flex-start' },
-  // 오늘 총 집중시간 — gromo 아래 작은 디지털 숫자(HH:MM:SS). tabular-nums로 자릿수 정렬.
-  shareDayTime: {
-    ...T.text.caption,
-    fontSize: 15,
-    fontWeight: '700',
-    color: T.inkSub,
-    fontVariant: ['tabular-nums'],
-    marginTop: 2,
+  // 상단 헤더 — 좌: 날짜, 우: gromo 워드마크(우측 상단)
+  shareDayHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: T.space.md,
   },
+  // 날짜(헤더 좌측) — 예: "2026년 7월 30일 (목)"
+  shareDateHeader: { ...T.text.heading, color: T.ink },
+  // gromo 워터마크(헤더 우측 상단) — 작게(브랜드 컬러 유지). 밴드 워드마크(shareWordmark)보다 작다.
+  shareDayWordmark: { fontSize: 15, fontWeight: '700', letterSpacing: 0.5, color: T.accent },
+  // 격자 컨테이너 — 마스코트를 absolute로 겹치기 위한 기준(relative).
+  shareDayBody: { position: 'relative' },
+  // 왼쪽 하단 마스코트 — 범례(과목명) 열의 빈 아래 공간, 가장 하단에 겹쳐 놓는다.
+  // absolute라 격자 높이를 늘리지 않아 '덧붙인 블록' 느낌이 없다.
+  shareDayMascot: { position: 'absolute', left: 0, bottom: 0 },
 });

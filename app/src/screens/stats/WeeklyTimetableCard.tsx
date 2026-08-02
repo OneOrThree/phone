@@ -25,19 +25,20 @@ export function WeeklyTimetableCard() {
     [],
   );
   // 캡처→정사각 레터박스→공유 로직은 일/주 공용 훅이 담당(FocusTimetableCard와 동일, GROMO-1070)
-  const { shotRef, innerRef, sharing, capturing, frameStyle, innerStyle, onCharReady, onShare } =
+  const { shotRef, sharing, capturing, captureStyle, onCharReady, onShare } =
     useTimetableShareCapture({ card: 'weekly_timeline', makeFileName });
+  // 데이터 로드 완료 여부 — 로딩 중(스피너)에 공유하면 빈 이미지가 캡처되므로 로드 전엔 버튼을
+  // 막는다(FocusTimetableCard와 동일, GROMO-1070 리뷰 반영).
+  const [ready, setReady] = useState(false);
+  const handleLoaded = useCallback(() => setReady(true), []);
 
   return (
     <SectionCard title="요일별 타임테이블">
-      {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게. 캡처 시엔 정사각(frameStyle)으로 레터박스 */}
-      <View ref={shotRef} collapsable={false} style={[cs.ttShot, frameStyle]}>
-        {/* 캡처 내용 래퍼 — 정사각 안에서 자연 너비 유지(innerStyle)해 양옆 흰 여백이 생기게 */}
-        <View ref={innerRef} collapsable={false} style={innerStyle}>
-          <WeeklyTimetable />
-          {/* 공유 브랜드 밴드 — 캡처 순간에만 본문 아래에 렌더되어 캡처 이미지에만 담긴다(GROMO-1070) */}
-          <ShareBrandFooter visible={capturing} onCharReady={onCharReady} />
-        </View>
+      {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게. 캡처 시엔 사방 소여백(captureStyle) */}
+      <View ref={shotRef} collapsable={false} style={[cs.ttShot, captureStyle]}>
+        <WeeklyTimetable onLoaded={handleLoaded} />
+        {/* 공유 브랜드 밴드 — 캡처 순간에만 본문 아래에 렌더되어 캡처 이미지에만 담긴다(GROMO-1070) */}
+        <ShareBrandFooter visible={capturing} onCharReady={onCharReady} />
       </View>
       {/* 공유하기 — 카드 하단 오른쪽('오늘 타임테이블'과 동일). 헤더에 두면 상시 드래그 핸들과 겹친다.
           shotRef 밖이라 캡처 이미지에는 안 담긴다 */}
@@ -46,7 +47,7 @@ export function WeeklyTimetableCard() {
         onPress={onShare}
         hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
         activeOpacity={0.7}
-        disabled={sharing}
+        disabled={sharing || !ready}
       >
         <Text style={cs.shareBtnText}>공유하기</Text>
         <Ionicons name="share-outline" size={15} color={T.inkSub} />
@@ -58,7 +59,7 @@ export function WeeklyTimetableCard() {
 const WTT_BODY_H = 400; // 트랙 세로 픽셀 — 하루 24시간(0~24)을 담아도 세션 막대가 도톰하게 보이도록(GROMO-975)
 const WTT_MIN_BLOCK = 3; // 아주 짧은 세션도 보이도록 최소 블록 높이
 
-function WeeklyTimetable() {
+function WeeklyTimetable({ onLoaded }: { onLoaded?: () => void }) {
   const { subjects } = useSubjects();
   const [blocks, setBlocks] = useState<WeekFocusBlock[] | null>(null);
   // 서버 tagId → 태그명(과목 색 매칭용). 로컬 과목 id는 서버 tagId와 달라 이름으로 잇는다(FocusTimetable과 동일).
@@ -92,11 +93,13 @@ function WeeklyTimetable() {
         if (cancelled) return;
         setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
         setBlocks(weekdayFocusBlocks(sessions, monday.getTime()));
+        // 데이터 로드 완료 신호 — 카드가 공유 버튼을 열어준다(GROMO-1070 리뷰 반영)
+        onLoaded?.();
       })();
       return () => {
         cancelled = true;
       };
-    }, []),
+    }, [onLoaded]),
   );
 
   if (blocks === null) {
