@@ -7,6 +7,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/services/api';
 import { useUser } from './UserContext';
@@ -222,4 +223,16 @@ export function useCoins(): CoinContextValue {
   const context = useContext(CoinContext);
   if (!context) throw new Error('useCoins must be used inside CoinProvider');
   return context;
+}
+
+// 잔액을 보여 주는 화면이 포커스될 때 서버 잔액을 다시 불러오는 재사용 헬퍼.
+// 서버가 깎은 잔액(그룹 내기 판돈 차감·정산 지급)은 마운트 1회 로드로는 반영되지 않으므로,
+// 화면 진입마다 refresh를 태운다. 실제 배선은 소비 화면이 맡는다 — 여기선 헬퍼만 제공한다.
+export function useRefreshCoinsOnFocus() {
+  const { refresh } = useCoins();
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh]),
+  );
 }

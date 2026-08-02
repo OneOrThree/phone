@@ -145,6 +145,8 @@ export interface LeagueLastResultResponse {
   newTierLevel: number | null; // 정산 후 티어
   focusSeconds: number | null; // 해당 주차 집중 시간(초)
   acknowledged: boolean; // 확인 처리 여부 — true면 결과 화면 재노출 안 함
+  // ⚠️ additive — 현재 백엔드 응답엔 없다(undefined로 도착). 서버가 승급 보상을 붙이면 이름 그대로 소비한다.
+  promotionBonusCoins?: number | null; // 승급 보상 시간조각(승급 아닐 땐 0/null)
 }
 
 // ─────────────────────────────────────────────────────────────
