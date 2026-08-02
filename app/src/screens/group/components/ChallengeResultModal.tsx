@@ -32,10 +32,10 @@ const HEADLINE = {
   pending: { emoji: '⏳', caption: 'CHALLENGE RESULT', title: '결과 집계 중이에요' },
 } as const;
 
-// 'YYYY-MM-DD' → '8/1' (ChallengeCard.mmdd와 같은 표기 — 형식이 다르면 원문 유지).
-function mmdd(date: string): string {
+// 'YYYY-MM-DD' → '8월 1일' (ChallengeCard.monthDay와 같은 표기 — 형식이 다르면 원문 유지).
+function monthDay(date: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  return m ? `${Number(m[2])}/${Number(m[3])}` : date;
+  return m ? `${Number(m[2])}월 ${Number(m[3])}일` : date;
 }
 
 // 명단 한 묶음(달성/미달성/집계 중) — 비어 있으면 묶음째 그리지 않는다.
@@ -126,7 +126,7 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
 
             {/* 어떤 챌린지의 어느 날 결과인가 */}
             <Text style={s.label}>{result.label}</Text>
-            <Text style={s.date}>{mmdd(result.date)} 결과</Text>
+            <Text style={s.date}>{monthDay(result.date)} 결과</Text>
 
             {/* 명단 — 3상(달성·미달성·집계 중)을 뭉개지 않는다 */}
             <ScrollView style={s.lists} showsVerticalScrollIndicator={false}>

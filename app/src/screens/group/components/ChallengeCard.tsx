@@ -57,13 +57,14 @@ const BET_ACHIEVED_CREATE_CAPTION = '이미 오늘 목표를 달성해서 내기
 const BET_FAILED_CAPTION = '이미 목표를 초과해서 참가할 수 없어요';
 const BET_FAILED_CREATE_CAPTION = '이미 목표를 초과해서 내기를 열 수 없어요';
 // 취소 직후의 자리 표시 — 영역을 그냥 비우면 방금 한 일이 사라진 것처럼 보인다(betLocked와 같은 이유).
-const BET_CANCELED_CAPTION = '내기를 취소했어요. 판돈은 잔액으로 돌아왔어요';
+const BET_CANCELED_CAPTION = '내기를 취소했어요. 참가비는 잔액으로 돌아왔어요';
 
-// 'YYYY-MM-DD' → '7/31'. 캡션 한 줄에 연도까지 넣을 자리가 없고, '지난 내기'는 늘 최근 며칠이다.
+// 'YYYY-MM-DD' → '7월 31일'. 연도는 넣지 않는다 — '지난 내기'는 늘 최근 며칠이다.
+// '7/31' 축약은 날짜인지 비율인지 한눈에 안 읽혀 단위를 붙인다(ChallengeResultModal과 같은 표기).
 // 형식이 다르면 원문을 그대로 둔다(서버가 다른 포맷을 주면 깨진 날짜보다 원문이 낫다).
-function mmdd(betDate: string): string {
+function monthDay(betDate: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(betDate);
-  return m ? `${Number(m[2])}/${Number(m[3])}` : betDate;
+  return m ? `${Number(m[2])}월 ${Number(m[3])}일` : betDate;
 }
 
 // 멤버 한 명의 진행 표기 — 위 3상 규칙 그대로.
@@ -240,7 +241,7 @@ export default function ChallengeCard({
   // 확인 한 겹 — 돈이 되돌아오는 동작이지만 내기 자체가 사라지므로 삭제와 같은 규격을 쓴다.
   function confirmCancelBet() {
     if (!cancelable || bet === null) return;
-    Alert.alert('내기 취소', `판돈 ${bet.stake}코인을 돌려받고 내기를 닫을까요?`, [
+    Alert.alert('내기 취소', `참가비 ${bet.stake}코인을 돌려받고 내기를 닫을까요?`, [
       { text: '아니요', style: 'cancel' },
       {
         text: '취소하기',
@@ -272,11 +273,11 @@ export default function ChallengeCard({
       lastBet.status === 'REFUNDED'
         ? ['달성한 사람이 없어 전원 환불됐어요']
         : lastBet.status === 'FORFEITED'
-          ? ['아무도 달성하지 못해 판돈이 소멸됐어요']
+          ? ['아무도 달성하지 못해 참가비가 소멸됐어요']
           : ([] as string[]);
     Alert.alert(
-      `지난 내기 (${mmdd(lastBet.betDate)})`,
-      [...head, `판돈 ${lastBet.stake} · 팟 ${lastBet.pot}`, ...lines].join('\n'),
+      `지난 내기 (${monthDay(lastBet.betDate)})`,
+      [...head, `참가비 ${lastBet.stake} · 적립금 ${lastBet.pot}`, ...lines].join('\n'),
     );
   }
 
@@ -388,12 +389,12 @@ export default function ChallengeCard({
               {myBlockedNow && <Text style={s.caption}>{blockedCreateCaption}</Text>}
             </>
           ) : bet.myJoined ? (
-            // ③ 내가 참여 중 — 판돈·팟·인원. '참여 중' 칩은 아직 열려 있는 내기에만 붙인다
+            // ③ 내가 참여 중 — 참가비·적립금·인원. '참여 중' 칩은 아직 열려 있는 내기에만 붙인다
             //    (정산이 끝난 내기에 '참여 중'을 달면 지금도 진행 중인 것으로 읽힌다).
             //    내가 개설자이고 아직 나 혼자인 OPEN 내기에만 취소 진입점을 붙인다(계약 §2).
             <View style={s.betRow}>
               <Text style={s.betText}>
-                🪙 판돈 {bet.stake} · 팟 {bet.pot} · {betMembers}명 참여
+                🪙 참가비 {bet.stake} · 적립금 {bet.pot} · {betMembers}명 참여
               </Text>
               {bet.status === 'OPEN' && <Text style={s.betJoinedTag}>참여 중</Text>}
               {cancelable && (
@@ -424,7 +425,7 @@ export default function ChallengeCard({
                 testID={`group.bet.join.${challenge.id}`}
               >
                 <Text style={[s.betText, (joinBlockedNow || betLocked) && s.betTextOff]}>
-                  🪙 판돈 {bet.stake} · {betMembers}명 참여 중 — 참가하기
+                  🪙 참가비 {bet.stake} · {betMembers}명 참여 중 — 참가하기
                 </Text>
               </TouchableOpacity>
               {joinBlockedNow && <Text style={s.caption}>{blockedCaption}</Text>}
@@ -434,7 +435,7 @@ export default function ChallengeCard({
             // 남아 있음) — 상태만 그대로 적고 누를 자리는 두지 않는다.
             <View style={s.betRow}>
               <Text style={[s.betText, s.betTextOff]}>
-                🪙 판돈 {bet.stake} · 팟 {bet.pot} · {betMembers}명 참여
+                🪙 참가비 {bet.stake} · 적립금 {bet.pot} · {betMembers}명 참여
               </Text>
             </View>
           )}
@@ -451,7 +452,7 @@ export default function ChallengeCard({
           testID={`group.bet.last.${challenge.id}`}
         >
           <Text style={s.betLastCaption}>
-            지난 내기({mmdd(lastBet.betDate)}): {lastResults.length}명 중 {lastAchieved}명 달성
+            지난 내기({monthDay(lastBet.betDate)}): {lastResults.length}명 중 {lastAchieved}명 달성
           </Text>
         </TouchableOpacity>
       )}
