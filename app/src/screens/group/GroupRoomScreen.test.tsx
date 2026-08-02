@@ -8,8 +8,6 @@
 //     챌린지도 같은 규격을 따른다(실패를 '없음'으로 위장하지 않는다).
 //  2) 포그라운드 복귀. 그룹 탭이 포커스된 채 백그라운드에 있다 자정을 넘겨 돌아오면
 //     useFocusEffect가 다시 돌지 않아 '오늘 집중분'이 전날 값으로 남았다.
-//  3) ⋯ 메뉴의 '그룹 전환·추가'는 **onShowGroups를 받았을 때만** 렌더한다 —
-//     라우트로 push된 그룹방은 이미 목록에서 들어온 화면이라 되돌아가는 항목이 중복이다(2차 §0-3).
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert, AppState, Share, type AppStateStatus } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
@@ -183,9 +181,8 @@ function challenge(over: Partial<GroupChallengeResponse> = {}): GroupChallengeRe
   };
 }
 
-// onShowGroups를 넘기면 '내장 렌더'(탭 안) — 안 넘기면 라우트 진입이다(2차 §0-3).
-async function renderRoom(props: { onShowGroups?: () => void } = {}) {
-  const result = await render(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} {...props} />);
+async function renderRoom() {
+  const result = await render(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
   await act(async () => {});
   return result;
 }
@@ -1446,34 +1443,6 @@ describe('그룹 나가기', () => {
     expect(onLeft).toHaveBeenCalled();
     // 확인 Alert(나갈까요?) 이후 추가 Alert는 없다.
     expect(alertSpy).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('⋯ 메뉴 — 그룹 전환·추가', () => {
-  test('내장 렌더(onShowGroups 전달)에서만 항목이 보이고, 탭하면 콜백이 불린다', async () => {
-    const onShowGroups = jest.fn();
-    mockGetGroupDetail.mockResolvedValue(detail());
-    mockGetAnnouncements.mockResolvedValue([]);
-    await renderRoom({ onShowGroups });
-
-    await act(async () => {
-      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
-    });
-    await press('그룹 전환·추가');
-    expect(onShowGroups).toHaveBeenCalled();
-  });
-
-  test('라우트 진입(onShowGroups 미전달)에선 항목을 숨긴다', async () => {
-    mockGetGroupDetail.mockResolvedValue(detail());
-    mockGetAnnouncements.mockResolvedValue([]);
-    await renderRoom();
-
-    await act(async () => {
-      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
-    });
-    // 메뉴 자체는 열려 있다 — '그룹 나가기'는 두 경로 모두에 있다.
-    expect(screen.getByText('그룹 나가기')).toBeOnTheScreen();
-    expect(screen.queryByText('그룹 전환·추가')).toBeNull();
   });
 });
 

@@ -4,7 +4,7 @@
 //  1) 뒤로가기. 루트 스택은 headerShown:false이고 이 화면엔 탭바도 없다 —
 //     백버튼을 안 그리면 목록으로 돌아갈 명시 경로가 0개가 되고, ⋯ 메뉴에 남는 항목이
 //     '그룹 나가기'(되돌릴 수 없는 파괴적 액션) 하나뿐이라 그게 탈출구처럼 보인다.
-//  2) onShowGroups 미전달. 이미 목록에서 들어온 화면이라 ⋯ 메뉴의 '그룹 전환·추가'는 중복이다.
+//  2) 그룹 전환·추가 항목 없음. 라우트 진입 전용이라 ⋯ 메뉴에 그룹 전환 입구를 두지 않는다.
 //  3) 콜백 신원 고정. GroupRoomScreen의 load→reload→useFocusEffect가 이 신원에 매달려 있어
 //     인라인 함수를 넘기면 스택이 재렌더될 때마다 3콜이 한 세트씩 더 나간다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
@@ -145,7 +145,7 @@ describe('라우트 진입 계약', () => {
     expect(mockGoBack).toHaveBeenCalled();
   });
 
-  test('⋯ 메뉴에 그룹 전환·추가를 노출하지 않는다(onShowGroups 미전달)', async () => {
+  test('⋯ 메뉴에 그룹 전환·추가 항목을 두지 않는다', async () => {
     await renderRoute();
 
     await act(async () => {

@@ -15,7 +15,6 @@ import GroupRoomScreen from './GroupRoomScreen';
 //
 // · summary 미전달  : 목록에서 진입해도 상세 도착 전 헤더용 요약을 스택에 실어 나르지 않는다
 //                     (직렬화되는 라우트 파라미터를 얇게 유지 — groupId 하나면 복원이 끝난다).
-// · onShowGroups 미전달 : 이미 목록에서 들어온 화면이라 ⋯ 메뉴의 '그룹 전환·추가'를 숨긴다(§0-3).
 // · onLeft = goBack : 나가기에 성공하면 목록으로 되돌아간다. 목록은 GroupScreen이 포커스
 //                     재조회로 갱신하므로 여기서 따로 알릴 필요가 없다.
 // · onBack = goBack : 루트 스택이 headerShown:false이고 이 화면엔 탭바도 없다 —

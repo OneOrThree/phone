@@ -54,9 +54,6 @@ import MemberTile from './components/MemberTile';
 //
 // ❌ detail.code · codeExpiresAt은 읽지 않는다 — 코드 개념 폐기(§3-1-5).
 
-// 플로팅 탭바가 가리는 하단 여백(§5-1 — 탭 화면 공통 기준).
-// ⚠️ 내장 렌더에서만 더한다 — 라우트로 push된 그룹방엔 탭바가 없어 74pt가 그냥 빈 바닥으로 남는다.
-const TAB_BAR_SPACE = 74;
 // 멤버 그리드 열 수
 const COLS = 3;
 // 공지 섹션에 노출하는 최근 공지 수(나머지는 '모두보기')
@@ -153,10 +150,6 @@ export interface GroupRoomScreenProps {
   // 초대 시트가 이 화면 위에 떠 있는가 — 떠 있으면 이 화면이 소유한 시트('⋯' 메뉴·챌린지
   // 만들기)를 모두 내린다(아래 이펙트 주석 참고).
   inviteOpen?: boolean;
-  // 내장 렌더(탭 안)일 때만 전달 — ⋯ 메뉴 '그룹 전환·추가' 진입점(2차 §0-3).
-  // 라우트 진입은 이미 목록에서 들어온 화면이라 미전달 → 항목이 숨는다.
-  // 이 prop의 유무가 곧 '내장 렌더인가'라서 하단 탭바 여백 판정에도 함께 쓴다.
-  onShowGroups?: () => void;
   // 라우트로 push된 경우에만 전달 — 헤더 좌측에 원형 백버튼을 세운다.
   // 루트 스택이 headerShown:false라 네이티브 헤더가 없고, 탭바도 없어
   // 미전달이면 목록으로 돌아갈 명시 경로가 0개가 된다(앱 관행: 스택 화면은 백버튼 자가 렌더).
@@ -168,7 +161,6 @@ export default function GroupRoomScreen({
   summary,
   onLeft,
   inviteOpen,
-  onShowGroups,
   onBack,
 }: GroupRoomScreenProps) {
   const insets = useSafeAreaInsets();
@@ -602,8 +594,8 @@ export default function GroupRoomScreen({
   // 빈 상태 문구가 뜨면 서버 상태를 못 받았다는 사실이 화면에서 완전히 사라진다.
   const noticeFailed = noticeError && noticeList.length === 0;
   const challengeFailed = challengeError && challengeList.length === 0;
-  // 탭바 여백은 내장 렌더에서만 — onShowGroups를 받는가가 곧 '탭 안에 있는가'다(§0-3 계약).
-  const bottomSpace = insets.bottom + (onShowGroups ? TAB_BAR_SPACE : 0) + T.space.md;
+  // 라우트 진입 전용 화면이라 하단 탭바가 없다 — 시스템 인셋 + 기본 여백만 준다.
+  const bottomSpace = insets.bottom + T.space.md;
   const cells: GridCell[] = [
     // rank는 서버 정렬 순서(누적 집중 내림차순) 그대로 — 앱에서 재정렬하지 않는다(리더보드).
     ...members.map((m, i): GridCell => ({ kind: 'member', member: m, rank: i + 1 })),
@@ -852,22 +844,6 @@ export default function GroupRoomScreen({
       {menuOpen && !inviteOpen && (
         <SheetShell onClose={() => setMenuOpen(false)} asModal>
           <Text style={s.menuTitle}>{name}</Text>
-          {/* 내장 렌더에서만 — 라우트 진입은 이미 목록에서 들어온 화면이다(§0-3).
-              라벨은 '목록 보기'가 아니라 실제 기능(전환·만들기·찾기의 허브)에 맞춘다 —
-              그룹이 1개인 사용자에게 두 번째 그룹으로 가는 유일한 입구가 여기다. */}
-          {!!onShowGroups && (
-            <TouchableOpacity
-              style={s.menuItem}
-              activeOpacity={0.7}
-              onPress={() => {
-                setMenuOpen(false);
-                onShowGroups();
-              }}
-            >
-              <Ionicons name="swap-horizontal" size={18} color={T.ink} />
-              <Text style={s.menuText}>그룹 전환·추가</Text>
-            </TouchableOpacity>
-          )}
           {/* 그룹 설정(방장 전용) — 이름·소개·정원·공개설정 수정 + 위임·멤버관리·공지권한 허브(A-1) */}
           {isOwner && (
             <TouchableOpacity
