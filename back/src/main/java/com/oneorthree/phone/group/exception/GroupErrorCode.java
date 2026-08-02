@@ -36,6 +36,12 @@ public enum GroupErrorCode {
     BET_CHALLENGE_INACTIVE(HttpStatus.CONFLICT, "종료된 챌린지에는 내기를 걸 수 없어요"),
     CHALLENGE_HAS_OPEN_BET(HttpStatus.CONFLICT, "진행 중인 내기가 있어 삭제할 수 없어요"),
 
+    // 챌린지 생성 충돌 — 앱이 응답의 code 문자열로 분기한다. 이름 변경 금지.
+    // 활성 챌린지는 (카테고리, 타입)당 1개 — V20 부분 유니크 인덱스가 강제한다.
+    CHALLENGE_DUPLICATE(HttpStatus.CONFLICT, "이미 같은 종류의 챌린지가 진행 중이에요"),
+    // 포커스 창형과 스크린타임 창형의 시간대 교차 금지 — 같은 시간대 행동 하나로 내기 2개 중복 보상 차단.
+    CHALLENGE_WINDOW_OVERLAP(HttpStatus.CONFLICT, "겹치는 시간대의 챌린지가 이미 있어요"),
+
     // 동시성 — 낙관락(@Version: Group 정원·UserWallet 잔액) 충돌의 전역 폴백(GlobalExceptionHandler).
     // 트랜잭션 전체가 롤백된 일시 충돌이라 클라이언트가 재시도하면 풀린다. 구앱은 이 코드를 모르므로
     // 공통 재시도 문구로 강하한다 — 의미가 같아 안전하다.
