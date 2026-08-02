@@ -81,6 +81,22 @@ class FcmPushNotificationClientTest {
     }
 
     @Test
+    @DisplayName("조립 - 추가 data(type·groupId)가 link 와 함께 실린다 (B4 그룹 챌린지 푸시)")
+    void buildPayloadMergesExtraData() {
+        PushMessage message = new PushMessage("제목", "본문", "gromo://group?g=gid", false,
+                Map.of("type", "CHALLENGE_WINDOW_END", "groupId", "gid"));
+
+        Map<String, Object> payload = client.buildMessagePayload(DEVICE_TOKEN, message);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> fcmMessage = (Map<String, Object>) payload.get("message");
+        assertThat(fcmMessage.get("data")).isEqualTo(Map.of(
+                "type", "CHALLENGE_WINDOW_END",
+                "groupId", "gid",
+                "link", "gromo://group?g=gid"));
+    }
+
+    @Test
     @DisplayName("조립 - soundEnabled true → apns.payload.aps.sound = default 포함")
     void buildPayloadIncludesSoundWhenEnabled() {
         PushMessage message = new PushMessage("제목", "본문", "gromo://league", true);

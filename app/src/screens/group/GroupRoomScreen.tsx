@@ -28,9 +28,14 @@ import {
   groupErrorCode,
   withdrawGroup,
 } from '@/services/groupApi';
-import { logGroupInviteShared, logGroupRoomViewed } from '@/services/analyticsEvents';
+import {
+  logGroupChallengeResultClosed,
+  logGroupChallengeResultShown,
+  logGroupInviteShared,
+  logGroupRoomViewed,
+} from '@/services/analyticsEvents';
 import { issueInviteLink } from '@/services/inviteLinkApi';
-import { todayStr } from '@/utils/localDate';
+import { todayStr, yesterdayStr } from '@/utils/localDate';
 import type {
   GroupAnnouncementResponse,
   GroupChallengeResponse,
@@ -40,9 +45,16 @@ import type {
 } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { fmtNoticeDate } from './noticeDate';
+import {
+  filterUnseenChallengeResults,
+  markChallengeResultSeen,
+  pickChallengeResults,
+  type ChallengeResultCandidate,
+} from './challengeResult';
 import BetSheet from './components/BetSheet';
 import ChallengeCard, { type BetSheetMode } from './components/ChallengeCard';
 import ChallengeComposeSheet from './components/ChallengeComposeSheet';
+import ChallengeResultModal from './components/ChallengeResultModal';
 import MemberTile from './components/MemberTile';
 
 // 그룹방 — 명세 docs/app/group-plan.md §6-4.
@@ -199,6 +211,9 @@ export default function GroupRoomScreen({
   // 챌린지별 플래그 대신 화면 단위 하나로 둔다.
   const [betBusy, setBetBusy] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  // 챌린지 결과 모달 큐 — load()가 어제/오늘(창 종료) 결과에서 미노출분을 골라 채운다.
+  // 맨 앞 한 장만 띄우고, 닫으면 다음 장으로 넘어간다(가드 키가 챌린지×날짜 단위라 큐도 그 단위).
+  const [resultQueue, setResultQueue] = useState<ChallengeResultCandidate[]>([]);
 
   // 요청 시퀀스 — 당겨서 새로고침 중 '다시 시도'를 누르거나 연타하면 reload()·onRefresh()가
   // 같은 load()를 각자 부른다. 늦게 도착한 이전 응답이 최신 응답을 덮지 않게 최신 것만 반영한다
@@ -214,6 +229,9 @@ export default function GroupRoomScreen({
   // 그룹방 방문 계측(group_room_viewed)을 그룹당 1회로 묶는 기준 — 마지막으로 발행한 groupId.
   // 새로고침·포그라운드 복귀 재조회·같은 방 재포커스에선 재발행하지 않고, 그룹을 바꾸면 다시 발행한다.
   const roomViewedGroupIdRef = useRef<string | null>(null);
+  // 지금 떠 있는 결과 모달의 노출 시각·키 — dwell_ms 계산과 노출 이벤트/가드 1회 실행용.
+  const resultShownAtRef = useRef<number | null>(null);
+  const resultShownKeyRef = useRef<string | null>(null);
 
   // 이 화면이 지금 그리고 있는 그룹. 이미 스택에 있는 'GroupRoom' 라우트로 다시 navigate 하면
   // (React Navigation이 params만 병합해) **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
@@ -231,6 +249,10 @@ export default function GroupRoomScreen({
     loadedDateRef.current = null;
     // 새 그룹의 첫 서명은 비교 대상이 없다 — 이전 그룹의 서명과 비교하면 남의 정산으로 잔액을 다시 받는다.
     settledSigRef.current = null;
+    // 이전 그룹의 결과 모달도 즉시 접는다 — 전환 중 남의 그룹 결과가 새 화면 위에 뜨면 안 된다.
+    resultShownAtRef.current = null;
+    resultShownKeyRef.current = null;
+    setResultQueue([]);
     setDetail(null);
     setNotices(null);
     setChallenges(null);
@@ -258,12 +280,17 @@ export default function GroupRoomScreen({
     if (renderedGroupIdRef.current !== groupId) return false;
     const seq = ++requestSeqRef.current;
     const date = todayStr();
+    // 어제 챌린지 1콜 합류(A3) — 결과 모달의 소스다. 판정은 조회-시 계산이라(계약 "판정 vs 정산
+    // 분리") 어제 date로 부르면 자정에 확정된 결과가 그대로 온다. 실패해도 화면 무영향(allSettled).
+    const yesterday = yesterdayStr();
     setError(false);
-    const [detailResult, noticeResult, challengeResult] = await Promise.allSettled([
-      getGroupDetail(groupId, date),
-      getAnnouncements(groupId),
-      getChallenges(groupId, date),
-    ]);
+    const [detailResult, noticeResult, challengeResult, resultChallengeResult] =
+      await Promise.allSettled([
+        getGroupDetail(groupId, date),
+        getAnnouncements(groupId),
+        getChallenges(groupId, date),
+        getChallenges(groupId, yesterday),
+      ]);
     if (seq !== requestSeqRef.current) return false;
 
     if (detailResult.status === 'fulfilled') {
@@ -320,6 +347,41 @@ export default function GroupRoomScreen({
       }
     } else {
       setChallengeError(true); // 기존 챌린지는 그대로 둔다
+    }
+
+    // ── 챌린지 결과 모달 후보 산출(A3) — 성공한 조회만으로 계산한다(부분 실패 무영향). ──
+    // Array.isArray 방어: allSettled는 mock·구서버의 비정상 값도 fulfilled로 통과시킨다.
+    const todayList =
+      challengeResult.status === 'fulfilled' && Array.isArray(challengeResult.value)
+        ? challengeResult.value
+        : null;
+    const resultList =
+      resultChallengeResult.status === 'fulfilled' && Array.isArray(resultChallengeResult.value)
+        ? resultChallengeResult.value
+        : null;
+    if (todayList !== null || resultList !== null) {
+      const candidates = pickChallengeResults({
+        today: todayList,
+        yesterday: resultList,
+        todayDate: date,
+        yesterdayDate: yesterday,
+        myUserId: userId ?? null,
+      });
+      if (candidates.length > 0) {
+        const unseen = await filterUnseenChallengeResults(candidates);
+        // 가드 조회를 기다리는 사이 새 조회·그룹 전환이 끼어들었으면 이 결과는 낡았다.
+        if (seq !== requestSeqRef.current) return false;
+        setResultQueue((prev) => {
+          // 떠 있는 모달(맨 앞)은 유지한다 — 노출 마커 기록 전에 재조회가 끼어들어도
+          // 보고 있던 결과가 사라지거나, 닫은 뒤 같은 결과가 또 뜨지 않게 한다.
+          const head = prev[0];
+          if (!head) return unseen;
+          return [
+            head,
+            ...unseen.filter((c) => c.challengeId !== head.challengeId || c.date !== head.date),
+          ];
+        });
+      }
     }
     return true;
   }, [groupId, onLeft, userId, refreshCoins]);
@@ -404,6 +466,41 @@ export default function GroupRoomScreen({
     Alert.alert(stale[0], stale[1]);
   }, [betSheet, challenges, betChallenge]);
 
+  // ── 챌린지 결과 모달(A3) ──
+  // 다른 시트(⋯ 메뉴·만들기·내기·초대)가 떠 있으면 미룬다 — 전부 RN 네이티브 Modal이라 겹치면
+  // 딤이 포개지고 표시 순서도 플랫폼 재량이다(초대 시트 배타 이펙트와 같은 이유). 큐는 상태로
+  // 남아 있어 시트가 닫히면 그때 뜬다.
+  const currentResult = resultQueue.length > 0 ? resultQueue[0] : null;
+  const resultVisible =
+    currentResult !== null && !inviteOpen && betSheet === null && !composeOpen && !menuOpen;
+
+  // 노출 이벤트 + 1회 가드 기록 — **모달이 실제로 뜬 순간** 결과당 1회.
+  // 가드를 닫을 때 기록하면 모달이 떠 있는 사이의 재조회가 같은 결과를 큐에 또 넣는다.
+  useEffect(() => {
+    if (!resultVisible || currentResult === null) return;
+    const key = `${currentResult.challengeId}:${currentResult.date}`;
+    if (resultShownKeyRef.current === key) return;
+    resultShownKeyRef.current = key;
+    resultShownAtRef.current = Date.now();
+    markChallengeResultSeen(currentResult.challengeId, currentResult.date);
+    logGroupChallengeResultShown({
+      mission_type: currentResult.missionType,
+      mission_category: currentResult.missionCategory,
+      // null(집계 중)은 파라미터를 아예 싣지 않는다 — false(미달성)와 뭉개지 않는다.
+      achieved: currentResult.myAchieved ?? undefined,
+      achiever_count: currentResult.achievers.length,
+      member_count: currentResult.memberCount,
+    });
+  }, [resultVisible, currentResult]);
+
+  const onResultClose = useCallback(() => {
+    const shownAt = resultShownAtRef.current;
+    resultShownAtRef.current = null;
+    resultShownKeyRef.current = null;
+    if (shownAt !== null) logGroupChallengeResultClosed({ dwell_ms: Date.now() - shownAt });
+    setResultQueue((queue) => queue.slice(1));
+  }, []);
+
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(§6-4).
   const me = userId ? detail?.members.find((m) => m.userId === userId) : undefined;
   const isOwner = me?.role === 'OWNER';
@@ -478,7 +575,11 @@ export default function GroupRoomScreen({
         // 공통 문구로 떨어뜨리면 '잠시 후 다시 시도'를 반복해도 정산 전까진 영원히 같은 실패다.
         if (code === 'CHALLENGE_HAS_OPEN_BET') {
           // 전환 뒤 늦게 온 실패는 지금 보는 그룹 위에 띄우지 않는다(A-7).
-          alertIfCurrent(groupId, '챌린지를 삭제할 수 없어요', '진행 중인 내기가 있어 삭제할 수 없어요.');
+          alertIfCurrent(
+            groupId,
+            '챌린지를 삭제할 수 없어요',
+            '진행 중인 내기가 있어 삭제할 수 없어요.',
+          );
           return;
         }
         if (code !== 'NOT_FOUND') {
@@ -903,6 +1004,11 @@ export default function GroupRoomScreen({
             load();
           }}
         />
+      )}
+
+      {/* ── 챌린지 결과 모달(A3) — 큐 맨 앞 한 장. 닫으면 다음 결과로 넘어간다 ── */}
+      {resultVisible && currentResult !== null && (
+        <ChallengeResultModal result={currentResult} onClose={onResultClose} />
       )}
     </>
   );

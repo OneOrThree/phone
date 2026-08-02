@@ -23,7 +23,7 @@ import static org.mockito.BDDMockito.willThrow;
  * 배치 요약 집계 단위 테스트 — "몇 건을 실제로 정산했는가"를 정확히 세는지만 본다.
  *
  * <p>지급이 실제로 한 번만 일어나는지는 {@link GroupBetSettlementIntegrationTest} 가 실 DB 로 고정한다.
- * 여기서 따로 보는 이유는, 동시 실행에서 CAS 에 밀린 호출도 최종 상태(SETTLED/REFUNDED)를 돌려주기
+ * 여기서 따로 보는 이유는, 동시 실행에서 CAS 에 밀린 호출도 최종 상태(SETTLED/FORFEITED)를 돌려주기
  * 때문에 상태만 보고 세면 <b>같은 내기를 양쪽 실행이 각자 성과로 세어</b> 요약·지표가 부풀려지기 때문이다
  * (PR #381 리뷰).
  */
@@ -47,21 +47,22 @@ class GroupBetSettlementServiceTest {
     }
 
     @Test
-    @DisplayName("이번 실행이 지급한 건만 분배/환불로 센다")
+    @DisplayName("이번 실행이 지급/몰수한 건만 분배/몰수로 센다 — refunded 는 레거시 버킷이라 항상 0")
     void countsAppliedSettlementsOnly() {
         UUID settledBet = UUID.randomUUID();
-        UUID refundedBet = UUID.randomUUID();
-        givenTargets(settledBet, refundedBet);
+        UUID forfeitedBet = UUID.randomUUID();
+        givenTargets(settledBet, forfeitedBet);
         given(groupBetSettler.settle(settledBet))
                 .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.SETTLED, true));
-        given(groupBetSettler.settle(refundedBet))
-                .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.REFUNDED, true));
+        given(groupBetSettler.settle(forfeitedBet))
+                .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.FORFEITED, true));
 
         GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(TODAY);
 
         assertThat(summary.targetCount()).isEqualTo(2);
         assertThat(summary.settledCount()).isEqualTo(1);
-        assertThat(summary.refundedCount()).isEqualTo(1);
+        assertThat(summary.forfeitedCount()).isEqualTo(1);
+        assertThat(summary.refundedCount()).isZero();
         assertThat(summary.skippedCount()).isZero();
         assertThat(summary.failedCount()).isZero();
     }
@@ -78,7 +79,7 @@ class GroupBetSettlementServiceTest {
         GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(TODAY);
 
         assertThat(summary.settledCount()).isZero();
-        assertThat(summary.refundedCount()).isZero();
+        assertThat(summary.forfeitedCount()).isZero();
         assertThat(summary.skippedCount()).isEqualTo(1);
         assertThat(summary.failedCount()).isZero();
     }

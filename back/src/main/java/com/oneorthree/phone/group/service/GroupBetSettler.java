@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,10 +44,11 @@ import java.util.UUID;
  * <p>정산은 배치 시각(04:00 KST)에 마감된다 — 그 뒤에 도착한 지난 날짜 기록은 반영되지 않는다.
  * 4시간의 그레이스가 그 창을 좁히는 장치이고, 마감 자체는 어떤 정산에도 필요한 성질이다.
  *
- * <p>재실행·동시 실행 방어는 3중이다: ① 내기 {@code status} 가 OPEN 이 아니면 즉시 스킵(순차 재실행),
- * ② 지급 직전 상태 전이를 원자적 CAS
+ * <p>재실행·동시 실행 방어는 4중이다: ① 첫 조회가 내기 행 잠금(FOR UPDATE)이라 같은 내기를 만지는
+ * 경로(동시 정산·그룹 탈퇴 연동의 참가 행 삭제/환불)와 통째로 직렬화된다, ② 내기 {@code status} 가
+ * OPEN 이 아니면 즉시 스킵(순차 재실행), ③ 지급 직전 상태 전이를 원자적 CAS
  * ({@link GroupChallengeBetRepository#compareAndSetSettled})로 잠가 동시 실행 중 한 트랜잭션만
- * 통과시킨다, ③ 그래도 뚫리면 {@code currency_transactions.idempotency_key} 유니크가 최후 방어선이다.
+ * 통과시킨다, ④ 그래도 뚫리면 {@code currency_transactions.idempotency_key} 유니크가 최후 방어선이다.
  */
 @Slf4j
 @Service
@@ -78,7 +80,11 @@ public class GroupBetSettler {
      */
     @Transactional
     public SettleResult settle(UUID betId) {
-        GroupChallengeBet bet = groupChallengeBetRepository.findById(betId)
+        // 잠금 조회 — 그룹 탈퇴 연동(참가 행 삭제 + 환불)과 내기 단위로 직렬화한다. 아래의 참가자
+        // 읽기가 잠금 없이 이뤄지면, 탈퇴가 참가 행을 지우고 환불한 뒤에도 이쪽의 낡은 스냅샷이
+        // 탈퇴자에게 지급까지 해 이중 지급이 된다. status CAS 는 상태 전이만 지킬 뿐 참가자 읽기는
+        // 못 지키는 구멍이라 행 잠금으로 막는다.
+        GroupChallengeBet bet = groupChallengeBetRepository.findByIdForUpdate(betId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
         if (!bet.isOpen()) {
             log.info("내기 정산 스킵 — 이미 종료됨. betId={}, status={}", betId, bet.getStatus());
@@ -135,12 +141,22 @@ public class GroupBetSettler {
         Map<UUID, GroupChallengeBetParticipant> byUserId = new HashMap<>();
         participants.forEach(p -> byUserId.put(p.getUser().getId(), p));
 
-        boolean refunded = distribution.status() == GroupBetStatus.REFUNDED;
-        CurrencyTransactionType type = refunded
-                ? CurrencyTransactionType.BET_REFUND
-                : CurrencyTransactionType.BET_PAYOUT;
+        if (distribution.status() == GroupBetStatus.FORFEITED) {
+            // 승자 0명 — 판정 결과만 기록하고 지급 루프는 아예 타지 않는다(전원 payout 0).
+            // 팟은 아무에게도 가지 않고 소멸하므로 원장에는 어떤 기입도 남지 않는다 — 차감(BET_STAKE)
+            // 기록만 남는 것이 몰수의 원장 표현이다. 로그 포맷은 ops 모니터링(B4)과 정렬된 고정 문구다.
+            distribution.payouts().forEach(payout ->
+                    byUserId.get(payout.userId()).recordSettlement(payout.achieved(), payout.amount()));
+            log.info("내기 몰수 — betId={}, pot={} 소멸", bet.getId(), distribution.pot());
+            return;
+        }
 
-        for (GroupBetPayoutCalculator.Payout payout : distribution.payouts()) {
+        // 지급은 userId 오름차순 — 여러 지갑을 만지는 경로(탈퇴 연동의 전원 환불 포함)끼리
+        // 지갑 잠금 순서를 맞춰 두기 위한 고정이다.
+        List<GroupBetPayoutCalculator.Payout> ordered = distribution.payouts().stream()
+                .sorted(Comparator.comparing(GroupBetPayoutCalculator.Payout::userId))
+                .toList();
+        for (GroupBetPayoutCalculator.Payout payout : ordered) {
             GroupChallengeBetParticipant participant = byUserId.get(payout.userId());
             participant.recordSettlement(payout.achieved(), payout.amount());
             if (payout.amount() <= 0) {
@@ -160,8 +176,8 @@ public class GroupBetSettler {
                         bet.getId(), payout.userId(), payout.amount());
                 continue;
             }
-            currencyLedgerService.credit(user, type, payout.amount(),
-                    payoutKey(bet.getId(), payout.userId(), refunded));
+            currencyLedgerService.credit(user, CurrencyTransactionType.BET_PAYOUT, payout.amount(),
+                    payoutKey(bet.getId(), payout.userId(), false));
         }
     }
 

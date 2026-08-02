@@ -1,9 +1,11 @@
 package com.oneorthree.phone.group.service;
 
+import com.fasterxml.uuid.Generators;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
+import com.oneorthree.phone.group.domain.GroupChallengeMember;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
@@ -16,10 +18,12 @@ import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetResultResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
+import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -34,14 +38,16 @@ import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,6 +56,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -61,13 +68,18 @@ public class GroupChallengeService {
     private final GroupChallengeRepository groupChallengeRepository;
     private final GroupChallengeDurationRepository groupChallengeDurationRepository;
     private final GroupChallengeWindowRepository groupChallengeWindowRepository;
+    private final GroupChallengeMemberRepository groupChallengeMemberRepository;
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final GroupBetService groupBetService;
     private final GroupChallengeBetRepository groupChallengeBetRepository;
+    private final WindowFocusAggregator windowFocusAggregator;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+
+    private static final int SECONDS_PER_DAY = 86_400;
+    private static final int MAX_WINDOW_USAGE_MINUTES = 1_440;
 
     /**
      * 그룹 챌린지 목록. {@code date} 를 주면 멤버별 당일 진행률({@code memberProgress})을 함께 채운다.
@@ -109,11 +121,11 @@ public class GroupChallengeService {
                 .collect(Collectors.toMap(GroupChallengeWindow::getChallengeId, Function.identity()));
 
         // 멤버·일별 통계도 챌린지 루프 밖에서 한 번씩만 로드한다(챌린지 수 × 멤버 수의 N+1 방지).
-        ProgressSnapshot progress = loadProgressSnapshot(group, challenges, date);
+        ProgressSnapshot progress = loadProgressSnapshot(group, challenges, durations, windows, date);
 
         // 내기(오늘 것 + 지난 정산 1건)도 챌린지 목록 전체를 IN 절로 한 번에 읽는다.
         Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
-                challengeIds, date, userId, myAchievedByChallengeId(challenges, durations, progress, userId));
+                challengeIds, date, userId, myAchievedByChallengeId(challenges, durations, windows, progress, userId));
         Map<UUID, GroupBetResultResponse> lastSettledBets = groupBetService.loadLastSettledBets(challengeIds);
 
         return challenges.stream()
@@ -124,14 +136,14 @@ public class GroupChallengeService {
                             .id(c.getId())
                             .missionType(c.getType())
                             .missionCategory(c.getCategory())
-                            .durationMinutes(duration != null ? duration.getDurationMinutes() : null)
+                            .durationMinutes(durationMinutesOf(duration, window))
                             .windowStart(window != null ? toLocalTimeString(window.getWindowStartAt()) : null)
                             .windowEnd(window != null ? toLocalTimeString(window.getWindowEndAt()) : null)
                             .canParticipate(c.getCategory() == MissionCategory.FOCUS
                                     || screenTimePermissionGranted)
                             .status(c.getStatus())
                             .createdAt(c.getCreatedAt())
-                            .memberProgress(memberProgressOf(c, duration, progress))
+                            .memberProgress(memberProgressOf(c, duration, window, progress))
                             .bet(bets.get(c.getId()))
                             .lastSettledBet(lastSettledBets.get(c.getId()))
                             .build();
@@ -139,37 +151,64 @@ public class GroupChallengeService {
                 .toList();
     }
 
+    /** 응답 durationMinutes — DURATION 은 일 목표, TIME_WINDOW 는 창 내 목표(V20, 목표 없는 구 창은 null). */
+    private Integer durationMinutesOf(GroupChallengeDuration duration, GroupChallengeWindow window) {
+        if (duration != null) {
+            return duration.getDurationMinutes();
+        }
+        return window != null ? window.getDurationMinutes() : null;
+    }
+
     /**
      * 챌린지별 "나는 지금 이미 달성했는가" — 내기 참가 가능 판정({@code myAchievedNow})용.
      *
-     * <p>내기는 FOCUS + DURATION 챌린지에만 걸리므로 그 조합만 계산한다. 이미 로드해 둔 진행률
-     * 스냅샷을 재사용해 통계 조회가 늘지 않는다(진행률 미계산이면 빈 맵 → 판정 없음).
+     * <p>FOCUS 챌린지만 계산한다 — DURATION 은 일 통계, TIME_WINDOW(목표 있는 창)는 창 클리핑 집계 기준으로,
+     * 둘 다 서버 데이터라 "달성"이 확정 의미다. SCREEN_TIME 은 하루/창이 끝나야 확정되는 잠정 상태라 같은
+     * 의미로 계산할 수 없다(참가 가드도 반대 방향 {@code BET_ALREADY_FAILED} — 내기 게이트 확대 범위(B2b)).
+     * 이미 로드해 둔 진행률 스냅샷을 재사용해 통계 조회가 늘지 않는다(진행률 미계산이면 빈 맵 → 판정 없음).
      */
     private Map<UUID, Boolean> myAchievedByChallengeId(
             List<GroupChallenge> challenges,
             Map<UUID, GroupChallengeDuration> durations,
+            Map<UUID, GroupChallengeWindow> windows,
             ProgressSnapshot progress,
             UUID userId) {
         if (progress == null) {
             return Map.of();
         }
         int myFocusMinutes = progress.focusMinutes().getOrDefault(userId, 0);
-        return challenges.stream()
-                .filter(c -> c.getType() == MissionType.DURATION && c.getCategory() == MissionCategory.FOCUS)
-                .filter(c -> durations.containsKey(c.getId()))
-                .collect(Collectors.toMap(
-                        GroupChallenge::getId,
-                        c -> myFocusMinutes >= durations.get(c.getId()).getDurationMinutes()));
+        Map<UUID, Boolean> achieved = new LinkedHashMap<>();
+        for (GroupChallenge challenge : challenges) {
+            if (challenge.getCategory() != MissionCategory.FOCUS) {
+                continue;
+            }
+            if (challenge.getType() == MissionType.DURATION && durations.containsKey(challenge.getId())) {
+                achieved.put(challenge.getId(),
+                        myFocusMinutes >= durations.get(challenge.getId()).getDurationMinutes());
+            } else if (challenge.getType() == MissionType.TIME_WINDOW) {
+                GroupChallengeWindow window = windows.get(challenge.getId());
+                if (window != null && window.getDurationMinutes() != null) {
+                    int windowMinutes = progress.windowFocusMinutes()
+                            .getOrDefault(challenge.getId(), Map.of())
+                            .getOrDefault(userId, 0);
+                    achieved.put(challenge.getId(),
+                            WindowFocusAggregator.isAchieved(windowMinutes, window.getDurationMinutes()));
+                }
+            }
+        }
+        return achieved;
     }
 
     /**
-     * 진행률 계산에 필요한 멤버·일별 통계를 배치 로드한다. {@code date} 가 없으면 null 을 반환해
+     * 진행률 계산에 필요한 멤버·통계를 배치 로드한다. {@code date} 가 없으면 null 을 반환해
      * 호출측이 {@code memberProgress = null}(미계산)로 응답하게 한다.
      *
-     * <p>통계는 실제로 그 카테고리의 DURATION 챌린지가 있을 때만 조회한다 — FOCUS 챌린지만 있는 그룹이
-     * 스크린타임 테이블을 훑지 않도록.
+     * <p>통계는 실제로 진행률 대상 챌린지가 있을 때만 조회한다 — FOCUS 챌린지만 있는 그룹이
+     * 스크린타임 테이블을 훑지 않도록. 창형(TIME_WINDOW)은 카테고리당 활성 1개(V20)라
+     * 창 클리핑 집계도 최대 1회다.
      */
-    private ProgressSnapshot loadProgressSnapshot(Group group, List<GroupChallenge> challenges, LocalDate date) {
+    private ProgressSnapshot loadProgressSnapshot(Group group, List<GroupChallenge> challenges,
+            Map<UUID, GroupChallengeDuration> durations, Map<UUID, GroupChallengeWindow> windows, LocalDate date) {
         if (date == null) {
             return null;
         }
@@ -177,10 +216,15 @@ public class GroupChallengeService {
         List<GroupMember> members = groupMemberRepository.findByGroup(group);
         List<User> users = members.stream().map(GroupMember::getUser).toList();
         if (users.isEmpty()) {
-            return new ProgressSnapshot(members, Map.of(), Map.of());
+            return new ProgressSnapshot(members, Map.of(), Map.of(), Map.of(), Map.of());
         }
+        List<UUID> userIds = users.stream().map(User::getId).toList();
 
-        Map<UUID, Integer> focusMinutes = hasDurationChallenge(challenges, MissionCategory.FOCUS)
+        List<GroupChallenge> targets = challenges.stream()
+                .filter(c -> isProgressTarget(c, durations.get(c.getId()), windows.get(c.getId())))
+                .toList();
+
+        Map<UUID, Integer> focusMinutes = hasTarget(targets, MissionCategory.FOCUS, MissionType.DURATION)
                 ? dailyFocusStatRepository.findByUserInAndDate(users, date).stream()
                         .collect(Collectors.toMap(
                                 s -> s.getUser().getId(),
@@ -191,7 +235,7 @@ public class GroupChallengeService {
         // (canParticipate=false / nonParticipants)이므로, 철회 전에 쌓여 남아 있는 통계 행을
         // 진행률로 노출하지 않는다(맵에서 빠져 null = 판정 불가).
         Map<UUID, Integer> screenTimeMinutes = Map.of();
-        if (hasDurationChallenge(challenges, MissionCategory.SCREEN_TIME)) {
+        if (hasTarget(targets, MissionCategory.SCREEN_TIME, MissionType.DURATION)) {
             Set<UUID> grantedUserIds = grantedScreenTimeUserIds(users);
             List<User> participants = users.stream()
                     .filter(u -> grantedUserIds.contains(u.getId()))
@@ -204,7 +248,34 @@ public class GroupChallengeService {
             }
         }
 
-        return new ProgressSnapshot(members, focusMinutes, screenTimeMinutes);
+        // FOCUS 창형 — 날짜 D 의 창으로 focus_sessions 를 클리핑 집계(챌린지별 창이 달라 챌린지 단위 조회).
+        Map<UUID, Map<UUID, Integer>> windowFocusMinutes = new LinkedHashMap<>();
+        for (GroupChallenge challenge : targets) {
+            if (challenge.getCategory() == MissionCategory.FOCUS
+                    && challenge.getType() == MissionType.TIME_WINDOW) {
+                windowFocusMinutes.put(challenge.getId(),
+                        windowFocusAggregator.focusMinutesWithin(userIds, date, windows.get(challenge.getId())));
+            }
+        }
+
+        // SCREEN_TIME 창형 — 클라 보고 원본(group_challenge_members)의 해당 날짜 값을 배치 로드.
+        // 미보고 멤버는 맵에 없음 = progressMinutes null(판정 불가) — 구 바이너리 참가자의 정상 상태다.
+        List<UUID> screenWindowChallengeIds = targets.stream()
+                .filter(c -> c.getCategory() == MissionCategory.SCREEN_TIME
+                        && c.getType() == MissionType.TIME_WINDOW)
+                .map(GroupChallenge::getId)
+                .toList();
+        Map<UUID, Map<UUID, Integer>> windowUsageMinutes = screenWindowChallengeIds.isEmpty()
+                ? Map.of()
+                : groupChallengeMemberRepository
+                        .findByGroupChallengeIdInAndUsageDate(screenWindowChallengeIds, date).stream()
+                        .collect(Collectors.groupingBy(
+                                m -> m.getGroupChallenge().getId(),
+                                Collectors.toMap(
+                                        m -> m.getUser().getId(),
+                                        GroupChallengeMember::getProgressMinutes)));
+
+        return new ProgressSnapshot(members, focusMinutes, screenTimeMinutes, windowFocusMinutes, windowUsageMinutes);
     }
 
     /** 스크린타임 권한에 동의한 유저 id 집합 — 비참여자 판정과 진행률 대상 필터가 같은 기준을 쓰도록 공유한다. */
@@ -215,52 +286,82 @@ public class GroupChallengeService {
                 .collect(Collectors.toSet());
     }
 
-    private boolean hasDurationChallenge(List<GroupChallenge> challenges, MissionCategory category) {
-        return challenges.stream()
-                .anyMatch(c -> isProgressTarget(c) && c.getCategory() == category);
+    private boolean hasTarget(List<GroupChallenge> targets, MissionCategory category, MissionType type) {
+        return targets.stream()
+                .anyMatch(c -> c.getCategory() == category && c.getType() == type);
     }
 
     /**
-     * 진행률 계산 대상인가 — ACTIVE 인 DURATION 챌린지만.
+     * 진행률 계산 대상인가 — ACTIVE 이면서 목표가 있는 챌린지.
+     * DURATION 은 일 목표(duration 상세), TIME_WINDOW 는 창 내 목표(duration_minutes, V20)가 있어야 한다.
+     * 목표 없는 구 창 챌린지는 현행대로 memberProgress = null(판정 불가)로 남는다.
      *
      * <p>INACTIVE 는 이미 끝난 챌린지다(V2 마이그레이션이 레거시 {@code ENDED} 행을 INACTIVE 로 보존).
      * 조회한 날짜의 "현재" 통계를 끝난 챌린지 목표와 대조하면 과거 챌린지의 진행률·달성 여부가 매일
      * 바뀌어 보이므로 계산하지 않는다. 챌린지에 활동 기간(ended_at)이 없어 당시 진행률을 복원할 수도 없다.
      */
-    private boolean isProgressTarget(GroupChallenge challenge) {
-        return challenge.getType() == MissionType.DURATION
-                && challenge.getStatus() == GroupChallengeStatus.ACTIVE;
+    private boolean isProgressTarget(GroupChallenge challenge, GroupChallengeDuration duration,
+            GroupChallengeWindow window) {
+        if (challenge.getStatus() != GroupChallengeStatus.ACTIVE) {
+            return false;
+        }
+        if (challenge.getType() == MissionType.DURATION) {
+            return duration != null;
+        }
+        return challenge.getType() == MissionType.TIME_WINDOW
+                && window != null
+                && window.getDurationMinutes() != null;
     }
 
     /**
-     * 챌린지 하나에 대한 멤버별 진행률. 진행률 미계산(date 없음)·TIME_WINDOW·INACTIVE·상세 행 유실이면
+     * 챌린지 하나에 대한 멤버별 진행률. 진행률 미계산(date 없음)·목표 없는 창·INACTIVE·상세 행 유실이면
      * null 이다.
      *
-     * <p>TIME_WINDOW 는 시간대 내 세션 대조가 필요해 이번 범위에서 제외했다(명세 결정 3).
+     * <p>TIME_WINDOW 는 날짜 D(KST)의 창 기준이다. FOCUS 창은 세션 클리핑 실측 분을 그대로 표시하고
+     * <b>달성 플래그에만</b> 5분 관용치를 적용한다({@link WindowFocusAggregator#isAchieved}).
+     * SCREEN_TIME 창은 클라 보고값 기준 — 미보고는 null(판정 불가, 3상 유지)이다.
      */
     private List<ChallengeMemberProgressResponse> memberProgressOf(
-            GroupChallenge challenge, GroupChallengeDuration duration, ProgressSnapshot progress) {
-        if (progress == null || !isProgressTarget(challenge) || duration == null) {
+            GroupChallenge challenge, GroupChallengeDuration duration, GroupChallengeWindow window,
+            ProgressSnapshot progress) {
+        if (progress == null || !isProgressTarget(challenge, duration, window)) {
             return null;
         }
 
         boolean screenTime = challenge.getCategory() == MissionCategory.SCREEN_TIME;
-        int goalMinutes = duration.getDurationMinutes();
+        boolean windowType = challenge.getType() == MissionType.TIME_WINDOW;
+        int goalMinutes = windowType ? window.getDurationMinutes() : duration.getDurationMinutes();
 
         return progress.members().stream()
                 .map(member -> {
                     UUID memberId = member.getUser().getId();
-                    // FOCUS 는 통계가 없으면 "0분 집중"이 사실이지만, SCREEN_TIME 은 데이터 미수집과
-                    // "0분 사용"을 구분할 수 없어 null(판정 불가)로 남긴다.
-                    // 한계: null 은 "통계 행 없음/권한 미동의"까지만 덮는다. 앱이 actualScreenTimeMinutes 없이
-                    // 보고하면 ScreenTimeService 가 0 으로 저장해 실제 0분과 구분되지 않는다(쓰기 모델 이슈 —
-                    // 컬럼 nullable 화가 필요해 이 범위 밖).
-                    Integer progressMinutes = screenTime
-                            ? progress.screenTimeMinutes().get(memberId)
-                            : progress.focusMinutes().getOrDefault(memberId, 0);
-                    Boolean achieved = progressMinutes == null
-                            ? null
-                            : (screenTime ? progressMinutes <= goalMinutes : progressMinutes >= goalMinutes);
+                    // FOCUS 는 데이터가 없으면 "0분 집중"이 사실이지만(서버 데이터), SCREEN_TIME 은
+                    // 데이터 미수집(미보고 포함)과 "0분 사용"을 구분할 수 없어 null(판정 불가)로 남긴다.
+                    // 한계: null 은 "통계 행 없음/권한 미동의/미보고"까지만 덮는다. 앱이 actualScreenTimeMinutes
+                    // 없이 보고하면 ScreenTimeService 가 0 으로 저장해 실제 0분과 구분되지 않는다(쓰기 모델
+                    // 이슈 — 컬럼 nullable 화가 필요해 이 범위 밖).
+                    Integer progressMinutes;
+                    if (windowType) {
+                        progressMinutes = screenTime
+                                ? progress.windowUsageMinutes()
+                                        .getOrDefault(challenge.getId(), Map.of()).get(memberId)
+                                : progress.windowFocusMinutes()
+                                        .getOrDefault(challenge.getId(), Map.of()).getOrDefault(memberId, 0);
+                    } else {
+                        progressMinutes = screenTime
+                                ? progress.screenTimeMinutes().get(memberId)
+                                : progress.focusMinutes().getOrDefault(memberId, 0);
+                    }
+                    Boolean achieved;
+                    if (progressMinutes == null) {
+                        achieved = null;
+                    } else if (screenTime) {
+                        achieved = progressMinutes <= goalMinutes;
+                    } else if (windowType) {
+                        achieved = WindowFocusAggregator.isAchieved(progressMinutes, goalMinutes);
+                    } else {
+                        achieved = progressMinutes >= goalMinutes;
+                    }
                     return ChallengeMemberProgressResponse.builder()
                             .userId(memberId)
                             .nickname(member.getUser().getNickname())
@@ -271,11 +372,16 @@ public class GroupChallengeService {
                 .toList();
     }
 
-    /** 진행률 계산용 배치 로드 결과 — 그룹 멤버 전원과 userId → 당일 분 맵(통계 없는 유저는 키 없음). */
+    /**
+     * 진행률 계산용 배치 로드 결과 — 그룹 멤버 전원과 userId → 당일 분 맵(데이터 없는 유저는 키 없음).
+     * 창형은 챌린지마다 창이 달라 challengeId → (userId → 분) 2단 맵이다.
+     */
     private record ProgressSnapshot(
             List<GroupMember> members,
             Map<UUID, Integer> focusMinutes,
-            Map<UUID, Integer> screenTimeMinutes) {
+            Map<UUID, Integer> screenTimeMinutes,
+            Map<UUID, Map<UUID, Integer>> windowFocusMinutes,
+            Map<UUID, Map<UUID, Integer>> windowUsageMinutes) {
     }
 
     @Transactional
@@ -302,33 +408,32 @@ public class GroupChallengeService {
                 throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
             }
         } else if (request.getMissionType() == MissionType.TIME_WINDOW) {
-            if (request.getWindowStart() == null || request.getWindowEnd() == null) {
-                throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
-            }
-            if (!request.getWindowEnd().isAfter(request.getWindowStart())) {
-                throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
-            }
+            validateTimeWindowParams(request);
         } else {
             throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
         }
 
-        if (request.getMissionType() == MissionType.DURATION) {
-            if (groupChallengeRepository.existsByGroupAndCategoryAndTypeAndStatusAndDeletedAtIsNull(
-                    group, request.getMissionCategory(), MissionType.DURATION, GroupChallengeStatus.ACTIVE)) {
-                throw new GroupException(GroupErrorCode.ACTIVE_CHALLENGE_EXISTS);
-            }
-        } else {
-            if (groupChallengeWindowRepository.existsOverlappingTimeWindow(
-                    group, request.getMissionCategory(), request.getWindowStart(), request.getWindowEnd())) {
-                throw new GroupException(GroupErrorCode.ACTIVE_CHALLENGE_EXISTS);
-            }
+        // 활성 챌린지는 (카테고리, 타입)당 1개 — 사전 검사로 결정적인 409 를 주고, 진짜 강제는 V20 부분
+        // 유니크 인덱스가 한다(아래 saveAndFlush catch 가 check-then-insert 레이스를 봉합).
+        if (groupChallengeRepository.existsByGroupAndCategoryAndTypeAndStatusAndDeletedAtIsNull(
+                group, request.getMissionCategory(), request.getMissionType(), GroupChallengeStatus.ACTIVE)) {
+            throw new GroupException(GroupErrorCode.CHALLENGE_DUPLICATE);
+        }
+        if (request.getMissionType() == MissionType.TIME_WINDOW) {
+            rejectCrossCategoryWindowOverlap(group, request);
         }
 
-        GroupChallenge savedChallenge = groupChallengeRepository.save(GroupChallenge.builder()
-                .group(group)
-                .type(request.getMissionType())
-                .category(request.getMissionCategory())
-                .build());
+        GroupChallenge savedChallenge;
+        try {
+            savedChallenge = groupChallengeRepository.saveAndFlush(GroupChallenge.builder()
+                    .group(group)
+                    .type(request.getMissionType())
+                    .category(request.getMissionCategory())
+                    .build());
+        } catch (DataIntegrityViolationException e) {
+            // 사전 검사와 동시 생성이 겹친 레이스 — 부분 유니크(활성 카테고리×타입 1개) 위반으로 강하.
+            throw new GroupException(GroupErrorCode.CHALLENGE_DUPLICATE);
+        }
 
         // CTI 상세: type 별 파라미터를 전용 테이블에 저장 (@MapsId 로 challenge_id 공유)
         if (request.getMissionType() == MissionType.DURATION) {
@@ -341,6 +446,7 @@ public class GroupChallengeService {
                     .challenge(savedChallenge)
                     .windowStartAt(request.getWindowStart())
                     .windowEndAt(request.getWindowEnd())
+                    .durationMinutes(request.getDurationMinutes())
                     .build());
         }
 
@@ -365,6 +471,84 @@ public class GroupChallengeService {
                 .id(savedChallenge.getId())
                 .nonParticipants(nonParticipants)
                 .build();
+    }
+
+    /**
+     * TIME_WINDOW 파라미터 검증 — 창 시각(필수, 0길이 금지)과 창 내 목표(durationMinutes 필수,
+     * 0 < x ≤ 창 길이 분).
+     *
+     * <p>창은 매일 반복 시간대다. 저장 Instant 는 UTC 시각(time-of-day)만 의미를 갖고(응답 변환
+     * {@link #toLocalTimeString} 과 동일 기준), 날짜별 실제 창은 KST 날짜에 그 시각을 얹어 조합한다
+     * ({@link WindowFocusAggregator}). 그래서 비교도 Instant 가 아니라 시각으로 한다 —
+     * 시작 > 종료는 자정 걸침 창(D 시작 ~ D+1 종료)으로 허용한다.
+     */
+    private void validateTimeWindowParams(CreateChallengeRequest request) {
+        if (request.getWindowStart() == null || request.getWindowEnd() == null) {
+            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
+        }
+        LocalTime start = timeOfDay(request.getWindowStart());
+        LocalTime end = timeOfDay(request.getWindowEnd());
+        // 같은 시각은 0길이인지 24시간인지 모호해 거부한다.
+        if (start.equals(end)) {
+            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
+        }
+        Integer goal = request.getDurationMinutes();
+        if (goal == null || goal <= 0 || goal > windowLengthMinutes(start, end)) {
+            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
+        }
+    }
+
+    /**
+     * 다른 카테고리 활성 창형과 KST 시각대가 겹치면 거부 — 같은 시간대 행동 하나로 내기 2개
+     * 중복 보상을 막는다(확정 정책). 비교 대상은 최대 1개(활성 카테고리×타입당 1개, V20).
+     *
+     * <p>기존 창 행을 FOR UPDATE 로 잠가 동시 생성·삭제와 직렬화한다(챌린지 행 락 관행 재사용).
+     * 같은 카테고리 행은 중복 검사(CHALLENGE_DUPLICATE)가 담당하므로 건너뛴다.
+     * 맞닿음(끝==시작)은 겹침이 아니다(종전 겹침 검사와 동일).
+     */
+    private void rejectCrossCategoryWindowOverlap(Group group, CreateChallengeRequest request) {
+        LocalTime start = timeOfDay(request.getWindowStart());
+        LocalTime end = timeOfDay(request.getWindowEnd());
+        for (GroupChallengeWindow existing : groupChallengeWindowRepository.findActiveByGroupForUpdate(group)) {
+            if (existing.getChallenge().getCategory() == request.getMissionCategory()) {
+                continue;
+            }
+            if (dailyWindowsOverlap(start, end,
+                    timeOfDay(existing.getWindowStartAt()), timeOfDay(existing.getWindowEndAt()))) {
+                throw new GroupException(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
+            }
+        }
+    }
+
+    /** 매일 반복 창 [s, e) 두 개의 겹침 — 자정 걸침을 하루 경계에서 두 구간으로 전개해 선형 비교한다. */
+    private static boolean dailyWindowsOverlap(LocalTime aStart, LocalTime aEnd,
+            LocalTime bStart, LocalTime bEnd) {
+        for (int[] a : daySegments(aStart, aEnd)) {
+            for (int[] b : daySegments(bStart, bEnd)) {
+                if (a[0] < b[1] && b[0] < a[1]) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** [시작, 끝) 초 구간 전개 — 시작 ≥ 끝(자정 걸침·레거시 동일 시각)은 [s, 86400) + [0, e) 두 구간. */
+    private static List<int[]> daySegments(LocalTime start, LocalTime end) {
+        int s = start.toSecondOfDay();
+        int e = end.toSecondOfDay();
+        if (s < e) {
+            return List.of(new int[] {s, e});
+        }
+        return List.of(new int[] {s, SECONDS_PER_DAY}, new int[] {0, e});
+    }
+
+    /** 창 길이(분) — 자정 걸침이면 하루를 넘겨 계산한다(예: 22:00~01:00 = 180분). */
+    private static int windowLengthMinutes(LocalTime start, LocalTime end) {
+        int s = start.toSecondOfDay();
+        int e = end.toSecondOfDay();
+        int seconds = s < e ? e - s : SECONDS_PER_DAY - s + e;
+        return seconds / 60;
     }
 
     @Transactional
@@ -402,8 +586,50 @@ public class GroupChallengeService {
         groupChallenge.softDelete();
     }
 
+    /**
+     * 스크린타임 창 사용분 보고 — (챌린지, 유저, 날짜)당 1행 upsert. 중간 보고를 허용하고 마지막 값이
+     * 이긴다(창 종료 전 부분 집계 → 종료 후 최종 보고로 덮어쓰기).
+     *
+     * <p>값은 <b>클라 신뢰</b>다 — 서버가 검증할 수단이 없어 범위(0~{@value #MAX_WINDOW_USAGE_MINUTES})만
+     * 확인하고 그대로 저장한다(리스크 수용, 확정 정책). measuredAt 은 저장하지 않고 로그로만 남긴다.
+     */
+    @Transactional
+    public void reportWindowUsage(UUID groupId, UUID challengeId, UUID userId, WindowUsageReportRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+
+        GroupChallenge challenge = groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(challengeId, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        if (challenge.getCategory() != MissionCategory.SCREEN_TIME
+                || challenge.getType() != MissionType.TIME_WINDOW) {
+            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
+        }
+        if (request.getUsedMinutes() < 0 || request.getUsedMinutes() > MAX_WINDOW_USAGE_MINUTES) {
+            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
+        }
+
+        groupChallengeMemberRepository.upsertWindowUsage(
+                Generators.timeBasedEpochRandomGenerator().generate(),
+                challengeId, userId, request.getDate(), request.getUsedMinutes());
+        log.info("창 사용분 보고 — challengeId={}, userId={}, date={}, usedMinutes={}, measuredAt={}",
+                challengeId, userId, request.getDate(), request.getUsedMinutes(), request.getMeasuredAt());
+    }
+
     // TIME_WINDOW 상세의 Instant를 UTC 기준 "HH:mm:ss" 문자열로 변환 (time_zone 컬럼 제거에 따라 UTC 고정).
     private String toLocalTimeString(Instant instant) {
-        return LocalTime.ofInstant(instant, ZoneOffset.UTC).format(TIME_FORMATTER);
+        return timeOfDay(instant).format(TIME_FORMATTER);
+    }
+
+    // 창 시각 추출은 WindowFocusAggregator.timeOfDay 단일 기준을 공유한다(검증·겹침·집계·응답 변환 동일).
+    private static LocalTime timeOfDay(Instant instant) {
+        return WindowFocusAggregator.timeOfDay(instant);
     }
 }

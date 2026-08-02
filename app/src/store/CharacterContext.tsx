@@ -73,7 +73,14 @@ export function transferCharacter(fromUserId: string, toUserId: string): Promise
   });
 }
 
-export function CharacterProvider({ children }: { children: ReactNode }) {
+export function CharacterProvider({
+  children,
+  // 온보딩 누끼 체험에서 만든 캐릭터 경로 — 새 계정 버킷을 하이드레이션할 때 1회 시드용(아래 참고).
+  initialCustomUri,
+}: {
+  children: ReactNode;
+  initialCustomUri?: string;
+}) {
   const { userId } = useUser();
   // 게스트도 UUID JWT를 받으므로 userId 버킷만으로 계정이 분리된다(CoinContext와 동일).
   const bucket = userId ?? FALLBACK_BUCKET;
@@ -87,12 +94,26 @@ export function CharacterProvider({ children }: { children: ReactNode }) {
     AsyncStorage.getItem(STORAGE_KEYS.character).then((raw) => {
       const map = raw ? (JSON.parse(raw) as CharacterByUser) : {};
       const saved = map[bucket] ?? DEFAULT_CHARACTER;
-      setChoiceState(saved.choice);
-      setCustomUriState(saved.customUri);
-      setCreatedAt(saved.createdAt);
+      // 온보딩 체험에서 만든 누끼 시드 — 이 버킷에 저장된 customUri가 없고 initialCustomUri가
+      // 오면 customUri만 그 값으로 채운다. 장착은 안 하므로 choice는 'default' 유지.
+      // 이미 저장된 누끼가 있으면 덮어쓰지 않는다(유저가 직접 만든 최신본 보존). 아래 저장 이펙트가
+      // 시드된 상태를 그대로 persist한다(loaded=true 이후 첫 변경).
+      if (!saved.customUri && initialCustomUri) {
+        // 저장 경로는 고정 파일이라 캐시버스트 쿼리가 없으면 붙여 홈 첫 렌더가 갱신되게 한다.
+        const seeded = initialCustomUri.includes('?t=')
+          ? initialCustomUri
+          : `${initialCustomUri}?t=${Date.now()}`;
+        setChoiceState('default');
+        setCustomUriState(seeded);
+        setCreatedAt(Date.now());
+      } else {
+        setChoiceState(saved.choice);
+        setCustomUriState(saved.customUri);
+        setCreatedAt(saved.createdAt);
+      }
       loaded.current = true;
     });
-  }, [bucket]);
+  }, [bucket, initialCustomUri]);
 
   // 자기 버킷만 갱신해 다른 계정 캐릭터를 건드리지 않는다.
   useEffect(() => {

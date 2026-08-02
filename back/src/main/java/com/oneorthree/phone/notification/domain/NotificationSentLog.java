@@ -41,6 +41,19 @@ public class NotificationSentLog {
     /** 발송 종류 — 순위 추월. */
     public static final String TYPE_RANK_OVERTAKE = "RANK_OVERTAKE";
 
+    /**
+     * 발송 종류 — 내기 정산 결과(B4). {@code target_user_id} 에 <b>내기 id</b> 를 담아
+     * (user_id, type, target_user_id) 조합으로 "이 유저에게 이 내기 결과를 이미 보냈는지"를 판정한다.
+     * 08:00·13:00 두 크론이 같은 정산분을 훑어도 이 dedup 때문에 한 번만 나간다.
+     */
+    public static final String TYPE_BET_RESULT = "BET_RESULT";
+
+    /**
+     * 발송 종류 — 스크린타임 창형 챌린지의 창 종료 알림(B4). {@code target_user_id} 에 <b>챌린지 id</b>.
+     * 창은 매일 반복되므로 dedup 은 (user_id, type, target_user_id) + <b>당일 sent_at</b> 으로 본다.
+     */
+    public static final String TYPE_CHALLENGE_WINDOW_END = "CHALLENGE_WINDOW_END";
+
     @Id
     @GeneratedUuidV7
     private UUID id;
@@ -51,7 +64,9 @@ public class NotificationSentLog {
     @Column(nullable = false)
     private String type;
 
-    // 대상이 특정 유저인 발송에서만 채움 — 추월은 대표 라이벌(같은 라이벌 48h 쿨다운 판정 키). 그 외는 null.
+    // dedup·쿨다운 판정 키. 추월(579)은 대표 라이벌 userId, 내기 결과(B4)는 betId, 창 종료(B4)는
+    // challengeId 를 담는다 — 컬럼에 FK 가 없어(V1 baseline) 유저 외 식별자도 그대로 실을 수 있다.
+    // type 별로 의미가 다르므로 조회는 항상 type 과 함께 건다. 대상이 없는 발송은 null.
     @Column(name = "target_user_id")
     private UUID targetUserId;
 

@@ -7,6 +7,7 @@ export type V2RootStackParamList = {
   Stats: undefined; // 통계 상세 (홈 '자세히'에서 진입)
   UsageDetail: undefined; // 앱별 사용시간 상세 (홈 '핸드폰 사용' 탭에서 진입)
   Notifications: undefined; // 알림 보관함 (홈 우측 상단 종에서 진입 — GROMO-661)
+  CurrencyHistory: undefined; // 시간조각(재화) 거래 내역 (전체 탭 잔액 행에서 진입)
   FocusCategory: undefined; // 02 과목 선택 (홈 ● 집중 FAB에서 진입)
   FocusSession: {
     subjectId: string;
@@ -39,6 +40,7 @@ export type V2RootStackParamList = {
     toLevel: number; // 정산 후 티어 (newTierLevel)
     weekHours: number; // 해당 주차 집중 시간(시간 단위, 소수 허용) — focusSeconds ÷ 3600
     weekStartAt: string; // ack 대상 주차(ISO) — 화면 닫힐 때 확인 처리
+    promotionBonusCoins?: number; // 승급 보상 시간조각(승급 시 >0일 때만 배지 표기)
   }; // 승격/유지/강등 연출 — 리그 탭 포커스 시 미확인 last-result가 있으면 진입 (GROMO-831)
 
   // 그룹(A안, docs/app/group-plan.md §9) — 진입점은 '그룹' 탭(GroupScreen), 아래는 스택 push.

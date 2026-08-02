@@ -50,4 +50,19 @@ public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, 
 
     // TIME_WINDOW 겹침 판정은 window 컬럼의 상세 테이블 분리에 따라
     // GroupChallengeWindowRepository.existsOverlappingTimeWindow 로 이동.
+
+    /**
+     * 창 종료 감지 푸시(B4) 대상 후보 — 카테고리·타입이 맞는 살아있는 ACTIVE 챌린지 전건.
+     *
+     * <p>15분 크론이 매 틱 도는 조회라 group 을 함께 fetch 한다(딥링크의 groupId). 실제 발송 대상은
+     * 여기서 창 상세를 붙여 "오늘 창 종료가 방금 지났는지" 로 다시 좁히므로, 이 조회 결과는 보통
+     * 그룹 수준의 소수다(활성 챌린지는 그룹당 카테고리×타입 1개 = 최대 4개, V20 부분 유니크).
+     */
+    @Query("SELECT c FROM GroupChallenge c JOIN FETCH c.group "
+            + "WHERE c.status = :status AND c.deletedAt IS NULL "
+            + "AND c.category = :category AND c.type = :type")
+    List<GroupChallenge> findActiveByCategoryAndType(
+            @Param("status") GroupChallengeStatus status,
+            @Param("category") MissionCategory category,
+            @Param("type") MissionType type);
 }

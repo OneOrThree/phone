@@ -5,7 +5,7 @@
 // 내기 2종은 3차(docs/app/group-bet-plan.md §2, 계약 정본은 docs/back/group-bet-plan.md §2).
 import axios from 'axios';
 import { api } from '@/services/api';
-import type { GroupJoinMethod } from '@/services/analyticsEvents';
+import { logGroupChallengeDeleted, type GroupJoinMethod } from '@/services/analyticsEvents';
 import { todayStr } from '@/utils/localDate';
 import type {
   CreateAnnouncementRequest,
@@ -22,9 +22,20 @@ import type {
   GroupSearchResponse,
   GroupSettingsResponse,
   GroupSummaryResponse,
+  MissionCategory,
   UpdateGroupRequest,
   UpdateGroupSettingsRequest,
 } from '@/types/dto/group';
+
+// ── 신설 서버 에러코드(계약 §2 — 앱이 code 문자열로 분기) ────────────────────────
+// 화면 switch가 흩어 쓰는 리터럴의 오타를 막으려고 상수로 못 박는다(신설분만 —
+// 기존 분기 리터럴까지 소급 치환하면 diff가 계약 밖으로 번진다).
+export const CHALLENGE_DUPLICATE = 'CHALLENGE_DUPLICATE'; // 409 카테고리×타입 활성 중복
+export const CHALLENGE_WINDOW_OVERLAP = 'CHALLENGE_WINDOW_OVERLAP'; // 409 창 시간대 겹침
+export const BET_ALREADY_FAILED = 'BET_ALREADY_FAILED'; // 409 스크린타임 이미 목표 초과(확정 패배)
+export const BET_CANCEL_FORBIDDEN = 'BET_CANCEL_FORBIDDEN'; // 403 개설자 아님
+export const BET_CANCEL_HAS_OTHERS = 'BET_CANCEL_HAS_OTHERS'; // 409 타 참가자 존재
+export const BET_NOT_OPEN = 'BET_NOT_OPEN'; // 409 이미 정산·취소된 내기
 
 // POST /api/v1/groups — 그룹 생성. password·description은 보내지 않는다(§3-1-3).
 export async function createGroup(body: CreateGroupRequest): Promise<CreateGroupResponse> {
@@ -153,6 +164,28 @@ export async function deleteAnnouncement(groupId: string, id: string): Promise<v
   await api.delete<void>(`/api/v1/groups/${groupId}/announcements/${id}`);
 }
 
+// 챌린지 메타 캐시 — 목록 조회(getChallenges)의 응답에서 challengeId별 메타를 받아 둔다.
+// 쓰임 2곳(둘 다 화면에 뜬 카드에서만 시작되는 동작이라 실질 항상 적중한다):
+//  · 삭제 계측(group_challenge_deleted) — 이벤트는 mission_type/category 파라미터가 계약인데
+//    (계약 §계측 표) 삭제 호출부(GroupRoomScreen)는 challengeId만 넘긴다. 적중 실패 시
+//    이벤트를 생략한다 — 파라미터 없는 반쪽 이벤트로 지표를 오염시키지 않는다.
+//  · 내기 취소의 groupId 역참조(challengeGroupId) — 취소 진입점이 사는 ChallengeCard는
+//    groupId prop이 없고, 호출부(GroupRoomScreen)는 A3 전유라 이 배치에서 prop을 못 늘린다.
+const challengeMetaCache = new Map<
+  string,
+  {
+    groupId: string;
+    missionType: GroupChallengeResponse['missionType'];
+    missionCategory: MissionCategory;
+  }
+>();
+
+// 이 챌린지를 마지막으로 내려준 그룹 — ChallengeCard의 내기 취소가 cancelBet 경로를 만들 때 쓴다.
+// 캐시 미적중(이론상 앱 재시작 직후뿐)이면 null — 호출부는 공통 실패 문구로 떨어뜨린다.
+export function challengeGroupId(challengeId: string): string | null {
+  return challengeMetaCache.get(challengeId)?.groupId ?? null;
+}
+
 // GET /api/v1/groups/{groupId}/challenges?date — 챌린지 목록(그룹원만).
 // date는 서버 **선택** 파라미터라 getGroupDetail과 달리 기본값을 채우지 않는다 —
 // date를 보낼 때만 memberProgress가 실리므로(안 보내면 null) 진행률이 필요한 화면이 명시적으로 넘긴다.
@@ -165,6 +198,13 @@ export async function getChallenges(
     `/api/v1/groups/${groupId}/challenges`,
     date ? { params: { date } } : undefined,
   );
+  for (const c of data) {
+    challengeMetaCache.set(c.id, {
+      groupId,
+      missionType: c.missionType,
+      missionCategory: c.missionCategory,
+    });
+  }
   return data;
 }
 
@@ -182,8 +222,17 @@ export async function createChallenge(
 }
 
 // DELETE /api/v1/groups/{groupId}/challenges/{challengeId} — 챌린지 삭제(방장만, 서버는 soft delete).
+// 계측(group_challenge_deleted)은 **서버가 삭제를 수락한 뒤에만** 발행한다 — 실패한 시도까지
+// 세면 실제 삭제 수가 부푼다(BetSheet의 '성공 시에만 발행' 규칙과 동일).
 export async function deleteChallenge(groupId: string, challengeId: string): Promise<void> {
   await api.delete<void>(`/api/v1/groups/${groupId}/challenges/${challengeId}`);
+  const meta = challengeMetaCache.get(challengeId);
+  if (meta) {
+    logGroupChallengeDeleted({
+      mission_type: meta.missionType,
+      mission_category: meta.missionCategory,
+    });
+  }
 }
 
 // POST /api/v1/groups/{groupId}/challenges/{challengeId}/bets — 내기 개설(그룹원 누구나).
@@ -205,6 +254,13 @@ export async function createBet(
 // 바디는 항상 {} 다 — joinGroup과 같은 이유로 생략하면 서버가 415를 준다(§2-2).
 export async function joinBet(groupId: string, betId: string): Promise<void> {
   await api.post<void>(`/api/v1/groups/${groupId}/bets/${betId}/join`, {});
+}
+
+// DELETE /api/v1/groups/{groupId}/bets/{betId} — 내기 취소(개설자 단독·OPEN일 때만), 204.
+// 서버가 판돈을 환불한다(정산 환불과 같은 원장 키 — 이중 환불 없음, 계약 §2).
+// 에러: BET_CANCEL_FORBIDDEN(403) · BET_CANCEL_HAS_OTHERS(409) · BET_NOT_OPEN(409).
+export async function cancelBet(groupId: string, betId: string): Promise<void> {
+  await api.delete<void>(`/api/v1/groups/${groupId}/bets/${betId}`);
 }
 
 // 서버 에러 바디({ code, message })의 code를 뽑는다. axios 에러가 아니거나 바디가 없으면 null.

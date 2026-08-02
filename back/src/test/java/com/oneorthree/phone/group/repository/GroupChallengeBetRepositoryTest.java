@@ -198,6 +198,56 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
         assertThat(found).extracting(GroupChallengeBet::getId).containsExactly(settled.getId());
     }
 
+    @Test
+    @DisplayName("최신 정산 조회 — CANCELED(취소)는 제외, FORFEITED(몰수)는 포함된다")
+    void latestSettledExcludesCanceledButIncludesForfeited() {
+        // 가장 최신이 취소 — 취소는 결과가 아니라 없던 일이므로 '지난 내기' 줄에 나오면 안 된다.
+        // 구앱은 CANCELED 문자열을 몰라 정산 결과처럼 오표시한다.
+        groupChallengeBetRepository.saveAndFlush(betOf(challenge, betDate, GroupBetStatus.CANCELED));
+        GroupChallengeBet forfeited = groupChallengeBetRepository.saveAndFlush(
+                betOf(challenge, betDate.minusDays(1), GroupBetStatus.FORFEITED));
+
+        List<GroupChallengeBet> found = groupChallengeBetRepository.findLatestSettledByChallengeIds(
+                List.of(challenge.getId()));
+
+        assertThat(found).extracting(GroupChallengeBet::getId).containsExactly(forfeited.getId());
+    }
+
+    @Test
+    @DisplayName("취소 이력만 있는 챌린지는 최신 정산 조회에서 아예 빠진다")
+    void latestSettledOmitsChallengeWithOnlyCanceledBets() {
+        groupChallengeBetRepository.saveAndFlush(betOf(challenge, betDate, GroupBetStatus.CANCELED));
+
+        assertThat(groupChallengeBetRepository.findLatestSettledByChallengeIds(
+                List.of(challenge.getId()))).isEmpty();
+    }
+
+    // ── 그룹 탈퇴 연동 대상 조회 ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("탈퇴 대상 조회 — 이 그룹에서 내가 참가 중인 OPEN 내기만, id 오름차순으로 온다")
+    void findsOpenBetIdsForParticipant() {
+        GroupChallenge other = anotherChallenge();
+        GroupChallengeBet open = groupChallengeBetRepository.saveAndFlush(betOf(betDate));
+        GroupChallengeBet openOther =
+                groupChallengeBetRepository.saveAndFlush(betOf(other, betDate, GroupBetStatus.OPEN));
+        GroupChallengeBet settled = groupChallengeBetRepository.saveAndFlush(
+                betOf(challenge, betDate.minusDays(1), GroupBetStatus.SETTLED));
+        for (GroupChallengeBet bet : List.of(open, openOther, settled)) {
+            groupChallengeBetParticipantRepository.saveAndFlush(
+                    GroupChallengeBetParticipant.builder().bet(bet).user(user).build());
+        }
+        // 참가하지 않은 OPEN 내기는 대상이 아니다.
+        groupChallengeBetRepository.saveAndFlush(
+                betOf(anotherChallenge(), betDate, GroupBetStatus.OPEN));
+
+        List<UUID> found = groupChallengeBetRepository
+                .findOpenBetIdsByGroupIdAndParticipantUserId(group.getId(), user.getId());
+
+        assertThat(found).containsExactlyInAnyOrder(open.getId(), openOther.getId());
+        assertThat(found).isSorted();
+    }
+
     // ── 정산 게이트 CAS ──────────────────────────────────────────────────
 
     @Test

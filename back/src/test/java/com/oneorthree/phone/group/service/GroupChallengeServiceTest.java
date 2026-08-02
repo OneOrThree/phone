@@ -4,6 +4,7 @@ import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
+import com.oneorthree.phone.group.domain.GroupChallengeMember;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
@@ -14,10 +15,12 @@ import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
 import com.oneorthree.phone.group.dto.CreateChallengeRequest;
 import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
+import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -38,16 +41,21 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.dao.DataIntegrityViolationException;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -105,6 +113,15 @@ class GroupChallengeServiceTest {
     // 기존 삭제 테스트들은 그대로 통과한다.
     @Mock
     private GroupChallengeBetRepository groupChallengeBetRepository;
+
+    // 스크린타임 창 사용분 보고 원본 저장소 — 스텁이 없으면 빈 리스트 = "보고 없음"(판정 불가).
+    @Mock
+    private GroupChallengeMemberRepository groupChallengeMemberRepository;
+
+    // FOCUS 창 클리핑 집계 — 스텁이 없으면 빈 맵 = "창 내 세션 없음"(0분). 달성 판정(isAchieved)은
+    // static 실제 로직이라 관용치 경계가 이 테스트에서 그대로 검증된다.
+    @Mock
+    private WindowFocusAggregator windowFocusAggregator;
 
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -399,9 +416,9 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("TIME_WINDOW 챌린지는 date 를 줘도 memberProgress = null (진행률 미지원)")
+    @DisplayName("창 상세 행이 유실된 TIME_WINDOW 챌린지는 date 를 줘도 memberProgress = null")
     void getChallengesTimeWindowHasNoProgress() {
-        // given
+        // given: window 상세가 조회되지 않는 창 챌린지(데이터 유실) — 목표를 모르니 판정 불가
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         GroupChallenge challenge = GroupChallenge.builder()
@@ -418,6 +435,159 @@ class GroupChallengeServiceTest {
         assertThat(result.get(0).getMemberProgress()).isNull();
         verify(dailyFocusStatRepository, never()).findByUserInAndDate(any(), any());
         verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
+    }
+
+    private GroupChallenge windowChallenge(Group group, MissionCategory category) {
+        return GroupChallenge.builder()
+                .id(CHALLENGE_ID).group(group)
+                .type(MissionType.TIME_WINDOW).category(category)
+                .status(GroupChallengeStatus.ACTIVE)
+                .build();
+    }
+
+    /** 창 상세 스텁 — 09:00~12:00 창에 창 내 목표분(null 허용 = 목표 없는 구 창)을 얹는다. */
+    private GroupChallengeWindow givenWindowDetail(Integer durationMinutes) {
+        GroupChallengeWindow window = GroupChallengeWindow.builder()
+                .challengeId(CHALLENGE_ID)
+                .windowStartAt(Instant.parse("2026-01-01T09:00:00Z"))
+                .windowEndAt(Instant.parse("2026-01-01T12:00:00Z"))
+                .durationMinutes(durationMinutes)
+                .build();
+        given(groupChallengeWindowRepository.findByChallengeIdIn(List.of(CHALLENGE_ID)))
+                .willReturn(List.of(window));
+        return window;
+    }
+
+    @Test
+    @DisplayName("FOCUS/TIME_WINDOW + 목표분 → 창 클리핑 실측 표시 + 달성 판정만 5분 관용치(목표−5 달성, 목표−6 미달성)")
+    void getChallengesFillsWindowFocusProgressWithTolerance() {
+        // given: 목표 60분 창 · 재영 55분(= 60−5, 경계 달성) · 수빈 54분(= 60−6, 미달성)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = windowChallenge(group, MissionCategory.FOCUS);
+        givenGroupWithTwoMembers(group, user, challenge);
+        GroupChallengeWindow window = givenWindowDetail(60);
+        given(windowFocusAggregator.focusMinutesWithin(List.of(USER_ID, OTHER_USER_ID), TODAY, window))
+                .willReturn(Map.of(USER_ID, 55, OTHER_USER_ID, 54));
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then: 표시값은 실측 그대로, 달성 플래그만 관용치 — durationMinutes 도 창 목표로 채워진다(additive)
+        assertThat(result.get(0).getDurationMinutes()).isEqualTo(60);
+        List<ChallengeMemberProgressResponse> progress = result.get(0).getMemberProgress();
+        assertThat(progress).hasSize(2);
+        assertThat(progress.get(0).getProgressMinutes()).isEqualTo(55);
+        assertThat(progress.get(0).getAchieved()).isTrue();
+        assertThat(progress.get(1).getProgressMinutes()).isEqualTo(54);
+        assertThat(progress.get(1).getAchieved()).isFalse();
+        // 일 통계는 조회하지 않는다(DURATION 대상 없음)
+        verify(dailyFocusStatRepository, never()).findByUserInAndDate(any(), any());
+
+        // myAchievedNow(내기 참가 판정)도 같은 소스·같은 관용치를 쓴다
+        ArgumentCaptor<Map<UUID, Boolean>> achievedCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(groupBetService).loadCurrentBets(
+                any(), any(), any(), achievedCaptor.capture());
+        assertThat(achievedCaptor.getValue()).containsEntry(CHALLENGE_ID, true);
+    }
+
+    @Test
+    @DisplayName("FOCUS/TIME_WINDOW — 창 내 세션이 없는 멤버는 0분·미달성 (서버 데이터라 0 이 사실)")
+    void getChallengesWindowFocusDefaultsToZero() {
+        // given: 목표 60분 창 · 아무도 창 내 세션 없음(집계 빈 맵)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = windowChallenge(group, MissionCategory.FOCUS);
+        givenGroupWithTwoMembers(group, user, challenge);
+        GroupChallengeWindow window = givenWindowDetail(60);
+        given(windowFocusAggregator.focusMinutesWithin(List.of(USER_ID, OTHER_USER_ID), TODAY, window))
+                .willReturn(Map.of());
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then
+        List<ChallengeMemberProgressResponse> progress = result.get(0).getMemberProgress();
+        assertThat(progress).allSatisfy(p -> {
+            assertThat(p.getProgressMinutes()).isZero();
+            assertThat(p.getAchieved()).isFalse();
+        });
+    }
+
+    @Test
+    @DisplayName("SCREEN_TIME/TIME_WINDOW + 목표분 → 보고값 ≤ 목표면 달성, 미보고 멤버는 null(판정 불가)")
+    void getChallengesFillsWindowScreenTimeProgressFromReports() {
+        // given: 목표 100분 창 · 재영 보고 100분(경계 달성) · 수빈 미보고
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = windowChallenge(group, MissionCategory.SCREEN_TIME);
+        givenGroupWithTwoMembers(group, user, challenge);
+        givenWindowDetail(100);
+        given(groupChallengeMemberRepository.findByGroupChallengeIdInAndUsageDate(List.of(CHALLENGE_ID), TODAY))
+                .willReturn(List.of(GroupChallengeMember.builder()
+                        .groupChallenge(challenge)
+                        .user(user)
+                        .progressMinutes(100)
+                        .usageDate(TODAY)
+                        .build()));
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then: 보고값 기준(클라 신뢰), 미보고 = null — 구 바이너리 참가자의 정상 상태
+        List<ChallengeMemberProgressResponse> progress = result.get(0).getMemberProgress();
+        assertThat(progress.get(0).getProgressMinutes()).isEqualTo(100);
+        assertThat(progress.get(0).getAchieved()).isTrue();
+        assertThat(progress.get(1).getProgressMinutes()).isNull();
+        assertThat(progress.get(1).getAchieved()).isNull();
+        // 창형은 일별 스크린타임 통계와 무관하다
+        verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
+    }
+
+    @Test
+    @DisplayName("SCREEN_TIME/TIME_WINDOW 보고값이 목표 초과 → achieved=false")
+    void getChallengesWindowScreenTimeOverGoalIsNotAchieved() {
+        // given: 목표 100분 창인데 120분 보고
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = windowChallenge(group, MissionCategory.SCREEN_TIME);
+        givenGroupWithTwoMembers(group, user, challenge);
+        givenWindowDetail(100);
+        given(groupChallengeMemberRepository.findByGroupChallengeIdInAndUsageDate(List.of(CHALLENGE_ID), TODAY))
+                .willReturn(List.of(GroupChallengeMember.builder()
+                        .groupChallenge(challenge)
+                        .user(user)
+                        .progressMinutes(120)
+                        .usageDate(TODAY)
+                        .build()));
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then
+        ChallengeMemberProgressResponse mine = result.get(0).getMemberProgress().get(0);
+        assertThat(mine.getProgressMinutes()).isEqualTo(120);
+        assertThat(mine.getAchieved()).isFalse();
+    }
+
+    @Test
+    @DisplayName("목표분 없는 구 창 챌린지는 date 를 줘도 memberProgress = null (현행 유지, 판정 불가)")
+    void getChallengesWindowWithoutGoalHasNoProgress() {
+        // given: 창 상세는 있으나 duration_minutes = null (V20 이전 생성분)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = windowChallenge(group, MissionCategory.FOCUS);
+        givenGroupWithTwoMembers(group, user, challenge);
+        givenWindowDetail(null);
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then: 진행률도 창 집계도 하지 않는다
+        assertThat(result.get(0).getMemberProgress()).isNull();
+        assertThat(result.get(0).getDurationMinutes()).isNull();
+        verify(windowFocusAggregator, never()).focusMinutesWithin(any(), any(), any());
+        verify(groupChallengeMemberRepository, never()).findByGroupChallengeIdInAndUsageDate(any(), any());
     }
 
     @Test
@@ -489,7 +659,7 @@ class GroupChallengeServiceTest {
         GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
                 .type(MissionType.DURATION).category(MissionCategory.FOCUS)
                 .status(GroupChallengeStatus.ACTIVE).build();
-        given(groupChallengeRepository.save(any(GroupChallenge.class))).willReturn(saved);
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
 
         // when
         CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
@@ -497,7 +667,7 @@ class GroupChallengeServiceTest {
         // then: 챌린지 + DURATION 상세 저장, window 상세는 저장 안 함
         assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
         assertThat(response.getNonParticipants()).isEmpty();
-        verify(groupChallengeRepository).save(any(GroupChallenge.class));
+        verify(groupChallengeRepository).saveAndFlush(any(GroupChallenge.class));
         ArgumentCaptor<GroupChallengeDuration> durationCaptor = ArgumentCaptor.forClass(GroupChallengeDuration.class);
         verify(groupChallengeDurationRepository).save(durationCaptor.capture());
         assertThat(durationCaptor.getValue().getChallenge()).isEqualTo(saved);
@@ -506,9 +676,9 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("TIME_WINDOW 챌린지 생성 성공 → 챌린지 + window 상세 저장")
+    @DisplayName("TIME_WINDOW 챌린지 생성 성공 → 챌린지 + window 상세(창 내 목표분 포함) 저장")
     void createTimeWindowChallengeSuccess() {
-        // given: OWNER + TIME_WINDOW + start<end + FOCUS
+        // given: OWNER + TIME_WINDOW + start<end + FOCUS + 창 내 목표 120분(창 길이 540분 이내)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
@@ -523,24 +693,107 @@ class GroupChallengeServiceTest {
         given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
         given(request.getWindowStart()).willReturn(windowStart);
         given(request.getWindowEnd()).willReturn(windowEnd);
+        given(request.getDurationMinutes()).willReturn(120);
 
         GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
                 .type(MissionType.TIME_WINDOW).category(MissionCategory.FOCUS)
                 .status(GroupChallengeStatus.ACTIVE).build();
-        given(groupChallengeRepository.save(any(GroupChallenge.class))).willReturn(saved);
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
 
         // when
         CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
 
         // then: 챌린지 + TIME_WINDOW 상세 저장, duration 상세는 저장 안 함
         assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
-        verify(groupChallengeRepository).save(any(GroupChallenge.class));
+        verify(groupChallengeRepository).saveAndFlush(any(GroupChallenge.class));
         ArgumentCaptor<GroupChallengeWindow> windowCaptor = ArgumentCaptor.forClass(GroupChallengeWindow.class);
         verify(groupChallengeWindowRepository).save(windowCaptor.capture());
         assertThat(windowCaptor.getValue().getChallenge()).isEqualTo(saved);
         assertThat(windowCaptor.getValue().getWindowStartAt()).isEqualTo(windowStart);
         assertThat(windowCaptor.getValue().getWindowEndAt()).isEqualTo(windowEnd);
+        assertThat(windowCaptor.getValue().getDurationMinutes()).isEqualTo(120);
         verify(groupChallengeDurationRepository, never()).save(any(GroupChallengeDuration.class));
+    }
+
+    @Test
+    @DisplayName("TIME_WINDOW 자정 걸침 창(22:00~01:00) → 창 길이 180분으로 계산돼 생성 허용")
+    void createTimeWindowChallengeAllowsMidnightCrossing() {
+        // given: 시각(time-of-day) 기준 시작 > 종료 — D 22:00 ~ D+1 01:00 창
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
+        given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
+        given(request.getWindowStart()).willReturn(Instant.parse("2026-01-01T22:00:00Z"));
+        given(request.getWindowEnd()).willReturn(Instant.parse("2026-01-01T01:00:00Z"));
+        given(request.getDurationMinutes()).willReturn(180);   // 정확히 창 길이 = 경계 허용
+
+        GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .type(MissionType.TIME_WINDOW).category(MissionCategory.FOCUS)
+                .status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
+
+        // when
+        CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        // then
+        assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
+        verify(groupChallengeWindowRepository).save(any(GroupChallengeWindow.class));
+    }
+
+    @Test
+    @DisplayName("TIME_WINDOW 인데 durationMinutes 누락 → GroupException(INVALID_MISSION_PARAMS)")
+    void createTimeWindowChallengeRequiresDurationMinutes() {
+        // given: 창 시각은 유효하지만 창 내 목표분이 없다
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
+        given(request.getWindowStart()).willReturn(Instant.parse("2026-01-01T09:00:00Z"));
+        given(request.getWindowEnd()).willReturn(Instant.parse("2026-01-01T12:00:00Z"));
+        // durationMinutes 는 stub 안 함 → null
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("TIME_WINDOW 인데 durationMinutes 가 창 길이 초과 → GroupException(INVALID_MISSION_PARAMS)")
+    void createTimeWindowChallengeRejectsGoalOverWindowLength() {
+        // given: 09:00~12:00 = 180분 창에 목표 181분
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
+        given(request.getWindowStart()).willReturn(Instant.parse("2026-01-01T09:00:00Z"));
+        given(request.getWindowEnd()).willReturn(Instant.parse("2026-01-01T12:00:00Z"));
+        given(request.getDurationMinutes()).willReturn(181);
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
     }
 
     @Test
@@ -562,7 +815,7 @@ class GroupChallengeServiceTest {
         GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
                 .type(MissionType.DURATION).category(MissionCategory.SCREEN_TIME)
                 .status(GroupChallengeStatus.ACTIVE).build();
-        given(groupChallengeRepository.save(any(GroupChallenge.class))).willReturn(saved);
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
 
         UUID grantedId = UUID.fromString("00000000-0000-0000-0000-0000000000d1");
         UUID deniedId = UUID.fromString("00000000-0000-0000-0000-0000000000d2");
@@ -680,13 +933,13 @@ class GroupChallengeServiceTest {
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
-        verify(groupChallengeRepository, never()).save(any(GroupChallenge.class));
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
     }
 
     @Test
-    @DisplayName("이미 활성 챌린지 존재 → GroupException(ACTIVE_CHALLENGE_EXISTS)")
+    @DisplayName("같은 (카테고리, 타입) 활성 챌린지 존재 → GroupException(CHALLENGE_DUPLICATE)")
     void createChallengeDuplicate() {
-        // given: OWNER + DURATION + 동일 카테고리에 ACTIVE 챌린지 존재
+        // given: OWNER + DURATION + 동일 (카테고리, 타입)에 ACTIVE 챌린지 존재
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
@@ -706,14 +959,14 @@ class GroupChallengeServiceTest {
         assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.ACTIVE_CHALLENGE_EXISTS);
-        verify(groupChallengeRepository, never()).save(any(GroupChallenge.class));
+                .isEqualTo(GroupErrorCode.CHALLENGE_DUPLICATE);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
     }
 
     @Test
-    @DisplayName("TIME_WINDOW 겹치는 챌린지 존재 → GroupException(ACTIVE_CHALLENGE_EXISTS), 저장 안 함")
-    void createChallengeOverlappingTimeWindow() {
-        // given: OWNER + 유효한 새 윈도우 [10:00~11:00]
+    @DisplayName("사전 검사를 통과했는데 저장이 유니크 위반 → 레이스로 보고 CHALLENGE_DUPLICATE 로 강하")
+    void createChallengeMapsUniqueViolationToDuplicate() {
+        // given: exists 는 false(스텁 기본값)인데 saveAndFlush 가 V20 부분 유니크 위반을 던진다
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
@@ -721,26 +974,119 @@ class GroupChallengeServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
-        Instant newStart = Instant.parse("2026-01-01T10:00:00Z");
-        Instant newEnd = Instant.parse("2026-01-01T11:00:00Z");
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getMissionType()).willReturn(MissionType.DURATION);
+        given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
+        given(request.getDurationMinutes()).willReturn(30);
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class)))
+                .willThrow(new DataIntegrityViolationException("uq_group_challenges_active_cat_type"));
+
+        // when & then: check-then-insert 레이스의 패자도 같은 에러 코드를 받는다
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_DUPLICATE);
+        verify(groupChallengeDurationRepository, never()).save(any(GroupChallengeDuration.class));
+    }
+
+    /** 겹침 검사 스텁 — 기존 활성 창형(카테고리·시각) 하나를 FOR UPDATE 조회 결과로 돌려준다. */
+    private void givenActiveWindow(Group group, MissionCategory category, String start, String end) {
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-0000000000e1"))
+                .group(group).type(MissionType.TIME_WINDOW).category(category)
+                .status(GroupChallengeStatus.ACTIVE)
+                .build();
+        given(groupChallengeWindowRepository.findActiveByGroupForUpdate(group))
+                .willReturn(List.of(GroupChallengeWindow.builder()
+                        .challengeId(challenge.getId())
+                        .challenge(challenge)
+                        .windowStartAt(Instant.parse(start))
+                        .windowEndAt(Instant.parse(end))
+                        .build()));
+    }
+
+    private CreateChallengeRequest windowRequest(MissionCategory category, String start, String end, int goal) {
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
-        given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
-        given(request.getWindowStart()).willReturn(newStart);
-        given(request.getWindowEnd()).willReturn(newEnd);
+        given(request.getMissionCategory()).willReturn(category);
+        given(request.getWindowStart()).willReturn(Instant.parse(start));
+        given(request.getWindowEnd()).willReturn(Instant.parse(end));
+        given(request.getDurationMinutes()).willReturn(goal);
+        return request;
+    }
 
-        // 핵심: "겹치는 기존 챌린지가 있다"를 repository 스텁으로 표현 (실제 챌린지 객체 불필요).
-        // 맞닿음(끝==시작) 같은 경계 판정 자체는 SQL 책임 → GroupChallengeWindowRepository 통합 테스트에서 검증.
-        given(groupChallengeWindowRepository.existsOverlappingTimeWindow(
-                group, MissionCategory.FOCUS, newStart, newEnd)).willReturn(true);
+    @Test
+    @DisplayName("다른 카테고리 활성 창형과 시각대 교차 → GroupException(CHALLENGE_WINDOW_OVERLAP), 저장 안 함")
+    void createChallengeOverlappingTimeWindow() {
+        // given: SCREEN_TIME 활성 창형 [09:00~12:00] 이 있는 그룹에 FOCUS 창형 [10:00~11:00] 생성 시도
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "2026-01-01T09:00:00Z", "2026-01-01T12:00:00Z");
+
+        CreateChallengeRequest request =
+                windowRequest(MissionCategory.FOCUS, "2026-01-01T10:00:00Z", "2026-01-01T11:00:00Z", 30);
+
+        // when & then: 같은 시간대 행동 하나로 내기 2개 중복 보상 차단
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+        verify(groupChallengeWindowRepository, never()).save(any(GroupChallengeWindow.class));
+    }
+
+    @Test
+    @DisplayName("다른 카테고리 창형과 맞닿음(끝==시작)은 겹침이 아니다 → 생성 허용")
+    void createChallengeAdjacentWindowIsAllowed() {
+        // given: SCREEN_TIME [09:00~12:00] 뒤에 딱 붙는 FOCUS [12:00~13:00]
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "2026-01-01T09:00:00Z", "2026-01-01T12:00:00Z");
+
+        GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .type(MissionType.TIME_WINDOW).category(MissionCategory.FOCUS)
+                .status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
+
+        CreateChallengeRequest request =
+                windowRequest(MissionCategory.FOCUS, "2026-01-01T12:00:00Z", "2026-01-01T13:00:00Z", 30);
+
+        // when
+        CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        // then
+        assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
+    }
+
+    @Test
+    @DisplayName("자정 걸침 창끼리의 교차도 하루 경계 전개로 잡는다 → CHALLENGE_WINDOW_OVERLAP")
+    void createChallengeDetectsMidnightCrossingOverlap() {
+        // given: SCREEN_TIME [23:00~02:00](자정 걸침) 이 있는데 FOCUS [01:00~03:00] 생성 시도 —
+        // 새 창은 자정을 안 걸치지만 기존 창의 [00:00~02:00) 구간과 겹친다
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "2026-01-01T23:00:00Z", "2026-01-01T02:00:00Z");
+
+        CreateChallengeRequest request =
+                windowRequest(MissionCategory.FOCUS, "2026-01-01T01:00:00Z", "2026-01-01T03:00:00Z", 30);
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.ACTIVE_CHALLENGE_EXISTS);
-        verify(groupChallengeRepository, never()).save(any(GroupChallenge.class));
-        verify(groupChallengeWindowRepository, never()).save(any(GroupChallengeWindow.class));
+                .isEqualTo(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
     }
 
     // ── deleteChallenge ───────────────────────────────────────────────────
@@ -786,7 +1132,7 @@ class GroupChallengeServiceTest {
         GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
                 .type(MissionType.DURATION).category(MissionCategory.FOCUS)
                 .status(GroupChallengeStatus.ACTIVE).build();
-        given(groupChallengeRepository.save(any(GroupChallenge.class))).willReturn(saved);
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
 
         // when
         CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
@@ -877,6 +1223,140 @@ class GroupChallengeServiceTest {
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.deleteChallenge(GROUP_ID, CHALLENGE_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.NOT_FOUND);
+    }
+
+    // ── reportWindowUsage (스크린타임 창 사용분 보고) ────────────────────────
+
+    /** 보고 성공 경로 공통 셋업 — 멤버 + SCREEN_TIME×TIME_WINDOW 챌린지. */
+    private GroupChallenge givenReportableChallenge(User user, Group group, MissionCategory category,
+            MissionType type) {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(CHALLENGE_ID).group(group)
+                .type(type).category(category)
+                .status(GroupChallengeStatus.ACTIVE)
+                .build();
+        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(CHALLENGE_ID, group))
+                .willReturn(Optional.of(challenge));
+        return challenge;
+    }
+
+    @Test
+    @DisplayName("창 사용분 보고 성공 → (챌린지, 유저, 날짜) upsert — 서버 생성 id 로 저장 위임")
+    void reportWindowUsageSuccess() {
+        // given
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        givenReportableChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        WindowUsageReportRequest request =
+                new WindowUsageReportRequest(TODAY, 90, Instant.parse("2026-08-01T12:30:00Z"));
+
+        // when
+        groupChallengeService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID, request);
+
+        // then: 마지막 값 승리 upsert 로 위임된다 (id 는 서버가 UUID v7 생성)
+        verify(groupChallengeMemberRepository)
+                .upsertWindowUsage(any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(TODAY), eq(90));
+    }
+
+    @Test
+    @DisplayName("usedMinutes 경계 — 0 과 1440 은 허용, 1441 은 INVALID_MISSION_PARAMS")
+    void reportWindowUsageValidatesRange() {
+        // given
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        givenReportableChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+
+        // when & then: 경계값은 통과
+        groupChallengeService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 0, null));
+        groupChallengeService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 1440, null));
+        // 범위 밖(하루 초과)은 400
+        assertThatThrownBy(() -> groupChallengeService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 1441, null)))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+        assertThatThrownBy(() -> groupChallengeService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, -1, null)))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+    }
+
+    @Test
+    @DisplayName("SCREEN_TIME×TIME_WINDOW 가 아닌 챌린지에 보고 → INVALID_MISSION_PARAMS, 저장 안 함")
+    void reportWindowUsageRejectsWrongChallengeKind() {
+        // given: FOCUS DURATION 챌린지
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        givenReportableChallenge(user, group, MissionCategory.FOCUS, MissionType.DURATION);
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 60, null)))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+        verify(groupChallengeMemberRepository, never())
+                .upsertWindowUsage(any(), any(), any(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("그룹원이 아니면 보고 불가 → MEMBER_ONLY")
+    void reportWindowUsageMemberOnly() {
+        // given: 멤버십 없음
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 60, null)))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.MEMBER_ONLY);
+    }
+
+    @Test
+    @DisplayName("게스트 보고 → GUEST_FORBIDDEN")
+    void reportWindowUsageGuestForbidden() {
+        // given
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(guest()));
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 60, null)))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.GUEST_FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("삭제됐거나 없는 챌린지에 보고 → NOT_FOUND")
+    void reportWindowUsageChallengeNotFound() {
+        // given: 챌린지 조회가 비어 있다(soft delete 포함)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
+        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(CHALLENGE_ID, group))
+                .willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 60, null)))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.NOT_FOUND);

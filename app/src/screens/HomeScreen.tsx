@@ -18,12 +18,15 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
+import { CURRENCY } from '@/constants/currency';
+import { focusGoalReward, screenTimeGoalReward } from '@/utils/currencyRewards';
 import { useLeagueRanking } from '@/screens/league/useLeagueRanking';
 import { useLeagueMeta } from '@/screens/league/useLeagueMeta';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useUser } from '@/store/UserContext';
 import { useFocus } from '@/store/FocusContext';
 import { useCharacter } from '@/store/CharacterContext';
+import { useCoins, useRefreshCoinsOnFocus } from '@/store/CoinContext';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import ScreenTimeModule, {
   androidNativeModuleAvailable,
@@ -242,6 +245,9 @@ export default function HomeScreen() {
   const { todayFocusSeconds } = useFocus();
   // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
   const { activeSource } = useCharacter();
+  // 시간조각(재화) 잔액 — 오늘 카드 헤더 칩. 홈 포커스 시 서버 잔액 재조회(내기 차감·정산 반영).
+  const { coins, coinsLoaded } = useCoins();
+  useRefreshCoinsOnFocus();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
@@ -562,6 +568,12 @@ export default function HomeScreen() {
               오늘 <Text style={s.cardTitleSub}>Today</Text>
             </Text>
             <View style={s.cardHeaderRight}>
+              {/* 시간조각 잔액 칩 — 폭이 빠듯해 라벨 생략(⏳ N). 미로드 시 중립 플레이스홀더(⏳ –) */}
+              <View style={s.streakChip}>
+                <Text style={s.streakChipText}>
+                  {CURRENCY.icon} {coinsLoaded ? coins.toLocaleString() : '–'}
+                </Text>
+              </View>
               {/* 연속 공부(GROMO-630) — 하루 10분 스트릭. 0일이면 생략 */}
               {streakDays > 0 && (
                 <View style={s.streakChip}>
@@ -612,6 +624,12 @@ export default function HomeScreen() {
         visible={goalCelebration != null}
         goalStreakDays={goalCelebration?.days ?? 1}
         goalMinutes={goalCelebration?.goalMinutes}
+        // 목표 분으로 지급액을 계산해 +N ⏳ 표기(서버 지급과 동일 공식 미러 — utils/currencyRewards)
+        rewardCoins={
+          goalCelebration?.goalMinutes != null
+            ? focusGoalReward(goalCelebration.goalMinutes)
+            : undefined
+        }
         onClose={closeGoalCelebration}
       />
 
@@ -621,6 +639,12 @@ export default function HomeScreen() {
         visible={screenTimeCelebration != null && goalCelebration == null}
         streakDays={screenTimeCelebration?.days ?? 1}
         goalMinutes={screenTimeCelebration?.goalMinutes}
+        // 사용 상한(분)으로 지급액을 계산해 +N ⏳ 표기(서버 지급과 동일 공식 미러)
+        rewardCoins={
+          screenTimeCelebration?.goalMinutes != null
+            ? screenTimeGoalReward(screenTimeCelebration.goalMinutes)
+            : undefined
+        }
         onClose={closeScreenTimeCelebration}
       />
 

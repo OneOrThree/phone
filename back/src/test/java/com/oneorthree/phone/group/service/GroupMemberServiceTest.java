@@ -55,6 +55,9 @@ class GroupMemberServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private GroupBetService groupBetService;
+
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID OWNER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID TARGET_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
@@ -195,9 +198,10 @@ class GroupMemberServiceTest {
         // when
         groupMemberService.withdrawGroup(GROUP_ID, OWNER_ID);
 
-        // then: 멤버 삭제 + 그룹 종료
+        // then: 멤버 삭제 + 그룹 종료. OPEN 내기 정리(환불·자동 취소)도 같은 트랜잭션에서 호출된다.
         verify(groupMemberRepository).delete(member);
         assertThat(group.getStatus()).isEqualTo(GroupStatus.ENDED);
+        verify(groupBetService).releaseFromOpenBets(user, group);
     }
 
     @Test
@@ -219,9 +223,10 @@ class GroupMemberServiceTest {
         // when
         groupMemberService.withdrawGroup(GROUP_ID, OWNER_ID);
 
-        // then: 멤버만 삭제, 그룹은 종료되지 않음
+        // then: 멤버만 삭제, 그룹은 종료되지 않음. OPEN 내기 정리 훅도 호출된다.
         verify(groupMemberRepository).delete(member);
         assertThat(group.getStatus()).isNotEqualTo(GroupStatus.ENDED);
+        verify(groupBetService).releaseFromOpenBets(user, group);
     }
 
     @Test
@@ -271,11 +276,12 @@ class GroupMemberServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member, other));
 
-        // when & then: 예외 발생 + 삭제 미호출
+        // when & then: 예외 발생 + 삭제 미호출. 내기 정리도 시작되면 안 된다(탈퇴 자체가 거절).
         assertThatThrownBy(() -> groupMemberService.withdrawGroup(GROUP_ID, OWNER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.HOST_WITHDRAW);
         verify(groupMemberRepository, never()).delete(member);
+        verify(groupBetService, never()).releaseFromOpenBets(user, group);
     }
 }

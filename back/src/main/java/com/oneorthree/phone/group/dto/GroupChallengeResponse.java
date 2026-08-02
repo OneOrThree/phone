@@ -16,7 +16,10 @@ public class GroupChallengeResponse {
     private UUID id;
     private MissionType missionType;
     private MissionCategory missionCategory;
+
+    /** DURATION: 하루 목표 분 · TIME_WINDOW: 창 내 목표 분(V20 additive — 목표 없는 구 창 챌린지는 null). */
     private Integer durationMinutes;
+
     private String windowStart;
     private String windowEnd;
     private GroupChallengeStatus status;
@@ -24,9 +27,12 @@ public class GroupChallengeResponse {
     private boolean canParticipate;
 
     /**
-     * 멤버별 당일 진행률. 조회 시 {@code date} 를 주지 않았거나 TIME_WINDOW 챌린지, 또는 이미 끝난
-     * 챌린지({@code status = INACTIVE})면 null 이다
+     * 멤버별 당일 진행률. 조회 시 {@code date} 를 주지 않았거나 목표 없는 창 챌린지
+     * ({@code durationMinutes = null}), 또는 이미 끝난 챌린지({@code status = INACTIVE})면 null 이다
      * (하위 호환: 기존 클라이언트는 date 를 보내지 않으므로 필드가 항상 null 로 나간다).
+     *
+     * <p>TIME_WINDOW 는 date(KST) 의 창 기준 — FOCUS 는 세션 클리핑 실측(달성 판정만 5분 관용치),
+     * SCREEN_TIME 은 클라 보고값(미보고 = null, 3상 유지).
      */
     private List<ChallengeMemberProgressResponse> memberProgress;
 
