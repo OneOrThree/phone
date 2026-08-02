@@ -33,4 +33,15 @@ public class FilterConfig {
         bean.setOrder(2);
         return bean;
     }
+
+    // 모더레이션 요청 본문 크기 가드 — 역직렬화 전 차단이 목적이라 JWT(1)·TraceId(2)보다 먼저 돈다.
+    // 해당 엔드포인트에만 적용해 다른 경로의 본문엔 영향이 없다.
+    @Bean
+    public FilterRegistrationBean<ModerationRequestSizeFilter> moderationRequestSizeFilter() {
+        FilterRegistrationBean<ModerationRequestSizeFilter> bean = new FilterRegistrationBean<>();
+        bean.setFilter(new ModerationRequestSizeFilter());
+        bean.addUrlPatterns("/api/v1/character/moderation");
+        bean.setOrder(0);
+        return bean;
+    }
 }
