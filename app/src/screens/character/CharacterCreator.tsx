@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -19,7 +20,12 @@ import {
   subjectMaskReasonLabel,
   type SubjectMaskResult,
 } from '@/services/subjectMask';
-import { moderateImage } from '@/services/characterApi';
+import {
+  getCharacterQuota,
+  moderateImage,
+  recordCharacterGeneration,
+  type CharacterQuota,
+} from '@/services/characterApi';
 import { T } from '@/constants/theme';
 
 // 캐릭터 생성기(자립 컴포넌트) — 앨범/카메라로 사물 사진을 얻으면 온디바이스 누끼(Vision) 후
@@ -33,6 +39,15 @@ import { T } from '@/constants/theme';
 
 const STAGE_HEIGHT = 340; // 캐릭터가 서는 무대 높이
 const DESK_EMOJI = ['📚', '☕️', '✏️'];
+
+// 쿼터 초기화 시각(ISO) → "N월 N일에 다시 만들 수 있어요." 안내 문구.
+// resetAt이 없거나 파싱이 안 되면 날짜 없는 일반 안내로 폴백한다.
+function formatResetLabel(resetAt: string | null): string {
+  if (!resetAt) return '다음 주에 다시 만들 수 있어요.';
+  const d = new Date(resetAt);
+  if (Number.isNaN(d.getTime())) return '다음 주에 다시 만들 수 있어요.';
+  return `${d.getMonth() + 1}월 ${d.getDate()}일에 다시 만들 수 있어요.`;
+}
 
 type Phase = 'idle' | 'working' | 'ready' | 'checking' | 'saving';
 
@@ -57,6 +72,50 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
   // 아직 디코딩 중일 수 있어, 그 전에 저장하면 captureRef가 사진 물체가 빠진 채로 굽는다.
   // 새 결과·회전으로 uri가 바뀌면 false로 리셋하고 ObjectCharacter onLoad에서 다시 true로.
   const [imageLoaded, setImageLoaded] = useState(false);
+
+  // 생성 쿼터 — 마운트 시 1회 조회. quotaLoading은 조회 완료 전까지 true(깜빡임 최소화용).
+  // quota===null은 '조회 실패'로, fail-open(생성 허용)으로 다룬다(쿼터는 제한이지 안전이 아님).
+  const [quota, setQuota] = useState<CharacterQuota | null>(null);
+  const [quotaLoading, setQuotaLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const q = await getCharacterQuota();
+      if (!alive) return;
+      setQuota(q);
+      setQuotaLoading(false);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // 제한 사용자이면서 남은 횟수가 0 이하 → 생성 차단. (unlimited이거나 조회 실패(null)면 허용.)
+  const blocked = quota != null && !quota.unlimited && (quota.remaining ?? 0) <= 0;
+  // 제한 구간이지만 남은 횟수가 있으면 은은히 안내(과하지 않게).
+  const remainingHint =
+    quota != null && !quota.unlimited && (quota.remaining ?? 0) > 0
+      ? `이번 주 ${quota.remaining}번 남았어요`
+      : null;
+
+  // 차단(쿼터 소진) 상태로 화면을 켜둔 채 resetAt을 넘기면(예: 밤새 백그라운드) 마운트 1회
+  // 조회만으론 새로 초기화된 쿼터를 못 받아 계속 차단 뷰에 머문다. 앱이 다시 활성화될 때
+  // 재조회해 자동으로 풀리게 한다(스피너로 되돌리지 않게 quotaLoading은 건드리지 않는다).
+  useEffect(() => {
+    if (!blocked) return;
+    let alive = true;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      getCharacterQuota().then((q) => {
+        if (alive) setQuota(q);
+      });
+    });
+    return () => {
+      alive = false;
+      sub.remove();
+    };
+  }, [blocked]);
 
   // 합성 미리보기를 감싸는 컨테이너 — 저장 시 이 View를 통째로 캡처해 PNG로 굽는다.
   const captureViewRef = useRef<View>(null);
@@ -173,6 +232,9 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
       // '생성'은 '장착'이 아니라(생성 후에도 choice는 default 유지) 여기서 발행하면 미장착 커스텀이
       // 위젯·실드에 먼저 떠 버린다(코드리뷰). 스냅샷은 집중 세션이 장착된 캐릭터로 갱신하며,
       // 장착 즉시 반영은 후속 작업이다.
+      // 저장 성공 → 생성 1건을 서버 쿼터에 기록(best-effort). 네트워크 지연·타임아웃이 완료를
+      // 막지 않도록 await 하지 않고 발사만 한다(함수 내부에서 실패를 이미 삼킨다).
+      recordCharacterGeneration().catch(() => {});
       onSaved(uri);
     } catch {
       setError('캐릭터를 저장하지 못했어요. 다시 시도해 주세요.');
@@ -185,6 +247,17 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
   // captureRef가 언마운트된 타깃을 잡아 실패한다. 검사(checking)·저장(saving)도 마찬가지로
   // 도구·저장 버튼을 잠근다.
   const busy = phase === 'working' || phase === 'checking' || phase === 'saving';
+
+  // 쿼터 소진 → 사진 선택/생성 UI 대신 차단 뷰. 뒤로/닫기는 감싸는 화면 크롬이 담당한다.
+  if (blocked) {
+    return (
+      <View style={[s.flex1, s.blocked]}>
+        <Ionicons name="time-outline" size={44} color={T.inkMuted} />
+        <Text style={s.blockedTitle}>이번 주 캐릭터 만들기 횟수를 다 썼어요.</Text>
+        <Text style={s.blockedSub}>{formatResetLabel(quota?.resetAt ?? null)}</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={s.flex1}>
@@ -232,9 +305,15 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
         </Text>
       ) : null}
       {result?.cutout ? <Text style={s.ok}>배경 제거 성공 — 온디바이스 처리</Text> : null}
+      {remainingHint ? <Text style={s.remaining}>{remainingHint}</Text> : null}
 
       <View style={s.actions}>
-        {result ? (
+        {quotaLoading ? (
+          // 쿼터 확인 전엔 액션 영역만 잠깐 로딩(무대는 그대로 유지 → 깜빡임 최소화).
+          <View style={s.center}>
+            <ActivityIndicator color={T.accent} />
+          </View>
+        ) : result ? (
           <>
             {/* 도구 — 회전 / 다른 사진 고르기(앨범·카메라) */}
             <View style={s.toolRow}>
@@ -329,6 +408,18 @@ const s = StyleSheet.create({
   stageCenter: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 52 },
   center: { alignItems: 'center', gap: T.space.sm, paddingBottom: 40 },
   hint: { ...T.text.caption, color: T.inkMuted },
+
+  // 쿼터 소진 차단 뷰
+  blocked: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: T.space.md,
+    paddingHorizontal: T.space.xl,
+  },
+  blockedTitle: { ...T.text.subtitle, color: T.ink, textAlign: 'center' },
+  blockedSub: { ...T.text.body, color: T.inkMuted, textAlign: 'center' },
+  // 남은 횟수 은은한 안내
+  remaining: { ...T.text.caption, color: T.inkMuted, textAlign: 'center', marginTop: T.space.md },
 
   notice: {
     ...T.text.caption,
