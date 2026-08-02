@@ -12,8 +12,9 @@ import java.util.UUID;
  * <p>규칙
  * <ul>
  *   <li>팟 = 판돈 × 참가자 수 (참가 시점에 전액 차감돼 있으므로 팟은 이미 에스크로된 돈이다)</li>
- *   <li>달성자끼리 균등 분배. 나누어떨어지지 않는 <b>잔여는 진행분이 가장 큰 승자</b>에게 몰아준다
- *       (동률이면 userId 오름차순 첫 승자) — 증발시키면 팟이 새고, 팟에 남기면 갈 곳이 없다</li>
+ *   <li>달성자끼리 균등 분배. 나누어떨어지지 않는 <b>잔여는 성과가 가장 좋은 승자</b>에게 몰아준다
+ *       (동률이면 userId 오름차순 첫 승자) — 증발시키면 팟이 새고, 팟에 남기면 갈 곳이 없다.
+ *       "성과가 좋다"의 방향은 카테고리마다 반대라 {@link RemainderRule} 로 받는다</li>
  *   <li>달성자 0명이면 <b>팟 전액 몰수</b>({@code FORFEITED}) — 전원 payout 0. 환불로 되돌리면
  *       "아무도 안 하면 본전"이라 내기의 긴장감이 사라진다(2026-08-02 확정 정책)</li>
  *   <li>불변식은 status 별이다: {@code SETTLED → sum(payout) == pot},
@@ -27,11 +28,23 @@ public final class GroupBetPayoutCalculator {
     }
 
     /**
+     * 잔여(나머지) 코인을 받을 승자를 고르는 방향 — 카테고리마다 "성과 1위"의 뜻이 반대다.
+     * 판정 소스와 함께 {@link GroupBetJudge#remainderRule} 이 결정한다.
+     */
+    public enum RemainderRule {
+        /** FOCUS — 집중 진행분이 가장 <b>큰</b> 승자. */
+        HIGHEST_PROGRESS,
+        /** SCREEN_TIME — 사용분이 가장 <b>작은</b> 승자(적게 쓸수록 잘한 것). */
+        LOWEST_PROGRESS
+    }
+
+    /**
      * 분배 입력 한 줄.
      *
      * @param userId          참가자
-     * @param progressMinutes 내기 날짜의 집중 분 — 잔여 배분의 동률 판정에 쓴다
-     * @param achieved        목표 달성 여부(진행 분 ≥ 챌린지 목표 분)
+     * @param progressMinutes 내기 날짜의 진행 분(FOCUS = 집중 분, SCREEN_TIME = 사용 분)
+     *                        — 잔여 배분의 성과 비교에 쓴다
+     * @param achieved        목표 달성 여부 — 조합별 판정은 {@link GroupBetJudge#isAchieved} 가 한다
      */
     public record Entry(UUID userId, int progressMinutes, boolean achieved) {
     }
@@ -45,11 +58,12 @@ public final class GroupBetPayoutCalculator {
     }
 
     /**
-     * @param stake   1인 판돈
-     * @param entries 참가자별 달성 판정 (최소 1명)
+     * @param stake         1인 판돈
+     * @param remainderRule 잔여를 받을 승자를 고르는 방향(카테고리별)
+     * @param entries       참가자별 달성 판정 (최소 1명)
      * @throws IllegalStateException 참가자가 없거나 status 별 분배 불변식이 깨진 경우
      */
-    public static Distribution distribute(int stake, List<Entry> entries) {
+    public static Distribution distribute(int stake, RemainderRule remainderRule, List<Entry> entries) {
         if (entries.isEmpty()) {
             throw new IllegalStateException("참가자가 없는 내기는 정산할 수 없습니다.");
         }
@@ -60,7 +74,7 @@ public final class GroupBetPayoutCalculator {
         GroupBetStatus status = winners.isEmpty() ? GroupBetStatus.FORFEITED : GroupBetStatus.SETTLED;
         List<Payout> payouts = winners.isEmpty()
                 ? forfeitAll(entries)
-                : share(pot, entries, winners);
+                : share(pot, entries, winners, remainderRule);
 
         int total = payouts.stream().mapToInt(Payout::amount).sum();
         int expected = status == GroupBetStatus.FORFEITED ? 0 : pot;
@@ -78,10 +92,11 @@ public final class GroupBetPayoutCalculator {
                 .toList();
     }
 
-    private static List<Payout> share(int pot, List<Entry> entries, List<Entry> winners) {
+    private static List<Payout> share(int pot, List<Entry> entries, List<Entry> winners,
+            RemainderRule remainderRule) {
         int share = pot / winners.size();
         int remainder = pot % winners.size();
-        UUID remainderWinner = topWinner(winners).userId();
+        UUID remainderWinner = topWinner(winners, remainderRule).userId();
 
         return entries.stream()
                 .map(e -> {
@@ -94,11 +109,16 @@ public final class GroupBetPayoutCalculator {
                 .toList();
     }
 
-    /** 진행분 내림차순 → userId 오름차순의 첫 승자. 잔여를 받을 한 명을 결정적으로 고른다. */
-    private static Entry topWinner(List<Entry> winners) {
+    /**
+     * 성과 1위 → userId 오름차순의 첫 승자. 잔여를 받을 한 명을 결정적으로 고른다.
+     * 성과 정렬 방향만 {@code remainderRule} 이 뒤집는다(FOCUS 는 많을수록, SCREEN_TIME 은 적을수록 1위).
+     */
+    private static Entry topWinner(List<Entry> winners, RemainderRule remainderRule) {
+        Comparator<Entry> byPerformance = remainderRule == RemainderRule.LOWEST_PROGRESS
+                ? Comparator.comparingInt(Entry::progressMinutes)
+                : Comparator.comparingInt(Entry::progressMinutes).reversed();
         return winners.stream()
-                .min(Comparator.comparingInt(Entry::progressMinutes).reversed()
-                        .thenComparing(Entry::userId))
+                .min(byPerformance.thenComparing(Entry::userId))
                 .orElseThrow(() -> new IllegalStateException("승자 목록이 비어 있습니다."));
     }
 }

@@ -7,10 +7,8 @@ import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
-import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
-import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.dto.CreateBetRequest;
 import com.oneorthree.phone.group.dto.CreateBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetParticipantResponse;
@@ -21,12 +19,9 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.stats.domain.DailyFocusStat;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -75,19 +70,19 @@ public class GroupBetService {
     private final GroupMemberRepository groupMemberRepository;
     private final UserRepository userRepository;
     private final GroupChallengeRepository groupChallengeRepository;
-    private final GroupChallengeDurationRepository groupChallengeDurationRepository;
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
-    private final DailyFocusStatRepository dailyFocusStatRepository;
     private final CurrencyLedgerService currencyLedgerService;
+    private final GroupBetJudge groupBetJudge;
 
     // ── 개설 / 참가 ──────────────────────────────────────────────────────
 
     /**
      * 내기 개설. 그룹원 누구나 개설할 수 있고 개설자는 자동 참가(판돈 즉시 차감)한다.
      *
-     * <p>FOCUS + DURATION 챌린지만 대상이다 — SCREEN_TIME 달성은 클라 업로드 신뢰라 돈을 걸 수 없고,
-     * TIME_WINDOW 는 달성 판정 자체가 아직 없다.
+     * <p>대상은 <b>목표분이 있는 모든 챌린지</b>다 — FOCUS·SCREEN_TIME × DURATION·TIME_WINDOW 4조합
+     * (창은 목표분이 있는 것만). SCREEN_TIME 은 클라 신뢰 데이터로 재화가 움직이는 리스크를 수용한
+     * 확정 정책이다. 조합별 판정 소스는 {@link GroupBetJudge} 하나가 쥔다.
      */
     @Transactional
     public CreateBetResponse createBet(UUID groupId, UUID challengeId, UUID userId, CreateBetRequest request) {
@@ -116,15 +111,15 @@ public class GroupBetService {
         if (challenge.getStatus() != GroupChallengeStatus.ACTIVE) {
             throw new GroupException(GroupErrorCode.BET_CHALLENGE_INACTIVE);
         }
-        if (challenge.getCategory() != MissionCategory.FOCUS || challenge.getType() != MissionType.DURATION) {
-            throw new GroupException(GroupErrorCode.BET_FOCUS_ONLY);
-        }
-        int goalMinutes = requireGoalMinutes(challengeId);
+        // 게이트 = DURATION || (TIME_WINDOW && 창 목표분 있음). 카테고리 제한은 없다.
+        GroupBetJudge.Target target = groupBetJudge.resolve(challenge)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS));
+        requireWindowStillOpen(target, betDate);
 
         if (groupChallengeBetRepository.existsByChallengeIdAndBetDate(challengeId, betDate)) {
             throw new GroupException(GroupErrorCode.BET_ALREADY_EXISTS);
         }
-        requireNotAchievedYet(userId, betDate, goalMinutes);
+        requireEligibleToStake(target, user, betDate);
 
         GroupChallengeBet bet = groupChallengeBetRepository.save(GroupChallengeBet.builder()
                 .group(group)
@@ -151,15 +146,19 @@ public class GroupBetService {
         // 취소(명시적·탈퇴 자동)가 끼어들어 방금 종료된 내기에 참가자의 판돈이 묶인다 (PR #427 리뷰).
         GroupChallengeBet bet = groupChallengeBetRepository.findByIdAndGroupIdForUpdate(betId, groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
-        // 정산됐거나(status≠OPEN) 날짜가 지난 내기는 닫힌 것으로 본다. 배치가 돌기 전(04:00 KST 이전)의
-        // 전일자 내기가 여기 걸린다 — status 만으로는 못 막는 구간이라 날짜도 함께 본다.
+        // 정산됐거나(status≠OPEN) 날짜가 지난 내기는 닫힌 것으로 본다. 배치가 돌기 전(FOCUS 01:00 /
+        // SCREEN_TIME 12:00 KST 이전)의 전일자 내기가 여기 걸린다 — status 만으로는 못 막는 구간이라
+        // 날짜도 함께 본다. 창형은 날짜가 같아도 오늘 창이 끝났으면 아래에서 추가로 막는다.
         if (!bet.isOpen() || !bet.getBetDate().equals(today())) {
             throw new GroupException(GroupErrorCode.BET_CLOSED);
         }
         if (groupChallengeBetParticipantRepository.existsByBetIdAndUserId(betId, userId)) {
             throw new GroupException(GroupErrorCode.BET_ALREADY_JOINED);
         }
-        requireNotAchievedYet(userId, bet.getBetDate(), requireGoalMinutes(bet.getChallenge().getId()));
+        GroupBetJudge.Target target = groupBetJudge.resolve(bet.getChallenge())
+                .orElseThrow(() -> new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS));
+        requireWindowStillOpen(target, bet.getBetDate());
+        requireEligibleToStake(target, user, bet.getBetDate());
 
         stakeIn(bet, user);
         log.info("내기 참가 — betId={}, userId={}, stake={}", betId, userId, bet.getStake());
@@ -466,27 +465,44 @@ public class GroupBetService {
         return group;
     }
 
-    private int requireGoalMinutes(UUID challengeId) {
-        return groupChallengeDurationRepository.findById(challengeId)
-                .map(GroupChallengeDuration::getDurationMinutes)
-                // DURATION 챌린지인데 상세 행이 없으면 데이터 유실 — 목표를 모르니 정산도 불가하다.
-                .orElseThrow(() -> new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS));
+    /**
+     * 창형(TIME_WINDOW) 마감 — 오늘 창이 이미 끝났으면 개설·참가를 막는다. 창이 끝난 뒤에 걸면 결과가
+     * 이미 정해진 판에 올라타는 것이라 DURATION 의 "당일 자정 전"과 같은 성격의 가드다. DURATION 은
+     * 창이 없어 날짜 검사만으로 충분하다(마감 코드도 {@code BET_CLOSED} 로 같다).
+     */
+    private void requireWindowStillOpen(GroupBetJudge.Target target, LocalDate date) {
+        groupBetJudge.windowClosesAt(target, date)
+                .filter(closesAt -> !Instant.now().isBefore(closesAt))
+                .ifPresent(closesAt -> {
+                    throw new GroupException(GroupErrorCode.BET_CLOSED);
+                });
     }
 
     /**
-     * 이미 목표를 달성한 상태면 참가를 거절한다 — 결과가 확정된 뒤 무위험으로 올라타는 공짜 승리 차단.
-     * 진행률 계산 인프라(daily_focus_stats)를 그대로 쓰므로 비용은 조회 1회다.
+     * 판돈을 걸 자격 — 카테고리마다 막는 방향이 반대다.
+     *
+     * <ul>
+     *   <li><b>FOCUS</b>: 이미 달성했으면 거절({@code BET_ALREADY_ACHIEVED}). 서버 데이터라 달성이
+     *       확정 의미이고, 확정된 뒤 올라타는 무위험 참가를 막는다(창형은 5분 관용치 포함 — 카드
+     *       진행률·정산과 같은 판정 소스다)</li>
+     *   <li><b>SCREEN_TIME</b>: 달성은 하루/창이 끝나야 확정되므로 "이미 달성"이 무위험이 아니다
+     *       (이후 사용으로 뒤집힌다). 대신 <b>이미 목표를 초과해 패배가 확정된</b> 유저를 거절한다
+     *       ({@code BET_ALREADY_FAILED}) — 질 게 정해진 판돈 투입 방지</li>
+     * </ul>
+     *
+     * <p>비용은 조합별 소스 조회 1회다(카드 진행률과 같은 쿼리).
      */
-    private void requireNotAchievedYet(UUID userId, LocalDate date, int goalMinutes) {
-        if (focusMinutes(userId, date) >= goalMinutes) {
+    private void requireEligibleToStake(GroupBetJudge.Target target, User user, LocalDate date) {
+        Integer minutes = groupBetJudge.progressMinutes(target, date, List.of(user)).get(user.getId());
+        if (target.category() == MissionCategory.SCREEN_TIME) {
+            // 미보고(null)는 잠정 달성으로 보고 통과시킨다 — 초과가 확인된 경우에만 막는다.
+            if (minutes != null && minutes > target.goalMinutes()) {
+                throw new GroupException(GroupErrorCode.BET_ALREADY_FAILED);
+            }
+            return;
+        }
+        if (GroupBetJudge.isAchieved(target, minutes)) {
             throw new GroupException(GroupErrorCode.BET_ALREADY_ACHIEVED);
         }
-    }
-
-    private int focusMinutes(UUID userId, LocalDate date) {
-        return dailyFocusStatRepository.findByUserIdInAndDate(List.of(userId), date).stream()
-                .mapToInt(DailyFocusStat::getTotalFocusSeconds)
-                .max()
-                .orElse(0) / 60;   // GROMO-642: 초→분
     }
 }

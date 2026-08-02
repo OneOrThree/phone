@@ -23,6 +23,13 @@ import static org.assertj.core.api.Assertions.tuple;
  */
 class GroupBetPayoutCalculatorTest {
 
+    /** FOCUS 방향 — 진행분이 클수록 성과 1위. 대부분의 케이스가 이 방향이다. */
+    private static final GroupBetPayoutCalculator.RemainderRule HIGHEST =
+            GroupBetPayoutCalculator.RemainderRule.HIGHEST_PROGRESS;
+    /** SCREEN_TIME 방향 — 사용분이 작을수록 성과 1위. */
+    private static final GroupBetPayoutCalculator.RemainderRule LOWEST =
+            GroupBetPayoutCalculator.RemainderRule.LOWEST_PROGRESS;
+
     private static final UUID U1 = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID U2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final UUID U3 = UUID.fromString("00000000-0000-0000-0000-000000000003");
@@ -47,7 +54,7 @@ class GroupBetPayoutCalculatorTest {
     @DisplayName("나누어떨어지면 달성자 균등 분배 — 미달성자는 0")
     void splitsEvenlyAmongWinners() {
         // given: 판돈 30 × 3명 = 팟 90, 달성자 2명
-        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(30, List.of(
+        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(30, HIGHEST, List.of(
                 new GroupBetPayoutCalculator.Entry(U1, 120, true),
                 new GroupBetPayoutCalculator.Entry(U2, 100, true),
                 new GroupBetPayoutCalculator.Entry(U3, 10, false)));
@@ -63,7 +70,7 @@ class GroupBetPayoutCalculatorTest {
     @DisplayName("나머지는 진행분이 가장 큰 승자에게 몰아준다 — 증발 금지")
     void remainderGoesToTopProgressWinner() {
         // given: 판돈 10 × 4명 = 팟 40, 달성자 3명 → 13씩 + 나머지 1
-        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(10, List.of(
+        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(10, HIGHEST, List.of(
                 new GroupBetPayoutCalculator.Entry(U1, 60, true),
                 new GroupBetPayoutCalculator.Entry(U2, 200, true),
                 new GroupBetPayoutCalculator.Entry(U3, 90, true),
@@ -79,7 +86,7 @@ class GroupBetPayoutCalculatorTest {
     @DisplayName("진행분이 동률이면 나머지는 userId 오름차순 첫 승자에게 — 결정적")
     void remainderTieBreaksByUserId() {
         // given: 판돈 10 × 4명 = 팟 40, 달성자 3명 모두 같은 진행분
-        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(10, List.of(
+        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(10, HIGHEST, List.of(
                 new GroupBetPayoutCalculator.Entry(U3, 120, true),
                 new GroupBetPayoutCalculator.Entry(U2, 120, true),
                 new GroupBetPayoutCalculator.Entry(U1, 120, true),
@@ -91,9 +98,54 @@ class GroupBetPayoutCalculatorTest {
     }
 
     @Test
+    @DisplayName("SCREEN_TIME 방향에서는 나머지가 사용분이 가장 '작은' 승자에게 간다 — 비교 방향 반전")
+    void remainderGoesToLowestUsageWinnerForScreenTime() {
+        // given: 판돈 10 × 4명 = 팟 40, 달성자 3명 → 13씩 + 나머지 1.
+        // 스크린타임은 적게 쓸수록 잘한 것이라 U3(30분)가 성과 1위다.
+        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(10, LOWEST, List.of(
+                new GroupBetPayoutCalculator.Entry(U1, 60, true),
+                new GroupBetPayoutCalculator.Entry(U2, 200, true),
+                new GroupBetPayoutCalculator.Entry(U3, 30, true),
+                new GroupBetPayoutCalculator.Entry(U4, 500, false)));
+
+        assertThat(amountsOf(distribution)).containsExactlyInAnyOrderEntriesOf(
+                Map.of(U1, 13, U2, 13, U3, 14, U4, 0));
+        assertInvariantHolds(distribution);
+    }
+
+    @Test
+    @DisplayName("같은 입력이라도 방향이 다르면 나머지를 받는 승자가 갈린다 — 파라미터가 실제로 먹는다")
+    void remainderWinnerFlipsWithRule() {
+        List<GroupBetPayoutCalculator.Entry> entries = List.of(
+                new GroupBetPayoutCalculator.Entry(U1, 10, true),
+                new GroupBetPayoutCalculator.Entry(U2, 20, true),
+                new GroupBetPayoutCalculator.Entry(U3, 30, true));
+
+        // 팟 30, 승자 3명 → 10씩 + 나머지 0 이면 방향 차이가 안 보이므로 나머지가 남는 판돈을 쓴다.
+        assertThat(amountsOf(GroupBetPayoutCalculator.distribute(50, HIGHEST, entries)))
+                .containsExactlyInAnyOrderEntriesOf(Map.of(U1, 50, U2, 50, U3, 50));
+        assertThat(amountsOf(GroupBetPayoutCalculator.distribute(10, HIGHEST, entries)).get(U3)).isEqualTo(10);
+        assertThat(amountsOf(GroupBetPayoutCalculator.distribute(10, LOWEST, entries)).get(U1)).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("SCREEN_TIME 방향에서도 동률이면 userId 오름차순 첫 승자 — 결정적")
+    void lowestRuleTieBreaksByUserId() {
+        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(10, LOWEST, List.of(
+                new GroupBetPayoutCalculator.Entry(U3, 40, true),
+                new GroupBetPayoutCalculator.Entry(U2, 40, true),
+                new GroupBetPayoutCalculator.Entry(U1, 40, true),
+                new GroupBetPayoutCalculator.Entry(U4, 999, false)));
+
+        assertThat(amountsOf(distribution)).containsExactlyInAnyOrderEntriesOf(
+                Map.of(U1, 14, U2, 13, U3, 13, U4, 0));
+        assertInvariantHolds(distribution);
+    }
+
+    @Test
     @DisplayName("달성자 0명이면 FORFEITED — 전원 payout 0, 팟 전액 소멸(환불 없음)")
     void forfeitsEveryoneWhenNoWinner() {
-        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(50, List.of(
+        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(50, HIGHEST, List.of(
                 new GroupBetPayoutCalculator.Entry(U1, 10, false),
                 new GroupBetPayoutCalculator.Entry(U2, 0, false)));
 
@@ -107,7 +159,7 @@ class GroupBetPayoutCalculatorTest {
     @Test
     @DisplayName("단독 참가 달성 — 팟(=본인 판돈)을 그대로 회수, 이득도 손실도 없다")
     void soloParticipantAchieved() {
-        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(100, List.of(
+        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(100, HIGHEST, List.of(
                 new GroupBetPayoutCalculator.Entry(U1, 300, true)));
 
         assertThat(distribution.status()).isEqualTo(GroupBetStatus.SETTLED);
@@ -118,7 +170,7 @@ class GroupBetPayoutCalculatorTest {
     @Test
     @DisplayName("단독 참가 미달성 — 승자 0명 규칙 그대로 몰수된다(판돈 소멸)")
     void soloParticipantFailedIsForfeited() {
-        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(100, List.of(
+        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(100, HIGHEST, List.of(
                 new GroupBetPayoutCalculator.Entry(U1, 0, false)));
 
         assertThat(distribution.status()).isEqualTo(GroupBetStatus.FORFEITED);
@@ -129,7 +181,7 @@ class GroupBetPayoutCalculatorTest {
     @Test
     @DisplayName("달성 판정은 그대로 결과에 실린다 — 참가자 행에 기록될 값")
     void carriesAchievedFlagPerParticipant() {
-        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(30, List.of(
+        GroupBetPayoutCalculator.Distribution distribution = GroupBetPayoutCalculator.distribute(30, HIGHEST, List.of(
                 new GroupBetPayoutCalculator.Entry(U1, 120, true),
                 new GroupBetPayoutCalculator.Entry(U2, 10, false)));
 
@@ -142,7 +194,7 @@ class GroupBetPayoutCalculatorTest {
     @Test
     @DisplayName("참가자 0명은 정산 불가 — 개설자 자동 참가가 깨졌다는 뜻이라 예외로 롤백시킨다")
     void rejectsEmptyParticipants() {
-        assertThatThrownBy(() -> GroupBetPayoutCalculator.distribute(30, List.of()))
+        assertThatThrownBy(() -> GroupBetPayoutCalculator.distribute(30, HIGHEST, List.of()))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -157,7 +209,8 @@ class GroupBetPayoutCalculatorTest {
                     for (int i = 0; i < size; i++) {
                         entries.add(new GroupBetPayoutCalculator.Entry(users.get(i), i * 10, i < winners));
                     }
-                    assertInvariantHolds(GroupBetPayoutCalculator.distribute(stake, entries));
+                    assertInvariantHolds(GroupBetPayoutCalculator.distribute(stake, HIGHEST, entries));
+                    assertInvariantHolds(GroupBetPayoutCalculator.distribute(stake, LOWEST, entries));
                 }
             }
         }

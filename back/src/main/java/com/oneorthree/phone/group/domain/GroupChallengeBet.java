@@ -27,8 +27,8 @@ import java.util.UUID;
 /**
  * 그룹 챌린지 내기 — 챌린지 하나의 특정 날짜({@code betDate})에 걸린 판.
  *
- * <p>대상은 FOCUS + DURATION 챌린지뿐이다(스크린타임 달성은 클라 신뢰라 돈을 걸 수 없다).
- * 챌린지당·날짜당 1개이며, 유니크 제약이 동시 개설의 최후 방어선이다.
+ * <p>대상은 목표분이 있는 모든 챌린지다 — FOCUS·SCREEN_TIME × DURATION·TIME_WINDOW 4조합
+ * (창은 목표분이 있는 것만). 챌린지당·날짜당 1개이며, 유니크 제약이 동시 개설의 최후 방어선이다.
  */
 @Entity
 @Table(name = "group_challenge_bets",

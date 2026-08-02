@@ -1,10 +1,12 @@
 package com.oneorthree.phone.group.api;
 
+import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.dto.GroupBetSettlementSummaryResponse;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.service.GroupBetSettlementService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -14,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.charset.StandardCharsets;
@@ -42,8 +45,10 @@ public class GroupBetBatchController {
     }
 
     @Operation(summary = "내기 일 정산 배치 수동 실행",
-            description = "그레이스 4시간이 끝난 날짜까지의 OPEN 내기를 전건 정산한다(스케줄 배치와 같은 기준일)."
-                    + " 00:00~04:00 KST 에 호출해도 전일자 내기는 그레이스가 끝날 때까지 대상에서 빠진다."
+            description = "그레이스 1시간이 끝난 날짜까지의 OPEN 내기를 정산한다(스케줄 배치와 같은 기준일)."
+                    + " 00:00~01:00 KST 에 호출해도 전일자 내기는 그레이스가 끝날 때까지 대상에서 빠진다."
+                    + " category 파라미터로 스케줄 배치와 같은 분할(FOCUS=01:00분, SCREEN_TIME=12:00분)을"
+                    + " 재현할 수 있고, 생략하면 전 카테고리를 정산한다."
                     + " 이미 정산된 내기는 스킵되므로 반복 호출해도 이중 지급이 없다."
                     + " 실패 건은 그 내기만 롤백되고 failedCount 로 집계된다."
                     + " X-Batch-Admin-Key 헤더에 관리자 키(환경변수 BATCH_ADMIN_KEY)를 실어야 한다.")
@@ -54,9 +59,11 @@ public class GroupBetBatchController {
     })
     @PostMapping("/groups/bets/settle")
     public ResponseEntity<GroupBetSettlementSummaryResponse> settleDueBets(
-            @RequestHeader(value = ADMIN_KEY_HEADER, required = false) String adminKey) {
+            @RequestHeader(value = ADMIN_KEY_HEADER, required = false) String adminKey,
+            @Parameter(description = "정산할 챌린지 카테고리 (생략 시 전체)")
+            @RequestParam(required = false) MissionCategory category) {
         requireAdminKey(adminKey);
-        return ResponseEntity.ok(groupBetSettlementService.settleDueBets());
+        return ResponseEntity.ok(groupBetSettlementService.settleDueBets(category));
     }
 
     // 비교는 MessageDigest.isEqual — String.equals 는 첫 불일치 문자에서 끊겨 응답 시간으로

@@ -1,6 +1,7 @@
 package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.group.domain.GroupBetStatus;
+import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.dto.GroupBetSettlementSummaryResponse;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import lombok.RequiredArgsConstructor;
@@ -20,9 +21,12 @@ import java.util.UUID;
  * <p>이 클래스에는 <b>트랜잭션이 없다</b>. 건별 트랜잭션(정산 실패 격리)이 목적이라, 여기서 하나로
  * 묶으면 한 건의 롤백이 전체를 되돌린다. 대상 id 조회도 각자 짧은 트랜잭션으로 끝난다.
  *
- * <p>포커스에는 "하루가 끝났다"는 신호가 없어 자정이 아니라 04:00 KST 에 돈다 — 자정을 넘겨 끝난
- * 세션도 종료일 버킷(daily_focus_stats)에 들어오도록 4시간의 그레이스를 둔 것이다. 해외 타임존
- * 유저는 KST 하루 경계로 정산된다(서비스가 한국 타깃이라 수용, 후속 티켓).
+ * <p>정산 크론은 <b>카테고리별로 2회</b> 돈다: FOCUS 는 익일 01:00 KST(집중 일별 통계는 세션 종료
+ * 시각 귀속이라 자정에 데이터가 완결된다 — 그레이스 1h 면 충분), SCREEN_TIME 은 익일 12:00 KST
+ * (어제 스크린타임의 최종 보고는 유저의 다음날 첫 앱 실행에 올라오므로, 01:00 에 정산하면
+ * "미보고=미달성" 억울 패배가 양산된다 — 아침 보고 기회를 준 뒤 정산한다). 대상 선정만 카테고리로
+ * 갈릴 뿐 정산 로직은 하나다. 해외 타임존 유저는 KST 하루 경계로 정산된다(서비스가 한국 타깃이라
+ * 수용, 후속 티켓).
  */
 @Slf4j
 @Service
@@ -31,23 +35,33 @@ public class GroupBetSettlementService {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
-    /** 그레이스 4시간 — 스케줄 배치가 04:00 KST 에 도는 이유와 같은 값이다. */
-    private static final int SETTLEMENT_GRACE_HOURS = 4;
+    /** 그레이스 1시간 — 가장 이른 스케줄 배치(FOCUS 01:00 KST)가 도는 시각과 짝이다. */
+    private static final int SETTLEMENT_GRACE_HOURS = 1;
 
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final GroupBetSettler groupBetSettler;
 
-    /** 그레이스가 지난 날짜까지의 OPEN 내기를 전건 정산한다. */
+    /** 그레이스가 지난 날짜까지의 OPEN 내기를 카테고리 구분 없이 전건 정산한다. */
     public GroupBetSettlementSummaryResponse settleDueBets() {
-        return settleDueBets(settlementDateAt(Instant.now()));
+        return settleDueBets((MissionCategory) null);
     }
 
     /**
-     * 정산 기준일 — "그레이스(4h)가 이미 끝난 날"까지만 대상으로 잡기 위해 현재 시각에서 4시간을 뺀
-     * KST 날짜를 쓴다. 04:00 KST 정각에 도는 스케줄러에게는 그냥 오늘이라 동작이 그대로지만,
-     * 수동 트리거(GroupBetBatchController)를 00:00~04:00 사이에 호출해도 전일자 내기를 그레이스가
+     * 그레이스가 지난 날짜까지의 OPEN 내기를 정산한다.
+     *
+     * @param category 이 카테고리의 챌린지에 걸린 내기만 정산한다. {@code null} 이면 전 카테고리
+     */
+    public GroupBetSettlementSummaryResponse settleDueBets(MissionCategory category) {
+        return settleDueBets(settlementDateAt(Instant.now()), category);
+    }
+
+    /**
+     * 정산 기준일 — "그레이스(1h)가 이미 끝난 날"까지만 대상으로 잡기 위해 현재 시각에서 1시간을 뺀
+     * KST 날짜를 쓴다. 01:00 KST 정각에 도는 FOCUS 스케줄러에게는 그냥 오늘이라 동작이 그대로지만,
+     * 수동 트리거(GroupBetBatchController)를 00:00~01:00 사이에 호출해도 전일자 내기를 그레이스가
      * 끝나기 전에 앞당겨 정산하지 않는다 — 정산은 되돌릴 수 없어 늦게 올라온 집중 기록이 누락된 채
-     * 지급이 확정돼 버리기 때문이다 (PR #381 리뷰).
+     * 지급이 확정돼 버리기 때문이다 (PR #381 리뷰). 12:00 배치(SCREEN_TIME)는 그레이스가 훨씬
+     * 지난 시각이라 이 계산에 걸리지 않는다.
      */
     static LocalDate settlementDateAt(Instant now) {
         return LocalDate.ofInstant(now.minus(SETTLEMENT_GRACE_HOURS, ChronoUnit.HOURS), KST);
@@ -57,9 +71,19 @@ public class GroupBetSettlementService {
      * @param today 정산 기준일(KST). {@code bet_date < today} 인 OPEN 내기가 대상이다
      */
     public GroupBetSettlementSummaryResponse settleDueBets(LocalDate today) {
+        return settleDueBets(today, null);
+    }
+
+    /**
+     * @param today    정산 기준일(KST). {@code bet_date < today} 인 OPEN 내기가 대상이다
+     * @param category 대상 챌린지 카테고리. {@code null} 이면 전 카테고리
+     */
+    public GroupBetSettlementSummaryResponse settleDueBets(LocalDate today, MissionCategory category) {
         long startedAtMillis = System.currentTimeMillis();
-        List<UUID> targets = groupChallengeBetRepository
-                .findIdsByStatusAndBetDateBefore(GroupBetStatus.OPEN, today);
+        List<UUID> targets = category == null
+                ? groupChallengeBetRepository.findIdsByStatusAndBetDateBefore(GroupBetStatus.OPEN, today)
+                : groupChallengeBetRepository.findIdsByStatusAndBetDateBeforeAndCategory(
+                        GroupBetStatus.OPEN, today, category);
 
         int settled = 0;
         int forfeited = 0;
@@ -86,9 +110,10 @@ public class GroupBetSettlementService {
         }
 
         long elapsedMillis = System.currentTimeMillis() - startedAtMillis;
-        log.info("내기 일 배치 완료 — settledBefore={}, 대상={}, 분배={}, 몰수={}, 스킵={}, 실패={}, "
-                + "elapsedMillis={}",
-                today, targets.size(), settled, forfeited, skipped, failed, elapsedMillis);
+        log.info("내기 일 배치 완료 — settledBefore={}, category={}, 대상={}, 분배={}, 몰수={}, 스킵={}, "
+                + "실패={}, elapsedMillis={}",
+                today, category == null ? "ALL" : category, targets.size(), settled, forfeited, skipped,
+                failed, elapsedMillis);
         // refundedCount 는 몰수 룰 도입 이후 정산이 만들지 않는 레거시 버킷 — 항상 0 으로 내보낸다.
         return new GroupBetSettlementSummaryResponse(
                 today, targets.size(), settled, forfeited, 0, skipped, failed, elapsedMillis);

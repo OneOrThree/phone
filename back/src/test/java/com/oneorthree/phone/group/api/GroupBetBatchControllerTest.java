@@ -1,5 +1,6 @@
 package com.oneorthree.phone.group.api;
 
+import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.dto.GroupBetSettlementSummaryResponse;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
@@ -39,19 +40,32 @@ class GroupBetBatchControllerTest {
     void correctKeyRunsSettlement() {
         GroupBetSettlementSummaryResponse summary =
                 new GroupBetSettlementSummaryResponse(LocalDate.of(2026, 8, 2), 0, 0, 0, 0, 0, 0, 1L);
-        given(settlementService.settleDueBets()).willReturn(summary);
+        given(settlementService.settleDueBets((MissionCategory) null)).willReturn(summary);
 
         ResponseEntity<GroupBetSettlementSummaryResponse> response =
-                controllerWithKey(CONFIGURED_KEY).settleDueBets(CONFIGURED_KEY);
+                controllerWithKey(CONFIGURED_KEY).settleDueBets(CONFIGURED_KEY, null);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isEqualTo(summary);
     }
 
     @Test
+    @DisplayName("category 파라미터가 그대로 전달된다 — 스케줄 배치의 카테고리 분할을 수동 재현")
+    void categoryIsPassedThrough() {
+        GroupBetSettlementSummaryResponse summary =
+                new GroupBetSettlementSummaryResponse(LocalDate.of(2026, 8, 2), 0, 0, 0, 0, 0, 0, 1L);
+        given(settlementService.settleDueBets(MissionCategory.SCREEN_TIME)).willReturn(summary);
+
+        ResponseEntity<GroupBetSettlementSummaryResponse> response =
+                controllerWithKey(CONFIGURED_KEY).settleDueBets(CONFIGURED_KEY, MissionCategory.SCREEN_TIME);
+
+        assertThat(response.getBody()).isEqualTo(summary);
+    }
+
+    @Test
     @DisplayName("헤더 누락 → BATCH_KEY_INVALID(403), 정산 서비스는 호출되지 않는다")
     void missingHeaderRejected() {
-        assertThatThrownBy(() -> controllerWithKey(CONFIGURED_KEY).settleDueBets(null))
+        assertThatThrownBy(() -> controllerWithKey(CONFIGURED_KEY).settleDueBets(null, null))
                 .isInstanceOf(GroupException.class)
                 .extracting(e -> ((GroupException) e).getErrorCode())
                 .isEqualTo(GroupErrorCode.BATCH_KEY_INVALID);
@@ -62,7 +76,7 @@ class GroupBetBatchControllerTest {
     @Test
     @DisplayName("키 불일치 → BATCH_KEY_INVALID(403), 정산 서비스는 호출되지 않는다")
     void wrongKeyRejected() {
-        assertThatThrownBy(() -> controllerWithKey(CONFIGURED_KEY).settleDueBets("wrong-key"))
+        assertThatThrownBy(() -> controllerWithKey(CONFIGURED_KEY).settleDueBets("wrong-key", null))
                 .isInstanceOf(GroupException.class)
                 .extracting(e -> ((GroupException) e).getErrorCode())
                 .isEqualTo(GroupErrorCode.BATCH_KEY_INVALID);
@@ -72,7 +86,7 @@ class GroupBetBatchControllerTest {
     @Test
     @DisplayName("서버에 키 미설정 → BATCH_KEY_NOT_CONFIGURED(503) — 올바른 키를 보내도 막힌다")
     void unconfiguredKeyReturns503() {
-        assertThatThrownBy(() -> controllerWithKey("").settleDueBets(CONFIGURED_KEY))
+        assertThatThrownBy(() -> controllerWithKey("").settleDueBets(CONFIGURED_KEY, null))
                 .isInstanceOf(GroupException.class)
                 .extracting(e -> ((GroupException) e).getErrorCode())
                 .isEqualTo(GroupErrorCode.BATCH_KEY_NOT_CONFIGURED);
