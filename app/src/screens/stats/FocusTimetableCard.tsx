@@ -24,13 +24,9 @@ const TIMETABLE_HOURS = Array.from({ length: 24 }, (_, i) => (i + 6) % 24);
 export function FocusTimetableCard() {
   // 공유 파일명 — 예: 260711_타임테이블.png (사진 저장 시엔 이름이 남지 않음)
   const makeFileName = useCallback(() => `${todayStr().slice(2).replace(/-/g, '')}_타임테이블`, []);
-  // 캡처→정사각 레터박스→공유 로직은 일/주 공용 훅이 담당(GROMO-1070)
-  const { shotRef, sharing, capturing, captureStyle, onCharReady, onShare } =
+  // 캡처→공유·로드 게이트 로직은 일/주 공용 훅이 담당(GROMO-1070)
+  const { shotRef, capturing, captureStyle, disabled, onCharReady, onLoaded, onShare } =
     useTimetableShareCapture({ card: 'timetable', makeFileName });
-  // 데이터 로드 완료 여부 — 로딩 중(격자 스피너)에 공유하면 빈 이미지가 캡처되므로,
-  // 로드 전엔 공유 버튼을 막는다(GROMO-1070 리뷰 반영).
-  const [ready, setReady] = useState(false);
-  const handleLoaded = useCallback(() => setReady(true), []);
 
   return (
     <SectionCard title="오늘 타임테이블">
@@ -38,7 +34,7 @@ export function FocusTimetableCard() {
       <View ref={shotRef} collapsable={false} style={[cs.ttShot, captureStyle]}>
         {/* 일 카드 캡처 레이아웃 — 평소엔 격자만, 캡처 땐 상단 헤더(날짜·gromo) + 왼쪽 하단 마스코트(GROMO-1070) */}
         <ShareDayFrame capturing={capturing} onCharReady={onCharReady}>
-          <FocusTimetable onLoaded={handleLoaded} />
+          <FocusTimetable onLoaded={onLoaded} />
         </ShareDayFrame>
       </View>
       {/* 공유하기 — 카드 하단 오른쪽. 헤더(우측 상단)에 두면 순서 편집 드래그 핸들과 겹친다.
@@ -48,7 +44,7 @@ export function FocusTimetableCard() {
         onPress={onShare}
         hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
         activeOpacity={0.7}
-        disabled={sharing || !ready}
+        disabled={disabled}
       >
         <Text style={cs.shareBtnText}>공유하기</Text>
         <Ionicons name="share-outline" size={15} color={T.inkSub} />

@@ -4,7 +4,7 @@
 // 워드마크·태그라인. 기존 GROMO-1014 텍스트 워터마크(cs.shareWatermark 회색 한 줄)를 대체·흡수한다.
 //
 // 오버레이가 아니라 본문 아래로 밀어내는 밴드라 데이터를 가리지 않는다. 캡처 타이밍(캐릭터 로드
-// 대기)·정사각 레터박스는 useTimetableShareCapture 훅이 담당한다.
+// 대기)·여백은 useTimetableShareCapture 훅이 담당한다.
 import { View, Text } from 'react-native';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { useCharacter } from '@/store/CharacterContext';

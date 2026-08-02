@@ -24,19 +24,15 @@ export function WeeklyTimetableCard() {
     () => `${todayStr().slice(2).replace(/-/g, '')}_주간타임라인`,
     [],
   );
-  // 캡처→정사각 레터박스→공유 로직은 일/주 공용 훅이 담당(FocusTimetableCard와 동일, GROMO-1070)
-  const { shotRef, sharing, capturing, captureStyle, onCharReady, onShare } =
+  // 캡처→공유·로드 게이트 로직은 일/주 공용 훅이 담당(FocusTimetableCard와 동일, GROMO-1070)
+  const { shotRef, capturing, captureStyle, disabled, onCharReady, onLoaded, onShare } =
     useTimetableShareCapture({ card: 'weekly_timeline', makeFileName });
-  // 데이터 로드 완료 여부 — 로딩 중(스피너)에 공유하면 빈 이미지가 캡처되므로 로드 전엔 버튼을
-  // 막는다(FocusTimetableCard와 동일, GROMO-1070 리뷰 반영).
-  const [ready, setReady] = useState(false);
-  const handleLoaded = useCallback(() => setReady(true), []);
 
   return (
     <SectionCard title="요일별 타임테이블">
       {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게. 캡처 시엔 사방 소여백(captureStyle) */}
       <View ref={shotRef} collapsable={false} style={[cs.ttShot, captureStyle]}>
-        <WeeklyTimetable onLoaded={handleLoaded} />
+        <WeeklyTimetable onLoaded={onLoaded} />
         {/* 공유 브랜드 밴드 — 캡처 순간에만 본문 아래에 렌더되어 캡처 이미지에만 담긴다(GROMO-1070) */}
         <ShareBrandFooter visible={capturing} onCharReady={onCharReady} />
       </View>
@@ -47,7 +43,7 @@ export function WeeklyTimetableCard() {
         onPress={onShare}
         hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
         activeOpacity={0.7}
-        disabled={sharing || !ready}
+        disabled={disabled}
       >
         <Text style={cs.shareBtnText}>공유하기</Text>
         <Ionicons name="share-outline" size={15} color={T.inkSub} />
