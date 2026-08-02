@@ -51,7 +51,14 @@ export type V2RootStackParamList = {
     groupId: string;
     // 챌린지 종료 푸시가 지목한 챌린지(GROMO-1088) — 진입 직후 그 챌린지의 결과 모달을 자동으로
     // 연다. 1회 가드(이미 본 결과)를 넘어서 열되, 화면 안에서 한 번만 소비된다.
-    challengeId?: string;
+    //
+    // ⚠️ **optional(`?`)이 아니라 `| undefined`인 것은 의도다.** 이미 스택에 있는 'GroupRoom'으로
+    //    다시 navigate 하면 React Navigation이 파라미터를 얕게 병합한다
+    //    (`{ ...route.params, ...payload.params }`). 키를 빼면 직전 진입의 challengeId가 그대로
+    //    남아 **다른 그룹의 방에 이전 그룹의 지목이 새어 들어간다**(그룹방 위에 뜬 초대 시트로
+    //    다른 그룹에 참여하는 경로 — @claude 리뷰). 키를 필수로 두면 모든 호출부가 값을
+    //    명시하게 되어 컴파일 시점에 이 불변식이 강제된다.
+    challengeId: string | undefined;
   };
   GroupNotice: {
     groupId: string;

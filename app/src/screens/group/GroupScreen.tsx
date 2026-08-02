@@ -171,7 +171,9 @@ export default function GroupScreen() {
     if (target === null || groups === null) return;
     pendingRoomIdRef.current = null;
     if (!groups.some((g) => g.groupId === target)) return;
-    navigation.navigate('GroupRoom', { groupId: target });
+    // challengeId를 **명시로 비운다** — 스택에 이미 GroupRoom이 있으면 파라미터가 병합돼
+    // 직전 딥링크(챌린지 종료 푸시)의 지목이 이 방으로 새어 든다(types.ts GroupRoom 주석).
+    navigation.navigate('GroupRoom', { groupId: target, challengeId: undefined });
   }, [groups, navigation]);
 
   // 검색으로 참여 완료 — 시트를 닫고 재조회.
@@ -184,7 +186,8 @@ export default function GroupScreen() {
   // 스택에 push 한다(목록 화면은 스스로 navigate 하지 않고 이 콜백에 위임한다).
   const onSelectGroup = useCallback(
     (groupId: string) => {
-      navigation.navigate('GroupRoom', { groupId });
+      // 위 초대 목적지 소비와 같은 이유로 challengeId를 명시로 비운다(types.ts GroupRoom 주석).
+      navigation.navigate('GroupRoom', { groupId, challengeId: undefined });
     },
     [navigation],
   );
