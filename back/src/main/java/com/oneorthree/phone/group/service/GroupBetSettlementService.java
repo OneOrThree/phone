@@ -41,13 +41,8 @@ public class GroupBetSettlementService {
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final GroupBetSettler groupBetSettler;
 
-    /** 그레이스가 지난 날짜까지의 OPEN 내기를 카테고리 구분 없이 전건 정산한다. */
-    public GroupBetSettlementSummaryResponse settleDueBets() {
-        return settleDueBets((MissionCategory) null);
-    }
-
     /**
-     * 그레이스가 지난 날짜까지의 OPEN 내기를 정산한다.
+     * 그레이스가 지난 날짜까지의 OPEN 내기를 정산한다 — 스케줄러·수동 트리거의 진입점.
      *
      * @param category 이 카테고리의 챌린지에 걸린 내기만 정산한다. {@code null} 이면 전 카테고리
      */
