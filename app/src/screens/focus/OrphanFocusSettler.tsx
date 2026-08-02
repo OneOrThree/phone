@@ -67,7 +67,8 @@ export function OrphanFocusSettler() {
       // 재시도 런(이전 실행에서 이미 마킹)이면 낙관 가산이 이번 실행 메모리에 없다 — 아래
       // 서버 지급 정정에서 낙관분을 0으로 계산해야 지급액이 통째로 반영된다.
       const settledInPreviousRun = rec.settledLocally === true;
-      const coins = Math.floor(focused / 10);
+      // 서버 지급률(집중 60초당 1코인 — FocusService.sessionRewardCoins)에 정렬한 낙관 계산.
+      const coins = Math.floor(focused / 60);
       let stored = raw;
       if (!rec.settledLocally) {
         rec = { ...rec, settledLocally: true };
@@ -94,8 +95,14 @@ export function OrphanFocusSettler() {
         const res = await saveFocusSession(body);
         // 서버 지급액으로 낙관 가산 정정(B5a — 서버가 정본). 구서버(필드 없음)면 낙관 유지.
         // 서버는 endedAt−startedAt으로 집중초를 재계산하므로 rec.elapsed 기반 낙관치와
-        // 어긋날 수 있다 — 그 차이도 여기서 흡수된다.
-        reconcileSessionAward(settledInPreviousRun ? 0 : coins, res?.awardedCoins);
+        // 어긋날 수 있다 — 그 차이도 여기서 흡수된다. 집중 목표 첫 달성 보너스
+        // (goalRewardCoins, GROMO-1039)도 같은 저장 트랜잭션 지급이라 합산.
+        reconcileSessionAward(
+          settledInPreviousRun ? 0 : coins,
+          typeof res?.awardedCoins === 'number'
+            ? res.awardedCoins + (res.goalRewardCoins ?? 0)
+            : undefined,
+        );
       } catch {
         // 업로드 실패 — 대기열(GROMO-614)로 인계해 앱 시작·포그라운드 복귀마다 재시도.
         // 대기열 저장까지 실패하면 레코드를 보존해 다음 실행에서 이 경로가 재시도한다.
