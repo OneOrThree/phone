@@ -62,6 +62,20 @@ public class NotificationSentLog {
      */
     public static final String TYPE_CHALLENGE_CREATED = "CHALLENGE_CREATED";
 
+    /**
+     * 발송 종류 — 친구 요청 도착(GROMO-1090). {@code user_id} 는 요청을 <b>받은</b> 유저,
+     * {@code target_user_id} 에 <b>요청을 보낸 유저 id</b> 를 담는다.
+     * dedup 은 (user_id, type, target_user_id) + <b>최근 24시간 sent_at</b> — 거절 후 재요청이
+     * 같은 friendships 행을 되살리는(reopen) 구조라 행 id 로는 "같은 요청"을 식별할 수 없다.
+     */
+    public static final String TYPE_FRIEND_REQUEST = "FRIEND_REQUEST";
+
+    /**
+     * 발송 종류 — 보낸 친구 요청이 수락됨(GROMO-1090). {@code user_id} 는 요청을 <b>보냈던</b> 유저,
+     * {@code target_user_id} 에 <b>수락한 유저 id</b>. dedup 기준은 요청 알림과 같다.
+     */
+    public static final String TYPE_FRIEND_ACCEPTED = "FRIEND_ACCEPTED";
+
     @Id
     @GeneratedUuidV7
     private UUID id;

@@ -17,6 +17,8 @@ import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.friend.domain.PinnedUser;
 import com.oneorthree.phone.friend.dto.PinnedUserResponse;
+import com.oneorthree.phone.friend.event.FriendRequestAcceptedEvent;
+import com.oneorthree.phone.friend.event.FriendRequestSentEvent;
 import com.oneorthree.phone.friend.exception.FriendErrorCode;
 import com.oneorthree.phone.friend.exception.FriendException;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
@@ -36,6 +38,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -87,6 +90,9 @@ class FriendServiceTest {
     @Mock
     private FocusLiveInfoLookup focusLiveInfoLookup;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private FriendService friendService;
 
     private static final LocalDate DATE = LocalDate.of(2026, 7, 3);
@@ -101,7 +107,8 @@ class FriendServiceTest {
         given(nicknameStrategy.type()).willReturn(SearchType.NICKNAME);
         friendService = new FriendService(friendshipRepository, userRepository, pinnedUserRepository,
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
-                userActivityEventLogger, leagueTierLookup, focusLiveInfoLookup, List.of(nicknameStrategy));
+                userActivityEventLogger, leagueTierLookup, focusLiveInfoLookup, eventPublisher,
+                List.of(nicknameStrategy));
 
         meId = UUID.randomUUID();
         targetId = UUID.randomUUID();
@@ -265,6 +272,47 @@ class FriendServiceTest {
     }
 
     @Test
+    @DisplayName("친구 요청 생성 — 수신자에게 보낼 푸시 이벤트를 발행한다 (GROMO-1090)")
+    void createRequest_new_publishesFriendRequestSentEvent() {
+        given(userRepository.findActiveByIdForShare(meId)).willReturn(Optional.of(me));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
+        given(friendshipRepository.findPair(me, target)).willReturn(List.of());
+
+        friendService.createRequest(meId, targetId);
+
+        // 수신자 = 요청을 받은 쪽(target), 문구에 쓸 상대 = 보낸 쪽(me). 뒤바뀌면 자기가 보낸 요청을
+        // 자기가 받는 푸시가 나간다.
+        verify(eventPublisher).publishEvent(new FriendRequestSentEvent(targetId, meId));
+    }
+
+    @Test
+    @DisplayName("친구 요청 생성 — REJECTED 재전환도 푸시 이벤트를 발행한다 (GROMO-1090)")
+    void createRequest_reopened_publishesFriendRequestSentEvent() {
+        // 재전환은 수신자 입장에선 새로 도착한 요청이다 — 알리지 않으면 상대는 재요청을 영영 모른다.
+        Friendship rejected = friendship(me, target, FriendshipStatus.REJECTED);
+        given(userRepository.findActiveByIdForShare(meId)).willReturn(Optional.of(me));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
+        given(friendshipRepository.findPair(me, target)).willReturn(List.of(rejected));
+
+        friendService.createRequest(meId, targetId);
+
+        verify(eventPublisher).publishEvent(new FriendRequestSentEvent(targetId, meId));
+    }
+
+    @Test
+    @DisplayName("친구 요청 생성 — 검증 실패(이미 PENDING)면 푸시 이벤트도 미발행 (GROMO-1090)")
+    void createRequest_pendingExists_doesNotPublishPushEvent() {
+        Friendship pending = friendship(me, target, FriendshipStatus.PENDING);
+        given(userRepository.findActiveByIdForShare(meId)).willReturn(Optional.of(me));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
+        given(friendshipRepository.findPair(me, target)).willReturn(List.of(pending));
+
+        assertThatThrownBy(() -> friendService.createRequest(meId, targetId))
+                .isInstanceOf(FriendException.class);
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
     @DisplayName("친구 요청 생성 — 검증 실패(이미 PENDING)면 이벤트 미발행")
     void createRequest_pendingExists_doesNotEmit() {
         given(userRepository.findActiveByIdForShare(meId)).willReturn(Optional.of(me));
@@ -368,6 +416,31 @@ class FriendServiceTest {
     }
 
     @Test
+    @DisplayName("요청 수락 — 요청을 보냈던 쪽에게 보낼 푸시 이벤트를 발행한다 (GROMO-1090)")
+    void acceptRequest_publishesFriendRequestAcceptedEvent() {
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(target, me, FriendshipStatus.PENDING);
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
+
+        friendService.acceptRequest(meId, requestId);
+
+        // 수락 사실을 모르는 쪽은 보낸 쪽(target) 하나뿐이다. 수락한 나(me)에게 보내면 무의미하다.
+        verify(eventPublisher).publishEvent(new FriendRequestAcceptedEvent(targetId, meId));
+    }
+
+    @Test
+    @DisplayName("요청 수락 — 수신자가 아니면 푸시 이벤트도 미발행 (GROMO-1090)")
+    void acceptRequest_sender_doesNotPublishPushEvent() {
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(me, target, FriendshipStatus.PENDING);
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
+
+        assertThatThrownBy(() -> friendService.acceptRequest(meId, requestId))
+                .isInstanceOf(FriendException.class);
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
     @DisplayName("요청 거절 — 수신자면 REJECTED로 전이")
     void rejectRequest_receiver_rejects() {
         UUID requestId = UUID.randomUUID();
@@ -377,6 +450,19 @@ class FriendServiceTest {
         friendService.rejectRequest(meId, requestId);
 
         assertThat(request.getStatus()).isEqualTo(FriendshipStatus.REJECTED);
+    }
+
+    @Test
+    @DisplayName("요청 거절 — 거절은 상대에게 알리지 않는다 (GROMO-1090)")
+    void rejectRequest_doesNotPublishAnyEvent() {
+        // 거절 통보는 관계상 부담이라 스코프 밖이다. 여기서 이벤트가 새면 곧바로 푸시로 나간다.
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(target, me, FriendshipStatus.PENDING);
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
+
+        friendService.rejectRequest(meId, requestId);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 
     // ── deleteFriend ───────────────────────────────────────
