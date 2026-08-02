@@ -92,11 +92,54 @@ class LandingRendererTest {
     }
 
     @Test
+    @DisplayName("상한과 같은 길이는 자르지 않는다 — 경계에서 멀쩡한 이름에 말줄임표가 붙으면 안 된다")
+    void keepsNameAtExactLimit() {
+        String html = renderer(REAL_STORE_URL).render("스터디", "가".repeat(20), SCHEME_URL);
+
+        // 말줄임표가 붙지 않는 게 요점 — 템플릿 주석에도 … 가 있어서 전역 doesNotContain 은 못 쓴다
+        assertThat(html).contains("<span class=\"name\">" + "가".repeat(20) + "</span>");
+        assertThat(html).contains("<title>" + "가".repeat(20) + "님이 gromo 그룹 「스터디」에 초대했어요</title>");
+    }
+
+    @Test
+    @DisplayName("상한을 하나 넘기면 그때부터 자른다")
+    void truncatesOnePastLimit() {
+        String html = renderer(REAL_STORE_URL).render("스터디", "가".repeat(21), SCHEME_URL);
+
+        assertThat(html).contains("<span class=\"name\">" + "가".repeat(20) + "…</span>");
+    }
+
+    @Test
     @DisplayName("이모지 닉네임을 잘라도 서로게이트 쌍이 쪼개지지 않는다")
-    void truncatesByCodePoint() {
+    void truncatesWithoutSplittingSurrogatePairs() {
         String html = renderer(REAL_STORE_URL).render("스터디", "🙂".repeat(25), SCHEME_URL);
 
         assertThat(html).contains("<span class=\"name\">" + "🙂".repeat(20) + "…</span>");
+    }
+
+    @Test
+    @DisplayName("결합 문자는 사용자가 보는 글자 단위로 센다 — 악센트만 떨어져 나가면 다른 이름이 된다")
+    void truncatesAtGraphemeBoundary() {
+        // 19자 + 결합 악센트가 붙은 e. 코드포인트로 세면 20번째가 'e' 라 악센트가 잘려 나간다.
+        String name = "a".repeat(19) + "e\u0301" + "zzzzz";
+
+        String html = renderer(REAL_STORE_URL).render("스터디", name, SCHEME_URL);
+
+        assertThat(html).contains("<span class=\"name\">" + "a".repeat(19) + "e\u0301" + "…</span>");
+    }
+
+    @Test
+    @DisplayName("ZWJ 로 이어진 이모지를 잘라도 매달린 ZWJ 를 남기지 않는다")
+    void truncatesZwjEmojiWithoutDanglingJoiner() {
+        // 상한 경계가 ZWJ 위에 떨어지도록 맞춘 이름. BreakIterator 가 ZWJ 를 앞 글자에 묶는지는
+        // JDK 버전에 달려 있어(Java 17 은 독립 경계로 본다) 결과 길이는 단정하지 않는다 —
+        // 어느 쪽이든 "보이지 않는 조인자로 끝나지 않는다" 가 지켜야 할 불변식이다.
+        String name = "a".repeat(18) + "\uD83D\uDC69\u200D\uD83D\uDC69" + "zzzzz";
+
+        String html = renderer(REAL_STORE_URL).render("스터디", name, SCHEME_URL);
+
+        assertThat(html).doesNotContain("\u200D…");
+        assertThat(html).contains("<span class=\"name\">" + "a".repeat(18) + "\uD83D\uDC69");
     }
 
     @Test
