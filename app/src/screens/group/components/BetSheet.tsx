@@ -62,9 +62,9 @@ const STAKE_DEFAULT = STAKE_OPTIONS[0];
 // 몰수 룰(계약 확정 정책) — 승자 0명이면 환불이 아니라 **전액 소멸**이다. 돈이 걸리는 자리라
 // 개설·참가 양쪽 모두에서 고지한다(구 문구 '전액 환불돼요'는 V19 룰 — 그대로 두면 거짓말이 된다).
 const CREATE_NOTE =
-  '오늘 목표를 달성한 사람끼리 팟을 나눠 가져요. 아무도 달성하지 못하면 판돈은 사라져요.';
+  '오늘 목표를 달성한 사람끼리 적립금을 나눠 가져요. 아무도 달성하지 못하면 참가비는 사라져요.';
 const JOIN_NOTE =
-  '참가하면 판돈이 바로 빠져나가요. 오늘 목표를 달성해야 팟을 나눠 가져요. 아무도 달성하지 못하면 판돈은 사라져요.';
+  '참가하면 참가비가 바로 빠져나가요. 오늘 목표를 달성해야 적립금을 나눠 가져요. 아무도 달성하지 못하면 참가비는 사라져요.';
 // SCREEN_TIME 내기의 측정 한계 고지(계약 §2 "카드·시트 안내 문구 필수") — 15분 눈금 측정 위로
 // 코인이 움직인다는 사실을 돈이 나가기 전에 알린다.
 const SCREEN_TIME_BET_NOTE =
@@ -388,8 +388,8 @@ export default function BetSheet({
 
       {isCreate ? (
         <>
-          <Text style={s.label}>판돈</Text>
-          {/* 전송 중에는 판돈을 못 바꾼다(코덱스 리뷰) — 10을 보낸 뒤 100을 누르면 서버엔 10이
+          <Text style={s.label}>참가비</Text>
+          {/* 전송 중에는 참가비를 못 바꾼다(코덱스 리뷰) — 10을 보낸 뒤 100을 누르면 서버엔 10이
               간 채 화면의 선택만 100이 되어, 사용자는 자기가 100을 걸었다고 오인한다.
               고른 칩만 남기고 나머지를 흐려 '지금 나간 금액'이 무엇인지 화면에 못 박는다. */}
           <View style={s.chips}>
@@ -405,7 +405,7 @@ export default function BetSheet({
                   // 숫자만 읽히면 무엇을 고르는 자리인지·무엇이 골라졌는지 알 수 없다(F9).
                   accessibilityRole="button"
                   accessibilityState={{ selected: on, disabled: submitting }}
-                  accessibilityLabel={`판돈 ${v}코인`}
+                  accessibilityLabel={`참가비 ${v}코인`}
                   testID={`group.bet.stake.${v}`}
                 >
                   <Text style={[s.chipText, on ? s.chipTextOn : null]}>{v}</Text>
@@ -418,11 +418,11 @@ export default function BetSheet({
         <>
           <View style={s.statRow}>
             <View style={s.stat}>
-              <Text style={s.statLabel}>판돈</Text>
+              <Text style={s.statLabel}>참가비</Text>
               <Text style={s.statValue}>{bet?.stake ?? 0}</Text>
             </View>
             <View style={s.stat}>
-              <Text style={s.statLabel}>현재 팟</Text>
+              <Text style={s.statLabel}>현재 적립금</Text>
               <Text style={s.statValue}>{bet?.pot ?? 0}</Text>
             </View>
           </View>

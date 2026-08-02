@@ -630,7 +630,7 @@ describe('내기 배선', () => {
 
   // 시트가 challenge **객체 스냅샷**을 쥐면 배경 재조회(포커스·포그라운드 복귀)와 어긋난다 —
   // 팟 60·2명을 보며 30코인을 거는데 실제로는 팟 120·4명이다. 조용히 틀린 정보로 돈을 쓴다(F2).
-  test('시트가 열린 채 재조회되면 최신 팟·참가자가 시트에 반영된다', async () => {
+  test('시트가 열린 채 재조회되면 최신 적립금·참가자가 시트에 반영된다', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);
     const openBet = {
@@ -1566,7 +1566,7 @@ describe('챌린지 결과 모달(A3)', () => {
     // 내 결과(달성) 헤드라인 + 명단 + 내기 정산 안내. 금액은 어디에도 없다.
     expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
     expect(screen.getByText('목표를 달성했어요!')).toBeOnTheScreen();
-    expect(screen.getByText('7/31 결과')).toBeOnTheScreen();
+    expect(screen.getByText('7월 31일 결과')).toBeOnTheScreen();
     expect(screen.getByText('달성 1')).toBeOnTheScreen();
     expect(screen.getByText('미달성 1')).toBeOnTheScreen();
     expect(screen.getByText('내기 코인은 정산 후 알림으로 알려드려요')).toBeOnTheScreen();
@@ -1683,7 +1683,7 @@ describe('챌린지 결과 모달(A3)', () => {
 
     expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
     expect(screen.getByText('목표를 달성했어요!')).toBeOnTheScreen();
-    expect(screen.getByText('8/1 결과')).toBeOnTheScreen();
+    expect(screen.getByText('8월 1일 결과')).toBeOnTheScreen();
 
     // 닫아도 어제 결과가 이어서 뜨지 않는다 — 당일 결과가 어제 결과를 **대체**한다.
     await act(async () => {

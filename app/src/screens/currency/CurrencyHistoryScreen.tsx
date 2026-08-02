@@ -26,7 +26,7 @@ const REASON_LABEL: Record<string, string> = {
   SESSION_COMPLETE: '집중 완료',
   STREAK_BONUS: '연속 공부 보너스',
   PURCHASE: '상점 구매',
-  BET_STAKE: '내기 판돈',
+  BET_STAKE: '내기 참가비',
   BET_PAYOUT: '내기 정산',
   BET_REFUND: '내기 환불',
   // 서버 확장 대비(현재 미발행)

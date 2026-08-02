@@ -433,10 +433,10 @@ describe('내기 영역 4상', () => {
     expect(onOpenBet).toHaveBeenCalledWith('create');
   });
 
-  test('② OPEN인데 미참가면 참가 행 — 판돈·인원·참가하기를 한 줄로 적는다', async () => {
+  test('② OPEN인데 미참가면 참가 행 — 참가비·인원·참가하기를 한 줄로 적는다', async () => {
     await renderCard({ bet: bet() });
 
-    const row = screen.getByText('🪙 판돈 30 · 3명 참여 중 — 참가하기');
+    const row = screen.getByText('🪙 참가비 30 · 3명 참여 중 — 참가하기');
     expect(row).toBeOnTheScreen();
     expect(screen.queryByText('내기 걸기')).toBeNull();
 
@@ -457,10 +457,10 @@ describe('내기 영역 4상', () => {
     expect(onOpenBet).not.toHaveBeenCalled();
   });
 
-  test('④ 참여 중이면 팟까지 보여 주고 참가 진입점을 없앤다', async () => {
+  test('④ 참여 중이면 적립금까지 보여 주고 참가 진입점을 없앤다', async () => {
     await renderCard({ bet: bet({ myJoined: true }) });
 
-    expect(screen.getByText('🪙 판돈 30 · 팟 90 · 3명 참여')).toBeOnTheScreen();
+    expect(screen.getByText('🪙 참가비 30 · 적립금 90 · 3명 참여')).toBeOnTheScreen();
     expect(screen.getByText('참여 중')).toBeOnTheScreen();
     expect(screen.queryByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeNull();
     expect(screen.queryByText('내기 걸기')).toBeNull();
@@ -469,7 +469,7 @@ describe('내기 영역 4상', () => {
   test('정산이 끝난 내기에는 참여 중 칩을 달지 않는다', async () => {
     await renderCard({ bet: bet({ myJoined: true, status: 'SETTLED' }) });
 
-    expect(screen.getByText('🪙 판돈 30 · 팟 90 · 3명 참여')).toBeOnTheScreen();
+    expect(screen.getByText('🪙 참가비 30 · 적립금 90 · 3명 참여')).toBeOnTheScreen();
     expect(screen.queryByText('참여 중')).toBeNull();
   });
 
@@ -494,11 +494,11 @@ describe('내기 영역 4상', () => {
     // 열린 내기가 남아 있어도 참가로 들어가지 못한다 — 상태만 읽힌다.
     await renderCard({ status: 'INACTIVE', bet: bet(), lastSettledBet: null });
     expect(screen.queryByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeNull();
-    expect(screen.getByText('🪙 판돈 30 · 팟 90 · 3명 참여')).toBeOnTheScreen();
+    expect(screen.getByText('🪙 참가비 30 · 적립금 90 · 3명 참여')).toBeOnTheScreen();
 
     // 지난 내기(읽기 전용)는 끝난 챌린지에서도 그대로 보여 준다.
     await renderCard({ status: 'INACTIVE', bet: null, lastSettledBet: lastSettledBet() });
-    expect(screen.getByText('지난 내기(7/31): 3명 중 2명 달성')).toBeOnTheScreen();
+    expect(screen.getByText('지난 내기(7월 31일): 3명 중 2명 달성')).toBeOnTheScreen();
   });
 
   // 개설자는 자동 참가라 달성자는 개설도 서버가 거절한다(계약 §2-1 BET_ALREADY_ACHIEVED).
@@ -740,7 +740,7 @@ describe('내기 영역 4상', () => {
 describe('지난 내기', () => {
   test('캡션 1줄에 날짜·달성 인원을 적는다', async () => {
     await renderCard({ bet: null, lastSettledBet: lastSettledBet() });
-    expect(screen.getByText('지난 내기(7/31): 3명 중 2명 달성')).toBeOnTheScreen();
+    expect(screen.getByText('지난 내기(7월 31일): 3명 중 2명 달성')).toBeOnTheScreen();
   });
 
   test('탭하면 인별 결과를 Alert로 펼친다 — payout은 손익(±)으로 환산한다', async () => {
@@ -752,11 +752,14 @@ describe('지난 내기', () => {
     });
 
     expect(alertSpy).toHaveBeenCalledWith(
-      '지난 내기 (7/31)',
+      '지난 내기 (7월 31일)',
       // payout 45 - 판돈 30 = +15. 받은 금액(45)을 그대로 적으면 판돈을 낸 사실이 지워진다.
-      ['판돈 30 · 팟 90', '재영 · 달성 · +15', '수빈 · 달성 · +15', '민지 · 미달성 · -30'].join(
-        '\n',
-      ),
+      [
+        '참가비 30 · 적립금 90',
+        '재영 · 달성 · +15',
+        '수빈 · 달성 · +15',
+        '민지 · 미달성 · -30',
+      ].join('\n'),
     );
   });
 
@@ -780,17 +783,17 @@ describe('지난 내기', () => {
       }),
     });
 
-    expect(screen.getByText('지난 내기(7/31): 2명 중 0명 달성')).toBeOnTheScreen();
+    expect(screen.getByText('지난 내기(7월 31일): 2명 중 0명 달성')).toBeOnTheScreen();
     await act(async () => {
       fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
     });
 
     expect(alertSpy).toHaveBeenCalledWith(
-      '지난 내기 (7/31)',
+      '지난 내기 (7월 31일)',
       // 환불이라 손익은 0이다 — 그 0이 '잃었다'가 아니라 '돌려받았다'라는 걸 첫 줄이 말한다.
       [
         '달성한 사람이 없어 전원 환불됐어요',
-        '판돈 30 · 팟 90',
+        '참가비 30 · 적립금 90',
         '재영 · 미달성 · 0',
         '수빈 · 미달성 · 0',
       ].join('\n'),
@@ -799,7 +802,7 @@ describe('지난 내기', () => {
 
   // 몰수(FORFEITED)는 현 룰의 승자 0명 결말이다(계약 확정 정책 — REFUNDED는 V19 이전 이력).
   // '전원 미달성 · -30'만 보면 환불(구 룰)로 오독할 수 있다 — 소멸됐다는 사실을 첫 줄이 말한다.
-  test('FORFEITED면 판돈 소멸을 첫 줄에 못 박는다', async () => {
+  test('FORFEITED면 참가비 소멸을 첫 줄에 못 박는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     await renderCard({
       bet: null,
@@ -812,16 +815,16 @@ describe('지난 내기', () => {
       }),
     });
 
-    expect(screen.getByText('지난 내기(7/31): 2명 중 0명 달성')).toBeOnTheScreen();
+    expect(screen.getByText('지난 내기(7월 31일): 2명 중 0명 달성')).toBeOnTheScreen();
     await act(async () => {
       fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
     });
 
     expect(alertSpy).toHaveBeenCalledWith(
-      '지난 내기 (7/31)',
+      '지난 내기 (7월 31일)',
       [
-        '아무도 달성하지 못해 판돈이 소멸됐어요',
-        '판돈 30 · 팟 90',
+        '아무도 달성하지 못해 참가비가 소멸됐어요',
+        '참가비 30 · 적립금 90',
         '재영 · 미달성 · -30',
         '수빈 · 미달성 · -30',
       ].join('\n'),
@@ -843,14 +846,14 @@ describe('지난 내기', () => {
     });
 
     // null을 달성으로도 미달성으로도 세지 않는다.
-    expect(screen.getByText('지난 내기(7/31): 2명 중 1명 달성')).toBeOnTheScreen();
+    expect(screen.getByText('지난 내기(7월 31일): 2명 중 1명 달성')).toBeOnTheScreen();
     await act(async () => {
       fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
     });
 
     expect(alertSpy).toHaveBeenCalledWith(
-      '지난 내기 (7/31)',
-      ['판돈 30 · 팟 90', '재영 · 달성 · +30', '수빈 · 미판정'].join('\n'),
+      '지난 내기 (7월 31일)',
+      ['참가비 30 · 적립금 90', '재영 · 달성 · +30', '수빈 · 미판정'].join('\n'),
     );
   });
 });
@@ -959,7 +962,7 @@ describe('내기 취소', () => {
     expect(mockCancelBet).not.toHaveBeenCalled();
     expect(alertSpy).toHaveBeenCalledWith(
       '내기 취소',
-      '판돈 30코인을 돌려받고 내기를 닫을까요?',
+      '참가비 30코인을 돌려받고 내기를 닫을까요?',
       expect.anything(),
     );
 
@@ -975,7 +978,7 @@ describe('내기 취소', () => {
     // 성공 시에만 발행(내기 계측 공통 규칙).
     expect(logGroupBetCanceled).toHaveBeenCalledWith({ stake: 30, participants_count: 1 });
     // 영역을 비우지 않고 방금 한 일을 말한다 — 다음 자연 재조회가 서버 상태로 갈아 끼운다.
-    expect(screen.getByText('내기를 취소했어요. 판돈은 잔액으로 돌아왔어요')).toBeOnTheScreen();
+    expect(screen.getByText('내기를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
     expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
   });
 
@@ -998,7 +1001,7 @@ describe('내기 취소', () => {
     );
     expect(logGroupBetCanceled).not.toHaveBeenCalled();
     // 실패했으므로 자리 표시로 갈아 끼우지 않는다 — 내기는 그대로 살아 있다.
-    expect(screen.queryByText('내기를 취소했어요. 판돈은 잔액으로 돌아왔어요')).toBeNull();
+    expect(screen.queryByText('내기를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeNull();
   });
 
   test('BET_NOT_OPEN은 이미 닫힌 내기라는 사실을 그대로 말한다', async () => {

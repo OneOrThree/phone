@@ -175,7 +175,7 @@ beforeEach(() => {
 });
 
 describe('개설 모드', () => {
-  test('기본 판돈은 가장 낮은 10이고 date는 오늘(로컬)이다', async () => {
+  test('기본 참가비는 가장 낮은 10이고 date는 오늘(로컬)이다', async () => {
     await renderSheet('create');
     await submit();
 
@@ -191,7 +191,7 @@ describe('개설 모드', () => {
     expect(onDone).toHaveBeenCalled();
   });
 
-  test('고른 판돈이 그대로 나간다', async () => {
+  test('고른 참가비가 그대로 나간다', async () => {
     await renderSheet('create');
     await act(async () => {
       fireEvent.press(screen.getByTestId('group.bet.stake.50'));
@@ -237,12 +237,12 @@ describe('개설 모드', () => {
 
   // 숫자만 있으면 VoiceOver는 "10 30 50 100"이라고만 읽는다 — 무엇을 고르는 자리인지도,
   // 무엇이 골라졌는지도 알 수 없다. 바로 위 '내 코인'과 값이 겹치면 더 모호하다(F9).
-  test('판돈 칩은 단위와 선택 상태까지 읽힌다', async () => {
+  test('참가비 칩은 단위와 선택 상태까지 읽힌다', async () => {
     await renderSheet('create');
 
     const chip10 = screen.getByTestId('group.bet.stake.10');
     expect(chip10).toHaveProp('accessibilityRole', 'button');
-    expect(chip10).toHaveProp('accessibilityLabel', '판돈 10코인');
+    expect(chip10).toHaveProp('accessibilityLabel', '참가비 10코인');
     expect(chip10).toHaveProp('accessibilityState', expect.objectContaining({ selected: true }));
     expect(screen.getByTestId('group.bet.stake.50')).toHaveProp(
       'accessibilityState',
@@ -252,7 +252,7 @@ describe('개설 모드', () => {
 });
 
 describe('참가 모드', () => {
-  test('카드가 쥔 betId로 참가하고 판돈을 계측한다', async () => {
+  test('카드가 쥔 betId로 참가하고 참가비를 계측한다', async () => {
     await renderSheet('join', { bet: bet() });
     await submit();
 
@@ -283,7 +283,7 @@ describe('참가 모드', () => {
     expect(mockJoinBet).not.toHaveBeenCalled();
   });
 
-  test('판돈·현재 팟·참가자 목록을 보여준다', async () => {
+  test('참가비·현재 적립금·참가자 목록을 보여준다', async () => {
     await renderSheet('join', { bet: bet() });
     expect(screen.getByText('30')).toBeOnTheScreen();
     expect(screen.getByText('60')).toBeOnTheScreen();
@@ -311,7 +311,7 @@ describe('참가 모드', () => {
 });
 
 describe('잔액 부족', () => {
-  test('판돈보다 코인이 적으면 CTA를 잠그고 부족분을 적는다', async () => {
+  test('참가비보다 코인이 적으면 CTA를 잠그고 부족분을 적는다', async () => {
     mockCoins = 20;
     await renderSheet('create');
     await act(async () => {
@@ -323,7 +323,7 @@ describe('잔액 부족', () => {
     expect(mockCreateBet).not.toHaveBeenCalled();
   });
 
-  test('판돈을 낮추면 다시 열린다', async () => {
+  test('참가비를 낮추면 다시 열린다', async () => {
     mockCoins = 20;
     await renderSheet('create');
     await act(async () => {
@@ -338,7 +338,7 @@ describe('잔액 부족', () => {
     expect(mockCreateBet).toHaveBeenCalled();
   });
 
-  test('참가 모드도 판돈을 못 내면 막는다', async () => {
+  test('참가 모드도 참가비를 못 내면 막는다', async () => {
     mockCoins = 10;
     await renderSheet('join', { bet: bet() });
 
@@ -418,7 +418,7 @@ describe('에러 분기', () => {
   // 판정은 **그 판돈 이상**에 유효하다 — 50을 못 내는 지갑이 100을 낼 수는 없다.
   // 판돈을 바꿨다고 무조건 풀면, 잔액 재조회가 늦거나 실패해 낡은 큰 잔액이 남은 상황에서
   // 서버가 이미 불가능하다고 확정한 더 큰 금액을 반복 전송하게 된다.
-  test('INSUFFICIENT_CURRENCY — 판돈을 올리면 판정이 유지되고, 내리면 풀린다', async () => {
+  test('INSUFFICIENT_CURRENCY — 참가비를 올리면 판정이 유지되고, 내리면 풀린다', async () => {
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(400, 'INSUFFICIENT_CURRENCY'));
     await renderSheet('create');
     await act(async () => {
@@ -740,7 +740,7 @@ describe('전송 중', () => {
 
   // 10을 보낸 뒤 100을 누를 수 있으면, 서버엔 10이 간 채 화면의 마지막 선택만 100이 된다 —
   // 성공 후 사용자는 자기가 100을 걸었다고 오인한다. 금액이 확정된 뒤엔 칩을 잠근다.
-  test('전송 중에는 판돈을 바꿀 수 없다', async () => {
+  test('전송 중에는 참가비를 바꿀 수 없다', async () => {
     let finish: (v: { betId: string }) => void = () => {};
     mockCreateBet.mockImplementationOnce(
       () =>
@@ -892,11 +892,11 @@ describe('몰수 고지·창 내기 문구', () => {
   // 거짓을 말한다 — 개설·참가 모두에서 몰수를 고지한다.
   test('개설·참가 노트가 몰수 룰을 말한다', async () => {
     await renderSheet('create');
-    expect(screen.getByText(/아무도 달성하지 못하면 판돈은 사라져요/)).toBeOnTheScreen();
+    expect(screen.getByText(/아무도 달성하지 못하면 참가비는 사라져요/)).toBeOnTheScreen();
     expect(screen.queryByText(/전액 환불돼요/)).toBeNull();
 
     await renderSheet('join', { bet: bet() });
-    expect(screen.getByText(/아무도 달성하지 못하면 판돈은 사라져요/)).toBeOnTheScreen();
+    expect(screen.getByText(/아무도 달성하지 못하면 참가비는 사라져요/)).toBeOnTheScreen();
   });
 
   // 창 내기의 BET_CLOSED(개설)는 '날짜가 바뀌었다'가 아니라 '오늘 창이 끝났다'다(계약 §2 —
