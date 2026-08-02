@@ -77,13 +77,18 @@ export async function registerUsageBucketMonitoring(ownerUserId: string | null):
     const ok = await ScreenTimeModule.startUsageBucketMonitoring(USAGE_BUCKET_MAX_MINUTES);
     if (ok) {
       const owner = ownerUserId ?? '1';
-      // 등록 시그니처도 함께 기록 — 값 변경 시 Syncer가 감지해 재등록한다
-      // (GROMO-871 상한 확장 → GROMO-931 눈금 세분화).
-      await AsyncStorage.multiSet([
+      // 측정 시작일 앵커는 등록 마커와 '같은 multiSet'으로 묶는다(코드리뷰 반영) — 따로 쓰면
+      // 두 쓰기 사이에 앱이 강제 종료됐을 때 마커만 남고 앵커가 없는 상태가 되고, 다음 동기화가
+      // monitorPreexisted 추정 backfill(어제)을 타 이 티켓이 고치려는 오달성이 그대로 재발한다.
+      const entries: [string, string][] = [
+        // 등록 시그니처도 함께 기록 — 값 변경 시 Syncer가 감지해 재등록한다
+        // (GROMO-871 상한 확장 → GROMO-931 눈금 세분화).
         [STORAGE_KEYS.screentimeBucketMonitorRegistered, owner],
         [STORAGE_KEYS.screentimeBucketMonitorMaxMinutes, usageBucketGrid()],
-      ]);
-      await stampMeasurementStartDate(owner);
+      ];
+      const anchor = await nextMeasurementStartDate(owner);
+      if (anchor != null) entries.push([STORAGE_KEYS.screentimeMeasurementStartDate, anchor]);
+      await AsyncStorage.multiSet(entries);
     }
     return ok;
   } catch {
@@ -91,24 +96,23 @@ export async function registerUsageBucketMonitoring(ownerUserId: string | null):
   }
 }
 
-// 측정 시작일 앵커를 '등록 시점'에 남긴다(GROMO-1083) — 등록한 날이 곧 측정이 시작된 날이다.
-// 어제분 마감은 이 앵커로 '어제가 실제 측정된 날인지'를 판단하는데, 앵커가 없으면 Syncer가
-// 동기화 시점에 되짚어 추정할 수밖에 없고(아래 monitorPreexisted), 그 추정은 방금 등록한
-// 모니터(온보딩 직후 가입·설정에서 첫 측정 시작)를 '예전부터 돌던 것'으로 오인해 어제 0분을
-// 목표 달성으로 만든다. 이미 있으면 덮지 않는다(가장 이른 날 유지) — 소유 미상('1', 로그인 전
-// 등록) 앵커도 날짜를 그대로 두고 Syncer 첫 실행이 현재 계정으로 귀속시킨다(모니터 소유 마커와
-// 동일 규칙). 다른 계정의 앵커일 때만 이 등록 기준으로 새로 쓴다(계정 전환).
-async function stampMeasurementStartDate(owner: string): Promise<void> {
+// 이번 등록으로 남길 측정 시작일 앵커 값(JSON) — 기존 앵커를 유지해야 하면 null을 돌려준다.
+// 앵커를 '등록 시점'에 남기는 이유(GROMO-1083): 등록한 날이 곧 측정이 시작된 날이다. 어제분 마감은
+// 이 앵커로 '어제가 실제 측정된 날인지'를 판단하는데, 앵커가 없으면 Syncer가 동기화 시점에 되짚어
+// 추정할 수밖에 없고(아래 monitorPreexisted), 그 추정은 방금 등록한 모니터(온보딩 직후 가입·설정에서
+// 첫 측정 시작)를 '예전부터 돌던 것'으로 오인해 어제 0분을 목표 달성으로 만든다.
+// 이미 있으면 덮지 않는다(가장 이른 날 유지) — 소유 미상('1', 로그인 전 등록) 앵커도 날짜를 그대로
+// 두고 Syncer 첫 실행이 현재 계정으로 귀속시킨다(모니터 소유 마커와 동일 규칙). 다른 계정의
+// 앵커일 때만 이 등록 기준으로 새로 쓴다(계정 전환).
+async function nextMeasurementStartDate(owner: string): Promise<string | null> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeMeasurementStartDate);
     const start = raw ? (JSON.parse(raw) as { userId: string; date: string }) : null;
-    if (start != null && (start.userId === owner || start.userId === '1')) return;
-    await AsyncStorage.setItem(
-      STORAGE_KEYS.screentimeMeasurementStartDate,
-      JSON.stringify({ userId: owner, date: todayStr() }),
-    );
+    if (start != null && (start.userId === owner || start.userId === '1')) return null;
+    return JSON.stringify({ userId: owner, date: todayStr() });
   } catch {
-    // 기록 실패는 등록과 무관 — 다음 등록·동기화에서 다시 시도된다
+    // 읽기·파싱 실패 — 기존 앵커가 뭔지 모르는 상태라 덮지 않는다(덮으면 가장 이른 날을 잃는다).
+    return null;
   }
 }
 
