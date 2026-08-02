@@ -1,14 +1,26 @@
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import ScreenTimeModule, { nativeRegistersBucketStep15 } from '@/services/ScreenTimeModule';
+import ScreenTimeModule, {
+  nativeRegistersBucketStep15,
+  nativeSupportsUsageBucketEvents,
+} from '@/services/ScreenTimeModule';
+import type { UsageBucketEvent } from '@/services/ScreenTimeModule';
 import { saveScreenTime } from '@/services/screentimeApi';
 import { getHeatmap } from '@/services/statsApi';
+import { getMyGroups, getChallenges } from '@/services/groupApi';
+import { putWindowUsage } from '@/services/windowUsageApi';
 import {
   readPendingScreenTimeCelebration,
   schedulePendingScreenTimeCelebration,
 } from '@/services/screentimeCelebration';
+import {
+  logScreentimeWindowReported,
+  logScreentimeWindowUnsupported,
+} from '@/services/analyticsEvents';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { HeatmapCellResponse } from '@/types/dto/stats';
 import { todayStr, yesterdayStr, localDateStr } from '@/utils/localDate';
+import { timeStrToSeconds } from '@/utils/challengeTime';
 
 // 스크린타임 사용량 서버 동기화(GROMO-633) — 네이티브 15분 버킷 측정값을 POST /screen-time으로
 // 올려 daily_screen_time_stats(통계 화면 폰 사용량 지표의 소스)를 채운다.
@@ -167,8 +179,8 @@ async function scheduleYesterdayScreenTimeCelebration(
   await schedulePendingScreenTimeCelebration({ date: today, days, goalMinutes });
 }
 
-// 사용량 동기화 본체 — 앱 시작·포그라운드 복귀마다 호출(ScreenTimeSyncer).
-// 게스트·권한 미허용이면 아무것도 하지 않는다. 실패는 그대로 던져 호출부에서 무시 —
+// 사용량 동기화 진입점 — 앱 시작·포그라운드 복귀마다 호출(ScreenTimeSyncer).
+// 게스트·권한 미허용이면 아무것도 하지 않는다. 일일 동기화 실패는 그대로 던져 호출부에서 무시 —
 // 서버 upsert가 멱등이라 다음 포그라운드에서 최신값으로 다시 시도하면 된다.
 export async function syncScreenTimeUsage(
   userId: string | null,
@@ -176,7 +188,17 @@ export async function syncScreenTimeUsage(
 ): Promise<void> {
   if (!userId) return; // 게스트 — 서버 통계 대상 아님
   if ((await ScreenTimeModule.getAuthorizationStatus()) !== 'approved') return;
+  try {
+    await syncDailyScreenTimeUsage(userId, goalSeconds);
+  } finally {
+    // 창 사용분 업로드(챌린지 확장 A4)는 일일 동기화와 독립 — 실패를 서로 전파하지 않는다.
+    // 일일 동기화 '뒤'에 둔다: 모니터 소유 앵커('1' → 현재 계정 귀속)가 먼저 정리돼야 한다.
+    await syncWindowUsage(userId).catch(() => {});
+  }
+}
 
+// 일일 사용량 동기화 본체(GROMO-633) — 어제분 마감·마이그레이션·오늘 중간 동기화.
+async function syncDailyScreenTimeUsage(userId: string, goalSeconds: number): Promise<void> {
   // gromo.daily 폐지 마이그레이션(GROMO-942) — 기존 설치에 남아있는 목표 판정 모니터를 1회 중지한다.
   // 달성 판정은 이제 버킷 사용시간으로 하므로 gromo.daily는 불필요(슬롯·RAM 낭비 제거). 멱등하지만
   // 플래그로 1회만. 신규 설치는 애초에 등록된 적 없어 중지가 no-op이고 플래그만 남는다.
@@ -426,4 +448,217 @@ export async function syncScreenTimeUsage(
   });
   // 오늘 유효 목표를 함께 기록 — 내일 어제분 마감이 '어제 목표'로 판정하게 한다(GROMO-942, 코드리뷰).
   await writeSyncState({ userId, date: today, minutes, goalSeconds });
+}
+
+// ── SCREEN_TIME×TIME_WINDOW 창 사용분 계산·업로드 (그룹 챌린지 확장 A4) ─────────────
+//
+// N1 타임라인(getUsageBucketEvents)의 bucket은 원시 threshold 눈금이 아니라 '베이스+눈금'
+// **하루 누적 환산분**(단조 증가)이다 — 분 단위 값을 그대로 쓰고 ×15 같은 변환은 금지(N1 계약).
+// 임의 시각 T의 누적 사용분 f(T) = T 이하 마지막 발화의 bucket(창 시작 이전 발화 없으면 0).
+// 창 사용분 = f(창 끝) − f(창 시작). 자정 걸침 창(start > end)은 날짜 키가 갈리므로
+// [시작~자정]을 시작일 키로, [자정~끝]을 다음날 키로 나눠 합산한다(다음날 키는 0부터 다시 시작).
+//
+// 창(windowStart/End "HH:mm:ss")은 '매일 반복 시간대'다(계약 ⚠️ 설계 보정 — KST 앵커). 앱은
+// 기기 로컬 벽시계로 날짜 D의 창을 조합한다 — 서버 판정 기준(KST)과 같으려면 기기가 KST여야
+// 하며, 타 시간대 기기는 ±오프셋 오차를 수용한다(클라 신뢰 데이터라는 한계 안에 포함).
+
+// T(epoch초) 시점의 하루 누적 사용분 — T 이하 마지막 발화의 bucket, 발화 없으면 0.
+// bucket이 단조 증가라 '마지막 발화'의 값이 곧 최댓값이지만, 기록 순서가 어긋나도 안전하게 최대로 잡는다.
+export function cumulativeMinutesAt(events: UsageBucketEvent[], atEpochSec: number): number {
+  let max = 0;
+  for (const e of events) {
+    if (e.firedAt <= atEpochSec && e.bucket > max) max = e.bucket;
+  }
+  return max;
+}
+
+// 한 날짜 키 타임라인의 [fromSec, toSec] 구간 사용분 — f(to) − f(from). 음수 방어 0.
+function segmentMinutes(events: UsageBucketEvent[], fromSec: number, toSec: number): number {
+  return Math.max(0, cumulativeMinutesAt(events, toSec) - cumulativeMinutesAt(events, fromSec));
+}
+
+// 창 사용분 계산(순수 함수 — 단위 테스트 대상). endAtSec에는 창 종료와 '지금' 중 이른 쪽을
+// 넘긴다(창 진행 중 중간 보고). 자정 걸침 창이면 midnightSec(다음날 0시)·nextDayEvents를 준다.
+export function computeWindowUsedMinutes(p: {
+  startDayEvents: UsageBucketEvent[]; // 창 시작 날짜 키의 타임라인
+  startAtSec: number;
+  endAtSec: number;
+  midnightSec?: number; // 자정 걸침 창의 경계(다음날 0시 epoch초)
+  nextDayEvents?: UsageBucketEvent[]; // 자정 걸침 창의 다음날 키 타임라인
+}): number {
+  if (p.midnightSec != null) {
+    // 아직 자정 전이면 다음날 구간은 0 — 첫째 날 구간만 [시작, min(끝, 자정)]로 계산한다.
+    const firstEnd = Math.min(p.endAtSec, p.midnightSec);
+    const nextPart =
+      p.endAtSec > p.midnightSec
+        ? segmentMinutes(p.nextDayEvents ?? [], p.midnightSec, p.endAtSec)
+        : 0;
+    return segmentMinutes(p.startDayEvents, p.startAtSec, firstEnd) + nextPart;
+  }
+  return segmentMinutes(p.startDayEvents, p.startAtSec, p.endAtSec);
+}
+
+// 'YYYY-MM-DD' 로컬 자정 epoch초 + 하루 중 초 오프셋 — 창 경계 시각의 epoch초를 만든다.
+function epochSecAt(dateStr: string, secondsOfDay: number): number {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return Math.floor(new Date(y, m - 1, d).getTime() / 1000) + secondsOfDay;
+}
+
+function nextDateStr(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const t = new Date(y, m - 1, d);
+  t.setDate(t.getDate() + 1);
+  return localDateStr(t);
+}
+
+// 창 보고 상태 — 최종 보고 1회 보장(finals)과 중간 보고 무변화 스킵(last)에 쓴다.
+// 디바이스 전역 키라 계정을 함께 기록한다(syncState와 같은 이유).
+interface WindowReportState {
+  userId: string;
+  finals: string[]; // 최종 보고 완료 마커 'challengeId:date' — 이틀 지난 항목은 정리
+  last: Record<string, { date: string; minutes: number }>; // 챌린지별 마지막 중간 보고
+}
+
+async function readWindowReportState(userId: string): Promise<WindowReportState> {
+  const empty: WindowReportState = { userId, finals: [], last: {} };
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeWindowReports);
+    if (!raw) return empty;
+    const state = JSON.parse(raw) as WindowReportState;
+    // 다른 계정의 기록이면 버린다 — 남의 보고 이력으로 스킵하지 않는다.
+    if (state.userId !== userId) return empty;
+    return { userId, finals: state.finals ?? [], last: state.last ?? {} };
+  } catch {
+    return empty;
+  }
+}
+
+async function writeWindowReportState(state: WindowReportState, yesterday: string): Promise<void> {
+  // 어제보다 오래된 항목은 다시 볼 일이 없다(타임라인 2일 보존과 동일 창) — 정리해 크기를 묶는다.
+  const pruned: WindowReportState = {
+    userId: state.userId,
+    finals: state.finals.filter((key) => key.slice(key.lastIndexOf(':') + 1) >= yesterday),
+    last: Object.fromEntries(Object.entries(state.last).filter(([, v]) => v.date >= yesterday)),
+  };
+  await AsyncStorage.setItem(STORAGE_KEYS.screentimeWindowReports, JSON.stringify(pruned));
+}
+
+// 구 바이너리 미지원 계측(세션당 1회) 가드 — JS 런타임 생존 동안 1회만 발행한다.
+let windowUnsupportedLogged = false;
+
+// 창 사용분 동기화 본체 — syncScreenTimeUsage 끝에서 호출된다(포그라운드/일일 sync 훅 공유).
+// 내가 참여한 그룹들의 SCREEN_TIME×TIME_WINDOW 활성 챌린지를 경량 조회해, 어제·오늘 창의
+// 사용분을 타임라인 버킷 차로 계산해 PUT window-usage로 올린다. 창 진행 중 중간 보고 허용,
+// 창 종료 후 최종 1회(마지막 값 승리·upsert 멱등이라 실패는 다음 sync 재시도). 실패는 무시.
+export async function syncWindowUsage(userId: string): Promise<void> {
+  // 창 측정 타임라인은 iOS 네이티브(N1)에만 있다 — 안드로이드는 대상 아님(계측도 하지 않는다:
+  // unsupported는 'iOS 구 바이너리 업데이트 유도 규모' 지표라 안드로이드가 섞이면 오염된다).
+  if (Platform.OS !== 'ios') return;
+  // 구 바이너리 가드 — getUsageBucketEvents가 없으면 전체 스킵. 서버는 보고 없음 =
+  // memberProgress null(판정불가)이 정상 상태다. 미지원 계측은 세션당 1회.
+  if (!nativeSupportsUsageBucketEvents()) {
+    if (!windowUnsupportedLogged) {
+      windowUnsupportedLogged = true;
+      logScreentimeWindowUnsupported();
+    }
+    return;
+  }
+  // 버킷 모니터가 이 계정 소유로 등록돼 있을 때만 — 미등록(측정 대상 미선택)이면 타임라인이
+  // 항상 비어 '0분 사용'과 '미측정'이 구분되지 않는다(일일 동기화의 0분 스킵과 같은 취지).
+  // 미보고면 서버가 판정불가로 두는 게 맞고, 0분 오보고는 스크린타임 창 내기의 오달성이 된다.
+  const owner = await AsyncStorage.getItem(STORAGE_KEYS.screentimeBucketMonitorRegistered);
+  if (owner !== userId) return;
+
+  // 참여 그룹의 챌린지 경량 조회(빈도 낮음) — 실패는 무시하고 다음 sync에서 다시 본다.
+  const groups = await getMyGroups().catch(() => null);
+  if (!groups || groups.length === 0) return;
+
+  const now = new Date();
+  const nowSec = Math.floor(now.getTime() / 1000);
+  const measuredAt = now.toISOString();
+  const today = todayStr();
+  const yesterday = yesterdayStr();
+  const state = await readWindowReportState(userId);
+  let stateDirty = false;
+
+  // 날짜 키별 타임라인은 1회만 읽는다. 조회 실패(null)는 빈 배열과 구분한다 — 실패를 0분으로
+  // 보고하면 창 내기 오달성이 되므로, 그 챌린지는 이번 sync에서 건너뛰고 다음에 재시도한다.
+  const eventsCache = new Map<string, UsageBucketEvent[] | null>();
+  const getEvents = async (dayKey: string): Promise<UsageBucketEvent[] | null> => {
+    if (eventsCache.has(dayKey)) return eventsCache.get(dayKey) ?? null;
+    let events: UsageBucketEvent[] | null;
+    try {
+      events = await ScreenTimeModule.getUsageBucketEvents(dayKey);
+    } catch {
+      events = null;
+    }
+    eventsCache.set(dayKey, events);
+    return events;
+  };
+
+  for (const group of groups) {
+    const challenges = await getChallenges(group.groupId).catch(() => null);
+    if (!challenges) continue;
+    for (const c of challenges) {
+      if (c.status !== 'ACTIVE') continue;
+      if (c.missionCategory !== 'SCREEN_TIME' || c.missionType !== 'TIME_WINDOW') continue;
+      const startSec = timeStrToSeconds(c.windowStart);
+      const endSec = timeStrToSeconds(c.windowEnd);
+      if (!Number.isFinite(startSec) || !Number.isFinite(endSec)) continue;
+      const crossing = endSec <= startSec; // 자정 걸침 창 — D 시작 ~ D+1 종료(계약 설계 보정)
+
+      // 어제 창(놓친 최종 보고 — 타임라인 2일 보존 안이라 복구 가능) → 오늘 창 순서로 처리.
+      // 그제 이전 창은 타임라인이 지워져 복구 불가 — 미보고=미달성 수용(계약 명시 한계).
+      for (const date of [yesterday, today]) {
+        const windowStartSec = epochSecAt(date, startSec);
+        const windowEndSec = crossing
+          ? epochSecAt(nextDateStr(date), endSec)
+          : epochSecAt(date, endSec);
+        if (nowSec < windowStartSec) continue; // 창 시작 전 — 보고할 것 없음
+        const isFinal = nowSec >= windowEndSec;
+        const finalKey = `${c.id}:${date}`;
+        if (isFinal && state.finals.includes(finalKey)) continue; // 최종 보고 완료 — 1회만
+
+        const startDayEvents = await getEvents(date);
+        if (startDayEvents == null) continue; // 타임라인 조회 실패 — 다음 sync에서 재시도
+        let midnightSec: number | undefined;
+        let nextDayEvents: UsageBucketEvent[] | undefined;
+        if (crossing) {
+          midnightSec = epochSecAt(nextDateStr(date), 0);
+          if (nowSec > midnightSec) {
+            const next = await getEvents(nextDateStr(date));
+            if (next == null) continue;
+            nextDayEvents = next;
+          }
+        }
+        const used = computeWindowUsedMinutes({
+          startDayEvents,
+          startAtSec: windowStartSec,
+          endAtSec: Math.min(nowSec, windowEndSec),
+          midnightSec,
+          nextDayEvents,
+        });
+        const usedMinutes = Math.min(1440, Math.max(0, used)); // 서버 검증 범위(0~1440) 클램프
+        // 중간 보고는 값이 그대로면 스킵(15분 눈금이라 대부분 그대로다). 최종 보고는 값이 같아도
+        // 1회 보낸다 — 서버의 '최종까지 보고된 창'과 '중간에 멈춘 창'이 같게 수렴하도록.
+        if (
+          !isFinal &&
+          state.last[c.id]?.date === date &&
+          state.last[c.id]?.minutes === usedMinutes
+        ) {
+          continue;
+        }
+        try {
+          await putWindowUsage(group.groupId, c.id, { date, usedMinutes, measuredAt });
+        } catch {
+          continue; // 실패 무시 — upsert 멱등, 다음 sync가 최신값으로 재시도
+        }
+        logScreentimeWindowReported({ minutes: usedMinutes, is_final: isFinal });
+        if (isFinal) state.finals.push(finalKey);
+        else state.last[c.id] = { date, minutes: usedMinutes };
+        stateDirty = true;
+      }
+    }
+  }
+  if (stateDirty) await writeWindowReportState(state, yesterday);
 }

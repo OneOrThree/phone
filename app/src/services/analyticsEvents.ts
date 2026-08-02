@@ -460,6 +460,20 @@ export function logGroupBetJoined(p: { stake: number }): void {
   track('group_bet_joined', p);
 }
 
+// ── 스크린타임 창 사용분 보고 [C] ── (그룹 챌린지 확장 배치 A4, contract.md §계측)
+// SCREEN_TIME×TIME_WINDOW 챌린지의 창 사용분 업로드(screentimeSync) 계측.
+// reported는 **업로드 API 성공 시에만** 발행한다 — 실패 재시도까지 세면 보고 수가 부푼다.
+// is_final: 창 종료 후 최종 보고 여부(false = 창 진행 중 중간 보고).
+export function logScreentimeWindowReported(p: { minutes: number; is_final: boolean }): void {
+  track('screentime_window_reported', p);
+}
+
+// 구 바이너리 가드(getUsageBucketEvents 미지원)에 걸려 창 사용분 업로드를 전체 스킵할 때 —
+// 세션당 1회만(발행 가드는 호출부 screentimeSync가 잡는다). 업데이트 유도 필요 규모 측정용.
+export function logScreentimeWindowUnsupported(): void {
+  track('screentime_window_unsupported');
+}
+
 // ── 그룹 Fakedoor [C] ── (GROMO-597)
 // 실기능 미구현 준비중 화면의 수요 측정. 기존 group_viewed와 분리 —
 // 미래에 실제 그룹 기능이 켜지면 group_viewed가 실조회를 뜻하게 되므로 지표 오염을 막는다.

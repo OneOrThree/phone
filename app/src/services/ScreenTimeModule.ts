@@ -22,6 +22,14 @@ export interface AppSelectionCounts {
   webDomains: number;
 }
 
+// Monitor 익스텐션 threshold 발화 타임라인 항목(N1) — App Group "usageBucketEvents:{yyyy-MM-dd}".
+// bucket은 원시 threshold 눈금이 아니라 '베이스+눈금' 하루 누적 환산분(단조 증가)이다 —
+// 분 단위 값 그대로 쓴다(×15 같은 변환 금지, N1 계약 확정). 2일 보존.
+export interface UsageBucketEvent {
+  bucket: number; // 그 발화 시점의 하루 누적 사용분
+  firedAt: number; // 발화 시각(epoch 초)
+}
+
 // 사용량 버킷 측정 상태 디버그 정보(개발용, GROMO-931) — App Group 기록 원본.
 // 전체 탭 dev 패널이 15분 눈금 동작 확인에 쓴다. 판정 로직에는 쓰지 않는다.
 export interface UsageBucketDebugInfo {
@@ -47,6 +55,7 @@ interface NativeScreenTime {
   getTodayUsageBucketMinutes(): Promise<number>;
   getYesterdayUsageBucketMinutes(): Promise<number>;
   getUsageBucketDebugInfo(): Promise<UsageBucketDebugInfo>;
+  getUsageBucketEvents(dayKey: string): Promise<UsageBucketEvent[]>;
   setPendingSelectionApplyDate(dateString: string): Promise<boolean>;
   presentAppPicker(): Promise<AppSelectionCounts | null>;
   promoteSelection(): Promise<boolean>;
@@ -93,6 +102,14 @@ export const nativeRegistersBucketStep15 = (): boolean =>
   Platform.OS === 'ios' &&
   typeof (NativeModules.ScreenTimeModule as NativeScreenTime | undefined)
     ?.getUsageBucketDebugInfo === 'function';
+
+// 네이티브 바이너리가 threshold 발화 타임라인(N1, getUsageBucketEvents)을 지원하는지 — OTA로
+// 새 JS만 받은 구 바이너리는 메서드가 없어 false. 이 경우 창 사용분 업로드(A4)는 전체 스킵한다
+// (서버 memberProgress null = 판정불가가 정상 상태).
+export const nativeSupportsUsageBucketEvents = (): boolean =>
+  Platform.OS === 'ios' &&
+  typeof (NativeModules.ScreenTimeModule as NativeScreenTime | undefined)?.getUsageBucketEvents ===
+    'function';
 
 // 네이티브 바이너리가 A안(GROMO-942, 측정 대상 '다음날 적용')을 지원하는지 — 같은 빌드에 추가된
 // setPendingSelectionApplyDate 존재로 판별. OTA로 새 JS만 받은 구 바이너리는 이 메서드도, 자정
@@ -178,6 +195,13 @@ const ScreenTimeModule = {
   getUsageBucketDebugInfo: async (): Promise<UsageBucketDebugInfo | null> => {
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.getUsageBucketDebugInfo();
+  },
+
+  // 날짜 키('YYYY-MM-DD')의 threshold 발화 타임라인(N1) — 창 사용분 계산(A4)의 소스. 2일 보존.
+  // 오래된 순 [{bucket, firedAt}] — bucket은 하루 누적 환산분(단조 증가). iOS 외·구 바이너리는 빈 배열.
+  getUsageBucketEvents: async (dayKey: string): Promise<UsageBucketEvent[]> => {
+    if (!nativeSupportsUsageBucketEvents()) return [];
+    return NativeScreenTimeModule.getUsageBucketEvents(dayKey);
   },
 
   // A안(GROMO-942) 측정 대상 변경 '다음날 적용' 예약 — App Group에 적용 예정일을 기록해
