@@ -4,7 +4,8 @@ import { T } from '@/constants/theme';
 import { CharacterImage } from '@/components/character/CharacterImage';
 
 // 그룹방 멤버 타일(3열 그리드 1칸) — 명세 docs/app/group-plan.md §6-4.
-// 아바타 + 닉네임 + 오늘 집중 시간. 방장은 왕관 배지로 구분한다.
+// 아바타 + 순위 배지 + 닉네임 + 누적/오늘 집중 시간. 방장은 왕관 배지로 구분한다.
+// 순위·누적은 리더보드(3차)용 — 서버가 누적 집중 내림차순으로 준 순서·순위를 그대로 그린다(앱 재정렬 금지).
 //
 // 아바타는 리그의 MemberAvatar와 같은 모양이지만 그 파일을 import하지 않는다 —
 // feature 폴더 간 직접 참조는 콜로케이션 규칙 위반이고(2곳 이상 쓰이면 src/components/로 승격),
@@ -29,14 +30,28 @@ export interface MemberTileProps {
   nickname: string;
   // 오늘(getGroupDetail의 date 기준) 집중 시간(분). 서버가 null을 줄 수 있다.
   focusTimeMinutes: number | null;
+  // 전체 누적 집중 시간(분) — 리더보드 지표. 서버가 이 값 내림차순으로 정렬해 내려준다.
+  totalFocusMinutes: number;
+  // 서버 정렬 순서 기준 순위(1-based) — 리더보드 순서를 배지로 눈에 보이게 한다.
+  rank: number;
   isOwner?: boolean;
 }
 
-export default function MemberTile({ nickname, focusTimeMinutes, isOwner }: MemberTileProps) {
+export default function MemberTile({
+  nickname,
+  focusTimeMinutes,
+  totalFocusMinutes,
+  rank,
+  isOwner,
+}: MemberTileProps) {
   return (
-    <View style={s.tile}>
+    <View style={s.tile} testID={`group.member.tile.${rank}`}>
       <View style={s.avatar}>
         <CharacterImage size={AVATAR * 0.66} />
+        {/* 순위 배지 — 서버 정렬(누적 집중 내림차순) 순서를 좌상단 숫자로 노출(정렬이 눈에 보이게) */}
+        <View style={s.rank}>
+          <Text style={s.rankText}>{rank}</Text>
+        </View>
         {isOwner && (
           <View style={s.crown}>
             <Ionicons name="ribbon" size={10} color={T.white} />
@@ -46,7 +61,14 @@ export default function MemberTile({ nickname, focusTimeMinutes, isOwner }: Memb
       <Text style={s.name} numberOfLines={1}>
         {nickname}
       </Text>
-      <Text style={s.minutes}>{fmtFocus(focusTimeMinutes)}</Text>
+      {/* 리더보드 지표 — 누적 집중 시간(강조) */}
+      <Text style={s.total} numberOfLines={1}>
+        {fmtFocus(totalFocusMinutes)}
+      </Text>
+      {/* 오늘 집중 시간(보조) */}
+      <Text style={s.today} numberOfLines={1}>
+        오늘 {fmtFocus(focusTimeMinutes)}
+      </Text>
     </View>
   );
 }
@@ -86,6 +108,30 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // 순위 배지 — 좌상단(왕관은 우하단)에 겹쳐 순위를 숫자로. 색은 순위 배지 토큰(T.blue).
+  rank: {
+    position: 'absolute',
+    left: -4,
+    top: -4,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: T.blue,
+    borderWidth: 2,
+    borderColor: T.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rankText: { ...T.text.caption, fontSize: 10, fontWeight: '800', color: T.white },
   name: { ...T.text.caption, fontWeight: '700', color: T.ink },
-  minutes: { ...T.text.caption, fontWeight: '600', color: T.inkSub },
+  // 누적(리더보드 지표) — 강조 수치 색(accentDeep)으로 오늘분과 위계를 가른다.
+  total: {
+    ...T.text.caption,
+    fontWeight: '800',
+    color: T.accentDeep,
+    fontVariant: ['tabular-nums'],
+  },
+  // 오늘분(보조) — 흐린 색·기본 두께로 뒤로 물린다.
+  today: { ...T.text.caption, fontWeight: '500', color: T.inkMuted },
 });

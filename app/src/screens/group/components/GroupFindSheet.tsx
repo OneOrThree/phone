@@ -76,7 +76,9 @@ export default function GroupFindSheet({
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GroupSearchResponse[]>([]);
-  const [searching, setSearching] = useState(false);
+  // 열리자마자 공개방 기본 목록을 부르므로(A-10) 첫 렌더는 로딩으로 시작한다 —
+  // false로 두면 마운트 직후 한 프레임 동안 '결과 없음' 문구가 스쳐 지나간다.
+  const [searching, setSearching] = useState(true);
   // 조회 실패 — '결과 없음'과 반드시 구분한다. 실패를 빈 목록으로 뭉개면 실제로 있는 그룹을
   // 찾는 사용자가 '그런 이름의 공개 그룹이 없어요'를 보고 이름이 틀렸다고 오인한다.
   const [searchError, setSearchError] = useState(false);
@@ -126,7 +128,8 @@ export default function GroupFindSheet({
       setResults(rows);
       setSearchError(false);
       // 계측 result_count는 **화면에 실제로 뜬 개수**다 — 걸러낸 그룹까지 세면 검색 품질 지표가 부푼다.
-      if (measure)
+      // 빈 쿼리(공개방 기본 목록)는 사용자가 친 검색이 아니라 계측하지 않는다 — target이 있을 때만 쏜다.
+      if (measure && target)
         logGroupSearchPerformed({ query_length: target.length, result_count: rows.length });
     } catch {
       if (seq !== searchSeqRef.current) return;
@@ -141,21 +144,20 @@ export default function GroupFindSheet({
     }
   }, []);
 
-  // 이름 검색 — 디바운스 + 재입력/언마운트 시 이전 응답 무시(FriendAddScreen:66-92 패턴).
-  // 빈 문자열이면 호출하지 않고 결과를 비운다.
+  // 목록 조회 — 디바운스 + 재입력/언마운트 시 이전 응답 무시(FriendAddScreen:66-92 패턴).
+  // 검색어가 있으면 이름 검색(trgm), 비어 있으면 공개방 기본 목록을 부른다 —
+  // 서버가 빈 쿼리를 '공개방 최신 생성순 상위 10개'로 응답하므로 같은 경로로 처리한다(A-10).
+  // 마운트(=시트 열림) 시 q=''로 이 이펙트가 돌아 기본 목록을 채우고, 입력을 지우면 다시 기본 목록으로 돌아온다.
   useEffect(() => {
     // 검색어가 바뀌면 직전 참여 실패 문구는 맥락을 잃는다 — 함께 지운다.
     setJoinError(null);
     setSearchError(false);
     // 이전 검색어의 결과도 즉시 비운다 — 입력창은 B인데 목록에 A의 행이 활성 상태로 남으면,
     // 디바운스+요청이 끝나기 전에 그 행을 누른 사용자가 B를 검색한 화면에서 A 그룹에 참여한다.
+    // (빈 쿼리로 돌아올 때도 이전 검색 결과를 비우고 기본 목록으로 새로 채운다.)
     setResults([]);
     // 디바운스 타이머가 뜨기 전에 올린다 — 아직 응답이 안 온 이전 요청(주 검색·조용한 갱신)이 여기서 죽는다.
     const seq = ++searchSeqRef.current;
-    if (!q) {
-      setSearching(false);
-      return;
-    }
     setSearching(true);
     const timer = setTimeout(() => runSearch(q, seq, true), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
@@ -165,14 +167,14 @@ export default function GroupFindSheet({
   // 시퀀스는 올리지 않고 **현재 검색어의 세대 번호를 그대로 쓴다** — 같은 검색어의 결과라
   // 주 검색과 서로 덮어도 어긋나지 않고, 검색어가 바뀌면 그 즉시 함께 무효화된다.
   const refreshResults = useCallback(() => {
-    if (!q) return;
+    // 빈 쿼리(공개방 기본 목록) 상태에서도 갱신한다 — 서버가 빈 쿼리를 기본 목록으로 응답한다.
     runSearch(q, searchSeqRef.current, false);
   }, [q, runSearch]);
 
   // 조회 실패 후의 수동 재시도 — 검색어를 바꿔야만 다시 시도할 수 있으면 복구 경로가 없다.
+  // 빈 쿼리(공개방 기본 목록) 조회 실패에도 그대로 동작한다.
   // 새 세대로 올려 진행 중인 이전 요청을 무효화한다(디바운스 없이 즉시 발화).
   const retrySearch = useCallback(() => {
-    if (!q) return;
     const seq = ++searchSeqRef.current;
     setSearchError(false);
     setSearching(true);
@@ -263,22 +265,28 @@ export default function GroupFindSheet({
     ]);
   }
 
-  // 목록이 비었을 때의 안내 — 입력 전 / 검색 중 / 조회 실패 / 결과 없음을 각각 다르게 말한다.
+  // 목록이 비었을 때의 안내 — 로딩 / 조회 실패 / 결과 없음을 상태별로 말한다.
+  // 검색어가 있으면 이름 검색 기준, 비어 있으면 공개방 기본 목록(A-10) 기준으로 문구만 달라진다.
   let emptyNotice: ReactNode = null;
-  if (!q) {
-    emptyNotice = <Text style={s.emptyText}>찾고 싶은 그룹 이름을 입력해보세요</Text>;
-  } else if (results.length === 0) {
-    if (searching) emptyNotice = <Text style={s.emptyText}>검색 중…</Text>;
-    else if (searchError)
+  if (results.length === 0) {
+    if (searching) {
+      emptyNotice = <Text style={s.emptyText}>{q ? '검색 중…' : '불러오는 중…'}</Text>;
+    } else if (searchError) {
       emptyNotice = (
         <>
-          <Text style={s.emptyText}>검색하지 못했어요</Text>
+          <Text style={s.emptyText}>{q ? '검색하지 못했어요' : '불러오지 못했어요'}</Text>
           <TouchableOpacity onPress={retrySearch} hitSlop={12} activeOpacity={0.7}>
             <Text style={s.emptyRetry}>다시 시도</Text>
           </TouchableOpacity>
         </>
       );
-    else emptyNotice = <Text style={s.emptyText}>그런 이름의 공개 그룹이 없어요</Text>;
+    } else {
+      emptyNotice = (
+        <Text style={s.emptyText}>
+          {q ? '그런 이름의 공개 그룹이 없어요' : '아직 공개된 그룹이 없어요'}
+        </Text>
+      );
+    }
   }
 
   return (

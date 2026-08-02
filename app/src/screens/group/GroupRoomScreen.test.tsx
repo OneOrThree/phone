@@ -8,8 +8,6 @@
 //     챌린지도 같은 규격을 따른다(실패를 '없음'으로 위장하지 않는다).
 //  2) 포그라운드 복귀. 그룹 탭이 포커스된 채 백그라운드에 있다 자정을 넘겨 돌아오면
 //     useFocusEffect가 다시 돌지 않아 '오늘 집중분'이 전날 값으로 남았다.
-//  3) ⋯ 메뉴의 '그룹 전환·추가'는 **onShowGroups를 받았을 때만** 렌더한다 —
-//     라우트로 push된 그룹방은 이미 목록에서 들어온 화면이라 되돌아가는 항목이 중복이다(2차 §0-3).
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { Alert, AppState, Share, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -65,6 +63,7 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupInviteShared: jest.fn(),
   logGroupBetCreated: jest.fn(),
   logGroupBetJoined: jest.fn(),
+  logGroupRoomViewed: jest.fn(),
   logGroupChallengeResultShown: jest.fn(),
   logGroupChallengeResultClosed: jest.fn(),
 }));
@@ -156,8 +155,14 @@ function detail(over: Partial<GroupDetailResponse> = {}): GroupDetailResponse {
     codeExpiresAt: null,
     noticeGrantedUserIds: [],
     members: [
-      { userId: 'me', nickname: '나', role: 'OWNER', focusTimeMinutes: 30 },
-      { userId: 'u2', nickname: '수빈', role: 'MEMBER', focusTimeMinutes: 60 },
+      { userId: 'me', nickname: '나', role: 'OWNER', focusTimeMinutes: 30, totalFocusMinutes: 30 },
+      {
+        userId: 'u2',
+        nickname: '수빈',
+        role: 'MEMBER',
+        focusTimeMinutes: 60,
+        totalFocusMinutes: 60,
+      },
     ],
     ...over,
   };
@@ -193,9 +198,8 @@ function challenge(over: Partial<GroupChallengeResponse> = {}): GroupChallengeRe
   };
 }
 
-// onShowGroups를 넘기면 '내장 렌더'(탭 안) — 안 넘기면 라우트 진입이다(2차 §0-3).
-async function renderRoom(props: { onShowGroups?: () => void } = {}) {
-  const result = await render(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} {...props} />);
+async function renderRoom() {
+  const result = await render(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
   await act(async () => {});
   return result;
 }
@@ -497,8 +501,20 @@ describe('챌린지 섹션', () => {
     mockGetGroupDetail.mockResolvedValue(
       detail({
         members: [
-          { userId: 'me', nickname: '나', role: 'MEMBER', focusTimeMinutes: 30 },
-          { userId: 'u2', nickname: '수빈', role: 'OWNER', focusTimeMinutes: 60 },
+          {
+            userId: 'me',
+            nickname: '나',
+            role: 'MEMBER',
+            focusTimeMinutes: 30,
+            totalFocusMinutes: 30,
+          },
+          {
+            userId: 'u2',
+            nickname: '수빈',
+            role: 'OWNER',
+            focusTimeMinutes: 60,
+            totalFocusMinutes: 60,
+          },
         ],
       }),
     );
@@ -1145,8 +1161,8 @@ describe('내기 배선', () => {
   });
 });
 
-// 내장 렌더(GroupScreen의 1건 분기)는 그룹이 A 한 건에서 B 한 건으로 바뀌어도 같은 인스턴스를
-// 재사용한다 — 이전 그룹의 화면이 남은 채 mutation만 새 groupId로 나가면 영구 실패가 된다.
+// 이미 스택에 있는 'GroupRoom' 라우트로 다시 navigate 하면(params 병합) 같은 인스턴스가 다른
+// groupId로 재사용된다 — 이전 그룹의 화면이 남은 채 mutation만 새 groupId로 나가면 영구 실패가 된다.
 describe('그룹 전환(같은 인스턴스에 다른 groupId)', () => {
   const OTHER_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
 
@@ -1432,9 +1448,11 @@ describe('그룹 나가기', () => {
       alertSpy.mock.calls[0][2]?.find((b) => b.text === '나가기')?.onPress?.();
     });
 
+    // A-2: 위임 화면으로 유도하는 새 안내 — '방장 넘기고 나가기' 버튼이 GroupOwnerTransfer 로 보낸다.
     expect(alertSpy).toHaveBeenLastCalledWith(
-      '방장은 나갈 수 없어요',
-      '그룹을 이어갈 사람에게 방장을 넘겨야 해요.\n방장 넘기기는 준비 중이에요.',
+      '방장은 바로 나갈 수 없어요',
+      '그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.',
+      expect.arrayContaining([expect.objectContaining({ text: '방장 넘기고 나가기' })]),
     );
     expect(onLeft).not.toHaveBeenCalled();
   });
@@ -1459,34 +1477,6 @@ describe('그룹 나가기', () => {
     expect(onLeft).toHaveBeenCalled();
     // 확인 Alert(나갈까요?) 이후 추가 Alert는 없다.
     expect(alertSpy).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('⋯ 메뉴 — 그룹 전환·추가', () => {
-  test('내장 렌더(onShowGroups 전달)에서만 항목이 보이고, 탭하면 콜백이 불린다', async () => {
-    const onShowGroups = jest.fn();
-    mockGetGroupDetail.mockResolvedValue(detail());
-    mockGetAnnouncements.mockResolvedValue([]);
-    await renderRoom({ onShowGroups });
-
-    await act(async () => {
-      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
-    });
-    await press('그룹 전환·추가');
-    expect(onShowGroups).toHaveBeenCalled();
-  });
-
-  test('라우트 진입(onShowGroups 미전달)에선 항목을 숨긴다', async () => {
-    mockGetGroupDetail.mockResolvedValue(detail());
-    mockGetAnnouncements.mockResolvedValue([]);
-    await renderRoom();
-
-    await act(async () => {
-      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
-    });
-    // 메뉴 자체는 열려 있다 — '그룹 나가기'는 두 경로 모두에 있다.
-    expect(screen.getByText('그룹 나가기')).toBeOnTheScreen();
-    expect(screen.queryByText('그룹 전환·추가')).toBeNull();
   });
 });
 

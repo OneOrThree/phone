@@ -15,6 +15,10 @@ import {
   GroupCreateScreen,
   GroupRoomRouteScreen,
   NoticeScreen,
+  GroupSettingsScreen,
+  GroupMemberManageScreen,
+  GroupOwnerTransferScreen,
+  GroupNoticePermissionScreen,
 } from '@/screens/group';
 import {
   LeagueScreen,
@@ -118,6 +122,12 @@ export function RootNavigator() {
         <Stack.Screen name="GroupCreate" component={GroupCreateScreen} />
         <Stack.Screen name="GroupRoom" component={GroupRoomRouteScreen} />
         <Stack.Screen name="GroupNotice" component={NoticeScreen} />
+        {/* 그룹 운영(3차) — 방장 전용. 그룹방 ⋯ '그룹 설정'(GroupSettings)이 관리 허브이며
+            여기서 위임·멤버관리·공지권한으로 갈라진다 */}
+        <Stack.Screen name="GroupSettings" component={GroupSettingsScreen} />
+        <Stack.Screen name="GroupMemberManage" component={GroupMemberManageScreen} />
+        <Stack.Screen name="GroupOwnerTransfer" component={GroupOwnerTransferScreen} />
+        <Stack.Screen name="GroupNoticePermission" component={GroupNoticePermissionScreen} />
         {/* 설정(GROMO-559) — '전체' 탭(MenuScreen) 허브에서 push 되는 하위 화면 */}
         <Stack.Screen name="SettingsProfileEdit" component={ProfileEditScreen} />
         <Stack.Screen name="SettingsOccupation" component={OccupationScreen} />

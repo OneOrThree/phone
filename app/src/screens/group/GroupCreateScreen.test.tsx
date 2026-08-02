@@ -1,9 +1,9 @@
-// GroupCreateScreen 전송 계약 + 생성 요청 구간 테스트 — 명세 docs/app/group-plan.md §6-2 + 2차 §3-3.
+// GroupCreateScreen 전송 계약 + 생성 요청 구간 테스트 — 명세 docs/app/group-plan.md §6-2 + 3차 §D18.
 //
-// 이 화면이 서버로 보내는 바디는 그룹의 성격을 통째로 정한다(카테고리·목표·공개 여부).
-// 특히 2차에서 missionCategory가 'FOCUS' 고정 → 세그먼트 선택값으로 바뀌었다 —
-// 선택이 바디에 실리지 않으면 스크린타임 그룹을 만들 방법이 앱에서 사라지고,
-// password·description이 실리면 아무도 못 들어오는 그룹이 만들어진다(§3-1-3).
+// 이 화면이 서버로 보내는 바디는 그룹의 성격을 정한다(이름·소개·정원·공개 여부).
+// 3차 §D18에서 챌린지를 그룹 생성과 분리했다 — 생성 시 챌린지를 정하지 않으므로 바디에
+// missionType·missionCategory·durationMinutes가 실려선 안 되고, password가 실리면 아무도
+// 못 들어오는 그룹이 만들어진다(§3-1-3). 소개(description)는 선택이라 입력이 있을 때만 실린다.
 //
 // 바디와 별개로, 이 화면의 위험 구간은 "요청은 떠 있는데 화면은 계속 열려 있는" 몇 초다.
 //   1) 그 사이 이름을 고치면 초대 문구가 실제 그룹 이름과 갈린다 → 요청에 실어 보낸 이름을 굳힌다
@@ -101,6 +101,15 @@ async function typeName(name: string) {
   });
 }
 
+async function typeDescription(text: string) {
+  await act(async () => {
+    fireEvent.changeText(
+      screen.getByPlaceholderText('예) 매일 아침 함께 집중하는 그룹이에요 (선택)'),
+      text,
+    );
+  });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockNav.beforeRemove = null;
@@ -110,8 +119,10 @@ beforeEach(() => {
   mockIssueInviteLink.mockResolvedValue({ slug: SLUG, url: INVITE_URL });
 });
 
-describe('챌린지 종류 세그먼트(2차 §3-3)', () => {
-  test('기본은 집중 시간 — 카테고리를 건드리지 않으면 FOCUS를 보낸다', async () => {
+describe('전송 계약 — 챌린지 없이 만든다(3차 §D18)', () => {
+  // §D18: 그룹 생성 시 챌린지를 정하지 않는다 — createGroup은 대표 챌린지를 만들지 않으므로
+  // mission 필드(missionType·missionCategory·durationMinutes)가 바디에 실려선 안 된다.
+  test('생성 성공 시 createGroup이 mission 없이 이름·정원·공개설정만으로 호출된다', async () => {
     await renderScreen();
     await typeName('아침 6시 집중방');
 
@@ -120,97 +131,55 @@ describe('챌린지 종류 세그먼트(2차 §3-3)', () => {
     expect(mockCreateGroup).toHaveBeenCalledWith({
       name: '아침 6시 집중방',
       maxMembers: 5,
-      missionType: 'DURATION',
-      missionCategory: 'FOCUS',
-      durationMinutes: 60,
       isPrivate: false,
     });
   });
 
-  test('스크린타임을 고르면 missionCategory가 SCREEN_TIME으로 나간다(missionType은 DURATION 유지)', async () => {
-    await renderScreen();
-    await typeName('스크린타임 줄이기');
-    await press('스크린타임');
-
-    await press('만들기');
-
-    expect(mockCreateGroup).toHaveBeenCalledWith(
-      expect.objectContaining({ missionCategory: 'SCREEN_TIME', missionType: 'DURATION' }),
-    );
-  });
-
-  // 권한이 없는 멤버는 서버가 챌린지 참여자에서 빼 버린다 — 고르기 전에 알려주지 않으면
-  // 방장은 '왜 절반이 빠졌는지' 모른 채 그룹을 만든다.
-  // 캡션에는 **목표의 방향(이하)** 도 함께 들어간다 — 이 문장이 빠지면 '하루 목표 스크린타임
-  // 60분'이 "60분을 채워라"로 뒤집혀 읽힌다(챌린지 만들기 시트는 이미 알려주는 정보다).
-  test('캡션은 스크린타임을 고른 동안에만 뜨고, 목표가 이하라는 뜻을 함께 알려준다', async () => {
-    await renderScreen();
-    const caption =
-      '하루 스크린타임을 목표 이하로 유지하면 달성이에요. 스크린타임 권한을 허용한 멤버만 참여할 수 있어요';
-
-    expect(screen.queryByText(caption)).toBeNull();
-
-    await press('스크린타임');
-    expect(screen.getByText(caption)).toBeOnTheScreen();
-
-    await press('집중 시간');
-    expect(screen.queryByText(caption)).toBeNull();
-  });
-
-  // 폼에서 고르는 목표는 '대표 챌린지 하나'뿐이라, 여기서 못 고른 종류를 영영 못 만드는 것으로
-  // 읽힐 수 있다 — 추가 경로가 있다는 사실을 카테고리와 무관하게 항상 노출한다.
-  test('목표 시간 아래에 그룹방에서 챌린지를 더 추가할 수 있다는 안내가 항상 뜬다', async () => {
-    await renderScreen();
-    const hint = '만든 뒤 그룹방에서 챌린지를 더 추가할 수 있어요';
-
-    expect(screen.getByText(hint)).toBeOnTheScreen();
-
-    await press('스크린타임');
-    expect(screen.getByText(hint)).toBeOnTheScreen();
-  });
-
-  // 목표는 FOCUS면 '이상', SCREEN_TIME이면 '이하'다 — 라벨이 고정이면 의미가 뒤집힌다.
-  test('목표 시간 라벨이 카테고리를 따라간다', async () => {
-    await renderScreen();
-
-    expect(screen.getByText('하루 목표 집중 시간')).toBeOnTheScreen();
-
-    await press('스크린타임');
-    expect(screen.getByText('하루 목표 스크린타임')).toBeOnTheScreen();
-    expect(screen.queryByText('하루 목표 집중 시간')).toBeNull();
-  });
-});
-
-describe('나머지 전송 계약(§3-1)', () => {
-  test('목표 시간 칩·공개 설정 선택이 그대로 실린다', async () => {
+  // 소개는 §D18에서 새로 들어온 선택 필드 — 입력하면 그대로 실려 나간다.
+  test('소개를 입력하면 description을 실어 보낸다', async () => {
     await renderScreen();
     await typeName('저녁 스터디');
-    await press('120분');
-    await press('비공개');
+    await typeDescription('매일 밤 10시에 함께 집중해요');
 
     await press('만들기');
 
     expect(mockCreateGroup).toHaveBeenCalledWith(
-      expect.objectContaining({ durationMinutes: 120, isPrivate: true }),
+      expect.objectContaining({ description: '매일 밤 10시에 함께 집중해요' }),
     );
   });
 
-  // 폐기된 개념(§0) — 하나라도 실리면 그 그룹은 아무도 못 들어오거나 3시간 뒤 입구가 닫힌다.
-  test('password·description·code는 절대 보내지 않는다', async () => {
+  // 소개는 선택(빈 값 허용) — 비어 있으면 키 자체를 보내지 않는다.
+  test('소개가 비면 description 키를 보내지 않는다', async () => {
     await renderScreen();
     await typeName('아침 6시 집중방');
 
     await press('만들기');
 
     const body = mockCreateGroup.mock.calls[0][0];
-    expect(Object.keys(body).sort()).toEqual([
-      'durationMinutes',
-      'isPrivate',
-      'maxMembers',
-      'missionCategory',
-      'missionType',
-      'name',
-    ]);
+    expect(body).not.toHaveProperty('description');
+  });
+
+  test('공개 설정 선택이 그대로 실린다', async () => {
+    await renderScreen();
+    await typeName('저녁 스터디');
+    await press('비공개');
+
+    await press('만들기');
+
+    expect(mockCreateGroup).toHaveBeenCalledWith(expect.objectContaining({ isPrivate: true }));
+  });
+
+  // 폐기된 개념(§0)과 §D18로 빠진 mission — 바디 키는 정확히 세 개뿐이다.
+  // password·code·missionType·missionCategory·durationMinutes가 하나라도 끼면 실패한다
+  // (Object.keys는 값이 undefined인 키도 잡아내므로 mission 누락을 엄격히 검증한다).
+  test('바디 키는 name·maxMembers·isPrivate뿐이다(password·code·mission 없음)', async () => {
+    await renderScreen();
+    await typeName('아침 6시 집중방');
+
+    await press('만들기');
+
+    const body = mockCreateGroup.mock.calls[0][0];
+    expect(Object.keys(body).sort()).toEqual(['isPrivate', 'maxMembers', 'name']);
   });
 
   test('이름이 비면 만들기가 눌리지 않는다', async () => {

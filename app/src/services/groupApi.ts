@@ -20,8 +20,11 @@ import type {
   GroupDetailResponse,
   GroupOverviewResponse,
   GroupSearchResponse,
+  GroupSettingsResponse,
   GroupSummaryResponse,
   MissionCategory,
+  UpdateGroupRequest,
+  UpdateGroupSettingsRequest,
 } from '@/types/dto/group';
 
 // ── 신설 서버 에러코드(계약 §2 — 앱이 code 문자열로 분기) ────────────────────────
@@ -95,6 +98,40 @@ export async function getGroupDetail(groupId: string, date?: string): Promise<Gr
 // DELETE /api/v1/groups/{groupId}/members/me — 그룹 나가기. 방장은 400 HOST_WITHDRAW(§14).
 export async function withdrawGroup(groupId: string): Promise<void> {
   await api.delete<void>(`/api/v1/groups/${groupId}/members/me`);
+}
+
+// PATCH /api/v1/groups/{groupId} — 그룹 설정 수정(방장만). 부분 수정: 보낸 필드만 반영, 204.
+// A-1: 이름·소개·정원·공개설정. 정원을 현재 인원 미만으로 줄이면 서버가 MAX_MEMBERS_TOO_SMALL(400).
+export async function updateGroup(groupId: string, body: UpdateGroupRequest): Promise<void> {
+  await api.patch<void>(`/api/v1/groups/${groupId}`, body);
+}
+
+// PATCH /api/v1/groups/{groupId}/members/{targetUserId}/owner — 방장 위임(방장만), 204.
+// A-2: 대상 멤버가 새 OWNER가 되고 기존 방장은 MEMBER로 내려간다.
+export async function transferOwner(groupId: string, targetUserId: string): Promise<void> {
+  await api.patch<void>(`/api/v1/groups/${groupId}/members/${targetUserId}/owner`, {});
+}
+
+// DELETE /api/v1/groups/{groupId}/members/{targetUserId} — 멤버 강퇴(방장만), 204.
+// A-3: 강퇴된 멤버는 재가입이 차단된다(서버 KICKED_CANNOT_REJOIN). 자기 자신 강퇴는 CANNOT_KICK_SELF.
+export async function kickMember(groupId: string, targetUserId: string): Promise<void> {
+  await api.delete<void>(`/api/v1/groups/${groupId}/members/${targetUserId}`);
+}
+
+// GET /api/v1/groups/{groupId}/settings — 공지 권한 설정 조회(방장만).
+// A-4: 전 멤버(방장 포함)의 announcementGrants. 방장은 항상 granted=true(토글 불가).
+export async function getGroupSettings(groupId: string): Promise<GroupSettingsResponse> {
+  const { data } = await api.get<GroupSettingsResponse>(`/api/v1/groups/${groupId}/settings`);
+  return data;
+}
+
+// PATCH /api/v1/groups/{groupId}/settings — 공지 권한 변경(방장만), 204.
+// A-4: announcementGrants 항목별 granted upsert. 목록에 없는 멤버는 미변경.
+export async function updateGroupSettings(
+  groupId: string,
+  body: UpdateGroupSettingsRequest,
+): Promise<void> {
+  await api.patch<void>(`/api/v1/groups/${groupId}/settings`, body);
 }
 
 // GET /api/v1/groups/{groupId}/announcements — 공지 목록(서버가 최신순 정렬, 앱 재정렬 금지).

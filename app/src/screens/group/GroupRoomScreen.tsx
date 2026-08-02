@@ -32,6 +32,7 @@ import {
   logGroupChallengeResultClosed,
   logGroupChallengeResultShown,
   logGroupInviteShared,
+  logGroupRoomViewed,
 } from '@/services/analyticsEvents';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import { todayStr, yesterdayStr } from '@/utils/localDate';
@@ -58,23 +59,23 @@ import MemberTile from './components/MemberTile';
 
 // 그룹방 — 명세 docs/app/group-plan.md §6-4.
 //
-// 형태: 탭 셸 없는 단일 ScrollView. **탭 안 내장 렌더와 라우트 진입을 겸한다** —
-//      그룹이 1개면 지금까지처럼 GroupScreen 안에서, 2개 이상이면 목록에서 push 된다(2차 §0-1·§0-2).
+// 형태: 탭 셸 없는 단일 ScrollView. 라우트 진입 전용이다 — 목록(GroupScreen)에서 그룹을 고르면
+//      GroupRoom 라우트로 push 되고 GroupRoomRouteScreen이 이 컴포넌트를 감싼다
+//      (A-9: 소속 수와 무관하게 목록이 기본 화면, 1건 내장 렌더는 폐지).
 // 레이아웃: 헤더(이름 · 비공개 자물쇠 · n/m · ⋯) → 초대 링크 카드 → 공지(최근 3건 + 모두보기)
 //          → 챌린지(2차 §3-2) → 멤버 3열 그리드(MemberTile + '＋ 초대' 타일)
 //
 // ❌ detail.code · codeExpiresAt은 읽지 않는다 — 코드 개념 폐기(§3-1-5).
 
-// 플로팅 탭바가 가리는 하단 여백(§5-1 — 탭 화면 공통 기준).
-// ⚠️ 내장 렌더에서만 더한다 — 라우트로 push된 그룹방엔 탭바가 없어 74pt가 그냥 빈 바닥으로 남는다.
-const TAB_BAR_SPACE = 74;
 // 멤버 그리드 열 수
 const COLS = 3;
 // 공지 섹션에 노출하는 최근 공지 수(나머지는 '모두보기')
 const NOTICE_PREVIEW = 3;
 
 // 멤버 그리드 한 칸 — 멤버 타일 또는 마지막의 '＋ 초대' 타일.
-type GridCell = { kind: 'member'; member: GroupDetailMemberResponse } | { kind: 'invite' };
+type GridCell =
+  | { kind: 'member'; member: GroupDetailMemberResponse; rank: number }
+  | { kind: 'invite' };
 
 // 리스트를 n개씩 잘라 행 배열로 만든다(3열 그리드 — flexWrap 대신 행 단위로 그려
 // 마지막 행에도 같은 폭이 유지되게 한다).
@@ -162,10 +163,6 @@ export interface GroupRoomScreenProps {
   // 초대 시트가 이 화면 위에 떠 있는가 — 떠 있으면 이 화면이 소유한 시트('⋯' 메뉴·챌린지
   // 만들기)를 모두 내린다(아래 이펙트 주석 참고).
   inviteOpen?: boolean;
-  // 내장 렌더(탭 안)일 때만 전달 — ⋯ 메뉴 '그룹 전환·추가' 진입점(2차 §0-3).
-  // 라우트 진입은 이미 목록에서 들어온 화면이라 미전달 → 항목이 숨는다.
-  // 이 prop의 유무가 곧 '내장 렌더인가'라서 하단 탭바 여백 판정에도 함께 쓴다.
-  onShowGroups?: () => void;
   // 라우트로 push된 경우에만 전달 — 헤더 좌측에 원형 백버튼을 세운다.
   // 루트 스택이 headerShown:false라 네이티브 헤더가 없고, 탭바도 없어
   // 미전달이면 목록으로 돌아갈 명시 경로가 0개가 된다(앱 관행: 스택 화면은 백버튼 자가 렌더).
@@ -177,7 +174,6 @@ export default function GroupRoomScreen({
   summary,
   onLeft,
   inviteOpen,
-  onShowGroups,
   onBack,
 }: GroupRoomScreenProps) {
   const insets = useSafeAreaInsets();
@@ -230,13 +226,16 @@ export default function GroupRoomScreen({
   // 직전 조회에서 본 '내 정산 내기' 서명(settledBetSignature). null = 아직 한 번도 못 받음 —
   // 첫 조회는 비교 대상이 없어 재조회하지 않는다(마운트 시 CoinContext가 이미 잔액을 받는다).
   const settledSigRef = useRef<string | null>(null);
+  // 그룹방 방문 계측(group_room_viewed)을 그룹당 1회로 묶는 기준 — 마지막으로 발행한 groupId.
+  // 새로고침·포그라운드 복귀 재조회·같은 방 재포커스에선 재발행하지 않고, 그룹을 바꾸면 다시 발행한다.
+  const roomViewedGroupIdRef = useRef<string | null>(null);
   // 지금 떠 있는 결과 모달의 노출 시각·키 — dwell_ms 계산과 노출 이벤트/가드 1회 실행용.
   const resultShownAtRef = useRef<number | null>(null);
   const resultShownKeyRef = useRef<string | null>(null);
 
-  // 이 화면이 지금 그리고 있는 그룹. 내장 렌더(GroupScreen의 1건 분기)는 목록 재조회 결과가
-  // A 한 건에서 B 한 건으로 바뀌어도 **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
-  // (다른 계정 기기에서 A에서 빠지고 B에 들어간 경우 등) — 그러면 A의 챌린지·시트가 남은 채
+  // 이 화면이 지금 그리고 있는 그룹. 이미 스택에 있는 'GroupRoom' 라우트로 다시 navigate 하면
+  // (React Navigation이 params만 병합해) **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
+  // (A 방을 보다 B 방 초대/딥링크로 같은 라우트에 재진입한 경우 등) — 그러면 A의 챌린지·시트가 남은 채
   // mutation만 B의 groupId로 나가 NOT_FOUND 같은 영구 실패가 되고, B 조회가 실패하면 A의
   // 화면이 그대로 유지된다(코덱스 리뷰).
   // 이펙트가 아니라 **렌더 중에** 되돌리는 이유: 이펙트는 커밋 뒤라 'A의 데이터 + B의 groupId'가
@@ -297,6 +296,11 @@ export default function GroupRoomScreen({
     if (detailResult.status === 'fulfilled') {
       setDetail(detailResult.value);
       loadedDateRef.current = date;
+      // 그룹방이 실제로 보여진(상세 로드 성공) 순간 방문을 계측한다 — 그룹당 1회.
+      if (roomViewedGroupIdRef.current !== groupId) {
+        roomViewedGroupIdRef.current = groupId;
+        logGroupRoomViewed({ group_id: groupId });
+      }
     } else {
       // 이미 그룹이 사라졌거나 내가 멤버가 아니면 방을 잡고 있을 이유가 없다 —
       // 부모가 빈 상태로 되돌린다(§3-2).
@@ -545,6 +549,14 @@ export default function GroupRoomScreen({
     navigation.navigate('GroupNotice', { groupId, canWrite: canWriteNotice });
   }, [navigation, groupId, canWriteNotice]);
 
+  // 전환 뒤 늦게 도착한 실패 Alert가 지금 보고 있는 다른 그룹 화면 위에 뜨는 것을 막는다
+  // (A-7, GROMO-1027·1028). 액션을 건 그룹(targetGroupId)이 여전히 화면에 떠 있을 때만 Alert를 낸다 —
+  // renderedGroupIdRef는 렌더 중 groupId 리셋과 같은 기준(지금 그리고 있는 그룹).
+  const alertIfCurrent = useCallback((targetGroupId: string, title: string, message: string) => {
+    if (renderedGroupIdRef.current !== targetGroupId) return;
+    Alert.alert(title, message);
+  }, []);
+
   // 챌린지 삭제 — 확인 Alert는 카드가 이미 거쳤다(ChallengeCard). 여기선 호출과 재조회만 한다.
   // 서버가 soft delete로 바꿔 이미 지워진 챌린지를 또 지우면 NOT_FOUND가 오는데,
   // 목록에서 사라지는 결과는 같으므로 성공과 똑같이 재조회로 끝낸다.
@@ -562,17 +574,22 @@ export default function GroupRoomScreen({
         // 이미 판돈을 걷어 둔 내기를 챌린지와 함께 지우면 돈이 갈 곳을 잃기 때문이다.
         // 공통 문구로 떨어뜨리면 '잠시 후 다시 시도'를 반복해도 정산 전까진 영원히 같은 실패다.
         if (code === 'CHALLENGE_HAS_OPEN_BET') {
-          Alert.alert('챌린지를 삭제할 수 없어요', '진행 중인 내기가 있어 삭제할 수 없어요.');
+          // 전환 뒤 늦게 온 실패는 지금 보는 그룹 위에 띄우지 않는다(A-7).
+          alertIfCurrent(
+            groupId,
+            '챌린지를 삭제할 수 없어요',
+            '진행 중인 내기가 있어 삭제할 수 없어요.',
+          );
           return;
         }
         if (code !== 'NOT_FOUND') {
-          Alert.alert('챌린지를 삭제하지 못했어요', '잠시 후 다시 시도해주세요.');
+          alertIfCurrent(groupId, '챌린지를 삭제하지 못했어요', '잠시 후 다시 시도해주세요.');
           return;
         }
       }
       load();
     },
-    [groupId, load],
+    [groupId, load, alertIfCurrent],
   );
 
   const doLeave = useCallback(async () => {
@@ -582,27 +599,37 @@ export default function GroupRoomScreen({
       await withdrawGroup(groupId);
       onLeft();
     } catch (e) {
-      const code = groupErrorCode(e);
-      if (code === 'NOT_FOUND' || code === 'MEMBER_ONLY') {
-        // 이미 빠져 있는 상태 — 성공과 같게 취급한다. onLeft는 그룹 무관 전역 재조회라
-        // 그룹 전환 뒤에 늦게 도착해도 안전하다(성공 경로와 같은 이유로 가드하지 않는다).
-        onLeft();
-      } else if (renderedGroupIdRef.current !== groupId) {
-        // 전환 전 그룹의 나가기 실패가 늦게 도착 — 지금 보고 있는 다른 그룹 화면 위에
-        // 이전 그룹의 실패 안내를 띄우지 않는다(onDone·onCreated와 같은 가드, GROMO-1028).
-      } else if (code === 'HOST_WITHDRAW') {
-        // 방장 위임 UI가 없으므로 안내로 끝낸다(알려진 제약 §14).
-        Alert.alert(
-          '방장은 나갈 수 없어요',
-          '그룹을 이어갈 사람에게 방장을 넘겨야 해요.\n방장 넘기기는 준비 중이에요.',
-        );
-      } else {
-        Alert.alert('그룹 나가기 실패', '잠시 후 다시 시도해주세요.');
+      switch (groupErrorCode(e)) {
+        case 'HOST_WITHDRAW':
+          // A-2: 방장은 바로 나갈 수 없다 — 위임 화면으로 유도한다(위임 성공 직후 자동 나가기까지).
+          // 전환 뒤 늦게 온 실패는 지금 보는 그룹 위에 띄우지 않는다(A-7 가드: 렌더 중인 그룹일 때만).
+          if (renderedGroupIdRef.current === groupId) {
+            Alert.alert(
+              '방장은 바로 나갈 수 없어요',
+              '그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.',
+              [
+                { text: '취소', style: 'cancel' },
+                {
+                  text: '방장 넘기고 나가기',
+                  onPress: () =>
+                    navigation.navigate('GroupOwnerTransfer', { groupId, source: 'withdraw' }),
+                },
+              ],
+            );
+          }
+          break;
+        case 'NOT_FOUND':
+        case 'MEMBER_ONLY':
+          // 이미 빠져 있는 상태 — 성공과 같게 취급한다.
+          onLeft();
+          break;
+        default:
+          alertIfCurrent(groupId, '그룹 나가기 실패', '잠시 후 다시 시도해주세요.');
       }
     } finally {
       setLeaving(false);
     }
-  }, [groupId, leaving, onLeft]);
+  }, [groupId, leaving, onLeft, alertIfCurrent, navigation]);
 
   const confirmLeave = useCallback(() => {
     setMenuOpen(false);
@@ -669,10 +696,11 @@ export default function GroupRoomScreen({
   // 빈 상태 문구가 뜨면 서버 상태를 못 받았다는 사실이 화면에서 완전히 사라진다.
   const noticeFailed = noticeError && noticeList.length === 0;
   const challengeFailed = challengeError && challengeList.length === 0;
-  // 탭바 여백은 내장 렌더에서만 — onShowGroups를 받는가가 곧 '탭 안에 있는가'다(§0-3 계약).
-  const bottomSpace = insets.bottom + (onShowGroups ? TAB_BAR_SPACE : 0) + T.space.md;
+  // 라우트 진입 전용 화면이라 하단 탭바가 없다 — 시스템 인셋 + 기본 여백만 준다.
+  const bottomSpace = insets.bottom + T.space.md;
   const cells: GridCell[] = [
-    ...members.map((m): GridCell => ({ kind: 'member', member: m })),
+    // rank는 서버 정렬 순서(누적 집중 내림차순) 그대로 — 앱에서 재정렬하지 않는다(리더보드).
+    ...members.map((m, i): GridCell => ({ kind: 'member', member: m, rank: i + 1 })),
     { kind: 'invite' },
   ];
   const memberRows = chunk(cells, COLS);
@@ -896,6 +924,8 @@ export default function GroupRoomScreen({
                     key={cell.member.userId}
                     nickname={cell.member.nickname}
                     focusTimeMinutes={cell.member.focusTimeMinutes}
+                    totalFocusMinutes={cell.member.totalFocusMinutes}
+                    rank={cell.rank}
                     isOwner={cell.member.role === 'OWNER'}
                   />
                 ),
@@ -916,20 +946,18 @@ export default function GroupRoomScreen({
       {menuOpen && !inviteOpen && (
         <SheetShell onClose={() => setMenuOpen(false)} asModal>
           <Text style={s.menuTitle}>{name}</Text>
-          {/* 내장 렌더에서만 — 라우트 진입은 이미 목록에서 들어온 화면이다(§0-3).
-              라벨은 '목록 보기'가 아니라 실제 기능(전환·만들기·찾기의 허브)에 맞춘다 —
-              그룹이 1개인 사용자에게 두 번째 그룹으로 가는 유일한 입구가 여기다. */}
-          {!!onShowGroups && (
+          {/* 그룹 설정(방장 전용) — 이름·소개·정원·공개설정 수정 + 위임·멤버관리·공지권한 허브(A-1) */}
+          {isOwner && (
             <TouchableOpacity
               style={s.menuItem}
               activeOpacity={0.7}
               onPress={() => {
                 setMenuOpen(false);
-                onShowGroups();
+                navigation.navigate('GroupSettings', { groupId });
               }}
             >
-              <Ionicons name="swap-horizontal" size={18} color={T.ink} />
-              <Text style={s.menuText}>그룹 전환·추가</Text>
+              <Ionicons name="settings-outline" size={18} color={T.ink} />
+              <Text style={s.menuText}>그룹 설정</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity style={s.menuItem} activeOpacity={0.7} onPress={confirmLeave}>
