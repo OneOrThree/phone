@@ -9,7 +9,6 @@ import org.springframework.web.util.HtmlUtils;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.text.BreakIterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -41,8 +40,15 @@ public class LandingRenderer {
     private static final Pattern PLACEHOLDER_STORE_ID = Pattern.compile("/id0+(?=[/?#]|$)");
     /** 초대자 닉네임 표시 상한(사용자가 보는 글자 수). og:title 한 줄에서 초대자가 그룹명을 밀어내지 않을 만큼만 남긴다. */
     private static final int INVITER_NAME_MAX = 20;
-    /** ZWJ — 이모지를 하나로 잇는 보이지 않는 결합 문자. 잘린 끝에 남으면 뒤 글자와 엉뚱하게 붙는다. */
-    private static final char ZERO_WIDTH_JOINER = '\u200D';
+    /**
+     * 확장 grapheme cluster 한 덩어리 — 사용자가 "글자 하나"로 보는 단위.
+     *
+     * <p>{@code BreakIterator} 대신 정규식 {@code \X} 를 쓰는 이유: Java 17 의 BreakIterator 는
+     * 피부톤 모디파이어(👍🏽)·국기(regional indicator)·ZWJ 이모지를 각각 쪼갠다. 그 경계로 자르면
+     * 다른 이모지가 되거나 매달린 결합 문자가 남는다. 정규식 {@code \X} 는 같은 JVM 에서 UAX #29
+     * 확장 규칙을 그대로 지킨다(검증: 17.0.10 에서 위 네 경우 모두 1 덩어리).
+     */
+    private static final Pattern GRAPHEME = Pattern.compile("\\X");
 
     private final String template;
     private final String storeUrl;
@@ -140,37 +146,24 @@ public class LandingRenderer {
     /**
      * 사용자가 보는 글자(grapheme cluster) 단위로 자른다 — {@code INVITER_NAME_MAX} 개 이하면 원본 그대로.
      *
-     * <p>코드포인트 기준으로 자르면 서로게이트 쌍은 살아남지만 <b>합자는 깨진다</b>: 결합 악센트가 붙은
-     * 글자에서 악센트만 떨어져 다른 글자가 된다. {@link BreakIterator} 의 character instance 가 이 경계를 안다.
-     *
-     * <p>다만 ZWJ 로 이어진 이모지(가족 이모지 등)를 한 덩어리로 묶는지는 <b>JDK 버전에 달려 있다</b> —
-     * Java 17 의 BreakIterator 는 ZWJ 를 독립 경계로 본다. 그래서 자른 뒤 매달린 ZWJ 를 직접 걷어낸다.
-     * 안 걷어내면 말줄임표 앞에 보이지 않는 결합 문자가 남아 뒤 글자와 엉뚱하게 붙어 보인다.
+     * <p>코드포인트 기준으로 자르면 서로게이트 쌍은 살아남지만 <b>사용자가 보는 글자는 깨진다</b>:
+     * 결합 악센트가 떨어져 다른 글자가 되고, 피부톤·국기·ZWJ 이모지는 다른 이모지가 되거나
+     * 매달린 결합 문자를 남긴다. 경계 판정은 {@link #GRAPHEME} 이 맡는다.
      */
     private static String truncateToGraphemes(String text) {
-        BreakIterator boundary = BreakIterator.getCharacterInstance(Locale.ROOT);
-        boundary.setText(text);
+        Matcher graphemes = GRAPHEME.matcher(text);
         int cut = -1;
         int count = 0;
-        for (int end = boundary.next(); end != BreakIterator.DONE; end = boundary.next()) {
+        while (graphemes.find()) {
             count++;
             if (count == INVITER_NAME_MAX) {
-                cut = end;
+                cut = graphemes.end();
             } else if (count > INVITER_NAME_MAX) {
                 // 상한을 넘긴 게 확정된 시점에만 자른다 — 정확히 상한이면 말줄임표 없이 통째로 남긴다.
-                return stripDanglingJoiners(text.substring(0, cut));
+                return text.substring(0, cut);
             }
         }
         return text;
-    }
-
-    /** 잘린 끝에 남은 ZWJ(U+200D) 를 걷어낸다 — 결합 상대를 잃은 조인자는 화면에서 사고만 낸다. */
-    private static String stripDanglingJoiners(String cut) {
-        int end = cut.length();
-        while (end > 0 && cut.charAt(end - 1) == ZERO_WIDTH_JOINER) {
-            end--;
-        }
-        return cut.substring(0, end);
     }
 
     /** 미설정 스토어 URL 은 href 자체를 비운다 — 템플릿 JS 의 http(s) 검사도 함께 걸리도록. */

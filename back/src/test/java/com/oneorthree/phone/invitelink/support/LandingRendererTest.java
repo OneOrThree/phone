@@ -129,17 +129,35 @@ class LandingRendererTest {
     }
 
     @Test
-    @DisplayName("ZWJ 로 이어진 이모지를 잘라도 매달린 ZWJ 를 남기지 않는다")
-    void truncatesZwjEmojiWithoutDanglingJoiner() {
-        // 상한 경계가 ZWJ 위에 떨어지도록 맞춘 이름. BreakIterator 가 ZWJ 를 앞 글자에 묶는지는
-        // JDK 버전에 달려 있어(Java 17 은 독립 경계로 본다) 결과 길이는 단정하지 않는다 —
-        // 어느 쪽이든 "보이지 않는 조인자로 끝나지 않는다" 가 지켜야 할 불변식이다.
-        String name = "a".repeat(18) + "\uD83D\uDC69\u200D\uD83D\uDC69" + "zzzzz";
+    @DisplayName("ZWJ 로 이어진 이모지는 한 글자로 남는다 — 매달린 조인자를 남기지 않는다")
+    void keepsZwjEmojiWhole() {
+        String family = "\uD83D\uDC69\u200D\uD83D\uDC69";
+        String html = renderer(REAL_STORE_URL).render("스터디", "a".repeat(18) + family + "zzzzz", SCHEME_URL);
 
-        String html = renderer(REAL_STORE_URL).render("스터디", name, SCHEME_URL);
+        // 19번째 글자가 가족 이모지, 20번째가 z 라 여기서 잘린다.
+        // htmlEscape 가 ZWJ 를 &zwj; 엔티티로 바꾸므로 출력에는 엔티티로 남는다(렌더 결과는 동일).
+        String escapedFamily = "\uD83D\uDC69&zwj;\uD83D\uDC69";
+        assertThat(html).contains("<span class=\"name\">" + "a".repeat(18) + escapedFamily + "z…</span>");
+        // 결합 상대를 잃은 조인자로 끝나면 뒤 글자와 엉뚱하게 붙어 보인다
+        assertThat(html).doesNotContain("&zwj;…");
+    }
 
-        assertThat(html).doesNotContain("\u200D…");
-        assertThat(html).contains("<span class=\"name\">" + "a".repeat(18) + "\uD83D\uDC69");
+    @Test
+    @DisplayName("피부톤 모디파이어는 앞 이모지에 붙어 있다 — 떼면 다른 이모지가 된다")
+    void keepsEmojiSkinToneModifier() {
+        String thumbsUp = "\uD83D\uDC4D\uD83C\uDFFD";
+        String html = renderer(REAL_STORE_URL).render("스터디", "a".repeat(19) + thumbsUp + "zzz", SCHEME_URL);
+
+        assertThat(html).contains("<span class=\"name\">" + "a".repeat(19) + thumbsUp + "…</span>");
+    }
+
+    @Test
+    @DisplayName("국기 이모지는 지역 표시자 쌍을 함께 남긴다 — 반쪽만 남으면 글자 하나가 된다")
+    void keepsRegionalIndicatorPair() {
+        String flag = "\uD83C\uDDF0\uD83C\uDDF7";
+        String html = renderer(REAL_STORE_URL).render("스터디", "a".repeat(19) + flag + "zzz", SCHEME_URL);
+
+        assertThat(html).contains("<span class=\"name\">" + "a".repeat(19) + flag + "…</span>");
     }
 
     @Test
