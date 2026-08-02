@@ -4646,6 +4646,50 @@
         }
       }
     },
+    "/api/v1/groups/{groupId}/members/{targetUserId}": {
+      "delete": {
+        "tags": [
+          "Group"
+        ],
+        "summary": "멤버 강퇴",
+        "description": "현재 OWNER만 호출 가능. 대상 멤버를 강퇴(재참여 차단). 본인은 강퇴 불가.",
+        "operationId": "kickMember",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "targetUserId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "강퇴 성공"
+          },
+          "400": {
+            "description": "본인 강퇴 시도"
+          },
+          "403": {
+            "description": "OWNER 아님 / 게스트"
+          },
+          "404": {
+            "description": "그룹 없음 / 대상 멤버 없음"
+          }
+        }
+      }
+    },
     "/api/v1/groups/{groupId}/members/me": {
       "delete": {
         "tags": [
@@ -5115,32 +5159,6 @@
             "maximum": 10,
             "minimum": 1
           },
-          "missionType": {
-            "type": "string",
-            "enum": [
-              "TIME_WINDOW",
-              "DURATION"
-            ]
-          },
-          "missionCategory": {
-            "type": "string",
-            "enum": [
-              "FOCUS",
-              "SCREEN_TIME"
-            ]
-          },
-          "durationMinutes": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "windowStart": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "windowEnd": {
-            "type": "string",
-            "format": "date-time"
-          },
           "private": {
             "type": "boolean"
           },
@@ -5149,8 +5167,6 @@
           }
         },
         "required": [
-          "missionCategory",
-          "missionType",
           "name"
         ]
       },
@@ -5740,6 +5756,9 @@
             "type": "integer",
             "format": "int32"
           },
+          "isPrivate": {
+            "type": "boolean"
+          },
           "passwordAction": {
             "type": "string",
             "enum": [
@@ -5752,28 +5771,25 @@
           }
         }
       },
+      "AnnouncementGrant": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "granted": {
+            "type": "boolean"
+          }
+        }
+      },
       "UpdateGroupSettingsRequest": {
         "type": "object",
         "properties": {
-          "chatEnabled": {
-            "type": "boolean"
-          },
-          "chatLimitPerPerson": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "invitePermission": {
-            "type": "string",
-            "enum": [
-              "OWNER_ONLY",
-              "ALL_MEMBERS"
-            ]
-          },
-          "noticeGrantedUserIds": {
+          "announcementGrants": {
             "type": "array",
             "items": {
-              "type": "string",
-              "format": "uuid"
+              "$ref": "#/components/schemas/AnnouncementGrant"
             }
           }
         }
@@ -6522,6 +6538,10 @@
           "focusTimeMinutes": {
             "type": "integer",
             "format": "int32"
+          },
+          "totalFocusMinutes": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -6604,25 +6624,10 @@
       "GroupSettingsResponse": {
         "type": "object",
         "properties": {
-          "chatEnabled": {
-            "type": "boolean"
-          },
-          "chatLimitPerPerson": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "invitePermission": {
-            "type": "string",
-            "enum": [
-              "OWNER_ONLY",
-              "ALL_MEMBERS"
-            ]
-          },
-          "noticeGrantedUserIds": {
+          "announcementGrants": {
             "type": "array",
             "items": {
-              "type": "string",
-              "format": "uuid"
+              "$ref": "#/components/schemas/AnnouncementGrant"
             }
           }
         }
