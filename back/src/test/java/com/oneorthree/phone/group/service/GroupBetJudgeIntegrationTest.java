@@ -163,9 +163,20 @@ class GroupBetJudgeIntegrationTest extends RepositoryTestBase {
                 .progressMinutes(999).build());
         groupChallengeMemberRepository.save(GroupChallengeMember.builder()
                 .groupChallenge(challenge).user(stranger).usageDate(DATE).progressMinutes(5).build());
+        // 같은 유저·같은 날짜지만 다른 챌린지의 보고 — 챌린지 축이 실제로 갈리는지 확인한다(PR #446 재리뷰).
+        // 같은 그룹에 창형이 하나뿐이라는 제약(V20)과 무관하게, 판정은 challengeId 로 걸러져야 한다.
+        GroupChallenge otherChallenge = saveWindowChallenge(
+                MissionCategory.SCREEN_TIME, "13:00:00", "15:00:00", GOAL_MINUTES);
+        groupChallengeMemberRepository.save(GroupChallengeMember.builder()
+                .groupChallenge(otherChallenge).user(participant).usageDate(DATE)
+                .progressMinutes(777).build());
 
         assertThat(groupBetJudge.progressMinutes(target, DATE, List.of(participant)))
                 .containsExactly(entry(participant.getId(), 30));
+        // 반대 방향도 고정 — 다른 챌린지 대상으로는 그쪽 보고값만 보인다(교차 오염 없음).
+        assertThat(groupBetJudge.progressMinutes(
+                groupBetJudge.resolve(otherChallenge).orElseThrow(), DATE, List.of(participant)))
+                .containsExactly(entry(participant.getId(), 777));
     }
 
     @Test
