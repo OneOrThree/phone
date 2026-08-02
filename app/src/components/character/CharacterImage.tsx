@@ -7,6 +7,7 @@
 //    위젯 쪽 사본(ios/Widget/Assets.xcassets/character.imageset)도 같이 갱신.
 //    집중 세션 캐릭터는 스냅샷(saveCharacterSnapshot)으로 Live Activity·가림막에도 반영됨.
 
+import { useEffect, useState } from 'react';
 import { Image, type ImageProps } from 'react-native';
 
 export type CharacterVariant = 'default' | 'study';
@@ -40,13 +41,24 @@ export function CharacterImage({
   /** 이미지 로드 실패 콜백 — 공유 캡처가 로드 실패 시에도 진행하도록 게이트를 푸는 데 쓴다(GROMO-1070). */
   onError?: ImageProps['onError'];
 }) {
+  // sourceUri(누끼) 로드 실패 시 기본 에셋으로 폴백 — 만료/삭제된 URI가 빈/깨진 박스로 그려지는 걸 막는다.
+  // 공유 이미지뿐 아니라 홈·집중 화면 등 sourceUri 사용처 전반이 함께 폴백된다(GROMO-1070 리뷰 반영).
+  const [failed, setFailed] = useState(false);
+  // sourceUri가 바뀌면 실패 상태 초기화(새 이미지 재시도).
+  useEffect(() => {
+    setFailed(false);
+  }, [sourceUri]);
+  const showDefault = !sourceUri || failed;
   return (
     <Image
-      source={sourceUri ? { uri: sourceUri } : SOURCES[variant]}
+      source={showDefault ? SOURCES[variant] : { uri: sourceUri }}
       style={{ width: size, height: size }}
       resizeMode="contain"
       onLoad={onLoad}
-      onError={onError}
+      onError={(e) => {
+        setFailed(true);
+        onError?.(e);
+      }}
     />
   );
 }
