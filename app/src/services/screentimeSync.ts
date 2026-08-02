@@ -104,14 +104,25 @@ export async function registerUsageBucketMonitoring(ownerUserId: string | null):
 // 이미 있으면 덮지 않는다(가장 이른 날 유지) — 소유 미상('1', 로그인 전 등록) 앵커도 날짜를 그대로
 // 두고 Syncer 첫 실행이 현재 계정으로 귀속시킨다(모니터 소유 마커와 동일 규칙). 다른 계정의
 // 앵커일 때만 이 등록 기준으로 새로 쓴다(계정 전환).
+// ⚠️ 읽기 실패는 삼키지 않고 던진다(코드리뷰 반영) — 여기서 null로 눙치면 앵커만 빠진 채
+// 등록 마커가 저장되고, 다음 동기화가 그 marker-only 상태를 '예전부터 돌던 모니터'로 읽어
+// backfill(어제)을 타 이 티켓이 막으려는 오달성이 그대로 살아난다. 던지면 호출부가 등록
+// 자체를 실패(false)로 처리해 마커도 안 남으므로, 다음 시도에서 깨끗하게 재등록된다.
 async function nextMeasurementStartDate(owner: string): Promise<string | null> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeMeasurementStartDate);
+  const start = parseMeasurementStartDate(raw);
+  if (start != null && (start.userId === owner || start.userId === '1')) return null;
+  return JSON.stringify({ userId: owner, date: todayStr() });
+}
+
+// 저장된 앵커 파싱 — 깨진 값은 '앵커 없음'으로 본다. 동기화 경로도 못 읽는 값이라(아래
+// measuredYesterday 계산) 붙들고 있어 봐야 소용이 없고, 새로 써서 복구하는 편이 낫다.
+// 읽기 실패와 달리 여기서 던지면 깨진 값이 남아 있는 한 등록이 영영 막힌다.
+function parseMeasurementStartDate(raw: string | null): { userId: string; date: string } | null {
+  if (raw == null) return null;
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeMeasurementStartDate);
-    const start = raw ? (JSON.parse(raw) as { userId: string; date: string }) : null;
-    if (start != null && (start.userId === owner || start.userId === '1')) return null;
-    return JSON.stringify({ userId: owner, date: todayStr() });
+    return JSON.parse(raw) as { userId: string; date: string };
   } catch {
-    // 읽기·파싱 실패 — 기존 앵커가 뭔지 모르는 상태라 덮지 않는다(덮으면 가장 이른 날을 잃는다).
     return null;
   }
 }
@@ -288,7 +299,7 @@ async function syncDailyScreenTimeUsage(userId: string, goalSeconds: number): Pr
 
   // 측정 시작일 기록(GROMO-942 코드리뷰 P1) — 이 계정으로 측정이 활성인 첫 시점을 남겨, 어제분
   // 마감이 '어제가 실제 측정된 날인지' 판단하는 앵커로 쓴다(신규 유저의 어제 0분 오달성 방지).
-  // 앵커는 원칙적으로 등록 시점(stampMeasurementStartDate)에 사실대로 남는다 — 여기서는 그걸
+  // 앵커는 원칙적으로 등록 시점(registerUsageBucketMonitoring)에 사실대로 남는다 — 여기서는 그걸
   // 현재 계정에 귀속시키거나, 앵커가 아예 없는 옛 설치를 보정(backfill)하는 일만 한다.
   if (monitorOwner === userId) {
     try {

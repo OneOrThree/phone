@@ -123,6 +123,27 @@ describe('registerUsageBucketMonitoring — 측정 시작일 앵커', () => {
     );
   });
 
+  test('앵커 읽기가 실패하면 등록을 중단한다 — 마커만 남는 상태를 만들지 않는다', async () => {
+    // marker-only 상태로 저장되면 다음 sync가 monitorPreexisted=true + 앵커 없음으로 읽어
+    // backfill(어제)을 타 오달성이 재발한다. 차라리 등록을 실패시키고 다음에 재시도한다.
+    jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('storage down'));
+
+    await expect(registerUsageBucketMonitoring(USER_ID)).resolves.toBe(false);
+
+    expect(AsyncStorage.multiSet).not.toHaveBeenCalled();
+  });
+
+  test('앵커 값이 깨져 있으면 새로 쓴다 — 읽기 실패와 달리 등록을 막지 않는다', async () => {
+    await AsyncStorage.setItem(STORAGE_KEYS.screentimeMeasurementStartDate, '{깨진 JSON');
+    (AsyncStorage.multiSet as jest.Mock).mockClear();
+
+    await expect(registerUsageBucketMonitoring(USER_ID)).resolves.toBe(true);
+
+    expect(entryInSingleMultiSet(STORAGE_KEYS.screentimeMeasurementStartDate)).toBe(
+      JSON.stringify({ userId: USER_ID, date: TODAY }),
+    );
+  });
+
   test('네이티브 등록이 실패하면 아무것도 쓰지 않는다', async () => {
     mockStart.mockResolvedValue(false);
 
