@@ -76,16 +76,39 @@ export async function registerUsageBucketMonitoring(ownerUserId: string | null):
     if ((await ScreenTimeModule.getAuthorizationStatus()) !== 'approved') return false;
     const ok = await ScreenTimeModule.startUsageBucketMonitoring(USAGE_BUCKET_MAX_MINUTES);
     if (ok) {
+      const owner = ownerUserId ?? '1';
       // 등록 시그니처도 함께 기록 — 값 변경 시 Syncer가 감지해 재등록한다
       // (GROMO-871 상한 확장 → GROMO-931 눈금 세분화).
       await AsyncStorage.multiSet([
-        [STORAGE_KEYS.screentimeBucketMonitorRegistered, ownerUserId ?? '1'],
+        [STORAGE_KEYS.screentimeBucketMonitorRegistered, owner],
         [STORAGE_KEYS.screentimeBucketMonitorMaxMinutes, usageBucketGrid()],
       ]);
+      await stampMeasurementStartDate(owner);
     }
     return ok;
   } catch {
     return false;
+  }
+}
+
+// 측정 시작일 앵커를 '등록 시점'에 남긴다(GROMO-1083) — 등록한 날이 곧 측정이 시작된 날이다.
+// 어제분 마감은 이 앵커로 '어제가 실제 측정된 날인지'를 판단하는데, 앵커가 없으면 Syncer가
+// 동기화 시점에 되짚어 추정할 수밖에 없고(아래 monitorPreexisted), 그 추정은 방금 등록한
+// 모니터(온보딩 직후 가입·설정에서 첫 측정 시작)를 '예전부터 돌던 것'으로 오인해 어제 0분을
+// 목표 달성으로 만든다. 이미 있으면 덮지 않는다(가장 이른 날 유지) — 소유 미상('1', 로그인 전
+// 등록) 앵커도 날짜를 그대로 두고 Syncer 첫 실행이 현재 계정으로 귀속시킨다(모니터 소유 마커와
+// 동일 규칙). 다른 계정의 앵커일 때만 이 등록 기준으로 새로 쓴다(계정 전환).
+async function stampMeasurementStartDate(owner: string): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeMeasurementStartDate);
+    const start = raw ? (JSON.parse(raw) as { userId: string; date: string }) : null;
+    if (start != null && (start.userId === owner || start.userId === '1')) return;
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.screentimeMeasurementStartDate,
+      JSON.stringify({ userId: owner, date: todayStr() }),
+    );
+  } catch {
+    // 기록 실패는 등록과 무관 — 다음 등록·동기화에서 다시 시도된다
   }
 }
 
@@ -261,13 +284,24 @@ async function syncDailyScreenTimeUsage(userId: string, goalSeconds: number): Pr
 
   // 측정 시작일 기록(GROMO-942 코드리뷰 P1) — 이 계정으로 측정이 활성인 첫 시점을 남겨, 어제분
   // 마감이 '어제가 실제 측정된 날인지' 판단하는 앵커로 쓴다(신규 유저의 어제 0분 오달성 방지).
-  // 이미 있으면 덮지 않는다(가장 이른 날 유지). 기존 설치(monitorPreexisted)는 어제도 측정이
-  // 돌았을 수 있으므로 시작일을 어제로 잡아 업그레이드 첫날 어제를 잃지 않게 한다(코드리뷰 P1).
+  // 앵커는 원칙적으로 등록 시점(stampMeasurementStartDate)에 사실대로 남는다 — 여기서는 그걸
+  // 현재 계정에 귀속시키거나, 앵커가 아예 없는 옛 설치를 보정(backfill)하는 일만 한다.
   if (monitorOwner === userId) {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeMeasurementStartDate);
       const start = raw ? (JSON.parse(raw) as { userId: string; date: string }) : null;
-      if (start?.userId !== userId) {
+      if (start?.userId === '1') {
+        // 로그인 전(온보딩) 등록이 남긴 소유 미상 앵커 — 등록 당시 날짜를 그대로 두고 현재
+        // 계정으로 귀속시킨다(모니터 소유 '1' → userId 귀속과 동일 규칙). 날짜를 여기서 다시
+        // 추정하지 않는 게 핵심 — 가입 직후 어제를 측정된 날로 오인해 0분을 달성으로 만들지
+        // 않게 한다(GROMO-1083).
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.screentimeMeasurementStartDate,
+          JSON.stringify({ userId, date: start.date }),
+        );
+      } else if (start?.userId !== userId) {
+        // 앵커가 없는 옛 설치 보정 — 기존 설치(monitorPreexisted)는 어제도 측정이 돌았을 수
+        // 있으므로 시작일을 어제로 잡아 업그레이드 첫날 어제를 잃지 않게 한다(코드리뷰 P1).
         await AsyncStorage.setItem(
           STORAGE_KEYS.screentimeMeasurementStartDate,
           JSON.stringify({ userId, date: monitorPreexisted ? yesterday : today }),
