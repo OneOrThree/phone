@@ -436,7 +436,9 @@ export default function ChallengeComposeSheet({
         <TextInput
           style={s.input}
           value={durationText}
-          onChangeText={(v) => setDurationText(v.replace(/\D+/g, ''))}
+          // 숫자만 남기고 선행 0은 접는다("0007" → "7") — 표시 문자열과 제출값(파싱 결과)이
+          // 어긋나지 않게 한다. 홑 "0"은 치는 중간 상태라 남긴다(범위 안내가 받는다).
+          onChangeText={(v) => setDurationText(v.replace(/\D+/g, '').replace(/^0+(?=\d)/, ''))}
           keyboardType="number-pad"
           maxLength={4}
           placeholder={`직접 입력 (${DURATION_MIN}~${DURATION_MAX}분)`}

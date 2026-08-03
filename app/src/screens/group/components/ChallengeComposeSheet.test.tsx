@@ -300,6 +300,21 @@ describe('목표 시간 직접 입력', () => {
     expect(input.props.value).toBe('3');
   });
 
+  // 표시 문자열과 제출값(파싱 결과)이 어긋나면 안 된다 — "0007"이 보이는데 7이 나가는 상태 금지.
+  // 홑 "0"은 치는 중간 상태라 남긴다(범위 안내가 받는다 — 위 범위 검증 케이스).
+  test('선행 0은 접힌다("0007" → "7") — 표시값 그대로 제출된다', async () => {
+    await renderSheet();
+    await typeDuration('0007');
+
+    const input = await screen.findByTestId('group.challenge.durationInput');
+    expect(input.props.value).toBe('7');
+    await press('만들기');
+    expect(mockCreateChallenge).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ durationMinutes: 7 }),
+    );
+  });
+
   test('시간대 방식에서 창 길이를 넘는 입력은 안내를 띄우고 제출을 막는다', async () => {
     await renderSheet();
     await press('시간대');
