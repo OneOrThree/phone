@@ -55,6 +55,16 @@ public class NotificationSentLog {
     public static final String TYPE_CHALLENGE_WINDOW_END = "CHALLENGE_WINDOW_END";
 
     /**
+     * 발송 종류 — 창형이 아닌(일 목표형, {@code DURATION}) 챌린지의 하루 마감 알림(GROMO-1088).
+     * {@code target_user_id} 에 <b>챌린지 id</b>. 일 목표도 매일 반복이라 dedup 은 창형과 같은
+     * (user_id, type, target_user_id) + <b>당일 sent_at</b> 이다.
+     *
+     * <p>창형이 이 타입을 쓰지 않고 {@link #TYPE_CHALLENGE_WINDOW_END} 로 남는 이유는 앱의 레거시
+     * 딥링크 폴백이 그 문자열에 걸려 있기 때문이다(구 바이너리 호환 — 계약 §2).
+     */
+    public static final String TYPE_CHALLENGE_ENDED = "CHALLENGE_ENDED";
+
+    /**
      * 발송 종류 — 그룹에 새 챌린지가 등록됐을 때의 그룹원 알림(GROMO-1089).
      * {@code target_user_id} 에 <b>챌린지 id</b> 를 담아 (user_id, type, target_user_id) 조합으로
      * "이 유저에게 이 챌린지 개설 알림을 이미 보냈는지"를 판정한다. 챌린지 개설은 1회성이라

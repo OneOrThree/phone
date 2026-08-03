@@ -6,12 +6,14 @@ import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -38,7 +40,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 두 푸시 트리거의 <b>발송 판정</b> 통합 테스트 — 실 DB + ci 프로파일의 NoOp 포트.
+ * 그룹 챌린지 푸시 트리거들의 <b>발송 판정</b> 통합 테스트 — 실 DB + ci 프로파일의 NoOp 포트.
  *
  * <p>단위 테스트가 목으로 고정한 규칙(문구·경계·dedup)이 실제 스키마·쿼리 위에서도 성립하는지를 본다.
  * 핵심은 "재실행하면 0건 발송" 이다 — dedup 소스가 {@code notification_sent_logs} 뿐이라 조회 쿼리가
@@ -53,11 +55,31 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     private static final LocalDate DAY = LocalDate.of(2026, 6, 1);
     /** 창 09:00~12:00 이 막 끝난 직후(KST 12:05) — 정산 결과 푸시의 발송 시각으로도 쓴다. */
     private static final Instant NOW = DAY.atTime(12, 5).atZone(KST).toInstant();
+    /**
+     * 일 목표 마감 푸시의 발송 시각 — <b>내일</b> 09:00(KST). 마감 판정이 "회차가 끝난 뒤에 만들어진
+     * 챌린지는 제외" 라서, 픽스처의 created_at(실제 저장 시각 = 지금)보다 회차 마감선이 뒤여야 한다.
+     * 고정 과거 시각인 {@link #NOW} 로는 이 조건을 만들 수 없다.
+     */
+    private static final Instant DURATION_NOW =
+            LocalDate.now(KST).plusDays(1).atTime(9, 0).atZone(KST).toInstant();
+    /**
+     * 창 종료 푸시의 발송 시각 — <b>내일</b> 12:05(KST). 창형에도 같은 판정이 생겼다(@codex 리뷰):
+     * 창이 끝난 뒤에 만들어진 챌린지·그 뒤에 가입한 멤버는 그 회차에 참여한 적이 없어 대상이 아니다.
+     * 픽스처의 created_at 은 실제 저장 시각(=지금)이라, 고정 과거인 {@link #NOW} 로는 창 종료가
+     * created_at 보다 앞서 버려 대상이 0건이 된다. {@link #DURATION_NOW} 와 같은 이유다.
+     */
+    private static final Instant WINDOW_NOW =
+            LocalDate.now(KST).plusDays(1).atTime(12, 5).atZone(KST).toInstant();
+    /** 자정 걸침 dedup 검증용 — 창 20:40~23:40 이 끝난 직후(내일 23:45 KST). */
+    private static final Instant WINDOW_LATE_NOW =
+            LocalDate.now(KST).plusDays(1).atTime(23, 45).atZone(KST).toInstant();
 
     @Autowired
     BetResultNotificationService betResultNotificationService;
     @Autowired
     ChallengeWindowEndNotificationService challengeWindowEndNotificationService;
+    @Autowired
+    ChallengeDurationEndNotificationService challengeDurationEndNotificationService;
     @Autowired
     GroupRepository groupRepository;
     @Autowired
@@ -66,6 +88,8 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     GroupChallengeRepository groupChallengeRepository;
     @Autowired
     GroupChallengeWindowRepository groupChallengeWindowRepository;
+    @Autowired
+    GroupChallengeDurationRepository groupChallengeDurationRepository;
     @Autowired
     GroupChallengeBetRepository groupChallengeBetRepository;
     @Autowired
@@ -110,6 +134,20 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
                 .challenge(challenge)
                 .windowStartAt(Instant.EPOCH.plusSeconds(start.toSecondOfDay()))
                 .windowEndAt(Instant.EPOCH.plusSeconds(end.toSecondOfDay()))
+                .durationMinutes(60)
+                .build());
+        return challenge;
+    }
+
+    /** 일 목표형(DURATION) 챌린지 — 목표가 있어야 마감 푸시 대상이다. */
+    private GroupChallenge durationChallenge() {
+        GroupChallenge challenge = groupChallengeRepository.save(GroupChallenge.builder()
+                .group(group)
+                .category(MissionCategory.FOCUS)
+                .type(MissionType.DURATION)
+                .build());
+        groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
+                .challenge(challenge)
                 .durationMinutes(60)
                 .build());
         return challenge;
@@ -206,7 +244,7 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
         GroupChallenge challenge = screenTimeWindowChallenge();
 
         PushDispatchSummaryResponse first =
-                challengeWindowEndNotificationService.sendWindowEndNotifications(NOW);
+                challengeWindowEndNotificationService.sendWindowEndNotifications(WINDOW_NOW);
         assertThat(first.sentCount()).isEqualTo(2);
         assertThat(logsOf(NotificationSentLog.TYPE_CHALLENGE_WINDOW_END, winner, loser))
                 .hasSize(2)
@@ -214,7 +252,7 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
                         assertThat(sentLog.getTargetUserId()).isEqualTo(challenge.getId()));
 
         PushDispatchSummaryResponse second =
-                challengeWindowEndNotificationService.sendWindowEndNotifications(NOW);
+                challengeWindowEndNotificationService.sendWindowEndNotifications(WINDOW_NOW);
         assertThat(second.sentCount()).isZero();
         assertThat(second.dedupedCount()).isEqualTo(2);
     }
@@ -235,11 +273,11 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
         screenTimeWindowChallenge(LocalTime.of(20, 40), LocalTime.of(23, 40));
 
         PushDispatchSummaryResponse beforeMidnight = challengeWindowEndNotificationService
-                .sendWindowEndNotifications(DAY.atTime(23, 45).atZone(KST).toInstant());
+                .sendWindowEndNotifications(WINDOW_LATE_NOW);
         assertThat(beforeMidnight.sentCount()).isEqualTo(2);
 
         PushDispatchSummaryResponse afterMidnight = challengeWindowEndNotificationService
-                .sendWindowEndNotifications(DAY.plusDays(1).atStartOfDay(KST).toInstant());
+                .sendWindowEndNotifications(WINDOW_LATE_NOW.plus(java.time.Duration.ofMinutes(20)));
         assertThat(afterMidnight.sentCount()).isZero();
         assertThat(afterMidnight.dedupedCount()).isEqualTo(2);
     }
@@ -250,15 +288,16 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
         screenTimeWindowChallenge();
 
         PushDispatchSummaryResponse summary = challengeWindowEndNotificationService
-                .sendWindowEndNotifications(DAY.atTime(11, 30).atZone(KST).toInstant());
+                .sendWindowEndNotifications(WINDOW_NOW.minus(java.time.Duration.ofMinutes(35)));
 
         assertThat(summary.targetCount()).isZero();
         assertThat(logsOf(NotificationSentLog.TYPE_CHALLENGE_WINDOW_END, winner, loser)).isEmpty();
     }
 
     @Test
-    @DisplayName("창 종료 푸시 — 포커스 창형 챌린지는 대상이 아니다(스크린타임 전용)")
-    void windowEndIgnoresFocusWindowChallenge() {
+    @DisplayName("창 종료 푸시 — 포커스 창형도 대상이고, 같은 그룹의 동시 종료는 1건으로 묶인다")
+    void windowEndCoversFocusWindowAndCollapsesPerGroup() {
+        GroupChallenge screenTimeWindow = screenTimeWindowChallenge();
         GroupChallenge focusWindow = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group)
                 .category(MissionCategory.FOCUS)
@@ -266,15 +305,53 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
                 .build());
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(focusWindow)
-                .windowStartAt(Instant.EPOCH.plusSeconds(LocalTime.of(9, 0).toSecondOfDay()))
+                .windowStartAt(Instant.EPOCH.plusSeconds(LocalTime.of(10, 0).toSecondOfDay()))
                 .windowEndAt(Instant.EPOCH.plusSeconds(LocalTime.of(12, 0).toSecondOfDay()))
                 .durationMinutes(60)
                 .build());
 
         PushDispatchSummaryResponse summary =
-                challengeWindowEndNotificationService.sendWindowEndNotifications(NOW);
+                challengeWindowEndNotificationService.sendWindowEndNotifications(WINDOW_NOW);
+
+        // 발송 단위는 (유저 × 그룹) — 두 챌린지가 같이 끝나도 유저당 푸시는 1건이다.
+        assertThat(summary.targetCount()).isEqualTo(2);
+        assertThat(summary.sentCount()).isEqualTo(2);
+        // 이력은 그 푸시가 대변한 챌린지 전부에 남는다 — 다음 틱이 나머지 한 건으로 다시 보내지 않도록.
+        assertThat(logsOf(NotificationSentLog.TYPE_CHALLENGE_WINDOW_END, winner, loser))
+                .hasSize(4)
+                .extracting(NotificationSentLog::getTargetUserId)
+                .containsOnly(screenTimeWindow.getId(), focusWindow.getId());
+    }
+
+    @Test
+    @DisplayName("일 목표 마감 푸시 — 어제 회차가 끝난 챌린지로 그룹원 전원에게 1회, 재실행은 dedup")
+    void durationEndSendsOnceAndDedupsOnRerun() {
+        GroupChallenge challenge = durationChallenge();
+
+        PushDispatchSummaryResponse first =
+                challengeDurationEndNotificationService.sendDurationEndNotifications(DURATION_NOW);
+        assertThat(first.sentCount()).isEqualTo(2);
+        assertThat(logsOf(NotificationSentLog.TYPE_CHALLENGE_ENDED, winner, loser))
+                .hasSize(2)
+                .allSatisfy(sentLog ->
+                        assertThat(sentLog.getTargetUserId()).isEqualTo(challenge.getId()));
+
+        PushDispatchSummaryResponse second =
+                challengeDurationEndNotificationService.sendDurationEndNotifications(DURATION_NOW);
+        assertThat(second.sentCount()).isZero();
+        assertThat(second.dedupedCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("일 목표 마감 푸시 — 창형 챌린지는 대상이 아니다(창 종료 크론이 맡는다)")
+    void durationEndIgnoresWindowChallenge() {
+        screenTimeWindowChallenge();
+
+        PushDispatchSummaryResponse summary =
+                challengeDurationEndNotificationService.sendDurationEndNotifications(DURATION_NOW);
 
         assertThat(summary.targetCount()).isZero();
+        assertThat(logsOf(NotificationSentLog.TYPE_CHALLENGE_ENDED, winner, loser)).isEmpty();
     }
 
     @Test
@@ -297,7 +374,7 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
                 .nickname("남").isGuest(false).deviceToken("token-남").build()).getId();
         screenTimeWindowChallenge();
 
-        challengeWindowEndNotificationService.sendWindowEndNotifications(NOW);
+        challengeWindowEndNotificationService.sendWindowEndNotifications(WINDOW_NOW);
 
         assertThat(notificationSentLogRepository.findByTypeAndUserIdInSince(
                 NotificationSentLog.TYPE_CHALLENGE_WINDOW_END,
