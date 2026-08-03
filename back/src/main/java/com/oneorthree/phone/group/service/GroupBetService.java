@@ -209,6 +209,71 @@ public class GroupBetService {
     }
 
     /**
+     * 참가 철회(GROMO-1102) — <b>시작 전</b>인 OPEN 내기에서 호출자 본인의 참가만 무르고 본인
+     * 판돈을 환불한다. 개설자도 철회할 수 있고 남은 참가자가 있으면 내기는 유지된다
+     * ({@code creatorUserId} 는 이력으로 남는다). 마지막 참가자가 떠나면 내기는 자동 취소된다.
+     *
+     * <p>"시작 전" 판정은 조합별로 다르다 — TIME_WINDOW 는 현재가 {@code bet_date} 창의 시작 시각
+     * ({@link WindowFocusAggregator#windowStartOn} 경유) 전이어야 하고, DURATION 은 하루 전체가
+     * 판이라 {@code bet_date} 가 내일 이후(KST)여야 한다(당일은 집계가 이미 진행 중이다). 시작
+     * 이후의 철회는 "질 것 같으면 무르기"가 되므로 막는다.
+     *
+     * <p>정산 배치는 전일자만 집고 철회는 미래 시작만 허용하므로 날짜 게이트만으로도 서로
+     * 배타적이지만, 진입 조회를 행 잠금으로 두어 참가·취소·정산·탈퇴 연동과 구조적으로 직렬화한다.
+     * 마지막 참가자의 CANCELED 전이는 정산·취소와 같은 CAS 게이트({@link #claimCanceled})를
+     * 지나고, 환불 멱등키는 정산 환불과 같은 포맷({@code bet:{betId}:refund:{userId}})이라 이중
+     * 환불은 원장 유니크가 최후 방어한다.
+     */
+    @Transactional
+    public void leaveBet(UUID groupId, UUID betId, UUID userId) {
+        User user = requireActiveUser(userId);
+        requireGroupMembership(user, groupId);
+
+        GroupChallengeBet bet = groupChallengeBetRepository.findByIdAndGroupIdForUpdate(betId, groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
+        List<GroupChallengeBetParticipant> participants =
+                groupChallengeBetParticipantRepository.findByBetIdIn(List.of(betId));
+        // 검증 순서 계약(§4): 참가자 여부 → OPEN → 시작 전.
+        GroupChallengeBetParticipant mine = participants.stream()
+                .filter(p -> p.getUser().getId().equals(userId))
+                .findFirst()
+                .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_JOINED));
+        if (!bet.isOpen()) {
+            throw new GroupException(GroupErrorCode.BET_NOT_OPEN);
+        }
+        requireBeforeStart(bet);
+
+        groupChallengeBetParticipantRepository.delete(mine);
+        boolean lastParticipant = participants.size() == 1;
+        if (lastParticipant) {
+            claimCanceled(bet);
+        }
+        refundStake(bet, user);
+        log.info("내기 참가 철회 — betId={}, userId={}, stake={} 환불, 자동취소={}",
+                betId, userId, bet.getStake(), lastParticipant);
+    }
+
+    /**
+     * 시작 전 가드(철회 전용) — TIME_WINDOW 는 창 시작 시각, DURATION 은 날짜 경계(KST)가 시작점이다.
+     * 목표를 해석할 수 없는 내기는 개설 게이트({@code resolve})가 이미 막았으므로 여기 도달하면
+     * 데이터가 깨진 것이다 — 개설·참가와 같은 코드로 방어적으로 거절한다.
+     */
+    private void requireBeforeStart(GroupChallengeBet bet) {
+        GroupBetJudge.Target target = groupBetJudge.resolve(bet.getChallenge())
+                .orElseThrow(() -> new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS));
+        Optional<Instant> opensAt = groupBetJudge.windowOpensAt(target, bet.getBetDate());
+        if (opensAt.isPresent()) {
+            if (!Instant.now().isBefore(opensAt.get())) {
+                throw new GroupException(GroupErrorCode.BET_LEAVE_CLOSED);
+            }
+            return;
+        }
+        if (!bet.getBetDate().isAfter(today())) {
+            throw new GroupException(GroupErrorCode.BET_LEAVE_CLOSED);
+        }
+    }
+
+    /**
      * 그룹 탈퇴 연동 — 탈퇴자가 참가 중인 OPEN 내기에서 빼고 판돈을 환불한다.
      * {@link GroupMemberService#withdrawGroup} 가 탈퇴와 <b>같은 트랜잭션</b>에서 호출한다
      * (탈퇴만 되고 판돈이 묶이는 반쪽 상태 방지).
