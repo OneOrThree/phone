@@ -135,10 +135,18 @@ class ChallengeEndPushDispatcher {
             List<GroupChallenge> ended = challengesByGroupId.get(groupId);
             for (GroupMember member : membersByGroupId.getOrDefault(groupId, List.of())) {
                 User user = member.getUser();
-                target++;
-                List<GroupChallenge> pending = ended.stream()
-                        .filter(challenge -> !alreadySent.contains(new SentKey(user.getId(), challenge.getId())))
+                // 참여 가능한 회차를 먼저 추린다 — 참여한 적 없는 멤버는 발송 "대상" 자체가 아니다.
+                // 이걸 dedup 과 한 단계에서 처리하면 가입 시각 필터가 걸린 건까지 dedupedCount 에
+                // 섞여, "이미 발송 이력이 있어 건너뛴 건수" 라는 계약이 깨진다(@codex 리뷰).
+                List<GroupChallenge> eligible = ended.stream()
                         .filter(challenge -> participatedInCycle(member, cycleEndByChallengeId.get(challenge.getId())))
+                        .toList();
+                if (eligible.isEmpty()) {
+                    continue;
+                }
+                target++;
+                List<GroupChallenge> pending = eligible.stream()
+                        .filter(challenge -> !alreadySent.contains(new SentKey(user.getId(), challenge.getId())))
                         .toList();
                 if (pending.isEmpty()) {
                     deduped++;

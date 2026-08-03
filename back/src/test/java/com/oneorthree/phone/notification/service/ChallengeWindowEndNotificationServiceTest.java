@@ -289,6 +289,10 @@ class ChallengeWindowEndNotificationServiceTest {
                 service().sendWindowEndNotifications(kst(2026, 8, 2, 12, 15));
 
         assertThat(summary.sentCount()).isZero();
+        // 비참여자는 "대상" 도 "dedup" 도 아니다 — 발송 이력이 아예 없으므로 dedupedCount 에 섞이면
+        // "이미 보낸 건수" 라는 계약이 깨진다(@codex 리뷰).
+        assertThat(summary.targetCount()).isZero();
+        assertThat(summary.dedupedCount()).isZero();
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
     }
 
