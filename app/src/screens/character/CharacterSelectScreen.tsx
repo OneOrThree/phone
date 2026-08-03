@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -33,14 +33,27 @@ export default function CharacterSelectScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { choice, customUri, setChoice } = useCharacter();
 
-  // 저장된 누끼 경로가 죽어 그림을 못 그리는 상태(파일이 사라진 절대경로 등). 이때 카드②는
-  // 기본 그로몬으로 폴백돼 그려지는데, 그대로 장착까지 되면 홈·집중·축하 화면의 캐릭터가
-  // 전부 기본으로 돌아가 "빈 칸을 장착한" 꼴이 된다. 그래서 못 쓰는 누끼는 아예 없는 것으로 본다.
-  // 저장소의 customUri 는 지우지 않는다 — 일시적 읽기 실패였을 경우 다음 실행에서 되살아난다.
-  const [customBroken, setCustomBroken] = useState(false);
-  const hasCustom = !!customUri && !customBroken;
+  // 저장된 누끼를 실제로 그릴 수 있는지. 이미지 로드는 비동기라 세 상태가 필요하다.
+  //  pending — 아직 로드 결과를 모름 / ok — 그려짐 / broken — 경로가 죽어 못 그림
+  // 경로가 죽으면 카드②는 기본 그로몬으로 폴백돼 그려지는데, 그대로 장착까지 되면 홈·집중·축하
+  // 화면의 캐릭터가 전부 기본으로 돌아가 "빈 칸을 장착한" 꼴이 된다. 그래서 못 쓰는 누끼는 아예
+  // 없는 것으로 본다. 저장소의 customUri 는 지우지 않는다 — 일시적 읽기 실패였을 경우 다음
+  // 실행에서 되살아난다.
+  const [customStatus, setCustomStatus] = useState<'pending' | 'ok' | 'broken'>('pending');
+  // 누끼가 바뀌면 판정을 다시 시작한다 — 깨진 뒤 '새로 만들기'로 새 캐릭터를 만들어 돌아오면
+  // (CharacterCreateRoute 가 customUri 를 갱신하고 goBack) 이 화면은 그대로 마운트돼 있어,
+  // 리셋하지 않으면 멀쩡한 새 캐릭터가 계속 숨겨진 채로 남는다(코드리뷰 반영).
+  useEffect(() => {
+    setCustomStatus('pending');
+  }, [customUri]);
 
-  const equipped = resolveEquippedChoice(choice, customUri, customBroken);
+  const hasCustom = !!customUri && customStatus !== 'broken';
+  // 선택은 로드가 확인된 뒤에만 허용한다 — onError 는 비동기라, 그 전에 카드를 탭하고 곧바로
+  // '변경하기'를 누르면 못 쓰는 누끼가 장착돼 버린다(코드리뷰 반영). 렌더는 pending 에도 그대로
+  // 두어 정상 누끼가 잠깐 플레이스홀더로 깜빡이지 않게 한다.
+  const canPickCustom = !!customUri && customStatus === 'ok';
+
+  const equipped = resolveEquippedChoice(choice, customUri, customStatus === 'broken');
 
   // 화면 안에서만 쓰는 선택 상태 — 사용자가 카드를 탭하기 전까지는 null이고, 그동안은 위의
   // 장착값을 그대로 따라간다. useState 초기값으로 스냅샷을 뜨면 CharacterContext가 AsyncStorage를
@@ -53,7 +66,7 @@ export default function CharacterSelectScreen() {
 
   // 누끼 그림을 못 그렸다 — 카드②를 만들기 플레이스홀더로 되돌리고, 골라둔 상태였으면 기본으로 뺀다.
   const onCustomBroken = useCallback(() => {
-    setCustomBroken(true);
+    setCustomStatus('broken');
     setPicked((p) => (p === 'custom' ? 'default' : p));
   }, []);
 
@@ -111,6 +124,7 @@ export default function CharacterSelectScreen() {
           <PressableScale
             style={[s.card, customSelected && s.cardSelected]}
             scaleTo={0.97}
+            disabled={!canPickCustom}
             onPress={() => setPicked('custom')}
           >
             {customSelected ? (
@@ -122,6 +136,7 @@ export default function CharacterSelectScreen() {
               <CharacterImage
                 size={CHAR_SIZE}
                 sourceUri={customUri ?? undefined}
+                onLoad={() => setCustomStatus((st) => (st === 'pending' ? 'ok' : st))}
                 onSourceError={onCustomBroken}
               />
             </View>
