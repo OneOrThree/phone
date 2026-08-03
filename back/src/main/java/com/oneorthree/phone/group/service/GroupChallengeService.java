@@ -19,6 +19,7 @@ import com.oneorthree.phone.group.dto.GroupBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetResultResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
 import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
+import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
@@ -39,6 +40,7 @@ import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,6 +77,7 @@ public class GroupChallengeService {
     private final GroupBetService groupBetService;
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final WindowFocusAggregator windowFocusAggregator;
+    private final ApplicationEventPublisher eventPublisher;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
@@ -505,6 +508,12 @@ public class GroupChallengeService {
         } else {
             nonParticipants = List.of();
         }
+
+        // 그룹원 개설 알림(GROMO-1089) — 발송은 알림 도메인이 AFTER_COMMIT 으로 받아 처리한다.
+        // 여기서 직접 푸시를 부르지 않는 이유: 이 트랜잭션이 뒤에서 롤백되면 챌린지는 없는데 알림만
+        // 나간 상태가 되기 때문이다. 이벤트 발행은 커밋되지 않으면 리스너까지 가지 않는다.
+        eventPublisher.publishEvent(new GroupChallengeCreatedEvent(
+                savedChallenge.getId(), group.getId(), userId));
 
         return CreateChallengeResponse.builder()
                 .id(savedChallenge.getId())
