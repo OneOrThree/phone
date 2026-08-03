@@ -411,6 +411,35 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
+    @DisplayName("미래(내일) 내기는 배치 대상이 아니다 — 조기 정산·몰수·환불 없이 OPEN 그대로 남는다(GROMO-1103)")
+    void doesNotSettleTomorrowsBet() {
+        // 마감 후 "내일 시간대부터 적용"으로 열린 내기(bet_date=내일)가 오늘 밤 배치(FOCUS 01:00 /
+        // SCREEN_TIME 12:00 KST)에 걸리면 집계가 시작되기도 전에 몰수된다 — 대상 선정이
+        // bet_date < 기준일 쿼리라 미래 내기가 구조적으로 배제됨을 실 DB 로 고정한다(계약 §3).
+        User user = stakedUser("참가자");
+        GroupChallengeBet bet = groupChallengeBetRepository.save(GroupChallengeBet.builder()
+                .group(group).challenge(challenge).creatorUser(user)
+                .stake(STAKE).betDate(today.plusDays(1)).status(GroupBetStatus.OPEN).build());
+        bets.add(bet);
+        groupChallengeBetParticipantRepository.save(
+                GroupChallengeBetParticipant.builder().bet(bet).user(user).build());
+
+        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(today);
+
+        assertThat(summary.targetCount()).isZero();
+        assertThat(statusOf(bet)).isEqualTo(GroupBetStatus.OPEN);
+        // 지갑·원장 무변동 — 조기 정산은 물론 FORFEITED 몰수·환불 어느 쪽으로도 돈이 움직이지 않는다.
+        assertThat(balanceOf(user)).isEqualTo(BALANCE_AFTER_STAKE);
+        assertThat(transactionsOf(user, CurrencyTransactionType.BET_REFUND)).isEmpty();
+        assertThat(transactionsOf(user, CurrencyTransactionType.BET_PAYOUT)).isEmpty();
+        // 판정 결과도 기록되지 않는다 — 참가 행은 아직 미판정(null) 그대로다.
+        assertThat(participantsOf(bet))
+                .extracting(GroupChallengeBetParticipant::getAchieved,
+                        GroupChallengeBetParticipant::getPayout)
+                .containsExactly(tuple(null, null));
+    }
+
+    @Test
     @DisplayName("집중 기록이 아예 없는 참가자는 0분으로 판정된다")
     void treatsMissingFocusStatAsZero() {
         User noStat = stakedUser("무기록");

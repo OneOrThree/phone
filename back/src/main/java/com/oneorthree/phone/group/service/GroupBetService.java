@@ -62,8 +62,13 @@ import java.util.stream.Stream;
 @Transactional(readOnly = true)
 public class GroupBetService {
 
-    /** 서버가 허용하는 판돈. 자유 입력은 검증·UX 비용만 늘려 얇게 고정한다. */
-    static final Set<Integer> ALLOWED_STAKES = Set.of(10, 30, 50, 100);
+    /**
+     * 참가비 허용 범위 — 정수 1~1000 (계약 §2, GROMO-1097). 고정 프리셋(10/30/50/100)에서
+     * 자유 입력으로 확대됐다 — 프리셋은 앱의 빠른 선택 칩으로만 남는다. 상한은 오입력·과몰입
+     * 방지용 정책 값이고, DB 제약은 {@code stake > 0} 그대로다(스키마 변경 없음).
+     */
+    static final int MIN_STAKE = 1;
+    static final int MAX_STAKE = 1000;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
@@ -90,13 +95,18 @@ public class GroupBetService {
         User user = requireActiveUser(userId);
         Group group = requireGroupMembership(user, groupId);
 
-        if (!ALLOWED_STAKES.contains(request.getStake())) {
+        int stake = request.getStake();
+        if (stake < MIN_STAKE || stake > MAX_STAKE) {
             throw new GroupException(GroupErrorCode.BET_INVALID_STAKE);
         }
-        // 내기는 "오늘 하루"만 걸 수 있다 — 지난 날짜는 결과가 이미 정해졌고, 미래 날짜는 정산 배치
-        // (전일자 대상)의 전제를 깬다.
+        // 내기는 "오늘 또는 내일"(KST)에만 걸 수 있다(계약 §3, GROMO-1103) — 지난 날짜는 결과가
+        // 이미 정해졌고, 모레 이후는 앱이 만들 수 없는 값이다. 내일 내기는 창(시간대)이 이미 끝난 뒤
+        // "내일 시간대부터 적용" 경로로 열린다. 정산 배치(GroupBetSettlementService)는
+        // bet_date < 기준일만 대상으로 집으므로 미래 내기가 조기 정산·몰수되는 일은 없다
+        // (GroupBetSettlementIntegrationTest 가 고정한다).
         LocalDate betDate = request.getDate();
-        if (!betDate.equals(today())) {
+        LocalDate today = today();
+        if (!betDate.equals(today) && !betDate.equals(today.plusDays(1))) {
             throw new GroupException(GroupErrorCode.BET_CLOSED);
         }
 
@@ -115,7 +125,11 @@ public class GroupBetService {
         // 게이트 = DURATION || (TIME_WINDOW && 창 목표분 있음). 카테고리 제한은 없다.
         GroupBetJudge.Target target = groupBetJudge.resolve(challenge)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS));
-        requireWindowStillOpen(target, betDate);
+        // 창 마감 검사는 오늘 내기에만 건다 — 내일 창은 아직 시작도 안 했으니 항상 열려 있다
+        // (계약 §3: date=내일은 TIME_WINDOW·DURATION 공통 무조건 허용).
+        if (betDate.equals(today)) {
+            requireWindowStillOpen(target, betDate);
+        }
 
         if (groupChallengeBetRepository.existsByChallengeIdAndBetDate(challengeId, betDate)) {
             throw new GroupException(GroupErrorCode.BET_ALREADY_EXISTS);
@@ -126,7 +140,7 @@ public class GroupBetService {
                 .group(group)
                 .challenge(challenge)
                 .creatorUser(user)
-                .stake(request.getStake())
+                .stake(stake)
                 .betDate(betDate)
                 .status(GroupBetStatus.OPEN)
                 .build());
@@ -137,7 +151,7 @@ public class GroupBetService {
         return CreateBetResponse.builder().betId(bet.getId()).build();
     }
 
-    /** 진행 중(OPEN·오늘) 내기에 참가한다. 판돈은 즉시 차감된다. */
+    /** 진행 중(OPEN·오늘 또는 내일) 내기에 참가한다. 판돈은 즉시 차감된다. */
     @Transactional
     public void joinBet(UUID groupId, UUID betId, UUID userId) {
         User user = requireActiveUser(userId);
@@ -149,8 +163,10 @@ public class GroupBetService {
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
         // 정산됐거나(status≠OPEN) 날짜가 지난 내기는 닫힌 것으로 본다. 배치가 돌기 전(FOCUS 01:00 /
         // SCREEN_TIME 12:00 KST 이전)의 전일자 내기가 여기 걸린다 — status 만으로는 못 막는 구간이라
-        // 날짜도 함께 본다. 창형은 날짜가 같아도 오늘 창이 끝났으면 아래에서 추가로 막는다.
-        if (!bet.isOpen() || !bet.getBetDate().equals(today())) {
+        // 날짜도 함께 본다. 미래(내일) 내기는 참가를 허용한다(GROMO-1103 — 마감 후 열린 내일 내기에
+        // 오늘 밤 합류할 수 있어야 한다). 창형은 오늘 내기라도 창이 끝났으면 아래 창 검사가 막고,
+        // 내일 내기의 창 마감 시각은 항상 미래라 자연히 통과한다.
+        if (!bet.isOpen() || bet.getBetDate().isBefore(today())) {
             throw new GroupException(GroupErrorCode.BET_CLOSED);
         }
         if (groupChallengeBetParticipantRepository.existsByBetIdAndUserId(betId, userId)) {
@@ -416,6 +432,11 @@ public class GroupBetService {
     /**
      * 챌린지별 "오늘의 내기"를 배치 로드한다. {@code date} 가 없으면(하위 호환 조회) 빈 맵이다.
      *
+     * <p><b>내일 폴백</b>(계약 §3 응답 보수, GROMO-1103): 조회일이 서버 KST 오늘이면, 오늘 내기가
+     * 없는 챌린지에 한해 내일 OPEN 내기를 실어 준다 — 마감 후 "내일 시간대부터 적용"으로 연 내기가
+     * 생성 직후 카드에서 안 보이는 구멍을 막는다. 응답의 {@code date}(bet_date)가 어느 날짜의
+     * 내기인지 말한다. 과거 날짜 조회는 그날의 사실만 실어야 하므로 폴백하지 않는다.
+     *
      * @param myAchievedByChallengeId 챌린지별 "나는 이미 달성했는가" — 호출측이 이미 계산해 둔
      *                                진행률 스냅샷을 재사용해 통계를 두 번 읽지 않는다
      * @return challengeId → 내기 (내기가 없는 챌린지는 키 없음)
@@ -428,8 +449,21 @@ public class GroupBetService {
         if (date == null || challengeIds.isEmpty()) {
             return Map.of();
         }
-        List<GroupChallengeBet> bets =
-                groupChallengeBetRepository.findByChallengeIdInAndBetDate(challengeIds, date);
+        List<GroupChallengeBet> bets = new ArrayList<>(
+                groupChallengeBetRepository.findByChallengeIdInAndBetDate(challengeIds, date));
+        if (date.equals(today())) {
+            Set<UUID> covered = bets.stream()
+                    .map(bet -> bet.getChallenge().getId())
+                    .collect(Collectors.toSet());
+            List<UUID> uncovered = challengeIds.stream()
+                    .filter(challengeId -> !covered.contains(challengeId))
+                    .toList();
+            if (!uncovered.isEmpty()) {
+                // OPEN 만 싣는다 — 취소된 내일 내기는 "없던 일"이라 카드에 세울 자격이 없다.
+                bets.addAll(groupChallengeBetRepository.findByChallengeIdInAndBetDateAndStatus(
+                        uncovered, date.plusDays(1), GroupBetStatus.OPEN));
+            }
+        }
         if (bets.isEmpty()) {
             return Map.of();
         }
@@ -443,12 +477,17 @@ public class GroupBetService {
             result.put(challengeId, GroupBetResponse.builder()
                     .betId(bet.getId())
                     .creatorUserId(bet.getCreatorUser().getId())
+                    .date(bet.getBetDate())
                     .stake(bet.getStake())
                     .pot(bet.getStake() * participants.size())
                     .status(bet.getStatus())
                     .myJoined(participants.stream()
                             .anyMatch(p -> p.getUser().getId().equals(userId)))
-                    .myAchievedNow(myAchievedByChallengeId.getOrDefault(challengeId, false))
+                    // 호출측 스냅샷은 조회일(오늘) 진행률이다 — 내일 폴백 내기의 판정일은 내일이라
+                    // 아직 아무도 달성하지 않았다. 오늘 값을 그대로 실으면 앱이 내일 내기의 참가
+                    // 버튼을 오늘 달성 사실로 잘못 잠근다(서버 joinBet 은 bet_date 기준이라 허용).
+                    .myAchievedNow(bet.getBetDate().equals(date)
+                            && myAchievedByChallengeId.getOrDefault(challengeId, false))
                     .participants(participants.stream()
                             .map(p -> GroupBetParticipantResponse.builder()
                                     .userId(p.getUser().getId())
@@ -541,8 +580,9 @@ public class GroupBetService {
      * 창이 없어 날짜 검사만으로 충분하다(마감 코드도 {@code BET_CLOSED} 로 같다).
      *
      * <p><b>자정 걸침 창에서는 이 가드가 도달하지 않는다</b>(PR #446 리뷰). 예로 22:00~01:00 창의
-     * 날짜 D 창은 {@code D+1 01:00} 에 끝나는데, 이 가드는 호출자가 이미 {@code betDate == 오늘} 을
-     * 확인한 뒤에만 실행되므로 "오늘"인 동안 {@code now} 는 항상 그 종료 시각보다 이르다. 실질 마감은
+     * 날짜 D 창은 {@code D+1 01:00} 에 끝나는데, 이 가드는 {@code date} 가 오늘 이후일 때만 실행되므로
+     * (개설은 오늘 내기에만 검사하고 내일 내기는 건너뛴다 — GROMO-1103, 참가는 {@code bet_date} 가
+     * 오늘 이상) "오늘"인 동안 {@code now} 는 항상 그 종료 시각보다 이르다. 실질 마감은
      * 자정에 {@code today()} 가 넘어가면서 앞의 날짜 게이트가 대신 처리한다 — 즉 자정 걸침 창은
      * 마지막 1시간(00:00~01:00) 동안 새 개설·참가를 받지 않는다.
      *

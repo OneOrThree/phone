@@ -189,7 +189,8 @@ export interface GroupChallengeResponse {
 }
 
 // ── 내기(3차·확장) — 계약 정본 docs/app/challenge-impl-2026-08/contract.md §2 ──
-// ⚠️ 판돈은 서버 허용값 {10,30,50,100}만이고 내기는 챌린지당·날짜당 1개다(백 명세 결정 8).
+// ⚠️ 참가비는 1~1000 자유 입력이고(GROMO-1097 — 구 {10,30,50,100} 고정에서 확대) 내기는
+//    챌린지당·날짜당 1개다.
 // 내기 대상은 전 조합이다 — FOCUS·SCREEN_TIME × DURATION·TIME_WINDOW(창은 목표분 있는 것만).
 // SCREEN_TIME 달성은 클라 신뢰 데이터지만 리스크 수용으로 확대됐다(계약 확정 정책).
 
@@ -247,8 +248,9 @@ export interface LastSettledBet {
 
 // POST /groups/{groupId}/challenges/{challengeId}/bets — 내기 개설(개설자 자동 참가·판돈 즉시 차감).
 export interface CreateBetRequest {
-  stake: number; // 10|30|50|100 — 그 외는 서버가 BET_INVALID_STAKE
-  date: string; // 'YYYY-MM-DD' (클라 로컬 날짜)
+  stake: number; // 1~1000 정수 — 범위 밖은 서버가 BET_INVALID_STAKE
+  // 'YYYY-MM-DD'. 오늘 또는 내일(창 마감 뒤 '내일 시간대부터 적용' — GROMO-1103) — 그 외는 BET_CLOSED.
+  date: string;
 }
 
 export interface CreateBetResponse {
