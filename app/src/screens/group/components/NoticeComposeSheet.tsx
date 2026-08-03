@@ -110,8 +110,8 @@ export default function NoticeComposeSheet({
   }
 
   return (
-    // 저장 중에는 딤 탭으로 닫히지 않게 막는다. 키보드 회피·드래그 닫기는 SheetShell이 공통 처리한다.
-    <SheetShell onClose={submitting ? () => {} : onClose}>
+    // 저장 중에는 딤 탭·그랩바 드래그로 닫히지 않게 막는다. 키보드 회피는 SheetShell이 공통 처리한다.
+    <SheetShell onClose={submitting ? () => {} : onClose} dismissible={!submitting}>
       <Text style={s.title}>{isEdit ? '공지 수정' : '공지 쓰기'}</Text>
       <Text style={s.sub}>그룹원 모두에게 보여요.</Text>
 

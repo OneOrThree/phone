@@ -26,10 +26,14 @@ export function SheetShell({
   children,
   onClose,
   asModal = false,
+  dismissible = true,
 }: {
   children: ReactNode;
   onClose: () => void;
   asModal?: boolean;
+  // false면(예: 저장 요청 중) 그랩바 드래그가 임계치를 넘어도 닫지 않고 제자리로 되돌린다 —
+  // onClose가 no-op으로 막힌 시트에서 패널만 화면 밖으로 밀려 박제되는 회귀 방지.
+  dismissible?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -38,6 +42,9 @@ export function SheetShell({
   // ref로 최신값을 읽는다.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // PanResponder는 한 번만 생성돼 클로저가 stale하므로 dismissible도 ref로 최신값을 읽는다.
+  const dismissibleRef = useRef(dismissible);
+  dismissibleRef.current = dismissible;
 
   // 드래그 이동량 — 그랩바를 아래로 끄는 동안 패널을 그만큼 내린다(네이티브 드라이버 transform).
   const translateY = useRef(new Animated.Value(0)).current;
@@ -64,8 +71,9 @@ export function SheetShell({
         if (g.dy > 0) translateY.setValue(g.dy);
       },
       onPanResponderRelease: (_, g) => {
-        // 충분히 내렸거나(90pt) 빠르게 튕기면(vy) 닫고, 아니면 제자리로 되돌린다.
-        if (g.dy > 90 || g.vy > 1.2) {
+        // dismissible=false(예: 저장 중)면 임계치와 무관하게 항상 제자리로 되돌린다 — 화면 밖으로
+        // 밀어낸 뒤 no-op onClose로 언마운트되지 않아 시트가 박제되는 회귀를 막는다(리뷰 반영).
+        if (dismissibleRef.current && (g.dy > 90 || g.vy > 1.2)) {
           Animated.timing(translateY, {
             toValue: 700,
             duration: 180,
