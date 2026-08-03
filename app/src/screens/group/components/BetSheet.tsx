@@ -18,7 +18,9 @@ import { BET_ALREADY_FAILED, createBet, groupErrorCode, joinBet } from '@/servic
 import { logGroupBetCreated, logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import { useUser } from '@/store/UserContext';
-import { todayStr, tomorrowStr } from '@/utils/localDate';
+// KST 고정 버전을 쓴다 — bet_date는 서버가 KST로 판정하므로(계약 §1·§3) 기기 로컬 날짜를
+// 보내면 비KST 기기에서 하루 어긋난다. 창 종료 판정(nowSecondsInZone('Asia/Seoul'))과 같은 축.
+import { todayStrKst, tomorrowStrKst } from '@/utils/localDate';
 import { nowSecondsInZone, timeStrToSeconds } from '@/utils/challengeTime';
 import type { GroupChallengeResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -240,7 +242,7 @@ export default function BetSheet({
       if (isCreate) {
         // 오늘 창이 이미 끝난 시간대 챌린지는 처음부터 내일 내기로 연다(계약 §3) —
         // 서버 409(BET_CLOSED) 실패 모달 대신 시트의 '내일 시간대부터 적용' 안내가 선다.
-        await requestCreate(betForTomorrow ? tomorrowStr() : todayStr());
+        await requestCreate(betForTomorrow ? tomorrowStrKst() : todayStrKst());
       } else {
         // 도달할 수 없는 조합이지만(위 disabled 가드), 도달하면 공통 문구로 떨어뜨린다 —
         // 그냥 return하면 submitting이 true로 남아 시트가 영영 잠긴다(F12).
@@ -261,7 +263,7 @@ export default function BetSheet({
       // 시트는 곧 닫히므로 인라인 안내는 설 자리가 없다.
       if (isCreate && isWindowChallenge && !betForTomorrow && groupErrorCode(e) === 'BET_CLOSED') {
         try {
-          await requestCreate(tomorrowStr());
+          await requestCreate(tomorrowStrKst());
           refresh();
           Alert.alert(TOMORROW_ALERT_TITLE, TOMORROW_ALERT_BODY);
           onDone();
@@ -270,17 +272,20 @@ export default function BetSheet({
           // 재시도 실패는 원래 에러 분기로 보낸다 — 내일 날짜를 모르는 구서버는 BET_CLOSED를
           // 그대로 돌려주고(기존 '시간이 지났어요' 문구가 여전히 사실이다 — 내일이 되면 다시
           // 열 수 있다), 남이 먼저 연 내일 내기는 BET_ALREADY_EXISTS로 각자 분기를 탄다.
-          handleSubmitError(retryError);
+          // 이 실패는 **내일 날짜**로 보낸 요청의 것이다 — 문구가 '오늘'이라고 말하면 거짓이 된다.
+          handleSubmitError(retryError, true);
           return;
         }
       }
-      handleSubmitError(e);
+      handleSubmitError(e, betForTomorrow);
     }
   }
 
   // 실패 분기 — 시트를 닫는 경로(failAndReload 등)는 return으로 빠져 submitting을 되돌리지 않고
   // (시트가 사라진다), 시트에 남는 경로만 마지막의 setSubmitting(false)에 닿는다.
-  function handleSubmitError(e: unknown) {
+  // sentTomorrow = 이 실패를 만든 요청이 실제로 보낸 날짜가 내일인가 — 날짜가 걸린 문구
+  // (BET_ALREADY_EXISTS)를 사실대로 분기하는 근거다(PR #473 리뷰).
+  function handleSubmitError(e: unknown, sentTomorrow: boolean) {
     switch (groupErrorCode(e)) {
       // 이미 참가한 상태 = 원하던 결과다. 새 참가가 아니므로 계측은 발행하지 않는다
       // (GroupFindSheet의 ALREADY_MEMBER와 같은 규칙).
@@ -296,11 +301,16 @@ export default function BetSheet({
       // ⚠️ 취소·정산된 내기도 이 코드로 온다(챌린지·날짜 유니크가 행을 남긴다 — 같은 날 재개설은
       //    v1 불가 확정, 백로그 1051). 그 경우 재조회 후에도 화면에 내기가 없어 '이미 열려
       //    있어요'는 거짓말이 된다 — 두 사실을 모두 덮는 문장으로 말한다.
+      // ⚠️ 내일 날짜로 보낸 요청(마감 후 개설·재시도)의 충돌은 **내일** 내기 이야기다 —
+      //    '오늘' 문구를 그대로 내면 거짓이 된다(PR #473 리뷰). 내일 내기는 아직 시작 전이라
+      //    취소·정산 이력 분기 없이 '새로고침 후 참가' 안내면 충분하다.
       case 'BET_ALREADY_EXISTS':
         refresh();
         failAndReload(
-          '오늘은 내기를 열 수 없어요',
-          '이미 오늘 내기가 있어요. 진행 중이면 새로고침 후 참가할 수 있고, 취소했거나 끝난 내기는 오늘 다시 열 수 없어요.',
+          sentTomorrow ? '내일 내기를 열 수 없어요' : '오늘은 내기를 열 수 없어요',
+          sentTomorrow
+            ? '이미 내일 내기가 있어요. 새로고침 후 참가할 수 있어요.'
+            : '이미 오늘 내기가 있어요. 진행 중이면 새로고침 후 참가할 수 있고, 취소했거나 끝난 내기는 오늘 다시 열 수 없어요.',
         );
         return;
       case 'BET_ALREADY_ACHIEVED':

@@ -50,9 +50,13 @@ jest.mock('@/store/UserContext', () => ({
 }));
 
 // 날짜 경계를 테스트가 직접 고정한다(개설 전송값의 date — 마감 후엔 내일 날짜가 나간다).
+// 시트는 KST 고정 버전을 쓴다(bet_date는 서버 KST 판정 — PR #473 리뷰) — 로컬 버전은
+// 이 모듈을 함께 로드하는 다른 코드가 깨지지 않게 같은 값으로 남겨 둔다.
 jest.mock('@/utils/localDate', () => ({
   todayStr: jest.fn(() => '2026-08-01'),
   tomorrowStr: jest.fn(() => '2026-08-02'),
+  todayStrKst: jest.fn(() => '2026-08-01'),
+  tomorrowStrKst: jest.fn(() => '2026-08-02'),
 }));
 
 // 창 마감 판정(GROMO-1103)은 Asia/Seoul 벽시계 초로 비교한다 — '지금'을 테스트가 직접 고정한다.
@@ -187,7 +191,7 @@ beforeEach(() => {
 });
 
 describe('개설 모드', () => {
-  test('기본 참가비는 가장 낮은 10이고 date는 오늘(로컬)이다', async () => {
+  test('기본 참가비는 가장 낮은 10이고 date는 오늘(KST)이다', async () => {
     await renderSheet('create');
     await submit();
 
@@ -1126,8 +1130,9 @@ describe('마감 후 내일 내기', () => {
   });
 
   // 재시도의 실패는 코드별 분기를 그대로 탄다 — 남이 먼저 연 내일 내기(BET_ALREADY_EXISTS)에
-  // '시간이 지났어요'라고 말하면 거짓이 된다.
-  test('재시도가 BET_ALREADY_EXISTS로 막히면 그 분기 문구로 알린다', async () => {
+  // '시간이 지났어요'도, '이미 **오늘** 내기가 있어요'도 거짓이다(PR #473 리뷰). 재시도는
+  // 내일 날짜로 나갔으므로 문구도 내일 내기의 사실을 말해야 한다.
+  test('재시도가 BET_ALREADY_EXISTS로 막히면 내일 내기 문구로 알린다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CLOSED'));
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_ALREADY_EXISTS'));
@@ -1136,8 +1141,25 @@ describe('마감 후 내일 내기', () => {
 
     expect(mockCreateBet).toHaveBeenCalledTimes(2);
     expect(alertSpy).toHaveBeenCalledWith(
-      '오늘은 내기를 열 수 없어요',
-      '이미 오늘 내기가 있어요. 진행 중이면 새로고침 후 참가할 수 있고, 취소했거나 끝난 내기는 오늘 다시 열 수 없어요.',
+      '내일 내기를 열 수 없어요',
+      '이미 내일 내기가 있어요. 새로고침 후 참가할 수 있어요.',
+    );
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  // 처음부터 내일 날짜로 보낸 개설(마감 후)의 충돌도 같은 내일 문구다 — 오늘 문구는
+  // 오늘 날짜로 보낸 요청에만 남는다.
+  test('마감 후 개설의 BET_ALREADY_EXISTS도 내일 내기 문구로 알린다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockNowSec = 12 * 3600; // 창 종료 후 — 처음부터 내일 날짜로 나간다
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_ALREADY_EXISTS'));
+    await renderSheet('create', windowChallenge);
+    await submit();
+
+    expect(mockCreateBet).toHaveBeenCalledTimes(1);
+    expect(alertSpy).toHaveBeenCalledWith(
+      '내일 내기를 열 수 없어요',
+      '이미 내일 내기가 있어요. 새로고침 후 참가할 수 있어요.',
     );
     expect(onDone).toHaveBeenCalled();
   });

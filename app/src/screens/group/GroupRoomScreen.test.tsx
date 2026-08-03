@@ -103,10 +103,13 @@ jest.mock('@/services/groupApi', () => ({
 }));
 
 // 날짜 경계를 테스트가 직접 옮긴다. localDateStr은 결과 후보의 createdAt 판정이 실제로 돌게
-// 실물을 쓴다(challengeResult.ts).
+// 실물을 쓴다(challengeResult.ts). KST 버전은 BetSheet의 내기 생성 경로가 쓴다(GROMO-1097 —
+// bet_date는 서버 KST 판정) — 여기 목은 같은 날로 고정한다.
 jest.mock('@/utils/localDate', () => ({
   todayStr: jest.fn(() => '2026-08-01'),
   yesterdayStr: jest.fn(() => '2026-07-31'),
+  todayStrKst: jest.fn(() => '2026-08-01'),
+  tomorrowStrKst: jest.fn(() => '2026-08-02'),
   localDateStr: jest.requireActual('@/utils/localDate').localDateStr,
 }));
 
