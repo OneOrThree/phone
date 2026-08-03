@@ -748,6 +748,30 @@ describe('내기 영역 4상', () => {
   });
 });
 
+// 내일 내기 표시 — 서버는 오늘 내기가 없으면 내일 내기를 폴백으로 내려줄 수 있다(계약 §3 응답
+// 보수, W2). 표기가 없으면 오늘 내기로 오인한 채 돈을 건다. '오늘'은 2026-08-01 고정(상단 mock).
+describe('내일 내기 표시', () => {
+  test('bet.date가 내일이면 참가 행·참여 중 행에 내일 시작 배지를 붙인다', async () => {
+    // 참가 행(미참가·OPEN).
+    await renderCard({ bet: bet({ date: '2026-08-02' }) });
+    expect(screen.getByText('내일 시작')).toBeOnTheScreen();
+
+    // 참여 중 행 — '참여 중'(상태 칩)과 나란히 선다.
+    await renderCard({ bet: bet({ date: '2026-08-02', myJoined: true }) });
+    expect(screen.getByText('내일 시작')).toBeOnTheScreen();
+    expect(screen.getByText('참여 중')).toBeOnTheScreen();
+  });
+
+  test('오늘 내기·date를 모르는 구서버에는 붙이지 않는다', async () => {
+    await renderCard({ bet: bet({ date: '2026-08-01' }) });
+    expect(screen.queryByText('내일 시작')).toBeNull();
+
+    // date 필드가 없는 구서버 — 조회일(오늘) 내기로 간주한다(DTO 주석).
+    await renderCard({ bet: bet() });
+    expect(screen.queryByText('내일 시작')).toBeNull();
+  });
+});
+
 // 지난 내기 결과는 네이티브 Alert가 아니라 앱 컨셉 바텀시트로 펼친다(GROMO-1099 — Alert 나열이
 // '아이폰 알림창' 증상의 정체였다). 시트 내부 표기(손익 환산·미판정·상태 배너·캐릭터)는
 // LastBetResultSheet.test가 잠근다 — 여기서는 카드가 시트를 올바른 데이터로 여닫는 것만 본다.

@@ -205,7 +205,10 @@ export default function ChallengeCard({
   // bet.date가 없으면(구서버) 조회일(오늘) 내기로 간주한다 — DTO 주석 참조. 판정이 어긋난
   // 레이스는 서버가 정본으로 끝낸다(BET_LEAVE_CLOSED로 돌아온다).
   const betDate = bet?.date ?? todayStr();
-  const isFutureBet = betDate > todayStr(); // 'YYYY-MM-DD'는 사전순이 곧 시간순이다.
+  // 'YYYY-MM-DD'는 사전순이 곧 시간순이다. 철회의 '시작 전' 판정과 '내일 시작' 배지가 같이 쓴다 —
+  // 서버가 오늘 내기가 없으면 내일 내기를 폴백으로 내려줄 수 있어(계약 §3 응답 보수, W2)
+  // 표기가 없으면 오늘 내기로 오인한 채 참가하게 된다.
+  const isFutureBet = betDate > todayStr();
   const beforeStart = isWindow
     ? isFutureBet ||
       (challenge.windowStart !== null &&
@@ -376,6 +379,7 @@ export default function ChallengeCard({
                   <Text style={[s.betText, s.betTextOff]}>
                     🪙 참가비 {bet.stake} · 적립금 {bet.pot - bet.stake} · {betMembers - 1}명 참여
                   </Text>
+                  {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
                 </View>
               )}
               <Text style={s.caption}>{BET_LEFT_CAPTION}</Text>
@@ -407,6 +411,9 @@ export default function ChallengeCard({
               <Text style={s.betText}>
                 🪙 참가비 {bet.stake} · 적립금 {bet.pot} · {betMembers}명 참여
               </Text>
+              {/* '내일 시작' — 서버가 내일 내기를 폴백으로 내려줄 수 있다(계약 §3). 표기가 없으면
+                  오늘 내기로 읽힌다. 상태('참여 중')가 아니라 시점 표기라 중립 칩으로 가른다. */}
+              {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
               {bet.status === 'OPEN' && <Text style={s.betJoinedTag}>참여 중</Text>}
               {leavable && (
                 <TouchableOpacity
@@ -438,6 +445,7 @@ export default function ChallengeCard({
                 <Text style={[s.betText, (joinBlockedNow || betLocked) && s.betTextOff]}>
                   🪙 참가비 {bet.stake} · {betMembers}명 참여 중 — 참가하기
                 </Text>
+                {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
               </TouchableOpacity>
               {joinBlockedNow && <Text style={s.caption}>{blockedCaption}</Text>}
             </>
@@ -448,6 +456,7 @@ export default function ChallengeCard({
               <Text style={[s.betText, s.betTextOff]}>
                 🪙 참가비 {bet.stake} · 적립금 {bet.pot} · {betMembers}명 참여
               </Text>
+              {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
             </View>
           )}
         </View>
@@ -603,6 +612,17 @@ const s = StyleSheet.create({
   },
   betLeaveBtnOff: { opacity: 0.5 },
   betLeaveText: { ...T.text.caption, color: T.dangerInk, fontWeight: '600' },
+  // '내일 시작' 칩 — 내일 내기(계약 §3 폴백)의 시점 표기. '참여 중'(accent)과 같은 뱃지 규격이되
+  // 상태가 아니라 시점이라 중립 색(chipBg/inkSub)으로 가른다 — BetSheet 참가비 칩의 기본색 관례.
+  betTomorrowTag: {
+    ...T.text.caption,
+    color: T.inkSub,
+    fontWeight: '700',
+    backgroundColor: T.chipBg,
+    borderRadius: 8,
+    paddingHorizontal: T.space.sm,
+    paddingVertical: 2,
+  },
   // '참여 중' 칩 — GroupFindSheet의 같은 뱃지 규격(accent 칩).
   betJoinedTag: {
     ...T.text.caption,
