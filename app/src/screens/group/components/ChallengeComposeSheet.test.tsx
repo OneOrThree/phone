@@ -9,6 +9,8 @@
 //  3) 계약이 문구까지 고정한 시간대 안내 2종(FOCUS 관용치 · SCREEN_TIME 측정 한계).
 //  4) 창 길이 초과 목표 칩 잠금 — 서버 INVALID_MISSION_PARAMS를 미리 막는다.
 //  5) nonParticipants 안내. 생성은 성공했지만 그 멤버들은 집계되지 않는다.
+//  6) 목표 시간 직접 입력(GROMO-1098) — 프리셋 밖 임의 분 제출, 1~1440 범위 검증,
+//     창 길이 초과 차단, 칩↔입력 단일 소스, 창 축소 시 클램프 동기화.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
@@ -98,6 +100,14 @@ async function pressNth(label: string, nth: number) {
   const els = await screen.findAllByText(label);
   await act(async () => {
     fireEvent.press(els[nth]);
+  });
+}
+
+// 목표 시간 직접 입력에 타이핑한다(GROMO-1098).
+async function typeDuration(text: string) {
+  const input = await screen.findByTestId('group.challenge.durationInput');
+  await act(async () => {
+    fireEvent.changeText(input, text);
   });
 }
 
@@ -232,6 +242,112 @@ describe('목표분 칩 × 창 길이', () => {
     expect(mockCreateChallenge).toHaveBeenCalledWith(
       GROUP_ID,
       expect.objectContaining({ durationMinutes: 180 }),
+    );
+  });
+});
+
+// 프리셋 칩 밖 임의 분(GROMO-1098) — 칩과 직접 입력은 durationText 하나를 쓰는 단일 소스다.
+describe('목표 시간 직접 입력', () => {
+  test('프리셋 밖 임의 분(45)을 치면 그대로 제출된다', async () => {
+    await renderSheet();
+    await typeDuration('45');
+    await press('만들기');
+
+    expect(mockCreateChallenge).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ missionType: 'DURATION', durationMinutes: 45 }),
+    );
+  });
+
+  test('시간대 방식에서도 임의 분(90)이 창 시각과 함께 나간다', async () => {
+    await renderSheet();
+    await press('시간대');
+    await typeDuration('90');
+    await press('만들기');
+
+    expect(mockCreateChallenge).toHaveBeenCalledWith(GROUP_ID, {
+      missionCategory: 'FOCUS',
+      missionType: 'TIME_WINDOW',
+      durationMinutes: 90,
+      windowStart: `${todayStr()}T09:00:00+09:00`,
+      windowEnd: `${todayStr()}T12:00:00+09:00`,
+    });
+  });
+
+  test.each(['0', '1441'])('범위 밖(%s)은 인라인 안내를 띄우고 제출을 막는다', async (bad) => {
+    await renderSheet();
+    await typeDuration(bad);
+
+    expect(screen.getByText('목표 시간은 1~1,440분 사이로 입력해 주세요')).toBeOnTheScreen();
+    await press('만들기');
+    expect(mockCreateChallenge).not.toHaveBeenCalled();
+  });
+
+  test('빈 값은 제출만 막고 빨간 안내는 띄우지 않는다(치우는 중일 뿐이다)', async () => {
+    await renderSheet();
+    await typeDuration('');
+
+    expect(screen.queryByText('목표 시간은 1~1,440분 사이로 입력해 주세요')).toBeNull();
+    await press('만들기');
+    expect(mockCreateChallenge).not.toHaveBeenCalled();
+  });
+
+  test('숫자가 아닌 입력은 걸러진다', async () => {
+    await renderSheet();
+    await typeDuration('ab3');
+
+    const input = await screen.findByTestId('group.challenge.durationInput');
+    expect(input.props.value).toBe('3');
+  });
+
+  test('시간대 방식에서 창 길이를 넘는 입력은 안내를 띄우고 제출을 막는다', async () => {
+    await renderSheet();
+    await press('시간대');
+    // 기본 창 09:00~12:00 = 180분 — 200분은 창보다 길다.
+    await typeDuration('200');
+
+    expect(screen.getByText('시간대보다 길어요. 180분 이하로 입력해 주세요')).toBeOnTheScreen();
+    await press('만들기');
+    expect(mockCreateChallenge).not.toHaveBeenCalled();
+
+    // 같은 값도 매일 목표 방식에서는 창 제한이 없다 — 그대로 제출된다.
+    await press('매일 목표');
+    await press('만들기');
+    expect(mockCreateChallenge).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ missionType: 'DURATION', durationMinutes: 200 }),
+    );
+  });
+
+  test('칩을 탭하면 입력값이 그 칩 값으로 바뀐다(단일 소스)', async () => {
+    await renderSheet();
+    await typeDuration('45');
+    await press('60분');
+
+    const input = await screen.findByTestId('group.challenge.durationInput');
+    expect(input.props.value).toBe('60');
+    await press('만들기');
+    expect(mockCreateChallenge).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ durationMinutes: 60 }),
+    );
+  });
+
+  test('창이 줄어 입력값이 창보다 길어지면 창 길이로 당긴다(칩 스냅의 일반화)', async () => {
+    await renderSheet();
+    await press('시간대');
+    await typeDuration('150');
+    // 종료 분을 12:30으로(창 210분) — 150은 그대로. 이어서 종료 시를 10시로(창 10:30, 90분)
+    // 줄이면 150이 창 길이 90으로 당겨진다 — 칩에 없는 값으로도 스냅된다.
+    await pressNth('30분', 1);
+    await pressNth('10시', 1);
+
+    const input = await screen.findByTestId('group.challenge.durationInput');
+    expect(input.props.value).toBe('90');
+    await press('만들기');
+    expect(mockCreateChallenge).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ durationMinutes: 90 }),
     );
   });
 });
