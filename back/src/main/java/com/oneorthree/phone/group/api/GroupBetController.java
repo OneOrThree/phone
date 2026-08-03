@@ -94,4 +94,27 @@ public class GroupBetController {
         groupBetService.cancelBet(groupId, betId, userId);
         return ResponseEntity.noContent().build();
     }
+
+    @Operation(summary = "챌린지 내기 참가 철회",
+            description = "시작 전 내기에서 호출자 본인의 참가만 철회하고 본인 참가비를 환불한다."
+                    + " 개설자가 철회해도 남은 참가자가 있으면 내기는 유지되고, 마지막 참가자가 떠나면"
+                    + " 내기가 자동 취소(CANCELED)된다. 시작 전 = TIME_WINDOW 는 bet_date 창 시작 전,"
+                    + " DURATION 은 bet_date 가 내일 이후(KST).")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "철회 성공 (본인 참가비 환불)"),
+        @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+        @ApiResponse(responseCode = "404", description = "그룹 없음 / BET_NOT_FOUND"),
+        @ApiResponse(responseCode = "409",
+                description = "BET_NOT_JOINED(참가 이력 없음) / BET_NOT_OPEN(이미 종료)"
+                        + " / BET_LEAVE_CLOSED(시작 이후)")
+    })
+    @DeleteMapping("/groups/{groupId}/bets/{betId}/participation")
+    public ResponseEntity<Void> leaveBet(
+            @PathVariable UUID groupId,
+            @PathVariable UUID betId,
+            @LoginUser UUID userId
+    ) {
+        groupBetService.leaveBet(groupId, betId, userId);
+        return ResponseEntity.noContent().build();
+    }
 }
