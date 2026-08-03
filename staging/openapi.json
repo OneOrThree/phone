@@ -6781,6 +6781,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
           "stake": {
             "type": "integer",
             "format": "int32"
