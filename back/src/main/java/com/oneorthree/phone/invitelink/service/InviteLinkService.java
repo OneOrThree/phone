@@ -15,6 +15,8 @@ import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
 import com.oneorthree.phone.invitelink.support.InviteLinkGa4Events;
 import com.oneorthree.phone.invitelink.support.InviteLinkUrls;
 import com.oneorthree.phone.invitelink.support.SlugGenerator;
+import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -43,6 +45,7 @@ public class InviteLinkService {
     private final GroupInviteLinkRepository inviteLinkRepository;
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
+    private final UserRepository userRepository;
     private final SlugGenerator slugGenerator;
     private final InviteLinkUrls inviteLinkUrls;
     private final InviteLinkGa4Events ga4Events;
@@ -94,8 +97,29 @@ public class InviteLinkService {
 
         // 링크는 살아 있지만 그룹이 사라진 경우 — 참여시킬 곳이 없으니 만료와 같게 다룬다.
         return findActiveGroup(link.get().getGroupId())
-                .map(group -> new LandingView(link.get(), group.getName()))
+                .map(group -> new LandingView(link.get(), group.getName(), inviterNickname(link.get())))
                 .orElseGet(LandingView::expired);
+    }
+
+    /**
+     * 랜딩 카드·미리보기 제목에 실을 초대자 닉네임 (GROMO-1085).
+     *
+     * <p>탈퇴(soft delete)·닉네임 미설정(게스트)이면 {@code null} 이고, 랜딩은 초대자 없는 문구로 접힌다 —
+     * "누가 불렀는가"는 링크를 누를 이유를 더해 주는 정보지 초대 성립의 조건이 아니다.
+     *
+     * <p>그래서 조회 실패도 삼킨다. 링크·그룹 조회가 이미 끝난 뒤 이 왕복만 터지면(users 테이블 장애 등)
+     * 예외가 그대로 올라가 <b>유효한 초대가 5xx</b> 로 죽는다 — 랜딩은 무슨 일이 있어도 200 HTML 이라는
+     * 계약({@code LinkPublicController})을 부가 정보 조회가 깨서는 안 된다. 클릭 기록과 같은 원칙이다.
+     */
+    private String inviterNickname(GroupInviteLink link) {
+        try {
+            return userRepository.findByIdAndIsDeletedFalse(link.getInviterId())
+                    .map(User::getNickname)
+                    .orElse(null);
+        } catch (Exception e) {
+            log.warn("초대자 닉네임 조회 실패 — slug={}", link.getSlug(), e);
+            return null;
+        }
     }
 
     /**
