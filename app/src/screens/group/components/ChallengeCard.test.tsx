@@ -9,7 +9,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import ChallengeCard from './ChallengeCard';
-import { challengeGroupId, leaveBet } from '@/services/groupApi';
+import { cancelBet, challengeGroupId, leaveBet } from '@/services/groupApi';
 import { logGroupBetCanceled } from '@/services/analyticsEvents';
 import { T } from '@/constants/theme';
 import type {
@@ -28,6 +28,7 @@ jest.setTimeout(20000);
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
   leaveBet: jest.fn(),
+  cancelBet: jest.fn(),
   challengeGroupId: jest.fn(),
 }));
 jest.mock('@/services/analyticsEvents', () => ({
@@ -52,6 +53,7 @@ jest.mock('@/utils/challengeTime', () => ({
 }));
 
 const mockLeaveBet = leaveBet as jest.MockedFunction<typeof leaveBet>;
+const mockCancelBet = cancelBet as jest.MockedFunction<typeof cancelBet>;
 const mockChallengeGroupId = challengeGroupId as jest.MockedFunction<typeof challengeGroupId>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
@@ -138,6 +140,7 @@ async function renderCard(over: Partial<GroupChallengeResponse> = {}, betLocked 
 beforeEach(() => {
   jest.clearAllMocks();
   mockLeaveBet.mockResolvedValue(undefined);
+  mockCancelBet.mockResolvedValue(undefined);
   mockChallengeGroupId.mockReturnValue(GROUP_ID);
 });
 
@@ -770,6 +773,42 @@ describe('내일 내기 표시', () => {
     await renderCard({ bet: bet() });
     expect(screen.queryByText('내일 시작')).toBeNull();
   });
+
+  // 미래 내기는 오늘 진행률 스냅샷으로 잠그지 않는다(#473 리뷰) — 내일의 집중·사용량은 미지수다.
+  // 서버가 폴백 내기의 myAchievedNow=false를 보장하지만 앱도 방어적으로 끊는다.
+  test('FOCUS 오늘 달성(myAchievedNow)이어도 내일 내기 참가는 잠그지 않는다', async () => {
+    await renderCard({ bet: bet({ date: '2026-08-02', myAchievedNow: true }) });
+
+    expect(screen.queryByText('이미 오늘 목표를 달성해서 참가할 수 없어요')).toBeNull();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.join.${CHALLENGE_ID}`));
+    });
+    expect(onOpenBet).toHaveBeenCalledWith('join');
+  });
+
+  test('SCREEN_TIME 오늘 확정 초과여도 내일 내기 참가는 잠그지 않는다', async () => {
+    await render(
+      <ChallengeCard
+        challenge={challenge({
+          missionCategory: 'SCREEN_TIME',
+          bet: bet({ date: '2026-08-02' }),
+          memberProgress: [
+            progress({ userId: 'u1', nickname: '재영', progressMinutes: 90, achieved: false }),
+          ],
+        })}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+      />,
+    );
+
+    expect(screen.queryByText('이미 목표를 초과해서 참가할 수 없어요')).toBeNull();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.join.${CHALLENGE_ID}`));
+    });
+    expect(onOpenBet).toHaveBeenCalledWith('join');
+  });
 });
 
 // 지난 내기 결과는 네이티브 Alert가 아니라 앱 컨셉 바텀시트로 펼친다(GROMO-1099 — Alert 나열이
@@ -1065,5 +1104,115 @@ describe('참가 철회', () => {
     });
 
     expect(alertSpy).toHaveBeenCalledWith('철회할 수 없어요', message);
+  });
+});
+
+// 당일 단독 개설자 carve-out(#474 리뷰 회귀 지적) — 철회는 '시작 전'만 허용이라(계약 §4)
+// 당일 '개설자 단독 OPEN' 내기가 어느 버튼으로도 못 닫히는 회귀가 생겼다. 이 조합만
+// 기존 cancelBet(시작 여부를 보지 않는다)으로 복원한다. 시작 전이면 철회가 우선(배타).
+describe('당일 단독 개설자 취소 carve-out', () => {
+  const soloCreatorBet = (over: Partial<GroupChallengeBet> = {}) =>
+    bet({
+      myJoined: true,
+      creatorUserId: 'u1',
+      participants: [{ userId: 'u1', nickname: '재영' }],
+      pot: 30,
+      date: '2026-08-01', // 오늘(DURATION) — 시작 전이 아니라 철회는 닫혀 있다.
+      ...over,
+    });
+
+  function renderSolo(betOver: Partial<GroupChallengeBet> = {}) {
+    return render(
+      <ChallengeCard
+        challenge={challenge({ bet: soloCreatorBet(betOver) })}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+      />,
+    );
+  }
+
+  test('당일 내기의 단독 개설자에겐 철회 대신 취소 버튼이 보인다', async () => {
+    await renderSolo();
+    expect(screen.getByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.bet.leave.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('시작 전(내일 내기)이면 철회가 우선 — 취소 버튼은 서지 않는다', async () => {
+    await renderSolo({ date: '2026-08-02' });
+    expect(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('타 참가자가 있거나 개설자가 아니면(모르면) 취소도 없다', async () => {
+    // 다른 참가자가 있다 — 판돈이 남의 돈까지 걷혀 있다.
+    await renderSolo({
+      participants: [
+        { userId: 'u1', nickname: '재영' },
+        { userId: 'u2', nickname: '수빈' },
+      ],
+    });
+    expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+
+    // 내가 개설자가 아니다.
+    await renderSolo({ creatorUserId: 'u2' });
+    expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+
+    // creatorUserId를 모르는 구서버 — 개설자를 판정할 수 없어 진입점을 세우지 않는다.
+    await renderSolo({ creatorUserId: undefined });
+    expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('확인 Alert를 거쳐 취소 API·계측·자리 캡션까지 잇는다(옛 플로우 그대로)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await renderSolo();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.cancel.${CHALLENGE_ID}`));
+    });
+    // 확인 전에는 아무것도 하지 않는다 — 옛 취소 확인 문구 관례 그대로.
+    expect(mockCancelBet).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith(
+      '내기 취소',
+      '참가비 30코인을 돌려받고 내기를 닫을까요?',
+      expect.anything(),
+    );
+
+    const buttons = alertSpy.mock.calls[0][2];
+    await act(async () => {
+      buttons?.find((b) => b.text === '취소하기')?.onPress?.();
+    });
+
+    // 철회 API가 아니라 기존 취소 API로 나간다.
+    expect(mockCancelBet).toHaveBeenCalledWith(GROUP_ID, 'b1');
+    expect(mockLeaveBet).not.toHaveBeenCalled();
+    expect(mockRefreshCoins).toHaveBeenCalled();
+    // 내기가 통째로 닫히는 동작이라 항상 취소 계측이다.
+    expect(logGroupBetCanceled).toHaveBeenCalledWith({ stake: 30, participants_count: 1 });
+    // 자리 캡션은 누른 버튼의 동사('취소')를 따른다.
+    expect(screen.getByText('내기를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('실패는 code별 문구로 알리고 계측·자리 캡션을 남기지 않는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCancelBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CANCEL_HAS_OTHERS'));
+    await renderSolo();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.cancel.${CHALLENGE_ID}`));
+    });
+    const buttons = alertSpy.mock.calls[0][2];
+    await act(async () => {
+      buttons?.find((b) => b.text === '취소하기')?.onPress?.();
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '취소할 수 없어요',
+      '다른 참가자가 있어 취소할 수 없어요.',
+    );
+    expect(logGroupBetCanceled).not.toHaveBeenCalled();
+    expect(screen.queryByText('내기를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeNull();
   });
 });

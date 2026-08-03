@@ -3,9 +3,12 @@ import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import {
+  BET_CANCEL_FORBIDDEN,
+  BET_CANCEL_HAS_OTHERS,
   BET_LEAVE_CLOSED,
   BET_NOT_JOINED,
   BET_NOT_OPEN,
+  cancelBet,
   challengeGroupId,
   groupErrorCode,
   leaveBet,
@@ -60,6 +63,8 @@ const BET_FAILED_CAPTION = '이미 목표를 초과해서 참가할 수 없어�
 const BET_FAILED_CREATE_CAPTION = '이미 목표를 초과해서 내기를 열 수 없어요';
 // 철회 직후의 자리 표시 — 영역을 그냥 비우면 방금 한 일이 사라진 것처럼 보인다(betLocked와 같은 이유).
 const BET_LEFT_CAPTION = '내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요';
+// 취소(당일 단독 개설자 carve-out) 직후의 자리 표시 — 누른 버튼('취소')과 같은 동사로 말한다.
+const BET_CANCELED_CAPTION = '내기를 취소했어요. 참가비는 잔액으로 돌아왔어요';
 // 창(TIME_WINDOW) 시각의 해석 시간대 — 계약 §1: 저장된 창 시각은 Asia/Seoul 벽시계다.
 // 서버 "HH:mm:ss"와 현재를 같은 벽시계 공간에서 비교한다(challengeTime 유틸 관례).
 const KST_ZONE = 'Asia/Seoul';
@@ -124,10 +129,14 @@ export default function ChallengeCard({
   // prop이 아니라 groupApi의 조회 캐시(challengeGroupId)에서 역참조한다.
   const { refresh: refreshCoins } = useCoins();
   const [leaveBusy, setLeaveBusy] = useState(false);
-  // 철회 성공의 낙관 반영 — 부모 재조회를 트리거할 콜백이 없어(위 주석) 다음 자연 재조회(포커스
-  // 복귀·당겨서 새로고침)까지는 카드가 스스로 '빠짐'을 그린다. betId를 쥐므로 재조회가 늦게
-  // 도착해 같은(내가 이미 빠진) 내기를 다시 내려줘도 표시가 되돌아가지 않는다.
-  const [leftBetId, setLeftBetId] = useState<string | null>(null);
+  // 철회·취소 성공의 낙관 반영 — 부모 재조회를 트리거할 콜백이 없어(위 주석) 다음 자연 재조회
+  // (포커스 복귀·당겨서 새로고침)까지는 카드가 스스로 '빠짐/닫힘'을 그린다. betId를 쥐므로
+  // 재조회가 늦게 도착해 같은 내기를 다시 내려줘도 표시가 되돌아가지 않는다.
+  // kind는 자리 캡션의 동사를 가른다 — 철회('빠졌어요')와 취소('취소했어요')는 누른 버튼이 다르다.
+  const [closedBet, setClosedBet] = useState<{ betId: string; kind: 'leave' | 'cancel' } | null>(
+    null,
+  );
+  // 철회·취소가 공유하는 연타 락 — 두 진입점은 배타 노출이라 같은 락 하나로 충분하다.
   const leaveLock = useRef(false);
   // 지난 내기 결과 시트(GROMO-1099) — 데이터는 challenge.lastSettledBet 그대로, 열림만 카드가 쥔다.
   const [lastBetOpen, setLastBetOpen] = useState(false);
@@ -189,26 +198,28 @@ export default function ChallengeCard({
     : BET_ACHIEVED_CREATE_CAPTION;
   // 개설 진입점을 잠그는 이유 2가지(재조회 중 · 이미 확정) — 잠금 표시는 같고 사유만 다르다.
   const createBlocked = !!betLocked || myBlockedNow;
+  // 내기 기준일 — 'YYYY-MM-DD'는 사전순이 곧 시간순이다. 철회의 '시작 전' 판정·'내일 시작' 배지·
+  // 미래 내기 잠금 해제가 같이 쓴다. 서버가 오늘 내기가 없으면 내일 내기를 폴백으로 내려줄 수
+  // 있고(계약 §3 응답 보수, W2), bet.date가 없으면(구서버) 조회일(오늘) 내기로 간주한다(DTO 주석).
+  const betDate = bet?.date ?? todayStr();
+  const isFutureBet = betDate > todayStr();
   // 참가 진입점 잠금 — FOCUS는 서버가 준 bet.myAchievedNow(이미 달성), SCREEN_TIME은 내 진행
   // 행의 확정 패배다. 스크린타임의 myAchievedNow는 표시용 잠정값이라 잠금에 쓰지 않는다(DTO 주석).
-  const joinBlockedNow = isScreenTime ? myBlockedNow : bet?.myAchievedNow === true;
+  // ⚠️ 미래(내일) 내기는 오늘 진행률 스냅샷으로 잠그지 않는다(#473 리뷰) — 내일의 집중·사용량은
+  //    미지수라 오늘 '이미 달성/초과'는 차단 근거가 못 된다. 서버도 폴백 내기의
+  //    myAchievedNow=false를 보장하지만 구서버·경합 대비 앱에서도 방어적으로 끊는다.
+  const joinBlockedNow =
+    !isFutureBet && (isScreenTime ? myBlockedNow : bet?.myAchievedNow === true);
   // 서버가 participants를 빠뜨려도 카드가 죽지 않게 — 인원 수는 표시용일 뿐이다.
   const betMembers = bet?.participants?.length ?? 0;
-  // 내가 방금 빠진 내기인가 — 낙관 반영(위 state 주석).
-  const leftByMe = bet !== null && bet.betId === leftBetId;
-  // 참가 철회 가능 조건(계약 §4) — 참가 중 && OPEN && **시작 전**. 개설자·단독 여부는 더 이상
-  // 조건이 아니다: 옛 '개설자 단독 취소' 버튼을 이 버튼 하나로 통합했다(GROMO-1102 — 단독
-  // 개설자가 철회하면 서버가 내기를 자동 CANCELED 하므로 옛 취소의 의미가 보존된다).
-  // '시작 전' 판정은 서버와 같은 기준이다(계약 §4):
+  // 내가 방금 빠진(철회)·닫은(취소) 내기인가 — 낙관 반영(위 state 주석).
+  const leftByMe = bet !== null && closedBet !== null && bet.betId === closedBet.betId;
+  // 참가 철회 가능 조건(계약 §4) — 참가 중 && OPEN && **시작 전**. 개설자·단독이어도 시작 전이면
+  // 철회가 우선이다(GROMO-1102 — 단독 개설자가 철회하면 서버가 내기를 자동 CANCELED 하므로
+  // 옛 취소의 의미가 보존된다). '시작 전' 판정은 서버와 같은 기준이다(계약 §4):
   //   TIME_WINDOW → 내일 이후 내기는 항상 전, 오늘 내기는 KST 벽시계 < 창 시작 시각일 때만
   //   DURATION   → 내기 날짜가 내일 이후일 때만(당일은 하루 집계가 이미 진행 중이라 불가)
-  // bet.date가 없으면(구서버) 조회일(오늘) 내기로 간주한다 — DTO 주석 참조. 판정이 어긋난
-  // 레이스는 서버가 정본으로 끝낸다(BET_LEAVE_CLOSED로 돌아온다).
-  const betDate = bet?.date ?? todayStr();
-  // 'YYYY-MM-DD'는 사전순이 곧 시간순이다. 철회의 '시작 전' 판정과 '내일 시작' 배지가 같이 쓴다 —
-  // 서버가 오늘 내기가 없으면 내일 내기를 폴백으로 내려줄 수 있어(계약 §3 응답 보수, W2)
-  // 표기가 없으면 오늘 내기로 오인한 채 참가하게 된다.
-  const isFutureBet = betDate > todayStr();
+  // 판정이 어긋난 레이스는 서버가 정본으로 끝낸다(BET_LEAVE_CLOSED로 돌아온다).
   const beforeStart = isWindow
     ? isFutureBet ||
       (challenge.windowStart !== null &&
@@ -216,6 +227,21 @@ export default function ChallengeCard({
     : isFutureBet;
   const leavable =
     bet !== null && !leftByMe && bet.status === 'OPEN' && bet.myJoined && beforeStart;
+  // 당일 단독 개설자 carve-out(#474 리뷰 회귀 지적) — 철회는 '시작 전'만 허용이라(위) 당일
+  // DURATION·창 시작 후의 '개설자 단독 OPEN' 내기가 어느 버튼으로도 못 닫는 회귀가 생겼다.
+  // 이 조합만 기존 cancelBet(개설자 단독 취소 — 서버에 살아 있고 시작 여부를 보지 않는다)으로
+  // 복원한다. leavable이면 철회가 우선이라 두 버튼이 함께 서지 않는다(배타).
+  // creatorUserId를 모르는 구서버는 개설자를 판정할 수 없어 진입점을 세우지 않는다(기존 원칙).
+  const cancelable =
+    !leavable &&
+    bet !== null &&
+    !leftByMe &&
+    bet.status === 'OPEN' &&
+    bet.myJoined &&
+    bet.creatorUserId !== undefined &&
+    !!myUserId &&
+    bet.creatorUserId === myUserId &&
+    betMembers === 1;
 
   // 철회 실행 — 검증은 서버가 정본이다(레이스로 조건이 깨졌으면 에러 코드로 돌아온다).
   async function doLeaveBet(betId: string, stake: number, participantsCount: number) {
@@ -235,7 +261,7 @@ export default function ChallengeCard({
       }
       // 환불 반영은 서버가 정본이라 잔액을 다시 받는다.
       refreshCoins();
-      setLeftBetId(betId);
+      setClosedBet({ betId, kind: 'leave' });
     } catch (e) {
       switch (groupErrorCode(e)) {
         // 세 코드 모두 이 카드 상태로는 재시도해도 같은 결과다 — 사실만 알리고, 화면 정리는
@@ -267,6 +293,54 @@ export default function ChallengeCard({
         text: '철회하기',
         style: 'destructive',
         onPress: () => doLeaveBet(bet.betId, bet.stake, betMembers),
+      },
+    ]);
+  }
+
+  // 취소 실행(carve-out 전용) — 검증은 서버가 정본이다. 철회와 달리 cancelBet은 시작 여부를
+  // 보지 않고 '개설자 단독 OPEN'만 본다(계약 §4 — 구버전 호환으로 유지된 엔드포인트).
+  async function doCancelBet(betId: string, stake: number, participantsCount: number) {
+    if (leaveLock.current) return;
+    leaveLock.current = true;
+    setLeaveBusy(true);
+    const groupId = challengeGroupId(challenge.id);
+    try {
+      if (groupId === null) throw new Error('unknown groupId'); // 캐시 미적중 — 공통 문구로.
+      await cancelBet(groupId, betId);
+      // 내기가 통째로 닫히는 동작이라 항상 '내기 취소' 계측이다(성공 시에만 발행 규칙 동일).
+      logGroupBetCanceled({ stake, participants_count: participantsCount });
+      refreshCoins();
+      setClosedBet({ betId, kind: 'cancel' });
+    } catch (e) {
+      switch (groupErrorCode(e)) {
+        // 재시도해도 같은 결과다 — 사실만 알리고 화면 정리는 다음 자연 재조회에 맡긴다(철회와 동일).
+        case BET_CANCEL_FORBIDDEN:
+          Alert.alert('취소할 수 없어요', '내기를 연 사람만 취소할 수 있어요.');
+          break;
+        case BET_CANCEL_HAS_OTHERS:
+          Alert.alert('취소할 수 없어요', '다른 참가자가 있어 취소할 수 없어요.');
+          break;
+        case BET_NOT_OPEN:
+          Alert.alert('취소할 수 없어요', '이미 정산됐거나 닫힌 내기예요.');
+          break;
+        default:
+          Alert.alert('내기를 취소하지 못했어요', '잠시 후 다시 시도해주세요.');
+      }
+    } finally {
+      leaveLock.current = false;
+      setLeaveBusy(false);
+    }
+  }
+
+  // 확인 한 겹 — 옛 취소 버튼의 문구 관례 그대로(내기 자체가 닫히므로 '닫을까요'로 묻는다).
+  function confirmCancelBet() {
+    if (!cancelable || bet === null) return;
+    Alert.alert('내기 취소', `참가비 ${bet.stake}코인을 돌려받고 내기를 닫을까요?`, [
+      { text: '아니요', style: 'cancel' },
+      {
+        text: '취소하기',
+        style: 'destructive',
+        onPress: () => doCancelBet(bet.betId, bet.stake, betMembers),
       },
     ]);
   }
@@ -382,7 +456,9 @@ export default function ChallengeCard({
                   {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
                 </View>
               )}
-              <Text style={s.caption}>{BET_LEFT_CAPTION}</Text>
+              <Text style={s.caption}>
+                {closedBet?.kind === 'cancel' ? BET_CANCELED_CAPTION : BET_LEFT_CAPTION}
+              </Text>
             </>
           ) : bet === null ? (
             // ① 아직 내기가 없다 — 아웃라인 소형 버튼. 카드 본체(진행 리스트)보다 약하게 둔다.
@@ -426,6 +502,20 @@ export default function ChallengeCard({
                   testID={`group.bet.leave.${challenge.id}`}
                 >
                   <Text style={s.betLeaveText}>철회</Text>
+                </TouchableOpacity>
+              )}
+              {/* 당일 단독 개설자 carve-out — cancelable이 !leavable을 품어 철회와 배타다. */}
+              {cancelable && (
+                <TouchableOpacity
+                  style={[s.betLeaveBtn, leaveBusy && s.betLeaveBtnOff]}
+                  activeOpacity={0.8}
+                  disabled={leaveBusy}
+                  onPress={confirmCancelBet}
+                  accessibilityRole="button"
+                  accessibilityLabel="내기 취소"
+                  testID={`group.bet.cancel.${challenge.id}`}
+                >
+                  <Text style={s.betLeaveText}>취소</Text>
                 </TouchableOpacity>
               )}
             </View>
