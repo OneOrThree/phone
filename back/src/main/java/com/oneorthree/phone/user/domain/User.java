@@ -92,6 +92,12 @@ public class User {
     @Builder.Default
     private Instant lastActiveAt = Instant.now();
 
+    // 누끼 생성 trial(7일 무제한)의 기준 시각 — 유저가 쿼터를 처음 조회할 때 한 번 박힌다(migration v26).
+    // 배포 날짜 상수 대신 유저별 "첫 접촉"을 쓰는 이유는, 앱 업데이트 시점이 유저마다 달라도 trial 7일을
+    // 온전히 받게 하기 위함이다. NULL = 아직 이 기능을 만난 적 없음.
+    @Column(name = "character_trial_anchor_at")
+    private Instant characterTrialAnchorAt;
+
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<SocialAccount> socialAccounts = new ArrayList<>();

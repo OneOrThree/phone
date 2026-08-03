@@ -97,6 +97,16 @@ public interface UserRepository extends JpaRepository<User, UUID> {
                           @Param("now") Instant now,
                           @Param("staleBefore") Instant staleBefore);
 
+    // 누끼 생성 trial 앵커 최초 1회 세팅 — 유저가 쿼터를 처음 조회/기록하는 시점에 호출.
+    // touchLastActiveAt 과 같은 이유로 엔티티 로드 후 setter 가 아니라 단일 컬럼 UPDATE 다: User 는
+    // @DynamicUpdate 가 아니라 더티 필드 하나만 있어도 전 컬럼을 flush 해, 같은 유저에게 동시에 도는
+    // touchLastActiveAt 등의 갱신을 조용히 되돌릴 수 있다(lost update).
+    // WHERE ... IS NULL 가드로 동시 요청에서도 앵커는 최초 1건만 박힌다(멱등).
+    @Modifying
+    @Query("UPDATE User u SET u.characterTrialAnchorAt = :now"
+            + " WHERE u.id = :id AND u.characterTrialAnchorAt IS NULL")
+    int initCharacterTrialAnchorAt(@Param("id") UUID id, @Param("now") Instant now);
+
     // 미접속 복귀 푸시 대상 조회 (GROMO-578) — last_active_at 가 [startInclusive, endExclusive) KST 하루 구간에 든 유저.
     // 호출측이 D+3/7/14 각 단계의 KST 캘린더 하루 경계를 주입 → "정확히 N일째" 판정. isGuest·소프트딜리트 유저는 제외.
     // (deviceToken·알림설정 필터는 sendIfAllowed 가 처리 — 여기선 대상 셋만 좁힘)
