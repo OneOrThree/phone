@@ -65,8 +65,9 @@ export type V2RootStackParamList = {
     canWrite: boolean; // 방장·공지 권한 멤버 여부 — false면 작성/수정/삭제 진입점을 렌더하지 않는다(403 예방)
   }; // 공지 목록 (그룹방 '모두보기'·공지 카드에서 진입)
 
-  // 그룹 운영(3차) — 모두 방장 전용. 그룹방 ⋯ 메뉴 '그룹 설정' → GroupSettings(관리 허브)에서
-  // 아래 세 화면으로 갈라진다. 멤버십이 바뀌면(위임·강퇴·탈퇴) 복귀 시 상태를 재동기화한다.
+  // 그룹 운영(3차) — 그룹방 ⋯ 가 GroupSettings(관리 허브)로 직행한다(팝업 메뉴 폐지).
+  // 허브에서 아래 화면들로 갈라진다. 관리 행은 방장 전용이고 비방장은 나가기만 본다.
+  // 멤버십이 바뀌면(위임·강퇴·탈퇴) 복귀 시 상태를 재동기화한다.
   GroupSettings: { groupId: string }; // A-1 관리 허브 — 프로필설정·위임·멤버관리·공지권한 진입 + 그룹 나가기
   GroupProfileEdit: { groupId: string }; // A-1 그룹 프로필 편집(이름/소개/정원/공개설정) — 허브에서 push
   GroupMemberManage: { groupId: string }; // A-3 멤버 관리(강퇴)

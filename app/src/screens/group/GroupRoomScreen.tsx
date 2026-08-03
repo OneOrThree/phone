@@ -60,8 +60,9 @@ import MemberTile from './components/MemberTile';
 // 형태: 탭 셸 없는 단일 ScrollView. 라우트 진입 전용이다 — 목록(GroupScreen)에서 그룹을 고르면
 //      GroupRoom 라우트로 push 되고 GroupRoomRouteScreen이 이 컴포넌트를 감싼다
 //      (A-9: 소속 수와 무관하게 목록이 기본 화면, 1건 내장 렌더는 폐지).
-// 레이아웃: 헤더(이름 · 비공개 자물쇠 · n/m · ⋯) → 초대 링크 카드 → 공지(최근 3건 + 모두보기)
+// 레이아웃: 헤더(이름 · 비공개 자물쇠 · n/m · ⋯) → 공지(최근 3건 + 모두보기)
 //          → 챌린지(2차 §3-2) → 멤버 3열 그리드(MemberTile + '＋ 초대' 타일)
+//          (⋯ 는 팝업 메뉴 없이 그룹 설정 화면으로 직행한다.)
 //
 // ❌ detail.code · codeExpiresAt은 읽지 않는다 — 코드 개념 폐기(§3-1-5).
 
@@ -161,8 +162,8 @@ export interface GroupRoomScreenProps {
   summary?: GroupSummaryResponse;
   // 그룹 나가기 성공 시 호출 — 부모(GroupScreen)가 재조회해 빈 상태로 되돌린다.
   onLeft: () => void;
-  // 초대 시트가 이 화면 위에 떠 있는가 — 떠 있으면 이 화면이 소유한 시트('⋯' 메뉴·챌린지
-  // 만들기)를 모두 내린다(아래 이펙트 주석 참고).
+  // 초대 시트가 이 화면 위에 떠 있는가 — 떠 있으면 이 화면이 소유한 챌린지 만들기 시트를
+  // 내린다(아래 이펙트 주석 참고).
   inviteOpen?: boolean;
   // 라우트로 push된 경우에만 전달 — 헤더 좌측에 원형 백버튼을 세운다.
   // 루트 스택이 headerShown:false라 네이티브 헤더가 없고, 탭바도 없어
