@@ -7,8 +7,8 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
-// 형태: 헤더 + 카드 FlatList + 하단 고정 CTA 2개(만들기·찾기). 카드는 그룹방 헤더와 같은 정보를
-//      한 줄로 압축한다 — 이름 · 비공개 자물쇠 · 내가 방장이면 배지 · n/m 인원.
+// 형태: 헤더 + 카드 FlatList + 하단 고정 CTA 2개(만들기·찾기). 카드는 세로 스택 —
+//      이름(+비공개 자물쇠) / 소개(값 있을 때만) / 방장 칩, 우측에 n/m 인원.
 //
 // props 계약(배관이 확정 — 이 시그니처는 바꾸지 않는다):
 //   groups    : GroupSummaryResponse[]  내가 참여 중인 그룹(서버 순서 그대로, 앱 재정렬 금지)
@@ -122,7 +122,8 @@ export default function GroupListScreen({
                   {item.description}
                 </Text>
               )}
-              {/* 3행: 방장 칩 */}
+              {/* 3행: 방장 칩 — 목록에선 텍스트 칩으로 표시한다. 그룹방 MemberTile의 ribbon 배지와
+                  달리, 카드에 소개까지 세로로 쌓이는 자리라 라벨형이 더 읽힌다는 판단(의도된 분기). */}
               {item.role === 'OWNER' && (
                 <View style={s.ownerChip}>
                   <Text style={s.ownerChipText} accessibilityLabel="내가 방장">
