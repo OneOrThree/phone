@@ -26,6 +26,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -110,8 +111,8 @@ class ChallengeWindowEndNotificationServiceTest {
         return GroupChallengeWindow.builder()
                 .challengeId(challenge.getId())
                 .challenge(challenge)
-                .windowStartAt(java.time.LocalDate.EPOCH.atTime(start).atZone(KST).toInstant())
-                .windowEndAt(java.time.LocalDate.EPOCH.atTime(end).atZone(KST).toInstant())
+                .windowStartAt(LocalDate.EPOCH.atTime(start).atZone(KST).toInstant())
+                .windowEndAt(LocalDate.EPOCH.atTime(end).atZone(KST).toInstant())
                 .durationMinutes(60)
                 .build();
     }
@@ -158,7 +159,7 @@ class ChallengeWindowEndNotificationServiceTest {
 
     /** 창 09:00~12:00(KST) 인 챌린지 + 그 창이 방금 끝난 시각(12:05 KST). */
     private static Instant kst(int year, int month, int day, int hour, int minute) {
-        return java.time.LocalDate.of(year, month, day)
+        return LocalDate.of(year, month, day)
                 .atTime(hour, minute).atZone(KST).toInstant();
     }
 

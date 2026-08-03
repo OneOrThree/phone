@@ -31,7 +31,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.lang.reflect.Method;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -339,7 +341,7 @@ class ChallengeCreatedNotificationServiceTest {
 
     /** 창 시각은 KST 벽시계 time-of-day 로 해석된다(WindowFocusAggregator.timeOfDay, GROMO-1100). */
     private static Instant timeOfDay(LocalTime time) {
-        return java.time.LocalDate.EPOCH.atTime(time).atZone(java.time.ZoneId.of("Asia/Seoul")).toInstant();
+        return LocalDate.EPOCH.atTime(time).atZone(ZoneId.of("Asia/Seoul")).toInstant();
     }
 
     private void givenChallenge(GroupChallenge challenge) {
