@@ -109,7 +109,15 @@ public class ChallengeWindowEndNotificationService {
         // 종료 시각을 함께 들고 간다 — 그 뒤에 그룹에 들어온 멤버는 이 회차에 참여한 적이 없다.
         Map<UUID, Instant> endedAtByChallengeId = new LinkedHashMap<>();
         for (GroupChallenge challenge : challenges) {
-            justEndedAt(challenge, windowsByChallengeId.get(challenge.getId()), now)
+            GroupChallengeWindow window = windowsByChallengeId.get(challenge.getId());
+            // 목표(창 내 달성 분)가 없는 창은 결과 자체가 없다 — V20 이전 상세는 durationMinutes 가
+            // 비어 있을 수 있고, 그런 챌린지는 memberProgress 가 항상 null 이라 앱이 결과 모달을 열지
+            // 못한다. "결과를 확인해보세요" 를 보내 놓고 탭하면 아무것도 안 뜨는 상태가 된다(@codex 리뷰).
+            // 일 목표형이 withGoal 로 거르는 것과 같은 기준이다.
+            if (window == null || window.getDurationMinutes() == null) {
+                continue;
+            }
+            justEndedAt(challenge, window, now)
                     .ifPresent(endedAt -> endedAtByChallengeId.put(challenge.getId(), endedAt));
         }
         List<GroupChallenge> justEnded = challenges.stream()
