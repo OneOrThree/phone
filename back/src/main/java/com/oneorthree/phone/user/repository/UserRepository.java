@@ -38,10 +38,17 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     // 짧지 않고, FCM RestClient 에 타임아웃도 없다.
     //
     // is_deleted = false 조건이 그 창을 닫는다 — 탈퇴가 먼저 커밋됐다면 0행이 되어 아무것도 되돌리지 않는다.
+    //
+    // device_token = :invalidToken 조건도 같은 이유다: FCM 에 보낸 토큰이 무효라는 응답을 기다리는 사이
+    // 클라이언트가 새 토큰을 등록(registerDeviceToken)하면, id 만 보고 지울 경우 **새 토큰까지** 날아가
+    // 다음 등록 전까지 그 유저의 모든 푸시가 사라진다. 토큰 회전은 정상 시나리오다.
+    // 실제로 보냈던 토큰과 일치할 때만 지운다.
+    //
     // clearAutomatically=false: 호출측(발송 루프)이 들고 있는 다른 영속 엔티티를 detach 시키지 않기 위함.
     @Modifying(clearAutomatically = false, flushAutomatically = false)
-    @Query("UPDATE User u SET u.deviceToken = null WHERE u.id = :id AND u.isDeleted = false")
-    int clearDeviceToken(@Param("id") UUID id);
+    @Query("UPDATE User u SET u.deviceToken = null"
+            + " WHERE u.id = :id AND u.isDeleted = false AND u.deviceToken = :invalidToken")
+    int clearDeviceToken(@Param("id") UUID id, @Param("invalidToken") String invalidToken);
 
     // 관계 생성(친구 요청·핀) 대상 유저의 활성 검증 + 공유 락 (GROMO-801).
     // 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 위 배타 락(탈퇴)하고만 직렬화된다.

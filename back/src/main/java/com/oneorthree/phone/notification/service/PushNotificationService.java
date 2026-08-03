@@ -6,6 +6,7 @@ import com.oneorthree.phone.common.port.PushSendResult;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserRepository;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class PushNotificationService {
 
     private final PushNotificationPort pushNotificationPort;
     private final UserRepository userRepository;
+    private final EntityManager entityManager;
 
     /**
      * 필터 체인 통과 시에만 발송한다.
@@ -63,14 +65,21 @@ public class PushNotificationService {
         }
         // 4. 발송 — 한 유저 실패가 배치 루프를 중단시키지 않게 예외 격리
         try {
-            PushSendResult result = pushNotificationPort.send(user.getDeviceToken(), message);
+            // 실제로 FCM 에 보낸 토큰을 붙잡아 둔다 — 정리 조건에 이 값을 그대로 쓴다.
+            String sentToken = user.getDeviceToken();
+            PushSendResult result = pushNotificationPort.send(sentToken, message);
             if (result == PushSendResult.INVALID_TOKEN) {
                 // 무효 토큰 정리 — 다음 발송부터 필터 2 에서 컷.
                 // 더티체킹이 아니라 조건부 컬럼 UPDATE 를 쓴다: User 에 @Version·@DynamicUpdate 가 없어
                 // 더티체킹 UPDATE 는 전체 컬럼을 옛 스냅샷으로 덮어쓰고, 그사이 탈퇴가 먼저 커밋됐다면
                 // is_deleted 와 파기된 PII 까지 되살린다(GROMO-1090 @codex 리뷰 P1).
-                // 인메모리 user 의 토큰은 그대로 남지만, 이 경로는 곧바로 false 로 빠져 더 쓰지 않는다.
-                int cleared = userRepository.clearDeviceToken(user.getId());
+                int cleared = userRepository.clearDeviceToken(user.getId(), sentToken);
+                // 같은 트랜잭션에서 이 유저가 또 대상이 되면(내기 여러 건·동시 종료된 챌린지 여러 건)
+                // 인메모리 토큰이 남아 필터 2 를 계속 통과해, 이미 지운 토큰으로 FCM 을 반복 호출한다.
+                // 그래서 인메모리도 맞추되 **detach 후에** 바꾼다 — 관리 상태에서 바꾸면 방금 피한
+                // 전체 컬럼 더티체킹 UPDATE 가 그대로 되살아난다. 이 경로 뒤에 user 를 변경하는 호출부는 없다.
+                entityManager.detach(user);
+                user.setDeviceToken(null);
                 log.info("무효 토큰 정리 — userId={}, updated={}", user.getId(), cleared);
                 return false;
             } else if (result == PushSendResult.FAILED) {

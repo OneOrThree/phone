@@ -6,6 +6,7 @@ import com.oneorthree.phone.common.port.PushSendResult;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserRepository;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -46,6 +47,9 @@ class PushNotificationServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private EntityManager entityManager;
 
     @InjectMocks
     private PushNotificationService pushNotificationService;
@@ -198,9 +202,24 @@ class PushNotificationServiceTest {
         boolean sent = pushNotificationService.sendIfAllowed(user, null, MESSAGE, NOON_KST);
 
         assertThat(sent).isFalse();
-        verify(userRepository).clearDeviceToken(USER_ID);
-        // 엔티티는 건드리지 않는다 — 건드리는 순간 전체 컬럼 UPDATE 가 되살아난다.
-        assertThat(user.getDeviceToken()).isNotNull();
+        // 보낸 토큰과 일치할 때만 지운다 — 응답 대기 중 새 토큰이 등록됐으면 그건 살려야 한다.
+        verify(userRepository).clearDeviceToken(USER_ID, "fcm-token");
+        // 인메모리도 맞추되 detach 뒤에 바꾼다(관리 상태로 바꾸면 전체 컬럼 UPDATE 가 되살아난다).
+        verify(entityManager).detach(user);
+        assertThat(user.getDeviceToken()).isNull();
+    }
+
+    @Test
+    @DisplayName("같은 배치에서 토큰이 무효화된 유저는 다음 호출에서 필터 2 로 컷 — FCM 재호출 없음")
+    void doesNotResendWithTokenInvalidatedEarlierInSameBatch() {
+        User user = userWithToken();
+        given(pushNotificationPort.send(any(), any())).willReturn(PushSendResult.INVALID_TOKEN);
+
+        pushNotificationService.sendIfAllowed(user, null, MESSAGE, NOON_KST);
+        pushNotificationService.sendIfAllowed(user, null, MESSAGE, NOON_KST);
+
+        // 두 번째 호출은 토큰 없음(필터 2)에서 끊긴다 — 포트 호출은 1회뿐.
+        verify(pushNotificationPort, times(1)).send(any(), any());
     }
 
     @Test
