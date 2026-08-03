@@ -67,7 +67,8 @@ export type V2RootStackParamList = {
 
   // 그룹 운영(3차) — 모두 방장 전용. 그룹방 ⋯ 메뉴 '그룹 설정' → GroupSettings(관리 허브)에서
   // 아래 세 화면으로 갈라진다. 멤버십이 바뀌면(위임·강퇴·탈퇴) 복귀 시 상태를 재동기화한다.
-  GroupSettings: { groupId: string }; // A-1 관리 허브 — 이름/소개/정원/공개설정 수정 + 위임·멤버관리·공지권한 진입
+  GroupSettings: { groupId: string }; // A-1 관리 허브 — 프로필설정·위임·멤버관리·공지권한 진입 + 그룹 나가기
+  GroupProfileEdit: { groupId: string }; // A-1 그룹 프로필 편집(이름/소개/정원/공개설정) — 허브에서 push
   GroupMemberManage: { groupId: string }; // A-3 멤버 관리(강퇴)
   GroupOwnerTransfer: {
     groupId: string;

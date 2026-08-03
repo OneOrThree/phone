@@ -20,7 +20,6 @@ import {
   getChallenges,
   getGroupDetail,
   joinBet,
-  withdrawGroup,
 } from '@/services/groupApi';
 import { todayStr } from '@/utils/localDate';
 import type {
@@ -114,7 +113,6 @@ const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroup
 const mockGetAnnouncements = getAnnouncements as jest.MockedFunction<typeof getAnnouncements>;
 const mockGetChallenges = getChallenges as jest.MockedFunction<typeof getChallenges>;
 const mockDeleteChallenge = deleteChallenge as jest.MockedFunction<typeof deleteChallenge>;
-const mockWithdrawGroup = withdrawGroup as jest.MockedFunction<typeof withdrawGroup>;
 const mockCreateBet = createBet as jest.MockedFunction<typeof createBet>;
 const mockJoinBet = joinBet as jest.MockedFunction<typeof joinBet>;
 const mockTodayStr = todayStr as jest.MockedFunction<typeof todayStr>;
@@ -350,29 +348,6 @@ describe('당겨서 새로고침', () => {
 });
 
 describe('초대 시트 ↔ 그룹방 시트 배타(§6-6)', () => {
-  test('초대 링크가 도착하면 메뉴를 내린다 — asModal 두 개가 겹쳐 딤이 2겹이 되지 않게', async () => {
-    mockGetGroupDetail.mockResolvedValue(detail());
-    mockGetAnnouncements.mockResolvedValue([]);
-    const { rerender } = await renderRoom();
-
-    await act(async () => {
-      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
-    });
-    expect(screen.getByText('그룹 나가기')).toBeOnTheScreen();
-
-    // 딥링크로 초대가 도착 — 부모(GroupScreen)가 초대 시트를 띄우며 inviteOpen을 세운다.
-    await act(async () => {
-      rerender(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} inviteOpen />);
-    });
-    expect(screen.queryByText('그룹 나가기')).toBeNull();
-
-    // 초대 시트가 닫혀도 메뉴가 되살아나지 않는다(가리기만 한 게 아니라 state까지 내려간다).
-    await act(async () => {
-      rerender(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
-    });
-    expect(screen.queryByText('그룹 나가기')).toBeNull();
-  });
-
   test('초대 링크가 도착하면 챌린지 만들기 시트도 내린다 — 메뉴와 같은 배타 규칙', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);
@@ -1391,92 +1366,21 @@ describe('그룹 전환(같은 인스턴스에 다른 groupId)', () => {
     expect(alertSpy).not.toHaveBeenCalled();
     expect(mockGetChallenges).not.toHaveBeenCalled();
   });
-
-  // 나가기 실패 Alert도 같은 패턴의 잔여 변형이다(GROMO-1028) — 성공 경로(onLeft)는 그룹 무관
-  // 전역 재조회라 안전하지만, HOST_WITHDRAW·default의 Alert는 B 화면 위에 A의 실패를 말한다.
-  test('전환 전 그룹의 나가기가 늦게 실패해도 새 화면에 Alert를 띄우지 않는다', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    mockGetGroupDetail.mockResolvedValue(detail());
-    mockGetAnnouncements.mockResolvedValue([]);
-    let rejectWithdraw: (e: unknown) => void = () => {};
-    mockWithdrawGroup.mockReturnValue(
-      new Promise((_resolve, reject) => {
-        rejectWithdraw = reject;
-      }),
-    );
-    const { rerender } = await renderRoom();
-
-    await act(async () => {
-      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
-    });
-    await press('그룹 나가기');
-    // 확인 Alert의 '나가기'를 눌러 요청을 보낸다.
-    await act(async () => {
-      alertSpy.mock.calls[0][2]?.find((b) => b.text === '나가기')?.onPress?.();
-    });
-
-    // 응답 전에 그룹 B로 전환.
-    mockGetGroupDetail.mockReturnValue(new Promise(() => {}));
-    mockGetChallenges.mockReturnValue(new Promise(() => {}));
-    await act(async () => {
-      rerender(<GroupRoomScreen groupId={OTHER_GROUP_ID} onLeft={onLeft} />);
-    });
-    alertSpy.mockClear();
-
-    await act(async () => {
-      rejectWithdraw(axiosErrorWith(409, 'HOST_WITHDRAW'));
-    });
-    expect(alertSpy).not.toHaveBeenCalled();
-    expect(onLeft).not.toHaveBeenCalled();
-  });
 });
 
-describe('그룹 나가기', () => {
-  // 전환 가드(GROMO-1028)가 정상 경로의 안내까지 삼키지 않는지 — 화면이 그대로면 사유를 말해야 한다.
-  test('방장이 나가려다 실패하면 위임 안내를 띄운다', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+describe('⋯ 버튼 → 그룹 설정', () => {
+  // 나가기·프로필·관리는 그룹 설정 화면(GroupSettings)으로 이관됐다(A안) — 그룹방 ⋯ 는 그 화면을
+  // 바로 연다. 실제 나가기/host-withdraw 분기는 GroupSettingsScreen.test.tsx 에서 검증한다.
+  test('⋯ 를 누르면 그룹 설정 화면으로 이동한다', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);
-    mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(409, 'HOST_WITHDRAW'));
     await renderRoom();
 
     await act(async () => {
-      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
-    });
-    await press('그룹 나가기');
-    await act(async () => {
-      alertSpy.mock.calls[0][2]?.find((b) => b.text === '나가기')?.onPress?.();
+      fireEvent.press(screen.getByLabelText('그룹 설정'));
     });
 
-    // A-2: 위임 화면으로 유도하는 새 안내 — '방장 넘기고 나가기' 버튼이 GroupOwnerTransfer 로 보낸다.
-    expect(alertSpy).toHaveBeenLastCalledWith(
-      '방장은 바로 나갈 수 없어요',
-      '그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.',
-      expect.arrayContaining([expect.objectContaining({ text: '방장 넘기고 나가기' })]),
-    );
-    expect(onLeft).not.toHaveBeenCalled();
-  });
-
-  // NOT_FOUND·MEMBER_ONLY는 '이미 빠져 있음' — Alert가 아니라 성공과 같은 정리(onLeft)다.
-  // 이 분기는 전환 가드보다 앞에 있어 전환 뒤에 도착해도 실행된다(onLeft는 그룹 무관 전역 재조회).
-  test('이미 빠져 있으면 성공과 같게 부모를 정리한다', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    mockGetGroupDetail.mockResolvedValue(detail());
-    mockGetAnnouncements.mockResolvedValue([]);
-    mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(403, 'MEMBER_ONLY'));
-    await renderRoom();
-
-    await act(async () => {
-      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
-    });
-    await press('그룹 나가기');
-    await act(async () => {
-      alertSpy.mock.calls[0][2]?.find((b) => b.text === '나가기')?.onPress?.();
-    });
-
-    expect(onLeft).toHaveBeenCalled();
-    // 확인 Alert(나갈까요?) 이후 추가 Alert는 없다.
-    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('GroupSettings', { groupId: GROUP_ID });
   });
 });
 
@@ -1489,7 +1393,7 @@ describe('초대 링크 공유', () => {
     mockGetAnnouncements.mockResolvedValue([]);
     await renderRoom();
 
-    await press('초대 링크로 친구 부르기');
+    await press('초대');
 
     expect(mockIssueInviteLink).toHaveBeenCalledWith(GROUP_ID);
     expect(Share.share).toHaveBeenCalledWith(
@@ -1509,7 +1413,7 @@ describe('초대 링크 공유', () => {
     mockGetAnnouncements.mockResolvedValue([]);
     await renderRoom();
 
-    await press('초대 링크로 친구 부르기');
+    await press('초대');
 
     expect(Share.share).not.toHaveBeenCalled();
     expect(Alert.alert).toHaveBeenCalledWith('초대 링크를 만들지 못했어요', expect.any(String));
