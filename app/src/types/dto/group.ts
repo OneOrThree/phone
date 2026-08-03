@@ -223,6 +223,11 @@ export interface GroupChallengeBet {
   // ⚠️ optional인 이유: 이 필드를 모르는 구서버가 존재한다(GroupChallengeResponse.bet과 같은 관행).
   //    undefined면 개설자를 알 수 없으므로 취소 진입점을 그리지 않는다 — 없는 기능을 세우지 않는다.
   creatorUserId?: string;
+  // 내기 기준일 'YYYY-MM-DD' — 참가 철회 버튼의 '시작 전' 판정용(챌린지 개선 배치 계약 §4).
+  // '내일 내기'(계약 §3)가 생기며 조회 date와 내기 날짜가 달라질 수 있어 필요해졌다.
+  // ⚠️ optional: 이 필드를 모르는 구서버가 존재한다(creatorUserId와 같은 관행). undefined면
+  //    조회일(오늘) 내기로 간주한다 — DURATION 철회는 미래 내기만 허용이라 자연히 숨는다.
+  date?: string;
 }
 
 // 정산된 내기의 인별 결과. payout은 **받은 금액**(승자 분배금 or 환불금)이지 손익이 아니다 —

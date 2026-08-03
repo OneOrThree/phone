@@ -36,6 +36,9 @@ export const BET_ALREADY_FAILED = 'BET_ALREADY_FAILED'; // 409 스크린타임 �
 export const BET_CANCEL_FORBIDDEN = 'BET_CANCEL_FORBIDDEN'; // 403 개설자 아님
 export const BET_CANCEL_HAS_OTHERS = 'BET_CANCEL_HAS_OTHERS'; // 409 타 참가자 존재
 export const BET_NOT_OPEN = 'BET_NOT_OPEN'; // 409 이미 정산·취소된 내기
+// 참가 철회(챌린지 개선 배치, contract.md §4 — W4 신설 코드).
+export const BET_NOT_JOINED = 'BET_NOT_JOINED'; // 409 참가 이력 없음
+export const BET_LEAVE_CLOSED = 'BET_LEAVE_CLOSED'; // 409 시작 이후(집계 진행 중)
 
 // POST /api/v1/groups — 그룹 생성. password·description은 보내지 않는다(§3-1-3).
 export async function createGroup(body: CreateGroupRequest): Promise<CreateGroupResponse> {
@@ -261,6 +264,15 @@ export async function joinBet(groupId: string, betId: string): Promise<void> {
 // 에러: BET_CANCEL_FORBIDDEN(403) · BET_CANCEL_HAS_OTHERS(409) · BET_NOT_OPEN(409).
 export async function cancelBet(groupId: string, betId: string): Promise<void> {
   await api.delete<void>(`/api/v1/groups/${groupId}/bets/${betId}`);
+}
+
+// DELETE /api/v1/groups/{groupId}/bets/{betId}/participation — 내기 참가 철회(계약 §4), 204.
+// 호출자 **본인의 참가만** 철회하고 본인 참가비를 전액 환불한다. 허용 조건(참가자·OPEN·시작 전)은
+// 서버가 정본이다 — 마지막 참가자가 떠나면 서버가 내기를 CANCELED로 자동 닫는다(개설자 철회 허용).
+// 에러: BET_NOT_JOINED(409) · BET_LEAVE_CLOSED(409) · BET_NOT_OPEN(409).
+// 시작 전 철회는 이 함수, 시작 후의 개설자 단독 취소는 기존 cancelBet — 카드가 배타 조건으로 나눠 쓴다.
+export async function leaveBet(groupId: string, betId: string): Promise<void> {
+  await api.delete<void>(`/api/v1/groups/${groupId}/bets/${betId}/participation`);
 }
 
 // 서버 에러 바디({ code, message })의 code를 뽑는다. axios 에러가 아니거나 바디가 없으면 null.
