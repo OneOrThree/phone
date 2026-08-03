@@ -337,9 +337,9 @@ class ChallengeCreatedNotificationServiceTest {
         return User.builder().id(id).nickname("유저").deviceToken("token-" + id).build();
     }
 
-    /** 창 시각은 UTC time-of-day 로 저장된다(WindowFocusAggregator.timeOfDay 와 같은 기준). */
+    /** 창 시각은 KST 벽시계 time-of-day 로 해석된다(WindowFocusAggregator.timeOfDay, GROMO-1100). */
     private static Instant timeOfDay(LocalTime time) {
-        return Instant.EPOCH.plusSeconds(time.toSecondOfDay());
+        return java.time.LocalDate.EPOCH.atTime(time).atZone(java.time.ZoneId.of("Asia/Seoul")).toInstant();
     }
 
     private void givenChallenge(GroupChallenge challenge) {

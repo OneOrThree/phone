@@ -525,9 +525,9 @@ public class GroupChallengeService {
      * TIME_WINDOW 파라미터 검증 — 창 시각(필수, 0길이 금지)과 창 내 목표(durationMinutes 필수,
      * 0 < x ≤ 창 길이 분).
      *
-     * <p>창은 매일 반복 시간대다. 저장 Instant 는 UTC 시각(time-of-day)만 의미를 갖고(응답 변환
-     * {@link #toLocalTimeString} 과 동일 기준), 날짜별 실제 창은 KST 날짜에 그 시각을 얹어 조합한다
-     * ({@link WindowFocusAggregator}). 그래서 비교도 Instant 가 아니라 시각으로 한다 —
+     * <p>창은 매일 반복 시간대다. 저장 Instant 는 Asia/Seoul 벽시계 시각(time-of-day)만 의미를 갖고
+     * (응답 변환 {@link #toLocalTimeString} 과 동일 기준), 날짜별 실제 창은 KST 날짜에 그 시각을 얹어
+     * 조합한다({@link WindowFocusAggregator}). 그래서 비교도 Instant 가 아니라 시각으로 한다 —
      * 시작 > 종료는 자정 걸침 창(D 시작 ~ D+1 종료)으로 허용한다.
      */
     private void validateTimeWindowParams(CreateChallengeRequest request) {
@@ -671,7 +671,7 @@ public class GroupChallengeService {
                 challengeId, userId, request.getDate(), request.getUsedMinutes(), request.getMeasuredAt());
     }
 
-    // TIME_WINDOW 상세의 Instant를 UTC 기준 "HH:mm:ss" 문자열로 변환 (time_zone 컬럼 제거에 따라 UTC 고정).
+    // TIME_WINDOW 상세의 Instant를 Asia/Seoul 벽시계 기준 "HH:mm:ss" 문자열로 변환 (GROMO-1100 KST 해석 통일).
     private String toLocalTimeString(Instant instant) {
         return timeOfDay(instant).format(TIME_FORMATTER);
     }

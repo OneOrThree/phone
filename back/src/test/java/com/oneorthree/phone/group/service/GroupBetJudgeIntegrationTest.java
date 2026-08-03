@@ -34,8 +34,9 @@ import static org.assertj.core.api.Assertions.entry;
  * 와 그것이 날짜 게이트와 어떻게 맞물리는가는 그 테스트로 드러나지 않는다(PR #446 리뷰). 여기서
  * 실제 창 행으로 계산해 경계를 고정한다.
  *
- * <p>시각 표기: 창 Instant 는 UTC 시각(time-of-day)만 의미가 있고, 날짜 D 의 실제 창은 D(KST)에 그
- * 시각을 얹는다. 예) 09:00~12:00 창의 2026-08-01 실제 경계는 KST 09:00 = {@code 2026-08-01T00:00Z}.
+ * <p>시각 표기: 창 Instant 는 Asia/Seoul 벽시계 시각(time-of-day)만 의미가 있고(GROMO-1100), 날짜 D 의
+ * 실제 창은 D(KST)에 그 시각을 얹는다. 예) 09:00~12:00 창의 2026-08-01 실제 경계는 KST 09:00 =
+ * {@code 2026-08-01T00:00Z}.
  */
 class GroupBetJudgeIntegrationTest extends RepositoryTestBase {
 
@@ -68,8 +69,8 @@ class GroupBetJudgeIntegrationTest extends RepositoryTestBase {
         GroupChallenge challenge = saveChallenge(category, MissionType.TIME_WINDOW);
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(challenge)
-                .windowStartAt(Instant.parse("2026-01-01T" + start + "Z"))
-                .windowEndAt(Instant.parse("2026-01-01T" + end + "Z"))
+                .windowStartAt(Instant.parse("2026-01-01T" + start + "+09:00"))
+                .windowEndAt(Instant.parse("2026-01-01T" + end + "+09:00"))
                 .durationMinutes(goalMinutes)
                 .build());
         return challenge;
