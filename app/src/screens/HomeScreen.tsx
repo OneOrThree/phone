@@ -415,6 +415,12 @@ export default function HomeScreen() {
     logHomeRefreshed();
     setRefreshing(true);
     setReportRefresh((r) => r + 1);
+    // 권한 상태도 같이 재조회한다 — 권한 켜기가 잘못 떠 있을 때 사용자가 가장 먼저 하는 동작이
+    // 당겨서 새로고침인데, 여기서 안 읽으면 그 세션 내내 잘못된 상태에 머문다(콜드런치엔
+    // AppState 'change' 도 뜨지 않는다).
+    ScreenTimeModule.getAuthorizationStatus()
+      .then(setScreenTimeAuth)
+      .catch(() => {});
     refetchTodayStats().finally(() => setTimeout(() => setRefreshing(false), 600));
   }, [refetchTodayStats]);
 
