@@ -893,6 +893,63 @@ class GroupBetServiceTest {
     }
 
     @Test
+    @DisplayName("오늘의 내기 응답에 date(bet_date)가 실린다 — 내일 내기 표시·철회 판정용(additive)")
+    void loadCurrentBetsCarriesBetDate() {
+        GroupChallengeBet bet = bet(GroupBetStatus.OPEN, today());
+        given(groupChallengeBetRepository.findByChallengeIdInAndBetDate(List.of(CHALLENGE_ID), today()))
+                .willReturn(List.of(bet));
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(participantOf(bet, USER_ID)));
+
+        Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
+                List.of(CHALLENGE_ID), today(), USER_ID, Map.of());
+
+        assertThat(bets.get(CHALLENGE_ID).getDate()).isEqualTo(today());
+        // 오늘 내기가 있으면(우선) 내일 폴백 조회는 아예 나가지 않는다 — 계약 §3 응답 보수.
+        verify(groupChallengeBetRepository, never())
+                .findByChallengeIdInAndBetDateAndStatus(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("오늘 내기가 없으면 내일 OPEN 내기를 폴백으로 싣는다 — date=내일, 오늘 달성값으로 잠그지 않는다")
+    void loadCurrentBetsFallsBackToTomorrowOpenBet() {
+        LocalDate tomorrow = today().plusDays(1);
+        GroupChallengeBet tomorrowBet = bet(GroupBetStatus.OPEN, tomorrow);
+        given(groupChallengeBetRepository.findByChallengeIdInAndBetDate(List.of(CHALLENGE_ID), today()))
+                .willReturn(List.of());
+        given(groupChallengeBetRepository.findByChallengeIdInAndBetDateAndStatus(
+                List.of(CHALLENGE_ID), tomorrow, GroupBetStatus.OPEN))
+                .willReturn(List.of(tomorrowBet));
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(participantOf(tomorrowBet, USER_ID)));
+
+        Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
+                List.of(CHALLENGE_ID), today(), USER_ID, Map.of(CHALLENGE_ID, true));
+
+        GroupBetResponse response = bets.get(CHALLENGE_ID);
+        assertThat(response.getBetId()).isEqualTo(BET_ID);
+        assertThat(response.getDate()).isEqualTo(tomorrow);
+        // 오늘 달성 스냅샷(true)이 내일 내기의 myAchievedNow 로 새면 앱이 참가 버튼을 잘못 잠근다 —
+        // 내일 내기의 판정일은 내일이라 아직 아무도 달성하지 않았다.
+        assertThat(response.getMyAchievedNow()).isFalse();
+    }
+
+    @Test
+    @DisplayName("과거 날짜 조회에는 내일 폴백이 없다 — 그날의 사실만 싣는다")
+    void loadCurrentBetsDoesNotFallBackForPastDate() {
+        LocalDate yesterday = today().minusDays(1);
+        given(groupChallengeBetRepository.findByChallengeIdInAndBetDate(List.of(CHALLENGE_ID), yesterday))
+                .willReturn(List.of());
+
+        Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
+                List.of(CHALLENGE_ID), yesterday, USER_ID, Map.of());
+
+        assertThat(bets).isEmpty();
+        verify(groupChallengeBetRepository, never())
+                .findByChallengeIdInAndBetDateAndStatus(any(), any(), any());
+    }
+
+    @Test
     @DisplayName("집중 기록이 아예 없으면 0분으로 보고 참가를 허용한다")
     void joinBetTreatsMissingStatAsZeroMinutes() {
         givenMember();

@@ -41,6 +41,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -362,6 +363,11 @@ public class GroupBetService {
     /**
      * 챌린지별 "오늘의 내기"를 배치 로드한다. {@code date} 가 없으면(하위 호환 조회) 빈 맵이다.
      *
+     * <p><b>내일 폴백</b>(계약 §3 응답 보수, GROMO-1103): 조회일이 서버 KST 오늘이면, 오늘 내기가
+     * 없는 챌린지에 한해 내일 OPEN 내기를 실어 준다 — 마감 후 "내일 시간대부터 적용"으로 연 내기가
+     * 생성 직후 카드에서 안 보이는 구멍을 막는다. 응답의 {@code date}(bet_date)가 어느 날짜의
+     * 내기인지 말한다. 과거 날짜 조회는 그날의 사실만 실어야 하므로 폴백하지 않는다.
+     *
      * @param myAchievedByChallengeId 챌린지별 "나는 이미 달성했는가" — 호출측이 이미 계산해 둔
      *                                진행률 스냅샷을 재사용해 통계를 두 번 읽지 않는다
      * @return challengeId → 내기 (내기가 없는 챌린지는 키 없음)
@@ -374,8 +380,21 @@ public class GroupBetService {
         if (date == null || challengeIds.isEmpty()) {
             return Map.of();
         }
-        List<GroupChallengeBet> bets =
-                groupChallengeBetRepository.findByChallengeIdInAndBetDate(challengeIds, date);
+        List<GroupChallengeBet> bets = new ArrayList<>(
+                groupChallengeBetRepository.findByChallengeIdInAndBetDate(challengeIds, date));
+        if (date.equals(today())) {
+            Set<UUID> covered = bets.stream()
+                    .map(bet -> bet.getChallenge().getId())
+                    .collect(Collectors.toSet());
+            List<UUID> uncovered = challengeIds.stream()
+                    .filter(challengeId -> !covered.contains(challengeId))
+                    .toList();
+            if (!uncovered.isEmpty()) {
+                // OPEN 만 싣는다 — 취소된 내일 내기는 "없던 일"이라 카드에 세울 자격이 없다.
+                bets.addAll(groupChallengeBetRepository.findByChallengeIdInAndBetDateAndStatus(
+                        uncovered, date.plusDays(1), GroupBetStatus.OPEN));
+            }
+        }
         if (bets.isEmpty()) {
             return Map.of();
         }
@@ -389,12 +408,17 @@ public class GroupBetService {
             result.put(challengeId, GroupBetResponse.builder()
                     .betId(bet.getId())
                     .creatorUserId(bet.getCreatorUser().getId())
+                    .date(bet.getBetDate())
                     .stake(bet.getStake())
                     .pot(bet.getStake() * participants.size())
                     .status(bet.getStatus())
                     .myJoined(participants.stream()
                             .anyMatch(p -> p.getUser().getId().equals(userId)))
-                    .myAchievedNow(myAchievedByChallengeId.getOrDefault(challengeId, false))
+                    // 호출측 스냅샷은 조회일(오늘) 진행률이다 — 내일 폴백 내기의 판정일은 내일이라
+                    // 아직 아무도 달성하지 않았다. 오늘 값을 그대로 실으면 앱이 내일 내기의 참가
+                    // 버튼을 오늘 달성 사실로 잘못 잠근다(서버 joinBet 은 bet_date 기준이라 허용).
+                    .myAchievedNow(bet.getBetDate().equals(date)
+                            && myAchievedByChallengeId.getOrDefault(challengeId, false))
                     .participants(participants.stream()
                             .map(p -> GroupBetParticipantResponse.builder()
                                     .userId(p.getUser().getId())

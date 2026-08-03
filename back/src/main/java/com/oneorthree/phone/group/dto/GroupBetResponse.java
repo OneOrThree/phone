@@ -4,11 +4,14 @@ import com.oneorthree.phone.group.domain.GroupBetStatus;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
 /**
- * 챌린지 카드에 붙는 "오늘의 내기". 조회 {@code date} 의 내기가 없으면 필드 자체가 null 이다.
+ * 챌린지 카드에 붙는 "오늘의 내기". 조회 {@code date} 의 내기가 없으면 필드 자체가 null 이다 —
+ * 단, 조회일이 서버 KST 오늘이면 내일 OPEN 내기가 폴백으로 실릴 수 있다(계약 §3 응답 보수,
+ * {@code GroupBetService.loadCurrentBets}). 어느 날짜의 내기인지는 {@code date} 가 말한다.
  *
  * <p>{@code myJoined}/{@code myAchievedNow} 를 {@link Boolean} 으로 둔 것은 is 접두 getter 의
  * 이중 직렬화 함정을 피하기 위함이다(선례: {@link ChallengeMemberProgressResponse}).
@@ -25,6 +28,14 @@ public class GroupBetResponse {
      * undefined/null 을 구분하는 3상 로직이라 직렬화 형태가 흔들리면 안 된다.
      */
     private UUID creatorUserId;
+
+    /**
+     * 이 내기의 대상 날짜(bet_date) — 앱이 "내일 내기" 표시와 참가 철회(시작 전) 판정에 쓴다
+     * (계약 §3 응답 보수, GROMO-1103). 조회 {@code date} 와 항상 같지는 않다: 오늘 내기가 없으면
+     * 내일 OPEN 내기가 폴백으로 실린다. additive 필드이며 {@code @JsonInclude(NON_NULL)} 은 금지 —
+     * 위 {@code creatorUserId} 와 같은 이유(앱의 3상 판정)다.
+     */
+    private LocalDate date;
 
     /** 1인 판돈. */
     private int stake;
