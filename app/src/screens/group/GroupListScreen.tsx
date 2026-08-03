@@ -102,33 +102,41 @@ export default function GroupListScreen({
             testID={`group.list.card.${item.groupId}`}
           >
             <View style={s.cardMain}>
-              <Text style={s.cardName} numberOfLines={1}>
-                {item.name}
-              </Text>
-              {item.isPrivate && (
-                <Ionicons
-                  name="lock-closed"
-                  size={14}
-                  color={T.inkSub}
-                  accessibilityLabel="비공개 그룹"
-                />
-              )}
-              {/* 방장 배지 — 멤버 타일의 방장 표시와 같은 모양(아이콘도 ribbon으로 통일) */}
-              {item.role === 'OWNER' && (
-                <View style={s.ownerBadge}>
+              {/* 1행: 이름 + 비공개 자물쇠 */}
+              <View style={s.cardTitleRow}>
+                <Text style={s.cardName} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                {item.isPrivate && (
                   <Ionicons
-                    name="ribbon"
-                    size={10}
-                    color={T.white}
-                    accessibilityLabel="내가 방장"
+                    name="lock-closed"
+                    size={14}
+                    color={T.inkSub}
+                    accessibilityLabel="비공개 그룹"
                   />
+                )}
+              </View>
+              {/* 2행: 소개 — 백엔드가 목록 응답에 description을 실어줄 때만 노출 */}
+              {!!item.description && (
+                <Text style={s.cardDesc} numberOfLines={2}>
+                  {item.description}
+                </Text>
+              )}
+              {/* 3행: 방장 칩 */}
+              {item.role === 'OWNER' && (
+                <View style={s.ownerChip}>
+                  <Text style={s.ownerChipText} accessibilityLabel="내가 방장">
+                    방장
+                  </Text>
                 </View>
               )}
             </View>
-            <Text style={s.cardCount}>
-              {item.currentMembers}/{item.maxMembers}
-            </Text>
-            <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
+            <View style={s.cardRight}>
+              <Text style={s.cardCount}>
+                {item.currentMembers}/{item.maxMembers}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
+            </View>
           </TouchableOpacity>
         )}
       />
@@ -188,7 +196,7 @@ const s = StyleSheet.create({
   // (그룹방의 초대·공지 카드와 같은 기준).
   card: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: T.space.md,
     backgroundColor: T.paperAlt,
     borderWidth: 1,
@@ -197,17 +205,21 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.lg,
     paddingVertical: T.space.lg,
   },
-  cardMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: T.space.xs, minWidth: 0 },
+  cardMain: { flex: 1, gap: 4, minWidth: 0 },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   cardName: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },
+  cardDesc: { ...T.text.caption, color: T.inkSub },
+  cardRight: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   cardCount: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
-  ownerBadge: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: T.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
+  ownerChip: {
+    alignSelf: 'flex-start',
+    backgroundColor: T.accentBg,
+    borderRadius: 8,
+    paddingHorizontal: T.space.sm,
+    paddingVertical: 3,
+    marginTop: 2,
   },
+  ownerChipText: { ...T.text.caption, color: T.accent, fontWeight: '700' },
 
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)

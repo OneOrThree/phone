@@ -43,6 +43,7 @@ export interface GroupSummaryResponse {
   role: GroupMemberRole;
   status: GroupStatus;
   isPrivate?: boolean; // 백엔드 P1-1에서 추가
+  description?: string | null; // 그룹 소개 — 목록 카드 노출용(백엔드가 목록 응답에 포함해야 표시)
 }
 
 // GET /groups/search?query — 이름 검색(공개방만 내려온다).
