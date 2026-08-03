@@ -10,36 +10,59 @@ import { useCharacter, type CharacterChoice } from '@/store/CharacterContext';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 
-// 캐릭터 고르기 화면 — 기본 그로몬 / 내가 만든 오브젝트 캐릭터(누끼) 중 하나를 장착한다.
+// 캐릭터 변경 화면 — 기본 그로몬 / 내가 만든 오브젝트 캐릭터(누끼) 중 하나를 장착한다.
 // 카드 탭은 선택 표시만 바꾸고(강조 테두리 + 체크 배지), 실제 장착(setChoice)은 하단
-// '장착하기' 버튼으로 확정한다. 확정하면 완료를 알린 뒤 홈으로 돌아간다.
+// '변경하기' 버튼으로 확정한다. 확정하면 완료를 알린 뒤 홈으로 돌아간다.
 // 내 캐릭터(누끼)가 아직 없으면 카드②는 만들기 플레이스홀더로 뜨고, 탭하면 생성 화면으로 간다.
 // 하단 버튼으로 언제든 새로/다시 만들 수 있다.
 
 const CHAR_SIZE = 116;
 
+// 지금 장착된 것으로 볼 캐릭터. 'custom'인데 쓸 수 있는 누끼가 없으면(경로가 없거나 그림을 못 그리면)
+// 기본 그로몬으로 본다 — 이 값이 곧 사용자가 아무것도 안 고르고 '변경하기'를 눌렀을 때 확정되는 값이라,
+// 여기서 막지 않으면 못 쓰는 누끼가 그대로 장착된다.
+export function resolveEquippedChoice(
+  choice: CharacterChoice,
+  customUri: string | null,
+  customBroken: boolean,
+): CharacterChoice {
+  return choice === 'custom' && !!customUri && !customBroken ? 'custom' : 'default';
+}
+
 export default function CharacterSelectScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { choice, customUri, setChoice } = useCharacter();
 
-  // 지금 실제로 장착된 캐릭터. 'custom'인데 누끼가 사라진 비정상 상태는 기본 그로몬으로 잡는다.
-  const equipped: CharacterChoice = choice === 'custom' && customUri != null ? 'custom' : 'default';
+  // 저장된 누끼 경로가 죽어 그림을 못 그리는 상태(파일이 사라진 절대경로 등). 이때 카드②는
+  // 기본 그로몬으로 폴백돼 그려지는데, 그대로 장착까지 되면 홈·집중·축하 화면의 캐릭터가
+  // 전부 기본으로 돌아가 "빈 칸을 장착한" 꼴이 된다. 그래서 못 쓰는 누끼는 아예 없는 것으로 본다.
+  // 저장소의 customUri 는 지우지 않는다 — 일시적 읽기 실패였을 경우 다음 실행에서 되살아난다.
+  const [customBroken, setCustomBroken] = useState(false);
+  const hasCustom = !!customUri && !customBroken;
+
+  const equipped = resolveEquippedChoice(choice, customUri, customBroken);
 
   // 화면 안에서만 쓰는 선택 상태 — 사용자가 카드를 탭하기 전까지는 null이고, 그동안은 위의
   // 장착값을 그대로 따라간다. useState 초기값으로 스냅샷을 뜨면 CharacterContext가 AsyncStorage를
-  // 아직 못 읽은 시점에 마운트됐을 때 'default'로 굳어, 그대로 '장착하기'를 누르면 사용자의
-  // 누끼 캐릭터가 조용히 해제된다. 아무것도 안 골라진 상태는 생기지 않으므로 '장착하기'는 항상 활성.
+  // 아직 못 읽은 시점에 마운트됐을 때 'default'로 굳어, 그대로 '변경하기'를 누르면 사용자의
+  // 누끼 캐릭터가 조용히 해제된다. 아무것도 안 골라진 상태는 생기지 않으므로 '변경하기'는 항상 활성.
   const [picked, setPicked] = useState<CharacterChoice | null>(null);
   const selected = picked ?? equipped;
 
   const goCreate = useCallback(() => navigation.navigate('CharacterCreate'), [navigation]);
 
-  // 장착 확정 — 고른 캐릭터를 실제로 장착하고, 알림을 닫으면 홈으로 돌아간다.
-  // 이 화면은 홈 '캐릭터 바꾸기'로만 들어오므로 popToTop이 곧 홈 복귀다(중간에 '만들기'로
+  // 누끼 그림을 못 그렸다 — 카드②를 만들기 플레이스홀더로 되돌리고, 골라둔 상태였으면 기본으로 뺀다.
+  const onCustomBroken = useCallback(() => {
+    setCustomBroken(true);
+    setPicked((p) => (p === 'custom' ? 'default' : p));
+  }, []);
+
+  // 변경 확정 — 고른 캐릭터를 실제로 장착하고, 알림을 닫으면 홈으로 돌아간다.
+  // 이 화면은 홈 '캐릭터 변경'으로만 들어오므로 popToTop이 곧 홈 복귀다(중간에 '만들기'로
   // 다녀온 스택이 남아 있어도 한 번에 걷어낸다).
   const equip = useCallback(() => {
     setChoice(selected);
-    Alert.alert('장착되었습니다!', '홈에서 바로 확인할 수 있어요.', [
+    Alert.alert('변경되었어요!', '홈에서 바로 확인할 수 있어요.', [
       { text: '확인', onPress: () => navigation.popToTop() },
     ]);
   }, [selected, setChoice, navigation]);
@@ -49,17 +72,17 @@ export default function CharacterSelectScreen() {
 
   return (
     <SettingsScaffold
-      title="캐릭터 고르기"
+      title="캐릭터 변경"
       onBack={() => navigation.goBack()}
       footer={
         <View style={s.footerCol}>
           <PressableScale style={s.equipBtn} scaleTo={0.97} haptic="light" onPress={equip}>
             <Ionicons name="checkmark" size={18} color={T.white} />
-            <Text style={s.equipBtnText}>장착하기</Text>
+            <Text style={s.equipBtnText}>변경하기</Text>
           </PressableScale>
           <PressableScale style={s.footerBtn} scaleTo={0.97} onPress={goCreate}>
             <Ionicons name="add" size={18} color={T.accent} />
-            <Text style={s.footerBtnText}>{customUri ? '다시 만들기' : '새로 만들기'}</Text>
+            <Text style={s.footerBtnText}>{hasCustom ? '다시 만들기' : '새로 만들기'}</Text>
           </PressableScale>
         </View>
       }
@@ -83,8 +106,8 @@ export default function CharacterSelectScreen() {
           <Text style={s.cardLabel}>기본 그로몬</Text>
         </PressableScale>
 
-        {/* 카드② 내 캐릭터 — 누끼 있으면 선택 카드, 없으면 만들기 플레이스홀더 */}
-        {customUri ? (
+        {/* 카드② 내 캐릭터 — 쓸 수 있는 누끼가 있으면 선택 카드, 없으면 만들기 플레이스홀더 */}
+        {hasCustom ? (
           <PressableScale
             style={[s.card, customSelected && s.cardSelected]}
             scaleTo={0.97}
@@ -96,7 +119,11 @@ export default function CharacterSelectScreen() {
               </View>
             ) : null}
             <View style={s.charBox}>
-              <CharacterImage size={CHAR_SIZE} sourceUri={customUri} />
+              <CharacterImage
+                size={CHAR_SIZE}
+                sourceUri={customUri ?? undefined}
+                onSourceError={onCustomBroken}
+              />
             </View>
             <Text style={s.cardLabel}>내 캐릭터</Text>
           </PressableScale>
