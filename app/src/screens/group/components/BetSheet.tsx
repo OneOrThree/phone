@@ -357,8 +357,8 @@ export default function BetSheet({
   }
 
   return (
-    // 전송 중에는 딤 탭으로 닫히지 않게 막는다(요청이 떠 있는 상태에서의 언마운트 방지).
-    <SheetShell onClose={submitting ? () => {} : onClose} asModal>
+    // 전송 중에는 딤 탭·그랩바 드래그로 닫히지 않게 막는다(요청이 떠 있는 상태에서의 언마운트 방지).
+    <SheetShell onClose={submitting ? () => {} : onClose} asModal dismissible={!submitting}>
       <Text style={s.title}>{isCreate ? '내기 걸기' : '내기 참가'}</Text>
       <Text style={s.sub}>{label}</Text>
 
