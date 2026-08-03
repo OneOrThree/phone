@@ -37,7 +37,9 @@ function lastBet(over: Partial<LastSettledBet> = {}): LastSettledBet {
 }
 
 function renderSheet(over: Partial<LastSettledBet> = {}, myUserId: string | null = 'u1') {
-  return render(<LastBetResultSheet lastBet={lastBet(over)} myUserId={myUserId} onClose={onClose} />);
+  return render(
+    <LastBetResultSheet lastBet={lastBet(over)} myUserId={myUserId} onClose={onClose} />,
+  );
 }
 
 beforeEach(() => {

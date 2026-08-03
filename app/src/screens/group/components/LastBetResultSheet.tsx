@@ -78,7 +78,11 @@ export interface LastBetResultSheetProps {
   onClose: () => void;
 }
 
-export default function LastBetResultSheet({ lastBet, myUserId, onClose }: LastBetResultSheetProps) {
+export default function LastBetResultSheet({
+  lastBet,
+  myUserId,
+  onClose,
+}: LastBetResultSheetProps) {
   const banner = statusBanner(lastBet.status);
   const myResult = myUserId ? lastBet.results.find((r) => r.userId === myUserId) : undefined;
   const character =
@@ -130,11 +134,7 @@ export default function LastBetResultSheet({ lastBet, myUserId, onClose }: LastB
 
       {/* 인별 결과 — 닉네임/판정/손익. 참가자는 최대 10명이라 이 영역만 스크롤로 가둔다
           (BetSheet 참가자 영역과 같은 이유 — 제목·CTA는 항상 보여야 한다). */}
-      <ScrollView
-        style={s.resultsScroll}
-        nestedScrollEnabled
-        testID="group.bet.result.rows"
-      >
+      <ScrollView style={s.resultsScroll} nestedScrollEnabled testID="group.bet.result.rows">
         {lastBet.results.map((r) => {
           const isMe = !!myUserId && r.userId === myUserId;
           const pending = r.payout === null || r.achieved === null;
