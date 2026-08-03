@@ -26,7 +26,10 @@ const mockNavigate = jest.fn();
 // 실제 useNavigation/useRoute는 렌더마다 같은 객체를 준다 — 매번 새 객체를 주면
 // 여기서 검증하려는 '콜백 신원 고정'이 목 때문에 깨진다.
 const mockNavigation = { goBack: mockGoBack, navigate: mockNavigate };
-const mockRoute = { params: { groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55' } };
+// challengeId는 챌린지 종료 푸시 딥링크로 들어왔을 때만 실린다(GROMO-1088) — 테스트가 직접 갈아 끼운다.
+const mockRoute: { params: { groupId: string; challengeId?: string } } = {
+  params: { groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55' },
+};
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => mockNavigation,
   useRoute: () => mockRoute,
@@ -116,6 +119,7 @@ async function renderRoute() {
 beforeEach(() => {
   jest.clearAllMocks();
   focusRuns.count = 0;
+  mockRoute.params = { groupId: GROUP_ID };
   mockGetGroupDetail.mockResolvedValue(detail());
   mockGetAnnouncements.mockResolvedValue([]);
   mockGetChallenges.mockResolvedValue([]);
@@ -165,6 +169,41 @@ describe('라우트 진입 계약', () => {
     // 메뉴 자체는 열려 있다 — '그룹 나가기'는 두 진입 경로 모두에 있다.
     expect(screen.getByText('그룹 나가기')).toBeOnTheScreen();
     expect(screen.queryByText('그룹 전환·추가')).toBeNull();
+  });
+
+  // 챌린지 종료 푸시 딥링크(GROMO-1088) — 래퍼의 일은 파라미터를 그대로 흘리는 것뿐이지만,
+  // 여기서 끊기면 푸시 탭이 그룹방까지만 가고 결과 모달이 뜨지 않는다.
+  test('라우트 파라미터의 challengeId를 그룹방에 흘린다(결과 모달 자동 오픈)', async () => {
+    mockRoute.params = { groupId: GROUP_ID, challengeId: 'c1' };
+    mockGetChallenges.mockImplementation(async (_gid, date) =>
+      date === '2026-07-31'
+        ? [
+            {
+              id: 'c1',
+              missionType: 'DURATION',
+              missionCategory: 'FOCUS',
+              durationMinutes: 60,
+              windowStart: null,
+              windowEnd: null,
+              // 결과가 확정된 시점에도 챌린지는 ACTIVE다(창형이 그렇게 동작한다) —
+              // INACTIVE는 서버가 memberProgress를 null로 내려 후보가 되지 않는다.
+              status: 'ACTIVE',
+              createdAt: '2026-07-30T06:00:00',
+              canParticipate: true,
+              memberProgress: [
+                { userId: 'me', nickname: '나', progressMinutes: 70, achieved: true },
+              ],
+              bet: null,
+              lastSettledBet: null,
+            },
+          ]
+        : [],
+    );
+
+    await renderRoute();
+
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    expect(screen.getByText('7월 31일 결과')).toBeOnTheScreen();
   });
 
   test('재렌더돼도 포커스 재조회가 다시 돌지 않는다(콜백 신원 고정)', async () => {

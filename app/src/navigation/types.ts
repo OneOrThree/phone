@@ -45,9 +45,21 @@ export type V2RootStackParamList = {
 
   // 그룹(A안, docs/app/group-plan.md §9) — 진입점은 '그룹' 탭(GroupScreen), 아래는 스택 push.
   GroupCreate: undefined; // 그룹 생성 (빈 상태 '그룹 만들기'에서 진입)
-  // 그룹방 — 2차에서 라우트로 승격(docs/app/group-plan-2.md §0-2). **내장 렌더와 겸용**이다:
-  // 그룹이 1개면 지금까지처럼 GroupScreen 안에서 렌더하고, 목록(2개 이상)에서 탭했을 때만 push 한다.
-  GroupRoom: { groupId: string };
+  // 그룹방 — 2차에서 라우트로 승격(docs/app/group-plan-2.md §0-2). A-9(3차) 이후 **라우트 진입
+  // 전용**이다: 소속 수와 무관하게 목록이 그룹 탭의 기본 화면이고, 여기로 push 해야 방이 열린다.
+  GroupRoom: {
+    groupId: string;
+    // 챌린지 종료 푸시가 지목한 챌린지(GROMO-1088) — 진입 직후 그 챌린지의 결과 모달을 자동으로
+    // 연다. 1회 가드(이미 본 결과)를 넘어서 열되, 화면 안에서 한 번만 소비된다.
+    //
+    // ⚠️ **optional(`?`)이 아니라 `| undefined`인 것은 의도다.** 이미 스택에 있는 'GroupRoom'으로
+    //    다시 navigate 하면 React Navigation이 파라미터를 얕게 병합한다
+    //    (`{ ...route.params, ...payload.params }`). 키를 빼면 직전 진입의 challengeId가 그대로
+    //    남아 **다른 그룹의 방에 이전 그룹의 지목이 새어 들어간다**(그룹방 위에 뜬 초대 시트로
+    //    다른 그룹에 참여하는 경로 — @claude 리뷰). 키를 필수로 두면 모든 호출부가 값을
+    //    명시하게 되어 컴파일 시점에 이 불변식이 강제된다.
+    challengeId: string | undefined;
+  };
   GroupNotice: {
     groupId: string;
     canWrite: boolean; // 방장·공지 권한 멤버 여부 — false면 작성/수정/삭제 진입점을 렌더하지 않는다(403 예방)

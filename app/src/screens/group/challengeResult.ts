@@ -84,6 +84,13 @@ function toCandidate(
 // 오늘·어제 챌린지 조회 결과에서 모달 후보를 고른다(가드 반영 전 — 순수 계산).
 // 어느 한쪽 조회가 실패했으면 null로 받는다 — 성공한 쪽만으로 가능한 후보를 만든다(화면 무영향 원칙).
 // 순서: 어제 결과 → 오늘(창 종료) 결과 — 오래된 소식부터 읽게 한다.
+//
+// ⚠️ INACTIVE(끝난) 챌린지는 지목(딥링크) 여부와 무관하게 후보가 되지 않는다. 서버가 INACTIVE
+//    챌린지의 memberProgress를 **항상 null로 내려주기 때문**이다(GroupChallengeService.
+//    isProgressTarget — "끝난 챌린지 목표와 오늘 통계를 대조하면 과거 결과가 매일 바뀌어 보이고,
+//    ended_at이 없어 당시 진행률을 복원할 수도 없다"). 여기서 상태 필터만 열어 줘도 toCandidate가
+//    progress 없는 항목을 곧바로 버려 아무 효과가 없다(코덱스 리뷰). 종료 푸시가 가리키는 결과는
+//    챌린지가 아직 ACTIVE인 동안 확정돼야 한다(창형이 그렇게 동작한다).
 export function pickChallengeResults(args: {
   today: GroupChallengeResponse[] | null;
   yesterday: GroupChallengeResponse[] | null;

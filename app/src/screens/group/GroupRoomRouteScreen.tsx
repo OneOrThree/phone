@@ -15,6 +15,8 @@ import GroupRoomScreen from './GroupRoomScreen';
 //
 // · summary 미전달  : 목록에서 진입해도 상세 도착 전 헤더용 요약을 스택에 실어 나르지 않는다
 //                     (직렬화되는 라우트 파라미터를 얇게 유지 — groupId 하나면 복원이 끝난다).
+// · challengeId     : 챌린지 종료 푸시가 지목한 결과 모달 대상(GROMO-1088). 딥링크로 들어온
+//                     경우에만 실린다 — 목록 탭 진입에는 없다.
 // · onLeft = goBack : 나가기에 성공하면 목록으로 되돌아간다. 목록은 GroupScreen이 포커스
 //                     재조회로 갱신하므로 여기서 따로 알릴 필요가 없다.
 // · onBack = goBack : 루트 스택이 headerShown:false이고 이 화면엔 탭바도 없다 —
@@ -34,7 +36,12 @@ export default function GroupRoomRouteScreen() {
 
   return (
     <SafeAreaView style={s.root} edges={['top']} testID="group.room.route">
-      <GroupRoomScreen groupId={params.groupId} onLeft={goBack} onBack={goBack} />
+      <GroupRoomScreen
+        groupId={params.groupId}
+        focusChallengeId={params.challengeId}
+        onLeft={goBack}
+        onBack={goBack}
+      />
     </SafeAreaView>
   );
 }

@@ -327,6 +327,20 @@ describe('목록 분기(0/1/N)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', { groupId: GROUP_ID_2 });
   });
 
+  // GROMO-1088 — 스택에 이미 GroupRoom이 있으면 파라미터가 얕게 병합된다. challengeId 키를
+  // 빼면 직전 딥링크(챌린지 종료 푸시)의 지목이 이 방으로 새어 든다. 타입이 키를 필수로 두어
+  // 컴파일 시점에도 강제하지만, 왜 undefined를 명시하는지를 여기서 문서로 남긴다.
+  // (toHaveBeenCalledWith는 undefined 프로퍼티를 무시하므로 키 존재를 직접 본다.)
+  test('그룹방 push는 challengeId 키를 항상 명시한다(파라미터 병합 오염 방지)', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+
+    await press('목록-아침 6시 집중방');
+    const params = mockNavigate.mock.calls.find(([route]) => route === 'GroupRoom')?.[1];
+    expect(params).toHaveProperty('challengeId');
+    expect((params as { challengeId?: string }).challengeId).toBeUndefined();
+  });
+
   test('당겨서 새로고침으로 1건이 되어도 목록을 그대로 유지한다', async () => {
     mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
     await renderScreen();
