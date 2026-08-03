@@ -160,15 +160,16 @@ describe('라우트 진입 계약', () => {
     expect(mockGoBack).toHaveBeenCalled();
   });
 
-  test('⋯ 메뉴에 그룹 전환·추가 항목을 두지 않는다', async () => {
+  test('⋯ 를 누르면 그룹 설정 화면으로 이동하고, 방 안엔 파괴적 나가기 항목이 없다', async () => {
     await renderRoute();
 
     await act(async () => {
-      fireEvent.press(screen.getByLabelText('그룹 메뉴'));
+      fireEvent.press(screen.getByLabelText('그룹 설정'));
     });
-    // 메뉴 자체는 열려 있다 — '그룹 나가기'는 두 진입 경로 모두에 있다.
-    expect(screen.getByText('그룹 나가기')).toBeOnTheScreen();
-    expect(screen.queryByText('그룹 전환·추가')).toBeNull();
+    // 나가기·설정·관리는 그룹 설정 화면(GroupSettings)으로 이관됐다(A안) — ⋯ 는 그 화면을 바로 연다.
+    expect(mockNavigate).toHaveBeenCalledWith('GroupSettings', { groupId: GROUP_ID });
+    // 방 안에는 되돌릴 수 없는 '그룹 나가기'가 남아 있지 않다(탈출구 오인 방지).
+    expect(screen.queryByText('그룹 나가기')).toBeNull();
   });
 
   // 챌린지 종료 푸시 딥링크(GROMO-1088) — 래퍼의 일은 파라미터를 그대로 흘리는 것뿐이지만,

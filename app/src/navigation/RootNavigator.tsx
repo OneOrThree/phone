@@ -16,6 +16,7 @@ import {
   GroupRoomRouteScreen,
   NoticeScreen,
   GroupSettingsScreen,
+  GroupProfileEditScreen,
   GroupMemberManageScreen,
   GroupOwnerTransferScreen,
   GroupNoticePermissionScreen,
@@ -125,6 +126,7 @@ export function RootNavigator() {
         {/* 그룹 운영(3차) — 방장 전용. 그룹방 ⋯ '그룹 설정'(GroupSettings)이 관리 허브이며
             여기서 위임·멤버관리·공지권한으로 갈라진다 */}
         <Stack.Screen name="GroupSettings" component={GroupSettingsScreen} />
+        <Stack.Screen name="GroupProfileEdit" component={GroupProfileEditScreen} />
         <Stack.Screen name="GroupMemberManage" component={GroupMemberManageScreen} />
         <Stack.Screen name="GroupOwnerTransfer" component={GroupOwnerTransferScreen} />
         <Stack.Screen name="GroupNoticePermission" component={GroupNoticePermissionScreen} />
