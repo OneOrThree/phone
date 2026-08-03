@@ -170,13 +170,13 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
         return saved;
     }
 
-    /** 매일 09:00~12:00 창 + 창 내 목표 120분. */
+    /** 매일 09:00~12:00(KST) 창 + 창 내 목표 120분. */
     private GroupChallenge windowChallenge(MissionCategory category) {
         GroupChallenge saved = challenge(category, MissionType.TIME_WINDOW);
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(saved)
-                .windowStartAt(Instant.parse("2026-01-01T09:00:00Z"))
-                .windowEndAt(Instant.parse("2026-01-01T12:00:00Z"))
+                .windowStartAt(Instant.parse("2026-01-01T09:00:00+09:00"))
+                .windowEndAt(Instant.parse("2026-01-01T12:00:00+09:00"))
                 .durationMinutes(GOAL_MINUTES)
                 .build());
         return saved;
@@ -485,8 +485,8 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
         GroupChallenge broken = challenge(MissionCategory.FOCUS, MissionType.TIME_WINDOW);
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(broken)
-                .windowStartAt(Instant.parse("2026-01-01T09:00:00Z"))
-                .windowEndAt(Instant.parse("2026-01-01T12:00:00Z"))
+                .windowStartAt(Instant.parse("2026-01-01T09:00:00+09:00"))
+                .windowEndAt(Instant.parse("2026-01-01T12:00:00+09:00"))
                 .durationMinutes(null)
                 .build());
         GroupChallengeBet bet = openBet(broken, user);
