@@ -24,8 +24,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * 창형(TIME_WINDOW) 챌린지의 <b>창 종료 감지 푸시</b>(B4) — 15분 크론.
@@ -70,6 +68,15 @@ public class ChallengeWindowEndNotificationService {
      */
     static final Duration RECENTLY_ENDED_WINDOW = Duration.ofMinutes(30);
 
+    /**
+     * 창 상세 조회의 {@code IN} 절 크기 상한.
+     *
+     * <p>대상이 <b>활성 TIME_WINDOW 전건</b>이라(카테고리 필터를 걷으면서 범위가 넓어졌다) 챌린지가
+     * 늘면 바인드 목록이 그대로 커진다. 15분마다 도는 배치가 발송 전에 죽지 않게 잘라서 조회한다
+     * (@codex 리뷰). 일 목표형의 상세 조회와 같은 기준·같은 크기다.
+     */
+    static final int DETAIL_CHUNK_SIZE = 500;
+
     private final GroupChallengeRepository groupChallengeRepository;
     private final GroupChallengeWindowRepository groupChallengeWindowRepository;
     private final WindowFocusAggregator windowFocusAggregator;
@@ -102,10 +109,8 @@ public class ChallengeWindowEndNotificationService {
             return summary(startedAtMillis);
         }
 
-        Map<UUID, GroupChallengeWindow> windowsByChallengeId = groupChallengeWindowRepository
-                .findByChallengeIdIn(challenges.stream().map(GroupChallenge::getId).toList())
-                .stream()
-                .collect(Collectors.toMap(GroupChallengeWindow::getChallengeId, Function.identity()));
+        Map<UUID, GroupChallengeWindow> windowsByChallengeId =
+                findWindows(challenges.stream().map(GroupChallenge::getId).toList());
         // 종료 시각을 함께 들고 간다 — 그 뒤에 그룹에 들어온 멤버는 이 회차에 참여한 적이 없다.
         Map<UUID, Instant> endedAtByChallengeId = new LinkedHashMap<>();
         for (GroupChallenge challenge : challenges) {
@@ -159,6 +164,18 @@ public class ChallengeWindowEndNotificationService {
                 // (@codex 리뷰). createdAt 은 영속화 시점에 채워지므로 null 은 통과시킨다.
                 .filter(end -> createdAt == null || !createdAt.isAfter(end))
                 .max(Comparator.naturalOrder());
+    }
+
+    /** 창 상세 — {@code IN} 절을 {@link #DETAIL_CHUNK_SIZE} 로 잘라 조회한다. */
+    private Map<UUID, GroupChallengeWindow> findWindows(List<UUID> challengeIds) {
+        Map<UUID, GroupChallengeWindow> windows = new LinkedHashMap<>();
+        for (int from = 0; from < challengeIds.size(); from += DETAIL_CHUNK_SIZE) {
+            List<UUID> chunk =
+                    challengeIds.subList(from, Math.min(from + DETAIL_CHUNK_SIZE, challengeIds.size()));
+            groupChallengeWindowRepository.findByChallengeIdIn(chunk)
+                    .forEach(window -> windows.put(window.getChallengeId(), window));
+        }
+        return windows;
     }
 
     /**
