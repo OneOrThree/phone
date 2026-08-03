@@ -270,7 +270,7 @@ export async function cancelBet(groupId: string, betId: string): Promise<void> {
 // 호출자 **본인의 참가만** 철회하고 본인 참가비를 전액 환불한다. 허용 조건(참가자·OPEN·시작 전)은
 // 서버가 정본이다 — 마지막 참가자가 떠나면 서버가 내기를 CANCELED로 자동 닫는다(개설자 철회 허용).
 // 에러: BET_NOT_JOINED(409) · BET_LEAVE_CLOSED(409) · BET_NOT_OPEN(409).
-// 기존 cancelBet(개설자 단독 취소)은 구버전 앱 호환으로 서버에 남는다 — 신규 UI는 이 함수 하나로 통합.
+// 시작 전 철회는 이 함수, 시작 후의 개설자 단독 취소는 기존 cancelBet — 카드가 배타 조건으로 나눠 쓴다.
 export async function leaveBet(groupId: string, betId: string): Promise<void> {
   await api.delete<void>(`/api/v1/groups/${groupId}/bets/${betId}/participation`);
 }
