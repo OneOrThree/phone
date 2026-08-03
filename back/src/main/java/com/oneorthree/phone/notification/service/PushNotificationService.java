@@ -5,6 +5,7 @@ import com.oneorthree.phone.common.port.PushNotificationPort;
 import com.oneorthree.phone.common.port.PushSendResult;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserNotificationSettings;
+import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,7 @@ public class PushNotificationService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final PushNotificationPort pushNotificationPort;
+    private final UserRepository userRepository;
 
     /**
      * 필터 체인 통과 시에만 발송한다.
@@ -63,9 +65,13 @@ public class PushNotificationService {
         try {
             PushSendResult result = pushNotificationPort.send(user.getDeviceToken(), message);
             if (result == PushSendResult.INVALID_TOKEN) {
-                // 무효 토큰 정리 — 다음 발송부터 필터 2 에서 컷 (더티체킹 반영)
-                user.setDeviceToken(null);
-                log.info("무효 토큰 정리 — userId={}", user.getId());
+                // 무효 토큰 정리 — 다음 발송부터 필터 2 에서 컷.
+                // 더티체킹이 아니라 조건부 컬럼 UPDATE 를 쓴다: User 에 @Version·@DynamicUpdate 가 없어
+                // 더티체킹 UPDATE 는 전체 컬럼을 옛 스냅샷으로 덮어쓰고, 그사이 탈퇴가 먼저 커밋됐다면
+                // is_deleted 와 파기된 PII 까지 되살린다(GROMO-1090 @codex 리뷰 P1).
+                // 인메모리 user 의 토큰은 그대로 남지만, 이 경로는 곧바로 false 로 빠져 더 쓰지 않는다.
+                int cleared = userRepository.clearDeviceToken(user.getId());
+                log.info("무효 토큰 정리 — userId={}, updated={}", user.getId(), cleared);
                 return false;
             } else if (result == PushSendResult.FAILED) {
                 log.warn("푸시 발송 실패 — userId={}, title={}", user.getId(), message.title());

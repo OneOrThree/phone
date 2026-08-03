@@ -5,6 +5,7 @@ import com.oneorthree.phone.common.port.PushNotificationPort;
 import com.oneorthree.phone.common.port.PushSendResult;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserNotificationSettings;
+import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,6 +43,9 @@ class PushNotificationServiceTest {
 
     @Mock
     private PushNotificationPort pushNotificationPort;
+
+    @Mock
+    private UserRepository userRepository;
 
     @InjectMocks
     private PushNotificationService pushNotificationService;
@@ -184,14 +188,19 @@ class PushNotificationServiceTest {
     // ── 필터 4: 발송 결과 처리 ─────────────────────────────────────────────────
 
     @Test
-    @DisplayName("포트 INVALID_TOKEN 반환 → user.deviceToken null 정리")
+    @DisplayName("포트 INVALID_TOKEN 반환 → device_token 조건부 UPDATE 로 정리 (더티체킹 아님)")
     void clearsTokenWhenPortReturnsInvalidToken() {
+        // 더티체킹으로 지우면 User 전체 컬럼 UPDATE 가 나가, 그사이 먼저 커밋된 탈퇴의 is_deleted·파기된
+        // PII 를 옛 스냅샷이 되살린다(@codex 리뷰 P1). is_deleted=false 조건이 걸린 컬럼 UPDATE 를 쓴다.
         User user = userWithToken();
         given(pushNotificationPort.send(any(), any())).willReturn(PushSendResult.INVALID_TOKEN);
 
-        pushNotificationService.sendIfAllowed(user, null, MESSAGE, NOON_KST);
+        boolean sent = pushNotificationService.sendIfAllowed(user, null, MESSAGE, NOON_KST);
 
-        assertThat(user.getDeviceToken()).isNull();
+        assertThat(sent).isFalse();
+        verify(userRepository).clearDeviceToken(USER_ID);
+        // 엔티티는 건드리지 않는다 — 건드리는 순간 전체 컬럼 UPDATE 가 되살아난다.
+        assertThat(user.getDeviceToken()).isNotNull();
     }
 
     @Test
