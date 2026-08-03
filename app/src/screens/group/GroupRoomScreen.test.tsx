@@ -524,7 +524,7 @@ describe('챌린지 섹션', () => {
     expect(screen.queryByTestId('group.challenge.add')).toBeNull();
   });
 
-  test('방장이 카드를 롱프레스해 삭제하면 목록을 재조회한다', async () => {
+  test('방장이 카드의 X 버튼으로 삭제하면 목록을 재조회한다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);
@@ -532,8 +532,9 @@ describe('챌린지 섹션', () => {
     mockDeleteChallenge.mockResolvedValue(undefined);
     await renderRoom();
 
+    // 롱프레스 삭제는 X 버튼으로 대체됐다(GROMO-1101 — ChallengeCard.test가 상세를 잠근다).
     await act(async () => {
-      fireEvent(screen.getByTestId('group.challenge.card.c1'), 'longPress');
+      fireEvent.press(screen.getByTestId('group.challenge.delete.c1'));
     });
     await act(async () => {
       alertSpy.mock.calls[0][2]?.find((b) => b.text === '삭제')?.onPress?.();
@@ -555,7 +556,7 @@ describe('챌린지 섹션', () => {
     await renderRoom();
 
     await act(async () => {
-      fireEvent(screen.getByTestId('group.challenge.card.c1'), 'longPress');
+      fireEvent.press(screen.getByTestId('group.challenge.delete.c1'));
     });
     await act(async () => {
       alertSpy.mock.calls[0][2]?.find((b) => b.text === '삭제')?.onPress?.();
@@ -1369,7 +1370,7 @@ describe('그룹 전환(같은 인스턴스에 다른 groupId)', () => {
     const { rerender } = await renderRoom();
 
     await act(async () => {
-      fireEvent(screen.getByTestId('group.challenge.card.c1'), 'longPress');
+      fireEvent.press(screen.getByTestId('group.challenge.delete.c1'));
     });
     await act(async () => {
       alertSpy.mock.calls[0][2]?.find((b) => b.text === '삭제')?.onPress?.();
