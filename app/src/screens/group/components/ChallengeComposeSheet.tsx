@@ -1,5 +1,15 @@
-import { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Keyboard,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
@@ -18,8 +28,9 @@ import type { CreateChallengeRequest, MissionCategory, MissionType } from '@/typ
 // 확장 계약 docs/app/challenge-impl-2026-08/contract.md §2 "앱 UI 계약".
 //
 // 폼 4필드: 카테고리 세그먼트(집중 시간/스크린타임) + 방식 세그먼트(매일 목표/시간대)
-// + (시간대일 때) 창 시작·종료 시각 휠 + 목표분 칩. 규격은 그룹 만들기 화면의 세그먼트·칩,
-// 집중 목표의 DrumPicker를 그대로 따른다 — 같은 값을 고르는 자리가 달라 보이면 안 된다.
+// + (시간대일 때) 창 시작·종료 시각 휠 + 목표분(칩 프리셋 + 분 단위 직접 입력, GROMO-1098).
+// 규격은 그룹 만들기 화면의 세그먼트·칩, 집중 목표의 DrumPicker, 그룹 찾기 시트의 인풋을
+// 그대로 따른다 — 같은 값을 고르는 자리가 달라 보이면 안 된다.
 //
 // ⚠️ 전송 계약(계약 §2): TIME_WINDOW는 durationMinutes 필수(0 < x ≤ 창 길이) +
 //    windowStart/windowEnd(ISO, KST 앵커 — 서버는 시각만 읽는 '매일 반복 시간대'다).
@@ -28,9 +39,13 @@ import type { CreateChallengeRequest, MissionCategory, MissionType } from '@/typ
 // ⚠️ SCREEN_TIME 생성 시 응답 nonParticipants에 권한 미허용 멤버가 담겨 온다 —
 //    만들어지긴 했지만 그 사람들은 집계되지 않으므로 방장에게 반드시 알린다.
 
-// 목표 시간(분) — 그룹 만들기 화면의 DURATION_OPTIONS와 같은 4단(§3-2).
+// 목표 시간(분) 빠른 선택 프리셋 — 그룹 만들기 화면의 DURATION_OPTIONS와 같은 4단(§3-2).
+// 프리셋 밖 값은 아래 직접 입력으로 받는다(GROMO-1098) — 단일 소스는 durationText 하나다.
 const DURATION_OPTIONS = [30, 60, 120, 180] as const;
 const DURATION_DEFAULT = 60;
+// 직접 입력 허용 범위 — 서버는 양수(0 < x)만 검증하므로 상한(하루 = 1440분)은 앱이 지킨다.
+const DURATION_MIN = 1;
+const DURATION_MAX = 1440;
 
 // 창 기본값 09:00~12:00 — 계약 예시의 시간대이자 목표분 4단이 전부 들어가는 최소 길이(180분)다.
 const WINDOW_START_DEFAULT = 9 * 60;
@@ -80,8 +95,13 @@ const NON_PARTICIPANT_MESSAGE = '일부 멤버는 스크린타임 권한이 없�
 // 이미 있는 조합을 고를 수 없는 이유 — 세그먼트 아래 한 줄로 알린다.
 const TAKEN_CAPTION = '이미 있는 종류·방식은 기존 챌린지를 삭제해야 다시 만들 수 있어요';
 const ALL_TAKEN_CAPTION = '모든 종류의 챌린지가 이미 있어요';
-// 창이 최소 목표(30분)보다 짧다 — 목표 칩이 전부 잠기므로 CTA를 막고 사유를 적는다.
-const WINDOW_TOO_SHORT_CAPTION = '시간대가 너무 짧아요. 30분 이상으로 늘려주세요';
+// 직접 입력 검증 안내 — 범위 밖이면 CTA를 막고 사유를 인라인으로 적는다(막다른 상태 금지).
+// 문구 결은 내기 시트의 참가비 안내("1~1,000코인 사이로 입력해 주세요")와 맞춘다.
+const DURATION_RANGE_CAPTION = '목표 시간은 1~1,440분 사이로 입력해 주세요';
+// 창 길이 초과는 기존 칩 잠금(chipDisabled)과 같은 사실이다 — 칩은 잠그면 끝이지만
+// 직접 입력은 이미 쓴 값이 남으므로 고치는 방법(이하로 줄이기)을 문장에 싣는다.
+const durationOverWindowCaption = (windowLength: number): string =>
+  `시간대보다 길어요. ${windowLength}분 이하로 입력해 주세요`;
 
 // 생성 실패 문구 — HTTP status가 아니라 서버 code로 분기하고, 모르는 code는 공통 문구(§5-2).
 function createErrorMessage(e: unknown): string {
@@ -173,13 +193,29 @@ export default function ChallengeComposeSheet({
     }
     return TYPE_OPTIONS[0].value;
   });
-  const [durationMinutes, setDurationMinutes] = useState<number>(DURATION_DEFAULT);
+  // 목표 시간의 단일 소스 — 칩 탭도 이 문자열을 갱신하고, 칩 선택 표시도 이 문자열에서 파생한다.
+  // 숫자가 아니라 문자열인 이유: "120"을 치는 중간 상태("1"·"12")와 빈 값을 잃지 않기 위해서다.
+  const [durationText, setDurationText] = useState<string>(String(DURATION_DEFAULT));
   // 창 시작·종료 — '하루 중 분'(0~1439). 자정 걸침은 서버가 400으로 거부하므로(start < end)
   // 휠 단계에서 뒤집힌 선택을 거부한다(DrumPicker의 값 거부 동작 — 휠이 제자리로 돌아간다).
   const [windowStart, setWindowStart] = useState(WINDOW_START_DEFAULT);
   const [windowEnd, setWindowEnd] = useState(WINDOW_END_DEFAULT);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // 키보드가 바텀시트를 덮는 문제 보정(GroupFindSheet와 같은 패턴) — 패널은 하단 고정이라
+  // 자체적으로 올라가지 않는다. 자식 끝에 키보드 높이만큼 여백을 깔아 내용을 키보드 위로 올린다.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, (e) => setKeyboardHeight(e.endCoordinates.height));
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   // 생성 단일 실행 잠금 — submitting(state)은 리렌더 뒤에야 보이므로 같은 틱의 연타를 막지 못한다.
   // V20 유니크 인덱스가 서버 레이스를 봉합했지만, 두 번째 요청이 409로 튕겨 성공 시트 위에
@@ -190,7 +226,22 @@ export default function ChallengeComposeSheet({
   const windowLength = windowEnd - windowStart;
   // 창 길이를 넘는 목표는 서버가 INVALID_MISSION_PARAMS로 거부한다 — 칩을 미리 잠근다.
   const chipDisabled = (m: number): boolean => isWindow && m > windowLength;
-  const noChipFits = isWindow && DURATION_OPTIONS.every((m) => m > windowLength);
+
+  // 직접 입력 파생값 — onChangeText가 숫자만 남기므로 정수 아님은 빈 값뿐이다.
+  const durationMinutes = /^\d+$/.test(durationText) ? parseInt(durationText, 10) : null;
+  const durationInRange =
+    durationMinutes !== null && durationMinutes >= DURATION_MIN && durationMinutes <= DURATION_MAX;
+  // 검증 통과 = 범위 안 + (시간대면) 창 길이 이하 — 칩 잠금(chipDisabled)과 같은 규칙이다.
+  const durationValid =
+    durationInRange && (!isWindow || (durationMinutes !== null && durationMinutes <= windowLength));
+  // 인라인 안내 — 빈 값은 치우는 중일 뿐이라 빨간 줄을 띄우지 않는다(CTA만 잠근다.
+  // 범위는 플레이스홀더가 상시 알려 준다).
+  const durationCaption =
+    durationText === '' || durationValid
+      ? null
+      : durationInRange
+        ? durationOverWindowCaption(windowLength)
+        : DURATION_RANGE_CAPTION;
 
   const categoryOption =
     CATEGORY_OPTIONS.find((c) => c.value === missionCategory) ?? CATEGORY_OPTIONS[0];
@@ -214,22 +265,22 @@ export default function ChallengeComposeSheet({
   // 창 시각 커밋 — 시작 ≥ 종료가 되는 선택은 거부한다(휠이 제자리로 돌아간다).
   // 자정 걸침 창은 v1 범위 밖이다 — 서버도 windowEnd.isAfter(windowStart)를 강제해
   // 400(INVALID_MISSION_PARAMS)으로 거절한다(GroupChallengeService.createChallenge 검증).
-  // 커밋 후 현재 목표분이 창보다 길어지면 들어가는 가장 큰 칩으로 당긴다 —
-  // 잠긴 칩이 선택된 채 CTA만 막히는 상태를 만들지 않는다.
+  // 커밋 후 현재 목표분이 창보다 길어지면 창 길이로 당긴다(칩 스냅의 일반화 — 칩 값이면
+  // 그 칩이 켜진다) — 초과 값이 남은 채 CTA만 막히는 상태를 만들지 않는다.
   function commitWindow(start: number, end: number) {
     if (start >= end) return;
     setWindowStart(start);
     setWindowEnd(end);
     const length = end - start;
-    if (durationMinutes > length) {
-      const fit = [...DURATION_OPTIONS].reverse().find((m) => m <= length);
-      if (fit) setDurationMinutes(fit);
+    if (durationMinutes !== null && durationMinutes > length) {
+      setDurationText(String(length));
     }
   }
 
   async function submit() {
     // 생성 중 중복 탭 방지 — 판정은 ref로만 한다(submitting은 스피너·disabled 표시 전용).
-    if (submitLock.current || allTaken || (isWindow && chipDisabled(durationMinutes))) return;
+    // durationMinutes null 검사는 타입 좁히기용 — durationValid가 이미 배제한다.
+    if (submitLock.current || allTaken || !durationValid || durationMinutes === null) return;
     submitLock.current = true;
     setSubmitting(true);
     setErrorMsg(null);
@@ -263,7 +314,7 @@ export default function ChallengeComposeSheet({
     }
   }
 
-  const submitBlocked = submitting || allTaken || (isWindow && chipDisabled(durationMinutes));
+  const submitBlocked = submitting || allTaken || !durationValid;
 
   return (
     // 생성 중에는 딤 탭으로 닫히지 않게 막는다(요청이 떠 있는 상태에서의 언마운트 방지).
@@ -369,7 +420,7 @@ export default function ChallengeComposeSheet({
               style={[s.chip, on ? s.chipOn : null, off ? s.chipOffBox : null]}
               activeOpacity={0.8}
               disabled={off}
-              onPress={() => setDurationMinutes(m)}
+              onPress={() => setDurationText(String(m))}
               testID={`group.challenge.duration.${m}`}
             >
               <Text style={[s.chipText, on ? s.chipTextOn : null, off ? s.chipTextOff : null]}>
@@ -379,7 +430,25 @@ export default function ChallengeComposeSheet({
           );
         })}
       </View>
-      {noChipFits && <Text style={s.error}>{WINDOW_TOO_SHORT_CAPTION}</Text>}
+      {/* 분 단위 직접 입력(GROMO-1098) — 칩과 같은 값을 쓰는 한 소스다. 규격은 그룹 찾기
+          시트·그룹 만들기 화면의 46pt 인풋 관행. */}
+      <View style={[s.inputBox, durationCaption !== null ? s.inputBoxError : null]}>
+        <TextInput
+          style={s.input}
+          value={durationText}
+          // 숫자만 남기고 선행 0은 접는다("0007" → "7") — 표시 문자열과 제출값(파싱 결과)이
+          // 어긋나지 않게 한다. 홑 "0"은 치는 중간 상태라 남긴다(범위 안내가 받는다).
+          onChangeText={(v) => setDurationText(v.replace(/\D+/g, '').replace(/^0+(?=\d)/, ''))}
+          keyboardType="number-pad"
+          maxLength={4}
+          placeholder={`직접 입력 (${DURATION_MIN}~${DURATION_MAX}분)`}
+          placeholderTextColor={T.inkMuted}
+          accessibilityLabel="목표 시간 직접 입력"
+          testID="group.challenge.durationInput"
+        />
+        <Text style={s.inputUnit}>분</Text>
+      </View>
+      {durationCaption !== null && <Text style={s.error}>{durationCaption}</Text>}
 
       <View style={s.note}>
         <Ionicons
@@ -406,6 +475,9 @@ export default function ChallengeComposeSheet({
           <Text style={s.submitText}>만들기</Text>
         )}
       </TouchableOpacity>
+
+      {/* 키보드 보정 여백 — 패널이 하단 고정이라 이 여백이 내용 전체를 키보드 위로 올린다. */}
+      {keyboardHeight > 0 && <View style={{ height: keyboardHeight }} />}
     </SheetShell>
   );
 }
@@ -468,6 +540,23 @@ const s = StyleSheet.create({
   chipText: { ...T.text.label, color: T.inkSub },
   chipTextOn: { color: T.accentDeep, fontWeight: '700' },
   chipTextOff: { color: T.inkFaint, fontWeight: '500' },
+
+  // 직접 입력 — 그룹 만들기 화면 inputBox와 같은 규격(46/r13/1.5border).
+  inputBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.sm,
+    backgroundColor: T.white,
+    borderWidth: 1.5,
+    borderColor: T.border,
+    borderRadius: 13,
+    paddingHorizontal: T.space.md,
+    height: 46,
+    marginTop: T.space.sm,
+  },
+  inputBoxError: { borderColor: T.dangerInk, backgroundColor: T.dangerBg },
+  input: { ...T.text.label, flex: 1, color: T.ink, padding: 0 },
+  inputUnit: { ...T.text.caption, fontWeight: '500', color: T.inkMuted },
 
   note: {
     flexDirection: 'row',
