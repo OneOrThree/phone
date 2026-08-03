@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -17,7 +18,8 @@ import { BET_ALREADY_FAILED, createBet, groupErrorCode, joinBet } from '@/servic
 import { logGroupBetCreated, logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import { useUser } from '@/store/UserContext';
-import { todayStr } from '@/utils/localDate';
+import { todayStr, tomorrowStr } from '@/utils/localDate';
+import { nowSecondsInZone, timeStrToSeconds } from '@/utils/challengeTime';
 import type { GroupChallengeResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { BetSheetMode } from './ChallengeCard';
@@ -53,11 +55,25 @@ import { categoryLabel, missionLabel } from './challengeLabel';
 //     같은 실패만 반복한다. Alert를 쓰는 이유는 인라인 문구가 시트와 함께 사라지기 때문이다
 //     (ChallengeComposeSheet의 nonParticipants 안내와 같은 이유).
 
-// 서버 허용 판돈(백 명세 결정 8) — 그 외 값은 BET_INVALID_STAKE로 튕긴다.
+// 참가비 자유 입력(계약 §2, GROMO-1097) — 서버 검증(1~1000)과 같은 범위를 클라에서도 민다.
+// 범위 밖·빈 값이면 확인 버튼을 잠그고 인라인으로 알린다(모달 금지 — 스펙).
+const STAKE_MIN = 1;
+const STAKE_MAX = 1000;
+// 빠른 선택 프리셋 — 자유 입력 확대 뒤에도 원터치 선택지로 남긴다. 칩 탭 = 입력 필드에 값 반영
+// (단일 소스는 입력 필드다 — 칩의 '선택됨'은 입력값이 그 칩과 같다는 파생 표시일 뿐이다).
 const STAKE_OPTIONS = [10, 30, 50, 100] as const;
-// 기본 선택은 **가장 낮은 판돈**. 돈이 걸린 선택의 기본값은 사용자가 아무 생각 없이 눌러도
+// 기본 선택은 **가장 낮은 프리셋**. 돈이 걸린 선택의 기본값은 사용자가 아무 생각 없이 눌러도
 // 가장 덜 잃는 쪽이어야 한다(챌린지 목표분 칩의 '가운데 기본값'과 기준이 다른 이유).
 const STAKE_DEFAULT = STAKE_OPTIONS[0];
+// 범위 안내 — 서버 BET_INVALID_STAKE 메시지와 같은 문장(같은 사실을 두 자리에서 달리 말하지 않는다).
+const STAKE_RANGE_CAPTION = '참가비는 1~1,000코인 사이로 입력해 주세요';
+
+// 시간대 마감 후 내일 적용(계약 §3, GROMO-1103) — 실패 모달 대신 처음부터 내일 내기로 연다.
+// 시트 안 안내(열 때 이미 마감을 안 경우)와 Alert(경합 재시도로 내일 내기가 된 경우 — 시트가
+// 닫히므로 인라인 자리가 없다)가 같은 문장을 쓴다.
+const TOMORROW_NOTE = '오늘 시간대가 끝나 내일 시간대부터 적용돼요';
+const TOMORROW_ALERT_TITLE = '내일 내기로 열었어요';
+const TOMORROW_ALERT_BODY = '오늘 시간대가 끝나 내일 시간대부터 적용돼요.';
 
 // 몰수 룰(계약 확정 정책) — 승자 0명이면 환불이 아니라 **전액 소멸**이다. 돈이 걸리는 자리라
 // 개설·참가 양쪽 모두에서 고지한다(구 문구 '전액 환불돼요'는 V19 룰 — 그대로 두면 거짓말이 된다).
@@ -120,7 +136,21 @@ export default function BetSheet({
   // 의미(이미 달성)로 이미 배선돼 있고 부모(GroupRoomScreen)는 A3 전유다 — 내 진행 행을
   // 시트가 직접 읽는다. 카드의 myBlockedNow와 같은 근거·같은 3상 규칙이다.
   const { userId } = useUser();
-  const [stake, setStake] = useState<number>(STAKE_DEFAULT);
+  // 참가비는 **입력 필드가 단일 소스**다(GROMO-1097) — 칩은 이 값을 쓰는 원터치 프리셋일 뿐이다.
+  // 문자열로 쥐는 이유: 지우는 중의 빈 값·앞자리 0 같은 입력 중간 상태를 숫자로 뭉개면
+  // 타이핑이 뜻대로 되지 않는다. 검증·전송은 파생값(stakeValue)이 맡는다.
+  const [stakeText, setStakeText] = useState<string>(String(STAKE_DEFAULT));
+  // 시간대 챌린지의 '오늘 창이 이미 끝났나'(계약 §3, GROMO-1103) — 시트를 연 시점에 한 번만
+  // 판정해 고정한다. 열어 둔 사이 마감·자정을 넘겨도 화면의 안내와 전송 날짜가 어긋나지 않는다.
+  // 자정 걸침 창(start > end)은 제외 — 그 창의 실질 마감은 자정(서버 날짜 게이트)이라
+  // '오늘 창이 끝났다'가 성립하지 않는다(서버 PR #446과 같은 해석).
+  // 시각 비교는 Asia/Seoul 벽시계다(계약 §1 — 서버 today()·창 해석 모두 KST).
+  const [betForTomorrow] = useState<boolean>(() => {
+    if (mode !== 'create' || challenge.missionType !== 'TIME_WINDOW') return false;
+    const start = timeStrToSeconds(challenge.windowStart);
+    const end = timeStrToSeconds(challenge.windowEnd);
+    return start <= end && nowSecondsInZone('Asia/Seoul') >= end;
+  });
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // 서버가 확정한 잔액 부족(F3). 잔액을 다시 못 받아도 이 판돈이 안 된다는 사실은 이미 정해졌다.
@@ -134,8 +164,13 @@ export default function BetSheet({
   const bet = challenge.bet ?? null;
   const label = missionLabel(challenge) ?? categoryLabel(challenge);
   const isCreate = mode === 'create';
-  // 참가 모드의 판돈은 개설자가 이미 정했다 — 고를 수 없다.
-  const amount = isCreate ? stake : (bet?.stake ?? 0);
+  // 입력값 검증(1~1000 정수) — 입력이 digits만 통과하므로 남는 실패는 빈 값·범위 밖뿐이다.
+  const stakeValue = stakeText === '' ? NaN : Number(stakeText);
+  const stakeValid =
+    Number.isInteger(stakeValue) && stakeValue >= STAKE_MIN && stakeValue <= STAKE_MAX;
+  // 참가 모드의 판돈은 개설자가 이미 정했다 — 고를 수 없다. 개설 모드의 무효 입력은 0으로 둔다 —
+  // 어차피 CTA가 잠기고(stakeValid), 부족분 계산이 NaN으로 번지지 않게 하기 위해서다.
+  const amount = isCreate ? (stakeValid ? stakeValue : 0) : (bet?.stake ?? 0);
   const shortage = amount - coins;
   // 잔액을 모르면 부족 판정 자체를 하지 않는다 — 모르는 값으로 사용자를 잠그지 않는다(F1).
   const insufficient = coinsLoaded && shortage > 0;
@@ -173,6 +208,7 @@ export default function BetSheet({
     insufficient ||
     serverInsufficient ||
     achievedBlocked ||
+    (isCreate && !stakeValid) ||
     (!isCreate && bet === null);
 
   // 시트를 열 때 서버 잔액을 다시 받는다(§0-3).
@@ -186,18 +222,25 @@ export default function BetSheet({
     onDone();
   }
 
+  // 개설 요청 + 성공 계측 — 최초 시도와 BET_CLOSED 재시도(내일 날짜)가 같은 경로를 탄다.
+  async function requestCreate(date: string) {
+    await createBet(groupId, challenge.id, { stake: amount, date });
+    logGroupBetCreated({
+      stake: amount,
+      mission_type: challenge.missionType,
+      mission_category: challenge.missionCategory,
+    });
+  }
+
   async function submit() {
     if (disabled) return;
     setSubmitting(true);
     setErrorMsg(null);
     try {
       if (isCreate) {
-        await createBet(groupId, challenge.id, { stake: amount, date: todayStr() });
-        logGroupBetCreated({
-          stake: amount,
-          mission_type: challenge.missionType,
-          mission_category: challenge.missionCategory,
-        });
+        // 오늘 창이 이미 끝난 시간대 챌린지는 처음부터 내일 내기로 연다(계약 §3) —
+        // 서버 409(BET_CLOSED) 실패 모달 대신 시트의 '내일 시간대부터 적용' 안내가 선다.
+        await requestCreate(betForTomorrow ? tomorrowStr() : todayStr());
       } else {
         // 도달할 수 없는 조합이지만(위 disabled 가드), 도달하면 공통 문구로 떨어뜨린다 —
         // 그냥 return하면 submitting이 true로 남아 시트가 영영 잠긴다(F12).
@@ -213,122 +256,146 @@ export default function BetSheet({
       refresh();
       onDone();
     } catch (e) {
-      switch (groupErrorCode(e)) {
-        // 이미 참가한 상태 = 원하던 결과다. 새 참가가 아니므로 계측은 발행하지 않는다
-        // (GroupFindSheet의 ALREADY_MEMBER와 같은 규칙).
-        case 'BET_ALREADY_JOINED':
+      // 경합·마감 직후 대비(계약 §3): 오늘 날짜로 보냈는데 그 사이 창이 닫혔다면(BET_CLOSED)
+      // 내일 날짜로 정확히 1회 재시도한다. 성공하면 같은 '내일 적용' 안내를 Alert로 세운다 —
+      // 시트는 곧 닫히므로 인라인 안내는 설 자리가 없다.
+      if (isCreate && isWindowChallenge && !betForTomorrow && groupErrorCode(e) === 'BET_CLOSED') {
+        try {
+          await requestCreate(tomorrowStr());
           refresh();
+          Alert.alert(TOMORROW_ALERT_TITLE, TOMORROW_ALERT_BODY);
           onDone();
           return;
-        // 누가 먼저 열었는지는 앱이 알 수 없다 — 내 성공 직후의 재진입일 수도 있다(F6).
-        // 사실 범위 안에서만 말한다.
-        // 그 '내가 먼저 열었을' 가능성 때문에 잔액도 다시 받는다(코덱스 리뷰) — 응답만 타임아웃되고
-        // 서버에선 개설이 성립했다면 판돈은 이미 빠졌는데 전역 잔액은 차감 전 값으로 남는다.
-        // 남이 먼저 연 경우라면 재조회는 같은 값을 다시 확인할 뿐이라 무해하다.
-        // ⚠️ 취소·정산된 내기도 이 코드로 온다(챌린지·날짜 유니크가 행을 남긴다 — 같은 날 재개설은
-        //    v1 불가 확정, 백로그 1051). 그 경우 재조회 후에도 화면에 내기가 없어 '이미 열려
-        //    있어요'는 거짓말이 된다 — 두 사실을 모두 덮는 문장으로 말한다.
-        case 'BET_ALREADY_EXISTS':
-          refresh();
-          failAndReload(
-            '오늘은 내기를 열 수 없어요',
-            '이미 오늘 내기가 있어요. 진행 중이면 새로고침 후 참가할 수 있고, 취소했거나 끝난 내기는 오늘 다시 열 수 없어요.',
-          );
+        } catch (retryError) {
+          // 재시도 실패는 원래 에러 분기로 보낸다 — 내일 날짜를 모르는 구서버는 BET_CLOSED를
+          // 그대로 돌려주고(기존 '시간이 지났어요' 문구가 여전히 사실이다 — 내일이 되면 다시
+          // 열 수 있다), 남이 먼저 연 내일 내기는 BET_ALREADY_EXISTS로 각자 분기를 탄다.
+          handleSubmitError(retryError);
           return;
-        case 'BET_ALREADY_ACHIEVED':
-          failAndReload('참가할 수 없어요', '이미 오늘 목표를 달성해서 참가할 수 없어요');
-          return;
-        // SCREEN_TIME의 반대 방향 가드(계약 §2) — 이미 목표를 초과해 확정 패배한 사람의 판돈
-        // 투입을 서버가 막는다. 이 시트에서 재시도해도 오늘은 영원히 같은 실패다 — 닫고 재조회한다.
-        case BET_ALREADY_FAILED:
-          failAndReload(
-            isCreate ? '내기를 열 수 없어요' : '참가할 수 없어요',
-            isCreate ? BET_FAILED_CREATE_CAPTION : BET_FAILED_CAPTION,
-          );
-          return;
-        // 같은 코드가 세 뜻이다(계약 §2·§4) — 참가는 '이미 마감', 개설은 'date가 오늘(KST)이
-        // 아님', **창 내기의 개설·참가는 '오늘 창이 이미 끝남'**(now ≥ 오늘 창 endAt).
-        // 아직 만들지도 않은 내기에 "이미 마감돼 참가할 수 없어요"는 뜻이 통하지 않는다(F4).
-        case 'BET_CLOSED':
-          failAndReload(
-            isCreate
-              ? isWindowChallenge
-                ? '내기를 열 수 있는 시간이 지났어요'
-                : '오늘 내기만 열 수 있어요'
-              : '마감된 내기예요',
-            isCreate
-              ? isWindowChallenge
-                ? '오늘 시간대가 끝나 내기를 열 수 없어요. 내일 다시 열 수 있어요.'
-                : '날짜가 바뀌었어요. 새로고침 후 다시 시도해주세요.'
-              : '이미 마감돼 참가할 수 없어요.',
-          );
-          return;
-        // 챌린지가 이미 비활성이다(GROMO-1025) — 시트의 마지막 성공 조회 이후 종료됐거나,
-        // 재조회 실패로 낡은 ACTIVE 스냅샷을 보고 있던 경우다. 이 시트에서 재시도해도 영원히
-        // 같은 실패라 닫고 재조회한다. 문구는 staleBetSheetAlert의 같은 사실 분기와 같은 문장이다.
-        // ⚠️ 현재 서버는 이 코드를 **개설(createBet)에서만** 던진다 — joinBet은 챌린지 상태를
-        //    보지 않는다(GroupBetService). 참가 분기는 도달 불가능한 선제 방어다: switch가 모드
-        //    공용이고, 서버가 참가에도 같은 검사를 추가하면 그대로 대비된다(클로드 리뷰).
-        case 'BET_CHALLENGE_INACTIVE':
-          failAndReload(
-            '끝난 챌린지예요',
-            isCreate
-              ? '종료된 챌린지에는 내기를 열 수 없어요.'
-              : '종료된 챌린지의 내기에는 참가할 수 없어요.',
-          );
-          return;
-        // 사라진 챌린지에 계속 걸어 봐야 결과는 같다 — 닫고 부모가 목록을 다시 받는다.
-        case 'NOT_FOUND':
-          failAndReload('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
-          return;
-        // 챌린지가 아니라 **내기 자체**가 없다(계약 §2-2의 BET_NOT_FOUND — 404, 참가 경로).
-        // 공통 문구('잠시 후 다시 시도')로 떨어뜨리면 영원히 같은 실패를 재시도하게 된다.
-        case 'BET_NOT_FOUND':
-          failAndReload('사라진 내기예요', '이미 없어진 내기예요. 최신 상태로 새로고침할게요.');
-          return;
-        // 그룹에서 빠졌다 — 재시도로 풀리지 않는다. 부모가 재조회하면서 방 자체를 정리한다.
-        case 'MEMBER_ONLY':
-          failAndReload('그룹원만 이용할 수 있어요', '그룹에서 나갔거나 더 이상 멤버가 아니에요.');
-          return;
-        // 게스트는 재화가 없다 — '잠시 후 다시 시도'는 거짓이라 로그인 안내로 갈아 끼운다(F5).
-        case 'GUEST_FORBIDDEN':
-          setGuestBlocked(true);
-          break;
-        // 서버가 센 잔액이 앱과 다르다 — 다시 받아 부족분을 적고, 판정 자체는 서버 것을 그대로 쓴다.
-        // 판정 시점의 잔액 버전을 함께 남긴다 — 이 판정을 푸는 건 그보다 **나중에 도착한** 잔액뿐이다.
-        // 버전은 클로저(coinsVersion)가 아니라 CoinContext의 latestCoinsVersion()에서 읽는다.
-        // 클로저는 제출을 시작한 렌더의 값이라, 요청이 나가 있는 사이 도착한 잔액(시트 오픈 때
-        // 시작한 조회가 늦게 끝난 경우 — 차감 전이라 '낼 수 있다'고 말한다)이 판정보다 **먼저**
-        // 도착했는데도 '판정 이후'로 세어져 CTA를 즉시 다시 열고 같은 400만 반복한다.
-        // 이 시트가 effect로 미러링한 ref도 같은 문제가 남는다 — 잔액이 적용된 직후 다음 렌더·
-        // passive effect 전에 이 catch가 돌면 한 틱 낡은 값을 쓴다. 그래서 응답 적용과 **동시에**
-        // 오르는 정본을 직접 읽는다(코덱스 리뷰).
-        case 'INSUFFICIENT_CURRENCY':
-          refresh();
-          setInsufficientVerdict({ stake: amount, coinsVersion: latestCoinsVersion() });
-          break;
-        // 게이트 확대(전 조합 허용)가 아직 배포되지 않은 서버는 FOCUS×DURATION 밖의 내기를
-        // 이 코드로 거절한다(구 GroupBetService). 앱이 진입점을 먼저 열어 둔 배포 공백기의
-        // 실존 경로라 분기를 둔다 — default의 '잠시 후 다시 시도'는 이 서버에선 영원히 거짓이다
-        // (클로드 리뷰). 게이트 확대 배포 후엔 자연히 도달 불가가 된다.
-        case 'BET_FOCUS_ONLY':
-          failAndReload(
-            '아직 내기를 걸 수 없는 챌린지예요',
-            '지금은 하루 목표 집중 챌린지에만 내기를 걸 수 있어요. 서버 업데이트 후 열 수 있어요.',
-          );
-          return;
-        // 계약의 나머지 코드는 앱이 보내는 조합에서 도달할 수 없어 분기를 두지 않는다:
-        // BET_INVALID_STAKE는 판돈이 칩의 허용값 {10,30,50,100}으로만 나가기 때문이다.
-        // 도달했다면 서버 계약이 바뀐 것이라 '알 수 없는 오류'로 말하는 편이 사실에 가깝다.
-        default:
-          setErrorMsg(
-            isCreate
-              ? '내기를 열지 못했어요. 잠시 후 다시 시도해주세요.'
-              : '참가하지 못했어요. 잠시 후 다시 시도해주세요.',
-          );
+        }
       }
-      setSubmitting(false);
+      handleSubmitError(e);
     }
+  }
+
+  // 실패 분기 — 시트를 닫는 경로(failAndReload 등)는 return으로 빠져 submitting을 되돌리지 않고
+  // (시트가 사라진다), 시트에 남는 경로만 마지막의 setSubmitting(false)에 닿는다.
+  function handleSubmitError(e: unknown) {
+    switch (groupErrorCode(e)) {
+      // 이미 참가한 상태 = 원하던 결과다. 새 참가가 아니므로 계측은 발행하지 않는다
+      // (GroupFindSheet의 ALREADY_MEMBER와 같은 규칙).
+      case 'BET_ALREADY_JOINED':
+        refresh();
+        onDone();
+        return;
+      // 누가 먼저 열었는지는 앱이 알 수 없다 — 내 성공 직후의 재진입일 수도 있다(F6).
+      // 사실 범위 안에서만 말한다.
+      // 그 '내가 먼저 열었을' 가능성 때문에 잔액도 다시 받는다(코덱스 리뷰) — 응답만 타임아웃되고
+      // 서버에선 개설이 성립했다면 판돈은 이미 빠졌는데 전역 잔액은 차감 전 값으로 남는다.
+      // 남이 먼저 연 경우라면 재조회는 같은 값을 다시 확인할 뿐이라 무해하다.
+      // ⚠️ 취소·정산된 내기도 이 코드로 온다(챌린지·날짜 유니크가 행을 남긴다 — 같은 날 재개설은
+      //    v1 불가 확정, 백로그 1051). 그 경우 재조회 후에도 화면에 내기가 없어 '이미 열려
+      //    있어요'는 거짓말이 된다 — 두 사실을 모두 덮는 문장으로 말한다.
+      case 'BET_ALREADY_EXISTS':
+        refresh();
+        failAndReload(
+          '오늘은 내기를 열 수 없어요',
+          '이미 오늘 내기가 있어요. 진행 중이면 새로고침 후 참가할 수 있고, 취소했거나 끝난 내기는 오늘 다시 열 수 없어요.',
+        );
+        return;
+      case 'BET_ALREADY_ACHIEVED':
+        failAndReload('참가할 수 없어요', '이미 오늘 목표를 달성해서 참가할 수 없어요');
+        return;
+      // SCREEN_TIME의 반대 방향 가드(계약 §2) — 이미 목표를 초과해 확정 패배한 사람의 판돈
+      // 투입을 서버가 막는다. 이 시트에서 재시도해도 오늘은 영원히 같은 실패다 — 닫고 재조회한다.
+      case BET_ALREADY_FAILED:
+        failAndReload(
+          isCreate ? '내기를 열 수 없어요' : '참가할 수 없어요',
+          isCreate ? BET_FAILED_CREATE_CAPTION : BET_FAILED_CAPTION,
+        );
+        return;
+      // 같은 코드가 세 뜻이다(계약 §2·§4) — 참가는 '이미 마감', 개설은 'date가 오늘(KST)이
+      // 아님', **창 내기의 개설·참가는 '오늘 창이 이미 끝남'**(now ≥ 오늘 창 endAt).
+      // 아직 만들지도 않은 내기에 "이미 마감돼 참가할 수 없어요"는 뜻이 통하지 않는다(F4).
+      case 'BET_CLOSED':
+        failAndReload(
+          isCreate
+            ? isWindowChallenge
+              ? '내기를 열 수 있는 시간이 지났어요'
+              : '오늘 내기만 열 수 있어요'
+            : '마감된 내기예요',
+          isCreate
+            ? isWindowChallenge
+              ? '오늘 시간대가 끝나 내기를 열 수 없어요. 내일 다시 열 수 있어요.'
+              : '날짜가 바뀌었어요. 새로고침 후 다시 시도해주세요.'
+            : '이미 마감돼 참가할 수 없어요.',
+        );
+        return;
+      // 챌린지가 이미 비활성이다(GROMO-1025) — 시트의 마지막 성공 조회 이후 종료됐거나,
+      // 재조회 실패로 낡은 ACTIVE 스냅샷을 보고 있던 경우다. 이 시트에서 재시도해도 영원히
+      // 같은 실패라 닫고 재조회한다. 문구는 staleBetSheetAlert의 같은 사실 분기와 같은 문장이다.
+      // ⚠️ 현재 서버는 이 코드를 **개설(createBet)에서만** 던진다 — joinBet은 챌린지 상태를
+      //    보지 않는다(GroupBetService). 참가 분기는 도달 불가능한 선제 방어다: switch가 모드
+      //    공용이고, 서버가 참가에도 같은 검사를 추가하면 그대로 대비된다(클로드 리뷰).
+      case 'BET_CHALLENGE_INACTIVE':
+        failAndReload(
+          '끝난 챌린지예요',
+          isCreate
+            ? '종료된 챌린지에는 내기를 열 수 없어요.'
+            : '종료된 챌린지의 내기에는 참가할 수 없어요.',
+        );
+        return;
+      // 사라진 챌린지에 계속 걸어 봐야 결과는 같다 — 닫고 부모가 목록을 다시 받는다.
+      case 'NOT_FOUND':
+        failAndReload('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
+        return;
+      // 챌린지가 아니라 **내기 자체**가 없다(계약 §2-2의 BET_NOT_FOUND — 404, 참가 경로).
+      // 공통 문구('잠시 후 다시 시도')로 떨어뜨리면 영원히 같은 실패를 재시도하게 된다.
+      case 'BET_NOT_FOUND':
+        failAndReload('사라진 내기예요', '이미 없어진 내기예요. 최신 상태로 새로고침할게요.');
+        return;
+      // 그룹에서 빠졌다 — 재시도로 풀리지 않는다. 부모가 재조회하면서 방 자체를 정리한다.
+      case 'MEMBER_ONLY':
+        failAndReload('그룹원만 이용할 수 있어요', '그룹에서 나갔거나 더 이상 멤버가 아니에요.');
+        return;
+      // 게스트는 재화가 없다 — '잠시 후 다시 시도'는 거짓이라 로그인 안내로 갈아 끼운다(F5).
+      case 'GUEST_FORBIDDEN':
+        setGuestBlocked(true);
+        break;
+      // 서버가 센 잔액이 앱과 다르다 — 다시 받아 부족분을 적고, 판정 자체는 서버 것을 그대로 쓴다.
+      // 판정 시점의 잔액 버전을 함께 남긴다 — 이 판정을 푸는 건 그보다 **나중에 도착한** 잔액뿐이다.
+      // 버전은 클로저(coinsVersion)가 아니라 CoinContext의 latestCoinsVersion()에서 읽는다.
+      // 클로저는 제출을 시작한 렌더의 값이라, 요청이 나가 있는 사이 도착한 잔액(시트 오픈 때
+      // 시작한 조회가 늦게 끝난 경우 — 차감 전이라 '낼 수 있다'고 말한다)이 판정보다 **먼저**
+      // 도착했는데도 '판정 이후'로 세어져 CTA를 즉시 다시 열고 같은 400만 반복한다.
+      // 이 시트가 effect로 미러링한 ref도 같은 문제가 남는다 — 잔액이 적용된 직후 다음 렌더·
+      // passive effect 전에 이 catch가 돌면 한 틱 낡은 값을 쓴다. 그래서 응답 적용과 **동시에**
+      // 오르는 정본을 직접 읽는다(코덱스 리뷰).
+      case 'INSUFFICIENT_CURRENCY':
+        refresh();
+        setInsufficientVerdict({ stake: amount, coinsVersion: latestCoinsVersion() });
+        break;
+      // 게이트 확대(전 조합 허용)가 아직 배포되지 않은 서버는 FOCUS×DURATION 밖의 내기를
+      // 이 코드로 거절한다(구 GroupBetService). 앱이 진입점을 먼저 열어 둔 배포 공백기의
+      // 실존 경로라 분기를 둔다 — default의 '잠시 후 다시 시도'는 이 서버에선 영원히 거짓이다
+      // (클로드 리뷰). 게이트 확대 배포 후엔 자연히 도달 불가가 된다.
+      case 'BET_FOCUS_ONLY':
+        failAndReload(
+          '아직 내기를 걸 수 없는 챌린지예요',
+          '지금은 하루 목표 집중 챌린지에만 내기를 걸 수 있어요. 서버 업데이트 후 열 수 있어요.',
+        );
+        return;
+      // 계약의 나머지 코드는 앱이 보내는 조합에서 도달할 수 없어 분기를 두지 않는다:
+      // BET_INVALID_STAKE는 클라가 같은 범위(1~1000)를 먼저 잠그기 때문이다(stakeValid).
+      // 도달했다면 서버 계약이 바뀐 것이라 '알 수 없는 오류'로 말하는 편이 사실에 가깝다.
+      default:
+        setErrorMsg(
+          isCreate
+            ? '내기를 열지 못했어요. 잠시 후 다시 시도해주세요.'
+            : '참가하지 못했어요. 잠시 후 다시 시도해주세요.',
+        );
+    }
+    setSubmitting(false);
   }
 
   // ── 게스트 — 내기는 재화를 쓰는 기능이라 로그인 전에는 열리지 않는다(§5-3의 게스트 안내 규격) ──
@@ -394,14 +461,15 @@ export default function BetSheet({
               고른 칩만 남기고 나머지를 흐려 '지금 나간 금액'이 무엇인지 화면에 못 박는다. */}
           <View style={s.chips}>
             {STAKE_OPTIONS.map((v) => {
-              const on = stake === v;
+              // 칩의 '선택됨'은 입력 필드 값의 파생 표시다 — 직접 입력으로 같은 값을 쳐도 켜진다.
+              const on = stakeValid && stakeValue === v;
               return (
                 <TouchableOpacity
                   key={v}
                   style={[s.chip, on ? s.chipOn : null, submitting && !on ? s.chipOff : null]}
                   activeOpacity={0.8}
                   disabled={submitting}
-                  onPress={() => setStake(v)}
+                  onPress={() => setStakeText(String(v))}
                   // 숫자만 읽히면 무엇을 고르는 자리인지·무엇이 골라졌는지 알 수 없다(F9).
                   accessibilityRole="button"
                   accessibilityState={{ selected: on, disabled: submitting }}
@@ -413,6 +481,25 @@ export default function BetSheet({
               );
             })}
           </View>
+          {/* 직접 입력(1~1000) — 칩 탭도 여기로 흘러드는 단일 소스다. digits만 남겨 음수·소수·
+              문자를 입력 단계에서 차단하고, 범위 검증은 stakeValid가 CTA·인라인 안내로 잠근다. */}
+          <View style={s.stakeInputRow}>
+            <TextInput
+              style={s.stakeInput}
+              value={stakeText}
+              onChangeText={(t) => setStakeText(t.replace(/[^0-9]/g, ''))}
+              keyboardType="number-pad"
+              editable={!submitting}
+              maxLength={4}
+              placeholder={`${STAKE_MIN}~${STAKE_MAX}`}
+              placeholderTextColor={T.inkFaint}
+              accessibilityLabel="참가비 직접 입력"
+              testID="group.bet.stake.input"
+            />
+            <Text style={s.stakeUnit}>코인</Text>
+          </View>
+          {/* 범위 밖·빈 값 — 모달이 아니라 인라인으로, CTA 잠금과 같은 근거를 같은 자리에서 말한다. */}
+          {!stakeValid && <Text style={s.error}>{STAKE_RANGE_CAPTION}</Text>}
         </>
       ) : (
         <>
@@ -446,6 +533,14 @@ export default function BetSheet({
             ))}
           </ScrollView>
         </>
+      )}
+
+      {/* 마감 후 개설(계약 §3) — 이 내기가 '내일' 것임을 돈이 나가기 전에 못 박는다. */}
+      {betForTomorrow && (
+        <View style={s.note} testID="group.bet.tomorrowNote">
+          <Ionicons name="time-outline" size={15} color={T.accent} style={s.noteIcon} />
+          <Text style={s.noteText}>{TOMORROW_NOTE}</Text>
+        </View>
       )}
 
       <View style={s.note}>
@@ -556,6 +651,27 @@ const s = StyleSheet.create({
   chipOff: { opacity: 0.5 },
   chipText: { ...T.text.label, color: T.inkSub, fontVariant: ['tabular-nums'] },
   chipTextOn: { color: T.accentDeep, fontWeight: '700' },
+
+  // 직접 입력 — 칩과 같은 44 높이·같은 면 처리(같은 값을 다루는 형제 컨트롤이라 규격을 맞춘다).
+  stakeInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.sm,
+    marginTop: T.space.sm,
+  },
+  stakeInput: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.chipBorder,
+    backgroundColor: T.chipBg,
+    paddingHorizontal: T.space.lg,
+    ...T.text.label,
+    color: T.ink,
+    fontVariant: ['tabular-nums'],
+  },
+  stakeUnit: { ...T.text.label, color: T.inkSub },
 
   // 참가 모드의 판돈·팟 — 고를 수 없는 값이라 칩이 아니라 읽기용 타일로 둔다.
   statRow: { flexDirection: 'row', gap: T.space.sm, marginTop: T.space.lg },
