@@ -18,8 +18,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -72,7 +75,15 @@ public class ChallengeWindowEndNotificationService {
     private final WindowFocusAggregator windowFocusAggregator;
     private final ChallengeEndPushDispatcher challengeEndPushDispatcher;
 
-    /** 스케줄러(15분 간격)·수동 트리거 진입점. */
+    /**
+     * 스케줄러(15분 간격)·수동 트리거 진입점.
+     *
+     * <p>여기에도 {@code @Transactional} 이 필요하다 — 아래 오버로드를 같은 객체에서 직접 부르면
+     * Spring 프록시를 지나지 않아 그쪽 애노테이션이 적용되지 않는다. 트랜잭션이 안 열리면 조회로
+     * 올라온 {@code User} 가 분리 상태라 무효 토큰 정리(더티체킹)가 저장되지 않고, 다음 크론마다
+     * 같은 무효 토큰으로 FCM 을 계속 호출한다(@codex 리뷰).
+     */
+    @Transactional
     public PushDispatchSummaryResponse sendWindowEndNotifications() {
         return sendWindowEndNotifications(Instant.now());
     }
@@ -95,15 +106,22 @@ public class ChallengeWindowEndNotificationService {
                 .findByChallengeIdIn(challenges.stream().map(GroupChallenge::getId).toList())
                 .stream()
                 .collect(Collectors.toMap(GroupChallengeWindow::getChallengeId, Function.identity()));
+        // 종료 시각을 함께 들고 간다 — 그 뒤에 그룹에 들어온 멤버는 이 회차에 참여한 적이 없다.
+        Map<UUID, Instant> endedAtByChallengeId = new LinkedHashMap<>();
+        for (GroupChallenge challenge : challenges) {
+            justEndedAt(challenge, windowsByChallengeId.get(challenge.getId()), now)
+                    .ifPresent(endedAt -> endedAtByChallengeId.put(challenge.getId(), endedAt));
+        }
         List<GroupChallenge> justEnded = challenges.stream()
-                .filter(challenge -> hasJustEnded(windowsByChallengeId.get(challenge.getId()), now))
+                .filter(challenge -> endedAtByChallengeId.containsKey(challenge.getId()))
                 .toList();
         if (justEnded.isEmpty()) {
             return summary(startedAtMillis);
         }
 
         PushDispatchSummaryResponse summary = challengeEndPushDispatcher.dispatch(
-                justEnded, PUSH_TYPE, PUSH_COPY, dedupSince(now), now, startedAtMillis);
+                justEnded, PUSH_TYPE, PUSH_COPY, dedupSince(now), endedAtByChallengeId, now,
+                startedAtMillis);
         log.info("창 종료 푸시 완료 — 종료 챌린지 {}건, 대상 {}건, 발송 {}건, dedup {}건, 스킵 {}건, "
                         + "elapsedMillis={}",
                 justEnded.size(), summary.targetCount(), summary.sentCount(), summary.dedupedCount(),
@@ -115,16 +133,24 @@ public class ChallengeWindowEndNotificationService {
      * 오늘(KST) 창 종료가 방금 지났는지. 자정을 걸치는 창은 어제 시작분의 종료가 오늘 새벽이므로
      * 어제·오늘 두 날짜를 모두 후보로 본다. 경계는 {@code (now - 폭, now]} — 종료 시각 정각은 포함이다.
      */
-    private boolean hasJustEnded(GroupChallengeWindow window, Instant now) {
+    private Optional<Instant> justEndedAt(GroupChallenge challenge, GroupChallengeWindow window,
+            Instant now) {
         if (window == null) {
             // V20 이전 창 챌린지에도 상세 행은 있으므로 정상 흐름에선 나오지 않는다(방어).
-            return false;
+            return Optional.empty();
         }
         LocalDate today = LocalDate.ofInstant(now, KST);
         Instant since = now.minus(RECENTLY_ENDED_WINDOW);
+        Instant createdAt = challenge.getCreatedAt();
         return List.of(today.minusDays(1), today).stream()
                 .map(date -> windowFocusAggregator.windowEndOn(date, window))
-                .anyMatch(end -> end.isAfter(since) && !end.isAfter(now));
+                .filter(end -> end.isAfter(since) && !end.isAfter(now))
+                // 창이 끝난 뒤에 만들어진 챌린지는 이번 회차에 아무도 참여하지 않았다.
+                // 예: 12:00 종료 창을 12:05 에 만들면 12:15 틱이 "30분 내 종료" 로 집어
+                // 전원에게 결과 알림을 보낸다. 회차 종료보다 먼저 존재했을 때만 대상이다
+                // (@codex 리뷰). createdAt 은 영속화 시점에 채워지므로 null 은 통과시킨다.
+                .filter(end -> createdAt == null || !createdAt.isAfter(end))
+                .max(Comparator.naturalOrder());
     }
 
     /**

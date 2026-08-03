@@ -16,7 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -55,6 +57,15 @@ public class ChallengeDurationEndNotificationService {
     static final String PUSH_TYPE = NotificationSentLog.TYPE_CHALLENGE_ENDED;
 
     /**
+     * 상세(일 목표) 조회의 {@code IN} 절 크기 상한.
+     *
+     * <p>대상이 <b>활성 DURATION 챌린지 전건</b>이라, 그룹 수가 늘면 바인드 목록이 그대로 커져
+     * 드라이버·DB 한도에 걸리거나 쿼리 비용이 급증해 09:00 배치가 발송 전에 죽는다(@codex 리뷰).
+     * 발송 청크(그룹 200)와 축이 달라 별도 상수로 둔다 — 이쪽은 챌린지 id 기준이다.
+     */
+    static final int DETAIL_CHUNK_SIZE = 500;
+
+    /**
      * 승패 미포함 문구 — 스크린타임 일 목표는 어제치 최종 보고가 아직 안 올라왔을 수 있고(A4 업로드),
      * 포커스도 결과 표시는 앱의 결과 모달 몫이다.
      */
@@ -65,7 +76,15 @@ public class ChallengeDurationEndNotificationService {
     private final GroupChallengeDurationRepository groupChallengeDurationRepository;
     private final ChallengeEndPushDispatcher challengeEndPushDispatcher;
 
-    /** 스케줄러(매일 09:00 KST)·수동 트리거 진입점. */
+    /**
+     * 스케줄러(매일 09:00 KST)·수동 트리거 진입점.
+     *
+     * <p>여기에도 {@code @Transactional} 이 필요하다 — 아래 오버로드를 같은 객체에서 직접 부르면
+     * Spring 프록시를 지나지 않아 그쪽 애노테이션이 적용되지 않는다. 트랜잭션이 안 열리면 조회로
+     * 올라온 {@code User} 가 분리 상태라 무효 토큰 정리(더티체킹)가 저장되지 않고, 다음 크론마다
+     * 같은 무효 토큰으로 FCM 을 계속 호출한다(@codex 리뷰).
+     */
+    @Transactional
     public PushDispatchSummaryResponse sendDurationEndNotifications() {
         return sendDurationEndNotifications(Instant.now());
     }
@@ -85,11 +104,8 @@ public class ChallengeDurationEndNotificationService {
         }
 
         // 목표(일 목표 분)가 없는 챌린지는 결과 자체가 없다 — 진행률 계산 대상 판정과 같은 기준이다.
-        Set<UUID> withGoal = groupChallengeDurationRepository
-                .findByChallengeIdIn(challenges.stream().map(GroupChallenge::getId).toList())
-                .stream()
-                .map(GroupChallengeDuration::getChallengeId)
-                .collect(Collectors.toSet());
+        Set<UUID> withGoal = findChallengeIdsWithGoal(
+                challenges.stream().map(GroupChallenge::getId).toList());
         Instant cycleEnd = cycleEnd(now);
         List<GroupChallenge> ended = challenges.stream()
                 .filter(challenge -> withGoal.contains(challenge.getId()))
@@ -99,8 +115,11 @@ public class ChallengeDurationEndNotificationService {
             return summary(startedAtMillis);
         }
 
+        // 회차 종료 = 자정(KST), 발송 = 09:00 — 그 사이 가입한 멤버는 어제 회차에 참여한 적이 없다.
+        Map<UUID, Instant> cycleEndByChallengeId = ended.stream()
+                .collect(Collectors.toMap(GroupChallenge::getId, challenge -> cycleEnd));
         PushDispatchSummaryResponse summary = challengeEndPushDispatcher.dispatch(
-                ended, PUSH_TYPE, PUSH_COPY, cycleEnd, now, startedAtMillis);
+                ended, PUSH_TYPE, PUSH_COPY, cycleEnd, cycleEndByChallengeId, now, startedAtMillis);
         log.info("일 목표 챌린지 마감 푸시 완료 — 마감 회차 {}, 대상 챌린지 {}건, 대상 {}건, 발송 {}건, "
                         + "dedup {}건, 스킵 {}건, elapsedMillis={}",
                 LocalDate.ofInstant(cycleEnd, KST).minusDays(1), ended.size(), summary.targetCount(),
@@ -124,6 +143,19 @@ public class ChallengeDurationEndNotificationService {
     private boolean hasFinishedCycle(GroupChallenge challenge, Instant cycleEnd) {
         Instant createdAt = challenge.getCreatedAt();
         return createdAt == null || createdAt.isBefore(cycleEnd);
+    }
+
+    /** 목표(일 목표 분)가 설정된 챌린지 id — {@code IN} 절을 {@link #DETAIL_CHUNK_SIZE} 로 잘라 조회한다. */
+    private Set<UUID> findChallengeIdsWithGoal(List<UUID> challengeIds) {
+        Set<UUID> withGoal = new HashSet<>();
+        for (int from = 0; from < challengeIds.size(); from += DETAIL_CHUNK_SIZE) {
+            List<UUID> chunk =
+                    challengeIds.subList(from, Math.min(from + DETAIL_CHUNK_SIZE, challengeIds.size()));
+            groupChallengeDurationRepository.findByChallengeIdIn(chunk).stream()
+                    .map(GroupChallengeDuration::getChallengeId)
+                    .forEach(withGoal::add);
+        }
+        return withGoal;
     }
 
     /** 대상 0건 요약 — 감지 단계에서 끝난 경우. */

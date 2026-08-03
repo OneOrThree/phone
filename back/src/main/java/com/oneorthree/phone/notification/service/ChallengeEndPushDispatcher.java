@@ -69,11 +69,14 @@ class ChallengeEndPushDispatcher {
      * @param pushType        {@link NotificationSentLog} 타입 문자열 — dedup 축이자 앱의 {@code data.type}
      * @param copy            문구(승패 미포함 — 보고 전이라 결과가 확정되지 않은 경우가 있다)
      * @param dedupSince      발송 이력을 이 시각 이후로만 본다(반복 주기의 "이번 회차" 경계)
+     * @param cycleEndByChallengeId 챌린지별 <b>이번 회차가 끝난 시각</b> — 그 뒤에 그룹에 들어온 멤버는
+     *     그 회차에 참여한 적이 없으므로 발송 대상에서 뺀다(@codex 리뷰). 값이 없으면 거르지 않는다.
      * @param now             판정·기록 시각
      * @param startedAtMillis 호출측 배치 시작 시각 — 감지 쿼리까지 포함한 소요 시간을 재기 위해 받는다
      */
     PushDispatchSummaryResponse dispatch(List<GroupChallenge> endedChallenges, String pushType,
-            PushCopy copy, Instant dedupSince, Instant now, long startedAtMillis) {
+            PushCopy copy, Instant dedupSince, Map<UUID, Instant> cycleEndByChallengeId,
+            Instant now, long startedAtMillis) {
         // 그룹당 종료 챌린지 묶음 — 대표(딥링크에 실을 챌린지)가 흔들리지 않게 생성순으로 정렬한다.
         // createdAt 은 영속화 시점에 채워지므로 방어적으로 null 을 뒤로 민다.
         Map<UUID, List<GroupChallenge>> challengesByGroupId = endedChallenges.stream()
@@ -91,7 +94,8 @@ class ChallengeEndPushDispatcher {
         int skipped = 0;
         for (int from = 0; from < groupIds.size(); from += CHUNK_SIZE) {
             List<UUID> chunk = groupIds.subList(from, Math.min(from + CHUNK_SIZE, groupIds.size()));
-            Counts counts = dispatchChunk(chunk, challengesByGroupId, pushType, copy, dedupSince, now);
+            Counts counts = dispatchChunk(chunk, challengesByGroupId, pushType, copy, dedupSince,
+                    cycleEndByChallengeId, now);
             target += counts.target();
             sent += counts.sent();
             deduped += counts.deduped();
@@ -103,16 +107,16 @@ class ChallengeEndPushDispatcher {
 
     private Counts dispatchChunk(List<UUID> groupIds,
             Map<UUID, List<GroupChallenge>> challengesByGroupId, String pushType, PushCopy copy,
-            Instant dedupSince, Instant now) {
+            Instant dedupSince, Map<UUID, Instant> cycleEndByChallengeId, Instant now) {
         // 탈퇴한 유저는 발송 대상이 아니다(멤버 행은 남는다).
-        Map<UUID, List<User>> usersByGroupId = groupMemberRepository
+        // 멤버 행을 그대로 들고 간다 — 가입 시각(createdAt)이 회차 참여 여부 판정에 필요하다.
+        Map<UUID, List<GroupMember>> membersByGroupId = groupMemberRepository
                 .findByGroupIdIn(groupIds).stream()
                 .filter(member -> !member.getUser().isDeleted())
-                .collect(Collectors.groupingBy(member -> member.getGroup().getId(),
-                        Collectors.mapping(GroupMember::getUser, Collectors.toList())));
-        List<UUID> userIds = usersByGroupId.values().stream()
+                .collect(Collectors.groupingBy(member -> member.getGroup().getId()));
+        List<UUID> userIds = membersByGroupId.values().stream()
                 .flatMap(List::stream)
-                .map(User::getId)
+                .map(member -> member.getUser().getId())
                 .distinct()
                 .toList();
         if (userIds.isEmpty()) {
@@ -129,10 +133,12 @@ class ChallengeEndPushDispatcher {
         List<NotificationSentLog> newLogs = new ArrayList<>();
         for (UUID groupId : groupIds) {
             List<GroupChallenge> ended = challengesByGroupId.get(groupId);
-            for (User user : usersByGroupId.getOrDefault(groupId, List.of())) {
+            for (GroupMember member : membersByGroupId.getOrDefault(groupId, List.of())) {
+                User user = member.getUser();
                 target++;
                 List<GroupChallenge> pending = ended.stream()
                         .filter(challenge -> !alreadySent.contains(new SentKey(user.getId(), challenge.getId())))
+                        .filter(challenge -> participatedInCycle(member, cycleEndByChallengeId.get(challenge.getId())))
                         .toList();
                 if (pending.isEmpty()) {
                     deduped++;
@@ -166,6 +172,18 @@ class ChallengeEndPushDispatcher {
         }
         notificationSentLogRepository.saveAll(newLogs);
         return new Counts(target, sent, deduped, skipped);
+    }
+
+    /**
+     * 이 멤버가 해당 회차에 참여한 적이 있는지 — 회차가 끝난 뒤에 들어왔으면 아니다.
+     *
+     * <p>DURATION 회차는 자정에 끝나는데 발송은 09:00 이라, 그 사이 가입·재가입한 유저에게도
+     * "어제 목표 달성 결과" 가 나갔다(@codex 리뷰). 창형도 종료 뒤 가입이면 같은 문제다.
+     * 회차 종료 시각이나 가입 시각을 모르면 거르지 않는다(기존 동작 유지).
+     */
+    private static boolean participatedInCycle(GroupMember member, Instant cycleEnd) {
+        Instant joinedAt = member.getCreatedAt();
+        return cycleEnd == null || joinedAt == null || !joinedAt.isAfter(cycleEnd);
     }
 
     /** 승패 미포함 문구 + 결과 딥링크. {@code data.type}·{@code groupId} 는 앱의 라우팅·GA4 소스다(계약 §2). */

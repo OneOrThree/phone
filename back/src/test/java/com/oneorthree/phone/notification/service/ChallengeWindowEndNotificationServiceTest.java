@@ -133,10 +133,15 @@ class ChallengeWindowEndNotificationServiceTest {
     }
 
     private void givenMembers(GroupChallenge challenge, User... users) {
+        givenMembersJoinedAt(challenge, Instant.EPOCH, users);
+    }
+
+    /** 가입 시각을 지정하는 오버로드 — 회차 종료 뒤 가입 판정(@codex 리뷰) 검증용. */
+    private void givenMembersJoinedAt(GroupChallenge challenge, Instant joinedAt, User... users) {
         given(groupMemberRepository.findByGroupIdIn(anyCollection())).willReturn(
                 Arrays.stream(users)
                         .map(user -> GroupMember.builder().id(UUID.randomUUID())
-                                .group(challenge.getGroup()).user(user).build())
+                                .group(challenge.getGroup()).user(user).createdAt(joinedAt).build())
                         .toList());
     }
 
@@ -247,6 +252,44 @@ class ChallengeWindowEndNotificationServiceTest {
                 service().sendWindowEndNotifications(kst(2026, 8, 2, 13, 0));
 
         assertThat(summary.targetCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("창이 끝난 뒤에 만들어진 챌린지는 제외 — 아무도 참여하지 않은 회차에 결과 알림 금지")
+    void skipsChallengeCreatedAfterWindowEnd() {
+        // 12:00 종료 창을 12:05 에 만들면, 12:15 틱이 "30분 내 종료" 로 집어 전원에게 알림을 보냈다.
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(UUID.randomUUID())
+                .group(group())
+                .category(MissionCategory.SCREEN_TIME)
+                .type(MissionType.TIME_WINDOW)
+                .status(GroupChallengeStatus.ACTIVE)
+                .createdAt(kst(2026, 8, 2, 12, 5))
+                .build();
+        givenChallenge(challenge, window(challenge, utcTimeOf(9, 0), utcTimeOf(12, 0)));
+
+        PushDispatchSummaryResponse summary =
+                service().sendWindowEndNotifications(kst(2026, 8, 2, 12, 15));
+
+        assertThat(summary.targetCount()).isZero();
+        verify(groupMemberRepository, never()).findByGroupIdIn(anyCollection());
+    }
+
+    @Test
+    @DisplayName("회차가 끝난 뒤에 가입한 멤버는 제외 — 참여한 적 없는 회차의 결과 알림 금지")
+    void skipsMemberJoinedAfterCycleEnd() {
+        GroupChallenge challenge = challenge();
+        givenChallenge(challenge, window(challenge, utcTimeOf(9, 0), utcTimeOf(12, 0)));
+        // 창은 12:00 에 끝났는데 12:10 에 가입 → 12:15 틱의 대상이 아니다.
+        givenMembersJoinedAt(challenge, kst(2026, 8, 2, 12, 10), user(UUID.randomUUID()));
+        givenNoSentLogs();
+        givenNoSettings();
+
+        PushDispatchSummaryResponse summary =
+                service().sendWindowEndNotifications(kst(2026, 8, 2, 12, 15));
+
+        assertThat(summary.sentCount()).isZero();
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
     }
 
     @Test
