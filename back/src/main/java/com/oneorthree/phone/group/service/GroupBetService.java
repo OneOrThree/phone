@@ -257,6 +257,10 @@ public class GroupBetService {
      * 시작 전 가드(철회 전용) — TIME_WINDOW 는 창 시작 시각, DURATION 은 날짜 경계(KST)가 시작점이다.
      * 목표를 해석할 수 없는 내기는 개설 게이트({@code resolve})가 이미 막았으므로 여기 도달하면
      * 데이터가 깨진 것이다 — 개설·참가와 같은 코드로 방어적으로 거절한다.
+     *
+     * <p>DURATION 분기({@code betDate > 오늘})는 개설 게이트가 오늘만 허용하는 현행 코드에선 도달
+     * 불가다 — 내일 개설을 여는 티켓 1103(내기 날짜 게이트 확대)과 짝으로 배포되는 전제이며,
+     * 그 전까지 DURATION 철회는 항상 {@code BET_LEAVE_CLOSED}로 떨어지는 것이 의도된 동작이다.
      */
     private void requireBeforeStart(GroupChallengeBet bet) {
         GroupBetJudge.Target target = groupBetJudge.resolve(bet.getChallenge())
