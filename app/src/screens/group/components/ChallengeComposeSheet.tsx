@@ -317,8 +317,8 @@ export default function ChallengeComposeSheet({
   const submitBlocked = submitting || allTaken || !durationValid;
 
   return (
-    // 생성 중에는 딤 탭으로 닫히지 않게 막는다(요청이 떠 있는 상태에서의 언마운트 방지).
-    <SheetShell onClose={submitting ? () => {} : onClose} asModal>
+    // 생성 중에는 딤 탭·그랩바 드래그로 닫히지 않게 막는다(요청이 떠 있는 상태에서의 언마운트 방지).
+    <SheetShell onClose={submitting ? () => {} : onClose} asModal dismissible={!submitting}>
       <Text style={s.title}>챌린지 만들기</Text>
       <Text style={s.sub}>그룹원 모두가 오늘부터 함께해요.</Text>
 
