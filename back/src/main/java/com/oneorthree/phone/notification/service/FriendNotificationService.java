@@ -1,7 +1,6 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
-import com.oneorthree.phone.friend.domain.Friendship;
 import com.oneorthree.phone.friend.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
@@ -98,10 +97,14 @@ public class FriendNotificationService {
      * <p>수락 알림에는 같은 검사를 걸지 않는다 — 수락은 <b>이미 일어난 사실</b>의 통보라 그 뒤 친구가
      * 끊겨도 문구가 거짓이 되지 않지만, 요청 알림은 <b>지금 처리해야 할 일</b>을 가리키기 때문에 상태가
      * 바뀌면 그대로 거짓이 된다.
+     *
+     * <p>락 없는 조회를 쓴다({@code findStatusByIdAndDeletedAtIsNull}). 배타 락이 걸린
+     * {@code findByIdAndDeletedAtIsNull} 은 수락·거절이 행을 <b>변경</b>하기 직전용이고, 이 트랜잭션은
+     * FCM 발송이 끝나야 닫히므로 여기서 잠그면 같은 요청의 수락·거절과 탈퇴가 발송 시간만큼 대기한다
+     * (@codex 리뷰 P1).
      */
     private boolean isStillPending(UUID requestId) {
-        return friendshipRepository.findByIdAndDeletedAtIsNull(requestId)
-                .map(Friendship::getStatus)
+        return friendshipRepository.findStatusByIdAndDeletedAtIsNull(requestId)
                 .filter(FriendshipStatus.PENDING::equals)
                 .isPresent();
     }

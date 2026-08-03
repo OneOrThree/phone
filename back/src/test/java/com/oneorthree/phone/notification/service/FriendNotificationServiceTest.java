@@ -1,7 +1,6 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
-import com.oneorthree.phone.friend.domain.Friendship;
 import com.oneorthree.phone.friend.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
@@ -77,8 +76,8 @@ class FriendNotificationServiceTest {
 
     /** 요청이 아직 처리되지 않은(PENDING) 상태 — 요청 알림 경로의 전제. */
     private void givenRequestStillPending() {
-        given(friendshipRepository.findByIdAndDeletedAtIsNull(REQUEST_ID))
-                .willReturn(Optional.of(Friendship.builder().status(FriendshipStatus.PENDING).build()));
+        given(friendshipRepository.findStatusByIdAndDeletedAtIsNull(REQUEST_ID))
+                .willReturn(Optional.of(FriendshipStatus.PENDING));
     }
 
     private void givenNoPreviousSend(String type) {
@@ -216,8 +215,8 @@ class FriendNotificationServiceTest {
     @DisplayName("큐에서 대기하는 사이 요청이 처리됐으면 발송하지 않는다 — 목록이 빈 푸시를 막는다")
     void notifyFriendRequest_alreadyHandled_skips() {
         // 발송은 큐를 거치므로 생성 시점과 간격이 있다. 그 사이 수락·거절되면 "새 친구 요청" 은 거짓이다.
-        given(friendshipRepository.findByIdAndDeletedAtIsNull(REQUEST_ID))
-                .willReturn(Optional.of(Friendship.builder().status(FriendshipStatus.ACCEPTED).build()));
+        given(friendshipRepository.findStatusByIdAndDeletedAtIsNull(REQUEST_ID))
+                .willReturn(Optional.of(FriendshipStatus.ACCEPTED));
 
         service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
@@ -226,9 +225,24 @@ class FriendNotificationServiceTest {
     }
 
     @Test
+    @DisplayName("PENDING 재확인은 배타 락 조회를 쓰지 않는다 — 발송 동안 요청 행이 잠기면 안 된다")
+    void notifyFriendRequest_statusCheck_doesNotLockRow() {
+        // findByIdAndDeletedAtIsNull 은 @Lock(PESSIMISTIC_WRITE) 다. 알림 경로가 그걸 쓰면 이 REQUIRES_NEW
+        // 트랜잭션이 끝날 때까지 — 즉 FCM 발송이 끝날 때까지 — 행이 잠긴다. FCM RestClient 에 타임아웃이
+        // 없어 발송이 멈추면 같은 요청의 수락·거절과 관련 유저의 탈퇴가 무기한 대기한다(@codex 리뷰 P1).
+        givenBothUsersExist();
+        givenRequestStillPending();
+        givenNoPreviousSend(NotificationSentLog.TYPE_FRIEND_REQUEST);
+
+        service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
+
+        verify(friendshipRepository, never()).findByIdAndDeletedAtIsNull(any());
+    }
+
+    @Test
     @DisplayName("요청 행이 사라졌으면(탈퇴 정리 등) 발송하지 않는다")
     void notifyFriendRequest_requestGone_skips() {
-        given(friendshipRepository.findByIdAndDeletedAtIsNull(REQUEST_ID)).willReturn(Optional.empty());
+        given(friendshipRepository.findStatusByIdAndDeletedAtIsNull(REQUEST_ID)).willReturn(Optional.empty());
 
         service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
