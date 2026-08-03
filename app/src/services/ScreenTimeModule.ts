@@ -151,8 +151,12 @@ const ScreenTimeModule = {
     if (AndroidScreenTime) return AndroidScreenTime.requestAuthorization();
     if (Platform.OS !== 'ios') return false;
     const granted = await NativeScreenTimeModule.requestAuthorization();
-    // 사용자가 시트에서 실제로 거부했으면 승인 이력을 지운다 — 위 quirk 보정이 옛 승인에 눌러앉지 않게.
-    if (!granted) markAuthGranted(false);
+    // 요청 결과는 네이티브가 현재 권한 상태에서 뽑아낸 확정 답이라 양쪽 다 기록한다.
+    // 승인도 반드시 기록해야 한다 — 온보딩 권한 스텝은 승인되면 곧장 측정 대상 picker 로 넘어가
+    // getAuthorizationStatus 를 한 번도 부르지 않는다(ScreenTimePermissionStep). 그 상태로 앱이
+    // 종료되면 다음 콜드런치에서 quirk 로 notDetermined 가 오고, 이력이 없어 위 보정이 못 걸린다.
+    // 거부 기록도 그대로 필요하다 — 보정이 옛 승인에 눌러앉지 않게.
+    markAuthGranted(granted);
     return granted;
   },
 

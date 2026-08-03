@@ -78,6 +78,17 @@ describe('getAuthorizationStatus', () => {
 });
 
 describe('requestAuthorization', () => {
+  // 온보딩 권한 스텝은 승인되면 곧장 측정 대상 picker 로 넘어가 getAuthorizationStatus 를 부르지
+  // 않는다 — 여기서 기록해두지 않으면 그 유저의 다음 콜드런치에서 보정이 못 걸린다(코드리뷰 반영).
+  it('승인되면 승인 이력을 남긴다', async () => {
+    native.requestAuthorization.mockResolvedValue(true);
+
+    await expect(ScreenTimeModule.requestAuthorization()).resolves.toBe(true);
+
+    await flush();
+    await expect(grantedHistory()).resolves.toBe('1');
+  });
+
   it('거부되면 승인 이력을 지운다', async () => {
     await AsyncStorage.setItem(STORAGE_KEYS.screentimeAuthGranted, '1');
     native.requestAuthorization.mockResolvedValue(false);
