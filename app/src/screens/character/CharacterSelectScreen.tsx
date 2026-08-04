@@ -40,12 +40,6 @@ export default function CharacterSelectScreen() {
   // 없는 것으로 본다. 저장소의 customUri 는 지우지 않는다 — 일시적 읽기 실패였을 경우 다음
   // 실행에서 되살아난다.
   const [customStatus, setCustomStatus] = useState<'pending' | 'ok' | 'broken'>('pending');
-  // 누끼가 바뀌면 판정을 다시 시작한다 — 깨진 뒤 '새로 만들기'로 새 캐릭터를 만들어 돌아오면
-  // (CharacterCreateRoute 가 customUri 를 갱신하고 goBack) 이 화면은 그대로 마운트돼 있어,
-  // 리셋하지 않으면 멀쩡한 새 캐릭터가 계속 숨겨진 채로 남는다(코드리뷰 반영).
-  useEffect(() => {
-    setCustomStatus('pending');
-  }, [customUri]);
 
   const hasCustom = !!customUri && customStatus !== 'broken';
   // 선택은 로드가 확인된 뒤에만 허용한다 — onError 는 비동기라, 그 전에 카드를 탭하고 곧바로
@@ -61,6 +55,18 @@ export default function CharacterSelectScreen() {
   // 누끼 캐릭터가 조용히 해제된다. 아무것도 안 골라진 상태는 생기지 않으므로 '변경하기'는 항상 활성.
   const [picked, setPicked] = useState<CharacterChoice | null>(null);
   const selected = picked ?? equipped;
+
+  // 누끼가 바뀌면 판정과 선택을 함께 리셋한다.
+  //  · 판정 리셋 — 깨진 뒤 '새로 만들기'로 새 캐릭터를 만들어 돌아오면(CharacterCreateRoute 가
+  //    customUri 를 갱신하고 goBack) 이 화면은 그대로 마운트돼 있어, 리셋하지 않으면 멀쩡한 새
+  //    캐릭터가 계속 숨겨진 채로 남는다.
+  //  · 선택 리셋 — 누끼를 고른 상태로 '다시 만들기'를 다녀오면 picked 는 'custom'인데 새 이미지는
+  //    아직 pending 이라, 그 사이 '변경하기'를 누르면 검증되지 않은 교체본이 장착된다. 비우면
+  //    selected 가 저장된 장착값으로 되돌아가고, 새 누끼는 로드 확인 뒤 다시 탭해야 골라진다.
+  useEffect(() => {
+    setCustomStatus('pending');
+    setPicked(null);
+  }, [customUri]);
 
   const goCreate = useCallback(() => navigation.navigate('CharacterCreate'), [navigation]);
 
