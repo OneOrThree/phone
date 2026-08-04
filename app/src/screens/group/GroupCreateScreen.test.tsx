@@ -12,6 +12,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert, Share } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupCreateScreen from './GroupCreateScreen';
+import { buildInviteShareMessage } from './inviteShare';
 import { createGroup } from '@/services/groupApi';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import type { CreateGroupResponse } from '@/types/dto/group';
@@ -214,12 +215,28 @@ describe('요청이 떠 있는 구간(§6-2)', () => {
     );
 
     await press('공유하기');
-    expect(Share.share).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining('아침 6시 집중방') }),
-    );
+    expect(Share.share).toHaveBeenCalledWith({
+      message: buildInviteShareMessage('아침 6시 집중방', INVITE_URL),
+    });
     expect(Share.share).not.toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining('저녁 10시') }),
     );
+  });
+
+  // 같은 '초대하기'인데 진입점마다 말이 다르면 안 된다 — 그룹방 초대 타일과 이 다이얼로그는
+  // buildInviteShareMessage 하나만 쓴다(GroupRoomScreen.test.tsx의 같은 이름 테스트가 짝).
+  // 여기서 문구 원문을 박아 두는 이유: 화면이 몰래 자기 문구를 다시 짜면 잡아야 한다.
+  test('공유 문구는 그룹방 초대 타일과 같은 공용 문구다', async () => {
+    await renderScreen();
+    await typeName('아침 6시 집중방');
+    await press('비공개');
+    await press('만들기');
+
+    await press('공유하기');
+
+    expect(Share.share).toHaveBeenCalledWith({
+      message: `아침 6시 집중방 그룹에 초대했어요! 같이 집중해요 ⭐️\n${INVITE_URL}`,
+    });
   });
 
   // 링크는 서버 발급분만 나간다(초대 링크 스펙 §7-4). 앱이 조립하던 구 링크는 실제로 404였고,
