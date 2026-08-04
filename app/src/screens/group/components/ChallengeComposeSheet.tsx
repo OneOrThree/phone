@@ -22,6 +22,7 @@ import {
 } from '@/services/groupApi';
 import { logGroupChallengeCreated } from '@/services/analyticsEvents';
 import { todayStr } from '@/utils/localDate';
+import { nowSecondsInZone } from '@/utils/challengeTime';
 import type { CreateChallengeRequest, MissionCategory, MissionType } from '@/types/dto/group';
 
 // 챌린지 만들기 시트(방장만) — 명세 docs/app/group-plan-2.md §3-2,
@@ -52,6 +53,8 @@ const WINDOW_START_DEFAULT = 9 * 60;
 const WINDOW_END_DEFAULT = 12 * 60;
 // 창 시각 휠의 분 단위 — 집중 목표 휠(DurationDrumPicker)과 같은 5분 눈금.
 const MINUTE_STEP = 5;
+// 자정 걸침 창(22:00~01:00)의 길이를 하루 넘겨 재기 위한 상수.
+const MINUTES_PER_DAY = 24 * 60;
 
 const HOUR_ITEMS = Array.from({ length: 24 }, (_, h) => `${h}시`);
 const MINUTE_ITEMS = Array.from(
@@ -89,6 +92,11 @@ const WINDOW_SCREEN_TIME_CAPTION =
   '권한을 허용한 멤버만 참여해요. ' +
   '사용 시간은 15분 단위로 집계돼 오차가 있을 수 있어요. 앱 버전이나 기기 상태에 따라 집계가 늦거나 누락될 수 있어요';
 
+// 오늘 창이 이미 지난 시간대로 만들 때의 안내(GROMO-1110) — 창은 매일 반복되는 time-of-day라
+// 오늘 몫만 지났을 뿐 챌린지는 정상 생성된다. 막지 않고 사실만 알린다.
+// 문장 결은 내기 시트의 TOMORROW_NOTE와 맞춘다(같은 사실을 두 자리에서 달리 말하지 않는다).
+const TOMORROW_NOTE = '오늘 시간대가 지나 내일부터 적용돼요';
+
 // SCREEN_TIME 생성 후 미참여자가 있을 때의 안내 — 생성 자체는 성공이므로 실패로 보이게 쓰지 않는다.
 const NON_PARTICIPANT_MESSAGE = '일부 멤버는 스크린타임 권한이 없어 참여할 수 없어요';
 
@@ -123,6 +131,13 @@ function createErrorMessage(e: unknown): string {
     default:
       return '챌린지를 만들지 못했어요. 잠시 후 다시 시도해주세요.';
   }
+}
+
+// 창 길이(분) — 서버 GroupChallengeService.windowLengthMinutes와 **같은 규칙**이다.
+// 시작 < 종료면 그대로 빼고, 자정 걸침(시작 > 종료)이면 하루를 넘겨 잰다(22:00~01:00 = 180분).
+// 뺄셈만 쓰면 자정 걸침에서 음수가 나와 목표분 칩이 전부 잠기고 CTA가 영원히 막힌다.
+function windowLengthOf(start: number, end: number): number {
+  return start < end ? end - start : MINUTES_PER_DAY - start + end;
 }
 
 // 'H*60+M'(하루 중 분) → 'HH:MM'.
@@ -196,21 +211,24 @@ export default function ChallengeComposeSheet({
   // 목표 시간의 단일 소스 — 칩 탭도 이 문자열을 갱신하고, 칩 선택 표시도 이 문자열에서 파생한다.
   // 숫자가 아니라 문자열인 이유: "120"을 치는 중간 상태("1"·"12")와 빈 값을 잃지 않기 위해서다.
   const [durationText, setDurationText] = useState<string>(String(DURATION_DEFAULT));
-  // 창 시작·종료 — '하루 중 분'(0~1439). 자정 걸침은 서버가 400으로 거부하므로(start < end)
-  // 휠 단계에서 뒤집힌 선택을 거부한다(DrumPicker의 값 거부 동작 — 휠이 제자리로 돌아간다).
+  // 창 시작·종료 — '하루 중 분'(0~1439). 자정 걸침(22:00~01:00)도 고를 수 있다(GROMO-1110) —
+  // 서버는 start.equals(end)만 거부한다. 같은 시각만 휠 단계에서 되돌린다.
   const [windowStart, setWindowStart] = useState(WINDOW_START_DEFAULT);
   const [windowEnd, setWindowEnd] = useState(WINDOW_END_DEFAULT);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  // 키보드가 바텀시트를 덮는 문제 보정(GroupFindSheet와 같은 패턴) — 패널은 하단 고정이라
-  // 자체적으로 올라가지 않는다. 자식 끝에 키보드 높이만큼 여백을 깔아 내용을 키보드 위로 올린다.
+  // 키보드가 바텀시트를 덮는 문제 보정 — 자식 끝에 키보드 높이만큼 여백을 깔아 내용을 올린다.
+  // ⚠️ 안드로이드 전용이다. iOS는 SheetShell이 패널 자체를 키보드 높이만큼 띄우므로(bottom),
+  //    여기서 또 여백을 깔면 보정이 두 번 먹어 CTA가 키보드 한 칸 위로 떠 버린다 —
+  //    패널에 85% 높이 상한이 생긴 뒤로는 그 여백이 스크롤까지 유발한다(GROMO-1111).
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvent, (e) => setKeyboardHeight(e.endCoordinates.height));
-    const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    if (Platform.OS === 'ios') return;
+    const show = Keyboard.addListener('keyboardDidShow', (e) =>
+      setKeyboardHeight(e.endCoordinates.height),
+    );
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
     return () => {
       show.remove();
       hide.remove();
@@ -223,7 +241,13 @@ export default function ChallengeComposeSheet({
   const submitLock = useRef(false);
 
   const isWindow = missionType === 'TIME_WINDOW';
-  const windowLength = windowEnd - windowStart;
+  const windowLength = windowLengthOf(windowStart, windowEnd);
+  // 오늘 창이 이미 지났나 — 자정 걸침이 **아닌** 창(start < end)에서 KST 현재 시각이 종료를
+  // 넘겼을 때다. 자정 걸침 창은 실질 마감이 자정이라 '오늘 창이 지났다'가 성립하지 않는다
+  // (BetSheet.betForTomorrow와 같은 해석). 판정 축은 반드시 KST 벽시계다 —
+  // 기기 로컬 시각을 쓰면 비KST 기기에서 하루 어긋난 안내가 뜬다.
+  const windowPassedToday =
+    isWindow && windowStart < windowEnd && nowSecondsInZone('Asia/Seoul') >= windowEnd * 60;
   // 창 길이를 넘는 목표는 서버가 INVALID_MISSION_PARAMS로 거부한다 — 칩을 미리 잠근다.
   const chipDisabled = (m: number): boolean => isWindow && m > windowLength;
 
@@ -262,16 +286,17 @@ export default function ChallengeComposeSheet({
     }
   }
 
-  // 창 시각 커밋 — 시작 ≥ 종료가 되는 선택은 거부한다(휠이 제자리로 돌아간다).
-  // 자정 걸침 창은 v1 범위 밖이다 — 서버도 windowEnd.isAfter(windowStart)를 강제해
-  // 400(INVALID_MISSION_PARAMS)으로 거절한다(GroupChallengeService.createChallenge 검증).
+  // 창 시각 커밋 — **같은 시각만** 거부한다(휠이 제자리로 돌아간다).
+  // 자정 걸침 창(22:00~01:00)은 서버가 이미 허용한다 — GroupChallengeService.validateTimeWindowParams는
+  // start.equals(end)만 400(INVALID_MISSION_PARAMS)으로 거절하고, 창 길이·겹침 판정도
+  // 자정 걸침을 하루 경계에서 전개해 계산한다. 앱만 남아 있던 start >= end 거부를 푼다(GROMO-1110).
   // 커밋 후 현재 목표분이 창보다 길어지면 창 길이로 당긴다(칩 스냅의 일반화 — 칩 값이면
   // 그 칩이 켜진다) — 초과 값이 남은 채 CTA만 막히는 상태를 만들지 않는다.
   function commitWindow(start: number, end: number) {
-    if (start >= end) return;
+    if (start === end) return;
     setWindowStart(start);
     setWindowEnd(end);
-    const length = end - start;
+    const length = windowLengthOf(start, end);
     if (durationMinutes !== null && durationMinutes > length) {
       setDurationText(String(length));
     }
@@ -406,6 +431,13 @@ export default function ChallengeComposeSheet({
               />
             </View>
           </View>
+          {/* 오늘 창이 이미 지났을 때(GROMO-1110) — 만들 수는 있으므로 막지 않고 사실만 알린다. */}
+          {windowPassedToday && (
+            <View style={s.note} testID="group.challenge.tomorrowNote">
+              <Ionicons name="time-outline" size={15} color={T.accent} style={s.noteIcon} />
+              <Text style={s.noteText}>{TOMORROW_NOTE}</Text>
+            </View>
+          )}
         </>
       )}
 
@@ -476,7 +508,7 @@ export default function ChallengeComposeSheet({
         )}
       </TouchableOpacity>
 
-      {/* 키보드 보정 여백 — 패널이 하단 고정이라 이 여백이 내용 전체를 키보드 위로 올린다. */}
+      {/* 키보드 보정 여백(안드로이드 전용) — iOS는 SheetShell이 패널째 올린다. */}
       {keyboardHeight > 0 && <View style={{ height: keyboardHeight }} />}
     </SheetShell>
   );

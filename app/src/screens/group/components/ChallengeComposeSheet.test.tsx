@@ -11,6 +11,8 @@
 //  5) nonParticipants 안내. 생성은 성공했지만 그 멤버들은 집계되지 않는다.
 //  6) 목표 시간 직접 입력(GROMO-1098) — 프리셋 밖 임의 분 제출, 1~1440 범위 검증,
 //     창 길이 초과 차단, 칩↔입력 단일 소스, 창 축소 시 클램프 동기화.
+//  7) 자정 걸침 창 허용 + '내일부터 적용' 안내(GROMO-1110) — 서버는 start==end만 거부하므로
+//     앱도 같은 선을 긋고, 창 길이는 서버 windowLengthMinutes와 같은 규칙으로 잰다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
@@ -18,6 +20,7 @@ import ChallengeComposeSheet, { type ExistingChallengeCombo } from './ChallengeC
 import { createChallenge } from '@/services/groupApi';
 import { logGroupChallengeCreated } from '@/services/analyticsEvents';
 import { todayStr } from '@/utils/localDate';
+import { nowSecondsInZone } from '@/utils/challengeTime';
 import type { CreateChallengeResponse, MissionCategory } from '@/types/dto/group';
 
 // SheetShell이 useSafeAreaInsets를 쓴다 — 테스트 트리엔 SafeAreaProvider가 없어 고정값으로 대체한다.
@@ -35,6 +38,13 @@ jest.mock('@/services/groupApi', () => ({
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeCreated: jest.fn(),
   logGroupChallengeDeleted: jest.fn(),
+}));
+
+// '오늘 창이 지났나' 판정의 시각 축(KST 벽시계)만 고정한다 — 실제 시계에 기대면 테스트가
+// 하루 중 언제 도느냐에 따라 결과가 뒤집힌다.
+jest.mock('@/utils/challengeTime', () => ({
+  ...jest.requireActual('@/utils/challengeTime'),
+  nowSecondsInZone: jest.fn(),
 }));
 
 // 창 시각 휠 — 스크롤 제스처는 jest로 흉내 낼 수 없어, 항목을 누르면 그 인덱스로 onChange가
@@ -59,6 +69,7 @@ jest.mock('@/components/DrumPicker', () => {
 });
 
 const mockCreateChallenge = createChallenge as jest.MockedFunction<typeof createChallenge>;
+const mockNowSeconds = nowSecondsInZone as jest.MockedFunction<typeof nowSecondsInZone>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const onClose = jest.fn();
@@ -114,6 +125,8 @@ async function typeDuration(text: string) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockCreateChallenge.mockResolvedValue({ id: 'c1', nonParticipants: [] });
+  // 기본은 KST 새벽 4시 — 기본 창(09:00~12:00)이 아직 오지 않은 시각이라 '내일부터' 안내가 없다.
+  mockNowSeconds.mockReturnValue(4 * 3600);
 });
 
 describe('전송값', () => {
@@ -159,8 +172,7 @@ describe('전송값', () => {
   test('휠로 바꾼 창 시각이 그대로 나간다', async () => {
     await renderSheet();
     await press('시간대');
-    // 종료 시(두 번째 시 휠)를 먼저 15시로 늘린 뒤 시작 시(첫 번째 시 휠)를 13시로 —
-    // 시작을 먼저 13시로 올리면 기본 종료(12:00)보다 늦어져 거부된다(뒤집힘 방지 규칙).
+    // 종료 시(두 번째 시 휠)를 15시로, 시작 시(첫 번째 시 휠)를 13시로 — 13:00~15:00.
     await pressNth('15시', 1);
     await pressNth('13시', 0);
     await press('만들기');
@@ -174,16 +186,50 @@ describe('전송값', () => {
     );
   });
 
-  test('시작 ≥ 종료가 되는 선택은 거부한다(휠 값 거부 = 선택 유지)', async () => {
+  // GROMO-1110 — 서버(GroupChallengeService.validateTimeWindowParams)는 start.equals(end)만
+  // 거부한다. 앱만 남아 있던 start >= end 거부를 풀어 자정 걸침 창을 만들 수 있게 한다.
+  test('자정 걸침 창(시작 > 종료)을 허용한다', async () => {
     await renderSheet();
     await press('시간대');
-    // 종료를 08시로 — 시작(09:00)보다 이르다. 거부되어 12:00이 유지된다.
+    // 종료를 08시로 — 09:00~08:00 = 다음 날 새벽까지 이어지는 1,380분 창이다.
     await pressNth('8시', 1);
     await press('만들기');
 
     expect(mockCreateChallenge).toHaveBeenCalledWith(
       GROUP_ID,
+      expect.objectContaining({
+        windowStart: `${todayStr()}T09:00:00+09:00`,
+        windowEnd: `${todayStr()}T08:00:00+09:00`,
+      }),
+    );
+  });
+
+  test('시작 = 종료가 되는 선택은 거부한다(휠 값 거부 = 선택 유지)', async () => {
+    await renderSheet();
+    await press('시간대');
+    // 종료를 09시로 — 시작(09:00)과 같은 시각이다. 서버도 400을 주므로 앱이 먼저 되돌린다.
+    await pressNth('9시', 1);
+    await press('만들기');
+
+    expect(mockCreateChallenge).toHaveBeenCalledWith(
+      GROUP_ID,
       expect.objectContaining({ windowEnd: `${todayStr()}T12:00:00+09:00` }),
+    );
+  });
+
+  // 창 길이를 end - start로만 재면 자정 걸침에서 음수가 나와 목표분이 음수로 당겨진다 —
+  // 서버 windowLengthMinutes(하루를 넘겨 계산)와 같은 규칙인지 잠근다.
+  test('자정 걸침 창의 목표분 보정은 하루를 넘겨 잰 창 길이를 쓴다', async () => {
+    await renderSheet();
+    await press('시간대');
+    await typeDuration('1440');
+    // 09:00~08:00 = 1,380분. 1,440분 목표는 창 길이로 당겨진다.
+    await pressNth('8시', 1);
+    await press('만들기');
+
+    expect(mockCreateChallenge).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ durationMinutes: 1380 }),
     );
   });
 
@@ -593,5 +639,60 @@ describe('목표 라벨', () => {
     await renderSheet();
     await press('시간대');
     expect(screen.getByText('시간대 안 목표 시간')).toBeOnTheScreen();
+  });
+});
+
+// GROMO-1110 — 오늘 창이 이미 지난 시간대로 만들 때의 안내. 창은 매일 반복되는 time-of-day라
+// 생성 자체는 정상이다. 막지 않고 사실만 알린다.
+describe('내일부터 적용 안내', () => {
+  const NOTE = '오늘 시간대가 지나 내일부터 적용돼요';
+
+  test('오늘 창이 지났으면(KST 기준) 안내가 뜬다', async () => {
+    mockNowSeconds.mockReturnValue(13 * 3600); // KST 13:00 — 기본 창 09:00~12:00은 이미 끝났다
+    await renderSheet();
+    await press('시간대');
+
+    expect(screen.getByTestId('group.challenge.tomorrowNote')).toBeOnTheScreen();
+    expect(screen.getByText(NOTE)).toBeOnTheScreen();
+    // 판정 축은 반드시 Asia/Seoul 벽시계다 — 기기 로컬 시각이면 비KST 기기에서 하루 어긋난다.
+    expect(mockNowSeconds).toHaveBeenCalledWith('Asia/Seoul');
+  });
+
+  test('창이 아직 안 끝났으면 안내가 없다', async () => {
+    mockNowSeconds.mockReturnValue(10 * 3600); // 창 한가운데
+    await renderSheet();
+    await press('시간대');
+
+    expect(screen.queryByTestId('group.challenge.tomorrowNote')).toBeNull();
+  });
+
+  test('매일 목표(DURATION)에는 안내가 없다 — 창이 없으니 지날 것도 없다', async () => {
+    mockNowSeconds.mockReturnValue(23 * 3600);
+    await renderSheet();
+
+    expect(screen.queryByTestId('group.challenge.tomorrowNote')).toBeNull();
+  });
+
+  test('자정 걸침 창은 안내하지 않는다 — 실질 마감이 자정이라 "오늘 창이 지났다"가 성립하지 않는다', async () => {
+    mockNowSeconds.mockReturnValue(23 * 3600);
+    await renderSheet();
+    await press('시간대');
+    // 09:00~08:00 자정 걸침으로 바꾼다.
+    await pressNth('8시', 1);
+
+    expect(screen.queryByTestId('group.challenge.tomorrowNote')).toBeNull();
+  });
+
+  test('안내가 떠도 생성을 막지 않는다', async () => {
+    mockNowSeconds.mockReturnValue(13 * 3600);
+    await renderSheet();
+    await press('시간대');
+    await press('만들기');
+
+    expect(mockCreateChallenge).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ missionType: 'TIME_WINDOW' }),
+    );
+    expect(onCreated).toHaveBeenCalled();
   });
 });
