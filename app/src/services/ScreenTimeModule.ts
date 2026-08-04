@@ -139,8 +139,20 @@ const markAuthGranted = (granted: boolean): void => {
   ).catch(() => {});
 };
 
-const hasAuthGrantedHistory = async (): Promise<boolean> =>
-  (await AsyncStorage.getItem(STORAGE_KEYS.screentimeAuthGranted).catch(() => null)) === '1';
+const hasAuthGrantedHistory = async (): Promise<boolean> => {
+  const cached = await AsyncStorage.getItem(STORAGE_KEYS.screentimeAuthGranted).catch(() => null);
+  if (cached === '1') return true;
+  // 업그레이드 코호트 보정(코드리뷰 반영) — 캐시 로직이 없던 빌드에서 이미 권한을 허용하고
+  // 측정까지 돌던 유저는 이 캐시 키가 아예 없다. 그 상태로 업데이트 후 첫 콜드런치에 quirk 가
+  // 걸리면 이력이 없어 보정이 못 걸리고, 홈은 권한 켜기를 그대로 띄운다.
+  // 버킷 모니터 등록 마커는 registerUsageBucketMonitoring 이 'approved' 가 아니면 즉시 빠지므로
+  // (screentimeSync.ts) 존재 자체가 "과거에 승인됐었다"는 증거다 — 진짜 최초 유저는 가질 수 없어
+  // 캐시 미스를 전부 미허용으로 보는 것보다 정확하다.
+  const measured = await AsyncStorage.getItem(STORAGE_KEYS.screentimeBucketMonitorRegistered).catch(
+    () => null,
+  );
+  return measured != null;
+};
 
 // 플랫폼 라우팅 — iOS는 Swift 브릿지, 안드로이드 M1 범위는 Expo 모듈, 그 외(미구현 함수·
 // 구 바이너리)는 에러 대신 기본값 반환. 화면 코드 호출부는 플랫폼을 몰라도 된다.

@@ -66,6 +66,15 @@ describe('getAuthorizationStatus', () => {
     await expect(ScreenTimeModule.getAuthorizationStatus()).resolves.toBe('notDetermined');
   });
 
+  // 캐시 로직이 없던 빌드에서 이미 허용하고 측정까지 돌던 유저는 캐시 키가 없다 — 버킷 모니터
+  // 등록 마커(허용 상태에서만 기록됨)를 승인 이력으로 인정해 업데이트 첫 콜드런치를 구한다.
+  it('캐시는 없지만 측정 이력이 있으면 업그레이드 코호트로 보고 approved 로 보정한다', async () => {
+    await AsyncStorage.setItem(STORAGE_KEYS.screentimeBucketMonitorRegistered, 'user-1');
+    native.getAuthorizationStatus.mockResolvedValue('notDetermined');
+
+    await expect(ScreenTimeModule.getAuthorizationStatus()).resolves.toBe('approved');
+  });
+
   it('denied 가 오면 승인 이력을 지운다 — 설정에서 끈 경우 보정이 눌러앉지 않게', async () => {
     await AsyncStorage.setItem(STORAGE_KEYS.screentimeAuthGranted, '1');
     native.getAuthorizationStatus.mockResolvedValue('denied');
