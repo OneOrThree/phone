@@ -268,8 +268,10 @@ public class GroupBetService {
 
         groupChallengeBetParticipantRepository.delete(mine);
         boolean lastParticipant = participants.size() == 1;
-        // 챌린지 정리는 환불(지갑 쓰기)보다 먼저 한다 — 챌린지 행 잠금을 잡는 다른 경로(개설·방장
-        // 삭제)와 잠금 순서를 "내기 행 → 챌린지 행 → 지갑"으로 맞추기 위해서다.
+        // 챌린지 정리는 환불보다 먼저 한다 — 챌린지 행 잠금을 잡는 다른 경로(개설·방장 삭제)와
+        // 행 잠금 순서를 "내기 행 → 챌린지 행"으로 맞추기 위해서다. 그 뒤의 지갑 쓰기는 잠금이
+        // 아니다(UserWallet 은 @Version 낙관락이라 대기 없이 커밋 시점에 버전 충돌로 실패한다) —
+        // 데드락 그래프에는 위 두 행 잠금만 들어간다.
         boolean challengeDeleted = false;
         if (lastParticipant) {
             claimCanceled(bet);
