@@ -108,6 +108,17 @@ public class GroupBetJudge {
     }
 
     /**
+     * 날짜 {@code date}(KST)의 창 시작 시각 — 참가 철회(GROMO-1102)의 "시작 전" 판정용. DURATION 은
+     * 창이 없어 empty 다(시작은 날짜 경계가 담당한다). zone 변환은
+     * {@link WindowFocusAggregator#windowStartOn} 하나만 지난다 — 창 시각 해석의 단일 변환점 계약.
+     */
+    public Optional<Instant> windowOpensAt(Target target, LocalDate date) {
+        return target.windowed()
+                ? Optional.of(windowFocusAggregator.windowStartOn(date, target.window()))
+                : Optional.empty();
+    }
+
+    /**
      * 유저별 진행분(조합별 소스). 값이 없는 유저는 <b>키가 없다</b> — FOCUS 는 0분, SCREEN_TIME 은
      * 미보고를 뜻하므로 의미가 달라 호출측이 {@link #isAchieved} 로 해석한다.
      */

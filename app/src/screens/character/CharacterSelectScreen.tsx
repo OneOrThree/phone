@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -10,36 +10,78 @@ import { useCharacter, type CharacterChoice } from '@/store/CharacterContext';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 
-// 캐릭터 고르기 화면 — 기본 그로몬 / 내가 만든 오브젝트 캐릭터(누끼) 중 하나를 장착한다.
+// 캐릭터 변경 화면 — 기본 그로몬 / 내가 만든 오브젝트 캐릭터(누끼) 중 하나를 장착한다.
 // 카드 탭은 선택 표시만 바꾸고(강조 테두리 + 체크 배지), 실제 장착(setChoice)은 하단
-// '장착하기' 버튼으로 확정한다. 확정하면 완료를 알린 뒤 홈으로 돌아간다.
+// '변경하기' 버튼으로 확정한다. 확정하면 완료를 알린 뒤 홈으로 돌아간다.
 // 내 캐릭터(누끼)가 아직 없으면 카드②는 만들기 플레이스홀더로 뜨고, 탭하면 생성 화면으로 간다.
 // 하단 버튼으로 언제든 새로/다시 만들 수 있다.
 
 const CHAR_SIZE = 116;
 
+// 지금 장착된 것으로 볼 캐릭터. 'custom'인데 쓸 수 있는 누끼가 없으면(경로가 없거나 그림을 못 그리면)
+// 기본 그로몬으로 본다 — 이 값이 곧 사용자가 아무것도 안 고르고 '변경하기'를 눌렀을 때 확정되는 값이라,
+// 여기서 막지 않으면 못 쓰는 누끼가 그대로 장착된다.
+export function resolveEquippedChoice(
+  choice: CharacterChoice,
+  customUri: string | null,
+  customBroken: boolean,
+): CharacterChoice {
+  return choice === 'custom' && !!customUri && !customBroken ? 'custom' : 'default';
+}
+
 export default function CharacterSelectScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { choice, customUri, setChoice } = useCharacter();
 
-  // 지금 실제로 장착된 캐릭터. 'custom'인데 누끼가 사라진 비정상 상태는 기본 그로몬으로 잡는다.
-  const equipped: CharacterChoice = choice === 'custom' && customUri != null ? 'custom' : 'default';
+  // 저장된 누끼를 실제로 그릴 수 있는지. 이미지 로드는 비동기라 세 상태가 필요하다.
+  //  pending — 아직 로드 결과를 모름 / ok — 그려짐 / broken — 경로가 죽어 못 그림
+  // 경로가 죽으면 카드②는 기본 그로몬으로 폴백돼 그려지는데, 그대로 장착까지 되면 홈·집중·축하
+  // 화면의 캐릭터가 전부 기본으로 돌아가 "빈 칸을 장착한" 꼴이 된다. 그래서 못 쓰는 누끼는 아예
+  // 없는 것으로 본다. 저장소의 customUri 는 지우지 않는다 — 일시적 읽기 실패였을 경우 다음
+  // 실행에서 되살아난다.
+  const [customStatus, setCustomStatus] = useState<'pending' | 'ok' | 'broken'>('pending');
+
+  const hasCustom = !!customUri && customStatus !== 'broken';
+  // 선택은 로드가 확인된 뒤에만 허용한다 — onError 는 비동기라, 그 전에 카드를 탭하고 곧바로
+  // '변경하기'를 누르면 못 쓰는 누끼가 장착돼 버린다(코드리뷰 반영). 렌더는 pending 에도 그대로
+  // 두어 정상 누끼가 잠깐 플레이스홀더로 깜빡이지 않게 한다.
+  const canPickCustom = !!customUri && customStatus === 'ok';
+
+  const equipped = resolveEquippedChoice(choice, customUri, customStatus === 'broken');
 
   // 화면 안에서만 쓰는 선택 상태 — 사용자가 카드를 탭하기 전까지는 null이고, 그동안은 위의
   // 장착값을 그대로 따라간다. useState 초기값으로 스냅샷을 뜨면 CharacterContext가 AsyncStorage를
-  // 아직 못 읽은 시점에 마운트됐을 때 'default'로 굳어, 그대로 '장착하기'를 누르면 사용자의
-  // 누끼 캐릭터가 조용히 해제된다. 아무것도 안 골라진 상태는 생기지 않으므로 '장착하기'는 항상 활성.
+  // 아직 못 읽은 시점에 마운트됐을 때 'default'로 굳어, 그대로 '변경하기'를 누르면 사용자의
+  // 누끼 캐릭터가 조용히 해제된다. 아무것도 안 골라진 상태는 생기지 않으므로 '변경하기'는 항상 활성.
   const [picked, setPicked] = useState<CharacterChoice | null>(null);
   const selected = picked ?? equipped;
 
+  // 누끼가 바뀌면 판정과 선택을 함께 리셋한다.
+  //  · 판정 리셋 — 깨진 뒤 '새로 만들기'로 새 캐릭터를 만들어 돌아오면(CharacterCreateRoute 가
+  //    customUri 를 갱신하고 goBack) 이 화면은 그대로 마운트돼 있어, 리셋하지 않으면 멀쩡한 새
+  //    캐릭터가 계속 숨겨진 채로 남는다.
+  //  · 선택 리셋 — 누끼를 고른 상태로 '다시 만들기'를 다녀오면 picked 는 'custom'인데 새 이미지는
+  //    아직 pending 이라, 그 사이 '변경하기'를 누르면 검증되지 않은 교체본이 장착된다. 비우면
+  //    selected 가 저장된 장착값으로 되돌아가고, 새 누끼는 로드 확인 뒤 다시 탭해야 골라진다.
+  useEffect(() => {
+    setCustomStatus('pending');
+    setPicked(null);
+  }, [customUri]);
+
   const goCreate = useCallback(() => navigation.navigate('CharacterCreate'), [navigation]);
 
-  // 장착 확정 — 고른 캐릭터를 실제로 장착하고, 알림을 닫으면 홈으로 돌아간다.
-  // 이 화면은 홈 '캐릭터 바꾸기'로만 들어오므로 popToTop이 곧 홈 복귀다(중간에 '만들기'로
+  // 누끼 그림을 못 그렸다 — 카드②를 만들기 플레이스홀더로 되돌리고, 골라둔 상태였으면 기본으로 뺀다.
+  const onCustomBroken = useCallback(() => {
+    setCustomStatus('broken');
+    setPicked((p) => (p === 'custom' ? 'default' : p));
+  }, []);
+
+  // 변경 확정 — 고른 캐릭터를 실제로 장착하고, 알림을 닫으면 홈으로 돌아간다.
+  // 이 화면은 홈 '캐릭터 변경'으로만 들어오므로 popToTop이 곧 홈 복귀다(중간에 '만들기'로
   // 다녀온 스택이 남아 있어도 한 번에 걷어낸다).
   const equip = useCallback(() => {
     setChoice(selected);
-    Alert.alert('장착되었습니다!', '홈에서 바로 확인할 수 있어요.', [
+    Alert.alert('변경되었어요!', '홈에서 바로 확인할 수 있어요.', [
       { text: '확인', onPress: () => navigation.popToTop() },
     ]);
   }, [selected, setChoice, navigation]);
@@ -47,19 +89,34 @@ export default function CharacterSelectScreen() {
   const defaultSelected = selected === 'default';
   const customSelected = selected === 'custom';
 
+  // 고른 게 누끼인데 아직 로드 확인 전이면 확정을 잠근다(코드리뷰 반영).
+  // picked 를 리셋하는 것만으로는 부족하다 — 저장된 choice 가 이미 'custom'이면 '다시 만들기'로
+  // 교체본이 들어와도 selected 는 계속 'custom'이라, onError 가 오기 전에 확정하면 못 쓰는
+  // 교체본이 그대로 남는다.
+  // 반대로 pending 을 '미장착'으로 처리하면 안 된다 — 그 순간 selected 가 'default'로 바뀌어,
+  // 하이드레이션이 늦은 정상 유저가 확정을 누르면 멀쩡한 누끼가 조용히 해제된다(위 주석의 그 사고).
+  // 그래서 값을 바꾸는 대신 확정만 잠근다. 잠기는 구간은 로컬 파일 디코드 시간뿐이다.
+  const confirmLocked = customSelected && customStatus !== 'ok';
+
   return (
     <SettingsScaffold
-      title="캐릭터 고르기"
+      title="캐릭터 변경"
       onBack={() => navigation.goBack()}
       footer={
         <View style={s.footerCol}>
-          <PressableScale style={s.equipBtn} scaleTo={0.97} haptic="light" onPress={equip}>
+          <PressableScale
+            style={[s.equipBtn, confirmLocked && s.equipBtnLocked]}
+            scaleTo={0.97}
+            haptic="light"
+            disabled={confirmLocked}
+            onPress={equip}
+          >
             <Ionicons name="checkmark" size={18} color={T.white} />
-            <Text style={s.equipBtnText}>장착하기</Text>
+            <Text style={s.equipBtnText}>변경하기</Text>
           </PressableScale>
           <PressableScale style={s.footerBtn} scaleTo={0.97} onPress={goCreate}>
             <Ionicons name="add" size={18} color={T.accent} />
-            <Text style={s.footerBtnText}>{customUri ? '다시 만들기' : '새로 만들기'}</Text>
+            <Text style={s.footerBtnText}>{hasCustom ? '다시 만들기' : '새로 만들기'}</Text>
           </PressableScale>
         </View>
       }
@@ -83,11 +140,12 @@ export default function CharacterSelectScreen() {
           <Text style={s.cardLabel}>기본 그로몬</Text>
         </PressableScale>
 
-        {/* 카드② 내 캐릭터 — 누끼 있으면 선택 카드, 없으면 만들기 플레이스홀더 */}
-        {customUri ? (
+        {/* 카드② 내 캐릭터 — 쓸 수 있는 누끼가 있으면 선택 카드, 없으면 만들기 플레이스홀더 */}
+        {hasCustom ? (
           <PressableScale
             style={[s.card, customSelected && s.cardSelected]}
             scaleTo={0.97}
+            disabled={!canPickCustom}
             onPress={() => setPicked('custom')}
           >
             {customSelected ? (
@@ -96,7 +154,12 @@ export default function CharacterSelectScreen() {
               </View>
             ) : null}
             <View style={s.charBox}>
-              <CharacterImage size={CHAR_SIZE} sourceUri={customUri} />
+              <CharacterImage
+                size={CHAR_SIZE}
+                sourceUri={customUri ?? undefined}
+                onLoad={() => setCustomStatus((st) => (st === 'pending' ? 'ok' : st))}
+                onSourceError={onCustomBroken}
+              />
             </View>
             <Text style={s.cardLabel}>내 캐릭터</Text>
           </PressableScale>
@@ -147,6 +210,8 @@ const s = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: T.accent,
   },
+  // 로드 확인 전 잠금 — 누끼 디코드 동안만이라 색을 바꾸지 않고 살짝 흐리게만 둔다.
+  equipBtnLocked: { opacity: 0.6 },
   equipBtnText: { ...T.text.subtitle, color: T.white },
   footerBtn: {
     flexDirection: 'row',

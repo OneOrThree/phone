@@ -34,8 +34,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * KST 날짜 앵커 조합을 실제 focus_sessions 행으로 확인한다. 관용치 판정(isAchieved)은 순수 함수라
  * 여기서 경계값만 함께 고정한다.
  *
- * <p>시각 표기: 창 Instant 는 UTC 시각(time-of-day)만 의미가 있고, 날짜 D 의 실제 창은 D(KST)에 그
- * 시각을 얹는다. 예) 09:00~12:00 창의 2026-08-01 실제 경계는 KST 09:00 = {@code 2026-08-01T00:00Z}.
+ * <p>시각 표기: 창 Instant 는 Asia/Seoul 벽시계 시각(time-of-day)만 의미가 있고(GROMO-1100), 날짜 D 의
+ * 실제 창은 D(KST)에 그 시각을 얹는다. 예) 09:00~12:00 창의 2026-08-01 실제 경계는 KST 09:00 =
+ * {@code 2026-08-01T00:00Z}.
  */
 class WindowFocusAggregatorIntegrationTest extends RepositoryTestBase {
 
@@ -58,7 +59,7 @@ class WindowFocusAggregatorIntegrationTest extends RepositoryTestBase {
         return userRepository.save(User.builder().nickname(nickname).isGuest(false).build());
     }
 
-    /** 창 상세 저장 — Instant 의 UTC 시각이 곧 창 시각이다(예: 09:00Z~12:00Z = 매일 09:00~12:00 창). */
+    /** 창 상세 저장 — 앱 송신 형식 그대로 {@code +09:00} 오프셋 Instant 로 저장한다(KST 벽시계 시각 = 창 시각). */
     private GroupChallengeWindow saveWindow(String startTime, String endTime, Integer goalMinutes) {
         Group group = groupRepository.save(Group.builder().name("창검증").maxMembers(10).build());
         GroupChallenge challenge = groupChallengeRepository.save(GroupChallenge.builder()
@@ -66,8 +67,8 @@ class WindowFocusAggregatorIntegrationTest extends RepositoryTestBase {
                 .status(GroupChallengeStatus.ACTIVE).build());
         return groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(challenge)
-                .windowStartAt(Instant.parse("2026-01-01T" + startTime + "Z"))
-                .windowEndAt(Instant.parse("2026-01-01T" + endTime + "Z"))
+                .windowStartAt(Instant.parse("2026-01-01T" + startTime + "+09:00"))
+                .windowEndAt(Instant.parse("2026-01-01T" + endTime + "+09:00"))
                 .durationMinutes(goalMinutes)
                 .build());
     }
@@ -144,6 +145,32 @@ class WindowFocusAggregatorIntegrationTest extends RepositoryTestBase {
 
         // then
         assertThat(minutes).containsEntry(user.getId(), 60);
+    }
+
+    @Test
+    @DisplayName("GROMO-1100 회귀 — +09:00 오프셋 창의 집계 앵커가 KST 벽시계 시각 그대로다 (9시간 어긋남 없음)")
+    void anchorsPlusNineOffsetWindowAtKstWallClock() {
+        // given: 앱이 보내는 형식 그대로 09:00~12:00 KST 창 (+09:00 오프셋 → 저장 Instant 는 00:00Z~03:00Z)
+        GroupChallengeWindow window = saveWindow("09:00:00", "12:00:00", 120);
+
+        // then: 2026-08-01 의 실제 경계 = KST 09:00~12:00 (종전 버그면 KST 18:00~21:00 = 9시간 밀림)
+        assertThat(windowFocusAggregator.windowStartOn(DATE, window))
+                .isEqualTo(Instant.parse("2026-08-01T09:00:00+09:00"));
+        assertThat(windowFocusAggregator.windowEndOn(DATE, window))
+                .isEqualTo(Instant.parse("2026-08-01T12:00:00+09:00"));
+    }
+
+    @Test
+    @DisplayName("GROMO-1100 회귀 — 자정 걸침 창(22:00~02:00 KST)의 앵커는 D 22:00 ~ D+1 02:00 (KST)")
+    void anchorsMidnightCrossingWindowAtKstWallClock() {
+        // given: 22:00~02:00 KST 창 — 시작 > 종료라 자정 걸침으로 해석돼야 한다
+        GroupChallengeWindow window = saveWindow("22:00:00", "02:00:00", 120);
+
+        // then: D 의 시작 22:00 KST, 종료는 D+1 의 02:00 KST
+        assertThat(windowFocusAggregator.windowStartOn(DATE, window))
+                .isEqualTo(Instant.parse("2026-08-01T22:00:00+09:00"));
+        assertThat(windowFocusAggregator.windowEndOn(DATE, window))
+                .isEqualTo(Instant.parse("2026-08-02T02:00:00+09:00"));
     }
 
     @Test

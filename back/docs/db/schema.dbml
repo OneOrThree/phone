@@ -234,6 +234,8 @@ Table users [note: '서비스 사용자 계정 (소셜 로그인 기반, 소프�
 
   last_active_at                 timestamptz [not null, default: `now()`, note: '마지막 활동 시각 — 미접속 복귀 푸시(GROMO-578) D+3/7/14 판정. JwtFilter 가 하루 1회 스로틀 갱신. migration v25. 부분 인덱스 idx_users_last_active_at (last_active_at) WHERE is_guest=false AND is_deleted=false — 배치 풀스캔 방지']
 
+  character_trial_anchor_at      timestamptz [note: '누끼 생성 trial(7일 무제한) 기준 시각 — 유저가 쿼터를 처음 조회할 때 1회 박힘. 배포일 상수 대신 유저별 첫 접촉을 쓰는 이유는 앱 업데이트 시점이 유저마다 달라도 trial 7일을 온전히 주기 위함. NULL = 아직 기능 미접촉. migration v26']
+
   created_at                     timestamptz [not null, default: `now()`, note: '가입 시각']
   updated_at                     timestamptz
   is_deleted                     boolean [not null, default: false, note: '회원탈퇴 삭제 대기 플래그 — 동의 보관기간 경과 후 배치 하드 삭제(retention→purge)']

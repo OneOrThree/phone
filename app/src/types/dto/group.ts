@@ -43,6 +43,7 @@ export interface GroupSummaryResponse {
   role: GroupMemberRole;
   status: GroupStatus;
   isPrivate?: boolean; // 백엔드 P1-1에서 추가
+  description?: string | null; // 그룹 소개 — 목록 카드 노출용(백엔드가 목록 응답에 포함해야 표시)
 }
 
 // GET /groups/search?query — 이름 검색(공개방만 내려온다).
@@ -189,7 +190,8 @@ export interface GroupChallengeResponse {
 }
 
 // ── 내기(3차·확장) — 계약 정본 docs/app/challenge-impl-2026-08/contract.md §2 ──
-// ⚠️ 판돈은 서버 허용값 {10,30,50,100}만이고 내기는 챌린지당·날짜당 1개다(백 명세 결정 8).
+// ⚠️ 참가비는 1~1000 자유 입력이고(GROMO-1097 — 구 {10,30,50,100} 고정에서 확대) 내기는
+//    챌린지당·날짜당 1개다.
 // 내기 대상은 전 조합이다 — FOCUS·SCREEN_TIME × DURATION·TIME_WINDOW(창은 목표분 있는 것만).
 // SCREEN_TIME 달성은 클라 신뢰 데이터지만 리스크 수용으로 확대됐다(계약 확정 정책).
 
@@ -222,6 +224,11 @@ export interface GroupChallengeBet {
   // ⚠️ optional인 이유: 이 필드를 모르는 구서버가 존재한다(GroupChallengeResponse.bet과 같은 관행).
   //    undefined면 개설자를 알 수 없으므로 취소 진입점을 그리지 않는다 — 없는 기능을 세우지 않는다.
   creatorUserId?: string;
+  // 내기 기준일 'YYYY-MM-DD' — 참가 철회 버튼의 '시작 전' 판정용(챌린지 개선 배치 계약 §4).
+  // '내일 내기'(계약 §3)가 생기며 조회 date와 내기 날짜가 달라질 수 있어 필요해졌다.
+  // ⚠️ optional: 이 필드를 모르는 구서버가 존재한다(creatorUserId와 같은 관행). undefined면
+  //    조회일(오늘) 내기로 간주한다 — DURATION 철회는 미래 내기만 허용이라 자연히 숨는다.
+  date?: string;
 }
 
 // 정산된 내기의 인별 결과. payout은 **받은 금액**(승자 분배금 or 환불금)이지 손익이 아니다 —
@@ -247,8 +254,9 @@ export interface LastSettledBet {
 
 // POST /groups/{groupId}/challenges/{challengeId}/bets — 내기 개설(개설자 자동 참가·판돈 즉시 차감).
 export interface CreateBetRequest {
-  stake: number; // 10|30|50|100 — 그 외는 서버가 BET_INVALID_STAKE
-  date: string; // 'YYYY-MM-DD' (클라 로컬 날짜)
+  stake: number; // 1~1000 정수 — 범위 밖은 서버가 BET_INVALID_STAKE
+  // 'YYYY-MM-DD'. 오늘 또는 내일(창 마감 뒤 '내일 시간대부터 적용' — GROMO-1103) — 그 외는 BET_CLOSED.
+  date: string;
 }
 
 export interface CreateBetResponse {

@@ -27,7 +27,7 @@ type IconName = ComponentProps<typeof Ionicons>['name'];
 // 안내 3가지(해요체) — ① 직접 해보기 ② 홈에서 장착 ③ 함께 집중 기능 예고.
 const GUIDES: { icon: IconName; text: string }[] = [
   { icon: 'sparkles-outline', text: '이렇게 사진 속 물건으로 캐릭터를 만들 수 있어요.' },
-  { icon: 'home-outline', text: '만든 캐릭터는 홈에서 바꿔 장착할 수 있어요.' },
+  { icon: 'home-outline', text: '만든 캐릭터는 홈에서 변경할 수 있어요.' },
   {
     icon: 'people-outline',
     text: '앱 내에서 내가 만든 캐릭터로 다른 사람들과 같이 집중할 수 있는 기능은 준비중이에요',
@@ -119,7 +119,7 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
           ) : moderationUnavailable ? (
             // 검사 불가로 지금은 못 만드는 경우 — 갇히지 않게 안내하고 다음으로 넘어갈 수 있게 한다.
             <Text style={s.hint}>
-              지금은 확인이 어려워요. 나중에 홈에서 ‘캐릭터 바꾸기’로 만들 수 있어요. 지금은
+              지금은 확인이 어려워요. 나중에 홈에서 ‘캐릭터 변경’으로 만들 수 있어요. 지금은
               넘어가도 괜찮아요.
             </Text>
           ) : creatorDismissed ? (

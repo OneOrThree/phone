@@ -548,7 +548,7 @@ export default function HomeScreen() {
           {/* ── 방 + 캐릭터 ── */}
           <View style={s.room}>
             <CharacterImage size={216} sourceUri={activeSource ?? undefined} />
-            {/* 캐릭터 바꾸기 — 알림 벨과 같은 패턴(계측 + navigate). 은은한 pill 스타일 */}
+            {/* 캐릭터 변경 — 알림 벨과 같은 패턴(계측 + navigate). 은은한 pill 스타일 */}
             <PressableScale
               style={s.changeCharBtn}
               scaleTo={0.96}
@@ -558,7 +558,7 @@ export default function HomeScreen() {
               }}
             >
               <Ionicons name="brush-outline" size={14} color={T.accent} />
-              <Text style={s.changeCharText}>캐릭터 바꾸기</Text>
+              <Text style={s.changeCharText}>캐릭터 변경</Text>
             </PressableScale>
           </View>
         </ScrollView>
@@ -723,7 +723,7 @@ const s = StyleSheet.create({
 
   // 방 + 캐릭터 — 가운데를 채우고, 카드를 하단으로 밀어냄
   room: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: T.space.xs },
-  // 캐릭터 바꾸기 pill — 캐릭터 바로 아래, 은은한 인디고 틴트
+  // 캐릭터 변경 pill — 캐릭터 바로 아래, 은은한 인디고 틴트
   changeCharBtn: {
     flexDirection: 'row',
     alignItems: 'center',

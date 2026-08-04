@@ -64,6 +64,15 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
     List<GroupChallengeBet> findByChallengeIdInAndBetDate(Collection<UUID> challengeIds, LocalDate betDate);
 
     /**
+     * 조회 조립용 — 내일 폴백({@code GroupBetService.loadCurrentBets}, 계약 §3 응답 보수):
+     * 오늘 내기가 없는 챌린지의 내일 OPEN 내기만 배치 로드한다. status 를 함께 거는 이유는
+     * 취소된 내일 내기까지 카드에 세우지 않기 위해서다(취소는 "없던 일" — lastSettledBet 의
+     * CANCELED 배제와 같은 규칙).
+     */
+    List<GroupChallengeBet> findByChallengeIdInAndBetDateAndStatus(
+            Collection<UUID> challengeIds, LocalDate betDate, GroupBetStatus status);
+
+    /**
      * 조회 조립용 — 챌린지별 <b>가장 최근 정산 내기 1건만</b> 배치 로드한다("지난 내기" 한 줄용).
      *
      * <p>Postgres {@code DISTINCT ON} 은 {@code ORDER BY} 선두 컬럼(challenge_id)마다 첫 행 하나만

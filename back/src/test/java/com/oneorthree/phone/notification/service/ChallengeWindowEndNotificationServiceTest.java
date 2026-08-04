@@ -26,6 +26,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -105,13 +106,13 @@ class ChallengeWindowEndNotificationServiceTest {
                 .build();
     }
 
-    /** 창 시각은 UTC time-of-day 로 저장된다(WindowFocusAggregator.timeOfDay 와 같은 기준). */
+    /** 창 시각은 KST 벽시계 time-of-day 로 해석된다(WindowFocusAggregator.timeOfDay, GROMO-1100). */
     private static GroupChallengeWindow window(GroupChallenge challenge, LocalTime start, LocalTime end) {
         return GroupChallengeWindow.builder()
                 .challengeId(challenge.getId())
                 .challenge(challenge)
-                .windowStartAt(Instant.EPOCH.plusSeconds(start.toSecondOfDay()))
-                .windowEndAt(Instant.EPOCH.plusSeconds(end.toSecondOfDay()))
+                .windowStartAt(LocalDate.EPOCH.atTime(start).atZone(KST).toInstant())
+                .windowEndAt(LocalDate.EPOCH.atTime(end).atZone(KST).toInstant())
                 .durationMinutes(60)
                 .build();
     }
@@ -158,13 +159,13 @@ class ChallengeWindowEndNotificationServiceTest {
 
     /** 창 09:00~12:00(KST) 인 챌린지 + 그 창이 방금 끝난 시각(12:05 KST). */
     private static Instant kst(int year, int month, int day, int hour, int minute) {
-        return java.time.LocalDate.of(year, month, day)
+        return LocalDate.of(year, month, day)
                 .atTime(hour, minute).atZone(KST).toInstant();
     }
 
-    private static LocalTime utcTimeOf(int kstHour, int kstMinute) {
-        // 저장 시각은 UTC time-of-day 이고 창 해석은 그 시각을 KST 날짜에 얹는다 —
-        // 즉 "09:00 창" 은 저장값도 09:00 이다(WindowFocusAggregator 주석의 단일 기준).
+    private static LocalTime kstTimeOf(int kstHour, int kstMinute) {
+        // 창 해석은 저장 Instant 의 KST 벽시계 시각을 KST 날짜에 얹는다(GROMO-1100) —
+        // 즉 "09:00 창" 은 KST 09:00 이다(WindowFocusAggregator 주석의 단일 기준).
         return LocalTime.of(kstHour, kstMinute);
     }
 
@@ -172,7 +173,7 @@ class ChallengeWindowEndNotificationServiceTest {
     @DisplayName("창 종료가 직전 15분 안에 지났으면 그룹원 전원에게 발송한다")
     void sendsWhenWindowJustEnded() {
         GroupChallenge challenge = challenge();
-        givenChallenge(challenge, window(challenge, utcTimeOf(9, 0), utcTimeOf(12, 0)));
+        givenChallenge(challenge, window(challenge, kstTimeOf(9, 0), kstTimeOf(12, 0)));
         User first = user(UUID.randomUUID());
         User second = user(UUID.randomUUID());
         givenMembers(challenge, first, second);
@@ -191,7 +192,7 @@ class ChallengeWindowEndNotificationServiceTest {
     @DisplayName("포커스 창형 챌린지도 대상이다 — 창 종료 감지는 카테고리를 가리지 않는다")
     void sendsForFocusWindowChallenge() {
         GroupChallenge challenge = challenge(MissionCategory.FOCUS);
-        givenChallenge(challenge, window(challenge, utcTimeOf(9, 0), utcTimeOf(12, 0)));
+        givenChallenge(challenge, window(challenge, kstTimeOf(9, 0), kstTimeOf(12, 0)));
         User member = user(UUID.randomUUID());
         givenMembers(challenge, member);
         givenNoSentLogs();
@@ -210,8 +211,8 @@ class ChallengeWindowEndNotificationServiceTest {
         GroupChallenge screenTime = challenge(MissionCategory.SCREEN_TIME);
         GroupChallenge focus = challenge(MissionCategory.FOCUS);
         givenChallenges(List.of(screenTime, focus),
-                List.of(window(screenTime, utcTimeOf(9, 0), utcTimeOf(12, 0)),
-                        window(focus, utcTimeOf(10, 0), utcTimeOf(12, 0))));
+                List.of(window(screenTime, kstTimeOf(9, 0), kstTimeOf(12, 0)),
+                        window(focus, kstTimeOf(10, 0), kstTimeOf(12, 0))));
         User member = user(UUID.randomUUID());
         givenMembers(screenTime, member);
         givenNoSentLogs();
@@ -233,7 +234,7 @@ class ChallengeWindowEndNotificationServiceTest {
     @DisplayName("창이 아직 안 끝났으면 대상 0건 — 그룹원 조회조차 하지 않는다")
     void skipsWhenWindowStillOpen() {
         GroupChallenge challenge = challenge();
-        givenChallenge(challenge, window(challenge, utcTimeOf(9, 0), utcTimeOf(12, 0)));
+        givenChallenge(challenge, window(challenge, kstTimeOf(9, 0), kstTimeOf(12, 0)));
 
         PushDispatchSummaryResponse summary =
                 service().sendWindowEndNotifications(kst(2026, 8, 2, 11, 59));
@@ -246,7 +247,7 @@ class ChallengeWindowEndNotificationServiceTest {
     @DisplayName("종료 후 한참 지난 창(감지 폭 밖)은 발송하지 않는다 — 뒤늦은 푸시 방지")
     void skipsLongEndedWindow() {
         GroupChallenge challenge = challenge();
-        givenChallenge(challenge, window(challenge, utcTimeOf(9, 0), utcTimeOf(12, 0)));
+        givenChallenge(challenge, window(challenge, kstTimeOf(9, 0), kstTimeOf(12, 0)));
 
         PushDispatchSummaryResponse summary =
                 service().sendWindowEndNotifications(kst(2026, 8, 2, 13, 0));
@@ -266,7 +267,7 @@ class ChallengeWindowEndNotificationServiceTest {
                 .status(GroupChallengeStatus.ACTIVE)
                 .createdAt(kst(2026, 8, 2, 12, 5))
                 .build();
-        givenChallenge(challenge, window(challenge, utcTimeOf(9, 0), utcTimeOf(12, 0)));
+        givenChallenge(challenge, window(challenge, kstTimeOf(9, 0), kstTimeOf(12, 0)));
 
         PushDispatchSummaryResponse summary =
                 service().sendWindowEndNotifications(kst(2026, 8, 2, 12, 15));
@@ -279,7 +280,7 @@ class ChallengeWindowEndNotificationServiceTest {
     @DisplayName("회차가 끝난 뒤에 가입한 멤버는 제외 — 참여한 적 없는 회차의 결과 알림 금지")
     void skipsMemberJoinedAfterCycleEnd() {
         GroupChallenge challenge = challenge();
-        givenChallenge(challenge, window(challenge, utcTimeOf(9, 0), utcTimeOf(12, 0)));
+        givenChallenge(challenge, window(challenge, kstTimeOf(9, 0), kstTimeOf(12, 0)));
         // 창은 12:00 에 끝났는데 12:10 에 가입 → 12:15 틱의 대상이 아니다.
         givenMembersJoinedAt(challenge, kst(2026, 8, 2, 12, 10), user(UUID.randomUUID()));
         givenNoSentLogs();
@@ -300,7 +301,7 @@ class ChallengeWindowEndNotificationServiceTest {
     @DisplayName("자정을 걸치는 창(23:00~01:00)은 어제 시작분의 종료를 오늘 새벽에 잡는다")
     void detectsMidnightCrossingWindow() {
         GroupChallenge challenge = challenge();
-        givenChallenge(challenge, window(challenge, utcTimeOf(23, 0), utcTimeOf(1, 0)));
+        givenChallenge(challenge, window(challenge, kstTimeOf(23, 0), kstTimeOf(1, 0)));
         User member = user(UUID.randomUUID());
         givenMembers(challenge, member);
         givenNoSentLogs();
@@ -317,7 +318,7 @@ class ChallengeWindowEndNotificationServiceTest {
     @DisplayName("같은 날 이미 보낸 유저는 dedup — 15분마다 다시 돌아도 재발송하지 않는다")
     void dedupsWithinSameDay() {
         GroupChallenge challenge = challenge();
-        givenChallenge(challenge, window(challenge, utcTimeOf(9, 0), utcTimeOf(12, 0)));
+        givenChallenge(challenge, window(challenge, kstTimeOf(9, 0), kstTimeOf(12, 0)));
         User member = user(UUID.randomUUID());
         givenMembers(challenge, member);
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(
@@ -341,7 +342,7 @@ class ChallengeWindowEndNotificationServiceTest {
     @DisplayName("다른 챌린지의 발송 이력은 dedup 대상이 아니다 — targetUserId 로 가른다")
     void dedupIsScopedToChallenge() {
         GroupChallenge challenge = challenge();
-        givenChallenge(challenge, window(challenge, utcTimeOf(9, 0), utcTimeOf(12, 0)));
+        givenChallenge(challenge, window(challenge, kstTimeOf(9, 0), kstTimeOf(12, 0)));
         User member = user(UUID.randomUUID());
         givenMembers(challenge, member);
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(
@@ -365,7 +366,7 @@ class ChallengeWindowEndNotificationServiceTest {
     @DisplayName("문구는 승패를 담지 않고, 딥링크에 결과 모달용 challenge 가 붙는다")
     void composesResultCheckMessage() {
         GroupChallenge challenge = challenge();
-        givenChallenge(challenge, window(challenge, utcTimeOf(9, 0), utcTimeOf(12, 0)));
+        givenChallenge(challenge, window(challenge, kstTimeOf(9, 0), kstTimeOf(12, 0)));
         User member = user(UUID.randomUUID());
         givenMembers(challenge, member);
         givenNoSentLogs();

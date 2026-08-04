@@ -29,6 +29,7 @@ export function CharacterImage({
   variant = 'default',
   sourceUri,
   onLoad,
+  onSourceError,
 }: {
   size: number;
   variant?: CharacterVariant;
@@ -38,6 +39,9 @@ export function CharacterImage({
   /** 이미지 표시 완료 콜백 — 축하 모달의 색종이 타이밍·공유 캡처 게이트 등에 쓴다. 로드 실패 시엔
    *  기본 에셋으로 폴백되고, 그 폴백이 그려질 때 이 콜백이 온다(실패 순간이 아니라 폴백 페인트 시점). */
   onLoad?: ImageProps['onLoad'];
+  /** sourceUri 로드 실패 콜백 — 폴백은 이 컴포넌트가 알아서 하지만, "이 누끼는 못 쓴다"는 사실을
+   *  알아야 하는 화면(캐릭터 변경 화면의 장착 차단)이 있어 밖으로 열어 둔다. */
+  onSourceError?: () => void;
 }) {
   // sourceUri(누끼) 로드 실패 시 기본 에셋으로 폴백 — 만료/삭제된 URI가 빈/깨진 박스로 그려지는 걸 막는다.
   // 공유 이미지뿐 아니라 홈·집중 화면 등 sourceUri 사용처 전반이 함께 폴백된다(GROMO-1070 리뷰 반영).
@@ -53,7 +57,10 @@ export function CharacterImage({
       style={{ width: size, height: size }}
       resizeMode="contain"
       onLoad={onLoad}
-      onError={() => setFailed(true)}
+      onError={() => {
+        setFailed(true);
+        onSourceError?.();
+      }}
     />
   );
 }
