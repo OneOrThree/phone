@@ -27,6 +27,7 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -113,8 +114,25 @@ class GroupBetServiceTest {
     private static final UUID BET_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID OTHER_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
+    /** 참가 행 id — 차감·철회 환불 멱등키의 축이라(계약 §2-2) 단위 테스트에서도 실제 값이 필요하다. */
+    private static final UUID PARTICIPANT_ID = UUID.fromString("00000000-0000-0000-0000-0000000000e1");
+    private static final UUID OTHER_PARTICIPANT_ID =
+            UUID.fromString("00000000-0000-0000-0000-0000000000e2");
 
     private static final int GOAL_MINUTES = 120;
+
+    /**
+     * 참가 경로 공통 스텁 — {@code stakeIn} 은 저장된 참가 행의 id 로 차감 멱등키를 만들고
+     * ({@code bet:{betId}:stake:{participantId}}), 차감이 스킵되면(false) 무임승차를 막으려고
+     * 트랜잭션을 되돌린다. 거절 경로에는 도달하지 않는 스텁이라 lenient 로 둔다.
+     */
+    @BeforeEach
+    void givenStakeInSucceeds() {
+        lenient().when(groupChallengeBetParticipantRepository.save(any()))
+                .thenReturn(GroupChallengeBetParticipant.builder().id(PARTICIPANT_ID).build());
+        lenient().when(currencyLedgerService.debit(any(), any(), anyInt(), anyString()))
+                .thenReturn(true);
+    }
 
     /** 서비스가 보는 "오늘"과 같은 기준(KST). */
     private LocalDate today() {
@@ -243,7 +261,7 @@ class GroupBetServiceTest {
     // ── 개설 ────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("개설 성공 → 내기 저장 + 개설자 자동 참가 + 판돈 차감(멱등키 bet:{betId}:stake:{userId})")
+    @DisplayName("개설 성공 → 내기 저장 + 개설자 자동 참가 + 참가비 차감(멱등키 bet:{betId}:stake:{participantId})")
     void createBetChargesStakeAndAutoJoinsCreator() {
         givenMember();
         givenChallenge(focusChallenge());
@@ -269,7 +287,9 @@ class GroupBetServiceTest {
         ArgumentCaptor<String> key = ArgumentCaptor.forClass(String.class);
         verify(currencyLedgerService)
                 .debit(any(), eq(CurrencyTransactionType.BET_STAKE), eq(30), key.capture());
-        assertThat(key.getValue()).isEqualTo("bet:" + BET_ID + ":stake:" + USER_ID);
+        // 축은 유저가 아니라 참가 행이다 — 철회 후 재참여가 같은 키를 만들어 차감이 조용히 스킵되면
+        // 참가비 0원 참가가 성립한다(계약 §2, GROMO-1112).
+        assertThat(key.getValue()).isEqualTo("bet:" + BET_ID + ":stake:" + PARTICIPANT_ID);
     }
 
     @Test
@@ -540,7 +560,24 @@ class GroupBetServiceTest {
 
         verify(groupChallengeBetParticipantRepository).save(any());
         verify(currencyLedgerService).debit(any(), eq(CurrencyTransactionType.BET_STAKE), eq(30),
-                eq("bet:" + BET_ID + ":stake:" + USER_ID));
+                eq("bet:" + BET_ID + ":stake:" + PARTICIPANT_ID));
+    }
+
+    @Test
+    @DisplayName("차감이 멱등키 선점으로 스킵되면(false) 참가 자체를 되돌린다 — 참가비 0원 참가 차단")
+    void joinBetRollsBackWhenStakeDebitSkipped() {
+        givenMember();
+        given(groupChallengeBetRepository.findByIdAndGroupIdForUpdate(BET_ID, GROUP_ID))
+                .willReturn(Optional.of(bet(GroupBetStatus.OPEN, today())));
+        given(groupChallengeBetParticipantRepository.existsByBetIdAndUserId(BET_ID, USER_ID))
+                .willReturn(false);
+        givenFocusDuration(30);
+        // 참가 행 id 가 키에 들어간 뒤로 도달 불가한 상태다 — 그런데도 오면 키 규약이 깨진 것이라
+        // 조용히 넘기지 않고 예외로 트랜잭션 전체를 되돌린다(차감 없는 참가 행 = 무임승차).
+        given(currencyLedgerService.debit(any(), any(), anyInt(), anyString())).willReturn(false);
+
+        assertThatThrownBy(() -> groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -742,8 +779,10 @@ class GroupBetServiceTest {
 
     // ── 취소 ────────────────────────────────────────────────────────────
 
+    /** 참가 행 — id 를 채우는 이유는 철회 환불 멱등키가 그 값을 축으로 삼기 때문이다(계약 §2-2). */
     private GroupChallengeBetParticipant participantOf(GroupChallengeBet target, UUID participantUserId) {
         return GroupChallengeBetParticipant.builder()
+                .id(USER_ID.equals(participantUserId) ? PARTICIPANT_ID : OTHER_PARTICIPANT_ID)
                 .bet(target)
                 .user(User.builder().id(participantUserId).isGuest(false).build())
                 .build();
@@ -996,10 +1035,14 @@ class GroupBetServiceTest {
         groupBetService.leaveBet(GROUP_ID, BET_ID, USER_ID);
 
         verify(groupChallengeBetParticipantRepository).delete(mine);
+        // 철회 환불은 차감과 같은 축(참가 행)의 전용 키다 — 정산 환불 키와 겹치지 않는다(계약 §2-2).
         verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
-                eq("bet:" + BET_ID + ":refund:" + USER_ID));
+                eq("bet:" + BET_ID + ":leave-refund:" + PARTICIPANT_ID));
         // 남은 참가자가 있으므로 내기는 닫지 않는다 — 개설자 철회여도 마찬가지다(creatorUserId 는 이력).
         verify(groupChallengeBetRepository, never()).compareAndSetSettled(any(), any(), any());
+        // 챌린지도 건드리지 않는다 — 정리는 참가자가 0명이 된 경우에만 한다(계약 §3-2).
+        verify(groupChallengeRepository, never())
+                .findByIdAndGroupAndDeletedAtIsNullForUpdate(any(), any());
     }
 
     @Test
@@ -1019,7 +1062,52 @@ class GroupBetServiceTest {
         verify(groupChallengeBetRepository)
                 .compareAndSetSettled(eq(BET_ID), eq(GroupBetStatus.CANCELED), any());
         verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
-                eq("bet:" + BET_ID + ":refund:" + USER_ID));
+                eq("bet:" + BET_ID + ":leave-refund:" + PARTICIPANT_ID));
+    }
+
+    @Test
+    @DisplayName("마지막 참가자 철회 — 남은 OPEN 내기가 없으면 챌린지까지 soft delete (계약 §3)")
+    void leaveBetSoftDeletesChallengeWhenNoParticipantsLeft() {
+        givenMember();
+        GroupChallengeBet bet = bet(GroupBetStatus.OPEN, today().plusDays(1));
+        givenLeaveEntry(bet, participantOf(bet, USER_ID));
+        givenOpensAt(durationTarget(MissionCategory.FOCUS), null);
+        given(groupChallengeBetRepository.compareAndSetSettled(
+                eq(BET_ID), eq(GroupBetStatus.CANCELED), any())).willReturn(1);
+        GroupChallenge challenge = focusChallenge();
+        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(eq(CHALLENGE_ID), any()))
+                .willReturn(Optional.of(challenge));
+        given(groupChallengeBetRepository.existsByChallengeIdAndStatus(CHALLENGE_ID, GroupBetStatus.OPEN))
+                .willReturn(false);
+
+        groupBetService.leaveBet(GROUP_ID, BET_ID, USER_ID);
+
+        // 방장 삭제와 같은 soft delete 다 — 물리 삭제는 CTI 상세(FK)를 위반한다.
+        assertThat(challenge.getDeletedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("마지막 참가자 철회여도 다른 날짜 OPEN 내기가 남아 있으면 챌린지를 지우지 않는다 (계약 §3-2)")
+    void leaveBetKeepsChallengeWhenAnotherOpenBetRemains() {
+        givenMember();
+        GroupChallengeBet bet = bet(GroupBetStatus.OPEN, today().plusDays(1));
+        givenLeaveEntry(bet, participantOf(bet, USER_ID));
+        givenOpensAt(durationTarget(MissionCategory.FOCUS), null);
+        given(groupChallengeBetRepository.compareAndSetSettled(
+                eq(BET_ID), eq(GroupBetStatus.CANCELED), any())).willReturn(1);
+        GroupChallenge challenge = focusChallenge();
+        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(eq(CHALLENGE_ID), any()))
+                .willReturn(Optional.of(challenge));
+        // 예: 오늘 내기는 그대로 살아 있다 — 지우면 그 참가자의 판돈이 안 보이는 챌린지에 묶인다.
+        given(groupChallengeBetRepository.existsByChallengeIdAndStatus(CHALLENGE_ID, GroupBetStatus.OPEN))
+                .willReturn(true);
+
+        groupBetService.leaveBet(GROUP_ID, BET_ID, USER_ID);
+
+        assertThat(challenge.getDeletedAt()).isNull();
+        // 내기 자체의 취소·환불은 그대로 일어난다.
+        verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
+                eq("bet:" + BET_ID + ":leave-refund:" + PARTICIPANT_ID));
     }
 
     @Test
@@ -1091,7 +1179,7 @@ class GroupBetServiceTest {
 
         verify(groupChallengeBetParticipantRepository).delete(mine);
         verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
-                eq("bet:" + BET_ID + ":refund:" + USER_ID));
+                eq("bet:" + BET_ID + ":leave-refund:" + PARTICIPANT_ID));
     }
 
     @Test
