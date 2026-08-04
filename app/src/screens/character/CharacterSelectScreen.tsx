@@ -39,7 +39,16 @@ export default function CharacterSelectScreen() {
   // 화면의 캐릭터가 전부 기본으로 돌아가 "빈 칸을 장착한" 꼴이 된다. 그래서 못 쓰는 누끼는 아예
   // 없는 것으로 본다. 저장소의 customUri 는 지우지 않는다 — 일시적 읽기 실패였을 경우 다음
   // 실행에서 되살아난다.
-  const [customStatus, setCustomStatus] = useState<'pending' | 'ok' | 'broken'>('pending');
+  // 판정 결과는 '어느 URI 를 검사한 것인지'와 함께 들고 있는다(코드리뷰 반영). 이펙트로 리셋하면
+  // 순서에 기대게 되는데, 캐시된 로컬 이미지는 이펙트가 돌기 전에 onLoad 가 먼저 터질 수 있다.
+  // 그러면 뒤늦은 리셋이 ok 를 pending 으로 되돌리고, 두 번째 onLoad 는 오지 않아 확정 버튼이
+  // 영영 잠긴다. 반대로 이전 URI 의 늦은 이벤트가 새 URI 를 검증된 것으로 만들 수도 있다.
+  // URI 를 같이 저장해 두면 지금 보고 있는 URI 의 결과만 유효해져 두 방향 모두 막힌다.
+  const [customLoad, setCustomLoad] = useState<{ uri: string; status: 'ok' | 'broken' } | null>(
+    null,
+  );
+  const customStatus: 'pending' | 'ok' | 'broken' =
+    customLoad && customLoad.uri === customUri ? customLoad.status : 'pending';
 
   const hasCustom = !!customUri && customStatus !== 'broken';
   // 선택은 로드가 확인된 뒤에만 허용한다 — onError 는 비동기라, 그 전에 카드를 탭하고 곧바로
@@ -56,25 +65,30 @@ export default function CharacterSelectScreen() {
   const [picked, setPicked] = useState<CharacterChoice | null>(null);
   const selected = picked ?? equipped;
 
-  // 누끼가 바뀌면 판정과 선택을 함께 리셋한다.
-  //  · 판정 리셋 — 깨진 뒤 '새로 만들기'로 새 캐릭터를 만들어 돌아오면(CharacterCreateRoute 가
-  //    customUri 를 갱신하고 goBack) 이 화면은 그대로 마운트돼 있어, 리셋하지 않으면 멀쩡한 새
-  //    캐릭터가 계속 숨겨진 채로 남는다.
-  //  · 선택 리셋 — 누끼를 고른 상태로 '다시 만들기'를 다녀오면 picked 는 'custom'인데 새 이미지는
-  //    아직 pending 이라, 그 사이 '변경하기'를 누르면 검증되지 않은 교체본이 장착된다. 비우면
-  //    selected 가 저장된 장착값으로 되돌아가고, 새 누끼는 로드 확인 뒤 다시 탭해야 골라진다.
+  // 누끼가 바뀌면 골라둔 선택을 비운다 — 누끼를 고른 상태로 '다시 만들기'를 다녀오면 picked 는
+  // 'custom'인데 새 이미지는 아직 pending 이라, 그 사이 '변경하기'를 누르면 검증되지 않은 교체본이
+  // 장착된다. 비우면 selected 가 저장된 장착값으로 되돌아가고, 새 누끼는 로드 확인 뒤 다시 탭해야
+  // 골라진다. (판정은 위에서 URI 와 묶여 저절로 pending 이 되므로 여기서 건드리지 않는다.)
   useEffect(() => {
-    setCustomStatus('pending');
     setPicked(null);
   }, [customUri]);
 
   const goCreate = useCallback(() => navigation.navigate('CharacterCreate'), [navigation]);
 
   // 누끼 그림을 못 그렸다 — 카드②를 만들기 플레이스홀더로 되돌리고, 골라둔 상태였으면 기본으로 뺀다.
+  // 검사한 URI 를 함께 기록해, 이전 URI 의 늦은 이벤트가 새 교체본을 깨진 것으로 만들지 않게 한다.
   const onCustomBroken = useCallback(() => {
-    setCustomStatus('broken');
+    if (!customUri) return;
+    setCustomLoad({ uri: customUri, status: 'broken' });
     setPicked((p) => (p === 'custom' ? 'default' : p));
-  }, []);
+  }, [customUri]);
+
+  // 그려졌다 — 같은 URI 의 판정이 아직 없을 때만 기록한다. CharacterImage 는 로드 실패 시 기본
+  // 에셋으로 폴백하고 그 폴백이 그려질 때도 onLoad 를 주므로, 먼저 온 broken 을 덮지 않게 한다.
+  const onCustomLoaded = useCallback(() => {
+    if (!customUri) return;
+    setCustomLoad((prev) => (prev?.uri === customUri ? prev : { uri: customUri, status: 'ok' }));
+  }, [customUri]);
 
   // 변경 확정 — 고른 캐릭터를 실제로 장착하고, 알림을 닫으면 홈으로 돌아간다.
   // 이 화면은 홈 '캐릭터 변경'으로만 들어오므로 popToTop이 곧 홈 복귀다(중간에 '만들기'로
@@ -157,7 +171,7 @@ export default function CharacterSelectScreen() {
               <CharacterImage
                 size={CHAR_SIZE}
                 sourceUri={customUri ?? undefined}
-                onLoad={() => setCustomStatus((st) => (st === 'pending' ? 'ok' : st))}
+                onLoad={onCustomLoaded}
                 onSourceError={onCustomBroken}
               />
             </View>
