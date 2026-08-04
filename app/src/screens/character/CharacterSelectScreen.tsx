@@ -89,13 +89,28 @@ export default function CharacterSelectScreen() {
   const defaultSelected = selected === 'default';
   const customSelected = selected === 'custom';
 
+  // 고른 게 누끼인데 아직 로드 확인 전이면 확정을 잠근다(코드리뷰 반영).
+  // picked 를 리셋하는 것만으로는 부족하다 — 저장된 choice 가 이미 'custom'이면 '다시 만들기'로
+  // 교체본이 들어와도 selected 는 계속 'custom'이라, onError 가 오기 전에 확정하면 못 쓰는
+  // 교체본이 그대로 남는다.
+  // 반대로 pending 을 '미장착'으로 처리하면 안 된다 — 그 순간 selected 가 'default'로 바뀌어,
+  // 하이드레이션이 늦은 정상 유저가 확정을 누르면 멀쩡한 누끼가 조용히 해제된다(위 주석의 그 사고).
+  // 그래서 값을 바꾸는 대신 확정만 잠근다. 잠기는 구간은 로컬 파일 디코드 시간뿐이다.
+  const confirmLocked = customSelected && customStatus !== 'ok';
+
   return (
     <SettingsScaffold
       title="캐릭터 변경"
       onBack={() => navigation.goBack()}
       footer={
         <View style={s.footerCol}>
-          <PressableScale style={s.equipBtn} scaleTo={0.97} haptic="light" onPress={equip}>
+          <PressableScale
+            style={[s.equipBtn, confirmLocked && s.equipBtnLocked]}
+            scaleTo={0.97}
+            haptic="light"
+            disabled={confirmLocked}
+            onPress={equip}
+          >
             <Ionicons name="checkmark" size={18} color={T.white} />
             <Text style={s.equipBtnText}>변경하기</Text>
           </PressableScale>
@@ -195,6 +210,8 @@ const s = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: T.accent,
   },
+  // 로드 확인 전 잠금 — 누끼 디코드 동안만이라 색을 바꾸지 않고 살짝 흐리게만 둔다.
+  equipBtnLocked: { opacity: 0.6 },
   equipBtnText: { ...T.text.subtitle, color: T.white },
   footerBtn: {
     flexDirection: 'row',
