@@ -168,7 +168,11 @@ export default function CharacterSelectScreen() {
               </View>
             ) : null}
             <View style={s.charBox}>
+              {/* key 로 URI 마다 새로 마운트한다(코드리뷰 반영) — 같은 Image 호스트 뷰를 재사용하면
+                  이전 요청의 대기 중이던 onLoad/onError 가 현재 콜백으로 배달돼, 옛 결과가 새 URI 의
+                  판정으로 기록된다(옛 성공이 미검증 교체본을 열거나, 옛 실패가 멀쩡한 걸 숨김). */}
               <CharacterImage
+                key={customUri ?? 'none'}
                 size={CHAR_SIZE}
                 sourceUri={customUri ?? undefined}
                 onLoad={onCustomLoaded}
