@@ -870,6 +870,9 @@ export default function GroupRoomScreen({
                 // 오류 응답 분기로는 못 잡는 '잘못된 사전 표시'라 진입 자체를 막고,
                 // 다음 성공 조회(setChallengeError(false))가 다시 연다.
                 betLocked={betBusy || challengeError}
+                // 철회·취소 직후 목록을 다시 받는다 — 마지막 참가자가 빠지면 서버가 챌린지까지
+                // 지우므로(GROMO-1112) 재조회가 없으면 사라진 카드가 화면에 남는다.
+                onBetChanged={load}
                 onOpenBet={(mode) =>
                   setBetSheet({ challengeId: c.id, mode, betId: c.bet?.betId ?? null })
                 }
