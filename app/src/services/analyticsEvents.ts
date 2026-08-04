@@ -165,7 +165,7 @@ export function logFocusMenuOpened(): void {
 
 // 집중 세션 페이저 뷰 식별자 — 페이지 인덱스가 아니라 뷰 정체성 기준(GROMO-987).
 // 스와이프 순서가 바뀌어도(985) 값은 불변이어야 GA4 측정기준이 오염되지 않는다.
-export type FocusViewName = 'character' | 'friends' | 'my_league' | 'all_league';
+export type FocusViewName = 'character' | 'friends' | 'groups' | 'my_league' | 'all_league';
 
 // 집중 세션 페이저 뷰 전환/세션 종료 시 발행 — "집중 중 어떤 뷰를 켜놓고 공부하나"(GROMO-987).
 // view: 직전까지 보던 뷰, dwell_seconds: 그 뷰의 체류 초. 기존 focus_friends_viewed를 대체한다

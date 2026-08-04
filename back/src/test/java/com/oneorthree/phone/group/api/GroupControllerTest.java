@@ -151,13 +151,15 @@ class GroupControllerTest {
     @DisplayName("내 그룹 목록 응답에 isPrivate 키가 실린다 — private 로 새지 않는다")
     void getMyGroupsExposesIsPrivateKey() throws Exception {
         given(groupService.getMyGroups(any())).willReturn(List.of(new GroupSummaryResponse(
-                GROUP_ID, "비밀방", "ABCD1234", 1, 5, GroupMemberRole.OWNER, GroupStatus.WAITING, true)));
+                GROUP_ID, "비밀방", "비밀 소개", "ABCD1234", 1, 5, GroupMemberRole.OWNER, GroupStatus.WAITING, true)));
 
         mockMvc.perform(get("/api/v1/groups")
                         .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].isPrivate").value(true))
-                .andExpect(jsonPath("$[0].private").doesNotExist());
+                .andExpect(jsonPath("$[0].private").doesNotExist())
+                // F6: 목록 응답에 description(소개)이 실리는지 검증(매핑 회귀 방지)
+                .andExpect(jsonPath("$[0].description").value("비밀 소개"));
     }
 
     @Test

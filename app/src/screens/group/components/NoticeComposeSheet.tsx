@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   StyleSheet,
   Text,
@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
@@ -66,6 +67,23 @@ export default function NoticeComposeSheet({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // 키보드 회피 — SheetShell 패널이 bottom:0 absolute라 KeyboardAvoidingView(padding)가 안 먹는다.
+  // 키보드 높이를 직접 받아 하단 스페이서로 입력·버튼을 키보드 위로 띄운다(iOS 전용 앱).
+  const insets = useSafeAreaInsets();
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(() => {
+    // keyboardWillShow/Hide는 iOS 전용이라 Android에선 발화하지 않는다 — GroupFindSheet와 같은
+    // 플랫폼 분기로 Android에선 keyboardDidShow/Hide를 쓴다(리뷰 반영).
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, (e) => setKbHeight(e.endCoordinates.height));
+    const hide = Keyboard.addListener(hideEvent, () => setKbHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
   // 저장 요청이 떠 있는 동안인가 — 이탈 차단 리스너가 리렌더 없이 읽어야 해서 state와 별도로 둔다.
   const submittingRef = useRef(false);
 
@@ -112,62 +130,59 @@ export default function NoticeComposeSheet({
   }
 
   return (
-    <KeyboardAvoidingView
-      style={StyleSheet.absoluteFill}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      {/* 저장 중에는 딤 탭으로 닫히지 않게 막는다(요청이 떠 있는 상태에서의 언마운트 방지) */}
-      <SheetShell onClose={submitting ? () => {} : onClose}>
-        <Text style={s.title}>{isEdit ? '공지 수정' : '공지 쓰기'}</Text>
-        <Text style={s.sub}>그룹원 모두에게 보여요.</Text>
+    // 저장 중에는 딤 탭으로 닫히지 않게 막는다(요청이 떠 있는 상태에서의 언마운트 방지).
+    <SheetShell onClose={submitting ? () => {} : onClose}>
+      <Text style={s.title}>{isEdit ? '공지 수정' : '공지 쓰기'}</Text>
+      <Text style={s.sub}>그룹원 모두에게 보여요.</Text>
 
-        <View style={s.field}>
-          <View style={s.labelRow}>
-            <Text style={s.label}>제목</Text>
-            <Text style={s.counter}>
-              {title.length}/{TITLE_MAX}
-            </Text>
-          </View>
-          <TextInput
-            style={s.input}
-            value={title}
-            onChangeText={setTitle}
-            placeholder="공지 제목"
-            placeholderTextColor={T.inkMuted}
-            maxLength={TITLE_MAX}
-            returnKeyType="next"
-          />
+      <View style={s.field}>
+        <View style={s.labelRow}>
+          <Text style={s.label}>제목</Text>
+          <Text style={s.counter}>
+            {title.length}/{TITLE_MAX}
+          </Text>
         </View>
+        <TextInput
+          style={s.input}
+          value={title}
+          onChangeText={setTitle}
+          placeholder="공지 제목"
+          placeholderTextColor={T.inkMuted}
+          maxLength={TITLE_MAX}
+          returnKeyType="next"
+        />
+      </View>
 
-        <View style={s.field}>
-          <Text style={s.label}>내용</Text>
-          <TextInput
-            style={[s.input, s.contentInput]}
-            value={content}
-            onChangeText={setContent}
-            placeholder="공지 내용을 적어주세요"
-            placeholderTextColor={T.inkMuted}
-            multiline
-            textAlignVertical="top"
-          />
-        </View>
+      <View style={s.field}>
+        <Text style={s.label}>내용</Text>
+        <TextInput
+          style={[s.input, s.contentInput]}
+          value={content}
+          onChangeText={setContent}
+          placeholder="공지 내용을 적어주세요"
+          placeholderTextColor={T.inkMuted}
+          multiline
+          textAlignVertical="top"
+        />
+      </View>
 
-        {errorMsg !== null && <Text style={s.error}>{errorMsg}</Text>}
+      {errorMsg !== null && <Text style={s.error}>{errorMsg}</Text>}
 
-        <TouchableOpacity
-          style={[s.saveBtn, !canSave && s.saveBtnDisabled]}
-          activeOpacity={0.85}
-          onPress={save}
-          disabled={!canSave}
-        >
-          {submitting ? (
-            <ActivityIndicator color={T.white} />
-          ) : (
-            <Text style={s.saveText}>{isEdit ? '수정하기' : '등록하기'}</Text>
-          )}
-        </TouchableOpacity>
-      </SheetShell>
-    </KeyboardAvoidingView>
+      <TouchableOpacity
+        style={[s.saveBtn, !canSave && s.saveBtnDisabled]}
+        activeOpacity={0.85}
+        onPress={save}
+        disabled={!canSave}
+      >
+        {submitting ? (
+          <ActivityIndicator color={T.white} />
+        ) : (
+          <Text style={s.saveText}>{isEdit ? '수정하기' : '등록하기'}</Text>
+        )}
+      </TouchableOpacity>
+      {/* 키보드 높이만큼 하단을 띄워 입력·버튼이 키보드에 가리지 않게 한다(홈 인디케이터 인셋 제외) */}
+      {kbHeight > 0 && <View style={{ height: Math.max(0, kbHeight - insets.bottom) }} />}
+    </SheetShell>
   );
 }
 

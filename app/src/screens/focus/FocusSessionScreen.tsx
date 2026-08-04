@@ -45,6 +45,7 @@ import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { occupationForCategory } from '@/constants/focusCategories';
 import { useSessionLeagueMembers } from './useSessionLeagueMembers';
+import { useSessionGroups } from './useSessionGroups';
 import { LiveFocusGrid } from './components/LiveFocusGrid';
 import { FocusMenuDrawer } from './components/FocusMenuDrawer';
 import { FocusLandscape } from './FocusLandscape';
@@ -85,7 +86,15 @@ const FOCUS_TYPE_BY_MODE: Record<FocusTimerMode, FocusType> = {
 // 페이지 인덱스 → 뷰 정체성(GROMO-987) — 아래 페이저 JSX의 렌더 순서와 반드시 일치시킬 것.
 // 계측(focus_view_changed)은 인덱스가 아니라 이 뷰 이름으로 발행한다 — 스와이프 순서가
 // 또 바뀌어도(985 참고) 이 배열만 함께 고치면 GA4 측정기준 값은 그대로 유지된다.
-const PAGE_VIEWS: FocusViewName[] = ['character', 'friends', 'my_league', 'all_league'];
+// 페이지 인덱스 → 뷰 이름(뷰 체류 계측 GROMO-987). 그룹 페이지가 동적(참여 그룹 수)이라 고정 배열
+// 대신 개수로 계산한다. 순서: [캐릭터][친구][그룹×N][내 리그=같은 시험][전체 리그].
+function viewForPage(index: number, groupCount: number): FocusViewName {
+  if (index <= 0) return 'character';
+  if (index === 1) return 'friends';
+  if (index < 2 + groupCount) return 'groups';
+  if (index === 2 + groupCount) return 'my_league';
+  return 'all_league';
+}
 // 가로 뷰(GROMO-973)는 iOS 전용 — 안드로이드는 미검증이라 방향 잠금 해제·가로 버튼·가로 렌더를
 // 막는다(코덱스 리뷰). expo-screen-orientation은 안드로이드에서도 액티비티 방향을 바꿔 매니페스트의
 // 초기 세로 설정을 덮으므로, 플랫폼으로 명시적으로 게이트하지 않으면 미검증 가로 UI가 노출된다.
@@ -138,6 +147,12 @@ export default function FocusSessionScreen() {
     excludeUserId: userId,
     pinnedIds,
   });
+  // 그룹 뷰(F2) — 내가 참여한 '그룹별로' 한 페이지씩. 각 그룹의 내 행은 제외하고 내 셀은 그리드가
+  // 로컬 타이머로 따로 렌더한다(me). 라이브 집중중 신호는 group detail에 없어 오늘 집중분만 정적 표기한다.
+  const { groups: sessionGroups } = useSessionGroups({ excludeUserId: userId });
+  // 그룹 페이지 개수 — 페이저 점·뷰 계측이 동적 페이지 수를 알아야 해서 ref로 최신값을 들고 있는다.
+  const groupCountRef = useRef(0);
+  groupCountRef.current = sessionGroups.length;
   const [session, setSession] = useState<SessionState>(() => ({
     elapsed: 0,
     display: mode === 'countdown' ? goal : mode === 'pomodoro' ? pomo.focusMin * 60 : 0,
@@ -169,7 +184,7 @@ export default function FocusSessionScreen() {
     dwellAwayMsRef.current = 0;
     if (dwellLeftAtRef.current != null) dwellLeftAtRef.current = now;
     logFocusViewChanged({
-      view: PAGE_VIEWS[pageRef.current] ?? 'character',
+      view: viewForPage(pageRef.current, groupCountRef.current),
       dwell_seconds: dwellSeconds,
     });
   }, []);
@@ -984,6 +999,24 @@ export default function FocusSessionScreen() {
     setPage(next);
   }
 
+  // 그룹방 FAB로 진입(initialGroupId)했으면 그 그룹의 '그룹: {그룹명}' 페이지를 기본으로 연다(F2 Part2).
+  // 그룹 목록은 비동기라, 로드되어 해당 그룹을 찾으면 1회만 스크롤한다([캐릭터][친구] 다음이 그룹 시작).
+  const pagerRef = useRef<ScrollView>(null);
+  const didInitialScrollRef = useRef(false);
+  useEffect(() => {
+    if (didInitialScrollRef.current) return;
+    const gid = params.initialGroupId;
+    if (gid == null || sessionGroups.length === 0) return;
+    const gi = sessionGroups.findIndex((g) => g.groupId === gid);
+    if (gi < 0) return;
+    const target = 2 + gi;
+    didInitialScrollRef.current = true;
+    flushViewDwell();
+    pagerRef.current?.scrollTo({ x: target * width, animated: false });
+    setPage(target);
+    pageRef.current = target;
+  }, [params.initialGroupId, sessionGroups, width, flushViewDwell]);
+
   // 첫 세션 사용법 안내(GROMO-652) — 페이저·메뉴·컨트롤을 차례로 설명 (세션은 계속 흐른다)
   const dotsRef = useRef<View | null>(null);
   const hamburgerRef = useRef<View | null>(null);
@@ -994,7 +1027,7 @@ export default function FocusSessionScreen() {
       character: require('@/assets/character_study.png'),
     },
     {
-      text: '화면을 옆으로 넘겨봐 —\n친구·같은 시험 준비생·전체 리그가 공부하는 모습을 볼 수 있어.',
+      text: '화면을 옆으로 넘겨봐 —\n친구·그룹·같은 시험 준비생·전체 리그가 공부하는 모습을 볼 수 있어.',
       character: require('@/assets/character_happy.png'),
       anchor: dotsRef,
     },
@@ -1086,9 +1119,10 @@ export default function FocusSessionScreen() {
           </PressableScale>
         </View>
 
-        {/* 페이저 — [캐릭터] ↔ [내 친구(656)] ↔ [내 리그=같은 시험(812)] ↔ [전체 리그(811)] (순서 변경: 985)
+        {/* 페이저 — [캐릭터] ↔ [내 친구(656)] ↔ [내 그룹(F2)] ↔ [내 리그=같은 시험(812)] ↔ [전체 리그(811)]
             순서를 바꾸면 상단 PAGE_VIEWS(뷰 체류 계측, GROMO-987)도 반드시 같이 고칠 것 */}
         <ScrollView
+          ref={pagerRef}
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
@@ -1119,6 +1153,23 @@ export default function FocusSessionScreen() {
               resizeMode="contain"
             />
           </View>
+          {/* 그룹 뷰(F2) — 참여한 '그룹마다' 한 페이지씩("그룹: {그룹명}"). pinnedIds는 친구 전용이라 안 넘긴다.
+              라이브 집중중 신호가 없어(그룹 detail 폴링) 오늘 집중분만 정적 표기된다. */}
+          {sessionGroups.map((g) => (
+            <View
+              key={g.groupId}
+              testID={`focus.group.page.${g.groupId}`}
+              style={[s.page, { width }]}
+            >
+              <LiveFocusGrid
+                members={g.members}
+                me={myGridMe}
+                title={`그룹: ${g.groupName}`}
+                emptyTitle="아직 그룹 멤버가 없어요"
+                emptySub={'그룹에 멤버가 모이면\n집중할 때 여기서 같이 보여요.'}
+              />
+            </View>
+          ))}
           <View style={[s.page, { width }]}>
             <LiveFocusGrid
               members={examMembers}
@@ -1151,7 +1202,8 @@ export default function FocusSessionScreen() {
 
         {/* 페이지 인디케이터 */}
         <View style={s.dots} ref={dotsRef} collapsable={false}>
-          {[0, 1, 2, 3].map((i) => (
+          {/* 페이저 페이지 수와 항상 일치 — 캐릭터·친구(2) + 그룹×N + 내리그·전체리그(2) */}
+          {Array.from({ length: 4 + sessionGroups.length }).map((_, i) => (
             <View key={i} style={[s.dot, page === i && s.dotActive]} />
           ))}
         </View>

@@ -56,6 +56,7 @@ import ChallengeCard, { type BetSheetMode } from './components/ChallengeCard';
 import ChallengeComposeSheet from './components/ChallengeComposeSheet';
 import ChallengeResultModal from './components/ChallengeResultModal';
 import MemberTile from './components/MemberTile';
+import { GroupRoomBottomBar, GROUP_BOTTOM_BAR_SPACE } from './components/GroupRoomBottomBar';
 
 // 그룹방 — 명세 docs/app/group-plan.md §6-4.
 //
@@ -697,11 +698,11 @@ export default function GroupRoomScreen({
   const noticeFailed = noticeError && noticeList.length === 0;
   const challengeFailed = challengeError && challengeList.length === 0;
   // 라우트 진입 전용 화면이라 하단 탭바가 없다 — 시스템 인셋 + 기본 여백만 준다.
-  const bottomSpace = insets.bottom + T.space.md;
+  // 하단바(F2 Part2)가 콘텐츠를 가리지 않게 그 높이만큼 스크롤 하단 여백을 더한다.
+  const bottomSpace = insets.bottom + T.space.md + GROUP_BOTTOM_BAR_SPACE;
   const cells: GridCell[] = [
     // rank는 서버 정렬 순서(누적 집중 내림차순) 그대로 — 앱에서 재정렬하지 않는다(리더보드).
     ...members.map((m, i): GridCell => ({ kind: 'member', member: m, rank: i + 1 })),
-    { kind: 'invite' },
   ];
   const memberRows = chunk(cells, COLS);
 
@@ -927,6 +928,7 @@ export default function GroupRoomScreen({
                     totalFocusMinutes={cell.member.totalFocusMinutes}
                     rank={cell.rank}
                     isOwner={cell.member.role === 'OWNER'}
+                    isMe={cell.member.userId === userId}
                   />
                 ),
               )}
@@ -938,6 +940,11 @@ export default function GroupRoomScreen({
           ))}
         </View>
       </ScrollView>
+
+      {/* 그룹방 하단바(F2 Part2) — ▶ FAB는 이 그룹의 집중 세션(그룹 페이지 기본)으로 진입시킨다. */}
+      <GroupRoomBottomBar
+        onFocusPress={() => navigation.navigate('FocusCategory', { initialGroupId: groupId })}
+      />
 
       {/* ── '⋯' 액션시트 ── */}
       {/* '닫기' 행은 두지 않는다 — 앱의 SheetShell 시트 4종 모두 딤 탭으로만 닫고,

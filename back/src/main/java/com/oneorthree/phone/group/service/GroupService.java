@@ -182,6 +182,7 @@ public class GroupService {
                     return new GroupSummaryResponse(
                             group.getId(),
                             group.getName(),
+                            group.getDescription(),
                             code,
                             currentMembers,
                             group.getMaxMembers(),
@@ -228,6 +229,7 @@ public class GroupService {
         return new GroupSearchResponse(
                 group.getId(),
                 group.getName(),
+                group.getDescription(),
                 currentMembers,
                 group.getMaxMembers(),
                 group.getStatus(),

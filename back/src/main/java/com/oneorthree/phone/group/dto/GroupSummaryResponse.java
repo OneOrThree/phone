@@ -15,6 +15,10 @@ import java.util.UUID;
 public class GroupSummaryResponse {
     UUID groupId;
     String name;
+
+    // 소개(≤200자, nullable). 목록/찾기 카드에서 소개문을 노출한다(F6). 미입력 그룹은 null.
+    String description;
+
     String code;
     int currentMembers;
     int maxMembers;

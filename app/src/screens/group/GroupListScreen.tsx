@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
@@ -94,43 +94,56 @@ export default function GroupListScreen({
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
         }
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={s.card}
-            activeOpacity={0.85}
-            onPress={() => onSelect(item.groupId)}
-            testID={`group.list.card.${item.groupId}`}
-          >
-            <View style={s.cardMain}>
-              <Text style={s.cardName} numberOfLines={1}>
-                {item.name}
-              </Text>
-              {item.isPrivate && (
-                <Ionicons
-                  name="lock-closed"
-                  size={14}
-                  color={T.inkSub}
-                  accessibilityLabel="비공개 그룹"
-                />
-              )}
-              {/* 방장 배지 — 멤버 타일의 방장 표시와 같은 모양(아이콘도 ribbon으로 통일) */}
-              {item.role === 'OWNER' && (
-                <View style={s.ownerBadge}>
-                  <Ionicons
-                    name="ribbon"
-                    size={10}
-                    color={T.white}
-                    accessibilityLabel="내가 방장"
-                  />
+        renderItem={({ item }) => {
+          // 소개(F6) — 비었으면(null·미포함·공백뿐) 줄을 아예 그리지 않아 카드 높이가 흔들리지 않는다.
+          const desc = item.description?.trim();
+          return (
+            <TouchableOpacity
+              style={s.card}
+              activeOpacity={0.85}
+              onPress={() => onSelect(item.groupId)}
+              testID={`group.list.card.${item.groupId}`}
+            >
+              <View style={s.cardBody}>
+                <View style={s.cardTitleRow}>
+                  <Text style={s.cardName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  {item.isPrivate && (
+                    <Ionicons
+                      name="lock-closed"
+                      size={14}
+                      color={T.inkSub}
+                      accessibilityLabel="비공개 그룹"
+                    />
+                  )}
+                  {/* 방장 표시 — 멤버 타일과 같은 왕관(자물쇠 아이콘은 그대로 둔다) */}
+                  {item.role === 'OWNER' && (
+                    <MaterialCommunityIcons
+                      name="crown"
+                      size={16}
+                      color={T.accent}
+                      accessibilityLabel="내가 방장"
+                    />
+                  )}
                 </View>
-              )}
-            </View>
-            <Text style={s.cardCount}>
-              {item.currentMembers}/{item.maxMembers}
-            </Text>
-            <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
-          </TouchableOpacity>
-        )}
+                {desc ? (
+                  <Text
+                    style={s.cardDesc}
+                    numberOfLines={2}
+                    testID={`group.list.card.${item.groupId}.desc`}
+                  >
+                    {desc}
+                  </Text>
+                ) : null}
+              </View>
+              <Text style={s.cardCount}>
+                {item.currentMembers}/{item.maxMembers}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
+            </TouchableOpacity>
+          );
+        }}
       />
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
@@ -197,17 +210,13 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.lg,
     paddingVertical: T.space.lg,
   },
-  cardMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: T.space.xs, minWidth: 0 },
+  // 카드 좌측 본문 — 제목 줄 위, 소개 줄(있을 때) 아래를 세로로 쌓는다.
+  cardBody: { flex: 1, gap: 2, minWidth: 0 },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   cardName: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },
+  // 소개 — 이름(subtitle/ink)보다 한 단계 약한 caption/inkSub. 1~2줄 말줄임.
+  cardDesc: { ...T.text.caption, color: T.inkSub },
   cardCount: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
-  ownerBadge: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: T.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)

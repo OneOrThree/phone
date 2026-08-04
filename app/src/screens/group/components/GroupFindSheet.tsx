@@ -328,6 +328,8 @@ export default function GroupFindSheet({
           // 정원이 찬 그룹은 흐리게 + 탭 비활성(§6-3)
           const full = !mine && r.currentMembers >= r.maxMembers;
           const joining = joiningId === r.groupId;
+          // 소개(F6) — 비었으면(null·미포함·공백뿐) 줄을 그리지 않아 행 높이가 흔들리지 않는다.
+          const desc = r.description?.trim();
           return (
             <TouchableOpacity
               key={r.groupId}
@@ -336,10 +338,23 @@ export default function GroupFindSheet({
               disabled={full || joinLocked}
               onPress={() => (mine ? onOpenGroup(r.groupId) : confirmJoin(r))}
             >
-              <Text style={s.rowName} numberOfLines={1}>
-                {r.name}
-              </Text>
-              {mine && <Text style={s.rowJoinedTag}>참여 중</Text>}
+              <View style={s.rowBody}>
+                <View style={s.rowTitleRow}>
+                  <Text style={s.rowName} numberOfLines={1}>
+                    {r.name}
+                  </Text>
+                  {mine && <Text style={s.rowJoinedTag}>참여 중</Text>}
+                </View>
+                {desc ? (
+                  <Text
+                    style={s.rowDesc}
+                    numberOfLines={2}
+                    testID={`group.find.card.${r.groupId}.desc`}
+                  >
+                    {desc}
+                  </Text>
+                ) : null}
+              </View>
               <Text style={s.rowCount}>
                 {r.currentMembers}/{r.maxMembers}
               </Text>
@@ -412,7 +427,12 @@ const s = StyleSheet.create({
     paddingVertical: T.space.md,
   },
   rowFull: { opacity: 0.45 },
-  rowName: { ...T.text.label, flex: 1, fontWeight: '700', color: T.ink, minWidth: 0 },
+  // 행 좌측 본문 — 이름 줄 위, 소개 줄(있을 때) 아래를 세로로 쌓는다.
+  rowBody: { flex: 1, gap: 2, minWidth: 0 },
+  rowTitleRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.md },
+  rowName: { ...T.text.label, flexShrink: 1, fontWeight: '700', color: T.ink, minWidth: 0 },
+  // 소개 — 이름(label/ink)보다 한 단계 약한 caption/inkSub. 1~2줄 말줄임.
+  rowDesc: { ...T.text.caption, color: T.inkSub },
   rowCount: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
   rowFullTag: { ...T.text.caption, color: T.inkMuted },
   // '참여 중' 뱃지 — 정원 표시(무채색)와 달리 상태 강조라 accent 칩 규격을 쓴다.
