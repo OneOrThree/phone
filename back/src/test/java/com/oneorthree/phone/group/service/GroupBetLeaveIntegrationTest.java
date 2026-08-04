@@ -349,11 +349,11 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
                 .containsExactlyInAnyOrder(creator.getId(), joiner.getId());
     }
 
-    // ── 마지막 참가자 철회 → 챌린지 정리 (계약 §3) ───────────────────────
+    // ── 마지막 참가자 철회 → 챌린지는 건드리지 않는다 ─────────────────────
 
     @Test
-    @DisplayName("마지막 참가자 철회 — 남은 OPEN 내기가 없으면 챌린지도 soft delete 된다")
-    void lastParticipantLeaveSoftDeletesChallenge() {
+    @DisplayName("마지막 참가자가 철회해도 챌린지는 그대로 남는다 — 내기만 취소된다")
+    void lastParticipantLeaveKeepsChallenge() {
         User creator = memberUser("개설자", GroupMemberRole.MEMBER);
         GroupChallengeBet bet = openBetOn(challenge, creator, today().plusDays(1));
         participant(bet, creator);
@@ -361,32 +361,12 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
         groupBetService.leaveBet(group.getId(), bet.getId(), creator.getId());
 
         assertThat(statusOf(bet)).isEqualTo(GroupBetStatus.CANCELED);
-        // 물리 삭제가 아니라 deleted_at 마킹이다 — 상세(durations)의 FK 와 이력이 그대로 남는다.
-        assertThat(deletedAtOf(challenge)).isNotNull();
-        assertThat(groupChallengeDurationRepository.findById(challenge.getId())).isPresent();
+        // 챌린지는 여러 날짜에 걸쳐 재사용되는 미션 템플릿이라, 하루치 판이 비었다고 해서
+        // 참가자 한 명의 철회로 그룹 공용 자산을 지우지 않는다. 빈 챌린지를 어떻게 다룰지는
+        // 별도 티켓에서 설계한다 — 이 단언은 그 결정 없이 삭제가 슬쩍 들어오는 것을 막는다.
+        assertThat(deletedAtOf(challenge)).isNull();
         assertThat(balanceOf(creator)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
         assertThat(refundCountOf(creator)).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("마지막 참가자 철회여도 다른 날짜의 OPEN 내기가 남아 있으면 챌린지를 지우지 않는다")
-    void lastParticipantLeaveKeepsChallengeWhenAnotherOpenBetRemains() {
-        User creator = memberUser("개설자", GroupMemberRole.MEMBER);
-        User todayPlayer = memberUser("오늘내기참가자", GroupMemberRole.MEMBER);
-        // 같은 챌린지의 오늘 내기 — 여기 참가자의 판돈이 보이지 않는 챌린지에 묶이면 안 된다.
-        GroupChallengeBet todayBet = openBetOn(challenge, todayPlayer, today());
-        participant(todayBet, todayPlayer);
-        GroupChallengeBet tomorrowBet = openBetOn(challenge, creator, today().plusDays(1));
-        participant(tomorrowBet, creator);
-
-        groupBetService.leaveBet(group.getId(), tomorrowBet.getId(), creator.getId());
-
-        assertThat(statusOf(tomorrowBet)).isEqualTo(GroupBetStatus.CANCELED);
-        assertThat(deletedAtOf(challenge)).isNull();
-        // 오늘 내기는 아무 영향도 받지 않는다.
-        assertThat(statusOf(todayBet)).isEqualTo(GroupBetStatus.OPEN);
-        assertThat(participantsOf(todayBet)).hasSize(1);
-        assertThat(balanceOf(todayPlayer)).isEqualTo(BALANCE_AFTER_STAKE);
     }
 
     // ── 철회 거절 ────────────────────────────────────────────────────────

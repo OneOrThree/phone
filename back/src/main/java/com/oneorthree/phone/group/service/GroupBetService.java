@@ -243,14 +243,11 @@ public class GroupBetService {
      * 마지막 참가자의 CANCELED 전이는 정산·취소와 같은 CAS 게이트({@link #claimCanceled})를
      * 지나고, 환불 멱등키는 차감과 같은 축(참가 행 id)의 철회 전용 키
      * ({@code bet:{betId}:leave-refund:{participantId}})라 이중 환불은 원장 유니크가 최후 방어한다.
-     *
-     * <p>마지막 참가자가 떠나 내기가 비면 챌린지까지 정리한다 — {@link #cleanUpEmptyChallenge}
-     * (계약 §3, GROMO-1112).
      */
     @Transactional
     public void leaveBet(UUID groupId, UUID betId, UUID userId) {
         User user = requireActiveUser(userId);
-        Group group = requireGroupMembership(user, groupId);
+        requireGroupMembership(user, groupId);
 
         GroupChallengeBet bet = groupChallengeBetRepository.findByIdAndGroupIdForUpdate(betId, groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
@@ -268,57 +265,12 @@ public class GroupBetService {
 
         groupChallengeBetParticipantRepository.delete(mine);
         boolean lastParticipant = participants.size() == 1;
-        // 챌린지 정리는 환불보다 먼저 한다 — 챌린지 행 잠금을 잡는 다른 경로(개설·방장 삭제)와
-        // 행 잠금 순서를 "내기 행 → 챌린지 행"으로 맞추기 위해서다. 그 뒤의 지갑 쓰기는 잠금이
-        // 아니다(UserWallet 은 @Version 낙관락이라 대기 없이 커밋 시점에 버전 충돌로 실패한다) —
-        // 데드락 그래프에는 위 두 행 잠금만 들어간다.
-        boolean challengeDeleted = false;
         if (lastParticipant) {
             claimCanceled(bet);
-            challengeDeleted = cleanUpEmptyChallenge(group, bet);
         }
         refundLeftStake(bet, user, mine.getId());
-        log.info("내기 참가 철회 — betId={}, userId={}, stake={} 환불, 자동취소={}, 챌린지삭제={}",
-                betId, userId, bet.getStake(), lastParticipant, challengeDeleted);
-    }
-
-    /**
-     * 마지막 참가자 철회 → 챌린지 정리(계약 §3, GROMO-1112). 아무도 걸지 않은 챌린지를 목록에
-     * 남겨 두면 "참가자 0명 · 취소된 내기"만 매달린 빈 카드가 계속 보인다.
-     *
-     * <p><b>방장 권한 검사는 걸지 않는다.</b> 이 경로는 방장의 삭제 <i>행위</i>가 아니라 판이 비어
-     * 판을 접는 정리이며, 마지막 판돈까지 빠져나간 시점에 그 챌린지에 이해관계가 남은 사람은
-     * 아무도 없다. 방장 검사를 걸면 일반 참가자가 마지막으로 빠질 때만 빈 챌린지가 남아 동작이
-     * 호출자에 따라 갈린다.
-     *
-     * <p>가드 둘을 지킨다. ① 같은 챌린지에 <b>다른 날짜의 OPEN 내기</b>가 남아 있으면 지우지
-     * 않는다 — 그 내기 참가자의 판돈이 보이지 않는 챌린지에 묶인다(방장 삭제 경로
-     * {@code GroupChallengeService.deleteChallenge} 의 {@code CHALLENGE_HAS_OPEN_BET} 과 같은
-     * 이유). ② 삭제는 방장 삭제와 <b>같은 soft delete</b> 다 — 물리 삭제는 CTI 상세
-     * (durations/windows)의 FK 를 위반하고 이력도 잃는다.
-     *
-     * <p>챌린지 행을 잠그고 읽는 것도 방장 삭제와 같다 — 잠금이 없으면 OPEN 내기 검사와
-     * {@code softDelete()} 사이에 다른 그룹원의 개설이 끼어들어 판돈이 걸린 내기가 삭제된 챌린지에
-     * 매달린다. 직전 {@link #claimCanceled} 는 벌크 UPDATE(즉시 반영)라 방금 취소한 이 내기는
-     * OPEN 검사에 걸리지 않는다.
-     *
-     * @return 이번 호출로 챌린지를 삭제했으면 true
-     */
-    private boolean cleanUpEmptyChallenge(Group group, GroupChallengeBet bet) {
-        UUID challengeId = bet.getChallenge().getId();
-        Optional<GroupChallenge> challenge =
-                groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(challengeId, group);
-        if (challenge.isEmpty()) {
-            // 이미 삭제된 챌린지 — 철회 자체는 성립했으므로 조용히 넘어간다(멱등).
-            return false;
-        }
-        if (groupChallengeBetRepository.existsByChallengeIdAndStatus(challengeId, GroupBetStatus.OPEN)) {
-            return false;
-        }
-        challenge.get().softDelete();
-        log.info("챌린지 자동 삭제 — 마지막 참가자 철회로 내기가 비었다. challengeId={}, betId={}",
-                challengeId, bet.getId());
-        return true;
+        log.info("내기 참가 철회 — betId={}, userId={}, stake={} 환불, 자동취소={}",
+                betId, userId, bet.getStake(), lastParticipant);
     }
 
     /**

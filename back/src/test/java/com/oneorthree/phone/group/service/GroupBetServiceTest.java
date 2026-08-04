@@ -1040,7 +1040,7 @@ class GroupBetServiceTest {
                 eq("bet:" + BET_ID + ":leave-refund:" + PARTICIPANT_ID));
         // 남은 참가자가 있으므로 내기는 닫지 않는다 — 개설자 철회여도 마찬가지다(creatorUserId 는 이력).
         verify(groupChallengeBetRepository, never()).compareAndSetSettled(any(), any(), any());
-        // 챌린지도 건드리지 않는다 — 정리는 참가자가 0명이 된 경우에만 한다(계약 §3-2).
+        // 철회는 챌린지를 건드리지 않는다 — 판이 하루 비었다고 그룹 공용 미션을 지우지 않는다.
         verify(groupChallengeRepository, never())
                 .findByIdAndGroupAndDeletedAtIsNullForUpdate(any(), any());
     }
@@ -1066,45 +1066,21 @@ class GroupBetServiceTest {
     }
 
     @Test
-    @DisplayName("마지막 참가자 철회 — 남은 OPEN 내기가 없으면 챌린지까지 soft delete (계약 §3)")
-    void leaveBetSoftDeletesChallengeWhenNoParticipantsLeft() {
+    @DisplayName("마지막 참가자가 철회해도 챌린지는 건드리지 않는다 — 내기만 취소된다")
+    void leaveBetKeepsChallengeWhenLastParticipantLeaves() {
         givenMember();
         GroupChallengeBet bet = bet(GroupBetStatus.OPEN, today().plusDays(1));
         givenLeaveEntry(bet, participantOf(bet, USER_ID));
         givenOpensAt(durationTarget(MissionCategory.FOCUS), null);
         given(groupChallengeBetRepository.compareAndSetSettled(
                 eq(BET_ID), eq(GroupBetStatus.CANCELED), any())).willReturn(1);
-        GroupChallenge challenge = focusChallenge();
-        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(eq(CHALLENGE_ID), any()))
-                .willReturn(Optional.of(challenge));
-        given(groupChallengeBetRepository.existsByChallengeIdAndStatus(CHALLENGE_ID, GroupBetStatus.OPEN))
-                .willReturn(false);
 
         groupBetService.leaveBet(GROUP_ID, BET_ID, USER_ID);
 
-        // 방장 삭제와 같은 soft delete 다 — 물리 삭제는 CTI 상세(FK)를 위반한다.
-        assertThat(challenge.getDeletedAt()).isNotNull();
-    }
-
-    @Test
-    @DisplayName("마지막 참가자 철회여도 다른 날짜 OPEN 내기가 남아 있으면 챌린지를 지우지 않는다 (계약 §3-2)")
-    void leaveBetKeepsChallengeWhenAnotherOpenBetRemains() {
-        givenMember();
-        GroupChallengeBet bet = bet(GroupBetStatus.OPEN, today().plusDays(1));
-        givenLeaveEntry(bet, participantOf(bet, USER_ID));
-        givenOpensAt(durationTarget(MissionCategory.FOCUS), null);
-        given(groupChallengeBetRepository.compareAndSetSettled(
-                eq(BET_ID), eq(GroupBetStatus.CANCELED), any())).willReturn(1);
-        GroupChallenge challenge = focusChallenge();
-        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(eq(CHALLENGE_ID), any()))
-                .willReturn(Optional.of(challenge));
-        // 예: 오늘 내기는 그대로 살아 있다 — 지우면 그 참가자의 판돈이 안 보이는 챌린지에 묶인다.
-        given(groupChallengeBetRepository.existsByChallengeIdAndStatus(CHALLENGE_ID, GroupBetStatus.OPEN))
-                .willReturn(true);
-
-        groupBetService.leaveBet(GROUP_ID, BET_ID, USER_ID);
-
-        assertThat(challenge.getDeletedAt()).isNull();
+        // 챌린지는 여러 날짜에 걸쳐 재사용되는 미션 템플릿이다. 하루치 판이 비었다고 참가자
+        // 한 명의 철회로 그룹 공용 자산을 지우지 않는다 — 빈 챌린지 처리는 별도 티켓.
+        verify(groupChallengeRepository, never())
+                .findByIdAndGroupAndDeletedAtIsNullForUpdate(any(), any());
         // 내기 자체의 취소·환불은 그대로 일어난다.
         verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
                 eq("bet:" + BET_ID + ":leave-refund:" + PARTICIPANT_ID));
