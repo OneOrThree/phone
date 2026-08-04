@@ -89,13 +89,30 @@ describe('getAuthorizationStatus', () => {
   // 거부를 덮고 승인으로 되살아난다(코드리뷰 반영).
   it('거부가 확정된 뒤에는 측정 이력이 있어도 보정하지 않는다', async () => {
     await AsyncStorage.setItem(STORAGE_KEYS.screentimeBucketMonitorRegistered, 'user-1');
-    native.getAuthorizationStatus.mockResolvedValue('denied');
-    await ScreenTimeModule.getAuthorizationStatus();
-    await flush();
-
+    await AsyncStorage.setItem(STORAGE_KEYS.screentimeAuthGranted, '0');
     native.getAuthorizationStatus.mockResolvedValue('notDetermined');
 
     await expect(ScreenTimeModule.getAuthorizationStatus()).resolves.toBe('notDetermined');
+  });
+
+  // 거부 기록이 있는 유저가 설정에서 다시 켠 경우 — 보정이 거부를 신뢰해 눌러앉으므로,
+  // 이 조합에서만 네이티브에 한 번 더 물어 재확인한다(코드리뷰 반영).
+  it('거부 기록 + notDetermined 이면 한 번 더 조회해 approved 를 잡아낸다', async () => {
+    await AsyncStorage.setItem(STORAGE_KEYS.screentimeAuthGranted, '0');
+    native.getAuthorizationStatus
+      .mockResolvedValueOnce('notDetermined')
+      .mockResolvedValueOnce('approved');
+
+    await expect(ScreenTimeModule.getAuthorizationStatus()).resolves.toBe('approved');
+    expect(native.getAuthorizationStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('거부 기록이 없으면 재조회하지 않는다 — 조회 경로에 부담을 주지 않게', async () => {
+    native.getAuthorizationStatus.mockResolvedValue('notDetermined');
+
+    await ScreenTimeModule.getAuthorizationStatus();
+
+    expect(native.getAuthorizationStatus).toHaveBeenCalledTimes(1);
   });
 });
 

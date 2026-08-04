@@ -135,13 +135,20 @@ export const nativeSupportsPendingApplyDate = (): boolean =>
 // 거부를 '키 삭제'가 아니라 '0' 으로 남기는 이유는 아래 업그레이드 코호트 폴백 때문이다 —
 // 삭제해 버리면 "확정 거부"와 "기록 없음"이 구분되지 않아, 폴백이 거부를 덮고 승인으로
 // 되살아난다(코드리뷰 반영).
-const markAuthGranted = (granted: boolean): void => {
-  // 상태 조회 지연을 늘리지 않도록 await 하지 않는다 — 실패해도 다음 확정 답에서 다시 맞춰진다.
-  AsyncStorage.setItem(STORAGE_KEYS.screentimeAuthGranted, granted ? '1' : '0').catch(() => {});
+// 호출부가 await 한다 — 기록이 끝나기 전에 결과를 돌려주면, 그 직후 앱이 종료됐을 때 캐시가
+// 비어 있어 다음 콜드런치에서 quirk 보정이 못 걸린다(코드리뷰 반영).
+// 같은 값을 다시 쓰는 경우가 있지만 1바이트 로컬 쓰기라 조회 경로에서도 부담이 없다.
+const markAuthGranted = async (granted: boolean): Promise<void> => {
+  await AsyncStorage.setItem(STORAGE_KEYS.screentimeAuthGranted, granted ? '1' : '0').catch(
+    () => {},
+  );
 };
 
+const readAuthCache = (): Promise<string | null> =>
+  AsyncStorage.getItem(STORAGE_KEYS.screentimeAuthGranted).catch(() => null);
+
 const hasAuthGrantedHistory = async (): Promise<boolean> => {
-  const cached = await AsyncStorage.getItem(STORAGE_KEYS.screentimeAuthGranted).catch(() => null);
+  const cached = await readAuthCache();
   // 확정 답이 한 번이라도 기록됐으면 그것만 믿는다 — 거부('0')면 폴백을 보지 않는다.
   if (cached != null) return cached === '1';
   // 업그레이드 코호트 폴백 — 캐시 로직이 없던 빌드에서 이미 권한을 허용하고 측정까지 돌던
@@ -170,7 +177,7 @@ const ScreenTimeModule = {
     // getAuthorizationStatus 를 한 번도 부르지 않는다(ScreenTimePermissionStep). 그 상태로 앱이
     // 종료되면 다음 콜드런치에서 quirk 로 notDetermined 가 오고, 이력이 없어 위 보정이 못 걸린다.
     // 거부 기록도 그대로 필요하다 — 보정이 옛 승인에 눌러앉지 않게.
-    markAuthGranted(granted);
+    await markAuthGranted(granted);
     return granted;
   },
 
@@ -178,9 +185,15 @@ const ScreenTimeModule = {
   getAuthorizationStatus: async (): Promise<AuthorizationStatus> => {
     if (AndroidScreenTime) return AndroidScreenTime.getAuthorizationStatus();
     if (Platform.OS !== 'ios') return 'denied';
-    const live = await NativeScreenTimeModule.getAuthorizationStatus();
+    let live = await NativeScreenTimeModule.getAuthorizationStatus();
+    // 거부로 기록된 유저가 설정에서 권한을 다시 켠 경우 — 아래 보정은 거부 기록을 신뢰해 눌러앉으므로
+    // quirk 에 걸리면 다시 켠 사실을 못 본다. 이 조합(거부 기록 + notDetermined)에서만 한 번 더
+    // 물어본다(코드리뷰 반영). 다른 경로에는 추가 호출을 주지 않는다.
+    if (live === 'notDetermined' && (await readAuthCache()) === '0') {
+      live = await NativeScreenTimeModule.getAuthorizationStatus();
+    }
     if (live === 'approved' || live === 'denied') {
-      markAuthGranted(live === 'approved');
+      await markAuthGranted(live === 'approved');
       return live;
     }
     // notDetermined — 승인 이력이 있으면 콜드런치 quirk 로 보고 승인 유지.
