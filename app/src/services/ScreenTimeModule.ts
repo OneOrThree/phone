@@ -9,6 +9,8 @@
 
 import { NativeModules, Platform } from 'react-native';
 import { requireOptionalNativeModule } from 'expo';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '@/types/storage';
 
 export type AuthorizationStatus = 'approved' | 'denied' | 'notDetermined';
 
@@ -120,6 +122,47 @@ export const nativeSupportsPendingApplyDate = (): boolean =>
   typeof (NativeModules.ScreenTimeModule as NativeScreenTime | undefined)
     ?.setPendingSelectionApplyDate === 'function';
 
+// iOS 콜드런치 quirk 보정용 승인 이력 캐시.
+// AuthorizationCenter.authorizationStatus 는 앱 프로세스가 막 뜬 직후 실제로는 승인된 상태인데도
+// 'notDetermined' 를 돌려줄 때가 있다. 그러면 홈 '핸드폰 사용' 칸이 권한 켜기 안내로 바뀌어 버린다
+// (v1 홈에 있던 이 방어가 화면 재작성 때 함께 삭제돼 재발했다 — 키만 남고 로직이 사라져 있었다).
+// 원칙: 확정 답('approved'/'denied')만 신뢰해 캐시를 갱신하고, 'notDetermined' 인데 승인 이력이
+// 있으면 quirk 로 보고 승인으로 보정한다.
+// ⚠️ 한계: 설정에서 권한을 껐을 때 'denied' 가 아니라 'notDetermined' 로 오는 기기가 있으면
+//    캐시가 승인으로 눌러앉는다. v1 에서 'denied' 로 오는 것을 확인해 그 전제를 그대로 따르되,
+//    어긋나는 사례가 나오면 캐시에 TTL 을 주는 게 다음 수순이다.
+// 캐시 값은 3상태다: '1'=승인 확정 / '0'=거부 확정 / 없음=아직 확정 답을 받은 적 없음.
+// 거부를 '키 삭제'가 아니라 '0' 으로 남기는 이유는 아래 업그레이드 코호트 폴백 때문이다 —
+// 삭제해 버리면 "확정 거부"와 "기록 없음"이 구분되지 않아, 폴백이 거부를 덮고 승인으로
+// 되살아난다(코드리뷰 반영).
+// 호출부가 await 한다 — 기록이 끝나기 전에 결과를 돌려주면, 그 직후 앱이 종료됐을 때 캐시가
+// 비어 있어 다음 콜드런치에서 quirk 보정이 못 걸린다(코드리뷰 반영).
+// 같은 값을 다시 쓰는 경우가 있지만 1바이트 로컬 쓰기라 조회 경로에서도 부담이 없다.
+const markAuthGranted = async (granted: boolean): Promise<void> => {
+  await AsyncStorage.setItem(STORAGE_KEYS.screentimeAuthGranted, granted ? '1' : '0').catch(
+    () => {},
+  );
+};
+
+const readAuthCache = (): Promise<string | null> =>
+  AsyncStorage.getItem(STORAGE_KEYS.screentimeAuthGranted).catch(() => null);
+
+const hasAuthGrantedHistory = async (): Promise<boolean> => {
+  const cached = await readAuthCache();
+  // 확정 답이 한 번이라도 기록됐으면 그것만 믿는다 — 거부('0')면 폴백을 보지 않는다.
+  if (cached != null) return cached === '1';
+  // 업그레이드 코호트 폴백 — 캐시 로직이 없던 빌드에서 이미 권한을 허용하고 측정까지 돌던
+  // 유저는 이 캐시 키가 아예 없다. 그 상태로 업데이트 후 첫 콜드런치에 quirk 가 걸리면 이력이
+  // 없어 보정이 못 걸리고, 홈은 권한 켜기를 그대로 띄운다.
+  // 버킷 모니터 등록 마커는 registerUsageBucketMonitoring 이 'approved' 가 아니면 즉시 빠지므로
+  // (screentimeSync.ts) 존재 자체가 "과거에 승인됐었다"는 증거다 — 진짜 최초 유저는 가질 수 없다.
+  // 확정 답을 한 번이라도 받으면 위에서 걸러지므로 이 폴백은 사실상 1회성이다.
+  const measured = await AsyncStorage.getItem(STORAGE_KEYS.screentimeBucketMonitorRegistered).catch(
+    () => null,
+  );
+  return measured != null;
+};
+
 // 플랫폼 라우팅 — iOS는 Swift 브릿지, 안드로이드 M1 범위는 Expo 모듈, 그 외(미구현 함수·
 // 구 바이너리)는 에러 대신 기본값 반환. 화면 코드 호출부는 플랫폼을 몰라도 된다.
 const ScreenTimeModule = {
@@ -128,14 +171,33 @@ const ScreenTimeModule = {
   requestAuthorization: async (): Promise<boolean> => {
     if (AndroidScreenTime) return AndroidScreenTime.requestAuthorization();
     if (Platform.OS !== 'ios') return false;
-    return NativeScreenTimeModule.requestAuthorization();
+    const granted = await NativeScreenTimeModule.requestAuthorization();
+    // 요청 결과는 네이티브가 현재 권한 상태에서 뽑아낸 확정 답이라 양쪽 다 기록한다.
+    // 승인도 반드시 기록해야 한다 — 온보딩 권한 스텝은 승인되면 곧장 측정 대상 picker 로 넘어가
+    // getAuthorizationStatus 를 한 번도 부르지 않는다(ScreenTimePermissionStep). 그 상태로 앱이
+    // 종료되면 다음 콜드런치에서 quirk 로 notDetermined 가 오고, 이력이 없어 위 보정이 못 걸린다.
+    // 거부 기록도 그대로 필요하다 — 보정이 옛 승인에 눌러앉지 않게.
+    await markAuthGranted(granted);
+    return granted;
   },
 
   // 현재 권한 상태 확인 (안드로이드: AppOps 체크 + '설정 보낸 적' 플래그로 notDetermined 구분)
   getAuthorizationStatus: async (): Promise<AuthorizationStatus> => {
     if (AndroidScreenTime) return AndroidScreenTime.getAuthorizationStatus();
     if (Platform.OS !== 'ios') return 'denied';
-    return NativeScreenTimeModule.getAuthorizationStatus();
+    let live = await NativeScreenTimeModule.getAuthorizationStatus();
+    // 거부로 기록된 유저가 설정에서 권한을 다시 켠 경우 — 아래 보정은 거부 기록을 신뢰해 눌러앉으므로
+    // quirk 에 걸리면 다시 켠 사실을 못 본다. 이 조합(거부 기록 + notDetermined)에서만 한 번 더
+    // 물어본다(코드리뷰 반영). 다른 경로에는 추가 호출을 주지 않는다.
+    if (live === 'notDetermined' && (await readAuthCache()) === '0') {
+      live = await NativeScreenTimeModule.getAuthorizationStatus();
+    }
+    if (live === 'approved' || live === 'denied') {
+      await markAuthGranted(live === 'approved');
+      return live;
+    }
+    // notDetermined — 승인 이력이 있으면 콜드런치 quirk 로 보고 승인 유지.
+    return (await hasAuthGrantedHistory()) ? 'approved' : 'notDetermined';
   },
 
   // 기기(시스템) 다크모드 설정 조회 — 앱이 라이트 고정(Info.plist)이라 RN Appearance는 항상
