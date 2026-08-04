@@ -131,23 +131,25 @@ export const nativeSupportsPendingApplyDate = (): boolean =>
 // ⚠️ 한계: 설정에서 권한을 껐을 때 'denied' 가 아니라 'notDetermined' 로 오는 기기가 있으면
 //    캐시가 승인으로 눌러앉는다. v1 에서 'denied' 로 오는 것을 확인해 그 전제를 그대로 따르되,
 //    어긋나는 사례가 나오면 캐시에 TTL 을 주는 게 다음 수순이다.
+// 캐시 값은 3상태다: '1'=승인 확정 / '0'=거부 확정 / 없음=아직 확정 답을 받은 적 없음.
+// 거부를 '키 삭제'가 아니라 '0' 으로 남기는 이유는 아래 업그레이드 코호트 폴백 때문이다 —
+// 삭제해 버리면 "확정 거부"와 "기록 없음"이 구분되지 않아, 폴백이 거부를 덮고 승인으로
+// 되살아난다(코드리뷰 반영).
 const markAuthGranted = (granted: boolean): void => {
   // 상태 조회 지연을 늘리지 않도록 await 하지 않는다 — 실패해도 다음 확정 답에서 다시 맞춰진다.
-  (granted
-    ? AsyncStorage.setItem(STORAGE_KEYS.screentimeAuthGranted, '1')
-    : AsyncStorage.removeItem(STORAGE_KEYS.screentimeAuthGranted)
-  ).catch(() => {});
+  AsyncStorage.setItem(STORAGE_KEYS.screentimeAuthGranted, granted ? '1' : '0').catch(() => {});
 };
 
 const hasAuthGrantedHistory = async (): Promise<boolean> => {
   const cached = await AsyncStorage.getItem(STORAGE_KEYS.screentimeAuthGranted).catch(() => null);
-  if (cached === '1') return true;
-  // 업그레이드 코호트 보정(코드리뷰 반영) — 캐시 로직이 없던 빌드에서 이미 권한을 허용하고
-  // 측정까지 돌던 유저는 이 캐시 키가 아예 없다. 그 상태로 업데이트 후 첫 콜드런치에 quirk 가
-  // 걸리면 이력이 없어 보정이 못 걸리고, 홈은 권한 켜기를 그대로 띄운다.
+  // 확정 답이 한 번이라도 기록됐으면 그것만 믿는다 — 거부('0')면 폴백을 보지 않는다.
+  if (cached != null) return cached === '1';
+  // 업그레이드 코호트 폴백 — 캐시 로직이 없던 빌드에서 이미 권한을 허용하고 측정까지 돌던
+  // 유저는 이 캐시 키가 아예 없다. 그 상태로 업데이트 후 첫 콜드런치에 quirk 가 걸리면 이력이
+  // 없어 보정이 못 걸리고, 홈은 권한 켜기를 그대로 띄운다.
   // 버킷 모니터 등록 마커는 registerUsageBucketMonitoring 이 'approved' 가 아니면 즉시 빠지므로
-  // (screentimeSync.ts) 존재 자체가 "과거에 승인됐었다"는 증거다 — 진짜 최초 유저는 가질 수 없어
-  // 캐시 미스를 전부 미허용으로 보는 것보다 정확하다.
+  // (screentimeSync.ts) 존재 자체가 "과거에 승인됐었다"는 증거다 — 진짜 최초 유저는 가질 수 없다.
+  // 확정 답을 한 번이라도 받으면 위에서 걸러지므로 이 폴백은 사실상 1회성이다.
   const measured = await AsyncStorage.getItem(STORAGE_KEYS.screentimeBucketMonitorRegistered).catch(
     () => null,
   );

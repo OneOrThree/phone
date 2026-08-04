@@ -75,14 +75,27 @@ describe('getAuthorizationStatus', () => {
     await expect(ScreenTimeModule.getAuthorizationStatus()).resolves.toBe('approved');
   });
 
-  it('denied 가 오면 승인 이력을 지운다 — 설정에서 끈 경우 보정이 눌러앉지 않게', async () => {
+  it('denied 가 오면 거부로 기록한다 — 설정에서 끈 경우 보정이 눌러앉지 않게', async () => {
     await AsyncStorage.setItem(STORAGE_KEYS.screentimeAuthGranted, '1');
     native.getAuthorizationStatus.mockResolvedValue('denied');
 
     await expect(ScreenTimeModule.getAuthorizationStatus()).resolves.toBe('denied');
 
     await flush();
-    await expect(grantedHistory()).resolves.toBeNull();
+    await expect(grantedHistory()).resolves.toBe('0');
+  });
+
+  // 거부를 키 삭제로 남기면 "확정 거부"와 "기록 없음"이 구분되지 않아, 측정 이력 폴백이
+  // 거부를 덮고 승인으로 되살아난다(코드리뷰 반영).
+  it('거부가 확정된 뒤에는 측정 이력이 있어도 보정하지 않는다', async () => {
+    await AsyncStorage.setItem(STORAGE_KEYS.screentimeBucketMonitorRegistered, 'user-1');
+    native.getAuthorizationStatus.mockResolvedValue('denied');
+    await ScreenTimeModule.getAuthorizationStatus();
+    await flush();
+
+    native.getAuthorizationStatus.mockResolvedValue('notDetermined');
+
+    await expect(ScreenTimeModule.getAuthorizationStatus()).resolves.toBe('notDetermined');
   });
 });
 
@@ -98,13 +111,13 @@ describe('requestAuthorization', () => {
     await expect(grantedHistory()).resolves.toBe('1');
   });
 
-  it('거부되면 승인 이력을 지운다', async () => {
+  it('거부되면 거부로 기록한다', async () => {
     await AsyncStorage.setItem(STORAGE_KEYS.screentimeAuthGranted, '1');
     native.requestAuthorization.mockResolvedValue(false);
 
     await expect(ScreenTimeModule.requestAuthorization()).resolves.toBe(false);
 
     await flush();
-    await expect(grantedHistory()).resolves.toBeNull();
+    await expect(grantedHistory()).resolves.toBe('0');
   });
 });
