@@ -69,7 +69,10 @@ public class LandingRenderer {
         }
         // 절대 URL 이어야 한다(OG 스크레이퍼는 상대 경로를 못 푼다). 도메인을 하드코딩하면
         // dev 발급 링크의 미리보기가 미배포 prod 이미지를 가리켜 깨진다 — 환경별 자기 도메인으로 만든다.
-        this.ogImageUrl = baseUrl + "/link/og-invite-v1.png";
+        // 파일명의 v2 는 캐시 무효화 장치다 (GROMO-1109). 카톡은 썸네일을 URL 단위로 캐시하므로
+        // 같은 이름으로 내용만 갈아끼우면 이미 뿌려진 링크에 옛 이미지가 계속 뜬다.
+        // v1 파일도 남겨 둔다 — 그 캐시가 여전히 v1 URL 을 가리킨다.
+        this.ogImageUrl = baseUrl + "/link/og-invite-v2.png";
         this.template = loadTemplate();
     }
 

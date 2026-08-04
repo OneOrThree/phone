@@ -51,7 +51,7 @@ class LandingTest extends InviteLinkTestSupport {
         assertThat(body).contains("gromo://join?g=" + group.getId() + "&s=" + link.getSlug());
         // OG 이미지는 환경별 자기 도메인(ci: link.base-url=https://link.test)의 절대 URL 이어야 한다 —
         // 도메인이 하드코딩되면 dev 발급 링크의 미리보기가 미배포 prod 이미지를 가리켜 깨진다.
-        assertThat(body).contains("property=\"og:image\" content=\"https://link.test/link/og-invite-v1.png\"");
+        assertThat(body).contains("property=\"og:image\" content=\"https://link.test/link/og-invite-v2.png\"");
 
         InviteLinkClick click = onlyClickOf(link);
         assertThat(click.getIpHash()).hasSize(64).matches("[0-9a-f]+");
@@ -89,7 +89,7 @@ class LandingTest extends InviteLinkTestSupport {
         // (전역 doesNotContain("「」") 은 안 된다 — WS-5 템플릿의 CSS 주석에 설명용 리터럴이 있다.)
         assertThat(body).contains("「그로모 그룹」");
         // 만료 변형도 미리보기로 퍼진다 — OG 이미지 자리가 비면 안 된다.
-        assertThat(body).contains("property=\"og:image\" content=\"https://link.test/link/og-invite-v1.png\"");
+        assertThat(body).contains("property=\"og:image\" content=\"https://link.test/link/og-invite-v2.png\"");
         assertThat(clickRepository.findAll()).isEmpty();
     }
 
@@ -207,6 +207,56 @@ class LandingTest extends InviteLinkTestSupport {
 
         assertThat(body).doesNotContain("<script>alert(1)</script>");
         assertThat(body).contains("&lt;script&gt;");
+    }
+
+    @Test
+    @DisplayName("카드에 별사탕 히어로가 실린다 — 랜딩이 브랜드의 첫 접점이다")
+    void servesHeroImage() throws Exception {
+        String body = landingBody(link.getSlug());
+
+        // 루트 상대 경로여야 한다. 랜딩과 같은 오리진에서 서빙되므로 도메인을 박을 이유가 없고,
+        // 박으면 dev 발급 링크가 미배포 prod 이미지를 가리킨다.
+        assertThat(body).contains("src=\"/link/hero-study-v1.jpg\"");
+        // width/height 가 빠지면 이미지가 늦게 그려질 때 아래 문구가 통째로 밀린다(레이아웃 시프트).
+        assertThat(body).contains("width=\"640\" height=\"507\"");
+        assertThat(body).contains("alt=\"원탁에 둘러앉아 함께 공부하는 별사탕 셋\"");
+    }
+
+    @Test
+    @DisplayName("만료 변형도 히어로를 남긴다 — 여기까지 온 사람도 설치 후보다")
+    void expiredKeepsHeroImage() throws Exception {
+        String body = landingBody("zzzzzzzz");
+
+        assertThat(body).contains("data-expired=\"true\"");
+        assertThat(body).contains("src=\"/link/hero-study-v1.jpg\"");
+    }
+
+    @Test
+    @DisplayName("히어로·OG 이미지 파일이 실제로 서빙된다 — 마크업만 고치고 파일을 빠뜨리면 깨진 링크다")
+    void servesStaticImageAssets() throws Exception {
+        for (String path : new String[]{
+                "/link/hero-study-v1.jpg",
+                "/link/og-invite-v2.png",
+                // v1 은 지우지 않는다 — 이미 뿌려진 링크의 카톡 썸네일 캐시가 이 URL 을 가리킨다
+                "/link/og-invite-v1.png"}) {
+            byte[] bytes = mockMvc.perform(get(path))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsByteArray();
+            assertThat(bytes).isNotEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("OG 썸네일은 v2 다 — 파일명을 바꿔야 카톡의 URL 단위 썸네일 캐시가 갱신된다")
+    void servesRenewedOgCard() throws Exception {
+        String body = landingBody(link.getSlug());
+
+        assertThat(body).contains("https://link.test/link/og-invite-v2.png");
+        // 같은 이름으로 내용만 갈아끼우면 이미 뿌려진 링크에 옛 이미지가 계속 뜬다.
+        // (전역 doesNotContain("og-invite-v1.png") 은 안 된다 — 템플릿 주석이 v1 을 남겨 두는 이유를 적고 있다.)
+        assertThat(body).doesNotContain("content=\"https://link.test/link/og-invite-v1.png\"");
+        assertThat(body).contains("content=\"혼자 하면 작심삼일, 같이 하면 기록이 남아요.\"");
+        assertThat(body).contains("content=\"gromo — 같이 공부하는 별사탕들\"");
     }
 
     private String landingBody(String slug) throws Exception {
