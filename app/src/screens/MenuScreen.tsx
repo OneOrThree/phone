@@ -367,7 +367,7 @@ export default function MenuScreen() {
           </SettingsSection>
         </View>
 
-        {/* '캐릭터' 섹션(사진에서 캐릭터 만들기)은 제거(GROMO-1076) — 진입점을 홈 '캐릭터 바꾸기'
+        {/* '캐릭터' 섹션(사진에서 캐릭터 만들기)은 제거(GROMO-1076) — 진입점을 홈 '캐릭터 변경'
              화면으로 일원화한다. CharacterCreate 라우트 자체는 그 화면이 계속 쓰므로 유지. */}
 
         <SettingsSection title="알림 · 공개">
