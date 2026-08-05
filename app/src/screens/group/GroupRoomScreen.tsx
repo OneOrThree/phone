@@ -42,6 +42,7 @@ import type {
   GroupSummaryResponse,
 } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { buildInviteShareMessage } from './inviteShare';
 import { fmtNoticeDate } from './noticeDate';
 import {
   filterUnseenChallengeResults,
@@ -579,7 +580,7 @@ export default function GroupRoomScreen({
     }
     try {
       const result = await Share.share({
-        message: `gromo 그룹 "${name}"에 초대합니다\n${invite.url}`,
+        message: buildInviteShareMessage(name, invite.url),
       });
       // 취소(dismissedAction)까지 공유로 집계하지 않는다 — 단 그 구분은 iOS에서만 가능하다.
       // 안드로이드는 시트를 그냥 닫아도 sharedAction으로 끝나 완료를 확인할 수 없어

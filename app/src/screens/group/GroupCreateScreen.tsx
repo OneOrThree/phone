@@ -23,6 +23,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import { createGroup, groupErrorCode } from '@/services/groupApi';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import { logGroupCreateStarted, logGroupInviteShared } from '@/services/analyticsEvents';
+import { buildInviteShareMessage } from './inviteShare';
 
 // 그룹 생성 화면 (root stack 'GroupCreate') — 명세 docs/app/group-plan.md §6-2
 // + 3차 §D18(챌린지를 그룹 생성과 분리, 소개 추가).
@@ -212,7 +213,7 @@ export default function GroupCreateScreen() {
     try {
       const result = await Share.share({
         // 이름은 현재 입력값이 아니라 생성 요청에 실어 보낸 값 — 둘이 갈리면 초대 문구가 거짓말이 된다.
-        message: `${created.name} 그룹에 초대할게요!\n${invite.url}`,
+        message: buildInviteShareMessage(created.name, invite.url),
       });
       // 취소 구분은 iOS에서만 가능하다 — 안드로이드는 시트를 닫아도 sharedAction으로 끝나므로
       // 완료로 집계하지 않고 confirmed:false(공유 시도)로 남긴다(analyticsEvents 주석).

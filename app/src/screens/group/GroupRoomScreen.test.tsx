@@ -13,6 +13,7 @@ import { Alert, AppState, Share, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupRoomScreen from './GroupRoomScreen';
+import { buildInviteShareMessage } from './inviteShare';
 import {
   createBet,
   deleteChallenge,
@@ -1400,9 +1401,9 @@ describe('초대 링크 공유', () => {
     await press('초대');
 
     expect(mockIssueInviteLink).toHaveBeenCalledWith(GROUP_ID);
-    expect(Share.share).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining(INVITE_URL) }),
-    );
+    expect(Share.share).toHaveBeenCalledWith({
+      message: buildInviteShareMessage('아침 6시 집중방', INVITE_URL),
+    });
     expect(logGroupInviteShared).toHaveBeenCalledWith({
       share_method: 'share_sheet',
       confirmed: expect.any(Boolean),
@@ -1422,6 +1423,21 @@ describe('초대 링크 공유', () => {
     expect(Share.share).not.toHaveBeenCalled();
     expect(Alert.alert).toHaveBeenCalledWith('초대 링크를 만들지 못했어요', expect.any(String));
     expect(logGroupInviteShared).not.toHaveBeenCalled();
+  });
+
+  // 같은 '초대하기'인데 진입점마다 말이 다르면 안 된다 — 이 타일과 생성 직후 다이얼로그는
+  // buildInviteShareMessage 하나만 쓴다(GroupCreateScreen.test.tsx의 같은 이름 테스트가 짝).
+  // 그룹명은 따옴표·꺾쇠 없이 그대로 들어간다 — 카톡 OG 카드 제목이 이미 「그룹명」을 쓴다.
+  test('공유 문구는 그룹 생성 다이얼로그와 같은 공용 문구다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    await renderRoom();
+
+    await press('초대');
+
+    expect(Share.share).toHaveBeenCalledWith({
+      message: `아침 6시 집중방 그룹에 초대했어요! 같이 집중해요 ⭐️\n${INVITE_URL}`,
+    });
   });
 });
 
