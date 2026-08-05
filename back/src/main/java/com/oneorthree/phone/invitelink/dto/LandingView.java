@@ -9,13 +9,14 @@ import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
  * (초대는 못 열지만 200 으로 스토어 버튼은 보여준다)이라, 컨트롤러가 세 경우를 각각 판정하는 대신
  * 서비스가 하나로 접어 넘긴다.
  *
- * @param link      유효한 초대 링크. 만료면 {@code null}
- * @param groupName 그룹명(이스케이프 전 원본). 만료면 {@code null}
+ * @param link        유효한 초대 링크. 만료면 {@code null}
+ * @param groupName   그룹명(이스케이프 전 원본). 만료면 {@code null}
+ * @param inviterName 초대자 닉네임(이스케이프 전 원본). 만료·탈퇴·닉네임 미설정이면 {@code null}
  */
-public record LandingView(GroupInviteLink link, String groupName) {
+public record LandingView(GroupInviteLink link, String groupName, String inviterName) {
 
     public static LandingView expired() {
-        return new LandingView(null, null);
+        return new LandingView(null, null, null);
     }
 
     public boolean isExpired() {

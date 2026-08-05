@@ -17,7 +17,6 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
-import { SheetShell } from '@/components/SheetShell';
 import { useUser } from '@/store/UserContext';
 import { useCoins } from '@/store/CoinContext';
 import {
@@ -26,7 +25,6 @@ import {
   getChallenges,
   getGroupDetail,
   groupErrorCode,
-  withdrawGroup,
 } from '@/services/groupApi';
 import {
   logGroupChallengeResultClosed,
@@ -63,8 +61,9 @@ import { GroupRoomBottomBar, GROUP_BOTTOM_BAR_SPACE } from './components/GroupRo
 // 형태: 탭 셸 없는 단일 ScrollView. 라우트 진입 전용이다 — 목록(GroupScreen)에서 그룹을 고르면
 //      GroupRoom 라우트로 push 되고 GroupRoomRouteScreen이 이 컴포넌트를 감싼다
 //      (A-9: 소속 수와 무관하게 목록이 기본 화면, 1건 내장 렌더는 폐지).
-// 레이아웃: 헤더(이름 · 비공개 자물쇠 · n/m · ⋯) → 초대 링크 카드 → 공지(최근 3건 + 모두보기)
+// 레이아웃: 헤더(이름 · 비공개 자물쇠 · n/m · ⋯) → 공지(최근 3건 + 모두보기)
 //          → 챌린지(2차 §3-2) → 멤버 3열 그리드(MemberTile + '＋ 초대' 타일)
+//          (⋯ 는 팝업 메뉴 없이 그룹 설정 화면으로 직행한다.)
 //
 // ❌ detail.code · codeExpiresAt은 읽지 않는다 — 코드 개념 폐기(§3-1-5).
 
@@ -157,12 +156,15 @@ function settledBetSignature(challenges: GroupChallengeResponse[], userId: strin
 
 export interface GroupRoomScreenProps {
   groupId: string;
+  // 챌린지 종료 푸시가 지목한 챌린지(GROMO-1088) — 진입 직후 이 챌린지의 결과 모달을 자동으로 연다.
+  // 딥링크 진입에만 실린다(목록 탭 진입은 undefined). 자세한 규칙은 아래 focusPendingRef 주석.
+  focusChallengeId?: string;
   // 탭 진입점이 가진 요약(getMyGroups[0]) — 상세 응답 도착 전 헤더를 먼저 그리는 용도(선택).
   summary?: GroupSummaryResponse;
   // 그룹 나가기 성공 시 호출 — 부모(GroupScreen)가 재조회해 빈 상태로 되돌린다.
   onLeft: () => void;
-  // 초대 시트가 이 화면 위에 떠 있는가 — 떠 있으면 이 화면이 소유한 시트('⋯' 메뉴·챌린지
-  // 만들기)를 모두 내린다(아래 이펙트 주석 참고).
+  // 초대 시트가 이 화면 위에 떠 있는가 — 떠 있으면 이 화면이 소유한 챌린지 만들기 시트를
+  // 내린다(아래 이펙트 주석 참고).
   inviteOpen?: boolean;
   // 라우트로 push된 경우에만 전달 — 헤더 좌측에 원형 백버튼을 세운다.
   // 루트 스택이 headerShown:false라 네이티브 헤더가 없고, 탭바도 없어
@@ -172,6 +174,7 @@ export interface GroupRoomScreenProps {
 
 export default function GroupRoomScreen({
   groupId,
+  focusChallengeId,
   summary,
   onLeft,
   inviteOpen,
@@ -194,7 +197,6 @@ export default function GroupRoomScreen({
   const [noticeError, setNoticeError] = useState(false);
   const [challengeError, setChallengeError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   // 내기 시트(3차) — 어떤 챌린지를 어떤 모드로 열었나. 내기 데이터는 challenges 응답에 이미
   // 실려 있으므로(계약 §2-3) 시트를 열려고 추가 조회를 하지 않는다.
@@ -211,7 +213,6 @@ export default function GroupRoomScreen({
   // '내기 이전' 모습이라 다시 누르면 같은 내기를 또 열려 한다. 시트가 한 번에 하나뿐이라
   // 챌린지별 플래그 대신 화면 단위 하나로 둔다.
   const [betBusy, setBetBusy] = useState(false);
-  const [leaving, setLeaving] = useState(false);
   // 챌린지 결과 모달 큐 — load()가 어제/오늘(창 종료) 결과에서 미노출분을 골라 채운다.
   // 맨 앞 한 장만 띄우고, 닫으면 다음 장으로 넘어간다(가드 키가 챌린지×날짜 단위라 큐도 그 단위).
   const [resultQueue, setResultQueue] = useState<ChallengeResultCandidate[]>([]);
@@ -233,6 +234,21 @@ export default function GroupRoomScreen({
   // 지금 떠 있는 결과 모달의 노출 시각·키 — dwell_ms 계산과 노출 이벤트/가드 1회 실행용.
   const resultShownAtRef = useRef<number | null>(null);
   const resultShownKeyRef = useRef<string | null>(null);
+  // ── 챌린지 종료 푸시가 지목한 결과(GROMO-1088) ──
+  // focusPendingRef = 아직 큐에 올리지 못한 대상. 큐에 실린 순간 비운다(1회 소비) —
+  // 비우지 않으면 포커스·포그라운드 복귀·당겨서 새로고침이 부르는 재조회마다 사용자가 닫은
+  // 모달이 다시 뜬다(1회 가드를 일부러 건너뛰는 대상이라 가드가 막아 주지 못한다).
+  // 반대로 **아직 결과가 없으면(집계 전) 소비하지 않는다** — 창형은 앱 진입이 사용분 업로드를
+  // 트리거하는 구조라 진입 직후엔 전원 미확정일 수 있고, 그때는 다음 조회가 이어받아야 한다.
+  // focusKeyRef = 지금 무장한 대상의 신원(그룹+챌린지). 라우트 파라미터가 갈리면(같은 방에서
+  // 다른 챌린지 푸시를 탭) 다시 무장한다.
+  const focusPendingRef = useRef<string | null>(null);
+  const focusKeyRef = useRef<string | null>(null);
+  // 지목 변경을 재조회로 잇기 위한 직전 값 — 아래 이펙트 주석 참고.
+  const focusSeenRef = useRef<{ groupId: string; challengeId?: string }>({
+    groupId,
+    challengeId: focusChallengeId,
+  });
 
   // 이 화면이 지금 그리고 있는 그룹. 이미 스택에 있는 'GroupRoom' 라우트로 다시 navigate 하면
   // (React Navigation이 params만 병합해) **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
@@ -259,13 +275,19 @@ export default function GroupRoomScreen({
     setChallenges(null);
     setBetSheet(null);
     setBetBusy(false);
-    setMenuOpen(false);
     setComposeOpen(false);
-    setLeaving(false);
     setError(false);
     setNoticeError(false);
     setChallengeError(false);
     setLoading(true);
+  }
+
+  // 딥링크 대상 무장 — 렌더 중 조정(위 groupId 리셋과 같은 패턴). 그룹이 바뀌어도 신원이 갈리므로
+  // 이전 그룹의 챌린지를 새 방에서 찾는 일은 없다.
+  const focusKey = focusChallengeId ? `${groupId}:${focusChallengeId}` : null;
+  if (focusKeyRef.current !== focusKey) {
+    focusKeyRef.current = focusKey;
+    focusPendingRef.current = focusChallengeId ?? null;
   }
 
   // 상세 + 공지 + 챌린지 병렬 조회. 세 요청의 실패를 **각각** 다룬다(allSettled) —
@@ -372,14 +394,32 @@ export default function GroupRoomScreen({
         const unseen = await filterUnseenChallengeResults(candidates);
         // 가드 조회를 기다리는 사이 새 조회·그룹 전환이 끼어들었으면 이 결과는 낡았다.
         if (seq !== requestSeqRef.current) return false;
+        // 푸시가 지목한 챌린지는 **1회 가드를 건너뛰고** 큐 앞자리에 세운다(GROMO-1088) —
+        // 사용자가 알림을 직접 탭한 명시적 요청이라, 앱을 먼저 열어 이미 본 결과여도 응해야 한다.
+        // 후보에 없으면(아직 집계 전·판정 미확정) 소비하지 않고 다음 조회로 넘긴다.
+        const focusId = focusPendingRef.current;
+        const focused = focusId ? candidates.filter((c) => c.challengeId === focusId) : [];
+        if (focused.length > 0) focusPendingRef.current = null;
+        const next = [
+          ...focused,
+          ...unseen.filter(
+            (c) => !focused.some((f) => f.challengeId === c.challengeId && f.date === c.date),
+          ),
+        ];
         setResultQueue((prev) => {
           // 떠 있는 모달(맨 앞)은 유지한다 — 노출 마커 기록 전에 재조회가 끼어들어도
           // 보고 있던 결과가 사라지거나, 닫은 뒤 같은 결과가 또 뜨지 않게 한다.
+          // ⚠️ 유지하는 것은 **실제로 떠 있는** 모달뿐이다(코덱스 리뷰). 다른 시트(⋯ 메뉴·만들기·
+          //    내기·초대)에 가려 대기 중인 결과까지 맨 앞에 붙들면, 그 사이 탭한 지목이 뒤로 밀려
+          //    시트를 닫았을 때 사용자가 누른 결과가 아니라 무관한 결과가 먼저 열린다.
+          //    '떠 있는가'의 기준은 노출 이펙트가 세우고 닫을 때 비우는 resultShownKeyRef다.
+          //    가려져 있던 결과는 노출 마커가 없어 unseen에 그대로 남으므로 next에서 잃지 않는다.
           const head = prev[0];
-          if (!head) return unseen;
+          if (!head) return next;
+          if (resultShownKeyRef.current !== `${head.challengeId}:${head.date}`) return next;
           return [
             head,
-            ...unseen.filter((c) => c.challengeId !== head.challengeId || c.date !== head.date),
+            ...next.filter((c) => c.challengeId !== head.challengeId || c.date !== head.date),
           ];
         });
       }
@@ -410,6 +450,19 @@ export default function GroupRoomScreen({
     }, [reload]),
   );
 
+  // 지목이 바뀌면 재조회한다(GROMO-1088, 코덱스 리뷰) — 이 방이 이미 떠 있는 채로 **같은 그룹의
+  // 다른 챌린지** 푸시를 탭하면 라우트 파라미터만 갈리고 포커스는 유지돼 useFocusEffect가 다시
+  // 돌지 않는다. 그러면 새 지목이 다음 수동 새로고침까지 전혀 처리되지 않는다.
+  // (백그라운드에서 탭한 경우는 AppState 복귀가 재조회를 부르지만, 포그라운드 탭엔 그 계기가 없다.)
+  // ⚠️ 그룹이 함께 바뀌었으면 발사하지 않는다 — load 신원이 갈려 useFocusEffect가 이미 다시 돈다.
+  useEffect(() => {
+    const prev = focusSeenRef.current;
+    focusSeenRef.current = { groupId, challengeId: focusChallengeId };
+    if (prev.groupId !== groupId) return;
+    if (prev.challengeId === focusChallengeId || !focusChallengeId) return;
+    reload();
+  }, [groupId, focusChallengeId, reload]);
+
   // 포그라운드 복귀 — 포커스는 유지된 채라 useFocusEffect가 다시 돌지 않는다.
   // 화면이 떠 있으면 재조회하고, 자정을 넘겼으면 포커스 여부와 무관하게 새 date로 다시 부른다.
   useEffect(() => {
@@ -428,7 +481,6 @@ export default function GroupRoomScreen({
   // 거의 없고, 자유 입력이 없어 되돌릴 수 없는 손실이 생기지 않는다.
   useEffect(() => {
     if (!inviteOpen) return;
-    setMenuOpen(false);
     setComposeOpen(false);
   }, [inviteOpen]);
 
@@ -472,8 +524,7 @@ export default function GroupRoomScreen({
   // 딤이 포개지고 표시 순서도 플랫폼 재량이다(초대 시트 배타 이펙트와 같은 이유). 큐는 상태로
   // 남아 있어 시트가 닫히면 그때 뜬다.
   const currentResult = resultQueue.length > 0 ? resultQueue[0] : null;
-  const resultVisible =
-    currentResult !== null && !inviteOpen && betSheet === null && !composeOpen && !menuOpen;
+  const resultVisible = currentResult !== null && !inviteOpen && betSheet === null && !composeOpen;
 
   // 노출 이벤트 + 1회 가드 기록 — **모달이 실제로 뜬 순간** 결과당 1회.
   // 가드를 닫을 때 기록하면 모달이 떠 있는 사이의 재조회가 같은 결과를 큐에 또 넣는다.
@@ -593,54 +644,6 @@ export default function GroupRoomScreen({
     [groupId, load, alertIfCurrent],
   );
 
-  const doLeave = useCallback(async () => {
-    if (leaving) return;
-    setLeaving(true);
-    try {
-      await withdrawGroup(groupId);
-      onLeft();
-    } catch (e) {
-      switch (groupErrorCode(e)) {
-        case 'HOST_WITHDRAW':
-          // A-2: 방장은 바로 나갈 수 없다 — 위임 화면으로 유도한다(위임 성공 직후 자동 나가기까지).
-          // 전환 뒤 늦게 온 실패는 지금 보는 그룹 위에 띄우지 않는다(A-7 가드: 렌더 중인 그룹일 때만).
-          if (renderedGroupIdRef.current === groupId) {
-            Alert.alert(
-              '방장은 바로 나갈 수 없어요',
-              '그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.',
-              [
-                { text: '취소', style: 'cancel' },
-                {
-                  text: '방장 넘기고 나가기',
-                  onPress: () =>
-                    navigation.navigate('GroupOwnerTransfer', { groupId, source: 'withdraw' }),
-                },
-              ],
-            );
-          }
-          break;
-        case 'NOT_FOUND':
-        case 'MEMBER_ONLY':
-          // 이미 빠져 있는 상태 — 성공과 같게 취급한다.
-          onLeft();
-          break;
-        default:
-          alertIfCurrent(groupId, '그룹 나가기 실패', '잠시 후 다시 시도해주세요.');
-      }
-    } finally {
-      setLeaving(false);
-    }
-  }, [groupId, leaving, onLeft, alertIfCurrent, navigation]);
-
-  const confirmLeave = useCallback(() => {
-    setMenuOpen(false);
-    // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
-    Alert.alert('그룹 나가기', `${name}에서 나갈까요?`, [
-      { text: '취소', style: 'cancel' },
-      { text: '나가기', style: 'destructive', onPress: () => doLeave() },
-    ]);
-  }, [name, doLeave]);
-
   // 라우트 진입의 백버튼 — 헤더뿐 아니라 상세 도착 **전**(로딩·에러) 분기에도 세운다.
   // 이 화면엔 네이티브 헤더도 탭바도 없어, 첫 조회가 도는 동안·실패했을 때 백버튼이 없으면
   // 목록으로 돌아갈 명시 경로가 0개가 된다(iOS는 시스템 뒤로가기도 없다).
@@ -703,6 +706,7 @@ export default function GroupRoomScreen({
   const cells: GridCell[] = [
     // rank는 서버 정렬 순서(누적 집중 내림차순) 그대로 — 앱에서 재정렬하지 않는다(리더보드).
     ...members.map((m, i): GridCell => ({ kind: 'member', member: m, rank: i + 1 })),
+    { kind: 'invite' },
   ];
   const memberRows = chunk(cells, COLS);
 
@@ -743,35 +747,12 @@ export default function GroupRoomScreen({
           <TouchableOpacity
             style={s.moreBtn}
             activeOpacity={0.7}
-            onPress={() => setMenuOpen(true)}
-            accessibilityLabel="그룹 메뉴"
+            onPress={() => navigation.navigate('GroupSettings', { groupId })}
+            accessibilityLabel="그룹 설정"
           >
             <Ionicons name="ellipsis-horizontal" size={18} color={T.ink} />
           </TouchableOpacity>
         </View>
-
-        {/* ── 초대 링크 카드 — 비공개방에선 유일한 입구라 상단에 고정한다(§6-4) ── */}
-        <TouchableOpacity
-          style={[s.inviteCard, isFull && s.inviteCardOff]}
-          activeOpacity={0.85}
-          disabled={isFull}
-          onPress={() => onInvite()}
-        >
-          <View style={s.inviteIcon}>
-            <Ionicons name="link" size={16} color={isFull ? T.inkMuted : T.accent} />
-          </View>
-          <View style={s.inviteTexts}>
-            <Text style={[s.inviteTitle, isFull && s.inviteTitleOff]}>초대 링크로 친구 부르기</Text>
-            <Text style={s.inviteCaption}>
-              {isFull
-                ? '정원이 가득 찼어요'
-                : isPrivate
-                  ? '비공개 그룹이라 링크로만 들어올 수 있어요'
-                  : '링크를 받은 친구는 바로 참여할 수 있어요'}
-            </Text>
-          </View>
-          {!isFull && <Ionicons name="share-outline" size={18} color={T.inkSub} />}
-        </TouchableOpacity>
 
         {/* ── 공지 ── */}
         <View style={s.sectionHead}>
@@ -946,34 +927,6 @@ export default function GroupRoomScreen({
         onFocusPress={() => navigation.navigate('FocusCategory', { initialGroupId: groupId })}
       />
 
-      {/* ── '⋯' 액션시트 ── */}
-      {/* '닫기' 행은 두지 않는다 — 앱의 SheetShell 시트 4종 모두 딤 탭으로만 닫고,
-          아이콘 없는 행이라 위 행과 글자 시작선도 어긋났다. */}
-      {/* inviteOpen까지 함께 보는 이유: 위 이펙트는 렌더 뒤에 돌아 한 프레임 동안 두 Modal이 겹친다. */}
-      {menuOpen && !inviteOpen && (
-        <SheetShell onClose={() => setMenuOpen(false)} asModal>
-          <Text style={s.menuTitle}>{name}</Text>
-          {/* 그룹 설정(방장 전용) — 이름·소개·정원·공개설정 수정 + 위임·멤버관리·공지권한 허브(A-1) */}
-          {isOwner && (
-            <TouchableOpacity
-              style={s.menuItem}
-              activeOpacity={0.7}
-              onPress={() => {
-                setMenuOpen(false);
-                navigation.navigate('GroupSettings', { groupId });
-              }}
-            >
-              <Ionicons name="settings-outline" size={18} color={T.ink} />
-              <Text style={s.menuText}>그룹 설정</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={s.menuItem} activeOpacity={0.7} onPress={confirmLeave}>
-            <Ionicons name="exit-outline" size={18} color={T.accentAlt} />
-            <Text style={s.menuDanger}>그룹 나가기</Text>
-          </TouchableOpacity>
-        </SheetShell>
-      )}
-
       {/* ── 챌린지 만들기 시트(방장만) ── */}
       {/* '⋯' 메뉴와 같은 이유로 inviteOpen까지 본다 — 위 이펙트는 렌더 뒤에 돌아 한 프레임 동안
           두 Modal이 겹친다. */}
@@ -1085,31 +1038,6 @@ const s = StyleSheet.create({
     borderColor: T.border,
   },
 
-  // 카드 표면은 T.paperAlt — 화면 배경이 흰 캔버스(T.paperLight)로 바뀌어 T.white 카드는 묻힌다.
-  inviteCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: T.space.md,
-    backgroundColor: T.paperAlt,
-    borderWidth: 1,
-    borderColor: T.border,
-    borderRadius: 16,
-    padding: T.space.lg,
-  },
-  inviteCardOff: { backgroundColor: T.paperAlt, borderColor: T.paperAlt },
-  inviteIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: T.accentBg,
-  },
-  inviteTexts: { flex: 1, gap: 2 },
-  inviteTitle: { ...T.text.label, color: T.ink },
-  inviteTitleOff: { color: T.inkMuted },
-  inviteCaption: { ...T.text.caption, fontWeight: '500', color: T.inkMuted },
-
   sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1185,14 +1113,4 @@ const s = StyleSheet.create({
   inviteTileOff: { borderColor: T.border, backgroundColor: T.paperAlt },
   inviteTileText: { ...T.text.caption, color: T.accent },
   inviteTileTextOff: { color: T.inkMuted },
-
-  menuTitle: { ...T.text.label, color: T.inkMuted, marginBottom: T.space.sm },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: T.space.sm,
-    height: 52,
-  },
-  menuDanger: { ...T.text.subtitle, color: T.accentAlt },
-  menuText: { ...T.text.subtitle, color: T.ink },
 });

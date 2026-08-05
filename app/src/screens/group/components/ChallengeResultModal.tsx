@@ -11,6 +11,7 @@ import { useEffect, useRef } from 'react';
 import {
   Animated,
   Easing,
+  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -26,16 +27,34 @@ import type { ChallengeResultCandidate } from '../challengeResult';
 
 // 내 결과별 헤드라인 — 리그 결과 화면의 caption/title 위계를 따른다.
 // 내 결과가 아직 없으면(집계 중·명단에 없음) 중립 문구로 떨어뜨린다.
+// 그림은 시스템 이모지 대신 앱 공용 캐릭터 에셋 — OS·폰트 버전에 따라 모양이 흔들리지 않고
+// 다른 결과 화면(리그 승급·집중 결과)과 화풍이 맞는다 (GROMO-1087).
+// image는 스크린리더가 못 읽으므로 상태를 말로 옮긴 label을 함께 둔다.
 const HEADLINE = {
-  achieved: { emoji: '🏆', caption: 'CHALLENGE RESULT', title: '목표를 달성했어요!' },
-  failed: { emoji: '😢', caption: 'CHALLENGE RESULT', title: '아쉽게 놓쳤어요' },
-  pending: { emoji: '⏳', caption: 'CHALLENGE RESULT', title: '결과 집계 중이에요' },
+  achieved: {
+    image: require('@/assets/character_happy.png'),
+    imageLabel: '목표를 달성해 기뻐하는 캐릭터',
+    caption: 'CHALLENGE RESULT',
+    title: '목표를 달성했어요!',
+  },
+  failed: {
+    image: require('@/assets/character_sensitive.png'),
+    imageLabel: '목표를 놓쳐 아쉬워하는 캐릭터',
+    caption: 'CHALLENGE RESULT',
+    title: '아쉽게 놓쳤어요',
+  },
+  pending: {
+    image: require('@/assets/character_study.png'),
+    imageLabel: '결과를 집계하는 동안 공부하는 캐릭터',
+    caption: 'CHALLENGE RESULT',
+    title: '결과 집계 중이에요',
+  },
 } as const;
 
-// 'YYYY-MM-DD' → '8/1' (ChallengeCard.mmdd와 같은 표기 — 형식이 다르면 원문 유지).
-function mmdd(date: string): string {
+// 'YYYY-MM-DD' → '8월 1일' (ChallengeCard.monthDay와 같은 표기 — 형식이 다르면 원문 유지).
+function monthDay(date: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  return m ? `${Number(m[2])}/${Number(m[3])}` : date;
+  return m ? `${Number(m[2])}월 ${Number(m[3])}일` : date;
 }
 
 // 명단 한 묶음(달성/미달성/집계 중) — 비어 있으면 묶음째 그리지 않는다.
@@ -119,14 +138,23 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
             <Text style={s.caption}>{headline.caption}</Text>
             <Text style={s.title}>{headline.title}</Text>
 
-            {/* 큰 이모지 + 글로우 — 리그의 뱃지 자리를 대신한다 */}
+            {/* 캐릭터 + 글로우 — 리그의 뱃지 자리를 대신한다.
+                에셋마다 가로세로비가 달라 contain으로 넣는다(원 안에 들어가는 쪽이 기준) */}
             <View style={s.glow}>
-              <Text style={s.emoji}>{headline.emoji}</Text>
+              <Image
+                source={headline.image}
+                style={s.character}
+                resizeMode="contain"
+                accessible
+                accessibilityRole="image"
+                accessibilityLabel={headline.imageLabel}
+                testID="group.challengeResult.character"
+              />
             </View>
 
             {/* 어떤 챌린지의 어느 날 결과인가 */}
             <Text style={s.label}>{result.label}</Text>
-            <Text style={s.date}>{mmdd(result.date)} 결과</Text>
+            <Text style={s.date}>{monthDay(result.date)} 결과</Text>
 
             {/* 명단 — 3상(달성·미달성·집계 중)을 뭉개지 않는다 */}
             <ScrollView style={s.lists} showsVerticalScrollIndicator={false}>
@@ -197,7 +225,8 @@ const s = StyleSheet.create({
     shadowRadius: 30,
     shadowOffset: { width: 0, height: 0 },
   },
-  emoji: { fontSize: 64 },
+  // 글로우 원(132) 안쪽 여백을 남기는 크기 — 캐릭터가 원 밖으로 삐져나오지 않게
+  character: { width: 108, height: 108 },
 
   label: { ...T.text.subtitle, color: T.night.cream, textAlign: 'center' },
   date: { ...T.text.caption, color: T.night.muted, marginTop: 2, marginBottom: T.space.lg },

@@ -20,6 +20,7 @@ import {
   groupErrorCode,
   joinBet,
   joinGroup,
+  leaveBet,
   searchGroups,
   updateAnnouncement,
   withdrawGroup,
@@ -189,6 +190,15 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
   test('DELETE /{groupId}/bets/{betId} — 내기 취소', async () => {
     await cancelBet(GROUP_ID, BET_ID);
     expect(mockApi.delete).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/bets/${BET_ID}`);
+  });
+
+  // 참가 철회(챌린지 개선 배치, 계약 §4 — W4 병행 구현) — 본인 참가만 철회·본인 참가비 환불.
+  // 취소(/bets/{betId})와 경로가 한 단어 차이라 오타는 런타임 404로만 드러난다 — 여기서 잠근다.
+  test('DELETE /{groupId}/bets/{betId}/participation — 참가 철회', async () => {
+    await leaveBet(GROUP_ID, BET_ID);
+    expect(mockApi.delete).toHaveBeenCalledWith(
+      `/api/v1/groups/${GROUP_ID}/bets/${BET_ID}/participation`,
+    );
   });
 
   // TIME_WINDOW 생성(확장 배치) — 창 시각·목표분이 additive로 실린다.

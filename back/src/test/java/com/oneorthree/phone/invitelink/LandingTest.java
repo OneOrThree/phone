@@ -32,7 +32,8 @@ class LandingTest extends InviteLinkTestSupport {
     @BeforeEach
     void setUp() {
         group = newGroup("스터디");
-        inviter = newUser("초대자");
+        // 닉네임을 그대로 둔다 — 랜딩이 초대자 이름을 어떻게 싣는지가 이 클래스의 관심사다.
+        inviter = newUserWithExactNickname("김초대");
         link = newLink("ab23cd45", group, inviter);
     }
 
@@ -48,6 +49,9 @@ class LandingTest extends InviteLinkTestSupport {
 
         assertThat(body).contains("스터디");
         assertThat(body).contains("gromo://join?g=" + group.getId() + "&s=" + link.getSlug());
+        // OG 이미지는 환경별 자기 도메인(ci: link.base-url=https://link.test)의 절대 URL 이어야 한다 —
+        // 도메인이 하드코딩되면 dev 발급 링크의 미리보기가 미배포 prod 이미지를 가리켜 깨진다.
+        assertThat(body).contains("property=\"og:image\" content=\"https://link.test/link/og-invite-v1.png\"");
 
         InviteLinkClick click = onlyClickOf(link);
         assertThat(click.getIpHash()).hasSize(64).matches("[0-9a-f]+");
@@ -84,6 +88,8 @@ class LandingTest extends InviteLinkTestSupport {
         // OG 제목의 그룹명 자리가 비면 「」 처럼 깨진 미리보기가 퍼진다 — 중립 명칭으로 채워져야 한다.
         // (전역 doesNotContain("「」") 은 안 된다 — WS-5 템플릿의 CSS 주석에 설명용 리터럴이 있다.)
         assertThat(body).contains("「그로모 그룹」");
+        // 만료 변형도 미리보기로 퍼진다 — OG 이미지 자리가 비면 안 된다.
+        assertThat(body).contains("property=\"og:image\" content=\"https://link.test/link/og-invite-v1.png\"");
         assertThat(clickRepository.findAll()).isEmpty();
     }
 
@@ -116,6 +122,79 @@ class LandingTest extends InviteLinkTestSupport {
     }
 
     @Test
+    @DisplayName("초대자 닉네임이 카드와 미리보기 제목에 실린다")
+    void showsInviterName() throws Exception {
+        String body = landingBody(link.getSlug());
+
+        assertThat(body).contains("data-inviter=\"true\"");
+        assertThat(body).contains("<span class=\"name\">김초대</span>님이 초대했어요");
+        // 카톡 미리보기에서 가장 먼저 읽히는 줄 — 초대자가 문장 맨 앞에 와야 한다
+        assertThat(body).contains("content=\"김초대님이 gromo 그룹 「스터디」에 초대했어요\"");
+        assertThat(body).contains("<title>김초대님이 gromo 그룹 「스터디」에 초대했어요</title>");
+    }
+
+    @Test
+    @DisplayName("초대자가 탈퇴했으면 초대자 줄을 접는다 — 초대 자체는 그대로 열린다")
+    void hidesInviterWhenWithdrawn() throws Exception {
+        User withdrawn = newUserWithExactNickname("떠난사람");
+        withdrawn.setDeleted(true);
+        userRepository.save(withdrawn);
+        GroupInviteLink orphanInviter = newLink("gone2345", group, withdrawn);
+
+        String body = landingBody(orphanInviter.getSlug());
+
+        assertThat(body).contains("data-inviter=\"false\"");
+        assertThat(body).doesNotContain("떠난사람");
+        // 초대자를 몰라도 그룹명·CTA 는 그대로다
+        assertThat(body).contains("스터디");
+        assertThat(body).contains("content=\"gromo 그룹 「스터디」에 초대했어요\"");
+    }
+
+    @Test
+    @DisplayName("닉네임이 없는 초대자(게스트)도 초대자 줄을 접는다")
+    void hidesInviterWhenNicknameMissing() throws Exception {
+        GroupInviteLink guestLink = newLink("guest123", group, newUserWithExactNickname(null));
+
+        String body = landingBody(guestLink.getSlug());
+
+        assertThat(body).contains("data-inviter=\"false\"");
+        assertThat(body).contains("content=\"gromo 그룹 「스터디」에 초대했어요\"");
+    }
+
+    @Test
+    @DisplayName("초대자 닉네임도 속성 안전 이스케이프된다 — og:title 의 content=\"…\" 안에 들어간다")
+    void escapesInviterName() throws Exception {
+        GroupInviteLink evilLink =
+                newLink("xssnick1", group, newUserWithExactNickname("a\"><script>alert(1)</script>"));
+
+        String body = landingBody(evilLink.getSlug());
+
+        assertThat(body).doesNotContain("<script>alert(1)</script>");
+        assertThat(body).contains("&lt;script&gt;");
+        // 큰따옴표 하나로 content 속성이 닫히면 임의 속성이 주입된다 — 엔티티로 남아야 한다
+        assertThat(body).contains("&quot;");
+    }
+
+    @Test
+    @DisplayName("만료 변형은 초대자를 숨긴다 — 없는 slug 는 초대자도 특정할 수 없다")
+    void expiredHidesInviter() throws Exception {
+        String body = landingBody("zzzzzzzz");
+
+        assertThat(body).contains("data-expired=\"true\"");
+        assertThat(body).contains("data-inviter=\"false\"");
+    }
+
+    @Test
+    @DisplayName("스토어 링크는 실제 출시 App ID 다 — 플레이스홀더면 '사용할 수 없는 앱'이 뜬다")
+    void servesRealStoreUrl() throws Exception {
+        String body = landingBody(link.getSlug());
+
+        assertThat(body).contains("data-store=\"ready\"");
+        assertThat(body).contains("https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679");
+        assertThat(body).doesNotContain("id0000000000");
+    }
+
+    @Test
     @DisplayName("그룹명은 HTML 이스케이프된다 — 그룹명이 곧 XSS 입력구다")
     void escapesGroupName() throws Exception {
         Group evil = newGroup("<script>alert(1)</script>");
@@ -128,5 +207,11 @@ class LandingTest extends InviteLinkTestSupport {
 
         assertThat(body).doesNotContain("<script>alert(1)</script>");
         assertThat(body).contains("&lt;script&gt;");
+    }
+
+    private String landingBody(String slug) throws Exception {
+        return mockMvc.perform(get("/l/{slug}", slug).header("User-Agent", IPHONE_UA))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
     }
 }

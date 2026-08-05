@@ -18,6 +18,8 @@ import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
 import com.oneorthree.phone.friend.dto.PinnedUserResponse;
+import com.oneorthree.phone.friend.event.FriendRequestAcceptedEvent;
+import com.oneorthree.phone.friend.event.FriendRequestSentEvent;
 import com.oneorthree.phone.friend.exception.FriendErrorCode;
 import com.oneorthree.phone.friend.exception.FriendException;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
@@ -29,6 +31,7 @@ import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,6 +60,9 @@ public class FriendService {
     private final UserActivityEventLogger userActivityEventLogger;
     private final LeagueTierLookup leagueTierLookup;
     private final FocusLiveInfoLookup focusLiveInfoLookup;
+    // GROMO-1090: 푸시는 여기서 직접 보내지 않고 이벤트만 발행한다 — 발송은 커밋 이후에 일어나야 한다
+    // (요청/수락이 롤백되는데 알림만 나가면 안 된다). 소비는 notification 도메인의 AFTER_COMMIT 리스너.
+    private final ApplicationEventPublisher eventPublisher;
     private final Map<SearchType, FriendSearchStrategy> searchStrategies;
 
     // 검색 전략은 AuthService의 Map<Provider, SocialLoginClient>와 동일하게
@@ -70,6 +76,7 @@ public class FriendService {
                          UserActivityEventLogger userActivityEventLogger,
                          LeagueTierLookup leagueTierLookup,
                          FocusLiveInfoLookup focusLiveInfoLookup,
+                         ApplicationEventPublisher eventPublisher,
                          List<FriendSearchStrategy> searchStrategies) {
         this.friendshipRepository = friendshipRepository;
         this.userRepository = userRepository;
@@ -80,6 +87,7 @@ public class FriendService {
         this.userActivityEventLogger = userActivityEventLogger;
         this.leagueTierLookup = leagueTierLookup;
         this.focusLiveInfoLookup = focusLiveInfoLookup;
+        this.eventPublisher = eventPublisher;
         this.searchStrategies = searchStrategies.stream()
                 .collect(Collectors.toMap(FriendSearchStrategy::type, strategy -> strategy));
     }
@@ -112,35 +120,51 @@ public class FriendService {
                 .orElse(null);
         if (myRejected != null) {
             myRejected.reopen();
-            logRequestSent(targetUserId, true);
+            onRequestCreated(myRejected.getId(), me, targetUserId, true);
             return;
         }
 
-        friendshipRepository.save(Friendship.builder()
+        Friendship request = Friendship.builder()
                 .fromUser(fromUser)
                 .toUser(toUser)
                 .status(FriendshipStatus.PENDING)
-                .build());
-        logRequestSent(targetUserId, false);
+                .build();
+        // persist 가 이 인스턴스에 id 를 채우므로(@GeneratedUuidV7) 저장 후 그대로 읽어 이벤트에 싣는다.
+        friendshipRepository.save(request);
+        onRequestCreated(request.getId(), me, targetUserId, false);
     }
 
-    // 요청 생성 이벤트 — 신규 insert·REJECTED 재전환 두 경로 모두 1회씩, reopened 로 구분
-    private void logRequestSent(UUID targetUserId, boolean reopened) {
+    // 요청 생성 후처리 — 신규 insert·REJECTED 재전환 두 경로 모두 1회씩, reopened 로 구분.
+    // 활동 로그(즉시)와 푸시 이벤트(커밋 이후 소비)를 함께 낸다. 재전환도 수신자 입장에선 새 요청이라
+    // 두 경로 모두 알린다 — 발송 측 dedup 은 동시 reopen 경합만 접고, 재요청 도배 억제는 요청
+    // 쿨다운(티켓 475)의 몫이다(GROMO-1090).
+    private void onRequestCreated(UUID requestId, UUID me, UUID targetUserId, boolean reopened) {
         userActivityEventLogger.log(UserActivityEvent.FRIEND_REQUEST_SENT,
                 Map.of("to_user_id", targetUserId.toString(), "reopened", reopened));
+        eventPublisher.publishEvent(new FriendRequestSentEvent(requestId, targetUserId, me));
     }
 
     // 요청 수락 — 수신자(toUser)만 가능. PENDING → ACCEPTED.
     @Transactional
     public void acceptRequest(UUID me, UUID requestId) {
         Friendship friendship = getReceivedRequest(me, requestId);
+        // 이 호출이 실제로 상태를 바꾼 것인지 먼저 본다 — 아래 알림 발행 조건 (GROMO-1090).
+        boolean alreadyAccepted = friendship.getStatus() == FriendshipStatus.ACCEPTED;
         friendship.accept();
+        UUID requesterId = friendship.getFromUser().getId();
         userActivityEventLogger.log(UserActivityEvent.FRIEND_ADDED,
                 Map.of("request_id", requestId.toString(),
-                        "from_user_id", friendship.getFromUser().getId().toString()));
+                        "from_user_id", requesterId.toString()));
+        // 수락 사실은 보낸 쪽만 모른다 — 그쪽에만 알린다 (GROMO-1090). 발송은 커밋 이후.
+        // 이미 ACCEPTED 인 요청에 수락이 또 들어와도(이 API 는 상태를 검사하지 않는다) 알리지 않는다 —
+        // 늦게 도착한 재시도까지 발송 측 dedup 창에 기대면 창이 짧을수록 중복이 새 나간다(@codex 리뷰).
+        if (!alreadyAccepted) {
+            eventPublisher.publishEvent(new FriendRequestAcceptedEvent(requesterId, me));
+        }
     }
 
     // 요청 거절 — 수신자(toUser)만 가능. PENDING → REJECTED.
+    // 거절은 알리지 않는다 (GROMO-1090) — 거절 통보는 관계상 부담이라 스코프에서 뺐다.
     @Transactional
     public void rejectRequest(UUID me, UUID requestId) {
         getReceivedRequest(me, requestId).reject();

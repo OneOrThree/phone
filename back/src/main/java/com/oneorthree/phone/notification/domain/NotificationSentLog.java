@@ -54,6 +54,39 @@ public class NotificationSentLog {
      */
     public static final String TYPE_CHALLENGE_WINDOW_END = "CHALLENGE_WINDOW_END";
 
+    /**
+     * 발송 종류 — 창형이 아닌(일 목표형, {@code DURATION}) 챌린지의 하루 마감 알림(GROMO-1088).
+     * {@code target_user_id} 에 <b>챌린지 id</b>. 일 목표도 매일 반복이라 dedup 은 창형과 같은
+     * (user_id, type, target_user_id) + <b>당일 sent_at</b> 이다.
+     *
+     * <p>창형이 이 타입을 쓰지 않고 {@link #TYPE_CHALLENGE_WINDOW_END} 로 남는 이유는 앱의 레거시
+     * 딥링크 폴백이 그 문자열에 걸려 있기 때문이다(구 바이너리 호환 — 계약 §2).
+     */
+    public static final String TYPE_CHALLENGE_ENDED = "CHALLENGE_ENDED";
+
+    /**
+     * 발송 종류 — 그룹에 새 챌린지가 등록됐을 때의 그룹원 알림(GROMO-1089).
+     * {@code target_user_id} 에 <b>챌린지 id</b> 를 담아 (user_id, type, target_user_id) 조합으로
+     * "이 유저에게 이 챌린지 개설 알림을 이미 보냈는지"를 판정한다. 챌린지 개설은 1회성이라
+     * 정상 흐름에서는 중복이 없고, 이 dedup 은 이벤트 재발행·재시도에 대한 안전망이다.
+     */
+    public static final String TYPE_CHALLENGE_CREATED = "CHALLENGE_CREATED";
+
+    /**
+     * 발송 종류 — 친구 요청 도착(GROMO-1090). {@code user_id} 는 요청을 <b>받은</b> 유저,
+     * {@code target_user_id} 에 <b>요청을 보낸 유저 id</b> 를 담는다(행 id 를 담지 않는 이유: 거절 후
+     * 재요청이 같은 friendships 행을 되살려서 행 id 로는 "같은 요청"을 식별할 수 없다).
+     * dedup 은 (user_id, type, target_user_id) + <b>최근 1분 sent_at</b> — 동시에 처리된 같은 행동만
+     * 접고, 별개의 재요청은 통과시키기 위한 폭이다.
+     */
+    public static final String TYPE_FRIEND_REQUEST = "FRIEND_REQUEST";
+
+    /**
+     * 발송 종류 — 보낸 친구 요청이 수락됨(GROMO-1090). {@code user_id} 는 요청을 <b>보냈던</b> 유저,
+     * {@code target_user_id} 에 <b>수락한 유저 id</b>. dedup 기준은 요청 알림과 같다.
+     */
+    public static final String TYPE_FRIEND_ACCEPTED = "FRIEND_ACCEPTED";
+
     @Id
     @GeneratedUuidV7
     private UUID id;

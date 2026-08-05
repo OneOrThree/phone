@@ -8,6 +8,7 @@ export { default as GroupRoomRouteScreen } from './GroupRoomRouteScreen';
 export { default as NoticeScreen } from './NoticeScreen';
 // 그룹 운영(3차) — 방장 전용 라우트 화면들. 그룹방 ⋯ '그룹 설정'(GroupSettings)이 허브다.
 export { default as GroupSettingsScreen } from './GroupSettingsScreen';
+export { default as GroupProfileEditScreen } from './GroupProfileEditScreen';
 export { default as GroupMemberManageScreen } from './GroupMemberManageScreen';
 export { default as GroupOwnerTransferScreen } from './GroupOwnerTransferScreen';
 export { default as GroupNoticePermissionScreen } from './GroupNoticePermissionScreen';

@@ -41,6 +41,16 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Friendship> findByIdAndDeletedAtIsNull(UUID id);
 
+    // 알림 경로의 상태 재확인 전용 — 위 조회와 조건은 같지만 **락을 잡지 않는다**.
+    // 위 findByIdAndDeletedAtIsNull 은 수락·거절이 행을 변경하기 직전에 쓰라고 만든 배타 락이다.
+    // 그걸 알림 경로가 재사용하면, 잠긴 행이 그 트랜잭션이 끝날 때까지 — 즉 FCM 발송이 끝날 때까지 —
+    // 묶인다. FCM RestClient 에 타임아웃이 없어 발송이 지연·정지하면 같은 요청의 수락·거절과
+    // 관련 유저의 탈퇴가 무기한 대기하게 된다(@codex 리뷰 P1).
+    // 알림은 행을 바꾸지 않고 "지금도 PENDING 인가" 만 보므로 락이 필요 없다. 이 조회와 발송 사이에
+    // 상태가 바뀌는 경합은 남지만, 그건 락으로 못 막는다 — 발송은 어차피 트랜잭션 밖의 외부 호출이다.
+    @Query("select f.status from Friendship f where f.id = :id and f.deletedAt is null")
+    Optional<FriendshipStatus> findStatusByIdAndDeletedAtIsNull(@Param("id") UUID id);
+
     boolean existsByFromUserAndToUser(User fromUser, User toUser);
 
     // 두 유저 사이 페어 양방향 조회 — (a→b) / (b→a) 모두 포함.

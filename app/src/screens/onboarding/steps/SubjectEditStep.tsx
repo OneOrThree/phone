@@ -18,7 +18,7 @@ export default function SubjectEditStep({ data, onNext }: StepProps) {
     <StepScaffold
       testID="onboarding.step.subjectEdit"
       title={`${category}${eunNeun(category)} 이 과목들로\n공부 시간을 비교해요`}
-      ctaLabel="이대로 시작"
+      ctaLabel="좋아요!"
       onCta={onNext}
       scrollable
     >

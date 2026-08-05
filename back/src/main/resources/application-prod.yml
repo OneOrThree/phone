@@ -77,7 +77,7 @@ link:
   base-url: ${LINK_BASE_URL:https://link.oneorthree.world}
   match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
   ip-salt: ${LINK_IP_SALT}
-  store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/id0000000000}
+  store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679}
 
 # GA4 Measurement Protocol 서버 이벤트 (초대 링크 퍼널, 스펙 §6-2) — prod 만 실전송.
 # dev/local 은 이 블록을 두지 않아 ga4.enabled 미설정 → no-op 구현이 뜬다(분석 노이즈·시크릿 노출 방지).

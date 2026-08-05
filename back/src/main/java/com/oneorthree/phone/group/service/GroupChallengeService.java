@@ -19,6 +19,7 @@ import com.oneorthree.phone.group.dto.GroupBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetResultResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
 import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
+import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
@@ -39,6 +40,7 @@ import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,6 +77,7 @@ public class GroupChallengeService {
     private final GroupBetService groupBetService;
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final WindowFocusAggregator windowFocusAggregator;
+    private final ApplicationEventPublisher eventPublisher;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
@@ -506,6 +509,12 @@ public class GroupChallengeService {
             nonParticipants = List.of();
         }
 
+        // 그룹원 개설 알림(GROMO-1089) — 발송은 알림 도메인이 AFTER_COMMIT 으로 받아 처리한다.
+        // 여기서 직접 푸시를 부르지 않는 이유: 이 트랜잭션이 뒤에서 롤백되면 챌린지는 없는데 알림만
+        // 나간 상태가 되기 때문이다. 이벤트 발행은 커밋되지 않으면 리스너까지 가지 않는다.
+        eventPublisher.publishEvent(new GroupChallengeCreatedEvent(
+                savedChallenge.getId(), group.getId(), userId));
+
         return CreateChallengeResponse.builder()
                 .id(savedChallenge.getId())
                 .nonParticipants(nonParticipants)
@@ -516,9 +525,9 @@ public class GroupChallengeService {
      * TIME_WINDOW 파라미터 검증 — 창 시각(필수, 0길이 금지)과 창 내 목표(durationMinutes 필수,
      * 0 < x ≤ 창 길이 분).
      *
-     * <p>창은 매일 반복 시간대다. 저장 Instant 는 UTC 시각(time-of-day)만 의미를 갖고(응답 변환
-     * {@link #toLocalTimeString} 과 동일 기준), 날짜별 실제 창은 KST 날짜에 그 시각을 얹어 조합한다
-     * ({@link WindowFocusAggregator}). 그래서 비교도 Instant 가 아니라 시각으로 한다 —
+     * <p>창은 매일 반복 시간대다. 저장 Instant 는 Asia/Seoul 벽시계 시각(time-of-day)만 의미를 갖고
+     * (응답 변환 {@link #toLocalTimeString} 과 동일 기준), 날짜별 실제 창은 KST 날짜에 그 시각을 얹어
+     * 조합한다({@link WindowFocusAggregator}). 그래서 비교도 Instant 가 아니라 시각으로 한다 —
      * 시작 > 종료는 자정 걸침 창(D 시작 ~ D+1 종료)으로 허용한다.
      */
     private void validateTimeWindowParams(CreateChallengeRequest request) {
@@ -662,7 +671,7 @@ public class GroupChallengeService {
                 challengeId, userId, request.getDate(), request.getUsedMinutes(), request.getMeasuredAt());
     }
 
-    // TIME_WINDOW 상세의 Instant를 UTC 기준 "HH:mm:ss" 문자열로 변환 (time_zone 컬럼 제거에 따라 UTC 고정).
+    // TIME_WINDOW 상세의 Instant를 Asia/Seoul 벽시계 기준 "HH:mm:ss" 문자열로 변환 (GROMO-1100 KST 해석 통일).
     private String toLocalTimeString(Instant instant) {
         return timeOfDay(instant).format(TIME_FORMATTER);
     }

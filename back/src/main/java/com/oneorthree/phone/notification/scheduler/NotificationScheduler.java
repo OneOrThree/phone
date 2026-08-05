@@ -2,6 +2,7 @@ package com.oneorthree.phone.notification.scheduler;
 
 import com.oneorthree.phone.group.service.GroupBetFreezeMonitor;
 import com.oneorthree.phone.notification.service.BetResultNotificationService;
+import com.oneorthree.phone.notification.service.ChallengeDurationEndNotificationService;
 import com.oneorthree.phone.notification.service.ChallengeWindowEndNotificationService;
 import com.oneorthree.phone.notification.service.InactiveReturnNotificationService;
 import com.oneorthree.phone.notification.service.LeagueNotificationService;
@@ -28,6 +29,7 @@ public class NotificationScheduler {
     private final LeagueReengagementNotificationService leagueReengagementNotificationService;
     private final BetResultNotificationService betResultNotificationService;
     private final ChallengeWindowEndNotificationService challengeWindowEndNotificationService;
+    private final ChallengeDurationEndNotificationService challengeDurationEndNotificationService;
     private final GroupBetFreezeMonitor groupBetFreezeMonitor;
 
     // 주간 결과 알림 — 정산 배치(월 00시)와 유저 발표를 분리해 월 07시 발송 — 조용한 시간(기본 23–07) 종료 시각과 정합
@@ -141,15 +143,28 @@ public class NotificationScheduler {
         }
     }
 
-    // 스크린타임 창형 챌린지 창 종료 푸시 (B4) — 15분 간격. 창이 끝난 직후 복귀를 유도해야 그 진입이
-    // 창 사용분 업로드를 트리거하므로(A4) 시각 고정 크론으로는 못 잡는다. 심야 창은 조용한 시간
-    // 필터에서 스킵되는 것을 수용한다(계약 §2).
+    // 창형 챌린지 창 종료 푸시 (B4, GROMO-1088 에서 FOCUS 창형까지 확대) — 15분 간격. 창이 끝난 직후
+    // 복귀를 유도해야 그 진입이 창 사용분 업로드를 트리거하므로(A4) 시각 고정 크론으로는 못 잡는다.
+    // 심야 창은 조용한 시간 필터에서 스킵되는 것을 수용한다(계약 §2).
     @Scheduled(cron = "0 */15 * * * *", zone = "Asia/Seoul")
     public void sendChallengeWindowEndNotifications() {
         try {
             challengeWindowEndNotificationService.sendWindowEndNotifications();
         } catch (Exception e) {
             log.error("챌린지 창 종료 푸시 스케줄 실패", e);
+        }
+    }
+
+    // 일 목표형(DURATION) 챌린지 하루 마감 푸시 (GROMO-1088) — 매일 09:00 KST. 회차는 자정에 끝나지만
+    // 그 시각은 조용한 시간(기본 23–07) 한복판이고 08:00 은 내기 결과 푸시가 이미 쓴다. 09:00 은
+    // 스크린타임 내기 정산(12:00)보다 앞서 어제치 업로드가 정산 전에 반영되는 이점도 있다.
+    // TODO: 멀티 인스턴스 배포 시 분산 락 필요 (티켓 565) — 다른 알림 스케줄과 같은 한계
+    @Scheduled(cron = "0 0 9 * * *", zone = "Asia/Seoul")
+    public void sendChallengeDurationEndNotifications() {
+        try {
+            challengeDurationEndNotificationService.sendDurationEndNotifications();
+        } catch (Exception e) {
+            log.error("일 목표 챌린지 마감 푸시 스케줄 실패", e);
         }
     }
 

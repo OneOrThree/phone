@@ -1,21 +1,11 @@
 // ST4(일) 시간대별 집중 타임테이블 — 스터디 플래너식 격자. 한 줄 = 1시간(칸 6개 × 10분),
 // 첫 줄 오전 6시 → 다음날 새벽 5시까지 24줄. 격자는 항상 그려지고, 오늘 세션(GET /focus-session)이
 // 겹친 슬롯만 칠해진다(칠 농도 = 슬롯 내 집중 비율). 서버 집계 없이 세션 구간만으로 계산(GROMO-761).
-import { useCallback, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-  Share,
-  Platform,
-} from 'react-native';
-import { captureRef } from 'react-native-view-shot';
+import { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
-import { logStatsShared } from '@/services/analyticsEvents';
 import { fetchTodayFocusSessions } from '@/screens/focus/focusRestore';
 import { getFocusTags } from '@/services/focusApi';
 import { useSubjects } from '@/store/SubjectContext';
@@ -24,59 +14,28 @@ import { subjectColorForTag, tenMinuteFocusSlots, type FocusSlotSegment } from '
 import { SectionCard } from './SectionCard';
 import { FOCUS_COLOR } from './constants';
 import { cs } from './cardStyles';
+import { ShareDayFrame } from './ShareDayFrame';
+import { useTimetableShareCapture } from './useTimetableShareCapture';
 
 const TIMETABLE_HOURS = Array.from({ length: 24 }, (_, i) => (i + 6) % 24);
 
 // 타임테이블 카드(일) — 헤더에 공유 버튼. 카드 내용(범례+격자)을 이미지로 캡처해
 // iOS 공유 시트로 내보낸다(react-native-view-shot, GROMO-762).
 export function FocusTimetableCard() {
-  const shotRef = useRef<View>(null);
-  const [sharing, setSharing] = useState(false);
-  // 캡처 전용 상태 — 워터마크 렌더 조건. sharing은 공유 시트가 닫혀야 풀리므로 그걸 쓰면
-  // 시트가 카드를 다 가리지 않을 때(iPad 팝오버 등) 워터마크가 계속 노출된다(PR 386 리뷰 반영)
-  const [capturing, setCapturing] = useState(false);
-
-  const onShare = async () => {
-    if (sharing) return;
-    setSharing(true);
-    setCapturing(true);
-    try {
-      // 워터마크(capturing 중에만 렌더)가 화면에 커밋·페인트된 뒤 캡처 — setState 직후엔
-      // 아직 반영 전이라 두 프레임 대기(GROMO-1014)
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const uri = await captureRef(shotRef, {
-        format: 'png',
-        quality: 1,
-        // 공유 파일명 — 예: 260711_타임테이블.png (사진 저장 시엔 이름이 남지 않음)
-        fileName: `${todayStr().slice(2).replace(/-/g, '')}_타임테이블`,
-      });
-      // 캡처 직후 워터마크 제거 — 공유 시트가 떠 있는 동안 카드에 남지 않게
-      setCapturing(false);
-      // Android Share는 url을 무시하고 message 기반이라 플랫폼별 페이로드(현재 iOS 전용 앱이지만 방어, 리뷰 반영)
-      const result = await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
-      // 시트만 열고 닫으면 completed=false — 탭 대비 실공유 전환을 구분(GROMO-782).
-      // Android는 시트를 그냥 닫아도 항상 sharedAction으로 resolve(RN 문서)라 신호가 무의미 —
-      // completed를 iOS에서만 인정해 stats_shared 오탐을 막는다(PR 276 Codex 리뷰 반영).
-      logStatsShared({
-        card: 'timetable',
-        completed: Platform.OS === 'ios' && result.action === Share.sharedAction,
-      });
-    } catch {
-      // 캡처 실패·공유 취소 — 무시
-    } finally {
-      // 캡처 실패 시에도 워터마크 정리(성공 경로에선 이미 false — 멱등)
-      setCapturing(false);
-      setSharing(false);
-    }
-  };
+  // 공유 파일명 — 예: 260711_타임테이블.png (사진 저장 시엔 이름이 남지 않음)
+  const makeFileName = useCallback(() => `${todayStr().slice(2).replace(/-/g, '')}_타임테이블`, []);
+  // 캡처→공유·로드 게이트 로직은 일/주 공용 훅이 담당(GROMO-1070)
+  const { shotRef, capturing, captureStyle, disabled, onCharReady, onLoaded, onShare } =
+    useTimetableShareCapture({ card: 'timetable', makeFileName });
 
   return (
     <SectionCard title="오늘 타임테이블">
-      {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게 */}
-      <View ref={shotRef} collapsable={false} style={cs.ttShot}>
-        <FocusTimetable />
-        {/* 공유 워터마크 — 캡처 순간에만 렌더되어 캡처 이미지에만 담긴다(GROMO-1014) */}
-        {capturing && <Text style={cs.shareWatermark}>gromo</Text>}
+      {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게. 캡처 시엔 사방 소여백(captureStyle) */}
+      <View ref={shotRef} collapsable={false} style={[cs.ttShot, captureStyle]}>
+        {/* 일 카드 캡처 레이아웃 — 평소엔 격자만, 캡처 땐 상단 헤더(날짜·gromo) + 왼쪽 하단 마스코트(GROMO-1070) */}
+        <ShareDayFrame capturing={capturing} onCharReady={onCharReady}>
+          <FocusTimetable onLoaded={onLoaded} />
+        </ShareDayFrame>
       </View>
       {/* 공유하기 — 카드 하단 오른쪽. 헤더(우측 상단)에 두면 순서 편집 드래그 핸들과 겹친다.
           shotRef 밖이라 캡처 이미지에는 안 담긴다 */}
@@ -85,7 +44,7 @@ export function FocusTimetableCard() {
         onPress={onShare}
         hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
         activeOpacity={0.7}
-        disabled={sharing}
+        disabled={disabled}
       >
         <Text style={cs.shareBtnText}>공유하기</Text>
         <Ionicons name="share-outline" size={15} color={T.inkSub} />
@@ -94,7 +53,7 @@ export function FocusTimetableCard() {
   );
 }
 
-function FocusTimetable() {
+function FocusTimetable({ onLoaded }: { onLoaded?: () => void }) {
   const { subjects } = useSubjects();
   const [slots, setSlots] = useState<FocusSlotSegment[][] | null>(null);
   // 서버 tagId → 태그명 (과목 색 매칭용). 로컬 과목 id는 서버 tagId와 다를 수 있어 이름으로 잇는다.
@@ -112,11 +71,13 @@ function FocusTimetable() {
         if (cancelled) return;
         setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
         setSlots(tenMinuteFocusSlots(sessions));
+        // 데이터 로드 완료 신호 — 카드가 공유 버튼을 열어준다(GROMO-1070 리뷰 반영)
+        onLoaded?.();
       })();
       return () => {
         cancelled = true;
       };
-    }, []),
+    }, [onLoaded]),
   );
 
   if (slots === null) {

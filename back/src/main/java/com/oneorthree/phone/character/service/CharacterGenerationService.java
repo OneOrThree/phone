@@ -21,7 +21,7 @@ import java.util.UUID;
 /**
  * 누끼(캐릭터) 생성 쿼터 서비스 (GROMO-1045).
  *
- * <p>정책: 가입 후 7일은 무제한, 이후 롤링 7일 내 2회로 제한한다.
+ * <p>정책: 이 기능을 처음 만난 시점부터 7일은 무제한(trial), 이후 롤링 7일 내 3회로 제한한다.
  * 판정 근거는 {@link CharacterGeneration} append-only 이력이다.
  */
 @Service
@@ -29,22 +29,30 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class CharacterGenerationService {
 
-    /** 가입 후 무제한 유예 기간(일). */
+    /** trial(무제한) 기간(일). */
     private static final int GRACE_PERIOD_DAYS = 7;
     /** 제한 구간의 롤링 윈도우 길이(일). */
     private static final int ROLLING_WINDOW_DAYS = 7;
     /** 제한 구간에서 윈도우당 허용 생성 횟수. */
-    private static final int ROLLING_LIMIT = 2;
+    private static final int ROLLING_LIMIT = 3;
 
     private final UserRepository userRepository;
     private final CharacterGenerationRepository characterGenerationRepository;
     private final EntityManager entityManager;
 
-    /** 현재 쿼터 조회 (GET /api/v1/character/quota). 클라 pre-check(UX)용 — 실제 관문은 record 이다. */
+    /**
+     * 현재 쿼터 조회 (GET /api/v1/character/quota). 클라 pre-check(UX)용 — 실제 관문은 record 이다.
+     *
+     * <p>조회지만 쓰기 트랜잭션이다 — trial 앵커를 이 호출에서 lazy 초기화하기 때문
+     * ({@link #ensureTrialAnchor}). 클라는 캐릭터 만들기 화면 진입 시 이 API 를 부르므로,
+     * 유저가 기능을 처음 여는 순간이 곧 trial 시작점이 된다.
+     */
+    @Transactional
     public CharacterQuotaResponse getQuota(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        return computeQuota(user, Instant.now());
+        Instant now = Instant.now();
+        return computeQuota(user, ensureTrialAnchor(user, now), now);
     }
 
     /**
@@ -70,23 +78,25 @@ public class CharacterGenerationService {
         acquireUserLock(userId);
 
         Instant now = Instant.now();
+        // getQuota 를 거치지 않고 곧장 기록하는 경로(구 클라·재시도)에서도 앵커가 비어 있지 않게 한다.
+        Instant anchor = ensureTrialAnchor(user, now);
 
         // ③ 멱등키 중복이면 재기록하지 않고 현재 쿼터만 반환.
         if (clientGenerationId != null
                 && characterGenerationRepository.existsByUserAndClientGenerationId(user, clientGenerationId)) {
-            return computeQuota(user, now);
+            return computeQuota(user, anchor, now);
         }
 
         // ① 락 후 창 내 건수 재확인 — 무제한이 아니고 한도 도달이면 insert 생략(원장이 한도를 넘지 않게).
-        if (!isUnlimited(user, now) && countInWindow(user, now) >= ROLLING_LIMIT) {
-            return computeQuota(user, now);
+        if (!isUnlimited(anchor, now) && countInWindow(user, now) >= ROLLING_LIMIT) {
+            return computeQuota(user, anchor, now);
         }
 
         characterGenerationRepository.save(CharacterGeneration.builder()
                 .user(user)
                 .clientGenerationId(clientGenerationId)
                 .build());
-        return computeQuota(user, now);
+        return computeQuota(user, anchor, now);
     }
 
     /** 유저별 PostgreSQL advisory lock 획득(트랜잭션 스코프). userId 를 hashtext 로 bigint 키에 매핑. */
@@ -100,12 +110,12 @@ public class CharacterGenerationService {
      * 쿼터 계산.
      * <ul>
      *   <li>무제한 구간 → unlimited (remaining·resetAt null)</li>
-     *   <li>그 외 → 창(now-7일 이후) 내 count 로 remaining = max(0, 2 - count);
+     *   <li>그 외 → 창(now-7일 이후) 내 count 로 remaining = max(0, 3 - count);
      *       remaining==0 이면 resetAt = 슬롯을 여는 오프셋 행의 created_at + 7일, 아니면 null</li>
      * </ul>
      */
-    private CharacterQuotaResponse computeQuota(User user, Instant now) {
-        if (isUnlimited(user, now)) {
+    private CharacterQuotaResponse computeQuota(User user, Instant anchor, Instant now) {
+        if (isUnlimited(anchor, now)) {
             return new CharacterQuotaResponse(true, null, null);
         }
 
@@ -134,13 +144,32 @@ public class CharacterGenerationService {
     }
 
     /**
-     * 가입 후 무제한 유예 구간인지.
+     * trial 앵커 lazy 초기화 — 아직 비어 있으면 지금을 기준 시각으로 박고, 유효 앵커를 돌려준다.
      *
-     * <p>④ createdAt null-safe — V1 baseline 이 users.created_at 을 NOT NULL 로 강제하지 않아 기존 유저는
-     * null 일 수 있다. null 이면 무제한이 아닌 것(제한 쿼터 적용)으로 폴백해 null dereference 500 을 막는다.
+     * <p>배포 날짜 상수를 쓰지 않는 이유: 백엔드 배포 시점과 유저가 새 앱을 받는 시점이 다르고 유저마다도
+     * 제각각이라, 상수로 잡으면 늦게 업데이트한 유저는 trial 이 이미 끝난 채로 기능을 만나게 된다.
+     * 유저가 기능을 처음 여는 순간을 기준으로 하면 누구든 7일을 온전히 받는다.
+     *
+     * <p>엔티티 setter 가 아니라 단일 컬럼 UPDATE 를 쓰는 이유는
+     * {@link UserRepository#initCharacterTrialAnchorAt} 주석 참고(전 컬럼 flush 로 인한 lost update 회피).
+     * 동시 호출 시 UPDATE 는 IS NULL 가드로 1건만 성사되고, 진 쪽은 자기 now 를 반환값으로 쓰지만
+     * 두 시각의 차이가 밀리초 수준이라 판정에 영향이 없다.
      */
-    private boolean isUnlimited(User user, Instant now) {
-        Instant createdAt = user.getCreatedAt();
-        return createdAt != null && now.isBefore(createdAt.plus(GRACE_PERIOD_DAYS, ChronoUnit.DAYS));
+    private Instant ensureTrialAnchor(User user, Instant now) {
+        Instant anchor = user.getCharacterTrialAnchorAt();
+        if (anchor != null) {
+            return anchor;
+        }
+        userRepository.initCharacterTrialAnchorAt(user.getId(), now);
+        return now;
+    }
+
+    /**
+     * trial(무제한) 구간인지 — 앵커로부터 {@value #GRACE_PERIOD_DAYS}일 이내면 무제한.
+     *
+     * <p>앵커는 정의상 항상 가입일 이후이므로 {@code max(가입일, 앵커) == 앵커} 다. 그래서 가입일은 보지 않는다.
+     */
+    private boolean isUnlimited(Instant anchor, Instant now) {
+        return now.isBefore(anchor.plus(GRACE_PERIOD_DAYS, ChronoUnit.DAYS));
     }
 }

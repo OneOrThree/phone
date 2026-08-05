@@ -19,7 +19,7 @@ export default function CharacterIntroStep({ onNext }: StepProps) {
         </LinearGradient>
       }
       title={'만나서 반가워요'}
-      subtitle={'앞으로 함께 집중할 친구, 그로몬이에요.\n같이 집중 시간을 쌓아가요.'}
+      subtitle={'앞으로 함께 집중할 친구, 그로몬이에요.'}
       ctaLabel="다음"
       onCta={onNext}
     />

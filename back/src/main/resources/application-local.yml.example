@@ -34,4 +34,4 @@ link:
   base-url: http://localhost:8080
   match-window-hours: 3
   ip-salt: local-salt
-  store-ios-url: https://apps.apple.com/kr/app/id0000000000
+  store-ios-url: https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679

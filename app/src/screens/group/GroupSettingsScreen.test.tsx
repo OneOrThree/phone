@@ -1,17 +1,16 @@
-// GroupSettingsScreen(A-1 관리 허브) 계약 테스트 — 명세 3차 A-1.
+// GroupSettingsScreen(A-1 관리 허브) 테스트 — A안 개편(그룹방 ⋯ 가 이 화면을 바로 연다).
 //
-// 이 화면의 핵심 계약:
-//  1) 상세를 로드해 이름·소개·정원·공개설정을 폼에 초기화한다.
-//  2) 저장은 기준값과 **달라진 필드만** PATCH하고, 계측도 바뀐 fields만 발행한다
-//     (부분 수정이라 안 바뀐 값을 실어 보내면 의도치 않은 덮어쓰기가 된다).
-//  3) 바뀐 게 없으면 저장은 no-op이다(버튼도 잠긴다).
-//  4) 관리 진입 3행은 각각 올바른 라우트·파라미터로 navigate한다.
-//  5) 방장이 아니면 편집 폼 대신 권한 안내를 세운다(방어적 권한 체크).
+// 이 화면의 계약:
+//  1) 방장은 관리 행(프로필설정하기·방장넘기기·멤버관리·공지권한) + 나가기, 비방장은 나가기만 본다.
+//  2) 관리 행은 각각 올바른 라우트·파라미터로 navigate 한다.
+//  3) 나가기: 성공 → popToTop(목록 복귀). 방장(HOST_WITHDRAW) → 위임 화면 유도.
+//     이미 빠져 있음(NOT_FOUND·MEMBER_ONLY) → 성공과 같게 popToTop.
+//  (프로필 편집 폼 자체는 GroupProfileEditScreen.test.tsx 에서 검증한다.)
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
+import { AxiosError, AxiosHeaders } from 'axios';
 import GroupSettingsScreen from './GroupSettingsScreen';
-import { getGroupDetail, updateGroup } from '@/services/groupApi';
-import { logGroupSettingsUpdated } from '@/services/analyticsEvents';
+import { getGroupDetail, withdrawGroup } from '@/services/groupApi';
 import type { GroupDetailResponse } from '@/types/dto/group';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -21,43 +20,56 @@ jest.mock('react-native-safe-area-context', () => ({
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 
-const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
-// 실제 useNavigation/useRoute는 렌더마다 같은 객체를 준다 — 매번 새 객체를 주면 신원이 흔들린다.
-const mockNavigation = { goBack: mockGoBack, navigate: mockNavigate };
-const mockRoute = { params: { groupId: GROUP_ID } };
-// useFocusEffect 콜백을 홀더에 캡처해, 위임/강퇴 화면에서 돌아오는 '재포커스'를 테스트가 수동 트리거한다.
-const mockFocus: { cb: null | (() => void | (() => void)) } = { cb: null };
+const mockPopToTop = jest.fn();
+const mockGoBack = jest.fn();
+const mockNavigation = { navigate: mockNavigate, popToTop: mockPopToTop, goBack: mockGoBack };
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => mockNavigation,
-  useRoute: () => mockRoute,
+  useRoute: () => ({ params: { groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55' } }),
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');
-    mockFocus.cb = cb;
-    useEffect(() => cb(), [cb]);
+    useEffect(() => {
+      const cleanup = cb();
+      return typeof cleanup === 'function' ? cleanup : undefined;
+    }, [cb]);
   },
 }));
 
-// userId를 바꿔 방어적 권한 체크를 검증할 수 있게 홀더 객체에 담는다(jest.mock 팩토리 제약).
 const mockUser = { userId: 'me' as string | null };
 jest.mock('@/store/UserContext', () => ({
   useUser: () => mockUser,
 }));
 
-jest.mock('@/services/analyticsEvents', () => ({ logGroupSettingsUpdated: jest.fn() }));
+// analyticsEvents는 firebase 네이티브 모듈을 물어 온다 — groupApi(requireActual)가 전이 import
+// 하므로 목으로 막지 않으면 스위트가 로드 단계에서 죽는다. 허브 화면 자체는 계측을 쓰지 않는다.
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupChallengeDeleted: jest.fn(),
+}));
 
 // groupErrorCode는 실제 구현을 남긴다(§3-2 code 분기까지 검증).
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
   getGroupDetail: jest.fn(),
-  updateGroup: jest.fn(),
+  withdrawGroup: jest.fn(),
 }));
 
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
-const mockUpdateGroup = updateGroup as jest.MockedFunction<typeof updateGroup>;
-const mockLog = logGroupSettingsUpdated as jest.MockedFunction<typeof logGroupSettingsUpdated>;
+const mockWithdrawGroup = withdrawGroup as jest.MockedFunction<typeof withdrawGroup>;
 
-// 기본 상세 — 내가 OWNER, 멤버 2명, 공개방, 정원 5.
+// 서버 에러 바디({ code })를 실은 axios 에러 — 화면은 status가 아니라 code로 분기한다.
+function axiosErrorWith(status: number, code: string): AxiosError {
+  const config = { headers: new AxiosHeaders() };
+  return new AxiosError('request failed', 'ERR_BAD_REQUEST', config, null, {
+    status,
+    statusText: '',
+    headers: {},
+    config,
+    data: { code },
+  });
+}
+
+// 기본 상세 — over로 members를 갈아 방장/비방장을 만든다.
 function detail(over: Partial<GroupDetailResponse> = {}): GroupDetailResponse {
   return {
     id: GROUP_ID,
@@ -85,131 +97,81 @@ function detail(over: Partial<GroupDetailResponse> = {}): GroupDetailResponse {
       },
     ],
     ...over,
-  };
+  } as GroupDetailResponse;
+}
+
+// 비방장(내가 MEMBER)인 상세.
+function memberDetail(): GroupDetailResponse {
+  return detail({
+    members: [
+      {
+        userId: 'owner',
+        nickname: '방장',
+        role: 'OWNER',
+        focusTimeMinutes: 0,
+        totalFocusMinutes: 0,
+      },
+      { userId: 'me', nickname: '나', role: 'MEMBER', focusTimeMinutes: 0, totalFocusMinutes: 0 },
+    ],
+  });
 }
 
 async function renderScreen() {
   const result = await render(<GroupSettingsScreen />);
-  // 마운트 시 getGroupDetail 프라미스를 흘려보낸다.
-  await act(async () => {});
+  await screen.findByTestId('group.settings.leave');
   return result;
 }
 
-async function press(testID: string) {
+// 나가기 확인 Alert의 '나가기' 버튼을 눌러 요청을 보낸다.
+async function pressLeaveAndConfirm(alertSpy: jest.SpyInstance) {
   await act(async () => {
-    fireEvent.press(screen.getByTestId(testID));
+    fireEvent.press(screen.getByTestId('group.settings.leave'));
+  });
+  await act(async () => {
+    alertSpy.mock.calls[0][2]?.find((b: { text?: string }) => b.text === '나가기')?.onPress?.();
   });
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockUser.userId = 'me';
-  jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   mockGetGroupDetail.mockResolvedValue(detail());
-  mockUpdateGroup.mockResolvedValue(undefined);
+  mockWithdrawGroup.mockResolvedValue(undefined);
 });
 
-describe('로드 · 초기값', () => {
-  test('상세 로드 후 이름·소개·정원·공개설정 초기값이 폼에 반영된다', async () => {
+describe('허브 — 행 노출', () => {
+  test('방장은 관리 행 + 나가기를 보고, 프로필 설정하기는 GroupProfileEdit 로 이동한다', async () => {
     await renderScreen();
 
-    expect(screen.getByTestId('group.settings.screen')).toBeOnTheScreen();
-    // 이름·소개는 value로 들어간다.
-    expect(screen.getByDisplayValue('아침 6시 집중방')).toBeOnTheScreen();
-    expect(screen.getByDisplayValue('매일 아침 함께 집중해요')).toBeOnTheScreen();
-    // 정원은 스텝퍼 값으로.
-    expect(screen.getByText('5명')).toBeOnTheScreen();
-    // 공개설정 토글은 isPrivate=false로.
-    expect(screen.getByTestId('group.settings.private').props.value).toBe(false);
-  });
-});
-
-describe('저장 — 바뀐 필드만 PATCH(부분 수정)', () => {
-  test('이름만 바꾸면 name 하나만 담아 호출하고, 계측 fields도 name뿐이다', async () => {
-    await renderScreen();
+    expect(screen.getByTestId('group.settings.profile')).toBeOnTheScreen();
+    expect(screen.getByTestId('group.settings.transfer')).toBeOnTheScreen();
+    expect(screen.getByTestId('group.settings.members')).toBeOnTheScreen();
+    expect(screen.getByTestId('group.settings.noticePermission')).toBeOnTheScreen();
+    expect(screen.getByTestId('group.settings.leave')).toBeOnTheScreen();
 
     await act(async () => {
-      fireEvent.changeText(screen.getByDisplayValue('아침 6시 집중방'), '저녁 스터디');
+      fireEvent.press(screen.getByTestId('group.settings.profile'));
     });
-    await press('group.settings.save');
-
-    expect(mockUpdateGroup).toHaveBeenCalledWith(GROUP_ID, { name: '저녁 스터디' });
-    // 안 바뀐 필드는 실려선 안 된다 — 키가 정확히 name 하나여야 한다.
-    const body = mockUpdateGroup.mock.calls[0][1];
-    expect(Object.keys(body)).toEqual(['name']);
-    expect(mockLog).toHaveBeenCalledWith({ group_id: GROUP_ID, fields: ['name'] });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupProfileEdit', { groupId: GROUP_ID });
   });
 
-  test('여러 필드를 바꾸면 바뀐 필드만 함께 실린다', async () => {
+  test('비방장은 나가기만 보고 관리 행은 없다', async () => {
+    mockGetGroupDetail.mockResolvedValue(memberDetail());
     await renderScreen();
 
-    await act(async () => {
-      fireEvent.changeText(screen.getByDisplayValue('아침 6시 집중방'), '저녁 스터디');
-    });
-    // 공개설정 토글을 켠다.
-    await act(async () => {
-      fireEvent(screen.getByTestId('group.settings.private'), 'valueChange', true);
-    });
-    await press('group.settings.save');
-
-    expect(mockUpdateGroup).toHaveBeenCalledWith(GROUP_ID, {
-      name: '저녁 스터디',
-      isPrivate: true,
-    });
-    expect(mockLog).toHaveBeenCalledWith({ group_id: GROUP_ID, fields: ['name', 'isPrivate'] });
-  });
-
-  test('바뀐 게 없으면 저장은 no-op이다', async () => {
-    await renderScreen();
-
-    await press('group.settings.save');
-
-    expect(mockUpdateGroup).not.toHaveBeenCalled();
-    expect(mockLog).not.toHaveBeenCalled();
-  });
-
-  test('저장 성공 후에는 다시 눌러도 no-op이다(변경 없음으로 되돌린다)', async () => {
-    await renderScreen();
-
-    await act(async () => {
-      fireEvent.changeText(screen.getByDisplayValue('아침 6시 집중방'), '저녁 스터디');
-    });
-    await press('group.settings.save');
-    expect(mockUpdateGroup).toHaveBeenCalledTimes(1);
-
-    // 기준값이 방금 보낸 값으로 굳었으니 재저장은 no-op.
-    await press('group.settings.save');
-    expect(mockUpdateGroup).toHaveBeenCalledTimes(1);
-  });
-
-  test('정원을 현재 인원 미만으로 줄이면 서버 MAX_MEMBERS_TOO_SMALL를 안내한다', async () => {
-    const { AxiosError, AxiosHeaders } = require('axios');
-    const config = { headers: new AxiosHeaders() };
-    mockUpdateGroup.mockRejectedValue(
-      new AxiosError('bad', 'ERR_BAD_REQUEST', config, null, {
-        status: 400,
-        statusText: '',
-        headers: {},
-        config,
-        data: { code: 'MAX_MEMBERS_TOO_SMALL', message: '...' },
-      }),
-    );
-    await renderScreen();
-
-    // 이름을 바꿔 저장을 활성화한다(정원 스텝퍼 하한이 막혀 있어 값 자체는 그대로 둔다).
-    await act(async () => {
-      fireEvent.changeText(screen.getByDisplayValue('아침 6시 집중방'), '저녁 스터디');
-    });
-    await press('group.settings.save');
-
-    expect(Alert.alert).toHaveBeenCalledWith('정원을 줄일 수 없어요', expect.any(String));
+    expect(screen.getByTestId('group.settings.leave')).toBeOnTheScreen();
+    expect(screen.queryByTestId('group.settings.profile')).toBeNull();
+    expect(screen.queryByTestId('group.settings.transfer')).toBeNull();
+    expect(screen.queryByTestId('group.settings.members')).toBeNull();
   });
 });
 
 describe('관리 진입 — 올바른 라우트·파라미터로 navigate', () => {
   test('방장 넘기기 → GroupOwnerTransfer(source: settings)', async () => {
     await renderScreen();
-    await press('group.settings.transfer');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.transfer'));
+    });
     expect(mockNavigate).toHaveBeenCalledWith('GroupOwnerTransfer', {
       groupId: GROUP_ID,
       source: 'settings',
@@ -218,83 +180,72 @@ describe('관리 진입 — 올바른 라우트·파라미터로 navigate', () =
 
   test('멤버 관리 → GroupMemberManage', async () => {
     await renderScreen();
-    await press('group.settings.members');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.members'));
+    });
     expect(mockNavigate).toHaveBeenCalledWith('GroupMemberManage', { groupId: GROUP_ID });
   });
 
   test('공지 권한 → GroupNoticePermission', async () => {
     await renderScreen();
-    await press('group.settings.noticePermission');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.noticePermission'));
+    });
     expect(mockNavigate).toHaveBeenCalledWith('GroupNoticePermission', { groupId: GROUP_ID });
   });
 });
 
-describe('방어적 권한 체크', () => {
-  test('내가 OWNER가 아니면 편집 폼 대신 권한 안내를 세운다', async () => {
-    // 내 role을 MEMBER로 — members에 OWNER인 내가 없다.
-    mockGetGroupDetail.mockResolvedValue(
-      detail({
-        members: [
-          {
-            userId: 'me',
-            nickname: '나',
-            role: 'MEMBER',
-            focusTimeMinutes: 0,
-            totalFocusMinutes: 0,
-          },
-          {
-            userId: 'u2',
-            nickname: '친구',
-            role: 'OWNER',
-            focusTimeMinutes: 10,
-            totalFocusMinutes: 20,
-          },
-        ],
-      }),
-    );
+describe('그룹 나가기', () => {
+  test('나가기에 성공하면 목록으로 돌아간다(popToTop)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(memberDetail());
+    mockWithdrawGroup.mockResolvedValueOnce(undefined);
     await renderScreen();
 
-    expect(screen.getByText('방장만 접근할 수 있어요')).toBeOnTheScreen();
-    // 편집 폼·저장 버튼은 없다.
-    expect(screen.queryByTestId('group.settings.save')).toBeNull();
-    // 백버튼은 남는다(탈출 경로).
-    expect(screen.getByLabelText('뒤로')).toBeOnTheScreen();
+    await pressLeaveAndConfirm(alertSpy);
+
+    expect(mockWithdrawGroup).toHaveBeenCalledWith(GROUP_ID);
+    expect(mockPopToTop).toHaveBeenCalled();
+    alertSpy.mockRestore();
   });
 
-  test('같은 세션에서 방장을 넘긴 뒤 허브로 돌아오면(재포커스 재조회) 폼이 사라진다', async () => {
-    // 최초: 내가 OWNER → 편집 폼·저장 버튼이 보인다.
+  test('방장이 나가려다 실패하면 위임 화면으로 유도한다(HOST_WITHDRAW)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(409, 'HOST_WITHDRAW'));
     await renderScreen();
-    expect(screen.getByTestId('group.settings.save')).toBeOnTheScreen();
 
-    // 위임 화면에서 방장을 넘기고 goBack — 서버 상세에선 내 role이 MEMBER로 바뀌어 있다.
-    mockGetGroupDetail.mockResolvedValue(
-      detail({
-        members: [
-          {
-            userId: 'me',
-            nickname: '나',
-            role: 'MEMBER',
-            focusTimeMinutes: 30,
-            totalFocusMinutes: 30,
-          },
-          {
-            userId: 'u2',
-            nickname: '친구',
-            role: 'OWNER',
-            focusTimeMinutes: 10,
-            totalFocusMinutes: 20,
-          },
-        ],
-      }),
+    await pressLeaveAndConfirm(alertSpy);
+
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '방장은 바로 나갈 수 없어요',
+      '그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.',
+      expect.arrayContaining([expect.objectContaining({ text: '방장 넘기고 나가기' })]),
     );
-    // 스택 화면은 뒤로가기 시 언마운트되지 않으므로, 재포커스 재조회로만 권한이 갱신된다.
     await act(async () => {
-      mockFocus.cb?.();
+      alertSpy.mock.calls
+        .at(-1)?.[2]
+        ?.find((b: { text?: string }) => b.text === '방장 넘기고 나가기')
+        ?.onPress?.();
     });
-    await act(async () => {});
+    expect(mockNavigate).toHaveBeenCalledWith('GroupOwnerTransfer', {
+      groupId: GROUP_ID,
+      source: 'withdraw',
+    });
+    expect(mockPopToTop).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
 
-    // stale OWNER로 남지 않고 권한 안내로 바뀐다 — 편집 폼·저장 버튼이 사라진다.
-    expect(screen.getByText('방장만 접근할 수 있어요')).toBeOnTheScreen();
-    expect(screen.queryByTestId('group.settings.save')).toBeNull();
+  test('이미 빠져 있으면 성공과 같게 목록으로 돌아간다(MEMBER_ONLY)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(memberDetail());
+    mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(403, 'MEMBER_ONLY'));
+    await renderScreen();
+
+    await pressLeaveAndConfirm(alertSpy);
+
+    expect(mockPopToTop).toHaveBeenCalled();
+    // 확인 Alert(나갈까요?) 외에 추가 실패 Alert는 없다.
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    alertSpy.mockRestore();
   });
 });

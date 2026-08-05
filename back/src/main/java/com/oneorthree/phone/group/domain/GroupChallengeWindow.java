@@ -35,11 +35,11 @@ public class GroupChallengeWindow {
     @JoinColumn(name = "challenge_id", nullable = false)
     private GroupChallenge challenge;
 
-    // 수행 지정 시간대 시작 (UTC)
+    // 수행 지정 시간대 시작 — 저장은 Instant(UTC), 해석은 Asia/Seoul 벽시계 시각(GROMO-1100)
     @Column(name = "window_start_at", nullable = false)
     private Instant windowStartAt;
 
-    // 수행 지정 시간대 종료 (UTC)
+    // 수행 지정 시간대 종료 — 저장은 Instant(UTC), 해석은 Asia/Seoul 벽시계 시각(GROMO-1100)
     @Column(name = "window_end_at", nullable = false)
     private Instant windowEndAt;
 

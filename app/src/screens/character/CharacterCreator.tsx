@@ -38,14 +38,14 @@ import { T } from '@/constants/theme';
 //    저장 후 이동/반영)은 감싸는 쪽(설정 화면 래퍼 / 온보딩 Modal)이 onSaved로 처리한다.
 
 const STAGE_HEIGHT = 340; // 캐릭터가 서는 무대 높이
-const DESK_EMOJI = ['📚', '☕️', '✏️'];
 
 // 쿼터 초기화 시각(ISO) → "N월 N일에 다시 만들 수 있어요." 안내 문구.
 // resetAt이 없거나 파싱이 안 되면 날짜 없는 일반 안내로 폴백한다.
+// 한도는 달력 주가 아니라 롤링 7일이라("이번 주"가 아니라) 폴백도 주 단위로 말하지 않는다.
 function formatResetLabel(resetAt: string | null): string {
-  if (!resetAt) return '다음 주에 다시 만들 수 있어요.';
+  if (!resetAt) return '조금 뒤에 다시 만들 수 있어요.';
   const d = new Date(resetAt);
-  if (Number.isNaN(d.getTime())) return '다음 주에 다시 만들 수 있어요.';
+  if (Number.isNaN(d.getTime())) return '조금 뒤에 다시 만들 수 있어요.';
   return `${d.getMonth() + 1}월 ${d.getDate()}일에 다시 만들 수 있어요.`;
 }
 
@@ -92,11 +92,16 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
   }, []);
 
   // 제한 사용자이면서 남은 횟수가 0 이하 → 생성 차단. (unlimited이거나 조회 실패(null)면 허용.)
-  const blocked = quota != null && !quota.unlimited && (quota.remaining ?? 0) <= 0;
+  // 개발(Debug) 빌드에선 차단을 건너뛴다 — 테스트 중 반복 생성이 쿼터에 막히지 않게. Release
+  // (TestFlight·스토어)는 번들러가 __DEV__를 false로 인라인해 그대로 제한이 걸린다. 서버는
+  // 손대지 않는다(dev 서버 = 스테이징이라 프로덕션과 동작이 같아야 함).
+  // 차단 뷰 자체를 확인하려면 아래 `!__DEV__ &&`를 잠시 지우면 된다.
+  const blocked = !__DEV__ && quota != null && !quota.unlimited && (quota.remaining ?? 0) <= 0;
   // 제한 구간이지만 남은 횟수가 있으면 은은히 안내(과하지 않게).
+  // 한도는 달력 주가 아니라 롤링 7일이라 "이번 주"로 말하지 않는다.
   const remainingHint =
     quota != null && !quota.unlimited && (quota.remaining ?? 0) > 0
-      ? `이번 주 ${quota.remaining}번 남았어요`
+      ? `앞으로 ${quota.remaining}번 만들 수 있어요`
       : null;
 
   // 차단(쿼터 소진) 상태로 화면을 켜둔 채 resetAt을 넘기면(예: 밤새 백그라운드) 마운트 1회
@@ -195,6 +200,16 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
     }
   }, [result]);
 
+  // 다시 고르기 — 사진을 고르기 전(idle) 상태로 완전히 되돌린다. 누끼 결과(result)에는 회전으로
+  // 누적된 uri·크기까지 들어 있으므로 result를 비우면 편집 상태가 함께 사라지고, 에러 배너와
+  // 디코드 완료 플래그도 같이 초기화해 다음 사진이 깨끗한 상태에서 시작되게 한다.
+  const resetPick = useCallback(() => {
+    setResult(null);
+    setError(null);
+    setImageLoaded(false);
+    setPhase('idle');
+  }, []);
+
   // 저장 — 합성 미리보기를 캡처해 투명 PNG로 굽고 영구 저장한 뒤 경로를 onSaved로 돌려준다.
   // 단, 저장 전 서버 모더레이션(필수 관문)을 통과해야 한다. 막히면 저장·onSaved 하지 않는다.
   const save = useCallback(async () => {
@@ -253,7 +268,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
     return (
       <View style={[s.flex1, s.blocked]}>
         <Ionicons name="time-outline" size={44} color={T.inkMuted} />
-        <Text style={s.blockedTitle}>이번 주 캐릭터 만들기 횟수를 다 썼어요.</Text>
+        <Text style={s.blockedTitle}>캐릭터 만들기 횟수를 다 썼어요.</Text>
         <Text style={s.blockedSub}>{formatResetLabel(quota?.resetAt ?? null)}</Text>
       </View>
     );
@@ -261,15 +276,9 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
 
   return (
     <View style={s.flex1}>
-      {/* 무대 — 단색 배경 + 책상 띠 + 소품 이모지 위에 캐릭터가 선다 */}
+      {/* 무대 — 단색 배경 + 책상 띠 위에 캐릭터가 선다 */}
       <View style={s.stage}>
-        <View style={s.desk}>
-          {DESK_EMOJI.map((e) => (
-            <Text key={e} style={s.deskEmoji}>
-              {e}
-            </Text>
-          ))}
-        </View>
+        <View style={s.desk} />
 
         <View style={s.stageCenter}>
           {phase === 'working' ? (
@@ -304,7 +313,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
           이 기기·빌드에서는 배경 제거가 지원되지 않아요. 원본 사진 그대로 보여줄게요.
         </Text>
       ) : null}
-      {result?.cutout ? <Text style={s.ok}>배경 제거 성공 — 온디바이스 처리</Text> : null}
+      {result?.cutout ? <Text style={s.ok}>나만의 그로몬 생성 성공</Text> : null}
       {remainingHint ? <Text style={s.remaining}>{remainingHint}</Text> : null}
 
       <View style={s.actions}>
@@ -315,7 +324,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
           </View>
         ) : result ? (
           <>
-            {/* 도구 — 회전 / 다른 사진 고르기(앨범·카메라) */}
+            {/* 도구 — 회전 / 다시 고르기(사진 고르기 전 상태로 되돌리기) */}
             <View style={s.toolRow}>
               <TouchableOpacity
                 style={s.tool}
@@ -324,20 +333,16 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
                 activeOpacity={0.85}
               >
                 <Ionicons name="refresh-outline" size={20} color={T.ink} />
-                <Text style={s.toolText}>돌리기</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.tool} onPress={pick} disabled={busy} activeOpacity={0.85}>
-                <Ionicons name="images-outline" size={20} color={T.ink} />
-                <Text style={s.toolText}>갤러리</Text>
+                <Text style={s.toolText}>회전</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.tool}
-                onPress={takePhoto}
+                onPress={resetPick}
                 disabled={busy}
                 activeOpacity={0.85}
               >
-                <Ionicons name="camera-outline" size={20} color={T.ink} />
-                <Text style={s.toolText}>카메라</Text>
+                <Ionicons name="arrow-undo-outline" size={20} color={T.ink} />
+                <Text style={s.toolText}>다시 고르기</Text>
               </TouchableOpacity>
             </View>
 
@@ -399,12 +404,7 @@ const s = StyleSheet.create({
     bottom: 0,
     height: 64,
     backgroundColor: T.sand,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: T.space.xl,
   },
-  deskEmoji: { fontSize: 26 },
   stageCenter: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 52 },
   center: { alignItems: 'center', gap: T.space.sm, paddingBottom: 40 },
   hint: { ...T.text.caption, color: T.inkMuted },
@@ -443,7 +443,7 @@ const s = StyleSheet.create({
   },
 
   actions: { marginTop: 'auto', paddingTop: T.space.xl, gap: T.space.md },
-  // 도구 3버튼 한 줄 — 회전 / 갤러리 / 카메라
+  // 도구 2버튼 한 줄 — 회전 / 다시 고르기
   toolRow: { flexDirection: 'row', gap: T.space.md },
   tool: {
     flex: 1,

@@ -29,6 +29,27 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT u FROM User u WHERE u.id = :id AND u.isDeleted = false")
     Optional<User> findActiveByIdForUpdate(@Param("id") UUID id);
 
+    // 무효 토큰 정리 전용 — device_token 한 컬럼만 조건부로 지운다 (GROMO-1090 @codex 리뷰 P1).
+    //
+    // 더티체킹(user.setDeviceToken(null))으로 지우면 안 되는 이유: User 에 @Version·@DynamicUpdate 가
+    // 없어 커밋 시 UPDATE 가 전체 컬럼을 이 트랜잭션의 스냅샷으로 덮어쓴다. 발송 대상을 읽은 뒤
+    // FCM 응답이 오기 전에 withdraw 가 먼저 커밋되면(is_deleted=true·닉네임 등 PII 파기), 그 뒤 나가는
+    // 이 UPDATE 가 옛 스냅샷으로 되돌려 탈퇴 계정과 PII 가 되살아난다. 발송이 비동기·크론이라 그 간격은
+    // 짧지 않고, FCM RestClient 에 타임아웃도 없다.
+    //
+    // is_deleted = false 조건이 그 창을 닫는다 — 탈퇴가 먼저 커밋됐다면 0행이 되어 아무것도 되돌리지 않는다.
+    //
+    // device_token = :invalidToken 조건도 같은 이유다: FCM 에 보낸 토큰이 무효라는 응답을 기다리는 사이
+    // 클라이언트가 새 토큰을 등록(registerDeviceToken)하면, id 만 보고 지울 경우 **새 토큰까지** 날아가
+    // 다음 등록 전까지 그 유저의 모든 푸시가 사라진다. 토큰 회전은 정상 시나리오다.
+    // 실제로 보냈던 토큰과 일치할 때만 지운다.
+    //
+    // clearAutomatically=false: 호출측(발송 루프)이 들고 있는 다른 영속 엔티티를 detach 시키지 않기 위함.
+    @Modifying(clearAutomatically = false, flushAutomatically = false)
+    @Query("UPDATE User u SET u.deviceToken = null"
+            + " WHERE u.id = :id AND u.isDeleted = false AND u.deviceToken = :invalidToken")
+    int clearDeviceToken(@Param("id") UUID id, @Param("invalidToken") String invalidToken);
+
     // 관계 생성(친구 요청·핀) 대상 유저의 활성 검증 + 공유 락 (GROMO-801).
     // 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 위 배타 락(탈퇴)하고만 직렬화된다.
     // 탈퇴가 먼저 커밋되면 잠금 해제 후 조건을 재평가해 is_deleted=true 를 보고 빈 결과가 된다.
@@ -75,6 +96,16 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     int touchLastActiveAt(@Param("id") UUID id,
                           @Param("now") Instant now,
                           @Param("staleBefore") Instant staleBefore);
+
+    // 누끼 생성 trial 앵커 최초 1회 세팅 — 유저가 쿼터를 처음 조회/기록하는 시점에 호출.
+    // touchLastActiveAt 과 같은 이유로 엔티티 로드 후 setter 가 아니라 단일 컬럼 UPDATE 다: User 는
+    // @DynamicUpdate 가 아니라 더티 필드 하나만 있어도 전 컬럼을 flush 해, 같은 유저에게 동시에 도는
+    // touchLastActiveAt 등의 갱신을 조용히 되돌릴 수 있다(lost update).
+    // WHERE ... IS NULL 가드로 동시 요청에서도 앵커는 최초 1건만 박힌다(멱등).
+    @Modifying
+    @Query("UPDATE User u SET u.characterTrialAnchorAt = :now"
+            + " WHERE u.id = :id AND u.characterTrialAnchorAt IS NULL")
+    int initCharacterTrialAnchorAt(@Param("id") UUID id, @Param("now") Instant now);
 
     // 미접속 복귀 푸시 대상 조회 (GROMO-578) — last_active_at 가 [startInclusive, endExclusive) KST 하루 구간에 든 유저.
     // 호출측이 D+3/7/14 각 단계의 KST 캘린더 하루 경계를 주입 → "정확히 N일째" 판정. isGuest·소프트딜리트 유저는 제외.

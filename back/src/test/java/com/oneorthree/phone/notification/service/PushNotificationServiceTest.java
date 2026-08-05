@@ -5,6 +5,8 @@ import com.oneorthree.phone.common.port.PushNotificationPort;
 import com.oneorthree.phone.common.port.PushSendResult;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserNotificationSettings;
+import com.oneorthree.phone.user.repository.UserRepository;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,6 +44,12 @@ class PushNotificationServiceTest {
 
     @Mock
     private PushNotificationPort pushNotificationPort;
+
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private EntityManager entityManager;
 
     @InjectMocks
     private PushNotificationService pushNotificationService;
@@ -184,14 +192,34 @@ class PushNotificationServiceTest {
     // ── 필터 4: 발송 결과 처리 ─────────────────────────────────────────────────
 
     @Test
-    @DisplayName("포트 INVALID_TOKEN 반환 → user.deviceToken null 정리")
+    @DisplayName("포트 INVALID_TOKEN 반환 → device_token 조건부 UPDATE 로 정리 (더티체킹 아님)")
     void clearsTokenWhenPortReturnsInvalidToken() {
+        // 더티체킹으로 지우면 User 전체 컬럼 UPDATE 가 나가, 그사이 먼저 커밋된 탈퇴의 is_deleted·파기된
+        // PII 를 옛 스냅샷이 되살린다(@codex 리뷰 P1). is_deleted=false 조건이 걸린 컬럼 UPDATE 를 쓴다.
+        User user = userWithToken();
+        given(pushNotificationPort.send(any(), any())).willReturn(PushSendResult.INVALID_TOKEN);
+
+        boolean sent = pushNotificationService.sendIfAllowed(user, null, MESSAGE, NOON_KST);
+
+        assertThat(sent).isFalse();
+        // 보낸 토큰과 일치할 때만 지운다 — 응답 대기 중 새 토큰이 등록됐으면 그건 살려야 한다.
+        verify(userRepository).clearDeviceToken(USER_ID, "fcm-token");
+        // 인메모리도 맞추되 detach 뒤에 바꾼다(관리 상태로 바꾸면 전체 컬럼 UPDATE 가 되살아난다).
+        verify(entityManager).detach(user);
+        assertThat(user.getDeviceToken()).isNull();
+    }
+
+    @Test
+    @DisplayName("같은 배치에서 토큰이 무효화된 유저는 다음 호출에서 필터 2 로 컷 — FCM 재호출 없음")
+    void doesNotResendWithTokenInvalidatedEarlierInSameBatch() {
         User user = userWithToken();
         given(pushNotificationPort.send(any(), any())).willReturn(PushSendResult.INVALID_TOKEN);
 
         pushNotificationService.sendIfAllowed(user, null, MESSAGE, NOON_KST);
+        pushNotificationService.sendIfAllowed(user, null, MESSAGE, NOON_KST);
 
-        assertThat(user.getDeviceToken()).isNull();
+        // 두 번째 호출은 토큰 없음(필터 2)에서 끊긴다 — 포트 호출은 1회뿐.
+        verify(pushNotificationPort, times(1)).send(any(), any());
     }
 
     @Test

@@ -185,12 +185,12 @@ public class BetResultNotificationService {
                         boolean soundEnabled) {
         String body;
         if (bet.getStatus() == GroupBetStatus.FORFEITED) {
-            body = "아무도 목표를 달성하지 못해 판돈이 소멸됐어요";
+            body = "아무도 목표를 달성하지 못해 참가비가 소멸됐어요";
         } else if (Boolean.TRUE.equals(participant.getAchieved())) {
             int payout = participant.getPayout() == null ? 0 : participant.getPayout();
             body = "내기에서 이겼어요! +" + payout + "코인 🎉";
         } else {
-            body = "아쉬워요 — 목표 미달성으로 판돈 " + bet.getStake() + "코인을 잃었어요";
+            body = "아쉬워요 — 목표 미달성으로 참가비 " + bet.getStake() + "코인을 잃었어요";
         }
         UUID groupId = bet.getGroup().getId();
         return new PushMessage(

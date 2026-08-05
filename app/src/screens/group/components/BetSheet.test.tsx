@@ -49,8 +49,23 @@ jest.mock('@/store/UserContext', () => ({
   useUser: () => ({ userId: mockUserId }),
 }));
 
-// 날짜 경계를 테스트가 직접 고정한다(개설 전송값의 date).
-jest.mock('@/utils/localDate', () => ({ todayStr: jest.fn(() => '2026-08-01') }));
+// 날짜 경계를 테스트가 직접 고정한다(개설 전송값의 date — 마감 후엔 내일 날짜가 나간다).
+// 시트는 KST 고정 버전을 쓴다(bet_date는 서버 KST 판정 — PR #473 리뷰) — 로컬 버전은
+// 이 모듈을 함께 로드하는 다른 코드가 깨지지 않게 같은 값으로 남겨 둔다.
+jest.mock('@/utils/localDate', () => ({
+  todayStr: jest.fn(() => '2026-08-01'),
+  tomorrowStr: jest.fn(() => '2026-08-02'),
+  todayStrKst: jest.fn(() => '2026-08-01'),
+  tomorrowStrKst: jest.fn(() => '2026-08-02'),
+}));
+
+// 창 마감 판정(GROMO-1103)은 Asia/Seoul 벽시계 초로 비교한다 — '지금'을 테스트가 직접 고정한다.
+// timeStrToSeconds는 실제 구현을 남긴다(자정 걸침 창 판정까지 검증).
+let mockNowSec = 10 * 3600; // 기본 10:00 — 아래 창(09~11시) 기준 '아직 열려 있음'
+jest.mock('@/utils/challengeTime', () => ({
+  ...jest.requireActual('@/utils/challengeTime'),
+  nowSecondsInZone: jest.fn(() => mockNowSec),
+}));
 
 // 게스트 안내가 계정 설정으로 보낸다 — 시트가 직접 네비게이션을 쥔다(GroupFindSheet와 같은 관행).
 const mockNavigate = jest.fn();
@@ -170,12 +185,13 @@ beforeEach(() => {
   mockCoinsLoaded = true;
   mockCoinsVersion = 1;
   mockUserId = 'u1';
+  mockNowSec = 10 * 3600;
   mockCreateBet.mockResolvedValue({ betId: BET_ID });
   mockJoinBet.mockResolvedValue(undefined);
 });
 
 describe('개설 모드', () => {
-  test('기본 판돈은 가장 낮은 10이고 date는 오늘(로컬)이다', async () => {
+  test('기본 참가비는 가장 낮은 10이고 date는 오늘(KST)이다', async () => {
     await renderSheet('create');
     await submit();
 
@@ -191,7 +207,7 @@ describe('개설 모드', () => {
     expect(onDone).toHaveBeenCalled();
   });
 
-  test('고른 판돈이 그대로 나간다', async () => {
+  test('고른 참가비가 그대로 나간다', async () => {
     await renderSheet('create');
     await act(async () => {
       fireEvent.press(screen.getByTestId('group.bet.stake.50'));
@@ -237,12 +253,12 @@ describe('개설 모드', () => {
 
   // 숫자만 있으면 VoiceOver는 "10 30 50 100"이라고만 읽는다 — 무엇을 고르는 자리인지도,
   // 무엇이 골라졌는지도 알 수 없다. 바로 위 '내 코인'과 값이 겹치면 더 모호하다(F9).
-  test('판돈 칩은 단위와 선택 상태까지 읽힌다', async () => {
+  test('참가비 칩은 단위와 선택 상태까지 읽힌다', async () => {
     await renderSheet('create');
 
     const chip10 = screen.getByTestId('group.bet.stake.10');
     expect(chip10).toHaveProp('accessibilityRole', 'button');
-    expect(chip10).toHaveProp('accessibilityLabel', '판돈 10코인');
+    expect(chip10).toHaveProp('accessibilityLabel', '참가비 10코인');
     expect(chip10).toHaveProp('accessibilityState', expect.objectContaining({ selected: true }));
     expect(screen.getByTestId('group.bet.stake.50')).toHaveProp(
       'accessibilityState',
@@ -252,7 +268,7 @@ describe('개설 모드', () => {
 });
 
 describe('참가 모드', () => {
-  test('카드가 쥔 betId로 참가하고 판돈을 계측한다', async () => {
+  test('카드가 쥔 betId로 참가하고 참가비를 계측한다', async () => {
     await renderSheet('join', { bet: bet() });
     await submit();
 
@@ -283,7 +299,7 @@ describe('참가 모드', () => {
     expect(mockJoinBet).not.toHaveBeenCalled();
   });
 
-  test('판돈·현재 팟·참가자 목록을 보여준다', async () => {
+  test('참가비·현재 적립금·참가자 목록을 보여준다', async () => {
     await renderSheet('join', { bet: bet() });
     expect(screen.getByText('30')).toBeOnTheScreen();
     expect(screen.getByText('60')).toBeOnTheScreen();
@@ -311,7 +327,7 @@ describe('참가 모드', () => {
 });
 
 describe('잔액 부족', () => {
-  test('판돈보다 코인이 적으면 CTA를 잠그고 부족분을 적는다', async () => {
+  test('참가비보다 코인이 적으면 CTA를 잠그고 부족분을 적는다', async () => {
     mockCoins = 20;
     await renderSheet('create');
     await act(async () => {
@@ -323,7 +339,7 @@ describe('잔액 부족', () => {
     expect(mockCreateBet).not.toHaveBeenCalled();
   });
 
-  test('판돈을 낮추면 다시 열린다', async () => {
+  test('참가비를 낮추면 다시 열린다', async () => {
     mockCoins = 20;
     await renderSheet('create');
     await act(async () => {
@@ -338,7 +354,7 @@ describe('잔액 부족', () => {
     expect(mockCreateBet).toHaveBeenCalled();
   });
 
-  test('참가 모드도 판돈을 못 내면 막는다', async () => {
+  test('참가 모드도 참가비를 못 내면 막는다', async () => {
     mockCoins = 10;
     await renderSheet('join', { bet: bet() });
 
@@ -418,7 +434,7 @@ describe('에러 분기', () => {
   // 판정은 **그 판돈 이상**에 유효하다 — 50을 못 내는 지갑이 100을 낼 수는 없다.
   // 판돈을 바꿨다고 무조건 풀면, 잔액 재조회가 늦거나 실패해 낡은 큰 잔액이 남은 상황에서
   // 서버가 이미 불가능하다고 확정한 더 큰 금액을 반복 전송하게 된다.
-  test('INSUFFICIENT_CURRENCY — 판돈을 올리면 판정이 유지되고, 내리면 풀린다', async () => {
+  test('INSUFFICIENT_CURRENCY — 참가비를 올리면 판정이 유지되고, 내리면 풀린다', async () => {
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(400, 'INSUFFICIENT_CURRENCY'));
     await renderSheet('create');
     await act(async () => {
@@ -740,7 +756,7 @@ describe('전송 중', () => {
 
   // 10을 보낸 뒤 100을 누를 수 있으면, 서버엔 10이 간 채 화면의 마지막 선택만 100이 된다 —
   // 성공 후 사용자는 자기가 100을 걸었다고 오인한다. 금액이 확정된 뒤엔 칩을 잠근다.
-  test('전송 중에는 판돈을 바꿀 수 없다', async () => {
+  test('전송 중에는 참가비를 바꿀 수 없다', async () => {
     let finish: (v: { betId: string }) => void = () => {};
     mockCreateBet.mockImplementationOnce(
       () =>
@@ -892,17 +908,19 @@ describe('몰수 고지·창 내기 문구', () => {
   // 거짓을 말한다 — 개설·참가 모두에서 몰수를 고지한다.
   test('개설·참가 노트가 몰수 룰을 말한다', async () => {
     await renderSheet('create');
-    expect(screen.getByText(/아무도 달성하지 못하면 판돈은 사라져요/)).toBeOnTheScreen();
+    expect(screen.getByText(/아무도 달성하지 못하면 참가비는 사라져요/)).toBeOnTheScreen();
     expect(screen.queryByText(/전액 환불돼요/)).toBeNull();
 
     await renderSheet('join', { bet: bet() });
-    expect(screen.getByText(/아무도 달성하지 못하면 판돈은 사라져요/)).toBeOnTheScreen();
+    expect(screen.getByText(/아무도 달성하지 못하면 참가비는 사라져요/)).toBeOnTheScreen();
   });
 
   // 창 내기의 BET_CLOSED(개설)는 '날짜가 바뀌었다'가 아니라 '오늘 창이 끝났다'다(계약 §2 —
   // now ≥ 오늘 창 endAt). 일형 문구를 그대로 내면 원인(시간대 종료)을 말해 주지 못한다.
-  test('창 챌린지의 BET_CLOSED 개설 실패는 창 종료 문구로 알린다', async () => {
+  // 내일 날짜 재시도(GROMO-1103)까지 막힌 뒤에만 이 문구가 선다 — 구서버(내일도 BET_CLOSED)의 경로다.
+  test('창 챌린지의 BET_CLOSED — 내일 재시도까지 막히면 창 종료 문구로 알린다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CLOSED'));
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CLOSED'));
     await renderSheet('create', {
       missionType: 'TIME_WINDOW',
@@ -912,10 +930,251 @@ describe('몰수 고지·창 내기 문구', () => {
     });
     await submit();
 
+    expect(mockCreateBet).toHaveBeenCalledTimes(2);
+    expect(mockCreateBet).toHaveBeenLastCalledWith(GROUP_ID, CHALLENGE_ID, {
+      stake: 10,
+      date: '2026-08-02',
+    });
     expect(alertSpy).toHaveBeenCalledWith(
       '내기를 열 수 있는 시간이 지났어요',
       '오늘 시간대가 끝나 내기를 열 수 없어요. 내일 다시 열 수 있어요.',
     );
     expect(onDone).toHaveBeenCalled();
+  });
+});
+
+// ── 참가비 자유 입력(계약 §2, GROMO-1097) — 입력 필드가 단일 소스, 칩은 프리셋 ──────────
+describe('참가비 직접 입력', () => {
+  test('입력한 참가비가 그대로 나간다 — 프리셋 밖 값(250)도 허용', async () => {
+    mockCoins = 1000; // 잔액 부족 잠금과 겹치지 않게 — 여기서 보는 건 전송값뿐이다.
+    await renderSheet('create');
+    await act(async () => {
+      fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '250');
+    });
+    await submit();
+
+    expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
+      stake: 250,
+      date: '2026-08-01',
+    });
+    expect(logGroupBetCreated).toHaveBeenCalledWith({
+      stake: 250,
+      mission_type: 'DURATION',
+      mission_category: 'FOCUS',
+    });
+  });
+
+  test('경계값 1·1000은 허용된다', async () => {
+    mockCoins = 1000; // 잔액 부족 잠금과 겹치지 않게 — 여기서 보는 건 범위 경계뿐이다.
+    await renderSheet('create');
+    await act(async () => {
+      fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '1');
+    });
+    await submit();
+    expect(mockCreateBet).toHaveBeenLastCalledWith(GROUP_ID, CHALLENGE_ID, {
+      stake: 1,
+      date: '2026-08-01',
+    });
+
+    // 성공 후 submitting은 열린 채 남는다(시트는 닫히는 전제) — 1000은 새 시트에서 본다.
+    await renderSheet('create');
+    await act(async () => {
+      fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '1000');
+    });
+    await submit();
+    expect(mockCreateBet).toHaveBeenLastCalledWith(GROUP_ID, CHALLENGE_ID, {
+      stake: 1000,
+      date: '2026-08-01',
+    });
+  });
+
+  // 모달 금지(스펙) — 잠긴 CTA 옆에 같은 근거를 인라인으로 말한다. 문장은 서버
+  // BET_INVALID_STAKE 메시지와 같다(같은 사실을 두 자리에서 달리 말하지 않는다).
+  test('범위 밖(0·1001)·빈 값이면 CTA를 잠그고 인라인으로 알린다', async () => {
+    await renderSheet('create');
+
+    for (const bad of ['0', '1001', '']) {
+      await act(async () => {
+        fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), bad);
+      });
+      expect(screen.getByText('참가비는 1~1,000코인 사이로 입력해 주세요')).toBeOnTheScreen();
+      await submit();
+      expect(mockCreateBet).not.toHaveBeenCalled();
+    }
+  });
+
+  test('숫자가 아닌 문자는 입력 단계에서 걸러진다', async () => {
+    await renderSheet('create');
+    await act(async () => {
+      fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '12a');
+    });
+    expect(screen.getByTestId('group.bet.stake.input')).toHaveProp('value', '12');
+  });
+
+  test('칩을 누르면 입력 필드에 값이 반영된다 — 무효 입력으로 잠긴 상태도 풀린다', async () => {
+    await renderSheet('create');
+    await act(async () => {
+      fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '');
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.stake.50'));
+    });
+
+    expect(screen.getByTestId('group.bet.stake.input')).toHaveProp('value', '50');
+    expect(screen.queryByText('참가비는 1~1,000코인 사이로 입력해 주세요')).toBeNull();
+    await submit();
+    expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
+      stake: 50,
+      date: '2026-08-01',
+    });
+  });
+
+  test('직접 입력이 프리셋과 같으면 칩이 선택 상태로 켜진다 — 칩은 입력값의 파생 표시다', async () => {
+    await renderSheet('create');
+    await act(async () => {
+      fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '30');
+    });
+    expect(screen.getByTestId('group.bet.stake.30')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: true }),
+    );
+
+    await act(async () => {
+      fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '31');
+    });
+    expect(screen.getByTestId('group.bet.stake.30')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: false }),
+    );
+  });
+});
+
+// ── 시간대 마감 후 내일 적용(계약 §3, GROMO-1103) ────────────────────────────────
+// 마감 뒤의 개설을 실패 모달로 끝내지 않는다 — 처음부터 내일 내기로 열고, 그 사실을
+// 돈이 나가기 전에(시트 안내) 또는 나간 직후에(재시도 성공 Alert) 말한다.
+describe('마감 후 내일 내기', () => {
+  const windowChallenge = {
+    missionType: 'TIME_WINDOW' as const,
+    durationMinutes: 60,
+    windowStart: '09:00:00',
+    windowEnd: '11:00:00',
+  };
+
+  test('오늘 창이 끝났으면 처음부터 내일 날짜로 열고 안내를 세운다', async () => {
+    mockNowSec = 12 * 3600; // 12:00 — 11:00 창 종료 후
+    await renderSheet('create', windowChallenge);
+
+    expect(screen.getByText('오늘 시간대가 끝나 내일 시간대부터 적용돼요')).toBeOnTheScreen();
+    await submit();
+
+    expect(mockCreateBet).toHaveBeenCalledTimes(1);
+    expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
+      stake: 10,
+      date: '2026-08-02',
+    });
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  test('창이 아직 열려 있으면 안내 없이 오늘 날짜로 나간다', async () => {
+    mockNowSec = 10 * 3600;
+    await renderSheet('create', windowChallenge);
+
+    expect(screen.queryByTestId('group.bet.tomorrowNote')).toBeNull();
+    await submit();
+    expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
+      stake: 10,
+      date: '2026-08-01',
+    });
+  });
+
+  // 자정 걸침 창(start > end)의 실질 마감은 자정(서버 날짜 게이트)이다 — end(01:00)가 낮보다
+  // 이르다고 '끝났다'로 읽으면 하루 종일 내일 내기만 걸리는 오판이 된다.
+  test('자정 걸침 창(22:00~01:00)은 낮 시간을 마감으로 오인하지 않는다', async () => {
+    mockNowSec = 12 * 3600;
+    await renderSheet('create', {
+      ...windowChallenge,
+      windowStart: '22:00:00',
+      windowEnd: '01:00:00',
+    });
+
+    expect(screen.queryByTestId('group.bet.tomorrowNote')).toBeNull();
+    await submit();
+    expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
+      stake: 10,
+      date: '2026-08-01',
+    });
+  });
+
+  // 클라 시계로는 아직 열려 있었는데 서버가 마감을 확정한 경합 — 실패 모달 대신 내일 날짜로
+  // 정확히 1회 재시도한다. 시트는 닫히므로 안내는 Alert로 세운다(계약 §3).
+  test('BET_CLOSED 경합 — 내일 날짜로 1회 재시도하고 성공하면 같은 안내를 알린다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CLOSED'));
+    await renderSheet('create', windowChallenge);
+    await submit();
+
+    expect(mockCreateBet).toHaveBeenCalledTimes(2);
+    expect(mockCreateBet.mock.calls[0][2]).toEqual({ stake: 10, date: '2026-08-01' });
+    expect(mockCreateBet.mock.calls[1][2]).toEqual({ stake: 10, date: '2026-08-02' });
+    expect(alertSpy).toHaveBeenCalledWith(
+      '내일 내기로 열었어요',
+      '오늘 시간대가 끝나 내일 시간대부터 적용돼요.',
+    );
+    expect(onDone).toHaveBeenCalled();
+    // 재시도 성공도 실제 개설이다 — 계측이 발행된다.
+    expect(logGroupBetCreated).toHaveBeenCalledWith({
+      stake: 10,
+      mission_type: 'TIME_WINDOW',
+      mission_category: 'FOCUS',
+    });
+  });
+
+  // 재시도의 실패는 코드별 분기를 그대로 탄다 — 남이 먼저 연 내일 내기(BET_ALREADY_EXISTS)에
+  // '시간이 지났어요'도, '이미 **오늘** 내기가 있어요'도 거짓이다(PR #473 리뷰). 재시도는
+  // 내일 날짜로 나갔으므로 문구도 내일 내기의 사실을 말해야 한다.
+  test('재시도가 BET_ALREADY_EXISTS로 막히면 내일 내기 문구로 알린다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CLOSED'));
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_ALREADY_EXISTS'));
+    await renderSheet('create', windowChallenge);
+    await submit();
+
+    expect(mockCreateBet).toHaveBeenCalledTimes(2);
+    expect(alertSpy).toHaveBeenCalledWith(
+      '내일 내기를 열 수 없어요',
+      '이미 내일 내기가 있어요. 새로고침 후 참가할 수 있어요.',
+    );
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  // 처음부터 내일 날짜로 보낸 개설(마감 후)의 충돌도 같은 내일 문구다 — 오늘 문구는
+  // 오늘 날짜로 보낸 요청에만 남는다.
+  test('마감 후 개설의 BET_ALREADY_EXISTS도 내일 내기 문구로 알린다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockNowSec = 12 * 3600; // 창 종료 후 — 처음부터 내일 날짜로 나간다
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_ALREADY_EXISTS'));
+    await renderSheet('create', windowChallenge);
+    await submit();
+
+    expect(mockCreateBet).toHaveBeenCalledTimes(1);
+    expect(alertSpy).toHaveBeenCalledWith(
+      '내일 내기를 열 수 없어요',
+      '이미 내일 내기가 있어요. 새로고침 후 참가할 수 있어요.',
+    );
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  // 일형(DURATION)의 BET_CLOSED는 창 마감이 아니라 날짜 어긋남이다 — 내일 재시도 대상이 아니다.
+  test('일형 챌린지의 BET_CLOSED는 재시도하지 않는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CLOSED'));
+    await renderSheet('create');
+    await submit();
+
+    expect(mockCreateBet).toHaveBeenCalledTimes(1);
+    expect(alertSpy).toHaveBeenCalledWith(
+      '오늘 내기만 열 수 있어요',
+      '날짜가 바뀌었어요. 새로고침 후 다시 시도해주세요.',
+    );
   });
 });

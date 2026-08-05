@@ -33,7 +33,7 @@ public enum GroupErrorCode {
     // deprecated — 내기 대상이 전 조합(FOCUS·SCREEN_TIME × DURATION·TIME_WINDOW)으로 확대돼 더는 발급하지
     // 않는다. 구앱이 이 코드 문자열로 분기하고 있어 값만 잔존시킨다(이름 변경 금지 규칙).
     BET_FOCUS_ONLY(HttpStatus.BAD_REQUEST, "집중 시간 챌린지에만 내기를 걸 수 있어요"),
-    BET_INVALID_STAKE(HttpStatus.BAD_REQUEST, "선택할 수 없는 판돈이에요"),
+    BET_INVALID_STAKE(HttpStatus.BAD_REQUEST, "참가비는 1~1,000코인 사이로 입력해 주세요"),
     BET_NOT_FOUND(HttpStatus.NOT_FOUND, "내기를 찾을 수 없어요"),
     BET_ALREADY_EXISTS(HttpStatus.CONFLICT, "오늘 이 챌린지에는 이미 내기가 있어요"),
     BET_CLOSED(HttpStatus.CONFLICT, "참가할 수 있는 시간이 지났어요"),
@@ -49,6 +49,10 @@ public enum GroupErrorCode {
     // BET_CLOSED(참가 마감 — 날짜 경과 포함)와 구분되는 취소 전용 코드: "내기가 OPEN 이 아니다"만
     // 뜻한다(이중 취소·정산과의 CAS 레이스 패배). 앱 취소 버튼이 별도 문구로 분기한다.
     BET_NOT_OPEN(HttpStatus.CONFLICT, "이미 종료된 내기예요"),
+    // 참가 철회(leave, GROMO-1102) 전용 — 앱이 응답의 code 문자열로 분기한다. 이름 변경 금지.
+    BET_NOT_JOINED(HttpStatus.CONFLICT, "참가하지 않은 내기예요"),
+    // "시작 이후"의 철회 거절. BET_NOT_OPEN(상태 위반)과 구분되는 시각 위반 전용 코드다.
+    BET_LEAVE_CLOSED(HttpStatus.CONFLICT, "내기가 시작되어 철회할 수 없어요"),
 
     // 챌린지 생성 충돌 — 앱이 응답의 code 문자열로 분기한다. 이름 변경 금지.
     // 활성 챌린지는 (카테고리, 타입)당 1개 — V20 부분 유니크 인덱스가 강제한다.

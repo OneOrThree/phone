@@ -27,7 +27,8 @@ public class CharacterController {
     private final CharacterGenerationService characterGenerationService;
 
     @Operation(summary = "생성 쿼터 조회",
-            description = "가입 후 7일 무제한, 이후 롤링 7일 내 2회. unlimited 면 remaining·resetAt 은 null.")
+            description = "이 API 를 처음 호출한 시점부터 7일 무제한(trial), 이후 롤링 7일 내 3회. "
+                    + "unlimited 면 remaining·resetAt 은 null.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "404", description = "유저 없음")

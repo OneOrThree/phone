@@ -1,7 +1,14 @@
 // localDate.ts 유닛 테스트(GROMO-945) — 로컬 날짜 문자열의 월말·연말·윤년 경계.
 // todayStr/tomorrowStr/yesterdayStr가 new Date()를 쓰므로 fake timers로 '오늘'을 고정한다.
 // 시간대는 jest.config.js에서 Asia/Seoul 고정.
-import { localDateStr, todayStr, tomorrowStr, yesterdayStr } from './localDate';
+import {
+  localDateStr,
+  todayStr,
+  todayStrKst,
+  tomorrowStr,
+  tomorrowStrKst,
+  yesterdayStr,
+} from './localDate';
 
 const NOW = new Date('2026-07-15T09:00:00+09:00');
 
@@ -56,5 +63,29 @@ describe('todayStr / tomorrowStr / yesterdayStr', () => {
   test('윤년 3/1의 어제는 2/29다', () => {
     jest.setSystemTime(new Date('2024-03-01T09:00:00+09:00'));
     expect(yesterdayStr()).toBe('2024-02-29');
+  });
+});
+
+// KST 고정 버전(내기 bet_date용 — 서버가 KST로 판정하므로 기기 로컬과 분리) —
+// jest 타임존이 Asia/Seoul 고정이라 로컬 버전과 같은 값이어야 하고, 핵심은 UTC와
+// 날짜가 갈리는 시각(KST 자정 직후)에도 KST 날짜를 돌려주는 경계다.
+describe('todayStrKst / tomorrowStrKst', () => {
+  test('고정된 오늘 기준 — KST 환경에선 로컬 버전과 같다', () => {
+    expect(todayStrKst()).toBe('2026-07-15');
+    expect(tomorrowStrKst()).toBe('2026-07-16');
+  });
+
+  test('KST 자정 직후 — UTC 기준이면 전날인 시각에도 KST 날짜다', () => {
+    // KST 00:30 = UTC 전날 15:30 — bet_date가 하루 밀리면 서버가 BET_CLOSED로 거절한다.
+    jest.setSystemTime(new Date('2026-07-16T00:30:00+09:00'));
+    expect(todayStrKst()).toBe('2026-07-16');
+    expect(tomorrowStrKst()).toBe('2026-07-17');
+  });
+
+  test('월말·연말 경계를 넘는다', () => {
+    jest.setSystemTime(new Date('2026-07-31T09:00:00+09:00'));
+    expect(tomorrowStrKst()).toBe('2026-08-01');
+    jest.setSystemTime(new Date('2026-12-31T09:00:00+09:00'));
+    expect(tomorrowStrKst()).toBe('2027-01-01');
   });
 });

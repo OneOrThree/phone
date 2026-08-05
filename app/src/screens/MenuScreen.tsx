@@ -367,16 +367,8 @@ export default function MenuScreen() {
           </SettingsSection>
         </View>
 
-        <SettingsSection title="캐릭터">
-          <SettingsRow
-            icon="cube-outline"
-            iconColor={T.accentAlt}
-            iconBg={T.accentAltBg}
-            label="사진에서 캐릭터 만들기"
-            sub="내 물건에 팔다리를 달아 캐릭터로"
-            onPress={() => navigation.navigate('CharacterCreate')}
-          />
-        </SettingsSection>
+        {/* '캐릭터' 섹션(사진에서 캐릭터 만들기)은 제거(GROMO-1076) — 진입점을 홈 '캐릭터 변경'
+             화면으로 일원화한다. CharacterCreate 라우트 자체는 그 화면이 계속 쓰므로 유지. */}
 
         <SettingsSection title="알림 · 공개">
           <SettingsRow

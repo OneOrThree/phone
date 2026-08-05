@@ -7,8 +7,8 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
-// 형태: 헤더 + 카드 FlatList + 하단 고정 CTA 2개(만들기·찾기). 카드는 그룹방 헤더와 같은 정보를
-//      한 줄로 압축한다 — 이름 · 비공개 자물쇠 · 내가 방장이면 배지 · n/m 인원.
+// 형태: 헤더 + 카드 FlatList + 하단 고정 CTA 2개(만들기·찾기). 카드는 세로 스택 —
+//      이름(+비공개 자물쇠) / 소개(값 있을 때만) / 방장 칩, 우측에 n/m 인원.
 //
 // props 계약(배관이 확정 — 이 시그니처는 바꾸지 않는다):
 //   groups    : GroupSummaryResponse[]  내가 참여 중인 그룹(서버 순서 그대로, 앱 재정렬 금지)
@@ -94,56 +94,52 @@ export default function GroupListScreen({
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
         }
-        renderItem={({ item }) => {
-          // 소개(F6) — 비었으면(null·미포함·공백뿐) 줄을 아예 그리지 않아 카드 높이가 흔들리지 않는다.
-          const desc = item.description?.trim();
-          return (
-            <TouchableOpacity
-              style={s.card}
-              activeOpacity={0.85}
-              onPress={() => onSelect(item.groupId)}
-              testID={`group.list.card.${item.groupId}`}
-            >
-              <View style={s.cardBody}>
-                <View style={s.cardTitleRow}>
-                  <Text style={s.cardName} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  {item.isPrivate && (
-                    <Ionicons
-                      name="lock-closed"
-                      size={14}
-                      color={T.inkSub}
-                      accessibilityLabel="비공개 그룹"
-                    />
-                  )}
-                  {/* 방장 표시 — 멤버 타일과 같은 왕관(자물쇠 아이콘은 그대로 둔다) */}
-                  {item.role === 'OWNER' && (
-                    <MaterialCommunityIcons
-                      name="crown"
-                      size={16}
-                      color={T.accent}
-                      accessibilityLabel="내가 방장"
-                    />
-                  )}
-                </View>
-                {desc ? (
-                  <Text
-                    style={s.cardDesc}
-                    numberOfLines={2}
-                    testID={`group.list.card.${item.groupId}.desc`}
-                  >
-                    {desc}
-                  </Text>
-                ) : null}
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            style={s.card}
+            activeOpacity={0.85}
+            onPress={() => onSelect(item.groupId)}
+            testID={`group.list.card.${item.groupId}`}
+          >
+            <View style={s.cardMain}>
+              {/* 1행: 이름 + 비공개 자물쇠 */}
+              <View style={s.cardTitleRow}>
+                <Text style={s.cardName} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                {item.isPrivate && (
+                  <Ionicons
+                    name="lock-closed"
+                    size={14}
+                    color={T.inkSub}
+                    accessibilityLabel="비공개 그룹"
+                  />
+                )}
+                {/* 방장 표시 — 멤버 타일과 같은 왕관(자물쇠는 그대로 둔다) */}
+                {item.role === 'OWNER' && (
+                  <MaterialCommunityIcons
+                    name="crown"
+                    size={16}
+                    color={T.accent}
+                    accessibilityLabel="내가 방장"
+                  />
+                )}
               </View>
+              {/* 2행: 소개 — 백엔드가 목록 응답에 description을 실어줄 때만 노출 */}
+              {!!item.description && (
+                <Text style={s.cardDesc} numberOfLines={2}>
+                  {item.description}
+                </Text>
+              )}
+            </View>
+            <View style={s.cardRight}>
               <Text style={s.cardCount}>
                 {item.currentMembers}/{item.maxMembers}
               </Text>
               <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
-            </TouchableOpacity>
-          );
-        }}
+            </View>
+          </TouchableOpacity>
+        )}
       />
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
@@ -201,7 +197,7 @@ const s = StyleSheet.create({
   // (그룹방의 초대·공지 카드와 같은 기준).
   card: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: T.space.md,
     backgroundColor: T.paperAlt,
     borderWidth: 1,
@@ -210,12 +206,11 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.lg,
     paddingVertical: T.space.lg,
   },
-  // 카드 좌측 본문 — 제목 줄 위, 소개 줄(있을 때) 아래를 세로로 쌓는다.
-  cardBody: { flex: 1, gap: 2, minWidth: 0 },
+  cardMain: { flex: 1, gap: 4, minWidth: 0 },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   cardName: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },
-  // 소개 — 이름(subtitle/ink)보다 한 단계 약한 caption/inkSub. 1~2줄 말줄임.
   cardDesc: { ...T.text.caption, color: T.inkSub },
+  cardRight: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   cardCount: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
 
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },

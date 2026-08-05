@@ -9,7 +9,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
@@ -21,8 +20,8 @@ import java.util.stream.Collectors;
  * <p>카드 진행률·myAchievedNow(B2a)와 정산 판정(B2b)이 <b>같은 소스</b>를 쓰도록 분리한 순수 컴포넌트다.
  *
  * <p><b>창 해석(KST 앵커)</b>: TIME_WINDOW 는 매일 반복 시간대다. 저장된 window_start_at/end_at(Instant)
- * 은 UTC 시각(time-of-day)만 의미를 갖고(응답의 "HH:mm:ss" 변환과 동일 기준), 날짜 D 의 실제 창은
- * D(KST)에 그 시각을 얹어 조합한다. 시작 ≥ 종료면 자정 걸침 창 — D 의 시작 ~ D+1 의 종료로 해석한다.
+ * 은 Asia/Seoul 벽시계 시각(time-of-day)만 의미를 갖고(응답의 "HH:mm:ss" 변환과 동일 기준), 날짜 D 의
+ * 실제 창은 D(KST)에 그 시각을 얹어 조합한다. 시작 ≥ 종료면 자정 걸침 창 — D 의 시작 ~ D+1 의 종료로 해석한다.
  *
  * <p><b>판정 기준</b>: 창 판정은 세션 겹침 길이 기준이다(방해시간 미차감 — daily_focus_stats 의
  * total_focus_seconds 도 미차감이라 동일 기준). ACTIVE(미종료)·CANCELED·AUTO_CLOSED 세션은 제외한다.
@@ -76,11 +75,14 @@ public class WindowFocusAggregator {
     }
 
     /**
-     * 창 Instant 의 의미 있는 부분 — UTC 시각(time-of-day). 생성 검증·겹침 판정({@code GroupChallengeService})·
-     * 집계 경계(여기)·응답 "HH:mm:ss" 변환이 전부 이 <b>단일 기준</b>을 쓴다 — 한쪽만 바뀌어 조용히
-     * 갈라지지 않도록 공용으로 노출한다(PR #438 리뷰).
+     * 창 Instant 의 의미 있는 부분 — <b>Asia/Seoul 벽시계 시각(time-of-day)</b>. 생성 검증·겹침 판정
+     * ({@code GroupChallengeService})·집계 경계(여기)·응답 "HH:mm:ss" 변환이 전부 이 <b>단일 기준</b>을
+     * 쓴다 — 한쪽만 바뀌어 조용히 갈라지지 않도록 공용으로 노출한다(PR #438 리뷰).
+     *
+     * <p>앱은 창 시각을 {@code +09:00} 오프셋의 진짜 Instant 로 보낸다. 종전에는 저장 Instant 의
+     * UTC 시각을 KST 벽시계로 간주해 정확히 9시간 어긋났다(GROMO-1100) — KST 해석으로 통일한다.
      */
     public static LocalTime timeOfDay(Instant instant) {
-        return LocalTime.ofInstant(instant, ZoneOffset.UTC);
+        return LocalTime.ofInstant(instant, KST);
     }
 }

@@ -18,7 +18,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
-import { CURRENCY } from '@/constants/currency';
 import { focusGoalReward, screenTimeGoalReward } from '@/utils/currencyRewards';
 import { useLeagueRanking } from '@/screens/league/useLeagueRanking';
 import { useLeagueMeta } from '@/screens/league/useLeagueMeta';
@@ -37,6 +36,7 @@ import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { PressableScale } from '@/components/PressableScale';
 import { fabWindowRect } from '@/components/TabBar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -415,6 +415,12 @@ export default function HomeScreen() {
     logHomeRefreshed();
     setRefreshing(true);
     setReportRefresh((r) => r + 1);
+    // 권한 상태도 같이 재조회한다 — 권한 켜기가 잘못 떠 있을 때 사용자가 가장 먼저 하는 동작이
+    // 당겨서 새로고침인데, 여기서 안 읽으면 그 세션 내내 잘못된 상태에 머문다(콜드런치엔
+    // AppState 'change' 도 뜨지 않는다).
+    ScreenTimeModule.getAuthorizationStatus()
+      .then(setScreenTimeAuth)
+      .catch(() => {});
     refetchTodayStats().finally(() => setTimeout(() => setRefreshing(false), 600));
   }, [refetchTodayStats]);
 
@@ -542,7 +548,7 @@ export default function HomeScreen() {
           {/* ── 방 + 캐릭터 ── */}
           <View style={s.room}>
             <CharacterImage size={216} sourceUri={activeSource ?? undefined} />
-            {/* 캐릭터 바꾸기 — 알림 벨과 같은 패턴(계측 + navigate). 은은한 pill 스타일 */}
+            {/* 캐릭터 변경 — 알림 벨과 같은 패턴(계측 + navigate). 은은한 pill 스타일 */}
             <PressableScale
               style={s.changeCharBtn}
               scaleTo={0.96}
@@ -552,7 +558,7 @@ export default function HomeScreen() {
               }}
             >
               <Ionicons name="brush-outline" size={14} color={T.accent} />
-              <Text style={s.changeCharText}>캐릭터 바꾸기</Text>
+              <Text style={s.changeCharText}>캐릭터 변경</Text>
             </PressableScale>
           </View>
         </ScrollView>
@@ -568,11 +574,10 @@ export default function HomeScreen() {
               오늘 <Text style={s.cardTitleSub}>Today</Text>
             </Text>
             <View style={s.cardHeaderRight}>
-              {/* 시간조각 잔액 칩 — 폭이 빠듯해 라벨 생략(⏳ N). 미로드 시 중립 플레이스홀더(⏳ –) */}
+              {/* 시간조각 잔액 칩 — 폭이 빠듯해 라벨 생략(모래시계 N). 미로드 시 중립 플레이스홀더(모래시계 –) */}
               <View style={s.streakChip}>
-                <Text style={s.streakChipText}>
-                  {CURRENCY.icon} {coinsLoaded ? coins.toLocaleString() : '–'}
-                </Text>
+                <CurrencyIcon size={11} />
+                <Text style={s.streakChipText}>{coinsLoaded ? coins.toLocaleString() : '–'}</Text>
               </View>
               {/* 연속 공부(GROMO-630) — 하루 10분 스트릭. 0일이면 생략 */}
               {streakDays > 0 && (
@@ -718,7 +723,7 @@ const s = StyleSheet.create({
 
   // 방 + 캐릭터 — 가운데를 채우고, 카드를 하단으로 밀어냄
   room: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: T.space.xs },
-  // 캐릭터 바꾸기 pill — 캐릭터 바로 아래, 은은한 인디고 틴트
+  // 캐릭터 변경 pill — 캐릭터 바로 아래, 은은한 인디고 틴트
   changeCharBtn: {
     flexDirection: 'row',
     alignItems: 'center',

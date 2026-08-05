@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { cubicBezier } from 'react-native-reanimated';
 import { T } from '@/constants/theme';
+import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { CURRENCY } from '@/constants/currency';
 import { PressableScale } from '@/components/PressableScale';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -409,11 +410,15 @@ export default function FocusResultScreen() {
           <Text style={s.sub}>
             {firstTime ? '오늘 첫 걸음을 뗐어요 🎉' : `${subjectName} · 꾸준함이 쌓이고 있어요`}
           </Text>
-          {/* 획득 시간조각 — 저장 응답 도착 시 +N ⏳ 팝(스트릭 ✓와 같은 checkPop 재사용) */}
+          {/* 획득 시간조각 — 저장 응답 도착 시 "+N 모래시계" 팝(스트릭 ✓와 같은 checkPop 재사용) */}
           {rewardCoins > 0 ? (
             <Animated.View style={[s.coinBadge, checkPop]}>
-              <Text style={s.coinBadgeText}>
-                +{rewardCoins.toLocaleString()} {CURRENCY.icon}
+              {/* 중첩 아이콘은 부모 문자열에 합쳐져 글리프로 읽히므로 라벨은 이 <Text>에 단다. */}
+              <Text
+                style={s.coinBadgeText}
+                accessibilityLabel={`${CURRENCY.label} ${rewardCoins.toLocaleString()} 획득`}
+              >
+                +{rewardCoins.toLocaleString()} <CurrencyIcon size={14} />
               </Text>
             </Animated.View>
           ) : null}
@@ -820,7 +825,7 @@ const s = StyleSheet.create({
   header: { gap: T.space.xs, paddingVertical: T.space.xs },
   title: { ...T.text.stat, color: T.ink },
   sub: { ...T.text.label, fontWeight: '500', color: T.inkSub },
-  // 획득 시간조각 배지(+N ⏳)
+  // 획득 시간조각 배지(+N 모래시계)
   coinBadge: {
     alignSelf: 'flex-start',
     backgroundColor: T.accentBg,

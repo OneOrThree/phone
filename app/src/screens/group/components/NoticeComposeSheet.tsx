@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Keyboard,
-  Platform,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
@@ -67,24 +64,6 @@ export default function NoticeComposeSheet({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // 키보드 회피 — SheetShell 패널이 bottom:0 absolute라 KeyboardAvoidingView(padding)가 안 먹는다.
-  // 키보드 높이를 직접 받아 하단 스페이서로 입력·버튼을 키보드 위로 띄운다(iOS 전용 앱).
-  const insets = useSafeAreaInsets();
-  const [kbHeight, setKbHeight] = useState(0);
-  useEffect(() => {
-    // iOS만 수동 보정한다 — Android는 windowSoftInputMode=adjustResize가 SheetShell(bottom:0) 패널을
-    // 이미 키보드 위로 리사이즈하므로, 스페이서를 또 넣으면 시트가 이중으로 밀려 상단·제목칸이 잘린다(코덱스 리뷰).
-    if (Platform.OS !== 'ios') return;
-    const show = Keyboard.addListener('keyboardWillShow', (e) =>
-      setKbHeight(e.endCoordinates.height),
-    );
-    const hide = Keyboard.addListener('keyboardWillHide', () => setKbHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-
   // 저장 요청이 떠 있는 동안인가 — 이탈 차단 리스너가 리렌더 없이 읽어야 해서 state와 별도로 둔다.
   const submittingRef = useRef(false);
 
@@ -131,8 +110,8 @@ export default function NoticeComposeSheet({
   }
 
   return (
-    // 저장 중에는 딤 탭으로 닫히지 않게 막는다(요청이 떠 있는 상태에서의 언마운트 방지).
-    <SheetShell onClose={submitting ? () => {} : onClose}>
+    // 저장 중에는 딤 탭·그랩바 드래그로 닫히지 않게 막는다. 키보드 회피는 SheetShell이 공통 처리한다.
+    <SheetShell onClose={submitting ? () => {} : onClose} dismissible={!submitting}>
       <Text style={s.title}>{isEdit ? '공지 수정' : '공지 쓰기'}</Text>
       <Text style={s.sub}>그룹원 모두에게 보여요.</Text>
 
@@ -181,8 +160,6 @@ export default function NoticeComposeSheet({
           <Text style={s.saveText}>{isEdit ? '수정하기' : '등록하기'}</Text>
         )}
       </TouchableOpacity>
-      {/* 키보드 높이만큼 하단을 띄워 입력·버튼이 키보드에 가리지 않게 한다(홈 인디케이터 인셋 제외) */}
-      {kbHeight > 0 && <View style={{ height: Math.max(0, kbHeight - insets.bottom) }} />}
     </SheetShell>
   );
 }

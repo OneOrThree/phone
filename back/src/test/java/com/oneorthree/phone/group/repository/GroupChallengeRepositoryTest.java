@@ -41,8 +41,8 @@ class GroupChallengeRepositoryTest extends RepositoryTestBase {
     @Autowired
     EntityManager em;
 
-    private static final Instant WINDOW_START = Instant.parse("2026-08-01T09:00:00Z");
-    private static final Instant WINDOW_END = Instant.parse("2026-08-01T18:00:00Z");
+    private static final Instant WINDOW_START = Instant.parse("2026-08-01T09:00:00+09:00");
+    private static final Instant WINDOW_END = Instant.parse("2026-08-01T18:00:00+09:00");
 
     private Group saveGroup() {
         return groupRepository.save(Group.builder().name("스터디룸").maxMembers(10).build());

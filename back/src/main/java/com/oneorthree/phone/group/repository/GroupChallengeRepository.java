@@ -52,17 +52,20 @@ public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, 
     // GroupChallengeWindowRepository.existsOverlappingTimeWindow 로 이동.
 
     /**
-     * 창 종료 감지 푸시(B4) 대상 후보 — 카테고리·타입이 맞는 살아있는 ACTIVE 챌린지 전건.
+     * 챌린지 종료 푸시(B4·GROMO-1088) 대상 후보 — 타입이 맞는 살아있는 ACTIVE 챌린지 전건.
      *
-     * <p>15분 크론이 매 틱 도는 조회라 group 을 함께 fetch 한다(딥링크의 groupId). 실제 발송 대상은
-     * 여기서 창 상세를 붙여 "오늘 창 종료가 방금 지났는지" 로 다시 좁히므로, 이 조회 결과는 보통
-     * 그룹 수준의 소수다(활성 챌린지는 그룹당 카테고리×타입 1개 = 최대 4개, V20 부분 유니크).
+     * <p>종료 감지가 <b>타입별</b>로 갈리기 때문에 타입만으로 뽑는다: TIME_WINDOW 는 창 종료 시각(15분
+     * 크론), DURATION 은 하루 마감(일 1회 크론)이다. 카테고리는 감지 기준이 아니라 문구·판정 소스에만
+     * 영향을 주므로 여기서 나누지 않는다(종전 {@code findActiveByCategoryAndType} 대체 — 창 종료 푸시가
+     * 스크린타임 전용이던 시절의 잔재였다).
+     *
+     * <p>매 틱 도는 조회라 group 을 함께 fetch 한다(딥링크의 groupId). 실제 발송 대상은 호출측이
+     * 상세(창·일 목표)를 붙여 "방금 끝났는지" 로 다시 좁힌다. 활성 챌린지는 그룹당 카테고리×타입 1개
+     * (V20 부분 유니크)라 결과는 타입당 최대 (그룹 수 × 2) 건이다.
      */
     @Query("SELECT c FROM GroupChallenge c JOIN FETCH c.group "
-            + "WHERE c.status = :status AND c.deletedAt IS NULL "
-            + "AND c.category = :category AND c.type = :type")
-    List<GroupChallenge> findActiveByCategoryAndType(
+            + "WHERE c.status = :status AND c.deletedAt IS NULL AND c.type = :type")
+    List<GroupChallenge> findActiveByType(
             @Param("status") GroupChallengeStatus status,
-            @Param("category") MissionCategory category,
             @Param("type") MissionType type);
 }

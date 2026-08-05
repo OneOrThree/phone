@@ -81,7 +81,8 @@ name: 01-onboarding-guest
 - tapOn:
     id: 'onboarding.secondary'
 
-# W12 목표 설정 — 기본값 그대로 진행
+# W12 목표 설정 — 드럼 휠 스와이프는 자동화가 어려워 E2E 빌드에선 기본 목표가 채워진 채로
+# 시작한다(CTA 활성, EXPO_PUBLIC_E2E). 일반 빌드는 두 목표를 다 정해야 CTA가 열린다.
 - assertVisible:
     id: 'onboarding.step.goal'
 - tapOn:

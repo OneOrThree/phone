@@ -101,8 +101,15 @@ public abstract class InviteLinkTestSupport extends IntegrationTestBase {
 
     /** 닉네임에 UUID 를 붙인다 — 유니크 제약이 있는 컬럼이라 테스트끼리 부딪히지 않게. */
     protected User newUser(String nickname) {
-        User user = userRepository.save(
-                User.builder().nickname(nickname + UUID.randomUUID()).isGuest(false).build());
+        return newUserWithExactNickname(nickname + UUID.randomUUID());
+    }
+
+    /**
+     * 닉네임을 그대로 쓰는 유저 — 랜딩이 초대자 이름을 어떻게 싣는지 보려면 UUID 접미사가 붙으면 안 된다
+     * (랜딩은 긴 닉네임을 잘라서 렌더한다). 유니크 제약이 있으니 호출부가 서로 다른 값을 준다.
+     */
+    protected User newUserWithExactNickname(String nickname) {
+        User user = userRepository.save(User.builder().nickname(nickname).isGuest(false).build());
         users.add(user);
         return user;
     }

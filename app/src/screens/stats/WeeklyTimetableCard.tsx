@@ -1,21 +1,11 @@
 // 주 탭 요일별 집중 타임라인(GROMO-778) — 요일(열)×세로 시간축. 세션을 날짜별로 분할해 해당 요일
 // 칼럼에 과목 색 블록으로 그린다. 색 매핑(tagId→태그명→과목색)·조회 패턴은 '오늘 타임테이블'(FocusTimetable)과 동일.
-import { useCallback, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-  Share,
-  Platform,
-} from 'react-native';
-import { captureRef } from 'react-native-view-shot';
+import { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import Svg, { Line } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
-import { logStatsShared } from '@/services/analyticsEvents';
 import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
 import type { FocusSessionResponse } from '@/types/dto/focus';
 import { useSubjects } from '@/store/SubjectContext';
@@ -24,55 +14,27 @@ import { subjectColorForTag, weekdayFocusBlocks, type WeekFocusBlock } from './f
 import { SectionCard } from './SectionCard';
 import { WEEK_DAYS } from './constants';
 import { cs } from './cardStyles';
+import { ShareBrandFooter } from './ShareBrandFooter';
+import { useTimetableShareCapture } from './useTimetableShareCapture';
 
 // 주간 타임라인 카드 — '오늘 타임테이블'(FocusTimetableCard)과 동일하게 공유하기(캡처→Share) 버튼 제공(GROMO-778).
 export function WeeklyTimetableCard() {
-  const shotRef = useRef<View>(null);
-  const [sharing, setSharing] = useState(false);
-  // 캡처 전용 상태 — 워터마크 렌더 조건. sharing을 쓰면 공유 시트가 떠 있는 동안 워터마크가
-  // 카드에 계속 노출된다(FocusTimetableCard와 동일, PR 386 리뷰 반영)
-  const [capturing, setCapturing] = useState(false);
-
-  const onShare = async () => {
-    if (sharing) return;
-    setSharing(true);
-    setCapturing(true);
-    try {
-      // 워터마크(capturing 중에만 렌더)가 화면에 커밋·페인트된 뒤 캡처 — setState 직후엔
-      // 아직 반영 전이라 두 프레임 대기(FocusTimetableCard와 동일, GROMO-1014)
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const uri = await captureRef(shotRef, {
-        format: 'png',
-        quality: 1,
-        // 공유 파일명 — 예: 260716_주간타임라인.png (사진 저장 시엔 이름이 남지 않음)
-        fileName: `${todayStr().slice(2).replace(/-/g, '')}_주간타임라인`,
-      });
-      // 캡처 직후 워터마크 제거 — 공유 시트가 떠 있는 동안 카드에 남지 않게
-      setCapturing(false);
-      // Android Share는 url을 무시하고 message 기반이라 플랫폼별 페이로드(현재 iOS 전용 앱이지만 방어)
-      const result = await Share.share(Platform.OS === 'ios' ? { url: uri } : { message: uri });
-      // 시트만 열고 닫으면 completed=false — 탭 대비 실공유 전환을 구분(GROMO-782).
-      // Android는 항상 sharedAction으로 resolve라 completed를 iOS에서만 인정(FocusTimetableCard와 동일).
-      logStatsShared({
-        card: 'weekly_timeline',
-        completed: Platform.OS === 'ios' && result.action === Share.sharedAction,
-      });
-    } catch {
-      // 캡처 실패·공유 취소 — 무시
-    } finally {
-      // 캡처 실패 시에도 워터마크 정리(성공 경로에선 이미 false — 멱등)
-      setCapturing(false);
-      setSharing(false);
-    }
-  };
+  // 공유 파일명 — 예: 260716_주간타임라인.png (사진 저장 시엔 이름이 남지 않음)
+  const makeFileName = useCallback(
+    () => `${todayStr().slice(2).replace(/-/g, '')}_주간타임라인`,
+    [],
+  );
+  // 캡처→공유·로드 게이트 로직은 일/주 공용 훅이 담당(FocusTimetableCard와 동일, GROMO-1070)
+  const { shotRef, capturing, captureStyle, disabled, onCharReady, onLoaded, onShare } =
+    useTimetableShareCapture({ card: 'weekly_timeline', makeFileName });
 
   return (
     <SectionCard title="요일별 타임테이블">
-      {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게 */}
-      <View ref={shotRef} collapsable={false} style={cs.ttShot}>
-        <WeeklyTimetable />
-        {/* 공유 워터마크 — 캡처 순간에만 렌더되어 캡처 이미지에만 담긴다(GROMO-1014) */}
-        {capturing && <Text style={cs.shareWatermark}>gromo</Text>}
+      {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게. 캡처 시엔 사방 소여백(captureStyle) */}
+      <View ref={shotRef} collapsable={false} style={[cs.ttShot, captureStyle]}>
+        <WeeklyTimetable onLoaded={onLoaded} />
+        {/* 공유 브랜드 밴드 — 캡처 순간에만 본문 아래에 렌더되어 캡처 이미지에만 담긴다(GROMO-1070) */}
+        <ShareBrandFooter visible={capturing} onCharReady={onCharReady} />
       </View>
       {/* 공유하기 — 카드 하단 오른쪽('오늘 타임테이블'과 동일). 헤더에 두면 상시 드래그 핸들과 겹친다.
           shotRef 밖이라 캡처 이미지에는 안 담긴다 */}
@@ -81,7 +43,7 @@ export function WeeklyTimetableCard() {
         onPress={onShare}
         hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
         activeOpacity={0.7}
-        disabled={sharing}
+        disabled={disabled}
       >
         <Text style={cs.shareBtnText}>공유하기</Text>
         <Ionicons name="share-outline" size={15} color={T.inkSub} />
@@ -93,7 +55,7 @@ export function WeeklyTimetableCard() {
 const WTT_BODY_H = 400; // 트랙 세로 픽셀 — 하루 24시간(0~24)을 담아도 세션 막대가 도톰하게 보이도록(GROMO-975)
 const WTT_MIN_BLOCK = 3; // 아주 짧은 세션도 보이도록 최소 블록 높이
 
-function WeeklyTimetable() {
+function WeeklyTimetable({ onLoaded }: { onLoaded?: () => void }) {
   const { subjects } = useSubjects();
   const [blocks, setBlocks] = useState<WeekFocusBlock[] | null>(null);
   // 서버 tagId → 태그명(과목 색 매칭용). 로컬 과목 id는 서버 tagId와 달라 이름으로 잇는다(FocusTimetable과 동일).
@@ -127,11 +89,13 @@ function WeeklyTimetable() {
         if (cancelled) return;
         setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
         setBlocks(weekdayFocusBlocks(sessions, monday.getTime()));
+        // 데이터 로드 완료 신호 — 카드가 공유 버튼을 열어준다(GROMO-1070 리뷰 반영)
+        onLoaded?.();
       })();
       return () => {
         cancelled = true;
       };
-    }, []),
+    }, [onLoaded]),
   );
 
   if (blocks === null) {
@@ -141,9 +105,9 @@ function WeeklyTimetable() {
       </View>
     );
   }
-  if (blocks.length === 0) {
-    return <Text style={cs.emptyText}>아직 기록이 없어요</Text>;
-  }
+  // 기록이 없어도 표(요일 헤더 + 24시간 격자)는 그대로 그린다(GROMO-1082) — 텍스트로 대체하면
+  // 이번 주에 아무 기록이 없다는 사실이 표로 보이지 않고, '불러오기 실패'와도 구분되지 않는다.
+  // 안내 문구는 표를 가리지 않게 아래에 캡션으로 덧붙인다.
 
   // 구간의 과목 색 — 공용 헬퍼(subjectColorForTag)로 tagId → 태그명 → 로컬 과목 색 매칭(FocusTimetable과 동일)
   const colorForTag = (tagId: string | null) => subjectColorForTag(tagId, tagNames, subjects);
@@ -253,6 +217,8 @@ function WeeklyTimetable() {
           )}
         </View>
       </View>
+      {/* 빈 상태 안내 — 표는 띄운 채 캡션만 덧붙인다(GROMO-1082). 기록이 있으면 범례가 대신 뜬다 */}
+      {blocks.length === 0 && <Text style={cs.grassHint}>아직 기록이 없어요</Text>}
       {/* 범례 */}
       {legendSubjects.length > 0 && (
         <View style={s.wttLegend}>

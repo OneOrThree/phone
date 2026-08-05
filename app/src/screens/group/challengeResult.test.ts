@@ -118,6 +118,8 @@ describe('pickChallengeResults — 어제 결과', () => {
     expect(out).toHaveLength(0);
   });
 
+  // 딥링크가 지목해도 마찬가지다 — 서버가 INACTIVE 챌린지의 memberProgress를 항상 null로
+  // 내려주므로(GroupChallengeService.isProgressTarget) 상태 필터를 열어도 후보가 되지 않는다.
   test('INACTIVE 챌린지는 제외한다', () => {
     const out = pick({ yesterday: [challenge({ status: 'INACTIVE' })] });
     expect(out).toHaveLength(0);

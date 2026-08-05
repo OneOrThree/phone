@@ -5,20 +5,27 @@ import { T } from '@/constants/theme';
 import {
   BET_CANCEL_FORBIDDEN,
   BET_CANCEL_HAS_OTHERS,
+  BET_LEAVE_CLOSED,
+  BET_NOT_JOINED,
   BET_NOT_OPEN,
   cancelBet,
   challengeGroupId,
   groupErrorCode,
+  leaveBet,
 } from '@/services/groupApi';
 import { logGroupBetCanceled } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
+import { todayStr } from '@/utils/localDate';
+import { nowSecondsInZone, timeStrToSeconds } from '@/utils/challengeTime';
 import type { ChallengeMemberProgress, GroupChallengeResponse } from '@/types/dto/group';
 import { categoryLabel, missionLabel } from './challengeLabel';
+import LastBetResultSheet from './LastBetResultSheet';
 
 // 챌린지 카드(그룹방 챌린지 섹션 1장) — 명세 docs/app/group-plan-2.md §3-2.
 //
-// 미션 라벨 + 멤버별 진행 리스트. 방장은 롱프레스로 삭제한다(행 안에 버튼을 두면
-// 진행 리스트의 시선을 뺏고, 오탭 시 되돌릴 방법이 없다 — 확인 Alert를 한 겹 둔다).
+// 미션 라벨 + 멤버별 진행 리스트. 방장은 우측 상단 X 버튼으로 삭제한다(GROMO-1101 —
+// 옛 롱프레스는 발견 가능성이 0이라 힌트 캡션까지 필요했다. 오탭 시 되돌릴 방법이 없는 동작이라
+// 확인 Alert 한 겹은 그대로 둔다).
 //
 // ⚠️ 진행 표기 3상(§3-2) — 0과 null을 뭉개지 않는다:
 //     achieved === true   → '달성 ✓'
@@ -42,8 +49,6 @@ const NO_PERMISSION_CAPTION = '스크린타임 권한이 없어 참여할 수 �
 const UNMEASURED_CAPTION = '— 는 아직 집계되지 않았어요';
 // memberProgress 자체가 null인 챌린지(TIME_WINDOW) — 리스트를 그냥 비우면 '아무도 안 했다'로 읽힌다.
 const NO_PROGRESS_CAPTION = '이 챌린지는 진행률을 표시하지 않아요';
-// 롱프레스 삭제는 발견 가능성이 0이다 — 방장에게만 한 줄로 알린다.
-const DELETE_HINT_CAPTION = '길게 눌러 삭제';
 // 이미 오늘 목표를 채운 사람은 참가할 수 없다(무위험 참가 차단 — 백 명세 결정 7).
 // 버튼만 잠그면 왜 안 눌리는지 알 방법이 없어 사유를 한 줄로 적는다.
 const BET_ACHIEVED_CAPTION = '이미 오늘 목표를 달성해서 참가할 수 없어요';
@@ -56,14 +61,20 @@ const BET_ACHIEVED_CREATE_CAPTION = '이미 오늘 목표를 달성해서 내기
 // (BET_ALREADY_FAILED — 질 게 확정된 판돈 투입 방지). 문장도 방향에 맞춘다.
 const BET_FAILED_CAPTION = '이미 목표를 초과해서 참가할 수 없어요';
 const BET_FAILED_CREATE_CAPTION = '이미 목표를 초과해서 내기를 열 수 없어요';
-// 취소 직후의 자리 표시 — 영역을 그냥 비우면 방금 한 일이 사라진 것처럼 보인다(betLocked와 같은 이유).
-const BET_CANCELED_CAPTION = '내기를 취소했어요. 판돈은 잔액으로 돌아왔어요';
+// 철회 직후의 자리 표시 — 영역을 그냥 비우면 방금 한 일이 사라진 것처럼 보인다(betLocked와 같은 이유).
+const BET_LEFT_CAPTION = '내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요';
+// 취소(당일 단독 개설자 carve-out) 직후의 자리 표시 — 누른 버튼('취소')과 같은 동사로 말한다.
+const BET_CANCELED_CAPTION = '내기를 취소했어요. 참가비는 잔액으로 돌아왔어요';
+// 창(TIME_WINDOW) 시각의 해석 시간대 — 계약 §1: 저장된 창 시각은 Asia/Seoul 벽시계다.
+// 서버 "HH:mm:ss"와 현재를 같은 벽시계 공간에서 비교한다(challengeTime 유틸 관례).
+const KST_ZONE = 'Asia/Seoul';
 
-// 'YYYY-MM-DD' → '7/31'. 캡션 한 줄에 연도까지 넣을 자리가 없고, '지난 내기'는 늘 최근 며칠이다.
+// 'YYYY-MM-DD' → '7월 31일'. 연도는 넣지 않는다 — '지난 내기'는 늘 최근 며칠이다.
+// '7/31' 축약은 날짜인지 비율인지 한눈에 안 읽혀 단위를 붙인다(ChallengeResultModal과 같은 표기).
 // 형식이 다르면 원문을 그대로 둔다(서버가 다른 포맷을 주면 깨진 날짜보다 원문이 낫다).
-function mmdd(betDate: string): string {
+function monthDay(betDate: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(betDate);
-  return m ? `${Number(m[2])}/${Number(m[3])}` : betDate;
+  return m ? `${Number(m[2])}월 ${Number(m[3])}일` : betDate;
 }
 
 // 멤버 한 명의 진행 표기 — 위 3상 규칙 그대로.
@@ -112,17 +123,23 @@ export default function ChallengeCard({
   onOpenBet,
   betLocked,
 }: ChallengeCardProps) {
-  // 내기 취소(개설자 단독·OPEN)의 API·잔액 갱신을 카드가 직접 쥔다 — 시트(BetSheet)는 참가자
+  // 내기 참가 철회의 API·잔액 갱신을 카드가 직접 쥔다 — 시트(BetSheet)는 참가자
   // 상태에선 부모(GroupRoomScreen)의 stale 검사가 즉시 닫아 버려 진입 자체가 불가능하고,
   // 부모는 A3 전유라 이 배치에서 콜백을 늘릴 수 없다(README §파일 소유권). groupId도 같은 이유로
   // prop이 아니라 groupApi의 조회 캐시(challengeGroupId)에서 역참조한다.
   const { refresh: refreshCoins } = useCoins();
-  const [cancelBusy, setCancelBusy] = useState(false);
-  // 취소 성공의 낙관 반영 — 부모 재조회를 트리거할 콜백이 없어(위 주석) 다음 자연 재조회(포커스
-  // 복귀·당겨서 새로고침)까지는 카드가 스스로 '취소됨'을 그린다. betId를 쥐므로 재조회가 늦게
-  // 도착해 같은(이미 취소된) 내기를 다시 내려줘도 표시가 되돌아가지 않는다.
-  const [canceledBetId, setCanceledBetId] = useState<string | null>(null);
-  const cancelLock = useRef(false);
+  const [leaveBusy, setLeaveBusy] = useState(false);
+  // 철회·취소 성공의 낙관 반영 — 부모 재조회를 트리거할 콜백이 없어(위 주석) 다음 자연 재조회
+  // (포커스 복귀·당겨서 새로고침)까지는 카드가 스스로 '빠짐/닫힘'을 그린다. betId를 쥐므로
+  // 재조회가 늦게 도착해 같은 내기를 다시 내려줘도 표시가 되돌아가지 않는다.
+  // kind는 자리 캡션의 동사를 가른다 — 철회('빠졌어요')와 취소('취소했어요')는 누른 버튼이 다르다.
+  const [closedBet, setClosedBet] = useState<{ betId: string; kind: 'leave' | 'cancel' } | null>(
+    null,
+  );
+  // 철회·취소가 공유하는 연타 락 — 두 진입점은 배타 노출이라 같은 락 하나로 충분하다.
+  const leaveLock = useRef(false);
+  // 지난 내기 결과 시트(GROMO-1099) — 데이터는 challenge.lastSettledBet 그대로, 열림만 카드가 쥔다.
+  const [lastBetOpen, setLastBetOpen] = useState(false);
 
   const label = missionLabel(challenge);
   const progress = challenge.memberProgress;
@@ -181,19 +198,44 @@ export default function ChallengeCard({
     : BET_ACHIEVED_CREATE_CAPTION;
   // 개설 진입점을 잠그는 이유 2가지(재조회 중 · 이미 확정) — 잠금 표시는 같고 사유만 다르다.
   const createBlocked = !!betLocked || myBlockedNow;
+  // 내기 기준일 — 'YYYY-MM-DD'는 사전순이 곧 시간순이다. 철회의 '시작 전' 판정·'내일 시작' 배지·
+  // 미래 내기 잠금 해제가 같이 쓴다. 서버가 오늘 내기가 없으면 내일 내기를 폴백으로 내려줄 수
+  // 있고(계약 §3 응답 보수, W2), bet.date가 없으면(구서버) 조회일(오늘) 내기로 간주한다(DTO 주석).
+  const betDate = bet?.date ?? todayStr();
+  const isFutureBet = betDate > todayStr();
   // 참가 진입점 잠금 — FOCUS는 서버가 준 bet.myAchievedNow(이미 달성), SCREEN_TIME은 내 진행
   // 행의 확정 패배다. 스크린타임의 myAchievedNow는 표시용 잠정값이라 잠금에 쓰지 않는다(DTO 주석).
-  const joinBlockedNow = isScreenTime ? myBlockedNow : bet?.myAchievedNow === true;
+  // ⚠️ 미래(내일) 내기는 오늘 진행률 스냅샷으로 잠그지 않는다(#473 리뷰) — 내일의 집중·사용량은
+  //    미지수라 오늘 '이미 달성/초과'는 차단 근거가 못 된다. 서버도 폴백 내기의
+  //    myAchievedNow=false를 보장하지만 구서버·경합 대비 앱에서도 방어적으로 끊는다.
+  const joinBlockedNow =
+    !isFutureBet && (isScreenTime ? myBlockedNow : bet?.myAchievedNow === true);
   // 서버가 participants를 빠뜨려도 카드가 죽지 않게 — 인원 수는 표시용일 뿐이다.
   const betMembers = bet?.participants?.length ?? 0;
-  // 내가 방금 취소한 내기인가 — 낙관 반영(위 state 주석).
-  const betCanceledByMe = bet !== null && bet.betId === canceledBetId;
-  // 취소 가능 조건(계약 §2) — 내가 개설자 && 참가자가 나(개설자) 1명뿐 && OPEN.
-  // creatorUserId가 없으면(구서버) 개설자를 알 수 없으므로 진입점을 그리지 않는다 —
-  // 눌러 봐야 404/403으로 끝나는 버튼을 세우지 않는다(betKnown과 같은 원칙).
+  // 내가 방금 빠진(철회)·닫은(취소) 내기인가 — 낙관 반영(위 state 주석).
+  const leftByMe = bet !== null && closedBet !== null && bet.betId === closedBet.betId;
+  // 참가 철회 가능 조건(계약 §4) — 참가 중 && OPEN && **시작 전**. 개설자·단독이어도 시작 전이면
+  // 철회가 우선이다(GROMO-1102 — 단독 개설자가 철회하면 서버가 내기를 자동 CANCELED 하므로
+  // 옛 취소의 의미가 보존된다). '시작 전' 판정은 서버와 같은 기준이다(계약 §4):
+  //   TIME_WINDOW → 내일 이후 내기는 항상 전, 오늘 내기는 KST 벽시계 < 창 시작 시각일 때만
+  //   DURATION   → 내기 날짜가 내일 이후일 때만(당일은 하루 집계가 이미 진행 중이라 불가)
+  // 판정이 어긋난 레이스는 서버가 정본으로 끝낸다(BET_LEAVE_CLOSED로 돌아온다).
+  const beforeStart = isWindow
+    ? isFutureBet ||
+      (challenge.windowStart !== null &&
+        nowSecondsInZone(KST_ZONE) < timeStrToSeconds(challenge.windowStart))
+    : isFutureBet;
+  const leavable =
+    bet !== null && !leftByMe && bet.status === 'OPEN' && bet.myJoined && beforeStart;
+  // 당일 단독 개설자 carve-out(#474 리뷰 회귀 지적) — 철회는 '시작 전'만 허용이라(위) 당일
+  // DURATION·창 시작 후의 '개설자 단독 OPEN' 내기가 어느 버튼으로도 못 닫는 회귀가 생겼다.
+  // 이 조합만 기존 cancelBet(개설자 단독 취소 — 서버에 살아 있고 시작 여부를 보지 않는다)으로
+  // 복원한다. leavable이면 철회가 우선이라 두 버튼이 함께 서지 않는다(배타).
+  // creatorUserId를 모르는 구서버는 개설자를 판정할 수 없어 진입점을 세우지 않는다(기존 원칙).
   const cancelable =
+    !leavable &&
     bet !== null &&
-    !betCanceledByMe &&
+    !leftByMe &&
     bet.status === 'OPEN' &&
     bet.myJoined &&
     bet.creatorUserId !== undefined &&
@@ -201,24 +243,77 @@ export default function ChallengeCard({
     bet.creatorUserId === myUserId &&
     betMembers === 1;
 
-  // 취소 실행 — 검증은 서버가 정본이다(레이스로 조건이 깨졌으면 에러 코드로 돌아온다).
+  // 철회 실행 — 검증은 서버가 정본이다(레이스로 조건이 깨졌으면 에러 코드로 돌아온다).
+  async function doLeaveBet(betId: string, stake: number, participantsCount: number) {
+    // 같은 틱 연타 방지 — state(leaveBusy)는 리렌더 뒤에야 보인다(ComposeSheet.submitLock 관행).
+    if (leaveLock.current) return;
+    leaveLock.current = true;
+    setLeaveBusy(true);
+    const groupId = challengeGroupId(challenge.id);
+    try {
+      if (groupId === null) throw new Error('unknown groupId'); // 캐시 미적중 — 공통 문구로.
+      await leaveBet(groupId, betId);
+      // 마지막 참가자의 철회는 서버가 내기를 CANCELED로 닫는다(계약 §4) — 그 경우에만 기존
+      // '내기 취소' 계측을 발행한다(이벤트 의미 보존). 참가만 빠지는 철회는 대응 이벤트가 없다 —
+      // analyticsEvents는 이 배치 소유권 밖이라 신설하지 않는다(성공 시에만 발행 규칙은 동일).
+      if (participantsCount === 1) {
+        logGroupBetCanceled({ stake, participants_count: participantsCount });
+      }
+      // 환불 반영은 서버가 정본이라 잔액을 다시 받는다.
+      refreshCoins();
+      setClosedBet({ betId, kind: 'leave' });
+    } catch (e) {
+      switch (groupErrorCode(e)) {
+        // 세 코드 모두 이 카드 상태로는 재시도해도 같은 결과다 — 사실만 알리고, 화면 정리는
+        // 다음 자연 재조회에 맡긴다(철회 버튼은 조건이 깨진 최신 응답이 오면 스스로 사라진다).
+        case BET_LEAVE_CLOSED:
+          Alert.alert('철회할 수 없어요', '내기가 시작된 뒤에는 뺄 수 없어요.');
+          break;
+        case BET_NOT_JOINED:
+          Alert.alert('철회할 수 없어요', '참가 중인 내기가 아니에요. 화면을 새로고침해 주세요.');
+          break;
+        case BET_NOT_OPEN:
+          Alert.alert('철회할 수 없어요', '이미 정산됐거나 닫힌 내기예요.');
+          break;
+        default:
+          Alert.alert('내기에서 빠지지 못했어요', '잠시 후 다시 시도해주세요.');
+      }
+    } finally {
+      leaveLock.current = false;
+      setLeaveBusy(false);
+    }
+  }
+
+  // 확인 한 겹 — 돈이 되돌아오는 동작이라도 참가가 사라지므로 삭제와 같은 규격을 쓴다.
+  function confirmLeaveBet() {
+    if (!leavable || bet === null) return;
+    Alert.alert('참가 철회', `참가비 ${bet.stake}코인을 돌려받고 내기에서 빠질까요?`, [
+      { text: '아니요', style: 'cancel' },
+      {
+        text: '철회하기',
+        style: 'destructive',
+        onPress: () => doLeaveBet(bet.betId, bet.stake, betMembers),
+      },
+    ]);
+  }
+
+  // 취소 실행(carve-out 전용) — 검증은 서버가 정본이다. 철회와 달리 cancelBet은 시작 여부를
+  // 보지 않고 '개설자 단독 OPEN'만 본다(계약 §4 — 구버전 호환으로 유지된 엔드포인트).
   async function doCancelBet(betId: string, stake: number, participantsCount: number) {
-    // 같은 틱 연타 방지 — state(cancelBusy)는 리렌더 뒤에야 보인다(ComposeSheet.submitLock 관행).
-    if (cancelLock.current) return;
-    cancelLock.current = true;
-    setCancelBusy(true);
+    if (leaveLock.current) return;
+    leaveLock.current = true;
+    setLeaveBusy(true);
     const groupId = challengeGroupId(challenge.id);
     try {
       if (groupId === null) throw new Error('unknown groupId'); // 캐시 미적중 — 공통 문구로.
       await cancelBet(groupId, betId);
-      // 성공 시에만 발행(내기 계측 공통 규칙) — 환불 반영은 서버가 정본이라 잔액을 다시 받는다.
+      // 내기가 통째로 닫히는 동작이라 항상 '내기 취소' 계측이다(성공 시에만 발행 규칙 동일).
       logGroupBetCanceled({ stake, participants_count: participantsCount });
       refreshCoins();
-      setCanceledBetId(betId);
+      setClosedBet({ betId, kind: 'cancel' });
     } catch (e) {
       switch (groupErrorCode(e)) {
-        // 세 코드 모두 이 카드 상태로는 재시도해도 같은 결과다 — 사실만 알리고, 화면 정리는
-        // 다음 자연 재조회에 맡긴다(취소 버튼은 조건이 깨진 최신 응답이 오면 스스로 사라진다).
+        // 재시도해도 같은 결과다 — 사실만 알리고 화면 정리는 다음 자연 재조회에 맡긴다(철회와 동일).
         case BET_CANCEL_FORBIDDEN:
           Alert.alert('취소할 수 없어요', '내기를 연 사람만 취소할 수 있어요.');
           break;
@@ -232,15 +327,15 @@ export default function ChallengeCard({
           Alert.alert('내기를 취소하지 못했어요', '잠시 후 다시 시도해주세요.');
       }
     } finally {
-      cancelLock.current = false;
-      setCancelBusy(false);
+      leaveLock.current = false;
+      setLeaveBusy(false);
     }
   }
 
-  // 확인 한 겹 — 돈이 되돌아오는 동작이지만 내기 자체가 사라지므로 삭제와 같은 규격을 쓴다.
+  // 확인 한 겹 — 옛 취소 버튼의 문구 관례 그대로(내기 자체가 닫히므로 '닫을까요'로 묻는다).
   function confirmCancelBet() {
     if (!cancelable || bet === null) return;
-    Alert.alert('내기 취소', `판돈 ${bet.stake}코인을 돌려받고 내기를 닫을까요?`, [
+    Alert.alert('내기 취소', `참가비 ${bet.stake}코인을 돌려받고 내기를 닫을까요?`, [
       { text: '아니요', style: 'cancel' },
       {
         text: '취소하기',
@@ -254,32 +349,6 @@ export default function ChallengeCard({
   // achieved는 3상이다(계약 §3) — null(미판정)을 미달성으로 세면 달성 인원이 과소 집계된다.
   const lastAchieved = lastResults.filter((r) => r.achieved === true).length;
 
-  // 지난 내기 결과 상세 — 카드 안에 인별 표를 펼치면 오늘 진행 리스트와 뒤엉킨다.
-  // payout은 '받은 금액'이라 그대로 쓰면 판돈을 낸 사실이 지워진다 → 손익(payout - stake)으로 적는다.
-  function showLastBet() {
-    if (!lastBet) return;
-    const lines = lastResults.map((r) => {
-      // 미판정(정산 전·부분 실패) — 0으로 뭉개면 '판돈을 잃었다'로 읽힌다(진행 리스트 '—'와 같은 규칙).
-      if (r.payout === null || r.achieved === null) return `${r.nickname} · 미판정`;
-      const delta = r.payout - lastBet.stake;
-      return `${r.nickname} · ${r.achieved ? '달성' : '미달성'} · ${delta > 0 ? '+' : ''}${delta}`;
-    });
-    // 승자 0명의 결말이 상태로 갈린다 — 구 룰(V19 이전)은 전원 환불(REFUNDED), 현 룰은 전액
-    // 몰수(FORFEITED, 계약 확정 정책). '0명 달성 · 전원 미달성'만 보면 어느 쪽인지 알 수 없어
-    // 첫 줄에 못 박는다(F8). CANCELED는 서버가 lastSettledBet에서 걸러 준다 — 모르는 상태는
-    // 머리글 없이 인별 줄만 그대로 그린다(else 강하).
-    const head =
-      lastBet.status === 'REFUNDED'
-        ? ['달성한 사람이 없어 전원 환불됐어요']
-        : lastBet.status === 'FORFEITED'
-          ? ['아무도 달성하지 못해 판돈이 소멸됐어요']
-          : ([] as string[]);
-    Alert.alert(
-      `지난 내기 (${mmdd(lastBet.betDate)})`,
-      [...head, `판돈 ${lastBet.stake} · 팟 ${lastBet.pot}`, ...lines].join('\n'),
-    );
-  }
-
   // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
   function confirmDelete() {
     if (!isOwner) return;
@@ -290,17 +359,9 @@ export default function ChallengeCard({
   }
 
   return (
-    <TouchableOpacity
-      style={s.card}
-      // 탭에는 아무 동작이 없다 — 방장에게만 눌림 피드백을 주면 뭔가 열릴 것처럼 보인다(false affordance).
-      activeOpacity={1}
-      onLongPress={confirmDelete}
-      // 공지 카드와 같은 임계값 — 같은 화면 안에서 같은 제스처가 다른 시간을 요구하면 안 된다.
-      delayLongPress={300}
-      // 방장이 아니면 롱프레스가 아무것도 하지 않으므로 접근성 트리에서도 버튼으로 보이지 않게 한다.
-      accessibilityRole={isOwner ? 'button' : undefined}
-      testID={`group.challenge.card.${challenge.id}`}
-    >
+    // 카드 자체는 더 이상 아무 제스처도 받지 않는다(GROMO-1101 — 롱프레스 삭제 제거).
+    // 눌리는 자리는 전부 안쪽의 명시적 버튼이다.
+    <View style={s.card} testID={`group.challenge.card.${challenge.id}`}>
       <View style={s.head}>
         <View style={s.icon}>
           <Ionicons
@@ -314,6 +375,22 @@ export default function ChallengeCard({
               (문장 안에서는 `하루 60분 집중`처럼 짧은 쪽을 쓴다) */}
           {label ?? categoryLabel(challenge)}
         </Text>
+        {/* 방장 전용 삭제 X(GROMO-1101) — 서버도 방장 전용이라(NOT_OWNER 403) 비방장에겐
+            그리지 않는다. 시각 28pt + hitSlop 8로 터치 타깃 44pt를 채운다 — 카드 본체가
+            비터치라 확장 히트영역이 다른 버튼과 겹치지 않는다(내기 영역은 카드 하단이다). */}
+        {isOwner && (
+          <TouchableOpacity
+            style={s.deleteBtn}
+            activeOpacity={0.7}
+            hitSlop={8}
+            onPress={confirmDelete}
+            accessibilityRole="button"
+            accessibilityLabel="챌린지 삭제"
+            testID={`group.challenge.delete.${challenge.id}`}
+          >
+            <Ionicons name="close" size={16} color={T.inkMuted} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* SCREEN_TIME 뜻 한 줄 — 창(TIME_WINDOW) 카드는 라벨이 이미 시간대·목표를 말하므로
@@ -359,15 +436,30 @@ export default function ChallengeCard({
 
       {hasUnmeasured && <Text style={s.caption}>{UNMEASURED_CAPTION}</Text>}
 
-      {/* ── 내기 영역(3차 §1) — 진행 리스트 아래, 방장 힌트 위 ──
+      {/* ── 내기 영역(3차 §1) — 진행 리스트 아래, 카드 하단 ──
           끝난 챌린지에 내기가 하나도 없으면 영역 자체를 두지 않는다 — 열 수 없는 자리에
           구분선만 남기면 무엇이 빠졌는지 알 수 없는 빈칸이 된다. */}
       {betSupported && (bet !== null || betOpenable) && (
         <View style={s.betArea}>
-          {betCanceledByMe ? (
-            // ⓪ 방금 내가 취소했다(낙관 반영) — 영역을 비우면 방금 한 일이 사라진 것처럼 보인다.
-            //    다음 자연 재조회가 서버 상태(내기 없음)로 갈아 끼운다.
-            <Text style={s.caption}>{BET_CANCELED_CAPTION}</Text>
+          {leftByMe && bet !== null ? (
+            // ⓪ 방금 내가 빠졌다(낙관 반영) — 영역을 비우면 방금 한 일이 사라진 것처럼 보인다.
+            //    남은 인원이 있으면 내기는 계속 표시하되(스펙 GROMO-1102) 내 참가 표시만 걷는다 —
+            //    참가비·적립금·인원은 내 몫을 뺀 값으로 미리 그린다(pot = stake × 인원 계약).
+            //    마지막 참가자였으면 서버가 내기를 CANCELED로 닫으므로 자리 캡션만 남긴다.
+            //    다음 자연 재조회가 서버 상태로 갈아 끼운다.
+            <>
+              {betMembers > 1 && (
+                <View style={s.betRow}>
+                  <Text style={[s.betText, s.betTextOff]}>
+                    🪙 참가비 {bet.stake} · 적립금 {bet.pot - bet.stake} · {betMembers - 1}명 참여
+                  </Text>
+                  {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
+                </View>
+              )}
+              <Text style={s.caption}>
+                {closedBet?.kind === 'cancel' ? BET_CANCELED_CAPTION : BET_LEFT_CAPTION}
+              </Text>
+            </>
           ) : bet === null ? (
             // ① 아직 내기가 없다 — 아웃라인 소형 버튼. 카드 본체(진행 리스트)보다 약하게 둔다.
             //    이미 확정된 사람(FOCUS 달성·SCREEN_TIME 초과)은 개설도 서버가 거절하므로
@@ -388,25 +480,42 @@ export default function ChallengeCard({
               {myBlockedNow && <Text style={s.caption}>{blockedCreateCaption}</Text>}
             </>
           ) : bet.myJoined ? (
-            // ③ 내가 참여 중 — 판돈·팟·인원. '참여 중' 칩은 아직 열려 있는 내기에만 붙인다
+            // ③ 내가 참여 중 — 참가비·적립금·인원. '참여 중' 칩은 아직 열려 있는 내기에만 붙인다
             //    (정산이 끝난 내기에 '참여 중'을 달면 지금도 진행 중인 것으로 읽힌다).
-            //    내가 개설자이고 아직 나 혼자인 OPEN 내기에만 취소 진입점을 붙인다(계약 §2).
+            //    시작 전 OPEN 내기에는 참가 철회 진입점을 붙인다(계약 §4 — 개설자·단독 불문).
             <View style={s.betRow}>
               <Text style={s.betText}>
-                🪙 판돈 {bet.stake} · 팟 {bet.pot} · {betMembers}명 참여
+                🪙 참가비 {bet.stake} · 적립금 {bet.pot} · {betMembers}명 참여
               </Text>
+              {/* '내일 시작' — 서버가 내일 내기를 폴백으로 내려줄 수 있다(계약 §3). 표기가 없으면
+                  오늘 내기로 읽힌다. 상태('참여 중')가 아니라 시점 표기라 중립 칩으로 가른다. */}
+              {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
               {bet.status === 'OPEN' && <Text style={s.betJoinedTag}>참여 중</Text>}
+              {leavable && (
+                <TouchableOpacity
+                  style={[s.betLeaveBtn, leaveBusy && s.betLeaveBtnOff]}
+                  activeOpacity={0.8}
+                  disabled={leaveBusy}
+                  onPress={confirmLeaveBet}
+                  accessibilityRole="button"
+                  accessibilityLabel="내기 참가 철회"
+                  testID={`group.bet.leave.${challenge.id}`}
+                >
+                  <Text style={s.betLeaveText}>철회</Text>
+                </TouchableOpacity>
+              )}
+              {/* 당일 단독 개설자 carve-out — cancelable이 !leavable을 품어 철회와 배타다. */}
               {cancelable && (
                 <TouchableOpacity
-                  style={[s.betCancelBtn, cancelBusy && s.betCancelBtnOff]}
+                  style={[s.betLeaveBtn, leaveBusy && s.betLeaveBtnOff]}
                   activeOpacity={0.8}
-                  disabled={cancelBusy}
+                  disabled={leaveBusy}
                   onPress={confirmCancelBet}
                   accessibilityRole="button"
                   accessibilityLabel="내기 취소"
                   testID={`group.bet.cancel.${challenge.id}`}
                 >
-                  <Text style={s.betCancelText}>취소</Text>
+                  <Text style={s.betLeaveText}>취소</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -424,8 +533,9 @@ export default function ChallengeCard({
                 testID={`group.bet.join.${challenge.id}`}
               >
                 <Text style={[s.betText, (joinBlockedNow || betLocked) && s.betTextOff]}>
-                  🪙 판돈 {bet.stake} · {betMembers}명 참여 중 — 참가하기
+                  🪙 참가비 {bet.stake} · {betMembers}명 참여 중 — 참가하기
                 </Text>
+                {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
               </TouchableOpacity>
               {joinBlockedNow && <Text style={s.caption}>{blockedCaption}</Text>}
             </>
@@ -434,30 +544,39 @@ export default function ChallengeCard({
             // 남아 있음) — 상태만 그대로 적고 누를 자리는 두지 않는다.
             <View style={s.betRow}>
               <Text style={[s.betText, s.betTextOff]}>
-                🪙 판돈 {bet.stake} · 팟 {bet.pot} · {betMembers}명 참여
+                🪙 참가비 {bet.stake} · 적립금 {bet.pot} · {betMembers}명 참여
               </Text>
+              {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
             </View>
           )}
         </View>
       )}
 
-      {/* 지난 내기 1줄 — 탭하면 인별 결과 Alert(§0-4). 결과 전용 화면은 만들지 않는다. */}
+      {/* 지난 내기 1줄 — 탭하면 인별 결과 **바텀시트**(GROMO-1099가 '결과 전용 화면은 만들지
+          않는다'(§0-4) 결정을 갱신했다 — 네이티브 Alert 나열이 '아이폰 알림창' 증상의 정체였다).
+          전용 화면 대신 카드 위 시트다 — 네비게이션은 여전히 건드리지 않는다. */}
       {betSupported && lastBet !== null && (
         <TouchableOpacity
           activeOpacity={0.7}
-          onPress={showLastBet}
+          onPress={() => setLastBetOpen(true)}
           hitSlop={8}
           accessibilityRole="button"
           testID={`group.bet.last.${challenge.id}`}
         >
           <Text style={s.betLastCaption}>
-            지난 내기({mmdd(lastBet.betDate)}): {lastResults.length}명 중 {lastAchieved}명 달성
+            지난 내기({monthDay(lastBet.betDate)}): {lastResults.length}명 중 {lastAchieved}명 달성
           </Text>
         </TouchableOpacity>
       )}
 
-      {isOwner && <Text style={s.hint}>{DELETE_HINT_CAPTION}</Text>}
-    </TouchableOpacity>
+      {lastBetOpen && lastBet !== null && (
+        <LastBetResultSheet
+          lastBet={lastBet}
+          myUserId={myUserId}
+          onClose={() => setLastBetOpen(false)}
+        />
+      )}
+    </View>
   );
 }
 
@@ -473,6 +592,16 @@ const s = StyleSheet.create({
     gap: T.space.xs,
   },
   head: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
+  // 방장 삭제 X — 파괴 동작이지만 확인 Alert가 한 겹 있어 아이콘은 옅게(inkMuted) 둔다.
+  // marginLeft:auto로 우측 끝 고정 — 라벨(flexShrink)이 길어도 자리를 뺏기지 않는다.
+  deleteBtn: {
+    marginLeft: 'auto',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   icon: {
     width: 26,
     height: 26,
@@ -561,8 +690,8 @@ const s = StyleSheet.create({
   betJoinRowOff: { backgroundColor: T.track },
   betText: { ...T.text.caption, color: T.inkSub, flexShrink: 1 },
   betTextOff: { color: T.inkMuted, fontWeight: '500' },
-  // 내기 취소 — 소형 아웃라인. 돈이 되돌아오는 파괴 동작이라 danger 잉크로 구분한다.
-  betCancelBtn: {
+  // 참가 철회 — 소형 아웃라인. 돈이 되돌아와도 참가가 사라지는 파괴 동작이라 danger 잉크로 구분한다.
+  betLeaveBtn: {
     height: 26,
     paddingHorizontal: T.space.sm,
     borderRadius: 8,
@@ -571,8 +700,19 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  betCancelBtnOff: { opacity: 0.5 },
-  betCancelText: { ...T.text.caption, color: T.dangerInk, fontWeight: '600' },
+  betLeaveBtnOff: { opacity: 0.5 },
+  betLeaveText: { ...T.text.caption, color: T.dangerInk, fontWeight: '600' },
+  // '내일 시작' 칩 — 내일 내기(계약 §3 폴백)의 시점 표기. '참여 중'(accent)과 같은 뱃지 규격이되
+  // 상태가 아니라 시점이라 중립 색(chipBg/inkSub)으로 가른다 — BetSheet 참가비 칩의 기본색 관례.
+  betTomorrowTag: {
+    ...T.text.caption,
+    color: T.inkSub,
+    fontWeight: '700',
+    backgroundColor: T.chipBg,
+    borderRadius: 8,
+    paddingHorizontal: T.space.sm,
+    paddingVertical: 2,
+  },
   // '참여 중' 칩 — GroupFindSheet의 같은 뱃지 규격(accent 칩).
   betJoinedTag: {
     ...T.text.caption,
@@ -590,7 +730,4 @@ const s = StyleSheet.create({
     color: T.inkMuted,
     textDecorationLine: 'underline',
   },
-
-  // 방장 전용 삭제 힌트 — 카드 하단 한 줄. 캡션보다 더 옅게 둬 내용과 섞이지 않게 한다.
-  hint: { ...T.text.caption, fontWeight: '500', color: T.inkFaint },
 });
