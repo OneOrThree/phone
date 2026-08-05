@@ -72,12 +72,13 @@ export default function NoticeComposeSheet({
   const insets = useSafeAreaInsets();
   const [kbHeight, setKbHeight] = useState(0);
   useEffect(() => {
-    // keyboardWillShow/Hide는 iOS 전용이라 Android에선 발화하지 않는다 — GroupFindSheet와 같은
-    // 플랫폼 분기로 Android에선 keyboardDidShow/Hide를 쓴다(리뷰 반영).
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvent, (e) => setKbHeight(e.endCoordinates.height));
-    const hide = Keyboard.addListener(hideEvent, () => setKbHeight(0));
+    // iOS만 수동 보정한다 — Android는 windowSoftInputMode=adjustResize가 SheetShell(bottom:0) 패널을
+    // 이미 키보드 위로 리사이즈하므로, 스페이서를 또 넣으면 시트가 이중으로 밀려 상단·제목칸이 잘린다(코덱스 리뷰).
+    if (Platform.OS !== 'ios') return;
+    const show = Keyboard.addListener('keyboardWillShow', (e) =>
+      setKbHeight(e.endCoordinates.height),
+    );
+    const hide = Keyboard.addListener('keyboardWillHide', () => setKbHeight(0));
     return () => {
       show.remove();
       hide.remove();

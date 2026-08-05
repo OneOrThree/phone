@@ -167,6 +167,9 @@ export default function FocusSessionScreen() {
   pausedRef.current = paused;
   const pageRef = useRef(page);
   pageRef.current = page;
+  // 현재 보고 있는 뷰 이름을 '진입 시점'에 고정(GROMO-987) — 그룹 페이지가 동적이라 체류 중 그룹
+  // 수가 바뀌어도 viewForPage 재계산으로 옛 체류가 다른 뷰에 잘못 귀속되지 않게 한다(코덱스 리뷰).
+  const activeViewRef = useRef<FocusViewName>('character');
   // 뷰 체류 계측(GROMO-987) — 현재 뷰 진입 시각. 페이지 전환·세션 종료 때 직전 뷰의 체류를
   // 발행하고 기준을 리셋한다. 백그라운드 이탈 구간은 화면을 보고 있는 게 아니므로 체류에서
   // 차감한다(누적 away + 아직 복귀 전인 진행 중 구간까지 — 이탈 타임아웃 종료 flush 대비).
@@ -184,7 +187,7 @@ export default function FocusSessionScreen() {
     dwellAwayMsRef.current = 0;
     if (dwellLeftAtRef.current != null) dwellLeftAtRef.current = now;
     logFocusViewChanged({
-      view: viewForPage(pageRef.current, groupCountRef.current),
+      view: activeViewRef.current,
       dwell_seconds: dwellSeconds,
     });
   }, []);
@@ -973,6 +976,7 @@ export default function FocusSessionScreen() {
       // 옛 페이지를 가리켜 어긋난다 — 진입 시 0으로 맞춰 복귀 시 일치시킨다(코덱스 리뷰).
       setPage(0);
       pageRef.current = 0;
+      activeViewRef.current = 'character';
     } else {
       // 세로 복귀 — 가로(가려짐) 구간을 뷰 이탈로 흡수하고 0페이지 체류를 새로 시작한다.
       if (dwellLeftAtRef.current != null) {
@@ -996,6 +1000,7 @@ export default function FocusSessionScreen() {
     const next = Math.round(e.nativeEvent.contentOffset.x / width);
     // 페이지 전환 시 직전 뷰의 체류를 발행(GROMO-987). 같은 페이지로 되돌아온 스크롤은 미계측.
     if (next !== page) flushViewDwell();
+    activeViewRef.current = viewForPage(next, groupCountRef.current);
     setPage(next);
   }
 
@@ -1009,10 +1014,14 @@ export default function FocusSessionScreen() {
     if (gid == null || sessionGroups.length === 0) return;
     const gi = sessionGroups.findIndex((g) => g.groupId === gid);
     if (gi < 0) return;
+    // 가로면 세로용 페이저가 언마운트돼 pagerRef가 null — 스크롤 못 하니 완료 처리하지 않고
+    // 세로 복귀(width 변경으로 이 이펙트 재실행) 후 재시도한다(코덱스 리뷰).
+    if (!pagerRef.current) return;
     const target = 2 + gi;
     didInitialScrollRef.current = true;
     flushViewDwell();
-    pagerRef.current?.scrollTo({ x: target * width, animated: false });
+    pagerRef.current.scrollTo({ x: target * width, animated: false });
+    activeViewRef.current = viewForPage(target, groupCountRef.current);
     setPage(target);
     pageRef.current = target;
   }, [params.initialGroupId, sessionGroups, width, flushViewDwell]);
@@ -1164,6 +1173,7 @@ export default function FocusSessionScreen() {
               <LiveFocusGrid
                 members={g.members}
                 me={myGridMe}
+                showMeWhenEmpty
                 title={`그룹: ${g.groupName}`}
                 emptyTitle="아직 그룹 멤버가 없어요"
                 emptySub={'그룹에 멤버가 모이면\n집중할 때 여기서 같이 보여요.'}
