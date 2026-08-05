@@ -6531,6 +6531,9 @@
           "name": {
             "type": "string"
           },
+          "description": {
+            "type": "string"
+          },
           "code": {
             "type": "string"
           },
@@ -6955,6 +6958,9 @@
             "format": "uuid"
           },
           "name": {
+            "type": "string"
+          },
+          "description": {
             "type": "string"
           },
           "currentMembers": {
