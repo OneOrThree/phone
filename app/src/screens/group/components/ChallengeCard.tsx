@@ -61,7 +61,9 @@ const BET_ACHIEVED_CREATE_CAPTION = '이미 오늘 목표를 달성해서 내기
 // (BET_ALREADY_FAILED — 질 게 확정된 판돈 투입 방지). 문장도 방향에 맞춘다.
 const BET_FAILED_CAPTION = '이미 목표를 초과해서 참가할 수 없어요';
 const BET_FAILED_CREATE_CAPTION = '이미 목표를 초과해서 내기를 열 수 없어요';
-// 철회 직후의 자리 표시 — 영역을 그냥 비우면 방금 한 일이 사라진 것처럼 보인다(betLocked와 같은 이유).
+// 철회 직후의 사실 고지 — 영역을 그냥 비우면 방금 한 일이 사라진 것처럼 보인다(betLocked와 같은 이유).
+// 재참여할 수 있는 철회에서는 참가 진입점 **아래**에 붙는다(GROMO-1112) — 캡션만 남기고 버튼을
+// 걷어 버리면 한 번 빠진 사람은 다음 재조회 전까지 다시 들어갈 방법이 없다.
 const BET_LEFT_CAPTION = '내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요';
 // 취소(당일 단독 개설자 carve-out) 직후의 자리 표시 — 누른 버튼('취소')과 같은 동사로 말한다.
 const BET_CANCELED_CAPTION = '내기를 취소했어요. 참가비는 잔액으로 돌아왔어요';
@@ -113,6 +115,12 @@ export interface ChallengeCardProps {
   // 모습이라 다시 누르면 같은 내기를 또 열려 하고, 서버가 BET_ALREADY_EXISTS로 튕긴다(3차 리뷰 F6).
   // 영역 자체는 그대로 둔다 — 사라졌다 나타나면 방금 한 일이 취소된 것처럼 보인다.
   betLocked?: boolean;
+  // 카드가 서버 상태를 바꾼 직후(철회·취소 성공) 호출 — 부모가 챌린지 목록을 재조회한다.
+  // 마지막 참가자가 철회하면 서버가 챌린지까지 지우므로(GROMO-1112 계약 §3) 재조회 없이는
+  // 이미 없는 챌린지의 카드가 다음 자연 재조회(포커스 복귀·당겨서 새로고침)까지 남는다.
+  // ⚠️ 미전달이면 낙관 반영만으로 버틴다 — 다음 자연 재조회가 도착하면 그 응답이 낙관을 덮는다
+  //    (아래 seenChallengeRef). 늦게 도착해도 표시가 어긋나지 않는다.
+  onBetChanged?: () => void;
 }
 
 export default function ChallengeCard({
@@ -122,16 +130,18 @@ export default function ChallengeCard({
   onDelete,
   onOpenBet,
   betLocked,
+  onBetChanged,
 }: ChallengeCardProps) {
   // 내기 참가 철회의 API·잔액 갱신을 카드가 직접 쥔다 — 시트(BetSheet)는 참가자
   // 상태에선 부모(GroupRoomScreen)의 stale 검사가 즉시 닫아 버려 진입 자체가 불가능하고,
-  // 부모는 A3 전유라 이 배치에서 콜백을 늘릴 수 없다(README §파일 소유권). groupId도 같은 이유로
+  // 부모는 다른 워크스트림이 동시에 만지는 파일이라 이 배치에서도 배선을 늘리지 않았다
+  // (재조회는 선택 콜백 onBetChanged로만 열어 둔다). groupId도 같은 이유로
   // prop이 아니라 groupApi의 조회 캐시(challengeGroupId)에서 역참조한다.
   const { refresh: refreshCoins } = useCoins();
   const [leaveBusy, setLeaveBusy] = useState(false);
-  // 철회·취소 성공의 낙관 반영 — 부모 재조회를 트리거할 콜백이 없어(위 주석) 다음 자연 재조회
-  // (포커스 복귀·당겨서 새로고침)까지는 카드가 스스로 '빠짐/닫힘'을 그린다. betId를 쥐므로
-  // 재조회가 늦게 도착해 같은 내기를 다시 내려줘도 표시가 되돌아가지 않는다.
+  // 철회·취소 성공의 낙관 반영 — 재조회 응답이 도착하기 전까지는 카드가 스스로 '빠짐/닫힘'을
+  // 그린다(onBetChanged를 받지 못한 카드는 다음 자연 재조회까지). betId를 쥐므로 같은 내기를
+  // 다시 내려줘도 표시가 되돌아가지 않는다.
   // kind는 자리 캡션의 동사를 가른다 — 철회('빠졌어요')와 취소('취소했어요')는 누른 버튼이 다르다.
   const [closedBet, setClosedBet] = useState<{ betId: string; kind: 'leave' | 'cancel' } | null>(
     null,
@@ -212,6 +222,21 @@ export default function ChallengeCard({
     !isFutureBet && (isScreenTime ? myBlockedNow : bet?.myAchievedNow === true);
   // 서버가 participants를 빠뜨려도 카드가 죽지 않게 — 인원 수는 표시용일 뿐이다.
   const betMembers = bet?.participants?.length ?? 0;
+
+  // ── 낙관 반영 폐기 — 재조회가 도착하면 서버 값이 정본이다(GROMO-1112) ──
+  // challenge 객체가 갈렸다 = 부모가 **새 응답**을 내려 줬다는 신호다(부모는 조회 응답을 그대로
+  // state에 담고, 재조회 전까지는 리렌더마다 같은 객체를 다시 내려준다).
+  // 값 비교(betId·인원·myJoined)로는 이 순간을 잡을 수 없다 — 재참여하면 서버 상태가 철회 전과
+  // 완전히 같아져(같은 내기·같은 인원·다시 참가 중) 서명이 원래 값으로 되돌아오기 때문이다.
+  // 버리지 않으면 재참여한 뒤에도 '빠졌어요' 캡션과 참가 진입점이 그대로 남는다.
+  // 이펙트가 아니라 **렌더 중** 조정인 이유: 이펙트는 커밋 뒤라 '재조회는 도착했는데 카드는
+  // 아직 빠진 상태'인 프레임이 실제로 한 번 그려진다. React가 공식으로 허용하는 패턴이고
+  // 부모(GroupRoomScreen의 groupId 리셋)도 같은 패턴을 쓴다.
+  const seenChallengeRef = useRef(challenge);
+  if (seenChallengeRef.current !== challenge) {
+    seenChallengeRef.current = challenge;
+    if (closedBet !== null) setClosedBet(null);
+  }
   // 내가 방금 빠진(철회)·닫은(취소) 내기인가 — 낙관 반영(위 state 주석).
   const leftByMe = bet !== null && closedBet !== null && bet.betId === closedBet.betId;
   // 참가 철회 가능 조건(계약 §4) — 참가 중 && OPEN && **시작 전**. 개설자·단독이어도 시작 전이면
@@ -242,6 +267,24 @@ export default function ChallengeCard({
     !!myUserId &&
     bet.creatorUserId === myUserId &&
     betMembers === 1;
+  // 철회 직후에도 이 내기에 다시 들어갈 수 있는가(GROMO-1112) — 한 번 빠지면 재참여 동선이
+  // 사라지던 문제를 낙관 반영 안에서 되살린다. 조건 3가지:
+  //   kind === 'leave' : 취소(cancelBet)는 내기를 통째로 닫는 동작이라 들어갈 자리가 없다
+  //   betMembers > 1   : 남은 참가자가 있어야 서버가 내기를 유지한다. 마지막 참가자였으면
+  //                      서버가 내기를 CANCELED로 닫고 챌린지까지 지운다(계약 §3) — 재조회하면
+  //                      카드 자체가 목록에서 빠지므로 여기서 참가 버튼을 세우면 안 된다.
+  //   OPEN·betOpenable : 마감된 내기·끝난 챌린지에는 들어갈 수 없다(② 분기와 같은 기준 —
+  //                      두 조건을 맞춰 둬야 rejoinable인데 ②가 안 서는 구멍이 생기지 않는다)
+  // 참가 자체의 잠금(이미 달성·초과, betLocked)은 ② 분기와 같은 판정을 그대로 쓴다.
+  const rejoinable =
+    leftByMe &&
+    closedBet?.kind === 'leave' &&
+    betMembers > 1 &&
+    bet?.status === 'OPEN' &&
+    betOpenable;
+  // 참가 진입 행에 적을 인원 — 철회 직후에는 아직 내 몫이 빠지지 않은 응답을 보고 있어 1을 뺀다
+  // (⓪ 정보 행의 참가비·적립금 표기와 같은 규칙).
+  const joinMembers = rejoinable ? betMembers - 1 : betMembers;
 
   // 철회 실행 — 검증은 서버가 정본이다(레이스로 조건이 깨졌으면 에러 코드로 돌아온다).
   async function doLeaveBet(betId: string, stake: number, participantsCount: number) {
@@ -253,7 +296,8 @@ export default function ChallengeCard({
     try {
       if (groupId === null) throw new Error('unknown groupId'); // 캐시 미적중 — 공통 문구로.
       await leaveBet(groupId, betId);
-      // 마지막 참가자의 철회는 서버가 내기를 CANCELED로 닫는다(계약 §4) — 그 경우에만 기존
+      // 마지막 참가자의 철회는 서버가 내기를 CANCELED로 닫고 **챌린지까지 지운다**
+      // (GROMO-1112 계약 §3 — 아무도 참여하지 않는 챌린지 정리). 그 경우에만 기존
       // '내기 취소' 계측을 발행한다(이벤트 의미 보존). 참가만 빠지는 철회는 대응 이벤트가 없다 —
       // analyticsEvents는 이 배치 소유권 밖이라 신설하지 않는다(성공 시에만 발행 규칙은 동일).
       if (participantsCount === 1) {
@@ -262,6 +306,9 @@ export default function ChallengeCard({
       // 환불 반영은 서버가 정본이라 잔액을 다시 받는다.
       refreshCoins();
       setClosedBet({ betId, kind: 'leave' });
+      // 부모 재조회 — 마지막 참가자의 철회는 서버가 챌린지까지 지우므로(계약 §3) 재조회해야
+      // 카드가 목록에서 빠진다. 남은 참가자가 있으면 낙관 반영과 같은 결과가 돌아온다.
+      onBetChanged?.();
     } catch (e) {
       switch (groupErrorCode(e)) {
         // 세 코드 모두 이 카드 상태로는 재시도해도 같은 결과다 — 사실만 알리고, 화면 정리는
@@ -311,6 +358,8 @@ export default function ChallengeCard({
       logGroupBetCanceled({ stake, participants_count: participantsCount });
       refreshCoins();
       setClosedBet({ betId, kind: 'cancel' });
+      // 철회와 같은 이유로 부모 재조회를 태운다 — 내기가 닫힌 최신 상태로 갈아 끼운다.
+      onBetChanged?.();
     } catch (e) {
       switch (groupErrorCode(e)) {
         // 재시도해도 같은 결과다 — 사실만 알리고 화면 정리는 다음 자연 재조회에 맡긴다(철회와 동일).
@@ -441,12 +490,13 @@ export default function ChallengeCard({
           구분선만 남기면 무엇이 빠졌는지 알 수 없는 빈칸이 된다. */}
       {betSupported && (bet !== null || betOpenable) && (
         <View style={s.betArea}>
-          {leftByMe && bet !== null ? (
-            // ⓪ 방금 내가 빠졌다(낙관 반영) — 영역을 비우면 방금 한 일이 사라진 것처럼 보인다.
-            //    남은 인원이 있으면 내기는 계속 표시하되(스펙 GROMO-1102) 내 참가 표시만 걷는다 —
-            //    참가비·적립금·인원은 내 몫을 뺀 값으로 미리 그린다(pot = stake × 인원 계약).
-            //    마지막 참가자였으면 서버가 내기를 CANCELED로 닫으므로 자리 캡션만 남긴다.
-            //    다음 자연 재조회가 서버 상태로 갈아 끼운다.
+          {leftByMe && !rejoinable && bet !== null ? (
+            // ⓪ 방금 내가 빠졌는데 **다시 들어갈 자리가 없다** — 취소(내기를 통째로 닫았다)이거나
+            //    마지막 참가자의 철회(서버가 내기를 CANCELED로 닫고 챌린지까지 지운다, 계약 §3)
+            //    이거나 끝난 챌린지다. 영역을 비우면 방금 한 일이 사라진 것처럼 보이므로
+            //    자리 캡션을 남긴다. 남은 인원이 있는(그러나 챌린지가 끝난) 경우에는 내기 정보도
+            //    내 몫을 뺀 값으로 그린다(pot = stake × 인원 계약).
+            //    재참여할 수 있는 철회는 이 분기로 오지 않는다 — 아래 ②가 참가 진입점을 세운다.
             <>
               {betMembers > 1 && (
                 <View style={s.betRow}>
@@ -479,10 +529,12 @@ export default function ChallengeCard({
               </TouchableOpacity>
               {myBlockedNow && <Text style={s.caption}>{blockedCreateCaption}</Text>}
             </>
-          ) : bet.myJoined ? (
+          ) : bet.myJoined && !rejoinable ? (
             // ③ 내가 참여 중 — 참가비·적립금·인원. '참여 중' 칩은 아직 열려 있는 내기에만 붙인다
             //    (정산이 끝난 내기에 '참여 중'을 달면 지금도 진행 중인 것으로 읽힌다).
             //    시작 전 OPEN 내기에는 참가 철회 진입점을 붙인다(계약 §4 — 개설자·단독 불문).
+            //    방금 철회한 카드는 응답이 아직 myJoined=true라 rejoinable로 걸러 ②로 보낸다 —
+            //    안 그러면 이미 빠진 내기에 '참여 중'과 철회 버튼이 다시 선다.
             <View style={s.betRow}>
               <Text style={s.betText}>
                 🪙 참가비 {bet.stake} · 적립금 {bet.pot} · {betMembers}명 참여
@@ -523,6 +575,9 @@ export default function ChallengeCard({
             // ② 열려 있는데 나는 미참가 — 행 전체가 참가 진입점.
             //    이미 확정된 사람은 서버가 거절하므로(FOCUS는 BET_ALREADY_ACHIEVED,
             //    SCREEN_TIME은 BET_ALREADY_FAILED) 미리 잠근다.
+            //    방금 철회한 카드(rejoinable)도 이 자리로 온다(GROMO-1112) — 철회 후 재참여 동선을
+            //    따로 만들지 않고 **원래의 참가 진입점 그대로** 되살린다. 인원은 내 몫을 뺀
+            //    joinMembers를 적고, 방금 빠졌다는 사실은 행 아래 캡션으로 남긴다.
             <>
               <TouchableOpacity
                 style={[s.betRow, s.betJoinRow, (joinBlockedNow || betLocked) && s.betJoinRowOff]}
@@ -533,11 +588,12 @@ export default function ChallengeCard({
                 testID={`group.bet.join.${challenge.id}`}
               >
                 <Text style={[s.betText, (joinBlockedNow || betLocked) && s.betTextOff]}>
-                  🪙 참가비 {bet.stake} · {betMembers}명 참여 중 — 참가하기
+                  🪙 참가비 {bet.stake} · {joinMembers}명 참여 중 — 참가하기
                 </Text>
                 {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
               </TouchableOpacity>
               {joinBlockedNow && <Text style={s.caption}>{blockedCaption}</Text>}
+              {rejoinable && <Text style={s.caption}>{BET_LEFT_CAPTION}</Text>}
             </>
           ) : (
             // 진입점을 열 수 없는 조합(마감·정산됐는데 나는 미참가 / 끝난 챌린지에 열린 내기가

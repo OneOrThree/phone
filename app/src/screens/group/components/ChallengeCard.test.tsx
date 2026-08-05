@@ -7,6 +7,7 @@
 //     불린다 — 오탭으로 챌린지가 사라지면 되돌릴 방법이 없다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
+import type { AlertButton } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import ChallengeCard from './ChallengeCard';
 import { cancelBet, challengeGroupId, leaveBet } from '@/services/groupApi';
@@ -950,19 +951,44 @@ describe('참가 철회', () => {
   // 철회 가능한 표준 상태 — 참여 중·OPEN·내일(DURATION은 미래 내기만 철회 가능) 내기.
   const leavableBet = () => bet({ myJoined: true, date: '2026-08-02' });
 
-  function renderJoined(
+  // 재조회 응답을 흉내 내려면 같은 카드에 **새 challenge 객체**를 다시 내려야 한다
+  // (카드는 객체가 갈리는 것을 '재조회 도착' 신호로 쓴다 — GROMO-1112).
+  function joinedCard(
     betOver: Partial<GroupChallengeBet> = {},
     challengeOver: Partial<GroupChallengeResponse> = {},
+    onBetChanged?: () => void,
   ) {
-    return render(
+    return (
       <ChallengeCard
         challenge={challenge({ bet: { ...leavableBet(), ...betOver }, ...challengeOver })}
         isOwner={false}
         myUserId="u1"
         onDelete={onDelete}
         onOpenBet={onOpenBet}
-      />,
+        onBetChanged={onBetChanged}
+      />
     );
+  }
+
+  function renderJoined(
+    betOver: Partial<GroupChallengeBet> = {},
+    challengeOver: Partial<GroupChallengeResponse> = {},
+    onBetChanged?: () => void,
+  ) {
+    return render(joinedCard(betOver, challengeOver, onBetChanged));
+  }
+
+  // 확인 Alert의 '철회하기'까지 눌러 준다 — 반복 시나리오에서 같은 6줄을 다시 쓰지 않으려고 묶는다.
+  // Alert는 각 테스트가 spy로 갈아 끼워 두고, 여기서는 **마지막** 호출의 버튼만 본다.
+  async function confirmLeave() {
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`));
+    });
+    const calls = (Alert.alert as unknown as jest.Mock).mock.calls;
+    const buttons = calls[calls.length - 1][2] as AlertButton[] | undefined;
+    await act(async () => {
+      buttons?.find((b) => b.text === '철회하기')?.onPress?.();
+    });
   }
 
   test('참여 중·OPEN·시작 전이면 철회 버튼이 보인다 — 개설자·단독이 아니어도', async () => {
@@ -1012,7 +1038,7 @@ describe('참가 철회', () => {
     expect(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`)).toBeOnTheScreen();
   });
 
-  test('확인 Alert를 거쳐 철회 API를 부르고, 남은 인원이 있으면 내기를 유지해 그린다', async () => {
+  test('확인 Alert를 거쳐 철회 API를 부르고, 남은 인원이 있으면 참가 진입점이 되살아난다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     await renderJoined(); // 참가자 3명
 
@@ -1038,11 +1064,101 @@ describe('참가 철회', () => {
     expect(mockRefreshCoins).toHaveBeenCalled();
     // 남이 남은 내기는 살아 있다 — '내기 취소' 계측은 발행하지 않는다(내기가 닫힌 게 아니다).
     expect(logGroupBetCanceled).not.toHaveBeenCalled();
-    // 내기는 유지해 보여 주되(스펙) 내 몫을 뺀 값으로, 내 참가 표시만 걷는다.
-    expect(screen.getByText('🪙 참가비 30 · 적립금 60 · 2명 참여')).toBeOnTheScreen();
-    expect(screen.queryByText('참여 중')).toBeNull();
-    expect(screen.getByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
+    // 내 참가 표시는 걷고(철회 버튼·'참여 중' 칩) 같은 자리에 참가 진입점을 세운다(GROMO-1112) —
+    // 캡션만 남기면 다음 재조회 전까지 다시 들어갈 방법이 없다.
     expect(screen.queryByTestId(`group.bet.leave.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.queryByText('참여 중')).toBeNull();
+    // 인원은 내 몫을 뺀 값이다 — 응답은 아직 내가 낀 3명이다.
+    expect(screen.getByText('🪙 참가비 30 · 2명 참여 중 — 참가하기')).toBeOnTheScreen();
+    // 방금 빠졌다는 사실은 진입점 아래 캡션으로 남는다.
+    expect(screen.getByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
+  });
+
+  test('되살아난 참가 진입점을 누르면 참가 모드로 내기 시트가 열린다', async () => {
+    jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await renderJoined();
+    await confirmLeave();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.join.${CHALLENGE_ID}`));
+    });
+    expect(onOpenBet).toHaveBeenCalledWith('join');
+  });
+
+  test('철회 → 재참여 → 다시 철회를 반복할 수 있다', async () => {
+    jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const { rerender } = await renderJoined();
+
+    await confirmLeave();
+    expect(screen.getByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeOnTheScreen();
+
+    // 재참여 후의 재조회 — 서버 상태가 철회 전과 **완전히 같아진다**(같은 내기·같은 인원·참가 중).
+    // 낙관 표시를 값으로만 비교하면 이 순간을 못 잡아 '빠졌어요'가 그대로 남는다.
+    await act(async () => {
+      rerender(joinedCard());
+    });
+    expect(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`)).toBeOnTheScreen();
+    expect(screen.getByText('참여 중')).toBeOnTheScreen();
+    expect(screen.queryByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeNull();
+
+    // 두 번째 철회도 첫 번째와 똑같이 동작한다.
+    await confirmLeave();
+    expect(mockLeaveBet).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('🪙 참가비 30 · 2명 참여 중 — 참가하기')).toBeOnTheScreen();
+    expect(screen.getByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
+  });
+
+  test('재조회가 도착하면 낙관 표시를 버리고 서버 값을 그대로 그린다', async () => {
+    jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const { rerender } = await renderJoined();
+    await confirmLeave();
+    expect(screen.getByText('🪙 참가비 30 · 2명 참여 중 — 참가하기')).toBeOnTheScreen();
+
+    // 내가 빠진 사이 남이 들어와 인원이 되돌아온 응답 — 낙관값(2명)이 아니라 서버 값(3명)이다.
+    await act(async () => {
+      rerender(
+        joinedCard({
+          myJoined: false,
+          participants: [
+            { userId: 'u2', nickname: '수빈' },
+            { userId: 'u3', nickname: '민지' },
+            { userId: 'u4', nickname: '지훈' },
+          ],
+        }),
+      );
+    });
+    expect(screen.getByText('🪙 참가비 30 · 3명 참여 중 — 참가하기')).toBeOnTheScreen();
+    expect(screen.queryByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeNull();
+  });
+
+  test('철회 성공은 부모 재조회를 태운다 — 실패하면 태우지 않는다', async () => {
+    jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const onBetChanged = jest.fn();
+    // 마지막 참가자가 빠지면 서버가 챌린지까지 지운다(계약 §3) — 재조회해야 카드가 목록에서 빠진다.
+    await renderJoined(
+      { participants: [{ userId: 'u1', nickname: '재영' }], pot: 30 },
+      {},
+      onBetChanged,
+    );
+    await confirmLeave();
+    expect(onBetChanged).toHaveBeenCalledTimes(1);
+
+    mockLeaveBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_LEAVE_CLOSED'));
+    const failing = jest.fn();
+    await renderJoined({}, {}, failing);
+    await confirmLeave();
+    expect(failing).not.toHaveBeenCalled();
+  });
+
+  test('끝난 챌린지(INACTIVE)에서 빠지면 참가 진입점 대신 정보 행만 남는다', async () => {
+    jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    // 새로 돈을 걸 수 없는 카드다(betOpenable=false) — 되살릴 진입점이 없다.
+    await renderJoined({}, { status: 'INACTIVE' });
+    await confirmLeave();
+
+    expect(screen.queryByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.getByText('🪙 참가비 30 · 적립금 60 · 2명 참여')).toBeOnTheScreen();
+    expect(screen.getByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
   });
 
   test('마지막 참가자의 철회는 내기가 닫히므로 취소 계측을 발행하고 자리 캡션만 남긴다', async () => {
@@ -1066,6 +1182,9 @@ describe('참가 철회', () => {
     expect(screen.getByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
     // 아무도 남지 않았다 — 유지해 그릴 내기 정보 행이 없다.
     expect(screen.queryByText(/적립금/)).toBeNull();
+    // 재참여 진입점도 세우지 않는다 — 서버가 내기를 닫고 챌린지까지 지운다(계약 §3).
+    // 재조회하면 카드 자체가 목록에서 빠진다.
+    expect(screen.queryByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeNull();
   });
 
   test('실패는 code별 전용 문구로 알리고 계측·자리 표시를 하지 않는다', async () => {
@@ -1193,6 +1312,8 @@ describe('당일 단독 개설자 취소 carve-out', () => {
     // 자리 캡션은 누른 버튼의 동사('취소')를 따른다.
     expect(screen.getByText('내기를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
     expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+    // 취소는 내기를 통째로 닫는 동작이라 재참여 진입점을 세우지 않는다(GROMO-1112 — 철회와 다르다).
+    expect(screen.queryByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeNull();
   });
 
   test('실패는 code별 문구로 알리고 계측·자리 캡션을 남기지 않는다', async () => {
