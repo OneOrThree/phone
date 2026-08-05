@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { CharacterImage } from '@/components/character/CharacterImage';
@@ -41,6 +41,8 @@ export interface MemberTileProps {
   isOwner?: boolean;
   // 이 타일이 '나'인가 — GroupRoomScreen이 member.userId === 내 userId로 판정해 넘긴다(F3).
   isMe?: boolean;
+  // 타일 탭 — 멤버 통계 비교 화면으로 이동(GROMO-1200). 없으면 비활성.
+  onPress?: () => void;
 }
 
 export default function MemberTile({
@@ -50,9 +52,17 @@ export default function MemberTile({
   rank,
   isOwner,
   isMe,
+  onPress,
 }: MemberTileProps) {
   return (
-    <View style={s.tile} testID={`group.member.tile.${rank}`}>
+    <TouchableOpacity
+      style={s.tile}
+      onPress={onPress}
+      disabled={!onPress}
+      activeOpacity={0.85}
+      accessibilityRole="button"
+      testID={`group.member.tile.${rank}`}
+    >
       {/* 본인은 아바타 accent 링(리그 podiumAvatarWrapMe)으로 감싼다 — 평소엔 투명 래퍼라 레이아웃 무변화. */}
       <View style={[s.avatarWrap, isMe && s.avatarWrapMe]}>
         <View style={s.avatar}>
@@ -88,7 +98,7 @@ export default function MemberTile({
       <Text style={s.today} numberOfLines={1}>
         오늘 {fmtFocus(focusTimeMinutes)}
       </Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 

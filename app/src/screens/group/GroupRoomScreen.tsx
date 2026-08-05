@@ -910,6 +910,19 @@ export default function GroupRoomScreen({
                     rank={cell.rank}
                     isOwner={cell.member.role === 'OWNER'}
                     isMe={cell.member.userId === userId}
+                    // GROMO-1200 멤버 선택 → 나와 통계 비교(리그 비교 화면 재사용).
+                    onPress={() =>
+                      navigation.navigate('FriendProfile', {
+                        userId: cell.member.userId,
+                        nickname: cell.member.nickname,
+                        // 그룹 멤버는 tier 미보유 → 플레이스홀더(FriendProfile이 getPublicProfile로 교정).
+                        tierLevel: 1,
+                        // 관계는 FriendProfile이 fetchFriends로 재동기화(초기값만 false).
+                        isFriend: false,
+                        // 본인 타일이면 비교 없이 내 통계만(리그 '내 행'과 동일, GROMO-940).
+                        isMe: cell.member.userId === userId,
+                      })
+                    }
                   />
                 ),
               )}
