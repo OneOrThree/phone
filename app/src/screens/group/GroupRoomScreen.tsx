@@ -911,7 +911,11 @@ export default function GroupRoomScreen({
                     isOwner={cell.member.role === 'OWNER'}
                     isMe={cell.member.userId === userId}
                     // GROMO-1200 멤버 선택 → 나와 통계 비교(리그 비교 화면 재사용).
-                    onPress={() =>
+                    onPress={() => {
+                      // userId 없이는 isMe가 무조건 false라, 내 타일을 눌러도 나를 '타인'으로
+                      // 열어 나에게 친구 신청 버튼이 뜬다. 진입을 막는 편이 낫다
+                      // (리그 LeagueScreen의 `if (!myUserId) return;`과 같은 가드).
+                      if (!userId) return;
                       navigation.navigate('FriendProfile', {
                         userId: cell.member.userId,
                         nickname: cell.member.nickname,
@@ -921,8 +925,8 @@ export default function GroupRoomScreen({
                         isFriend: false,
                         // 본인 타일이면 비교 없이 내 통계만(리그 '내 행'과 동일, GROMO-940).
                         isMe: cell.member.userId === userId,
-                      })
-                    }
+                      });
+                    }}
                   />
                 ),
               )}

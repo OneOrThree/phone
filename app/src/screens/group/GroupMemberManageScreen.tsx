@@ -28,7 +28,8 @@ import type { V2RootStackParamList } from '@/navigation/types';
 //   본인 강퇴는 서버가 CANNOT_KICK_SELF로 막고, 방장은 강퇴 개념이 없다(위임은 A-2 별도 화면).
 // · 강퇴는 되돌릴 수 없다(재가입 차단) → 확인 Alert에서 그 사실을 함께 알린다.
 // · 성공·이미 나감(NOT_FOUND·MEMBER_ONLY)은 결과가 같으므로 둘 다 목록에서 제거로 취급한다.
-// · MemberTile은 표시 전용이라 재사용하지 않고, 강퇴 액션이 붙는 자체 행(KickRow)을 둔다.
+// · MemberTile은 그리드 타일이고 탭이 통계 비교로 고정돼(GROMO-1200) 재사용하지 않고, 강퇴 액션이
+//   붙는 자체 행(KickRow)을 둔다.
 
 type GroupMemberManageRoute = RouteProp<V2RootStackParamList, 'GroupMemberManage'>;
 
