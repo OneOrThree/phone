@@ -1,6 +1,7 @@
 package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.common.support.IntegrationTestBase;
+import com.oneorthree.phone.currency.domain.CurrencyTransaction;
 import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.group.domain.Group;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -45,6 +47,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * 내기 참가 철회(GROMO-1102) 통합 테스트 — 본인 몫만 정확히 한 번 환불되고, 마지막 참가자 철회가
  * 원자적 CANCELED 전이로 닫히는지를 실 DB 로 고정한다.
+ *
+ * <p>재참여 회귀 락(GROMO-1112)도 여기 있다 — "철회 → 재참여 시 참가비가 <b>실제로</b> 다시
+ * 걷히는가". 다른 케이스들은 {@link #participant} 헬퍼로 참가 행을 직접 꽂지만, 그 락만은 원장이
+ * 함께 도는 실제 {@code joinBet} 경로를 타야 의미가 있다(멱등키가 회차를 가르지 못하면 두 번째
+ * 참가는 차감 없이 성립한다). 마지막 참가자 철회 시의 챌린지 정리(계약 §3)도 함께 고정한다.
  *
  * <p>픽스처·정리 방식은 {@link GroupBetCancelWithdrawIntegrationTest} 와 같다. 날짜 기준은 서비스와
  * 동일하게 KST 다.
@@ -191,6 +198,18 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
                 .count();
     }
 
+    /** 참가비 차감 기입의 멱등키 — 회차마다 값이 달라야 재참여가 실제 차감으로 이어진다. */
+    private List<String> stakeKeysOf(User user) {
+        return currencyTransactionRepository.findByUserOrderByCreatedAtDesc(user).stream()
+                .filter(t -> t.getType() == CurrencyTransactionType.BET_STAKE)
+                .map(CurrencyTransaction::getIdempotencyKey)
+                .toList();
+    }
+
+    private Instant deletedAtOf(GroupChallenge target) {
+        return groupChallengeRepository.findById(target.getId()).orElseThrow().getDeletedAt();
+    }
+
     private GroupBetStatus statusOf(GroupChallengeBet bet) {
         return groupChallengeBetRepository.findById(bet.getId()).orElseThrow().getStatus();
     }
@@ -295,6 +314,59 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
         assertThat(statusOf(bet)).isEqualTo(GroupBetStatus.OPEN);
         assertThat(balanceOf(leaver)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
         assertThat(refundCountOf(leaver)).isEqualTo(1);
+    }
+
+    // ── 재참여 회귀 락 (GROMO-1112) ─────────────────────────────────────
+
+    @Test
+    @DisplayName("철회 → 재참여 — 참가비가 실제로 다시 차감된다(차감 2건·환불 1건, 멱등키는 회차마다 다름)")
+    void rejoinAfterLeaveChargesStakeAgain() {
+        User creator = memberUser("개설자", GroupMemberRole.MEMBER);
+        // 이 유저는 아직 참가 전이라 BALANCE_AFTER_STAKE 는 그냥 시작 잔액이다 — 차감은 joinBet 이 한다.
+        User joiner = memberUser("재참여자", GroupMemberRole.MEMBER);
+        GroupChallengeBet bet = openBetOn(challenge, creator, today().plusDays(1));
+        // 개설자 참가 행은 직접 꽂는다 — 재참여자가 빠져도 내기가 유지되도록 하는 픽스처일 뿐이다.
+        participant(bet, creator);
+
+        groupBetService.joinBet(group.getId(), bet.getId(), joiner.getId());
+        assertThat(balanceOf(joiner)).isEqualTo(BALANCE_AFTER_STAKE - STAKE);
+
+        groupBetService.leaveBet(group.getId(), bet.getId(), joiner.getId());
+        assertThat(balanceOf(joiner)).isEqualTo(BALANCE_AFTER_STAKE);
+
+        groupBetService.joinBet(group.getId(), bet.getId(), joiner.getId());
+
+        // 핵심 단언 — 재참여가 무상이면 여기서 잔액이 원금 그대로 남는다(참가비 0원 참가).
+        assertThat(balanceOf(joiner)).isEqualTo(BALANCE_AFTER_STAKE - STAKE);
+        assertThat(stakeKeysOf(joiner)).hasSize(2).doesNotHaveDuplicates();
+        // 축이 유저였다면 두 키가 같아져 두 번째 차감이 조용히 스킵된다.
+        assertThat(stakeKeysOf(joiner))
+                .noneMatch(key -> key.equals("bet:" + bet.getId() + ":stake:" + joiner.getId()));
+        assertThat(refundCountOf(joiner)).isEqualTo(1);
+        assertThat(statusOf(bet)).isEqualTo(GroupBetStatus.OPEN);
+        assertThat(participantsOf(bet))
+                .extracting(p -> p.getUser().getId())
+                .containsExactlyInAnyOrder(creator.getId(), joiner.getId());
+    }
+
+    // ── 마지막 참가자 철회 → 챌린지는 건드리지 않는다 ─────────────────────
+
+    @Test
+    @DisplayName("마지막 참가자가 철회해도 챌린지는 그대로 남는다 — 내기만 취소된다")
+    void lastParticipantLeaveKeepsChallenge() {
+        User creator = memberUser("개설자", GroupMemberRole.MEMBER);
+        GroupChallengeBet bet = openBetOn(challenge, creator, today().plusDays(1));
+        participant(bet, creator);
+
+        groupBetService.leaveBet(group.getId(), bet.getId(), creator.getId());
+
+        assertThat(statusOf(bet)).isEqualTo(GroupBetStatus.CANCELED);
+        // 챌린지는 여러 날짜에 걸쳐 재사용되는 미션 템플릿이라, 하루치 판이 비었다고 해서
+        // 참가자 한 명의 철회로 그룹 공용 자산을 지우지 않는다. 빈 챌린지를 어떻게 다룰지는
+        // 별도 티켓에서 설계한다 — 이 단언은 그 결정 없이 삭제가 슬쩍 들어오는 것을 막는다.
+        assertThat(deletedAtOf(challenge)).isNull();
+        assertThat(balanceOf(creator)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
+        assertThat(refundCountOf(creator)).isEqualTo(1);
     }
 
     // ── 철회 거절 ────────────────────────────────────────────────────────

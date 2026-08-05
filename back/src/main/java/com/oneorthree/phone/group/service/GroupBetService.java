@@ -52,9 +52,13 @@ import java.util.stream.Stream;
  * <p>정산은 {@link GroupBetSettlementService}(배치 진입점)와 {@link GroupBetSettler}(내기 단위
  * 트랜잭션)가 맡는다 — 여기서는 유저 요청 경로만 다룬다.
  *
- * <p>판돈 차감은 {@link CurrencyLedgerService#debit} 로 하며 멱등키
- * {@code bet:{betId}:stake:{userId}} 를 함께 남긴다. 잔액은 {@code UserWallet} 의 @Version
- * 낙관락이, 중복 참가·중복 개설은 DB 유니크 제약이 각각 최후 방어선이다.
+ * <p>참가비 차감은 {@link CurrencyLedgerService#debit} 로 하며 멱등키
+ * {@code bet:{betId}:stake:{participantId}} 를 함께 남긴다 — 축이 유저가 아니라 <b>참가 행</b>인
+ * 이유는 {@link #stakeIn} 참고(계약 §2-2, GROMO-1112). 철회 환불도 같은 축의
+ * {@code bet:{betId}:leave-refund:{participantId}} 를 쓴다. 정산 지급·환불 키
+ * ({@code :payout:}/{@code :refund:})는 내기당 1회뿐이라 유저 축 그대로다
+ * ({@link GroupBetSettler#payoutKey}). 잔액은 {@code UserWallet} 의 @Version 낙관락이,
+ * 중복 참가·중복 개설은 DB 유니크 제약이 각각 최후 방어선이다.
  */
 @Slf4j
 @Service
@@ -237,8 +241,8 @@ public class GroupBetService {
      * <p>정산 배치는 전일자만 집고 철회는 미래 시작만 허용하므로 날짜 게이트만으로도 서로
      * 배타적이지만, 진입 조회를 행 잠금으로 두어 참가·취소·정산·탈퇴 연동과 구조적으로 직렬화한다.
      * 마지막 참가자의 CANCELED 전이는 정산·취소와 같은 CAS 게이트({@link #claimCanceled})를
-     * 지나고, 환불 멱등키는 정산 환불과 같은 포맷({@code bet:{betId}:refund:{userId}})이라 이중
-     * 환불은 원장 유니크가 최후 방어한다.
+     * 지나고, 환불 멱등키는 차감과 같은 축(참가 행 id)의 철회 전용 키
+     * ({@code bet:{betId}:leave-refund:{participantId}})라 이중 환불은 원장 유니크가 최후 방어한다.
      */
     @Transactional
     public void leaveBet(UUID groupId, UUID betId, UUID userId) {
@@ -264,7 +268,7 @@ public class GroupBetService {
         if (lastParticipant) {
             claimCanceled(bet);
         }
-        refundStake(bet, user);
+        refundLeftStake(bet, user, mine.getId());
         log.info("내기 참가 철회 — betId={}, userId={}, stake={} 환불, 자동취소={}",
                 betId, userId, bet.getStake(), lastParticipant);
     }
@@ -400,31 +404,75 @@ public class GroupBetService {
     }
 
     /**
-     * 판돈 환불 — 정산 환불과 같은 멱등키 포맷이라 같은 유저에게 어떤 경로로든 두 번 환불되지 않는다.
-     * 앱 탈퇴자(지갑 삭제)는 지급 대상에서 뺀다 — {@link GroupBetSettler} 의 지급 스킵과 같은 이유다.
+     * 판돈 환불(취소·그룹 탈퇴 연동) — 정산 환불과 같은 멱등키 포맷이라 같은 유저에게 어떤 경로로든
+     * 두 번 환불되지 않는다. 내기당 1회뿐인 종료 경로라 회차 축이 필요 없다(계약 §2-2).
      */
     private void refundStake(GroupChallengeBet bet, User user) {
+        applyRefund(bet, user, GroupBetSettler.payoutKey(bet.getId(), user.getId(), true));
+    }
+
+    /**
+     * 참가 철회 환불 — 차감과 같은 축(참가 행 id)의 <b>철회 전용</b> 키를 쓴다. 회차마다 키가
+     * 달라지므로 "참가 → 철회 → 재참여"를 반복해도 매 회차가 정확히 한 번 걷히고 한 번 돌아간다.
+     * 정산 환불 키({@code :refund:{userId}})를 공유하던 시절에는 철회가 그 키를 미리 써 버려,
+     * 재참여 후 전원 환불 정산이 오면 그 유저만 환불이 조용히 스킵됐다.
+     */
+    private void refundLeftStake(GroupChallengeBet bet, User user, UUID participantId) {
+        applyRefund(bet, user, leaveRefundKey(bet.getId(), participantId));
+    }
+
+    /**
+     * 환불 실행부 — 앱 탈퇴자(지갑 삭제)는 지급 대상에서 뺀다({@link GroupBetSettler} 의 지급
+     * 스킵과 같은 이유다).
+     *
+     * <p>멱등키 선점(applied=false)은 어느 호출자에게도 정상 흐름이 아니다 — 취소·탈퇴 경로는 CAS 로
+     * 전이를 유일하게 가져간 뒤에만 여기 오고, 철회 경로의 키는 참가 회차별로 유일하다. 즉 <b>이
+     * warn 이 뜨면 그것은 이례가 아니라 버그 신호</b>이므로 흔적을 남긴다.
+     */
+    private void applyRefund(GroupChallengeBet bet, User user, String idempotencyKey) {
         if (user.isDeleted()) {
             log.warn("내기 환불 스킵 — 탈퇴한 유저라 지갑이 없다. betId={}, userId={}, stake={}",
                     bet.getId(), user.getId(), bet.getStake());
             return;
         }
         boolean applied = currencyLedgerService.credit(user, CurrencyTransactionType.BET_REFUND,
-                bet.getStake(), GroupBetSettler.payoutKey(bet.getId(), user.getId(), true));
+                bet.getStake(), idempotencyKey);
         if (!applied) {
-            // CAS 로 전이를 유일하게 가져간 뒤의 호출이라 멱등키 선점은 정상 흐름에 없다 — 흔적을 남긴다.
-            log.warn("내기 환불 스킵 — 멱등키 선점됨(이례). betId={}, userId={}", bet.getId(), user.getId());
+            log.warn("내기 환불 스킵 — 멱등키 선점됨(버그 신호). betId={}, userId={}, key={}",
+                    bet.getId(), user.getId(), idempotencyKey);
         }
     }
 
-    /** 참가 행 생성 + 판돈 차감(에스크로). 개설자 자동 참가와 일반 참가가 같은 경로를 탄다. */
+    /**
+     * 참가 행 생성 + 참가비 차감(에스크로). 개설자 자동 참가와 일반 참가가 같은 경로를 탄다.
+     *
+     * <p>멱등키의 축은 유저가 아니라 <b>참가 행 id</b> 다(계약 §2-2, GROMO-1112). 참가 행은 참가마다
+     * 새로 만들어지는 UUID v7 이라 "참가 → 철회 → 재참여" 회차가 키 수준에서 갈린다. userId 를 축으로
+     * 쓰던 시절에는 재참여가 같은 키를 만들어 차감이 조용히 스킵됐고, 참가 행만 생겨 <b>참가비 0원
+     * 참가</b>가 성립했다 — 정산 팟은 참가비 × 참가자 수라 걷지 않은 코인이 승자에게 나갔다.
+     *
+     * <p>id 는 {@code save()} 반환값에서 읽는다. {@code @GeneratedUuidV7} 는
+     * {@code BeforeExecutionGenerator} 라 persist 시점에 값이 잡히므로 flush 를 강제할 필요는 없다
+     * ({@code saveAndFlush} 불필요 — {@code GroupBetLeaveIntegrationTest} 의 재참여 락 테스트가
+     * 실 DB 로 고정한다).
+     */
     private void stakeIn(GroupChallengeBet bet, User user) {
-        groupChallengeBetParticipantRepository.save(GroupChallengeBetParticipant.builder()
-                .bet(bet)
-                .user(user)
-                .build());
-        currencyLedgerService.debit(user, CurrencyTransactionType.BET_STAKE, bet.getStake(),
-                stakeKey(bet.getId(), user.getId()));
+        GroupChallengeBetParticipant participant = groupChallengeBetParticipantRepository.save(
+                GroupChallengeBetParticipant.builder()
+                        .bet(bet)
+                        .user(user)
+                        .build());
+        boolean applied = currencyLedgerService.debit(user, CurrencyTransactionType.BET_STAKE,
+                bet.getStake(), stakeKey(bet.getId(), participant.getId()));
+        if (!applied) {
+            // 키에 참가 행 id 가 들어간 뒤로 선점은 정상 흐름에 존재하지 않는다. 그런데도 선점됐다면
+            // id 생성이나 키 규약이 깨진 것이다 — 조용히 넘기면 차감 없는 참가 행이 남아 무임승차가
+            // 되므로 트랜잭션 전체를 되돌린다.
+            log.error("참가비 차감 스킵 — 멱등키 선점됨(도달 불가). betId={}, userId={}, participantId={}",
+                    bet.getId(), user.getId(), participant.getId());
+            throw new IllegalStateException("참가비 차감 멱등키 선점 — betId=" + bet.getId()
+                    + ", participantId=" + participant.getId());
+        }
     }
 
     // ── 조회 조립 (GroupChallengeService 가 챌린지 카드에 얹는다) ─────────────
@@ -548,9 +596,17 @@ public class GroupBetService {
 
     // ── 공용 가드 ────────────────────────────────────────────────────────
 
-    /** 멱등키 컨벤션 — 판돈 차감. 정산 키는 {@link GroupBetSettler} 가 만든다. */
-    static String stakeKey(UUID betId, UUID userId) {
-        return "bet:" + betId + ":stake:" + userId;
+    /**
+     * 멱등키 컨벤션 — 참가비 차감. 축은 유저가 아니라 <b>참가 행</b>이다(계약 §2-2) — 이유는
+     * {@link #stakeIn}. 정산 키는 {@link GroupBetSettler} 가 만든다.
+     */
+    static String stakeKey(UUID betId, UUID participantId) {
+        return "bet:" + betId + ":stake:" + participantId;
+    }
+
+    /** 멱등키 컨벤션 — 참가 철회 환불. 차감과 같은 축이라 참가 회차별로 유일하다. */
+    static String leaveRefundKey(UUID betId, UUID participantId) {
+        return "bet:" + betId + ":leave-refund:" + participantId;
     }
 
     static LocalDate today() {
