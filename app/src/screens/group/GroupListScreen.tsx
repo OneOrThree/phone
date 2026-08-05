@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
@@ -115,21 +115,21 @@ export default function GroupListScreen({
                     accessibilityLabel="비공개 그룹"
                   />
                 )}
+                {/* 방장 표시 — 멤버 타일과 같은 왕관(자물쇠는 그대로 둔다) */}
+                {item.role === 'OWNER' && (
+                  <MaterialCommunityIcons
+                    name="crown"
+                    size={16}
+                    color={T.accent}
+                    accessibilityLabel="내가 방장"
+                  />
+                )}
               </View>
               {/* 2행: 소개 — 백엔드가 목록 응답에 description을 실어줄 때만 노출 */}
               {!!item.description && (
                 <Text style={s.cardDesc} numberOfLines={2}>
                   {item.description}
                 </Text>
-              )}
-              {/* 3행: 방장 칩 — 목록에선 텍스트 칩으로 표시한다. 그룹방 MemberTile의 ribbon 배지와
-                  달리, 카드에 소개까지 세로로 쌓이는 자리라 라벨형이 더 읽힌다는 판단(의도된 분기). */}
-              {item.role === 'OWNER' && (
-                <View style={s.ownerChip}>
-                  <Text style={s.ownerChipText} accessibilityLabel="내가 방장">
-                    방장
-                  </Text>
-                </View>
               )}
             </View>
             <View style={s.cardRight}>
@@ -212,15 +212,6 @@ const s = StyleSheet.create({
   cardDesc: { ...T.text.caption, color: T.inkSub },
   cardRight: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   cardCount: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
-  ownerChip: {
-    alignSelf: 'flex-start',
-    backgroundColor: T.accentBg,
-    borderRadius: 8,
-    paddingHorizontal: T.space.sm,
-    paddingVertical: 3,
-    marginTop: 2,
-  },
-  ownerChipText: { ...T.text.caption, color: T.accent, fontWeight: '700' },
 
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)

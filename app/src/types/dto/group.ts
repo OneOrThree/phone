@@ -37,19 +37,23 @@ export interface CreateGroupResponse {
 export interface GroupSummaryResponse {
   groupId: string;
   name: string;
+  // 소개(F6) — 목록 카드에 1~2줄 노출. 미입력 그룹은 서버가 null을 내려주고, 필드 자체가
+  // 없는 구서버(배포 순서 무관 동작 관행 — isPrivate과 같은 기준)도 있어 optional·null 둘 다 받는다.
+  description?: string | null;
   code: string | null; // 무시
   currentMembers: number;
   maxMembers: number;
   role: GroupMemberRole;
   status: GroupStatus;
   isPrivate?: boolean; // 백엔드 P1-1에서 추가
-  description?: string | null; // 그룹 소개 — 목록 카드 노출용(백엔드가 목록 응답에 포함해야 표시)
 }
 
 // GET /groups/search?query — 이름 검색(공개방만 내려온다).
 export interface GroupSearchResponse {
   groupId: string;
   name: string;
+  // 소개(F6) — 찾기 결과 카드에 1~2줄 노출. 미입력이면 null, 구서버는 미포함이라 optional·null 둘 다 받는다.
+  description?: string | null;
   currentMembers: number;
   maxMembers: number;
   status: GroupStatus;

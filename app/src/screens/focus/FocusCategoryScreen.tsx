@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
@@ -45,6 +45,9 @@ type MenuAnchor = { id: string; x: number; y: number; w: number; h: number } | n
 
 export default function FocusCategoryScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  // 그룹방 FAB로 진입했으면 initialGroupId를 세션까지 넘겨 그 그룹 페이지를 기본으로 연다(F2 Part2).
+  const { params } = useRoute<RouteProp<V2RootStackParamList, 'FocusCategory'>>();
+  const initialGroupId = params?.initialGroupId;
   const { width: winW } = useWindowDimensions();
   const { subjects, addSubject, renameSubject, deleteSubject, reorderSubjects, setSubjectColor } =
     useSubjects();
@@ -225,6 +228,7 @@ export default function FocusCategoryScreen() {
       mode,
       goalSeconds: extra?.goalSeconds,
       pomodoro: extra?.pomodoro,
+      initialGroupId,
     });
   }
 

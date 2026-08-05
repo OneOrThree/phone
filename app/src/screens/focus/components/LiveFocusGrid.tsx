@@ -46,6 +46,7 @@ export function LiveFocusGrid({
   title,
   emptyTitle,
   emptySub,
+  showMeWhenEmpty = false,
 }: {
   members: LiveGridMember[];
   /** 내 프로필 셀(GROMO-932) — 있으면 시간순 정렬에 나도 포함해 집중 중(초록)으로 렌더 */
@@ -56,6 +57,8 @@ export function LiveFocusGrid({
   title?: string;
   emptyTitle: string;
   emptySub: string;
+  /** 타인이 0명이어도 me가 있으면 빈 상태 대신 내 셀만 그린다(1인 그룹 페이지용 — 코덱스 리뷰) */
+  showMeWhenEmpty?: boolean;
 }) {
   // 배너 인원은 타인 기준 유지 — 나를 세면 혼자일 때 "1명이 같이 집중"이 돼 문구가 어긋난다
   const focusing = members.filter((m) => m.isFocusing).length;
@@ -85,7 +88,7 @@ export function LiveFocusGrid({
         );
   cells.sort((a, b) => pinRank(a) - pinRank(b) || liveSecondsOf(b) - liveSecondsOf(a));
 
-  if (members.length === 0) {
+  if (members.length === 0 && !(showMeWhenEmpty && me != null)) {
     return (
       <View style={s.emptyWrap}>
         <Text style={s.emptyTitle}>{emptyTitle}</Text>

@@ -8,13 +8,16 @@ export type V2RootStackParamList = {
   UsageDetail: undefined; // 앱별 사용시간 상세 (홈 '핸드폰 사용' 탭에서 진입)
   Notifications: undefined; // 알림 보관함 (홈 우측 상단 종에서 진입 — GROMO-661)
   CurrencyHistory: undefined; // 시간조각(재화) 거래 내역 (전체 탭 잔액 행에서 진입)
-  FocusCategory: undefined; // 02 과목 선택 (홈 ● 집중 FAB에서 진입)
+  // 02 과목 선택 (홈 ● 집중 FAB에서 진입). initialGroupId: 그룹방 FAB에서 진입 시 — 세션까지 넘겨
+  // 집중 세션이 그 그룹의 '그룹: {그룹명}' 페이지로 기본 진입하게 한다(F2 Part2).
+  FocusCategory: { initialGroupId?: string } | undefined;
   FocusSession: {
     subjectId: string;
     subjectName: string;
     mode: FocusTimerMode;
     goalSeconds?: number; // 카운트다운 목표
     pomodoro?: PomodoroConfig; // 뽀모도로 설정
+    initialGroupId?: string; // 그룹방 FAB 진입 시 — 스와이프를 그 그룹의 '그룹: {그룹명}' 페이지로 기본 진입(F2 Part2)
   }; // 06~11 집중 세션
   FocusResult: {
     focusSeconds: number; // 이번 세션 집중 초
